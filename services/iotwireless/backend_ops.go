@@ -649,3 +649,151 @@ func (b *InMemoryBackend) ListWirelessDeviceImportTasks() []*WirelessDeviceImpor
 
 	return result
 }
+
+// --- Metric configuration operations ---
+
+func (b *InMemoryBackend) GetMetricConfiguration() map[string]any {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make(map[string]any, len(b.metricConfig))
+	maps.Copy(result, b.metricConfig)
+
+	return result
+}
+
+func (b *InMemoryBackend) UpdateMetricConfiguration(config map[string]any) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.metricConfig = make(map[string]any, len(config))
+	maps.Copy(b.metricConfig, config)
+
+	return nil
+}
+
+// --- Event configuration by resource type ---
+
+func (b *InMemoryBackend) GetEventConfigByResourceTypes() map[string]any {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make(map[string]any, len(b.eventConfigByType))
+	maps.Copy(result, b.eventConfigByType)
+
+	return result
+}
+
+func (b *InMemoryBackend) UpdateEventConfigByResourceTypes(config map[string]any) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.eventConfigByType = make(map[string]any, len(config))
+	maps.Copy(b.eventConfigByType, config)
+
+	return nil
+}
+
+// --- Per-resource event configuration ---
+
+func (b *InMemoryBackend) ListResourceEventConfigs() []map[string]any {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]map[string]any, 0, len(b.resourceEventConfigs))
+
+	for _, cfg := range b.resourceEventConfigs {
+		cp := make(map[string]any, len(cfg))
+		maps.Copy(cp, cfg)
+		result = append(result, cp)
+	}
+
+	return result
+}
+
+func (b *InMemoryBackend) GetResourceEventConfig(resourceID string) map[string]any {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.resourceEventConfigs[resourceID]
+	if !ok {
+		return map[string]any{}
+	}
+
+	result := make(map[string]any, len(cfg))
+	maps.Copy(result, cfg)
+
+	return result
+}
+
+func (b *InMemoryBackend) UpdateResourceEventConfig(resourceID string, config map[string]any) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := make(map[string]any, len(config))
+	maps.Copy(cp, config)
+	b.resourceEventConfigs[resourceID] = cp
+
+	return nil
+}
+
+// --- Position configuration ---
+
+func (b *InMemoryBackend) GetPositionConfig(resourceID string) map[string]any {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.positionConfigs[resourceID]
+	if !ok {
+		return map[string]any{}
+	}
+
+	result := make(map[string]any, len(cfg))
+	maps.Copy(result, cfg)
+
+	return result
+}
+
+func (b *InMemoryBackend) PutPositionConfig(resourceID string, config map[string]any) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := make(map[string]any, len(config))
+	maps.Copy(cp, config)
+	b.positionConfigs[resourceID] = cp
+
+	return nil
+}
+
+func (b *InMemoryBackend) ListPositionConfigs() []map[string]any {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]map[string]any, 0, len(b.positionConfigs))
+
+	for id, cfg := range b.positionConfigs {
+		cp := make(map[string]any, len(cfg)+1)
+		maps.Copy(cp, cfg)
+		cp["ResourceIdentifier"] = id
+		result = append(result, cp)
+	}
+
+	return result
+}
+
+// --- Downlink message queue ---
+
+func (b *InMemoryBackend) EnqueueDownlinkMessage(wirelessDeviceID, messageID, payloadBase64 string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.queuedMessages[wirelessDeviceID] = append(
+		b.queuedMessages[wirelessDeviceID],
+		QueuedMessage{
+			MessageID:     messageID,
+			PayloadBase64: payloadBase64,
+		},
+	)
+
+	return nil
+}

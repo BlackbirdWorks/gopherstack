@@ -22,6 +22,12 @@ func newTestHandler() *opensearch.Handler {
 	return opensearch.NewHandler(bk)
 }
 
+func newTestHandlerAndBackend() (*opensearch.InMemoryBackend, *opensearch.Handler) {
+	bk := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	return bk, opensearch.NewHandler(bk)
+}
+
 func doRequest(t *testing.T, h *opensearch.Handler, method, path string, body any) *http.Response {
 	t.Helper()
 
@@ -694,12 +700,19 @@ func TestOpenSearchHandler_AcceptInboundConnection(t *testing.T) {
 		connectionID string
 		wantContains []string
 		wantCode     int
+		seedConn     bool
 	}{
 		{
 			name:         "success",
 			connectionID: "conn-123",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"conn-123", "ACTIVE"},
+			seedConn:     true,
+		},
+		{
+			name:         "not_found",
+			connectionID: "conn-nonexistent",
+			wantCode:     http.StatusNotFound,
 		},
 		{
 			name:         "empty_id",
@@ -712,7 +725,12 @@ func TestOpenSearchHandler_AcceptInboundConnection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			if tt.seedConn {
+				opensearch.SeedInboundConnection(b, tt.connectionID)
+			}
+			h := opensearch.NewHandler(b)
+
 			path := "/2021-01-01/opensearch/cc/inboundConnection/" + tt.connectionID + "/accept"
 			resp := doRequest(t, h, http.MethodPut, path, nil)
 			defer resp.Body.Close()
@@ -1235,7 +1253,7 @@ func TestOpenSearchHandler_CancelServiceSoftwareUpdate(t *testing.T) {
 				r.Body.Close()
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"ServiceSoftwareOptions", "COMPLETED"},
+			wantContains: []string{"ServiceSoftwareOptions", "CANCELLED"},
 		},
 		{
 			name:       "domain_not_found",
@@ -1543,8 +1561,7 @@ func TestOpenSearchHandler_Persistence_NewOps(t *testing.T) {
 	_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "snap-domain", EngineVersion: "OpenSearch_2.11"})
 	require.NoError(t, err)
 
-	_, err = b.AcceptInboundConnection("conn-abc")
-	require.NoError(t, err)
+	opensearch.SeedInboundConnection(b, "conn-abc")
 
 	_, err = b.AddDataSource("snap-domain", "my-ds", "desc", "S3GLUE")
 	require.NoError(t, err)

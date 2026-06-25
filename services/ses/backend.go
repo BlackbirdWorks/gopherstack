@@ -264,6 +264,8 @@ type InMemoryBackend struct {
 	customVerifTemplates  map[string]*CustomVerificationEmailTemplate
 	policies              map[string]map[string]string // identity → policyName → policyDocument
 	activeRuleSet         string
+	region                string
+	accountID             string
 	mu                    *lockmetrics.RWMutex
 	emails                []Email
 	emailTTL              time.Duration
@@ -287,8 +289,28 @@ func NewInMemoryBackend() *InMemoryBackend {
 		emailTTL:              defaultEmailTTL,
 		configuredEmailTTL:    defaultEmailTTL,
 		accountSendingEnabled: true,
+		region:                config.DefaultRegion,
+		accountID:             defaultAccountID,
 		mu:                    lockmetrics.New("ses"),
 	}
+}
+
+// WithRegion sets the AWS region for this backend instance and returns it for chaining.
+func (b *InMemoryBackend) WithRegion(region string) *InMemoryBackend {
+	if region != "" {
+		b.region = region
+	}
+
+	return b
+}
+
+// WithAccountID sets the AWS account ID for this backend instance and returns it for chaining.
+func (b *InMemoryBackend) WithAccountID(accountID string) *InMemoryBackend {
+	if accountID != "" {
+		b.accountID = accountID
+	}
+
+	return b
 }
 
 // WithEmailTTL sets the TTL for stored sent emails and returns the backend for chaining.
@@ -479,8 +501,8 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 
 	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
-			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
-			ErrMessageRejected, in.From,
+			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
+			ErrMessageRejected, strings.ToUpper(b.region), in.From,
 		)
 	}
 
@@ -533,8 +555,8 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 
 	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
-			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
-			ErrMessageRejected, in.From,
+			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
+			ErrMessageRejected, strings.ToUpper(b.region), in.From,
 		)
 	}
 
@@ -1331,10 +1353,10 @@ func (b *InMemoryBackend) ListCustomVerificationEmailTemplates() []CustomVerific
 
 // Region returns the AWS region for this backend instance.
 func (b *InMemoryBackend) Region() string {
-	return config.DefaultRegion
+	return b.region
 }
 
 // AccountID returns the simulated AWS account ID.
 func (b *InMemoryBackend) AccountID() string {
-	return defaultAccountID
+	return b.accountID
 }

@@ -591,9 +591,11 @@ func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string) (any, er
 	case opDeleteConfigurationSet:
 		return h.handleDeleteConfigurationSet(resource)
 	case opListTagsForResource:
-		return h.handleListTagsForResource(), nil
-	case opTagResource, opUntagResource:
-		return &emptyDeleteOutput{}, nil
+		return h.handleListTagsForResource(c)
+	case opTagResource:
+		return h.handleTagResource(c)
+	case opUntagResource:
+		return h.handleUntagResource(c)
 	default:
 		return nil, errOpNotHandled
 	}
@@ -1019,11 +1021,62 @@ func (h *Handler) handleDeleteConfigurationSet(name string) (any, error) {
 	return &emptyDeleteOutput{}, nil
 }
 
-// handleListTagsForResource returns an empty tag list.
-// The SES v2 Terraform provider calls this after every create to refresh tag state.
-// Tags are not persisted in this implementation.
-func (h *Handler) handleListTagsForResource() any {
-	return &listTagsOutput{Tags: []tagEntry{}}
+func (h *Handler) handleListTagsForResource(c *echo.Context) (any, error) {
+	arn := c.QueryParam("ResourceArn")
+
+	tags, err := h.Backend.ListTagsForResource(arn)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]tagEntry, 0, len(tags))
+	for k, v := range tags {
+		entries = append(entries, tagEntry{Key: k, Value: v})
+	}
+
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
+
+	return &listTagsOutput{Tags: entries}, nil
+}
+
+type tagResourceInput struct {
+	ResourceArn string     `json:"ResourceArn"`
+	Tags        []tagEntry `json:"Tags"`
+}
+
+func (h *Handler) handleTagResource(c *echo.Context) (any, error) {
+	var in tagResourceInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid body", ErrInvalidInput)
+	}
+
+	tags := make(map[string]string, len(in.Tags))
+	for _, t := range in.Tags {
+		tags[t.Key] = t.Value
+	}
+
+	if err := h.Backend.TagResource(in.ResourceArn, tags); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
+func (h *Handler) handleUntagResource(c *echo.Context) (any, error) {
+	arn := c.QueryParam("ResourceArn")
+	keysParam := c.QueryParam("TagKeys")
+
+	var keys []string
+	if keysParam != "" {
+		keys = strings.Split(keysParam, ",")
+	}
+
+	if err := h.Backend.UntagResource(arn, keys); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
 }
 
 // ---- new operation request/response types ----

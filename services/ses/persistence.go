@@ -21,6 +21,8 @@ type backendSnapshot struct {
 	CustomVerifTemplates  map[string]*CustomVerificationEmailTemplate `json:"customVerifTemplates"`
 	Policies              map[string]map[string]string                `json:"policies,omitempty"`
 	ActiveRuleSet         string                                      `json:"activeRuleSet,omitempty"`
+	Region                string                                      `json:"region,omitempty"`
+	AccountID             string                                      `json:"accountID,omitempty"`
 	Emails                []Email                                     `json:"emails"`
 	AccountSendingEnabled bool                                        `json:"accountSendingEnabled"`
 }
@@ -103,6 +105,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Policies:              pols,
 		ActiveRuleSet:         b.activeRuleSet,
 		AccountSendingEnabled: b.accountSendingEnabled,
+		Region:                b.region,
+		AccountID:             b.accountID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -140,6 +144,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.policies = snap.Policies
 	b.activeRuleSet = snap.ActiveRuleSet
 	b.accountSendingEnabled = snap.AccountSendingEnabled
+
+	if snap.Region != "" {
+		b.region = snap.Region
+	}
+
+	if snap.AccountID != "" {
+		b.accountID = snap.AccountID
+	}
 
 	// Drop emails outside the current TTL window and cap to maxRetainedEmails
 	// so that memory is bounded immediately after restore.

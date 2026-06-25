@@ -120,7 +120,7 @@ func TestRefinement2_CreateServerlessCluster(t *testing.T) {
 			require.NotNil(t, cl)
 			assert.Equal(t, kafka.ClusterTypeServerless, cl.ClusterType)
 			assert.Equal(t, tt.clName, cl.ClusterName)
-			assert.Equal(t, kafka.ClusterStateActive, cl.State)
+			assert.Equal(t, kafka.ClusterStateCreating, cl.State)
 			assert.NotEmpty(t, cl.ClusterArn)
 		})
 	}

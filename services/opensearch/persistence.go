@@ -149,6 +149,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// Rebuild the ARN index from restored domains.
 	b.arnIndex = rebuildARNIndex(snap.Domains, snap.AccountID, snap.Region)
 
+	// Rebuild applicationNames index from restored applications.
+	b.applicationNames = make(map[string]string, len(snap.Applications))
+	for id, app := range snap.Applications {
+		b.applicationNames[app.Name] = id
+	}
+
 	return nil
 }
 

@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -428,11 +429,11 @@ func (b *InMemoryBackend) ListDomainNamesByEngine(engineType string) []string {
 		// OpenSearch domains have EngineVersion starting with "OpenSearch_"
 		// Elasticsearch domains have EngineVersion starting with a number.
 		switch engineType {
-		case "OpenSearch":
+		case engineTypeOpenSearch:
 			if isOpenSearchEngine(d.EngineVersion) {
 				out = append(out, name)
 			}
-		case "Elasticsearch":
+		case engineTypeElasticsearch:
 			if !isOpenSearchEngine(d.EngineVersion) {
 				out = append(out, name)
 			}
@@ -449,4 +450,44 @@ func isOpenSearchEngine(engineVersion string) bool {
 	}
 
 	return engineVersion[:11] == "OpenSearch_"
+}
+
+// DomainEntry holds the name and engine version of a domain, used for list responses.
+type DomainEntry struct {
+	Name          string
+	EngineVersion string
+}
+
+// ListDomainEntriesFiltered returns name+engine version for all domains matching engineType,
+// under a single read lock. Pass an empty string to return all domains.
+func (b *InMemoryBackend) ListDomainEntriesFiltered(engineType string) []DomainEntry {
+	b.mu.RLock("ListDomainEntriesFiltered")
+	defer b.mu.RUnlock()
+
+	out := make([]DomainEntry, 0, len(b.domains))
+
+	for name, d := range b.domains {
+		if engineType == "" {
+			out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+
+			continue
+		}
+
+		switch engineType {
+		case engineTypeOpenSearch:
+			if isOpenSearchEngine(d.EngineVersion) {
+				out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+			}
+		case engineTypeElasticsearch:
+			if !isOpenSearchEngine(d.EngineVersion) {
+				out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+			}
+		default:
+			if strings.HasPrefix(d.EngineVersion, engineType+"_") {
+				out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+			}
+		}
+	}
+
+	return out
 }

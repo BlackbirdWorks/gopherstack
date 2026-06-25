@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,15 +76,14 @@ func (p *storedPolicy) toSummary() *PolicySummary {
 
 // backendSnapshot holds serializable backend state.
 type backendSnapshot struct {
-	Policies map[string]*storedPolicy     `json:"policies"`
-	Tags     map[string]map[string]string `json:"tags"`
+	Policies map[string]*storedPolicy `json:"policies"`
+	Counter  int                      `json:"counter"`
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
-	policies  map[string]*storedPolicy     // policyID → policy
-	tags      map[string]map[string]string // resourceARN → tags
+	policies  map[string]*storedPolicy // policyID → policy
 	accountID string
 	region    string
 	counter   int
@@ -92,7 +94,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		mu:        lockmetrics.New("dlm"),
 		policies:  make(map[string]*storedPolicy),
-		tags:      make(map[string]map[string]string),
 		accountID: accountID,
 		region:    region,
 	}
@@ -132,7 +133,6 @@ func (b *InMemoryBackend) CreateLifecyclePolicy(
 		PolicyDetails:    policyDetails,
 	}
 	b.policies[policyID] = p
-	b.tags[policyARN] = storedTags
 
 	return p.toPolicy(), nil
 }
@@ -142,12 +142,10 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(policyID string) error {
 	b.mu.Lock("DeleteLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.policies[policyID]
-	if !ok {
+	if _, ok := b.policies[policyID]; !ok {
 		return ErrPolicyNotFound
 	}
 
-	delete(b.tags, p.PolicyArn)
 	delete(b.policies, policyID)
 
 	return nil
@@ -180,6 +178,8 @@ func (b *InMemoryBackend) GetLifecyclePolicies(policyIDs []string, state string)
 		result = append(result, p.toSummary())
 	}
 
+	sort.Slice(result, func(i, j int) bool { return result[i].PolicyID < result[j].PolicyID })
+
 	return result, nil
 }
 
@@ -197,7 +197,10 @@ func (b *InMemoryBackend) GetLifecyclePolicy(policyID string) (*Policy, error) {
 }
 
 // UpdateLifecyclePolicy updates mutable fields of an existing policy.
-func (b *InMemoryBackend) UpdateLifecyclePolicy(policyID, description, executionRoleARN, state string) error {
+func (b *InMemoryBackend) UpdateLifecyclePolicy(
+	policyID, description, executionRoleARN, state string,
+	policyDetails map[string]any,
+) error {
 	b.mu.Lock("UpdateLifecyclePolicy")
 	defer b.mu.Unlock()
 
@@ -218,6 +221,10 @@ func (b *InMemoryBackend) UpdateLifecyclePolicy(policyID, description, execution
 		p.State = state
 	}
 
+	if policyDetails != nil {
+		p.PolicyDetails = policyDetails
+	}
+
 	p.DateModified = time.Now().UTC()
 
 	return nil
@@ -228,15 +235,12 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if !b.isKnownResource(resourceARN) {
+	p, ok := b.findPolicyByARNLocked(resourceARN)
+	if !ok {
 		return ErrPolicyNotFound
 	}
 
-	if b.tags[resourceARN] == nil {
-		b.tags[resourceARN] = make(map[string]string)
-	}
-
-	maps.Copy(b.tags[resourceARN], tags)
+	maps.Copy(p.Tags, tags)
 
 	return nil
 }
@@ -246,12 +250,13 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if !b.isKnownResource(resourceARN) {
+	p, ok := b.findPolicyByARNLocked(resourceARN)
+	if !ok {
 		return ErrPolicyNotFound
 	}
 
 	for _, k := range tagKeys {
-		delete(b.tags[resourceARN], k)
+		delete(p.Tags, k)
 	}
 
 	return nil
@@ -262,26 +267,27 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if !b.isKnownResource(resourceARN) {
+	p, ok := b.findPolicyByARNLocked(resourceARN)
+	if !ok {
 		return nil, ErrPolicyNotFound
 	}
 
 	result := make(map[string]string)
-	maps.Copy(result, b.tags[resourceARN])
+	maps.Copy(result, p.Tags)
 
 	return result, nil
 }
 
-// isKnownResource returns true if the ARN corresponds to a known policy.
-// Must be called with at least a read lock held.
-func (b *InMemoryBackend) isKnownResource(arn string) bool {
+// findPolicyByARNLocked returns the policy matching the given ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) findPolicyByARNLocked(policyARN string) (*storedPolicy, bool) {
 	for _, p := range b.policies {
-		if p.PolicyArn == arn {
-			return true
+		if p.PolicyArn == policyARN {
+			return p, true
 		}
 	}
 
-	return false
+	return nil, false
 }
 
 // AccountID returns the account ID.
@@ -296,7 +302,6 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.policies = make(map[string]*storedPolicy)
-	b.tags = make(map[string]map[string]string)
 	b.counter = 0
 }
 
@@ -307,7 +312,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "dlm", backendSnapshot{
 		Policies: b.policies,
-		Tags:     b.tags,
+		Counter:  b.counter,
 	})
 }
 
@@ -327,11 +332,27 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.policies = make(map[string]*storedPolicy)
 	}
 
-	if snap.Tags != nil {
-		b.tags = snap.Tags
+	// Counter backward compat: if snapshot pre-dates counter field, derive from existing IDs.
+	if snap.Counter > 0 {
+		b.counter = snap.Counter
 	} else {
-		b.tags = make(map[string]map[string]string)
+		b.counter = maxCounterFromPolicies(b.policies)
 	}
 
 	return nil
+}
+
+// maxCounterFromPolicies derives the highest counter value seen in the policy ID set.
+// Used for backward compat when restoring snapshots that predate counter serialization.
+func maxCounterFromPolicies(policies map[string]*storedPolicy) int {
+	var highest int
+
+	for id := range policies {
+		hex := strings.TrimPrefix(id, policyIDPrefix)
+		if n, err := strconv.ParseInt(hex, 16, 64); err == nil && n >= 0 && n <= math.MaxInt && int(n) > highest {
+			highest = int(n)
+		}
+	}
+
+	return highest
 }

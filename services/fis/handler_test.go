@@ -1144,13 +1144,14 @@ func TestFISHandler_GetSafetyLever(t *testing.T) {
 	assert.Equal(t, "disengaged", resp.SafetyLever.State.Status)
 }
 
-func TestFISHandler_GetSafetyLever_NotFound(t *testing.T) {
+func TestFISHandler_GetSafetyLever_AnyIDReturnsLever(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
+	// Real AWS returns the account's single lever for any ID path segment.
 	rec := doRequest(t, h, http.MethodGet, "/safetyLevers/999999999999", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestFISHandler_UpdateSafetyLeverState(t *testing.T) {

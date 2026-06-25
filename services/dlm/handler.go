@@ -292,16 +292,19 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, policyID string) err
 
 func (h *Handler) handleUpdateLifecyclePolicy(c *echo.Context, policyID string, body []byte) error {
 	var req struct {
-		Description      string `json:"Description"`
-		ExecutionRoleArn string `json:"ExecutionRoleArn"`
-		State            string `json:"State"`
+		PolicyDetails    map[string]any `json:"PolicyDetails"`
+		Description      string         `json:"Description"`
+		ExecutionRoleArn string         `json:"ExecutionRoleArn"`
+		State            string         `json:"State"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, "invalid request body"))
 	}
 
-	if err := h.Backend.UpdateLifecyclePolicy(policyID, req.Description, req.ExecutionRoleArn, req.State); err != nil {
+	if err := h.Backend.UpdateLifecyclePolicy(
+		policyID, req.Description, req.ExecutionRoleArn, req.State, req.PolicyDetails,
+	); err != nil {
 		return h.mapError(c, err)
 	}
 

@@ -1119,7 +1119,15 @@ func TestAppendixA_AsyncVideoJobs(t *testing.T) { //nolint:paralleltest // exist
 			require.True(t, ok)
 			assert.NotEmpty(t, jobID)
 
-			// Get results
+			// First poll returns IN_PROGRESS
+			rec = doRequest(t, h, flow.getAction, map[string]any{"JobId": jobID})
+			require.Equal(t, http.StatusOK, rec.Code, flow.getAction)
+
+			var firstResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp))
+			assert.Equal(t, "IN_PROGRESS", firstResp["JobStatus"])
+
+			// Second poll returns SUCCEEDED
 			rec = doRequest(t, h, flow.getAction, map[string]any{"JobId": jobID})
 			require.Equal(t, http.StatusOK, rec.Code, flow.getAction)
 

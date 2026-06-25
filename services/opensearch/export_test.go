@@ -79,3 +79,16 @@ const MaxUpgradeHistoryPerDomain = maxUpgradeHistoryPerDomain
 
 // MaxMaintenancesPerDomain exposes the cap constant for testing.
 const MaxMaintenancesPerDomain = maxMaintenancesPerDomain
+
+// SeedInboundConnection inserts an inbound connection directly into the backend
+// for test setup. AWS creates inbound connections via the remote cluster's outbound
+// connection request; this bypasses the usual flow for unit-test seeding.
+func SeedInboundConnection(b *InMemoryBackend, connectionID string) {
+	b.mu.Lock("SeedInboundConnection")
+	defer b.mu.Unlock()
+
+	b.inboundConnections[connectionID] = &InboundConnection{
+		ConnectionID: connectionID,
+		Status:       "PENDING_ACCEPTANCE",
+	}
+}

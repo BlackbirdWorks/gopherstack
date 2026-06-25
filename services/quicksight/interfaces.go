@@ -82,35 +82,35 @@ type StorageBackend interface {
 	DescribeFolder(accountID, folderID string) (*Folder, error)
 	UpdateFolder(accountID, folderID, name string) (*Folder, error)
 	DeleteFolder(accountID, folderID string) error
-	ListFolders(accountID string) ([]*Folder, error)
+	ListFolders(accountID string, maxResults int32, nextToken string) ([]*Folder, string, error)
 
 	// Templates
 	CreateTemplate(accountID, templateID, name string) (*Template, error)
 	DescribeTemplate(accountID, templateID string) (*Template, error)
 	UpdateTemplate(accountID, templateID, name string) (*Template, error)
 	DeleteTemplate(accountID, templateID string) error
-	ListTemplates(accountID string) ([]*Template, error)
+	ListTemplates(accountID string, maxResults int32, nextToken string) ([]*Template, string, error)
 
 	// Themes
 	CreateTheme(accountID, themeID, name string) (*Theme, error)
 	DescribeTheme(accountID, themeID string) (*Theme, error)
 	UpdateTheme(accountID, themeID, name string) (*Theme, error)
 	DeleteTheme(accountID, themeID string) error
-	ListThemes(accountID string) ([]*Theme, error)
+	ListThemes(accountID string, maxResults int32, nextToken string) ([]*Theme, string, error)
 
 	// VPC Connections
 	CreateVPCConnection(accountID, vpcConnectionID, name string) (*VPCConnection, error)
 	DescribeVPCConnection(accountID, vpcConnectionID string) (*VPCConnection, error)
 	UpdateVPCConnection(accountID, vpcConnectionID, name string) (*VPCConnection, error)
 	DeleteVPCConnection(accountID, vpcConnectionID string) (*VPCConnection, error)
-	ListVPCConnections(accountID string) ([]*VPCConnection, error)
+	ListVPCConnections(accountID string, maxResults int32, nextToken string) ([]*VPCConnection, string, error)
 
 	// Brands
 	CreateBrand(accountID, brandID, name string) (*Brand, error)
 	DescribeBrand(accountID, brandID string) (*Brand, error)
 	UpdateBrand(accountID, brandID, name string) (*Brand, error)
 	DeleteBrand(accountID, brandID string) error
-	ListBrands(accountID string) ([]*Brand, error)
+	ListBrands(accountID string, maxResults int32, nextToken string) ([]*Brand, string, error)
 
 	// Tags
 	TagResource(resourceARN string, tags map[string]string) error

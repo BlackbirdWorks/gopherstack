@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -365,9 +366,6 @@ const (
 	keyNamespace            = "Namespace"
 	keyMemberName           = "MemberName"
 
-	// request ID placeholder.
-	reqIDPlaceholder = "request-id"
-
 	// path segment names.
 	pathSegAccounts       = "accounts"
 	pathSegNamespaces     = "namespaces"
@@ -458,6 +456,9 @@ const (
 	errInvalidParam = "InvalidParameterValueException"
 	errInvalidBody  = "invalid request body"
 )
+
+// newReqID returns a unique AWS-style request ID for each response.
+func newReqID() string { return uuid.NewString() }
 
 // Handler is the Echo HTTP handler for QuickSight operations.
 type Handler struct {
@@ -1904,7 +1905,7 @@ func (h *Handler) handleCreateNamespace(c *echo.Context) error {
 		keyCreationStatus: ns.CreationStatus,
 		keyIdentityStore:  ns.IdentityStore,
 		keyName:           ns.Name,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusOK,
 	})
 }
@@ -1927,7 +1928,7 @@ func (h *Handler) handleDescribeNamespace(c *echo.Context) error {
 			keyIdentityStore:  ns.IdentityStore,
 			keyName:           ns.Name,
 		},
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -1942,7 +1943,7 @@ func (h *Handler) handleDeleteNamespace(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -1969,7 +1970,7 @@ func (h *Handler) handleListNamespaces(c *echo.Context) error {
 
 	resp := map[string]any{
 		"Namespaces": items,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
@@ -2001,7 +2002,7 @@ func (h *Handler) handleCreateGroup(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyGroup:     groupToMap(g),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2019,7 +2020,7 @@ func (h *Handler) handleDescribeGroup(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyGroup:     groupToMap(g),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2044,7 +2045,7 @@ func (h *Handler) handleUpdateGroup(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyGroup:     groupToMap(g),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2060,7 +2061,7 @@ func (h *Handler) handleDeleteGroup(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2082,7 +2083,7 @@ func (h *Handler) handleListGroups(c *echo.Context) error {
 
 	resp := map[string]any{
 		keyGroupList: items,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
@@ -2120,7 +2121,7 @@ func (h *Handler) handleSearchGroups(c *echo.Context) error {
 
 	resp := map[string]any{
 		keyGroupList: items,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
@@ -2159,7 +2160,7 @@ func (h *Handler) handleCreateGroupMembership(c *echo.Context) error {
 			keyArn:        m.Arn,
 			keyMemberName: m.MemberName,
 		},
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2181,7 +2182,7 @@ func (h *Handler) handleDescribeGroupMembership(c *echo.Context) error {
 			keyArn:        m.Arn,
 			keyMemberName: m.MemberName,
 		},
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2198,7 +2199,7 @@ func (h *Handler) handleDeleteGroupMembership(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2230,7 +2231,7 @@ func (h *Handler) handleListGroupMemberships(c *echo.Context) error {
 
 	resp := map[string]any{
 		"GroupMemberList": items,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusOK,
 	}
 	if next != "" {
@@ -2266,7 +2267,7 @@ func (h *Handler) handleRegisterUser(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyUser:      userToMap(u),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2284,7 +2285,7 @@ func (h *Handler) handleDescribeUser(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyUser:      userToMap(u),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2307,7 +2308,7 @@ func (h *Handler) handleUpdateUser(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyUser:      userToMap(u),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2323,7 +2324,7 @@ func (h *Handler) handleDeleteUser(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2339,7 +2340,7 @@ func (h *Handler) handleDeleteUserByPrincipalID(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2361,7 +2362,7 @@ func (h *Handler) handleListUsers(c *echo.Context) error {
 
 	resp := map[string]any{
 		keyUserList:  items,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
@@ -2389,7 +2390,7 @@ func (h *Handler) handleListUserGroups(c *echo.Context) error {
 
 	resp := map[string]any{
 		keyGroupList: items,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
@@ -2438,7 +2439,7 @@ func (h *Handler) handleCreateDataSource(c *echo.Context) error {
 		keyArn:            ds.Arn,
 		keyCreationStatus: ds.Status,
 		keyDataSourceID:   ds.DataSourceID,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusCreated,
 	})
 }
@@ -2455,7 +2456,7 @@ func (h *Handler) handleDescribeDataSource(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyDataSource: dataSourceToMap(ds),
-		keyRequestID:  reqIDPlaceholder,
+		keyRequestID:  newReqID(),
 		keyStatus:     http.StatusOK,
 	})
 }
@@ -2478,7 +2479,7 @@ func (h *Handler) handleUpdateDataSource(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyArn:          ds.Arn,
 		keyDataSourceID: ds.DataSourceID,
-		keyRequestID:    reqIDPlaceholder,
+		keyRequestID:    newReqID(),
 		keyStatus:       http.StatusOK,
 		keyUpdateStatus: ds.Status,
 	})
@@ -2494,7 +2495,7 @@ func (h *Handler) handleDeleteDataSource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2515,7 +2516,7 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 
 	resp := map[string]any{
 		keyDataSources: items,
-		keyRequestID:   reqIDPlaceholder,
+		keyRequestID:   newReqID(),
 		keyStatus:      http.StatusOK,
 	}
 	if next != "" {
@@ -2564,7 +2565,7 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 		keyDataSetID:   ds.DataSetID,
 		"IngestionArn": fmt.Sprintf("%s/ingestion/auto", ds.Arn),
 		"IngestionId":  "auto",
-		keyRequestID:   reqIDPlaceholder,
+		keyRequestID:   newReqID(),
 		keyStatus:      http.StatusCreated,
 	})
 }
@@ -2581,7 +2582,7 @@ func (h *Handler) handleDescribeDataSet(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyDataSet:   dataSetToMap(ds),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2604,7 +2605,7 @@ func (h *Handler) handleUpdateDataSet(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyArn:       ds.Arn,
 		keyDataSetID: ds.DataSetID,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2619,7 +2620,7 @@ func (h *Handler) handleDeleteDataSet(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2640,7 +2641,7 @@ func (h *Handler) handleListDataSets(c *echo.Context) error {
 
 	resp := map[string]any{
 		keyDataSetSummaries: items,
-		keyRequestID:        reqIDPlaceholder,
+		keyRequestID:        newReqID(),
 		keyStatus:           http.StatusOK,
 	}
 	if next != "" {
@@ -2678,7 +2679,7 @@ func (h *Handler) handleCreateIngestion(c *echo.Context) error {
 		keyArn:             ing.Arn,
 		keyIngestionID:     ing.IngestionID,
 		keyIngestionStatus: ing.IngestionStatus,
-		keyRequestID:       reqIDPlaceholder,
+		keyRequestID:       newReqID(),
 		keyStatus:          http.StatusCreated,
 	})
 }
@@ -2701,7 +2702,7 @@ func (h *Handler) handleDescribeIngestion(c *echo.Context) error {
 			keyIngestionID:     ing.IngestionID,
 			keyIngestionStatus: ing.IngestionStatus,
 		},
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2717,7 +2718,7 @@ func (h *Handler) handleCancelIngestion(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2744,7 +2745,7 @@ func (h *Handler) handleListIngestions(c *echo.Context) error {
 
 	resp := map[string]any{
 		keyIngestions: items,
-		keyRequestID:  reqIDPlaceholder,
+		keyRequestID:  newReqID(),
 		keyStatus:     http.StatusOK,
 	}
 	if next != "" {
@@ -2780,7 +2781,7 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 		keyArn:            d.Arn,
 		keyCreationStatus: d.Status,
 		keyDashboardID:    d.DashboardID,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusOK,
 		"VersionArn":      fmt.Sprintf("%s/version/1", d.Arn),
 	})
@@ -2798,7 +2799,7 @@ func (h *Handler) handleDescribeDashboard(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyDashboard: dashboardToMap(d),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2821,7 +2822,7 @@ func (h *Handler) handleUpdateDashboard(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyArn:         d.Arn,
 		keyDashboardID: d.DashboardID,
-		keyRequestID:   reqIDPlaceholder,
+		keyRequestID:   newReqID(),
 		keyStatus:      http.StatusOK,
 		"VersionArn":   fmt.Sprintf("%s/version/%d", d.Arn, d.VersionNumber),
 	})
@@ -2837,7 +2838,7 @@ func (h *Handler) handleDeleteDashboard(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2858,7 +2859,7 @@ func (h *Handler) handleListDashboards(c *echo.Context) error {
 
 	resp := map[string]any{
 		keyDashboardSummaryList: items,
-		keyRequestID:            reqIDPlaceholder,
+		keyRequestID:            newReqID(),
 		keyStatus:               http.StatusOK,
 	}
 	if next != "" {
@@ -2895,7 +2896,7 @@ func (h *Handler) handleListDashboardVersions(c *echo.Context) error {
 
 	resp := map[string]any{
 		"DashboardVersionSummaryList": items,
-		keyRequestID:                  reqIDPlaceholder,
+		keyRequestID:                  newReqID(),
 		keyStatus:                     http.StatusOK,
 	}
 	if next != "" {
@@ -2942,7 +2943,7 @@ func (h *Handler) handleCreateAnalysis(c *echo.Context) error {
 		keyAnalysisID:     a.AnalysisID,
 		keyArn:            a.Arn,
 		keyCreationStatus: a.Status,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusOK,
 	})
 }
@@ -2959,7 +2960,7 @@ func (h *Handler) handleDescribeAnalysis(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyAnalysis:  analysisToMap(a),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -2982,7 +2983,7 @@ func (h *Handler) handleUpdateAnalysis(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyAnalysisID:  a.AnalysisID,
 		keyArn:         a.Arn,
-		keyRequestID:   reqIDPlaceholder,
+		keyRequestID:   newReqID(),
 		keyStatus:      http.StatusOK,
 		"UpdateStatus": a.Status,
 	})
@@ -3001,7 +3002,7 @@ func (h *Handler) handleDeleteAnalysis(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyAnalysisID: analysisID,
-		keyRequestID:  reqIDPlaceholder,
+		keyRequestID:  newReqID(),
 		keyStatus:     http.StatusOK,
 	})
 }
@@ -3022,7 +3023,7 @@ func (h *Handler) handleListAnalyses(c *echo.Context) error {
 
 	resp := map[string]any{
 		keyAnalysisSummaryList: items,
-		keyRequestID:           reqIDPlaceholder,
+		keyRequestID:           newReqID(),
 		keyStatus:              http.StatusOK,
 	}
 	if next != "" {
@@ -3046,7 +3047,7 @@ func (h *Handler) handleRestoreAnalysis(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyAnalysisID: a.AnalysisID,
 		keyArn:        a.Arn,
-		keyRequestID:  reqIDPlaceholder,
+		keyRequestID:  newReqID(),
 		keyStatus:     http.StatusOK,
 	})
 }
@@ -3080,7 +3081,7 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -3096,7 +3097,7 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -3116,7 +3117,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 		"Tags":       items,
 	})

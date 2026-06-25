@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1031,6 +1032,9 @@ func TestDescribeDirectories_ResponseFields(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 		dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+
+		backend := h.Backend.(*directoryservice.InMemoryBackend)
+		require.True(t, directoryservice.WaitForDirectoryActive(backend, dirID, time.Second))
 
 		rec := doRequest(
 			t,

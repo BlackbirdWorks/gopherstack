@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
 // ---------------------------------------------------------------------------
@@ -308,9 +310,13 @@ func TestAccuracyBatch2_OutboundConnections_CreateDescribeDelete(t *testing.T) {
 func TestAccuracyBatch2_InboundConnections_DescribeRejectDelete(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	b, h := newTestHandlerAndBackend()
 
-	// Accept a connection to seed the store.
+	// Seed connections (AWS creates inbound connections via remote outbound requests).
+	opensearch.SeedInboundConnection(b, "conn-inb-1")
+	opensearch.SeedInboundConnection(b, "conn-inb-2")
+
+	// Accept conn-inb-1.
 	ar := doRequest(t, h, http.MethodPut,
 		"/2021-01-01/opensearch/cc/inboundConnection/conn-inb-1/accept", nil)
 	ar.Body.Close()
@@ -326,7 +332,7 @@ func TestAccuracyBatch2_InboundConnections_DescribeRejectDelete(t *testing.T) {
 	require.True(t, ok)
 	require.NotEmpty(t, conns)
 
-	// Accept a second, then reject it.
+	// Accept conn-inb-2, then reject it.
 	ar2 := doRequest(t, h, http.MethodPut,
 		"/2021-01-01/opensearch/cc/inboundConnection/conn-inb-2/accept", nil)
 	ar2.Body.Close()

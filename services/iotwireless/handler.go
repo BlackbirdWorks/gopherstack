@@ -1234,9 +1234,7 @@ func (h *Handler) dispatchMetricsAndLogOps(c *echo.Context, op, resource string,
 	case opGetMetricConfiguration:
 		return true, h.getMetricConfiguration(c)
 	case opUpdateMetricConfiguration:
-		c.Response().WriteHeader(http.StatusNoContent)
-
-		return true, nil
+		return true, h.updateMetricConfiguration(c)
 	case opGetMetrics:
 		return true, h.getMetrics(c)
 	}
@@ -1724,7 +1722,9 @@ func isNotFound(err error) bool {
 		errors.Is(err, ErrFuotaTaskNotFound) ||
 		errors.Is(err, ErrMulticastGroupNotFound) ||
 		errors.Is(err, ErrNetworkAnalyzerConfigNotFound) ||
-		errors.Is(err, ErrImportTaskNotFound)
+		errors.Is(err, ErrImportTaskNotFound) ||
+		errors.Is(err, ErrGatewayTaskDefNotFound) ||
+		errors.Is(err, ErrGatewayTaskNotFound)
 }
 
 // handleError writes an appropriate HTTP error response for a backend error.

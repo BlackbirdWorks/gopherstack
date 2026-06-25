@@ -132,6 +132,9 @@ type StorageBackend interface {
 	// Engine-type filtered list
 	ListDomainNamesByEngine(engineType string) []string
 
+	// ListDomainEntriesFiltered returns name+engine version under a single lock.
+	ListDomainEntriesFiltered(engineType string) []DomainEntry
+
 	// Serverless collection operations
 	CreateServerlessCollection(
 		name, collectionType, description, kmsKeyArn string,

@@ -597,9 +597,30 @@ func detectActionCycles(actions map[string]experimentTemplateActionDTO) error {
 	return nil
 }
 
-// isValidRoleArn checks that the string looks like an IAM role ARN.
+// iamAccountIDLen is the fixed length of an AWS account ID (12 decimal digits).
+const iamAccountIDLen = 12
+
+// isValidRoleArn checks that the string looks like an IAM role ARN with a valid 12-digit account ID.
 func isValidRoleArn(s string) bool {
-	return strings.HasPrefix(s, "arn:aws:iam::") && strings.Contains(s, ":role/")
+	const prefix = "arn:aws:iam::"
+	if !strings.HasPrefix(s, prefix) {
+		return false
+	}
+
+	rest := s[len(prefix):]
+	colon := strings.Index(rest, ":")
+
+	if colon != iamAccountIDLen {
+		return false
+	}
+
+	for _, c := range rest[:12] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+
+	return strings.HasPrefix(rest[colon:], ":role/")
 }
 
 // ----------------------------------------
@@ -1030,9 +1051,12 @@ func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]Experiment
 	resolved := make([]ExperimentResolvedTarget, 0, len(exp.Targets))
 
 	for name, tgt := range exp.Targets {
+		arns := make([]string, len(tgt.ResourceArns))
+		copy(arns, tgt.ResourceArns)
 		resolved = append(resolved, ExperimentResolvedTarget{
 			ResourceType:         tgt.ResourceType,
 			TargetName:           name,
+			ResolvedArns:         arns,
 			TargetResourcesCount: len(tgt.ResourceArns),
 		})
 	}
@@ -1064,9 +1088,7 @@ func (b *InMemoryBackend) GetSafetyLever(id string) (*SafetyLever, error) {
 	b.mu.RLock("GetSafetyLever")
 	defer b.mu.RUnlock()
 
-	resolved := b.resolveSafetyLeverID(id)
-
-	if b.safetyLever == nil || b.safetyLever.ID != resolved {
+	if b.safetyLever == nil {
 		return nil, fmt.Errorf("%w: %s", ErrSafetyLeverNotFound, id)
 	}
 

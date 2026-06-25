@@ -743,7 +743,9 @@ func TestUpdateDestination(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			err := b.UpdateDestination(context.TODO(), tt.streamName, "", tt.newDest)
+			err := b.UpdateDestination(
+				context.TODO(), tt.streamName, "", firehose.UpdateDestinationInput{S3Destination: tt.newDest},
+			)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)

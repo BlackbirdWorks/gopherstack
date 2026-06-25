@@ -878,6 +878,7 @@ type describeReplicationInstancesOutput struct {
 	ReplicationInstances []replicationInstanceJSON `json:"ReplicationInstances"`
 }
 
+//nolint:dupl // same HMAC-paginate pattern as handleDescribeEndpoints
 func (h *Handler) handleDescribeReplicationInstances(
 	ctx context.Context,
 	in *describeReplicationInstancesInput,
@@ -906,7 +907,7 @@ func (h *Handler) handleDescribeReplicationInstances(
 		all = append(all, riToJSON(ri))
 	}
 
-	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
+	data, nextMarker := dmsHMACPaginate(all, in.Marker, in.MaxRecords, h.Backend.PaginationSecret())
 
 	return &describeReplicationInstancesOutput{ReplicationInstances: data, Marker: nextMarker}, nil
 }
@@ -1011,6 +1012,7 @@ type describeEndpointsOutput struct {
 	Endpoints []endpointJSON `json:"Endpoints"`
 }
 
+//nolint:dupl // same HMAC-paginate pattern as handleDescribeReplicationInstances
 func (h *Handler) handleDescribeEndpoints(
 	ctx context.Context,
 	in *describeEndpointsInput,
@@ -1434,6 +1436,34 @@ func ptrInt32(p *int32) int32 {
 	}
 
 	return *p
+}
+
+// listMetadataModelRequests retrieves metadata model requests of a given type and paginates them.
+func listMetadataModelRequests(
+	ctx context.Context,
+	h *Handler,
+	projectID, reqType string,
+	marker *string,
+	maxRecords *int32,
+) ([]map[string]any, *string, error) {
+	list, err := h.Backend.ListMetadataModelRequests(ctx, projectID, reqType)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	all := make([]map[string]any, 0, len(list))
+	for _, req := range list {
+		all = append(all, map[string]any{
+			"RequestIdentifier":          req.RequestIdentifier,
+			"MigrationProjectIdentifier": req.MigrationProjectIdentifier,
+			"Status":                     req.Status,
+			"SelectionRules":             req.SelectionRules,
+		})
+	}
+
+	data, nextMarker := dmsPaginate(all, marker, maxRecords)
+
+	return data, nextMarker, nil
 }
 
 // dmsPaginate applies cursor-based pagination to a pre-sorted slice, returning
@@ -2260,9 +2290,14 @@ type deleteFleetAdvisorDatabasesOutput struct {
 }
 
 func (h *Handler) handleDeleteFleetAdvisorDatabases(
-	_ context.Context, _ *deleteFleetAdvisorDatabasesInput,
+	ctx context.Context, in *deleteFleetAdvisorDatabasesInput,
 ) (*deleteFleetAdvisorDatabasesOutput, error) {
-	return &deleteFleetAdvisorDatabasesOutput{DatabaseIDs: []string{}}, nil
+	deleted, err := h.Backend.DeleteFleetAdvisorDatabases(ctx, in.DatabaseIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteFleetAdvisorDatabasesOutput{DatabaseIDs: deleted}, nil
 }
 
 // --- DeleteInstanceProfile handler ---
@@ -2883,9 +2918,27 @@ type describeEventsOutput struct {
 }
 
 func (h *Handler) handleDescribeEvents(
-	_ context.Context, _ *describeEventsInput,
+	ctx context.Context, in *describeEventsInput,
 ) (*describeEventsOutput, error) {
-	return &describeEventsOutput{Events: []map[string]any{}}, nil
+	list, err := h.Backend.DescribeEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	all := make([]map[string]any, 0, len(list))
+	for _, e := range list {
+		all = append(all, map[string]any{
+			"SourceIdentifier": e.SourceIdentifier,
+			"SourceType":       e.SourceType,
+			"Message":          e.Message,
+			"EventCategories":  e.EventCategories,
+			"Date":             e.Date,
+		})
+	}
+
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
+
+	return &describeEventsOutput{Events: data, Marker: nextMarker}, nil
 }
 
 // --- DescribeExtensionPackAssociations handler ---
@@ -2967,9 +3020,25 @@ type describeFleetAdvisorDatabasesOutput struct {
 }
 
 func (h *Handler) handleDescribeFleetAdvisorDatabases(
-	_ context.Context, _ *describeFleetAdvisorDatabasesInput,
+	ctx context.Context, _ *describeFleetAdvisorDatabasesInput,
 ) (*describeFleetAdvisorDatabasesOutput, error) {
-	return &describeFleetAdvisorDatabasesOutput{Databases: []map[string]any{}}, nil
+	list, err := h.Backend.DescribeFleetAdvisorDatabases(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	dbs := make([]map[string]any, 0, len(list))
+	for _, db := range list {
+		dbs = append(dbs, map[string]any{
+			"DatabaseId":            db.DatabaseID,
+			"DatabaseName":          db.DatabaseName,
+			"IpAddress":             db.IPAddress,
+			"EngineName":            db.EngineName,
+			"CollectorReferencedId": db.CollectorReferencedID,
+		})
+	}
+
+	return &describeFleetAdvisorDatabasesOutput{Databases: dbs}, nil
 }
 
 // --- DescribeFleetAdvisorLsaAnalysis handler ---
@@ -3075,8 +3144,18 @@ type describeMetadataModelInput struct {
 type describeMetadataModelOutput struct{}
 
 func (h *Handler) handleDescribeMetadataModel(
-	_ context.Context, _ *describeMetadataModelInput,
+	ctx context.Context, in *describeMetadataModelInput,
 ) (*describeMetadataModelOutput, error) {
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	// Validate project exists via a read of its request store; returns empty list if none started.
+	if _, err := h.Backend.ListMetadataModelRequests(ctx, projectID, "assessment"); err != nil {
+		return nil, err
+	}
+
 	return &describeMetadataModelOutput{}, nil
 }
 
@@ -3094,9 +3173,15 @@ type describeMetadataModelAssessmentsOutput struct {
 }
 
 func (h *Handler) handleDescribeMetadataModelAssessments(
-	_ context.Context, _ *describeMetadataModelAssessmentsInput,
+	ctx context.Context, in *describeMetadataModelAssessmentsInput,
 ) (*describeMetadataModelAssessmentsOutput, error) {
-	return &describeMetadataModelAssessmentsOutput{Requests: []map[string]any{}}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "assessment", in.Marker, in.MaxRecords)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeMetadataModelAssessmentsOutput{Requests: reqs, Marker: marker}, nil
 }
 
 // --- DescribeMetadataModelChildren handler ---
@@ -3113,9 +3198,15 @@ type describeMetadataModelChildrenOutput struct {
 }
 
 func (h *Handler) handleDescribeMetadataModelChildren(
-	_ context.Context, _ *describeMetadataModelChildrenInput,
+	ctx context.Context, in *describeMetadataModelChildrenInput,
 ) (*describeMetadataModelChildrenOutput, error) {
-	return &describeMetadataModelChildrenOutput{Items: []map[string]any{}}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "children", in.Marker, in.MaxRecords)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeMetadataModelChildrenOutput{Items: reqs, Marker: marker}, nil
 }
 
 // --- DescribeMetadataModelConversions handler ---
@@ -3132,9 +3223,15 @@ type describeMetadataModelConversionsOutput struct {
 }
 
 func (h *Handler) handleDescribeMetadataModelConversions(
-	_ context.Context, _ *describeMetadataModelConversionsInput,
+	ctx context.Context, in *describeMetadataModelConversionsInput,
 ) (*describeMetadataModelConversionsOutput, error) {
-	return &describeMetadataModelConversionsOutput{Requests: []map[string]any{}}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "conversion", in.Marker, in.MaxRecords)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeMetadataModelConversionsOutput{Requests: reqs, Marker: marker}, nil
 }
 
 // --- DescribeMetadataModelCreations handler ---
@@ -3151,9 +3248,15 @@ type describeMetadataModelCreationsOutput struct {
 }
 
 func (h *Handler) handleDescribeMetadataModelCreations(
-	_ context.Context, _ *describeMetadataModelCreationsInput,
+	ctx context.Context, in *describeMetadataModelCreationsInput,
 ) (*describeMetadataModelCreationsOutput, error) {
-	return &describeMetadataModelCreationsOutput{Requests: []map[string]any{}}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "creation", in.Marker, in.MaxRecords)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeMetadataModelCreationsOutput{Requests: reqs, Marker: marker}, nil
 }
 
 // --- DescribeMetadataModelExportsAsScript handler ---
@@ -3170,9 +3273,15 @@ type describeMetadataModelExportsAsScriptOutput struct {
 }
 
 func (h *Handler) handleDescribeMetadataModelExportsAsScript(
-	_ context.Context, _ *describeMetadataModelExportsAsScriptInput,
+	ctx context.Context, in *describeMetadataModelExportsAsScriptInput,
 ) (*describeMetadataModelExportsAsScriptOutput, error) {
-	return &describeMetadataModelExportsAsScriptOutput{Requests: []map[string]any{}}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "export-as-script", in.Marker, in.MaxRecords)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeMetadataModelExportsAsScriptOutput{Requests: reqs, Marker: marker}, nil
 }
 
 // --- DescribeMetadataModelExportsToTarget handler ---
@@ -3189,9 +3298,15 @@ type describeMetadataModelExportsToTargetOutput struct {
 }
 
 func (h *Handler) handleDescribeMetadataModelExportsToTarget(
-	_ context.Context, _ *describeMetadataModelExportsToTargetInput,
+	ctx context.Context, in *describeMetadataModelExportsToTargetInput,
 ) (*describeMetadataModelExportsToTargetOutput, error) {
-	return &describeMetadataModelExportsToTargetOutput{Requests: []map[string]any{}}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "export-to-target", in.Marker, in.MaxRecords)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeMetadataModelExportsToTargetOutput{Requests: reqs, Marker: marker}, nil
 }
 
 // --- DescribeMetadataModelImports handler ---
@@ -3208,9 +3323,15 @@ type describeMetadataModelImportsOutput struct {
 }
 
 func (h *Handler) handleDescribeMetadataModelImports(
-	_ context.Context, _ *describeMetadataModelImportsInput,
+	ctx context.Context, in *describeMetadataModelImportsInput,
 ) (*describeMetadataModelImportsOutput, error) {
-	return &describeMetadataModelImportsOutput{Requests: []map[string]any{}}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "import", in.Marker, in.MaxRecords)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeMetadataModelImportsOutput{Requests: reqs, Marker: marker}, nil
 }
 
 // --- DescribeMigrationProjects handler ---
@@ -3433,9 +3554,23 @@ type describeRecommendationsOutput struct {
 }
 
 func (h *Handler) handleDescribeRecommendations(
-	_ context.Context, _ *describeRecommendationsInput,
+	ctx context.Context, _ *describeRecommendationsInput,
 ) (*describeRecommendationsOutput, error) {
-	return &describeRecommendationsOutput{Recommendations: []map[string]any{}}, nil
+	list, err := h.Backend.DescribeRecommendations(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	recs := make([]map[string]any, 0, len(list))
+	for _, r := range list {
+		recs = append(recs, map[string]any{
+			"DatabaseId": r.DatabaseID,
+			"EngineName": r.EngineName,
+			"Status":     r.Status,
+		})
+	}
+
+	return &describeRecommendationsOutput{Recommendations: recs}, nil
 }
 
 // --- DescribeRefreshSchemasStatus handler ---
@@ -3456,7 +3591,7 @@ func (h *Handler) handleDescribeRefreshSchemasStatus(
 	_ context.Context, _ *describeRefreshSchemasStatusInput,
 ) (*describeRefreshSchemasStatusOutput, error) {
 	return &describeRefreshSchemasStatusOutput{
-		RefreshSchemasStatus: refreshSchemasStatusJSON{Status: "successful"},
+		RefreshSchemasStatus: refreshSchemasStatusJSON{Status: statusSuccessful},
 	}, nil
 }
 
@@ -3761,9 +3896,16 @@ type describeSchemasOutput struct {
 }
 
 func (h *Handler) handleDescribeSchemas(
-	_ context.Context, _ *describeSchemasInput,
+	ctx context.Context, in *describeSchemasInput,
 ) (*describeSchemasOutput, error) {
-	return &describeSchemasOutput{Schemas: []string{}}, nil
+	schemas, err := h.Backend.DescribeSchemas(ctx, ptrconv.String(in.EndpointArn))
+	if err != nil {
+		return nil, err
+	}
+
+	data, nextMarker := dmsPaginate(schemas, in.Marker, in.MaxRecords)
+
+	return &describeSchemasOutput{Schemas: data, Marker: nextMarker}, nil
 }
 
 // --- DescribeTableStatistics handler ---
@@ -4246,10 +4388,14 @@ type refreshSchemasOutput struct {
 }
 
 func (h *Handler) handleRefreshSchemas(
-	_ context.Context, _ *refreshSchemasInput,
+	ctx context.Context, in *refreshSchemasInput,
 ) (*refreshSchemasOutput, error) {
+	if err := h.Backend.RefreshSchemas(ctx, ptrconv.String(in.EndpointArn)); err != nil {
+		return nil, err
+	}
+
 	return &refreshSchemasOutput{
-		RefreshSchemasStatus: refreshSchemasStatusJSON{Status: "refreshing"},
+		RefreshSchemasStatus: refreshSchemasStatusJSON{Status: statusSuccessful},
 	}, nil
 }
 
@@ -4376,9 +4522,15 @@ type startMetadataModelAssessmentOutput struct {
 }
 
 func (h *Handler) handleStartMetadataModelAssessment(
-	_ context.Context, _ *startMetadataModelAssessmentInput,
+	ctx context.Context, in *startMetadataModelAssessmentInput,
 ) (*startMetadataModelAssessmentOutput, error) {
-	return &startMetadataModelAssessmentOutput{RequestIdentifier: uuid.NewString()}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "assessment", ptrconv.String(in.SelectionRules))
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMetadataModelAssessmentOutput{RequestIdentifier: reqID}, nil
 }
 
 // --- StartMetadataModelConversion handler ---
@@ -4393,9 +4545,15 @@ type startMetadataModelConversionOutput struct {
 }
 
 func (h *Handler) handleStartMetadataModelConversion(
-	_ context.Context, _ *startMetadataModelConversionInput,
+	ctx context.Context, in *startMetadataModelConversionInput,
 ) (*startMetadataModelConversionOutput, error) {
-	return &startMetadataModelConversionOutput{RequestIdentifier: uuid.NewString()}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "conversion", ptrconv.String(in.SelectionRules))
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMetadataModelConversionOutput{RequestIdentifier: reqID}, nil
 }
 
 // --- StartMetadataModelCreation handler ---
@@ -4410,9 +4568,15 @@ type startMetadataModelCreationOutput struct {
 }
 
 func (h *Handler) handleStartMetadataModelCreation(
-	_ context.Context, _ *startMetadataModelCreationInput,
+	ctx context.Context, in *startMetadataModelCreationInput,
 ) (*startMetadataModelCreationOutput, error) {
-	return &startMetadataModelCreationOutput{RequestIdentifier: uuid.NewString()}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "creation", ptrconv.String(in.SelectionRules))
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMetadataModelCreationOutput{RequestIdentifier: reqID}, nil
 }
 
 // --- StartMetadataModelExportAsScript handler ---
@@ -4429,9 +4593,17 @@ type startMetadataModelExportAsScriptOutput struct {
 }
 
 func (h *Handler) handleStartMetadataModelExportAsScript(
-	_ context.Context, _ *startMetadataModelExportAsScriptInput,
+	ctx context.Context, in *startMetadataModelExportAsScriptInput,
 ) (*startMetadataModelExportAsScriptOutput, error) {
-	return &startMetadataModelExportAsScriptOutput{RequestIdentifier: uuid.NewString()}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqID, err := h.Backend.StartMetadataModelRequest(
+		ctx, projectID, "export-as-script", ptrconv.String(in.SelectionRules),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMetadataModelExportAsScriptOutput{RequestIdentifier: reqID}, nil
 }
 
 // --- StartMetadataModelExportToTarget handler ---
@@ -4447,9 +4619,17 @@ type startMetadataModelExportToTargetOutput struct {
 }
 
 func (h *Handler) handleStartMetadataModelExportToTarget(
-	_ context.Context, _ *startMetadataModelExportToTargetInput,
+	ctx context.Context, in *startMetadataModelExportToTargetInput,
 ) (*startMetadataModelExportToTargetOutput, error) {
-	return &startMetadataModelExportToTargetOutput{RequestIdentifier: uuid.NewString()}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqID, err := h.Backend.StartMetadataModelRequest(
+		ctx, projectID, "export-to-target", ptrconv.String(in.SelectionRules),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMetadataModelExportToTargetOutput{RequestIdentifier: reqID}, nil
 }
 
 // --- StartMetadataModelImport handler ---
@@ -4466,9 +4646,15 @@ type startMetadataModelImportOutput struct {
 }
 
 func (h *Handler) handleStartMetadataModelImport(
-	_ context.Context, _ *startMetadataModelImportInput,
+	ctx context.Context, in *startMetadataModelImportInput,
 ) (*startMetadataModelImportOutput, error) {
-	return &startMetadataModelImportOutput{RequestIdentifier: uuid.NewString()}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "import", ptrconv.String(in.SelectionRules))
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMetadataModelImportOutput{RequestIdentifier: reqID}, nil
 }
 
 // --- StartRecommendations handler ---

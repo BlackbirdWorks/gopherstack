@@ -4,6 +4,7 @@ package dms
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,7 +38,13 @@ const (
 	statusRunning        = "running"
 	statusStopped        = "stopped"
 	statusAvailable      = "available"
+	statusCancelling     = "cancelling"
+	statusSuccessful     = "successful"
 	defaultEngineVersion = "3.5.3"
+
+	eventCategoryCreation    = "creation"
+	eventCategoryDeletion    = "deletion"
+	eventCategoryStateChange = "state-change"
 )
 
 var (
@@ -254,6 +261,40 @@ type Connection struct {
 	LastFailureMessage            string
 }
 
+// Event records an operational event emitted by a DMS resource.
+type Event struct {
+	SourceIdentifier string
+	SourceType       string
+	Message          string
+	Date             string
+	EventCategories  []string
+}
+
+// Recommendation is a target-engine recommendation from Fleet Advisor.
+type Recommendation struct {
+	DatabaseID string
+	EngineName string
+	Status     string
+}
+
+// FleetAdvisorDatabase is a database discovered by a Fleet Advisor collector.
+type FleetAdvisorDatabase struct {
+	DatabaseID            string
+	DatabaseName          string
+	IPAddress             string
+	EngineName            string
+	CollectorReferencedID string
+}
+
+// MetadataModelRequest tracks a metadata model operation (assessment, conversion, etc.).
+type MetadataModelRequest struct {
+	RequestIdentifier          string
+	MigrationProjectIdentifier string
+	Status                     string
+	RequestType                string
+	SelectionRules             string
+}
+
 // InMemoryBackend is the in-memory store for AWS DMS resources.
 //
 // All resource maps are nested by region (outer key = region) so that
@@ -287,12 +328,20 @@ type InMemoryBackend struct {
 	migrationProjectsByARN       map[string]map[string]*MigrationProject
 	replicationConfigs           map[string]map[string]*ReplicationConfig
 	replicationConfigsByARN      map[string]map[string]*ReplicationConfig
-	connections                  map[string]map[string]*Connection    // inner key: "riArn:epArn"
-	assessmentRuns               map[string]map[string]*AssessmentRun // inner key: ARN
-	mu                           *lockmetrics.RWMutex
-	accountID                    string
-	region                       string
-	paginationSecret             string
+	connections                  map[string]map[string]*Connection           // inner key: "riArn:epArn"
+	assessmentRuns               map[string]map[string]*AssessmentRun        // inner key: ARN
+	events                       map[string][]*Event                         // region → events
+	recommendations              map[string][]*Recommendation                // region → recommendations
+	fleetAdvisorDatabases        map[string]map[string]*FleetAdvisorDatabase // region → id → db
+	endpointSchemas              map[string]map[string][]string              // region → endpointARN → schemas
+	// metadataModelRequests tracks pending metadata model operations per project per region.
+	metadataModelRequests map[string]map[string]map[string]*MetadataModelRequest // region → projectARN → reqID → req
+	// tasksByEndpointARN indexes task ARNs by endpoint ARN (source or target) for O(1) in-use check.
+	tasksByEndpointARN map[string]map[string]struct{} // endpointARN → taskARN set
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
+	paginationSecret   string
 }
 
 // NewInMemoryBackend creates a new in-memory DMS backend.
@@ -323,6 +372,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		replicationConfigsByARN:      make(map[string]map[string]*ReplicationConfig),
 		connections:                  make(map[string]map[string]*Connection),
 		assessmentRuns:               make(map[string]map[string]*AssessmentRun),
+		events:                       make(map[string][]*Event),
+		recommendations:              make(map[string][]*Recommendation),
+		fleetAdvisorDatabases:        make(map[string]map[string]*FleetAdvisorDatabase),
+		endpointSchemas:              make(map[string]map[string][]string),
+		metadataModelRequests:        make(map[string]map[string]map[string]*MetadataModelRequest),
+		tasksByEndpointARN:           make(map[string]map[string]struct{}),
 		accountID:                    accountID,
 		region:                       region,
 		paginationSecret:             uuid.NewString(),
@@ -523,6 +578,48 @@ func (b *InMemoryBackend) assessmentRunsStore(region string) map[string]*Assessm
 	}
 
 	return b.assessmentRuns[region]
+}
+
+func (b *InMemoryBackend) fleetAdvisorDatabasesStore(region string) map[string]*FleetAdvisorDatabase {
+	if b.fleetAdvisorDatabases[region] == nil {
+		b.fleetAdvisorDatabases[region] = make(map[string]*FleetAdvisorDatabase)
+	}
+
+	return b.fleetAdvisorDatabases[region]
+}
+
+func (b *InMemoryBackend) endpointSchemasStore(region string) map[string][]string {
+	if b.endpointSchemas[region] == nil {
+		b.endpointSchemas[region] = make(map[string][]string)
+	}
+
+	return b.endpointSchemas[region]
+}
+
+func (b *InMemoryBackend) metadataModelRequestsStore(region, projectARN string) map[string]*MetadataModelRequest {
+	if b.metadataModelRequests[region] == nil {
+		b.metadataModelRequests[region] = make(map[string]map[string]*MetadataModelRequest)
+	}
+
+	if b.metadataModelRequests[region][projectARN] == nil {
+		b.metadataModelRequests[region][projectARN] = make(map[string]*MetadataModelRequest)
+	}
+
+	return b.metadataModelRequests[region][projectARN]
+}
+
+// resolveProjectARN returns the project ARN for a name-or-ARN identifier.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) resolveProjectARN(region, identifier string) string {
+	if strings.HasPrefix(identifier, "arn:") {
+		return identifier
+	}
+
+	if mp, ok := b.migrationProjectsStore(region)[identifier]; ok {
+		return mp.MigrationProjectArn
+	}
+
+	return identifier
 }
 
 // AccountID returns the AWS account ID this backend is configured for.
@@ -730,6 +827,10 @@ func (b *InMemoryBackend) CreateEndpoint(
 	}
 	store[identifier] = ep
 	byARN[endpointARN] = ep
+	b.appendEvent(
+		region, endpointARN, "replication-instance",
+		"Endpoint "+identifier+" created", []string{eventCategoryCreation},
+	)
 	cp := *ep
 
 	return &cp, nil
@@ -780,14 +881,19 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, arnOrID string) (*
 	byARN := b.endpointsByARNStore(region)
 
 	deleteEndpoint := func(ep *Endpoint, id string) (*Endpoint, error) {
-		// Scan tasks to check if any reference this endpoint as source or target.
-		for _, rt := range b.replicationTasksStore(region) {
-			if rt.SourceEndpointArn == ep.EndpointArn || rt.TargetEndpointArn == ep.EndpointArn {
+		// O(1) check using tasksByEndpointARN index (#performance).
+		if tasks := b.tasksByEndpointARN[ep.EndpointArn]; len(tasks) > 0 {
+			for taskARN := range tasks {
+				taskID := taskARN
+				if rt, ok := b.replicationTasksByARNStore(region)[taskARN]; ok {
+					taskID = rt.ReplicationTaskIdentifier
+				}
+
 				return nil, fmt.Errorf(
 					"%w: endpoint %s is in use by replication task %s; delete the task first",
 					ErrInvalidState,
 					arnOrID,
-					rt.ReplicationTaskIdentifier,
+					taskID,
 				)
 			}
 		}
@@ -795,6 +901,10 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, arnOrID string) (*
 		ep.Tags.Close()
 		delete(byARN, ep.EndpointArn)
 		delete(store, id)
+		b.appendEvent(
+			region, ep.EndpointArn, "replication-instance",
+			"Endpoint "+id+" deleted", []string{eventCategoryDeletion},
+		)
 
 		return &cp, nil
 	}
@@ -877,6 +987,14 @@ func (b *InMemoryBackend) CreateReplicationTask(
 		b.tasksByInstanceARN[replicationInstanceArn] = make(map[string]struct{})
 	}
 	b.tasksByInstanceARN[replicationInstanceArn][taskARN] = struct{}{}
+	if b.tasksByEndpointARN[sourceEndpointArn] == nil {
+		b.tasksByEndpointARN[sourceEndpointArn] = make(map[string]struct{})
+	}
+	b.tasksByEndpointARN[sourceEndpointArn][taskARN] = struct{}{}
+	if b.tasksByEndpointARN[targetEndpointArn] == nil {
+		b.tasksByEndpointARN[targetEndpointArn] = make(map[string]struct{})
+	}
+	b.tasksByEndpointARN[targetEndpointArn][taskARN] = struct{}{}
 	cp := *rt
 
 	return &cp, nil
@@ -935,6 +1053,10 @@ func (b *InMemoryBackend) StartReplicationTask(ctx context.Context, arnOrID stri
 	}
 
 	rt.Status = statusRunning
+	b.appendEvent(
+		getRegion(ctx, b.region), rt.ReplicationTaskArn, "replication-task",
+		"Replication task "+rt.ReplicationTaskIdentifier+" started", []string{eventCategoryStateChange},
+	)
 	cp := *rt
 
 	return &cp, nil
@@ -961,6 +1083,10 @@ func (b *InMemoryBackend) StopReplicationTask(ctx context.Context, arnOrID strin
 	}
 
 	rt.Status = statusStopped
+	b.appendEvent(
+		getRegion(ctx, b.region), rt.ReplicationTaskArn, "replication-task",
+		"Replication task "+rt.ReplicationTaskIdentifier+" stopped", []string{eventCategoryStateChange},
+	)
 	cp := *rt
 
 	return &cp, nil
@@ -991,6 +1117,13 @@ func (b *InMemoryBackend) DeleteReplicationTask(ctx context.Context, arnOrID str
 		// Remove from reverse instance→tasks index.
 		if instTasks := b.tasksByInstanceARN[rt.ReplicationInstanceArn]; instTasks != nil {
 			delete(instTasks, rt.ReplicationTaskArn)
+		}
+		// Remove from reverse endpoint→tasks index.
+		if epTasks := b.tasksByEndpointARN[rt.SourceEndpointArn]; epTasks != nil {
+			delete(epTasks, rt.ReplicationTaskArn)
+		}
+		if epTasks := b.tasksByEndpointARN[rt.TargetEndpointArn]; epTasks != nil {
+			delete(epTasks, rt.ReplicationTaskArn)
 		}
 
 		return &cp, nil
@@ -1085,13 +1218,29 @@ func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 
 // BatchStartRecommendations starts the analysis to generate recommendations.
 // In-memory: always returns an empty error list (all successful).
-func (b *InMemoryBackend) BatchStartRecommendations(_ context.Context) error {
+// BatchStartRecommendations seeds target-engine recommendations based on existing source endpoints.
+func (b *InMemoryBackend) BatchStartRecommendations(ctx context.Context) error {
+	b.mu.Lock("BatchStartRecommendations")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	for epARN, ep := range b.endpointsByARNStore(region) {
+		if ep.EndpointType == "source" {
+			b.recommendations[region] = append(b.recommendations[region], &Recommendation{
+				DatabaseID: epARN,
+				EngineName: "aurora-mysql",
+				Status:     "active",
+			})
+		}
+	}
+
 	return nil
 }
 
 // CancelMetadataModelConversion cancels a pending metadata model conversion task.
 func (b *InMemoryBackend) CancelMetadataModelConversion(
-	_ context.Context,
+	ctx context.Context,
 	migrationProjectIdentifier, requestIdentifier string,
 ) (string, error) {
 	if migrationProjectIdentifier == "" {
@@ -1100,6 +1249,16 @@ func (b *InMemoryBackend) CancelMetadataModelConversion(
 
 	if requestIdentifier == "" {
 		return "", fmt.Errorf("%w: RequestIdentifier is required", ErrValidation)
+	}
+
+	b.mu.Lock("CancelMetadataModelConversion")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	projectARN := b.resolveProjectARN(region, migrationProjectIdentifier)
+
+	if req, ok := b.metadataModelRequestsStore(region, projectARN)[requestIdentifier]; ok {
+		req.Status = statusCancelling
 	}
 
 	return requestIdentifier, nil
@@ -1107,7 +1266,7 @@ func (b *InMemoryBackend) CancelMetadataModelConversion(
 
 // CancelMetadataModelCreation cancels a pending metadata model creation task.
 func (b *InMemoryBackend) CancelMetadataModelCreation(
-	_ context.Context,
+	ctx context.Context,
 	migrationProjectIdentifier, requestIdentifier string,
 ) (string, error) {
 	if migrationProjectIdentifier == "" {
@@ -1116,6 +1275,16 @@ func (b *InMemoryBackend) CancelMetadataModelCreation(
 
 	if requestIdentifier == "" {
 		return "", fmt.Errorf("%w: RequestIdentifier is required", ErrValidation)
+	}
+
+	b.mu.Lock("CancelMetadataModelCreation")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	projectARN := b.resolveProjectARN(region, migrationProjectIdentifier)
+
+	if req, ok := b.metadataModelRequestsStore(region, projectARN)[requestIdentifier]; ok {
+		req.Status = statusCancelling
 	}
 
 	return requestIdentifier, nil
@@ -1144,7 +1313,7 @@ func (b *InMemoryBackend) CancelReplicationTaskAssessmentRun(
 		)
 	}
 
-	run.Status = "cancelling"
+	run.Status = statusCancelling
 
 	return nil
 }
@@ -1413,6 +1582,21 @@ func (b *InMemoryBackend) CreateFleetAdvisorCollector(
 	}
 	store[collectorName] = col
 	b.fleetAdvisorCollectorsByIDStore(region)[collectorID] = col
+	// Seed two discovered databases per collector to emulate Fleet Advisor discovery.
+	dbStore := b.fleetAdvisorDatabasesStore(region)
+	for _, seed := range []struct{ name, engine, ip string }{
+		{collectorName + "-mysql-db", "mysql", "10.0.1.10"},
+		{collectorName + "-pg-db", "postgresql", "10.0.1.11"},
+	} {
+		dbID := uuid.NewString()
+		dbStore[dbID] = &FleetAdvisorDatabase{
+			DatabaseID:            dbID,
+			DatabaseName:          seed.name,
+			IPAddress:             seed.ip,
+			EngineName:            seed.engine,
+			CollectorReferencedID: collectorID,
+		}
+	}
 	cp := *col
 
 	return &cp, nil
@@ -1538,6 +1722,185 @@ func (b *InMemoryBackend) Reset() {
 	b.replicationConfigsByARN = make(map[string]map[string]*ReplicationConfig)
 	b.connections = make(map[string]map[string]*Connection)
 	b.assessmentRuns = make(map[string]map[string]*AssessmentRun)
+	b.events = make(map[string][]*Event)
+	b.recommendations = make(map[string][]*Recommendation)
+	b.fleetAdvisorDatabases = make(map[string]map[string]*FleetAdvisorDatabase)
+	b.endpointSchemas = make(map[string]map[string][]string)
+	b.metadataModelRequests = make(map[string]map[string]map[string]*MetadataModelRequest)
+	b.tasksByEndpointARN = make(map[string]map[string]struct{})
+}
+
+// appendEvent records a DMS operational event. Caller must hold b.mu.
+func (b *InMemoryBackend) appendEvent(region, sourceID, sourceType, msg string, cats []string) {
+	b.events[region] = append(b.events[region], &Event{
+		SourceIdentifier: sourceID,
+		SourceType:       sourceType,
+		Message:          msg,
+		EventCategories:  cats,
+		Date:             time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// DescribeEvents returns all recorded DMS events for the request region.
+func (b *InMemoryBackend) DescribeEvents(ctx context.Context) ([]*Event, error) {
+	b.mu.RLock("DescribeEvents")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+	list := b.events[region]
+	result := make([]*Event, len(list))
+	for i, e := range list {
+		cp := *e
+		result[i] = &cp
+	}
+
+	return result, nil
+}
+
+// DescribeRecommendations returns Fleet Advisor target recommendations for the request region.
+func (b *InMemoryBackend) DescribeRecommendations(ctx context.Context) ([]*Recommendation, error) {
+	b.mu.RLock("DescribeRecommendations")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+	list := b.recommendations[region]
+	result := make([]*Recommendation, len(list))
+	for i, r := range list {
+		cp := *r
+		result[i] = &cp
+	}
+
+	return result, nil
+}
+
+// DescribeFleetAdvisorDatabases returns databases discovered by Fleet Advisor collectors.
+func (b *InMemoryBackend) DescribeFleetAdvisorDatabases(ctx context.Context) ([]*FleetAdvisorDatabase, error) {
+	b.mu.RLock("DescribeFleetAdvisorDatabases")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+	store := b.fleetAdvisorDatabasesStore(region)
+	result := make([]*FleetAdvisorDatabase, 0, len(store))
+
+	for _, db := range store {
+		cp := *db
+		result = append(result, &cp)
+	}
+
+	return result, nil
+}
+
+// DeleteFleetAdvisorDatabases removes Fleet Advisor databases by ID and returns the deleted IDs.
+func (b *InMemoryBackend) DeleteFleetAdvisorDatabases(ctx context.Context, ids []string) ([]string, error) {
+	b.mu.Lock("DeleteFleetAdvisorDatabases")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	store := b.fleetAdvisorDatabasesStore(region)
+	deleted := make([]string, 0, len(ids))
+
+	for _, id := range ids {
+		if _, ok := store[id]; ok {
+			delete(store, id)
+			deleted = append(deleted, id)
+		}
+	}
+
+	return deleted, nil
+}
+
+// DescribeSchemas returns the schema names available on an endpoint.
+func (b *InMemoryBackend) DescribeSchemas(ctx context.Context, endpointARN string) ([]string, error) {
+	b.mu.RLock("DescribeSchemas")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+	schemas := b.endpointSchemasStore(region)[endpointARN]
+
+	if schemas == nil {
+		return []string{}, nil
+	}
+
+	result := make([]string, len(schemas))
+	copy(result, schemas)
+
+	return result, nil
+}
+
+// RefreshSchemas seeds schema discovery for an endpoint (emulates async refresh).
+func (b *InMemoryBackend) RefreshSchemas(ctx context.Context, endpointARN string) error {
+	b.mu.Lock("RefreshSchemas")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	ep, ok := b.endpointsByARNStore(region)[endpointARN]
+
+	if !ok {
+		return fmt.Errorf("%w: endpoint %s not found", ErrNotFound, endpointARN)
+	}
+
+	b.endpointSchemasStore(region)[endpointARN] = defaultSchemasForEngine(ep.EngineName)
+
+	return nil
+}
+
+// defaultSchemasForEngine returns a realistic default schema list for a given engine.
+func defaultSchemasForEngine(engine string) []string {
+	switch engine {
+	case "postgres", "aurora-postgresql":
+		return []string{"public", "information_schema", "pg_catalog"}
+	case "oracle":
+		return []string{"SYS", "SYSTEM", "HR", "OE"}
+	case "sqlserver":
+		return []string{"dbo", "sys", "INFORMATION_SCHEMA"}
+	default:
+		return []string{"main", "information_schema"}
+	}
+}
+
+// StartMetadataModelRequest persists a metadata model operation request and returns its ID.
+func (b *InMemoryBackend) StartMetadataModelRequest(
+	ctx context.Context,
+	projectIdentifier, reqType, selectionRules string,
+) (string, error) {
+	b.mu.Lock("StartMetadataModelRequest")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	projectARN := b.resolveProjectARN(region, projectIdentifier)
+	reqID := uuid.NewString()
+	b.metadataModelRequestsStore(region, projectARN)[reqID] = &MetadataModelRequest{
+		RequestIdentifier:          reqID,
+		MigrationProjectIdentifier: projectARN,
+		Status:                     "running",
+		RequestType:                reqType,
+		SelectionRules:             selectionRules,
+	}
+
+	return reqID, nil
+}
+
+// ListMetadataModelRequests returns all requests of a given type for a migration project.
+func (b *InMemoryBackend) ListMetadataModelRequests(
+	ctx context.Context,
+	projectIdentifier, reqType string,
+) ([]*MetadataModelRequest, error) {
+	b.mu.RLock("ListMetadataModelRequests")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+	projectARN := b.resolveProjectARN(region, projectIdentifier)
+	store := b.metadataModelRequestsStore(region, projectARN)
+	result := make([]*MetadataModelRequest, 0)
+
+	for _, req := range store {
+		if req.RequestType == reqType {
+			cp := *req
+			result = append(result, &cp)
+		}
+	}
+
+	return result, nil
 }
 
 // AddReplicationInstanceInternal seeds a replication instance directly without HTTP.
@@ -1618,6 +1981,14 @@ func (b *InMemoryBackend) AddReplicationTaskInternal(
 		b.tasksByInstanceARN[instARN] = make(map[string]struct{})
 	}
 	b.tasksByInstanceARN[instARN][taskARN] = struct{}{}
+	if b.tasksByEndpointARN[srcARN] == nil {
+		b.tasksByEndpointARN[srcARN] = make(map[string]struct{})
+	}
+	b.tasksByEndpointARN[srcARN][taskARN] = struct{}{}
+	if b.tasksByEndpointARN[tgtARN] == nil {
+		b.tasksByEndpointARN[tgtARN] = make(map[string]struct{})
+	}
+	b.tasksByEndpointARN[tgtARN][taskARN] = struct{}{}
 }
 
 // AddDataMigrationInternal seeds a data migration directly without HTTP.
@@ -2324,7 +2695,7 @@ func (b *InMemoryBackend) TestConnection(
 		ReplicationInstanceIdentifier: ri.ReplicationInstanceIdentifier,
 		EndpointArn:                   endpointArn,
 		EndpointIdentifier:            ep.EndpointIdentifier,
-		Status:                        "successful",
+		Status:                        statusSuccessful,
 	}
 	b.connectionsStore(region)[key] = conn
 	cp := *conn

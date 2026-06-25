@@ -62,15 +62,15 @@ func (h *Handler) dispatchAccountAndSuppressionOps(c *echo.Context, op, resource
 	case opGetBlacklistReports:
 		return h.handleGetBlacklistReports()
 	case opPutAccountDedicatedIPWarmupAttributes:
-		return h.handlePutAccountDedicatedIPWarmupAttributes()
+		return h.handlePutAccountDedicatedIPWarmupAttributes(c)
 	case opPutAccountDetails:
 		return h.handlePutAccountDetails(c)
 	case opPutAccountSendingAttributes:
 		return h.handlePutAccountSendingAttributes(c)
 	case opPutAccountSuppressionAttributes:
-		return h.handlePutAccountSuppressionAttributes()
+		return h.handlePutAccountSuppressionAttributes(c)
 	case opPutAccountVdmAttributes:
-		return h.handlePutAccountVdmAttributes()
+		return h.handlePutAccountVdmAttributes(c)
 	case opPutSuppressedDestination:
 		return h.handlePutSuppressedDestination(c)
 	case opGetSuppressedDestination:
@@ -930,8 +930,14 @@ func (h *Handler) handleGetBlacklistReports() (any, error) {
 	return map[string]any{"BlacklistReport": reports}, nil
 }
 
-func (h *Handler) handlePutAccountDedicatedIPWarmupAttributes() (any, error) {
-	if err := h.Backend.PutAccountDedicatedIPWarmupAttributes(); err != nil {
+func (h *Handler) handlePutAccountDedicatedIPWarmupAttributes(c *echo.Context) (any, error) {
+	var in struct {
+		AutoWarmupEnabled bool `json:"AutoWarmupEnabled"`
+	}
+
+	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+
+	if err := h.Backend.PutAccountDedicatedIPWarmupAttributes(in.AutoWarmupEnabled); err != nil {
 		return nil, err
 	}
 
@@ -982,16 +988,28 @@ func (h *Handler) handlePutAccountSendingAttributes(c *echo.Context) (any, error
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handlePutAccountSuppressionAttributes() (any, error) {
-	if err := h.Backend.PutAccountSuppressionAttributes(); err != nil {
+func (h *Handler) handlePutAccountSuppressionAttributes(c *echo.Context) (any, error) {
+	var in struct {
+		SuppressedReasons []string `json:"SuppressedReasons"`
+	}
+
+	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+
+	if err := h.Backend.PutAccountSuppressionAttributes(in.SuppressedReasons); err != nil {
 		return nil, err
 	}
 
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handlePutAccountVdmAttributes() (any, error) {
-	if err := h.Backend.PutAccountVdmAttributes(); err != nil {
+func (h *Handler) handlePutAccountVdmAttributes(c *echo.Context) (any, error) {
+	var in struct {
+		VdmAttributes map[string]any `json:"VdmAttributes"`
+	}
+
+	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+
+	if err := h.Backend.PutAccountVdmAttributes(in.VdmAttributes); err != nil {
 		return nil, err
 	}
 

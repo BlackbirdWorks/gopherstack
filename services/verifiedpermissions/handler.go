@@ -2,6 +2,7 @@ package verifiedpermissions
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -223,8 +224,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			keyTypeField:    "ResourceConflictException",
 			keyMessageField: err.Error(),
 		})
+	case errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "UnknownOperationException",
+			keyMessageField: err.Error(),
+		})
 	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
-		errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ValidationException",
 			keyMessageField: err.Error(),
@@ -1196,10 +1202,20 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 		)
 	}
 
+	token := in.AccessToken
+	if token == "" {
+		token = in.IdentityToken
+	}
+
+	principalType, principalID := h.principalFromToken(in.PolicyStoreID, token)
+
 	requests := make([]AuthorizationRequest, 0, len(in.Requests))
 
 	for _, r := range in.Requests {
-		req := AuthorizationRequest{}
+		req := AuthorizationRequest{
+			PrincipalEntityType: principalType,
+			PrincipalEntityID:   principalID,
+		}
 
 		if r.Action != nil {
 			req.ActionType = r.Action.ActionType
@@ -1622,6 +1638,55 @@ func (h *Handler) handleIsAuthorized(_ context.Context, in *isAuthorizedInput) (
 	}, nil
 }
 
+const jwtPartCount = 3
+
+var errMalformedJWT = errors.New("malformed JWT")
+
+// parseJWTClaims extracts claims from a JWT without verifying the signature.
+func parseJWTClaims(token string) (map[string]any, error) {
+	parts := strings.SplitN(token, ".", jwtPartCount)
+	if len(parts) != jwtPartCount {
+		return nil, fmt.Errorf("%w: expected 3 parts, got %d", errMalformedJWT, len(parts))
+	}
+
+	payload, decodeErr := base64.RawURLEncoding.DecodeString(parts[1])
+	if decodeErr != nil {
+		return nil, fmt.Errorf("%w: bad payload encoding: %w", errMalformedJWT, decodeErr)
+	}
+
+	var claims map[string]any
+	if unmarshalErr := json.Unmarshal(payload, &claims); unmarshalErr != nil {
+		return nil, fmt.Errorf("%w: bad payload JSON: %w", errMalformedJWT, unmarshalErr)
+	}
+
+	return claims, nil
+}
+
+// principalFromToken resolves PrincipalEntityType and PrincipalEntityID from a JWT
+// token using the first matching identity source in the policy store.
+func (h *Handler) principalFromToken(policyStoreID, token string) (string, string) {
+	sources, _, err := h.Backend.ListIdentitySources(policyStoreID, "", 0)
+	if err != nil || len(sources) == 0 {
+		return "", ""
+	}
+
+	claims, err := parseJWTClaims(token)
+	if err != nil {
+		return "", ""
+	}
+
+	is := sources[0]
+	claimName := "sub"
+
+	if is.OIDCTokenSelection != nil && is.OIDCTokenSelection.PrincipalIDClaim != "" {
+		claimName = is.OIDCTokenSelection.PrincipalIDClaim
+	}
+
+	claimVal, _ := claims[claimName].(string)
+
+	return is.PrincipalEntityType, claimVal
+}
+
 // --- IsAuthorizedWithToken ---
 
 type isAuthorizedWithTokenInput struct {
@@ -1644,6 +1709,11 @@ func (h *Handler) handleIsAuthorizedWithToken(
 		return nil, fmt.Errorf("%w: accessToken or identityToken is required", errInvalidRequest)
 	}
 
+	token := in.AccessToken
+	if token == "" {
+		token = in.IdentityToken
+	}
+
 	req := AuthorizationRequest{}
 
 	if in.Action != nil {
@@ -1655,6 +1725,8 @@ func (h *Handler) handleIsAuthorizedWithToken(
 		req.ResourceEntityType = in.Resource.EntityType
 		req.ResourceEntityID = in.Resource.EntityID
 	}
+
+	req.PrincipalEntityType, req.PrincipalEntityID = h.principalFromToken(in.PolicyStoreID, token)
 
 	decision, err := h.Backend.IsAuthorizedWithToken(in.PolicyStoreID, req)
 	if err != nil {

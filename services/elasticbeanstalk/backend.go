@@ -250,7 +250,7 @@ func configTemplateKey(appName, templateName string) string {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		applications:         make(map[string]map[string]*Application),
 		environments:         make(map[string]map[string]*Environment),
 		appVersions:          make(map[string]map[string]*ApplicationVersion),
@@ -265,6 +265,41 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("elasticbeanstalk"),
+	}
+	b.initRegion(region)
+
+	return b
+}
+
+// initRegion pre-initializes all per-region sub-maps so that XxxStore helpers
+// never write under an RLock (which would cause a data race with parallel readers).
+func (b *InMemoryBackend) initRegion(region string) {
+	if b.applications[region] == nil {
+		b.applications[region] = make(map[string]*Application)
+	}
+	if b.environments[region] == nil {
+		b.environments[region] = make(map[string]*Environment)
+	}
+	if b.appVersions[region] == nil {
+		b.appVersions[region] = make(map[string]*ApplicationVersion)
+	}
+	if b.configTemplates[region] == nil {
+		b.configTemplates[region] = make(map[string]*ConfigurationTemplate)
+	}
+	if b.platformVersions[region] == nil {
+		b.platformVersions[region] = make(map[string]*PlatformVersion)
+	}
+	if b.managedActionHistory[region] == nil {
+		b.managedActionHistory[region] = make(map[string][]*ManagedActionHistory)
+	}
+	if b.appARNIndex[region] == nil {
+		b.appARNIndex[region] = make(map[string]string)
+	}
+	if b.envARNIndex[region] == nil {
+		b.envARNIndex[region] = make(map[string]string)
+	}
+	if b.verARNIndex[region] == nil {
+		b.verARNIndex[region] = make(map[string]string)
 	}
 }
 
@@ -1119,6 +1154,7 @@ func (b *InMemoryBackend) Reset() {
 	b.envARNIndex = make(map[string]map[string]string)
 	b.verARNIndex = make(map[string]map[string]string)
 	b.envCounters = make(map[string]int)
+	b.initRegion(b.region)
 }
 
 // --- New operations ---
