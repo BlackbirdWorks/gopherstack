@@ -22,6 +22,7 @@ const (
 	categorySecurity        = "security"
 	categoryPerformance     = "Performance"
 	categoryGeneralGuidance = "General Guidance"
+	categoryCostOptimizing  = "cost_optimizing"
 )
 
 const (
@@ -46,6 +47,11 @@ const (
 	defaultResourcesProcessed = int64(10)
 	// refreshMillisDefault is the default milliseconds until next refreshable after a refresh is enqueued.
 	refreshMillisDefault = int64(3_600_000)
+
+	// maxAttachmentSets caps the number of in-flight staged attachment sets to prevent unbounded growth.
+	maxAttachmentSets = 1000
+	// maxCheckRefreshStatuses caps the number of tracked refresh statuses.
+	maxCheckRefreshStatuses = 1000
 )
 
 var (
@@ -314,6 +320,7 @@ type InMemoryBackend struct {
 	attachmentSets       map[string]*AttachmentSet                    // attachmentSetID -> staged attachments
 	attachments          map[string]*Attachment                       // attachmentID -> Attachment
 	checkRefreshStatuses map[string]*TrustedAdvisorCheckRefreshStatus // checkID -> status
+	checkResults         map[string]*TrustedAdvisorCheckResult        // checkID -> result
 	nextDisplayID        uint64
 	mu                   sync.RWMutex
 }
@@ -326,6 +333,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		attachmentSets:       make(map[string]*AttachmentSet),
 		attachments:          make(map[string]*Attachment),
 		checkRefreshStatuses: make(map[string]*TrustedAdvisorCheckRefreshStatus),
+		checkResults:         make(map[string]*TrustedAdvisorCheckResult),
 	}
 }
 
@@ -339,6 +347,7 @@ func (b *InMemoryBackend) Reset() {
 	b.attachmentSets = make(map[string]*AttachmentSet)
 	b.attachments = make(map[string]*Attachment)
 	b.checkRefreshStatuses = make(map[string]*TrustedAdvisorCheckRefreshStatus)
+	b.checkResults = make(map[string]*TrustedAdvisorCheckResult)
 	b.nextDisplayID = 0
 }
 
@@ -530,7 +539,14 @@ func (b *InMemoryBackend) AddCaseInternal(c *Case) {
 }
 
 // DescribeCreateCaseOptions returns available case creation options.
-func (b *InMemoryBackend) DescribeCreateCaseOptions(_, _, _, _ string) *DescribeCreateCaseOptionsResult {
+// Chat support hours differ by locale: Japanese support runs 07:00–21:00 JST,
+// all other locales use 06:00–22:00 UTC.
+func (b *InMemoryBackend) DescribeCreateCaseOptions(_, _, _, language string) *DescribeCreateCaseOptionsResult {
+	chatStart, chatEnd := "06:00", "22:00"
+	if language == "ja" {
+		chatStart, chatEnd = "07:00", "21:00"
+	}
+
 	return &DescribeCreateCaseOptionsResult{
 		LanguageAvailability: "available",
 		CommunicationTypes: []CommunicationTypeOptions{
@@ -544,7 +560,7 @@ func (b *InMemoryBackend) DescribeCreateCaseOptions(_, _, _, _ string) *Describe
 			{
 				Type: "chat",
 				SupportedHours: []SupportedHour{
-					{StartTime: "06:00", EndTime: "22:00"},
+					{StartTime: chatStart, EndTime: chatEnd},
 				},
 				DatesWithoutSupport: []DateInterval{},
 			},
@@ -596,19 +612,58 @@ func (b *InMemoryBackend) DescribeSeverityLevels(language string) []SeverityLeve
 }
 
 // DescribeSupportedLanguages returns languages supported for the given parameters.
-func (b *InMemoryBackend) DescribeSupportedLanguages(_, _, _ string) []SupportedLanguage {
-	return []SupportedLanguage{
+// The account-and-billing issue type is handled exclusively in English.
+func (b *InMemoryBackend) DescribeSupportedLanguages(issueType, _, _ string) []SupportedLanguage {
+	all := []SupportedLanguage{
 		{Code: "en", Display: "ENGLISH", Language: "English"},
 		{Code: "zh", Display: "CHINESE", Language: "Chinese"},
 		{Code: "ja", Display: "JAPANESE", Language: "Japanese"},
 		{Code: "ko", Display: "KOREAN", Language: "Korean"},
 	}
+
+	if issueType == "account-and-billing" {
+		return all[:1]
+	}
+
+	return all
 }
 
 // DescribeTrustedAdvisorCheckRefreshStatuses returns refresh statuses for the given check IDs.
+// Uses RLock for the common read-only case; upgrades to a write lock only when state advancement
+// is required (simulates the async progression: enqueued → processing → success).
 func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 	checkIDs []string,
 ) []TrustedAdvisorCheckRefreshStatus {
+	b.mu.RLock()
+	needsWrite := false
+
+	for _, id := range checkIDs {
+		if s, ok := b.checkRefreshStatuses[id]; ok && s.Status != checkRefreshStatusSuccess {
+			needsWrite = true
+
+			break
+		}
+	}
+
+	if !needsWrite {
+		out := make([]TrustedAdvisorCheckRefreshStatus, 0, len(checkIDs))
+		for _, id := range checkIDs {
+			if s, ok := b.checkRefreshStatuses[id]; ok {
+				out = append(out, *s)
+			} else {
+				out = append(out, TrustedAdvisorCheckRefreshStatus{
+					CheckID:                    id,
+					Status:                     checkRefreshStatusNone,
+					MillisUntilNextRefreshable: 0,
+				})
+			}
+		}
+		b.mu.RUnlock()
+
+		return out
+	}
+
+	b.mu.RUnlock()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -639,12 +694,31 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 }
 
 // DescribeTrustedAdvisorCheckResult returns the result for the given Trusted Advisor check.
+// Stored results (written by RefreshTrustedAdvisorCheck) take precedence over the static default.
 func (b *InMemoryBackend) DescribeTrustedAdvisorCheckResult(checkID, _ string) *TrustedAdvisorCheckResult {
-	categorySummary := &TrustedAdvisorCategorySpecificSummary{}
+	b.mu.RLock()
+	if stored, ok := b.checkResults[checkID]; ok {
+		cp := *stored
+		b.mu.RUnlock()
+
+		return &cp
+	}
+	b.mu.RUnlock()
+
+	// Default: cost_optimizing checks show "warning" to indicate potential savings;
+	// all other categories show "ok".
+	status := "ok"
+	for _, c := range trustedAdvisorChecks() {
+		if c.ID == checkID && c.Category == categoryCostOptimizing {
+			status = "warning"
+
+			break
+		}
+	}
 
 	return &TrustedAdvisorCheckResult{
 		CheckID:          checkID,
-		Status:           "ok",
+		Status:           status,
 		Timestamp:        time.Now().UTC().Format(time.RFC3339),
 		FlaggedResources: []TrustedAdvisorResourceDetail{},
 		ResourcesSummary: TrustedAdvisorResourcesSummary{
@@ -653,35 +727,51 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckResult(checkID, _ string) *
 			ResourcesIgnored:    0,
 			ResourcesSuppressed: 0,
 		},
-		CategorySpecificSummary: categorySummary,
+		CategorySpecificSummary: &TrustedAdvisorCategorySpecificSummary{},
 	}
 }
 
-// DescribeTrustedAdvisorCheckSummaries returns summaries for the given check IDs.
+// DescribeTrustedAdvisorCheckSummaries returns summaries for the given check IDs,
+// derived from stored check results where available.
 func (b *InMemoryBackend) DescribeTrustedAdvisorCheckSummaries(checkIDs []string) []TrustedAdvisorCheckSummary {
-	out := make([]TrustedAdvisorCheckSummary, 0, len(checkIDs))
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
 	ts := time.Now().UTC().Format(time.RFC3339)
+	out := make([]TrustedAdvisorCheckSummary, 0, len(checkIDs))
 
 	for _, id := range checkIDs {
-		out = append(out, TrustedAdvisorCheckSummary{
-			CheckID:             id,
-			Status:              "ok",
-			Timestamp:           ts,
-			HasFlaggedResources: false,
-			ResourcesSummary: TrustedAdvisorResourcesSummary{
-				ResourcesProcessed:  defaultResourcesProcessed,
-				ResourcesFlagged:    0,
-				ResourcesIgnored:    0,
-				ResourcesSuppressed: 0,
-			},
-			CategorySpecificSummary: &TrustedAdvisorCategorySpecificSummary{},
-		})
+		if stored, ok := b.checkResults[id]; ok {
+			out = append(out, TrustedAdvisorCheckSummary{
+				CheckID:                 id,
+				Status:                  stored.Status,
+				Timestamp:               stored.Timestamp,
+				ResourcesSummary:        stored.ResourcesSummary,
+				HasFlaggedResources:     stored.ResourcesSummary.ResourcesFlagged > 0,
+				CategorySpecificSummary: stored.CategorySpecificSummary,
+			})
+		} else {
+			out = append(out, TrustedAdvisorCheckSummary{
+				CheckID:             id,
+				Status:              "ok",
+				Timestamp:           ts,
+				HasFlaggedResources: false,
+				ResourcesSummary: TrustedAdvisorResourcesSummary{
+					ResourcesProcessed:  defaultResourcesProcessed,
+					ResourcesFlagged:    0,
+					ResourcesIgnored:    0,
+					ResourcesSuppressed: 0,
+				},
+				CategorySpecificSummary: &TrustedAdvisorCategorySpecificSummary{},
+			})
+		}
 	}
 
 	return out
 }
 
 // RefreshTrustedAdvisorCheck enqueues a refresh for the given Trusted Advisor check.
+// Evicts a random entry when the status map is at capacity to prevent unbounded growth.
 func (b *InMemoryBackend) RefreshTrustedAdvisorCheck(checkID string) (*TrustedAdvisorCheckRefreshStatus, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -691,6 +781,15 @@ func (b *InMemoryBackend) RefreshTrustedAdvisorCheck(checkID string) (*TrustedAd
 
 		return &cp, nil
 	}
+
+	if len(b.checkRefreshStatuses) >= maxCheckRefreshStatuses {
+		for k := range b.checkRefreshStatuses {
+			delete(b.checkRefreshStatuses, k)
+
+			break
+		}
+	}
+
 	status := &TrustedAdvisorCheckRefreshStatus{
 		CheckID:                    checkID,
 		Status:                     checkRefreshStatusEnqueued,
