@@ -1062,7 +1062,16 @@ func (h *Handler) handleCreateApp(c *echo.Context) error {
 
 	app, err := h.Backend.CreateApp(region, h.AccountID, req.Name, req.Tags)
 	if err != nil {
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
+		switch {
+		case errors.Is(err, awserr.ErrInvalidParameter):
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", err.Error())
+		case errors.Is(err, awserr.ErrConflict):
+			return writeErrorResponse(c, http.StatusConflict, "ConflictException", err.Error())
+		case errors.Is(err, awserr.ErrNotFound):
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())
+		default:
+			return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
+		}
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, toAppResponse(app))
