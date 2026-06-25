@@ -307,6 +307,27 @@ type InMemoryBackend struct {
 	region                 string
 }
 
+// maxRegions caps the number of distinct region keys stored in each per-region map.
+// In practice only "" (CLOUDFRONT) and the backend's region are ever used,
+// so this guards against pathological multi-region request storms.
+const maxRegions = 100
+
+// initRegion returns (or lazily creates) the inner map for region in m.
+// If m already holds maxRegions distinct region keys and region is new,
+// a fresh unsaved map is returned so the process doesn't crash but
+// new data beyond the cap is not persisted.
+func initRegion[V any](m map[string]map[string]V, region string) map[string]V {
+	if m[region] == nil {
+		if len(m) >= maxRegions {
+			return make(map[string]V)
+		}
+
+		m[region] = make(map[string]V)
+	}
+
+	return m[region]
+}
+
 // NewInMemoryBackend creates a new in-memory WAFv2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
@@ -334,139 +355,71 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) webACLsStore(region string) map[string]*WebACL {
-	if b.webACLs[region] == nil {
-		b.webACLs[region] = make(map[string]*WebACL)
-	}
-
-	return b.webACLs[region]
+	return initRegion(b.webACLs, region)
 }
 
 func (b *InMemoryBackend) ipSetsStore(region string) map[string]*IPSet {
-	if b.ipSets[region] == nil {
-		b.ipSets[region] = make(map[string]*IPSet)
-	}
-
-	return b.ipSets[region]
+	return initRegion(b.ipSets, region)
 }
 
 func (b *InMemoryBackend) regexPatternSetsStore(region string) map[string]*RegexPatternSet {
-	if b.regexPatternSets[region] == nil {
-		b.regexPatternSets[region] = make(map[string]*RegexPatternSet)
-	}
-
-	return b.regexPatternSets[region]
+	return initRegion(b.regexPatternSets, region)
 }
 
 func (b *InMemoryBackend) ruleGroupsStore(region string) map[string]*RuleGroup {
-	if b.ruleGroups[region] == nil {
-		b.ruleGroups[region] = make(map[string]*RuleGroup)
-	}
-
-	return b.ruleGroups[region]
+	return initRegion(b.ruleGroups, region)
 }
 
 func (b *InMemoryBackend) managedRuleSetsStore(region string) map[string]*ManagedRuleSet {
-	if b.managedRuleSets[region] == nil {
-		b.managedRuleSets[region] = make(map[string]*ManagedRuleSet)
-	}
-
-	return b.managedRuleSets[region]
+	return initRegion(b.managedRuleSets, region)
 }
 
 func (b *InMemoryBackend) apiKeysStore(region string) map[string]*APIKey {
-	if b.apiKeys[region] == nil {
-		b.apiKeys[region] = make(map[string]*APIKey)
-	}
-
-	return b.apiKeys[region]
+	return initRegion(b.apiKeys, region)
 }
 
 func (b *InMemoryBackend) loggingConfigsStore(region string) map[string]json.RawMessage {
-	if b.loggingConfigs[region] == nil {
-		b.loggingConfigs[region] = make(map[string]json.RawMessage)
-	}
-
-	return b.loggingConfigs[region]
+	return initRegion(b.loggingConfigs, region)
 }
 
 func (b *InMemoryBackend) permissionPoliciesStore(region string) map[string]string {
-	if b.permissionPolicies[region] == nil {
-		b.permissionPolicies[region] = make(map[string]string)
-	}
-
-	return b.permissionPolicies[region]
+	return initRegion(b.permissionPolicies, region)
 }
 
 func (b *InMemoryBackend) webACLByARNStore(region string) map[string]string {
-	if b.webACLByARN[region] == nil {
-		b.webACLByARN[region] = make(map[string]string)
-	}
-
-	return b.webACLByARN[region]
+	return initRegion(b.webACLByARN, region)
 }
 
 func (b *InMemoryBackend) ipSetByARNStore(region string) map[string]string {
-	if b.ipSetByARN[region] == nil {
-		b.ipSetByARN[region] = make(map[string]string)
-	}
-
-	return b.ipSetByARN[region]
+	return initRegion(b.ipSetByARN, region)
 }
 
 func (b *InMemoryBackend) regexPatternSetByARNStore(region string) map[string]string {
-	if b.regexPatternSetByARN[region] == nil {
-		b.regexPatternSetByARN[region] = make(map[string]string)
-	}
-
-	return b.regexPatternSetByARN[region]
+	return initRegion(b.regexPatternSetByARN, region)
 }
 
 func (b *InMemoryBackend) ruleGroupByARNStore(region string) map[string]string {
-	if b.ruleGroupByARN[region] == nil {
-		b.ruleGroupByARN[region] = make(map[string]string)
-	}
-
-	return b.ruleGroupByARN[region]
+	return initRegion(b.ruleGroupByARN, region)
 }
 
 func (b *InMemoryBackend) webACLByNameScopeStore(region string) map[string]string {
-	if b.webACLByNameScope[region] == nil {
-		b.webACLByNameScope[region] = make(map[string]string)
-	}
-
-	return b.webACLByNameScope[region]
+	return initRegion(b.webACLByNameScope, region)
 }
 
 func (b *InMemoryBackend) ipSetByNameScopeStore(region string) map[string]string {
-	if b.ipSetByNameScope[region] == nil {
-		b.ipSetByNameScope[region] = make(map[string]string)
-	}
-
-	return b.ipSetByNameScope[region]
+	return initRegion(b.ipSetByNameScope, region)
 }
 
 func (b *InMemoryBackend) regexPatternSetByScopeStore(region string) map[string]string {
-	if b.regexPatternSetByScope[region] == nil {
-		b.regexPatternSetByScope[region] = make(map[string]string)
-	}
-
-	return b.regexPatternSetByScope[region]
+	return initRegion(b.regexPatternSetByScope, region)
 }
 
 func (b *InMemoryBackend) ruleGroupByNameScopeStore(region string) map[string]string {
-	if b.ruleGroupByNameScope[region] == nil {
-		b.ruleGroupByNameScope[region] = make(map[string]string)
-	}
-
-	return b.ruleGroupByNameScope[region]
+	return initRegion(b.ruleGroupByNameScope, region)
 }
 
 func (b *InMemoryBackend) associationsStore(region string) map[string]string {
-	if b.associations[region] == nil {
-		b.associations[region] = make(map[string]string)
-	}
-
-	return b.associations[region]
+	return initRegion(b.associations, region)
 }
 
 // Region returns the AWS region this backend is configured for.

@@ -74,18 +74,23 @@ var (
 // Handler is the HTTP handler for the AWS WAFv2 API.
 type Handler struct {
 	// Backend is the storage interface for WAFv2 operations.
-	Backend   StorageBackend
+	Backend StorageBackend
+	// ops is the dispatch table built once at construction time.
+	ops       map[string]func(context.Context, []byte) ([]byte, error)
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new WAFv2 handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend:   backend,
 		AccountID: backend.accountID,
 		Region:    backend.region,
 	}
+	h.ops = h.buildDispatchTable()
+
+	return h
 }
 
 // Reset clears all backend state.
@@ -214,99 +219,140 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) buildDispatchTable(ctx context.Context) map[string]func([]byte) ([]byte, error) {
-	return map[string]func([]byte) ([]byte, error){
-		"CreateWebACL":          func(b []byte) ([]byte, error) { return h.handleCreateWebACL(ctx, b) },
-		"GetWebACL":             func(b []byte) ([]byte, error) { return h.handleGetWebACL(ctx, b) },
-		"UpdateWebACL":          func(b []byte) ([]byte, error) { return h.handleUpdateWebACL(ctx, b) },
-		"DeleteWebACL":          func(b []byte) ([]byte, error) { return h.handleDeleteWebACL(ctx, b) },
-		"ListWebACLs":           func(b []byte) ([]byte, error) { return h.handleListWebACLs(ctx, b) },
-		"CreateIPSet":           func(b []byte) ([]byte, error) { return h.handleCreateIPSet(ctx, b) },
-		"GetIPSet":              func(b []byte) ([]byte, error) { return h.handleGetIPSet(ctx, b) },
-		"UpdateIPSet":           func(b []byte) ([]byte, error) { return h.handleUpdateIPSet(ctx, b) },
-		"DeleteIPSet":           func(b []byte) ([]byte, error) { return h.handleDeleteIPSet(ctx, b) },
-		"ListIPSets":            func(b []byte) ([]byte, error) { return h.handleListIPSets(ctx, b) },
-		"TagResource":           func(b []byte) ([]byte, error) { return h.handleTagResource(ctx, b) },
-		"ListTagsForResource":   func(b []byte) ([]byte, error) { return h.handleListTagsForResource(ctx, b) },
-		"UntagResource":         func(b []byte) ([]byte, error) { return h.handleUntagResource(ctx, b) },
-		"AssociateWebACL":       func(b []byte) ([]byte, error) { return h.handleAssociateWebACL(ctx, b) },
-		"DisassociateWebACL":    func(b []byte) ([]byte, error) { return h.handleDisassociateWebACL(ctx, b) },
-		"GetWebACLForResource":  func(b []byte) ([]byte, error) { return h.handleGetWebACLForResource(ctx, b) },
-		"CheckCapacity":         func(b []byte) ([]byte, error) { return h.handleCheckCapacity(ctx, b) },
-		"CreateAPIKey":          func(b []byte) ([]byte, error) { return h.handleCreateAPIKey(ctx, b) },
-		"CreateRegexPatternSet": func(b []byte) ([]byte, error) { return h.handleCreateRegexPatternSet(ctx, b) },
-		"CreateRuleGroup":       func(b []byte) ([]byte, error) { return h.handleCreateRuleGroup(ctx, b) },
-		"DeleteAPIKey":          func(b []byte) ([]byte, error) { return h.handleDeleteAPIKey(ctx, b) },
-		"DeleteFirewallManagerRuleGroups": func(b []byte) ([]byte, error) {
-			return h.handleDeleteFirewallManagerRuleGroups(ctx, b)
+//nolint:funlen // dispatch table must enumerate all operations; length is inherent to breadth of the API
+func (h *Handler) buildDispatchTable() map[string]func(context.Context, []byte) ([]byte, error) {
+	type fn = func(context.Context, []byte) ([]byte, error)
+
+	wrapNoCtx := func(f func([]byte) ([]byte, error)) fn {
+		return func(_ context.Context, b []byte) ([]byte, error) { return f(b) }
+	}
+
+	return map[string]fn{
+		"CreateWebACL":  func(c context.Context, b []byte) ([]byte, error) { return h.handleCreateWebACL(c, b) },
+		"GetWebACL":     func(c context.Context, b []byte) ([]byte, error) { return h.handleGetWebACL(c, b) },
+		"UpdateWebACL":  func(c context.Context, b []byte) ([]byte, error) { return h.handleUpdateWebACL(c, b) },
+		"DeleteWebACL":  func(c context.Context, b []byte) ([]byte, error) { return h.handleDeleteWebACL(c, b) },
+		"ListWebACLs":   func(c context.Context, b []byte) ([]byte, error) { return h.handleListWebACLs(c, b) },
+		"CreateIPSet":   func(c context.Context, b []byte) ([]byte, error) { return h.handleCreateIPSet(c, b) },
+		"GetIPSet":      func(c context.Context, b []byte) ([]byte, error) { return h.handleGetIPSet(c, b) },
+		"UpdateIPSet":   func(c context.Context, b []byte) ([]byte, error) { return h.handleUpdateIPSet(c, b) },
+		"DeleteIPSet":   func(c context.Context, b []byte) ([]byte, error) { return h.handleDeleteIPSet(c, b) },
+		"ListIPSets":    func(c context.Context, b []byte) ([]byte, error) { return h.handleListIPSets(c, b) },
+		"TagResource":   func(c context.Context, b []byte) ([]byte, error) { return h.handleTagResource(c, b) },
+		"UntagResource": func(c context.Context, b []byte) ([]byte, error) { return h.handleUntagResource(c, b) },
+		"ListTagsForResource": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleListTagsForResource(c, b)
 		},
-		"DeleteLoggingConfiguration": func(b []byte) ([]byte, error) {
-			return h.handleDeleteLoggingConfiguration(ctx, b)
+		"AssociateWebACL": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleAssociateWebACL(c, b)
 		},
-		"DeletePermissionPolicy": func(b []byte) ([]byte, error) { return h.handleDeletePermissionPolicy(ctx, b) },
-		"DeleteRegexPatternSet":  func(b []byte) ([]byte, error) { return h.handleDeleteRegexPatternSet(ctx, b) },
-		"GetRegexPatternSet":     func(b []byte) ([]byte, error) { return h.handleGetRegexPatternSet(ctx, b) },
-		"ListRegexPatternSets":   func(b []byte) ([]byte, error) { return h.handleListRegexPatternSets(ctx, b) },
-		"UpdateRegexPatternSet":  func(b []byte) ([]byte, error) { return h.handleUpdateRegexPatternSet(ctx, b) },
-		"GetRuleGroup":           func(b []byte) ([]byte, error) { return h.handleGetRuleGroup(ctx, b) },
-		"ListRuleGroups":         func(b []byte) ([]byte, error) { return h.handleListRuleGroups(ctx, b) },
-		"UpdateRuleGroup":        func(b []byte) ([]byte, error) { return h.handleUpdateRuleGroup(ctx, b) },
-		"ListAPIKeys":            func(b []byte) ([]byte, error) { return h.handleListAPIKeys(ctx, b) },
-		"GetDecryptedAPIKey":     func(b []byte) ([]byte, error) { return h.handleGetDecryptedAPIKey(ctx, b) },
-		"PutLoggingConfiguration": func(b []byte) ([]byte, error) {
-			return h.handlePutLoggingConfiguration(ctx, b)
+		"DisassociateWebACL": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleDisassociateWebACL(c, b)
 		},
-		"GetLoggingConfiguration": func(b []byte) ([]byte, error) { return h.handleGetLoggingConfiguration(ctx, b) },
-		"PutPermissionPolicy":     func(b []byte) ([]byte, error) { return h.handlePutPermissionPolicy(ctx, b) },
-		"GetPermissionPolicy":     func(b []byte) ([]byte, error) { return h.handleGetPermissionPolicy(ctx, b) },
-		"ListResourcesForWebACL":  func(b []byte) ([]byte, error) { return h.handleListResourcesForWebACL(ctx, b) },
-		"DeleteRuleGroup":         func(b []byte) ([]byte, error) { return h.handleDeleteRuleGroup(ctx, b) },
-		"DescribeAllManagedProducts": func(b []byte) ([]byte, error) {
-			return h.handleDescribeAllManagedProducts(b)
+		"GetWebACLForResource": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleGetWebACLForResource(c, b)
 		},
-		"DescribeManagedProductsByVendor": func(b []byte) ([]byte, error) {
-			return h.handleDescribeManagedProductsByVendor(b)
+		"CheckCapacity": func(c context.Context, b []byte) ([]byte, error) { return h.handleCheckCapacity(c, b) },
+		"CreateAPIKey":  func(c context.Context, b []byte) ([]byte, error) { return h.handleCreateAPIKey(c, b) },
+		"DeleteAPIKey":  func(c context.Context, b []byte) ([]byte, error) { return h.handleDeleteAPIKey(c, b) },
+		"ListAPIKeys":   func(c context.Context, b []byte) ([]byte, error) { return h.handleListAPIKeys(c, b) },
+		"GetRuleGroup":  func(c context.Context, b []byte) ([]byte, error) { return h.handleGetRuleGroup(c, b) },
+		"DeleteRuleGroup": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleDeleteRuleGroup(c, b)
 		},
-		"DescribeManagedRuleGroup": h.handleDescribeManagedRuleGroup,
-		"GenerateMobileSdkReleaseUrl": func(b []byte) ([]byte, error) {
-			return h.handleGenerateMobileSdkReleaseURL(b)
+		"ListRuleGroups": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleListRuleGroups(c, b)
 		},
-		"GetManagedRuleSet":   func(b []byte) ([]byte, error) { return h.handleGetManagedRuleSet(ctx, b) },
-		"GetMobileSdkRelease": h.handleGetMobileSdkRelease,
-		"GetRateBasedStatementManagedKeys": func(b []byte) ([]byte, error) {
-			return h.handleGetRateBasedStatementManagedKeys(b)
+		"UpdateRuleGroup": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleUpdateRuleGroup(c, b)
 		},
-		"GetSampledRequests": h.handleGetSampledRequests,
-		"GetTopPathStatisticsByTraffic": func(b []byte) ([]byte, error) {
-			return h.handleGetTopPathStatisticsByTraffic(b)
+		"CreateRuleGroup": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleCreateRuleGroup(c, b)
 		},
-		"ListAvailableManagedRuleGroupVersions": func(b []byte) ([]byte, error) {
-			return h.handleListAvailableManagedRuleGroupVersions(b)
+		"CreateRegexPatternSet": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleCreateRegexPatternSet(c, b)
 		},
-		"ListAvailableManagedRuleGroups": func(b []byte) ([]byte, error) {
-			return h.handleListAvailableManagedRuleGroups(b)
+		"DeleteRegexPatternSet": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleDeleteRegexPatternSet(c, b)
 		},
-		"ListLoggingConfigurations": func(b []byte) ([]byte, error) { return h.handleListLoggingConfigurations(ctx, b) },
-		"ListManagedRuleSets":       func(b []byte) ([]byte, error) { return h.handleListManagedRuleSets(ctx, b) },
-		"ListMobileSdkReleases":     h.handleListMobileSdkReleases,
-		"PutManagedRuleSetVersions": func(b []byte) ([]byte, error) {
-			return h.handlePutManagedRuleSetVersions(ctx, b)
+		"GetRegexPatternSet": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleGetRegexPatternSet(c, b)
 		},
-		"UpdateManagedRuleSetVersionExpiryDate": func(b []byte) ([]byte, error) {
-			return h.handleUpdateManagedRuleSetVersionExpiryDate(ctx, b)
+		"ListRegexPatternSets": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleListRegexPatternSets(c, b)
 		},
+		"UpdateRegexPatternSet": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleUpdateRegexPatternSet(c, b)
+		},
+		"GetDecryptedAPIKey": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleGetDecryptedAPIKey(c, b)
+		},
+		"DeleteFirewallManagerRuleGroups": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleDeleteFirewallManagerRuleGroups(c, b)
+		},
+		"DeleteLoggingConfiguration": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleDeleteLoggingConfiguration(c, b)
+		},
+		"DeletePermissionPolicy": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleDeletePermissionPolicy(c, b)
+		},
+		"PutLoggingConfiguration": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handlePutLoggingConfiguration(c, b)
+		},
+		"GetLoggingConfiguration": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleGetLoggingConfiguration(c, b)
+		},
+		"ListLoggingConfigurations": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleListLoggingConfigurations(c, b)
+		},
+		"PutPermissionPolicy": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handlePutPermissionPolicy(c, b)
+		},
+		"GetPermissionPolicy": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleGetPermissionPolicy(c, b)
+		},
+		"ListResourcesForWebACL": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleListResourcesForWebACL(c, b)
+		},
+		"GetManagedRuleSet": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleGetManagedRuleSet(c, b)
+		},
+		"ListManagedRuleSets": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleListManagedRuleSets(c, b)
+		},
+		"PutManagedRuleSetVersions": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handlePutManagedRuleSetVersions(c, b)
+		},
+		"UpdateManagedRuleSetVersionExpiryDate": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleUpdateManagedRuleSetVersionExpiryDate(c, b)
+		},
+		"GetRateBasedStatementManagedKeys": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleGetRateBasedStatementManagedKeys(c, b)
+		},
+		"GetSampledRequests": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleGetSampledRequests(c, b)
+		},
+		"GetTopPathStatisticsByTraffic": func(c context.Context, b []byte) ([]byte, error) {
+			return h.handleGetTopPathStatisticsByTraffic(c, b)
+		},
+		"DescribeAllManagedProducts":            wrapNoCtx(h.handleDescribeAllManagedProducts),
+		"DescribeManagedProductsByVendor":       wrapNoCtx(h.handleDescribeManagedProductsByVendor),
+		"DescribeManagedRuleGroup":              wrapNoCtx(h.handleDescribeManagedRuleGroup),
+		"GenerateMobileSdkReleaseUrl":           wrapNoCtx(h.handleGenerateMobileSdkReleaseURL),
+		"GetMobileSdkRelease":                   wrapNoCtx(h.handleGetMobileSdkRelease),
+		"ListMobileSdkReleases":                 wrapNoCtx(h.handleListMobileSdkReleases),
+		"ListAvailableManagedRuleGroupVersions": wrapNoCtx(h.handleListAvailableManagedRuleGroupVersions),
+		"ListAvailableManagedRuleGroups":        wrapNoCtx(h.handleListAvailableManagedRuleGroups),
 	}
 }
 
 func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte, error) {
-	table := h.buildDispatchTable(ctx)
-
-	fn, ok := table[op]
+	fn, ok := h.ops[op]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
 	}
 
-	return fn(body)
+	return fn(ctx, body)
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
@@ -2459,7 +2505,7 @@ type getRateBasedStatementManagedKeysRequest struct {
 }
 
 // handleGetRateBasedStatementManagedKeys returns empty rate-based managed keys.
-func (h *Handler) handleGetRateBasedStatementManagedKeys(body []byte) ([]byte, error) {
+func (h *Handler) handleGetRateBasedStatementManagedKeys(ctx context.Context, body []byte) ([]byte, error) {
 	var req getRateBasedStatementManagedKeysRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -2469,12 +2515,20 @@ func (h *Handler) handleGetRateBasedStatementManagedKeys(body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
 	}
 
+	if req.WebACLName == "" {
+		return nil, fmt.Errorf("%w: WebACLName is required", errInvalidRequest)
+	}
+
 	if req.WebACLId == "" {
 		return nil, fmt.Errorf("%w: WebACLId is required", errInvalidRequest)
 	}
 
 	if req.RuleName == "" {
 		return nil, fmt.Errorf("%w: RuleName is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetWebACL(ctx, req.WebACLId); err != nil {
+		return nil, err
 	}
 
 	return json.Marshal(map[string]any{
@@ -2493,10 +2547,22 @@ type getSampledRequestsRequest struct {
 }
 
 // handleGetSampledRequests returns an empty sampled requests response.
-func (h *Handler) handleGetSampledRequests(body []byte) ([]byte, error) {
+func (h *Handler) handleGetSampledRequests(ctx context.Context, body []byte) ([]byte, error) {
 	var req getSampledRequestsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
+	if req.WebACLArn == "" {
+		return nil, fmt.Errorf("%w: WebAclArn is required", errInvalidRequest)
+	}
+
+	if req.RuleMetricName == "" {
+		return nil, fmt.Errorf("%w: RuleMetricName is required", errInvalidRequest)
 	}
 
 	if req.MaxItems < 1 || req.MaxItems > maxSampledRequestsItems {
@@ -2505,6 +2571,14 @@ func (h *Handler) handleGetSampledRequests(body []byte) ([]byte, error) {
 
 	if req.TimeWindow == nil {
 		return nil, fmt.Errorf("%w: TimeWindow is required", errInvalidRequest)
+	}
+
+	// Extract WebACL ID from the ARN (last path segment).
+	arnParts := strings.Split(req.WebACLArn, "/")
+	webACLID := arnParts[len(arnParts)-1]
+
+	if _, err := h.Backend.GetWebACL(ctx, webACLID); err != nil {
+		return nil, err
 	}
 
 	return json.Marshal(map[string]any{
@@ -2523,10 +2597,30 @@ type getTopPathStatisticsByTrafficRequest struct {
 }
 
 // handleGetTopPathStatisticsByTraffic returns empty top path statistics.
-func (h *Handler) handleGetTopPathStatisticsByTraffic(body []byte) ([]byte, error) {
+func (h *Handler) handleGetTopPathStatisticsByTraffic(ctx context.Context, body []byte) ([]byte, error) {
 	var req getTopPathStatisticsByTrafficRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
+	if req.WebACLName == "" {
+		return nil, fmt.Errorf("%w: WebACLName is required", errInvalidRequest)
+	}
+
+	if req.WebACLId == "" {
+		return nil, fmt.Errorf("%w: WebACLId is required", errInvalidRequest)
+	}
+
+	if req.TimeWindow == nil {
+		return nil, fmt.Errorf("%w: TimeWindow is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetWebACL(ctx, req.WebACLId); err != nil {
+		return nil, err
 	}
 
 	return json.Marshal(map[string]any{"UrlStatistics": []any{}})

@@ -106,6 +106,14 @@ func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
 
+// HandlerDispatchOpsLen returns the number of entries in the pre-built dispatch table.
+func HandlerDispatchOpsLen(h *Handler) int {
+	return len(h.ops)
+}
+
+// MaxRegions exposes the per-region map cap for test assertions.
+const MaxRegions = maxRegions
+
 // AddWebACLInternal inserts a WebACL directly into the backend, bypassing validation.
 func AddWebACLInternal(b *InMemoryBackend, w *WebACL) {
 	b.mu.Lock("AddWebACLInternal")
