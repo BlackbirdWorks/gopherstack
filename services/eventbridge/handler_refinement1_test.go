@@ -45,7 +45,7 @@ func TestRefinement1_Reset(t *testing.T) {
 				assert.Equal(t, 0, b.ReplayCount())
 				assert.Equal(t, 0, b.PartnerSourceCount())
 
-				buses, _, err := b.ListEventBuses(context.Background(), "", "")
+				buses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
 				require.NoError(t, err)
 				assert.Len(t, buses, 1)
 				assert.Equal(t, "default", buses[0].Name)
@@ -75,7 +75,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	for range 5 {
 		b.Reset()
 
-		buses, _, err := b.ListEventBuses(context.Background(), "", "")
+		buses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
 		require.NoError(t, err)
 		assert.Len(t, buses, 1)
 	}

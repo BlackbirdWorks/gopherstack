@@ -66,7 +66,7 @@ func TestRegionIsolation_EventBus(t *testing.T) {
 			}
 
 			// List buses from the list region.
-			buses, _, err := b.ListEventBuses(regionCtx(tc.listRegion), "", "")
+			buses, _, err := b.ListEventBuses(regionCtx(tc.listRegion), "", "", 0)
 			if err != nil {
 				t.Fatalf("ListEventBuses: %v", err)
 			}
@@ -185,7 +185,7 @@ func TestRegionIsolation_DefaultBus(t *testing.T) {
 
 	// The default bus is created with the backend's default region (config.DefaultRegion).
 	// Requesting from a different region should not see it.
-	buses, _, err := b.ListEventBuses(regionCtx("us-west-2"), "", "")
+	buses, _, err := b.ListEventBuses(regionCtx("us-west-2"), "", "", 0)
 	if err != nil {
 		t.Fatalf("ListEventBuses: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestRegionIsolation_DefaultBus(t *testing.T) {
 	}
 
 	// The backend's own region should see the default bus.
-	defaultBuses, _, err := b.ListEventBuses(context.Background(), "", "")
+	defaultBuses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
 	if err != nil {
 		t.Fatalf("ListEventBuses default region: %v", err)
 	}

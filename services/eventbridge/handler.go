@@ -114,6 +114,7 @@ type Handler struct {
 	archiveJanitor *ArchiveJanitor
 	tags           map[string]*svcTags.Tags
 	tagsMu         *lockmetrics.RWMutex
+	cancelWorkers  func()
 	DefaultRegion  string
 }
 
@@ -124,6 +125,7 @@ func NewHandler(backend StorageBackend) *Handler {
 		DefaultRegion: config.DefaultRegion,
 		tags:          make(map[string]*svcTags.Tags),
 		tagsMu:        lockmetrics.New("eb.tags"),
+		cancelWorkers: func() {},
 	}
 	h.ops = h.buildOps()
 
@@ -159,6 +161,14 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	return t.Clone()
 }
 
+// clearResourceTags removes all tag state for a resource ARN from the handler's
+// tag map. Called when a bus or rule is deleted so the map doesn't grow unbounded.
+func (h *Handler) clearResourceTags(resourceARN string) {
+	h.tagsMu.Lock("clearResourceTags")
+	defer h.tagsMu.Unlock()
+	delete(h.tags, resourceARN)
+}
+
 // SetScheduler attaches a Scheduler to the handler. The scheduler is started as a
 // background worker when StartWorker is called (which satisfies service.BackgroundWorker).
 func (h *Handler) SetScheduler(s *Scheduler) {
@@ -171,23 +181,32 @@ func (h *Handler) SetArchiveJanitor(j *ArchiveJanitor) {
 }
 
 // StartWorker implements service.BackgroundWorker.
-// It starts the EventBridge scheduled-rules scheduler as a background goroutine.
+// It starts the EventBridge scheduled-rules scheduler and archive janitor as
+// background goroutines. A derived context is stored so Shutdown can cancel
+// both goroutines independently of the backend lifecycle.
 func (h *Handler) StartWorker(ctx context.Context) error {
+	workerCtx, cancel := context.WithCancel(ctx)
+	h.cancelWorkers = cancel
+
 	if h.scheduler != nil {
-		go h.scheduler.Run(ctx)
+		go h.scheduler.Run(workerCtx)
 	}
+
 	if h.archiveJanitor != nil {
-		go h.archiveJanitor.Run(ctx)
+		go h.archiveJanitor.Run(workerCtx)
 	}
 
 	return nil
 }
 
 // Shutdown implements service.Shutdowner.
-// It cancels the backend's internal lifecycle context and waits for all
-// in-flight delivery goroutines to finish. If ctx expires before Close
-// returns, Shutdown returns immediately so the process shutdown is not blocked.
+// It cancels the scheduler and archive janitor goroutines, then cancels the
+// backend's internal lifecycle context and waits for all in-flight delivery
+// goroutines to finish. If ctx expires before Close returns, Shutdown returns
+// immediately so the process shutdown is not blocked.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.cancelWorkers()
+
 	type closer interface{ Close() }
 
 	b, ok := h.Backend.(closer)
@@ -458,8 +477,13 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+			// Capture ARN before deletion so we can clean up tags.
+			bus, _ := h.Backend.DescribeEventBus(ctx, input.Name)
 			if err := h.Backend.DeleteEventBus(ctx, input.Name); err != nil {
 				return nil, err
+			}
+			if bus != nil {
+				h.clearResourceTags(bus.Arn)
 			}
 
 			return &deleteEventBusOutput{}, nil
@@ -469,7 +493,7 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			buses, next, err := h.Backend.ListEventBuses(ctx, input.NamePrefix, input.NextToken)
+			buses, next, err := h.Backend.ListEventBuses(ctx, input.NamePrefix, input.NextToken, input.Limit)
 			if err != nil {
 				return nil, err
 			}
@@ -513,8 +537,13 @@ func (h *Handler) ruleActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+			// Capture ARN before deletion so we can clean up tags.
+			rule, _ := h.Backend.DescribeRule(ctx, input.Name, input.EventBusName)
 			if err := h.Backend.DeleteRule(ctx, input.Name, input.EventBusName); err != nil {
 				return nil, err
+			}
+			if rule != nil {
+				h.clearResourceTags(rule.Arn)
 			}
 
 			return &deleteRuleOutput{}, nil
