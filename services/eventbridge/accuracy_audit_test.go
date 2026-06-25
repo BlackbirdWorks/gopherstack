@@ -2049,7 +2049,7 @@ func TestAudit_EventBus_ListPagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	buses, _, err := b.ListEventBuses(context.Background(), "page-bus-", "")
+	buses, _, err := b.ListEventBuses(context.Background(), "page-bus-", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, buses, 5)
 }

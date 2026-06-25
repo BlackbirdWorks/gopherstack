@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -96,7 +97,7 @@ type ruleIndexKey struct {
 type StorageBackend interface {
 	CreateEventBus(ctx context.Context, name, description string) (*EventBus, error)
 	DeleteEventBus(ctx context.Context, name string) error
-	ListEventBuses(ctx context.Context, namePrefix, nextToken string) ([]EventBus, string, error)
+	ListEventBuses(ctx context.Context, namePrefix, nextToken string, limit int) ([]EventBus, string, error)
 	DescribeEventBus(ctx context.Context, name string) (*EventBus, error)
 	PutRule(ctx context.Context, input PutRuleInput) (*Rule, error)
 	DeleteRule(ctx context.Context, name, eventBusName string) error
@@ -700,11 +701,13 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, name, description 
 		return nil, fmt.Errorf("%w: Event bus %s already exists", ErrEventBusAlreadyExists, name)
 	}
 
-	// Count custom buses (exclude the default bus against the limit).
+	// Count custom buses across all regions — the AWS limit is per-account, not per-region.
 	customBusCount := 0
-	for busName := range buses {
-		if busName != defaultEventBusName {
-			customBusCount++
+	for _, regionBuses := range b.buses {
+		for busName := range regionBuses {
+			if busName != defaultEventBusName {
+				customBusCount++
+			}
 		}
 	}
 	if customBusCount >= maxEventBusesPerAccount {
@@ -764,9 +767,11 @@ func (b *InMemoryBackend) DeleteEventBus(ctx context.Context, name string) error
 }
 
 // ListEventBuses returns event buses optionally filtered by name prefix, with pagination.
+// limit controls the page size; 0 uses the backend default (100).
 func (b *InMemoryBackend) ListEventBuses(
 	ctx context.Context,
 	namePrefix, nextToken string,
+	limit int,
 ) ([]EventBus, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
@@ -782,7 +787,7 @@ func (b *InMemoryBackend) ListEventBuses(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }
@@ -1287,10 +1292,24 @@ func (b *InMemoryBackend) GetEventLog(ctx context.Context) []EventLogEntry { //n
 	return log
 }
 
+// encodeNextToken encodes a pagination offset as an opaque base64 token.
+// Real AWS EventBridge tokens are opaque; encoding prevents callers from
+// treating the token as a stable integer offset.
+func encodeNextToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
 func parseNextToken(token string) int {
 	if token == "" {
 		return 0
 	}
+	// Try base64-encoded offset first (current format).
+	if decoded, decErr := base64.StdEncoding.DecodeString(token); decErr == nil {
+		if idx, atoiErr := strconv.Atoi(string(decoded)); atoiErr == nil && idx >= 0 {
+			return idx
+		}
+	}
+	// Fallback: accept plain decimal strings from tokens produced before this change.
 	idx, err := strconv.Atoi(token)
 	if err != nil || idx < 0 {
 		return 0
@@ -1299,20 +1318,29 @@ func parseNextToken(token string) int {
 	return idx
 }
 
-// paginate applies offset-based pagination to a pre-sorted slice.
-// It returns the page slice and the next-page token (or "").
+// paginate applies offset-based pagination to a pre-sorted slice with the default
+// page size. It returns the page slice and an opaque next-page token (or "").
 func paginate[T any](all []T, nextToken string) ([]T, string) {
+	return paginateN(all, nextToken, 0)
+}
+
+// paginateN is like paginate but respects a caller-supplied page size.
+// A limit of 0 uses the default page size (100).
+func paginateN[T any](all []T, nextToken string, limit int) ([]T, string) {
 	const defaultLimit = 100
+	if limit <= 0 {
+		limit = defaultLimit
+	}
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
 		return []T{}, ""
 	}
 
-	end := startIdx + defaultLimit
+	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
