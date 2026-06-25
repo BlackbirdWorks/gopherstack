@@ -698,7 +698,9 @@ func (b *InMemoryBackend) GetQueueAttributes(
 		return nil, ErrQueueNotFound
 	}
 
+	q.mu.Lock()
 	computed := computeDynamicAttributes(q)
+	q.mu.Unlock()
 	wantAll := len(input.AttributeNames) == 0 || containsAll(input.AttributeNames)
 
 	result := make(map[string]string)

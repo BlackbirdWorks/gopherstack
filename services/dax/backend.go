@@ -692,11 +692,12 @@ func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFac
 	}
 
 	now := time.Now().UTC()
+	existingCount := len(cluster.Nodes)
 
-	for i := len(cluster.Nodes); i < input.NewReplicationFactor; i++ {
+	for i := existingCount; i < input.NewReplicationFactor; i++ {
 		az := b.Region + "a"
-		if i < len(input.AvailabilityZones) {
-			az = input.AvailabilityZones[i-len(cluster.Nodes)]
+		if j := i - existingCount; j < len(input.AvailabilityZones) {
+			az = input.AvailabilityZones[j]
 		}
 
 		nodeID := fmt.Sprintf("%s-%04d", input.ClusterName, i)
@@ -796,7 +797,7 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 	}
 
 	if nodeID == "" {
-		return nil, fmt.Errorf("%w: NodeId is required", ErrNodeNotFound)
+		return nil, fmt.Errorf("%w: NodeId is required", ErrInvalidParameterValue)
 	}
 
 	b.mu.Lock("RebootNode")
@@ -833,6 +834,25 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 
 	b.emitEventLocked(clusterName, EventSourceTypeNode,
 		fmt.Sprintf("Node %s reboot initiated.", nodeID))
+
+	go func() {
+		time.Sleep(time.Second)
+		b.mu.Lock("RebootNode:recovery")
+		defer b.mu.Unlock()
+		c, exists := b.clusters[clusterName]
+		if !exists {
+			return
+		}
+		for i := range c.Nodes {
+			if c.Nodes[i].NodeID == nodeID {
+				c.Nodes[i].NodeStatus = StatusAvailable
+
+				break
+			}
+		}
+		b.emitEventLocked(clusterName, EventSourceTypeNode,
+			fmt.Sprintf("Node %s reboot complete.", nodeID))
+	}()
 
 	return b.clusterCopy(cluster), nil
 }
@@ -1102,6 +1122,18 @@ func (b *InMemoryBackend) UpdateParameterGroup(input UpdateParameterGroupInput) 
 		}
 
 		pg.Parameters[pv.ParameterName] = pv.ParameterValue
+	}
+
+	for _, cluster := range b.clusters {
+		if cluster.ParameterGroup.ParameterGroupName != input.ParameterGroupName {
+			continue
+		}
+		nodeIDs := make([]string, 0, len(cluster.Nodes))
+		for _, n := range cluster.Nodes {
+			nodeIDs = append(nodeIDs, n.NodeID)
+		}
+		cluster.ParameterGroup.ParameterApplyStatus = "pending-reboot"
+		cluster.ParameterGroup.NodeIDsToReboot = nodeIDs
 	}
 
 	b.emitEventLocked(input.ParameterGroupName, EventSourceTypeParameterGroup,
