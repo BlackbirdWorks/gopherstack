@@ -127,6 +127,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// Rebuild queuesByArn index from restored queues.
+	b.queuesByArn = make(map[string]*Queue, len(b.queues))
+	for _, q := range b.queues {
+		b.queuesByArn[q.Arn] = q
+	}
+
 	if len(b.queueCounters) == 0 {
 		b.rebuildCountersLocked()
 	}
