@@ -13,7 +13,7 @@ type StorageBackend interface {
 	DeleteLifecyclePolicy(policyID string) error
 	GetLifecyclePolicies(policyIDs []string, state string) ([]*PolicySummary, error)
 	GetLifecyclePolicy(policyID string) (*Policy, error)
-	UpdateLifecyclePolicy(policyID, description, executionRoleARN, state string) error
+	UpdateLifecyclePolicy(policyID, description, executionRoleARN, state string, policyDetails map[string]any) error
 
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
