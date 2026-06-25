@@ -493,6 +493,7 @@ type InMemoryBackend struct {
 	vpcAuthorizations      map[string][]AuthorizedPrincipal
 	vpcEndpoints           map[string]*VpcEndpoint
 	applications           map[string]*Application
+	applicationNames       map[string]string // name → id, for O(1) uniqueness checks
 	packages               map[string]*Package
 	scheduledActions       map[string][]*ScheduledAction
 	reservedInstances      map[string]*ReservedInstance
@@ -535,6 +536,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		vpcAuthorizations:      make(map[string][]AuthorizedPrincipal),
 		vpcEndpoints:           make(map[string]*VpcEndpoint),
 		applications:           make(map[string]*Application),
+		applicationNames:       make(map[string]string),
 		packages:               make(map[string]*Package),
 		scheduledActions:       make(map[string][]*ScheduledAction),
 		reservedInstances:      make(map[string]*ReservedInstance),
@@ -658,6 +660,11 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	}
 	delete(b.domainPackages, name)
 
+	delete(b.domainMaintenances, name)
+	delete(b.upgradeHistory, upgradeHistoryKey(name))
+	delete(b.autoTunes, autoTuneKey(name))
+	delete(b.dryRuns, name)
+
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(cp.Endpoint)
 	}
@@ -760,14 +767,10 @@ func (b *InMemoryBackend) AcceptInboundConnection(connectionID string) (*Inbound
 
 	conn, exists := b.inboundConnections[connectionID]
 	if !exists {
-		conn = &InboundConnection{
-			ConnectionID: connectionID,
-			Status:       connectionStatusActive,
-		}
-		b.inboundConnections[connectionID] = conn
-	} else {
-		conn.Status = connectionStatusActive
+		return nil, fmt.Errorf("%w: connection %s not found", ErrConnectionNotFound, connectionID)
 	}
+
+	conn.Status = connectionStatusActive
 
 	cp := *conn
 
@@ -935,6 +938,10 @@ func (b *InMemoryBackend) AssociatePackages(
 	results := make([]DomainPackageDetails, 0, len(packageIDs))
 
 	for _, pkgID := range packageIDs {
+		if _, exists := b.packages[pkgID]; !exists {
+			return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, pkgID)
+		}
+
 		b.addPackageAssociation(pkgID, domainName)
 		results = append(results, DomainPackageDetails{
 			PackageID:  pkgID,
@@ -987,14 +994,22 @@ func (b *InMemoryBackend) CancelDomainConfigChange(
 		return nil, false, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("CancelDomainConfigChange")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CancelDomainConfigChange")
+	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	d, exists := b.domains[domainName]
+	if !exists {
 		return nil, false, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	return []string{}, dryRun, nil
+	var cancelledChangeIDs []string
+
+	if d.LastChangeID != "" {
+		cancelledChangeIDs = append(cancelledChangeIDs, d.LastChangeID)
+		d.LastChangeID = ""
+	}
+
+	return cancelledChangeIDs, dryRun, nil
 }
 
 // CancelServiceSoftwareUpdate cancels a pending service software update.
@@ -1005,8 +1020,8 @@ func (b *InMemoryBackend) CancelServiceSoftwareUpdate(
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("CancelServiceSoftwareUpdate")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CancelServiceSoftwareUpdate")
+	defer b.mu.Unlock()
 
 	if _, exists := b.domains[domainName]; !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
@@ -1017,8 +1032,8 @@ func (b *InMemoryBackend) CancelServiceSoftwareUpdate(
 		NewVersion:      "",
 		UpdateAvailable: false,
 		Cancellable:     false,
-		UpdateStatus:    softwareUpdateCompleted,
-		Description:     "There is no software update available for this domain.",
+		UpdateStatus:    "CANCELLED",
+		Description:     "Cancellation complete.",
 	}, nil
 }
 
@@ -1035,14 +1050,12 @@ func (b *InMemoryBackend) CreateApplication(
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
-	for _, app := range b.applications {
-		if app.Name == name {
-			return nil, fmt.Errorf(
-				"%w: application %s already exists",
-				ErrApplicationAlreadyExists,
-				name,
-			)
-		}
+	if _, exists := b.applicationNames[name]; exists {
+		return nil, fmt.Errorf(
+			"%w: application %s already exists",
+			ErrApplicationAlreadyExists,
+			name,
+		)
 	}
 
 	b.appIDCounter++
@@ -1065,6 +1078,7 @@ func (b *InMemoryBackend) CreateApplication(
 		DataSources: dataSources,
 	}
 	b.applications[id] = app
+	b.applicationNames[name] = id
 
 	cp := *app
 	cp.AppConfigs = make([]AppConfig, len(app.AppConfigs))
@@ -1095,6 +1109,7 @@ func (b *InMemoryBackend) Reset() {
 	b.vpcAuthorizations = make(map[string][]AuthorizedPrincipal)
 	b.vpcEndpoints = make(map[string]*VpcEndpoint)
 	b.applications = make(map[string]*Application)
+	b.applicationNames = make(map[string]string)
 	b.packages = make(map[string]*Package)
 	b.scheduledActions = make(map[string][]*ScheduledAction)
 	b.reservedInstances = make(map[string]*ReservedInstance)
@@ -2173,10 +2188,12 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	if _, exists := b.applications[id]; !exists {
+	app, exists := b.applications[id]
+	if !exists {
 		return fmt.Errorf("%w: application %s not found", ErrApplicationNotFound, id)
 	}
 
+	delete(b.applicationNames, app.Name)
 	delete(b.applications, id)
 
 	return nil
