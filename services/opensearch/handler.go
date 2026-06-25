@@ -510,8 +510,8 @@ type domainEndpointOptionsJSON struct {
 
 // samlOptionsJSON is the JSON representation of SAML options.
 type samlOptionsJSON struct {
-	IDPEntityID           string `json:"Idp,omitempty"`
-	IDPMetadataContent    string `json:"MasterBackendRole,omitempty"`
+	IDPEntityID           string `json:"IDPEntityID,omitempty"`
+	IDPMetadataContent    string `json:"IDPMetadataContent,omitempty"`
 	RolesKey              string `json:"RolesKey,omitempty"`
 	SubjectKey            string `json:"SubjectKey,omitempty"`
 	SessionTimeoutMinutes int    `json:"SessionTimeoutMinutes,omitempty"`
@@ -1234,22 +1234,13 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 
 func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) {
 	engineTypeFilter := r.URL.Query().Get("engineType")
-	names := h.Backend.ListDomainNames()
-	entries := make([]domainNameEntry, 0, len(names))
+	domainEntries := h.Backend.ListDomainEntriesFiltered(engineTypeFilter)
+	entries := make([]domainNameEntry, 0, len(domainEntries))
 
-	for _, name := range names {
-		d, err := h.Backend.DescribeDomain(name)
-		if err != nil {
-			continue
-		}
-
-		if engineTypeFilter != "" && !strings.HasPrefix(d.EngineVersion, engineTypeFilter+"_") {
-			continue
-		}
-
+	for _, de := range domainEntries {
 		entries = append(entries, domainNameEntry{
-			DomainName:    name,
-			EngineVersion: d.EngineVersion,
+			DomainName:    de.Name,
+			EngineVersion: de.EngineVersion,
 		})
 	}
 
