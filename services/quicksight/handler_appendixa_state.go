@@ -53,7 +53,7 @@ func (h *Handler) handleCreateFolder(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyArn:       f.Arn,
 		keyFolderID:  f.FolderID,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -70,7 +70,7 @@ func (h *Handler) handleDescribeFolder(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyFolder:    folderToMap(f),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -93,7 +93,7 @@ func (h *Handler) handleUpdateFolder(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyArn:       f.Arn,
 		keyFolderID:  f.FolderID,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -110,7 +110,7 @@ func (h *Handler) handleDeleteFolder(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyArn:       h.buildResourceARN("folder", folderID),
 		keyFolderID:  folderID,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -119,7 +119,7 @@ func (h *Handler) handleListFolders(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
 
-	folders, err := h.Backend.ListFolders(accountID)
+	folders, next, err := h.Backend.ListFolders(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -129,11 +129,16 @@ func (h *Handler) handleListFolders(c *echo.Context) error {
 		items = append(items, folderToMap(f))
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyFolderSummaries: items,
-		keyRequestID:       reqIDPlaceholder,
+		keyRequestID:       newReqID(),
 		keyStatus:          http.StatusOK,
-	})
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func folderToMap(f *Folder) map[string]any {
@@ -168,7 +173,7 @@ func (h *Handler) handleCreateTemplate(c *echo.Context) error {
 		keyArn:            t.Arn,
 		keyTemplateID:     t.TemplateID,
 		keyCreationStatus: t.Status,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusOK,
 	})
 }
@@ -185,7 +190,7 @@ func (h *Handler) handleDescribeTemplate(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyTemplate:  templateToMap(t),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -209,7 +214,7 @@ func (h *Handler) handleUpdateTemplate(c *echo.Context) error {
 		keyArn:            t.Arn,
 		keyTemplateID:     t.TemplateID,
 		keyCreationStatus: t.Status,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusOK,
 	})
 }
@@ -226,7 +231,7 @@ func (h *Handler) handleDeleteTemplate(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyArn:        h.buildResourceARN("template", templateID),
 		keyTemplateID: templateID,
-		keyRequestID:  reqIDPlaceholder,
+		keyRequestID:  newReqID(),
 		keyStatus:     http.StatusOK,
 	})
 }
@@ -235,7 +240,7 @@ func (h *Handler) handleListTemplates(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
 
-	templates, err := h.Backend.ListTemplates(accountID)
+	templates, next, err := h.Backend.ListTemplates(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -245,11 +250,16 @@ func (h *Handler) handleListTemplates(c *echo.Context) error {
 		items = append(items, templateToMap(t))
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyTemplateSummaries: items,
-		keyRequestID:         reqIDPlaceholder,
+		keyRequestID:         newReqID(),
 		keyStatus:            http.StatusOK,
-	})
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func templateToMap(t *Template) map[string]any {
@@ -284,7 +294,7 @@ func (h *Handler) handleCreateTheme(c *echo.Context) error {
 		keyArn:            t.Arn,
 		keyThemeID:        t.ThemeID,
 		keyCreationStatus: t.Status,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusOK,
 	})
 }
@@ -301,7 +311,7 @@ func (h *Handler) handleDescribeTheme(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyTheme:     themeToMap(t),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -325,7 +335,7 @@ func (h *Handler) handleUpdateTheme(c *echo.Context) error {
 		keyArn:            t.Arn,
 		keyThemeID:        t.ThemeID,
 		keyCreationStatus: t.Status,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusOK,
 	})
 }
@@ -342,7 +352,7 @@ func (h *Handler) handleDeleteTheme(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyArn:       h.buildResourceARN("theme", themeID),
 		keyThemeID:   themeID,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -351,7 +361,7 @@ func (h *Handler) handleListThemes(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
 
-	themes, err := h.Backend.ListThemes(accountID)
+	themes, next, err := h.Backend.ListThemes(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -361,11 +371,16 @@ func (h *Handler) handleListThemes(c *echo.Context) error {
 		items = append(items, themeToMap(t))
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyThemeSummaries: items,
-		keyRequestID:      reqIDPlaceholder,
+		keyRequestID:      newReqID(),
 		keyStatus:         http.StatusOK,
-	})
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func themeToMap(t *Theme) map[string]any {
@@ -400,7 +415,7 @@ func (h *Handler) handleCreateVPCConnection(c *echo.Context) error {
 		keyVPCConnectionID:   v.VPCConnectionID,
 		keyCreationStatus:    v.Status,
 		"AvailabilityStatus": v.AvailabilityState,
-		keyRequestID:         reqIDPlaceholder,
+		keyRequestID:         newReqID(),
 		keyStatus:            http.StatusOK,
 	})
 }
@@ -417,7 +432,7 @@ func (h *Handler) handleDescribeVPCConnection(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyVPCConnection: vpcConnectionToMap(v),
-		keyRequestID:     reqIDPlaceholder,
+		keyRequestID:     newReqID(),
 		keyStatus:        http.StatusOK,
 	})
 }
@@ -441,7 +456,7 @@ func (h *Handler) handleUpdateVPCConnection(c *echo.Context) error {
 		keyArn:             v.Arn,
 		keyVPCConnectionID: v.VPCConnectionID,
 		keyUpdateStatus:    v.Status,
-		keyRequestID:       reqIDPlaceholder,
+		keyRequestID:       newReqID(),
 		keyStatus:          http.StatusOK,
 	})
 }
@@ -460,7 +475,7 @@ func (h *Handler) handleDeleteVPCConnection(c *echo.Context) error {
 		keyArn:             v.Arn,
 		keyVPCConnectionID: v.VPCConnectionID,
 		"DeletionStatus":   v.Status,
-		keyRequestID:       reqIDPlaceholder,
+		keyRequestID:       newReqID(),
 		keyStatus:          http.StatusOK,
 	})
 }
@@ -469,7 +484,7 @@ func (h *Handler) handleListVPCConnections(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
 
-	conns, err := h.Backend.ListVPCConnections(accountID)
+	conns, next, err := h.Backend.ListVPCConnections(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -479,11 +494,16 @@ func (h *Handler) handleListVPCConnections(c *echo.Context) error {
 		items = append(items, vpcConnectionToMap(v))
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyVPCConnSummaries: items,
-		keyRequestID:        reqIDPlaceholder,
+		keyRequestID:        newReqID(),
 		keyStatus:           http.StatusOK,
-	})
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func vpcConnectionToMap(v *VPCConnection) map[string]any {
@@ -518,7 +538,7 @@ func (h *Handler) handleCreateBrand(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyBrandArn:  br.Arn,
 		keyBrandID:   br.BrandID,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -535,7 +555,7 @@ func (h *Handler) handleDescribeBrand(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyBrand:     brandToMap(br),
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -558,7 +578,7 @@ func (h *Handler) handleUpdateBrand(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyBrandArn:  br.Arn,
 		keyBrandID:   br.BrandID,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -574,7 +594,7 @@ func (h *Handler) handleDeleteBrand(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyBrandID:   brandID,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
 }
@@ -583,7 +603,7 @@ func (h *Handler) handleListBrands(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
 
-	brands, err := h.Backend.ListBrands(accountID)
+	brands, next, err := h.Backend.ListBrands(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -593,11 +613,16 @@ func (h *Handler) handleListBrands(c *echo.Context) error {
 		items = append(items, brandToMap(br))
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyBrands:    items,
-		keyRequestID: reqIDPlaceholder,
+		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
-	})
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func brandToMap(br *Brand) map[string]any {

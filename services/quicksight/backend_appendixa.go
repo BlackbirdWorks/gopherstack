@@ -1,6 +1,7 @@
 package quicksight
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -224,19 +225,23 @@ func (b *InMemoryBackend) DeleteFolder(accountID, folderID string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListFolders(accountID string) ([]*Folder, error) {
+func (b *InMemoryBackend) ListFolders(accountID string, maxResults int32, nextToken string) ([]*Folder, string, error) {
 	b.mu.RLock("ListFolders")
 	defer b.mu.RUnlock()
 
 	prefix := accountID + "/"
-	result := make([]*Folder, 0, len(b.folders))
+	all := make([]*Folder, 0)
 	for k, f := range b.folders {
 		if strings.HasPrefix(k, prefix) {
-			result = append(result, f.toFolder())
+			all = append(all, f.toFolder())
 		}
 	}
 
-	return result, nil
+	sort.Slice(all, func(i, j int) bool { return all[i].FolderID < all[j].FolderID })
+
+	result, next := paginateSlice(len(all), maxResults, nextToken, func(i int) *Folder { return all[i] })
+
+	return result, next, nil
 }
 
 // ---- Templates ----
@@ -316,19 +321,27 @@ func (b *InMemoryBackend) DeleteTemplate(accountID, templateID string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListTemplates(accountID string) ([]*Template, error) {
+func (b *InMemoryBackend) ListTemplates(
+	accountID string,
+	maxResults int32,
+	nextToken string,
+) ([]*Template, string, error) {
 	b.mu.RLock("ListTemplates")
 	defer b.mu.RUnlock()
 
 	prefix := accountID + "/"
-	result := make([]*Template, 0, len(b.templates))
+	all := make([]*Template, 0)
 	for k, t := range b.templates {
 		if strings.HasPrefix(k, prefix) {
-			result = append(result, t.toTemplate())
+			all = append(all, t.toTemplate())
 		}
 	}
 
-	return result, nil
+	sort.Slice(all, func(i, j int) bool { return all[i].TemplateID < all[j].TemplateID })
+
+	result, next := paginateSlice(len(all), maxResults, nextToken, func(i int) *Template { return all[i] })
+
+	return result, next, nil
 }
 
 // ---- Themes ----
@@ -408,19 +421,23 @@ func (b *InMemoryBackend) DeleteTheme(accountID, themeID string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListThemes(accountID string) ([]*Theme, error) {
+func (b *InMemoryBackend) ListThemes(accountID string, maxResults int32, nextToken string) ([]*Theme, string, error) {
 	b.mu.RLock("ListThemes")
 	defer b.mu.RUnlock()
 
 	prefix := accountID + "/"
-	result := make([]*Theme, 0, len(b.themes))
+	all := make([]*Theme, 0)
 	for k, t := range b.themes {
 		if strings.HasPrefix(k, prefix) {
-			result = append(result, t.toTheme())
+			all = append(all, t.toTheme())
 		}
 	}
 
-	return result, nil
+	sort.Slice(all, func(i, j int) bool { return all[i].ThemeID < all[j].ThemeID })
+
+	result, next := paginateSlice(len(all), maxResults, nextToken, func(i int) *Theme { return all[i] })
+
+	return result, next, nil
 }
 
 // ---- VPC Connections ----
@@ -502,19 +519,27 @@ func (b *InMemoryBackend) DeleteVPCConnection(accountID, vpcConnectionID string)
 	return deleted, nil
 }
 
-func (b *InMemoryBackend) ListVPCConnections(accountID string) ([]*VPCConnection, error) {
+func (b *InMemoryBackend) ListVPCConnections(
+	accountID string,
+	maxResults int32,
+	nextToken string,
+) ([]*VPCConnection, string, error) {
 	b.mu.RLock("ListVPCConnections")
 	defer b.mu.RUnlock()
 
 	prefix := accountID + "/"
-	result := make([]*VPCConnection, 0, len(b.vpcConnections))
+	all := make([]*VPCConnection, 0)
 	for k, v := range b.vpcConnections {
 		if strings.HasPrefix(k, prefix) {
-			result = append(result, v.toVPCConnection())
+			all = append(all, v.toVPCConnection())
 		}
 	}
 
-	return result, nil
+	sort.Slice(all, func(i, j int) bool { return all[i].VPCConnectionID < all[j].VPCConnectionID })
+
+	result, next := paginateSlice(len(all), maxResults, nextToken, func(i int) *VPCConnection { return all[i] })
+
+	return result, next, nil
 }
 
 // ---- Brands ----
@@ -592,17 +617,52 @@ func (b *InMemoryBackend) DeleteBrand(accountID, brandID string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListBrands(accountID string) ([]*Brand, error) {
+func (b *InMemoryBackend) ListBrands(accountID string, maxResults int32, nextToken string) ([]*Brand, string, error) {
 	b.mu.RLock("ListBrands")
 	defer b.mu.RUnlock()
 
 	prefix := accountID + "/"
-	result := make([]*Brand, 0, len(b.brands))
+	all := make([]*Brand, 0)
 	for k, br := range b.brands {
 		if strings.HasPrefix(k, prefix) {
-			result = append(result, br.toBrand())
+			all = append(all, br.toBrand())
 		}
 	}
 
-	return result, nil
+	sort.Slice(all, func(i, j int) bool { return all[i].BrandID < all[j].BrandID })
+
+	result, next := paginateSlice(len(all), maxResults, nextToken, func(i int) *Brand { return all[i] })
+
+	return result, next, nil
+}
+
+// paginateSlice applies maxResults/nextToken pagination to an already-sorted slice.
+// The getter func extracts element i from the caller's slice.
+func paginateSlice[T any](length int, maxResults int32, nextToken string, getter func(int) T) ([]T, string) {
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
+		}
+	}
+
+	end := start + int(maxResults)
+
+	var next string
+	if end < length {
+		next = encodePageToken(end)
+	} else {
+		end = length
+	}
+
+	result := make([]T, 0, end-start)
+	for i := start; i < end; i++ {
+		result = append(result, getter(i))
+	}
+
+	return result, next
 }

@@ -3,6 +3,7 @@ package quicksight
 import (
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
 
@@ -73,7 +74,7 @@ func (h *Handler) dispatchNew(c *echo.Context, op string) error {
 // It contains no branches, so cyclomatic complexity is 1.
 func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existing issue.
 	reqID := func(extra map[string]any) map[string]any {
-		extra[keyRequestID] = reqIDPlaceholder
+		extra[keyRequestID] = newReqID()
 
 		return extra
 	}
@@ -99,7 +100,7 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 	}
 	noContent := func(_, _ string) map[string]any { return simple() }
 	embedURL := func(_, _ string) map[string]any {
-		return reqID(map[string]any{"EmbedUrl": "https://embed.example.com"})
+		return reqID(map[string]any{"EmbedUrl": "https://embed.quicksight.aws.example.com/" + uuid.NewString()})
 	}
 
 	return map[string]appendixHandlerFn{
@@ -138,7 +139,7 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 
 		// ---- Topics ----
 		opCreateTopic: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"TopicId": "new-topic"})
+			return reqID(map[string]any{"TopicId": uuid.NewString()})
 		},
 		opDescribeTopic:                withID("TopicId"),
 		opUpdateTopic:                  withID("TopicId"),
@@ -209,7 +210,7 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opUpdateDashboardPublishedVersion: withID("DashboardId"),
 		opUpdateDashboardLinks:            withID("DashboardId"),
 		opStartDashboardSnapshotJob: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"SnapshotJobId": "snap1"})
+			return reqID(map[string]any{"SnapshotJobId": uuid.NewString()})
 		},
 		opDescribeDashboardSnapshotJob: func(_, _ string) map[string]any {
 			return reqID(map[string]any{"SnapshotJob": map[string]any{}})
