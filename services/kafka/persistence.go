@@ -77,6 +77,15 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// Rebuild the clusterNames index from restored cluster data.
+	b.clusterNames = make(map[string]map[string]string)
+	for region, regionClusters := range b.clusters {
+		b.clusterNames[region] = make(map[string]string, len(regionClusters))
+		for clusterArn, c := range regionClusters {
+			b.clusterNames[region][c.ClusterName] = clusterArn
+		}
+	}
+
 	return nil
 }
 
