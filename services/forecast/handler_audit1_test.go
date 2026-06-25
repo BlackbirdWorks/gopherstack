@@ -264,11 +264,11 @@ func TestAudit1_Forecast_StatusTransitions(t *testing.T) {
 	rec = a1ForecastDo(t, h, "DeleteForecast", map[string]any{"ForecastArn": arn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// After delete: DELETING
+	// After delete: resource is removed; describe returns ResourceNotFoundException.
 	rec = a1ForecastDo(t, h, "DescribeForecast", map[string]any{"ForecastArn": arn})
-	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	m = a1ForecastUnmarshal(t, rec)
-	assert.Equal(t, "DELETING", m["Status"])
+	assert.Equal(t, "ResourceNotFoundException", m["__type"])
 }
 
 // --- DatasetGroup ---
@@ -542,10 +542,11 @@ func TestAudit1_Forecast_DeleteResourceTree(t *testing.T) {
 	rec = a1ForecastDo(t, h, "DeleteResourceTree", map[string]any{"ResourceArn": arn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// After tree delete: DELETING
+	// After tree delete: resource is removed; describe returns ResourceNotFoundException.
 	rec = a1ForecastDo(t, h, "DescribeForecast", map[string]any{"ForecastArn": arn})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	m = a1ForecastUnmarshal(t, rec)
-	assert.Equal(t, "DELETING", m["Status"])
+	assert.Equal(t, "ResourceNotFoundException", m["__type"])
 
 	// Not found
 	rec = a1ForecastDo(t, h, "DeleteResourceTree", map[string]any{"ResourceArn": "missing"})
