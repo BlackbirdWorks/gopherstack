@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -348,7 +349,7 @@ func maxCounterFromPolicies(policies map[string]*storedPolicy) int {
 
 	for id := range policies {
 		hex := strings.TrimPrefix(id, policyIDPrefix)
-		if n, err := strconv.ParseInt(hex, 16, 64); err == nil && int(n) > highest {
+		if n, err := strconv.ParseInt(hex, 16, 64); err == nil && n >= 0 && n <= math.MaxInt && int(n) > highest {
 			highest = int(n)
 		}
 	}
