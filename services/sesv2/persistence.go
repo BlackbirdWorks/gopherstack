@@ -20,12 +20,22 @@ type backendSnapshot struct {
 	ConfigurationSets           map[string]*ConfigurationSet                `json:"configurationSets"`
 	ExportJobs                  map[string]*ExportJob                       `json:"exportJobs"`
 	Identities                  map[string]*EmailIdentity                   `json:"identities"`
+	ResourceTags                map[string]map[string]string                `json:"resourceTags"`
+	MultiRegionEndpoints        map[string]map[string]any                   `json:"multiRegionEndpoints"`
+	Tenants                     map[string]map[string]any                   `json:"tenants"`
+	TenantResources             map[string][]string                         `json:"tenantResources"`
+	ResourceTenants             map[string][]string                         `json:"resourceTenants"`
 	AccountID                   string                                      `json:"accountID"`
 	Region                      string                                      `json:"region"`
 	Emails                      []Email                                     `json:"emails"`
 }
 
 func ensureNonNilMaps(s *backendSnapshot) {
+	ensureCoreMaps(s)
+	ensureExtendedMaps(s)
+}
+
+func ensureCoreMaps(s *backendSnapshot) {
 	if s.Identities == nil {
 		s.Identities = make(map[string]*EmailIdentity)
 	}
@@ -57,7 +67,9 @@ func ensureNonNilMaps(s *backendSnapshot) {
 	if s.DeliverabilityTestReports == nil {
 		s.DeliverabilityTestReports = make(map[string]*DeliverabilityTestReport)
 	}
+}
 
+func ensureExtendedMaps(s *backendSnapshot) {
 	if s.EmailTemplates == nil {
 		s.EmailTemplates = make(map[string]*EmailTemplate)
 	}
@@ -68,6 +80,26 @@ func ensureNonNilMaps(s *backendSnapshot) {
 
 	if s.EmailIdentityPolicies == nil {
 		s.EmailIdentityPolicies = make(map[string]map[string]string)
+	}
+
+	if s.ResourceTags == nil {
+		s.ResourceTags = make(map[string]map[string]string)
+	}
+
+	if s.MultiRegionEndpoints == nil {
+		s.MultiRegionEndpoints = make(map[string]map[string]any)
+	}
+
+	if s.Tenants == nil {
+		s.Tenants = make(map[string]map[string]any)
+	}
+
+	if s.TenantResources == nil {
+		s.TenantResources = make(map[string][]string)
+	}
+
+	if s.ResourceTenants == nil {
+		s.ResourceTenants = make(map[string][]string)
 	}
 }
 
@@ -92,6 +124,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Emails:                      b.emails,
 		AccountID:                   b.accountID,
 		Region:                      b.region,
+		ResourceTags:                b.resourceTags,
+		MultiRegionEndpoints:        b.multiRegionEndpoints,
+		Tenants:                     b.tenants,
+		TenantResources:             b.tenantResources,
+		ResourceTenants:             b.resourceTenants,
 	}
 
 	data, err := json.Marshal(snap)
@@ -132,6 +169,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.emails = snap.Emails
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.resourceTags = snap.ResourceTags
+	b.multiRegionEndpoints = snap.MultiRegionEndpoints
+	b.tenants = snap.Tenants
+	b.tenantResources = snap.TenantResources
+	b.resourceTenants = snap.ResourceTenants
 
 	return nil
 }

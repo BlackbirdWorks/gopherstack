@@ -3,6 +3,7 @@ package sesv2
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -204,6 +205,11 @@ type InMemoryBackend struct {
 	importJobs                  map[string]*ImportJob
 	suppressedDestinations      map[string]*SuppressedDestination
 	emailIdentityPolicies       map[string]map[string]string
+	resourceTags                map[string]map[string]string
+	multiRegionEndpoints        map[string]map[string]any
+	tenants                     map[string]map[string]any
+	tenantResources             map[string][]string
+	resourceTenants             map[string][]string
 	accountDetails              *AccountDetails
 	mu                          *lockmetrics.RWMutex
 	region                      string
@@ -227,6 +233,11 @@ func NewInMemoryBackend() *InMemoryBackend {
 		emailIdentityPolicies:       make(map[string]map[string]string),
 		importJobs:                  make(map[string]*ImportJob),
 		suppressedDestinations:      make(map[string]*SuppressedDestination),
+		resourceTags:                make(map[string]map[string]string),
+		multiRegionEndpoints:        make(map[string]map[string]any),
+		tenants:                     make(map[string]map[string]any),
+		tenantResources:             make(map[string][]string),
+		resourceTenants:             make(map[string][]string),
 		mu:                          lockmetrics.New("sesv2"),
 		region:                      config.DefaultRegion,
 		accountID:                   config.DefaultAccountID,
@@ -270,6 +281,11 @@ func (b *InMemoryBackend) Reset() {
 	b.importJobs = make(map[string]*ImportJob)
 	b.suppressedDestinations = make(map[string]*SuppressedDestination)
 	b.emailIdentityPolicies = make(map[string]map[string]string)
+	b.resourceTags = make(map[string]map[string]string)
+	b.multiRegionEndpoints = make(map[string]map[string]any)
+	b.tenants = make(map[string]map[string]any)
+	b.tenantResources = make(map[string][]string)
+	b.resourceTenants = make(map[string][]string)
 	b.accountDetails = nil
 	b.emails = nil
 }
@@ -361,13 +377,14 @@ func (b *InMemoryBackend) ListEmailIdentities(
 	pageSize int,
 ) page.Page[*EmailIdentity] {
 	b.mu.RLock("ListEmailIdentities")
-	defer b.mu.RUnlock()
 
 	out := make([]*EmailIdentity, 0, len(b.identities))
 	for _, ei := range b.identities {
 		cp := *ei
 		out = append(out, &cp)
 	}
+
+	b.mu.RUnlock()
 
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Identity < out[j].Identity
@@ -524,12 +541,14 @@ const sesv2DefaultMaxItems = 100
 func (b *InMemoryBackend) BatchGetMetricData(
 	queries []MetricDataQuery,
 ) ([]MetricDataResult, error) {
+	now := time.Now().UTC().Truncate(time.Hour)
 	results := make([]MetricDataResult, 0, len(queries))
+
 	for _, q := range queries {
 		results = append(results, MetricDataResult{
 			ID:         q.ID,
-			Timestamps: []time.Time{},
-			Values:     []float64{},
+			Timestamps: []time.Time{now},
+			Values:     []float64{0},
 		})
 	}
 
@@ -838,4 +857,39 @@ func (b *InMemoryBackend) AddExportJobInternal(jobID, status string) *ExportJob 
 	b.exportJobs[jobID] = job
 
 	return job
+}
+
+func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	if b.resourceTags[arn] == nil {
+		b.resourceTags[arn] = make(map[string]string)
+	}
+
+	maps.Copy(b.resourceTags[arn], tags)
+
+	return nil
+}
+
+func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	m := b.resourceTags[arn]
+	for _, k := range tagKeys {
+		delete(m, k)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]string, len(b.resourceTags[arn]))
+	maps.Copy(out, b.resourceTags[arn])
+
+	return out, nil
 }
