@@ -442,7 +442,7 @@ func TestBackend_CloneTemplate_WithAllFields(t *testing.T) {
 	// Create a template with all fields to exercise cloneTemplate paths.
 	body := map[string]any{
 		"description": "full template",
-		"roleArn":     "arn:aws:iam::000:role/FISRole",
+		"roleArn":     "arn:aws:iam::000000000000:role/FISRole",
 		"tags":        map[string]string{"k1": "v1"},
 		"targets": map[string]any{
 			"Instances": map[string]any{
