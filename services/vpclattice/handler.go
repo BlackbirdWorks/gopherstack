@@ -374,12 +374,13 @@ func (h *Handler) handleCreateService(c *echo.Context, body map[string]any) erro
 		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: keyNameRequired})
 	}
 
+	ctx := c.Request().Context()
 	authType, _ := body["authType"].(string)
 	certArn, _ := body["certificateArn"].(string)
 	customDomain, _ := body["customDomainName"].(string)
 	tags := extractTags(body)
 
-	svc, err := h.Backend.CreateService(name, authType, certArn, customDomain, tags)
+	svc, err := h.Backend.CreateService(ctx, name, authType, certArn, customDomain, tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -418,10 +419,11 @@ func (h *Handler) handleDeleteService(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListServices(c *echo.Context) error {
+	ctx := c.Request().Context()
 	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 
-	items, next, err := h.Backend.ListServices(maxResults, nextToken)
+	items, next, err := h.Backend.ListServices(ctx, maxResults, nextToken)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -447,10 +449,11 @@ func (h *Handler) handleCreateServiceNetwork(c *echo.Context, body map[string]an
 		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: keyNameRequired})
 	}
 
+	ctx := c.Request().Context()
 	authType, _ := body["authType"].(string)
 	tags := extractTags(body)
 
-	sn, err := h.Backend.CreateServiceNetwork(name, authType, tags)
+	sn, err := h.Backend.CreateServiceNetwork(ctx, name, authType, tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -491,10 +494,11 @@ func (h *Handler) handleDeleteServiceNetwork(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListServiceNetworks(c *echo.Context) error {
+	ctx := c.Request().Context()
 	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 
-	items, next, err := h.Backend.ListServiceNetworks(maxResults, nextToken)
+	items, next, err := h.Backend.ListServiceNetworks(ctx, maxResults, nextToken)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -527,9 +531,10 @@ func (h *Handler) handleCreateSNSA(c *echo.Context, body map[string]any) error {
 		)
 	}
 
+	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	assoc, err := h.Backend.CreateServiceNetworkServiceAssociation(snID, svcID, tags)
+	assoc, err := h.Backend.CreateServiceNetworkServiceAssociation(ctx, snID, svcID, tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -551,16 +556,18 @@ func (h *Handler) handleDeleteSNSA(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyStatus: statusDeleteInProgress})
+	return c.JSON(http.StatusAccepted, map[string]any{keyStatus: statusDeleteInProgress})
 }
 
 func (h *Handler) handleListSNSAs(c *echo.Context) error {
+	ctx := c.Request().Context()
 	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 	snID := c.QueryParam("serviceNetworkIdentifier")
 	svcID := c.QueryParam("serviceIdentifier")
 
 	items, next, err := h.Backend.ListServiceNetworkServiceAssociations(
+		ctx,
 		snID,
 		svcID,
 		maxResults,
@@ -605,9 +612,10 @@ func (h *Handler) handleCreateSNVA(c *echo.Context, body map[string]any) error {
 		}
 	}
 
+	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	assoc, err := h.Backend.CreateServiceNetworkVpcAssociation(snID, vpcID, sgs, tags)
+	assoc, err := h.Backend.CreateServiceNetworkVpcAssociation(ctx, snID, vpcID, sgs, tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -647,16 +655,18 @@ func (h *Handler) handleDeleteSNVA(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyStatus: statusDeleteInProgress})
+	return c.JSON(http.StatusAccepted, map[string]any{keyStatus: statusDeleteInProgress})
 }
 
 func (h *Handler) handleListSNVAs(c *echo.Context) error {
+	ctx := c.Request().Context()
 	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 	snID := c.QueryParam("serviceNetworkIdentifier")
 	vpcID := c.QueryParam("vpcIdentifier")
 
 	items, next, err := h.Backend.ListServiceNetworkVpcAssociations(
+		ctx,
 		snID,
 		vpcID,
 		maxResults,
@@ -901,10 +911,11 @@ func (h *Handler) handleCreateTargetGroup(c *echo.Context, body map[string]any) 
 		)
 	}
 
+	ctx := c.Request().Context()
 	config := extractTargetGroupConfig(body)
 	tags := extractTags(body)
 
-	tg, err := h.Backend.CreateTargetGroup(name, tgType, config, tags)
+	tg, err := h.Backend.CreateTargetGroup(ctx, name, tgType, config, tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -944,12 +955,13 @@ func (h *Handler) handleDeleteTargetGroup(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListTargetGroups(c *echo.Context) error {
+	ctx := c.Request().Context()
 	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 	tgType := c.QueryParam("targetGroupType")
 	svcArn := c.QueryParam("serviceArn")
 
-	items, next, err := h.Backend.ListTargetGroups(tgType, svcArn, maxResults, nextToken)
+	items, next, err := h.Backend.ListTargetGroups(ctx, tgType, svcArn, maxResults, nextToken)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -999,11 +1011,27 @@ func (h *Handler) handleDeregisterTargets(c *echo.Context, tgID string, body map
 	return c.JSON(http.StatusOK, map[string]any{keyUnsuccessful: failureList})
 }
 
-func (h *Handler) handleListTargets(c *echo.Context, tgID string, _ map[string]any) error {
+func (h *Handler) handleListTargets(c *echo.Context, tgID string, body map[string]any) error {
+	ctx := c.Request().Context()
 	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 
-	items, next, err := h.Backend.ListTargets(tgID, maxResults, nextToken)
+	// parse target filters from body
+	var filters []Target
+	if rawTargets, ok := body["targets"].([]any); ok {
+		for _, rt := range rawTargets {
+			if fm, ok2 := rt.(map[string]any); ok2 {
+				var f Target
+				f.ID, _ = fm["id"].(string)
+				if p, ok3 := fm["port"].(float64); ok3 {
+					f.Port = int32(p)
+				}
+				filters = append(filters, f)
+			}
+		}
+	}
+
+	items, next, err := h.Backend.ListTargets(ctx, tgID, filters, maxResults, nextToken)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1035,9 +1063,10 @@ func (h *Handler) handleCreateALS(c *echo.Context, body map[string]any) error {
 		)
 	}
 
+	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	als, err := h.Backend.CreateAccessLogSubscription(resourceID, destArn, logType, tags)
+	als, err := h.Backend.CreateAccessLogSubscription(ctx, resourceID, destArn, logType, tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1074,11 +1103,12 @@ func (h *Handler) handleDeleteALS(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListALSs(c *echo.Context) error {
+	ctx := c.Request().Context()
 	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 	resourceID := c.QueryParam("resourceIdentifier")
 
-	items, next, err := h.Backend.ListAccessLogSubscriptions(resourceID, maxResults, nextToken)
+	items, next, err := h.Backend.ListAccessLogSubscriptions(ctx, resourceID, maxResults, nextToken)
 	if err != nil {
 		return h.handleError(c, err)
 	}
