@@ -153,10 +153,14 @@ type StorageBackend interface {
 	GetAccount() (*AccountDetails, error)
 	PutAccountDetails(details *AccountDetails) error
 	PutAccountSendingAttributes(sendingEnabled bool) error
-	PutAccountSuppressionAttributes() error
-	PutAccountVdmAttributes() error
-	PutAccountDedicatedIPWarmupAttributes() error
+	PutAccountSuppressionAttributes(suppressedReasons []string) error
+	PutAccountVdmAttributes(vdmAttributes map[string]any) error
+	PutAccountDedicatedIPWarmupAttributes(autoWarmupEnabled bool) error
 	GetBlacklistReports() (map[string][]string, error)
+
+	TagResource(arn string, tags map[string]string) error
+	UntagResource(arn string, tagKeys []string) error
+	ListTagsForResource(arn string) (map[string]string, error)
 
 	// Insights / analytics (stubs)
 	GetEmailAddressInsights(emailAddress string) (map[string]any, error)

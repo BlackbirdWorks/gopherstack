@@ -146,8 +146,8 @@ func TestRefinement1_BatchGetMetricData(t *testing.T) {
 
 			for i, r := range results {
 				assert.Equal(t, tt.queries[i].ID, r.ID)
-				assert.Empty(t, r.Timestamps)
-				assert.Empty(t, r.Values)
+				assert.NotEmpty(t, r.Timestamps, "BatchGetMetricData should return synthetic data")
+				assert.NotEmpty(t, r.Values, "BatchGetMetricData should return synthetic data")
 			}
 		})
 	}
