@@ -2,9 +2,11 @@ package detective
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -303,6 +305,87 @@ func (b *InMemoryBackend) DeleteGraph(graphARN string) error {
 	return nil
 }
 
+// encodePageToken encodes a pagination offset as an opaque base64 token.
+func encodePageToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// decodePageToken decodes an opaque base64 pagination token back to an offset.
+// Returns 0 and no error when the token is empty.
+func decodePageToken(tok string) (int, error) {
+	if tok == "" {
+		return 0, nil
+	}
+
+	b, err := base64.StdEncoding.DecodeString(tok)
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid pagination token", ErrValidation)
+	}
+
+	n, err := strconv.Atoi(string(b))
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid pagination token", ErrValidation)
+	}
+
+	return n, nil
+}
+
+// Indicator type constants mirroring Amazon Detective's FindingType enum.
+const (
+	indicatorImpossibleTravel    = "IMPOSSIBLE_TRAVEL"
+	indicatorFlaggedIPAddress    = "FLAGGED_IP_ADDRESS"
+	indicatorNewGeolocation      = "NEW_GEOLOCATION"
+	indicatorTTPObserved         = "TTP_OBSERVED"
+	indicatorRelatedFinding      = "RELATED_FINDING"
+	indicatorRelatedFindingGroup = "RELATED_FINDING_GROUP"
+)
+
+// builtInIndicators returns a deterministic set of indicators for an investigation.
+// Real Detective derives indicators from VPC Flow Logs, CloudTrail, and GuardDuty.
+// The emulator generates a fixed representative set seeded by the investigation ID
+// so repeated calls for the same investigation return consistent results.
+func builtInIndicators(inv *storedInvestigation) []*Indicator {
+	indicators := []*Indicator{
+		{
+			IndicatorType: indicatorTTPObserved,
+			Title:         "Observed tactics, techniques and procedures for entity " + inv.EntityARN,
+		},
+		{
+			IndicatorType: indicatorNewGeolocation,
+			Title:         "API calls from a previously unseen geographic location",
+		},
+	}
+
+	// Higher-severity investigations include richer indicator sets.
+	if inv.Severity == severityMedium || inv.Severity == severityHigh || inv.Severity == severityCritical {
+		indicators = append(indicators,
+			&Indicator{
+				IndicatorType: indicatorFlaggedIPAddress,
+				Title:         "Activity from a threat-intelligence flagged IP address",
+			},
+			&Indicator{
+				IndicatorType: indicatorImpossibleTravel,
+				Title:         "Geographically impossible API activity within a short time window",
+			},
+		)
+	}
+
+	if inv.Severity == severityHigh || inv.Severity == severityCritical {
+		indicators = append(indicators,
+			&Indicator{
+				IndicatorType: indicatorRelatedFinding,
+				Title:         "Related GuardDuty finding associated with the entity",
+			},
+			&Indicator{
+				IndicatorType: indicatorRelatedFindingGroup,
+				Title:         "Cluster of related findings involving the same entity",
+			},
+		)
+	}
+
+	return indicators
+}
+
 // ListGraphs returns behavior graphs for the admin account.
 func (b *InMemoryBackend) ListGraphs(maxResults int32, nextToken string) ([]*Graph, string, error) {
 	b.mu.RLock("ListGraphs")
@@ -310,15 +393,13 @@ func (b *InMemoryBackend) ListGraphs(maxResults int32, nextToken string) ([]*Gra
 
 	arns := collections.SortedKeys(b.graphs)
 
-	start := 0
-	if nextToken != "" {
-		for i, arn := range arns {
-			if arn == nextToken {
-				start = i
+	start, err := decodePageToken(nextToken)
+	if err != nil {
+		return nil, "", err
+	}
 
-				break
-			}
-		}
+	if start > len(arns) {
+		start = len(arns)
 	}
 
 	limit := int(maxResults)
@@ -329,15 +410,15 @@ func (b *InMemoryBackend) ListGraphs(maxResults int32, nextToken string) ([]*Gra
 	end := min(start+limit, len(arns))
 
 	result := make([]*Graph, 0, end-start)
-	for _, arn := range arns[start:end] {
-		g := b.graphs[arn]
+	for _, a := range arns[start:end] {
+		g := b.graphs[a]
 		cp := g.toGraph()
 		result = append(result, &cp)
 	}
 
 	var outToken string
 	if end < len(arns) {
-		outToken = arns[end]
+		outToken = encodePageToken(end)
 	}
 
 	return result, outToken, nil
@@ -491,15 +572,13 @@ func (b *InMemoryBackend) ListMembers(
 	memberMap := b.members[graphARN]
 	ids := collections.SortedKeys(memberMap)
 
-	start := 0
-	if nextToken != "" {
-		for i, id := range ids {
-			if id == nextToken {
-				start = i
+	start, err := decodePageToken(nextToken)
+	if err != nil {
+		return nil, "", err
+	}
 
-				break
-			}
-		}
+	if start > len(ids) {
+		start = len(ids)
 	}
 
 	limit := int(maxResults)
@@ -518,7 +597,7 @@ func (b *InMemoryBackend) ListMembers(
 
 	var outToken string
 	if end < len(ids) {
-		outToken = ids[end]
+		outToken = encodePageToken(end)
 	}
 
 	return result, outToken, nil
@@ -858,9 +937,9 @@ func (b *InMemoryBackend) UpdateInvestigationState(graphARN, investigationID, st
 
 // ListIndicators returns indicators for an investigation.
 func (b *InMemoryBackend) ListIndicators(
-	graphARN, investigationID, indicatorType string, //nolint:revive // existing issue.
-	maxResults int32, //nolint:revive // existing issue.
-	nextToken string, //nolint:revive // existing issue.
+	graphARN, investigationID, indicatorType string,
+	maxResults int32,
+	nextToken string,
 ) ([]*Indicator, string, error) {
 	b.mu.RLock("ListIndicators")
 	defer b.mu.RUnlock()
@@ -870,11 +949,45 @@ func (b *InMemoryBackend) ListIndicators(
 	}
 
 	invMap := b.investigations[graphARN]
-	if _, ok := invMap[investigationID]; !ok {
+	inv, ok := invMap[investigationID]
+	if !ok {
 		return nil, "", ErrMemberNotFound
 	}
 
-	return nil, "", nil
+	all := builtInIndicators(inv)
+
+	if indicatorType != "" {
+		filtered := make([]*Indicator, 0, len(all))
+		for _, ind := range all {
+			if ind.IndicatorType == indicatorType {
+				filtered = append(filtered, ind)
+			}
+		}
+		all = filtered
+	}
+
+	start, err := decodePageToken(nextToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if start > len(all) {
+		start = len(all)
+	}
+
+	limit := int(maxResults)
+	if limit <= 0 || limit > maxIndicatorsPerPage {
+		limit = maxIndicatorsPerPage
+	}
+
+	end := min(start+limit, len(all))
+
+	var outToken string
+	if end < len(all) {
+		outToken = encodePageToken(end)
+	}
+
+	return all[start:end], outToken, nil
 }
 
 // ListDatasourcePackages returns datasource package ingest details for a graph.
