@@ -62,7 +62,7 @@ type StorageBackend interface {
 		maxResults int32,
 		nextToken string,
 	) ([]*storedIpGroup, string, error)
-	DeleteIpGroup(groupID string) error
+	DeleteIPGroup(groupID string) error
 	AuthorizeIpRules(groupID string, rules []ipRuleItem) error
 	RevokeIpRules(groupID string, ipRules []string) error
 	UpdateRulesOfIpGroup(groupID string, rules []ipRuleItem) error

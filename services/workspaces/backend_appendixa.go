@@ -211,10 +211,10 @@ func (b *InMemoryBackend) DescribeIpGroups( //nolint:revive,staticcheck // exist
 	return result, "", nil
 }
 
-// DeleteIpGroup removes an IP group by ID.
-func (b *InMemoryBackend) DeleteIpGroup(
+// DeleteIPGroup removes an IP group by ID.
+func (b *InMemoryBackend) DeleteIPGroup(
 	groupID string,
-) error { //nolint:revive,staticcheck // existing issue.
+) error {
 	b.mu.Lock("DeleteIpGroup")
 	defer b.mu.Unlock()
 
