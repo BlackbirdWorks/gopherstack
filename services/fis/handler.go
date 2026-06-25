@@ -2,6 +2,7 @@ package fis
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -441,7 +442,7 @@ func (h *Handler) handleListExperimentTemplates(c *echo.Context) error {
 	var nextTok string
 
 	if end < len(templates) {
-		nextTok = templates[end-1].ID
+		nextTok = encodePageToken(end)
 	}
 
 	page := templates[start:end]
@@ -546,7 +547,7 @@ func (h *Handler) handleListExperiments(c *echo.Context) error {
 	var nextTok string
 
 	if end < len(experiments) {
-		nextTok = experiments[end-1].ID
+		nextTok = encodePageToken(end)
 	}
 
 	page := experiments[start:end]
@@ -593,7 +594,7 @@ func (h *Handler) handleListActions(c *echo.Context) error {
 	var nextTok string
 
 	if end < len(actions) {
-		nextTok = actions[end-1].ID
+		nextTok = encodePageToken(end)
 	}
 
 	page := actions[start:end]
@@ -633,7 +634,7 @@ func (h *Handler) handleListTargetResourceTypes(c *echo.Context) error {
 	var nextTok string
 
 	if end < len(types) {
-		nextTok = types[end-1].ResourceType
+		nextTok = encodePageToken(end)
 	}
 
 	page := types[start:end]
@@ -1417,10 +1418,24 @@ const defaultMaxResults = 20
 // absoluteMaxResults is the maximum allowed page size.
 const absoluteMaxResults = 100
 
-// paginateWithToken resolves the cursor-based nextToken to a start offset within ids.
-// ids must be sorted in the same order as the slice being paginated.
-// Returns (pageSize, startOffset) — the caller slices [startOffset : startOffset+pageSize].
-func paginateWithToken(ids []string, q url.Values) (int, int) {
+// encodePageToken encodes an integer offset as an opaque base64 token.
+func encodePageToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// decodePageToken decodes a token produced by encodePageToken.
+func decodePageToken(tok string) (int, error) {
+	b, err := base64.StdEncoding.DecodeString(tok)
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(string(b))
+}
+
+// paginateWithToken decodes the offset-based nextToken and returns (pageSize, startOffset).
+// The caller slices [startOffset : startOffset+pageSize].
+func paginateWithToken(_ []string, q url.Values) (int, int) {
 	mr := defaultMaxResults
 
 	if v := q.Get("maxResults"); v != "" {
@@ -1434,12 +1449,8 @@ func paginateWithToken(ids []string, q url.Values) (int, int) {
 	start := 0
 
 	if tok := q.Get("nextToken"); tok != "" {
-		for i, id := range ids {
-			if id == tok {
-				start = i + 1
-
-				break
-			}
+		if n, err := decodePageToken(tok); err == nil && n > 0 {
+			start = n
 		}
 	}
 
