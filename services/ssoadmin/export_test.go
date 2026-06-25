@@ -36,3 +36,19 @@ func TrustedTokenIssuerCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// CreationStatusCount returns the number of entries in the creation status map.
+func CreationStatusCount(b *InMemoryBackend) int {
+	b.mu.RLock("CreationStatusCount")
+	defer b.mu.RUnlock()
+
+	return len(b.creationStatuses)
+}
+
+// DeletionStatusCount returns the number of entries in the deletion status map.
+func DeletionStatusCount(b *InMemoryBackend) int {
+	b.mu.RLock("DeletionStatusCount")
+	defer b.mu.RUnlock()
+
+	return len(b.deletionStatuses)
+}

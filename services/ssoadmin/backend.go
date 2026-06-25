@@ -60,6 +60,9 @@ const (
 	// AWS permission set name length limit.
 	maxPermissionSetNameLen = 32
 
+	// maxStatusEntries caps each status map to prevent unbounded growth.
+	maxStatusEntries = 1000
+
 	// CustomerManagedPolicyReference limits.
 	maxCMPRNameLen = 128
 	maxCMPRPathLen = 512
@@ -482,6 +485,10 @@ func (b *InMemoryBackend) ListInstances() []*Instance {
 		list = append(list, &cp)
 	}
 
+	slices.SortFunc(list, func(a, b *Instance) int {
+		return strings.Compare(a.InstanceArn, b.InstanceArn)
+	})
+
 	return list
 }
 
@@ -693,6 +700,28 @@ func (b *InMemoryBackend) UpdatePermissionSet(
 	return nil
 }
 
+// pruneOldestStatus removes the oldest entry from m when it has reached maxStatusEntries.
+// Must be called with b.mu held for writing.
+func pruneOldestStatus(m map[string]*ProvisioningStatus) {
+	if len(m) < maxStatusEntries {
+		return
+	}
+
+	var oldestKey string
+	var oldestTime time.Time
+
+	for k, v := range m {
+		if oldestKey == "" || v.CreatedDate.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = v.CreatedDate
+		}
+	}
+
+	if oldestKey != "" {
+		delete(m, oldestKey)
+	}
+}
+
 // CreateAccountAssignment assigns a permission set to a principal in an account.
 func (b *InMemoryBackend) CreateAccountAssignment(
 	instanceArn, permissionSetArn, accountID, principalID, principalType string,
@@ -726,6 +755,7 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 	b.assignments[key] = append(b.assignments[key], assignment)
 
 	requestID := uuid.NewString()
+	pruneOldestStatus(b.creationStatuses)
 	b.creationStatuses[requestID] = &ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
@@ -835,6 +865,7 @@ func (b *InMemoryBackend) DeleteAccountAssignment(
 	delete(b.assignmentCreationIDs, idempotencyKey)
 
 	requestID := uuid.NewString()
+	pruneOldestStatus(b.deletionStatuses)
 	b.deletionStatuses[requestID] = &ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
@@ -1074,6 +1105,7 @@ func (b *InMemoryBackend) ProvisionPermissionSet(
 	}
 
 	requestID := uuid.NewString()
+	pruneOldestStatus(b.provisioningStatuses)
 	b.provisioningStatuses[requestID] = &ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
