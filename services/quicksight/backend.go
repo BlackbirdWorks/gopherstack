@@ -2,9 +2,12 @@ package quicksight
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"maps"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +18,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
+
+// encodePageToken encodes an integer offset as an opaque base64 token.
+func encodePageToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// decodePageToken decodes an opaque base64 page token back to an integer offset.
+func decodePageToken(tok string) (int, error) {
+	b, err := base64.StdEncoding.DecodeString(tok)
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(string(b))
+}
 
 const (
 	errResourceNotFound  = "ResourceNotFoundException"
@@ -563,21 +581,20 @@ func paginateNamespaces(all []*storedNamespace, maxResults int32, nextToken stri
 		maxResults = defaultMaxResults
 	}
 
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
 	start := 0
 	if nextToken != "" {
-		for i, ns := range all {
-			if ns.Name == nextToken {
-				start = i
-
-				break
-			}
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
 		}
 	}
 
 	end := start + int(maxResults)
+
 	var next string
 	if end < len(all) {
-		next = all[end].Name
+		next = encodePageToken(end)
 	} else {
 		end = len(all)
 	}
@@ -1554,8 +1571,8 @@ func (b *InMemoryBackend) ListDashboards(
 
 func (b *InMemoryBackend) ListDashboardVersions(
 	accountID, dashboardID string,
-	_ int32,
-	_ string,
+	maxResults int32,
+	nextToken string,
 ) ([]*DashboardVersion, string, error) {
 	b.mu.RLock("ListDashboardVersions")
 	defer b.mu.RUnlock()
@@ -1565,17 +1582,38 @@ func (b *InMemoryBackend) ListDashboardVersions(
 		return nil, "", ErrDashboardNotFound
 	}
 
-	versions := make([]*DashboardVersion, 0, d.VersionNumber)
-	for i := int64(1); i <= d.VersionNumber; i++ {
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
+		}
+	}
+
+	total := int(d.VersionNumber)
+	end := start + int(maxResults)
+
+	var next string
+	if end < total {
+		next = encodePageToken(end)
+	} else {
+		end = total
+	}
+
+	versions := make([]*DashboardVersion, 0, end-start)
+	for i := start + 1; i <= end; i++ {
 		versions = append(versions, &DashboardVersion{
 			CreatedTime:   d.CreatedTime,
 			Arn:           fmt.Sprintf("%s/version/%d", d.Arn, i),
 			Status:        statusCreated,
-			VersionNumber: i,
+			VersionNumber: int64(i),
 		})
 	}
 
-	return versions, "", nil
+	return versions, next, nil
 }
 
 // ---- Analyses ----
