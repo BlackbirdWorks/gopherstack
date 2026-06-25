@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	cedar "github.com/cedar-policy/cedar-go"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -14,6 +16,7 @@ type backendSnapshot struct {
 	PolicyTemplates map[string]map[string]*PolicyTemplate `json:"policyTemplates"`
 	IdentitySources map[string]map[string]*IdentitySource `json:"identitySources"`
 	Schemas         map[string]*PolicyStoreSchema         `json:"schemas"`
+	ResourceTags    map[string]map[string]string          `json:"resourceTags,omitempty"`
 	AccountID       string                                `json:"accountID"`
 	Region          string                                `json:"region"`
 }
@@ -29,6 +32,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		PolicyTemplates: b.policyTemplates,
 		IdentitySources: b.identitySources,
 		Schemas:         b.schemas,
+		ResourceTags:    b.resourceTags,
 		AccountID:       b.accountID,
 		Region:          b.region,
 	}
@@ -61,6 +65,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.policyTemplates = snap.PolicyTemplates
 	b.identitySources = snap.IdentitySources
 	b.schemas = snap.Schemas
+	b.resourceTags = snap.ResourceTags
+	b.policySetCache = make(map[string]*cedar.PolicySet)
+	b.policySetDirty = make(map[string]bool)
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -126,6 +133,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.Schemas == nil {
 		snap.Schemas = make(map[string]*PolicyStoreSchema)
+	}
+
+	if snap.ResourceTags == nil {
+		snap.ResourceTags = make(map[string]map[string]string)
 	}
 }
 
