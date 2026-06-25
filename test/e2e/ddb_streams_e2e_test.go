@@ -96,7 +96,8 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	// 8. Verify the INSERT event appears in the recent events table
 	require.NoError(
 		t,
-		page.Locator("text=INSERT").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}),
+		page.GetByRole("cell", playwright.PageGetByRoleOptions{Name: "INSERT"}).
+			WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}),
 	)
 
 	// 8a. Verify stats cards render (Buffered Events, Active Shards, Iterator Expiry labels present)

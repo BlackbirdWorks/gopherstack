@@ -92,7 +92,7 @@ func TestBackend_CreateCluster(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.clusterName, cluster.ClusterName)
-			assert.Equal(t, kafka.ClusterStateActive, cluster.State)
+			assert.Equal(t, kafka.ClusterStateCreating, cluster.State)
 			assert.NotEmpty(t, cluster.ClusterArn)
 			assert.Contains(t, cluster.ClusterArn, "cluster/"+tt.clusterName+"/")
 		})

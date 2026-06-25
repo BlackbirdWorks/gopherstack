@@ -677,11 +677,22 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 	return 0, nil
 }
 
-// UpdateDestination updates the S3 destination configuration of an existing stream.
+// UpdateDestinationInput holds the destination update fields for UpdateDestination.
+// Exactly one destination field should be non-nil.
+type UpdateDestinationInput struct {
+	S3Destination           *S3DestinationDescription
+	HTTPEndpointDestination *HTTPEndpointDestinationDescription
+	RedshiftDestination     *RedshiftDestinationDescription
+	OpenSearchDestination   *OpenSearchDestinationDescription
+	SplunkDestination       *SplunkDestinationDescription
+}
+
+// UpdateDestination updates the destination configuration of an existing stream.
+// AWS allows updating exactly one destination type per call.
 func (b *InMemoryBackend) UpdateDestination(
 	ctx context.Context,
 	streamName, currentVersionID string,
-	dest *S3DestinationDescription,
+	input UpdateDestinationInput,
 ) error {
 	b.mu.Lock("UpdateDestination")
 	defer b.mu.Unlock()
@@ -698,7 +709,26 @@ func (b *InMemoryBackend) UpdateDestination(
 		return fmt.Errorf("%w: version mismatch: expected %s got %s", ErrValidation, currentVersionID, s.VersionID)
 	}
 
-	s.S3Destination = dest
+	if input.S3Destination != nil {
+		s.S3Destination = input.S3Destination
+	}
+
+	if input.HTTPEndpointDestination != nil {
+		s.HTTPEndpointDestination = input.HTTPEndpointDestination
+	}
+
+	if input.RedshiftDestination != nil {
+		s.RedshiftDestination = input.RedshiftDestination
+	}
+
+	if input.OpenSearchDestination != nil {
+		s.OpenSearchDestination = input.OpenSearchDestination
+	}
+
+	if input.SplunkDestination != nil {
+		s.SplunkDestination = input.SplunkDestination
+	}
+
 	s.LastUpdateTimestamp = time.Now()
 
 	v, err := strconv.Atoi(s.VersionID)

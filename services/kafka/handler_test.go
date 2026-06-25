@@ -183,7 +183,7 @@ func TestKafka_CreateCluster(t *testing.T) {
 			wantStatus: http.StatusOK,
 			wantFields: map[string]string{
 				"clusterName": "test-cluster",
-				"state":       kafka.ClusterStateActive,
+				"state":       kafka.ClusterStateCreating,
 			},
 		},
 		{

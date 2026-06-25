@@ -170,6 +170,18 @@ type StorageBackend interface {
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, tagKeys []string) error
 	ListTagsForResource(arn string) (map[string]string, error)
+
+	GetMetricConfiguration() map[string]any
+	UpdateMetricConfiguration(config map[string]any) error
+	GetEventConfigByResourceTypes() map[string]any
+	UpdateEventConfigByResourceTypes(config map[string]any) error
+	ListResourceEventConfigs() []map[string]any
+	GetResourceEventConfig(resourceID string) map[string]any
+	UpdateResourceEventConfig(resourceID string, config map[string]any) error
+	GetPositionConfig(resourceID string) map[string]any
+	PutPositionConfig(resourceID string, config map[string]any) error
+	ListPositionConfigs() []map[string]any
+	EnqueueDownlinkMessage(wirelessDeviceID, messageID, payloadBase64 string) error
 }
 
 // Compile-time assertion that InMemoryBackend satisfies StorageBackend.
@@ -209,6 +221,10 @@ type InMemoryBackend struct {
 	queuedMessages         map[string][]QueuedMessage                 // wirelessDeviceID -> messages
 	importTasks            map[string]*WirelessDeviceImportTask       // id -> task
 	singleImportTasks      map[string]*SingleWirelessDeviceImportTask // arn -> task
+	metricConfig           map[string]any                             // metric configuration (global)
+	eventConfigByType      map[string]any                             // event config by resource type (global)
+	resourceEventConfigs   map[string]map[string]any                  // resourceID -> event config
+	positionConfigs        map[string]map[string]any                  // resourceID -> position config
 	mu                     sync.RWMutex
 }
 
@@ -240,6 +256,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 		queuedMessages:         make(map[string][]QueuedMessage),
 		importTasks:            make(map[string]*WirelessDeviceImportTask),
 		singleImportTasks:      make(map[string]*SingleWirelessDeviceImportTask),
+		metricConfig:           make(map[string]any),
+		eventConfigByType:      make(map[string]any),
+		resourceEventConfigs:   make(map[string]map[string]any),
+		positionConfigs:        make(map[string]map[string]any),
 	}
 }
 
@@ -305,6 +325,10 @@ func (b *InMemoryBackend) Reset() {
 	b.queuedMessages = make(map[string][]QueuedMessage)
 	b.importTasks = make(map[string]*WirelessDeviceImportTask)
 	b.singleImportTasks = make(map[string]*SingleWirelessDeviceImportTask)
+	b.metricConfig = make(map[string]any)
+	b.eventConfigByType = make(map[string]any)
+	b.resourceEventConfigs = make(map[string]map[string]any)
+	b.positionConfigs = make(map[string]map[string]any)
 }
 
 // copyWirelessDevice returns a shallow copy of d with an independent Tags map.

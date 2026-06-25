@@ -12,25 +12,6 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// --- Shared stub constants ---
-
-const (
-	stubArn              = "arn:aws:iotwireless:us-east-1:123456789012:Resource/stub"
-	stubImportTaskArn    = "arn:aws:iotwireless:us-east-1:123456789012:ImportTask/stub"
-	stubImportTaskID     = "stub-import-task-id"
-	stubMulticastArn     = "arn:aws:iotwireless:us-east-1:123456789012:MulticastGroup/stub"
-	stubMulticastGroupID = "stub-multicast-group-id"
-	stubNetworkAnalArn   = "arn:aws:iotwireless:us-east-1:123456789012:NetworkAnalyzerConfiguration/stub"
-	stubGatewayTaskArn   = "arn:aws:iotwireless:us-east-1:123456789012:WirelessGatewayTaskDefinition/stub"
-	stubGatewayTaskDefID = "stub-task-def-id"
-	stubName             = "stub"
-	stubMessageID        = "stub-message-id"
-	stubCertID           = "stub-cert-id"
-	stubWirelessDeviceID = "stub-wireless-device-id"
-	stubServiceEndpoint  = "https://cups.lorawan.us-east-1.amazonaws.com"
-	stubServiceType      = "CUPS"
-)
-
 // maxStubBodyBytes caps stub request body reads to prevent unbounded memory
 // usage on attacker-controlled inputs. IoT Wireless API payloads are far below
 // 1 MiB; cap conservatively.
@@ -106,19 +87,8 @@ type getPositionResponse struct {
 	Position       []float64 `json:"Position"`
 }
 
-type getPositionConfigurationResponse struct {
-	Destination string `json:"Destination"`
-	SolverType  string `json:"SolverType"`
-}
-
 type getPositionEstimateResponse struct {
 	GeoJSONPayload []byte `json:"GeoJsonPayload"`
-}
-
-type getResourceEventConfigurationResponse struct {
-	Identifier     string `json:"Identifier"`
-	IdentifierType string `json:"IdentifierType"`
-	PartnerType    string `json:"PartnerType"`
 }
 
 type getResourceLogLevelResponse struct {
@@ -159,8 +129,6 @@ type getWirelessGatewayCertificateResponse struct {
 	LoRaWANNetworkServerCertificateID string `json:"LoRaWANNetworkServerCertificateId"`
 }
 
-type getWirelessGatewayFirmwareInformationResponse struct{}
-
 type getWirelessGatewayStatisticsResponse struct {
 	WirelessGatewayID    string `json:"WirelessGatewayId"`
 	LastUplinkReceivedAt string `json:"LastUplinkReceivedAt"`
@@ -181,15 +149,11 @@ type getWirelessGatewayTaskDefinitionResponse struct {
 	AutoCreateTasks bool   `json:"AutoCreateTasks"`
 }
 
-type getEventConfigurationByResourceTypesResponse struct{}
-
 type getLogLevelsByResourceTypesResponse struct {
 	DefaultLogLevel           string     `json:"DefaultLogLevel"`
 	WirelessGatewayLogOptions []struct{} `json:"WirelessGatewayLogOptions"`
 	WirelessDeviceLogOptions  []struct{} `json:"WirelessDeviceLogOptions"`
 }
-
-type getMetricConfigurationResponse struct{}
 
 type getMetricsResponse struct {
 	SummaryMetricQueryResults []struct{} `json:"SummaryMetricQueryResults"`
@@ -225,18 +189,18 @@ type listPartnerAccountsResponse struct {
 }
 
 type listPositionConfigurationsResponse struct {
-	NextToken                 string     `json:"NextToken"`
-	PositionConfigurationList []struct{} `json:"PositionConfigurationList"`
+	NextToken                 string           `json:"NextToken"`
+	PositionConfigurationList []map[string]any `json:"PositionConfigurationList"`
 }
 
 type listQueuedMessagesResponse struct {
-	NextToken                 string     `json:"NextToken"`
-	DownlinkQueueMessagesList []struct{} `json:"DownlinkQueueMessagesList"`
+	NextToken                 string           `json:"NextToken"`
+	DownlinkQueueMessagesList []map[string]any `json:"DownlinkQueueMessagesList"`
 }
 
 type listEventConfigurationsResponse struct {
-	NextToken               string     `json:"NextToken"`
-	EventConfigurationsList []struct{} `json:"EventConfigurationsList"`
+	NextToken               string           `json:"NextToken"`
+	EventConfigurationsList []map[string]any `json:"EventConfigurationsList"`
 }
 
 type listWirelessDeviceImportTasksResponse struct {

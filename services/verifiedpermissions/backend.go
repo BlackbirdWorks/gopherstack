@@ -1140,16 +1140,16 @@ func (b *InMemoryBackend) BatchIsAuthorized(
 		)
 	}
 
-	b.mu.RLock("BatchIsAuthorized")
+	b.mu.Lock("BatchIsAuthorized")
 
 	if _, ok := b.policyStores[policyStoreID]; !ok {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
 	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	decisions := make([]AuthDecision, 0, len(requests))
 
@@ -1174,16 +1174,16 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 		)
 	}
 
-	b.mu.RLock("BatchIsAuthorizedWithToken")
+	b.mu.Lock("BatchIsAuthorizedWithToken")
 
 	if _, ok := b.policyStores[policyStoreID]; !ok {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
 	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	decisions := make([]AuthDecision, 0, len(requests))
 
@@ -1196,16 +1196,16 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 
 // IsAuthorized evaluates a single authorization request against stored Cedar policies.
 func (b *InMemoryBackend) IsAuthorized(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error) {
-	b.mu.RLock("IsAuthorized")
+	b.mu.Lock("IsAuthorized")
 
 	if _, ok := b.policyStores[policyStoreID]; !ok {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
 	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	result := evaluateCedar(ps, req)
 
@@ -1217,16 +1217,16 @@ func (b *InMemoryBackend) IsAuthorizedWithToken(
 	policyStoreID string,
 	req AuthorizationRequest,
 ) (*AuthDecision, error) {
-	b.mu.RLock("IsAuthorizedWithToken")
+	b.mu.Lock("IsAuthorizedWithToken")
 
 	if _, ok := b.policyStores[policyStoreID]; !ok {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
 	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	result := evaluateCedar(ps, req)
 
