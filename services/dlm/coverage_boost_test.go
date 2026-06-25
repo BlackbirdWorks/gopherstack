@@ -842,7 +842,7 @@ func TestBackend_UpdateLifecyclePolicy_PartialUpdate(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			err = b.UpdateLifecyclePolicy(p.PolicyID, tc.updateDesc, tc.updateRole, tc.updateState)
+			err = b.UpdateLifecyclePolicy(p.PolicyID, tc.updateDesc, tc.updateRole, tc.updateState, nil)
 			require.NoError(t, err)
 
 			got, err := b.GetLifecyclePolicy(p.PolicyID)
