@@ -156,11 +156,36 @@ func TestWAF_ChangeToken_Unique(t *testing.T) {
 	assert.NotEqual(t, t1, t2, "each GetChangeToken should return a unique token")
 }
 
-func TestWAF_GetChangeTokenStatus_INSYNC(t *testing.T) {
+func TestWAF_GetChangeTokenStatus_Fresh(t *testing.T) {
 	t.Parallel()
 
+	// A freshly-issued token is PROVISIONED until consumed by a mutation.
 	h := newWAFHandler(t)
 	token := wafGetToken(t, h)
+
+	rec := wafDo(t, h, "GetChangeTokenStatus", map[string]any{
+		"ChangeToken": token,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "PROVISIONED", resp["ChangeTokenStatus"])
+}
+
+func TestWAF_GetChangeTokenStatus_AfterMutation_INSYNC(t *testing.T) {
+	t.Parallel()
+
+	// A token transitions to INSYNC after it is consumed by any mutation.
+	h := newWAFHandler(t)
+	token := wafGetToken(t, h)
+
+	wafDo(t, h, "CreateWebACL", map[string]any{
+		"ChangeToken":   token,
+		"Name":          "acl-status-check",
+		"MetricName":    "aclStatusCheck",
+		"DefaultAction": map[string]any{"Type": "ALLOW"},
+	})
 
 	rec := wafDo(t, h, "GetChangeTokenStatus", map[string]any{
 		"ChangeToken": token,
