@@ -618,7 +618,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:parallelte
 			},
 		},
 		{
-			name:     "ListIndicators returns empty list for investigation",
+			name:     "ListIndicators returns indicators for investigation",
 			method:   http.MethodPost,
 			path:     "/investigations/listIndicators",
 			body:     map[string]any{"GraphArn": graphArn, "InvestigationId": invID},
@@ -629,7 +629,13 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:parallelte
 				require.NoError(t, json.Unmarshal(body, &resp))
 				indicators, ok := resp["Indicators"].([]any)
 				require.True(t, ok)
-				assert.Empty(t, indicators)
+				assert.NotEmpty(t, indicators, "ListIndicators should return indicators for an investigation")
+				for _, raw := range indicators {
+					ind, isMap := raw.(map[string]any)
+					require.True(t, isMap)
+					assert.NotEmpty(t, ind["IndicatorType"])
+					assert.NotEmpty(t, ind["Title"])
+				}
 			},
 		},
 	}
