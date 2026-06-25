@@ -7,6 +7,7 @@ type StorageBackend interface {
 	// Change tokens
 	GetChangeToken() string
 	GetChangeTokenStatus(token string) string
+	MarkChangeTokenUsed(token string)
 
 	// WebACL
 	CreateWebACL(

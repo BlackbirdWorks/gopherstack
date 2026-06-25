@@ -18,6 +18,8 @@ const (
 	changeTokenStatusINSYNC      = "INSYNC"
 	changeTokenStatusPROVISIONED = "PROVISIONED"
 
+	maxChangeTokens = 10_000
+
 	updateInsert = "INSERT"
 	updateDelete = "DELETE"
 
@@ -464,19 +466,38 @@ func (b *InMemoryBackend) GetChangeToken() string {
 	token := uuid.New().String()
 	b.changeTokens[token] = changeTokenStatusPROVISIONED
 
+	if len(b.changeTokens) > maxChangeTokens {
+		for k, v := range b.changeTokens {
+			if v == changeTokenStatusINSYNC {
+				delete(b.changeTokens, k)
+			}
+		}
+	}
+
 	return token
 }
 
 // GetChangeTokenStatus returns the status of a change token.
+// Unknown tokens return INSYNC, matching real AWS WAF Classic behavior.
 func (b *InMemoryBackend) GetChangeTokenStatus(token string) string {
 	b.mu.RLock("GetChangeTokenStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.changeTokens[token]; ok {
-		return changeTokenStatusINSYNC
+	if status, ok := b.changeTokens[token]; ok {
+		return status
 	}
 
 	return changeTokenStatusINSYNC
+}
+
+// MarkChangeTokenUsed transitions a change token from PROVISIONED to INSYNC.
+func (b *InMemoryBackend) MarkChangeTokenUsed(token string) {
+	b.mu.Lock("MarkChangeTokenUsed")
+	defer b.mu.Unlock()
+
+	if _, ok := b.changeTokens[token]; ok {
+		b.changeTokens[token] = changeTokenStatusINSYNC
+	}
 }
 
 // CreateWebACL creates a new WebACL.
