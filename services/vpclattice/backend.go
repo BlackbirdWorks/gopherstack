@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -82,6 +83,7 @@ type storedService struct {
 	CustomDomainName string            `json:"customDomainName"`
 	DNSName          string            `json:"dnsName"`
 	Status           string            `json:"status"`
+	Region           string            `json:"region"`
 }
 
 func (s *storedService) toService() *Service {
@@ -121,6 +123,7 @@ type storedServiceNetwork struct {
 	ID                         string            `json:"id"`
 	Name                       string            `json:"name"`
 	AuthType                   string            `json:"authType"`
+	Region                     string            `json:"region"`
 	NumberOfAssociatedServices int64             `json:"numberOfAssociatedServices"`
 	NumberOfAssociatedVPCs     int64             `json:"numberOfAssociatedVpcs"`
 }
@@ -165,6 +168,7 @@ type storedSNSA struct {
 	CreatedBy          string            `json:"createdBy"`
 	CustomDomainName   string            `json:"customDomainName"`
 	DNSName            string            `json:"dnsName"`
+	Region             string            `json:"region"`
 }
 
 func (s *storedSNSA) toAssociation() *ServiceNetworkServiceAssociation {
@@ -207,14 +211,15 @@ type storedSNVA struct {
 	CreatedAt          time.Time         `json:"createdAt"`
 	LastUpdatedAt      time.Time         `json:"lastUpdatedAt"`
 	Tags               map[string]string `json:"tags"`
+	ServiceNetworkName string            `json:"serviceNetworkName"`
 	ARN                string            `json:"arn"`
 	ID                 string            `json:"id"`
 	VpcID              string            `json:"vpcId"`
 	ServiceNetworkARN  string            `json:"serviceNetworkArn"`
 	ServiceNetworkID   string            `json:"serviceNetworkId"`
-	ServiceNetworkName string            `json:"serviceNetworkName"`
 	Status             string            `json:"status"`
 	CreatedBy          string            `json:"createdBy"`
+	Region             string            `json:"region"`
 	SecurityGroupIDs   []string          `json:"securityGroupIds"`
 }
 
@@ -343,6 +348,7 @@ type storedTargetGroup struct {
 	Name          string             `json:"name"`
 	Type          string             `json:"type"`
 	Status        string             `json:"status"`
+	Region        string             `json:"region"`
 	ServiceARNs   []string           `json:"serviceArns"`
 }
 
@@ -503,6 +509,14 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 // Region returns the configured region.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+func (b *InMemoryBackend) regionFor(ctx context.Context) string {
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
+	}
+
+	return b.region
+}
+
 // Reset clears all stored data.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
@@ -572,10 +586,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return nil
-}
-
-func (b *InMemoryBackend) buildARN(resourceType, resourceID string) string {
-	return arn.Build(arnService, b.region, b.accountID, resourceType+"/"+resourceID)
 }
 
 func (b *InMemoryBackend) buildListenerARN(serviceID, listenerID string) string {
@@ -736,6 +746,7 @@ func (b *InMemoryBackend) resolveSNVAID(identifier string) (string, bool) {
 
 // CreateService creates a new service.
 func (b *InMemoryBackend) CreateService(
+	ctx context.Context,
 	name, authType, certificateArn, customDomainName string,
 	tags map[string]string,
 ) (*Service, error) {
@@ -752,7 +763,8 @@ func (b *InMemoryBackend) CreateService(
 
 	now := time.Now().UTC()
 	id := newID(idPrefixService)
-	svcARN := b.buildARN(resourceService, id)
+	region := b.regionFor(ctx)
+	svcARN := arn.Build(arnService, region, b.accountID, resourceService+"/"+id)
 
 	if authType == "" {
 		authType = authTypeNone
@@ -765,11 +777,12 @@ func (b *InMemoryBackend) CreateService(
 		AuthType:         authType,
 		CertificateArn:   certificateArn,
 		CustomDomainName: customDomainName,
-		DNSName:          id + ".vpc-lattice-svcs." + b.region + ".on.aws",
+		DNSName:          id + ".vpc-lattice-svcs." + region + ".on.aws",
 		Status:           statusActive,
 		Tags:             copyTags(tags),
 		CreatedAt:        now,
 		LastUpdatedAt:    now,
+		Region:           region,
 	}
 
 	b.services[id] = svc
@@ -838,18 +851,25 @@ func (b *InMemoryBackend) DeleteService(serviceID string) (*Service, error) {
 
 // ListServices returns a paginated list of services.
 func (b *InMemoryBackend) ListServices(
+	ctx context.Context,
 	maxResults int32,
 	nextToken string,
 ) ([]*ServiceSummary, string, error) {
 	b.mu.RLock("ListServices")
 	defer b.mu.RUnlock()
 
+	region := b.regionFor(ctx)
 	all := make([]*ServiceSummary, 0, len(b.services))
+
 	for _, svc := range b.services {
+		if svc.Region != region {
+			continue
+		}
+
 		all = append(all, svc.toSummary())
 	}
 
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	slices.SortFunc(all, func(a, b *ServiceSummary) int { return strings.Compare(a.ID, b.ID) })
 
 	p := page.New(all, nextToken, int(maxResults), defaultMaxResults)
 
@@ -860,6 +880,7 @@ func (b *InMemoryBackend) ListServices(
 
 // CreateServiceNetwork creates a new service network.
 func (b *InMemoryBackend) CreateServiceNetwork(
+	ctx context.Context,
 	name, authType string,
 	tags map[string]string,
 ) (*ServiceNetwork, error) {
@@ -876,7 +897,8 @@ func (b *InMemoryBackend) CreateServiceNetwork(
 
 	now := time.Now().UTC()
 	id := newID(idPrefixNetwork)
-	snARN := b.buildARN(resourceServiceNetwork, id)
+	region := b.regionFor(ctx)
+	snARN := arn.Build(arnService, region, b.accountID, resourceServiceNetwork+"/"+id)
 
 	if authType == "" {
 		authType = authTypeNone
@@ -890,6 +912,7 @@ func (b *InMemoryBackend) CreateServiceNetwork(
 		Tags:          copyTags(tags),
 		CreatedAt:     now,
 		LastUpdatedAt: now,
+		Region:        region,
 	}
 
 	b.serviceNetworks[id] = sn
@@ -980,14 +1003,21 @@ func (b *InMemoryBackend) DeleteServiceNetwork(snID string) error {
 
 // ListServiceNetworks returns a paginated list of service networks.
 func (b *InMemoryBackend) ListServiceNetworks(
+	ctx context.Context,
 	maxResults int32,
 	nextToken string,
 ) ([]*ServiceNetworkSummary, string, error) {
 	b.mu.RLock("ListServiceNetworks")
 	defer b.mu.RUnlock()
 
+	region := b.regionFor(ctx)
 	all := make([]*ServiceNetworkSummary, 0, len(b.serviceNetworks))
+
 	for _, sn := range b.serviceNetworks {
+		if sn.Region != region {
+			continue
+		}
+
 		all = append(all, sn.toSummary())
 	}
 
@@ -1002,6 +1032,7 @@ func (b *InMemoryBackend) ListServiceNetworks(
 
 // CreateServiceNetworkServiceAssociation creates a service-to-network association.
 func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
+	ctx context.Context,
 	serviceNetworkID, serviceID string,
 	tags map[string]string,
 ) (*ServiceNetworkServiceAssociation, error) {
@@ -1027,7 +1058,8 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 
 	now := time.Now().UTC()
 	id := newID(idPrefixSNSA)
-	assocARN := b.buildARN(resourceServiceNetworkSvcAssoc, id)
+	region := b.regionFor(ctx)
+	assocARN := arn.Build(arnService, region, b.accountID, resourceServiceNetworkSvcAssoc+"/"+id)
 
 	sn := b.serviceNetworks[snID]
 	svc := b.services[svcID]
@@ -1047,6 +1079,7 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 		DNSName:            svc.DNSName,
 		Tags:               copyTags(tags),
 		CreatedAt:          now,
+		Region:             region,
 	}
 
 	b.snsas[id] = snsa
@@ -1089,6 +1122,7 @@ func (b *InMemoryBackend) DeleteServiceNetworkServiceAssociation(snsaID string) 
 
 // ListServiceNetworkServiceAssociations lists SNSAs with optional filters.
 func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(
+	ctx context.Context,
 	serviceNetworkID, serviceID string,
 	maxResults int32,
 	nextToken string,
@@ -1096,9 +1130,14 @@ func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(
 	b.mu.RLock("ListServiceNetworkServiceAssociations")
 	defer b.mu.RUnlock()
 
+	region := b.regionFor(ctx)
 	all := make([]*ServiceNetworkServiceAssociationSummary, 0)
 
 	for _, s := range b.snsas {
+		if s.Region != region {
+			continue
+		}
+
 		if serviceNetworkID != "" && s.ServiceNetworkID != serviceNetworkID &&
 			s.ServiceNetworkARN != serviceNetworkID {
 			continue
@@ -1122,6 +1161,7 @@ func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(
 
 // CreateServiceNetworkVpcAssociation creates a VPC-to-network association.
 func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
+	ctx context.Context,
 	serviceNetworkID, vpcID string,
 	securityGroupIDs []string,
 	tags map[string]string,
@@ -1147,7 +1187,8 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 
 	now := time.Now().UTC()
 	id := newID(idPrefixSNVA)
-	assocARN := b.buildARN(resourceServiceNetworkVpcAssoc, id)
+	region := b.regionFor(ctx)
+	assocARN := arn.Build(arnService, region, b.accountID, resourceServiceNetworkVpcAssoc+"/"+id)
 
 	sn := b.serviceNetworks[snID]
 	sgs := make([]string, len(securityGroupIDs))
@@ -1166,6 +1207,7 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 		Tags:               copyTags(tags),
 		CreatedAt:          now,
 		LastUpdatedAt:      now,
+		Region:             region,
 	}
 
 	b.snvas[id] = snva
@@ -1230,6 +1272,7 @@ func (b *InMemoryBackend) DeleteServiceNetworkVpcAssociation(snvaID string) erro
 
 // ListServiceNetworkVpcAssociations lists SNVAs with optional filters.
 func (b *InMemoryBackend) ListServiceNetworkVpcAssociations(
+	ctx context.Context,
 	serviceNetworkID, vpcID string,
 	maxResults int32,
 	nextToken string,
@@ -1237,9 +1280,14 @@ func (b *InMemoryBackend) ListServiceNetworkVpcAssociations(
 	b.mu.RLock("ListServiceNetworkVpcAssociations")
 	defer b.mu.RUnlock()
 
+	region := b.regionFor(ctx)
 	all := make([]*ServiceNetworkVpcAssociationSummary, 0)
 
 	for _, s := range b.snvas {
+		if s.Region != region {
+			continue
+		}
+
 		if serviceNetworkID != "" && s.ServiceNetworkID != serviceNetworkID &&
 			s.ServiceNetworkARN != serviceNetworkID {
 			continue
@@ -1725,6 +1773,7 @@ func (b *InMemoryBackend) BatchUpdateRule(
 
 // CreateTargetGroup creates a target group.
 func (b *InMemoryBackend) CreateTargetGroup(
+	ctx context.Context,
 	name, tgType string,
 	config *TargetGroupConfig,
 	tags map[string]string,
@@ -1742,7 +1791,8 @@ func (b *InMemoryBackend) CreateTargetGroup(
 
 	now := time.Now().UTC()
 	id := newID(idPrefixTargetGroup)
-	tgARN := b.buildARN(resourceTargetGroup, id)
+	region := b.regionFor(ctx)
+	tgARN := arn.Build(arnService, region, b.accountID, resourceTargetGroup+"/"+id)
 
 	tg := &storedTargetGroup{
 		ARN:           tgARN,
@@ -1754,6 +1804,7 @@ func (b *InMemoryBackend) CreateTargetGroup(
 		Tags:          copyTags(tags),
 		CreatedAt:     now,
 		LastUpdatedAt: now,
+		Region:        region,
 	}
 
 	b.targetGroups[id] = tg
@@ -1825,6 +1876,7 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgID string) error {
 
 // ListTargetGroups lists target groups with optional filters.
 func (b *InMemoryBackend) ListTargetGroups(
+	ctx context.Context,
 	tgType, serviceArn string,
 	maxResults int32,
 	nextToken string,
@@ -1832,9 +1884,14 @@ func (b *InMemoryBackend) ListTargetGroups(
 	b.mu.RLock("ListTargetGroups")
 	defer b.mu.RUnlock()
 
+	region := b.regionFor(ctx)
 	all := make([]*TargetGroupSummary, 0, len(b.targetGroups))
 
 	for _, tg := range b.targetGroups {
+		if tg.Region != region {
+			continue
+		}
+
 		if tgType != "" && tg.Type != tgType {
 			continue
 		}
@@ -1966,7 +2023,9 @@ func (b *InMemoryBackend) DeregisterTargets( //nolint:gocognit // target deregis
 
 // ListTargets lists registered targets for a target group.
 func (b *InMemoryBackend) ListTargets(
+	_ context.Context,
 	tgID string,
+	filters []Target,
 	maxResults int32,
 	nextToken string,
 ) ([]*TargetSummary, string, error) {
@@ -1989,6 +2048,22 @@ func (b *InMemoryBackend) ListTargets(
 		})
 	}
 
+	if len(filters) > 0 {
+		filtered := all[:0]
+
+		for _, t := range all {
+			for _, f := range filters {
+				if f.ID == t.ID && (f.Port == 0 || f.Port == t.Port) {
+					filtered = append(filtered, t)
+
+					break
+				}
+			}
+		}
+
+		all = filtered
+	}
+
 	p := page.New(all, nextToken, int(maxResults), defaultMaxResults)
 
 	return p.Data, p.Next, nil
@@ -1998,6 +2073,7 @@ func (b *InMemoryBackend) ListTargets(
 
 // CreateAccessLogSubscription creates an access log subscription.
 func (b *InMemoryBackend) CreateAccessLogSubscription(
+	ctx context.Context,
 	resourceID, destinationArn, logType string,
 	tags map[string]string,
 ) (*AccessLogSubscription, error) {
@@ -2013,7 +2089,8 @@ func (b *InMemoryBackend) CreateAccessLogSubscription(
 
 	now := time.Now().UTC()
 	id := newID(idPrefixALS)
-	alsARN := b.buildARN(resourceAccessLogSubscription, id)
+	region := b.regionFor(ctx)
+	alsARN := arn.Build(arnService, region, b.accountID, resourceAccessLogSubscription+"/"+id)
 
 	als := &storedALS{
 		ARN:                   alsARN,
@@ -2108,6 +2185,7 @@ func (b *InMemoryBackend) DeleteAccessLogSubscription(alsID string) error {
 
 // ListAccessLogSubscriptions lists access log subscriptions for a resource.
 func (b *InMemoryBackend) ListAccessLogSubscriptions(
+	_ context.Context,
 	resourceID string,
 	maxResults int32,
 	nextToken string,
