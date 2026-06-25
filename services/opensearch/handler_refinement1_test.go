@@ -152,10 +152,9 @@ func TestRefinement1_ExportCounts(t *testing.T) {
 	b.AddDomainInternal("d1", "")
 	b.AddDomainInternal("d2", "")
 
-	_, err := b.AcceptInboundConnection("conn-1")
-	require.NoError(t, err)
+	opensearch.SeedInboundConnection(b, "conn-1")
 
-	_, err = b.AddDataSource("d1", "ds-1", "desc", "S3GLUE")
+	_, err := b.AddDataSource("d1", "ds-1", "desc", "S3GLUE")
 	require.NoError(t, err)
 
 	_, err = b.AddDirectQueryDataSource("dq-1", "desc", "CloudWatchLogs", nil)
