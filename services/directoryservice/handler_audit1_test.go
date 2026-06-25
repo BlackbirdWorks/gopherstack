@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -214,6 +215,14 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 		dirs, ok := resp["DirectoryDescriptions"].([]any)
 		require.True(t, ok)
 		require.Len(t, dirs, 1)
+		backend := h.Backend.(*directoryservice.InMemoryBackend)
+		require.True(t, directoryservice.WaitForDirectoryActive(backend, dirID, time.Second))
+
+		rec = doRequest(t, h, "DescribeDirectories", map[string]any{
+			"DirectoryIds": []string{dirID},
+		})
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		dirs = resp["DirectoryDescriptions"].([]any)
 		dir := dirs[0].(map[string]any)
 		assert.Equal(t, dirID, dir["DirectoryId"])
 		assert.Equal(t, "corp.example.com", dir["Name"])

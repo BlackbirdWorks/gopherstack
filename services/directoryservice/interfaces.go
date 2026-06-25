@@ -233,6 +233,8 @@ const (
 type DirectoryStage string
 
 const (
+	DirectoryStageRequested DirectoryStage = "Requested"
+	DirectoryStageCreating  DirectoryStage = "Creating"
 	DirectoryStageActive    DirectoryStage = "Active"
 	DirectoryStageDeleted   DirectoryStage = "Deleted"
 	DirectoryStageRestoring DirectoryStage = "Restoring"
