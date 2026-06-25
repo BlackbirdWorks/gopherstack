@@ -534,7 +534,7 @@ func (h *Handler) listLexicons(c *echo.Context) error {
 	resp := map[string]any{"Lexicons": attributes}
 	// AWS omits NextToken when there are no further results.
 	if end < len(lexicons) {
-		resp["NextToken"] = strconv.Itoa(end)
+		resp["NextToken"] = encodeToken(end)
 	}
 
 	return c.JSON(http.StatusOK, resp)
