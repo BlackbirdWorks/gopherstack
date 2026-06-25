@@ -578,14 +578,16 @@ type listExperimentTargetAccountConfigurationsResponseDTO struct {
 type ExperimentResolvedTarget struct {
 	ResourceType         string
 	TargetName           string
+	ResolvedArns         []string
 	TargetResourcesCount int
 }
 
 // resolvedTargetDTO is the JSON representation of a resolved target.
 type resolvedTargetDTO struct {
-	ResourceType         string `json:"resourceType"`
-	TargetName           string `json:"targetName"`
-	TargetResourcesCount int    `json:"targetResourcesCount"`
+	ResourceType         string   `json:"resourceType"`
+	TargetName           string   `json:"targetName"`
+	ResolvedArns         []string `json:"resolvedArns,omitempty"`
+	TargetResourcesCount int      `json:"targetResourcesCount"`
 }
 
 // listExperimentResolvedTargetsResponseDTO is the outer envelope for ListExperimentResolvedTargets.

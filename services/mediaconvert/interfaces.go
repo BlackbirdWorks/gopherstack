@@ -54,6 +54,7 @@ type StorageBackend interface {
 	) (*Job, error)
 	GetJob(id string) (*Job, error)
 	ListJobs() []*Job
+	ListJobsFiltered(status, queue, order string) []*Job
 	CancelJob(id string) error
 	UpdateJob(id, queue string, priority *int, hopDestinations []HopDestination) (*Job, error)
 

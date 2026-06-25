@@ -63,6 +63,8 @@ const (
 	deepCloneMaxDepth = 100
 	// tokenTTL is how long a ClientRequestToken deduplication window lasts.
 	tokenTTL = time.Minute
+	// maxTokens caps the tokenIndex size to prevent unbounded growth.
+	maxTokens = 10_000
 	// jobEngineVersionUsed is the fixed engine version reported on all jobs.
 	jobEngineVersionUsed = "2017-08-29"
 )
@@ -308,6 +310,7 @@ type queueJobCounter struct {
 type InMemoryBackend struct {
 	queries       map[string]*jobsQuery
 	queues        map[string]*Queue
+	queuesByArn   map[string]*Queue // ARN → queue; enables O(1) ARN lookup
 	jobTemplates  map[string]*JobTemplate
 	jobs          map[string]*Job
 	presets       map[string]*Preset
@@ -326,6 +329,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		queries:       make(map[string]*jobsQuery),
 		queues:        make(map[string]*Queue),
+		queuesByArn:   make(map[string]*Queue),
 		jobTemplates:  make(map[string]*JobTemplate),
 		jobs:          make(map[string]*Job),
 		presets:       make(map[string]*Preset),
@@ -352,6 +356,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.queries = make(map[string]*jobsQuery)
 	b.queues = make(map[string]*Queue)
+	b.queuesByArn = make(map[string]*Queue)
 	b.jobTemplates = make(map[string]*JobTemplate)
 	b.jobs = make(map[string]*Job)
 	b.presets = make(map[string]*Preset)
@@ -370,6 +375,7 @@ func (b *InMemoryBackend) AddQueueInternal(q *Queue) {
 	defer b.mu.Unlock()
 
 	b.queues[q.Name] = q
+	b.queuesByArn[q.Arn] = q
 }
 
 // AddJobTemplateInternal inserts a job template directly into the backend.
@@ -451,6 +457,7 @@ func (b *InMemoryBackend) CreateQueueFull(
 		ServiceOverrides: deepCloneMap(serviceOverrides),
 	}
 	b.queues[name] = q
+	b.queuesByArn[q.Arn] = q
 	b.initQueueCounterLocked(q.Arn)
 
 	if len(tags) > 0 {
@@ -493,27 +500,6 @@ func (b *InMemoryBackend) ListQueues() []*Queue {
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
 	return list
-}
-
-// countJobsForQueueLocked counts PROGRESSING and SUBMITTED jobs for a queue ARN.
-// Caller must hold at least a read lock. Kept as internal consistency-check method.
-func (b *InMemoryBackend) countJobsForQueueLocked(queueArn string) (int, int) {
-	var progressing, submitted int
-
-	for _, j := range b.jobs {
-		if j.QueueArn != queueArn {
-			continue
-		}
-
-		switch j.Status {
-		case jobStatusProgressing:
-			progressing++
-		case jobStatusSubmitted:
-			submitted++
-		}
-	}
-
-	return progressing, submitted
 }
 
 // initQueueCounterLocked creates a counter entry for queueArn if it does not exist.
@@ -591,6 +577,7 @@ func (b *InMemoryBackend) DeleteQueue(name string) error {
 	}
 	delete(b.tags, q.Arn)
 	delete(b.queueCounters, q.Arn)
+	delete(b.queuesByArn, q.Arn)
 	delete(b.queues, name)
 
 	return nil
@@ -600,10 +587,8 @@ func (b *InMemoryBackend) DeleteQueue(name string) error {
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) resolveQueueLocked(queue string) (*Queue, error) {
 	if strings.HasPrefix(queue, "arn:") {
-		for _, cq := range b.queues {
-			if cq.Arn == queue {
-				return cq, nil
-			}
+		if q, ok := b.queuesByArn[queue]; ok {
+			return q, nil
 		}
 	} else if q, ok := b.queues[queue]; ok {
 		return q, nil
@@ -864,8 +849,8 @@ func (b *InMemoryBackend) CreateJobFull(
 	// Update queue counter for the new SUBMITTED job.
 	b.adjustQueueCounterLocked(queueArn, jobStatusSubmitted, +1)
 
-	// Record token for dedup.
-	if clientRequestToken != "" {
+	// Record token for dedup (cap to prevent unbounded growth).
+	if clientRequestToken != "" && len(b.tokenIndex) < maxTokens {
 		b.tokenIndex[clientRequestToken] = &tokenEntry{
 			jobID:     id,
 			createdAt: time.Now(),
@@ -894,17 +879,38 @@ func (b *InMemoryBackend) GetJob(id string) (*Job, error) {
 
 // ListJobs returns all jobs sorted by creation time (newest first).
 func (b *InMemoryBackend) ListJobs() []*Job {
-	b.mu.RLock("ListJobs")
+	return b.ListJobsFiltered("", "", "")
+}
+
+// ListJobsFiltered returns jobs filtered by status and/or queue ARN/name,
+// sorted by creation time. order="" or "DESCENDING" → newest first; "ASCENDING" → oldest first.
+func (b *InMemoryBackend) ListJobsFiltered(status, queue, order string) []*Job {
+	b.mu.RLock("ListJobsFiltered")
 	defer b.mu.RUnlock()
 
 	list := make([]*Job, 0, len(b.jobs))
+
 	for _, j := range b.jobs {
+		if status != "" && j.Status != status {
+			continue
+		}
+
+		if queue != "" && j.QueueArn != queue && j.Queue != queue {
+			continue
+		}
+
 		list = append(list, cloneJob(j))
 	}
 
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].CreatedAt > list[j].CreatedAt
-	})
+	if order == "ASCENDING" {
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].CreatedAt < list[j].CreatedAt
+		})
+	} else {
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].CreatedAt > list[j].CreatedAt
+		})
+	}
 
 	return list
 }
@@ -992,26 +998,59 @@ func (b *InMemoryBackend) UpdateJob(id, queue string, priority *int, hopDestinat
 // SweepExpiredTokens removes token entries that have exceeded the TTL.
 // Called by the janitor; safe to call externally for testing.
 func (b *InMemoryBackend) SweepExpiredTokens() {
-	b.mu.Lock("SweepExpiredTokens")
-	defer b.mu.Unlock()
+	b.mu.RLock("SweepExpiredTokens")
 
+	var expired []string
 	for token, entry := range b.tokenIndex {
 		if time.Since(entry.createdAt) >= tokenTTL {
-			delete(b.tokenIndex, token)
+			expired = append(expired, token)
 		}
+	}
+
+	b.mu.RUnlock()
+
+	if len(expired) == 0 {
+		return
+	}
+
+	b.mu.Lock("SweepExpiredTokens.delete")
+	defer b.mu.Unlock()
+
+	for _, token := range expired {
+		delete(b.tokenIndex, token)
 	}
 }
 
 // AdvanceJobPhase advances job phase/status for the janitor.
 // Returns true if any job was advanced.
 func (b *InMemoryBackend) AdvanceJobPhase() bool {
-	b.mu.Lock("AdvanceJobPhase")
+	b.mu.RLock("AdvanceJobPhase")
+
+	var eligible []string
+	for id, j := range b.jobs {
+		switch j.Status {
+		case jobStatusSubmitted, jobStatusProgressing:
+			eligible = append(eligible, id)
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if len(eligible) == 0 {
+		return false
+	}
+
+	b.mu.Lock("AdvanceJobPhase.advance")
 	defer b.mu.Unlock()
 
 	advanced := false
 	now := epochSeconds(time.Now())
 
-	for _, j := range b.jobs {
+	for _, id := range eligible {
+		j, ok := b.jobs[id]
+		if !ok {
+			continue
+		}
 		if b.advanceOneJobLocked(j, now) {
 			advanced = true
 		}
@@ -1109,17 +1148,28 @@ func (b *InMemoryBackend) completeJobLocked(j *Job, now float64) bool {
 // Used when restoring a snapshot that predates per-queue counters.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) rebuildCountersLocked() {
-	seenArns := make(map[string]struct{})
+	counters := make(map[string]*queueJobCounter)
+
 	for _, j := range b.jobs {
-		if j.QueueArn != "" {
-			seenArns[j.QueueArn] = struct{}{}
+		if j.QueueArn == "" {
+			continue
+		}
+
+		c := counters[j.QueueArn]
+		if c == nil {
+			c = &queueJobCounter{}
+			counters[j.QueueArn] = c
+		}
+
+		switch j.Status {
+		case jobStatusProgressing:
+			c.progressing++
+		case jobStatusSubmitted:
+			c.submitted++
 		}
 	}
 
-	for queueArn := range seenArns {
-		prog, sub := b.countJobsForQueueLocked(queueArn)
-		b.queueCounters[queueArn] = &queueJobCounter{progressing: prog, submitted: sub}
-	}
+	maps.Copy(b.queueCounters, counters)
 }
 
 // generateJobID generates a MediaConvert-style job ID.
