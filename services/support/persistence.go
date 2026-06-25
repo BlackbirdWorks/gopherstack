@@ -14,6 +14,7 @@ type backendSnapshot struct {
 	AttachmentSets       map[string]*AttachmentSet                    `json:"attachmentSets"`
 	Attachments          map[string]*Attachment                       `json:"attachments"`
 	CheckRefreshStatuses map[string]*TrustedAdvisorCheckRefreshStatus `json:"checkRefreshStatuses"`
+	CheckResults         map[string]*TrustedAdvisorCheckResult        `json:"checkResults,omitempty"`
 	NextDisplayID        uint64                                       `json:"nextDisplayId"`
 }
 
@@ -29,6 +30,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AttachmentSets:       b.attachmentSets,
 		Attachments:          b.attachments,
 		CheckRefreshStatuses: b.checkRefreshStatuses,
+		CheckResults:         b.checkResults,
 		NextDisplayID:        b.nextDisplayID,
 	}
 
@@ -61,6 +63,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.attachmentSets = snap.AttachmentSets
 	b.attachments = snap.Attachments
 	b.checkRefreshStatuses = snap.CheckRefreshStatuses
+	b.checkResults = snap.CheckResults
 	b.nextDisplayID = snap.NextDisplayID
 
 	return nil
@@ -85,6 +88,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.CheckRefreshStatuses == nil {
 		snap.CheckRefreshStatuses = make(map[string]*TrustedAdvisorCheckRefreshStatus)
+	}
+
+	if snap.CheckResults == nil {
+		snap.CheckResults = make(map[string]*TrustedAdvisorCheckResult)
 	}
 }
 
