@@ -2,11 +2,12 @@ package support
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -281,16 +282,33 @@ func validateAttachments(attachments []Attachment) error {
 
 func (b *InMemoryBackend) attachmentSetForAppendLocked(id string) (*AttachmentSet, string, error) {
 	if id == "" {
+		if len(b.attachmentSets) >= maxAttachmentSets {
+			// Evict the set with the earliest (soonest-expired) expiry.
+			var oldestID string
+			var oldestExpiry time.Time
+
+			for sid, s := range b.attachmentSets {
+				if oldestID == "" || s.Expiry.Before(oldestExpiry) {
+					oldestID = sid
+					oldestExpiry = s.Expiry
+				}
+			}
+
+			delete(b.attachmentSets, oldestID)
+		}
+
 		id = uuid.NewString()
 		set := &AttachmentSet{}
 		b.attachmentSets[id] = set
 
 		return set, id, nil
 	}
+
 	set, ok := b.attachmentSets[id]
 	if !ok {
 		return nil, "", fmt.Errorf("%w: %s", ErrAttachmentSetNotFound, id)
 	}
+
 	if time.Now().After(set.Expiry) {
 		return nil, "", fmt.Errorf("%w: %s", ErrAttachmentSetExpired, id)
 	}
@@ -368,14 +386,27 @@ func validSeverity(value string) bool {
 		value == severityUrgent || value == severityCritical
 }
 
-func validCheckID(checkID string) bool {
-	for _, check := range trustedAdvisorChecks() {
-		if check.ID == checkID {
-			return true
-		}
-	}
+var (
+	checkIDSetOnce sync.Once           //nolint:gochecknoglobals // sync.Once lazy init for static check ID set
+	checkIDSet     map[string]struct{} //nolint:gochecknoglobals // populated exactly once by initCheckIDSet
+)
 
-	return false
+func initCheckIDSet() {
+	checkIDSetOnce.Do(func() {
+		checks := trustedAdvisorChecks()
+		checkIDSet = make(map[string]struct{}, len(checks))
+
+		for _, c := range checks {
+			checkIDSet[c.ID] = struct{}{}
+		}
+	})
+}
+
+func validCheckID(checkID string) bool {
+	initCheckIDSet()
+	_, ok := checkIDSet[checkID]
+
+	return ok
 }
 
 func validateCheckIDs(checkIDs []string) error {
@@ -467,30 +498,44 @@ func validatePageSize(maxResults int) error {
 	return nil
 }
 
+type pageTokenJSON struct {
+	Offset int `json:"o"`
+}
+
 func pageOffset(token string) (int, error) {
 	if token == "" {
 		return 0, nil
 	}
+
 	decoded, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
 		return 0, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
-	offset, err := strconv.Atoi(string(decoded))
-	if err != nil || offset < 0 {
+
+	var t pageTokenJSON
+	if unmarshalErr := json.Unmarshal(decoded, &t); unmarshalErr != nil || t.Offset < 0 {
 		return 0, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 
-	return offset, nil
+	return t.Offset, nil
+}
+
+func encodePageToken(offset int) string {
+	data, _ := json.Marshal(pageTokenJSON{Offset: offset})
+
+	return base64.RawURLEncoding.EncodeToString(data)
 }
 
 func paginate[T any](values []T, start, limit int) ([]T, string, error) {
 	if start > len(values) {
 		return nil, "", fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
+
 	end := min(start+limit, len(values))
 	nextToken := ""
+
 	if end < len(values) {
-		nextToken = base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(end)))
+		nextToken = encodePageToken(end)
 	}
 
 	return values[start:end], nextToken, nil
