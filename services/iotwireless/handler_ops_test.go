@@ -864,10 +864,10 @@ func TestHandlerOps_Position(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Put position configuration
-	rec = doIoTWRequest(t, h, http.MethodPut, "/position-configurations/resource-123", `{}`)
+	rec = doIoTWRequest(t, h, http.MethodPut, "/position-configurations/resource-123", `{"SolverType":"GNSS"}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
-	// List position configurations
+	// List position configurations — must include the stored config.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/position-configurations", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -875,7 +875,10 @@ func TestHandlerOps_Position(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	configs, ok := listResp["PositionConfigurationList"].([]any)
 	require.True(t, ok)
-	assert.Empty(t, configs)
+	require.Len(t, configs, 1, "stored position config must appear in list")
+	cfg0, ok := configs[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "resource-123", cfg0["ResourceIdentifier"])
 }
 
 // ============================================================

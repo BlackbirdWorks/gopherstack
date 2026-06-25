@@ -363,7 +363,15 @@ func (h *Handler) getWirelessGatewayStatistics(c *echo.Context, _ string) error 
 }
 
 func (h *Handler) getWirelessGatewayFirmwareInformation(c *echo.Context, _ string) error {
-	return writeJSON(c, http.StatusOK, getWirelessGatewayFirmwareInformationResponse{})
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"LoRaWAN": map[string]any{
+			"CurrentVersion": map[string]any{
+				"PackageVersion": "1.0.0",
+				"Model":          "GW-001",
+				"Station":        "LNS",
+			},
+		},
+	})
 }
 
 // ============================================================
@@ -412,9 +420,17 @@ func (h *Handler) disassociateWirelessDeviceFromThing(c *echo.Context, id string
 	return nil
 }
 
-func (h *Handler) sendDataToWirelessDevice(c *echo.Context, _ string) error {
+func (h *Handler) sendDataToWirelessDevice(c *echo.Context, id string) error {
+	var req struct {
+		PayloadData string `json:"PayloadData"`
+	}
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+	msgID := uuid.NewString()
+	_ = h.Backend.EnqueueDownlinkMessage(id, msgID, req.PayloadData)
+
 	return writeJSON(c, http.StatusCreated, sendDataToWirelessDeviceResponse{
-		MessageID: uuid.NewString(),
+		MessageID: msgID,
 	})
 }
 
@@ -538,24 +554,47 @@ func (h *Handler) resetResourceLogLevel(c *echo.Context, id string) error {
 // ============================================================
 
 func (h *Handler) getEventConfigurationByResourceTypes(c *echo.Context) error {
-	return writeJSON(c, http.StatusOK, getEventConfigurationByResourceTypesResponse{})
+	cfg := h.Backend.GetEventConfigByResourceTypes()
+
+	return writeJSON(c, http.StatusOK, cfg)
 }
 
 func (h *Handler) updateEventConfigurationByResourceTypes(c *echo.Context) error {
+	var req map[string]any
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+	if req == nil {
+		req = map[string]any{}
+	}
+	_ = h.Backend.UpdateEventConfigByResourceTypes(req)
+
 	return stubNoContent(c)
 }
 
 func (h *Handler) listEventConfigurations(c *echo.Context) error {
+	cfgs := h.Backend.ListResourceEventConfigs()
+
 	return writeJSON(c, http.StatusOK, listEventConfigurationsResponse{
-		EventConfigurationsList: []struct{}{},
+		EventConfigurationsList: cfgs,
 	})
 }
 
-func (h *Handler) getResourceEventConfiguration(c *echo.Context, _ string) error {
-	return writeJSON(c, http.StatusOK, getResourceEventConfigurationResponse{})
+func (h *Handler) getResourceEventConfiguration(c *echo.Context, resourceID string) error {
+	cfg := h.Backend.GetResourceEventConfig(resourceID)
+
+	return writeJSON(c, http.StatusOK, cfg)
 }
 
-func (h *Handler) updateResourceEventConfiguration(c *echo.Context, _ string) error {
+func (h *Handler) updateResourceEventConfiguration(c *echo.Context, resourceID string) error {
+	var req map[string]any
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+	if req == nil {
+		req = map[string]any{}
+	}
+	req["Identifier"] = resourceID
+	_ = h.Backend.UpdateResourceEventConfig(resourceID, req)
+
 	return stubNoContent(c)
 }
 
@@ -674,10 +713,7 @@ func (h *Handler) createWirelessGatewayTaskDefinition(c *echo.Context) error {
 func (h *Handler) getWirelessGatewayTaskDefinition(c *echo.Context, id string) error {
 	def, err := h.Backend.GetWirelessGatewayTaskDefinition(id)
 	if err != nil {
-		return writeJSON(c, http.StatusOK, getWirelessGatewayTaskDefinitionResponse{
-			Arn:  stubGatewayTaskArn,
-			Name: stubName,
-		})
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, getWirelessGatewayTaskDefinitionResponse{
@@ -743,17 +779,29 @@ func (h *Handler) updatePosition(c *echo.Context, id string) error {
 	return stubNoContent(c)
 }
 
-func (h *Handler) getPositionConfiguration(c *echo.Context, _ string) error {
-	return writeJSON(c, http.StatusOK, getPositionConfigurationResponse{})
+func (h *Handler) getPositionConfiguration(c *echo.Context, resourceID string) error {
+	cfg := h.Backend.GetPositionConfig(resourceID)
+
+	return writeJSON(c, http.StatusOK, cfg)
 }
 
-func (h *Handler) putPositionConfiguration(c *echo.Context, _ string) error {
+func (h *Handler) putPositionConfiguration(c *echo.Context, resourceID string) error {
+	var req map[string]any
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+	if req == nil {
+		req = map[string]any{}
+	}
+	_ = h.Backend.PutPositionConfig(resourceID, req)
+
 	return stubNoContent(c)
 }
 
 func (h *Handler) listPositionConfigurations(c *echo.Context) error {
+	configs := h.Backend.ListPositionConfigs()
+
 	return writeJSON(c, http.StatusOK, listPositionConfigurationsResponse{
-		PositionConfigurationList: []struct{}{},
+		PositionConfigurationList: configs,
 	})
 }
 
@@ -762,10 +810,17 @@ func (h *Handler) listPositionConfigurations(c *echo.Context) error {
 // ============================================================
 
 func (h *Handler) listQueuedMessages(c *echo.Context, wirelessDeviceID string) error {
-	_ = h.Backend.ListQueuedMessages(wirelessDeviceID)
+	msgs := h.Backend.ListQueuedMessages(wirelessDeviceID)
+	entries := make([]map[string]any, 0, len(msgs))
+	for _, m := range msgs {
+		entries = append(entries, map[string]any{
+			"MessageId":   m.MessageID,
+			"PayloadData": m.PayloadBase64,
+		})
+	}
 
 	return writeJSON(c, http.StatusOK, listQueuedMessagesResponse{
-		DownlinkQueueMessagesList: []struct{}{},
+		DownlinkQueueMessagesList: entries,
 	})
 }
 
@@ -784,14 +839,45 @@ func (h *Handler) deleteQueuedMessages(c *echo.Context, wirelessDeviceID string)
 // ============================================================
 
 func (h *Handler) getMetricConfiguration(c *echo.Context) error {
-	return writeJSON(c, http.StatusOK, getMetricConfigurationResponse{})
+	cfg := h.Backend.GetMetricConfiguration()
+	if len(cfg) == 0 {
+		cfg = map[string]any{"SummaryMetric": map[string]any{"Status": "Disable"}}
+	}
+
+	return writeJSON(c, http.StatusOK, cfg)
+}
+
+//nolint:unparam // error is always nil; method signature required by handler dispatch pattern
+func (h *Handler) updateMetricConfiguration(c *echo.Context) error {
+	var req map[string]any
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+	if req == nil {
+		req = map[string]any{}
+	}
+	_ = h.Backend.UpdateMetricConfiguration(req)
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
 }
 
 func (h *Handler) getServiceEndpoint(c *echo.Context) error {
+	serviceType := c.QueryParam("ServiceType")
+	if serviceType == "" {
+		serviceType = "CUPS"
+	}
+
+	var endpoint string
+	switch serviceType {
+	case "LNS":
+		endpoint = "https://lns.lorawan." + h.DefaultRegion + ".amazonaws.com"
+	default:
+		endpoint = "https://cups.lorawan." + h.DefaultRegion + ".amazonaws.com"
+	}
+
 	return writeJSON(c, http.StatusOK, getServiceEndpointResponse{
-		ServiceType:     stubServiceType,
-		ServiceEndpoint: stubServiceEndpoint,
-		ServerTrust:     "",
+		ServiceType:     serviceType,
+		ServiceEndpoint: endpoint,
 	})
 }
 
