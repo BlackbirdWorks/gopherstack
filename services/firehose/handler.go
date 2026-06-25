@@ -591,19 +591,21 @@ func (h *Handler) handleDeleteDeliveryStream(
 }
 
 type deliveryStreamDescriptionFields struct {
-	EncryptionConfiguration             *EncryptionConfig                    `json:"EncryptionConfiguration,omitempty"`
-	Source                              *SourceDescription                   `json:"Source,omitempty"`
-	CreateTimestamp                     *int64                               `json:"CreateTimestamp,omitempty"`
-	LastUpdateTimestamp                 *int64                               `json:"LastUpdateTimestamp,omitempty"`
-	DeliveryStreamName                  string                               `json:"DeliveryStreamName"`
-	DeliveryStreamARN                   string                               `json:"DeliveryStreamARN"`
-	DeliveryStreamStatus                string                               `json:"DeliveryStreamStatus"`
-	DeliveryStreamType                  string                               `json:"DeliveryStreamType,omitempty"`
-	VersionID                           string                               `json:"VersionId,omitempty"`
-	S3DestinationDescriptions           []S3DestinationDescription           `json:"S3DestinationDescriptions,omitempty"`
-	HTTPEndpointDestinationDescriptions []HTTPEndpointDestinationDescription `json:"HTTPEndpointDestinationDescriptions,omitempty"` //nolint:lll // AWS field name must match the API spec
-	RedshiftDestinationDescriptions     []RedshiftDestinationDescription     `json:"RedshiftDestinationDescriptions,omitempty"`     //nolint:lll // AWS field name
-	HasMoreDestinations                 bool                                 `json:"HasMoreDestinations"`
+	EncryptionConfiguration                        *EncryptionConfig                    `json:"EncryptionConfiguration,omitempty"` //nolint:lll // AWS field name
+	Source                                         *SourceDescription                   `json:"Source,omitempty"`
+	CreateTimestamp                                *int64                               `json:"CreateTimestamp,omitempty"`
+	LastUpdateTimestamp                            *int64                               `json:"LastUpdateTimestamp,omitempty"` //nolint:lll // AWS field name
+	DeliveryStreamName                             string                               `json:"DeliveryStreamName"`
+	DeliveryStreamARN                              string                               `json:"DeliveryStreamARN"`
+	DeliveryStreamStatus                           string                               `json:"DeliveryStreamStatus"`
+	DeliveryStreamType                             string                               `json:"DeliveryStreamType,omitempty"` //nolint:lll // AWS field name
+	VersionID                                      string                               `json:"VersionId,omitempty"`
+	S3DestinationDescriptions                      []S3DestinationDescription           `json:"S3DestinationDescriptions,omitempty"`                      //nolint:lll // AWS field name
+	HTTPEndpointDestinationDescriptions            []HTTPEndpointDestinationDescription `json:"HTTPEndpointDestinationDescriptions,omitempty"`            //nolint:lll // AWS field name must match the API spec
+	RedshiftDestinationDescriptions                []RedshiftDestinationDescription     `json:"RedshiftDestinationDescriptions,omitempty"`                //nolint:lll // AWS field name
+	AmazonOpenSearchServiceDestinationDescriptions []OpenSearchDestinationDescription   `json:"AmazonOpenSearchServiceDestinationDescriptions,omitempty"` //nolint:lll // AWS field name
+	SplunkDestinationDescriptions                  []SplunkDestinationDescription       `json:"SplunkDestinationDescriptions,omitempty"`                  //nolint:lll // AWS field name
+	HasMoreDestinations                            bool                                 `json:"HasMoreDestinations"`
 }
 
 type describeDeliveryStreamInput struct {
@@ -659,6 +661,16 @@ func (h *Handler) handleDescribeDeliveryStream(
 
 	if s.RedshiftDestination != nil {
 		desc.RedshiftDestinationDescriptions = []RedshiftDestinationDescription{*s.RedshiftDestination}
+	}
+
+	if s.OpenSearchDestination != nil {
+		desc.AmazonOpenSearchServiceDestinationDescriptions = []OpenSearchDestinationDescription{ //nolint:lll // AWS field name
+			*s.OpenSearchDestination,
+		}
+	}
+
+	if s.SplunkDestination != nil {
+		desc.SplunkDestinationDescriptions = []SplunkDestinationDescription{*s.SplunkDestination}
 	}
 
 	return &describeDeliveryStreamOutput{DeliveryStreamDescription: desc}, nil
@@ -892,12 +904,23 @@ func (h *Handler) handleUntagDeliveryStream(
 	return &untagDeliveryStreamOutput{}, nil
 }
 
+// aosUpdateField holds the AmazonOpenSearch update field separately so its long name
+// does not drive gofmt alignment in updateDestinationInput. Embedding keeps
+// JSON marshaling transparent.
+type aosUpdateField struct {
+	AmazonOpenSearchServiceDestinationUpdate *openSearchDestinationInput `json:"AmazonOpenSearchServiceDestinationUpdate"` //nolint:lll // AWS field name
+}
+
 type updateDestinationInput struct {
-	S3DestinationUpdate            *s3DestinationInput `json:"S3DestinationUpdate"`
-	ExtendedS3DestinationUpdate    *s3DestinationInput `json:"ExtendedS3DestinationUpdate"`
-	DeliveryStreamName             string              `json:"DeliveryStreamName"`
-	CurrentDeliveryStreamVersionID string              `json:"CurrentDeliveryStreamVersionId"`
-	DestinationID                  string              `json:"DestinationId"`
+	aosUpdateField
+	S3DestinationUpdate            *s3DestinationInput           `json:"S3DestinationUpdate"`
+	ExtendedS3DestinationUpdate    *s3DestinationInput           `json:"ExtendedS3DestinationUpdate"`
+	HTTPEndpointDestinationUpdate  *httpEndpointDestinationInput `json:"HttpEndpointDestinationUpdate"`
+	RedshiftDestinationUpdate      *redshiftDestinationInput     `json:"RedshiftDestinationUpdate"`
+	SplunkDestinationUpdate        *splunkDestinationInput       `json:"SplunkDestinationUpdate"`
+	DeliveryStreamName             string                        `json:"DeliveryStreamName"`
+	CurrentDeliveryStreamVersionID string                        `json:"CurrentDeliveryStreamVersionId"`
+	DestinationID                  string                        `json:"DestinationId"`
 }
 
 type updateDestinationOutput struct{}
@@ -906,18 +929,24 @@ func (h *Handler) handleUpdateDestination(
 	ctx context.Context,
 	in *updateDestinationInput,
 ) (*updateDestinationOutput, error) {
-	raw := in.ExtendedS3DestinationUpdate
-	if raw == nil {
-		raw = in.S3DestinationUpdate
+	rawS3 := in.ExtendedS3DestinationUpdate
+	if rawS3 == nil {
+		rawS3 = in.S3DestinationUpdate
 	}
 
-	dest := buildS3DestinationDescription(raw)
+	update := UpdateDestinationInput{
+		S3Destination:           buildS3DestinationDescription(rawS3),
+		HTTPEndpointDestination: buildHTTPEndpointDestination(in.HTTPEndpointDestinationUpdate),
+		RedshiftDestination:     buildRedshiftDestination(in.RedshiftDestinationUpdate),
+		OpenSearchDestination:   buildOpenSearchDestination(in.AmazonOpenSearchServiceDestinationUpdate),
+		SplunkDestination:       buildSplunkDestination(in.SplunkDestinationUpdate),
+	}
 
 	if err := h.Backend.UpdateDestination(
 		ctx,
 		in.DeliveryStreamName,
 		in.CurrentDeliveryStreamVersionID,
-		dest,
+		update,
 	); err != nil {
 		return nil, err
 	}
