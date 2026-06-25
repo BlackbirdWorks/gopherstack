@@ -2,6 +2,7 @@ package vpclattice_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/vpclattice"
 )
 
@@ -19,6 +21,44 @@ func newTestHandler(t *testing.T) *vpclattice.Handler {
 	backend := vpclattice.NewInMemoryBackend("000000000000", "us-east-1")
 
 	return vpclattice.NewHandler(backend)
+}
+
+func doRequestWithRegion(
+	t *testing.T,
+	h *vpclattice.Handler,
+	region, method, path string,
+	body any,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var buf *bytes.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		require.NoError(t, err)
+		buf = bytes.NewReader(data)
+	} else {
+		buf = bytes.NewReader(nil)
+	}
+
+	req := httptest.NewRequest(method, path, buf)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+		req.ContentLength = int64(buf.Len())
+	}
+
+	ctx := awsmeta.Set(context.Background(), &awsmeta.Metadata{
+		Region:    region,
+		Account:   "000000000000",
+		Partition: "aws",
+	})
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	return rec
 }
 
 func doRequest(
@@ -64,11 +104,11 @@ func parseBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func TestService_CRUD(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // readability: name first
-		name     string
+	tests := []struct {
 		body     map[string]any
-		wantCode int
 		check    func(t *testing.T, resp map[string]any)
+		name     string
+		wantCode int
 	}{
 		{
 			name:     "create missing name returns 400",
@@ -257,9 +297,9 @@ func TestSNSA_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusConflict, rec.Code)
 
-	// delete
+	// delete returns 202 per AWS spec
 	rec = doRequest(t, h, http.MethodDelete, "/servicenetworkserviceassociations/"+assocID, nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
 }
 
 // TestSNVA_CRUD tests service network VPC associations.
@@ -307,9 +347,9 @@ func TestSNVA_CRUD(t *testing.T) {
 	items, _ := list["items"].([]any)
 	assert.Len(t, items, 1)
 
-	// delete
+	// delete returns 202 per AWS spec
 	rec = doRequest(t, h, http.MethodDelete, "/servicenetworkvpcassociations/"+assocID, nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
 }
 
 // TestListener_CRUD tests listeners.
@@ -543,11 +583,11 @@ func TestTargetGroup_CRUD(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	tests := []struct { //nolint:govet // readability: name first
-		name     string
+	tests := []struct {
 		body     map[string]any
-		wantCode int
 		check    func(t *testing.T, resp map[string]any)
+		name     string
+		wantCode int
 	}{
 		{
 			name:     "create missing name returns 400",
@@ -885,6 +925,140 @@ func TestNotFound(t *testing.T) {
 			h := newTestHandler(t)
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+// TestListTargets_BodyFilter verifies that target filters in the POST body are applied.
+func TestListTargets_BodyFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		filters   []map[string]any
+		wantIDs   []string
+		wantCount int
+	}{
+		{
+			name:      "no filter returns all targets",
+			wantCount: 3,
+		},
+		{
+			name:      "filter by ID returns matching target",
+			filters:   []map[string]any{{"id": "10.0.0.1"}},
+			wantCount: 1,
+			wantIDs:   []string{"10.0.0.1"},
+		},
+		{
+			name:      "filter by ID+port returns exact match",
+			filters:   []map[string]any{{"id": "10.0.0.1", "port": float64(80)}},
+			wantCount: 1,
+			wantIDs:   []string{"10.0.0.1"},
+		},
+		{
+			name:      "filter by ID with wrong port returns nothing",
+			filters:   []map[string]any{{"id": "10.0.0.1", "port": float64(9999)}},
+			wantCount: 0,
+		},
+		{
+			name:      "multiple filters return union of matches",
+			filters:   []map[string]any{{"id": "10.0.0.1"}, {"id": "10.0.0.2"}},
+			wantCount: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+
+			recTG := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
+				"name": "tg-filter-test",
+				"type": "IP",
+				"config": map[string]any{
+					"protocol":      "HTTP",
+					"port":          80,
+					"vpcIdentifier": "vpc-1",
+				},
+			})
+			require.Equal(t, http.StatusCreated, recTG.Code)
+			tgID, _ := parseBody(t, recTG)["id"].(string)
+
+			rec := doRequest(t, h, http.MethodPost, "/targetgroups/"+tgID+"/registertargets", map[string]any{
+				"targets": []map[string]any{
+					{"id": "10.0.0.1", "port": 80},
+					{"id": "10.0.0.2", "port": 80},
+					{"id": "10.0.0.3", "port": 80},
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var listBody map[string]any
+			if tc.filters != nil {
+				listBody = map[string]any{"targets": tc.filters}
+			}
+
+			recList := doRequest(t, h, http.MethodPost, "/targetgroups/"+tgID+"/listtargets", listBody)
+			require.Equal(t, http.StatusOK, recList.Code)
+			resp := parseBody(t, recList)
+			items, _ := resp["items"].([]any)
+			assert.Len(t, items, tc.wantCount)
+
+			for _, wantID := range tc.wantIDs {
+				found := false
+				for _, item := range items {
+					m, _ := item.(map[string]any)
+					if m["id"] == wantID {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "expected target %s in results", wantID)
+			}
+		})
+	}
+}
+
+// TestRegionIsolation verifies that resources created in one region are not visible in another.
+func TestRegionIsolation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		createRegion string
+		listRegion   string
+		wantCount    int
+	}{
+		{
+			name:         "same region sees resource",
+			createRegion: "us-east-1",
+			listRegion:   "us-east-1",
+			wantCount:    1,
+		},
+		{
+			name:         "different region sees nothing",
+			createRegion: "us-east-1",
+			listRegion:   "eu-west-1",
+			wantCount:    0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+
+			rec := doRequestWithRegion(t, h, tc.createRegion, http.MethodPost, "/services", map[string]any{
+				"name": "region-svc",
+			})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			recList := doRequestWithRegion(t, h, tc.listRegion, http.MethodGet, "/services", nil)
+			require.Equal(t, http.StatusOK, recList.Code)
+			listResp := parseBody(t, recList)
+			items, _ := listResp["items"].([]any)
+			assert.Len(t, items, tc.wantCount)
 		})
 	}
 }
