@@ -333,6 +333,13 @@ func (b *InMemoryBackend) UpdateNotebookInstanceFull(
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
 
+	if nb.NotebookInstanceStatus != notebookStatusStopped {
+		return fmt.Errorf(
+			"%w: notebook instance %q is in %s status and cannot be updated",
+			ErrValidation, name, nb.NotebookInstanceStatus,
+		)
+	}
+
 	if opts.InstanceType != "" {
 		nb.InstanceType = opts.InstanceType
 	}

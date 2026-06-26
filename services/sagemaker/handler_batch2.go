@@ -409,9 +409,11 @@ func (h *Handler) handleListModelPackageGroups(ctx context.Context, body []byte)
 
 func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags          map[string]string `json:"Tags"`
-		AutoMLJobName string            `json:"AutoMLJobName"`
-		RoleArn       string            `json:"RoleArn"`
+		Tags               map[string]string       `json:"Tags"`
+		OutputDataConfig   *AutoMLOutputDataConfig `json:"OutputDataConfig"`
+		AutoMLJobObjective *AutoMLJobObjective     `json:"AutoMLJobObjective"`
+		AutoMLJobName      string                  `json:"AutoMLJobName"`
+		RoleArn            string                  `json:"RoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -425,6 +427,14 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 	result, err := h.Backend.CreateAutoMLJob(ctx, req.AutoMLJobName, req.RoleArn, req.Tags)
 	if err != nil {
 		return nil, err
+	}
+
+	if req.OutputDataConfig != nil || req.AutoMLJobObjective != nil {
+		if extErr := h.Backend.SetAutoMLJobExtras(
+			ctx, req.AutoMLJobName, req.OutputDataConfig, req.AutoMLJobObjective,
+		); extErr != nil {
+			return nil, extErr
+		}
 	}
 
 	return json.Marshal(map[string]any{"AutoMLJobArn": result.AutoMLJobArn})
@@ -1006,9 +1016,12 @@ func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]b
 
 func (h *Handler) handleCreateCompilationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags               map[string]string `json:"Tags"`
-		CompilationJobName string            `json:"CompilationJobName"`
-		RoleArn            string            `json:"RoleArn"`
+		Tags               map[string]string        `json:"Tags"`
+		InputConfig        *CompilationInputConfig  `json:"InputConfig"`
+		OutputConfig       *CompilationOutputConfig `json:"OutputConfig"`
+		StoppingCondition  *StoppingCondition       `json:"StoppingCondition"`
+		CompilationJobName string                   `json:"CompilationJobName"`
+		RoleArn            string                   `json:"RoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1022,6 +1035,14 @@ func (h *Handler) handleCreateCompilationJob(ctx context.Context, body []byte) (
 	result, err := h.Backend.CreateCompilationJob(ctx, req.CompilationJobName, req.RoleArn, req.Tags)
 	if err != nil {
 		return nil, err
+	}
+
+	if req.InputConfig != nil || req.OutputConfig != nil || req.StoppingCondition != nil {
+		if extErr := h.Backend.SetCompilationJobExtras(
+			ctx, req.CompilationJobName, req.InputConfig, req.OutputConfig, req.StoppingCondition,
+		); extErr != nil {
+			return nil, extErr
+		}
 	}
 
 	return json.Marshal(map[string]any{"CompilationJobArn": result.CompilationJobArn})
