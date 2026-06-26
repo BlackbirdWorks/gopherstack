@@ -166,7 +166,7 @@ func TestRefinement1_ExportHelpers(t *testing.T) {
 		{"ParameterGroupCount", memorydb.ParameterGroupCount(b), 4}, // 4 default parameter groups seeded
 		{"EventCount", memorydb.EventCount(b), 1},
 		{"MultiRegionClusterCount", memorydb.MultiRegionClusterCount(b), 0},
-		{"HandlerOpsLen", memorydb.HandlerOpsLen(h), 45},
+		{"HandlerOpsLen", memorydb.HandlerOpsLen(h), 46},
 	}
 
 	for _, tt := range tests {
@@ -441,7 +441,7 @@ func TestRefinement1_GetSupportedOperations(t *testing.T) {
 
 	ops := h.GetSupportedOperations()
 
-	assert.Len(t, ops, 45)
+	assert.Len(t, ops, 46)
 	assert.Contains(t, ops, "DescribeSnapshots")
 	assert.Contains(t, ops, "BatchUpdateCluster")
 	assert.Contains(t, ops, "CreateMultiRegionCluster")
