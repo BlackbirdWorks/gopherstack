@@ -423,21 +423,22 @@ func (h *Handler) handleStopApplication(
 func (h *Handler) handleUpdateApplication(
 	ctx context.Context,
 	in *updateApplicationInput,
-) (*struct{}, error) {
+) (*describeApplicationOutput, error) {
 	if in.ApplicationName == "" {
 		return nil, errApplicationName
 	}
 
-	if _, err := h.Backend.UpdateApplication(
+	app, err := h.Backend.UpdateApplication(
 		ctx,
 		in.ApplicationName,
 		in.CurrentApplicationVersionID,
 		in.ApplicationUpdate,
-	); err != nil {
+	)
+	if err != nil {
 		return nil, err
 	}
 
-	return &struct{}{}, nil
+	return &describeApplicationOutput{ApplicationDetail: toApplicationDetail(app)}, nil
 }
 
 func (h *Handler) handleListTagsForResource(

@@ -577,10 +577,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 	}
 
 	if app.CreateTimestamp != nil && createTimestamp.Unix() != app.CreateTimestamp.Unix() {
-		return fmt.Errorf(
-			"%w: CreateTimestamp does not match stored value",
-			awserr.New("ConcurrentModificationException", awserr.ErrConflict),
-		)
+		return fmt.Errorf("%w: CreateTimestamp does not match stored value", ErrConcurrentUpdate)
 	}
 
 	// Cancel any in-flight lifecycle goroutine.
