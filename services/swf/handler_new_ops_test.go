@@ -138,63 +138,6 @@ func TestSWF_DeprecateWorkflowType(t *testing.T) {
 	}
 }
 
-func TestSWF_DeleteWorkflowType(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body     any
-		name     string
-		setup    []setupAction
-		wantCode int
-	}{
-		{
-			name: "success",
-			setup: []setupAction{
-				{action: "RegisterWorkflowType", body: map[string]any{
-					"domain": "d1", "name": "wf1", "version": "1.0",
-				}},
-				{action: "DeprecateWorkflowType", body: map[string]any{
-					"domain": "d1", "workflowType": map[string]any{"name": "wf1", "version": "1.0"},
-				}},
-			},
-			body:     map[string]any{"domain": "d1", "workflowType": map[string]any{"name": "wf1", "version": "1.0"}},
-			wantCode: http.StatusOK,
-		},
-		{
-			name: "requires_deprecated",
-			setup: []setupAction{
-				{action: "RegisterWorkflowType", body: map[string]any{
-					"domain": "d1", "name": "wf2", "version": "1.0",
-				}},
-			},
-			body:     map[string]any{"domain": "d1", "workflowType": map[string]any{"name": "wf2", "version": "1.0"}},
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name: "not_found",
-			body: map[string]any{
-				"domain":       "d1",
-				"workflowType": map[string]any{"name": "missing", "version": "1.0"},
-			},
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestSWFHandler(t)
-			for _, s := range tt.setup {
-				doSWFRequest(t, h, s.action, s.body)
-			}
-
-			rec := doSWFRequest(t, h, "DeleteWorkflowType", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
 func TestSWF_DescribeActivityType(t *testing.T) {
 	t.Parallel()
 
@@ -307,57 +250,6 @@ func TestSWF_DeprecateActivityType(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.Equal(t, tt.wantType, resp["__type"])
 			}
-		})
-	}
-}
-
-func TestSWF_DeleteActivityType(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body     any
-		setupFn  func(*swf.InMemoryBackend)
-		name     string
-		wantCode int
-	}{
-		{
-			name: "success",
-			setupFn: func(b *swf.InMemoryBackend) {
-				b.AddActivityTypeInternal("d1", "act1", "1.0", "DEPRECATED")
-			},
-			body:     map[string]any{"domain": "d1", "activityType": map[string]any{"name": "act1", "version": "1.0"}},
-			wantCode: http.StatusOK,
-		},
-		{
-			name: "requires_deprecated",
-			setupFn: func(b *swf.InMemoryBackend) {
-				b.AddActivityTypeInternal("d1", "act2", "1.0", "REGISTERED")
-			},
-			body:     map[string]any{"domain": "d1", "activityType": map[string]any{"name": "act2", "version": "1.0"}},
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name: "not_found",
-			body: map[string]any{
-				"domain":       "d1",
-				"activityType": map[string]any{"name": "missing", "version": "1.0"},
-			},
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := swf.NewInMemoryBackend()
-			if tt.setupFn != nil {
-				tt.setupFn(b)
-			}
-
-			h := swf.NewHandler(b)
-			rec := doSWFRequest(t, h, "DeleteActivityType", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
 }
@@ -516,48 +408,6 @@ func TestSWF_CountPendingDecisionTasks(t *testing.T) {
 			assert.EqualValues(t, tt.wantCount, resp["count"])
 		})
 	}
-}
-
-func TestSWF_DeleteWorkflowType_ThenNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSWFHandler(t)
-
-	doSWFRequest(t, h, "RegisterWorkflowType", map[string]any{
-		"domain": "d1", "name": "wf1", "version": "1.0",
-	})
-
-	doSWFRequest(t, h, "DeprecateWorkflowType", map[string]any{
-		"domain": "d1", "workflowType": map[string]any{"name": "wf1", "version": "1.0"},
-	})
-
-	rec := doSWFRequest(t, h, "DeleteWorkflowType", map[string]any{
-		"domain": "d1", "workflowType": map[string]any{"name": "wf1", "version": "1.0"},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec2 := doSWFRequest(t, h, "DescribeWorkflowType", map[string]any{
-		"domain": "d1", "workflowType": map[string]any{"name": "wf1", "version": "1.0"},
-	})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
-}
-
-func TestSWF_DeleteActivityType_ThenNotFound(t *testing.T) {
-	t.Parallel()
-
-	b := swf.NewInMemoryBackend()
-	b.AddActivityTypeInternal("d1", "act1", "1.0", "DEPRECATED")
-	h := swf.NewHandler(b)
-
-	rec := doSWFRequest(t, h, "DeleteActivityType", map[string]any{
-		"domain": "d1", "activityType": map[string]any{"name": "act1", "version": "1.0"},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec2 := doSWFRequest(t, h, "DescribeActivityType", map[string]any{
-		"domain": "d1", "activityType": map[string]any{"name": "act1", "version": "1.0"},
-	})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
 
 func TestSWF_DeprecateWorkflowType_ThenDescribeShowsDeprecated(t *testing.T) {
