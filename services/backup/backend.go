@@ -15,6 +15,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	VaultTypeBackupVault = "BACKUP_VAULT"
+	VaultTypeAirGapped   = "LOGICALLY_AIR_GAPPED_BACKUP_VAULT"
+)
+
 var (
 	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrConflict)
@@ -121,6 +126,7 @@ type Vault struct {
 	BackupVaultArn         string     `json:"backupVaultArn"`
 	EncryptionKeyArn       string     `json:"encryptionKeyArn,omitempty"`
 	CreatorRequestID       string     `json:"creatorRequestId,omitempty"`
+	VaultType              string     `json:"vaultType,omitempty"`
 	AccountID              string     `json:"accountId"`
 	Region                 string     `json:"region"`
 	NumberOfRecoveryPoints int64      `json:"numberOfRecoveryPoints"`
@@ -442,6 +448,7 @@ func (b *InMemoryBackend) CreateBackupVault(
 		BackupVaultArn:   vaultARN,
 		EncryptionKeyArn: encryptionKeyArn,
 		CreatorRequestID: creatorRequestID,
+		VaultType:        VaultTypeBackupVault,
 		AccountID:        b.accountID,
 		Region:           b.region,
 		CreationTime:     time.Now().UTC(),
@@ -1013,6 +1020,7 @@ func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
 		BackupVaultName:  name,
 		BackupVaultArn:   vaultARN,
 		CreatorRequestID: creatorRequestID,
+		VaultType:        VaultTypeAirGapped,
 		AccountID:        b.accountID,
 		Region:           b.region,
 		CreationTime:     time.Now().UTC(),

@@ -292,10 +292,10 @@ func (b *InMemoryBackend) ListBackupVaultsFiltered(f ListVaultsFilter) ([]*Vault
 	list := make([]*Vault, 0, len(b.vaults))
 	for _, v := range b.vaults {
 		// Filter by vault type: logically air-gapped vaults have MinRetentionDays > 0.
-		if f.VaultType == "LOGICALLY_AIR_GAPPED_BACKUP_VAULT" && v.MinRetentionDays == 0 {
+		if f.VaultType == VaultTypeAirGapped && v.MinRetentionDays == 0 {
 			continue
 		}
-		if f.VaultType == "BACKUP_VAULT" && v.MinRetentionDays > 0 {
+		if f.VaultType == VaultTypeBackupVault && v.MinRetentionDays > 0 {
 			continue
 		}
 		cp := *v
