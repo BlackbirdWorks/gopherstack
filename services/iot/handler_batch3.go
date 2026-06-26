@@ -737,11 +737,17 @@ func (h *Handler) handleTransferCertificate(c *echo.Context) error {
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/certificates/")
 	certID := strings.TrimSuffix(trimmed, "/transfer")
 	targetAccount := c.Request().URL.Query().Get("targetAwsAccount")
-	if err := h.Backend.TransferCertificate(certID, targetAccount); err != nil {
-		return respondErr(c, err)
+
+	cert, lookupErr := h.Backend.DescribeCertificate(certID)
+	if lookupErr != nil {
+		return h.handleError(c, lookupErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"transferredCertificateArn": certID})
+	if transferErr := h.Backend.TransferCertificate(certID, targetAccount); transferErr != nil {
+		return respondErr(c, transferErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"transferredCertificateArn": cert.ARN})
 }
 
 func (h *Handler) handleRejectCertificateTransfer(c *echo.Context) error {
@@ -835,7 +841,7 @@ func (h *Handler) handleCreateDynamicThingGroup(c *echo.Context) error {
 		"thingGroupName": tg.ThingGroupName,
 		"thingGroupArn":  tg.ThingGroupARN,
 		keyThingGroupID:  tg.ThingGroupID,
-		"version":        tg.Version,
+		keyVersion:       tg.Version,
 	})
 }
 
@@ -864,7 +870,7 @@ func (h *Handler) handleUpdateDynamicThingGroup(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"version": version})
+	return c.JSON(http.StatusOK, map[string]any{keyVersion: version})
 }
 
 // --- Commands ---

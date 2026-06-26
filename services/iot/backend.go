@@ -39,6 +39,12 @@ var (
 
 	// ErrDeleteConflict is returned when a resource cannot be deleted due to dependencies.
 	ErrDeleteConflict = errors.New("delete conflict")
+
+	// ErrVersionsLimitExceeded is returned when a policy already has the maximum allowed versions.
+	ErrVersionsLimitExceeded = errors.New("versions limit exceeded")
+
+	// ErrShadowNotFound is returned when a Device Shadow does not exist.
+	ErrShadowNotFound = errors.New("shadow not found")
 )
 
 // RuleDispatcher is implemented by the CLI wiring layer and dispatches rule actions.
@@ -105,6 +111,7 @@ type InMemoryBackend struct {
 	eventConfigurations *EventConfigurations
 	commands            map[string]*IoTCommand
 	commandExecutions   map[string]*IoTCommandExecution
+	shadows             map[shadowKey]*ThingShadow // thing+name → shadow
 	registrationCode    string
 	defaultAuthorizer   string
 	accountID           string
@@ -167,6 +174,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		auditSuppressions:      make(map[string]*AuditSuppression),
 		auditFindings:          make(map[string]*AuditFinding),
 		v2LoggingLevels:        make(map[string]*V2LoggingLevel),
+		shadows:                make(map[shadowKey]*ThingShadow),
 		commands:               make(map[string]*IoTCommand),
 		commandExecutions:      make(map[string]*IoTCommandExecution),
 		accountID:              "000000000000",
@@ -437,6 +445,10 @@ func (b *InMemoryBackend) DeleteThing(thingName string) error {
 
 	if _, ok := b.things[thingName]; !ok {
 		return fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	if principals := b.thingPrincipals[thingName]; len(principals) > 0 {
+		return fmt.Errorf("%w: thing %q has attached principals", ErrDeleteConflict, thingName)
 	}
 
 	delete(b.things, thingName)
@@ -764,6 +776,10 @@ func (b *InMemoryBackend) DeletePolicy(policyName string) error {
 		return fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
 	}
 
+	if targets := b.policyTargets[policyName]; len(targets) > 0 {
+		return fmt.Errorf("%w: policy %q has attached targets", ErrDeleteConflict, policyName)
+	}
+
 	delete(b.policies, policyName)
 
 	return nil
@@ -880,12 +896,16 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 		t.ThingType = input.ThingTypeName
 	}
 
-	if input.AttributePayload != nil && input.AttributePayload.Attributes != nil {
-		if t.Attributes == nil {
+	if input.AttributePayload != nil {
+		if input.AttributePayload.Merge != nil && !*input.AttributePayload.Merge {
+			t.Attributes = make(map[string]string)
+		} else if t.Attributes == nil {
 			t.Attributes = make(map[string]string)
 		}
 
-		maps.Copy(t.Attributes, input.AttributePayload.Attributes)
+		if input.AttributePayload.Attributes != nil {
+			maps.Copy(t.Attributes, input.AttributePayload.Attributes)
+		}
 	}
 
 	t.Version++
@@ -1003,6 +1023,12 @@ const certStatusActive = "ACTIVE"
 
 // certStatusInactive is the AWS IoT certificate INACTIVE status value.
 const certStatusInactive = "INACTIVE"
+
+// certStatusRevoked is the AWS IoT certificate REVOKED status value.
+const certStatusRevoked = "REVOKED"
+
+// certStatusPendingActivation is the AWS IoT certificate PENDING_ACTIVATION status value.
+const certStatusPendingActivation = "PENDING_ACTIVATION"
 
 // randomHex generates a cryptographically random hex string of n bytes (2n characters).
 func randomHex(n int) string {
@@ -1387,7 +1413,7 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 // isValidCertStatus reports whether s is a legal AWS IoT certificate status.
 func isValidCertStatus(s string) bool {
 	switch s {
-	case certStatusActive, certStatusInactive, "REVOKED", "PENDING_TRANSFER", "PENDING_ACTIVATION":
+	case certStatusActive, certStatusInactive, certStatusRevoked, certStatusPendingXfer, certStatusPendingActivation:
 		return true
 	}
 
@@ -1396,6 +1422,11 @@ func isValidCertStatus(s string) bool {
 
 // UpdateCertificate updates the status of a certificate.
 func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error {
+	switch input.NewStatus {
+	case certStatusPendingXfer, certStatusPendingActivation:
+		return fmt.Errorf("%w: status %q cannot be set via UpdateCertificate", ErrValidation, input.NewStatus)
+	}
+
 	if input.NewStatus != "" && !isValidCertStatus(input.NewStatus) {
 		return fmt.Errorf("%w: invalid certificate status %q", ErrValidation, input.NewStatus)
 	}
@@ -1419,8 +1450,13 @@ func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.certificates[certificateID]; !ok {
+	cert, ok := b.certificates[certificateID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrCertificateNotFound, certificateID)
+	}
+
+	if cert.Status == certStatusActive {
+		return fmt.Errorf("%w: certificate %q must be deactivated before deletion", ErrDeleteConflict, certificateID)
 	}
 
 	delete(b.certificates, certificateID)
@@ -1474,6 +1510,9 @@ func (b *InMemoryBackend) ListAttachedPolicies(input *ListAttachedPoliciesInput)
 // PolicyVersion operations
 // -----------------------------------------------------------
 
+// maxPolicyVersions is the maximum number of versions allowed per policy (AWS limit).
+const maxPolicyVersions = 5
+
 // CreatePolicyVersion creates a new version of an existing policy.
 func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (*PolicyVersion, error) {
 	if input.PolicyName == "" {
@@ -1489,6 +1528,16 @@ func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (
 	}
 
 	versions := b.policyVersions[input.PolicyName]
+
+	if len(versions) >= maxPolicyVersions {
+		return nil, fmt.Errorf(
+			"%w: policy %q already has %d versions",
+			ErrVersionsLimitExceeded,
+			input.PolicyName,
+			maxPolicyVersions,
+		)
+	}
+
 	versionID := strconv.Itoa(len(versions) + 1)
 
 	if input.SetAsDefault {
@@ -1817,4 +1866,97 @@ func (b *InMemoryBackend) addThingToGroupByName(thingName, groupName string) {
 	}
 
 	b.thingGroupMembers[groupName] = append(members, thingName)
+}
+
+// -----------------------------------------------------------
+// Device Shadow operations
+// -----------------------------------------------------------
+
+// GetThingShadow returns the shadow for a thing (classic or named).
+func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) (*ThingShadow, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.things[thingName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	key := shadowKey{thingName: thingName, shadowName: shadowName}
+	s, ok := b.shadows[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
+	}
+
+	cp := *s
+
+	return &cp, nil
+}
+
+// UpdateThingShadow creates or updates the shadow for a thing.
+func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, state map[string]any) (*ThingShadow, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.things[thingName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	key := shadowKey{thingName: thingName, shadowName: shadowName}
+	existing := b.shadows[key]
+
+	version := int64(1)
+	if existing != nil {
+		version = existing.Version + 1
+	}
+
+	s := &ThingShadow{
+		State:   state,
+		Version: version,
+	}
+	b.shadows[key] = s
+
+	cp := *s
+
+	return &cp, nil
+}
+
+// DeleteThingShadow deletes the shadow for a thing.
+func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.things[thingName]; !ok {
+		return fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	key := shadowKey{thingName: thingName, shadowName: shadowName}
+	if _, ok := b.shadows[key]; !ok {
+		return fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
+	}
+
+	delete(b.shadows, key)
+
+	return nil
+}
+
+// ListNamedShadowsForThing returns all named shadow names for a thing.
+func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.things[thingName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	var names []string
+
+	for k := range b.shadows {
+		if k.thingName == thingName && k.shadowName != "" {
+			names = append(names, k.shadowName)
+		}
+	}
+
+	slices.Sort(names)
+
+	return names, nil
 }
