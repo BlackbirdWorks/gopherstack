@@ -604,6 +604,7 @@ func reprocessingSummariesSorted(reprocessings map[string]*PipelineReprocessing)
 			ID:           rp.ID,
 			Status:       rp.Status,
 			CreationTime: rp.CreationTime,
+			StartTime:    rp.StartTime,
 			EndTime:      rp.EndTime,
 		})
 	}

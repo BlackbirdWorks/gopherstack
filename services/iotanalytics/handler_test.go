@@ -591,7 +591,7 @@ func TestHandler_DatasetContentLifecycle(t *testing.T) {
 			wantCreate:  http.StatusNotFound,
 			wantGet:     http.StatusNotFound,
 			wantList:    http.StatusNotFound,
-			wantDelete:  http.StatusNotFound,
+			wantDelete:  http.StatusBadRequest,
 		},
 	}
 
@@ -615,15 +615,28 @@ func TestHandler_DatasetContentLifecycle(t *testing.T) {
 			listRec := doRequest(t, h, http.MethodGet, "/datasets/"+tt.datasetName+"/contents", nil)
 			assert.Equal(t, tt.wantList, listRec.Code)
 
+			var versionID string
+
 			if tt.wantList == http.StatusOK {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
 				summaries, ok := resp["datasetContentSummaries"].([]any)
 				require.True(t, ok)
 				assert.Len(t, summaries, 1)
+
+				if len(summaries) > 0 {
+					if entry, ok2 := summaries[0].(map[string]any); ok2 {
+						versionID, _ = entry["version"].(string)
+					}
+				}
 			}
 
-			deleteRec := doRequest(t, h, http.MethodDelete, "/datasets/"+tt.datasetName+"/content", nil)
+			deletePath := "/datasets/" + tt.datasetName + "/content"
+			if versionID != "" {
+				deletePath += "?versionId=" + versionID
+			}
+
+			deleteRec := doRequest(t, h, http.MethodDelete, deletePath, nil)
 			assert.Equal(t, tt.wantDelete, deleteRec.Code)
 		})
 	}
