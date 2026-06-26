@@ -76,27 +76,37 @@ type PasswordPolicy struct {
 // UserPool represents a Cognito User Pool.
 type UserPool struct {
 	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 	issuer                 *tokenIssuer
+	LambdaConfig           map[string]any    `json:"lambdaConfig,omitempty"`
+	EmailConfiguration     map[string]any    `json:"emailConfiguration,omitempty"`
+	AccountRecoverySetting map[string]any    `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
 	ID                     string            `json:"id,omitempty"`
 	Name                   string            `json:"name,omitempty"`
 	ARN                    string            `json:"arn,omitempty"`
 	MfaConfiguration       string            `json:"mfaConfiguration,omitempty"`
+	DeletionProtection     string            `json:"deletionProtection,omitempty"`
 	CustomAttributes       []SchemaAttribute `json:"customAttributes,omitempty"`
 	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`
 }
 
 // UserPoolClient represents an app client registered to a user pool.
 type UserPoolClient struct {
-	CreatedAt             time.Time `json:"createdAt"`
-	ClientID              string    `json:"clientId,omitempty"`
-	ClientName            string    `json:"clientName,omitempty"`
-	UserPoolID            string    `json:"userPoolId,omitempty"`
-	ClientSecret          string    `json:"clientSecret,omitempty"`
-	AllowedOAuthFlows     []string  `json:"allowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes    []string  `json:"allowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows     []string  `json:"explicitAuthFlows,omitempty"`
-	EnableTokenRevocation bool      `json:"enableTokenRevocation,omitempty"`
+	CreatedAt                       time.Time `json:"createdAt"`
+	UpdatedAt                       time.Time `json:"updatedAt"`
+	ClientID                        string    `json:"clientId,omitempty"`
+	ClientName                      string    `json:"clientName,omitempty"`
+	UserPoolID                      string    `json:"userPoolId,omitempty"`
+	ClientSecret                    string    `json:"clientSecret,omitempty"`
+	AllowedOAuthFlows               []string  `json:"allowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string  `json:"allowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string  `json:"explicitAuthFlows,omitempty"`
+	CallbackURLs                    []string  `json:"callbackURLs,omitempty"`
+	LogoutURLs                      []string  `json:"logoutURLs,omitempty"`
+	SupportedIdentityProviders      []string  `json:"supportedIdentityProviders,omitempty"`
+	EnableTokenRevocation           bool      `json:"enableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool      `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 // User represents a Cognito user within a pool.
@@ -817,7 +827,7 @@ func (b *InMemoryBackend) ForgotPassword(clientID, username string) (string, err
 		return "", fmt.Errorf("%w: User is disabled", ErrNotAuthorized)
 	}
 
-	if user.Status == UserStatusUnconfirmed {
+	if user.Status == UserStatusUnconfirmed || user.Status == UserStatusForceChangePassword {
 		return "", fmt.Errorf(
 			"%w: Cannot reset password for the user as there is no registered/verified"+
 				" email or phone_number",
@@ -852,12 +862,12 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	if user.ConfirmCode == "" || user.ConfirmCode != code {
-		return fmt.Errorf("%w: invalid reset code", ErrCodeMismatch)
-	}
-
 	if !user.ConfirmCodeExpiresAt.IsZero() && time.Now().After(user.ConfirmCodeExpiresAt) {
 		return fmt.Errorf("%w: password reset code has expired", ErrExpiredCode)
+	}
+
+	if user.ConfirmCode == "" || user.ConfirmCode != code {
+		return fmt.Errorf("%w: invalid reset code", ErrCodeMismatch)
 	}
 
 	pool, ok2 := b.pools[client.UserPoolID]
@@ -1063,8 +1073,8 @@ func (b *InMemoryBackend) authenticate(
 	password string,
 ) (*AuthResult, error) {
 	switch authFlow {
-	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "USER_SRP_AUTH":
-		// valid flows
+	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "ADMIN_NO_SRP_AUTH", "USER_SRP_AUTH":
+		// valid flows; ADMIN_NO_SRP_AUTH is a legacy alias for ADMIN_USER_PASSWORD_AUTH
 	default:
 		return nil, fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)
 	}
@@ -1121,12 +1131,13 @@ func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, use
 	}
 
 	tokens, err := pool.issuer.Issue(TokenParams{
-		ClientID: clientID,
-		Username: user.Username,
-		UserSub:  user.Sub,
-		Groups:   groups,
-		AuthTime: now.Unix(),
-		Scopes:   scopes,
+		ClientID:   clientID,
+		Username:   user.Username,
+		UserSub:    user.Sub,
+		Groups:     groups,
+		AuthTime:   now.Unix(),
+		Scopes:     scopes,
+		Attributes: user.Attributes,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
@@ -1727,7 +1738,7 @@ func (b *InMemoryBackend) ResendConfirmationCode(clientID, username string) (str
 	}
 
 	if user.Status != UserStatusUnconfirmed {
-		return "", fmt.Errorf("%w: user %q is already confirmed", ErrCodeMismatch, username)
+		return "", fmt.Errorf("%w: user is already confirmed", ErrInvalidParameter)
 	}
 
 	code := randomAlphanumeric(confirmCodeLen)
@@ -1817,6 +1828,8 @@ func (b *InMemoryBackend) UpdateUserPool(userPoolID, mfaConfiguration string) er
 		pool.MfaConfiguration = mfaConfiguration
 	}
 
+	pool.UpdatedAt = time.Now()
+
 	return nil
 }
 
@@ -1842,6 +1855,7 @@ func (b *InMemoryBackend) UpdateUserPoolClient(userPoolID, clientID, clientName 
 		client.ClientName = clientName
 	}
 
+	client.UpdatedAt = time.Now()
 	cp := *client
 
 	return &cp, nil

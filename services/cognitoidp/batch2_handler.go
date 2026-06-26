@@ -955,7 +955,7 @@ func toAdminUserJSON(u *User) *adminUserJSON {
 	return &adminUserJSON{
 		Username:             u.Username,
 		UserStatus:           u.Status,
-		UserAttributes:       sortedAttributeList(u.Attributes),
+		UserAttributes:       sortedAttributeList(userAttrsWithSub(u)),
 		UserCreateDate:       float64(u.CreatedAt.Unix()),
 		UserLastModifiedDate: float64(u.UpdatedAt.Unix()),
 		Enabled:              u.Enabled,

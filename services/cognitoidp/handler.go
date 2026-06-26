@@ -1047,6 +1047,8 @@ type adminGetUserOutput struct {
 	Username             string          `json:"Username,omitempty"`
 	UserStatus           string          `json:"UserStatus,omitempty"`
 	UserAttributes       []attributeType `json:"UserAttributes,omitempty"`
+	PreferredMfaSetting  string          `json:"PreferredMfaSetting,omitempty"`
+	UserMFASettingList   []string        `json:"UserMFASettingList,omitempty"`
 	UserCreateDate       float64         `json:"UserCreateDate,omitempty"`
 	UserLastModifiedDate float64         `json:"UserLastModifiedDate,omitempty"`
 	Enabled              bool            `json:"Enabled"`
@@ -1072,6 +1074,8 @@ func (h *Handler) handleAdminGetUser(_ context.Context, in *adminGetUserInput) (
 		UserLastModifiedDate: float64(updatedAt.Unix()),
 		UserAttributes:       sortedAttributeList(attrs),
 		Enabled:              user.Enabled,
+		PreferredMfaSetting:  user.PreferredMfaSetting,
+		UserMFASettingList:   user.UserMFASettingList,
 	}, nil
 }
 

@@ -108,12 +108,13 @@ type TokenResult struct {
 
 // TokenParams holds the inputs for token issuance.
 type TokenParams struct {
-	ClientID string   `json:"clientID,omitempty"`
-	Username string   `json:"username,omitempty"`
-	UserSub  string   `json:"userSub,omitempty"`
-	Scopes   []string `json:"scopes,omitempty"`
-	Groups   []string `json:"groups,omitempty"`
-	AuthTime int64    `json:"authTime,omitempty"`
+	Attributes map[string]string `json:"attributes,omitempty"`
+	ClientID   string            `json:"clientID,omitempty"`
+	Username   string            `json:"username,omitempty"`
+	UserSub    string            `json:"userSub,omitempty"`
+	Scopes     []string          `json:"scopes,omitempty"`
+	Groups     []string          `json:"groups,omitempty"`
+	AuthTime   int64             `json:"authTime,omitempty"`
 }
 
 // defaultAccessScope is the default scope on access tokens when the client has no configured scopes.
@@ -139,6 +140,19 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 	}
 	if len(p.Groups) > 0 {
 		idClaims["cognito:groups"] = p.Groups
+	}
+
+	// Include standard user attributes in the ID token (email, phone_number, name, etc.)
+	standardAttrs := []string{
+		"email", "email_verified", "phone_number", "phone_number_verified",
+		"name", "given_name", "family_name", "middle_name", "nickname",
+		"preferred_username", "website", "zoneinfo", "locale", "birthdate",
+		"gender", "address", "updated_at",
+	}
+	for _, attr := range standardAttrs {
+		if val, ok := p.Attributes[attr]; ok {
+			idClaims[attr] = val
+		}
 	}
 
 	idToken := jwt.NewWithClaims(jwt.SigningMethodRS256, idClaims)
@@ -183,6 +197,9 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 		"iat":       now.Unix(),
 		"exp":       exp.Unix(),
 		"auth_time": p.AuthTime,
+	}
+	if len(p.Groups) > 0 {
+		accessClaims["cognito:groups"] = p.Groups
 	}
 
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodRS256, accessClaims)

@@ -50,17 +50,25 @@ type ResourceServer struct {
 
 // UserPoolOptions holds optional parameters for CreateUserPoolWithOpts.
 type UserPoolOptions struct {
+	LambdaConfig           map[string]any  `json:"lambdaConfig,omitempty"`
+	EmailConfiguration     map[string]any  `json:"emailConfiguration,omitempty"`
+	AccountRecoverySetting map[string]any  `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy `json:"passwordPolicy,omitempty"`
+	DeletionProtection     string          `json:"deletionProtection,omitempty"`
 	AutoVerifiedAttributes []string        `json:"autoVerifiedAttributes,omitempty"`
 }
 
 // UserPoolClientOptions holds optional parameters for CreateUserPoolClientWithOpts and UpdateUserPoolClientWithOpts.
 type UserPoolClientOptions struct {
-	AllowedOAuthFlows     []string `json:"allowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes    []string `json:"allowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows     []string `json:"explicitAuthFlows,omitempty"`
-	GenerateSecret        bool     `json:"generateSecret,omitempty"`
-	EnableTokenRevocation bool     `json:"enableTokenRevocation,omitempty"`
+	AllowedOAuthFlows               []string `json:"allowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string `json:"allowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string `json:"explicitAuthFlows,omitempty"`
+	CallbackURLs                    []string `json:"callbackURLs,omitempty"`
+	LogoutURLs                      []string `json:"logoutURLs,omitempty"`
+	SupportedIdentityProviders      []string `json:"supportedIdentityProviders,omitempty"`
+	GenerateSecret                  bool     `json:"generateSecret,omitempty"`
+	EnableTokenRevocation           bool     `json:"enableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool     `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 // userGroupsLocked returns the group names for a user in a pool, sorted by group precedence ascending
@@ -203,6 +211,10 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 		issuer:                 issuer,
 		AutoVerifiedAttributes: autoVerified,
 		PasswordPolicy:         opts.PasswordPolicy,
+		LambdaConfig:           opts.LambdaConfig,
+		EmailConfiguration:     opts.EmailConfiguration,
+		AccountRecoverySetting: opts.AccountRecoverySetting,
+		DeletionProtection:     opts.DeletionProtection,
 	}
 
 	b.pools[poolID] = pool
@@ -233,15 +245,26 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 	explicitFlows := make([]string, len(opts.ExplicitAuthFlows))
 	copy(explicitFlows, opts.ExplicitAuthFlows)
 
+	callbackURLs := make([]string, len(opts.CallbackURLs))
+	copy(callbackURLs, opts.CallbackURLs)
+	logoutURLs := make([]string, len(opts.LogoutURLs))
+	copy(logoutURLs, opts.LogoutURLs)
+	supportedIDPs := make([]string, len(opts.SupportedIdentityProviders))
+	copy(supportedIDPs, opts.SupportedIdentityProviders)
+
 	client := &UserPoolClient{
-		ClientID:              randomAlphanumeric(clientIDLen),
-		ClientName:            clientName,
-		UserPoolID:            userPoolID,
-		CreatedAt:             time.Now(),
-		AllowedOAuthFlows:     flows,
-		AllowedOAuthScopes:    scopes,
-		ExplicitAuthFlows:     explicitFlows,
-		EnableTokenRevocation: opts.EnableTokenRevocation,
+		ClientID:                        randomAlphanumeric(clientIDLen),
+		ClientName:                      clientName,
+		UserPoolID:                      userPoolID,
+		CreatedAt:                       time.Now(),
+		AllowedOAuthFlows:               flows,
+		AllowedOAuthScopes:              scopes,
+		ExplicitAuthFlows:               explicitFlows,
+		CallbackURLs:                    callbackURLs,
+		LogoutURLs:                      logoutURLs,
+		SupportedIdentityProviders:      supportedIDPs,
+		EnableTokenRevocation:           opts.EnableTokenRevocation,
+		AllowedOAuthFlowsUserPoolClient: opts.AllowedOAuthFlowsUserPoolClient,
 	}
 
 	if opts.GenerateSecret {
@@ -302,7 +325,27 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 		client.ExplicitAuthFlows = ef
 	}
 
+	if opts.CallbackURLs != nil {
+		cb := make([]string, len(opts.CallbackURLs))
+		copy(cb, opts.CallbackURLs)
+		client.CallbackURLs = cb
+	}
+
+	if opts.LogoutURLs != nil {
+		lo := make([]string, len(opts.LogoutURLs))
+		copy(lo, opts.LogoutURLs)
+		client.LogoutURLs = lo
+	}
+
+	if opts.SupportedIdentityProviders != nil {
+		idps := make([]string, len(opts.SupportedIdentityProviders))
+		copy(idps, opts.SupportedIdentityProviders)
+		client.SupportedIdentityProviders = idps
+	}
+
 	client.EnableTokenRevocation = opts.EnableTokenRevocation
+	client.AllowedOAuthFlowsUserPoolClient = opts.AllowedOAuthFlowsUserPoolClient
+	client.UpdatedAt = time.Now()
 	cp := *client
 
 	return &cp, nil
@@ -335,6 +378,24 @@ func (b *InMemoryBackend) UpdateUserPoolWithOpts(
 		copy(av, opts.AutoVerifiedAttributes)
 		pool.AutoVerifiedAttributes = av
 	}
+
+	if opts.LambdaConfig != nil {
+		pool.LambdaConfig = opts.LambdaConfig
+	}
+
+	if opts.EmailConfiguration != nil {
+		pool.EmailConfiguration = opts.EmailConfiguration
+	}
+
+	if opts.AccountRecoverySetting != nil {
+		pool.AccountRecoverySetting = opts.AccountRecoverySetting
+	}
+
+	if opts.DeletionProtection != "" {
+		pool.DeletionProtection = opts.DeletionProtection
+	}
+
+	pool.UpdatedAt = time.Now()
 
 	return nil
 }

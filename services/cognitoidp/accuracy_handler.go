@@ -220,9 +220,13 @@ func (h *Handler) handleAdminSetUserMFASetting(
 // ---- CreateUserPool with PasswordPolicy (accurate) ----
 
 type createUserPoolWithOptsInput struct {
+	LambdaConfig           map[string]any         `json:"LambdaConfig,omitempty"`
+	EmailConfiguration     map[string]any         `json:"EmailConfiguration,omitempty"`
+	AccountRecoverySetting map[string]any         `json:"AccountRecoverySetting,omitempty"`
 	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
 	PoolName               string                 `json:"PoolName,omitempty"`
 	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
+	DeletionProtection     string                 `json:"DeletionProtection,omitempty"`
 	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
 }
 
@@ -248,6 +252,9 @@ type userPoolDataAccurate struct {
 	// Policies is always present (non-pointer, no omitempty) because the
 	// Terraform AWS provider unconditionally accesses Policies.PasswordPolicy
 	// and Policies.SignInPolicy, and will nil-panic if the key is absent.
+	LambdaConfig           map[string]any           `json:"LambdaConfig,omitempty"`
+	EmailConfiguration     map[string]any           `json:"EmailConfiguration,omitempty"`
+	AccountRecoverySetting map[string]any           `json:"AccountRecoverySetting,omitempty"`
 	Policies               userPoolPoliciesAccurate `json:"Policies"`
 	ID                     string                   `json:"Id,omitempty"`
 	Name                   string                   `json:"Name,omitempty"`
@@ -277,17 +284,47 @@ type passwordPolicyData struct {
 	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays,omitempty"`
 }
 
+const (
+	defaultPasswordMinLength     = 8
+	defaultTempPasswordValidDays = 7
+)
+
+// defaultPasswordPolicyData returns the AWS Cognito default password policy when none is configured.
+func defaultPasswordPolicyData() *passwordPolicyData {
+	return &passwordPolicyData{
+		MinimumLength:                 defaultPasswordMinLength,
+		RequireUppercase:              true,
+		RequireLowercase:              true,
+		RequireNumbers:                true,
+		RequireSymbols:                true,
+		TemporaryPasswordValidityDays: defaultTempPasswordValidDays,
+	}
+}
+
 func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
+	lastModified := pool.CreatedAt
+	if !pool.UpdatedAt.IsZero() {
+		lastModified = pool.UpdatedAt
+	}
+
+	deletionProtection := pool.DeletionProtection
+	if deletionProtection == "" {
+		deletionProtection = "INACTIVE"
+	}
+
 	data := userPoolDataAccurate{
 		ID:                     pool.ID,
 		Name:                   pool.Name,
 		ARN:                    pool.ARN,
 		CreationDate:           float64(pool.CreatedAt.Unix()),
-		LastModifiedDate:       float64(pool.CreatedAt.Unix()),
-		DeletionProtection:     "INACTIVE",
+		LastModifiedDate:       float64(lastModified.Unix()),
+		DeletionProtection:     deletionProtection,
 		MfaConfiguration:       mfaConfigOrDefault(pool.MfaConfiguration),
 		SchemaAttributes:       sortedCustomAttributes(pool.CustomAttributes),
 		AutoVerifiedAttributes: pool.AutoVerifiedAttributes,
+		LambdaConfig:           pool.LambdaConfig,
+		EmailConfiguration:     pool.EmailConfiguration,
+		AccountRecoverySetting: pool.AccountRecoverySetting,
 	}
 
 	if pool.PasswordPolicy != nil {
@@ -299,6 +336,8 @@ func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
 			RequireSymbols:                pool.PasswordPolicy.RequireSymbols,
 			TemporaryPasswordValidityDays: pool.PasswordPolicy.TemporaryPasswordValidityDays,
 		}
+	} else {
+		data.Policies.PasswordPolicy = defaultPasswordPolicyData()
 	}
 
 	return data
@@ -310,6 +349,10 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 ) (*createUserPoolWithOptsOutput, error) {
 	opts := UserPoolOptions{
 		AutoVerifiedAttributes: in.AutoVerifiedAttributes,
+		LambdaConfig:           in.LambdaConfig,
+		EmailConfiguration:     in.EmailConfiguration,
+		AccountRecoverySetting: in.AccountRecoverySetting,
+		DeletionProtection:     in.DeletionProtection,
 	}
 
 	if in.Policies != nil && in.Policies.PasswordPolicy != nil {
@@ -642,15 +685,20 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 
 // clientDataAccurate is the wire format for UserPoolClient including OAuth fields.
 type clientDataAccurate struct {
-	ClientID              string   `json:"ClientId,omitempty"`
-	ClientName            string   `json:"ClientName,omitempty"`
-	UserPoolID            string   `json:"UserPoolId,omitempty"`
-	ClientSecret          string   `json:"ClientSecret,omitempty"`
-	AllowedOAuthFlows     []string `json:"AllowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes    []string `json:"AllowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows     []string `json:"ExplicitAuthFlows,omitempty"`
-	CreationDate          float64  `json:"CreationDate,omitempty"`
-	EnableTokenRevocation bool     `json:"EnableTokenRevocation,omitempty"`
+	ClientID                        string   `json:"ClientId,omitempty"`
+	ClientName                      string   `json:"ClientName,omitempty"`
+	UserPoolID                      string   `json:"UserPoolId,omitempty"`
+	ClientSecret                    string   `json:"ClientSecret,omitempty"`
+	AllowedOAuthFlows               []string `json:"AllowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string `json:"AllowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string `json:"ExplicitAuthFlows,omitempty"`
+	CallbackURLs                    []string `json:"CallbackURLs,omitempty"`
+	LogoutURLs                      []string `json:"LogoutURLs,omitempty"`
+	SupportedIdentityProviders      []string `json:"SupportedIdentityProviders,omitempty"`
+	CreationDate                    float64  `json:"CreationDate,omitempty"`
+	LastModifiedDate                float64  `json:"LastModifiedDate,omitempty"`
+	EnableTokenRevocation           bool     `json:"EnableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool     `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
@@ -663,25 +711,39 @@ func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
 	sort.Strings(flows)
 	sort.Strings(scopes)
 
+	lastModified := c.CreatedAt
+	if !c.UpdatedAt.IsZero() {
+		lastModified = c.UpdatedAt
+	}
+
 	return clientDataAccurate{
-		ClientID:              c.ClientID,
-		ClientName:            c.ClientName,
-		UserPoolID:            c.UserPoolID,
-		ClientSecret:          c.ClientSecret,
-		AllowedOAuthFlows:     flows,
-		AllowedOAuthScopes:    scopes,
-		ExplicitAuthFlows:     ef,
-		CreationDate:          float64(c.CreatedAt.Unix()),
-		EnableTokenRevocation: c.EnableTokenRevocation,
+		ClientID:                        c.ClientID,
+		ClientName:                      c.ClientName,
+		UserPoolID:                      c.UserPoolID,
+		ClientSecret:                    c.ClientSecret,
+		AllowedOAuthFlows:               flows,
+		AllowedOAuthScopes:              scopes,
+		ExplicitAuthFlows:               ef,
+		CallbackURLs:                    c.CallbackURLs,
+		LogoutURLs:                      c.LogoutURLs,
+		SupportedIdentityProviders:      c.SupportedIdentityProviders,
+		CreationDate:                    float64(c.CreatedAt.Unix()),
+		LastModifiedDate:                float64(lastModified.Unix()),
+		EnableTokenRevocation:           c.EnableTokenRevocation,
+		AllowedOAuthFlowsUserPoolClient: c.AllowedOAuthFlowsUserPoolClient,
 	}
 }
 
 // ---- UpdateUserPool with opts ----
 
 type updateUserPoolWithOptsInput struct {
+	LambdaConfig           map[string]any         `json:"LambdaConfig,omitempty"`
+	EmailConfiguration     map[string]any         `json:"EmailConfiguration,omitempty"`
+	AccountRecoverySetting map[string]any         `json:"AccountRecoverySetting,omitempty"`
+	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
 	UserPoolID             string                 `json:"UserPoolId,omitempty"`
 	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
-	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
+	DeletionProtection     string                 `json:"DeletionProtection,omitempty"`
 	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
 }
 
@@ -693,6 +755,10 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 ) (*updateUserPoolWithOptsOutput, error) {
 	opts := UserPoolOptions{
 		AutoVerifiedAttributes: in.AutoVerifiedAttributes,
+		LambdaConfig:           in.LambdaConfig,
+		EmailConfiguration:     in.EmailConfiguration,
+		AccountRecoverySetting: in.AccountRecoverySetting,
+		DeletionProtection:     in.DeletionProtection,
 	}
 
 	if in.Policies != nil && in.Policies.PasswordPolicy != nil {
@@ -720,13 +786,17 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 // ---- CreateUserPoolClient with OAuth fields ----
 
 type createUserPoolClientWithOptsInput struct {
-	UserPoolID            string   `json:"UserPoolId,omitempty"`
-	ClientName            string   `json:"ClientName,omitempty"`
-	AllowedOAuthFlows     []string `json:"AllowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes    []string `json:"AllowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows     []string `json:"ExplicitAuthFlows,omitempty"`
-	GenerateSecret        bool     `json:"GenerateSecret,omitempty"`
-	EnableTokenRevocation bool     `json:"EnableTokenRevocation,omitempty"`
+	UserPoolID                      string   `json:"UserPoolId,omitempty"`
+	ClientName                      string   `json:"ClientName,omitempty"`
+	AllowedOAuthFlows               []string `json:"AllowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string `json:"AllowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string `json:"ExplicitAuthFlows,omitempty"`
+	CallbackURLs                    []string `json:"CallbackURLs,omitempty"`
+	LogoutURLs                      []string `json:"LogoutURLs,omitempty"`
+	SupportedIdentityProviders      []string `json:"SupportedIdentityProviders,omitempty"`
+	GenerateSecret                  bool     `json:"GenerateSecret,omitempty"`
+	EnableTokenRevocation           bool     `json:"EnableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool     `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 type createUserPoolClientWithOptsOutput struct {
@@ -738,11 +808,15 @@ func (h *Handler) handleCreateUserPoolClientWithOpts(
 	in *createUserPoolClientWithOptsInput,
 ) (*createUserPoolClientWithOptsOutput, error) {
 	opts := UserPoolClientOptions{
-		AllowedOAuthFlows:     in.AllowedOAuthFlows,
-		AllowedOAuthScopes:    in.AllowedOAuthScopes,
-		ExplicitAuthFlows:     in.ExplicitAuthFlows,
-		GenerateSecret:        in.GenerateSecret,
-		EnableTokenRevocation: in.EnableTokenRevocation,
+		AllowedOAuthFlows:               in.AllowedOAuthFlows,
+		AllowedOAuthScopes:              in.AllowedOAuthScopes,
+		ExplicitAuthFlows:               in.ExplicitAuthFlows,
+		CallbackURLs:                    in.CallbackURLs,
+		LogoutURLs:                      in.LogoutURLs,
+		SupportedIdentityProviders:      in.SupportedIdentityProviders,
+		GenerateSecret:                  in.GenerateSecret,
+		EnableTokenRevocation:           in.EnableTokenRevocation,
+		AllowedOAuthFlowsUserPoolClient: in.AllowedOAuthFlowsUserPoolClient,
 	}
 
 	client, err := h.Backend.CreateUserPoolClientWithOpts(in.UserPoolID, in.ClientName, opts)
@@ -756,13 +830,17 @@ func (h *Handler) handleCreateUserPoolClientWithOpts(
 // ---- UpdateUserPoolClient with OAuth fields ----
 
 type updateUserPoolClientWithOptsInput struct {
-	UserPoolID            string   `json:"UserPoolId,omitempty"`
-	ClientID              string   `json:"ClientId,omitempty"`
-	ClientName            string   `json:"ClientName,omitempty"`
-	AllowedOAuthFlows     []string `json:"AllowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes    []string `json:"AllowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows     []string `json:"ExplicitAuthFlows,omitempty"`
-	EnableTokenRevocation bool     `json:"EnableTokenRevocation,omitempty"`
+	UserPoolID                      string   `json:"UserPoolId,omitempty"`
+	ClientID                        string   `json:"ClientId,omitempty"`
+	ClientName                      string   `json:"ClientName,omitempty"`
+	AllowedOAuthFlows               []string `json:"AllowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string `json:"AllowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string `json:"ExplicitAuthFlows,omitempty"`
+	CallbackURLs                    []string `json:"CallbackURLs,omitempty"`
+	LogoutURLs                      []string `json:"LogoutURLs,omitempty"`
+	SupportedIdentityProviders      []string `json:"SupportedIdentityProviders,omitempty"`
+	EnableTokenRevocation           bool     `json:"EnableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool     `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 type updateUserPoolClientWithOptsOutput struct {
@@ -774,10 +852,14 @@ func (h *Handler) handleUpdateUserPoolClientWithOpts(
 	in *updateUserPoolClientWithOptsInput,
 ) (*updateUserPoolClientWithOptsOutput, error) {
 	opts := UserPoolClientOptions{
-		AllowedOAuthFlows:     in.AllowedOAuthFlows,
-		AllowedOAuthScopes:    in.AllowedOAuthScopes,
-		ExplicitAuthFlows:     in.ExplicitAuthFlows,
-		EnableTokenRevocation: in.EnableTokenRevocation,
+		AllowedOAuthFlows:               in.AllowedOAuthFlows,
+		AllowedOAuthScopes:              in.AllowedOAuthScopes,
+		ExplicitAuthFlows:               in.ExplicitAuthFlows,
+		CallbackURLs:                    in.CallbackURLs,
+		LogoutURLs:                      in.LogoutURLs,
+		SupportedIdentityProviders:      in.SupportedIdentityProviders,
+		EnableTokenRevocation:           in.EnableTokenRevocation,
+		AllowedOAuthFlowsUserPoolClient: in.AllowedOAuthFlowsUserPoolClient,
 	}
 
 	client, err := h.Backend.UpdateUserPoolClientWithOpts(in.UserPoolID, in.ClientID, in.ClientName, opts)

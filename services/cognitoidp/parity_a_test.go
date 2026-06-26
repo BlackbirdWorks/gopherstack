@@ -22,7 +22,7 @@ func TestParity_ForgotPasswordRejectsDisabledUser(t *testing.T) {
 	poolID, clientID := paSetupPoolAndClient(t, h, "fp-disabled-pool", "fp-disabled-client")
 
 	// Create and confirm a user.
-	paSignUpAndConfirm(t, h, clientID, poolID, "disableduser", "Pass1234!")
+	paSignUpAndConfirm(t, h, clientID, poolID, "disableduser")
 
 	// Disable the user.
 	disableRec := doCognitoRequest(t, h, "AdminDisableUser", map[string]any{
@@ -83,7 +83,7 @@ func TestParity_ForgotPasswordAcceptsConfirmedEnabledUser(t *testing.T) {
 	h := newTestHandler(t)
 	poolID, clientID := paSetupPoolAndClient(t, h, "fp-ok-pool", "fp-ok-client")
 
-	paSignUpAndConfirm(t, h, clientID, poolID, "confirmeduser", "Pass1234!")
+	paSignUpAndConfirm(t, h, clientID, poolID, "confirmeduser")
 
 	rec := doCognitoRequest(t, h, "ForgotPassword", map[string]any{
 		"ClientId": clientID,
@@ -115,13 +115,13 @@ func paSetupPoolAndClient(t *testing.T, h *cognitoidp.Handler, poolName, clientN
 	return poolID, clientID
 }
 
-func paSignUpAndConfirm(t *testing.T, h *cognitoidp.Handler, clientID, poolID, username, password string) {
+func paSignUpAndConfirm(t *testing.T, h *cognitoidp.Handler, clientID, poolID, username string) {
 	t.Helper()
 
 	signupRec := doCognitoRequest(t, h, "SignUp", map[string]any{
 		"ClientId": clientID,
 		"Username": username,
-		"Password": password,
+		"Password": "Pass1234!",
 	})
 	require.Equal(t, http.StatusOK, signupRec.Code, "SignUp failed for %s", username)
 
