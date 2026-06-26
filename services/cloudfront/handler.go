@@ -465,6 +465,7 @@ func cfErrorXML(code, message string) string {
 // xmlResp writes an XML response with the given status code.
 func xmlResp(c *echo.Context, status int, body string) error {
 	c.Response().Header().Set("Content-Type", "text/xml")
+	c.Response().Header().Set("X-Amz-Cf-Id", generateID())
 
 	return c.XMLBlob(status, []byte(body))
 }
@@ -1480,14 +1481,15 @@ type distributionSummaryXML struct {
 	DefaultCacheBehavior struct {
 		Inner string `xml:",innerxml"`
 	} `xml:"DefaultCacheBehavior"`
-	Status       string `xml:"Status"`
-	DomainName   string `xml:"DomainName"`
-	Comment      string `xml:"Comment"`
-	ARN          string `xml:"ARN"`
-	ID           string `xml:"Id"`
-	PriceClass   string `xml:"PriceClass"`
-	HTTPVersion  string `xml:"HttpVersion"`
-	Restrictions struct {
+	Status           string `xml:"Status"`
+	LastModifiedTime string `xml:"LastModifiedTime"`
+	DomainName       string `xml:"DomainName"`
+	Comment          string `xml:"Comment"`
+	ARN              string `xml:"ARN"`
+	ID               string `xml:"Id"`
+	PriceClass       string `xml:"PriceClass"`
+	HTTPVersion      string `xml:"HttpVersion"`
+	Restrictions     struct {
 		GeoRestriction struct {
 			RestrictionType string `xml:"RestrictionType"`
 			Quantity        int    `xml:"Quantity"`
@@ -1504,17 +1506,18 @@ type distributionSummaryXML struct {
 }
 
 // distributionResponseXML builds the full Distribution XML response.
-func distributionResponseXML(d *Distribution) string {
+func distributionResponseXML(d *Distribution, inProgressCount int) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<Distribution xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<ARN>%s</ARN>`+
 		`<Status>%s</Status>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
 		`<DomainName>%s</DomainName>`+
-		`<InProgressInvalidationBatches>0</InProgressInvalidationBatches>`+
+		`<InProgressInvalidationBatches>%d</InProgressInvalidationBatches>`+
 		`%s`+
 		`</Distribution>`,
-		cfNS, d.ID, d.ARN, d.Status, d.DomainName, string(d.RawConfig))
+		cfNS, d.ID, d.ARN, d.Status, d.LastModifiedTime, d.DomainName, inProgressCount, string(d.RawConfig))
 }
 
 // Handler returns the Echo handler function for CloudFront requests.
@@ -2397,7 +2400,7 @@ func (h *Handler) handleCreateDistribution(c *echo.Context) error {
 	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+d.ID)
 	c.Response().Header().Set("ETag", d.ETag)
 
-	return xmlResp(c, http.StatusCreated, distributionResponseXML(d))
+	return xmlResp(c, http.StatusCreated, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 func (h *Handler) handleGetDistribution(c *echo.Context, id string) error {
@@ -2408,7 +2411,7 @@ func (h *Handler) handleGetDistribution(c *echo.Context, id string) error {
 
 	c.Response().Header().Set("ETag", d.ETag)
 
-	return xmlResp(c, http.StatusOK, distributionResponseXML(d))
+	return xmlResp(c, http.StatusOK, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 func (h *Handler) handleGetDistributionConfig(c *echo.Context, id string) error {
@@ -2461,7 +2464,7 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 
 	c.Response().Header().Set("ETag", d.ETag)
 
-	return xmlResp(c, http.StatusOK, distributionResponseXML(d))
+	return xmlResp(c, http.StatusOK, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 func (h *Handler) handleDeleteDistribution(c *echo.Context, id string) error {
@@ -2815,7 +2818,7 @@ func (h *Handler) handleCopyDistribution(c *echo.Context, primaryDistID string) 
 	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+d.ID)
 	c.Response().Header().Set("ETag", d.ETag)
 
-	return xmlResp(c, http.StatusCreated, distributionResponseXML(d))
+	return xmlResp(c, http.StatusCreated, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
@@ -2981,14 +2984,25 @@ func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error 
 }
 
 func continuousDeploymentPolicyXML(ns string, policy *ContinuousDeploymentPolicy) string {
+	stagingDNS := ""
+	if policy.StagingDistributionDNS != "" {
+		stagingDNS = fmt.Sprintf(
+			`<StagingDistributionDnsNames>`+
+				`<Quantity>1</Quantity><Items><DnsName>%s</DnsName></Items>`+
+				`</StagingDistributionDnsNames>`,
+			policy.StagingDistributionDNS,
+		)
+	}
+
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ContinuousDeploymentPolicy xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<ContinuousDeploymentPolicyConfig>`+
 		`<Enabled>%v</Enabled>`+
+		`%s`+
 		`</ContinuousDeploymentPolicyConfig>`+
 		`</ContinuousDeploymentPolicy>`,
-		ns, policy.ID, policy.Enabled)
+		ns, policy.ID, policy.Enabled, stagingDNS)
 }
 
 func (h *Handler) handleGetContinuousDeploymentPolicy(c *echo.Context, id string) error {
@@ -3003,6 +3017,17 @@ func (h *Handler) handleGetContinuousDeploymentPolicy(c *echo.Context, id string
 }
 
 func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetContinuousDeploymentPolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current ContinuousDeploymentPolicy ETag"))
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -3027,6 +3052,17 @@ func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id str
 }
 
 func (h *Handler) handleDeleteContinuousDeploymentPolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetContinuousDeploymentPolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current ContinuousDeploymentPolicy ETag"))
+	}
+
 	if err := h.Backend.DeleteContinuousDeploymentPolicy(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -3444,13 +3480,23 @@ func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error
 		return h.handleError(c, backendErr)
 	}
 
+	var pathsSB strings.Builder
+	for _, p := range inv.Paths {
+		fmt.Fprintf(&pathsSB, "<Path>%s</Path>", p)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<Invalidation xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<Status>%s</Status>`+
 		`<CreateTime>%s</CreateTime>`+
+		`<InvalidationBatch>`+
+		`<CallerReference>%s</CallerReference>`+
+		`<Paths><Quantity>%d</Quantity><Items>%s</Items></Paths>`+
+		`</InvalidationBatch>`+
 		`</Invalidation>`,
-		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339))
+		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339),
+		batch.CallerReference, len(inv.Paths), pathsSB.String())
 
 	c.Response().
 		Header().
@@ -4818,6 +4864,17 @@ func (h *Handler) handleUpdateFieldLevelEncryption(c *echo.Context, id string) e
 }
 
 func (h *Handler) handleDeleteFieldLevelEncryption(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetFieldLevelEncryption(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current FieldLevelEncryption ETag"))
+	}
+
 	if err := h.Backend.DeleteFieldLevelEncryption(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -4952,6 +5009,23 @@ func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id st
 }
 
 func (h *Handler) handleDeleteFieldLevelEncryptionProfile(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetFieldLevelEncryptionProfile(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current FieldLevelEncryptionProfile ETag",
+			),
+		)
+	}
+
 	if err := h.Backend.DeleteFieldLevelEncryptionProfile(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -5077,6 +5151,17 @@ func (h *Handler) handleUpdatePublicKey(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleDeletePublicKey(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetPublicKey(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current PublicKey ETag"))
+	}
+
 	if err := h.Backend.DeletePublicKey(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -5217,6 +5302,17 @@ func (h *Handler) handleUpdateKeyGroup(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleDeleteKeyGroup(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetKeyGroup(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current KeyGroup ETag"))
+	}
+
 	if err := h.Backend.DeleteKeyGroup(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -5457,6 +5553,17 @@ func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteKeyValueStore(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetKeyValueStore(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current KeyValueStore ETag"))
+	}
+
 	if err := h.Backend.DeleteKeyValueStore(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -5587,6 +5694,17 @@ func (h *Handler) handleUpdateVpcOrigin(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleDeleteVpcOrigin(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetVpcOrigin(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current VpcOrigin ETag"))
+	}
+
 	if err := h.Backend.DeleteVpcOrigin(id); err != nil {
 		return h.handleError(c, err)
 	}

@@ -114,7 +114,7 @@ func TestDistributionCRUD(t *testing.T) {
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
 				assert.Contains(t, rec.Body.String(), "<Distribution")
-				assert.Contains(t, rec.Body.String(), "<Status>Deployed</Status>")
+				assert.Contains(t, rec.Body.String(), "<Status>InProgress</Status>")
 				assert.NotEmpty(t, rec.Header().Get("ETag"))
 				assert.NotEmpty(t, rec.Header().Get("Location"))
 			},
@@ -682,7 +682,16 @@ func TestInvalidationStubs(t *testing.T) {
 			require.NoError(t, err)
 
 			path := "/2020-05-31/distribution/" + d.ID + "/invalidation"
-			rec := doXML(t, h, tt.method, path, nil)
+			body := []byte(
+				`<InvalidationBatch>` +
+					`<CallerReference>stub-ref</CallerReference>` +
+					`<Paths><Quantity>1</Quantity><Items><Path>/*</Path></Items></Paths>` +
+					`</InvalidationBatch>`,
+			)
+			if tt.method == http.MethodGet {
+				body = nil
+			}
+			rec := doXML(t, h, tt.method, path, body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			tt.check(t, rec)
 		})
@@ -927,7 +936,7 @@ func TestBackendOperations(t *testing.T) {
 				assert.NotEmpty(t, d.ID)
 				assert.NotEmpty(t, d.ARN)
 				assert.NotEmpty(t, d.ETag)
-				assert.Equal(t, "Deployed", d.Status)
+				assert.Equal(t, "InProgress", d.Status)
 				assert.Contains(t, d.DomainName, ".cloudfront.net")
 
 				got, err := b.GetDistribution(d.ID)
@@ -1377,7 +1386,7 @@ func TestCopyDistribution(t *testing.T) {
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				assert.Contains(t, rec.Body.String(), "<Distribution")
-				assert.Contains(t, rec.Body.String(), "<Status>Deployed</Status>")
+				assert.Contains(t, rec.Body.String(), "<Status>InProgress</Status>")
 				assert.NotEmpty(t, rec.Header().Get("ETag"))
 				assert.NotEmpty(t, rec.Header().Get("Location"))
 			},
@@ -1978,7 +1987,7 @@ func TestNewOperations_BackendDirectly(t *testing.T) {
 				assert.Equal(t, src.Comment, cp.Comment)
 				assert.Equal(t, src.Enabled, cp.Enabled)
 				assert.NotEmpty(t, cp.DomainName)
-				assert.Equal(t, "Deployed", cp.Status)
+				assert.Equal(t, "InProgress", cp.Status)
 			},
 		},
 		{

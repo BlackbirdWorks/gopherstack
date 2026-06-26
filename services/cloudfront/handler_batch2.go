@@ -184,7 +184,7 @@ func (h *Handler) handleDisassociateDistributionWebACL(c *echo.Context, distID s
 		return h.handleError(c, disErr)
 	}
 
-	return xmlResp(c, http.StatusOK, distributionResponseXML(d))
+	return xmlResp(c, http.StatusOK, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 func (h *Handler) handleDisassociateDistributionTenantWebACL(c *echo.Context, tenantID string) error {
@@ -251,7 +251,7 @@ func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {
 	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+d.ID)
 	c.Response().Header().Set("ETag", d.ETag)
 
-	return xmlResp(c, http.StatusCreated, distributionResponseXML(d))
+	return xmlResp(c, http.StatusCreated, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 // ---------------------------------------------------------------------------
@@ -291,7 +291,7 @@ func (h *Handler) handleUpdateDistributionWithStagingConfig(c *echo.Context, pri
 
 	c.Response().Header().Set("ETag", d.ETag)
 
-	return xmlResp(c, http.StatusOK, distributionResponseXML(d))
+	return xmlResp(c, http.StatusOK, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 // ---------------------------------------------------------------------------
@@ -394,13 +394,23 @@ func (h *Handler) handleCreateInvalidationForTenant(c *echo.Context, tenantID st
 		return h.handleError(c, backendErr)
 	}
 
+	var pathsSB strings.Builder
+	for _, p := range inv.Paths {
+		fmt.Fprintf(&pathsSB, "<Path>%s</Path>", p)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<Invalidation xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<Status>%s</Status>`+
 		`<CreateTime>%s</CreateTime>`+
+		`<InvalidationBatch>`+
+		`<CallerReference>%s</CallerReference>`+
+		`<Paths><Quantity>%d</Quantity><Items>%s</Items></Paths>`+
+		`</InvalidationBatch>`+
 		`</Invalidation>`,
-		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339))
+		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339),
+		batch.CallerReference, len(inv.Paths), pathsSB.String())
 
 	c.Response().Header().Set(
 		"Location",
