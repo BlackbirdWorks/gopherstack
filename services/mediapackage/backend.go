@@ -330,6 +330,11 @@ func (b *InMemoryBackend) CreateChannel(id, description string, tags map[string]
 
 	b.channels[id] = ch
 
+	if len(tagsCopy) > 0 {
+		b.tags[ch.ARN] = make(map[string]string, len(tagsCopy))
+		maps.Copy(b.tags[ch.ARN], tagsCopy)
+	}
+
 	return ch.toChannel(), nil
 }
 
@@ -498,6 +503,11 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 	}
 
 	b.originEndpoints[id] = ep
+
+	if len(tagsCopy) > 0 {
+		b.tags[ep.ARN] = make(map[string]string, len(tagsCopy))
+		maps.Copy(b.tags[ep.ARN], tagsCopy)
+	}
 
 	return ep.toOriginEndpoint(), nil
 }
@@ -750,6 +760,21 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 	maps.Copy(b.tags[resourceARN], tags)
 
+	// Keep resource-level Tags fields in sync so Describe* responses reflect tag updates.
+	if ch := b.findChannelByARN(resourceARN); ch != nil {
+		if ch.Tags == nil {
+			ch.Tags = make(map[string]string)
+		}
+
+		maps.Copy(ch.Tags, tags)
+	} else if ep := b.findOriginEndpointByARN(resourceARN); ep != nil {
+		if ep.Tags == nil {
+			ep.Tags = make(map[string]string)
+		}
+
+		maps.Copy(ep.Tags, tags)
+	}
+
 	return nil
 }
 
@@ -761,6 +786,39 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	if existing, ok := b.tags[resourceARN]; ok {
 		for _, k := range keys {
 			delete(existing, k)
+		}
+	}
+
+	// Keep resource-level Tags fields in sync so Describe* responses reflect tag removals.
+	if ch := b.findChannelByARN(resourceARN); ch != nil {
+		for _, k := range keys {
+			delete(ch.Tags, k)
+		}
+	} else if ep := b.findOriginEndpointByARN(resourceARN); ep != nil {
+		for _, k := range keys {
+			delete(ep.Tags, k)
+		}
+	}
+
+	return nil
+}
+
+// findChannelByARN returns the channel with the given ARN, or nil. Must be called with lock held.
+func (b *InMemoryBackend) findChannelByARN(resourceARN string) *storedChannel {
+	for _, ch := range b.channels {
+		if ch.ARN == resourceARN {
+			return ch
+		}
+	}
+
+	return nil
+}
+
+// findOriginEndpointByARN returns the origin endpoint with the given ARN, or nil. Must be called with lock held.
+func (b *InMemoryBackend) findOriginEndpointByARN(resourceARN string) *storedOriginEndpoint {
+	for _, ep := range b.originEndpoints {
+		if ep.ARN == resourceARN {
+			return ep
 		}
 	}
 
