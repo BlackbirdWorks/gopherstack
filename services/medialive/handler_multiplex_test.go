@@ -146,7 +146,7 @@ func TestMultiplex_StartStop(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var startResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
-	assert.Equal(t, "RUNNING", startResp["State"])
+	assert.Equal(t, "STARTING", startResp["State"])
 
 	// Start again returns conflict
 	rec = doRequest(t, h, http.MethodPost, "/prod/multiplexes/"+multiplexID+"/start", nil)
@@ -157,7 +157,7 @@ func TestMultiplex_StartStop(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var stopResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp))
-	assert.Equal(t, "IDLE", stopResp["State"])
+	assert.Equal(t, "STOPPING", stopResp["State"])
 
 	// Stop again returns conflict
 	rec = doRequest(t, h, http.MethodPost, "/prod/multiplexes/"+multiplexID+"/stop", nil)

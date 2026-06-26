@@ -134,7 +134,13 @@ func TestCWAlarmTemplateGroup_CRUD(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/prod/cloudwatch-alarm-template-groups", tc.body)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/prod/cloudwatch-alarm-template-groups",
+				tc.body,
+			)
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
@@ -147,9 +153,15 @@ func TestCWAlarmTemplateGroup_GetUpdateListDelete(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/prod/cloudwatch-alarm-template-groups", map[string]any{
-		"name": "cw-group-1",
-	})
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/prod/cloudwatch-alarm-template-groups",
+		map[string]any{
+			"name": "cw-group-1",
+		},
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
@@ -160,9 +172,15 @@ func TestCWAlarmTemplateGroup_GetUpdateListDelete(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Update (PATCH)
-	rec = doRequest(t, h, http.MethodPatch, "/prod/cloudwatch-alarm-template-groups/"+id, map[string]any{
-		"name": "cw-group-updated",
-	})
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/prod/cloudwatch-alarm-template-groups/"+id,
+		map[string]any{
+			"name": "cw-group-updated",
+		},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updated map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
@@ -276,9 +294,15 @@ func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/prod/eventbridge-rule-template-groups", map[string]any{
-		"name": "eb-group-1",
-	})
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/prod/eventbridge-rule-template-groups",
+		map[string]any{
+			"name": "eb-group-1",
+		},
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
@@ -290,9 +314,15 @@ func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Update
-	rec = doRequest(t, h, http.MethodPatch, "/prod/eventbridge-rule-template-groups/"+id, map[string]any{
-		"Description": "updated desc",
-	})
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/prod/eventbridge-rule-template-groups/"+id,
+		map[string]any{
+			"Description": "updated desc",
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// List
