@@ -469,13 +469,14 @@ func cloneConnector(c *Connector) *Connector {
 
 // Profile represents an AWS Transfer AS2 profile.
 type Profile struct {
-	CreatedAt   time.Time         `json:"created_at"`
-	Tags        map[string]string `json:"tags"`
-	ProfileID   string            `json:"profile_id"`
-	ProfileType string            `json:"profile_type"`
-	As2ID       string            `json:"as2_id"`
-	AccountID   string            `json:"account_id"`
-	Region      string            `json:"region"`
+	CreatedAt      time.Time         `json:"created_at"`
+	Tags           map[string]string `json:"tags"`
+	ProfileID      string            `json:"profile_id"`
+	ProfileType    string            `json:"profile_type"`
+	As2ID          string            `json:"as2_id"`
+	AccountID      string            `json:"account_id"`
+	Region         string            `json:"region"`
+	CertificateIDs []string          `json:"certificate_ids,omitempty"`
 }
 
 // cloneProfile returns a deep copy of a Profile.
@@ -483,6 +484,10 @@ func cloneProfile(p *Profile) *Profile {
 	cp := *p
 	cp.Tags = make(map[string]string, len(p.Tags))
 	maps.Copy(cp.Tags, p.Tags)
+
+	if p.CertificateIDs != nil {
+		cp.CertificateIDs = append([]string(nil), p.CertificateIDs...)
+	}
 
 	return &cp
 }
@@ -933,6 +938,7 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 	}
 	b.servers[serverID] = s
 	b.users[serverID] = make(map[string]*User)
+	b.initTagsStore(serverARN(b.accountID, b.region, serverID), merged)
 
 	return cloneServer(s), nil
 }
@@ -1767,6 +1773,7 @@ func (b *InMemoryBackend) CreateConnectorFull(in *CreateConnectorInput) (*Connec
 		Region:             b.region,
 	}
 	b.connectors[connectorID] = c
+	b.initTagsStore(arn.Build("transfer", b.region, b.accountID, "connector/"+connectorID), merged)
 
 	return cloneConnector(c), nil
 }
@@ -1845,6 +1852,30 @@ func (b *InMemoryBackend) CreateWebApp(tags map[string]string) (*WebApp, error) 
 	return cloneWebApp(w), nil
 }
 
+// isValidWorkflowStepType reports whether t is a step Type accepted by real AWS Transfer.
+func isValidWorkflowStepType(t string) bool {
+	switch t {
+	case "COPY", "CUSTOM", "DELETE", "TAG", "DECRYPT":
+		return true
+	}
+
+	return false
+}
+
+// validateWorkflowSteps returns an error if any step has an unrecognised Type.
+func validateWorkflowSteps(steps []WorkflowStep) error {
+	for i, s := range steps {
+		if !isValidWorkflowStepType(s.Type) {
+			return fmt.Errorf(
+				"%w: step %d has invalid Type %q; must be one of COPY, CUSTOM, DELETE, TAG, DECRYPT",
+				ErrValidation, i, s.Type,
+			)
+		}
+	}
+
+	return nil
+}
+
 // CreateWorkflow creates a Transfer workflow.
 func (b *InMemoryBackend) CreateWorkflow(
 	description string,
@@ -1852,6 +1883,14 @@ func (b *InMemoryBackend) CreateWorkflow(
 	onExceptionSteps []WorkflowStep,
 	tags map[string]string,
 ) (*Workflow, error) {
+	if err := validateWorkflowSteps(steps); err != nil {
+		return nil, err
+	}
+
+	if err := validateWorkflowSteps(onExceptionSteps); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateWorkflow")
 	defer b.mu.Unlock()
 
@@ -1871,6 +1910,7 @@ func (b *InMemoryBackend) CreateWorkflow(
 		Region:           b.region,
 	}
 	b.workflows[workflowID] = wf
+	b.initTagsStore(arn.Build("transfer", b.region, b.accountID, "workflow/"+workflowID), merged)
 
 	return cloneWorkflow(wf), nil
 }
@@ -2219,18 +2259,41 @@ func (b *InMemoryBackend) ListProfiles() []*Profile {
 	return out
 }
 
-// UpdateProfile updates mutable fields on a profile.
+// UpdateProfileInput holds mutable fields for UpdateProfile.
+type UpdateProfileInput struct {
+	ProfileID         string
+	As2ID             string
+	CertificateIDs    []string
+	SetCertificateIDs bool
+}
+
+// UpdateProfile updates mutable fields on a profile (simplified, single-arg form).
 func (b *InMemoryBackend) UpdateProfile(profileID, as2ID string) (*Profile, error) {
-	b.mu.Lock("UpdateProfile")
+	return b.UpdateProfileFull(&UpdateProfileInput{ProfileID: profileID, As2ID: as2ID})
+}
+
+// UpdateProfileFull updates all mutable fields on a profile.
+func (b *InMemoryBackend) UpdateProfileFull(in *UpdateProfileInput) (*Profile, error) {
+	b.mu.Lock("UpdateProfileFull")
 	defer b.mu.Unlock()
 
-	p, ok := b.profiles[profileID]
+	p, ok := b.profiles[in.ProfileID]
 	if !ok {
-		return nil, fmt.Errorf("%w: profile %s not found", ErrProfileNotFound, profileID)
+		return nil, fmt.Errorf("%w: profile %s not found", ErrProfileNotFound, in.ProfileID)
 	}
 
-	if as2ID != "" {
-		p.As2ID = as2ID
+	if in.As2ID != "" {
+		p.As2ID = in.As2ID
+	}
+
+	if in.SetCertificateIDs {
+		if in.CertificateIDs != nil {
+			cp := make([]string, len(in.CertificateIDs))
+			copy(cp, in.CertificateIDs)
+			p.CertificateIDs = cp
+		} else {
+			p.CertificateIDs = nil
+		}
 	}
 
 	return cloneProfile(p), nil
@@ -3204,4 +3267,101 @@ func detectHostKeyType(hostKeyBody string) string {
 	default:
 		return defaultHostKeyType
 	}
+}
+
+// CountUserSSHPublicKeys returns the number of SSH public keys for the given user on a server.
+func (b *InMemoryBackend) CountUserSSHPublicKeys(serverID, userName string) int {
+	b.mu.RLock("CountUserSSHPublicKeys")
+	defer b.mu.RUnlock()
+
+	if serverKeys, ok := b.sshPublicKeys[serverID]; ok {
+		return len(serverKeys[userName])
+	}
+
+	return 0
+}
+
+// UpdateAccessInput holds all mutable fields for UpdateAccessFull.
+type UpdateAccessInput struct {
+	PosixProfile             *PosixProfile
+	ServerID                 string
+	ExternalID               string
+	Role                     string
+	HomeDir                  string
+	HomeDirectoryType        string
+	Policy                   string
+	HomeDirectoryMappings    []HomeDirectoryMapEntry
+	SetPosixProfile          bool
+	SetHomeDirectoryType     bool
+	SetPolicy                bool
+	SetHomeDirectoryMappings bool
+}
+
+// UpdateAccessFull updates all mutable fields on an access entry.
+func (b *InMemoryBackend) UpdateAccessFull(in *UpdateAccessInput) (*Access, error) {
+	b.mu.Lock("UpdateAccessFull")
+	defer b.mu.Unlock()
+
+	serverAccesses, ok := b.accesses[in.ServerID]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: access %s not found on server %s",
+			ErrAccessNotFound, in.ExternalID, in.ServerID,
+		)
+	}
+
+	a, ok := serverAccesses[in.ExternalID]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: access %s not found on server %s",
+			ErrAccessNotFound, in.ExternalID, in.ServerID,
+		)
+	}
+
+	if in.Role != "" {
+		a.Role = in.Role
+	}
+
+	if in.HomeDir != "" {
+		a.HomeDir = in.HomeDir
+	}
+
+	if in.SetHomeDirectoryType {
+		a.HomeDirectoryType = in.HomeDirectoryType
+	}
+
+	if in.SetPolicy {
+		a.Policy = in.Policy
+	}
+
+	if in.SetPosixProfile {
+		a.PosixProfile = in.PosixProfile
+	}
+
+	if in.SetHomeDirectoryMappings {
+		if in.HomeDirectoryMappings != nil {
+			cp := make([]HomeDirectoryMapEntry, len(in.HomeDirectoryMappings))
+			copy(cp, in.HomeDirectoryMappings)
+			a.HomeDirectoryMappings = cp
+		} else {
+			a.HomeDirectoryMappings = nil
+		}
+	}
+
+	return cloneAccess(a), nil
+}
+
+// initTagsStore seeds tagsStore[resourceARN] with creation-time tags so that
+// ListTagsForResource returns them even before any TagResource call.
+// Caller must hold b.mu (write lock).
+func (b *InMemoryBackend) initTagsStore(resourceARN string, tags map[string]string) {
+	if len(tags) == 0 {
+		return
+	}
+
+	if _, ok := b.tagsStore[resourceARN]; !ok {
+		b.tagsStore[resourceARN] = make(map[string]string, len(tags))
+	}
+
+	maps.Copy(b.tagsStore[resourceARN], tags)
 }

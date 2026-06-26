@@ -29,20 +29,21 @@ const (
 const transferTargetPrefix = "TransferService."
 
 const (
-	keyDescription      = "Description"
-	keyStatus           = "Status"
-	keyWorkflowID       = "WorkflowId"
-	keyConnectorID      = "ConnectorId"
-	keyURL              = "Url"
-	keyTransferID       = "TransferId"
-	keyStepType         = "Type"
-	keyStepName         = "Name"
-	keySourceFileLoc    = "SourceFileLocation"
-	keyLocalProfileID   = "LocalProfileId"
-	keyPartnerProfileID = "PartnerProfileId"
-	keyArn              = "Arn"
-	keyTags             = "Tags"
-	keyWebAppID         = "WebAppId"
+	keyDescription        = "Description"
+	keyStatus             = "Status"
+	keyWorkflowID         = "WorkflowId"
+	keyConnectorID        = "ConnectorId"
+	keyURL                = "Url"
+	keyTransferID         = "TransferId"
+	keyStepType           = "Type"
+	keyStepName           = "Name"
+	keySourceFileLoc      = "SourceFileLocation"
+	keyLocalProfileID     = "LocalProfileId"
+	keyPartnerProfileID   = "PartnerProfileId"
+	keyArn                = "Arn"
+	keyTags               = "Tags"
+	keyWebAppID           = "WebAppId"
+	keySecurityPolicyName = "SecurityPolicyName"
 )
 
 var (
@@ -927,10 +928,12 @@ type listUsersInput struct {
 }
 
 type userListItem struct {
-	Arn      string `json:"Arn"`
-	UserName string `json:"UserName"`
-	HomeDir  string `json:"HomeDirectory"`
-	Role     string `json:"Role"`
+	Arn               string `json:"Arn"`
+	UserName          string `json:"UserName"`
+	HomeDir           string `json:"HomeDirectory"`
+	Role              string `json:"Role"`
+	HomeDirectoryType string `json:"HomeDirectoryType,omitempty"`
+	SSHPublicKeyCount int    `json:"SshPublicKeyCount"`
 }
 
 type listUsersOutput struct {
@@ -954,10 +957,12 @@ func (h *Handler) handleListUsers(_ context.Context, in *listUsersInput) (*listU
 	for i := range users {
 		u := &users[i]
 		items = append(items, userListItem{
-			Arn:      userARN(u.AccountID, u.Region, u.ServerID, u.UserName),
-			UserName: u.UserName,
-			HomeDir:  u.HomeDir,
-			Role:     u.Role,
+			Arn:               userARN(u.AccountID, u.Region, u.ServerID, u.UserName),
+			UserName:          u.UserName,
+			HomeDir:           u.HomeDir,
+			Role:              u.Role,
+			HomeDirectoryType: u.HomeDirectoryType,
+			SSHPublicKeyCount: h.Backend.CountUserSSHPublicKeys(in.ServerID, u.UserName),
 		})
 	}
 
@@ -998,6 +1003,7 @@ type updateUserOutput struct {
 	UserName string `json:"UserName"`
 }
 
+//nolint:dupl // handleUpdateUser and handleUpdateAccess are structurally similar but serve different entity types
 func (h *Handler) handleUpdateUser(
 	_ context.Context,
 	in *updateUserInput,
@@ -1752,10 +1758,14 @@ func (h *Handler) handleListAccesses(
 }
 
 type updateAccessInput struct {
-	ServerID   string `json:"ServerId"`
-	ExternalID string `json:"ExternalId"`
-	Role       string `json:"Role"`
-	HomeDir    string `json:"HomeDirectory"`
+	PosixProfile          *posixProfileInput           `json:"PosixProfile,omitempty"`
+	ServerID              string                       `json:"ServerId"`
+	ExternalID            string                       `json:"ExternalId"`
+	Role                  string                       `json:"Role"`
+	HomeDir               string                       `json:"HomeDirectory"`
+	HomeDirectoryType     string                       `json:"HomeDirectoryType,omitempty"`
+	Policy                string                       `json:"Policy,omitempty"`
+	HomeDirectoryMappings []homeDirectoryMapEntryInput `json:"HomeDirectoryMappings,omitempty"`
 }
 
 type updateAccessOutput struct {
@@ -1763,6 +1773,7 @@ type updateAccessOutput struct {
 	ExternalID string `json:"ExternalId"`
 }
 
+//nolint:dupl // handleUpdateAccess and handleUpdateUser are structurally similar but serve different entity types
 func (h *Handler) handleUpdateAccess(
 	_ context.Context,
 	in *updateAccessInput,
@@ -1775,7 +1786,20 @@ func (h *Handler) handleUpdateAccess(
 		return nil, fmt.Errorf("%w: ExternalId is required", errInvalidRequest)
 	}
 
-	a, err := h.Backend.UpdateAccess(in.ServerID, in.ExternalID, in.Role, in.HomeDir)
+	a, err := h.Backend.UpdateAccessFull(&UpdateAccessInput{
+		ServerID:                 in.ServerID,
+		ExternalID:               in.ExternalID,
+		Role:                     in.Role,
+		HomeDir:                  in.HomeDir,
+		HomeDirectoryType:        in.HomeDirectoryType,
+		SetHomeDirectoryType:     in.HomeDirectoryType != "",
+		Policy:                   in.Policy,
+		SetPolicy:                in.Policy != "",
+		PosixProfile:             toPosixProfile(in.PosixProfile),
+		SetPosixProfile:          in.PosixProfile != nil,
+		HomeDirectoryMappings:    toHomeDirectoryMappings(in.HomeDirectoryMappings),
+		SetHomeDirectoryMappings: in.HomeDirectoryMappings != nil,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1948,13 +1972,13 @@ func (h *Handler) handleDescribeConnector(
 	}
 
 	connMap := map[string]any{
-		keyConnectorID:       c.ConnectorID,
-		keyURL:               c.URL,
-		"AccessRole":         c.AccessRole,
-		keyArn:               connectorARN(c.AccountID, c.Region, c.ConnectorID),
-		keyTags:              tagsToList(c.Tags),
-		"LoggingRole":        c.LoggingRole,
-		"SecurityPolicyName": c.SecurityPolicyName,
+		keyConnectorID:        c.ConnectorID,
+		keyURL:                c.URL,
+		"AccessRole":          c.AccessRole,
+		keyArn:                connectorARN(c.AccountID, c.Region, c.ConnectorID),
+		keyTags:               tagsToList(c.Tags),
+		"LoggingRole":         c.LoggingRole,
+		keySecurityPolicyName: c.SecurityPolicyName,
 	}
 
 	if c.SftpConfig != nil {
@@ -2002,8 +2026,10 @@ func (h *Handler) handleListConnectors(
 
 	for i, c := range page {
 		out[i] = map[string]any{
-			keyConnectorID: c.ConnectorID,
-			keyURL:         c.URL,
+			keyConnectorID:        c.ConnectorID,
+			keyURL:                c.URL,
+			keyArn:                connectorARN(c.AccountID, c.Region, c.ConnectorID),
+			keySecurityPolicyName: c.SecurityPolicyName,
 		}
 	}
 
@@ -2011,11 +2037,13 @@ func (h *Handler) handleListConnectors(
 }
 
 type updateConnectorInput struct {
-	SftpConfig  *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
-	As2Config   *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
-	ConnectorID string                    `json:"ConnectorId"`
-	URL         string                    `json:"Url"`
-	AccessRole  string                    `json:"AccessRole"`
+	SftpConfig         *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
+	As2Config          *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
+	ConnectorID        string                    `json:"ConnectorId"`
+	URL                string                    `json:"Url"`
+	AccessRole         string                    `json:"AccessRole"`
+	LoggingRole        string                    `json:"LoggingRole,omitempty"`
+	SecurityPolicyName string                    `json:"SecurityPolicyName,omitempty"`
 }
 
 type updateConnectorOutput struct {
@@ -2030,13 +2058,17 @@ func (h *Handler) handleUpdateConnector(
 		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.UpdateConnector(
-		in.ConnectorID,
-		in.URL,
-		in.AccessRole,
-		toConnectorSftpConfig(in.SftpConfig),
-		toConnectorAs2Config(in.As2Config),
-	)
+	c, err := h.Backend.UpdateConnectorFull(&UpdateConnectorInput{
+		ConnectorID:           in.ConnectorID,
+		URL:                   in.URL,
+		AccessRole:            in.AccessRole,
+		SftpConfig:            toConnectorSftpConfig(in.SftpConfig),
+		As2Config:             toConnectorAs2Config(in.As2Config),
+		LoggingRole:           in.LoggingRole,
+		SetLoggingRole:        in.LoggingRole != "",
+		SecurityPolicyName:    in.SecurityPolicyName,
+		SetSecurityPolicyName: in.SecurityPolicyName != "",
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2086,15 +2118,20 @@ func (h *Handler) handleDescribeProfile(
 		return nil, err
 	}
 
-	return &describeProfileOutput{
-		Profile: map[string]any{
-			"ProfileId":   p.ProfileID,
-			"ProfileType": p.ProfileType,
-			"As2Id":       p.As2ID,
-			keyArn:        profileARN(p.AccountID, p.Region, p.ProfileID),
-			keyTags:       tagsToList(p.Tags),
-		},
-	}, nil
+	profileMap := map[string]any{
+		"ProfileId":      p.ProfileID,
+		"ProfileType":    p.ProfileType,
+		"As2Id":          p.As2ID,
+		keyArn:           profileARN(p.AccountID, p.Region, p.ProfileID),
+		keyTags:          tagsToList(p.Tags),
+		"CertificateIds": p.CertificateIDs,
+	}
+
+	if profileMap["CertificateIds"] == nil {
+		profileMap["CertificateIds"] = []string{}
+	}
+
+	return &describeProfileOutput{Profile: profileMap}, nil
 }
 
 type listProfilesInput struct {
@@ -2140,8 +2177,9 @@ func (h *Handler) handleListProfiles(
 }
 
 type updateProfileInput struct {
-	ProfileID string `json:"ProfileId"`
-	As2ID     string `json:"As2Id"`
+	ProfileID      string   `json:"ProfileId"`
+	As2ID          string   `json:"As2Id"`
+	CertificateIDs []string `json:"CertificateIds,omitempty"`
 }
 
 type updateProfileOutput struct {
@@ -2156,7 +2194,12 @@ func (h *Handler) handleUpdateProfile(
 		return nil, fmt.Errorf("%w: ProfileId is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.UpdateProfile(in.ProfileID, in.As2ID)
+	p, err := h.Backend.UpdateProfileFull(&UpdateProfileInput{
+		ProfileID:         in.ProfileID,
+		As2ID:             in.As2ID,
+		CertificateIDs:    in.CertificateIDs,
+		SetCertificateIDs: in.CertificateIDs != nil,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2480,11 +2523,11 @@ func (h *Handler) handleImportCertificate(
 	}
 
 	switch in.Usage {
-	case "SIGNING", "ENCRYPTION":
+	case "SIGNING", "ENCRYPTION", "TLS":
 		// valid
 	default:
 		return nil, fmt.Errorf(
-			"%w: Usage must be SIGNING or ENCRYPTION, got %q",
+			"%w: Usage must be SIGNING, ENCRYPTION, or TLS, got %q",
 			errInvalidRequest,
 			in.Usage,
 		)
@@ -2539,6 +2582,10 @@ func (h *Handler) handleDescribeCertificate(
 		keyDescription:  c.Description,
 		keyStatus:       c.Status,
 		keyArn:          certificateARN(c.AccountID, c.Region, c.CertificateID),
+	}
+
+	if c.Body != "" {
+		certMap["Certificate"] = c.Body
 	}
 
 	if !c.NotBeforeDate.IsZero() {
@@ -3168,13 +3215,13 @@ func (h *Handler) handleDescribeSecurityPolicy(
 	}
 
 	body := map[string]any{
-		"SecurityPolicyName": in.SecurityPolicyName,
-		"Fips":               pol.Fips,
-		keyStepType:          pol.Type,
-		"Protocols":          pol.Protocols,
-		"SshCiphers":         pol.SSHCiphers,
-		"SshKexs":            pol.SSHKexs,
-		"SshMacs":            pol.SSHMacs,
+		keySecurityPolicyName: in.SecurityPolicyName,
+		"Fips":                pol.Fips,
+		keyStepType:           pol.Type,
+		"Protocols":           pol.Protocols,
+		"SshCiphers":          pol.SSHCiphers,
+		"SshKexs":             pol.SSHKexs,
+		"SshMacs":             pol.SSHMacs,
 	}
 
 	if len(pol.TLSCiphers) > 0 {
