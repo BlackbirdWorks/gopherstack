@@ -1117,16 +1117,49 @@ func (b *InMemoryBackend) resolveUserByEmail(region, storeID, email string) (str
 	return "", false
 }
 
-// resolveUserByExternalID returns the user ID whose ExternalIDs contain the given ID.
-func (b *InMemoryBackend) resolveUserByExternalID(region, storeID, extID string) (string, bool) {
+// splitExternalIDCompound splits a compound ExternalId key (encoded by extractAlternateIdentifier)
+// into its Issuer and Id parts. Both Issuer and Id must match for a lookup to succeed.
+func splitExternalIDCompound(compound string) (string, string) {
+	if i := strings.IndexByte(compound, externalIDSep[0]); i >= 0 {
+		return compound[:i], compound[i+1:]
+	}
+
+	return "", compound
+}
+
+// resolveUserByExternalID returns the user ID whose ExternalIDs contain both the given Issuer and Id.
+// The compound argument is Issuer+externalIDSep+Id as encoded by extractAlternateIdentifier.
+func (b *InMemoryBackend) resolveUserByExternalID(region, storeID, compound string) (string, bool) {
+	issuer, extID := splitExternalIDCompound(compound)
+
 	for _, u := range b.usersStore(region) {
 		if u.IdentityStoreID != storeID {
 			continue
 		}
 
 		for _, ext := range u.ExternalIDs {
-			if ext.ID == extID {
+			if ext.Issuer == issuer && ext.ID == extID {
 				return u.UserID, true
+			}
+		}
+	}
+
+	return "", false
+}
+
+// resolveGroupByExternalID returns the group ID whose ExternalIDs contain both the given Issuer and Id.
+// The compound argument is Issuer+externalIDSep+Id as encoded by extractAlternateIdentifier.
+func (b *InMemoryBackend) resolveGroupByExternalID(region, storeID, compound string) (string, bool) {
+	issuer, extID := splitExternalIDCompound(compound)
+
+	for _, g := range b.groupsStore(region) {
+		if g.IdentityStoreID != storeID {
+			continue
+		}
+
+		for _, ext := range g.ExternalIDs {
+			if ext.Issuer == issuer && ext.ID == extID {
+				return g.GroupID, true
 			}
 		}
 	}
@@ -1341,15 +1374,20 @@ func (b *InMemoryBackend) DeleteGroup(ctx context.Context, storeID, groupID stri
 	return nil
 }
 
-// GetGroupID looks up a group ID by alternate identifier (DisplayName).
+// GetGroupID looks up a group ID by alternate identifier (DisplayName or ExternalId).
 func (b *InMemoryBackend) GetGroupID(ctx context.Context, storeID, attrPath, attrValue string) (string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("GetGroupID")
 	defer b.mu.RUnlock()
 
-	if strings.EqualFold(attrPath, "displayName") {
+	switch {
+	case strings.EqualFold(attrPath, "displayName"):
 		if gid, ok := b.groupsByNameStore(region)[storeID+"#"+attrValue]; ok {
+			return gid, nil
+		}
+	case strings.EqualFold(attrPath, "ExternalId"):
+		if gid, ok := b.resolveGroupByExternalID(region, storeID, attrValue); ok {
 			return gid, nil
 		}
 	}
