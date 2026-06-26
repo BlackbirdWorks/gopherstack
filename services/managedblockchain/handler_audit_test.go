@@ -565,8 +565,10 @@ func TestAudit_ProposalStatusTransitions(t *testing.T) {
 			wantStatus:   "APPROVED",
 		},
 		{
+			// 3 members, GREATER_THAN 50% → need 2 YES to approve.
+			// After 2 NO: maxPossibleYes = 1 < 2 → REJECTED.
 			name:         "all NO votes → REJECTED",
-			totalMembers: 2,
+			totalMembers: 3,
 			threshold:    50,
 			comparator:   "GREATER_THAN",
 			votes:        []string{"NO", "NO"},

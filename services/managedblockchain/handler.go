@@ -161,14 +161,18 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		op, resource := parsePath(method, path)
 		if op == "" {
-			return writeError(c, http.StatusNotFound, "resource not found")
+			return writeError(c, http.StatusNotFound, "ResourceNotFoundException", "resource not found")
 		}
 
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "managedblockchain: failed to read request body", "error", err)
 
-			return writeError(c, http.StatusInternalServerError, "failed to read request body")
+			return writeError(c,
+				http.StatusInternalServerError,
+				"InternalServiceErrorException",
+				"failed to read request body",
+			)
 		}
 
 		log.DebugContext(ctx, "managedblockchain request", "op", op, "resource", resource)
@@ -486,7 +490,7 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte, qu
 		return err
 	}
 
-	return writeError(c, http.StatusNotFound, "unknown operation")
+	return writeError(c, http.StatusNotFound, "ResourceNotFoundException", "unknown operation")
 }
 
 // errUnknownOp is a sentinel returned by sub-dispatch helpers when the operation is not handled.
@@ -596,15 +600,15 @@ func (h *Handler) handleCreateNetwork(c *echo.Context, body []byte) error {
 	var req createNetworkRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
 	if req.Name == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingNetworkName.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNetworkName.Error())
 	}
 
 	if req.MemberConfiguration.Name == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingMemberName.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingMemberName.Error())
 	}
 
 	var votingPolicy *VotingPolicy
@@ -678,17 +682,17 @@ func (h *Handler) handleListNetworks(c *echo.Context) error {
 
 func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []byte) error {
 	if networkID == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingNetworkID.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNetworkID.Error())
 	}
 
 	var req createMemberRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
 	if req.MemberConfiguration.Name == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingMemberName.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingMemberName.Error())
 	}
 
 	member, err := h.Backend.CreateMember(
@@ -709,7 +713,7 @@ func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []b
 func (h *Handler) handleGetMember(c *echo.Context, resource string) error {
 	networkID, memberID, ok := splitResource(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	member, err := h.Backend.GetMember(networkID, memberID)
@@ -724,7 +728,7 @@ func (h *Handler) handleGetMember(c *echo.Context, resource string) error {
 
 func (h *Handler) handleListMembers(c *echo.Context, networkID string) error {
 	if networkID == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingNetworkID.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNetworkID.Error())
 	}
 
 	q := c.Request().URL.Query()
@@ -755,7 +759,7 @@ func (h *Handler) handleListMembers(c *echo.Context, networkID string) error {
 func (h *Handler) handleDeleteMember(c *echo.Context, resource string) error {
 	networkID, memberID, ok := splitResource(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	if err := h.Backend.DeleteMember(networkID, memberID); err != nil {
@@ -768,12 +772,12 @@ func (h *Handler) handleDeleteMember(c *echo.Context, resource string) error {
 func (h *Handler) handleCreateNode(c *echo.Context, resource string, body []byte) error {
 	networkID, memberID, ok := splitResource(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	var req createNodeRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
 	node, err := h.Backend.CreateNode(
@@ -795,7 +799,7 @@ func (h *Handler) handleCreateNode(c *echo.Context, resource string, body []byte
 func (h *Handler) handleGetNode(c *echo.Context, resource string) error {
 	networkID, memberID, nodeID, ok := splitThreePart(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	node, err := h.Backend.GetNode(networkID, memberID, nodeID)
@@ -809,7 +813,7 @@ func (h *Handler) handleGetNode(c *echo.Context, resource string) error {
 func (h *Handler) handleListNodes(c *echo.Context, resource string) error {
 	networkID, memberID, ok := splitResource(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	filter := ListNodesFilter{
@@ -832,7 +836,7 @@ func (h *Handler) handleListNodes(c *echo.Context, resource string) error {
 func (h *Handler) handleDeleteNode(c *echo.Context, resource string) error {
 	networkID, memberID, nodeID, ok := splitThreePart(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	if err := h.Backend.DeleteNode(networkID, memberID, nodeID); err != nil {
@@ -865,7 +869,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 	var req tagResourceRequest
 
 	if parseErr := json.Unmarshal(body, &req); parseErr != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
 	if tagErr := h.Backend.TagResource(decoded, req.Tags); tagErr != nil {
@@ -894,7 +898,7 @@ func (h *Handler) handleCreateAccessor(c *echo.Context, body []byte) error {
 	var req createAccessorRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
 	accessor, err := h.Backend.CreateAccessor(
@@ -955,17 +959,17 @@ func (h *Handler) handleListAccessors(c *echo.Context) error {
 
 func (h *Handler) handleCreateProposal(c *echo.Context, networkID string, body []byte) error {
 	if networkID == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingNetworkID.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNetworkID.Error())
 	}
 
 	var req createProposalRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
 	if req.MemberID == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingMemberID.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingMemberID.Error())
 	}
 
 	var actions *ProposalActions
@@ -1001,7 +1005,7 @@ func (h *Handler) handleCreateProposal(c *echo.Context, networkID string, body [
 func (h *Handler) handleGetProposal(c *echo.Context, resource string) error {
 	networkID, proposalID, ok := splitResource(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	proposal, err := h.Backend.GetProposal(networkID, proposalID)
@@ -1014,10 +1018,12 @@ func (h *Handler) handleGetProposal(c *echo.Context, resource string) error {
 
 func (h *Handler) handleListProposals(c *echo.Context, networkID string) error {
 	if networkID == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingNetworkID.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNetworkID.Error())
 	}
 
-	proposals, err := h.Backend.ListProposals(networkID)
+	statusFilter := c.Request().URL.Query().Get("status")
+
+	proposals, err := h.Backend.ListProposals(networkID, statusFilter)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1034,7 +1040,7 @@ func (h *Handler) handleListProposals(c *echo.Context, networkID string) error {
 func (h *Handler) handleListProposalVotes(c *echo.Context, resource string) error {
 	networkID, proposalID, ok := splitResource(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	votes, err := h.Backend.ListProposalVotes(networkID, proposalID)
@@ -1081,13 +1087,13 @@ func (h *Handler) handleRejectInvitation(c *echo.Context, invitationID string) e
 func (h *Handler) handleUpdateMember(c *echo.Context, resource string, body []byte) error {
 	networkID, memberID, ok := splitResource(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	var req updateMemberRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
 	_, err := h.Backend.UpdateMember(networkID, memberID, buildMemberLogConfig(req.LogPublishingConfiguration))
@@ -1127,14 +1133,14 @@ func buildMemberLogConfig(req *memberLogPublishingConfigReq) *MemberLogPublishin
 func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body []byte) error {
 	networkID, memberID, nodeID, ok := splitThreePart(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	var req updateNodeRequest
 
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &req); err != nil {
-			return writeError(c, http.StatusBadRequest, "invalid request body")
+			return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 		}
 	}
 
@@ -1183,17 +1189,17 @@ func buildNodeLogConfig(req *nodeLogPublishingConfigReq) *NodeLogPublishingConfi
 func (h *Handler) handleVoteOnProposal(c *echo.Context, resource string, body []byte) error {
 	networkID, proposalID, ok := splitResource(resource)
 	if !ok {
-		return writeError(c, http.StatusBadRequest, "invalid resource path")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
 	}
 
 	var req voteOnProposalRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
 	if req.VoterMemberID == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingVoterMemberID.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingVoterMemberID.Error())
 	}
 
 	if err := h.Backend.VoteOnProposal(networkID, proposalID, req.VoterMemberID, req.Vote); err != nil {
@@ -1207,19 +1213,19 @@ func (h *Handler) handleVoteOnProposal(c *echo.Context, resource string, body []
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return writeError(c, http.StatusNotFound, err.Error())
+		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return writeError(c, http.StatusConflict, err.Error())
+		return writeError(c, http.StatusConflict, "ResourceAlreadyExistsException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return writeError(c, http.StatusBadRequest, err.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", err.Error())
 	default:
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return writeError(c, http.StatusInternalServerError, "InternalServiceErrorException", err.Error())
 	}
 }
 
 // writeError writes a JSON error response.
-func writeError(c *echo.Context, status int, message string) error {
-	return c.JSON(status, errorResponse{Message: message})
+func writeError(c *echo.Context, status int, code, message string) error {
+	return c.JSON(status, errorResponse{Message: message, Code: code})
 }
 
 // splitResource splits a "networkId/memberId" resource string into its parts.
