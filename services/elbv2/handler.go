@@ -22,10 +22,11 @@ import (
 )
 
 const (
-	elbv2Version   = "2015-12-01"
-	elbv2XMLNS     = "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"
-	attrValueFalse = "false"
-	attrValueTrue  = "true"
+	elbv2Version      = "2015-12-01"
+	elbv2XMLNS        = "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"
+	attrValueFalse    = "false"
+	attrValueTrue     = "true"
+	actionTypeForward = "forward"
 
 	// TLS cipher suite constants used in SSL policy definitions.
 	cipherECDHEECDSAAES128GCM = "ECDHE-ECDSA-AES128-GCM-SHA256"
@@ -571,9 +572,12 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid UnhealthyThresholdCount", ErrInvalidParameter)
 	}
 
-	hcEnabled := true
-	if hce := vals.Get("HealthCheckEnabled"); hce == attrValueFalse {
-		hcEnabled = false
+	hcEnabledStr := vals.Get("HealthCheckEnabled")
+	var hcEnabled bool
+	if hcEnabledStr == "" {
+		hcEnabled = vals.Get("TargetType") != targetTypeLambda
+	} else {
+		hcEnabled = hcEnabledStr != attrValueFalse
 	}
 
 	tg, createErr := h.Backend.CreateTargetGroup(CreateTargetGroupInput{
@@ -2081,7 +2085,7 @@ func elbv2ErrorCode(opErr error) (string, int) {
 		{ErrTrustStoreAlreadyExists, "DuplicateTrustStoreName", http.StatusConflict},
 		{ErrDuplicateListener, "DuplicateListener", http.StatusConflict},
 		{ErrDuplicateRulePriority, "DuplicatePriority", http.StatusBadRequest},
-		{ErrTargetGroupInUse, "TargetGroupAssociationLimit", http.StatusBadRequest},
+		{ErrTargetGroupInUse, "ResourceInUse", http.StatusBadRequest},
 		{ErrOperationNotPermitted, "OperationNotPermitted", http.StatusBadRequest},
 		{ErrInvalidConfigurationRequest, "InvalidConfigurationRequest", http.StatusBadRequest},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
@@ -2331,7 +2335,7 @@ func parseActions(vals url.Values, prefix string) []Action {
 // isValidActionType returns true if the action type is a recognized ELBv2 value.
 func isValidActionType(t string) bool {
 	switch t {
-	case "forward", "redirect", "fixed-response", "authenticate-cognito", "authenticate-oidc":
+	case actionTypeForward, "redirect", "fixed-response", "authenticate-cognito", "authenticate-oidc":
 		return true
 	}
 
@@ -2356,7 +2360,7 @@ func applyActionConfig(vals url.Values, p, actionType string, action *Action) {
 			MessageBody: vals.Get(p + ".FixedResponseConfig.MessageBody"),
 			ContentType: vals.Get(p + ".FixedResponseConfig.ContentType"),
 		}
-	case "forward":
+	case actionTypeForward:
 		tgs := parseForwardConfigTargetGroups(vals, p+".ForwardConfig.TargetGroups.member")
 		if len(tgs) > 0 {
 			action.ForwardConfig = &ForwardConfig{TargetGroups: tgs}
@@ -2646,6 +2650,12 @@ func toXMLAction(a Action) xmlAction {
 
 		xa.ForwardConfig = &xmlForwardConfig{
 			TargetGroups: xmlTargetGroupTupleList{Members: tuples},
+		}
+	} else if a.Type == actionTypeForward && a.TargetGroupArn != "" {
+		xa.ForwardConfig = &xmlForwardConfig{
+			TargetGroups: xmlTargetGroupTupleList{Members: []xmlTargetGroupTuple{
+				{TargetGroupArn: a.TargetGroupArn, Weight: 1},
+			}},
 		}
 	}
 

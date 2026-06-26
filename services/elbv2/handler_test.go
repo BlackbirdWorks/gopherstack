@@ -3185,8 +3185,8 @@ func TestCreateRuleWithConditions(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			lbArn := mustCreateLB(t, h, "cond-lb-"+tt.name)
-			tgArn := mustCreateTG(t, h, "cond-tg-"+tt.name)
+			lbArn := mustCreateLB(t, h, "cond-lb")
+			tgArn := mustCreateTG(t, h, "cond-tg")
 			listenerArn := mustCreateListener(t, h, lbArn, tgArn)
 
 			vals := url.Values{
@@ -3329,7 +3329,7 @@ func TestProtocolValidationPerLBType(t *testing.T) {
 			rec := doELBv2(t, h, url.Values{
 				"Action":  {"CreateLoadBalancer"},
 				"Version": {"2015-12-01"},
-				"Name":    {"proto-val-lb-" + tt.name},
+				"Name":    {"proto-val-lb"},
 				"Type":    {tt.lbType},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -3623,8 +3623,8 @@ func TestCreateRulePriorityValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			lbArn := mustCreateLB(t, h, "prio-lb-"+tt.name)
-			tgArn := mustCreateTG(t, h, "prio-tg-"+tt.name)
+			lbArn := mustCreateLB(t, h, "prio-lb")
+			tgArn := mustCreateTG(t, h, "prio-tg")
 			listenerArn := mustCreateListener(t, h, lbArn, tgArn)
 
 			rec := doELBv2(t, h, url.Values{
@@ -4626,7 +4626,7 @@ func TestDeleteTargetGroupInUse(t *testing.T) {
 		} `xml:"Error"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "TargetGroupAssociationLimit", errResp.Error.Code)
+	assert.Equal(t, "ResourceInUse", errResp.Error.Code)
 }
 
 // TestDeleteTargetGroupNotInUse tests that deleting an unreferenced TG succeeds.

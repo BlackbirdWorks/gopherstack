@@ -48,7 +48,7 @@ var (
 	// ErrDuplicateListener is returned when a listener on the same port already exists.
 	ErrDuplicateListener = awserr.New("DuplicateListener", awserr.ErrAlreadyExists)
 	// ErrTargetGroupInUse is returned when attempting to delete a target group that is still referenced.
-	ErrTargetGroupInUse = awserr.New("TargetGroupAssociationLimit", awserr.ErrInvalidParameter)
+	ErrTargetGroupInUse = awserr.New("ResourceInUse", awserr.ErrInvalidParameter)
 	// ErrInvalidConfigurationRequest is returned when a configuration is invalid for the LB type.
 	ErrInvalidConfigurationRequest = awserr.New("InvalidConfigurationRequest", awserr.ErrInvalidParameter)
 )
@@ -644,6 +644,26 @@ func validateResourceName(name, kind string) error {
 	return nil
 }
 
+// validateLBName applies load-balancer-specific name rules on top of validateResourceName:
+// underscores are not allowed, and the name must be at least 2 characters.
+func validateLBName(name string) error {
+	if err := validateResourceName(name, "load balancer"); err != nil {
+		return err
+	}
+
+	if len(name) < minLBNameLength {
+		return fmt.Errorf("%w: load balancer name must be at least 2 characters", ErrInvalidParameter)
+	}
+
+	for _, c := range name {
+		if c == '_' {
+			return fmt.Errorf("%w: load balancer name cannot contain underscores", ErrInvalidParameter)
+		}
+	}
+
+	return nil
+}
+
 // isValidTargetType returns true if the target type is a recognized ELBv2 value.
 func isValidTargetType(tt string) bool {
 	switch tt {
@@ -799,7 +819,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
-	if err := validateResourceName(input.Name, "load balancer"); err != nil {
+	if err := validateLBName(input.Name); err != nil {
 		return nil, err
 	}
 
@@ -1717,6 +1737,7 @@ const (
 	targetTypeLambda   = "lambda"
 	priorityDefault    = "default"
 	maxNameLength      = 32
+	minLBNameLength    = 2
 	maxTagKeyLen       = 128
 	maxTagValueLen     = 256
 	maxTagsPerRes      = 50
@@ -1877,6 +1898,36 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 	return &cp, nil
 }
 
+// describeListenersByARNs resolves listeners by exact ARN lookup and returns them sorted by port.
+// Callers must hold at least a read lock.
+func (b *InMemoryBackend) describeListenersByARNs(listenerArns []string) ([]Listener, error) {
+	result := make([]Listener, 0, len(listenerArns))
+
+	for _, a := range listenerArns {
+		if l, ok := b.listeners[a]; ok {
+			result = append(result, *l)
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Port < result[j].Port
+	})
+
+	return result, checkAllListenerArnsFound(listenerArns, result)
+}
+
+// checkLBExists returns ErrLoadBalancerNotFound when lbArn is non-empty and not in the store.
+// Callers must hold at least a read lock.
+func (b *InMemoryBackend) checkLBExists(lbArn string) error {
+	if lbArn != "" {
+		if _, ok := b.loadBalancers[lbArn]; !ok {
+			return ErrLoadBalancerNotFound
+		}
+	}
+
+	return nil
+}
+
 // DescribeListeners returns listeners filtered by load balancer ARN and/or listener ARNs.
 // The returned Listener values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
 //
@@ -1886,24 +1937,12 @@ func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string)
 	b.mu.RLock("DescribeListeners")
 	defer b.mu.RUnlock()
 
+	if err := b.checkLBExists(lbArn); err != nil {
+		return nil, err
+	}
+
 	if lbArn == "" && len(listenerArns) > 0 {
-		result := make([]Listener, 0, len(listenerArns))
-
-		for _, a := range listenerArns {
-			if l, ok := b.listeners[a]; ok {
-				result = append(result, *l)
-			}
-		}
-
-		sort.Slice(result, func(i, j int) bool {
-			return result[i].Port < result[j].Port
-		})
-
-		if err := checkAllListenerArnsFound(listenerArns, result); err != nil {
-			return nil, err
-		}
-
-		return result, nil
+		return b.describeListenersByARNs(listenerArns)
 	}
 
 	arnSet := make(map[string]bool, len(listenerArns))
@@ -2662,6 +2701,31 @@ func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([
 	return result, nil
 }
 
+// checkRulePriorityCollisions returns ErrDuplicateRulePriority when an incoming priority
+// conflicts with an existing non-batch rule on the same listener.
+// Callers must hold a write lock.
+func (b *InMemoryBackend) checkRulePriorityCollisions(priorities []RulePriority, batchArns map[string]bool) error {
+	incomingPriorities := make(map[string]bool, len(priorities))
+	for _, p := range priorities {
+		incomingPriorities[p.Priority] = true
+	}
+
+	for _, p := range priorities {
+		listenerArn := b.rules[p.RuleArn].ListenerArn
+		for _, existing := range b.rules {
+			if existing.ListenerArn != listenerArn || batchArns[existing.RuleArn] || existing.IsDefault {
+				continue
+			}
+
+			if incomingPriorities[existing.Priority] {
+				return fmt.Errorf("%w: priority %s is already in use", ErrDuplicateRulePriority, existing.Priority)
+			}
+		}
+	}
+
+	return nil
+}
+
 // SetRulePriorities updates the priorities of one or more rules.
 func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, error) {
 	b.mu.Lock("SetRulePriorities")
@@ -2678,6 +2742,7 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 	}
 
 	// Validate all rules exist and none is a default rule (AWS does not allow reordering defaults).
+	batchArns := make(map[string]bool, len(priorities))
 	for _, p := range priorities {
 		r, ok := b.rules[p.RuleArn]
 		if !ok {
@@ -2687,6 +2752,12 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 		if r.IsDefault {
 			return nil, fmt.Errorf("%w: cannot set priority on the default rule", ErrOperationNotPermitted)
 		}
+
+		batchArns[p.RuleArn] = true
+	}
+
+	if err := b.checkRulePriorityCollisions(priorities, batchArns); err != nil {
+		return nil, err
 	}
 
 	result := make([]Rule, 0, len(priorities))
