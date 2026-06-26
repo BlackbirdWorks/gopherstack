@@ -465,6 +465,7 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 	}
 
 	b.dataRepositoryTasks[id] = t
+	b.tags[arn] = tags
 
 	return t.toPublic(), nil
 }

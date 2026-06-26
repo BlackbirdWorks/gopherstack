@@ -539,6 +539,10 @@ func (h *Handler) handleListTagsForResource(
 		return nil, err
 	}
 
+	if tags == nil {
+		tags = []Tag{}
+	}
+
 	return &listTagsForResourceOutput{Tags: tags}, nil
 }
 

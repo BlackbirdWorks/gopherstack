@@ -847,6 +847,12 @@ func (b *InMemoryBackend) arnExists(resourceARN string) bool { //nolint:gocognit
 		}
 	}
 
+	for _, t := range b.dataRepositoryTasks {
+		if t.ResourceARN == resourceARN {
+			return true
+		}
+	}
+
 	return false
 }
 
