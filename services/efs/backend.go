@@ -216,11 +216,14 @@ type AccessPoint struct {
 
 // ReplicationDestination represents a destination in an EFS replication configuration.
 type ReplicationDestination struct {
-	FileSystemID         string `json:"FileSystemId,omitempty"`
-	Region               string `json:"Region,omitempty"`
-	AvailabilityZoneName string `json:"AvailabilityZoneName,omitempty"`
-	KmsKeyID             string `json:"KmsKeyID,omitempty"`
-	Status               string `json:"Status,omitempty"`
+	FileSystemID            string `json:"FileSystemId,omitempty"`
+	FileSystemArn           string `json:"FileSystemArn,omitempty"`
+	Region                  string `json:"Region,omitempty"`
+	AvailabilityZoneName    string `json:"AvailabilityZoneName,omitempty"`
+	KmsKeyID                string `json:"KmsKeyID,omitempty"`
+	OwnerID                 string `json:"OwnerId,omitempty"`
+	LastReplicatedTimestamp string `json:"LastReplicatedTimestamp,omitempty"`
+	Status                  string `json:"Status,omitempty"`
 }
 
 // ReplicationConfiguration represents an EFS replication configuration.
@@ -229,6 +232,7 @@ type ReplicationConfiguration struct {
 	SourceFileSystemARN         string                   `json:"SourceFileSystemArn"`
 	SourceFileSystemID          string                   `json:"SourceFileSystemId"`
 	SourceFileSystemRegion      string                   `json:"SourceFileSystemRegion"`
+	SourceFileSystemOwnerID     string                   `json:"SourceFileSystemOwnerId"`
 	Destinations                []ReplicationDestination `json:"Destinations"`
 	CreationTime                int64                    `json:"CreationTime"`
 }
@@ -1247,12 +1251,35 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		if dests[i].Status == "" {
 			dests[i].Status = "ENABLED"
 		}
+		if dests[i].OwnerID == "" {
+			dests[i].OwnerID = b.accountID
+		}
+		// Assign a destination file-system ID and ARN when not provided by the caller.
+		// Real AWS creates a read-only replica; we record a synthetic ID here.
+		if dests[i].FileSystemID == "" {
+			destRegion := dests[i].Region
+			if destRegion == "" {
+				destRegion = region
+			}
+			destFSID := "fs-" + uuid.NewString()[:8]
+			dests[i].FileSystemID = destFSID
+			dests[i].FileSystemArn = arn.Build("elasticfilesystem", destRegion, b.accountID, "file-system/"+destFSID)
+		} else if dests[i].FileSystemArn == "" {
+			destRegion := dests[i].Region
+			if destRegion == "" {
+				destRegion = region
+			}
+			dests[i].FileSystemArn = arn.Build(
+				"elasticfilesystem", destRegion, b.accountID, "file-system/"+dests[i].FileSystemID,
+			)
+		}
 	}
 
 	rc := &ReplicationConfiguration{
 		OriginalSourceFileSystemARN: fs.FileSystemArn,
 		SourceFileSystemARN:         fs.FileSystemArn,
 		SourceFileSystemID:          sourceFileSystemID,
+		SourceFileSystemOwnerID:     b.accountID,
 		SourceFileSystemRegion:      region,
 		CreationTime:                time.Now().UTC().Unix(),
 		Destinations:                dests,
@@ -1318,16 +1345,27 @@ func (b *InMemoryBackend) DescribeReplicationConfigurations(
 	replicationConfigs := b.replicationStore(region)
 
 	if fileSystemID != "" {
-		rc, ok := replicationConfigs[fileSystemID]
-		if !ok {
-			return []*ReplicationConfiguration{}, nil
+		// Match source OR destination file system ID, matching real AWS behaviour.
+		if rc, ok := replicationConfigs[fileSystemID]; ok {
+			cp := *rc
+			cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
+			copy(cp.Destinations, rc.Destinations)
+
+			return []*ReplicationConfiguration{&cp}, nil
+		}
+		for _, rc := range replicationConfigs {
+			for _, d := range rc.Destinations {
+				if d.FileSystemID == fileSystemID {
+					cp := *rc
+					cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
+					copy(cp.Destinations, rc.Destinations)
+
+					return []*ReplicationConfiguration{&cp}, nil
+				}
+			}
 		}
 
-		cp := *rc
-		cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
-		copy(cp.Destinations, rc.Destinations)
-
-		return []*ReplicationConfiguration{&cp}, nil
+		return []*ReplicationConfiguration{}, nil
 	}
 
 	list := make([]*ReplicationConfiguration, 0, len(replicationConfigs))

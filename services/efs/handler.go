@@ -750,8 +750,11 @@ func fsToResponse(fs *FileSystem) map[string]any {
 		keyTags:                tagsToEntries(fs.Tags.Clone()),
 		"CreationTime":         float64(fs.CreationTime.Unix()),
 		"SizeInBytes": map[string]any{
-			"Value":     0,
-			"Timestamp": float64(fs.CreationTime.Unix()),
+			"Value":           0,
+			"ValueInIA":       0,
+			"ValueInStandard": 0,
+			"ValueInArchive":  0,
+			"Timestamp":       float64(fs.CreationTime.Unix()),
 		},
 		"FileSystemProtection": map[string]any{
 			"ReplicationOverwriteProtection": fs.ReplicationOverwriteProtection,
@@ -1124,6 +1127,7 @@ func rcToResponse(rc *ReplicationConfiguration) map[string]any {
 		"OriginalSourceFileSystemArn": rc.OriginalSourceFileSystemARN,
 		"SourceFileSystemArn":         rc.SourceFileSystemARN,
 		"SourceFileSystemId":          rc.SourceFileSystemID,
+		"SourceFileSystemOwnerId":     rc.SourceFileSystemOwnerID,
 		"SourceFileSystemRegion":      rc.SourceFileSystemRegion,
 		"CreationTime":                rc.CreationTime,
 		"Destinations":                rc.Destinations,
