@@ -29,6 +29,8 @@ const (
 	keyImportID             = "ImportId"
 	keyImportStatus         = "ImportStatus"
 	keyResourceArn          = "ResourceArn"
+	keyCreatedTimestamp     = "CreatedTimestamp"
+	keyUpdatedTimestamp     = "UpdatedTimestamp"
 	statusEnabled           = "ENABLED"
 	statusDisabled          = "DISABLED"
 )
@@ -507,9 +509,11 @@ func (h *Handler) handleGetTrailStatus(c *echo.Context, body []byte) error {
 	}
 	if t.StartLoggingTime != nil {
 		resp["StartLoggingTime"] = float64(t.StartLoggingTime.Unix())
+		resp["TimeLoggingStarted"] = t.StartLoggingTime.UTC().Format(time.RFC3339)
 	}
 	if t.StopLoggingTime != nil {
 		resp["StopLoggingTime"] = float64(t.StopLoggingTime.Unix())
+		resp["TimeLoggingStopped"] = t.StopLoggingTime.UTC().Format(time.RFC3339)
 	}
 	if t.LatestDeliveryTime != nil {
 		resp["LatestDeliveryTime"] = float64(t.LatestDeliveryTime.Unix())
@@ -579,7 +583,6 @@ func (h *Handler) handleGetEventSelectors(c *echo.Context, body []byte) error {
 	}
 	if len(advancedSelectors) > 0 {
 		resp["AdvancedEventSelectors"] = advancedSelectors
-		resp["EventSelectors"] = []EventSelector{}
 	} else {
 		if selectors == nil {
 			selectors = []EventSelector{}
@@ -1033,6 +1036,7 @@ func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 		keyQueryID:     q.QueryID,
 		"QueryString":  q.QueryString,
 		keyQueryStatus: q.QueryStatus,
+		"CreationTime": float64(q.CreationTime.Unix()),
 	}
 	if q.DeliveryS3URI != "" {
 		resp["DeliveryS3Uri"] = q.DeliveryS3URI
@@ -1337,6 +1341,10 @@ func (h *Handler) handleGetQueryResults(c *echo.Context, body []byte) error {
 		keyQueryID:        q.QueryID,
 		keyQueryStatus:    q.QueryStatus,
 		"QueryResultRows": []any{},
+		"QueryStatistics": map[string]any{
+			"TotalResultsCount": 0,
+			"BytesScanned":      0,
+		},
 	})
 }
 
@@ -1384,9 +1392,11 @@ func (h *Handler) handleStartImport(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyImportID:     imp.ImportID,
-		keyImportStatus: imp.ImportStatus,
-		keyDestinations: imp.Destinations,
+		keyImportID:         imp.ImportID,
+		keyImportStatus:     imp.ImportStatus,
+		keyDestinations:     imp.Destinations,
+		keyCreatedTimestamp: float64(imp.CreatedTimestamp.Unix()),
+		keyUpdatedTimestamp: float64(imp.UpdatedTimestamp.Unix()),
 	})
 }
 
@@ -1408,9 +1418,11 @@ func (h *Handler) handleGetImport(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyImportID:     imp.ImportID,
-		keyImportStatus: imp.ImportStatus,
-		keyDestinations: imp.Destinations,
+		keyImportID:         imp.ImportID,
+		keyImportStatus:     imp.ImportStatus,
+		keyDestinations:     imp.Destinations,
+		keyCreatedTimestamp: float64(imp.CreatedTimestamp.Unix()),
+		keyUpdatedTimestamp: float64(imp.UpdatedTimestamp.Unix()),
 	})
 }
 
@@ -1447,8 +1459,10 @@ func (h *Handler) handleStopImport(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyImportID:     imp.ImportID,
-		keyImportStatus: imp.ImportStatus,
+		keyImportID:         imp.ImportID,
+		keyImportStatus:     imp.ImportStatus,
+		keyCreatedTimestamp: float64(imp.CreatedTimestamp.Unix()),
+		keyUpdatedTimestamp: float64(imp.UpdatedTimestamp.Unix()),
 	})
 }
 
@@ -1771,9 +1785,11 @@ func edsToMap(eds *EventDataStore) map[string]any {
 	if eds.KMSKeyID != "" {
 		m["KmsKeyId"] = eds.KMSKeyID
 	}
-	if len(eds.AdvancedEventSelectors) > 0 {
-		m["AdvancedEventSelectors"] = eds.AdvancedEventSelectors
+	advSels := eds.AdvancedEventSelectors
+	if advSels == nil {
+		advSels = []AdvancedEventSelector{}
 	}
+	m["AdvancedEventSelectors"] = advSels
 	if len(eds.InsightSelectors) > 0 {
 		m["InsightSelectors"] = eds.InsightSelectors
 	}
