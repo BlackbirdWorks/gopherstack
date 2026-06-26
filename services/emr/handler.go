@@ -303,7 +303,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("ClusterNotFoundException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
@@ -747,11 +747,17 @@ func (h *Handler) handleCancelSteps(
 	ctx context.Context,
 	in *cancelStepsInput,
 ) (*cancelStepsOutput, error) {
-	if err := h.Backend.CancelSteps(ctx, in.ClusterID, in.StepIDs); err != nil {
+	results, err := h.Backend.CancelSteps(ctx, in.ClusterID, in.StepIDs)
+	if err != nil {
 		return nil, err
 	}
 
-	return &cancelStepsOutput{CancelStepsInfoList: []any{}}, nil
+	list := make([]any, 0, len(results))
+	for _, r := range results {
+		list = append(list, r)
+	}
+
+	return &cancelStepsOutput{CancelStepsInfoList: list}, nil
 }
 
 // --- CreatePersistentAppUI ---

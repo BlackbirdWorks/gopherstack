@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -256,6 +257,12 @@ type StepTimeline struct {
 type StepStatus struct {
 	State    string       `json:"State"`
 	Timeline StepTimeline `json:"Timeline"`
+}
+
+// CancelStepsInfo represents the result of cancelling a single step.
+type CancelStepsInfo struct {
+	StepID string `json:"StepId"`
+	Status string `json:"Status"`
 }
 
 // Step represents an EMR step attached to a cluster.
@@ -802,27 +809,34 @@ func (b *InMemoryBackend) nextPersistentAppUIID() string {
 	return fmt.Sprintf("pau-%013d", n)
 }
 
-// validateReleaseLabel returns an error if the label is not in the registry.
+// releaseLabelRe matches any emr-X.Y.Z label (e.g. emr-6.14.0, emr-7.3.0).
+var releaseLabelRe = regexp.MustCompile(`^emr-\d+\.\d+(\.\d+)*$`)
+
+// validateReleaseLabel returns an error if the label is not a valid EMR release label.
 func validateReleaseLabel(label string) error {
-	if _, ok := releaseLabelApps[label]; !ok {
-		return fmt.Errorf("%w: invalid ReleaseLabel %q", ErrValidation, label)
+	if _, ok := releaseLabelApps[label]; ok {
+		return nil
 	}
 
-	return nil
+	if releaseLabelRe.MatchString(label) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: invalid ReleaseLabel %q", ErrValidation, label)
 }
 
 // buildInstanceGroups converts input specs to InstanceGroup records.
 func (b *InMemoryBackend) buildInstanceGroups(specs []InstanceGroupSpec) []InstanceGroup {
 	groups := make([]InstanceGroup, 0, len(specs))
 
-	for i, spec := range specs {
+	for _, spec := range specs {
 		market := spec.Market
 		if market == "" {
 			market = "ON_DEMAND"
 		}
 
 		groups = append(groups, InstanceGroup{
-			ID:                     fmt.Sprintf("ig-%013d-%d", b.counter.Load(), i),
+			ID:                     fmt.Sprintf("ig-%013d", b.counter.Add(1)),
 			Name:                   spec.Name,
 			Market:                 market,
 			BidPrice:               spec.BidPrice,
@@ -1141,7 +1155,7 @@ func (b *InMemoryBackend) gatherClusterSummaries(
 
 		status := ClusterStatus{
 			State:             c.Status.State,
-			StateChangeReason: maps.Clone(c.Status.StateChangeReason),
+			StateChangeReason: c.Status.StateChangeReason,
 		}
 		list = append(list, ClusterSummary{
 			ID:           c.ID,
@@ -1625,7 +1639,11 @@ func (b *InMemoryBackend) DescribeStep(ctx context.Context, clusterID, stepID st
 }
 
 // CancelSteps cancels pending steps on a cluster.
-func (b *InMemoryBackend) CancelSteps(ctx context.Context, clusterID string, stepIDs []string) error {
+func (b *InMemoryBackend) CancelSteps(
+	ctx context.Context,
+	clusterID string,
+	stepIDs []string,
+) ([]*CancelStepsInfo, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CancelSteps")
@@ -1633,19 +1651,29 @@ func (b *InMemoryBackend) CancelSteps(ctx context.Context, clusterID string, ste
 
 	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
 	idSet := buildStringSet(stepIDs)
+	results := make([]*CancelStepsInfo, 0, len(stepIDs))
 
 	for i := range cluster.steps {
 		s := &cluster.steps[i]
-		if (idSet == nil || idSet[s.ID]) && s.Status.State == StepStatePending {
-			s.Status.State = StepStateCancelled
+		if idSet == nil || idSet[s.ID] {
+			status := "SUCCESS"
+			if s.Status.State != StepStatePending {
+				status = "QUEUED"
+			} else {
+				s.Status.State = StepStateCancelled
+			}
+			results = append(results, &CancelStepsInfo{
+				StepID: s.ID,
+				Status: status,
+			})
 		}
 	}
 
-	return nil
+	return results, nil
 }
 
 // ModifyCluster updates StepConcurrencyLevel on a cluster.
@@ -2590,6 +2618,18 @@ func (b *InMemoryBackend) DescribePersistentAppUI(ctx context.Context, id string
 	cp := *ui
 
 	return &cp, nil
+}
+
+// GetOnClusterPresignedURL returns a presigned URL for an on-cluster app UI, verifying cluster exists.
+func (b *InMemoryBackend) GetOnClusterPresignedURL(_ context.Context, clusterID, region string) (string, error) {
+	b.mu.RLock("GetOnClusterPresignedURL")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clustersStore(region)[clusterID]; !ok {
+		return "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	return b.GetPresignedURL(clusterID, region), nil
 }
 
 // GetPresignedURL returns a synthetic presigned URL for a persistent app UI.
