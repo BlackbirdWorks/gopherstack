@@ -2122,9 +2122,10 @@ func TestSecretsManagerPutSecretValue_VersionStages(t *testing.T) {
 			wantStages:    []string{"AWSCURRENT"},
 		},
 		{
+			// Real AWS: caller specifies only AWSPENDING — AWSCURRENT is NOT forced.
 			name:          "awspending_added",
 			versionStages: []string{"AWSPENDING"},
-			wantStages:    []string{"AWSCURRENT", "AWSPENDING"},
+			wantStages:    []string{"AWSPENDING"},
 		},
 		{
 			name:          "duplicate_awscurrent_deduped",

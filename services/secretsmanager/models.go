@@ -121,6 +121,8 @@ type GetSecretValueInput struct {
 
 // GetSecretValueOutput is the response payload for GetSecretValue.
 type GetSecretValueOutput struct {
+	// LastAccessedDate is the Unix timestamp (day granularity) of the most recent access.
+	LastAccessedDate *float64 `json:"LastAccessedDate,omitempty"`
 	// ARN is the full ARN of the secret.
 	ARN string `json:"ARN"`
 	// Name is the name of the secret.

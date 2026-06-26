@@ -282,6 +282,13 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 		return nil, err
 	}
 
+	if input.SecretString != "" && len(input.SecretBinary) > 0 {
+		return nil, fmt.Errorf(
+			"%w: you must provide either SecretString or SecretBinary, but not both",
+			ErrInvalidParameter,
+		)
+	}
+
 	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
 		return nil, err
 	}
@@ -438,13 +445,14 @@ func (b *InMemoryBackend) GetSecretValue(
 	version.LastAccessedDate = &accessDay
 
 	return &GetSecretValueOutput{
-		ARN:           secret.ARN,
-		Name:          secret.Name,
-		VersionID:     version.VersionID,
-		SecretString:  version.SecretString,
-		SecretBinary:  version.SecretBinary,
-		VersionStages: version.StagingLabels,
-		CreatedDate:   version.CreatedDate,
+		ARN:              secret.ARN,
+		Name:             secret.Name,
+		VersionID:        version.VersionID,
+		SecretString:     version.SecretString,
+		SecretBinary:     version.SecretBinary,
+		VersionStages:    version.StagingLabels,
+		CreatedDate:      version.CreatedDate,
+		LastAccessedDate: version.LastAccessedDate,
 	}, nil
 }
 
@@ -480,6 +488,13 @@ func (b *InMemoryBackend) PutSecretValue(
 	if input.SecretString == "" && len(input.SecretBinary) == 0 {
 		return nil, fmt.Errorf(
 			"%w: you must provide either SecretString or SecretBinary",
+			ErrInvalidParameter,
+		)
+	}
+
+	if input.SecretString != "" && len(input.SecretBinary) > 0 {
+		return nil, fmt.Errorf(
+			"%w: you must provide either SecretString or SecretBinary, but not both",
 			ErrInvalidParameter,
 		)
 	}
@@ -521,17 +536,7 @@ func (b *InMemoryBackend) PutSecretValue(
 		}
 	}
 
-	b.rotateStagingLabels(secret)
-
-	// Determine staging labels: AWSCURRENT is always applied; any additional
-	// labels provided in VersionStages are merged in (e.g. AWSPENDING).
-	stagingLabels := []string{StagingLabelCurrent}
-
-	for _, label := range input.VersionStages {
-		if label != StagingLabelCurrent {
-			stagingLabels = append(stagingLabels, label)
-		}
-	}
+	callerWantsCurrentLabel, stagingLabels := b.resolveStagingLabels(secret, input.VersionStages)
 
 	now := UnixTimeFloat(time.Now())
 	version := &SecretVersion{
@@ -543,7 +548,11 @@ func (b *InMemoryBackend) PutSecretValue(
 	}
 
 	secret.Versions[versionID] = version
-	secret.CurrentVersionID = versionID
+
+	if callerWantsCurrentLabel {
+		secret.CurrentVersionID = versionID
+	}
+
 	secret.LastChangedDate = &now
 	b.syncReplicationStatusLocked(region, secret)
 
@@ -577,6 +586,32 @@ func (b *InMemoryBackend) rotateStagingLabels(secret *Secret) {
 
 		v.StagingLabels = newLabels
 	}
+}
+
+// resolveStagingLabels determines the staging labels for a new version and — when
+// AWSCURRENT is requested — rotates the existing AWSCURRENT label to AWSPREVIOUS.
+// Returns (wantsCurrentLabel, labels). Must be called with a write lock held.
+func (b *InMemoryBackend) resolveStagingLabels(secret *Secret, requested []string) (bool, []string) {
+	wantsCurrent := len(requested) == 0 || slices.Contains(requested, StagingLabelCurrent)
+
+	if !wantsCurrent {
+		out := make([]string, len(requested))
+		copy(out, requested)
+
+		return false, out
+	}
+
+	b.rotateStagingLabels(secret)
+
+	out := []string{StagingLabelCurrent}
+
+	for _, label := range requested {
+		if label != StagingLabelCurrent {
+			out = append(out, label)
+		}
+	}
+
+	return true, out
 }
 
 // pruneVersions removes the oldest unlabeled versions when the total version count
@@ -1221,12 +1256,23 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInp
 		return ErrSecretDeleted
 	}
 
-	existingCount := 0
+	// Count only net new keys: keys already present are updates, not additions.
+	var existingKeys map[string]string
 	if secret.Tags != nil {
-		existingCount = len(secret.Tags.Clone())
+		existingKeys = secret.Tags.Clone()
 	}
-	// Count net new keys (keys not already present don't increase the total).
-	if err := validateTagCount(existingCount, len(input.Tags)); err != nil {
+
+	netNew := 0
+
+	for _, t := range input.Tags {
+		if _, alreadyExists := existingKeys[t.Key]; !alreadyExists {
+			netNew++
+		}
+	}
+
+	existingCount := len(existingKeys)
+
+	if err := validateTagCount(existingCount, netNew); err != nil {
 		return err
 	}
 
@@ -1850,6 +1896,13 @@ func (b *InMemoryBackend) BatchGetSecretValue(
 		Errors:       []APIErrorType{},
 	}
 
+	if len(input.SecretIDList) > 0 && len(input.Filters) > 0 {
+		return nil, fmt.Errorf(
+			"%w: you cannot specify both SecretIdList and Filters in the same request",
+			ErrInvalidParameter,
+		)
+	}
+
 	if len(input.SecretIDList) > 0 {
 		b.batchGetByIDList(region, input.SecretIDList, out)
 
@@ -1974,15 +2027,16 @@ func secretVersionEntry(secret *Secret, ver *SecretVersion) SecretValueEntry {
 }
 
 // batchMatchesFilters returns true if the secret matches all provided filters.
+// Name and description filters use prefix matching, consistent with ListSecrets.
 func batchMatchesFilters(secret *Secret, filters []BatchGetSecretValueFilter) bool {
 	for _, f := range filters {
 		switch f.Key {
 		case "name":
-			if !anyMatch(f.Values, secret.Name) {
+			if !anyMatchPrefix(f.Values, secret.Name) {
 				return false
 			}
 		case "description":
-			if !anyMatch(f.Values, secret.Description) {
+			if !anyMatchPrefix(f.Values, secret.Description) {
 				return false
 			}
 		case "tag-key":
@@ -1997,11 +2051,6 @@ func batchMatchesFilters(secret *Secret, filters []BatchGetSecretValueFilter) bo
 	}
 
 	return true
-}
-
-// anyMatch returns true if target equals any of the values.
-func anyMatch(values []string, target string) bool {
-	return slices.Contains(values, target)
 }
 
 // CancelRotateSecret cancels an in-progress rotation by removing the AWSPENDING staging label.
@@ -2043,8 +2092,6 @@ func (b *InMemoryBackend) CancelRotateSecret(
 
 		ver.StagingLabels = newLabels
 	}
-
-	secret.RotationEnabled = false
 
 	return &CancelRotateSecretOutput{
 		ARN:       secret.ARN,
@@ -2179,6 +2226,13 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 	}
 
 	for _, replica := range input.AddReplicaRegions {
+		if _, found := existingByRegion[replica.Region]; found && !input.ForceOverwriteReplicaSecret {
+			return nil, fmt.Errorf(
+				"%w: a replica already exists in region %s; use ForceOverwriteReplicaSecret to overwrite",
+				ErrSecretAlreadyExists, replica.Region,
+			)
+		}
+
 		status := ReplicationStatusType{
 			Region:        replica.Region,
 			KmsKeyID:      replica.KmsKeyID,
