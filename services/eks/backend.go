@@ -30,6 +30,12 @@ const clusterTransitionDelay = 100 * time.Millisecond
 // nodegroupTransitionDelay is the async delay before a CREATING nodegroup reaches ACTIVE.
 const nodegroupTransitionDelay = 100 * time.Millisecond
 
+// fargateProfileTransitionDelay is the async delay before a CREATING Fargate profile reaches ACTIVE.
+const fargateProfileTransitionDelay = 100 * time.Millisecond
+
+// addonTransitionDelay is the async delay before a CREATING addon reaches ACTIVE.
+const addonTransitionDelay = 100 * time.Millisecond
+
 var (
 	// ErrNotFound is returned when an EKS resource is not found.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -96,6 +102,15 @@ type ClusterLogEntry struct {
 	Enabled bool     `json:"enabled"`
 }
 
+// ConnectorConfig holds metadata for externally-registered clusters.
+type ConnectorConfig struct {
+	ActivationCode   string `json:"activationCode,omitempty"`
+	ActivationExpiry string `json:"activationExpiry,omitempty"`
+	ActivationID     string `json:"activationId,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	RoleARN          string `json:"roleArn,omitempty"`
+}
+
 // Cluster represents an EKS cluster.
 //
 // The Tags field is backend-owned. Callers must treat the returned pointer as
@@ -109,20 +124,20 @@ type Cluster struct {
 	ComputeConfig           *ComputeConfig           `json:"computeConfig,omitempty"`
 	StorageConfig           *StorageConfig           `json:"storageConfig,omitempty"`
 	NetworkingConfig        *NetworkingConfig        `json:"networkingConfig,omitempty"`
-	// EncryptionConfig holds the current cluster encryption config, kept in sync
-	// with b.encryptionConfigs. Populated by AssociateEncryptionConfig.
-	EncryptionConfig []EncryptionConfig `json:"encryptionConfig,omitempty"`
-	Name             string             `json:"name"`
-	ARN              string             `json:"arn"`
-	Endpoint         string             `json:"endpoint,omitempty"`
-	OIDCIssuer       string             `json:"oidcIssuer,omitempty"`
-	Version          string             `json:"version"`
-	Status           string             `json:"status"`
-	RoleARN          string             `json:"roleArn,omitempty"`
-	AccountID        string             `json:"accountId"`
-	Region           string             `json:"region"`
-	PlatformVersion  string             `json:"platformVersion,omitempty"`
-	ClusterLogging   []ClusterLogEntry  `json:"clusterLogging,omitempty"`
+	ConnectorConfig         *ConnectorConfig         `json:"connectorConfig,omitempty"`
+	ARN                     string                   `json:"arn"`
+	Name                    string                   `json:"name"`
+	Endpoint                string                   `json:"endpoint,omitempty"`
+	OIDCIssuer              string                   `json:"oidcIssuer,omitempty"`
+	Version                 string                   `json:"version"`
+	Status                  string                   `json:"status"`
+	RoleARN                 string                   `json:"roleArn,omitempty"`
+	AccountID               string                   `json:"accountId"`
+	Region                  string                   `json:"region"`
+	PlatformVersion         string                   `json:"platformVersion,omitempty"`
+	CertificateAuthority    string                   `json:"certificateAuthority,omitempty"`
+	ClusterLogging          []ClusterLogEntry        `json:"clusterLogging,omitempty"`
+	EncryptionConfig        []EncryptionConfig       `json:"encryptionConfig,omitempty"`
 }
 
 // NodegroupTaint represents a Kubernetes taint applied to managed nodes.
@@ -436,6 +451,7 @@ func (b *InMemoryBackend) CreateCluster( //nolint:funlen // existing issue.
 		ComputeConfig:           computeCfg,
 		StorageConfig:           storageCfg,
 		NetworkingConfig:        networkingCfg,
+		CertificateAuthority:    stableID(name + "/ca"),
 	}
 	b.clusters[name] = c
 	b.nodegroups[name] = make(map[string]*Nodegroup)

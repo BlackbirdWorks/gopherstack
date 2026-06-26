@@ -18,15 +18,15 @@ const (
 	keyDefaultVersion           = "defaultVersion"
 	keyEndOfStandardSupportDate = "endOfStandardSupportDate"
 	keyEndOfExtendedSupportDate = "endOfExtendedSupportDate"
-	strFalse                    = "false"
 )
 
 const (
-	keyAddonName         = "addonName"
-	keyAddonVersions     = "addonVersions"
-	keyAddonVersion      = "addonVersion"
-	typeUpgradeReadiness = "UPGRADE_READINESS"
-	typeVersionUpdate    = "VersionUpdate"
+	keyAddonName              = "addonName"
+	keyAddonVersions          = "addonVersions"
+	keyAddonVersion           = "addonVersion"
+	typeUpgradeReadiness      = "UPGRADE_READINESS"
+	typeVersionUpdate         = "VersionUpdate"
+	connectorActivationWindow = 24 * time.Hour
 )
 
 const (
@@ -1201,7 +1201,7 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 	u := &Update{
 		ID:          stableID(clusterName + "/version-update/" + time.Now().String()),
 		ClusterName: clusterName,
-		Status:      statusSuccessful,
+		Status:      statusInProgress,
 		Type:        typeVersionUpdate,
 		Params:      []UpdateParam{{Type: "Version", Value: version}},
 		CreatedAt:   time.Now().UTC(),
@@ -1299,7 +1299,7 @@ func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
 
 // RegisterCluster registers an external cluster.
 func (b *InMemoryBackend) RegisterCluster(
-	name, _, _ string,
+	name, provider, roleARN string,
 	kv map[string]string,
 ) (*Cluster, error) {
 	b.mu.Lock("RegisterCluster")
@@ -1327,6 +1327,13 @@ func (b *InMemoryBackend) RegisterCluster(
 		Region:          b.region,
 		CreatedAt:       time.Now().UTC(),
 		Tags:            t,
+		ConnectorConfig: &ConnectorConfig{
+			Provider:         provider,
+			RoleARN:          roleARN,
+			ActivationID:     stableID(name + "/activation-id"),
+			ActivationCode:   stableID(name + "/activation-code"),
+			ActivationExpiry: time.Now().Add(connectorActivationWindow).UTC().Format(time.RFC3339),
+		},
 	}
 	b.clusters[name] = c
 	b.nodegroups[name] = make(map[string]*Nodegroup)
@@ -1349,29 +1356,29 @@ func (b *InMemoryBackend) DeregisterCluster(name string) (*Cluster, error) {
 }
 
 // DescribeClusterVersions returns supported cluster versions.
-func (b *InMemoryBackend) DescribeClusterVersions() []map[string]string {
-	return []map[string]string{
+func (b *InMemoryBackend) DescribeClusterVersions() []map[string]any {
+	return []map[string]any{
 		{
 			keyClusterVersion:           defaultK8sVersion,
-			keyDefaultVersion:           "true",
+			keyDefaultVersion:           true,
 			keyEndOfStandardSupportDate: "2027-04-01",
 			keyEndOfExtendedSupportDate: "2028-04-01",
 		},
 		{
 			keyClusterVersion:           "1.31",
-			keyDefaultVersion:           strFalse,
+			keyDefaultVersion:           false,
 			keyEndOfStandardSupportDate: "2026-11-01",
 			keyEndOfExtendedSupportDate: "2027-11-01",
 		},
 		{
 			keyClusterVersion:           "1.30",
-			keyDefaultVersion:           strFalse,
+			keyDefaultVersion:           false,
 			keyEndOfStandardSupportDate: "2026-07-01",
 			keyEndOfExtendedSupportDate: "2027-07-01",
 		},
 		{
 			keyClusterVersion:           "1.29",
-			keyDefaultVersion:           strFalse,
+			keyDefaultVersion:           false,
 			keyEndOfStandardSupportDate: "2026-03-01",
 			keyEndOfExtendedSupportDate: "2027-03-01",
 		},

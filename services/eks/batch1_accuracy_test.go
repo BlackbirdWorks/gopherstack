@@ -845,7 +845,7 @@ func TestBatch1_FargateProfile_Status_ACTIVE_On_Create(t *testing.T) {
 		"arn:aws:iam::123:role/fargate",
 		[]eks.FargateProfileSelector{{Namespace: "default"}}, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "ACTIVE", fp.Status)
+	assert.Equal(t, "CREATING", fp.Status)
 }
 
 func TestBatch1_FargateProfile_Status_DELETING_On_Delete(t *testing.T) {
@@ -871,7 +871,7 @@ func TestBatch1_Addon_Status_ACTIVE_On_Create(t *testing.T) {
 
 	addon, err := b.CreateAddon("addon-status-cluster", "vpc-cni", "", "", "", "", nil)
 	require.NoError(t, err)
-	assert.Equal(t, "ACTIVE", addon.Status)
+	assert.Equal(t, "CREATING", addon.Status)
 }
 
 func TestBatch1_Addon_Status_DELETING_On_Delete(t *testing.T) {
@@ -1536,7 +1536,7 @@ func TestBatch1_DescribeUpdate_Status_Successful(t *testing.T) {
 
 	upd, err := b.DescribeUpdate("desc-upd-cluster", created.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "Successful", upd.Status)
+	assert.Equal(t, "InProgress", upd.Status)
 }
 
 func TestBatch1_DescribeUpdate_NotFound(t *testing.T) {
