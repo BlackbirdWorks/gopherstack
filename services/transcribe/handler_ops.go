@@ -589,9 +589,11 @@ type getVocabularyInput struct {
 }
 
 type getVocabularyOutput struct {
-	VocabularyName  string `json:"VocabularyName"`
-	LanguageCode    string `json:"LanguageCode"`
-	VocabularyState string `json:"VocabularyState"`
+	LastModifiedTime *string `json:"LastModifiedTime,omitempty"`
+	VocabularyName   string  `json:"VocabularyName"`
+	LanguageCode     string  `json:"LanguageCode"`
+	VocabularyState  string  `json:"VocabularyState"`
+	DownloadURI      string  `json:"DownloadUri,omitempty"`
 }
 
 func (h *Handler) handleGetVocabulary(
@@ -603,11 +605,19 @@ func (h *Handler) handleGetVocabulary(
 		return nil, err
 	}
 
-	return &getVocabularyOutput{
+	out := &getVocabularyOutput{
 		VocabularyName:  v.VocabularyName,
 		LanguageCode:    v.LanguageCode,
 		VocabularyState: v.VocabularyState,
-	}, nil
+		DownloadURI:     v.VocabularyFileURI,
+	}
+
+	if !v.LastModifiedTime.IsZero() {
+		s := v.LastModifiedTime.Format(time.RFC3339)
+		out.LastModifiedTime = &s
+	}
+
+	return out, nil
 }
 
 // --- UpdateVocabulary ---
@@ -615,7 +625,7 @@ func (h *Handler) handleGetVocabulary(
 type updateVocabularyInput struct {
 	VocabularyName    string   `json:"VocabularyName"`
 	LanguageCode      string   `json:"LanguageCode"`
-	VocabularyFileURI string   `json:"VocabularyFileURI"`
+	VocabularyFileURI string   `json:"VocabularyFileUri"`
 	Phrases           []string `json:"Phrases"`
 }
 
@@ -738,7 +748,7 @@ func (h *Handler) handleGetVocabularyFilter(
 type updateVocabularyFilterInput struct {
 	VocabularyFilterName    string   `json:"VocabularyFilterName"`
 	LanguageCode            string   `json:"LanguageCode"`
-	VocabularyFilterFileURI string   `json:"VocabularyFilterFileURI"`
+	VocabularyFilterFileURI string   `json:"VocabularyFilterFileUri"`
 	Words                   []string `json:"Words"`
 }
 
@@ -817,9 +827,11 @@ type getMedicalVocabularyInput struct {
 }
 
 type getMedicalVocabularyOutput struct {
-	VocabularyName  string `json:"VocabularyName"`
-	LanguageCode    string `json:"LanguageCode"`
-	VocabularyState string `json:"VocabularyState"`
+	LastModifiedTime *string `json:"LastModifiedTime,omitempty"`
+	VocabularyName   string  `json:"VocabularyName"`
+	LanguageCode     string  `json:"LanguageCode"`
+	VocabularyState  string  `json:"VocabularyState"`
+	DownloadURI      string  `json:"DownloadUri,omitempty"`
 }
 
 func (h *Handler) handleGetMedicalVocabulary(
@@ -831,11 +843,19 @@ func (h *Handler) handleGetMedicalVocabulary(
 		return nil, err
 	}
 
-	return &getMedicalVocabularyOutput{
+	out := &getMedicalVocabularyOutput{
 		VocabularyName:  v.VocabularyName,
 		LanguageCode:    v.LanguageCode,
 		VocabularyState: v.VocabularyState,
-	}, nil
+		DownloadURI:     v.VocabularyFileURI,
+	}
+
+	if !v.LastModifiedTime.IsZero() {
+		s := v.LastModifiedTime.Format(time.RFC3339)
+		out.LastModifiedTime = &s
+	}
+
+	return out, nil
 }
 
 // --- UpdateMedicalVocabulary ---
@@ -843,7 +863,7 @@ func (h *Handler) handleGetMedicalVocabulary(
 type updateMedicalVocabularyInput struct {
 	VocabularyName    string `json:"VocabularyName"`
 	LanguageCode      string `json:"LanguageCode"`
-	VocabularyFileURI string `json:"VocabularyFileURI"`
+	VocabularyFileURI string `json:"VocabularyFileUri"`
 }
 
 type updateMedicalVocabularyOutput struct {
@@ -935,15 +955,41 @@ type describeLanguageModelInput struct {
 }
 
 type languageModelOutput struct {
-	InputDataConfig *InputDataConfig `json:"InputDataConfig,omitempty"`
-	ModelName       string           `json:"ModelName"`
-	BaseModelName   string           `json:"BaseModelName"`
-	LanguageCode    string           `json:"LanguageCode"`
-	ModelStatus     string           `json:"ModelStatus"`
+	InputDataConfig     *InputDataConfig `json:"InputDataConfig,omitempty"`
+	CreateTime          *string          `json:"CreateTime,omitempty"`
+	LastModifiedTime    *string          `json:"LastModifiedTime,omitempty"`
+	ModelName           string           `json:"ModelName"`
+	BaseModelName       string           `json:"BaseModelName"`
+	LanguageCode        string           `json:"LanguageCode"`
+	ModelStatus         string           `json:"ModelStatus"`
+	UpgradeAvailability bool             `json:"UpgradeAvailability"`
 }
 
 type describeLanguageModelOutput struct {
 	LanguageModel *languageModelOutput `json:"LanguageModel"`
+}
+
+func toLanguageModelOutput(m *LanguageModel) languageModelOutput {
+	out := languageModelOutput{
+		ModelName:           m.ModelName,
+		BaseModelName:       m.BaseModelName,
+		LanguageCode:        m.LanguageCode,
+		ModelStatus:         m.ModelStatus,
+		InputDataConfig:     m.InputDataConfig,
+		UpgradeAvailability: m.UpgradeAvailability,
+	}
+
+	if !m.CreateTime.IsZero() {
+		s := m.CreateTime.Format(time.RFC3339)
+		out.CreateTime = &s
+	}
+
+	if !m.LastModifiedTime.IsZero() {
+		s := m.LastModifiedTime.Format(time.RFC3339)
+		out.LastModifiedTime = &s
+	}
+
+	return out
 }
 
 func (h *Handler) handleDescribeLanguageModel(
@@ -955,14 +1001,10 @@ func (h *Handler) handleDescribeLanguageModel(
 		return nil, err
 	}
 
+	out := toLanguageModelOutput(m)
+
 	return &describeLanguageModelOutput{
-		LanguageModel: &languageModelOutput{
-			ModelName:       m.ModelName,
-			BaseModelName:   m.BaseModelName,
-			LanguageCode:    m.LanguageCode,
-			ModelStatus:     m.ModelStatus,
-			InputDataConfig: m.InputDataConfig,
-		},
+		LanguageModel: &out,
 	}, nil
 }
 
@@ -985,14 +1027,8 @@ func (h *Handler) handleListLanguageModels(
 	models, nextToken := h.Backend.ListLanguageModels(in.StatusEquals, in.NextToken)
 
 	result := make([]languageModelOutput, 0, len(models))
-	for _, m := range models {
-		result = append(result, languageModelOutput{
-			ModelName:       m.ModelName,
-			BaseModelName:   m.BaseModelName,
-			LanguageCode:    m.LanguageCode,
-			ModelStatus:     m.ModelStatus,
-			InputDataConfig: m.InputDataConfig,
-		})
+	for i := range models {
+		result = append(result, toLanguageModelOutput(&models[i]))
 	}
 
 	return &listLanguageModelsOutput{

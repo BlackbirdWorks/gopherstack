@@ -28,7 +28,7 @@ type SubtitlesInput struct {
 // SubtitlesOutput represents the subtitle output returned by Get operations.
 type SubtitlesOutput struct {
 	Formats          []string `json:"Formats,omitempty"`
-	SubtitleFileURIs []string `json:"SubtitleFileURIs,omitempty"`
+	SubtitleFileURIs []string `json:"SubtitleFileUris,omitempty"`
 	OutputStartIndex int32    `json:"OutputStartIndex,omitempty"`
 }
 
@@ -50,8 +50,8 @@ type ToxicityDetectionSettings struct {
 
 // Media holds the media location for a job.
 type Media struct {
-	MediaFileURI         string `json:"MediaFileURI,omitempty"`
-	RedactedMediaFileURI string `json:"RedactedMediaFileURI,omitempty"`
+	MediaFileURI         string `json:"MediaFileUri,omitempty"`
+	RedactedMediaFileURI string `json:"RedactedMediaFileUri,omitempty"`
 }
 
 // LanguageIDSettings holds per-language-code identification settings.
@@ -77,7 +77,7 @@ type InputDataConfig struct {
 // ChannelDefinition defines a channel in a call analytics job.
 type ChannelDefinition struct {
 	ParticipantRole string `json:"ParticipantRole"`
-	ChannelID       int32  `json:"ChannelID"`
+	ChannelID       int32  `json:"ChannelId"`
 }
 
 // CallAnalyticsSettings holds settings for a call analytics job.
@@ -156,7 +156,7 @@ type MedicalScribeSettings struct {
 // MedicalScribeChannelDefinition defines a channel in a medical scribe job.
 type MedicalScribeChannelDefinition struct {
 	ParticipantRole string `json:"ParticipantRole"`
-	ChannelID       int32  `json:"ChannelID"`
+	ChannelID       int32  `json:"ChannelId"`
 }
 
 // ClinicalNoteGenerationSettings controls clinical note generation in medical scribe.
