@@ -360,31 +360,47 @@ func TestHandleAWSIntegration(t *testing.T) {
 func TestHandleProxy_UnsupportedIntegrationType(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		intType    string
-		uri        string
-		wantStatus int
-	}{
-		{
-			name:       "unknown_type_not_implemented",
-			intType:    "UNKNOWN_CUSTOM",
-			uri:        "",
-			wantStatus: http.StatusNotImplemented,
-		},
-	}
+	t.Run("unknown_type_not_implemented", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		// "UNKNOWN_CUSTOM" is rejected by the handler (real AWS also rejects it), so we
+		// set up the integration directly via the backend to test proxy runtime behavior.
+		backend := apigateway.NewInMemoryBackend()
+		h := apigateway.NewHandler(backend)
+		e := echo.New()
 
-			h, e, apiID := setupProxyAPIViaHandler(t, tt.intType, tt.uri)
-			h.SetLambdaInvoker(&proxyMockInvoker{})
+		api, err := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "proxy-api"})
+		require.NoError(t, err)
+		apiID := api.ID
 
-			rec := proxyReq(t, h, e, apiID, "/items", `{}`)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+		resources, _, err := backend.GetResources(apiID, "", 0)
+		require.NoError(t, err)
+		rootID := resources[0].ID
+
+		childRes, err := backend.CreateResource(apiID, rootID, "items")
+		require.NoError(t, err)
+
+		_, err = backend.PutMethod(apigateway.PutMethodInput{
+			RestAPIID:         apiID,
+			ResourceID:        childRes.ID,
+			HTTPMethod:        "POST",
+			AuthorizationType: "NONE",
 		})
-	}
+		require.NoError(t, err)
+
+		_, err = backend.PutIntegration(apiID, childRes.ID, "POST", apigateway.PutIntegrationInput{
+			Type: "UNKNOWN_CUSTOM",
+		})
+		require.NoError(t, err)
+
+		_, err = backend.CreateDeployment(apiID, "prod", "v1")
+		require.NoError(t, err)
+
+		h.SetLambdaInvoker(&proxyMockInvoker{})
+
+		rec := proxyReq(t, h, e, apiID, "/items", `{}`)
+		assert.Equal(t, http.StatusNotImplemented, rec.Code)
+	})
 }
 
 func TestHandleStageProxy_InvalidPath(t *testing.T) {

@@ -7,6 +7,23 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// Integration type constants.
+const (
+	IntegrationTypeMock      = "MOCK"
+	IntegrationTypeHTTP      = "HTTP"
+	IntegrationTypeHTTPProxy = "HTTP_PROXY"
+	IntegrationTypeAWS       = "AWS"
+	IntegrationTypeAWSProxy  = "AWS_PROXY"
+)
+
+// Authorization type constants.
+const (
+	AuthTypeNone            = "NONE"
+	AuthTypeAWSIAM          = "AWS_IAM"
+	AuthTypeCustom          = "CUSTOM"
+	AuthTypeCognitoUserPool = "COGNITO_USER_POOLS"
+)
+
 // unixEpochTime wraps [time.Time] and marshals to/from a JSON number (Unix seconds),
 // which is the format expected by the AWS SDK v2 API Gateway client.
 type unixEpochTime struct {

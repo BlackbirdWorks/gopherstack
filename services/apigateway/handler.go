@@ -238,6 +238,7 @@ type deleteResourceInput struct {
 }
 
 type putMethodInput struct {
+	RequestParameters  map[string]bool   `json:"requestParameters,omitempty"`
 	RequestModels      map[string]string `json:"requestModels,omitempty"`
 	RestAPIID          string            `json:"restApiId"`
 	ResourceID         string            `json:"resourceId"`
@@ -522,6 +523,11 @@ type deleteUsagePlanInput struct {
 }
 
 type getUsagePlanKeyInput struct {
+	UsagePlanID string `json:"usagePlanId"`
+	KeyID       string `json:"keyId"`
+}
+
+type updateUsageInput struct {
 	UsagePlanID string `json:"usagePlanId"`
 	KeyID       string `json:"keyId"`
 }
@@ -1327,6 +1333,8 @@ func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[
 		return parseAPIGWUsagePlansDepth3(method, segs)
 	case pathDepth4:
 		return parseAPIGWUsagePlansDepth4(method, segs)
+	case pathDepth5:
+		return parseAPIGWUsagePlansDepth5(method, segs)
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1366,6 +1374,21 @@ func parseAPIGWUsagePlansDepth4(method string, segs []string) (string, map[strin
 		return opGetUsagePlanKey, params, true
 	case http.MethodDelete:
 		return opDeleteUsagePlanKey, params, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWUsagePlansDepth5 handles /usageplans/{id}/keys/{keyId}/usage paths.
+func parseAPIGWUsagePlansDepth5(method string, segs []string) (string, map[string]string, bool) {
+	if segs[2] != apiGWSegUsagePlanKeys || segs[4] != "usage" {
+		return apiGWUnknownOp, nil, false
+	}
+
+	params := map[string]string{keyUsagePlanID: segs[1], "keyId": segs[3]}
+
+	if method == http.MethodPatch {
+		return opUpdateUsage, params, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -2051,17 +2074,22 @@ func (h *Handler) methodActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			m, err := h.Backend.PutMethod(PutMethodInput{
-				RestAPIID:          input.RestAPIID,
-				ResourceID:         input.ResourceID,
-				HTTPMethod:         input.HTTPMethod,
-				AuthorizationType:  input.AuthorizationType,
-				AuthorizerID:       input.AuthorizerID,
-				RequestValidatorID: input.RequestValidatorID,
-				APIKeyRequired:     input.APIKeyRequired,
-				RequestModels:      input.RequestModels,
-				OperationName:      input.OperationName,
-			})
+			switch input.AuthorizationType {
+			case AuthTypeNone, AuthTypeAWSIAM, AuthTypeCustom, AuthTypeCognitoUserPool:
+			default:
+				return 0, nil, fmt.Errorf(
+					"%w: invalid authorizationType %q; must be NONE, AWS_IAM, CUSTOM, or COGNITO_USER_POOLS",
+					ErrInvalidParameter, input.AuthorizationType,
+				)
+			}
+			if (input.AuthorizationType == AuthTypeCustom || input.AuthorizationType == AuthTypeCognitoUserPool) &&
+				input.AuthorizerID == "" {
+				return 0, nil, fmt.Errorf(
+					"%w: authorizerId is required when authorizationType is %s",
+					ErrInvalidParameter, input.AuthorizationType,
+				)
+			}
+			m, err := h.Backend.PutMethod(PutMethodInput(input))
 			if err != nil {
 				return 0, nil, err
 			}
@@ -2368,6 +2396,15 @@ func (h *Handler) integrationActions() map[string]actionFn {
 			var input putIntegrationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
+			}
+			switch input.Type {
+			case IntegrationTypeAWS, IntegrationTypeAWSProxy,
+				IntegrationTypeHTTP, IntegrationTypeHTTPProxy, IntegrationTypeMock:
+			default:
+				return 0, nil, fmt.Errorf(
+					"%w: invalid integration type %q; must be AWS, AWS_PROXY, HTTP, HTTP_PROXY, or MOCK",
+					ErrInvalidParameter, input.Type,
+				)
 			}
 			integ, err := h.Backend.PutIntegration(
 				input.RestAPIID,
@@ -3114,6 +3151,9 @@ func (h *Handler) getDeleteUpdateActionsExt2b() map[string]actionFn {
 		opFlushStageCache: func(b []byte) (int, any, error) {
 			var input flushStageCacheInput
 			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if _, err := h.Backend.GetStage(input.RestAPIID, input.StageName); err != nil {
 				return 0, nil, err
 			}
 

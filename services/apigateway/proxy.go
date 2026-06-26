@@ -428,7 +428,7 @@ func (h *Handler) dispatchIntegration(
 		h.handleAWSIntegration(ctx, w, r, apiID, integration)
 	case "HTTP", "HTTP_PROXY":
 		h.handleHTTPProxy(ctx, w, r, integration)
-	case "MOCK":
+	case IntegrationTypeMock:
 		h.handleMockIntegration(w, integration)
 	default:
 		http.Error(w, "Unsupported or unknown integration type for stage URL", http.StatusNotImplemented)
@@ -516,7 +516,7 @@ func (h *Handler) runAuthorizer(
 		}
 	}
 
-	if auth.Type == "COGNITO_USER_POOLS" {
+	if auth.Type == AuthTypeCognitoUserPool {
 		return h.runCognitoAuthorizer(ctx, w, r, auth, cacheKey, ttl)
 	}
 

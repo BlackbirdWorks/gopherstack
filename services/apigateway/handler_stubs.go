@@ -253,9 +253,25 @@ func (h *Handler) stubActions() map[string]actionFn {
 		return http.StatusOK, api, nil
 	}
 
-	// Usage update
-	actions[opUpdateUsage] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, map[string]any{"usagePlanId": "", "items": map[string]any{}}, nil
+	// Usage update — validate plan + key exist, return minimal usage data.
+	actions[opUpdateUsage] = func(b []byte) (int, any, error) {
+		var input updateUsageInput
+		if err := json.Unmarshal(b, &input); err != nil {
+			return 0, nil, err
+		}
+		if _, err := h.Backend.GetUsagePlan(input.UsagePlanID); err != nil {
+			return 0, nil, err
+		}
+		if input.KeyID != "" {
+			if _, err := h.Backend.GetUsagePlanKey(input.UsagePlanID, input.KeyID); err != nil {
+				return 0, nil, err
+			}
+		}
+
+		return http.StatusOK, map[string]any{
+			"usagePlanId": input.UsagePlanID,
+			"items":       map[string]any{},
+		}, nil
 	}
 
 	return actions

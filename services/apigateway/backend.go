@@ -1060,6 +1060,15 @@ func (b *InMemoryBackend) DeleteDeployment(restAPIID, deploymentID string) error
 		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
+	for _, s := range d.stages {
+		if s.DeploymentID == deploymentID {
+			return fmt.Errorf(
+				"%w: deployment %s is referenced by stage %s and cannot be deleted",
+				ErrInvalidParameter, deploymentID, s.StageName,
+			)
+		}
+	}
+
 	delete(d.deployments, deploymentID)
 
 	return nil
@@ -2557,7 +2566,7 @@ func (b *InMemoryBackend) TestInvokeMethod(input TestInvokeMethodInput) (*TestIn
 	}
 
 	body := "{}"
-	if m.MethodIntegration != nil && m.MethodIntegration.Type == "MOCK" {
+	if m.MethodIntegration != nil && m.MethodIntegration.Type == IntegrationTypeMock {
 		body = `{"statusCode": 200}`
 	}
 
@@ -3520,7 +3529,7 @@ func buildExportRequestBody(op map[string]any, data *apiData, method *Method, oa
 func buildExportSecurity(op map[string]any, method *Method) {
 	if method.AuthorizerID != "" {
 		scheme := "lambda_authorizer"
-		if method.AuthorizationType == "COGNITO_USER_POOLS" {
+		if method.AuthorizationType == AuthTypeCognitoUserPool {
 			scheme = "cognito"
 		}
 		op["security"] = []map[string]any{{scheme: []string{}}}
