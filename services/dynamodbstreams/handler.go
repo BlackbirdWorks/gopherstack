@@ -223,8 +223,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, operation stri
 			httpStatus = http.StatusInternalServerError
 		}
 
+		// Rewrite the DynamoDB service namespace to the DynamoDB Streams namespace so
+		// the AWS SDK client resolves the correct error type. Real AWS returns error
+		// types prefixed with "com.amazonaws.dynamodbstreams.v20120810#".
+		errType := strings.ReplaceAll(
+			backendErr.Type,
+			"com.amazonaws.dynamodb.v20120810#",
+			"com.amazonaws.dynamodbstreams.v20120810#",
+		)
+
 		body, _ := json.Marshal(map[string]string{
-			"__type":  backendErr.Type,
+			"__type":  errType,
 			"message": backendErr.Message,
 		})
 		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")

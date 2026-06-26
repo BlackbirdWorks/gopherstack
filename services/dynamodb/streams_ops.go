@@ -89,10 +89,13 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 
 	region := getRegionFromContext(ctx, db)
 
+	now := time.Now().UTC()
+
 	table.mu.Lock("EnableStream")
 	table.StreamsEnabled = true
 	table.StreamViewType = viewType
-	table.StreamARN = db.buildStreamARNInRegion(tableName, region)
+	table.StreamCreatedAt = now
+	table.StreamARN = db.buildStreamARNInRegion(tableName, region, now)
 	newARN := table.StreamARN
 	// Initialize the first shard when enabling streams (clearing any prior shard history).
 	table.streamShards = []StreamShard{
@@ -166,6 +169,7 @@ func (db *InMemoryDB) DescribeStream(
 	tableName := found.Name
 	viewType := found.StreamViewType
 	keySchema := found.KeySchema
+	streamCreatedAt := found.StreamCreatedAt
 	shards := make([]StreamShard, len(found.streamShards))
 	copy(shards, found.streamShards)
 	found.mu.RUnlock()
@@ -211,19 +215,36 @@ func (db *InMemoryDB) DescribeStream(
 	// return a single open shard with empty sequence numbers.
 	sdkShards := buildSDKShards(shards)
 
+	var creationRequestDateTime *time.Time
+	if !streamCreatedAt.IsZero() {
+		t := streamCreatedAt
+		creationRequestDateTime = &t
+	}
+
 	return &dynamodbstreams.DescribeStreamOutput{
 		StreamDescription: &streamstypes.StreamDescription{
 			StreamArn:               aws.String(streamARN),
-			StreamLabel:             aws.String("latest"),
+			StreamLabel:             aws.String(streamLabelFromARN(streamARN)),
 			StreamStatus:            streamstypes.StreamStatusEnabled,
 			StreamViewType:          streamstypes.StreamViewType(viewType),
 			TableName:               aws.String(tableName),
 			KeySchema:               sdkKeySchema,
-			CreationRequestDateTime: nil,
+			CreationRequestDateTime: creationRequestDateTime,
 			LastEvaluatedShardId:    lastEvaluatedShardID,
 			Shards:                  sdkShards,
 		},
 	}, nil
+}
+
+// streamLabelFromARN extracts the stream label from a DynamoDB stream ARN.
+// The label is the last path segment after /stream/: e.g. "2024-01-01T00:00:00.000".
+func streamLabelFromARN(streamARN string) string {
+	const sep = "/stream/"
+	if idx := strings.LastIndex(streamARN, sep); idx >= 0 {
+		return streamARN[idx+len(sep):]
+	}
+
+	return streamARN
 }
 
 // buildSDKShards converts internal StreamShard slice to SDK Shard slice.
@@ -583,7 +604,7 @@ func (db *InMemoryDB) ListStreams(
 		streams = append(streams, streamstypes.Stream{
 			TableName:   aws.String(se.tableName),
 			StreamArn:   aws.String(se.arn),
-			StreamLabel: aws.String("latest"),
+			StreamLabel: aws.String(streamLabelFromARN(se.arn)),
 		})
 	}
 
@@ -664,12 +685,16 @@ func (db *InMemoryDB) collectEnabledStreams(requestRegion, filterTable string) [
 }
 
 // buildStreamARNInRegion generates a stream ARN for the given table in a specific region.
-func (db *InMemoryDB) buildStreamARNInRegion(tableName, region string) string {
+// The stream label embedded in the ARN is the ISO 8601 timestamp (ms precision) at which
+// the stream was enabled, matching real AWS DynamoDB Streams behavior.
+func (db *InMemoryDB) buildStreamARNInRegion(tableName, region string, createdAt time.Time) string {
+	label := createdAt.UTC().Format("2006-01-02T15:04:05.000")
+
 	return arn.Build(
 		"dynamodb",
 		region,
 		db.accountID,
-		"table/"+tableName+"/stream/2024-01-01T00:00:00.000",
+		"table/"+tableName+"/stream/"+label,
 	)
 }
 

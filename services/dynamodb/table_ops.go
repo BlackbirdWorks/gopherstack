@@ -138,9 +138,11 @@ func (db *InMemoryDB) CreateTable(
 	newTable.TableArn = arn.Build("dynamodb", region, db.accountID, "table/"+tableName)
 
 	if input.StreamSpecification != nil && aws.ToBool(input.StreamSpecification.StreamEnabled) {
+		streamCreatedAt := newTable.CreationDateTime
 		newTable.StreamsEnabled = true
 		newTable.StreamViewType = string(input.StreamSpecification.StreamViewType)
-		newTable.StreamARN = db.buildStreamARNInRegion(tableName, region)
+		newTable.StreamCreatedAt = streamCreatedAt
+		newTable.StreamARN = db.buildStreamARNInRegion(tableName, region, streamCreatedAt)
 		// Initialize the first shard so DescribeStream/GetShardIterator work immediately.
 		newTable.streamShards = []StreamShard{
 			{
@@ -1309,7 +1311,9 @@ func (db *InMemoryDB) applyStreamSpec(
 		table.StreamViewType = string(ss.StreamViewType)
 
 		if table.StreamARN == "" {
-			table.StreamARN = db.buildStreamARNInRegion(tableName, region)
+			streamCreatedAt := time.Now().UTC()
+			table.StreamCreatedAt = streamCreatedAt
+			table.StreamARN = db.buildStreamARNInRegion(tableName, region, streamCreatedAt)
 			// Initialize the first shard when streams are newly enabled via UpdateTable.
 			table.streamShards = []StreamShard{
 				{

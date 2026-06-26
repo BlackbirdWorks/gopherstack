@@ -230,6 +230,7 @@ type Table struct {
 	TTLAttribute               string                    `json:"TTLAttribute,omitempty"`
 	StreamViewType             string                    `json:"StreamViewType,omitempty"`
 	StreamARN                  string                    `json:"StreamARN,omitempty"`
+	StreamCreatedAt            time.Time                 `json:"StreamCreatedAt"`
 	TableArn                   string                    `json:"TableArn"`
 	Status                     string                    `json:"Status"`
 	TableID                    string                    `json:"TableID"`
