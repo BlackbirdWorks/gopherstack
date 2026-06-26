@@ -57,3 +57,51 @@ func DeploymentCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// UserProfileCount returns the number of stored user profiles.
+func UserProfileCount(b *InMemoryBackend) int {
+	b.mu.RLock("UserProfileCount")
+	defer b.mu.RUnlock()
+
+	return len(b.userProfiles)
+}
+
+// ElasticLBCount returns the number of stored elastic load balancers.
+func ElasticLBCount(b *InMemoryBackend) int {
+	b.mu.RLock("ElasticLBCount")
+	defer b.mu.RUnlock()
+
+	return len(b.elasticLBs)
+}
+
+// ElasticIPCount returns the number of stored elastic IPs.
+func ElasticIPCount(b *InMemoryBackend) int {
+	b.mu.RLock("ElasticIPCount")
+	defer b.mu.RUnlock()
+
+	return len(b.elasticIPs)
+}
+
+// VolumeCount returns the number of stored volumes.
+func VolumeCount(b *InMemoryBackend) int {
+	b.mu.RLock("VolumeCount")
+	defer b.mu.RUnlock()
+
+	return len(b.volumes)
+}
+
+// RdsDBInstanceCount returns the number of stored RDS DB instances.
+func RdsDBInstanceCount(b *InMemoryBackend) int {
+	b.mu.RLock("RdsDBInstanceCount")
+	defer b.mu.RUnlock()
+
+	return len(b.rdsDBInstances)
+}
+
+// EcsClusterCount returns the number of stored ECS clusters.
+func EcsClusterCount(b *InMemoryBackend) int {
+	b.mu.RLock("EcsClusterCount")
+	defer b.mu.RUnlock()
+
+	return len(b.ecsClusters)
+}
