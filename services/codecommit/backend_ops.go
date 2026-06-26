@@ -76,11 +76,18 @@ type RepositoryTrigger struct {
 	Events         []string `json:"events"`
 }
 
+// BlobInfo holds per-blob metadata in a file difference, matching real AWS shape.
+type BlobInfo struct {
+	BlobID string `json:"blobId"`
+	Path   string `json:"path"`
+	Mode   string `json:"mode"`
+}
+
 // FileDifference represents a file difference between two commits.
 type FileDifference struct {
-	AfterBlob  string `json:"afterBlob"`
-	BeforeBlob string `json:"beforeBlob"`
-	ChangeType string `json:"changeType"`
+	AfterBlob  *BlobInfo `json:"afterBlob"`
+	BeforeBlob *BlobInfo `json:"beforeBlob"`
+	ChangeType string    `json:"changeType"`
 }
 
 // --- Group 1: Repository CRUD edges ---
@@ -1122,8 +1129,9 @@ func (b *InMemoryBackend) GetBlob(repoName, blobID string) ([]byte, error) {
 	return nil, fmt.Errorf("%w: blob %s not found", ErrNotFound, blobID)
 }
 
-// ListFileCommitHistory returns all commits for a repository (simplified).
-func (b *InMemoryBackend) ListFileCommitHistory(repoName, _ /* filePath */ string) ([]*Commit, error) {
+// ListFileCommitHistory returns commits that touched the given filePath.
+// When filePath is empty, all commits for the repository are returned.
+func (b *InMemoryBackend) ListFileCommitHistory(repoName, filePath string) ([]*Commit, error) {
 	b.mu.RLock("ListFileCommitHistory")
 	defer b.mu.RUnlock()
 
@@ -1132,9 +1140,34 @@ func (b *InMemoryBackend) ListFileCommitHistory(repoName, _ /* filePath */ strin
 	}
 
 	repoCommits := b.commits[repoName]
-	result := make([]*Commit, 0, len(repoCommits))
-	for _, c := range repoCommits {
+
+	if filePath == "" {
+		result := make([]*Commit, 0, len(repoCommits))
+		for _, c := range repoCommits {
+			cp := *c
+			cp.Parents = make([]string, len(c.Parents))
+			copy(cp.Parents, c.Parents)
+			result = append(result, &cp)
+		}
+
+		return result, nil
+	}
+
+	// Use fileHistory to find all commits that touched this file path.
+	commitIDs, ok := b.fileHistory[repoName][filePath]
+	if !ok || len(commitIDs) == 0 {
+		return []*Commit{}, nil
+	}
+
+	result := make([]*Commit, 0, len(commitIDs))
+	for _, commitID := range commitIDs {
+		c, exists := repoCommits[commitID]
+		if !exists {
+			continue
+		}
 		cp := *c
+		cp.Parents = make([]string, len(c.Parents))
+		copy(cp.Parents, c.Parents)
 		result = append(result, &cp)
 	}
 
@@ -1174,9 +1207,10 @@ func (b *InMemoryBackend) CreateUnreferencedMergeCommit(
 	return &cp, nil
 }
 
-// GetMergeCommit returns the first commit in a repository or an error.
+// GetMergeCommit returns a commit that has both sourceCommitSpecifier and
+// destinationCommitSpecifier as parents, or falls back to the most recent commit.
 func (b *InMemoryBackend) GetMergeCommit(
-	repoName, _ /* sourceCommitSpecifier */, _ /* destinationCommitSpecifier */ string,
+	repoName, sourceCommitSpecifier, destinationCommitSpecifier string,
 ) (*Commit, error) {
 	b.mu.RLock("GetMergeCommit")
 	defer b.mu.RUnlock()
@@ -1186,8 +1220,38 @@ func (b *InMemoryBackend) GetMergeCommit(
 	}
 
 	repoCommits := b.commits[repoName]
+
+	// Prefer a commit whose parents include both specifiers (real merge commit shape).
 	for _, c := range repoCommits {
-		cp := *c
+		hasSource, hasDest := false, false
+		for _, p := range c.Parents {
+			if p == sourceCommitSpecifier {
+				hasSource = true
+			}
+			if p == destinationCommitSpecifier {
+				hasDest = true
+			}
+		}
+		if hasSource && hasDest {
+			cp := *c
+			cp.Parents = make([]string, len(c.Parents))
+			copy(cp.Parents, c.Parents)
+
+			return &cp, nil
+		}
+	}
+
+	// Fallback: return the most recent commit.
+	var latest *Commit
+	for _, c := range repoCommits {
+		if latest == nil || c.CreatedAt.After(latest.CreatedAt) {
+			latest = c
+		}
+	}
+	if latest != nil {
+		cp := *latest
+		cp.Parents = make([]string, len(latest.Parents))
+		copy(cp.Parents, latest.Parents)
 
 		return &cp, nil
 	}
@@ -1229,16 +1293,28 @@ func (b *InMemoryBackend) GetDifferences(repoName, afterCommitSpecifier, _ strin
 	var diffs []FileDifference
 	for _, f := range repoFiles {
 		if afterCommitSpecifier == "" || f.CommitSpecifier == afterCommitSpecifier || afterCommitSpecifier == f.BlobID {
+			mode := f.FileMode
+			if mode == "" {
+				mode = "100644"
+			}
 			diffs = append(diffs, FileDifference{
-				AfterBlob:  f.BlobID,
-				BeforeBlob: "",
+				AfterBlob:  &BlobInfo{BlobID: f.BlobID, Path: f.FilePath, Mode: mode},
+				BeforeBlob: nil,
 				ChangeType: "A",
 			})
 		}
 	}
 
 	sort.Slice(diffs, func(i, j int) bool {
-		return diffs[i].AfterBlob < diffs[j].AfterBlob
+		pathI, pathJ := "", ""
+		if diffs[i].AfterBlob != nil {
+			pathI = diffs[i].AfterBlob.Path
+		}
+		if diffs[j].AfterBlob != nil {
+			pathJ = diffs[j].AfterBlob.Path
+		}
+
+		return pathI < pathJ
 	})
 
 	return diffs, nil

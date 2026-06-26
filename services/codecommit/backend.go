@@ -235,8 +235,10 @@ type InMemoryBackend struct {
 	comments map[string]*Comment
 	// commentReactions maps commentID -> reactions
 	commentReactions map[string][]Reaction
-	// files maps repoName -> filePath -> File
+	// files maps repoName -> filePath -> File (current version)
 	files map[string]map[string]*File
+	// fileHistory maps repoName -> filePath -> []commitID (ordered, oldest first)
+	fileHistory map[string]map[string][]string
 	// triggers maps repoName -> triggers
 	triggers      map[string][]RepositoryTrigger
 	mu            *lockmetrics.RWMutex
@@ -263,6 +265,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		comments:              make(map[string]*Comment),
 		commentReactions:      make(map[string][]Reaction),
 		files:                 make(map[string]map[string]*File),
+		fileHistory:           make(map[string]map[string][]string),
 		triggers:              make(map[string][]RepositoryTrigger),
 		accountID:             accountID,
 		region:                region,
@@ -294,6 +297,7 @@ func (b *InMemoryBackend) Reset() {
 	b.comments = make(map[string]*Comment)
 	b.commentReactions = make(map[string][]Reaction)
 	b.files = make(map[string]map[string]*File)
+	b.fileHistory = make(map[string]map[string][]string)
 	b.triggers = make(map[string][]RepositoryTrigger)
 	b.nextPRCounter = 0
 }
@@ -700,6 +704,9 @@ func (b *InMemoryBackend) applyFileChanges(repoName, commitID string, putFiles [
 		if b.files[repoName] == nil {
 			b.files[repoName] = make(map[string]*File)
 		}
+		if b.fileHistory[repoName] == nil {
+			b.fileHistory[repoName] = make(map[string][]string)
+		}
 		for _, pf := range putFiles {
 			fileMode := pf.FileMode
 			if fileMode == "" {
@@ -712,6 +719,7 @@ func (b *InMemoryBackend) applyFileChanges(repoName, commitID string, putFiles [
 				FileMode:        fileMode,
 				FileContent:     pf.FileContent,
 			}
+			b.fileHistory[repoName][pf.FilePath] = append(b.fileHistory[repoName][pf.FilePath], commitID)
 		}
 	}
 	for _, fp := range deleteFiles {
