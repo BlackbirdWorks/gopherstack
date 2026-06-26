@@ -562,12 +562,15 @@ func (b *InMemoryBackend) CreateSequenceStore(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	now := time.Now().UTC()
 	ss := &SequenceStore{
 		ID:           newID(),
 		Name:         name,
 		Description:  description,
+		Status:       statusActive,
 		Tags:         copyTags(tags),
-		CreationTime: time.Now().UTC(),
+		CreationTime: now,
+		UpdateTime:   now,
 	}
 	ss.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "sequenceStore/"+ss.ID)
 
@@ -689,6 +692,7 @@ func (b *InMemoryBackend) UpdateSequenceStore(
 		ss.Description = description
 	}
 
+	ss.UpdateTime = time.Now().UTC()
 	result := *ss
 
 	return &result, nil
@@ -1509,7 +1513,7 @@ func (b *InMemoryBackend) UpdateRunGroup(
 
 // StartRun starts a new workflow run.
 func (b *InMemoryBackend) StartRun(
-	workflowID, roleARN, name string,
+	workflowID, roleARN, name, runBatchID string,
 	params map[string]any,
 	tags map[string]string,
 ) (*Run, error) {
@@ -1523,12 +1527,11 @@ func (b *InMemoryBackend) StartRun(
 		Name:         name,
 		WorkflowID:   workflowID,
 		RoleARN:      roleARN,
+		RunBatchID:   runBatchID,
 		Params:       params,
 		Tags:         copyTags(tags),
-		Status:       statusCompleted,
+		Status:       statusPending,
 		CreationTime: now,
-		StartTime:    &now,
-		StopTime:     &now,
 	}
 	run.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "run/"+id)
 
@@ -1541,12 +1544,10 @@ func (b *InMemoryBackend) StartRun(
 		TaskID:       taskID,
 		RunID:        id,
 		Name:         "task-1",
-		Status:       statusCompleted,
+		Status:       statusPending,
 		CPUs:         stubTaskCPUs,
 		Memory:       stubTaskMemory,
 		CreationTime: now,
-		StartTime:    &now,
-		StopTime:     &now,
 	}
 
 	if tags != nil {
@@ -1564,12 +1565,17 @@ func (b *InMemoryBackend) CancelRun(id string) error {
 	defer b.mu.Unlock()
 
 	st := b.region(b.defaultRegion)
+	run, ok := st.runs[id]
 
-	if _, ok := st.runs[id]; !ok {
+	if !ok {
 		return fmt.Errorf("%w: run %s not found", ErrNotFound, id)
 	}
 
-	st.runs[id].Status = statusCancelled
+	if run.Status == statusCompleted || run.Status == statusCancelled || run.Status == statusFailed {
+		return fmt.Errorf("%w: run %s is already in terminal state %s", ErrValidation, id, run.Status)
+	}
+
+	run.Status = statusCancelled
 
 	return nil
 }
@@ -1686,7 +1692,7 @@ func (b *InMemoryBackend) ListRunTasks(
 
 // CreateWorkflow creates a new workflow.
 func (b *InMemoryBackend) CreateWorkflow(
-	name, description, _ /* definitionZip */, engine string,
+	name, description, _ /* definitionZip */, _ /* definitionURI */, engine string,
 	tags map[string]string,
 ) (*Workflow, error) {
 	if name == "" {
@@ -1702,7 +1708,8 @@ func (b *InMemoryBackend) CreateWorkflow(
 		Name:         name,
 		Description:  description,
 		Engine:       engine,
-		Status:       statusActive,
+		Type:         "PRIVATE",
+		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: time.Now().UTC(),
 	}
@@ -1833,7 +1840,9 @@ func (b *InMemoryBackend) CreateWorkflowVersion(
 		WorkflowID:   workflowID,
 		VersionName:  versionName,
 		Description:  description,
-		Status:       statusActive,
+		Engine:       wf.Engine,
+		Type:         wf.Type,
+		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: time.Now().UTC(),
 	}
@@ -1843,8 +1852,6 @@ func (b *InMemoryBackend) CreateWorkflowVersion(
 		b.accountID,
 		fmt.Sprintf("workflow/%s/version/%s", workflowID, versionName),
 	)
-
-	_ = wf
 
 	st.workflowVersions[workflowID][versionName] = wv
 
@@ -1964,6 +1971,7 @@ func (b *InMemoryBackend) UpdateWorkflowVersion(workflowID, versionName, descrip
 // CreateAnnotationStore creates a new annotation store.
 func (b *InMemoryBackend) CreateAnnotationStore(
 	name, storeFormat string,
+	reference, sseConfig, storeOptions map[string]any,
 	tags map[string]string,
 ) (*AnnotationStore, error) {
 	if name == "" {
@@ -1984,7 +1992,10 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 		ID:           newID(),
 		Name:         name,
 		StoreFormat:  storeFormat,
-		Status:       statusActive,
+		Reference:    reference,
+		SseConfig:    sseConfig,
+		StoreOptions: storeOptions,
+		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: now,
 		UpdateTime:   now,
@@ -2361,6 +2372,7 @@ func (b *InMemoryBackend) UpdateAnnotationStoreVersion(
 // CreateVariantStore creates a new variant store.
 func (b *InMemoryBackend) CreateVariantStore(
 	name string,
+	reference map[string]any,
 	tags map[string]string,
 ) (*VariantStore, error) {
 	if name == "" {
@@ -2380,7 +2392,8 @@ func (b *InMemoryBackend) CreateVariantStore(
 	vs := &VariantStore{
 		ID:           newID(),
 		Name:         name,
-		Status:       statusActive,
+		Reference:    reference,
+		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: now,
 		UpdateTime:   now,
@@ -2653,7 +2666,7 @@ func (b *InMemoryBackend) GetShare(shareID string) (*Share, error) {
 
 // ListShares lists shares by resource owner.
 func (b *InMemoryBackend) ListShares(
-	_ /* resourceOwner */ string,
+	resourceOwner string,
 	maxResults int,
 	nextToken string,
 ) ([]*Share, string, error) {
@@ -2661,9 +2674,29 @@ func (b *InMemoryBackend) ListShares(
 	defer b.mu.RUnlock()
 
 	st := b.region(b.defaultRegion)
-	ids := sortedKeys2(st.shares)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	allIDs := sortedKeys2(st.shares)
 
+	var ids []string
+
+	for _, id := range allIDs {
+		s := st.shares[id]
+		isSelf := strings.Contains(s.ResourceARN, ":"+b.accountID+":")
+
+		switch resourceOwner {
+		case "SELF":
+			if isSelf {
+				ids = append(ids, id)
+			}
+		case "OTHER":
+			if !isSelf {
+				ids = append(ids, id)
+			}
+		default:
+			ids = append(ids, id)
+		}
+	}
+
+	page, outToken := paginateStrings(ids, nextToken, maxResults)
 	result := make([]*Share, 0, len(page))
 
 	for _, id := range page {
@@ -2782,7 +2815,9 @@ func (b *InMemoryBackend) UpdateRunCache(id, name, description string) error {
 		rc.Name = name
 	}
 
-	_ = description
+	if description != "" {
+		rc.Description = description
+	}
 
 	return nil
 }
@@ -2821,12 +2856,17 @@ func (b *InMemoryBackend) CancelRunBatch(id string) error {
 	defer b.mu.Unlock()
 
 	st := b.region(b.defaultRegion)
+	rb, ok := st.runBatches[id]
 
-	if _, ok := st.runBatches[id]; !ok {
+	if !ok {
 		return fmt.Errorf("%w: run batch %s not found", ErrNotFound, id)
 	}
 
-	st.runBatches[id].Status = statusCancelled
+	if rb.Status == statusCompleted || rb.Status == statusCancelled || rb.Status == statusFailed {
+		return fmt.Errorf("%w: run batch %s is already in terminal state %s", ErrValidation, id, rb.Status)
+	}
+
+	rb.Status = statusCancelled
 
 	return nil
 }
@@ -2918,8 +2958,8 @@ func (b *InMemoryBackend) DeleteRunBatches(ids []string) ([]RunBatchDeleteError,
 // ListRunsInBatch lists runs that belong to a run batch.
 func (b *InMemoryBackend) ListRunsInBatch(
 	batchID string,
-	_ /* maxResults */ int,
-	_ /* nextToken */ string,
+	maxResults int,
+	nextToken string,
 ) ([]*Run, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -2930,7 +2970,24 @@ func (b *InMemoryBackend) ListRunsInBatch(
 		return nil, "", fmt.Errorf("%w: run batch %s not found", ErrNotFound, batchID)
 	}
 
-	return []*Run{}, "", nil
+	var ids []string
+
+	for id, r := range st.runs {
+		if r.RunBatchID == batchID {
+			ids = append(ids, id)
+		}
+	}
+
+	sort.Strings(ids)
+	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	result := make([]*Run, 0, len(page))
+
+	for _, id := range page {
+		r := *st.runs[id]
+		result = append(result, &r)
+	}
+
+	return result, outToken, nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────
