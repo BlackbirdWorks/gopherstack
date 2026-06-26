@@ -153,7 +153,8 @@ type StorageBackend interface {
 	DescribeEventSubscriptions(ctx context.Context, name string) ([]EventSubscription, error)
 	ModifyEventSubscription(
 		ctx context.Context,
-		name, snsTopicARN string,
+		name, snsTopicARN, sourceType, enabled string,
+		eventCategories []string,
 	) (*EventSubscription, error)
 	RemoveSourceIdentifierFromSubscription(
 		ctx context.Context,
@@ -190,7 +191,7 @@ type StorageBackend interface {
 	) (*DBCluster, error)
 
 	// Subnet group extended operations
-	ModifyDBSubnetGroup(ctx context.Context, name, description string) (*DBSubnetGroup, error)
+	ModifyDBSubnetGroup(ctx context.Context, name, description string, subnetIDs []string) (*DBSubnetGroup, error)
 
 	// Lifecycle
 	Reset()

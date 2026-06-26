@@ -476,11 +476,22 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 		KmsKeyID:                        vals.Get("KmsKeyId"),
 		PreferredBackupWindow:           vals.Get("PreferredBackupWindow"),
 		PreferredMaintenanceWindow:      vals.Get("PreferredMaintenanceWindow"),
+		MasterUsername:                  vals.Get("MasterUsername"),
+		DBSubnetGroupName:               vals.Get("DBSubnetGroupName"),
+		StorageType:                     vals.Get("StorageType"),
 		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		ManageMasterUserPassword:        vals.Get("ManageMasterUserPassword") == formTrue,
 		StorageEncrypted:                vals.Get("StorageEncrypted") == formTrue,
 		DeletionProtection:              vals.Get("DeletionProtection") == formTrue,
+		CopyTagsToSnapshot:              vals.Get("CopyTagsToSnapshot") == formTrue,
+		VpcSecurityGroupIDs:             parseMemberList(vals, "VpcSecurityGroupIds.member"),
+		AvailabilityZones:               parseMemberList(vals, "AvailabilityZones.member"),
 		ServerlessV2ScalingConfig:       sv2,
+	}
+	if s := vals.Get("BackupRetentionPeriod"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			opts.BackupRetentionPeriod = v
+		}
 	}
 	tags := parseTagEntries(vals)
 	if err := validateTagEntries(tags); err != nil {
@@ -559,6 +570,7 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 	}
 	rawIam := vals.Get("EnableIAMDatabaseAuthentication")
 	rawDel := vals.Get("DeletionProtection")
+	rawCopy := vals.Get("CopyTagsToSnapshot")
 	opts := DBClusterModifyOptions{
 		EngineVersion:                   vals.Get("EngineVersion"),
 		PreferredBackupWindow:           vals.Get("PreferredBackupWindow"),
@@ -568,7 +580,17 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 		ManageMasterUserPassword:        vals.Get("ManageMasterUserPassword") == formTrue,
 		DeletionProtection:              rawDel == formTrue,
 		DeletionProtectionSet:           rawDel != "",
+		CopyTagsToSnapshot:              rawCopy == formTrue,
+		CopyTagsToSnapshotSet:           rawCopy != "",
+		VpcSecurityGroupIDs:             parseMemberList(vals, "VpcSecurityGroupIds.member"),
 		ServerlessV2ScalingConfig:       sv2,
+	}
+	rawBRP := vals.Get("BackupRetentionPeriod")
+	if rawBRP != "" {
+		if v, err := strconv.Atoi(rawBRP); err == nil {
+			opts.BackupRetentionPeriod = v
+			opts.BackupRetentionPeriodSet = true
+		}
 	}
 	cluster, err := h.Backend.ModifyDBCluster(ctx, id, paramGroupName, opts)
 	if err != nil {
@@ -846,10 +868,13 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(
 		members = append(members, toXMLParameterGroup(&cp))
 	}
 
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeDBClusterParameterGroupsResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeDBClusterParameterGroupsResult{
 			DBClusterParameterGroups: xmlDBClusterParameterGroupList{Members: members},
+			Marker:                   nextMarker,
 		},
 	}, nil
 }
@@ -1472,7 +1497,12 @@ func (h *Handler) handleDescribeEventSubscriptions(
 func (h *Handler) handleModifyEventSubscription(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
-	sub, err := h.Backend.ModifyEventSubscription(ctx, name, snsTopicARN)
+	sourceType := vals.Get("SourceType")
+	enabled := vals.Get("Enabled")
+	eventCategories := parseMemberList(vals, "EventCategories.member")
+	sub, err := h.Backend.ModifyEventSubscription(
+		ctx, name, snsTopicARN, sourceType, enabled, eventCategories,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1752,7 +1782,8 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(
 func (h *Handler) handleModifyDBSubnetGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBSubnetGroupName")
 	description := vals.Get("DBSubnetGroupDescription")
-	sg, err := h.Backend.ModifyDBSubnetGroup(ctx, name, description)
+	subnetIDs := parseSubnetIDMembers(vals)
+	sg, err := h.Backend.ModifyDBSubnetGroup(ctx, name, description, subnetIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -1784,8 +1815,8 @@ func neptuneErrorCode(opErr error) string {
 	mappings := []errorMapping{
 		{ErrClusterNotFound, "DBClusterNotFoundFault"},
 		{ErrClusterAlreadyExists, "DBClusterAlreadyExistsFault"},
-		{ErrInstanceNotFound, "DBInstanceNotFound"},
-		{ErrInstanceAlreadyExists, "DBInstanceAlreadyExists"},
+		{ErrInstanceNotFound, "DBInstanceNotFoundFault"},
+		{ErrInstanceAlreadyExists, "DBInstanceAlreadyExistsFault"},
 		{ErrSubnetGroupNotFound, "DBSubnetGroupNotFoundFault"},
 		{ErrSubnetGroupAlreadyExists, "DBSubnetGroupAlreadyExistsFault"},
 		{ErrClusterParameterGroupNotFound, "DBClusterParameterGroupNotFoundFault"},
@@ -1803,6 +1834,9 @@ func neptuneErrorCode(opErr error) string {
 		{ErrInvalidParameter, "InvalidParameterValue"},
 		{ErrUnknownAction, "InvalidAction"},
 		{ErrInvalidDBClusterStateFault, "InvalidDBClusterStateFault"},
+		{ErrInvalidDBInstanceStateFault, "InvalidDBInstanceStateFault"},
+		{ErrInvalidDBClusterSnapshotStateFault, "InvalidDBClusterSnapshotStateFault"},
+		{ErrSnapshotRequired, "InvalidParameterCombination"},
 	}
 	for _, m := range mappings {
 		if errors.Is(opErr, m.sentinel) {
@@ -1881,6 +1915,18 @@ func parseSubnetIDMembers(vals url.Values) []string {
 	}
 }
 
+// parseMemberList parses a form-encoded list with keys of the form "<prefix>.<N>".
+func parseMemberList(vals url.Values, prefix string) []string {
+	var result []string
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s.%d", prefix, i))
+		if v == "" {
+			return result
+		}
+		result = append(result, v)
+	}
+}
+
 func parseTagEntries(vals url.Values) []Tag {
 	var tags []Tag
 	for i := 1; ; i++ {
@@ -1953,6 +1999,8 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	x := xmlDBCluster{
 		DBClusterIdentifier:             c.DBClusterIdentifier,
 		DBClusterArn:                    c.DBClusterArn,
+		DBClusterResourceID:             c.DBClusterResourceID,
+		ClusterCreateTime:               c.ClusterCreateTime,
 		Engine:                          c.Engine,
 		EngineVersion:                   c.EngineVersion,
 		EngineMode:                      c.EngineMode,
@@ -2075,12 +2123,26 @@ func toXMLDBParameterGroup(pg *DBParameterGroup) xmlDBParameterGroup {
 }
 
 func toXMLClusterEndpoint(ep *DBClusterEndpoint) xmlDBClusterEndpoint {
+	staticMembers := make([]xmlSourceID, 0, len(ep.StaticMembers))
+	for _, m := range ep.StaticMembers {
+		staticMembers = append(staticMembers, xmlSourceID{Member: m})
+	}
+	excludedMembers := make([]xmlSourceID, 0, len(ep.ExcludedMembers))
+	for _, m := range ep.ExcludedMembers {
+		excludedMembers = append(excludedMembers, xmlSourceID{Member: m})
+	}
+
 	return xmlDBClusterEndpoint{
-		DBClusterEndpointIdentifier: ep.DBClusterEndpointIdentifier,
-		DBClusterIdentifier:         ep.DBClusterIdentifier,
-		EndpointType:                ep.EndpointType,
-		Status:                      ep.Status,
-		Endpoint:                    ep.Endpoint,
+		DBClusterEndpointIdentifier:         ep.DBClusterEndpointIdentifier,
+		DBClusterIdentifier:                 ep.DBClusterIdentifier,
+		DBClusterEndpointArn:                ep.DBClusterEndpointArn,
+		DBClusterEndpointResourceIdentifier: ep.DBClusterEndpointResourceIdentifier,
+		EndpointType:                        ep.EndpointType,
+		CustomEndpointType:                  ep.CustomEndpointType,
+		Status:                              ep.Status,
+		Endpoint:                            ep.Endpoint,
+		StaticMembers:                       xmlSourceIDList{Members: staticMembers},
+		ExcludedMembers:                     xmlSourceIDList{Members: excludedMembers},
 	}
 }
 
@@ -2089,15 +2151,19 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 	for _, id := range sub.SourceIDs {
 		ids = append(ids, xmlSourceID{Member: id})
 	}
+	cats := make([]string, len(sub.EventCategoriesList))
+	copy(cats, sub.EventCategoriesList)
 
 	return xmlEventSubscription{
-		CustSubscriptionID:   sub.CustSubscriptionID,
-		EventSubscriptionArn: sub.EventSubscriptionArn,
-		SnsTopicARN:          sub.SnsTopicARN,
-		Status:               sub.Status,
-		SourceType:           sub.SourceType,
-		SourceIDs:            xmlSourceIDList{Members: ids},
-		Enabled:              sub.Enabled,
+		CustSubscriptionID:       sub.CustSubscriptionID,
+		EventSubscriptionArn:     sub.EventSubscriptionArn,
+		SnsTopicARN:              sub.SnsTopicARN,
+		Status:                   sub.Status,
+		SourceType:               sub.SourceType,
+		SubscriptionCreationTime: sub.SubscriptionCreationTime,
+		SourceIDs:                xmlSourceIDList{Members: ids},
+		EventCategoriesList:      xmlEventCategoryItemList{Members: cats},
+		Enabled:                  sub.Enabled,
 	}
 }
 
@@ -2109,8 +2175,14 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 
 	return xmlGlobalCluster{
 		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
+		GlobalClusterArn:        gc.GlobalClusterArn,
+		GlobalClusterResourceID: gc.GlobalClusterResourceID,
 		Status:                  gc.Status,
+		Engine:                  gc.Engine,
+		EngineVersion:           gc.EngineVersion,
 		GlobalClusterMembers:    xmlGlobalClusterMemberList{Members: members},
+		StorageEncrypted:        gc.StorageEncrypted,
+		DeletionProtection:      gc.DeletionProtection,
 	}
 }
 
@@ -2199,6 +2271,8 @@ type xmlDBCluster struct {
 	AssociatedRoles                  xmlDBRoleList                     `xml:"AssociatedRoles,omitempty"`
 	DBClusterIdentifier              string                            `xml:"DBClusterIdentifier"`
 	DBClusterArn                     string                            `xml:"DBClusterArn,omitempty"`
+	DBClusterResourceID              string                            `xml:"DbClusterResourceId,omitempty"`
+	ClusterCreateTime                string                            `xml:"ClusterCreateTime,omitempty"`
 	Engine                           string                            `xml:"Engine"`
 	EngineVersion                    string                            `xml:"EngineVersion,omitempty"`
 	EngineMode                       string                            `xml:"EngineMode,omitempty"`
@@ -2399,6 +2473,7 @@ type createDBClusterParameterGroupResponse struct {
 }
 
 type describeDBClusterParameterGroupsResult struct {
+	Marker                   string                         `xml:"Marker,omitempty"`
 	DBClusterParameterGroups xmlDBClusterParameterGroupList `xml:"DBClusterParameterGroups"`
 }
 
@@ -2566,11 +2641,16 @@ type copyDBParameterGroupResponse struct {
 }
 
 type xmlDBClusterEndpoint struct {
-	DBClusterEndpointIdentifier string `xml:"DBClusterEndpointIdentifier"`
-	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
-	EndpointType                string `xml:"EndpointType"`
-	Status                      string `xml:"Status"`
-	Endpoint                    string `xml:"Endpoint,omitempty"`
+	DBClusterEndpointIdentifier         string          `xml:"DBClusterEndpointIdentifier"`
+	DBClusterIdentifier                 string          `xml:"DBClusterIdentifier"`
+	DBClusterEndpointArn                string          `xml:"DBClusterEndpointArn,omitempty"`
+	DBClusterEndpointResourceIdentifier string          `xml:"DBClusterEndpointResourceIdentifier,omitempty"`
+	EndpointType                        string          `xml:"EndpointType"`
+	CustomEndpointType                  string          `xml:"CustomEndpointType,omitempty"`
+	Status                              string          `xml:"Status"`
+	Endpoint                            string          `xml:"Endpoint,omitempty"`
+	StaticMembers                       xmlSourceIDList `xml:"StaticMembers"`
+	ExcludedMembers                     xmlSourceIDList `xml:"ExcludedMembers"`
 }
 
 type createDBClusterEndpointResponse struct {
@@ -2593,14 +2673,20 @@ type xmlSourceIDList struct {
 	Members []xmlSourceID `xml:"member"`
 }
 
+type xmlEventCategoryItemList struct {
+	Members []string `xml:"EventCategory"`
+}
+
 type xmlEventSubscription struct {
-	CustSubscriptionID   string          `xml:"CustSubscriptionId"`
-	EventSubscriptionArn string          `xml:"EventSubscriptionArn,omitempty"`
-	SnsTopicARN          string          `xml:"SnsTopicArn"`
-	Status               string          `xml:"Status"`
-	SourceType           string          `xml:"SourceType,omitempty"`
-	SourceIDs            xmlSourceIDList `xml:"SourceIdsList"`
-	Enabled              bool            `xml:"Enabled"`
+	CustSubscriptionID       string                   `xml:"CustSubscriptionId"`
+	EventSubscriptionArn     string                   `xml:"EventSubscriptionArn,omitempty"`
+	SnsTopicARN              string                   `xml:"SnsTopicArn"`
+	Status                   string                   `xml:"Status"`
+	SourceType               string                   `xml:"SourceType,omitempty"`
+	SubscriptionCreationTime string                   `xml:"SubscriptionCreationTime,omitempty"`
+	SourceIDs                xmlSourceIDList          `xml:"SourceIdsList"`
+	EventCategoriesList      xmlEventCategoryItemList `xml:"EventCategoriesList"`
+	Enabled                  bool                     `xml:"Enabled"`
 }
 
 type addSourceIdentifierToSubscriptionResponse struct {
@@ -2630,8 +2716,14 @@ type xmlGlobalClusterList struct {
 
 type xmlGlobalCluster struct {
 	GlobalClusterIdentifier string                     `xml:"GlobalClusterIdentifier"`
+	GlobalClusterArn        string                     `xml:"GlobalClusterArn,omitempty"`
+	GlobalClusterResourceID string                     `xml:"GlobalClusterResourceId,omitempty"`
 	Status                  string                     `xml:"Status"`
+	Engine                  string                     `xml:"Engine,omitempty"`
+	EngineVersion           string                     `xml:"EngineVersion,omitempty"`
 	GlobalClusterMembers    xmlGlobalClusterMemberList `xml:"GlobalClusterMembers"`
+	StorageEncrypted        bool                       `xml:"StorageEncrypted"`
+	DeletionProtection      bool                       `xml:"DeletionProtection"`
 }
 
 type createGlobalClusterResponse struct {
