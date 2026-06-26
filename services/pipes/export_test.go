@@ -33,7 +33,9 @@ func (b *InMemoryBackend) CreatePipeSimple(
 
 // ListPipesAll returns all pipes without filtering (test convenience).
 func (b *InMemoryBackend) ListPipesAll() []*Pipe {
-	return b.ListPipes(context.Background(), ListPipesFilter{}).Pipes
+	res, _ := b.ListPipes(context.Background(), ListPipesFilter{})
+
+	return res.Pipes
 }
 
 // EpochMillisForTest exposes epochMillis for direct unit testing of timestamp precision.
@@ -56,6 +58,23 @@ func WaitPipeRunning(t *testing.T, b *InMemoryBackend, name string) {
 	}
 
 	t.Fatalf("pipe %q did not reach RUNNING state within 500ms", name)
+}
+
+// WaitPipeStopped waits up to 500ms for a pipe to reach STOPPED state.
+func WaitPipeStopped(t *testing.T, b *InMemoryBackend, name string) {
+	t.Helper()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		p, err := b.GetPipe(context.Background(), name)
+		if err == nil && p.CurrentState == stateStopped {
+			return
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatalf("pipe %q did not reach STOPPED state within 500ms", name)
 }
 
 // EnrichmentCallCountForTest returns the enrichment call count for a pipe in the default region.

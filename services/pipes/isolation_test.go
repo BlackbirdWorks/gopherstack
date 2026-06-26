@@ -58,12 +58,14 @@ func TestPipesRegionIsolation(t *testing.T) {
 	assert.Equal(t, "us-west-2", westGet.Region)
 
 	// 3. ListPipes for each region returns exactly one pipe.
-	eastList := backend.ListPipes(ctxEast, ListPipesFilter{})
+	eastList, err := backend.ListPipes(ctxEast, ListPipesFilter{})
+	require.NoError(t, err)
 	require.Len(t, eastList.Pipes, 1)
 	assert.Equal(t, "shared-pipe", eastList.Pipes[0].Name)
 	assert.Equal(t, "us-east-1", eastList.Pipes[0].Region)
 
-	westList := backend.ListPipes(ctxWest, ListPipesFilter{})
+	westList, err := backend.ListPipes(ctxWest, ListPipesFilter{})
+	require.NoError(t, err)
 	require.Len(t, westList.Pipes, 1)
 	assert.Equal(t, "shared-pipe", westList.Pipes[0].Name)
 	assert.Equal(t, "us-west-2", westList.Pipes[0].Region)

@@ -595,8 +595,9 @@ func TestHandler_ValidationHTTP(t *testing.T) {
 			"DesiredState": "RUNNING",
 		})
 		rec := doPipesRequest(t, h2, http.MethodPost, "/v1/pipes/running-pipe/start", nil)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-		assert.Contains(t, rec.Body.String(), "ValidationException")
+		// Real AWS returns ConflictException (409) when the pipe is already RUNNING or in transition.
+		assert.Equal(t, http.StatusConflict, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ConflictException")
 	})
 }
 

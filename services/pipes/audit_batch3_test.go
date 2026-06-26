@@ -359,7 +359,8 @@ func TestBatch3_ListPipes_LexicographicOrder(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			result := b.ListPipes(context.Background(), pipes.ListPipesFilter{})
+			result, err := b.ListPipes(context.Background(), pipes.ListPipesFilter{})
+			require.NoError(t, err)
 			require.Len(t, result.Pipes, len(tt.pipeNames))
 
 			for i, p := range result.Pipes {
