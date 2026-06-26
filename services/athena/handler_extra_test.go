@@ -69,7 +69,7 @@ func capacityHandler(t *testing.T) *athena.Handler {
 
 	h := newTestHandler(t)
 	require.Equal(t, http.StatusOK,
-		doRequest(t, h, "CreateCapacityReservation", `{"Name":"cap1","TargetDpus":4}`).Code)
+		doRequest(t, h, "CreateCapacityReservation", `{"Name":"cap1","TargetDpus":24}`).Code)
 
 	return h
 }
@@ -762,7 +762,7 @@ func TestHandler_UpdateCapacityReservation(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			body:       `{"Name":"cap1","TargetDpus":8}`,
+			body:       `{"Name":"cap1","TargetDpus":30}`,
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -772,7 +772,7 @@ func TestHandler_UpdateCapacityReservation(t *testing.T) {
 		},
 		{
 			name:       "not_found",
-			body:       `{"Name":"missing","TargetDpus":2}`,
+			body:       `{"Name":"missing","TargetDpus":24}`,
 			wantStatus: http.StatusBadRequest,
 		},
 	}

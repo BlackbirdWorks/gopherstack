@@ -2215,7 +2215,7 @@ func TestHandler_CapacityReservation_LastAllocationStruct(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cap-test","TargetDpus":8}`)
+	_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cap-test","TargetDpus":24}`)
 
 	rec := doRequest(t, h, "GetCapacityReservation", `{"Name":"cap-test"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -2238,8 +2238,8 @@ func TestHandler_CapacityReservation_UpdateLastAllocation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cap-upd","TargetDpus":4}`)
-	_ = doRequest(t, h, "UpdateCapacityReservation", `{"Name":"cap-upd","TargetDpus":8}`)
+	_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cap-upd","TargetDpus":24}`)
+	_ = doRequest(t, h, "UpdateCapacityReservation", `{"Name":"cap-upd","TargetDpus":30}`)
 
 	rec := doRequest(t, h, "GetCapacityReservation", `{"Name":"cap-upd"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -2248,7 +2248,7 @@ func TestHandler_CapacityReservation_UpdateLastAllocation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	cr := resp["CapacityReservation"].(map[string]any)
 
-	assert.InDelta(t, float64(8), cr["TargetDpus"], 0.001)
+	assert.InDelta(t, float64(30), cr["TargetDpus"], 0.001)
 	lastAlloc := cr["LastAllocation"].(map[string]any)
 	assert.Equal(t, "SUCCEEDED", lastAlloc["Status"])
 }

@@ -278,21 +278,21 @@ type StorageBackend interface {
 	// WorkGroups
 	CreateWorkGroup(name, description, state string, cfg WorkGroupConfiguration, tags map[string]string) error
 	GetWorkGroup(name string) (*WorkGroup, error)
-	ListWorkGroups() ([]WorkGroupSummary, error)
+	ListWorkGroups(nextToken string, maxResults int) ([]*WorkGroupSummary, string, error)
 	UpdateWorkGroup(name, description, state string, cfg *WorkGroupConfiguration) error
 	DeleteWorkGroup(name string) error
 
 	// Named Queries
 	CreateNamedQuery(name, description, database, queryString, workGroup string) (string, error)
 	GetNamedQuery(id string) (*NamedQuery, error)
-	ListNamedQueries(workGroup string) ([]string, error)
+	ListNamedQueries(workGroup, nextToken string, maxResults int) ([]string, string, error)
 	BatchGetNamedQuery(ids []string) ([]NamedQuery, []UnprocessedNamedQueryID)
 	DeleteNamedQuery(id string) error
 
 	// Data Catalogs
 	CreateDataCatalog(name, catalogType, description, connectionType string, params, tags map[string]string) error
 	GetDataCatalog(name string) (*DataCatalog, error)
-	ListDataCatalogs() ([]DataCatalogSummary, error)
+	ListDataCatalogs(nextToken string, maxResults int) ([]*DataCatalogSummary, string, error)
 	UpdateDataCatalog(name, catalogType, description, connectionType string, params map[string]string) error
 	DeleteDataCatalog(name string) error
 
@@ -601,14 +601,14 @@ func (b *InMemoryBackend) GetWorkGroup(name string) (*WorkGroup, error) {
 	return &cp, nil
 }
 
-// ListWorkGroups returns summaries of all workgroups.
-func (b *InMemoryBackend) ListWorkGroups() ([]WorkGroupSummary, error) {
+// ListWorkGroups returns summaries of all workgroups with optional NextToken/MaxResults pagination.
+func (b *InMemoryBackend) ListWorkGroups(nextToken string, maxResults int) ([]*WorkGroupSummary, string, error) {
 	b.mu.RLock("ListWorkGroups")
 	defer b.mu.RUnlock()
 
-	result := make([]WorkGroupSummary, 0, len(b.workGroups))
+	all := make([]*WorkGroupSummary, 0, len(b.workGroups))
 	for _, wg := range b.workGroups {
-		sum := WorkGroupSummary{
+		sum := &WorkGroupSummary{
 			Name:         wg.Name,
 			Description:  wg.Description,
 			State:        wg.State,
@@ -618,14 +618,39 @@ func (b *InMemoryBackend) ListWorkGroups() ([]WorkGroupSummary, error) {
 			cp := ev
 			sum.EngineVersion = &cp
 		}
-		result = append(result, sum)
+		all = append(all, sum)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].Name < all[j].Name
 	})
 
-	return result, nil
+	const defaultMaxResults = 50
+	limit := defaultMaxResults
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, s := range all {
+			if s.Name == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	all = all[start:]
+
+	outToken := ""
+	if len(all) > limit {
+		outToken = all[limit].Name
+		all = all[:limit]
+	}
+
+	return all, outToken, nil
 }
 
 // UpdateWorkGroup updates an existing workgroup.
@@ -736,8 +761,8 @@ func (b *InMemoryBackend) GetNamedQuery(id string) (*NamedQuery, error) {
 	return &cp, nil
 }
 
-// ListNamedQueries returns named query IDs, optionally filtered by workgroup.
-func (b *InMemoryBackend) ListNamedQueries(workGroup string) ([]string, error) {
+// ListNamedQueries returns named query IDs, optionally filtered by workgroup, with pagination.
+func (b *InMemoryBackend) ListNamedQueries(workGroup, nextToken string, maxResults int) ([]string, string, error) {
 	b.mu.RLock("ListNamedQueries")
 	defer b.mu.RUnlock()
 
@@ -750,7 +775,32 @@ func (b *InMemoryBackend) ListNamedQueries(workGroup string) ([]string, error) {
 
 	sort.Strings(ids)
 
-	return ids, nil
+	const defaultMaxResults = 50
+	limit := defaultMaxResults
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, id := range ids {
+			if id == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	ids = ids[start:]
+
+	outToken := ""
+	if len(ids) > limit {
+		outToken = ids[limit]
+		ids = ids[:limit]
+	}
+
+	return ids, outToken, nil
 }
 
 // BatchGetNamedQuery retrieves multiple named queries by ID.
@@ -860,14 +910,14 @@ func (b *InMemoryBackend) GetDataCatalog(name string) (*DataCatalog, error) {
 	return &cp, nil
 }
 
-// ListDataCatalogs returns summaries of all data catalogs.
-func (b *InMemoryBackend) ListDataCatalogs() ([]DataCatalogSummary, error) {
+// ListDataCatalogs returns summaries of all data catalogs with optional NextToken/MaxResults pagination.
+func (b *InMemoryBackend) ListDataCatalogs(nextToken string, maxResults int) ([]*DataCatalogSummary, string, error) {
 	b.mu.RLock("ListDataCatalogs")
 	defer b.mu.RUnlock()
 
-	result := make([]DataCatalogSummary, 0, len(b.dataCatalogs))
+	all := make([]*DataCatalogSummary, 0, len(b.dataCatalogs))
 	for _, dc := range b.dataCatalogs {
-		result = append(result, DataCatalogSummary{
+		all = append(all, &DataCatalogSummary{
 			CatalogName:    dc.Name,
 			Type:           dc.Type,
 			ConnectionType: dc.ConnectionType,
@@ -876,11 +926,36 @@ func (b *InMemoryBackend) ListDataCatalogs() ([]DataCatalogSummary, error) {
 		})
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CatalogName < result[j].CatalogName
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CatalogName < all[j].CatalogName
 	})
 
-	return result, nil
+	const defaultMaxResults = 50
+	limit := defaultMaxResults
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, s := range all {
+			if s.CatalogName == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	all = all[start:]
+
+	outToken := ""
+	if len(all) > limit {
+		outToken = all[limit].CatalogName
+		all = all[:limit]
+	}
+
+	return all, outToken, nil
 }
 
 // UpdateDataCatalog updates an existing data catalog.
@@ -896,8 +971,8 @@ func (b *InMemoryBackend) UpdateDataCatalog(
 		return fmt.Errorf("%w: data catalog %q not found", ErrNotFound, name)
 	}
 
-	if catalogType != "" {
-		dc.Type = catalogType
+	if catalogType != "" && catalogType != dc.Type {
+		return fmt.Errorf("%w: cannot change the Type of an existing data catalog", ErrValidation)
 	}
 
 	if description != "" {
@@ -954,10 +1029,17 @@ func (b *InMemoryBackend) StartQueryExecution(
 
 	b.mu.Lock("StartQueryExecution")
 
-	if _, ok := b.workGroups[workGroup]; !ok {
+	wg, ok := b.workGroups[workGroup]
+	if !ok {
 		b.mu.Unlock()
 
 		return "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
+	}
+
+	if wg.State == "DISABLED" {
+		b.mu.Unlock()
+
+		return "", fmt.Errorf("%w: workgroup %q is disabled", ErrValidation, workGroup)
 	}
 
 	id := randomID()
@@ -1175,7 +1257,7 @@ func notebookNameKey(workGroup, name string) string {
 
 // canDeleteCapacityReservation reports whether a capacity reservation status allows deletion.
 func canDeleteCapacityReservation(status string) bool {
-	return status == stateCancelling || status == stateCancelled
+	return status == stateCancelled || status == stateCancelling
 }
 
 // --- Prepared Statements ---
@@ -1294,13 +1376,15 @@ func (b *InMemoryBackend) DeletePreparedStatement(name, workGroup string) error 
 
 // --- Capacity Reservations ---
 
+const minCapacityDPUs int32 = 24
+
 // CreateCapacityReservation creates a new capacity reservation.
 func (b *InMemoryBackend) CreateCapacityReservation(name string, targetDPUs int32, tags map[string]string) error {
 	switch {
 	case name == "":
 		return fmt.Errorf("%w: Name is required", ErrValidation)
-	case targetDPUs <= 0:
-		return fmt.Errorf("%w: TargetDpus must be greater than 0", ErrValidation)
+	case targetDPUs < minCapacityDPUs:
+		return fmt.Errorf("%w: TargetDpus minimum is 24", ErrValidation)
 	}
 
 	b.mu.Lock("CreateCapacityReservation")
@@ -1345,7 +1429,7 @@ func (b *InMemoryBackend) CancelCapacityReservation(name string) error {
 }
 
 // DeleteCapacityReservation removes a capacity reservation.
-// The reservation must have been cancelled first (status CANCELLING or CANCELLED).
+// The reservation must be in CANCELLING or CANCELLED status.
 func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
 	b.mu.Lock("DeleteCapacityReservation")
 	defer b.mu.Unlock()

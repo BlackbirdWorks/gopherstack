@@ -593,8 +593,9 @@ func (b *InMemoryBackend) ListCapacityReservations() ([]CapacityReservation, err
 
 // UpdateCapacityReservation changes the target DPUs of a capacity reservation.
 func (b *InMemoryBackend) UpdateCapacityReservation(name string, targetDPUs int32) error {
-	if targetDPUs <= 0 {
-		return fmt.Errorf("%w: TargetDpus must be greater than 0", ErrValidation)
+	const minDPUs = 24
+	if targetDPUs < minDPUs {
+		return fmt.Errorf("%w: TargetDpus minimum is 24", ErrValidation)
 	}
 
 	b.mu.Lock("UpdateCapacityReservation")
