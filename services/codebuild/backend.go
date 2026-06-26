@@ -173,6 +173,7 @@ type Project struct {
 	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
 	Arn                     string                 `json:"arn"`
 	Visibility              string                 `json:"projectVisibility,omitempty"`
+	PublicProjectAlias      string                 `json:"publicProjectAlias,omitempty"`
 	ResourceAccessRole      string                 `json:"resourceAccessRole,omitempty"`
 	Artifacts               ProjectArtifacts       `json:"artifacts"`
 	Source                  ProjectSource          `json:"source"`
@@ -334,12 +335,21 @@ type Sandbox struct {
 	EndTime     float64 `json:"endTime,omitempty"`
 }
 
+// WebhookFilter represents a single filter criterion in a webhook filter group.
+type WebhookFilter struct {
+	Type                  string `json:"type"`
+	Pattern               string `json:"pattern"`
+	ExcludeMatchedPattern bool   `json:"excludeMatchedPattern,omitempty"`
+}
+
 // Webhook represents an in-memory AWS CodeBuild webhook.
 type Webhook struct {
-	ProjectName  string `json:"projectName"`
-	URL          string `json:"url,omitempty"`
-	BranchFilter string `json:"branchFilter,omitempty"`
-	BuildType    string `json:"buildType,omitempty"`
+	ProjectName  string            `json:"projectName"`
+	URL          string            `json:"url,omitempty"`
+	BranchFilter string            `json:"branchFilter,omitempty"`
+	BuildType    string            `json:"buildType,omitempty"`
+	PayloadURL   string            `json:"payloadUrl,omitempty"`
+	FilterGroups [][]WebhookFilter `json:"filterGroups,omitempty"`
 }
 
 // SourceCredentials represents imported source credentials.
@@ -376,6 +386,7 @@ type InMemoryBackend struct {
 	reportGroupARNIndex map[string]string              // ARN → name
 	reports             map[string]*Report             // ARN → Report
 	buildBatches        map[string]*BuildBatch         // ID → BuildBatch
+	batchARNIndex       map[string]string              // ARN → batch ID
 	commandExecutions   map[string]*CommandExecution   // ID → CommandExecution
 	sandboxes           map[string]*Sandbox            // ID → Sandbox
 	webhooks            map[string]*Webhook            // projectName → Webhook
@@ -404,6 +415,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		reportGroupARNIndex: make(map[string]string),
 		reports:             make(map[string]*Report),
 		buildBatches:        make(map[string]*BuildBatch),
+		batchARNIndex:       make(map[string]string),
 		commandExecutions:   make(map[string]*CommandExecution),
 		sandboxes:           make(map[string]*Sandbox),
 		webhooks:            make(map[string]*Webhook),
@@ -438,6 +450,7 @@ func (b *InMemoryBackend) Reset() {
 	b.reportGroupARNIndex = make(map[string]string)
 	b.reports = make(map[string]*Report)
 	b.buildBatches = make(map[string]*BuildBatch)
+	b.batchARNIndex = make(map[string]string)
 	b.commandExecutions = make(map[string]*CommandExecution)
 	b.sandboxes = make(map[string]*Sandbox)
 	b.webhooks = make(map[string]*Webhook)
@@ -455,6 +468,10 @@ func (b *InMemoryBackend) buildProjectARN(name string) string {
 
 func (b *InMemoryBackend) buildBuildARN(projectName, buildID string) string {
 	return arn.Build("codebuild", b.region, b.accountID, "build/"+projectName+":"+buildID)
+}
+
+func (b *InMemoryBackend) buildBatchARN(projectName, batchID string) string {
+	return arn.Build("codebuild", b.region, b.accountID, "build-batch/"+projectName+":"+batchID)
 }
 
 func randomID() string {
@@ -729,9 +746,80 @@ func (b *InMemoryBackend) ListProjects() []string {
 	return names
 }
 
-// StartBuild creates a new build for the given project, copying environment/source/artifacts from the project.
-// envOverrides replaces project-level env vars by name and appends new ones, matching real AWS StartBuild semantics.
-func (b *InMemoryBackend) StartBuild(projectName string, envOverrides []EnvironmentVariable) (*Build, error) {
+// StartBuildConfig holds override parameters for a StartBuild call.
+type StartBuildConfig struct {
+	BuildspecOverride        string
+	ComputeTypeOverride      string
+	ImageOverride            string
+	ServiceRoleOverride      string
+	SourceVersion            string
+	EnvVarsOverride          []EnvironmentVariable
+	TimeoutInMinutesOverride int32
+	DebugSessionEnabled      bool
+}
+
+// applyBuildOverrides applies a StartBuildConfig to copies of the project's env/source and returns
+// the resulting environment, source, service role, and timeout for the new build.
+func applyBuildOverrides(proj *Project, cfg StartBuildConfig) (ProjectEnvironment, ProjectSource, string, int32) {
+	env := proj.Environment
+	src := proj.Source
+
+	if len(cfg.EnvVarsOverride) > 0 {
+		merged := make([]EnvironmentVariable, 0, len(env.EnvironmentVariables)+len(cfg.EnvVarsOverride))
+		merged = append(merged, env.EnvironmentVariables...)
+
+		for _, ov := range cfg.EnvVarsOverride {
+			replaced := false
+
+			for i, ev := range merged {
+				if ev.Name == ov.Name {
+					merged[i] = ov
+					replaced = true
+
+					break
+				}
+			}
+
+			if !replaced {
+				merged = append(merged, ov)
+			}
+		}
+
+		env.EnvironmentVariables = merged
+	}
+
+	if cfg.ComputeTypeOverride != "" {
+		env.ComputeType = cfg.ComputeTypeOverride
+	}
+
+	if cfg.ImageOverride != "" {
+		env.Image = cfg.ImageOverride
+	}
+
+	if cfg.BuildspecOverride != "" {
+		src.Buildspec = cfg.BuildspecOverride
+	}
+
+	if cfg.SourceVersion != "" {
+		src.Location = cfg.SourceVersion
+	}
+
+	serviceRole := proj.ServiceRole
+	if cfg.ServiceRoleOverride != "" {
+		serviceRole = cfg.ServiceRoleOverride
+	}
+
+	timeoutInMinutes := proj.TimeoutInMinutes
+	if cfg.TimeoutInMinutesOverride > 0 {
+		timeoutInMinutes = cfg.TimeoutInMinutesOverride
+	}
+
+	return env, src, serviceRole, timeoutInMinutes
+}
+
+// StartBuild creates a new build for the given project.
+// Env var overrides follow real AWS merge semantics: same-name vars are replaced, new ones appended.
+func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (*Build, error) {
 	b.mu.Lock("StartBuild")
 	defer b.mu.Unlock()
 
@@ -744,29 +832,8 @@ func (b *InMemoryBackend) StartBuild(projectName string, envOverrides []Environm
 	fullID := projectName + ":" + buildID
 	now := float64(time.Now().Unix())
 
-	env := proj.Environment
-	src := proj.Source
+	env, src, serviceRole, timeoutInMinutes := applyBuildOverrides(proj, cfg)
 	artifacts := proj.Artifacts
-
-	if len(envOverrides) > 0 {
-		merged := make([]EnvironmentVariable, 0, len(env.EnvironmentVariables)+len(envOverrides))
-		merged = append(merged, env.EnvironmentVariables...)
-		for _, ov := range envOverrides {
-			replaced := false
-			for i, ev := range merged {
-				if ev.Name == ov.Name {
-					merged[i] = ov
-					replaced = true
-
-					break
-				}
-			}
-			if !replaced {
-				merged = append(merged, ov)
-			}
-		}
-		env.EnvironmentVariables = merged
-	}
 
 	build := &Build{
 		ID:                     fullID,
@@ -775,9 +842,9 @@ func (b *InMemoryBackend) StartBuild(projectName string, envOverrides []Environm
 		BuildStatus:            buildStatusInProgress,
 		StartTime:              now,
 		CurrentPhase:           phaseSubmitted,
-		ServiceRole:            proj.ServiceRole,
+		ServiceRole:            serviceRole,
 		EncryptionKey:          proj.EncryptionKey,
-		TimeoutInMinutes:       proj.TimeoutInMinutes,
+		TimeoutInMinutes:       timeoutInMinutes,
 		QueuedTimeoutInMinutes: proj.QueuedTimeoutInMinutes,
 		Environment:            &env,
 		Source:                 &src,
@@ -798,7 +865,7 @@ func (b *InMemoryBackend) StartBuild(projectName string, envOverrides []Environm
 	return &out, nil
 }
 
-// BatchGetBuilds returns builds by ID. Missing IDs are returned separately.
+// BatchGetBuilds returns builds by ID or ARN. Missing IDs are returned separately.
 func (b *InMemoryBackend) BatchGetBuilds(ids []string) ([]*Build, []string) {
 	b.mu.RLock("BatchGetBuilds")
 	defer b.mu.RUnlock()
@@ -807,7 +874,12 @@ func (b *InMemoryBackend) BatchGetBuilds(ids []string) ([]*Build, []string) {
 	notFound := make([]string, 0, len(ids))
 
 	for _, id := range ids {
-		if build, ok := b.builds[id]; ok {
+		lookupID := id
+		if resolvedID, ok := b.buildARNIndex[id]; ok {
+			lookupID = resolvedID
+		}
+
+		if build, ok := b.builds[lookupID]; ok {
 			out := *build
 			found = append(found, &out)
 		} else {
@@ -875,7 +947,8 @@ func (b *InMemoryBackend) BatchDeleteBuilds(ids []string) []string {
 	return deleted
 }
 
-// RetryBuild creates a new build for the same project as an existing build.
+// RetryBuild creates a new build for the same project, inheriting configuration from the
+// existing build (environment, source, artifacts, role, timeouts) matching real AWS semantics.
 func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 	b.mu.Lock("RetryBuild")
 	defer b.mu.Unlock()
@@ -892,13 +965,25 @@ func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 
 	buildID := randomID()
 	fullID := projectName + ":" + buildID
+	now := float64(time.Now().Unix())
+
 	build := &Build{
-		ID:           fullID,
-		Arn:          b.buildBuildARN(projectName, buildID),
-		ProjectName:  projectName,
-		BuildStatus:  buildStatusInProgress,
-		StartTime:    float64(time.Now().Unix()),
-		CurrentPhase: phaseSubmitted,
+		ID:                     fullID,
+		Arn:                    b.buildBuildARN(projectName, buildID),
+		ProjectName:            projectName,
+		BuildStatus:            buildStatusInProgress,
+		StartTime:              now,
+		CurrentPhase:           phaseSubmitted,
+		ServiceRole:            existing.ServiceRole,
+		EncryptionKey:          existing.EncryptionKey,
+		TimeoutInMinutes:       existing.TimeoutInMinutes,
+		QueuedTimeoutInMinutes: existing.QueuedTimeoutInMinutes,
+		Environment:            existing.Environment,
+		Source:                 existing.Source,
+		Artifacts:              existing.Artifacts,
+		Phases: []BuildPhase{
+			{PhaseType: phaseSubmitted, PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now},
+		},
 	}
 	b.builds[fullID] = build
 	b.buildARNIndex[build.Arn] = fullID
@@ -1393,14 +1478,17 @@ func (b *InMemoryBackend) StartBuildBatch(projectName string) (*BuildBatch, erro
 		return nil, ErrNotFound
 	}
 
-	id := projectName + ":" + uuid.NewString()
+	batchID := uuid.NewString()
+	id := projectName + ":" + batchID
 	bb := &BuildBatch{
 		ID:               id,
+		Arn:              b.buildBatchARN(projectName, batchID),
 		ProjectName:      projectName,
 		BuildBatchStatus: buildStatusInProgress,
 		StartTime:        float64(time.Now().Unix()),
 	}
 	b.buildBatches[id] = bb
+	b.batchARNIndex[bb.Arn] = id
 
 	if b.batchesByProject[projectName] == nil {
 		b.batchesByProject[projectName] = make(map[string]struct{})
@@ -1656,7 +1744,9 @@ func (b *InMemoryBackend) DeleteWebhook(projectName string) error {
 }
 
 // UpdateWebhook updates the branchFilter and buildType of an existing webhook.
-func (b *InMemoryBackend) UpdateWebhook(projectName, branchFilter, buildType string) (*Webhook, error) {
+func (b *InMemoryBackend) UpdateWebhook(
+	projectName, branchFilter, buildType string, filterGroups [][]WebhookFilter,
+) (*Webhook, error) {
 	b.mu.Lock("UpdateWebhook")
 	defer b.mu.Unlock()
 
@@ -1667,6 +1757,11 @@ func (b *InMemoryBackend) UpdateWebhook(projectName, branchFilter, buildType str
 
 	w.BranchFilter = branchFilter
 	w.BuildType = buildType
+
+	if filterGroups != nil {
+		w.FilterGroups = filterGroups
+	}
+
 	out := *w
 
 	return &out, nil
@@ -1713,6 +1808,7 @@ func (b *InMemoryBackend) DeleteBuildBatch(id string) error {
 		delete(set, id)
 	}
 
+	delete(b.batchARNIndex, bb.Arn)
 	delete(b.buildBatches, id)
 
 	return nil
@@ -1749,14 +1845,17 @@ func (b *InMemoryBackend) RetryBuildBatch(id string) (*BuildBatch, error) {
 	}
 
 	projectName := existing.ProjectName
-	newID := projectName + ":" + uuid.NewString()
+	batchID := uuid.NewString()
+	newID := projectName + ":" + batchID
 	bb := &BuildBatch{
 		ID:               newID,
+		Arn:              b.buildBatchARN(projectName, batchID),
 		ProjectName:      projectName,
 		BuildBatchStatus: buildStatusInProgress,
 		StartTime:        float64(time.Now().Unix()),
 	}
 	b.buildBatches[newID] = bb
+	b.batchARNIndex[bb.Arn] = newID
 
 	if b.batchesByProject[projectName] == nil {
 		b.batchesByProject[projectName] = make(map[string]struct{})
@@ -1836,8 +1935,9 @@ func (b *InMemoryBackend) ListSandboxesForProject(projectName string) ([]string,
 
 // --- Extended CommandExecution operations ---
 
-// ListCommandExecutionsForSandbox returns all command execution IDs for a sandbox in sorted order.
-func (b *InMemoryBackend) ListCommandExecutionsForSandbox(sandboxID string) ([]string, error) {
+// ListCommandExecutionsForSandbox returns all command executions for a sandbox.
+// Real AWS returns full CommandExecution objects, not just IDs.
+func (b *InMemoryBackend) ListCommandExecutionsForSandbox(sandboxID string) ([]*CommandExecution, error) {
 	b.mu.RLock("ListCommandExecutionsForSandbox")
 	defer b.mu.RUnlock()
 
@@ -1847,25 +1947,43 @@ func (b *InMemoryBackend) ListCommandExecutionsForSandbox(sandboxID string) ([]s
 
 	set := b.commandsBySandbox[sandboxID]
 	ids := collections.SortedKeys(set)
+	out := make([]*CommandExecution, 0, len(ids))
 
-	return ids, nil
+	for _, id := range ids {
+		if ce, ok := b.commandExecutions[id]; ok {
+			cp := *ce
+			out = append(out, &cp)
+		}
+	}
+
+	return out, nil
 }
 
 // --- Extended Project operations ---
 
 // UpdateProjectVisibility sets the visibility of a project by ARN.
-func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility string) error {
+// Returns the publicProjectAlias (non-empty only when visibility is PUBLIC_READ).
+func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility string) (string, error) {
 	b.mu.Lock("UpdateProjectVisibility")
 	defer b.mu.Unlock()
 
 	name, ok := b.projectARNIndex[projectArn]
 	if !ok {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 
-	b.projects[name].Visibility = visibility
+	p := b.projects[name]
+	p.Visibility = visibility
 
-	return nil
+	if visibility == "PUBLIC_READ" {
+		if p.PublicProjectAlias == "" {
+			p.PublicProjectAlias = uuid.NewString()
+		}
+	} else {
+		p.PublicProjectAlias = ""
+	}
+
+	return p.PublicProjectAlias, nil
 }
 
 // InvalidateProjectCache is a no-op cache invalidation (returns ErrNotFound if project missing).
@@ -1927,7 +2045,9 @@ func (b *InMemoryBackend) ListCuratedEnvironmentImages() []map[string]any {
 // --- Webhook operations ---
 
 // CreateWebhook creates a webhook for a CodeBuild project.
-func (b *InMemoryBackend) CreateWebhook(projectName, branchFilter, buildType string) (*Webhook, error) {
+func (b *InMemoryBackend) CreateWebhook(
+	projectName, branchFilter, buildType string, filterGroups [][]WebhookFilter,
+) (*Webhook, error) {
 	b.mu.Lock("CreateWebhook")
 	defer b.mu.Unlock()
 
@@ -1942,8 +2062,10 @@ func (b *InMemoryBackend) CreateWebhook(projectName, branchFilter, buildType str
 	w := &Webhook{
 		ProjectName:  projectName,
 		URL:          b.buildWebhookURL(projectName),
+		PayloadURL:   b.buildWebhookURL(projectName),
 		BranchFilter: branchFilter,
 		BuildType:    buildType,
+		FilterGroups: filterGroups,
 	}
 	b.webhooks[projectName] = w
 

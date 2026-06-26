@@ -487,8 +487,17 @@ func (h *Handler) handleListProjects(
 // --- Build operations ---
 
 type startBuildInput struct {
+	ArtifactsOverride            *ProjectArtifacts     `json:"artifactsOverride,omitempty"`
 	ProjectName                  string                `json:"projectName"`
-	EnvironmentVariablesOverride []EnvironmentVariable `json:"environmentVariablesOverride"`
+	BuildspecOverride            string                `json:"buildspecOverride,omitempty"`
+	ComputeTypeOverride          string                `json:"computeTypeOverride,omitempty"`
+	ImageOverride                string                `json:"imageOverride,omitempty"`
+	ServiceRoleOverride          string                `json:"serviceRoleOverride,omitempty"`
+	SourceVersion                string                `json:"sourceVersion,omitempty"`
+	IdempotencyToken             string                `json:"idempotencyToken,omitempty"`
+	EnvironmentVariablesOverride []EnvironmentVariable `json:"environmentVariablesOverride,omitempty"`
+	TimeoutInMinutesOverride     int32                 `json:"timeoutInMinutesOverride,omitempty"`
+	DebugSessionEnabled          bool                  `json:"debugSessionEnabled,omitempty"`
 }
 
 type startBuildOutput struct {
@@ -503,7 +512,16 @@ func (h *Handler) handleStartBuild(
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	build, err := h.Backend.StartBuild(in.ProjectName, in.EnvironmentVariablesOverride)
+	build, err := h.Backend.StartBuild(in.ProjectName, StartBuildConfig{
+		EnvVarsOverride:          in.EnvironmentVariablesOverride,
+		BuildspecOverride:        in.BuildspecOverride,
+		ComputeTypeOverride:      in.ComputeTypeOverride,
+		ImageOverride:            in.ImageOverride,
+		ServiceRoleOverride:      in.ServiceRoleOverride,
+		SourceVersion:            in.SourceVersion,
+		TimeoutInMinutesOverride: in.TimeoutInMinutesOverride,
+		DebugSessionEnabled:      in.DebugSessionEnabled,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -596,8 +614,14 @@ type batchDeleteBuildsInput struct {
 	IDs []string `json:"ids"`
 }
 
+type buildNotDeleted struct {
+	ID         string `json:"id"`
+	StatusCode string `json:"statusCode"`
+}
+
 type batchDeleteBuildsOutput struct {
-	BuildsDeleted []string `json:"buildsDeleted"`
+	BuildsDeleted    []string          `json:"buildsDeleted"`
+	BuildsNotDeleted []buildNotDeleted `json:"buildsNotDeleted"`
 }
 
 func (h *Handler) handleBatchDeleteBuilds(
@@ -605,12 +629,31 @@ func (h *Handler) handleBatchDeleteBuilds(
 	in *batchDeleteBuildsInput,
 ) (*batchDeleteBuildsOutput, error) {
 	if len(in.IDs) == 0 {
-		return &batchDeleteBuildsOutput{BuildsDeleted: []string{}}, nil
+		return &batchDeleteBuildsOutput{
+			BuildsDeleted:    []string{},
+			BuildsNotDeleted: []buildNotDeleted{},
+		}, nil
 	}
 
 	deleted := h.Backend.BatchDeleteBuilds(in.IDs)
+	deletedSet := make(map[string]struct{}, len(deleted))
 
-	return &batchDeleteBuildsOutput{BuildsDeleted: deleted}, nil
+	for _, id := range deleted {
+		deletedSet[id] = struct{}{}
+	}
+
+	notDeleted := make([]buildNotDeleted, 0)
+
+	for _, id := range in.IDs {
+		if _, ok := deletedSet[id]; !ok {
+			notDeleted = append(notDeleted, buildNotDeleted{ID: id, StatusCode: "BUILD_ID_NOT_FOUND"})
+		}
+	}
+
+	return &batchDeleteBuildsOutput{
+		BuildsDeleted:    deleted,
+		BuildsNotDeleted: notDeleted,
+	}, nil
 }
 
 type retryBuildInput struct {
@@ -910,9 +953,10 @@ func (h *Handler) handleBatchGetSandboxes(
 // --- Webhook operations ---
 
 type createWebhookInput struct {
-	ProjectName  string `json:"projectName"`
-	BranchFilter string `json:"branchFilter"`
-	BuildType    string `json:"buildType"`
+	ProjectName  string            `json:"projectName"`
+	BranchFilter string            `json:"branchFilter,omitempty"`
+	BuildType    string            `json:"buildType,omitempty"`
+	FilterGroups [][]WebhookFilter `json:"filterGroups,omitempty"`
 }
 
 type createWebhookOutput struct {
@@ -927,7 +971,7 @@ func (h *Handler) handleCreateWebhook(
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.CreateWebhook(in.ProjectName, in.BranchFilter, in.BuildType)
+	w, err := h.Backend.CreateWebhook(in.ProjectName, in.BranchFilter, in.BuildType, in.FilterGroups)
 	if err != nil {
 		return nil, err
 	}
@@ -1268,7 +1312,7 @@ type listCommandExecutionsForSandboxInput struct {
 }
 
 type listCommandExecutionsForSandboxOutput struct {
-	CommandExecutions []string `json:"commandExecutions"`
+	CommandExecutions []*CommandExecution `json:"commandExecutions"`
 }
 
 func (h *Handler) handleListCommandExecutionsForSandbox(
@@ -1279,12 +1323,12 @@ func (h *Handler) handleListCommandExecutionsForSandbox(
 		return nil, fmt.Errorf("%w: sandboxId is required", errInvalidRequest)
 	}
 
-	ids, err := h.Backend.ListCommandExecutionsForSandbox(in.SandboxID)
+	ces, err := h.Backend.ListCommandExecutionsForSandbox(in.SandboxID)
 	if err != nil {
 		return nil, err
 	}
 
-	return &listCommandExecutionsForSandboxOutput{CommandExecutions: ids}, nil
+	return &listCommandExecutionsForSandboxOutput{CommandExecutions: ces}, nil
 }
 
 type listCuratedEnvironmentImagesInput struct{}
@@ -1630,8 +1674,9 @@ type updateProjectVisibilityInput struct {
 }
 
 type updateProjectVisibilityOutput struct {
-	ProjectArn        string `json:"projectArn"`
-	ProjectVisibility string `json:"projectVisibility"`
+	ProjectArn         string `json:"projectArn"`
+	ProjectVisibility  string `json:"projectVisibility"`
+	PublicProjectAlias string `json:"publicProjectAlias,omitempty"`
 }
 
 func (h *Handler) handleUpdateProjectVisibility(
@@ -1642,13 +1687,15 @@ func (h *Handler) handleUpdateProjectVisibility(
 		return nil, fmt.Errorf("%w: projectArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UpdateProjectVisibility(in.ProjectArn, in.ProjectVisibility); err != nil {
+	alias, err := h.Backend.UpdateProjectVisibility(in.ProjectArn, in.ProjectVisibility)
+	if err != nil {
 		return nil, err
 	}
 
 	return &updateProjectVisibilityOutput{
-		ProjectArn:        in.ProjectArn,
-		ProjectVisibility: in.ProjectVisibility,
+		ProjectArn:         in.ProjectArn,
+		ProjectVisibility:  in.ProjectVisibility,
+		PublicProjectAlias: alias,
 	}, nil
 }
 
@@ -1678,9 +1725,10 @@ func (h *Handler) handleUpdateReportGroup(
 }
 
 type updateWebhookInput struct {
-	ProjectName  string `json:"projectName"`
-	BranchFilter string `json:"branchFilter"`
-	BuildType    string `json:"buildType"`
+	ProjectName  string            `json:"projectName"`
+	BranchFilter string            `json:"branchFilter,omitempty"`
+	BuildType    string            `json:"buildType,omitempty"`
+	FilterGroups [][]WebhookFilter `json:"filterGroups,omitempty"`
 }
 
 type updateWebhookOutput struct {
@@ -1692,7 +1740,7 @@ func (h *Handler) handleUpdateWebhook(_ context.Context, in *updateWebhookInput)
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.UpdateWebhook(in.ProjectName, in.BranchFilter, in.BuildType)
+	w, err := h.Backend.UpdateWebhook(in.ProjectName, in.BranchFilter, in.BuildType, in.FilterGroups)
 	if err != nil {
 		return nil, err
 	}

@@ -101,7 +101,7 @@ func TestJanitor_SweepCompletedBuilds(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			build, err := backend.StartBuild("proj", nil)
+			build, err := backend.StartBuild("proj", codebuild.StartBuildConfig{})
 			require.NoError(t, err)
 
 			if tt.endOffset != 0 {
@@ -145,10 +145,10 @@ func TestDeleteProject_CleanupBuilds(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = backend.StartBuild("proj", nil)
+	_, err = backend.StartBuild("proj", codebuild.StartBuildConfig{})
 	require.NoError(t, err)
 
-	_, err = backend.StartBuild("proj", nil)
+	_, err = backend.StartBuild("proj", codebuild.StartBuildConfig{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, backend.BuildCount(), "should have 2 builds before delete")
@@ -181,7 +181,7 @@ func TestJanitor_SweepCleansARNIndex(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	build, err := backend.StartBuild("proj", nil)
+	build, err := backend.StartBuild("proj", codebuild.StartBuildConfig{})
 	require.NoError(t, err)
 
 	// Mark build as terminal and past the TTL.
