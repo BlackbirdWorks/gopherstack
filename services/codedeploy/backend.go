@@ -20,6 +20,7 @@ import (
 
 const (
 	statusSucceeded       = "Succeeded"
+	statusStopped         = "Stopped"
 	computePlatformServer = "Server"
 	computePlatformLambda = "Lambda"
 	computePlatformECS    = "ECS"
@@ -221,22 +222,52 @@ type DeploymentGroup struct {
 	TerminationHookEnabled           bool                              `json:"terminationHookEnabled,omitempty"`
 }
 
+// RevisionS3Location holds the S3 location fields for a deployment revision.
+type RevisionS3Location struct {
+	Bucket     string `json:"bucket,omitempty"`
+	Key        string `json:"key,omitempty"`
+	BundleType string `json:"bundleType,omitempty"`
+	ETag       string `json:"eTag,omitempty"`
+	Version    string `json:"version,omitempty"`
+}
+
+// RevisionGitHubLocation holds the GitHub location fields for a deployment revision.
+type RevisionGitHubLocation struct {
+	Repository string `json:"repository,omitempty"`
+	CommitID   string `json:"commitId,omitempty"`
+}
+
+// RevisionAppSpecContent holds the AppSpec content for a string/AppSpecContent revision.
+type RevisionAppSpecContent struct {
+	Content string `json:"content,omitempty"`
+	Sha256  string `json:"sha256,omitempty"`
+}
+
+// RevisionLocation represents a deployment revision source location.
+type RevisionLocation struct {
+	S3Location     *RevisionS3Location     `json:"s3Location,omitempty"`
+	GitHubLocation *RevisionGitHubLocation `json:"gitHubLocation,omitempty"`
+	AppSpecContent *RevisionAppSpecContent `json:"appSpecContent,omitempty"`
+	RevisionType   string                  `json:"revisionType,omitempty"`
+}
+
 // Deployment represents a CodeDeploy deployment.
 type Deployment struct {
-	CreateTime                    time.Time  `json:"createTime"`
-	CompleteTime                  *time.Time `json:"completeTime,omitempty"`
-	Status                        string     `json:"status"`
-	ApplicationName               string     `json:"applicationName"`
-	DeploymentGroupName           string     `json:"deploymentGroupName"`
-	DeploymentConfigName          string     `json:"deploymentConfigName"`
-	DeploymentID                  string     `json:"deploymentId"`
-	Creator                       string     `json:"creator"`
-	Description                   string     `json:"description,omitempty"`
-	FileExistsBehavior            string     `json:"fileExistsBehavior,omitempty"`
-	AccountID                     string     `json:"-"`
-	Region                        string     `json:"-"`
-	UpdateOutdatedInstancesOnly   bool       `json:"updateOutdatedInstancesOnly,omitempty"`
-	IgnoreApplicationStopFailures bool       `json:"ignoreApplicationStopFailures,omitempty"`
+	CreateTime                    time.Time         `json:"createTime"`
+	CompleteTime                  *time.Time        `json:"completeTime,omitempty"`
+	Revision                      *RevisionLocation `json:"revision,omitempty"`
+	Status                        string            `json:"status"`
+	ApplicationName               string            `json:"applicationName"`
+	DeploymentGroupName           string            `json:"deploymentGroupName"`
+	DeploymentConfigName          string            `json:"deploymentConfigName"`
+	DeploymentID                  string            `json:"deploymentId"`
+	Creator                       string            `json:"creator"`
+	Description                   string            `json:"description,omitempty"`
+	FileExistsBehavior            string            `json:"fileExistsBehavior,omitempty"`
+	AccountID                     string            `json:"-"`
+	Region                        string            `json:"-"`
+	UpdateOutdatedInstancesOnly   bool              `json:"updateOutdatedInstancesOnly,omitempty"`
+	IgnoreApplicationStopFailures bool              `json:"ignoreApplicationStopFailures,omitempty"`
 }
 
 // OnPremisesInstance represents an on-premises instance registered with CodeDeploy.
@@ -828,6 +859,7 @@ func (b *InMemoryBackend) DeleteDeploymentGroup(appName, dgName string) error {
 
 // DeploymentOptions holds optional per-deployment settings.
 type DeploymentOptions struct {
+	Revision                      *RevisionLocation
 	FileExistsBehavior            string
 	Description                   string
 	Creator                       string
@@ -873,6 +905,7 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		FileExistsBehavior:            opts.FileExistsBehavior,
 		UpdateOutdatedInstancesOnly:   opts.UpdateOutdatedInstancesOnly,
 		IgnoreApplicationStopFailures: opts.IgnoreApplicationStopFailures,
+		Revision:                      opts.Revision,
 		CreateTime:                    now,
 		CompleteTime:                  &completed,
 		AccountID:                     b.accountID,
@@ -1493,7 +1526,7 @@ func (b *InMemoryBackend) StopDeployment(deploymentID string) error {
 		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
-	d.Status = "Stopped"
+	d.Status = statusStopped
 
 	return nil
 }
