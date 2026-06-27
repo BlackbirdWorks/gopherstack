@@ -44,7 +44,7 @@ func TestOpsB2_CreateCliToken_RequiresAvailable(t *testing.T) {
 			env := b.AddEnvironmentInternal("cli-state-env-" + tt.name)
 			env.Status = tt.status
 
-			_, err := b.CreateCliToken(context.Background(), "cli-state-env-"+tt.name)
+			_, _, err := b.CreateCliToken(context.Background(), "cli-state-env-"+tt.name)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound,
@@ -98,7 +98,7 @@ func TestOpsB2_CreateWebLoginToken_RequiresAvailable(t *testing.T) {
 			env := b.AddEnvironmentInternal("web-state-env-" + tt.name)
 			env.Status = tt.status
 
-			_, err := b.CreateWebLoginToken(context.Background(), "web-state-env-"+tt.name)
+			_, _, err := b.CreateWebLoginToken(context.Background(), "web-state-env-"+tt.name)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound,

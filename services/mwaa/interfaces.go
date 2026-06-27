@@ -24,9 +24,9 @@ type StorageBackend interface {
 	PublishMetrics(ctx context.Context, envName string, req *publishMetricsRequest) error
 	GetMetrics(ctx context.Context, envName string) ([]MetricDatum, error)
 
-	// Token operations
-	CreateCliToken(ctx context.Context, envName string) (string, error)
-	CreateWebLoginToken(ctx context.Context, envName string) (string, error)
+	// Token operations — return (token, webserverHostname, error).
+	CreateCliToken(ctx context.Context, envName string) (string, string, error)
+	CreateWebLoginToken(ctx context.Context, envName string) (string, string, error)
 
 	// Lifecycle
 	Reset()
