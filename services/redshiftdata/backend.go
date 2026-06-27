@@ -121,6 +121,30 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 	return defaultRegion
 }
 
+// SQLParameter is a named SQL parameter for use in parameterized queries, matching
+// the SQLParameter type in the AWS Redshift Data API.
+type SQLParameter struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// sqlHasResultSet reports whether a SQL statement produces a result set.
+// Real AWS sets HasResultSet=true only for read-only statements (SELECT, SHOW,
+// EXPLAIN, DESCRIBE, WITH, VALUES, TABLE). DML and DDL return false.
+func sqlHasResultSet(sql string) bool {
+	fields := strings.Fields(strings.ToUpper(sql))
+	if len(fields) == 0 {
+		return false
+	}
+
+	switch fields[0] {
+	case "SELECT", "SHOW", "EXPLAIN", "DESCRIBE", "WITH", "VALUES", "TABLE":
+		return true
+	}
+
+	return false
+}
+
 // SubStatementData represents a single sub-statement within a batch, matching
 // the SubStatementData shape returned by AWS DescribeStatement for batch runs.
 type SubStatementData struct {
@@ -152,6 +176,7 @@ type Statement struct {
 	Status            string             `json:"status"`
 	Error             string             `json:"error"`
 	QueryStrings      []string           `json:"queryStrings"`
+	Parameters        []SQLParameter     `json:"parameters,omitempty"`
 	SubStatements     []SubStatementData `json:"subStatements,omitempty"`
 	// DurationMs is the total wall-clock execution time in milliseconds. Populated
 	// when the statement reaches a terminal state (FINISHED / FAILED / ABORTED).
@@ -281,6 +306,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 	ctx context.Context,
 	sql, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
 	withEvent bool, resultFormat string,
+	parameters []SQLParameter,
 ) (*Statement, error) {
 	if sql == "" {
 		return nil, fmt.Errorf("%w: Sql is required", ErrValidation)
@@ -300,6 +326,8 @@ func (b *InMemoryBackend) ExecuteStatement(
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
 
+	hasResultSet := sqlHasResultSet(sql)
+
 	now := time.Now()
 	stmt := &Statement{
 		ID:                uuid.NewString(),
@@ -311,8 +339,9 @@ func (b *InMemoryBackend) ExecuteStatement(
 		SecretARN:         secretARN,
 		StatementName:     statementName,
 		ResultFormat:      resultFormat,
+		Parameters:        parameters,
 		Status:            statusFinished,
-		HasResultSet:      true,
+		HasResultSet:      hasResultSet,
 		IsBatchStatement:  false,
 		WithEvent:         withEvent,
 		CreatedAt:         now,
@@ -603,6 +632,10 @@ func cloneStatement(stmt *Statement) *Statement {
 
 	if stmt.QueryStrings != nil {
 		cp.QueryStrings = append([]string(nil), stmt.QueryStrings...)
+	}
+
+	if stmt.Parameters != nil {
+		cp.Parameters = append([]SQLParameter(nil), stmt.Parameters...)
 	}
 
 	if stmt.SubStatements != nil {

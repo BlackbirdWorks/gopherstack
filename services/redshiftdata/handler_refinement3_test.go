@@ -113,7 +113,7 @@ func TestRefinement3_Concurrent_AccessSafe(t *testing.T) {
 	// Concurrent writes
 	for range goroutines {
 		wg.Go(func() {
-			_, _ = b.ExecuteStatement(context.Background(), "SELECT 1", "", "", "dev", "", "", "", false, "")
+			_, _ = b.ExecuteStatement(context.Background(), "SELECT 1", "", "", "dev", "", "", "", false, "", nil)
 		})
 	}
 
@@ -191,10 +191,10 @@ func TestRefinement3_ListStatements_WorkgroupFilter(t *testing.T) {
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 	h := redshiftdata.NewHandler(b)
 
-	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "", "wg-a", "dev", "", "", "", false, "")
+	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "", "wg-a", "dev", "", "", "", false, "", nil)
 	require.NoError(t, err)
 
-	_, err = b.ExecuteStatement(context.Background(), "SELECT 2", "", "wg-b", "dev", "", "", "", false, "")
+	_, err = b.ExecuteStatement(context.Background(), "SELECT 2", "", "wg-b", "dev", "", "", "", false, "", nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "ListStatements", map[string]any{

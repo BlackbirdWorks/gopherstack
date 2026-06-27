@@ -243,15 +243,16 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 
 func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		SQL               string `json:"Sql"`
-		ClusterIdentifier string `json:"ClusterIdentifier"`
-		WorkgroupName     string `json:"WorkgroupName"`
-		Database          string `json:"Database"`
-		DBUser            string `json:"DbUser"`
-		SecretArn         string `json:"SecretArn"`
-		StatementName     string `json:"StatementName"`
-		ResultFormat      string `json:"ResultFormat"`
-		WithEvent         bool   `json:"WithEvent"`
+		SQL               string         `json:"Sql"`
+		ClusterIdentifier string         `json:"ClusterIdentifier"`
+		WorkgroupName     string         `json:"WorkgroupName"`
+		Database          string         `json:"Database"`
+		DBUser            string         `json:"DbUser"`
+		SecretArn         string         `json:"SecretArn"`
+		StatementName     string         `json:"StatementName"`
+		ResultFormat      string         `json:"ResultFormat"`
+		Parameters        []SQLParameter `json:"Parameters"`
+		WithEvent         bool           `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -262,7 +263,7 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		ctx,
 		req.SQL, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
-		req.WithEvent, req.ResultFormat,
+		req.WithEvent, req.ResultFormat, req.Parameters,
 	)
 	if err != nil {
 		return nil, err
