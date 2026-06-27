@@ -248,6 +248,8 @@ type cognitoIdentityProviderInput struct {
 type identityPoolOutput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders,omitempty"`
 	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags,omitempty"`
+	OpenIDConnectProviderARNs      []string                       `json:"OpenIDConnectProviderARNs,omitempty"`
+	SamlProviderARNs               []string                       `json:"SamlProviderARNs,omitempty"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
 	DeveloperProviderName          string                         `json:"DeveloperProviderName,omitempty"`
@@ -259,6 +261,8 @@ type identityPoolOutput struct {
 type createIdentityPoolInput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders"`
 	Tags                           map[string]string              `json:"IdentityPoolTags"`
+	OpenIDConnectProviderARNs      []string                       `json:"OpenIDConnectProviderARNs"`
+	SamlProviderARNs               []string                       `json:"SamlProviderARNs"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
 	DeveloperProviderName          string                         `json:"DeveloperProviderName"`
 	IdentityProviders              []cognitoIdentityProviderInput `json:"CognitoIdentityProviders"`
@@ -281,6 +285,10 @@ func (h *Handler) handleCreateIdentityPool(
 		providers,
 		in.SupportedLoginProviders,
 		in.Tags,
+		&PoolExtendedConfig{
+			OpenIDConnectProviderARNs: in.OpenIDConnectProviderARNs,
+			SamlProviderARNs:          in.SamlProviderARNs,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -365,6 +373,8 @@ func (h *Handler) handleListIdentityPools(
 type updateIdentityPoolInput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders"`
 	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags"`
+	OpenIDConnectProviderARNs      []string                       `json:"OpenIDConnectProviderARNs"`
+	SamlProviderARNs               []string                       `json:"SamlProviderARNs"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
 	DeveloperProviderName          string                         `json:"DeveloperProviderName"`
@@ -393,6 +403,10 @@ func (h *Handler) handleUpdateIdentityPool(
 		providers,
 		in.SupportedLoginProviders,
 		in.IdentityPoolTags,
+		&PoolExtendedConfig{
+			OpenIDConnectProviderARNs: in.OpenIDConnectProviderARNs,
+			SamlProviderARNs:          in.SamlProviderARNs,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -425,8 +439,9 @@ func (h *Handler) handleGetID(ctx context.Context, in *getIDInput) (*getIDOutput
 }
 
 type getCredentialsForIdentityInput struct {
-	Logins     map[string]string `json:"Logins"`
-	IdentityID string            `json:"IdentityId"`
+	Logins        map[string]string `json:"Logins"`
+	IdentityID    string            `json:"IdentityId"`
+	CustomRoleArn string            `json:"CustomRoleArn"`
 }
 
 type credentialsOutput struct {
@@ -674,6 +689,8 @@ func toIdentityPoolOutput(pool *IdentityPool) *identityPoolOutput {
 		IdentityProviders:              providers,
 		SupportedLoginProviders:        pool.SupportedLoginProviders,
 		IdentityPoolTags:               pool.Tags,
+		OpenIDConnectProviderARNs:      pool.OpenIDConnectProviderARNs,
+		SamlProviderARNs:               pool.SamlProviderARNs,
 	}
 }
 
