@@ -121,8 +121,10 @@ type CertificateAuthority struct {
 	privKey                           *ecdsa.PrivateKey
 	CertificateAuthorityConfiguration CertificateAuthorityConfiguration `json:"certificateAuthorityConfiguration"`
 	ARN                               string                            `json:"arn"`
+	OwnerAccount                      string                            `json:"ownerAccount"`
 	Type                              string                            `json:"type"`
 	Status                            string                            `json:"status"`
+	Serial                            string                            `json:"serial,omitempty"`
 	CertificateBody                   string                            `json:"certificateBody,omitempty"`
 	CertificateChain                  string                            `json:"certificateChain,omitempty"`
 	CSR                               string                            `json:"csr,omitempty"`
@@ -293,6 +295,7 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 	now := time.Now().UTC()
 	ca := &CertificateAuthority{
 		ARN:                               caARN,
+		OwnerAccount:                      b.accountID,
 		Type:                              caType,
 		Status:                            caStatusCreating,
 		CertificateAuthorityConfiguration: cfg,
@@ -323,12 +326,13 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 // selfSignAndActivate generates a self-signed certificate for the CA and sets it to ACTIVE.
 // Must be called with the write lock held.
 func (b *InMemoryBackend) selfSignAndActivate(ca *CertificateAuthority, now time.Time) error {
-	certPEM, err := selfSignCA(ca, now)
+	certPEM, serial, err := selfSignCA(ca, now)
 	if err != nil {
 		return fmt.Errorf("self-sign CA: %w", err)
 	}
 
 	ca.CertificateBody = certPEM
+	ca.Serial = serial
 	ca.Status = caStatusActive
 	ca.NotBefore = now
 	ca.NotAfter = now.Add(10 * 365 * 24 * time.Hour)
@@ -515,6 +519,7 @@ func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(
 
 	ca.NotBefore = parsedCert.NotBefore
 	ca.NotAfter = parsedCert.NotAfter
+	ca.Serial = hex.EncodeToString(parsedCert.SerialNumber.Bytes())
 
 	ca.CertificateBody = certPEM
 	ca.CertificateChain = chainPEM
@@ -1064,10 +1069,10 @@ func generateCSR(privKey *ecdsa.PrivateKey, subject CertificateAuthoritySubject)
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})), nil
 }
 
-// selfSignCA generates a self-signed certificate for the given CA.
-func selfSignCA(ca *CertificateAuthority, now time.Time) (string, error) {
+// selfSignCA generates a self-signed certificate for the given CA and returns the PEM and serial hex.
+func selfSignCA(ca *CertificateAuthority, now time.Time) (string, string, error) {
 	if ca.privKey == nil {
-		return "", errCAPrivKeyNil
+		return "", "", errCAPrivKeyNil
 	}
 
 	serial, err := cryptorand.Int(
@@ -1075,7 +1080,7 @@ func selfSignCA(ca *CertificateAuthority, now time.Time) (string, error) {
 		new(big.Int).Lsh(big.NewInt(1), serialBitLen),
 	)
 	if err != nil {
-		return "", fmt.Errorf("generate serial: %w", err)
+		return "", "", fmt.Errorf("generate serial: %w", err)
 	}
 
 	cn := ca.CertificateAuthorityConfiguration.Subject.CommonName
@@ -1102,10 +1107,12 @@ func selfSignCA(ca *CertificateAuthority, now time.Time) (string, error) {
 
 	certDER, err := x509.CreateCertificate(cryptorand.Reader, tmpl, tmpl, &ca.privKey.PublicKey, ca.privKey)
 	if err != nil {
-		return "", fmt.Errorf("create certificate: %w", err)
+		return "", "", fmt.Errorf("create certificate: %w", err)
 	}
 
-	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})), nil
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})),
+		hex.EncodeToString(serial.Bytes()),
+		nil
 }
 
 // signCSR signs a CSR using the CA's private key and returns the PEM certificate and serial.
