@@ -347,15 +347,24 @@ func (h *Handler) opDeleteStack(_ context.Context, body []byte) (any, error) {
 
 // --- Fleet handlers ---
 
+type computeCapacityInput struct {
+	DesiredInstances int `json:"DesiredInstances"`
+}
+
 type createFleetInput struct {
-	Tags                       map[string]string `json:"Tags"`
-	Name                       string            `json:"Name"`
-	DisplayName                string            `json:"DisplayName"`
-	Description                string            `json:"Description"`
-	InstanceType               string            `json:"InstanceType"`
-	FleetType                  string            `json:"FleetType"`
-	MaxUserDurationInSeconds   int               `json:"MaxUserDurationInSeconds"`
-	DisconnectTimeoutInSeconds int               `json:"DisconnectTimeoutInSeconds"`
+	Tags                          map[string]string      `json:"Tags"`
+	ComputeCapacity               *computeCapacityInput  `json:"ComputeCapacity"`
+	EnableDefaultInternetAccess   *bool                  `json:"EnableDefaultInternetAccess"`
+	Name                          string                 `json:"Name"`
+	DisplayName                   string                 `json:"DisplayName"`
+	Description                   string                 `json:"Description"`
+	InstanceType                  string                 `json:"InstanceType"`
+	FleetType                     string                 `json:"FleetType"`
+	ImageName                     string                 `json:"ImageName"`
+	ImageArn                      string                 `json:"ImageArn"`
+	MaxUserDurationInSeconds      int                    `json:"MaxUserDurationInSeconds"`
+	DisconnectTimeoutInSeconds    int                    `json:"DisconnectTimeoutInSeconds"`
+	IdleDisconnectTimeoutInSeconds int                   `json:"IdleDisconnectTimeoutInSeconds"`
 }
 
 func (h *Handler) opCreateFleet(_ context.Context, body []byte) (any, error) {
@@ -364,10 +373,16 @@ func (h *Handler) opCreateFleet(_ context.Context, body []byte) (any, error) {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
+	desired := 0
+	if req.ComputeCapacity != nil {
+		desired = req.ComputeCapacity.DesiredInstances
+	}
+
 	fleet, err := h.Backend.CreateFleet(
 		req.Name, req.DisplayName, req.Description,
-		req.InstanceType, req.FleetType,
-		req.MaxUserDurationInSeconds, req.DisconnectTimeoutInSeconds,
+		req.InstanceType, req.FleetType, req.ImageName, req.ImageArn,
+		desired, req.MaxUserDurationInSeconds, req.DisconnectTimeoutInSeconds,
+		req.IdleDisconnectTimeoutInSeconds, req.EnableDefaultInternetAccess,
 		req.Tags,
 	)
 	if err != nil {
@@ -403,12 +418,17 @@ func (h *Handler) opDescribeFleets(_ context.Context, body []byte) (any, error) 
 }
 
 type updateFleetInput struct {
-	Name                       string `json:"Name"`
-	DisplayName                string `json:"DisplayName"`
-	Description                string `json:"Description"`
-	InstanceType               string `json:"InstanceType"`
-	MaxUserDurationInSeconds   int    `json:"MaxUserDurationInSeconds"`
-	DisconnectTimeoutInSeconds int    `json:"DisconnectTimeoutInSeconds"`
+	ComputeCapacity               *computeCapacityInput `json:"ComputeCapacity"`
+	EnableDefaultInternetAccess   *bool                 `json:"EnableDefaultInternetAccess"`
+	Name                          string                `json:"Name"`
+	DisplayName                   string                `json:"DisplayName"`
+	Description                   string                `json:"Description"`
+	InstanceType                  string                `json:"InstanceType"`
+	ImageName                     string                `json:"ImageName"`
+	ImageArn                      string                `json:"ImageArn"`
+	MaxUserDurationInSeconds      int                   `json:"MaxUserDurationInSeconds"`
+	DisconnectTimeoutInSeconds    int                   `json:"DisconnectTimeoutInSeconds"`
+	IdleDisconnectTimeoutInSeconds int                  `json:"IdleDisconnectTimeoutInSeconds"`
 }
 
 func (h *Handler) opUpdateFleet(_ context.Context, body []byte) (any, error) {
@@ -417,9 +437,16 @@ func (h *Handler) opUpdateFleet(_ context.Context, body []byte) (any, error) {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
+	desired := 0
+	if req.ComputeCapacity != nil {
+		desired = req.ComputeCapacity.DesiredInstances
+	}
+
 	fleet, err := h.Backend.UpdateFleet(
 		req.Name, req.DisplayName, req.Description, req.InstanceType,
-		req.MaxUserDurationInSeconds, req.DisconnectTimeoutInSeconds,
+		req.ImageName, req.ImageArn,
+		desired, req.MaxUserDurationInSeconds, req.DisconnectTimeoutInSeconds,
+		req.IdleDisconnectTimeoutInSeconds, req.EnableDefaultInternetAccess,
 	)
 	if err != nil {
 		return nil, err
@@ -615,17 +642,38 @@ func stackToResponse(s *Stack) map[string]any {
 }
 
 func fleetToResponse(f *Fleet) map[string]any {
-	return map[string]any{
-		"Name":                       f.Name,
-		"Arn":                        f.Arn,
-		"DisplayName":                f.DisplayName,
-		"Description":                f.Description,
-		"InstanceType":               f.InstanceType, //nolint:goconst // existing issue.
-		"FleetType":                  f.FleetType,
-		"State":                      f.State, //nolint:goconst // existing issue.
-		"MaxUserDurationInSeconds":   f.MaxUserDurationSecs,
-		"DisconnectTimeoutInSeconds": f.DisconnectTimeoutSecs,
-		"CreatedTime":                f.CreatedTime.Unix(),
-		keyTags:                      f.Tags,
+	resp := map[string]any{
+		"Name":                           f.Name,
+		"Arn":                            f.Arn,
+		"DisplayName":                    f.DisplayName,
+		"Description":                    f.Description,
+		"InstanceType":                   f.InstanceType, //nolint:goconst // existing issue.
+		"FleetType":                      f.FleetType,
+		"State":                          f.State, //nolint:goconst // existing issue.
+		"MaxUserDurationInSeconds":       f.MaxUserDurationSecs,
+		"DisconnectTimeoutInSeconds":     f.DisconnectTimeoutSecs,
+		"IdleDisconnectTimeoutInSeconds": f.IdleDisconnectTimeoutSecs,
+		"CreatedTime":                    f.CreatedTime.Unix(),
+		keyTags:                          f.Tags,
+		"ComputeCapacityStatus": map[string]any{
+			"Desired":   f.DesiredInstances,
+			"Running":   0,
+			"InUse":     0,
+			"Available": f.DesiredInstances,
+		},
 	}
+
+	if f.ImageName != "" {
+		resp["ImageName"] = f.ImageName
+	}
+
+	if f.ImageArn != "" {
+		resp["ImageArn"] = f.ImageArn
+	}
+
+	if f.EnableDefaultInternetAccess != nil {
+		resp["EnableDefaultInternetAccess"] = *f.EnableDefaultInternetAccess
+	}
+
+	return resp
 }

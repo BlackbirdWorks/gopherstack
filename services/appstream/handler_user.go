@@ -365,7 +365,7 @@ func (h *Handler) opDescribeUsageReportSubscriptions(_ context.Context, _ []byte
 		})
 	}
 
-	return map[string]any{"Subscriptions": resp}, nil
+	return map[string]any{"UsageReportSubscriptions": resp}, nil
 }
 
 // --- Theme handlers ---

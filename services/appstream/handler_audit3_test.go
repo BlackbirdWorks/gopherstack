@@ -1202,7 +1202,7 @@ func TestAppStream_UsageReports(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
-				subs := resp["Subscriptions"].([]any)
+				subs := resp["UsageReportSubscriptions"].([]any)
 				assert.Len(t, subs, 1)
 			},
 		},
