@@ -55,7 +55,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
 				t.Helper()
 
-				monitors := b.GetAnomalyMonitors([]string{id})
+				monitors, _ := b.GetAnomalyMonitors([]string{id}, 0, "")
 				require.Len(t, monitors, 1)
 				assert.Equal(t, "MyMonitor", monitors[0].MonitorName)
 			},
@@ -84,7 +84,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
 				t.Helper()
 
-				subs := b.GetAnomalySubscriptions([]string{id}, "")
+				subs, _ := b.GetAnomalySubscriptions([]string{id}, "", 0, "")
 				require.Len(t, subs, 1)
 				assert.Equal(t, "MySub", subs[0].SubscriptionName)
 				assert.Equal(t, "DAILY", subs[0].Frequency)
@@ -96,9 +96,12 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ce.InMemoryBackend, _ string) {
 				t.Helper()
 
-				assert.Empty(t, b.ListCostCategoryDefinitions())
-				assert.Empty(t, b.GetAnomalyMonitors(nil))
-				assert.Empty(t, b.GetAnomalySubscriptions(nil, ""))
+				cats, _ := b.ListCostCategoryDefinitions(0, "")
+				assert.Empty(t, cats)
+				monitors, _ := b.GetAnomalyMonitors(nil, 0, "")
+				assert.Empty(t, monitors)
+				subs, _ := b.GetAnomalySubscriptions(nil, "", 0, "")
+				assert.Empty(t, subs)
 			},
 		},
 	}
@@ -142,8 +145,10 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 
 	b.Reset()
 
-	assert.Empty(t, b.ListCostCategoryDefinitions())
-	assert.Empty(t, b.GetAnomalyMonitors(nil))
+	cats, _ := b.ListCostCategoryDefinitions(0, "")
+	assert.Empty(t, cats)
+	monitors, _ := b.GetAnomalyMonitors(nil, 0, "")
+	assert.Empty(t, monitors)
 }
 
 func TestCeHandler_Persistence(t *testing.T) {
@@ -162,7 +167,7 @@ func TestCeHandler_Persistence(t *testing.T) {
 	freshH := ce.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(t.Context(), snap))
 
-	monitors := fresh.GetAnomalyMonitors(nil)
+	monitors, _ := fresh.GetAnomalyMonitors(nil, 0, "")
 	assert.Len(t, monitors, 1)
 	assert.Equal(t, "snap-mon", monitors[0].MonitorName)
 }

@@ -137,6 +137,7 @@ type SplitChargeRule struct {
 // AnomalyMonitor represents an in-memory AWS CE anomaly monitor.
 type AnomalyMonitor struct {
 	CreationDate     time.Time         `json:"creationDate"`
+	LastUpdatedDate  time.Time         `json:"lastUpdatedDate"`
 	Tags             map[string]string `json:"tags"`
 	MonitorARN       string            `json:"monitorARN"`
 	MonitorName      string            `json:"monitorName"`
@@ -150,6 +151,7 @@ type AnomalySubscription struct {
 	Tags             map[string]string `json:"tags"`
 	SubscriptionARN  string            `json:"subscriptionARN"`
 	SubscriptionName string            `json:"subscriptionName"`
+	AccountID        string            `json:"accountID"`
 	Frequency        string            `json:"frequency"`
 	MonitorARNList   []string          `json:"monitorARNList"`
 	Subscribers      []Subscriber      `json:"subscribers"`
@@ -626,8 +628,8 @@ func (b *InMemoryBackend) DescribeCostCategoryDefinition(catARN string) (*CostCa
 	return &out, nil
 }
 
-// ListCostCategoryDefinitions returns all cost categories sorted by name.
-func (b *InMemoryBackend) ListCostCategoryDefinitions() []*CostCategory {
+// ListCostCategoryDefinitions returns cost categories sorted by name with opaque pagination.
+func (b *InMemoryBackend) ListCostCategoryDefinitions(maxResults int, nextPageToken string) ([]*CostCategory, string) {
 	b.mu.RLock("ListCostCategoryDefinitions")
 	defer b.mu.RUnlock()
 
@@ -637,11 +639,9 @@ func (b *InMemoryBackend) ListCostCategoryDefinitions() []*CostCategory {
 		result = append(result, &out)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
+	return paginateList(result, maxResults, nextPageToken, func(c *CostCategory) string {
+		return c.Name
 	})
-
-	return result
 }
 
 // UpdateCostCategoryDefinition updates an existing cost category.
@@ -795,13 +795,15 @@ func (b *InMemoryBackend) CreateAnomalyMonitor(
 	tagsCopy := make(map[string]string, len(resourceTags))
 	maps.Copy(tagsCopy, resourceTags)
 
+	now := time.Now().UTC()
 	monARN := b.buildAnomalyMonitorARN()
 	mon := &AnomalyMonitor{
 		MonitorARN:       monARN,
 		MonitorName:      monitorName,
 		MonitorType:      monitorType,
 		MonitorDimension: monitorDimension,
-		CreationDate:     time.Now().UTC(),
+		CreationDate:     now,
+		LastUpdatedDate:  now,
 		Tags:             tagsCopy,
 	}
 	b.anomalyMonitors[monARN] = mon
@@ -826,7 +828,10 @@ func (b *InMemoryBackend) DeleteAnomalyMonitor(monARN string) error {
 }
 
 // GetAnomalyMonitors returns anomaly monitors, optionally filtered by ARNs, sorted by MonitorARN.
-func (b *InMemoryBackend) GetAnomalyMonitors(monitorARNList []string) []*AnomalyMonitor {
+// maxResults and nextPageToken implement opaque-cursor pagination (real AWS behaviour).
+func (b *InMemoryBackend) GetAnomalyMonitors(
+	monitorARNList []string, maxResults int, nextPageToken string,
+) ([]*AnomalyMonitor, string) {
 	b.mu.RLock("GetAnomalyMonitors")
 	defer b.mu.RUnlock()
 
@@ -854,11 +859,9 @@ func (b *InMemoryBackend) GetAnomalyMonitors(monitorARNList []string) []*Anomaly
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].MonitorARN < result[j].MonitorARN
+	return paginateList(result, maxResults, nextPageToken, func(m *AnomalyMonitor) string {
+		return m.MonitorARN
 	})
-
-	return result
 }
 
 // UpdateAnomalyMonitor updates the name of an anomaly monitor.
@@ -874,6 +877,7 @@ func (b *InMemoryBackend) UpdateAnomalyMonitor(
 	}
 
 	mon.MonitorName = monitorName
+	mon.LastUpdatedDate = time.Now().UTC()
 
 	out := *mon
 
@@ -913,6 +917,7 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 	sub := &AnomalySubscription{
 		SubscriptionARN:  subARN,
 		SubscriptionName: subscriptionName,
+		AccountID:        b.accountID,
 		Frequency:        frequency,
 		MonitorARNList:   monCopy,
 		Subscribers:      subsCopy,
@@ -942,11 +947,13 @@ func (b *InMemoryBackend) DeleteAnomalySubscription(subARN string) error {
 }
 
 // GetAnomalySubscriptions returns anomaly subscriptions, optionally filtered by ARNs or monitor ARN,
-// sorted by SubscriptionARN.
+// sorted by SubscriptionARN. maxResults and nextPageToken implement opaque-cursor pagination.
 func (b *InMemoryBackend) GetAnomalySubscriptions(
 	subscriptionARNList []string,
 	monitorARN string,
-) []*AnomalySubscription {
+	maxResults int,
+	nextPageToken string,
+) ([]*AnomalySubscription, string) {
 	b.mu.RLock("GetAnomalySubscriptions")
 	defer b.mu.RUnlock()
 
@@ -985,16 +992,51 @@ func (b *InMemoryBackend) GetAnomalySubscriptions(
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].SubscriptionARN < result[j].SubscriptionARN
+	return paginateList(result, maxResults, nextPageToken, func(s *AnomalySubscription) string {
+		return s.SubscriptionARN
 	})
-
-	return result
 }
 
 // containsString reports whether s appears in slice.
 func containsString(slice []string, s string) bool {
 	return slices.Contains(slice, s)
+}
+
+// paginateList sorts list by keyFn, applies the opaque nextPageToken cursor, and returns
+// at most maxResults items plus the token for the following page (empty on the last page).
+func paginateList[T any](list []T, maxResults int, nextPageToken string, keyFn func(T) string) ([]T, string) {
+	sort.Slice(list, func(i, j int) bool {
+		return keyFn(list[i]) < keyFn(list[j])
+	})
+
+	start := 0
+	if nextPageToken != "" {
+		for i := range list {
+			if keyFn(list[i]) >= nextPageToken {
+				start = i
+
+				break
+			}
+
+			start = i + 1
+		}
+	}
+
+	const defaultPageSize = 100
+	limit := maxResults
+	if limit <= 0 || limit > defaultPageSize {
+		limit = defaultPageSize
+	}
+
+	end := min(start+limit, len(list))
+	page := list[start:end]
+
+	next := ""
+	if end < len(list) {
+		next = keyFn(list[end])
+	}
+
+	return page, next
 }
 
 // UpdateAnomalySubscription updates a CE anomaly subscription.
@@ -1041,9 +1083,11 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 	return &out, nil
 }
 
-// GetAnomalies returns detected anomalies, optionally filtered by monitor ARN and feedback type,
-// sorted by AnomalyID.
-func (b *InMemoryBackend) GetAnomalies(monitorARN, feedback string) []*Anomaly {
+// GetAnomalies returns detected anomalies, optionally filtered by monitor ARN, feedback type,
+// and date interval. maxResults and nextPageToken implement opaque-cursor pagination.
+func (b *InMemoryBackend) GetAnomalies(
+	monitorARN, feedback, startDate, endDate string, maxResults int, nextPageToken string,
+) ([]*Anomaly, string) {
 	b.mu.RLock("GetAnomalies")
 	defer b.mu.RUnlock()
 
@@ -1058,15 +1102,22 @@ func (b *InMemoryBackend) GetAnomalies(monitorARN, feedback string) []*Anomaly {
 			continue
 		}
 
+		// Filter by date interval: anomaly must overlap [startDate, endDate].
+		if startDate != "" && a.AnomalyEndDate != "" && a.AnomalyEndDate < startDate {
+			continue
+		}
+
+		if endDate != "" && a.AnomalyStartDate != "" && a.AnomalyStartDate > endDate {
+			continue
+		}
+
 		out := *a
 		result = append(result, &out)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].AnomalyID < result[j].AnomalyID
+	return paginateList(result, maxResults, nextPageToken, func(a *Anomaly) string {
+		return a.AnomalyID
 	})
-
-	return result
 }
 
 // AddAnomaly inserts an anomaly into the backend. It is intended for testing.
