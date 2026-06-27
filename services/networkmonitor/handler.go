@@ -326,6 +326,29 @@ func epochSeconds(t *time.Time) *float64 {
 	return &secs
 }
 
+// toProbeWire converts a *Probe to probeWireBody with epoch-second timestamps.
+func toProbeWire(p *Probe) *probeWireBody {
+	if p == nil {
+		return nil
+	}
+
+	return &probeWireBody{
+		CreatedAt:       epochSeconds(p.CreatedAt),
+		ModifiedAt:      epochSeconds(p.ModifiedAt),
+		Tags:            p.Tags,
+		PacketSize:      p.PacketSize,
+		DestinationPort: p.DestinationPort,
+		Destination:     p.Destination,
+		SourceArn:       p.SourceArn,
+		Protocol:        p.Protocol,
+		State:           p.State,
+		AddressFamily:   p.AddressFamily,
+		VpcID:           p.VpcID,
+		ProbeID:         p.ProbeID,
+		ProbeArn:        p.ProbeArn,
+	}
+}
+
 // extractMonitorName extracts the monitor name from /monitors/{name}[/...].
 func extractMonitorName(path string) string {
 	trimmed := strings.TrimPrefix(path, "/monitors/")
@@ -421,12 +444,17 @@ func (h *Handler) handleGetMonitor(ctx context.Context, path string) ([]byte, er
 		return nil, err
 	}
 
+	probes := make([]*probeWireBody, len(m.Probes))
+	for i, p := range m.Probes {
+		probes[i] = toProbeWire(p)
+	}
+
 	resp := getMonitorResponse{
 		MonitorArn:        m.MonitorArn,
 		MonitorName:       m.MonitorName,
 		State:             m.State,
 		AggregationPeriod: m.AggregationPeriod,
-		Probes:            m.Probes,
+		Probes:            probes,
 		Tags:              m.Tags,
 		CreatedAt:         epochSeconds(m.CreatedAt),
 		ModifiedAt:        epochSeconds(m.ModifiedAt),
@@ -511,7 +539,7 @@ func (h *Handler) handleCreateProbe(ctx context.Context, path string, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(probe)
+	return json.Marshal(toProbeWire(probe))
 }
 
 func (h *Handler) handleDeleteProbe(ctx context.Context, path string) ([]byte, error) {
@@ -550,7 +578,7 @@ func (h *Handler) handleGetProbe(ctx context.Context, path string) ([]byte, erro
 		return nil, err
 	}
 
-	return json.Marshal(probe)
+	return json.Marshal(toProbeWire(probe))
 }
 
 func (h *Handler) handleUpdateProbe(ctx context.Context, path string, body []byte) ([]byte, error) {
@@ -575,7 +603,7 @@ func (h *Handler) handleUpdateProbe(ctx context.Context, path string, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(probe)
+	return json.Marshal(toProbeWire(probe))
 }
 
 func (h *Handler) handleListTagsForResource(ctx context.Context, path string) ([]byte, error) {
