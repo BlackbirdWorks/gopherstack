@@ -1276,13 +1276,14 @@ func namespacePropertiesToMap(ns *Namespace) map[string]any {
 // namespaceToMap converts a Namespace to a JSON-serialisable map including Properties.
 func namespaceToMap(ns *Namespace) map[string]any {
 	m := map[string]any{
-		"Id":          ns.ID,
-		keyArn:        ns.ARN,
-		"Name":        ns.Name,
-		keyType:       ns.Type,
-		"Description": ns.Description,
-		keyTags:       mapToTagEntries(ns.Tags),
-		keyCreateDate: ns.CreatedAt.Unix(),
+		"Id":           ns.ID,
+		keyArn:         ns.ARN,
+		"Name":         ns.Name,
+		keyType:        ns.Type,
+		"Description":  ns.Description,
+		keyTags:        mapToTagEntries(ns.Tags),
+		keyCreateDate:  ns.CreatedAt.Unix(),
+		"ServiceCount": ns.ServiceCount,
 	}
 
 	if props := namespacePropertiesToMap(ns); props != nil {
@@ -1295,13 +1296,14 @@ func namespaceToMap(ns *Namespace) map[string]any {
 // serviceToMap converts a Service to a JSON-serialisable map including DNS and health check config.
 func serviceToMap(svc *Service) map[string]any {
 	m := map[string]any{
-		"Id":           svc.ID,
-		keyArn:         svc.ARN,
-		"Name":         svc.Name,
-		keyNamespaceID: svc.NamespaceID,
-		"Description":  svc.Description,
-		keyTags:        mapToTagEntries(svc.Tags),
-		keyCreateDate:  svc.CreatedAt.Unix(),
+		"Id":            svc.ID,
+		keyArn:          svc.ARN,
+		"Name":          svc.Name,
+		keyNamespaceID:  svc.NamespaceID,
+		"Description":   svc.Description,
+		keyTags:         mapToTagEntries(svc.Tags),
+		keyCreateDate:   svc.CreatedAt.Unix(),
+		"InstanceCount": svc.InstanceCount,
 	}
 
 	if svc.Type != "" {
@@ -1526,7 +1528,7 @@ func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	svc, err := h.Backend.UpdateService(
+	opID, err := h.Backend.UpdateService(
 		req.ID,
 		req.Service.Description,
 		parseDNSConfig(req.Service.DNSConfig),
@@ -1536,9 +1538,7 @@ func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
-		keyService: serviceToMap(svc),
-	})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 // --- GetServiceAttributes / UpdateServiceAttributes / DeleteServiceAttributes ---
