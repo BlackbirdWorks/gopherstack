@@ -35,7 +35,7 @@ func TestAWSConfigBackend_PutConfigurationRecorder(t *testing.T) {
 			t.Parallel()
 
 			b := awsconfig.NewInMemoryBackend()
-			err := b.PutConfigurationRecorder(tt.recName, tt.roleARN)
+			err := b.PutConfigurationRecorder(tt.recName, tt.roleARN, nil)
 			require.NoError(t, err)
 
 			recorders := b.DescribeConfigurationRecorders(nil)
@@ -61,8 +61,8 @@ func TestAWSConfigBackend_StartConfigurationRecorder(t *testing.T) {
 			recName: "default",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config"))
-				require.NoError(t, b.PutDeliveryChannel("default", "my-bucket", ""))
+				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config", nil))
+				require.NoError(t, b.PutDeliveryChannel("default", "my-bucket", "", "", nil))
 			},
 			wantStatus: "ACTIVE",
 		},
@@ -128,7 +128,7 @@ func TestAWSConfigBackend_PutDeliveryChannel(t *testing.T) {
 			t.Parallel()
 
 			b := awsconfig.NewInMemoryBackend()
-			err := b.PutDeliveryChannel(tt.chanName, tt.bucket, tt.topic)
+			err := b.PutDeliveryChannel(tt.chanName, tt.bucket, tt.topic, "", nil)
 			require.NoError(t, err)
 
 			channels := b.DescribeDeliveryChannels(nil)
@@ -157,7 +157,13 @@ func TestAWSConfigBackend_DescribeDeliveryChannels(t *testing.T) {
 				t.Helper()
 				require.NoError(
 					t,
-					b.PutDeliveryChannel("default", "my-bucket", "arn:aws:sns:us-east-1:000000000000:my-topic"),
+					b.PutDeliveryChannel(
+						"default",
+						"my-bucket",
+						"arn:aws:sns:us-east-1:000000000000:my-topic",
+						"",
+						nil,
+					),
 				)
 			},
 			wantCount: 1,
@@ -195,7 +201,7 @@ func TestAWSConfigBackend_DescribeConfigurationRecorders(t *testing.T) {
 			name: "one_recorder",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config"))
+				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config", nil))
 			},
 			wantCount: 1,
 		},
@@ -320,7 +326,7 @@ func TestAWSConfigBackend_DeleteConfigurationAggregator(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigurationAggregator("agg1"))
+				require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
 			},
 			delName: "agg1",
 		},
@@ -364,7 +370,7 @@ func TestAWSConfigBackend_DeleteConformancePack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConformancePack("my-pack"))
+				require.NoError(t, b.PutConformancePack("my-pack", "", ""))
 			},
 			delName: "my-pack",
 		},
@@ -524,7 +530,7 @@ func TestAWSConfigBackend_AssociateResourceTypes(t *testing.T) {
 			name: "known_recorder_by_name",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config"))
+				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config", nil))
 			},
 			recorderARN:   "default",
 			resourceTypes: []string{"AWS::EC2::Instance"},
@@ -651,8 +657,8 @@ func TestAWSConfigBackend_StopConfigurationRecorder(t *testing.T) {
 			name: "stops_active_recorder",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::123:role/r"))
-				require.NoError(t, b.PutDeliveryChannel("default", "my-bucket", ""))
+				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::123:role/r", nil))
+				require.NoError(t, b.PutDeliveryChannel("default", "my-bucket", "", "", nil))
 				require.NoError(t, b.StartConfigurationRecorder("default"))
 			},
 			recName:    "default",
@@ -730,12 +736,12 @@ func TestAWSConfigBackend_PutConfigurationRecorder_Validation(t *testing.T) {
 
 			b := awsconfig.NewInMemoryBackend()
 			if tt.name == "update_preserves_status" {
-				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/old"))
-				require.NoError(t, b.PutDeliveryChannel("default", "bucket", ""))
+				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/old", nil))
+				require.NoError(t, b.PutDeliveryChannel("default", "bucket", "", "", nil))
 				require.NoError(t, b.StartConfigurationRecorder("default"))
 			}
 
-			err := b.PutConfigurationRecorder(tt.recName, tt.roleARN)
+			err := b.PutConfigurationRecorder(tt.recName, tt.roleARN, nil)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -788,7 +794,7 @@ func TestAWSConfigBackend_PutDeliveryChannel_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := awsconfig.NewInMemoryBackend()
-			err := b.PutDeliveryChannel(tt.chanName, tt.bucket, "")
+			err := b.PutDeliveryChannel(tt.chanName, tt.bucket, "", "", nil)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -884,9 +890,9 @@ func TestAWSConfigBackend_DescribeConfigurationRecorders_NameFilter(t *testing.T
 			t.Parallel()
 
 			b := awsconfig.NewInMemoryBackend()
-			require.NoError(t, b.PutConfigurationRecorder("rec-c", "arn:aws:iam::123:role/r"))
-			require.NoError(t, b.PutConfigurationRecorder("rec-a", "arn:aws:iam::123:role/r"))
-			require.NoError(t, b.PutConfigurationRecorder("rec-b", "arn:aws:iam::123:role/r"))
+			require.NoError(t, b.PutConfigurationRecorder("rec-c", "arn:aws:iam::123:role/r", nil))
+			require.NoError(t, b.PutConfigurationRecorder("rec-a", "arn:aws:iam::123:role/r", nil))
+			require.NoError(t, b.PutConfigurationRecorder("rec-b", "arn:aws:iam::123:role/r", nil))
 
 			recs := b.DescribeConfigurationRecorders(tt.filter)
 			assert.Len(t, recs, tt.wantCount)

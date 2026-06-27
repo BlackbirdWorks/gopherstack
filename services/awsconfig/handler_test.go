@@ -845,7 +845,7 @@ func TestAWSConfigHandler_DeleteConfigurationAggregator(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConfigurationAggregator("my-aggregator"))
+				require.NoError(t, h.Backend.PutConfigurationAggregator("my-aggregator", nil, nil))
 			},
 			body:     map[string]any{"ConfigurationAggregatorName": "my-aggregator"},
 			wantCode: http.StatusOK,
@@ -885,7 +885,7 @@ func TestAWSConfigHandler_DeleteConformancePack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConformancePack("my-pack"))
+				require.NoError(t, h.Backend.PutConformancePack("my-pack", "", ""))
 			},
 			body:     map[string]any{"ConformancePackName": "my-pack"},
 			wantCode: http.StatusOK,
@@ -1036,8 +1036,8 @@ func TestAWSConfigHandler_StopConfigurationRecorder(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConfigurationRecorder("default", "arn:aws:iam::000:role/r"))
-				require.NoError(t, h.Backend.PutDeliveryChannel("default", "my-bucket", ""))
+				require.NoError(t, h.Backend.PutConfigurationRecorder("default", "arn:aws:iam::000:role/r", nil))
+				require.NoError(t, h.Backend.PutDeliveryChannel("default", "my-bucket", "", "", nil))
 				require.NoError(t, h.Backend.StartConfigurationRecorder("default"))
 			},
 			body:     map[string]any{"ConfigurationRecorderName": "default"},
@@ -1174,8 +1174,8 @@ func TestAWSConfigHandler_DescribeConfigurationRecorders_NameFilter(t *testing.T
 			t.Parallel()
 
 			h := newTestAWSConfigHandler(t)
-			require.NoError(t, h.Backend.PutConfigurationRecorder("rec-a", "arn:aws:iam::123:role/r"))
-			require.NoError(t, h.Backend.PutConfigurationRecorder("rec-b", "arn:aws:iam::123:role/r"))
+			require.NoError(t, h.Backend.PutConfigurationRecorder("rec-a", "arn:aws:iam::123:role/r", nil))
+			require.NoError(t, h.Backend.PutConfigurationRecorder("rec-b", "arn:aws:iam::123:role/r", nil))
 
 			rec := doAWSConfigRequest(t, h, "DescribeConfigurationRecorders", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -1218,8 +1218,8 @@ func TestAWSConfigHandler_DescribeDeliveryChannels_NameFilter(t *testing.T) {
 			t.Parallel()
 
 			h := newTestAWSConfigHandler(t)
-			require.NoError(t, h.Backend.PutDeliveryChannel("ch-a", "bucket-a", ""))
-			require.NoError(t, h.Backend.PutDeliveryChannel("ch-b", "bucket-b", ""))
+			require.NoError(t, h.Backend.PutDeliveryChannel("ch-a", "bucket-a", "", "", nil))
+			require.NoError(t, h.Backend.PutDeliveryChannel("ch-b", "bucket-b", "", "", nil))
 
 			rec := doAWSConfigRequest(t, h, "DescribeDeliveryChannels", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -1370,7 +1370,7 @@ func TestAWSConfigHandler_ErrorTypes(t *testing.T) {
 
 			h := newTestAWSConfigHandler(t)
 			if tt.operation == "StartConfigurationRecorder" {
-				require.NoError(t, h.Backend.PutConfigurationRecorder("default", "arn:aws:iam::000:role/r"))
+				require.NoError(t, h.Backend.PutConfigurationRecorder("default", "arn:aws:iam::000:role/r", nil))
 			}
 
 			rec := doAWSConfigRequest(t, h, tt.operation, tt.body)

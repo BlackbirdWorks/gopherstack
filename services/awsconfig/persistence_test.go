@@ -24,7 +24,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *awsconfig.InMemoryBackend) string {
-				err := b.PutConfigurationRecorder("test-recorder", "arn:aws:iam::000000000000:role/test")
+				err := b.PutConfigurationRecorder("test-recorder", "arn:aws:iam::000000000000:role/test", nil)
 				if err != nil {
 					return ""
 				}
@@ -83,7 +83,7 @@ func TestAWSConfigHandler_Persistence(t *testing.T) {
 	backend := awsconfig.NewInMemoryBackend()
 	h := awsconfig.NewHandler(backend)
 
-	err := backend.PutConfigurationRecorder("snap-recorder", "arn:aws:iam::000000000000:role/test")
+	err := backend.PutConfigurationRecorder("snap-recorder", "arn:aws:iam::000000000000:role/test", nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(t.Context())
@@ -103,10 +103,10 @@ func TestAWSConfigBackend_DeleteOperations(t *testing.T) {
 	b := awsconfig.NewInMemoryBackend()
 
 	// Create a recorder and channel
-	err := b.PutConfigurationRecorder("test-recorder", "arn:aws:iam::000000000000:role/test")
+	err := b.PutConfigurationRecorder("test-recorder", "arn:aws:iam::000000000000:role/test", nil)
 	require.NoError(t, err)
 
-	err = b.PutDeliveryChannel("test-channel", "my-bucket", "")
+	err = b.PutDeliveryChannel("test-channel", "my-bucket", "", "", nil)
 	require.NoError(t, err)
 
 	// Delete delivery channel
@@ -162,8 +162,8 @@ func TestAWSConfigHandler_DeleteOperations(t *testing.T) {
 	h := awsconfig.NewHandler(backend)
 
 	// Put and then delete delivery channel via handler
-	_ = backend.PutDeliveryChannel("test-channel", "my-bucket", "")
-	_ = backend.PutConfigurationRecorder("test-recorder", "arn:aws:iam::000000000000:role/test")
+	_ = backend.PutDeliveryChannel("test-channel", "my-bucket", "", "", nil)
+	_ = backend.PutConfigurationRecorder("test-recorder", "arn:aws:iam::000000000000:role/test", nil)
 
 	e := echo.New()
 
@@ -194,12 +194,12 @@ func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::000:role/r"))
-	require.NoError(t, b.PutDeliveryChannel("chan", "bucket", ""))
+	require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::000:role/r", nil))
+	require.NoError(t, b.PutDeliveryChannel("chan", "bucket", "", "", nil))
 	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
-	require.NoError(t, b.PutConfigurationAggregator("agg-1"))
-	require.NoError(t, b.PutConformancePack("pack-1"))
+	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil))
+	require.NoError(t, b.PutConformancePack("pack-1", "", ""))
 	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 

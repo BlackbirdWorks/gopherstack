@@ -173,7 +173,7 @@ func TestAWSConfigBackend_DeleteDeliveryChannel(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutDeliveryChannel("ch1", "bucket", ""))
+				require.NoError(t, b.PutDeliveryChannel("ch1", "bucket", "", "", nil))
 			},
 			delName: "ch1",
 		},
@@ -218,7 +218,7 @@ func TestAWSConfigBackend_DeleteConfigurationRecorder(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigurationRecorder("rec1", "arn:aws:iam::000000000000:role/r"))
+				require.NoError(t, b.PutConfigurationRecorder("rec1", "arn:aws:iam::000000000000:role/r", nil))
 			},
 			delName: "rec1",
 		},

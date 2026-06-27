@@ -586,7 +586,7 @@ type disassociateResourceTypesInput struct {
 func (h *Handler) handleDisassociateResourceTypes(
 	_ context.Context, in *disassociateResourceTypesInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.DisassociateResourceTypes(in.ConfigurationRecorderArn, "")
+	return &emptyOutput{}, h.Backend.DisassociateResourceTypes(in.ConfigurationRecorderArn, in.ResourceTypes)
 }
 
 // GetAggregateComplianceDetailsByConfigRule request/response types and handler.
@@ -849,7 +849,7 @@ func (h *Handler) handleListAggregateDiscoveredResources(
 
 // ListConfigurationRecorders request/response types and handler.
 type listConfigurationRecordersOutput struct {
-	ConfigurationRecorderSummaries []string `json:"ConfigurationRecorderSummaries"`
+	ConfigurationRecorderSummaries []ConfigurationRecorderSummary `json:"ConfigurationRecorderSummaries"`
 }
 
 func (h *Handler) handleListConfigurationRecorders(
@@ -904,7 +904,7 @@ func (h *Handler) handleListResourceEvaluations(
 
 // ListStoredQueries request/response types and handler.
 type listStoredQueriesOutput struct {
-	StoredQueryMetadata []string `json:"StoredQueryMetadata"`
+	StoredQueryMetadata []StoredQueryMetadata `json:"StoredQueryMetadata"`
 }
 
 func (h *Handler) handleListStoredQueries(
@@ -952,9 +952,18 @@ type putConfigRuleSourceBody struct {
 	SourceIdentifier string `json:"SourceIdentifier"`
 }
 
+type putConfigRuleScopeBody struct {
+	ComplianceResourceID    string   `json:"ComplianceResourceId,omitempty"`
+	TagKey                  string   `json:"TagKey,omitempty"`
+	TagValue                string   `json:"TagValue,omitempty"`
+	ComplianceResourceTypes []string `json:"ComplianceResourceTypes,omitempty"`
+}
+
 type putConfigRuleBody struct {
 	Source                    *putConfigRuleSourceBody `json:"Source,omitempty"`
+	Scope                     *putConfigRuleScopeBody  `json:"Scope,omitempty"`
 	ConfigRuleName            string                   `json:"ConfigRuleName"`
+	ConfigRuleState           string                   `json:"ConfigRuleState,omitempty"`
 	Description               string                   `json:"Description,omitempty"`
 	InputParameters           string                   `json:"InputParameters,omitempty"`
 	MaximumExecutionFrequency string                   `json:"MaximumExecutionFrequency,omitempty"`
@@ -972,6 +981,7 @@ func (h *Handler) handlePutConfigRule(
 		Description:               in.ConfigRule.Description,
 		InputParameters:           in.ConfigRule.InputParameters,
 		MaximumExecutionFrequency: in.ConfigRule.MaximumExecutionFrequency,
+		ConfigRuleState:           in.ConfigRule.ConfigRuleState,
 	}
 
 	if in.ConfigRule.Source != nil {
@@ -981,29 +991,50 @@ func (h *Handler) handlePutConfigRule(
 		}
 	}
 
+	if in.ConfigRule.Scope != nil {
+		rule.Scope = &ConfigRuleScope{
+			ComplianceResourceTypes: in.ConfigRule.Scope.ComplianceResourceTypes,
+			ComplianceResourceID:    in.ConfigRule.Scope.ComplianceResourceID,
+			TagKey:                  in.ConfigRule.Scope.TagKey,
+			TagValue:                in.ConfigRule.Scope.TagValue,
+		}
+	}
+
 	return &emptyOutput{}, h.Backend.PutConfigRule(rule)
 }
 
 // PutConfigurationAggregator request/response types and handler.
 type putConfigurationAggregatorInput struct {
-	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+	OrganizationAggregationSource *OrganizationAggregationSource `json:"OrganizationAggregationSource,omitempty"`
+	ConfigurationAggregatorName   string                         `json:"ConfigurationAggregatorName"`
+	AccountAggregationSources     []AccountAggregationSource     `json:"AccountAggregationSources,omitempty"`
 }
 
 func (h *Handler) handlePutConfigurationAggregator(
 	_ context.Context, in *putConfigurationAggregatorInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutConfigurationAggregator(in.ConfigurationAggregatorName)
+	return &emptyOutput{}, h.Backend.PutConfigurationAggregator(
+		in.ConfigurationAggregatorName,
+		in.AccountAggregationSources,
+		in.OrganizationAggregationSource,
+	)
 }
 
 // PutConformancePack request/response types and handler.
 type putConformancePackInput struct {
 	ConformancePackName string `json:"ConformancePackName"`
+	DeliveryS3Bucket    string `json:"DeliveryS3Bucket,omitempty"`
+	DeliveryS3KeyPrefix string `json:"DeliveryS3KeyPrefix,omitempty"`
 }
 
 func (h *Handler) handlePutConformancePack(
 	_ context.Context, in *putConformancePackInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutConformancePack(in.ConformancePackName)
+	return &emptyOutput{}, h.Backend.PutConformancePack(
+		in.ConformancePackName,
+		in.DeliveryS3Bucket,
+		in.DeliveryS3KeyPrefix,
+	)
 }
 
 // PutEvaluations request/response types and handler.
