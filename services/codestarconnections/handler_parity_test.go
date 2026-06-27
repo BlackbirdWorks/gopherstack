@@ -352,7 +352,8 @@ func TestParity_ListConnections_HostArnFilter(t *testing.T) {
 
 // --- Host parity ---
 
-// TestParity_GetHost_IncludesHostArn verifies HostArn field in GetHost response.
+// TestParity_GetHost_IncludesHostArn verifies GetHost does NOT include HostArn (real AWS omits it).
+// HostArn is only present in ListHosts items.
 func TestParity_GetHost_IncludesHostArn(t *testing.T) {
 	t.Parallel()
 
@@ -363,7 +364,7 @@ func TestParity_GetHost_IncludesHostArn(t *testing.T) {
 		endpoint     string
 	}{
 		{
-			name:         "host_arn_in_response",
+			name:         "host_arn_not_in_get_response",
 			hostName:     "my-ghe-host",
 			providerType: "GitHubEnterpriseServer",
 			endpoint:     "https://ghe.example.com",
@@ -381,7 +382,8 @@ func TestParity_GetHost_IncludesHostArn(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			resp := parseResp(t, rec)
-			assert.Equal(t, hostArn, resp["HostArn"])
+			_, hasHostArn := resp["HostArn"]
+			assert.False(t, hasHostArn, "GetHost must not include HostArn in response")
 			assert.Equal(t, tt.hostName, resp["Name"])
 			assert.Equal(t, tt.endpoint, resp["ProviderEndpoint"])
 			assert.Equal(t, tt.providerType, resp["ProviderType"])

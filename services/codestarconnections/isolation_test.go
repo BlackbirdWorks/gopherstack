@@ -62,6 +62,7 @@ func TestCSCRegionIsolation(t *testing.T) {
 		"GitHubEnterpriseServer",
 		"https://east.example.com",
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastHost.HostArn, "us-east-1")
@@ -71,6 +72,7 @@ func TestCSCRegionIsolation(t *testing.T) {
 		"shared-host",
 		"GitHubEnterpriseServer",
 		"https://west.example.com",
+		nil,
 		nil,
 	)
 	require.NoError(t, err)
