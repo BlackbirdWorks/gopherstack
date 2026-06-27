@@ -804,9 +804,16 @@ type groupResourcesInput struct {
 }
 
 type groupResourcesOutput struct {
-	Failed    []map[string]string `json:"Failed,omitempty"`
-	Pending   []map[string]string `json:"Pending,omitempty"`
-	Succeeded []string            `json:"Succeeded"`
+	Failed    []GroupingFailedItem `json:"Failed,omitempty"`
+	Pending   []GroupingFailedItem `json:"Pending,omitempty"`
+	Succeeded []string             `json:"Succeeded"`
+}
+
+// isValidResourceARN reports whether s is a syntactically valid AWS ARN.
+// A valid ARN starts with "arn:" and contains at least five colon separators
+// (six colon-delimited segments).
+func isValidResourceARN(s string) bool {
+	return strings.HasPrefix(s, "arn:") && strings.Count(s, ":") >= 5
 }
 
 func (h *Handler) handleGroupResources(ctx context.Context, in *groupResourcesInput) (*groupResourcesOutput, error) {
@@ -814,15 +821,32 @@ func (h *Handler) handleGroupResources(ctx context.Context, in *groupResourcesIn
 		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
 	}
 
-	succeeded, err := h.Backend.GroupResources(ctx, in.Group, in.ResourceArns)
+	valid := make([]string, 0, len(in.ResourceArns))
+	failed := make([]GroupingFailedItem, 0)
+
+	for _, a := range in.ResourceArns {
+		if !isValidResourceARN(a) {
+			failed = append(failed, GroupingFailedItem{
+				ResourceArn:  a,
+				ErrorCode:    groupingErrInvalidARN,
+				ErrorMessage: fmt.Sprintf("invalid ARN: %q", a),
+			})
+
+			continue
+		}
+
+		valid = append(valid, a)
+	}
+
+	succeeded, err := h.Backend.GroupResources(ctx, in.Group, valid)
 	if err != nil {
 		return nil, err
 	}
 
 	return &groupResourcesOutput{
 		Succeeded: succeeded,
-		Failed:    []map[string]string{},
-		Pending:   []map[string]string{},
+		Failed:    failed,
+		Pending:   []GroupingFailedItem{},
 	}, nil
 }
 
