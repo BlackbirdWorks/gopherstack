@@ -775,7 +775,7 @@ func TestHandlerDescribeJobRun(t *testing.T) {
 	require.Equal(t, http.StatusOK, runRec.Code)
 	var startResp map[string]any
 	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &startResp))
-	runID, _ := startResp["RunID"].(string)
+	runID, _ := startResp["RunId"].(string)
 	require.NotEmpty(t, runID)
 
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/jobs/djr-job/jobRun/"+runID, nil)
@@ -796,7 +796,7 @@ func TestHandlerStopJobRun(t *testing.T) {
 	require.Equal(t, http.StatusOK, runRec.Code)
 	var startResp map[string]any
 	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &startResp))
-	runID, _ := startResp["RunID"].(string)
+	runID, _ := startResp["RunId"].(string)
 	require.NotEmpty(t, runID)
 
 	rec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/sjr-job/jobRun/"+runID, nil)

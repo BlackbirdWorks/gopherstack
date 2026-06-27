@@ -19,17 +19,18 @@ import (
 const (
 	databrewPathPrefix = "/databrew/v1/"
 
-	segDatasets    = "datasets"
-	segRecipes     = "recipes"
-	segProjects    = "projects"
-	segProfileJobs = "profileJobs"
-	segRecipeJobs  = "recipeJobs"
-	segJobs        = "jobs"
-	segRulesets    = "rulesets"
-	segSchedules   = "schedules"
-	segTags        = "tags"
-	segJobRun      = "jobRun"
-	nextTokenKey   = "NextToken"
+	segDatasets       = "datasets"
+	segRecipes        = "recipes"
+	segRecipeVersions = "recipeVersions"
+	segProjects       = "projects"
+	segProfileJobs    = "profileJobs"
+	segRecipeJobs     = "recipeJobs"
+	segJobs           = "jobs"
+	segRulesets       = "rulesets"
+	segSchedules      = "schedules"
+	segTags           = "tags"
+	segJobRun         = "jobRun"
+	nextTokenKey      = "NextToken"
 
 	opCreateDataset    = "CreateDataset"
 	opDescribeDataset  = "DescribeDataset"
@@ -303,7 +304,10 @@ func mapResourceOp(resource, method, name, subOp string) (string, string) {
 	case segTags:
 
 		return parseTagsOp(method, name), name
-	case "recipeVersions":
+	case segRecipeVersions:
+		if method == http.MethodGet {
+			return opListRecipeVersions, name
+		}
 
 		return opBatchDeleteRecipeVersion, name
 	}
@@ -336,15 +340,24 @@ func parseDatasetOp(method, name string) string {
 	return opUnknown
 }
 
-func parseRecipeOp(method, name, subOp string) string {
-	if subOp == "publishRecipe" {
+func parseRecipeSubOp(method, subOp string) string {
+	switch {
+	case subOp == "publishRecipe":
 		return opPublishRecipe
-	}
-	if subOp == "recipeVersions" && method == http.MethodGet {
+	case subOp == segRecipeVersions && method == http.MethodGet:
 		return opListRecipeVersions
-	}
-	if subOp == "recipeVersion" && method == http.MethodDelete {
+	case subOp == segRecipeVersions && method == http.MethodPost:
+		return opBatchDeleteRecipeVersion
+	case strings.HasPrefix(subOp, "recipeVersion/") && method == http.MethodDelete:
 		return opDeleteRecipeVersion
+	}
+
+	return ""
+}
+
+func parseRecipeOp(method, name, subOp string) string {
+	if op := parseRecipeSubOp(method, subOp); op != "" {
+		return op
 	}
 	switch method {
 	case http.MethodPost:
@@ -482,6 +495,12 @@ func enrichDataBrewBody(c *echo.Context, _, name string, body []byte) ([]byte, e
 	if nextToken := c.QueryParam("nextToken"); nextToken != "" {
 		m[nextTokenKey], _ = json.Marshal(nextToken)
 	}
+	if v := c.QueryParam("datasetName"); v != "" {
+		m["DatasetName"], _ = json.Marshal(v)
+	}
+	if v := c.QueryParam("projectName"); v != "" {
+		m["ProjectName"], _ = json.Marshal(v)
+	}
 
 	result, _ := json.Marshal(m)
 
@@ -495,23 +514,28 @@ func enrichDataBrewSubOpBody(path string, body []byte) []byte {
 		_ = json.Unmarshal(body, &m)
 	}
 
-	// e.g. /databrew/v1/jobs/{Name}/jobRun/{RunId}
-	if len(segments) >= 7 && segments[5] == "jobRun" {
-		runIDJSON, _ := json.Marshal(segments[6])
-		m["RunId"] = runIDJSON
-	}
-	// e.g. /databrew/v1/recipes/{Name}/recipeVersion/{RecipeVersion}
-	if len(segments) >= 7 && segments[5] == "recipeVersion" {
-		versionJSON, _ := json.Marshal(segments[6])
-		m["RecipeVersion"] = versionJSON
-	}
-	// tags ResourceArn
-	if len(segments) >= 5 && segments[3] == "tags" {
-		// rebuild arn from path
-		// actually segments[4:] are the resourceARN URL encoded
-		arn := strings.Join(segments[4:], "/")
-		arnJSON, _ := json.Marshal(arn)
-		m["ResourceArn"] = arnJSON
+	for i, seg := range segments {
+		switch seg {
+		case "jobRun":
+			// e.g. /jobs/{Name}/jobRun/{RunId} — with or without /databrew/v1/ prefix
+			if i+1 < len(segments) {
+				runIDJSON, _ := json.Marshal(segments[i+1])
+				m["RunId"] = runIDJSON
+			}
+		case "recipeVersion":
+			// e.g. /recipes/{Name}/recipeVersion/{RecipeVersion}
+			if i+1 < len(segments) {
+				versionJSON, _ := json.Marshal(segments[i+1])
+				m["RecipeVersion"] = versionJSON
+			}
+		case "tags":
+			// e.g. /databrew/v1/tags/{resourceArn} or /tags/{resourceArn}
+			if i+1 < len(segments) {
+				arn := strings.Join(segments[i+1:], "/")
+				arnJSON, _ := json.Marshal(arn)
+				m["ResourceArn"] = arnJSON
+			}
+		}
 	}
 
 	result, _ := json.Marshal(m)
@@ -1144,19 +1168,23 @@ func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]by
 
 func (h *Handler) handleCreateRecipeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags        map[string]string `json:"Tags"`
-		Name        string            `json:"Name"`
-		DatasetName string            `json:"DatasetName"`
-		ProjectName string            `json:"ProjectName"`
-		RecipeName  string            `json:"RecipeName"`
-		RoleArn     string            `json:"RoleArn"`
-		Outputs     []Output          `json:"Outputs"`
-		MaxCapacity int               `json:"MaxCapacity"`
-		MaxRetries  int               `json:"MaxRetries"`
-		Timeout     int               `json:"Timeout"`
+		Tags            map[string]string `json:"Tags"`
+		RecipeReference *RecipeRef        `json:"RecipeReference"`
+		Name            string            `json:"Name"`
+		DatasetName     string            `json:"DatasetName"`
+		ProjectName     string            `json:"ProjectName"`
+		RoleArn         string            `json:"RoleArn"`
+		Outputs         []Output          `json:"Outputs"`
+		MaxCapacity     int               `json:"MaxCapacity"`
+		MaxRetries      int               `json:"MaxRetries"`
+		Timeout         int               `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	recipeName := ""
+	if req.RecipeReference != nil {
+		recipeName = req.RecipeReference.Name
 	}
 	j, err := h.Backend.CreateJob(
 		ctx,
@@ -1164,7 +1192,7 @@ func (h *Handler) handleCreateRecipeJob(ctx context.Context, body []byte) ([]byt
 		"RECIPE",
 		req.DatasetName,
 		req.ProjectName,
-		req.RecipeName,
+		recipeName,
 		req.RoleArn,
 		req.Outputs,
 		req.Tags,
@@ -1193,13 +1221,15 @@ func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, e
 
 func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MaxResults string `json:"MaxResults"`
-		NextToken  string `json:"NextToken"`
+		MaxResults  string `json:"MaxResults"`
+		NextToken   string `json:"NextToken"`
+		DatasetName string `json:"DatasetName"`
+		ProjectName string `json:"ProjectName"`
 	}
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	jobs, next := h.Backend.ListJobs(ctx, maxResults, req.NextToken)
+	jobs, next := h.Backend.ListJobs(ctx, maxResults, req.NextToken, req.DatasetName, req.ProjectName)
 
 	return json.Marshal(map[string]any{"Jobs": jobs, nextTokenKey: next})
 }
@@ -1251,7 +1281,7 @@ func (h *Handler) handleStartJobRun(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"RunID": run.RunID})
+	return json.Marshal(map[string]string{"RunId": run.RunID})
 }
 
 func (h *Handler) handleListJobRuns(ctx context.Context, body []byte) ([]byte, error) {
