@@ -99,8 +99,8 @@ func createTableHelper(t *testing.T, h *s3tables.Handler, bucketARN, namespace, 
 
 	result := parseResponse(t, rec)
 
-	tableARN, ok := result["tableARN"].(string)
-	require.True(t, ok, "expected tableARN in response")
+	tableARN, ok := result["tableArn"].(string)
+	require.True(t, ok, "expected tableArn in response")
 
 	return tableARN
 }
@@ -109,7 +109,7 @@ func getTableHelper(t *testing.T, h *s3tables.Handler, bucketARN, namespace, nam
 	t.Helper()
 
 	query := url.Values{}
-	query.Set("tableBucketARN", bucketARN)
+	query.Set("tableBucketArn", bucketARN)
 	query.Set("namespace", namespace)
 	query.Set("name", name)
 	rec := doS3TablesRequest(t, h, http.MethodGet, "/get-table?"+query.Encode(), nil)
@@ -470,7 +470,7 @@ func TestHandler_Table_Create(t *testing.T) {
 				"format": "ICEBERG",
 			},
 			wantStatus: http.StatusOK,
-			checkField: "tableARN",
+			checkField: "tableArn",
 		},
 		{
 			name:       "create_table_missing_name",
@@ -481,7 +481,7 @@ func TestHandler_Table_Create(t *testing.T) {
 			name:       "create_table_default_format",
 			body:       map[string]any{"name": "default-format-table"},
 			wantStatus: http.StatusOK,
-			checkField: "tableARN",
+			checkField: "tableArn",
 		},
 	}
 
@@ -522,19 +522,19 @@ func TestHandler_Table_GetAndList(t *testing.T) {
 			method: http.MethodGet,
 			pathFn: func(bucketARN, _ string) string {
 				return fmt.Sprintf(
-					"/get-table?tableBucketARN=%s&namespace=test-ns&name=test-table",
+					"/get-table?tableBucketArn=%s&namespace=test-ns&name=test-table",
 					url.QueryEscape(bucketARN),
 				)
 			},
 			wantStatus: http.StatusOK,
-			checkField: "tableARN",
+			checkField: "tableArn",
 		},
 		{
 			name:   "get_table_not_found",
 			method: http.MethodGet,
 			pathFn: func(bucketARN, _ string) string {
 				return fmt.Sprintf(
-					"/get-table?tableBucketARN=%s&namespace=test-ns&name=nope",
+					"/get-table?tableBucketArn=%s&namespace=test-ns&name=nope",
 					url.QueryEscape(bucketARN),
 				)
 			},
@@ -989,5 +989,5 @@ func TestHandler_CreateTable_WithURLEncodedARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	result := parseResponse(t, rec)
-	assert.NotEmpty(t, result["tableARN"])
+	assert.NotEmpty(t, result["tableArn"])
 }
