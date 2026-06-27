@@ -122,8 +122,9 @@ func TestAudit1_PlaybackConfiguration_CRUD(t *testing.T) {
 
 	// Put
 	rec := doRequest(t, h, http.MethodPut, "/playbackConfiguration", map[string]any{
-		"Name":                "test-config",
-		"AdDecisionServerUrl": "https://ads.example.com",
+		"Name":                  "test-config",
+		"AdDecisionServerUrl":   "https://ads.example.com",
+		"VideoContentSourceUrl": "https://video.example.com",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, mediatailor.PlaybackConfigurationCount(h.Backend.(*mediatailor.InMemoryBackend)))
@@ -159,11 +160,14 @@ func TestAudit1_PlaybackConfiguration_PutIdempotent(t *testing.T) {
 	h := newTestHandler(t)
 
 	doRequest(t, h, http.MethodPut, "/playbackConfiguration", map[string]any{
-		"Name": "cfg1",
+		"Name":                  "cfg1",
+		"AdDecisionServerUrl":   "https://ads.example.com",
+		"VideoContentSourceUrl": "https://video.example.com",
 	})
 	doRequest(t, h, http.MethodPut, "/playbackConfiguration", map[string]any{
-		"Name":                "cfg1",
-		"AdDecisionServerUrl": "https://new-ads.example.com",
+		"Name":                  "cfg1",
+		"AdDecisionServerUrl":   "https://new-ads.example.com",
+		"VideoContentSourceUrl": "https://video.example.com",
 	})
 
 	assert.Equal(t, 1, mediatailor.PlaybackConfigurationCount(h.Backend.(*mediatailor.InMemoryBackend)))
@@ -180,19 +184,25 @@ func TestAudit1_PlaybackConfiguration_NotFound(t *testing.T) {
 	h := newTestHandler(t)
 
 	tests := []struct {
-		name   string
-		method string
-		path   string
+		name     string
+		method   string
+		path     string
+		wantCode int
 	}{
-		{"get unknown returns 404", http.MethodGet, "/playbackConfiguration/notexist"},
-		{"delete unknown returns 404", http.MethodDelete, "/playbackConfiguration/notexist"},
+		{"get unknown returns 404", http.MethodGet, "/playbackConfiguration/notexist", http.StatusNotFound},
+		{
+			"delete unknown is idempotent returns 204",
+			http.MethodDelete,
+			"/playbackConfiguration/notexist",
+			http.StatusNoContent,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			rec := doRequest(t, h, tc.method, tc.path, nil)
-			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
 }
@@ -329,9 +339,9 @@ func TestAudit1_Channel_StartStop(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	assert.Equal(t, "RUNNING", descResp["ChannelState"])
 
-	// Start again returns conflict
+	// Start again is idempotent
 	rec = doRequest(t, h, http.MethodPut, "/channel/ch1/start", nil)
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Stop
 	rec = doRequest(t, h, http.MethodPut, "/channel/ch1/stop", nil)
@@ -342,9 +352,9 @@ func TestAudit1_Channel_StartStop(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	assert.Equal(t, "STOPPED", descResp["ChannelState"])
 
-	// Stop again returns conflict
+	// Stop again is idempotent
 	rec = doRequest(t, h, http.MethodPut, "/channel/ch1/stop", nil)
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestAudit1_Channel_DeleteRunning(t *testing.T) {
@@ -710,7 +720,9 @@ func TestAudit1_Tags(t *testing.T) {
 
 	// Create a playback config to get an ARN
 	rec := doRequest(t, h, http.MethodPut, "/playbackConfiguration", map[string]any{
-		"Name": "tagged-config",
+		"Name":                  "tagged-config",
+		"AdDecisionServerUrl":   "https://ads.example.com",
+		"VideoContentSourceUrl": "https://video.example.com",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

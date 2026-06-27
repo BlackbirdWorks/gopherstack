@@ -317,7 +317,7 @@ func TestUntagResource(t *testing.T) {
 		wantCode int
 	}{
 		{name: "untag existing resource succeeds", wantCode: http.StatusNoContent},
-		{name: "untag non-existent resource returns 404", wantCode: http.StatusNotFound},
+		{name: "untag non-existent resource is idempotent", wantCode: http.StatusNoContent},
 	}
 
 	for i, tt := range tests {
