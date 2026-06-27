@@ -12,6 +12,7 @@ import (
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/emr"
@@ -961,7 +962,8 @@ func (rc *ResourceCreator) deleteDocDBCluster(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	_, err := rc.backends.DocDB.Backend.DeleteDBCluster(context.Background(), id, nil)
+	_, err := rc.backends.DocDB.Backend.DeleteDBCluster(context.Background(), id,
+		&docdbbackend.DeleteDBClusterOptions{SkipFinalSnapshot: true})
 
 	return err
 }
