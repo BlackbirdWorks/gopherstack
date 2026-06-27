@@ -1007,15 +1007,19 @@ func (h *Handler) handleCreateCloudFormationTemplate(
 	log.InfoContext(ctx, "serverlessrepo: created CloudFormation template",
 		"app", appName, "templateId", t.TemplateID)
 
-	b, marshalErr := json.Marshal(map[string]any{
-		keyApplicationID:   t.ApplicationID,
-		"templateId":       t.TemplateID,
-		keySemanticVersion: t.SemanticVersion,
-		"status":           t.Status,
-		keyCreationTime:    isoTimestamp(t.CreationTime),
-		"expirationTime":   isoTimestamp(t.ExpirationTime),
-		keyTemplateURL:     t.TemplateURL,
-	})
+	resp := map[string]any{
+		keyApplicationID: t.ApplicationID,
+		"templateId":     t.TemplateID,
+		"status":         t.Status,
+		keyCreationTime:  isoTimestamp(t.CreationTime),
+		"expirationTime": isoTimestamp(t.ExpirationTime),
+		keyTemplateURL:   t.TemplateURL,
+	}
+	if t.SemanticVersion != "" {
+		resp[keySemanticVersion] = t.SemanticVersion
+	}
+
+	b, marshalErr := json.Marshal(resp)
 	if marshalErr != nil {
 		return nil, marshalErr
 	}
@@ -1048,15 +1052,19 @@ func (h *Handler) handleGetCloudFormationTemplate(req *http.Request) ([]byte, er
 		status = templateStatusExpired
 	}
 
-	return json.Marshal(map[string]any{
-		keyApplicationID:   t.ApplicationID,
-		"templateId":       t.TemplateID,
-		keySemanticVersion: t.SemanticVersion,
-		"status":           status,
-		keyCreationTime:    isoTimestamp(t.CreationTime),
-		"expirationTime":   isoTimestamp(t.ExpirationTime),
-		keyTemplateURL:     t.TemplateURL,
-	})
+	resp := map[string]any{
+		keyApplicationID: t.ApplicationID,
+		"templateId":     t.TemplateID,
+		"status":         status,
+		keyCreationTime:  isoTimestamp(t.CreationTime),
+		"expirationTime": isoTimestamp(t.ExpirationTime),
+		keyTemplateURL:   t.TemplateURL,
+	}
+	if t.SemanticVersion != "" {
+		resp[keySemanticVersion] = t.SemanticVersion
+	}
+
+	return json.Marshal(resp)
 }
 
 // createCFChangeSetRequest is the request body for CreateCloudFormationChangeSet.
@@ -1112,12 +1120,16 @@ func (h *Handler) handleCreateCloudFormationChangeSet(
 		cs.ChangeSetID,
 	)
 
-	b, marshalErr := json.Marshal(map[string]any{
-		keyApplicationID:   cs.ApplicationID,
-		"changeSetId":      cs.ChangeSetID,
-		keySemanticVersion: cs.SemanticVersion,
-		"stackId":          cs.StackID,
-	})
+	csResp := map[string]any{
+		keyApplicationID: cs.ApplicationID,
+		"changeSetId":    cs.ChangeSetID,
+		"stackId":        cs.StackID,
+	}
+	if cs.SemanticVersion != "" {
+		csResp[keySemanticVersion] = cs.SemanticVersion
+	}
+
+	b, marshalErr := json.Marshal(csResp)
 	if marshalErr != nil {
 		return nil, marshalErr
 	}
