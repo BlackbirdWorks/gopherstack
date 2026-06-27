@@ -747,7 +747,7 @@ func TestAudit_ResolverDnssecConfig_StatusValues(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				cfg := resp["ResolverDNSSECConfig"].(map[string]any)
-				assert.Equal(t, tt.wantStatus, cfg["ValidationStatus"])
+				assert.Equal(t, tt.wantStatus, cfg["Validation"])
 			}
 		})
 	}
