@@ -249,7 +249,7 @@ func TestHandler_CreateTable(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	tests := []struct {
@@ -259,12 +259,12 @@ func TestHandler_CreateTable(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			body:       map[string]string{"DatabaseName": "db", "TableName": "tbl"},
+			body:       map[string]string{"DatabaseName": "mydb", "TableName": "tbl"},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "missing table name",
-			body:       map[string]string{"DatabaseName": "db"},
+			body:       map[string]string{"DatabaseName": "mydb"},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -289,10 +289,10 @@ func TestHandler_DescribeTable(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "mydb", "TableName": "tbl"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	tests := []struct {
@@ -302,12 +302,12 @@ func TestHandler_DescribeTable(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			body:       map[string]string{"DatabaseName": "db", "TableName": "tbl"},
+			body:       map[string]string{"DatabaseName": "mydb", "TableName": "tbl"},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "not found",
-			body:       map[string]string{"DatabaseName": "db", "TableName": "missing"},
+			body:       map[string]string{"DatabaseName": "mydb", "TableName": "missing"},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -327,15 +327,15 @@ func TestHandler_ListTables(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	for _, name := range []string{"t1", "t2"} {
-		rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": name})
+		rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "mydb", "TableName": name})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	rec = doRequest(t, h, "ListTables", map[string]string{"DatabaseName": "db"})
+	rec = doRequest(t, h, "ListTables", map[string]string{"DatabaseName": "mydb"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -350,10 +350,10 @@ func TestHandler_WriteRecords(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "mydb", "TableName": "tbl"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	tests := []struct {
@@ -364,7 +364,7 @@ func TestHandler_WriteRecords(t *testing.T) {
 		{
 			name: "success",
 			body: map[string]any{
-				"DatabaseName": "db",
+				"DatabaseName": "mydb",
 				"TableName":    "tbl",
 				"Records": []map[string]any{
 					{
@@ -559,10 +559,10 @@ func TestHandler_DeleteTable(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "mydb", "TableName": "tbl"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	tests := []struct {
@@ -572,12 +572,12 @@ func TestHandler_DeleteTable(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			body:       map[string]string{"DatabaseName": "db", "TableName": "tbl"},
+			body:       map[string]string{"DatabaseName": "mydb", "TableName": "tbl"},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "not found",
-			body:       map[string]string{"DatabaseName": "db", "TableName": "missing"},
+			body:       map[string]string{"DatabaseName": "mydb", "TableName": "missing"},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -602,10 +602,10 @@ func TestHandler_UpdateTable(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "mydb", "TableName": "tbl"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	tests := []struct {
@@ -615,12 +615,12 @@ func TestHandler_UpdateTable(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			body:       map[string]string{"DatabaseName": "db", "TableName": "tbl"},
+			body:       map[string]string{"DatabaseName": "mydb", "TableName": "tbl"},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "not found",
-			body:       map[string]string{"DatabaseName": "db", "TableName": "missing"},
+			body:       map[string]string{"DatabaseName": "mydb", "TableName": "missing"},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -717,10 +717,10 @@ func TestHandler_CreateBatchLoadTask(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "mydb", "TableName": "tbl"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	tests := []struct {
@@ -729,8 +729,15 @@ func TestHandler_CreateBatchLoadTask(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "success",
-			body:       map[string]string{"TargetDatabaseName": "db", "TargetTableName": "tbl"},
+			name: "success",
+			body: map[string]any{
+				"TargetDatabaseName": "mydb",
+				"TargetTableName":    "tbl",
+				"DataSourceConfiguration": map[string]any{
+					"DataFormat":                "CSV",
+					"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+				},
+			},
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -740,7 +747,7 @@ func TestHandler_CreateBatchLoadTask(t *testing.T) {
 		},
 		{
 			name:       "missing target table",
-			body:       map[string]string{"TargetDatabaseName": "db"},
+			body:       map[string]string{"TargetDatabaseName": "mydb"},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -750,7 +757,7 @@ func TestHandler_CreateBatchLoadTask(t *testing.T) {
 		},
 		{
 			name:       "table not found",
-			body:       map[string]string{"TargetDatabaseName": "db", "TargetTableName": "missing-tbl"},
+			body:       map[string]string{"TargetDatabaseName": "mydb", "TargetTableName": "missing-tbl"},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -776,15 +783,19 @@ func TestHandler_DescribeBatchLoadTask(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "mydb", "TableName": "tbl"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateBatchLoadTask", map[string]string{
-		"TargetDatabaseName": "db",
+	rec = doRequest(t, h, "CreateBatchLoadTask", map[string]any{
+		"TargetDatabaseName": "mydb",
 		"TargetTableName":    "tbl",
+		"DataSourceConfiguration": map[string]any{
+			"DataFormat":                "CSV",
+			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -828,7 +839,7 @@ func TestHandler_DescribeBatchLoadTask(t *testing.T) {
 				desc, ok := resp["BatchLoadTaskDescription"].(map[string]any)
 				assert.True(t, ok)
 				assert.Equal(t, taskID, desc["TaskId"])
-				assert.Equal(t, "db", desc["TargetDatabaseName"])
+				assert.Equal(t, "mydb", desc["TargetDatabaseName"])
 				assert.Equal(t, "tbl", desc["TargetTableName"])
 				assert.Equal(t, "CREATED", desc["TaskStatus"])
 			}
@@ -841,16 +852,20 @@ func TestHandler_ListBatchLoadTasks(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "mydb", "TableName": "tbl"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	for range 3 {
-		rec = doRequest(t, h, "CreateBatchLoadTask", map[string]string{
-			"TargetDatabaseName": "db",
+		rec = doRequest(t, h, "CreateBatchLoadTask", map[string]any{
+			"TargetDatabaseName": "mydb",
 			"TargetTableName":    "tbl",
+			"DataSourceConfiguration": map[string]any{
+				"DataFormat":                "CSV",
+				"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+			},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -902,15 +917,19 @@ func TestHandler_ResumeBatchLoadTask(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "mydb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "mydb", "TableName": "tbl"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "CreateBatchLoadTask", map[string]string{
-		"TargetDatabaseName": "db",
+	rec = doRequest(t, h, "CreateBatchLoadTask", map[string]any{
+		"TargetDatabaseName": "mydb",
 		"TargetTableName":    "tbl",
+		"DataSourceConfiguration": map[string]any{
+			"DataFormat":                "CSV",
+			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -966,7 +985,7 @@ func TestHandler_ResumeBatchLoadTask_Success(t *testing.T) {
 	task, err := b.CreateBatchLoadTask("db", "tbl", nil, nil)
 	require.NoError(t, err)
 
-	err = b.SetBatchLoadTaskStatus(task.TaskID, "PENDING_RESUME")
+	err = b.SetBatchLoadTaskStatus(task.TaskID, "PROGRESS_STOPPED")
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "ResumeBatchLoadTask", map[string]string{"TaskId": task.TaskID})
