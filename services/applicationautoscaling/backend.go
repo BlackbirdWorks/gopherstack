@@ -274,26 +274,38 @@ func (b *InMemoryBackend) recordActivityLocked(
 	})
 }
 
+// DescribeScalingActivitiesFilter carries optional filters for DescribeScalingActivities.
+type DescribeScalingActivitiesFilter struct {
+	// ServiceNamespace limits results to this namespace when non-empty.
+	ServiceNamespace string
+	// ResourceID limits results to this resource when non-empty.
+	ResourceID string
+	// ScalableDimension limits results to this dimension when non-empty.
+	ScalableDimension string
+	// NextToken is the opaque pagination cursor returned by a prior call.
+	NextToken string
+	// MaxResults, when > 0, limits the number of returned items. Capped at maxDescribeResults.
+	MaxResults int32
+}
+
 // DescribeScalingActivities returns recorded scaling activities filtered by the
-// optional resourceID and scalableDimension, most recent first.
-func (b *InMemoryBackend) DescribeScalingActivities(
-	serviceNamespace, resourceID, scalableDimension string,
-) []*ScalingActivity {
+// optional fields in f, most recent first, with pagination.
+func (b *InMemoryBackend) DescribeScalingActivities(f DescribeScalingActivitiesFilter) ([]*ScalingActivity, string) {
 	b.mu.RLock("DescribeScalingActivities")
 	defer b.mu.RUnlock()
 
 	out := make([]*ScalingActivity, 0, len(b.scalingActivities))
 
 	for _, a := range slices.Backward(b.scalingActivities) {
-		if serviceNamespace != "" && a.ServiceNamespace != serviceNamespace {
+		if f.ServiceNamespace != "" && a.ServiceNamespace != f.ServiceNamespace {
 			continue
 		}
 
-		if resourceID != "" && a.ResourceID != resourceID {
+		if f.ResourceID != "" && a.ResourceID != f.ResourceID {
 			continue
 		}
 
-		if scalableDimension != "" && a.ScalableDimension != scalableDimension {
+		if f.ScalableDimension != "" && a.ScalableDimension != f.ScalableDimension {
 			continue
 		}
 
@@ -301,7 +313,9 @@ func (b *InMemoryBackend) DescribeScalingActivities(
 		out = append(out, &cp)
 	}
 
-	return out
+	return paginate(out, f.MaxResults, f.NextToken, func(a *ScalingActivity) string {
+		return a.ActivityID
+	})
 }
 
 // mergeTags merges src into dst enforcing the per-resource tag limit.
