@@ -317,6 +317,8 @@ func TestBackend_StartStopApplication(t *testing.T) {
 			if tt.op == "start" {
 				err = b.StartApplication(ctx, "app-lifecycle")
 			} else {
+				err = b.StartApplication(ctx, "app-lifecycle")
+				require.NoError(t, err)
 				err = b.StopApplication(ctx, "app-lifecycle")
 			}
 
@@ -341,6 +343,9 @@ func TestBackend_SnapshotLifecycle(t *testing.T) {
 	ctx := context.Background()
 	b := newTestBackend(t)
 	_, err := b.CreateApplication(ctx, "snap-app", "FLINK-1_18", "", "", "", nil)
+	require.NoError(t, err)
+
+	err = b.StartApplication(ctx, "snap-app")
 	require.NoError(t, err)
 
 	// Create snapshot.
@@ -511,6 +516,9 @@ func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
 			b := newTestBackend(t)
 
 			_, err := b.CreateApplication(ctx, "paged-snap-app", "FLINK-1_18", "", "", "", nil)
+			require.NoError(t, err)
+
+			err = b.StartApplication(ctx, "paged-snap-app")
 			require.NoError(t, err)
 
 			for i := range tt.count {

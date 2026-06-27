@@ -160,6 +160,9 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 
 	assert.Equal(t, 1, kinesisanalyticsv2.ApplicationCount(b))
 
+	err = b.StartApplication(ctx, "count-app")
+	require.NoError(t, err)
+
 	_, err = b.CreateApplicationSnapshot(ctx, "count-app", "snap-1")
 	require.NoError(t, err)
 
@@ -313,6 +316,9 @@ func TestRefinement1_DescribeApplicationSnapshot_DirectLookup(t *testing.T) {
 	_, err := b.CreateApplication(ctx, "snap-direct-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
+	err = b.StartApplication(ctx, "snap-direct-app")
+	require.NoError(t, err)
+
 	_, err = b.CreateApplicationSnapshot(ctx, "snap-direct-app", "snap-direct")
 	require.NoError(t, err)
 
@@ -371,6 +377,9 @@ func TestRefinement1_ListApplicationSnapshots_SortedByCreationTime(t *testing.T)
 	_, err := b.CreateApplication(ctx, "sort-snap-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
+	err = b.StartApplication(ctx, "sort-snap-app")
+	require.NoError(t, err)
+
 	for _, name := range []string{"snap-b", "snap-a", "snap-c"} {
 		_, err = b.CreateApplicationSnapshot(ctx, "sort-snap-app", name)
 		require.NoError(t, err)
@@ -412,6 +421,9 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 		"STREAMING",
 		[]kinesisanalyticsv2.Tag{{Key: "env", Value: "test"}},
 	)
+	require.NoError(t, err)
+
+	err = b.StartApplication(ctx, "persist-app")
 	require.NoError(t, err)
 
 	_, err = b.CreateApplicationSnapshot(ctx, "persist-app", "snap-1")

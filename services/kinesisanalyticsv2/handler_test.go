@@ -368,6 +368,11 @@ func TestKAV2_SnapshotLifecycle(t *testing.T) {
 		"RuntimeEnvironment": "FLINK-1_18",
 	})
 
+	startRec := doKAV2Request(t, h, "StartApplication", map[string]any{
+		"ApplicationName": "snap-app",
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
 	// Create snapshot.
 	rec := doKAV2Request(t, h, "CreateApplicationSnapshot", map[string]any{
 		"ApplicationName": "snap-app",
