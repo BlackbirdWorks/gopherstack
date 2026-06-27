@@ -183,17 +183,23 @@ type ProvisionedModelThroughput struct {
 	DesiredModelUnits    int32     `json:"desiredModelUnits"`
 }
 
+// FoundationModelLifecycle holds the lifecycle status of a foundation model.
+type FoundationModelLifecycle struct {
+	Status string `json:"status"`
+}
+
 // FoundationModelSummary represents a foundation model.
 type FoundationModelSummary struct {
-	ModelArn                   string   `json:"modelArn"`
-	ModelID                    string   `json:"modelId"`
-	ModelName                  string   `json:"modelName"`
-	ProviderName               string   `json:"providerName"`
-	InputModalities            []string `json:"inputModalities,omitempty"`
-	OutputModalities           []string `json:"outputModalities,omitempty"`
-	InferenceTypesSupported    []string `json:"inferenceTypesSupported,omitempty"`
-	CustomizationsSupported    []string `json:"customizationsSupported,omitempty"`
-	ResponseStreamingSupported bool     `json:"responseStreamingSupported"`
+	ModelLifecycle             *FoundationModelLifecycle `json:"modelLifecycle,omitempty"`
+	ModelArn                   string                    `json:"modelArn"`
+	ModelID                    string                    `json:"modelId"`
+	ModelName                  string                    `json:"modelName"`
+	ProviderName               string                    `json:"providerName"`
+	InputModalities            []string                  `json:"inputModalities,omitempty"`
+	OutputModalities           []string                  `json:"outputModalities,omitempty"`
+	InferenceTypesSupported    []string                  `json:"inferenceTypesSupported,omitempty"`
+	CustomizationsSupported    []string                  `json:"customizationsSupported,omitempty"`
+	ResponseStreamingSupported bool                      `json:"responseStreamingSupported"`
 }
 
 // EvaluationModelConfig specifies the evaluator model for an evaluation job.
@@ -650,8 +656,10 @@ func (b *InMemoryBackend) Reset() {
 }
 
 func (b *InMemoryBackend) seedFoundationModels() {
-	partition := "aws"
-	prefix := "arn:" + partition + ":bedrock::" + b.accountID + ":foundation-model/"
+	// Real AWS foundation model ARNs use region but NOT account ID:
+	// arn:{partition}:bedrock:{region}::foundation-model/{modelId}
+	prefix := "arn:aws:bedrock:" + b.region + "::foundation-model/"
+	active := &FoundationModelLifecycle{Status: kbStatusActive}
 
 	b.foundationModels = []*FoundationModelSummary{
 		{
@@ -664,6 +672,7 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			InferenceTypesSupported:    []string{inferenceTypeOnDemand, inferenceTypeProvisioned},
 			CustomizationsSupported:    []string{customizationTypeFineTuning},
 			ResponseStreamingSupported: true,
+			ModelLifecycle:             active,
 		},
 		{
 			ModelID:                    "amazon.titan-embed-text-v1",
@@ -675,6 +684,7 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			InferenceTypesSupported:    []string{inferenceTypeOnDemand},
 			CustomizationsSupported:    []string{},
 			ResponseStreamingSupported: false,
+			ModelLifecycle:             active,
 		},
 		{
 			ModelID:                    "anthropic.claude-v2",
@@ -686,6 +696,7 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			InferenceTypesSupported:    []string{inferenceTypeOnDemand, inferenceTypeProvisioned},
 			CustomizationsSupported:    []string{},
 			ResponseStreamingSupported: true,
+			ModelLifecycle:             active,
 		},
 		{
 			ModelID:                    "anthropic.claude-3-sonnet-20240229-v1:0",
@@ -697,6 +708,7 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			InferenceTypesSupported:    []string{inferenceTypeOnDemand, inferenceTypeProvisioned},
 			CustomizationsSupported:    []string{},
 			ResponseStreamingSupported: true,
+			ModelLifecycle:             active,
 		},
 		{
 			ModelID:                    "meta.llama3-8b-instruct-v1:0",
@@ -708,6 +720,7 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			InferenceTypesSupported:    []string{inferenceTypeOnDemand},
 			CustomizationsSupported:    []string{customizationTypeFineTuning},
 			ResponseStreamingSupported: true,
+			ModelLifecycle:             active,
 		},
 	}
 }
@@ -990,13 +1003,13 @@ func (b *InMemoryBackend) ListFoundationModels(
 	return paginateBedrockSlice(list, nextToken)
 }
 
-// GetFoundationModel returns a single foundation model by ID.
+// GetFoundationModel returns a single foundation model by model ID or full ARN.
 func (b *InMemoryBackend) GetFoundationModel(modelID string) (*FoundationModelSummary, error) {
 	b.mu.RLock("GetFoundationModel")
 	defer b.mu.RUnlock()
 
 	for _, m := range b.foundationModels {
-		if m.ModelID == modelID {
+		if m.ModelID == modelID || m.ModelArn == modelID {
 			cp := *m
 
 			return &cp, nil
