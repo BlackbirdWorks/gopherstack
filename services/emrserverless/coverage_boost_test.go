@@ -229,7 +229,7 @@ func TestHandler_HandleError_InternalError(t *testing.T) {
 	// Now also test via the backend directly — UpdateApplication with a custom error
 	// that doesn't match any sentinel.
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, createErr := b.CreateApplication("test-app", "SPARK", "emr-6.6.0", nil)
+	app, createErr := b.CreateApplication("test-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, createErr)
 
 	// Use GetJobRun with a job run that doesn't exist in an app that has no job run map
@@ -658,7 +658,7 @@ func TestBackend_GetJobRun_NoRunsForApp(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("no-runs-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("no-runs-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 
 	// No job runs have been started so the inner map doesn't exist.
@@ -673,7 +673,7 @@ func TestBackend_GetDashboardForJobRun_NoRunsForApp(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("no-runs-dash-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("no-runs-dash-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.GetDashboardForJobRun(app.ApplicationID, "nonexistent-run")
@@ -687,7 +687,7 @@ func TestBackend_ListJobRunAttempts_NoRunsForApp(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("no-runs-attempts-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("no-runs-attempts-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 
 	_, _, err = b.ListJobRunAttempts(app.ApplicationID, "nonexistent-run", "", 0)
@@ -701,7 +701,7 @@ func TestBackend_CancelJobRun_NoRunsForApp(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("no-runs-cancel-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("no-runs-cancel-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CancelJobRun(app.ApplicationID, "nonexistent-run")
@@ -716,10 +716,10 @@ func TestBackend_FindTagsByARN_AfterReset(t *testing.T) {
 
 	// After a snapshot round-trip with nil job run sub-map, ensureMaps should fix it.
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("tag-arn-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("tag-arn-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 
-	jr, err := b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "run1", nil)
+	jr, err := b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "run1", "", nil)
 	require.NoError(t, err)
 
 	// Verify tags can be retrieved via ARN.
@@ -743,11 +743,11 @@ func TestPersistence_EnsureMaps_NilJobRunSubMap(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("ensure-maps-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("ensure-maps-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 
 	// Start a job run so the job runs map has an entry.
-	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "run1", nil)
+	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "run1", "", nil)
 	require.NoError(t, err)
 
 	// Snapshot and restore — ensureMaps will run and handle any nil sub-maps.

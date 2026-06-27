@@ -18,7 +18,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("111111111111", "us-west-2")
-	_, err := b.CreateApplication("app1", "SPARK", "emr-6.6.0", nil)
+	_, err := b.CreateApplication("app1", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, emrserverless.ApplicationCount(b))
 
@@ -37,7 +37,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	b := emrserverless.NewInMemoryBackend("111111111111", "us-west-2")
 
 	for range 3 {
-		_, err := b.CreateApplication("app-cycle", "SPARK", "emr-6.6.0", nil)
+		_, err := b.CreateApplication("app-cycle", "SPARK", "emr-6.6.0", "", nil)
 		require.NoError(t, err)
 		b.Reset()
 		assert.Equal(t, 0, emrserverless.ApplicationCount(b))
@@ -157,7 +157,7 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 0, emrserverless.ApplicationCount(b))
 	assert.Equal(t, 0, emrserverless.JobRunCount(b))
 
-	_, err := b.CreateApplication("count-app", "SPARK", "emr-6.6.0", nil)
+	_, err := b.CreateApplication("count-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, emrserverless.ApplicationCount(b))
 
@@ -233,7 +233,7 @@ func TestRefinement1_CreateApplication_RequiresName(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateApplication("", "SPARK", "emr-6.6.0", nil)
+	_, err := b.CreateApplication("", "SPARK", "emr-6.6.0", "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, emrserverless.ErrValidation)
 }
@@ -242,7 +242,7 @@ func TestRefinement1_CreateApplication_RequiresType(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateApplication("my-app", "", "emr-6.6.0", nil)
+	_, err := b.CreateApplication("my-app", "", "emr-6.6.0", "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, emrserverless.ErrValidation)
 }
@@ -360,7 +360,7 @@ func TestRefinement1_NonNilTags_Application(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("no-tag-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("no-tag-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 	assert.NotNil(t, app.Tags)
 }
@@ -369,13 +369,13 @@ func TestRefinement1_NonNilTags_JobRun(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateApplication("jr-notag-app", "SPARK", "emr-6.6.0", nil)
+	_, err := b.CreateApplication("jr-notag-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 	apps, _ := b.ListApplications("", 0)
 	require.Len(t, apps, 1)
 	appID := apps[0].ApplicationID
 
-	jr, err := b.StartJobRun(appID, "arn:aws:iam::000000000000:role/r", "test-run", nil)
+	jr, err := b.StartJobRun(appID, "arn:aws:iam::000000000000:role/r", "test-run", "", nil)
 	require.NoError(t, err)
 	assert.NotNil(t, jr.Tags)
 }
@@ -450,10 +450,10 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("persist-app", "SPARK", "emr-6.6.0", map[string]string{"k": "v"})
+	app, err := b.CreateApplication("persist-app", "SPARK", "emr-6.6.0", "", map[string]string{"k": "v"})
 	require.NoError(t, err)
 
-	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "persist-run", nil)
+	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "persist-run", "", nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
@@ -491,10 +491,10 @@ func TestRefinement1_ARNIndexesConsistentAfterReset(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("arn-idx-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("arn-idx-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "run1", nil)
+	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "run1", "", nil)
 	require.NoError(t, err)
 
 	appARNs, jobRunARNs := emrserverless.ARNIndexSizes(b)
@@ -541,7 +541,7 @@ func TestRefinement1_SortedListJobRuns(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("sorted-runs-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("sorted-runs-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 
 	now := time.Now().UTC()
@@ -575,7 +575,7 @@ func TestRefinement1_ListTagsForResource_NonNilWhenEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	app, err := b.CreateApplication("tags-empty-app", "SPARK", "emr-6.6.0", nil)
+	app, err := b.CreateApplication("tags-empty-app", "SPARK", "emr-6.6.0", "", nil)
 	require.NoError(t, err)
 
 	tags, err := b.ListTagsForResource(app.Arn)
