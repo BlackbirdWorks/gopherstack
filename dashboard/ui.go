@@ -845,6 +845,7 @@ func (h *DashboardHandler) setupSubRouter() {
 			req.ProviderType,
 			req.ProviderEndpoint,
 			nil,
+			nil,
 		)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
