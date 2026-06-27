@@ -488,8 +488,9 @@ func TestRefinement1_ExecuteStatement_Response(t *testing.T) {
 
 	_, hasRecords := resp["records"]
 	assert.True(t, hasRecords, "records key must be present")
+	// columnMetadata is omitted when includeResultMetadata is not set (real AWS behavior).
 	_, hasCols := resp["columnMetadata"]
-	assert.True(t, hasCols, "columnMetadata key must be present")
+	assert.False(t, hasCols, "columnMetadata must be absent when includeResultMetadata is false")
 	_, hasUpdated := resp["numberOfRecordsUpdated"]
 	assert.True(t, hasUpdated, "numberOfRecordsUpdated key must be present")
 	_, hasGenerated := resp["generatedFields"]

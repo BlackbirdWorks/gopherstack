@@ -223,20 +223,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 type executeStatementRequest struct {
-	ResourceArn   string         `json:"resourceArn"`
-	SecretArn     string         `json:"secretArn"`
-	SQL           string         `json:"sql"`
-	Database      string         `json:"database"`
-	Schema        string         `json:"schema"`
-	TransactionID string         `json:"transactionId"`
-	Parameters    []SQLParameter `json:"parameters"`
-}
-
-type executeStatementResponse struct {
-	ColumnMetadata         []ColumnMetadata `json:"columnMetadata"`
-	GeneratedFields        []Field          `json:"generatedFields"`
-	Records                [][]Field        `json:"records"`
-	NumberOfRecordsUpdated int64            `json:"numberOfRecordsUpdated"`
+	ResourceArn           string         `json:"resourceArn"`
+	SecretArn             string         `json:"secretArn"`
+	SQL                   string         `json:"sql"`
+	Database              string         `json:"database"`
+	Schema                string         `json:"schema"`
+	TransactionID         string         `json:"transactionId"`
+	Parameters            []SQLParameter `json:"parameters"`
+	IncludeResultMetadata bool           `json:"includeResultMetadata"`
 }
 
 type requiredField struct {
@@ -273,11 +267,16 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	resp := executeStatementResponse{
-		ColumnMetadata:         columns,
-		GeneratedFields:        []Field{},
-		Records:                records,
-		NumberOfRecordsUpdated: updated,
+	// Use a map so columnMetadata can be conditionally included.
+	// Real AWS only adds columnMetadata to the response when includeResultMetadata=true.
+	resp := map[string]any{
+		"generatedFields":        []Field{},
+		"records":                records,
+		"numberOfRecordsUpdated": updated,
+	}
+
+	if req.IncludeResultMetadata {
+		resp["columnMetadata"] = columns
 	}
 
 	return json.Marshal(resp)
