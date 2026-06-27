@@ -2,7 +2,6 @@ package timestreamquery
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -20,15 +19,13 @@ import (
 
 // Numeric constants for estimation heuristics.
 const (
-	bytesPerCell        = 32               // avg bytes per scalar cell for scan estimate
-	minScanBytes        = 10 * 1024 * 1024 // 10 MB minimum Timestream billing unit
-	cronFieldCount      = 6                // cron expressions require exactly 6 fields
-	hoursPerDay         = 24               // hours in a day for schedule computation
-	nanosPerSecond      = 1e9              // nanoseconds per second for epoch conversion
-	epochMilliPrecision = 1e3              // milliseconds per second for epoch string format
-	tokenParts          = 2                // NextToken format: "queryID:offset"
-	simExecTimeMs       = 500              // simulated execution time in milliseconds
-	simRecordsIngested  = 10               // simulated records ingested per execution
+	bytesPerCell       = 32               // avg bytes per scalar cell for scan estimate
+	minScanBytes       = 10 * 1024 * 1024 // 10 MB minimum Timestream billing unit
+	cronFieldCount     = 6                // cron expressions require exactly 6 fields
+	hoursPerDay        = 24               // hours in a day for schedule computation
+	tokenParts         = 2                // NextToken format: "queryID:offset"
+	simExecTimeMs      = 500              // simulated execution time in milliseconds
+	simRecordsIngested = 10               // simulated records ingested per execution
 )
 
 // ScalarType is the Timestream type enum for scalar column values.
@@ -569,13 +566,14 @@ type S3ReportLocation struct {
 }
 
 // LastRunSummary holds the full summary of the most recent execution of a scheduled query.
+// Timestamps are float64 (Unix epoch seconds) to match the AWS JSON protocol 1.0 wire format.
 type LastRunSummary struct {
 	ErrorReportLocation *ErrorReportLocation `json:"ErrorReportLocation,omitempty"`
 	ExecutionStats      *ExecutionStats      `json:"ExecutionStats,omitempty"`
 	FailureReason       string               `json:"FailureReason,omitempty"`
 	RunStatus           string               `json:"RunStatus,omitempty"`
-	TriggerTime         string               `json:"TriggerTime,omitempty"`
-	InvocationTime      string               `json:"InvocationTime,omitempty"`
+	TriggerTime         float64              `json:"TriggerTime,omitempty"`
+	InvocationTime      float64              `json:"InvocationTime,omitempty"`
 }
 
 // scheduledQueryRunStatus values.
@@ -597,15 +595,16 @@ type TimestreamDestinationForList struct {
 }
 
 // ScheduledQueryListEntry is the enriched summary used in list responses (gap #19).
+// Timestamps are float64 (Unix epoch seconds) to match the AWS JSON protocol 1.0 wire format.
 type ScheduledQueryListEntry struct {
 	TargetDestination      *TargetDestinationForList `json:"TargetDestination,omitempty"`
-	LastRunStatus          string                    `json:"LastRunStatus,omitempty"`
-	NextInvocationTime     string                    `json:"NextInvocationTime,omitempty"`
-	PreviousInvocationTime string                    `json:"PreviousInvocationTime,omitempty"`
 	Arn                    string                    `json:"Arn"`
 	Name                   string                    `json:"Name"`
 	State                  string                    `json:"State"`
-	CreationTime           string                    `json:"CreationTime,omitempty"`
+	LastRunStatus          string                    `json:"LastRunStatus,omitempty"`
+	CreationTime           float64                   `json:"CreationTime,omitempty"`
+	NextInvocationTime     float64                   `json:"NextInvocationTime,omitempty"`
+	PreviousInvocationTime float64                   `json:"PreviousInvocationTime,omitempty"`
 }
 
 // buildScheduledQueryListEntry converts a ScheduledQuery to an enriched list entry.
@@ -614,7 +613,7 @@ func buildScheduledQueryListEntry(sq *ScheduledQuery) ScheduledQueryListEntry {
 		Arn:          sq.Arn,
 		Name:         sq.Name,
 		State:        sq.State,
-		CreationTime: epochSecondsStr(sq.CreationTime),
+		CreationTime: epochSeconds(sq.CreationTime),
 	}
 	if sq.TargetDatabase != "" || sq.TargetTable != "" {
 		entry.TargetDestination = &TargetDestinationForList{
@@ -627,11 +626,11 @@ func buildScheduledQueryListEntry(sq *ScheduledQuery) ScheduledQueryListEntry {
 	now := time.Now()
 	if !sq.LastRunTime.IsZero() {
 		entry.LastRunStatus = runStatusAutoTriggerSuccess
-		entry.PreviousInvocationTime = epochSecondsStr(sq.LastRunTime)
+		entry.PreviousInvocationTime = epochSeconds(sq.LastRunTime)
 	} else if sq.ScheduleExpression != "" {
-		entry.PreviousInvocationTime = epochSecondsStr(previousInvocationTime(sq.ScheduleExpression, now))
+		entry.PreviousInvocationTime = epochSeconds(previousInvocationTime(sq.ScheduleExpression, now))
 	}
-	entry.NextInvocationTime = epochSecondsStr(nextInvocationTime(sq.ScheduleExpression, now))
+	entry.NextInvocationTime = epochSeconds(nextInvocationTime(sq.ScheduleExpression, now))
 
 	return entry
 }
@@ -645,24 +644,13 @@ func buildLastRunSummary(sq *ScheduledQuery) *LastRunSummary {
 
 	return &LastRunSummary{
 		RunStatus:      runStatusAutoTriggerSuccess,
-		InvocationTime: epochSecondsStr(sq.LastRunTime),
-		TriggerTime:    epochSecondsStr(triggerTime),
+		InvocationTime: epochSeconds(sq.LastRunTime),
+		TriggerTime:    epochSeconds(triggerTime),
 		ExecutionStats: &ExecutionStats{
 			ExecutionTimeInMillisecs: simExecTimeMs,
 			RecordsIngested:          simRecordsIngested,
 		},
 	}
-}
-
-// epochSecondsStr returns t as a Unix epoch seconds string (for JSON).
-func epochSecondsStr(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-
-	nanos := float64(t.UnixNano()) / nanosPerSecond * epochMilliPrecision
-
-	return strconv.FormatFloat(math.Round(nanos)/epochMilliPrecision, 'f', 3, 64)
 }
 
 // ---------------------------------------------------------------------------

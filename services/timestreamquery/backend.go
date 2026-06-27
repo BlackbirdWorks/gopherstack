@@ -177,8 +177,12 @@ func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
 }
 
 // defaultAccountSettings returns the initial state for a region's account settings.
+// Real AWS always returns QueryCompute with ComputeMode ON_DEMAND by default.
 func defaultAccountSettings() AccountSettings {
-	return AccountSettings{QueryPricingModel: pricingModelComputeUnits}
+	return AccountSettings{
+		QueryPricingModel: pricingModelComputeUnits,
+		QueryCompute:      &QueryCompute{ComputeMode: "ON_DEMAND"},
+	}
 }
 
 // accountSettingsFor returns the account settings for region, initialising defaults if absent.
