@@ -1858,11 +1858,13 @@ func (h *Handler) handleCreateMembership(_ context.Context, body []byte) ([]byte
 		Tags                       map[string]string `json:"tags"`
 		CollaborationIdentifier    string            `json:"collaborationIdentifier"`
 		QueryLogStatus             string            `json:"queryLogStatus"`
+		MemberAbilities            []string          `json:"memberAbilities"`
 	}
 	_ = json.Unmarshal(body, &req)
 	m, err := h.Backend.CreateMembership(
 		req.CollaborationIdentifier,
 		req.QueryLogStatus,
+		req.MemberAbilities,
 		req.DefaultResultConfiguration,
 		req.PaymentConfiguration,
 		req.Tags,

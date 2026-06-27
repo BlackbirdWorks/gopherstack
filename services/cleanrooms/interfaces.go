@@ -27,6 +27,7 @@ type StorageBackend interface {
 	// Membership operations.
 	CreateMembership(
 		collaborationID, queryLogStatus string,
+		memberAbilities []string,
 		defaultResultConfiguration map[string]any,
 		paymentConfiguration map[string]any,
 		tags map[string]string,
