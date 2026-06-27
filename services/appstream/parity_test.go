@@ -55,8 +55,8 @@ func TestParity_FleetComputeCapacityStatus(t *testing.T) {
 		fleets := dr["Fleets"].([]any)
 		require.Len(t, fleets, 1)
 		f := fleets[0].(map[string]any)
-		ccs2, ok := f["ComputeCapacityStatus"].(map[string]any)
-		require.True(t, ok, "ComputeCapacityStatus must be present in DescribeFleets response")
+		ccs2, ccOK := f["ComputeCapacityStatus"].(map[string]any)
+		require.True(t, ccOK, "ComputeCapacityStatus must be present in DescribeFleets response")
 		assert.EqualValues(t, 3, ccs2["Desired"])
 	})
 }
@@ -518,10 +518,10 @@ func TestParity_DirectoryConfigRoundtrip(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	ouDNs := []string{"OU=Streaming,DC=example,DC=com", "OU=Finance,DC=example,DC=com"}
+	ouDNS := []string{"OU=Streaming,DC=example,DC=com", "OU=Finance,DC=example,DC=com"}
 	rec := doRequest(t, h, "CreateDirectoryConfig", map[string]any{
 		"DirectoryName":                        "example.com",
-		"OrganizationalUnitDistinguishedNames": ouDNs,
+		"OrganizationalUnitDistinguishedNames": ouDNS,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

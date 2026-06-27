@@ -352,18 +352,18 @@ type computeCapacityInput struct {
 }
 
 type createFleetInput struct {
-	Tags                          map[string]string      `json:"Tags"`
-	ComputeCapacity               *computeCapacityInput  `json:"ComputeCapacity"`
-	EnableDefaultInternetAccess   *bool                  `json:"EnableDefaultInternetAccess"`
-	Name                          string                 `json:"Name"`
-	DisplayName                   string                 `json:"DisplayName"`
-	Description                   string                 `json:"Description"`
-	InstanceType                  string                 `json:"InstanceType"`
-	FleetType                     string                 `json:"FleetType"`
-	ImageName                     string                 `json:"ImageName"`
-	ImageArn                      string                 `json:"ImageArn"`
-	MaxUserDurationInSeconds      int                    `json:"MaxUserDurationInSeconds"`
-	DisconnectTimeoutInSeconds    int                    `json:"DisconnectTimeoutInSeconds"`
+	Tags                           map[string]string     `json:"Tags"`
+	ComputeCapacity                *computeCapacityInput `json:"ComputeCapacity"`
+	EnableDefaultInternetAccess    *bool                 `json:"EnableDefaultInternetAccess"`
+	Name                           string                `json:"Name"`
+	DisplayName                    string                `json:"DisplayName"`
+	Description                    string                `json:"Description"`
+	InstanceType                   string                `json:"InstanceType"`
+	FleetType                      string                `json:"FleetType"`
+	ImageName                      string                `json:"ImageName"`
+	ImageArn                       string                `json:"ImageArn"`
+	MaxUserDurationInSeconds       int                   `json:"MaxUserDurationInSeconds"`
+	DisconnectTimeoutInSeconds     int                   `json:"DisconnectTimeoutInSeconds"`
 	IdleDisconnectTimeoutInSeconds int                   `json:"IdleDisconnectTimeoutInSeconds"`
 }
 
@@ -418,17 +418,17 @@ func (h *Handler) opDescribeFleets(_ context.Context, body []byte) (any, error) 
 }
 
 type updateFleetInput struct {
-	ComputeCapacity               *computeCapacityInput `json:"ComputeCapacity"`
-	EnableDefaultInternetAccess   *bool                 `json:"EnableDefaultInternetAccess"`
-	Name                          string                `json:"Name"`
-	DisplayName                   string                `json:"DisplayName"`
-	Description                   string                `json:"Description"`
-	InstanceType                  string                `json:"InstanceType"`
-	ImageName                     string                `json:"ImageName"`
-	ImageArn                      string                `json:"ImageArn"`
-	MaxUserDurationInSeconds      int                   `json:"MaxUserDurationInSeconds"`
-	DisconnectTimeoutInSeconds    int                   `json:"DisconnectTimeoutInSeconds"`
-	IdleDisconnectTimeoutInSeconds int                  `json:"IdleDisconnectTimeoutInSeconds"`
+	ComputeCapacity                *computeCapacityInput `json:"ComputeCapacity"`
+	EnableDefaultInternetAccess    *bool                 `json:"EnableDefaultInternetAccess"`
+	Name                           string                `json:"Name"`
+	DisplayName                    string                `json:"DisplayName"`
+	Description                    string                `json:"Description"`
+	InstanceType                   string                `json:"InstanceType"`
+	ImageName                      string                `json:"ImageName"`
+	ImageArn                       string                `json:"ImageArn"`
+	MaxUserDurationInSeconds       int                   `json:"MaxUserDurationInSeconds"`
+	DisconnectTimeoutInSeconds     int                   `json:"DisconnectTimeoutInSeconds"`
+	IdleDisconnectTimeoutInSeconds int                   `json:"IdleDisconnectTimeoutInSeconds"`
 }
 
 func (h *Handler) opUpdateFleet(_ context.Context, body []byte) (any, error) {

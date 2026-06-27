@@ -904,20 +904,38 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	} else {
 		b.inputDevices = make(map[string]*storedInputDevice)
 	}
-	// Rebuild pending transfer index from restored devices.
+	b.rebuildPendingTransferIndex()
+	b.multiplexes = s.Multiplexes
+	b.tags = s.Tags
+	b.restoreOptionalMaps(&s)
+	b.restoreParity(&s)
+	b.accountKmsKeyID = s.AccountKmsKeyID
+	b.accountID = s.AccountID
+	b.region = s.Region
+
+	return nil
+}
+
+// rebuildPendingTransferIndex rebuilds the pendingTransferDeviceIDs set from
+// the current inputDevices map. Call after any bulk restore of inputDevices.
+func (b *InMemoryBackend) rebuildPendingTransferIndex() {
 	b.pendingTransferDeviceIDs = make(map[string]struct{})
+
 	for id, d := range b.inputDevices {
 		if d.PendingTransfer != nil {
 			b.pendingTransferDeviceIDs[id] = struct{}{}
 		}
 	}
-	b.multiplexes = s.Multiplexes
+}
+
+// restoreOptionalMaps assigns each optional snapshot map to the backend,
+// defaulting to an empty map when the snapshot field is nil (forward compat).
+func (b *InMemoryBackend) restoreOptionalMaps(s *snapshot) {
 	if s.Clusters != nil {
 		b.clusters = s.Clusters
 	} else {
 		b.clusters = make(map[string]*storedCluster)
 	}
-	b.tags = s.Tags
 	if s.SignalMaps != nil {
 		b.signalMaps = s.SignalMaps
 	} else {
@@ -933,15 +951,15 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	} else {
 		b.cwAlarmTemplates = make(map[string]*storedCloudWatchAlarmTemplate)
 	}
-	if s.EBRuleTemplateGroups != nil {
-		b.ebRuleTemplateGroups = s.EBRuleTemplateGroups
-	} else {
-		b.ebRuleTemplateGroups = make(map[string]*storedEventBridgeRuleTemplateGroup)
-	}
 	if s.EBRuleTemplates != nil {
 		b.ebRuleTemplates = s.EBRuleTemplates
 	} else {
 		b.ebRuleTemplates = make(map[string]*storedEventBridgeRuleTemplate)
+	}
+	if s.EBRuleTemplateGroups != nil {
+		b.ebRuleTemplateGroups = s.EBRuleTemplateGroups
+	} else {
+		b.ebRuleTemplateGroups = make(map[string]*storedEventBridgeRuleTemplateGroup)
 	}
 	if s.Reservations != nil {
 		b.reservations = s.Reservations
@@ -953,12 +971,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	} else {
 		b.scheduleActions = make(map[string][]*storedScheduleAction)
 	}
-	b.restoreParity(&s)
-	b.accountKmsKeyID = s.AccountKmsKeyID
-	b.accountID = s.AccountID
-	b.region = s.Region
-
-	return nil
 }
 
 // restoreParity restores the parity resource maps, defaulting nil maps to empty.
