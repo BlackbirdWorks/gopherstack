@@ -344,9 +344,8 @@ func TestHandler_DescribeReportCreation(t *testing.T) {
 		wantCode     int
 	}{
 		{
-			name:         "no_report_created",
-			wantCode:     http.StatusOK,
-			wantContains: "NO REPORT",
+			name:     "no_report_created",
+			wantCode: http.StatusOK,
 		},
 		{
 			name: "after_start_report_creation",

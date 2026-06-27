@@ -363,8 +363,7 @@ func TestRefinement1_DescribeReportCreationNoReport(t *testing.T) {
 	out := b.DescribeReportCreation(context.Background())
 
 	require.NotNil(t, out)
-	require.NotNil(t, out.Status)
-	assert.Equal(t, "NO REPORT", *out.Status)
+	assert.Nil(t, out.Status)
 	assert.Nil(t, out.S3Location)
 	assert.Nil(t, out.StartDate)
 }

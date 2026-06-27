@@ -308,6 +308,7 @@ type GetResourcesInput struct {
 	PaginationToken           string      `json:"PaginationToken,omitempty"`
 	TagFilters                []TagFilter `json:"TagFilters,omitempty"`
 	ResourceTypeFilters       []string    `json:"ResourceTypeFilters,omitempty"`
+	ResourceARNList           []string    `json:"ResourceARNList,omitempty"`
 	IncludeComplianceDetails  bool        `json:"IncludeComplianceDetails,omitempty"`
 	ExcludeCompliantResources bool        `json:"ExcludeCompliantResources,omitempty"`
 }
@@ -320,7 +321,7 @@ type GetResourcesOutput struct {
 
 // ComplianceDetails records tag-policy compliance information for a resource.
 type ComplianceDetails struct {
-	KeysWithNonCompliantValues []string `json:"KeysWithNonCompliantValues,omitempty"`
+	KeysWithNoncompliantValues []string `json:"KeysWithNoncompliantValues,omitempty"`
 	NoncompliantKeys           []string `json:"NoncompliantKeys,omitempty"`
 	ComplianceStatus           bool     `json:"ComplianceStatus"`
 }
@@ -584,6 +585,7 @@ func (b *InMemoryBackend) GetResources(ctx context.Context, input *GetResourcesI
 	defer b.mu.Unlock()
 
 	all := b.getResources(ctx, input.TagFilters, input.ResourceTypeFilters)
+	all = applyARNListFilter(all, input.ResourceARNList)
 	all = applyResourceTypeFilter(all, input.ResourceTypeFilters)
 	all = applyTagFilters(all, input.TagFilters)
 
@@ -601,6 +603,29 @@ func (b *InMemoryBackend) GetResources(ctx context.Context, input *GetResourcesI
 		ResourceTagMappingList: buildTagMappings(page, input.IncludeComplianceDetails),
 		PaginationToken:        nextToken,
 	}, nil
+}
+
+// applyARNListFilter returns only those resources whose ARN is in the provided set.
+// Returns all resources when arnList is empty.
+func applyARNListFilter(all []TaggedResource, arnList []string) []TaggedResource {
+	if len(arnList) == 0 {
+		return all
+	}
+
+	arnSet := make(map[string]struct{}, len(arnList))
+	for _, a := range arnList {
+		arnSet[a] = struct{}{}
+	}
+
+	filtered := make([]TaggedResource, 0, len(arnList))
+
+	for _, r := range all {
+		if _, ok := arnSet[r.ResourceARN]; ok {
+			filtered = append(filtered, r)
+		}
+	}
+
+	return filtered
 }
 
 // applyResourceTypeFilter filters resources by resource type.
@@ -1044,9 +1069,6 @@ const reportStatusRunning = "RUNNING"
 // reportStatusSucceeded is the status for a successfully created report.
 const reportStatusSucceeded = "SUCCEEDED"
 
-// reportStatusNoReport is the status when no report has been generated in the last 90 days.
-const reportStatusNoReport = "NO REPORT"
-
 // reportS3PathTemplate is the S3 path template for generated reports.
 const reportS3PathTemplate = "AwsTagPolicies/report.csv"
 
@@ -1121,7 +1143,7 @@ type DescribeReportCreationOutput struct {
 	S3Location *string `json:"S3Location,omitempty"`
 	// StartDate is the date and time that the report was started.
 	StartDate *string `json:"StartDate,omitempty"`
-	// Status is the current status of the report (RUNNING, SUCCEEDED, FAILED, NO REPORT).
+	// Status is the current status of the report (RUNNING, SUCCEEDED, FAILED). Nil when no report exists.
 	Status *string `json:"Status"`
 }
 
@@ -1135,9 +1157,7 @@ func (b *InMemoryBackend) DescribeReportCreation(ctx context.Context) *DescribeR
 	state := b.reportStates[region]
 
 	if state == nil {
-		s := reportStatusNoReport
-
-		return &DescribeReportCreationOutput{Status: &s}
+		return &DescribeReportCreationOutput{}
 	}
 
 	// Transition RUNNING → SUCCEEDED once the simulated run duration has elapsed.
