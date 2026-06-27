@@ -36,6 +36,7 @@ const (
 
 	defaultMaxResults = 100
 
+	keyMesh               = "mesh"
 	keyVirtualNode        = "virtualNode"
 	keyRoute              = "route"
 	keyVirtualService     = "virtualService"
@@ -477,7 +478,7 @@ func (h *Handler) handleCreateMesh(c *echo.Context) error {
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, meshToWire(m))
+	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
 }
 
 func (h *Handler) handleDescribeMesh(c *echo.Context, meshName string) error {
@@ -486,7 +487,7 @@ func (h *Handler) handleDescribeMesh(c *echo.Context, meshName string) error {
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, meshToWire(m))
+	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
 }
 
 func (h *Handler) handleUpdateMesh(c *echo.Context, meshName string) error {
@@ -502,7 +503,7 @@ func (h *Handler) handleUpdateMesh(c *echo.Context, meshName string) error {
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, meshToWire(m))
+	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
 }
 
 func (h *Handler) handleDeleteMesh(c *echo.Context, meshName string) error {
@@ -511,7 +512,7 @@ func (h *Handler) handleDeleteMesh(c *echo.Context, meshName string) error {
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, meshToWire(m))
+	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
 }
 
 func (h *Handler) handleListMeshes(c *echo.Context) error {
@@ -545,7 +546,7 @@ func (h *Handler) handleCreateVirtualNode(c *echo.Context, meshName string) erro
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vnToWire(vn))
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualNode: vnToWire(vn)})
 }
 
 func (h *Handler) handleDescribeVirtualNode(c *echo.Context, meshName, name string) error {
@@ -554,7 +555,7 @@ func (h *Handler) handleDescribeVirtualNode(c *echo.Context, meshName, name stri
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vnToWire(vn))
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualNode: vnToWire(vn)})
 }
 
 func (h *Handler) handleUpdateVirtualNode(c *echo.Context, meshName, name string) error {
@@ -570,7 +571,7 @@ func (h *Handler) handleUpdateVirtualNode(c *echo.Context, meshName, name string
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vnToWire(vn))
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualNode: vnToWire(vn)})
 }
 
 func (h *Handler) handleDeleteVirtualNode(c *echo.Context, meshName, name string) error {
@@ -579,7 +580,7 @@ func (h *Handler) handleDeleteVirtualNode(c *echo.Context, meshName, name string
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vnToWire(vn))
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualNode: vnToWire(vn)})
 }
 
 func (h *Handler) handleListVirtualNodes(c *echo.Context, meshName string) error {
@@ -613,7 +614,7 @@ func (h *Handler) handleCreateVirtualRouter(c *echo.Context, meshName string) er
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vrToWire(vr))
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualRouter: vrToWire(vr)})
 }
 
 func (h *Handler) handleDescribeVirtualRouter(c *echo.Context, meshName, name string) error {
@@ -622,7 +623,7 @@ func (h *Handler) handleDescribeVirtualRouter(c *echo.Context, meshName, name st
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vrToWire(vr))
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualRouter: vrToWire(vr)})
 }
 
 func (h *Handler) handleUpdateVirtualRouter(c *echo.Context, meshName, name string) error {
@@ -638,7 +639,7 @@ func (h *Handler) handleUpdateVirtualRouter(c *echo.Context, meshName, name stri
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vrToWire(vr))
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualRouter: vrToWire(vr)})
 }
 
 func (h *Handler) handleDeleteVirtualRouter(c *echo.Context, meshName, name string) error {
@@ -647,7 +648,7 @@ func (h *Handler) handleDeleteVirtualRouter(c *echo.Context, meshName, name stri
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vrToWire(vr))
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualRouter: vrToWire(vr)})
 }
 
 func (h *Handler) handleListVirtualRouters(c *echo.Context, meshName string) error {
@@ -681,7 +682,7 @@ func (h *Handler) handleCreateRoute(c *echo.Context, meshName, vrName string) er
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, routeToWire(r))
+	return c.JSON(http.StatusOK, map[string]any{keyRoute: routeToWire(r)})
 }
 
 func (h *Handler) handleDescribeRoute(c *echo.Context, meshName, vrName, routeName string) error {
@@ -690,7 +691,7 @@ func (h *Handler) handleDescribeRoute(c *echo.Context, meshName, vrName, routeNa
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, routeToWire(r))
+	return c.JSON(http.StatusOK, map[string]any{keyRoute: routeToWire(r)})
 }
 
 func (h *Handler) handleUpdateRoute(c *echo.Context, meshName, vrName, routeName string) error {
@@ -706,7 +707,7 @@ func (h *Handler) handleUpdateRoute(c *echo.Context, meshName, vrName, routeName
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, routeToWire(r))
+	return c.JSON(http.StatusOK, map[string]any{keyRoute: routeToWire(r)})
 }
 
 func (h *Handler) handleDeleteRoute(c *echo.Context, meshName, vrName, routeName string) error {
@@ -715,7 +716,7 @@ func (h *Handler) handleDeleteRoute(c *echo.Context, meshName, vrName, routeName
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, routeToWire(r))
+	return c.JSON(http.StatusOK, map[string]any{keyRoute: routeToWire(r)})
 }
 
 func (h *Handler) handleListRoutes(c *echo.Context, meshName, vrName string) error {
@@ -749,7 +750,7 @@ func (h *Handler) handleCreateVirtualService(c *echo.Context, meshName string) e
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vsToWire(vs))
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualService: vsToWire(vs)})
 }
 
 func (h *Handler) handleDescribeVirtualService(c *echo.Context, meshName, name string) error {
@@ -758,7 +759,7 @@ func (h *Handler) handleDescribeVirtualService(c *echo.Context, meshName, name s
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vsToWire(vs))
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualService: vsToWire(vs)})
 }
 
 func (h *Handler) handleUpdateVirtualService(c *echo.Context, meshName, name string) error {
@@ -774,7 +775,7 @@ func (h *Handler) handleUpdateVirtualService(c *echo.Context, meshName, name str
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vsToWire(vs))
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualService: vsToWire(vs)})
 }
 
 func (h *Handler) handleDeleteVirtualService(c *echo.Context, meshName, name string) error {
@@ -783,7 +784,7 @@ func (h *Handler) handleDeleteVirtualService(c *echo.Context, meshName, name str
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vsToWire(vs))
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualService: vsToWire(vs)})
 }
 
 func (h *Handler) handleListVirtualServices(c *echo.Context, meshName string) error {
@@ -817,7 +818,7 @@ func (h *Handler) handleCreateVirtualGateway(c *echo.Context, meshName string) e
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vgToWire(vg))
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualGW: vgToWire(vg)})
 }
 
 func (h *Handler) handleDescribeVirtualGateway(c *echo.Context, meshName, name string) error {
@@ -826,7 +827,7 @@ func (h *Handler) handleDescribeVirtualGateway(c *echo.Context, meshName, name s
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vgToWire(vg))
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualGW: vgToWire(vg)})
 }
 
 func (h *Handler) handleUpdateVirtualGateway(c *echo.Context, meshName, name string) error {
@@ -842,7 +843,7 @@ func (h *Handler) handleUpdateVirtualGateway(c *echo.Context, meshName, name str
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vgToWire(vg))
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualGW: vgToWire(vg)})
 }
 
 func (h *Handler) handleDeleteVirtualGateway(c *echo.Context, meshName, name string) error {
@@ -851,7 +852,7 @@ func (h *Handler) handleDeleteVirtualGateway(c *echo.Context, meshName, name str
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, vgToWire(vg))
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualGW: vgToWire(vg)})
 }
 
 func (h *Handler) handleListVirtualGateways(c *echo.Context, meshName string) error {
@@ -885,7 +886,7 @@ func (h *Handler) handleCreateGatewayRoute(c *echo.Context, meshName, vgName str
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, grToWire(gr))
+	return c.JSON(http.StatusOK, map[string]any{keyGatewayRoute: grToWire(gr)})
 }
 
 func (h *Handler) handleDescribeGatewayRoute(c *echo.Context, meshName, vgName, routeName string) error {
@@ -894,7 +895,7 @@ func (h *Handler) handleDescribeGatewayRoute(c *echo.Context, meshName, vgName, 
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, grToWire(gr))
+	return c.JSON(http.StatusOK, map[string]any{keyGatewayRoute: grToWire(gr)})
 }
 
 func (h *Handler) handleUpdateGatewayRoute(c *echo.Context, meshName, vgName, routeName string) error {
@@ -910,7 +911,7 @@ func (h *Handler) handleUpdateGatewayRoute(c *echo.Context, meshName, vgName, ro
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, grToWire(gr))
+	return c.JSON(http.StatusOK, map[string]any{keyGatewayRoute: grToWire(gr)})
 }
 
 func (h *Handler) handleDeleteGatewayRoute(c *echo.Context, meshName, vgName, routeName string) error {
@@ -919,7 +920,7 @@ func (h *Handler) handleDeleteGatewayRoute(c *echo.Context, meshName, vgName, ro
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, grToWire(gr))
+	return c.JSON(http.StatusOK, map[string]any{keyGatewayRoute: grToWire(gr)})
 }
 
 func (h *Handler) handleListGatewayRoutes(c *echo.Context, meshName, vgName string) error {
