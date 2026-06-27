@@ -43,8 +43,25 @@ const (
 	statusActive                   = "ACTIVE"
 	reservedDurationOneYearSeconds = 31536000
 	defaultElasticsearchVersion    = "7.10"
+	elasticsearchVersion717        = "7.17"
+	elasticsearchVersion716        = "7.16"
+	elasticsearchVersion713        = "7.13"
+	elasticsearchVersion79         = "7.9"
+	elasticsearchVersion78         = "7.8"
+	elasticsearchVersion77         = "7.7"
+	elasticsearchVersion74         = "7.4"
 	elasticsearchVersion71         = "7.1"
 	elasticsearchVersion68         = "6.8"
+	elasticsearchVersion67         = "6.7"
+	elasticsearchVersion65         = "6.5"
+	elasticsearchVersion64         = "6.4"
+	elasticsearchVersion63         = "6.3"
+	elasticsearchVersion62         = "6.2"
+	elasticsearchVersion60         = "6.0"
+	elasticsearchVersion56         = "5.6"
+	elasticsearchVersion55         = "5.5"
+	elasticsearchVersion53         = "5.3"
+	elasticsearchVersion51         = "5.1"
 	defaultInstanceType            = "t3.small.elasticsearch"
 	largeInstanceType              = "m5.large.elasticsearch"
 )
@@ -71,28 +88,28 @@ var domainNameRe = regexp.MustCompile(`^[a-z][a-z0-9\-]{2,27}$`)
 
 // validElasticsearchVersions is the set of versions accepted by AWS Elasticsearch Service.
 var validElasticsearchVersions = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
-	"1.5":  true,
-	"2.3":  true,
-	"5.1":  true,
-	"5.3":  true,
-	"5.5":  true,
-	"5.6":  true,
-	"6.0":  true,
-	"6.2":  true,
-	"6.3":  true,
-	"6.4":  true,
-	"6.5":  true,
-	"6.7":  true,
-	"6.8":  true,
-	"7.1":  true,
-	"7.4":  true,
-	"7.7":  true,
-	"7.8":  true,
-	"7.9":  true,
-	"7.10": true,
-	"7.13": true,
-	"7.16": true,
-	"7.17": true,
+	"1.5":                       true,
+	"2.3":                       true,
+	elasticsearchVersion51:      true,
+	elasticsearchVersion53:      true,
+	elasticsearchVersion55:      true,
+	elasticsearchVersion56:      true,
+	elasticsearchVersion60:      true,
+	elasticsearchVersion62:      true,
+	elasticsearchVersion63:      true,
+	elasticsearchVersion64:      true,
+	elasticsearchVersion65:      true,
+	elasticsearchVersion67:      true,
+	elasticsearchVersion68:      true,
+	elasticsearchVersion71:      true,
+	elasticsearchVersion74:      true,
+	elasticsearchVersion77:      true,
+	elasticsearchVersion78:      true,
+	elasticsearchVersion79:      true,
+	defaultElasticsearchVersion: true,
+	elasticsearchVersion713:     true,
+	elasticsearchVersion716:     true,
+	elasticsearchVersion717:     true,
 }
 
 // validPackageTypes is the set of package types accepted by AWS Elasticsearch Service.
@@ -175,36 +192,86 @@ type DNSRegistrar interface {
 	Deregister(hostname string)
 }
 
+// ZoneAwarenessConfig holds the zone awareness configuration for a cluster.
+type ZoneAwarenessConfig struct {
+	AvailabilityZoneCount int `json:"availabilityZoneCount"`
+}
+
+// SnapshotOptions holds automated snapshot configuration for a domain.
+type SnapshotOptions struct {
+	AutomatedSnapshotStartHour int `json:"automatedSnapshotStartHour"`
+}
+
 // ClusterConfig represents the cluster configuration for an Elasticsearch domain.
 type ClusterConfig struct {
-	InstanceType  string `json:"instanceType"`
-	InstanceCount int    `json:"instanceCount"`
+	InstanceType           string              `json:"instanceType"`
+	DedicatedMasterType    string              `json:"dedicatedMasterType,omitempty"`
+	WarmType               string              `json:"warmType,omitempty"`
+	ZoneAwarenessConfig    ZoneAwarenessConfig `json:"zoneAwarenessConfig"`
+	InstanceCount          int                 `json:"instanceCount"`
+	DedicatedMasterCount   int                 `json:"dedicatedMasterCount,omitempty"`
+	WarmCount              int                 `json:"warmCount,omitempty"`
+	DedicatedMasterEnabled bool                `json:"dedicatedMasterEnabled"`
+	ZoneAwarenessEnabled   bool                `json:"zoneAwarenessEnabled"`
+	WarmEnabled            bool                `json:"warmEnabled"`
+	ColdStorageEnabled     bool                `json:"coldStorageEnabled"`
 }
 
 // EBSOptions represents the EBS storage options for an Elasticsearch domain.
 type EBSOptions struct {
 	VolumeType string `json:"volumeType"`
 	VolumeSize int    `json:"volumeSize"`
+	Iops       int    `json:"iops"`
+	Throughput int    `json:"throughput"`
 	EBSEnabled bool   `json:"ebsEnabled"`
 }
 
 // Domain represents an Elasticsearch domain.
-type Domain struct {
-	Tags                 *tags.Tags    `json:"tags,omitempty"`
-	Name                 string        `json:"name"`
-	DomainID             string        `json:"domainID"`
-	ARN                  string        `json:"arn"`
-	ElasticsearchVersion string        `json:"elasticsearchVersion"`
-	Endpoint             string        `json:"endpoint"`
-	Status               string        `json:"status"`
-	ClusterConfig        ClusterConfig `json:"clusterConfig"`
-	EBSOptions           EBSOptions    `json:"ebsOptions"`
+type Domain struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	Tags                        *tags.Tags        `json:"tags,omitempty"`
+	AdvancedOptions             map[string]string `json:"advancedOptions,omitempty"`
+	Name                        string            `json:"name"`
+	DomainID                    string            `json:"domainID"`
+	ARN                         string            `json:"arn"`
+	ElasticsearchVersion        string            `json:"elasticsearchVersion"`
+	Endpoint                    string            `json:"endpoint"`
+	Status                      string            `json:"status"`
+	AccessPolicies              string            `json:"accessPolicies,omitempty"`
+	TLSSecurityPolicy           string            `json:"tlsSecurityPolicy,omitempty"`
+	ClusterConfig               ClusterConfig     `json:"clusterConfig"`
+	EBSOptions                  EBSOptions        `json:"ebsOptions"`
+	SnapshotOptions             SnapshotOptions   `json:"snapshotOptions"`
+	EncryptionAtRestEnabled     bool              `json:"encryptionAtRestEnabled"`
+	NodeToNodeEncryptionEnabled bool              `json:"nodeToNodeEncryptionEnabled"`
+	EnforceHTTPS                bool              `json:"enforceHTTPS"`
+}
+
+// CreateDomainInput holds all parameters for CreateDomain.
+type CreateDomainInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	AdvancedOptions             map[string]string
+	Name                        string
+	ElasticsearchVersion        string
+	AccessPolicies              string
+	TLSSecurityPolicy           string
+	ClusterConfig               ClusterConfig
+	EBSOptions                  EBSOptions
+	SnapshotOptions             SnapshotOptions
+	EncryptionAtRestEnabled     bool
+	NodeToNodeEncryptionEnabled bool
+	EnforceHTTPS                bool
 }
 
 // UpdateConfig holds the fields that can be updated via UpdateDomainConfig.
 type UpdateConfig struct {
-	ClusterConfig *ClusterConfig
-	EBSOptions    *EBSOptions
+	ClusterConfig               *ClusterConfig
+	EBSOptions                  *EBSOptions
+	SnapshotOptions             *SnapshotOptions
+	AdvancedOptions             map[string]string
+	AccessPolicies              *string
+	TLSSecurityPolicy           *string
+	EncryptionAtRestEnabled     *bool
+	NodeToNodeEncryptionEnabled *bool
+	EnforceHTTPS                *bool
 }
 
 // InMemoryBackend is the in-memory store for Elasticsearch domains.
@@ -344,17 +411,12 @@ func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 }
 
 // CreateDomain creates a new Elasticsearch domain.
-func (b *InMemoryBackend) CreateDomain(
-	ctx context.Context,
-	name, esVersion string,
-	clusterConfig ClusterConfig,
-	ebsOpts EBSOptions,
-) (*Domain, error) {
-	if name == "" {
+func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInput) (*Domain, error) {
+	if inp.Name == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", ErrValidation)
 	}
 
-	if !domainNameRe.MatchString(name) {
+	if !domainNameRe.MatchString(inp.Name) {
 		return nil, fmt.Errorf(
 			"%w: DomainName must be 3-28 lowercase alphanumeric characters or hyphens and start with a letter",
 			ErrValidation,
@@ -366,20 +428,22 @@ func (b *InMemoryBackend) CreateDomain(
 	defer b.mu.Unlock()
 
 	domains := b.domainsStore(region)
-	if _, exists := domains[name]; exists {
-		return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, name)
+	if _, exists := domains[inp.Name]; exists {
+		return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, inp.Name)
 	}
 
+	esVersion := inp.ElasticsearchVersion
 	if esVersion == "" {
 		esVersion = defaultElasticsearchVersion
 	} else if !validElasticsearchVersions[esVersion] {
 		return nil, fmt.Errorf("%w: invalid ElasticsearchVersion %q", ErrValidation, esVersion)
 	}
 
-	domainARN := arn.Build("es", region, b.accountID, "domain/"+name)
-	domainID := b.accountID + "/" + name
-	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", name, b.accountID, region)
+	domainARN := arn.Build("es", region, b.accountID, "domain/"+inp.Name)
+	domainID := b.accountID + "/" + inp.Name
+	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", inp.Name, b.accountID, region)
 
+	clusterConfig := inp.ClusterConfig
 	if clusterConfig.InstanceCount == 0 {
 		clusterConfig.InstanceCount = 1
 	}
@@ -389,18 +453,25 @@ func (b *InMemoryBackend) CreateDomain(
 	}
 
 	d := &Domain{
-		Name:                 name,
-		DomainID:             domainID,
-		ARN:                  domainARN,
-		ElasticsearchVersion: esVersion,
-		Endpoint:             endpoint,
-		Status:               statusActiveCap,
-		ClusterConfig:        clusterConfig,
-		EBSOptions:           ebsOpts,
-		Tags:                 tags.New("elasticsearch." + region + "." + name + ".tags"),
+		Name:                        inp.Name,
+		DomainID:                    domainID,
+		ARN:                         domainARN,
+		ElasticsearchVersion:        esVersion,
+		Endpoint:                    endpoint,
+		Status:                      statusActiveCap,
+		ClusterConfig:               clusterConfig,
+		EBSOptions:                  inp.EBSOptions,
+		SnapshotOptions:             inp.SnapshotOptions,
+		AdvancedOptions:             inp.AdvancedOptions,
+		AccessPolicies:              inp.AccessPolicies,
+		EncryptionAtRestEnabled:     inp.EncryptionAtRestEnabled,
+		NodeToNodeEncryptionEnabled: inp.NodeToNodeEncryptionEnabled,
+		EnforceHTTPS:                inp.EnforceHTTPS,
+		TLSSecurityPolicy:           inp.TLSSecurityPolicy,
+		Tags:                        tags.New("elasticsearch." + region + "." + inp.Name + ".tags"),
 	}
-	domains[name] = d
-	b.arnIndexStore(region)[domainARN] = name
+	domains[inp.Name] = d
+	b.arnIndexStore(region)[domainARN] = inp.Name
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
@@ -481,6 +552,34 @@ func (b *InMemoryBackend) UpdateDomainConfig(ctx context.Context, name string, c
 
 	if cfg.EBSOptions != nil {
 		d.EBSOptions = *cfg.EBSOptions
+	}
+
+	if cfg.SnapshotOptions != nil {
+		d.SnapshotOptions = *cfg.SnapshotOptions
+	}
+
+	if cfg.AdvancedOptions != nil {
+		d.AdvancedOptions = cfg.AdvancedOptions
+	}
+
+	if cfg.AccessPolicies != nil {
+		d.AccessPolicies = *cfg.AccessPolicies
+	}
+
+	if cfg.EncryptionAtRestEnabled != nil {
+		d.EncryptionAtRestEnabled = *cfg.EncryptionAtRestEnabled
+	}
+
+	if cfg.NodeToNodeEncryptionEnabled != nil {
+		d.NodeToNodeEncryptionEnabled = *cfg.NodeToNodeEncryptionEnabled
+	}
+
+	if cfg.EnforceHTTPS != nil {
+		d.EnforceHTTPS = *cfg.EnforceHTTPS
+	}
+
+	if cfg.TLSSecurityPolicy != nil {
+		d.TLSSecurityPolicy = *cfg.TLSSecurityPolicy
 	}
 
 	return domainCopy(d), nil

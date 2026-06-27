@@ -35,10 +35,19 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 
 				_, err := b.CreateDomain(
 					context.Background(),
-					"my-domain",
-					"7.10",
-					elasticsearch.ClusterConfig{InstanceType: "t3.small.elasticsearch", InstanceCount: 1},
-					elasticsearch.EBSOptions{EBSEnabled: true, VolumeType: "gp2", VolumeSize: 10},
+					elasticsearch.CreateDomainInput{
+						Name:                 "my-domain",
+						ElasticsearchVersion: "7.10",
+						ClusterConfig: elasticsearch.ClusterConfig{
+							InstanceType:  "t3.small.elasticsearch",
+							InstanceCount: 1,
+						},
+						EBSOptions: elasticsearch.EBSOptions{
+							EBSEnabled: true,
+							VolumeType: "gp2",
+							VolumeSize: 10,
+						},
+					},
 				)
 				require.NoError(t, err)
 			},
@@ -63,10 +72,7 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 
 				d, err := b.CreateDomain(
 					context.Background(),
-					"tagged-domain",
-					"",
-					elasticsearch.ClusterConfig{},
-					elasticsearch.EBSOptions{},
+					elasticsearch.CreateDomainInput{Name: "tagged-domain"},
 				)
 				require.NoError(t, err)
 

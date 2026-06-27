@@ -253,12 +253,12 @@ func TestAudit2_ESVersionBackend(t *testing.T) {
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
 	_, err := b.CreateDomain(
-		context.Background(), "ver-dom", "8.0", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		context.Background(), elasticsearch.CreateDomainInput{Name: "ver-dom", ElasticsearchVersion: "8.0"},
 	)
 	require.ErrorIs(t, err, elasticsearch.ErrValidation)
 
 	_, err = b.CreateDomain(
-		context.Background(), "ver-dom2", "7.10", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		context.Background(), elasticsearch.CreateDomainInput{Name: "ver-dom2", ElasticsearchVersion: "7.10"},
 	)
 	require.NoError(t, err)
 }
