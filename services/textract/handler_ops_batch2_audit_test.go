@@ -150,11 +150,11 @@ func TestBatch2_AnalyzeDocument_NoFeatureTypes_Rejected(t *testing.T) {
 		"AnalyzeDocument without FeatureTypes must return 400")
 }
 
-// TestBatch2_AnalyzeDocument_QueriesWithoutQueriesConfig_NoQueryBlocks verifies that
-// when QUERIES is listed in FeatureTypes but no QueriesConfig is provided, no QUERY
-// or QUERY_RESULT blocks are returned. AWS requires QueriesConfig to be present
-// alongside the QUERIES feature type.
-func TestBatch2_AnalyzeDocument_QueriesWithoutQueriesConfig_NoQueryBlocks(t *testing.T) {
+// TestBatch2_AnalyzeDocument_QueriesWithoutQueriesConfig_Returns400 verifies that
+// when QUERIES is listed in FeatureTypes but no QueriesConfig is provided, AWS
+// returns a ValidationException (HTTP 400). QueriesConfig is required when the
+// QUERIES feature type is requested.
+func TestBatch2_AnalyzeDocument_QueriesWithoutQueriesConfig_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h := b2TextractHandler(t)
@@ -163,21 +163,10 @@ func TestBatch2_AnalyzeDocument_QueriesWithoutQueriesConfig_NoQueryBlocks(t *tes
 			"S3Object": map[string]any{"Bucket": "b", "Name": "doc.pdf"},
 		},
 		"FeatureTypes": []string{"QUERIES"},
-		// QueriesConfig intentionally omitted.
+		// QueriesConfig intentionally omitted — must return 400.
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	resp := b2TextractUnmarshal(t, rec.Body.Bytes())
-	raw, _ := resp["Blocks"].([]any)
-
-	for _, blk := range raw {
-		bm, _ := blk.(map[string]any)
-		bt, _ := bm["BlockType"].(string)
-		assert.NotEqual(t, "QUERY", bt,
-			"QUERY blocks must not appear without QueriesConfig")
-		assert.NotEqual(t, "QUERY_RESULT", bt,
-			"QUERY_RESULT blocks must not appear without QueriesConfig")
-	}
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"QUERIES without QueriesConfig must return 400")
 }
 
 // ---------------------------------------------------------------------------

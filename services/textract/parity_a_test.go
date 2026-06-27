@@ -75,6 +75,11 @@ func TestParity_AnalyzeDocumentFeatureTypesValidation(t *testing.T) {
 					},
 				},
 				"FeatureTypes": tt.featureTypes,
+				// Always include QueriesConfig so QUERIES cases are not rejected
+				// for the missing-config reason rather than the feature-type reason.
+				"QueriesConfig": map[string]any{
+					"Queries": []any{map[string]any{"Text": "What is the total?"}},
+				},
 			})
 
 			assert.Equal(t, tt.wantCode, rec.Code, "FeatureTypes=%v", tt.featureTypes)
