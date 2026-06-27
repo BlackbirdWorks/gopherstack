@@ -70,9 +70,9 @@ func TestCodeArtifactRepositoryRegionIsolation(t *testing.T) {
 	_, err = backend.CreateDomain(ctxWest, "d", "", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateRepository(ctxEast, "d", "repo", "east repo", nil)
+	_, err = backend.CreateRepository(ctxEast, "d", "repo", "east repo", nil, nil)
 	require.NoError(t, err)
-	_, err = backend.CreateRepository(ctxWest, "d", "repo", "west repo", nil)
+	_, err = backend.CreateRepository(ctxWest, "d", "repo", "west repo", nil, nil)
 	require.NoError(t, err)
 
 	eastRepo, err := backend.DescribeRepository(ctxEast, "d", "repo")

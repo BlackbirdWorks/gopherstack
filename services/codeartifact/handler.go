@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -810,6 +811,48 @@ func errResp(code, msg string) map[string]string {
 	return map[string]string{"code": code, "message": msg}
 }
 
+// parseMaxResults parses an integer from a query-param string; returns 0 on empty/invalid.
+func parseMaxResults(s string) int {
+	if s == "" {
+		return 0
+	}
+	n, _ := strconv.Atoi(s)
+
+	return n
+}
+
+// paginateSlice applies cursor-based pagination to a pre-sorted slice.
+// keyFn must return the same value used for sorting. nextToken is the key of the
+// first item on the next page (opaque to callers). Returns (page, nextToken).
+func paginateSlice[T any](list []T, maxResults int, nextToken string, keyFn func(T) string) ([]T, string) {
+	const defaultMax = 100
+	limit := maxResults
+	if limit <= 0 || limit > defaultMax {
+		limit = defaultMax
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i := range list {
+			if keyFn(list[i]) >= nextToken {
+				start = i
+
+				break
+			}
+			start = i + 1
+		}
+	}
+
+	end := min(start+limit, len(list))
+	page := list[start:end]
+	next := ""
+	if end < len(list) {
+		next = keyFn(list[end])
+	}
+
+	return page, next
+}
+
 // epochSeconds returns the Unix epoch timestamp as a float64 for JSON serialization.
 // The AWS CodeArtifact SDK deserializes timestamps as JSON numbers (epoch seconds).
 func epochSeconds(ts time.Time) float64 {
@@ -911,16 +954,24 @@ func (h *Handler) handleDescribeDomain(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListDomains(c *echo.Context) error {
-	domains := h.Backend.ListDomains(c.Request().Context())
-	items := make([]map[string]any, 0, len(domains))
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("maxResults"))
+	nextToken := q.Get("nextToken")
 
-	for _, d := range domains {
+	all := h.Backend.ListDomains(c.Request().Context())
+	page, next := paginateSlice(all, maxResults, nextToken, func(d *Domain) string { return d.Name })
+
+	items := make([]map[string]any, 0, len(page))
+	for _, d := range page {
 		items = append(items, domainSummaryToMap(d))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"domains": items,
-	})
+	resp := map[string]any{"domains": items}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteDomain(c *echo.Context, name string) error {
@@ -942,9 +993,14 @@ func (h *Handler) handleDeleteDomain(c *echo.Context, name string) error {
 
 // --- Repository handlers ---
 
+type upstreamRepoEntry struct {
+	RepositoryName string `json:"repositoryName"`
+}
+
 type createRepositoryBody struct {
-	Description string           `json:"description"`
-	Tags        []map[string]any `json:"tags"`
+	Description          string              `json:"description"`
+	Tags                 []map[string]any    `json:"tags"`
+	UpstreamRepositories []upstreamRepoEntry `json:"upstreamRepositories"`
 }
 
 func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
@@ -969,6 +1025,12 @@ func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
 	}
 	m["externalConnections"] = extConns
 
+	upstreams := make([]map[string]string, 0, len(r.UpstreamRepositories))
+	for _, name := range r.UpstreamRepositories {
+		upstreams = append(upstreams, map[string]string{"repositoryName": name})
+	}
+	m["upstreamRepositories"] = upstreams
+
 	return m
 }
 
@@ -987,12 +1049,18 @@ func (h *Handler) handleCreateRepository(c *echo.Context, domainName, repoName s
 		}
 	}
 
+	upstreams := make([]string, 0, len(in.UpstreamRepositories))
+	for _, u := range in.UpstreamRepositories {
+		upstreams = append(upstreams, u.RepositoryName)
+	}
+
 	r, err := h.Backend.CreateRepository(
 		c.Request().Context(),
 		domainName,
 		repoName,
 		in.Description,
 		tagsFromSlice(in.Tags),
+		upstreams,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -1046,14 +1114,19 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	repos, err := h.Backend.ListRepositoriesInDomain(c.Request().Context(), domainName)
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("maxResults"))
+	nextToken := q.Get("nextToken")
+
+	all, err := h.Backend.ListRepositoriesInDomain(c.Request().Context(), domainName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(repos))
+	page, next := paginateSlice(all, maxResults, nextToken, func(r *Repository) string { return r.Name })
 
-	for _, r := range repos {
+	items := make([]map[string]any, 0, len(page))
+	for _, r := range page {
 		items = append(items, map[string]any{
 			keyArn:         r.ARN,
 			keyName:        r.Name,
@@ -1062,16 +1135,24 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"repositories": items,
-	})
+	resp := map[string]any{"repositories": items}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListRepositories(c *echo.Context) error {
-	repos := h.Backend.ListRepositories(c.Request().Context())
-	items := make([]map[string]any, 0, len(repos))
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("maxResults"))
+	nextToken := q.Get("nextToken")
 
-	for _, r := range repos {
+	all := h.Backend.ListRepositories(c.Request().Context())
+	page, next := paginateSlice(all, maxResults, nextToken, func(r *Repository) string { return r.Name })
+
+	items := make([]map[string]any, 0, len(page))
+	for _, r := range page {
 		items = append(items, map[string]any{
 			keyArn:         r.ARN,
 			keyName:        r.Name,
@@ -1080,9 +1161,12 @@ func (h *Handler) handleListRepositories(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"repositories": items,
-	})
+	resp := map[string]any{"repositories": items}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleGetRepositoryEndpoint(c *echo.Context, domainName, repoName, format string) error {
@@ -1437,6 +1521,7 @@ func packageVersionToMap(pv *PackageVersion) map[string]any {
 		keyVersion:     pv.Version,
 		keyStatusField: pv.Status,
 		"format":       pv.Format,
+		"packageName":  pv.PackageName,
 		"publishedAt":  epochSeconds(pv.PublishedAt),
 		keyRevision:    pv.Revision,
 	}
@@ -1938,17 +2023,28 @@ func (h *Handler) handleListPackageGroups(c *echo.Context, domainName, prefix st
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	groups, err := h.Backend.ListPackageGroups(c.Request().Context(), domainName, prefix)
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("maxResults"))
+	nextToken := q.Get("nextToken")
+
+	all, err := h.Backend.ListPackageGroups(c.Request().Context(), domainName, prefix)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(groups))
-	for _, pg := range groups {
+	page, next := paginateSlice(all, maxResults, nextToken, func(pg *PackageGroup) string { return pg.Pattern })
+
+	items := make([]map[string]any, 0, len(page))
+	for _, pg := range page {
 		items = append(items, packageGroupToMap(pg))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"packageGroups": items})
+	resp := map[string]any{"packageGroups": items}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListPackageVersionAssets(
@@ -2013,17 +2109,28 @@ func (h *Handler) handleListPackageVersions(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
 	}
 
-	versions, err := h.Backend.ListPackageVersions(c.Request().Context(), domainName, repoName, format, namespace, name)
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("maxResults"))
+	nextToken := q.Get("nextToken")
+
+	all, err := h.Backend.ListPackageVersions(c.Request().Context(), domainName, repoName, format, namespace, name)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(versions))
-	for _, pv := range versions {
+	page, next := paginateSlice(all, maxResults, nextToken, func(pv *PackageVersion) string { return pv.Version })
+
+	items := make([]map[string]any, 0, len(page))
+	for _, pv := range page {
 		items = append(items, packageVersionToMap(pv))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"versions": items, "package": name, "format": format})
+	resp := map[string]any{"versions": items, "package": name, "format": format}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListPackages(c *echo.Context, domainName, repoName, format, namespace string) error {
@@ -2034,17 +2141,28 @@ func (h *Handler) handleListPackages(c *echo.Context, domainName, repoName, form
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
 	}
 
-	pkgs, err := h.Backend.ListPackages(c.Request().Context(), domainName, repoName, format, namespace)
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("maxResults"))
+	nextToken := q.Get("nextToken")
+
+	all, err := h.Backend.ListPackages(c.Request().Context(), domainName, repoName, format, namespace)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(pkgs))
-	for _, pkg := range pkgs {
+	page, next := paginateSlice(all, maxResults, nextToken, func(p *Package) string { return p.Name })
+
+	items := make([]map[string]any, 0, len(page))
+	for _, pkg := range page {
 		items = append(items, packageToMap(pkg))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"packages": items})
+	resp := map[string]any{"packages": items}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListSubPackageGroups(c *echo.Context, domainName, pattern string) error {
@@ -2055,17 +2173,28 @@ func (h *Handler) handleListSubPackageGroups(c *echo.Context, domainName, patter
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	groups, err := h.Backend.ListSubPackageGroups(c.Request().Context(), domainName, pattern)
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("maxResults"))
+	nextToken := q.Get("nextToken")
+
+	all, err := h.Backend.ListSubPackageGroups(c.Request().Context(), domainName, pattern)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(groups))
-	for _, pg := range groups {
+	page, next := paginateSlice(all, maxResults, nextToken, func(pg *PackageGroup) string { return pg.Pattern })
+
+	items := make([]map[string]any, 0, len(page))
+	for _, pg := range page {
 		items = append(items, packageGroupToMap(pg))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"packageGroups": items})
+	resp := map[string]any{"packageGroups": items}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handlePublishPackageVersion(
@@ -2220,7 +2349,8 @@ func (h *Handler) handleUpdatePackageVersionsStatus(
 }
 
 type updateRepositoryBody struct {
-	Description string `json:"description"`
+	Description          string              `json:"description"`
+	UpstreamRepositories []upstreamRepoEntry `json:"upstreamRepositories"`
 }
 
 func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName string, body []byte) error {
@@ -2236,7 +2366,15 @@ func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName s
 		_ = json.Unmarshal(body, &in)
 	}
 
-	r, err := h.Backend.UpdateRepository(c.Request().Context(), domainName, repoName, in.Description)
+	var upstreams []string
+	if in.UpstreamRepositories != nil {
+		upstreams = make([]string, 0, len(in.UpstreamRepositories))
+		for _, u := range in.UpstreamRepositories {
+			upstreams = append(upstreams, u.RepositoryName)
+		}
+	}
+
+	r, err := h.Backend.UpdateRepository(c.Request().Context(), domainName, repoName, in.Description, upstreams)
 	if err != nil {
 		return h.handleError(c, err)
 	}

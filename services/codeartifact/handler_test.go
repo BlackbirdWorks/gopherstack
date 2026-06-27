@@ -1659,7 +1659,7 @@ func TestBackend_Reset(t *testing.T) {
 	_, err := b.CreateDomain(context.Background(), "reset-domain", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateRepository(context.Background(), "reset-domain", "reset-repo", "", nil)
+	_, err = b.CreateRepository(context.Background(), "reset-domain", "reset-repo", "", nil, nil)
 	require.NoError(t, err)
 
 	b.Reset()
