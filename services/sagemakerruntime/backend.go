@@ -168,7 +168,10 @@ func (b *InMemoryBackend) ListSessions() []*Session {
 }
 
 // RecordAsyncInvocation stores accepted asynchronous inference work.
-func (b *InMemoryBackend) RecordAsyncInvocation(endpointName, requestedID, input string) *AsyncInvocation {
+// If outputLocation is empty a fake S3 location is synthesised.
+func (b *InMemoryBackend) RecordAsyncInvocation(
+	endpointName, requestedID, input, outputLocation string,
+) *AsyncInvocation {
 	b.mu.Lock("RecordAsyncInvocation")
 	defer b.mu.Unlock()
 
@@ -178,11 +181,16 @@ func (b *InMemoryBackend) RecordAsyncInvocation(endpointName, requestedID, input
 		inferenceID = fmt.Sprintf("gopherstack-inference-%d", b.nextID)
 	}
 
+	loc := outputLocation
+	if loc == "" {
+		loc = fmt.Sprintf("s3://sagemaker-runtime-mock/%s/%s/output", endpointName, inferenceID)
+	}
+
 	invocation := &AsyncInvocation{
 		InferenceID:    inferenceID,
 		EndpointName:   endpointName,
 		Input:          input,
-		OutputLocation: fmt.Sprintf("s3://sagemaker-runtime-mock/%s/%s/output", endpointName, inferenceID),
+		OutputLocation: loc,
 		CreatedAt:      time.Now().UTC(),
 	}
 	b.asyncInvocations[inferenceID] = invocation

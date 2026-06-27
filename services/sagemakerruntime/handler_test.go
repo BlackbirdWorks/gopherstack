@@ -644,7 +644,7 @@ func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
 			}
 			if tt.setupInvCount > 0 {
 				b.StartSession("ep")
-				b.RecordAsyncInvocation("ep", "persisted-id", "input")
+				b.RecordAsyncInvocation("ep", "persisted-id", "input", "")
 			}
 
 			snap := b.Snapshot(t.Context())
