@@ -1546,9 +1546,11 @@ func (h *Handler) handleUpdateIntegration(c *echo.Context, apiID, integrationID 
 // --- Deployment handlers ---
 
 func (h *Handler) handleCreateDeployment(c *echo.Context, apiID string) error {
-	return handleCreate(c, apiID, "deployment", ErrAPINotFound, func(input CreateDeploymentInput) (*Deployment, error) {
-		return h.Backend.CreateDeployment(apiID, input)
-	})
+	return handleCreateMulti(c, apiID, "deployment",
+		func(input CreateDeploymentInput) (*Deployment, error) {
+			return h.Backend.CreateDeployment(apiID, input)
+		},
+		ErrAPINotFound, ErrStageNotFound)
 }
 
 func (h *Handler) handleGetDeployments(c *echo.Context, apiID string) error {

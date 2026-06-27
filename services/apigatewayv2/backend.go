@@ -475,7 +475,7 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 	b.mu.Lock("CreateAPI")
 	defer b.mu.Unlock()
 
-	validProtocols := map[string]bool{protocolTypeHTTP: true, "WEBSOCKET": true}
+	validProtocols := map[string]bool{protocolTypeHTTP: true, protocolTypeWebSocket: true}
 	if !validProtocols[input.ProtocolType] {
 		return nil, fmt.Errorf("%w: protocolType must be HTTP or WEBSOCKET", ErrBadRequest)
 	}
@@ -483,10 +483,20 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 	// Apply AWS-realistic default RouteSelectionExpression when not provided.
 	rse := input.RouteSelectionExpression
 	if rse == "" {
-		if input.ProtocolType == "WEBSOCKET" {
+		if input.ProtocolType == protocolTypeWebSocket {
 			rse = "$request.body.action"
 		} else {
 			rse = "${request.method} ${request.path}"
+		}
+	}
+
+	// Apply AWS-realistic default APIKeySelectionExpression when not provided.
+	keySelExpr := input.APIKeySelectionExpression
+	if keySelExpr == "" {
+		if input.ProtocolType == protocolTypeWebSocket {
+			keySelExpr = "$context.authorizer.usageIdentifierKey"
+		} else {
+			keySelExpr = "$request.header.x-api-key"
 		}
 	}
 
@@ -501,7 +511,7 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 		Tags:                      copyTags(input.Tags),
 		APIEndpoint:               "https://" + id + ".execute-api." + regionFromCtx(ctx) + ".amazonaws.com",
 		CreatedDate:               isoTime{time.Now()},
-		APIKeySelectionExpression: input.APIKeySelectionExpression,
+		APIKeySelectionExpression: keySelExpr,
 		DisableSchemaValidation:   input.DisableSchemaValidation,
 		DisableExecuteAPIEndpoint: input.DisableExecuteAPIEndpoint,
 	}
@@ -825,6 +835,11 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		return nil, fmt.Errorf("%w: authorizerId is required for JWT authorization", ErrBadRequest)
 	}
 
+	authScopes := input.AuthorizationScopes
+	if authScopes == nil {
+		authScopes = []string{}
+	}
+
 	id := randomID()
 	route := &Route{
 		RouteID:                  id,
@@ -837,6 +852,8 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		ModelSelectionExpression: input.ModelSelectionExpression,
 		RequestModels:            input.RequestModels,
 		RequestParameters:        input.RequestParameters,
+		AuthorizationScopes:      authScopes,
+		APIKeyRequired:           input.APIKeyRequired,
 	}
 
 	d.routes[id] = route
@@ -978,6 +995,14 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 
 	if input.RequestParameters != nil {
 		r.RequestParameters = input.RequestParameters
+	}
+
+	if input.AuthorizationScopes != nil {
+		r.AuthorizationScopes = input.AuthorizationScopes
+	}
+
+	if input.APIKeyRequired != nil {
+		r.APIKeyRequired = *input.APIKeyRequired
 	}
 
 	cp := *r

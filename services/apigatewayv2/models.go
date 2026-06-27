@@ -111,6 +111,8 @@ type Route struct {
 	AuthorizerID             string                            `json:"authorizerId,omitempty"`
 	OperationName            string                            `json:"operationName,omitempty"`
 	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
+	AuthorizationScopes      []string                          `json:"authorizationScopes"`
+	APIKeyRequired           bool                              `json:"apiKeyRequired"`
 }
 
 // Integration represents a backend integration for a route.
@@ -216,6 +218,8 @@ type CreateRouteInput struct {
 	AuthorizerID             string                            `json:"authorizerId,omitempty"`
 	OperationName            string                            `json:"operationName,omitempty"`
 	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
+	AuthorizationScopes      []string                          `json:"authorizationScopes,omitempty"`
+	APIKeyRequired           bool                              `json:"apiKeyRequired,omitempty"`
 }
 
 // UpdateRouteInput is the input for UpdateRoute (PATCH).
@@ -228,6 +232,8 @@ type UpdateRouteInput struct {
 	AuthorizerID             string                            `json:"authorizerId,omitempty"`
 	OperationName            string                            `json:"operationName,omitempty"`
 	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
+	APIKeyRequired           *bool                             `json:"apiKeyRequired,omitempty"`
+	AuthorizationScopes      []string                          `json:"authorizationScopes,omitempty"`
 }
 
 // CreateIntegrationInput is the input for CreateIntegration.
