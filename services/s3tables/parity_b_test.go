@@ -13,7 +13,8 @@ import (
 )
 
 // ======================================================================
-// Gap 1: ARN key casing — "tableArn" and "tableBucketArn" (not ARN)
+// Gap 1: ARN key casing — "tableARN" and "tableBucketARN" (uppercase)
+// Real AWS S3 Tables uses uppercase "ARN" suffix per SDK deserializer.
 // ======================================================================
 
 func TestParity_CreateTableResponseUsesLowercaseTableArn(t *testing.T) {
@@ -31,11 +32,11 @@ func TestParity_CreateTableResponseUsesLowercaseTableArn(t *testing.T) {
 
 	result := parseResponse(t, rec)
 
-	_, hasCorrect := result["tableArn"]
-	_, hasWrong := result["tableARN"]
+	_, hasCorrect := result["tableARN"]
+	_, hasWrong := result["tableArn"]
 
-	assert.True(t, hasCorrect, "response must contain 'tableArn' (lowercase 'rn')")
-	assert.False(t, hasWrong, "response must not contain misspelled 'tableARN'")
+	assert.True(t, hasCorrect, "response must contain 'tableARN' (uppercase, per SDK)")
+	assert.False(t, hasWrong, "response must not use lowercase 'tableArn'")
 }
 
 func TestParity_GetTableResponseUsesLowercaseArns(t *testing.T) {
@@ -47,7 +48,7 @@ func TestParity_GetTableResponseUsesLowercaseArns(t *testing.T) {
 	createTableHelper(t, h, bucketARN, "ns1", "tbl")
 
 	q := url.Values{}
-	q.Set("tableBucketArn", bucketARN)
+	q.Set("tableBucketARN", bucketARN)
 	q.Set("namespace", "ns1")
 	q.Set("name", "tbl")
 	rec := doS3TablesRequest(t, h, http.MethodGet, "/get-table?"+q.Encode(), nil)
@@ -55,15 +56,15 @@ func TestParity_GetTableResponseUsesLowercaseArns(t *testing.T) {
 
 	result := parseResponse(t, rec)
 
-	_, hasTableArn := result["tableArn"]
-	_, hasTableBucketArn := result["tableBucketArn"]
-	_, hasWrongTableARN := result["tableARN"]
-	_, hasWrongBucketARN := result["tableBucketARN"]
+	_, hasTableARN := result["tableARN"]
+	_, hasTableBucketARN := result["tableBucketARN"]
+	_, hasWrongTableArn := result["tableArn"]
+	_, hasWrongBucketArn := result["tableBucketArn"]
 
-	assert.True(t, hasTableArn, "GetTable response must include 'tableArn'")
-	assert.True(t, hasTableBucketArn, "GetTable response must include 'tableBucketArn'")
-	assert.False(t, hasWrongTableARN, "GetTable must not use 'tableARN'")
-	assert.False(t, hasWrongBucketARN, "GetTable must not use 'tableBucketARN'")
+	assert.True(t, hasTableARN, "GetTable response must include 'tableARN'")
+	assert.True(t, hasTableBucketARN, "GetTable response must include 'tableBucketARN'")
+	assert.False(t, hasWrongTableArn, "GetTable must not use lowercase 'tableArn'")
+	assert.False(t, hasWrongBucketArn, "GetTable must not use lowercase 'tableBucketArn'")
 }
 
 func TestParity_ListTablesResponseUsesLowercaseArns(t *testing.T) {
@@ -87,13 +88,13 @@ func TestParity_ListTablesResponseUsesLowercaseArns(t *testing.T) {
 	require.Len(t, tables, 1)
 
 	entry := tables[0].(map[string]any)
-	_, hasTableArn := entry["tableArn"]
-	_, hasTableBucketArn := entry["tableBucketArn"]
-	_, hasWrong := entry["tableARN"]
+	_, hasTableARN := entry["tableARN"]
+	_, hasTableBucketARN := entry["tableBucketARN"]
+	_, hasWrong := entry["tableArn"]
 
-	assert.True(t, hasTableArn, "ListTables entry must include 'tableArn'")
-	assert.True(t, hasTableBucketArn, "ListTables entry must include 'tableBucketArn'")
-	assert.False(t, hasWrong, "ListTables entry must not use 'tableARN'")
+	assert.True(t, hasTableARN, "ListTables entry must include 'tableARN'")
+	assert.True(t, hasTableBucketARN, "ListTables entry must include 'tableBucketARN'")
+	assert.False(t, hasWrong, "ListTables entry must not use lowercase 'tableArn'")
 }
 
 // ======================================================================
@@ -152,8 +153,8 @@ func TestParity_GetNamespaceIncludesTableBucketArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	result := parseResponse(t, rec)
-	assert.Equal(t, bucketARN, result["tableBucketArn"],
-		"GetNamespace response must include tableBucketArn")
+	assert.Equal(t, bucketARN, result["tableBucketARN"],
+		"GetNamespace response must include tableBucketARN")
 }
 
 func TestParity_ListNamespacesIncludesTableBucketArn(t *testing.T) {
@@ -175,8 +176,8 @@ func TestParity_ListNamespacesIncludesTableBucketArn(t *testing.T) {
 	require.Len(t, namespaces, 1)
 
 	entry := namespaces[0].(map[string]any)
-	assert.Equal(t, bucketARN, entry["tableBucketArn"],
-		"ListNamespaces summary must include tableBucketArn")
+	assert.Equal(t, bucketARN, entry["tableBucketARN"],
+		"ListNamespaces summary must include tableBucketARN")
 }
 
 // ======================================================================
@@ -190,7 +191,7 @@ func TestParity_GetTableBucketReplicationWrapsDestinations(t *testing.T) {
 	bucketARN := createBucketHelper(t, h, "repl-wrap-bucket")
 
 	q := url.Values{}
-	q.Set("tableBucketArn", bucketARN)
+	q.Set("tableBucketARN", bucketARN)
 
 	// Seed directly via backend for reliability.
 	s3tables.AddBucketReplicationInternal(h.Backend, bucketARN, &s3tables.BucketReplicationConfig{

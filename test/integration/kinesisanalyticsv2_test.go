@@ -158,6 +158,12 @@ func TestIntegration_KinesisAnalyticsV2_Snapshots(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Start application (required before snapshot creation — real AWS requires RUNNING state).
+	_, err = client.StartApplication(t.Context(), &kinesisanalyticsv2svc.StartApplicationInput{
+		ApplicationName: aws.String(appName),
+	})
+	require.NoError(t, err, "StartApplication should succeed")
+
 	// Create snapshot.
 	_, err = client.CreateApplicationSnapshot(t.Context(), &kinesisanalyticsv2svc.CreateApplicationSnapshotInput{
 		ApplicationName: aws.String(appName),

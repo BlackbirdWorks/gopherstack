@@ -22,9 +22,9 @@ const (
 	keyName             = "name"
 	keyOwnerAccountID   = "ownerAccountId"
 	keyCreatedAt        = "createdAt"
-	keyTableBucketARN   = "tableBucketArn"
+	keyTableBucketARN   = "tableBucketARN"
 	keyConfiguration    = "configuration"
-	keyTableARN         = "tableArn"
+	keyTableARN         = "tableARN"
 	keyStatusField      = "status"
 	keyVersionToken     = "versionToken"
 	keyMetadataLocation = "metadataLocation"
@@ -975,7 +975,7 @@ func (h *Handler) handleGetTableRecordExpirationConfiguration(
 	log.InfoContext(ctx, "s3tables: got table record expiration configuration", "tableArn", tableArn)
 
 	return json.Marshal(map[string]any{
-		"tableArn":     tableArn,
+		keyTableARN:    tableArn,
 		keyStatusField: cfg.Status,
 	})
 }

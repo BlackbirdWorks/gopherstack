@@ -149,7 +149,7 @@ func TestRefinement1_GetTableBucketMetricsConfiguration(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				result := parseResponse(t, rec)
-				assert.Equal(t, bucketARN, result["tableBucketArn"])
+				assert.Equal(t, bucketARN, result["tableBucketARN"])
 			}
 		})
 	}
@@ -286,13 +286,13 @@ func TestRefinement1_GetTableBucketReplication(t *testing.T) {
 				}
 
 				q := url.Values{}
-				q.Set("tableBucketArn", bucketARN)
+				q.Set("tableBucketARN", bucketARN)
 				rec := doS3TablesRequest(t, h, http.MethodGet, "/table-bucket-replication?"+q.Encode(), nil)
 				assert.Equal(t, tt.wantCode, rec.Code)
 
 				if tt.wantCode == http.StatusOK {
 					result := parseResponse(t, rec)
-					assert.Equal(t, bucketARN, result["tableBucketArn"])
+					assert.Equal(t, bucketARN, result["tableBucketARN"])
 					replCfg, ok := result["replicationConfiguration"].(map[string]any)
 					require.True(t, ok)
 					dests, ok := replCfg["destinations"].([]any)
@@ -360,7 +360,7 @@ func TestRefinement1_DeleteTableBucketReplication(t *testing.T) {
 			}
 
 			q := url.Values{}
-			q.Set("tableBucketArn", bucketARN)
+			q.Set("tableBucketARN", bucketARN)
 			rec := doS3TablesRequest(t, h, http.MethodDelete, "/table-bucket-replication?"+q.Encode(), nil)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -469,7 +469,7 @@ func TestRefinement1_GetTableMaintenanceJobStatus(t *testing.T) {
 
 				if tt.wantCode == http.StatusOK {
 					result := parseResponse(t, rec)
-					assert.NotEmpty(t, result["tableArn"])
+					assert.NotEmpty(t, result["tableARN"])
 				}
 			} else {
 				bucketARN := "arn:aws:s3tables:us-east-1:000000000000:bucket/nonexistent"
@@ -605,7 +605,7 @@ func TestRefinement1_GetTableRecordExpirationConfiguration(t *testing.T) {
 				if tt.wantCode == http.StatusOK {
 					result := parseResponse(t, rec)
 					assert.Equal(t, tt.wantStatus, result["status"])
-					assert.Equal(t, tableARN, result["tableArn"])
+					assert.Equal(t, tableARN, result["tableARN"])
 				}
 			} else {
 				q := url.Values{}
@@ -807,13 +807,13 @@ func TestRefinement1_RouteMatcherNewPaths(t *testing.T) {
 	}{
 		{
 			name:   "table-bucket-replication GET",
-			path:   "/table-bucket-replication?tableBucketArn=arn",
+			path:   "/table-bucket-replication?tableBucketARN=arn",
 			method: http.MethodGet,
 			want:   "GetTableBucketReplication",
 		},
 		{
 			name:   "table-bucket-replication DELETE",
-			path:   "/table-bucket-replication?tableBucketArn=arn",
+			path:   "/table-bucket-replication?tableBucketARN=arn",
 			method: http.MethodDelete,
 			want:   "DeleteTableBucketReplication",
 		},
@@ -1084,7 +1084,7 @@ func TestRefinement1_ExtractResource(t *testing.T) {
 		},
 		{
 			name: "table-bucket-replication with param",
-			path: "/table-bucket-replication?tableBucketArn=myarn",
+			path: "/table-bucket-replication?tableBucketARN=myarn",
 			want: "myarn",
 		},
 		{
@@ -1123,7 +1123,7 @@ func TestRefinement1_RouteMatcherNewPathPrefixes(t *testing.T) {
 		path string
 		want bool
 	}{
-		{name: "table-bucket-replication", path: "/table-bucket-replication?tableBucketArn=arn", want: true},
+		{name: "table-bucket-replication", path: "/table-bucket-replication?tableBucketARN=arn", want: true},
 		{name: "table-replication", path: "/table-replication?tableArn=arn", want: true},
 		{name: "table-record-expiration", path: "/table-record-expiration?tableArn=arn", want: true},
 		{name: "no match", path: "/other", want: false},

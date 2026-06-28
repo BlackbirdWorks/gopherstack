@@ -73,8 +73,7 @@ func TestAppMesh_Batch2ARNFormat(t *testing.T) {
 		rec := doRequest(t, h, c.method, c.path, nil)
 		require.Equal(t, http.StatusOK, rec.Code, "path: %s", c.path)
 		body := getBody(t, rec)
-		resource := body[c.bodyKey].(map[string]any)
-		arn := resource["metadata"].(map[string]any)["arn"].(string)
+		arn := body["metadata"].(map[string]any)["arn"].(string)
 		assert.Equal(t, c.wantARN, arn, "ARN mismatch for %s", c.bodyKey)
 	}
 }
@@ -87,7 +86,7 @@ func TestAppMesh_Batch2Timestamps(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes", map[string]any{"meshName": "ts-mesh"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := getBody(t, rec)
-	meta := body["mesh"].(map[string]any)["metadata"].(map[string]any)
+	meta := body["metadata"].(map[string]any)
 
 	// Timestamps must be JSON numbers (epoch seconds).
 	createdAt1, ok := meta["createdAt"].(float64)
@@ -108,7 +107,7 @@ func TestAppMesh_Batch2Timestamps(t *testing.T) {
 	rec = doRequest(t, h, http.MethodPut, "/meshes/ts-mesh", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	body = getBody(t, rec)
-	meta = body["mesh"].(map[string]any)["metadata"].(map[string]any)
+	meta = body["metadata"].(map[string]any)
 
 	createdAt2 := meta["createdAt"].(float64)
 	lastUpdated2 := meta["lastUpdatedAt"].(float64)
@@ -154,8 +153,7 @@ func TestAppMesh_Batch2SpecNotNull(t *testing.T) {
 		rec := doRequest(t, h, c.method, c.path, nil)
 		require.Equal(t, http.StatusOK, rec.Code)
 		body := getBody(t, rec)
-		resource := body[c.bodyKey].(map[string]any)
-		_, ok := resource["spec"].(map[string]any)
+		_, ok := body["spec"].(map[string]any)
 		assert.True(t, ok, "%s: spec must be a JSON object {}, not null", c.bodyKey)
 	}
 }
@@ -196,8 +194,7 @@ func TestAppMesh_Batch2StatusObject(t *testing.T) {
 		rec := doRequest(t, h, c.method, c.path, nil)
 		require.Equal(t, http.StatusOK, rec.Code)
 		body := getBody(t, rec)
-		resource := body[c.bodyKey].(map[string]any)
-		status, ok := resource["status"].(map[string]any)
+		status, ok := body["status"].(map[string]any)
 		require.True(t, ok, "%s: status must be a JSON object", c.bodyKey)
 		assert.Equal(t, "ACTIVE", status["status"])
 	}
@@ -247,7 +244,7 @@ func TestAppMesh_Batch2TagsCreatedWith(t *testing.T) {
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	arn := getBody(t, rec)["mesh"].(map[string]any)["metadata"].(map[string]any)["arn"].(string)
+	arn := getBody(t, rec)["metadata"].(map[string]any)["arn"].(string)
 
 	// Creation-time tags appear in ListTagsForResource.
 	rec = doRequest(t, h, http.MethodGet, fmt.Sprintf("/tags?resourceArn=%s", arn), nil)
