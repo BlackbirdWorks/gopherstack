@@ -1084,13 +1084,29 @@ func (h *Handler) queryListDeadLetterSourceQueues(vals url.Values, region string
 	return b, http.StatusOK, nil
 }
 
+// atoiInt32 parses a decimal string into an int32, returning 0 for empty or
+// out-of-range input. Using ParseInt with bitSize 32 keeps the conversion within
+// int32 bounds (no architecture-dependent overflow).
+func atoiInt32(s string) int32 {
+	if s == "" {
+		return 0
+	}
+
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return 0
+	}
+
+	return int32(n)
+}
+
 func (h *Handler) queryStartMessageMoveTask(vals url.Values) ([]byte, int, *queryError) {
-	maxPerSec, _ := strconv.Atoi(vals.Get("MaxNumberOfMessagesPerSecond"))
+	maxPerSec := atoiInt32(vals.Get("MaxNumberOfMessagesPerSecond"))
 
 	out, err := h.Backend.StartMessageMoveTask(&StartMessageMoveTaskInput{
 		SourceArn:                    vals.Get("SourceArn"),
 		DestinationArn:               vals.Get("DestinationArn"),
-		MaxNumberOfMessagesPerSecond: int32(maxPerSec), //nolint:gosec // bounded form-supplied value
+		MaxNumberOfMessagesPerSecond: maxPerSec,
 	})
 	if err != nil {
 		return nil, 0, buildQueryError(err)
@@ -1155,11 +1171,11 @@ func (h *Handler) queryCancelMessageMoveTask(vals url.Values) ([]byte, int, *que
 }
 
 func (h *Handler) queryListMessageMoveTasks(vals url.Values) ([]byte, int, *queryError) {
-	maxResults, _ := strconv.Atoi(vals.Get("MaxResults"))
+	maxResults := atoiInt32(vals.Get("MaxResults"))
 
 	out, err := h.Backend.ListMessageMoveTasks(&ListMessageMoveTasksInput{
 		SourceArn:  vals.Get("SourceArn"),
-		MaxResults: int32(maxResults), //nolint:gosec // bounded form-supplied value
+		MaxResults: maxResults,
 	})
 	if err != nil {
 		return nil, 0, buildQueryError(err)
