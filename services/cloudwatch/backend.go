@@ -174,7 +174,7 @@ type StorageBackend interface {
 	DeleteAlarmMuteRule(muteName string) error
 	GetAlarmMuteRule(muteName string) (*AlarmMuteRule, error)
 	PutAnomalyDetector(detector *AnomalyDetector) error
-	DeleteAnomalyDetector(namespace, metricName, stat string) error
+	DeleteAnomalyDetector(namespace, metricName, stat string, dims []Dimension) error
 	DescribeAnomalyDetectors(
 		namespace, metricName, nextToken string,
 		maxResults int,
@@ -320,6 +320,34 @@ func dimsContainAll(stored, filter []Dimension) bool {
 	}
 	for _, d := range filter {
 		if v, ok := storedMap[d.Name]; !ok || v != d.Value {
+			return false
+		}
+	}
+
+	return true
+}
+
+// dimsMatchListFilter is like dimsContainAll but supports name-only dimension filters:
+// when a filter entry has an empty Value, it matches any stored dimension with that Name.
+// This matches the AWS ListMetrics DimensionFilter behaviour.
+func dimsMatchListFilter(stored, filter []Dimension) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	if len(stored) < len(filter) {
+		return false
+	}
+	storedMap := make(map[string]string, len(stored))
+	for _, d := range stored {
+		storedMap[d.Name] = d.Value
+	}
+	for _, d := range filter {
+		v, ok := storedMap[d.Name]
+		if !ok {
+			return false
+		}
+		// Empty Value in filter = match any value (name-only filter).
+		if d.Value != "" && v != d.Value {
 			return false
 		}
 	}
@@ -845,19 +873,23 @@ func (b *InMemoryBackend) annotateAnomalyBand(
 		return
 	}
 
-	// Extract values from datapoints for band computation.
-	vals := make([]float64, len(datapoints))
-	for i, dp := range datapoints {
-		switch {
-		case dp.Average != nil:
-			vals[i] = *dp.Average
-		case dp.Sum != nil:
-			vals[i] = *dp.Sum
-		case dp.Maximum != nil:
-			vals[i] = *dp.Maximum
-		default:
-			vals[i] = 0
+	// Compute band from ALL stored historical raw points (training data).
+	// Using stored raw points avoids the outlier-inflates-its-own-band problem
+	// that occurs when computing from the current eval-window aggregates.
+	var histVals []float64
+
+	if nsMap, ok := b.metrics[namespace]; ok {
+		key := metricStorageKey(metricName, dimensions)
+		if rec, found := nsMap[key]; found {
+			histVals = make([]float64, 0, len(rec.Points))
+			for _, pt := range rec.Points {
+				histVals = append(histVals, pt.Value)
+			}
 		}
+	}
+
+	if len(histVals) == 0 {
+		return
 	}
 
 	bandWidth := matchedDetector.BandWidth
@@ -865,7 +897,7 @@ func (b *InMemoryBackend) annotateAnomalyBand(
 		bandWidth = defaultAnomalyBandStdDevs
 	}
 
-	mean, stddev := rollingStats(vals)
+	mean, stddev := rollingStats(histVals)
 	halfWidth := bandWidth * stddev
 
 	for i := range datapoints {
@@ -1096,7 +1128,7 @@ func (b *InMemoryBackend) ListMetrics(
 			if metricName != "" && rec.MetricName != metricName {
 				continue
 			}
-			if !dimsContainAll(rec.Dimensions, dimensions) {
+			if !dimsMatchListFilter(rec.Dimensions, dimensions) {
 				continue
 			}
 			dims := make([]Dimension, len(rec.Dimensions))
@@ -1723,10 +1755,11 @@ func (b *InMemoryBackend) buildAlarmActionPayload(
 
 // executeActions delivers the alarm action notifications to SNS topics and Lambda functions.
 // Delivery errors are logged as warnings but do not prevent other actions from running.
+// Each fired action is recorded as an Action history entry on the alarm.
 func (b *InMemoryBackend) executeActions(
 	ctx context.Context,
 	actions []string,
-	_ string,
+	alarmName string,
 	payload []byte,
 	snsPub SNSPublisher,
 	lambdaInv LambdaInvoker,
@@ -1734,30 +1767,46 @@ func (b *InMemoryBackend) executeActions(
 	log := logger.Load(ctx)
 
 	for _, action := range actions {
+		var actionResult string
+
 		switch {
 		case strings.HasPrefix(action, "arn:aws:sns:"):
+			actionResult = "SNS"
 			if snsPub != nil {
 				if err := snsPub.PublishToTopic(action, string(payload)); err != nil {
 					log.WarnContext(ctx, "cloudwatch: alarm SNS action delivery failed",
 						"topic_arn", action, "error", err)
+					actionResult = "SNS (failed)"
 				}
 			}
 		case strings.HasPrefix(action, "arn:aws:lambda:"):
+			actionResult = "Lambda"
 			if lambdaInv != nil {
 				if _, _, err := lambdaInv.InvokeFunction(ctx, action, "Event", payload); err != nil {
 					log.WarnContext(ctx, "cloudwatch: alarm Lambda action delivery failed",
 						"function_arn", action, "error", err)
+					actionResult = "Lambda (failed)"
 				}
 			}
 		case strings.HasPrefix(action, "arn:aws:automate:"):
 			log.WarnContext(ctx, "cloudwatch: EC2 automate alarm action not executed in emulator",
 				"action", action)
+			actionResult = "EC2 automate (not executed)"
 		case strings.HasPrefix(action, "arn:aws:autoscaling:"):
 			log.WarnContext(ctx, "cloudwatch: AutoScaling alarm action not executed in emulator",
 				"action", action)
+			actionResult = "AutoScaling (not executed)"
 		default:
 			log.WarnContext(ctx, "cloudwatch: unrecognised alarm action skipped",
 				"action", action)
+			actionResult = "unknown (skipped)"
+		}
+
+		if alarmName != "" {
+			summary := fmt.Sprintf("Alarm %q action executed: %s → %s", alarmName, action, actionResult)
+			b.mu.Lock("executeActions-history")
+			b.appendHistory(alarmName, "MetricAlarm", historyTypeAction, summary, "")
+			b.mu.Unlock()
 		}
 	}
 }
@@ -2018,9 +2067,9 @@ func (b *InMemoryBackend) GetInsightRuleContributors(
 }
 
 // anomalyDetectorKey returns a stable map key for an anomaly detector.
-// Dimensions are included in the key so different dimension sets produce distinct detectors.
-func anomalyDetectorKey(namespace, metricName, stat string) string {
-	return namespace + "/" + metricName + "/" + stat
+// Dimensions are included so different dimension sets produce distinct detectors.
+func anomalyDetectorKey(namespace, metricName, stat string, dims []Dimension) string {
+	return namespace + "/" + metricName + "/" + stat + "/" + dimensionSetKey(dims)
 }
 
 // PutAlarmMuteRule creates or updates an alarm mute rule by name.
@@ -2122,11 +2171,11 @@ func (b *InMemoryBackend) PutAlarmMuteRuleInternal(rule *AlarmMuteRule) {
 
 // DeleteAnomalyDetector removes an anomaly detector.
 // Returns ErrAnomalyDetectorNotFound if the detector does not exist.
-func (b *InMemoryBackend) DeleteAnomalyDetector(namespace, metricName, stat string) error {
+func (b *InMemoryBackend) DeleteAnomalyDetector(namespace, metricName, stat string, dims []Dimension) error {
 	b.mu.Lock("DeleteAnomalyDetector")
 	defer b.mu.Unlock()
 
-	key := anomalyDetectorKey(namespace, metricName, stat)
+	key := anomalyDetectorKey(namespace, metricName, stat, dims)
 
 	if _, ok := b.anomalyDetectors[key]; !ok {
 		return fmt.Errorf("%w: %s/%s/%s", ErrAnomalyDetectorNotFound, namespace, metricName, stat)
@@ -2142,7 +2191,7 @@ func (b *InMemoryBackend) PutAnomalyDetectorInternal(detector *AnomalyDetector) 
 	b.mu.Lock("PutAnomalyDetectorInternal")
 	defer b.mu.Unlock()
 
-	key := anomalyDetectorKey(detector.Namespace, detector.MetricName, detector.Stat)
+	key := anomalyDetectorKey(detector.Namespace, detector.MetricName, detector.Stat, detector.Dimensions)
 	cp := *detector
 	if cp.StateValue == "" {
 		// TRAINED_INSUFFICIENT_DATA is the realistic initial state for a new detector.
@@ -2615,7 +2664,11 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 	var snaps []alarmSnap
 
 	for _, a := range b.alarms {
-		if a.MetricName == "" || a.Namespace == "" || a.Period <= 0 || a.EvaluationPeriods <= 0 {
+		isMultiMetric := len(a.Metrics) > 0
+		if !isMultiMetric && (a.MetricName == "" || a.Namespace == "" || a.Period <= 0) {
+			continue
+		}
+		if a.EvaluationPeriods <= 0 {
 			continue
 		}
 
@@ -2649,14 +2702,44 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 	}
 }
 
-// evaluateMetricAlarmState computes the new state for a metric alarm.
-// It fetches the most recent EvaluationPeriods periods of data, counts
-// breaching periods applying TreatMissingData logic, and returns the resulting state.
-func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.Time) string {
-	periodDur := time.Duration(alarm.Period) * time.Second
-	evalPeriods := int(alarm.EvaluationPeriods)
+// fetchMultiMetricBuckets fetches data via GetMetricData and returns per-period bucket values.
+func (b *InMemoryBackend) fetchMultiMetricBuckets(
+	alarm MetricAlarm, now time.Time, evalPeriods int,
+) (map[int]float64, map[int][2]float64, error) {
+	period := alarm.Period
+	if period <= 0 {
+		for _, q := range alarm.Metrics {
+			if q.MetricStat.Period > 0 {
+				period = q.MetricStat.Period
 
-	endTime := now
+				break
+			}
+			if q.Period > 0 {
+				period = q.Period
+
+				break
+			}
+		}
+	}
+
+	periodDur := time.Duration(period) * time.Second
+	startTime := now.Add(-periodDur * time.Duration(evalPeriods))
+
+	results, err := b.GetMetricData(alarm.Metrics, startTime, now)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return buildBucketValuesFromMetricData(results, alarm.Metrics, startTime, periodDur, evalPeriods),
+		make(map[int][2]float64),
+		nil
+}
+
+// fetchSingleMetricBuckets fetches data via GetMetricStatistics and returns per-period bucket values.
+func (b *InMemoryBackend) fetchSingleMetricBuckets(
+	alarm MetricAlarm, now time.Time, evalPeriods int,
+) (map[int]float64, map[int][2]float64, error) {
+	periodDur := time.Duration(alarm.Period) * time.Second
 	startTime := now.Add(-periodDur * time.Duration(evalPeriods))
 
 	stats := []string{alarm.Statistic}
@@ -2669,20 +2752,26 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 
 	datapoints, err := b.GetMetricStatistics(
 		alarm.Namespace, alarm.MetricName, alarm.Dimensions,
-		startTime, endTime, alarm.Period, stats, extStats,
+		startTime, now, alarm.Period, stats, extStats,
 	)
 	if err != nil {
-		return alarm.StateValue
+		return nil, nil, err
 	}
 
-	bucketValues := buildBucketValues(
-		datapoints,
-		startTime,
-		periodDur,
-		evalPeriods,
-		alarm.Statistic,
-		alarm.ExtendedStatistic,
-	)
+	return buildBucketValues(
+			datapoints, startTime, periodDur, evalPeriods, alarm.Statistic, alarm.ExtendedStatistic,
+		),
+		buildBucketBands(datapoints, startTime, periodDur, evalPeriods),
+		nil
+}
+
+// evaluateMetricAlarmState computes the new state for a metric alarm.
+// It fetches the most recent EvaluationPeriods periods of data, counts
+// breaching periods applying TreatMissingData logic, and returns the resulting state.
+// When alarm.Metrics is set the alarm is a multi-metric / metric-math alarm and
+// GetMetricData is used instead of GetMetricStatistics.
+func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.Time) string {
+	evalPeriods := int(alarm.EvaluationPeriods)
 
 	treatMissing := alarm.TreatMissingData
 	if treatMissing == "" {
@@ -2694,8 +2783,23 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 		datapointsToAlarm = evalPeriods
 	}
 
+	var bucketValues map[int]float64
+	var bucketBands map[int][2]float64
+	var err error
+
+	if len(alarm.Metrics) > 0 {
+		bucketValues, bucketBands, err = b.fetchMultiMetricBuckets(alarm, now, evalPeriods)
+	} else {
+		bucketValues, bucketBands, err = b.fetchSingleMetricBuckets(alarm, now, evalPeriods)
+	}
+
+	if err != nil {
+		return alarm.StateValue
+	}
+
 	breachCount, evaluatedCount, realDataCount := countBreachingPeriods(
 		bucketValues,
+		bucketBands,
 		evalPeriods,
 		treatMissing,
 		alarm.Threshold,
@@ -2734,6 +2838,63 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 	return alarmStateOK
 }
 
+// buildBucketValuesFromMetricData maps GetMetricData results into per-period buckets.
+// The "alarm metric" is the first result where the source query had ReturnData=true,
+// or when ReturnData is absent (zero value), the first MetricStat query.
+func buildBucketValuesFromMetricData(
+	results []MetricDataResult,
+	queries []MetricDataQuery,
+	startTime time.Time,
+	periodDur time.Duration,
+	evalPeriods int,
+) map[int]float64 {
+	// Find the ID of the alarm metric: the query with ReturnData=true.
+	alarmID := ""
+
+	for _, q := range queries {
+		if q.ReturnData {
+			alarmID = q.ID
+
+			break
+		}
+	}
+
+	// Fall back to the first MetricStat query (no expression).
+	if alarmID == "" {
+		for _, q := range queries {
+			if q.Expression == "" {
+				alarmID = q.ID
+
+				break
+			}
+		}
+	}
+
+	if alarmID == "" && len(results) > 0 {
+		alarmID = results[0].ID
+	}
+
+	bucketValues := make(map[int]float64, evalPeriods)
+
+	for _, r := range results {
+		if r.ID != alarmID {
+			continue
+		}
+
+		for i, ts := range r.Timestamps {
+			idx := int(ts.Sub(startTime) / periodDur)
+
+			if idx >= 0 && idx < evalPeriods {
+				bucketValues[idx] = r.Values[i]
+			}
+		}
+
+		break
+	}
+
+	return bucketValues
+}
+
 // buildBucketValues maps each datapoint into its evaluation-period bucket.
 func buildBucketValues(
 	datapoints []Datapoint,
@@ -2759,13 +2920,46 @@ func buildBucketValues(
 	return bucketValues
 }
 
+// buildBucketBands extracts per-bucket anomaly band bounds [lower, upper] from datapoints.
+// Used by countBreachingPeriods for GreaterThanUpperThreshold and
+// LessThanLowerOrGreaterThanUpperThreshold comparison operators.
+func buildBucketBands(
+	datapoints []Datapoint,
+	startTime time.Time,
+	periodDur time.Duration,
+	evalPeriods int,
+) map[int][2]float64 {
+	bands := make(map[int][2]float64, len(datapoints))
+
+	for _, dp := range datapoints {
+		if dp.BandLower == nil || dp.BandUpper == nil {
+			continue
+		}
+
+		idx := int(dp.Timestamp.Sub(startTime) / periodDur)
+
+		if idx < 0 || idx >= evalPeriods {
+			continue
+		}
+
+		bands[idx] = [2]float64{*dp.BandLower, *dp.BandUpper}
+	}
+
+	return bands
+}
+
 // countBreachingPeriods tallies breach, evaluated, and real-datapoint counts
 // across all evaluation periods. The third return value (realDataCount) counts
 // only periods that have an actual datapoint, independent of treatMissing —
 // callers use it to implement TreatMissingData=ignore (maintain state when no
 // real data is present).
+//
+// bucketBands provides per-bucket [lower, upper] anomaly band bounds for
+// GreaterThanUpperThreshold and LessThanLowerOrGreaterThanUpperThreshold.
+// When no band is available for a bucket, threshold is used for both bounds.
 func countBreachingPeriods(
 	bucketValues map[int]float64,
+	bucketBands map[int][2]float64,
 	evalPeriods int,
 	treatMissing string,
 	threshold float64,
@@ -2791,7 +2985,12 @@ func countBreachingPeriods(
 		realDataCount++
 		evaluatedCount++
 
-		if breachesThreshold(val, threshold, comparisonOperator) {
+		lowerBound, upperBound := threshold, threshold
+		if band, ok := bucketBands[i]; ok {
+			lowerBound, upperBound = band[0], band[1]
+		}
+
+		if breachesThreshold(val, lowerBound, upperBound, comparisonOperator) {
 			breachCount++
 		}
 	}
@@ -2824,18 +3023,25 @@ func extractDatapointValue(dp Datapoint, statistic, extendedStatistic string) *f
 }
 
 // breachesThreshold reports whether value breaches the threshold for the given operator.
-func breachesThreshold(value, threshold float64, op string) bool {
+// lowerBound and upperBound are used for anomaly-detection operators:
+//   - GreaterThanUpperThreshold: fires when value > upperBound
+//   - LessThanLowerOrGreaterThanUpperThreshold: fires when value < lowerBound OR value > upperBound
+//
+// For non-anomaly alarms, pass threshold for both lowerBound and upperBound.
+func breachesThreshold(value, lowerBound, upperBound float64, op string) bool {
 	switch op {
 	case "GreaterThanThreshold":
-		return value > threshold
+		return value > upperBound
 	case "GreaterThanOrEqualToThreshold":
-		return value >= threshold
+		return value >= upperBound
 	case "LessThanThreshold":
-		return value < threshold
+		return value < lowerBound
 	case "LessThanOrEqualToThreshold":
-		return value <= threshold
+		return value <= lowerBound
+	case "GreaterThanUpperThreshold":
+		return value > upperBound
 	case "LessThanLowerOrGreaterThanUpperThreshold":
-		return value < threshold
+		return value < lowerBound || value > upperBound
 	default:
 		return false
 	}

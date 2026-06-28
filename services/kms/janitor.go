@@ -30,6 +30,7 @@ type expiryKind int
 const (
 	expiryKindDeletion expiryKind = iota // key is pending hard deletion
 	expiryKindMaterial                   // EXTERNAL key material ValidTo expiry
+	expiryKindRotation                   // automatic key rotation (AWS_KMS rotation)
 )
 
 // expiryHeap implements heap.Interface for min-heap ordering by fireAt.
@@ -116,7 +117,8 @@ func (j *Janitor) scheduleExpiry(region, keyID string, fireAt float64, kind expi
 
 // sweepExpiredKeys removes keys in PendingDeletion state whose deletion date has
 // passed, permanently purging their key material and associated aliases and grants.
-// It also expires imported key material (EXTERNAL-origin keys) whose ValidTo has passed.
+// It also expires imported key material (EXTERNAL-origin keys) whose ValidTo has passed,
+// and performs automatic key rotations for keys whose NextRotationDate has elapsed.
 // Uses a min-heap to avoid scanning all keys every tick — O(log n) per expiration.
 func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 	now := float64(time.Now().UnixNano()) / nanoToSeconds
@@ -138,9 +140,12 @@ func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 		expired += e2
 	}
 
+	// Automatic key rotation always runs unconditionally (not dependent on heap state).
+	rotated := j.sweepAutoRotations(now)
+
 	j.Backend.mu.Unlock()
 
-	j.logSweepResults(ctx, purged, expired)
+	j.logSweepResults(ctx, purged, expired, rotated)
 }
 
 // sweepFromHeap drains heap entries whose fireAt ≤ now.
@@ -172,6 +177,10 @@ func (j *Janitor) sweepFromHeap(now float64) (int, int) {
 				j.expireMaterial(e.region, e.keyID, key)
 				expired++
 			}
+		case expiryKindRotation:
+			// Automatic rotation heap entries are handled by sweepAutoRotations.
+			// This case intentionally does nothing; the rotation itself fires via
+			// the sweepAutoRotations scan that always runs after sweepFromHeap.
 		}
 	}
 
@@ -249,8 +258,50 @@ func (j *Janitor) expireMaterial(region, keyID string, key *Key) {
 	key.ExpirationModel = ""
 }
 
+// sweepAutoRotations rotates all eligible keys whose rotation period has elapsed.
+// Must be called with the backend write lock held.
+func (j *Janitor) sweepAutoRotations(now float64) int {
+	rotated := 0
+
+	for region, regionKeys := range j.Backend.keys {
+		for keyID, key := range regionKeys {
+			if !key.RotationEnabled ||
+				key.KeyState != KeyStateEnabled ||
+				key.Origin == KeyOriginExternal ||
+				key.KeySpec != keySpecSymmetric {
+				continue
+			}
+
+			period := key.RotationPeriodInDays
+			if period <= 0 {
+				period = defaultRotationPeriodDays
+			}
+
+			last := j.Backend.lastScheduledRotationDate(key)
+			nextAt := last + float64(period)*float64(24*time.Hour/time.Second)
+
+			if now < nextAt {
+				continue
+			}
+
+			if err := j.Backend.rotateKeyMaterialLocked(region, key, rotationTypeAWSKMS); err != nil {
+				continue
+			}
+
+			rotated++
+
+			// Schedule next rotation check.
+			last2 := j.Backend.lastScheduledRotationDate(key)
+			nextFire := last2 + float64(period)*float64(24*time.Hour/time.Second)
+			j.scheduleExpiry(region, keyID, nextFire, expiryKindRotation)
+		}
+	}
+
+	return rotated
+}
+
 // logSweepResults records telemetry and logs for the janitor sweep.
-func (j *Janitor) logSweepResults(ctx context.Context, purged, expired int) {
+func (j *Janitor) logSweepResults(ctx context.Context, purged, expired, rotated int) {
 	if purged > 0 {
 		telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, purged)
 		logger.Load(ctx).InfoContext(ctx, "KMS janitor: expired keys purged", "count", purged)
@@ -260,6 +311,11 @@ func (j *Janitor) logSweepResults(ctx context.Context, purged, expired int) {
 		telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, expired)
 		logger.Load(ctx).
 			InfoContext(ctx, "KMS janitor: imported key material expired", "count", expired)
+	}
+
+	if rotated > 0 {
+		telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, rotated)
+		logger.Load(ctx).InfoContext(ctx, "KMS janitor: keys auto-rotated", "count", rotated)
 	}
 
 	telemetry.RecordWorkerTask(kmsJanitorServiceName, kmsJanitorComponent, "success")

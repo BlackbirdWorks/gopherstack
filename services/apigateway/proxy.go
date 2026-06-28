@@ -425,7 +425,7 @@ func (h *Handler) dispatchIntegration(
 	case "AWS_PROXY":
 		h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, pathParams)
 	case "AWS":
-		h.handleAWSIntegration(ctx, w, r, apiID, integration)
+		h.handleAWSIntegration(ctx, w, r, apiID, stageName, resource, stageVars, integration)
 	case "HTTP", "HTTP_PROXY":
 		h.handleHTTPProxy(ctx, w, r, integration)
 	case IntegrationTypeMock:
@@ -887,7 +887,9 @@ func (h *Handler) handleAWSIntegration(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID string,
+	apiID, stageName string,
+	resource *Resource,
+	stageVars map[string]string,
 	integration *Integration,
 ) {
 	if h.lambda == nil {
@@ -912,9 +914,22 @@ func (h *Handler) handleAWSIntegration(
 		return
 	}
 
+	resourcePath := "/"
+	if resource != nil && resource.Path != "" {
+		resourcePath = resource.Path
+	}
+
 	vtlCtx := VTLContext{
-		Body:      string(rawBody),
-		RequestID: r.Header.Get("X-Amzn-Requestid"),
+		Body:           string(rawBody),
+		RequestID:      r.Header.Get("X-Amzn-Requestid"),
+		HTTPMethod:     r.Method,
+		ResourcePath:   resourcePath,
+		Path:           r.URL.Path,
+		Stage:          stageName,
+		APIID:          apiID,
+		SourceIP:       realClientIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+		StageVariables: stageVars,
 	}
 
 	// Apply request mapping template (content-type "application/json" is standard).
@@ -1566,6 +1581,22 @@ func applyIntegrationRequestParams(incoming *http.Request, outgoing *http.Reques
 	}
 
 	outgoing.URL.RawQuery = outQuery.Encode()
+}
+
+// realClientIP extracts the client IP from X-Forwarded-For or RemoteAddr.
+func realClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		host, _, _ := strings.Cut(xff, ",")
+
+		return strings.TrimSpace(host)
+	}
+
+	host := r.RemoteAddr
+	if idx := strings.LastIndexByte(host, ':'); idx >= 0 {
+		host = host[:idx]
+	}
+
+	return strings.Trim(host, "[]")
 }
 
 // resolveRequestParamSource resolves a parameter source expression against the incoming request.

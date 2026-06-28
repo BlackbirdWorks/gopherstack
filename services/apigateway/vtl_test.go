@@ -127,12 +127,112 @@ func TestRenderTemplate(t *testing.T) {
 			ctx:       apigateway.VTLContext{},
 			wantEqual: `line1\nline2`,
 		},
+		// $context.* additional variables
+		{
+			name:      "context_http_method",
+			tmpl:      `$context.httpMethod`,
+			ctx:       apigateway.VTLContext{HTTPMethod: "POST"},
+			wantEqual: "POST",
+		},
+		{
+			name:      "context_resource_path",
+			tmpl:      `$context.resourcePath`,
+			ctx:       apigateway.VTLContext{ResourcePath: "/users/{id}"},
+			wantEqual: "/users/{id}",
+		},
+		{
+			name:      "context_path",
+			tmpl:      `$context.path`,
+			ctx:       apigateway.VTLContext{Path: "/users/42"},
+			wantEqual: "/users/42",
+		},
+		{
+			name:      "context_stage",
+			tmpl:      `$context.stage`,
+			ctx:       apigateway.VTLContext{Stage: "prod"},
+			wantEqual: "prod",
+		},
+		{
+			name:      "context_api_id",
+			tmpl:      `$context.apiId`,
+			ctx:       apigateway.VTLContext{APIID: "abc123"},
+			wantEqual: "abc123",
+		},
+		{
+			name:      "context_source_ip",
+			tmpl:      `$context.identity.sourceIp`,
+			ctx:       apigateway.VTLContext{SourceIP: "1.2.3.4"},
+			wantEqual: "1.2.3.4",
+		},
+		{
+			name:      "context_user_agent",
+			tmpl:      `$context.identity.userAgent`,
+			ctx:       apigateway.VTLContext{UserAgent: "curl/7.88"},
+			wantEqual: "curl/7.88",
+		},
+		// $stageVariables
+		{
+			name:      "stage_variable_present",
+			tmpl:      `$stageVariables.myTable`,
+			ctx:       apigateway.VTLContext{StageVariables: map[string]string{"myTable": "users_prod"}},
+			wantEqual: "users_prod",
+		},
+		{
+			name:      "stage_variable_missing",
+			tmpl:      `$stageVariables.noSuchVar`,
+			ctx:       apigateway.VTLContext{StageVariables: map[string]string{}},
+			wantEmpty: true,
+		},
+		{
+			name:      "stage_variable_nil_map",
+			tmpl:      `$stageVariables.x`,
+			ctx:       apigateway.VTLContext{},
+			wantEmpty: true,
+		},
+		// $util.urlEncode / urlDecode
+		{
+			name:      "util_url_encode",
+			tmpl:      `$util.urlEncode('hello world')`,
+			ctx:       apigateway.VTLContext{},
+			wantEqual: "hello+world",
+		},
+		{
+			name:      "util_url_decode",
+			tmpl:      `$util.urlDecode('hello+world')`,
+			ctx:       apigateway.VTLContext{},
+			wantEqual: "hello world",
+		},
+		// $util.base64Encode / base64Decode
+		{
+			name:      "util_base64_encode",
+			tmpl:      `$util.base64Encode('hello')`,
+			ctx:       apigateway.VTLContext{},
+			wantEqual: "aGVsbG8=",
+		},
+		{
+			name:      "util_base64_decode",
+			tmpl:      `$util.base64Decode('aGVsbG8=')`,
+			ctx:       apigateway.VTLContext{},
+			wantEqual: "hello",
+		},
 		// combined / edge cases
 		{
 			name:       "combined_json_path_context",
 			tmpl:       `{"action":$input.json('$.action'),"user":"$input.path('$.user')","reqId":"$context.requestId"}`,
 			ctx:        apigateway.VTLContext{Body: `{"action":"login","user":"dave"}`, RequestID: "abc-999"},
 			wantJSONEq: `{"action":"login","user":"dave","reqId":"abc-999"}`,
+		},
+		{
+			name: "combined_full_context",
+			tmpl: `{"method":"$context.httpMethod","stage":"$context.stage",` +
+				`"apiId":"$context.apiId","table":"$stageVariables.table"}`,
+			ctx: apigateway.VTLContext{
+				HTTPMethod:     "GET",
+				Stage:          "dev",
+				APIID:          "xyzabc",
+				StageVariables: map[string]string{"table": "orders_dev"},
+			},
+			wantJSONEq: `{"method":"GET","stage":"dev","apiId":"xyzabc","table":"orders_dev"}`,
 		},
 		{
 			name:      "no_placeholders",

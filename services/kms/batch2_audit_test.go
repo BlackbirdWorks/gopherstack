@@ -966,11 +966,19 @@ func TestBatch2_MultiRegion_UpdatePrimaryRegion_ChangesType(t *testing.T) {
 	b := b2newBackend(t)
 	keyID := b2mustCreateMultiRegionKey(t, b)
 
+	// Replicate to us-west-2 first — UpdatePrimaryRegion requires an actual replica.
+	_, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
+		KeyID:         keyID,
+		ReplicaRegion: "us-west-2",
+	})
+	require.NoError(t, err)
+
 	require.NoError(t, b.UpdatePrimaryRegion(context.Background(), &kms.UpdatePrimaryRegionInput{
 		KeyID:         keyID,
 		PrimaryRegion: "us-west-2",
 	}))
 
+	// Old primary (us-east-1) must now be a replica.
 	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionKeyType)

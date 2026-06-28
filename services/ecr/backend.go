@@ -78,6 +78,9 @@ var (
 	)
 	// ErrImageNotFound is returned when a requested image does not exist in a repository.
 	ErrImageNotFound = awserr.New("ImageNotFoundException", awserr.ErrNotFound)
+	// ErrScanNotFoundException is returned when DescribeImageScanFindings is called
+	// on an image that has never had a scan started.
+	ErrScanNotFoundException = awserr.New("ScanNotFoundException", awserr.ErrNotFound)
 )
 
 var (
@@ -809,6 +812,26 @@ func (b *InMemoryBackend) BatchGetImage(ctx context.Context, //nolint:revive // 
 
 // buildDigestTagsLocked builds a reverse digest→[]tag map from a tag index.
 // Ranging over a nil map is safe in Go, so no nil check is needed.
+// tagMatchesAnyExclusionFilter reports whether tag is exempted from immutability
+// by any of the configured exclusion filters.
+// AWS supports filterType "WILDCARD" with patterns like "v*" or exact names.
+func tagMatchesAnyExclusionFilter(tag string, filters []ImageTagMutabilityExclusionFilter) bool {
+	for _, f := range filters {
+		switch strings.ToUpper(f.FilterType) {
+		case "WILDCARD":
+			if wildcardMatch(f.Filter, tag) {
+				return true
+			}
+		default:
+			if tag == f.Filter {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func buildDigestTagsLocked(repoTagIdx map[string]string) map[string][]string {
 	digestTags := make(map[string][]string)
 	for tag, digest := range repoTagIdx {
@@ -1412,7 +1435,7 @@ func (b *InMemoryBackend) StartLifecyclePolicyPreview(
 		policyText = b.lifecyclePolicies[repositoryName]
 	}
 
-	expired := evaluateLifecyclePolicy(policyText, b.images[repositoryName])
+	expired := evaluateLifecyclePolicy(policyText, b.images[repositoryName], b.digestTagsIndex[repositoryName])
 
 	preview := &LifecyclePolicyPreviewResult{
 		LifecyclePolicyText: policyText,
@@ -1804,15 +1827,8 @@ func (b *InMemoryBackend) DescribeImageScanFindings(
 
 	findings := b.imageScanFindings[repositoryName][img.ImageDigest]
 	if findings == nil {
-		findings = &ImageScanFindingsResult{
-			FindingSeverityCounts: map[string]int32{},
-			ImageID:               img.ImageID,
-			RepositoryName:        repositoryName,
-			RegistryID:            b.accountID,
-			Status:                scanStatusComplete,
-			Description:           msgNoScanFindings,
-			CompletedAt:           time.Now(),
-		}
+		return nil, fmt.Errorf("%w: image scan not found for %s in %s",
+			ErrScanNotFoundException, img.ImageDigest, repositoryName)
 	}
 
 	cp := copyImageScanFindingsResult(findings)
@@ -1992,7 +2008,7 @@ func normalizeImageFields(image *Image, repositoryName, accountID string) {
 	}
 }
 
-func (b *InMemoryBackend) PutImage(
+func (b *InMemoryBackend) PutImage( //nolint:cyclop // complexity matches AWS PutImage contract
 	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	image Image,
@@ -2019,11 +2035,14 @@ func (b *InMemoryBackend) PutImage(
 	}
 	repoTags := b.tagIndex[repositoryName]
 
-	// IMMUTABLE enforcement: reject retagging to a different digest.
+	// IMMUTABLE enforcement: reject retagging to a different digest unless the tag
+	// matches an exclusion filter (which exempts specific tag patterns from immutability).
 	if repo.ImageTagMutability == mutabilityImmutable && tag != "" {
 		if existingDigest, has := repoTags[tag]; has && existingDigest != image.ImageDigest {
-			return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
-				ErrImageTagAlreadyExists, tag, repositoryName)
+			if !tagMatchesAnyExclusionFilter(tag, repo.ImageTagMutabilityExclusionFilters) {
+				return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
+					ErrImageTagAlreadyExists, tag, repositoryName)
+			}
 		}
 	}
 

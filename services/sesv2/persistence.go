@@ -21,6 +21,9 @@ type backendSnapshot struct {
 	DeliverabilityTestReports   map[string]*DeliverabilityTestReport        `json:"deliverabilityTestReports"`
 	ConfigurationSets           map[string]*ConfigurationSet                `json:"configurationSets"`
 	ExportJobs                  map[string]*ExportJob                       `json:"exportJobs"`
+	ImportJobs                  map[string]*ImportJob                       `json:"importJobs,omitempty"`
+	SuppressedDestinations      map[string]*SuppressedDestination           `json:"suppressedDestinations,omitempty"`
+	AccountDetails              *AccountDetails                             `json:"accountDetails,omitempty"`
 	Identities                  map[string]*EmailIdentity                   `json:"identities"`
 	ResourceTags                map[string]map[string]string                `json:"resourceTags"`
 	MultiRegionEndpoints        map[string]map[string]any                   `json:"multiRegionEndpoints"`
@@ -88,6 +91,14 @@ func ensureExtendedMaps(s *backendSnapshot) {
 		s.ExportJobs = make(map[string]*ExportJob)
 	}
 
+	if s.ImportJobs == nil {
+		s.ImportJobs = make(map[string]*ImportJob)
+	}
+
+	if s.SuppressedDestinations == nil {
+		s.SuppressedDestinations = make(map[string]*SuppressedDestination)
+	}
+
 	if s.EmailIdentityPolicies == nil {
 		s.EmailIdentityPolicies = make(map[string]map[string]string)
 	}
@@ -132,6 +143,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DeliverabilityTestReports:   b.deliverabilityTestReports,
 		EmailTemplates:              b.emailTemplates,
 		ExportJobs:                  b.exportJobs,
+		ImportJobs:                  b.importJobs,
+		SuppressedDestinations:      b.suppressedDestinations,
+		AccountDetails:              b.accountDetails,
 		EmailIdentityPolicies:       b.emailIdentityPolicies,
 		Emails:                      b.emails,
 		AccountID:                   b.accountID,
@@ -179,6 +193,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.deliverabilityTestReports = snap.DeliverabilityTestReports
 	b.emailTemplates = snap.EmailTemplates
 	b.exportJobs = snap.ExportJobs
+	b.importJobs = snap.ImportJobs
+	b.suppressedDestinations = snap.SuppressedDestinations
+	b.accountDetails = snap.AccountDetails
 	b.emailIdentityPolicies = snap.EmailIdentityPolicies
 	b.emails = snap.Emails
 	b.accountID = snap.AccountID

@@ -101,7 +101,7 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 			id, err := b.StartQueryExecution(
 				tt.query, "primary",
 				athena.QueryExecutionContext{Catalog: catalog, Database: database},
-				athena.ResultConfiguration{}, nil,
+				athena.ResultConfiguration{}, nil, nil,
 			)
 			require.NoError(t, err)
 
@@ -175,7 +175,7 @@ func TestGetQueryResults_Pagination(t *testing.T) {
 	id, err := b.StartQueryExecution(
 		"SELECT * FROM "+database+"."+table, "primary",
 		athena.QueryExecutionContext{Catalog: catalog, Database: database},
-		athena.ResultConfiguration{}, nil,
+		athena.ResultConfiguration{}, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -229,7 +229,7 @@ func TestGetQueryResults_CatalogQualifiedTable(t *testing.T) {
 		"SELECT status FROM AwsDataCatalog.mydb.orders WHERE status = 'shipped'",
 		"primary",
 		athena.QueryExecutionContext{},
-		athena.ResultConfiguration{}, nil,
+		athena.ResultConfiguration{}, nil, nil,
 	)
 	require.NoError(t, err)
 

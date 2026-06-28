@@ -1040,6 +1040,10 @@ func TestHandlerUpdatePrimaryRegionViaHTTP(t *testing.T) {
 	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
+	// Replicate to eu-central-1 first — UpdatePrimaryRegion requires an actual replica.
+	repRec := sendKMSOp(t, h, "ReplicateKey", `{"KeyId":"`+keyID+`","ReplicaRegion":"eu-central-1"}`)
+	require.Equal(t, http.StatusOK, repRec.Code)
+
 	rec := sendKMSOp(t, h, "UpdatePrimaryRegion", `{"KeyId":"`+keyID+`","PrimaryRegion":"eu-central-1"}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }

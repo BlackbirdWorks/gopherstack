@@ -1,7 +1,9 @@
 package apigateway
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -9,10 +11,26 @@ import (
 
 // VTLContext holds the context variables available during VTL template rendering.
 type VTLContext struct {
+	// StageVariables is exposed as $stageVariables.X.
+	StageVariables map[string]string
 	// Body is the raw request body passed as $input.body.
 	Body string
 	// RequestID is exposed as $context.requestId.
 	RequestID string
+	// HTTPMethod is exposed as $context.httpMethod.
+	HTTPMethod string
+	// ResourcePath is exposed as $context.resourcePath (the route template, e.g. /users/{id}).
+	ResourcePath string
+	// Path is exposed as $context.path (the actual request path).
+	Path string
+	// Stage is exposed as $context.stage.
+	Stage string
+	// APIID is exposed as $context.apiId.
+	APIID string
+	// SourceIP is exposed as $context.identity.sourceIp.
+	SourceIP string
+	// UserAgent is exposed as $context.identity.userAgent.
+	UserAgent string
 }
 
 var (
@@ -22,7 +40,21 @@ var (
 	reInputPath = regexp.MustCompile(`\$input\.path\((?:"([^"]*)"|'([^']*)')\)`)
 	// reUtilEscape matches $util.escapeJavaScript("...") or $util.escapeJavaScript('...').
 	reUtilEscape = regexp.MustCompile(`\$util\.escapeJavaScript\((?:"([^"]*)"|'([^']*)')\)`)
+	// reUtilURLEncode matches $util.urlEncode("...").
+	reUtilURLEncode = regexp.MustCompile(`\$util\.urlEncode\((?:"([^"]*)"|'([^']*)')\)`)
+	// reUtilURLDecode matches $util.urlDecode("...").
+	reUtilURLDecode = regexp.MustCompile(`\$util\.urlDecode\((?:"([^"]*)"|'([^']*)')\)`)
+	// reUtilBase64Encode matches $util.base64Encode("...").
+	reUtilBase64Encode = regexp.MustCompile(`\$util\.base64Encode\((?:"([^"]*)"|'([^']*)')\)`)
+	// reUtilBase64Decode matches $util.base64Decode("...").
+	reUtilBase64Decode = regexp.MustCompile(`\$util\.base64Decode\((?:"([^"]*)"|'([^']*)')\)`)
+	// reStageVar matches $stageVariables.X.
+	reStageVar = regexp.MustCompile(`\$stageVariables\.([A-Za-z0-9_]+)`)
 )
+
+// minStageVarSubmatches is the minimum number of submatches expected from reStageVar
+// (full match + 1 capture group).
+const minStageVarSubmatches = 2
 
 // matchArg extracts the first non-empty captured argument from a regex match
 // that uses quote-alternation patterns like (?:"([^"]*)"|'([^']*)'). The full
@@ -41,13 +73,7 @@ func matchArg(subs []string) (string, bool) {
 }
 
 // RenderTemplate renders a Velocity Template Language (VTL) template string
-// using the provided context.  The following constructs are supported:
-//
-//   - $input.body                        — the raw request body
-//   - $input.json("$.path")              — JSON-path extraction, result JSON-encoded
-//   - $input.path("$.path")              — JSON-path extraction, result as plain string
-//   - $context.requestId                 — the request identifier
-//   - $util.escapeJavaScript("literal")  — JavaScript-escape a string literal
+// using the provided context.
 func RenderTemplate(tmpl string, ctx VTLContext) string {
 	result := tmpl
 
@@ -82,10 +108,37 @@ func RenderTemplate(tmpl string, ctx VTLContext) string {
 	// Replace $input.body.
 	result = strings.ReplaceAll(result, "$input.body", ctx.Body)
 
-	// Replace $context.requestId.
+	// $context.* variables.
 	result = strings.ReplaceAll(result, "$context.requestId", ctx.RequestID)
+	result = strings.ReplaceAll(result, "$context.httpMethod", ctx.HTTPMethod)
+	result = strings.ReplaceAll(result, "$context.resourcePath", ctx.ResourcePath)
+	result = strings.ReplaceAll(result, "$context.path", ctx.Path)
+	result = strings.ReplaceAll(result, "$context.stage", ctx.Stage)
+	result = strings.ReplaceAll(result, "$context.apiId", ctx.APIID)
+	result = strings.ReplaceAll(result, "$context.identity.sourceIp", ctx.SourceIP)
+	result = strings.ReplaceAll(result, "$context.identity.userAgent", ctx.UserAgent)
 
-	// Replace $util.escapeJavaScript("literal").
+	// $stageVariables.X.
+	result = reStageVar.ReplaceAllStringFunc(result, func(m string) string {
+		subs := reStageVar.FindStringSubmatch(m)
+		if len(subs) < minStageVarSubmatches {
+			return m
+		}
+		if ctx.StageVariables == nil {
+			return ""
+		}
+
+		return ctx.StageVariables[subs[1]]
+	})
+
+	// $util functions on string literals.
+	result = applyUtilFunctions(result)
+
+	return result
+}
+
+// applyUtilFunctions applies $util.* literal substitutions to the template result.
+func applyUtilFunctions(result string) string {
 	result = reUtilEscape.ReplaceAllStringFunc(result, func(m string) string {
 		subs := reUtilEscape.FindStringSubmatch(m)
 		arg, ok := matchArg(subs)
@@ -94,6 +147,54 @@ func RenderTemplate(tmpl string, ctx VTLContext) string {
 		}
 
 		return escapeJavaScript(arg)
+	})
+
+	result = reUtilURLEncode.ReplaceAllStringFunc(result, func(m string) string {
+		subs := reUtilURLEncode.FindStringSubmatch(m)
+		arg, ok := matchArg(subs)
+		if !ok {
+			return m
+		}
+
+		return url.QueryEscape(arg)
+	})
+
+	result = reUtilURLDecode.ReplaceAllStringFunc(result, func(m string) string {
+		subs := reUtilURLDecode.FindStringSubmatch(m)
+		arg, ok := matchArg(subs)
+		if !ok {
+			return m
+		}
+		decoded, err := url.QueryUnescape(arg)
+		if err != nil {
+			return m
+		}
+
+		return decoded
+	})
+
+	result = reUtilBase64Encode.ReplaceAllStringFunc(result, func(m string) string {
+		subs := reUtilBase64Encode.FindStringSubmatch(m)
+		arg, ok := matchArg(subs)
+		if !ok {
+			return m
+		}
+
+		return base64.StdEncoding.EncodeToString([]byte(arg))
+	})
+
+	result = reUtilBase64Decode.ReplaceAllStringFunc(result, func(m string) string {
+		subs := reUtilBase64Decode.FindStringSubmatch(m)
+		arg, ok := matchArg(subs)
+		if !ok {
+			return m
+		}
+		decoded, err := base64.StdEncoding.DecodeString(arg)
+		if err != nil {
+			return m
+		}
+
+		return string(decoded)
 	})
 
 	return result

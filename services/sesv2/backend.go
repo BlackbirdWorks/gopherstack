@@ -543,6 +543,11 @@ func (b *InMemoryBackend) SendEmail(
 	}
 
 	b.mu.Lock("SendEmail")
+	if err := b.checkFromIdentityLocked(from); err != nil {
+		b.mu.Unlock()
+
+		return "", err
+	}
 	b.emails = append(b.emails, email)
 	// Compact only when the slice has grown to twice the cap so trimming is
 	// amortized O(1) per send rather than O(maxRetainedEmails) on every send
@@ -559,6 +564,23 @@ func (b *InMemoryBackend) SendEmail(
 	b.mu.Unlock()
 
 	return msgID, nil
+}
+
+// checkFromIdentityLocked verifies the from address against registered identities.
+// It checks exact email match first, then the domain portion as a fallback.
+// Must be called with b.mu held for writing or reading.
+func (b *InMemoryBackend) checkFromIdentityLocked(from string) error {
+	if id, ok := b.identities[from]; ok && id.VerifiedForSending {
+		return nil
+	}
+	if at := strings.LastIndex(from, "@"); at >= 0 {
+		domain := from[at+1:]
+		if id, ok := b.identities[domain]; ok && id.VerifiedForSending {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: identity not verified for sending: %s", ErrInvalidInput, from)
 }
 
 // ListEmails returns a copy of all captured emails.

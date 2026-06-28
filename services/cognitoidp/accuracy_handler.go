@@ -685,20 +685,24 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 
 // clientDataAccurate is the wire format for UserPoolClient including OAuth fields.
 type clientDataAccurate struct {
-	ClientID                        string   `json:"ClientId,omitempty"`
-	ClientName                      string   `json:"ClientName,omitempty"`
-	UserPoolID                      string   `json:"UserPoolId,omitempty"`
-	ClientSecret                    string   `json:"ClientSecret,omitempty"`
-	AllowedOAuthFlows               []string `json:"AllowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes              []string `json:"AllowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows               []string `json:"ExplicitAuthFlows,omitempty"`
-	CallbackURLs                    []string `json:"CallbackURLs,omitempty"`
-	LogoutURLs                      []string `json:"LogoutURLs,omitempty"`
-	SupportedIdentityProviders      []string `json:"SupportedIdentityProviders,omitempty"`
-	CreationDate                    float64  `json:"CreationDate,omitempty"`
-	LastModifiedDate                float64  `json:"LastModifiedDate,omitempty"`
-	EnableTokenRevocation           bool     `json:"EnableTokenRevocation,omitempty"`
-	AllowedOAuthFlowsUserPoolClient bool     `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
+	TokenValidityUnits              map[string]string `json:"TokenValidityUnits,omitempty"`
+	ClientID                        string            `json:"ClientId,omitempty"`
+	ClientName                      string            `json:"ClientName,omitempty"`
+	UserPoolID                      string            `json:"UserPoolId,omitempty"`
+	ClientSecret                    string            `json:"ClientSecret,omitempty"`
+	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
+	CallbackURLs                    []string          `json:"CallbackURLs,omitempty"`
+	LogoutURLs                      []string          `json:"LogoutURLs,omitempty"`
+	SupportedIdentityProviders      []string          `json:"SupportedIdentityProviders,omitempty"`
+	CreationDate                    float64           `json:"CreationDate,omitempty"`
+	LastModifiedDate                float64           `json:"LastModifiedDate,omitempty"`
+	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
+	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
+	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`
+	EnableTokenRevocation           bool              `json:"EnableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool              `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
@@ -729,6 +733,10 @@ func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
 		SupportedIdentityProviders:      c.SupportedIdentityProviders,
 		CreationDate:                    float64(c.CreatedAt.Unix()),
 		LastModifiedDate:                float64(lastModified.Unix()),
+		AccessTokenValidity:             c.AccessTokenValidity,
+		IDTokenValidity:                 c.IDTokenValidity,
+		RefreshTokenValidity:            c.RefreshTokenValidity,
+		TokenValidityUnits:              c.TokenValidityUnits,
 		EnableTokenRevocation:           c.EnableTokenRevocation,
 		AllowedOAuthFlowsUserPoolClient: c.AllowedOAuthFlowsUserPoolClient,
 	}
@@ -786,17 +794,21 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 // ---- CreateUserPoolClient with OAuth fields ----
 
 type createUserPoolClientWithOptsInput struct {
-	UserPoolID                      string   `json:"UserPoolId,omitempty"`
-	ClientName                      string   `json:"ClientName,omitempty"`
-	AllowedOAuthFlows               []string `json:"AllowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes              []string `json:"AllowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows               []string `json:"ExplicitAuthFlows,omitempty"`
-	CallbackURLs                    []string `json:"CallbackURLs,omitempty"`
-	LogoutURLs                      []string `json:"LogoutURLs,omitempty"`
-	SupportedIdentityProviders      []string `json:"SupportedIdentityProviders,omitempty"`
-	GenerateSecret                  bool     `json:"GenerateSecret,omitempty"`
-	EnableTokenRevocation           bool     `json:"EnableTokenRevocation,omitempty"`
-	AllowedOAuthFlowsUserPoolClient bool     `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
+	TokenValidityUnits              map[string]string `json:"TokenValidityUnits,omitempty"`
+	UserPoolID                      string            `json:"UserPoolId,omitempty"`
+	ClientName                      string            `json:"ClientName,omitempty"`
+	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
+	CallbackURLs                    []string          `json:"CallbackURLs,omitempty"`
+	LogoutURLs                      []string          `json:"LogoutURLs,omitempty"`
+	SupportedIdentityProviders      []string          `json:"SupportedIdentityProviders,omitempty"`
+	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
+	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
+	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`
+	GenerateSecret                  bool              `json:"GenerateSecret,omitempty"`
+	EnableTokenRevocation           bool              `json:"EnableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool              `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 type createUserPoolClientWithOptsOutput struct {
@@ -817,6 +829,10 @@ func (h *Handler) handleCreateUserPoolClientWithOpts(
 		GenerateSecret:                  in.GenerateSecret,
 		EnableTokenRevocation:           in.EnableTokenRevocation,
 		AllowedOAuthFlowsUserPoolClient: in.AllowedOAuthFlowsUserPoolClient,
+		AccessTokenValidity:             in.AccessTokenValidity,
+		IDTokenValidity:                 in.IDTokenValidity,
+		RefreshTokenValidity:            in.RefreshTokenValidity,
+		TokenValidityUnits:              in.TokenValidityUnits,
 	}
 
 	client, err := h.Backend.CreateUserPoolClientWithOpts(in.UserPoolID, in.ClientName, opts)
@@ -830,17 +846,21 @@ func (h *Handler) handleCreateUserPoolClientWithOpts(
 // ---- UpdateUserPoolClient with OAuth fields ----
 
 type updateUserPoolClientWithOptsInput struct {
-	UserPoolID                      string   `json:"UserPoolId,omitempty"`
-	ClientID                        string   `json:"ClientId,omitempty"`
-	ClientName                      string   `json:"ClientName,omitempty"`
-	AllowedOAuthFlows               []string `json:"AllowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes              []string `json:"AllowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows               []string `json:"ExplicitAuthFlows,omitempty"`
-	CallbackURLs                    []string `json:"CallbackURLs,omitempty"`
-	LogoutURLs                      []string `json:"LogoutURLs,omitempty"`
-	SupportedIdentityProviders      []string `json:"SupportedIdentityProviders,omitempty"`
-	EnableTokenRevocation           bool     `json:"EnableTokenRevocation,omitempty"`
-	AllowedOAuthFlowsUserPoolClient bool     `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
+	TokenValidityUnits              map[string]string `json:"TokenValidityUnits,omitempty"`
+	UserPoolID                      string            `json:"UserPoolId,omitempty"`
+	ClientID                        string            `json:"ClientId,omitempty"`
+	ClientName                      string            `json:"ClientName,omitempty"`
+	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
+	CallbackURLs                    []string          `json:"CallbackURLs,omitempty"`
+	LogoutURLs                      []string          `json:"LogoutURLs,omitempty"`
+	SupportedIdentityProviders      []string          `json:"SupportedIdentityProviders,omitempty"`
+	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
+	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
+	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`
+	EnableTokenRevocation           bool              `json:"EnableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool              `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 type updateUserPoolClientWithOptsOutput struct {
@@ -860,6 +880,10 @@ func (h *Handler) handleUpdateUserPoolClientWithOpts(
 		SupportedIdentityProviders:      in.SupportedIdentityProviders,
 		EnableTokenRevocation:           in.EnableTokenRevocation,
 		AllowedOAuthFlowsUserPoolClient: in.AllowedOAuthFlowsUserPoolClient,
+		AccessTokenValidity:             in.AccessTokenValidity,
+		IDTokenValidity:                 in.IDTokenValidity,
+		RefreshTokenValidity:            in.RefreshTokenValidity,
+		TokenValidityUnits:              in.TokenValidityUnits,
 	}
 
 	client, err := h.Backend.UpdateUserPoolClientWithOpts(in.UserPoolID, in.ClientID, in.ClientName, opts)

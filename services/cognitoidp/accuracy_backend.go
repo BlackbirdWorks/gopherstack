@@ -60,15 +60,59 @@ type UserPoolOptions struct {
 
 // UserPoolClientOptions holds optional parameters for CreateUserPoolClientWithOpts and UpdateUserPoolClientWithOpts.
 type UserPoolClientOptions struct {
-	AllowedOAuthFlows               []string `json:"allowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes              []string `json:"allowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows               []string `json:"explicitAuthFlows,omitempty"`
-	CallbackURLs                    []string `json:"callbackURLs,omitempty"`
-	LogoutURLs                      []string `json:"logoutURLs,omitempty"`
-	SupportedIdentityProviders      []string `json:"supportedIdentityProviders,omitempty"`
-	GenerateSecret                  bool     `json:"generateSecret,omitempty"`
-	EnableTokenRevocation           bool     `json:"enableTokenRevocation,omitempty"`
-	AllowedOAuthFlowsUserPoolClient bool     `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
+	TokenValidityUnits              map[string]string `json:"tokenValidityUnits,omitempty"`
+	AllowedOAuthFlows               []string          `json:"allowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string          `json:"allowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string          `json:"explicitAuthFlows,omitempty"`
+	CallbackURLs                    []string          `json:"callbackURLs,omitempty"`
+	LogoutURLs                      []string          `json:"logoutURLs,omitempty"`
+	SupportedIdentityProviders      []string          `json:"supportedIdentityProviders,omitempty"`
+	AccessTokenValidity             int32             `json:"accessTokenValidity,omitempty"`
+	IDTokenValidity                 int32             `json:"idTokenValidity,omitempty"`
+	RefreshTokenValidity            int32             `json:"refreshTokenValidity,omitempty"`
+	GenerateSecret                  bool              `json:"generateSecret,omitempty"`
+	EnableTokenRevocation           bool              `json:"enableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool              `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
+}
+
+// tokenExpiryFor returns the configured token expiry duration for the given token type
+// ("AccessToken", "IdToken", "RefreshToken"). Returns 0 when not configured (use default).
+func tokenExpiryFor(client *UserPoolClient, tokenType string) time.Duration {
+	var validity int32
+	switch tokenType {
+	case "AccessToken":
+		validity = client.AccessTokenValidity
+	case "IdToken":
+		validity = client.IDTokenValidity
+	case "RefreshToken":
+		validity = client.RefreshTokenValidity
+	}
+	if validity <= 0 {
+		return 0
+	}
+
+	unit := "minutes"
+	if tokenType == "RefreshToken" {
+		unit = "days"
+	}
+	if client.TokenValidityUnits != nil {
+		if u, ok := client.TokenValidityUnits[tokenType]; ok && u != "" {
+			unit = u
+		}
+	}
+
+	switch unit {
+	case "seconds":
+		return time.Duration(validity) * time.Second
+	case "minutes":
+		return time.Duration(validity) * time.Minute
+	case "hours":
+		return time.Duration(validity) * time.Hour
+	case "days":
+		return time.Duration(validity) * 24 * time.Hour
+	default:
+		return time.Duration(validity) * time.Minute
+	}
 }
 
 // userGroupsLocked returns the group names for a user in a pool, sorted by group precedence ascending
@@ -252,6 +296,11 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 	supportedIDPs := make([]string, len(opts.SupportedIdentityProviders))
 	copy(supportedIDPs, opts.SupportedIdentityProviders)
 
+	var tvu map[string]string
+	if opts.TokenValidityUnits != nil {
+		tvu = maps.Clone(opts.TokenValidityUnits)
+	}
+
 	client := &UserPoolClient{
 		ClientID:                        randomAlphanumeric(clientIDLen),
 		ClientName:                      clientName,
@@ -263,6 +312,10 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 		CallbackURLs:                    callbackURLs,
 		LogoutURLs:                      logoutURLs,
 		SupportedIdentityProviders:      supportedIDPs,
+		AccessTokenValidity:             opts.AccessTokenValidity,
+		IDTokenValidity:                 opts.IDTokenValidity,
+		RefreshTokenValidity:            opts.RefreshTokenValidity,
+		TokenValidityUnits:              tvu,
 		EnableTokenRevocation:           opts.EnableTokenRevocation,
 		AllowedOAuthFlowsUserPoolClient: opts.AllowedOAuthFlowsUserPoolClient,
 	}
@@ -345,6 +398,18 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 
 	client.EnableTokenRevocation = opts.EnableTokenRevocation
 	client.AllowedOAuthFlowsUserPoolClient = opts.AllowedOAuthFlowsUserPoolClient
+	if opts.AccessTokenValidity != 0 {
+		client.AccessTokenValidity = opts.AccessTokenValidity
+	}
+	if opts.IDTokenValidity != 0 {
+		client.IDTokenValidity = opts.IDTokenValidity
+	}
+	if opts.RefreshTokenValidity != 0 {
+		client.RefreshTokenValidity = opts.RefreshTokenValidity
+	}
+	if opts.TokenValidityUnits != nil {
+		client.TokenValidityUnits = maps.Clone(opts.TokenValidityUnits)
+	}
 	client.UpdatedAt = time.Now()
 	cp := *client
 

@@ -38,6 +38,9 @@ type Secret struct {
 	Tags *tags.Tags `json:"Tags,omitempty"`
 	// DeletedDate is set when the secret is deleted; nil means active.
 	DeletedDate *float64 `json:"DeletedDate,omitempty"`
+	// ScheduledDeletionDate is the Unix timestamp when the janitor will permanently
+	// purge this secret. Set at soft-delete time from the actual RecoveryWindowInDays.
+	ScheduledDeletionDate *float64 `json:"ScheduledDeletionDate,omitempty"`
 	// Versions holds all versions keyed by VersionId.
 	Versions map[string]*SecretVersion `json:"-"`
 	// LastChangedDate is the Unix timestamp of the most recent value change.

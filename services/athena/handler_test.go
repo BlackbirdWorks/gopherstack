@@ -1053,7 +1053,7 @@ func TestHandler_GetQueryResults(t *testing.T) {
 				id, err := h.Backend.StartQueryExecution(
 					"SELECT 1", "primary",
 					athena.QueryExecutionContext{},
-					athena.ResultConfiguration{}, nil,
+					athena.ResultConfiguration{}, nil, nil,
 				)
 				require.NoError(t, err)
 

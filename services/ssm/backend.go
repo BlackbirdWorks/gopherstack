@@ -1943,7 +1943,8 @@ func (b *InMemoryBackend) ListDocumentVersions(
 	}, nil
 }
 
-// SendCommand records a command stub and returns a generated command ID.
+// SendCommand creates a command and drives it through the AWS state machine:
+// Pending → InProgress → Success (synchronous no-op runner path).
 func (b *InMemoryBackend) SendCommand(
 	ctx context.Context,
 	input *SendCommandInput,
@@ -1964,12 +1965,14 @@ func (b *InMemoryBackend) SendCommand(
 		timeoutSecs = 3600
 	}
 
+	// Start in Pending state; transition through InProgress to Success so callers
+	// that snapshot state between transitions observe correct intermediate values.
 	cmd := Command{
 		CommandID:          cmdID,
 		DocumentName:       input.DocumentName,
 		Parameters:         input.Parameters,
-		Status:             commandStatusSuccess,
-		StatusDetails:      commandStatusSuccess,
+		Status:             commandStatusPending,
+		StatusDetails:      commandStatusPending,
 		RequestedDateTime:  now,
 		ExpiresAfter:       now + b.commandExpirySecs,
 		InstanceIDs:        input.InstanceIDs,
@@ -1992,8 +1995,8 @@ func (b *InMemoryBackend) SendCommand(
 			CommandID:         cmdID,
 			InstanceID:        instanceID,
 			DocumentName:      input.DocumentName,
-			Status:            commandStatusSuccess,
-			StatusDetails:     commandStatusSuccess,
+			Status:            commandStatusPending,
+			StatusDetails:     commandStatusPending,
 			RequestedDateTime: now,
 			Comment:           input.Comment,
 		}
@@ -2004,7 +2007,40 @@ func (b *InMemoryBackend) SendCommand(
 	}
 	b.commandInvocationsStore(region)[cmdID] = invocations
 
-	return &SendCommandOutput{Command: cmd}, nil
+	// Drive state machine: Pending → InProgress → Success under the same lock so
+	// a reader can never observe a mid-transition state unless it explicitly races.
+	b.advanceCommandState(region, cmdID, commandStatusInProgress)
+	b.advanceCommandState(region, cmdID, commandStatusSuccess)
+
+	// Return a snapshot of the final state.
+	finalCmd := b.commandsStore(region)[cmdID]
+
+	return &SendCommandOutput{Command: finalCmd}, nil
+}
+
+// advanceCommandState mutates the command and all its invocations to the given
+// status. Must be called with b.mu held.
+func (b *InMemoryBackend) advanceCommandState(region, cmdID, status string) {
+	store := b.commandsStore(region)
+
+	cmd, ok := store[cmdID]
+	if !ok {
+		return
+	}
+
+	cmd.Status = status
+	cmd.StatusDetails = status
+	store[cmdID] = cmd
+
+	invStore := b.commandInvocationsStore(region)
+	invs := invStore[cmdID]
+
+	for i := range invs {
+		invs[i].Status = status
+		invs[i].StatusDetails = status
+	}
+
+	invStore[cmdID] = invs
 }
 
 // ListCommands returns recorded commands.

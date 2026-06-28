@@ -631,6 +631,8 @@ func (b *errorBackend) VerifyEncodedAuthorizationMessage(_ string) (string, erro
 	return "", fmt.Errorf("VerifyEncodedAuthorizationMessage: %w", errBackendFailure)
 }
 
+func (b *errorBackend) LookupSession(_, _ string) *sts.SessionInfo { return nil }
+
 // TestHandler_InternalError tests the default (InternalFailure) path in handleError.
 func TestHandler_InternalError(t *testing.T) {
 	t.Parallel()

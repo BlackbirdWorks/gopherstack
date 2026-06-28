@@ -170,25 +170,40 @@ type TokenResult struct {
 
 // TokenParams holds the inputs for token issuance.
 type TokenParams struct {
-	Attributes map[string]string `json:"attributes,omitempty"`
-	ClientID   string            `json:"clientID,omitempty"`
-	Username   string            `json:"username,omitempty"`
-	UserSub    string            `json:"userSub,omitempty"`
-	Scopes     []string          `json:"scopes,omitempty"`
-	Groups     []string          `json:"groups,omitempty"`
-	AuthTime   int64             `json:"authTime,omitempty"`
+	Attributes        map[string]string `json:"attributes,omitempty"`
+	ClientID          string            `json:"clientID,omitempty"`
+	Username          string            `json:"username,omitempty"`
+	UserSub           string            `json:"userSub,omitempty"`
+	Scopes            []string          `json:"scopes,omitempty"`
+	Groups            []string          `json:"groups,omitempty"`
+	AuthTime          int64             `json:"authTime,omitempty"`
+	AccessTokenExpiry time.Duration     `json:"accessTokenExpiry,omitempty"`
+	IDTokenExpiry     time.Duration     `json:"idTokenExpiry,omitempty"`
 }
 
 // defaultAccessScope is the default scope on access tokens when the client has no configured scopes.
 const defaultAccessScope = "aws.cognito.signin.user.admin"
 
 // Issue generates ID, Access, and Refresh tokens for the given user.
+//
+//nolint:gocognit,cyclop,funlen // complexity matches JWT issuance contract with per-client expiry
 func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 	now := time.Now()
 	if p.AuthTime == 0 {
 		p.AuthTime = now.Unix()
 	}
-	exp := now.Add(time.Duration(tokenExpirySeconds) * time.Second)
+
+	defaultExpiry := time.Duration(tokenExpirySeconds) * time.Second
+	accessExpiry := defaultExpiry
+	if p.AccessTokenExpiry > 0 {
+		accessExpiry = p.AccessTokenExpiry
+	}
+	idExpiry := defaultExpiry
+	if p.IDTokenExpiry > 0 {
+		idExpiry = p.IDTokenExpiry
+	}
+
+	exp := now.Add(idExpiry)
 
 	idClaims := jwt.MapClaims{
 		"sub":              p.UserSub,
@@ -257,7 +272,7 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 		"username":  p.Username,
 		"scope":     scope,
 		"iat":       now.Unix(),
-		"exp":       exp.Unix(),
+		"exp":       now.Add(accessExpiry).Unix(),
 		"auth_time": p.AuthTime,
 	}
 	if len(p.Groups) > 0 {
@@ -283,7 +298,7 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 		IDToken:      idTokenString,
 		AccessToken:  accessTokenString,
 		RefreshToken: refreshTokenString,
-		ExpiresIn:    tokenExpirySeconds,
+		ExpiresIn:    int32(accessExpiry.Seconds()),
 	}, nil
 }
 

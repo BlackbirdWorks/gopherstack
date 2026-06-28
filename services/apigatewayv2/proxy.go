@@ -68,7 +68,7 @@ func (h *Handler) handleUserRequestEcho(c *echo.Context) error {
 }
 
 // handleProxy performs the actual WebSocket or HTTP API routing.
-func (h *Handler) handleProxy(c *echo.Context, apiID, _, _ string) error {
+func (h *Handler) handleProxy(c *echo.Context, apiID, stageName, resourcePath string) error {
 	// 1. Get the API
 	api, err := h.Backend.GetAPI(apiID)
 	if err != nil {
@@ -81,14 +81,10 @@ func (h *Handler) handleProxy(c *echo.Context, apiID, _, _ string) error {
 	case protocolTypeWebSocket:
 		return h.handleWebSocketProxy(c, apiID)
 	case protocolTypeHTTP:
-		return h.handleHTTPProxy(c)
+		return h.handleHTTPAPIProxy(c, apiID, stageName, resourcePath)
 	}
 
 	return c.String(http.StatusNotImplemented, "unsupported protocol type: "+protocol)
-}
-
-func (h *Handler) handleHTTPProxy(c *echo.Context) error {
-	return c.String(http.StatusNotImplemented, "HTTP API proxy not fully implemented yet")
 }
 
 func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID string) error {
@@ -237,19 +233,24 @@ func (h *Handler) invokeWSRoute(c *echo.Context, apiID, routeKey, connectionID s
 	}
 	lambdaArn := strings.TrimSuffix(parts[1], "/invocations")
 
-	// AWS API Gateway WebSocket AWS_PROXY payload format
-	payload := fmt.Sprintf(`{
-		"requestContext": {
-			"routeKey": %q,
-			"eventType": "MESSAGE",
-			"connectionId": %q,
-			"apiId": %q
+	// AWS API Gateway WebSocket AWS_PROXY payload format.
+	wsEvent := map[string]any{
+		"requestContext": map[string]any{
+			"routeKey":     routeKey,
+			"eventType":    "MESSAGE",
+			"connectionId": connectionID,
+			"apiId":        apiID,
 		},
-		"body": %q
-	}`, routeKey, connectionID, apiID, string(body))
+		"body": string(body),
+	}
+
+	payload, marshalErr := json.Marshal(wsEvent)
+	if marshalErr != nil {
+		return fmt.Errorf("failed to marshal WebSocket event: %w", marshalErr)
+	}
 
 	// 5. Invoke Lambda
-	_, _, err = h.lambdaInvoker.InvokeFunction(c.Request().Context(), lambdaArn, "RequestResponse", []byte(payload))
+	_, _, err = h.lambdaInvoker.InvokeFunction(c.Request().Context(), lambdaArn, "RequestResponse", payload)
 	if err != nil {
 		return fmt.Errorf("lambda invocation failed: %w", err)
 	}

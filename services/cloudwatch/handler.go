@@ -1012,6 +1012,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		ExtendedStatistic:       form.Get("ExtendedStatistic"),
 		TreatMissingData:        form.Get("TreatMissingData"),
 		AlarmDescription:        form.Get("AlarmDescription"),
+		ThresholdMetricID:       form.Get("ThresholdMetricId"),
 		Threshold:               threshold,
 		EvaluationPeriods:       int32(evalPeriods),
 		DatapointsToAlarm:       int32(datapointsToAlarm),
@@ -1021,6 +1022,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		OKActions:               parseMemberList(form, "OKActions."),
 		InsufficientDataActions: parseMemberList(form, "InsufficientDataActions."),
 		Dimensions:              parseDimensionsFromForm(form, "Dimensions."),
+		Metrics:                 parseMetricDataQueriesFromForm(form),
 	}
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
 		if errors.Is(err, ErrValidation) {
@@ -1053,6 +1055,7 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 		Statistic:               a.Statistic,
 		ExtendedStatistic:       a.ExtendedStatistic,
 		TreatMissingData:        a.TreatMissingData,
+		ThresholdMetricID:       a.ThresholdMetricID,
 		Threshold:               a.Threshold,
 		StateValue:              a.StateValue,
 		StateReason:             a.StateReason,
@@ -1106,12 +1109,13 @@ type metricAlarmXML struct {
 	AlarmConfigurationUpdatedTimestamp string   `xml:"AlarmConfigurationUpdatedTimestamp,omitempty"`
 	StateTransitionedTimestamp         string   `xml:"StateTransitionedTimestamp,omitempty"`
 	AlarmDescription                   string   `xml:"AlarmDescription,omitempty"`
-	Namespace                          string   `xml:"Namespace"`
-	MetricName                         string   `xml:"MetricName"`
+	Namespace                          string   `xml:"Namespace,omitempty"`
+	MetricName                         string   `xml:"MetricName,omitempty"`
 	ComparisonOperator                 string   `xml:"ComparisonOperator"`
-	Statistic                          string   `xml:"Statistic"`
+	Statistic                          string   `xml:"Statistic,omitempty"`
 	ExtendedStatistic                  string   `xml:"ExtendedStatistic,omitempty"`
 	TreatMissingData                   string   `xml:"TreatMissingData,omitempty"`
+	ThresholdMetricID                  string   `xml:"ThresholdMetricId,omitempty"`
 	AlarmArn                           string   `xml:"AlarmArn"`
 	StateValue                         string   `xml:"StateValue"`
 	AlarmName                          string   `xml:"AlarmName"`
@@ -1125,7 +1129,7 @@ type metricAlarmXML struct {
 		Value string `xml:"Value"`
 	} `xml:"Dimensions>member,omitempty"`
 	Threshold         float64 `xml:"Threshold"`
-	Period            int32   `xml:"Period"`
+	Period            int32   `xml:"Period,omitempty"`
 	EvaluationPeriods int32   `xml:"EvaluationPeriods"`
 	DatapointsToAlarm int32   `xml:"DatapointsToAlarm,omitempty"`
 	ActionsEnabled    bool    `xml:"ActionsEnabled"`
@@ -1857,7 +1861,12 @@ func (h *Handler) handleDeleteAnomalyDetector(form url.Values, c *echo.Context) 
 		)
 	}
 
-	if err := h.Backend.DeleteAnomalyDetector(namespace, metricName, stat); err != nil {
+	dimsD := parseDimensionsFromForm(form, "SingleMetricAnomalyDetector.Dimensions")
+	if len(dimsD) == 0 {
+		dimsD = parseDimensionsFromForm(form, "Dimensions")
+	}
+
+	if err := h.Backend.DeleteAnomalyDetector(namespace, metricName, stat, dimsD); err != nil {
 		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 

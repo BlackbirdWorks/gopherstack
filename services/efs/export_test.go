@@ -1,5 +1,7 @@
 package efs
 
+import "time"
+
 // FileSystemCount returns the number of file systems stored in the backend
 // across all regions. Used only in tests.
 func FileSystemCount(b *InMemoryBackend) int {
@@ -107,4 +109,12 @@ func ARNIndexSize(b *InMemoryBackend) int {
 // OpsCount returns the number of pre-built operation entries in the handler. Used only in tests.
 func OpsCount(h *Handler) int {
 	return len(h.ops)
+}
+
+// SetFSActivationDelay configures the delay before a newly created file system
+// transitions from "creating" to "available". Set to a positive value in parity
+// tests that verify the lifecycle simulation; leave at zero (default) for
+// all other tests so creation is synchronous and immediately available.
+func SetFSActivationDelay(b *InMemoryBackend, d time.Duration) {
+	b.fsActivationDelay = d
 }

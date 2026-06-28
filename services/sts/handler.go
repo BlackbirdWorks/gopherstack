@@ -291,6 +291,14 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 		})
 	}
 
+	// Extract caller identity to support role-chaining duration cap and transitive tag propagation.
+	callerKey := extractAccessKeyFromAuth(r)
+	input.CallerAccessKeyID = callerKey
+	if callerKey != "" {
+		secToken := r.Header.Get("X-Amz-Security-Token")
+		input.CallerSession = h.Backend.LookupSession(callerKey, secToken)
+	}
+
 	return h.Backend.AssumeRole(input)
 }
 

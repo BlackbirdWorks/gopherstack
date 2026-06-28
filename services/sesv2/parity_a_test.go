@@ -71,6 +71,8 @@ func TestParity_SendEmailRequiresDestination(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
+			doRequest(t, h, http.MethodPost, "/v2/email/identities",
+				map[string]any{"EmailIdentity": "sender@example.com"})
 			rec := doRequest(t, h, http.MethodPost, "/v2/email/outbound-emails", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code,
 				"SendEmail status for case %q", tt.name)

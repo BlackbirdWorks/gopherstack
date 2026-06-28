@@ -93,20 +93,24 @@ type UserPool struct {
 
 // UserPoolClient represents an app client registered to a user pool.
 type UserPoolClient struct {
-	CreatedAt                       time.Time `json:"createdAt"`
-	UpdatedAt                       time.Time `json:"updatedAt"`
-	ClientID                        string    `json:"clientId,omitempty"`
-	ClientName                      string    `json:"clientName,omitempty"`
-	UserPoolID                      string    `json:"userPoolId,omitempty"`
-	ClientSecret                    string    `json:"clientSecret,omitempty"`
-	AllowedOAuthFlows               []string  `json:"allowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes              []string  `json:"allowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows               []string  `json:"explicitAuthFlows,omitempty"`
-	CallbackURLs                    []string  `json:"callbackURLs,omitempty"`
-	LogoutURLs                      []string  `json:"logoutURLs,omitempty"`
-	SupportedIdentityProviders      []string  `json:"supportedIdentityProviders,omitempty"`
-	EnableTokenRevocation           bool      `json:"enableTokenRevocation,omitempty"`
-	AllowedOAuthFlowsUserPoolClient bool      `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
+	CreatedAt                       time.Time         `json:"createdAt"`
+	UpdatedAt                       time.Time         `json:"updatedAt"`
+	TokenValidityUnits              map[string]string `json:"tokenValidityUnits,omitempty"`
+	ClientID                        string            `json:"clientId,omitempty"`
+	ClientName                      string            `json:"clientName,omitempty"`
+	UserPoolID                      string            `json:"userPoolId,omitempty"`
+	ClientSecret                    string            `json:"clientSecret,omitempty"`
+	AllowedOAuthFlows               []string          `json:"allowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string          `json:"allowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string          `json:"explicitAuthFlows,omitempty"`
+	CallbackURLs                    []string          `json:"callbackURLs,omitempty"`
+	LogoutURLs                      []string          `json:"logoutURLs,omitempty"`
+	SupportedIdentityProviders      []string          `json:"supportedIdentityProviders,omitempty"`
+	AccessTokenValidity             int32             `json:"accessTokenValidity,omitempty"`
+	IDTokenValidity                 int32             `json:"idTokenValidity,omitempty"`
+	RefreshTokenValidity            int32             `json:"refreshTokenValidity,omitempty"`
+	EnableTokenRevocation           bool              `json:"enableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool              `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 // User represents a Cognito user within a pool.
@@ -1157,18 +1161,31 @@ func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, use
 	groups := b.userGroupsLocked(pool.ID, user.Username)
 
 	var scopes []string
+	refreshTTL := defaultRefreshTokenTTL
+	var accessExpiry, idExpiry time.Duration
 	if client, ok := b.clients[clientID]; ok {
 		scopes = client.AllowedOAuthScopes
+		if d := tokenExpiryFor(client, "AccessToken"); d > 0 {
+			accessExpiry = d
+		}
+		if d := tokenExpiryFor(client, "IdToken"); d > 0 {
+			idExpiry = d
+		}
+		if d := tokenExpiryFor(client, "RefreshToken"); d > 0 {
+			refreshTTL = d
+		}
 	}
 
 	tokens, err := pool.issuer.Issue(TokenParams{
-		ClientID:   clientID,
-		Username:   user.Username,
-		UserSub:    user.Sub,
-		Groups:     groups,
-		AuthTime:   now.Unix(),
-		Scopes:     scopes,
-		Attributes: user.Attributes,
+		ClientID:          clientID,
+		Username:          user.Username,
+		UserSub:           user.Sub,
+		Groups:            groups,
+		AuthTime:          now.Unix(),
+		Scopes:            scopes,
+		Attributes:        user.Attributes,
+		AccessTokenExpiry: accessExpiry,
+		IDTokenExpiry:     idExpiry,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
@@ -1180,7 +1197,7 @@ func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, use
 		ClientID:  clientID,
 		Username:  user.Username,
 		AuthTime:  now.Unix(),
-		ExpiresAt: now.UTC().Add(defaultRefreshTokenTTL),
+		ExpiresAt: now.UTC().Add(refreshTTL),
 	})
 
 	return &AuthResult{Tokens: tokens}, nil
@@ -1228,8 +1245,19 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	groups := b.userGroupsLocked(entry.PoolID, user.Username)
 
 	var scopes []string
+	refreshTTL := defaultRefreshTokenTTL
+	var accessExpiry, idExpiry time.Duration
 	if c, cok := b.clients[clientID]; cok {
 		scopes = c.AllowedOAuthScopes
+		if d := tokenExpiryFor(c, "AccessToken"); d > 0 {
+			accessExpiry = d
+		}
+		if d := tokenExpiryFor(c, "IdToken"); d > 0 {
+			idExpiry = d
+		}
+		if d := tokenExpiryFor(c, "RefreshToken"); d > 0 {
+			refreshTTL = d
+		}
 	}
 
 	// Preserve the original authentication time across refresh; AWS Cognito
@@ -1242,12 +1270,14 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	}
 
 	tokens, err := pool.issuer.Issue(TokenParams{
-		ClientID: clientID,
-		Username: user.Username,
-		UserSub:  user.Sub,
-		Groups:   groups,
-		AuthTime: authTime,
-		Scopes:   scopes,
+		ClientID:          clientID,
+		Username:          user.Username,
+		UserSub:           user.Sub,
+		Groups:            groups,
+		AuthTime:          authTime,
+		Scopes:            scopes,
+		AccessTokenExpiry: accessExpiry,
+		IDTokenExpiry:     idExpiry,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
@@ -1255,7 +1285,7 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 
 	// Rotate the refresh token: invalidate old, store new.
 	b.deleteRefreshTokenLocked(refreshToken)
-	entry.ExpiresAt = now.UTC().Add(defaultRefreshTokenTTL)
+	entry.ExpiresAt = now.UTC().Add(refreshTTL)
 	b.storeRefreshTokenLocked(tokens.RefreshToken, entry)
 
 	return tokens, nil

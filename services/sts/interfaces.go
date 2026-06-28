@@ -21,6 +21,9 @@ type StorageBackend interface {
 	// Returns the SessionInfo on match, ErrSessionNotFound when the key is unknown,
 	// or ErrAccessDenied when the session token does not match the stored value.
 	ValidateSessionCredential(accessKeyID, sessionToken string) (*SessionInfo, error)
+	// LookupSession returns the active SessionInfo for the given access key and optional
+	// session token, or nil if no matching non-expired session exists.
+	LookupSession(accessKeyID, sessionToken string) *SessionInfo
 	// IssueEncodedAuthorizationMessage encodes a plaintext message in the STS-proprietary
 	// format that VerifyEncodedAuthorizationMessage can later authenticate.
 	IssueEncodedAuthorizationMessage(decodedMsg string) string

@@ -41,6 +41,7 @@ type lifecyclePolicyAction struct {
 // images have already been matched by a rule.
 type imageEntry struct {
 	img     *Image
+	allTags []string // all tags for this image, from digestTagsIndex
 	matched bool
 }
 
@@ -48,7 +49,12 @@ type imageEntry struct {
 // images and returns the identifiers of images that would be deleted.
 // Rules are evaluated in ascending rulePriority order. An image may only match
 // one rule (first-match wins by priority).
-func evaluateLifecyclePolicy(policyText string, images map[string]*Image) []ImageIdentifier {
+// digestTags maps image digest → all tags for that image (from digestTagsIndex).
+func evaluateLifecyclePolicy(
+	policyText string,
+	images map[string]*Image,
+	digestTags map[string][]string,
+) []ImageIdentifier {
 	if policyText == "" {
 		return nil
 	}
@@ -73,7 +79,13 @@ func evaluateLifecyclePolicy(policyText string, images map[string]*Image) []Imag
 	entries := make([]*imageEntry, 0, len(images))
 	for _, img := range images {
 		cp := img
-		entries = append(entries, &imageEntry{img: cp})
+		// Collect all tags for this image: from digestTagsIndex first, then fall back
+		// to the primary tag stored on the image itself.
+		tags := digestTags[img.ImageDigest]
+		if len(tags) == 0 && img.ImageID.ImageTag != "" {
+			tags = []string{img.ImageID.ImageTag}
+		}
+		entries = append(entries, &imageEntry{img: cp, allTags: tags})
 	}
 
 	// Sort images by push time descending (newest first) so count-based rules
@@ -114,7 +126,7 @@ func applyRule(rule lifecyclePolicyRule, entries []*imageEntry) []*imageEntry {
 			continue
 		}
 
-		if !matchesTagStatus(sel, e.img) {
+		if !matchesTagStatus(sel, e.img, e.allTags) {
 			continue
 		}
 
@@ -152,27 +164,29 @@ func applyRule(rule lifecyclePolicyRule, entries []*imageEntry) []*imageEntry {
 
 // matchesTagStatus reports whether an image matches the tagStatus (and optional
 // tag pattern) portion of a lifecycle rule selection.
-func matchesTagStatus(sel lifecyclePolicySelect, img *Image) bool {
+// allTags is the full set of tags for the image from digestTagsIndex.
+func matchesTagStatus(sel lifecyclePolicySelect, _ *Image, allTags []string) bool {
 	switch strings.ToLower(sel.TagStatus) {
 	case "untagged":
-		return img.ImageID.ImageTag == ""
+		return len(allTags) == 0
 
 	case "tagged":
-		if img.ImageID.ImageTag == "" {
+		if len(allTags) == 0 {
 			return false
 		}
 
-		// If patterns are specified the tag must match at least one.
+		// If patterns are specified, at least one tag must match at least one pattern.
 		//nolint:gocritic // intentional append-to-new-slice
 		patterns := append(sel.TagPatternList, sel.TagPrefixList...)
 		if len(patterns) == 0 {
 			return true
 		}
 
-		tag := img.ImageID.ImageTag
-		for _, p := range patterns {
-			if tagMatchesPattern(tag, p) {
-				return true
+		for _, tag := range allTags {
+			for _, p := range patterns {
+				if tagMatchesPattern(tag, p) {
+					return true
+				}
 			}
 		}
 

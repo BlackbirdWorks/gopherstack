@@ -139,6 +139,11 @@ func TestIntegration_SESv2_SendEmail(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
+	// Sender identity must be verified before SES will accept the message (AWS behavior).
+	sesv2ReadBody(t, sesv2Do(t, http.MethodPost, "/v2/email/identities", map[string]any{
+		"EmailIdentity": "sender-sesv2@integ-test.com",
+	}))
+
 	resp := sesv2Do(t, http.MethodPost, "/v2/email/outbound-emails", map[string]any{
 		"FromEmailAddress": "sender-sesv2@integ-test.com",
 		"Destination": map[string]any{

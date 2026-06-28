@@ -1547,11 +1547,13 @@ func (h *Handler) cborDeleteAnomalyDetector(input cbor.Map, c *echo.Context) err
 	metricName := ""
 	stat := ""
 
+	var dimsD []Dimension
 	if smadRaw, hasSmad := input["SingleMetricAnomalyDetector"]; hasSmad {
 		if smad, isMap := smadRaw.(cbor.Map); isMap {
 			namespace = cborStr(smad, keyNamespace)
 			metricName = cborStr(smad, keyMetricName)
 			stat = cborStr(smad, "Stat")
+			dimsD = cborDimensions(smad)
 		}
 	}
 	if namespace == "" {
@@ -1563,8 +1565,11 @@ func (h *Handler) cborDeleteAnomalyDetector(input cbor.Map, c *echo.Context) err
 	if stat == "" {
 		stat = cborStr(input, "Stat")
 	}
+	if dimsD == nil {
+		dimsD = cborDimensions(input)
+	}
 
-	if err := h.Backend.DeleteAnomalyDetector(namespace, metricName, stat); err != nil {
+	if err := h.Backend.DeleteAnomalyDetector(namespace, metricName, stat, dimsD); err != nil {
 		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
