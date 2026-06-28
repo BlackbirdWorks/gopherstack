@@ -139,27 +139,15 @@ func (s *Scheduler) processTick( //nolint:gocognit // existing issue.
 	}
 }
 
-// fireRule synthesizes a scheduled event and calls PutEvents.
+// fireRule delivers a scheduled event directly to the rule's targets.
+// Scheduled rules bypass pattern matching — targets are invoked unconditionally.
 func (s *Scheduler) fireRule(ctx context.Context, rule Rule, busName, region string) {
 	logger.Load(ctx).DebugContext(ctx, "EventBridge: firing scheduled rule", "rule", rule.Name, "bus", busName)
 
-	detail := `{"scheduled":true}`
-	sourceFromExpr := "aws.events"
-
-	// Detect cron vs rate for detail-type.
 	detailType := "Scheduled Event"
 	if strings.HasPrefix(rule.ScheduleExpression, "cron(") {
 		detailType = "Scheduled Event (cron)"
 	}
 
-	entry := EventEntry{
-		Source:       sourceFromExpr,
-		DetailType:   detailType,
-		Detail:       detail,
-		EventBusName: busName,
-	}
-
-	// Inject region into context for PutEvents.
-	ctx = context.WithValue(ctx, regionContextKey{}, region)
-	s.backend.PutEvents(ctx, []EventEntry{entry})
+	s.backend.deliverScheduledRule(ctx, rule, busName, region, detailType)
 }
