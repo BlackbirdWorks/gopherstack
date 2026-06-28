@@ -939,11 +939,11 @@ func TestHandler_CompletenessStubs(t *testing.T) {
 			wantListField: "fieldIndexes",
 		},
 		{
-			name:          "DescribeImportTaskBatches/ReturnsEmpty",
-			action:        "DescribeImportTaskBatches",
-			body:          map[string]any{},
-			wantCode:      http.StatusOK,
-			wantListField: "importTaskBatches",
+			// DescribeImportTaskBatches is validation-only: taskId is required.
+			name:     "DescribeImportTaskBatches/RequiresTaskID",
+			action:   "DescribeImportTaskBatches",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:          "ListAggregateLogGroupSummaries/ReturnsEmpty",
@@ -972,22 +972,25 @@ func TestHandler_CompletenessStubs(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "StartLiveTail/OK",
+			// StartLiveTail is validation-only: logGroupIdentifiers is required.
+			name:     "StartLiveTail/RequiresLogGroups",
 			action:   "StartLiveTail",
 			body:     map[string]any{},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "GetLogFields/OK",
+			// GetLogFields requires a data source / log group identifier.
+			name:     "GetLogFields/RequiresDataSource",
 			action:   "GetLogFields",
 			body:     map[string]any{},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "GetLogObject/OK",
+			// GetLogObject requires a log object pointer.
+			name:     "GetLogObject/RequiresPointer",
 			action:   "GetLogObject",
 			body:     map[string]any{},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

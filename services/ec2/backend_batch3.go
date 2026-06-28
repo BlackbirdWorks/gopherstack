@@ -40,10 +40,19 @@ type InstanceConnectEndpoint struct {
 
 // InstanceEventWindow represents a scheduled maintenance window for instances.
 type InstanceEventWindow struct {
-	InstanceEventWindowID string `json:"instanceEventWindowId,omitempty"`
-	Name                  string `json:"name,omitempty"`
-	CronExpression        string `json:"cronExpression,omitempty"`
-	State                 string `json:"state,omitempty"`
+	AssociationTarget     *InstanceEventWindowAssociationTarget `json:"associationTarget,omitempty"`
+	InstanceEventWindowID string                                `json:"instanceEventWindowId,omitempty"`
+	Name                  string                                `json:"name,omitempty"`
+	CronExpression        string                                `json:"cronExpression,omitempty"`
+	State                 string                                `json:"state,omitempty"`
+}
+
+// InstanceEventWindowAssociationTarget records the targets associated with an
+// instance event window.
+type InstanceEventWindowAssociationTarget struct {
+	InstanceIDs      []string `json:"instanceIds,omitempty"`
+	InstanceTags     []string `json:"instanceTags,omitempty"`
+	DedicatedHostIDs []string `json:"dedicatedHostIds,omitempty"`
 }
 
 // SpotDatafeed holds the spot instance data feed subscription settings.
@@ -349,6 +358,65 @@ func (b *InMemoryBackend) ModifyInstanceEventWindow(id, name, cronExpression str
 	}
 
 	return nil
+}
+
+// AssociateInstanceEventWindow associates instances, instance tags and/or
+// dedicated hosts with an existing event window. The association is recorded
+// on the event window so DescribeInstanceEventWindows reflects it.
+func (b *InMemoryBackend) AssociateInstanceEventWindow(
+	id string,
+	instanceIDs, instanceTags, dedicatedHostIDs []string,
+) (*InstanceEventWindow, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: InstanceEventWindowId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AssociateInstanceEventWindow")
+	defer b.mu.Unlock()
+
+	ew, ok := b.instanceEventWindows[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInstanceEventWindowNotFound, id)
+	}
+
+	if ew.AssociationTarget == nil {
+		ew.AssociationTarget = &InstanceEventWindowAssociationTarget{}
+	}
+	ew.AssociationTarget.InstanceIDs = appendUnique(
+		ew.AssociationTarget.InstanceIDs, instanceIDs,
+	)
+	ew.AssociationTarget.InstanceTags = appendUnique(
+		ew.AssociationTarget.InstanceTags, instanceTags,
+	)
+	ew.AssociationTarget.DedicatedHostIDs = appendUnique(
+		ew.AssociationTarget.DedicatedHostIDs, dedicatedHostIDs,
+	)
+
+	cp := *ew
+	if ew.AssociationTarget != nil {
+		at := *ew.AssociationTarget
+		cp.AssociationTarget = &at
+	}
+
+	return &cp, nil
+}
+
+// appendUnique appends values from add to base, skipping empty strings and
+// duplicates already present in base.
+func appendUnique(base, add []string) []string {
+	seen := make(map[string]bool, len(base))
+	for _, v := range base {
+		seen[v] = true
+	}
+	for _, v := range add {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		base = append(base, v)
+	}
+
+	return base
 }
 
 // ---- Spot Datafeed ----

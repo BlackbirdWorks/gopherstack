@@ -384,6 +384,9 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerBatch4Ops(h, ops)
 	registerBatch5Ops(h, ops)
 	registerStubOps(h, ops)
+	// registerAuditOps overrides stub entries with real implementations for
+	// instance-modify and event-window-association operations.
+	registerAuditOps(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
 	// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
@@ -1275,6 +1278,7 @@ var errCodeLookup = []struct {
 	{ErrVpcEndpointNotFound, "InvalidVpcEndpointService.NotFound"},
 	{ErrByoipCidrNotFound, "InvalidByoipCidr.NotFound"},
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
+	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
 	{ErrCIDRConflict, "InvalidVpc.Conflict"},
 	{ErrInvalidParameter, "InvalidParameterValue"},
 }
@@ -1439,7 +1443,7 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		groupItems = append(groupItems, instanceGroupItem{GroupID: sgID})
 	}
 
-	return instanceItem{
+	item := instanceItem{
 		InstanceID:       inst.ID,
 		ImageID:          inst.ImageID,
 		InstanceType:     inst.InstanceType,
@@ -1453,7 +1457,32 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		KeyName:          inst.KeyName,
 		GroupSet:         instanceGroupSet{Items: groupItems},
 		TagSet:           instanceTagItemSet{Items: tagItems},
+		Placement: instancePlacementItem{
+			Tenancy:          inst.Placement.Tenancy,
+			AvailabilityZone: inst.Placement.AvailabilityZone,
+			GroupName:        inst.Placement.GroupName,
+			Affinity:         inst.Placement.Affinity,
+		},
 	}
+
+	if inst.CPUOptions.CoreCount > 0 || inst.CPUOptions.ThreadsPerCore > 0 {
+		item.CPUOptions = &instanceCPUOptionsItem{
+			CoreCount:      inst.CPUOptions.CoreCount,
+			ThreadsPerCore: inst.CPUOptions.ThreadsPerCore,
+		}
+	}
+	if inst.MaintenanceOptions.AutoRecovery != "" {
+		item.MaintenanceOptions = &instanceMaintenanceOptionsItem{
+			AutoRecovery: inst.MaintenanceOptions.AutoRecovery,
+		}
+	}
+	if inst.NetworkPerformanceOptions.BandwidthWeighting != "" {
+		item.NetworkPerformanceOptions = &instanceNetworkPerformanceOptionsItem{
+			BandwidthWeighting: inst.NetworkPerformanceOptions.BandwidthWeighting,
+		}
+	}
+
+	return item
 }
 
 func toSGItem(sg *SecurityGroup) sgItem {
@@ -1520,20 +1549,44 @@ type instanceGroupSet struct {
 	Items []instanceGroupItem `xml:"item"`
 }
 
+type instancePlacementItem struct {
+	Tenancy          string `xml:"tenancy,omitempty"`
+	AvailabilityZone string `xml:"availabilityZone,omitempty"`
+	GroupName        string `xml:"groupName,omitempty"`
+	Affinity         string `xml:"affinity,omitempty"`
+}
+
+type instanceCPUOptionsItem struct {
+	CoreCount      int `xml:"coreCount"`
+	ThreadsPerCore int `xml:"threadsPerCore"`
+}
+
+type instanceMaintenanceOptionsItem struct {
+	AutoRecovery string `xml:"autoRecovery,omitempty"`
+}
+
+type instanceNetworkPerformanceOptionsItem struct {
+	BandwidthWeighting string `xml:"bandwidthWeighting,omitempty"`
+}
+
 type instanceItem struct {
-	LaunchTime       string             `xml:"launchTime"`
-	InstanceID       string             `xml:"instanceId"`
-	ImageID          string             `xml:"imageId"`
-	InstanceType     string             `xml:"instanceType"`
-	VPCID            string             `xml:"vpcId,omitempty"`
-	SubnetID         string             `xml:"subnetId,omitempty"`
-	PrivateIPAddress string             `xml:"privateIpAddress,omitempty"`
-	PublicIPAddress  string             `xml:"ipAddress,omitempty"`
-	PublicDNSName    string             `xml:"dnsName,omitempty"`
-	KeyName          string             `xml:"keyName,omitempty"`
-	StateItem        stateItem          `xml:"instanceState"`
-	GroupSet         instanceGroupSet   `xml:"groupSet"`
-	TagSet           instanceTagItemSet `xml:"tagSet"`
+	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
+	MaintenanceOptions        *instanceMaintenanceOptionsItem        `xml:"maintenanceOptions,omitempty"`
+	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
+	Placement                 instancePlacementItem                  `xml:"placement"`
+	PublicDNSName             string                                 `xml:"dnsName,omitempty"`
+	SubnetID                  string                                 `xml:"subnetId,omitempty"`
+	PrivateIPAddress          string                                 `xml:"privateIpAddress,omitempty"`
+	PublicIPAddress           string                                 `xml:"ipAddress,omitempty"`
+	LaunchTime                string                                 `xml:"launchTime"`
+	KeyName                   string                                 `xml:"keyName,omitempty"`
+	VPCID                     string                                 `xml:"vpcId,omitempty"`
+	InstanceType              string                                 `xml:"instanceType"`
+	ImageID                   string                                 `xml:"imageId"`
+	InstanceID                string                                 `xml:"instanceId"`
+	StateItem                 stateItem                              `xml:"instanceState"`
+	GroupSet                  instanceGroupSet                       `xml:"groupSet"`
+	TagSet                    instanceTagItemSet                     `xml:"tagSet"`
 }
 
 // instanceTagItem is the embedded per-instance tag entry in DescribeInstances

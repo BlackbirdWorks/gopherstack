@@ -239,23 +239,32 @@ func (h *Handler) handleStopDurableExecution(c *echo.Context) error {
 // --- ListFunctionVersionsByCapacityProvider ---
 
 type listFunctionVersionsByCapacityProviderOutput struct {
-	NextMarker       string `json:"NextMarker,omitempty"`
-	FunctionVersions []any  `json:"FunctionVersions"`
+	NextMarker       string   `json:"NextMarker,omitempty"`
+	FunctionVersions []string `json:"FunctionVersions"`
 }
 
-// handleListFunctionVersionsByCapacityProvider returns function versions assigned to the
-// named capacity provider. Since there is currently no API to assign function versions
-// to a capacity provider, this always returns an empty list for a valid provider.
+// handleListFunctionVersionsByCapacityProvider returns the function-version ARNs
+// assigned to the named capacity provider, with Marker/MaxItems pagination. It
+// returns ResourceNotFoundException when the provider does not exist.
+//
+// AWS exposes no public API to assign function versions to a capacity provider in
+// this emulator's surface, so assignments are populated only via the internal
+// SeedCapacityProviderFunctionVersions helper (used by tests). When no versions
+// have been seeded, an empty list is returned for a valid provider.
 func (h *Handler) handleListFunctionVersionsByCapacityProvider(
 	c *echo.Context, bk *InMemoryBackend, name string,
 ) error {
-	if _, err := bk.GetCapacityProvider(name); err != nil {
+	marker, maxItems := parsePaginationParams(c.Request())
+
+	p, err := bk.ListFunctionVersionsByCapacityProvider(name, marker, maxItems)
+	if err != nil {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 			"Capacity provider not found: "+name)
 	}
 
 	return c.JSON(http.StatusOK, &listFunctionVersionsByCapacityProviderOutput{
-		FunctionVersions: []any{},
+		FunctionVersions: p.Data,
+		NextMarker:       p.Next,
 	})
 }
 

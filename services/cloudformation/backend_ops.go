@@ -633,6 +633,9 @@ func (b *InMemoryBackend) UpdateGeneratedTemplate(id, name string) error {
 func (b *InMemoryBackend) DeleteGeneratedTemplate(id string) error {
 	b.mu.Lock("DeleteGeneratedTemplate")
 	defer b.mu.Unlock()
+	if _, ok := b.generatedTemplates[id]; !ok {
+		return ErrGeneratedTemplateNotFound
+	}
 	delete(b.generatedTemplates, id)
 
 	return nil
@@ -798,9 +801,11 @@ func (b *InMemoryBackend) DeactivateType(typeName, typeArn string) error {
 	if key == "" {
 		key = "arn:aws:cloudformation:::type/resource/" + typeName
 	}
-	if t, ok := b.typeRegistry[key]; ok {
-		t.IsActivated = false
+	t, ok := b.typeRegistry[key]
+	if !ok || !t.IsActivated {
+		return fmt.Errorf("%w: %s", ErrTypeNotFound, key)
 	}
+	t.IsActivated = false
 
 	return nil
 }
@@ -863,9 +868,11 @@ func (b *InMemoryBackend) PublishType(typeName string) error {
 	b.mu.Lock("PublishType")
 	defer b.mu.Unlock()
 	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
-	if t, ok := b.typeRegistry[typeArn]; ok {
-		t.IsPublished = true
+	t, ok := b.typeRegistry[typeArn]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
 	}
+	t.IsPublished = true
 
 	return nil
 }

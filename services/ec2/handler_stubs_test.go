@@ -19,7 +19,7 @@ func TestStubOperations(t *testing.T) {
 		"AssociateCapacityReservationBillingOwner",
 		// "AssociateClientVpnTargetNetwork", — moved to batch4
 		"AssociateEnclaveCertificateIamRole",
-		"AssociateInstanceEventWindow",
+		// "AssociateInstanceEventWindow", — now a real handler (handler_audit.go)
 		"AssociateIpamByoasn",
 		"AssociateIpamResourceDiscovery",
 		"AssociateRouteServer",
@@ -355,9 +355,10 @@ func TestStubOperations(t *testing.T) {
 		"ModifyHosts",
 		"ModifyInstanceCapacityReservationAttributes",
 		"ModifyInstanceEventStartTime",
-		"ModifyInstanceMaintenanceOptions",
-		"ModifyInstanceNetworkPerformanceOptions",
-		"ModifyInstancePlacement",
+		// The following are now real handlers (handler_audit.go), not stubs:
+		// "ModifyInstanceMaintenanceOptions",
+		// "ModifyInstanceNetworkPerformanceOptions",
+		// "ModifyInstancePlacement",
 		"ModifyIpam",
 		"ModifyIpamPolicyAllocationRules",
 		"ModifyIpamPool",

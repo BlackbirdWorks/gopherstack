@@ -44,6 +44,17 @@ const (
 	route53LastFailureReasonSuffix = "/lastfailurereason"
 )
 
+// Route53 limit type identifiers (AWS LimitName values).
+const (
+	route53LimitMaxHostedZonesByOwner            = "MAX_HOSTED_ZONES_BY_OWNER"
+	route53LimitMaxHealthChecksByOwner           = "MAX_HEALTH_CHECKS_BY_OWNER"
+	route53LimitMaxReusableDelegationSetsByOwner = "MAX_REUSABLE_DELEGATION_SETS_BY_OWNER"
+	route53LimitMaxTrafficPoliciesByOwner        = "MAX_TRAFFIC_POLICIES_BY_OWNER"
+	route53LimitMaxTrafficPolicyInstancesByOwner = "MAX_TRAFFIC_POLICY_INSTANCES_BY_OWNER"
+	route53LimitMaxVPCsAssociatedByZone          = "MAX_VPCS_ASSOCIATED_BY_ZONE"
+	route53LimitMaxZonesByReusableDelegationSet  = "MAX_ZONES_BY_REUSABLE_DELEGATION_SET"
+)
+
 // routeCompleteness handles previously-notImplemented Route53 paths.
 // Returns (true, err) if the path was handled, (false, nil) if not.
 func (h *Handler) routeCompleteness(c *echo.Context, path, method string) (bool, error) {
@@ -468,10 +479,31 @@ type xmlLimit struct {
 func (h *Handler) getAccountLimit(c *echo.Context, path string) error {
 	limitType := strings.TrimPrefix(path, route53AccountLimitPrefix)
 
+	count := 0
+
+	switch limitType {
+	case route53LimitMaxHostedZonesByOwner:
+		count = h.Backend.GetHostedZoneCount()
+	case route53LimitMaxHealthChecksByOwner:
+		count = h.Backend.GetHealthCheckCount()
+	case route53LimitMaxReusableDelegationSetsByOwner:
+		if sets, err := h.Backend.ListReusableDelegationSets(); err == nil {
+			count = len(sets)
+		}
+	case route53LimitMaxTrafficPoliciesByOwner:
+		if policies, err := h.Backend.ListTrafficPolicies(); err == nil {
+			count = len(policies)
+		}
+	case route53LimitMaxTrafficPolicyInstancesByOwner:
+		if instances, err := h.Backend.ListTrafficPolicyInstances(); err == nil {
+			count = len(instances)
+		}
+	}
+
 	return writeXML(c, http.StatusOK, accountLimitResponse{
 		Xmlns: route53Namespace,
 		Limit: xmlLimit{Type: limitType, Value: defaultLimitValue},
-		Count: 0,
+		Count: count,
 	})
 }
 
@@ -484,15 +516,35 @@ type hostedZoneLimitResponse struct {
 
 func (h *Handler) getHostedZoneLimit(c *echo.Context, path string) error {
 	parts := strings.TrimPrefix(path, route53HostedZoneLimitPrefix)
+	zoneID := parts
 	limitType := ""
-	if _, after, ok := strings.Cut(parts, "/"); ok {
+	if before, after, ok := strings.Cut(parts, "/"); ok {
+		zoneID = before
 		limitType = after
+	}
+	zoneID = strings.TrimPrefix(zoneID, "/hostedzone/")
+
+	var (
+		count int
+		err   error
+	)
+
+	switch limitType {
+	case route53LimitMaxVPCsAssociatedByZone:
+		count, err = h.Backend.CountAssociatedVPCs(zoneID)
+	default:
+		// MAX_RRSETS_BY_ZONE and any other zone-scoped limit.
+		count, err = h.Backend.CountResourceRecordSets(zoneID)
+	}
+
+	if err != nil {
+		return handleBackendError(c, err)
 	}
 
 	return writeXML(c, http.StatusOK, hostedZoneLimitResponse{
 		Xmlns: route53Namespace,
 		Limit: xmlLimit{Type: limitType, Value: maxHostedZoneCount},
-		Count: 0,
+		Count: count,
 	})
 }
 
@@ -505,15 +557,25 @@ type reusableDSLimitResponse struct {
 
 func (h *Handler) getReusableDelegationSetLimit(c *echo.Context, path string) error {
 	parts := strings.TrimPrefix(path, route53ReusableDSLimitPrefix)
+	dsID := parts
 	limitType := ""
-	if _, after, ok := strings.Cut(parts, "/"); ok {
+	if before, after, ok := strings.Cut(parts, "/"); ok {
+		dsID = before
 		limitType = after
+	}
+	if !strings.HasPrefix(dsID, "/delegationset/") {
+		dsID = "/delegationset/" + dsID
+	}
+
+	count, err := h.Backend.CountZonesByReusableDelegationSet(dsID)
+	if err != nil {
+		return handleBackendError(c, err)
 	}
 
 	return writeXML(c, http.StatusOK, reusableDSLimitResponse{
 		Xmlns: route53Namespace,
 		Limit: xmlLimit{Type: limitType, Value: defaultDSLimit},
-		Count: 0,
+		Count: count,
 	})
 }
 

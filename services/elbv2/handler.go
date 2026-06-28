@@ -1406,14 +1406,13 @@ func (h *Handler) handleDeleteSharedTrustStoreAssociation(vals url.Values) (any,
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
-	// Verify the trust store exists.
-	stores, err := h.Backend.DescribeTrustStores([]string{tsArn}, nil)
-	if err != nil {
-		return nil, err
+	resourceArn := vals.Get("ResourceArn")
+	if resourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
 	}
 
-	if len(stores) == 0 {
-		return nil, ErrTrustStoreNotFound
+	if err := h.Backend.DeleteSharedTrustStoreAssociation(tsArn, resourceArn); err != nil {
+		return nil, err
 	}
 
 	return &deleteSharedTrustStoreAssociationResponse{
@@ -1639,29 +1638,39 @@ func (h *Handler) handleDescribeAccountLimits(_ url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeCapacityReservation(vals url.Values) (any, error) {
-	const defaultDecreaseRequestsRemaining = 5
+// toCapacityReservationResult builds the XML result for a capacity reservation.
+func toCapacityReservationResult(cr *CapacityReservation) describeCapacityReservationResult {
+	result := describeCapacityReservationResult{
+		DecreaseRequestsRemaining: cr.DecreaseRequestsRemaining,
+	}
 
+	if !cr.LastModifiedTime.IsZero() {
+		result.LastModifiedTime = cr.LastModifiedTime.UTC().Format("2006-01-02T15:04:05Z")
+	}
+
+	if cr.MinimumCapacityUnits > 0 {
+		result.MinimumLoadBalancerCapacity = &xmlMinimumLoadBalancerCapacity{
+			CapacityUnits: cr.MinimumCapacityUnits,
+		}
+	}
+
+	return result
+}
+
+func (h *Handler) handleDescribeCapacityReservation(vals url.Values) (any, error) {
 	lbArn := vals.Get("LoadBalancerArn")
 	if lbArn == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	lbs, err := h.Backend.DescribeLoadBalancers([]string{lbArn}, nil)
+	cr, err := h.Backend.DescribeCapacityReservation(lbArn)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(lbs) == 0 {
-		return nil, ErrLoadBalancerNotFound
-	}
-
 	return &describeCapacityReservationResponse{
-		Xmlns: elbv2XMLNS,
-		Result: describeCapacityReservationResult{
-			LastModifiedTime:          "",
-			DecreaseRequestsRemaining: defaultDecreaseRequestsRemaining,
-		},
+		Xmlns:            elbv2XMLNS,
+		Result:           toCapacityReservationResult(cr),
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-capacity-reservation"},
 	}, nil
 }
@@ -1959,9 +1968,14 @@ func (h *Handler) handleGetResourcePolicy(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
 	}
 
+	policy, err := h.Backend.GetResourcePolicy(resourceArn)
+	if err != nil {
+		return nil, err
+	}
+
 	return &getResourcePolicyResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           getResourcePolicyResult{Policy: ""},
+		Result:           getResourcePolicyResult{Policy: policy},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-get-resource-policy"},
 	}, nil
 }
@@ -2016,17 +2030,35 @@ func (h *Handler) handleModifyCapacityReservation(vals url.Values) (any, error) 
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	lbs, err := h.Backend.DescribeLoadBalancers([]string{lbArn}, nil)
+	var minCapacity *int32
+
+	if raw := vals.Get("MinimumLoadBalancerCapacity.CapacityUnits"); raw != "" {
+		n, err := parseInt32(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid CapacityUnits %q", ErrInvalidParameter, raw)
+		}
+
+		minCapacity = &n
+	}
+
+	reset := false
+	if raw := vals.Get("ResetCapacityReservation"); raw != "" {
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid ResetCapacityReservation %q", ErrInvalidParameter, raw)
+		}
+
+		reset = b
+	}
+
+	cr, err := h.Backend.ModifyCapacityReservation(lbArn, minCapacity, reset)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(lbs) == 0 {
-		return nil, ErrLoadBalancerNotFound
-	}
-
 	return &modifyCapacityReservationResponse{
 		Xmlns:            elbv2XMLNS,
+		Result:           toCapacityReservationResult(cr),
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-capacity-reservation"},
 	}, nil
 }
@@ -2037,17 +2069,33 @@ func (h *Handler) handleModifyIPPools(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	lbs, err := h.Backend.DescribeLoadBalancers([]string{lbArn}, nil)
+	var ipv4PoolID *string
+
+	if raw := vals.Get("IpamPools.Ipv4IpamPoolId"); raw != "" {
+		ipv4PoolID = &raw
+	}
+
+	removeIPv4 := false
+
+	for _, v := range parseMembers(vals, "RemoveIpamPools.member") {
+		if v == ipAddressTypeIPv4 {
+			removeIPv4 = true
+		}
+	}
+
+	lb, err := h.Backend.ModifyIPPools(lbArn, ipv4PoolID, removeIPv4)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(lbs) == 0 {
-		return nil, ErrLoadBalancerNotFound
+	result := modifyIPPoolsResult{}
+	if lb.IPv4IPAMPoolID != "" {
+		result.IpamPools = &xmlIpamPools{Ipv4IpamPoolID: lb.IPv4IPAMPoolID}
 	}
 
 	return &modifyIPPoolsResponse{
 		Xmlns:            elbv2XMLNS,
+		Result:           result,
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-ip-pools"},
 	}, nil
 }
@@ -2080,6 +2128,8 @@ func elbv2ErrorCode(opErr error) (string, int) {
 		{ErrListenerNotFound, "ListenerNotFound", http.StatusNotFound},
 		{ErrRuleNotFound, "RuleNotFound", http.StatusNotFound},
 		{ErrTrustStoreNotFound, "TrustStoreNotFound", http.StatusNotFound},
+		{ErrResourcePolicyNotFound, "ResourceNotFound", http.StatusNotFound},
+		{ErrTrustStoreAssociationNotFound, "AssociationNotFound", http.StatusNotFound},
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{ErrTargetGroupAlreadyExists, "DuplicateTargetGroupName", http.StatusConflict},
 		{ErrTrustStoreAlreadyExists, "DuplicateTrustStoreName", http.StatusConflict},
@@ -2558,7 +2608,7 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
 		sgs = append(sgs, xmlStringValue{Value: sg})
 	}
 
-	return xmlLoadBalancer{
+	xlb := xmlLoadBalancer{
 		LoadBalancerArn:       lb.LoadBalancerArn,
 		LoadBalancerName:      lb.LoadBalancerName,
 		DNSName:               lb.DNSName,
@@ -2572,6 +2622,12 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
 		AvailabilityZones:     xmlAZMappingList{Members: azs},
 		SecurityGroups:        xmlStringList{Members: sgs},
 	}
+
+	if lb.IPv4IPAMPoolID != "" {
+		xlb.IpamPools = &xmlIpamPools{Ipv4IpamPoolID: lb.IPv4IPAMPoolID}
+	}
+
+	return xlb
 }
 
 func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
@@ -2843,16 +2899,17 @@ type xmlAZMappingList struct {
 }
 
 type xmlLoadBalancer struct {
-	LoadBalancerArn       string               `xml:"LoadBalancerArn"`
-	LoadBalancerName      string               `xml:"LoadBalancerName"`
-	DNSName               string               `xml:"DNSName"`
+	IpamPools             *xmlIpamPools        `xml:"IpamPools,omitempty"`
+	State                 xmlLoadBalancerState `xml:"State"`
 	CanonicalHostedZoneID string               `xml:"CanonicalHostedZoneId"`
+	LoadBalancerArn       string               `xml:"LoadBalancerArn"`
 	CreatedTime           string               `xml:"CreatedTime"`
 	Scheme                string               `xml:"Scheme"`
 	Type                  string               `xml:"Type"`
 	IPAddressType         string               `xml:"IpAddressType"`
 	VpcID                 string               `xml:"VpcId"`
-	State                 xmlLoadBalancerState `xml:"State"`
+	DNSName               string               `xml:"DNSName"`
+	LoadBalancerName      string               `xml:"LoadBalancerName"`
 	AvailabilityZones     xmlAZMappingList     `xml:"AvailabilityZones"`
 	SecurityGroups        xmlStringList        `xml:"SecurityGroups"`
 }
@@ -3514,9 +3571,14 @@ type describeAccountLimitsResponse struct {
 
 // --- capacity reservation XML types ---
 
+type xmlMinimumLoadBalancerCapacity struct {
+	CapacityUnits int32 `xml:"CapacityUnits"`
+}
+
 type describeCapacityReservationResult struct {
-	LastModifiedTime          string `xml:"LastModifiedTime,omitempty"`
-	DecreaseRequestsRemaining int    `xml:"DecreaseRequestsRemaining"`
+	MinimumLoadBalancerCapacity *xmlMinimumLoadBalancerCapacity `xml:"MinimumLoadBalancerCapacity,omitempty"`
+	LastModifiedTime            string                          `xml:"LastModifiedTime,omitempty"`
+	DecreaseRequestsRemaining   int32                           `xml:"DecreaseRequestsRemaining"`
 }
 
 type describeCapacityReservationResponse struct {
@@ -3680,12 +3742,22 @@ type getTrustStoreRevocationContentResponse struct {
 }
 
 type modifyCapacityReservationResponse struct {
-	XMLName          xml.Name            `xml:"ModifyCapacityReservationResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                          `xml:"ModifyCapacityReservationResponse"`
+	Xmlns            string                            `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata               `xml:"ResponseMetadata"`
+	Result           describeCapacityReservationResult `xml:"ModifyCapacityReservationResult"`
+}
+
+type xmlIpamPools struct {
+	Ipv4IpamPoolID string `xml:"Ipv4IpamPoolId,omitempty"`
+}
+
+type modifyIPPoolsResult struct {
+	IpamPools *xmlIpamPools `xml:"IpamPools,omitempty"`
 }
 
 type modifyIPPoolsResponse struct {
+	Result           modifyIPPoolsResult `xml:"ModifyIpPoolsResult"`
 	XMLName          xml.Name            `xml:"ModifyIpPoolsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`

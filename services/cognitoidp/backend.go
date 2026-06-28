@@ -129,8 +129,19 @@ type User struct {
 	PreferredMfaSetting  string            `json:"preferredMfaSetting,omitempty"`
 	TOTPSecret           string            `json:"totpSecret,omitempty"`
 	UserMFASettingList   []string          `json:"userMFASettingList,omitempty"`
-	Enabled              bool              `json:"enabled,omitempty"`
-	TOTPVerified         bool              `json:"totpVerified,omitempty"`
+	// LinkedIdentities holds external (federated) provider identities linked to this
+	// user via AdminLinkProviderForUser.
+	LinkedIdentities []LinkedIdentity `json:"linkedIdentities,omitempty"`
+	Enabled          bool             `json:"enabled,omitempty"`
+	TOTPVerified     bool             `json:"totpVerified,omitempty"`
+}
+
+// LinkedIdentity is an external provider identity linked to a native Cognito user via
+// AdminLinkProviderForUser.
+type LinkedIdentity struct {
+	ProviderName           string `json:"providerName,omitempty"`
+	ProviderAttributeName  string `json:"providerAttributeName,omitempty"`
+	ProviderAttributeValue string `json:"providerAttributeValue,omitempty"`
 }
 
 // Group represents a Cognito User Pool group.
@@ -981,6 +992,26 @@ func (b *InMemoryBackend) findUserByAccessTokenLocked(accessToken string) (*User
 	return nil, fmt.Errorf("%w: access token is invalid or expired", ErrNotAuthorized)
 }
 
+// GetSigningCertificate returns a deterministic, PEM-encoded self-signed X.509
+// certificate for the user pool's JWT signing key. The certificate is cached on the
+// pool's token issuer, so repeated calls for the same pool return a stable PEM.
+func (b *InMemoryBackend) GetSigningCertificate(userPoolID string) (string, error) {
+	b.mu.RLock("GetSigningCertificate")
+	defer b.mu.RUnlock()
+
+	pool, ok := b.pools[userPoolID]
+	if !ok {
+		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	cert, err := pool.issuer.SigningCertificatePEM()
+	if err != nil {
+		return "", fmt.Errorf("signing certificate for pool %q: %w", userPoolID, err)
+	}
+
+	return cert, nil
+}
+
 // GetUserPoolJWKS returns the JSON Web Key Set for the given user pool.
 func (b *InMemoryBackend) GetUserPoolJWKS(userPoolID string) (*JWKSResponse, error) {
 	b.mu.RLock("GetUserPoolJWKS")
@@ -1659,6 +1690,103 @@ func (b *InMemoryBackend) AdminEnableUser(userPoolID, username string) error {
 	u.Enabled = true
 
 	return nil
+}
+
+// AdminLinkProviderForUser links an external (federated) provider identity (sourceUser) to
+// an existing native Cognito user (destinationUser). The link is recorded on the
+// destination user's LinkedIdentities so it survives in backend state. Duplicate links for
+// the same provider/value are ignored.
+func (b *InMemoryBackend) AdminLinkProviderForUser(
+	userPoolID, destinationUsername string,
+	source LinkedIdentity,
+) error {
+	b.mu.Lock("AdminLinkProviderForUser")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if destinationUsername == "" {
+		return fmt.Errorf("%w: DestinationUser is required", ErrInvalidParameter)
+	}
+
+	if source.ProviderName == "" {
+		return fmt.Errorf("%w: SourceUser ProviderName is required", ErrInvalidParameter)
+	}
+
+	user, ok := b.users[userPoolID][destinationUsername]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, destinationUsername)
+	}
+
+	for _, existing := range user.LinkedIdentities {
+		if existing.ProviderName == source.ProviderName &&
+			existing.ProviderAttributeName == source.ProviderAttributeName &&
+			existing.ProviderAttributeValue == source.ProviderAttributeValue {
+			return nil
+		}
+	}
+
+	user.LinkedIdentities = append(user.LinkedIdentities, source)
+	user.UpdatedAt = time.Now().UTC()
+
+	return nil
+}
+
+// ValidateAccessToken verifies that the supplied access token is valid and resolves to a
+// live user, returning NotAuthorizedException otherwise. It is used by access-token-scoped
+// operations that have no persistent state to mutate but must still authenticate the token.
+func (b *InMemoryBackend) ValidateAccessToken(accessToken string) error {
+	b.mu.RLock("ValidateAccessToken")
+	defer b.mu.RUnlock()
+
+	if _, err := b.findUserByAccessTokenLocked(accessToken); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ValidatePoolUser validates that a pool and a user within it both exist. It is used by
+// operations that have nothing to mutate but must still reject unknown pools/users with
+// the AWS-accurate error shape.
+func (b *InMemoryBackend) ValidatePoolUser(userPoolID, username string) error {
+	b.mu.RLock("ValidatePoolUser")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	return nil
+}
+
+// AdminGetDevice validates the pool, user and device key, then reports that the device
+// is not tracked. Cognito devices are only ever created through the device-tracking
+// flow (ConfirmDevice), which this mock does not persist, so any lookup resolves to a
+// ResourceNotFoundException — matching AWS behaviour for an unknown device key.
+func (b *InMemoryBackend) AdminGetDevice(userPoolID, username, deviceKey string) error {
+	b.mu.RLock("AdminGetDevice")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	if deviceKey == "" {
+		return fmt.Errorf("%w: DeviceKey is required", ErrInvalidParameter)
+	}
+
+	return fmt.Errorf("%w: device %q not found", ErrUserPoolNotFound, deviceKey)
 }
 
 // AdminForgetDevice forgets a device for a user. Since this mock does not track devices,

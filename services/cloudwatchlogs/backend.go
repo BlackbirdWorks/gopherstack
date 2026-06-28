@@ -31,6 +31,7 @@ const (
 	keyMessageField  = "@message"
 	keyTimestamp     = "@timestamp"
 	keyIngestionTime = "@ingestionTime"
+	keyLogStream     = "@logStream"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -3845,7 +3846,7 @@ func standardLogGroupFields() []LogGroupField {
 		{Name: keyMessageField, Percent: pct},
 		{Name: keyTimestamp, Percent: pct},
 		{Name: keyIngestionTime, Percent: pct},
-		{Name: "@logStream", Percent: pct},
+		{Name: keyLogStream, Percent: pct},
 	}
 }
 
@@ -3920,7 +3921,7 @@ func (b *InMemoryBackend) GetLogRecord(
 		keyMessageField:  ev.Message,
 		keyTimestamp:     strconv.FormatInt(ev.Timestamp, 10),
 		keyIngestionTime: strconv.FormatInt(ev.IngestionTime, 10),
-		"@logStream":     streamName,
+		keyLogStream:     streamName,
 		"@logGroup":      groupName,
 	}
 

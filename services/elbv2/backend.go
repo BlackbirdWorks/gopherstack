@@ -54,6 +54,10 @@ var (
 		"InvalidConfigurationRequest",
 		awserr.ErrInvalidParameter,
 	)
+	// ErrResourcePolicyNotFound is returned when no resource policy is set for a resource.
+	ErrResourcePolicyNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrTrustStoreAssociationNotFound is returned when a shared trust store association does not exist.
+	ErrTrustStoreAssociationNotFound = awserr.New("AssociationNotFound", awserr.ErrNotFound)
 )
 
 // LoadBalancerState represents the state of a load balancer.
@@ -76,22 +80,32 @@ type SubnetMapping struct {
 	IPv6Address        string
 }
 
+// CapacityReservation holds the capacity reservation state for a load balancer,
+// as set by ModifyCapacityReservation and read by DescribeCapacityReservation.
+type CapacityReservation struct {
+	LastModifiedTime          time.Time `json:"lastModifiedTime"`
+	MinimumCapacityUnits      int32     `json:"minimumCapacityUnits"`
+	DecreaseRequestsRemaining int32     `json:"decreaseRequestsRemaining"`
+}
+
 // LoadBalancer represents an ELBv2 load balancer.
 type LoadBalancer struct {
-	CreatedTime           time.Time          `json:"createdTime"`
-	State                 LoadBalancerState  `json:"state"`
-	Tags                  *tags.Tags         `json:"tags,omitempty"`
-	Attributes            map[string]string  `json:"attributes,omitempty"`
-	LoadBalancerArn       string             `json:"loadBalancerArn"`
-	LoadBalancerName      string             `json:"loadBalancerName"`
-	DNSName               string             `json:"dnsName"`
-	CanonicalHostedZoneID string             `json:"canonicalHostedZoneId"`
-	VpcID                 string             `json:"vpcId"`
-	Scheme                string             `json:"scheme"`
-	Type                  string             `json:"type"`
-	IPAddressType         string             `json:"ipAddressType"`
-	AvailabilityZones     []AvailabilityZone `json:"availabilityZones"`
-	SecurityGroups        []string           `json:"securityGroups"`
+	CreatedTime           time.Time            `json:"createdTime"`
+	State                 LoadBalancerState    `json:"state"`
+	Tags                  *tags.Tags           `json:"tags,omitempty"`
+	Attributes            map[string]string    `json:"attributes,omitempty"`
+	CapacityReservation   *CapacityReservation `json:"capacityReservation,omitempty"`
+	LoadBalancerArn       string               `json:"loadBalancerArn"`
+	LoadBalancerName      string               `json:"loadBalancerName"`
+	DNSName               string               `json:"dnsName"`
+	CanonicalHostedZoneID string               `json:"canonicalHostedZoneId"`
+	VpcID                 string               `json:"vpcId"`
+	Scheme                string               `json:"scheme"`
+	Type                  string               `json:"type"`
+	IPAddressType         string               `json:"ipAddressType"`
+	IPv4IPAMPoolID        string               `json:"ipv4IpamPoolId,omitempty"`
+	AvailabilityZones     []AvailabilityZone   `json:"availabilityZones"`
+	SecurityGroups        []string             `json:"securityGroups"`
 }
 
 // TargetGroup represents an ELBv2 target group.
@@ -323,6 +337,15 @@ type StorageBackend interface {
 	RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []string) error
 	DescribeTrustStoreRevocations(trustStoreArn string) ([]TrustStoreRevocation, error)
 	DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error)
+	DeleteSharedTrustStoreAssociation(trustStoreArn, resourceArn string) error
+	// Capacity reservation operations.
+	ModifyCapacityReservation(lbArn string, minimumCapacityUnits *int32, reset bool) (*CapacityReservation, error)
+	DescribeCapacityReservation(lbArn string) (*CapacityReservation, error)
+	// IP pool operations.
+	ModifyIPPools(lbArn string, ipv4PoolID *string, removeIPv4 bool) (*LoadBalancer, error)
+	// Resource policy operations.
+	GetResourcePolicy(resourceArn string) (string, error)
+	PutResourcePolicy(resourceArn, policy string) error
 	// Rule priority operations.
 	SetRulePriorities(priorities []RulePriority) ([]Rule, error)
 	// Listener certificate operations.
@@ -431,11 +454,14 @@ const (
 )
 
 type InMemoryBackend struct {
-	loadBalancers       map[string]*LoadBalancer        // keyed by ARN
-	targetGroups        map[string]*TargetGroup         // keyed by ARN
-	listeners           map[string]*Listener            // keyed by ARN
-	rules               map[string]*Rule                // keyed by ARN
-	trustStores         map[string]*TrustStore          // keyed by ARN
+	loadBalancers map[string]*LoadBalancer // keyed by ARN
+	targetGroups  map[string]*TargetGroup  // keyed by ARN
+	listeners     map[string]*Listener     // keyed by ARN
+	rules         map[string]*Rule         // keyed by ARN
+	trustStores   map[string]*TrustStore   // keyed by ARN
+	// resourcePolicies stores resource policies keyed by ResourceArn.
+	resourcePolicies map[string]string
+	// lifecycle: tracks when initial targets become healthy / start draining.
 	targetReadyAt       map[string]map[string]time.Time // tgArn → targetKey → readyAt (initial→healthy)
 	targetDrainingUntil map[string]map[string]time.Time // tgArn → targetKey → drainExpiresAt
 	mu                  *lockmetrics.RWMutex
@@ -453,6 +479,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		listeners:           make(map[string]*Listener),
 		rules:               make(map[string]*Rule),
 		trustStores:         make(map[string]*TrustStore),
+		resourcePolicies:    make(map[string]string),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("elbv2"),
@@ -927,7 +954,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 
 	ipType := input.IPAddressType
 	if ipType == "" {
-		ipType = "ipv4"
+		ipType = ipAddressTypeIPv4
 	}
 
 	t := tags.New("elbv2.lb." + input.Name + ".tags")
@@ -1256,7 +1283,7 @@ func (b *InMemoryBackend) SetIPAddressType(lbArn string, ipType string) (*LoadBa
 	}
 
 	switch ipType {
-	case "ipv4", "dualstack", "dualstack-without-public-ipv4":
+	case ipAddressTypeIPv4, "dualstack", "dualstack-without-public-ipv4":
 		// valid
 	default:
 		return nil, fmt.Errorf(
@@ -1842,6 +1869,7 @@ func (b *InMemoryBackend) SetTargetHealthState(
 
 const (
 	healthStateHealthy = "healthy"
+	ipAddressTypeIPv4  = "ipv4"
 	protoHTTP          = "HTTP"
 	protoHTTPS         = "HTTPS"
 	protoTLS           = "TLS"
@@ -2710,6 +2738,146 @@ func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) (
 	}
 
 	return result, nil
+}
+
+// DeleteSharedTrustStoreAssociation removes the association between a trust store and a
+// resource (listener). The association exists when the listener's MutualAuthentication
+// references the trust store; deleting it clears that reference.
+func (b *InMemoryBackend) DeleteSharedTrustStoreAssociation(trustStoreArn, resourceArn string) error {
+	b.mu.Lock("DeleteSharedTrustStoreAssociation")
+	defer b.mu.Unlock()
+
+	if _, ok := b.trustStores[trustStoreArn]; !ok {
+		return ErrTrustStoreNotFound
+	}
+
+	listener, ok := b.listeners[resourceArn]
+	if !ok || listener.MutualAuthentication == nil ||
+		listener.MutualAuthentication.TrustStoreArn != trustStoreArn {
+		return ErrTrustStoreAssociationNotFound
+	}
+
+	listener.MutualAuthentication.TrustStoreArn = ""
+
+	return nil
+}
+
+const defaultDecreaseRequestsRemaining = 5
+
+// ModifyCapacityReservation persists capacity reservation state on a load balancer.
+func (b *InMemoryBackend) ModifyCapacityReservation(
+	lbArn string, minimumCapacityUnits *int32, reset bool,
+) (*CapacityReservation, error) {
+	b.mu.Lock("ModifyCapacityReservation")
+	defer b.mu.Unlock()
+
+	lb, ok := b.loadBalancers[lbArn]
+	if !ok {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	if reset {
+		lb.CapacityReservation = nil
+
+		return &CapacityReservation{
+			DecreaseRequestsRemaining: defaultDecreaseRequestsRemaining,
+			LastModifiedTime:          time.Now().UTC(),
+		}, nil
+	}
+
+	cr := lb.CapacityReservation
+	if cr == nil {
+		cr = &CapacityReservation{DecreaseRequestsRemaining: defaultDecreaseRequestsRemaining}
+	}
+
+	if minimumCapacityUnits != nil {
+		// A decrease consumes one of the daily decrease requests.
+		if *minimumCapacityUnits < cr.MinimumCapacityUnits && cr.DecreaseRequestsRemaining > 0 {
+			cr.DecreaseRequestsRemaining--
+		}
+
+		cr.MinimumCapacityUnits = *minimumCapacityUnits
+	}
+
+	cr.LastModifiedTime = time.Now().UTC()
+	lb.CapacityReservation = cr
+
+	cp := *cr
+
+	return &cp, nil
+}
+
+// DescribeCapacityReservation returns the capacity reservation state for a load balancer.
+func (b *InMemoryBackend) DescribeCapacityReservation(lbArn string) (*CapacityReservation, error) {
+	b.mu.RLock("DescribeCapacityReservation")
+	defer b.mu.RUnlock()
+
+	lb, ok := b.loadBalancers[lbArn]
+	if !ok {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	if lb.CapacityReservation == nil {
+		return &CapacityReservation{
+			DecreaseRequestsRemaining: defaultDecreaseRequestsRemaining,
+		}, nil
+	}
+
+	cp := *lb.CapacityReservation
+
+	return &cp, nil
+}
+
+// ModifyIPPools updates the IPAM pool configuration on a load balancer.
+func (b *InMemoryBackend) ModifyIPPools(
+	lbArn string, ipv4PoolID *string, removeIPv4 bool,
+) (*LoadBalancer, error) {
+	b.mu.Lock("ModifyIPPools")
+	defer b.mu.Unlock()
+
+	lb, ok := b.loadBalancers[lbArn]
+	if !ok {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	if removeIPv4 {
+		lb.IPv4IPAMPoolID = ""
+	}
+
+	if ipv4PoolID != nil {
+		lb.IPv4IPAMPoolID = *ipv4PoolID
+	}
+
+	cp := *lb
+
+	return &cp, nil
+}
+
+// GetResourcePolicy returns the stored resource policy for a resource ARN.
+func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, error) {
+	b.mu.RLock("GetResourcePolicy")
+	defer b.mu.RUnlock()
+
+	policy, ok := b.resourcePolicies[resourceArn]
+	if !ok {
+		return "", ErrResourcePolicyNotFound
+	}
+
+	return policy, nil
+}
+
+// PutResourcePolicy stores a resource policy keyed by resource ARN.
+func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy string) error {
+	b.mu.Lock("PutResourcePolicy")
+	defer b.mu.Unlock()
+
+	if b.resourcePolicies == nil {
+		b.resourcePolicies = make(map[string]string)
+	}
+
+	b.resourcePolicies[resourceArn] = policy
+
+	return nil
 }
 
 // AddListenerCertificates adds certificates to a listener.

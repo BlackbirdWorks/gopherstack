@@ -4438,6 +4438,52 @@ func (b *InMemoryBackend) ListCapacityProviders() []*CapacityProvider {
 	return cps
 }
 
+// SeedCapacityProviderFunctionVersions assigns the given function-version ARNs to
+// the named capacity provider. AWS exposes no public assignment API in this
+// emulator's surface, so this internal helper is the only way to populate the
+// assignments observed by ListFunctionVersionsByCapacityProvider (primarily for
+// tests). It returns ErrFunctionNotFound if the provider does not exist.
+func (b *InMemoryBackend) SeedCapacityProviderFunctionVersions(
+	name string,
+	versions ...string,
+) error {
+	b.mu.Lock("SeedCapacityProviderFunctionVersions")
+	defer b.mu.Unlock()
+
+	cp, ok := b.capacityProviders[name]
+	if !ok {
+		return ErrFunctionNotFound
+	}
+
+	cp.AssignedFunctionVersions = append(cp.AssignedFunctionVersions, versions...)
+
+	return nil
+}
+
+// ListFunctionVersionsByCapacityProvider returns a page of function-version ARNs
+// assigned to the named capacity provider. It returns ErrFunctionNotFound if the
+// provider does not exist. Assignments are populated only via the internal
+// SeedCapacityProviderFunctionVersions helper, since AWS exposes no public
+// assignment API in this emulator's surface.
+func (b *InMemoryBackend) ListFunctionVersionsByCapacityProvider(
+	name, marker string,
+	maxItems int,
+) (page.Page[string], error) {
+	b.mu.RLock("ListFunctionVersionsByCapacityProvider")
+	defer b.mu.RUnlock()
+
+	cp, ok := b.capacityProviders[name]
+	if !ok {
+		return page.Page[string]{}, ErrFunctionNotFound
+	}
+
+	versions := make([]string, len(cp.AssignedFunctionVersions))
+	copy(versions, cp.AssignedFunctionVersions)
+	sort.Strings(versions)
+
+	return page.New(versions, marker, maxItems, lambdaDefaultMaxItems), nil
+}
+
 // --- Account settings ---
 
 // accountDefaultCodeSizeZipped is the default Lambda zip package size limit (50 MB).

@@ -10,6 +10,8 @@ import (
 
 type backendSnapshot struct {
 	DedicatedIPPools            map[string]*DedicatedIPPool                 `json:"dedicatedIPPools"`
+	DedicatedIPs                map[string]*DedicatedIP                     `json:"dedicatedIPs"`
+	ReputationEntities          map[string]*ReputationEntity                `json:"reputationEntities"`
 	EmailIdentityPolicies       map[string]map[string]string                `json:"emailIdentityPolicies"`
 	EventDestinations           map[string]map[string]*EventDestination     `json:"eventDestinations"`
 	ContactLists                map[string]*ContactList                     `json:"contactLists"`
@@ -65,6 +67,14 @@ func ensureCoreMaps(s *backendSnapshot) {
 
 	if s.DedicatedIPPools == nil {
 		s.DedicatedIPPools = make(map[string]*DedicatedIPPool)
+	}
+
+	if s.DedicatedIPs == nil {
+		s.DedicatedIPs = make(map[string]*DedicatedIP)
+	}
+
+	if s.ReputationEntities == nil {
+		s.ReputationEntities = make(map[string]*ReputationEntity)
 	}
 
 	if s.DeliverabilityTestReports == nil {
@@ -128,6 +138,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Contacts:                    b.contacts,
 		CustomVerificationTemplates: b.customVerificationTemplates,
 		DedicatedIPPools:            b.dedicatedIPPools,
+		DedicatedIPs:                b.dedicatedIPs,
+		ReputationEntities:          b.reputationEntities,
 		DeliverabilityTestReports:   b.deliverabilityTestReports,
 		EmailTemplates:              b.emailTemplates,
 		ExportJobs:                  b.exportJobs,
@@ -176,6 +188,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.contacts = snap.Contacts
 	b.customVerificationTemplates = snap.CustomVerificationTemplates
 	b.dedicatedIPPools = snap.DedicatedIPPools
+	b.dedicatedIPs = snap.DedicatedIPs
+	b.reputationEntities = snap.ReputationEntities
 	b.deliverabilityTestReports = snap.DeliverabilityTestReports
 	b.emailTemplates = snap.EmailTemplates
 	b.exportJobs = snap.ExportJobs

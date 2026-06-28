@@ -355,9 +355,18 @@ type ImageReferrer struct {
 
 // ImageReplicationStatusResult stores image replication status.
 type ImageReplicationStatusResult struct {
-	ImageID           ImageIdentifier `json:"imageId"`
-	RepositoryName    string          `json:"repositoryName"`
-	ReplicationStatus string          `json:"replicationStatus"`
+	ImageID             ImageIdentifier               `json:"imageId"`
+	RepositoryName      string                        `json:"repositoryName"`
+	ReplicationStatuses []ImageReplicationStatusEntry `json:"replicationStatuses"`
+}
+
+// ImageReplicationStatusEntry is the replication status for a single destination.
+type ImageReplicationStatusEntry struct {
+	Region        string `json:"region,omitempty"`
+	RegistryID    string `json:"registryId,omitempty"`
+	Status        string `json:"status"`
+	FailureCode   string `json:"failureCode,omitempty"`
+	FailureReason string `json:"failureReason,omitempty"`
 }
 
 // ImageStorageClassResult stores the image status after storage class updates.
@@ -2128,15 +2137,40 @@ func (b *InMemoryBackend) DescribeImageReplicationStatus(
 	b.mu.RLock("DescribeImageReplicationStatus")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
+	}
+
+	// Compute one replication status entry per destination configured in the
+	// registry replication configuration. If no replication configuration is
+	// set, the list is empty (AWS-accurate).
+	statuses := []ImageReplicationStatusEntry{}
+	if b.replicationConfig != nil {
+		for _, rule := range b.replicationConfig.Rules {
+			for _, dest := range rule.Destinations {
+				registryID := dest.RegistryID
+				if registryID == "" {
+					registryID = b.accountID
+				}
+
+				statuses = append(statuses, ImageReplicationStatusEntry{
+					Region:     dest.Region,
+					RegistryID: registryID,
+					Status:     scanStatusComplete,
+				})
+			}
+		}
 	}
 
 	return &ImageReplicationStatusResult{
-		ImageID:           img.ImageID,
-		RepositoryName:    repositoryName,
-		ReplicationStatus: scanStatusComplete,
+		ImageID:             img.ImageID,
+		RepositoryName:      repositoryName,
+		ReplicationStatuses: statuses,
 	}, nil
 }
 

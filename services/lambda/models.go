@@ -623,11 +623,12 @@ type ListFunctionsByCodeSigningConfigOutput struct {
 
 // CapacityProvider holds a Lambda capacity provider configuration.
 type CapacityProvider struct {
-	CapacityProviderArn       string `json:"CapacityProviderArn"`
-	LastModifiedTime          string `json:"LastModifiedTime"`
-	Name                      string `json:"Name"`
-	Status                    string `json:"Status,omitempty"`
-	TargetOnDemandConcurrency int    `json:"TargetOnDemandConcurrency,omitempty"`
+	CapacityProviderArn       string   `json:"CapacityProviderArn"`
+	LastModifiedTime          string   `json:"LastModifiedTime"`
+	Name                      string   `json:"Name"`
+	Status                    string   `json:"Status,omitempty"`
+	AssignedFunctionVersions  []string `json:"-"`
+	TargetOnDemandConcurrency int      `json:"TargetOnDemandConcurrency,omitempty"`
 }
 
 // CreateCapacityProviderInput is the request body for CreateCapacityProvider.

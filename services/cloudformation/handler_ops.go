@@ -660,7 +660,14 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 }
 
 func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) error {
-	_ = h.Backend.StopStackSetOperation(form.Get("StackSetName"), form.Get("OperationId"))
+	if err := h.Backend.StopStackSetOperation(form.Get("StackSetName"), form.Get("OperationId")); err != nil {
+		code := "OperationNotFoundException"
+		if errors.Is(err, ErrOperationNotRunning) {
+			code = "InvalidOperationException"
+		}
+
+		return h.xmlError(c, code, err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"StopStackSetOperationResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -675,7 +682,10 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 }
 
 func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *echo.Context) error {
-	targets, _ := h.Backend.ListStackSetAutoDeploymentTargets(form.Get("StackSetName"))
+	targets, err := h.Backend.ListStackSetAutoDeploymentTargets(form.Get("StackSetName"))
+	if err != nil {
+		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+	}
 	type result struct {
 		Targets []AutoDeploymentTarget `xml:"Targets>member"`
 	}
@@ -774,7 +784,9 @@ func (h *Handler) handleUpdateGeneratedTemplate(form url.Values, c *echo.Context
 }
 
 func (h *Handler) handleDeleteGeneratedTemplate(form url.Values, c *echo.Context) error {
-	_ = h.Backend.DeleteGeneratedTemplate(form.Get("GeneratedTemplateId"))
+	if err := h.Backend.DeleteGeneratedTemplate(form.Get("GeneratedTemplateId")); err != nil {
+		return h.xmlError(c, "GeneratedTemplateNotFoundException", err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"DeleteGeneratedTemplateResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -1005,7 +1017,9 @@ func (h *Handler) handleListResourceScanRelatedResources(form url.Values, c *ech
 // ---- Type management handlers ----
 
 func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
-	_ = h.Backend.ActivateType(form.Get("TypeName"), form.Get("TypeArn"))
+	if err := h.Backend.ActivateType(form.Get("TypeName"), form.Get("TypeArn")); err != nil {
+		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ActivateTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -1016,7 +1030,9 @@ func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleDeactivateType(form url.Values, c *echo.Context) error {
-	_ = h.Backend.DeactivateType(form.Get("TypeName"), form.Get("TypeArn"))
+	if err := h.Backend.DeactivateType(form.Get("TypeName"), form.Get("TypeArn")); err != nil {
+		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"DeactivateTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -1063,7 +1079,9 @@ func (h *Handler) handleDeregisterType(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handlePublishType(form url.Values, c *echo.Context) error {
-	_ = h.Backend.PublishType(form.Get("TypeName"))
+	if err := h.Backend.PublishType(form.Get("TypeName")); err != nil {
+		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"PublishTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -1596,7 +1614,16 @@ func (h *Handler) handleUpdateTerminationProtection(form url.Values, c *echo.Con
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	var stackID string
+	if stack, err := h.Backend.DescribeStack(name); err == nil {
+		stackID = stack.StackID
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cfnNS,
+		Result:    result{StackID: stackID},
+		RequestID: uuid.New().String(),
+	})
 }
 
 func (h *Handler) handleValidateTemplate(form url.Values, c *echo.Context) error {

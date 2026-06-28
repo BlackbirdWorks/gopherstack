@@ -44,8 +44,11 @@ type backendSnapshot struct {
 	TenantDatabases           map[string]*TenantDatabase                    `json:"tenantDatabases"`
 	ClusterAutomatedBackups   map[string]*DBClusterAutomatedBackup          `json:"clusterAutomatedBackups"`
 	SnapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase        `json:"snapshotTenantDatabases"`
+	InstanceLogFiles          map[string][]DBLogFile                        `json:"instanceLogFiles"`
+	InstanceLogContent        map[string]map[string]string                  `json:"instanceLogContent"`
 	AccountID                 string                                        `json:"accountID"`
 	Region                    string                                        `json:"region"`
+	DefaultCACertificateID    string                                        `json:"defaultCACertificateID"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -91,6 +94,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		TenantDatabases:           b.tenantDatabases,
 		ClusterAutomatedBackups:   b.clusterAutomatedBackups,
 		SnapshotTenantDatabases:   b.snapshotTenantDatabases,
+		InstanceLogFiles:          b.instanceLogFiles,
+		InstanceLogContent:        b.instanceLogContent,
+		DefaultCACertificateID:    b.defaultCACertificateID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -157,6 +163,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.tenantDatabases = snap.TenantDatabases
 	b.clusterAutomatedBackups = snap.ClusterAutomatedBackups
 	b.snapshotTenantDatabases = snap.SnapshotTenantDatabases
+	b.instanceLogFiles = snap.InstanceLogFiles
+	b.instanceLogContent = snap.InstanceLogContent
+	if snap.DefaultCACertificateID != "" {
+		b.defaultCACertificateID = snap.DefaultCACertificateID
+	} else {
+		b.defaultCACertificateID = defaultCACertificateID
+	}
 	// FIS fault state is transient — clear it on restore so stale faults are not retained.
 	b.fisFailoverFaults = make(map[string]time.Time)
 
@@ -314,6 +327,14 @@ func ensureNonNilBatch1Maps(snap *backendSnapshot) {
 
 	if snap.SnapshotTenantDatabases == nil {
 		snap.SnapshotTenantDatabases = make(map[string][]*DBSnapshotTenantDatabase)
+	}
+
+	if snap.InstanceLogFiles == nil {
+		snap.InstanceLogFiles = make(map[string][]DBLogFile)
+	}
+
+	if snap.InstanceLogContent == nil {
+		snap.InstanceLogContent = make(map[string]map[string]string)
 	}
 }
 

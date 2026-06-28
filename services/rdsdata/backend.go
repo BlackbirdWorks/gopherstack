@@ -94,6 +94,7 @@ type InMemoryBackend struct {
 	transactions       map[string]map[string]*Transaction
 	executedStatements map[string][]ExecutedStatement
 	txCounter          map[string]int
+	engine             *sqlEngine
 	mu                 *lockmetrics.RWMutex
 	accountID          string
 	defaultRegion      string
@@ -105,6 +106,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		transactions:       make(map[string]map[string]*Transaction),
 		executedStatements: make(map[string][]ExecutedStatement),
 		txCounter:          make(map[string]int),
+		engine:             newSQLEngine(),
 		mu:                 lockmetrics.New("rdsdata"),
 		accountID:          accountID,
 		defaultRegion:      region,
@@ -144,6 +146,7 @@ func (b *InMemoryBackend) Reset() {
 	b.transactions = make(map[string]map[string]*Transaction)
 	b.executedStatements = make(map[string][]ExecutedStatement)
 	b.txCounter = make(map[string]int)
+	b.engine.reset()
 }
 
 // appendStatementLocked records an executed statement and trims the buffer to
@@ -165,10 +168,12 @@ func (b *InMemoryBackend) appendStatementLocked(region, resourceARN, sql, transa
 	b.executedStatements[region] = stmts
 }
 
-// ExecuteStatement executes a SQL statement and returns an empty result set.
+// ExecuteStatement executes a SQL statement and returns its result set. Named
+// parameters (e.g. ":id") are bound when supplied.
 func (b *InMemoryBackend) ExecuteStatement(
 	ctx context.Context,
 	resourceARN, sql, transactionID string,
+	parameters ...SQLParameter,
 ) ([][]Field, []ColumnMetadata, int64, error) {
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
@@ -187,7 +192,16 @@ func (b *InMemoryBackend) ExecuteStatement(
 
 	b.appendStatementLocked(region, resourceARN, sql, transactionID)
 
-	return [][]Field{}, []ColumnMetadata{}, 0, nil
+	// Execute against the real in-memory SQL engine. A genuine result set is
+	// returned for well-formed statements; anything the engine rejects (for
+	// example DML against a table the caller never created) degrades to the
+	// historical empty-success envelope rather than surfacing an error.
+	records, columns, updated, err := b.engine.execute(ctx, region, resourceARN, sql, transactionID, parameters)
+	if err != nil {
+		return [][]Field{}, []ColumnMetadata{}, 0, nil
+	}
+
+	return records, columns, updated, nil
 }
 
 // BatchExecuteStatement executes a batch of SQL statements and returns results for each.
@@ -214,11 +228,20 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	b.appendStatementLocked(region, resourceARN, sql, transactionID)
 
 	if len(parameterSets) == 0 {
+		// A parameterless batch still executes the statement once so DDL such
+		// as CREATE TABLE takes effect; the engine error is ignored to keep the
+		// historical lenient behaviour.
+		_, _, _, _ = b.engine.execute(ctx, region, resourceARN, sql, transactionID, nil)
+
 		return []UpdateResult{}, nil
 	}
 
 	results := make([]UpdateResult, len(parameterSets))
-	for i := range results {
+
+	for i, params := range parameterSets {
+		// Run each parameter set so inserts/updates actually land in the engine;
+		// generatedFields stays empty, matching the current response model.
+		_, _, _, _ = b.engine.execute(ctx, region, resourceARN, sql, transactionID, params)
 		results[i] = UpdateResult{GeneratedFields: []Field{}}
 	}
 
@@ -226,7 +249,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 }
 
 // BeginTransaction starts a new transaction and returns its ID.
-func (b *InMemoryBackend) BeginTransaction(ctx context.Context, _ string) (string, error) {
+func (b *InMemoryBackend) BeginTransaction(ctx context.Context, resourceARN string) (string, error) {
 	b.mu.Lock("BeginTransaction")
 	defer b.mu.Unlock()
 
@@ -239,6 +262,11 @@ func (b *InMemoryBackend) BeginTransaction(ctx context.Context, _ string) (strin
 		TransactionID: id,
 		Status:        transactionStatusActive,
 	}
+
+	// Open a matching engine-side transaction so statements tagged with this ID
+	// share atomic visibility. A failure here is non-fatal: such statements
+	// fall back to autocommit execution.
+	_ = b.engine.beginTx(ctx, region, resourceARN, id)
 
 	return id, nil
 }
@@ -259,6 +287,7 @@ func (b *InMemoryBackend) CommitTransaction(
 	}
 
 	delete(store, transactionID)
+	b.engine.finalizeTx(transactionID, true)
 
 	return transactionStatusCommitted, nil
 }
@@ -279,6 +308,7 @@ func (b *InMemoryBackend) RollbackTransaction(
 	}
 
 	delete(store, transactionID)
+	b.engine.finalizeTx(transactionID, false)
 
 	return transactionStatusRolledBack, nil
 }
@@ -295,7 +325,14 @@ func (b *InMemoryBackend) ExecuteSQL(
 	region := getRegion(ctx, b.defaultRegion)
 	b.appendStatementLocked(region, resourceARN, sqlStatements, "")
 
-	return []SQLStatementResult{{NumberOfRecordsUpdated: 0}}, nil
+	// Execute for real so the deprecated entry point still mutates state; the
+	// reported update count reflects the engine result when available.
+	_, _, updated, err := b.engine.execute(ctx, region, resourceARN, sqlStatements, "", nil)
+	if err != nil {
+		return []SQLStatementResult{{NumberOfRecordsUpdated: 0}}, nil
+	}
+
+	return []SQLStatementResult{{NumberOfRecordsUpdated: updated}}, nil
 }
 
 // ListExecutedStatements returns a copy of all executed statements for the request's region.

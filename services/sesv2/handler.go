@@ -748,6 +748,15 @@ type suppressionOptionsOutput struct {
 	SuppressedReasons []string `json:"SuppressedReasons,omitempty"`
 }
 
+type archivingOptionsOutput struct {
+	ArchiveARN string `json:"ArchiveArn,omitempty"`
+}
+
+type vdmOptionsOutput struct {
+	DashboardOptions map[string]any `json:"DashboardOptions,omitempty"`
+	GuardianOptions  map[string]any `json:"GuardianOptions,omitempty"`
+}
+
 type createConfigurationSetOutput struct{}
 
 type getConfigurationSetOutput struct {
@@ -756,6 +765,8 @@ type getConfigurationSetOutput struct {
 	ReputationOptions    *reputationOptionsOutput  `json:"ReputationOptions,omitempty"`
 	SendingOptions       *sendingOptionsOutput     `json:"SendingOptions,omitempty"`
 	SuppressionOptions   *suppressionOptionsOutput `json:"SuppressionOptions,omitempty"`
+	ArchivingOptions     *archivingOptionsOutput   `json:"ArchivingOptions,omitempty"`
+	VdmOptions           *vdmOptionsOutput         `json:"VdmOptions,omitempty"`
 	ConfigurationSetName string                    `json:"ConfigurationSetName"`
 	Tags                 []tagEntry                `json:"Tags,omitempty"`
 }
@@ -991,6 +1002,19 @@ func (h *Handler) handleGetConfigurationSet(name string) (any, error) {
 	if len(cs.SuppressionReasons) > 0 {
 		out.SuppressionOptions = &suppressionOptionsOutput{
 			SuppressedReasons: cs.SuppressionReasons,
+		}
+	}
+
+	if cs.ArchivingOptions != nil {
+		out.ArchivingOptions = &archivingOptionsOutput{
+			ArchiveARN: cs.ArchivingOptions.ArchiveARN,
+		}
+	}
+
+	if cs.VdmOptions != nil {
+		out.VdmOptions = &vdmOptionsOutput{
+			DashboardOptions: cs.VdmOptions.DashboardOptions,
+			GuardianOptions:  cs.VdmOptions.GuardianOptions,
 		}
 	}
 

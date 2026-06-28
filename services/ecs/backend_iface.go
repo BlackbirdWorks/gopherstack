@@ -47,7 +47,7 @@ type Backend interface {
 		cluster string,
 		containerInstances []string,
 	) ([]ContainerInstance, []Failure, error)
-	ListContainerInstances(cluster string) ([]string, error)
+	ListContainerInstances(cluster, status string) ([]string, error)
 	UpdateContainerInstancesState(
 		cluster string,
 		containerInstances []string,

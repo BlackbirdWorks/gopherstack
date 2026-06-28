@@ -34,13 +34,13 @@ type StorageBackend interface {
 	DeleteConfigurationSet(name string) error
 
 	// Configuration set attribute ops
-	PutConfigurationSetArchivingOptions(name string) error
+	PutConfigurationSetArchivingOptions(name, archiveARN string) error
 	PutConfigurationSetDeliveryOptions(name, tlsPolicy, sendingPoolName string) error
 	PutConfigurationSetReputationOptions(name string, metricsEnabled bool) error
 	PutConfigurationSetSendingOptions(name string, sendingEnabled bool) error
 	PutConfigurationSetSuppressionOptions(name string, suppressedReasons []string) error
 	PutConfigurationSetTrackingOptions(name, customRedirectDomain, httpsPolicy string) error
-	PutConfigurationSetVdmOptions(name string) error
+	PutConfigurationSetVdmOptions(name string, dashboardOptions, guardianOptions map[string]any) error
 
 	// Event destination ops
 	CreateConfigurationSetEventDestination(
@@ -103,7 +103,7 @@ type StorageBackend interface {
 	GetDedicatedIps() []map[string]any
 	PutDedicatedIPInPool(ip, poolName string) error
 	PutDedicatedIPPoolScalingAttributes(poolName, scalingMode string) error
-	PutDedicatedIPWarmupAttributes(ip, warmupStatus string) error
+	PutDedicatedIPWarmupAttributes(ip string, warmupPercentage int) error
 
 	// Deliverability test report ops
 	CreateDeliverabilityTestReport(
@@ -186,7 +186,7 @@ type StorageBackend interface {
 	// Reputation entity ops (stubs)
 	GetReputationEntity(entityID string) (map[string]any, error)
 	ListReputationEntities(nextToken string, pageSize int) ([]map[string]any, string, error)
-	UpdateReputationEntityCustomerManagedStatus(entityID string) error
+	UpdateReputationEntityCustomerManagedStatus(entityID, status string) error
 	UpdateReputationEntityPolicy(entityID, policy string) error
 
 	// Metrics

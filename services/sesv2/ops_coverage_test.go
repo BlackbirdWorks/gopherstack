@@ -497,6 +497,12 @@ func TestOps_PutDedicatedIPInPool(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
+
+	doRequest(t, h, http.MethodPost, "/v2/email/dedicated-ip-pools", map[string]any{
+		"PoolName":    "test-pool",
+		"ScalingMode": "STANDARD",
+	})
+
 	rec := doRequest(t, h, http.MethodPut, "/v2/email/dedicated-ips/1.2.3.4/pool", map[string]any{
 		"DestinationPoolName": "test-pool",
 	})

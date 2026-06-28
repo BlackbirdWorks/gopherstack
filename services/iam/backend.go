@@ -230,7 +230,9 @@ type StorageBackend interface {
 	DeleteVirtualMFADevice(serialNumber string) error
 	EnableMFADevice(userName, serialNumber, authCode1, authCode2 string) error
 	DeactivateMFADevice(userName, serialNumber string) error
+	ResyncMFADevice(userName, serialNumber, authCode1, authCode2 string) error
 	GetMFADeviceOwner(serialNumber string) string
+	GetVirtualMFADevice(serialNumber string) (VirtualMFADevice, string, error)
 	ListMFADevicesForUser(userName string) ([]VirtualMFADevice, error)
 
 	// SSH Public Keys

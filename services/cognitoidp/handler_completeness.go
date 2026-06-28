@@ -2,6 +2,7 @@ package cognitoidp
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -101,7 +102,15 @@ type adminGetDeviceOutput struct {
 	Device *deviceType `json:"Device,omitempty"`
 }
 
-func (h *Handler) handleAdminGetDevice(_ context.Context, _ *adminGetDeviceInput) (*adminGetDeviceOutput, error) {
+// handleAdminGetDevice validates the pool/user/device key and returns
+// ResourceNotFoundException. This mock never persists tracked devices (Cognito only
+// creates them through the device-tracking flow, which is not implemented), so a
+// device lookup can never succeed — validation-only by necessity.
+func (h *Handler) handleAdminGetDevice(_ context.Context, in *adminGetDeviceInput) (*adminGetDeviceOutput, error) {
+	if err := h.Backend.AdminGetDevice(in.UserPoolID, in.Username, in.DeviceKey); err != nil {
+		return nil, err
+	}
+
 	return &adminGetDeviceOutput{Device: &deviceType{}}, nil
 }
 
@@ -113,11 +122,38 @@ type adminLinkProviderForUserInput struct {
 
 type adminLinkProviderForUserOutput struct{}
 
+// handleAdminLinkProviderForUser links the external provider identity (SourceUser) to the
+// target native user (DestinationUser) and records the link in backend state. The
+// destination native user is identified by its ProviderAttributeValue (the Cognito
+// username), matching the AWS ProviderUserIdentifierType shape.
 func (h *Handler) handleAdminLinkProviderForUser(
 	_ context.Context,
-	_ *adminLinkProviderForUserInput,
+	in *adminLinkProviderForUserInput,
 ) (*adminLinkProviderForUserOutput, error) {
+	destUsername := providerIdentifierField(in.DestinationUser, "ProviderAttributeValue")
+
+	source := LinkedIdentity{
+		ProviderName:           providerIdentifierField(in.SourceUser, "ProviderName"),
+		ProviderAttributeName:  providerIdentifierField(in.SourceUser, "ProviderAttributeName"),
+		ProviderAttributeValue: providerIdentifierField(in.SourceUser, "ProviderAttributeValue"),
+	}
+
+	if err := h.Backend.AdminLinkProviderForUser(in.UserPoolID, destUsername, source); err != nil {
+		return nil, err
+	}
+
 	return &adminLinkProviderForUserOutput{}, nil
+}
+
+// providerIdentifierField extracts a string field from a ProviderUserIdentifierType map.
+func providerIdentifierField(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+
+	v, _ := m[key].(string)
+
+	return v
 }
 
 type adminListDevicesInput struct {
@@ -142,10 +178,19 @@ type adminListUserAuthEventsOutput struct {
 	AuthEvents []map[string]any `json:"AuthEvents,omitempty"`
 }
 
+// handleAdminListUserAuthEvents validates the pool/user and returns an empty auth-event
+// list. Cognito only records auth events when advanced security features are enabled and
+// a user actually authenticates through the risk engine; this mock tracks no such events,
+// so an empty list is the AWS-accurate response for a user with no recorded events.
+// Validation-only by design (no event-population path exists).
 func (h *Handler) handleAdminListUserAuthEvents(
 	_ context.Context,
-	_ *adminListUserAuthEventsInput,
+	in *adminListUserAuthEventsInput,
 ) (*adminListUserAuthEventsOutput, error) {
+	if err := h.Backend.ValidatePoolUser(in.UserPoolID, in.Username); err != nil {
+		return nil, err
+	}
+
 	return &adminListUserAuthEventsOutput{AuthEvents: []map[string]any{}}, nil
 }
 
@@ -243,10 +288,23 @@ type completeWebAuthnRegistrationInput struct {
 
 type completeWebAuthnRegistrationOutput struct{}
 
+// handleCompleteWebAuthnRegistration authenticates the access token and validates that a
+// credential payload was supplied, then returns success. This mock stores no WebAuthn
+// credential state (there is no StartWebAuthnRegistration/credential-store path), so the
+// registration itself is validation-only: a valid, authenticated request succeeds without
+// persisting a passkey, while bad tokens are rejected with NotAuthorizedException.
 func (h *Handler) handleCompleteWebAuthnRegistration(
 	_ context.Context,
-	_ *completeWebAuthnRegistrationInput,
+	in *completeWebAuthnRegistrationInput,
 ) (*completeWebAuthnRegistrationOutput, error) {
+	if err := h.Backend.ValidateAccessToken(in.AccessToken); err != nil {
+		return nil, err
+	}
+
+	if len(in.Credential) == 0 {
+		return nil, fmt.Errorf("%w: Credential is required", ErrInvalidParameter)
+	}
+
 	return &completeWebAuthnRegistrationOutput{}, nil
 }
 

@@ -21,6 +21,7 @@ type StorageBackend interface {
 	// Record set operations
 	ChangeResourceRecordSets(zoneID string, changes []Change) (string, error)
 	ListResourceRecordSets(zoneID, startName, startType, startIdentifier string, maxItems int) (RRSetPage, error)
+	CountResourceRecordSets(zoneID string) (int, error)
 	GetChange(changeID string) (*ChangeInfo, error)
 
 	// Health check operations
@@ -52,6 +53,7 @@ type StorageBackend interface {
 	CreateVPCAssociationAuthorization(zoneID, vpcID, vpcRegion string) (*VPCAssociationAuthorization, error)
 	DeleteVPCAssociationAuthorization(zoneID, vpcID string) error
 	ListVPCAssociationAuthorizations(zoneID string) ([]VPCAssociationAuthorization, error)
+	CountAssociatedVPCs(zoneID string) (int, error)
 
 	// CIDR collection operations
 	CreateCidrCollection(name, callerRef string) (*CidrCollection, error)
@@ -72,6 +74,7 @@ type StorageBackend interface {
 	GetReusableDelegationSet(id string) (*ReusableDelegationSet, error)
 	DeleteReusableDelegationSet(id string) error
 	ListReusableDelegationSets() ([]*ReusableDelegationSet, error)
+	CountZonesByReusableDelegationSet(id string) (int, error)
 
 	// DNS query simulation
 	TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error)

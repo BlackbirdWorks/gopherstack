@@ -474,21 +474,77 @@ func (b *InMemoryBackend) ListDedicatedIPPools(nextToken string, pageSize int) p
 	return page.New(keys, nextToken, pageSize, sesv2DefaultMaxItems)
 }
 
-// GetDedicatedIP returns an empty dedicated IP (stub).
-func (b *InMemoryBackend) GetDedicatedIP(_ string) (map[string]any, error) {
+// dedicatedIPToMap renders a dedicated IP as the AWS-shaped response map.
+func dedicatedIPToMap(ip *DedicatedIP) map[string]any {
 	return map[string]any{
+		"Ip":               ip.IP,
+		"PoolName":         ip.PoolName,
+		"WarmupPercentage": ip.WarmupPercentage,
+		"WarmupStatus":     ip.WarmupStatus,
+	}
+}
+
+// GetDedicatedIP returns the stored dedicated IP attributes. IPs that have never
+// been assigned to a pool or warmed up are reported as fully warmed up, matching
+// the prior stub behaviour for IPs SES manages implicitly.
+func (b *InMemoryBackend) GetDedicatedIP(ip string) (map[string]any, error) {
+	b.mu.RLock("GetDedicatedIP")
+	defer b.mu.RUnlock()
+
+	if d, ok := b.dedicatedIPs[ip]; ok {
+		return dedicatedIPToMap(d), nil
+	}
+
+	return map[string]any{
+		"Ip":               ip,
 		"WarmupPercentage": warmupPercentComplete,
 		"WarmupStatus":     warmupDone,
 	}, nil
 }
 
-// GetDedicatedIps returns empty dedicated IPs (stub).
+// GetDedicatedIps returns all tracked dedicated IPs.
 func (b *InMemoryBackend) GetDedicatedIps() []map[string]any {
-	return []map[string]any{}
+	b.mu.RLock("GetDedicatedIps")
+	defer b.mu.RUnlock()
+
+	keys := collections.SortedKeys(b.dedicatedIPs)
+
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, dedicatedIPToMap(b.dedicatedIPs[k]))
+	}
+
+	return out
 }
 
-// PutDedicatedIPInPool is a no-op stub.
-func (b *InMemoryBackend) PutDedicatedIPInPool(_, _ string) error {
+// dedicatedIPLocked returns the tracked dedicated IP, creating a default entry if
+// it does not yet exist. Callers must hold the write lock.
+func (b *InMemoryBackend) dedicatedIPLocked(ip string) *DedicatedIP {
+	d, ok := b.dedicatedIPs[ip]
+	if !ok {
+		d = &DedicatedIP{
+			IP:               ip,
+			WarmupPercentage: warmupPercentComplete,
+			WarmupStatus:     warmupDone,
+		}
+		b.dedicatedIPs[ip] = d
+	}
+
+	return d
+}
+
+// PutDedicatedIPInPool moves a dedicated IP into the requested pool. The
+// destination pool must exist.
+func (b *InMemoryBackend) PutDedicatedIPInPool(ip, poolName string) error {
+	b.mu.Lock("PutDedicatedIPInPool")
+	defer b.mu.Unlock()
+
+	if _, ok := b.dedicatedIPPools[poolName]; !ok {
+		return fmt.Errorf("%w: dedicated IP pool %s not found", ErrNotFound, poolName)
+	}
+
+	b.dedicatedIPLocked(ip).PoolName = poolName
+
 	return nil
 }
 
@@ -507,8 +563,21 @@ func (b *InMemoryBackend) PutDedicatedIPPoolScalingAttributes(poolName, scalingM
 	return nil
 }
 
-// PutDedicatedIPWarmupAttributes is a no-op stub.
-func (b *InMemoryBackend) PutDedicatedIPWarmupAttributes(_, _ string) error {
+// PutDedicatedIPWarmupAttributes records the warmup percentage for a dedicated IP
+// and derives the warmup status from it.
+func (b *InMemoryBackend) PutDedicatedIPWarmupAttributes(ip string, warmupPercentage int) error {
+	b.mu.Lock("PutDedicatedIPWarmupAttributes")
+	defer b.mu.Unlock()
+
+	d := b.dedicatedIPLocked(ip)
+	d.WarmupPercentage = warmupPercentage
+
+	if warmupPercentage >= warmupPercentComplete {
+		d.WarmupStatus = warmupDone
+	} else {
+		d.WarmupStatus = warmupInProgress
+	}
+
 	return nil
 }
 
@@ -978,14 +1047,17 @@ func (b *InMemoryBackend) UpdateConfigurationSetEventDestination(
 	return nil
 }
 
-// PutConfigurationSetArchivingOptions validates the config set exists (archiving not modelled).
-func (b *InMemoryBackend) PutConfigurationSetArchivingOptions(name string) error {
-	b.mu.RLock("PutConfigurationSetArchivingOptions")
-	defer b.mu.RUnlock()
+// PutConfigurationSetArchivingOptions stores the archive ARN on the config set.
+func (b *InMemoryBackend) PutConfigurationSetArchivingOptions(name, archiveARN string) error {
+	b.mu.Lock("PutConfigurationSetArchivingOptions")
+	defer b.mu.Unlock()
 
-	if _, ok := b.configurationSets[name]; !ok {
+	cs, ok := b.configurationSets[name]
+	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
+
+	cs.ArchivingOptions = &ArchivingOptions{ArchiveARN: archiveARN}
 
 	return nil
 }
@@ -1082,13 +1154,22 @@ func (b *InMemoryBackend) PutConfigurationSetTrackingOptions(
 	return nil
 }
 
-// PutConfigurationSetVdmOptions validates the config set exists (VDM not modelled).
-func (b *InMemoryBackend) PutConfigurationSetVdmOptions(name string) error {
-	b.mu.RLock("PutConfigurationSetVdmOptions")
-	defer b.mu.RUnlock()
+// PutConfigurationSetVdmOptions stores the VDM options on the config set.
+func (b *InMemoryBackend) PutConfigurationSetVdmOptions(
+	name string,
+	dashboardOptions, guardianOptions map[string]any,
+) error {
+	b.mu.Lock("PutConfigurationSetVdmOptions")
+	defer b.mu.Unlock()
 
-	if _, ok := b.configurationSets[name]; !ok {
+	cs, ok := b.configurationSets[name]
+	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+	}
+
+	cs.VdmOptions = &VdmOptions{
+		DashboardOptions: dashboardOptions,
+		GuardianOptions:  guardianOptions,
 	}
 
 	return nil
@@ -1272,7 +1353,7 @@ func (b *InMemoryBackend) CreateMultiRegionEndpoint(endpointName string) (string
 
 	b.multiRegionEndpoints[endpointName] = map[string]any{
 		"EndpointName": endpointName,
-		"Status":       "READY",
+		keyStatus:      "READY",
 	}
 
 	return "READY", nil
@@ -1366,7 +1447,7 @@ func (b *InMemoryBackend) CreateTenant(tenantName string) (map[string]any, error
 	b.mu.Lock("CreateTenant")
 	defer b.mu.Unlock()
 
-	b.tenants[tenantName] = map[string]any{keyTenantName: tenantName, "Status": "ACTIVE"}
+	b.tenants[tenantName] = map[string]any{keyTenantName: tenantName, keyStatus: "ACTIVE"}
 
 	return map[string]any{keyTenantName: tenantName}, nil
 }
@@ -1473,27 +1554,92 @@ func removeString(s []string, v string) []string {
 	return out
 }
 
-// ---- reputation entities (stubs) ----
+// ---- reputation entities ----
 
-// GetReputationEntity returns a stub.
-func (b *InMemoryBackend) GetReputationEntity(_ string) (map[string]any, error) {
-	return map[string]any{}, nil
+// reputationEntityToMap renders a reputation entity as the AWS-shaped response map.
+func reputationEntityToMap(e *ReputationEntity) map[string]any {
+	m := map[string]any{
+		"ReputationEntityReference": e.EntityRef,
+	}
+
+	if e.EntityType != "" {
+		m["ReputationEntityType"] = e.EntityType
+	}
+
+	if e.CustomerManagedStatus != "" {
+		m["CustomerManagedStatus"] = map[string]any{keyStatus: e.CustomerManagedStatus}
+	}
+
+	if e.ReputationPolicy != "" {
+		m["ReputationManagementPolicy"] = e.ReputationPolicy
+	}
+
+	return m
 }
 
-// ListReputationEntities returns empty list.
+// reputationEntityLocked returns the tracked reputation entity, creating an entry
+// if it does not yet exist. Callers must hold the write lock.
+func (b *InMemoryBackend) reputationEntityLocked(entityID string) *ReputationEntity {
+	e, ok := b.reputationEntities[entityID]
+	if !ok {
+		e = &ReputationEntity{EntityRef: entityID}
+		b.reputationEntities[entityID] = e
+	}
+
+	return e
+}
+
+// GetReputationEntity returns the stored reputation entity attributes. Entities
+// in SES exist implicitly for every configuration set and identity, so an entity
+// that has never been updated is reported with its reference and no overrides
+// rather than as not-found.
+func (b *InMemoryBackend) GetReputationEntity(entityID string) (map[string]any, error) {
+	b.mu.RLock("GetReputationEntity")
+	defer b.mu.RUnlock()
+
+	if e, ok := b.reputationEntities[entityID]; ok {
+		return reputationEntityToMap(e), nil
+	}
+
+	return reputationEntityToMap(&ReputationEntity{EntityRef: entityID}), nil
+}
+
+// ListReputationEntities returns all tracked reputation entities.
 func (b *InMemoryBackend) ListReputationEntities(
 	_ string,
 	_ int,
 ) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
+	b.mu.RLock("ListReputationEntities")
+	defer b.mu.RUnlock()
+
+	keys := collections.SortedKeys(b.reputationEntities)
+
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, reputationEntityToMap(b.reputationEntities[k]))
+	}
+
+	return out, "", nil
 }
 
-// UpdateReputationEntityCustomerManagedStatus is a no-op stub.
-func (b *InMemoryBackend) UpdateReputationEntityCustomerManagedStatus(_ string) error {
+// UpdateReputationEntityCustomerManagedStatus stores the customer-managed status.
+func (b *InMemoryBackend) UpdateReputationEntityCustomerManagedStatus(
+	entityID, status string,
+) error {
+	b.mu.Lock("UpdateReputationEntityCustomerManagedStatus")
+	defer b.mu.Unlock()
+
+	b.reputationEntityLocked(entityID).CustomerManagedStatus = status
+
 	return nil
 }
 
-// UpdateReputationEntityPolicy is a no-op stub.
-func (b *InMemoryBackend) UpdateReputationEntityPolicy(_, _ string) error {
+// UpdateReputationEntityPolicy stores the reputation management policy.
+func (b *InMemoryBackend) UpdateReputationEntityPolicy(entityID, policy string) error {
+	b.mu.Lock("UpdateReputationEntityPolicy")
+	defer b.mu.Unlock()
+
+	b.reputationEntityLocked(entityID).ReputationPolicy = policy
+
 	return nil
 }

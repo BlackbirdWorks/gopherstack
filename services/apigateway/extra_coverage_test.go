@@ -176,6 +176,14 @@ func (n *noopBackend) CreateAPIKey(_ apigateway.CreateAPIKeyInput) (*apigateway.
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) ImportAPIKeys(_ string, _ []byte) ([]string, []string, error) {
+	return nil, nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetDomainNameAccessAssociations() ([]apigateway.DomainNameAccessAssociation, error) {
+	return nil, errNoopNotImplemented
+}
+
 func (n *noopBackend) CreateBasePathMapping(
 	_ apigateway.CreateBasePathMappingInput,
 ) (*apigateway.BasePathMapping, error) {

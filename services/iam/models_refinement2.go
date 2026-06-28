@@ -24,6 +24,7 @@ type UpdateServiceSpecificCredentialResponse struct {
 
 // GetMFADeviceResult holds MFA device details.
 type GetMFADeviceResult struct {
+	UserName     string `xml:"UserName,omitempty"`
 	SerialNumber string `xml:"SerialNumber"`
 	EnableDate   string `xml:"EnableDate"`
 }

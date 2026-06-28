@@ -110,6 +110,7 @@ import (
 	ramsvc_types "github.com/aws/aws-sdk-go-v2/service/ram/types"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	rdsdatasvc "github.com/aws/aws-sdk-go-v2/service/rdsdata"
+	rdsdatatypes "github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	redshiftdatasvc "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -5970,6 +5971,65 @@ func TestTerraform_RDSData(t *testing.T) {
 				})
 				require.NoError(t, err, "ExecuteStatement should succeed after terraform apply")
 				assert.NotNil(t, out)
+			},
+		},
+		{
+			// engine_roundtrip provisions an Aurora cluster, then drives the
+			// full Data API data path against it: create a table, insert rows,
+			// and read them back asserting the real returned values. The
+			// terraform harness destroys the cluster on cleanup, so this
+			// exercises create-engine -> add-data -> query -> destroy.
+			name:       "engine_roundtrip",
+			fixture:    "rdsdata/success",
+			providerFn: rdsdataProviderBlock,
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"ClusterIdentifier": "tf-rdsdata-rt-" + uuid.NewString()[:8],
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				clusterID := vars["ClusterIdentifier"].(string)
+				resourceARN := "arn:aws:rds:us-east-1:000000000000:cluster:" + clusterID
+				secretARN := "arn:aws:secretsmanager:us-east-1:000000000000:secret:rdsdata-rt"
+
+				client := createRDSDataClient(t)
+
+				exec := func(sql string, includeMeta bool) *rdsdatasvc.ExecuteStatementOutput {
+					out, err := client.ExecuteStatement(ctx, &rdsdatasvc.ExecuteStatementInput{
+						ResourceArn:           aws.String(resourceARN),
+						SecretArn:             aws.String(secretARN),
+						Sql:                   aws.String(sql),
+						IncludeResultMetadata: includeMeta,
+					})
+					require.NoError(t, err, "ExecuteStatement(%q) should succeed", sql)
+
+					return out
+				}
+
+				// Create the engine schema and add data.
+				exec("CREATE TABLE tf_items (id INTEGER, name TEXT)", false)
+				exec("INSERT INTO tf_items (id, name) VALUES (1, 'gopher')", false)
+				exec("INSERT INTO tf_items (id, name) VALUES (2, 'stack')", false)
+
+				// Query it back and assert the real round-tripped values.
+				out := exec("SELECT id, name FROM tf_items ORDER BY id", true)
+				require.Len(t, out.Records, 2, "both inserted rows should be returned")
+				require.Len(t, out.ColumnMetadata, 2, "two columns should be described")
+
+				id1, ok := out.Records[0][0].(*rdsdatatypes.FieldMemberLongValue)
+				require.True(t, ok, "id column should be a long value")
+				assert.Equal(t, int64(1), id1.Value)
+
+				name1, ok := out.Records[0][1].(*rdsdatatypes.FieldMemberStringValue)
+				require.True(t, ok, "name column should be a string value")
+				assert.Equal(t, "gopher", name1.Value)
+
+				name2, ok := out.Records[1][1].(*rdsdatatypes.FieldMemberStringValue)
+				require.True(t, ok, "name column should be a string value")
+				assert.Equal(t, "stack", name2.Value)
 			},
 		},
 	}

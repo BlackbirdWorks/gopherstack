@@ -46,6 +46,7 @@ type userSnapshot struct {
 	PasswordHash         string            `json:"passwordHash,omitempty"`
 	Status               string            `json:"status,omitempty"`
 	ConfirmCode          string            `json:"confirmCode,omitempty"`
+	LinkedIdentities     []LinkedIdentity  `json:"linkedIdentities,omitempty"`
 	Enabled              bool              `json:"enabled,omitempty"`
 }
 
@@ -111,6 +112,8 @@ func unmarshalRSAKey(pemStr string) (*rsa.PrivateKey, error) {
 }
 
 // Snapshot serialises the backend state to JSON.
+//
+//nolint:funlen // serialises the full backend state; length is inherent
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
@@ -172,6 +175,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 				PasswordHash:         u.PasswordHash,
 				Status:               u.Status,
 				ConfirmCode:          u.ConfirmCode,
+				LinkedIdentities:     u.LinkedIdentities,
 				Enabled:              u.Enabled,
 			}
 		}
@@ -415,6 +419,7 @@ func restoreUsersFromSnapshot(poolUsers map[string]map[string]*userSnapshot) map
 				PasswordHash:         us.PasswordHash,
 				Status:               us.Status,
 				ConfirmCode:          us.ConfirmCode,
+				LinkedIdentities:     us.LinkedIdentities,
 				Enabled:              us.Enabled,
 			}
 		}
