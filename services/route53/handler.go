@@ -949,6 +949,7 @@ type xmlCidrRoutingConfig struct {
 	LocationName string `xml:"LocationName,omitempty"`
 }
 
+//nolint:govet // fieldalignment: field order follows AWS XML element ordering
 type xmlResourceRecordSet struct {
 	XMLName              xml.Name                 `xml:"ResourceRecordSet"`
 	AliasTarget          *xmlAliasTarget          `xml:"AliasTarget,omitempty"`
@@ -963,7 +964,7 @@ type xmlResourceRecordSet struct {
 	HealthCheckID        string                   `xml:"HealthCheckId,omitempty"`
 	ResourceRecords      []xmlResourceRecord      `xml:"ResourceRecords>ResourceRecord,omitempty"`
 	TTL                  int64                    `xml:"TTL,omitempty"`
-	Weight               int64                    `xml:"Weight,omitempty"`
+	Weight               *int64                   `xml:"Weight"`
 	MultiValueAnswer     bool                     `xml:"MultiValueAnswer,omitempty"`
 }
 
@@ -988,6 +989,8 @@ type xmlCreateHostedZoneRequest struct {
 }
 
 // xmlResourceRecordSetChange is the ResourceRecordSet element within a change batch entry.
+//
+//nolint:govet // fieldalignment: field order follows AWS XML element ordering
 type xmlResourceRecordSetChange struct {
 	AliasTarget          *xmlAliasTarget          `xml:"AliasTarget"`
 	GeoLocation          *xmlGeoLocation          `xml:"GeoLocation"`
@@ -1001,7 +1004,7 @@ type xmlResourceRecordSetChange struct {
 	HealthCheckID        string                   `xml:"HealthCheckId"`
 	ResourceRecords      []xmlResourceRecord      `xml:"ResourceRecords>ResourceRecord"`
 	TTL                  int64                    `xml:"TTL"`
-	Weight               int64                    `xml:"Weight"`
+	Weight               *int64                   `xml:"Weight"`
 	MultiValueAnswer     bool                     `xml:"MultiValueAnswer"`
 }
 

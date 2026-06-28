@@ -467,13 +467,14 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		parameterLabels[input.Name][v] = removeLabels(labels, input.Labels)
 	}
 
-	parameterLabels[input.Name][version] = appendUniqueLabels(
+	updatedLabels, addedLabels, invalidLabels := appendLabelsWithLimit(
 		parameterLabels[input.Name][version], input.Labels,
 	)
+	parameterLabels[input.Name][version] = updatedLabels
 
 	return &LabelParameterVersionOutputFull{
-		InvalidLabels:    []string{},
-		AddedLabels:      input.Labels,
+		InvalidLabels:    invalidLabels,
+		AddedLabels:      addedLabels,
 		ParameterVersion: version,
 	}, nil
 }
@@ -546,7 +547,15 @@ func (b *InMemoryBackend) UnlabelParameterVersion(
 	}, nil
 }
 
-func appendUniqueLabels(existing, newLabels []string) []string {
+// maxLabelsPerVersion is the AWS-enforced limit on labels per parameter version.
+const maxLabelsPerVersion = 10
+
+// appendLabelsWithLimit appends newLabels to existing, skipping duplicates and
+// labels that would push the version over the maxLabelsPerVersion limit.
+// Returns (updated slice, actually-added labels, invalid labels that exceeded the limit).
+func appendLabelsWithLimit(existing, newLabels []string) ([]string, []string, []string) {
+	var added, invalid []string
+
 	seen := make(map[string]bool, len(existing))
 
 	for _, l := range existing {
@@ -554,13 +563,31 @@ func appendUniqueLabels(existing, newLabels []string) []string {
 	}
 
 	for _, l := range newLabels {
-		if !seen[l] {
-			existing = append(existing, l)
-			seen[l] = true
+		if seen[l] {
+			// Already present — not an error, not a re-add, not invalid.
+			continue
 		}
+
+		if len(existing) >= maxLabelsPerVersion {
+			invalid = append(invalid, l)
+
+			continue
+		}
+
+		existing = append(existing, l)
+		added = append(added, l)
+		seen[l] = true
 	}
 
-	return existing
+	if invalid == nil {
+		invalid = []string{}
+	}
+
+	if added == nil {
+		added = []string{}
+	}
+
+	return existing, added, invalid
 }
 
 // --- Automation Execution ---

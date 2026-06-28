@@ -21,6 +21,9 @@ import (
 const (
 	dnsNS1Default = "ns1.gopherstack.invalid"
 	dnsNS2Default = "ns2.gopherstack.invalid"
+
+	defaultNSTTL  = 172800 // 48 hours — AWS default for zone-apex NS records
+	defaultSOATTL = 900    // 15 minutes — AWS default for SOA records
 )
 
 // Errors returned by the backend.
@@ -235,6 +238,8 @@ type AliasTarget struct {
 }
 
 // ResourceRecordSet represents a DNS resource record set.
+//
+//nolint:govet // fieldalignment: field order follows AWS documentation
 type ResourceRecordSet struct {
 	AliasTarget          *AliasTarget          `json:"aliasTarget,omitempty"`
 	GeoLocation          *GeoLocation          `json:"geoLocation,omitempty"`
@@ -248,7 +253,7 @@ type ResourceRecordSet struct {
 	HealthCheckID        string                `json:"healthCheckId,omitempty"`
 	Records              []ResourceRecord      `json:"records"`
 	TTL                  int64                 `json:"ttl"`
-	Weight               int64                 `json:"weight,omitempty"`
+	Weight               *int64                `json:"weight,omitempty"`
 	MultiValueAnswer     bool                  `json:"multiValueAnswer,omitempty"`
 }
 
@@ -487,9 +492,31 @@ func (b *InMemoryBackend) CreateHostedZone(
 		CreatedAt:       time.Now(),
 	}
 
-	b.zones[id] = &zoneData{
+	zd := &zoneData{
 		zone:    hz,
 		records: make(map[string]*ResourceRecordSet),
+	}
+	b.zones[id] = zd
+
+	// Seed the zone with the default NS and SOA records that AWS auto-creates.
+	nsKey := recordSetKey(name, "NS", "")
+	zd.records[nsKey] = &ResourceRecordSet{
+		Name: name,
+		Type: "NS",
+		TTL:  defaultNSTTL,
+		Records: []ResourceRecord{
+			{Value: dnsNS1Default + "."},
+			{Value: dnsNS2Default + "."},
+		},
+	}
+	soaKey := recordSetKey(name, "SOA", "")
+	zd.records[soaKey] = &ResourceRecordSet{
+		Name: name,
+		Type: "SOA",
+		TTL:  defaultSOATTL,
+		Records: []ResourceRecord{
+			{Value: dnsNS1Default + ". awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"},
+		},
 	}
 
 	// Register a synthetic INSYNC change so that GetChange on the zone-creation
@@ -506,6 +533,21 @@ func (b *InMemoryBackend) CreateHostedZone(
 	return &cp, nil
 }
 
+// zoneUserRecordCount returns the number of records in zd that are not the
+// zone-apex NS or SOA records seeded at creation time.
+func zoneUserRecordCount(zd *zoneData) int {
+	nsKey := recordSetKey(zd.zone.Name, "NS", "")
+	soaKey := recordSetKey(zd.zone.Name, "SOA", "")
+	count := 0
+	for key := range zd.records {
+		if key != nsKey && key != soaKey {
+			count++
+		}
+	}
+
+	return count
+}
+
 // DeleteHostedZone removes a hosted zone and all its record sets.
 func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 	b.mu.Lock("DeleteHostedZone")
@@ -516,9 +558,9 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
-	// AWS rejects deletion of zones that still contain resource record sets.
-	// The zone is considered non-empty if it has any user-managed records.
-	if len(zd.records) > 0 {
+	// AWS rejects deletion of zones that still contain resource record sets,
+	// but allows deletion when only the default NS and SOA records remain.
+	if zoneUserRecordCount(zd) > 0 {
 		return fmt.Errorf(
 			"%w: hosted zone %s contains resource record sets that must be deleted first",
 			ErrHostedZoneNotEmpty,
@@ -697,12 +739,9 @@ func validateRecordValue(rrType, value string) error {
 //nolint:cyclop // AWS has many mutually exclusive routing policy combinations to check
 func validateRoutingPolicy(rrs ResourceRecordSet) error {
 	policyCount := 0
-	// Weight=0 is a valid weighted routing value (used to stop sending traffic to a record).
-	// Because the Weight field defaults to zero when omitted from XML, we use Weight > 0
-	// as the weighted-routing indicator in policy counting; the weight range check below
-	// allows 0 through 255 so an explicit Weight=0 is still accepted once policyCount is
-	// confirmed to be 1 via another routing field or by the caller using a pointer type.
-	if rrs.Weight > 0 {
+	// Weight is a pointer: nil means omitted (no weighted routing), non-nil means
+	// the caller explicitly set a weight (including Weight=0, which stops traffic).
+	if rrs.Weight != nil {
 		policyCount++
 	}
 
@@ -755,7 +794,7 @@ func validateRoutingPolicy(rrs ResourceRecordSet) error {
 		return fmt.Errorf("%w: Failover must be PRIMARY or SECONDARY", ErrInvalidInput)
 	}
 
-	if rrs.Weight < 0 || rrs.Weight > 255 {
+	if rrs.Weight != nil && (*rrs.Weight < 0 || *rrs.Weight > 255) {
 		return fmt.Errorf("%w: Weight must be in range [0, 255]", ErrInvalidInput)
 	}
 
