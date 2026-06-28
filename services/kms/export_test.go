@@ -221,6 +221,21 @@ func LastUsageExists(b *InMemoryBackend, region, keyID string) bool {
 	return ok
 }
 
+// SetKeyCreationDateForTest backdates a key's CreationDate so that auto-rotation
+// tests can simulate an elapsed rotation period without sleeping.
+func (b *InMemoryBackend) SetKeyCreationDateForTest(keyID string, t time.Time) {
+	b.mu.Lock("SetKeyCreationDateForTest")
+	defer b.mu.Unlock()
+
+	for _, regionKeys := range b.keys {
+		if key, ok := regionKeys[keyID]; ok {
+			key.CreationDate = UnixTimeFloat(t)
+
+			return
+		}
+	}
+}
+
 // ErrForceRotateKeyNotFound is returned by ForceRotateForTest when keyID is absent.
 var ErrForceRotateKeyNotFound = errors.New("key not found")
 

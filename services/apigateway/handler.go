@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	keyPosition = "position"
-	litTrue     = "true"
+	keyPosition       = "position"
+	litTrue           = "true"
+	headerContentType = "Content-Type"
 )
 
 const (
@@ -943,7 +944,7 @@ func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
 	}
@@ -1017,7 +1018,7 @@ func (h *Handler) dispatchAndRespond(
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	c.Response().Header().Set("Content-Type", contentType)
+	c.Response().Header().Set(headerContentType, contentType)
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
 	}
@@ -1957,6 +1958,145 @@ func (h *Handler) handleUserRequestEcho(c *echo.Context) error {
 	return nil
 }
 
+// testInvokeMethod executes a test invocation of a method, routing through the real
+// integration when Lambda is configured. Falls back to mock/stub for unsupported types.
+func (h *Handler) testInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMethodOutput, error) {
+	resource, err := h.Backend.GetResource(input.RestAPIID, input.ResourceID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: resource %s", ErrResourceNotFound, input.ResourceID)
+	}
+
+	integration, err := h.Backend.GetIntegration(input.RestAPIID, input.ResourceID, input.HTTPMethod)
+	if err != nil {
+		integration, _ = h.Backend.GetIntegration(input.RestAPIID, input.ResourceID, "ANY")
+	}
+
+	if integration == nil {
+		// No integration: return empty 200.
+		return &TestInvokeMethodOutput{
+			Status:  http.StatusOK,
+			Body:    "{}",
+			Latency: 1,
+			Log:     "Test invocation: no integration configured",
+			Headers: map[string]string{headerContentType: contentTypeJSON},
+		}, nil
+	}
+
+	switch integration.Type {
+	case IntegrationTypeMock:
+		// For MOCK, select the integration response matching "200" and apply its template.
+		body := `{"statusCode": 200}`
+		ir, irErr := h.Backend.GetIntegrationResponse(
+			input.RestAPIID, input.ResourceID, input.HTTPMethod, "200",
+		)
+		if irErr == nil {
+			if t, ok := ir.ResponseTemplates["application/json"]; ok && t != "" {
+				body = t
+			}
+		}
+
+		return &TestInvokeMethodOutput{
+			Status:  http.StatusOK,
+			Body:    body,
+			Latency: 1,
+			Log:     "Test invocation: MOCK integration",
+			Headers: map[string]string{headerContentType: contentTypeJSON},
+		}, nil
+
+	case IntegrationTypeAWSProxy, "AWS":
+		return h.invokeLambdaTestMethod(input, resource, integration)
+
+	default:
+		return h.Backend.TestInvokeMethod(input)
+	}
+}
+
+func (h *Handler) invokeLambdaTestMethod(
+	input TestInvokeMethodInput,
+	resource *Resource,
+	integration *Integration,
+) (*TestInvokeMethodOutput, error) {
+	if h.lambda == nil {
+		return h.Backend.TestInvokeMethod(input)
+	}
+
+	// Build a synthetic HTTP request from the TestInvokeMethodInput.
+	rawPath := input.PathWithQueryString
+	if rawPath == "" {
+		rawPath = resource.Path
+	}
+
+	syntheticReq, reqErr := http.NewRequestWithContext(
+		context.Background(),
+		input.HTTPMethod,
+		"http://test-invoke-endpoint"+rawPath,
+		strings.NewReader(input.Body),
+	)
+	if reqErr != nil {
+		return nil, fmt.Errorf("test invoke: failed to build request: %w", reqErr)
+	}
+
+	for k, v := range input.Headers {
+		syntheticReq.Header.Set(k, v)
+	}
+
+	event, buildErr := BuildProxyEvent(syntheticReq, input.RestAPIID, "test-invoke", resource.Path, rawPath, nil)
+	if buildErr != nil {
+		return nil, fmt.Errorf("test invoke: failed to build proxy event: %w", buildErr)
+	}
+
+	payload, _ := json.Marshal(event)
+
+	lambdaFn := ExtractLambdaFunctionName(integration.URI)
+	respBytes, _, invokeErr := h.lambda.InvokeFunction(context.Background(), lambdaFn, "RequestResponse", payload)
+
+	return lambdaTestOutput(respBytes, invokeErr), nil
+}
+
+// lambdaTestOutput converts a raw Lambda invocation result into a TestInvokeMethodOutput.
+// Any invocation error is surfaced as a 502 response body rather than a Go error,
+// because TestInvokeMethod always returns a (possibly error-body) output, never a Go error.
+func lambdaTestOutput(respBytes []byte, invokeErr error) *TestInvokeMethodOutput {
+	if invokeErr != nil {
+		return &TestInvokeMethodOutput{
+			Status:  http.StatusBadGateway,
+			Body:    `{"message":"Lambda invocation failed"}`,
+			Latency: 1,
+			Log:     "Test invocation: Lambda error: " + invokeErr.Error(),
+			Headers: map[string]string{headerContentType: contentTypeJSON},
+		}
+	}
+
+	var lambdaResp LambdaProxyResponse
+	if json.Unmarshal(respBytes, &lambdaResp) == nil {
+		sc := lambdaResp.StatusCode
+		if sc == 0 {
+			sc = http.StatusOK
+		}
+
+		hdrs := lambdaResp.Headers
+		if hdrs == nil {
+			hdrs = map[string]string{headerContentType: contentTypeJSON}
+		}
+
+		return &TestInvokeMethodOutput{
+			Status:  sc,
+			Body:    lambdaResp.Body,
+			Latency: 1,
+			Log:     "Test invocation: AWS_PROXY Lambda integration",
+			Headers: hdrs,
+		}
+	}
+
+	return &TestInvokeMethodOutput{
+		Status:  http.StatusOK,
+		Body:    string(respBytes),
+		Latency: 1,
+		Log:     "Test invocation: Lambda raw response",
+		Headers: map[string]string{headerContentType: contentTypeJSON},
+	}
+}
+
 func (h *Handler) restAPIActions() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateRestAPI: func(b []byte) (int, any, error) {
@@ -2784,7 +2924,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) (int, 
 // handleError writes a standardized JSON error response.
 func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, reqErr error) error {
 	log := logger.Load(ctx)
-	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
 
 	var errType string
 	var statusCode int
@@ -3463,7 +3603,7 @@ func (h *Handler) updatePatchActionsCore2() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			out, err := h.Backend.TestInvokeMethod(input.TestInvokeMethodInput)
+			out, err := h.testInvokeMethod(input.TestInvokeMethodInput)
 			if err != nil {
 				return 0, nil, err
 			}
