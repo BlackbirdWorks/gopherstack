@@ -164,7 +164,7 @@ func (s *Server) handleDefineKeySchema(r *Reader, w *Writer) error {
 		return err
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	ks, err := s.schemaFor(ctx, string(table))

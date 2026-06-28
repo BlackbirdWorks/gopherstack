@@ -122,6 +122,7 @@ type InMemoryBackend struct {
 	mu                 *lockmetrics.RWMutex
 	now                func() time.Time
 	schedulerStop      chan struct{}
+	svcCtx             context.Context
 	accountID          string
 	region             string
 	schedulerOnce      sync.Once
@@ -150,6 +151,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		mu:                 lockmetrics.New("secretsmanager"),
 		now:                time.Now,
 		schedulerStop:      make(chan struct{}),
+		svcCtx:             context.Background(),
 	}
 }
 
@@ -2503,7 +2505,7 @@ func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
 
 	// Phase 2: invoke Lambda WITHOUT holding the lock, then promote or abort.
 	for _, p := range pending {
-		ctx := context.WithValue(context.Background(), regionContextKey{}, p.region)
+		ctx := context.WithValue(b.svcCtx, regionContextKey{}, p.region)
 		lambdaErr := b.runLambdaRotationSteps(ctx, p.lambdaARN, p.secretID, p.versionID)
 		if lambdaErr != nil {
 			_ = b.AbortRotation(ctx, p.secretID, p.versionID)

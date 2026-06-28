@@ -20,7 +20,7 @@ const (
 //
 //	map{ table: array(2*n)[ keyBytes, nonKeyBlobOrNil, ... ] } , optionalParams
 func (s *Server) handleBatchWriteItem(r *Reader, w *Writer) error {
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	numTables, err := r.ReadMapLength()
@@ -133,7 +133,7 @@ func (s *Server) writeBatchWriteResponse(w *Writer) error {
 //
 //	map{ table: array(3)[ consistentRead(bool), projectionOrNil, array(keys) ] }
 func (s *Server) handleBatchGetItem(r *Reader, w *Writer) error {
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	numTables, err := r.ReadMapLength()

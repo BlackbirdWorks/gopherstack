@@ -121,6 +121,7 @@ type InMemoryBackend struct {
 	region             string
 	invocations        invocationRing
 	asyncInvokeCounter int
+	svcCtx             context.Context
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -132,6 +133,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("bedrockruntime"),
+		svcCtx:       context.Background(),
 	}
 }
 
@@ -166,7 +168,7 @@ func (b *InMemoryBackend) RecordInvocation(operation, modelID, input, output str
 	b.invocations.push(inv)
 
 	if b.invocations.evictions > prevEvictions {
-		logger.Load(context.Background()).Warn(
+		logger.Load(b.svcCtx).Warn(
 			"bedrockruntime: invocationRing full, oldest entry evicted",
 			"capacity", len(b.invocations.buf),
 		)

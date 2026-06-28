@@ -166,7 +166,7 @@ func (s *Server) handleGetItem(r *Reader, w *Writer) error {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	out, err := s.backend.GetItem(ctx, &awsddb.GetItemInput{
@@ -202,7 +202,7 @@ func (s *Server) handlePutItem(r *Reader, w *Writer) error {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	ks, err := s.schemaFor(ctx, table)
@@ -255,7 +255,7 @@ func (s *Server) handleDeleteItem(r *Reader, w *Writer) error {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	in := &awsddb.DeleteItemInput{TableName: &table, Key: key}
@@ -292,7 +292,7 @@ func (s *Server) readKeyedRequest(r *Reader) (string, map[string]types.Attribute
 		return "", nil, itemOpParams{}, err
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	ks, err := s.schemaFor(ctx, table)

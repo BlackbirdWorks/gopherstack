@@ -115,6 +115,7 @@ type InMemoryBackend struct {
 	mu             *lockmetrics.RWMutex
 	accountID      string
 	region         string
+	svcCtx         context.Context
 }
 
 // SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.
@@ -156,6 +157,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("sqs"),
+		svcCtx:    context.Background(),
 	}
 
 	b.startJanitor()
@@ -2800,7 +2802,7 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 	taskHandle := uuid.New().String()
 
 	ctx, cancel := context.WithCancel(
-		context.Background(),
+		b.svcCtx,
 	)
 
 	state := &moveTaskState{

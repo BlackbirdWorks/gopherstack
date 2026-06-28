@@ -113,15 +113,21 @@ type Handler struct {
 	tags          map[string]*tags.Tags
 	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
+	svcCtx        context.Context
 }
 
 // NewHandler creates a new Step Functions handler.
 func NewHandler(backend StorageBackend) *Handler {
+	svcCtx := context.Background()
+	if bk, ok := backend.(*InMemoryBackend); ok {
+		svcCtx = bk.svcCtx
+	}
 	return &Handler{
 		Backend:       backend,
 		DefaultRegion: config.DefaultRegion,
 		tags:          make(map[string]*tags.Tags),
 		tagsMu:        lockmetrics.New("sfn.tags"),
+		svcCtx:        svcCtx,
 	}
 }
 
@@ -1305,7 +1311,7 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 		stateInput = "{}"
 	}
 
-	result, execErr := executor.Execute(context.Background(), "test-state", stateInput)
+	result, execErr := executor.Execute(h.svcCtx, "test-state", stateInput)
 	if execErr != nil {
 		out := &testStateOutput{Status: "FAILED", Error: execErr.Error()}
 

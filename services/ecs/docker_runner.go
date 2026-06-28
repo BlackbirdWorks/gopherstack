@@ -60,18 +60,19 @@ func NewDockerRunner() (TaskRunner, error) {
 // newDockerRunnerWithClient creates a realDockerRunner using the provided dockerClient.
 // This constructor is used by tests to inject a fake Docker client.
 func newDockerRunnerWithClient(cli dockerClient) *realDockerRunner {
-	return &realDockerRunner{cli: cli, containers: make(map[string][]string)}
+	return &realDockerRunner{cli: cli, containers: make(map[string][]string), svcCtx: context.Background()}
 }
 
 // realDockerRunner is a TaskRunner that launches Docker containers.
 type realDockerRunner struct {
 	containers map[string][]string
 	cli        dockerClient
+	svcCtx     context.Context
 	mu         sync.Mutex
 }
 
 func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
-	ctx := context.Background()
+	ctx := r.svcCtx
 	log := logger.Load(ctx)
 
 	// started accumulates container IDs that were successfully started during
@@ -255,7 +256,7 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 		return nil
 	}
 
-	ctx := context.Background()
+	ctx := r.svcCtx
 	timeout := 10
 
 	var (

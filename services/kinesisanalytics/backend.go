@@ -151,6 +151,7 @@ type InMemoryBackend struct {
 	accountID     string
 	nextID        int64
 	mu            sync.RWMutex
+	svcCtx        context.Context
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -163,6 +164,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		cancelFuncs:   make(map[string]context.CancelFunc),
 		defaultRegion: region,
 		accountID:     accountID,
+		svcCtx:        context.Background(),
 	}
 }
 
@@ -592,7 +594,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 	app.LastUpdateTimestamp = &now
 
 	appARN := app.ApplicationARN
-	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancelCtx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFuncs[key] = cancel
 
 	go func() {
@@ -800,7 +802,7 @@ func (b *InMemoryBackend) launchTransition(region, name, targetStatus string) {
 		cancel()
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFuncs[key] = cancel
 
 	go func() {

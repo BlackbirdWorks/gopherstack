@@ -733,7 +733,7 @@ func (b *InMemoryBackend) UpdateDestination(
 
 	v, err := strconv.Atoi(s.VersionID)
 	if err != nil {
-		logger.Load(context.Background()).WarnContext(context.Background(),
+		logger.Load(ctx).WarnContext(ctx,
 			"firehose: unexpected non-integer VersionID; resetting to 1",
 			"stream", streamName, "versionID", s.VersionID, "error", err)
 
@@ -1365,10 +1365,10 @@ func streamCopy(s *DeliveryStream) *DeliveryStream {
 const recordIDBytes = 16
 
 // newRecordID generates a random hex record identifier.
-func newRecordID() string {
+func newRecordID(ctx context.Context) string {
 	b := make([]byte, recordIDBytes)
 	if _, err := rand.Read(b); err != nil {
-		logger.Load(context.Background()).WarnContext(context.Background(),
+		logger.Load(ctx).WarnContext(ctx,
 			"firehose: rand.Read failed; falling back to timestamp-based record ID", "error", err)
 
 		return fmt.Sprintf("rec-%d", time.Now().UnixNano())

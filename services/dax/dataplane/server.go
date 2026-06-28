@@ -142,7 +142,7 @@ func (s *Server) Addr() net.Addr {
 func (s *Server) Listen(addr string) error {
 	var lc net.ListenConfig
 
-	ln, err := lc.Listen(context.Background(), "tcp", addr)
+	ln, err := lc.Listen(s.baseCtx, "tcp", addr)
 	if err != nil {
 		return err
 	}
@@ -510,6 +510,6 @@ func (ks keySchema) keyNames() map[string]struct{} {
 }
 
 // requestContext bounds backend calls so a stuck op cannot wedge a connection.
-func requestContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), requestTimeoutSeconds*time.Second)
+func (s *Server) requestContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(s.baseCtx, requestTimeoutSeconds*time.Second)
 }

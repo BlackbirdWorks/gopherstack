@@ -52,7 +52,7 @@ func (s *Server) handleTransactWriteItems(r *Reader, w *Writer) error {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	if _, err = s.backend.TransactWriteItems(ctx, in); err != nil {
@@ -356,7 +356,7 @@ func (s *Server) handleTransactGetItems(r *Reader, w *Writer) error {
 
 	in := buildTransactGetInput(items)
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	out, err := s.backend.TransactGetItems(ctx, in)
@@ -525,7 +525,7 @@ func transactGetItemAt(out *awsddb.TransactGetItemsOutput, i int) map[string]typ
 
 // schemaForTable resolves a table's key schema using a bounded context.
 func (s *Server) schemaForTable(table string) (keySchema, error) {
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	return s.schemaFor(ctx, table)

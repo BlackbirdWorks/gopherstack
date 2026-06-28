@@ -160,6 +160,6 @@ func (s *Scheduler) fireRule(ctx context.Context, rule Rule, busName, region str
 	}
 
 	// Inject region into context for PutEvents.
-	ctx = context.WithValue(context.Background(), regionContextKey{}, region)
+	ctx = context.WithValue(ctx, regionContextKey{}, region)
 	s.backend.PutEvents(ctx, []EventEntry{entry})
 }
