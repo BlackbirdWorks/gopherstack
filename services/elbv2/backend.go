@@ -50,7 +50,10 @@ var (
 	// ErrTargetGroupInUse is returned when attempting to delete a target group that is still referenced.
 	ErrTargetGroupInUse = awserr.New("ResourceInUse", awserr.ErrInvalidParameter)
 	// ErrInvalidConfigurationRequest is returned when a configuration is invalid for the LB type.
-	ErrInvalidConfigurationRequest = awserr.New("InvalidConfigurationRequest", awserr.ErrInvalidParameter)
+	ErrInvalidConfigurationRequest = awserr.New(
+		"InvalidConfigurationRequest",
+		awserr.ErrInvalidParameter,
+	)
 )
 
 // LoadBalancerState represents the state of a load balancer.
@@ -421,36 +424,41 @@ func targetHealthKey(id string, port int32) string {
 	return id + ":" + strconv.Itoa(int(port))
 }
 
-const targetHealthDelay = 200 * time.Millisecond
+const (
+	targetHealthDelay              = 200 * time.Millisecond
+	defaultDeregistrationDelaySecs = 300
+	targetDrainingReason           = "Target.DeregistrationInProgress"
+)
 
 type InMemoryBackend struct {
-	loadBalancers map[string]*LoadBalancer // keyed by ARN
-	targetGroups  map[string]*TargetGroup  // keyed by ARN
-	listeners     map[string]*Listener     // keyed by ARN
-	rules         map[string]*Rule         // keyed by ARN
-	trustStores   map[string]*TrustStore   // keyed by ARN
-	// lifecycle: tracks when initial targets become healthy.
-	targetReadyAt map[string]map[string]time.Time // tgArn → targetKey → readyAt
-	mu            *lockmetrics.RWMutex
-	stopCh        chan struct{}
-	accountID     string
-	region        string
-	ruleCounter   int // monotonically increasing counter for rule ARN generation
+	loadBalancers       map[string]*LoadBalancer        // keyed by ARN
+	targetGroups        map[string]*TargetGroup         // keyed by ARN
+	listeners           map[string]*Listener            // keyed by ARN
+	rules               map[string]*Rule                // keyed by ARN
+	trustStores         map[string]*TrustStore          // keyed by ARN
+	targetReadyAt       map[string]map[string]time.Time // tgArn → targetKey → readyAt (initial→healthy)
+	targetDrainingUntil map[string]map[string]time.Time // tgArn → targetKey → drainExpiresAt
+	mu                  *lockmetrics.RWMutex
+	stopCh              chan struct{}
+	accountID           string
+	region              string
+	ruleCounter         int // monotonically increasing counter for rule ARN generation
 }
 
 // NewInMemoryBackend creates a new in-memory ELBv2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		loadBalancers: make(map[string]*LoadBalancer),
-		targetGroups:  make(map[string]*TargetGroup),
-		listeners:     make(map[string]*Listener),
-		rules:         make(map[string]*Rule),
-		trustStores:   make(map[string]*TrustStore),
-		accountID:     accountID,
-		region:        region,
-		mu:            lockmetrics.New("elbv2"),
-		targetReadyAt: make(map[string]map[string]time.Time),
-		stopCh:        make(chan struct{}),
+		loadBalancers:       make(map[string]*LoadBalancer),
+		targetGroups:        make(map[string]*TargetGroup),
+		listeners:           make(map[string]*Listener),
+		rules:               make(map[string]*Rule),
+		trustStores:         make(map[string]*TrustStore),
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("elbv2"),
+		targetReadyAt:       make(map[string]map[string]time.Time),
+		targetDrainingUntil: make(map[string]map[string]time.Time),
+		stopCh:              make(chan struct{}),
 	}
 
 	go b.runHealthReconciler()
@@ -494,22 +502,24 @@ type healthResult struct {
 	state string
 }
 
-// reconcileTargetHealth promotes initial targets to healthy (or probes HTTP targets).
+// reconcileTargetHealth promotes initial targets to healthy and removes expired draining targets.
 func (b *InMemoryBackend) reconcileTargetHealth() {
 	now := time.Now()
 
 	b.mu.RLock("reconcileTargetHealth-read")
 	pending := b.collectPendingTargets(now)
+	drained := b.collectDrainedTargets(now)
 	b.mu.RUnlock()
-
-	if len(pending) == 0 {
-		return
-	}
 
 	results := resolveTargetHealth(pending)
 
+	if len(results) == 0 && len(drained) == 0 {
+		return
+	}
+
 	b.mu.Lock("reconcileTargetHealth-write")
 	b.applyHealthResults(results)
+	b.removeDrainedTargets(drained)
 	b.mu.Unlock()
 }
 
@@ -563,6 +573,52 @@ func (b *InMemoryBackend) applyHealthResults(results []healthResult) {
 
 		if rm := b.targetReadyAt[r.tgArn]; rm != nil {
 			delete(rm, r.key)
+		}
+	}
+}
+
+type drainedTarget struct {
+	tgArn     string
+	targetKey string
+}
+
+// collectDrainedTargets returns targets whose drain expiry has passed.
+// Caller must hold b.mu (read).
+func (b *InMemoryBackend) collectDrainedTargets(now time.Time) []drainedTarget {
+	var drained []drainedTarget
+
+	for tgArn, expiryMap := range b.targetDrainingUntil {
+		for key, expiry := range expiryMap {
+			if now.After(expiry) {
+				drained = append(drained, drainedTarget{tgArn: tgArn, targetKey: key})
+			}
+		}
+	}
+
+	return drained
+}
+
+// removeDrainedTargets removes drained targets from their target groups.
+// Caller must hold b.mu (write).
+func (b *InMemoryBackend) removeDrainedTargets(drained []drainedTarget) {
+	for _, d := range drained {
+		tg, ok := b.targetGroups[d.tgArn]
+		if !ok {
+			continue
+		}
+
+		remaining := make([]Target, 0, len(tg.Targets))
+
+		for _, t := range tg.Targets {
+			if targetHealthKey(t.ID, t.Port) != d.targetKey {
+				remaining = append(remaining, t)
+			}
+		}
+
+		tg.Targets = remaining
+
+		if rm := b.targetDrainingUntil[d.tgArn]; rm != nil {
+			delete(rm, d.targetKey)
 		}
 	}
 }
@@ -623,7 +679,11 @@ func validateResourceName(name, kind string) error {
 	}
 
 	if name[0] == '-' || name[len(name)-1] == '-' {
-		return fmt.Errorf("%w: %s name cannot start or end with a hyphen", ErrInvalidParameter, kind)
+		return fmt.Errorf(
+			"%w: %s name cannot start or end with a hyphen",
+			ErrInvalidParameter,
+			kind,
+		)
 	}
 
 	for _, c := range name {
@@ -652,12 +712,18 @@ func validateLBName(name string) error {
 	}
 
 	if len(name) < minLBNameLength {
-		return fmt.Errorf("%w: load balancer name must be at least 2 characters", ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: load balancer name must be at least 2 characters",
+			ErrInvalidParameter,
+		)
 	}
 
 	for _, c := range name {
 		if c == '_' {
-			return fmt.Errorf("%w: load balancer name cannot contain underscores", ErrInvalidParameter)
+			return fmt.Errorf(
+				"%w: load balancer name cannot contain underscores",
+				ErrInvalidParameter,
+			)
 		}
 	}
 
@@ -750,11 +816,21 @@ func lbDNSName(name, lbType, region string) string {
 }
 
 func (b *InMemoryBackend) lbARN(name string) string {
-	return arn.Build("elasticloadbalancing", b.region, b.accountID, "loadbalancer/app/"+name+"/0123456789abcdef")
+	return arn.Build(
+		"elasticloadbalancing",
+		b.region,
+		b.accountID,
+		"loadbalancer/app/"+name+"/0123456789abcdef",
+	)
 }
 
 func (b *InMemoryBackend) tgARN(name string) string {
-	return arn.Build("elasticloadbalancing", b.region, b.accountID, "targetgroup/"+name+"/0123456789abcdef")
+	return arn.Build(
+		"elasticloadbalancing",
+		b.region,
+		b.accountID,
+		"targetgroup/"+name+"/0123456789abcdef",
+	)
 }
 
 func (b *InMemoryBackend) listenerARN(lbName string, port int32) string {
@@ -990,7 +1066,10 @@ func checkAllLBNamesFound(names []string, result []LoadBalancer) error {
 //
 // Fast path: when only ARNs are supplied (no names), look them up directly in
 // the ARN-keyed map instead of scanning every load balancer in the backend.
-func (b *InMemoryBackend) DescribeLoadBalancers(arns []string, names []string) ([]LoadBalancer, error) {
+func (b *InMemoryBackend) DescribeLoadBalancers(
+	arns []string,
+	names []string,
+) ([]LoadBalancer, error) {
 	b.mu.RLock("DescribeLoadBalancers")
 	defer b.mu.RUnlock()
 
@@ -1101,7 +1180,10 @@ func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
 }
 
 // ModifyLoadBalancerAttributes updates attributes on a load balancer.
-func (b *InMemoryBackend) ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error) {
+func (b *InMemoryBackend) ModifyLoadBalancerAttributes(
+	lbArn string,
+	attrs map[string]string,
+) (*LoadBalancer, error) {
 	b.mu.Lock("ModifyLoadBalancerAttributes")
 	defer b.mu.Unlock()
 
@@ -1145,7 +1227,10 @@ func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBa
 }
 
 // SetSubnets updates the availability zones / subnets associated with a load balancer.
-func (b *InMemoryBackend) SetSubnets(lbArn string, mappings []SubnetMapping) (*LoadBalancer, error) {
+func (b *InMemoryBackend) SetSubnets(
+	lbArn string,
+	mappings []SubnetMapping,
+) (*LoadBalancer, error) {
 	b.mu.Lock("SetSubnets")
 	defer b.mu.Unlock()
 
@@ -1176,7 +1261,8 @@ func (b *InMemoryBackend) SetIPAddressType(lbArn string, ipType string) (*LoadBa
 	default:
 		return nil, fmt.Errorf(
 			"%w: invalid IpAddressType %q; must be ipv4, dualstack, or dualstack-without-public-ipv4",
-			ErrInvalidParameter, ipType,
+			ErrInvalidParameter,
+			ipType,
 		)
 	}
 
@@ -1355,7 +1441,8 @@ func applyTGHealthCheckDefaults(proto string, input CreateTargetGroupInput) Crea
 }
 
 func defaultTGMatcher(hcProtocol string, matcher Matcher) Matcher {
-	if matcher.HTTPCode == "" && matcher.GrpcCode == "" && (hcProtocol == protoHTTP || hcProtocol == protoHTTPS) {
+	if matcher.HTTPCode == "" && matcher.GrpcCode == "" &&
+		(hcProtocol == protoHTTP || hcProtocol == protoHTTPS) {
 		matcher.HTTPCode = "200"
 	}
 
@@ -1465,7 +1552,11 @@ func (b *InMemoryBackend) tgToLBArnsLocked() map[string]map[string]bool {
 //
 // Fast path: when only ARNs are supplied (no names, no lbArn), look them up
 // directly in the ARN-keyed map instead of scanning every target group.
-func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error) {
+func (b *InMemoryBackend) DescribeTargetGroups(
+	arns []string,
+	names []string,
+	lbArn string,
+) ([]TargetGroup, error) {
 	b.mu.RLock("DescribeTargetGroups")
 	defer b.mu.RUnlock()
 
@@ -1600,7 +1691,11 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 	}
 
 	if b.isTGInUseLocked(tgArn) {
-		return fmt.Errorf("%w: target group %s is still in use by a listener or rule", ErrTargetGroupInUse, tgArn)
+		return fmt.Errorf(
+			"%w: target group %s is still in use by a listener or rule",
+			ErrTargetGroupInUse,
+			tgArn,
+		)
 	}
 
 	b.targetGroups[tgArn].Tags.Close()
@@ -1648,7 +1743,8 @@ func (b *InMemoryBackend) RegisterTargets(tgArn string, targets []Target) error 
 	return nil
 }
 
-// DeregisterTargets removes targets from a target group.
+// DeregisterTargets transitions targets to draining state. They are removed
+// after the deregistration_delay.timeout_seconds attribute expires.
 func (b *InMemoryBackend) DeregisterTargets(tgArn string, targets []Target) error {
 	b.mu.Lock("DeregisterTargets")
 	defer b.mu.Unlock()
@@ -1658,20 +1754,34 @@ func (b *InMemoryBackend) DeregisterTargets(tgArn string, targets []Target) erro
 		return ErrTargetGroupNotFound
 	}
 
-	remove := make(map[string]bool)
-	for _, t := range targets {
-		remove[t.ID+":"+strconv.Itoa(int(t.Port))] = true
-	}
-
-	remaining := make([]Target, 0, len(tg.Targets))
-
-	for _, t := range tg.Targets {
-		if !remove[t.ID+":"+strconv.Itoa(int(t.Port))] {
-			remaining = append(remaining, t)
+	drainSecs := int64(defaultDeregistrationDelaySecs)
+	if v, ok2 := tg.TargetGroupAttributes["deregistration_delay.timeout_seconds"]; ok2 {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			drainSecs = n
 		}
 	}
 
-	tg.Targets = remaining
+	drainDuration := time.Duration(drainSecs) * time.Second
+	drainExpiry := time.Now().Add(drainDuration)
+
+	remove := make(map[string]bool)
+	for _, t := range targets {
+		remove[targetHealthKey(t.ID, t.Port)] = true
+	}
+
+	for i := range tg.Targets {
+		key := targetHealthKey(tg.Targets[i].ID, tg.Targets[i].Port)
+		if remove[key] && tg.Targets[i].HealthState != "draining" {
+			tg.Targets[i].HealthState = "draining"
+			tg.Targets[i].HealthReason = targetDrainingReason
+
+			if b.targetDrainingUntil[tgArn] == nil {
+				b.targetDrainingUntil[tgArn] = make(map[string]time.Time)
+			}
+
+			b.targetDrainingUntil[tgArn][key] = drainExpiry
+		}
+	}
 
 	return nil
 }
@@ -1705,7 +1815,11 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDesc
 
 // SetTargetHealthState overrides the health state for a specific target in a target group.
 // Used in tests to simulate health state transitions.
-func (b *InMemoryBackend) SetTargetHealthState(tgArn, targetID string, port int32, state, reason string) error {
+func (b *InMemoryBackend) SetTargetHealthState(
+	tgArn, targetID string,
+	port int32,
+	state, reason string,
+) error {
 	b.mu.Lock("SetTargetHealthState")
 	defer b.mu.Unlock()
 
@@ -1773,14 +1887,16 @@ func validateListenerProtocol(lbType, proto string) error {
 		if !isALBProtocol(proto) {
 			return fmt.Errorf(
 				"%w: protocol %s is not supported for Application Load Balancers; use HTTP or HTTPS",
-				ErrInvalidConfigurationRequest, proto,
+				ErrInvalidConfigurationRequest,
+				proto,
 			)
 		}
 	case "network":
 		if !isNLBProtocol(proto) {
 			return fmt.Errorf(
 				"%w: protocol %s is not supported for Network Load Balancers; use TCP, UDP, TLS, or TCP_UDP",
-				ErrInvalidConfigurationRequest, proto,
+				ErrInvalidConfigurationRequest,
+				proto,
 			)
 		}
 	case "gateway":
@@ -1933,7 +2049,10 @@ func (b *InMemoryBackend) checkLBExists(lbArn string) error {
 //
 // Fast path: when only listener ARNs are supplied (no lbArn filter), look them
 // up directly in the ARN-keyed map instead of scanning every listener.
-func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string) ([]Listener, error) {
+func (b *InMemoryBackend) DescribeListeners(
+	lbArn string,
+	listenerArns []string,
+) ([]Listener, error) {
 	b.mu.RLock("DescribeListeners")
 	defer b.mu.RUnlock()
 
@@ -2142,12 +2261,19 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 	if input.Priority != "" && input.Priority != priorityDefault {
 		p, parseErr := strconv.ParseInt(input.Priority, 10, 32)
 		if parseErr != nil || p < 1 || p > 50000 {
-			return nil, fmt.Errorf("%w: priority must be an integer between 1 and 50000", ErrInvalidParameter)
+			return nil, fmt.Errorf(
+				"%w: priority must be an integer between 1 and 50000",
+				ErrInvalidParameter,
+			)
 		}
 
 		for _, r := range b.rules {
 			if r.ListenerArn == input.ListenerArn && r.Priority == input.Priority {
-				return nil, fmt.Errorf("%w: priority %s already in use", ErrDuplicateRulePriority, input.Priority)
+				return nil, fmt.Errorf(
+					"%w: priority %s already in use",
+					ErrDuplicateRulePriority,
+					input.Priority,
+				)
 			}
 		}
 	}
@@ -2265,7 +2391,10 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 	}
 
 	if rule.IsDefault {
-		return fmt.Errorf("%w: cannot delete the default rule of a listener", ErrOperationNotPermitted)
+		return fmt.Errorf(
+			"%w: cannot delete the default rule of a listener",
+			ErrOperationNotPermitted,
+		)
 	}
 
 	rule.Tags.Close()
@@ -2275,7 +2404,11 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 }
 
 // ModifyRule updates the actions and/or conditions of an existing rule.
-func (b *InMemoryBackend) ModifyRule(ruleArn string, actions []Action, conditions []Condition) (*Rule, error) {
+func (b *InMemoryBackend) ModifyRule(
+	ruleArn string,
+	actions []Action,
+	conditions []Condition,
+) (*Rule, error) {
 	b.mu.Lock("ModifyRule")
 	defer b.mu.Unlock()
 
@@ -2327,11 +2460,19 @@ func (b *InMemoryBackend) findTagsLocked(resArn string) *tags.Tags {
 func validateTagKVs(kvs []tags.KV) error {
 	for _, kv := range kvs {
 		if len(kv.Key) == 0 || len(kv.Key) > maxTagKeyLen {
-			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrInvalidParameter, maxTagKeyLen)
+			return fmt.Errorf(
+				"%w: tag key must be between 1 and %d characters",
+				ErrInvalidParameter,
+				maxTagKeyLen,
+			)
 		}
 
 		if len(kv.Value) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value must not exceed %d characters", ErrInvalidParameter, maxTagValueLen)
+			return fmt.Errorf(
+				"%w: tag value must not exceed %d characters",
+				ErrInvalidParameter,
+				maxTagValueLen,
+			)
 		}
 	}
 
@@ -2363,7 +2504,11 @@ func (b *InMemoryBackend) AddTags(resourceArns []string, kvs []tags.KV) error {
 			}
 
 			if t.Len()+netNew > maxTagsPerRes {
-				return fmt.Errorf("%w: resource cannot have more than %d tags", ErrInvalidParameter, maxTagsPerRes)
+				return fmt.Errorf(
+					"%w: resource cannot have more than %d tags",
+					ErrInvalidParameter,
+					maxTagsPerRes,
+				)
 			}
 		}
 
@@ -2526,7 +2671,10 @@ func (b *InMemoryBackend) DeleteTrustStore(trustStoreArn string) error {
 }
 
 // AddTrustStoreRevocations appends revocation entries to a trust store.
-func (b *InMemoryBackend) AddTrustStoreRevocations(trustStoreArn string, revocations []TrustStoreRevocation) error {
+func (b *InMemoryBackend) AddTrustStoreRevocations(
+	trustStoreArn string,
+	revocations []TrustStoreRevocation,
+) error {
 	b.mu.Lock("AddTrustStoreRevocations")
 	defer b.mu.Unlock()
 
@@ -2659,7 +2807,10 @@ func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn, name string) (*TrustSt
 }
 
 // RemoveTrustStoreRevocations removes revocation entries from a trust store by RevocationID.
-func (b *InMemoryBackend) RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []string) error {
+func (b *InMemoryBackend) RemoveTrustStoreRevocations(
+	trustStoreArn string,
+	revocationIDs []string,
+) error {
 	b.mu.Lock("RemoveTrustStoreRevocations")
 	defer b.mu.Unlock()
 
@@ -2686,7 +2837,9 @@ func (b *InMemoryBackend) RemoveTrustStoreRevocations(trustStoreArn string, revo
 }
 
 // DescribeTrustStoreRevocations returns revocation entries for a trust store.
-func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([]TrustStoreRevocation, error) {
+func (b *InMemoryBackend) DescribeTrustStoreRevocations(
+	trustStoreArn string,
+) ([]TrustStoreRevocation, error) {
 	b.mu.RLock("DescribeTrustStoreRevocations")
 	defer b.mu.RUnlock()
 
@@ -2704,7 +2857,10 @@ func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([
 // checkRulePriorityCollisions returns ErrDuplicateRulePriority when an incoming priority
 // conflicts with an existing non-batch rule on the same listener.
 // Callers must hold a write lock.
-func (b *InMemoryBackend) checkRulePriorityCollisions(priorities []RulePriority, batchArns map[string]bool) error {
+func (b *InMemoryBackend) checkRulePriorityCollisions(
+	priorities []RulePriority,
+	batchArns map[string]bool,
+) error {
 	incomingPriorities := make(map[string]bool, len(priorities))
 	for _, p := range priorities {
 		incomingPriorities[p.Priority] = true
@@ -2713,12 +2869,17 @@ func (b *InMemoryBackend) checkRulePriorityCollisions(priorities []RulePriority,
 	for _, p := range priorities {
 		listenerArn := b.rules[p.RuleArn].ListenerArn
 		for _, existing := range b.rules {
-			if existing.ListenerArn != listenerArn || batchArns[existing.RuleArn] || existing.IsDefault {
+			if existing.ListenerArn != listenerArn || batchArns[existing.RuleArn] ||
+				existing.IsDefault {
 				continue
 			}
 
 			if incomingPriorities[existing.Priority] {
-				return fmt.Errorf("%w: priority %s is already in use", ErrDuplicateRulePriority, existing.Priority)
+				return fmt.Errorf(
+					"%w: priority %s is already in use",
+					ErrDuplicateRulePriority,
+					existing.Priority,
+				)
 			}
 		}
 	}
@@ -2735,7 +2896,11 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 	seen := make(map[string]bool, len(priorities))
 	for _, p := range priorities {
 		if seen[p.Priority] {
-			return nil, fmt.Errorf("%w: priority %s specified more than once", ErrDuplicateRulePriority, p.Priority)
+			return nil, fmt.Errorf(
+				"%w: priority %s specified more than once",
+				ErrDuplicateRulePriority,
+				p.Priority,
+			)
 		}
 
 		seen[p.Priority] = true
@@ -2750,7 +2915,10 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 		}
 
 		if r.IsDefault {
-			return nil, fmt.Errorf("%w: cannot set priority on the default rule", ErrOperationNotPermitted)
+			return nil, fmt.Errorf(
+				"%w: cannot set priority on the default rule",
+				ErrOperationNotPermitted,
+			)
 		}
 
 		batchArns[p.RuleArn] = true
@@ -2827,7 +2995,10 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 }
 
 // ModifyTargetGroupAttributes updates attributes on a target group.
-func (b *InMemoryBackend) ModifyTargetGroupAttributes(tgArn string, attrs map[string]string) (*TargetGroup, error) {
+func (b *InMemoryBackend) ModifyTargetGroupAttributes(
+	tgArn string,
+	attrs map[string]string,
+) (*TargetGroup, error) {
 	b.mu.Lock("ModifyTargetGroupAttributes")
 	defer b.mu.Unlock()
 
@@ -2864,7 +3035,10 @@ func (b *InMemoryBackend) DescribeTargetGroupAttributes(tgArn string) (map[strin
 }
 
 // ModifyListenerAttributes updates attributes on a listener.
-func (b *InMemoryBackend) ModifyListenerAttributes(listenerArn string, attrs map[string]string) (*Listener, error) {
+func (b *InMemoryBackend) ModifyListenerAttributes(
+	listenerArn string,
+	attrs map[string]string,
+) (*Listener, error) {
 	b.mu.Lock("ModifyListenerAttributes")
 	defer b.mu.Unlock()
 
@@ -2885,7 +3059,9 @@ func (b *InMemoryBackend) ModifyListenerAttributes(listenerArn string, attrs map
 }
 
 // DescribeListenerAttributes returns attributes for a listener.
-func (b *InMemoryBackend) DescribeListenerAttributes(listenerArn string) (map[string]string, error) {
+func (b *InMemoryBackend) DescribeListenerAttributes(
+	listenerArn string,
+) (map[string]string, error) {
 	b.mu.RLock("DescribeListenerAttributes")
 	defer b.mu.RUnlock()
 

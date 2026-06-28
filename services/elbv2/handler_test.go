@@ -5223,7 +5223,7 @@ func TestDeregisterTargetsPortAware(t *testing.T) {
 		"Targets.member.1.Port": {"8080"},
 	})
 
-	// Port 8081 must still be healthy.
+	// Port 8080 must be draining; port 8081 must not be affected.
 	rec := doELBv2(t, h, url.Values{
 		"Action":         {"DescribeTargetHealth"},
 		"Version":        {"2015-12-01"},
@@ -5234,19 +5234,27 @@ func TestDeregisterTargetsPortAware(t *testing.T) {
 	var resp struct {
 		Result struct {
 			TargetHealthDescriptions struct {
-				Members []struct {
+				Members []struct { //nolint:govet // field order is chosen for readability
 					Target struct {
 						ID   string `xml:"Id"`
 						Port int    `xml:"Port"`
 					} `xml:"Target"`
+					TargetHealth struct {
+						State string `xml:"State"`
+					} `xml:"TargetHealth"`
 				} `xml:"member"`
 			} `xml:"TargetHealthDescriptions"`
 		} `xml:"DescribeTargetHealthResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Len(t, resp.Result.TargetHealthDescriptions.Members, 1)
-	assert.Equal(t, "i-abc", resp.Result.TargetHealthDescriptions.Members[0].Target.ID)
-	assert.Equal(t, 8081, resp.Result.TargetHealthDescriptions.Members[0].Target.Port)
+	require.Len(t, resp.Result.TargetHealthDescriptions.Members, 2)
+
+	states := map[int]string{}
+	for _, m := range resp.Result.TargetHealthDescriptions.Members {
+		states[m.Target.Port] = m.TargetHealth.State
+	}
+	assert.Equal(t, "draining", states[8080], "deregistered port should be draining")
+	assert.NotEqual(t, "draining", states[8081], "non-deregistered port must not be draining")
 }
 
 // TestModifyTargetGroupHealthCheckEnabledOptional verifies that omitting HealthCheckEnabled

@@ -2545,6 +2545,34 @@ func distributionSummaryIsIPV6(d *Distribution) bool {
 func (h *Handler) handleListDistributions(c *echo.Context) error {
 	dists := h.Backend.ListDistributions()
 
+	// Parse pagination query params.
+	marker := c.QueryParam("Marker")
+	pageSize := maxItems
+	if s := c.QueryParam("MaxItems"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n < maxItems {
+			pageSize = n
+		}
+	}
+
+	// Advance past the marker (marker == ID of first item on next page).
+	if marker != "" {
+		cut := 0
+		for cut < len(dists) && dists[cut].ID <= marker {
+			cut++
+		}
+		dists = dists[cut:]
+	}
+
+	isTruncated := len(dists) > pageSize
+	if isTruncated {
+		dists = dists[:pageSize]
+	}
+
+	nextMarker := ""
+	if isTruncated && len(dists) > 0 {
+		nextMarker = dists[len(dists)-1].ID
+	}
+
 	summaries := make([]distributionSummaryXML, 0, len(dists))
 	for _, d := range dists {
 		aliases := h.Backend.ListAliases(d.ID)
@@ -2569,6 +2597,7 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 	type distListXML struct {
 		XMLName     xml.Name                 `xml:"DistributionList"`
 		XMLNS       string                   `xml:"xmlns,attr"`
+		NextMarker  string                   `xml:"NextMarker,omitempty"`
 		Items       []distributionSummaryXML `xml:"Items>DistributionSummary"`
 		MaxItems    int                      `xml:"MaxItems"`
 		Quantity    int                      `xml:"Quantity"`
@@ -2576,10 +2605,12 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 	}
 
 	list := distListXML{
-		XMLNS:    cfNS,
-		MaxItems: maxItems,
-		Quantity: len(summaries),
-		Items:    summaries,
+		XMLNS:       cfNS,
+		MaxItems:    pageSize,
+		Quantity:    len(summaries),
+		Items:       summaries,
+		IsTruncated: isTruncated,
+		NextMarker:  nextMarker,
 	}
 
 	out, xmlErr := xml.Marshal(list)
