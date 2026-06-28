@@ -1,8 +1,10 @@
 package sesv2
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -688,7 +690,7 @@ func (b *InMemoryBackend) ListEmailTemplates(
 	return page.New(items, nextToken, pageSize, sesv2DefaultMaxItems)
 }
 
-// TestRenderEmailTemplate renders a template with merge data (stub).
+// TestRenderEmailTemplate renders a template with merge data.
 func (b *InMemoryBackend) TestRenderEmailTemplate(name, templateData string) (string, error) {
 	b.mu.RLock("TestRenderEmailTemplate")
 	defer b.mu.RUnlock()
@@ -698,17 +700,33 @@ func (b *InMemoryBackend) TestRenderEmailTemplate(name, templateData string) (st
 		return "", fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
 	}
 
-	_ = templateData
-
-	rendered := ""
-	if t.TemplateContent != nil {
-		rendered = t.TemplateContent.HTML
-		if rendered == "" {
-			rendered = t.TemplateContent.Text
+	vars := map[string]string{}
+	if strings.TrimSpace(templateData) != "" {
+		raw := map[string]any{}
+		if err := json.Unmarshal([]byte(templateData), &raw); err != nil {
+			return "", fmt.Errorf("%w: TemplateData must be valid JSON", ErrInvalidInput)
+		}
+		for k, v := range raw {
+			vars[k] = fmt.Sprintf("%v", v)
 		}
 	}
 
-	return rendered, nil
+	renderVars := func(s string) string {
+		for k, v := range vars {
+			s = strings.ReplaceAll(s, "{{"+k+"}}", v)
+		}
+
+		return s
+	}
+
+	subject, html, text := "", "", ""
+	if t.TemplateContent != nil {
+		subject = renderVars(t.TemplateContent.Subject)
+		html = renderVars(t.TemplateContent.HTML)
+		text = renderVars(t.TemplateContent.Text)
+	}
+
+	return strings.Join([]string{subject, html, text}, "\n---\n"), nil
 }
 
 // ---- export / import jobs ----
@@ -1174,16 +1192,30 @@ func (b *InMemoryBackend) PutEmailIdentityMailFromAttributes(
 
 // ---- email sending ----
 
-// SendBulkEmail sends bulk emails (stub — records sent emails).
+// SendBulkEmail sends bulk emails — records sent emails with actual recipients.
 func (b *InMemoryBackend) SendBulkEmail(
 	fromEmailAddress string,
 	bulkEmailEntries []map[string]any,
 ) ([]map[string]any, error) {
 	results := make([]map[string]any, 0, len(bulkEmailEntries))
 
-	for range bulkEmailEntries {
-		msgID := "sesv2-bulk-" + uuid.New().String()
-		_, _ = b.SendEmail(fromEmailAddress, []string{}, "", "", "")
+	for _, entry := range bulkEmailEntries {
+		var toAddresses []string
+		if dest, destOK := entry["Destination"].(map[string]any); destOK {
+			if raw, rawOK := dest["ToAddresses"].([]any); rawOK {
+				for _, v := range raw {
+					if s, strOK := v.(string); strOK {
+						toAddresses = append(toAddresses, s)
+					}
+				}
+			}
+		}
+
+		msgID, _ := b.SendEmail(fromEmailAddress, toAddresses, "", "", "")
+		if msgID == "" {
+			msgID = "sesv2-bulk-" + uuid.New().String()
+		}
+
 		results = append(results, map[string]any{
 			"MessageId": msgID,
 			keyStatus:   keyStatusSuccess,
@@ -1211,7 +1243,23 @@ func (b *InMemoryBackend) SendCustomVerificationEmail(
 	}
 
 	msgID := "sesv2-cvr-" + uuid.New().String()
-	_, _ = b.SendEmail("noreply@example.com", []string{emailAddress}, "Verify your email", "", "")
+
+	email := Email{
+		MessageID: msgID,
+		From:      "noreply@example.com",
+		To:        []string{emailAddress},
+		Subject:   "Verify your email",
+		Timestamp: time.Now(),
+	}
+
+	b.mu.Lock("SendCustomVerificationEmail-record")
+	b.emails = append(b.emails, email)
+	if len(b.emails) >= emailCompactionHighWater {
+		trimmed := make([]Email, maxRetainedEmails, emailCompactionHighWater)
+		copy(trimmed, b.emails[len(b.emails)-maxRetainedEmails:])
+		b.emails = trimmed
+	}
+	b.mu.Unlock()
 
 	return msgID, nil
 }

@@ -1099,14 +1099,17 @@ func TestSESv2Backend_SendEmailCap(t *testing.T) {
 
 	b := sesv2.NewInMemoryBackend()
 
+	_, err := b.CreateEmailIdentity("a@example.com", "", nil)
+	require.NoError(t, err)
+
 	// Send beyond 2x the cap so the amortized compaction path runs at least
 	// once. After compaction the slice length must stay between
 	// maxRetainedEmails and 2*maxRetainedEmails.
 	total := sesv2.EmailCompactionHighWater + 5
 	for i := range total {
-		_, err := b.SendEmail("a@example.com", []string{"b@example.com"},
+		_, sendErr := b.SendEmail("a@example.com", []string{"b@example.com"},
 			"s", "h", "t")
-		require.NoError(t, err, "iteration %d", i)
+		require.NoError(t, sendErr, "iteration %d", i)
 	}
 
 	got := sesv2.EmailCount(b)

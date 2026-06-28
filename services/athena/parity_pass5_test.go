@@ -47,7 +47,7 @@ func TestParity_GetQueryResults_HeaderOnlyOnFirstPage(t *testing.T) {
 	id, err := b.StartQueryExecution(
 		"SELECT col FROM db.t", "primary",
 		athena.QueryExecutionContext{Catalog: "AwsDataCatalog", Database: "db"},
-		athena.ResultConfiguration{}, nil,
+		athena.ResultConfiguration{}, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -345,7 +345,7 @@ func TestParity_GetQueryResults_ColumnInfo(t *testing.T) {
 	id, err := b.StartQueryExecution(
 		"SELECT x FROM db.tab", "primary",
 		athena.QueryExecutionContext{Catalog: "AwsDataCatalog", Database: "db"},
-		athena.ResultConfiguration{}, nil,
+		athena.ResultConfiguration{}, nil, nil,
 	)
 	require.NoError(t, err)
 
