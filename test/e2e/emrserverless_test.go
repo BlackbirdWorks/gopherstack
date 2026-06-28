@@ -22,6 +22,7 @@ func TestEMRServerlessDashboard(t *testing.T) {
 		"e2e-spark-app",
 		"SPARK",
 		"emr-6.10.0",
+		"",
 		map[string]string{"env": "test"},
 	)
 	require.NoError(t, err)
@@ -102,6 +103,7 @@ func TestEMRServerlessDashboard_JobRuns(t *testing.T) {
 		"e2e-hive-app",
 		"HIVE",
 		"emr-6.10.0",
+		"",
 		nil,
 	)
 	require.NoError(t, err)
@@ -111,6 +113,7 @@ func TestEMRServerlessDashboard_JobRuns(t *testing.T) {
 		app.ApplicationID,
 		"arn:aws:iam::000000000000:role/EMRServerlessRole",
 		"e2e-hive-job",
+		"",
 		nil,
 	)
 	require.NoError(t, err)
@@ -163,6 +166,7 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 		"e2e-filter-app",
 		"SPARK",
 		"emr-6.10.0",
+		"",
 		nil,
 	)
 	require.NoError(t, err)
@@ -173,6 +177,7 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 		app.ApplicationID,
 		"arn:aws:iam::000000000000:role/EMRServerlessRole",
 		"running-job",
+		"",
 		nil,
 	)
 	require.NoError(t, err)
@@ -184,6 +189,7 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 		app.ApplicationID,
 		"arn:aws:iam::000000000000:role/EMRServerlessRole",
 		"submitted-job",
+		"",
 		nil,
 	)
 	require.NoError(t, err)
@@ -286,6 +292,7 @@ func TestEMRServerlessDashboard_Refresh(t *testing.T) {
 		"refresh-test-app",
 		"SPARK",
 		"emr-6.10.0",
+		"",
 		nil,
 	)
 	require.NoError(t, err)
@@ -309,6 +316,7 @@ func TestEMRServerlessDashboard_Tags(t *testing.T) {
 		"tagged-app",
 		"SPARK",
 		"emr-6.10.0",
+		"",
 		map[string]string{"project": "phoenix"},
 	)
 	require.NoError(t, err)
@@ -341,6 +349,7 @@ func TestEMRServerlessDashboard_StateFilter(t *testing.T) {
 		"state-filter-app",
 		"SPARK",
 		"emr-6.10.0",
+		"",
 		nil,
 	)
 	require.NoError(t, err)
@@ -350,6 +359,7 @@ func TestEMRServerlessDashboard_StateFilter(t *testing.T) {
 		app.ApplicationID,
 		"arn:aws:iam::000000000000:role/EMRServerlessRole",
 		"to-cancel",
+		"",
 		nil,
 	)
 	require.NoError(t, err)
@@ -360,6 +370,7 @@ func TestEMRServerlessDashboard_StateFilter(t *testing.T) {
 		app.ApplicationID,
 		"arn:aws:iam::000000000000:role/EMRServerlessRole",
 		"pending-job",
+		"",
 		nil,
 	)
 	require.NoError(t, err)
