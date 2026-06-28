@@ -155,7 +155,7 @@ func (h *Handler) dispatch(ctx context.Context, operation string, body []byte) (
 
 	switch operation {
 	case "DescribeStream":
-		return dispatchStreamsOp(ctx, body, h.Streams.DescribeStream)
+		return dispatchDescribeStream(ctx, body, h.Streams.DescribeStream)
 	case "GetShardIterator":
 		return dispatchStreamsOp(ctx, body, h.Streams.GetShardIterator)
 	case "GetRecords":
@@ -250,6 +250,70 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, operation stri
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 
 	return c.JSONBlob(http.StatusBadRequest, body)
+}
+
+func dispatchDescribeStream(
+	ctx context.Context,
+	body []byte,
+	op func(context.Context, *dynamodbstreams.DescribeStreamInput) (*dynamodbstreams.DescribeStreamOutput, error),
+) (any, error) {
+	var input dynamodbstreams.DescribeStreamInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	out, err := op(ctx, &input)
+	if err != nil {
+		return nil, err
+	}
+
+	return toWireDescribeStreamOutput(out), nil
+}
+
+// Wire format types and functions for DescribeStream and GetRecords response serialization.
+
+type wireStreamDescription struct {
+	// CreationRequestDateTime is Unix epoch seconds (float64) per DynamoDB Streams JSON 1.0 protocol.
+	CreationRequestDateTime *float64                        `json:"CreationRequestDateTime,omitempty"`
+	KeySchema               []streamstypes.KeySchemaElement `json:"KeySchema,omitempty"`
+	LastEvaluatedShardId    *string                         `json:"LastEvaluatedShardId,omitempty"`
+	Shards                  []streamstypes.Shard            `json:"Shards,omitempty"`
+	StreamArn               *string                         `json:"StreamArn,omitempty"`
+	StreamLabel             *string                         `json:"StreamLabel,omitempty"`
+	StreamStatus            streamstypes.StreamStatus       `json:"StreamStatus,omitempty"`
+	StreamViewType          streamstypes.StreamViewType     `json:"StreamViewType,omitempty"`
+	TableName               *string                         `json:"TableName,omitempty"`
+}
+
+type wireDescribeStreamOutput struct {
+	StreamDescription *wireStreamDescription `json:"StreamDescription,omitempty"`
+}
+
+func toWireDescribeStreamOutput(out *dynamodbstreams.DescribeStreamOutput) *wireDescribeStreamOutput {
+	if out == nil || out.StreamDescription == nil {
+		return &wireDescribeStreamOutput{}
+	}
+
+	sd := out.StreamDescription
+	wd := &wireStreamDescription{
+		KeySchema:            sd.KeySchema,
+		LastEvaluatedShardId: sd.LastEvaluatedShardId,
+		Shards:               sd.Shards,
+		StreamArn:            sd.StreamArn,
+		StreamLabel:          sd.StreamLabel,
+		StreamStatus:         sd.StreamStatus,
+		StreamViewType:       sd.StreamViewType,
+		TableName:            sd.TableName,
+	}
+
+	if sd.CreationRequestDateTime != nil {
+		epochSecs := float64(sd.CreationRequestDateTime.Unix())
+		wd.CreationRequestDateTime = &epochSecs
+	}
+
+	return &wireDescribeStreamOutput{StreamDescription: wd}
 }
 
 // Wire format types and functions for GetRecords response serialization.

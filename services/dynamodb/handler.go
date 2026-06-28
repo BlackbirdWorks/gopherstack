@@ -874,7 +874,7 @@ func (h *DynamoDBHandler) dispatchStreamsOps(
 
 	switch action {
 	case "DescribeStream":
-		return handleStreamsOp(ctx, body, h.Streams.DescribeStream)
+		return handleStreamsDescribeStream(ctx, body, h.Streams.DescribeStream)
 	case "GetShardIterator":
 		return handleStreamsOp(ctx, body, h.Streams.GetShardIterator)
 	case "GetRecords":
@@ -924,6 +924,26 @@ func handleStreamsGetRecords(
 	}
 
 	return wireOut, nil
+}
+
+func handleStreamsDescribeStream(
+	ctx context.Context,
+	body []byte,
+	op func(context.Context, *dynamodbstreams.DescribeStreamInput) (*dynamodbstreams.DescribeStreamOutput, error),
+) (any, error) {
+	var input dynamodbstreams.DescribeStreamInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	out, err := op(ctx, &input)
+	if err != nil {
+		return nil, err
+	}
+
+	return toWireDescribeStreamOutput(out), nil
 }
 
 // validateTableNameFromBody extracts "TableName" from the JSON body and checks it

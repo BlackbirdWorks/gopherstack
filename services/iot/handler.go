@@ -1764,16 +1764,26 @@ func (h *Handler) handleDeleteThing(c *echo.Context) error {
 func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
-	var body struct {
-		TopicRulePayload *TopicRulePayload `json:"topicRulePayload"`
-	}
-
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
-		!errors.Is(err, io.EOF) {
+	rawBody, err := io.ReadAll(c.Request().Body)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
-	payload := body.TopicRulePayload
+	// Accept both wrapped {"topicRulePayload":{...}} and flat {...} formats.
+	var wrapped struct {
+		TopicRulePayload *TopicRulePayload `json:"topicRulePayload"`
+	}
+	if jsonErr := json.Unmarshal(rawBody, &wrapped); jsonErr != nil && !errors.Is(jsonErr, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: jsonErr.Error()})
+	}
+
+	payload := wrapped.TopicRulePayload
+	if payload == nil {
+		var flat TopicRulePayload
+		if jsonErr := json.Unmarshal(rawBody, &flat); jsonErr == nil && flat.SQL != "" {
+			payload = &flat
+		}
+	}
 	if payload == nil {
 		payload = &TopicRulePayload{}
 	}

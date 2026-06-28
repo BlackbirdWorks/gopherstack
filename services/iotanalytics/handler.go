@@ -1426,14 +1426,6 @@ func (h *Handler) handleListDatasetContents(c *echo.Context, datasetName string)
 
 func (h *Handler) handleDeleteDatasetContent(c *echo.Context, datasetName string) error {
 	versionID := c.Request().URL.Query().Get("versionId")
-	if versionID == "" {
-		return h.writeError(
-			c,
-			http.StatusBadRequest,
-			"InvalidRequestException",
-			"versionId query parameter is required",
-		)
-	}
 
 	if err := h.Backend.DeleteDatasetContent(datasetName, versionID); err != nil {
 		return h.writeBackendError(c, err)

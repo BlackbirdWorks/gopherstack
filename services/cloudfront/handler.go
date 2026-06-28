@@ -2549,13 +2549,14 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 	for _, d := range dists {
 		aliases := h.Backend.ListAliases(d.ID)
 		s := distributionSummaryXML{
-			ID:            d.ID,
-			ARN:           d.ARN,
-			Status:        d.Status,
-			DomainName:    d.DomainName,
-			Comment:       d.Comment,
-			Enabled:       d.Enabled,
-			IsIPV6Enabled: distributionSummaryIsIPV6(d),
+			ID:               d.ID,
+			ARN:              d.ARN,
+			Status:           d.Status,
+			DomainName:       d.DomainName,
+			Comment:          d.Comment,
+			Enabled:          d.Enabled,
+			IsIPV6Enabled:    distributionSummaryIsIPV6(d),
+			LastModifiedTime: d.LastModifiedTime,
 		}
 		s.Aliases.Quantity = len(aliases)
 		s.ViewerCertificate.CloudFrontDefaultCertificate = true

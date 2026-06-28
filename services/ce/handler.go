@@ -678,12 +678,12 @@ type getAnomalyMonitorsInput struct {
 }
 
 type anomalyMonitorSummary struct {
-	CreationDate     *float64 `json:"CreationDate,omitempty"`
-	LastUpdatedDate  *float64 `json:"LastUpdatedDate,omitempty"`
-	MonitorArn       string   `json:"MonitorArn"`
-	MonitorName      string   `json:"MonitorName"`
-	MonitorType      string   `json:"MonitorType"`
-	MonitorDimension string   `json:"MonitorDimension,omitempty"`
+	CreationDate     *string `json:"CreationDate,omitempty"`
+	LastUpdatedDate  *string `json:"LastUpdatedDate,omitempty"`
+	MonitorArn       string  `json:"MonitorArn"`
+	MonitorName      string  `json:"MonitorName"`
+	MonitorType      string  `json:"MonitorType"`
+	MonitorDimension string  `json:"MonitorDimension,omitempty"`
 }
 
 type getAnomalyMonitorsOutput struct {
@@ -707,12 +707,12 @@ func (h *Handler) handleGetAnomalyMonitors(
 		}
 
 		if !mon.CreationDate.IsZero() {
-			v := float64(mon.CreationDate.Unix())
+			v := mon.CreationDate.Format("2006-01-02")
 			s.CreationDate = &v
 		}
 
 		if !mon.LastUpdatedDate.IsZero() {
-			v := float64(mon.LastUpdatedDate.Unix())
+			v := mon.LastUpdatedDate.Format("2006-01-02")
 			s.LastUpdatedDate = &v
 		}
 

@@ -303,7 +303,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("ClusterNotFoundException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
