@@ -206,7 +206,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeExportTasks"] = h.handleStubDescribeExportTasks
 	ops["DescribeFleetHistory"] = h.handleStubDescribeFleetHistory
 	ops["DescribeFleetInstances"] = h.handleStubDescribeFleetInstances
-	ops["DescribeFleets"] = h.handleStubDescribeFleets
+	// DescribeFleets is intentionally NOT stubbed here: registerBatch5Ops registers
+	// the real handler (handleDescribeFleets) and registerStubOps runs after it, so a
+	// stub entry would shadow the working implementation and return empty results.
 	ops["DescribeFpgaImageAttribute"] = h.handleStubDescribeFpgaImageAttribute
 	ops["DescribeFpgaImages"] = h.handleStubDescribeFpgaImages
 	ops["DescribeHostReservationOfferings"] = h.handleStubDescribeHostReservationOfferings
@@ -2311,14 +2313,6 @@ func (h *Handler) handleStubDescribeFleetHistory(_ url.Values, reqID string) (an
 func (h *Handler) handleStubDescribeFleetInstances(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeFleetInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeFleets(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeFleetsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

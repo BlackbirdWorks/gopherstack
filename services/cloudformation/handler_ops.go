@@ -660,7 +660,14 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 }
 
 func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) error {
-	_ = h.Backend.StopStackSetOperation(form.Get("StackSetName"), form.Get("OperationId"))
+	if err := h.Backend.StopStackSetOperation(form.Get("StackSetName"), form.Get("OperationId")); err != nil {
+		code := "OperationNotFoundException"
+		if errors.Is(err, ErrOperationNotRunning) {
+			code = "InvalidOperationException"
+		}
+
+		return h.xmlError(c, code, err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"StopStackSetOperationResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -675,7 +682,10 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 }
 
 func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *echo.Context) error {
-	targets, _ := h.Backend.ListStackSetAutoDeploymentTargets(form.Get("StackSetName"))
+	targets, err := h.Backend.ListStackSetAutoDeploymentTargets(form.Get("StackSetName"))
+	if err != nil {
+		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+	}
 	type result struct {
 		Targets []AutoDeploymentTarget `xml:"Targets>member"`
 	}
