@@ -3,6 +3,7 @@ package kinesis
 import (
 	"cmp"
 	"context"
+	"crypto/md5" //nolint:gosec // MD5 used as a non-cryptographic hash key for Kinesis shard routing, matching the AWS API contract
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,8 +15,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
@@ -276,11 +275,11 @@ func initializeStreamRuntime(stream *Stream, streamName string) {
 	}
 }
 
-// hashKey computes a numeric hash key for a partition key using a simple mapping.
-// The result is in the range [0, 2^128-1] as required by Kinesis.
+// hashKey computes the Kinesis hash key for a partition key using MD5, matching
+// the AWS API contract. The result is in the range [0, 2^128-1].
 func hashKey(partitionKey string) *big.Int {
-	// Use a simple deterministic hash by interpreting the UUID v5 of the partition key.
-	sum := uuid.NewSHA1(uuid.NameSpaceOID, []byte(partitionKey))
+	//nolint:gosec // MD5 is intentional: AWS Kinesis uses MD5 for partition-key → shard routing
+	sum := md5.Sum([]byte(partitionKey))
 
 	return new(big.Int).SetBytes(sum[:])
 }

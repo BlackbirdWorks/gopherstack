@@ -428,7 +428,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 // classifyError returns the HTTP status code and AWS error type string for err.
-func (h *Handler) classifyError(err error) (int, string) {
+func (h *Handler) classifyError(err error) (int, string) { //nolint:cyclop // 1 case per distinct error type
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
@@ -439,6 +439,8 @@ func (h *Handler) classifyError(err error) (int, string) {
 		return http.StatusBadRequest, "RepositoryPolicyNotFoundException"
 	case errors.Is(err, ErrImageNotFound):
 		return http.StatusBadRequest, "ImageNotFoundException"
+	case errors.Is(err, ErrScanNotFoundException):
+		return http.StatusBadRequest, "ScanNotFoundException"
 	case errors.Is(err, ErrPullThroughCacheRuleNotFound),
 		errors.Is(err, ErrLifecyclePolicyNotFound),
 		errors.Is(err, ErrRepositoryCreationTemplateNotFound),
