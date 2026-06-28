@@ -519,7 +519,7 @@ onMount(() => {
 				<button onclick={() => showCreateModal = false} class="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
 					Cancel
 				</button>
-				<button onclick={createStream} disabled={creating || !newStreamName.trim()} class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+				<button type="submit" onclick={createStream} disabled={creating || !newStreamName.trim()} class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
 					{creating ? 'Creating...' : 'Create Stream'}
 				</button>
 			</div>
