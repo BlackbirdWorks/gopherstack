@@ -1170,9 +1170,11 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 // handleListESMs handles GET /2015-03-31/event-source-mappings/.
 func (h *Handler) handleListESMs(c *echo.Context) error {
 	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
-		functionName := c.Request().URL.Query().Get("FunctionName")
+		q := c.Request().URL.Query()
+		functionName := q.Get("FunctionName")
+		eventSourceARN := q.Get("EventSourceArn")
 		marker, maxItems := parsePaginationParams(c.Request())
-		p := lambdaBk.ListEventSourceMappings(functionName, marker, maxItems)
+		p := lambdaBk.ListEventSourceMappings(functionName, eventSourceARN, marker, maxItems)
 		resp := make([]jsonESMResponse, len(p.Data))
 		for i, m := range p.Data {
 			resp[i] = toJSONESMResponse(m)
@@ -1626,6 +1628,19 @@ func parsePaginationParams(r *http.Request) (string, int) {
 
 func (h *Handler) handleListFunctions(c *echo.Context) error {
 	marker, maxItems := parsePaginationParams(c.Request())
+
+	// ?FunctionVersion=ALL returns all published versions in addition to $LATEST.
+	if c.Request().URL.Query().Get("FunctionVersion") == "ALL" {
+		if bk, ok := h.Backend.(*InMemoryBackend); ok {
+			p := bk.ListFunctionsAll(marker, maxItems)
+
+			return c.JSON(http.StatusOK, &ListFunctionsOutput{
+				Functions:  p.Data,
+				NextMarker: p.Next,
+			})
+		}
+	}
+
 	p := h.Backend.ListFunctions(marker, maxItems)
 
 	return c.JSON(http.StatusOK, &ListFunctionsOutput{
@@ -1921,6 +1936,8 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		body = []byte("{}")
 	}
 
+	executedVersion := h.resolveExecutedVersion(name, qualifier)
+
 	var result []byte
 	var statusCode int
 	var invokeErr error
@@ -1932,17 +1949,11 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	}
 
 	if invokeErr != nil {
-		if errors.Is(invokeErr, ErrFunctionNotFound) {
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				"Function not found: "+name)
-		}
-
-		if errors.Is(invokeErr, ErrTooManyRequests) {
-			return h.writeError(c, http.StatusTooManyRequests, "TooManyRequestsException", invokeErr.Error())
-		}
-
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", invokeErr.Error())
+		return h.writeInvokeError(c, name, invokeErr)
 	}
+
+	// Set X-Amz-Executed-Version on all successful responses (real AWS always sends this).
+	c.Response().Header().Set("X-Amz-Executed-Version", executedVersion)
 
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
@@ -1966,6 +1977,35 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+// resolveExecutedVersion returns the version string for the X-Amz-Executed-Version header.
+func (h *Handler) resolveExecutedVersion(name, qualifier string) string {
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return versionLatest
+	}
+
+	resolved, err := bk.resolveQualifier(name, qualifier)
+	if err != nil || resolved.Version == "" {
+		return versionLatest
+	}
+
+	return resolved.Version
+}
+
+// writeInvokeError translates invoke errors into HTTP error responses.
+func (h *Handler) writeInvokeError(c *echo.Context, name string, invokeErr error) error {
+	if errors.Is(invokeErr, ErrFunctionNotFound) {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			"Function not found: "+name)
+	}
+
+	if errors.Is(invokeErr, ErrTooManyRequests) {
+		return h.writeError(c, http.StatusTooManyRequests, "TooManyRequestsException", invokeErr.Error())
+	}
+
+	return h.writeError(c, http.StatusInternalServerError, "ServiceException", invokeErr.Error())
 }
 
 // isLambdaFunctionErrorPayload reports whether result looks like a Lambda
@@ -2526,14 +2566,17 @@ func parseLayerVersion(s string) (int64, error) {
 }
 
 func (h *Handler) handleListLayers(c *echo.Context, bk *InMemoryBackend) error {
+	q := c.Request().URL.Query()
+	compatibleRuntime := q.Get("CompatibleRuntime")
 	marker, maxItems := parsePaginationParams(c.Request())
-	p := bk.ListLayers(marker, maxItems)
+	p := bk.ListLayers(compatibleRuntime, marker, maxItems)
 
 	return c.JSON(http.StatusOK, &ListLayersOutput{Layers: p.Data, NextMarker: p.Next})
 }
 
 func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, layerName string) error {
-	versions, err := bk.ListLayerVersions(layerName)
+	compatibleRuntime := c.Request().URL.Query().Get("CompatibleRuntime")
+	versions, err := bk.ListLayerVersions(layerName, compatibleRuntime)
 	if err != nil {
 		if errors.Is(err, ErrLayerNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",

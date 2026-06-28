@@ -231,7 +231,7 @@ func (p *EventSourcePoller) pollAndBackoff(
 // poll iterates over all enabled event source mappings and processes new records.
 // It returns the number of enabled mappings found.
 func (p *EventSourcePoller) poll(ctx context.Context) int {
-	mappings := p.lambdaBackend.ListEventSourceMappings("", "", 0).Data
+	mappings := p.lambdaBackend.ListEventSourceMappings("", "", "", 0).Data
 
 	activeUUIDs := make(map[string]struct{}, len(mappings))
 	enabledCount := 0

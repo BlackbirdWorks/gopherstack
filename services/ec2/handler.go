@@ -762,6 +762,9 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 	ids := parseMemberList(vals, "VpcId")
 	vpcs := h.Backend.DescribeVpcs(ids)
 
+	filters := parseEC2Filters(vals)
+	vpcs = applyVPCFilters(vpcs, filters, h.Backend)
+
 	items := make([]vpcItem, 0, len(vpcs))
 	for _, v := range vpcs {
 		items = append(items, toVPCItem(v))
@@ -794,15 +797,41 @@ func (h *Handler) handleDescribeVpcAttribute(vals url.Values, reqID string) (any
 	vpcID := vals.Get("VpcId")
 	attr := vals.Get("Attribute")
 
-	// Return false for all VPC boolean attributes (enableDnsHostnames, enableDnsSupport, etc.).
-	// Terraform reads these to set up VPC configuration. The attribute name is used as the
-	// XML element name to match the AWS EC2 API response format.
+	attrValue := vpcAttributeValue(h.Backend.DescribeVpcs([]string{vpcID}), attr)
+
 	return &describeVpcAttributeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		VpcID:     vpcID,
-		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: ec2BooleanFalse},
+		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: attrValue},
 	}, nil
+}
+
+// vpcAttributeValue reads the persisted boolean value for a VPC attribute.
+// enableDnsSupport defaults to true (AWS default); all others default to false.
+func vpcAttributeValue(vpcs []*VPC, attr string) string {
+	if len(vpcs) == 0 {
+		if attr == attrEnableDNSSupport {
+			return ec2BooleanTrue
+		}
+
+		return ec2BooleanFalse
+	}
+
+	vpc := vpcs[0]
+	if v, ok := vpc.Attributes[attr]; ok {
+		if v {
+			return ec2BooleanTrue
+		}
+
+		return ec2BooleanFalse
+	}
+
+	if attr == attrEnableDNSSupport {
+		return ec2BooleanTrue
+	}
+
+	return ec2BooleanFalse
 }
 
 func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
@@ -829,6 +858,9 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SubnetId")
 	subnets := h.Backend.DescribeSubnets(ids)
+
+	filters := parseEC2Filters(vals)
+	subnets = applySubnetFilters(subnets, filters, h.Backend)
 
 	items := make([]subnetItem, 0, len(subnets))
 	for _, s := range subnets {
@@ -1056,10 +1088,13 @@ var validDescribeTagsFilters = map[string]bool{
 }
 
 // handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
-// If a filter with Name=resource-id is present, only tags for those resource IDs are returned.
+// Supports resource-id, key, value, and resource-type filters.
 // Unknown filter names are rejected with InvalidParameterValue per AWS behaviour.
 func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error) {
 	var resourceIDs []string
+
+	// keyFilters, valueFilters, typeFilters are post-fetch AND filters.
+	var keyFilters, valueFilters, typeFilters []string
 
 	for i := 1; i <= maxFiltersPerRequest; i++ {
 		name := vals.Get(fmt.Sprintf("Filter.%d.Name", i))
@@ -1075,8 +1110,17 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 			)
 		}
 
-		if name == "resource-id" {
-			resourceIDs = parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
+		filterVals := parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
+
+		switch name {
+		case "resource-id":
+			resourceIDs = filterVals
+		case "key":
+			keyFilters = filterVals
+		case "value":
+			valueFilters = filterVals
+		case "resource-type":
+			typeFilters = filterVals
 		}
 	}
 
@@ -1084,6 +1128,15 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 
 	items := make([]tagItem, 0, len(entries))
 	for _, e := range entries {
+		if len(keyFilters) > 0 && !anyEqual(e.Key, keyFilters) {
+			continue
+		}
+		if len(valueFilters) > 0 && !anyEqual(e.Value, valueFilters) {
+			continue
+		}
+		if len(typeFilters) > 0 && !anyEqual(e.ResourceType, typeFilters) {
+			continue
+		}
 		items = append(items, tagItem(e))
 	}
 

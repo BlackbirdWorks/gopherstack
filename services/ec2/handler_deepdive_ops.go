@@ -158,7 +158,7 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 	aclIDs := parseMemberList(vals, "NetworkAclId")
 
 	var vpcIDs []string
-	if v, ok := filters["vpc-id"]; ok {
+	if v, ok := filters[filterKeyVPCID]; ok {
 		vpcIDs = v
 	}
 

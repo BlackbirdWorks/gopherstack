@@ -99,11 +99,20 @@ type DeadLetterConfig struct {
 	TargetArn string `json:"TargetArn,omitempty"`
 }
 
-// FunctionConfiguration represents a Lambda function's configuration.
+// LoggingConfig holds the function's logging configuration.
+// Real AWS returns this on every GetFunction / GetFunctionConfiguration response.
+type LoggingConfig struct {
+	ApplicationLogLevel string `json:"ApplicationLogLevel,omitempty"`
+	LogFormat           string `json:"LogFormat"`
+	LogGroup            string `json:"LogGroup,omitempty"`
+	SystemLogLevel      string `json:"SystemLogLevel,omitempty"`
+}
+
 type FunctionConfiguration struct {
 	CreatedAt                    time.Time               `json:"-"`
 	Environment                  *EnvironmentConfig      `json:"Environment,omitempty"`
 	EphemeralStorage             *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	LoggingConfig                *LoggingConfig          `json:"LoggingConfig,omitempty"`
 	ReservedConcurrentExecutions *int                    `json:"ReservedConcurrentExecutions,omitempty"`
 	VpcConfig                    *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig                *TracingConfig          `json:"TracingConfig,omitempty"`

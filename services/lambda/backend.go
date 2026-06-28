@@ -550,7 +550,7 @@ func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMappin
 
 // ListEventSourceMappings returns a page of event source mappings, optionally filtered by function name.
 func (b *InMemoryBackend) ListEventSourceMappings(
-	functionName, marker string,
+	functionName, eventSourceARN, marker string,
 	maxItems int,
 ) page.Page[*EventSourceMapping] {
 	b.mu.RLock("ListEventSourceMappings")
@@ -577,6 +577,17 @@ func (b *InMemoryBackend) ListEventSourceMappings(
 		for _, m := range b.eventSourceMappings {
 			result = append(result, m)
 		}
+	}
+
+	// Apply optional EventSourceArn filter.
+	if eventSourceARN != "" {
+		filtered := result[:0]
+		for _, m := range result {
+			if m.EventSourceARN == eventSourceARN {
+				filtered = append(filtered, m)
+			}
+		}
+		result = filtered
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -1071,6 +1082,13 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 		fn.TracingConfig = &TracingConfig{Mode: "PassThrough"}
 	}
 
+	if fn.LoggingConfig == nil {
+		fn.LoggingConfig = &LoggingConfig{
+			LogFormat: "Text",
+			LogGroup:  "/aws/lambda/" + fn.FunctionName,
+		}
+	}
+
 	if fn.PackageType == "" {
 		if fn.ImageURI != "" {
 			fn.PackageType = "Image"
@@ -1187,6 +1205,54 @@ func (b *InMemoryBackend) ListFunctions(
 
 	sort.Slice(fns, func(i, j int) bool {
 		return fns[i].FunctionName < fns[j].FunctionName
+	})
+
+	return page.New(fns, marker, maxItems, lambdaDefaultMaxItems)
+}
+
+// ListFunctionsAll returns a page of all published versions across all functions,
+// sorted by FunctionName then numerically by version. This is the response for
+// ListFunctions?FunctionVersion=ALL.
+func (b *InMemoryBackend) ListFunctionsAll(
+	marker string,
+	maxItems int,
+) page.Page[*FunctionConfiguration] {
+	b.mu.RLock("ListFunctionsAll")
+	defer b.mu.RUnlock()
+
+	var fns []*FunctionConfiguration
+
+	// Include $LATEST for each function.
+	for _, fn := range b.functions {
+		fns = append(fns, fn)
+	}
+
+	// Include all published versions.
+	for name, vMap := range b.versionIndex {
+		for _, v := range vMap {
+			cfg := versionToConfig(v)
+			cfg.FunctionName = name
+			fns = append(fns, cfg)
+		}
+	}
+
+	// Sort by FunctionName, then by Version (numerically: $LATEST sorts last).
+	sort.Slice(fns, func(i, j int) bool {
+		if fns[i].FunctionName != fns[j].FunctionName {
+			return fns[i].FunctionName < fns[j].FunctionName
+		}
+		// $LATEST > any number
+		if fns[i].Version == versionLatest {
+			return false
+		}
+		if fns[j].Version == versionLatest {
+			return true
+		}
+		// Both are version numbers — compare numerically.
+		ni, _ := strconv.Atoi(fns[i].Version)
+		nj, _ := strconv.Atoi(fns[j].Version)
+
+		return ni < nj
 	})
 
 	return page.New(fns, marker, maxItems, lambdaDefaultMaxItems)
@@ -1727,6 +1793,7 @@ func versionToFn(v *FunctionVersion) *FunctionConfiguration {
 		LastModified: v.CreatedAt,
 		State:        v.State,
 		SnapStart:    v.SnapStart,
+		Version:      v.Version,
 	}
 }
 
@@ -3146,7 +3213,7 @@ func (b *InMemoryBackend) GetLayerVersion(
 
 // ListLayers returns a paginated summary of all layers with their latest version.
 // Marker is an opaque cursor; maxItems uses lambdaDefaultMaxItems when zero.
-func (b *InMemoryBackend) ListLayers(marker string, maxItems int) page.Page[*Layer] {
+func (b *InMemoryBackend) ListLayers(compatibleRuntime, marker string, maxItems int) page.Page[*Layer] {
 	b.mu.RLock("ListLayers")
 	defer b.mu.RUnlock()
 
@@ -3161,6 +3228,11 @@ func (b *InMemoryBackend) ListLayers(marker string, maxItems int) page.Page[*Lay
 		}
 
 		latest := versions[len(versions)-1]
+
+		// Filter by CompatibleRuntime when provided.
+		if compatibleRuntime != "" && !slices.Contains(latest.CompatibleRuntimes, compatibleRuntime) {
+			continue
+		}
 
 		result = append(result, &Layer{
 			LayerArn:  b.buildLayerARN(name),
@@ -3181,7 +3253,7 @@ func (b *InMemoryBackend) ListLayers(marker string, maxItems int) page.Page[*Lay
 }
 
 // ListLayerVersions returns all versions of a specific layer in descending order.
-func (b *InMemoryBackend) ListLayerVersions(layerName string) ([]*LayerVersion, error) {
+func (b *InMemoryBackend) ListLayerVersions(layerName, compatibleRuntime string) ([]*LayerVersion, error) {
 	b.mu.RLock("ListLayerVersions")
 	defer b.mu.RUnlock()
 
@@ -3190,10 +3262,13 @@ func (b *InMemoryBackend) ListLayerVersions(layerName string) ([]*LayerVersion, 
 		return nil, ErrLayerNotFound
 	}
 
-	// Return a copy in reverse order (newest first).
-	result := make([]*LayerVersion, len(versions))
-	for i, lv := range versions {
-		result[len(versions)-1-i] = &LayerVersion{
+	// Return a copy in reverse order (newest first), applying optional runtime filter.
+	result := make([]*LayerVersion, 0, len(versions))
+	for _, lv := range slices.Backward(versions) {
+		if compatibleRuntime != "" && !slices.Contains(lv.CompatibleRuntimes, compatibleRuntime) {
+			continue
+		}
+		result = append(result, &LayerVersion{
 			LayerVersionArn:    lv.LayerVersionArn,
 			Description:        lv.Description,
 			CreatedDate:        lv.CreatedDate,
@@ -3201,7 +3276,7 @@ func (b *InMemoryBackend) ListLayerVersions(layerName string) ([]*LayerVersion, 
 			CompatibleRuntimes: lv.CompatibleRuntimes,
 			LicenseInfo:        lv.LicenseInfo,
 			Version:            lv.Version,
-		}
+		})
 	}
 
 	return result, nil
@@ -3968,10 +4043,7 @@ func (b *InMemoryBackend) AddPermission(
 		b.accountID,
 		fmt.Sprintf("function:%s", functionName),
 	)
-	stmtJSON := fmt.Sprintf(
-		`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q,"Resource":%q}`,
-		input.StatementID, input.Principal, input.Action, resourceArn,
-	)
+	stmtJSON := buildPermissionStatementJSON(perm, resourceArn)
 
 	return &AddPermissionOutput{Statement: &stmtJSON}, nil
 }
@@ -4031,17 +4103,60 @@ func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, erro
 		b.accountID,
 		fmt.Sprintf("function:%s", functionName),
 	)
+
+	// Sort statements for deterministic output.
+	sortedPerms := make([]*FunctionPermission, 0, len(perms))
 	for _, p := range perms {
-		stmts = append(stmts, fmt.Sprintf(
-			`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q,"Resource":%q}`,
-			p.StatementID, p.Principal, p.Action, resourceArn,
-		))
+		sortedPerms = append(sortedPerms, p)
+	}
+	sort.Slice(sortedPerms, func(i, j int) bool {
+		return sortedPerms[i].StatementID < sortedPerms[j].StatementID
+	})
+
+	for _, p := range sortedPerms {
+		stmts = append(stmts, buildPermissionStatementJSON(p, resourceArn))
 	}
 
 	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[%s]}`, strings.Join(stmts, ","))
 	rev := "1"
 
 	return &GetPolicyOutput{Policy: &policy, RevisionID: &rev}, nil
+}
+
+// buildPermissionStatementJSON builds the IAM policy statement JSON for a FunctionPermission.
+// It includes a Condition block when SourceArn or SourceAccount are set, matching real AWS output.
+func buildPermissionStatementJSON(p *FunctionPermission, resourceArn string) string {
+	// Determine principal format: account IDs and "*" use root principal; services use Service key.
+	var principalJSON string
+	switch {
+	case p.Principal == "*":
+		principalJSON = `"*"`
+	case strings.Contains(p.Principal, ".amazonaws.com") || strings.Contains(p.Principal, ".aws.amazon.com"):
+		principalJSON = fmt.Sprintf(`{"Service":%q}`, p.Principal)
+	default:
+		// Account principal: arn:aws:iam::{account}:root
+		principalJSON = fmt.Sprintf(`{"AWS":%q}`, p.Principal)
+	}
+
+	base := fmt.Sprintf(
+		`{"Sid":%q,"Effect":"Allow","Principal":%s,"Action":%q,"Resource":%q`,
+		p.StatementID, principalJSON, p.Action, resourceArn,
+	)
+
+	// Build Condition block for source constraints.
+	var conditions []string
+	if p.SourceArn != "" {
+		conditions = append(conditions, fmt.Sprintf(`"ArnLike":{"AWS:SourceArn":%q}`, p.SourceArn))
+	}
+	if p.SourceAccount != "" {
+		conditions = append(conditions, fmt.Sprintf(`"StringEquals":{"AWS:SourceAccount":%q}`, p.SourceAccount))
+	}
+
+	if len(conditions) > 0 {
+		return base + `,"Condition":{` + strings.Join(conditions, ",") + `}}`
+	}
+
+	return base + "}"
 }
 
 // --- Code signing configs ---
@@ -4349,13 +4464,20 @@ func (b *InMemoryBackend) GetAccountSettings() *AccountSettingsOutput {
 		totalCodeSize += fn.CodeSize
 	}
 
+	// Compute unreserved concurrency: subtract sum of all per-function reserved values.
+	totalReserved := 0
+	for _, reserved := range b.functionConcurrencies {
+		totalReserved += reserved
+	}
+	unreserved := max(0, accountDefaultConcurrentExecutions-totalReserved)
+
 	return &AccountSettingsOutput{
 		AccountLimit: &AccountLimit{
 			CodeSizeUnzipped:               accountDefaultCodeSizeUnzipped,
 			CodeSizeZipped:                 accountDefaultCodeSizeZipped,
 			ConcurrentExecutions:           accountDefaultConcurrentExecutions,
 			TotalCodeSize:                  accountDefaultTotalCodeSize,
-			UnreservedConcurrentExecutions: accountDefaultConcurrentExecutions,
+			UnreservedConcurrentExecutions: unreserved,
 		},
 		AccountUsage: &AccountUsage{
 			FunctionCount: fnCount,

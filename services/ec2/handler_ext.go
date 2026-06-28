@@ -706,12 +706,25 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 		requested[id] = struct{}{}
 	}
 
-	filtered := make([]amiItem, 0, len(amis))
-	for _, a := range amis {
+	// Pre-filter by ID, then apply named EC2 filters (name, architecture, state, etc.).
+	idFiltered := make([]*AMIStub, 0, len(amis))
+	for i := range amis {
 		if len(requested) > 0 {
-			if _, ok := requested[a.ImageID]; !ok {
+			if _, ok := requested[amis[i].ImageID]; !ok {
 				continue
 			}
+		}
+		idFiltered = append(idFiltered, &amis[i])
+	}
+
+	filters := parseEC2Filters(vals)
+	idFiltered = applyImageFilters(idFiltered, filters, h.Backend)
+
+	filtered := make([]amiItem, 0, len(idFiltered))
+	for _, a := range idFiltered {
+		st := a.State
+		if st == "" {
+			st = stateAvailable
 		}
 
 		filtered = append(filtered, amiItem{
@@ -720,7 +733,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 			Description:    a.Description,
 			Architecture:   a.Architecture,
 			Platform:       a.Platform,
-			State:          stateAvailable,
+			State:          st,
 			RootDeviceName: a.RootDeviceName,
 		})
 	}
@@ -814,6 +827,9 @@ func (h *Handler) handleCreateKeyPair(vals url.Values, reqID string) (any, error
 func (h *Handler) handleDescribeKeyPairs(vals url.Values, reqID string) (any, error) {
 	names := parseMemberList(vals, "KeyName")
 	kps := h.Backend.DescribeKeyPairs(names)
+
+	filters := parseEC2Filters(vals)
+	kps = applyKeyPairFilters(kps, filters, h.Backend)
 
 	items := make([]keyPairItem, 0, len(kps))
 	for _, kp := range kps {
@@ -1013,6 +1029,9 @@ func (h *Handler) handleDescribeVolumes(vals url.Values, reqID string) (any, err
 	ids := parseMemberList(vals, "VolumeId")
 	vols := h.Backend.DescribeVolumes(ids)
 
+	filters := parseEC2Filters(vals)
+	vols = applyVolumeFilters(vols, filters, h.Backend)
+
 	items := make([]volumeItem, 0, len(vols))
 	for _, vol := range vols {
 		items = append(items, toVolumeItem(vol))
@@ -1180,6 +1199,9 @@ func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, e
 	ids := parseMemberList(vals, "AllocationId")
 	addrs := h.Backend.DescribeAddresses(ids)
 
+	filters := parseEC2Filters(vals)
+	addrs = applyAddressFilters(addrs, filters, h.Backend)
+
 	items := make([]addressItem, 0, len(addrs))
 	for _, addr := range addrs {
 		items = append(items, addressItem{
@@ -1243,6 +1265,9 @@ func (h *Handler) handleDeleteInternetGateway(vals url.Values, reqID string) (an
 func (h *Handler) handleDescribeInternetGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InternetGatewayId")
 	igws := h.Backend.DescribeInternetGateways(ids)
+
+	filters := parseEC2Filters(vals)
+	igws = applyIGWFilters(igws, filters, h.Backend)
 
 	items := make([]igwItem, 0, len(igws))
 	for _, igw := range igws {
@@ -1355,6 +1380,9 @@ func (h *Handler) handleDeleteRouteTable(vals url.Values, reqID string) (any, er
 func (h *Handler) handleDescribeRouteTables(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "RouteTableId")
 	rts := h.Backend.DescribeRouteTables(ids)
+
+	filters := parseEC2Filters(vals)
+	rts = applyRouteTableFilters(rts, filters, h.Backend)
 
 	items := make([]routeTableItem, 0, len(rts))
 	for _, rt := range rts {
@@ -1508,6 +1536,9 @@ func (h *Handler) handleDescribeNatGateways(vals url.Values, reqID string) (any,
 	ids := parseMemberList(vals, "NatGatewayId")
 	ngws := h.Backend.DescribeNatGateways(ids)
 
+	filters := parseEC2Filters(vals)
+	ngws = applyNatGWFilters(ngws, filters, h.Backend)
+
 	items := make([]natGatewayItem, 0, len(ngws))
 	for _, ngw := range ngws {
 		items = append(items, toNatGatewayItem(ngw))
@@ -1523,6 +1554,9 @@ func (h *Handler) handleDescribeNatGateways(vals url.Values, reqID string) (any,
 func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "NetworkInterfaceId")
 	enis := h.Backend.DescribeNetworkInterfaces(ids)
+
+	filters := parseEC2Filters(vals)
+	enis = applyENIFilters(enis, filters, h.Backend)
 
 	items := make([]networkInterfaceItem, 0, len(enis))
 	for _, eni := range enis {
@@ -1952,7 +1986,7 @@ func (h *Handler) handleModifyNetworkInterfaceAttribute(
 	_, hasSdc := vals["SourceDestCheck.Value"]
 
 	if hasDesc {
-		attr = "description"
+		attr = filterKeyDescription
 		value = vals.Get("Description.Value")
 	} else if hasSdc {
 		attr = attrSourceDest
@@ -2220,6 +2254,9 @@ func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any
 func (h *Handler) handleDescribeSpotInstanceRequests(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SpotInstanceRequestId")
 	reqs := h.Backend.DescribeSpotInstanceRequests(ids)
+
+	filters := parseEC2Filters(vals)
+	reqs = applySpotRequestFilters(reqs, filters, h.Backend)
 
 	items := make([]spotInstanceRequestItem, 0, len(reqs))
 	for _, req := range reqs {

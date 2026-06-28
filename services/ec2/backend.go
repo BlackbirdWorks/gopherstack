@@ -175,9 +175,10 @@ type SecurityGroup struct {
 
 // VPC represents an EC2 VPC.
 type VPC struct {
-	ID        string `json:"id,omitempty"`
-	CIDRBlock string `json:"cidrBlock,omitempty"`
-	IsDefault bool   `json:"isDefault,omitempty"`
+	Attributes map[string]bool `json:"attributes,omitempty"`
+	ID         string          `json:"id,omitempty"`
+	CIDRBlock  string          `json:"cidrBlock,omitempty"`
+	IsDefault  bool            `json:"isDefault,omitempty"`
 }
 
 // Subnet represents an EC2 Subnet.

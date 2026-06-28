@@ -1452,7 +1452,7 @@ func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value str
 	}
 
 	switch attr {
-	case "description":
+	case filterKeyDescription:
 		eni.Description = value
 	case attrSourceDest:
 		eni.SourceDestCheck = value == ec2BooleanTrue

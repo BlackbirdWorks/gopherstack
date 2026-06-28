@@ -211,7 +211,7 @@ func TestInMemoryBackend_ListLayers(t *testing.T) {
 				tt.setup(bk)
 			}
 
-			layers := bk.ListLayers("", 0)
+			layers := bk.ListLayers("", "", 0)
 			assert.Len(t, layers.Data, tt.wantCount)
 
 			for i, name := range tt.wantNames {
@@ -235,21 +235,21 @@ func TestInMemoryBackend_ListLayers_Pagination(t *testing.T) {
 	}
 
 	// First page of 2.
-	first := bk.ListLayers("", 2)
+	first := bk.ListLayers("", "", 2)
 	require.Len(t, first.Data, 2)
 	assert.Equal(t, "l-a", first.Data[0].LayerName)
 	assert.Equal(t, "l-b", first.Data[1].LayerName)
 	require.NotEmpty(t, first.Next, "expected NextMarker for first page")
 
 	// Second page using marker.
-	second := bk.ListLayers(first.Next, 2)
+	second := bk.ListLayers("", first.Next, 2)
 	require.Len(t, second.Data, 2)
 	assert.Equal(t, "l-c", second.Data[0].LayerName)
 	assert.Equal(t, "l-d", second.Data[1].LayerName)
 	require.NotEmpty(t, second.Next)
 
 	// Final page.
-	third := bk.ListLayers(second.Next, 2)
+	third := bk.ListLayers("", second.Next, 2)
 	require.Len(t, third.Data, 1)
 	assert.Equal(t, "l-e", third.Data[0].LayerName)
 	assert.Empty(t, third.Next, "no marker expected on final page")
@@ -290,7 +290,7 @@ func TestInMemoryBackend_ListLayerVersions(t *testing.T) {
 				tt.setup(bk)
 			}
 
-			versions, err := bk.ListLayerVersions(tt.layerName)
+			versions, err := bk.ListLayerVersions(tt.layerName, "")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -739,11 +739,11 @@ func TestPersistenceLayers(t *testing.T) {
 	require.NoError(t, bk2.Restore(t.Context(), snap))
 
 	// Verify layers are present.
-	layers := bk2.ListLayers("", 0)
+	layers := bk2.ListLayers("", "", 0)
 	assert.Len(t, layers.Data, 2)
 
 	// Verify versions are restored.
-	versions, err := bk2.ListLayerVersions("layer-a")
+	versions, err := bk2.ListLayerVersions("layer-a", "")
 	require.NoError(t, err)
 	assert.Len(t, versions, 2)
 
