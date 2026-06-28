@@ -1786,7 +1786,7 @@ type TaggedSecretInfo struct {
 
 // TaggedSecrets returns a snapshot of all secrets with their ARNs and tags.
 // Intended for use by the Resource Groups Tagging API provider.
-func (b *InMemoryBackend) TaggedSecrets() []TaggedSecretInfo {
+func (b *InMemoryBackend) TaggedSecrets(_ context.Context) []TaggedSecretInfo {
 	b.mu.RLock("TaggedSecrets")
 	defer b.mu.RUnlock()
 
@@ -1824,7 +1824,7 @@ func regionFromARN(resourceARN, defaultRegion string) string {
 
 // TagSecretByARN applies tags to the secret identified by its ARN. The region is taken
 // from the ARN so cross-service callers (Resource Groups Tagging API) reach the right region.
-func (b *InMemoryBackend) TagSecretByARN(secretARN string, newTags map[string]string) error {
+func (b *InMemoryBackend) TagSecretByARN(_ context.Context, secretARN string, newTags map[string]string) error {
 	region := regionFromARN(secretARN, b.region)
 
 	b.mu.Lock("TagSecretByARN")
@@ -1847,7 +1847,7 @@ func (b *InMemoryBackend) TagSecretByARN(secretARN string, newTags map[string]st
 }
 
 // UntagSecretByARN removes the specified tag keys from the secret identified by its ARN.
-func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagSecretByARN(_ context.Context, secretARN string, tagKeys []string) error {
 	region := regionFromARN(secretARN, b.region)
 
 	b.mu.Lock("UntagSecretByARN")

@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,18 +35,18 @@ const (
 // DynamicRefResolver is the interface for resolving CloudFormation dynamic references.
 type DynamicRefResolver interface {
 	// ResolveSSMParameter retrieves an SSM plain-text or StringList parameter value.
-	ResolveSSMParameter(name string) (string, error)
+	ResolveSSMParameter(ctx context.Context, name string) (string, error)
 	// ResolveSSMSecureParameter retrieves an SSM SecureString parameter with decryption.
-	ResolveSSMSecureParameter(name string) (string, error)
+	ResolveSSMSecureParameter(ctx context.Context, name string) (string, error)
 	// ResolveSecret retrieves a Secrets Manager secret value.
 	// jsonKey may be empty; if non-empty the secret is parsed as JSON and the key is extracted.
-	ResolveSecret(secretID, jsonKey string) (string, error)
+	ResolveSecret(ctx context.Context, secretID, jsonKey string) (string, error)
 }
 
 // resolveDynamicRef resolves all `{{resolve:...}}` occurrences within the string
 // using the provided resolver. If the string contains no dynamic references it is
 // returned unchanged.
-func resolveDynamicRef(s string, resolver DynamicRefResolver) (string, error) {
+func resolveDynamicRef(ctx context.Context, s string, resolver DynamicRefResolver) (string, error) {
 	if !strings.Contains(s, "{{resolve:") {
 		return s, nil
 	}
@@ -72,11 +73,11 @@ func resolveDynamicRef(s string, resolver DynamicRefResolver) (string, error) {
 		case "ssm":
 			// Format: {{resolve:ssm:parameter-name}} or {{resolve:ssm:parameter-name:version}}
 			name, _, _ := strings.Cut(rest, ":")
-			resolved, err = resolver.ResolveSSMParameter(name)
+			resolved, err = resolver.ResolveSSMParameter(ctx, name)
 		case "ssm-secure":
 			// Format: {{resolve:ssm-secure:parameter-name}} or {{resolve:ssm-secure:parameter-name:version}}
 			name, _, _ := strings.Cut(rest, ":")
-			resolved, err = resolver.ResolveSSMSecureParameter(name)
+			resolved, err = resolver.ResolveSSMSecureParameter(ctx, name)
 		case "secretsmanager":
 			// Format: {{resolve:secretsmanager:secret-id}}
 			//      or {{resolve:secretsmanager:secret-id:SecretString:json-key:version-stage:version-id}}
@@ -88,7 +89,7 @@ func resolveDynamicRef(s string, resolver DynamicRefResolver) (string, error) {
 				jsonKey = parts[smJSONKeyIndex]
 			}
 
-			resolved, err = resolver.ResolveSecret(secretID, jsonKey)
+			resolved, err = resolver.ResolveSecret(ctx, secretID, jsonKey)
 		default:
 			ref := s[fullStart:fullEnd]
 
@@ -122,13 +123,13 @@ func resolveDynamicRef(s string, resolver DynamicRefResolver) (string, error) {
 // resolveDynamicRefsInValue recursively walks a value tree and replaces any
 // dynamic references in string leaves using the provided resolver.
 // The value is modified in place for maps and slices; a new value is returned for strings.
-func resolveDynamicRefsInValue(v any, resolver DynamicRefResolver) (any, error) {
+func resolveDynamicRefsInValue(ctx context.Context, v any, resolver DynamicRefResolver) (any, error) {
 	switch val := v.(type) {
 	case string:
-		return resolveDynamicRef(val, resolver)
+		return resolveDynamicRef(ctx, val, resolver)
 	case map[string]any:
 		for k, child := range val {
-			resolved, err := resolveDynamicRefsInValue(child, resolver)
+			resolved, err := resolveDynamicRefsInValue(ctx, child, resolver)
 			if err != nil {
 				return nil, err
 			}
@@ -139,7 +140,7 @@ func resolveDynamicRefsInValue(v any, resolver DynamicRefResolver) (any, error) 
 		return val, nil
 	case []any:
 		for i, item := range val {
-			resolved, err := resolveDynamicRefsInValue(item, resolver)
+			resolved, err := resolveDynamicRefsInValue(ctx, item, resolver)
 			if err != nil {
 				return nil, err
 			}
@@ -157,7 +158,7 @@ func resolveDynamicRefsInValue(v any, resolver DynamicRefResolver) (any, error) 
 // {{resolve:ssm:...}} or {{resolve:secretsmanager:...}} references with their resolved values.
 // Returns a descriptive error (wrapping ErrDynamicRefFailed) if any reference cannot be resolved.
 // If resolver is nil the function is a no-op.
-func ResolveDynamicRefsInTemplate(tmpl *Template, resolver DynamicRefResolver) error {
+func ResolveDynamicRefsInTemplate(ctx context.Context, tmpl *Template, resolver DynamicRefResolver) error {
 	for logicalID, res := range tmpl.Resources {
 		if len(res.Properties) == 0 {
 			continue
@@ -167,7 +168,7 @@ func ResolveDynamicRefsInTemplate(tmpl *Template, resolver DynamicRefResolver) e
 			return nil
 		}
 
-		resolved, err := resolveDynamicRefsInValue(res.Properties, resolver)
+		resolved, err := resolveDynamicRefsInValue(ctx, res.Properties, resolver)
 		if err != nil {
 			return fmt.Errorf("resource %s: %w", logicalID, err)
 		}

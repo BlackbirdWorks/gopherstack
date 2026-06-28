@@ -1799,7 +1799,7 @@ func (rc *ResourceCreator) createPhase5ManagedResource(
 
 		return id, true, err
 	case "AWS::SecretsManager::ResourcePolicy":
-		id, err := rc.createSecretsManagerResourcePolicy(logicalID, props, params, physicalIDs)
+		id, err := rc.createSecretsManagerResourcePolicy(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
 	case "AWS::CloudFront::Function":
@@ -1837,7 +1837,7 @@ func (rc *ResourceCreator) deletePhase5ManagedResource(
 		return true, rc.deleteSSMDocument(ctx, physicalID)
 	case "AWS::SecretsManager::ResourcePolicy":
 
-		return true, rc.deleteSecretsManagerResourcePolicy(physicalID)
+		return true, rc.deleteSecretsManagerResourcePolicy(ctx, physicalID)
 	case "AWS::CloudFront::Function":
 
 		return true, rc.deleteCloudFrontFunction(physicalID)
@@ -1954,6 +1954,7 @@ func (rc *ResourceCreator) deleteSSMDocument(ctx context.Context, name string) e
 }
 
 func (rc *ResourceCreator) createSecretsManagerResourcePolicy(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1966,7 +1967,7 @@ func (rc *ResourceCreator) createSecretsManagerResourcePolicy(
 	policy := strProp(props, "ResourcePolicy", params, physicalIDs)
 
 	if _, err := rc.backends.SecretsManager.Backend.PutResourcePolicy(
-		context.Background(),
+		ctx,
 		&secretsmanagerbackend.PutResourcePolicyInput{
 			SecretID:       secretID,
 			ResourcePolicy: policy,
@@ -1978,13 +1979,13 @@ func (rc *ResourceCreator) createSecretsManagerResourcePolicy(
 	return secretID, nil
 }
 
-func (rc *ResourceCreator) deleteSecretsManagerResourcePolicy(secretID string) error {
+func (rc *ResourceCreator) deleteSecretsManagerResourcePolicy(ctx context.Context, secretID string) error {
 	if rc.backends.SecretsManager == nil {
 		return nil
 	}
 
 	_, err := rc.backends.SecretsManager.Backend.DeleteResourcePolicy(
-		context.Background(),
+		ctx,
 		&secretsmanagerbackend.DeleteResourcePolicyInput{
 			SecretID: secretID,
 		},

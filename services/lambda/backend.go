@@ -254,6 +254,7 @@ type InMemoryBackend struct {
 	region       string
 	accountID    string
 	settings     Settings
+	ctx          context.Context
 	cscIDCounter int
 	// asyncWG tracks in-flight async (Event) invocation goroutines so Close can
 	// wait for them to drain instead of leaking them past the backend's lifetime.
@@ -305,6 +306,7 @@ func NewInMemoryBackend(
 		settings:                 settings,
 		accountID:                accountID,
 		region:                   region,
+		ctx:                      context.Background(),
 		mu:                       lockmetrics.New("lambda"),
 	}
 }
@@ -778,7 +780,7 @@ func (b *InMemoryBackend) DeleteFunctionURLConfig(functionName string) error {
 	b.mu.Unlock()
 
 	if srv != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 		defer cancel()
 		_ = srv.server.Shutdown(shutdownCtx)
 
@@ -806,7 +808,7 @@ func (b *InMemoryBackend) startFunctionURLServer(
 ) (*functionURLServer, error) {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	lc := &net.ListenConfig{}
-	ln, err := lc.Listen(context.Background(), "tcp", addr)
+	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -1220,7 +1222,7 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 
 	// Clean up runtime resources; must not hold b.mu while stopping the server.
 	if rt != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 		defer cancel()
 		b.cleanupRuntime(shutdownCtx, rt)
 	}
@@ -1251,9 +1253,7 @@ func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 	b.mu.Unlock()
 
 	// Clean up the old container asynchronously — we must not hold b.mu while stopping.
-	// context.Background is intentional: the caller's ctx (HTTP request) completes long
-	// before the container shuts down. rt is passed as a parameter to make the capture
-	// explicit and safe against future refactoring.
+	// rt is passed as a parameter to make the capture explicit and safe against future refactoring.
 	if rt != nil {
 		// Capture sem under RLock so that a concurrent Reset() cannot replace b.cleanupSem
 		// between the send and the goroutine's deferred release.
@@ -1266,7 +1266,7 @@ func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 			go func(evicted *functionRuntime) { // #nosec G118 -- intentional detached context for background cleanup
 				defer func() { <-sem }()
 				shutdownCtx, cancel := context.WithTimeout(
-					context.Background(),
+					b.ctx,
 					containerShutdownTimeout,
 				)
 				defer cancel()
@@ -1277,7 +1277,7 @@ func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 		default:
 			// Already at max concurrent cleanups; run inline (rare, only under extreme load).
 			shutdownCtx, cancel := context.WithTimeout(
-				context.Background(),
+				b.ctx,
 				containerShutdownTimeout,
 			)
 			defer cancel()
@@ -2046,7 +2046,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 		if !result.isError || attempt == maxRetries {
 			if !result.isError {
 				b.dispatchInvocationLog(
-					context.Background(),
+					b.ctx,
 					functionName,
 					inv.payload,
 					result.payload,
@@ -2059,7 +2059,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 			return
 		}
 
-		newInv := scheduleAsyncRetry(log, srv, inv, timeout, maxEventAgeDL, attempt+1, functionName)
+		newInv := scheduleAsyncRetry(b.ctx, log, srv, inv, timeout, maxEventAgeDL, attempt+1, functionName)
 		if newInv == nil {
 			return // retry dropped (queue full or event too old)
 		}
@@ -2141,6 +2141,7 @@ func (b *InMemoryBackend) waitForAsyncResult(
 // It returns the new invocation on success or nil if the event is too old or the queue
 // remains full after asyncInvocationEnqueueTimeout.
 func scheduleAsyncRetry(
+	ctx context.Context,
 	log *slog.Logger,
 	srv *runtimeServer,
 	original *pendingInvocation,
@@ -2164,7 +2165,7 @@ func scheduleAsyncRetry(
 		createdAt: original.createdAt,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), asyncInvocationEnqueueTimeout)
+	ctx, cancel := context.WithTimeout(ctx, asyncInvocationEnqueueTimeout)
 	defer cancel()
 
 	select {
@@ -2451,7 +2452,7 @@ func (b *InMemoryBackend) cleanupTimedOutRuntime(functionName string) {
 	}
 	go func() {
 		defer func() { <-sem }()
-		ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		ctx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 		defer cancel()
 		b.cleanupRuntime(ctx, rt)
 	}()
@@ -2490,8 +2491,6 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 		b.mu.Unlock()
 
 		// Clean up the evicted runtime asynchronously outside b.mu.
-		// context.Background is intentional: the caller's ctx may be cancelled by the
-		// time the goroutine runs, and we still need to release container/port resources.
 		if evicted != nil {
 			// Capture sem under RLock so that a concurrent Reset() cannot replace
 			// b.cleanupSem between the send and the goroutine's deferred release.
@@ -2503,13 +2502,13 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 			case sem <- struct{}{}:
 				go func(rt *functionRuntime) { // #nosec G118 -- intentional detached cleanup goroutine
 					defer func() { <-sem }()
-					cleanupCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+					cleanupCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 					defer cancel()
 					b.cleanupRuntime(cleanupCtx, rt)
 				}(evicted)
 			default:
 				// cleanupSem is full; run inline to avoid leaking the evicted runtime's resources.
-				cleanupCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+				cleanupCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 				defer cancel()
 				b.cleanupRuntime(cleanupCtx, evicted)
 			}
@@ -2576,7 +2575,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 // the next invocation can retry. This helper exists to keep getOrCreateRuntime within the
 // statement-count limit.
 func (b *InMemoryBackend) handleContainerStartFailure(
-	_ context.Context,
+	ctx context.Context,
 	functionName string,
 	rt *functionRuntime,
 	srv *runtimeServer,
@@ -2589,9 +2588,7 @@ func (b *InMemoryBackend) handleContainerStartFailure(
 	// Container startup failure is fatal: stop the runtime server, release the
 	// port, and surface the error so the caller gets an immediate failure instead
 	// of silently timing out on every subsequent invoke.
-	// context.Background is intentional: the caller's HTTP context may already be
-	// cancelled (e.g. client disconnect), but we still need to release resources.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(ctx, containerShutdownTimeout)
 	defer cancel()
 	srv.stop(shutdownCtx)
 	_ = b.portAlloc.Release(port)
@@ -2599,7 +2596,7 @@ func (b *InMemoryBackend) handleContainerStartFailure(
 	// Stop any container that was created before the error occurred.
 	if containerID != "" && b.docker != nil {
 		if !b.settings.KeepContainers {
-			_ = b.docker.StopAndRemove(context.Background(), containerID)
+			_ = b.docker.StopAndRemove(ctx, containerID)
 		}
 	}
 
@@ -3800,7 +3797,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Unlock()
 
 	// Shut down URL servers and release ports outside the lock.
-	ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+	ctx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -3899,7 +3896,7 @@ func (b *InMemoryBackend) shutdownPurgedResources(
 	urlServers []*functionURLServer,
 	rts []*functionRuntime,
 ) {
-	ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+	ctx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 	defer cancel()
 
 	var wg sync.WaitGroup

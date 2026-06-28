@@ -2279,30 +2279,30 @@ func TestKMSHandlerTaggedKeysByARN(t *testing.T) {
 	keyARN := keyOut.KeyMetadata.Arn
 
 	// TaggedKeys should return the key with empty tags
-	tagged := h.TaggedKeys()
+	tagged := h.TaggedKeys(context.Background())
 	require.Len(t, tagged, 1)
 	assert.Equal(t, keyARN, tagged[0].ARN)
 
 	// TagKeyByARN
-	require.NoError(t, h.TagKeyByARN(keyARN, map[string]string{"env": "test"}))
+	require.NoError(t, h.TagKeyByARN(context.Background(), keyARN, map[string]string{"env": "test"}))
 
-	taggedAfter := h.TaggedKeys()
+	taggedAfter := h.TaggedKeys(context.Background())
 	require.Len(t, taggedAfter, 1)
 	assert.Equal(t, "test", taggedAfter[0].Tags["env"])
 
 	// TagKeyByARN on non-existent ARN should fail
-	err = h.TagKeyByARN("arn:aws:kms:us-east-1:000000000000:key/non-existent", map[string]string{})
+	err = h.TagKeyByARN(context.Background(), "arn:aws:kms:us-east-1:000000000000:key/non-existent", map[string]string{})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 
 	// UntagKeyByARN
-	require.NoError(t, h.UntagKeyByARN(keyARN, []string{"env"}))
+	require.NoError(t, h.UntagKeyByARN(context.Background(), keyARN, []string{"env"}))
 
-	taggedFinal := h.TaggedKeys()
+	taggedFinal := h.TaggedKeys(context.Background())
 	require.Len(t, taggedFinal, 1)
 	assert.Empty(t, taggedFinal[0].Tags["env"])
 
 	// UntagKeyByARN on non-existent ARN should fail
-	err = h.UntagKeyByARN("arn:aws:kms:us-east-1:000000000000:key/non-existent", []string{"env"})
+	err = h.UntagKeyByARN(context.Background(), "arn:aws:kms:us-east-1:000000000000:key/non-existent", []string{"env"})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
 

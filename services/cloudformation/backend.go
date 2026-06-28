@@ -568,7 +568,7 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	}
 	stack.Description = tmpl.Description
 
-	if dynErr := ResolveDynamicRefsInTemplate(tmpl, b.resolver); dynErr != nil {
+	if dynErr := ResolveDynamicRefsInTemplate(ctx, tmpl, b.resolver); dynErr != nil {
 		stack.StackStatus = statusCreateFailed
 		stack.StackStatusReason = dynErr.Error()
 		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, dynErr.Error())
@@ -902,7 +902,7 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 
 	stack.Description = tmpl.Description
 
-	if dynErr := ResolveDynamicRefsInTemplate(tmpl, b.resolver); dynErr != nil {
+	if dynErr := ResolveDynamicRefsInTemplate(ctx, tmpl, b.resolver); dynErr != nil {
 		stack.StackStatus = statusUpdateFailed
 		stack.StackStatusReason = dynErr.Error()
 		b.addEvent(

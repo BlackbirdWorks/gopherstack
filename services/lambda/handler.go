@@ -2374,7 +2374,7 @@ type TaggedFunctionInfo struct {
 
 // TaggedFunctions returns a snapshot of all Lambda functions with their ARNs and tags.
 // Intended for use by the Resource Groups Tagging API provider.
-func (h *Handler) TaggedFunctions() []TaggedFunctionInfo {
+func (h *Handler) TaggedFunctions(_ context.Context) []TaggedFunctionInfo {
 	p := h.Backend.ListFunctions("", 0)
 	fns := p.Data
 
@@ -2396,7 +2396,7 @@ func (h *Handler) TaggedFunctions() []TaggedFunctionInfo {
 }
 
 // TagFunctionByARN applies tags to the Lambda function identified by its ARN.
-func (h *Handler) TagFunctionByARN(fnARN string, newTags map[string]string) error {
+func (h *Handler) TagFunctionByARN(_ context.Context, fnARN string, newTags map[string]string) error {
 	p := h.Backend.ListFunctions("", 0)
 	fns := p.Data
 
@@ -2412,7 +2412,7 @@ func (h *Handler) TagFunctionByARN(fnARN string, newTags map[string]string) erro
 }
 
 // UntagFunctionByARN removes the specified tag keys from the Lambda function identified by its ARN.
-func (h *Handler) UntagFunctionByARN(fnARN string, tagKeys []string) error {
+func (h *Handler) UntagFunctionByARN(_ context.Context, fnARN string, tagKeys []string) error {
 	p := h.Backend.ListFunctions("", 0)
 	fns := p.Data
 

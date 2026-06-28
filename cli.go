@@ -4279,23 +4279,23 @@ func registerTaggingService(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	provider resourcegroupstaggingapibackend.ResourceProvider,
 	arnService string,
-	tagger func(string, map[string]string) error,
-	untagger func(string, []string) error,
+	tagger func(context.Context, string, map[string]string) error,
+	untagger func(context.Context, string, []string) error,
 ) {
 	bk.RegisterProvider(provider)
-	bk.RegisterARNTagger(func(_ context.Context, arn string, newTags map[string]string) (bool, error) {
+	bk.RegisterARNTagger(func(ctx context.Context, arn string, newTags map[string]string) (bool, error) {
 		if !arnServiceIs(arn, arnService) {
 			return false, nil
 		}
 
-		return true, tagger(arn, newTags)
+		return true, tagger(ctx, arn, newTags)
 	})
-	bk.RegisterARNUntagger(func(_ context.Context, arn string, keys []string) (bool, error) {
+	bk.RegisterARNUntagger(func(ctx context.Context, arn string, keys []string) (bool, error) {
 		if !arnServiceIs(arn, arnService) {
 			return false, nil
 		}
 
-		return true, untagger(arn, keys)
+		return true, untagger(ctx, arn, keys)
 	})
 }
 
@@ -4356,22 +4356,22 @@ func wireTaggingDDB(
 			return out
 		},
 		"dynamodb",
-		func(arn string, newTags map[string]string) error {
+		func(ctx context.Context, arn string, newTags map[string]string) error {
 			sdkTags := make([]ddbsdktypes.Tag, 0, len(newTags))
 			for k, v := range newTags {
 				tagKey, tagValue := k, v
 				sdkTags = append(sdkTags, ddbsdktypes.Tag{Key: &tagKey, Value: &tagValue})
 			}
 
-			_, err := ddbBk.TagResource(context.Background(), &dynamodb.TagResourceInput{
+			_, err := ddbBk.TagResource(ctx, &dynamodb.TagResourceInput{
 				ResourceArn: aws.String(arn),
 				Tags:        sdkTags,
 			})
 
 			return err
 		},
-		func(arn string, keys []string) error {
-			_, err := ddbBk.UntagResource(context.Background(), &dynamodb.UntagResourceInput{
+		func(ctx context.Context, arn string, keys []string) error {
+			_, err := ddbBk.UntagResource(ctx, &dynamodb.UntagResourceInput{
 				ResourceArn: aws.String(arn),
 				TagKeys:     keys,
 			})
@@ -4411,8 +4411,12 @@ func wireTaggingSQS(
 			return out
 		},
 		"sqs",
-		sqsBk.TagQueueByARN,
-		sqsBk.UntagQueueByARN,
+		func(_ context.Context, arn string, newTags map[string]string) error {
+			return sqsBk.TagQueueByARN(arn, newTags)
+		},
+		func(_ context.Context, arn string, keys []string) error {
+			return sqsBk.UntagQueueByARN(arn, keys)
+		},
 	)
 }
 
@@ -4446,8 +4450,12 @@ func wireTaggingSNS(
 			return out
 		},
 		"sns",
-		snsBk.TagTopicByARN,
-		snsBk.UntagTopicByARN,
+		func(_ context.Context, arn string, newTags map[string]string) error {
+			return snsBk.TagTopicByARN(arn, newTags)
+		},
+		func(_ context.Context, arn string, keys []string) error {
+			return snsBk.UntagTopicByARN(arn, keys)
+		},
 	)
 }
 
@@ -4462,8 +4470,8 @@ func wireTaggingLambda(
 
 	registerTaggingService(
 		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			fns := lambdaH.TaggedFunctions()
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			fns := lambdaH.TaggedFunctions(ctx)
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(fns))
 			for _, f := range fns {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
@@ -4492,8 +4500,8 @@ func wireTaggingKMS(
 
 	registerTaggingService(
 		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			keys := kmsH.TaggedKeys()
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			keys := kmsH.TaggedKeys(ctx)
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(keys))
 			for _, k := range keys {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
@@ -4524,8 +4532,8 @@ func wireTaggingSM(bk resourcegroupstaggingapibackend.StorageBackend, smReg serv
 
 	registerTaggingService(
 		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			secrets := smBk.TaggedSecrets()
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			secrets := smBk.TaggedSecrets(ctx)
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(secrets))
 			for _, s := range secrets {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
