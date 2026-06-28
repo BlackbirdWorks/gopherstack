@@ -275,16 +275,15 @@ func dispatchDescribeStream(
 // Wire format types and functions for DescribeStream and GetRecords response serialization.
 
 type wireStreamDescription struct {
-	// CreationRequestDateTime is Unix epoch seconds (float64) per DynamoDB Streams JSON 1.0 protocol.
 	CreationRequestDateTime *float64                        `json:"CreationRequestDateTime,omitempty"`
-	KeySchema               []streamstypes.KeySchemaElement `json:"KeySchema,omitempty"`
-	LastEvaluatedShardId    *string                         `json:"LastEvaluatedShardId,omitempty"`
-	Shards                  []streamstypes.Shard            `json:"Shards,omitempty"`
+	LastEvaluatedShardID    *string                         `json:"LastEvaluatedShardId,omitempty"`
 	StreamArn               *string                         `json:"StreamArn,omitempty"`
 	StreamLabel             *string                         `json:"StreamLabel,omitempty"`
+	TableName               *string                         `json:"TableName,omitempty"`
 	StreamStatus            streamstypes.StreamStatus       `json:"StreamStatus,omitempty"`
 	StreamViewType          streamstypes.StreamViewType     `json:"StreamViewType,omitempty"`
-	TableName               *string                         `json:"TableName,omitempty"`
+	KeySchema               []streamstypes.KeySchemaElement `json:"KeySchema,omitempty"`
+	Shards                  []streamstypes.Shard            `json:"Shards,omitempty"`
 }
 
 type wireDescribeStreamOutput struct {
@@ -299,7 +298,7 @@ func toWireDescribeStreamOutput(out *dynamodbstreams.DescribeStreamOutput) *wire
 	sd := out.StreamDescription
 	wd := &wireStreamDescription{
 		KeySchema:            sd.KeySchema,
-		LastEvaluatedShardId: sd.LastEvaluatedShardId,
+		LastEvaluatedShardID: sd.LastEvaluatedShardId,
 		Shards:               sd.Shards,
 		StreamArn:            sd.StreamArn,
 		StreamLabel:          sd.StreamLabel,

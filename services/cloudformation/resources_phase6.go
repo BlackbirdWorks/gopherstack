@@ -35,7 +35,14 @@ func (rc *ResourceCreator) createPhase6Resource(
 	if id, ok, err := rc.createPhase6APIGatewayResource(logicalID, resourceType, props, params, physicalIDs); ok {
 		return id, true, err
 	}
-	if id, ok, err := rc.createPhase6APIGatewayV2Resource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
+	if id, ok, err := rc.createPhase6APIGatewayV2Resource(
+		ctx,
+		logicalID,
+		resourceType,
+		props,
+		params,
+		physicalIDs,
+	); ok {
 		return id, true, err
 	}
 	if id, ok, err := rc.createPhase6EventsResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {

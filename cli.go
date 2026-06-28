@@ -4381,6 +4381,47 @@ func wireTaggingDDB(
 	)
 }
 
+// taggedARNEntry holds an ARN and its tag map for cross-service tagging helpers.
+type taggedARNEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// wireTaggingARNResources registers a tagging service whose resources are described by
+// a slice of taggedARNEntry values. arnService is passed to arnServiceIs (e.g. "sqs");
+// resourceType is set on each TaggedResource (e.g. "sqs:queue").
+func wireTaggingARNResources(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	arnService, resourceType string,
+	listFn func() []taggedARNEntry,
+	tagFn func(string, map[string]string) error,
+	untagFn func(string, []string) error,
+) {
+	registerTaggingService(
+		bk,
+		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			items := listFn()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+			for _, item := range items {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  item.ARN,
+					ResourceType: resourceType,
+					Tags:         item.Tags,
+				})
+			}
+
+			return out
+		},
+		arnService,
+		func(_ context.Context, arn string, newTags map[string]string) error {
+			return tagFn(arn, newTags)
+		},
+		func(_ context.Context, arn string, keys []string) error {
+			return untagFn(arn, keys)
+		},
+	)
+}
+
 func wireTaggingSQS(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	sqsReg service.Registerable,
@@ -4395,28 +4436,18 @@ func wireTaggingSQS(
 		return
 	}
 
-	registerTaggingService(
-		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+	wireTaggingARNResources(bk, "sqs", "sqs:queue",
+		func() []taggedARNEntry {
 			queues := sqsBk.TaggedQueues()
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(queues))
+			out := make([]taggedARNEntry, 0, len(queues))
 			for _, q := range queues {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN:  q.ARN,
-					ResourceType: "sqs:queue",
-					Tags:         q.Tags,
-				})
+				out = append(out, taggedARNEntry{ARN: q.ARN, Tags: q.Tags})
 			}
 
 			return out
 		},
-		"sqs",
-		func(_ context.Context, arn string, newTags map[string]string) error {
-			return sqsBk.TagQueueByARN(arn, newTags)
-		},
-		func(_ context.Context, arn string, keys []string) error {
-			return sqsBk.UntagQueueByARN(arn, keys)
-		},
+		sqsBk.TagQueueByARN,
+		sqsBk.UntagQueueByARN,
 	)
 }
 
@@ -4434,28 +4465,18 @@ func wireTaggingSNS(
 		return
 	}
 
-	registerTaggingService(
-		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+	wireTaggingARNResources(bk, "sns", "sns:topic",
+		func() []taggedARNEntry {
 			topics := snsBk.TaggedTopics()
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(topics))
+			out := make([]taggedARNEntry, 0, len(topics))
 			for _, t := range topics {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN:  t.ARN,
-					ResourceType: "sns:topic",
-					Tags:         t.Tags,
-				})
+				out = append(out, taggedARNEntry{ARN: t.ARN, Tags: t.Tags})
 			}
 
 			return out
 		},
-		"sns",
-		func(_ context.Context, arn string, newTags map[string]string) error {
-			return snsBk.TagTopicByARN(arn, newTags)
-		},
-		func(_ context.Context, arn string, keys []string) error {
-			return snsBk.UntagTopicByARN(arn, keys)
-		},
+		snsBk.TagTopicByARN,
+		snsBk.UntagTopicByARN,
 	)
 }
 

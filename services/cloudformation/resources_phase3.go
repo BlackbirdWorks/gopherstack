@@ -1556,7 +1556,7 @@ func (rc *ResourceCreator) deletePhase3ContainerResource(
 }
 
 // deletePhase3AppResource handles CloudFront, AutoScaling, ApiGatewayV2, CodeBuild, and Glue deletions.
-func (rc *ResourceCreator) deletePhase3AppResource(ctx context.Context, physicalID, resourceType string) (bool, error) {
+func (rc *ResourceCreator) deletePhase3AppResource(_ context.Context, physicalID, resourceType string) (bool, error) {
 	switch resourceType {
 	case "AWS::CloudFront::Distribution":
 		return true, rc.deleteCloudFrontDistribution(physicalID)

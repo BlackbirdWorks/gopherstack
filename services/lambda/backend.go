@@ -210,9 +210,9 @@ type InMemoryBackend struct {
 	s3Fetcher                S3CodeFetcher
 	docker                   container.Runtime
 	dnsRegistrar             DNSRegistrar
-	activeConcurrencies      map[string]int
-	layerVersionCounters     map[string]int64
-	aliases                  map[string]map[string]*FunctionAlias
+	ctx                      context.Context
+	logSem                   chan struct{}
+	fisFaults                map[string]*FISInvocationFault
 	versionCounters          map[string]int
 	functions                map[string]*FunctionConfiguration
 	functionURLServers       map[string]*functionURLServer
@@ -225,17 +225,12 @@ type InMemoryBackend struct {
 	provisionedConcurrencies map[string]map[string]*ProvisionedConcurrencyConfig
 	layers                   map[string][]*LayerVersion
 	eventSourceMappings      map[string]*EventSourceMapping
-	// esmByFunctionARN indexes ESM UUIDs by function ARN for O(1) list-by-function.
-	esmByFunctionARN map[string]map[string]struct{}
-	// versionIndex indexes published versions by function name and version number.
-	versionIndex map[string]map[string]*FunctionVersion
-	// cleanupSem bounds concurrent runtime cleanup goroutines.
-	cleanupSem chan struct{}
-	// logSem bounds concurrent invocation-log delivery goroutines so that a
-	// slow CloudWatch Logs backend cannot leak goroutines under high load.
-	logSem                   chan struct{}
+	esmByFunctionARN         map[string]map[string]struct{}
+	versionIndex             map[string]map[string]*FunctionVersion
+	cleanupSem               chan struct{}
+	layerVersionCounters     map[string]int64
 	layerPolicies            map[string]map[int64]map[string]*LayerVersionStatement
-	fisFaults                map[string]*FISInvocationFault
+	aliases                  map[string]map[string]*FunctionAlias
 	permissions              map[string]map[string]*FunctionPermission
 	codeSigningConfigs       map[string]*CodeSigningConfig
 	fnCodeSigningConfigs     map[string]string
@@ -245,22 +240,17 @@ type InMemoryBackend struct {
 	functionScalingConfigs   map[string]*FunctionScalingConfig
 	durableExecs             *durableExecutionStore
 	asyncEnqueueWaiters      chan struct{}
-	// shutdown is closed once by Close to unblock async invocation goroutines that
-	// are waiting on a container response, so they exit promptly on teardown.
-	shutdown     chan struct{}
-	mu           *lockmetrics.RWMutex
-	portAlloc    *portalloc.Allocator
-	runtimes     map[string]*functionRuntime
-	region       string
-	accountID    string
-	settings     Settings
-	ctx          context.Context
-	cscIDCounter int
-	// asyncWG tracks in-flight async (Event) invocation goroutines so Close can
-	// wait for them to drain instead of leaking them past the backend's lifetime.
-	asyncWG sync.WaitGroup
-	// shutdownOnce guards closing shutdown so Close stays idempotent.
-	shutdownOnce sync.Once
+	shutdown                 chan struct{}
+	mu                       *lockmetrics.RWMutex
+	portAlloc                *portalloc.Allocator
+	runtimes                 map[string]*functionRuntime
+	activeConcurrencies      map[string]int
+	accountID                string
+	region                   string
+	settings                 Settings
+	asyncWG                  sync.WaitGroup
+	cscIDCounter             int
+	shutdownOnce             sync.Once
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -2151,7 +2141,7 @@ func scheduleAsyncRetry(
 	functionName string,
 ) *pendingInvocation {
 	if !maxEventAgeDL.IsZero() && time.Now().After(maxEventAgeDL) {
-		log.Warn("lambda: async retry dropped: event age exceeded",
+		log.WarnContext(ctx, "lambda: async retry dropped: event age exceeded",
 			"function", functionName, "attempt", attempt)
 
 		return nil
@@ -2172,7 +2162,7 @@ func scheduleAsyncRetry(
 	case srv.queue <- newInv:
 		return newInv
 	case <-ctx.Done():
-		log.Warn("lambda: async retry dropped: queue full",
+		log.WarnContext(ctx, "lambda: async retry dropped: queue full",
 			"function", functionName, "requestID", newInv.requestID, "attempt", attempt)
 
 		return nil

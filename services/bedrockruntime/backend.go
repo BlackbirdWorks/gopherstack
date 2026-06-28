@@ -114,14 +114,14 @@ func (r *invocationRing) reset() {
 
 // InMemoryBackend stores Bedrock Runtime state in memory.
 type InMemoryBackend struct {
+	svcCtx             context.Context
 	mu                 *lockmetrics.RWMutex
 	asyncInvokes       map[string]*AsyncInvoke
-	tokenIndex         map[string]string // clientRequestToken → invocationArn (idempotency)
+	tokenIndex         map[string]string
 	accountID          string
 	region             string
 	invocations        invocationRing
 	asyncInvokeCounter int
-	svcCtx             context.Context
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

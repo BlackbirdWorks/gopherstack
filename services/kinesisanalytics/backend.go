@@ -144,14 +144,14 @@ type StorageBackend interface {
 // All resource maps are nested by region (outer key = region) so that
 // same-named resources are isolated across regions.
 type InMemoryBackend struct {
-	apps          map[string]map[string]*Application // region → name → app
-	appsByARN     map[string]map[string]*Application // region → arn → app
-	cancelFuncs   map[string]context.CancelFunc      // "region:name" → cancel
+	svcCtx        context.Context
+	apps          map[string]map[string]*Application
+	appsByARN     map[string]map[string]*Application
+	cancelFuncs   map[string]context.CancelFunc
 	defaultRegion string
 	accountID     string
 	nextID        int64
 	mu            sync.RWMutex
-	svcCtx        context.Context
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

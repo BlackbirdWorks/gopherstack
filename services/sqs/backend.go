@@ -108,6 +108,7 @@ const sqsMetricUnitCount = "Count"
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	metricEmitter  MetricEmitter
+	svcCtx         context.Context
 	queues         map[string]*Queue
 	moveTasks      map[string]*moveTaskState
 	snsUnsubscribe func()
@@ -115,7 +116,6 @@ type InMemoryBackend struct {
 	mu             *lockmetrics.RWMutex
 	accountID      string
 	region         string
-	svcCtx         context.Context
 }
 
 // SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.

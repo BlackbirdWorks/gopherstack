@@ -2291,7 +2291,11 @@ func TestKMSHandlerTaggedKeysByARN(t *testing.T) {
 	assert.Equal(t, "test", taggedAfter[0].Tags["env"])
 
 	// TagKeyByARN on non-existent ARN should fail
-	err = h.TagKeyByARN(context.Background(), "arn:aws:kms:us-east-1:000000000000:key/non-existent", map[string]string{})
+	err = h.TagKeyByARN(
+		context.Background(),
+		"arn:aws:kms:us-east-1:000000000000:key/non-existent",
+		map[string]string{},
+	)
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 
 	// UntagKeyByARN

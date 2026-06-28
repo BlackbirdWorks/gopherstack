@@ -1788,11 +1788,11 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 		payload = &TopicRulePayload{}
 	}
 
-	if err := h.Backend.CreateTopicRule(&CreateTopicRuleInput{
+	if createErr := h.Backend.CreateTopicRule(&CreateTopicRuleInput{
 		RuleName:         ruleName,
 		TopicRulePayload: payload,
-	}); err != nil {
-		return h.handleError(c, err)
+	}); createErr != nil {
+		return h.handleError(c, createErr)
 	}
 
 	return c.NoContent(http.StatusOK)

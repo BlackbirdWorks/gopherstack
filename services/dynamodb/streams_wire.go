@@ -10,15 +10,15 @@ import (
 
 // wireStreamDescription mirrors StreamDescription but with timestamps as float64 epoch seconds.
 type wireStreamDescription struct {
-	CreationRequestDateTime *float64                   `json:"CreationRequestDateTime,omitempty"`
+	CreationRequestDateTime *float64                        `json:"CreationRequestDateTime,omitempty"`
+	LastEvaluatedShardID    *string                         `json:"LastEvaluatedShardId,omitempty"`
+	StreamArn               *string                         `json:"StreamArn,omitempty"`
+	StreamLabel             *string                         `json:"StreamLabel,omitempty"`
+	TableName               *string                         `json:"TableName,omitempty"`
+	StreamStatus            streamstypes.StreamStatus       `json:"StreamStatus,omitempty"`
+	StreamViewType          streamstypes.StreamViewType     `json:"StreamViewType,omitempty"`
 	KeySchema               []streamstypes.KeySchemaElement `json:"KeySchema,omitempty"`
-	LastEvaluatedShardId    *string                    `json:"LastEvaluatedShardId,omitempty"`
-	Shards                  []streamstypes.Shard       `json:"Shards,omitempty"`
-	StreamArn               *string                    `json:"StreamArn,omitempty"`
-	StreamLabel             *string                    `json:"StreamLabel,omitempty"`
-	StreamStatus            streamstypes.StreamStatus  `json:"StreamStatus,omitempty"`
-	StreamViewType          streamstypes.StreamViewType `json:"StreamViewType,omitempty"`
-	TableName               *string                    `json:"TableName,omitempty"`
+	Shards                  []streamstypes.Shard            `json:"Shards,omitempty"`
 }
 
 type wireDescribeStreamOutput struct {
@@ -32,7 +32,7 @@ func toWireDescribeStreamOutput(out *dynamodbstreams.DescribeStreamOutput) *wire
 	sd := out.StreamDescription
 	wd := &wireStreamDescription{
 		KeySchema:            sd.KeySchema,
-		LastEvaluatedShardId: sd.LastEvaluatedShardId,
+		LastEvaluatedShardID: sd.LastEvaluatedShardId,
 		Shards:               sd.Shards,
 		StreamArn:            sd.StreamArn,
 		StreamLabel:          sd.StreamLabel,
@@ -44,6 +44,7 @@ func toWireDescribeStreamOutput(out *dynamodbstreams.DescribeStreamOutput) *wire
 		epochSecs := float64(sd.CreationRequestDateTime.Unix())
 		wd.CreationRequestDateTime = &epochSecs
 	}
+
 	return &wireDescribeStreamOutput{StreamDescription: wd}
 }
 

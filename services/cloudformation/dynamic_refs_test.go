@@ -620,7 +620,9 @@ func TestNewDynamicRefResolver_RealSSM(t *testing.T) {
 		},
 		{
 			name: "secure_param",
-			call: func() (string, error) { return resolver.ResolveSSMSecureParameter(context.Background(), "/test/secure") },
+			call: func() (string, error) {
+				return resolver.ResolveSSMSecureParameter(context.Background(), "/test/secure")
+			},
 			want: "secret-val",
 		},
 		{

@@ -110,10 +110,10 @@ type getExecutionHistoryInput struct {
 // Handler is the Echo HTTP service handler for Step Functions operations.
 type Handler struct {
 	Backend       StorageBackend
+	svcCtx        context.Context
 	tags          map[string]*tags.Tags
 	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
-	svcCtx        context.Context
 }
 
 // NewHandler creates a new Step Functions handler.
@@ -122,6 +122,7 @@ func NewHandler(backend StorageBackend) *Handler {
 	if bk, ok := backend.(*InMemoryBackend); ok {
 		svcCtx = bk.svcCtx
 	}
+
 	return &Handler{
 		Backend:       backend,
 		DefaultRegion: config.DefaultRegion,
