@@ -358,7 +358,9 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 			statusDeleteInProgress,
 			"",
 		)
-		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		if res.DeletionPolicy != "Retain" && res.DeletionPolicy != "Snapshot" {
+			_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		}
 		b.addEvent(
 			stack.StackID,
 			stack.StackName,
@@ -700,14 +702,15 @@ func (b *InMemoryBackend) provisionResources(
 		}
 		physicalIDs[logicalID] = physicalID
 		b.resources[arn][logicalID] = &StackResource{
-			Timestamp:  time.Now(),
-			LogicalID:  logicalID,
-			PhysicalID: physicalID,
-			Type:       res.Type,
-			Status:     statusCreateComplete,
-			Properties: res.Properties,
-			StackID:    arn,
-			StackName:  name,
+			Timestamp:      time.Now(),
+			LogicalID:      logicalID,
+			PhysicalID:     physicalID,
+			Type:           res.Type,
+			Status:         statusCreateComplete,
+			Properties:     res.Properties,
+			StackID:        arn,
+			StackName:      name,
+			DeletionPolicy: res.DeletionPolicy,
 		}
 		b.addEvent(arn, name, logicalID, physicalID, res.Type, statusCreateComplete, "")
 		created = append(created, logicalID)
@@ -1073,14 +1076,15 @@ func (b *InMemoryBackend) createUpdateResource(
 	}
 
 	b.resources[stack.StackID][logicalID] = &StackResource{
-		Timestamp:  time.Now(),
-		LogicalID:  logicalID,
-		PhysicalID: physicalID,
-		Type:       res.Type,
-		Status:     statusCreateComplete,
-		Properties: res.Properties,
-		StackID:    stack.StackID,
-		StackName:  stack.StackName,
+		Timestamp:      time.Now(),
+		LogicalID:      logicalID,
+		PhysicalID:     physicalID,
+		Type:           res.Type,
+		Status:         statusCreateComplete,
+		Properties:     res.Properties,
+		StackID:        stack.StackID,
+		StackName:      stack.StackName,
+		DeletionPolicy: res.DeletionPolicy,
 	}
 	b.addEvent(
 		stack.StackID,
@@ -1171,7 +1175,9 @@ func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack
 			statusDeleteInProgress,
 			"",
 		)
-		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		if res.DeletionPolicy != "Retain" && res.DeletionPolicy != "Snapshot" {
+			_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		}
 		b.addEvent(
 			stack.StackID,
 			stack.StackName,

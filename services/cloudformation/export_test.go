@@ -39,6 +39,12 @@ func (rc *ResourceCreator) InjectCreateHook(fn func(resourceType string) error) 
 	rc.createHook = fn
 }
 
+// InjectDeleteHook installs a hook that is called when Delete is invoked, before
+// any actual deletion logic. Used to observe which resource types are deleted.
+func (rc *ResourceCreator) InjectDeleteHook(fn func(resourceType string)) {
+	rc.deleteHook = fn
+}
+
 // GetCreator returns the backend's ResourceCreator for test-only hook injection.
 func (b *InMemoryBackend) GetCreator() *ResourceCreator {
 	return b.creator

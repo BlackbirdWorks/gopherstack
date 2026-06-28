@@ -143,6 +143,50 @@ func firehoseStreamNameFromARN(endpoint string) string {
 	return parts[len(parts)-1]
 }
 
+// deliverToSMSSubscriptions delivers a topic publish to all SMS-protocol subscriptions.
+// Each delivery is recorded via PublishSMS so it is observable through DrainSMSDeliveries.
+// Opt-out and sandbox verification checks are enforced by PublishSMS; errors are silently
+// dropped (best-effort, matching AWS SNS behaviour for non-critical delivery channels).
+func (b *InMemoryBackend) deliverToSMSSubscriptions(ev *events.SNSPublishedEvent) {
+	for _, sub := range ev.Subscriptions {
+		if sub.Protocol != protocolSMS {
+			continue
+		}
+		_, _ = b.PublishSMS(sub.Endpoint, ev.Message)
+	}
+}
+
+// deliverToApplicationSubscriptions delivers a topic publish to all application-protocol
+// subscriptions (mobile push platform endpoints). Enabled endpoints generate a recorded
+// ApplicationDelivery observable via DrainApplicationDeliveries. Disabled or missing
+// endpoints are silently skipped (best-effort), matching AWS SNS behaviour.
+func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublishedEvent) {
+	for _, sub := range ev.Subscriptions {
+		if sub.Protocol != protocolApplication {
+			continue
+		}
+
+		b.mu.RLock("deliverToApplicationSubscriptions")
+		ep, exists := b.platformEndpoints[sub.Endpoint]
+		enabled := exists && ep.Attributes["Enabled"] != boolFalseStr
+		b.mu.RUnlock()
+
+		if !enabled {
+			continue
+		}
+
+		msgID := uuid.New().String()
+
+		b.mu.Lock("deliverToApplicationSubscriptions-record")
+		b.applicationDeliveries = append(b.applicationDeliveries, ApplicationDelivery{
+			EndpointARN: sub.Endpoint,
+			Message:     ev.Message,
+			MessageID:   msgID,
+		})
+		b.mu.Unlock()
+	}
+}
+
 // sendLambdaDLQ forwards a failed Lambda delivery to the DLQ configured in redrivePolicy.
 // It is a no-op when the SQSSender is nil or the policy cannot be parsed.
 func sendLambdaDLQ(ctx context.Context, sender SQSSender, redrivePolicy, body string) {

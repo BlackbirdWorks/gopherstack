@@ -105,3 +105,12 @@ func FifoDedupEntryCountForTest(d *fifoDeduplication) int {
 
 	return len(d.entries)
 }
+
+// AddOptedOutPhoneNumberForTest directly adds a phone number to the opted-out set,
+// bypassing the AWS SNS mechanism (which requires the subscriber to reply STOP).
+// Only use in tests that need to assert delivery skips opted-out numbers.
+func AddOptedOutPhoneNumberForTest(b *InMemoryBackend, phoneNumber string) {
+	b.mu.Lock("AddOptedOutPhoneNumberForTest")
+	defer b.mu.Unlock()
+	b.optedOutPhoneNumbers[phoneNumber] = true
+}

@@ -104,14 +104,15 @@ type StackEvent struct {
 
 // StackResource represents a resource within a stack.
 type StackResource struct {
-	Timestamp  time.Time      `json:"timestamp"`
-	Properties map[string]any `json:"properties,omitempty"`
-	LogicalID  string         `json:"logicalID"`
-	PhysicalID string         `json:"physicalID"`
-	Type       string         `json:"type"`
-	Status     string         `json:"status"`
-	StackID    string         `json:"stackID"`
-	StackName  string         `json:"stackName"`
+	Timestamp      time.Time      `json:"timestamp"`
+	Properties     map[string]any `json:"properties,omitempty"`
+	LogicalID      string         `json:"logicalID"`
+	PhysicalID     string         `json:"physicalID"`
+	Type           string         `json:"type"`
+	Status         string         `json:"status"`
+	StackID        string         `json:"stackID"`
+	StackName      string         `json:"stackName"`
+	DeletionPolicy string         `json:"deletionPolicy,omitempty"`
 }
 
 // ChangeSet represents a CloudFormation change set.

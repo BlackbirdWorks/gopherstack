@@ -151,6 +151,7 @@ type ResourceCreator struct {
 	backends           *ServiceBackends
 	nestedStackCreator NestedStackCreator
 	createHook         func(resourceType string) error // used by tests to inject creation errors
+	deleteHook         func(resourceType string)       // used by tests to observe deletion calls
 }
 
 // NewResourceCreator returns a ResourceCreator backed by the given services.
@@ -1103,6 +1104,10 @@ func (rc *ResourceCreator) Delete(
 ) error {
 	if rc == nil {
 		return nil
+	}
+
+	if rc.deleteHook != nil {
+		rc.deleteHook(resourceType)
 	}
 
 	// Handle nested stack deletion regardless of service backends.

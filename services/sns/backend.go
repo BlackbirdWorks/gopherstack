@@ -56,6 +56,8 @@ const (
 	protocolFirehose        = "firehose"
 	protocolEmail           = "email"
 	protocolHTTP            = "http"
+	protocolSMS             = "sms"
+	protocolApplication     = "application"
 	// attrPendingConfirmation is the SNS subscription attribute key whose
 	// value is "true" while a subscription awaits confirmation. The key uses
 	// the PascalCase attribute name returned by GetSubscriptionAttributes.
@@ -337,6 +339,19 @@ type SMSDelivery struct {
 	MessageID   string
 }
 
+// ApplicationDelivery records a single message delivered to an application-protocol
+// (mobile push platform endpoint) subscription during a topic publish. AWS delivers
+// these to a platform endpoint; gopherstack records the delivery here and exposes it
+// via DrainApplicationDeliveries for inspection/testing.
+type ApplicationDelivery struct {
+	// EndpointARN is the target platform endpoint ARN.
+	EndpointARN string
+	// Message is the (per-protocol resolved) message body.
+	Message string
+	// MessageID is the generated message ID for the delivery.
+	MessageID string
+}
+
 // EmailDelivery records a single message delivered to an email or email-json
 // subscription. AWS sends these to a mailbox; gopherstack has no SMTP sink, so
 // the delivery is recorded here and exposed via DrainEmailDeliveries for
@@ -487,33 +502,34 @@ type SQSQueueChecker interface {
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
-	emitter              events.EventEmitter[*events.SNSPublishedEvent]
-	lambdaBackend        LambdaInvoker
-	firehoseBackend      FirehosePutter
-	sqsSender            SQSSender
-	sqsChecker           SQSQueueChecker
-	svcCtx               context.Context
-	topicSubscriptions   map[string]map[string]*Subscription
-	httpClient           *http.Client
-	topics               map[string]*Topic
-	topicTags            map[string]*svcTags.Tags
-	platformApplications map[string]*PlatformApplication
-	smsSandbox           map[string]*SandboxPhoneNumber
-	optedOutPhoneNumbers map[string]bool
-	smsAttributes        map[string]string
-	mu                   *lockmetrics.RWMutex
-	subscriptions        map[string]*Subscription
-	platformEndpoints    map[string]*PlatformEndpoint
-	topicMessageArchive  map[string][]*ArchivedMessage // populated when ArchivePolicy is set
-	signer               *notificationSigner
-	workerSem            chan struct{}
-	accountID            string
-	region               string
-	smsDeliveries        []SMSDelivery
-	emailDeliveries      []EmailDelivery
-	deliveryWg           sync.WaitGroup
-	closing              atomic.Bool
-	smsSandboxEnabled    bool
+	emitter               events.EventEmitter[*events.SNSPublishedEvent]
+	lambdaBackend         LambdaInvoker
+	firehoseBackend       FirehosePutter
+	sqsSender             SQSSender
+	sqsChecker            SQSQueueChecker
+	svcCtx                context.Context
+	topicSubscriptions    map[string]map[string]*Subscription
+	httpClient            *http.Client
+	topics                map[string]*Topic
+	topicTags             map[string]*svcTags.Tags
+	platformApplications  map[string]*PlatformApplication
+	smsSandbox            map[string]*SandboxPhoneNumber
+	optedOutPhoneNumbers  map[string]bool
+	smsAttributes         map[string]string
+	mu                    *lockmetrics.RWMutex
+	subscriptions         map[string]*Subscription
+	platformEndpoints     map[string]*PlatformEndpoint
+	topicMessageArchive   map[string][]*ArchivedMessage // populated when ArchivePolicy is set
+	signer                *notificationSigner
+	workerSem             chan struct{}
+	accountID             string
+	region                string
+	smsDeliveries         []SMSDelivery
+	emailDeliveries       []EmailDelivery
+	applicationDeliveries []ApplicationDelivery
+	deliveryWg            sync.WaitGroup
+	closing               atomic.Bool
+	smsSandboxEnabled     bool
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -2162,6 +2178,8 @@ func (b *InMemoryBackend) Publish(
 	}
 	b.deliverToLambdaSubscriptions(ev)
 	b.deliverToFirehoseSubscriptions(ev)
+	b.deliverToSMSSubscriptions(ev)
+	b.deliverToApplicationSubscriptions(ev)
 
 	return messageID, nil
 }
@@ -2246,6 +2264,20 @@ func (b *InMemoryBackend) DrainSMSDeliveries() []SMSDelivery {
 
 	deliveries := b.smsDeliveries
 	b.smsDeliveries = nil
+
+	return deliveries
+}
+
+// DrainApplicationDeliveries returns and clears all recorded application-protocol
+// deliveries. These are recorded when a topic publish fans out to application
+// (mobile push endpoint) subscriptions so tests can assert delivery without a
+// real push network.
+func (b *InMemoryBackend) DrainApplicationDeliveries() []ApplicationDelivery {
+	b.mu.Lock("DrainApplicationDeliveries")
+	defer b.mu.Unlock()
+
+	deliveries := b.applicationDeliveries
+	b.applicationDeliveries = nil
 
 	return deliveries
 }
@@ -4131,6 +4163,7 @@ func (b *InMemoryBackend) Reset() {
 	b.smsAttributes = make(map[string]string)
 	b.smsDeliveries = nil
 	b.emailDeliveries = nil
+	b.applicationDeliveries = nil
 }
 
 func (b *InMemoryBackend) archivePublishedMessage(
