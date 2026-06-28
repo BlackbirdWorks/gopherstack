@@ -522,32 +522,8 @@ func (b *InMemoryBackend) PutObject(
 	}
 
 	finalQuotedETag := "\"" + etag + "\""
-	newVersion := &StoredObjectVersion{
-		VersionID:          NullVersion, // default, saveObjectVersion will assign if enabled
-		Key:                key,
-		Data:               encryptedData,
-		IsCompressed:       isCompressed,
-		Size:               originalSize,
-		ETag:               finalQuotedETag,
-		LastModified:       time.Now().UTC(),
-		ContentType:        aws.ToString(input.ContentType),
-		ContentEncoding:    aws.ToString(input.ContentEncoding),
-		ContentDisposition: aws.ToString(input.ContentDisposition),
-		Metadata:           maps.Clone(input.Metadata),
-		ChecksumCRC32:      checksums.crc32,
-		ChecksumCRC32C:     checksums.crc32c,
-		ChecksumSHA1:       checksums.sha1,
-		ChecksumSHA256:     checksums.sha256,
-		ChecksumCRC64NVME:  checksums.crc64nvme,
-		ChecksumAlgorithm:  input.ChecksumAlgorithm,
-		SSEAlgorithm:       sseFromCtx.Algorithm,
-		SSEKMSKeyID:        sseFromCtx.KMSKeyID,
-		SSECAlgorithm:      sseFromCtx.SSECAlgorithm,
-		SSECKeyMD5:         sseFromCtx.SSECKeyMD5,
-		EncryptionDEK:      dek,
-		EncryptionNonce:    nonce,
-		IsLatest:           true,
-	}
+	newVersion := buildStoredObjectVersion(key, finalQuotedETag, encryptedData, isCompressed,
+		originalSize, input, checksums, sseFromCtx, dek, nonce)
 
 	newVersionID := b.saveObjectVersion(bucket, key, newVersion)
 
@@ -585,6 +561,50 @@ func (b *InMemoryBackend) PutObject(
 		ChecksumSHA256:    checksums.sha256,
 		ChecksumCRC64NVME: checksums.crc64nvme,
 	}, nil
+}
+
+func buildStoredObjectVersion(
+	key, etag string,
+	data []byte,
+	isCompressed bool,
+	size int64,
+	input *s3.PutObjectInput,
+	checksums objectChecksums,
+	sse sseInfo,
+	dek, nonce []byte,
+) *StoredObjectVersion {
+	sc := string(input.StorageClass)
+	if sc == "" {
+		sc = storageStandard
+	}
+
+	return &StoredObjectVersion{
+		VersionID:          NullVersion,
+		Key:                key,
+		Data:               data,
+		IsCompressed:       isCompressed,
+		Size:               size,
+		ETag:               etag,
+		LastModified:       time.Now().UTC(),
+		ContentType:        aws.ToString(input.ContentType),
+		ContentEncoding:    aws.ToString(input.ContentEncoding),
+		ContentDisposition: aws.ToString(input.ContentDisposition),
+		StorageClass:       sc,
+		Metadata:           maps.Clone(input.Metadata),
+		ChecksumCRC32:      checksums.crc32,
+		ChecksumCRC32C:     checksums.crc32c,
+		ChecksumSHA1:       checksums.sha1,
+		ChecksumSHA256:     checksums.sha256,
+		ChecksumCRC64NVME:  checksums.crc64nvme,
+		ChecksumAlgorithm:  input.ChecksumAlgorithm,
+		SSEAlgorithm:       sse.Algorithm,
+		SSEKMSKeyID:        sse.KMSKeyID,
+		SSECAlgorithm:      sse.SSECAlgorithm,
+		SSECKeyMD5:         sse.SSECKeyMD5,
+		EncryptionDEK:      dek,
+		EncryptionNonce:    nonce,
+		IsLatest:           true,
+	}
 }
 
 func (b *InMemoryBackend) prepareObjectData(
@@ -853,6 +873,11 @@ func buildGetObjectOutput(
 	metadata map[string]string,
 	versionIDStr string,
 ) *s3.GetObjectOutput {
+	sc := ver.StorageClass
+	if sc == "" {
+		sc = storageStandard
+	}
+
 	return &s3.GetObjectOutput{
 		Body:                 io.NopCloser(bytes.NewReader(data)),
 		ContentLength:        aws.Int64(size),
@@ -863,6 +888,7 @@ func buildGetObjectOutput(
 		LastModified:         aws.Time(ver.LastModified),
 		Metadata:             metadata,
 		VersionId:            aws.String(versionIDStr),
+		StorageClass:         types.StorageClass(sc),
 		ChecksumCRC32:        ver.ChecksumCRC32,
 		ChecksumCRC32C:       ver.ChecksumCRC32C,
 		ChecksumSHA1:         ver.ChecksumSHA1,
@@ -1425,12 +1451,16 @@ func (b *InMemoryBackend) processObjectSnapshots(objectSnapshots []*StoredObject
 			checksumAlgos = []types.ChecksumAlgorithm{latest.ChecksumAlgorithm}
 		}
 
+		sc := latest.StorageClass
+		if sc == "" {
+			sc = storageStandard
+		}
 		contents = append(contents, types.Object{
 			Key:               aws.String(latest.Key),
 			LastModified:      aws.Time(latest.LastModified),
 			ETag:              aws.String(latest.ETag),
 			Size:              aws.Int64(latest.Size),
-			StorageClass:      types.ObjectStorageClassStandard,
+			StorageClass:      types.ObjectStorageClass(sc),
 			ChecksumAlgorithm: checksumAlgos,
 			Owner: &types.Owner{
 				ID:          aws.String(gopherstackName),

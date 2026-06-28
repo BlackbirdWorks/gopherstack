@@ -29,6 +29,7 @@ type objectCommonDetails struct {
 	ContentLength     *int64
 	LastModified      *time.Time
 	VersionID         *string
+	StorageClass      string
 	ChecksumCRC32     *string
 	ChecksumCRC32C    *string
 	ChecksumSHA1      *string
@@ -251,6 +252,7 @@ func (h *S3Handler) writeHeadObjectResponse(
 		ContentLength:     out.ContentLength,
 		LastModified:      out.LastModified,
 		VersionID:         out.VersionId,
+		StorageClass:      string(out.StorageClass),
 		ChecksumCRC32:     out.ChecksumCRC32,
 		ChecksumCRC32C:    out.ChecksumCRC32C,
 		ChecksumSHA1:      out.ChecksumSHA1,
@@ -422,6 +424,7 @@ func buildPutObjectInput(
 		ContentType:        aws.String(r.Header.Get("Content-Type")),
 		ContentEncoding:    ptrconv.NilIfEmpty(r.Header.Get("Content-Encoding")),
 		ContentDisposition: ptrconv.NilIfEmpty(r.Header.Get("Content-Disposition")),
+		StorageClass:       types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 		ChecksumAlgorithm:  types.ChecksumAlgorithm(algo),
 		ChecksumCRC32:      crc32p,
 		ChecksumCRC32C:     crc32cp,
@@ -539,11 +542,12 @@ func (h *S3Handler) copyObject(
 		"taggingDirective", r.Header.Get("X-Amz-Tagging-Directive"))
 
 	putInput := &s3.PutObjectInput{
-		Bucket:      aws.String(destBucket),
-		Key:         aws.String(destKey),
-		Body:        srcVer.Body,
-		Metadata:    userMeta,
-		ContentType: contentType,
+		Bucket:       aws.String(destBucket),
+		Key:          aws.String(destKey),
+		Body:         srcVer.Body,
+		Metadata:     userMeta,
+		ContentType:  contentType,
+		StorageClass: types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 	}
 	h.resolveCopyTagging(ctx, r, putInput, tagging, taggingReplace)
 
@@ -822,6 +826,7 @@ func buildGetObjectDetails(ver *s3.GetObjectOutput) objectCommonDetails {
 		ContentLength:     ver.ContentLength,
 		LastModified:      ver.LastModified,
 		VersionID:         ver.VersionId,
+		StorageClass:      string(ver.StorageClass),
 		ChecksumCRC32:     ver.ChecksumCRC32,
 		ChecksumCRC32C:    ver.ChecksumCRC32C,
 		ChecksumSHA1:      ver.ChecksumSHA1,
@@ -1267,9 +1272,13 @@ func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDeta
 		w.Header().Set("X-Amz-Version-Id", *out.VersionID)
 	}
 
-	// AWS always advertises byte-range support and STANDARD storage class.
+	// Advertise byte-range support and the object's actual storage class.
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("X-Amz-Storage-Class", storageStandard)
+	sc := out.StorageClass
+	if sc == "" {
+		sc = storageStandard
+	}
+	w.Header().Set("X-Amz-Storage-Class", sc)
 
 	h.setChecksumHeaders(w, out)
 }
@@ -1533,6 +1542,12 @@ func parseRange(header string, size int64) (int64, int64, rangeResult) {
 		return 0, 0, rangeIgnore
 	}
 
+	// bytes=-0 is a syntactically valid suffix range that selects zero bytes;
+	// RFC 9110 §14.1.2 requires 416.
+	if startStr == "" && endStr == "0" {
+		return 0, 0, rangeUnsatisfiable
+	}
+
 	start, end, ok := computeRangeBounds(startStr, endStr, size)
 	if !ok {
 		return 0, 0, rangeIgnore
@@ -1563,7 +1578,11 @@ func computeRangeBounds(startStr, endStr string, size int64) (int64, int64, bool
 	switch {
 	case startStr == "":
 		n, err := strconv.ParseInt(endStr, 10, 64)
-		if err != nil || n <= 0 {
+		if err != nil || n < 0 {
+			return 0, 0, false
+		}
+		// bytes=-0 is unsatisfiable per RFC 9110 §14.1.2 (no bytes selected).
+		if n == 0 {
 			return 0, 0, false
 		}
 

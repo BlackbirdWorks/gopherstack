@@ -62,7 +62,10 @@ var (
 	// partiqlLimitRe extracts the LIMIT integer value.
 	partiqlLimitRe = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)`)
 	// partiqlSetRe extracts the SET clause body in an UPDATE statement.
-	partiqlSetRe = regexp.MustCompile(`(?i)\bSET\s+(.+?)(?:\s+WHERE\b|\s*$)`)
+	// Stops before REMOVE, WHERE, or end of string so that a following REMOVE clause is not consumed.
+	partiqlSetRe = regexp.MustCompile(`(?i)\bSET\s+(.+?)(?:\s+REMOVE\b|\s+WHERE\b|\s*$)`)
+	// partiqlRemoveRe extracts the REMOVE clause body in an UPDATE statement.
+	partiqlRemoveRe = regexp.MustCompile(`(?i)\bREMOVE\s+(.+?)(?:\s+WHERE\b|\s*$)`)
 	// partiqlSelectColsRe extracts the column list between SELECT and FROM.
 	partiqlSelectColsRe = regexp.MustCompile(`(?i)^\s*SELECT\s+(.+?)\s+FROM\s+"`)
 	// partiqlValueRe extracts the VALUE tuple body in an INSERT statement.
@@ -655,11 +658,17 @@ func (r *partiQLRunner) executePartiQLInsert(
 	return &executeStatementResponse{Items: []map[string]any{}}, nil
 }
 
-// executePartiQLUpdate handles UPDATE "table" SET ... WHERE ... statements.
-func (r *partiQLRunner) executePartiQLUpdate(
-	ctx context.Context,
-	req executeStatementRequest,
-) (*executeStatementResponse, error) {
+// partiqlUpdateParsed holds parsed clauses from a PartiQL UPDATE statement.
+type partiqlUpdateParsed struct {
+	eav          map[string]any
+	tableName    string
+	setClause    string
+	removeClause string
+	whereClause  string
+}
+
+// parsePartiQLUpdateClauses extracts table name, SET/REMOVE/WHERE clauses, and substitutes params.
+func parsePartiQLUpdateClauses(req executeStatementRequest) (*partiqlUpdateParsed, error) {
 	matches := partiqlUpdateTableRe.FindStringSubmatch(req.Statement)
 	if len(matches) < minRegexMatch {
 		return nil, fmt.Errorf("%w: cannot extract table name from UPDATE", ErrInvalidStatement)
@@ -667,31 +676,55 @@ func (r *partiQLRunner) executePartiQLUpdate(
 
 	tableName := matches[1]
 
-	// Substitute all ? at once so clause positions are preserved.
 	substituted, eav, err := partiqlSubstituteParams(req.Statement, req.Parameters)
 	if err != nil {
 		return nil, err
 	}
 
-	setMatches := partiqlSetRe.FindStringSubmatch(substituted)
-	if len(setMatches) < minRegexMatch {
-		return nil, fmt.Errorf("%w: no SET clause in UPDATE statement", ErrInvalidStatement)
+	var setClause string
+	if setMatches := partiqlSetRe.FindStringSubmatch(substituted); len(setMatches) >= minRegexMatch {
+		setClause = strings.TrimSpace(setMatches[1])
 	}
 
-	setClause := strings.TrimSpace(setMatches[1])
+	var removeClause string
+	if removeMatches := partiqlRemoveRe.FindStringSubmatch(substituted); len(removeMatches) >= minRegexMatch {
+		removeClause = strings.TrimSpace(removeMatches[1])
+	}
+
+	if setClause == "" && removeClause == "" {
+		return nil, fmt.Errorf("%w: UPDATE requires a SET or REMOVE clause", ErrInvalidStatement)
+	}
 
 	whereClause := partiqlExtractWhere(substituted)
 	if whereClause == "" {
 		return nil, fmt.Errorf("%w: UPDATE requires a WHERE clause", ErrInvalidStatement)
 	}
 
-	// Substitute any remaining string literals in both clauses.
-	setClause, eav = partiqlSubstituteLiterals(setClause, eav)
+	if setClause != "" {
+		setClause, eav = partiqlSubstituteLiterals(setClause, eav)
+	}
 	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
 
-	// Get key schema to identify which WHERE conditions are key conditions.
-	// Use the cached lookup to avoid repeated global-lock acquisitions.
-	keySchema, err := r.lookupKeySchema(ctx, tableName)
+	return &partiqlUpdateParsed{
+		tableName:    tableName,
+		setClause:    setClause,
+		removeClause: removeClause,
+		whereClause:  whereClause,
+		eav:          eav,
+	}, nil
+}
+
+// executePartiQLUpdate handles UPDATE "table" SET/REMOVE ... WHERE ... statements.
+func (r *partiQLRunner) executePartiQLUpdate(
+	ctx context.Context,
+	req executeStatementRequest,
+) (*executeStatementResponse, error) {
+	parsed, err := parsePartiQLUpdateClauses(req)
+	if err != nil {
+		return nil, err
+	}
+
+	keySchema, err := r.lookupKeySchema(ctx, parsed.tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -701,7 +734,7 @@ func (r *partiQLRunner) executePartiQLUpdate(
 		keyAttrs[k.AttributeName] = true
 	}
 
-	wireKey, err := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
+	wireKey, err := partiqlExtractKeyFromWhere(parsed.whereClause, parsed.eav, keyAttrs)
 	if err != nil {
 		return nil, err
 	}
@@ -711,10 +744,19 @@ func (r *partiQLRunner) executePartiQLUpdate(
 		return nil, err
 	}
 
-	// Filter EAV to only the values actually referenced in the SET clause.
-	// The WHERE clause params were used for key extraction above; including them
-	// in ExpressionAttributeValues would trigger an unused-EAV validation error.
-	setEAV := filterEAVByExpression(eav, setClause)
+	// Build combined UpdateExpression: "SET ... REMOVE ..." (each part only when present).
+	var exprParts []string
+	if parsed.setClause != "" {
+		exprParts = append(exprParts, "SET "+parsed.setClause)
+	}
+	if parsed.removeClause != "" {
+		exprParts = append(exprParts, "REMOVE "+parsed.removeClause)
+	}
+	updateExpr := strings.Join(exprParts, " ")
+
+	// Filter EAV to only values referenced in the SET clause.
+	// WHERE params were consumed by key extraction; REMOVE has no values.
+	setEAV := filterEAVByExpression(parsed.eav, parsed.setClause)
 
 	sdkEAV, err := partiqlBuildSDKEAV(setEAV)
 	if err != nil {
@@ -722,9 +764,9 @@ func (r *partiQLRunner) executePartiQLUpdate(
 	}
 
 	if _, updateErr := r.backend.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName:                 aws.String(tableName),
+		TableName:                 aws.String(parsed.tableName),
 		Key:                       sdkKey,
-		UpdateExpression:          aws.String("SET " + setClause),
+		UpdateExpression:          aws.String(updateExpr),
 		ExpressionAttributeValues: sdkEAV,
 	}); updateErr != nil {
 		return nil, updateErr

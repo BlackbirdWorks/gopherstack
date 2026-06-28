@@ -3,7 +3,9 @@ package dynamodb
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -284,6 +286,26 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 	for _, region := range gt.ReplicationGroup {
 		rcu := accountMaxReadCapacityUnits
 		wcu := accountMaxWriteCapacityUnits
+
+		// Look up the actual table in that region to get real provisioned throughput.
+		db.mu.RLock("DescribeGlobalTableSettings.table")
+		regionTables := db.Tables[region]
+		var tbl *Table
+		if regionTables != nil {
+			tbl = regionTables[name]
+		}
+		db.mu.RUnlock()
+		if tbl != nil {
+			tbl.mu.RLock("DescribeGlobalTableSettings.throughput")
+			pt := tbl.ProvisionedThroughput
+			tbl.mu.RUnlock()
+			if pt.ReadCapacityUnits > 0 {
+				rcu = int64(pt.ReadCapacityUnits)
+			}
+			if pt.WriteCapacityUnits > 0 {
+				wcu = int64(pt.WriteCapacityUnits)
+			}
+		}
 
 		replicaSettings = append(replicaSettings, types.ReplicaSettingsDescription{
 			RegionName:                           &region,
@@ -1313,10 +1335,12 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 
 // --- ExecuteTransaction ---
 
-// ExecuteTransaction executes a set of PartiQL statements in a single atomic transaction.
-// The in-memory backend delegates each statement to the PartiQL runner and returns
-// results in the same order. Atomicity is not guaranteed — like LocalStack's basic
-// implementation, this is a best-effort sequential execution.
+// ExecuteTransaction executes a set of PartiQL DML statements atomically.
+// Atomicity is provided via snapshot-based rollback: pre-transaction snapshots
+// of all affected tables are captured, statements are executed sequentially,
+// and all tables are restored from their snapshots if any statement fails.
+// This matches the observable contract of real AWS ExecuteTransaction for
+// single-process in-memory usage.
 func (db *InMemoryDB) ExecuteTransaction(
 	ctx context.Context,
 	input *dynamodb.ExecuteTransactionInput,
@@ -1333,6 +1357,12 @@ func (db *InMemoryDB) ExecuteTransaction(
 		)
 	}
 
+	// Collect unique table names so we can snapshot them before execution.
+	tableNames := executeTransactionTableNames(input.TransactStatements)
+
+	// Capture pre-transaction snapshots of all affected tables.
+	snapshots := db.captureExecTxnSnapshots(ctx, tableNames)
+
 	runner := &partiQLRunner{backend: db}
 	responses := make([]types.ItemResponse, len(input.TransactStatements))
 	tableRCU := make(map[string]float64)
@@ -1341,9 +1371,12 @@ func (db *InMemoryDB) ExecuteTransaction(
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone
 
 	for i, stmt := range input.TransactStatements {
-		resp, stmtStr, err := executeTransactionStatement(ctx, runner, stmt)
-		if err != nil {
-			return nil, err
+		resp, stmtStr, execErr := executeTransactionStatement(ctx, runner, stmt)
+		if execErr != nil {
+			// Roll back all tables to their pre-transaction state.
+			db.restoreExecTxnSnapshots(ctx, tableNames, snapshots)
+
+			return nil, execErr
 		}
 		responses[i] = resp
 
@@ -1356,6 +1389,112 @@ func (db *InMemoryDB) ExecuteTransaction(
 		Responses:        responses,
 		ConsumedCapacity: buildTransactionConsumedCapacity(tableRCU, tableWCU, returnCC),
 	}, nil
+}
+
+// executeTransactionTableNames extracts sorted unique table names from transaction statements.
+func executeTransactionTableNames(stmts []types.ParameterizedStatement) []string {
+	seen := make(map[string]struct{})
+	for _, stmt := range stmts {
+		if stmt.Statement == nil {
+			continue
+		}
+		name := partiqlStmtTableName(*stmt.Statement)
+		if name != "" {
+			seen[name] = struct{}{}
+		}
+	}
+
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+// captureExecTxnSnapshots takes read-locked snapshots of the named tables.
+// Tables that don't exist yet are skipped (the statement execution will produce
+// the appropriate error).
+func (db *InMemoryDB) captureExecTxnSnapshots(
+	ctx context.Context,
+	tableNames []string,
+) map[string]tableStateSnapshot {
+	region := getRegionFromContext(ctx, db)
+	snapshots := make(map[string]tableStateSnapshot, len(tableNames))
+
+	db.mu.RLock("ExecuteTransaction.snapshot")
+	regionTables := db.Tables[region]
+	db.mu.RUnlock()
+
+	for _, name := range tableNames {
+		if regionTables == nil {
+			continue
+		}
+
+		t, ok := regionTables[name]
+		if !ok {
+			continue
+		}
+
+		t.mu.RLock("ExecuteTransaction.snapshot")
+		itemsCopy := make([]map[string]any, len(t.Items))
+		copy(itemsCopy, t.Items)
+		pkIdxCopy := make(map[string]int, len(t.pkIndex))
+		maps.Copy(pkIdxCopy, t.pkIndex)
+		pkskIdxCopy := make(map[string]map[string]int, len(t.pkskIndex))
+		for pk, skMap := range t.pkskIndex {
+			skMapCopy := make(map[string]int, len(skMap))
+			maps.Copy(skMapCopy, skMap)
+			pkskIdxCopy[pk] = skMapCopy
+		}
+		t.mu.RUnlock()
+
+		snapshots[name] = tableStateSnapshot{
+			items:     itemsCopy,
+			pkIndex:   pkIdxCopy,
+			pkskIndex: pkskIdxCopy,
+		}
+	}
+
+	return snapshots
+}
+
+// restoreExecTxnSnapshots restores all snapshotted tables to their pre-transaction
+// state. Each table is write-locked individually during its restore.
+func (db *InMemoryDB) restoreExecTxnSnapshots(
+	ctx context.Context,
+	tableNames []string,
+	snapshots map[string]tableStateSnapshot,
+) {
+	region := getRegionFromContext(ctx, db)
+
+	db.mu.RLock("ExecuteTransaction.restore")
+	regionTables := db.Tables[region]
+	db.mu.RUnlock()
+
+	for _, name := range tableNames {
+		snap, ok := snapshots[name]
+		if !ok {
+			continue
+		}
+
+		if regionTables == nil {
+			continue
+		}
+
+		t, tableOK := regionTables[name]
+		if !tableOK {
+			continue
+		}
+
+		t.mu.Lock("ExecuteTransaction.restore")
+		t.Items = snap.items
+		t.pkIndex = snap.pkIndex
+		t.pkskIndex = snap.pkskIndex
+		t.mu.Unlock()
+	}
 }
 
 // executeTransactionStatement converts one ParameterizedStatement to wire format,
@@ -1583,17 +1722,37 @@ func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription
 
 // --- ListImports ---
 
-// ListImports returns stored import records for the request region, sorted by ImportArn.
+// ListImports returns stored import records for the request region.
+// Supports NextToken-based pagination and PageSize per the real AWS API.
 func (db *InMemoryDB) ListImports(
 	ctx context.Context,
-	_ *dynamodb.ListImportsInput,
+	input *dynamodb.ListImportsInput,
 ) (*dynamodb.ListImportsOutput, error) {
+	const defaultListImportsLimit = 25
+
 	region := getRegionFromContext(ctx, db)
 	stored := db.listImportsStored()
+
+	// NextToken is the ImportArn of the last record returned previously.
+	nextToken := aws.ToString(input.NextToken)
+	pageSize := defaultListImportsLimit
+	if input.PageSize != nil && *input.PageSize > 0 && int(*input.PageSize) < defaultListImportsLimit {
+		pageSize = int(*input.PageSize)
+	}
+
+	// Filter by region and apply cursor.
 	summaries := make([]types.ImportSummary, 0, len(stored))
+	started := nextToken == ""
 
 	for _, imp := range stored {
 		if db.regionFromARN(imp.ImportArn) != region {
+			continue
+		}
+		if !started {
+			if imp.ImportArn == nextToken {
+				started = true
+			}
+
 			continue
 		}
 
@@ -1611,8 +1770,16 @@ func (db *InMemoryDB) ListImports(
 		})
 	}
 
+	var outNextToken *string
+	if len(summaries) > pageSize {
+		tok := *summaries[pageSize-1].ImportArn
+		outNextToken = &tok
+		summaries = summaries[:pageSize]
+	}
+
 	return &dynamodb.ListImportsOutput{
 		ImportSummaryList: summaries,
+		NextToken:         outNextToken,
 	}, nil
 }
 
