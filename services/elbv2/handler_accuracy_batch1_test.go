@@ -1101,6 +1101,8 @@ func TestBatch1_DeregisterTargets_Success(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
+	// AWS: deregistered targets enter draining state and remain visible until
+	// deregistration_delay expires. Check the target is in draining state.
 	rec2 := doELBv2(t, h, url.Values{
 		"Action":         {"DescribeTargetHealth"},
 		"Version":        {"2015-12-01"},
@@ -1109,12 +1111,20 @@ func TestBatch1_DeregisterTargets_Success(t *testing.T) {
 	var resp struct {
 		Result struct {
 			TargetHealthDescriptions struct {
-				Members []struct{} `xml:"member"`
+				Members []struct {
+					TargetHealth struct {
+						State  string `xml:"State"`
+						Reason string `xml:"Reason"`
+					} `xml:"TargetHealth"`
+				} `xml:"member"`
 			} `xml:"TargetHealthDescriptions"`
 		} `xml:"DescribeTargetHealthResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &resp))
-	assert.Empty(t, resp.Result.TargetHealthDescriptions.Members)
+	require.Len(t, resp.Result.TargetHealthDescriptions.Members, 1)
+	th := resp.Result.TargetHealthDescriptions.Members[0].TargetHealth
+	assert.Equal(t, "draining", th.State)
+	assert.Equal(t, "Target.DeregistrationInProgress", th.Reason)
 }
 
 // ---- Listener CRUD ----

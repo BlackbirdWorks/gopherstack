@@ -39,6 +39,21 @@ type backendSnapshot struct {
 	DistributionWebACLs              map[string]string                `json:"distributionWebACLs,omitempty"`
 	DistributionTenantWebACLs        map[string]string                `json:"distributionTenantWebACLs,omitempty"`
 
+	// Batch-2 / new-ops fields — persisted after initial implementation.
+	TrustStores             map[string]*TrustStore             `json:"trustStores,omitempty"`
+	StreamingDistributions  map[string]*StreamingDistribution  `json:"streamingDistributions,omitempty"`
+	MonitoringSubscriptions map[string]*MonitoringSubscription `json:"monitoringSubscriptions,omitempty"`
+	ResourcePolicies        map[string]string                  `json:"resourcePolicies,omitempty"`
+
+	DistributionCachePolicies      map[string]string              `json:"distributionCachePolicies,omitempty"`
+	DistributionRealtimeLogConfigs map[string]string              `json:"distributionRealtimeLogConfigs,omitempty"`
+	DistributionTenants            map[string]*DistributionTenant `json:"distributionTenants,omitempty"`
+	TenantInvalidations            map[string][]*Invalidation     `json:"tenantInvalidations,omitempty"`
+	ManagedCertificates            map[string]*ManagedCertificate `json:"managedCertificates,omitempty"`
+
+	DistributionOriginRequestPolicies   map[string]string `json:"distributionOriginRequestPolicies,omitempty"`
+	DistributionResponseHeadersPolicies map[string]string `json:"distributionResponseHeadersPolicies,omitempty"`
+
 	AccountID string `json:"accountId"`
 	Region    string `json:"region"`
 }
@@ -49,31 +64,42 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Distributions:                    b.distributions,
-		OAIs:                             b.oais,
-		Invalidations:                    b.invalidations,
-		AnycastIPLists:                   b.anycastIPLists,
-		CachePolicies:                    b.cachePolicies,
-		ConnectionFunctions:              b.connectionFunctions,
-		ConnectionGroups:                 b.connectionGroups,
-		ContinuousDeploymentPolicies:     b.continuousDeploymentPolicies,
-		OriginAccessControls:             b.originAccessControls,
-		ResponseHeadersPolicies:          b.responseHeadersPolicies,
-		Functions:                        b.functions,
-		OriginRequestPolicies:            b.originRequestPolicies,
-		FieldLevelEncryptions:            b.fieldLevelEncryptions,
-		FieldLevelEncryptionProfiles:     b.fieldLevelEncryptionProfiles,
-		PublicKeys:                       b.publicKeys,
-		KeyGroups:                        b.keyGroups,
-		RealtimeLogConfigs:               b.realtimeLogConfigs,
-		KeyValueStores:                   b.keyValueStores,
-		VpcOrigins:                       b.vpcOrigins,
-		DistributionFunctionAssociations: b.distributionFunctionAssociations,
-		DistributionAliases:              b.distributionAliases,
-		DistributionWebACLs:              b.distributionWebACLs,
-		DistributionTenantWebACLs:        b.distributionTenantWebACLs,
-		AccountID:                        b.accountID,
-		Region:                           b.region,
+		Distributions:                       b.distributions,
+		OAIs:                                b.oais,
+		Invalidations:                       b.invalidations,
+		AnycastIPLists:                      b.anycastIPLists,
+		CachePolicies:                       b.cachePolicies,
+		ConnectionFunctions:                 b.connectionFunctions,
+		ConnectionGroups:                    b.connectionGroups,
+		ContinuousDeploymentPolicies:        b.continuousDeploymentPolicies,
+		OriginAccessControls:                b.originAccessControls,
+		ResponseHeadersPolicies:             b.responseHeadersPolicies,
+		Functions:                           b.functions,
+		OriginRequestPolicies:               b.originRequestPolicies,
+		FieldLevelEncryptions:               b.fieldLevelEncryptions,
+		FieldLevelEncryptionProfiles:        b.fieldLevelEncryptionProfiles,
+		PublicKeys:                          b.publicKeys,
+		KeyGroups:                           b.keyGroups,
+		RealtimeLogConfigs:                  b.realtimeLogConfigs,
+		KeyValueStores:                      b.keyValueStores,
+		VpcOrigins:                          b.vpcOrigins,
+		DistributionFunctionAssociations:    b.distributionFunctionAssociations,
+		DistributionAliases:                 b.distributionAliases,
+		DistributionWebACLs:                 b.distributionWebACLs,
+		DistributionTenantWebACLs:           b.distributionTenantWebACLs,
+		TrustStores:                         b.trustStores,
+		StreamingDistributions:              b.streamingDistributions,
+		MonitoringSubscriptions:             b.monitoringSubscriptions,
+		ResourcePolicies:                    snapshotResourcePolicies(b.resourcePolicies),
+		DistributionCachePolicies:           b.distributionCachePolicies,
+		DistributionOriginRequestPolicies:   b.distributionOriginRequestPolicies,
+		DistributionResponseHeadersPolicies: b.distributionResponseHeadersPolicies,
+		DistributionRealtimeLogConfigs:      b.distributionRealtimeLogConfigs,
+		DistributionTenants:                 b.distributionTenants,
+		TenantInvalidations:                 b.tenantInvalidations,
+		ManagedCertificates:                 b.managedCertificates,
+		AccountID:                           b.accountID,
+		Region:                              b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -85,6 +111,28 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	return data
+}
+
+// snapshotResourcePolicies converts the internal unexported resourcePolicyEntry
+// map to a plain string map for JSON serialisation.
+func snapshotResourcePolicies(m map[string]*resourcePolicyEntry) map[string]string {
+	out := make(map[string]string, len(m))
+	for arn, e := range m {
+		out[arn] = e.Policy
+	}
+
+	return out
+}
+
+// restoreResourcePolicies converts the serialised string map back to the
+// internal resourcePolicyEntry map used by the backend.
+func restoreResourcePolicies(m map[string]string) map[string]*resourcePolicyEntry {
+	out := make(map[string]*resourcePolicyEntry, len(m))
+	for arn, policy := range m {
+		out[arn] = &resourcePolicyEntry{Policy: policy}
+	}
+
+	return out
 }
 
 // Restore loads backend state from a JSON snapshot and rebuilds derived indexes.
@@ -219,9 +267,18 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	ensureNonNil(&snap)
-
 	idx := rebuildIndexes(&snap)
+	b.restoreCoreFields(&snap)
+	b.restoreBatch2Fields(&snap)
+	b.restoreIndexes(idx)
+	b.accountID = snap.AccountID
+	b.region = snap.Region
 
+	return nil
+}
+
+// restoreCoreFields restores the primary maps from the snapshot.
+func (b *InMemoryBackend) restoreCoreFields(snap *backendSnapshot) {
 	b.distributions = snap.Distributions
 	b.oais = snap.OAIs
 	b.invalidations = snap.Invalidations
@@ -245,6 +302,31 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.distributionAliases = snap.DistributionAliases
 	b.distributionWebACLs = snap.DistributionWebACLs
 	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
+}
+
+// restoreBatch2Fields restores the batch-2 / new-ops maps from the snapshot.
+func (b *InMemoryBackend) restoreBatch2Fields(snap *backendSnapshot) {
+	b.trustStores = snap.TrustStores
+	b.streamingDistributions = snap.StreamingDistributions
+	b.monitoringSubscriptions = snap.MonitoringSubscriptions
+	b.resourcePolicies = restoreResourcePolicies(snap.ResourcePolicies)
+	b.distributionCachePolicies = snap.DistributionCachePolicies
+	b.distributionOriginRequestPolicies = snap.DistributionOriginRequestPolicies
+	b.distributionResponseHeadersPolicies = snap.DistributionResponseHeadersPolicies
+	b.distributionRealtimeLogConfigs = snap.DistributionRealtimeLogConfigs
+	b.distributionTenants = snap.DistributionTenants
+	b.tenantInvalidations = snap.TenantInvalidations
+	b.managedCertificates = snap.ManagedCertificates
+
+	// Rebuild derived domain→tenantID index from restored tenant records.
+	b.distributionTenantsByDomain = make(map[string]string, len(snap.DistributionTenants))
+	for id, t := range snap.DistributionTenants {
+		b.distributionTenantsByDomain[t.Domain] = id
+	}
+}
+
+// restoreIndexes writes the rebuilt secondary indexes back to the backend.
+func (b *InMemoryBackend) restoreIndexes(idx backendIndexes) {
 	b.distributionARNs = idx.distributionARNs
 	b.distributionCallerRefs = idx.distributionCallerRefs
 	b.oaiCallerRefs = idx.oaiCallerRefs
@@ -259,10 +341,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.realtimeLogConfigByName = idx.realtimeLogConfigByName
 	b.keyValueStoreByName = idx.keyValueStoreByName
 	b.connectionFunctionByName = idx.connectionFunctionByName
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-
-	return nil
 }
 
 // ensureNonNil initialises any nil maps in a snapshot to empty maps so that
@@ -271,6 +349,7 @@ func ensureNonNil(snap *backendSnapshot) {
 	ensureNonNilBaseEntities(snap)
 	ensureNonNilPolicies(snap)
 	ensureNonNilNewResources(snap)
+	ensureNonNilBatch2(snap)
 }
 
 func ensureNonNilBaseEntities(snap *backendSnapshot) {
@@ -368,6 +447,52 @@ func ensureNonNilNewResources(snap *backendSnapshot) {
 
 	if snap.DistributionFunctionAssociations == nil {
 		snap.DistributionFunctionAssociations = make(map[string][]FunctionAssociation)
+	}
+}
+
+func ensureNonNilBatch2(snap *backendSnapshot) {
+	if snap.TrustStores == nil {
+		snap.TrustStores = make(map[string]*TrustStore)
+	}
+
+	if snap.StreamingDistributions == nil {
+		snap.StreamingDistributions = make(map[string]*StreamingDistribution)
+	}
+
+	if snap.MonitoringSubscriptions == nil {
+		snap.MonitoringSubscriptions = make(map[string]*MonitoringSubscription)
+	}
+
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]string)
+	}
+
+	if snap.DistributionCachePolicies == nil {
+		snap.DistributionCachePolicies = make(map[string]string)
+	}
+
+	if snap.DistributionOriginRequestPolicies == nil {
+		snap.DistributionOriginRequestPolicies = make(map[string]string)
+	}
+
+	if snap.DistributionResponseHeadersPolicies == nil {
+		snap.DistributionResponseHeadersPolicies = make(map[string]string)
+	}
+
+	if snap.DistributionRealtimeLogConfigs == nil {
+		snap.DistributionRealtimeLogConfigs = make(map[string]string)
+	}
+
+	if snap.DistributionTenants == nil {
+		snap.DistributionTenants = make(map[string]*DistributionTenant)
+	}
+
+	if snap.TenantInvalidations == nil {
+		snap.TenantInvalidations = make(map[string][]*Invalidation)
+	}
+
+	if snap.ManagedCertificates == nil {
+		snap.ManagedCertificates = make(map[string]*ManagedCertificate)
 	}
 }
 

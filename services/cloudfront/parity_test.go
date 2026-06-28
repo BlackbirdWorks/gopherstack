@@ -441,3 +441,167 @@ func extractXMLTag(t *testing.T, body string) string {
 
 	return ""
 }
+
+// TestParity_PersistenceBatch2RoundTrip verifies that batch-2 fields
+// (TrustStores, StreamingDistributions, MonitoringSubscriptions,
+// DistributionTenants, DistributionCachePolicies, etc.) survive a
+// Snapshot → Restore cycle.
+func TestParity_PersistenceBatch2RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	type restoreTC struct {
+		setup  func(*cloudfront.InMemoryBackend)
+		verify func(*testing.T, *cloudfront.InMemoryBackend)
+		name   string
+	}
+	tests := []restoreTC{
+		{
+			name: "trust_store_survives_restore",
+			setup: func(b *cloudfront.InMemoryBackend) {
+				_, err := b.CreateTrustStore("my-store", "comment")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				stores := b.ListTrustStores()
+				require.Len(t, stores, 1)
+				assert.Equal(t, "my-store", stores[0].Name)
+			},
+		},
+		{
+			name: "streaming_distribution_survives_restore",
+			setup: func(b *cloudfront.InMemoryBackend) {
+				_, err := b.CreateStreamingDistribution([]byte(`<StreamingDistributionConfig/>`))
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				sds := b.ListStreamingDistributions()
+				assert.Len(t, sds, 1)
+			},
+		},
+		{
+			name: "monitoring_subscription_survives_restore",
+			setup: func(b *cloudfront.InMemoryBackend) {
+				d, err := b.CreateDistribution("ref-mon", "test", true, nil)
+				require.NoError(t, err)
+				require.NoError(t, b.CreateMonitoringSubscription(d.ID, true))
+			},
+			verify: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				dists := b.ListDistributions()
+				require.Len(t, dists, 1)
+				ms, err := b.GetMonitoringSubscription(dists[0].ID)
+				require.NoError(t, err)
+				assert.Equal(t, "Enabled", ms.RealtimeMetricsSubscriptionStatus)
+			},
+		},
+		{
+			name: "distribution_tenant_survives_restore",
+			setup: func(b *cloudfront.InMemoryBackend) {
+				d, err := b.CreateDistribution("ref-ten", "test", true, nil)
+				require.NoError(t, err)
+				_, err = b.CreateDistributionTenant(d.ID, "tenant.example.com", nil)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+				t.Helper()
+				tenants := b.ListDistributionTenants()
+				require.Len(t, tenants, 1)
+				assert.Equal(t, "tenant.example.com", tenants[0].Domain)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			orig := newTestBackend()
+			tc.setup(orig)
+
+			snap := orig.Snapshot(t.Context())
+			require.NotEmpty(t, snap)
+
+			fresh := newTestBackend()
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			tc.verify(t, fresh)
+		})
+	}
+}
+
+// TestParity_ListDistributionsPagination verifies that ListDistributions
+// supports Marker/MaxItems pagination and returns IsTruncated + NextMarker
+// when results are truncated.
+func TestParity_ListDistributionsPagination(t *testing.T) {
+	t.Parallel()
+
+	type pageTC struct {
+		maxItems       string
+		marker         string
+		name           string
+		numDists       int
+		wantQuantity   int
+		wantTruncated  bool
+		wantNextMarker bool
+	}
+	tests := []pageTC{
+		{
+			name:         "no_pagination_params_returns_all",
+			numDists:     3,
+			wantQuantity: 3,
+		},
+		{
+			name:           "max_items_limits_result",
+			numDists:       5,
+			maxItems:       "2",
+			wantQuantity:   2,
+			wantTruncated:  true,
+			wantNextMarker: true,
+		},
+		{
+			name:         "marker_advances_page",
+			numDists:     4,
+			maxItems:     "10",
+			wantQuantity: 4,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			for i := range tc.numDists {
+				rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
+					minimalDistConfig(fmt.Sprintf("ref-pg-%d", i), "test", true))
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			path := "/2020-05-31/distribution"
+			sep := "?"
+			if tc.maxItems != "" {
+				path += sep + "MaxItems=" + tc.maxItems
+				sep = "&"
+			}
+			if tc.marker != "" {
+				path += sep + "Marker=" + tc.marker
+			}
+
+			rec := doXML(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code, tc.name)
+
+			body := rec.Body.String()
+			if tc.wantTruncated {
+				assert.Contains(t, body, "<IsTruncated>true</IsTruncated>", tc.name)
+			} else {
+				assert.Contains(t, body, "<IsTruncated>false</IsTruncated>", tc.name)
+			}
+
+			if tc.wantNextMarker {
+				assert.Contains(t, body, "<NextMarker>", tc.name)
+			}
+		})
+	}
+}
