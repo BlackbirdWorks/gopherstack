@@ -160,8 +160,7 @@ var (
 const (
 	// IntegrationTypeAWSProxy is the AWS_PROXY integration type.
 	IntegrationTypeAWSProxy = "AWS_PROXY"
-	// integrationTypeHTTPProxy is the HTTP_PROXY integration type.
-	integrationTypeHTTPProxy = "HTTP_PROXY"
+	// integrationTypeHTTPProxy ("HTTP_PROXY") is declared in http_proxy.go.
 )
 
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
