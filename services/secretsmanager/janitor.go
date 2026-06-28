@@ -68,8 +68,15 @@ func (j *Janitor) sweepExpiredSecrets(ctx context.Context) {
 			if secret.DeletedDate == nil {
 				continue
 			}
-			// By default recovery window is 30 days. If the secret was deleted more than 30 days ago, purge it.
-			deletionTime := *secret.DeletedDate + float64(defaultRecoveryWindowDays*secondsPerDay)
+			// Use ScheduledDeletionDate if set (reflects the actual RecoveryWindowInDays supplied at
+			// delete time). Fall back to the default 30-day window for secrets deleted before this
+			// field was introduced or force-deleted without a recovery window.
+			var deletionTime float64
+			if secret.ScheduledDeletionDate != nil {
+				deletionTime = *secret.ScheduledDeletionDate
+			} else {
+				deletionTime = *secret.DeletedDate + float64(defaultRecoveryWindowDays*secondsPerDay)
+			}
 			if nowFloat >= deletionTime {
 				if secret.Tags != nil {
 					secret.Tags.Close()

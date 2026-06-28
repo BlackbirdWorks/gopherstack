@@ -752,6 +752,7 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 
 	secret.DeletedDate = &now
 	deletionDate := UnixTimeFloat(b.now().Add(time.Duration(recoveryDays) * hoursPerDay * time.Hour))
+	secret.ScheduledDeletionDate = &deletionDate
 
 	return &DeleteSecretOutput{
 		ARN:          secret.ARN,

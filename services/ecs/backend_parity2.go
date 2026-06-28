@@ -14,6 +14,7 @@ const (
 	containerHealthStatusUnknown     = "UNKNOWN"
 	containerHealthStatusHealthy     = "HEALTHY"
 	deploymentRolloutStateInProgress = "IN_PROGRESS"
+	deploymentRolloutStateCompleted  = "COMPLETED"
 )
 
 // ---- Container runtime status ----
@@ -442,4 +443,35 @@ func mostLoadedInstance(eligible []string, clusterTasks map[string]*Task) string
 // float64UnixNow returns the current Unix timestamp as float64 (seconds).
 func float64UnixNow() float64 {
 	return float64(time.Now().Unix())
+}
+
+// mergeConstraints combines task-definition constraints with run-time override
+// constraints, deduplicating by (type, expression) pair. The task-definition
+// constraints take precedence (appear first).
+func mergeConstraints(tdConstraints, inputConstraints []PlacementConstraint) []PlacementConstraint {
+	if len(inputConstraints) == 0 {
+		return tdConstraints
+	}
+
+	if len(tdConstraints) == 0 {
+		return inputConstraints
+	}
+
+	seen := make(map[string]struct{}, len(tdConstraints))
+	merged := make([]PlacementConstraint, 0, len(tdConstraints)+len(inputConstraints))
+
+	for _, c := range tdConstraints {
+		key := strings.ToLower(c.Type) + "|" + c.Expression
+		seen[key] = struct{}{}
+		merged = append(merged, c)
+	}
+
+	for _, c := range inputConstraints {
+		key := strings.ToLower(c.Type) + "|" + c.Expression
+		if _, dup := seen[key]; !dup {
+			merged = append(merged, c)
+		}
+	}
+
+	return merged
 }

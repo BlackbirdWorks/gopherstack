@@ -1304,9 +1304,10 @@ func TestBatch2_ECSExec_Basic(t *testing.T) {
 		"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
 	})
 	runResp := doECSRequest(t, h, "RunTask", map[string]any{
-		"cluster":        "exec-cluster",
-		"taskDefinition": "exec-task",
-		"count":          1,
+		"cluster":              "exec-cluster",
+		"taskDefinition":       "exec-task",
+		"count":                1,
+		"enableExecuteCommand": true,
 	})
 	require.Equal(t, http.StatusOK, runResp.Code)
 	var runOut map[string]any
@@ -1342,9 +1343,10 @@ func TestBatch2_ECSExec_NonInteractive(t *testing.T) {
 		"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
 	})
 	runResp := doECSRequest(t, h, "RunTask", map[string]any{
-		"cluster":        "exec2-cluster",
-		"taskDefinition": "exec2-task",
-		"count":          1,
+		"cluster":              "exec2-cluster",
+		"taskDefinition":       "exec2-task",
+		"count":                1,
+		"enableExecuteCommand": true,
 	})
 	var runOut map[string]any
 	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut))

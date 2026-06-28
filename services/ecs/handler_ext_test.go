@@ -995,7 +995,11 @@ func TestECS_ExecuteCommand(t *testing.T) {
 					t,
 					h,
 					"RunTask",
-					map[string]any{"taskDefinition": tdArn, "count": 1},
+					map[string]any{
+						"taskDefinition":       tdArn,
+						"count":                1,
+						"enableExecuteCommand": true,
+					},
 				)
 				require.Equal(t, http.StatusOK, rec.Code)
 

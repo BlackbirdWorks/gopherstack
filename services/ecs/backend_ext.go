@@ -650,6 +650,13 @@ func (b *InMemoryBackend) ExecuteCommand(
 		return nil, fmt.Errorf("%w: task %s is not in RUNNING state", ErrInvalidParameter, task)
 	}
 
+	if !t.EnableExecuteCommand {
+		return nil, fmt.Errorf(
+			"%w: ECS Exec is not enabled on task %s; set enableExecuteCommand=true when launching the task",
+			ErrInvalidParameter, task,
+		)
+	}
+
 	clusterObj := b.clusters[clusterName]
 	sessionID := uuid.NewString()
 
