@@ -79,6 +79,20 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountID = snap.AccountID
 	b.defaultRegion = snap.Region
 
+	// Rebuild the SQL engine from the recorded statement log so table state
+	// survives a snapshot/restore cycle. Best-effort: parameterised writes
+	// (whose bound values are not persisted) and statements trimmed from the
+	// capped log cannot be replayed.
+	if b.engine == nil {
+		b.engine = newSQLEngine()
+	}
+
+	b.engine.reset()
+
+	for region, stmts := range b.executedStatements {
+		b.engine.replay(ctx, region, stmts)
+	}
+
 	return nil
 }
 
