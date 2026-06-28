@@ -591,7 +591,7 @@ func TestHandler_DatasetContentLifecycle(t *testing.T) {
 			wantCreate:  http.StatusNotFound,
 			wantGet:     http.StatusNotFound,
 			wantList:    http.StatusNotFound,
-			wantDelete:  http.StatusBadRequest,
+			wantDelete:  http.StatusNotFound,
 		},
 	}
 

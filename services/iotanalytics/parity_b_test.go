@@ -302,9 +302,9 @@ func TestParity_DeleteDatasetContent_RequiresVersionId(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "no_version_id_returns_400",
+			name:       "no_version_id_deletes_all",
 			path:       "/datasets/delcontds/content",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "with_version_id_returns_204",

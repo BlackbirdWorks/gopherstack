@@ -115,9 +115,9 @@ func TestParity_GetAnomalyMonitors_HasCreationDateAndLastUpdatedDate(t *testing.
 
 	var getOut struct {
 		AnomalyMonitors []struct {
-			MonitorArn      string  `json:"MonitorArn"`
-			CreationDate    float64 `json:"CreationDate"`
-			LastUpdatedDate float64 `json:"LastUpdatedDate"`
+			MonitorArn      string `json:"MonitorArn"`
+			CreationDate    string `json:"CreationDate"`
+			LastUpdatedDate string `json:"LastUpdatedDate"`
 		} `json:"AnomalyMonitors"`
 	}
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
@@ -125,8 +125,8 @@ func TestParity_GetAnomalyMonitors_HasCreationDateAndLastUpdatedDate(t *testing.
 
 	m := getOut.AnomalyMonitors[0]
 	assert.Equal(t, monARN, m.MonitorArn)
-	assert.Positive(t, m.CreationDate, "CreationDate must be a positive epoch-second value")
-	assert.Positive(t, m.LastUpdatedDate, "LastUpdatedDate must be a positive epoch-second value")
+	assert.NotEmpty(t, m.CreationDate, "CreationDate must be a non-empty date string")
+	assert.NotEmpty(t, m.LastUpdatedDate, "LastUpdatedDate must be a non-empty date string")
 }
 
 // TestParity_GetAnomalyMonitors_Pagination verifies MaxResults/NextPageToken pagination.

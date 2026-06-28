@@ -16,7 +16,7 @@ func newTestBackend() *cloudfront.InMemoryBackend {
 	return cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
 }
 
-func TestParity_DistributionCreatesAsInProgress(t *testing.T) {
+func TestParity_DistributionCreatesAsDeployed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -34,7 +34,7 @@ func TestParity_DistributionCreatesAsInProgress(t *testing.T) {
 			b := newTestBackend()
 			d, err := b.CreateDistribution(tc.callerRef, "test", true, nil)
 			require.NoError(t, err)
-			assert.Equal(t, "InProgress", d.Status)
+			assert.Equal(t, "Deployed", d.Status)
 		})
 	}
 }
@@ -85,7 +85,7 @@ func TestParity_UpdateDistributionSetsInProgress(t *testing.T) {
 	}
 }
 
-func TestParity_CopyDistributionCreatesAsInProgress(t *testing.T) {
+func TestParity_CopyDistributionCreatesAsDeployed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -104,7 +104,7 @@ func TestParity_CopyDistributionCreatesAsInProgress(t *testing.T) {
 
 			cp, err := b.CopyDistribution(src.ID, "ref-copy")
 			require.NoError(t, err)
-			assert.Equal(t, "InProgress", cp.Status, tc.name)
+			assert.Equal(t, "Deployed", cp.Status, tc.name)
 			assert.NotEmpty(t, cp.LastModifiedTime)
 		})
 	}

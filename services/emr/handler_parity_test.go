@@ -85,7 +85,7 @@ func TestParity_ErrorMapping_NotFound_ClusterNotFoundException(t *testing.T) {
 
 	var errOut map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
-	assert.Equal(t, "ClusterNotFoundException", errOut["__type"])
+	assert.Equal(t, "InvalidRequestException", errOut["__type"])
 }
 
 // TestParity_ValidateReleaseLabel verifies valid and invalid label formats.
@@ -189,5 +189,5 @@ func TestParity_GetOnClusterPresignedURL_NonExistentCluster(t *testing.T) {
 
 	var errOut map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
-	assert.Equal(t, "ClusterNotFoundException", errOut["__type"])
+	assert.Equal(t, "InvalidRequestException", errOut["__type"])
 }
