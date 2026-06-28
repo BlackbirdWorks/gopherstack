@@ -8,17 +8,18 @@ import (
 )
 
 type backendSnapshot struct {
-	Topics               map[string]*Topic               `json:"topics"`
-	Subscriptions        map[string]*Subscription        `json:"subscriptions"`
-	TopicTags            map[string]*svcTags.Tags        `json:"topicTags"`
-	PlatformApplications map[string]*PlatformApplication `json:"platformApplications,omitempty"`
-	PlatformEndpoints    map[string]*PlatformEndpoint    `json:"platformEndpoints,omitempty"`
-	SMSSandbox           map[string]*SandboxPhoneNumber  `json:"smsSandbox,omitempty"`
-	OptedOutPhoneNumbers map[string]bool                 `json:"optedOutPhoneNumbers,omitempty"`
-	SMSAttributes        map[string]string               `json:"smsAttributes,omitempty"`
-	SMSSandboxEnabled    *bool                           `json:"smsSandboxEnabled,omitempty"`
-	AccountID            string                          `json:"accountID"`
-	Region               string                          `json:"region"`
+	Topics               map[string]*Topic                `json:"topics"`
+	Subscriptions        map[string]*Subscription         `json:"subscriptions"`
+	TopicTags            map[string]*svcTags.Tags         `json:"topicTags"`
+	PlatformApplications map[string]*PlatformApplication  `json:"platformApplications,omitempty"`
+	PlatformEndpoints    map[string]*PlatformEndpoint     `json:"platformEndpoints,omitempty"`
+	SMSSandbox           map[string]*SandboxPhoneNumber   `json:"smsSandbox,omitempty"`
+	OptedOutPhoneNumbers map[string]bool                  `json:"optedOutPhoneNumbers,omitempty"`
+	SMSAttributes        map[string]string                `json:"smsAttributes,omitempty"`
+	OriginationNumbers   map[string][]XMLOriginationPhone `json:"originationNumbers,omitempty"`
+	SMSSandboxEnabled    *bool                            `json:"smsSandboxEnabled,omitempty"`
+	AccountID            string                           `json:"accountID"`
+	Region               string                           `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -37,6 +38,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SMSSandbox:           b.smsSandbox,
 		OptedOutPhoneNumbers: b.optedOutPhoneNumbers,
 		SMSAttributes:        b.smsAttributes,
+		OriginationNumbers:   b.originationNumbers,
 		AccountID:            b.accountID,
 		Region:               b.region,
 		SMSSandboxEnabled:    &sandboxEnabled,
@@ -90,6 +92,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.SMSAttributes = make(map[string]string)
 	}
 
+	if snap.OriginationNumbers == nil {
+		snap.OriginationNumbers = make(map[string][]XMLOriginationPhone)
+	}
+
 	b.topics = snap.Topics
 	b.subscriptions = snap.Subscriptions
 	b.topicTags = snap.TopicTags
@@ -98,6 +104,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.smsSandbox = snap.SMSSandbox
 	b.optedOutPhoneNumbers = snap.OptedOutPhoneNumbers
 	b.smsAttributes = snap.SMSAttributes
+	b.originationNumbers = snap.OriginationNumbers
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	if snap.SMSSandboxEnabled != nil {

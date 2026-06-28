@@ -160,6 +160,8 @@ var (
 const (
 	// IntegrationTypeAWSProxy is the AWS_PROXY integration type.
 	IntegrationTypeAWSProxy = "AWS_PROXY"
+	// integrationTypeHTTPProxy is the HTTP_PROXY integration type.
+	integrationTypeHTTPProxy = "HTTP_PROXY"
 )
 
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
@@ -1023,11 +1025,11 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	}
 
 	validTypes := map[string]bool{
-		"AWS":                   true,
-		integrationTypeHTTP:     true,
-		"MOCK":                  true,
-		IntegrationTypeAWSProxy: true,
-		"HTTP_PROXY":            true,
+		"AWS":                    true,
+		integrationTypeHTTP:      true,
+		"MOCK":                   true,
+		IntegrationTypeAWSProxy:  true,
+		integrationTypeHTTPProxy: true,
 	}
 	if !validTypes[input.IntegrationType] {
 		return nil, fmt.Errorf(
@@ -1043,7 +1045,7 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	}
 
 	passthroughBehavior := input.PassthroughBehavior
-	if passthroughBehavior == "" && input.IntegrationType == "HTTP_PROXY" {
+	if passthroughBehavior == "" && input.IntegrationType == integrationTypeHTTPProxy {
 		passthroughBehavior = "WHEN_NO_MATCH"
 	}
 

@@ -2856,6 +2856,49 @@ func (b *InMemoryBackend) GetHealthCheckCount() int {
 	return len(b.healthChecks)
 }
 
+// CountResourceRecordSets returns the number of resource record sets in the
+// given hosted zone. It returns ErrHostedZoneNotFound if the zone does not exist.
+func (b *InMemoryBackend) CountResourceRecordSets(zoneID string) (int, error) {
+	b.mu.RLock("CountResourceRecordSets")
+	defer b.mu.RUnlock()
+
+	zd, ok := b.zones[zoneID]
+	if !ok {
+		return 0, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	return len(zd.records), nil
+}
+
+// CountAssociatedVPCs returns the number of VPCs associated with the given
+// hosted zone. It returns ErrHostedZoneNotFound if the zone does not exist.
+func (b *InMemoryBackend) CountAssociatedVPCs(zoneID string) (int, error) {
+	b.mu.RLock("CountAssociatedVPCs")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.zones[zoneID]; !ok {
+		return 0, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	return len(b.vpcAssociations[zoneID]), nil
+}
+
+// CountZonesByReusableDelegationSet returns the number of hosted zones that use
+// the given reusable delegation set. It returns ErrDelegationSetNotFound if the
+// delegation set does not exist.
+func (b *InMemoryBackend) CountZonesByReusableDelegationSet(id string) (int, error) {
+	b.mu.RLock("CountZonesByReusableDelegationSet")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.reusableDelegationSets[id]; !ok {
+		return 0, fmt.Errorf("%w: delegation set %s not found", ErrDelegationSetNotFound, id)
+	}
+
+	// Hosted zones are not currently associated with a reusable delegation set
+	// in this backend, so no zones reference it.
+	return 0, nil
+}
+
 func (b *InMemoryBackend) ListTagsForResource(resourceID string) map[string]string {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()

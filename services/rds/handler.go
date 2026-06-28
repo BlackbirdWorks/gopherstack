@@ -2200,7 +2200,18 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(vals url.Values) (any
 
 func (h *Handler) handleDescribeDBLogFiles(vals url.Values) (any, error) {
 	instanceID := vals.Get("DBInstanceIdentifier")
-	files, err := h.Backend.DescribeDBLogFiles(instanceID)
+	filter := LogFileFilter{FilenameContains: vals.Get("FilenameContains")}
+	if v := vals.Get("FileLastWritten"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			filter.FileLastWritten = n
+		}
+	}
+	if v := vals.Get("FileSize"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			filter.FileSize = n
+		}
+	}
+	files, err := h.Backend.DescribeDBLogFiles(instanceID, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -2218,16 +2229,23 @@ func (h *Handler) handleDescribeDBLogFiles(vals url.Values) (any, error) {
 func (h *Handler) handleDownloadDBLogFilePortion(vals url.Values) (any, error) {
 	instanceID := vals.Get("DBInstanceIdentifier")
 	logFileName := vals.Get("LogFileName")
-	data, err := h.Backend.DownloadDBLogFilePortion(instanceID, logFileName)
+	marker := vals.Get("Marker")
+	numberOfLines := 0
+	if v := vals.Get("NumberOfLines"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			numberOfLines = n
+		}
+	}
+	portion, err := h.Backend.DownloadDBLogFilePortion(instanceID, logFileName, marker, numberOfLines)
 	if err != nil {
 		return nil, err
 	}
 
 	return &downloadDBLogFilePortionResponse{
 		Xmlns:                 rdsXMLNS,
-		LogFileData:           data,
-		AdditionalDataPending: false,
-		Marker:                "",
+		LogFileData:           portion.LogFileData,
+		AdditionalDataPending: portion.AdditionalDataPending,
+		Marker:                portion.Marker,
 	}, nil
 }
 
@@ -2946,6 +2964,7 @@ type describeOrderableDBInstanceOptionsResponse struct {
 
 type xmlDBLogFile struct {
 	LogFileName string `xml:"LogFileName"`
+	LastWritten int64  `xml:"LastWritten"`
 	Size        int64  `xml:"Size"`
 }
 

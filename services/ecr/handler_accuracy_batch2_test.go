@@ -665,6 +665,21 @@ func TestBatch2_DescribeImageReplicationStatus_ReturnsStatus(t *testing.T) {
 	mustCreateRepo(t, h, "replication-repo")
 	digest := mustPutImage(t, h, "replication-repo", "v1.0", `{"schemaVersion":2,"repl":"test"}`)
 
+	// A replication status is reported per configured destination; with no
+	// replication configuration the list is (correctly) empty, so configure one.
+	repCfg := doAccuracy(t, h, "PutReplicationConfiguration", map[string]any{
+		"replicationConfiguration": map[string]any{
+			"rules": []any{
+				map[string]any{
+					"destinations": []any{
+						map[string]any{"region": "us-west-2", "registryId": "000000000000"},
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, repCfg.Code)
+
 	rec := doAccuracy(t, h, "DescribeImageReplicationStatus", map[string]any{
 		"repositoryName": "replication-repo",
 		"imageId": map[string]any{

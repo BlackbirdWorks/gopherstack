@@ -917,9 +917,12 @@ type listServicesInput struct {
 	Cluster            string `json:"cluster,omitempty"`
 	LaunchType         string `json:"launchType,omitempty"`
 	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+	NextToken          string `json:"nextToken,omitempty"`
+	MaxResults         int    `json:"maxResults,omitempty"`
 }
 
 type listServicesOutput struct {
+	NextToken   string   `json:"nextToken,omitempty"`
 	ServiceArns []string `json:"serviceArns"`
 }
 
@@ -936,7 +939,9 @@ func (h *Handler) handleListServices(
 		arns = []string{}
 	}
 
-	return &listServicesOutput{ServiceArns: arns}, nil
+	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
+
+	return &listServicesOutput{ServiceArns: arns, NextToken: nextToken}, nil
 }
 
 // ----- Task handlers -----

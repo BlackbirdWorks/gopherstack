@@ -2335,13 +2335,15 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 	require.Len(t, modTSResp.Result.TrustStores.Members, 1)
 	assert.Equal(t, "my-ts-renamed", modTSResp.Result.TrustStores.Members[0].Name)
 
-	// DeleteSharedTrustStoreAssociation (no-op) succeeds.
+	// DeleteSharedTrustStoreAssociation with no existing association returns
+	// AssociationNotFound (404), matching AWS behavior.
 	delAssocRec := doELBv2(t, h, url.Values{
 		"Action":        {"DeleteSharedTrustStoreAssociation"},
 		"Version":       {"2015-12-01"},
 		"TrustStoreArn": {tsArn},
+		"ResourceArn":   {"arn:aws:elasticloadbalancing:us-east-1:000000000000:listener/app/x/y/z"},
 	})
-	assert.Equal(t, http.StatusOK, delAssocRec.Code)
+	assert.Equal(t, http.StatusNotFound, delAssocRec.Code)
 
 	// Delete trust store.
 	delRec := doELBv2(t, h, url.Values{
@@ -3004,7 +3006,8 @@ func TestELBv2_StubOperations(t *testing.T) {
 					"ResourceArn": {lbArn},
 				}
 			},
-			wantStatus: http.StatusOK,
+			// No resource policy is set, so AWS returns ResourceNotFound (404).
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name: "get_resource_policy_missing_arn",

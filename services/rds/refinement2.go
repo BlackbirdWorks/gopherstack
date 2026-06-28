@@ -139,9 +139,20 @@ func (b *InMemoryBackend) DescribeAccountAttributes() []AccountAttribute {
 	}
 }
 
-// DescribeCertificates returns RDS CA certificates, optionally filtered by ID.
+// DescribeCertificates returns RDS CA certificates, optionally filtered by ID. The
+// certificate currently set as the account default (via ModifyCertificates) is
+// reported with CustomerOverride=true.
 func (b *InMemoryBackend) DescribeCertificates(certID string) ([]Certificate, error) {
+	b.mu.RLock("DescribeCertificates")
+	defaultID := b.defaultCACertificateID
+	b.mu.RUnlock()
+
 	certs := staticCertificates()
+	for i := range certs {
+		if certs[i].CertificateIdentifier == defaultID {
+			certs[i].CustomerOverride = true
+		}
+	}
 	if certID == "" {
 		return certs, nil
 	}
@@ -154,12 +165,23 @@ func (b *InMemoryBackend) DescribeCertificates(certID string) ([]Certificate, er
 	return nil, fmt.Errorf("%w: certificate %s not found", ErrInvalidParameter, certID)
 }
 
-// ModifyCertificates modifies the default certificate for the account.
+// ModifyCertificates sets (or, when certID is empty, resets) the default CA
+// certificate identifier for the account and returns the resulting default.
 func (b *InMemoryBackend) ModifyCertificates(certID string) (*Certificate, error) {
 	certs := staticCertificates()
+
+	// An empty identifier resets to the system default.
+	if certID == "" {
+		certID = defaultCACertificateID
+	}
+
 	for _, c := range certs {
 		if c.CertificateIdentifier == certID {
+			b.mu.Lock("ModifyCertificates")
+			b.defaultCACertificateID = certID
+			b.mu.Unlock()
 			cp := c
+			cp.CustomerOverride = true
 
 			return &cp, nil
 		}

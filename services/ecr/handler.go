@@ -1871,9 +1871,14 @@ func (h *Handler) handleDescribeImageReplicationStatus(
 		return nil, err
 	}
 
+	statuses := make([]imageReplicationStatus, 0, len(result.ReplicationStatuses))
+	for _, s := range result.ReplicationStatuses {
+		statuses = append(statuses, imageReplicationStatus(s))
+	}
+
 	return &describeImageReplicationStatusOutput{
 		ImageID:             result.ImageID,
-		ReplicationStatuses: []imageReplicationStatus{{Status: result.ReplicationStatus}},
+		ReplicationStatuses: statuses,
 		RepositoryName:      result.RepositoryName,
 	}, nil
 }

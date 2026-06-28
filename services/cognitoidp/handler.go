@@ -1797,11 +1797,12 @@ func (h *Handler) handleGetSigningCertificate(
 	_ context.Context,
 	in *getSigningCertificateInput,
 ) (*getSigningCertificateOutput, error) {
-	if _, err := h.Backend.DescribeUserPool(in.UserPoolID); err != nil {
+	cert, err := h.Backend.GetSigningCertificate(in.UserPoolID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &getSigningCertificateOutput{}, nil
+	return &getSigningCertificateOutput{Certificate: cert}, nil
 }
 
 // --- UpdateUserPool ---

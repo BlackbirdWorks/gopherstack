@@ -159,17 +159,30 @@ type describeInstanceConnectEndpointsResponse struct {
 	} `xml:"instanceConnectEndpointSet"`
 }
 
+type instanceEventWindowAssociationTargetItem struct {
+	InstanceIDSet struct {
+		Items []string `xml:"item"`
+	} `xml:"instanceIdSet"`
+	TagSet struct {
+		Items []string `xml:"item"`
+	} `xml:"tagSet"`
+	DedicatedHostIDSet struct {
+		Items []string `xml:"item"`
+	} `xml:"dedicatedHostIdSet"`
+}
+
 type instanceEventWindowItem struct {
-	InstanceEventWindowID string `xml:"instanceEventWindowId"`
-	Name                  string `xml:"name"`
-	CronExpression        string `xml:"cronExpression,omitempty"`
-	State                 string `xml:"state"`
+	AssociationTarget     *instanceEventWindowAssociationTargetItem `xml:"associationTarget,omitempty"`
+	InstanceEventWindowID string                                    `xml:"instanceEventWindowId"`
+	Name                  string                                    `xml:"name"`
+	CronExpression        string                                    `xml:"cronExpression,omitempty"`
+	State                 string                                    `xml:"state"`
 }
 
 type createInstanceEventWindowResponse struct {
+	InstanceEventWindow instanceEventWindowItem `xml:"instanceEventWindow"`
 	XMLName             xml.Name                `xml:"CreateInstanceEventWindowResponse"`
 	RequestID           string                  `xml:"requestId"`
-	InstanceEventWindow instanceEventWindowItem `xml:"instanceEventWindow"`
 }
 
 type describeInstanceEventWindowsResponse struct {
@@ -539,12 +552,22 @@ func (h *Handler) handleModifyInstanceConnectEndpoint(vals url.Values, reqID str
 }
 
 func toInstanceEventWindowItem(ew *InstanceEventWindow) instanceEventWindowItem {
-	return instanceEventWindowItem{
+	item := instanceEventWindowItem{
 		InstanceEventWindowID: ew.InstanceEventWindowID,
 		Name:                  ew.Name,
 		CronExpression:        ew.CronExpression,
 		State:                 ew.State,
 	}
+
+	if at := ew.AssociationTarget; at != nil {
+		target := &instanceEventWindowAssociationTargetItem{}
+		target.InstanceIDSet.Items = at.InstanceIDs
+		target.TagSet.Items = at.InstanceTags
+		target.DedicatedHostIDSet.Items = at.DedicatedHostIDs
+		item.AssociationTarget = target
+	}
+
+	return item
 }
 
 func (h *Handler) handleCreateInstanceEventWindow(vals url.Values, reqID string) (any, error) {

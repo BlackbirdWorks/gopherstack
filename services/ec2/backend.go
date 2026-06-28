@@ -82,26 +82,58 @@ var (
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
 type Instance struct {
-	LaunchTime            time.Time     `json:"launchTime"`
-	TerminatedAt          time.Time     `json:"terminatedAt"`
-	PublicDNSName         string        `json:"publicDNSName,omitempty"`
-	KeyName               string        `json:"keyName,omitempty"`
-	InstanceType          string        `json:"instanceType,omitempty"`
-	ImageID               string        `json:"imageID,omitempty"`
-	VPCID                 string        `json:"vpcID,omitempty"`
-	SubnetID              string        `json:"subnetID,omitempty"`
-	MetadataOptionsTokens string        `json:"metadataOptionsTokens,omitempty"`
-	ID                    string        `json:"id,omitempty"`
-	PrivateIP             string        `json:"privateIP,omitempty"`
-	PublicIPAddress       string        `json:"publicIPAddress,omitempty"`
-	MetadataOptionsState  string        `json:"metadataOptionsState,omitempty"`
-	UserData              string        `json:"userData,omitempty"`
-	SriovNetSupport       string        `json:"sriovNetSupport,omitempty"`
-	ProviderID            string        `json:"providerID,omitempty"`
-	SecurityGroups        []string      `json:"securityGroups,omitempty"`
-	State                 InstanceState `json:"state"`
-	SSHPort               int           `json:"sshPort,omitempty"`
-	EnaSupport            bool          `json:"enaSupport,omitempty"`
+	LaunchTime                time.Time                         `json:"launchTime"`
+	TerminatedAt              time.Time                         `json:"terminatedAt"`
+	Placement                 InstancePlacement                 `json:"placement,omitzero"`
+	MetadataOptionsState      string                            `json:"metadataOptionsState,omitempty"`
+	SriovNetSupport           string                            `json:"sriovNetSupport,omitempty"`
+	ImageID                   string                            `json:"imageID,omitempty"`
+	VPCID                     string                            `json:"vpcID,omitempty"`
+	SubnetID                  string                            `json:"subnetID,omitempty"`
+	MetadataOptionsTokens     string                            `json:"metadataOptionsTokens,omitempty"`
+	ID                        string                            `json:"id,omitempty"`
+	PrivateIP                 string                            `json:"privateIP,omitempty"`
+	PublicIPAddress           string                            `json:"publicIPAddress,omitempty"`
+	KeyName                   string                            `json:"keyName,omitempty"`
+	UserData                  string                            `json:"userData,omitempty"`
+	InstanceType              string                            `json:"instanceType,omitempty"`
+	ProviderID                string                            `json:"providerID,omitempty"`
+	NetworkPerformanceOptions InstanceNetworkPerformanceOptions `json:"networkPerformanceOptions,omitzero"`
+	MaintenanceOptions        InstanceMaintenanceOptions        `json:"maintenanceOptions,omitzero"`
+	PublicDNSName             string                            `json:"publicDNSName,omitempty"`
+	State                     InstanceState                     `json:"state"`
+	SecurityGroups            []string                          `json:"securityGroups,omitempty"`
+	CPUOptions                InstanceCPUOptions                `json:"cpuOptions,omitzero"`
+	SSHPort                   int                               `json:"sshPort,omitempty"`
+	EnaSupport                bool                              `json:"enaSupport,omitempty"`
+}
+
+// InstancePlacement captures the placement attributes of an instance that can
+// be set via ModifyInstancePlacement.
+type InstancePlacement struct {
+	Tenancy          string `json:"tenancy,omitempty"`
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	GroupName        string `json:"groupName,omitempty"`
+	Affinity         string `json:"affinity,omitempty"`
+}
+
+// InstanceCPUOptions captures the CPU options that can be set via
+// ModifyInstanceCpuOptions.
+type InstanceCPUOptions struct {
+	CoreCount      int `json:"coreCount,omitempty"`
+	ThreadsPerCore int `json:"threadsPerCore,omitempty"`
+}
+
+// InstanceMaintenanceOptions captures maintenance options that can be set via
+// ModifyInstanceMaintenanceOptions.
+type InstanceMaintenanceOptions struct {
+	AutoRecovery string `json:"autoRecovery,omitempty"`
+}
+
+// InstanceNetworkPerformanceOptions captures network performance options that
+// can be set via ModifyInstanceNetworkPerformanceOptions.
+type InstanceNetworkPerformanceOptions struct {
+	BandwidthWeighting string `json:"bandwidthWeighting,omitempty"`
 }
 
 // LaunchTemplate represents an EC2 launch template.

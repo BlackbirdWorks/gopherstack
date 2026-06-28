@@ -3,8 +3,11 @@ package apigateway
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -117,6 +120,7 @@ type StorageBackend interface {
 	GetAPIKeysPage(limit int, position string) ([]APIKey, string, error)
 	DeleteAPIKey(id string) error
 	UpdateAPIKey(id string, input UpdateAPIKeyInput) (*APIKey, error)
+	ImportAPIKeys(format string, body []byte) ([]string, []string, error)
 
 	// Base Path Mappings
 	CreateBasePathMapping(input CreateBasePathMappingInput) (*BasePathMapping, error)
@@ -147,6 +151,7 @@ type StorageBackend interface {
 	CreateDomainNameAccessAssociation(
 		input CreateDomainNameAccessAssociationInput,
 	) (*DomainNameAccessAssociation, error)
+	GetDomainNameAccessAssociations() ([]DomainNameAccessAssociation, error)
 
 	// Models (per-API)
 	CreateModel(input CreateModelInput) (*Model, error)
@@ -1951,6 +1956,194 @@ func (b *InMemoryBackend) UpdateAPIKey(id string, input UpdateAPIKeyInput) (*API
 	cp := *key
 
 	return &cp, nil
+}
+
+// importAPIKeySpec is a single API key entry parsed from an ImportApiKeys payload.
+type importAPIKeySpec struct {
+	name        string
+	value       string
+	description string
+	enabled     bool
+}
+
+// ImportAPIKeys parses the supplied payload (csv or json format) and creates the
+// described API keys. It returns the IDs of created keys and any warnings.
+// Parsing/format failures return a BadRequestException (ErrInvalidParameter); a
+// failure to create an individual key is reported as a warning so that valid keys
+// in the same payload are still imported (mirroring AWS failOnWarnings=false).
+func (b *InMemoryBackend) ImportAPIKeys(format string, body []byte) ([]string, []string, error) {
+	if len(body) == 0 {
+		return nil, nil, fmt.Errorf("%w: import body is empty", ErrInvalidParameter)
+	}
+
+	var (
+		specs []importAPIKeySpec
+		err   error
+	)
+
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "csv":
+		specs, err = parseAPIKeysCSV(body)
+	case "json":
+		specs, err = parseAPIKeysJSON(body)
+	default:
+		return nil, nil, fmt.Errorf("%w: unsupported format %q (expected csv or json)", ErrInvalidParameter, format)
+	}
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if len(specs) == 0 {
+		return nil, nil, fmt.Errorf("%w: no API keys found in import payload", ErrInvalidParameter)
+	}
+
+	ids := make([]string, 0, len(specs))
+	warnings := make([]string, 0)
+
+	for _, spec := range specs {
+		key, createErr := b.CreateAPIKey(CreateAPIKeyInput{
+			Name:        spec.name,
+			Value:       spec.value,
+			Description: spec.description,
+			Enabled:     spec.enabled,
+		})
+		if createErr != nil {
+			warnings = append(warnings, fmt.Sprintf("Unable to import API key %q: %s", spec.name, createErr.Error()))
+
+			continue
+		}
+
+		ids = append(ids, key.ID)
+	}
+
+	return ids, warnings, nil
+}
+
+// parseAPIKeysCSV parses the AWS API key CSV file format. The first row is a
+// header naming the columns; recognised columns are name, key, description and
+// enabled. Each subsequent row produces one API key spec.
+func parseAPIKeysCSV(body []byte) ([]importAPIKeySpec, error) {
+	r := csv.NewReader(strings.NewReader(string(body)))
+	r.FieldsPerRecord = -1
+	r.TrimLeadingSpace = true
+
+	header, err := r.Read()
+	if errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%w: empty CSV payload", ErrInvalidParameter)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid CSV payload: %s", ErrInvalidParameter, err.Error())
+	}
+
+	colIdx := make(map[string]int, len(header))
+	for i, h := range header {
+		colIdx[strings.ToLower(strings.TrimSpace(h))] = i
+	}
+
+	if _, ok := colIdx["name"]; !ok {
+		return nil, fmt.Errorf("%w: CSV header must include a 'name' column", ErrInvalidParameter)
+	}
+
+	specs := make([]importAPIKeySpec, 0)
+
+	for {
+		record, readErr := r.Read()
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+
+		if readErr != nil {
+			return nil, fmt.Errorf("%w: invalid CSV payload: %s", ErrInvalidParameter, readErr.Error())
+		}
+
+		get := func(col string) string {
+			if idx, ok := colIdx[col]; ok && idx < len(record) {
+				return strings.TrimSpace(record[idx])
+			}
+
+			return ""
+		}
+
+		spec := importAPIKeySpec{
+			name:        get("name"),
+			value:       get("key"),
+			description: get("description"),
+			enabled:     true,
+		}
+
+		if e := get("enabled"); e != "" {
+			spec.enabled = strings.EqualFold(e, "true")
+		}
+
+		if spec.name == "" {
+			continue
+		}
+
+		specs = append(specs, spec)
+	}
+
+	return specs, nil
+}
+
+// parseAPIKeysJSON parses a JSON API key import payload of the form
+// {"<value>":{"name":"...","description":"...","enabled":true}}, matching the
+// shape AWS uses for the JSON variant of the API key file format.
+func parseAPIKeysJSON(body []byte) ([]importAPIKeySpec, error) {
+	var raw map[string]struct {
+		Enabled     *bool  `json:"enabled"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON payload: %s", ErrInvalidParameter, err.Error())
+	}
+
+	specs := make([]importAPIKeySpec, 0, len(raw))
+
+	for value, entry := range raw {
+		spec := importAPIKeySpec{
+			name:        entry.Name,
+			value:       value,
+			description: entry.Description,
+			enabled:     true,
+		}
+
+		if entry.Enabled != nil {
+			spec.enabled = *entry.Enabled
+		}
+
+		if spec.name == "" {
+			spec.name = value
+		}
+
+		specs = append(specs, spec)
+	}
+
+	// Deterministic ordering so created IDs/warnings are stable across runs.
+	sort.Slice(specs, func(i, j int) bool { return specs[i].name < specs[j].name })
+
+	return specs, nil
+}
+
+// GetDomainNameAccessAssociations returns all stored domain name access
+// associations sorted by ARN for deterministic ordering.
+func (b *InMemoryBackend) GetDomainNameAccessAssociations() ([]DomainNameAccessAssociation, error) {
+	b.mu.RLock("GetDomainNameAccessAssociations")
+	defer b.mu.RUnlock()
+
+	all := make([]DomainNameAccessAssociation, 0, len(b.domainNameAccessAssociations))
+	for _, a := range b.domainNameAccessAssociations {
+		all = append(all, *a)
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].DomainNameAccessAssociationARN < all[j].DomainNameAccessAssociationARN
+	})
+
+	return all, nil
 }
 
 // GetDomainName retrieves a domain name by value.

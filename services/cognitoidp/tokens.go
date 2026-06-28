@@ -3,12 +3,17 @@ package cognitoidp
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"math/big"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -29,11 +34,17 @@ const confirmCodeLen = 6
 // tokenExpirySeconds is the lifetime in seconds for ID and access tokens.
 const tokenExpirySeconds = 3600
 
+// signingCertValidityYears is the validity window of the generated signing certificate.
+const signingCertValidityYears = 10
+
 // tokenIssuer generates and signs JWTs for a user pool.
 type tokenIssuer struct {
+	certErr    error
 	privateKey *rsa.PrivateKey
 	keyID      string
 	issuerURL  string
+	certPEM    string
+	certOnce   sync.Once
 }
 
 // newTokenIssuer generates a stable RSA-2048 keypair for this user pool.
@@ -96,6 +107,57 @@ func (t *tokenIssuer) JWKS() JWKSResponse {
 			Alg: "RS256",
 		}},
 	}
+}
+
+// SigningCertificatePEM returns a deterministic, PEM-encoded, self-signed X.509
+// certificate that wraps this issuer's RSA public key. AWS Cognito returns such a
+// certificate from GetSigningCertificate for clients that validate JWT signatures
+// against an X.509 chain rather than the JWKS endpoint.
+//
+// The certificate is generated once and cached, so repeated calls for the same pool
+// return the identical PEM. The template fields (serial number, validity window) are
+// derived deterministically from the issuer key ID so the result is stable for the
+// pool's lifetime and across snapshot restore (which preserves the RSA key + key ID).
+func (t *tokenIssuer) SigningCertificatePEM() (string, error) {
+	t.certOnce.Do(func() {
+		t.certPEM, t.certErr = t.buildSigningCertificate()
+	})
+
+	return t.certPEM, t.certErr
+}
+
+func (t *tokenIssuer) buildSigningCertificate() (string, error) {
+	// Derive a deterministic serial number from the key ID so the certificate is
+	// stable for a given pool.
+	digest := sha256.Sum256([]byte(t.keyID + "|" + t.issuerURL))
+	serial := new(big.Int).SetBytes(digest[:])
+
+	// Use a fixed validity window so the certificate bytes do not change between calls.
+	notBefore := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	notAfter := notBefore.AddDate(signingCertValidityYears, 0, 0)
+
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   t.issuerURL,
+			Organization: []string{"gopherstack-cognito-idp"},
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &t.privateKey.PublicKey, t.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("creating signing certificate: %w", err)
+	}
+
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+
+	return string(pemBytes), nil
 }
 
 // TokenResult contains the three tokens returned on successful authentication.

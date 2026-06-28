@@ -43,6 +43,7 @@ const (
 	keyResponseType         = "responseType"
 	keyHTTPMethod           = "httpMethod"
 	keyStatusCode           = "statusCode"
+	keySdkType              = "sdkType"
 	// keyItem is the response collection key used by AWS API Gateway list
 	// operations. The AWS Go SDK v2 deserializer expects the singular "item"
 	// for every list response (it is the wire name in the smithy model).
@@ -174,27 +175,30 @@ const (
 
 // path segment constants used in REST route matching.
 const (
-	apiGWUnknownOp             = "Unknown"
-	apiGWSegResources          = "resources"
-	apiGWSegDeployment         = "deployments"
-	apiGWSegStages             = "stages"
-	apiGWSegMethods            = "methods"
-	apiGWSegInteg              = "integration"
-	apiGWSegResponses          = "responses"
-	apiGWSegAuthorizers        = "authorizers"
-	apiGWSegValidators         = "requestvalidators"
-	apiGWSegAPIKeys            = "apikeys"
-	apiGWSegDomainNames        = "domainnames"
-	apiGWSegBasePathMappings   = "basepathmappings"
-	apiGWSegAccessAssociations = "accessassociations"
-	apiGWSegDocumentation      = "documentation"
-	apiGWSegDocParts           = "parts"
-	apiGWSegDocVersions        = "versions"
-	apiGWSegModels             = "models"
-	apiGWSegUsagePlans         = "usageplans"
-	apiGWSegUsagePlanKeys      = "keys"
-	apiGWSegGatewayResponses   = "gatewayresponses"
-	apiGWSegClientCerts        = "clientcertificates"
+	apiGWUnknownOp                       = "Unknown"
+	apiGWSegResources                    = "resources"
+	apiGWSegDeployment                   = "deployments"
+	apiGWSegStages                       = "stages"
+	apiGWSegMethods                      = "methods"
+	apiGWSegInteg                        = "integration"
+	apiGWSegResponses                    = "responses"
+	apiGWSegAuthorizers                  = "authorizers"
+	apiGWSegValidators                   = "requestvalidators"
+	apiGWSegAPIKeys                      = "apikeys"
+	apiGWSegDomainNames                  = "domainnames"
+	apiGWSegBasePathMappings             = "basepathmappings"
+	apiGWSegAccessAssociations           = "accessassociations"
+	apiGWSegDocumentation                = "documentation"
+	apiGWSegDocParts                     = "parts"
+	apiGWSegDocVersions                  = "versions"
+	apiGWSegModels                       = "models"
+	apiGWSegUsagePlans                   = "usageplans"
+	apiGWSegUsagePlanKeys                = "keys"
+	apiGWSegGatewayResponses             = "gatewayresponses"
+	apiGWSegClientCerts                  = "clientcertificates"
+	apiGWSegSdkTypes                     = "sdktypes"
+	apiGWSegSdks                         = "sdks"
+	apiGWSegDomainNameAccessAssociations = "domainnameaccessassociations"
 
 	// apiGWMinTagPathSegs is the minimum number of path segments for a /tags/{arn} path.
 	apiGWMinTagPathSegs = 2
@@ -815,7 +819,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if strings.HasPrefix(path, "/restapis") ||
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
+			strings.HasPrefix(path, "/domainnameaccessassociations") ||
 			strings.HasPrefix(path, "/usageplans") ||
+			strings.HasPrefix(path, "/sdktypes") ||
 			(path == "/account" || strings.HasPrefix(path, "/account/")) ||
 			strings.HasPrefix(path, "/"+apiGWSegClientCerts) {
 			return true
@@ -870,6 +876,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // Handler returns the Echo handler function for API Gateway requests.
+//
+//nolint:cyclop // top-level request dispatcher; complexity is inherent to action routing
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
@@ -895,7 +903,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		isRESTPath := strings.HasPrefix(path, "/restapis") ||
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
+			strings.HasPrefix(path, "/domainnameaccessassociations") ||
 			strings.HasPrefix(path, "/usageplans") ||
+			strings.HasPrefix(path, "/sdktypes") ||
 			(path == "/account" || strings.HasPrefix(path, "/account/")) ||
 			strings.HasPrefix(path, "/"+apiGWSegClientCerts) ||
 			isAPIGWTagPath
@@ -1045,6 +1055,19 @@ func detectImportRESTAPI(
 		}
 
 		return opImportRestAPI, encoded, true
+	case action == opCreateAPIKey && method == http.MethodPost && query.Get("mode") == "import":
+		// ImportApiKeys (POST /apikeys?mode=import&format=csv) carries the raw API
+		// key file (csv or json) as the verbatim HTTP body.
+		in := importAPIKeysInput{
+			Body:   body,
+			Format: query.Get("format"),
+		}
+		encoded, err := json.Marshal(in)
+		if err != nil {
+			return "", nil, false
+		}
+
+		return opImportAPIKeys, encoded, true
 	case action == opPutRestAPI && method == http.MethodPut && pathParams[keyRestAPIID] != "":
 		in := PutRestAPIInput{
 			RestAPIID:      pathParams[keyRestAPIID],
@@ -1156,6 +1179,29 @@ func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 		return parseAPIGWTagsPath(method, segs, n)
 	case apiGWSegClientCerts:
 		return parseAPIGWClientCertificatesPath(method, segs, n)
+	case apiGWSegSdkTypes:
+		return parseAPIGWSdkTypesPath(method, segs, n)
+	case apiGWSegDomainNameAccessAssociations:
+		// GET /domainnameaccessassociations → GetDomainNameAccessAssociations
+		if n == pathDepth1 && method == http.MethodGet {
+			return opGetDomainNameAccessAssociations, nil, true
+		}
+
+		return apiGWUnknownOp, nil, false
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWSdkTypesPath handles /sdktypes and /sdktypes/{id} paths.
+func parseAPIGWSdkTypesPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	switch {
+	// GET /sdktypes → GetSdkTypes
+	case n == pathDepth1 && method == http.MethodGet:
+		return opGetSdkTypes, nil, true
+	// GET /sdktypes/{id} → GetSdkType
+	case n == pathDepth2 && method == http.MethodGet:
+		return opGetSdkType, map[string]string{"id": segs[1]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1695,6 +1741,13 @@ func parseAPIGWRestAPIsStageDeep(method string, segs []string, n int, apiID stri
 
 	if n == 6 && segs[4] == "cache" && segs[5] == "authorizers" && method == http.MethodDelete {
 		return opFlushStageAuthorizersCache, stageParams, true
+	}
+
+	// GET /restapis/{id}/stages/{stage}/sdks/{sdkType} → GetSdk
+	if n == 6 && segs[4] == apiGWSegSdks && method == http.MethodGet {
+		sdkParams := map[string]string{keyRestAPIID: apiID, keyStageName: segs[3], keySdkType: segs[5]}
+
+		return opGetSdk, sdkParams, true
 	}
 
 	return apiGWUnknownOp, nil, false

@@ -154,6 +154,13 @@ const (
 	// defaultListOptedOutResults is the default page size for ListPhoneNumbersOptedOut.
 	defaultListOptedOutResults = 100
 
+	// maxListOriginationNumbersResults is the maximum MaxResults value for ListOriginationNumbers.
+	// AWS SNS caps MaxResults for this operation at 30.
+	maxListOriginationNumbersResults = 30
+
+	// defaultListOriginationNumbersResults is the default page size for ListOriginationNumbers.
+	defaultListOriginationNumbersResults = 30
+
 	// maxPublishBatchEntries is the maximum number of entries per PublishBatch request.
 	// This matches the AWS SNS service limit.
 	maxPublishBatchEntries = 10
@@ -329,7 +336,7 @@ type StorageBackend interface {
 	GetDataProtectionPolicy(resourceArn string) (string, error)
 	PutDataProtectionPolicy(resourceArn, policy string) error
 	// Origination number operations.
-	ListOriginationNumbers(nextToken string) ([]XMLOriginationPhone, string, error)
+	ListOriginationNumbers(nextToken string, maxResults int) ([]XMLOriginationPhone, string, error)
 }
 
 // SMSDelivery records a single SMS message sent via PublishSMS.
@@ -502,20 +509,25 @@ type SQSQueueChecker interface {
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
-	emitter               events.EventEmitter[*events.SNSPublishedEvent]
-	lambdaBackend         LambdaInvoker
-	firehoseBackend       FirehosePutter
-	sqsSender             SQSSender
-	sqsChecker            SQSQueueChecker
-	svcCtx                context.Context
-	topicSubscriptions    map[string]map[string]*Subscription
-	httpClient            *http.Client
-	topics                map[string]*Topic
-	topicTags             map[string]*svcTags.Tags
-	platformApplications  map[string]*PlatformApplication
-	smsSandbox            map[string]*SandboxPhoneNumber
-	optedOutPhoneNumbers  map[string]bool
-	smsAttributes         map[string]string
+	emitter              events.EventEmitter[*events.SNSPublishedEvent]
+	lambdaBackend        LambdaInvoker
+	firehoseBackend      FirehosePutter
+	sqsSender            SQSSender
+	sqsChecker           SQSQueueChecker
+	svcCtx               context.Context
+	topicSubscriptions   map[string]map[string]*Subscription
+	httpClient           *http.Client
+	topics               map[string]*Topic
+	topicTags            map[string]*svcTags.Tags
+	platformApplications map[string]*PlatformApplication
+	smsSandbox           map[string]*SandboxPhoneNumber
+	optedOutPhoneNumbers map[string]bool
+	smsAttributes        map[string]string
+	// originationNumbers holds origination phone numbers keyed by region. AWS SNS exposes no
+	// public "create origination number" API (numbers are provisioned via Pinpoint / AWS
+	// End User Messaging), so a fresh account legitimately has none. This map reflects real
+	// state when populated via SeedOriginationNumber (used by tests / internal seeding).
+	originationNumbers    map[string][]XMLOriginationPhone
 	mu                    *lockmetrics.RWMutex
 	subscriptions         map[string]*Subscription
 	platformEndpoints     map[string]*PlatformEndpoint
@@ -566,6 +578,7 @@ func NewInMemoryBackendWithContext(
 		smsSandbox:           make(map[string]*SandboxPhoneNumber),
 		optedOutPhoneNumbers: make(map[string]bool),
 		smsAttributes:        make(map[string]string),
+		originationNumbers:   make(map[string][]XMLOriginationPhone),
 		accountID:            accountID,
 		region:               region,
 		smsSandboxEnabled:    true,
@@ -4015,10 +4028,62 @@ func (b *InMemoryBackend) PutDataProtectionPolicy(resourceArn, policy string) er
 	return nil
 }
 
-// ListOriginationNumbers returns a paginated list of origination phone numbers.
-// The mock backend maintains no origination numbers by default; callers receive an empty list.
-func (b *InMemoryBackend) ListOriginationNumbers(_ string) ([]XMLOriginationPhone, string, error) {
-	return []XMLOriginationPhone{}, "", nil
+// ListOriginationNumbers returns a paginated list of origination phone numbers for the
+// backend's region, a next-page token (empty when the last page is reached), and any error.
+// maxResults controls the page size; 0 means the default (30). Values exceeding 30 are clamped,
+// matching AWS SNS limits for this operation.
+//
+// AWS SNS exposes no public "create origination number" API: origination numbers are
+// provisioned by buying phone numbers through Pinpoint / AWS End User Messaging. A fresh
+// account therefore legitimately has none, so an empty list is AWS-accurate. State is
+// populated internally via [InMemoryBackend.SeedOriginationNumber] (used by tests).
+func (b *InMemoryBackend) ListOriginationNumbers(
+	nextToken string,
+	maxResults int,
+) ([]XMLOriginationPhone, string, error) {
+	b.mu.RLock("ListOriginationNumbers")
+	defer b.mu.RUnlock()
+
+	all := b.sortedOriginationNumbers()
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrInvalidParameter
+	}
+
+	size := resolvePageSize(maxResults, defaultListOriginationNumbersResults, maxListOriginationNumbersResults)
+	nums, next := paginate(all, offset, size)
+
+	return nums, next, nil
+}
+
+// sortedOriginationNumbers returns the origination numbers for the backend's region sorted
+// by phone number. Must be called with at least RLock held.
+func (b *InMemoryBackend) sortedOriginationNumbers() []XMLOriginationPhone {
+	src := b.originationNumbers[b.region]
+	nums := make([]XMLOriginationPhone, len(src))
+	copy(nums, src)
+
+	sort.Slice(nums, func(i, j int) bool {
+		return nums[i].PhoneNumber < nums[j].PhoneNumber
+	})
+
+	return nums
+}
+
+// SeedOriginationNumber populates an origination phone number for the backend's region.
+// It exists because AWS SNS provides no public API to create origination numbers (they are
+// provisioned via Pinpoint / AWS End User Messaging); this internal helper lets tests and
+// fixtures populate state that [InMemoryBackend.ListOriginationNumbers] then returns honestly.
+func (b *InMemoryBackend) SeedOriginationNumber(num XMLOriginationPhone) {
+	b.mu.Lock("SeedOriginationNumber")
+	defer b.mu.Unlock()
+
+	if b.originationNumbers == nil {
+		b.originationNumbers = make(map[string][]XMLOriginationPhone)
+	}
+
+	b.originationNumbers[b.region] = append(b.originationNumbers[b.region], num)
 }
 
 // WaitDeliveries stops accepting new HTTP/HTTPS delivery goroutines and blocks

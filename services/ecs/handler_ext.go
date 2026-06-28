@@ -80,10 +80,15 @@ func (h *Handler) handleDescribeContainerInstances(
 }
 
 type listContainerInstancesInput struct {
-	Cluster string `json:"cluster,omitempty"`
+	Cluster    string `json:"cluster,omitempty"`
+	Filter     string `json:"filter,omitempty"`
+	Status     string `json:"status,omitempty"`
+	NextToken  string `json:"nextToken,omitempty"`
+	MaxResults int    `json:"maxResults,omitempty"`
 }
 
 type listContainerInstancesOutput struct {
+	NextToken             string   `json:"nextToken,omitempty"`
 	ContainerInstanceArns []string `json:"containerInstanceArns"`
 }
 
@@ -91,7 +96,7 @@ func (h *Handler) handleListContainerInstances(
 	_ context.Context,
 	in *listContainerInstancesInput,
 ) (*listContainerInstancesOutput, error) {
-	arns, err := h.Backend.ListContainerInstances(in.Cluster)
+	arns, err := h.Backend.ListContainerInstances(in.Cluster, in.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +105,9 @@ func (h *Handler) handleListContainerInstances(
 		arns = []string{}
 	}
 
-	return &listContainerInstancesOutput{ContainerInstanceArns: arns}, nil
+	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
+
+	return &listContainerInstancesOutput{ContainerInstanceArns: arns, NextToken: nextToken}, nil
 }
 
 type updateContainerInstancesStateInput struct {

@@ -20,7 +20,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// AssociateClientVpnTargetNetwork — moved to handler_batch4.go
 	ops["AssociateEnclaveCertificateIamRole"] = h.handleStubAssociateEnclaveCertificateIamRole
 	// AssociateIamInstanceProfile — moved to handler_ec2core.go
-	ops["AssociateInstanceEventWindow"] = h.handleStubAssociateInstanceEventWindow
+	// AssociateInstanceEventWindow — moved to handler_audit.go (registerAuditOps).
 	ops["AssociateIpamByoasn"] = h.handleStubAssociateIpamByoasn
 	ops["AssociateIpamResourceDiscovery"] = h.handleStubAssociateIpamResourceDiscovery
 	ops["AssociateRouteServer"] = h.handleStubAssociateRouteServer
@@ -389,11 +389,11 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyFpgaImageAttribute"] = h.handleStubModifyFpgaImageAttribute
 	ops["ModifyHosts"] = h.handleStubModifyHosts
 	ops["ModifyInstanceCapacityReservationAttributes"] = h.handleStubModifyInstanceCapacityReservationAttributes
-	ops["ModifyInstanceCpuOptions"] = h.handleStubModifyInstanceCPUOptions
+	// ModifyInstanceCpuOptions — moved to handler_audit.go (registerAuditOps).
 	ops["ModifyInstanceEventStartTime"] = h.handleStubModifyInstanceEventStartTime
-	ops["ModifyInstanceMaintenanceOptions"] = h.handleStubModifyInstanceMaintenanceOptions
-	ops["ModifyInstanceNetworkPerformanceOptions"] = h.handleStubModifyInstanceNetworkPerformanceOptions
-	ops["ModifyInstancePlacement"] = h.handleStubModifyInstancePlacement
+	// ModifyInstanceMaintenanceOptions — moved to handler_audit.go (registerAuditOps).
+	// ModifyInstanceNetworkPerformanceOptions — moved to handler_audit.go (registerAuditOps).
+	// ModifyInstancePlacement — moved to handler_audit.go (registerAuditOps).
 	ops["ModifyIpam"] = h.handleStubModifyIpam
 	ops["ModifyIpamPolicyAllocationRules"] = h.handleStubModifyIpamPolicyAllocationRules
 	ops["ModifyIpamPool"] = h.handleStubModifyIpamPool
@@ -971,14 +971,6 @@ func (h *Handler) handleStubAssociateEnclaveCertificateIamRole(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateEnclaveCertificateIamRoleResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubAssociateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateInstanceEventWindowResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3862,47 +3854,9 @@ func (h *Handler) handleStubModifyInstanceCapacityReservationAttributes(
 	}, nil
 }
 
-func (h *Handler) handleStubModifyInstanceCPUOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceCpuOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyInstanceEventStartTime(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyInstanceEventStartTimeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstanceMaintenanceOptions(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceMaintenanceOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstanceNetworkPerformanceOptions(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceNetworkPerformanceOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstancePlacement(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstancePlacementResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

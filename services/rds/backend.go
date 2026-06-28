@@ -8,6 +8,8 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -133,14 +135,22 @@ const (
 	maxEvents                          = 512
 	percentProgressComplete            = 100
 
+	// seededLogFileCount is the number of synthetic DB log files generated per instance.
+	seededLogFileCount = 3
+	// seededLogBasePID is the base process ID used in synthetic DB log lines.
+	seededLogBasePID = 1000
+
 	engineMySQL            = "mysql"
 	engineMariaDB          = "mariadb"
 	enginePostgres         = "postgres"
 	engineAuroraMySQL      = "aurora-mysql"
 	engineAuroraPostgresql = "aurora-postgresql"
 
-	currencyUSD              = "USD"
-	reservedValidFrom        = "2021-05-25T00:00:00Z"
+	currencyUSD       = "USD"
+	reservedValidFrom = "2021-05-25T00:00:00Z"
+	// defaultCACertificateID is the CA certificate identifier RDS reports as the
+	// account default until ModifyCertificates overrides it.
+	defaultCACertificateID   = "rds-ca-rsa2048-g1"
 	reservedAllUpfront       = "All Upfront"
 	clusterEndpointReadWrite = "READ_WRITE"
 	opDescribeGlobalClusters = "DescribeGlobalClusters"
@@ -513,7 +523,10 @@ type OrderableDBInstanceOption struct {
 // DBLogFile represents a log file for a DB instance.
 type DBLogFile struct {
 	LogFileName string `json:"logFileName"`
-	Size        int64  `json:"size"`
+	// LastWritten is the epoch-millisecond timestamp at which the log file was
+	// last written, matching the RDS DescribeDBLogFilesDetails.LastWritten field.
+	LastWritten int64 `json:"lastWritten"`
+	Size        int64 `json:"size"`
 }
 
 // EventSubscription represents an RDS event notification subscription.
@@ -751,8 +764,11 @@ type InMemoryBackend struct {
 	snapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase
 	clusterReadyAt            map[string]time.Time
 	piMetrics                 map[string]map[string][]PIDataPoint
+	instanceLogFiles          map[string][]DBLogFile
+	instanceLogContent        map[string]map[string]string
 	accountID                 string
 	region                    string
+	defaultCACertificateID    string
 	events                    []Event
 	reconcilerRunning         bool
 }
@@ -797,8 +813,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		snapshotTenantDatabases:   make(map[string][]*DBSnapshotTenantDatabase),
 		clusterReadyAt:            make(map[string]time.Time),
 		piMetrics:                 make(map[string]map[string][]PIDataPoint),
+		instanceLogFiles:          make(map[string][]DBLogFile),
+		instanceLogContent:        make(map[string]map[string]string),
 		accountID:                 accountID,
 		region:                    region,
+		defaultCACertificateID:    defaultCACertificateID,
 		mu:                        lockmetrics.New("rds"),
 	}
 
@@ -2770,26 +2789,158 @@ func (b *InMemoryBackend) DescribeOrderableDBInstanceOptions(engine, engineVersi
 	return result
 }
 
-// DescribeDBLogFiles returns the log files for the given instance.
-func (b *InMemoryBackend) DescribeDBLogFiles(instanceID string) ([]DBLogFile, error) {
-	b.mu.RLock("DescribeDBLogFiles")
-	defer b.mu.RUnlock()
-	if _, exists := b.instances[instanceID]; !exists {
-		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
-	}
-
-	return []DBLogFile{}, nil
+// LogFileFilter narrows the results returned by DescribeDBLogFiles, matching the
+// RDS DescribeDBLogFiles request filters.
+type LogFileFilter struct {
+	// FilenameContains, when non-empty, keeps only log files whose name contains it.
+	FilenameContains string
+	// FileLastWritten, when > 0, keeps only files written at or after this epoch-ms time.
+	FileLastWritten int64
+	// FileSize, when > 0, keeps only files at least this many bytes.
+	FileSize int64
 }
 
-// DownloadDBLogFilePortion returns log file content for the given instance.
-func (b *InMemoryBackend) DownloadDBLogFilePortion(instanceID, _ string) (string, error) {
-	b.mu.RLock("DownloadDBLogFilePortion")
-	defer b.mu.RUnlock()
-	if _, exists := b.instances[instanceID]; !exists {
-		return "", fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
+// LogFilePortion is a chunk of a DB log file returned by DownloadDBLogFilePortion.
+type LogFilePortion struct {
+	LogFileData           string
+	Marker                string
+	AdditionalDataPending bool
+}
+
+// DescribeDBLogFiles returns the log files for the given instance, filtered by the
+// supplied LogFileFilter. The instance is seeded with a small set of realistic log
+// files on first access.
+func (b *InMemoryBackend) DescribeDBLogFiles(instanceID string, filter LogFileFilter) ([]DBLogFile, error) {
+	b.mu.Lock("DescribeDBLogFiles")
+	defer b.mu.Unlock()
+	inst, exists := b.instances[instanceID]
+	if !exists {
+		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
+	}
+	b.ensureInstanceLogsLocked(instanceID, inst.Engine)
+
+	result := make([]DBLogFile, 0, len(b.instanceLogFiles[instanceID]))
+	for _, f := range b.instanceLogFiles[instanceID] {
+		if filter.FilenameContains != "" && !strings.Contains(f.LogFileName, filter.FilenameContains) {
+			continue
+		}
+		if filter.FileLastWritten > 0 && f.LastWritten < filter.FileLastWritten {
+			continue
+		}
+		if filter.FileSize > 0 && f.Size < filter.FileSize {
+			continue
+		}
+		result = append(result, f)
 	}
 
-	return "", nil
+	return result, nil
+}
+
+// DownloadDBLogFilePortion returns a portion of the named log file for the given
+// instance, honoring the supplied marker and line count. Marker is "0" or "" for
+// the start of the file; the returned marker is the next line offset to read from.
+func (b *InMemoryBackend) DownloadDBLogFilePortion(
+	instanceID, logFileName, marker string,
+	numberOfLines int,
+) (LogFilePortion, error) {
+	b.mu.Lock("DownloadDBLogFilePortion")
+	defer b.mu.Unlock()
+	inst, exists := b.instances[instanceID]
+	if !exists {
+		return LogFilePortion{}, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
+	}
+	b.ensureInstanceLogsLocked(instanceID, inst.Engine)
+
+	content, ok := b.instanceLogContent[instanceID][logFileName]
+	if !ok {
+		return LogFilePortion{}, fmt.Errorf(
+			"%w: DBLogFileNotFoundFault: log file %s not found for instance %s",
+			ErrInvalidParameter,
+			logFileName,
+			instanceID,
+		)
+	}
+
+	lines := strings.Split(content, "\n")
+	// Drop a trailing empty element produced by a final newline.
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	start := 0
+	if marker != "" && marker != "0" {
+		if n, err := strconv.Atoi(marker); err == nil && n >= 0 {
+			start = n
+		}
+	}
+	if start > len(lines) {
+		start = len(lines)
+	}
+
+	end := len(lines)
+	if numberOfLines > 0 && start+numberOfLines < end {
+		end = start + numberOfLines
+	}
+
+	portion := strings.Join(lines[start:end], "\n")
+	if end > start {
+		portion += "\n"
+	}
+
+	return LogFilePortion{
+		LogFileData:           portion,
+		Marker:                strconv.Itoa(end),
+		AdditionalDataPending: end < len(lines),
+	}, nil
+}
+
+// ensureInstanceLogsLocked seeds a deterministic set of log files and their content
+// for an instance the first time its logs are requested. Caller must hold b.mu.
+func (b *InMemoryBackend) ensureInstanceLogsLocked(instanceID, engine string) {
+	if _, ok := b.instanceLogFiles[instanceID]; ok {
+		return
+	}
+
+	now := time.Now().UTC()
+	prefix := "error/postgresql.log"
+	switch {
+	case strings.Contains(strings.ToLower(engine), "mysql"), strings.Contains(strings.ToLower(engine), "maria"):
+		prefix = "error/mysql-error.log"
+	case strings.Contains(strings.ToLower(engine), "oracle"):
+		prefix = "trace/alert_ORCL.log"
+	case strings.Contains(strings.ToLower(engine), "sqlserver"):
+		prefix = "log/ERROR"
+	}
+
+	files := make([]DBLogFile, 0, seededLogFileCount)
+	content := make(map[string]string)
+	for i := range seededLogFileCount {
+		ts := now.Add(time.Duration(-i) * time.Hour)
+		name := prefix
+		if i > 0 {
+			name = fmt.Sprintf("%s.%d", prefix, i)
+		}
+		readyPID := seededLogBasePID + i
+		checkpointStartPID := readyPID + 1
+		checkpointDonePID := checkpointStartPID + 1
+		body := fmt.Sprintf(
+			"%s UTC [%d]: LOG:  database system is ready to accept connections on %s\n"+
+				"%s UTC [%d]: LOG:  checkpoint starting: time\n"+
+				"%s UTC [%d]: LOG:  checkpoint complete\n",
+			ts.Format("2006-01-02 15:04:05"), readyPID, instanceID,
+			ts.Add(time.Minute).Format("2006-01-02 15:04:05"), checkpointStartPID,
+			ts.Add(time.Minute+time.Minute).Format("2006-01-02 15:04:05"), checkpointDonePID,
+		)
+		files = append(files, DBLogFile{
+			LogFileName: name,
+			LastWritten: ts.UnixMilli(),
+			Size:        int64(len(body)),
+		})
+		content[name] = body
+	}
+
+	b.instanceLogFiles[instanceID] = files
+	b.instanceLogContent[instanceID] = content
 }
 
 // StartDBCluster starts a stopped DB cluster.

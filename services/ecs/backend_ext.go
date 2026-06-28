@@ -290,7 +290,7 @@ func (b *InMemoryBackend) unindexTaskFromInstance(clusterName, instanceArn, task
 }
 
 // ListContainerInstances returns container instance ARNs for a cluster.
-func (b *InMemoryBackend) ListContainerInstances(cluster string) ([]string, error) {
+func (b *InMemoryBackend) ListContainerInstances(cluster, status string) ([]string, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("ListContainerInstances")
@@ -302,7 +302,11 @@ func (b *InMemoryBackend) ListContainerInstances(cluster string) ([]string, erro
 	}
 
 	arns := make([]string, 0, len(instances))
-	for arn := range instances {
+	for arn, ci := range instances {
+		if status != "" && ci.Status != status {
+			continue
+		}
+
 		arns = append(arns, arn)
 	}
 

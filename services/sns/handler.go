@@ -1548,8 +1548,9 @@ func (h *Handler) handleGetSMSSandboxAccountStatus(c *echo.Context) error {
 
 func (h *Handler) handleListOriginationNumbers(c *echo.Context) error {
 	nextToken := c.Request().FormValue("NextToken")
+	maxResults := parseIntParam(c, "MaxResults", 0)
 
-	nums, token, err := h.Backend.ListOriginationNumbers(nextToken)
+	nums, token, err := h.Backend.ListOriginationNumbers(nextToken, maxResults)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

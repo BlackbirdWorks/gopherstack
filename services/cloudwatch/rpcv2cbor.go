@@ -1,6 +1,7 @@
 package cloudwatch
 
 import (
+	"encoding/base64"
 	"errors"
 	"io"
 	"math"
@@ -232,7 +233,15 @@ func (h *Handler) dispatchInsightMetricFilterCBOR(
 	case opDeleteMetricFilter:
 		return h.cborDeleteMetricFilter(input, c)
 	case opTestMetricFilter:
-		return h.cborTestMetricFilter(c)
+		return h.cborTestMetricFilter(input, c)
+	case opGetMetricWidgetImage:
+		return h.cborGetMetricWidgetImage(input, c)
+	case opListAlarmMuteRules:
+		return h.cborListAlarmMuteRules(input, c)
+	case opListManagedInsightRules:
+		return h.cborListManagedInsightRules(input, c)
+	case opPutManagedInsightRules:
+		return h.cborPutManagedInsightRules(input, c)
 	default:
 		return h.cborError(c, http.StatusBadRequest, "InvalidAction", "unknown operation: "+op)
 	}
@@ -1783,8 +1792,57 @@ func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) erro
 		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
+	maxContributors := int(cborInt32(input, "MaxContributorCount"))
+	if maxContributors <= 0 {
+		maxContributors = 10
+	}
+	orderBy := cborStr(input, "OrderBy")
+
+	startTime := time.Now().UTC().Add(-time.Hour)
+	if _, ok := input["StartTime"]; ok {
+		startTime = cborTime(input, "StartTime")
+	}
+	endTime := time.Now().UTC()
+	if _, ok := input["EndTime"]; ok {
+		endTime = cborTime(input, "EndTime")
+	}
+
+	var contributors []AlarmContributor
+	if bk, ok := h.Backend.(*InMemoryBackend); ok {
+		bk.mu.RLock("GetInsightRuleReport")
+		var innerErr error
+		contributors, innerErr = bk.GetInsightRuleContributors(
+			ruleName,
+			startTime,
+			endTime,
+			maxContributors,
+			orderBy,
+		)
+		bk.mu.RUnlock()
+		if innerErr != nil {
+			return h.cborError(
+				c,
+				http.StatusBadRequest,
+				"ResourceNotFoundException",
+				innerErr.Error(),
+			)
+		}
+	}
+
+	contribList := make(cbor.List, 0, len(contributors))
+	for _, contrib := range contributors {
+		keys := make(cbor.List, 0, len(contrib.Keys))
+		for _, k := range contrib.Keys {
+			keys = append(keys, cbor.String(k))
+		}
+		contribList = append(contribList, cbor.Map{
+			"Keys":                      keys,
+			"ApproximateAggregateValue": cbor.Float64(contrib.Sum),
+		})
+	}
+
 	return writeCBOR(c, cbor.Map{
-		"Contributors": cbor.List{},
+		"Contributors": contribList,
 	})
 }
 
@@ -1913,7 +1971,133 @@ func (h *Handler) cborDeleteMetricFilter(input cbor.Map, c *echo.Context) error 
 }
 
 // cborTestMetricFilter returns an empty matches response (log events are not stored by this emulator).
-func (h *Handler) cborTestMetricFilter(_ *echo.Context) error { return nil }
+func (h *Handler) cborTestMetricFilter(_ cbor.Map, c *echo.Context) error {
+	return writeCBOR(c, cbor.Map{
+		"Matches": cbor.List{},
+	})
+}
+
+// cborGetMetricWidgetImage returns a minimal placeholder PNG, mirroring the form handler.
+func (h *Handler) cborGetMetricWidgetImage(_ cbor.Map, c *echo.Context) error {
+	// The CBOR MetricWidgetImage member is a blob, so emit the raw PNG bytes
+	// rather than the base64 text used by the XML/form response.
+	img, err := base64.StdEncoding.DecodeString(minimalPNG1x1)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{
+		"MetricWidgetImage": cbor.Slice(img),
+	})
+}
+
+func (h *Handler) cborListAlarmMuteRules(input cbor.Map, c *echo.Context) error {
+	nextToken := cborStr(input, "NextToken")
+	maxResults := int(cborInt32(input, "MaxRecords"))
+	if maxResults == 0 {
+		maxResults = int(cborInt32(input, "MaxResults"))
+	}
+
+	p, err := h.Backend.ListAlarmMuteRules(nextToken, maxResults)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	summaries := make(cbor.List, 0, len(p.Data))
+	for _, rule := range p.Data {
+		entry := cbor.Map{
+			"AlarmMuteRuleArn": cbor.String(rule.MuteName),
+			"Status":           cbor.String("active"),
+		}
+		if !rule.CreationTime.IsZero() {
+			entry["LastUpdatedTimestamp"] = cborFromTime(rule.CreationTime)
+		}
+		summaries = append(summaries, entry)
+	}
+
+	out := cbor.Map{
+		"AlarmMuteRuleSummaries": summaries,
+	}
+	if p.Next != "" {
+		out["NextToken"] = cbor.String(p.Next)
+	}
+
+	return writeCBOR(c, out)
+}
+
+func (h *Handler) cborListManagedInsightRules(input cbor.Map, c *echo.Context) error {
+	resourceARN := cborStr(input, "ResourceARN")
+	nextToken := cborStr(input, "NextToken")
+	maxResults := int(cborInt32(input, "MaxResults"))
+
+	p, err := h.Backend.ListManagedInsightRules(resourceARN, nextToken, maxResults)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	rules := make(cbor.List, 0, len(p.Data))
+	for _, rule := range p.Data {
+		entry := cbor.Map{
+			"TemplateName": cbor.String(rule.Name),
+		}
+		if rule.Arn != "" {
+			entry["ResourceARN"] = cbor.String(rule.Arn)
+		}
+		ruleState := cbor.Map{
+			"RuleName": cbor.String(rule.Name),
+		}
+		if rule.State != "" {
+			ruleState[keyState] = cbor.String(rule.State)
+		}
+		entry["RuleState"] = ruleState
+		rules = append(rules, entry)
+	}
+
+	out := cbor.Map{
+		"ManagedRules": rules,
+	}
+	if p.Next != "" {
+		out["NextToken"] = cbor.String(p.Next)
+	}
+
+	return writeCBOR(c, out)
+}
+
+func (h *Handler) cborPutManagedInsightRules(input cbor.Map, c *echo.Context) error {
+	var failures []InsightRuleFailure
+
+	//nolint:nestif // nested CBOR decoding; structure mirrors the wire format
+	if rulesRaw, ok := input["ManagedRules"]; ok {
+		if rulesList, isList := rulesRaw.(cbor.List); isList {
+			for _, ruleRaw := range rulesList {
+				rule, isMap := ruleRaw.(cbor.Map)
+				if !isMap {
+					continue
+				}
+				ruleName := cborStr(rule, "RuleName")
+				if ruleName == "" {
+					continue
+				}
+
+				if err := h.Backend.PutInsightRule(&InsightRule{
+					Name:        ruleName,
+					State:       insightRuleStateEnabled,
+					Definition:  cborStr(rule, "TemplateName"),
+					Arn:         cborStr(rule, "ResourceARN"),
+					ManagedRule: true,
+				}); err != nil {
+					failures = append(failures, InsightRuleFailure{
+						RuleName:           ruleName,
+						FailureCode:        "InternalFailure",
+						FailureDescription: err.Error(),
+					})
+				}
+			}
+		}
+	}
+
+	return writeCBOR(c, buildInsightRuleFailureCBOR(failures))
+}
 
 func (h *Handler) cborDescribeAlarmContributors(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")

@@ -1,10 +1,12 @@
 package iam
 
 import (
+	"encoding/json"
 	"maps"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
-	"time"
 )
 
 // iamRefinement2DispatchTable merges PathPrefix-filtered list overrides,
@@ -226,10 +228,12 @@ func (h *Handler) iamRefinement2PermsBoundaryTable() map[string]iamActionFn {
 			}, nil
 		},
 
-		"GetContextKeysForCustomPolicy": func(_ url.Values, reqID string) (any, error) {
+		"GetContextKeysForCustomPolicy": func(vals url.Values, reqID string) (any, error) {
+			keys := contextKeysFromPolicyDocuments(collectPolicyInputList(vals))
+
 			return &GetContextKeysResponse{
 				Xmlns:                iamXMLNS,
-				GetContextKeysResult: GetContextKeysResult{ContextKeyNames: []string{}},
+				GetContextKeysResult: GetContextKeysResult{ContextKeyNames: keys},
 				ResponseMetadata:     ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -263,11 +267,26 @@ func (h *Handler) iamRefinement2CredTable() map[string]iamActionFn {
 		},
 
 		"GetMFADevice": func(vals url.Values, reqID string) (any, error) {
+			serial := vals.Get("SerialNumber")
+
+			dev, owner, err := h.Backend.GetVirtualMFADevice(serial)
+			if err != nil {
+				return nil, err
+			}
+
+			userName := owner
+			if userName == "" {
+				// Fall back to the UserName supplied in the request when the
+				// device is not yet associated with a user.
+				userName = vals.Get("UserName")
+			}
+
 			return &GetMFADeviceResponse{
 				Xmlns: iamXMLNS,
 				GetMFADeviceResult: GetMFADeviceResult{
-					SerialNumber: vals.Get("SerialNumber"),
-					EnableDate:   isoTime(time.Now()),
+					UserName:     userName,
+					SerialNumber: dev.SerialNumber,
+					EnableDate:   isoTime(dev.CreateDate),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -290,4 +309,80 @@ func filterByPath[T any](items []T, prefix string, getPath func(T) string) []T {
 	}
 
 	return out
+}
+
+// collectPolicyInputList gathers the policy documents supplied via the
+// PolicyInputList.member.N indexed query parameters (used by
+// GetContextKeysForCustomPolicy). A bare PolicyDocument parameter is also
+// accepted as a convenience.
+func collectPolicyInputList(vals url.Values) []string {
+	var docs []string
+
+	for i := 1; ; i++ {
+		key := "PolicyInputList.member." + strconv.Itoa(i)
+
+		doc := vals.Get(key)
+		if doc == "" {
+			break
+		}
+
+		docs = append(docs, doc)
+	}
+
+	if doc := vals.Get("PolicyDocument"); doc != "" {
+		docs = append(docs, doc)
+	}
+
+	return docs
+}
+
+// contextKeysFromPolicyDocuments parses each supplied IAM policy document and
+// extracts the distinct condition context keys (e.g. aws:username,
+// aws:SourceIp) referenced under any statement's Condition block. The returned
+// slice is sorted for deterministic output.
+func contextKeysFromPolicyDocuments(docs []string) []string {
+	seen := make(map[string]struct{})
+
+	for _, doc := range docs {
+		if doc == "" {
+			continue
+		}
+
+		var parsed struct {
+			Statement json.RawMessage `json:"Statement"`
+		}
+
+		if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+			// Malformed documents are skipped; GetContextKeys is best-effort.
+			continue
+		}
+
+		if len(parsed.Statement) == 0 {
+			continue
+		}
+
+		stmts, err := decodeStatements(parsed.Statement)
+		if err != nil {
+			continue
+		}
+
+		for _, stmt := range stmts {
+			// Condition operators map to context-key/value maps, e.g.
+			// {"StringEquals": {"aws:username": "bob"}}.
+			for _, ctxKeys := range stmt.Condition {
+				for ctxKey := range ctxKeys {
+					seen[ctxKey] = struct{}{}
+				}
+			}
+		}
+	}
+
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
