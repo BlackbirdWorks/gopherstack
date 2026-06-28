@@ -13,7 +13,7 @@ import {
 	MergeShardsCommand,
 	SplitShardCommand,
 	type Shard,
-	type Record as KinesisRecord
+	type _Record as KinesisRecord
 } from '@aws-sdk/client-kinesis';
 import { toast } from 'svelte-sonner';
 import { confirmDestructive } from '$lib/confirm-dialog';
@@ -421,8 +421,9 @@ onMount(() => {
 					{:else if activeTab === 'put_record'}
 						<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 space-y-4">
 							<div class="space-y-1">
-								<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Partition Key</label>
+								<label for="kinesis-partition-key" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Partition Key</label>
 								<input
+									id="kinesis-partition-key"
 									type="text"
 									bind:value={putRecordPartitionKey}
 									placeholder="e.g. user-123"
@@ -430,8 +431,9 @@ onMount(() => {
 								/>
 							</div>
 							<div class="space-y-1">
-								<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Data payload</label>
+								<label for="kinesis-data-payload" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Data payload</label>
 								<textarea
+									id="kinesis-data-payload"
 									bind:value={putRecordData}
 									rows="5"
 									placeholder="Enter JSON or plain text data..."
@@ -472,8 +474,9 @@ onMount(() => {
 			</div>
 			<div class="p-6 space-y-4">
 				<div class="space-y-1">
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Stream Name</label>
+					<label for="kinesis-stream-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Stream Name</label>
 					<input
+						id="kinesis-stream-name"
 						type="text"
 						bind:value={newStreamName}
 						placeholder="my-data-stream"
@@ -481,8 +484,9 @@ onMount(() => {
 					/>
 				</div>
 				<div class="space-y-1">
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Initial Shard Count</label>
+					<label for="kinesis-shard-count" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Initial Shard Count</label>
 					<input
+						id="kinesis-shard-count"
 						type="number"
 						bind:value={newShardCount}
 						min="1"
