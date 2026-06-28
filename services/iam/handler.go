@@ -1054,37 +1054,16 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 
 			results, err := h.Backend.SimulatePrincipalPolicy(
 				vals.Get("PolicySourceArn"), actionNames, resourceArns,
+				parseConditionContext(vals),
 			)
 			if err != nil {
 				return nil, err
 			}
 
-			xmlResults := make([]SimulationEvalResultXML, 0, len(results))
-			for _, r := range results {
-				entry := SimulationEvalResultXML{
-					EvalActionName:   r.ActionName,
-					EvalResourceName: r.ResourceName,
-					EvalDecision:     r.Decision,
-				}
-
-				for policyID, decision := range r.EvalDecisionDetails {
-					entry.EvalDecisionDetails = append(entry.EvalDecisionDetails,
-						EvalDecisionDetailEntry{Key: policyID, Value: decision})
-				}
-
-				if r.AllowedByPermissionsBoundary != nil {
-					entry.PermissionsBoundaryDecisionDetail = &PermBoundaryDecisionXML{
-						AllowedByPermissionsBoundary: *r.AllowedByPermissionsBoundary,
-					}
-				}
-
-				xmlResults = append(xmlResults, entry)
-			}
-
 			return &SimulatePrincipalPolicyResponse{
 				Xmlns: iamXMLNS,
 				SimulatePrincipalPolicyResult: SimulatePrincipalPolicyResult{
-					EvaluationResults: xmlResults,
+					EvaluationResults: simResultsToXML(results),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -1790,6 +1769,81 @@ func parseMaxItems(s string) int {
 	return n
 }
 
+// parseConditionContext parses ContextEntries.member.N.{ContextKeyName,ContextKeyType,
+// ContextKeyValues.member.M} from IAM SimulatePolicy form values into a ConditionContext.
+// All values are stored in Extra keyed by lower-cased ContextKeyName.
+func parseConditionContext(vals url.Values) ConditionContext {
+	extra := make(map[string]string)
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("ContextEntries.member.%d.", i)
+		keyName := vals.Get(prefix + "ContextKeyName")
+
+		if keyName == "" {
+			break
+		}
+
+		// Values are a member list; join multiple values with a comma.
+		var values []string
+
+		for j := 1; ; j++ {
+			v := vals.Get(fmt.Sprintf("%sContextKeyValues.member.%d", prefix, j))
+			if v == "" {
+				break
+			}
+
+			values = append(values, v)
+		}
+
+		lower := strings.ToLower(keyName)
+		// Map well-known keys to ConditionContext fields via Extra.
+		switch lower {
+		case ctxKeySourceIP:
+			if len(values) > 0 {
+				extra[lower] = values[0]
+			}
+		default:
+			if len(values) > 0 {
+				extra[lower] = strings.Join(values, ",")
+			}
+		}
+	}
+
+	if len(extra) == 0 {
+		return ConditionContext{}
+	}
+
+	return ConditionContext{Extra: extra}
+}
+
+// simResultsToXML converts SimulationResult slice to the XML representation.
+func simResultsToXML(results []SimulationResult) []SimulationEvalResultXML {
+	xmlResults := make([]SimulationEvalResultXML, 0, len(results))
+
+	for _, r := range results {
+		entry := SimulationEvalResultXML{
+			EvalActionName:   r.ActionName,
+			EvalResourceName: r.ResourceName,
+			EvalDecision:     r.Decision,
+		}
+
+		for policyID, decision := range r.EvalDecisionDetails {
+			entry.EvalDecisionDetails = append(entry.EvalDecisionDetails,
+				EvalDecisionDetailEntry{Key: policyID, Value: decision})
+		}
+
+		if r.AllowedByPermissionsBoundary != nil {
+			entry.PermissionsBoundaryDecisionDetail = &PermBoundaryDecisionXML{
+				AllowedByPermissionsBoundary: *r.AllowedByPermissionsBoundary,
+			}
+		}
+
+		xmlResults = append(xmlResults, entry)
+	}
+
+	return xmlResults
+}
+
 // parseIndexedValues parses form values with a given prefix followed by an integer index.
 // Example: prefix "ActionNames.member." extracts "ActionNames.member.1", "ActionNames.member.2", etc.
 func parseIndexedValues(vals url.Values, prefix string) []string {
@@ -1828,6 +1882,11 @@ func toAttachedPoliciesXML(policies []AttachedPolicy) []AttachedPolicyXML {
 }
 
 func toUserDetailXML(u UserDetail) UserDetailXML {
+	groupList := u.GroupNames
+	if groupList == nil {
+		groupList = []string{}
+	}
+
 	return UserDetailXML{
 		Path:                    u.Path,
 		UserName:                u.UserName,
@@ -1836,7 +1895,7 @@ func toUserDetailXML(u UserDetail) UserDetailXML {
 		CreateDate:              isoTime(u.CreateDate),
 		UserPolicyList:          toInlinePolicyEntriesXML(u.InlinePolicies),
 		AttachedManagedPolicies: toAttachedPoliciesXML(u.AttachedPolicies),
-		GroupList:               []string{},
+		GroupList:               groupList,
 	}
 }
 

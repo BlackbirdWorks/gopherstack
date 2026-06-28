@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// ctxKeySourceIP is the IAM condition key for the caller's source IP address.
+const ctxKeySourceIP = "aws:sourceip"
+
 // ConditionContext holds per-request context values that are resolved against
 // IAM policy Condition blocks. All fields are optional; missing keys simply
 // fail to match condition operators that require them.
@@ -72,7 +75,13 @@ func resolveContextKey(key string, ctx ConditionContext) string {
 	lower := strings.ToLower(key)
 
 	switch lower {
-	case "aws:sourceip":
+	case ctxKeySourceIP:
+		// ContextEntries from SimulatePolicy requests are stored in Extra.
+		if ctx.Extra != nil {
+			if v, ok := ctx.Extra[ctxKeySourceIP]; ok {
+				return v
+			}
+		}
 
 		return ctx.SourceIP
 	case "aws:username":

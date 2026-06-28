@@ -62,7 +62,7 @@ func buildVariableReplacements(ctx ConditionContext) map[string]string {
 	m := map[string]string{
 		"aws:username": ctx.Username,
 		"aws:userid":   ctx.UserID,
-		"aws:sourceip": ctx.SourceIP,
+		ctxKeySourceIP: ctx.SourceIP,
 	}
 
 	// Merge any extra context values as potential policy variables.

@@ -510,6 +510,7 @@ func TestSimulatePrincipalPolicy_AllowWithoutBoundary(t *testing.T) {
 		"arn:aws:iam::000000000000:user/petra",
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -534,6 +535,7 @@ func TestSimulatePrincipalPolicy_BoundaryDeniesAllowedAction(t *testing.T) {
 		"arn:aws:iam::000000000000:user/quinn",
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -557,6 +559,7 @@ func TestSimulatePrincipalPolicy_BoundaryAllowsActionGrantedByIdentity(t *testin
 		"arn:aws:iam::000000000000:user/rosa",
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -582,6 +585,7 @@ func TestSimulatePrincipalPolicy_RoleBoundaryEnforced(t *testing.T) {
 		"arn:aws:iam::000000000000:role/TestRole",
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1016,6 +1020,7 @@ func TestSimulatePrincipalPolicy_ExplicitDenyTakesPrecedence(t *testing.T) {
 		"arn:aws:iam::000000000000:user/explicit-deny-user",
 		[]string{"s3:DeleteObject", "s3:GetObject"},
 		[]string{"arn:aws:s3:::bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 2)

@@ -403,7 +403,7 @@ func TestParityIAM_SimulatePrincipalPolicy(t *testing.T) {
 			var principalArn string
 			tt.setup(b, &principalArn)
 
-			results, err := b.SimulatePrincipalPolicy(principalArn, tt.actions, tt.resources)
+			results, err := b.SimulatePrincipalPolicy(principalArn, tt.actions, tt.resources, iam.ConditionContext{})
 			require.NoError(t, err)
 			require.Len(t, results, len(tt.actions)*len(tt.resources))
 

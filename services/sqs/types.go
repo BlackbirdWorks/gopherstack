@@ -400,6 +400,23 @@ type XMLAttribute struct {
 	Value string `xml:"Value"`
 }
 
+// XMLMessageAttributeValue holds the typed value of a user-defined message attribute
+// in SQS Query protocol (XML) responses, matching the AWS wire format.
+// BinaryValue is base64-encoded because Go's encoding/xml does not automatically
+// base64-encode []byte fields (unlike encoding/json), and AWS requires base64 on the wire.
+type XMLMessageAttributeValue struct {
+	DataType    string `xml:"DataType"`
+	StringValue string `xml:"StringValue,omitempty"`
+	BinaryValue string `xml:"BinaryValue,omitempty"` // base64-encoded raw bytes
+}
+
+// XMLMessageAttribute represents a user-defined message attribute in an SQS
+// Query protocol ReceiveMessage XML response.
+type XMLMessageAttribute struct {
+	Name  string                   `xml:"Name"`
+	Value XMLMessageAttributeValue `xml:"Value"`
+}
+
 // XMLErrorDetail is an empty element in SQS error responses.
 type XMLErrorDetail struct{}
 
@@ -503,11 +520,13 @@ type SendMessageResponse struct {
 
 // XMLMessage represents a message in a ReceiveMessage XML response.
 type XMLMessage struct {
-	MessageID     string         `xml:"MessageId"`
-	ReceiptHandle string         `xml:"ReceiptHandle"`
-	MD5OfBody     string         `xml:"MD5OfBody"`
-	Body          string         `xml:"Body"`
-	Attributes    []XMLAttribute `xml:"Attribute"`
+	MessageID              string                `xml:"MessageId"`
+	ReceiptHandle          string                `xml:"ReceiptHandle"`
+	MD5OfBody              string                `xml:"MD5OfBody"`
+	MD5OfMessageAttributes string                `xml:"MD5OfMessageAttributes,omitempty"`
+	Body                   string                `xml:"Body"`
+	Attributes             []XMLAttribute        `xml:"Attribute"`
+	MessageAttributes      []XMLMessageAttribute `xml:"MessageAttribute"`
 }
 
 // ReceiveMessageResult holds the result of a ReceiveMessage operation.

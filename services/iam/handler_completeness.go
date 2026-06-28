@@ -2,12 +2,15 @@ package iam
 
 import (
 	"encoding/xml"
+	"errors"
 	"maps"
 	"net/url"
 	"time"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+func isRoleNotFound(err error) bool { return errors.Is(err, ErrRoleNotFound) }
 
 // jobStatusCompleted is the status returned by async IAM job stubs.
 const jobStatusCompleted = "COMPLETED"
@@ -603,11 +606,17 @@ func (h *Handler) iamSSHSigningDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"DeleteServiceLinkedRole": func(vals url.Values, reqID string) (any, error) {
+			roleName := vals.Get("RoleName")
+			// Idempotent: ignore "not found" to match AWS async-deletion semantics.
+			if err := h.Backend.DeleteServiceLinkedRole(roleName); err != nil && !isRoleNotFound(err) {
+				return nil, err
+			}
+
 			return &deleteServiceLinkedRoleResponse{
 				XMLName: xml.Name{Local: "DeleteServiceLinkedRoleResponse"},
 				Xmlns:   iamXMLNS,
 				DeleteServiceLinkedRoleResult: deleteServiceLinkedRoleResult{
-					DeletionTaskID: "task/" + vals.Get("RoleName") + "/" + newRequestID(),
+					DeletionTaskID: "task/" + roleName + "/" + newRequestID(),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

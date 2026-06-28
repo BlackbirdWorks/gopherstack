@@ -92,6 +92,7 @@ type StorageBackend interface {
 	// Roles
 	CreateRole(roleName, path, assumeRolePolicyDocument, permissionsBoundary string) (*Role, error)
 	DeleteRole(roleName string) error
+	DeleteServiceLinkedRole(roleName string) error
 	ListRoles(marker string, maxItems int) (page.Page[Role], error)
 	GetRole(roleName string) (*Role, error)
 	GetRoleByArn(roleArn string) (*Role, error)
@@ -155,6 +156,7 @@ type StorageBackend interface {
 	SimulatePrincipalPolicy(
 		principalArn string,
 		actionNames, resourceArns []string,
+		ctx ConditionContext,
 	) ([]SimulationResult, error)
 	GetCredentialReport() string
 	GetAccountSummary() AccountSummary
@@ -320,6 +322,7 @@ type StorageBackend interface {
 	// Simulation
 	SimulateCustomPolicy(
 		policyInputList, actionNames, resourceArns []string,
+		ctx ConditionContext,
 	) ([]SimulationResult, error)
 
 	// Dashboard helpers
@@ -2108,6 +2111,7 @@ type UserDetail struct {
 
 	AttachedPolicies []AttachedPolicy    `json:"attachedPolicies,omitempty"`
 	InlinePolicies   []InlinePolicyEntry `json:"inlinePolicies,omitempty"`
+	GroupNames       []string            `json:"groupNames,omitempty"`
 }
 
 // GroupDetail holds group data and all associated policies for GetAccountAuthorizationDetails.
@@ -2171,15 +2175,25 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 	b.mu.RLock("GetAccountAuthorizationDetails")
 	defer b.mu.RUnlock()
 
+	// Build reverse group-membership map: userName → []groupName.
+	userGroupMap := make(map[string][]string, len(b.users))
+	for groupName, members := range b.groupMembers {
+		for _, member := range members {
+			userGroupMap[member] = append(userGroupMap[member], groupName)
+		}
+	}
+
 	// Build user details.
 	users := make([]UserDetail, 0, len(b.users))
 	for _, u := range b.users {
 		user := u
 		attached := attachedFromARNs(b.userPolicies[u.UserName])
 		inline := inlineEntries(b.userInlinePolicies[u.UserName])
+		groupNames := userGroupMap[u.UserName]
+		sort.Strings(groupNames)
 		users = append(
 			users,
-			UserDetail{User: user, AttachedPolicies: attached, InlinePolicies: inline},
+			UserDetail{User: user, AttachedPolicies: attached, InlinePolicies: inline, GroupNames: groupNames},
 		)
 	}
 
@@ -2266,7 +2280,7 @@ func inlineEntries(m map[string]string) []InlinePolicyEntry {
 // Permission boundaries are enforced: effective permissions = identity policies ∩ boundary.
 // An allow is only returned if both the identity policies allow AND the boundary allows.
 func (b *InMemoryBackend) SimulatePrincipalPolicy(
-	principalArn string, actionNames, resourceArns []string,
+	principalArn string, actionNames, resourceArns []string, ctx ConditionContext,
 ) ([]SimulationResult, error) {
 	b.mu.RLock("SimulatePrincipalPolicy")
 	defer b.mu.RUnlock()
@@ -2294,12 +2308,12 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 
 	for _, action := range actionNames {
 		for _, resource := range resourceArns {
-			evalResult := EvaluatePolicies(docs, action, resource, ConditionContext{})
+			evalResult := EvaluatePolicies(docs, action, resource, ctx)
 
 			// Per-policy detail map.
 			detail := make(map[string]string, len(namedPolicies))
 			for _, np := range namedPolicies {
-				r := EvaluatePolicies([]string{np.Doc}, action, resource, ConditionContext{})
+				r := EvaluatePolicies([]string{np.Doc}, action, resource, ctx)
 				detail[np.SourceID] = evalDecisionStr(r)
 			}
 
@@ -2311,7 +2325,7 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 					[]string{boundaryDoc},
 					action,
 					resource,
-					ConditionContext{},
+					ctx,
 				)
 				allowed := boundaryResult == EvalAllow
 

@@ -1,11 +1,13 @@
 package sqs
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -198,6 +200,7 @@ func parseQueryList(vals url.Values, prefix string) []string {
 }
 
 // parseQueryMsgAttr parses MessageAttribute.N.Name / MessageAttribute.N.Value.DataType etc.
+// Binary values are base64-encoded in the Query protocol.
 func parseQueryMsgAttr(vals url.Values) map[string]MessageAttributeValue {
 	attrs := make(map[string]MessageAttributeValue)
 
@@ -211,6 +214,59 @@ func parseQueryMsgAttr(vals url.Values) map[string]MessageAttributeValue {
 			DataType:    vals.Get(fmt.Sprintf("MessageAttribute.%d.Value.DataType", i)),
 			StringValue: vals.Get(fmt.Sprintf("MessageAttribute.%d.Value.StringValue", i)),
 		}
+
+		if b64 := vals.Get(fmt.Sprintf("MessageAttribute.%d.Value.BinaryValue", i)); b64 != "" {
+			decoded, decErr := decodeMsgAttrBinary(b64)
+			if decErr == nil {
+				attr.BinaryValue = decoded
+			}
+		}
+
+		attrs[name] = attr
+	}
+
+	if len(attrs) == 0 {
+		return nil
+	}
+
+	return attrs
+}
+
+// decodeMsgAttrBinary base64-decodes a binary message attribute value as sent
+// in the SQS Query protocol.
+func decodeMsgAttrBinary(encoded string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(encoded)
+}
+
+// parseQueryBatchMsgAttrs parses per-entry message attributes for SendMessageBatch.
+// AWS Query protocol encodes them as:
+//
+//	SendMessageBatchRequestEntry.{entryIdx}.MessageAttribute.{j}.Name
+//	SendMessageBatchRequestEntry.{entryIdx}.MessageAttribute.{j}.Value.DataType
+//	SendMessageBatchRequestEntry.{entryIdx}.MessageAttribute.{j}.Value.StringValue
+//	SendMessageBatchRequestEntry.{entryIdx}.MessageAttribute.{j}.Value.BinaryValue
+func parseQueryBatchMsgAttrs(vals url.Values, entryIdx int) map[string]MessageAttributeValue {
+	attrs := make(map[string]MessageAttributeValue)
+	prefix := fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageAttribute", entryIdx)
+
+	for j := 1; j <= maxParseIterations; j++ {
+		name := vals.Get(fmt.Sprintf("%s.%d.Name", prefix, j))
+		if name == "" {
+			break
+		}
+
+		attr := MessageAttributeValue{
+			DataType:    vals.Get(fmt.Sprintf("%s.%d.Value.DataType", prefix, j)),
+			StringValue: vals.Get(fmt.Sprintf("%s.%d.Value.StringValue", prefix, j)),
+		}
+
+		if b64 := vals.Get(fmt.Sprintf("%s.%d.Value.BinaryValue", prefix, j)); b64 != "" {
+			decoded, decErr := decodeMsgAttrBinary(b64)
+			if decErr == nil {
+				attr.BinaryValue = decoded
+			}
+		}
+
 		attrs[name] = attr
 	}
 
@@ -238,6 +294,7 @@ func parseQuerySendBatchEntries(vals url.Values) []SendMessageBatchEntry {
 			DelaySeconds:           delay,
 			MessageGroupID:         vals.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageGroupId", i)),
 			MessageDeduplicationID: vals.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageDeduplicationId", i)),
+			MessageAttributes:      parseQueryBatchMsgAttrs(vals, i),
 		})
 	}
 
@@ -581,12 +638,51 @@ func (h *Handler) queryReceiveMessage(vals url.Values, region string) ([]byte, i
 			xmlAttrs = append(xmlAttrs, XMLAttribute{Name: k, Value: v})
 		}
 
+		sort.Slice(xmlAttrs, func(i, j int) bool { return xmlAttrs[i].Name < xmlAttrs[j].Name })
+
+		// Serialize user-defined message attributes into XML, filtering by
+		// the consumer's MessageAttributeNames request parameter.
+		filtered := filterMsgAttrs(msg.MessageAttributes, msgAttrNames)
+		xmlMsgAttrs := make([]XMLMessageAttribute, 0, len(filtered))
+		for name, val := range filtered {
+			// Binary values must be base64-encoded in the XML wire format because
+			// encoding/xml does not automatically encode []byte (unlike encoding/json).
+			binaryVal := ""
+			if len(val.BinaryValue) > 0 {
+				binaryVal = base64.StdEncoding.EncodeToString(val.BinaryValue)
+			}
+
+			xmlMsgAttrs = append(xmlMsgAttrs, XMLMessageAttribute{
+				Name: name,
+				Value: XMLMessageAttributeValue{
+					DataType:    val.DataType,
+					StringValue: val.StringValue,
+					BinaryValue: binaryVal,
+				},
+			})
+		}
+
+		sort.Slice(xmlMsgAttrs, func(i, j int) bool { return xmlMsgAttrs[i].Name < xmlMsgAttrs[j].Name })
+
+		// Compute MD5 over the returned attribute subset, matching JSON protocol behaviour.
+		var md5MsgAttrs string
+		switch {
+		case len(filtered) == 0:
+			// no attributes requested or none present
+		case len(filtered) == len(msg.MessageAttributes):
+			md5MsgAttrs = msg.MD5OfMessageAttributes
+		default:
+			md5MsgAttrs = computeMD5OfMessageAttributes(filtered)
+		}
+
 		xmlMsgs = append(xmlMsgs, XMLMessage{
-			MessageID:     msg.MessageID,
-			ReceiptHandle: msg.ReceiptHandle,
-			MD5OfBody:     msg.MD5OfBody,
-			Body:          msg.Body,
-			Attributes:    xmlAttrs,
+			MessageID:              msg.MessageID,
+			ReceiptHandle:          msg.ReceiptHandle,
+			MD5OfBody:              msg.MD5OfBody,
+			MD5OfMessageAttributes: md5MsgAttrs,
+			Body:                   msg.Body,
+			Attributes:             xmlAttrs,
+			MessageAttributes:      xmlMsgAttrs,
 		})
 	}
 

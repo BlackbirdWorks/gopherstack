@@ -818,7 +818,7 @@ func TestBackendRefinement_SimulateCustomPolicy(t *testing.T) {
 
 			b := iam.NewInMemoryBackend()
 
-			results, err := b.SimulateCustomPolicy(tt.policies, tt.actions, tt.resources)
+			results, err := b.SimulateCustomPolicy(tt.policies, tt.actions, tt.resources, iam.ConditionContext{})
 			if tt.wantErr {
 				require.Error(t, err)
 

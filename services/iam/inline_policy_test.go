@@ -1415,7 +1415,7 @@ func TestSimulatePrincipalPolicy_Backend(t *testing.T) {
 			b := iam.NewInMemoryBackend()
 			tt.setup(b)
 
-			results, err := b.SimulatePrincipalPolicy(tt.principalArn, tt.actions, tt.resources)
+			results, err := b.SimulatePrincipalPolicy(tt.principalArn, tt.actions, tt.resources, iam.ConditionContext{})
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -1498,6 +1498,7 @@ func TestSimulatePrincipalPolicy_GroupInheritance(t *testing.T) {
 		"arn:aws:iam::000000000000:user/carol",
 		[]string{"s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1512,6 +1513,7 @@ func TestSimulatePrincipalPolicy_GroupInheritance(t *testing.T) {
 		"arn:aws:iam::000000000000:user/carol",
 		[]string{"s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results2, 1)
@@ -1545,6 +1547,7 @@ func TestSimulatePrincipalPolicy_GroupInlinePolicy(t *testing.T) {
 		"arn:aws:iam::000000000000:user/dave",
 		[]string{"ec2:DescribeInstances"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1580,6 +1583,7 @@ func TestSimulatePrincipalPolicy_MultipleResourcesAndActions(t *testing.T) {
 		"arn:aws:iam::000000000000:role/worker",
 		actions,
 		resources,
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	assert.Len(t, results, len(actions)*len(resources),
