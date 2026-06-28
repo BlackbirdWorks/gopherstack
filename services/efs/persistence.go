@@ -103,48 +103,95 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 }
 
 // rebuildARNIndexes reconstructs all region-nested ARN-keyed maps, the client-token
-// index, and reinitialises nil tag registries.
+// index, and reinitialises nil tag registries. Also rebuilds the performance indexes
+// (creationTokenIdx, mtSubnetIdx, apByFS) from the restored resource maps.
 func (b *InMemoryBackend) rebuildARNIndexes() {
+	b.rebuildFileSystemIndexes()
+	b.rebuildMountTargetIndexes()
+	b.rebuildAccessPointIndexes()
+}
+
+func (b *InMemoryBackend) rebuildFileSystemIndexes() {
 	b.fileSystemsByARN = make(map[string]map[string]*FileSystem, len(b.fileSystems))
+	b.creationTokenIdx = make(map[string]map[string]string, len(b.fileSystems))
 
 	for region, regionFS := range b.fileSystems {
 		arnIndex := make(map[string]*FileSystem, len(regionFS))
+		tokenIndex := make(map[string]string, len(regionFS))
+
 		for _, fs := range regionFS {
 			if fs.Tags == nil {
 				fs.Tags = tags.New("efs.filesystem." + fs.FileSystemID + ".tags")
 			}
-			arnIndex[fs.FileSystemArn] = fs
-		}
-		b.fileSystemsByARN[region] = arnIndex
-	}
 
+			arnIndex[fs.FileSystemArn] = fs
+
+			if fs.CreationToken != "" {
+				tokenIndex[fs.CreationToken] = fs.FileSystemID
+			}
+		}
+
+		b.fileSystemsByARN[region] = arnIndex
+		b.creationTokenIdx[region] = tokenIndex
+	}
+}
+
+func (b *InMemoryBackend) rebuildMountTargetIndexes() {
 	b.mountTargetsByARN = make(map[string]map[string]*MountTarget, len(b.mountTargets))
+	b.mtSubnetIdx = make(map[string]map[string]map[string]string, len(b.mountTargets))
 
 	for region, regionMT := range b.mountTargets {
 		arnIndex := make(map[string]*MountTarget, len(regionMT))
+		subnetIdx := make(map[string]map[string]string)
+
 		for _, mt := range regionMT {
 			arnIndex[mt.MountTargetArn] = mt
-		}
-		b.mountTargetsByARN[region] = arnIndex
-	}
 
+			if mt.SubnetID != "" {
+				if subnetIdx[mt.FileSystemID] == nil {
+					subnetIdx[mt.FileSystemID] = make(map[string]string)
+				}
+
+				subnetIdx[mt.FileSystemID][mt.SubnetID] = mt.MountTargetID
+			}
+		}
+
+		b.mountTargetsByARN[region] = arnIndex
+		b.mtSubnetIdx[region] = subnetIdx
+	}
+}
+
+func (b *InMemoryBackend) rebuildAccessPointIndexes() {
 	b.accessPointsByARN = make(map[string]map[string]*AccessPoint, len(b.accessPoints))
 	b.accessPointsByClientToken = make(map[string]map[string]*AccessPoint, len(b.accessPoints))
+	b.apByFS = make(map[string]map[string]map[string]struct{}, len(b.accessPoints))
 
 	for region, regionAP := range b.accessPoints {
 		arnIndex := make(map[string]*AccessPoint, len(regionAP))
 		tokenIndex := make(map[string]*AccessPoint)
+		fsSets := make(map[string]map[string]struct{})
+
 		for _, ap := range regionAP {
 			if ap.Tags == nil {
 				ap.Tags = tags.New("efs.accesspoint." + ap.AccessPointID + ".tags")
 			}
+
 			arnIndex[ap.AccessPointArn] = ap
+
 			if ap.ClientToken != "" {
 				tokenIndex[ap.ClientToken] = ap
 			}
+
+			if fsSets[ap.FileSystemID] == nil {
+				fsSets[ap.FileSystemID] = make(map[string]struct{})
+			}
+
+			fsSets[ap.FileSystemID][ap.AccessPointID] = struct{}{}
 		}
+
 		b.accessPointsByARN[region] = arnIndex
 		b.accessPointsByClientToken[region] = tokenIndex
+		b.apByFS[region] = fsSets
 	}
 }
 
