@@ -263,6 +263,26 @@ onMount(() => {
 		/>
 	</div>
 
+	<!-- Stat Cards -->
+	<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+			<p class="text-sm text-slate-500 dark:text-slate-400">Total Streams</p>
+			<p class="text-2xl font-bold text-slate-900 dark:text-white">{streams.length}</p>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+			<p class="text-sm text-slate-500 dark:text-slate-400">Open Shards</p>
+			<p class="text-2xl font-bold text-slate-900 dark:text-white">{streamShards.length}</p>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+			<p class="text-sm text-slate-500 dark:text-slate-400">Consumers</p>
+			<p class="text-2xl font-bold text-slate-900 dark:text-white">0</p>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+			<p class="text-sm text-slate-500 dark:text-slate-400">Shards Used/Limit</p>
+			<p class="text-2xl font-bold text-slate-900 dark:text-white">{streamShards.length}/500</p>
+		</div>
+	</div>
+
 	<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 		<!-- Stream List -->
 		<div class="lg:col-span-1 space-y-2">
@@ -470,7 +490,7 @@ onMount(() => {
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-slate-700">
 			<div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700">
-				<h3 class="text-lg font-bold text-slate-900 dark:text-white">Create Stream</h3>
+				<h3 class="text-lg font-bold text-slate-900 dark:text-white">Create Data Stream</h3>
 			</div>
 			<div class="p-6 space-y-4">
 				<div class="space-y-1">
@@ -479,7 +499,7 @@ onMount(() => {
 						id="kinesis-stream-name"
 						type="text"
 						bind:value={newStreamName}
-						placeholder="my-data-stream"
+						placeholder="e.g. user-events"
 						class="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 dark:text-white"
 					/>
 				</div>
