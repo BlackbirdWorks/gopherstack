@@ -1400,18 +1400,24 @@ func (b *InMemoryBackend) ListExecutions(
 	b.mu.RLock("ListExecutions")
 	defer b.mu.RUnlock()
 
-	execARNs := b.smExecutions[stateMachineArn]
+	// When a status filter is given, use the O(1) status bucket index instead
+	// of scanning the full smExecutions slice.
+	var execARNs []string
+	if statusFilter != "" {
+		if bucket := b.smExecsByStatus[stateMachineArn]; bucket != nil {
+			execARNs = bucket[statusFilter]
+		}
+	} else {
+		execARNs = b.smExecutions[stateMachineArn]
+	}
+
 	all := make([]Execution, 0, len(execARNs))
 
 	for _, execARN := range execARNs {
 		exec := b.executions[execARN]
 		if exec == nil {
-			// Defensive guard: the smExecutions index should always be consistent
-			// with b.executions, but skip any stale references just in case.
-			continue
-		}
-
-		if statusFilter != "" && exec.Status != statusFilter {
+			// Defensive guard: indexes should be consistent with b.executions,
+			// but skip any stale references just in case.
 			continue
 		}
 

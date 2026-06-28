@@ -2829,6 +2829,7 @@ const maxGetPartitionsResults = 1000
 type getPartitionsInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	Expression   string `json:"Expression,omitempty"`
 	MaxResults   *int32 `json:"MaxResults,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
 }
@@ -2854,6 +2855,36 @@ func (h *Handler) handleGetPartitions(
 	partitions, err := h.Backend.GetPartitions(in.DatabaseName, in.TableName)
 	if err != nil {
 		return nil, err
+	}
+
+	if in.Expression != "" {
+		var tbl *Table
+
+		tbl, err = h.Backend.GetTable(in.DatabaseName, in.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		keyNames := make([]string, len(tbl.PartitionKeys))
+		for i, col := range tbl.PartitionKeys {
+			keyNames[i] = col.Name
+		}
+
+		var pred partitionExpr
+
+		pred, err = parsePartitionExpr(in.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid Expression: %w", ErrValidation, err)
+		}
+
+		filtered := partitions[:0]
+		for _, p := range partitions {
+			if pred.eval(keyNames, p.Values) {
+				filtered = append(filtered, p)
+			}
+		}
+
+		partitions = filtered
 	}
 
 	limit := maxGetPartitionsResults
