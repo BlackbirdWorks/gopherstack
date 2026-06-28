@@ -253,6 +253,41 @@ func (b *InMemoryBackend) storeSession(accessKeyID string, session *SessionInfo)
 	b.maybeEvictExpiredSessions()
 }
 
+// mergeTransitiveTags combines the parent session's transitive tags with the child's
+// explicit tags. Parent tags whose key appears in parent.TransitiveTagKeys are
+// inherited; the child's own tags take precedence on key conflicts.
+func mergeTransitiveTags(parent *SessionInfo, childTags []Tag) []Tag {
+	if parent == nil || len(parent.TransitiveTagKeys) == 0 {
+		return childTags
+	}
+
+	transitiveSet := make(map[string]struct{}, len(parent.TransitiveTagKeys))
+	for _, k := range parent.TransitiveTagKeys {
+		transitiveSet[k] = struct{}{}
+	}
+
+	// Build child key set for conflict resolution.
+	childKeys := make(map[string]struct{}, len(childTags))
+	for _, t := range childTags {
+		childKeys[t.Key] = struct{}{}
+	}
+
+	merged := make([]Tag, 0, len(childTags)+len(parent.Tags))
+	// Inherit parent transitive tags not overridden by child.
+	for _, t := range parent.Tags {
+		if _, isTransitive := transitiveSet[t.Key]; !isTransitive {
+			continue
+		}
+		if _, childOverrides := childKeys[t.Key]; childOverrides {
+			continue
+		}
+		merged = append(merged, t)
+	}
+	merged = append(merged, childTags...)
+
+	return merged
+}
+
 // validateRoleArn checks that a role ARN is a valid IAM role ARN:
 // - format: arn:<partition>:iam::<12-digit-account>:role/<name>.
 func validateRoleArn(roleArn string) error {
@@ -523,32 +558,49 @@ func (b *InMemoryBackend) getEffectiveMaxDuration(roleArn string) int32 {
 
 // validateAndGetMaxDuration validates ExternalId against the trust policy (when a RoleLookup
 // is configured) and returns the effective maximum session duration for the role.
+// When the caller uses temporary credentials (role chaining), the effective max is
+// capped at MaxRoleChainDurationSeconds (3600s) per AWS rules.
 func (b *InMemoryBackend) validateAndGetMaxDuration(input *AssumeRoleInput) (int32, error) {
-	effectiveMax := int32(MaxDurationSeconds)
+	effectiveMax, err := b.roleDerivedMaxDuration(input)
+	if err != nil {
+		return 0, err
+	}
 
+	// AWS caps the max session duration at 1 hour when the caller is already using
+	// temporary credentials (role chaining). ASIA prefix identifies temporary keys.
+	if strings.HasPrefix(input.CallerAccessKeyID, accessKeyIDPrefix) && effectiveMax > MaxRoleChainDurationSeconds {
+		effectiveMax = MaxRoleChainDurationSeconds
+	}
+
+	return effectiveMax, nil
+}
+
+// roleDerivedMaxDuration reads the role's MaxSessionDuration from the RoleLookup (if any)
+// and validates ExternalId. Returns MaxDurationSeconds when no lookup is configured or the
+// role is not found.
+func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32, error) {
 	b.mu.Lock()
 	rl := b.roleLookup
 	b.mu.Unlock()
 
 	if rl == nil {
-		return effectiveMax, nil
+		return int32(MaxDurationSeconds), nil
 	}
 
 	meta, _ := rl.GetRoleByArn(input.RoleArn)
 	if meta == nil {
-		// Role not in lookup; allow the call without validation.
-		return effectiveMax, nil
+		return int32(MaxDurationSeconds), nil
 	}
 
-	if err2 := validateExternalID(meta.TrustPolicy, input.ExternalID); err2 != nil {
-		return 0, err2
+	if err := validateExternalID(meta.TrustPolicy, input.ExternalID); err != nil {
+		return 0, err
 	}
 
 	if meta.MaxSessionDuration > 0 {
-		effectiveMax = meta.MaxSessionDuration
+		return meta.MaxSessionDuration, nil
 	}
 
-	return effectiveMax, nil
+	return int32(MaxDurationSeconds), nil
 }
 
 // issueCredentials generates credentials, stores the session, and builds the response.
@@ -573,6 +625,11 @@ func (b *InMemoryBackend) issueCredentials(
 		account = parts[4]
 	}
 
+	// Merge parent transitive tags into child session per AWS role-chaining rules:
+	// tags marked transitive by the parent session propagate to the child and are
+	// inherited even if the child caller does not re-specify them.
+	mergedTags := mergeTransitiveTags(input.CallerSession, input.Tags)
+
 	session := &SessionInfo{
 		AssumedRoleArn:    assumedRoleArn,
 		AccountID:         account,
@@ -582,7 +639,7 @@ func (b *InMemoryBackend) issueCredentials(
 		SessionToken:      creds.SessionToken,
 		AssumedRoleID:     assumedRoleID,
 		SourceIdentity:    input.SourceIdentity,
-		Tags:              input.Tags,
+		Tags:              mergedTags,
 		TransitiveTagKeys: input.TransitiveTagKeys,
 		Expiration:        expiration,
 	}
@@ -609,6 +666,31 @@ func (b *InMemoryBackend) issueCredentials(
 		AssumeRoleResult: result,
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
+}
+
+// LookupSession returns the active SessionInfo for the given access key and optional
+// session token, or nil if no matching non-expired session exists or the token mismatches.
+func (b *InMemoryBackend) LookupSession(accessKeyID, sessionToken string) *SessionInfo {
+	if accessKeyID == "" {
+		return nil
+	}
+
+	b.mu.Lock()
+	session, ok := b.sessions[accessKeyID]
+	if ok && isSessionExpired(session) {
+		delete(b.sessions, accessKeyID)
+		ok = false
+	}
+	b.mu.Unlock()
+
+	if !ok {
+		return nil
+	}
+	if sessionToken != "" && session.SessionToken != "" && sessionToken != session.SessionToken {
+		return nil
+	}
+
+	return session
 }
 
 // GetCallerIdentity returns the mock caller identity.
