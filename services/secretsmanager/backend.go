@@ -140,7 +140,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return NewInMemoryBackendWithConfig(MockAccountID, MockRegion)
 }
 
-// NewInMemoryBackendWithConfig creates a new Secrets Manager backend with the given account ID and region and a background service context.
+// NewInMemoryBackendWithConfig creates a new Secrets Manager backend with the given account ID and region
+// and a background service context.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
 }

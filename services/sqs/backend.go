@@ -149,7 +149,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
-// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region and a background service context.
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region
+// and a background service context.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
 }

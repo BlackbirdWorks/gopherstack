@@ -227,7 +227,7 @@ func TestServiceKey(t *testing.T) { //nolint:paralleltest // existing issue.
 
 // TestNewTaskRunner_Noop verifies that the default (no env var) returns a no-op runner.
 func TestNewTaskRunner_Noop(t *testing.T) { //nolint:paralleltest // existing issue.
-	runner, err := newTaskRunner()
+	runner, err := newTaskRunner(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, runner)
 
@@ -242,7 +242,7 @@ func TestNewTaskRunner_Noop(t *testing.T) { //nolint:paralleltest // existing is
 func TestNewTaskRunner_Docker(t *testing.T) {
 	t.Setenv("GOPHERSTACK_ECS_RUNTIME", "docker")
 
-	runner, err := newTaskRunner()
+	runner, err := newTaskRunner(t.Context())
 	if err != nil {
 		// Docker daemon not reachable — acceptable in CI without Docker-in-Docker.
 		return
