@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -504,8 +505,16 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
 	tagKey := vals.Get("TagKey")
 	tagValue := vals.Get("TagValue")
+	marker := vals.Get("Marker")
 
-	clusters, err := h.Backend.DescribeClusters(id)
+	maxRecords := 0
+	if s := vals.Get("MaxRecords"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxRecords = n
+		}
+	}
+
+	clusters, nextMarker, err := h.Backend.DescribeClusters(id, marker, maxRecords)
 	if err != nil {
 		return nil, err
 	}
@@ -533,6 +542,7 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 	return &describeClustersResponse{
 		Xmlns:    redshiftXMLNS,
 		Clusters: xmlClusterList{Members: members},
+		Marker:   nextMarker,
 	}, nil
 }
 
@@ -630,8 +640,18 @@ func toXMLCluster(c *Cluster) xmlCluster {
 				ParameterApplyStatus: "in-sync",
 			}},
 		},
-		DBName:         c.DBName,
-		MasterUsername: c.MasterUsername,
+		DBName:                     c.DBName,
+		MasterUsername:             c.MasterUsername,
+		KmsKeyID:                   c.KmsKeyID,
+		PreferredMaintenanceWindow: c.PreferredMaintenanceWindow,
+		IamRoles: func() xmlIamRoles {
+			roles := make([]xmlIamRole, 0, len(c.IamRoles))
+			for _, arn := range c.IamRoles {
+				roles = append(roles, xmlIamRole{IamRoleArn: arn, ApplyStatus: "in-sync"})
+			}
+
+			return xmlIamRoles{Members: roles}
+		}(),
 	}
 }
 
@@ -758,8 +778,11 @@ type xmlCluster struct {
 	MultiAZ                          string                `xml:"MultiAZ"`
 	ClusterIdentifier                string                `xml:"ClusterIdentifier"`
 	MasterUsername                   string                `xml:"MasterUsername"`
+	KmsKeyID                         string                `xml:"KmsKeyId,omitempty"`
+	PreferredMaintenanceWindow       string                `xml:"PreferredMaintenanceWindow,omitempty"`
 	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
 	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
+	IamRoles                         xmlIamRoles           `xml:"IamRoles"`
 	NumberOfNodes                    int                   `xml:"NumberOfNodes,omitempty"`
 	EndpointPort                     int                   `xml:"Endpoint>Port,omitempty"`
 	EnhancedVpcRouting               bool                  `xml:"EnhancedVpcRouting"`
@@ -790,6 +813,15 @@ type xmlClusterParamGroups struct {
 	Members []xmlClusterParamGroup `xml:"ClusterParameterGroup"`
 }
 
+type xmlIamRole struct {
+	IamRoleArn  string `xml:"IamRoleArn"`
+	ApplyStatus string `xml:"ApplyStatus"`
+}
+
+type xmlIamRoles struct {
+	Members []xmlIamRole `xml:"ClusterIamRole"`
+}
+
 type createClusterResponse struct {
 	XMLName xml.Name   `xml:"CreateClusterResponse"`
 	Xmlns   string     `xml:"xmlns,attr"`
@@ -809,6 +841,7 @@ type xmlClusterList struct {
 type describeClustersResponse struct {
 	XMLName  xml.Name       `xml:"DescribeClustersResponse"`
 	Xmlns    string         `xml:"xmlns,attr"`
+	Marker   string         `xml:"DescribeClustersResult>Marker,omitempty"`
 	Clusters xmlClusterList `xml:"DescribeClustersResult>Clusters"`
 }
 

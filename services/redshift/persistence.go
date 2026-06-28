@@ -9,33 +9,47 @@ import (
 )
 
 type backendSnapshot struct {
-	Clusters           map[string]*Cluster                 `json:"clusters"`
-	ReservedNodes      map[string]*ReservedNode            `json:"reservedNodes"`
-	Partners           map[string]*Partner                 `json:"partners"`
-	DataShares         map[string]*DataShare               `json:"dataShares"`
-	SecurityGroups     map[string]*ClusterSecurityGroup    `json:"securityGroups"`
-	Snapshots          map[string]*Snapshot                `json:"snapshots"`
-	EndpointAuths      map[string]*EndpointAuthorization   `json:"endpointAuths"`
-	ActiveResizes      map[string]*ResizeProgress          `json:"activeResizes"`
-	ParameterGroups    map[string]*ClusterParameterGroup   `json:"parameterGroups"`
-	SubnetGroups       map[string]*ClusterSubnetGroup      `json:"subnetGroups"`
-	LoggingStatuses    map[string]*LoggingStatus           `json:"loggingStatuses"`
-	EventSubscriptions map[string]*EventSubscription       `json:"eventSubscriptions"`
-	Events             map[string]*Event                   `json:"events"`
-	HsmClientCerts     map[string]*HsmClientCertificate    `json:"hsmClientCerts"`
-	HsmConfigs         map[string]*HsmConfiguration        `json:"hsmConfigs"`
-	ScheduledActions   map[string]*ScheduledAction         `json:"scheduledActions"`
-	CustomDomains      map[string]*CustomDomainAssociation `json:"customDomains"`
-	EndpointAccesses   map[string]*EndpointAccess          `json:"endpointAccesses"`
-	Integrations       map[string]*Integration             `json:"integrations"`
-	IdcApplications    map[string]*IdcApplication          `json:"idcApplications"`
-	AccountID          string                              `json:"accountID"`
-	Region             string                              `json:"region"`
+	Clusters            map[string]*Cluster                   `json:"clusters"`
+	ReservedNodes       map[string]*ReservedNode              `json:"reservedNodes"`
+	Partners            map[string]*Partner                   `json:"partners"`
+	DataShares          map[string]*DataShare                 `json:"dataShares"`
+	SecurityGroups      map[string]*ClusterSecurityGroup      `json:"securityGroups"`
+	Snapshots           map[string]*Snapshot                  `json:"snapshots"`
+	EndpointAuths       map[string]*EndpointAuthorization     `json:"endpointAuths"`
+	ActiveResizes       map[string]*ResizeProgress            `json:"activeResizes"`
+	ParameterGroups     map[string]*ClusterParameterGroup     `json:"parameterGroups"`
+	SubnetGroups        map[string]*ClusterSubnetGroup        `json:"subnetGroups"`
+	LoggingStatuses     map[string]*LoggingStatus             `json:"loggingStatuses"`
+	EventSubscriptions  map[string]*EventSubscription         `json:"eventSubscriptions"`
+	Events              map[string]*Event                     `json:"events"`
+	HsmClientCerts      map[string]*HsmClientCertificate      `json:"hsmClientCerts"`
+	HsmConfigs          map[string]*HsmConfiguration          `json:"hsmConfigs"`
+	ScheduledActions    map[string]*ScheduledAction           `json:"scheduledActions"`
+	CustomDomains       map[string]*CustomDomainAssociation   `json:"customDomains"`
+	EndpointAccesses    map[string]*EndpointAccess            `json:"endpointAccesses"`
+	Integrations        map[string]*Integration               `json:"integrations"`
+	IdcApplications     map[string]*IdcApplication            `json:"idcApplications"`
+	SnapshotCopyGrants  map[string]*SnapshotCopyGrant         `json:"snapshotCopyGrants"`
+	SnapshotSchedules   map[string]*SnapshotSchedule          `json:"snapshotSchedules"`
+	UsageLimits         map[string]*UsageLimit                `json:"usageLimits"`
+	AuthProfiles        map[string]*AuthenticationProfile     `json:"authProfiles"`
+	ResourcePolicies    map[string]*ResourcePolicy            `json:"resourcePolicies"`
+	TableRestores       map[string]*TableRestoreStatus        `json:"tableRestores"`
+	SnapshotCopyConfigs map[string]*SnapshotCopyConfig        `json:"snapshotCopyConfigs"`
+	SlNamespaces        map[string]*Namespace                 `json:"slNamespaces"`
+	SlWorkgroups        map[string]*Workgroup                 `json:"slWorkgroups"`
+	SlSnapshots         map[string]*ServerlessSnapshot        `json:"slSnapshots"`
+	SlUsageLimits       map[string]*ServerlessUsageLimit      `json:"slUsageLimits"`
+	SlScheduledActions  map[string]*ServerlessScheduledAction `json:"slScheduledActions"`
+	AccountID           string                                `json:"accountID"`
+	Region              string                                `json:"region"`
 }
 
 func (s *backendSnapshot) ensureNonNilMaps() {
 	s.ensureCoreMaps()
 	s.ensureExtendedMaps()
+	s.ensureAuditMaps()
+	s.ensureServerlessMaps()
 }
 
 func (s *backendSnapshot) ensureCoreMaps() {
@@ -108,6 +122,58 @@ func (s *backendSnapshot) ensureExtendedMaps() {
 	}
 }
 
+func (s *backendSnapshot) ensureAuditMaps() {
+	if s.SnapshotCopyGrants == nil {
+		s.SnapshotCopyGrants = make(map[string]*SnapshotCopyGrant)
+	}
+
+	if s.SnapshotSchedules == nil {
+		s.SnapshotSchedules = make(map[string]*SnapshotSchedule)
+	}
+
+	if s.UsageLimits == nil {
+		s.UsageLimits = make(map[string]*UsageLimit)
+	}
+
+	if s.AuthProfiles == nil {
+		s.AuthProfiles = make(map[string]*AuthenticationProfile)
+	}
+
+	if s.ResourcePolicies == nil {
+		s.ResourcePolicies = make(map[string]*ResourcePolicy)
+	}
+
+	if s.TableRestores == nil {
+		s.TableRestores = make(map[string]*TableRestoreStatus)
+	}
+
+	if s.SnapshotCopyConfigs == nil {
+		s.SnapshotCopyConfigs = make(map[string]*SnapshotCopyConfig)
+	}
+}
+
+func (s *backendSnapshot) ensureServerlessMaps() {
+	if s.SlNamespaces == nil {
+		s.SlNamespaces = make(map[string]*Namespace)
+	}
+
+	if s.SlWorkgroups == nil {
+		s.SlWorkgroups = make(map[string]*Workgroup)
+	}
+
+	if s.SlSnapshots == nil {
+		s.SlSnapshots = make(map[string]*ServerlessSnapshot)
+	}
+
+	if s.SlUsageLimits == nil {
+		s.SlUsageLimits = make(map[string]*ServerlessUsageLimit)
+	}
+
+	if s.SlScheduledActions == nil {
+		s.SlScheduledActions = make(map[string]*ServerlessScheduledAction)
+	}
+}
+
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
@@ -115,28 +181,40 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Clusters:           b.clusters,
-		ReservedNodes:      b.reservedNodes,
-		Partners:           b.partners,
-		DataShares:         b.dataShares,
-		SecurityGroups:     b.securityGroups,
-		Snapshots:          b.snapshots,
-		HsmClientCerts:     b.hsmClientCerts,
-		HsmConfigs:         b.hsmConfigs,
-		ScheduledActions:   b.scheduledActions,
-		CustomDomains:      b.customDomains,
-		EndpointAccesses:   b.endpointAccesses,
-		Integrations:       b.integrations,
-		IdcApplications:    b.idcApplications,
-		EndpointAuths:      b.endpointAuths,
-		ActiveResizes:      b.activeResizes,
-		ParameterGroups:    b.parameterGroups,
-		SubnetGroups:       b.subnetGroups,
-		LoggingStatuses:    b.loggingStatuses,
-		EventSubscriptions: b.eventSubscriptions,
-		Events:             b.events,
-		AccountID:          b.accountID,
-		Region:             b.region,
+		Clusters:            b.clusters,
+		ReservedNodes:       b.reservedNodes,
+		Partners:            b.partners,
+		DataShares:          b.dataShares,
+		SecurityGroups:      b.securityGroups,
+		Snapshots:           b.snapshots,
+		HsmClientCerts:      b.hsmClientCerts,
+		HsmConfigs:          b.hsmConfigs,
+		ScheduledActions:    b.scheduledActions,
+		CustomDomains:       b.customDomains,
+		EndpointAccesses:    b.endpointAccesses,
+		Integrations:        b.integrations,
+		IdcApplications:     b.idcApplications,
+		EndpointAuths:       b.endpointAuths,
+		ActiveResizes:       b.activeResizes,
+		ParameterGroups:     b.parameterGroups,
+		SubnetGroups:        b.subnetGroups,
+		LoggingStatuses:     b.loggingStatuses,
+		EventSubscriptions:  b.eventSubscriptions,
+		Events:              b.events,
+		SnapshotCopyGrants:  b.snapshotCopyGrants,
+		SnapshotSchedules:   b.snapshotSchedules,
+		UsageLimits:         b.usageLimits,
+		AuthProfiles:        b.authProfiles,
+		ResourcePolicies:    b.resourcePolicies,
+		TableRestores:       b.tableRestores,
+		SnapshotCopyConfigs: b.snapshotCopyConfigs,
+		SlNamespaces:        b.slNamespaces,
+		SlWorkgroups:        b.slWorkgroups,
+		SlSnapshots:         b.slSnapshots,
+		SlUsageLimits:       b.slUsageLimits,
+		SlScheduledActions:  b.slScheduledActions,
+		AccountID:           b.accountID,
+		Region:              b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -183,6 +261,18 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.endpointAccesses = snap.EndpointAccesses
 	b.integrations = snap.Integrations
 	b.idcApplications = snap.IdcApplications
+	b.snapshotCopyGrants = snap.SnapshotCopyGrants
+	b.snapshotSchedules = snap.SnapshotSchedules
+	b.usageLimits = snap.UsageLimits
+	b.authProfiles = snap.AuthProfiles
+	b.resourcePolicies = snap.ResourcePolicies
+	b.tableRestores = snap.TableRestores
+	b.snapshotCopyConfigs = snap.SnapshotCopyConfigs
+	b.slNamespaces = snap.SlNamespaces
+	b.slWorkgroups = snap.SlWorkgroups
+	b.slSnapshots = snap.SlSnapshots
+	b.slUsageLimits = snap.SlUsageLimits
+	b.slScheduledActions = snap.SlScheduledActions
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

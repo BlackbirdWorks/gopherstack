@@ -2,6 +2,7 @@ package cloudwatch
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"math"
@@ -1835,6 +1836,7 @@ func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) erro
 	}
 
 	contribList := make(cbor.List, 0, len(contributors))
+	var aggregateValue float64
 	for _, contrib := range contributors {
 		keys := make(cbor.List, 0, len(contrib.Keys))
 		for _, k := range contrib.Keys {
@@ -1844,11 +1846,44 @@ func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) erro
 			"Keys":                      keys,
 			"ApproximateAggregateValue": cbor.Float64(contrib.Sum),
 		})
+		aggregateValue += contrib.Sum
 	}
 
+	// KeyLabels: extract key expressions from the rule definition (best-effort).
+	rule, _ := h.Backend.GetInsightRule(ruleName)
+	keyLabels := extractInsightRuleKeyLabels(rule)
+
 	return writeCBOR(c, cbor.Map{
-		"Contributors": contribList,
+		"KeyLabels":              keyLabels,
+		"AggregationStatistic":   cbor.String("Sum"),
+		"AggregateValue":         cbor.Float64(aggregateValue),
+		"ApproximateUniqueCount": cbor.Uint(uint64(len(contributors))),
+		"Contributors":           contribList,
+		"MetricDatapoints":       cbor.List{},
 	})
+}
+
+// extractInsightRuleKeyLabels returns a cbor.List of key-label strings from the
+// Contribution.Keys array in the rule definition JSON. Returns an empty list if
+// the rule is nil or the definition cannot be parsed.
+func extractInsightRuleKeyLabels(rule *InsightRule) cbor.List {
+	if rule == nil || rule.Definition == "" {
+		return cbor.List{}
+	}
+	var def struct {
+		Contribution struct {
+			Keys []string `json:"Keys"`
+		} `json:"Contribution"`
+	}
+	if err := json.Unmarshal([]byte(rule.Definition), &def); err != nil {
+		return cbor.List{}
+	}
+	labels := make(cbor.List, 0, len(def.Contribution.Keys))
+	for _, k := range def.Contribution.Keys {
+		labels = append(labels, cbor.String(k))
+	}
+
+	return labels
 }
 
 func (h *Handler) cborPutMetricFilter(input cbor.Map, c *echo.Context) error {

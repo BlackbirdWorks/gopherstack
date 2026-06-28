@@ -33,6 +33,10 @@ func (b *InMemoryBackend) CreateClusterSnapshot(snapshotID, clusterID string) (*
 		AccountsWithRestoreAccess:     []AccountWithRestoreAccess{},
 		ManualSnapshotRetentionPeriod: -1,
 		SnapshotCreateTime:            time.Now(),
+		NodeType:                      b.clusters[clusterID].NodeType,
+		DBName:                        b.clusters[clusterID].DBName,
+		MasterUsername:                b.clusters[clusterID].MasterUsername,
+		NumberOfNodes:                 b.clusters[clusterID].NumberOfNodes,
 	}
 	b.snapshots[snapshotID] = snap
 
@@ -143,17 +147,37 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(clusterID, snapshotID strin
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
 
+	nodeType := snap.NodeType
+	if nodeType == "" {
+		nodeType = defaultNodeType
+	}
+
+	dbName := snap.DBName
+	if dbName == "" {
+		dbName = defaultDBName
+	}
+
+	masterUser := snap.MasterUsername
+	if masterUser == "" {
+		masterUser = defaultMasterUsername
+	}
+
+	numberOfNodes := snap.NumberOfNodes
+	if numberOfNodes == 0 {
+		numberOfNodes = 1
+	}
+
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", clusterID, b.accountID, b.region)
 	cluster := &Cluster{
 		ClusterIdentifier: clusterID,
-		NodeType:          defaultNodeType,
+		NodeType:          nodeType,
 		ClusterType:       clusterTypeMultiNode,
 		Endpoint:          endpoint,
 		Status:            "restoring",
-		DBName:            snap.ClusterIdentifier,
-		MasterUsername:    defaultMasterUsername,
+		DBName:            dbName,
+		MasterUsername:    masterUser,
 		Port:              defaultPort,
-		NumberOfNodes:     1,
+		NumberOfNodes:     numberOfNodes,
 	}
 
 	b.clusters[clusterID] = cluster

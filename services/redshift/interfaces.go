@@ -8,12 +8,13 @@ type StorageBackend interface {
 	// Cluster operations
 	CreateCluster(id, nodeType, dbName, masterUser string) (*Cluster, error)
 	DeleteCluster(id string) (*Cluster, error)
-	DescribeClusters(id string) ([]Cluster, error)
+	DescribeClusters(id, marker string, maxRecords int) ([]Cluster, string, error)
 	ModifyCluster(
 		id, nodeType string,
 		numberOfNodes int,
 		masterUserPassword string,
 		encrypted, enhancedVpcRouting bool,
+		applyImmediately bool,
 	) (*Cluster, error)
 	RebootCluster(id string) (*Cluster, error)
 	PauseCluster(id string) (*Cluster, error)

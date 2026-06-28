@@ -161,14 +161,14 @@ func TestDescribeClusters_DeepCopy(t *testing.T) {
 	_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin")
 	require.NoError(t, err)
 
-	clusters, err := b.DescribeClusters("")
+	clusters, _, err := b.DescribeClusters("", "", 0)
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 
 	// Modifying the returned slice should not affect the backend
 	clusters[0].ClusterIdentifier = "mutated"
 
-	clusters2, err := b.DescribeClusters("")
+	clusters2, _, err := b.DescribeClusters("", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "c1", clusters2[0].ClusterIdentifier, "backend should not be mutated by caller")
 }
