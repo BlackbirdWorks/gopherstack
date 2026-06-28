@@ -2278,7 +2278,7 @@ type xmlDBCluster struct {
 	EngineMode                       string                            `xml:"EngineMode,omitempty"`
 	Status                           string                            `xml:"Status"`
 	DBClusterParameterGroupName      string                            `xml:"DBClusterParameterGroup,omitempty"`
-	DBSubnetGroupName                string                            `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	DBSubnetGroupName                string                            `xml:"DBSubnetGroup,omitempty"`
 	Endpoint                         string                            `xml:"Endpoint,omitempty"`
 	ReaderEndpoint                   string                            `xml:"ReaderEndpoint,omitempty"`
 	MasterUsername                   string                            `xml:"MasterUsername,omitempty"`
@@ -2358,7 +2358,7 @@ type xmlDBInstance struct {
 	EngineVersion                   string `xml:"EngineVersion,omitempty"`
 	DBInstanceStatus                string `xml:"DBInstanceStatus"`
 	Endpoint                        string `xml:"Endpoint>Address,omitempty"`
-	DBSubnetGroupName               string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	DBSubnetGroupName               string `xml:"DBSubnetGroup,omitempty"`
 	DBParameterGroupName            string `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"`
 	PreferredMaintenanceWindow      string `xml:"PreferredMaintenanceWindow,omitempty"`
 	PreferredBackupWindow           string `xml:"PreferredBackupWindow,omitempty"`

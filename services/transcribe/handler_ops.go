@@ -589,11 +589,11 @@ type getVocabularyInput struct {
 }
 
 type getVocabularyOutput struct {
-	LastModifiedTime *string `json:"LastModifiedTime,omitempty"`
-	VocabularyName   string  `json:"VocabularyName"`
-	LanguageCode     string  `json:"LanguageCode"`
-	VocabularyState  string  `json:"VocabularyState"`
-	DownloadURI      string  `json:"DownloadUri,omitempty"`
+	LastModifiedTime *float64 `json:"LastModifiedTime,omitempty"`
+	VocabularyName   string   `json:"VocabularyName"`
+	LanguageCode     string   `json:"LanguageCode"`
+	VocabularyState  string   `json:"VocabularyState"`
+	DownloadURI      string   `json:"DownloadUri,omitempty"`
 }
 
 func (h *Handler) handleGetVocabulary(
@@ -613,8 +613,8 @@ func (h *Handler) handleGetVocabulary(
 	}
 
 	if !v.LastModifiedTime.IsZero() {
-		s := v.LastModifiedTime.Format(time.RFC3339)
-		out.LastModifiedTime = &s
+		t := float64(v.LastModifiedTime.Unix())
+		out.LastModifiedTime = &t
 	}
 
 	return out, nil
@@ -827,11 +827,11 @@ type getMedicalVocabularyInput struct {
 }
 
 type getMedicalVocabularyOutput struct {
-	LastModifiedTime *string `json:"LastModifiedTime,omitempty"`
-	VocabularyName   string  `json:"VocabularyName"`
-	LanguageCode     string  `json:"LanguageCode"`
-	VocabularyState  string  `json:"VocabularyState"`
-	DownloadURI      string  `json:"DownloadUri,omitempty"`
+	LastModifiedTime *float64 `json:"LastModifiedTime,omitempty"`
+	VocabularyName   string   `json:"VocabularyName"`
+	LanguageCode     string   `json:"LanguageCode"`
+	VocabularyState  string   `json:"VocabularyState"`
+	DownloadURI      string   `json:"DownloadUri,omitempty"`
 }
 
 func (h *Handler) handleGetMedicalVocabulary(
@@ -851,8 +851,8 @@ func (h *Handler) handleGetMedicalVocabulary(
 	}
 
 	if !v.LastModifiedTime.IsZero() {
-		s := v.LastModifiedTime.Format(time.RFC3339)
-		out.LastModifiedTime = &s
+		t := float64(v.LastModifiedTime.Unix())
+		out.LastModifiedTime = &t
 	}
 
 	return out, nil
