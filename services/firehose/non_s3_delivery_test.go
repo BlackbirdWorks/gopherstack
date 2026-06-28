@@ -37,6 +37,7 @@ type capturedRequest struct {
 	body    []byte
 }
 
+//nolint:unparam // statusCode always receives 200 in all callers; the parameter remains for flexibility
 func newCaptureServer(t *testing.T, statusCode int) *captureServer {
 	t.Helper()
 

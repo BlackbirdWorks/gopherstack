@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -714,6 +715,10 @@ func (b *InMemoryBackend) ListServices(
 
 		arns = append(arns, svc.ServiceArn)
 	}
+
+	// Stable order so offset-based (cursor) pagination is consistent across calls;
+	// b.services is a map, whose iteration order is otherwise random.
+	sort.Strings(arns)
 
 	return arns, nil
 }
