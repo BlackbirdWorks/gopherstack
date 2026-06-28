@@ -262,7 +262,8 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	records, columns, updated, err := h.Backend.ExecuteStatement(ctx, req.ResourceArn, req.SQL, req.TransactionID)
+	records, columns, updated, err := h.Backend.ExecuteStatement(
+		ctx, req.ResourceArn, req.SQL, req.TransactionID, req.Parameters...)
 	if err != nil {
 		return nil, err
 	}

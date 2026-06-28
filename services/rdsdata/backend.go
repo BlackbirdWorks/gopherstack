@@ -168,10 +168,12 @@ func (b *InMemoryBackend) appendStatementLocked(region, resourceARN, sql, transa
 	b.executedStatements[region] = stmts
 }
 
-// ExecuteStatement executes a SQL statement and returns an empty result set.
+// ExecuteStatement executes a SQL statement and returns its result set. Named
+// parameters (e.g. ":id") are bound when supplied.
 func (b *InMemoryBackend) ExecuteStatement(
 	ctx context.Context,
 	resourceARN, sql, transactionID string,
+	parameters ...SQLParameter,
 ) ([][]Field, []ColumnMetadata, int64, error) {
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
@@ -194,7 +196,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 	// returned for well-formed statements; anything the engine rejects (for
 	// example DML against a table the caller never created) degrades to the
 	// historical empty-success envelope rather than surfacing an error.
-	records, columns, updated, err := b.engine.execute(ctx, region, resourceARN, sql, transactionID, nil)
+	records, columns, updated, err := b.engine.execute(ctx, region, resourceARN, sql, transactionID, parameters)
 	if err != nil {
 		return [][]Field{}, []ColumnMetadata{}, 0, nil
 	}

@@ -143,6 +143,36 @@ func TestEngine_TransactionRollback(t *testing.T) {
 	assert.Empty(t, records)
 }
 
+// TestEngine_ExecuteStatementWithNamedParameters verifies that bound parameters
+// are substituted into a single ExecuteStatement on both the write and read path.
+func TestEngine_ExecuteStatementWithNamedParameters(t *testing.T) {
+	t.Parallel()
+
+	b := newEngineBackend()
+	ctx := context.Background()
+
+	_, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE people (id INTEGER, name TEXT)", "")
+	require.NoError(t, err)
+
+	strVal := "grace"
+	_, _, updated, err := b.ExecuteStatement(
+		ctx, engineARN, "INSERT INTO people (id, name) VALUES (:id, :name)", "",
+		rdsdata.SQLParameter{Name: "id", Value: rdsdata.Field{LongValue: int64Ptr(10)}},
+		rdsdata.SQLParameter{Name: "name", Value: rdsdata.Field{StringValue: &strVal}},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), updated)
+
+	records, _, _, err := b.ExecuteStatement(
+		ctx, engineARN, "SELECT name FROM people WHERE id = :id", "",
+		rdsdata.SQLParameter{Name: "id", Value: rdsdata.Field{LongValue: int64Ptr(10)}},
+	)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.NotNil(t, records[0][0].StringValue)
+	assert.Equal(t, "grace", *records[0][0].StringValue)
+}
+
 // TestEngine_BatchExecuteInsertsRows verifies that BatchExecuteStatement applies
 // every parameter set against the engine.
 func TestEngine_BatchExecuteInsertsRows(t *testing.T) {
