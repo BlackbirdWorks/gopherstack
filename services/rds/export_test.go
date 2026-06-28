@@ -13,6 +13,7 @@ func FlushInstanceLifecycle(b *InMemoryBackend) {
 
 	for id, inst := range b.instances {
 		if inst.DBInstanceStatus == instanceStatusCreating || inst.DBInstanceStatus == instanceStatusModifying {
+			applyPendingModifications(inst)
 			inst.DBInstanceStatus = instanceStatusAvailable
 		}
 

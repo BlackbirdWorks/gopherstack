@@ -1123,7 +1123,20 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 	}
 
 	if inst.DBInstanceStatus == instanceStatusModifying {
-		result.PendingModifiedValues = &xmlPendingModifiedValues{}
+		if pv := inst.PendingModifiedValues; pv != nil {
+			xpv := &xmlPendingModifiedValues{
+				DBInstanceClass:  pv.DBInstanceClass,
+				EngineVersion:    pv.EngineVersion,
+				AllocatedStorage: pv.AllocatedStorage,
+				Iops:             pv.Iops,
+			}
+			if pv.MultiAZChange != nil {
+				xpv.MultiAZ = *pv.MultiAZChange
+			}
+			result.PendingModifiedValues = xpv
+		} else {
+			result.PendingModifiedValues = &xmlPendingModifiedValues{}
+		}
 	}
 
 	if inst.DBParameterGroupName != "" {

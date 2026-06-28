@@ -204,6 +204,7 @@ type DBInstance struct {
 	EngineLifecycleSupport            string                       `json:"engineLifecycleSupport,omitempty"`
 	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	VpcSecurityGroups                 []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
+	PendingModifiedValues             *PendingModifiedValues       `json:"pendingModifiedValues,omitempty"`
 	ReadReplicaIdentifiers            []string                     `json:"readReplicaIdentifiers,omitempty"`
 	Port                              int                          `json:"port"`
 	AllocatedStorage                  int                          `json:"allocatedStorage"`
@@ -220,6 +221,17 @@ type DBInstance struct {
 	PerformanceInsightsEnabled        bool                         `json:"performanceInsightsEnabled,omitempty"`
 	StorageOptimized                  bool                         `json:"storageOptimized,omitempty"`
 	OptimizedWrites                   bool                         `json:"optimizedWrites,omitempty"`
+}
+
+// PendingModifiedValues holds deferred instance changes (ApplyImmediately=false).
+// A non-nil pointer means at least one field is pending. Nil means nothing pending.
+type PendingModifiedValues struct {
+	MultiAZChange    *bool  `json:"multiAZChange,omitempty"`
+	DBInstanceClass  string `json:"dbInstanceClass,omitempty"`
+	EngineVersion    string `json:"engineVersion,omitempty"`
+	StorageType      string `json:"storageType,omitempty"`
+	AllocatedStorage int    `json:"allocatedStorage,omitempty"`
+	Iops             int    `json:"iops,omitempty"`
 }
 
 // DBSnapshot represents an RDS database snapshot.
@@ -897,6 +909,7 @@ func (b *InMemoryBackend) reconcileInstancesLocked() {
 	for id, readyAt := range b.instanceReadyAt {
 		if !readyAt.IsZero() && now.After(readyAt) {
 			if inst, ok := b.instances[id]; ok {
+				applyPendingModifications(inst)
 				inst.DBInstanceStatus = instanceStatusAvailable
 				b.publishInstanceEventLocked(id, "DB instance is now available")
 			}
@@ -1235,15 +1248,122 @@ func applyDBInstanceSchedulingOpts(inst *DBInstance, opts DBInstanceOptions) {
 	}
 }
 
-// applyDBInstanceFlags applies boolean flag fields from opts to inst.
-// Fields with a corresponding *Set sentinel are applied unconditionally when the sentinel is true,
-// allowing callers to explicitly set the flag to false (e.g., disable DeletionProtection).
-func applyDBInstanceFlags(inst *DBInstance, opts DBInstanceOptions) {
-	if opts.MultiAZSet {
-		inst.MultiAZ = opts.MultiAZ
-	} else if opts.MultiAZ {
+func (b *InMemoryBackend) applyDBInstanceModifications(
+	inst *DBInstance,
+	instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+	applyImmediately bool,
+) error {
+	if applyImmediately {
+		applyDeferrableFields(inst, instanceClass, allocatedStorage, opts)
+	} else {
+		if pv := buildPendingModifiedValues(inst, instanceClass, allocatedStorage, opts); pv != nil {
+			inst.PendingModifiedValues = pv
+		}
+	}
+
+	return b.applyImmediateFields(inst, opts)
+}
+
+// applyDeferrableFields applies fields that can be deferred to a maintenance window.
+// Called only when ApplyImmediately=true — clears any previously pending values.
+func applyDeferrableFields(inst *DBInstance, instanceClass string, allocatedStorage int, opts DBInstanceOptions) {
+	inst.PendingModifiedValues = nil
+	if instanceClass != "" {
+		inst.DBInstanceClass = instanceClass
+	}
+	if allocatedStorage > 0 {
+		inst.AllocatedStorage = allocatedStorage
+	}
+	if opts.StorageType != "" {
+		inst.StorageType = opts.StorageType
+	}
+	if opts.Iops > 0 {
+		inst.Iops = opts.Iops
+	}
+	if opts.StorageThroughput > 0 {
+		inst.StorageThroughput = opts.StorageThroughput
+	}
+	if opts.EngineVersion != "" {
+		inst.EngineVersion = opts.EngineVersion
+	}
+	if opts.MultiAZSet || opts.MultiAZ {
 		inst.MultiAZ = opts.MultiAZ
 	}
+}
+
+// applyImmediateFields applies fields that always take effect right away regardless of ApplyImmediately.
+func (b *InMemoryBackend) applyImmediateFields(inst *DBInstance, opts DBInstanceOptions) error {
+	if opts.BackupRetentionPeriod >= 0 {
+		inst.BackupRetentionPeriod = opts.BackupRetentionPeriod
+	}
+	applyDBInstanceFlagsImmediate(inst, opts)
+	if err := b.applyParamGroupUpdate(inst, opts.DBParameterGroupName); err != nil {
+		return err
+	}
+	if opts.OptionGroupName != "" {
+		inst.OptionGroupName = opts.OptionGroupName
+	}
+	if opts.LicenseModel != "" {
+		inst.LicenseModel = opts.LicenseModel
+	}
+	applyDBInstanceSchedulingOpts(inst, opts)
+	applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
+	if len(opts.EnabledCloudwatchLogsExports) > 0 {
+		inst.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
+	}
+
+	return nil
+}
+
+// buildPendingModifiedValues returns a PendingModifiedValues if any deferrable field
+// differs from the instance's current value, or nil if nothing would change.
+func buildPendingModifiedValues(
+	inst *DBInstance,
+	instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+) *PendingModifiedValues {
+	pv := &PendingModifiedValues{}
+	changed := false
+
+	if instanceClass != "" && instanceClass != inst.DBInstanceClass {
+		pv.DBInstanceClass = instanceClass
+		changed = true
+	}
+	if allocatedStorage > 0 && allocatedStorage != inst.AllocatedStorage {
+		pv.AllocatedStorage = allocatedStorage
+		changed = true
+	}
+	if opts.StorageType != "" && opts.StorageType != inst.StorageType {
+		pv.StorageType = opts.StorageType
+		changed = true
+	}
+	if opts.Iops > 0 && opts.Iops != inst.Iops {
+		pv.Iops = opts.Iops
+		changed = true
+	}
+	if opts.EngineVersion != "" && opts.EngineVersion != inst.EngineVersion {
+		pv.EngineVersion = opts.EngineVersion
+		changed = true
+	}
+	if (opts.MultiAZSet || opts.MultiAZ) && opts.MultiAZ != inst.MultiAZ {
+		b := opts.MultiAZ
+		pv.MultiAZChange = &b
+		changed = true
+	}
+
+	if !changed {
+		return nil
+	}
+
+	return pv
+}
+
+// applyDBInstanceFlagsImmediate applies boolean flags that always take effect immediately.
+// It excludes MultiAZ which is deferred when ApplyImmediately=false.
+func applyDBInstanceFlagsImmediate(inst *DBInstance, opts DBInstanceOptions) {
 	if opts.IAMDatabaseAuthSet {
 		inst.IAMDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
 	} else if opts.IAMDatabaseAuthenticationEnabled {
@@ -1274,58 +1394,32 @@ func applyDBInstanceFlags(inst *DBInstance, opts DBInstanceOptions) {
 	}
 }
 
-func (b *InMemoryBackend) applyDBInstanceModifications(
-	inst *DBInstance,
-	instanceClass string,
-	allocatedStorage int,
-	opts DBInstanceOptions,
-) error {
-	if instanceClass != "" {
-		inst.DBInstanceClass = instanceClass
+// applyPendingModifications applies deferred changes stored in inst.PendingModifiedValues
+// and clears the pending values. Called by the reconciler when the instance becomes available.
+func applyPendingModifications(inst *DBInstance) {
+	pv := inst.PendingModifiedValues
+	if pv == nil {
+		return
 	}
-	if allocatedStorage > 0 {
-		inst.AllocatedStorage = allocatedStorage
+	if pv.DBInstanceClass != "" {
+		inst.DBInstanceClass = pv.DBInstanceClass
 	}
-	if opts.StorageType != "" {
-		inst.StorageType = opts.StorageType
+	if pv.AllocatedStorage > 0 {
+		inst.AllocatedStorage = pv.AllocatedStorage
 	}
-	if opts.BackupRetentionPeriod >= 0 {
-		inst.BackupRetentionPeriod = opts.BackupRetentionPeriod
+	if pv.StorageType != "" {
+		inst.StorageType = pv.StorageType
 	}
-	applyDBInstanceFlags(inst, opts)
-	if err := b.applyParamGroupUpdate(inst, opts.DBParameterGroupName); err != nil {
-		return err
+	if pv.Iops > 0 {
+		inst.Iops = pv.Iops
 	}
-
-	if opts.OptionGroupName != "" {
-		inst.OptionGroupName = opts.OptionGroupName
+	if pv.EngineVersion != "" {
+		inst.EngineVersion = pv.EngineVersion
 	}
-
-	if opts.Iops > 0 {
-		inst.Iops = opts.Iops
+	if pv.MultiAZChange != nil {
+		inst.MultiAZ = *pv.MultiAZChange
 	}
-
-	if opts.StorageThroughput > 0 {
-		inst.StorageThroughput = opts.StorageThroughput
-	}
-
-	if opts.LicenseModel != "" {
-		inst.LicenseModel = opts.LicenseModel
-	}
-
-	applyDBInstanceSchedulingOpts(inst, opts)
-
-	applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
-
-	if len(opts.EnabledCloudwatchLogsExports) > 0 {
-		inst.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
-	}
-
-	if opts.EngineVersion != "" {
-		inst.EngineVersion = opts.EngineVersion
-	}
-
-	return nil
+	inst.PendingModifiedValues = nil
 }
 
 func (b *InMemoryBackend) ModifyDBInstance(
@@ -1342,7 +1436,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 
-	if err := b.applyDBInstanceModifications(inst, instanceClass, allocatedStorage, opts); err != nil {
+	if err := b.applyDBInstanceModifications(
+		inst, instanceClass, allocatedStorage, opts, opts.ApplyImmediately,
+	); err != nil {
 		return nil, err
 	}
 	inst.DBInstanceStatus = instanceStatusModifying
