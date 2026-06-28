@@ -339,7 +339,7 @@ jobs:
 
       - name: Install Playwright Browsers
         run: |
-          go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium
+          go run github.com/playwright-community/playwright-go/cmd/playwright@v0.5700.1 install --with-deps chromium
 
       - name: Run E2E Tests
         run: |
