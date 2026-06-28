@@ -293,7 +293,7 @@ func TestDockerRunner_MultiContainerTracking(t *testing.T) { //nolint:parallelte
 	for _, tt := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tt.name, func(t *testing.T) {
 			fake := &fakeDockerClient{}
-			runner := newDockerRunnerWithClient(fake)
+			runner := newDockerRunnerWithClient(context.Background(), fake)
 			task := &Task{TaskArn: "arn:aws:ecs:us-east-1:000000000000:task/default/task-1"}
 			td := &TaskDefinition{ContainerDefinitions: tt.containers}
 
@@ -324,7 +324,7 @@ func TestDockerRunner_StopTask_StopsAllContainers(t *testing.T) { //nolint:paral
 	for _, tt := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tt.name, func(t *testing.T) {
 			fake := &fakeDockerClient{}
-			runner := newDockerRunnerWithClient(fake)
+			runner := newDockerRunnerWithClient(context.Background(), fake)
 			task := &Task{TaskArn: "arn:aws:ecs:us-east-1:000000000000:task/default/task-1"}
 
 			cds := make([]ContainerDefinition, tt.numContainers)
@@ -350,7 +350,7 @@ func TestDockerRunner_StopTask_StopsAllContainers(t *testing.T) { //nolint:paral
 // fails, the already-created container is removed to prevent a resource leak.
 func TestDockerRunner_ContainerLeakOnStartFailure(t *testing.T) { //nolint:paralleltest // existing issue.
 	fake := &fakeDockerClient{}
-	runner := newDockerRunnerWithClient(fake)
+	runner := newDockerRunnerWithClient(context.Background(), fake)
 	task := &Task{TaskArn: "arn:aws:ecs:us-east-1:000000000000:task/default/task-1"}
 	td := &TaskDefinition{
 		ContainerDefinitions: []ContainerDefinition{
@@ -418,7 +418,7 @@ func TestDeleteCluster_CascadesContainerStops(t *testing.T) { //nolint:parallelt
 	for _, tt := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tt.name, func(t *testing.T) {
 			fake := &fakeDockerClient{}
-			runner := newDockerRunnerWithClient(fake)
+			runner := newDockerRunnerWithClient(context.Background(), fake)
 			backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
 
 			_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test-cluster"})
@@ -466,7 +466,7 @@ func TestDockerRunner_RunTask_RollbackOnPartialStart(t *testing.T) { //nolint:pa
 	containerThreeID := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), 3)
 
 	fake := &fakeDockerClient{startErrOnID: containerThreeID}
-	runner := newDockerRunnerWithClient(fake)
+	runner := newDockerRunnerWithClient(context.Background(), fake)
 	task := &Task{TaskArn: "arn:aws:ecs:us-east-1:000000000000:task/default/task-1"}
 	td := &TaskDefinition{
 		ContainerDefinitions: []ContainerDefinition{
@@ -511,7 +511,7 @@ func TestDockerRunner_StopTask_PartialFailure(t *testing.T) { //nolint:parallelt
 	containerTwoID := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), 2)
 
 	fake := &fakeDockerClient{}
-	runner := newDockerRunnerWithClient(fake)
+	runner := newDockerRunnerWithClient(context.Background(), fake)
 	task := &Task{TaskArn: "arn:aws:ecs:us-east-1:000000000000:task/default/task-1"}
 	td := &TaskDefinition{
 		ContainerDefinitions: []ContainerDefinition{
@@ -570,7 +570,7 @@ func TestBackend_RunTask_FailedRunnerSetsSTOPPED(t *testing.T) { //nolint:parall
 	for _, tt := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tt.name, func(t *testing.T) {
 			fake := &fakeDockerClient{failAllStarts: true}
-			runner := newDockerRunnerWithClient(fake)
+			runner := newDockerRunnerWithClient(context.Background(), fake)
 			backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
 
 			_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})
@@ -606,7 +606,7 @@ func TestBackend_RunTask_FailedRunnerSetsSTOPPED(t *testing.T) { //nolint:parall
 // so concurrent backend operations are not blocked.
 func TestBackend_StopTask_LockReleasedBeforeDockerCall(t *testing.T) { //nolint:paralleltest // existing issue.
 	fake := &fakeDockerClient{}
-	runner := newDockerRunnerWithClient(fake)
+	runner := newDockerRunnerWithClient(context.Background(), fake)
 	backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
 
 	_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})

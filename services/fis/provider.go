@@ -37,7 +37,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetFISSettings()
 	}
 
-	backend := NewInMemoryBackend(accountID, region)
+	backend := NewInMemoryBackendWithContext(ctx.JanitorCtx, accountID, region)
 	handler := NewHandler(backend)
 	handler.DefaultRegion = region
 	handler.AccountID = accountID

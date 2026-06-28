@@ -156,15 +156,25 @@ type InMemoryBackend struct {
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
-// NewInMemoryBackend creates a new in-memory Kinesis Analytics backend.
+// NewInMemoryBackend creates a new in-memory Kinesis Analytics backend with a background service context.
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), region, accountID)
+}
+
+// NewInMemoryBackendWithContext creates a new in-memory Kinesis Analytics backend whose
+// background goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, region, accountID string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		apps:          make(map[string]map[string]*Application),
 		appsByARN:     make(map[string]map[string]*Application),
 		cancelFuncs:   make(map[string]context.CancelFunc),
 		defaultRegion: region,
 		accountID:     accountID,
-		svcCtx:        context.Background(),
+		svcCtx:        svcCtx,
 	}
 }
 

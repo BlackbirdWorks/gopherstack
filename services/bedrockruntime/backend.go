@@ -124,8 +124,18 @@ type InMemoryBackend struct {
 	asyncInvokeCounter int
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with a background service context.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose background
+// goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		invocations:  newInvocationRing(maxInvocationHistory),
 		asyncInvokes: make(map[string]*AsyncInvoke),
@@ -133,7 +143,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("bedrockruntime"),
-		svcCtx:       context.Background(),
+		svcCtx:       svcCtx,
 	}
 }
 

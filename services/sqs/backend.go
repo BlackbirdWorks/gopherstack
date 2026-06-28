@@ -144,20 +144,30 @@ func (b *InMemoryBackend) emitMetric(name string, value float64) {
 
 const sqsDefaultMaxResults = 1000
 
-// NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
+// NewInMemoryBackend creates a new empty InMemoryBackend with default account/region and a background service context.
 func NewInMemoryBackend() *InMemoryBackend {
 	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
-// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region and a background service context.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose background goroutines
+// are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	b := &InMemoryBackend{
 		queues:    make(map[string]*Queue),
 		moveTasks: make(map[string]*moveTaskState),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("sqs"),
-		svcCtx:    context.Background(),
+		svcCtx:    svcCtx,
 	}
 
 	b.startJanitor()

@@ -253,13 +253,29 @@ type InMemoryBackend struct {
 	shutdownOnce             sync.Once
 }
 
-// NewInMemoryBackend creates a new Lambda in-memory backend.
+// NewInMemoryBackend creates a new Lambda in-memory backend with a background service context.
 func NewInMemoryBackend(
 	dockerClient container.Runtime,
 	portAlloc *portalloc.Allocator,
 	settings Settings,
 	accountID, region string,
 ) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), dockerClient, portAlloc, settings, accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new Lambda in-memory backend whose background
+// goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(
+	svcCtx context.Context,
+	dockerClient container.Runtime,
+	portAlloc *portalloc.Allocator,
+	settings Settings,
+	accountID, region string,
+) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		functions:                make(map[string]*FunctionConfiguration),
 		runtimes:                 make(map[string]*functionRuntime),
@@ -296,7 +312,7 @@ func NewInMemoryBackend(
 		settings:                 settings,
 		accountID:                accountID,
 		region:                   region,
-		ctx:                      context.Background(),
+		ctx:                      svcCtx,
 		mu:                       lockmetrics.New("lambda"),
 	}
 }

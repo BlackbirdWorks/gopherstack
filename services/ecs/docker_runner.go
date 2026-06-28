@@ -48,19 +48,23 @@ type dockerClient interface {
 // NewDockerRunner creates a TaskRunner backed by the local Docker daemon.
 // It uses the standard DOCKER_HOST / DOCKER_TLS_VERIFY environment variables
 // via client.FromEnv, so it works both locally and inside docker-in-docker.
-func NewDockerRunner() (TaskRunner, error) {
+func NewDockerRunner(ctx context.Context) (TaskRunner, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv(), client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("create docker client: %w", err)
 	}
 
-	return newDockerRunnerWithClient(cli), nil
+	return newDockerRunnerWithClient(ctx, cli), nil
 }
 
 // newDockerRunnerWithClient creates a realDockerRunner using the provided dockerClient.
 // This constructor is used by tests to inject a fake Docker client.
-func newDockerRunnerWithClient(cli dockerClient) *realDockerRunner {
-	return &realDockerRunner{cli: cli, containers: make(map[string][]string), svcCtx: context.Background()}
+func newDockerRunnerWithClient(ctx context.Context, cli dockerClient) *realDockerRunner {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	return &realDockerRunner{cli: cli, containers: make(map[string][]string), svcCtx: ctx}
 }
 
 // realDockerRunner is a TaskRunner that launches Docker containers.
@@ -289,10 +293,10 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 // newTaskRunner creates the appropriate TaskRunner based on the
 // GOPHERSTACK_ECS_RUNTIME environment variable.
 // Returns a no-op runner when the environment variable is absent or "none".
-func newTaskRunner() (TaskRunner, error) {
+func newTaskRunner(ctx context.Context) (TaskRunner, error) {
 	switch os.Getenv("GOPHERSTACK_ECS_RUNTIME") {
 	case "docker":
-		return NewDockerRunner()
+		return NewDockerRunner(ctx)
 	default:
 		// "none" or unset – no-op
 		return NewNoopRunner(), nil

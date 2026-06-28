@@ -13,7 +13,7 @@ import (
 
 // newDistributionRegistry creates an embedded Docker Registry v2 [http.Handler]
 // using in-memory storage and no authentication (all requests are accepted).
-func newDistributionRegistry(_ context.Context) http.Handler {
+func newDistributionRegistry(parent context.Context) http.Handler {
 	cfg := &configuration.Configuration{
 		Version: "0.1",
 		Storage: configuration.Storage{
@@ -33,7 +33,7 @@ func newDistributionRegistry(_ context.Context) http.Handler {
 	// We provide it via a string key since that's what the library expects internally.
 	//nolint:revive,staticcheck // distribution/distribution requires this string key
 	ctx := context.WithValue(
-		context.Background(),
+		parent,
 		"instance.id",
 		"gopherstack-ecr",
 	)

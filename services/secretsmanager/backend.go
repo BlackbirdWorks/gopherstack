@@ -140,8 +140,18 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return NewInMemoryBackendWithConfig(MockAccountID, MockRegion)
 }
 
-// NewInMemoryBackendWithConfig creates a new Secrets Manager backend with the given account ID and region.
+// NewInMemoryBackendWithConfig creates a new Secrets Manager backend with the given account ID and region and a background service context.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new Secrets Manager backend whose background
+// goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		secrets:            make(map[string]map[string]*Secret),
 		resourcePolicies:   make(map[string]map[string]string),
@@ -151,7 +161,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		mu:                 lockmetrics.New("secretsmanager"),
 		now:                time.Now,
 		schedulerStop:      make(chan struct{}),
-		svcCtx:             context.Background(),
+		svcCtx:             svcCtx,
 	}
 }
 

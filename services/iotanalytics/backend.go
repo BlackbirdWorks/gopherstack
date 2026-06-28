@@ -261,8 +261,18 @@ type InMemoryBackend struct {
 	mu              sync.RWMutex
 }
 
-// NewInMemoryBackend creates a new in-memory IoT Analytics backend.
+// NewInMemoryBackend creates a new in-memory IoT Analytics backend with a background service context.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background())
+}
+
+// NewInMemoryBackendWithContext creates a new in-memory IoT Analytics backend whose
+// background goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		channels:        make(map[string]*Channel),
 		datastores:      make(map[string]*Datastore),
@@ -271,7 +281,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		tags:            make(map[string]map[string]string),
 		channelMessages: make(map[string][][]byte),
 		datasetContents: make(map[string][]*DatasetContent),
-		svcCtx:          context.Background(),
+		svcCtx:          svcCtx,
 	}
 }
 
