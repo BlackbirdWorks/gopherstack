@@ -26,12 +26,12 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		setup     func(h *appmesh.Handler)
-		method    string
-		path      string
-		body      any
-		topField  string // a field expected at the top level of the response
+		name     string
+		setup    func(h *appmesh.Handler)
+		method   string
+		path     string
+		body     any
+		topField string // a field expected at the top level of the response
 	}{
 		// ── Mesh ──────────────────────────────────────────────────────────────────
 		{
