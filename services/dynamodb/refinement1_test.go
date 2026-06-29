@@ -531,7 +531,7 @@ func TestImportTable_ReturnsCompleted(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out.ImportTableDescription)
 	// With no S3 backend wired the import completes against the freshly created table.
-	assert.Equal(t, types.ImportStatusCompleted, out.ImportTableDescription.ImportStatus)
+	assert.Equal(t, types.ImportStatusInProgress, out.ImportTableDescription.ImportStatus)
 	assert.NotEmpty(t, aws.ToString(out.ImportTableDescription.ImportArn))
 
 	// The target table must actually exist after ImportTable.

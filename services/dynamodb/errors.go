@@ -121,13 +121,6 @@ func NewRequestLimitExceeded(msg string) *Error {
 	}
 }
 
-func NewTransactionConflictException(msg string) *Error {
-	return &Error{
-		Type:    "com.amazonaws.dynamodb.v20120810#TransactionConflictException",
-		Message: msg,
-	}
-}
-
 func NewReplicatedWriteConflictException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#ReplicatedWriteConflictException",

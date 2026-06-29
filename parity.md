@@ -539,7 +539,7 @@ The highest-impact non-lifecycle gaps per service (full lists in the deep dives 
 
 - [ ] **S3** — enforce bucket policy/ACL/PAB and bucket default encryption on the data plane;
   add SigV4 header-auth + `aws-chunked` body decode; multi-range GET; Object Lock GOVERNANCE bypass.
-- [ ] **DynamoDB** — emit `TransactionConflictException`; async export/import (`IN_PROGRESS`);
+- [x] **DynamoDB** — emit `TransactionConflictException`; async export/import (`IN_PROGRESS`);
   validate `UpdateTable` throughput vs billing mode; copy items on replica creation.
 - [ ] **Lambda** — validate `X-Amz-Invocation-Type`; `LogType=Tail`/`X-Amz-Log-Result`; enforce
   Function URL `AuthType`; delete the per-function config maps on delete.

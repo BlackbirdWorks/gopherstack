@@ -181,12 +181,17 @@ func (db *InMemoryDB) checkPutCondition(
 }
 
 func (db *InMemoryDB) doPut(table *Table, item map[string]any, matchIndex int) {
+	itemSize, _ := CalculateItemSize(item)
 	if matchIndex != -1 {
+		table.totalItemSizeBytes += int64(itemSize) - int64(table.itemSizes[matchIndex])
+		table.itemSizes[matchIndex] = itemSize
 		table.Items[matchIndex] = item
 		db.updateIndexes(table, item, matchIndex)
 	} else {
 		idx := len(table.Items)
 		table.Items = append(table.Items, item)
+		table.itemSizes = append(table.itemSizes, itemSize)
+		table.totalItemSizeBytes += int64(itemSize)
 		db.updateIndexes(table, item, idx)
 	}
 }
@@ -230,12 +235,10 @@ func currentLSICollectionBytes(table *Table, pkVal string) int64 {
 
 	if skMap, ok := table.pkskIndex[pkVal]; ok {
 		for _, offset := range skMap {
-			sz, _ := CalculateItemSize(table.Items[offset])
-			total += int64(sz)
+			total += int64(table.itemSizes[offset])
 		}
 	} else if offset, ok2 := table.pkIndex[pkVal]; ok2 {
-		sz, _ := CalculateItemSize(table.Items[offset])
-		total += int64(sz)
+		total += int64(table.itemSizes[offset])
 	}
 
 	return total
@@ -254,8 +257,7 @@ func computeLSICollectionSize(
 
 	// Subtract old item (it will be replaced).
 	if oldMatchIndex != -1 {
-		sz, _ := CalculateItemSize(table.Items[oldMatchIndex])
-		total -= int64(sz)
+		total -= int64(table.itemSizes[oldMatchIndex])
 	}
 
 	// Add new item.
@@ -780,12 +782,18 @@ func (db *InMemoryDB) doUpdate(
 		return nil, nil, err
 	}
 
+	updatedSize, _ := CalculateItemSize(updated)
+
 	if matchIndex != -1 {
+		table.totalItemSizeBytes += int64(updatedSize) - int64(table.itemSizes[matchIndex])
+		table.itemSizes[matchIndex] = updatedSize
 		table.Items[matchIndex] = updated
 		db.updateIndexes(table, updated, matchIndex)
 	} else {
 		newIdx := len(table.Items)
 		table.Items = append(table.Items, updated)
+		table.itemSizes = append(table.itemSizes, updatedSize)
+		table.totalItemSizeBytes += int64(updatedSize)
 		db.updateIndexes(table, updated, newIdx)
 	}
 
@@ -920,10 +928,13 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 
 	// Swap with last strategy for O(1) deletion
 	lastIdx := len(table.Items) - 1
+	deletedSize := table.itemSizes[matchIndex]
+
 	if matchIndex != lastIdx {
 		// Move last item to deleted spot
 		lastItem := table.Items[lastIdx]
 		table.Items[matchIndex] = lastItem
+		table.itemSizes[matchIndex] = table.itemSizes[lastIdx]
 
 		// Update index for the moved item
 		db.updateIndexes(table, lastItem, matchIndex)
@@ -931,6 +942,8 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 
 	// Shrink slice
 	table.Items = table.Items[:lastIdx]
+	table.itemSizes = table.itemSizes[:lastIdx]
+	table.totalItemSizeBytes -= int64(deletedSize)
 }
 
 // deepCopyItem returns a deep copy of a wire-format item so that mutations
@@ -987,13 +1000,7 @@ func deepCopyAny(v any) any {
 	}
 }
 
-// estimateTableSizeBytes computes the total estimated size of all items in the table.
-func estimateTableSizeBytes(items []map[string]any) int64 {
-	var total int64
-	for _, item := range items {
-		size, _ := CalculateItemSize(item)
-		total += int64(size)
-	}
-
-	return total
+// estimateTableSizeBytes returns the cached total estimated size of all items.
+func estimateTableSizeBytes(table *Table) int64 {
+	return table.totalItemSizeBytes
 }

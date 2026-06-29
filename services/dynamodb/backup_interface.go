@@ -129,7 +129,7 @@ func (db *InMemoryDB) CreateBackup(
 
 	now := time.Now()
 	bkpARN := backupARN(region, db.accountID, tableName, now)
-	sizeBytes := estimateTableSizeBytes(snap.Items)
+	sizeBytes := estimateTableSizeBytes(table)
 
 	backup := &Backup{
 		BackupArn: bkpARN, BackupName: backupName,

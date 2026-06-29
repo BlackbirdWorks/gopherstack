@@ -208,6 +208,7 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 		GlobalSecondaryIndexes: models.FromSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
 		LocalSecondaryIndexes:  models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
 		Items:                  make([]map[string]any, 0),
+		itemSizes:              make([]int, 0),
 		mu:                     lockmetrics.New("ddb.table." + tableName),
 		ProvisionedThroughput: models.ProvisionedThroughputDescription{
 			ReadCapacityUnits:  models.DefaultReadCapacity,
@@ -627,7 +628,7 @@ func snapshotTable(table *Table) tableSnapshot {
 		),
 		replicaList:               make([]models.ReplicaDescription, len(table.Replicas)),
 		itemCount:                 int64(len(table.Items)),
-		itemSizeBytes:             estimateTableSizeBytes(table.Items),
+		itemSizeBytes:             estimateTableSizeBytes(table),
 		pt:                        table.ProvisionedThroughput,
 		tableStatus:               types.TableStatus(table.Status),
 		tableArn:                  table.TableArn,
@@ -848,6 +849,53 @@ func (db *InMemoryDB) UpdateTable(
 
 // applyUpdateTableLocked applies all table mutations under table.mu. It is extracted from
 // UpdateTable to reduce cognitive complexity of the parent function.
+// countUpdateTableMutations counts the mutually-exclusive UpdateTable mutation
+// groups present in the input; AWS allows at most one per call.
+func countUpdateTableMutations(input *dynamodb.UpdateTableInput) int {
+	mutations := 0
+	for _, present := range []bool{
+		input.ProvisionedThroughput != nil,
+		len(input.GlobalSecondaryIndexUpdates) > 0,
+		len(input.ReplicaUpdates) > 0,
+		input.SSESpecification != nil,
+		input.StreamSpecification != nil,
+		input.DeletionProtectionEnabled != nil,
+		input.TableClass != "",
+		input.BillingMode != "",
+	} {
+		if present {
+			mutations++
+		}
+	}
+
+	return mutations
+}
+
+// validateUpdateTableMutation enforces the at-most-one-mutation rule and
+// validates provisioned throughput against the effective billing mode.
+func validateUpdateTableMutation(table *Table, input *dynamodb.UpdateTableInput) error {
+	if countUpdateTableMutations(input) > 1 {
+		return NewValidationException(
+			"One or more parameter values were invalid: " +
+				"Up to one of the following can be updated per API call: " +
+				"ProvisionedThroughput, GlobalSecondaryIndexUpdates, ReplicaUpdates, " +
+				"SSESpecification, StreamSpecification, DeletionProtectionEnabled, " +
+				"TableClass, BillingMode",
+		)
+	}
+
+	if input.BillingMode == "" && input.ProvisionedThroughput == nil {
+		return nil
+	}
+
+	billingMode := table.BillingMode
+	if input.BillingMode != "" {
+		billingMode = string(input.BillingMode)
+	}
+
+	return validateProvisionedThroughput(input.ProvisionedThroughput, types.BillingMode(billingMode))
+}
+
 func (db *InMemoryDB) applyUpdateTableLocked(
 	table *Table,
 	tableName string,
@@ -857,13 +905,8 @@ func (db *InMemoryDB) applyUpdateTableLocked(
 	rcu, wcu *int64,
 	out **dynamodb.UpdateTableOutput,
 ) error {
-	// Real DynamoDB rejects requests that change the billing mode and modify GSIs
-	// in the same call; these must be issued as separate UpdateTable calls.
-	if input.BillingMode != "" && len(input.GlobalSecondaryIndexUpdates) > 0 {
-		return NewValidationException(
-			"One or more parameter values were invalid: " +
-				"Cannot modify table billing mode and modify global secondary indexes in the same request",
-		)
+	if err := validateUpdateTableMutation(table, input); err != nil {
+		return err
 	}
 
 	table.mu.Lock("UpdateTable")
@@ -973,6 +1016,21 @@ func (db *InMemoryDB) applyOneReplicaTableEntry(
 		if _, exists := db.Tables[regionName][tableName]; !exists {
 			replica := cloneTableSchema(source, tableName, regionName, db.accountID)
 			replica.GlobalTableName = tableName
+
+			source.mu.RLock("cloneItems")
+			replica.Items = make([]map[string]any, len(source.Items))
+			replica.itemSizes = make([]int, len(source.itemSizes))
+			replica.totalItemSizeBytes = source.totalItemSizeBytes
+			for i, item := range source.Items {
+				replica.Items[i] = deepCopyItem(item)
+				replica.itemSizes[i] = source.itemSizes[i]
+			}
+			source.mu.RUnlock()
+
+			if len(replica.Items) > 0 {
+				replica.rebuildIndexes()
+			}
+
 			db.Tables[regionName][tableName] = replica
 		} else {
 			db.Tables[regionName][tableName].GlobalTableName = tableName

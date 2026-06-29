@@ -86,6 +86,10 @@ func (db *InMemoryDB) QueryWithContext(
 		return nil, err
 	}
 
+	if verr := validateSelectConstraints(input.Select, idxName, projection); verr != nil {
+		return nil, verr
+	}
+
 	candidates, err := db.filterCandidatesForKeyCondition(
 		ctx, snapshotTable, input, projection, keySchema,
 	)
@@ -232,6 +236,16 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 		return nil, err
 	}
 
+	// Parse all condition parts once
+	parsedParts := make([]*ParsedCondition, 0, len(exprParts))
+	for _, part := range exprParts {
+		pc, err := ParseConditionStr(part)
+		if err != nil {
+			return nil, err
+		}
+		parsedParts = append(parsedParts, pc)
+	}
+
 	// Try to use index for primary table queries (not GSI/LSI)
 	if idxName == "" {
 		candidates, ok := db.tryFilterUsingAuthoritativeIndex(
@@ -242,7 +256,7 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 			pkExpr,
 			pkDef,
 			skDef,
-			exprParts,
+			parsedParts,
 			eav,
 		)
 		if ok {
@@ -250,7 +264,7 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 		}
 	}
 
-	return db.filterCandidatesScan(table, input, projection, keySchema, exprParts, eav)
+	return db.filterCandidatesScan(table, input, projection, keySchema, parsedParts, eav)
 }
 
 func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
@@ -261,7 +275,7 @@ func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
 	pkExpr string,
 	_ models.KeySchemaElement,
 	skDef models.KeySchemaElement,
-	exprParts []string,
+	exprParts []*ParsedCondition,
 	eav map[string]any,
 ) ([]map[string]any, bool) {
 	pkValue := extractPKValueFromExpression(pkExpr, eav, input.ExpressionAttributeNames)
@@ -295,7 +309,7 @@ func (db *InMemoryDB) filterUsingIndices(
 	input *dynamodb.QueryInput,
 	_ *models.Projection,
 	indices []int,
-	exprParts []string,
+	exprParts []*ParsedCondition,
 	eav map[string]any,
 ) []map[string]any {
 	candidates := make([]map[string]any, 0, len(indices))
@@ -313,7 +327,7 @@ func (db *InMemoryDB) filterUsingIndices(
 			continue
 		}
 
-		if allExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
+		if allParsedExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
 			candidates = append(candidates, item)
 		}
 	}
@@ -368,7 +382,7 @@ func (db *InMemoryDB) filterCandidatesScan(
 	input *dynamodb.QueryInput,
 	projection *models.Projection,
 	keySchema []models.KeySchemaElement,
-	exprParts []string,
+	exprParts []*ParsedCondition,
 	eav map[string]any,
 ) ([]map[string]any, error) {
 	// naive scan filtering
@@ -377,7 +391,7 @@ func (db *InMemoryDB) filterCandidatesScan(
 	idxName := aws.ToString(input.IndexName)
 
 	for _, item := range table.Items {
-		if !allExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
+		if !allParsedExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
 			continue
 		}
 
@@ -528,14 +542,14 @@ func (db *InMemoryDB) collectQueryPage(
 }
 
 // allExprPartsMatch reports whether all expression parts evaluate to true for the given item.
-func allExprPartsMatch(
-	exprParts []string,
+// allParsedExprPartsMatch reports whether all pre-parsed expression parts evaluate to true.
+func allParsedExprPartsMatch(
+	exprParts []*ParsedCondition,
 	item, eav map[string]any,
 	exprAttrNames map[string]string,
 ) bool {
 	for _, part := range exprParts {
-		m, err := evaluateExpression(part, item, eav, exprAttrNames)
-		if err != nil || !m {
+		if !part.Evaluate(item, eav, exprAttrNames) {
 			return false
 		}
 	}
