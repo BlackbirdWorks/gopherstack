@@ -331,17 +331,98 @@ reach full LocalStack parity and beyond. Highest-leverage themes across the flee
 
 ## Storage & compute
 
-### s3
-- **Parity:** `GetObjectAttributes` ignores the `X-Amz-Object-Attributes` header and always returns
-  the full set (`handler_stubs.go:230-281`).
-- **Performance:** lifecycle transition sweeps hold `bucket.mu.RLock` across the whole O(n) object
-  scan, blocking writers (`janitor.go:1009-1010,1083-1084`); `dispatchAccessLog` does a synchronous
-  `GetBucketLogging` inline on every logged request before spawning (`access_log.go:37-56`).
-- **Leaks:** notification dispatch and access-log dispatch use untracked fire-and-forget goroutines,
-  not drained at shutdown (`object_ops.go:374,480,934,1031`; `multipart_ops.go:267`;
-  `access_log.go:58`).
-- **UI:** no console for S3 Select (`?select`), RequestPayment, Transfer Acceleration (`?accelerate`),
-  RestoreObject (`?restore`), Object Lambda, or Directory Buckets.
+### s3 (deep dive)
+
+S3 is broadly real: multipart upload, versioning + delete markers, SSE crypto that actually
+round-trips (AES-256-GCM for SSE-S3/KMS/C), the lifecycle janitor (expiration/noncurrent/abort/
+transition, with WORM-skip), and notification dispatch (SQS/SNS/Lambda/EventBridge fire for
+real) are all genuinely implemented. Two **systemic** parity gaps dominate the remaining work:
+(1) **access control and default encryption are stored but never enforced on the data plane**,
+and (2) **there is no SigV4 header-auth or `aws-chunked` body decoding**. Details below.
+
+- **Parity — auth / signature:**
+  - No SigV4/SigV2 **header-auth** verification at all — the `Authorization` header is never
+    validated (`handler.go:71`); presigned-URL verification is opt-in and **off by default**
+    (`PresignSecret==""` accepts on structure + expiry only) (`presign.go:124`). SigV2 query
+    presigns (`AWSAccessKeyId`/`Signature`) are unrecognized (`presign.go:35,101`).
+  - No `aws-chunked` / `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` decoding: chunk-signature framing and
+    `x-amz-decoded-content-length` are ignored, so chunked PutObject/UploadPart bodies are stored
+    **with chunk headers inline**, corrupting content and ETag (no handling anywhere).
+- **Parity — access control NOT enforced (stored-but-lies):**
+  - Bucket Policy + ACL are stored but never checked on object GET/PUT/DELETE/List — object ops
+    make zero authorization calls (only `PutObjectAcl` hits `enforceACLPolicy`, `object_ops.go:1233`);
+    a `Deny`/public policy has no effect on real requests.
+  - Public Access Block + Ownership Controls are enforced only at config-**write** time via
+    substring checks (`acl_policy.go:36,117,135`), not on object access; `GetBucketPolicyStatus` is
+    substring-based (`handler_stubs.go:151`). `GetBucketAcl` always returns a hardcoded FULL_CONTROL
+    owner grant, never reflecting stored grants (`bucket_ops.go:999`).
+- **Parity — encryption:**
+  - Bucket **default** encryption is never applied: PutObject encrypts only from request-scoped
+    `sseInfo` (`backend_memory.go:509`); the stored `PutBucketEncryption` config (`bucket_ops.go:1255`)
+    is never consulted, so objects in an SSE-default bucket are stored **plaintext** with no SSE
+    response headers.
+  - SSE-KMS DEK is random, not wrapped under any CMK, and the KMS key is never validated to exist
+    (`sse_crypto.go:67`).
+- **Parity — Object Lock:**
+  - GOVERNANCE bypass missing — `x-amz-bypass-governance-retention` is never read, so GOVERNANCE
+    behaves identically to COMPLIANCE (`backend_memory.go:1106,1138`). Bucket `DefaultRetention` is
+    parsed but never auto-applied on PutObject (`model.go:353`). MFA-Delete is dropped on
+    `putBucketVersioning` (`bucket_ops.go:794`).
+- **Parity — multipart:**
+  - Complete result omits composite `x-amz-checksum-*`/`ChecksumType` (COMPOSITE/FULL_OBJECT) — only
+    ETag (`multipart_ops.go:246`; `backend_memory.go:2178`). `ListParts` omits `StorageClass`/`Owner`/
+    `Initiator` and per-part checksums (`multipart_ops.go:438`). `UploadPartCopy` ignores
+    `x-amz-copy-source-if-*` preconditions and the copy-source-range 416 distinction, and never sets
+    `x-amz-copy-source-version-id` (`multipart_ops.go:132-187`).
+- **Parity — conditional / range / listing:**
+  - Multi-range GET unsupported — only the first range is served, never `multipart/byteranges` 206
+    (`object_ops.go:1539`); `Range` is ignored on HEAD (`object_ops.go:235`). `If-Match`/`If-None-Match`
+    ignore weak-vs-strong and multi-value lists (`object_ops.go:1621`). `response-content-*` GET override
+    query params are ignored (`object_ops.go:736`). ListObjects clamps out-of-range `max-keys` instead of
+    `InvalidArgument`, with a v1 off-by-one that drops `max-keys=1000` to the default
+    (`bucket_ops.go:590`); `ListObjectVersions` hardcodes `StorageClass=STANDARD` (`bucket_ops.go:928`).
+- **Parity — checksums / errors:**
+  - GET/HEAD emit only the first stored checksum, not all set algorithms (`object_ops.go:1286`);
+    `x-amz-checksum-mode=ENABLED` fabricates a CRC32 when none is stored (`object_ops.go:1430`); no
+    CRC64NVME branch (`utils.go:43`). Error XML never populates `<RequestId>`/`<Resource>`
+    (`errors.go:314`). `GetObjectAttributes` ignores the `X-Amz-Object-Attributes` header and returns the
+    full set (`handler_stubs.go:230-281`). `validateExpectedBucketOwner` compares a single hardcoded
+    account `123456789012` (`accuracy.go:308`).
+- **Parity — other subresources (store-and-echo only):** presigned POST policy/conditions/signature are
+  not validated — any form upload is accepted (`post_object.go:39`); website/logging/accelerate/
+  requestpayment/inventory/analytics/metrics/intelligent-tiering all store-and-echo (logging never writes
+  access-log objects; website never serves index/error docs); replication ignores `Filter`/
+  `ExistingObjectReplication` and replicates only new PUTs, not existing objects (`replication.go:85,143`);
+  Object Lambda is a transform stub; Directory Buckets / S3 Express enforce no session-auth or zonal
+  semantics (`bucket_ops.go:2131`).
+- **Performance:**
+  - `ListObjects`/V2/`ListObjectVersions` do a full O(n) scan + O(n log n) sort of **all** matching keys
+    before MaxKeys truncation, with no sorted index (`backend_memory.go:1379-1429,1590,1629`).
+  - `saveObjectVersion` iterates all existing versions under `bucket.mu.Lock`+`obj.mu.Lock` on every PUT
+    (`backend_memory.go:4376`).
+  - Whole-object in-memory buffering everywhere — GET decompresses the whole object into RAM
+    (`backend_memory.go:746`; `object_ops.go:727`); `CopyObject` reads the full source into memory then
+    re-PUTs it (`object_ops.go:490-553`); multipart concatenates all parts into one buffer then gzips
+    (`backend_memory.go:2222-2284`). No streaming.
+  - `dispatch`/`dispatchAccessLog` re-`xml.Unmarshal` the bucket notification/logging config on every
+    event (`notification.go:370`; `access_log.go:42`); lifecycle transition sweeps hold `bucket.mu.RLock`
+    across the whole scan (`janitor.go:1009-1010,1083-1084`).
+- **Leaks:**
+  - Access-log and notification dispatch goroutines are spawned with bare `go`, no WaitGroup, and are not
+    drained at shutdown — one unbounded goroutine per logged/notified request (`access_log.go:58`;
+    `object_ops.go:374,480,934,1031`; `handler_stubs.go:342`).
+  - No handler-level `Shutdown` exists and `Provider.Init` never calls `backend.Shutdown()`
+    (`provider.go:25-41`), so even the replication drain + serviceCtx cancel are effectively never invoked
+    in production — only the janitor stops (via its ctx). `b.tags` keyed by `bucket/key/version` grows with
+    versioned writes, evicted only on delete/lifecycle. (Multipart uploads ARE GC'd at 24h — not a leak.)
+- **UI:** broad coverage (bucket CRUD; object upload/download/copy/rename/preview/bulk-delete; versioning
+  toggle, encryption toggle, tagging, policy/ACL/PAB, lifecycle add/delete, CORS, multipart list/abort,
+  object-lock config, notifications/replication/logging/ownership/analytics read; object subpage with
+  versions/tags/presign; region-change handled). Missing: RestoreObject/Glacier (`handler.go:284`),
+  SelectObjectContent (`handler.go:242`), per-object PutObjectRetention/PutObjectLegalHold
+  (`handler.go:227-229`), object-level ACL put, Accelerate (`handler.go:281`), RequestPayment
+  (`handler.go:276`), GetObjectAttributes (`handler.go:277`), **create** (not just read/delete) for
+  notification/replication/analytics/metrics/inventory/tiering configs, and versioning Suspend distinction.
 - _Recently closed:_ ABAC/inventory/journal/directory-bucket no-ops now persist; default-multipart and
   noncurrent-version sweeps de-locked; replication goroutine cancels+waits on Shutdown; lifecycle/CORS/
   policy/versioning/encryption/ACL/object-lock/replication/tagging/batch-delete UI all added.
