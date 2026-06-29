@@ -1,20 +1,24 @@
-# gopherstack Parity Audit — DynamoDB deep dive
+# gopherstack Parity Audit — DynamoDB + popular services
 
-**Goal: 100% real AWS emulation for DynamoDB (match and exceed LocalStack's open tier),
-then carry the same bar to the other popular services.**
+**Goal: 100% real AWS emulation (match and exceed LocalStack's open tier), starting with
+DynamoDB and the most-used LocalStack-core services.**
 
-This document is the live punch-list for the **DynamoDB family** — `dynamodb`,
-`dynamodbstreams`, and `dax` — audited against four axes: **AWS-emulation parity**,
-**performance**, **resource leaks**, and **UI/console coverage**. Every bullet below is a
-concrete, code-cited *remaining* gap (`file:line`). When an item lands, delete it from here.
-Items that were in the previous audit and have since been fixed are not repeated; the
-"Recently closed" section records them so the history is auditable without re-reading git.
+This document is the live punch-list for the **DynamoDB family** (`dynamodb`,
+`dynamodbstreams`, `dax`) plus the **popular services** (S3, Lambda, SQS, SNS, IAM, STS,
+KMS, Secrets Manager, SSM, CloudFormation, CloudWatch, CloudWatch Logs, EventBridge,
+Kinesis, Firehose, API Gateway v1/v2, EC2, ECR, ECS, Route 53, Step Functions, ElastiCache,
+OpenSearch). Each is audited against four axes: **AWS-emulation parity**, **performance**,
+**resource leaks**, and **UI/console coverage**. Every bullet is a concrete, code-cited
+*remaining* gap (`file:line`). When an item lands, delete it from here. Fixed items are not
+repeated as gaps; a compact `_Recently closed_` line per service records them so the history
+is auditable without re-reading git.
 
-**How this scan was produced.** The Go sources under `services/dynamodb/`,
-`services/dynamodbstreams/`, and `services/dax/` (handlers, `*_ops.go`, janitor,
-persistence, the `expr/` evaluator, and the DAX `dataplane/`) were read directly against
-the AWS SDK v2 surface, and the Svelte console under `ui/src/routes/dynamodb/` and
-`ui/src/routes/dax/` was compared to the backend operation surface.
+**How this scan was produced.** Each service's Go sources under `services/<name>/` (handlers,
+`*_ops.go`, janitor, persistence, evaluators, the DAX `dataplane/`) were read directly against
+the AWS SDK v2 surface, and the Svelte console under `ui/src/routes/<name>/` was compared to
+the backend operation surface. The previous full-fleet audit's findings were used to seed each
+service so this pass verifies *current* code (fixed vs. still-present) rather than restating
+stale claims.
 
 **Working principles (apply to every fix):**
 - **No stubs that lie.** An advertised op must mutate/return real state or return the
@@ -312,3 +316,325 @@ typed data-plane errors no longer collapse to `ValidationException`; `Consistent
 `GetItem`; `attrToID` map bounded; schema cache removed (no stale-after-recreate); rebooted nodes
 recover. **UI:** GSI delete wired; stream shard/record viewer added; `UpdateTable` wired for
 streams/deletion-protection/replicas.
+
+---
+
+# Popular services — remaining gaps
+
+Same four axes, same code-cited rule. These services are largely complete (most prior-audit
+gaps are now fixed — see each `_Recently closed_` line); what follows is the remaining tail to
+reach full LocalStack parity and beyond. Highest-leverage themes across the fleet: a few
+**lifecycle state machines** still resolve instantly (`elasticache`, `opensearch`, parts of
+`ssm`), some **async failure/retry paths** drop instead of routing to DLQ/destinations
+(`lambda`, `sns`, `firehose`), a handful of **non-opaque pagination tokens** remain, and the
+**console still trails the backend** on advanced ops in several services.
+
+## Storage & compute
+
+### s3
+- **Parity:** `GetObjectAttributes` ignores the `X-Amz-Object-Attributes` header and always returns
+  the full set (`handler_stubs.go:230-281`).
+- **Performance:** lifecycle transition sweeps hold `bucket.mu.RLock` across the whole O(n) object
+  scan, blocking writers (`janitor.go:1009-1010,1083-1084`); `dispatchAccessLog` does a synchronous
+  `GetBucketLogging` inline on every logged request before spawning (`access_log.go:37-56`).
+- **Leaks:** notification dispatch and access-log dispatch use untracked fire-and-forget goroutines,
+  not drained at shutdown (`object_ops.go:374,480,934,1031`; `multipart_ops.go:267`;
+  `access_log.go:58`).
+- **UI:** no console for S3 Select (`?select`), RequestPayment, Transfer Acceleration (`?accelerate`),
+  RestoreObject (`?restore`), Object Lambda, or Directory Buckets.
+- _Recently closed:_ ABAC/inventory/journal/directory-bucket no-ops now persist; default-multipart and
+  noncurrent-version sweeps de-locked; replication goroutine cancels+waits on Shutdown; lifecycle/CORS/
+  policy/versioning/encryption/ACL/object-lock/replication/tagging/batch-delete UI all added.
+
+### lambda
+- **Parity:** async failure path never delivers to DLQ or `DestinationConfig` (OnFailure/OnSuccess) —
+  config is stored but no dispatch exists (`backend.go:2127-2130,507`; `handler.go:1903`). `LogType=Tail`
+  unsupported — `X-Amz-Log-Type` never read, no base64 `X-Amz-Log-Result` header (`handler.go:1955-1973`).
+  `X-Amz-Client-Context` ignored.
+- **Performance:** `withInvocationChain` allocates a fresh slice per invocation on the hot path
+  (`backend.go:116-122`; documented as intentional, minor).
+- **Leaks:** none material remaining.
+- **UI:** no console for reserved/provisioned concurrency, event-invoke-config/DLQ/destinations,
+  code-signing, layer-version permissions, runtime-management, Function-URL update + invoke-via-URL, ESM
+  update, recursion/scaling config, SnapStart.
+- _Recently closed:_ real vnd.amazon.eventstream framing; true fire-and-forget async invoke; ESM health
+  sweeps; `activeConcurrencies` zero-delete; `cleanupSem`/`logSem` Reset-safe.
+
+### ec2
+- **Parity:** ~389 ops still return bare `stubResponse{Return:true}` (CreateVpnConnection, all IPAM,
+  TrafficMirror, LocalGateway, CapacityReservation, VerifiedAccess) — `handler_stubs.go:8-13,1622`.
+  `DescribeInstances`/`DescribeImages`/`DescribeInstanceTypes` NextToken is base64-wrapped but still a raw
+  decimal offset, decodable/forgeable (`handler.go:610-618,631`; `handler_ext.go:752`).
+- **Performance:** `DeleteVpc` still does two full-map O(n) scans under the write lock — ENIs
+  (`backend.go:1164`) and NAT gateways (`backend.go:1141`) — instead of per-VPC indexes.
+- **Leaks:** none (terminated-instance/cancelled-spot janitor TTLs; lifecycle goroutine ctx-cancel).
+- **UI:** console covers only core + VpcEndpoint; CreateFleet, transit gateways, IPAM, traffic mirror,
+  VPN, verified access, reserved instances, dedicated hosts, capacity reservations, network insights have
+  backend state but no UI.
+- _Recently closed:_ lifecycle ctx-cancel; real CreateFleet; DescribeImages pagination; DeleteVpc
+  secondary-index cascades; correct EC2 error XML shape; persistence covers new resource maps.
+
+### ecr
+- **Parity:** `DescribeImages` nextToken is the raw `imageDigest`, not opaque (`handler.go:988`);
+  `GetAuthorizationToken` returns a constant `dummy-password` for every registry (`handler.go:34,720`;
+  intentional for deterministic `docker login`).
+- **Performance / Leaks:** none remaining.
+- **UI:** `GetAuthorizationToken` has no console surface.
+- _Recently closed:_ opaque tokens for DescribeRepositories/ListImages/PullThroughCache; ScanFrequency
+  modes; LayerInaccessibleException; all three O(n) scans indexed; lifecycle/repo-policy/scan/pull-through UI.
+
+### ecs
+- **Parity:** `ExecuteCommand` returns a synthetic non-connectable SSM `StreamURL`/`TokenValue` with no
+  honesty signal (`backend_ext.go:679-687`); `DiscoverPollEndpoint` returns synthetic hosts
+  (`handler_stubs.go:492`).
+- **Performance:** `Purge` holds the write lock across a full nested scan of every task-def family/revision
+  (`backend.go:404-439`).
+- **Leaks:** `Reconciler.sems` grows one entry per cluster, never deleted (`reconciler.go:39-50`);
+  `realDockerRunner.containers` keeps stale entries for containers that exit on their own
+  (`docker_runner.go:120-122,283`).
+- **UI:** no RunTask/StopTask actions, no Daemon ops, no ExecuteCommand (read views + UpdateService only).
+- _Recently closed:_ Daemon CRUD backend-backed; Submit*StateChange mutate real state; real Docker task
+  runner; capacity providers with managed scaling; cached cluster counters.
+
+## Messaging & streaming
+
+### sqs
+- **Performance:** `computeMD5OfMessageAttributes` re-sorts+re-encodes all attributes on every receive
+  rather than memoizing at send (`backend.go:427-453`; low severity).
+- **Parity / Leaks / UI:** none remaining — region-scoped URL lookup, activity-filtered prune, and the
+  message-move-task panel are all in place.
+- _Recently closed:_ region-scoped `lookupQueueByURL`; activity-filtered `pruneState`; move-task UI.
+
+### sns
+- **Parity:** HTTP/HTTPS delivery is fire-once with no AWS retry/backoff on 5xx — failures go straight to
+  DLQ or are dropped (`backend.go:2925-2937`).
+- **Leaks:** `smsDeliveries`/`applicationDeliveries`/`emailDeliveries` slices append on every delivery and
+  are only cleared by `Reset()`/test drains — no age-based purge (`backend.go:2262,4229-4231`;
+  `lambda_firehose_delivery.go:181`; `Purge` at `4105-4119` skips them).
+- **UI:** SMS-sandbox ops (Create/Verify/Delete/List SandboxPhoneNumber) and opt-out ops are docs-only,
+  no interactive panel (`+page.svelte:1033-1036`).
+- _Recently closed:_ persisted SMS-sandbox state; O(1) dedup eviction; fifoSeqNums delete-on-DeleteTopic;
+  platform-app + filter-policy UI.
+
+### eventbridge
+- **Parity:** `PutEvents`/`PutPartnerEvents` always return `FailedEntryCount: 0` even when entries carry
+  an `ErrorCode` (`handler.go:673-676,1434-1437`). API-destination target ARNs fall through to a `default`
+  warn branch and are silently dropped (`delivery.go:418-421`). InputTransformer string-variable
+  substitution doesn't quote/escape, can emit invalid JSON (`delivery.go:627-632`). `ListRules`/
+  `ListTargetsByRule` silently ignore the request `Limit` (`handler.go:54,88` defined, dropped at
+  `556-561,649-654`; backend has no limit param `backend.go:967,1173`).
+- **Performance:** `PutEvents` holds the write lock across `captureEventInArchives`, which recompiles each
+  pattern per event via `matchPattern`/`compilePattern` rather than the cache (`backend.go:1211,1251,2865`).
+- **Leaks:** none material (tag map cleared on bus/rule delete; patternCache reset + janitor-cleared).
+- **UI:** Pipes, Endpoints, Schema Registry, PutPermission/RemovePermission, DescribeReplay,
+  ListApiDestinations are docs-only, no controls (`+page.svelte:320-346`).
+- _Recently closed:_ opaque base64 nextToken; per-account bus quota; ListEventBuses Limit; worker
+  ctx-cancel on Shutdown; patternCache Reset-safe; archives Replay + connection CRUD UI.
+
+### kinesis
+- **Parity:** `CreateStream` accepts an invalid non-empty `StreamMode` string verbatim (no reject)
+  (`backend.go:395-410`).
+- **UI:** Split button passes the shard's own `StartingHashKey`, which the backend always rejects — should
+  pass the range midpoint (`+page.svelte:406`; `backend.go:1791`); Merge picks an arbitrary non-adjacent
+  shard, also rejected (`+page.svelte:396`; `backend.go:1716`); GetRecords hardcodes TRIM_HORIZON + one
+  page, no `NextShardIterator` follow-up (`+page.svelte:167`); no UI for PutRecords/UpdateShardCount/
+  consumers (enhanced fan-out)/tags/encryption/retention/stream-mode; "Consumers" stat hardcoded `0`.
+- **Performance / Leaks:** none remaining (read-lock retention sweep; janitor Stop()).
+- _Recently closed:_ handler-tag cleanup on every delete path; read-lock retention sweep; janitor shutdown;
+  kinesis UI added (basic).
+
+### firehose
+- **Parity:** Lambda transform only runs for the S3 destination — HTTP/Redshift/OpenSearch/Splunk carry
+  `ProcessingConfiguration` but never invoke it (`backend.go:970-999`). Transform/delivery failures
+  silently drop records (buffer cleared before delivery, no retry/backup-prefix routing; `FailedRecords`
+  metric never written) (`backend.go:961-980,293`). Record-format conversion (Parquet/ORC),
+  DynamicPartitioning, CloudWatchLogging, S3 KMS, and `FileExtension` are stored but inert
+  (`backend.go:165,171-172,1115-1130`). `UpdateDestination` can't switch/clear a destination type and skips
+  the version check when `currentVersionID == ""` (`backend.go:708-730`). `ListDeliveryStreams` ignores the
+  `DeliveryStreamType` filter (`handler.go:681`).
+- **Performance:** `intervalFlusher` scans every region×stream each 1s tick regardless of activity
+  (`backend.go:775-804`); `ListDeliveryStreams` re-sorts all names every call (`backend.go:562`).
+- **Leaks:** `NewInMemoryBackend` defaults `svcCtx` to `context.Background()`, so deliveries dispatched
+  via `b.svcCtx` are unbounded if the backend is built without a context (`backend.go:346-357,609,674`).
+- **UI:** no Tag/Untag/ListTags or UpdateDestination controls; HTTP/Splunk destinations don't render
+  (`+page.svelte:6-16,367-453`).
+- _Recently closed:_ Start/Stop encryption persist real config; ListDeliveryStreams pagination; all-five
+  destination UpdateDestination; encryption shown in DescribeDeliveryStream.
+
+## Identity & security
+
+### iam
+- **Parity:** `SimulateCustomPolicy` ignores permission boundaries (no `AllowedByPermissionsBoundary`),
+  disagreeing with `SimulatePrincipalPolicy` which intersects them (`backend_refinement.go:615` vs
+  `backend.go:2322-2339`). `GetCredentialReport` returns canned `no_information` for last-used columns
+  (`backend_refinement2.go:252-306`).
+- **Leaks:** `DeletePolicy` never deletes `policyVersionCounters[arn]` or `deletedV1Policies[arn]`; `Reset`
+  also omits `deletedV1Policies` — repeated create/delete grows both maps (`backend.go:863-907,2506-2512`).
+- **UI:** policy simulation and credential-report are docs-only, no interactive panel (`+page.svelte:598,600`).
+- _Recently closed:_ distinct not-found sentinels; real policy-evaluation engine with boundary
+  intersection; O(1) pagination indexes; IAM UI CRUD.
+
+### sts
+- **Parity:** `DecodeAuthorizationMessage` falls back to decoding any base64 blob after the self-issued
+  check fails (`handler.go:583-594`); `validateSAMLAssertion` checks base64 only, not well-formed SAML XML
+  (`backend.go:1153-1165`).
+- **UI:** no interactive form for AssumeRoleWithSAML / AssumeRoleWithWebIdentity / AssumeRoot /
+  GetDelegatedAccessToken / GetAccessKeyInfo — counters only (`+page.svelte:362-372`).
+- **Performance / Leaks:** none remaining.
+- _Recently closed:_ ASIA-key GetCallerIdentity returns InvalidClientTokenId/ExpiredToken;
+  GetWebIdentityToken removed from supported ops; SAML base64 validation; self-issued message verification;
+  STS panels (AssumeRole/SessionToken/Federation/Decode).
+
+### kms
+- **Parity:** `PutKeyPolicy` stores the policy verbatim without JSON parse/validation, so
+  `MalformedPolicyDocumentException` is never produced (`backend.go:2762-2791`; `handler.go:1043-1064`).
+- **UI:** `DescribeCustomKeyStores` and `GetKeyLastUsage` have no console surface.
+- **Performance / Leaks:** none remaining.
+- _Recently closed:_ alias-resolution cache evicted on disable/delete; `lastUsage` purge; O(1)
+  `clearResolutionCache`; full KMS UI (key-store/rotation/sign-verify/grants/policies/import).
+
+### secretsmanager
+- **Parity:** `ListSecrets`/`ListSecretVersionIDs`/`BatchGetSecretValue` tokens are plain `strconv.Itoa`
+  offsets (`backend.go:814,973,2020`); reusing a `ClientRequestToken` with different content overwrites the
+  version instead of returning `ResourceExistsException` (`backend.go:48-56`).
+- **Performance:** `GetSecretValue` takes the full write lock just to stamp `LastAccessedDate`, serializing
+  reads (`backend.go:423`); tag filters `Clone()` the whole tag map per secret per `ListSecrets`
+  (`backend.go:883,899`).
+- **Leaks:** rotation scheduler runs a 1s ticker doing an O(n) all-secrets scan every tick regardless of due
+  rotations (`backend.go:105,2471,2503-2509`).
+- **UI:** no coverage for PutSecretValue, resource-policy ops, BatchGetSecretValue, GetRandomPassword,
+  ReplicateSecretToRegions, StopReplicationToReplica.
+- _Recently closed:_ `ValidateResourcePolicy` parses JSON + checks Version/Statement; same-token
+  same-content idempotency.
+
+## Orchestration & APIs
+
+### stepfunctions
+- **Parity:** task history events (`RecordTaskScheduled/Succeeded/Failed`) emit empty detail payloads (no
+  resource/parameters/output/cause), so `GetExecutionHistory` is lossy (`backend.go:1213-1235`).
+- **Leaks:** `mapRuns`/`execMapRuns` are never pruned — `pruneExecutionsLocked` and `DeleteStateMachine`
+  omit them, only `Reset()` clears them, so Map-state executions leak MapRun memory
+  (`backend.go:621-647,1542-1543`).
+- **Performance / UI:** none remaining (status-bucketed ListExecutions; two-phase token sweep; sfn route
+  with StartExecution/CreateStateMachine/history/Redrive/Activity/version-alias/Express).
+- _Recently closed:_ TestState executes the state; MapRun stored; prune tombstones; handler tags cleared;
+  full sfn UI.
+
+### apigateway (v1)
+- **Parity:** `runRequestValidator` only checks `json.Valid`, never validates against the model schema
+  (`proxy.go:700`); non-opaque integer-index pagination, default page size 500 vs AWS 25
+  (`backend.go:289-309`); `GetUsage` returns empty `Items` (`backend.go:3422-3427`); backend
+  `TestInvokeMethod`/`TestInvokeAuthorizer` are hardcoded mocks (`backend.go:2766-2772,3180-3187`); canned
+  stubs persist (GetSdk/GetSdkType(s), ImportApiKeys, DomainNameAccessAssociations,
+  `handler_stubs.go:245-284`); `FlushStageCache` is a no-op (`handler.go:3357-3366`).
+- **Performance:** `dispatch` rebuilds the full op→handler table via ~20 sub-constructors + `maps.Copy` on
+  every request (`handler.go:2972,2778-2795`); proxy rebuilds the resource-path trie per data-plane request
+  (`proxy.go:1390-1393`); `GetAPIKeyByValue` is a linear scan per apiKey-required request (`backend.go:1899`).
+- **Leaks:** `selRegexpCache` keyed by user patterns has no eviction (`handler.go:640`; `proxy.go:1093-1109`).
+- **UI:** resources/methods/integrations read-only; no CreateResource/PutMethod/PutIntegration/createStage/
+  createAuthorizer/createRequestValidator/TestInvokeMethod forms; no export/base-path-mapping/gateway-
+  response/client-cert/VPC-link UI.
+- _Recently closed:_ handler `testInvokeMethod` executes MOCK templates + Lambda integrations;
+  FlushStageAuthorizersCache actually flushes.
+
+### apigatewayv2
+- **Parity:** `ExportApi` shape wrong (wraps spec instead of returning the raw OpenAPI body) and omits
+  `components`/`securitySchemes` (`handler.go:1446`; `backend.go:~3255-3290`); `CreateApiMapping` doesn't
+  reject a duplicate mapping key on a domain (`backend.go:1552-1591`); errors are `{"message"}` with no
+  `x-amzn-ErrorType` header (`handler.go:626,651,665`; `models.go:413`); authorizationType enum not strictly
+  validated.
+- **Performance:** sub-resource dispatch maps rebuilt per request (`handler.go:698-740`); `Snapshot`
+  marshals the whole backend under RLock (`persistence.go:42-72`); create ops do O(n) duplicate-key scans
+  under write lock.
+- **Leaks:** `DeletePortalProduct` leaves `portalProductSharingPolicies` entry behind (`backend.go:3080-3093`).
+- **UI:** no Models, Integration/Route Responses, Api Mappings, Routing Rules, Portals,
+  Import/Reimport/Export, ResetAuthorizersCache; hardcoded `supportedOperations` diverges from backend
+  (`+page.svelte:180-183`).
+- _Recently closed:_ ImportApi/ReimportApi parse OpenAPI and apply routes/integrations; real page.New
+  pagination; ProtocolType enum validated; v2 create/delete UI for routes/stages/integrations/authorizers/
+  deployments.
+
+## Management, config & data
+
+### ssm
+- **Parity:** `DescribeInventoryDeletions` is a stub returning `[]` (`backend_ops.go:413`);
+  `ListDocumentMetadataHistory` returns empty `ReviewerResponse` (`backend_ops.go:120`);
+  `GetDeployablePatchSnapshotForInstance`/`GetDefaultPatchBaseline` synthesize fake IDs/URLs ignoring stored
+  state (`backend_ops.go:989,717`); `DescribeAssociationExecutions/Targets` fabricate a fresh UUID
+  ExecutionID per call, so results aren't stable/queryable (`backend_batch2.go:992,1027`).
+- **Leaks:** terminated sessions marked `Terminated` but never evicted from `sessionsStore`, no cap
+  (`backend_stubs.go:1664`).
+- **UI:** only Parameter Store + Maintenance Windows tabs; no parameter history/labels, SecureString
+  decrypt, Documents, Run Command, Sessions, Automation, Patch baselines, OpsItems, Inventory, Compliance,
+  Associations (`+page.svelte:1-198`).
+- _Recently closed:_ real per-instance AES-256 KMS encryptor; batch2 outputs populate stored data; empty
+  region sub-maps GC'd; on-write expiry moved to janitor.
+
+### cloudformation
+- **Parity:** change-set `computeChanges` emits only Add/Modify, never Remove, so `DescribeChangeSet`
+  under-reports deletions (runtime UpdateStack still deletes them — preview-only gap)
+  (`backend.go` computeChanges); `Fn::ForEach` (Languages Extensions) unsupported (`template.go`; all other
+  intrinsics present).
+- **Performance / Leaks:** none remaining.
+- **UI:** no type/registry management, resource scans, generated templates, stack refactors, hook results,
+  stack-instance detail, nested-stack tree, or SignalResource/RollbackStack/ContinueUpdateRollback.
+- _Recently closed:_ 183 resource types; YAML+JSON parse; nested stacks; real drift; Add/Modify change sets;
+  export collision detection; change-sets/drift/stack-sets/policy UI.
+
+### cloudwatch
+- **Parity:** `GetMetricWidgetImage` returns a hardcoded 1×1 PNG (`handler.go:2655-2657`);
+  `DescribeAlarmContributors` always empty (`backend.go:2455-2475`); EC2 (`arn:aws:automate:`) and
+  AutoScaling alarm actions are logged-and-skipped — only SNS + Lambda fire (`backend.go:1791-1800`);
+  `GetMetricData` doesn't paginate (`backend.go:915`).
+- **UI:** no insight rules / contributor insights, alarm mute rules, managed insight rules, or
+  GetMetricWidgetImage (`+page.svelte:44`).
+- **Performance / Leaks:** none remaining (two-phase metric sweep; bounded metric storage; ticker-based
+  alarm eval).
+- _Recently closed:_ MetricStreams/AnomalyDetectors/MetricFilters UI; real mute-rules/managed-insight-rules;
+  sweep + stream-delivery lock contention fixed; tag Close() leak fixed.
+
+### cloudwatchlogs
+- **Parity:** 5 list ops still emit raw `strconv.Itoa` tokens despite a base64 helper existing —
+  DescribeLogAnomalyDetectors/ListScheduledQueries/account-policies/DescribeMetricFilters/query-definitions
+  (`backend.go:3134,3238,3362,3488,3659`); `StopQuery` is cosmetic since queries complete synchronously
+  (`backend.go:2393`).
+- **Performance:** `collectQueryEvents` does an O(events) full scan per query under RLock
+  (`backend.go:2254`); `retentionTargets` allocates O(regions×groups) per janitor tick (`janitor.go:106`).
+- **UI:** no anomaly detectors, scheduled queries, account policies, deliveries, index policies, transformers.
+- **Leaks:** none remaining (bounded event storage; bounded subscription-delivery goroutines; capped
+  compiled-pattern cache).
+- _Recently closed:_ ListAnomalies/GetScheduledQueryHistory/UpdateAnomaly real; BytesScanned computed;
+  two-phase retention sweep; opaque base64 tokens; subscription/metric-filter/query-def/export-task UI.
+
+### route53
+- **Parity:** `TestDNSAnswer` ignores `Weight` for weighted routing (returns first by `SetIdentifier`
+  sort) and resolves alias records to the literal `AliasTarget.DNSName` string without recursing or
+  consulting `EvaluateTargetHealth` (`backend.go:2818-2821,2867-2880`).
+- **Performance / Leaks / UI:** none remaining — HealthCheck/TrafficPolicy/CidrCollection/DelegationSet/
+  QueryLogging/DNSSEC/KeySigningKey all have console coverage; counts are O(1).
+- _Recently closed:_ backend tag ops + batch ListTags; ListHostedZonesByName/ByVPC filtering;
+  health-check last-failure observations; count ops; missing-op UI.
+
+### elasticache
+- **Parity:** cluster/replication-group/snapshot lifecycle is instantaneous — status set straight to
+  `available`, no `creating`/`modifying`/`deleting`/`snapshotting` transitions, so SDK waiters never see
+  intermediate states (`backend.go:845,1176,1412,1685`).
+- **Performance:** `createClusterLocked` calls `miniredis.Start()` while holding `b.mu.Lock`, serializing
+  all backend ops behind listener startup (`backend.go:869,896`).
+- **Leaks / UI:** none remaining (Reset closes miniredis; updateActions capped; serverless/global-RG/
+  user-group/reserved-node UI present).
+- _Recently closed:_ reserved-offerings seeded; updateActions capped; Reset closes miniredis; four UI ops.
+
+### opensearch
+- **Parity:** domain endpoint is a cosmetic `search-…es.amazonaws.com` string with no real/proxied search
+  service, so `_search`/indexing is non-functional (`backend.go:585,600,2692`); no lifecycle —
+  `Status:"Active"` immediately, `Processing:false` hardcoded, `Created`/`Deleted` booleans omitted
+  (`handler.go:655-662,1418-1419`); `CancelServiceSoftwareUpdate` returns canned `CANCELLED`, mutates
+  nothing (`backend.go:1030-1037`); `DeleteDomain` doesn't clear domainIndexes/scheduledActions/
+  reservedInstances (`backend.go:649-666`).
+- **UI:** no inbound/outbound connections, data sources, VPC endpoints, serverless collections, scheduled
+  actions, reserved instances, auto-tune, dry-runs.
+- **Performance / Leaks:** none remaining.
+- _Recently closed:_ SAML JSON tags; AcceptInboundConnection not-found; AssociatePackages validation;
+  DeleteDomain cascade; CancelDomainConfigChange mutates state; single-lock ListDomainNames; O(1)
+  CreateApplication.
