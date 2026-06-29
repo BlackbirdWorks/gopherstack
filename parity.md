@@ -319,6 +319,163 @@ streams/deletion-protection/replicas.
 
 ---
 
+# Cross-service integration — does it interoperate like AWS?
+
+A separate axis from per-service correctness: do the services wire together end-to-end the way
+AWS does (S3→Lambda events, EventBridge→targets, API Gateway→Lambda, Step Functions→service
+integrations, CloudFormation→real backends, alarms→SNS, etc.)? This was verified by tracing each
+producer → transport → consumer path in code.
+
+**How cross-service calls are wired.** Two mechanisms: (1) the `pkgs/events` in-memory emitter —
+used only for SNS publish fan-out and S3-notification subscribers; (2) **explicit typed adapters
+injected at startup in `cli.go`** via `Set*Invoker`/`Set*Integration`/`Set*Backend`. The advertised
+`service.Registry.GetByName` is **not** the general data-plane mechanism (it's test/logging-only),
+though a few stream consumers do resolve targets through a `byName` map built in `cli.go`.
+
+**The recurring root cause of broken interop.** For many integrations the delivery/dispatch code
+exists inside the service, but the corresponding `Set*` hookup is **missing in `cli.go`**, so the
+dependency is `nil` and the call silently no-ops — frequently returning "success", so there is no
+error, no retry, and no DLQ. The fixes are mostly one-line wiring additions in `cli.go`, not new
+features.
+
+**Scorecard.** Works end-to-end: S3 event fan-out; SNS→SQS; SQS→DLQ; EventBridge/Scheduler →
+Lambda/SQS/SNS(/SFN); Pipes(SQS-source)→Lambda/SFN; DynamoDB-Streams/Kinesis/SQS → Lambda;
+Kinesis→Firehose; CloudWatch-Logs subscriptions → Lambda/Kinesis/Firehose; API Gateway v1/v2 →
+Lambda (+ real HTTP proxy); Step Functions → Lambda/SQS/SNS/DynamoDB and `.waitForTaskToken`;
+CloudFormation → real backends (~60 types, shared state); CloudWatch alarm → SNS/Lambda; Secrets
+Manager rotation → Lambda; Resource Groups Tagging aggregation; SSM SecureString → KMS. Broken or
+unwired: **SNS→Lambda, SNS→Firehose**; EventBridge → Kinesis/Firehose/StepFunctions/ECS/Logs/
+API-destination; Scheduler → EventBus/Kinesis/SageMaker/ECS; Pipes → all non-Lambda/SFN targets and
+all non-SQS sources; Lambda ESM for Kafka/MSK/DocDB/MQ; ESM `FilterCriteria`; Lambda async DLQ/
+destinations; API Gateway → AWS service integrations; Step Functions → ECS/Glue/EventBridge/
+SfnStartExecution; CloudTrail/Config capture; Backup recovery points; Cognito→Lambda triggers; RAM
+cross-account; Cloud Control (disjoint state); KMS use by S3/DynamoDB/Secrets Manager.
+
+### Event fan-out — S3, SNS, SQS
+- **S3 → SQS / SNS / Lambda / EventBridge:** WORKS — `dispatchToQueue`/`dispatchToTopic`/`dispatchToLambda`/
+  `dispatchToEventBridge` call the real target backends through adapters (`s3/notification.go:402-486`;
+  wired `cli.go:3250-3272`).
+- **SNS → SQS:** WORKS — `Publish` emits `SNSPublishedEvent`; the SQS subscriber delivers to the real queue,
+  raw + envelope (`sns/backend.go:2111,2183`; `sqs/sns_delivery.go:46-110`).
+- **SNS → Lambda:** BROKEN — delivery code is correct but `b.lambdaBackend==nil` early-returns; `SetLambdaBackend`
+  is **never called in `cli.go`** (tests only) (`sns/lambda_firehose_delivery.go:83-102`).
+- **SNS → Firehose:** BROKEN — same pattern, `SetFirehoseBackend` never wired (`lambda_firehose_delivery.go:109`).
+- **SNS → HTTP/SMS/email:** PARTIAL — one real HTTP POST, no retry despite `numRetries:3`; SMS/email go to
+  in-memory sinks (`sns/backend.go:2925-2937`; `lambda_firehose_delivery.go:150-156`).
+- **SQS redrive → DLQ:** WORKS in-region — moves real messages at `ReceiveCount>=maxReceiveCount`
+  (`sqs/backend.go:377-404,1683-1692`); cross-region DLQ silently not configured.
+
+### EventBridge / Pipes / Scheduler → targets
+- **EB rule → Lambda / SQS / SNS:** WORKS — real `InvokeFunction`/`SendMessageToQueue`/`PublishToTopic`
+  (`eventbridge/delivery.go:404-466`; wired `cli.go:3191-3203`).
+- **EB rule → Kinesis / Firehose / Step Functions / ECS:** BROKEN — dispatch exists but `dt.KinesisStream`/
+  `Firehose`/`StepFunctions`/`ECS` are never wired in `wireEventBridgeDelivery`, so `svc==nil` returns `false`
+  (success) → **silent drop** (`delivery.go:468-517`; `cli.go:3187-3207`).
+- **EB rule → CloudWatch Logs / API destination:** BROKEN — no ARN case; falls to the `default` "unsupported
+  target" warn + drop (`delivery.go:418-421`); API destinations are CRUD-only (`backend.go:1530-1556`).
+- **Scheduler → Lambda / SQS / SNS / SFN:** WORKS (`scheduler/runner.go:482-601`; wired `cli.go:5688-5710`);
+  FIFO-SQS falls back to standard send (sqsFIFO unwired).
+- **Scheduler → EventBus / Kinesis / SageMaker / ECS:** BROKEN — dispatch exists but the setters are omitted in
+  `wireSchedulerRunner`; nil invoker logs "(no invoker)" and returns success (`runner.go:603-745`).
+- **Scheduler `at()` one-time / FlexibleTimeWindow:** BROKEN — `isDue` only handles `rate(`/`cron(`, so `at()`
+  never fires; FlexibleTimeWindow is stored but never read (`runner.go:201-214`).
+- **Pipes (SQS source) → Lambda / SFN:** WORKS, with enrichment (`pipes/runner.go:357-433`; wired `cli.go:5749`).
+- **Pipes → SNS/SQS/Kinesis/EventBridge/Logs/Firehose targets:** BROKEN — setters omitted; surfaces
+  `ErrTargetInvokerUnwired` (routes to DLQ if configured, unlike EB's silent drop) (`runner.go:434-642`).
+- **Pipes non-SQS sources (Kinesis/DynamoDB/MQ/MSK/Kafka):** BROKEN — `pollPipe` only routes `isSQSARN`; other
+  sources are accepted at config but never polled (`runner.go:231-239`).
+
+### Stream consumers & log subscriptions
+- **DynamoDB Streams → Lambda:** WORKS — ESM polls the real stream (`DescribeStreamShards`/`GetStreamRecords`)
+  and invokes the real function (`lambda/event_source_poller.go:269,486-632`; wired `cli.go:2632`).
+- **Kinesis → Lambda:** WORKS (`event_source_poller.go:320-436`; poller `cli.go:3470`, wired `:2626`).
+- **SQS → Lambda:** WORKS with correct partial-batch — `filterByBatchItemFailures` honors
+  `ReportBatchItemFailures` (`event_source_poller.go:649,772`).
+- **Kafka/MSK/DocumentDB/MQ → Lambda:** BROKEN — configs stored but `processOneMapping` only branches
+  SQS/DDB/Kinesis; other ARNs resolve to `""` → silent no-op (`event_source_poller.go:278-281,448`).
+- **Lambda ESM `FilterCriteria`:** BROKEN — stored/round-tripped but never referenced by the poller; all records
+  delivered unfiltered.
+- **Kinesis → Firehose:** WORKS — `launchKinesisPoller` reads the real Kinesis backend and the flush loop drains
+  to the real destination (`firehose/kinesis_source.go:55-134`; `backend.go:497`).
+- **CloudWatch Logs subscription → Lambda / Kinesis / Firehose:** WORKS — `PutLogEvents` matches compiled
+  patterns and the deliverer dispatches to the real backend (`cloudwatchlogs/backend.go:1633`; `cli.go:3969-4004`).
+  Caveat: the same matched events are sent to every filter (not re-filtered per pattern as AWS does).
+- **Lambda async destinations / DLQ → SQS/SNS/EventBridge:** BROKEN — stored only; the exhausted retry loop just
+  logs, and success routes to CloudWatch Logs (`backend.go:2121,2128`). No target ever reached.
+
+### API Gateway & Step Functions integrations
+- **API Gateway v1 → Lambda (AWS_PROXY / AWS):** WORKS — real `InvokeFunction` with proxy-event build + VTL
+  response mapping (`apigateway/proxy.go:822-1023`; wired `cli.go:3370`).
+- **API Gateway v1 → HTTP/HTTP_PROXY:** WORKS — genuine outbound `client.Do` (`proxy.go:1195-1258`).
+- **API Gateway v1 → AWS service integrations (SQS/SNS/DDB/SFN direct):** BROKEN — `dispatchIntegration` switches
+  only AWS_PROXY/AWS/HTTP/MOCK; other AWS URIs return `501` (`proxy.go:429-440`).
+- **API Gateway v2 HTTP/WebSocket → Lambda:** WORKS — payload format 1.0/2.0 / WS event to real Lambda
+  (`apigatewayv2/http_proxy.go:155-344`; `proxy.go:191-258`).
+- **Step Functions → Lambda / SQS / SNS / DynamoDB:** WORKS — real backend adapters (`stepfunctions/asl/
+  executor.go:1098-1292`; wired `cli.go:3441-3449`).
+- **Step Functions → ECS / Glue / EventBridge / SfnStartExecution / APIGateway / EMR:** BROKEN — executor methods
+  exist but `SetECSIntegration`/`SetGlueIntegration`/`SetEventBridgeIntegration` are never called in `cli.go`
+  (nil → `…IntegrationNotConfigured`); the others error as unsupported (`executor.go:1059-1379`).
+- **Step Functions `.waitForTaskToken`:** WORKS — crypto-random token, blocking channel resumed by
+  `SendTaskSuccess/Failure` (`executor.go:818-852`; `backend.go:2122-2256`).
+
+### CloudFormation & Cloud Control provisioning
+- **CloudFormation → real service backends:** WORKS — `storeCLIHandlers`/`extractAllServiceBackends` hand CFN the
+  *same* registered backend singletons the native APIs use, so created resources are immediately visible/usable
+  via their native APIs — true shared state (`cli.go:2406`; `cloudformation/provider.go:159-221`). Verified REAL
+  for S3::Bucket, DynamoDB::Table, SQS::Queue (Ref→real Queue URL), SNS::Topic, Lambda::Function, IAM::Role,
+  EC2::Instance/VPC, StepFunctions::StateMachine, Logs::LogGroup, Events::Rule, KMS::Key, ApiGateway(V2)
+  (`resources*.go`). The only stub path is the `backend==nil` guard returning `<logicalID>-stub`.
+- **`Fn::ImportValue` / exports:** CFN-internal — resolved against CFN's own `exports` store, not a foreign
+  backend (`template.go:585,650,886`).
+- **Cloud Control → service backends:** BROKEN — `CreateResource` writes only its private `b.resources` map and
+  never consults the registry or any backend, so Cloud Control state is **fully disjoint** from the native APIs
+  (`cloudcontrol/backend.go:139`).
+
+### Governance, observability & security
+- **CloudWatch alarm → SNS / Lambda:** WORKS — `executeActions` dispatches to the real SNS/Lambda backends
+  (`cloudwatch/backend.go:1773-1790`; wired `cli.go:3815-3848`); EC2/AutoScaling actions are logged-not-executed.
+- **CloudWatch Logs ← services:** PARTIAL — only Lambda (and Pipes) emit real log lines (`cli.go:3853-3901`); ECS
+  stores `LogConfiguration` as metadata only (`ecs/backend.go:73`); most services are isolated.
+- **Secrets Manager rotation → Lambda:** WORKS — all four rotation steps invoke the real function
+  (`secretsmanager/backend.go:1489-1500`; wired `cli.go:4101`).
+- **Resource Groups Tagging API → cross-service tags:** WORKS — `GetResources` aggregates from real backends
+  (DDB/SQS/SNS/Lambda/KMS/SM) (`resourcegroupstaggingapi/backend.go:259-279`; wired `cli.go:4327-4348`). The
+  distinct Resource Groups service is isolated.
+- **SSM SecureString → KMS:** WORKS — real `Encrypt`/`Decrypt` (`cli.go:3309-3357`).
+- **KMS → S3 SSE-KMS / DynamoDB SSE / Secrets Manager:** BROKEN — these only persist key-id metadata and never
+  call the KMS backend (SSM is the only real KMS consumer).
+- **CloudTrail ← API calls:** BROKEN — no central call-recording hook; no service emits trail events
+  (`services/cloudtrail` has zero subscribers).
+- **Config ← resource changes:** BROKEN — configuration items are recorded only via the explicit
+  `PutResourceConfig` API; no other service feeds it (`awsconfig/backend_real.go:544`).
+- **AWS Backup → DynamoDB / EFS / RDS:** BROKEN — `StartBackupJob` validates and stores a job record but reads no
+  source data and creates no real recovery point (`backup/backend.go:680-715`).
+- **Cognito → Lambda triggers:** BROKEN — `LambdaConfig` stored but no invoker exists; triggers never fire
+  (`cognitoidp/backend.go:83`).
+- **RAM share → cross-account visibility:** BROKEN — shares are stored but no service consults RAM
+  (`ram/backend.go:333-382`).
+
+### Systemic: region/account, ARN & auth consistency
+- **Region/account isolation is inconsistent.** Region-scoped (correct): dynamodb (`store.go:134`), s3
+  (`backend_memory.go:114-115`), kms (`backend.go:300`), eventbridge (`backend.go:185-191`), stepfunctions
+  (`backend.go:199`). **Region-less / flat (cross-region leakage):** lambda (`functions map[name]` + single
+  `region`, `backend.go:217,1115`), ec2 (`backend.go:230-248`), xray (`backend.go:285-298`), swf, cloudwatchlogs
+  (account-global). A same-named Lambda/EC2/X-Ray resource is shared across regions.
+- **Cross-service delivery is name-scoped in the default region, not region-scoped.** SNS→SQS, S3→SQS/SNS, and
+  EventBridge→SQS/SNS strip the region from the target ARN and resolve by name against the backend default
+  region (`sqs/sns_delivery.go:76,131`; `sqs/backend.go:1050,326-331`), so a same-named queue/topic in another
+  region can receive the event, or it silently misses.
+- **ARN construction** is mostly correct (request region/account via `pkgs/arn`), but hardcoded
+  `config.DefaultRegion`/`DefaultAccountID` literals produce wrong-region ARNs in `lambda/runtime_api.go:197`,
+  `cloudformation/handler.go:345`, `timestreamwrite/backend.go:333`, and pervasively in omics/memorydb.
+- **Auth is advisory only** across all services (LocalStack-style): S3 bucket policy is stored but never
+  evaluated on object GET/PUT (`s3/acl_policy.go:114-127`); Lambda resource policy (`b.permissions`) is never
+  consulted by `InvokeFunction` (`lambda/backend.go:1849-1856`); the IAM evaluator isn't gated on cross-service
+  call paths. Uniform parity gap.
+
+---
+
 # Popular services — remaining gaps
 
 Same four axes, same code-cited rule. These services are largely complete (most prior-audit
