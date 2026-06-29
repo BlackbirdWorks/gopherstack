@@ -441,15 +441,15 @@ func (b *InMemoryBackend) copyTenant(t *DistributionTenant) *DistributionTenant 
 
 // ManagedCertificateValidationToken holds per-domain validation state.
 type ManagedCertificateValidationToken struct {
-	Domain           string
-	ValidationStatus string // "PENDING_VALIDATION" or "SUCCESS"
+	Domain           string `json:"domain"`
+	ValidationStatus string `json:"validationStatus"` // "PENDING_VALIDATION" or "SUCCESS"
 }
 
 // ManagedCertificate holds certificate state for a distribution tenant.
 type ManagedCertificate struct {
-	TenantID         string
-	Status           string // "PENDING_VALIDATION" or "SUCCESS"
-	ValidationTokens []*ManagedCertificateValidationToken
+	TenantID         string                               `json:"tenantId"`
+	Status           string                               `json:"status"` // "PENDING_VALIDATION" or "SUCCESS"
+	ValidationTokens []*ManagedCertificateValidationToken `json:"validationTokens,omitempty"`
 }
 
 // GetManagedCertificateDetails returns managed certificate details for a distribution tenant.

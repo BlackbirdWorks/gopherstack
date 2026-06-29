@@ -161,8 +161,10 @@ func TestHandler_CreateStack_WithRollbackConfiguration(t *testing.T) {
 		"Action":       {"CreateStack"},
 		"StackName":    {"rc-stack"},
 		"TemplateBody": {simpleTemplate},
-		"RollbackConfiguration.MonitoringTimeInMinutes":        {"10"},
-		"RollbackConfiguration.RollbackTriggers.member.1.Arn":  {"arn:aws:cloudwatch:us-east-1:123:alarm/MyAlarm"},
+		"RollbackConfiguration.MonitoringTimeInMinutes": {"10"},
+		"RollbackConfiguration.RollbackTriggers.member.1.Arn": {
+			"arn:aws:cloudwatch:us-east-1:123:alarm/MyAlarm",
+		},
 		"RollbackConfiguration.RollbackTriggers.member.1.Type": {"AWS::CloudWatch::Alarm"},
 	}
 	resp := postFormValues(t, h, v)
@@ -232,7 +234,9 @@ func TestHandler_DeleteStack_TerminationProtected_Returns403(t *testing.T) {
 		"Action": {"CreateStack"}, "StackName": {"prot-del"}, "TemplateBody": {simpleTemplate},
 	})
 	postFormValues(t, h, url.Values{
-		"Action": {"UpdateTerminationProtection"}, "StackName": {"prot-del"}, "EnableTerminationProtection": {"true"},
+		"Action": {
+			"UpdateTerminationProtection",
+		}, "StackName": {"prot-del"}, "EnableTerminationProtection": {"true"},
 	})
 
 	resp := postFormValues(t, h, url.Values{
@@ -524,9 +528,9 @@ func TestStackSetOperationList(t *testing.T) {
 	_, err = b.CreateStackInstances("op-list-ss", []string{"111"}, []string{"us-east-1"})
 	require.NoError(t, err)
 
-	ops, err := b.ListStackSetOperations("op-list-ss", "")
+	p, err := b.ListStackSetOperations("op-list-ss", "")
 	require.NoError(t, err)
-	assert.NotEmpty(t, ops)
+	assert.NotEmpty(t, p.Data)
 }
 
 func TestStopStackSetOperation(t *testing.T) {
@@ -573,7 +577,7 @@ func TestGeneratedTemplate_CRUD(t *testing.T) {
 
 	list, err := b.ListGeneratedTemplates("")
 	require.NoError(t, err)
-	assert.NotEmpty(t, list)
+	assert.NotEmpty(t, list.Data)
 
 	err = b.DeleteGeneratedTemplate(gt.GeneratedTemplateID)
 	require.NoError(t, err)
@@ -599,7 +603,7 @@ func TestResourceScan_CRUD(t *testing.T) {
 
 	scans, err := b.ListResourceScans("")
 	require.NoError(t, err)
-	assert.NotEmpty(t, scans)
+	assert.NotEmpty(t, scans.Data)
 
 	resources, err := b.ListResourceScanResources(scanID, "")
 	require.NoError(t, err)
@@ -635,10 +639,16 @@ func TestTypeManagement_ActivateDeactivate(t *testing.T) {
 
 	b := newBackend()
 
-	err := b.ActivateType("AWS::S3::Bucket", "arn:aws:cloudformation:us-east-1::type/resource/AWS-S3-Bucket")
+	err := b.ActivateType(
+		"AWS::S3::Bucket",
+		"arn:aws:cloudformation:us-east-1::type/resource/AWS-S3-Bucket",
+	)
 	require.NoError(t, err)
 
-	err = b.DeactivateType("AWS::S3::Bucket", "arn:aws:cloudformation:us-east-1::type/resource/AWS-S3-Bucket")
+	err = b.DeactivateType(
+		"AWS::S3::Bucket",
+		"arn:aws:cloudformation:us-east-1::type/resource/AWS-S3-Bucket",
+	)
 	require.NoError(t, err)
 }
 
@@ -666,7 +676,9 @@ func TestPublisher_RegisterAndDescribe(t *testing.T) {
 
 	b := newBackend()
 
-	publisherID, err := b.RegisterPublisher("arn:aws:codestar-connections:us-east-1:123:connection/abc")
+	publisherID, err := b.RegisterPublisher(
+		"arn:aws:codestar-connections:us-east-1:123:connection/abc",
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, publisherID)
 
@@ -681,7 +693,13 @@ func TestSignalResource(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "signal-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"signal-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	err = b.SignalResource("signal-stack", "MyBucket", "unique-id-1", "SUCCESS")
@@ -831,7 +849,10 @@ func TestImportStacksToStackSet(t *testing.T) {
 	_, err := b.CreateStackSet("import-ss", "desc", simpleTemplate)
 	require.NoError(t, err)
 
-	err = b.ImportStacksToStackSet("import-ss", []string{"arn:aws:cloudformation:us-east-1:123:stack/my-stack/abc"})
+	err = b.ImportStacksToStackSet(
+		"import-ss",
+		[]string{"arn:aws:cloudformation:us-east-1:123:stack/my-stack/abc"},
+	)
 	require.NoError(t, err)
 }
 
@@ -949,7 +970,13 @@ func TestRollbackStack_ChangesStatus(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "rb-change", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"rb-change",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	err = b.RollbackStack(t.Context(), "rb-change")
@@ -967,7 +994,13 @@ func TestListAll_IncludesDeletedStacks(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "alive", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"alive",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	_, err = b.CreateStack(t.Context(), "dead", simpleTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
@@ -985,12 +1018,18 @@ func TestDescribeEvents_Global(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "ev-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"ev-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
-	events, err := b.DescribeEvents("")
+	p, err := b.DescribeEvents("", "")
 	require.NoError(t, err)
-	assert.NotEmpty(t, events)
+	assert.NotEmpty(t, p.Data)
 }
 
 // ---- Backend: ChangeSet for new stack (ExecuteChangeSet creates stack) --------
@@ -1232,7 +1271,13 @@ func TestCreateStack_AllowedValues_NoOverride_UsesDefault(t *testing.T) {
 		"Resources": {"Q": {"Type": "AWS::SQS::Queue"}}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "av-bad-default", tmpl, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"av-bad-default",
+		tmpl,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	// Default "qa" not in AllowedValues → ROLLBACK_COMPLETE.
 	assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus)
@@ -1244,7 +1289,13 @@ func TestChangeSet_ChangesContainAdd(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "cs-chg", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"cs-chg",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	newTmpl := `{
@@ -1296,7 +1347,13 @@ func TestCreateStack_NestedStack_WithParams(t *testing.T) {
 		}
 	}`, "CHILD_TMPL", quoteJSON(childTemplate))
 
-	stack, err := b.CreateStack(t.Context(), "parent-params", parentTemplate, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"parent-params",
+		parentTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 
@@ -1317,7 +1374,13 @@ func TestBackend_ConcurrentCreateStack(t *testing.T) {
 	for i := range 5 {
 		name := "concurrent-" + string(rune('a'+i))
 		go func(n string) {
-			_, err := b.CreateStack(t.Context(), n, simpleTemplate, nil, cloudformation.StackOptions{})
+			_, err := b.CreateStack(
+				t.Context(),
+				n,
+				simpleTemplate,
+				nil,
+				cloudformation.StackOptions{},
+			)
 			results <- err
 		}(name)
 	}

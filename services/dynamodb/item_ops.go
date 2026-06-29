@@ -85,7 +85,10 @@ func (db *InMemoryDB) getTable(ctx context.Context, name string) (*Table, error)
 // repeated global-lock acquisitions on every PartiQL SELECT / UPDATE / DELETE.
 // The cache is keyed by "partiql:ks:<tableName>" and is automatically invalidated
 // when the entry expires, ensuring schema changes (e.g. recreation) are picked up.
-func (db *InMemoryDB) getKeySchemaForPartiQL(ctx context.Context, tableName string) ([]models.KeySchemaElement, error) {
+func (db *InMemoryDB) getKeySchemaForPartiQL(
+	ctx context.Context,
+	tableName string,
+) ([]models.KeySchemaElement, error) {
 	cacheKey := "partiql:ks:" + tableName
 
 	if v, ok := db.exprCache.Get(cacheKey); ok {
@@ -212,6 +215,27 @@ func extractKey(item map[string]any, schema []models.KeySchemaElement) map[strin
 	for _, k := range schema {
 		if val, ok := item[k.AttributeName]; ok {
 			key[k.AttributeName] = val
+		}
+	}
+
+	return key
+}
+
+// extractKeyWithBase builds a LastEvaluatedKey for index (GSI/LSI) queries.
+// AWS DynamoDB requires the response to contain both the index key attributes
+// AND the base-table primary key so that pagination tokens are unambiguous even
+// when multiple items share the same index sort-key value.
+func extractKeyWithBase(
+	item map[string]any,
+	indexSchema []models.KeySchemaElement,
+	tableSchema []models.KeySchemaElement,
+) map[string]any {
+	key := extractKey(item, indexSchema)
+	for _, k := range tableSchema {
+		if _, exists := key[k.AttributeName]; !exists {
+			if val, ok := item[k.AttributeName]; ok {
+				key[k.AttributeName] = val
+			}
 		}
 	}
 
@@ -429,7 +453,10 @@ func (db *InMemoryDB) snapshotIndexForQuery(
 
 // snapshotSinglePKIndex copies only the entries for pkValue from the primary index.
 // Must be called with the table read-lock held.
-func snapshotSinglePKIndex(table *Table, pkValue string) (map[string]int, map[string]map[string]int) {
+func snapshotSinglePKIndex(
+	table *Table,
+	pkValue string,
+) (map[string]int, map[string]map[string]int) {
 	if table.pkskIndex != nil {
 		return snapshotPKSKEntry(table.pkskIndex, pkValue)
 	}
@@ -458,7 +485,10 @@ func snapshotPKSKEntry(
 }
 
 // snapshotPKEntry copies a single partition key entry from a pk-only index.
-func snapshotPKEntry(pkIndex map[string]int, pkValue string) (map[string]int, map[string]map[string]int) {
+func snapshotPKEntry(
+	pkIndex map[string]int,
+	pkValue string,
+) (map[string]int, map[string]map[string]int) {
 	idx, ok := pkIndex[pkValue]
 	if !ok {
 		return make(map[string]int), nil // empty — no matching PK
@@ -535,29 +565,59 @@ func findExclusiveStartIndex(
 	candidates []map[string]any,
 	exclusiveStartKey map[string]any,
 	keySchema []models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
 ) int {
 	if exclusiveStartKey == nil {
 		return 0
 	}
 
 	pkDef, skDef := getPKAndSK(keySchema)
+	tablePKDef, tableSKDef := getPKAndSK(tableKeySchema)
 
 	for i, item := range candidates {
-		matches := compareAttributeValues(
-			item[pkDef.AttributeName],
-			exclusiveStartKey[pkDef.AttributeName],
-		)
-		if matches && skDef.AttributeName != "" {
-			matches = compareAttributeValues(
-				item[skDef.AttributeName],
-				exclusiveStartKey[skDef.AttributeName],
-			)
-		}
-
-		if matches {
+		if itemMatchesStartKeyMap(item, exclusiveStartKey, pkDef, skDef, tablePKDef, tableSKDef) {
 			return i + 1
 		}
 	}
 
 	return 0
+}
+
+// itemMatchesStartKeyMap reports whether item matches the ExclusiveStartKey for the given
+// index and base-table key schemas. Base-table keys are used for disambiguation when
+// index sort keys repeat (GSI/LSI pagination).
+func itemMatchesStartKeyMap(
+	item, startKey map[string]any,
+	pkDef, skDef models.KeySchemaElement,
+	tablePKDef, tableSKDef models.KeySchemaElement,
+) bool {
+	if !compareAttributeValues(item[pkDef.AttributeName], startKey[pkDef.AttributeName]) {
+		return false
+	}
+
+	if skDef.AttributeName != "" &&
+		!compareAttributeValues(item[skDef.AttributeName], startKey[skDef.AttributeName]) {
+		return false
+	}
+
+	// Disambiguate using the base-table PK when the ExclusiveStartKey includes it.
+	if tablePKDef.AttributeName == "" || tablePKDef.AttributeName == pkDef.AttributeName {
+		return true
+	}
+
+	if tblPKVal, ok := startKey[tablePKDef.AttributeName]; ok {
+		if !compareAttributeValues(item[tablePKDef.AttributeName], tblPKVal) {
+			return false
+		}
+	}
+
+	if tableSKDef.AttributeName == "" || tableSKDef.AttributeName == skDef.AttributeName {
+		return true
+	}
+
+	if tblSKVal, ok := startKey[tableSKDef.AttributeName]; ok {
+		return compareAttributeValues(item[tableSKDef.AttributeName], tblSKVal)
+	}
+
+	return true
 }

@@ -38,7 +38,10 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // WithJanitor attaches a background janitor to the handler.
 // If the backend is not an *InMemoryBackend, this is a no-op.
-func (h *Handler) WithJanitor(interval, executionTTL time.Duration, taskTimeout ...time.Duration) *Handler {
+func (h *Handler) WithJanitor(
+	interval, executionTTL time.Duration,
+	taskTimeout ...time.Duration,
+) *Handler {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
 		j := NewJanitor(mem, interval, executionTTL)
 		if len(taskTimeout) > 0 {
@@ -180,6 +183,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // --- Input types ---
 
+type listWorkGroupsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
 type createWorkGroupInput struct {
 	Name          string                 `json:"Name"`
 	Description   string                 `json:"Description"`
@@ -216,7 +224,9 @@ type getNamedQueryInput struct {
 }
 
 type listNamedQueriesInput struct {
-	WorkGroup string `json:"WorkGroup"`
+	WorkGroup  string `json:"WorkGroup"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type batchGetNamedQueryInput struct {
@@ -234,6 +244,11 @@ type createDataCatalogInput struct {
 	Description    string            `json:"Description"`
 	ConnectionType string            `json:"ConnectionType"`
 	Tags           []Tag             `json:"Tags"`
+}
+
+type listDataCatalogsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type getDataCatalogInput struct {
@@ -266,12 +281,13 @@ type listTagsForResourceInput struct {
 	ResourceARN string `json:"ResourceARN"`
 }
 
-type startQueryExecutionInput struct {
-	QueryString           string                `json:"QueryString"`
-	WorkGroup             string                `json:"WorkGroup"`
-	QueryExecutionContext QueryExecutionContext `json:"QueryExecutionContext"`
-	ResultConfiguration   ResultConfiguration   `json:"ResultConfiguration"`
-	ExecutionParameters   []string              `json:"ExecutionParameters"`
+type startQueryExecutionInput struct { //nolint:govet // field order mirrors AWS API shape, not alignment
+	QueryString              string                    `json:"QueryString"`
+	WorkGroup                string                    `json:"WorkGroup"`
+	QueryExecutionContext    QueryExecutionContext     `json:"QueryExecutionContext"`
+	ResultConfiguration      ResultConfiguration       `json:"ResultConfiguration"`
+	ExecutionParameters      []string                  `json:"ExecutionParameters"`
+	ResultReuseConfiguration *ResultReuseConfiguration `json:"ResultReuseConfiguration,omitempty"`
 }
 
 type stopQueryExecutionInput struct {
@@ -319,7 +335,9 @@ type getPreparedStatementInput struct {
 }
 
 type listPreparedStatementsInput struct {
-	WorkGroup string `json:"WorkGroup"`
+	WorkGroup  string `json:"WorkGroup"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type cancelCapacityReservationInput struct {
@@ -383,7 +401,11 @@ func (h *Handler) workGroupOps() map[string]athenaActionFn {
 			}
 
 			return struct{}{}, h.Backend.CreateWorkGroup(
-				input.Name, input.Description, input.State, input.Configuration, tagsFromSlice(input.Tags),
+				input.Name,
+				input.Description,
+				input.State,
+				input.Configuration,
+				tagsFromSlice(input.Tags),
 			)
 		},
 		"GetWorkGroup": func(b []byte) (any, error) {
@@ -399,13 +421,21 @@ func (h *Handler) workGroupOps() map[string]athenaActionFn {
 
 			return map[string]any{"WorkGroup": wg}, nil
 		},
-		"ListWorkGroups": func(_ []byte) (any, error) {
-			list, err := h.Backend.ListWorkGroups()
+		"ListWorkGroups": func(b []byte) (any, error) {
+			var input listWorkGroupsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			list, nextToken, err := h.Backend.ListWorkGroups(input.NextToken, input.MaxResults)
 			if err != nil {
 				return nil, err
 			}
+			resp := map[string]any{"WorkGroups": list}
+			if nextToken != "" {
+				resp["NextToken"] = nextToken
+			}
 
-			return map[string]any{"WorkGroups": list}, nil
+			return resp, nil
 		},
 		"UpdateWorkGroup": func(b []byte) (any, error) {
 			var input updateWorkGroupInput
@@ -464,17 +494,34 @@ func (h *Handler) namedQueryOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			ids, err := h.Backend.ListNamedQueries(input.WorkGroup)
+			ids, nextToken, err := h.Backend.ListNamedQueries(
+				input.WorkGroup,
+				input.NextToken,
+				input.MaxResults,
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			return map[string]any{"NamedQueryIds": ids}, nil
+			resp := map[string]any{"NamedQueryIds": ids}
+			if nextToken != "" {
+				resp["NextToken"] = nextToken
+			}
+
+			return resp, nil
 		},
 		"BatchGetNamedQuery": func(b []byte) (any, error) {
 			var input batchGetNamedQueryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
+			}
+
+			const maxBatchGetNamedQuery = 50
+			if len(input.NamedQueryIDs) > maxBatchGetNamedQuery {
+				return nil, fmt.Errorf(
+					"%w: BatchGetNamedQuery accepts at most 50 IDs",
+					ErrValidation,
+				)
 			}
 
 			found, unprocessed := h.Backend.BatchGetNamedQuery(input.NamedQueryIDs)
@@ -525,13 +572,23 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 
 			return map[string]any{"DataCatalog": dc}, nil
 		},
-		"ListDataCatalogs": func(_ []byte) (any, error) {
-			list, err := h.Backend.ListDataCatalogs()
+		"ListDataCatalogs": func(b []byte) (any, error) {
+			var input listDataCatalogsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			list, nextToken, err := h.Backend.ListDataCatalogs(input.NextToken, input.MaxResults)
 			if err != nil {
 				return nil, err
 			}
 
-			return map[string]any{"DataCatalogsSummary": list}, nil
+			resp := map[string]any{"DataCatalogsSummary": list}
+			if nextToken != "" {
+				resp["NextToken"] = nextToken
+			}
+
+			return resp, nil
 		},
 		"UpdateDataCatalog": func(b []byte) (any, error) {
 			var input updateDataCatalogInput
@@ -563,8 +620,12 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 			}
 
 			id, err := h.Backend.StartQueryExecution(
-				input.QueryString, input.WorkGroup, input.QueryExecutionContext, input.ResultConfiguration,
+				input.QueryString,
+				input.WorkGroup,
+				input.QueryExecutionContext,
+				input.ResultConfiguration,
 				input.ExecutionParameters,
+				input.ResultReuseConfiguration,
 			)
 			if err != nil {
 				return nil, err
@@ -617,6 +678,14 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 			var input batchGetQueryExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
+			}
+
+			const maxBatchGetQueryExecution = 50
+			if len(input.QueryExecutionIDs) > maxBatchGetQueryExecution {
+				return nil, fmt.Errorf(
+					"%w: BatchGetQueryExecution accepts at most 50 IDs",
+					ErrValidation,
+				)
 			}
 
 			found, unprocessed := h.Backend.BatchGetQueryExecution(input.QueryExecutionIDs)
@@ -703,7 +772,11 @@ func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
 		)
 	}
 
-	page, err := h.Backend.GetQueryResults(input.QueryExecutionID, input.NextToken, input.MaxResults)
+	page, err := h.Backend.GetQueryResults(
+		input.QueryExecutionID,
+		input.NextToken,
+		input.MaxResults,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -712,19 +785,27 @@ func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
 	columnInfo := make([]map[string]any, 0, len(page.Columns))
 	for _, c := range page.Columns {
 		columnInfo = append(columnInfo, map[string]any{
-			"Name": c.name,
-			"Type": c.typ,
+			"Name":          c.name,
+			"Type":          c.typ,
+			"Label":         c.name,
+			"CatalogName":   "hive",
+			"SchemaName":    "",
+			"TableName":     "",
+			"Nullable":      "UNKNOWN",
+			"CaseSensitive": false,
+			"Precision":     0,
+			"Scale":         0,
 		})
 	}
 
 	// Build Rows: first row is header (column names), subsequent rows are data.
 	rows := make([]map[string]any, 0)
 
-	if len(page.Columns) > 0 {
+	// Real AWS only includes the header row on the first page
+	if len(page.Columns) > 0 && input.NextToken == "" {
 		header := make([]map[string]any, 0, len(page.Columns))
 		for _, c := range page.Columns {
-			name := c.name
-			header = append(header, map[string]any{"VarCharValue": name})
+			header = append(header, map[string]any{"VarCharValue": c.name})
 		}
 		rows = append(rows, map[string]any{"Data": header})
 	}
@@ -806,7 +887,18 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			found, unprocessed := h.Backend.BatchGetPreparedStatement(input.WorkGroup, input.StatementNames)
+			const maxBatchGetPreparedStatement = 25
+			if len(input.StatementNames) > maxBatchGetPreparedStatement {
+				return nil, fmt.Errorf(
+					"%w: BatchGetPreparedStatement accepts at most 25 names",
+					ErrValidation,
+				)
+			}
+
+			found, unprocessed := h.Backend.BatchGetPreparedStatement(
+				input.WorkGroup,
+				input.StatementNames,
+			)
 
 			return map[string]any{
 				"PreparedStatements":        found,
@@ -819,7 +911,10 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.DeletePreparedStatement(input.StatementName, input.WorkGroup)
+			return struct{}{}, h.Backend.DeletePreparedStatement(
+				input.StatementName,
+				input.WorkGroup,
+			)
 		},
 		"GetPreparedStatement": func(b []byte) (any, error) {
 			var input getPreparedStatementInput
@@ -840,12 +935,21 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			stmts, err := h.Backend.ListPreparedStatements(input.WorkGroup)
+			stmts, nextToken, err := h.Backend.ListPreparedStatements(
+				input.WorkGroup,
+				input.NextToken,
+				input.MaxResults,
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			return map[string]any{"PreparedStatements": stmts}, nil
+			resp := map[string]any{"PreparedStatements": stmts}
+			if nextToken != "" {
+				resp["NextToken"] = nextToken
+			}
+
+			return resp, nil
 		},
 	}
 }
@@ -889,7 +993,11 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			id, err := h.Backend.CreateNotebook(input.WorkGroup, input.Name, tagsFromSlice(input.Tags))
+			id, err := h.Backend.CreateNotebook(
+				input.WorkGroup,
+				input.Name,
+				tagsFromSlice(input.Tags),
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -952,7 +1060,12 @@ func (h *Handler) doDispatch(_ context.Context, action string, body []byte) ([]b
 }
 
 // handleError writes a standardized error response back to the client.
-func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, reqErr error) error {
+func (h *Handler) handleError(
+	ctx context.Context,
+	c *echo.Context,
+	action string,
+	reqErr error,
+) error {
 	log := logger.Load(ctx)
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
 

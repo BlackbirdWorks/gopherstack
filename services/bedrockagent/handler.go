@@ -850,15 +850,16 @@ func (h *Handler) dispatchTags(
 
 func (h *Handler) handleCreateAgent(ctx context.Context, c *echo.Context, body []byte) error {
 	var req struct {
-		Tags            map[string]string `json:"tags"`
-		Guardrail       map[string]any    `json:"guardrailConfiguration"`
-		Memory          map[string]any    `json:"memoryConfiguration"`
-		AgentName       string            `json:"agentName"`
-		Collaboration   string            `json:"agentCollaboration"`
-		Description     string            `json:"description"`
-		FoundationModel string            `json:"foundationModel"`
-		Instruction     string            `json:"instruction"`
-		RoleARN         string            `json:"agentResourceRoleArn"`
+		Tags                    map[string]string `json:"tags"`
+		Guardrail               map[string]any    `json:"guardrailConfiguration"`
+		Memory                  map[string]any    `json:"memoryConfiguration"`
+		AgentName               string            `json:"agentName"`
+		Collaboration           string            `json:"agentCollaboration"`
+		Description             string            `json:"description"`
+		FoundationModel         string            `json:"foundationModel"`
+		Instruction             string            `json:"instruction"`
+		RoleARN                 string            `json:"agentResourceRoleArn"`
+		IdleSessionTTLInSeconds int               `json:"idleSessionTTLInSeconds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -866,15 +867,16 @@ func (h *Handler) handleCreateAgent(ctx context.Context, c *echo.Context, body [
 	}
 
 	agent, err := h.Backend.CreateAgent(ctx, AgentConfig{
-		AgentName:       req.AgentName,
-		Collaboration:   req.Collaboration,
-		Description:     req.Description,
-		FoundationModel: req.FoundationModel,
-		Instruction:     req.Instruction,
-		RoleARN:         req.RoleARN,
-		Tags:            req.Tags,
-		Guardrail:       req.Guardrail,
-		Memory:          req.Memory,
+		AgentName:               req.AgentName,
+		Collaboration:           req.Collaboration,
+		Description:             req.Description,
+		FoundationModel:         req.FoundationModel,
+		Instruction:             req.Instruction,
+		RoleARN:                 req.RoleARN,
+		Tags:                    req.Tags,
+		Guardrail:               req.Guardrail,
+		Memory:                  req.Memory,
+		IdleSessionTTLInSeconds: req.IdleSessionTTLInSeconds,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -896,15 +898,16 @@ func (h *Handler) handleUpdateAgent(
 	ctx context.Context, c *echo.Context, agentID string, body []byte,
 ) error {
 	var req struct {
-		Tags            map[string]string `json:"tags"`
-		Guardrail       map[string]any    `json:"guardrailConfiguration"`
-		Memory          map[string]any    `json:"memoryConfiguration"`
-		AgentName       string            `json:"agentName"`
-		Collaboration   string            `json:"agentCollaboration"`
-		Description     string            `json:"description"`
-		FoundationModel string            `json:"foundationModel"`
-		Instruction     string            `json:"instruction"`
-		RoleARN         string            `json:"agentResourceRoleArn"`
+		Tags                    map[string]string `json:"tags"`
+		Guardrail               map[string]any    `json:"guardrailConfiguration"`
+		Memory                  map[string]any    `json:"memoryConfiguration"`
+		AgentName               string            `json:"agentName"`
+		Collaboration           string            `json:"agentCollaboration"`
+		Description             string            `json:"description"`
+		FoundationModel         string            `json:"foundationModel"`
+		Instruction             string            `json:"instruction"`
+		RoleARN                 string            `json:"agentResourceRoleArn"`
+		IdleSessionTTLInSeconds int               `json:"idleSessionTTLInSeconds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -912,15 +915,16 @@ func (h *Handler) handleUpdateAgent(
 	}
 
 	agent, err := h.Backend.UpdateAgent(ctx, agentID, AgentConfig{
-		AgentName:       req.AgentName,
-		Collaboration:   req.Collaboration,
-		Description:     req.Description,
-		FoundationModel: req.FoundationModel,
-		Instruction:     req.Instruction,
-		RoleARN:         req.RoleARN,
-		Tags:            req.Tags,
-		Guardrail:       req.Guardrail,
-		Memory:          req.Memory,
+		AgentName:               req.AgentName,
+		Collaboration:           req.Collaboration,
+		Description:             req.Description,
+		FoundationModel:         req.FoundationModel,
+		Instruction:             req.Instruction,
+		RoleARN:                 req.RoleARN,
+		Tags:                    req.Tags,
+		Guardrail:               req.Guardrail,
+		Memory:                  req.Memory,
+		IdleSessionTTLInSeconds: req.IdleSessionTTLInSeconds,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -958,6 +962,7 @@ func (h *Handler) handlePrepareAgent(ctx context.Context, c *echo.Context, agent
 		keyAgentID:      agent.AgentID,
 		keyAgentStatus:  agent.AgentStatus,
 		keyAgentVersion: agent.AgentVersion,
+		"preparedAt":    agent.PreparedAt,
 	})
 }
 
@@ -979,7 +984,7 @@ func (h *Handler) handleCreateAgentVersion(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyAgentVersion: av})
+	return c.JSON(http.StatusAccepted, map[string]any{keyAgentVersion: av})
 }
 
 func (h *Handler) handleGetAgentVersion(

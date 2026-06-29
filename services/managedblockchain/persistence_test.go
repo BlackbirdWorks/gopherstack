@@ -158,7 +158,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, networks, 1)
 
-				proposals, err := b.ListProposals(networks[0].ID)
+				proposals, err := b.ListProposals(networks[0].ID, "")
 				require.NoError(t, err)
 				require.Len(t, proposals, 1)
 				assert.Equal(t, "test proposal", proposals[0].Description)

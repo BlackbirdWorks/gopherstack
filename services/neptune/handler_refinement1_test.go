@@ -190,6 +190,7 @@ func TestRefinement1_DeleteDBCluster_CascadesClearRoles(t *testing.T) {
 		"Action":              {"DeleteDBCluster"},
 		"Version":             {"2014-10-31"},
 		"DBClusterIdentifier": {"cascade-cluster"},
+		"SkipFinalSnapshot":   {"true"},
 	})
 
 	assert.Equal(t, 0, neptune.ClusterRoleCount(backend, "cascade-cluster"))
@@ -218,6 +219,7 @@ func TestRefinement1_DeleteDBCluster_CascadesClearEndpoints(t *testing.T) {
 		"Action":              {"DeleteDBCluster"},
 		"Version":             {"2014-10-31"},
 		"DBClusterIdentifier": {"ep-cluster"},
+		"SkipFinalSnapshot":   {"true"},
 	})
 
 	assert.Equal(t, 0, neptune.ClusterEndpointCount(backend))

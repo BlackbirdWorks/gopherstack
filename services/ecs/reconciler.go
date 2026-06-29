@@ -98,7 +98,11 @@ func (r *Reconciler) reconcile(ctx context.Context, log *slog.Logger) {
 //
 // MinimumHealthyPercent is honoured during scale-down: tasks are only stopped
 // when doing so would not drop the running count below the floor.
-func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, snap serviceSnapshot) error {
+func (r *Reconciler) reconcileService(
+	ctx context.Context,
+	log *slog.Logger,
+	snap serviceSnapshot,
+) error {
 	svc := snap.service
 
 	if svc.Status != statusActive {
@@ -201,7 +205,8 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 // remain running during scale-down, based on DeploymentConfiguration.MinimumHealthyPercent.
 // Returns 0 when no configuration is set.
 func minimumHealthyFloor(svc Service) int {
-	if svc.DeploymentConfiguration == nil || svc.DeploymentConfiguration.MinimumHealthyPercent == nil {
+	if svc.DeploymentConfiguration == nil ||
+		svc.DeploymentConfiguration.MinimumHealthyPercent == nil {
 		return 0
 	}
 

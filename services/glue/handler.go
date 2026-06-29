@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -851,6 +852,7 @@ const maxGetTablesResults = 100
 
 type getTablesInput struct {
 	DatabaseName string `json:"DatabaseName"`
+	Expression   string `json:"Expression,omitempty"`
 	MaxResults   *int32 `json:"MaxResults,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
 }
@@ -868,6 +870,24 @@ func (h *Handler) handleGetTables(_ context.Context, in *getTablesInput) (*getTa
 	tables, err := h.Backend.GetTables(in.DatabaseName)
 	if err != nil {
 		return nil, err
+	}
+
+	if in.Expression != "" {
+		var re *regexp.Regexp
+
+		re, err = tableNameRegexp(in.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid Expression: %w", ErrValidation, err)
+		}
+
+		filtered := tables[:0]
+		for _, tbl := range tables {
+			if re.MatchString(tbl.Name) {
+				filtered = append(filtered, tbl)
+			}
+		}
+
+		tables = filtered
 	}
 
 	limit := maxGetTablesResults

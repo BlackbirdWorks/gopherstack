@@ -530,8 +530,10 @@ func TestRefinement2_Handler_ReplaceTopicRule(t *testing.T) {
 	backend.AddRuleInternal(iot.TopicRule{RuleName: "replace-rule", SQL: "SELECT old"})
 
 	resp := doRequest(t, h, http.MethodPatch, "/rules/replace-rule", map[string]any{
-		"sql":         "SELECT new",
-		"description": "updated",
+		"topicRulePayload": map[string]any{
+			"sql":         "SELECT new",
+			"description": "updated",
+		},
 	})
 	require.Equal(t, http.StatusOK, resp.Code)
 

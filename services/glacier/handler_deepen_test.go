@@ -1,6 +1,7 @@
 package glacier_test
 
 import (
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -581,10 +582,14 @@ func TestDeepen_CreateVault_Idempotent(t *testing.T) {
 			t.Parallel()
 
 			h := newDeepenHandler()
-			for range tt.createCount {
+			for i := range tt.createCount {
 				rec := doRequestFull(t, h, http.MethodPut,
 					"/"+deepenAccountID+"/vaults/"+tt.vaultName, "", nil)
-				assert.Equal(t, http.StatusCreated, rec.Code)
+				if i == 0 {
+					assert.Equal(t, http.StatusCreated, rec.Code)
+				} else {
+					assert.Equal(t, http.StatusConflict, rec.Code)
+				}
 			}
 
 			// Only one vault should exist.
@@ -1855,7 +1860,7 @@ func TestDeepen_ListVaults_LimitAndMarkerCombined(t *testing.T) {
 			name:       "marker_at_alpha_limit_1",
 			vaultNames: []string{"alpha", "beta", "gamma"},
 			limit:      1,
-			marker:     "alpha",
+			marker:     base64.StdEncoding.EncodeToString([]byte("alpha")),
 			wantNames:  []string{"beta"},
 			wantMarker: true,
 		},
@@ -1863,7 +1868,7 @@ func TestDeepen_ListVaults_LimitAndMarkerCombined(t *testing.T) {
 			name:       "marker_at_beta_limit_2",
 			vaultNames: []string{"alpha", "beta", "gamma"},
 			limit:      2,
-			marker:     "beta",
+			marker:     base64.StdEncoding.EncodeToString([]byte("beta")),
 			wantNames:  []string{"gamma"},
 			wantMarker: false,
 		},

@@ -35,6 +35,8 @@ type StorageBackend interface {
 	DescribeAccess(serverID, externalID string) (*Access, error)
 	ListAccesses(serverID string) ([]*Access, error)
 	UpdateAccess(serverID, externalID, role, homeDir string) (*Access, error)
+	UpdateAccessFull(in *UpdateAccessInput) (*Access, error)
+	CountUserSSHPublicKeys(serverID, userName string) int
 	CreateAgreement(
 		serverID, description, localProfileID, partnerProfileID, baseDirectory, accessRole string,
 		tags map[string]string,
@@ -68,6 +70,7 @@ type StorageBackend interface {
 	DescribeProfile(profileID string) (*Profile, error)
 	ListProfiles() []*Profile
 	UpdateProfile(profileID, as2ID string) (*Profile, error)
+	UpdateProfileFull(in *UpdateProfileInput) (*Profile, error)
 	CreateWebApp(tags map[string]string) (*WebApp, error)
 	DeleteWebApp(webAppID string) error
 	DescribeWebApp(webAppID string) (*WebApp, error)

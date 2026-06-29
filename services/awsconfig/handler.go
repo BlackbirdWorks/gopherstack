@@ -369,8 +369,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 // configurationRecorderBody is the nested JSON body for a configuration recorder.
 type configurationRecorderBody struct {
-	Name    string `json:"name"`
-	RoleARN string `json:"roleARN"`
+	RecordingGroup *RecordingGroup `json:"recordingGroup,omitempty"`
+	Name           string          `json:"name"`
+	RoleARN        string          `json:"roleARN"`
 }
 
 type putConfigurationRecorderRequest struct {
@@ -386,6 +387,7 @@ func (h *Handler) handlePutConfigurationRecorder(
 	if err := h.Backend.PutConfigurationRecorder(
 		in.ConfigurationRecorder.Name,
 		in.ConfigurationRecorder.RoleARN,
+		in.ConfigurationRecorder.RecordingGroup,
 	); err != nil {
 		return nil, err
 	}
@@ -438,9 +440,11 @@ func (h *Handler) handleStopConfigurationRecorder(
 
 // deliveryChannelBody is the nested JSON body for a delivery channel.
 type deliveryChannelBody struct {
-	Name         string `json:"name"`
-	S3BucketName string `json:"s3BucketName"`
-	SnsTopicARN  string `json:"snsTopicARN"`
+	ConfigSnapshotDeliveryProperties *DeliverySnapshotProperties `json:"configSnapshotDeliveryProperties,omitempty"`
+	Name                             string                      `json:"name"`
+	S3BucketName                     string                      `json:"s3BucketName"`
+	S3KeyPrefix                      string                      `json:"s3KeyPrefix,omitempty"`
+	SnsTopicARN                      string                      `json:"snsTopicARN"`
 }
 
 type handlePutDeliveryChannelInput struct {
@@ -457,6 +461,8 @@ func (h *Handler) handlePutDeliveryChannel(
 		in.DeliveryChannel.Name,
 		in.DeliveryChannel.S3BucketName,
 		in.DeliveryChannel.SnsTopicARN,
+		in.DeliveryChannel.S3KeyPrefix,
+		in.DeliveryChannel.ConfigSnapshotDeliveryProperties,
 	); err != nil {
 		return nil, err
 	}

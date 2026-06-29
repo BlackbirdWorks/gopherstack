@@ -682,7 +682,16 @@ func TestInvalidationStubs(t *testing.T) {
 			require.NoError(t, err)
 
 			path := "/2020-05-31/distribution/" + d.ID + "/invalidation"
-			rec := doXML(t, h, tt.method, path, nil)
+			body := []byte(
+				`<InvalidationBatch>` +
+					`<CallerReference>stub-ref</CallerReference>` +
+					`<Paths><Quantity>1</Quantity><Items><Path>/*</Path></Items></Paths>` +
+					`</InvalidationBatch>`,
+			)
+			if tt.method == http.MethodGet {
+				body = nil
+			}
+			rec := doXML(t, h, tt.method, path, body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			tt.check(t, rec)
 		})

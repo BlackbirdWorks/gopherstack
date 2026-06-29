@@ -386,13 +386,15 @@ func (b *InMemoryBackend) DeleteGlobalReplicationGroup(
 	b.mu.Lock("DeleteGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
-	grg, ok := b.globalReplicationGroups[id]
+	grg, ok := b.getGlobalReplicationGroup(id)
+
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
 
 	result := *grg
-	delete(b.globalReplicationGroups, id)
+	b.deleteGlobalReplicationGroup(id)
+
 	b.appendEventLocked(id, "global-replication-group", "global replication group deleted")
 
 	return &result, nil
@@ -408,7 +410,8 @@ func (b *InMemoryBackend) DescribeGlobalReplicationGroups(
 	defer b.mu.RUnlock()
 
 	if id != "" {
-		grg, ok := b.globalReplicationGroups[id]
+		grg, ok := b.getGlobalReplicationGroup(id)
+
 		if !ok {
 			return page.Page[GlobalReplicationGroup]{}, ErrGlobalReplicationGroupNotFound
 		}
@@ -416,8 +419,9 @@ func (b *InMemoryBackend) DescribeGlobalReplicationGroups(
 		return page.Page[GlobalReplicationGroup]{Data: []GlobalReplicationGroup{*grg}}, nil
 	}
 
-	out := make([]GlobalReplicationGroup, 0, len(b.globalReplicationGroups))
-	for _, grg := range b.globalReplicationGroups {
+	grgs := b.listGlobalReplicationGroups()
+	out := make([]GlobalReplicationGroup, 0, len(grgs))
+	for _, grg := range grgs {
 		out = append(out, *grg)
 	}
 
@@ -436,7 +440,8 @@ func (b *InMemoryBackend) DisassociateGlobalReplicationGroup(
 	b.mu.Lock("DisassociateGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
-	grg, ok := b.globalReplicationGroups[id]
+	grg, ok := b.getGlobalReplicationGroup(id)
+
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
@@ -454,7 +459,8 @@ func (b *InMemoryBackend) FailoverGlobalReplicationGroup(
 	b.mu.Lock("FailoverGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
-	grg, ok := b.globalReplicationGroups[id]
+	grg, ok := b.getGlobalReplicationGroup(id)
+
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
@@ -473,7 +479,8 @@ func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
 	b.mu.Lock("IncreaseNodeGroupsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
-	grg, ok := b.globalReplicationGroups[id]
+	grg, ok := b.getGlobalReplicationGroup(id)
+
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
@@ -496,7 +503,8 @@ func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(
 	b.mu.Lock("DecreaseNodeGroupsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
-	grg, ok := b.globalReplicationGroups[id]
+	grg, ok := b.getGlobalReplicationGroup(id)
+
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
@@ -519,7 +527,8 @@ func (b *InMemoryBackend) ModifyGlobalReplicationGroup(
 	b.mu.Lock("ModifyGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
-	grg, ok := b.globalReplicationGroups[id]
+	grg, ok := b.getGlobalReplicationGroup(id)
+
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
@@ -546,7 +555,8 @@ func (b *InMemoryBackend) RebalanceSlotsInGlobalReplicationGroup(
 	b.mu.Lock("RebalanceSlotsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
-	grg, ok := b.globalReplicationGroups[id]
+	grg, ok := b.getGlobalReplicationGroup(id)
+
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}

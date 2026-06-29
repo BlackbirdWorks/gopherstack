@@ -205,7 +205,7 @@ func (b *InMemoryBackend) RequestSpotFleet(
 	}
 
 	if config.Type == "" {
-		config.Type = "maintain"
+		config.Type = fleetTypeDefault
 	}
 
 	b.mu.Lock("RequestSpotFleet")

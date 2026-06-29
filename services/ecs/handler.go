@@ -38,11 +38,12 @@ var errUnknownAction = errors.New("UnknownOperationException")
 type Handler struct {
 	Backend Backend
 	ops     map[string]service.JSONOpFunc
+	region  string
 }
 
 // NewHandler creates a new ECS handler.
 func NewHandler(backend Backend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, region: backend.GetRegion()}
 	h.ops = h.buildOps()
 
 	return h
@@ -356,20 +357,34 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrNotFound):
 		code := errorCode(err)
 
-		return c.JSON(http.StatusBadRequest, map[string]string{keyTypeField: code, keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyTypeField: code, keyMessageField: err.Error()},
+		)
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		code := errorCode(err)
 
-		return c.JSON(http.StatusBadRequest, map[string]string{keyTypeField: code, keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyTypeField: code, keyMessageField: err.Error()},
+		)
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{keyTypeField: "UnknownOperationException", keyMessageField: err.Error()},
+			map[string]string{
+				keyTypeField:    "UnknownOperationException",
+				keyMessageField: err.Error(),
+			},
 		)
-	case errors.Is(err, awserr.ErrInvalidParameter), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, awserr.ErrInvalidParameter),
+		errors.As(err, &syntaxErr),
+		errors.As(err, &typeErr):
 		code := errorCode(err)
 
-		return c.JSON(http.StatusBadRequest, map[string]string{keyTypeField: code, keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyTypeField: code, keyMessageField: err.Error()},
+		)
 	default:
 		return c.JSON(
 			http.StatusInternalServerError,
@@ -423,7 +438,10 @@ type createClusterOutput struct {
 	Cluster clusterView `json:"cluster"`
 }
 
-func (h *Handler) handleCreateCluster(_ context.Context, in *createClusterInput) (*createClusterOutput, error) {
+func (h *Handler) handleCreateCluster(
+	_ context.Context,
+	in *createClusterInput,
+) (*createClusterOutput, error) {
 	settings := make([]ClusterSetting, 0, len(in.Settings))
 	for _, s := range in.Settings {
 		settings = append(settings, ClusterSetting(s))
@@ -450,7 +468,10 @@ type listClustersOutput struct {
 	ClusterArns []string `json:"clusterArns"`
 }
 
-func (h *Handler) handleListClusters(_ context.Context, in *listClustersInput) (*listClustersOutput, error) {
+func (h *Handler) handleListClusters(
+	_ context.Context,
+	in *listClustersInput,
+) (*listClustersOutput, error) {
 	clusters, err := h.Backend.ListClusters()
 	if err != nil {
 		return nil, err
@@ -507,7 +528,10 @@ type deleteClusterOutput struct {
 	Cluster clusterView `json:"cluster"`
 }
 
-func (h *Handler) handleDeleteCluster(_ context.Context, in *deleteClusterInput) (*deleteClusterOutput, error) {
+func (h *Handler) handleDeleteCluster(
+	_ context.Context,
+	in *deleteClusterInput,
+) (*deleteClusterOutput, error) {
 	cluster, err := h.Backend.DeleteCluster(in.Cluster)
 	if err != nil {
 		return nil, err
@@ -759,7 +783,10 @@ type createServiceOutput struct {
 	Service serviceView `json:"service"`
 }
 
-func (h *Handler) handleCreateService(_ context.Context, in *createServiceInput) (*createServiceOutput, error) {
+func (h *Handler) handleCreateService(
+	_ context.Context,
+	in *createServiceInput,
+) (*createServiceOutput, error) {
 	svc, err := h.Backend.CreateService(CreateServiceInput{
 		ServiceName:                 in.ServiceName,
 		Cluster:                     in.Cluster,
@@ -839,7 +866,10 @@ type updateServiceOutput struct {
 	Service serviceView `json:"service"`
 }
 
-func (h *Handler) handleUpdateService(_ context.Context, in *updateServiceInput) (*updateServiceOutput, error) {
+func (h *Handler) handleUpdateService(
+	_ context.Context,
+	in *updateServiceInput,
+) (*updateServiceOutput, error) {
 	svc, err := h.Backend.UpdateService(UpdateServiceInput{
 		Cluster:                     in.Cluster,
 		Service:                     in.Service,
@@ -871,7 +901,10 @@ type deleteServiceOutput struct {
 	Service serviceView `json:"service"`
 }
 
-func (h *Handler) handleDeleteService(_ context.Context, in *deleteServiceInput) (*deleteServiceOutput, error) {
+func (h *Handler) handleDeleteService(
+	_ context.Context,
+	in *deleteServiceInput,
+) (*deleteServiceOutput, error) {
 	svc, err := h.Backend.DeleteService(in.Cluster, in.Service)
 	if err != nil {
 		return nil, err
@@ -884,13 +917,19 @@ type listServicesInput struct {
 	Cluster            string `json:"cluster,omitempty"`
 	LaunchType         string `json:"launchType,omitempty"`
 	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+	NextToken          string `json:"nextToken,omitempty"`
+	MaxResults         int    `json:"maxResults,omitempty"`
 }
 
 type listServicesOutput struct {
+	NextToken   string   `json:"nextToken,omitempty"`
 	ServiceArns []string `json:"serviceArns"`
 }
 
-func (h *Handler) handleListServices(_ context.Context, in *listServicesInput) (*listServicesOutput, error) {
+func (h *Handler) handleListServices(
+	_ context.Context,
+	in *listServicesInput,
+) (*listServicesOutput, error) {
 	arns, err := h.Backend.ListServices(in.Cluster, in.LaunchType, in.SchedulingStrategy)
 	if err != nil {
 		return nil, err
@@ -900,7 +939,9 @@ func (h *Handler) handleListServices(_ context.Context, in *listServicesInput) (
 		arns = []string{}
 	}
 
-	return &listServicesOutput{ServiceArns: arns}, nil
+	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
+
+	return &listServicesOutput{ServiceArns: arns, NextToken: nextToken}, nil
 }
 
 // ----- Task handlers -----
@@ -980,7 +1021,10 @@ type describeTasksOutput struct {
 	Failures []failureView `json:"failures"`
 }
 
-func (h *Handler) handleDescribeTasks(_ context.Context, in *describeTasksInput) (*describeTasksOutput, error) {
+func (h *Handler) handleDescribeTasks(
+	_ context.Context,
+	in *describeTasksInput,
+) (*describeTasksOutput, error) {
 	tasks, failures, err := h.Backend.DescribeTasks(in.Cluster, in.Tasks)
 	if err != nil {
 		return nil, err
@@ -1276,23 +1320,25 @@ type serviceView struct {
 
 func toServiceView(s Service) serviceView {
 	v := serviceView{
-		ServiceArn:                  s.ServiceArn,
-		ServiceName:                 s.ServiceName,
-		ClusterArn:                  s.ClusterArn,
-		TaskDefinition:              s.TaskDefinition,
-		Status:                      s.Status,
-		LaunchType:                  s.LaunchType,
-		SchedulingStrategy:          s.SchedulingStrategy,
-		PropagateTags:               s.PropagateTags,
-		CreatedAt:                   float64(s.CreatedAt.Unix()),
-		Tags:                        s.Tags,
-		DeploymentConfiguration:     toDeploymentConfigurationView(s.DeploymentConfiguration),
-		ServiceConnectConfiguration: toServiceConnectConfigurationView(s.ServiceConnectConfiguration),
-		NetworkConfiguration:        toNetworkConfigurationView(s.NetworkConfiguration),
-		DesiredCount:                s.DesiredCount,
-		PendingCount:                s.PendingCount,
-		RunningCount:                s.RunningCount,
-		EnableExecuteCommand:        s.EnableExecuteCommand,
+		ServiceArn:              s.ServiceArn,
+		ServiceName:             s.ServiceName,
+		ClusterArn:              s.ClusterArn,
+		TaskDefinition:          s.TaskDefinition,
+		Status:                  s.Status,
+		LaunchType:              s.LaunchType,
+		SchedulingStrategy:      s.SchedulingStrategy,
+		PropagateTags:           s.PropagateTags,
+		CreatedAt:               float64(s.CreatedAt.Unix()),
+		Tags:                    s.Tags,
+		DeploymentConfiguration: toDeploymentConfigurationView(s.DeploymentConfiguration),
+		ServiceConnectConfiguration: toServiceConnectConfigurationView(
+			s.ServiceConnectConfiguration,
+		),
+		NetworkConfiguration: toNetworkConfigurationView(s.NetworkConfiguration),
+		DesiredCount:         s.DesiredCount,
+		PendingCount:         s.PendingCount,
+		RunningCount:         s.RunningCount,
+		EnableExecuteCommand: s.EnableExecuteCommand,
 	}
 
 	if s.DeploymentController != nil {
@@ -1654,7 +1700,9 @@ func toPlacementStrategies(in []placementStrategyInput) []PlacementStrategy {
 }
 
 // toServiceConnectConfiguration converts handler input to backend type.
-func toServiceConnectConfiguration(in *serviceConnectConfigurationInput) *ServiceConnectConfiguration {
+func toServiceConnectConfiguration(
+	in *serviceConnectConfigurationInput,
+) *ServiceConnectConfiguration {
 	if in == nil {
 		return nil
 	}
@@ -1681,7 +1729,9 @@ func toServiceConnectConfiguration(in *serviceConnectConfigurationInput) *Servic
 }
 
 // toServiceConnectConfigurationView converts backend type to view.
-func toServiceConnectConfigurationView(in *ServiceConnectConfiguration) *serviceConnectConfigurationView {
+func toServiceConnectConfigurationView(
+	in *ServiceConnectConfiguration,
+) *serviceConnectConfigurationView {
 	if in == nil {
 		return nil
 	}

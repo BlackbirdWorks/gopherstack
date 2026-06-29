@@ -71,6 +71,59 @@ type DeliveryTargets struct {
 	StepFunctions   StepFunctionsExecutor
 }
 
+// deliverScheduledRule delivers a scheduled-rule synthetic event directly to the
+// rule's targets, bypassing pattern matching. On real AWS, scheduled rules invoke
+// targets directly; they are NOT routed through event pattern matching.
+func (b *InMemoryBackend) deliverScheduledRule(
+	ctx context.Context,
+	rule Rule,
+	busName, region, detailType string,
+) {
+	const detail = `{"scheduled":true}`
+
+	b.mu.Lock("deliverScheduledRule")
+	storedTargets := b.targets[region][b.targetKey(busName, rule.Name)]
+	snapped := snapshotTargets(storedTargets)
+	accountID := b.accountID
+	dt := *b.deliveryTargets
+	timeout := b.deliveryTimeout
+	// Log the event so diagnostic callers (GetEventLog) can observe it.
+	eventID := uuid.NewString()
+	b.eventLog = append(b.eventLog, EventLogEntry{
+		ID:           eventID,
+		Source:       "aws.events",
+		DetailType:   detailType,
+		Detail:       detail,
+		EventBusName: busName,
+		Time:         time.Now(),
+	})
+	if len(b.eventLog) > maxEventLogSize {
+		b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
+	}
+	b.mu.Unlock()
+
+	if len(snapped) == 0 {
+		return
+	}
+
+	entry := EventEntry{
+		Source:       "aws.events",
+		DetailType:   detailType,
+		Detail:       detail,
+		EventBusName: busName,
+	}
+	envelope := buildDeliveryEnvelope(entry, accountID, region)
+
+	var wg sync.WaitGroup
+	for _, t := range snapped {
+		target := t
+		wg.Go(func() {
+			deliverToTargetBounded(ctx, target, envelope, dt, timeout)
+		})
+	}
+	wg.Wait()
+}
+
 // deliverEvents fan-outs events to matching rule targets.
 // It runs asynchronously and does not block PutEvents.
 func (b *InMemoryBackend) deliverEvents(

@@ -1985,7 +1985,7 @@ func TestHandler_SortedOutput(t *testing.T) {
 			verify: func(t *testing.T, h *ce.Handler) {
 				t.Helper()
 
-				cats := h.Backend.ListCostCategoryDefinitions()
+				cats, _ := h.Backend.ListCostCategoryDefinitions(0, "")
 				require.Len(t, cats, 1)
 
 				rec := doRequest(t, h, "ListTagsForResource", map[string]any{

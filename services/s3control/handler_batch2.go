@@ -246,12 +246,14 @@ type listStorageLensConfigItemXML struct {
 }
 
 type listStorageLensConfigurationsResultXML struct {
-	XMLName xml.Name                       `xml:"ListStorageLensConfigurationsResult"`
-	Configs []listStorageLensConfigItemXML `xml:"StorageLensConfigurationList>StorageLensConfiguration"`
+	XMLName   xml.Name                       `xml:"ListStorageLensConfigurationsResult"`
+	NextToken string                         `xml:"NextToken,omitempty"`
+	Configs   []listStorageLensConfigItemXML `xml:"StorageLensConfigurationList>StorageLensConfiguration"`
 }
 
 func (h *Handler) handleListStorageLensConfigurations(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	nextToken := c.Request().URL.Query().Get("nextToken")
 
 	names := h.Backend.ListStorageLensConfigurations(accountID)
 	items := make([]listStorageLensConfigItemXML, 0, len(names))
@@ -260,7 +262,9 @@ func (h *Handler) handleListStorageLensConfigurations(c *echo.Context) error {
 		items = append(items, listStorageLensConfigItemXML{ID: n})
 	}
 
-	return writeXML(c, listStorageLensConfigurationsResultXML{Configs: items})
+	page, tok := s3cPaginate(items, nextToken, 0)
+
+	return writeXML(c, listStorageLensConfigurationsResultXML{Configs: page, NextToken: tok})
 }
 
 // ---- Storage Lens Groups ----
@@ -350,12 +354,14 @@ func (h *Handler) handleDeleteStorageLensGroup(c *echo.Context) error {
 }
 
 type listStorageLensGroupsResultXML struct {
-	XMLName xml.Name                  `xml:"ListStorageLensGroupsResult"`
-	Groups  []storageLensGroupItemXML `xml:"StorageLensGroupList>StorageLensGroup"`
+	XMLName   xml.Name                  `xml:"ListStorageLensGroupsResult"`
+	NextToken string                    `xml:"NextToken,omitempty"`
+	Groups    []storageLensGroupItemXML `xml:"StorageLensGroupList>StorageLensGroup"`
 }
 
 func (h *Handler) handleListStorageLensGroups(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	nextToken := c.Request().URL.Query().Get("nextToken")
 
 	groups := h.Backend.ListStorageLensGroups(accountID)
 	items := make([]storageLensGroupItemXML, 0, len(groups))
@@ -364,7 +370,9 @@ func (h *Handler) handleListStorageLensGroups(c *echo.Context) error {
 		items = append(items, buildSLGItem(g))
 	}
 
-	return writeXML(c, listStorageLensGroupsResultXML{Groups: items})
+	page, tok := s3cPaginate(items, nextToken, 0)
+
+	return writeXML(c, listStorageLensGroupsResultXML{Groups: page, NextToken: tok})
 }
 
 // ---- Resource Tags ----

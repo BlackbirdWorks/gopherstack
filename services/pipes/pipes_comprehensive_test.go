@@ -284,8 +284,8 @@ func TestPipeStateTransitions_DoubleStart(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Should fail since pipe is already RUNNING.
+	// Should fail since pipe is already RUNNING — real AWS returns ConflictException.
 	_, err = b.StartPipe(context.Background(), "double-start")
 	require.Error(t, err)
-	require.ErrorIs(t, err, pipes.ErrValidation)
+	require.ErrorIs(t, err, pipes.ErrConflict)
 }

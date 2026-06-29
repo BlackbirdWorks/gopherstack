@@ -53,7 +53,12 @@ func TestBatch3_TaskDefinition_RuntimePlatform_Roundtrip(t *testing.T) {
 	assert.Equal(t, "ARM64", rp["cpuArchitecture"])
 	assert.Equal(t, "LINUX", rp["operatingSystemFamily"])
 
-	descResp := doECSRequest(t, h, "DescribeTaskDefinition", map[string]any{"taskDefinition": "rt-plat-task"})
+	descResp := doECSRequest(
+		t,
+		h,
+		"DescribeTaskDefinition",
+		map[string]any{"taskDefinition": "rt-plat-task"},
+	)
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
 	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
@@ -140,7 +145,12 @@ func TestBatch3_TaskDefinition_EphemeralStorage_Roundtrip(t *testing.T) {
 	es := td["ephemeralStorage"].(map[string]any)
 	assert.InDelta(t, float64(50), es["sizeInGiB"], 0.001)
 
-	descResp := doECSRequest(t, h, "DescribeTaskDefinition", map[string]any{"taskDefinition": "eph-task"})
+	descResp := doECSRequest(
+		t,
+		h,
+		"DescribeTaskDefinition",
+		map[string]any{"taskDefinition": "eph-task"},
+	)
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
 	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
@@ -1148,11 +1158,16 @@ func TestBatch3_TaskDefinition_BackwardCompat_NoNewFields(t *testing.T) {
 		"family": "old-style-task",
 		"containerDefinitions": []any{
 			map[string]any{
-				"name":    "app",
-				"image":   "nginx",
-				"cpu":     256,
-				"memory":  512,
-				"secrets": []any{map[string]any{"name": "DB_PASS", "valueFrom": "arn:aws:ssm:::parameter/db/pass"}},
+				"name":   "app",
+				"image":  "nginx",
+				"cpu":    256,
+				"memory": 512,
+				"secrets": []any{
+					map[string]any{
+						"name":      "DB_PASS",
+						"valueFrom": "arn:aws:ssm:::parameter/db/pass",
+					},
+				},
 			},
 		},
 		"requiresCompatibilities": []any{"FARGATE"},

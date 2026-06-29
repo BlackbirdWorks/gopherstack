@@ -44,6 +44,17 @@ const (
 	route53LastFailureReasonSuffix = "/lastfailurereason"
 )
 
+// Route53 limit type identifiers (AWS LimitName values).
+const (
+	route53LimitMaxHostedZonesByOwner            = "MAX_HOSTED_ZONES_BY_OWNER"
+	route53LimitMaxHealthChecksByOwner           = "MAX_HEALTH_CHECKS_BY_OWNER"
+	route53LimitMaxReusableDelegationSetsByOwner = "MAX_REUSABLE_DELEGATION_SETS_BY_OWNER"
+	route53LimitMaxTrafficPoliciesByOwner        = "MAX_TRAFFIC_POLICIES_BY_OWNER"
+	route53LimitMaxTrafficPolicyInstancesByOwner = "MAX_TRAFFIC_POLICY_INSTANCES_BY_OWNER"
+	route53LimitMaxVPCsAssociatedByZone          = "MAX_VPCS_ASSOCIATED_BY_ZONE"
+	route53LimitMaxZonesByReusableDelegationSet  = "MAX_ZONES_BY_REUSABLE_DELEGATION_SET"
+)
+
 // routeCompleteness handles previously-notImplemented Route53 paths.
 // Returns (true, err) if the path was handled, (false, nil) if not.
 func (h *Handler) routeCompleteness(c *echo.Context, path, method string) (bool, error) {
@@ -345,14 +356,11 @@ type healthCheckCountResponse struct {
 }
 
 func (h *Handler) getHealthCheckCount(c *echo.Context) error {
-	p, err := h.Backend.ListHealthChecks("", maxHealthChecks)
-	if err != nil {
-		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
-	}
+	count := h.Backend.GetHealthCheckCount()
 
 	return writeXML(c, http.StatusOK, healthCheckCountResponse{
 		Xmlns:            route53Namespace,
-		HealthCheckCount: len(p.Data),
+		HealthCheckCount: count,
 	})
 }
 
@@ -363,34 +371,45 @@ type hostedZoneCountResponse struct {
 }
 
 func (h *Handler) getHostedZoneCount(c *echo.Context) error {
-	p, err := h.Backend.ListHostedZones("", maxHostedZoneCount)
-	if err != nil {
-		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
-	}
+	count := h.Backend.GetHostedZoneCount()
 
 	return writeXML(c, http.StatusOK, hostedZoneCountResponse{
 		Xmlns:           route53Namespace,
-		HostedZoneCount: len(p.Data),
+		HostedZoneCount: count,
 	})
 }
 
 type listHZByNameResponse struct {
-	XMLName     xml.Name        `xml:"ListHostedZonesByNameResponse"`
-	Xmlns       string          `xml:"xmlns,attr"`
-	MaxItems    string          `xml:"MaxItems"`
-	HostedZones []xmlHostedZone `xml:"HostedZones>HostedZone"`
-	IsTruncated bool            `xml:"IsTruncated"`
+	XMLName          xml.Name        `xml:"ListHostedZonesByNameResponse"`
+	Xmlns            string          `xml:"xmlns,attr"`
+	DNSName          string          `xml:"DNSName,omitempty"`
+	HostedZoneID     string          `xml:"HostedZoneId,omitempty"`
+	MaxItems         string          `xml:"MaxItems"`
+	NextDNSName      string          `xml:"NextDNSName,omitempty"`
+	NextHostedZoneID string          `xml:"NextHostedZoneId,omitempty"`
+	HostedZones      []xmlHostedZone `xml:"HostedZones>HostedZone"`
+	IsTruncated      bool            `xml:"IsTruncated"`
 }
 
 func (h *Handler) listHostedZonesByName(c *echo.Context) error {
-	p, err := h.Backend.ListHostedZones("", maxHZByName)
+	dnsName := c.Request().URL.Query().Get("dnsname")
+	zoneID := c.Request().URL.Query().Get("hostedzoneid")
+	maxItemsStr := c.Request().URL.Query().Get("maxitems")
+	maxItems := maxHZByName
+	if maxItemsStr != "" {
+		if v, err := strconv.Atoi(maxItemsStr); err == nil && v > 0 {
+			maxItems = v
+		}
+	}
+
+	zones, nextDNSName, nextZoneID, err := h.Backend.ListHostedZonesByName(dnsName, zoneID, maxItems)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
 
-	zones := make([]xmlHostedZone, 0, len(p.Data))
-	for _, z := range p.Data {
-		zones = append(zones, xmlHostedZone{
+	xmlZones := make([]xmlHostedZone, 0, len(zones))
+	for _, z := range zones {
+		xmlZones = append(xmlZones, xmlHostedZone{
 			ID:              "/hostedzone/" + z.ID,
 			Name:            z.Name,
 			CallerReference: z.CallerReference,
@@ -399,10 +418,14 @@ func (h *Handler) listHostedZonesByName(c *echo.Context) error {
 	}
 
 	return writeXML(c, http.StatusOK, listHZByNameResponse{
-		Xmlns:       route53Namespace,
-		HostedZones: zones,
-		IsTruncated: false,
-		MaxItems:    "300",
+		Xmlns:            route53Namespace,
+		DNSName:          dnsName,
+		HostedZoneID:     zoneID,
+		HostedZones:      xmlZones,
+		IsTruncated:      nextDNSName != "",
+		MaxItems:         strconv.Itoa(maxItems),
+		NextDNSName:      nextDNSName,
+		NextHostedZoneID: nextZoneID,
 	})
 }
 
@@ -413,9 +436,31 @@ type listHZByVPCResponse struct {
 }
 
 func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
+	vpcID := c.Request().URL.Query().Get("vpcid")
+	vpcRegion := c.Request().URL.Query().Get("vpcregion")
+
+	if vpcID == "" || vpcRegion == "" {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "vpcid and vpcregion are required")
+	}
+
+	zones, err := h.Backend.ListHostedZonesByVPC(vpcID, vpcRegion)
+	if err != nil {
+		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	}
+
+	xmlZones := make([]xmlHostedZone, 0, len(zones))
+	for _, z := range zones {
+		xmlZones = append(xmlZones, xmlHostedZone{
+			ID:              "/hostedzone/" + z.ID,
+			Name:            z.Name,
+			CallerReference: z.CallerReference,
+			Config:          xmlHostedZoneConfig{Comment: z.Comment},
+		})
+	}
+
 	return writeXML(c, http.StatusOK, listHZByVPCResponse{
 		Xmlns:       route53Namespace,
-		HostedZones: []xmlHostedZone{},
+		HostedZones: xmlZones,
 	})
 }
 
@@ -434,10 +479,31 @@ type xmlLimit struct {
 func (h *Handler) getAccountLimit(c *echo.Context, path string) error {
 	limitType := strings.TrimPrefix(path, route53AccountLimitPrefix)
 
+	count := 0
+
+	switch limitType {
+	case route53LimitMaxHostedZonesByOwner:
+		count = h.Backend.GetHostedZoneCount()
+	case route53LimitMaxHealthChecksByOwner:
+		count = h.Backend.GetHealthCheckCount()
+	case route53LimitMaxReusableDelegationSetsByOwner:
+		if sets, err := h.Backend.ListReusableDelegationSets(); err == nil {
+			count = len(sets)
+		}
+	case route53LimitMaxTrafficPoliciesByOwner:
+		if policies, err := h.Backend.ListTrafficPolicies(); err == nil {
+			count = len(policies)
+		}
+	case route53LimitMaxTrafficPolicyInstancesByOwner:
+		if instances, err := h.Backend.ListTrafficPolicyInstances(); err == nil {
+			count = len(instances)
+		}
+	}
+
 	return writeXML(c, http.StatusOK, accountLimitResponse{
 		Xmlns: route53Namespace,
 		Limit: xmlLimit{Type: limitType, Value: defaultLimitValue},
-		Count: 0,
+		Count: count,
 	})
 }
 
@@ -450,15 +516,35 @@ type hostedZoneLimitResponse struct {
 
 func (h *Handler) getHostedZoneLimit(c *echo.Context, path string) error {
 	parts := strings.TrimPrefix(path, route53HostedZoneLimitPrefix)
+	zoneID := parts
 	limitType := ""
-	if _, after, ok := strings.Cut(parts, "/"); ok {
+	if before, after, ok := strings.Cut(parts, "/"); ok {
+		zoneID = before
 		limitType = after
+	}
+	zoneID = strings.TrimPrefix(zoneID, "/hostedzone/")
+
+	var (
+		count int
+		err   error
+	)
+
+	switch limitType {
+	case route53LimitMaxVPCsAssociatedByZone:
+		count, err = h.Backend.CountAssociatedVPCs(zoneID)
+	default:
+		// MAX_RRSETS_BY_ZONE and any other zone-scoped limit.
+		count, err = h.Backend.CountResourceRecordSets(zoneID)
+	}
+
+	if err != nil {
+		return handleBackendError(c, err)
 	}
 
 	return writeXML(c, http.StatusOK, hostedZoneLimitResponse{
 		Xmlns: route53Namespace,
 		Limit: xmlLimit{Type: limitType, Value: maxHostedZoneCount},
-		Count: 0,
+		Count: count,
 	})
 }
 
@@ -471,15 +557,25 @@ type reusableDSLimitResponse struct {
 
 func (h *Handler) getReusableDelegationSetLimit(c *echo.Context, path string) error {
 	parts := strings.TrimPrefix(path, route53ReusableDSLimitPrefix)
+	dsID := parts
 	limitType := ""
-	if _, after, ok := strings.Cut(parts, "/"); ok {
+	if before, after, ok := strings.Cut(parts, "/"); ok {
+		dsID = before
 		limitType = after
+	}
+	if !strings.HasPrefix(dsID, "/delegationset/") {
+		dsID = "/delegationset/" + dsID
+	}
+
+	count, err := h.Backend.CountZonesByReusableDelegationSet(dsID)
+	if err != nil {
+		return handleBackendError(c, err)
 	}
 
 	return writeXML(c, http.StatusOK, reusableDSLimitResponse{
 		Xmlns: route53Namespace,
 		Limit: xmlLimit{Type: limitType, Value: defaultDSLimit},
-		Count: 0,
+		Count: count,
 	})
 }
 
@@ -644,10 +740,35 @@ type stubObservation struct {
 	} `xml:"StatusReport"`
 }
 
-func (h *Handler) getHealthCheckLastFailureReason(c *echo.Context, _ string) error {
+func (h *Handler) getHealthCheckLastFailureReason(c *echo.Context, path string) error {
+	id := strings.TrimSuffix(strings.TrimPrefix(path, route53HealthCheckPrefix), "/lastfailurereason")
+
+	hc, err := h.Backend.GetHealthCheck(id)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	var observations []stubObservation
+	for _, obs := range hc.Observations {
+		observations = append(observations, stubObservation{
+			Region:    obs.Region,
+			IPAddress: obs.IPAddress,
+			StatusReport: struct {
+				Status      string `xml:"Status"`
+				CheckedTime string `xml:"CheckedTime"`
+			}{
+				Status:      obs.Status,
+				CheckedTime: obs.CheckedTime.UTC().Format(time.RFC3339),
+			},
+		})
+	}
+	if observations == nil {
+		observations = []stubObservation{}
+	}
+
 	return writeXML(c, http.StatusOK, lastFailureReasonResponse{
 		Xmlns:                   route53Namespace,
-		HealthCheckObservations: []stubObservation{},
+		HealthCheckObservations: observations,
 	})
 }
 
@@ -936,14 +1057,52 @@ type listTagsForResourcesResponse struct {
 }
 
 type xmlResourceTagSet struct {
-	ResourceType string `xml:"ResourceType"`
-	ResourceID   string `xml:"ResourceId"`
+	ResourceType string   `xml:"ResourceType"`
+	ResourceID   string   `xml:"ResourceId"`
+	Tags         []r53Tag `xml:"Tags>Tag,omitempty"`
+}
+
+type listTagsReq struct {
+	XMLName      xml.Name `xml:"ListTagsForResourcesRequest"`
+	ResourceType string   `xml:"ResourceType"`
+	ResourceIDs  []string `xml:"ResourceIds>ResourceId"`
 }
 
 func (h *Handler) listTagsForResources(c *echo.Context) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req listTagsReq
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	tagsMap := h.Backend.ListTagsForResources(req.ResourceIDs)
+
+	var resourceTagSets []xmlResourceTagSet
+	for _, id := range req.ResourceIDs {
+		tags := tagsMap[id]
+		var tagList []r53Tag
+		for k, v := range tags {
+			tagList = append(tagList, r53Tag{Key: k, Value: v})
+		}
+		// Route53 XML list expects tags to be present, even if empty array, wait, omitempty might drop it.
+		// Usually if tags are absent, the array is empty.
+		if len(tagList) == 0 {
+			tagList = nil
+		}
+		resourceTagSets = append(resourceTagSets, xmlResourceTagSet{
+			ResourceType: req.ResourceType,
+			ResourceID:   id,
+			Tags:         tagList,
+		})
+	}
+
 	return writeXML(c, http.StatusOK, listTagsForResourcesResponse{
 		Xmlns:           route53Namespace,
-		ResourceTagSets: []xmlResourceTagSet{},
+		ResourceTagSets: resourceTagSets,
 	})
 }
 

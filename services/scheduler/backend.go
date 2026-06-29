@@ -141,17 +141,59 @@ type SageMakerPipelineParameters struct {
 	PipelineParameterList []SageMakerPipelineParameter `json:"pipelineParameterList,omitempty"`
 }
 
+// EcsAwsvpcConfiguration holds VPC networking options for ECS tasks.
+type EcsAwsvpcConfiguration struct {
+	AssignPublicIP string   `json:"assignPublicIp,omitempty"`
+	SecurityGroups []string `json:"securityGroups,omitempty"`
+	Subnets        []string `json:"subnets"`
+}
+
+// EcsNetworkConfiguration holds the awsvpc network configuration for ECS tasks.
+type EcsNetworkConfiguration struct {
+	AwsvpcConfiguration *EcsAwsvpcConfiguration `json:"awsvpcConfiguration,omitempty"`
+}
+
+// EcsCapacityProviderStrategyItem is one entry in an ECS capacity provider strategy.
+type EcsCapacityProviderStrategyItem struct {
+	CapacityProvider string `json:"capacityProvider"`
+	Base             int    `json:"base,omitempty"`
+	Weight           int    `json:"weight,omitempty"`
+}
+
+// EcsPlacementConstraint constrains ECS task placement.
+type EcsPlacementConstraint struct {
+	Expression string `json:"expression,omitempty"`
+	Type       string `json:"type,omitempty"`
+}
+
+// EcsPlacementStrategy defines ECS task placement strategy.
+type EcsPlacementStrategy struct {
+	Field string `json:"field,omitempty"`
+	Type  string `json:"type,omitempty"`
+}
+
+// EcsTag is a key/value tag applied to the ECS task at launch time.
+type EcsTag struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 // EcsParameters holds parameters for ECS task targets.
 type EcsParameters struct {
-	TaskDefinitionArn    string `json:"taskDefinitionArn"`
-	LaunchType           string `json:"launchType,omitempty"`
-	PlatformVersion      string `json:"platformVersion,omitempty"`
-	Group                string `json:"group,omitempty"`
-	PropagateTags        string `json:"propagateTags,omitempty"`
-	ReferenceID          string `json:"referenceId,omitempty"`
-	TaskCount            int    `json:"taskCount,omitempty"`
-	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
-	EnableExecuteCommand bool   `json:"enableExecuteCommand,omitempty"`
+	NetworkConfiguration     *EcsNetworkConfiguration          `json:"networkConfiguration,omitempty"`
+	PropagateTags            string                            `json:"propagateTags,omitempty"`
+	TaskDefinitionArn        string                            `json:"taskDefinitionArn"`
+	LaunchType               string                            `json:"launchType,omitempty"`
+	PlatformVersion          string                            `json:"platformVersion,omitempty"`
+	Group                    string                            `json:"group,omitempty"`
+	ReferenceID              string                            `json:"referenceId,omitempty"`
+	PlacementConstraints     []EcsPlacementConstraint          `json:"placementConstraints,omitempty"`
+	PlacementStrategy        []EcsPlacementStrategy            `json:"placementStrategy,omitempty"`
+	Tags                     []EcsTag                          `json:"tags,omitempty"`
+	CapacityProviderStrategy []EcsCapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
+	TaskCount                int                               `json:"taskCount,omitempty"`
+	EnableECSManagedTags     bool                              `json:"enableECSManagedTags,omitempty"`
+	EnableExecuteCommand     bool                              `json:"enableExecuteCommand,omitempty"`
 }
 
 type Target struct {
@@ -344,7 +386,7 @@ func (b *InMemoryBackend) CreateSchedule(
 		return nil, err
 	}
 
-	if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
+	if err := validateFlexibleTimeWindow(ftw); err != nil {
 		return nil, err
 	}
 
@@ -511,7 +553,7 @@ func (b *InMemoryBackend) UpdateSchedule(
 		return nil, err
 	}
 
-	if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
+	if err := validateFlexibleTimeWindow(ftw); err != nil {
 		return nil, err
 	}
 
@@ -924,6 +966,23 @@ func validateFlexibleTimeWindowMode(mode string) error {
 	default:
 		return fmt.Errorf("%w: FlexibleTimeWindow.Mode must be OFF or FLEXIBLE, got %q", ErrValidation, mode)
 	}
+}
+
+// validateFlexibleTimeWindow validates both the mode and the required window size.
+// When Mode is FLEXIBLE, MaximumWindowInMinutes must be positive (1–1440).
+func validateFlexibleTimeWindow(ftw FlexibleTimeWindow) error {
+	if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
+		return err
+	}
+
+	if ftw.Mode == flexibleTimeWindowModeFlexible && ftw.MaximumWindowInMinutes <= 0 {
+		return fmt.Errorf(
+			"%w: FlexibleTimeWindow.MaximumWindowInMinutes is required and must be >= 1 when Mode is FLEXIBLE",
+			ErrValidation,
+		)
+	}
+
+	return nil
 }
 
 // validateName checks that name is non-empty, matches [0-9a-zA-Z-_.], and is at most 64 chars.

@@ -97,10 +97,9 @@ func TestResourceGroupsTaggingAPIRegionIsolation(t *testing.T) {
 
 	// us-west-2 has no report yet.
 	westReport := backend.DescribeReportCreation(ctxWest)
-	require.NotNil(t, westReport.Status)
-	assert.Equal(t, reportStatusNoReport, *westReport.Status)
+	assert.Nil(t, westReport.Status)
 
 	// 5. Reset clears all regions.
 	backend.Reset()
-	assert.Equal(t, reportStatusNoReport, *backend.DescribeReportCreation(ctxEast).Status)
+	assert.Nil(t, backend.DescribeReportCreation(ctxEast).Status)
 }

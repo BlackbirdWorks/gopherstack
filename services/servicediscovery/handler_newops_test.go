@@ -206,7 +206,7 @@ func TestHandler_UpdateService(t *testing.T) {
 		wantKey  string
 		wantCode int
 	}{
-		{name: "success", wantCode: http.StatusOK, wantKey: "Service"},
+		{name: "success", wantCode: http.StatusOK, wantKey: "OperationId"},
 		{name: "missing_id", wantCode: http.StatusBadRequest},
 		{name: "not_found", wantCode: http.StatusBadRequest},
 		{name: "invalid_json", wantCode: http.StatusBadRequest},

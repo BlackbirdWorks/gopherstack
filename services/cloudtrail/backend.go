@@ -885,6 +885,9 @@ func (b *InMemoryBackend) CreateEventDataStore(
 	if billingMode == "" {
 		billingMode = "EXTENDABLE_RETENTION_PRICING"
 	}
+	if retentionPeriod == 0 {
+		retentionPeriod = 2557
+	}
 	now := time.Now().UTC()
 	eds := &EventDataStore{
 		EventDataStoreID:       id,

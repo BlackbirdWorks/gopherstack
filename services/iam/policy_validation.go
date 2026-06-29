@@ -46,13 +46,14 @@ func isSupportedPolicyVersion(v string) bool {
 // rawStatement is a statement decoded with field presence preserved so that
 // "absent" can be distinguished from "present but empty".
 type rawStatement struct {
-	Effect       *string         `json:"Effect"`
-	Action       json.RawMessage `json:"Action"`
-	NotAction    json.RawMessage `json:"NotAction"`
-	Resource     json.RawMessage `json:"Resource"`
-	NotResource  json.RawMessage `json:"NotResource"`
-	Principal    json.RawMessage `json:"Principal"`
-	NotPrincipal json.RawMessage `json:"NotPrincipal"`
+	Effect       *string                               `json:"Effect"`
+	Condition    map[string]map[string]json.RawMessage `json:"Condition"`
+	Action       json.RawMessage                       `json:"Action"`
+	NotAction    json.RawMessage                       `json:"NotAction"`
+	Resource     json.RawMessage                       `json:"Resource"`
+	NotResource  json.RawMessage                       `json:"NotResource"`
+	Principal    json.RawMessage                       `json:"Principal"`
+	NotPrincipal json.RawMessage                       `json:"NotPrincipal"`
 }
 
 // validateIdentityPolicyDocument validates an identity-based policy document

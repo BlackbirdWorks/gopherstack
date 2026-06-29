@@ -33,16 +33,20 @@ func TestUnit_StreamsWire_AttributeValueEncoding(t *testing.T) {
 								"pk":    &streamstypes.AttributeValueMemberS{Value: "item-1"},
 								"count": &streamstypes.AttributeValueMemberN{Value: "2"},
 								"flag":  &streamstypes.AttributeValueMemberBOOL{Value: true},
-								"tags":  &streamstypes.AttributeValueMemberSS{Value: []string{"a", "b"}},
+								"tags": &streamstypes.AttributeValueMemberSS{
+									Value: []string{"a", "b"},
+								},
 								"meta": &streamstypes.AttributeValueMemberM{
 									Value: map[string]streamstypes.AttributeValue{
 										"inner": &streamstypes.AttributeValueMemberS{Value: "v"},
 									},
 								},
-								"list": &streamstypes.AttributeValueMemberL{Value: []streamstypes.AttributeValue{
-									&streamstypes.AttributeValueMemberS{Value: "x"},
-									&streamstypes.AttributeValueMemberN{Value: "3"},
-								}},
+								"list": &streamstypes.AttributeValueMemberL{
+									Value: []streamstypes.AttributeValue{
+										&streamstypes.AttributeValueMemberS{Value: "x"},
+										&streamstypes.AttributeValueMemberN{Value: "3"},
+									},
+								},
 							},
 						},
 					},
@@ -55,7 +59,9 @@ func TestUnit_StreamsWire_AttributeValueEncoding(t *testing.T) {
 				"flag":  map[string]any{"BOOL": true},
 				"tags":  map[string]any{"SS": []string{"a", "b"}},
 				"meta":  map[string]any{"M": map[string]any{"inner": map[string]any{"S": "v"}}},
-				"list":  map[string]any{"L": []any{map[string]any{"S": "x"}, map[string]any{"N": "3"}}},
+				"list": map[string]any{
+					"L": []any{map[string]any{"S": "x"}, map[string]any{"N": "3"}},
+				},
 			},
 		},
 		{

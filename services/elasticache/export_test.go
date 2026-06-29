@@ -18,7 +18,7 @@ func GlobalReplicationGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("GlobalReplicationGroupCount")
 	defer b.mu.RUnlock()
 
-	return len(b.globalReplicationGroups)
+	return len(b.listGlobalReplicationGroups())
 }
 
 // ServerlessCacheCount returns the number of serverless caches across all regions.

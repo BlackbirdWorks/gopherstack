@@ -140,7 +140,11 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 		}
 	}
 
-	gsiUpdates := make([]types.GlobalSecondaryIndexUpdate, 0, len(input.GlobalSecondaryIndexUpdates))
+	gsiUpdates := make(
+		[]types.GlobalSecondaryIndexUpdate,
+		0,
+		len(input.GlobalSecondaryIndexUpdates),
+	)
 
 	for _, u := range input.GlobalSecondaryIndexUpdates {
 		update := types.GlobalSecondaryIndexUpdate{}
@@ -287,39 +291,23 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 		cnt = int(*td.ItemCount)
 	}
 
-	replicas := make([]ReplicaDescription, len(td.Replicas))
-	for i, r := range td.Replicas {
-		rep := ReplicaDescription{
-			RegionName:    ptrconv.String(r.RegionName),
-			ReplicaStatus: string(r.ReplicaStatus),
-		}
-
-		if r.ReplicaTableClassSummary != nil && r.ReplicaTableClassSummary.TableClass != "" {
-			rep.TableClassOverride = string(r.ReplicaTableClassSummary.TableClass)
-		}
-
-		if r.ProvisionedThroughputOverride != nil && r.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
-			rcu := *r.ProvisionedThroughputOverride.ReadCapacityUnits
-			rep.ProvisionedReadCapacityUnits = &rcu
-		}
-
-		replicas[i] = rep
-	}
-	if len(replicas) == 0 {
-		replicas = nil
-	}
+	replicas := fromSDKReplicaDescriptions(td.Replicas)
 
 	out := TableDescription{
-		TableName:                 ptrconv.String(td.TableName),
-		TableStatus:               string(td.TableStatus),
-		TableArn:                  ptrconv.String(td.TableArn),
-		TableID:                   ptrconv.String(td.TableId),
-		ItemCount:                 cnt,
-		KeySchema:                 FromSDKKeySchema(td.KeySchema),
-		AttributeDefinitions:      FromSDKAttributeDefinitions(td.AttributeDefinitions),
-		GlobalSecondaryIndexes:    FromSDKGlobalSecondaryIndexDescriptions(td.GlobalSecondaryIndexes),
-		LocalSecondaryIndexes:     FromSDKLocalSecondaryIndexDescriptions(td.LocalSecondaryIndexes),
-		ProvisionedThroughput:     FromSDKProvisionedThroughputDescription(td.ProvisionedThroughput),
+		TableName:            ptrconv.String(td.TableName),
+		TableStatus:          string(td.TableStatus),
+		TableArn:             ptrconv.String(td.TableArn),
+		TableID:              ptrconv.String(td.TableId),
+		ItemCount:            cnt,
+		KeySchema:            FromSDKKeySchema(td.KeySchema),
+		AttributeDefinitions: FromSDKAttributeDefinitions(td.AttributeDefinitions),
+		GlobalSecondaryIndexes: FromSDKGlobalSecondaryIndexDescriptions(
+			td.GlobalSecondaryIndexes,
+		),
+		LocalSecondaryIndexes: FromSDKLocalSecondaryIndexDescriptions(td.LocalSecondaryIndexes),
+		ProvisionedThroughput: FromSDKProvisionedThroughputDescription(
+			td.ProvisionedThroughput,
+		),
 		Replicas:                  replicas,
 		LatestStreamArn:           ptrconv.String(td.LatestStreamArn),
 		LatestStreamLabel:         ptrconv.String(td.LatestStreamLabel),
@@ -346,6 +334,44 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 			SSEType:         string(td.SSEDescription.SSEType),
 			KMSMasterKeyArn: ptrconv.String(td.SSEDescription.KMSMasterKeyArn),
 		}
+	}
+
+	return out
+}
+
+func fromSDKReplicaDescriptions(sdkReplicas []types.ReplicaDescription) []ReplicaDescription {
+	if len(sdkReplicas) == 0 {
+		return nil
+	}
+
+	out := make([]ReplicaDescription, len(sdkReplicas))
+	for i, r := range sdkReplicas {
+		rep := ReplicaDescription{
+			RegionName:    ptrconv.String(r.RegionName),
+			ReplicaStatus: string(r.ReplicaStatus),
+		}
+		if r.ReplicaTableClassSummary != nil && r.ReplicaTableClassSummary.TableClass != "" {
+			rep.TableClassOverride = string(r.ReplicaTableClassSummary.TableClass)
+		}
+		if r.ProvisionedThroughputOverride != nil &&
+			r.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
+			rcu := *r.ProvisionedThroughputOverride.ReadCapacityUnits
+			rep.ProvisionedReadCapacityUnits = &rcu
+		}
+		if len(r.GlobalSecondaryIndexes) > 0 {
+			gsis := make([]ReplicaGSIOverride, 0, len(r.GlobalSecondaryIndexes))
+			for _, g := range r.GlobalSecondaryIndexes {
+				ov := ReplicaGSIOverride{IndexName: ptrconv.String(g.IndexName)}
+				if g.ProvisionedThroughputOverride != nil &&
+					g.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
+					rcu := *g.ProvisionedThroughputOverride.ReadCapacityUnits
+					ov.ProvisionedReadCapacity = &rcu
+				}
+				gsis = append(gsis, ov)
+			}
+			rep.GlobalSecondaryIndexes = gsis
+		}
+		out[i] = rep
 	}
 
 	return out
@@ -452,7 +478,10 @@ func FromSDKTagResourceOutput(_ *dynamodb.TagResourceOutput) *TagResourceOutput 
 
 // ToSDKUntagResourceInput converts the wire-format UntagResourceInput to an AWS SDK input.
 func ToSDKUntagResourceInput(input *UntagResourceInput) (*dynamodb.UntagResourceInput, error) {
-	return &dynamodb.UntagResourceInput{ResourceArn: &input.ResourceArn, TagKeys: input.TagKeys}, nil
+	return &dynamodb.UntagResourceInput{
+		ResourceArn: &input.ResourceArn,
+		TagKeys:     input.TagKeys,
+	}, nil
 }
 
 // FromSDKUntagResourceOutput converts the AWS SDK UntagResourceOutput to wire format.
@@ -461,7 +490,9 @@ func FromSDKUntagResourceOutput(_ *dynamodb.UntagResourceOutput) *UntagResourceO
 }
 
 // ToSDKListTagsOfResourceInput converts the wire-format input to an AWS SDK input.
-func ToSDKListTagsOfResourceInput(input *ListTagsOfResourceInput) (*dynamodb.ListTagsOfResourceInput, error) {
+func ToSDKListTagsOfResourceInput(
+	input *ListTagsOfResourceInput,
+) (*dynamodb.ListTagsOfResourceInput, error) {
 	out := &dynamodb.ListTagsOfResourceInput{ResourceArn: &input.ResourceArn}
 	if input.NextToken != "" {
 		out.NextToken = &input.NextToken
@@ -471,7 +502,9 @@ func ToSDKListTagsOfResourceInput(input *ListTagsOfResourceInput) (*dynamodb.Lis
 }
 
 // FromSDKListTagsOfResourceOutput converts the AWS SDK output to wire format.
-func FromSDKListTagsOfResourceOutput(output *dynamodb.ListTagsOfResourceOutput) *ListTagsOfResourceOutput {
+func FromSDKListTagsOfResourceOutput(
+	output *dynamodb.ListTagsOfResourceOutput,
+) *ListTagsOfResourceOutput {
 	tags := make([]Tag, len(output.Tags))
 	for i, t := range output.Tags {
 		tags[i] = Tag{

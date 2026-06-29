@@ -837,18 +837,18 @@ func TestHandler_NotebookInstanceLifecycle(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, recStart.Code)
 
-	// Update.
+	// Stop before update: real AWS requires Stopped state to update a notebook instance.
+	recStop := doSageMakerRequest(t, h, "StopNotebookInstance", map[string]any{
+		"NotebookInstanceName": "my-notebook",
+	})
+	assert.Equal(t, http.StatusOK, recStop.Code)
+
+	// Update (notebook is now Stopped).
 	recUpdate := doSageMakerRequest(t, h, "UpdateNotebookInstance", map[string]any{
 		"NotebookInstanceName": "my-notebook",
 		"InstanceType":         "ml.t3.medium",
 	})
 	assert.Equal(t, http.StatusOK, recUpdate.Code)
-
-	// Stop.
-	recStop := doSageMakerRequest(t, h, "StopNotebookInstance", map[string]any{
-		"NotebookInstanceName": "my-notebook",
-	})
-	assert.Equal(t, http.StatusOK, recStop.Code)
 
 	// CreatePresignedNotebookInstanceUrl.
 	recURL := doSageMakerRequest(t, h, "CreatePresignedNotebookInstanceUrl", map[string]any{

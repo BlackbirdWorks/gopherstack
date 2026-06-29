@@ -356,7 +356,7 @@ func (h *Handler) handleDescribeIamInstanceProfileAssociations(
 			break
 		}
 
-		if name == "instance-id" {
+		if name == filterKeyInstanceID {
 			instanceID = vals.Get("Filter." + strconv.Itoa(i) + ".Value.1")
 		}
 	}

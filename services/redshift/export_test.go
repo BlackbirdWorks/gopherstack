@@ -1,5 +1,7 @@
 package redshift
 
+import "time"
+
 // ClusterCount returns the number of clusters in the backend.
 func ClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock("ClusterCount")
@@ -147,4 +149,11 @@ func IdcApplicationCount(b *InMemoryBackend) int {
 // HandlerOpsLen returns the number of operations registered in the handler.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)
+}
+
+// SetClusterActivationDelay sets the delay before a newly created cluster
+// transitions from "creating" to "available". Set to a positive value to
+// test the lifecycle state machine; leave at 0 for instant availability.
+func SetClusterActivationDelay(b *InMemoryBackend, d time.Duration) {
+	b.clusterActivationDelay = d
 }

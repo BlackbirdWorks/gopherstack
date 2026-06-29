@@ -85,8 +85,12 @@ func HandlerOpsLen(h *Handler) int {
 // TagResourceCount returns the number of resource IDs that currently have
 // handler-level tags. Used to verify tags are released on resource delete.
 func TagResourceCount(h *Handler) int {
-	h.tagsMu.RLock("TagResourceCount")
-	defer h.tagsMu.RUnlock()
+	b, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return 0
+	}
+	b.mu.RLock("TagResourceCount")
+	defer b.mu.RUnlock()
 
-	return len(h.tags)
+	return len(b.tags)
 }

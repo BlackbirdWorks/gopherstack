@@ -308,7 +308,8 @@ func TestOmics_Workflow(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				assert.Contains(t, resp["arn"], "arn:aws:omics:")
-				assert.Equal(t, "wf1", resp["name"])
+				assert.NotEmpty(t, resp["id"])
+				assert.Equal(t, "CREATING", resp["status"])
 			},
 		},
 		{

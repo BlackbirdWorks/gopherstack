@@ -120,11 +120,12 @@ func TestACMBackend_RequestCertificate_Extended(t *testing.T) {
 		verifyDVOFields          bool
 	}{
 		{
-			name:          "with_sans",
-			domain:        "example.com",
-			sans:          []string{"www.example.com", "api.example.com"},
-			wantDomain:    "example.com",
-			wantSANs:      []string{"www.example.com", "api.example.com"},
+			name:       "with_sans",
+			domain:     "example.com",
+			sans:       []string{"www.example.com", "api.example.com"},
+			wantDomain: "example.com",
+			// Real AWS ACM always includes the primary domain as the first SAN entry.
+			wantSANs:      []string{"example.com", "www.example.com", "api.example.com"},
 			wantDVOLen:    3,
 			wantDVOLenMsg: "should have DVOs for primary + 2 SANs",
 		},

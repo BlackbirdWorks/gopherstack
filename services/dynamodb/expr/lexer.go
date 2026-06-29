@@ -153,14 +153,55 @@ func (l *Lexer) handleGreaterThan() Token {
 func (l *Lexer) handleDefault() Token {
 	if isLetter(l.ch) || l.ch == '#' || l.ch == ':' {
 		literal := l.readIdentifier()
+		tokType := lookupIdentifier(literal)
 
-		return Token{Type: lookupIdentifier(literal), Literal: literal}
+		// Function keywords (size, contains, attribute_exists, etc.) are only
+		// valid as function calls when followed by '(', possibly with whitespace.
+		// When not followed by '(', treat them as plain identifiers so that
+		// attribute names that collide with function names parse correctly.
+		if isFunctionKeyword(tokType) && !l.nextMeaningfulCharIs('(') {
+			tokType = TokenIdentifier
+		}
+
+		return Token{Type: tokType, Literal: literal}
 	}
 	if isDigit(l.ch) {
 		return Token{Type: TokenIdentifier, Literal: l.readNumber()}
 	}
 
 	return Token{Type: TokenError, Literal: string(l.ch)}
+}
+
+// isFunctionKeyword returns true for tokens that represent built-in functions.
+func isFunctionKeyword(t TokenType) bool {
+	switch t {
+	case TokenSize,
+		TokenAttributeExists,
+		TokenAttributeNotExists,
+		TokenBeginsWith,
+		TokenContains,
+		TokenAttributeType,
+		TokenIfNotExists,
+		TokenListAppend:
+		return true
+	default:
+		return false
+	}
+}
+
+// nextMeaningfulCharIs checks whether the next non-whitespace character in the
+// remaining input equals ch. It does NOT advance the lexer position.
+func (l *Lexer) nextMeaningfulCharIs(ch byte) bool {
+	for i := l.position; i < len(l.input); i++ {
+		c := l.input[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			continue
+		}
+
+		return c == ch
+	}
+
+	return false
 }
 
 func (l *Lexer) readIdentifier() string {

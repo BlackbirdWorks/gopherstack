@@ -504,8 +504,8 @@ func TestAudit_PutSecretValue_WithAWSPENDING(t *testing.T) {
 		VersionStages: []string{"AWSPENDING"},
 	})
 	require.NoError(t, err)
-	// AWSPENDING merged with AWSCURRENT
-	assert.Contains(t, out.VersionStages, sm.StagingLabelCurrent)
+	// Real AWS: when caller specifies only AWSPENDING, AWSCURRENT is NOT added.
+	assert.NotContains(t, out.VersionStages, sm.StagingLabelCurrent)
 	assert.Contains(t, out.VersionStages, "AWSPENDING")
 }
 
@@ -1648,7 +1648,8 @@ func TestAudit_CancelRotateSecret_SetsRotationDisabled(t *testing.T) {
 
 	desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "cancel-enabled"})
 	require.NoError(t, err)
-	assert.False(t, desc.RotationEnabled)
+	// Real AWS: CancelRotateSecret only removes AWSPENDING; rotation config stays intact.
+	assert.True(t, desc.RotationEnabled)
 }
 
 func TestAudit_CancelRotateSecret_NotFound(t *testing.T) {

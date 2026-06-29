@@ -14,17 +14,21 @@ type StorageBackend interface {
 	DeleteHostedZone(zoneID string) error
 	GetHostedZone(zoneID string) (*HostedZone, error)
 	ListHostedZones(marker string, maxItems int) (page.Page[HostedZone], error)
+	ListHostedZonesByName(dnsName, zoneID string, maxItems int) ([]HostedZone, string, string, error)
+	GetHostedZoneCount() int
 	UpdateHostedZoneComment(zoneID, comment string) (*HostedZone, error)
 
 	// Record set operations
 	ChangeResourceRecordSets(zoneID string, changes []Change) (string, error)
 	ListResourceRecordSets(zoneID, startName, startType, startIdentifier string, maxItems int) (RRSetPage, error)
+	CountResourceRecordSets(zoneID string) (int, error)
 	GetChange(changeID string) (*ChangeInfo, error)
 
 	// Health check operations
 	CreateHealthCheck(callerRef string, cfg HealthCheckConfig) (*HealthCheck, error)
 	GetHealthCheck(id string) (*HealthCheck, error)
 	ListHealthChecks(marker string, maxItems int) (page.Page[HealthCheck], error)
+	GetHealthCheckCount() int
 	DeleteHealthCheck(id string) error
 	UpdateHealthCheck(id string, cfg HealthCheckConfig) (*HealthCheck, error)
 	GetHealthCheckStatus(id string) (string, error)
@@ -49,6 +53,7 @@ type StorageBackend interface {
 	CreateVPCAssociationAuthorization(zoneID, vpcID, vpcRegion string) (*VPCAssociationAuthorization, error)
 	DeleteVPCAssociationAuthorization(zoneID, vpcID string) error
 	ListVPCAssociationAuthorizations(zoneID string) ([]VPCAssociationAuthorization, error)
+	CountAssociatedVPCs(zoneID string) (int, error)
 
 	// CIDR collection operations
 	CreateCidrCollection(name, callerRef string) (*CidrCollection, error)
@@ -69,6 +74,7 @@ type StorageBackend interface {
 	GetReusableDelegationSet(id string) (*ReusableDelegationSet, error)
 	DeleteReusableDelegationSet(id string) error
 	ListReusableDelegationSets() ([]*ReusableDelegationSet, error)
+	CountZonesByReusableDelegationSet(id string) (int, error)
 
 	// DNS query simulation
 	TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error)
@@ -92,6 +98,11 @@ type StorageBackend interface {
 	ListTrafficPolicyInstances() ([]*TrafficPolicyInstance, error)
 	ListTrafficPolicyInstancesByHostedZone(hostedZoneID string) ([]*TrafficPolicyInstance, error)
 	ListTrafficPolicyInstancesByPolicy(tpID string, tpVersion int32) ([]*TrafficPolicyInstance, error)
+
+	// Tags operations
+	ListTagsForResource(resourceID string) map[string]string
+	ListTagsForResources(resourceIDs []string) map[string]map[string]string
+	ChangeTagsForResource(resourceID string, addTags map[string]string, removeKeys []string) error
 
 	// Lifecycle
 	Reset()

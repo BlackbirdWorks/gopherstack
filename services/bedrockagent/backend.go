@@ -74,15 +74,16 @@ const (
 
 // AgentConfig holds fields for creating or updating an Agent.
 type AgentConfig struct {
-	Tags            map[string]string
-	Guardrail       map[string]any
-	Memory          map[string]any
-	AgentName       string
-	Collaboration   string
-	Description     string
-	FoundationModel string
-	Instruction     string
-	RoleARN         string
+	Tags                    map[string]string
+	Guardrail               map[string]any
+	Memory                  map[string]any
+	AgentName               string
+	Collaboration           string
+	Description             string
+	FoundationModel         string
+	Instruction             string
+	RoleARN                 string
+	IdleSessionTTLInSeconds int
 }
 
 // ActionGroupConfig holds fields for creating or updating an AgentActionGroup.
@@ -688,7 +689,7 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 		PromptOverrideConfiguration: map[string]any{
 			"promptConfigurations": []any{},
 		},
-		IdleSessionTTLInSeconds: defaultIdleSessionTTLSeconds,
+		IdleSessionTTLInSeconds: ttlOrDefault(cfg.IdleSessionTTLInSeconds),
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
@@ -739,6 +740,14 @@ func (b *InMemoryBackend) UpdateAgent(_ context.Context, agentID string, cfg Age
 	return agentCopy(a), nil
 }
 
+func ttlOrDefault(ttl int) int {
+	if ttl > 0 {
+		return ttl
+	}
+
+	return defaultIdleSessionTTLSeconds
+}
+
 func applyAgentConfig(a *Agent, cfg AgentConfig) {
 	if cfg.Collaboration != "" {
 		a.Collaboration = cfg.Collaboration
@@ -766,6 +775,10 @@ func applyAgentConfig(a *Agent, cfg AgentConfig) {
 
 	if cfg.Memory != nil {
 		a.Memory = cfg.Memory
+	}
+
+	if cfg.IdleSessionTTLInSeconds > 0 {
+		a.IdleSessionTTLInSeconds = cfg.IdleSessionTTLInSeconds
 	}
 }
 

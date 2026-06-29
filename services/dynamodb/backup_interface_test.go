@@ -45,20 +45,29 @@ func TestInMemoryDB_CreateBackup(t *testing.T) {
 			},
 		},
 		{
-			name:       "missing_table_name",
-			input:      &sdk.CreateBackupInput{TableName: aws.String(""), BackupName: aws.String("b")},
+			name: "missing_table_name",
+			input: &sdk.CreateBackupInput{
+				TableName:  aws.String(""),
+				BackupName: aws.String("b"),
+			},
 			wantErr:    true,
 			errContain: "TableName",
 		},
 		{
-			name:       "missing_backup_name",
-			input:      &sdk.CreateBackupInput{TableName: aws.String("T"), BackupName: aws.String("")},
+			name: "missing_backup_name",
+			input: &sdk.CreateBackupInput{
+				TableName:  aws.String("T"),
+				BackupName: aws.String(""),
+			},
 			wantErr:    true,
 			errContain: "BackupName",
 		},
 		{
-			name:    "table_does_not_exist",
-			input:   &sdk.CreateBackupInput{TableName: aws.String("Ghost"), BackupName: aws.String("snap")},
+			name: "table_does_not_exist",
+			input: &sdk.CreateBackupInput{
+				TableName:  aws.String("Ghost"),
+				BackupName: aws.String("snap"),
+			},
 			wantErr: true,
 		},
 		{
@@ -99,7 +108,11 @@ func TestInMemoryDB_CreateBackup(t *testing.T) {
 			require.NotNil(t, out)
 			require.NotNil(t, out.BackupDetails)
 			assert.NotEmpty(t, aws.ToString(out.BackupDetails.BackupArn))
-			assert.Equal(t, aws.ToString(tt.input.BackupName), aws.ToString(out.BackupDetails.BackupName))
+			assert.Equal(
+				t,
+				aws.ToString(tt.input.BackupName),
+				aws.ToString(out.BackupDetails.BackupName),
+			)
 			assert.Equal(t, types.BackupStatusAvailable, out.BackupDetails.BackupStatus)
 			assert.Equal(t, types.BackupTypeUser, out.BackupDetails.BackupType)
 			assert.NotNil(t, out.BackupDetails.BackupCreationDateTime)
@@ -190,7 +203,11 @@ func TestInMemoryDB_DeleteBackup(t *testing.T) {
 			require.NotNil(t, out.BackupDescription)
 			require.NotNil(t, out.BackupDescription.BackupDetails)
 			assert.Equal(t, backupArn, aws.ToString(out.BackupDescription.BackupDetails.BackupArn))
-			assert.Equal(t, types.BackupStatusDeleted, out.BackupDescription.BackupDetails.BackupStatus)
+			assert.Equal(
+				t,
+				types.BackupStatusDeleted,
+				out.BackupDescription.BackupDetails.BackupStatus,
+			)
 		})
 	}
 }
@@ -285,8 +302,10 @@ func TestInMemoryDB_BatchExecuteStatement(t *testing.T) {
 			input: &sdk.BatchExecuteStatementInput{
 				Statements: []types.BatchStatementRequest{
 					{
-						Statement:  aws.String(`SELECT pk, v FROM "T" WHERE pk = ?`),
-						Parameters: []types.AttributeValue{&types.AttributeValueMemberS{Value: "a"}},
+						Statement: aws.String(`SELECT pk, v FROM "T" WHERE pk = ?`),
+						Parameters: []types.AttributeValue{
+							&types.AttributeValueMemberS{Value: "a"},
+						},
 					},
 				},
 			},
@@ -362,7 +381,11 @@ func TestCreateDeleteBackup_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, deleteOut)
 	assert.Equal(t, backupArn, aws.ToString(deleteOut.BackupDescription.BackupDetails.BackupArn))
-	assert.Equal(t, types.BackupStatusDeleted, deleteOut.BackupDescription.BackupDetails.BackupStatus)
+	assert.Equal(
+		t,
+		types.BackupStatusDeleted,
+		deleteOut.BackupDescription.BackupDetails.BackupStatus,
+	)
 
 	// Second delete should fail (already deleted).
 	_, err = db.DeleteBackup(ctx, &sdk.DeleteBackupInput{BackupArn: &backupArn})
@@ -391,7 +414,11 @@ func TestInMemoryDB_BatchExecuteStatement_DML(t *testing.T) {
 			},
 			input: &sdk.BatchExecuteStatementInput{
 				Statements: []types.BatchStatementRequest{
-					{Statement: aws.String(`INSERT INTO "T" VALUE {'pk': 'new-item', 'v': 'inserted'}`)},
+					{
+						Statement: aws.String(
+							`INSERT INTO "T" VALUE {'pk': 'new-item', 'v': 'inserted'}`,
+						),
+					},
 				},
 			},
 			wantLen: 1,

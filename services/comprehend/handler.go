@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -383,14 +384,21 @@ func (h *Handler) describeJob(spec jobSpec) operation {
 }
 
 func (h *Handler) listJobs(spec jobSpec) operation {
-	return func(_ map[string]any) (map[string]any, error) {
+	return func(input map[string]any) (map[string]any, error) {
 		jobs := h.Backend.ListJobs(spec.jobType)
 		items := make([]map[string]any, 0, len(jobs))
 		for _, job := range jobs {
 			items = append(items, jobMap(job))
 		}
 
-		return map[string]any{spec.listField: items}, nil
+		tok, maxResults := paginationParams(input)
+		page, nextTok := comprehendPaginate(items, tok, maxResults)
+		out := map[string]any{spec.listField: page}
+		if nextTok != "" {
+			out["NextToken"] = nextTok
+		}
+
+		return out, nil
 	}
 }
 
@@ -444,14 +452,21 @@ func (h *Handler) describeResource(spec resourceSpec) operation {
 }
 
 func (h *Handler) listResources(spec resourceSpec) operation {
-	return func(_ map[string]any) (map[string]any, error) {
+	return func(input map[string]any) (map[string]any, error) {
 		resources := h.Backend.ListResources(spec.resourceType)
 		items := make([]map[string]any, 0, len(resources))
 		for _, resource := range resources {
 			items = append(items, resourceMap(resource, spec))
 		}
 
-		return map[string]any{spec.listField: items}, nil
+		tok, maxResults := paginationParams(input)
+		page, nextTok := comprehendPaginate(items, tok, maxResults)
+		out := map[string]any{spec.listField: page}
+		if nextTok != "" {
+			out["NextToken"] = nextTok
+		}
+
+		return out, nil
 	}
 }
 
@@ -509,7 +524,14 @@ func (h *Handler) listIterations(input map[string]any) (map[string]any, error) {
 		items = append(items, iterationMap(iteration))
 	}
 
-	return map[string]any{"FlywheelIterationPropertiesList": items}, nil
+	tok, maxResults := paginationParams(input)
+	page, nextTok := comprehendPaginate(items, tok, maxResults)
+	out := map[string]any{"FlywheelIterationPropertiesList": page}
+	if nextTok != "" {
+		out["NextToken"] = nextTok
+	}
+
+	return out, nil
 }
 
 func iterationMap(iteration *FlywheelIteration) map[string]any {
@@ -1078,7 +1100,7 @@ func (h *Handler) importModel(input map[string]any) (map[string]any, error) {
 	}, nil
 }
 
-func (h *Handler) listDocumentClassifierSummaries(_ map[string]any) (map[string]any, error) {
+func (h *Handler) listDocumentClassifierSummaries(input map[string]any) (map[string]any, error) {
 	resources := h.Backend.ListResources(resourceTypeDocClassifier)
 	items := make([]map[string]any, 0, len(resources))
 	for _, resource := range resources {
@@ -1091,12 +1113,17 @@ func (h *Handler) listDocumentClassifierSummaries(_ map[string]any) (map[string]
 		})
 	}
 
-	return map[string]any{
-		"DocumentClassifierSummariesList": items,
-	}, nil
+	tok, maxResults := paginationParams(input)
+	page, nextTok := comprehendPaginate(items, tok, maxResults)
+	out := map[string]any{"DocumentClassifierSummariesList": page}
+	if nextTok != "" {
+		out["NextToken"] = nextTok
+	}
+
+	return out, nil
 }
 
-func (h *Handler) listEntityRecognizerSummaries(_ map[string]any) (map[string]any, error) {
+func (h *Handler) listEntityRecognizerSummaries(input map[string]any) (map[string]any, error) {
 	resources := h.Backend.ListResources(resourceTypeEntityRecognizer)
 	items := make([]map[string]any, 0, len(resources))
 	for _, resource := range resources {
@@ -1109,9 +1136,14 @@ func (h *Handler) listEntityRecognizerSummaries(_ map[string]any) (map[string]an
 		})
 	}
 
-	return map[string]any{
-		"EntityRecognizerSummariesList": items,
-	}, nil
+	tok, maxResults := paginationParams(input)
+	page, nextTok := comprehendPaginate(items, tok, maxResults)
+	out := map[string]any{"EntityRecognizerSummariesList": page}
+	if nextTok != "" {
+		out["NextToken"] = nextTok
+	}
+
+	return out, nil
 }
 
 func (h *Handler) stopTrainingDocumentClassifier(input map[string]any) (map[string]any, error) {
@@ -1127,4 +1159,45 @@ func (h *Handler) stopTrainingEntityRecognizer(input map[string]any) (map[string
 	)
 
 	return map[string]any{}, err
+}
+
+// comprehendPaginate slices items using an integer-offset NextToken and returns
+// the page and the token for the following page (empty when exhausted).
+// maxResults ≤ 0 means no limit.
+func comprehendPaginate[T any](items []T, nextToken string, maxResults int) ([]T, string) {
+	if len(items) == 0 {
+		return items, ""
+	}
+
+	start := 0
+	if nextToken != "" {
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx > 0 && idx < len(items) {
+			start = idx
+		}
+	}
+
+	if maxResults <= 0 {
+		return items[start:], ""
+	}
+
+	end := start + maxResults
+	if end >= len(items) {
+		return items[start:], ""
+	}
+
+	return items[start:end], strconv.Itoa(end)
+}
+
+// paginationParams extracts NextToken and MaxResults from the JSON body input.
+func paginationParams(input map[string]any) (string, int) {
+	tok, _ := input["NextToken"].(string)
+	maxResults := 0
+	switch v := input["MaxResults"].(type) {
+	case float64:
+		maxResults = int(v)
+	case int:
+		maxResults = v
+	}
+
+	return tok, maxResults
 }

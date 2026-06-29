@@ -1,5 +1,7 @@
 package serverlessrepo
 
+import "time"
+
 // ApplicationCount returns the number of applications in the backend (test helper).
 func ApplicationCount(b *InMemoryBackend) int {
 	b.mu.RLock("ApplicationCount")
@@ -43,4 +45,38 @@ func PolicyStatementCount(b *InMemoryBackend, appName string) int {
 // HandlerOpsLen returns the number of supported operations in the handler (test helper).
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
+}
+
+// AddExpiredTemplateInternal creates a CloudFormation template whose expiration time
+// is set to the past so that GetCloudFormationTemplate returns EXPIRED status.
+func AddExpiredTemplateInternal(b *InMemoryBackend, appName, semanticVersion string) *CloudFormationTemplate {
+	b.mu.Lock("AddExpiredTemplateInternal")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[appName]
+	if !ok {
+		return nil
+	}
+
+	if b.cfTemplates[appName] == nil {
+		b.cfTemplates[appName] = make(map[string]*CloudFormationTemplate)
+	}
+
+	now := time.Now()
+	templateID := appName + "-expired"
+	t := &CloudFormationTemplate{
+		ApplicationID:   app.ApplicationID,
+		TemplateID:      templateID,
+		SemanticVersion: semanticVersion,
+		Status:          templateStatusActive,
+		CreationTime:    now.Add(-2 * time.Hour),
+		ExpirationTime:  now.Add(-1 * time.Hour),
+		TemplateURL: "https://s3.amazonaws.com/serverlessrepo-templates/" +
+			appName + "/" + templateID + ".template",
+	}
+	b.cfTemplates[appName][templateID] = t
+
+	cp := *t
+
+	return &cp
 }

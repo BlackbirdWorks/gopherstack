@@ -89,6 +89,13 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
+// StopWorker stops the background worker if one is configured.
+func (h *Handler) StopWorker() {
+	if h.janitor != nil {
+		h.janitor.Stop()
+	}
+}
+
 // defaultRegion returns the region the handler should fall back to when a
 // request carries no SigV4 region. It prefers the explicitly configured
 // DefaultRegion and otherwise mirrors the backend's region so that the

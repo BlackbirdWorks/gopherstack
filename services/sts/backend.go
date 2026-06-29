@@ -1,8 +1,10 @@
 package sts
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1" //nolint:gosec // SHA1 is used only for NameQualifier per AWS spec, not for security
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -46,7 +48,9 @@ var (
 	ErrMissingFederationTokenName = errors.New("Name is required for GetFederationToken")
 
 	// ErrMissingWebIdentityToken is returned when AssumeRoleWithWebIdentity is called without a WebIdentityToken.
-	ErrMissingWebIdentityToken = errors.New("WebIdentityToken is required for AssumeRoleWithWebIdentity")
+	ErrMissingWebIdentityToken = errors.New(
+		"WebIdentityToken is required for AssumeRoleWithWebIdentity",
+	)
 
 	// ErrMissingSAMLAssertion is returned when AssumeRoleWithSAML is called without a SAMLAssertion.
 	ErrMissingSAMLAssertion = errors.New("SAMLAssertion is required for AssumeRoleWithSAML")
@@ -79,7 +83,9 @@ var (
 	ErrInvalidFederationName = errors.New("federation token name must be 2-32 characters")
 
 	// ErrMissingEncodedMessage is returned when DecodeAuthorizationMessage is called without an EncodedMessage.
-	ErrMissingEncodedMessage = errors.New("EncodedMessage is required for DecodeAuthorizationMessage")
+	ErrMissingEncodedMessage = errors.New(
+		"EncodedMessage is required for DecodeAuthorizationMessage",
+	)
 
 	// ErrEmptyAccessKeyID is returned when GetAccessKeyInfo is called with an empty AccessKeyId.
 	ErrEmptyAccessKeyID = errors.New("AccessKeyId must not be empty")
@@ -113,6 +119,10 @@ var (
 
 	// ErrInvalidAuthorizationMessage is returned when DecodeAuthorizationMessage receives a non-STS-issued blob.
 	ErrInvalidAuthorizationMessage = errors.New("invalid authorization message")
+
+	// ErrInvalidSAMLAssertion is returned when AssumeRoleWithSAML receives a SAMLAssertion
+	// that is not valid base64 or does not decode to XML.
+	ErrInvalidSAMLAssertion = errors.New("SAMLAssertion must be a base64-encoded XML document")
 
 	// ErrTooManyPolicyArns is returned when more than MaxPolicyArnsCount policy ARNs are supplied.
 	ErrTooManyPolicyArns = errors.New("too many policy ARNs: maximum is 10")
@@ -208,14 +218,9 @@ func isSessionExpired(s *SessionInfo) bool {
 // enough that the O(n) sweep amortizes cheaply.
 const sessionEvictThreshold = 256
 
-// evictExpiredSessionsLocked removes expired sessions from the map. It is a no-op
-// below sessionEvictThreshold so steady-state inserts stay O(1). The caller must
-// hold b.mu.
+// evictExpiredSessionsLocked removes all expired sessions from the map.
+// The caller must hold b.mu.
 func (b *InMemoryBackend) evictExpiredSessionsLocked() {
-	if len(b.sessions) < sessionEvictThreshold {
-		return
-	}
-
 	for id, session := range b.sessions {
 		if isSessionExpired(session) {
 			delete(b.sessions, id)
@@ -223,15 +228,64 @@ func (b *InMemoryBackend) evictExpiredSessionsLocked() {
 	}
 }
 
-// storeSession registers a new session under its access key ID, increments the
-// lifetime counter, and opportunistically evicts expired sessions so the map
-// stays bounded even when the background janitor is not running.
+// maybeEvictExpiredSessions acquires its own lock and sweeps expired sessions when
+// the session count is at or above sessionEvictThreshold. It runs in a separate
+// critical section from storeSession so that session creation (O(1) map insert)
+// is never blocked by an O(n) sweep.
+func (b *InMemoryBackend) maybeEvictExpiredSessions() {
+	b.mu.Lock()
+	if len(b.sessions) >= sessionEvictThreshold {
+		b.evictExpiredSessionsLocked()
+	}
+	b.mu.Unlock()
+}
+
+// storeSession registers a new session under its access key ID and increments
+// the lifetime counter. The store is a fast O(1) operation; opportunistic
+// eviction of expired sessions is deferred to a separate lock acquisition so
+// that the 11 credential-issuing operations do not serialize on O(n) sweeps.
 func (b *InMemoryBackend) storeSession(accessKeyID string, session *SessionInfo) {
 	b.mu.Lock()
-	b.evictExpiredSessionsLocked()
 	b.sessions[accessKeyID] = session
 	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
+
+	b.maybeEvictExpiredSessions()
+}
+
+// mergeTransitiveTags combines the parent session's transitive tags with the child's
+// explicit tags. Parent tags whose key appears in parent.TransitiveTagKeys are
+// inherited; the child's own tags take precedence on key conflicts.
+func mergeTransitiveTags(parent *SessionInfo, childTags []Tag) []Tag {
+	if parent == nil || len(parent.TransitiveTagKeys) == 0 {
+		return childTags
+	}
+
+	transitiveSet := make(map[string]struct{}, len(parent.TransitiveTagKeys))
+	for _, k := range parent.TransitiveTagKeys {
+		transitiveSet[k] = struct{}{}
+	}
+
+	// Build child key set for conflict resolution.
+	childKeys := make(map[string]struct{}, len(childTags))
+	for _, t := range childTags {
+		childKeys[t.Key] = struct{}{}
+	}
+
+	merged := make([]Tag, 0, len(childTags)+len(parent.Tags))
+	// Inherit parent transitive tags not overridden by child.
+	for _, t := range parent.Tags {
+		if _, isTransitive := transitiveSet[t.Key]; !isTransitive {
+			continue
+		}
+		if _, childOverrides := childKeys[t.Key]; childOverrides {
+			continue
+		}
+		merged = append(merged, t)
+	}
+	merged = append(merged, childTags...)
+
+	return merged
 }
 
 // validateRoleArn checks that a role ARN is a valid IAM role ARN:
@@ -262,7 +316,10 @@ func validateFederationTokenName(name string) error {
 	}
 
 	if !roleSessionNameRe.MatchString(name) {
-		return fmt.Errorf("%w: federation token name contains invalid characters", ErrInvalidFederationName)
+		return fmt.Errorf(
+			"%w: federation token name contains invalid characters",
+			ErrInvalidFederationName,
+		)
 	}
 
 	return nil
@@ -310,6 +367,12 @@ type trustStatement struct {
 	Condition map[string]map[string]json.RawMessage `json:"Condition"`
 }
 
+// authMsgHMACSize is the byte length of the HMAC-SHA256 prefix in encoded auth messages.
+const authMsgHMACSize = sha256.Size
+
+// authMsgSep is the separator byte between the HMAC and the plaintext in encoded auth messages.
+const authMsgSep = '|'
+
 // InMemoryBackend is a stateful in-memory STS backend.
 type InMemoryBackend struct {
 	roleLookup RoleLookup
@@ -317,6 +380,11 @@ type InMemoryBackend struct {
 	sessions   map[string]*SessionInfo
 	accountID  string
 	mu         sync.Mutex
+
+	// authMsgSigningKey is a random key used to HMAC-sign encoded authorization messages.
+	// Only messages signed with this key are accepted by DecodeAuthorizationMessage,
+	// matching AWS behaviour where only STS-issued encoded messages can be decoded.
+	authMsgSigningKey [authMsgHMACSize]byte
 
 	// Operation call counters — incremented atomically.
 	cntAssumeRole                atomic.Int64
@@ -342,9 +410,15 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID.
 func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
+	var key [authMsgHMACSize]byte
+	if _, err := rand.Read(key[:]); err != nil {
+		panic("sts: failed to generate authorization message signing key: " + err.Error())
+	}
+
 	return &InMemoryBackend{
-		accountID: accountID,
-		sessions:  make(map[string]*SessionInfo),
+		accountID:         accountID,
+		sessions:          make(map[string]*SessionInfo),
+		authMsgSigningKey: key,
 	}
 }
 
@@ -484,36 +558,56 @@ func (b *InMemoryBackend) getEffectiveMaxDuration(roleArn string) int32 {
 
 // validateAndGetMaxDuration validates ExternalId against the trust policy (when a RoleLookup
 // is configured) and returns the effective maximum session duration for the role.
+// When the caller uses temporary credentials (role chaining), the effective max is
+// capped at MaxRoleChainDurationSeconds (3600s) per AWS rules.
 func (b *InMemoryBackend) validateAndGetMaxDuration(input *AssumeRoleInput) (int32, error) {
-	effectiveMax := int32(MaxDurationSeconds)
-
-	b.mu.Lock()
-	rl := b.roleLookup
-	b.mu.Unlock()
-
-	if rl == nil {
-		return effectiveMax, nil
+	effectiveMax, err := b.roleDerivedMaxDuration(input)
+	if err != nil {
+		return 0, err
 	}
 
-	meta, _ := rl.GetRoleByArn(input.RoleArn)
-	if meta == nil {
-		// Role not in lookup; allow the call without validation.
-		return effectiveMax, nil
-	}
-
-	if err2 := validateExternalID(meta.TrustPolicy, input.ExternalID); err2 != nil {
-		return 0, err2
-	}
-
-	if meta.MaxSessionDuration > 0 {
-		effectiveMax = meta.MaxSessionDuration
+	// AWS caps the max session duration at 1 hour when the caller is already using
+	// temporary credentials (role chaining). ASIA prefix identifies temporary keys.
+	if strings.HasPrefix(input.CallerAccessKeyID, accessKeyIDPrefix) && effectiveMax > MaxRoleChainDurationSeconds {
+		effectiveMax = MaxRoleChainDurationSeconds
 	}
 
 	return effectiveMax, nil
 }
 
+// roleDerivedMaxDuration reads the role's MaxSessionDuration from the RoleLookup (if any)
+// and validates ExternalId. Returns MaxDurationSeconds when no lookup is configured or the
+// role is not found.
+func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32, error) {
+	b.mu.Lock()
+	rl := b.roleLookup
+	b.mu.Unlock()
+
+	if rl == nil {
+		return int32(MaxDurationSeconds), nil
+	}
+
+	meta, _ := rl.GetRoleByArn(input.RoleArn)
+	if meta == nil {
+		return int32(MaxDurationSeconds), nil
+	}
+
+	if err := validateExternalID(meta.TrustPolicy, input.ExternalID); err != nil {
+		return 0, err
+	}
+
+	if meta.MaxSessionDuration > 0 {
+		return meta.MaxSessionDuration, nil
+	}
+
+	return int32(MaxDurationSeconds), nil
+}
+
 // issueCredentials generates credentials, stores the session, and builds the response.
-func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int32) (*AssumeRoleResponse, error) {
+func (b *InMemoryBackend) issueCredentials(
+	input *AssumeRoleInput,
+	duration int32,
+) (*AssumeRoleResponse, error) {
 	creds, err := generateCredentialSet()
 	if err != nil {
 		return nil, err
@@ -525,9 +619,16 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 	assumedRoleArn := buildAssumedRoleArn(input.RoleArn, input.RoleSessionName)
 
 	account := b.accountID
-	if parts := strings.SplitN(input.RoleArn, ":", arnComponentCount); len(parts) >= arnComponentCount {
+	if parts := strings.SplitN(input.RoleArn, ":", arnComponentCount); len(
+		parts,
+	) >= arnComponentCount {
 		account = parts[4]
 	}
+
+	// Merge parent transitive tags into child session per AWS role-chaining rules:
+	// tags marked transitive by the parent session propagate to the child and are
+	// inherited even if the child caller does not re-specify them.
+	mergedTags := mergeTransitiveTags(input.CallerSession, input.Tags)
 
 	session := &SessionInfo{
 		AssumedRoleArn:    assumedRoleArn,
@@ -538,7 +639,7 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 		SessionToken:      creds.SessionToken,
 		AssumedRoleID:     assumedRoleID,
 		SourceIdentity:    input.SourceIdentity,
-		Tags:              input.Tags,
+		Tags:              mergedTags,
 		TransitiveTagKeys: input.TransitiveTagKeys,
 		Expiration:        expiration,
 	}
@@ -567,47 +668,101 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 	}, nil
 }
 
+// LookupSession returns the active SessionInfo for the given access key and optional
+// session token, or nil if no matching non-expired session exists or the token mismatches.
+func (b *InMemoryBackend) LookupSession(accessKeyID, sessionToken string) *SessionInfo {
+	if accessKeyID == "" {
+		return nil
+	}
+
+	b.mu.Lock()
+	session, ok := b.sessions[accessKeyID]
+	if ok && isSessionExpired(session) {
+		delete(b.sessions, accessKeyID)
+		ok = false
+	}
+	b.mu.Unlock()
+
+	if !ok {
+		return nil
+	}
+	if sessionToken != "" && session.SessionToken != "" && sessionToken != session.SessionToken {
+		return nil
+	}
+
+	return session
+}
+
 // GetCallerIdentity returns the mock caller identity.
 // When accessKeyID corresponds to an assumed-role session, returns the assumed-role ARN and user ID.
 // When sessionToken is non-empty (ASIA-prefixed key), the stored token must match; a mismatch
 // returns ErrUnknownAccessKeyID mapped to HTTP 400 InvalidClientTokenId (matching AWS).
-func (b *InMemoryBackend) GetCallerIdentity(accessKeyID, sessionToken string) (*GetCallerIdentityResponse, error) {
+func (b *InMemoryBackend) GetCallerIdentity(
+	accessKeyID, sessionToken string,
+) (*GetCallerIdentityResponse, error) {
 	b.cntGetCallerIdentity.Add(1)
 
-	if accessKeyID != "" {
-		b.mu.Lock()
-		session, ok := b.sessions[accessKeyID]
-
-		if ok && isSessionExpired(session) {
-			delete(b.sessions, accessKeyID)
-			ok = false
-		}
-
-		b.mu.Unlock()
-
-		if ok {
-			// When the caller presents a session token, it must match the stored value.
-			// AWS rejects a mismatched session token with HTTP 400 InvalidClientTokenId,
-			// not 403 AccessDenied.
-			if sessionToken != "" && session.SessionToken != "" && sessionToken != session.SessionToken {
-				return nil, fmt.Errorf(
-					"%w: the security token included in the request is invalid",
-					ErrUnknownAccessKeyID,
-				)
-			}
-
-			return &GetCallerIdentityResponse{
-				Xmlns: STSNamespace,
-				GetCallerIdentityResult: GetCallerIdentityResult{
-					Account: session.AccountID,
-					Arn:     session.AssumedRoleArn,
-					UserID:  session.AssumedRoleID,
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
-			}, nil
-		}
+	if accessKeyID == "" {
+		return b.rootCallerIdentity(), nil
 	}
 
+	b.mu.Lock()
+	session, ok := b.sessions[accessKeyID]
+	wasExpired := false
+
+	if ok && isSessionExpired(session) {
+		delete(b.sessions, accessKeyID)
+		ok = false
+		wasExpired = true
+	}
+
+	b.mu.Unlock()
+
+	if ok {
+		// When the caller presents a session token, it must match the stored value.
+		// AWS rejects a mismatched session token with HTTP 400 InvalidClientTokenId,
+		// not 403 AccessDenied.
+		if sessionToken != "" && session.SessionToken != "" &&
+			sessionToken != session.SessionToken {
+			return nil, fmt.Errorf(
+				"%w: the security token included in the request is invalid",
+				ErrUnknownAccessKeyID,
+			)
+		}
+
+		return &GetCallerIdentityResponse{
+			Xmlns: STSNamespace,
+			GetCallerIdentityResult: GetCallerIdentityResult{
+				Account: session.AccountID,
+				Arn:     session.AssumedRoleArn,
+				UserID:  session.AssumedRoleID,
+			},
+			ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+		}, nil
+	}
+
+	// ASIA-prefixed keys are temporary session credentials. AWS returns
+	// ExpiredTokenException when a known session has expired, and
+	// InvalidClientTokenId when the key was never issued by this service.
+	// Long-term AKIA keys that are untracked fall back to the root identity.
+	if strings.HasPrefix(accessKeyID, accessKeyIDPrefix) {
+		if wasExpired {
+			return nil, fmt.Errorf(
+				"%w: the security token included in the request has expired",
+				ErrSessionExpired,
+			)
+		}
+
+		return nil, fmt.Errorf(
+			"%w: the security token included in the request is invalid",
+			ErrUnknownAccessKeyID,
+		)
+	}
+
+	return b.rootCallerIdentity(), nil
+}
+
+func (b *InMemoryBackend) rootCallerIdentity() *GetCallerIdentityResponse {
 	callerArn := arn.Build("iam", "", b.accountID, "root")
 
 	return &GetCallerIdentityResponse{
@@ -618,13 +773,15 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID, sessionToken string) (*
 			UserID:  MockUserID,
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
-	}, nil
+	}
 }
 
 // ValidateSessionCredential looks up a session by (accessKeyID, sessionToken).
 // Returns ErrSessionNotFound when the key is unknown, ErrAccessDenied on token mismatch,
 // and ErrSessionExpired when the session has passed its expiry.
-func (b *InMemoryBackend) ValidateSessionCredential(accessKeyID, sessionToken string) (*SessionInfo, error) {
+func (b *InMemoryBackend) ValidateSessionCredential(
+	accessKeyID, sessionToken string,
+) (*SessionInfo, error) {
 	b.mu.Lock()
 	session, ok := b.sessions[accessKeyID]
 
@@ -647,7 +804,9 @@ func (b *InMemoryBackend) ValidateSessionCredential(accessKeyID, sessionToken st
 }
 
 // GetSessionToken generates temporary credentials without role assumption.
-func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error) {
+func (b *InMemoryBackend) GetSessionToken(
+	input *GetSessionTokenInput,
+) (*GetSessionTokenResponse, error) {
 	b.cntGetSessionToken.Add(1)
 
 	// Both SerialNumber and TokenCode must be provided together (MFA requires both).
@@ -716,7 +875,9 @@ func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSess
 
 // GetFederationToken generates temporary credentials for a federated user.
 // The federated user ARN has the form arn:aws:sts::ACCOUNT:federated-user/NAME.
-func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*GetFederationTokenResponse, error) {
+func (b *InMemoryBackend) GetFederationToken(
+	input *GetFederationTokenInput,
+) (*GetFederationTokenResponse, error) {
 	b.cntGetFederationToken.Add(1)
 
 	if input.Name == "" {
@@ -912,7 +1073,11 @@ func (b *InMemoryBackend) validateOIDCProvider(token, providerID string) error {
 	}
 
 	if !ol.OIDCProviderExists(issuer) {
-		return fmt.Errorf("%w: OIDC provider for issuer %q not found in IAM", ErrAccessDenied, issuer)
+		return fmt.Errorf(
+			"%w: OIDC provider for issuer %q not found in IAM",
+			ErrAccessDenied,
+			issuer,
+		)
 	}
 
 	return nil
@@ -930,7 +1095,9 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 	assumedRoleArn := buildAssumedRoleArn(input.RoleArn, input.RoleSessionName)
 
 	account := b.accountID
-	if parts := strings.SplitN(input.RoleArn, ":", arnComponentCount); len(parts) >= arnComponentCount {
+	if parts := strings.SplitN(input.RoleArn, ":", arnComponentCount); len(
+		parts,
+	) >= arnComponentCount {
 		account = parts[4]
 	}
 
@@ -969,10 +1136,31 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 			Audience:                    audience,
 			Provider:                    provider,
 			SourceIdentity:              input.SourceIdentity,
-			PackedPolicySize:            calculatePackedPolicySizeWithArns(input.Policy, input.PolicyArns),
+			PackedPolicySize: calculatePackedPolicySizeWithArns(
+				input.Policy,
+				input.PolicyArns,
+			),
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}
+}
+
+// validateSAMLAssertion checks that the assertion is valid base64 and decodes to XML.
+// AWS rejects assertions that are not properly base64-encoded or whose decoded
+// content is not a valid XML document (at minimum containing one XML element).
+// RawToken is used so that namespace-prefixed elements without explicit xmlns
+// declarations (common in real SAML assertions) are accepted without error.
+func validateSAMLAssertion(assertion string) error {
+	// AWS requires a base64-encoded SAML assertion. As an emulator we validate the
+	// base64 encoding but do not require the decoded payload to be well-formed SAML
+	// XML, so callers can pass simple test assertions.
+	if _, err := base64.StdEncoding.DecodeString(assertion); err != nil {
+		if _, err = base64.URLEncoding.DecodeString(assertion); err != nil {
+			return fmt.Errorf("%w: not valid base64", ErrInvalidSAMLAssertion)
+		}
+	}
+
+	return nil
 }
 
 // validateSAMLInput checks the common parameter constraints for AssumeRoleWithSAML.
@@ -995,6 +1183,10 @@ func validateSAMLInput(input *AssumeRoleWithSAMLInput) error {
 
 	if input.SAMLAssertion == "" {
 		return ErrMissingSAMLAssertion
+	}
+
+	if err := validateSAMLAssertion(input.SAMLAssertion); err != nil {
+		return err
 	}
 
 	// RoleSessionName is optional for SAML (derived from assertion), but when supplied validate it.
@@ -1029,7 +1221,9 @@ func validateSAMLInput(input *AssumeRoleWithSAMLInput) error {
 
 // AssumeRoleWithSAML generates temporary credentials using a SAML 2.0 assertion.
 // In this mock, the SAMLAssertion is not cryptographically validated.
-func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*AssumeRoleWithSAMLResponse, error) {
+func (b *InMemoryBackend) AssumeRoleWithSAML(
+	input *AssumeRoleWithSAMLInput,
+) (*AssumeRoleWithSAMLResponse, error) {
 	b.cntAssumeRoleWithSAML.Add(1)
 
 	if err := validateSAMLInput(input); err != nil {
@@ -1077,7 +1271,9 @@ func (b *InMemoryBackend) buildSAMLResponse(
 	assumedRoleArn := buildAssumedRoleArn(input.RoleArn, sessionName)
 
 	account := b.accountID
-	if parts := strings.SplitN(input.RoleArn, ":", arnComponentCount); len(parts) >= arnComponentCount {
+	if parts := strings.SplitN(input.RoleArn, ":", arnComponentCount); len(
+		parts,
+	) >= arnComponentCount {
 		account = parts[4]
 	}
 
@@ -1256,7 +1452,9 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 
 // GetWebIdentityToken returns a signed JWT representing the caller's AWS identity.
 // In this mock, the token is an unsigned JWT containing the caller's account and audience.
-func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (*GetWebIdentityTokenResponse, error) {
+func (b *InMemoryBackend) GetWebIdentityToken(
+	input *GetWebIdentityTokenInput,
+) (*GetWebIdentityTokenResponse, error) {
 	b.cntGetWebIdentityToken.Add(1)
 
 	if len(input.Audience) == 0 {
@@ -1280,7 +1478,11 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 	}
 
 	if !isValidWebIdentitySigningAlgorithm(input.SigningAlgorithm) {
-		return nil, fmt.Errorf("%w: unsupported signing algorithm %q", ErrValidation, input.SigningAlgorithm)
+		return nil, fmt.Errorf(
+			"%w: unsupported signing algorithm %q",
+			ErrValidation,
+			input.SigningAlgorithm,
+		)
 	}
 
 	duration := input.DurationSeconds
@@ -1288,10 +1490,13 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 		duration = DefaultWebIdentityTokenDurationSeconds
 	}
 
-	if duration < MinWebIdentityTokenDurationSeconds || duration > MaxWebIdentityTokenDurationSeconds {
+	if duration < MinWebIdentityTokenDurationSeconds ||
+		duration > MaxWebIdentityTokenDurationSeconds {
 		return nil, fmt.Errorf(
 			"%w: DurationSeconds must be between %d and %d for GetWebIdentityToken",
-			ErrInvalidDuration, MinWebIdentityTokenDurationSeconds, MaxWebIdentityTokenDurationSeconds,
+			ErrInvalidDuration,
+			MinWebIdentityTokenDurationSeconds,
+			MaxWebIdentityTokenDurationSeconds,
 		)
 	}
 
@@ -1462,7 +1667,10 @@ func validateExternalID(trustPolicyJSON, externalID string) error {
 	}
 
 	if hasExternalIDCondition {
-		return fmt.Errorf("%w: ExternalId does not match the trust policy condition", ErrAccessDenied)
+		return fmt.Errorf(
+			"%w: ExternalId does not match the trust policy condition",
+			ErrAccessDenied,
+		)
 	}
 
 	return nil
@@ -1675,6 +1883,63 @@ func extractWebIdentityAudience(token string) string {
 	}
 
 	return ""
+}
+
+// IssueEncodedAuthorizationMessage encodes plaintext as an HMAC-signed opaque blob
+// that DecodeAuthorizationMessage can later verify. This mirrors the AWS STS behaviour
+// where only messages issued by the service itself can be decoded — arbitrary base64
+// blobs are rejected with InvalidAuthorizationMessageException.
+//
+// Format (base64-encoded): HMAC-SHA256(key, plaintext) | plaintext.
+func (b *InMemoryBackend) IssueEncodedAuthorizationMessage(decodedMsg string) string {
+	mac := hmac.New(sha256.New, b.authMsgSigningKey[:])
+	mac.Write([]byte(decodedMsg))
+	sig := mac.Sum(nil)
+
+	payload := make([]byte, 0, authMsgHMACSize+1+len(decodedMsg))
+	payload = append(payload, sig...)
+	payload = append(payload, authMsgSep)
+	payload = append(payload, decodedMsg...)
+
+	return base64.StdEncoding.EncodeToString(payload)
+}
+
+// VerifyEncodedAuthorizationMessage decodes an opaque message issued by
+// IssueEncodedAuthorizationMessage. Returns ErrInvalidAuthorizationMessage
+// when the message was not issued by this backend instance (wrong HMAC, bad
+// base64, or truncated payload).
+func (b *InMemoryBackend) VerifyEncodedAuthorizationMessage(encoded string) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		raw, err = base64.URLEncoding.DecodeString(encoded)
+		if err != nil {
+			return "", fmt.Errorf("%w: not valid base64", ErrInvalidAuthorizationMessage)
+		}
+	}
+
+	// Minimum: HMAC (32 bytes) + separator (1 byte) + at least 0 bytes of plaintext.
+	if len(raw) < authMsgHMACSize+1 || raw[authMsgHMACSize] != authMsgSep {
+		return "", fmt.Errorf(
+			"%w: message was not issued by this service",
+			ErrInvalidAuthorizationMessage,
+		)
+	}
+
+	sig := raw[:authMsgHMACSize]
+	plaintext := raw[authMsgHMACSize+1:]
+
+	mac := hmac.New(sha256.New, b.authMsgSigningKey[:])
+	mac.Write(plaintext)
+	expected := mac.Sum(nil)
+
+	if !hmac.Equal(sig, expected) {
+		return "", fmt.Errorf(
+			"%w: message was not issued by this service",
+			ErrInvalidAuthorizationMessage,
+		)
+	}
+
+	return string(plaintext), nil
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

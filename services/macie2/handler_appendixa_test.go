@@ -989,6 +989,17 @@ func TestAppendixA_SensitiveDataOccurrences(t *testing.T) {
 			fn: func(t *testing.T, h *macie2.Handler) {
 				t.Helper()
 
+				// Enable Macie and Reveal Config
+				doRequest(t, h, http.MethodPost, "/macie", map[string]any{
+					"status": "ENABLED",
+				})
+				doRequest(t, h, http.MethodPut, "/reveal-configuration", map[string]any{
+					"configuration": map[string]any{
+						"kmsKeyId": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+						"status":   "ENABLED",
+					},
+				})
+
 				// Create a sample finding
 				doRequest(t, h, http.MethodPost, "/findings/sample", map[string]any{
 					"findingTypes": []string{"SensitiveData:S3Object/Personal"},

@@ -305,12 +305,17 @@ func resolveSecurityProfileOps(path, method string) string {
 // HTTP handler implementations
 // ---------------------------------------------------------------------------
 
+type awsErrBody struct {
+	Type    string `json:"__type"`
+	Message string `json:"message"`
+}
+
 func respondNotFound(c *echo.Context, msg string) error {
-	return c.JSON(http.StatusNotFound, map[string]string{keyError: msg})
+	return c.JSON(http.StatusNotFound, awsErrBody{"ResourceNotFoundException", msg})
 }
 
 func respondConflict(c *echo.Context, msg string) error {
-	return c.JSON(http.StatusConflict, map[string]string{keyError: msg})
+	return c.JSON(http.StatusConflict, awsErrBody{"ResourceAlreadyExistsException", msg})
 }
 
 func respondErr(c *echo.Context, err error) error {
@@ -321,7 +326,7 @@ func respondErr(c *echo.Context, err error) error {
 		return respondConflict(c, err.Error())
 	}
 
-	return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+	return c.JSON(http.StatusBadRequest, awsErrBody{"InvalidRequestException", err.Error()})
 }
 
 // --- Jobs ---

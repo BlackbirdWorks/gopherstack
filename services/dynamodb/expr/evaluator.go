@@ -42,10 +42,16 @@ var (
 	ErrCurrentNSValueMustBeSlice   = errors.New("current NS value must be []string")
 	ErrBSValueMustBeSlice          = errors.New("BS value must be [][]byte")
 	ErrCurrentBSValueMustBeSlice   = errors.New("current BS value must be [][]byte")
-	ErrSetTypeMismatch             = errors.New("ADD: existing set type does not match the type being added")
-	ErrSetSizeOverflow             = errors.New("set size overflow")
-	ErrInvalidSizeArg              = errors.New("size() only supports String, Binary, Map, List, and Set types")
-	ErrUnsupportedAddType          = errors.New("ADD action is only supported for Number and Set types")
+	ErrSetTypeMismatch             = errors.New(
+		"ADD: existing set type does not match the type being added",
+	)
+	ErrSetSizeOverflow = errors.New("set size overflow")
+	ErrInvalidSizeArg  = errors.New(
+		"size() only supports String, Binary, Map, List, and Set types",
+	)
+	ErrUnsupportedAddType = errors.New(
+		"ADD action is only supported for Number and Set types",
+	)
 )
 
 // twoArgs is the expected argument count for two-argument functions.
@@ -303,7 +309,92 @@ func (e *Evaluator) evalContainsFunc(n *FunctionExpr) (any, error) {
 		return nil, err
 	}
 
+	// Dispatch on the DynamoDB type wrapper before unwrapping, so set/list types
+	// are handled by membership semantics rather than substring matching.
+	m, isMap := pathVal.(map[string]any)
+	if !isMap {
+		return strings.Contains(e.toString(pathVal), e.toString(targetVal)), nil
+	}
+	if result, handled := e.evalContainsSetOrList(m, targetVal); handled {
+		return result, nil
+	}
+
 	return strings.Contains(e.toString(pathVal), e.toString(targetVal)), nil
+}
+
+// evalContainsSetOrList handles contains() for SS, NS, BS, and L operands.
+// Returns (result, true) when the type was handled, or (false, false) when the
+// caller should fall back to substring matching.
+func (e *Evaluator) evalContainsSetOrList(m map[string]any, targetVal any) (bool, bool) {
+	if ss, hasSS := m["SS"]; hasSS {
+		return containsStringSlice(ss, e.toString(targetVal)), true
+	}
+	if ns, hasNS := m["NS"]; hasNS {
+		return containsStringSlice(ns, e.toString(targetVal)), true
+	}
+	if bs, hasBS := m["BS"]; hasBS {
+		return e.containsBinarySlice(bs, targetVal), true
+	}
+	if l, hasL := m["L"]; hasL {
+		return containsList(l, targetVal), true
+	}
+
+	return false, false
+}
+
+// containsStringSlice checks whether target is an element of a SS or NS slice.
+// Accepts both []string (typical after JSON unmarshal into a typed struct) and []any.
+func containsStringSlice(slice any, target string) bool {
+	switch ss := slice.(type) {
+	case []string:
+		return slices.Contains(ss, target)
+	case []any:
+		for _, v := range ss {
+			if s, isStr := v.(string); isStr && s == target {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// containsBinarySlice checks whether target is an element of a BS slice.
+func (e *Evaluator) containsBinarySlice(slice, targetVal any) bool {
+	targetUnwrapped := e.unwrapAttributeValue(targetVal)
+	targetBytes, isByteSlice := targetUnwrapped.([]byte)
+	if !isByteSlice {
+		return false
+	}
+	bsList, isList := slice.([]any)
+	if !isList {
+		return false
+	}
+	for _, v := range bsList {
+		if b, isByte := v.([]byte); isByte && bytes.Equal(b, targetBytes) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// containsList checks whether targetVal is an element of a DynamoDB L (list) value.
+// Comparison uses JSON-marshalled representation for structural equality.
+func containsList(l, targetVal any) bool {
+	items, isList := l.([]any)
+	if !isList {
+		return false
+	}
+	targetJSON, _ := json.Marshal(targetVal)
+	for _, item := range items {
+		itemJSON, _ := json.Marshal(item)
+		if string(itemJSON) == string(targetJSON) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // evalIfNotExistsFunc implements the if_not_exists() function for UPDATE expressions.
@@ -527,11 +618,44 @@ func (e *Evaluator) compareValues(lhs any, op TokenType, rhs any) bool {
 
 	// For non-numeric types, they must be of the same type to be comparable.
 	// We use unwrapAttributeValue above, so we can compare types directly.
-	if fmt.Sprintf("%T", lhs) != fmt.Sprintf("%T", rhs) {
+	if !sameType(lhs, rhs) {
 		return op == TokenNotEqual
 	}
 
 	return compareTyped(lhs, rhs, op)
+}
+
+// sameType reports whether a and b have the same dynamic type, using a type
+// switch instead of fmt.Sprintf("%T",...) to avoid heap allocations.
+func sameType(a, b any) bool {
+	switch a.(type) {
+	case string:
+		_, ok := b.(string)
+
+		return ok
+	case float64:
+		_, ok := b.(float64)
+
+		return ok
+	case bool:
+		_, ok := b.(bool)
+
+		return ok
+	case []byte:
+		_, ok := b.([]byte)
+
+		return ok
+	case []any:
+		_, ok := b.([]any)
+
+		return ok
+	case map[string]any:
+		_, ok := b.(map[string]any)
+
+		return ok
+	default:
+		return false
+	}
 }
 
 // compareNumbers compares two float64 values with the given operator.
@@ -873,7 +997,12 @@ func (e *Evaluator) applyAdd(path []PathElement, val any) error {
 	return nil
 }
 
-func (e *Evaluator) addToStringSet(path []PathElement, curMap map[string]any, setKey string, toAdd any) error {
+func (e *Evaluator) addToStringSet(
+	path []PathElement,
+	curMap map[string]any,
+	setKey string,
+	toAdd any,
+) error {
 	addSlice, ok := toAdd.([]string)
 	if !ok {
 		return nil

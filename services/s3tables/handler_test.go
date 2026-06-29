@@ -100,7 +100,7 @@ func createTableHelper(t *testing.T, h *s3tables.Handler, bucketARN, namespace, 
 	result := parseResponse(t, rec)
 
 	tableARN, ok := result["tableARN"].(string)
-	require.True(t, ok, "expected tableARN in response")
+	require.True(t, ok, "expected tableArn in response")
 
 	return tableARN
 }

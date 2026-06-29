@@ -393,20 +393,25 @@ func TestListResourceRecordSets_Pagination(t *testing.T) {
 	_, err = b.ChangeResourceRecordSets(hz.ID, changes)
 	require.NoError(t, err)
 
-	// Page 1: 3 records.
+	// Page 1: 3 records (NS + SOA come first alphabetically, then A records).
 	pg, err := b.ListResourceRecordSets(hz.ID, "", "", "", 3)
 	require.NoError(t, err)
 	assert.Len(t, pg.Records, 3)
 	assert.True(t, pg.IsTruncated)
 	assert.NotEmpty(t, pg.NextName)
 
-	// Page 2: remaining records.
+	// Page 2: next 3 records.
 	pg2, err := b.ListResourceRecordSets(hz.ID, pg.NextName, pg.NextType, pg.NextIdentifier, 3)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(pg2.Records), 1)
+	assert.Len(t, pg.Records, 3)
 
-	// Total across both pages = 5.
-	assert.Equal(t, 5, len(pg.Records)+len(pg2.Records))
+	// Page 3: the last record.
+	pg3, err := b.ListResourceRecordSets(hz.ID, pg2.NextName, pg2.NextType, pg2.NextIdentifier, 3)
+	require.NoError(t, err)
+
+	// Total = 5 A records + 2 default NS/SOA records seeded at zone creation.
+	assert.Equal(t, 7, len(pg.Records)+len(pg2.Records)+len(pg3.Records))
+	assert.False(t, pg3.IsTruncated)
 }
 
 func TestListResourceRecordSets_MaxItemsQueryParam(t *testing.T) {

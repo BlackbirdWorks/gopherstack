@@ -80,10 +80,15 @@ func (h *Handler) handleDescribeContainerInstances(
 }
 
 type listContainerInstancesInput struct {
-	Cluster string `json:"cluster,omitempty"`
+	Cluster    string `json:"cluster,omitempty"`
+	Filter     string `json:"filter,omitempty"`
+	Status     string `json:"status,omitempty"`
+	NextToken  string `json:"nextToken,omitempty"`
+	MaxResults int    `json:"maxResults,omitempty"`
 }
 
 type listContainerInstancesOutput struct {
+	NextToken             string   `json:"nextToken,omitempty"`
 	ContainerInstanceArns []string `json:"containerInstanceArns"`
 }
 
@@ -91,7 +96,7 @@ func (h *Handler) handleListContainerInstances(
 	_ context.Context,
 	in *listContainerInstancesInput,
 ) (*listContainerInstancesOutput, error) {
-	arns, err := h.Backend.ListContainerInstances(in.Cluster)
+	arns, err := h.Backend.ListContainerInstances(in.Cluster, in.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +105,9 @@ func (h *Handler) handleListContainerInstances(
 		arns = []string{}
 	}
 
-	return &listContainerInstancesOutput{ContainerInstanceArns: arns}, nil
+	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
+
+	return &listContainerInstancesOutput{ContainerInstanceArns: arns, NextToken: nextToken}, nil
 }
 
 type updateContainerInstancesStateInput struct {
@@ -117,7 +124,11 @@ func (h *Handler) handleUpdateContainerInstancesState(
 	_ context.Context,
 	in *updateContainerInstancesStateInput,
 ) (*updateContainerInstancesStateOutput, error) {
-	cis, err := h.Backend.UpdateContainerInstancesState(in.Cluster, in.ContainerInstances, in.Status)
+	cis, err := h.Backend.UpdateContainerInstancesState(
+		in.Cluster,
+		in.ContainerInstances,
+		in.Status,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +160,10 @@ type createTaskSetOutput struct {
 	TaskSet taskSetView `json:"taskSet"`
 }
 
-func (h *Handler) handleCreateTaskSet(_ context.Context, in *createTaskSetInput) (*createTaskSetOutput, error) {
+func (h *Handler) handleCreateTaskSet(
+	_ context.Context,
+	in *createTaskSetInput,
+) (*createTaskSetOutput, error) {
 	var scale *TaskSetScale
 	if in.Scale != nil {
 		scale = &TaskSetScale{Unit: in.Scale.Unit, Value: in.Scale.Value}
@@ -184,7 +198,10 @@ type deleteTaskSetOutput struct {
 	TaskSet taskSetView `json:"taskSet"`
 }
 
-func (h *Handler) handleDeleteTaskSet(_ context.Context, in *deleteTaskSetInput) (*deleteTaskSetOutput, error) {
+func (h *Handler) handleDeleteTaskSet(
+	_ context.Context,
+	in *deleteTaskSetInput,
+) (*deleteTaskSetOutput, error) {
 	ts, err := h.Backend.DeleteTaskSet(in.Cluster, in.Service, in.TaskSet)
 	if err != nil {
 		return nil, err
@@ -231,7 +248,10 @@ type updateTaskSetOutput struct {
 	TaskSet taskSetView `json:"taskSet"`
 }
 
-func (h *Handler) handleUpdateTaskSet(_ context.Context, in *updateTaskSetInput) (*updateTaskSetOutput, error) {
+func (h *Handler) handleUpdateTaskSet(
+	_ context.Context,
+	in *updateTaskSetInput,
+) (*updateTaskSetOutput, error) {
 	ts, err := h.Backend.UpdateTaskSet(in.Cluster, in.Service, in.TaskSet, TaskSetScale{
 		Unit:  in.Scale.Unit,
 		Value: in.Scale.Value,
@@ -290,8 +310,17 @@ type session struct {
 	TokenValue string `json:"tokenValue"`
 }
 
-func (h *Handler) handleExecuteCommand(_ context.Context, in *executeCommandInput) (*executeCommandOutput, error) {
-	out, err := h.Backend.ExecuteCommand(in.Cluster, in.Task, in.Container, in.Command, in.Interactive)
+func (h *Handler) handleExecuteCommand(
+	_ context.Context,
+	in *executeCommandInput,
+) (*executeCommandOutput, error) {
+	out, err := h.Backend.ExecuteCommand(
+		in.Cluster,
+		in.Task,
+		in.Container,
+		in.Command,
+		in.Interactive,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -1072,17 +1072,17 @@ func TestAccuracy2_WriteRecordsMagneticStoreInHTTPResponse(t *testing.T) {
 		"old record should appear in MagneticStore count")
 }
 
-// TestAccuracy2_WriteRecordsMagneticStoreNoRetentionAllGoToMemory verifies that
-// when no retention is configured, all records go to memory store even when magnetic
-// store writes are enabled.
-func TestAccuracy2_WriteRecordsMagneticStoreNoRetentionAllGoToMemory(t *testing.T) {
+// TestAccuracy2_WriteRecordsMagneticStoreDefaultRetentionOldRecordGoesToMagnetic verifies that
+// when no explicit retention is configured, AWS defaults (6h memory) are applied,
+// so very old records go to magnetic store (not memory).
+func TestAccuracy2_WriteRecordsMagneticStoreDefaultRetentionOldRecordGoesToMagnetic(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
 	_, err := b.CreateDatabase("no-ret-mag-db", nil)
 	require.NoError(t, err)
 
-	// Table has magnetic store enabled but no retention configured.
+	// Table has magnetic store enabled; RetentionProperties defaults to {6h, 73d}.
 	_, err = b.CreateTable("no-ret-mag-db", "no-ret-mag-tbl", nil, &timestreamwrite.CreateTableInput{
 		MagneticStoreWriteProperties: &timestreamwrite.MagneticStoreWriteProperties{
 			EnableMagneticStoreWrites: true,
@@ -1100,8 +1100,9 @@ func TestAccuracy2_WriteRecordsMagneticStoreNoRetentionAllGoToMemory(t *testing.
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), out.Total)
-	assert.Equal(t, int32(1), out.MemoryStore, "no retention configured → memory store")
-	assert.Equal(t, int32(0), out.MagneticStore)
+	// Default 6h memory retention: 1000-day-old record exceeds memory window → magnetic store.
+	assert.Equal(t, int32(0), out.MemoryStore)
+	assert.Equal(t, int32(1), out.MagneticStore, "default 6h retention → old record goes to magnetic store")
 }
 
 // ---------------------------------------------------------------------------
@@ -1694,6 +1695,10 @@ func TestAccuracy2_BatchLoadTaskRecordVersionZeroOmitted(t *testing.T) {
 	cr := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
 		"TargetDatabaseName": "rv0-db",
 		"TargetTableName":    "rv0-tbl",
+		"DataSourceConfiguration": map[string]any{
+			"DataFormat":                "CSV",
+			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, cr.Code)
 

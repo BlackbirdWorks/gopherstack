@@ -304,7 +304,7 @@ func TestRefinement2_AssumeRoleWithSAMLWithPolicyArns(t *testing.T) {
 		"Version":                 {"2011-06-15"},
 		"RoleArn":                 {"arn:aws:iam::000000000000:role/test-role"},
 		"PrincipalArn":            {"arn:aws:iam::000000000000:saml-provider/MyIdP"},
-		"SAMLAssertion":           {"dGVzdA=="},
+		"SAMLAssertion":           {"PHNhbWxwOkFzc2VydGlvbj4="},
 		"PolicyArns.member.1.arn": {"arn:aws:iam::aws:policy/ReadOnlyAccess"},
 	})
 

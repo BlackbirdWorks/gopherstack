@@ -148,8 +148,8 @@ func TestAPIGatewayBackend_DeploymentOperations(t *testing.T) {
 	api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "deploy-api", Description: "test"})
 	require.NoError(t, err)
 
-	// Create deployment
-	dep, err := b.CreateDeployment(api.ID, "prod", "initial deployment")
+	// Create deployment without a stage so it can be deleted directly.
+	dep, err := b.CreateDeployment(api.ID, "", "initial deployment")
 	require.NoError(t, err)
 	require.NotEmpty(t, dep.ID)
 

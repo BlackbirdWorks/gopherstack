@@ -27,7 +27,11 @@ func (h *Handler) dispatchOps(action string, form url.Values, c *echo.Context) (
 }
 
 // dispatchStackSetOps handles StackSet lifecycle and instance operations.
-func (h *Handler) dispatchStackSetOps(action string, form url.Values, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchStackSetOps(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
 	if handled, err := h.dispatchStackSetCRUDOps(action, form, c); handled {
 		return true, err
 	}
@@ -36,7 +40,11 @@ func (h *Handler) dispatchStackSetOps(action string, form url.Values, c *echo.Co
 }
 
 // dispatchStackSetCRUDOps handles StackSet CRUD and basic instance operations.
-func (h *Handler) dispatchStackSetCRUDOps(action string, form url.Values, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchStackSetCRUDOps(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
 	switch action {
 	case "CreateStackSet":
 		return true, h.handleCreateStackSet(form, c)
@@ -62,7 +70,11 @@ func (h *Handler) dispatchStackSetCRUDOps(action string, form url.Values, c *ech
 }
 
 // dispatchStackSetInstanceOps handles StackSet instance detail and operation tracking.
-func (h *Handler) dispatchStackSetInstanceOps(action string, form url.Values, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchStackSetInstanceOps(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
 	switch action {
 	case "DescribeStackInstance":
 		return true, h.handleDescribeStackInstance(form, c)
@@ -88,7 +100,11 @@ func (h *Handler) dispatchStackSetInstanceOps(action string, form url.Values, c 
 }
 
 // dispatchTemplateAndScanOps handles generated template and resource scan operations.
-func (h *Handler) dispatchTemplateAndScanOps(action string, form url.Values, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchTemplateAndScanOps(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
 	if handled, err := h.dispatchGeneratedTemplateOps(action, form, c); handled {
 		return true, err
 	}
@@ -97,7 +113,11 @@ func (h *Handler) dispatchTemplateAndScanOps(action string, form url.Values, c *
 }
 
 // dispatchGeneratedTemplateOps handles generated template CRUD operations.
-func (h *Handler) dispatchGeneratedTemplateOps(action string, form url.Values, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchGeneratedTemplateOps(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
 	switch action {
 	case "CreateGeneratedTemplate":
 		return true, h.handleCreateGeneratedTemplate(form, c)
@@ -117,7 +137,11 @@ func (h *Handler) dispatchGeneratedTemplateOps(action string, form url.Values, c
 }
 
 // dispatchResourceScanOps handles resource scan and stack refactor operations.
-func (h *Handler) dispatchResourceScanOps(action string, form url.Values, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchResourceScanOps(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
 	switch action {
 	case "StartResourceScan":
 		return true, h.handleStartResourceScan(form, c)
@@ -154,7 +178,11 @@ func (h *Handler) dispatchTypeOps(action string, form url.Values, c *echo.Contex
 }
 
 // dispatchTypeRegistrationOps handles type registration and activation operations.
-func (h *Handler) dispatchTypeRegistrationOps(action string, form url.Values, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchTypeRegistrationOps(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
 	switch action {
 	case "ActivateType":
 		return true, h.handleActivateType(form, c)
@@ -180,7 +208,11 @@ func (h *Handler) dispatchTypeRegistrationOps(action string, form url.Values, c 
 }
 
 // dispatchTypeManagementOps handles type listing, publishing, and access management.
-func (h *Handler) dispatchTypeManagementOps(action string, form url.Values, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchTypeManagementOps(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
 	switch action {
 	case "ListTypes":
 		return true, h.handleListTypes(form, c)
@@ -338,8 +370,8 @@ func (h *Handler) handleDescribeStackSet(form url.Values, c *echo.Context) error
 	})
 }
 
-func (h *Handler) handleListStackSets(_ url.Values, c *echo.Context) error {
-	sets, err := h.Backend.ListStackSets("")
+func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
+	p, err := h.Backend.ListStackSets(form.Get("NextToken"))
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -348,14 +380,15 @@ func (h *Handler) handleListStackSets(_ url.Values, c *echo.Context) error {
 		StackSetName string `xml:"StackSetName"`
 		Status       string `xml:"Status"`
 	}
-	members := make([]summXML, 0, len(sets))
-	for _, s := range sets {
+	members := make([]summXML, 0, len(p.Data))
+	for _, s := range p.Data {
 		members = append(
 			members,
 			summXML{StackSetID: s.StackSetID, StackSetName: s.StackSetName, Status: s.Status},
 		)
 	}
 	type result struct {
+		NextToken string    `xml:"NextToken,omitempty"`
 		Summaries []summXML `xml:"Summaries>member"`
 	}
 	type response struct {
@@ -367,7 +400,11 @@ func (h *Handler) handleListStackSets(_ url.Values, c *echo.Context) error {
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{Summaries: members}, RequestID: uuid.New().String()},
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{NextToken: p.Next, Summaries: members},
+			RequestID: uuid.New().String(),
+		},
 	)
 }
 
@@ -392,7 +429,10 @@ func (h *Handler) handleCreateStackInstances(form url.Values, c *echo.Context) e
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()},
+	)
 }
 
 func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) error {
@@ -416,7 +456,10 @@ func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) e
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()},
+	)
 }
 
 func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) error {
@@ -440,12 +483,15 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()},
+	)
 }
 
 func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
-	instances, err := h.Backend.ListStackInstances(name, "")
+	p, err := h.Backend.ListStackInstances(name, form.Get("NextToken"))
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
@@ -455,8 +501,8 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 		Region       string `xml:"Region,omitempty"`
 		Status       string `xml:"Status,omitempty"`
 	}
-	members := make([]instXML, 0, len(instances))
-	for _, i := range instances {
+	members := make([]instXML, 0, len(p.Data))
+	for _, i := range p.Data {
 		members = append(
 			members,
 			instXML{
@@ -468,6 +514,7 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 		)
 	}
 	type result struct {
+		NextToken string    `xml:"NextToken,omitempty"`
 		Summaries []instXML `xml:"Summaries>member"`
 	}
 	type response struct {
@@ -479,7 +526,11 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{Summaries: members}, RequestID: uuid.New().String()},
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{NextToken: p.Next, Summaries: members},
+			RequestID: uuid.New().String(),
+		},
 	)
 }
 
@@ -545,19 +596,39 @@ func (h *Handler) handleDetectStackSetDrift(form url.Values, c *echo.Context) er
 
 func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
-	ops, _ := h.Backend.ListStackSetOperations(name, "")
+	p, _ := h.Backend.ListStackSetOperations(name, form.Get("NextToken"))
+	type opXML struct {
+		OperationID string `xml:"OperationId"`
+		Action      string `xml:"Action"`
+		Status      string `xml:"Status"`
+	}
+	members := make([]opXML, 0, len(p.Data))
+	for _, op := range p.Data {
+		members = append(members, opXML{
+			OperationID: op.OperationID,
+			Action:      op.Action,
+			Status:      op.Status,
+		})
+	}
+	type result struct {
+		NextToken string  `xml:"NextToken,omitempty"`
+		Summaries []opXML `xml:"Summaries>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackSetOperationsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
-		Result    struct {
-			Summaries []string `xml:"Summaries>member"`
-		} `xml:"ListStackSetOperationsResult"`
+		Result    result   `xml:"ListStackSetOperationsResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, Result: struct {
-		Summaries []string `xml:"Summaries>member"`
-	}{Summaries: ops}, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{NextToken: p.Next, Summaries: members},
+			RequestID: uuid.New().String(),
+		},
+	)
 }
 
 func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Context) error {
@@ -589,7 +660,14 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 }
 
 func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) error {
-	_ = h.Backend.StopStackSetOperation(form.Get("StackSetName"), form.Get("OperationId"))
+	if err := h.Backend.StopStackSetOperation(form.Get("StackSetName"), form.Get("OperationId")); err != nil {
+		code := "OperationNotFoundException"
+		if errors.Is(err, ErrOperationNotRunning) {
+			code = "InvalidOperationException"
+		}
+
+		return h.xmlError(c, code, err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"StopStackSetOperationResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -604,19 +682,24 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 }
 
 func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *echo.Context) error {
-	targets, _ := h.Backend.ListStackSetAutoDeploymentTargets(form.Get("StackSetName"))
+	targets, err := h.Backend.ListStackSetAutoDeploymentTargets(form.Get("StackSetName"))
+	if err != nil {
+		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+	}
+	type result struct {
+		Targets []AutoDeploymentTarget `xml:"Targets>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackSetAutoDeploymentTargetsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
-		Result    struct {
-			Targets []string `xml:"Targets>member"`
-		} `xml:"ListStackSetAutoDeploymentTargetsResult"`
+		Result    result   `xml:"ListStackSetAutoDeploymentTargetsResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, Result: struct {
-		Targets []string `xml:"Targets>member"`
-	}{Targets: targets}, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{Targets: targets}, RequestID: uuid.New().String()},
+	)
 }
 
 func (h *Handler) handleImportStacksToStackSet(form url.Values, c *echo.Context) error {
@@ -639,18 +722,20 @@ func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo
 		form.Get("StackSetName"), form.Get("OperationId"),
 		form.Get("StackInstanceAccount"), form.Get("StackInstanceRegion"),
 	)
+	type result struct {
+		Summaries []StackResourceDrift `xml:"Summaries>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackInstanceResourceDriftsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
-		Result    struct {
-			Summaries []string `xml:"Summaries>member"`
-		} `xml:"ListStackInstanceResourceDriftsResult"`
+		Result    result   `xml:"ListStackInstanceResourceDriftsResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, Result: struct {
-		Summaries []string `xml:"Summaries>member"`
-	}{Summaries: drifts}, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{Summaries: drifts}, RequestID: uuid.New().String()},
+	)
 }
 
 // ---- Generated template handlers ----
@@ -699,7 +784,9 @@ func (h *Handler) handleUpdateGeneratedTemplate(form url.Values, c *echo.Context
 }
 
 func (h *Handler) handleDeleteGeneratedTemplate(form url.Values, c *echo.Context) error {
-	_ = h.Backend.DeleteGeneratedTemplate(form.Get("GeneratedTemplateId"))
+	if err := h.Backend.DeleteGeneratedTemplate(form.Get("GeneratedTemplateId")); err != nil {
+		return h.xmlError(c, "GeneratedTemplateNotFoundException", err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"DeleteGeneratedTemplateResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -759,15 +846,15 @@ func (h *Handler) handleGetGeneratedTemplate(form url.Values, c *echo.Context) e
 	)
 }
 
-func (h *Handler) handleListGeneratedTemplates(_ url.Values, c *echo.Context) error {
-	templates, _ := h.Backend.ListGeneratedTemplates("")
+func (h *Handler) handleListGeneratedTemplates(form url.Values, c *echo.Context) error {
+	p, _ := h.Backend.ListGeneratedTemplates(form.Get("NextToken"))
 	type gtXML struct {
 		GeneratedTemplateID   string `xml:"GeneratedTemplateId"`
 		GeneratedTemplateName string `xml:"GeneratedTemplateName"`
 		Status                string `xml:"Status"`
 	}
-	members := make([]gtXML, 0, len(templates))
-	for _, t := range templates {
+	members := make([]gtXML, 0, len(p.Data))
+	for _, t := range p.Data {
 		members = append(
 			members,
 			gtXML{
@@ -778,6 +865,7 @@ func (h *Handler) handleListGeneratedTemplates(_ url.Values, c *echo.Context) er
 		)
 	}
 	type result struct {
+		NextToken string  `xml:"NextToken,omitempty"`
 		Summaries []gtXML `xml:"Summaries>member"`
 	}
 	type response struct {
@@ -789,7 +877,11 @@ func (h *Handler) handleListGeneratedTemplates(_ url.Values, c *echo.Context) er
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{Summaries: members}, RequestID: uuid.New().String()},
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{NextToken: p.Next, Summaries: members},
+			RequestID: uuid.New().String(),
+		},
 	)
 }
 
@@ -844,17 +936,18 @@ func (h *Handler) handleDescribeResourceScan(form url.Values, c *echo.Context) e
 	}, RequestID: uuid.New().String()})
 }
 
-func (h *Handler) handleListResourceScans(_ url.Values, c *echo.Context) error {
-	scans, _ := h.Backend.ListResourceScans("")
+func (h *Handler) handleListResourceScans(form url.Values, c *echo.Context) error {
+	p, _ := h.Backend.ListResourceScans(form.Get("NextToken"))
 	type scanXML struct {
 		ResourceScanID string `xml:"ResourceScanId"`
 		Status         string `xml:"Status"`
 	}
-	members := make([]scanXML, 0, len(scans))
-	for _, s := range scans {
+	members := make([]scanXML, 0, len(p.Data))
+	for _, s := range p.Data {
 		members = append(members, scanXML{ResourceScanID: s.ResourceScanID, Status: s.Status})
 	}
 	type result struct {
+		NextToken             string    `xml:"NextToken,omitempty"`
 		ResourceScanSummaries []scanXML `xml:"ResourceScanSummaries>member"`
 	}
 	type response struct {
@@ -868,7 +961,7 @@ func (h *Handler) handleListResourceScans(_ url.Values, c *echo.Context) error {
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{ResourceScanSummaries: members},
+			Result:    result{NextToken: p.Next, ResourceScanSummaries: members},
 			RequestID: uuid.New().String(),
 		},
 	)
@@ -924,7 +1017,9 @@ func (h *Handler) handleListResourceScanRelatedResources(form url.Values, c *ech
 // ---- Type management handlers ----
 
 func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
-	_ = h.Backend.ActivateType(form.Get("TypeName"), form.Get("TypeArn"))
+	if err := h.Backend.ActivateType(form.Get("TypeName"), form.Get("TypeArn")); err != nil {
+		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ActivateTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -935,7 +1030,9 @@ func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleDeactivateType(form url.Values, c *echo.Context) error {
-	_ = h.Backend.DeactivateType(form.Get("TypeName"), form.Get("TypeArn"))
+	if err := h.Backend.DeactivateType(form.Get("TypeName"), form.Get("TypeArn")); err != nil {
+		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"DeactivateTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -982,7 +1079,9 @@ func (h *Handler) handleDeregisterType(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handlePublishType(form url.Values, c *echo.Context) error {
-	_ = h.Backend.PublishType(form.Get("TypeName"))
+	if err := h.Backend.PublishType(form.Get("TypeName")); err != nil {
+		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"PublishTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -1014,14 +1113,27 @@ func (h *Handler) handleSetTypeConfiguration(form url.Values, c *echo.Context) e
 	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
 }
 
-func (h *Handler) handleBatchDescribeTypeConfigurations(_ url.Values, c *echo.Context) error {
+func (h *Handler) handleBatchDescribeTypeConfigurations(form url.Values, c *echo.Context) error {
+	ids := parseMemberList(form, "TypeConfigurationIdentifiers.member.")
+	details, _ := h.Backend.BatchDescribeTypeConfigurations(ids)
+	type result struct {
+		TypeConfigurations []TypeConfigurationDetail `xml:"TypeConfigurations>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"BatchDescribeTypeConfigurationsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"BatchDescribeTypeConfigurationsResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{TypeConfigurations: details},
+			RequestID: uuid.New().String(),
+		},
+	)
 }
 
 func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
@@ -1055,24 +1167,57 @@ func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
 	)
 }
 
-func (h *Handler) handleListTypeVersions(_ url.Values, c *echo.Context) error {
+func (h *Handler) handleListTypeVersions(form url.Values, c *echo.Context) error {
+	versionIDs, _ := h.Backend.ListTypeVersions(form.Get("TypeName"), form.Get("Type"))
+	type versionXML struct {
+		TypeArn   string `xml:"TypeArn,omitempty"`
+		VersionID string `xml:"VersionId,omitempty"`
+	}
+	members := make([]versionXML, 0, len(versionIDs))
+	typeArn := "arn:aws:cloudformation:::type/resource/" + form.Get("TypeName")
+	for _, v := range versionIDs {
+		members = append(members, versionXML{TypeArn: typeArn, VersionID: v})
+	}
+	type result struct {
+		TypeVersionSummaries []versionXML `xml:"TypeVersionSummaries>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListTypeVersionsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"ListTypeVersionsResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{TypeVersionSummaries: members},
+			RequestID: uuid.New().String(),
+		},
+	)
 }
 
-func (h *Handler) handleListTypeRegistrations(_ url.Values, c *echo.Context) error {
+func (h *Handler) handleListTypeRegistrations(form url.Values, c *echo.Context) error {
+	tokens, _ := h.Backend.ListTypeRegistrations(form.Get("TypeName"), form.Get("Type"))
+	type result struct {
+		RegistrationTokenList []string `xml:"RegistrationTokenList>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListTypeRegistrationsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"ListTypeRegistrationsResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{RegistrationTokenList: tokens},
+			RequestID: uuid.New().String(),
+		},
+	)
 }
 
 func (h *Handler) handleDescribeTypeRegistration(form url.Values, c *echo.Context) error {
@@ -1217,24 +1362,48 @@ func (h *Handler) handleExecuteStackRefactor(form url.Values, c *echo.Context) e
 	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
 }
 
-func (h *Handler) handleListStackRefactors(_ url.Values, c *echo.Context) error {
+func (h *Handler) handleListStackRefactors(form url.Values, c *echo.Context) error {
+	summaries, _ := h.Backend.ListStackRefactors(form.Get("NextToken"))
+	type result struct {
+		StackRefactorSummaries []StackRefactorSummary `xml:"StackRefactorSummaries>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackRefactorsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"ListStackRefactorsResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{StackRefactorSummaries: summaries},
+			RequestID: uuid.New().String(),
+		},
+	)
 }
 
-func (h *Handler) handleListStackRefactorActions(_ url.Values, c *echo.Context) error {
+func (h *Handler) handleListStackRefactorActions(form url.Values, c *echo.Context) error {
+	actions, _ := h.Backend.ListStackRefactorActions(form.Get("StackRefactorId"))
+	type result struct {
+		StackRefactorActions []StackRefactorAction `xml:"StackRefactorActions>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackRefactorActionsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"ListStackRefactorActionsResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{StackRefactorActions: actions},
+			RequestID: uuid.New().String(),
+		},
+	)
 }
 
 // ---- Org access handlers ----
@@ -1343,41 +1512,70 @@ func (h *Handler) handleGetHookResult(form url.Values, c *echo.Context) error {
 	)
 }
 
-func (h *Handler) handleListHookResults(_ url.Values, c *echo.Context) error {
+func (h *Handler) handleListHookResults(form url.Values, c *echo.Context) error {
+	results, _ := h.Backend.ListHookResults(form.Get("HookResultToken"), form.Get("NextToken"))
+	type hookXML struct {
+		HookStatus string `xml:"HookStatus,omitempty"`
+		ErrorCode  string `xml:"ErrorCode,omitempty"`
+	}
+	members := make([]hookXML, 0, len(results))
+	for _, r := range results {
+		members = append(members, hookXML{HookStatus: r.HookStatus, ErrorCode: r.ErrorCode})
+	}
+	type result struct {
+		HookResults []hookXML `xml:"HookResults>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListHookResultsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"ListHookResultsResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{HookResults: members},
+			RequestID: uuid.New().String(),
+		},
+	)
 }
 
-func (h *Handler) handleDescribeChangeSetHooks(_ url.Values, c *echo.Context) error {
+func (h *Handler) handleDescribeChangeSetHooks(form url.Values, c *echo.Context) error {
+	hooks, _ := h.Backend.DescribeChangeSetHooks(form.Get("StackName"), form.Get("ChangeSetName"))
+	type result struct {
+		Hooks []ChangeSetHook `xml:"Hooks>member"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"DescribeChangeSetHooksResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"DescribeChangeSetHooksResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{Hooks: hooks}, RequestID: uuid.New().String()},
+	)
 }
 
-func (h *Handler) handleDescribeEvents(_ url.Values, c *echo.Context) error {
-	events, _ := h.Backend.DescribeEvents("")
+func (h *Handler) handleDescribeEvents(form url.Values, c *echo.Context) error {
+	p, _ := h.Backend.DescribeEvents(form.Get("StackName"), form.Get("NextToken"))
 	type evXML struct {
 		EventID   string `xml:"EventId"`
 		StackName string `xml:"StackName"`
 		Status    string `xml:"ResourceStatus"`
 	}
-	members := make([]evXML, 0, len(events))
-	for _, e := range events {
+	members := make([]evXML, 0, len(p.Data))
+	for _, e := range p.Data {
 		members = append(
 			members,
 			evXML{EventID: e.EventID, StackName: e.StackName, Status: e.ResourceStatus},
 		)
 	}
 	type result struct {
+		NextToken   string  `xml:"NextToken,omitempty"`
 		StackEvents []evXML `xml:"StackEvents>member"`
 	}
 	type response struct {
@@ -1391,7 +1589,7 @@ func (h *Handler) handleDescribeEvents(_ url.Values, c *echo.Context) error {
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{StackEvents: members},
+			Result:    result{NextToken: p.Next, StackEvents: members},
 			RequestID: uuid.New().String(),
 		},
 	)
@@ -1416,7 +1614,16 @@ func (h *Handler) handleUpdateTerminationProtection(form url.Values, c *echo.Con
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	var stackID string
+	if stack, err := h.Backend.DescribeStack(name); err == nil {
+		stackID = stack.StackID
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cfnNS,
+		Result:    result{StackID: stackID},
+		RequestID: uuid.New().String(),
+	})
 }
 
 func (h *Handler) handleValidateTemplate(form url.Values, c *echo.Context) error {

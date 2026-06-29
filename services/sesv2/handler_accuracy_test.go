@@ -978,7 +978,7 @@ func TestAccuracy_BackendPutConfigSetArchivingOptionsNotFound(t *testing.T) {
 
 	backend := newSESv2Backend()
 
-	err := backend.PutConfigurationSetArchivingOptions("no-such")
+	err := backend.PutConfigurationSetArchivingOptions("no-such", "")
 	require.Error(t, err)
 }
 
@@ -988,7 +988,7 @@ func TestAccuracy_BackendPutConfigSetVdmOptionsNotFound(t *testing.T) {
 
 	backend := newSESv2Backend()
 
-	err := backend.PutConfigurationSetVdmOptions("no-such")
+	err := backend.PutConfigurationSetVdmOptions("no-such", nil, nil)
 	require.Error(t, err)
 }
 

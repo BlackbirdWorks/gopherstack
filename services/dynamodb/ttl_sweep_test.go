@@ -221,8 +221,10 @@ func TestJanitor_TTLSweep_StreamRecords(t *testing.T) {
 				_, err = db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
-						"pk":      &types.AttributeValueMemberS{Value: tt.expiredPK},
-						"expires": &types.AttributeValueMemberN{Value: strconv.FormatInt(now-100, 10)},
+						"pk": &types.AttributeValueMemberS{Value: tt.expiredPK},
+						"expires": &types.AttributeValueMemberN{
+							Value: strconv.FormatInt(now-100, 10),
+						},
 					},
 				})
 				require.NoError(t, err)

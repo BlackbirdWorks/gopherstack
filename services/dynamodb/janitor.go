@@ -87,12 +87,13 @@ func (j *Janitor) Run(ctx context.Context) {
 }
 
 // sweepMain runs the housekeeping pass: txn-token/pending sweeps, cache
-// evictions, and finalising tables queued for deletion.
+// evictions, PITR snapshots, and finalising tables queued for deletion.
 func (j *Janitor) sweepMain(ctx context.Context) {
 	j.sweepTxnTokens(ctx)
 	j.sweepTxnPending(ctx)
 	j.Backend.exprCache.Sweep()
 	j.Backend.iteratorStore.Sweep()
+	j.snapshotPITRTables(ctx)
 	j.runTableCleaner(ctx)
 }
 
@@ -212,7 +213,13 @@ func (j *Janitor) sweepTTL(ctx context.Context) {
 	}
 
 	for _, entry := range replicationQueue {
-		db.replicateItemMutation(entry.tableName, entry.globalTableName, entry.region, entry.item, "DELETE")
+		db.replicateItemMutation(
+			entry.tableName,
+			entry.globalTableName,
+			entry.region,
+			entry.item,
+			"DELETE",
+		)
 	}
 
 	if totalEvicted > 0 {

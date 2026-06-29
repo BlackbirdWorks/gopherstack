@@ -36,6 +36,7 @@ type backendSnapshot struct {
 	ProxyTargets              map[string][]DBProxyTarget                    `json:"proxyTargets"`
 	ProxyEndpoints            map[string]*DBProxyEndpoint                   `json:"proxyEndpoints"`
 	InstanceReadyAt           map[string]time.Time                          `json:"instanceReadyAt"`
+	ClusterReadyAt            map[string]time.Time                          `json:"clusterReadyAt"`
 	CustomEngineVersions      map[string]*CustomDBEngineVersion             `json:"customEngineVersions"`
 	AutomatedBackups          map[string]*DBInstanceAutomatedBackup         `json:"automatedBackups"`
 	ShardGroups               map[string]*DBShardGroup                      `json:"shardGroups"`
@@ -43,8 +44,11 @@ type backendSnapshot struct {
 	TenantDatabases           map[string]*TenantDatabase                    `json:"tenantDatabases"`
 	ClusterAutomatedBackups   map[string]*DBClusterAutomatedBackup          `json:"clusterAutomatedBackups"`
 	SnapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase        `json:"snapshotTenantDatabases"`
+	InstanceLogFiles          map[string][]DBLogFile                        `json:"instanceLogFiles"`
+	InstanceLogContent        map[string]map[string]string                  `json:"instanceLogContent"`
 	AccountID                 string                                        `json:"accountID"`
 	Region                    string                                        `json:"region"`
+	DefaultCACertificateID    string                                        `json:"defaultCACertificateID"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -80,6 +84,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ProxyTargets:              b.proxyTargets,
 		ProxyEndpoints:            b.proxyEndpoints,
 		InstanceReadyAt:           b.instanceReadyAt,
+		ClusterReadyAt:            b.clusterReadyAt,
 		AccountID:                 b.accountID,
 		Region:                    b.region,
 		CustomEngineVersions:      b.customEngineVersions,
@@ -89,6 +94,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		TenantDatabases:           b.tenantDatabases,
 		ClusterAutomatedBackups:   b.clusterAutomatedBackups,
 		SnapshotTenantDatabases:   b.snapshotTenantDatabases,
+		InstanceLogFiles:          b.instanceLogFiles,
+		InstanceLogContent:        b.instanceLogContent,
+		DefaultCACertificateID:    b.defaultCACertificateID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -141,6 +149,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.proxyTargets = snap.ProxyTargets
 	b.proxyEndpoints = snap.ProxyEndpoints
 	b.instanceReadyAt = snap.InstanceReadyAt
+	if snap.ClusterReadyAt != nil {
+		b.clusterReadyAt = snap.ClusterReadyAt
+	} else {
+		b.clusterReadyAt = make(map[string]time.Time)
+	}
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.customEngineVersions = snap.CustomEngineVersions
@@ -150,6 +163,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.tenantDatabases = snap.TenantDatabases
 	b.clusterAutomatedBackups = snap.ClusterAutomatedBackups
 	b.snapshotTenantDatabases = snap.SnapshotTenantDatabases
+	b.instanceLogFiles = snap.InstanceLogFiles
+	b.instanceLogContent = snap.InstanceLogContent
+	if snap.DefaultCACertificateID != "" {
+		b.defaultCACertificateID = snap.DefaultCACertificateID
+	} else {
+		b.defaultCACertificateID = defaultCACertificateID
+	}
 	// FIS fault state is transient — clear it on restore so stale faults are not retained.
 	b.fisFailoverFaults = make(map[string]time.Time)
 
@@ -308,14 +328,67 @@ func ensureNonNilBatch1Maps(snap *backendSnapshot) {
 	if snap.SnapshotTenantDatabases == nil {
 		snap.SnapshotTenantDatabases = make(map[string][]*DBSnapshotTenantDatabase)
 	}
+
+	if snap.InstanceLogFiles == nil {
+		snap.InstanceLogFiles = make(map[string][]DBLogFile)
+	}
+
+	if snap.InstanceLogContent == nil {
+		snap.InstanceLogContent = make(map[string]map[string]string)
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.Backend.Snapshot(ctx)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.defaultRegion == "" || len(h.backends) == 0 {
+		return h.Backend.Snapshot(ctx)
+	}
+
+	snaps := make(map[string]json.RawMessage)
+	for region, b := range h.backends {
+		snaps[region] = b.Snapshot(ctx)
+	}
+	data, _ := json.Marshal(snaps)
+
+	return data
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.defaultRegion == "" || len(h.backends) == 0 {
+		return h.Backend.Restore(ctx, data)
+	}
+
+	var snaps map[string]json.RawMessage
+	if err := json.Unmarshal(data, &snaps); err != nil {
+		// Fallback for backwards compatibility with single-region snapshots.
+		return h.Backend.Restore(ctx, data)
+	}
+
+	// Check if this might be a single-region snapshot that happens to unmarshal as map[string]json.RawMessage.
+	// Since backendSnapshot has "instances", "snapshots", etc. as keys, they might match.
+	// We can check if "instances" exists as a key.
+	if _, hasInstances := snaps["instances"]; hasInstances {
+		return h.Backend.Restore(ctx, data)
+	}
+
+	for region, raw := range snaps {
+		b, ok := h.backends[region]
+		if !ok {
+			b = NewInMemoryBackend(h.accountID, region)
+			h.backends[region] = b
+			h.handlers[region] = &Handler{Backend: b}
+		}
+		if err := b.Restore(ctx, raw); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

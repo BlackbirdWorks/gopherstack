@@ -1018,7 +1018,11 @@ func classifyInputDeviceSubPath(method, path, prefix string) (string, string, bo
 	}
 
 	if matchSegment(path, prefix, "/"+subThumbnailData) && method == http.MethodGet {
-		return opDescribeInputDeviceThumbnail, extractSegment(path, prefix, "/"+subThumbnailData), true
+		return opDescribeInputDeviceThumbnail, extractSegment(
+			path,
+			prefix,
+			"/"+subThumbnailData,
+		), true
 	}
 
 	if matchSegment(path, prefix, "") && method == http.MethodGet {
@@ -2200,7 +2204,9 @@ func classifyClusterNodePath(method, clusterID, sub, nodeID string) (string, str
 }
 
 // classifyClusterNodeStatePath handles /prod/clusters/{id}/nodes/{nodeId}/state.
-func classifyClusterNodeStatePath(method, clusterID, sub, nodeID, extra string) (string, string, bool) {
+func classifyClusterNodeStatePath(
+	method, clusterID, sub, nodeID, extra string,
+) (string, string, bool) {
 	if sub != subNodes || nodeID == "" || extra != subState {
 		return "", "", false
 	}
@@ -2273,7 +2279,11 @@ func (h *Handler) handleDescribeCluster(c *echo.Context, clusterID string) error
 	return c.JSON(http.StatusOK, toClusterOutput(cl))
 }
 
-func (h *Handler) handleUpdateCluster(c *echo.Context, clusterID string, body map[string]any) error {
+func (h *Handler) handleUpdateCluster(
+	c *echo.Context,
+	clusterID string,
+	body map[string]any,
+) error {
 	name, _ := body["name"].(string)
 
 	cl, err := h.Backend.UpdateCluster(clusterID, name)
@@ -2411,7 +2421,11 @@ func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body map[st
 	return c.JSON(http.StatusOK, toNodeOutput(n))
 }
 
-func (h *Handler) handleUpdateNodeState(c *echo.Context, resource string, body map[string]any) error {
+func (h *Handler) handleUpdateNodeState(
+	c *echo.Context,
+	resource string,
+	body map[string]any,
+) error {
 	clusterID, nodeID := splitClusterNode(resource)
 
 	state, _ := body["State"].(string)

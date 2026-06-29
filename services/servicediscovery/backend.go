@@ -121,15 +121,16 @@ type NamespaceProperties struct {
 
 // Namespace represents an AWS Cloud Map namespace.
 type Namespace struct {
-	CreatedAt   time.Time            `json:"createdAt"`
-	Tags        map[string]string    `json:"tags,omitempty"`
-	Properties  *NamespaceProperties `json:"properties,omitempty"`
-	ID          string               `json:"id"`
-	ARN         string               `json:"arn"`
-	Name        string               `json:"name"`
-	Type        string               `json:"type"`
-	Description string               `json:"description,omitempty"`
-	VPC         string               `json:"vpc,omitempty"`
+	CreatedAt    time.Time            `json:"createdAt"`
+	Tags         map[string]string    `json:"tags,omitempty"`
+	Properties   *NamespaceProperties `json:"properties,omitempty"`
+	ID           string               `json:"id"`
+	ARN          string               `json:"arn"`
+	Name         string               `json:"name"`
+	Type         string               `json:"type"`
+	Description  string               `json:"description,omitempty"`
+	VPC          string               `json:"vpc,omitempty"`
+	ServiceCount int                  `json:"serviceCount,omitempty"`
 }
 
 // Service represents an AWS Cloud Map service.
@@ -145,6 +146,7 @@ type Service struct {
 	NamespaceID             string                   `json:"namespaceID"`
 	Description             string                   `json:"description,omitempty"`
 	Type                    string                   `json:"type,omitempty"`
+	InstanceCount           int                      `json:"instanceCount,omitempty"`
 }
 
 // Instance represents a registered instance in a Cloud Map service.
@@ -429,7 +431,22 @@ func (b *InMemoryBackend) GetNamespace(id string) (*Namespace, error) {
 		return nil, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, id)
 	}
 
-	return copyNamespace(ns), nil
+	cp := copyNamespace(ns)
+	cp.ServiceCount = b.countServicesInNamespace(id)
+
+	return cp, nil
+}
+
+// countServicesInNamespace counts services belonging to a namespace. Caller must hold at least a read lock.
+func (b *InMemoryBackend) countServicesInNamespace(namespaceID string) int {
+	count := 0
+	for _, svc := range b.services {
+		if svc.NamespaceID == namespaceID {
+			count++
+		}
+	}
+
+	return count
 }
 
 // ListNamespaces returns all namespaces sorted by name, optionally filtered.
@@ -448,7 +465,9 @@ func (b *InMemoryBackend) ListNamespaces(filter ListNamespacesFilter) []Namespac
 			continue
 		}
 
-		result = append(result, *copyNamespace(ns))
+		cp := copyNamespace(ns)
+		cp.ServiceCount = b.countServicesInNamespace(ns.ID)
+		result = append(result, *cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -556,7 +575,10 @@ func (b *InMemoryBackend) GetService(id string) (*Service, error) {
 		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
 	}
 
-	return copyService(svc), nil
+	cp := copyService(svc)
+	cp.InstanceCount = len(b.instancesByService[id])
+
+	return cp, nil
 }
 
 // ListServices returns all services, optionally filtered.
@@ -566,12 +588,14 @@ func (b *InMemoryBackend) ListServices(filter ListServicesFilter) []Service {
 
 	result := make([]Service, 0, len(b.services))
 
-	for _, svc := range b.services {
+	for id, svc := range b.services {
 		if filter.NamespaceID != "" && svc.NamespaceID != filter.NamespaceID {
 			continue
 		}
 
-		result = append(result, *copyService(svc))
+		cp := copyService(svc)
+		cp.InstanceCount = len(b.instancesByService[id])
+		result = append(result, *cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -973,17 +997,18 @@ func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (strin
 }
 
 // UpdateService updates the description and optionally DNSConfig/HealthCheckConfig of a service.
+// Returns the operation ID, matching real AWS UpdateService behavior.
 func (b *InMemoryBackend) UpdateService(
 	id, description string,
 	dnsConfig *DNSConfig,
 	hcc *HealthCheckConfig,
-) (*Service, error) {
+) (string, error) {
 	b.mu.Lock("UpdateService")
 	defer b.mu.Unlock()
 
 	svc, ok := b.services[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
+		return "", fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
 	}
 
 	svc.Description = description
@@ -1015,7 +1040,7 @@ func (b *InMemoryBackend) UpdateService(
 		UpdateDate: now,
 	}
 
-	return copyService(svc), nil
+	return opID, nil
 }
 
 // GetServiceAttributes returns the custom attributes for a service.

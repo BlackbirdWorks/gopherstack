@@ -366,7 +366,9 @@ func TestTransactWriteItems_Idempotency(t *testing.T) {
 
 	got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
 		TableName: aws.String(tbl),
-		Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item-idem"}},
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "item-idem"},
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "modified", got.Item["val"].(*types.AttributeValueMemberS).Value,
@@ -384,7 +386,9 @@ func TestTransactWriteItems_ConsumedCapacity(t *testing.T) {
 		TransactItems: []types.TransactWriteItem{
 			{Put: &types.Put{
 				TableName: aws.String(tbl),
-				Item:      map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "x"}},
+				Item: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: "x"},
+				},
 			}},
 		},
 	})

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -134,7 +135,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*Proposal, error)
 	GetProposal(networkID, proposalID string) (*Proposal, error)
-	ListProposals(networkID string) ([]*Proposal, error)
+	ListProposals(networkID, statusFilter string) ([]*Proposal, error)
 	ListProposalVotes(networkID, proposalID string) ([]*ProposalVote, error)
 	ListInvitations() ([]*Invitation, error)
 	RejectInvitation(invitationID string) error
@@ -956,7 +957,8 @@ func (b *InMemoryBackend) GetProposal(networkID, proposalID string) (*Proposal, 
 }
 
 // ListProposals returns all proposals for a network sorted by proposal ID.
-func (b *InMemoryBackend) ListProposals(networkID string) ([]*Proposal, error) {
+// statusFilter, when non-empty, limits results to proposals with that status.
+func (b *InMemoryBackend) ListProposals(networkID, statusFilter string) ([]*Proposal, error) {
 	b.mu.RLock("ListProposals")
 	defer b.mu.RUnlock()
 
@@ -968,6 +970,10 @@ func (b *InMemoryBackend) ListProposals(networkID string) ([]*Proposal, error) {
 	all := make([]*Proposal, 0, len(proposals))
 
 	for _, p := range proposals {
+		if statusFilter != "" && p.Status != statusFilter {
+			continue
+		}
+
 		all = append(all, cloneProposal(p))
 	}
 
@@ -1436,7 +1442,7 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 	return nil
 }
 
-const percentBase = 100
+const percentBase = 100.0
 
 // applyVoteThresholdLocked checks vote counts against the network's voting policy
 // and transitions the proposal status when thresholds are met. Must be called with mu held.
@@ -1446,15 +1452,14 @@ func (b *InMemoryBackend) applyVoteThresholdLocked(network *Network, proposal *P
 	}
 
 	atp := network.VotingPolicy.ApprovalThresholdPolicy
-	threshold := int(atp.ThresholdPercentage)
+	threshold := float64(atp.ThresholdPercentage)
 	comparator := atp.ThresholdComparator
 
 	if totalMembers == 0 || threshold == 0 {
 		return
 	}
 
-	yesPercent := (proposal.YesVoteCount * percentBase) / totalMembers
-	noPercent := (proposal.NoVoteCount * percentBase) / totalMembers
+	yesPercent := float64(proposal.YesVoteCount) * percentBase / float64(totalMembers)
 
 	var yesApproved bool
 
@@ -1467,22 +1472,100 @@ func (b *InMemoryBackend) applyVoteThresholdLocked(network *Network, proposal *P
 		yesApproved = yesPercent > threshold
 	}
 
-	var noRejected bool
-
-	rejectionThreshold := percentBase - threshold
+	// Rejection: it is mathematically impossible for approval to be reached, i.e.
+	// even if all outstanding votes were YES, the proposal cannot be approved.
+	// requiredYes = minimum YES votes needed for approval.
+	var requiredYes float64
 
 	switch comparator {
-	case "GREATER_THAN":
-		noRejected = noPercent > rejectionThreshold
 	case "GREATER_THAN_OR_EQUAL_TO":
-		noRejected = noPercent >= rejectionThreshold
-	default:
-		noRejected = noPercent > rejectionThreshold
+		requiredYes = threshold / percentBase * float64(totalMembers)
+		// ceil for fractional required votes
+		if requiredYes != float64(int(requiredYes)) {
+			requiredYes = float64(int(requiredYes)) + 1
+		}
+	default: // GREATER_THAN
+		requiredYes = float64(int(threshold/percentBase*float64(totalMembers))) + 1
 	}
+
+	maxPossibleYes := float64(totalMembers - proposal.NoVoteCount)
+	noRejected := maxPossibleYes < requiredYes
 
 	if yesApproved {
 		proposal.Status = proposalStatusApproved
+		b.executeProposalActionsLocked(network, proposal)
 	} else if noRejected {
 		proposal.Status = proposalStatusRejected
+	}
+}
+
+// arnRegionAccount extracts the region and account ID from an ARN string.
+// ARN format: arn:{partition}:{service}:{region}:{accountID}:{resource}.
+func arnRegionAccount(arnStr string) (string, string) {
+	const arnParts = 6
+	parts := strings.SplitN(arnStr, ":", arnParts)
+
+	if len(parts) < arnParts {
+		return "", ""
+	}
+
+	return parts[3], parts[4]
+}
+
+// executeProposalActionsLocked runs the actions from an approved proposal.
+// Must be called with mu held.
+func (b *InMemoryBackend) executeProposalActionsLocked(network *Network, proposal *Proposal) {
+	if proposal.Actions == nil {
+		return
+	}
+
+	now := time.Now().UTC()
+	region, accountID := arnRegionAccount(network.Arn)
+
+	for _, inv := range proposal.Actions.Invitations {
+		invitationID := uuid.NewString()
+
+		netSummary := &InvitationNetworkSummary{
+			ID:               network.ID,
+			Arn:              network.Arn,
+			Name:             network.Name,
+			Description:      network.Description,
+			Framework:        network.Framework,
+			FrameworkVersion: network.FrameworkVersion,
+			Status:           network.Status,
+			CreationDate:     network.CreationDate,
+		}
+
+		invitation := &Invitation{
+			InvitationID:   invitationID,
+			Arn:            invitationARN(region, inv.Principal, invitationID),
+			NetworkID:      network.ID,
+			NetworkName:    network.Name,
+			Status:         invitationStatusPending,
+			CreationDate:   &now,
+			NetworkSummary: netSummary,
+		}
+
+		_ = accountID
+		b.invitations[invitationID] = invitation
+	}
+
+	for _, rem := range proposal.Actions.Removals {
+		memberID := rem.MemberID
+
+		if members, ok := b.members[network.ID]; ok {
+			if m, exists := members[memberID]; exists {
+				delete(b.arnToResource, m.Arn)
+				delete(members, memberID)
+
+				if b.nodes[network.ID] != nil {
+					for _, node := range b.nodes[network.ID][memberID] {
+						delete(b.arnToResource, node.Arn)
+					}
+
+					delete(b.nodes[network.ID], memberID)
+				}
+			}
+		}
 	}
 }

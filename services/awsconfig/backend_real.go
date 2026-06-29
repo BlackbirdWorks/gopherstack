@@ -358,9 +358,9 @@ func (b *InMemoryBackend) GetComplianceSummaryByConfigRule() []ComplianceSummary
 
 	return []ComplianceSummary{{
 		ComplianceType: complianceType,
-		ComplianceSummaryByConfigRule: ComplianceSummaryByConfigRule{
-			CompliantResourceCount:    compliant,
-			NonCompliantResourceCount: nonCompliant,
+		ComplianceSummary: ComplianceSummaryDetail{
+			CompliantResourceCount:    ResourceCount{CappedCount: compliant},
+			NonCompliantResourceCount: ResourceCount{CappedCount: nonCompliant},
 		},
 	}}
 }
@@ -414,8 +414,8 @@ func (b *InMemoryBackend) DescribeDeliveryChannelStatus(names []string) []Delive
 	for _, name := range channelNames {
 		out = append(out, DeliveryChannelStatus{
 			Name:                      name,
-			ConfigHistoryDeliveryInfo: &DeliveryChannelStatusInfo{LastStatus: "SUCCESS"},
-			ConfigStreamDeliveryInfo:  &DeliveryChannelStatusInfo{LastStatus: "SUCCESS"},
+			ConfigHistoryDeliveryInfo: &DeliveryChannelStatusInfo{LastStatus: recorderStatusSuccess},
+			ConfigStreamDeliveryInfo:  &DeliveryChannelStatusInfo{LastStatus: recorderStatusSuccess},
 		})
 	}
 

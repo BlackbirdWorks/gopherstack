@@ -151,8 +151,14 @@ func TestTableOperations(t *testing.T) {
 				_, err := db.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
 					TableName: aws.String("GSITable"),
 					AttributeDefinitions: []types.AttributeDefinition{
-						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-						{AttributeName: aws.String("gsiPK"), AttributeType: types.ScalarAttributeTypeS},
+						{
+							AttributeName: aws.String("pk"),
+							AttributeType: types.ScalarAttributeTypeS,
+						},
+						{
+							AttributeName: aws.String("gsiPK"),
+							AttributeType: types.ScalarAttributeTypeS,
+						},
 					},
 					KeySchema: []types.KeySchemaElement{
 						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},

@@ -1,6 +1,7 @@
 package sagemakerruntime
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"hash/crc32"
@@ -61,6 +62,10 @@ type Handler struct {
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
+
+// Shutdown implements service.Shutdowner. SageMaker Runtime has no background
+// goroutines so this is a no-op.
+func (h *Handler) Shutdown(_ context.Context) {}
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "SageMakerRuntime" }
@@ -167,7 +172,12 @@ func (h *Handler) handleInvokeEndpointAsync(
 	endpointName string,
 	body []byte,
 ) error {
-	async := h.Backend.RecordAsyncInvocation(endpointName, c.Request().Header.Get(headerInferenceID), string(body))
+	async := h.Backend.RecordAsyncInvocation(
+		endpointName,
+		c.Request().Header.Get(headerInferenceID),
+		string(body),
+		c.Request().Header.Get(headerOutputLocation),
+	)
 	out, err := json.Marshal(map[string]string{"InferenceId": async.InferenceID})
 	if err != nil {
 		return err

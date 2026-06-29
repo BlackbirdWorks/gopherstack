@@ -492,7 +492,14 @@ func validateComplexValue(k, t string, val any) error {
 		if !ok {
 			return NewValidationException(fmt.Sprintf("Attribute %s of type L must be a list", k))
 		}
-		_ = list
+		for i, elem := range list {
+			// Each list element is itself an attribute value ({"S": "x"}, {"N": "1"}, etc.).
+			// Validate it as a single attribute using a synthetic name for the error message.
+			elemName := fmt.Sprintf("%s[%d]", k, i)
+			if err := validateAttribute(elemName, elem); err != nil {
+				return err
+			}
+		}
 	case "M":
 		m, ok := val.(map[string]any)
 		if !ok {
@@ -532,7 +539,10 @@ func validateQueryKeyValues(
 	return nil
 }
 
-func buildKeyNamesMap(keySchema []models.KeySchemaElement, attrNames map[string]string) map[string]string {
+func buildKeyNamesMap(
+	keySchema []models.KeySchemaElement,
+	attrNames map[string]string,
+) map[string]string {
 	keyNames := make(map[string]string, len(keySchema))
 	for _, k := range keySchema {
 		keyNames[k.AttributeName] = k.AttributeName

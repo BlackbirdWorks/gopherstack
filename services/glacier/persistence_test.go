@@ -35,7 +35,7 @@ func TestGlacier_PersistenceSnapshotRestore(t *testing.T) {
 					return
 				}
 
-				_, _ = b.UploadArchive("123", "us-east-1", "my-vault", "desc", "hash", 1024)
+				_, _ = b.UploadArchive("123", "us-east-1", "my-vault", "desc", "hash", 1024, []byte("data"))
 			},
 			verify: func(t *testing.T, b *glacier.InMemoryBackend) {
 				t.Helper()

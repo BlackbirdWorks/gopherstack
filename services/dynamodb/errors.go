@@ -203,6 +203,16 @@ func NewExportNotFoundException(msg string) *Error {
 	}
 }
 
+// NewDuplicateItemException is returned by PartiQL INSERT when an item with the
+// same primary key already exists. AWS DynamoDB raises this instead of silently
+// overwriting (unlike PutItem which overwrites by default).
+func NewDuplicateItemException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#DuplicateItemException",
+		Message: msg,
+	}
+}
+
 func (e *Error) Error() string {
 	return fmt.Sprintf("%s: %s", e.Type, e.Message)
 }

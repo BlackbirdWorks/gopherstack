@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,8 +30,8 @@ const (
 
 const (
 	ecrTargetPrefix   = "AmazonEC2ContainerRegistry_V20150921."
-	dummyPassword     = "dummy-password"
 	dummyUser         = "AWS"
+	dummyPassword     = "dummy-password"
 	tokenTTL          = 12 * time.Hour
 	v2Root            = "/v2"
 	v2Prefix          = "/v2/"
@@ -279,65 +280,125 @@ func (h *Handler) Reset() {
 }
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	ops := h.buildCoreOps()
+	maps.Copy(ops, h.buildExtOps())
+
+	return ops
+}
+
+func (h *Handler) buildCoreOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"BatchCheckLayerAvailability":             service.WrapOp(h.handleBatchCheckLayerAvailability),
-		"BatchDeleteImage":                        service.WrapOp(h.handleBatchDeleteImage),
-		"BatchGetImage":                           service.WrapOp(h.handleBatchGetImage),
-		"BatchGetRepositoryScanningConfiguration": service.WrapOp(h.handleBatchGetRepositoryScanningConfiguration),
-		"CompleteLayerUpload":                     service.WrapOp(h.handleCompleteLayerUpload),
-		"CreatePullThroughCacheRule":              service.WrapOp(h.handleCreatePullThroughCacheRule),
-		"CreateRepository":                        service.WrapOp(h.handleCreateRepository),
-		"CreateRepositoryCreationTemplate":        service.WrapOp(h.handleCreateRepositoryCreationTemplate),
-		"DeleteLifecyclePolicy":                   service.WrapOp(h.handleDeleteLifecyclePolicy),
-		"DeletePullThroughCacheRule":              service.WrapOp(h.handleDeletePullThroughCacheRule),
-		"DeleteRegistryPolicy":                    service.WrapOp(h.handleDeleteRegistryPolicy),
-		"DeleteRepository":                        service.WrapOp(h.handleDeleteRepository),
-		"DeleteRepositoryCreationTemplate":        service.WrapOp(h.handleDeleteRepositoryCreationTemplate),
-		"DeleteRepositoryPolicy":                  service.WrapOp(h.handleDeleteRepositoryPolicy),
-		"DeleteSigningConfiguration":              service.WrapOp(h.handleDeleteSigningConfiguration),
-		"DeregisterPullTimeUpdateExclusion":       service.WrapOp(h.handleDeregisterPullTimeUpdateExclusion),
-		"DescribeImageReplicationStatus":          service.WrapOp(h.handleDescribeImageReplicationStatus),
-		"DescribeImageScanFindings":               service.WrapOp(h.handleDescribeImageScanFindings),
-		"DescribeImageSigningStatus":              service.WrapOp(h.handleDescribeImageSigningStatus),
-		"DescribeImages":                          service.WrapOp(h.handleDescribeImages),
-		"DescribePullThroughCacheRules":           service.WrapOp(h.handleDescribePullThroughCacheRules),
-		"DescribeRegistry":                        service.WrapOp(h.handleDescribeRegistry),
-		"DescribeRepositories":                    service.WrapOp(h.handleDescribeRepositories),
-		"DescribeRepositoryCreationTemplates":     service.WrapOp(h.handleDescribeRepositoryCreationTemplates),
-		"GetAccountSetting":                       service.WrapOp(h.handleGetAccountSetting),
-		"GetAuthorizationToken":                   service.WrapOp(h.handleGetAuthorizationToken),
-		"GetDownloadUrlForLayer":                  service.WrapOp(h.handleGetDownloadURLForLayer),
-		"GetLifecyclePolicy":                      service.WrapOp(h.handleGetLifecyclePolicy),
-		"GetLifecyclePolicyPreview":               service.WrapOp(h.handleGetLifecyclePolicyPreview),
-		"GetRegistryPolicy":                       service.WrapOp(h.handleGetRegistryPolicy),
-		"GetRegistryScanningConfiguration":        service.WrapOp(h.handleGetRegistryScanningConfiguration),
-		"GetRepositoryPolicy":                     service.WrapOp(h.handleGetRepositoryPolicy),
-		"GetSigningConfiguration":                 service.WrapOp(h.handleGetSigningConfiguration),
-		"InitiateLayerUpload":                     service.WrapOp(h.handleInitiateLayerUpload),
-		"ListImageReferrers":                      service.WrapOp(h.handleListImageReferrers),
-		"ListImages":                              service.WrapOp(h.handleListImages),
-		"ListPullTimeUpdateExclusions":            service.WrapOp(h.handleListPullTimeUpdateExclusions),
-		"ListTagsForResource":                     service.WrapOp(h.handleListTagsForResource),
-		"PutAccountSetting":                       service.WrapOp(h.handlePutAccountSetting),
-		"PutImage":                                service.WrapOp(h.handlePutImage),
-		"PutImageScanningConfiguration":           service.WrapOp(h.handlePutImageScanningConfiguration),
-		"PutImageTagMutability":                   service.WrapOp(h.handlePutImageTagMutability),
-		"PutLifecyclePolicy":                      service.WrapOp(h.handlePutLifecyclePolicy),
-		"PutRegistryPolicy":                       service.WrapOp(h.handlePutRegistryPolicy),
-		"PutRegistryScanningConfiguration":        service.WrapOp(h.handlePutRegistryScanningConfiguration),
-		"PutReplicationConfiguration":             service.WrapOp(h.handlePutReplicationConfiguration),
-		"PutSigningConfiguration":                 service.WrapOp(h.handlePutSigningConfiguration),
-		"RegisterPullTimeUpdateExclusion":         service.WrapOp(h.handleRegisterPullTimeUpdateExclusion),
-		"SetRepositoryPolicy":                     service.WrapOp(h.handleSetRepositoryPolicy),
-		"StartImageScan":                          service.WrapOp(h.handleStartImageScan),
-		"StartLifecyclePolicyPreview":             service.WrapOp(h.handleStartLifecyclePolicyPreview),
-		"TagResource":                             service.WrapOp(h.handleTagResource),
-		"UntagResource":                           service.WrapOp(h.handleUntagResource),
-		"UpdateImageStorageClass":                 service.WrapOp(h.handleUpdateImageStorageClass),
-		"UpdatePullThroughCacheRule":              service.WrapOp(h.handleUpdatePullThroughCacheRule),
-		"UpdateRepositoryCreationTemplate":        service.WrapOp(h.handleUpdateRepositoryCreationTemplate),
-		"UploadLayerPart":                         service.WrapOp(h.handleUploadLayerPart),
-		"ValidatePullThroughCacheRule":            service.WrapOp(h.handleValidatePullThroughCacheRule),
+		"BatchCheckLayerAvailability": service.WrapOp(
+			h.handleBatchCheckLayerAvailability,
+		),
+		"BatchDeleteImage": service.WrapOp(h.handleBatchDeleteImage),
+		"BatchGetImage":    service.WrapOp(h.handleBatchGetImage),
+		"BatchGetRepositoryScanningConfiguration": service.WrapOp(
+			h.handleBatchGetRepositoryScanningConfiguration,
+		),
+		"CompleteLayerUpload": service.WrapOp(h.handleCompleteLayerUpload),
+		"CreatePullThroughCacheRule": service.WrapOp(
+			h.handleCreatePullThroughCacheRule,
+		),
+		"CreateRepository": service.WrapOp(h.handleCreateRepository),
+		"CreateRepositoryCreationTemplate": service.WrapOp(
+			h.handleCreateRepositoryCreationTemplate,
+		),
+		"DeleteLifecyclePolicy": service.WrapOp(h.handleDeleteLifecyclePolicy),
+		"DeletePullThroughCacheRule": service.WrapOp(
+			h.handleDeletePullThroughCacheRule,
+		),
+		"DeleteRegistryPolicy": service.WrapOp(h.handleDeleteRegistryPolicy),
+		"DeleteRepository":     service.WrapOp(h.handleDeleteRepository),
+		"DeleteRepositoryCreationTemplate": service.WrapOp(
+			h.handleDeleteRepositoryCreationTemplate,
+		),
+		"DeleteRepositoryPolicy": service.WrapOp(h.handleDeleteRepositoryPolicy),
+		"DeleteSigningConfiguration": service.WrapOp(
+			h.handleDeleteSigningConfiguration,
+		),
+		"DeregisterPullTimeUpdateExclusion": service.WrapOp(
+			h.handleDeregisterPullTimeUpdateExclusion,
+		),
+		"DescribeImageReplicationStatus": service.WrapOp(
+			h.handleDescribeImageReplicationStatus,
+		),
+		"DescribeImageScanFindings": service.WrapOp(
+			h.handleDescribeImageScanFindings,
+		),
+		"DescribeImageSigningStatus": service.WrapOp(
+			h.handleDescribeImageSigningStatus,
+		),
+		"DescribeImages": service.WrapOp(h.handleDescribeImages),
+		"DescribePullThroughCacheRules": service.WrapOp(
+			h.handleDescribePullThroughCacheRules,
+		),
+		"DescribeRegistry":     service.WrapOp(h.handleDescribeRegistry),
+		"DescribeRepositories": service.WrapOp(h.handleDescribeRepositories),
+		"DescribeRepositoryCreationTemplates": service.WrapOp(
+			h.handleDescribeRepositoryCreationTemplates,
+		),
+	}
+}
+
+func (h *Handler) buildExtOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"GetAccountSetting":      service.WrapOp(h.handleGetAccountSetting),
+		"GetAuthorizationToken":  service.WrapOp(h.handleGetAuthorizationToken),
+		"GetDownloadUrlForLayer": service.WrapOp(h.handleGetDownloadURLForLayer),
+		"GetLifecyclePolicy":     service.WrapOp(h.handleGetLifecyclePolicy),
+		"GetLifecyclePolicyPreview": service.WrapOp(
+			h.handleGetLifecyclePolicyPreview,
+		),
+		"GetRegistryPolicy": service.WrapOp(h.handleGetRegistryPolicy),
+		"GetRegistryScanningConfiguration": service.WrapOp(
+			h.handleGetRegistryScanningConfiguration,
+		),
+		"GetRepositoryPolicy":     service.WrapOp(h.handleGetRepositoryPolicy),
+		"GetSigningConfiguration": service.WrapOp(h.handleGetSigningConfiguration),
+		"InitiateLayerUpload":     service.WrapOp(h.handleInitiateLayerUpload),
+		"ListImageReferrers":      service.WrapOp(h.handleListImageReferrers),
+		"ListImages":              service.WrapOp(h.handleListImages),
+		"ListPullTimeUpdateExclusions": service.WrapOp(
+			h.handleListPullTimeUpdateExclusions,
+		),
+		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
+		"PutAccountSetting":   service.WrapOp(h.handlePutAccountSetting),
+		"PutImage":            service.WrapOp(h.handlePutImage),
+		"PutImageScanningConfiguration": service.WrapOp(
+			h.handlePutImageScanningConfiguration,
+		),
+		"PutImageTagMutability": service.WrapOp(h.handlePutImageTagMutability),
+		"PutLifecyclePolicy":    service.WrapOp(h.handlePutLifecyclePolicy),
+		"PutRegistryPolicy":     service.WrapOp(h.handlePutRegistryPolicy),
+		"PutRegistryScanningConfiguration": service.WrapOp(
+			h.handlePutRegistryScanningConfiguration,
+		),
+		"PutReplicationConfiguration": service.WrapOp(
+			h.handlePutReplicationConfiguration,
+		),
+		"PutSigningConfiguration": service.WrapOp(h.handlePutSigningConfiguration),
+		"RegisterPullTimeUpdateExclusion": service.WrapOp(
+			h.handleRegisterPullTimeUpdateExclusion,
+		),
+		"SetRepositoryPolicy": service.WrapOp(h.handleSetRepositoryPolicy),
+		"StartImageScan":      service.WrapOp(h.handleStartImageScan),
+		"StartLifecyclePolicyPreview": service.WrapOp(
+			h.handleStartLifecyclePolicyPreview,
+		),
+		"TagResource":             service.WrapOp(h.handleTagResource),
+		"UntagResource":           service.WrapOp(h.handleUntagResource),
+		"UpdateImageStorageClass": service.WrapOp(h.handleUpdateImageStorageClass),
+		"UpdatePullThroughCacheRule": service.WrapOp(
+			h.handleUpdatePullThroughCacheRule,
+		),
+		"UpdateRepositoryCreationTemplate": service.WrapOp(
+			h.handleUpdateRepositoryCreationTemplate,
+		),
+		"UploadLayerPart": service.WrapOp(h.handleUploadLayerPart),
+		"ValidatePullThroughCacheRule": service.WrapOp(
+			h.handleValidatePullThroughCacheRule,
+		),
 	}
 }
 
@@ -355,75 +416,57 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
+// ecrErr builds the error body for an ECR error response.
+func ecrErr(errType, msg string) map[string]string {
+	return map[string]string{keyTypeField: errType, keyMessageField: msg}
+}
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	status, errType := h.classifyError(err)
+
+	return c.JSON(status, ecrErr(errType, err.Error()))
+}
+
+// classifyError returns the HTTP status code and AWS error type string for err.
+func (h *Handler) classifyError(err error) (int, string) { //nolint:cyclop // 1 case per distinct error type
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
 	case errors.Is(err, ErrRepositoryNotFound):
-		return c.JSON(
-			http.StatusNotFound,
-			map[string]string{keyTypeField: "RepositoryNotFoundException", keyMessageField: err.Error()},
-		)
+		return http.StatusNotFound, "RepositoryNotFoundException"
 	case errors.Is(err, ErrRepositoryPolicyNotFound):
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyTypeField: "RepositoryPolicyNotFoundException", keyMessageField: err.Error()},
-		)
+		return http.StatusBadRequest, "RepositoryPolicyNotFoundException"
 	case errors.Is(err, ErrImageNotFound):
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyTypeField: "ImageNotFoundException", keyMessageField: err.Error()},
-		)
+		return http.StatusBadRequest, "ImageNotFoundException"
+	case errors.Is(err, ErrScanNotFoundException):
+		return http.StatusBadRequest, "ScanNotFoundException"
 	case errors.Is(err, ErrPullThroughCacheRuleNotFound),
 		errors.Is(err, ErrLifecyclePolicyNotFound),
 		errors.Is(err, ErrRepositoryCreationTemplateNotFound),
 		errors.Is(err, ErrRegistryPolicyNotFound):
-		return c.JSON(
-			http.StatusNotFound,
-			map[string]string{keyTypeField: "NotFoundException", keyMessageField: err.Error()},
-		)
+		return http.StatusNotFound, "NotFoundException"
 	case errors.Is(err, ErrRepositoryAlreadyExists):
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyTypeField: "RepositoryAlreadyExistsException", keyMessageField: err.Error()},
-		)
+		return http.StatusBadRequest, "RepositoryAlreadyExistsException"
 	case errors.Is(err, ErrRepositoryNotEmpty):
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyTypeField: "RepositoryNotEmptyException", keyMessageField: err.Error()},
-		)
+		return http.StatusBadRequest, "RepositoryNotEmptyException"
 	case errors.Is(err, ErrImageTagAlreadyExists):
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyTypeField: "ImageTagAlreadyExistsException", keyMessageField: err.Error()},
-		)
+		return http.StatusBadRequest, "ImageTagAlreadyExistsException"
+	case errors.Is(err, ErrLayerInaccessible):
+		return http.StatusBadRequest, "LayerInaccessibleException"
+	case errors.Is(err, ErrLayersNotFound):
+		return http.StatusBadRequest, "LayersNotFoundException"
 	case errors.Is(err, ErrPullThroughCacheRuleAlreadyExists):
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyTypeField: "PullThroughCacheRuleAlreadyExistsException", keyMessageField: err.Error()},
-		)
+		return http.StatusBadRequest, "PullThroughCacheRuleAlreadyExistsException"
 	case errors.Is(err, ErrRepositoryCreationTemplateAlreadyExists):
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyTypeField: "TemplateAlreadyExistsException", keyMessageField: err.Error()},
-		)
+		return http.StatusBadRequest, "TemplateAlreadyExistsException"
 	case errors.Is(err, errUnknownAction):
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyTypeField: "UnknownOperationException", keyMessageField: err.Error()},
-		)
+		return http.StatusBadRequest, "UnknownOperationException"
 	case errors.Is(err, ErrInvalidRepositoryName), errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyTypeField: "InvalidParameterException", keyMessageField: err.Error()},
-		)
+		return http.StatusBadRequest, "InvalidParameterException"
 	default:
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyTypeField: "InternalServerError", keyMessageField: err.Error()},
-		)
+		return http.StatusInternalServerError, "InternalServerError"
 	}
 }
 
@@ -469,7 +512,9 @@ func toRepositoryView(r Repository) repositoryView {
 			EncryptionType: r.EncryptionType,
 			KMSKey:         r.KMSKey,
 		},
-		ImageScanningConfiguration:         imageScanningConfigurationView{ScanOnPush: r.ScanOnPush},
+		ImageScanningConfiguration: imageScanningConfigurationView{
+			ScanOnPush: r.ScanOnPush,
+		},
 		ImageTagMutability:                 r.ImageTagMutability,
 		ImageTagMutabilityExclusionFilters: filters,
 		RegistryID:                         r.RegistryID,
@@ -550,25 +595,28 @@ func (h *Handler) handleDescribeRepositories(
 		return nil, err
 	}
 
-	// Apply nextToken cursor: skip repos until we find the one named by the token.
-	// The token is the name of the first repo to include in this page.
+	// Apply nextToken cursor: token is base64(repoName) of the first repo on this page.
 	if in.NextToken != "" && len(in.RepositoryNames) == 0 {
-		start := 0
-		for i, r := range repos {
-			if r.RepositoryName == in.NextToken {
-				start = i
+		decoded, decErr := base64.StdEncoding.DecodeString(in.NextToken)
+		if decErr == nil {
+			cursorName := string(decoded)
+			start := 0
+			for i, r := range repos {
+				if r.RepositoryName == cursorName {
+					start = i
 
-				break
+					break
+				}
 			}
-		}
 
-		repos = repos[start:]
+			repos = repos[start:]
+		}
 	}
 
-	// Apply maxResults page limit.
+	// Apply maxResults page limit; emit opaque token = base64(next repo name).
 	var nextToken string
 	if in.MaxResults > 0 && len(repos) > in.MaxResults {
-		nextToken = repos[in.MaxResults].RepositoryName
+		nextToken = base64.StdEncoding.EncodeToString([]byte(repos[in.MaxResults].RepositoryName))
 		repos = repos[:in.MaxResults]
 	}
 
@@ -633,7 +681,7 @@ func (h *Handler) handleGetAuthorizationToken(
 	_ context.Context,
 	in *getAuthorizationTokenInput,
 ) (*getAuthorizationTokenOutput, error) {
-	token := base64.StdEncoding.EncodeToString([]byte(dummyUser + ":" + dummyPassword))
+	token := generateAuthToken()
 	expiresAt := time.Now().Add(tokenTTL).Unix()
 
 	proxyEndpoint := h.Backend.ProxyEndpoint()
@@ -663,6 +711,13 @@ func (h *Handler) handleGetAuthorizationToken(
 	return &getAuthorizationTokenOutput{
 		AuthorizationData: []authorizationDataView{entry},
 	}, nil
+}
+
+// generateAuthToken produces the ECR authorization token in AWS's structure:
+// base64(AWS:<password>). The emulator uses a stable dummy password so clients
+// (and docker login) get a deterministic credential.
+func generateAuthToken() string {
+	return base64.StdEncoding.EncodeToString([]byte(dummyUser + ":" + dummyPassword))
 }
 
 // listTagsForResourceInput is the request body for ListTagsForResource.
@@ -754,7 +809,11 @@ func (h *Handler) handleBatchCheckLayerAvailability(
 	ctx context.Context,
 	in *batchCheckLayerAvailabilityInput,
 ) (*batchCheckLayerAvailabilityOutput, error) {
-	layers, failures, err := h.Backend.BatchCheckLayerAvailability(ctx, in.RepositoryName, in.LayerDigests)
+	layers, failures, err := h.Backend.BatchCheckLayerAvailability(
+		ctx,
+		in.RepositoryName,
+		in.LayerDigests,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -955,7 +1014,10 @@ type listImagesOutput struct {
 	ImageIDs  []ImageIdentifier `json:"imageIds"`
 }
 
-func (h *Handler) handleListImages(ctx context.Context, in *listImagesInput) (*listImagesOutput, error) {
+func (h *Handler) handleListImages(
+	ctx context.Context,
+	in *listImagesInput,
+) (*listImagesOutput, error) {
 	tagStatusFilter := ""
 	if in.Filter != nil {
 		tagStatusFilter = in.Filter.TagStatus
@@ -966,26 +1028,31 @@ func (h *Handler) handleListImages(ctx context.Context, in *listImagesInput) (*l
 		return nil, err
 	}
 
-	// Apply nextToken cursor: skip to the element whose digest+tag matches.
+	// Apply nextToken cursor: token is base64(digest:tag) of the first image on this page.
 	if in.NextToken != "" {
-		start := 0
-		for i, id := range imageIDs {
-			key := id.ImageDigest + ":" + id.ImageTag
-			if key == in.NextToken {
-				start = i
+		decoded, decErr := base64.StdEncoding.DecodeString(in.NextToken)
+		if decErr == nil {
+			cursorKey := string(decoded)
+			start := 0
+			for i, id := range imageIDs {
+				if id.ImageDigest+":"+id.ImageTag == cursorKey {
+					start = i
 
-				break
+					break
+				}
 			}
-		}
 
-		imageIDs = imageIDs[start:]
+			imageIDs = imageIDs[start:]
+		}
 	}
 
-	// Apply maxResults page limit.
+	// Apply maxResults page limit; emit opaque token = base64(digest:tag).
 	var nextToken string
 	if in.MaxResults > 0 && len(imageIDs) > in.MaxResults {
 		next := imageIDs[in.MaxResults]
-		nextToken = next.ImageDigest + ":" + next.ImageTag
+		nextToken = base64.StdEncoding.EncodeToString(
+			[]byte(next.ImageDigest + ":" + next.ImageTag),
+		)
 		imageIDs = imageIDs[:in.MaxResults]
 	}
 
@@ -1006,7 +1073,10 @@ func (h *Handler) handleBatchGetRepositoryScanningConfiguration(
 	ctx context.Context,
 	in *batchGetRepositoryScanningConfigurationInput,
 ) (*batchGetRepositoryScanningConfigurationOutput, error) {
-	configs, failures, err := h.Backend.BatchGetRepositoryScanningConfiguration(ctx, in.RepositoryNames)
+	configs, failures, err := h.Backend.BatchGetRepositoryScanningConfiguration(
+		ctx,
+		in.RepositoryNames,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1037,7 +1107,12 @@ func (h *Handler) handleCompleteLayerUpload(
 	ctx context.Context,
 	in *completeLayerUploadInput,
 ) (*CompleteLayerUploadResult, error) {
-	result, err := h.Backend.CompleteLayerUpload(ctx, in.RepositoryName, in.UploadID, in.LayerDigests)
+	result, err := h.Backend.CompleteLayerUpload(
+		ctx,
+		in.RepositoryName,
+		in.UploadID,
+		in.LayerDigests,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1166,10 +1241,13 @@ func (h *Handler) handleCreatePullThroughCacheRule(
 }
 
 type describePullThroughCacheRulesInput struct {
+	NextToken             string   `json:"nextToken,omitempty"`
 	EcrRepositoryPrefixes []string `json:"ecrRepositoryPrefixes,omitempty"`
+	MaxResults            int      `json:"maxResults,omitempty"`
 }
 
 type describePullThroughCacheRulesOutput struct {
+	NextToken             string                             `json:"nextToken,omitempty"`
 	PullThroughCacheRules []createPullThroughCacheRuleOutput `json:"pullThroughCacheRules"`
 }
 
@@ -1180,6 +1258,33 @@ func (h *Handler) handleDescribePullThroughCacheRules(
 	rules, err := h.Backend.DescribePullThroughCacheRules(ctx, in.EcrRepositoryPrefixes)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply nextToken cursor: token is base64(ecrRepositoryPrefix) of the first rule on this page.
+	if in.NextToken != "" && len(in.EcrRepositoryPrefixes) == 0 {
+		decoded, decErr := base64.StdEncoding.DecodeString(in.NextToken)
+		if decErr == nil {
+			cursorPrefix := string(decoded)
+			start := 0
+			for i, r := range rules {
+				if r.EcrRepositoryPrefix == cursorPrefix {
+					start = i
+
+					break
+				}
+			}
+
+			rules = rules[start:]
+		}
+	}
+
+	// Apply maxResults page limit; emit opaque token = base64(next prefix).
+	var nextToken string
+	if in.MaxResults > 0 && len(rules) > in.MaxResults {
+		nextToken = base64.StdEncoding.EncodeToString(
+			[]byte(rules[in.MaxResults].EcrRepositoryPrefix),
+		)
+		rules = rules[:in.MaxResults]
 	}
 
 	out := make([]createPullThroughCacheRuleOutput, 0, len(rules))
@@ -1197,7 +1302,10 @@ func (h *Handler) handleDescribePullThroughCacheRules(
 		})
 	}
 
-	return &describePullThroughCacheRulesOutput{PullThroughCacheRules: out}, nil
+	return &describePullThroughCacheRulesOutput{
+		PullThroughCacheRules: out,
+		NextToken:             nextToken,
+	}, nil
 }
 
 type repositoryCreationTemplateInput struct {
@@ -1244,7 +1352,9 @@ func (h *Handler) handleCreateRepositoryCreationTemplate(
 		return nil, err
 	}
 
-	return &createRepositoryCreationTemplateOutput{Template: toRepositoryCreationTemplateView(tmpl)}, nil
+	return &createRepositoryCreationTemplateOutput{
+		Template: toRepositoryCreationTemplateView(tmpl),
+	}, nil
 }
 
 type deleteRepositoryCreationTemplateInput struct {
@@ -1260,7 +1370,9 @@ func (h *Handler) handleDeleteRepositoryCreationTemplate(
 		return nil, err
 	}
 
-	return &createRepositoryCreationTemplateOutput{Template: toRepositoryCreationTemplateView(tmpl)}, nil
+	return &createRepositoryCreationTemplateOutput{
+		Template: toRepositoryCreationTemplateView(tmpl),
+	}, nil
 }
 
 type describeRepositoryCreationTemplatesInput struct {
@@ -1296,15 +1408,22 @@ func (h *Handler) handleUpdateRepositoryCreationTemplate(
 	ctx context.Context,
 	in *repositoryCreationTemplateInput,
 ) (*createRepositoryCreationTemplateOutput, error) {
-	tmpl, err := h.Backend.UpdateRepositoryCreationTemplate(ctx, repositoryCreationTemplateFromInput(in))
+	tmpl, err := h.Backend.UpdateRepositoryCreationTemplate(
+		ctx,
+		repositoryCreationTemplateFromInput(in),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createRepositoryCreationTemplateOutput{Template: toRepositoryCreationTemplateView(tmpl)}, nil
+	return &createRepositoryCreationTemplateOutput{
+		Template: toRepositoryCreationTemplateView(tmpl),
+	}, nil
 }
 
-func toRepositoryCreationTemplateView(in *RepositoryCreationTemplate) *repositoryCreationTemplateView {
+func toRepositoryCreationTemplateView(
+	in *RepositoryCreationTemplate,
+) *repositoryCreationTemplateView {
 	if in == nil {
 		return nil
 	}
@@ -1352,8 +1471,14 @@ func toTagViewsForKeys(tags map[string]string, keys []string) []tagView {
 	return out
 }
 
-func repositoryCreationTemplateFromInput(in *repositoryCreationTemplateInput) *RepositoryCreationTemplate {
-	filters := make([]ImageTagMutabilityExclusionFilter, 0, len(in.ImageTagMutabilityExclusionFilters))
+func repositoryCreationTemplateFromInput(
+	in *repositoryCreationTemplateInput,
+) *RepositoryCreationTemplate {
+	filters := make(
+		[]ImageTagMutabilityExclusionFilter,
+		0,
+		len(in.ImageTagMutabilityExclusionFilters),
+	)
 	for _, filter := range in.ImageTagMutabilityExclusionFilters {
 		filters = append(filters, ImageTagMutabilityExclusionFilter(filter))
 	}
@@ -1455,7 +1580,12 @@ func (h *Handler) handleUpdatePullThroughCacheRule(
 	ctx context.Context,
 	in *updatePullThroughCacheRuleInput,
 ) (*createPullThroughCacheRuleOutput, error) {
-	rule, err := h.Backend.UpdatePullThroughCacheRule(ctx, in.EcrRepositoryPrefix, in.CredentialArn, in.CustomRoleArn)
+	rule, err := h.Backend.UpdatePullThroughCacheRule(
+		ctx,
+		in.EcrRepositoryPrefix,
+		in.CredentialArn,
+		in.CustomRoleArn,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1743,9 +1873,14 @@ func (h *Handler) handleDescribeImageReplicationStatus(
 		return nil, err
 	}
 
+	statuses := make([]imageReplicationStatus, 0, len(result.ReplicationStatuses))
+	for _, s := range result.ReplicationStatuses {
+		statuses = append(statuses, imageReplicationStatus(s))
+	}
+
 	return &describeImageReplicationStatusOutput{
 		ImageID:             result.ImageID,
-		ReplicationStatuses: []imageReplicationStatus{{Status: result.ReplicationStatus}},
+		ReplicationStatuses: statuses,
 		RepositoryName:      result.RepositoryName,
 	}, nil
 }
@@ -1831,12 +1966,21 @@ func (h *Handler) handlePutImageTagMutability(
 	ctx context.Context,
 	in *putImageTagMutabilityInput,
 ) (*putImageTagMutabilityOutput, error) {
-	filters := make([]ImageTagMutabilityExclusionFilter, 0, len(in.ImageTagMutabilityExclusionFilters))
+	filters := make(
+		[]ImageTagMutabilityExclusionFilter,
+		0,
+		len(in.ImageTagMutabilityExclusionFilters),
+	)
 	for _, filter := range in.ImageTagMutabilityExclusionFilters {
 		filters = append(filters, ImageTagMutabilityExclusionFilter(filter))
 	}
 
-	repo, err := h.Backend.PutImageTagMutability(ctx, in.RepositoryName, in.ImageTagMutability, filters)
+	repo, err := h.Backend.PutImageTagMutability(
+		ctx,
+		in.RepositoryName,
+		in.ImageTagMutability,
+		filters,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1884,7 +2028,12 @@ func (h *Handler) handleUpdateImageStorageClass(
 	ctx context.Context,
 	in *updateImageStorageClassInput,
 ) (*ImageStorageClassResult, error) {
-	return h.Backend.UpdateImageStorageClass(ctx, in.RepositoryName, in.ImageID, in.TargetStorageClass)
+	return h.Backend.UpdateImageStorageClass(
+		ctx,
+		in.RepositoryName,
+		in.ImageID,
+		in.TargetStorageClass,
+	)
 }
 
 type accountSettingInput struct {

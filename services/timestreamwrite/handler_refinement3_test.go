@@ -303,6 +303,10 @@ func TestRefinement3_CreateBatchLoadTaskWithReportConfig(t *testing.T) {
 	createRec := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
 		"TargetDatabaseName": "blr-db",
 		"TargetTableName":    "blr-tbl",
+		"DataSourceConfiguration": map[string]any{
+			"DataFormat":                "CSV",
+			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+		},
 		"ReportConfiguration": map[string]any{
 			"ReportS3Configuration": map[string]any{
 				"BucketName": "report-bucket",
@@ -442,9 +446,9 @@ func TestRefinement3_DescribeBatchLoadTaskErrorMessage(t *testing.T) {
 	assert.Equal(t, "S3 object not found", desc["ErrorMessage"])
 }
 
-// TestRefinement3_CreateTableNoPropertiesReturnsNilProperties verifies that
-// when no properties are specified, the response omits the fields.
-func TestRefinement3_CreateTableNoPropertiesReturnsNilProperties(t *testing.T) {
+// TestRefinement3_CreateTableNoPropertiesReturnsDefaults verifies that
+// when no RetentionProperties are specified, real AWS defaults are applied (6h / 73d).
+func TestRefinement3_CreateTableNoPropertiesReturnsDefaults(t *testing.T) {
 	t.Parallel()
 
 	h := timestreamwrite.NewHandler(timestreamwrite.NewInMemoryBackend())
@@ -460,9 +464,15 @@ func TestRefinement3_CreateTableNoPropertiesReturnsNilProperties(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
 	tbl := out["Table"].(map[string]any)
-	_, hasRP := tbl["RetentionProperties"]
+	rp, hasRP := tbl["RetentionProperties"]
+	assert.True(t, hasRP, "RetentionProperties should be set to AWS defaults")
+
+	rpMap, ok := rp.(map[string]any)
+	assert.True(t, ok)
+	assert.InDelta(t, float64(6), rpMap["MemoryStoreRetentionPeriodInHours"], 0)
+	assert.InDelta(t, float64(73), rpMap["MagneticStoreRetentionPeriodInDays"], 0)
+
 	_, hasMSWP := tbl["MagneticStoreWriteProperties"]
-	assert.False(t, hasRP)
 	assert.False(t, hasMSWP)
 }
 
@@ -767,6 +777,10 @@ func TestRefinement3_BatchLoadTaskDescriptionViewMissingResumableUntil(t *testin
 	cr := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
 		"TargetDatabaseName": "ruf-db",
 		"TargetTableName":    "ruf-tbl",
+		"DataSourceConfiguration": map[string]any{
+			"DataFormat":                "CSV",
+			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, cr.Code)
 

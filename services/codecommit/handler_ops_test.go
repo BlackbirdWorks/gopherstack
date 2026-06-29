@@ -2376,6 +2376,12 @@ func TestHandler_ListFileCommitHistory_TableDriven(t *testing.T) {
 					"authorName":     "author",
 					"email":          "a@b.com",
 					"commitMessage":  fmt.Sprintf("commit %d", i),
+					"putFiles": []map[string]any{
+						{
+							"filePath":    "main.go",
+							"fileContent": "cGFja2FnZSBtYWlu", // "package main" base64
+						},
+					},
 				})
 			}
 

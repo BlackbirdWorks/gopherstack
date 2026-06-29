@@ -56,6 +56,8 @@ const (
 	protocolFirehose        = "firehose"
 	protocolEmail           = "email"
 	protocolHTTP            = "http"
+	protocolSMS             = "sms"
+	protocolApplication     = "application"
 	// attrPendingConfirmation is the SNS subscription attribute key whose
 	// value is "true" while a subscription awaits confirmation. The key uses
 	// the PascalCase attribute name returned by GetSubscriptionAttributes.
@@ -152,6 +154,13 @@ const (
 	// defaultListOptedOutResults is the default page size for ListPhoneNumbersOptedOut.
 	defaultListOptedOutResults = 100
 
+	// maxListOriginationNumbersResults is the maximum MaxResults value for ListOriginationNumbers.
+	// AWS SNS caps MaxResults for this operation at 30.
+	maxListOriginationNumbersResults = 30
+
+	// defaultListOriginationNumbersResults is the default page size for ListOriginationNumbers.
+	defaultListOriginationNumbersResults = 30
+
 	// maxPublishBatchEntries is the maximum number of entries per PublishBatch request.
 	// This matches the AWS SNS service limit.
 	maxPublishBatchEntries = 10
@@ -181,6 +190,10 @@ const (
 	// output beyond stored attributes: Owner, TopicArn, EffectiveDeliveryPolicy,
 	// SubscriptionsConfirmed, SubscriptionsPending, SubscriptionsDeleted.
 	computedTopicAttrCount = 6
+
+	// arnPartCount is the number of colon-delimited fields in an AWS ARN:
+	// arn:{partition}:{service}:{region}:{account}:{resource}.
+	arnPartCount = 6
 )
 
 // isValidSMSAttributeName returns true if the attribute name is recognised by the AWS SNS API.
@@ -217,12 +230,25 @@ func isValidTopicName(name string) bool {
 	}
 
 	for _, c := range base {
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' &&
+			c != '_' {
 			return false
 		}
 	}
 
 	return true
+}
+
+// arnRegion extracts the region component from an AWS ARN.
+// ARN format: arn:{partition}:{service}:{region}:{account}:{resource}
+// Returns "" for malformed ARNs.
+func arnRegion(a string) string {
+	parts := strings.SplitN(a, ":", arnPartCount)
+	if len(parts) < arnPartCount {
+		return ""
+	}
+
+	return parts[3]
 }
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -231,6 +257,7 @@ type StorageBackend interface {
 	CreateTopicInRegion(name, region string, attributes map[string]string) (*Topic, error)
 	DeleteTopic(topicArn string) error
 	ListTopics(nextToken string) ([]Topic, string, error)
+	ListTopicsInRegion(region, nextToken string) ([]Topic, string, error)
 	GetTopicAttributes(topicArn string) (map[string]string, error)
 	SetTopicAttributes(topicArn, attrName, attrValue string) error
 	Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error)
@@ -240,10 +267,16 @@ type StorageBackend interface {
 	ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error)
 	GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error)
 	SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error
-	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
+	Publish(
+		topicArn, message, subject, messageStructure string,
+		attrs map[string]MessageAttribute,
+	) (string, error)
 	// PublishToTargetArn publishes directly to a platform endpoint ARN.
 	// In the mock, this generates and returns a unique message ID without real delivery.
-	PublishToTargetArn(targetArn, message, subject string, attrs map[string]MessageAttribute) (string, error)
+	PublishToTargetArn(
+		targetArn, message, subject string,
+		attrs map[string]MessageAttribute,
+	) (string, error)
 	// PublishSMS publishes directly to a phone number via SMS.
 	// In the mock, this generates and returns a unique message ID without real delivery.
 	PublishSMS(phoneNumber, message string) (string, error)
@@ -254,9 +287,19 @@ type StorageBackend interface {
 	SetTopicTags(arn string, kv *svcTags.Tags)
 	RemoveTopicTags(arn string, keys []string)
 	// Platform application operations.
-	CreatePlatformApplication(name, platform string, attributes map[string]string) (*PlatformApplication, error)
+	CreatePlatformApplication(
+		name, platform string,
+		attributes map[string]string,
+	) (*PlatformApplication, error)
+	CreatePlatformApplicationInRegion(
+		name, platform, region string,
+		attributes map[string]string,
+	) (*PlatformApplication, error)
 	GetPlatformApplicationAttributes(platformApplicationArn string) (map[string]string, error)
-	SetPlatformApplicationAttributes(platformApplicationArn string, attributes map[string]string) error
+	SetPlatformApplicationAttributes(
+		platformApplicationArn string,
+		attributes map[string]string,
+	) error
 	ListPlatformApplications(nextToken string) ([]PlatformApplication, string, error)
 	DeletePlatformApplication(platformApplicationArn string) error
 	// Platform endpoint operations.
@@ -266,7 +309,9 @@ type StorageBackend interface {
 	) (*PlatformEndpoint, error)
 	GetEndpointAttributes(endpointArn string) (map[string]string, error)
 	SetEndpointAttributes(endpointArn string, attributes map[string]string) error
-	ListEndpointsByPlatformApplication(platformApplicationArn, nextToken string) ([]PlatformEndpoint, string, error)
+	ListEndpointsByPlatformApplication(
+		platformApplicationArn, nextToken string,
+	) ([]PlatformEndpoint, string, error)
 	DeleteEndpoint(endpointArn string) error
 	// Permission operations.
 	AddPermission(topicArn, label string, accounts, actions []string) error
@@ -275,7 +320,10 @@ type StorageBackend interface {
 	GetSMSSandboxAccountStatus() (bool, error)
 	CreateSMSSandboxPhoneNumber(phoneNumber, languageCode string) error
 	DeleteSMSSandboxPhoneNumber(phoneNumber string) error
-	ListSMSSandboxPhoneNumbers(nextToken string, maxResults int) ([]SandboxPhoneNumber, string, error)
+	ListSMSSandboxPhoneNumbers(
+		nextToken string,
+		maxResults int,
+	) ([]SandboxPhoneNumber, string, error)
 	VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePassword string) error
 	// SMS opt-out operations.
 	CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool, error)
@@ -288,7 +336,7 @@ type StorageBackend interface {
 	GetDataProtectionPolicy(resourceArn string) (string, error)
 	PutDataProtectionPolicy(resourceArn, policy string) error
 	// Origination number operations.
-	ListOriginationNumbers(nextToken string) ([]XMLOriginationPhone, string, error)
+	ListOriginationNumbers(nextToken string, maxResults int) ([]XMLOriginationPhone, string, error)
 }
 
 // SMSDelivery records a single SMS message sent via PublishSMS.
@@ -296,6 +344,19 @@ type SMSDelivery struct {
 	PhoneNumber string
 	Message     string
 	MessageID   string
+}
+
+// ApplicationDelivery records a single message delivered to an application-protocol
+// (mobile push platform endpoint) subscription during a topic publish. AWS delivers
+// these to a platform endpoint; gopherstack records the delivery here and exposes it
+// via DrainApplicationDeliveries for inspection/testing.
+type ApplicationDelivery struct {
+	// EndpointARN is the target platform endpoint ARN.
+	EndpointARN string
+	// Message is the (per-protocol resolved) message body.
+	Message string
+	// MessageID is the generated message ID for the delivery.
+	MessageID string
 }
 
 // EmailDelivery records a single message delivered to an email or email-json
@@ -422,7 +483,11 @@ func canonicalNotificationString(msgID, topicARN, subject, message, timestamp st
 
 // LambdaInvoker can invoke a Lambda function for SNS subscription delivery.
 type LambdaInvoker interface {
-	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+	InvokeFunction(
+		ctx context.Context,
+		name, invocationType string,
+		payload []byte,
+	) ([]byte, int, error)
 }
 
 // FirehosePutter can put records to a Kinesis Firehose stream for SNS subscription delivery.
@@ -458,18 +523,25 @@ type InMemoryBackend struct {
 	smsSandbox           map[string]*SandboxPhoneNumber
 	optedOutPhoneNumbers map[string]bool
 	smsAttributes        map[string]string
-	mu                   *lockmetrics.RWMutex
-	subscriptions        map[string]*Subscription
-	platformEndpoints    map[string]*PlatformEndpoint
-	topicMessageArchive  map[string][]*ArchivedMessage // populated when ArchivePolicy is set
-	signer               *notificationSigner
-	workerSem            chan struct{}
-	accountID            string
-	region               string
-	smsDeliveries        []SMSDelivery
-	emailDeliveries      []EmailDelivery
-	deliveryWg           sync.WaitGroup
-	closing              atomic.Bool
+	// originationNumbers holds origination phone numbers keyed by region. AWS SNS exposes no
+	// public "create origination number" API (numbers are provisioned via Pinpoint / AWS
+	// End User Messaging), so a fresh account legitimately has none. This map reflects real
+	// state when populated via SeedOriginationNumber (used by tests / internal seeding).
+	originationNumbers    map[string][]XMLOriginationPhone
+	mu                    *lockmetrics.RWMutex
+	subscriptions         map[string]*Subscription
+	platformEndpoints     map[string]*PlatformEndpoint
+	topicMessageArchive   map[string][]*ArchivedMessage // populated when ArchivePolicy is set
+	signer                *notificationSigner
+	workerSem             chan struct{}
+	accountID             string
+	region                string
+	smsDeliveries         []SMSDelivery
+	emailDeliveries       []EmailDelivery
+	applicationDeliveries []ApplicationDelivery
+	deliveryWg            sync.WaitGroup
+	closing               atomic.Bool
+	smsSandboxEnabled     bool
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -487,7 +559,10 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 // context. The context is used when emitting SNS publish events (e.g. to SQS delivery)
 // so that event delivery is cancelled if the service is shut down.
 // If svcCtx is nil, [context.Background] is used.
-func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+func NewInMemoryBackendWithContext(
+	svcCtx context.Context,
+	accountID, region string,
+) *InMemoryBackend {
 	if svcCtx == nil {
 		svcCtx = context.Background()
 	}
@@ -503,8 +578,10 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		smsSandbox:           make(map[string]*SandboxPhoneNumber),
 		optedOutPhoneNumbers: make(map[string]bool),
 		smsAttributes:        make(map[string]string),
+		originationNumbers:   make(map[string][]XMLOriginationPhone),
 		accountID:            accountID,
 		region:               region,
+		smsSandboxEnabled:    true,
 		svcCtx:               svcCtx,
 		mu:                   lockmetrics.New("sns"),
 		httpClient:           &http.Client{Timeout: snsHTTPTimeout},
@@ -540,7 +617,9 @@ func (b *InMemoryBackend) SetSigningCertBaseURL(baseURL string) {
 
 // SetPublishEmitter registers an event emitter that fires when a message is published.
 // This is used to wire SNS→SQS delivery at startup.
-func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.SNSPublishedEvent]) {
+func (b *InMemoryBackend) SetPublishEmitter(
+	emitter events.EventEmitter[*events.SNSPublishedEvent],
+) {
 	b.mu.Lock("SetPublishEmitter")
 	defer b.mu.Unlock()
 
@@ -587,7 +666,10 @@ func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string)
 
 // CreateTopicInRegion creates a new SNS topic in the specified region.
 // If region is empty, the backend's default region is used.
-func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes map[string]string) (*Topic, error) {
+func (b *InMemoryBackend) CreateTopicInRegion(
+	name, region string,
+	attributes map[string]string,
+) (*Topic, error) {
 	if !isValidTopicName(name) {
 		return nil, fmt.Errorf(
 			"%w: Topic name must be 1-256 characters and contain only alphanumeric characters, hyphens, and underscores",
@@ -691,12 +773,23 @@ func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
 	return nil
 }
 
-// ListTopics returns a page of topics and the next pagination token.
+// ListTopics returns a page of topics across all regions, ordered by ARN.
+// This preserves backward compatibility for callers that don't need region filtering.
 func (b *InMemoryBackend) ListTopics(nextToken string) ([]Topic, string, error) {
-	b.mu.RLock("ListTopics")
+	return b.ListTopicsInRegion(b.region, nextToken)
+}
+
+// ListTopicsInRegion returns a page of topics belonging to region and the next pagination token.
+// AWS SNS ListTopics only returns topics in the caller's region.
+func (b *InMemoryBackend) ListTopicsInRegion(region, nextToken string) ([]Topic, string, error) {
+	b.mu.RLock("ListTopicsInRegion")
 	defer b.mu.RUnlock()
 
-	all := b.sortedTopics()
+	if region == "" {
+		region = b.region
+	}
+
+	all := b.sortedTopicsInRegion(region)
 
 	offset, err := decodeToken(nextToken)
 	if err != nil {
@@ -783,17 +876,25 @@ func isKnownTopicAttribute(name string) bool {
 		"ArchivePolicy", "DataProtectionPolicy", "SignatureVersion":
 		return true
 	// HTTP/HTTPS delivery status logging.
-	case "HTTPSuccessFeedbackRoleArn", "HTTPSuccessFeedbackSampleRate", "HTTPFailureFeedbackRoleArn",
-		"HTTPSSuccessFeedbackRoleArn", "HTTPSSuccessFeedbackSampleRate", "HTTPSFailureFeedbackRoleArn":
+	case "HTTPSuccessFeedbackRoleArn",
+		"HTTPSuccessFeedbackSampleRate",
+		"HTTPFailureFeedbackRoleArn",
+		"HTTPSSuccessFeedbackRoleArn",
+		"HTTPSSuccessFeedbackSampleRate",
+		"HTTPSFailureFeedbackRoleArn":
 		return true
 	// SQS delivery status logging.
 	case "SQSSuccessFeedbackRoleArn", "SQSSuccessFeedbackSampleRate", "SQSFailureFeedbackRoleArn":
 		return true
 	// Lambda delivery status logging.
-	case "LambdaSuccessFeedbackRoleArn", "LambdaSuccessFeedbackSampleRate", "LambdaFailureFeedbackRoleArn":
+	case "LambdaSuccessFeedbackRoleArn",
+		"LambdaSuccessFeedbackSampleRate",
+		"LambdaFailureFeedbackRoleArn":
 		return true
 	// Firehose delivery status logging.
-	case "FirehoseSuccessFeedbackRoleArn", "FirehoseSuccessFeedbackSampleRate", "FirehoseFailureFeedbackRoleArn":
+	case "FirehoseSuccessFeedbackRoleArn",
+		"FirehoseSuccessFeedbackSampleRate",
+		"FirehoseFailureFeedbackRoleArn":
 		return true
 	// Mobile application (GCM/APNS/etc.) delivery status logging.
 	case "ApplicationSuccessFeedbackRoleArn",
@@ -833,7 +934,8 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 	}
 
 	// ContentBasedDeduplication is only valid on FIFO topics.
-	if attrName == "ContentBasedDeduplication" && topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
+	if attrName == "ContentBasedDeduplication" &&
+		topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
 		return fmt.Errorf(
 			"%w: Invalid parameter: ContentBasedDeduplication is only applicable to FIFO topics",
 			ErrInvalidParameter,
@@ -869,22 +971,34 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 	return nil
 }
 
-// Subscribe creates a new subscription for the given topic, protocol, and endpoint.
-// If a confirmed subscription for the same topic+protocol+endpoint already exists,
-// the existing subscription ARN is returned (matching AWS deduplication behaviour).
-func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error) {
-	// Validate SMS endpoint is a valid E.164 phone number.
+// validateSubscribeEndpoint checks that the endpoint is valid for the given protocol.
+func validateSubscribeEndpoint(protocol, endpoint string) error {
 	if protocol == "sms" && !isValidE164(endpoint) {
-		return nil, fmt.Errorf("%w: Endpoint must be in E.164 format for SMS protocol", ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: Endpoint must be in E.164 format for SMS protocol",
+			ErrInvalidParameter,
+		)
 	}
 
-	// Validate email/email-json endpoints look like email addresses.
 	if (protocol == protocolEmail || protocol == protocolEmailJSON) && !isValidEmail(endpoint) {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"%w: Invalid parameter: Endpoint must be a valid email address for %s protocol",
 			ErrInvalidParameter,
 			protocol,
 		)
+	}
+
+	return nil
+}
+
+// Subscribe creates a new subscription for the given topic, protocol, and endpoint.
+// If a confirmed subscription for the same topic+protocol+endpoint already exists,
+// the existing subscription ARN is returned (matching AWS deduplication behaviour).
+func (b *InMemoryBackend) Subscribe(
+	topicArn, protocol, endpoint, filterPolicy string,
+) (*Subscription, error) {
+	if err := validateSubscribeEndpoint(protocol, endpoint); err != nil {
+		return nil, err
 	}
 
 	// Parse and validate the filter policy outside the backend lock so that
@@ -914,8 +1028,12 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 
 	parts := strings.Split(topic.TopicArn, ":")
 	topicName := parts[len(parts)-1]
+	topicRegion := arnRegion(topic.TopicArn)
+	if topicRegion == "" {
+		topicRegion = b.region
+	}
 
-	subArn := arn.Build("sns", b.region, b.accountID, topicName+":"+uuid.New().String())
+	subArn := arn.Build("sns", topicRegion, b.accountID, topicName+":"+uuid.New().String())
 
 	// HTTP and HTTPS subscriptions require out-of-band confirmation.
 	// Email/email-json require the recipient to click a link.
@@ -982,7 +1100,9 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 }
 
 // GetSubscriptionAttributes returns the attributes of a subscription.
-func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error) {
+func (b *InMemoryBackend) GetSubscriptionAttributes(
+	subscriptionArn string,
+) (map[string]string, error) {
 	b.mu.RLock("GetSubscriptionAttributes")
 	defer b.mu.RUnlock()
 
@@ -1033,7 +1153,9 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 // When ReplayPolicy is set to a non-empty value, archived messages from the topic
 // (published at or after replayFromTimestamp) are asynchronously delivered to this
 // subscription. This mirrors AWS SNS archive replay behaviour.
-func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error {
+func (b *InMemoryBackend) SetSubscriptionAttributes(
+	subscriptionArn, attrName, attrValue string,
+) error {
 	// Parse the FilterPolicy outside the backend lock so JSON validation does
 	// not serialize against unrelated SNS operations on large policies.
 	var parsedPolicy parsedFilterPolicy
@@ -1100,7 +1222,11 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 
 // applySubscriptionAttr mutates sub with the given attribute value.
 // Extracted to keep SetSubscriptionAttributes under the cyclomatic complexity budget.
-func applySubscriptionAttr(sub *Subscription, attrName, attrValue string, parsedPolicy parsedFilterPolicy) error {
+func applySubscriptionAttr(
+	sub *Subscription,
+	attrName, attrValue string,
+	parsedPolicy parsedFilterPolicy,
+) error {
 	switch attrName {
 	case attrRawMessageDelivery:
 		sub.RawMessageDelivery = strings.EqualFold(attrValue, "true")
@@ -1156,7 +1282,9 @@ func (b *InMemoryBackend) ListSubscriptions(nextToken string) ([]Subscription, s
 }
 
 // ListSubscriptionsByTopic returns a page of subscriptions for a topic and the next pagination token.
-func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error) {
+func (b *InMemoryBackend) ListSubscriptionsByTopic(
+	topicArn, nextToken string,
+) ([]Subscription, string, error) {
 	b.mu.RLock("ListSubscriptionsByTopic")
 	defer b.mu.RUnlock()
 
@@ -1237,7 +1365,11 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 
 	var rawPolicy map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(filterPolicy), &rawPolicy); err != nil {
-		return nil, fmt.Errorf("%w: FilterPolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
+		return nil, fmt.Errorf(
+			"%w: FilterPolicy is not valid JSON: %s",
+			ErrInvalidParameter,
+			err.Error(),
+		)
 	}
 
 	parsed := make(parsedFilterPolicy, len(rawPolicy))
@@ -1489,14 +1621,22 @@ func validateKmsMasterKeyID(v string) error {
 		// Accept any well-formed KMS ARN (key or alias).
 		parts := strings.Split(v, ":")
 		if len(parts) < 6 || parts[2] != "kms" {
-			return fmt.Errorf("%w: KmsMasterKeyId is not a valid KMS ARN: %s", ErrInvalidParameter, v)
+			return fmt.Errorf(
+				"%w: KmsMasterKeyId is not a valid KMS ARN: %s",
+				ErrInvalidParameter,
+				v,
+			)
 		}
 
 		return nil
 	case kmsKeyIDPattern.MatchString(v):
 		return nil
 	default:
-		return fmt.Errorf("%w: KmsMasterKeyId is not a valid key ID, ARN, or alias: %s", ErrInvalidParameter, v)
+		return fmt.Errorf(
+			"%w: KmsMasterKeyId is not a valid key ID, ARN, or alias: %s",
+			ErrInvalidParameter,
+			v,
+		)
 	}
 }
 
@@ -1508,7 +1648,11 @@ func validateRedrivePolicy(policy string) error {
 	}
 
 	if err := json.Unmarshal([]byte(policy), &parsed); err != nil {
-		return fmt.Errorf("%w: RedrivePolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
+		return fmt.Errorf(
+			"%w: RedrivePolicy is not valid JSON: %s",
+			ErrInvalidParameter,
+			err.Error(),
+		)
 	}
 
 	if parsed.DeadLetterTargetArn == "" {
@@ -1546,7 +1690,11 @@ func (b *InMemoryBackend) checkDLQExists(policy string) error {
 
 	exists, err := checker.QueueExists(b.svcCtx, parsed.DeadLetterTargetArn)
 	if err != nil {
-		return fmt.Errorf("%w: could not verify deadLetterTargetArn: %s", ErrInvalidParameter, err.Error())
+		return fmt.Errorf(
+			"%w: could not verify deadLetterTargetArn: %s",
+			ErrInvalidParameter,
+			err.Error(),
+		)
 	}
 
 	if !exists {
@@ -1736,7 +1884,11 @@ func matchesFilterPolicyMessageBody(policy parsedFilterPolicy, message string) b
 // body. Scalar values (string, number, bool) match directly; JSON-array values
 // are expanded so the condition is satisfied when ANY element matches, mirroring
 // AWS message-body array handling.
-func matchesBodyKeyConditions(body map[string]json.RawMessage, key string, conditions []json.RawMessage) bool {
+func matchesBodyKeyConditions(
+	body map[string]json.RawMessage,
+	key string,
+	conditions []json.RawMessage,
+) bool {
 	rawVal, exists := body[key]
 	if !exists {
 		return matchesConditions("", false, conditions)
@@ -1859,7 +2011,10 @@ func parsePerProtocolMessages(message, messageStructure string) map[string]strin
 
 // validatePublishMessage checks message size, subject format, structure, and
 // attribute constraints before any backend lock is acquired.
-func validatePublishMessage(message, subject, messageStructure string, attrs map[string]MessageAttribute) error {
+func validatePublishMessage(
+	message, subject, messageStructure string,
+	attrs map[string]MessageAttribute,
+) error {
 	// AWS SNS counts the message body plus every attribute name + type + value
 	// toward the 256 KiB cap.
 	totalSize := len(message)
@@ -2036,6 +2191,8 @@ func (b *InMemoryBackend) Publish(
 	}
 	b.deliverToLambdaSubscriptions(ev)
 	b.deliverToFirehoseSubscriptions(ev)
+	b.deliverToSMSSubscriptions(ev)
+	b.deliverToApplicationSubscriptions(ev)
 
 	return messageID, nil
 }
@@ -2069,7 +2226,10 @@ func (b *InMemoryBackend) PublishToTargetArn(
 // Returns ErrSandboxPhoneNotVerified when the number is in the SMS sandbox but not yet verified.
 func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error) {
 	if !isValidE164(phoneNumber) {
-		return "", fmt.Errorf("%w: Invalid phone number; must be in E.164 format", ErrInvalidParameter)
+		return "", fmt.Errorf(
+			"%w: Invalid phone number; must be in E.164 format",
+			ErrInvalidParameter,
+		)
 	}
 
 	b.mu.RLock("PublishSMS-check")
@@ -2079,7 +2239,11 @@ func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error
 
 	// Opted-out numbers must not receive SMS regardless of sandbox state.
 	if optedOut {
-		return "", fmt.Errorf("%w: phone number %s has opted out of SMS messages", ErrOptedOut, phoneNumber)
+		return "", fmt.Errorf(
+			"%w: phone number %s has opted out of SMS messages",
+			ErrOptedOut,
+			phoneNumber,
+		)
 	}
 
 	// When the number is registered in the sandbox, it must be verified before
@@ -2117,9 +2281,26 @@ func (b *InMemoryBackend) DrainSMSDeliveries() []SMSDelivery {
 	return deliveries
 }
 
+// DrainApplicationDeliveries returns and clears all recorded application-protocol
+// deliveries. These are recorded when a topic publish fans out to application
+// (mobile push endpoint) subscriptions so tests can assert delivery without a
+// real push network.
+func (b *InMemoryBackend) DrainApplicationDeliveries() []ApplicationDelivery {
+	b.mu.Lock("DrainApplicationDeliveries")
+	defer b.mu.Unlock()
+
+	deliveries := b.applicationDeliveries
+	b.applicationDeliveries = nil
+
+	return deliveries
+}
+
 // recordEmailDeliveries annotates and stores email/email-json deliveries produced
 // by a publish so they can later be drained for inspection.
-func (b *InMemoryBackend) recordEmailDeliveries(deliveries []EmailDelivery, messageID, topicArn string) {
+func (b *InMemoryBackend) recordEmailDeliveries(
+	deliveries []EmailDelivery,
+	messageID, topicArn string,
+) {
 	if len(deliveries) == 0 {
 		return
 	}
@@ -2586,11 +2767,29 @@ func (b *InMemoryBackend) ListAllPlatformApplications() []PlatformApplication {
 	return apps
 }
 
-// sortedTopics returns topics sorted by TopicArn. Must be called with at least RLock held.
+// sortedTopics returns all topics sorted by TopicArn. Must be called with at least RLock held.
 func (b *InMemoryBackend) sortedTopics() []Topic {
 	topics := make([]Topic, 0, len(b.topics))
 	for _, t := range b.topics {
 		topics = append(topics, *t)
+	}
+
+	sort.Slice(topics, func(i, j int) bool {
+		return topics[i].TopicArn < topics[j].TopicArn
+	})
+
+	return topics
+}
+
+// sortedTopicsInRegion returns topics in the given region sorted by TopicArn.
+// Must be called with at least RLock held.
+// The region is extracted from the topic ARN (arn:partition:sns:REGION:account:name).
+func (b *InMemoryBackend) sortedTopicsInRegion(region string) []Topic {
+	topics := make([]Topic, 0, len(b.topics))
+	for _, t := range b.topics {
+		if arnRegion(t.TopicArn) == region {
+			topics = append(topics, *t)
+		}
 	}
 
 	sort.Slice(topics, func(i, j int) bool {
@@ -2663,7 +2862,10 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 			parts[arnRegionIndex] != "" {
 			topicRegion = parts[arnRegionIndex]
 		}
-		certURL := fmt.Sprintf("https://sns.%s.amazonaws.com/SimpleNotificationService.pem", topicRegion)
+		certURL := fmt.Sprintf(
+			"https://sns.%s.amazonaws.com/SimpleNotificationService.pem",
+			topicRegion,
+		)
 		signature := "MOCK-SIGNATURE"
 		if d.signer != nil {
 			certURL = d.signer.certURL
@@ -2908,11 +3110,23 @@ func (b *InMemoryBackend) UntagTopicByARN(topicARN string, tagKeys []string) err
 	return nil
 }
 
-// CreatePlatformApplication creates a new SNS platform application (e.g. GCM, APNS).
+// CreatePlatformApplication creates a new SNS platform application using the backend's default region.
 func (b *InMemoryBackend) CreatePlatformApplication(
 	name, platform string,
 	attributes map[string]string,
 ) (*PlatformApplication, error) {
+	return b.CreatePlatformApplicationInRegion(name, platform, b.region, attributes)
+}
+
+// CreatePlatformApplicationInRegion creates a new SNS platform application (e.g. GCM, APNS)
+// with the ARN scoped to the specified region.
+func (b *InMemoryBackend) CreatePlatformApplicationInRegion(
+	name, platform, region string,
+	attributes map[string]string,
+) (*PlatformApplication, error) {
+	if region == "" {
+		region = b.region
+	}
 	if strings.ContainsAny(name, "/") || strings.ContainsAny(platform, "/") {
 		return nil, fmt.Errorf("%w: Name and Platform must not contain '/'", ErrInvalidParameter)
 	}
@@ -2932,10 +3146,10 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 		)
 	}
 
-	b.mu.Lock("CreatePlatformApplication")
+	b.mu.Lock("CreatePlatformApplicationInRegion")
 	defer b.mu.Unlock()
 
-	appArn := arn.Build("sns", b.region, b.accountID, "app/"+platform+"/"+name)
+	appArn := arn.Build("sns", region, b.accountID, "app/"+platform+"/"+name)
 
 	if _, exists := b.platformApplications[appArn]; exists {
 		return nil, ErrPlatformApplicationAlreadyExists
@@ -2964,7 +3178,9 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 //   - Enabled: always "true" for the application itself (not to be confused with endpoint Enabled).
 //   - EndpointActive: the number of enabled platform endpoints for this application.
 //   - EndpointDisabled: the number of disabled platform endpoints.
-func (b *InMemoryBackend) GetPlatformApplicationAttributes(platformApplicationArn string) (map[string]string, error) {
+func (b *InMemoryBackend) GetPlatformApplicationAttributes(
+	platformApplicationArn string,
+) (map[string]string, error) {
 	b.mu.RLock("GetPlatformApplicationAttributes")
 	defer b.mu.RUnlock()
 
@@ -3017,7 +3233,9 @@ func (b *InMemoryBackend) SetPlatformApplicationAttributes(
 }
 
 // ListPlatformApplications returns a page of platform applications and the next pagination token.
-func (b *InMemoryBackend) ListPlatformApplications(nextToken string) ([]PlatformApplication, string, error) {
+func (b *InMemoryBackend) ListPlatformApplications(
+	nextToken string,
+) ([]PlatformApplication, string, error) {
 	b.mu.RLock("ListPlatformApplications")
 	defer b.mu.RUnlock()
 
@@ -3102,7 +3320,11 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	platform := resourceParts[1]
 	appName := resourceParts[2]
 
-	endpointArn := arn.Build("sns", b.region, b.accountID,
+	appRegion := arnRegion(platformApplicationArn)
+	if appRegion == "" {
+		appRegion = b.region
+	}
+	endpointArn := arn.Build("sns", appRegion, b.accountID,
 		"endpoint/"+platform+"/"+appName+"/"+uuid.New().String())
 
 	// Allocate with room for Token and Enabled (endpointExtraAttrs) beyond caller-supplied attrs.
@@ -3150,7 +3372,10 @@ func (b *InMemoryBackend) GetEndpointAttributes(endpointArn string) (map[string]
 // SetEndpointAttributes updates attributes on a platform endpoint.
 // After the update, an EventEndpointUpdated event is fired to the platform
 // application's configured event topic, if any.
-func (b *InMemoryBackend) SetEndpointAttributes(endpointArn string, attributes map[string]string) error {
+func (b *InMemoryBackend) SetEndpointAttributes(
+	endpointArn string,
+	attributes map[string]string,
+) error {
 	b.mu.Lock("SetEndpointAttributes")
 
 	ep, exists := b.platformEndpoints[endpointArn]
@@ -3291,11 +3516,18 @@ func parseReplayFromTimestamp(replayPolicy string) (time.Time, error) {
 	}
 
 	if err := json.Unmarshal([]byte(replayPolicy), &p); err != nil {
-		return time.Time{}, fmt.Errorf("%w: ReplayPolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
+		return time.Time{}, fmt.Errorf(
+			"%w: ReplayPolicy is not valid JSON: %s",
+			ErrInvalidParameter,
+			err.Error(),
+		)
 	}
 
 	if p.ReplayFromTimestamp == "" {
-		return time.Time{}, fmt.Errorf("%w: ReplayPolicy must include replayFromTimestamp", ErrInvalidParameter)
+		return time.Time{}, fmt.Errorf(
+			"%w: ReplayPolicy must include replayFromTimestamp",
+			ErrInvalidParameter,
+		)
 	}
 
 	ts, err := time.Parse(time.RFC3339, p.ReplayFromTimestamp)
@@ -3314,7 +3546,11 @@ func parseReplayFromTimestamp(replayPolicy string) (time.Time, error) {
 // attribute: when set, a subscriber receives historical messages from the topic's
 // archive. Delivery uses the same mechanisms as a normal Publish (HTTP/HTTPS goroutines
 // and the event emitter for SQS/Lambda/Firehose).
-func (b *InMemoryBackend) replayMessagesToSubscription(sub Subscription, topicArn string, fromTime time.Time) {
+func (b *InMemoryBackend) replayMessagesToSubscription(
+	sub Subscription,
+	topicArn string,
+	fromTime time.Time,
+) {
 	b.mu.RLock("replayMessages")
 
 	archive := b.topicMessageArchive[topicArn]
@@ -3534,9 +3770,22 @@ func (b *InMemoryBackend) RemovePermission(topicArn, label string) error {
 	return nil
 }
 
-// GetSMSSandboxAccountStatus always returns true (sandbox mode) for the mock backend.
+// GetSMSSandboxAccountStatus returns whether the account is in SMS sandbox mode.
+// Defaults to true (sandbox mode active) matching the AWS default for new accounts.
 func (b *InMemoryBackend) GetSMSSandboxAccountStatus() (bool, error) {
-	return true, nil
+	b.mu.RLock("GetSMSSandboxAccountStatus")
+	defer b.mu.RUnlock()
+
+	return b.smsSandboxEnabled, nil
+}
+
+// SetSMSSandboxMode configures sandbox mode. AWS does not expose an API for this —
+// use this method in tests or operator tooling to simulate production mode.
+func (b *InMemoryBackend) SetSMSSandboxMode(enabled bool) {
+	b.mu.Lock("SetSMSSandboxMode")
+	defer b.mu.Unlock()
+
+	b.smsSandboxEnabled = enabled
 }
 
 // CreateSMSSandboxPhoneNumber adds a phone number to the SMS sandbox.
@@ -3656,7 +3905,10 @@ func (b *InMemoryBackend) CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool
 // ListPhoneNumbersOptedOut returns a paginated list of phone numbers opted out of SMS,
 // a next-page token (empty when the last page is reached), and any error.
 // maxResults controls the page size; 0 means the default (100). Values exceeding 100 are clamped.
-func (b *InMemoryBackend) ListPhoneNumbersOptedOut(nextToken string, maxResults int) ([]string, string, error) {
+func (b *InMemoryBackend) ListPhoneNumbersOptedOut(
+	nextToken string,
+	maxResults int,
+) ([]string, string, error) {
 	b.mu.RLock("ListPhoneNumbersOptedOut")
 	defer b.mu.RUnlock()
 
@@ -3776,10 +4028,62 @@ func (b *InMemoryBackend) PutDataProtectionPolicy(resourceArn, policy string) er
 	return nil
 }
 
-// ListOriginationNumbers returns a paginated list of origination phone numbers.
-// The mock backend maintains no origination numbers by default; callers receive an empty list.
-func (b *InMemoryBackend) ListOriginationNumbers(_ string) ([]XMLOriginationPhone, string, error) {
-	return []XMLOriginationPhone{}, "", nil
+// ListOriginationNumbers returns a paginated list of origination phone numbers for the
+// backend's region, a next-page token (empty when the last page is reached), and any error.
+// maxResults controls the page size; 0 means the default (30). Values exceeding 30 are clamped,
+// matching AWS SNS limits for this operation.
+//
+// AWS SNS exposes no public "create origination number" API: origination numbers are
+// provisioned by buying phone numbers through Pinpoint / AWS End User Messaging. A fresh
+// account therefore legitimately has none, so an empty list is AWS-accurate. State is
+// populated internally via [InMemoryBackend.SeedOriginationNumber] (used by tests).
+func (b *InMemoryBackend) ListOriginationNumbers(
+	nextToken string,
+	maxResults int,
+) ([]XMLOriginationPhone, string, error) {
+	b.mu.RLock("ListOriginationNumbers")
+	defer b.mu.RUnlock()
+
+	all := b.sortedOriginationNumbers()
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrInvalidParameter
+	}
+
+	size := resolvePageSize(maxResults, defaultListOriginationNumbersResults, maxListOriginationNumbersResults)
+	nums, next := paginate(all, offset, size)
+
+	return nums, next, nil
+}
+
+// sortedOriginationNumbers returns the origination numbers for the backend's region sorted
+// by phone number. Must be called with at least RLock held.
+func (b *InMemoryBackend) sortedOriginationNumbers() []XMLOriginationPhone {
+	src := b.originationNumbers[b.region]
+	nums := make([]XMLOriginationPhone, len(src))
+	copy(nums, src)
+
+	sort.Slice(nums, func(i, j int) bool {
+		return nums[i].PhoneNumber < nums[j].PhoneNumber
+	})
+
+	return nums
+}
+
+// SeedOriginationNumber populates an origination phone number for the backend's region.
+// It exists because AWS SNS provides no public API to create origination numbers (they are
+// provisioned via Pinpoint / AWS End User Messaging); this internal helper lets tests and
+// fixtures populate state that [InMemoryBackend.ListOriginationNumbers] then returns honestly.
+func (b *InMemoryBackend) SeedOriginationNumber(num XMLOriginationPhone) {
+	b.mu.Lock("SeedOriginationNumber")
+	defer b.mu.Unlock()
+
+	if b.originationNumbers == nil {
+		b.originationNumbers = make(map[string][]XMLOriginationPhone)
+	}
+
+	b.originationNumbers[b.region] = append(b.originationNumbers[b.region], num)
 }
 
 // WaitDeliveries stops accepting new HTTP/HTTPS delivery goroutines and blocks
@@ -3924,6 +4228,7 @@ func (b *InMemoryBackend) Reset() {
 	b.smsAttributes = make(map[string]string)
 	b.smsDeliveries = nil
 	b.emailDeliveries = nil
+	b.applicationDeliveries = nil
 }
 
 func (b *InMemoryBackend) archivePublishedMessage(

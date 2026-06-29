@@ -902,7 +902,7 @@ func TestAccuracy_CliToken_JWTShaped(t *testing.T) {
 	require.NoError(t, err)
 	_, _ = b.GetEnvironment(context.Background(), "jwt-cli-env") // promote CREATING → AVAILABLE
 
-	token, err := b.CreateCliToken(context.Background(), "jwt-cli-env")
+	token, _, err := b.CreateCliToken(context.Background(), "jwt-cli-env")
 	require.NoError(t, err)
 
 	parts := strings.Split(token, ".")
@@ -920,7 +920,7 @@ func TestAccuracy_WebLoginToken_JWTShaped(t *testing.T) {
 	require.NoError(t, err)
 	_, _ = b.GetEnvironment(context.Background(), "jwt-web-env") // promote CREATING → AVAILABLE
 
-	token, err := b.CreateWebLoginToken(context.Background(), "jwt-web-env")
+	token, _, err := b.CreateWebLoginToken(context.Background(), "jwt-web-env")
 	require.NoError(t, err)
 
 	parts := strings.Split(token, ".")
@@ -938,10 +938,10 @@ func TestAccuracy_CliToken_DifferentFromWebToken(t *testing.T) {
 	require.NoError(t, err)
 	_, _ = b.GetEnvironment(context.Background(), "token-diff-env") // promote CREATING → AVAILABLE
 
-	cli, err := b.CreateCliToken(context.Background(), "token-diff-env")
+	cli, _, err := b.CreateCliToken(context.Background(), "token-diff-env")
 	require.NoError(t, err)
 
-	web, err := b.CreateWebLoginToken(context.Background(), "token-diff-env")
+	web, _, err := b.CreateWebLoginToken(context.Background(), "token-diff-env")
 	require.NoError(t, err)
 
 	assert.NotEqual(t, cli, web, "CLI token and web login token must differ")
@@ -958,10 +958,10 @@ func TestAccuracy_Token_DifferentPerEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	_, _ = b.GetEnvironment(context.Background(), "env-token-b") // promote CREATING → AVAILABLE
 
-	tokenA, err := b.CreateCliToken(context.Background(), "env-token-a")
+	tokenA, _, err := b.CreateCliToken(context.Background(), "env-token-a")
 	require.NoError(t, err)
 
-	tokenB, err := b.CreateCliToken(context.Background(), "env-token-b")
+	tokenB, _, err := b.CreateCliToken(context.Background(), "env-token-b")
 	require.NoError(t, err)
 
 	assert.NotEqual(t, tokenA, tokenB, "tokens for different environments must differ")
@@ -1047,11 +1047,11 @@ func TestAccuracy_FullLifecycle_AllValidations(t *testing.T) {
 	assert.Equal(t, "mw1.large", got.EnvironmentClass)
 
 	// Tokens should be JWT-shaped.
-	cli, err := b.CreateCliToken(context.Background(), "full-lifecycle-env")
+	cli, _, err := b.CreateCliToken(context.Background(), "full-lifecycle-env")
 	require.NoError(t, err)
 	assert.Len(t, strings.Split(cli, "."), 3)
 
-	web, err := b.CreateWebLoginToken(context.Background(), "full-lifecycle-env")
+	web, _, err := b.CreateWebLoginToken(context.Background(), "full-lifecycle-env")
 	require.NoError(t, err)
 	assert.Len(t, strings.Split(web, "."), 3)
 }

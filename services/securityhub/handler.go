@@ -3,6 +3,7 @@ package securityhub
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -954,6 +955,13 @@ func (h *Handler) handleBatchImportFindings(c *echo.Context, body map[string]any
 		}
 	}
 
+	const maxImportFindings = 100
+	if len(findings) > maxImportFindings {
+		return c.JSON(http.StatusBadRequest, map[string]any{
+			keyMessage: fmt.Sprintf("Findings list must not exceed %d entries", maxImportFindings),
+		})
+	}
+
 	successCount, failedCount, failedFindings := h.Backend.ImportFindings(findings)
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -1241,6 +1249,7 @@ func standardsSubscriptionsToMaps(subs []*StandardsSubscription) []map[string]an
 			keyStandardsArn:            s.StandardsArn,
 			"StandardsInput":           s.StandardsInput,
 			"StandardsStatus":          s.StandardsStatus,
+			"StatusReason":             s.StatusReason,
 		}
 	}
 
@@ -1304,6 +1313,19 @@ func (h *Handler) handleDescribeStandardsControls(c *echo.Context, subscriptionA
 func (h *Handler) handleUpdateStandardsControl(c *echo.Context, controlArn string, body map[string]any) error {
 	controlStatus, _ := body["ControlStatus"].(string)
 	disabledReason, _ := body["DisabledReason"].(string)
+
+	const statusDisabled = "DISABLED"
+	if controlStatus != "" && controlStatus != statusEnabled && controlStatus != statusDisabled {
+		return c.JSON(http.StatusBadRequest, map[string]any{
+			keyMessage: "ControlStatus must be ENABLED or DISABLED",
+		})
+	}
+
+	if controlStatus == statusDisabled && disabledReason == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{
+			keyMessage: "DisabledReason is required when disabling a control",
+		})
+	}
 
 	if err := h.Backend.UpdateStandardsControl(controlArn, controlStatus, disabledReason); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
@@ -1374,10 +1396,15 @@ func standardsControlAssociationsToMaps(assocs []*StandardsControlAssociation) [
 
 	for i, a := range assocs {
 		items[i] = map[string]any{
-			keySecurityControlID: a.SecurityControlID,
-			keyStandardsArn:      a.StandardsArn,
-			"AssociationStatus":  a.AssociationStatus,
-			keyUpdatedAt:         a.UpdatedAt,
+			keySecurityControlID:          a.SecurityControlID,
+			keyStandardsArn:               a.StandardsArn,
+			"AssociationStatus":           a.AssociationStatus,
+			keyUpdatedAt:                  a.UpdatedAt,
+			"RelatedRequirements":         a.RelatedRequirements,
+			"StandardsControlTitle":       a.StandardsControlTitle,
+			"StandardsControlDescription": a.StandardsControlDescription,
+			"StandardsControlArns":        a.StandardsControlArns,
+			"UpdatedReason":               a.UpdatedReason,
 		}
 	}
 
@@ -1390,6 +1417,18 @@ func (h *Handler) handleCreateActionTarget(c *echo.Context, body map[string]any)
 	name, _ := body["Name"].(string)
 	description, _ := body["Description"].(string)
 	id, _ := body["Id"].(string)
+
+	if name == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "Name is required"})
+	}
+
+	if description == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "Description is required"})
+	}
+
+	if id == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "Id is required"})
+	}
 
 	arn, err := h.Backend.CreateActionTarget(name, description, id)
 	if err != nil {
@@ -1516,6 +1555,10 @@ func (h *Handler) handleEnableImportFindingsForProduct(c *echo.Context, body map
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
 			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubNotEnabled})
+		}
+
+		if errors.Is(err, ErrAlreadyExists) {
+			return c.JSON(http.StatusConflict, map[string]any{keyMessage: err.Error()})
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
@@ -1669,9 +1712,24 @@ func (h *Handler) handleListAutomationRules(c *echo.Context) error {
 func (h *Handler) handleCreateAutomationRule(c *echo.Context, body map[string]any) error {
 	ruleArn, createdAt := h.Backend.CreateAutomationRule(body)
 
+	ruleName, _ := body["RuleName"].(string)
+	ruleStatus, _ := body["RuleStatus"].(string)
+
+	if ruleStatus == "" {
+		ruleStatus = statusEnabled
+	}
+
+	ruleOrder := float64(0)
+	if ro, ok := body["RuleOrder"].(float64); ok {
+		ruleOrder = ro
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyRuleArn:   ruleArn,
 		keyCreatedAt: createdAt,
+		"RuleStatus": ruleStatus,
+		"RuleOrder":  ruleOrder,
+		"RuleName":   ruleName,
 	})
 }
 

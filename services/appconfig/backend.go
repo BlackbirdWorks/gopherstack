@@ -274,7 +274,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 		ApplicationID: applicationID,
 		Name:          name,
 		Description:   description,
-		State:         "ReadyForDeployment",
+		State:         "READY_FOR_DEPLOYMENT",
 		Monitors:      monitors,
 		CreatedAt:     now,
 		UpdatedAt:     now,

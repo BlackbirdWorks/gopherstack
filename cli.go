@@ -2616,6 +2616,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["APIGatewayV2"], byName["Lambda"])
 
+	// Wire API Gateway → Cognito for JWT signature verification.
+	wireAPIGatewayCognito(byName["APIGateway"], byName["APIGatewayV2"], byName["CognitoIDP"])
+
 	// Wire API Gateway V2 -> API Gateway Management API for WebSocket connections.
 	wireAPIGatewayManagementAPI(byName["APIGatewayV2"], byName["APIGatewayManagementAPI"])
 
@@ -3368,6 +3371,25 @@ func wireAPIGatewayLambda(apigwReg, apigwv2Reg, lambdaReg service.Registerable) 
 	}
 	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
 		apigwv2H.SetLambdaInvoker(lambdaBk)
+	}
+}
+
+// wireAPIGatewayCognito wires the Cognito JWKS provider into both API Gateway handlers
+// so that Cognito JWT authorizers verify token signatures rather than skipping them.
+func wireAPIGatewayCognito(apigwReg, apigwv2Reg, cognitoReg service.Registerable) {
+	cognitoH, ok := cognitoReg.(*cognitoidpbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cognitoBk := cognitoH.Backend
+
+	if apigwH, ok2 := apigwReg.(*apigwbackend.Handler); ok2 {
+		apigwH.SetJWKSProvider(cognitoBk)
+	}
+
+	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
+		apigwv2H.SetJWKSProvider(cognitoBk)
 	}
 }
 
@@ -4279,23 +4301,23 @@ func registerTaggingService(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	provider resourcegroupstaggingapibackend.ResourceProvider,
 	arnService string,
-	tagger func(string, map[string]string) error,
-	untagger func(string, []string) error,
+	tagger func(context.Context, string, map[string]string) error,
+	untagger func(context.Context, string, []string) error,
 ) {
 	bk.RegisterProvider(provider)
-	bk.RegisterARNTagger(func(_ context.Context, arn string, newTags map[string]string) (bool, error) {
+	bk.RegisterARNTagger(func(ctx context.Context, arn string, newTags map[string]string) (bool, error) {
 		if !arnServiceIs(arn, arnService) {
 			return false, nil
 		}
 
-		return true, tagger(arn, newTags)
+		return true, tagger(ctx, arn, newTags)
 	})
-	bk.RegisterARNUntagger(func(_ context.Context, arn string, keys []string) (bool, error) {
+	bk.RegisterARNUntagger(func(ctx context.Context, arn string, keys []string) (bool, error) {
 		if !arnServiceIs(arn, arnService) {
 			return false, nil
 		}
 
-		return true, untagger(arn, keys)
+		return true, untagger(ctx, arn, keys)
 	})
 }
 
@@ -4356,27 +4378,68 @@ func wireTaggingDDB(
 			return out
 		},
 		"dynamodb",
-		func(arn string, newTags map[string]string) error {
+		func(ctx context.Context, arn string, newTags map[string]string) error {
 			sdkTags := make([]ddbsdktypes.Tag, 0, len(newTags))
 			for k, v := range newTags {
 				tagKey, tagValue := k, v
 				sdkTags = append(sdkTags, ddbsdktypes.Tag{Key: &tagKey, Value: &tagValue})
 			}
 
-			_, err := ddbBk.TagResource(context.Background(), &dynamodb.TagResourceInput{
+			_, err := ddbBk.TagResource(ctx, &dynamodb.TagResourceInput{
 				ResourceArn: aws.String(arn),
 				Tags:        sdkTags,
 			})
 
 			return err
 		},
-		func(arn string, keys []string) error {
-			_, err := ddbBk.UntagResource(context.Background(), &dynamodb.UntagResourceInput{
+		func(ctx context.Context, arn string, keys []string) error {
+			_, err := ddbBk.UntagResource(ctx, &dynamodb.UntagResourceInput{
 				ResourceArn: aws.String(arn),
 				TagKeys:     keys,
 			})
 
 			return err
+		},
+	)
+}
+
+// taggedARNEntry holds an ARN and its tag map for cross-service tagging helpers.
+type taggedARNEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// wireTaggingARNResources registers a tagging service whose resources are described by
+// a slice of taggedARNEntry values. arnService is passed to arnServiceIs (e.g. "sqs");
+// resourceType is set on each TaggedResource (e.g. "sqs:queue").
+func wireTaggingARNResources(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	arnService, resourceType string,
+	listFn func() []taggedARNEntry,
+	tagFn func(string, map[string]string) error,
+	untagFn func(string, []string) error,
+) {
+	registerTaggingService(
+		bk,
+		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			items := listFn()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+			for _, item := range items {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  item.ARN,
+					ResourceType: resourceType,
+					Tags:         item.Tags,
+				})
+			}
+
+			return out
+		},
+		arnService,
+		func(_ context.Context, arn string, newTags map[string]string) error {
+			return tagFn(arn, newTags)
+		},
+		func(_ context.Context, arn string, keys []string) error {
+			return untagFn(arn, keys)
 		},
 	)
 }
@@ -4395,22 +4458,16 @@ func wireTaggingSQS(
 		return
 	}
 
-	registerTaggingService(
-		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+	wireTaggingARNResources(bk, "sqs", "sqs:queue",
+		func() []taggedARNEntry {
 			queues := sqsBk.TaggedQueues()
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(queues))
+			out := make([]taggedARNEntry, 0, len(queues))
 			for _, q := range queues {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN:  q.ARN,
-					ResourceType: "sqs:queue",
-					Tags:         q.Tags,
-				})
+				out = append(out, taggedARNEntry{ARN: q.ARN, Tags: q.Tags})
 			}
 
 			return out
 		},
-		"sqs",
 		sqsBk.TagQueueByARN,
 		sqsBk.UntagQueueByARN,
 	)
@@ -4430,22 +4487,16 @@ func wireTaggingSNS(
 		return
 	}
 
-	registerTaggingService(
-		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+	wireTaggingARNResources(bk, "sns", "sns:topic",
+		func() []taggedARNEntry {
 			topics := snsBk.TaggedTopics()
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(topics))
+			out := make([]taggedARNEntry, 0, len(topics))
 			for _, t := range topics {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN:  t.ARN,
-					ResourceType: "sns:topic",
-					Tags:         t.Tags,
-				})
+				out = append(out, taggedARNEntry{ARN: t.ARN, Tags: t.Tags})
 			}
 
 			return out
 		},
-		"sns",
 		snsBk.TagTopicByARN,
 		snsBk.UntagTopicByARN,
 	)
@@ -4462,8 +4513,8 @@ func wireTaggingLambda(
 
 	registerTaggingService(
 		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			fns := lambdaH.TaggedFunctions()
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			fns := lambdaH.TaggedFunctions(ctx)
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(fns))
 			for _, f := range fns {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
@@ -4492,8 +4543,8 @@ func wireTaggingKMS(
 
 	registerTaggingService(
 		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			keys := kmsH.TaggedKeys()
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			keys := kmsH.TaggedKeys(ctx)
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(keys))
 			for _, k := range keys {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
@@ -4524,8 +4575,8 @@ func wireTaggingSM(bk resourcegroupstaggingapibackend.StorageBackend, smReg serv
 
 	registerTaggingService(
 		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			secrets := smBk.TaggedSecrets()
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			secrets := smBk.TaggedSecrets(ctx)
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(secrets))
 			for _, s := range secrets {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{

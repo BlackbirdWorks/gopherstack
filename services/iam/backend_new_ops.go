@@ -190,6 +190,7 @@ func (b *InMemoryBackend) CreateServiceLinkedRole(
 
 	b.roles[roleName] = role
 	b.roleByARN[role.Arn] = roleName
+	b.sortedRoleNames = insertSorted(b.sortedRoleNames, roleName)
 
 	return &role, nil
 }

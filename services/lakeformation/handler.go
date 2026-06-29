@@ -1042,8 +1042,8 @@ func (h *Handler) handleListLakeFormationOptIns(_ context.Context, c *echo.Conte
 	})
 }
 
-func (h *Handler) handleGetDataLakePrincipal(_ context.Context, c *echo.Context, _ []byte) error {
-	principal := h.Backend.GetDataLakePrincipal()
+func (h *Handler) handleGetDataLakePrincipal(ctx context.Context, c *echo.Context, _ []byte) error {
+	principal := h.Backend.GetDataLakePrincipal(ctx)
 
 	return c.JSON(http.StatusOK, getDataLakePrincipalOutput{Identity: principal.DataLakePrincipalIdentifier})
 }
@@ -1201,7 +1201,10 @@ func (h *Handler) handleGetTableObjects(_ context.Context, c *echo.Context, body
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
-	objects, nextToken := h.Backend.GetTableObjects(in.MaxResults, in.NextToken)
+	objects, nextToken := h.Backend.GetTableObjects(
+		in.CatalogID, in.DatabaseName, in.TableName, in.TransactionID,
+		in.MaxResults, in.NextToken,
+	)
 
 	return c.JSON(http.StatusOK, getTableObjectsOutput{Objects: objects, NextToken: nextToken})
 }
@@ -1263,11 +1266,12 @@ func (h *Handler) handleGetWorkUnitResults(_ context.Context, c *echo.Context, b
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
-	if err := h.Backend.GetWorkUnitResults(in.QueryID, in.WorkUnitToken); err != nil {
+	result, err := h.Backend.GetWorkUnitResults(in.QueryID, in.WorkUnitToken)
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, getWorkUnitResultsOutput{})
+	return c.Blob(http.StatusOK, "application/json", []byte(result))
 }
 
 func (h *Handler) handleGetWorkUnits(_ context.Context, c *echo.Context, body []byte) error {
@@ -1300,7 +1304,11 @@ func (h *Handler) handleSearchDatabasesByLFTags(_ context.Context, c *echo.Conte
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
-	dbs, nextToken := h.Backend.SearchDatabasesByLFTags(in.Expression, in.CatalogID, 0, in.NextToken)
+	maxResults := 0
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
+	dbs, nextToken := h.Backend.SearchDatabasesByLFTags(in.Expression, in.CatalogID, maxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, searchDatabasesByLFTagsOutput{DatabaseList: dbs, NextToken: nextToken})
 }
@@ -1312,7 +1320,11 @@ func (h *Handler) handleSearchTablesByLFTags(_ context.Context, c *echo.Context,
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
-	tables, nextToken := h.Backend.SearchTablesByLFTags(in.Expression, in.CatalogID, 0, in.NextToken)
+	maxResults := 0
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
+	tables, nextToken := h.Backend.SearchTablesByLFTags(in.Expression, in.CatalogID, maxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, searchTablesByLFTagsOutput{TableList: tables, NextToken: nextToken})
 }
@@ -1394,7 +1406,9 @@ func (h *Handler) handleUpdateTableObjects(_ context.Context, c *echo.Context, b
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
-	if err := h.Backend.UpdateTableObjects(in.TransactionID); err != nil {
+	if err := h.Backend.UpdateTableObjects(
+		in.CatalogID, in.DatabaseName, in.TableName, in.TransactionID, in.WriteOperations,
+	); err != nil {
 		return h.handleError(c, err)
 	}
 

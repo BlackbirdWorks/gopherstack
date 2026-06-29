@@ -103,8 +103,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.smExecutions = make(map[string][]string)
+	b.smExecsByStatus = make(map[string]map[string][]string)
+
 	for execARN, exec := range b.executions {
-		b.smExecutions[exec.StateMachineArn] = append(b.smExecutions[exec.StateMachineArn], execARN)
+		smARN := exec.StateMachineArn
+		b.smExecutions[smARN] = append(b.smExecutions[smARN], execARN)
+
+		if b.smExecsByStatus[smARN] == nil {
+			b.smExecsByStatus[smARN] = make(map[string][]string)
+		}
+
+		b.smExecsByStatus[smARN][exec.Status] = append(b.smExecsByStatus[smARN][exec.Status], execARN)
 	}
 
 	// Rebuild activity name index and create empty queues (pending tasks are not persisted).

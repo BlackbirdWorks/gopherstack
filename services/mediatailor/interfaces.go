@@ -23,6 +23,7 @@ type StorageBackend interface {
 	CreateChannel(
 		name, playbackMode string,
 		outputs []OutputItem,
+		fillerSlate *SlateSource,
 		tags map[string]string,
 	) (*Channel, error)
 	DescribeChannel(name string) (*Channel, error)
@@ -76,7 +77,11 @@ type StorageBackend interface {
 	) ([]*LiveSourceSummary, string, error)
 
 	// PrefetchSchedule
-	CreatePrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error)
+	CreatePrefetchSchedule(
+		playbackConfigName, name string,
+		retrieval *PrefetchRetrieval,
+		consumption *PrefetchConsumption,
+	) (*PrefetchSchedule, error)
 	GetPrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error)
 	DeletePrefetchSchedule(playbackConfigName, name string) error
 	ListPrefetchSchedules(
@@ -142,6 +147,13 @@ type PlaybackConfiguration struct {
 	PlaybackConfigurationARN    string
 	PlaybackEndpointPrefix      string
 	SessionInitializationPrefix string
+	HlsManifestEndpointPrefix   string
+}
+
+// SlateSource identifies a slate source for channel filler slate.
+type SlateSource struct {
+	SourceLocationName string
+	VodSourceName      string
 }
 
 // PlaybackConfigurationSummary is a playback configuration in a list response.
@@ -156,6 +168,7 @@ type PlaybackConfigurationSummary struct {
 // Channel represents a MediaTailor channel.
 // Tags first, strings before slice: reduces GC pointer scan.
 type Channel struct {
+	FillerSlate  *SlateSource
 	CreationTime time.Time
 	LastModified time.Time
 	Tags         map[string]string
@@ -169,6 +182,7 @@ type Channel struct {
 
 // ChannelSummary is a channel in a list response.
 type ChannelSummary struct {
+	FillerSlate  *SlateSource
 	CreationTime time.Time
 	LastModified time.Time
 	Tags         map[string]string

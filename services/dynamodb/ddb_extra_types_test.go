@@ -72,7 +72,11 @@ func TestDynamoDB_ExtraTypes(t *testing.T) {
 			require.NotNil(t, res.Item)
 
 			got := models.FromSDKItem(res.Item)
-			diff := cmp.Diff(tt.want, got, cmpopts.SortSlices(func(a, b string) bool { return a < b }))
+			diff := cmp.Diff(
+				tt.want,
+				got,
+				cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+			)
 			assert.Empty(t, diff, "GetItem response mismatch")
 		})
 	}
@@ -118,8 +122,13 @@ func TestDynamoDB_TTL_Operations(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			assert.Empty(t, cmp.Diff(tt.want.TimeToLiveDescription, res.TimeToLiveDescription,
-				cmpopts.IgnoreUnexported(types.TimeToLiveDescription{})), "DescribeTimeToLive mismatch")
+			assert.Empty(t, cmp.Diff(
+				tt.want.TimeToLiveDescription,
+				res.TimeToLiveDescription,
+				cmpopts.IgnoreUnexported(
+					types.TimeToLiveDescription{},
+				),
+			), "DescribeTimeToLive mismatch")
 		})
 	}
 }

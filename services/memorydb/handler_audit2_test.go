@@ -404,17 +404,17 @@ func TestAudit2_User_MinimumEngineVersion(t *testing.T) {
 	}
 }
 
-func TestAudit2_User_UserGroupCount(t *testing.T) {
+func TestAudit2_User_ACLNames(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		setupFn        func(h *memorydb.Handler)
-		userName       string
-		wantGroupCount float64 // JSON numbers decode as float64
+		name         string
+		setupFn      func(h *memorydb.Handler)
+		userName     string
+		wantACLCount int
 	}{
 		{
-			name: "user in no ACL has count 0",
+			name: "user in no ACL has empty ACLNames",
 			setupFn: func(h *memorydb.Handler) {
 				doRequest(t, h, "CreateUser", map[string]any{
 					"UserName":           "standalone-user",
@@ -422,11 +422,11 @@ func TestAudit2_User_UserGroupCount(t *testing.T) {
 					"AuthenticationMode": map[string]any{"Type": "no-password-required"},
 				})
 			},
-			userName:       "standalone-user",
-			wantGroupCount: 0,
+			userName:     "standalone-user",
+			wantACLCount: 0,
 		},
 		{
-			name: "user in one ACL has count 1",
+			name: "user in one ACL has one ACLName",
 			setupFn: func(h *memorydb.Handler) {
 				doRequest(t, h, "CreateUser", map[string]any{
 					"UserName":           "grouped-user",
@@ -438,11 +438,11 @@ func TestAudit2_User_UserGroupCount(t *testing.T) {
 					"UserNames": []string{"grouped-user"},
 				})
 			},
-			userName:       "grouped-user",
-			wantGroupCount: 1,
+			userName:     "grouped-user",
+			wantACLCount: 1,
 		},
 		{
-			name: "user in two ACLs has count 2",
+			name: "user in two ACLs has two ACLNames",
 			setupFn: func(h *memorydb.Handler) {
 				doRequest(t, h, "CreateUser", map[string]any{
 					"UserName":           "multi-acl-user",
@@ -458,8 +458,8 @@ func TestAudit2_User_UserGroupCount(t *testing.T) {
 					"UserNames": []string{"multi-acl-user"},
 				})
 			},
-			userName:       "multi-acl-user",
-			wantGroupCount: 2,
+			userName:     "multi-acl-user",
+			wantACLCount: 2,
 		},
 	}
 
@@ -473,8 +473,8 @@ func TestAudit2_User_UserGroupCount(t *testing.T) {
 			require.Len(t, users, 1)
 
 			user, _ := users[0].(map[string]any)
-			groupCount, _ := user["UserGroupCount"].(float64)
-			assert.InDelta(t, tt.wantGroupCount, groupCount, 0.001)
+			aclNames, _ := user["ACLNames"].([]any)
+			assert.Len(t, aclNames, tt.wantACLCount)
 		})
 	}
 }

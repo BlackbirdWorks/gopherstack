@@ -80,3 +80,17 @@ func (h *Handler) HandlerOpsLen() int {
 
 // DefaultReleaseLabel exposes the default release label for testing.
 const DefaultReleaseLabel = defaultReleaseLabel
+
+// ListAllClusters returns all clusters in the default region. Used only in tests.
+func (b *InMemoryBackend) ListAllClusters() []*Cluster {
+	b.mu.RLock("ListAllClusters")
+	defer b.mu.RUnlock()
+
+	store := b.clustersStore(b.region)
+	out := make([]*Cluster, 0, len(store))
+	for _, c := range store {
+		out = append(out, c)
+	}
+
+	return out
+}

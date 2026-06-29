@@ -8,6 +8,7 @@ import (
 	"hash/crc32"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +68,9 @@ const (
 	convOutputTokens  = "outputTokens"
 	convTotalTokens   = "totalTokens"
 	convContentIdx    = "contentBlockIndex"
+
+	keyContent = "content"
+	keyModel   = "model"
 )
 
 // Mock response token counts used in model responses.
@@ -75,6 +79,11 @@ const (
 	mockOutputTokenCount = 10
 	mockTotalTokenCount  = 20
 	mockLatencyMS        = 1
+
+	//nolint:gosec // header names are not credentials
+	hdrBedrockInputTokenCount = "X-Amzn-Bedrock-Input-Token-Count"
+	//nolint:gosec // header names are not credentials
+	hdrBedrockOutputTokenCount = "X-Amzn-Bedrock-Output-Token-Count"
 )
 
 // maxInvocationStringBytes caps the stored request/response string length to prevent unbounded growth.
@@ -336,8 +345,26 @@ func (h *Handler) handleInvokeModel(
 
 	ct := resolveResponseContentType(c.Request())
 	c.Response().Header().Set("Content-Type", ct)
+	setInvokeModelTokenHeaders(c.Response(), modelID)
 
 	return c.JSONBlob(http.StatusOK, out)
+}
+
+// setInvokeModelTokenHeaders adds X-Amzn-Bedrock-*-Token-Count headers for
+// models that report token usage in their InvokeModel response headers.
+func setInvokeModelTokenHeaders(w http.ResponseWriter, modelID string) {
+	lower := strings.ToLower(modelID)
+	// Claude, Titan, Nova, Llama, Mistral all report token counts via headers.
+	if strings.Contains(lower, "claude") ||
+		strings.Contains(lower, "titan") ||
+		strings.Contains(lower, "nova") ||
+		strings.Contains(lower, "llama") ||
+		strings.Contains(lower, "mistral") ||
+		strings.Contains(lower, "mixtral") ||
+		strings.Contains(lower, "command") {
+		w.Header().Set(hdrBedrockInputTokenCount, strconv.Itoa(mockInputTokenCount))
+		w.Header().Set(hdrBedrockOutputTokenCount, strconv.Itoa(mockOutputTokenCount))
+	}
 }
 
 // handleInvokeModelWithResponseStream handles POST /model/{modelId}/invoke-with-response-stream.
@@ -402,8 +429,8 @@ func buildConverseResponse(req *converseRequest) map[string]any {
 	return map[string]any{
 		"output": map[string]any{
 			keyMessage: map[string]any{
-				keyRole:   roleAssistant,
-				"content": []map[string]any{{keyText: mockResponseText}},
+				keyRole:    roleAssistant,
+				keyContent: []map[string]any{{keyText: mockResponseText}},
 			},
 		},
 		convStopReasonKey: stopReasonEndTurn,
@@ -898,15 +925,41 @@ func buildAsyncInvokeResponse(inv *AsyncInvoke) map[string]any {
 	return resp
 }
 
+// isClaudeV3Plus returns true for Claude 3 and later models (Messages API format).
+// Claude 2 and Instant use the legacy completion format.
+func isClaudeV3Plus(modelIDLower string) bool {
+	return strings.Contains(modelIDLower, "claude-3") ||
+		strings.Contains(modelIDLower, "claude-4") ||
+		strings.Contains(modelIDLower, "claude-sonnet") ||
+		strings.Contains(modelIDLower, "claude-haiku") ||
+		strings.Contains(modelIDLower, "claude-opus")
+}
+
 func mockInvokeModelResponse(modelID string) map[string]any {
 	modelIDLower := strings.ToLower(modelID)
 
 	switch {
+	case strings.Contains(modelIDLower, "claude") && isClaudeV3Plus(modelIDLower):
+		// Claude 3+ uses the Messages API response format.
+		return map[string]any{
+			"id":            "msg_mock0000000000000001",
+			"type":          "message",
+			keyRole:         roleAssistant,
+			"content":       []map[string]any{{"type": keyText, keyText: mockResponseText}},
+			keyModel:        modelID,
+			keyStopReason:   stopReasonEndTurn,
+			"stop_sequence": nil,
+			keyUsage: map[string]any{
+				"input_tokens":  mockInputTokenCount,
+				"output_tokens": mockOutputTokenCount,
+			},
+		}
 	case strings.Contains(modelIDLower, "claude"):
+		// Claude 2 / Instant — legacy text completion format.
 		return map[string]any{
 			"completion":  mockResponseText,
 			keyStopReason: stopReasonEndTurn,
-			"model":       modelID,
+			keyModel:      modelID,
 		}
 	case strings.Contains(modelIDLower, "titan"):
 		return map[string]any{
@@ -947,8 +1000,8 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 		return map[string]any{
 			"output": map[string]any{
 				keyMessage: map[string]any{
-					keyRole:   roleAssistant,
-					"content": []map[string]any{{keyText: mockResponseText}},
+					keyRole:    roleAssistant,
+					keyContent: []map[string]any{{keyText: mockResponseText}},
 				},
 			},
 			convStopReasonKey: stopReasonEndTurn,
@@ -962,7 +1015,7 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 		return map[string]any{
 			"completion":  mockResponseText,
 			keyStopReason: stopReasonEndTurn,
-			"model":       modelID,
+			keyModel:      modelID,
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -30,7 +31,11 @@ const (
 	keyJobID               = "id"
 	transitionTypeOutbound = "Outbound"
 
+	// triggerTypeStartExecution is the default trigger type when no trigger detail is stored.
+	triggerTypeStartExecution = "StartPipelineExecution"
+
 	// maxResultsCap* constants define the per-operation pagination caps.
+	maxResultsCapListPipelines      int32 = 1000
 	maxResultsCapPipelineExecutions int32 = 100
 	maxResultsCapWebhooks           int32 = 60
 	maxResultsCapActionExecutions   int32 = 100
@@ -505,7 +510,7 @@ func (h *Handler) handleDeletePipeline(
 
 type listPipelinesInput struct {
 	NextToken  string `json:"nextToken,omitempty"`
-	MaxResults int    `json:"maxResults,omitempty"`
+	MaxResults int32  `json:"maxResults,omitempty"`
 }
 
 type listPipelinesOutput struct {
@@ -515,14 +520,19 @@ type listPipelinesOutput struct {
 
 func (h *Handler) handleListPipelines(
 	ctx context.Context,
-	_ *listPipelinesInput,
+	in *listPipelinesInput,
 ) (*listPipelinesOutput, error) {
 	summaries := h.Backend.ListPipelines(ctx)
 	if summaries == nil {
 		summaries = []PipelineSummary{}
 	}
 
-	return &listPipelinesOutput{Pipelines: summaries}, nil
+	page, nextToken, err := cpPaginate(summaries, in.NextToken, in.MaxResults, maxResultsCapListPipelines)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listPipelinesOutput{NextToken: nextToken, Pipelines: page}, nil
 }
 
 // --- Tagging operations ---
@@ -906,8 +916,8 @@ func (h *Handler) handleGetJobDetails(
 	return &getJobDetailsOutput{
 		JobDetails: jobDetailsResponse{
 			ID:        job.ID,
-			AccountID: "",
-			Data:      jobDataResponse{},
+			AccountID: h.Backend.accountID,
+			Data:      jobDataResponse{ActionTypeID: job.ActionTypeID},
 		},
 	}, nil
 }
@@ -1144,11 +1154,19 @@ func (h *Handler) handleListPipelineExecutions(
 
 	items := make([]map[string]any, len(execs))
 	for i, e := range execs {
+		triggerType := e.Trigger
+		if triggerType == "" {
+			triggerType = triggerTypeStartExecution
+		}
+
 		items[i] = map[string]any{
 			"pipelineExecutionId": e.PipelineExecutionID,
 			"status":              e.Status,
 			"pipelineVersion":     e.PipelineVersion,
-			"trigger":             e.Trigger,
+			"trigger": map[string]any{
+				"triggerType":   triggerType,
+				"triggerDetail": "",
+			},
 		}
 	}
 
@@ -1193,6 +1211,11 @@ func (h *Handler) handleGetPipelineState(
 		return nil, err
 	}
 
+	p, err := h.Backend.GetPipeline(ctx, in.Name)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]map[string]any, len(states))
 	for i, s := range states {
 		item := map[string]any{
@@ -1217,8 +1240,9 @@ func (h *Handler) handleGetPipelineState(
 	}
 
 	return &getPipelineStateOutput{
-		PipelineName: in.Name,
-		StageStates:  items,
+		PipelineName:    in.Name,
+		StageStates:     items,
+		PipelineVersion: p.Declaration.Version,
 	}, nil
 }
 
@@ -1680,7 +1704,9 @@ func (h *Handler) handlePutApprovalResult(
 		return nil, err
 	}
 
-	return &putApprovalResultOutput{}, nil
+	return &putApprovalResultOutput{
+		ApprovedAt: time.Now().UTC().Format(time.RFC3339),
+	}, nil
 }
 
 type actionExecutionFilter struct {

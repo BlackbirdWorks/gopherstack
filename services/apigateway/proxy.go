@@ -27,6 +27,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+var (
+	errUnexpectedSigningMethod = errors.New("unexpected JWT signing method")
+	errNoJWKSProvider          = errors.New("no JWKS provider configured")
+)
+
 // defaultAuthorizerTTL is the default authorizer result cache TTL (AWS default: 300 s).
 const defaultAuthorizerTTL = 300 * time.Second
 
@@ -425,10 +430,10 @@ func (h *Handler) dispatchIntegration(
 	case "AWS_PROXY":
 		h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, pathParams)
 	case "AWS":
-		h.handleAWSIntegration(ctx, w, r, apiID, integration)
+		h.handleAWSIntegration(ctx, w, r, apiID, stageName, resource, stageVars, integration)
 	case "HTTP", "HTTP_PROXY":
 		h.handleHTTPProxy(ctx, w, r, integration)
-	case "MOCK":
+	case IntegrationTypeMock:
 		h.handleMockIntegration(w, integration)
 	default:
 		http.Error(w, "Unsupported or unknown integration type for stage URL", http.StatusNotImplemented)
@@ -480,12 +485,6 @@ func (h *Handler) runAuthorizer(
 	r *http.Request,
 	apiID, stageName, authorizerID string,
 ) bool {
-	if h.lambda == nil {
-		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
-
-		return true
-	}
-
 	auth, err := h.Backend.GetAuthorizer(apiID, authorizerID)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer not found", "authorizerId", authorizerID)
@@ -516,8 +515,16 @@ func (h *Handler) runAuthorizer(
 		}
 	}
 
-	if auth.Type == "COGNITO_USER_POOLS" {
+	// Cognito authorizers verify the JWT locally — no Lambda needed.
+	if auth.Type == AuthTypeCognitoUserPool {
 		return h.runCognitoAuthorizer(ctx, w, r, auth, cacheKey, ttl)
+	}
+
+	// All other authorizer types invoke a Lambda function.
+	if h.lambda == nil {
+		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
+
+		return true
 	}
 
 	// Build the authorizer event based on type.
@@ -585,7 +592,22 @@ func (h *Handler) runCognitoAuthorizer(
 		return true
 	}
 
-	token, _, parseErr := new(jwt.Parser).ParseUnverified(tokenStr, jwt.MapClaims{})
+	keyfunc := func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, errUnexpectedSigningMethod
+		}
+
+		iss, _ := t.Claims.(jwt.MapClaims)["iss"].(string)
+		kid, _ := t.Header["kid"].(string)
+
+		if h.jwksProvider == nil {
+			return nil, errNoJWKSProvider
+		}
+
+		return h.jwksProvider.GetJWTPublicKey(iss, kid)
+	}
+
+	token, parseErr := jwt.Parse(tokenStr, keyfunc, jwt.WithExpirationRequired())
 	if parseErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: cognito authorizer invalid token", "error", parseErr)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -594,7 +616,7 @@ func (h *Handler) runCognitoAuthorizer(
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
+	if !ok || !token.Valid {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 
 		return true
@@ -610,17 +632,17 @@ func (h *Handler) runCognitoAuthorizer(
 }
 
 // authorizerCacheKey builds the cache key for an authorizer invocation.
-// TOKEN: authorizerID + ":" + extracted token (using identityValidationExpression if set)
+// TOKEN / COGNITO_USER_POOLS: authorizerID + ":" + extracted token (per-token granularity)
 // REQUEST: authorizerID + ":" + method + " " + path (per-request granularity).
 func (h *Handler) authorizerCacheKey(r *http.Request, auth *Authorizer, authorizerID string) string {
-	if auth.Type != "TOKEN" {
-		return authorizerID + ":" + r.Method + " " + r.URL.Path
+	if auth.Type == "TOKEN" || auth.Type == AuthTypeCognitoUserPool {
+		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
+		token = h.applyIdentityValidation(auth.IdentityValidationExpression, token)
+
+		return authorizerID + ":" + token
 	}
 
-	token := extractTokenFromIdentitySource(r, auth.IdentitySource)
-	token = h.applyIdentityValidation(auth.IdentityValidationExpression, token)
-
-	return authorizerID + ":" + token
+	return authorizerID + ":" + r.Method + " " + r.URL.Path
 }
 
 // applyIdentityValidation normalizes a token using the authorizer's identityValidationExpression.
@@ -887,7 +909,9 @@ func (h *Handler) handleAWSIntegration(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID string,
+	apiID, stageName string,
+	resource *Resource,
+	stageVars map[string]string,
 	integration *Integration,
 ) {
 	if h.lambda == nil {
@@ -912,9 +936,22 @@ func (h *Handler) handleAWSIntegration(
 		return
 	}
 
+	resourcePath := "/"
+	if resource != nil && resource.Path != "" {
+		resourcePath = resource.Path
+	}
+
 	vtlCtx := VTLContext{
-		Body:      string(rawBody),
-		RequestID: r.Header.Get("X-Amzn-Requestid"),
+		Body:           string(rawBody),
+		RequestID:      r.Header.Get("X-Amzn-Requestid"),
+		HTTPMethod:     r.Method,
+		ResourcePath:   resourcePath,
+		Path:           r.URL.Path,
+		Stage:          stageName,
+		APIID:          apiID,
+		SourceIP:       realClientIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+		StageVariables: stageVars,
 	}
 
 	// Apply request mapping template (content-type "application/json" is standard).
@@ -1566,6 +1603,22 @@ func applyIntegrationRequestParams(incoming *http.Request, outgoing *http.Reques
 	}
 
 	outgoing.URL.RawQuery = outQuery.Encode()
+}
+
+// realClientIP extracts the client IP from X-Forwarded-For or RemoteAddr.
+func realClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		host, _, _ := strings.Cut(xff, ",")
+
+		return strings.TrimSpace(host)
+	}
+
+	host := r.RemoteAddr
+	if idx := strings.LastIndexByte(host, ':'); idx >= 0 {
+		host = host[:idx]
+	}
+
+	return strings.Trim(host, "[]")
 }
 
 // resolveRequestParamSource resolves a parameter source expression against the incoming request.

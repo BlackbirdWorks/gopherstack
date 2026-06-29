@@ -39,9 +39,15 @@ type Backend interface {
 	// Container instances
 
 	RegisterContainerInstance(cluster, ec2InstanceID string) (*ContainerInstance, error)
-	DeregisterContainerInstance(cluster, containerInstance string, force bool) (*ContainerInstance, error)
-	DescribeContainerInstances(cluster string, containerInstances []string) ([]ContainerInstance, []Failure, error)
-	ListContainerInstances(cluster string) ([]string, error)
+	DeregisterContainerInstance(
+		cluster, containerInstance string,
+		force bool,
+	) (*ContainerInstance, error)
+	DescribeContainerInstances(
+		cluster string,
+		containerInstances []string,
+	) ([]ContainerInstance, []Failure, error)
+	ListContainerInstances(cluster, status string) ([]string, error)
 	UpdateContainerInstancesState(
 		cluster string,
 		containerInstances []string,
@@ -58,7 +64,10 @@ type Backend interface {
 
 	// ECS Exec
 
-	ExecuteCommand(cluster, task, container, command string, interactive bool) (*ExecuteCommandOutput, error)
+	ExecuteCommand(
+		cluster, task, container, command string,
+		interactive bool,
+	) (*ExecuteCommandOutput, error)
 
 	// Capacity providers
 
@@ -120,16 +129,22 @@ type Backend interface {
 
 	// Service deployments
 
-	DescribeServiceDeployments(serviceDeploymentArns []string) ([]ServiceDeployment, []Failure, error)
+	DescribeServiceDeployments(
+		serviceDeploymentArns []string,
+	) ([]ServiceDeployment, []Failure, error)
 	ListServiceDeployments(cluster, service string) ([]string, error)
 	StopServiceDeployment(serviceDeploymentArn string) (*ServiceDeployment, error)
 
 	// Express gateway services
 
-	CreateExpressGatewayService(input CreateExpressGatewayServiceInput) (*ExpressGatewayService, error)
+	CreateExpressGatewayService(
+		input CreateExpressGatewayServiceInput,
+	) (*ExpressGatewayService, error)
 	DeleteExpressGatewayService(serviceArn string) (*ExpressGatewayService, error)
 	DescribeExpressGatewayService(serviceArn string) (*ExpressGatewayService, error)
-	UpdateExpressGatewayService(input UpdateExpressGatewayServiceInput) (*ExpressGatewayService, error)
+	UpdateExpressGatewayService(
+		input UpdateExpressGatewayServiceInput,
+	) (*ExpressGatewayService, error)
 
 	// Task protection
 
@@ -140,4 +155,35 @@ type Backend interface {
 		protectionEnabled bool,
 		expiresInMinutes *int,
 	) ([]TaskProtection, []Failure, error)
+
+	// Daemon operations
+
+	CreateDaemon(input CreateDaemonInput) (*Daemon, error)
+	DeleteDaemon(clusterName, daemonName string) (*Daemon, error)
+	DescribeDaemon(clusterName, daemonName string) (*Daemon, error)
+	ListDaemons(clusterName string) ([]Daemon, error)
+	UpdateDaemon(input UpdateDaemonInput) (*Daemon, error)
+	RegisterDaemonTaskDefinition(
+		input RegisterDaemonTaskDefinitionInput,
+	) (*DaemonTaskDefinition, error)
+	DeleteDaemonTaskDefinition(daemonTaskDefinitionArn string) error
+	DescribeDaemonTaskDefinition(daemonName string) (*DaemonTaskDefinition, error)
+	ListDaemonTaskDefinitions(daemonName string) ([]DaemonTaskDefinition, error)
+	DescribeDaemonDeployments(daemonArn string, deploymentIDs []string) ([]DaemonDeployment, error)
+	ListDaemonDeployments(clusterName, daemonName string) ([]string, error)
+	DescribeDaemonRevisions(daemonName string, revisionNums []int) ([]DaemonRevision, error)
+
+	// Service revisions
+
+	DescribeServiceRevisions(serviceRevisionArns []string) ([]ServiceRevision, []Failure, error)
+
+	// Submit state changes (container agent protocol)
+
+	SubmitTaskStateChange(input SubmitTaskStateChangeInput) error
+	SubmitContainerStateChange(input SubmitContainerStateChangeInput) error
+	SubmitAttachmentStateChanges(clusterRef string, changes []AttachmentStateChange) error
+
+	// Region metadata
+
+	GetRegion() string
 }

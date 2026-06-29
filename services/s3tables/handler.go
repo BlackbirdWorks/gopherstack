@@ -41,6 +41,8 @@ const (
 	segStorageClass         = "storage-class"
 	segMaintenanceJobStatus = "maintenance-job-status"
 	segMetadataLocation     = "metadata-location"
+	bucketTypeCustomer      = "customer"
+	keyType                 = "type"
 )
 
 var (
@@ -555,6 +557,7 @@ func (h *Handler) handleGetTableBucket(ctx context.Context, r *http.Request, _ [
 		keyName:           tb.Name,
 		keyOwnerAccountID: tb.OwnerAccountID,
 		keyCreatedAt:      tb.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+		keyType:           bucketTypeCustomer,
 	})
 }
 
@@ -588,6 +591,7 @@ func (h *Handler) handleListTableBuckets(ctx context.Context, r *http.Request, _
 			keyName:           tb.Name,
 			keyOwnerAccountID: tb.OwnerAccountID,
 			keyCreatedAt:      tb.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+			keyType:           bucketTypeCustomer,
 		})
 	}
 
@@ -861,7 +865,9 @@ func (h *Handler) handleGetTableBucketReplication(ctx context.Context, r *http.R
 
 	return json.Marshal(map[string]any{
 		keyTableBucketARN: bucketARN,
-		"destinations":    cfg.Destinations,
+		"replicationConfiguration": map[string]any{
+			"destinations": cfg.Destinations,
+		},
 	})
 }
 
@@ -969,7 +975,7 @@ func (h *Handler) handleGetTableRecordExpirationConfiguration(
 	log.InfoContext(ctx, "s3tables: got table record expiration configuration", "tableArn", tableArn)
 
 	return json.Marshal(map[string]any{
-		"tableArn":     tableArn,
+		keyTableARN:    tableArn,
 		keyStatusField: cfg.Status,
 	})
 }
@@ -1124,6 +1130,7 @@ func (h *Handler) handleGetNamespace(ctx context.Context, r *http.Request, _ []b
 
 	return json.Marshal(map[string]any{
 		keyNamespace:      ns.Namespace,
+		keyTableBucketARN: ns.TableBucketARN,
 		keyCreatedAt:      ns.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
 		keyCreatedBy:      ns.CreatedBy,
 		keyOwnerAccountID: ns.OwnerAccountID,
@@ -1167,6 +1174,7 @@ func (h *Handler) handleListNamespaces(ctx context.Context, r *http.Request, _ [
 	for _, ns := range list {
 		summaries = append(summaries, map[string]any{
 			keyNamespace:      ns.Namespace,
+			keyTableBucketARN: ns.TableBucketARN,
 			keyCreatedAt:      ns.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
 			keyCreatedBy:      ns.CreatedBy,
 			keyOwnerAccountID: ns.OwnerAccountID,
@@ -1249,7 +1257,7 @@ func (h *Handler) handleGetTable(ctx context.Context, r *http.Request, _ []byte)
 		keyTableARN:         table.ARN,
 		keyTableBucketARN:   table.TableBucketARN,
 		"format":            table.Format,
-		"type":              "customer",
+		keyType:             bucketTypeCustomer,
 		keyVersionToken:     table.VersionToken,
 		keyMetadataLocation: table.MetadataLocation,
 		"warehouseLocation": table.WarehouseLocation,
@@ -1303,7 +1311,7 @@ func (h *Handler) handleListTables(ctx context.Context, r *http.Request, _ []byt
 			keyNamespace:      t.Namespace,
 			keyTableARN:       t.ARN,
 			keyTableBucketARN: t.TableBucketARN,
-			"type":            "customer",
+			keyType:           bucketTypeCustomer,
 			keyCreatedAt:      t.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
 			"modifiedAt":      t.ModifiedAt.Format("2006-01-02T15:04:05.999Z"),
 		})
@@ -1824,10 +1832,7 @@ func (h *Handler) handlePutTableReplication(ctx context.Context, r *http.Request
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: put table replication", "tableArn", tableArn)
 
-	return json.Marshal(map[string]any{
-		keyStatusField:  "ACTIVE",
-		keyVersionToken: "1",
-	})
+	return nil, nil
 }
 
 func (h *Handler) handleGetTableReplicationStatus(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {

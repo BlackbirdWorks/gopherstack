@@ -226,7 +226,7 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 			_, err := b.CreateVault(testAccountID, testRegion, "v1")
 			require.NoError(t, err)
 
-			_, err = b.UploadArchive(testAccountID, testRegion, "v1", "desc", "chk", 100)
+			_, err = b.UploadArchive(testAccountID, testRegion, "v1", "desc", "chk", 100, []byte("data"))
 			require.NoError(t, err)
 
 			_, err = b.InitiateMultipartUpload(testAccountID, testRegion, "v1", "desc", 1024*1024)
@@ -571,7 +571,15 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			_, err := b.CreateVault(testAccountID, testRegion, tt.vaultName)
 			require.NoError(t, err)
 
-			_, err = b.UploadArchive(testAccountID, testRegion, tt.vaultName, tt.archiveDesc, "chk", 512)
+			_, err = b.UploadArchive(
+				testAccountID,
+				testRegion,
+				tt.vaultName,
+				tt.archiveDesc,
+				"chk",
+				512,
+				[]byte("data"),
+			)
 			require.NoError(t, err)
 
 			snap := b.Snapshot(t.Context())

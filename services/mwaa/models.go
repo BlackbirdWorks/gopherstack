@@ -38,6 +38,7 @@ type Environment struct {
 	DatabaseVpcEndpointService   string                `json:"DatabaseVpcEndpointService,omitempty"`
 	WebserverVpcEndpointService  string                `json:"WebserverVpcEndpointService,omitempty"`
 	WeeklyMaintenanceWindowStart string                `json:"WeeklyMaintenanceWindowStart,omitempty"`
+	WorkerReplacementStrategy    string                `json:"WorkerReplacementStrategy,omitempty"`
 	CreatedAt                    float64               `json:"CreatedAt"`
 	MaxWorkers                   int32                 `json:"MaxWorkers"`
 	MinWorkers                   int32                 `json:"MinWorkers"`
@@ -104,6 +105,7 @@ type createEnvironmentRequest struct {
 	StartupScriptS3ObjectVersion string                `json:"StartupScriptS3ObjectVersion"`
 	EndpointManagement           string                `json:"EndpointManagement"`
 	WeeklyMaintenanceWindowStart string                `json:"WeeklyMaintenanceWindowStart"`
+	WorkerReplacementStrategy    string                `json:"WorkerReplacementStrategy"`
 	MaxWorkers                   int32                 `json:"MaxWorkers"`
 	MinWorkers                   int32                 `json:"MinWorkers"`
 	MaxWebservers                int32                 `json:"MaxWebservers"`

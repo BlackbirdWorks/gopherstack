@@ -15,7 +15,13 @@ func TestUpdateTerminationProtection_StoresValue(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "prot-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"prot-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	// Enable protection.
@@ -49,7 +55,13 @@ func TestDeleteStack_TerminationProtectionBlocks(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "protected", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"protected",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.UpdateTerminationProtection("protected", true))
@@ -67,7 +79,13 @@ func TestDeleteStack_TerminationProtectionDisabledAllowsDeletion(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "unprotected", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"unprotected",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.UpdateTerminationProtection("unprotected", true))
@@ -82,9 +100,15 @@ func TestCreateStack_CapabilitiesStored(t *testing.T) {
 
 	b := newBackend()
 	caps := []string{"CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"}
-	stack, err := b.CreateStack(t.Context(), "cap-stack", simpleTemplate, nil, cloudformation.StackOptions{
-		Capabilities: caps,
-	})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"cap-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{
+			Capabilities: caps,
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, caps, stack.Capabilities)
 
@@ -99,9 +123,15 @@ func TestCreateStack_RoleARNStored(t *testing.T) {
 
 	b := newBackend()
 	roleARN := "arn:aws:iam::123456789012:role/MyCFNRole"
-	stack, err := b.CreateStack(t.Context(), "role-stack", simpleTemplate, nil, cloudformation.StackOptions{
-		RoleARN: roleARN,
-	})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"role-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{
+			RoleARN: roleARN,
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, roleARN, stack.RoleARN)
 }
@@ -111,9 +141,15 @@ func TestCreateStack_NotificationARNsStored(t *testing.T) {
 
 	b := newBackend()
 	notifARNs := []string{"arn:aws:sns:us-east-1:123:MyTopic"}
-	stack, err := b.CreateStack(t.Context(), "notif-stack", simpleTemplate, nil, cloudformation.StackOptions{
-		NotificationARNs: notifARNs,
-	})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"notif-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{
+			NotificationARNs: notifARNs,
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, notifARNs, stack.NotificationARNs)
 }
@@ -122,9 +158,15 @@ func TestCreateStack_TimeoutStored(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	stack, err := b.CreateStack(t.Context(), "timeout-stack", simpleTemplate, nil, cloudformation.StackOptions{
-		TimeoutInMinutes: 30,
-	})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"timeout-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{
+			TimeoutInMinutes: 30,
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, 30, stack.TimeoutInMinutes)
 }
@@ -133,9 +175,15 @@ func TestCreateStack_DisableRollbackStored(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	stack, err := b.CreateStack(t.Context(), "noroll-stack", simpleTemplate, nil, cloudformation.StackOptions{
-		DisableRollback: true,
-	})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"noroll-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{
+			DisableRollback: true,
+		},
+	)
 	require.NoError(t, err)
 	assert.True(t, stack.DisableRollback)
 }
@@ -150,9 +198,15 @@ func TestCreateStack_RollbackConfigurationStored(t *testing.T) {
 			{ARN: "arn:aws:cloudwatch:us-east-1:123:alarm/MyAlarm", Type: "AWS::CloudWatch::Alarm"},
 		},
 	}
-	stack, err := b.CreateStack(t.Context(), "rc-stack", simpleTemplate, nil, cloudformation.StackOptions{
-		RollbackConfiguration: rc,
-	})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"rc-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{
+			RollbackConfiguration: rc,
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, stack.RollbackConfiguration)
 	assert.Equal(t, 10, stack.RollbackConfiguration.MonitoringTimeInMinutes)
@@ -181,9 +235,15 @@ func TestCreateStack_OnFailureDelete_RemovesStack(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "del-on-fail", failTemplate, nil, cloudformation.StackOptions{
-		OnFailure: "DELETE",
-	})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"del-on-fail",
+		failTemplate,
+		nil,
+		cloudformation.StackOptions{
+			OnFailure: "DELETE",
+		},
+	)
 	require.NoError(t, err)
 
 	// Stack should be in DELETE_COMPLETE state.
@@ -204,9 +264,15 @@ func TestCreateStack_OnFailureRollback_LeavesRollbackComplete(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "rollback-on-fail", failTemplate, nil, cloudformation.StackOptions{
-		OnFailure: "ROLLBACK",
-	})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"rollback-on-fail",
+		failTemplate,
+		nil,
+		cloudformation.StackOptions{
+			OnFailure: "ROLLBACK",
+		},
+	)
 	require.NoError(t, err)
 
 	// No OnFailure=DELETE so stack stays in ROLLBACK_COMPLETE or CREATE_FAILED.
@@ -316,7 +382,13 @@ func TestCreateStack_AllowedValues_DefaultUsed_MustBeInList(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "av-default-ok", tmpl, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"av-default-ok",
+		tmpl,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 }
@@ -400,14 +472,26 @@ func TestUpdateStack_CapabilitiesUpdated(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "ucap-stack", simpleTemplate, nil, cloudformation.StackOptions{
-		Capabilities: []string{"CAPABILITY_IAM"},
-	})
+	_, err := b.CreateStack(
+		t.Context(),
+		"ucap-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{
+			Capabilities: []string{"CAPABILITY_IAM"},
+		},
+	)
 	require.NoError(t, err)
 
-	updated, err := b.UpdateStack(t.Context(), "ucap-stack", simpleTemplate, nil, cloudformation.StackOptions{
-		Capabilities: []string{"CAPABILITY_IAM", "CAPABILITY_AUTO_EXPAND"},
-	})
+	updated, err := b.UpdateStack(
+		t.Context(),
+		"ucap-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{
+			Capabilities: []string{"CAPABILITY_IAM", "CAPABILITY_AUTO_EXPAND"},
+		},
+	)
 	require.NoError(t, err)
 	assert.Contains(t, updated.Capabilities, "CAPABILITY_AUTO_EXPAND")
 }
@@ -437,7 +521,13 @@ func TestCreateStack_NestedStack_Provisioned(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "parent-stack", parentTemplate, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"parent-stack",
+		parentTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 
@@ -470,7 +560,13 @@ func TestDeleteStack_NestedStack_DeletesChild(t *testing.T) {
 		}
 	}`
 
-	_, err := b.CreateStack(t.Context(), "parent-del", parentTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"parent-del",
+		parentTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	// Verify child exists.
@@ -495,13 +591,25 @@ func TestStackLifecycle_CreateUpdateDelete(t *testing.T) {
 	b := newBackend()
 
 	// Create.
-	stack, err := b.CreateStack(t.Context(), "lifecycle", simpleTemplate, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"lifecycle",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 	assert.False(t, stack.CreationTime.IsZero())
 
 	// Update.
-	updated, err := b.UpdateStack(t.Context(), "lifecycle", simpleTemplate, nil, cloudformation.StackOptions{})
+	updated, err := b.UpdateStack(
+		t.Context(),
+		"lifecycle",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "UPDATE_COMPLETE", updated.StackStatus)
 	assert.NotNil(t, updated.LastUpdatedTime)
@@ -530,7 +638,13 @@ func TestStackLifecycle_RollbackOnCreateFailure(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "fail-stack", failTemplate, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"fail-stack",
+		failTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	// AWS rolls back to ROLLBACK_COMPLETE when import fails.
@@ -551,7 +665,13 @@ func TestStackLifecycle_UpdateRollback(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "upd-rb", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"upd-rb",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	// Bad update (broken import).
@@ -565,7 +685,13 @@ func TestStackLifecycle_UpdateRollback(t *testing.T) {
 		}
 	}`
 
-	updated, err := b.UpdateStack(t.Context(), "upd-rb", badTemplate, nil, cloudformation.StackOptions{})
+	updated, err := b.UpdateStack(
+		t.Context(),
+		"upd-rb",
+		badTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "UPDATE_ROLLBACK_COMPLETE", updated.StackStatus)
 }
@@ -590,7 +716,13 @@ func TestExports_CrossStackReference(t *testing.T) {
 		}
 	}`
 
-	_, err := b.CreateStack(t.Context(), "exporter", exporterTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"exporter",
+		exporterTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	exports, err := b.ListExports("")
@@ -611,7 +743,13 @@ func TestExports_CrossStackReference(t *testing.T) {
 		}
 	}`
 
-	importerStack, err := b.CreateStack(t.Context(), "importer", importerTemplate, nil, cloudformation.StackOptions{})
+	importerStack, err := b.CreateStack(
+		t.Context(),
+		"importer",
+		importerTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", importerStack.StackStatus)
 	require.Len(t, importerStack.Outputs, 1)
@@ -625,7 +763,13 @@ func TestCreateStack_TagsStored(t *testing.T) {
 
 	b := newBackend()
 	tags := []cloudformation.Tag{{Key: "Team", Value: "platform"}, {Key: "Env", Value: "prod"}}
-	stack, err := b.CreateStack(t.Context(), "tagged", simpleTemplate, nil, cloudformation.StackOptions{Tags: tags})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"tagged",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{Tags: tags},
+	)
 	require.NoError(t, err)
 	assert.Len(t, stack.Tags, 2)
 
@@ -640,10 +784,23 @@ func TestChangeSet_CreateExecuteDelete(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "cs-base", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"cs-base",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
-	cs, err := b.CreateChangeSet(t.Context(), "cs-base", "my-cs", simpleTemplate, "test changeset", nil)
+	cs, err := b.CreateChangeSet(
+		t.Context(),
+		"cs-base",
+		"my-cs",
+		simpleTemplate,
+		"test changeset",
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "cs-base", cs.StackName)
 	assert.Equal(t, "CREATE_COMPLETE", cs.Status)
@@ -671,7 +828,13 @@ func TestChangeSet_Delete(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "cs-del", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"cs-del",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateChangeSet(t.Context(), "cs-del", "del-cs", simpleTemplate, "", nil)
@@ -699,7 +862,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	// List.
 	list, err := b.ListStackSets("")
 	require.NoError(t, err)
-	assert.Len(t, list, 1)
+	assert.Len(t, list.Data, 1)
 
 	// Create instances.
 	accounts := []string{"111111111111", "222222222222"}
@@ -709,7 +872,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 
 	instances, err := b.ListStackInstances("my-ss", "")
 	require.NoError(t, err)
-	assert.Len(t, instances, 4) // 2 accounts × 2 regions
+	assert.Len(t, instances.Data, 4) // 2 accounts × 2 regions
 
 	// Describe a specific instance.
 	inst, err := b.DescribeStackInstance("my-ss", "111111111111", "us-east-1")
@@ -727,7 +890,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 
 	remaining, err := b.ListStackInstances("my-ss", "")
 	require.NoError(t, err)
-	assert.Empty(t, remaining)
+	assert.Empty(t, remaining.Data)
 
 	// Delete set.
 	err = b.DeleteStackSet("my-ss")
@@ -743,7 +906,13 @@ func TestDriftDetection_FullCycle(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "drift-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"drift-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	detectionID, err := b.DetectStackDrift("drift-stack")
@@ -783,7 +952,13 @@ func TestDescribeStackEvents_ReverseChrono(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "events-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"events-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	events, err := b.DescribeStackEvents("events-stack")
@@ -832,7 +1007,13 @@ func TestStackPolicy_SetAndGet(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "policy-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"policy-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	policy := `{"Statement":[{"Effect":"Allow","Action":"Update:*","Principal":"*","Resource":"*"}]}`
@@ -850,7 +1031,13 @@ func TestContinueUpdateRollback(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "cur-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"cur-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	// Should not error even in non-rollback state (permissive implementation).
@@ -862,7 +1049,13 @@ func TestCancelUpdateStack(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "cancel-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"cancel-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	err = b.CancelUpdateStack(t.Context(), "cancel-stack")
@@ -909,7 +1102,13 @@ func TestRollbackStack(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "rb-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"rb-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	err = b.RollbackStack(t.Context(), "rb-stack")
@@ -922,7 +1121,13 @@ func TestGetTemplate(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStack(t.Context(), "gt-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"gt-stack",
+		simpleTemplate,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	body, err := b.GetTemplate("gt-stack")

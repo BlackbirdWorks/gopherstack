@@ -338,7 +338,9 @@ func TestThrottler_UpdateTableCapacity(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, putErr := db.PutItem(t.Context(), &ddbsdk.PutItemInput{
 			TableName: aws.String("tbl"),
-			Item:      map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "k3"}},
+			Item: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: "k3"},
+			},
 		})
 
 		return putErr == nil

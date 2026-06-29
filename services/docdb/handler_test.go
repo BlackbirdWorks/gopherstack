@@ -91,6 +91,7 @@ func TestHandler_CreateDescribeDeleteDBCluster(t *testing.T) {
 				"Action":              {"DeleteDBCluster"},
 				"Version":             {"2014-10-31"},
 				"DBClusterIdentifier": {"test-cluster"},
+				"SkipFinalSnapshot":   {"true"},
 			},
 			wantStatus:   http.StatusOK,
 			wantContains: "DeleteDBClusterResponse",

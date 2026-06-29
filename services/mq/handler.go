@@ -512,7 +512,7 @@ func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
+	return c.JSON(http.StatusAccepted, map[string]string{
 		keyBrokerID: br.BrokerID,
 		"brokerArn": br.BrokerArn,
 	})
@@ -666,7 +666,10 @@ func (h *Handler) handleDeleteBroker(c *echo.Context, brokerID string) error {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{keyBrokerID: br.BrokerID})
+	return c.JSON(http.StatusOK, map[string]string{
+		keyBrokerID: br.BrokerID,
+		"brokerArn": br.BrokerArn,
+	})
 }
 
 func (h *Handler) handleRebootBroker(c *echo.Context, brokerID string) error {
@@ -771,7 +774,7 @@ func (h *Handler) handleCreateUser(c *echo.Context, brokerID, username string, b
 		return h.writeError(c, err)
 	}
 
-	return c.NoContent(http.StatusCreated)
+	return c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) handleDescribeUser(c *echo.Context, brokerID, username string) error {
@@ -865,6 +868,7 @@ func (h *Handler) handleCreateConfiguration(c *echo.Context, body []byte) error 
 		"id":             cfg.ID,
 		"arn":            cfg.Arn,
 		"name":           cfg.Name,
+		"created":        cfg.Created,
 		"engineType":     cfg.EngineType,
 		"engineVersion":  cfg.EngineVersion,
 		"latestRevision": cfg.LatestRevision,
@@ -931,7 +935,9 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context, configID string, bo
 	return c.JSON(http.StatusOK, map[string]any{
 		"id":             cfg.ID,
 		"arn":            cfg.Arn,
+		"name":           cfg.Name,
 		"latestRevision": cfg.LatestRevision,
+		"warnings":       []any{},
 	})
 }
 

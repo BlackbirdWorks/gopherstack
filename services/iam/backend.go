@@ -22,25 +22,25 @@ import (
 
 var (
 	// ErrUserNotFound is returned when a requested user does not exist.
-	ErrUserNotFound = errors.New("NoSuchEntity")
+	ErrUserNotFound = errors.New("NoSuchEntity: user")
 	// ErrUserAlreadyExists is returned when creating a user that already exists.
 	ErrUserAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrRoleNotFound is returned when a requested role does not exist.
-	ErrRoleNotFound = errors.New("NoSuchEntity")
+	ErrRoleNotFound = errors.New("NoSuchEntity: role")
 	// ErrRoleAlreadyExists is returned when creating a role that already exists.
 	ErrRoleAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrPolicyNotFound is returned when a requested policy does not exist.
-	ErrPolicyNotFound = errors.New("NoSuchEntity")
+	ErrPolicyNotFound = errors.New("NoSuchEntity: policy")
 	// ErrPolicyAlreadyExists is returned when creating a policy that already exists.
 	ErrPolicyAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrGroupNotFound is returned when a requested group does not exist.
-	ErrGroupNotFound = errors.New("NoSuchEntity")
+	ErrGroupNotFound = errors.New("NoSuchEntity: group")
 	// ErrGroupAlreadyExists is returned when creating a group that already exists.
 	ErrGroupAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrAccessKeyNotFound is returned when a requested access key does not exist.
-	ErrAccessKeyNotFound = errors.New("NoSuchEntity")
+	ErrAccessKeyNotFound = errors.New("NoSuchEntity: access key")
 	// ErrInstanceProfileNotFound is returned when a requested instance profile does not exist.
-	ErrInstanceProfileNotFound = errors.New("NoSuchEntity")
+	ErrInstanceProfileNotFound = errors.New("NoSuchEntity: instance profile")
 	// ErrInstanceProfileAlreadyExists is returned when creating a profile that already exists.
 	ErrInstanceProfileAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrInvalidAction is returned when an unknown IAM action is requested.
@@ -50,17 +50,17 @@ var (
 	// ErrDeleteConflict is returned when an entity has attached resources that prevent deletion.
 	ErrDeleteConflict = errors.New("DeleteConflict")
 	// ErrInlinePolicyNotFound is returned when a requested inline policy does not exist.
-	ErrInlinePolicyNotFound = errors.New("NoSuchEntity")
+	ErrInlinePolicyNotFound = errors.New("NoSuchEntity: inline policy")
 	// ErrSAMLProviderNotFound is returned when a requested SAML provider does not exist.
-	ErrSAMLProviderNotFound = errors.New("NoSuchEntity")
+	ErrSAMLProviderNotFound = errors.New("NoSuchEntity: SAML provider")
 	// ErrSAMLProviderAlreadyExists is returned when creating a SAML provider that already exists.
 	ErrSAMLProviderAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrOIDCProviderNotFound is returned when a requested OIDC provider does not exist.
-	ErrOIDCProviderNotFound = errors.New("NoSuchEntity")
+	ErrOIDCProviderNotFound = errors.New("NoSuchEntity: OIDC provider")
 	// ErrOIDCProviderAlreadyExists is returned when creating an OIDC provider that already exists.
 	ErrOIDCProviderAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrLoginProfileNotFound is returned when a requested login profile does not exist.
-	ErrLoginProfileNotFound = errors.New("NoSuchEntity")
+	ErrLoginProfileNotFound = errors.New("NoSuchEntity: login profile")
 	// ErrLoginProfileAlreadyExists is returned when creating a login profile that already exists.
 	ErrLoginProfileAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrInvalidOIDCProviderURL is returned when an OIDC provider URL cannot be parsed.
@@ -92,6 +92,7 @@ type StorageBackend interface {
 	// Roles
 	CreateRole(roleName, path, assumeRolePolicyDocument, permissionsBoundary string) (*Role, error)
 	DeleteRole(roleName string) error
+	DeleteServiceLinkedRole(roleName string) error
 	ListRoles(marker string, maxItems int) (page.Page[Role], error)
 	GetRole(roleName string) (*Role, error)
 	GetRoleByArn(roleArn string) (*Role, error)
@@ -152,7 +153,11 @@ type StorageBackend interface {
 
 	// Reporting and simulation
 	GetAccountAuthorizationDetails() AccountAuthorizationDetails
-	SimulatePrincipalPolicy(principalArn string, actionNames, resourceArns []string) ([]SimulationResult, error)
+	SimulatePrincipalPolicy(
+		principalArn string,
+		actionNames, resourceArns []string,
+		ctx ConditionContext,
+	) ([]SimulationResult, error)
 	GetCredentialReport() string
 	GetAccountSummary() AccountSummary
 
@@ -176,7 +181,10 @@ type StorageBackend interface {
 	ListSAMLProviders() ([]SAMLProvider, error)
 
 	// OIDC Providers
-	CreateOpenIDConnectProvider(rawURL string, clientIDs, thumbprints []string) (*OIDCProvider, error)
+	CreateOpenIDConnectProvider(
+		rawURL string,
+		clientIDs, thumbprints []string,
+	) (*OIDCProvider, error)
 	UpdateOpenIDConnectProviderThumbprint(providerArn string, thumbprints []string) error
 	DeleteOpenIDConnectProvider(providerArn string) error
 	GetOpenIDConnectProvider(providerArn string) (*OIDCProvider, error)
@@ -194,7 +202,10 @@ type StorageBackend interface {
 	DeleteAccountAlias(alias string) error
 
 	// Policy Versions
-	CreatePolicyVersion(policyArn, policyDocument string, setAsDefault bool) (*StoredPolicyVersion, error)
+	CreatePolicyVersion(
+		policyArn, policyDocument string,
+		setAsDefault bool,
+	) (*StoredPolicyVersion, error)
 	SetDefaultPolicyVersion(policyArn, versionID string) error
 	DeletePolicyVersion(policyArn, versionID string) error
 
@@ -203,8 +214,12 @@ type StorageBackend interface {
 	GetServiceLinkedRoleDeletionStatus(deletionTaskID string) (string, error)
 
 	// Service-Specific Credentials
-	CreateServiceSpecificCredential(userName, serviceName string) (*ServiceSpecificCredential, error)
-	ListServiceSpecificCredentials(userName, serviceName string) ([]ServiceSpecificCredential, error)
+	CreateServiceSpecificCredential(
+		userName, serviceName string,
+	) (*ServiceSpecificCredential, error)
+	ListServiceSpecificCredentials(
+		userName, serviceName string,
+	) ([]ServiceSpecificCredential, error)
 	DeleteServiceSpecificCredential(userName, credentialID string) error
 	UpdateServiceSpecificCredential(userName, credentialID, status string) error
 
@@ -215,7 +230,9 @@ type StorageBackend interface {
 	DeleteVirtualMFADevice(serialNumber string) error
 	EnableMFADevice(userName, serialNumber, authCode1, authCode2 string) error
 	DeactivateMFADevice(userName, serialNumber string) error
+	ResyncMFADevice(userName, serialNumber, authCode1, authCode2 string) error
 	GetMFADeviceOwner(serialNumber string) string
+	GetVirtualMFADevice(serialNumber string) (VirtualMFADevice, string, error)
 	ListMFADevicesForUser(userName string) ([]VirtualMFADevice, error)
 
 	// SSH Public Keys
@@ -227,7 +244,9 @@ type StorageBackend interface {
 
 	// Access Advisor
 	GenerateServiceLastAccessedDetailsForEntity(entityARN string) string
-	GetServiceLastAccessedDetails(jobID string) (status string, details []ServiceLastAccessedDetail, err error)
+	GetServiceLastAccessedDetails(
+		jobID string,
+	) (status string, details []ServiceLastAccessedDetail, err error)
 	RecordServiceAccess(entityARN, serviceNamespace, serviceName string)
 
 	// Organizations Access Report
@@ -235,7 +254,9 @@ type StorageBackend interface {
 	GetOrganizationsAccessReport(jobID string) (status string, createdAt time.Time, found bool)
 
 	// Reset service-specific credential password
-	ResetServiceSpecificCredentialFull(userName, credentialID string) (*ServiceSpecificCredential, error)
+	ResetServiceSpecificCredentialFull(
+		userName, credentialID string,
+	) (*ServiceSpecificCredential, error)
 
 	// OIDC provider existence check (implements sts.OIDCLookup)
 	OIDCProviderExists(issuerURL string) bool
@@ -301,7 +322,10 @@ type StorageBackend interface {
 	ListInstanceProfilesForRole(roleName string) ([]InstanceProfile, error)
 
 	// Simulation
-	SimulateCustomPolicy(policyInputList, actionNames, resourceArns []string) ([]SimulationResult, error)
+	SimulateCustomPolicy(
+		policyInputList, actionNames, resourceArns []string,
+		ctx ConditionContext,
+	) ([]SimulationResult, error)
 
 	// Dashboard helpers
 	ListAllUsers() []User
@@ -358,6 +382,13 @@ type InMemoryBackend struct {
 	comprehensive         *comprehensiveBackend
 	accountID             string
 	accountAliases        []string
+	// Sorted name indexes for O(1) marker resolution in List operations.
+	// Each slice is kept in lexicographic order via insertSorted/deleteSorted.
+	sortedUserNames   []string
+	sortedRoleNames   []string
+	sortedPolicyNames []string
+	sortedGroupNames  []string
+	sortedIPNames     []string // instance profile names
 }
 
 type policyAttachmentRefs struct {
@@ -405,6 +436,12 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		accountID:             accountID,
 		mu:                    lockmetrics.New("iam"),
 		comprehensive:         newComprehensiveBackend(),
+		// Sorted name indexes start empty; populated via insertSorted on create.
+		sortedUserNames:   nil,
+		sortedRoleNames:   nil,
+		sortedPolicyNames: nil,
+		sortedGroupNames:  nil,
+		sortedIPNames:     nil,
 	}
 }
 
@@ -543,6 +580,13 @@ func (b *InMemoryBackend) rebuildIndexesLocked() {
 			b.addPolicyAttachmentLocked(policyARN, groupName, "group")
 		}
 	}
+
+	// Rebuild sorted name indexes.
+	b.sortedUserNames = rebuildSortedNames(b.users)
+	b.sortedRoleNames = rebuildSortedNames(b.roles)
+	b.sortedPolicyNames = rebuildSortedNames(b.policies)
+	b.sortedGroupNames = rebuildSortedNames(b.groups)
+	b.sortedIPNames = rebuildSortedNames(b.instanceProfiles)
 }
 
 // ---- Users ----
@@ -566,6 +610,7 @@ func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string)
 		PermissionsBoundary: permissionsBoundary,
 	}
 	b.users[userName] = u
+	b.sortedUserNames = insertSorted(b.sortedUserNames, userName)
 
 	return &u, nil
 }
@@ -609,6 +654,7 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 	}
 
 	delete(b.users, userName)
+	b.sortedUserNames = deleteSorted(b.sortedUserNames, userName)
 
 	return nil
 }
@@ -618,7 +664,13 @@ func (b *InMemoryBackend) ListUsers(marker string, maxItems int) (page.Page[User
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
-	return page.New(sortedUsers(b.users), marker, maxItems, iamDefaultMaxItems), nil
+	return pageFromSortedNames(
+		b.sortedUserNames,
+		b.users,
+		marker,
+		maxItems,
+		iamDefaultMaxItems,
+	), nil
 }
 
 // GetUser retrieves a single IAM user by name.
@@ -648,7 +700,10 @@ func (b *InMemoryBackend) CreateRole(
 	}
 
 	if assumeRolePolicyDocument != "" && !json.Valid([]byte(assumeRolePolicyDocument)) {
-		return nil, fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
+		return nil, fmt.Errorf(
+			"%w: invalid JSON in AssumeRolePolicyDocument",
+			ErrMalformedPolicyDocument,
+		)
 	}
 
 	if err := validateTrustPolicyPrincipal(assumeRolePolicyDocument); err != nil {
@@ -667,6 +722,7 @@ func (b *InMemoryBackend) CreateRole(
 	}
 	b.roles[roleName] = r
 	b.roleByARN[r.Arn] = roleName
+	b.sortedRoleNames = insertSorted(b.sortedRoleNames, roleName)
 
 	return &r, nil
 }
@@ -691,6 +747,7 @@ func (b *InMemoryBackend) DeleteRole(roleName string) error {
 	role := b.roles[roleName]
 	delete(b.roles, roleName)
 	delete(b.roleByARN, role.Arn)
+	b.sortedRoleNames = deleteSorted(b.sortedRoleNames, roleName)
 
 	return nil
 }
@@ -700,7 +757,13 @@ func (b *InMemoryBackend) ListRoles(marker string, maxItems int) (page.Page[Role
 	b.mu.RLock("ListRoles")
 	defer b.mu.RUnlock()
 
-	return page.New(sortedRoles(b.roles), marker, maxItems, iamDefaultMaxItems), nil
+	return pageFromSortedNames(
+		b.sortedRoleNames,
+		b.roles,
+		marker,
+		maxItems,
+		iamDefaultMaxItems,
+	), nil
 }
 
 // GetRole retrieves a single IAM role by name.
@@ -735,7 +798,10 @@ func (b *InMemoryBackend) GetRoleByArn(roleArn string) (*Role, error) {
 }
 
 // UpdateRoleMaxSessionDuration sets the maximum session duration for a role.
-func (b *InMemoryBackend) UpdateRoleMaxSessionDuration(roleName string, maxSessionDuration int32) error {
+func (b *InMemoryBackend) UpdateRoleMaxSessionDuration(
+	roleName string,
+	maxSessionDuration int32,
+) error {
 	b.mu.Lock("UpdateRoleMaxSessionDuration")
 	defer b.mu.Unlock()
 
@@ -788,6 +854,7 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 	}
 	b.policies[policyName] = pol
 	b.policyByARN[pol.Arn] = policyName
+	b.sortedPolicyNames = insertSorted(b.sortedPolicyNames, policyName)
 
 	return &pol, nil
 }
@@ -799,15 +866,30 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 
 	if refs, exists := b.policyAttachments[policyArn]; exists {
 		if userName := firstKey(refs.users); userName != "" {
-			return fmt.Errorf("%w: policy %q is attached to user %q", ErrDeleteConflict, policyArn, userName)
+			return fmt.Errorf(
+				"%w: policy %q is attached to user %q",
+				ErrDeleteConflict,
+				policyArn,
+				userName,
+			)
 		}
 
 		if roleName := firstKey(refs.roles); roleName != "" {
-			return fmt.Errorf("%w: policy %q is attached to role %q", ErrDeleteConflict, policyArn, roleName)
+			return fmt.Errorf(
+				"%w: policy %q is attached to role %q",
+				ErrDeleteConflict,
+				policyArn,
+				roleName,
+			)
 		}
 
 		if groupName := firstKey(refs.groups); groupName != "" {
-			return fmt.Errorf("%w: policy %q is attached to group %q", ErrDeleteConflict, policyArn, groupName)
+			return fmt.Errorf(
+				"%w: policy %q is attached to group %q",
+				ErrDeleteConflict,
+				policyArn,
+				groupName,
+			)
 		}
 	}
 
@@ -820,6 +902,7 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 	delete(b.policyByARN, policyArn)
 	delete(b.policyAttachments, policyArn)
 	delete(b.policyVersions, policyArn)
+	b.sortedPolicyNames = deleteSorted(b.sortedPolicyNames, policyName)
 
 	return nil
 }
@@ -829,7 +912,13 @@ func (b *InMemoryBackend) ListPolicies(marker string, maxItems int) (page.Page[P
 	b.mu.RLock("ListPolicies")
 	defer b.mu.RUnlock()
 
-	return page.New(sortedPolicies(b.policies), marker, maxItems, iamDefaultMaxItems), nil
+	return pageFromSortedNames(
+		b.sortedPolicyNames,
+		b.policies,
+		marker,
+		maxItems,
+		iamDefaultMaxItems,
+	), nil
 }
 
 // AttachUserPolicy attaches a policy to a user.
@@ -934,6 +1023,7 @@ func (b *InMemoryBackend) CreateGroup(groupName, path string) (*Group, error) {
 		CreateDate: time.Now().UTC(),
 	}
 	b.groups[groupName] = g
+	b.sortedGroupNames = insertSorted(b.sortedGroupNames, groupName)
 
 	return &g, nil
 }
@@ -956,6 +1046,7 @@ func (b *InMemoryBackend) DeleteGroup(groupName string) error {
 	}
 
 	delete(b.groups, groupName)
+	b.sortedGroupNames = deleteSorted(b.sortedGroupNames, groupName)
 
 	// Clean up group membership tracking.
 	delete(b.groupMembers, groupName)
@@ -1110,7 +1201,13 @@ func (b *InMemoryBackend) ListGroups(marker string, maxItems int) (page.Page[Gro
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
-	return page.New(sortedGroups(b.groups), marker, maxItems, iamDefaultMaxItems), nil
+	return pageFromSortedNames(
+		b.sortedGroupNames,
+		b.groups,
+		marker,
+		maxItems,
+		iamDefaultMaxItems,
+	), nil
 }
 
 // ---- Access Keys ----
@@ -1164,7 +1261,12 @@ func (b *InMemoryBackend) DeleteAccessKey(userName, accessKeyID string) error {
 
 	ak, exists := b.accessKeys[accessKeyID]
 	if !exists || ak.UserName != userName {
-		return fmt.Errorf("%w: access key %q not found for user %q", ErrAccessKeyNotFound, accessKeyID, userName)
+		return fmt.Errorf(
+			"%w: access key %q not found for user %q",
+			ErrAccessKeyNotFound,
+			accessKeyID,
+			userName,
+		)
 	}
 
 	delete(b.accessKeys, accessKeyID)
@@ -1173,12 +1275,19 @@ func (b *InMemoryBackend) DeleteAccessKey(userName, accessKeyID string) error {
 }
 
 // ListAccessKeys returns a paginated list of access keys for an IAM user.
-func (b *InMemoryBackend) ListAccessKeys(userName, marker string, maxItems int) (page.Page[AccessKey], error) {
+func (b *InMemoryBackend) ListAccessKeys(
+	userName, marker string,
+	maxItems int,
+) (page.Page[AccessKey], error) {
 	b.mu.RLock("ListAccessKeys")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.users[userName]; !exists {
-		return page.Page[AccessKey]{}, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+		return page.Page[AccessKey]{}, fmt.Errorf(
+			"%w: user %q not found",
+			ErrUserNotFound,
+			userName,
+		)
 	}
 
 	keys := make([]AccessKey, 0, len(b.accessKeys))
@@ -1201,7 +1310,11 @@ func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstancePro
 	defer b.mu.Unlock()
 
 	if _, exists := b.instanceProfiles[name]; exists {
-		return nil, fmt.Errorf("%w: instance profile %q already exists", ErrInstanceProfileAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: instance profile %q already exists",
+			ErrInstanceProfileAlreadyExists,
+			name,
+		)
 	}
 
 	p := normPath(path)
@@ -1214,6 +1327,7 @@ func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstancePro
 		CreateDate:          time.Now().UTC(),
 	}
 	b.instanceProfiles[name] = ip
+	b.sortedIPNames = insertSorted(b.sortedIPNames, name)
 
 	return &ip, nil
 }
@@ -1228,16 +1342,26 @@ func (b *InMemoryBackend) DeleteInstanceProfile(name string) error {
 	}
 
 	delete(b.instanceProfiles, name)
+	b.sortedIPNames = deleteSorted(b.sortedIPNames, name)
 
 	return nil
 }
 
 // ListInstanceProfiles returns a paginated list of IAM instance profiles sorted by name.
-func (b *InMemoryBackend) ListInstanceProfiles(marker string, maxItems int) (page.Page[InstanceProfile], error) {
+func (b *InMemoryBackend) ListInstanceProfiles(
+	marker string,
+	maxItems int,
+) (page.Page[InstanceProfile], error) {
 	b.mu.RLock("ListInstanceProfiles")
 	defer b.mu.RUnlock()
 
-	return page.New(sortedInstanceProfiles(b.instanceProfiles), marker, maxItems, iamDefaultMaxItems), nil
+	return pageFromSortedNames(
+		b.sortedIPNames,
+		b.instanceProfiles,
+		marker,
+		maxItems,
+		iamDefaultMaxItems,
+	), nil
 }
 
 // AddRoleToInstanceProfile adds a role to an IAM instance profile.
@@ -1247,7 +1371,11 @@ func (b *InMemoryBackend) AddRoleToInstanceProfile(instanceProfileName, roleName
 
 	ip, exists := b.instanceProfiles[instanceProfileName]
 	if !exists {
-		return fmt.Errorf("%w: instance profile %q not found", ErrInstanceProfileNotFound, instanceProfileName)
+		return fmt.Errorf(
+			"%w: instance profile %q not found",
+			ErrInstanceProfileNotFound,
+			instanceProfileName,
+		)
 	}
 
 	if _, roleExists := b.roles[roleName]; !roleExists {
@@ -1262,7 +1390,8 @@ func (b *InMemoryBackend) AddRoleToInstanceProfile(instanceProfileName, roleName
 	if len(ip.Roles) >= 1 {
 		return fmt.Errorf(
 			"%w: instance profile %q already has a role; an instance profile can contain only one role",
-			ErrLimitExceeded, instanceProfileName,
+			ErrLimitExceeded,
+			instanceProfileName,
 		)
 	}
 
@@ -1273,13 +1402,19 @@ func (b *InMemoryBackend) AddRoleToInstanceProfile(instanceProfileName, roleName
 }
 
 // RemoveRoleFromInstanceProfile removes a role from an IAM instance profile.
-func (b *InMemoryBackend) RemoveRoleFromInstanceProfile(instanceProfileName, roleName string) error {
+func (b *InMemoryBackend) RemoveRoleFromInstanceProfile(
+	instanceProfileName, roleName string,
+) error {
 	b.mu.Lock("RemoveRoleFromInstanceProfile")
 	defer b.mu.Unlock()
 
 	ip, exists := b.instanceProfiles[instanceProfileName]
 	if !exists {
-		return fmt.Errorf("%w: instance profile %q not found", ErrInstanceProfileNotFound, instanceProfileName)
+		return fmt.Errorf(
+			"%w: instance profile %q not found",
+			ErrInstanceProfileNotFound,
+			instanceProfileName,
+		)
 	}
 
 	for i, r := range ip.Roles {
@@ -1329,7 +1464,10 @@ func (b *InMemoryBackend) ListAllPolicies() []Policy {
 		policies = append(policies, p)
 	}
 
-	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
+	sort.Slice(
+		policies,
+		func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName },
+	)
 
 	return policies
 }
@@ -1514,7 +1652,9 @@ func (b *InMemoryBackend) GetPolicy(policyArn string) (*Policy, error) {
 
 // GetPolicyVersion returns the requested version of a managed policy.
 // If versionID is empty or "v1", the v1 (original) version info is returned.
-func (b *InMemoryBackend) GetPolicyVersion(policyArn, versionID string) (*StoredPolicyVersion, error) {
+func (b *InMemoryBackend) GetPolicyVersion(
+	policyArn, versionID string,
+) (*StoredPolicyVersion, error) {
 	b.mu.RLock("GetPolicyVersion")
 	defer b.mu.RUnlock()
 
@@ -1665,7 +1805,12 @@ func (b *InMemoryBackend) DeleteUserPolicy(userName, policyName string) error {
 	}
 
 	if _, exists := b.userInlinePolicies[userName][policyName]; !exists {
-		return fmt.Errorf("%w: inline policy %q not found on user %q", ErrInlinePolicyNotFound, policyName, userName)
+		return fmt.Errorf(
+			"%w: inline policy %q not found on user %q",
+			ErrInlinePolicyNotFound,
+			policyName,
+			userName,
+		)
 	}
 
 	delete(b.userInlinePolicies[userName], policyName)
@@ -1746,7 +1891,12 @@ func (b *InMemoryBackend) DeleteRolePolicy(roleName, policyName string) error {
 	}
 
 	if _, exists := b.roleInlinePolicies[roleName][policyName]; !exists {
-		return fmt.Errorf("%w: inline policy %q not found on role %q", ErrInlinePolicyNotFound, policyName, roleName)
+		return fmt.Errorf(
+			"%w: inline policy %q not found on role %q",
+			ErrInlinePolicyNotFound,
+			policyName,
+			roleName,
+		)
 	}
 
 	delete(b.roleInlinePolicies[roleName], policyName)
@@ -1827,7 +1977,12 @@ func (b *InMemoryBackend) DeleteGroupPolicy(groupName, policyName string) error 
 	}
 
 	if _, exists := b.groupInlinePolicies[groupName][policyName]; !exists {
-		return fmt.Errorf("%w: inline policy %q not found on group %q", ErrInlinePolicyNotFound, policyName, groupName)
+		return fmt.Errorf(
+			"%w: inline policy %q not found on group %q",
+			ErrInlinePolicyNotFound,
+			policyName,
+			groupName,
+		)
 	}
 
 	delete(b.groupInlinePolicies[groupName], policyName)
@@ -1928,7 +2083,10 @@ func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string
 	}
 
 	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
-		return fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
+		return fmt.Errorf(
+			"%w: invalid JSON in AssumeRolePolicyDocument",
+			ErrMalformedPolicyDocument,
+		)
 	}
 
 	if err := validateTrustPolicyPrincipal(policyDocument); err != nil {
@@ -1955,6 +2113,7 @@ type UserDetail struct {
 
 	AttachedPolicies []AttachedPolicy    `json:"attachedPolicies,omitempty"`
 	InlinePolicies   []InlinePolicyEntry `json:"inlinePolicies,omitempty"`
+	GroupNames       []string            `json:"groupNames,omitempty"`
 }
 
 // GroupDetail holds group data and all associated policies for GetAccountAuthorizationDetails.
@@ -2018,13 +2177,26 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 	b.mu.RLock("GetAccountAuthorizationDetails")
 	defer b.mu.RUnlock()
 
+	// Build reverse group-membership map: userName → []groupName.
+	userGroupMap := make(map[string][]string, len(b.users))
+	for groupName, members := range b.groupMembers {
+		for _, member := range members {
+			userGroupMap[member] = append(userGroupMap[member], groupName)
+		}
+	}
+
 	// Build user details.
 	users := make([]UserDetail, 0, len(b.users))
 	for _, u := range b.users {
 		user := u
 		attached := attachedFromARNs(b.userPolicies[u.UserName])
 		inline := inlineEntries(b.userInlinePolicies[u.UserName])
-		users = append(users, UserDetail{User: user, AttachedPolicies: attached, InlinePolicies: inline})
+		groupNames := userGroupMap[u.UserName]
+		sort.Strings(groupNames)
+		users = append(
+			users,
+			UserDetail{User: user, AttachedPolicies: attached, InlinePolicies: inline, GroupNames: groupNames},
+		)
 	}
 
 	sort.Slice(users, func(i, j int) bool { return users[i].UserName < users[j].UserName })
@@ -2035,7 +2207,10 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 		group := g
 		attached := attachedFromARNs(b.groupPolicies[g.GroupName])
 		inline := inlineEntries(b.groupInlinePolicies[g.GroupName])
-		groups = append(groups, GroupDetail{Group: group, AttachedPolicies: attached, InlinePolicies: inline})
+		groups = append(
+			groups,
+			GroupDetail{Group: group, AttachedPolicies: attached, InlinePolicies: inline},
+		)
 	}
 
 	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
@@ -2046,7 +2221,10 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 		role := r
 		attached := attachedFromARNs(b.rolePolicies[r.RoleName])
 		inline := inlineEntries(b.roleInlinePolicies[r.RoleName])
-		roles = append(roles, RoleDetail{Role: role, AttachedPolicies: attached, InlinePolicies: inline})
+		roles = append(
+			roles,
+			RoleDetail{Role: role, AttachedPolicies: attached, InlinePolicies: inline},
+		)
 	}
 
 	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
@@ -2057,7 +2235,10 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 		policies = append(policies, p)
 	}
 
-	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
+	sort.Slice(
+		policies,
+		func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName },
+	)
 
 	return AccountAuthorizationDetails{
 		Users:    users,
@@ -2101,7 +2282,7 @@ func inlineEntries(m map[string]string) []InlinePolicyEntry {
 // Permission boundaries are enforced: effective permissions = identity policies ∩ boundary.
 // An allow is only returned if both the identity policies allow AND the boundary allows.
 func (b *InMemoryBackend) SimulatePrincipalPolicy(
-	principalArn string, actionNames, resourceArns []string,
+	principalArn string, actionNames, resourceArns []string, ctx ConditionContext,
 ) ([]SimulationResult, error) {
 	b.mu.RLock("SimulatePrincipalPolicy")
 	defer b.mu.RUnlock()
@@ -2129,12 +2310,12 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 
 	for _, action := range actionNames {
 		for _, resource := range resourceArns {
-			evalResult := EvaluatePolicies(docs, action, resource, ConditionContext{})
+			evalResult := EvaluatePolicies(docs, action, resource, ctx)
 
 			// Per-policy detail map.
 			detail := make(map[string]string, len(namedPolicies))
 			for _, np := range namedPolicies {
-				r := EvaluatePolicies([]string{np.Doc}, action, resource, ConditionContext{})
+				r := EvaluatePolicies([]string{np.Doc}, action, resource, ctx)
 				detail[np.SourceID] = evalDecisionStr(r)
 			}
 
@@ -2142,7 +2323,12 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 			var allowedByBoundary *bool
 
 			if hasBoundary {
-				boundaryResult := EvaluatePolicies([]string{boundaryDoc}, action, resource, ConditionContext{})
+				boundaryResult := EvaluatePolicies(
+					[]string{boundaryDoc},
+					action,
+					resource,
+					ctx,
+				)
 				allowed := boundaryResult == EvalAllow
 
 				allowedByBoundary = &allowed
@@ -2202,7 +2388,9 @@ func (b *InMemoryBackend) collectBoundaryDoc(principalArn string) string {
 // collectNamedPrincipalPolicies returns named policy documents for the given principal ARN.
 // Each entry contains the policy source ID (ARN for managed, name for inline) and document.
 // Caller must hold b.mu read-locked.
-func (b *InMemoryBackend) collectNamedPrincipalPolicies(principalArn string) ([]namedPolicyDoc, error) {
+func (b *InMemoryBackend) collectNamedPrincipalPolicies(
+	principalArn string,
+) ([]namedPolicyDoc, error) {
 	const (
 		userPrefix = ":user/"
 		rolePrefix = ":role/"
@@ -2217,7 +2405,10 @@ func (b *InMemoryBackend) collectNamedPrincipalPolicies(principalArn string) ([]
 			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 		}
 
-		named := b.collectNamedEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName])
+		named := b.collectNamedEntityPolicies(
+			b.userPolicies[userName],
+			b.userInlinePolicies[userName],
+		)
 
 		// Add group-inherited policies.
 		for groupName, members := range b.groupMembers {
@@ -2225,8 +2416,12 @@ func (b *InMemoryBackend) collectNamedPrincipalPolicies(principalArn string) ([]
 				continue
 			}
 
-			named = append(named,
-				b.collectNamedEntityPolicies(b.groupPolicies[groupName], b.groupInlinePolicies[groupName])...)
+			named = append(
+				named,
+				b.collectNamedEntityPolicies(
+					b.groupPolicies[groupName],
+					b.groupInlinePolicies[groupName],
+				)...)
 		}
 
 		return named, nil
@@ -2239,14 +2434,22 @@ func (b *InMemoryBackend) collectNamedPrincipalPolicies(principalArn string) ([]
 			return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 		}
 
-		return b.collectNamedEntityPolicies(b.rolePolicies[roleName], b.roleInlinePolicies[roleName]), nil
+		return b.collectNamedEntityPolicies(
+			b.rolePolicies[roleName],
+			b.roleInlinePolicies[roleName],
+		), nil
 
 	default:
-		return nil, fmt.Errorf("%w: unsupported principal ARN format %q", ErrUserNotFound, principalArn)
+		return nil, fmt.Errorf(
+			"%w: unsupported principal ARN format %q",
+			ErrUserNotFound,
+			principalArn,
+		)
 	}
 }
 
 // collectNamedEntityPolicies collects named policy docs from attached ARNs and inline policies.
+// Uses policyByARN for O(1) ARN-to-name resolution instead of O(n) map scan.
 // Caller must hold b.mu read-locked.
 func (b *InMemoryBackend) collectNamedEntityPolicies(
 	attachedARNs []string, inlinePols map[string]string,
@@ -2254,12 +2457,14 @@ func (b *InMemoryBackend) collectNamedEntityPolicies(
 	var named []namedPolicyDoc
 
 	for _, policyArn := range attachedARNs {
-		for _, p := range b.policies {
-			if p.Arn == policyArn && p.PolicyDocument != "" {
-				named = append(named, namedPolicyDoc{SourceID: p.Arn, Doc: p.PolicyDocument})
+		polName, ok := b.policyByARN[policyArn]
+		if !ok {
+			continue
+		}
 
-				break
-			}
+		p, ok := b.policies[polName]
+		if ok && p.PolicyDocument != "" {
+			named = append(named, namedPolicyDoc{SourceID: p.Arn, Doc: p.PolicyDocument})
 		}
 	}
 
@@ -2305,6 +2510,11 @@ func (b *InMemoryBackend) Reset() {
 	b.signingCertificates = make(map[string]SigningCertificate)
 	b.serverCertificates = make(map[string]ServerCertificate)
 	b.delegationRequests = make(map[string]DelegationRequest)
+	b.sortedUserNames = nil
+	b.sortedRoleNames = nil
+	b.sortedPolicyNames = nil
+	b.sortedGroupNames = nil
+	b.sortedIPNames = nil
 	b.ResetComprehensiveBackend()
 }
 

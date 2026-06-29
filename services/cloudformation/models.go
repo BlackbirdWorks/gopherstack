@@ -104,14 +104,15 @@ type StackEvent struct {
 
 // StackResource represents a resource within a stack.
 type StackResource struct {
-	Timestamp  time.Time      `json:"timestamp"`
-	Properties map[string]any `json:"properties,omitempty"`
-	LogicalID  string         `json:"logicalID"`
-	PhysicalID string         `json:"physicalID"`
-	Type       string         `json:"type"`
-	Status     string         `json:"status"`
-	StackID    string         `json:"stackID"`
-	StackName  string         `json:"stackName"`
+	Timestamp      time.Time      `json:"timestamp"`
+	Properties     map[string]any `json:"properties,omitempty"`
+	LogicalID      string         `json:"logicalID"`
+	PhysicalID     string         `json:"physicalID"`
+	Type           string         `json:"type"`
+	Status         string         `json:"status"`
+	StackID        string         `json:"stackID"`
+	StackName      string         `json:"stackName"`
+	DeletionPolicy string         `json:"deletionPolicy,omitempty"`
 }
 
 // ChangeSet represents a CloudFormation change set.
@@ -370,4 +371,44 @@ type ChangeSetHook struct {
 	TypeName          string `xml:"TypeName,omitempty"`
 	TypeVersionID     string `xml:"TypeVersionId,omitempty"`
 	TypeConfigVersion string `xml:"TypeConfigVersionId,omitempty"`
+}
+
+// StackSetOperationSummary is a brief summary of a StackSet operation.
+type StackSetOperationSummary struct {
+	CreationTime time.Time `xml:"CreationTime,omitempty"`
+	OperationID  string    `xml:"OperationId"`
+	Action       string    `xml:"Action"`
+	Status       string    `xml:"Status"`
+}
+
+// AutoDeploymentTarget represents a deployment target for a SERVICE_MANAGED StackSet.
+type AutoDeploymentTarget struct {
+	OrganizationalUnitID string   `xml:"OrganizationalUnitId,omitempty"`
+	Regions              []string `xml:"Regions>member,omitempty"`
+}
+
+// StackRefactorSummary is a brief summary of a stack refactor operation.
+type StackRefactorSummary struct {
+	StackRefactorID string `xml:"StackRefactorId"`
+	Status          string `xml:"Status,omitempty"`
+	Description     string `xml:"Description,omitempty"`
+}
+
+// StackRefactorAction is a single action performed during a stack refactor.
+type StackRefactorAction struct {
+	Action             string `xml:"Action,omitempty"`
+	Description        string `xml:"Description,omitempty"`
+	StackName          string `xml:"StackName,omitempty"`
+	LogicalResourceID  string `xml:"LogicalResourceId,omitempty"`
+	PhysicalResourceID string `xml:"PhysicalResourceId,omitempty"`
+	ResourceType       string `xml:"ResourceType,omitempty"`
+}
+
+// TypeConfigurationDetail holds configuration detail for a CloudFormation type.
+type TypeConfigurationDetail struct {
+	TypeArn                string `xml:"TypeArn,omitempty"`
+	TypeName               string `xml:"TypeName,omitempty"`
+	Alias                  string `xml:"Alias,omitempty"`
+	Configuration          string `xml:"Configuration,omitempty"`
+	IsDefaultConfiguration bool   `xml:"IsDefaultConfiguration,omitempty"`
 }

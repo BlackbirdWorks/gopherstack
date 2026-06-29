@@ -176,6 +176,14 @@ func (n *noopBackend) CreateAPIKey(_ apigateway.CreateAPIKeyInput) (*apigateway.
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) ImportAPIKeys(_ string, _ []byte) ([]string, []string, error) {
+	return nil, nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetDomainNameAccessAssociations() ([]apigateway.DomainNameAccessAssociation, error) {
+	return nil, errNoopNotImplemented
+}
+
 func (n *noopBackend) CreateBasePathMapping(
 	_ apigateway.CreateBasePathMappingInput,
 ) (*apigateway.BasePathMapping, error) {
@@ -1281,6 +1289,13 @@ func TestHandler_GetAndDeleteDeployment(t *testing.T) {
 			require.NoError(t, json.Unmarshal(deplRec.Body.Bytes(), &depl))
 			deplID := depl["id"].(string)
 
+			if tt.action == "DeleteDeployment" {
+				// Delete the referencing stage first so the deployment can be removed.
+				stageRec := restRequest(t, h, http.MethodDelete,
+					fmt.Sprintf("/restapis/%s/stages/prod", apiID), "")
+				require.Equal(t, http.StatusNoContent, stageRec.Code)
+			}
+
 			rec := postWithHandler(t, h, e, tt.action,
 				fmt.Sprintf(`{"restApiId":%q,"deploymentId":%q}`, apiID, deplID))
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -1376,7 +1391,7 @@ func TestHandler_RESTPath_Deployments(t *testing.T) {
 			method: http.MethodDelete,
 			setup: func(b *apigateway.InMemoryBackend) string {
 				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
-				dep, _ := b.CreateDeployment(api.ID, "prod", "")
+				dep, _ := b.CreateDeployment(api.ID, "", "")
 
 				return fmt.Sprintf("/restapis/%s/deployments/%s", api.ID, dep.ID)
 			},

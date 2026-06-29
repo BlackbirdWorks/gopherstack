@@ -293,7 +293,9 @@ func TestRefinement1_GetTableBucketReplication(t *testing.T) {
 				if tt.wantCode == http.StatusOK {
 					result := parseResponse(t, rec)
 					assert.Equal(t, bucketARN, result["tableBucketARN"])
-					dests, ok := result["destinations"].([]any)
+					replCfg, ok := result["replicationConfiguration"].(map[string]any)
+					require.True(t, ok)
+					dests, ok := replCfg["destinations"].([]any)
 					require.True(t, ok)
 					assert.Len(t, dests, 1)
 				}
@@ -603,7 +605,7 @@ func TestRefinement1_GetTableRecordExpirationConfiguration(t *testing.T) {
 				if tt.wantCode == http.StatusOK {
 					result := parseResponse(t, rec)
 					assert.Equal(t, tt.wantStatus, result["status"])
-					assert.Equal(t, tableARN, result["tableArn"])
+					assert.Equal(t, tableARN, result["tableARN"])
 				}
 			} else {
 				q := url.Values{}

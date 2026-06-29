@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -216,6 +217,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeByoipCidrs",
 		"DescribeHosts",
 		"DescribeVpcPeeringConnections",
+		"CreateFleet",
 	}, extOps...)
 }
 
@@ -382,6 +384,9 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerBatch4Ops(h, ops)
 	registerBatch5Ops(h, ops)
 	registerStubOps(h, ops)
+	// registerAuditOps overrides stub entries with real implementations for
+	// instance-modify and event-window-association operations.
+	registerAuditOps(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
 	// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
@@ -602,7 +607,15 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		_, _ = fmt.Sscan(tok, &offset)
+		decoded, decErr := base64.StdEncoding.DecodeString(tok)
+		if decErr != nil {
+			return nil, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		}
+		n, parseErr := strconv.Atoi(string(decoded))
+		if parseErr != nil || n < 0 {
+			return nil, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		}
+		offset = n
 	}
 
 	var nextToken string
@@ -615,7 +628,9 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		instances = instances[offset:]
 
 		if len(instances) > maxResults {
-			nextToken = strconv.Itoa(offset + maxResults)
+			nextToken = base64.StdEncoding.EncodeToString(
+				[]byte(strconv.Itoa(offset + maxResults)),
+			)
 			instances = instances[:maxResults]
 		}
 	}
@@ -750,6 +765,9 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 	ids := parseMemberList(vals, "VpcId")
 	vpcs := h.Backend.DescribeVpcs(ids)
 
+	filters := parseEC2Filters(vals)
+	vpcs = applyVPCFilters(vpcs, filters, h.Backend)
+
 	items := make([]vpcItem, 0, len(vpcs))
 	for _, v := range vpcs {
 		items = append(items, toVPCItem(v))
@@ -782,15 +800,41 @@ func (h *Handler) handleDescribeVpcAttribute(vals url.Values, reqID string) (any
 	vpcID := vals.Get("VpcId")
 	attr := vals.Get("Attribute")
 
-	// Return false for all VPC boolean attributes (enableDnsHostnames, enableDnsSupport, etc.).
-	// Terraform reads these to set up VPC configuration. The attribute name is used as the
-	// XML element name to match the AWS EC2 API response format.
+	attrValue := vpcAttributeValue(h.Backend.DescribeVpcs([]string{vpcID}), attr)
+
 	return &describeVpcAttributeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		VpcID:     vpcID,
-		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: ec2BooleanFalse},
+		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: attrValue},
 	}, nil
+}
+
+// vpcAttributeValue reads the persisted boolean value for a VPC attribute.
+// enableDnsSupport defaults to true (AWS default); all others default to false.
+func vpcAttributeValue(vpcs []*VPC, attr string) string {
+	if len(vpcs) == 0 {
+		if attr == attrEnableDNSSupport {
+			return ec2BooleanTrue
+		}
+
+		return ec2BooleanFalse
+	}
+
+	vpc := vpcs[0]
+	if v, ok := vpc.Attributes[attr]; ok {
+		if v {
+			return ec2BooleanTrue
+		}
+
+		return ec2BooleanFalse
+	}
+
+	if attr == attrEnableDNSSupport {
+		return ec2BooleanTrue
+	}
+
+	return ec2BooleanFalse
 }
 
 func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
@@ -817,6 +861,9 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SubnetId")
 	subnets := h.Backend.DescribeSubnets(ids)
+
+	filters := parseEC2Filters(vals)
+	subnets = applySubnetFilters(subnets, filters, h.Backend)
 
 	items := make([]subnetItem, 0, len(subnets))
 	for _, s := range subnets {
@@ -1044,10 +1091,13 @@ var validDescribeTagsFilters = map[string]bool{
 }
 
 // handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
-// If a filter with Name=resource-id is present, only tags for those resource IDs are returned.
+// Supports resource-id, key, value, and resource-type filters.
 // Unknown filter names are rejected with InvalidParameterValue per AWS behaviour.
 func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error) {
 	var resourceIDs []string
+
+	// keyFilters, valueFilters, typeFilters are post-fetch AND filters.
+	var keyFilters, valueFilters, typeFilters []string
 
 	for i := 1; i <= maxFiltersPerRequest; i++ {
 		name := vals.Get(fmt.Sprintf("Filter.%d.Name", i))
@@ -1063,8 +1113,17 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 			)
 		}
 
-		if name == "resource-id" {
-			resourceIDs = parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
+		filterVals := parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
+
+		switch name {
+		case "resource-id":
+			resourceIDs = filterVals
+		case "key":
+			keyFilters = filterVals
+		case "value":
+			valueFilters = filterVals
+		case "resource-type":
+			typeFilters = filterVals
 		}
 	}
 
@@ -1072,6 +1131,15 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 
 	items := make([]tagItem, 0, len(entries))
 	for _, e := range entries {
+		if len(keyFilters) > 0 && !anyEqual(e.Key, keyFilters) {
+			continue
+		}
+		if len(valueFilters) > 0 && !anyEqual(e.Value, valueFilters) {
+			continue
+		}
+		if len(typeFilters) > 0 && !anyEqual(e.ResourceType, typeFilters) {
+			continue
+		}
 		items = append(items, tagItem(e))
 	}
 
@@ -1210,6 +1278,7 @@ var errCodeLookup = []struct {
 	{ErrVpcEndpointNotFound, "InvalidVpcEndpointService.NotFound"},
 	{ErrByoipCidrNotFound, "InvalidByoipCidr.NotFound"},
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
+	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
 	{ErrCIDRConflict, "InvalidVpc.Conflict"},
 	{ErrInvalidParameter, "InvalidParameterValue"},
 }
@@ -1374,7 +1443,7 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		groupItems = append(groupItems, instanceGroupItem{GroupID: sgID})
 	}
 
-	return instanceItem{
+	item := instanceItem{
 		InstanceID:       inst.ID,
 		ImageID:          inst.ImageID,
 		InstanceType:     inst.InstanceType,
@@ -1388,7 +1457,32 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		KeyName:          inst.KeyName,
 		GroupSet:         instanceGroupSet{Items: groupItems},
 		TagSet:           instanceTagItemSet{Items: tagItems},
+		Placement: instancePlacementItem{
+			Tenancy:          inst.Placement.Tenancy,
+			AvailabilityZone: inst.Placement.AvailabilityZone,
+			GroupName:        inst.Placement.GroupName,
+			Affinity:         inst.Placement.Affinity,
+		},
 	}
+
+	if inst.CPUOptions.CoreCount > 0 || inst.CPUOptions.ThreadsPerCore > 0 {
+		item.CPUOptions = &instanceCPUOptionsItem{
+			CoreCount:      inst.CPUOptions.CoreCount,
+			ThreadsPerCore: inst.CPUOptions.ThreadsPerCore,
+		}
+	}
+	if inst.MaintenanceOptions.AutoRecovery != "" {
+		item.MaintenanceOptions = &instanceMaintenanceOptionsItem{
+			AutoRecovery: inst.MaintenanceOptions.AutoRecovery,
+		}
+	}
+	if inst.NetworkPerformanceOptions.BandwidthWeighting != "" {
+		item.NetworkPerformanceOptions = &instanceNetworkPerformanceOptionsItem{
+			BandwidthWeighting: inst.NetworkPerformanceOptions.BandwidthWeighting,
+		}
+	}
+
+	return item
 }
 
 func toSGItem(sg *SecurityGroup) sgItem {
@@ -1455,20 +1549,44 @@ type instanceGroupSet struct {
 	Items []instanceGroupItem `xml:"item"`
 }
 
+type instancePlacementItem struct {
+	Tenancy          string `xml:"tenancy,omitempty"`
+	AvailabilityZone string `xml:"availabilityZone,omitempty"`
+	GroupName        string `xml:"groupName,omitempty"`
+	Affinity         string `xml:"affinity,omitempty"`
+}
+
+type instanceCPUOptionsItem struct {
+	CoreCount      int `xml:"coreCount"`
+	ThreadsPerCore int `xml:"threadsPerCore"`
+}
+
+type instanceMaintenanceOptionsItem struct {
+	AutoRecovery string `xml:"autoRecovery,omitempty"`
+}
+
+type instanceNetworkPerformanceOptionsItem struct {
+	BandwidthWeighting string `xml:"bandwidthWeighting,omitempty"`
+}
+
 type instanceItem struct {
-	LaunchTime       string             `xml:"launchTime"`
-	InstanceID       string             `xml:"instanceId"`
-	ImageID          string             `xml:"imageId"`
-	InstanceType     string             `xml:"instanceType"`
-	VPCID            string             `xml:"vpcId,omitempty"`
-	SubnetID         string             `xml:"subnetId,omitempty"`
-	PrivateIPAddress string             `xml:"privateIpAddress,omitempty"`
-	PublicIPAddress  string             `xml:"ipAddress,omitempty"`
-	PublicDNSName    string             `xml:"dnsName,omitempty"`
-	KeyName          string             `xml:"keyName,omitempty"`
-	StateItem        stateItem          `xml:"instanceState"`
-	GroupSet         instanceGroupSet   `xml:"groupSet"`
-	TagSet           instanceTagItemSet `xml:"tagSet"`
+	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
+	MaintenanceOptions        *instanceMaintenanceOptionsItem        `xml:"maintenanceOptions,omitempty"`
+	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
+	Placement                 instancePlacementItem                  `xml:"placement"`
+	PublicDNSName             string                                 `xml:"dnsName,omitempty"`
+	SubnetID                  string                                 `xml:"subnetId,omitempty"`
+	PrivateIPAddress          string                                 `xml:"privateIpAddress,omitempty"`
+	PublicIPAddress           string                                 `xml:"ipAddress,omitempty"`
+	LaunchTime                string                                 `xml:"launchTime"`
+	KeyName                   string                                 `xml:"keyName,omitempty"`
+	VPCID                     string                                 `xml:"vpcId,omitempty"`
+	InstanceType              string                                 `xml:"instanceType"`
+	ImageID                   string                                 `xml:"imageId"`
+	InstanceID                string                                 `xml:"instanceId"`
+	StateItem                 stateItem                              `xml:"instanceState"`
+	GroupSet                  instanceGroupSet                       `xml:"groupSet"`
+	TagSet                    instanceTagItemSet                     `xml:"tagSet"`
 }
 
 // instanceTagItem is the embedded per-instance tag entry in DescribeInstances

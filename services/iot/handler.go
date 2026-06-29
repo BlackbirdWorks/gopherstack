@@ -37,6 +37,7 @@ const (
 	keyPolicyDocument          = "policyDocument"
 	keyAttributes              = "attributes"
 	keyVersion                 = "version"
+	keyTimestamp               = "timestamp"
 	keyStatus                  = "status"
 	keyArn                     = "arn"
 	keyCreationDate            = "creationDate"
@@ -79,6 +80,10 @@ const (
 	opListTopicRules                   = "ListTopicRules"
 	opReplaceTopicRule                 = "ReplaceTopicRule"
 	opUpdateThing                      = "UpdateThing"
+	opGetThingShadow                   = "GetThingShadow"
+	opUpdateThingShadow                = "UpdateThingShadow"
+	opDeleteThingShadow                = "DeleteThingShadow"
+	opListNamedShadowsForThing         = "ListNamedShadowsForThing"
 )
 
 // New operation name constants for stateful implementations.
@@ -191,6 +196,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListTopicRules,
 		opReplaceTopicRule,
 		opUpdateThing,
+		// Device Shadows
+		opGetThingShadow,
+		opUpdateThingShadow,
+		opDeleteThingShadow,
+		opListNamedShadowsForThing,
 		// ThingType
 		opCreateThingType,
 		opDescribeThingType,
@@ -448,6 +458,7 @@ func matchIoTPath(path string) bool {
 func matchCoreIoTPath(path string) bool {
 	return strings.HasPrefix(path, "/things/") ||
 		path == "/things" ||
+		strings.HasPrefix(path, "/api/things/shadow/") ||
 		strings.HasPrefix(path, "/rules/") ||
 		path == "/rules" ||
 		strings.HasPrefix(path, "/target-policies/") ||
@@ -542,6 +553,10 @@ func resolveOperation(path, method string) string {
 	case path == "/things/register" && method == http.MethodPost:
 
 		return opRegisterThing
+	// ListNamedShadowsForThing uses a special /api/things/shadow/ prefix.
+	case strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/"):
+
+		return opListNamedShadowsForThing
 	// Batch 2: /things/{name}/thing-groups, /things/{name}/jobs before generic thing routing
 	case strings.HasPrefix(path, "/things/") &&
 		strings.HasSuffix(path, "/thing-groups") &&
@@ -553,6 +568,10 @@ func resolveOperation(path, method string) string {
 		method == http.MethodGet:
 
 		return opListJobExecutionsForThing
+	// Shadow ops use /things/{name}/shadow — must come before generic thing routing.
+	case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
+
+		return shadowOperation(method)
 	case strings.HasPrefix(path, "/things/"):
 
 		return thingOperation(path, method)
@@ -565,6 +584,11 @@ func resolveOperation(path, method string) string {
 	case path == "/endpoint" && method == http.MethodGet:
 
 		return opDescribeEndpoint
+	}
+
+	// Policy version ops must be checked before generic policy ops (version paths share /policies/ prefix).
+	if op := resolvePolicyVersionOps(path, method); op != unknownOperation {
+		return op
 	}
 
 	if op := resolvePolicyAndCertOps(path, method); op != unknownOperation {
@@ -793,8 +817,8 @@ func resolvePolicyVersionSubOps(path, method string) string {
 		return unknownOperation
 	}
 
-	hasVersionSlash := strings.Contains(path, "/version/")
-	endsVersion := strings.HasSuffix(path, "/version")
+	hasVersionSlash := strings.Contains(path, "/versions/")
+	endsVersion := strings.HasSuffix(path, "/versions")
 	endsDefault := strings.HasSuffix(path, "/default")
 
 	return resolvePolicyVersionByMethod(path, method, hasVersionSlash, endsVersion, endsDefault)
@@ -822,7 +846,7 @@ func resolvePolicyVersionByMethod(
 			return opSetDefaultPolicyVersion
 		}
 	case http.MethodPost:
-		if strings.Contains(path, "/version") && !endsDefault {
+		if strings.Contains(path, "/versions") && !endsDefault {
 			return opCreatePolicyVersion
 		}
 	}
@@ -942,6 +966,19 @@ func resolveJobAndAuditOps(path, method string) string {
 		method == http.MethodPut:
 
 		return opCancelAuditTask
+	}
+
+	return unknownOperation
+}
+
+func shadowOperation(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opGetThingShadow
+	case http.MethodPost:
+		return opUpdateThingShadow
+	case http.MethodDelete:
+		return opDeleteThingShadow
 	}
 
 	return unknownOperation
@@ -1074,6 +1111,18 @@ func (h *Handler) dispatchThingOps(c *echo.Context, op string) (bool, error) {
 	case opListThingPrincipals:
 
 		return true, h.handleListThingPrincipals(c)
+	case opGetThingShadow:
+
+		return true, h.handleGetThingShadow(c)
+	case opUpdateThingShadow:
+
+		return true, h.handleUpdateThingShadow(c)
+	case opDeleteThingShadow:
+
+		return true, h.handleDeleteThingShadow(c)
+	case opListNamedShadowsForThing:
+
+		return true, h.handleListNamedShadowsForThing(c)
 	}
 
 	return false, nil
@@ -1626,7 +1675,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, ErrCertificateNotFound),
 		errors.Is(err, ErrCertificateProviderNotFound),
 		errors.Is(err, ErrTopicRuleDestinationNotFound),
-		errors.Is(err, ErrPolicyVersionNotFound):
+		errors.Is(err, ErrPolicyVersionNotFound),
+		errors.Is(err, ErrShadowNotFound):
 
 		return c.JSON(http.StatusNotFound, awsErr{"ResourceNotFoundException", err.Error()})
 	case errors.Is(err, ErrValidation):
@@ -1641,6 +1691,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrDeleteConflict):
 
 		return c.JSON(http.StatusConflict, awsErr{"DeleteConflictException", err.Error()})
+	case errors.Is(err, ErrVersionsLimitExceeded):
+
+		return c.JSON(http.StatusConflict, awsErr{"VersionsLimitExceededException", err.Error()})
 	default:
 
 		return c.JSON(
@@ -1688,12 +1741,13 @@ func (h *Handler) handleDescribeThing(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyThingName:     t.ThingName,
-		keyThingArn:      t.ARN,
-		"thingId":        t.ThingID,
-		keyThingTypeName: t.ThingTypeName,
-		keyAttributes:    t.Attributes,
-		keyVersion:       t.Version,
+		keyThingName:      t.ThingName,
+		keyThingArn:       t.ARN,
+		"thingId":         t.ThingID,
+		keyThingTypeName:  t.ThingTypeName,
+		keyAttributes:     t.Attributes,
+		keyVersion:        t.Version,
+		"defaultClientId": t.ThingName,
 	})
 }
 
@@ -1710,18 +1764,35 @@ func (h *Handler) handleDeleteThing(c *echo.Context) error {
 func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
-	var payload TopicRulePayload
-
-	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil &&
-		!errors.Is(err, io.EOF) {
+	rawBody, err := io.ReadAll(c.Request().Body)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
-	if err := h.Backend.CreateTopicRule(&CreateTopicRuleInput{
+	// Accept both wrapped {"topicRulePayload":{...}} and flat {...} formats.
+	var wrapped struct {
+		TopicRulePayload *TopicRulePayload `json:"topicRulePayload"`
+	}
+	if jsonErr := json.Unmarshal(rawBody, &wrapped); jsonErr != nil && !errors.Is(jsonErr, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: jsonErr.Error()})
+	}
+
+	payload := wrapped.TopicRulePayload
+	if payload == nil {
+		var flat TopicRulePayload
+		if jsonErr := json.Unmarshal(rawBody, &flat); jsonErr == nil && flat.SQL != "" {
+			payload = &flat
+		}
+	}
+	if payload == nil {
+		payload = &TopicRulePayload{}
+	}
+
+	if createErr := h.Backend.CreateTopicRule(&CreateTopicRuleInput{
 		RuleName:         ruleName,
-		TopicRulePayload: &payload,
-	}); err != nil {
-		return h.handleError(c, err)
+		TopicRulePayload: payload,
+	}); createErr != nil {
+		return h.handleError(c, createErr)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -2209,16 +2280,23 @@ func (h *Handler) handleEnableTopicRule(c *echo.Context) error {
 func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
-	var payload TopicRulePayload
+	var body struct {
+		TopicRulePayload *TopicRulePayload `json:"topicRulePayload"`
+	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil &&
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
+	payload := body.TopicRulePayload
+	if payload == nil {
+		payload = &TopicRulePayload{}
+	}
+
 	if err := h.Backend.ReplaceTopicRule(&ReplaceTopicRuleInput{
 		RuleName:         ruleName,
-		TopicRulePayload: &payload,
+		TopicRulePayload: payload,
 	}); err != nil {
 		return h.handleError(c, err)
 	}
@@ -2237,6 +2315,81 @@ func (h *Handler) handleListThingPrincipals(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"principals": principals})
+}
+
+// -----------------------------------------------------------
+// Device Shadow handlers
+// -----------------------------------------------------------
+
+func shadowThingAndName(c *echo.Context) (string, string) {
+	after := strings.TrimPrefix(c.Request().URL.Path, "/things/")
+	thingName := strings.TrimSuffix(after, "/shadow")
+	shadowName := c.Request().URL.Query().Get("name")
+
+	return thingName, shadowName
+}
+
+func (h *Handler) handleGetThingShadow(c *echo.Context) error {
+	thingName, shadowName := shadowThingAndName(c)
+	s, err := h.Backend.GetThingShadow(thingName, shadowName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"state":      s.State,
+		keyVersion:   s.Version,
+		keyTimestamp: 0,
+	})
+}
+
+func (h *Handler) handleUpdateThingShadow(c *echo.Context) error {
+	thingName, shadowName := shadowThingAndName(c)
+
+	var body struct {
+		State map[string]any `json:"state"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+	}
+
+	s, err := h.Backend.UpdateThingShadow(thingName, shadowName, body.State)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"state":      s.State,
+		keyVersion:   s.Version,
+		keyTimestamp: 0,
+	})
+}
+
+func (h *Handler) handleDeleteThingShadow(c *echo.Context) error {
+	thingName, shadowName := shadowThingAndName(c)
+	if err := h.Backend.DeleteThingShadow(thingName, shadowName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyVersion: 0, keyTimestamp: 0})
+}
+
+func (h *Handler) handleListNamedShadowsForThing(c *echo.Context) error {
+	thingName := strings.TrimPrefix(
+		c.Request().URL.Path, "/api/things/shadow/ListNamedShadowsForThing/",
+	)
+	names, err := h.Backend.ListNamedShadowsForThing(thingName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	if names == nil {
+		names = []string{}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"results": names, keyTimestamp: 0})
 }
 
 // -----------------------------------------------------------
@@ -2612,6 +2765,7 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 			keyStatus:           cert.Status,
 			keyCreationDate:     cert.CreatedAt,
 			keyLastModifiedDate: cert.LastModifiedAt,
+			"certificatePem":    cert.PEM,
 		},
 	})
 }
@@ -2703,7 +2857,7 @@ func (h *Handler) handleListAttachedPolicies(c *echo.Context) error {
 
 func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
-	policyName := strings.TrimSuffix(after, "/version")
+	policyName := strings.TrimSuffix(after, "/versions")
 
 	var body struct {
 		PolicyDocument string `json:"policyDocument"`
@@ -2734,16 +2888,26 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 
 func (h *Handler) handleGetPolicyVersion(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
-	parts := strings.SplitN(after, "/version/", maxPathSegments)
+	parts := strings.SplitN(after, "/versions/", maxPathSegments)
 	if len(parts) != maxPathSegments {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
 	}
-	pv, err := h.Backend.GetPolicyVersion(parts[0], parts[1])
+
+	policyName := parts[0]
+	pv, err := h.Backend.GetPolicyVersion(policyName, parts[1])
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
+	policy, _ := h.Backend.GetPolicy(policyName)
+	policyARN := ""
+	if policy != nil {
+		policyARN = policy.PolicyARN
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
+		keyPolicyName:       policyName,
+		keyPolicyArn:        policyARN,
 		keyPolicyVersionID:  pv.VersionID,
 		keyPolicyDocument:   pv.PolicyDocument,
 		keyIsDefaultVersion: pv.IsDefaultVersion,
@@ -2753,7 +2917,7 @@ func (h *Handler) handleGetPolicyVersion(c *echo.Context) error {
 
 func (h *Handler) handleListPolicyVersions(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
-	policyName := strings.TrimSuffix(after, "/version")
+	policyName := strings.TrimSuffix(after, "/versions")
 	versions, err := h.Backend.ListPolicyVersions(policyName)
 	if err != nil {
 		return h.handleError(c, err)
@@ -2772,7 +2936,7 @@ func (h *Handler) handleListPolicyVersions(c *echo.Context) error {
 
 func (h *Handler) handleDeletePolicyVersion(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
-	parts := strings.SplitN(after, "/version/", maxPathSegments)
+	parts := strings.SplitN(after, "/versions/", maxPathSegments)
 	if len(parts) != maxPathSegments {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
 	}
@@ -2786,7 +2950,7 @@ func (h *Handler) handleDeletePolicyVersion(c *echo.Context) error {
 func (h *Handler) handleSetDefaultPolicyVersion(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
 	after = strings.TrimSuffix(after, "/default")
-	parts := strings.SplitN(after, "/version/", maxPathSegments)
+	parts := strings.SplitN(after, "/versions/", maxPathSegments)
 	if len(parts) != maxPathSegments {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
 	}

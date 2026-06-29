@@ -383,14 +383,14 @@ func TestGetComplianceSummaryByConfigRule_Aggregates(t *testing.T) {
 				t.Errorf("ComplianceType = %q, want %q", got.ComplianceType, tc.wantType)
 			}
 
-			if got.ComplianceSummaryByConfigRule.CompliantResourceCount != tc.wantCompliant {
+			if got.ComplianceSummary.CompliantResourceCount.CappedCount != tc.wantCompliant {
 				t.Errorf("CompliantResourceCount = %d, want %d",
-					got.ComplianceSummaryByConfigRule.CompliantResourceCount, tc.wantCompliant)
+					got.ComplianceSummary.CompliantResourceCount.CappedCount, tc.wantCompliant)
 			}
 
-			if got.ComplianceSummaryByConfigRule.NonCompliantResourceCount != tc.wantNonCompliant {
+			if got.ComplianceSummary.NonCompliantResourceCount.CappedCount != tc.wantNonCompliant {
 				t.Errorf("NonCompliantResourceCount = %d, want %d",
-					got.ComplianceSummaryByConfigRule.NonCompliantResourceCount, tc.wantNonCompliant)
+					got.ComplianceSummary.NonCompliantResourceCount.CappedCount, tc.wantNonCompliant)
 			}
 		})
 	}
@@ -402,7 +402,7 @@ func TestDescribeDeliveryChannelStatus(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutDeliveryChannel("chan1", "my-bucket", "")
+	_ = b.PutDeliveryChannel("chan1", "my-bucket", "", "", nil)
 
 	statuses := b.DescribeDeliveryChannelStatus(nil)
 	if len(statuses) != 1 || statuses[0].Name != "chan1" {
@@ -414,8 +414,8 @@ func TestDescribeDeliveryChannelStatus_Filtered(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutDeliveryChannel("chan1", "bucket1", "")
-	_ = b.PutDeliveryChannel("chan2", "bucket2", "")
+	_ = b.PutDeliveryChannel("chan1", "bucket1", "", "", nil)
+	_ = b.PutDeliveryChannel("chan2", "bucket2", "", "", nil)
 
 	statuses := b.DescribeDeliveryChannelStatus([]string{"chan1"})
 	if len(statuses) != 1 || statuses[0].Name != "chan1" {
@@ -429,7 +429,7 @@ func TestDescribeConformancePackStatus(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutConformancePack("pack1")
+	_ = b.PutConformancePack("pack1", "", "")
 
 	statuses := b.DescribeConformancePackStatus(nil)
 	if len(statuses) != 1 || statuses[0].ConformancePackName != "pack1" {

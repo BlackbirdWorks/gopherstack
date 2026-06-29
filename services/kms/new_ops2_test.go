@@ -1128,15 +1128,25 @@ func TestKMSBackendNewMaintenanceOps(t *testing.T) {
 
 				key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{MultiRegion: true})
 				require.NoError(t, err)
+				primaryID := key.KeyMetadata.KeyID
+
+				// Replicate to eu-west-1 first — UpdatePrimaryRegion requires an actual replica.
+				_, err = b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
+					KeyID:         primaryID,
+					ReplicaRegion: "eu-west-1",
+				})
+				require.NoError(t, err)
 
 				err = b.UpdatePrimaryRegion(context.Background(), &kms.UpdatePrimaryRegionInput{
-					KeyID:         key.KeyMetadata.KeyID,
+					KeyID:         primaryID,
 					PrimaryRegion: "eu-west-1",
 				})
 				require.NoError(t, err)
 
+				// After promotion, replicate from the NEW primary (the eu-west-1 key promoted to primary)
+				// OR replicate from the old primary which is now a replica — both keys are still multi-region.
 				replica, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
-					KeyID:         key.KeyMetadata.KeyID,
+					KeyID:         primaryID,
 					ReplicaRegion: "us-west-2",
 				})
 				require.NoError(t, err)

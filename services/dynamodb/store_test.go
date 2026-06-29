@@ -103,7 +103,9 @@ func TestInMemoryDB_TaggedTables(t *testing.T) {
 				createTableHelper(t, db, "TaggedTable", "pk")
 				ctx := t.Context()
 				_, err := db.TagResource(ctx, &dynamodb_sdk.TagResourceInput{
-					ResourceArn: aws.String("arn:aws:dynamodb:us-east-1:123456789012:table/TaggedTable"),
+					ResourceArn: aws.String(
+						"arn:aws:dynamodb:us-east-1:123456789012:table/TaggedTable",
+					),
 					Tags: []types.Tag{
 						{Key: aws.String("env"), Value: aws.String("test")},
 					},

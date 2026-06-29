@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -28,7 +29,9 @@ const (
 
 // ---- Stack Sets ----
 
-func (b *InMemoryBackend) CreateStackSet(name, description, templateBody string) (*StackSet, error) {
+func (b *InMemoryBackend) CreateStackSet(
+	name, description, templateBody string,
+) (*StackSet, error) {
 	b.mu.Lock("CreateStackSet")
 	defer b.mu.Unlock()
 	if _, ok := b.stackSets[name]; ok {
@@ -46,7 +49,9 @@ func (b *InMemoryBackend) CreateStackSet(name, description, templateBody string)
 	return ss, nil
 }
 
-func (b *InMemoryBackend) UpdateStackSet(name, description, templateBody string) (*StackSet, error) {
+func (b *InMemoryBackend) UpdateStackSet(
+	name, description, templateBody string,
+) (*StackSet, error) {
 	b.mu.Lock("UpdateStackSet")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets[name]
@@ -90,7 +95,7 @@ func (b *InMemoryBackend) DescribeStackSet(name string) (*StackSet, error) {
 	return ss, nil
 }
 
-func (b *InMemoryBackend) ListStackSets(_ string) ([]StackSetSummary, error) {
+func (b *InMemoryBackend) ListStackSets(nextToken string) (page.Page[StackSetSummary], error) {
 	b.mu.RLock("ListStackSets")
 	defer b.mu.RUnlock()
 	result := make([]StackSetSummary, 0, len(b.stackSets))
@@ -102,11 +107,18 @@ func (b *InMemoryBackend) ListStackSets(_ string) ([]StackSetSummary, error) {
 			Description:  ss.Description,
 		})
 	}
+	sort.Slice(
+		result,
+		func(i, j int) bool { return result[i].StackSetName < result[j].StackSetName },
+	)
 
-	return result, nil
+	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, regions []string) (string, error) {
+func (b *InMemoryBackend) CreateStackInstances(
+	stackSetName string,
+	accounts, regions []string,
+) (string, error) {
 	b.mu.Lock("CreateStackInstances")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets[stackSetName]
@@ -147,7 +159,10 @@ func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, re
 	return opID, nil
 }
 
-func (b *InMemoryBackend) DeleteStackInstances(stackSetName string, accounts, regions []string) (string, error) {
+func (b *InMemoryBackend) DeleteStackInstances(
+	stackSetName string,
+	accounts, regions []string,
+) (string, error) {
 	b.mu.Lock("DeleteStackInstances")
 	defer b.mu.Unlock()
 	if _, ok := b.stackSets[stackSetName]; !ok {
@@ -175,7 +190,10 @@ func (b *InMemoryBackend) DeleteStackInstances(stackSetName string, accounts, re
 	return opID, nil
 }
 
-func (b *InMemoryBackend) UpdateStackInstances(stackSetName string, accounts, regions []string) (string, error) {
+func (b *InMemoryBackend) UpdateStackInstances(
+	stackSetName string,
+	accounts, regions []string,
+) (string, error) {
 	b.mu.Lock("UpdateStackInstances")
 	defer b.mu.Unlock()
 	if _, ok := b.stackSets[stackSetName]; !ok {
@@ -189,14 +207,19 @@ func (b *InMemoryBackend) UpdateStackInstances(stackSetName string, accounts, re
 	return opID, nil
 }
 
-func (b *InMemoryBackend) ListStackInstances(stackSetName, _ string) ([]StackInstance, error) {
+func (b *InMemoryBackend) ListStackInstances(
+	stackSetName, nextToken string,
+) (page.Page[StackInstance], error) {
 	b.mu.RLock("ListStackInstances")
 	defer b.mu.RUnlock()
+	instances := append([]StackInstance(nil), b.stackInstances[stackSetName]...)
 
-	return append([]StackInstance(nil), b.stackInstances[stackSetName]...), nil
+	return page.New(instances, nextToken, 0, cfnDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error) {
+func (b *InMemoryBackend) DescribeStackInstance(
+	stackSetName, account, region string,
+) (*StackInstance, error) {
 	b.mu.RLock("DescribeStackInstance")
 	defer b.mu.RUnlock()
 	for _, inst := range b.stackInstances[stackSetName] {
@@ -238,12 +261,17 @@ func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action string) s
 	if b.stackSetOpResults[stackSetName] == nil {
 		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
 	}
+	b.trimStackSetOperations(stackSetName)
 
 	return opID
 }
 
 // recordOpResults records per-account/region operation results. Caller must hold b.mu.Lock.
-func (b *InMemoryBackend) recordOpResults(stackSetName, opID string, accounts, regions []string, status string) {
+func (b *InMemoryBackend) recordOpResults(
+	stackSetName, opID string,
+	accounts, regions []string,
+	status string,
+) {
 	if b.stackSetOpResults[stackSetName] == nil {
 		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
 	}
@@ -261,26 +289,59 @@ func (b *InMemoryBackend) recordOpResults(stackSetName, opID string, accounts, r
 	}
 }
 
-func (b *InMemoryBackend) ListStackSetOperations(stackSetName, _ string) ([]string, error) {
+const maxOpsPerStackSet = 1000
+
+func (b *InMemoryBackend) ListStackSetOperations(
+	stackSetName, nextToken string,
+) (page.Page[StackSetOperationSummary], error) {
 	b.mu.RLock("ListStackSetOperations")
 	defer b.mu.RUnlock()
 	ops := b.stackSetOperations[stackSetName]
-	result := make([]*StackSetOperation, 0, len(ops))
+	sorted := make([]*StackSetOperation, 0, len(ops))
 	for _, op := range ops {
-		result = append(result, op)
+		sorted = append(sorted, op)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
 	})
-	ids := make([]string, 0, len(result))
-	for _, op := range result {
-		ids = append(ids, op.OperationID)
+	summaries := make([]StackSetOperationSummary, 0, len(sorted))
+	for _, op := range sorted {
+		summaries = append(summaries, StackSetOperationSummary{
+			OperationID:  op.OperationID,
+			Action:       op.Action,
+			Status:       op.Status,
+			CreationTime: op.CreatedAt,
+		})
 	}
 
-	return ids, nil
+	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error) {
+// trimStackSetOperations evicts the oldest entries when a stack set exceeds maxOpsPerStackSet.
+// Caller must hold b.mu.Lock.
+func (b *InMemoryBackend) trimStackSetOperations(stackSetName string) {
+	ops := b.stackSetOperations[stackSetName]
+	if len(ops) <= maxOpsPerStackSet {
+		return
+	}
+	sorted := make([]*StackSetOperation, 0, len(ops))
+	for _, op := range ops {
+		sorted = append(sorted, op)
+	}
+	sort.Slice(
+		sorted,
+		func(i, j int) bool { return sorted[i].CreatedAt.Before(sorted[j].CreatedAt) },
+	)
+	evict := len(sorted) - maxOpsPerStackSet
+	for _, op := range sorted[:evict] {
+		delete(ops, op.OperationID)
+		delete(b.stackSetOpResults[stackSetName], op.OperationID)
+	}
+}
+
+func (b *InMemoryBackend) DescribeStackSetOperation(
+	stackSetName, operationID string,
+) (*StackSetOperation, error) {
 	b.mu.RLock("DescribeStackSetOperation")
 	defer b.mu.RUnlock()
 	ops := b.stackSetOperations[stackSetName]
@@ -333,48 +394,131 @@ func (b *InMemoryBackend) ListStackSetOperationResults(
 	return out, nil
 }
 
-func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(stackSetName string) ([]string, error) {
+func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
+	stackSetName string,
+) ([]AutoDeploymentTarget, error) {
 	b.mu.RLock("ListStackSetAutoDeploymentTargets")
 	defer b.mu.RUnlock()
 	if _, ok := b.stackSets[stackSetName]; !ok {
 		return nil, ErrStackSetNotFound
 	}
+	// SERVICE_MANAGED stack sets target OUs; for SELF_MANAGED emulation we have no OU hierarchy,
+	// so synthesise one target per unique account using the account ID as the OU ID.
 	seen := make(map[string]bool)
-	accounts := make([]string, 0)
+	targets := make([]AutoDeploymentTarget, 0)
 	for _, inst := range b.stackInstances[stackSetName] {
 		if !seen[inst.Account] {
 			seen[inst.Account] = true
-			accounts = append(accounts, inst.Account)
+			targets = append(targets, AutoDeploymentTarget{
+				OrganizationalUnitID: inst.Account,
+				Regions:              []string{inst.Region},
+			})
+		} else {
+			for i, t := range targets {
+				if t.OrganizationalUnitID == inst.Account {
+					targets[i].Regions = append(targets[i].Regions, inst.Region)
+
+					break
+				}
+			}
 		}
 	}
 
-	return accounts, nil
+	return targets, nil
 }
 
-func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, _ []string) error {
+func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs []string) error {
 	b.mu.Lock("ImportStacksToStackSet")
 	defer b.mu.Unlock()
-	if _, ok := b.stackSets[stackSetName]; !ok {
+	ss, ok := b.stackSets[stackSetName]
+	if !ok {
 		return ErrStackSetNotFound
 	}
-	b.recordStackSetOperation(stackSetName, "IMPORT")
+	opID := b.recordStackSetOperation(stackSetName, "IMPORT")
+	for _, stackID := range stackIDs {
+		// Skip duplicates.
+		already := false
+		for _, inst := range b.stackInstances[stackSetName] {
+			if inst.StackID == stackID {
+				already = true
+
+				break
+			}
+		}
+		if already {
+			continue
+		}
+		account, region := parseStackARN(stackID)
+		b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], StackInstance{
+			StackSetID:      ss.StackSetID,
+			StackSetName:    stackSetName,
+			StackID:         stackID,
+			Account:         account,
+			Region:          region,
+			Status:          "CURRENT",
+			DriftStatus:     "NOT_CHECKED",
+			LastOperationID: opID,
+		})
+	}
 
 	return nil
 }
 
-func (b *InMemoryBackend) ListStackInstanceResourceDrifts(stackSetName, _, _, _ string) ([]string, error) {
+// parseStackARN extracts account and region from a CloudFormation stack ARN.
+// Format: arn:aws:cloudformation:REGION:ACCOUNT:stack/NAME/ID.
+func parseStackARN(stackARN string) (string, string) {
+	const stackARNMinParts = 6
+	parts := strings.Split(stackARN, ":")
+	// parts: [arn, aws, cloudformation, REGION, ACCOUNT, stack/NAME/ID]
+	if len(parts) >= stackARNMinParts {
+		return parts[4], parts[3]
+	}
+
+	return "", ""
+}
+
+func (b *InMemoryBackend) ListStackInstanceResourceDrifts(
+	stackSetName, _ /* operationID */, account, region string,
+) ([]StackResourceDrift, error) {
 	b.mu.RLock("ListStackInstanceResourceDrifts")
 	defer b.mu.RUnlock()
 	if _, ok := b.stackSets[stackSetName]; !ok {
 		return nil, ErrStackSetNotFound
 	}
+	// Find the matching stack instance's stack ID.
+	var instanceStackID string
+	for _, inst := range b.stackInstances[stackSetName] {
+		if (account == "" || inst.Account == account) && (region == "" || inst.Region == region) {
+			instanceStackID = inst.StackID
 
-	return []string{}, nil
+			break
+		}
+	}
+	if instanceStackID == "" {
+		return []StackResourceDrift{}, nil
+	}
+	driftMap := b.resourceDriftStatus[instanceStackID]
+	drifts := make([]StackResourceDrift, 0, len(driftMap))
+	for logicalID, status := range driftMap {
+		if status == driftStatusInSync {
+			continue
+		}
+		drifts = append(drifts, StackResourceDrift{
+			StackID:                  instanceStackID,
+			LogicalResourceID:        logicalID,
+			StackResourceDriftStatus: status,
+		})
+	}
+
+	return drifts, nil
 }
 
 // ---- Generated Templates ----
 
-func (b *InMemoryBackend) CreateGeneratedTemplate(name string, resourceIDs []string) (*GeneratedTemplate, error) {
+func (b *InMemoryBackend) CreateGeneratedTemplate(
+	name string,
+	resourceIDs []string,
+) (*GeneratedTemplate, error) {
 	b.mu.Lock("CreateGeneratedTemplate")
 	defer b.mu.Unlock()
 	// Build a template body from the given resource IDs. Each resource ID is
@@ -489,6 +633,9 @@ func (b *InMemoryBackend) UpdateGeneratedTemplate(id, name string) error {
 func (b *InMemoryBackend) DeleteGeneratedTemplate(id string) error {
 	b.mu.Lock("DeleteGeneratedTemplate")
 	defer b.mu.Unlock()
+	if _, ok := b.generatedTemplates[id]; !ok {
+		return ErrGeneratedTemplateNotFound
+	}
 	delete(b.generatedTemplates, id)
 
 	return nil
@@ -516,15 +663,20 @@ func (b *InMemoryBackend) GetGeneratedTemplate(id string) (string, error) {
 	return gt.TemplateBody, nil
 }
 
-func (b *InMemoryBackend) ListGeneratedTemplates(_ string) ([]GeneratedTemplate, error) {
+func (b *InMemoryBackend) ListGeneratedTemplates(
+	nextToken string,
+) (page.Page[GeneratedTemplate], error) {
 	b.mu.RLock("ListGeneratedTemplates")
 	defer b.mu.RUnlock()
 	result := make([]GeneratedTemplate, 0, len(b.generatedTemplates))
 	for _, gt := range b.generatedTemplates {
 		result = append(result, *gt)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].GeneratedTemplateName < result[j].GeneratedTemplateName
+	})
 
-	return result, nil
+	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
 }
 
 // ---- Resource Scans ----
@@ -580,7 +732,7 @@ func (b *InMemoryBackend) DescribeResourceScan(scanID string) (*ResourceScan, er
 	return rs, nil
 }
 
-func (b *InMemoryBackend) ListResourceScans(_ string) ([]ResourceScan, error) {
+func (b *InMemoryBackend) ListResourceScans(nextToken string) (page.Page[ResourceScan], error) {
 	b.mu.RLock("ListResourceScans")
 	defer b.mu.RUnlock()
 	result := make([]ResourceScan, 0, len(b.resourceScans))
@@ -588,7 +740,7 @@ func (b *InMemoryBackend) ListResourceScans(_ string) ([]ResourceScan, error) {
 		result = append(result, *rs)
 	}
 
-	return result, nil
+	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) ListResourceScanResources(scanID, _ string) ([]ScannedResource, error) {
@@ -604,7 +756,10 @@ func (b *InMemoryBackend) ListResourceScanResources(scanID, _ string) ([]Scanned
 	return out, nil
 }
 
-func (b *InMemoryBackend) ListResourceScanRelatedResources(scanID string, _ []string) ([]string, error) {
+func (b *InMemoryBackend) ListResourceScanRelatedResources(
+	scanID string,
+	_ []string,
+) ([]string, error) {
 	b.mu.RLock("ListResourceScanRelatedResources")
 	defer b.mu.RUnlock()
 	if _, ok := b.resourceScans[scanID]; !ok {
@@ -646,9 +801,11 @@ func (b *InMemoryBackend) DeactivateType(typeName, typeArn string) error {
 	if key == "" {
 		key = "arn:aws:cloudformation:::type/resource/" + typeName
 	}
-	if t, ok := b.typeRegistry[key]; ok {
-		t.IsActivated = false
+	t, ok := b.typeRegistry[key]
+	if !ok || !t.IsActivated {
+		return fmt.Errorf("%w: %s", ErrTypeNotFound, key)
 	}
+	t.IsActivated = false
 
 	return nil
 }
@@ -711,9 +868,11 @@ func (b *InMemoryBackend) PublishType(typeName string) error {
 	b.mu.Lock("PublishType")
 	defer b.mu.Unlock()
 	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
-	if t, ok := b.typeRegistry[typeArn]; ok {
-		t.IsPublished = true
+	t, ok := b.typeRegistry[typeArn]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
 	}
+	t.IsPublished = true
 
 	return nil
 }
@@ -741,17 +900,29 @@ func (b *InMemoryBackend) SetTypeConfiguration(typeName, configuration string) e
 	return nil
 }
 
-func (b *InMemoryBackend) BatchDescribeTypeConfigurations(typeConfigIdentifiers []string) ([]string, error) {
+func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
+	typeConfigIdentifiers []string,
+) ([]TypeConfigurationDetail, error) {
 	b.mu.RLock("BatchDescribeTypeConfigurations")
 	defer b.mu.RUnlock()
-	configs := make([]string, 0, len(typeConfigIdentifiers))
+	details := make([]TypeConfigurationDetail, 0, len(typeConfigIdentifiers))
 	for _, id := range typeConfigIdentifiers {
-		if cfg, ok := b.typeConfigs[id]; ok {
-			configs = append(configs, cfg)
+		cfg := b.typeConfigs[id]
+		if cfg == "" {
+			// Also check by looking up the registry entry (typeName may be a key in typeConfigs).
+			typeArn := "arn:aws:cloudformation:::type/resource/" + id
+			if t, ok := b.typeRegistry[typeArn]; ok {
+				cfg = t.Configuration
+			}
 		}
+		details = append(details, TypeConfigurationDetail{
+			TypeName:               id,
+			Configuration:          cfg,
+			IsDefaultConfiguration: true,
+		})
 	}
 
-	return configs, nil
+	return details, nil
 }
 
 func (b *InMemoryBackend) ListTypes(_ string) ([]TypeSummary, error) {
@@ -869,7 +1040,10 @@ func (b *InMemoryBackend) DescribePublisher(publisherID string) (string, error) 
 
 // ---- Stack Refactor ----
 
-func (b *InMemoryBackend) CreateStackRefactor(description string, stackDefinitions []string) (string, error) {
+func (b *InMemoryBackend) CreateStackRefactor(
+	description string,
+	stackDefinitions []string,
+) (string, error) {
 	b.mu.Lock("CreateStackRefactor")
 	defer b.mu.Unlock()
 	refactorID := uuid.New().String()
@@ -906,19 +1080,39 @@ func (b *InMemoryBackend) ExecuteStackRefactor(stackRefactorID string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListStackRefactors(_ string) ([]string, error) {
+func (b *InMemoryBackend) ListStackRefactors(_ string) ([]StackRefactorSummary, error) {
 	b.mu.RLock("ListStackRefactors")
 	defer b.mu.RUnlock()
-	ids := make([]string, 0, len(b.stackRefactors))
-	for id := range b.stackRefactors {
-		ids = append(ids, id)
+	summaries := make([]StackRefactorSummary, 0, len(b.stackRefactors))
+	for _, r := range b.stackRefactors {
+		summaries = append(summaries, StackRefactorSummary{
+			StackRefactorID: r.RefactorID,
+			Status:          r.Status,
+			Description:     r.Description,
+		})
 	}
 
-	return ids, nil
+	return summaries, nil
 }
 
-func (b *InMemoryBackend) ListStackRefactorActions(_ string) ([]string, error) {
-	return []string{}, nil
+func (b *InMemoryBackend) ListStackRefactorActions(
+	stackRefactorID string,
+) ([]StackRefactorAction, error) {
+	b.mu.RLock("ListStackRefactorActions")
+	defer b.mu.RUnlock()
+	r, ok := b.stackRefactors[stackRefactorID]
+	if !ok {
+		return []StackRefactorAction{}, nil
+	}
+	actions := make([]StackRefactorAction, 0, len(r.StackDefinitions))
+	for _, def := range r.StackDefinitions {
+		actions = append(actions, StackRefactorAction{
+			Action:      "MOVE",
+			Description: def,
+		})
+	}
+
+	return actions, nil
 }
 
 // ---- Org Access ----
@@ -997,36 +1191,63 @@ func (b *InMemoryBackend) GetHookResult(hookResultToken string) (string, error) 
 	return r.HookStatus, nil
 }
 
-func (b *InMemoryBackend) ListHookResults(hookResultToken, _ string) ([]string, error) {
+func (b *InMemoryBackend) ListHookResults(hookResultToken, _ string) ([]HookResult, error) {
 	b.mu.RLock("ListHookResults")
 	defer b.mu.RUnlock()
-	var results []string
+	var results []HookResult
 	if hookResultToken != "" {
 		if r, ok := b.hookResults[hookResultToken]; ok {
-			results = append(results, r.HookStatus)
+			results = append(results, *r)
 		}
 	} else {
 		for _, r := range b.hookResults {
-			results = append(results, r.HookStatus)
+			results = append(results, *r)
 		}
 	}
 
 	return results, nil
 }
 
-func (b *InMemoryBackend) DescribeChangeSetHooks(_, _ string) ([]string, error) {
-	return []string{}, nil
+func (b *InMemoryBackend) DescribeChangeSetHooks(_, _ string) ([]ChangeSetHook, error) {
+	// Hook configurations are not emulated; return empty list (valid AWS response
+	// when no hook configurations are active for the change set).
+	return []ChangeSetHook{}, nil
 }
 
-func (b *InMemoryBackend) DescribeEvents(_ string) ([]StackEvent, error) {
+func (b *InMemoryBackend) DescribeEvents(
+	stackName, nextToken string,
+) (page.Page[StackEvent], error) {
 	b.mu.RLock("DescribeEvents")
 	defer b.mu.RUnlock()
-	all := make([]StackEvent, 0, len(b.events))
+	if stackName != "" {
+		stack, ok := b.resolveStack(stackName)
+		if !ok {
+			return page.Page[StackEvent]{}, fmt.Errorf("%w: %s", ErrStackNotFound, stackName)
+		}
+		evts := b.events[stack.StackID]
+		all := make([]StackEvent, len(evts))
+		copy(all, evts)
+		// AWS returns events newest-first.
+		sort.Slice(all, func(i, j int) bool {
+			return all[i].Timestamp.After(all[j].Timestamp)
+		})
+
+		return page.New(all, nextToken, 0, cfnDefaultPageSize), nil
+	}
+	// No filter: collect events across all stacks.
+	var total int
+	for _, evts := range b.events {
+		total += len(evts)
+	}
+	all := make([]StackEvent, 0, total)
 	for _, evts := range b.events {
 		all = append(all, evts...)
 	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].Timestamp.After(all[j].Timestamp)
+	})
 
-	return all, nil
+	return page.New(all, nextToken, 0, cfnDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) UpdateTerminationProtection(nameOrID string, enable bool) error {

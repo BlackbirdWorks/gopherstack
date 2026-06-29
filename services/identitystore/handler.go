@@ -448,6 +448,7 @@ func validateMaxResults(maxResults int32) error {
 	return nil
 }
 
+//nolint:dupl // structurally parallel to handleListGroups; both validate MaxResults, filter, paginate
 func (h *Handler) handleListUsers(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listUsersRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -623,6 +624,7 @@ func (h *Handler) handleDescribeGroup(ctx context.Context, c *echo.Context, body
 	return c.JSON(http.StatusOK, group)
 }
 
+//nolint:dupl // structurally parallel to handleListUsers; both validate MaxResults, filter, paginate
 func (h *Handler) handleListGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listGroupsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -631,6 +633,10 @@ func (h *Handler) handleListGroups(ctx context.Context, c *echo.Context, body []
 
 	if strings.TrimSpace(req.IdentityStoreID) == "" {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if err := validateMaxResults(req.MaxResults); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
 	all := h.Backend.ListGroups(ctx, req.IdentityStoreID)
@@ -771,6 +777,10 @@ func (h *Handler) handleListGroupMemberships(ctx context.Context, c *echo.Contex
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
 	}
 
+	if err := validateMaxResults(req.MaxResults); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
 	all := h.Backend.ListGroupMemberships(ctx, req.IdentityStoreID, req.GroupID)
 	page, nextToken := paginateSlice(all, req.MaxResults, req.NextToken)
 
@@ -842,6 +852,10 @@ func (h *Handler) handleListGroupMembershipsForMember(ctx context.Context, c *ec
 
 	if strings.TrimSpace(req.MemberID.UserID) == "" {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
+	}
+
+	if err := validateMaxResults(req.MaxResults); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
 	all := h.Backend.ListGroupMembershipsForMember(ctx, req.IdentityStoreID, req.MemberID)
@@ -928,14 +942,19 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, errType, message s
 // Helpers
 // ----------------------------------------
 
+// externalIDSep is the separator used to encode an ExternalId compound key as a single string.
+// Null byte is used because it cannot appear in valid Issuer or ID values (both are typically URLs or UUIDs).
+const externalIDSep = "\x00"
+
 // extractAlternateIdentifier extracts the attribute path and value from an AlternateIdentifier.
+// For ExternalId, both Issuer and Id are encoded as a compound value separated by externalIDSep.
 func extractAlternateIdentifier(ai alternateIdentifier) (string, string) {
 	if ai.UniqueAttribute != nil {
 		return ai.UniqueAttribute.AttributePath, ai.UniqueAttribute.AttributeValue
 	}
 
 	if ai.ExternalID != nil {
-		return "ExternalId", ai.ExternalID.ID
+		return "ExternalId", ai.ExternalID.Issuer + externalIDSep + ai.ExternalID.ID
 	}
 
 	return "", ""

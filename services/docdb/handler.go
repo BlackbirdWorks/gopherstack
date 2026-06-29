@@ -469,11 +469,13 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 	}
 
 	opts := &ModifyDBClusterOptions{
-		EngineVersion:       vals.Get("EngineVersion"),
-		VpcSecurityGroupIDs: parseVpcSecurityGroupIDs(vals),
-		EnableLogsTypes:     parseCloudwatchEnableLogTypes(vals),
-		DisableLogsTypes:    parseCloudwatchDisableLogTypes(vals),
-		Port:                port,
+		EngineVersion:          vals.Get("EngineVersion"),
+		MasterUserPassword:     vals.Get("MasterUserPassword"),
+		NewDBClusterIdentifier: vals.Get("NewDBClusterIdentifier"),
+		VpcSecurityGroupIDs:    parseVpcSecurityGroupIDs(vals),
+		EnableLogsTypes:        parseCloudwatchEnableLogTypes(vals),
+		DisableLogsTypes:       parseCloudwatchDisableLogTypes(vals),
+		Port:                   port,
 	}
 
 	cluster, err := h.Backend.ModifyDBCluster(
@@ -704,8 +706,10 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(ctx context.Context, va
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBClusterParameterGroup, 0, len(groups))
-	for _, pg := range groups {
+
+	paged, nextMarker := applyDocDBMarker(groups, vals.Get("Marker"), vals.Get("MaxRecords"))
+	members := make([]xmlDBClusterParameterGroup, 0, len(paged))
+	for _, pg := range paged {
 		cp := pg
 		members = append(members, toXMLParameterGroup(&cp))
 	}
@@ -713,6 +717,7 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(ctx context.Context, va
 	return &describeDBClusterParameterGroupsResponse{
 		Xmlns: docdbXMLNS,
 		Result: describeDBClusterParameterGroupsResult{
+			Marker:                   nextMarker,
 			DBClusterParameterGroups: xmlDBClusterParameterGroupList{Members: members},
 		},
 	}, nil
@@ -729,7 +734,8 @@ func (h *Handler) handleDeleteDBClusterParameterGroup(ctx context.Context, vals 
 
 func (h *Handler) handleModifyDBClusterParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
-	pg, err := h.Backend.ModifyDBClusterParameterGroup(ctx, name)
+	parameters := parseDBClusterParameters(vals)
+	pg, err := h.Backend.ModifyDBClusterParameterGroup(ctx, name, parameters)
 	if err != nil {
 		return nil, err
 	}
@@ -1433,6 +1439,10 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	}
 	logTypes := make([]string, len(c.EnabledCloudwatchLogsExports))
 	copy(logTypes, c.EnabledCloudwatchLogsExports)
+	azMembers := make([]xmlAvailabilityZone, 0, len(c.AvailabilityZones))
+	for _, az := range c.AvailabilityZones {
+		azMembers = append(azMembers, xmlAvailabilityZone{Name: az})
+	}
 
 	return xmlDBCluster{
 		DBClusterIdentifier:              c.DBClusterIdentifier,
@@ -1461,6 +1471,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		VpcSecurityGroups:                xmlVpcSecurityGroupMembershipList{Members: vpcSGs},
 		EnabledCloudwatchLogsExports:     xmlLogTypeList{Members: logTypes},
 		DBClusterMembers:                 xmlDBClusterMemberList{},
+		AvailabilityZones:                xmlAvailabilityZoneList{Members: azMembers},
 	}
 }
 
@@ -1494,7 +1505,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 func toXMLSubnetGroup(sg *DBSubnetGroup) xmlDBSubnetGroup {
 	subnetMembers := make([]xmlSubnet, 0, len(sg.SubnetIDs))
 	for _, id := range sg.SubnetIDs {
-		subnetMembers = append(subnetMembers, xmlSubnet{SubnetIdentifier: id})
+		subnetMembers = append(subnetMembers, xmlSubnet{SubnetIdentifier: id, SubnetStatus: "Active"})
 	}
 
 	return xmlDBSubnetGroup{
@@ -1567,6 +1578,14 @@ type xmlDBClusterMemberList struct {
 	Members []xmlDBClusterMember `xml:"DBClusterMember"`
 }
 
+type xmlAvailabilityZone struct {
+	Name string `xml:"Name"`
+}
+
+type xmlAvailabilityZoneList struct {
+	Members []xmlAvailabilityZone `xml:"AvailabilityZone"`
+}
+
 type xmlDBCluster struct {
 	DBClusterIdentifier              string                            `xml:"DBClusterIdentifier"`
 	Engine                           string                            `xml:"Engine"`
@@ -1588,6 +1607,7 @@ type xmlDBCluster struct {
 	VpcSecurityGroups                xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups"`
 	EnabledCloudwatchLogsExports     xmlLogTypeList                    `xml:"EnabledCloudwatchLogsExports"`
 	DBClusterMembers                 xmlDBClusterMemberList            `xml:"DBClusterMembers"`
+	AvailabilityZones                xmlAvailabilityZoneList           `xml:"AvailabilityZones"`
 	Port                             int                               `xml:"Port"`
 	BackupRetentionPeriod            int                               `xml:"BackupRetentionPeriod,omitempty"`
 	StorageEncrypted                 bool                              `xml:"StorageEncrypted"`
@@ -1709,7 +1729,9 @@ type rebootDBInstanceResponse struct {
 }
 
 type xmlSubnet struct {
-	SubnetIdentifier string `xml:"SubnetIdentifier"`
+	SubnetIdentifier       string `xml:"SubnetIdentifier"`
+	SubnetStatus           string `xml:"SubnetStatus,omitempty"`
+	SubnetAvailabilityZone string `xml:"SubnetAvailabilityZone>Name,omitempty"`
 }
 
 type xmlSubnetList struct {
@@ -1769,6 +1791,7 @@ type createDBClusterParameterGroupResponse struct {
 }
 
 type describeDBClusterParameterGroupsResult struct {
+	Marker                   string                         `xml:"Marker,omitempty"`
 	DBClusterParameterGroups xmlDBClusterParameterGroupList `xml:"DBClusterParameterGroups"`
 }
 
@@ -2325,7 +2348,7 @@ func applyDocDBMarker[T any](items []T, marker, maxRecordsStr string) ([]T, stri
 func parseAvailabilityZones(vals url.Values) []string {
 	var azs []string
 	for i := 1; ; i++ {
-		az := vals.Get(fmt.Sprintf("AvailabilityZones.AvailabilityZone.%d", i))
+		az := vals.Get(fmt.Sprintf("AvailabilityZones.member.%d", i))
 		if az == "" {
 			return azs
 		}
@@ -2397,4 +2420,19 @@ func parseCloudwatchDisableLogTypes(vals url.Values) []string {
 		}
 		types = append(types, t)
 	}
+}
+
+// parseDBClusterParameters parses Parameters.member.N.ParameterName + ParameterValue form values.
+func parseDBClusterParameters(vals url.Values) map[string]string {
+	params := make(map[string]string)
+	for i := 1; ; i++ {
+		pName := vals.Get(fmt.Sprintf("Parameters.member.%d.ParameterName", i))
+		if pName == "" {
+			break
+		}
+		pValue := vals.Get(fmt.Sprintf("Parameters.member.%d.ParameterValue", i))
+		params[pName] = pValue
+	}
+
+	return params
 }

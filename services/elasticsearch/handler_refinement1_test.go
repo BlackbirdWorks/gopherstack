@@ -18,7 +18,7 @@ func TestRefinement1_ErrValidationSentinel(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateDomain(context.Background(), "", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(context.Background(), elasticsearch.CreateDomainInput{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
@@ -39,10 +39,10 @@ func TestRefinement1_BuildOpsFieldExists(t *testing.T) {
 
 	h := newTestHandler()
 
-	// If ops table is built, the fixed route GET /2015-01-01/tags returns 200 (not 404).
+	// If ops table is built, the fixed route GET /2015-01-01/tags returns 404 for unknown ARN.
 	resp := doRequest(t, h, http.MethodGet, "/2015-01-01/tags?arn=nonexistent", nil)
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 // TestRefinement1_SortedListDomainNames verifies that ListDomainNames returns domains in sorted order.
@@ -53,7 +53,7 @@ func TestRefinement1_SortedListDomainNames(t *testing.T) {
 
 	for _, name := range []string{"zoo-domain", "apple-dom", "mid-domain"} {
 		_, err := b.CreateDomain(
-			context.Background(), name, "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+			context.Background(), elasticsearch.CreateDomainInput{Name: name},
 		)
 		require.NoError(t, err)
 	}
@@ -112,7 +112,7 @@ func TestRefinement1_DomainNameValidationTooShort(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateDomain(context.Background(), "ab", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(context.Background(), elasticsearch.CreateDomainInput{Name: "ab"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
@@ -124,10 +124,7 @@ func TestRefinement1_DomainNameValidationTooLong(t *testing.T) {
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateDomain(
 		context.Background(),
-		"abcdefghijklmnopqrstuvwxyzabc",
-		"",
-		elasticsearch.ClusterConfig{},
-		elasticsearch.EBSOptions{},
+		elasticsearch.CreateDomainInput{Name: "abcdefghijklmnopqrstuvwxyzabc"},
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
@@ -139,7 +136,7 @@ func TestRefinement1_DomainNameValidationInvalidChars(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateDomain(
-		context.Background(), "my_domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		context.Background(), elasticsearch.CreateDomainInput{Name: "my_domain"},
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
@@ -151,7 +148,7 @@ func TestRefinement1_DomainNameMustStartWithLetter(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateDomain(
-		context.Background(), "1bad-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		context.Background(), elasticsearch.CreateDomainInput{Name: "1bad-domain"},
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
@@ -219,7 +216,7 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 0, b.VpcEndpointCount())
 
 	_, err := b.CreateDomain(
-		context.Background(), "cnt-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		context.Background(), elasticsearch.CreateDomainInput{Name: "cnt-domain"},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.DomainCount())
@@ -256,7 +253,7 @@ func TestRefinement1_ResetClearsAllMaps(t *testing.T) {
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
 	_, err := b.CreateDomain(
-		context.Background(), "reset-dom", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		context.Background(), elasticsearch.CreateDomainInput{Name: "reset-dom"},
 	)
 	require.NoError(t, err)
 
@@ -324,7 +321,7 @@ func TestRefinement1_HandlerResetDelegatesToBackend(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateDomain(
-		context.Background(), "del-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		context.Background(), elasticsearch.CreateDomainInput{Name: "del-domain"},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.DomainCount())
@@ -410,7 +407,7 @@ func TestRefinement1_AuthorizeVpcEndpointAccessValidation(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateDomain(
-		context.Background(), "vpc-auth-dom", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		context.Background(), elasticsearch.CreateDomainInput{Name: "vpc-auth-dom"},
 	)
 	require.NoError(t, err)
 
@@ -425,7 +422,7 @@ func TestRefinement1_DescribeDomainDeepCopy(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateDomain(
-		context.Background(), "copy-domain", "7.10", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		context.Background(), elasticsearch.CreateDomainInput{Name: "copy-domain", ElasticsearchVersion: "7.10"},
 	)
 	require.NoError(t, err)
 
@@ -475,18 +472,12 @@ func TestRefinement1_PersistenceNextIDPreserved(t *testing.T) {
 	assert.Equal(t, "vpc-endpoint-0000000003", ep.ID)
 }
 
-// TestRefinement1_ListTagsEmptyForUnknownARN verifies ListTags returns empty list for unknown ARN.
-func TestRefinement1_ListTagsEmptyForUnknownARN(t *testing.T) {
+// TestRefinement1_ListTagsNotFoundForUnknownARN verifies ListTags returns 404 for unknown ARN.
+func TestRefinement1_ListTagsNotFoundForUnknownARN(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
 	resp := doRequest(t, h, http.MethodGet, "/2015-01-01/tags?arn=arn:aws:es:us-east-1:123456789012:domain/none", nil)
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var out struct {
-		TagList []any `json:"TagList"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	assert.Empty(t, out.TagList)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }

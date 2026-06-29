@@ -323,9 +323,10 @@ func (b *InMemoryBackend) ListMonitors(
 
 	names := collections.SortedKeys(rm)
 
+	// Default startIdx past-the-end so an unrecognised token returns nothing.
 	startIdx := 0
-
 	if nextToken != "" {
+		startIdx = len(names)
 		for i, n := range names {
 			if n > nextToken {
 				startIdx = i
@@ -340,29 +341,28 @@ func (b *InMemoryBackend) ListMonitors(
 	}
 
 	var summaries []monitorSummary
+	var outToken string
 
-	for i := startIdx; i < len(names) && len(summaries) < maxResults; i++ {
+	for i := startIdx; i < len(names); i++ {
+		if len(summaries) == maxResults {
+			outToken = summaries[len(summaries)-1].MonitorName
+
+			break
+		}
+
 		m := rm[names[i]]
 		if state != "" && !strings.EqualFold(m.State, state) {
 			continue
 		}
 
 		period := m.AggregationPeriod
-		s := monitorSummary{
+		summaries = append(summaries, monitorSummary{
 			MonitorArn:        m.MonitorArn,
 			MonitorName:       m.MonitorName,
 			State:             m.State,
 			AggregationPeriod: &period,
 			Tags:              maps.Clone(m.Tags),
-		}
-
-		summaries = append(summaries, s)
-	}
-
-	var outToken string
-
-	if len(summaries) == maxResults && startIdx+maxResults < len(names) {
-		outToken = summaries[len(summaries)-1].MonitorName
+		})
 	}
 
 	if summaries == nil {

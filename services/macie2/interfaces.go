@@ -106,7 +106,7 @@ type StorageBackend interface {
 
 	// Sensitive data occurrences
 	GetSensitiveDataOccurrences(findingID string) (map[string]any, error)
-	GetSensitiveDataOccurrencesAvailability(findingID string) (string, error)
+	GetSensitiveDataOccurrencesAvailability(findingID string) (string, []string, error)
 
 	// Sensitivity inspection template operations
 	GetSensitivityInspectionTemplate(templateID string) (*SensitivityInspectionTemplate, error)
@@ -146,7 +146,7 @@ type StorageBackend interface {
 		criteria AllowListCriteria,
 	) (*AllowListSummary, error)
 	DeleteAllowList(id string) error
-	ListAllowLists() ([]*AllowListSummary, error)
+	ListAllowLists(limit int, token string) ([]*AllowListSummary, string, error)
 
 	// Custom data identifier operations
 	CreateCustomDataIdentifier(
@@ -157,7 +157,7 @@ type StorageBackend interface {
 	) (string, error)
 	GetCustomDataIdentifier(id string) (*CustomDataIdentifier, error)
 	DeleteCustomDataIdentifier(id string) error
-	ListCustomDataIdentifiers() ([]*CustomDataIdentifierSummary, error)
+	ListCustomDataIdentifiers(limit int, token string) ([]*CustomDataIdentifierSummary, string, error)
 	TestCustomDataIdentifier(
 		regex string,
 		ignoreWords, keywords []string,
@@ -179,7 +179,7 @@ type StorageBackend interface {
 		criteria map[string]any,
 	) (*FindingsFilterSummary, error)
 	DeleteFindingsFilter(id string) error
-	ListFindingsFilters() ([]*FindingsFilterSummary, error)
+	ListFindingsFilters(limit int, token string) ([]*FindingsFilterSummary, string, error)
 
 	// Finding operations
 	GetFindings(findingIDs []string) ([]*Finding, error)

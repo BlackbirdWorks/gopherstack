@@ -40,7 +40,10 @@
       "WebFetch(domain:blog.localstack.cloud)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:pkg.go.dev)",
-      "mcp__playwright__browser_run_code_unsafe"
+      "mcp__playwright__browser_run_code_unsafe",
+      "Bash(git checkout *)",
+      "Bash(bd list *)",
+      "Bash(bd show *)"
     ]
   }
 }

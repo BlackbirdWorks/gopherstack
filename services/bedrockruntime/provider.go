@@ -1,6 +1,8 @@
 package bedrockruntime
 
 import (
+	"context"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -26,7 +28,12 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		}
 	}
 
-	backend := NewInMemoryBackend(accountID, region)
+	var svcCtx context.Context
+	if ctx != nil {
+		svcCtx = ctx.JanitorCtx
+	}
+
+	backend := NewInMemoryBackendWithContext(svcCtx, accountID, region)
 	handler := NewHandler(backend)
 
 	return handler, nil

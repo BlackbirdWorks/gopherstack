@@ -189,10 +189,13 @@ type Task struct {
 	PlatformFamily       string                `json:"platformFamily,omitempty"`
 	RuntimeID            string                `json:"runtimeId,omitempty"`
 	PropagateTags        string                `json:"propagateTags,omitempty"`
-	Tags                 []Tag                 `json:"tags,omitempty"`
-	Attachments          []TaskAttachment      `json:"attachments,omitempty"`
-	Containers           []Container           `json:"containers,omitempty"`
-	EnableExecuteCommand bool                  `json:"enableExecuteCommand,omitempty"`
+	// TaskRoleArn is the effective IAM role ARN for task containers.
+	// Resolved from Overrides.TaskRoleArn if set, else from the task definition.
+	TaskRoleArn          string           `json:"taskRoleArn,omitempty"`
+	Tags                 []Tag            `json:"tags,omitempty"`
+	Attachments          []TaskAttachment `json:"attachments,omitempty"`
+	Containers           []Container      `json:"containers,omitempty"`
+	EnableExecuteCommand bool             `json:"enableExecuteCommand,omitempty"`
 }
 
 // CreateClusterInput holds input for CreateCluster.
@@ -273,9 +276,11 @@ type RunTaskInput struct {
 	serviceNameForTags      string
 	Tags                    []Tag `json:"tags,omitempty"`
 	serviceTagsForPropagate []Tag
-	Count                   int  `json:"count,omitempty"`
-	EnableECSManagedTags    bool `json:"enableECSManagedTags,omitempty"`
-	EnableExecuteCommand    bool `json:"enableExecuteCommand,omitempty"`
+	PlacementConstraints    []PlacementConstraint `json:"placementConstraints,omitempty"`
+	PlacementStrategy       []PlacementStrategy   `json:"placementStrategy,omitempty"`
+	Count                   int                   `json:"count,omitempty"`
+	EnableECSManagedTags    bool                  `json:"enableECSManagedTags,omitempty"`
+	EnableExecuteCommand    bool                  `json:"enableExecuteCommand,omitempty"`
 }
 
 // compile-time assertion.
@@ -310,9 +315,21 @@ type InMemoryBackend struct {
 	// serviceIndex is a flat map of all service keys for single-pass iteration in
 	// getServicesForReconciler, avoiding the double nested-map loop + counting pass.
 	serviceIndex map[svcRef]bool
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	// daemons: clusterName → daemonName → *Daemon
+	daemons map[string]map[string]*Daemon
+	// daemonTaskDefs: daemonArn → []*DaemonTaskDefinition (ordered by revision)
+	daemonTaskDefs map[string][]*DaemonTaskDefinition
+	// daemonDeployments: deploymentID → *DaemonDeployment
+	daemonDeployments map[string]*DaemonDeployment
+	// daemonRevisions: daemonArn → []*DaemonRevision (ordered by revision)
+	daemonRevisions map[string][]*DaemonRevision
+	// serviceRevisions: serviceArn → []*ServiceRevision (ordered by revision)
+	serviceRevisions map[string][]*ServiceRevision
+	// serviceRevisionsByArn: revisionArn → *ServiceRevision (fast lookup)
+	serviceRevisionsByArn map[string]*ServiceRevision
+	mu                    *lockmetrics.RWMutex
+	accountID             string
+	region                string
 }
 
 // TaskRunner is the interface for launching container tasks.
@@ -341,6 +358,12 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 		resourceTags:           make(map[string][]Tag),
 		tasksByInstance:        make(map[string]map[string]map[string]bool),
 		serviceIndex:           make(map[svcRef]bool),
+		daemons:                make(map[string]map[string]*Daemon),
+		daemonTaskDefs:         make(map[string][]*DaemonTaskDefinition),
+		daemonDeployments:      make(map[string]*DaemonDeployment),
+		daemonRevisions:        make(map[string][]*DaemonRevision),
+		serviceRevisions:       make(map[string][]*ServiceRevision),
+		serviceRevisionsByArn:  make(map[string]*ServiceRevision),
 		mu:                     lockmetrics.New("ecs"),
 		accountID:              accountID,
 		region:                 region,
@@ -369,6 +392,12 @@ func (b *InMemoryBackend) Reset() {
 	b.resourceTags = make(map[string][]Tag)
 	b.tasksByInstance = make(map[string]map[string]map[string]bool)
 	b.serviceIndex = make(map[svcRef]bool)
+	b.daemons = make(map[string]map[string]*Daemon)
+	b.daemonTaskDefs = make(map[string][]*DaemonTaskDefinition)
+	b.daemonDeployments = make(map[string]*DaemonDeployment)
+	b.daemonRevisions = make(map[string][]*DaemonRevision)
+	b.serviceRevisions = make(map[string][]*ServiceRevision)
+	b.serviceRevisionsByArn = make(map[string]*ServiceRevision)
 }
 
 // Purge removes all ECS resources created before the given cutoff time.
@@ -511,26 +540,16 @@ func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []
 
 // enrichCluster fills in runtime-computed counts for a cluster.
 // Must be called with at least an RLock held.
+// Running and pending task counts are cached on the cluster struct and updated
+// incrementally at each state transition to avoid an O(n) task scan here.
 func (b *InMemoryBackend) enrichCluster(c *Cluster) Cluster {
 	cp := *c
 
 	cp.ActiveServicesCount = len(b.services[c.ClusterName])
 	cp.RegisteredContainerInstancesCount = len(b.containerInstances[c.ClusterName])
 
-	running := 0
-	pending := 0
-
-	for _, t := range b.tasks[c.ClusterName] {
-		switch t.LastStatus {
-		case statusRunning:
-			running++
-		case statusProvisioning, statusPending:
-			pending++
-		}
-	}
-
-	cp.RunningTasksCount = running
-	cp.PendingTasksCount = pending
+	// RunningTasksCount and PendingTasksCount are maintained as cached counters
+	// on the Cluster struct. No task iteration needed here.
 
 	return cp
 }
@@ -593,7 +612,9 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 }
 
 // RegisterTaskDefinition registers a new task definition revision.
-func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInput) (*TaskDefinition, error) {
+func (b *InMemoryBackend) RegisterTaskDefinition(
+	input RegisterTaskDefinitionInput,
+) (*TaskDefinition, error) {
 	if input.Family == "" {
 		return nil, fmt.Errorf("%w: family is required", ErrInvalidParameter)
 	}
@@ -762,7 +783,9 @@ func (b *InMemoryBackend) findTaskDefinitionLocked(familyOrArn string) (*TaskDef
 }
 
 // DeregisterTaskDefinition marks a task definition revision as INACTIVE.
-func (b *InMemoryBackend) DeregisterTaskDefinition(taskDefinitionArn string) (*TaskDefinition, error) {
+func (b *InMemoryBackend) DeregisterTaskDefinition(
+	taskDefinitionArn string,
+) (*TaskDefinition, error) {
 	b.mu.Lock("DeregisterTaskDefinition")
 	defer b.mu.Unlock()
 
@@ -800,7 +823,9 @@ func (b *InMemoryBackend) ListTaskDefinitions(familyPrefix string) ([]string, er
 }
 
 // ListTaskDefinitionsFiltered returns task definition ARNs with status filtering.
-func (b *InMemoryBackend) ListTaskDefinitionsFiltered(input ListTaskDefinitionsInput) ([]string, error) {
+func (b *InMemoryBackend) ListTaskDefinitionsFiltered(
+	input ListTaskDefinitionsInput,
+) ([]string, error) {
 	b.mu.RLock("ListTaskDefinitionsFiltered")
 	defer b.mu.RUnlock()
 
@@ -833,8 +858,13 @@ func (b *InMemoryBackend) ListTaskDefinitionsFiltered(input ListTaskDefinitionsI
 func (b *InMemoryBackend) ensureClusterLocked(clusterName string) {
 	if _, ok := b.clusters[clusterName]; !ok && clusterName == defaultCluster {
 		b.clusters[clusterName] = &Cluster{
-			CreatedAt:   time.Now(),
-			ClusterArn:  arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName)),
+			CreatedAt: time.Now(),
+			ClusterArn: arn.Build(
+				"ecs",
+				b.region,
+				b.accountID,
+				fmt.Sprintf("cluster/%s", clusterName),
+			),
 			ClusterName: clusterName,
 			Status:      statusActive,
 		}
@@ -898,8 +928,13 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 			clusterName,
 			input.ServiceName,
 		),
-		ServiceName:                 input.ServiceName,
-		ClusterArn:                  arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName)),
+		ServiceName: input.ServiceName,
+		ClusterArn: arn.Build(
+			"ecs",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("cluster/%s", clusterName),
+		),
 		TaskDefinition:              td.TaskDefinitionArn,
 		Status:                      statusActive,
 		LaunchType:                  launchType,
@@ -924,6 +959,8 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 	b.services[clusterName][input.ServiceName] = svc
 	b.serviceIndex[svcRef{cluster: clusterName, name: input.ServiceName}] = true
 
+	b.addServiceRevisionLocked(svc)
+
 	cp := *svc
 
 	return &cp, nil
@@ -931,7 +968,10 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 
 // DescribeServices returns services for the given cluster, optionally filtered by name.
 // Unknown service names are returned as failures, not errors, matching AWS behaviour.
-func (b *InMemoryBackend) DescribeServices(cluster string, serviceNames []string) ([]Service, []Failure, error) {
+func (b *InMemoryBackend) DescribeServices(
+	cluster string,
+	serviceNames []string,
+) ([]Service, []Failure, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("DescribeServices")
@@ -986,7 +1026,8 @@ func serviceKey(serviceRef string) string {
 	return serviceRef
 }
 
-// enrichService fills in runtime-computed counts for a service.
+// enrichService fills in runtime-computed counts for a service and
+// updates each deployment's RunningCount/PendingCount + RolloutState.
 // Must be called with at least an RLock held.
 func (b *InMemoryBackend) enrichService(s *Service, clusterName string) Service {
 	cp := *s
@@ -994,19 +1035,48 @@ func (b *InMemoryBackend) enrichService(s *Service, clusterName string) Service 
 	running := 0
 	pending := 0
 
+	// Per-deployment counters keyed by task definition ARN.
+	deplRunning := make(map[string]int, len(s.Deployments))
+	deplPending := make(map[string]int, len(s.Deployments))
+
 	for _, t := range b.tasks[clusterName] {
 		if t.Group == "service:"+s.ServiceName {
 			switch t.LastStatus {
 			case statusRunning:
 				running++
+				deplRunning[t.TaskDefinitionArn]++
 			case statusPending, statusProvisioning:
 				pending++
+				deplPending[t.TaskDefinitionArn]++
 			}
 		}
 	}
 
 	cp.RunningCount = running
 	cp.PendingCount = pending
+
+	// Update per-deployment counts and advance RolloutState to COMPLETED
+	// when the PRIMARY deployment has reached its desired count.
+	deployments := make([]Deployment, len(s.Deployments))
+
+	for i, d := range s.Deployments {
+		d.RunningCount = deplRunning[d.TaskDefinition]
+		d.PendingCount = deplPending[d.TaskDefinition]
+
+		if d.Status == deploymentStatusPrimary &&
+			d.RolloutState == deploymentRolloutStateInProgress &&
+			d.RunningCount >= d.DesiredCount && d.DesiredCount > 0 {
+			d.RolloutState = deploymentRolloutStateCompleted
+			d.RolloutStateReason = fmt.Sprintf(
+				"ECS deployment ecs-svc completed. %d out of %d tasks running.",
+				d.RunningCount, d.DesiredCount,
+			)
+		}
+
+		deployments[i] = d
+	}
+
+	cp.Deployments = deployments
 
 	return cp
 }
@@ -1088,6 +1158,8 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 	}
 
 	applyServiceConfigUpdates(svc, input)
+
+	b.addServiceRevisionLocked(svc)
 
 	cp := *svc
 
@@ -1197,7 +1269,15 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 
 	// Create all task entries in PROVISIONING state under the lock so they are
 	// immediately visible, then release the lock before issuing Docker API calls.
-	work := b.createTaskEntriesLocked(clusterName, clusterArn, launchType, resolvedTags, count, td, input)
+	work := b.createTaskEntriesLocked(
+		clusterName,
+		clusterArn,
+		launchType,
+		resolvedTags,
+		count,
+		td,
+		input,
+	)
 
 	b.mu.Unlock()
 
@@ -1221,44 +1301,92 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 // operations behind potentially slow Docker API calls (image pull, network setup, etc.).
 func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 	for _, w := range work {
+		clusterName := clusterKey(clusterFromTaskARN(w.task.TaskArn))
+
 		if b.runner == nil {
-			// No runtime: immediately move to RUNNING (simulated).
-			b.mu.Lock("RunTask-setRunning")
-
-			if w.task.LastStatus == statusProvisioning {
-				w.task.LastStatus = statusRunning
-				syncContainerStatuses(w.task, nil)
-			}
-
-			b.mu.Unlock()
+			b.applyNoRunnerTransition(w.task, clusterName)
 
 			continue
 		}
 
+		// Transition PROVISIONING → PENDING before the potentially-slow container
+		// runtime call, then PENDING → RUNNING/STOPPED based on the result.
+		b.applyPendingTransition(w.task)
 		runErr := b.runner.RunTask(w.task, w.td)
+		b.applyRunnerTransition(w.task, clusterName, runErr)
+	}
+}
 
-		b.mu.Lock("RunTask-setRunning")
+// applyPendingTransition moves a PROVISIONING task to PENDING under the lock.
+// Called for tasks with a real container runner, before the runner is invoked.
+func (b *InMemoryBackend) applyPendingTransition(task *Task) {
+	b.mu.Lock("RunTask-setPending")
+	defer b.mu.Unlock()
 
-		// Only update status if no concurrent operation (e.g. StopTask) has
-		// already changed the task away from PROVISIONING.
-		if w.task.LastStatus == statusProvisioning {
-			if runErr == nil {
-				w.task.LastStatus = statusRunning
-				syncContainerStatuses(w.task, nil)
-			} else {
-				// Container start failed — mark STOPPED so the task does not
-				// remain in PROVISIONING permanently (resource leak + wrong semantics).
-				now := time.Now()
-				w.task.LastStatus = statusStopped
-				w.task.DesiredStatus = statusStopped
-				w.task.StoppedAt = &now
-				w.task.StoppedReason = fmt.Sprintf("container start failed: %v", runErr)
-				exitCode := 1
-				syncContainerStatuses(w.task, &exitCode)
-			}
+	if task.LastStatus == statusProvisioning {
+		task.LastStatus = statusPending
+	}
+}
+
+// applyNoRunnerTransition transitions a PROVISIONING task through PENDING to RUNNING
+// when no container runtime is configured. Must be called without any lock held.
+func (b *InMemoryBackend) applyNoRunnerTransition(task *Task, clusterName string) {
+	b.mu.Lock("RunTask-setRunning")
+	defer b.mu.Unlock()
+
+	if task.LastStatus != statusProvisioning {
+		return
+	}
+
+	// Pass through PENDING (resource provisioning complete, container starting).
+	task.LastStatus = statusPending
+	// Immediately advance to RUNNING since there is no real container to wait for.
+	task.LastStatus = statusRunning
+	syncContainerStatuses(task, nil)
+
+	if c := b.clusters[clusterName]; c != nil {
+		c.PendingTasksCount--
+		c.RunningTasksCount++
+	}
+}
+
+// applyRunnerTransition transitions a PENDING task to RUNNING or STOPPED
+// based on the container runtime result. Must be called without any lock held.
+func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, runErr error) {
+	b.mu.Lock("RunTask-setRunning")
+	defer b.mu.Unlock()
+
+	// Only update status if no concurrent operation (e.g. StopTask) has
+	// already changed the task away from PENDING. A task enters PENDING just
+	// before the runner call via applyPendingTransition.
+	if task.LastStatus != statusPending {
+		return
+	}
+
+	if runErr == nil {
+		task.LastStatus = statusRunning
+		syncContainerStatuses(task, nil)
+
+		if c := b.clusters[clusterName]; c != nil {
+			c.PendingTasksCount--
+			c.RunningTasksCount++
 		}
 
-		b.mu.Unlock()
+		return
+	}
+
+	// Container start failed — mark STOPPED so the task does not
+	// remain in PROVISIONING permanently (resource leak + wrong semantics).
+	now := time.Now()
+	task.LastStatus = statusStopped
+	task.DesiredStatus = statusStopped
+	task.StoppedAt = &now
+	task.StoppedReason = fmt.Sprintf("container start failed: %v", runErr)
+	exitCode := 1
+	syncContainerStatuses(task, &exitCode)
+
+	if c := b.clusters[clusterName]; c != nil {
+		c.PendingTasksCount--
 	}
 }
 
@@ -1280,6 +1408,13 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 		)
 
 		now := time.Now()
+
+		// Resolve the effective task IAM role: per-run override takes precedence.
+		taskRoleArn := td.TaskRoleArn
+		if input.Overrides != nil && input.Overrides.TaskRoleArn != "" {
+			taskRoleArn = input.Overrides.TaskRoleArn
+		}
+
 		task := &Task{
 			TaskArn:              taskArn,
 			ClusterArn:           clusterArn,
@@ -1298,6 +1433,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 			Overrides:            input.Overrides,
 			NetworkConfiguration: input.NetworkConfiguration,
 			EnableExecuteCommand: input.EnableExecuteCommand,
+			TaskRoleArn:          taskRoleArn,
 		}
 
 		if launchType == launchTypeFargate {
@@ -1305,11 +1441,13 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 		} else {
 			// EC2 launch type: select a container instance respecting placement
 			// constraints and strategies, then record it in the reverse index.
+			// Merge task-definition constraints with any run-time override constraints.
+			constraints := mergeConstraints(td.PlacementConstraints, input.PlacementConstraints)
 			if instanceArn := selectContainerInstance(
 				b.containerInstances[clusterName],
 				b.tasks[clusterName],
-				td.PlacementConstraints,
-				nil,
+				constraints,
+				input.PlacementStrategy,
 				input.serviceNameForTags,
 			); instanceArn != "" {
 				task.ContainerInstanceArn = instanceArn
@@ -1321,6 +1459,11 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 
 		b.tasks[clusterName][taskArn] = task
 		work = append(work, taskWork{task: task, td: td})
+
+		// Increment the cached pending counter on the cluster.
+		if c := b.clusters[clusterName]; c != nil {
+			c.PendingTasksCount++
+		}
 	}
 
 	return work
@@ -1328,7 +1471,10 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 
 // DescribeTasks returns tasks on a given cluster, optionally filtered by ARN.
 // Unknown task ARNs are returned as failures, not errors, matching AWS behaviour.
-func (b *InMemoryBackend) DescribeTasks(cluster string, taskArns []string) ([]Task, []Failure, error) {
+func (b *InMemoryBackend) DescribeTasks(
+	cluster string,
+	taskArns []string,
+) ([]Task, []Failure, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("DescribeTasks")
@@ -1390,11 +1536,22 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 	}
 
 	now := time.Now()
+	prevStatus := task.LastStatus
 	task.LastStatus = statusStopped
 	task.DesiredStatus = statusStopped
 	task.StoppedAt = &now
 	task.StoppedReason = reason
 	syncContainerStatuses(task, nil)
+
+	// Update cached cluster counters.
+	if c := b.clusters[clusterName]; c != nil {
+		switch prevStatus {
+		case statusRunning:
+			c.RunningTasksCount--
+		case statusProvisioning, statusPending:
+			c.PendingTasksCount--
+		}
+	}
 
 	instanceArn := task.ContainerInstanceArn
 	cp := *task
@@ -1447,7 +1604,8 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 		if input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance {
 			continue
 		}
-		if input.DesiredStatus != "" && !strings.EqualFold(task.DesiredStatus, input.DesiredStatus) {
+		if input.DesiredStatus != "" &&
+			!strings.EqualFold(task.DesiredStatus, input.DesiredStatus) {
 			continue
 		}
 		if input.LaunchType != "" && !strings.EqualFold(task.LaunchType, input.LaunchType) {
@@ -1515,19 +1673,27 @@ func (b *InMemoryBackend) CountRunningTasksForService(clusterName, serviceName s
 // It reads the service's PropagateTags, Tags, and EnableECSManagedTags settings so
 // that tasks spawned by the reconciler honour the same tag propagation as tasks
 // started directly via RunTask.
-func (b *InMemoryBackend) StartTaskForService(clusterName, serviceName, taskDefinitionArn string) error {
-	// Snapshot service tag config without holding the lock during RunTask.
+func (b *InMemoryBackend) StartTaskForService(
+	clusterName, serviceName, taskDefinitionArn string,
+) error {
+	// Snapshot service config without holding the lock during RunTask.
 	b.mu.RLock("StartTaskForService-svcSnap")
 
 	var svcPropagateTags string
 	var svcTags []Tag
 	var svcEnableExec bool
+	var svcLaunchType string
+	var svcPlacementConstraints []PlacementConstraint
+	var svcPlacementStrategy []PlacementStrategy
 
 	if svcs, ok := b.services[clusterName]; ok {
 		if svc, found := svcs[serviceName]; found {
 			svcPropagateTags = svc.PropagateTags
 			svcTags = copyTags(svc.Tags)
 			svcEnableExec = svc.EnableExecuteCommand
+			svcLaunchType = svc.LaunchType
+			svcPlacementConstraints = svc.PlacementConstraints
+			svcPlacementStrategy = svc.PlacementStrategy
 		}
 	}
 
@@ -1538,10 +1704,13 @@ func (b *InMemoryBackend) StartTaskForService(clusterName, serviceName, taskDefi
 		TaskDefinition:          taskDefinitionArn,
 		Count:                   1,
 		Group:                   "service:" + serviceName,
+		LaunchType:              svcLaunchType,
 		PropagateTags:           svcPropagateTags,
 		serviceNameForTags:      serviceName,
 		serviceTagsForPropagate: svcTags,
 		EnableExecuteCommand:    svcEnableExec,
+		PlacementConstraints:    svcPlacementConstraints,
+		PlacementStrategy:       svcPlacementStrategy,
 	})
 
 	return err
@@ -1576,6 +1745,11 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 	oldest.StoppedAt = &now
 	oldest.StoppedReason = "service scale-in"
 	syncContainerStatuses(oldest, nil)
+
+	// Decrement the cached running counter (scale-in always stops a running task).
+	if c := b.clusters[clusterName]; c != nil {
+		c.RunningTasksCount--
+	}
 
 	instanceArn := oldest.ContainerInstanceArn
 	taskArn := oldest.TaskArn

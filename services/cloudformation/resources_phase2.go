@@ -175,6 +175,7 @@ func (rc *ResourceCreator) deleteRDSDBParameterGroup(name string) error {
 // ---- ElastiCache extensions ----
 
 func (rc *ResourceCreator) createElastiCacheReplicationGroup(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -190,7 +191,7 @@ func (rc *ResourceCreator) createElastiCacheReplicationGroup(
 
 	description := strProp(props, "ReplicationGroupDescription", params, physicalIDs)
 
-	rg, err := rc.backends.ElastiCache.Backend.CreateReplicationGroup(context.Background(), id, description)
+	rg, err := rc.backends.ElastiCache.Backend.CreateReplicationGroup(ctx, id, description)
 	if err != nil {
 		return "", fmt.Errorf("create ElastiCache replication group %s: %w", id, err)
 	}
@@ -198,15 +199,16 @@ func (rc *ResourceCreator) createElastiCacheReplicationGroup(
 	return rg.ReplicationGroupID, nil
 }
 
-func (rc *ResourceCreator) deleteElastiCacheReplicationGroup(_ context.Context, id string) error {
+func (rc *ResourceCreator) deleteElastiCacheReplicationGroup(ctx context.Context, id string) error {
 	if rc.backends.ElastiCache == nil {
 		return nil
 	}
 
-	return rc.backends.ElastiCache.Backend.DeleteReplicationGroup(context.Background(), id)
+	return rc.backends.ElastiCache.Backend.DeleteReplicationGroup(ctx, id)
 }
 
 func (rc *ResourceCreator) createElastiCacheSubnetGroup(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -231,7 +233,7 @@ func (rc *ResourceCreator) createElastiCacheSubnetGroup(
 		}
 	}
 
-	grp, err := rc.backends.ElastiCache.Backend.CreateSubnetGroup(context.Background(), name, description, subnetIDs)
+	grp, err := rc.backends.ElastiCache.Backend.CreateSubnetGroup(ctx, name, description, subnetIDs)
 	if err != nil {
 		return "", fmt.Errorf("create ElastiCache subnet group %s: %w", name, err)
 	}
@@ -239,12 +241,12 @@ func (rc *ResourceCreator) createElastiCacheSubnetGroup(
 	return grp.Name, nil
 }
 
-func (rc *ResourceCreator) deleteElastiCacheSubnetGroup(name string) error {
+func (rc *ResourceCreator) deleteElastiCacheSubnetGroup(ctx context.Context, name string) error {
 	if rc.backends.ElastiCache == nil {
 		return nil
 	}
 
-	return rc.backends.ElastiCache.Backend.DeleteSubnetGroup(context.Background(), name)
+	return rc.backends.ElastiCache.Backend.DeleteSubnetGroup(ctx, name)
 }
 
 // ---- Route53 HealthCheck ----
@@ -831,6 +833,7 @@ func (rc *ResourceCreator) deleteFirehoseDeliveryStream(ctx context.Context, arn
 // ---- Route53Resolver ----
 
 func (rc *ResourceCreator) createRoute53ResolverEndpoint(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -850,7 +853,7 @@ func (rc *ResourceCreator) createRoute53ResolverEndpoint(
 	}
 
 	ep, err := rc.backends.Route53Resolver.Backend.CreateResolverEndpoint(
-		context.Background(),
+		ctx,
 		name,
 		direction,
 		"",
@@ -869,15 +872,16 @@ func (rc *ResourceCreator) createRoute53ResolverEndpoint(
 	return ep.ID, nil
 }
 
-func (rc *ResourceCreator) deleteRoute53ResolverEndpoint(id string) error {
+func (rc *ResourceCreator) deleteRoute53ResolverEndpoint(ctx context.Context, id string) error {
 	if rc.backends.Route53Resolver == nil {
 		return nil
 	}
 
-	return rc.backends.Route53Resolver.Backend.DeleteResolverEndpoint(context.Background(), id)
+	return rc.backends.Route53Resolver.Backend.DeleteResolverEndpoint(ctx, id)
 }
 
 func (rc *ResourceCreator) createRoute53ResolverRule(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -900,7 +904,7 @@ func (rc *ResourceCreator) createRoute53ResolverRule(
 	endpointID := strProp(props, "ResolverEndpointId", params, physicalIDs)
 
 	rule, err := rc.backends.Route53Resolver.Backend.CreateResolverRule(
-		context.Background(),
+		ctx,
 		name,
 		domainName,
 		ruleType,
@@ -915,12 +919,12 @@ func (rc *ResourceCreator) createRoute53ResolverRule(
 	return rule.ID, nil
 }
 
-func (rc *ResourceCreator) deleteRoute53ResolverRule(id string) error {
+func (rc *ResourceCreator) deleteRoute53ResolverRule(ctx context.Context, id string) error {
 	if rc.backends.Route53Resolver == nil {
 		return nil
 	}
 
-	return rc.backends.Route53Resolver.Backend.DeleteResolverRule(context.Background(), id)
+	return rc.backends.Route53Resolver.Backend.DeleteResolverRule(ctx, id)
 }
 
 // ---- SWF ----
@@ -1040,6 +1044,7 @@ func (rc *ResourceCreator) deleteSESEmailIdentity(emailIdentity string) error {
 // ---- ACM ----
 
 func (rc *ResourceCreator) createACMCertificate(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1065,7 +1070,7 @@ func (rc *ResourceCreator) createACMCertificate(
 	}
 
 	cert, err := rc.backends.ACM.Backend.RequestCertificate(
-		context.Background(),
+		ctx,
 		domainName,
 		"AMAZON_ISSUED",
 		validationMethod,
@@ -1082,12 +1087,12 @@ func (rc *ResourceCreator) createACMCertificate(
 	return cert.ARN, nil
 }
 
-func (rc *ResourceCreator) deleteACMCertificate(arn string) error {
+func (rc *ResourceCreator) deleteACMCertificate(ctx context.Context, arn string) error {
 	if rc.backends.ACM == nil {
 		return nil
 	}
 
-	return rc.backends.ACM.Backend.DeleteCertificate(context.Background(), arn)
+	return rc.backends.ACM.Backend.DeleteCertificate(ctx, arn)
 }
 
 // ---- Cognito ----

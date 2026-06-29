@@ -749,7 +749,7 @@ func (h *Handler) handlePutRecord(ctx context.Context, in *handlePutRecordInput)
 		return nil, putErr
 	}
 
-	return &putRecordOutput{RecordID: newRecordID()}, nil
+	return &putRecordOutput{RecordID: newRecordID(ctx)}, nil
 }
 
 type handlePutRecordBatchInput struct {
@@ -791,7 +791,7 @@ func (h *Handler) handlePutRecordBatch(
 
 	responses := make([]putRecordBatchEntry, len(records))
 	for i := range records {
-		responses[i] = putRecordBatchEntry{RecordID: newRecordID()}
+		responses[i] = putRecordBatchEntry{RecordID: newRecordID(ctx)}
 	}
 
 	return &putRecordBatchOutput{

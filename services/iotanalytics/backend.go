@@ -257,11 +257,22 @@ type InMemoryBackend struct {
 	datasets        map[string]*Dataset
 	pipelines       map[string]*Pipeline
 	tags            map[string]map[string]string
+	svcCtx          context.Context
 	mu              sync.RWMutex
 }
 
-// NewInMemoryBackend creates a new in-memory IoT Analytics backend.
+// NewInMemoryBackend creates a new in-memory IoT Analytics backend with a background service context.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background())
+}
+
+// NewInMemoryBackendWithContext creates a new in-memory IoT Analytics backend whose
+// background goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		channels:        make(map[string]*Channel),
 		datastores:      make(map[string]*Datastore),
@@ -270,6 +281,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		tags:            make(map[string]map[string]string),
 		channelMessages: make(map[string][][]byte),
 		datasetContents: make(map[string][]*DatasetContent),
+		svcCtx:          svcCtx,
 	}
 }
 
@@ -604,6 +616,7 @@ func reprocessingSummariesSorted(reprocessings map[string]*PipelineReprocessing)
 			ID:           rp.ID,
 			Status:       rp.Status,
 			CreationTime: rp.CreationTime,
+			StartTime:    rp.StartTime,
 			EndTime:      rp.EndTime,
 		})
 	}
@@ -732,7 +745,7 @@ func (b *InMemoryBackend) ListChannels() []*Channel {
 
 // AddChannelInternal seeds a channel by name (test helper).
 func (b *InMemoryBackend) AddChannelInternal(name string) *Channel {
-	c, _ := b.CreateChannel(context.Background(), name, nil, nil, nil)
+	c, _ := b.CreateChannel(b.svcCtx, name, nil, nil, nil)
 
 	return c
 }
@@ -871,7 +884,7 @@ func (b *InMemoryBackend) ListDatastores() []*Datastore {
 
 // AddDatastoreInternal seeds a datastore by name (test helper).
 func (b *InMemoryBackend) AddDatastoreInternal(name string) *Datastore {
-	d, _ := b.CreateDatastore(context.Background(), name, nil, nil, nil, nil, nil)
+	d, _ := b.CreateDatastore(b.svcCtx, name, nil, nil, nil, nil, nil)
 
 	return d
 }
@@ -1010,7 +1023,7 @@ func (b *InMemoryBackend) ListDatasets() []*Dataset {
 
 // AddDatasetInternal seeds a dataset by name (test helper).
 func (b *InMemoryBackend) AddDatasetInternal(name string) *Dataset {
-	d, _ := b.CreateDataset(context.Background(), name, nil, nil, nil, nil, nil, nil)
+	d, _ := b.CreateDataset(b.svcCtx, name, nil, nil, nil, nil, nil, nil)
 
 	return d
 }
@@ -1117,7 +1130,7 @@ func (b *InMemoryBackend) ListPipelines() []*Pipeline {
 
 // AddPipelineInternal seeds a pipeline by name (test helper).
 func (b *InMemoryBackend) AddPipelineInternal(name string) *Pipeline {
-	p, _ := b.CreatePipeline(context.Background(), name, nil, nil)
+	p, _ := b.CreatePipeline(b.svcCtx, name, nil, nil)
 
 	return p
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -163,8 +164,12 @@ type Snapshot struct {
 	ClusterIdentifier             string                     `json:"clusterIdentifier"`
 	SnapshotType                  string                     `json:"snapshotType"`
 	Status                        string                     `json:"status"`
+	NodeType                      string                     `json:"nodeType,omitempty"`
+	DBName                        string                     `json:"dbName,omitempty"`
+	MasterUsername                string                     `json:"masterUsername,omitempty"`
 	AccountsWithRestoreAccess     []AccountWithRestoreAccess `json:"accountsWithRestoreAccess"`
 	ManualSnapshotRetentionPeriod int                        `json:"manualSnapshotRetentionPeriod"`
+	NumberOfNodes                 int                        `json:"numberOfNodes,omitempty"`
 }
 
 // EndpointAuthorization represents authorization for a VPC endpoint to a cluster.
@@ -330,21 +335,32 @@ type SnapshotCopyConfig struct {
 	RetentionPeriod       int    `json:"retentionPeriod"`
 }
 
+// ClusterPendingModifiedValues holds changes queued for the next maintenance window.
+type ClusterPendingModifiedValues struct {
+	NodeType      string `json:"nodeType,omitempty"`
+	NumberOfNodes int    `json:"numberOfNodes,omitempty"`
+	Encrypted     bool   `json:"encrypted,omitempty"`
+}
+
 // Cluster represents a Redshift cluster.
 type Cluster struct {
-	Tags               *tags.Tags `json:"tags,omitempty"`
-	ClusterIdentifier  string     `json:"clusterIdentifier"`
-	NodeType           string     `json:"nodeType"`
-	ClusterType        string     `json:"clusterType"`
-	Endpoint           string     `json:"endpoint"`
-	Status             string     `json:"status"`
-	DBName             string     `json:"dbName"`
-	MasterUsername     string     `json:"masterUsername"`
-	VpcID              string     `json:"vpcId,omitempty"`
-	Port               int        `json:"port"`
-	NumberOfNodes      int        `json:"numberOfNodes"`
-	Encrypted          bool       `json:"encrypted"`
-	EnhancedVpcRouting bool       `json:"enhancedVpcRouting"`
+	Tags                       *tags.Tags                    `json:"tags,omitempty"`
+	PendingModifiedValues      *ClusterPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
+	ClusterIdentifier          string                        `json:"clusterIdentifier"`
+	NodeType                   string                        `json:"nodeType"`
+	ClusterType                string                        `json:"clusterType"`
+	Endpoint                   string                        `json:"endpoint"`
+	Status                     string                        `json:"status"`
+	DBName                     string                        `json:"dbName"`
+	MasterUsername             string                        `json:"masterUsername"`
+	VpcID                      string                        `json:"vpcId,omitempty"`
+	KmsKeyID                   string                        `json:"kmsKeyId,omitempty"`
+	PreferredMaintenanceWindow string                        `json:"preferredMaintenanceWindow,omitempty"`
+	IamRoles                   []string                      `json:"iamRoles,omitempty"`
+	Port                       int                           `json:"port"`
+	NumberOfNodes              int                           `json:"numberOfNodes"`
+	Encrypted                  bool                          `json:"encrypted"`
+	EnhancedVpcRouting         bool                          `json:"enhancedVpcRouting"`
 }
 
 // InMemoryBackend is the in-memory store for Redshift clusters.
@@ -378,14 +394,15 @@ type InMemoryBackend struct {
 	integrations        map[string]*Integration
 	idcApplications     map[string]*IdcApplication
 	// Serverless resources
-	slNamespaces       map[string]*Namespace
-	slWorkgroups       map[string]*Workgroup
-	slSnapshots        map[string]*ServerlessSnapshot
-	slUsageLimits      map[string]*ServerlessUsageLimit
-	slScheduledActions map[string]*ServerlessScheduledAction
-	mu                 *lockmetrics.RWMutex
-	accountID          string
-	region             string
+	slNamespaces           map[string]*Namespace
+	slWorkgroups           map[string]*Workgroup
+	slSnapshots            map[string]*ServerlessSnapshot
+	slUsageLimits          map[string]*ServerlessUsageLimit
+	slScheduledActions     map[string]*ServerlessScheduledAction
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
+	clusterActivationDelay time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -529,12 +546,18 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 	}
 
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", id, b.accountID, b.region)
+
+	initialStatus := clusterStatusAvailable
+	if b.clusterActivationDelay > 0 {
+		initialStatus = "creating"
+	}
+
 	cluster := &Cluster{
 		ClusterIdentifier: id,
 		NodeType:          nodeType,
 		ClusterType:       clusterTypeMultiNode,
 		Endpoint:          endpoint,
-		Status:            clusterStatusAvailable,
+		Status:            initialStatus,
 		DBName:            dbName,
 		MasterUsername:    masterUser,
 		Port:              defaultPort,
@@ -542,6 +565,18 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 		Tags:              tags.New("redshift.cluster." + id + ".tags"),
 	}
 	b.clusters[id] = cluster
+
+	if b.clusterActivationDelay > 0 {
+		delay := b.clusterActivationDelay
+		go func() {
+			time.Sleep(delay)
+			b.mu.Lock("CreateCluster.activate")
+			defer b.mu.Unlock()
+			if c, ok := b.clusters[id]; ok && c.Status == "creating" {
+				c.Status = clusterStatusAvailable
+			}
+		}()
+	}
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
@@ -574,25 +609,49 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 }
 
 // DescribeClusters returns clusters. If id is non-empty, returns only that cluster.
-func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
+// When marker and maxRecords are used, returns a page of results sorted by ClusterIdentifier.
+func (b *InMemoryBackend) DescribeClusters(id, marker string, maxRecords int) ([]Cluster, string, error) {
 	b.mu.RLock("DescribeClusters")
 	defer b.mu.RUnlock()
 
 	if id != "" {
 		c, exists := b.clusters[id]
 		if !exists {
-			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+			return nil, "", fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
 
-		return []Cluster{cloneCluster(c)}, nil
+		return []Cluster{cloneCluster(c)}, "", nil
 	}
 
-	clusters := make([]Cluster, 0, len(b.clusters))
-	for _, c := range b.clusters {
-		clusters = append(clusters, cloneCluster(c))
+	ids := make([]string, 0, len(b.clusters))
+	for k := range b.clusters {
+		ids = append(ids, k)
 	}
 
-	return clusters, nil
+	sort.Strings(ids)
+
+	// Advance past the marker (exclusive — marker is the last ID on the previous page).
+	if marker != "" {
+		cut := 0
+		for cut < len(ids) && ids[cut] <= marker {
+			cut++
+		}
+
+		ids = ids[cut:]
+	}
+
+	nextMarker := ""
+	if maxRecords > 0 && len(ids) > maxRecords {
+		ids = ids[:maxRecords]
+		nextMarker = ids[len(ids)-1]
+	}
+
+	clusters := make([]Cluster, 0, len(ids))
+	for _, k := range ids {
+		clusters = append(clusters, cloneCluster(b.clusters[k]))
+	}
+
+	return clusters, nextMarker, nil
 }
 
 // DescribeTags returns all tags across all clusters.

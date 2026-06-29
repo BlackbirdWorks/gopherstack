@@ -108,6 +108,7 @@ const sqsMetricUnitCount = "Count"
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	metricEmitter  MetricEmitter
+	svcCtx         context.Context
 	queues         map[string]*Queue
 	moveTasks      map[string]*moveTaskState
 	snsUnsubscribe func()
@@ -143,19 +144,31 @@ func (b *InMemoryBackend) emitMetric(name string, value float64) {
 
 const sqsDefaultMaxResults = 1000
 
-// NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
+// NewInMemoryBackend creates a new empty InMemoryBackend with default account/region and a background service context.
 func NewInMemoryBackend() *InMemoryBackend {
 	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
-// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region
+// and a background service context.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose background goroutines
+// are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	b := &InMemoryBackend{
 		queues:    make(map[string]*Queue),
 		moveTasks: make(map[string]*moveTaskState),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("sqs"),
+		svcCtx:    svcCtx,
 	}
 
 	b.startJanitor()
@@ -231,10 +244,15 @@ func (b *InMemoryBackend) runJanitor() {
 func (b *InMemoryBackend) pruneState(now time.Time) {
 	// Collect queue snapshot under RLock so hot-path senders/receivers for
 	// other queues are not blocked during per-queue cleanup (#55).
+	// Only include queues with pending activity (hasActivity flag set) or FIFO
+	// queues (which may have dedup IDs to expire regardless of message count).
+	// This avoids allocating a full-width snapshot when most queues are idle.
 	b.mu.RLock("pruneState.collect")
-	queues := make([]*Queue, 0, len(b.queues))
+	queues := make([]*Queue, 0)
 	for _, q := range b.queues {
-		queues = append(queues, q)
+		if q.hasActivity.Load() || q.IsFIFO {
+			queues = append(queues, q)
+		}
 	}
 	b.mu.RUnlock()
 
@@ -255,6 +273,13 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 		// expired in-flight, expire retained, drain to DLQ) without picking (#54).
 		prepareAndPickMessages(q, "", 0, 0, now)
 		msgExpired += max(0, before-len(q.messages))
+
+		// When the queue is fully idle, clear hasActivity so subsequent janitor
+		// ticks skip it until new messages arrive.
+		if len(q.messages) == 0 && len(q.inFlightMessages) == 0 &&
+			len(q.DeduplicationIDs) == 0 {
+			q.hasActivity.Store(false)
+		}
 
 		q.mu.Unlock()
 	}
@@ -323,36 +348,23 @@ func (b *InMemoryBackend) lookupQueueByName(region, name string) (*Queue, bool) 
 
 // lookupQueueByURL finds a queue by its URL.
 //
-// When a region is supplied (the caller threaded the SigV4 region from the
-// request) the queue MUST live in that region; a queue with the same name in
-// a different region is treated as not found, matching real AWS where the
-// SigV4 region must match the regional endpoint. Lookup uses the queue name
-// extracted from the URL plus the region — we do NOT require the stored
+// The queue MUST live in the supplied region; a queue with the same name in a
+// different region is treated as not found, matching real AWS where the SigV4
+// region must match the regional endpoint. Lookup uses the queue name extracted
+// from the URL plus effectiveRegion(region) — we do NOT require the stored
 // q.URL to be byte-identical to the caller's queueURL because SDKs and proxy
 // hops may rewrite the host/port (e.g. host.docker.internal vs localhost).
 //
-// When region is empty the lookup falls back to a URL-string scan across all
-// regions to support callers that have not yet been wired to thread region
-// through. New code should always pass the request region.
+// When region is empty, effectiveRegion falls back to the backend's default
+// region so single-region callers continue to work without explicit threading.
+// The previous O(n) URL-string scan across all regions has been removed because
+// it defeated region isolation: a caller in us-east-1 could accidentally find a
+// queue created in us-west-2 if the URL strings happened to match.
 func (b *InMemoryBackend) lookupQueueByURL(region, queueURL string) (*Queue, bool) {
 	name := queueNameFromInput(queueURL)
+	q, ok := b.queues[queueKey(b.effectiveRegion(region), name)]
 
-	if region != "" {
-		q, ok := b.queues[queueKey(region, name)]
-		if !ok {
-			return nil, false
-		}
-
-		return q, true
-	}
-
-	for _, q := range b.queues {
-		if q.URL == queueURL {
-			return q, true
-		}
-	}
-
-	return nil, false
+	return q, ok
 }
 
 // redrivePolicy represents the JSON structure of an SQS RedrivePolicy attribute.
@@ -443,7 +455,8 @@ func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) strin
 // appendWithLength appends a 4-byte big-endian length prefix followed by data to buf.
 func appendWithLength(buf, data []byte) []byte {
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data))) //nolint:gosec // safe: bounded slice length
+	n := uint32(len(data)) //nolint:gosec // G115: bounded by SQS MaximumMessageSize (256 KB)
+	binary.BigEndian.PutUint32(lenBuf[:], n)
 
 	buf = append(buf, lenBuf[:]...)
 	buf = append(buf, data...)
@@ -698,7 +711,9 @@ func (b *InMemoryBackend) GetQueueAttributes(
 		return nil, ErrQueueNotFound
 	}
 
+	q.mu.Lock()
 	computed := computeDynamicAttributes(q)
+	q.mu.Unlock()
 	wantAll := len(input.AttributeNames) == 0 || containsAll(input.AttributeNames)
 
 	result := make(map[string]string)
@@ -1122,6 +1137,7 @@ func sendMessageLocked(
 	}
 
 	q.messages = append(q.messages, msg)
+	q.hasActivity.Store(true)
 
 	// Broadcast to all long-polling receivers: close the current generation channel
 	// (which unblocks all goroutines waiting on it) and replace it with a new one.
@@ -1664,7 +1680,8 @@ func pickVisibleMessages(
 			continue
 		}
 
-		if q.MaxReceiveCount > 0 && q.dlq != nil && msg.ApproximateReceiveCount >= q.MaxReceiveCount {
+		if q.MaxReceiveCount > 0 && q.dlq != nil &&
+			msg.ApproximateReceiveCount >= q.MaxReceiveCount {
 			msg.ReceiptHandle = ""
 			q.dlq.messages = append(q.dlq.messages, msg)
 			if now.Before(msg.VisibleAt) {
@@ -1715,7 +1732,10 @@ func enqueueReceivedMessage(
 
 	if msg.ApproximateFirstReceiveTimestamp == 0 {
 		msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
-		msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(msg.ApproximateFirstReceiveTimestamp, 10)
+		msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
+			msg.ApproximateFirstReceiveTimestamp,
+			10,
+		)
 		msg.Attributes[attrSenderID] = accountID
 	}
 
@@ -2084,7 +2104,15 @@ func (b *InMemoryBackend) SendMessageBatch(
 	for i, entry := range input.Entries {
 		entryBytes := len(entry.MessageBody)
 		for name, attr := range entry.MessageAttributes {
-			entryBytes += len(name) + len(attr.DataType) + len(attr.StringValue) + len(attr.BinaryValue)
+			entryBytes += len(
+				name,
+			) + len(
+				attr.DataType,
+			) + len(
+				attr.StringValue,
+			) + len(
+				attr.BinaryValue,
+			)
 		}
 
 		if entryBytes > defaultMaxMessageSize {
@@ -2785,7 +2813,7 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 	taskHandle := uuid.New().String()
 
 	ctx, cancel := context.WithCancel(
-		context.Background(),
+		b.svcCtx,
 	)
 
 	state := &moveTaskState{
@@ -2936,24 +2964,23 @@ func (b *InMemoryBackend) CancelMessageMoveTask(
 
 	state.mu.Lock()
 
-	// Per AWS: cancelling a task that is not RUNNING returns ResourceInConflict.
-	if state.status != MoveTaskStatusRunning && state.status != MoveTaskStatusCancelling {
+	switch state.status {
+	case MoveTaskStatusRunning, MoveTaskStatusCancelling:
+		state.status = MoveTaskStatusCancelling
+		moved := state.movedCount
+		state.mu.Unlock()
+		state.cancel()
+
+		return &CancelMessageMoveTaskOutput{
+			ApproximateNumberOfMessagesMoved: moved,
+		}, nil
+	default:
+		// Terminal states (Completed, Cancelled, Failed) cannot be cancelled;
+		// AWS rejects the request rather than treating it as idempotent.
 		state.mu.Unlock()
 
 		return nil, ErrMoveTaskNotRunning
 	}
-
-	state.status = MoveTaskStatusCancelling
-	// Capture movedCount under the lock before releasing it, to avoid a race
-	// with the goroutine that increments movedCount concurrently.
-	moved := state.movedCount
-	state.mu.Unlock()
-
-	state.cancel()
-
-	return &CancelMessageMoveTaskOutput{
-		ApproximateNumberOfMessagesMoved: moved,
-	}, nil
 }
 
 // listMessageMoveTasksDefaultMaxResults is the default number of results returned by

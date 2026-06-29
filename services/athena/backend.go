@@ -80,6 +80,17 @@ type ResultConfiguration struct {
 	OutputLocation          string                  `json:"OutputLocation,omitempty"`
 }
 
+// ResultReuseByAgeConfiguration controls result reuse by result age.
+type ResultReuseByAgeConfiguration struct {
+	Enabled         bool  `json:"Enabled"`
+	MaxAgeInMinutes int32 `json:"MaxAgeInMinutes,omitempty"`
+}
+
+// ResultReuseConfiguration controls whether previous query results can be reused.
+type ResultReuseConfiguration struct {
+	ResultReuseByAgeConfiguration *ResultReuseByAgeConfiguration `json:"ResultReuseByAgeConfiguration,omitempty"`
+}
+
 // EngineVersion holds the engine version configuration for a workgroup.
 type EngineVersion struct {
 	SelectedEngineVersion  string `json:"SelectedEngineVersion,omitempty"`
@@ -175,20 +186,22 @@ type QueryExecutionStatistics struct {
 	ServicePreProcessingTimeInMillis int64   `json:"ServicePreProcessingTimeInMillis,omitempty"`
 	ServiceProcessingTimeInMillis    int64   `json:"ServiceProcessingTimeInMillis,omitempty"`
 	TotalExecutionTimeInMillis       int64   `json:"TotalExecutionTimeInMillis,omitempty"`
+	ReusedPreviousResult             bool    `json:"ReusedPreviousResult,omitempty"`
 }
 
 // QueryExecution represents an Athena query execution.
 type QueryExecution struct {
-	ResultConfiguration   ResultConfiguration      `json:"ResultConfiguration,omitzero"`
-	QueryExecutionContext QueryExecutionContext    `json:"QueryExecutionContext,omitzero"`
-	EngineVersion         *EngineVersion           `json:"EngineVersion,omitempty"`
-	QueryExecutionID      string                   `json:"QueryExecutionId"`
-	Query                 string                   `json:"Query"`
-	WorkGroup             string                   `json:"WorkGroup,omitempty"`
-	StatementType         string                   `json:"StatementType,omitempty"`
-	ExecutionParameters   []string                 `json:"ExecutionParameters,omitempty"`
-	Status                QueryExecutionStatus     `json:"Status"`
-	Statistics            QueryExecutionStatistics `json:"Statistics,omitzero"`
+	ResultConfiguration      ResultConfiguration       `json:"ResultConfiguration,omitzero"`
+	QueryExecutionContext    QueryExecutionContext     `json:"QueryExecutionContext,omitzero"`
+	ResultReuseConfiguration *ResultReuseConfiguration `json:"ResultReuseConfiguration,omitempty"`
+	EngineVersion            *EngineVersion            `json:"EngineVersion,omitempty"`
+	QueryExecutionID         string                    `json:"QueryExecutionId"`
+	Query                    string                    `json:"Query"`
+	WorkGroup                string                    `json:"WorkGroup,omitempty"`
+	StatementType            string                    `json:"StatementType,omitempty"`
+	ExecutionParameters      []string                  `json:"ExecutionParameters,omitempty"`
+	Status                   QueryExecutionStatus      `json:"Status"`
+	Statistics               QueryExecutionStatistics  `json:"Statistics,omitzero"`
 }
 
 // Tag is a key-value pair.
@@ -276,24 +289,34 @@ type Notebook struct {
 // StorageBackend is the interface for the Athena in-memory store.
 type StorageBackend interface {
 	// WorkGroups
-	CreateWorkGroup(name, description, state string, cfg WorkGroupConfiguration, tags map[string]string) error
+	CreateWorkGroup(
+		name, description, state string,
+		cfg WorkGroupConfiguration,
+		tags map[string]string,
+	) error
 	GetWorkGroup(name string) (*WorkGroup, error)
-	ListWorkGroups() ([]WorkGroupSummary, error)
+	ListWorkGroups(nextToken string, maxResults int) ([]*WorkGroupSummary, string, error)
 	UpdateWorkGroup(name, description, state string, cfg *WorkGroupConfiguration) error
 	DeleteWorkGroup(name string) error
 
 	// Named Queries
 	CreateNamedQuery(name, description, database, queryString, workGroup string) (string, error)
 	GetNamedQuery(id string) (*NamedQuery, error)
-	ListNamedQueries(workGroup string) ([]string, error)
+	ListNamedQueries(workGroup, nextToken string, maxResults int) ([]string, string, error)
 	BatchGetNamedQuery(ids []string) ([]NamedQuery, []UnprocessedNamedQueryID)
 	DeleteNamedQuery(id string) error
 
 	// Data Catalogs
-	CreateDataCatalog(name, catalogType, description, connectionType string, params, tags map[string]string) error
+	CreateDataCatalog(
+		name, catalogType, description, connectionType string,
+		params, tags map[string]string,
+	) error
 	GetDataCatalog(name string) (*DataCatalog, error)
-	ListDataCatalogs() ([]DataCatalogSummary, error)
-	UpdateDataCatalog(name, catalogType, description, connectionType string, params map[string]string) error
+	ListDataCatalogs(nextToken string, maxResults int) ([]*DataCatalogSummary, string, error)
+	UpdateDataCatalog(
+		name, catalogType, description, connectionType string,
+		params map[string]string,
+	) error
 	DeleteDataCatalog(name string) error
 
 	// Query Executions
@@ -302,6 +325,7 @@ type StorageBackend interface {
 		ctx QueryExecutionContext,
 		rc ResultConfiguration,
 		execParams []string,
+		reuseCfg *ResultReuseConfiguration,
 	) (string, error)
 	GetQueryExecution(id string) (*QueryExecution, error)
 	GetQueryResults(id, nextToken string, maxResults int) (*sqlResultPage, error)
@@ -322,7 +346,10 @@ type StorageBackend interface {
 	CreatePreparedStatement(name, description, workGroup, queryStatement string) error
 	DeletePreparedStatement(name, workGroup string) error
 	GetPreparedStatement(name, workGroup string) (*PreparedStatement, error)
-	ListPreparedStatements(workGroup string) ([]PreparedStatementSummary, error)
+	ListPreparedStatements(
+		workGroup, nextToken string,
+		maxResults int,
+	) ([]PreparedStatementSummary, string, error)
 
 	// Capacity Reservations
 	CancelCapacityReservation(name string) error
@@ -529,7 +556,8 @@ func validateWorkGroupState(state string) error {
 // (a positive value < 10 MiB is rejected; zero means "unlimited" and is
 // permitted).
 func validateWorkGroupConfiguration(cfg WorkGroupConfiguration) error {
-	if cfg.BytesScannedCutoffPerQuery > 0 && cfg.BytesScannedCutoffPerQuery < athenaMinBytesScannedCutoff {
+	if cfg.BytesScannedCutoffPerQuery > 0 &&
+		cfg.BytesScannedCutoffPerQuery < athenaMinBytesScannedCutoff {
 		return fmt.Errorf(
 			"%w: BytesScannedCutoffPerQuery must be at least %d bytes (10 MB)",
 			ErrValidation, athenaMinBytesScannedCutoff,
@@ -601,35 +629,67 @@ func (b *InMemoryBackend) GetWorkGroup(name string) (*WorkGroup, error) {
 	return &cp, nil
 }
 
-// ListWorkGroups returns summaries of all workgroups.
-func (b *InMemoryBackend) ListWorkGroups() ([]WorkGroupSummary, error) {
+// ListWorkGroups returns summaries of all workgroups with optional NextToken/MaxResults pagination.
+func (b *InMemoryBackend) ListWorkGroups(
+	nextToken string,
+	maxResults int,
+) ([]*WorkGroupSummary, string, error) {
 	b.mu.RLock("ListWorkGroups")
 	defer b.mu.RUnlock()
 
-	result := make([]WorkGroupSummary, 0, len(b.workGroups))
+	all := make([]*WorkGroupSummary, 0, len(b.workGroups))
 	for _, wg := range b.workGroups {
-		sum := WorkGroupSummary{
+		sum := &WorkGroupSummary{
 			Name:         wg.Name,
 			Description:  wg.Description,
 			State:        wg.State,
 			CreationTime: wg.CreationTime,
 		}
-		if ev := wg.Configuration.EngineVersion; ev.SelectedEngineVersion != "" || ev.EffectiveEngineVersion != "" {
+		if ev := wg.Configuration.EngineVersion; ev.SelectedEngineVersion != "" ||
+			ev.EffectiveEngineVersion != "" {
 			cp := ev
 			sum.EngineVersion = &cp
 		}
-		result = append(result, sum)
+		all = append(all, sum)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].Name < all[j].Name
 	})
 
-	return result, nil
+	const defaultMaxResults = 50
+	limit := defaultMaxResults
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, s := range all {
+			if s.Name == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	all = all[start:]
+
+	outToken := ""
+	if len(all) > limit {
+		outToken = all[limit].Name
+		all = all[:limit]
+	}
+
+	return all, outToken, nil
 }
 
 // UpdateWorkGroup updates an existing workgroup.
-func (b *InMemoryBackend) UpdateWorkGroup(name, description, state string, cfg *WorkGroupConfiguration) error {
+func (b *InMemoryBackend) UpdateWorkGroup(
+	name, description, state string,
+	cfg *WorkGroupConfiguration,
+) error {
 	if err := validateWorkGroupState(state); err != nil {
 		return err
 	}
@@ -736,8 +796,11 @@ func (b *InMemoryBackend) GetNamedQuery(id string) (*NamedQuery, error) {
 	return &cp, nil
 }
 
-// ListNamedQueries returns named query IDs, optionally filtered by workgroup.
-func (b *InMemoryBackend) ListNamedQueries(workGroup string) ([]string, error) {
+// ListNamedQueries returns named query IDs, optionally filtered by workgroup, with pagination.
+func (b *InMemoryBackend) ListNamedQueries(
+	workGroup, nextToken string,
+	maxResults int,
+) ([]string, string, error) {
 	b.mu.RLock("ListNamedQueries")
 	defer b.mu.RUnlock()
 
@@ -750,11 +813,38 @@ func (b *InMemoryBackend) ListNamedQueries(workGroup string) ([]string, error) {
 
 	sort.Strings(ids)
 
-	return ids, nil
+	const defaultMaxResults = 50
+	limit := defaultMaxResults
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, id := range ids {
+			if id == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	ids = ids[start:]
+
+	outToken := ""
+	if len(ids) > limit {
+		outToken = ids[limit]
+		ids = ids[:limit]
+	}
+
+	return ids, outToken, nil
 }
 
 // BatchGetNamedQuery retrieves multiple named queries by ID.
-func (b *InMemoryBackend) BatchGetNamedQuery(ids []string) ([]NamedQuery, []UnprocessedNamedQueryID) {
+func (b *InMemoryBackend) BatchGetNamedQuery(
+	ids []string,
+) ([]NamedQuery, []UnprocessedNamedQueryID) {
 	b.mu.RLock("BatchGetNamedQuery")
 	defer b.mu.RUnlock()
 
@@ -860,14 +950,17 @@ func (b *InMemoryBackend) GetDataCatalog(name string) (*DataCatalog, error) {
 	return &cp, nil
 }
 
-// ListDataCatalogs returns summaries of all data catalogs.
-func (b *InMemoryBackend) ListDataCatalogs() ([]DataCatalogSummary, error) {
+// ListDataCatalogs returns summaries of all data catalogs with optional NextToken/MaxResults pagination.
+func (b *InMemoryBackend) ListDataCatalogs(
+	nextToken string,
+	maxResults int,
+) ([]*DataCatalogSummary, string, error) {
 	b.mu.RLock("ListDataCatalogs")
 	defer b.mu.RUnlock()
 
-	result := make([]DataCatalogSummary, 0, len(b.dataCatalogs))
+	all := make([]*DataCatalogSummary, 0, len(b.dataCatalogs))
 	for _, dc := range b.dataCatalogs {
-		result = append(result, DataCatalogSummary{
+		all = append(all, &DataCatalogSummary{
 			CatalogName:    dc.Name,
 			Type:           dc.Type,
 			ConnectionType: dc.ConnectionType,
@@ -876,11 +969,36 @@ func (b *InMemoryBackend) ListDataCatalogs() ([]DataCatalogSummary, error) {
 		})
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CatalogName < result[j].CatalogName
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CatalogName < all[j].CatalogName
 	})
 
-	return result, nil
+	const defaultMaxResults = 50
+	limit := defaultMaxResults
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, s := range all {
+			if s.CatalogName == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	all = all[start:]
+
+	outToken := ""
+	if len(all) > limit {
+		outToken = all[limit].CatalogName
+		all = all[:limit]
+	}
+
+	return all, outToken, nil
 }
 
 // UpdateDataCatalog updates an existing data catalog.
@@ -896,8 +1014,8 @@ func (b *InMemoryBackend) UpdateDataCatalog(
 		return fmt.Errorf("%w: data catalog %q not found", ErrNotFound, name)
 	}
 
-	if catalogType != "" {
-		dc.Type = catalogType
+	if catalogType != "" && catalogType != dc.Type {
+		return fmt.Errorf("%w: cannot change the Type of an existing data catalog", ErrValidation)
 	}
 
 	if description != "" {
@@ -919,7 +1037,11 @@ func (b *InMemoryBackend) UpdateDataCatalog(
 // The built-in AwsDataCatalog cannot be deleted.
 func (b *InMemoryBackend) DeleteDataCatalog(name string) error {
 	if name == awsDataCatalog {
-		return fmt.Errorf("%w: cannot delete the built-in data catalog %s", ErrProtected, awsDataCatalog)
+		return fmt.Errorf(
+			"%w: cannot delete the built-in data catalog %s",
+			ErrProtected,
+			awsDataCatalog,
+		)
 	}
 
 	b.mu.Lock("DeleteDataCatalog")
@@ -938,11 +1060,14 @@ func (b *InMemoryBackend) DeleteDataCatalog(name string) error {
 // --- Query Executions ---
 
 // StartQueryExecution records a new query execution and returns its ID.
+//
+//nolint:cyclop,funlen // lifecycle setup: enforce workgroup config + result reuse
 func (b *InMemoryBackend) StartQueryExecution(
 	query, workGroup string,
 	ctx QueryExecutionContext,
 	rc ResultConfiguration,
 	execParams []string,
+	reuseCfg *ResultReuseConfiguration,
 ) (string, error) {
 	if query == "" {
 		return "", fmt.Errorf("%w: QueryString is required", ErrValidation)
@@ -954,10 +1079,52 @@ func (b *InMemoryBackend) StartQueryExecution(
 
 	b.mu.Lock("StartQueryExecution")
 
-	if _, ok := b.workGroups[workGroup]; !ok {
+	wg, ok := b.workGroups[workGroup]
+	if !ok {
 		b.mu.Unlock()
 
 		return "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
+	}
+
+	if wg.State == "DISABLED" {
+		b.mu.Unlock()
+
+		return "", fmt.Errorf("%w: workgroup %q is disabled", ErrValidation, workGroup)
+	}
+
+	// EnforceWorkGroupConfiguration: workgroup settings override per-query settings.
+	if wg.Configuration.EnforceWGCfg {
+		wgRC := wg.Configuration.ResultConfiguration
+		if wgRC.OutputLocation != "" {
+			rc.OutputLocation = wgRC.OutputLocation
+		}
+
+		if wgRC.EncryptionConfiguration.EncryptionOption != "" {
+			rc.EncryptionConfiguration = wgRC.EncryptionConfiguration
+		}
+	}
+
+	// Result reuse: check for a recent succeeded execution with the same query.
+	reused := false
+	if reuseCfg != nil &&
+		reuseCfg.ResultReuseByAgeConfiguration != nil &&
+		reuseCfg.ResultReuseByAgeConfiguration.Enabled {
+		maxAge := reuseCfg.ResultReuseByAgeConfiguration.MaxAgeInMinutes
+		cutoff := float64(
+			time.Now().Add(-time.Duration(maxAge)*time.Minute).UnixMilli(),
+		) / millisToSeconds
+
+		for _, prev := range b.queryExecutions {
+			if prev.Query == query &&
+				prev.WorkGroup == workGroup &&
+				prev.Status.State == stateSucceeded &&
+				prev.Status.CompletionDateTime >= cutoff &&
+				!prev.Statistics.ReusedPreviousResult {
+				reused = true
+
+				break
+			}
+		}
 	}
 
 	id := randomID()
@@ -966,13 +1133,14 @@ func (b *InMemoryBackend) StartQueryExecution(
 	const mockEngineMs int64 = 100
 
 	qe := &QueryExecution{
-		QueryExecutionID:      id,
-		Query:                 query,
-		ResultConfiguration:   rc,
-		QueryExecutionContext: ctx,
-		WorkGroup:             workGroup,
-		StatementType:         inferStatementType(query),
-		ExecutionParameters:   execParams,
+		QueryExecutionID:         id,
+		Query:                    query,
+		ResultConfiguration:      rc,
+		QueryExecutionContext:    ctx,
+		ResultReuseConfiguration: reuseCfg,
+		WorkGroup:                workGroup,
+		StatementType:            inferStatementType(query),
+		ExecutionParameters:      execParams,
 		EngineVersion: &EngineVersion{
 			SelectedEngineVersion:  stateAuto,
 			EffectiveEngineVersion: athenaEngineV3,
@@ -987,6 +1155,7 @@ func (b *InMemoryBackend) StartQueryExecution(
 			TotalExecutionTimeInMillis:    mockEngineMs,
 			ServiceProcessingTimeInMillis: 1,
 			DataScannedInBytes:            0,
+			ReusedPreviousResult:          reused,
 		},
 	}
 
@@ -1075,7 +1244,12 @@ func (b *InMemoryBackend) StopQueryExecution(id string) error {
 	}
 
 	if isTerminalState(qe.Status.State) {
-		return fmt.Errorf("%w: query execution %q is already in terminal state %q", ErrValidation, id, qe.Status.State)
+		return fmt.Errorf(
+			"%w: query execution %q is already in terminal state %q",
+			ErrValidation,
+			id,
+			qe.Status.State,
+		)
 	}
 
 	qe.Status.State = stateCancelled
@@ -1084,7 +1258,9 @@ func (b *InMemoryBackend) StopQueryExecution(id string) error {
 }
 
 // BatchGetQueryExecution retrieves multiple query executions by ID.
-func (b *InMemoryBackend) BatchGetQueryExecution(ids []string) ([]QueryExecution, []UnprocessedQueryExecutionID) {
+func (b *InMemoryBackend) BatchGetQueryExecution(
+	ids []string,
+) ([]QueryExecution, []UnprocessedQueryExecutionID) {
 	b.mu.RLock("BatchGetQueryExecution")
 	defer b.mu.RUnlock()
 
@@ -1175,13 +1351,15 @@ func notebookNameKey(workGroup, name string) string {
 
 // canDeleteCapacityReservation reports whether a capacity reservation status allows deletion.
 func canDeleteCapacityReservation(status string) bool {
-	return status == stateCancelling || status == stateCancelled
+	return status == stateCancelled || status == stateCancelling
 }
 
 // --- Prepared Statements ---
 
 // CreatePreparedStatement creates a new prepared statement in a workgroup.
-func (b *InMemoryBackend) CreatePreparedStatement(name, description, workGroup, queryStatement string) error {
+func (b *InMemoryBackend) CreatePreparedStatement(
+	name, description, workGroup, queryStatement string,
+) error {
 	switch {
 	case name == "":
 		return fmt.Errorf("%w: StatementName is required", ErrValidation)
@@ -1196,7 +1374,12 @@ func (b *InMemoryBackend) CreatePreparedStatement(name, description, workGroup, 
 
 	key := preparedStatementKey(workGroup, name)
 	if _, ok := b.preparedStatements[key]; ok {
-		return fmt.Errorf("%w: prepared statement %q already exists in workgroup %q", ErrAlreadyExists, name, workGroup)
+		return fmt.Errorf(
+			"%w: prepared statement %q already exists in workgroup %q",
+			ErrAlreadyExists,
+			name,
+			workGroup,
+		)
 	}
 
 	now := float64(time.Now().UnixMilli()) / millisToSeconds
@@ -1219,7 +1402,12 @@ func (b *InMemoryBackend) GetPreparedStatement(name, workGroup string) (*Prepare
 	key := preparedStatementKey(workGroup, name)
 	ps, ok := b.preparedStatements[key]
 	if !ok {
-		return nil, fmt.Errorf("%w: prepared statement %q not found in workgroup %q", ErrNotFound, name, workGroup)
+		return nil, fmt.Errorf(
+			"%w: prepared statement %q not found in workgroup %q",
+			ErrNotFound,
+			name,
+			workGroup,
+		)
 	}
 
 	cp := *ps
@@ -1227,14 +1415,22 @@ func (b *InMemoryBackend) GetPreparedStatement(name, workGroup string) (*Prepare
 	return &cp, nil
 }
 
-// ListPreparedStatements returns summary views of prepared statements in a workgroup, sorted by name.
-func (b *InMemoryBackend) ListPreparedStatements(workGroup string) ([]PreparedStatementSummary, error) {
+// maxListPreparedStatements is the AWS-documented maximum page size for ListPreparedStatements.
+const maxListPreparedStatements = 256
+
+// ListPreparedStatements returns summary views of prepared statements in a workgroup, sorted by name,
+// with optional NextToken/MaxResults pagination.
+func (b *InMemoryBackend) ListPreparedStatements(
+	workGroup, nextToken string,
+	maxResults int,
+) ([]PreparedStatementSummary, string, error) {
 	b.mu.RLock("ListPreparedStatements")
 	defer b.mu.RUnlock()
 
+	prefix := workGroup + "/"
 	result := make([]PreparedStatementSummary, 0, len(b.preparedStatements))
+
 	for key, ps := range b.preparedStatements {
-		prefix := workGroup + "/"
 		if strings.HasPrefix(key, prefix) {
 			result = append(result, PreparedStatementSummary{
 				StatementName:    ps.StatementName,
@@ -1247,7 +1443,31 @@ func (b *InMemoryBackend) ListPreparedStatements(workGroup string) ([]PreparedSt
 		return result[i].StatementName < result[j].StatementName
 	})
 
-	return result, nil
+	limit := maxListPreparedStatements
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, s := range result {
+			if s.StatementName == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	result = result[start:]
+
+	outToken := ""
+	if len(result) > limit {
+		outToken = result[limit].StatementName
+		result = result[:limit]
+	}
+
+	return result, outToken, nil
 }
 
 // BatchGetPreparedStatement retrieves multiple prepared statements by name within a workgroup.
@@ -1284,7 +1504,12 @@ func (b *InMemoryBackend) DeletePreparedStatement(name, workGroup string) error 
 
 	key := preparedStatementKey(workGroup, name)
 	if _, ok := b.preparedStatements[key]; !ok {
-		return fmt.Errorf("%w: prepared statement %q not found in workgroup %q", ErrNotFound, name, workGroup)
+		return fmt.Errorf(
+			"%w: prepared statement %q not found in workgroup %q",
+			ErrNotFound,
+			name,
+			workGroup,
+		)
 	}
 
 	delete(b.preparedStatements, key)
@@ -1294,13 +1519,19 @@ func (b *InMemoryBackend) DeletePreparedStatement(name, workGroup string) error 
 
 // --- Capacity Reservations ---
 
+const minCapacityDPUs int32 = 24
+
 // CreateCapacityReservation creates a new capacity reservation.
-func (b *InMemoryBackend) CreateCapacityReservation(name string, targetDPUs int32, tags map[string]string) error {
+func (b *InMemoryBackend) CreateCapacityReservation(
+	name string,
+	targetDPUs int32,
+	tags map[string]string,
+) error {
 	switch {
 	case name == "":
 		return fmt.Errorf("%w: Name is required", ErrValidation)
-	case targetDPUs <= 0:
-		return fmt.Errorf("%w: TargetDpus must be greater than 0", ErrValidation)
+	case targetDPUs < minCapacityDPUs:
+		return fmt.Errorf("%w: TargetDpus minimum is 24", ErrValidation)
 	}
 
 	b.mu.Lock("CreateCapacityReservation")
@@ -1345,7 +1576,7 @@ func (b *InMemoryBackend) CancelCapacityReservation(name string) error {
 }
 
 // DeleteCapacityReservation removes a capacity reservation.
-// The reservation must have been cancelled first (status CANCELLING or CANCELLED).
+// The reservation must be in CANCELLING or CANCELLED status.
 func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
 	b.mu.Lock("DeleteCapacityReservation")
 	defer b.mu.Unlock()
@@ -1372,7 +1603,10 @@ func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
 // --- Notebooks ---
 
 // CreateNotebook creates a new Athena notebook and returns its ID.
-func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string]string) (string, error) {
+func (b *InMemoryBackend) CreateNotebook(
+	workGroup, name string,
+	tags map[string]string,
+) (string, error) {
 	switch {
 	case workGroup == "":
 		return "", fmt.Errorf("%w: WorkGroup is required", ErrValidation)
@@ -1385,7 +1619,12 @@ func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string
 
 	nameKey := notebookNameKey(workGroup, name)
 	if _, exists := b.notebookNames[nameKey]; exists {
-		return "", fmt.Errorf("%w: notebook %q already exists in workgroup %q", ErrAlreadyExists, name, workGroup)
+		return "", fmt.Errorf(
+			"%w: notebook %q already exists in workgroup %q",
+			ErrAlreadyExists,
+			name,
+			workGroup,
+		)
 	}
 
 	id := randomID()
@@ -1411,7 +1650,11 @@ func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string
 
 // CreatePresignedNotebookURL generates a presigned URL for a notebook session.
 func (b *InMemoryBackend) CreatePresignedNotebookURL(sessionID string) (string, error) {
-	return fmt.Sprintf("https://athena.%s.amazonaws.com/notebooks/presigned/%s", b.region, sessionID), nil
+	return fmt.Sprintf(
+		"https://athena.%s.amazonaws.com/notebooks/presigned/%s",
+		b.region,
+		sessionID,
+	), nil
 }
 
 // DeleteNotebook removes a notebook by its ID.
@@ -1438,7 +1681,11 @@ func (b *InMemoryBackend) ExportNotebook(notebookID string) (NotebookMetadata, s
 
 	nb, ok := b.notebooks[notebookID]
 	if !ok {
-		return NotebookMetadata{}, "", fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
+		return NotebookMetadata{}, "", fmt.Errorf(
+			"%w: notebook %q not found",
+			ErrNotFound,
+			notebookID,
+		)
 	}
 
 	meta := NotebookMetadata{

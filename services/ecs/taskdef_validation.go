@@ -70,7 +70,8 @@ func validateContainerDefinitions(defs []ContainerDefinition, networkMode string
 		case !containerNamePattern.MatchString(def.Name):
 			return fmt.Errorf(
 				"%w: container name %q is invalid; up to 255 letters, numbers, hyphens, and underscores are allowed",
-				ErrClient, def.Name,
+				ErrClient,
+				def.Name,
 			)
 		case def.Image == "":
 			return fmt.Errorf("%w: container %q must specify an image", ErrClient, def.Name)

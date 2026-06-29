@@ -428,6 +428,8 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string) er
 }
 
 // StartApplication sets the application status to RUNNING.
+// Returns ResourceInUseException if the application is not in READY state,
+// matching real AWS Kinesis Analytics v2 behavior.
 func (b *InMemoryBackend) StartApplication(ctx context.Context, name string) error {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -439,12 +441,18 @@ func (b *InMemoryBackend) StartApplication(ctx context.Context, name string) err
 		return ErrNotFound
 	}
 
+	if app.ApplicationStatus != ApplicationStatusReady {
+		return ErrAlreadyExists
+	}
+
 	app.ApplicationStatus = ApplicationStatusRunning
 
 	return nil
 }
 
 // StopApplication sets the application status to READY.
+// Returns ResourceInUseException if the application is not in RUNNING state,
+// matching real AWS Kinesis Analytics v2 behavior.
 func (b *InMemoryBackend) StopApplication(ctx context.Context, name string) error {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -454,6 +462,10 @@ func (b *InMemoryBackend) StopApplication(ctx context.Context, name string) erro
 	app, ok := b.applications[region][name]
 	if !ok {
 		return ErrNotFound
+	}
+
+	if app.ApplicationStatus != ApplicationStatusRunning {
+		return ErrAlreadyExists
 	}
 
 	app.ApplicationStatus = ApplicationStatusReady
@@ -474,6 +486,11 @@ func (b *InMemoryBackend) CreateApplicationSnapshot(
 	app, ok := b.applications[region][appName]
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	// Real AWS requires application to be RUNNING before snapshot creation.
+	if app.ApplicationStatus != ApplicationStatusRunning {
+		return nil, ErrAlreadyExists
 	}
 
 	snaps := b.snapshotsStore(region)[appName]

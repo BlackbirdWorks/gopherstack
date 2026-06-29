@@ -51,9 +51,20 @@ const (
 
 // Host status values.
 const (
-	HostStatusAvailable = "AVAILABLE"
-	HostStatusPending   = "PENDING"
+	HostStatusAvailable           = "AVAILABLE"
+	HostStatusPending             = "PENDING"
+	HostStatusVPCConfigDeleting   = "VPC_CONFIG_DELETING"
+	HostStatusVPCConfigFailed     = "VPC_CONFIG_FAILED"
+	HostStatusVPCConfigInProgress = "VPC_CONFIG_IN_PROGRESS"
 )
+
+// VpcConfiguration holds the VPC connectivity settings for a host.
+type VpcConfiguration struct {
+	VpcID            string   `json:"VpcId"`
+	TLSCertificate   string   `json:"TlsCertificate,omitempty"`
+	SubnetIDs        []string `json:"SubnetIds"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+}
 
 // Sync status values.
 const (
@@ -198,6 +209,7 @@ type Connection struct {
 // Host represents an in-memory AWS CodeStar host.
 type Host struct {
 	Tags             map[string]string `json:"tags,omitempty"`
+	VpcConfiguration *VpcConfiguration `json:"vpcConfiguration,omitempty"`
 	Name             string            `json:"name"`
 	HostArn          string            `json:"hostArn"`
 	ProviderType     string            `json:"providerType"`
@@ -564,6 +576,7 @@ func (b *InMemoryBackend) DeleteConnection(ctx context.Context, connectionArn st
 func (b *InMemoryBackend) CreateHost(
 	ctx context.Context,
 	name, providerType, providerEndpoint string,
+	vpcConfig *VpcConfiguration,
 	tags map[string]string,
 ) (*Host, error) {
 	if err := validateConnectionName(name); err != nil {
@@ -608,7 +621,8 @@ func (b *InMemoryBackend) CreateHost(
 		HostArn:          hostArn,
 		ProviderType:     providerType,
 		ProviderEndpoint: providerEndpoint,
-		Status:           HostStatusAvailable,
+		Status:           HostStatusPending,
+		VpcConfiguration: vpcConfig,
 		Tags:             tagsCopy,
 	}
 	b.hostsStore(region)[hostArn] = host
@@ -696,8 +710,12 @@ func (b *InMemoryBackend) DeleteHost(ctx context.Context, hostArn string) error 
 	return nil
 }
 
-// UpdateHost updates the provider endpoint for a host.
-func (b *InMemoryBackend) UpdateHost(ctx context.Context, hostArn, providerEndpoint string) error {
+// UpdateHost updates the provider endpoint and optional VPC configuration for a host.
+func (b *InMemoryBackend) UpdateHost(
+	ctx context.Context,
+	hostArn, providerEndpoint string,
+	vpcConfig *VpcConfiguration,
+) error {
 	if providerEndpoint != "" && len(providerEndpoint) > maxProviderEndpointLen {
 		return fmt.Errorf("%w: ProviderEndpoint must not exceed %d characters", ErrValidation, maxProviderEndpointLen)
 	}
@@ -719,6 +737,10 @@ func (b *InMemoryBackend) UpdateHost(ctx context.Context, hostArn, providerEndpo
 
 	if providerEndpoint != "" {
 		host.ProviderEndpoint = providerEndpoint
+	}
+
+	if vpcConfig != nil {
+		host.VpcConfiguration = vpcConfig
 	}
 
 	return nil

@@ -1124,7 +1124,7 @@ func TestAccuracy_AssumedRoleArn_PathStripped_WebIdentityAndSAML(t *testing.T) {
 			RoleArn:         roleArn,
 			RoleSessionName: "sess",
 			PrincipalArn:    "arn:aws:iam::" + acct + ":saml-provider/Example",
-			SAMLAssertion:   "assertion",
+			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, wantArn, resp.AssumeRoleWithSAMLResult.AssumedRoleUser.Arn)

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -306,7 +308,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		opDeleteLiveSource:   func() error { return h.handleDeleteLiveSource(c, resource, extra) },
 		opListLiveSources:    func() error { return h.handleListLiveSources(c, resource) },
 
-		opCreatePrefetchSchedule: func() error { return h.handleCreatePrefetchSchedule(c, resource, extra) },
+		opCreatePrefetchSchedule: func() error { return h.handleCreatePrefetchSchedule(c, resource, extra, body) },
 		opGetPrefetchSchedule:    func() error { return h.handleGetPrefetchSchedule(c, resource, extra) },
 		opDeletePrefetchSchedule: func() error { return h.handleDeletePrefetchSchedule(c, resource, extra) },
 		opListPrefetchSchedules:  func() error { return h.handleListPrefetchSchedules(c, resource) },
@@ -708,7 +710,8 @@ func (h *Handler) handleDeletePlaybackConfiguration(c *echo.Context, name string
 }
 
 func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
-	summaries, nextToken, err := h.Backend.ListPlaybackConfigurations(0, "")
+	maxResults, nextToken := extractPaginationParams(c)
+	summaries, nextToken, err := h.Backend.ListPlaybackConfigurations(maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -733,7 +736,7 @@ func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
 }
 
 func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		keyName:                               cfg.Name,
 		"PlaybackConfigurationArn":            cfg.PlaybackConfigurationARN,
 		"AdDecisionServerUrl":                 cfg.AdDecisionServerURL,
@@ -742,6 +745,14 @@ func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 		"SessionInitializationEndpointPrefix": cfg.SessionInitializationPrefix,
 		keyTags:                               nilToEmpty(cfg.Tags),
 	}
+
+	if cfg.HlsManifestEndpointPrefix != "" {
+		out["HlsConfiguration"] = map[string]any{
+			"ManifestEndpointPrefix": cfg.HlsManifestEndpointPrefix,
+		}
+	}
+
+	return out
 }
 
 // --- Channel handlers ---
@@ -749,9 +760,10 @@ func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 func (h *Handler) handleCreateChannel(c *echo.Context, name string, body map[string]any) error {
 	playbackMode, _ := body["PlaybackMode"].(string)
 	outputs := extractOutputs(body)
+	fillerSlate := extractFillerSlate(body)
 	tags := extractTags(body)
 
-	ch, err := h.Backend.CreateChannel(name, playbackMode, outputs, tags)
+	ch, err := h.Backend.CreateChannel(name, playbackMode, outputs, fillerSlate, tags)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -788,7 +800,8 @@ func (h *Handler) handleDeleteChannel(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListChannels(c *echo.Context) error {
-	summaries, nextToken, err := h.Backend.ListChannels(0, "")
+	maxResults, nextToken := extractPaginationParams(c)
+	summaries, nextToken, err := h.Backend.ListChannels(maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -843,14 +856,32 @@ func toChannelOutput(ch *Channel) map[string]any {
 		outputs = append(outputs, out)
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		keyChannelName: ch.Name,
 		keyArn:         ch.ARN,
 		"PlaybackMode": ch.PlaybackMode,
 		"ChannelState": ch.ChannelState,
+		"Tier":         ch.Tier,
 		"Outputs":      outputs,
 		keyTags:        nilToEmpty(ch.Tags),
 	}
+
+	if !ch.CreationTime.IsZero() {
+		result["CreationTime"] = ch.CreationTime.Format(time.RFC3339)
+	}
+
+	if !ch.LastModified.IsZero() {
+		result["LastModifiedTime"] = ch.LastModified.Format(time.RFC3339)
+	}
+
+	if ch.FillerSlate != nil {
+		result["FillerSlate"] = map[string]any{
+			"SourceLocationName": ch.FillerSlate.SourceLocationName,
+			"VodSourceName":      ch.FillerSlate.VodSourceName,
+		}
+	}
+
+	return result
 }
 
 // --- SourceLocation handlers ---
@@ -896,7 +927,8 @@ func (h *Handler) handleDeleteSourceLocation(c *echo.Context, name string) error
 }
 
 func (h *Handler) handleListSourceLocations(c *echo.Context) error {
-	summaries, nextToken, err := h.Backend.ListSourceLocations(0, "")
+	maxResults, nextToken := extractPaginationParams(c)
+	summaries, nextToken, err := h.Backend.ListSourceLocations(maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -983,7 +1015,8 @@ func (h *Handler) handleDeleteVodSource(c *echo.Context, sourceLocationName, vod
 }
 
 func (h *Handler) handleListVodSources(c *echo.Context, sourceLocationName string) error {
-	summaries, nextToken, err := h.Backend.ListVodSources(sourceLocationName, 0, "")
+	maxResults, nextToken := extractPaginationParams(c)
+	summaries, nextToken, err := h.Backend.ListVodSources(sourceLocationName, maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -1057,6 +1090,19 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 }
 
 // --- helpers ---
+
+func extractPaginationParams(c *echo.Context) (int, string) {
+	q := c.Request().URL.Query()
+	maxResults := 0
+
+	if s := q.Get("MaxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxResults = n
+		}
+	}
+
+	return maxResults, q.Get("NextToken")
+}
 
 func extractTags(body map[string]any) map[string]string {
 	raw, _ := body[keyTags].(map[string]any)
@@ -1147,6 +1193,73 @@ func stringField(m map[string]any, key string) string {
 	return v
 }
 
+func extractFillerSlate(body map[string]any) *SlateSource {
+	raw, _ := body["FillerSlate"].(map[string]any)
+	if raw == nil {
+		return nil
+	}
+
+	return &SlateSource{
+		SourceLocationName: stringField(raw, "SourceLocationName"),
+		VodSourceName:      stringField(raw, "VodSourceName"),
+	}
+}
+
+func extractPrefetchRetrieval(body map[string]any) *PrefetchRetrieval {
+	raw, _ := body["Retrieval"].(map[string]any)
+	if raw == nil {
+		return nil
+	}
+
+	r := &PrefetchRetrieval{}
+
+	if s, _ := raw["StartTime"].(string); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			r.StartTime = t
+		}
+	}
+
+	if s, _ := raw["EndTime"].(string); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			r.EndTime = t
+		}
+	}
+
+	if dv, _ := raw["DynamicVariables"].(map[string]any); len(dv) > 0 {
+		r.DynamicVariables = make(map[string]string, len(dv))
+		for k, v := range dv {
+			if sv, ok := v.(string); ok {
+				r.DynamicVariables[k] = sv
+			}
+		}
+	}
+
+	return r
+}
+
+func extractPrefetchConsumption(body map[string]any) *PrefetchConsumption {
+	raw, _ := body["Consumption"].(map[string]any)
+	if raw == nil {
+		return nil
+	}
+
+	c := &PrefetchConsumption{}
+
+	if s, _ := raw["StartTime"].(string); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			c.StartTime = t
+		}
+	}
+
+	if s, _ := raw["EndTime"].(string); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			c.EndTime = t
+		}
+	}
+
+	return c
+}
+
 func nilToEmpty(m map[string]string) map[string]string {
 	if m == nil {
 		return map[string]string{}
@@ -1206,7 +1319,8 @@ func (h *Handler) handleDeleteLiveSource(c *echo.Context, sourceLocationName, li
 }
 
 func (h *Handler) handleListLiveSources(c *echo.Context, sourceLocationName string) error {
-	summaries, nextToken, err := h.Backend.ListLiveSources(sourceLocationName, 0, "")
+	maxResults, nextToken := extractPaginationParams(c)
+	summaries, nextToken, err := h.Backend.ListLiveSources(sourceLocationName, maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -1250,8 +1364,15 @@ func toLiveSourceOutput(ls *LiveSource) map[string]any {
 
 // --- PrefetchSchedule handlers ---
 
-func (h *Handler) handleCreatePrefetchSchedule(c *echo.Context, playbackConfigName, name string) error {
-	ps, err := h.Backend.CreatePrefetchSchedule(playbackConfigName, name)
+func (h *Handler) handleCreatePrefetchSchedule(
+	c *echo.Context,
+	playbackConfigName, name string,
+	body map[string]any,
+) error {
+	retrieval := extractPrefetchRetrieval(body)
+	consumption := extractPrefetchConsumption(body)
+
+	ps, err := h.Backend.CreatePrefetchSchedule(playbackConfigName, name, retrieval, consumption)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -1277,7 +1398,8 @@ func (h *Handler) handleDeletePrefetchSchedule(c *echo.Context, playbackConfigNa
 }
 
 func (h *Handler) handleListPrefetchSchedules(c *echo.Context, playbackConfigName string) error {
-	schedules, nextToken, err := h.Backend.ListPrefetchSchedules(playbackConfigName, 0, "")
+	maxResults, nextToken := extractPaginationParams(c)
+	schedules, nextToken, err := h.Backend.ListPrefetchSchedules(playbackConfigName, maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -1296,11 +1418,43 @@ func (h *Handler) handleListPrefetchSchedules(c *echo.Context, playbackConfigNam
 }
 
 func toPrefetchScheduleOutput(ps *PrefetchSchedule) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		keyArn:                      ps.ARN,
 		keyName:                     ps.Name,
 		"PlaybackConfigurationName": ps.PlaybackConfigurationName,
 	}
+
+	if ps.Retrieval != nil {
+		r := map[string]any{}
+		if !ps.Retrieval.StartTime.IsZero() {
+			r["StartTime"] = ps.Retrieval.StartTime.Format(time.RFC3339)
+		}
+
+		if !ps.Retrieval.EndTime.IsZero() {
+			r["EndTime"] = ps.Retrieval.EndTime.Format(time.RFC3339)
+		}
+
+		if len(ps.Retrieval.DynamicVariables) > 0 {
+			r["DynamicVariables"] = ps.Retrieval.DynamicVariables
+		}
+
+		out["Retrieval"] = r
+	}
+
+	if ps.Consumption != nil {
+		c := map[string]any{}
+		if !ps.Consumption.StartTime.IsZero() {
+			c["StartTime"] = ps.Consumption.StartTime.Format(time.RFC3339)
+		}
+
+		if !ps.Consumption.EndTime.IsZero() {
+			c["EndTime"] = ps.Consumption.EndTime.Format(time.RFC3339)
+		}
+
+		out["Consumption"] = c
+	}
+
+	return out
 }
 
 // --- Program handlers ---
@@ -1357,7 +1511,8 @@ func (h *Handler) handleDeleteProgram(c *echo.Context, channelName, programName 
 }
 
 func (h *Handler) handleGetChannelSchedule(c *echo.Context, channelName string) error {
-	entries, nextToken, err := h.Backend.GetChannelSchedule(channelName, 0, "")
+	maxResults, nextToken := extractPaginationParams(c)
+	entries, nextToken, err := h.Backend.GetChannelSchedule(channelName, maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
 	}

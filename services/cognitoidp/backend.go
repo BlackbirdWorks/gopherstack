@@ -2,6 +2,8 @@ package cognitoidp
 
 import (
 	"crypto/rand"
+	"crypto/rsa"
+	"errors"
 	"fmt"
 	"maps"
 	"math/big"
@@ -76,27 +78,41 @@ type PasswordPolicy struct {
 // UserPool represents a Cognito User Pool.
 type UserPool struct {
 	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 	issuer                 *tokenIssuer
+	LambdaConfig           map[string]any    `json:"lambdaConfig,omitempty"`
+	EmailConfiguration     map[string]any    `json:"emailConfiguration,omitempty"`
+	AccountRecoverySetting map[string]any    `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
 	ID                     string            `json:"id,omitempty"`
 	Name                   string            `json:"name,omitempty"`
 	ARN                    string            `json:"arn,omitempty"`
 	MfaConfiguration       string            `json:"mfaConfiguration,omitempty"`
+	DeletionProtection     string            `json:"deletionProtection,omitempty"`
 	CustomAttributes       []SchemaAttribute `json:"customAttributes,omitempty"`
 	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`
 }
 
 // UserPoolClient represents an app client registered to a user pool.
 type UserPoolClient struct {
-	CreatedAt             time.Time `json:"createdAt"`
-	ClientID              string    `json:"clientId,omitempty"`
-	ClientName            string    `json:"clientName,omitempty"`
-	UserPoolID            string    `json:"userPoolId,omitempty"`
-	ClientSecret          string    `json:"clientSecret,omitempty"`
-	AllowedOAuthFlows     []string  `json:"allowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes    []string  `json:"allowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows     []string  `json:"explicitAuthFlows,omitempty"`
-	EnableTokenRevocation bool      `json:"enableTokenRevocation,omitempty"`
+	CreatedAt                       time.Time         `json:"createdAt"`
+	UpdatedAt                       time.Time         `json:"updatedAt"`
+	TokenValidityUnits              map[string]string `json:"tokenValidityUnits,omitempty"`
+	ClientID                        string            `json:"clientId,omitempty"`
+	ClientName                      string            `json:"clientName,omitempty"`
+	UserPoolID                      string            `json:"userPoolId,omitempty"`
+	ClientSecret                    string            `json:"clientSecret,omitempty"`
+	AllowedOAuthFlows               []string          `json:"allowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string          `json:"allowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows               []string          `json:"explicitAuthFlows,omitempty"`
+	CallbackURLs                    []string          `json:"callbackURLs,omitempty"`
+	LogoutURLs                      []string          `json:"logoutURLs,omitempty"`
+	SupportedIdentityProviders      []string          `json:"supportedIdentityProviders,omitempty"`
+	AccessTokenValidity             int32             `json:"accessTokenValidity,omitempty"`
+	IDTokenValidity                 int32             `json:"idTokenValidity,omitempty"`
+	RefreshTokenValidity            int32             `json:"refreshTokenValidity,omitempty"`
+	EnableTokenRevocation           bool              `json:"enableTokenRevocation,omitempty"`
+	AllowedOAuthFlowsUserPoolClient bool              `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 // User represents a Cognito user within a pool.
@@ -115,8 +131,19 @@ type User struct {
 	PreferredMfaSetting  string            `json:"preferredMfaSetting,omitempty"`
 	TOTPSecret           string            `json:"totpSecret,omitempty"`
 	UserMFASettingList   []string          `json:"userMFASettingList,omitempty"`
-	Enabled              bool              `json:"enabled,omitempty"`
-	TOTPVerified         bool              `json:"totpVerified,omitempty"`
+	// LinkedIdentities holds external (federated) provider identities linked to this
+	// user via AdminLinkProviderForUser.
+	LinkedIdentities []LinkedIdentity `json:"linkedIdentities,omitempty"`
+	Enabled          bool             `json:"enabled,omitempty"`
+	TOTPVerified     bool             `json:"totpVerified,omitempty"`
+}
+
+// LinkedIdentity is an external provider identity linked to a native Cognito user via
+// AdminLinkProviderForUser.
+type LinkedIdentity struct {
+	ProviderName           string `json:"providerName,omitempty"`
+	ProviderAttributeName  string `json:"providerAttributeName,omitempty"`
+	ProviderAttributeValue string `json:"providerAttributeValue,omitempty"`
 }
 
 // Group represents a Cognito User Pool group.
@@ -817,7 +844,7 @@ func (b *InMemoryBackend) ForgotPassword(clientID, username string) (string, err
 		return "", fmt.Errorf("%w: User is disabled", ErrNotAuthorized)
 	}
 
-	if user.Status == UserStatusUnconfirmed {
+	if user.Status == UserStatusUnconfirmed || user.Status == UserStatusForceChangePassword {
 		return "", fmt.Errorf(
 			"%w: Cannot reset password for the user as there is no registered/verified"+
 				" email or phone_number",
@@ -852,12 +879,12 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	if user.ConfirmCode == "" || user.ConfirmCode != code {
-		return fmt.Errorf("%w: invalid reset code", ErrCodeMismatch)
-	}
-
 	if !user.ConfirmCodeExpiresAt.IsZero() && time.Now().After(user.ConfirmCodeExpiresAt) {
 		return fmt.Errorf("%w: password reset code has expired", ErrExpiredCode)
+	}
+
+	if user.ConfirmCode == "" || user.ConfirmCode != code {
+		return fmt.Errorf("%w: invalid reset code", ErrCodeMismatch)
 	}
 
 	pool, ok2 := b.pools[client.UserPoolID]
@@ -967,6 +994,26 @@ func (b *InMemoryBackend) findUserByAccessTokenLocked(accessToken string) (*User
 	return nil, fmt.Errorf("%w: access token is invalid or expired", ErrNotAuthorized)
 }
 
+// GetSigningCertificate returns a deterministic, PEM-encoded self-signed X.509
+// certificate for the user pool's JWT signing key. The certificate is cached on the
+// pool's token issuer, so repeated calls for the same pool return a stable PEM.
+func (b *InMemoryBackend) GetSigningCertificate(userPoolID string) (string, error) {
+	b.mu.RLock("GetSigningCertificate")
+	defer b.mu.RUnlock()
+
+	pool, ok := b.pools[userPoolID]
+	if !ok {
+		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	cert, err := pool.issuer.SigningCertificatePEM()
+	if err != nil {
+		return "", fmt.Errorf("signing certificate for pool %q: %w", userPoolID, err)
+	}
+
+	return cert, nil
+}
+
 // GetUserPoolJWKS returns the JSON Web Key Set for the given user pool.
 func (b *InMemoryBackend) GetUserPoolJWKS(userPoolID string) (*JWKSResponse, error) {
 	b.mu.RLock("GetUserPoolJWKS")
@@ -980,6 +1027,35 @@ func (b *InMemoryBackend) GetUserPoolJWKS(userPoolID string) (*JWKSResponse, err
 	jwks := pool.issuer.JWKS()
 
 	return &jwks, nil
+}
+
+// ErrJWTKeyNotFound is returned when a JWT key ID is not found for a known issuer.
+var ErrJWTKeyNotFound = errors.New("JWT key ID not found for issuer")
+
+// ErrJWTIssuerUnknown is returned when no pool matches the given issuer URL.
+var ErrJWTIssuerUnknown = errors.New("JWT issuer not managed by this emulator")
+
+// GetJWTPublicKey returns the RSA public key for the user pool whose issuerURL
+// matches and whose key ID equals kid. Returns nil, nil when no pool matches
+// (caller should reject the token as unauthorized).
+func (b *InMemoryBackend) GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error) {
+	b.mu.RLock("GetJWTPublicKey")
+	defer b.mu.RUnlock()
+
+	for _, pool := range b.pools {
+		if pool.issuer == nil || pool.issuer.issuerURL != issuerURL {
+			continue
+		}
+
+		key, ok := pool.issuer.PublicKeyForKID(kid)
+		if !ok {
+			return nil, fmt.Errorf("%w: %q for issuer %q", ErrJWTKeyNotFound, kid, issuerURL)
+		}
+
+		return key, nil
+	}
+
+	return nil, ErrJWTIssuerUnknown
 }
 
 // findUserByClientID finds a user and their pool using the clientID.
@@ -1063,8 +1139,8 @@ func (b *InMemoryBackend) authenticate(
 	password string,
 ) (*AuthResult, error) {
 	switch authFlow {
-	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "USER_SRP_AUTH":
-		// valid flows
+	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "ADMIN_NO_SRP_AUTH", "USER_SRP_AUTH":
+		// valid flows; ADMIN_NO_SRP_AUTH is a legacy alias for ADMIN_USER_PASSWORD_AUTH
 	default:
 		return nil, fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)
 	}
@@ -1116,17 +1192,31 @@ func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, use
 	groups := b.userGroupsLocked(pool.ID, user.Username)
 
 	var scopes []string
+	refreshTTL := defaultRefreshTokenTTL
+	var accessExpiry, idExpiry time.Duration
 	if client, ok := b.clients[clientID]; ok {
 		scopes = client.AllowedOAuthScopes
+		if d := tokenExpiryFor(client, "AccessToken"); d > 0 {
+			accessExpiry = d
+		}
+		if d := tokenExpiryFor(client, "IdToken"); d > 0 {
+			idExpiry = d
+		}
+		if d := tokenExpiryFor(client, "RefreshToken"); d > 0 {
+			refreshTTL = d
+		}
 	}
 
 	tokens, err := pool.issuer.Issue(TokenParams{
-		ClientID: clientID,
-		Username: user.Username,
-		UserSub:  user.Sub,
-		Groups:   groups,
-		AuthTime: now.Unix(),
-		Scopes:   scopes,
+		ClientID:          clientID,
+		Username:          user.Username,
+		UserSub:           user.Sub,
+		Groups:            groups,
+		AuthTime:          now.Unix(),
+		Scopes:            scopes,
+		Attributes:        user.Attributes,
+		AccessTokenExpiry: accessExpiry,
+		IDTokenExpiry:     idExpiry,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
@@ -1138,7 +1228,7 @@ func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, use
 		ClientID:  clientID,
 		Username:  user.Username,
 		AuthTime:  now.Unix(),
-		ExpiresAt: now.UTC().Add(defaultRefreshTokenTTL),
+		ExpiresAt: now.UTC().Add(refreshTTL),
 	})
 
 	return &AuthResult{Tokens: tokens}, nil
@@ -1186,8 +1276,19 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	groups := b.userGroupsLocked(entry.PoolID, user.Username)
 
 	var scopes []string
+	refreshTTL := defaultRefreshTokenTTL
+	var accessExpiry, idExpiry time.Duration
 	if c, cok := b.clients[clientID]; cok {
 		scopes = c.AllowedOAuthScopes
+		if d := tokenExpiryFor(c, "AccessToken"); d > 0 {
+			accessExpiry = d
+		}
+		if d := tokenExpiryFor(c, "IdToken"); d > 0 {
+			idExpiry = d
+		}
+		if d := tokenExpiryFor(c, "RefreshToken"); d > 0 {
+			refreshTTL = d
+		}
 	}
 
 	// Preserve the original authentication time across refresh; AWS Cognito
@@ -1200,12 +1301,14 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	}
 
 	tokens, err := pool.issuer.Issue(TokenParams{
-		ClientID: clientID,
-		Username: user.Username,
-		UserSub:  user.Sub,
-		Groups:   groups,
-		AuthTime: authTime,
-		Scopes:   scopes,
+		ClientID:          clientID,
+		Username:          user.Username,
+		UserSub:           user.Sub,
+		Groups:            groups,
+		AuthTime:          authTime,
+		Scopes:            scopes,
+		AccessTokenExpiry: accessExpiry,
+		IDTokenExpiry:     idExpiry,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
@@ -1213,7 +1316,7 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 
 	// Rotate the refresh token: invalidate old, store new.
 	b.deleteRefreshTokenLocked(refreshToken)
-	entry.ExpiresAt = now.UTC().Add(defaultRefreshTokenTTL)
+	entry.ExpiresAt = now.UTC().Add(refreshTTL)
 	b.storeRefreshTokenLocked(tokens.RefreshToken, entry)
 
 	return tokens, nil
@@ -1620,6 +1723,103 @@ func (b *InMemoryBackend) AdminEnableUser(userPoolID, username string) error {
 	return nil
 }
 
+// AdminLinkProviderForUser links an external (federated) provider identity (sourceUser) to
+// an existing native Cognito user (destinationUser). The link is recorded on the
+// destination user's LinkedIdentities so it survives in backend state. Duplicate links for
+// the same provider/value are ignored.
+func (b *InMemoryBackend) AdminLinkProviderForUser(
+	userPoolID, destinationUsername string,
+	source LinkedIdentity,
+) error {
+	b.mu.Lock("AdminLinkProviderForUser")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if destinationUsername == "" {
+		return fmt.Errorf("%w: DestinationUser is required", ErrInvalidParameter)
+	}
+
+	if source.ProviderName == "" {
+		return fmt.Errorf("%w: SourceUser ProviderName is required", ErrInvalidParameter)
+	}
+
+	user, ok := b.users[userPoolID][destinationUsername]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, destinationUsername)
+	}
+
+	for _, existing := range user.LinkedIdentities {
+		if existing.ProviderName == source.ProviderName &&
+			existing.ProviderAttributeName == source.ProviderAttributeName &&
+			existing.ProviderAttributeValue == source.ProviderAttributeValue {
+			return nil
+		}
+	}
+
+	user.LinkedIdentities = append(user.LinkedIdentities, source)
+	user.UpdatedAt = time.Now().UTC()
+
+	return nil
+}
+
+// ValidateAccessToken verifies that the supplied access token is valid and resolves to a
+// live user, returning NotAuthorizedException otherwise. It is used by access-token-scoped
+// operations that have no persistent state to mutate but must still authenticate the token.
+func (b *InMemoryBackend) ValidateAccessToken(accessToken string) error {
+	b.mu.RLock("ValidateAccessToken")
+	defer b.mu.RUnlock()
+
+	if _, err := b.findUserByAccessTokenLocked(accessToken); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ValidatePoolUser validates that a pool and a user within it both exist. It is used by
+// operations that have nothing to mutate but must still reject unknown pools/users with
+// the AWS-accurate error shape.
+func (b *InMemoryBackend) ValidatePoolUser(userPoolID, username string) error {
+	b.mu.RLock("ValidatePoolUser")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	return nil
+}
+
+// AdminGetDevice validates the pool, user and device key, then reports that the device
+// is not tracked. Cognito devices are only ever created through the device-tracking
+// flow (ConfirmDevice), which this mock does not persist, so any lookup resolves to a
+// ResourceNotFoundException — matching AWS behaviour for an unknown device key.
+func (b *InMemoryBackend) AdminGetDevice(userPoolID, username, deviceKey string) error {
+	b.mu.RLock("AdminGetDevice")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	if deviceKey == "" {
+		return fmt.Errorf("%w: DeviceKey is required", ErrInvalidParameter)
+	}
+
+	return fmt.Errorf("%w: device %q not found", ErrUserPoolNotFound, deviceKey)
+}
+
 // AdminForgetDevice forgets a device for a user. Since this mock does not track devices,
 // it validates the user exists and returns success.
 func (b *InMemoryBackend) AdminForgetDevice(userPoolID, username string) error {
@@ -1727,7 +1927,7 @@ func (b *InMemoryBackend) ResendConfirmationCode(clientID, username string) (str
 	}
 
 	if user.Status != UserStatusUnconfirmed {
-		return "", fmt.Errorf("%w: user %q is already confirmed", ErrCodeMismatch, username)
+		return "", fmt.Errorf("%w: user is already confirmed", ErrInvalidParameter)
 	}
 
 	code := randomAlphanumeric(confirmCodeLen)
@@ -1817,6 +2017,8 @@ func (b *InMemoryBackend) UpdateUserPool(userPoolID, mfaConfiguration string) er
 		pool.MfaConfiguration = mfaConfiguration
 	}
 
+	pool.UpdatedAt = time.Now()
+
 	return nil
 }
 
@@ -1842,6 +2044,7 @@ func (b *InMemoryBackend) UpdateUserPoolClient(userPoolID, clientID, clientName 
 		client.ClientName = clientName
 	}
 
+	client.UpdatedAt = time.Now()
 	cp := *client
 
 	return &cp, nil

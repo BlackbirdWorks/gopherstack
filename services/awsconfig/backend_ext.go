@@ -1,5 +1,7 @@
 package awsconfig
 
+import "fmt"
+
 // This file contains stub backend methods for AWS Config operations that
 // are acknowledged but not yet deeply implemented. All methods follow the
 // gopherstack convention of returning empty/success results.
@@ -86,7 +88,7 @@ func (b *InMemoryBackend) DescribePendingAggregationRequests() []any {
 }
 
 // DisassociateResourceTypes is a no-op stub.
-func (b *InMemoryBackend) DisassociateResourceTypes(_, _ string) error { return nil }
+func (b *InMemoryBackend) DisassociateResourceTypes(_ string, _ []string) error { return nil }
 
 // GetDiscoveredResourceCounts returns zero counts.
 func (b *InMemoryBackend) GetDiscoveredResourceCounts() int64 { return 0 }
@@ -111,17 +113,26 @@ func (b *InMemoryBackend) ListAggregateDiscoveredResources() []any {
 	return []any{}
 }
 
-// ListConfigurationRecorders returns all recorder names.
-func (b *InMemoryBackend) ListConfigurationRecorders() []string {
+// ListConfigurationRecorders returns summaries of all configuration recorders.
+func (b *InMemoryBackend) ListConfigurationRecorders() []ConfigurationRecorderSummary {
 	b.mu.RLock("ListConfigurationRecorders")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.recorders))
-	for name := range b.recorders {
-		names = append(names, name)
+	out := make([]ConfigurationRecorderSummary, 0, len(b.recorders))
+
+	for _, r := range b.recorders {
+		arn := fmt.Sprintf(
+			"arn:aws:config:%s:%s:config-recorder/%s",
+			b.region, b.accountID, r.Name,
+		)
+		out = append(out, ConfigurationRecorderSummary{
+			Arn:            arn,
+			Name:           r.Name,
+			RecordingScope: "INTERNAL",
+		})
 	}
 
-	return names
+	return out
 }
 
 // ListConformancePackComplianceScores returns an empty list.
@@ -132,17 +143,26 @@ func (b *InMemoryBackend) ListConformancePackComplianceScores() []any {
 // ListResourceEvaluations returns an empty list.
 func (b *InMemoryBackend) ListResourceEvaluations() []any { return []any{} }
 
-// ListStoredQueries returns all stored query names.
-func (b *InMemoryBackend) ListStoredQueries() []string {
+// ListStoredQueries returns metadata for all stored queries.
+func (b *InMemoryBackend) ListStoredQueries() []StoredQueryMetadata {
 	b.mu.RLock("ListStoredQueries")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.storedQueries))
-	for name := range b.storedQueries {
-		names = append(names, name)
+	out := make([]StoredQueryMetadata, 0, len(b.storedQueries))
+
+	for _, q := range b.storedQueries {
+		arn := fmt.Sprintf(
+			"arn:aws:config:%s:%s:stored-query/%s",
+			b.region, b.accountID, q.QueryName,
+		)
+		out = append(out, StoredQueryMetadata{
+			QueryArn:  arn,
+			QueryID:   q.QueryID,
+			QueryName: q.QueryName,
+		})
 	}
 
-	return names
+	return out
 }
 
 // PutServiceLinkedConfigurationRecorder is a no-op stub.

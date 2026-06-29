@@ -1422,7 +1422,7 @@ func TestAudit2_GetRepositorySyncStatus_StartedAtFormat(t *testing.T) {
 	assert.Contains(t, startedAt, "T", "StartedAt must be RFC3339 formatted")
 }
 
-// --- CreateConnection: CreateConnection tags are returned ---
+// --- CreateConnection: Tags NOT returned in CreateConnection response ---
 
 func TestAudit2_CreateConnection_TagsRoundtrip(t *testing.T) {
 	t.Parallel()
@@ -1439,18 +1439,24 @@ func TestAudit2_CreateConnection_TagsRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResp(t, rec)
-	tags, ok := resp["Tags"].([]any)
-	require.True(t, ok)
+	_, hasTags := resp["Tags"]
+	assert.False(t, hasTags, "CreateConnection must not include Tags in response")
+
+	arn := resp["ConnectionArn"].(string)
+	recTags := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": arn})
+	require.Equal(t, http.StatusOK, recTags.Code)
+
+	tagsResp := parseResp(t, recTags)
+	tags := tagsResp["Tags"].([]any)
 	require.Len(t, tags, 2)
 
-	// Tags should be sorted by key.
 	tag0 := tags[0].(map[string]any)
 	tag1 := tags[1].(map[string]any)
 	assert.Equal(t, "env", tag0["Key"])
 	assert.Equal(t, "team", tag1["Key"])
 }
 
-// --- Host: Tags returned on create ---
+// --- Host: Tags NOT returned in CreateHost response ---
 
 func TestAudit2_CreateHost_TagsRoundtrip(t *testing.T) {
 	t.Parallel()
@@ -1467,8 +1473,15 @@ func TestAudit2_CreateHost_TagsRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResp(t, rec)
-	tags, ok := resp["Tags"].([]any)
-	require.True(t, ok)
+	_, hasTags := resp["Tags"]
+	assert.False(t, hasTags, "CreateHost must not include Tags in response")
+
+	hostArn := resp["HostArn"].(string)
+	recTags := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": hostArn})
+	require.Equal(t, http.StatusOK, recTags.Code)
+
+	tagsResp := parseResp(t, recTags)
+	tags := tagsResp["Tags"].([]any)
 	require.Len(t, tags, 1)
 	tag := tags[0].(map[string]any)
 	assert.Equal(t, "cost-center", tag["Key"])
@@ -1572,7 +1585,7 @@ func TestAudit2_Connection_StatusAvailableOnCreate(t *testing.T) {
 	assert.Equal(t, "AVAILABLE", conn["ConnectionStatus"])
 }
 
-// --- HostStatus is AVAILABLE on creation ---
+// --- HostStatus is PENDING on creation ---
 
 func TestAudit2_Host_StatusAvailableOnCreate(t *testing.T) {
 	t.Parallel()
@@ -1584,7 +1597,7 @@ func TestAudit2_Host_StatusAvailableOnCreate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResp(t, rec)
-	assert.Equal(t, "AVAILABLE", resp["Status"])
+	assert.Equal(t, "PENDING", resp["Status"])
 }
 
 // --- Backend: Reset clears all state ---

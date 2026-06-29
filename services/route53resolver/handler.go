@@ -310,10 +310,13 @@ type resolverEndpointIPAddressDetail struct {
 }
 
 type listResolverEndpointIPAddressesInput struct {
+	NextToken          string `json:"NextToken"`
 	ResolverEndpointID string `json:"ResolverEndpointId"`
+	MaxResults         int32  `json:"MaxResults"`
 }
 
 type listResolverEndpointIPAddressesOutput struct {
+	NextToken   *string                           `json:"NextToken,omitempty"`
 	IPAddresses []resolverEndpointIPAddressDetail `json:"IpAddresses"`
 }
 
@@ -582,8 +585,13 @@ func (h *Handler) handleListResolverEndpointIPAddresses(
 			Status:   "ATTACHED",
 		})
 	}
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listResolverEndpointIPAddressesOutput{IPAddresses: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listResolverEndpointIPAddressesOutput{IPAddresses: items}, nil
+	return out, nil
 }
 
 type handleCreateResolverRuleInput struct {
@@ -1397,18 +1405,18 @@ func resolverConfigToOutput(c *ResolverConfig) resolverConfigOutput {
 
 // resolverDnssecConfigOutput is the JSON representation of a ResolverDnssecConfig.
 type resolverDnssecConfigOutput struct {
-	ID               string `json:"Id"`
-	OwnerID          string `json:"OwnerID"`
-	ResourceID       string `json:"ResourceId"`
-	ValidationStatus string `json:"ValidationStatus"`
+	ID         string `json:"Id"`
+	OwnerID    string `json:"OwnerID"`
+	ResourceID string `json:"ResourceId"`
+	Validation string `json:"Validation"`
 }
 
 func resolverDnssecConfigToOutput(c *ResolverDnssecConfig) resolverDnssecConfigOutput {
 	return resolverDnssecConfigOutput{
-		ID:               c.ID,
-		OwnerID:          c.OwnerID,
-		ResourceID:       c.ResourceID,
-		ValidationStatus: c.ValidationStatus,
+		ID:         c.ID,
+		OwnerID:    c.OwnerID,
+		ResourceID: c.ResourceID,
+		Validation: c.ValidationStatus,
 	}
 }
 
@@ -1674,11 +1682,14 @@ func (h *Handler) handleGetFirewallRuleGroupAssociation(
 // --- ListFirewallRuleGroupAssociations ---
 
 type listFirewallRuleGroupAssociationsInput struct {
+	NextToken           string `json:"NextToken"`
 	VpcID               string `json:"VpcId"`
 	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+	MaxResults          int32  `json:"MaxResults"`
 }
 
 type listFirewallRuleGroupAssociationsOutput struct {
+	NextToken                     *string                              `json:"NextToken,omitempty"`
 	FirewallRuleGroupAssociations []firewallRuleGroupAssociationOutput `json:"FirewallRuleGroupAssociations"`
 }
 
@@ -1691,8 +1702,13 @@ func (h *Handler) handleListFirewallRuleGroupAssociations(
 	for _, a := range assocs {
 		items = append(items, firewallRuleGroupAssociationToOutput(a))
 	}
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listFirewallRuleGroupAssociationsOutput{FirewallRuleGroupAssociations: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listFirewallRuleGroupAssociationsOutput{FirewallRuleGroupAssociations: items}, nil
+	return out, nil
 }
 
 // --- DisassociateFirewallRuleGroup ---
@@ -1813,11 +1829,14 @@ func (h *Handler) handleListFirewallDomainLists(
 // --- ListFirewallDomains ---
 
 type listFirewallDomainsInput struct {
+	NextToken            string `json:"NextToken"`
 	FirewallDomainListID string `json:"FirewallDomainListId"`
+	MaxResults           int32  `json:"MaxResults"`
 }
 
 type listFirewallDomainsOutput struct {
-	Domains []string `json:"Domains"`
+	NextToken *string  `json:"NextToken,omitempty"`
+	Domains   []string `json:"Domains"`
 }
 
 func (h *Handler) handleListFirewallDomains(
@@ -1831,8 +1850,13 @@ func (h *Handler) handleListFirewallDomains(
 	if err != nil {
 		return nil, err
 	}
+	pg := page.New(domains, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listFirewallDomainsOutput{Domains: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listFirewallDomainsOutput{Domains: domains}, nil
+	return out, nil
 }
 
 // --- UpdateFirewallDomains ---
@@ -1953,23 +1977,32 @@ func (h *Handler) handleUpdateFirewallConfig(
 
 // --- ListFirewallConfigs ---
 
-type listFirewallConfigsInput struct{}
+type listFirewallConfigsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listFirewallConfigsOutput struct {
+	NextToken       *string                `json:"NextToken,omitempty"`
 	FirewallConfigs []firewallConfigOutput `json:"FirewallConfigs"`
 }
 
 func (h *Handler) handleListFirewallConfigs(
 	ctx context.Context,
-	_ *listFirewallConfigsInput,
+	in *listFirewallConfigsInput,
 ) (*listFirewallConfigsOutput, error) {
 	configs := h.Backend.ListFirewallConfigs(ctx)
 	items := make([]firewallConfigOutput, 0, len(configs))
 	for _, c := range configs {
 		items = append(items, firewallConfigToOutput(c))
 	}
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listFirewallConfigsOutput{FirewallConfigs: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listFirewallConfigsOutput{FirewallConfigs: items}, nil
+	return out, nil
 }
 
 // --- GetOutpostResolver ---
@@ -2024,23 +2057,32 @@ func (h *Handler) handleDeleteOutpostResolver(
 
 // --- ListOutpostResolvers ---
 
-type listOutpostResolversInput struct{}
+type listOutpostResolversInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listOutpostResolversOutput struct {
+	NextToken        *string                 `json:"NextToken,omitempty"`
 	OutpostResolvers []outpostResolverOutput `json:"OutpostResolvers"`
 }
 
 func (h *Handler) handleListOutpostResolvers(
 	ctx context.Context,
-	_ *listOutpostResolversInput,
+	in *listOutpostResolversInput,
 ) (*listOutpostResolversOutput, error) {
 	resolvers := h.Backend.ListOutpostResolvers(ctx)
 	items := make([]outpostResolverOutput, 0, len(resolvers))
 	for _, r := range resolvers {
 		items = append(items, outpostResolverToOutput(r))
 	}
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listOutpostResolversOutput{OutpostResolvers: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listOutpostResolversOutput{OutpostResolvers: items}, nil
+	return out, nil
 }
 
 // --- UpdateOutpostResolver ---
@@ -2133,7 +2175,10 @@ func (h *Handler) handleGetResolverQueryLogConfig(
 
 // --- ListResolverQueryLogConfigs ---
 
-type listResolverQueryLogConfigsInput struct{}
+type listResolverQueryLogConfigsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listResolverQueryLogConfigsOutput struct {
 	NextToken               *string                        `json:"NextToken,omitempty"`
@@ -2142,15 +2187,20 @@ type listResolverQueryLogConfigsOutput struct {
 
 func (h *Handler) handleListResolverQueryLogConfigs(
 	ctx context.Context,
-	_ *listResolverQueryLogConfigsInput,
+	in *listResolverQueryLogConfigsInput,
 ) (*listResolverQueryLogConfigsOutput, error) {
 	configs := h.Backend.ListResolverQueryLogConfigs(ctx)
 	items := make([]resolverQueryLogConfigOutput, 0, len(configs))
 	for _, c := range configs {
 		items = append(items, queryLogConfigToOutput(c))
 	}
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listResolverQueryLogConfigsOutput{ResolverQueryLogConfigs: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listResolverQueryLogConfigsOutput{ResolverQueryLogConfigs: items}, nil
+	return out, nil
 }
 
 // --- GetResolverQueryLogConfigAssociation ---
@@ -2215,27 +2265,34 @@ func (h *Handler) handleDisassociateResolverQueryLogConfig(
 
 // --- ListResolverQueryLogConfigAssociations ---
 
-type listResolverQueryLogConfigAssociationsInput struct{}
+type listResolverQueryLogConfigAssociationsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type queryLogAssocOutputSlice = []resolverQueryLogConfigAssociationOutput
 
 type listResolverQueryLogConfigAssociationsOutput struct {
+	NextToken                          *string                  `json:"NextToken,omitempty"`
 	ResolverQueryLogConfigAssociations queryLogAssocOutputSlice `json:"ResolverQueryLogConfigAssociations"`
 }
 
 func (h *Handler) handleListResolverQueryLogConfigAssociations(
 	ctx context.Context,
-	_ *listResolverQueryLogConfigAssociationsInput,
+	in *listResolverQueryLogConfigAssociationsInput,
 ) (*listResolverQueryLogConfigAssociationsOutput, error) {
 	assocs := h.Backend.ListResolverQueryLogConfigAssociations(ctx)
 	items := make([]resolverQueryLogConfigAssociationOutput, 0, len(assocs))
 	for _, a := range assocs {
 		items = append(items, queryLogConfigAssociationToOutput(a))
 	}
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listResolverQueryLogConfigAssociationsOutput{ResolverQueryLogConfigAssociations: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listResolverQueryLogConfigAssociationsOutput{
-		ResolverQueryLogConfigAssociations: items,
-	}, nil
+	return out, nil
 }
 
 // --- GetResolverQueryLogConfigPolicy ---
@@ -2341,23 +2398,32 @@ func (h *Handler) handleDisassociateResolverRule(
 
 // --- ListResolverRuleAssociations ---
 
-type listResolverRuleAssociationsInput struct{}
+type listResolverRuleAssociationsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listResolverRuleAssociationsOutput struct {
+	NextToken                *string                         `json:"NextToken,omitempty"`
 	ResolverRuleAssociations []resolverRuleAssociationOutput `json:"ResolverRuleAssociations"`
 }
 
 func (h *Handler) handleListResolverRuleAssociations(
 	ctx context.Context,
-	_ *listResolverRuleAssociationsInput,
+	in *listResolverRuleAssociationsInput,
 ) (*listResolverRuleAssociationsOutput, error) {
 	assocs := h.Backend.ListResolverRuleAssociations(ctx)
 	items := make([]resolverRuleAssociationOutput, 0, len(assocs))
 	for _, a := range assocs {
 		items = append(items, ruleAssociationToOutput(a))
 	}
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listResolverRuleAssociationsOutput{ResolverRuleAssociations: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listResolverRuleAssociationsOutput{ResolverRuleAssociations: items}, nil
+	return out, nil
 }
 
 // --- GetResolverRulePolicy ---
@@ -2580,23 +2646,32 @@ func (h *Handler) handleUpdateResolverConfig(
 
 // --- ListResolverConfigs ---
 
-type listResolverConfigsInput struct{}
+type listResolverConfigsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listResolverConfigsOutput struct {
+	NextToken       *string                `json:"NextToken,omitempty"`
 	ResolverConfigs []resolverConfigOutput `json:"ResolverConfigs"`
 }
 
 func (h *Handler) handleListResolverConfigs(
 	ctx context.Context,
-	_ *listResolverConfigsInput,
+	in *listResolverConfigsInput,
 ) (*listResolverConfigsOutput, error) {
 	configs := h.Backend.ListResolverConfigs(ctx)
 	items := make([]resolverConfigOutput, 0, len(configs))
 	for _, c := range configs {
 		items = append(items, resolverConfigToOutput(c))
 	}
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listResolverConfigsOutput{ResolverConfigs: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listResolverConfigsOutput{ResolverConfigs: items}, nil
+	return out, nil
 }
 
 // --- GetResolverDnssecConfig ---
@@ -2653,21 +2728,30 @@ func (h *Handler) handleUpdateResolverDnssecConfig(
 
 // --- ListResolverDnssecConfigs ---
 
-type listResolverDnssecConfigsInput struct{}
+type listResolverDnssecConfigsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listResolverDnssecConfigsOutput struct {
+	NextToken             *string                      `json:"NextToken,omitempty"`
 	ResolverDnssecConfigs []resolverDnssecConfigOutput `json:"ResolverDnssecConfigs"`
 }
 
 func (h *Handler) handleListResolverDnssecConfigs(
 	ctx context.Context,
-	_ *listResolverDnssecConfigsInput,
+	in *listResolverDnssecConfigsInput,
 ) (*listResolverDnssecConfigsOutput, error) {
 	configs := h.Backend.ListResolverDnssecConfigs(ctx)
 	items := make([]resolverDnssecConfigOutput, 0, len(configs))
 	for _, c := range configs {
 		items = append(items, resolverDnssecConfigToOutput(c))
 	}
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listResolverDnssecConfigsOutput{ResolverDnssecConfigs: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listResolverDnssecConfigsOutput{ResolverDnssecConfigs: items}, nil
+	return out, nil
 }

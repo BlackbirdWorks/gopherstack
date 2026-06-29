@@ -2,6 +2,7 @@ package apigatewayv2
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"io"
@@ -84,9 +85,15 @@ type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
 }
 
-// Handler is the Echo HTTP handler for API Gateway v2 (HTTP API) operations.
+// JWKSProvider resolves RSA public keys for JWT signature verification.
+// Implementations return an error when the issuer or key is unknown.
+type JWKSProvider interface {
+	GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error)
+}
+
 type Handler struct {
 	Backend       StorageBackend
+	jwksProvider  JWKSProvider
 	lambdaInvoker LambdaInvoker
 	managementAPI apigatewaymanagementapi.StorageBackend
 }
@@ -99,6 +106,11 @@ func NewHandler(backend StorageBackend) *Handler {
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
 func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 	h.lambdaInvoker = lambda
+}
+
+// SetJWKSProvider configures the JWKS provider used to verify JWT authorizer signatures.
+func (h *Handler) SetJWKSProvider(p JWKSProvider) {
+	h.jwksProvider = p
 }
 
 // SetManagementAPIBackend configures the Management API backend for WebSocket connections.
@@ -1226,6 +1238,107 @@ func (h *Handler) handleUpdateAPI(c *echo.Context, apiID string) error {
 	return c.JSON(http.StatusOK, api)
 }
 
+// openAPISpec is a minimal representation of an OpenAPI 3 / Swagger 2 document.
+// Only the fields needed to derive an API name, routes, and integrations are
+// modeled; unknown fields are ignored so that minimal specs are tolerated.
+type openAPISpec struct {
+	Paths map[string]map[string]openAPIOperation `json:"paths"`
+	Info  openAPIInfo                            `json:"info"`
+}
+
+type openAPIInfo struct {
+	Title string `json:"title"`
+}
+
+type openAPIOperation struct {
+	Integration *openAPIIntegration `json:"x-amazon-apigateway-integration"`
+}
+
+// openAPIIntegration models the x-amazon-apigateway-integration extension.
+type openAPIIntegration struct {
+	Type                 string `json:"type"`
+	HTTPMethod           string `json:"httpMethod"`
+	URI                  string `json:"uri"`
+	PayloadFormatVersion string `json:"payloadFormatVersion"`
+	ConnectionType       string `json:"connectionType"`
+	TimeoutInMillis      int32  `json:"timeoutInMillis"`
+}
+
+// parseOpenAPISpec decodes an OpenAPI body into an openAPISpec, tolerating
+// minimal/partial documents.
+func parseOpenAPISpec(body string) (*openAPISpec, error) {
+	var spec openAPISpec
+	if strings.TrimSpace(body) == "" {
+		return &spec, nil
+	}
+
+	if err := json.Unmarshal([]byte(body), &spec); err != nil {
+		return nil, err
+	}
+
+	return &spec, nil
+}
+
+// applyOpenAPIToAPI creates a route (and integration, when defined) for each
+// path+method in the spec. Entries that are not valid HTTP route keys are
+// skipped gracefully.
+//
+//nolint:gocognit // walks the full OpenAPI spec; complexity is inherent to the mapping
+func (h *Handler) applyOpenAPIToAPI(apiID string, spec *openAPISpec) {
+	for path, methods := range spec.Paths {
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+
+		for method, op := range methods {
+			routeKey := strings.ToUpper(method) + " " + path
+
+			// Skip route keys that the backend would reject (e.g. spec-level
+			// fields like "parameters" that share the path map).
+			if err := validateHTTPRouteKey(routeKey); err != nil {
+				continue
+			}
+
+			var target string
+
+			if op.Integration != nil {
+				integrationType := op.Integration.Type
+				switch integrationType {
+				case "http", "http_proxy":
+					integrationType = integrationTypeHTTPProxy
+				case "aws", "aws_proxy":
+					integrationType = IntegrationTypeAWSProxy
+				case "mock":
+					integrationType = "MOCK"
+				case "":
+					integrationType = IntegrationTypeAWSProxy
+				default:
+					integrationType = strings.ToUpper(integrationType)
+				}
+
+				integ, err := h.Backend.CreateIntegration(apiID, CreateIntegrationInput{
+					IntegrationType:      integrationType,
+					IntegrationMethod:    op.Integration.HTTPMethod,
+					IntegrationURI:       op.Integration.URI,
+					PayloadFormatVersion: op.Integration.PayloadFormatVersion,
+					ConnectionType:       op.Integration.ConnectionType,
+					TimeoutInMillis:      op.Integration.TimeoutInMillis,
+				})
+				if err == nil && integ != nil {
+					target = "integrations/" + integ.IntegrationID
+				}
+			}
+
+			if _, err := h.Backend.CreateRoute(apiID, CreateRouteInput{
+				RouteKey: routeKey,
+				Target:   target,
+			}); err != nil {
+				continue
+			}
+		}
+	}
+}
+
 func (h *Handler) handleImportAPI(c *echo.Context) error {
 	var input struct {
 		Body string `json:"body"`
@@ -1234,14 +1347,25 @@ func (h *Handler) handleImportAPI(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
 	}
 
+	spec, err := parseOpenAPISpec(input.Body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+	}
+
+	name := spec.Info.Title
+	if name == "" {
+		name = "imported-api"
+	}
+
 	api, err := h.Backend.CreateAPI(c.Request().Context(), CreateAPIInput{
-		Name:         "imported-api",
+		Name:         name,
 		ProtocolType: protocolTypeHTTP,
-		Description:  input.Body,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}
+
+	h.applyOpenAPIToAPI(api.APIID, spec)
 
 	return c.JSON(http.StatusCreated, api)
 }
@@ -1254,7 +1378,32 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
 	}
 
-	api, err := h.Backend.UpdateAPI(apiID, UpdateAPIInput{Description: input.Body})
+	spec, err := parseOpenAPISpec(input.Body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+	}
+
+	// Replace existing routes and integrations from the new spec.
+	if routes, rErr := h.Backend.GetRoutes(apiID); rErr == nil {
+		for _, r := range routes {
+			_ = h.Backend.DeleteRoute(apiID, r.RouteID)
+		}
+	} else if errors.Is(rErr, ErrAPINotFound) {
+		return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	}
+
+	if integrations, iErr := h.Backend.GetIntegrations(apiID); iErr == nil {
+		for _, i := range integrations {
+			_ = h.Backend.DeleteIntegration(apiID, i.IntegrationID)
+		}
+	}
+
+	update := UpdateAPIInput{}
+	if spec.Info.Title != "" {
+		update.Name = spec.Info.Title
+	}
+
+	api, err := h.Backend.UpdateAPI(apiID, update)
 	if err != nil {
 		if errors.Is(err, ErrAPINotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
@@ -1262,6 +1411,8 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}
+
+	h.applyOpenAPIToAPI(apiID, spec)
 
 	return c.JSON(http.StatusCreated, api)
 }
@@ -1546,9 +1697,11 @@ func (h *Handler) handleUpdateIntegration(c *echo.Context, apiID, integrationID 
 // --- Deployment handlers ---
 
 func (h *Handler) handleCreateDeployment(c *echo.Context, apiID string) error {
-	return handleCreate(c, apiID, "deployment", ErrAPINotFound, func(input CreateDeploymentInput) (*Deployment, error) {
-		return h.Backend.CreateDeployment(apiID, input)
-	})
+	return handleCreateMulti(c, apiID, "deployment",
+		func(input CreateDeploymentInput) (*Deployment, error) {
+			return h.Backend.CreateDeployment(apiID, input)
+		},
+		ErrAPINotFound, ErrStageNotFound)
 }
 
 func (h *Handler) handleGetDeployments(c *echo.Context, apiID string) error {

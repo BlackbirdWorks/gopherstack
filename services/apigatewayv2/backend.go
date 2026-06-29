@@ -160,6 +160,7 @@ var (
 const (
 	// IntegrationTypeAWSProxy is the AWS_PROXY integration type.
 	IntegrationTypeAWSProxy = "AWS_PROXY"
+	// integrationTypeHTTPProxy ("HTTP_PROXY") is declared in http_proxy.go.
 )
 
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
@@ -475,7 +476,7 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 	b.mu.Lock("CreateAPI")
 	defer b.mu.Unlock()
 
-	validProtocols := map[string]bool{protocolTypeHTTP: true, "WEBSOCKET": true}
+	validProtocols := map[string]bool{protocolTypeHTTP: true, protocolTypeWebSocket: true}
 	if !validProtocols[input.ProtocolType] {
 		return nil, fmt.Errorf("%w: protocolType must be HTTP or WEBSOCKET", ErrBadRequest)
 	}
@@ -483,10 +484,20 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 	// Apply AWS-realistic default RouteSelectionExpression when not provided.
 	rse := input.RouteSelectionExpression
 	if rse == "" {
-		if input.ProtocolType == "WEBSOCKET" {
+		if input.ProtocolType == protocolTypeWebSocket {
 			rse = "$request.body.action"
 		} else {
 			rse = "${request.method} ${request.path}"
+		}
+	}
+
+	// Apply AWS-realistic default APIKeySelectionExpression when not provided.
+	keySelExpr := input.APIKeySelectionExpression
+	if keySelExpr == "" {
+		if input.ProtocolType == protocolTypeWebSocket {
+			keySelExpr = "$context.authorizer.usageIdentifierKey"
+		} else {
+			keySelExpr = "$request.header.x-api-key"
 		}
 	}
 
@@ -501,7 +512,7 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 		Tags:                      copyTags(input.Tags),
 		APIEndpoint:               "https://" + id + ".execute-api." + regionFromCtx(ctx) + ".amazonaws.com",
 		CreatedDate:               isoTime{time.Now()},
-		APIKeySelectionExpression: input.APIKeySelectionExpression,
+		APIKeySelectionExpression: keySelExpr,
 		DisableSchemaValidation:   input.DisableSchemaValidation,
 		DisableExecuteAPIEndpoint: input.DisableExecuteAPIEndpoint,
 	}
@@ -825,6 +836,11 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		return nil, fmt.Errorf("%w: authorizerId is required for JWT authorization", ErrBadRequest)
 	}
 
+	authScopes := input.AuthorizationScopes
+	if authScopes == nil {
+		authScopes = []string{}
+	}
+
 	id := randomID()
 	route := &Route{
 		RouteID:                  id,
@@ -837,6 +853,8 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		ModelSelectionExpression: input.ModelSelectionExpression,
 		RequestModels:            input.RequestModels,
 		RequestParameters:        input.RequestParameters,
+		AuthorizationScopes:      authScopes,
+		APIKeyRequired:           input.APIKeyRequired,
 	}
 
 	d.routes[id] = route
@@ -980,6 +998,14 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 		r.RequestParameters = input.RequestParameters
 	}
 
+	if input.AuthorizationScopes != nil {
+		r.AuthorizationScopes = input.AuthorizationScopes
+	}
+
+	if input.APIKeyRequired != nil {
+		r.APIKeyRequired = *input.APIKeyRequired
+	}
+
 	cp := *r
 
 	return &cp, nil
@@ -998,11 +1024,11 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	}
 
 	validTypes := map[string]bool{
-		"AWS":                   true,
-		integrationTypeHTTP:     true,
-		"MOCK":                  true,
-		IntegrationTypeAWSProxy: true,
-		"HTTP_PROXY":            true,
+		"AWS":                    true,
+		integrationTypeHTTP:      true,
+		"MOCK":                   true,
+		IntegrationTypeAWSProxy:  true,
+		integrationTypeHTTPProxy: true,
 	}
 	if !validTypes[input.IntegrationType] {
 		return nil, fmt.Errorf(
@@ -1018,7 +1044,7 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	}
 
 	passthroughBehavior := input.PassthroughBehavior
-	if passthroughBehavior == "" && input.IntegrationType == "HTTP_PROXY" {
+	if passthroughBehavior == "" && input.IntegrationType == integrationTypeHTTPProxy {
 		passthroughBehavior = "WHEN_NO_MATCH"
 	}
 

@@ -1,7 +1,6 @@
 package opensearch
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -3320,7 +3319,7 @@ func (h *Handler) dispatchDomainGetStatusRoutes(
 
 		return true
 	default:
-		return h.dispatchDomainGetVpcRoutes(w, trimmed)
+		return h.dispatchDomainGetVpcRoutes(w, r, trimmed)
 	}
 }
 
@@ -3422,7 +3421,7 @@ func (h *Handler) dispatchDomainGetUpgradeRoutes(
 
 // dispatchDomainGetVpcRoutes handles VPC-related GET sub-routes on a domain.
 // Returns true if handled.
-func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed string) bool {
+func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
 	switch {
 	case strings.HasSuffix(trimmed, "/vpcEndpoints"):
 		// ListVpcEndpointsForDomain
@@ -3434,7 +3433,7 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed stri
 		}
 		endpoints := h.Backend.ListVpcEndpointsForDomain(domainArn)
 		httputils.WriteJSON(
-			context.Background(),
+			r.Context(),
 			w,
 			http.StatusOK,
 			map[string]any{"VpcEndpointSummaryList": endpoints},
@@ -3447,7 +3446,7 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed stri
 			principals = []AuthorizedPrincipal{}
 		}
 		httputils.WriteJSON(
-			context.Background(),
+			r.Context(),
 			w,
 			http.StatusOK,
 			map[string]any{"AuthorizedPrincipalList": principals},

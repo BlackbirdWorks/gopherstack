@@ -21,15 +21,16 @@ const (
 	translateContentType  = "application/x-amz-json-1.1"
 	unknownOperation      = "Unknown"
 
-	keyName               = "Name"
-	keyJobID              = "JobId"
-	keyResourceARN        = "ResourceArn"
-	keyJobStatus          = "JobStatus"
-	keyStatus             = "Status"
-	keySourceLanguageCode = "SourceLanguageCode"
-	keyTargetLanguageCode = "TargetLanguageCode"
-	keyLanguageCode       = "LanguageCode"
-	keyLanguageName       = "LanguageName"
+	keyName                = "Name"
+	keyJobID               = "JobId"
+	keyResourceARN         = "ResourceArn"
+	keyJobStatus           = "JobStatus"
+	keyStatus              = "Status"
+	keySourceLanguageCode  = "SourceLanguageCode"
+	keyTargetLanguageCode  = "TargetLanguageCode"
+	keyTargetLanguageCodes = "TargetLanguageCodes"
+	keyLanguageCode        = "LanguageCode"
+	keyLanguageName        = "LanguageName"
 )
 
 type opFunc func(map[string]any) (map[string]any, error)
@@ -202,6 +203,11 @@ func (h *Handler) importTerminology(input map[string]any) (map[string]any, error
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
+	mergeStrategy, _ := input["MergeStrategy"].(string)
+	if mergeStrategy != "" && mergeStrategy != "OVERWRITE" {
+		return nil, fmt.Errorf("%w: MergeStrategy must be OVERWRITE", ErrValidation)
+	}
+
 	description, _ := input["Description"].(string)
 
 	var data *TerminologyData
@@ -268,11 +274,16 @@ func (h *Handler) deleteTerminology(input map[string]any) (map[string]any, error
 func (h *Handler) listTerminologies(input map[string]any) (map[string]any, error) {
 	maxResults := maxResultsField(input)
 	nextToken, _ := input["NextToken"].(string)
+	formatFilter, _ := input["TerminologyDataFormat"].(string)
 
 	list, outToken := h.Backend.ListTerminologies(maxResults, nextToken)
 
 	props := make([]map[string]any, 0, len(list))
 	for _, t := range list {
+		if formatFilter != "" && !strings.EqualFold(t.Format, formatFilter) {
+			continue
+		}
+
 		props = append(props, terminologyToMap(t))
 	}
 
@@ -349,6 +360,7 @@ func (h *Handler) updateParallelData(input map[string]any) (map[string]any, erro
 		keyName:                     pd.Name,
 		keyStatus:                   pd.Status,
 		"LatestUpdateAttemptStatus": "ACTIVE",
+		"LatestUpdateAttemptAt":     awstime.Epoch(pd.LastUpdatedAt),
 	}, nil
 }
 
@@ -398,7 +410,7 @@ func (h *Handler) startTextTranslationJob(input map[string]any) (map[string]any,
 	dataAccessRoleARN, _ := input["DataAccessRoleArn"].(string)
 	sourceLang, _ := input[keySourceLanguageCode].(string)
 
-	targetLangs := strSliceField(input, "TargetLanguageCodes")
+	targetLangs := strSliceField(input, keyTargetLanguageCodes)
 	terminologyNames := strSliceField(input, "TerminologyNames")
 	parallelDataNames := strSliceField(input, "ParallelDataNames")
 
@@ -505,11 +517,16 @@ func (h *Handler) translateText(input map[string]any) (map[string]any, error) {
 	terms := h.Backend.LookupTerminologies(termNames)
 	translated := applyTranslation(text, sourceLang, targetLang, terms)
 
+	appliedSettings := map[string]any{}
+	if settings, ok := input["Settings"].(map[string]any); ok && len(settings) > 0 {
+		appliedSettings = settings
+	}
+
 	return map[string]any{
 		"TranslatedText":       translated,
 		keySourceLanguageCode:  sourceLang,
 		keyTargetLanguageCode:  targetLang,
-		"AppliedSettings":      map[string]any{},
+		"AppliedSettings":      appliedSettings,
 		"AppliedTerminologies": buildAppliedTerminologies(terms),
 	}, nil
 }
@@ -535,11 +552,16 @@ func (h *Handler) translateDocument(input map[string]any) (map[string]any, error
 	terms := h.Backend.LookupTerminologies(termNames)
 	translated := applyTranslation(content, sourceLang, targetLang, terms)
 
+	appliedSettings := map[string]any{}
+	if settings, ok := input["Settings"].(map[string]any); ok && len(settings) > 0 {
+		appliedSettings = settings
+	}
+
 	return map[string]any{
 		"TranslatedDocument":   map[string]any{"Content": translated},
 		keySourceLanguageCode:  sourceLang,
 		keyTargetLanguageCode:  targetLang,
-		"AppliedSettings":      map[string]any{},
+		"AppliedSettings":      appliedSettings,
 		"AppliedTerminologies": buildAppliedTerminologies(terms),
 	}, nil
 }
@@ -547,20 +569,55 @@ func (h *Handler) translateDocument(input map[string]any) (map[string]any, error
 // --- Languages ---
 
 func (h *Handler) listLanguages(input map[string]any) (map[string]any, error) {
+	const defaultMaxLanguages = 500
+
 	maxResults := maxResultsField(input)
 	if maxResults <= 0 {
-		maxResults = 500
+		maxResults = defaultMaxLanguages
+	}
+
+	nextTokenIn, _ := input["NextToken"].(string)
+	displayLang, _ := input["DisplayLanguageCode"].(string)
+	if displayLang == "" {
+		displayLang = "en"
 	}
 
 	languages := knownLanguages()
-	if maxResults < len(languages) {
-		languages = languages[:maxResults]
+
+	// Apply cursor-based pagination using LanguageCode as token.
+	start := 0
+	if nextTokenIn != "" {
+		for i, lang := range languages {
+			if code, _ := lang[keyLanguageCode].(string); code == nextTokenIn {
+				start = i
+
+				break
+			}
+		}
 	}
 
-	return map[string]any{
-		"Languages":           languages,
-		"DisplayLanguageCode": "en",
-	}, nil
+	end := start + maxResults
+	var nextTokenOut string
+
+	if end < len(languages) {
+		if code, _ := languages[end][keyLanguageCode].(string); code != "" {
+			nextTokenOut = code
+		}
+	} else {
+		end = len(languages)
+	}
+
+	page := languages[start:end]
+	result := map[string]any{
+		"Languages":           page,
+		"DisplayLanguageCode": displayLang,
+	}
+
+	if nextTokenOut != "" {
+		result["NextToken"] = nextTokenOut
+	}
+
+	return result, nil
 }
 
 // --- Tags ---
@@ -620,17 +677,23 @@ func (h *Handler) listTagsForResource(input map[string]any) (map[string]any, err
 // --- Helpers ---
 
 func terminologyToMap(t *Terminology) map[string]any {
+	targetCodes := t.TargetLanguages
+	if targetCodes == nil {
+		targetCodes = []string{}
+	}
+
 	m := map[string]any{
-		"Arn":                 t.ARN,
-		keyName:               t.Name,
-		"Description":         t.Description,
-		"Directionality":      t.Directionality,
-		"Format":              t.Format,
-		"SizeBytes":           t.SizeBytes,
-		"TermCount":           t.TermCount,
-		"CreatedAt":           awstime.Epoch(t.CreatedAt),
-		"LastUpdatedAt":       awstime.Epoch(t.LastUpdatedAt),
-		keySourceLanguageCode: t.SourceLanguage,
+		"Arn":                  t.ARN,
+		keyName:                t.Name,
+		"Description":          t.Description,
+		"Directionality":       t.Directionality,
+		"Format":               t.Format,
+		"SizeBytes":            t.SizeBytes,
+		"TermCount":            t.TermCount,
+		"CreatedAt":            awstime.Epoch(t.CreatedAt),
+		"LastUpdatedAt":        awstime.Epoch(t.LastUpdatedAt),
+		keySourceLanguageCode:  t.SourceLanguage,
+		keyTargetLanguageCodes: targetCodes,
 	}
 
 	if t.EncryptionKey != nil {
@@ -645,14 +708,14 @@ func terminologyToMap(t *Terminology) map[string]any {
 
 func parallelDataToMap(pd *ParallelData) map[string]any {
 	m := map[string]any{
-		"Arn":                 pd.ARN,
-		keyName:               pd.Name,
-		"Description":         pd.Description,
-		keyStatus:             pd.Status,
-		keySourceLanguageCode: pd.SourceLanguage,
-		"TargetLanguageCodes": pd.TargetLanguages,
-		"CreatedAt":           awstime.Epoch(pd.CreatedAt),
-		"LastUpdatedAt":       awstime.Epoch(pd.LastUpdatedAt),
+		"Arn":                  pd.ARN,
+		keyName:                pd.Name,
+		"Description":          pd.Description,
+		keyStatus:              pd.Status,
+		keySourceLanguageCode:  pd.SourceLanguage,
+		keyTargetLanguageCodes: pd.TargetLanguages,
+		"CreatedAt":            awstime.Epoch(pd.CreatedAt),
+		"LastUpdatedAt":        awstime.Epoch(pd.LastUpdatedAt),
 	}
 
 	if pd.ParallelDataConfig != nil {
@@ -667,13 +730,30 @@ func parallelDataToMap(pd *ParallelData) map[string]any {
 
 func jobToMap(job *TranslationJob) map[string]any {
 	m := map[string]any{
-		keyJobID:              job.JobID,
-		"JobName":             job.JobName,
-		keyJobStatus:          job.JobStatus,
-		"DataAccessRoleArn":   job.DataAccessRoleARN,
-		keySourceLanguageCode: job.SourceLanguage,
-		"TargetLanguageCodes": job.TargetLanguages,
-		"SubmittedTime":       awstime.Epoch(job.SubmittedAt),
+		keyJobID:               job.JobID,
+		"JobName":              job.JobName,
+		keyJobStatus:           job.JobStatus,
+		"DataAccessRoleArn":    job.DataAccessRoleARN,
+		keySourceLanguageCode:  job.SourceLanguage,
+		keyTargetLanguageCodes: job.TargetLanguages,
+		"SubmittedTime":        awstime.Epoch(job.SubmittedAt),
+		"JobDetails": map[string]any{
+			"TranslatedDocumentsCount": 0,
+			"DocumentsWithErrorsCount": 0,
+			"InputDocumentsCount":      0,
+		},
+	}
+
+	if !job.EndAt.IsZero() {
+		m["EndTime"] = awstime.Epoch(job.EndAt)
+	}
+
+	if job.Message != "" {
+		m["Message"] = job.Message
+	}
+
+	if job.Settings != nil {
+		m["Settings"] = job.Settings
 	}
 
 	if job.InputDataConfig != nil {

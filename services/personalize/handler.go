@@ -1240,15 +1240,86 @@ func (h *Handler) describeRecipe(input map[string]any) (map[string]any, error) {
 func (h *Handler) listRecipes(input map[string]any) (map[string]any, error) {
 	recipes := getBuiltinRecipes()
 	maxResults := intField(input, "maxResults")
-	if maxResults <= 0 {
+	nextToken, _ := input["nextToken"].(string)
+
+	if maxResults <= 0 || maxResults > len(recipes) {
 		maxResults = len(recipes)
 	}
 
-	if maxResults < len(recipes) {
-		recipes = recipes[:maxResults]
+	// Find start index from nextToken (which is the recipeArn of the next page).
+	start := 0
+	if nextToken != "" {
+		for i, r := range recipes {
+			if r[keyRecipeArn] == nextToken {
+				start = i
+
+				break
+			}
+		}
 	}
 
-	return map[string]any{"recipes": recipes}, nil
+	end := start + maxResults
+	var outToken string
+	if end < len(recipes) {
+		outToken = recipes[end][keyRecipeArn].(string) //nolint:errcheck // keyRecipeArn is always string
+	} else {
+		end = len(recipes)
+	}
+
+	result := map[string]any{"recipes": recipes[start:end]}
+	if outToken != "" {
+		result["nextToken"] = outToken
+	}
+
+	return result, nil
+}
+
+// getBuiltinAlgorithms returns the static set of AWS Personalize built-in algorithms.
+// Both the current (aws-* prefix) and legacy ARN styles are included.
+func getBuiltinAlgorithms() []map[string]any {
+	epoch := awstime.Epoch(time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC))
+	const prefix = "arn:aws:personalize:::algorithm/"
+
+	type algoEntry struct {
+		arn     string
+		name    string
+		aliases []string
+	}
+
+	entries := []algoEntry{
+		{prefix + "aws-user-personalization", "aws-user-personalization", []string{prefix + "user-personalization"}},
+		{prefix + "aws-hrnn", "aws-hrnn", nil},
+		{prefix + "aws-hrnn-coldstart", "aws-hrnn-coldstart", nil},
+		{prefix + "aws-hrnn-metadata", "aws-hrnn-metadata", nil},
+		{prefix + "aws-similar-items", "aws-similar-items", []string{prefix + "sims"}},
+		{prefix + "aws-popularity-count", "aws-popularity-count", nil},
+		{prefix + "aws-personalized-ranking", "aws-personalized-ranking", []string{prefix + "personalized-ranking"}},
+		{prefix + "aws-sims", "aws-sims", nil},
+	}
+
+	out := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		m := map[string]any{
+			"algorithmArn":         e.arn,
+			keyName:                e.name,
+			keyStatus:              statusActive,
+			keyCreationDateTime:    epoch,
+			keyLastUpdatedDateTime: epoch,
+		}
+		out = append(out, m)
+		for _, alias := range e.aliases {
+			aliasM := map[string]any{
+				"algorithmArn":         alias,
+				keyName:                e.name,
+				keyStatus:              statusActive,
+				keyCreationDateTime:    epoch,
+				keyLastUpdatedDateTime: epoch,
+			}
+			out = append(out, aliasM)
+		}
+	}
+
+	return out
 }
 
 // --- Algorithm (read-only) ---
@@ -1256,15 +1327,21 @@ func (h *Handler) listRecipes(input map[string]any) (map[string]any, error) {
 func (h *Handler) describeAlgorithm(input map[string]any) (map[string]any, error) {
 	algorithmArn, _ := input["algorithmArn"].(string)
 
-	return map[string]any{
-		"algorithm": map[string]any{
-			"algorithmArn":         algorithmArn,
-			keyName:                "user-personalization",
-			keyStatus:              statusActive,
-			keyCreationDateTime:    awstime.Epoch(time.Now().UTC()),
-			keyLastUpdatedDateTime: awstime.Epoch(time.Now().UTC()),
-		},
-	}, nil
+	for _, algo := range getBuiltinAlgorithms() {
+		if algo["algorithmArn"] == algorithmArn {
+			return map[string]any{"algorithm": algo}, nil
+		}
+	}
+
+	// Fall back to name-based match (strip the ARN prefix).
+	name := strings.TrimPrefix(algorithmArn, "arn:aws:personalize:::algorithm/")
+	for _, algo := range getBuiltinAlgorithms() {
+		if algo[keyName] == name {
+			return map[string]any{"algorithm": algo}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: algorithm %q not found", ErrNotFound, algorithmArn)
 }
 
 // --- FeatureTransformation (read-only) ---
@@ -1294,13 +1371,18 @@ const defaultNumRecommendations = 25
 
 func (h *Handler) getRecommendations(input map[string]any) (map[string]any, error) {
 	campaignArn, _ := input["campaignArn"].(string)
+	recommenderArn, _ := input["recommenderArn"].(string)
 	userID, _ := input["userId"].(string)
 	numResults := intField(input, "numResults")
 	if numResults <= 0 {
 		numResults = defaultNumRecommendations
 	}
 
-	seed := campaignArn + "|" + userID
+	if err := h.Backend.ValidateCampaignOrRecommender(campaignArn, recommenderArn); err != nil {
+		return nil, err
+	}
+
+	seed := campaignArn + recommenderArn + "|" + userID
 	items := syntheticItemList(seed, numResults)
 
 	return map[string]any{
@@ -1312,6 +1394,10 @@ func (h *Handler) getRecommendations(input map[string]any) (map[string]any, erro
 func (h *Handler) getPersonalizedRanking(input map[string]any) (map[string]any, error) {
 	campaignArn, _ := input["campaignArn"].(string)
 	userID, _ := input["userId"].(string)
+
+	if err := h.Backend.ValidateCampaign(campaignArn); err != nil {
+		return nil, err
+	}
 
 	rawList, _ := input["inputList"].([]any)
 	inputIDs := make([]string, 0, len(rawList))

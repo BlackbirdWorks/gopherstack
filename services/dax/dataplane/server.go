@@ -98,10 +98,8 @@ type Server struct {
 	baseCtx  context.Context //nolint:containedctx // lifecycle ctx for the data-plane accept/serve goroutines.
 	ln       net.Listener
 	conns    map[net.Conn]struct{}
-	schemas  map[string]keySchema // table -> key schema cache
-	attrToID map[string]int64     // joined attr names -> id
-	idToAttr map[int64][]string   // id -> attr names
-	schemaMu sync.RWMutex
+	attrToID map[string]int64 // joined attr names -> id
+	idToAttr map[int64][]string
 	mu       sync.Mutex
 	attrMu   sync.Mutex
 	nextID   int64
@@ -120,7 +118,6 @@ func NewServer(ctx context.Context, backend Backend) *Server {
 		backend:  backend,
 		baseCtx:  logger.WithWorker(ctx, "dax", "dataplane"),
 		conns:    make(map[net.Conn]struct{}),
-		schemas:  make(map[string]keySchema),
 		attrToID: make(map[string]int64),
 		idToAttr: make(map[int64][]string),
 		nextID:   emptyAttributeListID + 1,
@@ -145,7 +142,7 @@ func (s *Server) Addr() net.Addr {
 func (s *Server) Listen(addr string) error {
 	var lc net.ListenConfig
 
-	ln, err := lc.Listen(context.Background(), "tcp", addr)
+	ln, err := lc.Listen(s.baseCtx, "tcp", addr)
 	if err != nil {
 		return err
 	}
@@ -440,31 +437,15 @@ func (s *Server) dispatchItem(r *Reader, w *Writer, method int) (bool, error) {
 	}
 }
 
-// schemaFor resolves and caches a table's key schema via the DynamoDB backend.
+// schemaFor resolves a table's key schema via the DynamoDB backend.
+// Always fetches live to reflect table drop/recreate without stale cache entries.
 func (s *Server) schemaFor(ctx context.Context, table string) (keySchema, error) {
-	s.schemaMu.RLock()
-	ks, ok := s.schemas[table]
-	s.schemaMu.RUnlock()
-
-	if ok {
-		return ks, nil
-	}
-
 	out, err := s.backend.DescribeTable(ctx, &awsddb.DescribeTableInput{TableName: &table})
 	if err != nil {
 		return nil, err
 	}
 
-	ks, err = buildKeySchema(out)
-	if err != nil {
-		return nil, err
-	}
-
-	s.schemaMu.Lock()
-	s.schemas[table] = ks
-	s.schemaMu.Unlock()
-
-	return ks, nil
+	return buildKeySchema(out)
 }
 
 func buildKeySchema(out *awsddb.DescribeTableOutput) (keySchema, error) {
@@ -529,6 +510,6 @@ func (ks keySchema) keyNames() map[string]struct{} {
 }
 
 // requestContext bounds backend calls so a stuck op cannot wedge a connection.
-func requestContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), requestTimeoutSeconds*time.Second)
+func (s *Server) requestContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(s.baseCtx, requestTimeoutSeconds*time.Second)
 }

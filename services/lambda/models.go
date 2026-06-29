@@ -99,11 +99,20 @@ type DeadLetterConfig struct {
 	TargetArn string `json:"TargetArn,omitempty"`
 }
 
-// FunctionConfiguration represents a Lambda function's configuration.
+// LoggingConfig holds the function's logging configuration.
+// Real AWS returns this on every GetFunction / GetFunctionConfiguration response.
+type LoggingConfig struct {
+	ApplicationLogLevel string `json:"ApplicationLogLevel,omitempty"`
+	LogFormat           string `json:"LogFormat"`
+	LogGroup            string `json:"LogGroup,omitempty"`
+	SystemLogLevel      string `json:"SystemLogLevel,omitempty"`
+}
+
 type FunctionConfiguration struct {
 	CreatedAt                    time.Time               `json:"-"`
 	Environment                  *EnvironmentConfig      `json:"Environment,omitempty"`
 	EphemeralStorage             *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	LoggingConfig                *LoggingConfig          `json:"LoggingConfig,omitempty"`
 	ReservedConcurrentExecutions *int                    `json:"ReservedConcurrentExecutions,omitempty"`
 	VpcConfig                    *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig                *TracingConfig          `json:"TracingConfig,omitempty"`
@@ -614,11 +623,12 @@ type ListFunctionsByCodeSigningConfigOutput struct {
 
 // CapacityProvider holds a Lambda capacity provider configuration.
 type CapacityProvider struct {
-	CapacityProviderArn       string `json:"CapacityProviderArn"`
-	LastModifiedTime          string `json:"LastModifiedTime"`
-	Name                      string `json:"Name"`
-	Status                    string `json:"Status,omitempty"`
-	TargetOnDemandConcurrency int    `json:"TargetOnDemandConcurrency,omitempty"`
+	CapacityProviderArn       string   `json:"CapacityProviderArn"`
+	LastModifiedTime          string   `json:"LastModifiedTime"`
+	Name                      string   `json:"Name"`
+	Status                    string   `json:"Status,omitempty"`
+	AssignedFunctionVersions  []string `json:"-"`
+	TargetOnDemandConcurrency int      `json:"TargetOnDemandConcurrency,omitempty"`
 }
 
 // CreateCapacityProviderInput is the request body for CreateCapacityProvider.

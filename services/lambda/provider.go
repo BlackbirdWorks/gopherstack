@@ -37,7 +37,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		runtime = rt
 	}
 
-	backend := NewInMemoryBackend(
+	backend := NewInMemoryBackendWithContext(
+		ctx.JanitorCtx,
 		runtime,
 		ctx.PortAlloc,
 		settings,

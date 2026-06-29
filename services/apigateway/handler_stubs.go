@@ -6,6 +6,7 @@ package apigateway
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 )
@@ -67,6 +68,21 @@ type sdkTypesStub struct {
 type apiKeysImportStub struct {
 	IDs      []string `json:"ids"`
 	Warnings []string `json:"warnings"`
+}
+
+// getSdkInput is the input for GetSdk. restApiId/stageName/sdkType arrive as path
+// parameters and are merged into the JSON body by the REST router.
+type getSdkInput struct {
+	RestAPIID string `json:"restApiId"`
+	StageName string `json:"stageName"`
+	SdkType   string `json:"sdkType"`
+}
+
+// importAPIKeysInput is the input for ImportApiKeys. The raw payload document is
+// carried in Body; Format is the query parameter (csv or json).
+type importAPIKeysInput struct {
+	Format string `json:"format"`
+	Body   []byte `json:"body"`
 }
 
 // documentationPartsImportStub is the response for ImportDocumentationParts.
@@ -187,6 +203,8 @@ func (h *Handler) exportAndCertActions() map[string]actionFn {
 }
 
 // stubActions returns the actionFn map for stub operations.
+//
+//nolint:gocognit,cyclop,funlen // builds the full action table; size and complexity are inherent to the registry
 func (h *Handler) stubActions() map[string]actionFn {
 	actions := make(map[string]actionFn)
 
@@ -198,14 +216,54 @@ func (h *Handler) stubActions() map[string]actionFn {
 		return http.StatusAccepted, nil, nil
 	}
 	actions[opGetDomainNameAccessAssociations] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, &domainNameAccessAssociationsStub{Items: []domainNameAccessAssociationStub{}}, nil
+		assocs, err := h.Backend.GetDomainNameAccessAssociations()
+		if err != nil {
+			return 0, nil, err
+		}
+
+		items := make([]domainNameAccessAssociationStub, 0, len(assocs))
+		for _, a := range assocs {
+			items = append(items, domainNameAccessAssociationStub{
+				DomainNameAccessAssociationArn: a.DomainNameAccessAssociationARN,
+				DomainNameArn:                  a.DomainNameARN,
+				AccessAssociationSourceType:    a.AccessAssociationSourceType,
+			})
+		}
+
+		return http.StatusOK, &domainNameAccessAssociationsStub{Items: items}, nil
 	}
 	actions[opRejectDomainNameAccessAssociation] = func(_ []byte) (int, any, error) {
 		return http.StatusAccepted, nil, nil
 	}
 
-	// SDK operations
-	actions[opGetSdk] = func(_ []byte) (int, any, error) {
+	// SDK operations.
+	//
+	// There is no real client-SDK generation backend, so GetSdk/GetSdkTypes are
+	// validation-only: they enforce AWS-accurate input validation (existence of the
+	// REST API/stage, presence of sdkType) and return a minimal valid response
+	// rather than fabricating a real generated SDK archive.
+	actions[opGetSdk] = func(b []byte) (int, any, error) {
+		var input getSdkInput
+		if err := json.Unmarshal(b, &input); err != nil {
+			return 0, nil, err
+		}
+
+		// sdkType is required → BadRequestException when absent.
+		if input.SdkType == "" {
+			return 0, nil, fmt.Errorf("%w: sdkType is required", ErrInvalidParameter)
+		}
+
+		// restApiId must reference an existing REST API → NotFoundException.
+		if _, err := h.Backend.GetRestAPI(input.RestAPIID); err != nil {
+			return 0, nil, err
+		}
+
+		// stageName must reference an existing stage on that API → NotFoundException.
+		if _, err := h.Backend.GetStage(input.RestAPIID, input.StageName); err != nil {
+			return 0, nil, err
+		}
+
+		// Minimal valid response: an empty application/zip body (placeholder only).
 		return http.StatusOK, map[string]any{"contentType": "application/zip", "body": ""}, nil
 	}
 	actions[opGetSdkType] = func(_ []byte) (int, any, error) {
@@ -220,8 +278,18 @@ func (h *Handler) stubActions() map[string]actionFn {
 	}
 
 	// Import operations
-	actions[opImportAPIKeys] = func(_ []byte) (int, any, error) {
-		return http.StatusCreated, &apiKeysImportStub{IDs: []string{}, Warnings: []string{}}, nil
+	actions[opImportAPIKeys] = func(b []byte) (int, any, error) {
+		var input importAPIKeysInput
+		if err := json.Unmarshal(b, &input); err != nil {
+			return 0, nil, err
+		}
+
+		ids, warnings, err := h.Backend.ImportAPIKeys(input.Format, input.Body)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return http.StatusCreated, &apiKeysImportStub{IDs: ids, Warnings: warnings}, nil
 	}
 	actions[opImportDocumentationParts] = func(_ []byte) (int, any, error) {
 		return http.StatusOK, &documentationPartsImportStub{IDs: []string{}, Warnings: []string{}}, nil
@@ -253,9 +321,25 @@ func (h *Handler) stubActions() map[string]actionFn {
 		return http.StatusOK, api, nil
 	}
 
-	// Usage update
-	actions[opUpdateUsage] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, map[string]any{"usagePlanId": "", "items": map[string]any{}}, nil
+	// Usage update — validate plan + key exist, return minimal usage data.
+	actions[opUpdateUsage] = func(b []byte) (int, any, error) {
+		var input updateUsageInput
+		if err := json.Unmarshal(b, &input); err != nil {
+			return 0, nil, err
+		}
+		if _, err := h.Backend.GetUsagePlan(input.UsagePlanID); err != nil {
+			return 0, nil, err
+		}
+		if input.KeyID != "" {
+			if _, err := h.Backend.GetUsagePlanKey(input.UsagePlanID, input.KeyID); err != nil {
+				return 0, nil, err
+			}
+		}
+
+		return http.StatusOK, map[string]any{
+			"usagePlanId": input.UsagePlanID,
+			"items":       map[string]any{},
+		}, nil
 	}
 
 	return actions

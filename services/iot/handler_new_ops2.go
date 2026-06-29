@@ -377,7 +377,7 @@ func (h *Handler) handleGetThingConnectivityData(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		keyThingName:       "",
 		"connected":        false,
-		"timestamp":        0,
+		keyTimestamp:       0,
 		"disconnectReason": "AUTH_ERROR",
 		"disconnectedFrom": "",
 		"mqttClientId":     "",

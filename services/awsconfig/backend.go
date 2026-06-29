@@ -11,6 +11,7 @@ import (
 const (
 	recorderStatusActive  = "ACTIVE"
 	recorderStatusPending = "PENDING"
+	recorderStatusSuccess = "SUCCESS"
 )
 
 var (
@@ -41,24 +42,41 @@ var (
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
+// RecordingGroup holds the resource recording configuration for a recorder.
+type RecordingGroup struct {
+	ResourceTypes              []string `json:"resourceTypes,omitempty"`
+	AllSupported               bool     `json:"allSupported,omitempty"`
+	IncludeGlobalResourceTypes bool     `json:"includeGlobalResourceTypes,omitempty"`
+}
+
 // ConfigurationRecorder represents an AWS Config configuration recorder.
 type ConfigurationRecorder struct {
-	Name    string `json:"name"`
-	RoleARN string `json:"roleARN"`
-	Status  string `json:"status,omitempty"` // PENDING or ACTIVE
+	RecordingGroup *RecordingGroup `json:"recordingGroup,omitempty"`
+	Name           string          `json:"name"`
+	RoleARN        string          `json:"roleARN"`
+	Status         string          `json:"status,omitempty"` // PENDING or ACTIVE
+}
+
+// DeliverySnapshotProperties holds snapshot delivery configuration for a channel.
+type DeliverySnapshotProperties struct {
+	DeliveryFrequency string `json:"deliveryFrequency,omitempty"`
 }
 
 // DeliveryChannel represents an AWS Config delivery channel.
 type DeliveryChannel struct {
-	Name     string `json:"name"`
-	S3Bucket string `json:"s3BucketName,omitempty"`
-	SNSArn   string `json:"snsTopicARN,omitempty"`
+	ConfigSnapshotDeliveryProperties *DeliverySnapshotProperties `json:"configSnapshotDeliveryProperties,omitempty"`
+	Name                             string                      `json:"name"`
+	S3Bucket                         string                      `json:"s3BucketName,omitempty"`
+	S3KeyPrefix                      string                      `json:"s3KeyPrefix,omitempty"`
+	SNSArn                           string                      `json:"snsTopicARN,omitempty"`
 }
 
 // AggregationAuthorization represents an AWS Config aggregation authorization.
 type AggregationAuthorization struct {
-	AuthorizedAccountID string `json:"authorizedAccountId"`
-	AuthorizedAwsRegion string `json:"authorizedAwsRegion"`
+	AggregationAuthorizationArn string `json:"AggregationAuthorizationArn,omitempty"`
+	AuthorizedAccountID         string `json:"authorizedAccountId"`
+	AuthorizedAwsRegion         string `json:"authorizedAwsRegion"`
+	CreationTime                string `json:"CreationTime,omitempty"`
 }
 
 // ConfigRuleSource represents the source definition of an AWS Config config rule.
@@ -67,26 +85,58 @@ type ConfigRuleSource struct {
 	SourceIdentifier string `json:"SourceIdentifier,omitempty"`
 }
 
+// ConfigRuleScope restricts which resources trigger an AWS Config rule.
+type ConfigRuleScope struct {
+	ComplianceResourceID    string   `json:"ComplianceResourceId,omitempty"`
+	TagKey                  string   `json:"TagKey,omitempty"`
+	TagValue                string   `json:"TagValue,omitempty"`
+	ComplianceResourceTypes []string `json:"ComplianceResourceTypes,omitempty"`
+}
+
 // ConfigRule represents an AWS Config config rule.
 type ConfigRule struct {
 	Source                    *ConfigRuleSource `json:"Source,omitempty"`
-	ConfigRuleName            string            `json:"configRuleName"`
-	ConfigRuleArn             string            `json:"configRuleArn,omitempty"`
-	ConfigRuleID              string            `json:"configRuleId,omitempty"`
-	Description               string            `json:"description,omitempty"`
-	InputParameters           string            `json:"inputParameters,omitempty"`
-	MaximumExecutionFrequency string            `json:"maximumExecutionFrequency,omitempty"`
-	ComplianceType            string            `json:"complianceType,omitempty"`
+	Scope                     *ConfigRuleScope  `json:"Scope,omitempty"`
+	ConfigRuleName            string            `json:"ConfigRuleName"`
+	ConfigRuleArn             string            `json:"ConfigRuleArn,omitempty"`
+	ConfigRuleID              string            `json:"ConfigRuleId,omitempty"`
+	Description               string            `json:"Description,omitempty"`
+	InputParameters           string            `json:"InputParameters,omitempty"`
+	MaximumExecutionFrequency string            `json:"MaximumExecutionFrequency,omitempty"`
+	ConfigRuleState           string            `json:"ConfigRuleState,omitempty"`
+}
+
+// AccountAggregationSource identifies AWS accounts to aggregate from.
+type AccountAggregationSource struct {
+	AccountIDs    []string `json:"AccountIds"`
+	AwsRegions    []string `json:"AwsRegions,omitempty"`
+	AllAwsRegions bool     `json:"AllAwsRegions,omitempty"`
+}
+
+// OrganizationAggregationSource identifies an organization to aggregate from.
+type OrganizationAggregationSource struct {
+	RoleArn       string   `json:"RoleArn"`
+	AwsRegions    []string `json:"AwsRegions,omitempty"`
+	AllAwsRegions bool     `json:"AllAwsRegions,omitempty"`
 }
 
 // ConfigurationAggregator represents an AWS Config configuration aggregator.
 type ConfigurationAggregator struct {
-	ConfigurationAggregatorName string `json:"configurationAggregatorName"`
+	OrganizationAggregationSource *OrganizationAggregationSource `json:"OrganizationAggregationSource,omitempty"`
+	ConfigurationAggregatorArn    string                         `json:"ConfigurationAggregatorArn,omitempty"`
+	ConfigurationAggregatorName   string                         `json:"ConfigurationAggregatorName"`
+	CreationTime                  string                         `json:"CreationTime,omitempty"`
+	AccountAggregationSources     []AccountAggregationSource     `json:"AccountAggregationSources,omitempty"`
 }
 
 // ConformancePack represents an AWS Config conformance pack.
 type ConformancePack struct {
-	ConformancePackName string `json:"conformancePackName"`
+	ConformancePackArn      string `json:"ConformancePackArn,omitempty"`
+	ConformancePackID       string `json:"ConformancePackId,omitempty"`
+	ConformancePackName     string `json:"ConformancePackName"`
+	DeliveryS3Bucket        string `json:"DeliveryS3Bucket,omitempty"`
+	DeliveryS3KeyPrefix     string `json:"DeliveryS3KeyPrefix,omitempty"`
+	LastUpdateRequestedTime string `json:"LastUpdateRequestedTime,omitempty"`
 }
 
 // OrganizationConfigRule represents an AWS Config organization config rule.
@@ -113,8 +163,26 @@ type Tag struct {
 
 // ConfigurationRecorderStatus represents the recording status of a recorder.
 type ConfigurationRecorderStatus struct {
-	Name      string `json:"name"`
-	Recording bool   `json:"recording"`
+	LastErrorCode string `json:"lastErrorCode,omitempty"`
+	LastStartTime string `json:"lastStartTime,omitempty"`
+	LastStatus    string `json:"lastStatus,omitempty"`
+	LastStopTime  string `json:"lastStopTime,omitempty"`
+	Name          string `json:"name"`
+	Recording     bool   `json:"recording"`
+}
+
+// ConfigurationRecorderSummary is a lightweight summary returned by ListConfigurationRecorders.
+type ConfigurationRecorderSummary struct {
+	Arn            string `json:"arn"`
+	Name           string `json:"name"`
+	RecordingScope string `json:"recordingScope"`
+}
+
+// StoredQueryMetadata is summary metadata returned by ListStoredQueries.
+type StoredQueryMetadata struct {
+	QueryArn  string `json:"QueryArn"`
+	QueryID   string `json:"QueryId"`
+	QueryName string `json:"QueryName"`
 }
 
 // BaseConfigurationItem is a lightweight configuration snapshot for a single resource.
@@ -139,27 +207,29 @@ type ResourceKey struct {
 
 // InMemoryBackend is the in-memory store for AWS Config resources.
 type InMemoryBackend struct {
-	recorders             map[string]*ConfigurationRecorder
-	channels              map[string]*DeliveryChannel
-	aggregationAuths      map[string]*AggregationAuthorization
-	configRules           map[string]*ConfigRule
-	ruleEvaluations       map[string]string // rule name → compliance type after evaluation
-	aggregators           map[string]*ConfigurationAggregator
-	conformancePacks      map[string]*ConformancePack
-	orgConfigRules        map[string]*OrganizationConfigRule
-	orgConformancePacks   map[string]*OrganizationConformancePack
-	storedQueries         map[string]*StoredQuery
-	resourceTags          map[string][]Tag                          // ARN → tags
-	retentionConfigs      map[string]*RetentionConfiguration        // name → config
-	remediationConfigs    map[string]*RemediationConfiguration      // rule name → config
-	remediationExceptions map[string][]RemediationException         // rule name → exceptions
-	resourceConfigs       map[string]map[string]*ResourceConfigItem // type → id → item
-	customRulePolicies    map[string]string                         // rule name → policy text
-	orgCustomRulePolicies map[string]string                         // rule name → policy text
-	mu                    *lockmetrics.RWMutex
-	accountID             string
-	region                string
-	ruleCounter           int
+	recorders              map[string]*ConfigurationRecorder
+	channels               map[string]*DeliveryChannel
+	aggregationAuths       map[string]*AggregationAuthorization
+	configRules            map[string]*ConfigRule
+	ruleEvaluations        map[string]string // rule name → compliance type after evaluation
+	aggregators            map[string]*ConfigurationAggregator
+	conformancePacks       map[string]*ConformancePack
+	orgConfigRules         map[string]*OrganizationConfigRule
+	orgConformancePacks    map[string]*OrganizationConformancePack
+	storedQueries          map[string]*StoredQuery
+	resourceTags           map[string][]Tag                          // ARN → tags
+	retentionConfigs       map[string]*RetentionConfiguration        // name → config
+	remediationConfigs     map[string]*RemediationConfiguration      // rule name → config
+	remediationExceptions  map[string][]RemediationException         // rule name → exceptions
+	resourceConfigs        map[string]map[string]*ResourceConfigItem // type → id → item
+	customRulePolicies     map[string]string                         // rule name → policy text
+	orgCustomRulePolicies  map[string]string                         // rule name → policy text
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
+	ruleCounter            int
+	conformancePackCounter int
+	aggregatorCounter      int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -194,9 +264,9 @@ func NewInMemoryBackendWithMeta(accountID, region string) *InMemoryBackend {
 }
 
 // PutConfigurationRecorder creates or updates a configuration recorder.
-// When updating an existing recorder, the Status is preserved and only RoleARN is updated.
+// When updating an existing recorder, the Status is preserved; RoleARN and RecordingGroup are updated.
 // A new recorder starts in PENDING state.
-func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string) error {
+func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string, recordingGroup *RecordingGroup) error {
 	if name == "" {
 		return fmt.Errorf("%w: ConfigurationRecorder name is required", ErrValidation)
 	}
@@ -210,11 +280,17 @@ func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string) error {
 
 	if existing, ok := b.recorders[name]; ok {
 		existing.RoleARN = roleARN
+		existing.RecordingGroup = recordingGroup
 
 		return nil
 	}
 
-	b.recorders[name] = &ConfigurationRecorder{Name: name, RoleARN: roleARN, Status: recorderStatusPending}
+	b.recorders[name] = &ConfigurationRecorder{
+		Name:           name,
+		RoleARN:        roleARN,
+		Status:         recorderStatusPending,
+		RecordingGroup: recordingGroup,
+	}
 
 	return nil
 }
@@ -297,7 +373,10 @@ func (b *InMemoryBackend) StopConfigurationRecorder(name string) error {
 }
 
 // PutDeliveryChannel creates or updates a delivery channel.
-func (b *InMemoryBackend) PutDeliveryChannel(name, s3Bucket, snsArn string) error {
+func (b *InMemoryBackend) PutDeliveryChannel(
+	name, s3Bucket, snsArn, s3KeyPrefix string,
+	props *DeliverySnapshotProperties,
+) error {
 	if name == "" {
 		return fmt.Errorf("%w: DeliveryChannel name is required", ErrValidation)
 	}
@@ -309,7 +388,13 @@ func (b *InMemoryBackend) PutDeliveryChannel(name, s3Bucket, snsArn string) erro
 	b.mu.Lock("PutDeliveryChannel")
 	defer b.mu.Unlock()
 
-	b.channels[name] = &DeliveryChannel{Name: name, S3Bucket: s3Bucket, SNSArn: snsArn}
+	b.channels[name] = &DeliveryChannel{
+		Name:                             name,
+		S3Bucket:                         s3Bucket,
+		SNSArn:                           snsArn,
+		S3KeyPrefix:                      s3KeyPrefix,
+		ConfigSnapshotDeliveryProperties: props,
+	}
 
 	return nil
 }
@@ -385,6 +470,21 @@ func (b *InMemoryBackend) DeleteConfigurationRecorder(name string) error {
 	return nil
 }
 
+// recorderStatus builds a ConfigurationRecorderStatus from a recorder.
+func recorderStatus(r *ConfigurationRecorder) ConfigurationRecorderStatus {
+	recording := r.Status == recorderStatusActive
+	lastStatus := recorderStatusPending
+	if recording {
+		lastStatus = recorderStatusSuccess
+	}
+
+	return ConfigurationRecorderStatus{
+		Name:       r.Name,
+		Recording:  recording,
+		LastStatus: lastStatus,
+	}
+}
+
 // DescribeConfigurationRecorderStatus returns recording status for recorders filtered
 // by the provided name list.  An empty/nil list returns status for all recorders,
 // sorted by name.
@@ -396,18 +496,12 @@ func (b *InMemoryBackend) DescribeConfigurationRecorderStatus(names []string) []
 
 	if len(names) == 0 {
 		for _, r := range b.recorders {
-			out = append(out, ConfigurationRecorderStatus{
-				Name:      r.Name,
-				Recording: r.Status == recorderStatusActive,
-			})
+			out = append(out, recorderStatus(r))
 		}
 	} else {
 		for _, n := range names {
 			if r, ok := b.recorders[n]; ok {
-				out = append(out, ConfigurationRecorderStatus{
-					Name:      r.Name,
-					Recording: r.Status == recorderStatusActive,
-				})
+				out = append(out, recorderStatus(r))
 			}
 		}
 	}
@@ -462,9 +556,15 @@ func (b *InMemoryBackend) PutAggregationAuthorization(accountID, region string) 
 	b.mu.Lock("PutAggregationAuthorization")
 	defer b.mu.Unlock()
 
+	arn := fmt.Sprintf(
+		"arn:aws:config:%s:%s:aggregation-authorization/%s/%s",
+		b.region, b.accountID, accountID, region,
+	)
+
 	b.aggregationAuths[aggregationAuthKey(accountID, region)] = &AggregationAuthorization{
-		AuthorizedAccountID: accountID,
-		AuthorizedAwsRegion: region,
+		AuthorizedAccountID:         accountID,
+		AuthorizedAwsRegion:         region,
+		AggregationAuthorizationArn: arn,
 	}
 
 	return nil
@@ -555,8 +655,8 @@ func (b *InMemoryBackend) PutConfigRule(input *ConfigRule) error {
 		input.ConfigRuleID = fmt.Sprintf("config-rule-%08d", b.ruleCounter)
 	}
 
-	if input.ComplianceType == "" {
-		input.ComplianceType = "NOT_APPLICABLE"
+	if input.ConfigRuleState == "" {
+		input.ConfigRuleState = "ACTIVE"
 	}
 
 	cp := *input
@@ -625,7 +725,11 @@ func (b *InMemoryBackend) DeleteConfigRule(name string) error {
 }
 
 // PutConfigurationAggregator creates or updates a configuration aggregator.
-func (b *InMemoryBackend) PutConfigurationAggregator(name string) error {
+func (b *InMemoryBackend) PutConfigurationAggregator(
+	name string,
+	accountSources []AccountAggregationSource,
+	orgSource *OrganizationAggregationSource,
+) error {
 	if name == "" {
 		return fmt.Errorf("%w: ConfigurationAggregatorName is required", ErrValidation)
 	}
@@ -633,7 +737,18 @@ func (b *InMemoryBackend) PutConfigurationAggregator(name string) error {
 	b.mu.Lock("PutConfigurationAggregator")
 	defer b.mu.Unlock()
 
-	b.aggregators[name] = &ConfigurationAggregator{ConfigurationAggregatorName: name}
+	b.aggregatorCounter++
+	arn := fmt.Sprintf(
+		"arn:aws:config:%s:%s:config-aggregator/config-aggregator-%08d",
+		b.region, b.accountID, b.aggregatorCounter,
+	)
+
+	b.aggregators[name] = &ConfigurationAggregator{
+		ConfigurationAggregatorName:   name,
+		ConfigurationAggregatorArn:    arn,
+		AccountAggregationSources:     accountSources,
+		OrganizationAggregationSource: orgSource,
+	}
 
 	return nil
 }
@@ -657,7 +772,7 @@ func (b *InMemoryBackend) DeleteConfigurationAggregator(name string) error {
 }
 
 // PutConformancePack creates or updates a conformance pack.
-func (b *InMemoryBackend) PutConformancePack(name string) error {
+func (b *InMemoryBackend) PutConformancePack(name, deliveryS3Bucket, deliveryS3KeyPrefix string) error {
 	if name == "" {
 		return fmt.Errorf("%w: ConformancePackName is required", ErrValidation)
 	}
@@ -665,7 +780,20 @@ func (b *InMemoryBackend) PutConformancePack(name string) error {
 	b.mu.Lock("PutConformancePack")
 	defer b.mu.Unlock()
 
-	b.conformancePacks[name] = &ConformancePack{ConformancePackName: name}
+	b.conformancePackCounter++
+	packID := fmt.Sprintf("conformance-pack-%08d", b.conformancePackCounter)
+	arn := fmt.Sprintf(
+		"arn:aws:config:%s:%s:conformance-pack/%s/%s",
+		b.region, b.accountID, name, packID,
+	)
+
+	b.conformancePacks[name] = &ConformancePack{
+		ConformancePackName: name,
+		ConformancePackArn:  arn,
+		ConformancePackID:   packID,
+		DeliveryS3Bucket:    deliveryS3Bucket,
+		DeliveryS3KeyPrefix: deliveryS3KeyPrefix,
+	}
 
 	return nil
 }

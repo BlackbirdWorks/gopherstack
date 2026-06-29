@@ -431,7 +431,7 @@ func TestBackend_ResendConfirmationCode(t *testing.T) {
 		{
 			name:             "already_confirmed",
 			wantErr:          true,
-			errTarget:        cognitoidp.ErrCodeMismatch,
+			errTarget:        cognitoidp.ErrInvalidParameter,
 			alreadyConfirmed: true,
 		},
 	}

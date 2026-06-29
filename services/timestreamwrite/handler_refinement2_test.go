@@ -71,6 +71,10 @@ func TestRefinement2_BatchLoadTaskTimestampsAreFloats(t *testing.T) {
 	rec := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
 		"TargetDatabaseName": "blt-ts-db",
 		"TargetTableName":    "blt-ts-tbl",
+		"DataSourceConfiguration": map[string]any{
+			"DataFormat":                "CSV",
+			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

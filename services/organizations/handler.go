@@ -2,7 +2,6 @@ package organizations
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -19,6 +19,8 @@ const (
 	orgTargetPrefix = "AWSOrganizationsV20161128."
 
 	iamAccessAllow = "ALLOW"
+
+	defaultMaxResults = 100
 )
 
 // Handler is the HTTP handler for the AWS Organizations JSON 1.1 API.
@@ -385,7 +387,14 @@ func (h *Handler) handleEnableAllFeatures(c *echo.Context, _ []byte) error {
 // Account handlers
 // ----------------------------------------
 
-func (h *Handler) handleListAccounts(c *echo.Context, _ []byte) error {
+func (h *Handler) handleListAccounts(c *echo.Context, body []byte) error {
+	var req listAccountsRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+		}
+	}
+
 	accounts, err := h.Backend.ListAccounts()
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -396,7 +405,9 @@ func (h *Handler) handleListAccounts(c *echo.Context, _ []byte) error {
 		objs = append(objs, toAccountObject(a))
 	}
 
-	return c.JSON(http.StatusOK, listAccountsResponse{Accounts: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listAccountsResponse{Accounts: p.Data, NextToken: p.Next})
 }
 
 // validateCreateAccountInput validates and normalises the common fields shared by
@@ -606,7 +617,12 @@ func (h *Handler) handleListOrganizationalUnitsForParent(c *echo.Context, body [
 		objs = append(objs, toOUObject(ou))
 	}
 
-	return c.JSON(http.StatusOK, listOrganizationalUnitsForParentResponse{OrganizationalUnits: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(
+		http.StatusOK,
+		listOrganizationalUnitsForParentResponse{OrganizationalUnits: p.Data, NextToken: p.Next},
+	)
 }
 
 func (h *Handler) handleListAccountsForParent(c *echo.Context, body []byte) error {
@@ -653,7 +669,9 @@ func (h *Handler) handleListChildren(c *echo.Context, body []byte) error {
 		return h.handleBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listChildrenResponse{Children: children})
+	p := page.New(children, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listChildrenResponse{Children: p.Data, NextToken: p.Next})
 }
 
 // ----------------------------------------
@@ -735,7 +753,9 @@ func (h *Handler) handleListPolicies(c *echo.Context, body []byte) error {
 		objs = append(objs, toPolicySummaryObject(p))
 	}
 
-	return c.JSON(http.StatusOK, listPoliciesResponse{Policies: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listPoliciesResponse{Policies: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleAttachPolicy(c *echo.Context, body []byte) error {
@@ -990,31 +1010,69 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, errType, message s
 	})
 }
 
-func (h *Handler) handleBackendError(c *echo.Context, err error) error {
-	switch {
-	case errors.Is(err, awserr.ErrNotFound):
-		return h.writeError(c, http.StatusBadRequest, extractErrorType(err), err.Error())
-	case errors.Is(err, awserr.ErrAlreadyExists):
-		return h.writeError(c, http.StatusBadRequest, extractErrorType(err), err.Error())
-	case errors.Is(err, awserr.ErrConflict):
-		return h.writeError(c, http.StatusBadRequest, extractErrorType(err), err.Error())
-	case errors.Is(err, awserr.ErrInvalidParameter):
-		return h.writeError(c, http.StatusBadRequest, extractErrorType(err), err.Error())
-	default:
-		return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+const errConstraintViolation = "ConstraintViolationException"
+
+func getErrorTable() map[error]awserr.APIError {
+	return map[error]awserr.APIError{
+		ErrOrgNotFound:      {Code: "AWSOrganizationsNotInUseException", HTTPStatus: http.StatusBadRequest},
+		ErrOrgAlreadyExists: {Code: "AlreadyInOrganizationException", HTTPStatus: http.StatusBadRequest},
+		ErrAccountNotFound:  {Code: "AccountNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrOUNotFound: {
+			Code:       "OrganizationalUnitNotFoundException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrPolicyNotFound:           {Code: "PolicyNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrPolicyTypeAlreadyEnabled: {Code: "PolicyTypeAlreadyEnabledException", HTTPStatus: http.StatusBadRequest},
+		ErrPolicyTypeNotEnabled:     {Code: "PolicyTypeNotEnabledException", HTTPStatus: http.StatusBadRequest},
+		ErrCreateAccountStatusNotFound: {
+			Code:       "CreateAccountStatusNotFoundException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrDuplicatePolicyAttachment: {
+			Code:       "DuplicatePolicyAttachmentException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrPolicyNotAttached:           {Code: "PolicyNotAttachedException", HTTPStatus: http.StatusBadRequest},
+		ErrInvalidInput:                {Code: "InvalidInputException", HTTPStatus: http.StatusBadRequest},
+		ErrChildNotFound:               {Code: "ChildNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrDelegatedAdminNotFound:      {Code: "AccountNotRegisteredException", HTTPStatus: http.StatusBadRequest},
+		ErrDelegatedAdminAlreadyExists: {Code: "AccountAlreadyRegisteredException", HTTPStatus: http.StatusBadRequest},
+		ErrPolicyLimitExceeded:         {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrHandshakeNotFound:           {Code: "HandshakeNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrHandshakeConstraintViolation: {
+			Code:       "HandshakeConstraintViolationException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrResourcePolicyNotFound:  {Code: "ResourcePolicyNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrEffectivePolicyNotFound: {Code: "EffectivePolicyNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrAccountAlreadyClosed:    {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrOUDepthLimitExceeded:    {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrDuplicateOrganizationalUnit: {
+			Code:       "DuplicateOrganizationalUnitException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrTargetNotFound:       {Code: "TargetNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrServiceNotEnabled:    {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrPolicyInUse:          {Code: "PolicyInUseException", HTTPStatus: http.StatusBadRequest},
+		ErrOrganizationNotEmpty: {Code: "OrganizationNotEmptyException", HTTPStatus: http.StatusBadRequest},
+		ErrDuplicateHandshake:   {Code: "DuplicateHandshakeException", HTTPStatus: http.StatusBadRequest},
+		ErrPolicyTypeAttached:   {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
 	}
 }
 
-// extractErrorType extracts the AWS error type from an error message.
-// Error messages are formatted as "TypeName: message".
-func extractErrorType(err error) string {
-	msg := err.Error()
+func (h *Handler) handleBackendError(c *echo.Context, err error) error {
+	apiErr := awserr.Classify(err, getErrorTable(), awserr.APIError{
+		Code:       "InternalFailure",
+		Message:    err.Error(),
+		HTTPStatus: http.StatusInternalServerError,
+	})
 
+	msg := apiErr.Message
 	if idx := strings.Index(msg, ":"); idx > 0 {
-		return msg[:idx]
+		msg = strings.TrimSpace(msg[idx+1:])
 	}
 
-	return "ServiceException"
+	return h.writeError(c, apiErr.HTTPStatus, apiErr.Code, msg)
 }
 
 // ----------------------------------------
@@ -1355,6 +1413,7 @@ func (h *Handler) handleLeaveOrganization(c *echo.Context, _ []byte) error {
 	return c.JSON(http.StatusOK, struct{}{})
 }
 
+//nolint:dupl // similar to handleListHandshakesForOrganization
 func (h *Handler) handleListHandshakesForAccount(c *echo.Context, body []byte) error {
 	var req listHandshakesFilterRequest
 	if len(body) > 0 {
@@ -1370,12 +1429,17 @@ func (h *Handler) handleListHandshakesForAccount(c *echo.Context, body []byte) e
 
 	objs := make([]handshakeObject, 0, len(handshakes))
 	for _, hs := range handshakes {
-		objs = append(objs, toHandshakeObject(hs))
+		if req.Filter.ActionType == "" || hs.Action == req.Filter.ActionType {
+			objs = append(objs, toHandshakeObject(hs))
+		}
 	}
 
-	return c.JSON(http.StatusOK, listHandshakesForAccountResponse{Handshakes: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listHandshakesForAccountResponse{Handshakes: p.Data, NextToken: p.Next})
 }
 
+//nolint:dupl // similar to handleListHandshakesForAccount
 func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []byte) error {
 	var req listHandshakesFilterRequest
 	if len(body) > 0 {
@@ -1391,10 +1455,14 @@ func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []by
 
 	objs := make([]handshakeObject, 0, len(handshakes))
 	for _, hs := range handshakes {
-		objs = append(objs, toHandshakeObject(hs))
+		if req.Filter.ActionType == "" || hs.Action == req.Filter.ActionType {
+			objs = append(objs, toHandshakeObject(hs))
+		}
 	}
 
-	return c.JSON(http.StatusOK, listHandshakesForOrganizationResponse{Handshakes: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listHandshakesForOrganizationResponse{Handshakes: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleListInboundResponsibilityTransfers(c *echo.Context, _ []byte) error {

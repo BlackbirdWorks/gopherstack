@@ -181,12 +181,18 @@ type DeleteReplicationGroupMemberAction struct {
 	RegionName string `json:"RegionName"`
 }
 
-// ReplicaDescription contains status information about a Global Tables v2 replica.
+// ReplicaGSIOverride stores per-replica read-capacity override for one GSI.
+type ReplicaGSIOverride struct {
+	ProvisionedReadCapacity *int64 `json:"ProvisionedReadCapacity,omitempty"`
+	IndexName               string `json:"IndexName"`
+}
+
 type ReplicaDescription struct {
-	ProvisionedReadCapacityUnits *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
-	RegionName                   string `json:"RegionName,omitempty"`
-	ReplicaStatus                string `json:"ReplicaStatus,omitempty"`
-	TableClassOverride           string `json:"TableClassOverride,omitempty"`
+	ProvisionedReadCapacityUnits *int64               `json:"ProvisionedReadCapacityUnits,omitempty"`
+	RegionName                   string               `json:"RegionName,omitempty"`
+	ReplicaStatus                string               `json:"ReplicaStatus,omitempty"`
+	TableClassOverride           string               `json:"TableClassOverride,omitempty"`
+	GlobalSecondaryIndexes       []ReplicaGSIOverride `json:"GlobalSecondaryIndexes,omitempty"`
 }
 
 // GlobalSecondaryIndexUpdate describes a single GSI change.
@@ -605,10 +611,12 @@ type DeleteBackupOutput struct {
 
 // ListBackupsInput is the wire format for ListBackups.
 type ListBackupsInput struct {
-	TableName               string `json:"TableName,omitempty"`
-	ExclusiveStartBackupArn string `json:"ExclusiveStartBackupArn,omitempty"`
-	BackupType              string `json:"BackupType,omitempty"`
-	Limit                   int    `json:"Limit,omitempty"`
+	TimeRangeLowerBound     *float64 `json:"TimeRangeLowerBound,omitempty"`
+	TimeRangeUpperBound     *float64 `json:"TimeRangeUpperBound,omitempty"`
+	TableName               string   `json:"TableName,omitempty"`
+	ExclusiveStartBackupArn string   `json:"ExclusiveStartBackupArn,omitempty"`
+	BackupType              string   `json:"BackupType,omitempty"`
+	Limit                   int      `json:"Limit,omitempty"`
 }
 
 // BackupSummary contains summary information about a backup.
@@ -631,8 +639,10 @@ type ListBackupsOutput struct {
 
 // RestoreTableFromBackupInput is the wire format for RestoreTableFromBackup.
 type RestoreTableFromBackupInput struct {
-	BackupArn       string `json:"BackupArn"`
-	TargetTableName string `json:"TargetTableName"`
+	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
+	BackupArn                     string                 `json:"BackupArn"`
+	TargetTableName               string                 `json:"TargetTableName"`
+	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 }
 
 // RestoreTableFromBackupOutput is the wire format for RestoreTableFromBackup response.
@@ -642,10 +652,12 @@ type RestoreTableFromBackupOutput struct {
 
 // RestoreTableToPointInTimeInput is the wire format for RestoreTableToPointInTime.
 type RestoreTableToPointInTimeInput struct {
-	SourceTableName         string `json:"SourceTableName"`
-	TargetTableName         string `json:"TargetTableName"`
-	RestoreDateTime         string `json:"RestoreDateTime,omitempty"`
-	UseLatestRestorableTime bool   `json:"UseLatestRestorableTime,omitempty"`
+	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
+	SourceTableName               string                 `json:"SourceTableName"`
+	TargetTableName               string                 `json:"TargetTableName"`
+	RestoreDateTime               string                 `json:"RestoreDateTime,omitempty"`
+	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
+	UseLatestRestorableTime       bool                   `json:"UseLatestRestorableTime,omitempty"`
 }
 
 // RestoreTableToPointInTimeOutput is the wire format for RestoreTableToPointInTime response.

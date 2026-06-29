@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -339,7 +341,7 @@ func (h *Handler) dispatch( //nolint:cyclop // existing issue.
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchAllowListOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchAllowListOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
@@ -347,7 +349,7 @@ func (h *Handler) dispatch( //nolint:cyclop // existing issue.
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchFindingsFilterOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchFindingsFilterOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
@@ -643,7 +645,7 @@ func (h *Handler) dispatchSessionOps(op string, body []byte) (any, int, bool, er
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchAllowListOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchAllowListOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateAllowList:
 		result, code, err := h.handleCreateAllowList(body)
@@ -669,7 +671,7 @@ func (h *Handler) dispatchAllowListOps(op, path string, body []byte) (any, int, 
 		return nil, code, true, err
 
 	case opListAllowLists:
-		result, code := h.handleListAllowLists()
+		result, code := h.handleListAllowLists(query)
 
 		return result, code, true, nil
 	}
@@ -697,7 +699,7 @@ func (h *Handler) dispatchCustomDataIDOps(op, path string, body []byte) (any, in
 		return nil, code, true, err
 
 	case opListCustomDataIDs:
-		result, code, err := h.handleListCustomDataIDs()
+		result, code, err := h.handleListCustomDataIDs(body)
 
 		return result, code, true, err
 
@@ -710,7 +712,7 @@ func (h *Handler) dispatchCustomDataIDOps(op, path string, body []byte) (any, in
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchFindingsFilterOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchFindingsFilterOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateFindingsFilter:
 		result, code, err := h.handleCreateFindingsFilter(body)
@@ -736,7 +738,7 @@ func (h *Handler) dispatchFindingsFilterOps(op, path string, body []byte) (any, 
 		return nil, code, true, err
 
 	case opListFindingsFilters:
-		result, code := h.handleListFindingsFilters()
+		result, code := h.handleListFindingsFilters(query)
 
 		return result, code, true, nil
 	}
@@ -752,9 +754,9 @@ func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, bo
 		return result, code, true, err
 
 	case opListFindings:
-		result, code := h.handleListFindings()
+		result, code, err := h.handleListFindings(body)
 
-		return result, code, true, nil
+		return result, code, true, err
 
 	case opCreateSampleFindings:
 		code, err := h.handleCreateSampleFindings(body)
@@ -971,10 +973,17 @@ func (h *Handler) handleDeleteAllowList(id string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListAllowLists() (any, int) {
-	lists, _ := h.Backend.ListAllowLists()
+func (h *Handler) handleListAllowLists(query string) (any, int) {
+	q, _ := url.ParseQuery(query)
+	limit, _ := strconv.Atoi(q.Get("maxResults"))
+	lists, nextToken, _ := h.Backend.ListAllowLists(limit, q.Get("nextToken"))
 
-	return map[string]any{"allowLists": lists}, http.StatusOK
+	resp := map[string]any{"allowLists": lists}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return resp, http.StatusOK
 }
 
 // Custom data identifier handlers
@@ -1040,13 +1049,29 @@ func (h *Handler) handleDeleteCustomDataID(id string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListCustomDataIDs() (any, int, error) {
-	items, err := h.Backend.ListCustomDataIdentifiers()
+func (h *Handler) handleListCustomDataIDs(body []byte) (any, int, error) {
+	var req struct {
+		MaxResults *int32 `json:"maxResults"`
+		NextToken  string `json:"nextToken"`
+	}
+	_ = json.Unmarshal(body, &req)
+
+	limit := 0
+	if req.MaxResults != nil {
+		limit = int(*req.MaxResults)
+	}
+
+	items, nextToken, err := h.Backend.ListCustomDataIdentifiers(limit, req.NextToken)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{"items": items}, http.StatusOK, nil //nolint:goconst // existing issue.
+	resp := map[string]any{"items": items} //nolint:goconst // existing issue.
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleTestCustomDataID(body []byte) (any, int, error) {
@@ -1162,10 +1187,17 @@ func (h *Handler) handleDeleteFindingsFilter(id string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListFindingsFilters() (any, int) {
-	filters, _ := h.Backend.ListFindingsFilters()
+func (h *Handler) handleListFindingsFilters(query string) (any, int) {
+	q, _ := url.ParseQuery(query)
+	limit, _ := strconv.Atoi(q.Get("maxResults"))
+	filters, nextToken, _ := h.Backend.ListFindingsFilters(limit, q.Get("nextToken"))
 
-	return map[string]any{"findingsFilterListItems": filters}, http.StatusOK
+	resp := map[string]any{"findingsFilterListItems": filters}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return resp, http.StatusOK
 }
 
 // Finding handlers
@@ -1191,10 +1223,36 @@ func (h *Handler) handleGetFindings(body []byte) (any, int, error) {
 	return map[string]any{"findings": findings}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListFindings() (any, int) {
-	ids, _, _ := h.Backend.ListFindings(nil, 0, "")
+func (h *Handler) handleListFindings(body []byte) (any, int, error) {
+	var req struct {
+		FindingCriteria map[string]any `json:"findingCriteria"`
+		SortCriteria    map[string]any `json:"sortCriteria"`
+		MaxResults      *int32         `json:"maxResults"`
+		NextToken       string         `json:"nextToken"`
+	}
 
-	return map[string]any{"findingIds": ids}, http.StatusOK
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, http.StatusBadRequest, ErrValidation
+		}
+	}
+
+	limit := 0
+	if req.MaxResults != nil {
+		limit = int(*req.MaxResults)
+	}
+
+	ids, next, err := h.Backend.ListFindings(req.FindingCriteria, limit, req.NextToken)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+
+	resp := map[string]any{"findingIds": ids}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleCreateSampleFindings(body []byte) (int, error) {

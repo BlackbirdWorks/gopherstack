@@ -3,6 +3,7 @@ package glacier
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,7 +12,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -131,17 +131,15 @@ const (
 // Handler is the HTTP handler for the Glacier REST API.
 type Handler struct {
 	Backend       StorageBackend
-	archiveData   map[string][]byte
 	AccountID     string
 	DefaultRegion string
-	archiveMu     sync.RWMutex
 }
 
 // NewHandler creates a new Glacier handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend:     backend,
-		archiveData: make(map[string][]byte),
+		Backend:       backend,
+		DefaultRegion: "us-east-1",
 	}
 }
 
@@ -741,6 +739,19 @@ func (h *Handler) handleDeleteVault(c *echo.Context, vaultName string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+func encodeMarker(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
+}
+
+func decodeMarker(s string) string {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return s
+	}
+
+	return string(b)
+}
+
 func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 	resolved := h.resolveAccountID(accountID)
 	vaults := h.Backend.ListVaults(resolved, h.DefaultRegion)
@@ -752,6 +763,9 @@ func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 
 	// Support `marker` pagination: start listing after this vault name.
 	marker := c.QueryParam("marker")
+	if marker != "" {
+		marker = decodeMarker(marker)
+	}
 
 	if marker != "" {
 		start := 0
@@ -789,7 +803,7 @@ func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 		}
 
 		if n < len(items) {
-			last := items[n-1].VaultName
+			last := encodeMarker(items[n-1].VaultName)
 			nextMarker = &last
 			items = items[:n]
 		}
@@ -852,25 +866,16 @@ func (h *Handler) handleUploadArchive(c *echo.Context, vaultName string, body []
 		}
 	}
 
-	size := int64(len(body))
+	checksum := computed
+	if clientChecksum != "" {
+		checksum = clientChecksum
+	}
 
 	a, err := h.Backend.UploadArchive(
-		h.AccountID,
-		h.DefaultRegion,
-		vaultName,
-		description,
-		computed,
-		size,
+		h.AccountID, h.DefaultRegion, vaultName, description, checksum, int64(len(body)), body,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
-	}
-
-	// Store archive bytes so ArchiveRetrieval job output can return them.
-	if len(body) > 0 {
-		h.archiveMu.Lock()
-		h.archiveData[a.ArchiveID] = body
-		h.archiveMu.Unlock()
 	}
 
 	location := "/" + h.AccountID + "/vaults/" + vaultName + "/archives/" + a.ArchiveID
@@ -988,11 +993,6 @@ func (h *Handler) handleDeleteArchive(c *echo.Context, vaultName, archiveID stri
 		return h.writeBackendError(c, err)
 	}
 
-	// Remove stored bytes so they don't accumulate in memory.
-	h.archiveMu.Lock()
-	delete(h.archiveData, archiveID)
-	h.archiveMu.Unlock()
-
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -1089,7 +1089,12 @@ func paginateJobList( //nolint:dupl // three typed paginate funcs share identica
 	c *echo.Context,
 	items []describeJobResponse,
 ) ([]describeJobResponse, *string, error) {
-	if marker := c.QueryParam("marker"); marker != "" {
+	marker := c.QueryParam("marker")
+	if marker != "" {
+		marker = decodeMarker(marker)
+	}
+
+	if marker != "" {
 		start := 0
 
 		for start < len(items) && items[start].JobID != marker {
@@ -1122,7 +1127,7 @@ func paginateJobList( //nolint:dupl // three typed paginate funcs share identica
 		return items, nil, nil
 	}
 
-	last := items[n-1].JobID
+	last := encodeMarker(items[n-1].JobID)
 
 	return items[:n], &last, nil
 }
@@ -1250,20 +1255,10 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, vaultName string, a
 func (h *Handler) handleArchiveJobOutput(c *echo.Context, j *Job) error {
 	c.Response().Header().Set("Content-Type", "application/octet-stream")
 
-	h.archiveMu.RLock()
-	data, hasData := h.archiveData[j.ArchiveID]
-	h.archiveMu.RUnlock()
+	data, hasData := h.Backend.GetArchiveData(j.ArchiveID)
 
 	if !hasData {
-		// Archive data not stored (uploaded before handler restart). Return empty stub.
-		if j.ArchiveSizeInBytes > 0 {
-			c.Response().Header().Set(
-				"Content-Range",
-				fmt.Sprintf("bytes 0-%d/%d", j.ArchiveSizeInBytes-1, j.ArchiveSizeInBytes),
-			)
-		}
-
-		return c.NoContent(http.StatusOK)
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "Archive not found")
 	}
 
 	// Honour RetrievalByteRange set at job initiation time (e.g. "0-1048575").
@@ -1874,7 +1869,12 @@ func paginateUploadList( //nolint:dupl // three typed paginate funcs share ident
 	c *echo.Context,
 	items []MultipartUpload,
 ) ([]MultipartUpload, *string, error) {
-	if marker := c.QueryParam("marker"); marker != "" {
+	marker := c.QueryParam("marker")
+	if marker != "" {
+		marker = decodeMarker(marker)
+	}
+
+	if marker != "" {
 		start := 0
 
 		for start < len(items) && items[start].MultipartUploadID != marker {
@@ -1907,7 +1907,7 @@ func paginateUploadList( //nolint:dupl // three typed paginate funcs share ident
 		return items, nil, nil
 	}
 
-	last := items[n-1].MultipartUploadID
+	last := encodeMarker(items[n-1].MultipartUploadID)
 
 	return items[:n], &last, nil
 }
@@ -1937,7 +1937,7 @@ func (h *Handler) handleListParts(c *echo.Context, vaultName, uploadID string) e
 
 // paginatePartList applies marker+limit pagination to a parts slice.
 // Marker is compared to RangeInBytes of each part.
-func paginatePartList( //nolint:dupl // three typed paginate funcs share identical structure
+func paginatePartList(
 	c *echo.Context, parts []MultipartPart,
 ) ([]MultipartPart, *string, error) {
 	if marker := c.QueryParam("marker"); marker != "" {
@@ -2071,7 +2071,9 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrUploadNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, ErrVaultNotEmpty):
-		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
+		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
+	case errors.Is(err, ErrResourceInUse):
+		return h.writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
 	case errors.Is(err, ErrLockConflict):
 		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, ErrLockAlreadyLocked):
@@ -2097,8 +2099,4 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 // Reset clears all backend state and the handler-level archive data store.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
-
-	h.archiveMu.Lock()
-	h.archiveData = make(map[string][]byte)
-	h.archiveMu.Unlock()
 }

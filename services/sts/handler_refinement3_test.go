@@ -410,7 +410,7 @@ func TestRefinement3_SessionExpiry_Consistent(t *testing.T) {
 		require.ErrorIs(t, err, sts.ErrSessionNotFound)
 	})
 
-	t.Run("expired_session_falls_back_in_get_caller_identity", func(t *testing.T) {
+	t.Run("expired_session_returns_expired_token_error", func(t *testing.T) {
 		t.Parallel()
 
 		b := sts.NewInMemoryBackend()
@@ -423,10 +423,9 @@ func TestRefinement3_SessionExpiry_Consistent(t *testing.T) {
 		creds := resp.AssumeRoleResult.Credentials
 		b.SetSessionExpiration(creds.AccessKeyID, time.Now().Add(-time.Minute))
 
-		// After expiry GetCallerIdentity returns the default (root) identity.
-		ci, err := b.GetCallerIdentity(creds.AccessKeyID, "")
-		require.NoError(t, err)
-		assert.Equal(t, sts.MockUserArn, ci.GetCallerIdentityResult.Arn)
+		// After expiry GetCallerIdentity returns ExpiredTokenException, matching AWS.
+		_, err = b.GetCallerIdentity(creds.AccessKeyID, "")
+		require.ErrorIs(t, err, sts.ErrSessionExpired)
 	})
 }
 

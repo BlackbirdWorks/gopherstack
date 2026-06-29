@@ -84,16 +84,17 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Snapshots:                 b.snapshots,
 		CacheSecurityGroups:       b.cacheSecurityGroups,
 		CacheSecurityGroupIngress: b.cacheSecurityGroupIngress,
-		GlobalReplicationGroups:   b.globalReplicationGroups,
-		ServerlessCaches:          b.serverlessCaches,
-		ServerlessCacheSnapshots:  b.serverlessCacheSnapshots,
-		Users:                     b.users,
-		UserGroups:                b.userGroups,
-		ReservedCacheNodes:        b.reservedCacheNodes,
-		Events:                    b.events.marshalJSON(),
-		EngineMode:                b.engineMode,
-		AccountID:                 b.accountID,
-		Region:                    b.region,
+		GlobalReplicationGroups:   b.cloneGlobalReplicationGroups(),
+
+		ServerlessCaches:         b.serverlessCaches,
+		ServerlessCacheSnapshots: b.serverlessCacheSnapshots,
+		Users:                    b.users,
+		UserGroups:               b.userGroups,
+		ReservedCacheNodes:       b.reservedCacheNodes,
+		Events:                   b.events.marshalJSON(),
+		EngineMode:               b.engineMode,
+		AccountID:                b.accountID,
+		Region:                   b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "elasticache", snap)
@@ -143,9 +144,9 @@ func (b *InMemoryBackend) restoreNewOpMaps(snap *backendSnapshot) {
 	}
 
 	if snap.GlobalReplicationGroups != nil {
-		b.globalReplicationGroups = snap.GlobalReplicationGroups
+		b.setGlobalReplicationGroups(snap.GlobalReplicationGroups)
 	} else {
-		b.globalReplicationGroups = make(map[string]*GlobalReplicationGroup)
+		b.setGlobalReplicationGroups(make(map[string]*GlobalReplicationGroup))
 	}
 
 	if snap.ServerlessCaches != nil {
@@ -209,6 +210,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	if snap.Snapshots == nil {
 		snap.Snapshots = make(map[string]map[string]*CacheSnapshot)
+	}
+
+	for _, regionClusters := range b.clusters {
+		for _, c := range regionClusters {
+			if c.mini != nil {
+				c.mini.Close()
+			}
+		}
 	}
 
 	b.clusters = restoreClusters(snap.Clusters)

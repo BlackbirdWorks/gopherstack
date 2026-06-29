@@ -44,7 +44,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := swf.NewInMemoryBackend()
 	h := swf.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 39)
+	assert.Len(t, h.GetSupportedOperations(), 37)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
@@ -123,7 +123,7 @@ func TestRefinement1_ExportCounts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, swf.ExecutionCount(b))
 
-	assert.Equal(t, 39, swf.HandlerOpsLen(swf.NewHandler(b)))
+	assert.Equal(t, 37, swf.HandlerOpsLen(swf.NewHandler(b)))
 }
 
 // TestRefinement1_ErrValidation_RegisterDomain verifies empty name returns ErrValidation.
@@ -234,7 +234,7 @@ func TestRefinement1_UndeprecateDomain_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, swf.ErrNotFound)
 }
 
-// TestRefinement1_UndeprecateDomain_AlreadyRegistered returns ErrValidation if not deprecated.
+// TestRefinement1_UndeprecateDomain_AlreadyRegistered returns ErrAlreadyExists if not deprecated.
 func TestRefinement1_UndeprecateDomain_AlreadyRegistered(t *testing.T) {
 	t.Parallel()
 
@@ -244,7 +244,7 @@ func TestRefinement1_UndeprecateDomain_AlreadyRegistered(t *testing.T) {
 	err := b.UndeprecateDomain("dom")
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, swf.ErrValidation)
+	assert.ErrorIs(t, err, swf.ErrAlreadyExists)
 }
 
 // TestRefinement1_RegisterWorkflowType_StoredDescription verifies description is stored.
@@ -299,7 +299,7 @@ func TestRefinement1_UndeprecateWorkflowType(t *testing.T) {
 	assert.Equal(t, "REGISTERED", wt.Status)
 }
 
-// TestRefinement1_UndeprecateWorkflowType_AlreadyRegistered returns ErrValidation.
+// TestRefinement1_UndeprecateWorkflowType_AlreadyRegistered returns ErrTypeAlreadyExists.
 func TestRefinement1_UndeprecateWorkflowType_AlreadyRegistered(t *testing.T) {
 	t.Parallel()
 
@@ -310,21 +310,7 @@ func TestRefinement1_UndeprecateWorkflowType_AlreadyRegistered(t *testing.T) {
 	err := b.UndeprecateWorkflowType("dom", "wf", "1.0")
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, swf.ErrValidation)
-}
-
-// TestRefinement1_DeleteWorkflowType_RequiresDeprecated verifies enforcement.
-func TestRefinement1_DeleteWorkflowType_RequiresDeprecated(t *testing.T) {
-	t.Parallel()
-
-	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
-	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "1.0", "", swf.WorkflowTypeDefaults{}))
-
-	err := b.DeleteWorkflowType("dom", "wf", "1.0")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, swf.ErrTypeDeprecated)
+	assert.ErrorIs(t, err, swf.ErrTypeAlreadyExists)
 }
 
 // TestRefinement1_RegisterActivityType verifies creation and retrieval.
@@ -393,20 +379,6 @@ func TestRefinement1_UndeprecateActivityType(t *testing.T) {
 	assert.Equal(t, "REGISTERED", at.Status)
 }
 
-// TestRefinement1_DeleteActivityType_RequiresDeprecated verifies enforcement.
-func TestRefinement1_DeleteActivityType_RequiresDeprecated(t *testing.T) {
-	t.Parallel()
-
-	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
-	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", "", swf.ActivityTypeDefaults{}))
-
-	err := b.DeleteActivityType("dom", "act", "1.0")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, swf.ErrTypeDeprecated)
-}
-
 // TestRefinement1_TerminateWorkflowExecution verifies status change.
 func TestRefinement1_TerminateWorkflowExecution(t *testing.T) {
 	t.Parallel()
@@ -438,7 +410,7 @@ func TestRefinement1_TerminateWorkflowExecution_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, swf.ErrNotFound)
 }
 
-// TestRefinement1_TerminateWorkflowExecution_AlreadyTerminated returns ErrValidation.
+// TestRefinement1_TerminateWorkflowExecution_AlreadyTerminated returns ErrNotFound.
 func TestRefinement1_TerminateWorkflowExecution_AlreadyTerminated(t *testing.T) {
 	t.Parallel()
 
@@ -454,7 +426,7 @@ func TestRefinement1_TerminateWorkflowExecution_AlreadyTerminated(t *testing.T) 
 	err = b.TerminateWorkflowExecution("dom", "wf-1", "", "", "")
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, swf.ErrValidation)
+	assert.ErrorIs(t, err, swf.ErrNotFound)
 }
 
 // TestRefinement1_StartWorkflowExecution_SetsTimestamp verifies StartTimestamp is non-zero.

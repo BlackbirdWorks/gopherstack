@@ -33,6 +33,7 @@ func TestSimulatePrincipalPolicy_EvalDecisionDetails_Populated(t *testing.T) {
 		"arn:aws:iam::000000000000:user/alice",
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -59,6 +60,7 @@ func TestSimulatePrincipalPolicy_EvalDecisionDetails_ImplicitDeny(t *testing.T) 
 		"arn:aws:iam::000000000000:user/bob",
 		[]string{"s3:DeleteObject"}, // not allowed by the policy
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -89,6 +91,7 @@ func TestSimulatePrincipalPolicy_EvalDecisionDetails_MultiplePolcies(t *testing.
 		"arn:aws:iam::000000000000:user/carol",
 		[]string{"s3:DeleteObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -124,6 +127,7 @@ func TestSimulatePrincipalPolicy_PermissionsBoundary_PresentWhenBoundarySet(t *t
 		"arn:aws:iam::000000000000:user/dave",
 		[]string{"s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -156,6 +160,7 @@ func TestSimulatePrincipalPolicy_PermissionsBoundary_BlocksAction(t *testing.T) 
 		"arn:aws:iam::000000000000:user/eve",
 		[]string{"ec2:DescribeInstances"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -181,6 +186,7 @@ func TestSimulatePrincipalPolicy_PermissionsBoundary_AbsentWhenNoBoundary(t *tes
 		"arn:aws:iam::000000000000:user/frank",
 		[]string{"s3:PutObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -203,6 +209,7 @@ func TestSimulateCustomPolicy_EvalDecisionDetails_TwoPolicies(t *testing.T) {
 		[]string{allowDoc, denyDoc},
 		[]string{"s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -812,6 +819,7 @@ func TestSimulatePrincipalPolicy_InlinePolicyDetailed(t *testing.T) {
 		"arn:aws:iam::000000000000:user/inline-user",
 		[]string{"s3:PutObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -851,6 +859,7 @@ func TestSimulatePrincipalPolicy_RoleBoundary_Enforced(t *testing.T) {
 		"arn:aws:iam::000000000000:role/limited-role",
 		[]string{"ec2:DescribeInstances", "s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 2)

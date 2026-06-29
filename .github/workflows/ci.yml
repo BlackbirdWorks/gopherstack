@@ -281,7 +281,7 @@ jobs:
           tofu_version: "1.11.6"
 
       - name: Cache OpenTofu providers
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: /tmp/gopherstack-tofu-provider-cache
           key: tofu-providers-${{ runner.os }}-aws5
@@ -339,7 +339,7 @@ jobs:
 
       - name: Install Playwright Browsers
         run: |
-          go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium
+          go run github.com/playwright-community/playwright-go/cmd/playwright@v0.5700.1 install --with-deps chromium
 
       - name: Run E2E Tests
         run: |

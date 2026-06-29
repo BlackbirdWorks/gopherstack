@@ -425,7 +425,7 @@ func validateCreateEnums(req *createEnvironmentRequest) error {
 		return fmt.Errorf("%w: KmsKey must be a KMS ARN", ErrInvalidParameter)
 	}
 
-	return nil
+	return validateWorkerReplacementStrategy(req.WorkerReplacementStrategy)
 }
 
 // validateCreateS3Paths validates the three optional S3 path/version pairs and the
@@ -749,6 +749,7 @@ func buildEnvironment(
 		StartupScriptS3ObjectVersion: req.StartupScriptS3ObjectVersion,
 		EndpointManagement:           d.endpointMgmt,
 		WeeklyMaintenanceWindowStart: req.WeeklyMaintenanceWindowStart,
+		WorkerReplacementStrategy:    req.WorkerReplacementStrategy,
 		ServiceRoleArn: arn.Build("iam", "", accountID,
 			"role/aws-service-role/airflow.amazonaws.com/AWSServiceRoleForAmazonMWAA"),
 		CeleryExecutorQueue: fmt.Sprintf(
@@ -1024,6 +1025,10 @@ func applyUpdateScalars(env *Environment, req *updateEnvironmentRequest) {
 	if req.WeeklyMaintenanceWindowStart != "" {
 		env.WeeklyMaintenanceWindowStart = req.WeeklyMaintenanceWindowStart
 	}
+
+	if req.WorkerReplacementStrategy != "" {
+		env.WorkerReplacementStrategy = req.WorkerReplacementStrategy
+	}
 }
 
 // applyUpdateS3Paths copies the optional S3 path/version pairs from req to env.
@@ -1254,10 +1259,17 @@ func (b *InMemoryBackend) GetMetrics(ctx context.Context, envName string) ([]Met
 	return result, nil
 }
 
+// webserverHostname extracts the bare hostname from an environment's WebserverURL.
+// The URL is stored as "https://hostname" (no trailing slash, no path), so this
+// strips the scheme prefix to match the AWS CLI/web-login token wire format.
+func webserverHostname(webserverURL string) string {
+	return strings.TrimPrefix(webserverURL, "https://")
+}
+
 // CreateCliToken validates that the environment exists and is AVAILABLE, then
-// returns a JWT-shaped CLI token. AWS returns ResourceNotFoundException when
-// the environment is in any non-AVAILABLE state.
-func (b *InMemoryBackend) CreateCliToken(ctx context.Context, envName string) (string, error) {
+// returns a JWT-shaped CLI token and the environment's webserver hostname.
+// AWS returns ResourceNotFoundException when the environment is in any non-AVAILABLE state.
+func (b *InMemoryBackend) CreateCliToken(ctx context.Context, envName string) (string, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("CreateCliToken")
@@ -1265,20 +1277,20 @@ func (b *InMemoryBackend) CreateCliToken(ctx context.Context, envName string) (s
 
 	env, ok := b.environmentsStore(region)[envName]
 	if !ok {
-		return "", ErrEnvironmentNotFound
+		return "", "", ErrEnvironmentNotFound
 	}
 
 	if env.Status != envStatusAvailable {
-		return "", ErrEnvironmentNotFound
+		return "", "", ErrEnvironmentNotFound
 	}
 
-	return generateMWAAToken(envName, "cli"), nil
+	return generateMWAAToken(envName, "cli"), webserverHostname(env.WebserverURL), nil
 }
 
 // CreateWebLoginToken validates that the environment exists and is AVAILABLE,
-// then returns a JWT-shaped web login token. AWS returns ResourceNotFoundException
-// when the environment is in any non-AVAILABLE state.
-func (b *InMemoryBackend) CreateWebLoginToken(ctx context.Context, envName string) (string, error) {
+// then returns a JWT-shaped web login token and the environment's webserver hostname.
+// AWS returns ResourceNotFoundException when the environment is in any non-AVAILABLE state.
+func (b *InMemoryBackend) CreateWebLoginToken(ctx context.Context, envName string) (string, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("CreateWebLoginToken")
@@ -1286,14 +1298,14 @@ func (b *InMemoryBackend) CreateWebLoginToken(ctx context.Context, envName strin
 
 	env, ok := b.environmentsStore(region)[envName]
 	if !ok {
-		return "", ErrEnvironmentNotFound
+		return "", "", ErrEnvironmentNotFound
 	}
 
 	if env.Status != envStatusAvailable {
-		return "", ErrEnvironmentNotFound
+		return "", "", ErrEnvironmentNotFound
 	}
 
-	return generateMWAAToken(envName, "web"), nil
+	return generateMWAAToken(envName, "web"), webserverHostname(env.WebserverURL), nil
 }
 
 // cloneEnvironment returns a deep copy of the given environment.

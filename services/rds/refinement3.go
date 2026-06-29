@@ -3,12 +3,12 @@ package rds
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 const proxyRandSuffixBytes = 4
@@ -115,15 +115,11 @@ const (
 
 var (
 	// ErrDBProxyAlreadyExists is returned when a DB proxy with the same name already exists.
-	ErrDBProxyAlreadyExists = errors.New("DBProxyAlreadyExists")
-	// ErrDBProxyEndpointAlreadyExists is returned when a DB proxy endpoint with the same name already exists.
-	ErrDBProxyEndpointAlreadyExists = errors.New("DBProxyEndpointAlreadyExists")
-	// ErrCannotDeleteDefaultProxyEndpoint is returned when attempting to delete a default proxy endpoint.
-	ErrCannotDeleteDefaultProxyEndpoint = errors.New("InvalidDBProxyEndpointStateFault")
-	// ErrActivityStreamAlreadyStarted is returned when the activity stream is already started.
-	ErrActivityStreamAlreadyStarted = errors.New("InvalidDBClusterStateFault")
-	// ErrActivityStreamNotStarted is returned when the activity stream is not started.
-	ErrActivityStreamNotStarted = errors.New("InvalidDBClusterStateFault")
+	ErrDBProxyAlreadyExists             = awserr.New("DBProxyAlreadyExists", awserr.ErrAlreadyExists)
+	ErrDBProxyEndpointAlreadyExists     = awserr.New("DBProxyEndpointAlreadyExists", awserr.ErrAlreadyExists)
+	ErrCannotDeleteDefaultProxyEndpoint = awserr.New("InvalidDBProxyEndpointStateFault", awserr.ErrConflict)
+	ErrActivityStreamAlreadyStarted     = awserr.New("InvalidDBClusterStateFault", awserr.ErrConflict)
+	ErrActivityStreamNotStarted         = awserr.New("InvalidDBClusterStateFault", awserr.ErrConflict)
 )
 
 // CreateDBProxy creates a new RDS DB proxy.

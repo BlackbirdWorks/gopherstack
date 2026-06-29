@@ -421,7 +421,7 @@ func TestEKS_CreateAddon(t *testing.T) {
 				assert.Equal(t, "my-cluster", addon["clusterName"])
 				assert.Equal(t, "vpc-cni", addon["addonName"])
 				assert.NotEmpty(t, addon["addonArn"])
-				assert.Equal(t, "ACTIVE", addon["status"])
+				assert.Equal(t, "CREATING", addon["status"])
 			}
 		})
 	}
@@ -600,7 +600,7 @@ func TestEKS_CreateFargateProfile(t *testing.T) {
 				assert.Equal(t, "my-cluster", profile["clusterName"])
 				assert.Equal(t, "my-profile", profile["fargateProfileName"])
 				assert.NotEmpty(t, profile["fargateProfileArn"])
-				assert.Equal(t, "ACTIVE", profile["status"])
+				assert.Equal(t, "CREATING", profile["status"])
 			}
 		})
 	}

@@ -77,7 +77,19 @@ func (b *InMemoryBackend) DeleteJobTagging(accountID, jobID string) error {
 
 // ---- Access Grants Instance ----
 
-// GetAccessGrantsInstance returns the Access Grants instance for an account.
+// ListAccessGrantsInstances returns all Access Grants instances for the account.
+func (b *InMemoryBackend) ListAccessGrantsInstances(accountID string) []*AccessGrantsInstance {
+	b.mu.RLock("ListAccessGrantsInstances")
+	defer b.mu.RUnlock()
+
+	inst, ok := b.accessGrantsInstances[accountID]
+	if !ok {
+		return nil
+	}
+
+	return []*AccessGrantsInstance{inst}
+}
+
 func (b *InMemoryBackend) GetAccessGrantsInstance(accountID string) (*AccessGrantsInstance, error) {
 	b.mu.RLock("GetAccessGrantsInstance")
 	defer b.mu.RUnlock()

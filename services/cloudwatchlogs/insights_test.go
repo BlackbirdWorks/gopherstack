@@ -39,7 +39,7 @@ func TestInsightsQuery_FieldsProjection(t *testing.T) {
 
 	info, err := b.StartQuery(context.Background(), "q1", "fields @timestamp, @message", []string{"/grp"}, 0, 0)
 	require.NoError(t, err)
-	assert.Equal(t, cloudwatchlogs.QueryStatusComplete, info.Status)
+	assert.Equal(t, cloudwatchlogs.QueryStatusRunning, info.Status)
 
 	results, _, status, err := b.GetQueryResults("q1")
 	require.NoError(t, err)

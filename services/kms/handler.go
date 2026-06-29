@@ -638,14 +638,14 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 }
 
 // listResourceTags handles the ListResourceTags operation.
-func (h *Handler) listResourceTags(b []byte) (any, error) {
+func (h *Handler) listResourceTags(ctx context.Context, b []byte) (any, error) {
 	var input listResourceTagsInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
 
 	if _, descErr := h.Backend.DescribeKey(
-		context.Background(), &DescribeKeyInput{KeyID: input.KeyID},
+		ctx, &DescribeKeyInput{KeyID: input.KeyID},
 	); descErr != nil {
 		return nil, descErr
 	}
@@ -693,13 +693,13 @@ func paginateTagList(tagList []kmsTagEntry, marker string, limit *int32) *listRe
 }
 
 // tagResource handles the TagResource operation, validating key existence and tag count.
-func (h *Handler) tagResource(b []byte) (any, error) {
+func (h *Handler) tagResource(ctx context.Context, b []byte) (any, error) {
 	var input tagResourceInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
 
-	desc, descErr := h.Backend.DescribeKey(context.Background(), &DescribeKeyInput{KeyID: input.KeyID})
+	desc, descErr := h.Backend.DescribeKey(ctx, &DescribeKeyInput{KeyID: input.KeyID})
 	if descErr != nil {
 		return nil, descErr
 	}
@@ -778,13 +778,13 @@ func (h *Handler) validateTagCount(keyID string, newTags map[string]string) erro
 }
 
 // untagResource handles the UntagResource operation.
-func (h *Handler) untagResource(b []byte) (any, error) {
+func (h *Handler) untagResource(ctx context.Context, b []byte) (any, error) {
 	var input untagResourceInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
 
-	desc, descErr := h.Backend.DescribeKey(context.Background(), &DescribeKeyInput{KeyID: input.KeyID})
+	desc, descErr := h.Backend.DescribeKey(ctx, &DescribeKeyInput{KeyID: input.KeyID})
 	if descErr != nil {
 		return nil, descErr
 	}
@@ -801,14 +801,14 @@ func (h *Handler) untagResource(b []byte) (any, error) {
 // buildTagActions returns dispatch entries for KMS resource tag operations.
 func (h *Handler) buildTagActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"ListResourceTags": func(_ context.Context, b []byte) (any, error) {
-			return h.listResourceTags(b)
+		"ListResourceTags": func(ctx context.Context, b []byte) (any, error) {
+			return h.listResourceTags(ctx, b)
 		},
-		"TagResource": func(_ context.Context, b []byte) (any, error) {
-			return h.tagResource(b)
+		"TagResource": func(ctx context.Context, b []byte) (any, error) {
+			return h.tagResource(ctx, b)
 		},
-		"UntagResource": func(_ context.Context, b []byte) (any, error) {
-			return h.untagResource(b)
+		"UntagResource": func(ctx context.Context, b []byte) (any, error) {
+			return h.untagResource(ctx, b)
 		},
 	}
 }
@@ -1104,8 +1104,8 @@ type TaggedKeyInfo struct {
 
 // TaggedKeys returns a snapshot of all KMS keys with their ARNs and tags.
 // Intended for use by the Resource Groups Tagging API provider.
-func (h *Handler) TaggedKeys() []TaggedKeyInfo {
-	out, err := h.Backend.ListKeys(context.Background(), &ListKeysInput{})
+func (h *Handler) TaggedKeys(ctx context.Context) []TaggedKeyInfo {
+	out, err := h.Backend.ListKeys(ctx, &ListKeysInput{})
 	if err != nil {
 		return nil
 	}
@@ -1128,8 +1128,8 @@ func (h *Handler) TaggedKeys() []TaggedKeyInfo {
 }
 
 // TagKeyByARN applies tags to the KMS key identified by its ARN.
-func (h *Handler) TagKeyByARN(keyARN string, newTags map[string]string) error {
-	out, err := h.Backend.ListKeys(context.Background(), &ListKeysInput{})
+func (h *Handler) TagKeyByARN(ctx context.Context, keyARN string, newTags map[string]string) error {
+	out, err := h.Backend.ListKeys(ctx, &ListKeysInput{})
 	if err != nil {
 		return err
 	}
@@ -1146,8 +1146,8 @@ func (h *Handler) TagKeyByARN(keyARN string, newTags map[string]string) error {
 }
 
 // UntagKeyByARN removes the specified tag keys from the KMS key identified by its ARN.
-func (h *Handler) UntagKeyByARN(keyARN string, tagKeys []string) error {
-	out, err := h.Backend.ListKeys(context.Background(), &ListKeysInput{})
+func (h *Handler) UntagKeyByARN(ctx context.Context, keyARN string, tagKeys []string) error {
+	out, err := h.Backend.ListKeys(ctx, &ListKeysInput{})
 	if err != nil {
 		return err
 	}

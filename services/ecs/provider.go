@@ -39,7 +39,7 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		}
 	}
 
-	runner, err := newTaskRunner()
+	runner, err := newTaskRunner(appCtx.JanitorCtx)
 	if err != nil {
 		return nil, fmt.Errorf("init ECS task runner: %w", err)
 	}

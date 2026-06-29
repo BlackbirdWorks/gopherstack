@@ -13,17 +13,20 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
-	defaultFrequency    = "SIX_HOURS"
-	statusEnabled       = "ENABLED"
-	statusPaused        = "PAUSED"
-	defaultMatchDist    = int32(50)
-	defaultFindingScore = 5.0
+	defaultFrequency      = "SIX_HOURS"
+	statusEnabled         = "ENABLED"
+	statusPaused          = "PAUSED"
+	defaultMatchDist      = int32(50)
+	defaultFindingScore   = 5.0
+	categorySensitiveData = "SENSITIVE_DATA"
+	keyType               = "type"
+	defaultPageSize       = 50
 
 	errResourceNotFound  = "ResourceNotFoundException"
 	errConflictException = "ConflictException"
@@ -42,6 +45,8 @@ var (
 	ErrNotEnabled = awserr.New(errMacieNotEnabled, awserr.ErrNotFound)
 	// ErrAllowListNotFound is returned when an allow list does not exist.
 	ErrAllowListNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrSessionAlreadyExists is returned when Macie is already enabled.
+	ErrSessionAlreadyExists = awserr.New(errConflictException, awserr.ErrConflict)
 	// ErrAllowListAlreadyExists is returned when an allow list already exists.
 	ErrAllowListAlreadyExists = awserr.New(errConflictException, awserr.ErrConflict)
 	// ErrCustomDataIDNotFound is returned when a custom data identifier does not exist.
@@ -103,6 +108,7 @@ type InMemoryBackend struct {
 	resourceDetections    map[string][]ResourceProfileDetection     // resourceArn → detections
 	revealConfig          *RevealConfiguration                      // reveal config
 	sensitivityTemplates  map[string]*SensitivityInspectionTemplate // templateID → template
+	paginationSecret      string
 	accountID             string
 	region                string
 }
@@ -130,6 +136,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		resourceProfiles:      make(map[string]*ResourceProfile),
 		resourceDetections:    make(map[string][]ResourceProfileDetection),
 		sensitivityTemplates:  make(map[string]*SensitivityInspectionTemplate),
+		paginationSecret:      uuid.New().String(),
 	}
 }
 
@@ -159,7 +166,7 @@ func (b *InMemoryBackend) EnableMacie(_, frequency, status string) error {
 	defer b.mu.Unlock()
 
 	if b.session != nil && b.session.Enabled {
-		return ErrAllowListAlreadyExists // reuse conflict error for already-enabled
+		return ErrSessionAlreadyExists
 	}
 
 	freq := frequency
@@ -324,27 +331,25 @@ func (b *InMemoryBackend) DeleteAllowList(id string) error {
 }
 
 // ListAllowLists returns summaries of all allow lists.
-func (b *InMemoryBackend) ListAllowLists() ([]*AllowListSummary, error) {
-	b.mu.RLock("ListAllowLists")
-	defer b.mu.RUnlock()
-
-	result := make([]*AllowListSummary, 0, len(b.allowLists))
-
-	for _, al := range b.allowLists {
-		result = append(result, &AllowListSummary{
-			Arn:         al.Arn,
-			CreatedAt:   al.CreatedAt,
-			Description: al.Description,
-			ID:          al.ID,
-			Name:        al.Name,
-			UpdatedAt:   al.UpdatedAt,
-			Tags:        maps.Clone(al.Tags),
-		})
-	}
-
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-
-	return result, nil
+func (b *InMemoryBackend) ListAllowLists(limit int, token string) ([]*AllowListSummary, string, error) {
+	return listPaginated(
+		b, "ListAllowLists", b.allowLists,
+		func(al *storedAllowList) (*AllowListSummary, bool) {
+			return &AllowListSummary{
+				Arn:         al.Arn,
+				CreatedAt:   al.CreatedAt,
+				Description: al.Description,
+				ID:          al.ID,
+				Name:        al.Name,
+				UpdatedAt:   al.UpdatedAt,
+				Tags:        maps.Clone(al.Tags),
+			}, true
+		},
+		func(result []*AllowListSummary) {
+			sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+		},
+		token, limit,
+	)
 }
 
 // CreateCustomDataIdentifier creates a new custom data identifier.
@@ -431,29 +436,37 @@ func (b *InMemoryBackend) DeleteCustomDataIdentifier(id string) error {
 }
 
 // ListCustomDataIdentifiers returns summaries of all non-deleted custom data identifiers.
-func (b *InMemoryBackend) ListCustomDataIdentifiers() ([]*CustomDataIdentifierSummary, error) {
+func (b *InMemoryBackend) ListCustomDataIdentifiers(
+	limit int,
+	token string,
+) ([]*CustomDataIdentifierSummary, string, error) {
 	b.mu.RLock("ListCustomDataIdentifiers")
 	defer b.mu.RUnlock()
 
-	result := make([]*CustomDataIdentifierSummary, 0, len(b.customDataIDs))
+	data, next := mapSortPaginate(
+		b.customDataIDs,
+		func(cdi *storedCustomDataID) (*CustomDataIdentifierSummary, bool) {
+			if cdi.Deleted {
+				return nil, false
+			}
 
-	for _, cdi := range b.customDataIDs {
-		if cdi.Deleted {
-			continue
-		}
+			return &CustomDataIdentifierSummary{
+				Arn:         cdi.Arn,
+				CreatedAt:   cdi.CreatedAt,
+				Description: cdi.Description,
+				ID:          cdi.ID,
+				Name:        cdi.Name,
+			}, true
+		},
+		func(result []*CustomDataIdentifierSummary) {
+			sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+		},
+		token,
+		b.paginationSecret,
+		limit,
+	)
 
-		result = append(result, &CustomDataIdentifierSummary{
-			Arn:         cdi.Arn,
-			CreatedAt:   cdi.CreatedAt,
-			Description: cdi.Description,
-			ID:          cdi.ID,
-			Name:        cdi.Name,
-		})
-	}
-
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-
-	return result, nil
+	return data, next, nil
 }
 
 // TestCustomDataIdentifier tests a regex against sample text.
@@ -643,27 +656,25 @@ func (b *InMemoryBackend) DeleteFindingsFilter(id string) error {
 }
 
 // ListFindingsFilters returns summaries of all findings filters.
-func (b *InMemoryBackend) ListFindingsFilters() ([]*FindingsFilterSummary, error) {
-	b.mu.RLock("ListFindingsFilters")
-	defer b.mu.RUnlock()
-
-	result := make([]*FindingsFilterSummary, 0, len(b.findingsFilters))
-
-	for _, ff := range b.findingsFilters {
-		result = append(result, &FindingsFilterSummary{
-			Action:      ff.Action,
-			Arn:         ff.Arn,
-			Description: ff.Description,
-			ID:          ff.ID,
-			Name:        ff.Name,
-			Position:    ff.Position,
-			Tags:        maps.Clone(ff.Tags),
-		})
-	}
-
-	sort.Slice(result, func(i, j int) bool { return result[i].Position < result[j].Position })
-
-	return result, nil
+func (b *InMemoryBackend) ListFindingsFilters(limit int, token string) ([]*FindingsFilterSummary, string, error) {
+	return listPaginated(
+		b, "ListFindingsFilters", b.findingsFilters,
+		func(ff *storedFindingsFilter) (*FindingsFilterSummary, bool) {
+			return &FindingsFilterSummary{
+				Action:      ff.Action,
+				Arn:         ff.Arn,
+				Description: ff.Description,
+				ID:          ff.ID,
+				Name:        ff.Name,
+				Position:    ff.Position,
+				Tags:        maps.Clone(ff.Tags),
+			}, true
+		},
+		func(result []*FindingsFilterSummary) {
+			sort.Slice(result, func(i, j int) bool { return result[i].Position < result[j].Position })
+		},
+		token, limit,
+	)
 }
 
 // GetFindings retrieves findings by ID.
@@ -687,13 +698,142 @@ func (b *InMemoryBackend) GetFindings(findingIDs []string) ([]*Finding, error) {
 }
 
 // ListFindings returns finding IDs (optionally filtered).
-func (b *InMemoryBackend) ListFindings(_ map[string]any, _ int, _ string) ([]string, string, error) {
+func (b *InMemoryBackend) ListFindings(criteria map[string]any, limit int, token string) ([]string, string, error) {
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
-	ids := collections.SortedKeys(b.findings)
+	var filtered []string
+	for id, finding := range b.findings {
+		if matchesFindingCriteria(finding, criteria) {
+			filtered = append(filtered, id)
+		}
+	}
 
-	return ids, "", nil
+	sort.Strings(filtered)
+
+	data, next := paginate(filtered, token, b.paginationSecret, limit)
+
+	return data, next, nil
+}
+
+// listPaginated locks for reading, projects/sorts the map, and paginates,
+// returning the page plus continuation token. Shared by the List* methods.
+func listPaginated[T any, R any](
+	b *InMemoryBackend,
+	lockName string,
+	items map[string]T,
+	mapFn func(T) (R, bool),
+	sortFn func([]R),
+	token string,
+	limit int,
+) ([]R, string, error) {
+	b.mu.RLock(lockName)
+	defer b.mu.RUnlock()
+
+	data, next := mapSortPaginate(items, mapFn, sortFn, token, b.paginationSecret, limit)
+
+	return data, next, nil
+}
+
+func mapSortPaginate[T any, R any](
+	items map[string]T,
+	mapFn func(T) (R, bool),
+	sortFn func([]R),
+	token string,
+	secret string,
+	limit int,
+) ([]R, string) {
+	result := make([]R, 0, len(items))
+
+	for _, item := range items {
+		if mapped, ok := mapFn(item); ok {
+			result = append(result, mapped)
+		}
+	}
+
+	sortFn(result)
+
+	data, next := paginate(result, token, secret, limit)
+
+	return data, next
+}
+
+func paginate[T any](data []T, token, secret string, limit int) ([]T, string) {
+	p := page.NewHMAC(data, token, secret, limit, defaultPageSize)
+
+	return p.Data, p.Next
+}
+
+func getFindingFieldValue(finding *storedFinding, key string) string {
+	switch key {
+	case keyType:
+		return finding.Type
+	case "category":
+		return finding.Category
+	case "updatedAt":
+		return finding.UpdatedAt.Format(time.RFC3339)
+	case "severity.description":
+		return finding.Severity.Description
+	case "accountId":
+		return finding.AccountID
+	case "region":
+		return finding.Region
+	}
+
+	return ""
+}
+
+func matchEq(fVal string, eqVals []any) bool {
+	for _, eqV := range eqVals {
+		if strV, sOk := eqV.(string); sOk && strV == fVal {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchNeq(fVal string, neqVals []any) bool {
+	for _, neqV := range neqVals {
+		if strV, sOk := neqV.(string); sOk && strV == fVal {
+			return false
+		}
+	}
+
+	return true
+}
+
+func matchesFindingCriteria(finding *storedFinding, criteria map[string]any) bool {
+	if len(criteria) == 0 {
+		return true
+	}
+
+	criterion, ok := criteria["criterion"].(map[string]any)
+	if !ok || len(criterion) == 0 {
+		return true
+	}
+
+	for k, v := range criterion {
+		cond, cOk := v.(map[string]any)
+		if !cOk {
+			continue
+		}
+
+		fVal := getFindingFieldValue(finding, k)
+
+		if eqVals, eqOk := cond["eq"].([]any); eqOk {
+			if !matchEq(fVal, eqVals) {
+				return false
+			}
+		}
+		if neqVals, neqOk := cond["neq"].([]any); neqOk {
+			if !matchNeq(fVal, neqVals) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // CreateSampleFindings creates sample findings.
@@ -714,7 +854,7 @@ func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 			Finding: Finding{
 				AccountID:   b.accountID,
 				Archived:    false,
-				Category:    "SENSITIVE_DATA",
+				Category:    categorySensitiveData,
 				CreatedAt:   now,
 				Description: "Sample finding of type " + ft,
 				ID:          id,

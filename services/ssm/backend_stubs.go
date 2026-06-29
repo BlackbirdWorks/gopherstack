@@ -959,6 +959,9 @@ func (b *InMemoryBackend) DeleteActivation(
 	delete(activations, input.ActivationID)
 	delete(b.miscResourceTagsStore(region), input.ActivationID)
 
+	cleanupEmptyInnerMap(b.activations, region)
+	cleanupEmptyInnerMap(b.miscResourceTags, region)
+
 	return &DeleteActivationOutput{}, nil
 }
 
@@ -977,6 +980,8 @@ func (b *InMemoryBackend) DeleteAssociation(
 	}
 
 	delete(associations, input.AssociationID)
+
+	cleanupEmptyInnerMap(b.associations, region)
 
 	return &DeleteAssociationOutput{}, nil
 }
@@ -1014,6 +1019,8 @@ func (b *InMemoryBackend) DeregisterTargetFromMaintenanceWindow(
 
 	delete(targets, input.WindowTargetID)
 
+	cleanupEmptyInnerMap(b.maintenanceWindowTargets, region)
+
 	return &DeregisterTargetFromMaintenanceWindowOutput{
 		WindowID:       input.WindowID,
 		WindowTargetID: input.WindowTargetID,
@@ -1035,6 +1042,8 @@ func (b *InMemoryBackend) DeregisterTaskFromMaintenanceWindow(
 	}
 
 	delete(tasks, input.WindowTaskID)
+
+	cleanupEmptyInnerMap(b.maintenanceWindowTasks, region)
 
 	return &DeregisterTaskFromMaintenanceWindowOutput{
 		WindowID:     input.WindowID,

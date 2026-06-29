@@ -1,7 +1,6 @@
 package sts_test
 
 import (
-	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -624,6 +623,16 @@ func (b *errorBackend) GetWebIdentityToken(_ *sts.GetWebIdentityTokenInput) (*st
 	return nil, fmt.Errorf("GetWebIdentityToken: %w", errBackendFailure)
 }
 
+func (b *errorBackend) IssueEncodedAuthorizationMessage(_ string) string {
+	return ""
+}
+
+func (b *errorBackend) VerifyEncodedAuthorizationMessage(_ string) (string, error) {
+	return "", fmt.Errorf("VerifyEncodedAuthorizationMessage: %w", errBackendFailure)
+}
+
+func (b *errorBackend) LookupSession(_, _ string) *sts.SessionInfo { return nil }
+
 // TestHandler_InternalError tests the default (InternalFailure) path in handleError.
 func TestHandler_InternalError(t *testing.T) {
 	t.Parallel()
@@ -881,7 +890,8 @@ func TestDecodeAuthorizationMessage(t *testing.T) {
 	e := echo.New()
 
 	original := "this is a test message"
-	encoded := base64.StdEncoding.EncodeToString([]byte(original))
+	// Only STS-issued encoded messages are accepted. Use the backend to issue one.
+	encoded := backend.IssueEncodedAuthorizationMessage(original)
 
 	form := url.Values{
 		"Action":         {"DecodeAuthorizationMessage"},

@@ -410,9 +410,18 @@ func TestHandler_DescribeTable_ReturnsStreamFields(t *testing.T) {
 	var out models.DescribeTableOutput
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 
-	assert.Equal(t, streamARN, out.Table.LatestStreamArn, "DescribeTable should return LatestStreamArn")
+	assert.Equal(
+		t,
+		streamARN,
+		out.Table.LatestStreamArn,
+		"DescribeTable should return LatestStreamArn",
+	)
 	assert.NotEmpty(t, out.Table.LatestStreamLabel, "DescribeTable should return LatestStreamLabel")
-	require.NotNil(t, out.Table.StreamSpecification, "DescribeTable should return StreamSpecification")
+	require.NotNil(
+		t,
+		out.Table.StreamSpecification,
+		"DescribeTable should return StreamSpecification",
+	)
 	assert.True(t, out.Table.StreamSpecification.StreamEnabled)
 	assert.Equal(t, "NEW_AND_OLD_IMAGES", out.Table.StreamSpecification.StreamViewType)
 }

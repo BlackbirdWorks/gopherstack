@@ -212,6 +212,8 @@ type DBCluster struct {
 	PreferredBackupWindow           string                            `json:"PreferredBackupWindow"`
 	PreferredMaintenanceWindow      string                            `json:"PreferredMaintenanceWindow"`
 	DBClusterArn                    string                            `json:"DBClusterArn"`
+	DBClusterResourceID             string                            `json:"DbClusterResourceId"`
+	ClusterCreateTime               string                            `json:"ClusterCreateTime"`
 	StorageType                     string                            `json:"StorageType"`
 	EngineMode                      string                            `json:"EngineMode"`
 	MasterUsername                  string                            `json:"MasterUsername"`
@@ -335,29 +337,42 @@ type DBParameterGroup struct {
 
 // DBClusterEndpoint represents a Neptune DB cluster custom endpoint.
 type DBClusterEndpoint struct {
-	DBClusterEndpointIdentifier string `json:"DBClusterEndpointIdentifier"`
-	DBClusterIdentifier         string `json:"DBClusterIdentifier"`
-	EndpointType                string `json:"EndpointType"`
-	Status                      string `json:"Status"`
-	Endpoint                    string `json:"Endpoint"`
+	DBClusterEndpointIdentifier         string   `json:"DBClusterEndpointIdentifier"`
+	DBClusterIdentifier                 string   `json:"DBClusterIdentifier"`
+	DBClusterEndpointArn                string   `json:"DBClusterEndpointArn"`
+	DBClusterEndpointResourceIdentifier string   `json:"DBClusterEndpointResourceIdentifier"`
+	EndpointType                        string   `json:"EndpointType"`
+	CustomEndpointType                  string   `json:"CustomEndpointType"`
+	Status                              string   `json:"Status"`
+	Endpoint                            string   `json:"Endpoint"`
+	StaticMembers                       []string `json:"StaticMembers"`
+	ExcludedMembers                     []string `json:"ExcludedMembers"`
 }
 
 // EventSubscription represents a Neptune event subscription.
 type EventSubscription struct {
-	CustSubscriptionID   string   `json:"CustSubscriptionID"`
-	SnsTopicARN          string   `json:"SnsTopicARN"`
-	EventSubscriptionArn string   `json:"EventSubscriptionArn"`
-	Status               string   `json:"Status"`
-	SourceType           string   `json:"SourceType"`
-	SourceIDs            []string `json:"SourceIDs"`
-	Enabled              bool     `json:"Enabled"`
+	CustSubscriptionID       string   `json:"CustSubscriptionID"`
+	SnsTopicARN              string   `json:"SnsTopicARN"`
+	EventSubscriptionArn     string   `json:"EventSubscriptionArn"`
+	Status                   string   `json:"Status"`
+	SourceType               string   `json:"SourceType"`
+	SubscriptionCreationTime string   `json:"SubscriptionCreationTime"`
+	SourceIDs                []string `json:"SourceIDs"`
+	EventCategoriesList      []string `json:"EventCategoriesList"`
+	Enabled                  bool     `json:"Enabled"`
 }
 
 // GlobalCluster represents a Neptune global cluster.
 type GlobalCluster struct {
 	GlobalClusterIdentifier string                `json:"GlobalClusterIdentifier"`
+	GlobalClusterArn        string                `json:"GlobalClusterArn"`
+	GlobalClusterResourceID string                `json:"GlobalClusterResourceId"`
 	Status                  string                `json:"Status"`
+	Engine                  string                `json:"Engine"`
+	EngineVersion           string                `json:"EngineVersion"`
 	GlobalClusterMembers    []GlobalClusterMember `json:"GlobalClusterMembers"`
+	StorageEncrypted        bool                  `json:"StorageEncrypted"`
+	DeletionProtection      bool                  `json:"DeletionProtection"`
 }
 
 // GlobalClusterMember represents a member cluster in a global cluster.
@@ -528,11 +543,13 @@ func cloneSubnetGroup(sg *DBSubnetGroup) DBSubnetGroup {
 	return cp
 }
 
-// cloneEventSubscription returns a deep copy of an event subscription (with its SourceIDs slice copied).
+// cloneEventSubscription returns a deep copy of an event subscription (with its slices copied).
 func cloneEventSubscription(sub *EventSubscription) EventSubscription {
 	cp := *sub
 	cp.SourceIDs = make([]string, len(sub.SourceIDs))
 	copy(cp.SourceIDs, sub.SourceIDs)
+	cp.EventCategoriesList = make([]string, len(sub.EventCategoriesList))
+	copy(cp.EventCategoriesList, sub.EventCategoriesList)
 
 	return cp
 }
@@ -609,6 +626,16 @@ func (b *InMemoryBackend) parameterGroupARN(region, name string) string {
 // eventSubscriptionARN returns the region-scoped ARN for a Neptune event subscription.
 func (b *InMemoryBackend) eventSubscriptionARN(region, name string) string {
 	return arn.Build("rds", region, b.accountID, "es:"+name)
+}
+
+// clusterEndpointARN returns the region-scoped ARN for a Neptune DB cluster endpoint.
+func (b *InMemoryBackend) clusterEndpointARN(region, id string) string {
+	return arn.Build("rds", region, b.accountID, "cluster-endpoint:"+id)
+}
+
+// globalClusterARN returns the partition-scoped ARN for a Neptune global cluster.
+func (b *InMemoryBackend) globalClusterARN(id string) string {
+	return arn.Build("rds", "", b.accountID, "global-cluster:"+id)
 }
 
 // CreateDBCluster creates a new Neptune DB cluster.
@@ -705,6 +732,8 @@ func (b *InMemoryBackend) buildNewCluster(
 	cluster := &DBCluster{
 		DBClusterIdentifier:             id,
 		DBClusterArn:                    b.clusterARN(region, id),
+		DBClusterResourceID:             fmt.Sprintf("cluster-%s", id),
+		ClusterCreateTime:               "2024-01-01T00:00:00Z",
 		Engine:                          neptuneEngine,
 		EngineVersion:                   engineVersion,
 		EngineMode:                      engineMode,
@@ -786,6 +815,9 @@ func (b *InMemoryBackend) DescribeDBClusters(
 		}
 		result = append(result, cloneCluster(c))
 	}
+	slices.SortFunc(result, func(a, b DBCluster) int {
+		return strings.Compare(a.DBClusterIdentifier, b.DBClusterIdentifier)
+	})
 
 	return result, nil
 }
@@ -797,8 +829,13 @@ func (b *InMemoryBackend) DeleteDBCluster(
 	opts DBClusterDeleteOptions,
 ) (*DBCluster, error) {
 	region := getRegion(ctx, b.region)
-	// Validate FinalDBSnapshotIdentifier before acquiring the lock. When a final
-	// snapshot is requested (an identifier is supplied), it must be well-formed.
+	// Validate FinalDBSnapshotIdentifier before acquiring the lock.
+	if !opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier == "" {
+		return nil, fmt.Errorf(
+			"%w: FinalDBSnapshotIdentifier is required when SkipFinalSnapshot is false",
+			ErrSnapshotRequired,
+		)
+	}
 	if !opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier != "" {
 		if err := validateNeptuneIdentifier(
 			opts.FinalDBSnapshotIdentifier,
@@ -1137,6 +1174,9 @@ func (b *InMemoryBackend) DescribeDBInstances(
 		}
 		result = append(result, *inst)
 	}
+	slices.SortFunc(result, func(a, b DBInstance) int {
+		return strings.Compare(a.DBInstanceIdentifier, b.DBInstanceIdentifier)
+	})
 
 	return result, nil
 }
@@ -1284,6 +1324,9 @@ func (b *InMemoryBackend) DescribeDBSubnetGroups(
 	for _, sg := range subnetGroups {
 		result = append(result, cloneSubnetGroup(sg))
 	}
+	slices.SortFunc(result, func(a, b DBSubnetGroup) int {
+		return strings.Compare(a.DBSubnetGroupName, b.DBSubnetGroupName)
+	})
 
 	return result, nil
 }
@@ -1371,6 +1414,9 @@ func (b *InMemoryBackend) DescribeDBClusterParameterGroups(
 	for _, pg := range groups {
 		result = append(result, *pg)
 	}
+	slices.SortFunc(result, func(a, b DBClusterParameterGroup) int {
+		return strings.Compare(a.DBClusterParameterGroupName, b.DBClusterParameterGroupName)
+	})
 
 	return result, nil
 }
@@ -1492,6 +1538,9 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(
 		}
 		result = append(result, *snap)
 	}
+	slices.SortFunc(result, func(a, b DBClusterSnapshot) int {
+		return strings.Compare(a.DBClusterSnapshotIdentifier, b.DBClusterSnapshotIdentifier)
+	})
 
 	return result, nil
 }
@@ -1677,7 +1726,8 @@ func (b *InMemoryBackend) AddRoleToDBCluster(ctx context.Context, clusterID, rol
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("AddRoleToDBCluster")
 	defer b.mu.Unlock()
-	if _, exists := b.clustersStore(region)[clusterID]; !exists {
+	cluster, exists := b.clustersStore(region)[clusterID]
+	if !exists {
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 	roles := b.clusterRolesStore(region)
@@ -1685,6 +1735,9 @@ func (b *InMemoryBackend) AddRoleToDBCluster(ctx context.Context, clusterID, rol
 		return nil
 	}
 	roles[clusterID] = append(roles[clusterID], roleARN)
+	if !slices.Contains(cluster.AssociatedRoles, roleARN) {
+		cluster.AssociatedRoles = append(cluster.AssociatedRoles, roleARN)
+	}
 
 	return nil
 }
@@ -1753,6 +1806,7 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 	}
 	pg := &DBClusterParameterGroup{
 		DBClusterParameterGroupName: targetName,
+		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(region, targetName),
 		DBParameterGroupFamily:      src.DBParameterGroupFamily,
 		Description:                 resolveCopyDescription(targetDescription, src.Description),
 	}
@@ -1834,6 +1888,7 @@ func (b *InMemoryBackend) CopyDBParameterGroup(
 	}
 	pg := &DBParameterGroup{
 		DBParameterGroupName:   targetName,
+		DBParameterGroupArn:    b.parameterGroupARN(region, targetName),
 		DBParameterGroupFamily: src.DBParameterGroupFamily,
 		Description:            resolveCopyDescription(targetDescription, src.Description),
 	}
@@ -1880,18 +1935,26 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 		)
 	}
 	ep := &DBClusterEndpoint{
-		DBClusterEndpointIdentifier: endpointID,
-		DBClusterIdentifier:         clusterID,
-		EndpointType:                endpointType,
-		Status:                      clusterStatusAvailable,
+		DBClusterEndpointIdentifier:         endpointID,
+		DBClusterIdentifier:                 clusterID,
+		DBClusterEndpointArn:                b.clusterEndpointARN(region, endpointID),
+		DBClusterEndpointResourceIdentifier: fmt.Sprintf("cluster-endpoint-%s", endpointID),
+		EndpointType:                        endpointType,
+		Status:                              clusterStatusAvailable,
 		Endpoint: fmt.Sprintf(
 			"%s.cluster-custom.neptune.%s.amazonaws.com",
 			endpointID,
 			region,
 		),
+		StaticMembers:   []string{},
+		ExcludedMembers: []string{},
 	}
 	endpoints[endpointID] = ep
 	cp := *ep
+	cp.StaticMembers = make([]string, len(ep.StaticMembers))
+	copy(cp.StaticMembers, ep.StaticMembers)
+	cp.ExcludedMembers = make([]string, len(ep.ExcludedMembers))
+	copy(cp.ExcludedMembers, ep.ExcludedMembers)
 
 	return &cp, nil
 }
@@ -1995,7 +2058,11 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 	}
 	gc := &GlobalCluster{
 		GlobalClusterIdentifier: globalClusterID,
+		GlobalClusterArn:        b.globalClusterARN(globalClusterID),
+		GlobalClusterResourceID: fmt.Sprintf("cluster-%s", globalClusterID),
 		Status:                  clusterStatusAvailable,
+		Engine:                  neptuneEngine,
+		EngineVersion:           defaultEngineVersion,
 	}
 	if sourceDBClusterID != "" {
 		if cl, exists := b.clustersStore(region)[sourceDBClusterID]; exists {
@@ -2005,6 +2072,8 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 					IsWriter:     true,
 				},
 			}
+			gc.EngineVersion = cl.EngineVersion
+			gc.StorageEncrypted = cl.StorageEncrypted
 		}
 	}
 	b.globalClusters[globalClusterID] = gc
@@ -2027,6 +2096,9 @@ func (b *InMemoryBackend) DescribeGlobalClusters(_ context.Context) []GlobalClus
 		copy(cp.GlobalClusterMembers, gc.GlobalClusterMembers)
 		result = append(result, cp)
 	}
+	slices.SortFunc(result, func(a, b GlobalCluster) int {
+		return strings.Compare(a.GlobalClusterIdentifier, b.GlobalClusterIdentifier)
+	})
 
 	return result
 }
@@ -2144,6 +2216,9 @@ func (b *InMemoryBackend) DescribeDBParameterGroups(
 	for _, pg := range groups {
 		result = append(result, *pg)
 	}
+	slices.SortFunc(result, func(a, b DBParameterGroup) int {
+		return strings.Compare(a.DBParameterGroupName, b.DBParameterGroupName)
+	})
 
 	return result, nil
 }
@@ -2244,13 +2319,18 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(
 	for _, sub := range subs {
 		result = append(result, cloneEventSubscription(sub))
 	}
+	slices.SortFunc(result, func(a, b EventSubscription) int {
+		return strings.Compare(a.CustSubscriptionID, b.CustSubscriptionID)
+	})
 
 	return result, nil
 }
 
 // ModifyEventSubscription modifies a Neptune event subscription.
 func (b *InMemoryBackend) ModifyEventSubscription(
-	ctx context.Context, name, snsTopicARN string,
+	ctx context.Context,
+	name, snsTopicARN, sourceType, enabled string,
+	eventCategories []string,
 ) (*EventSubscription, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyEventSubscription")
@@ -2262,9 +2342,21 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 	if snsTopicARN != "" {
 		sub.SnsTopicARN = snsTopicARN
 	}
-	cp := *sub
-	cp.SourceIDs = make([]string, len(sub.SourceIDs))
-	copy(cp.SourceIDs, sub.SourceIDs)
+	if sourceType != "" {
+		sub.SourceType = sourceType
+	}
+	switch enabled {
+	case "true":
+		sub.Enabled = true
+	case "false":
+		sub.Enabled = false
+	}
+	if len(eventCategories) > 0 {
+		cats := make([]string, len(eventCategories))
+		copy(cats, eventCategories)
+		sub.EventCategoriesList = cats
+	}
+	cp := cloneEventSubscription(sub)
 
 	return &cp, nil
 }
@@ -2431,7 +2523,8 @@ func (b *InMemoryBackend) RemoveRoleFromDBCluster(
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("RemoveRoleFromDBCluster")
 	defer b.mu.Unlock()
-	if _, exists := b.clustersStore(region)[clusterID]; !exists {
+	cluster, exists := b.clustersStore(region)[clusterID]
+	if !exists {
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 	rolesStore := b.clusterRolesStore(region)
@@ -2443,6 +2536,13 @@ func (b *InMemoryBackend) RemoveRoleFromDBCluster(
 		}
 	}
 	rolesStore[clusterID] = kept
+	keptRoles := make([]string, 0, len(cluster.AssociatedRoles))
+	for _, r := range cluster.AssociatedRoles {
+		if r != roleARN {
+			keptRoles = append(keptRoles, r)
+		}
+	}
+	cluster.AssociatedRoles = keptRoles
 
 	return nil
 }
@@ -2554,6 +2654,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 func (b *InMemoryBackend) ModifyDBSubnetGroup(
 	ctx context.Context,
 	name, description string,
+	subnetIDs []string,
 ) (*DBSubnetGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBSubnetGroup")
@@ -2565,9 +2666,12 @@ func (b *InMemoryBackend) ModifyDBSubnetGroup(
 	if description != "" {
 		sg.DBSubnetGroupDescription = description
 	}
-	cp := *sg
-	cp.SubnetIDs = make([]string, len(sg.SubnetIDs))
-	copy(cp.SubnetIDs, sg.SubnetIDs)
+	if len(subnetIDs) > 0 {
+		ids := make([]string, len(subnetIDs))
+		copy(ids, subnetIDs)
+		sg.SubnetIDs = ids
+	}
+	cp := cloneSubnetGroup(sg)
 
 	return &cp, nil
 }

@@ -874,7 +874,7 @@ func (h *DynamoDBHandler) dispatchStreamsOps(
 
 	switch action {
 	case "DescribeStream":
-		return handleStreamsOp(ctx, body, h.Streams.DescribeStream)
+		return handleStreamsDescribeStream(ctx, body, h.Streams.DescribeStream)
 	case "GetShardIterator":
 		return handleStreamsOp(ctx, body, h.Streams.GetShardIterator)
 	case "GetRecords":
@@ -924,6 +924,26 @@ func handleStreamsGetRecords(
 	}
 
 	return wireOut, nil
+}
+
+func handleStreamsDescribeStream(
+	ctx context.Context,
+	body []byte,
+	op func(context.Context, *dynamodbstreams.DescribeStreamInput) (*dynamodbstreams.DescribeStreamOutput, error),
+) (any, error) {
+	var input dynamodbstreams.DescribeStreamInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	out, err := op(ctx, &input)
+	if err != nil {
+		return nil, err
+	}
+
+	return toWireDescribeStreamOutput(out), nil
 }
 
 // validateTableNameFromBody extracts "TableName" from the JSON body and checks it
@@ -1150,10 +1170,21 @@ type exportTableToPointInTimeInput struct {
 }
 
 type exportDescriptionFields struct {
-	ExportArn    string `json:"ExportArn"`
-	ExportStatus string `json:"ExportStatus"`
-	TableArn     string `json:"TableArn,omitempty"`
-	S3Bucket     string `json:"S3Bucket,omitempty"`
+	ExportArn       string  `json:"ExportArn"`
+	ExportStatus    string  `json:"ExportStatus"`
+	TableArn        string  `json:"TableArn,omitempty"`
+	S3Bucket        string  `json:"S3Bucket,omitempty"`
+	S3Prefix        string  `json:"S3Prefix,omitempty"`
+	ExportFormat    string  `json:"ExportFormat,omitempty"`
+	ExportType      string  `json:"ExportType,omitempty"`
+	ExportManifest  string  `json:"ExportManifest,omitempty"`
+	FailureCode     string  `json:"FailureCode,omitempty"`
+	FailureMessage  string  `json:"FailureMessage,omitempty"`
+	ExportTime      float64 `json:"ExportTime,omitempty"`
+	StartTime       float64 `json:"StartTime,omitempty"`
+	EndTime         float64 `json:"EndTime,omitempty"`
+	BilledSizeBytes int64   `json:"BilledSizeBytes,omitempty"`
+	ItemCount       int64   `json:"ItemCount,omitempty"`
 }
 
 type exportTableToPointInTimeOutput struct {
@@ -1195,84 +1226,121 @@ func (h *DynamoDBHandler) exportTableToPointInTime(ctx context.Context, body []b
 		return nil, err
 	}
 
-	region := config.DefaultRegion
-	accountID := config.DefaultAccountID
+	region, accountID := exportRegionAccount(req.TableArn)
+	exportARN := buildExportARN(req.TableArn, region, accountID)
 
-	// Extract region from the table ARN if available.
-	if req.TableArn != "" {
-		parts := strings.SplitN(req.TableArn, ":", exportARNPartCount)
-		if len(parts) >= exportARNRegionIdx+1 && parts[exportARNRegionIdx] != "" {
-			region = parts[exportARNRegionIdx]
-		}
-
-		if len(parts) >= exportARNAccountIdx+1 && parts[exportARNAccountIdx] != "" {
-			accountID = parts[exportARNAccountIdx]
-		}
+	exportFmt := req.ExportFormat
+	if exportFmt == "" {
+		exportFmt = "DYNAMODB_JSON"
 	}
-
-	// Generate a unique export ARN that encodes the table name.
-	tableSlug := "unknown"
-	if req.TableArn != "" {
-		parts := strings.SplitN(req.TableArn, "/", exportARNPathParts)
-		if len(parts) == exportARNPathParts {
-			tableSlug = parts[1]
-		}
-	}
-
-	exportID := fmt.Sprintf("%s/%s", tableSlug, generateExportID())
-	exportARN := arn.Build("dynamodb", region, accountID, "table/"+exportID)
-
+	now := time.Now()
 	desc := exportDescriptionFields{
 		ExportArn:    exportARN,
-		ExportStatus: "COMPLETED",
+		ExportStatus: "IN_PROGRESS",
 		TableArn:     req.TableArn,
 		S3Bucket:     req.S3Bucket,
+		S3Prefix:     req.S3Prefix,
+		ExportFormat: exportFmt,
+		ExportType:   "FULL_EXPORT",
+		StartTime:    float64(now.Unix()),
 	}
 
-	// Persist the export so ListExports and DescribeExport return it, and write the
-	// actual data to S3 when a backend is wired (re-importable DynamoDB-JSON.gz).
+	// Persist as IN_PROGRESS (AWS initial response), then complete synchronously.
+	// Real AWS takes minutes; the emulator finishes in microseconds.
 	if b, ok := h.Backend.(*InMemoryDB); ok {
 		b.storeExport(desc)
-
-		if err := writeExportToS3(ctx, b, &req); err != nil {
-			return nil, err
-		}
+		b.completeExportSync(ctx, exportARN, &req)
 	}
 
 	return &exportTableToPointInTimeOutput{ExportDescription: desc}, nil
 }
 
-// writeExportToS3 persists exported table data to S3 when a bucket is configured.
-func writeExportToS3(
-	ctx context.Context,
-	b *InMemoryDB,
-	req *exportTableToPointInTimeInput,
-) error {
-	if req.S3Bucket == "" {
-		return nil
+// exportRegionAccount extracts region and accountID from a DynamoDB table ARN.
+func exportRegionAccount(tableARN string) (string, string) {
+	region, accountID := config.DefaultRegion, config.DefaultAccountID
+	if tableARN == "" {
+		return region, accountID
+	}
+	parts := strings.SplitN(tableARN, ":", exportARNPartCount)
+	if len(parts) >= exportARNRegionIdx+1 && parts[exportARNRegionIdx] != "" {
+		region = parts[exportARNRegionIdx]
+	}
+	if len(parts) >= exportARNAccountIdx+1 && parts[exportARNAccountIdx] != "" {
+		accountID = parts[exportARNAccountIdx]
 	}
 
+	return region, accountID
+}
+
+// buildExportARN constructs a unique export ARN from the table ARN.
+func buildExportARN(tableARN, region, accountID string) string {
+	tableSlug := "unknown"
+	if tableARN != "" {
+		if parts := strings.SplitN(tableARN, "/", exportARNPathParts); len(
+			parts,
+		) == exportARNPathParts {
+			tableSlug = parts[1]
+		}
+	}
+	exportID := fmt.Sprintf("%s/%s", tableSlug, generateExportID())
+
+	return arn.Build("dynamodb", region, accountID, "table/"+exportID)
+}
+
+// completeExportSync performs the S3 write (if a bucket is configured) and
+// updates the stored export record to its terminal state (COMPLETED or FAILED).
+func (db *InMemoryDB) completeExportSync(
+	ctx context.Context,
+	exportARN string,
+	req *exportTableToPointInTimeInput,
+) {
+	var (
+		manifestKey string
+		itemCount   int64
+		billedBytes int64
+		failCode    string
+		failMsg     string
+		finalStatus = "COMPLETED"
+	)
+	if req.S3Bucket != "" {
+		manifestKey, itemCount, billedBytes, failCode, failMsg, finalStatus =
+			db.exportToS3Bucket(ctx, req)
+	} else {
+		if n, err := db.countTableItems(ctx, req.TableArn); err == nil {
+			itemCount = int64(n)
+			billedBytes = itemCount * avgExportItemBytes
+		}
+	}
+	db.updateExport(exportARN, finalStatus, manifestKey, failCode, failMsg, itemCount, billedBytes)
+}
+
+// exportToS3Bucket writes export data to S3 and returns completion metadata.
+func (db *InMemoryDB) exportToS3Bucket(
+	ctx context.Context,
+	req *exportTableToPointInTimeInput,
+) (string, int64, int64, string, string, string) {
 	base := strings.TrimSuffix(req.S3Prefix, "/")
 	if base != "" {
 		base += "/"
 	}
-
 	objBase := fmt.Sprintf("%sAWSDynamoDB/%s", base, generateExportID())
 	dataKey := objBase + "/data/00000.json.gz"
 	manifestKey := objBase + "/manifest-summary.json"
-
-	if _, err := b.exportTableToS3(ctx, req.TableArn, req.S3Bucket, dataKey, manifestKey); err != nil {
-		return err
+	n, err := db.exportTableToS3(ctx, req.TableArn, req.S3Bucket, dataKey, manifestKey)
+	if err != nil {
+		return manifestKey, 0, 0, "ExportError", err.Error(), "FAILED"
 	}
+	itemCount := n
+	billedBytes := itemCount * avgExportItemBytes
 
-	return nil
+	return manifestKey, itemCount, billedBytes, "", "", "COMPLETED"
 }
 
 type describeExportInput struct {
 	ExportArn string `json:"ExportArn"`
 }
 
-func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) describeExport(ctx context.Context, body []byte) (any, error) {
 	var req describeExportInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -1282,8 +1350,13 @@ func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, e
 		return nil, NewValidationException("ExportArn is required")
 	}
 
-	// Look up the stored export if the backend supports it.
+	// Look up the stored export if the backend supports it, restricted to request region.
 	if b, ok := h.Backend.(*InMemoryDB); ok {
+		requestRegion := h.regionFromHandlerContext(ctx)
+		if b.regionFromARN(req.ExportArn) != requestRegion {
+			return nil, NewExportNotFoundException("Export not found: " + req.ExportArn)
+		}
+
 		if desc, found := b.lookupExport(req.ExportArn); found {
 			return &exportTableToPointInTimeOutput{ExportDescription: desc}, nil
 		}
@@ -1917,7 +1990,10 @@ func (h *DynamoDBHandler) handleListGlobalTables(ctx context.Context, body []byt
 	for _, gt := range out.GlobalTables {
 		replicas := make([]globalTableReplicaWire, 0, len(gt.ReplicationGroup))
 		for _, r := range gt.ReplicationGroup {
-			replicas = append(replicas, globalTableReplicaWire{RegionName: ptrconv.String(r.RegionName)})
+			replicas = append(
+				replicas,
+				globalTableReplicaWire{RegionName: ptrconv.String(r.RegionName)},
+			)
 		}
 
 		tables = append(tables, globalTableWire{
@@ -2055,7 +2131,10 @@ func buildGlobalTableDescriptionWire(d *types.GlobalTableDescription) globalTabl
 
 	replicas := make([]globalTableReplicaWire, 0, len(d.ReplicationGroup))
 	for _, r := range d.ReplicationGroup {
-		replicas = append(replicas, globalTableReplicaWire{RegionName: ptrconv.String(r.RegionName)})
+		replicas = append(
+			replicas,
+			globalTableReplicaWire{RegionName: ptrconv.String(r.RegionName)},
+		)
 	}
 
 	wire := globalTableDescriptionWire{
@@ -2383,7 +2462,8 @@ type executeTransactionItemResponse struct {
 }
 
 type executeTransactionOutput struct {
-	Responses []executeTransactionItemResponse `json:"Responses,omitempty"`
+	ConsumedCapacity []map[string]any                 `json:"ConsumedCapacity,omitempty"`
+	Responses        []executeTransactionItemResponse `json:"Responses,omitempty"`
 }
 
 func (h *DynamoDBHandler) handleExecuteTransaction(ctx context.Context, body []byte) (any, error) {
@@ -2414,7 +2494,8 @@ func (h *DynamoDBHandler) handleExecuteTransaction(ctx context.Context, body []b
 	}
 
 	out, err := h.Backend.ExecuteTransaction(ctx, &sdkDDB.ExecuteTransactionInput{
-		TransactStatements: stmts,
+		TransactStatements:     stmts,
+		ReturnConsumedCapacity: types.ReturnConsumedCapacity(req.ReturnConsumedCapacity),
 	})
 	if err != nil {
 		return nil, err
@@ -2431,7 +2512,21 @@ func (h *DynamoDBHandler) handleExecuteTransaction(ctx context.Context, body []b
 		responses = append(responses, resp)
 	}
 
-	return &executeTransactionOutput{Responses: responses}, nil
+	var consumedCapacity []map[string]any
+	if req.ReturnConsumedCapacity != "" &&
+		types.ReturnConsumedCapacity(
+			req.ReturnConsumedCapacity,
+		) != types.ReturnConsumedCapacityNone {
+		for _, cc := range out.ConsumedCapacity {
+			entry := map[string]any{"TableName": aws.ToString(cc.TableName)}
+			if cc.CapacityUnits != nil {
+				entry["CapacityUnits"] = *cc.CapacityUnits
+			}
+			consumedCapacity = append(consumedCapacity, entry)
+		}
+	}
+
+	return &executeTransactionOutput{Responses: responses, ConsumedCapacity: consumedCapacity}, nil
 }
 
 // --- ImportTable handler ---
@@ -2517,40 +2612,102 @@ type listImportsOutput struct {
 	ImportSummaryList []importTableDescriptionWire `json:"ImportSummaryList"`
 }
 
-func (h *DynamoDBHandler) handleListImports(ctx context.Context, _ []byte) (any, error) {
-	out, err := h.Backend.ListImports(ctx, &sdkDDB.ListImportsInput{})
-	if err != nil {
+type listImportsInput struct {
+	TableArn  string `json:"TableArn,omitempty"`
+	NextToken string `json:"NextToken,omitempty"`
+	PageSize  int    `json:"PageSize,omitempty"`
+}
+
+func (h *DynamoDBHandler) handleListImports(ctx context.Context, body []byte) (any, error) {
+	var req listImportsInput
+	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	summaries := make([]importTableDescriptionWire, 0, len(out.ImportSummaryList))
+	region := h.regionFromHandlerContext(ctx)
 
-	for _, s := range out.ImportSummaryList {
+	db, ok := h.Backend.(*InMemoryDB)
+	if !ok {
+		return &listImportsOutput{ImportSummaryList: []importTableDescriptionWire{}}, nil
+	}
+
+	all := db.listImportsStored()
+
+	// Filter by region and optionally by TableArn.
+	filtered := make([]storedImport, 0, len(all))
+	for _, imp := range all {
+		if db.regionFromARN(imp.ImportArn) != region {
+			continue
+		}
+		if req.TableArn != "" && imp.TableArn != req.TableArn {
+			continue
+		}
+		filtered = append(filtered, imp)
+	}
+
+	// Apply ExclusiveStart cursor (NextToken = last-seen import ARN).
+	start := 0
+	if req.NextToken != "" {
+		for i, imp := range filtered {
+			if imp.ImportArn == req.NextToken {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+	filtered = filtered[start:]
+
+	// Apply page size cap.
+	const defaultPageSize = 25
+
+	pageSize := defaultPageSize
+	if req.PageSize > 0 {
+		pageSize = req.PageSize
+	}
+
+	var outNextToken string
+	if len(filtered) > pageSize {
+		outNextToken = filtered[pageSize-1].ImportArn
+		filtered = filtered[:pageSize]
+	}
+
+	summaries := make([]importTableDescriptionWire, 0, len(filtered))
+	for _, imp := range filtered {
 		summaries = append(summaries, importTableDescriptionWire{
-			ImportArn:    ptrconv.String(s.ImportArn),
-			ImportStatus: string(s.ImportStatus),
-			TableArn:     ptrconv.String(s.TableArn),
+			ImportArn:    imp.ImportArn,
+			ImportStatus: imp.ImportStatus,
+			TableArn:     imp.TableArn,
 		})
 	}
 
-	return &listImportsOutput{ImportSummaryList: summaries}, nil
+	return &listImportsOutput{
+		ImportSummaryList: summaries,
+		NextToken:         outNextToken,
+	}, nil
 }
 
 // --- ListExports handler ---
 
 type listExportsInput struct {
-	TableArn  string `json:"TableArn,omitempty"`
-	NextToken string `json:"NextToken,omitempty"`
+	TableArn   string `json:"TableArn,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
-func (h *DynamoDBHandler) listExports(_ context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) listExports(ctx context.Context, body []byte) (any, error) {
 	var req listExportsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
 	if b, ok := h.Backend.(*InMemoryDB); ok {
-		return b.listExportsWire(req.TableArn, req.NextToken), nil
+		return b.listExportsWire(
+			req.TableArn,
+			req.NextToken,
+			req.MaxResults,
+			h.regionFromHandlerContext(ctx),
+		), nil
 	}
 
 	return &listExportsOutput{ExportSummaries: []exportDescriptionFields{}}, nil

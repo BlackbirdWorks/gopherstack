@@ -34,8 +34,11 @@ func TestECS_CreateCapacityProvider(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "with tags",
-			input:    map[string]any{"name": "tagged-cp", "tags": []map[string]any{{"key": "env", "value": "test"}}},
+			name: "with tags",
+			input: map[string]any{
+				"name": "tagged-cp",
+				"tags": []map[string]any{{"key": "env", "value": "test"}},
+			},
 			wantCode: http.StatusOK,
 			wantName: "tagged-cp",
 		},
@@ -110,7 +113,12 @@ func TestECS_DeleteCapacityProvider(t *testing.T) {
 				doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": tt.cpName})
 			}
 
-			rec := doECSRequest(t, h, "DeleteCapacityProvider", map[string]any{"capacityProvider": tt.deleteBy})
+			rec := doECSRequest(
+				t,
+				h,
+				"DeleteCapacityProvider",
+				map[string]any{"capacityProvider": tt.deleteBy},
+			)
 
 			require.Equal(t, tt.wantCode, rec.Code)
 
@@ -230,7 +238,12 @@ func TestECS_DescribeCapacityProviders_ByARN(t *testing.T) {
 
 	arn := createResp["capacityProvider"].(map[string]any)["capacityProviderArn"].(string)
 
-	rec = doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{"capacityProviders": []string{arn}})
+	rec = doECSRequest(
+		t,
+		h,
+		"DescribeCapacityProviders",
+		map[string]any{"capacityProviders": []string{arn}},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -405,7 +418,12 @@ func TestECS_DeleteTaskDefinitions(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r))
 				arn := r["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
-				doECSRequest(t, h, "DeregisterTaskDefinition", map[string]any{"taskDefinition": arn})
+				doECSRequest(
+					t,
+					h,
+					"DeregisterTaskDefinition",
+					map[string]any{"taskDefinition": arn},
+				)
 
 				return arn
 			},
@@ -709,7 +727,12 @@ func TestECS_DeleteExpressGatewayService(t *testing.T) {
 			h := newTestHandler(t)
 			serviceArn := tt.createFn(h)
 
-			rec := doECSRequest(t, h, "DeleteExpressGatewayService", map[string]any{"serviceArn": serviceArn})
+			rec := doECSRequest(
+				t,
+				h,
+				"DeleteExpressGatewayService",
+				map[string]any{"serviceArn": serviceArn},
+			)
 
 			require.Equal(t, tt.wantCode, rec.Code)
 
@@ -768,7 +791,12 @@ func TestECS_DescribeExpressGatewayService(t *testing.T) {
 			h := newTestHandler(t)
 			serviceArn := tt.createFn(h)
 
-			rec := doECSRequest(t, h, "DescribeExpressGatewayService", map[string]any{"serviceArn": serviceArn})
+			rec := doECSRequest(
+				t,
+				h,
+				"DescribeExpressGatewayService",
+				map[string]any{"serviceArn": serviceArn},
+			)
 
 			require.Equal(t, tt.wantCode, rec.Code)
 

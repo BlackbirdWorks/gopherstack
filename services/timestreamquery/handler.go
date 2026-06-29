@@ -372,7 +372,9 @@ func (h *Handler) handleCancelQuery(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{
+		"CancellationMessage": "Query has been successfully cancelled.",
+	})
 }
 
 type createScheduledQueryInput struct {

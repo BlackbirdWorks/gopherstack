@@ -145,8 +145,8 @@ type StorageBackend interface {
 	) (*CustomDBEngineVersion, error)
 	DescribeCustomDBEngineVersions(engine, engineVersion string) []CustomDBEngineVersion
 	DescribeOrderableDBInstanceOptions(engine, engineVersion string) []OrderableDBInstanceOption
-	DescribeDBLogFiles(instanceID string) ([]DBLogFile, error)
-	DownloadDBLogFilePortion(instanceID, logFileName string) (string, error)
+	DescribeDBLogFiles(instanceID string, filter LogFileFilter) ([]DBLogFile, error)
+	DownloadDBLogFilePortion(instanceID, logFileName, marker string, numberOfLines int) (LogFilePortion, error)
 
 	// IAM role operations
 	AddRoleToDBCluster(clusterID, roleARN string) error
@@ -320,7 +320,7 @@ type StorageBackend interface {
 		resourceID, metric string,
 		startTime, endTime time.Time,
 		periodInSeconds int,
-	) []PIDataPoint
+	) ([]PIDataPoint, error)
 }
 
 // Ensure InMemoryBackend satisfies the StorageBackend interface at compile time.

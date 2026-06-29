@@ -88,6 +88,7 @@ type Application struct {
 	Name          string            `json:"name"`
 	Type          string            `json:"type"`
 	ReleaseLabel  string            `json:"releaseLabel"`
+	Architecture  string            `json:"architecture,omitempty"`
 	State         string            `json:"state"`
 }
 
@@ -103,6 +104,7 @@ type JobRun struct {
 	State            string            `json:"state"`
 	ExecutionRoleArn string            `json:"executionRoleArn"`
 	Mode             string            `json:"mode,omitempty"`
+	ReleaseLabel     string            `json:"releaseLabel,omitempty"`
 	StateDetails     string            `json:"stateDetails,omitempty"`
 }
 
@@ -185,7 +187,7 @@ func (b *InMemoryBackend) sessionARN(applicationID, sessionID string) string {
 
 // CreateApplication creates a new EMR Serverless application.
 func (b *InMemoryBackend) CreateApplication(
-	name, appType, releaseLabel string,
+	name, appType, releaseLabel, architecture string,
 	tags map[string]string,
 ) (*Application, error) {
 	b.mu.Lock("CreateApplication")
@@ -217,6 +219,7 @@ func (b *InMemoryBackend) CreateApplication(
 		Name:          name,
 		Type:          appType,
 		ReleaseLabel:  releaseLabel,
+		Architecture:  architecture,
 		State:         ApplicationStateCreated,
 		CreatedAt:     now,
 		UpdatedAt:     now,
@@ -308,7 +311,8 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, id)
 	}
 
-	if app.State == ApplicationStateStarted || app.State == ApplicationStateStarting {
+	switch app.State {
+	case ApplicationStateStarted, ApplicationStateStarting, ApplicationStateStopping, ApplicationStateCreating:
 		return fmt.Errorf(
 			"%w: application %s must be stopped before deletion (current state: %s)",
 			ErrInvalidState, id, app.State,
@@ -343,8 +347,19 @@ func (b *InMemoryBackend) StartApplication(id string) error {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, id)
 	}
 
-	if app.State == ApplicationStateStarted {
+	switch app.State {
+	case ApplicationStateStarted:
 		return fmt.Errorf("%w: application %s is already in STARTED state", ErrInvalidState, id)
+	case ApplicationStateTerminated, ApplicationStateTerminatedWithError:
+		return fmt.Errorf(
+			"%w: application %s cannot be started from state %s",
+			ErrInvalidState, id, app.State,
+		)
+	case ApplicationStateStarting, ApplicationStateStopping:
+		return fmt.Errorf(
+			"%w: application %s cannot be started from state %s",
+			ErrInvalidState, id, app.State,
+		)
 	}
 
 	app.State = ApplicationStateStarted
@@ -376,7 +391,7 @@ func (b *InMemoryBackend) StopApplication(id string) error {
 
 // StartJobRun creates and starts a new job run.
 func (b *InMemoryBackend) StartJobRun(
-	applicationID, executionRoleArn, name string,
+	applicationID, executionRoleArn, name, mode string,
 	tags map[string]string,
 ) (*JobRun, error) {
 	b.mu.Lock("StartJobRun")
@@ -386,8 +401,13 @@ func (b *InMemoryBackend) StartJobRun(
 		return nil, fmt.Errorf("%w: executionRoleArn is required", ErrValidation)
 	}
 
-	if _, ok := b.applications[applicationID]; !ok {
+	app, ok := b.applications[applicationID]
+	if !ok {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
+	}
+
+	if mode == "" {
+		mode = "BATCH"
 	}
 
 	jobRunID := newID()
@@ -403,6 +423,8 @@ func (b *InMemoryBackend) StartJobRun(
 		Name:             name,
 		State:            JobRunStateSubmitted,
 		ExecutionRoleArn: executionRoleArn,
+		Mode:             mode,
+		ReleaseLabel:     app.ReleaseLabel,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 		Tags:             tagsCopy,

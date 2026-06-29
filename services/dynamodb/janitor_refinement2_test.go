@@ -134,7 +134,10 @@ func TestRefinement2_SweepStreamRecords_AcceptsContext(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 
 	for i := range 3 {
-		_, err := db.CreateTable(t.Context(), makeCreateTableInput(fmt.Sprintf("sr-table-%d", i), "pk"))
+		_, err := db.CreateTable(
+			t.Context(),
+			makeCreateTableInput(fmt.Sprintf("sr-table-%d", i), "pk"),
+		)
 		require.NoError(t, err)
 	}
 
@@ -261,7 +264,10 @@ func TestRefinement2_DynamoDB_Reset_ClosesMutex(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 
 	for i := range 5 {
-		_, err := db.CreateTable(t.Context(), makeCreateTableInput(fmt.Sprintf("reset-table-%d", i), "pk"))
+		_, err := db.CreateTable(
+			t.Context(),
+			makeCreateTableInput(fmt.Sprintf("reset-table-%d", i), "pk"),
+		)
 		require.NoError(t, err)
 	}
 
@@ -282,7 +288,10 @@ func TestRefinement2_Purge_SubsetOfTables(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 
 	for i := range 3 {
-		_, err := db.CreateTable(t.Context(), makeCreateTableInput(fmt.Sprintf("old-table-%d", i), "pk"))
+		_, err := db.CreateTable(
+			t.Context(),
+			makeCreateTableInput(fmt.Sprintf("old-table-%d", i), "pk"),
+		)
 		require.NoError(t, err)
 	}
 
@@ -303,7 +312,10 @@ func TestRefinement2_Purge_KeepsNewerTables(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 
 	for i := range 3 {
-		_, err := db.CreateTable(t.Context(), makeCreateTableInput(fmt.Sprintf("keep-table-%d", i), "pk"))
+		_, err := db.CreateTable(
+			t.Context(),
+			makeCreateTableInput(fmt.Sprintf("keep-table-%d", i), "pk"),
+		)
 		require.NoError(t, err)
 	}
 
@@ -342,5 +354,10 @@ func TestRefinement2_Janitor_Run_SweepsIteratorStore(t *testing.T) {
 	<-ctx.Done()
 
 	// The janitor's main-ticker must have swept the expired entry.
-	assert.Equal(t, 0, db.IteratorStoreSize(), "expired iterator tokens must be swept by janitor Run loop")
+	assert.Equal(
+		t,
+		0,
+		db.IteratorStoreSize(),
+		"expired iterator tokens must be swept by janitor Run loop",
+	)
 }

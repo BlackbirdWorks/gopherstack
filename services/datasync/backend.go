@@ -749,7 +749,7 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 		return ErrNotFound
 	}
 
-	delete(execMap, taskExecutionArn)
+	execMap[taskExecutionArn].Status = "CANCELLED"
 
 	if t, found := b.tasks[taskArn]; found && t.CurrentTaskExecutionArn == taskExecutionArn {
 		t.CurrentTaskExecutionArn = ""
@@ -759,9 +759,10 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 }
 
 // DescribeTaskExecution returns task execution details.
+// Executions in LAUNCHING state are lazily advanced to SUCCESS on first describe.
 func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskExecution, error) {
-	b.mu.RLock("DescribeTaskExecution")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeTaskExecution")
+	defer b.mu.Unlock()
 
 	taskArn := extractTaskArnFromExecution(taskExecutionArn)
 	if taskArn == "" {
@@ -778,6 +779,10 @@ func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskE
 		return nil, ErrNotFound
 	}
 
+	if e.Status == executionStatusLaunching {
+		e.Status = executionStatusSuccess
+	}
+
 	cp := e.toTaskExecution()
 
 	return &cp, nil
@@ -791,6 +796,12 @@ func (b *InMemoryBackend) ListTaskExecutions(
 ) ([]*TaskExecutionListEntry, string, error) {
 	b.mu.RLock("ListTaskExecutions")
 	defer b.mu.RUnlock()
+
+	if taskArn != "" {
+		if _, ok := b.tasks[taskArn]; !ok {
+			return nil, "", ErrNotFound
+		}
+	}
 
 	execMap := b.executions[taskArn]
 	execArns := collections.SortedKeys(execMap)
@@ -824,6 +835,13 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	}
 	maps.Copy(b.tags[resourceArn], tags)
 
+	if a, ok := b.agents[resourceArn]; ok {
+		if a.Tags == nil {
+			a.Tags = make(map[string]string)
+		}
+		maps.Copy(a.Tags, tags)
+	}
+
 	return nil
 }
 
@@ -838,6 +856,12 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error
 
 	for _, k := range keys {
 		delete(b.tags[resourceArn], k)
+	}
+
+	if a, ok := b.agents[resourceArn]; ok {
+		for _, k := range keys {
+			delete(a.Tags, k)
+		}
 	}
 
 	return nil

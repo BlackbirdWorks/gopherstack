@@ -904,7 +904,7 @@ func TestInMemoryBackend_StatementCap_OldestEvicted(t *testing.T) {
 	for i := range redshiftdata.MaxStatementHistoryForTest {
 		stmt, err := backend.ExecuteStatement(context.Background(),
 			"SELECT 1", "cluster", "", "db", "", "", "", false,
-			"",
+			"", nil,
 		)
 		require.NoError(t, err)
 		if i == 0 {
@@ -919,7 +919,7 @@ func TestInMemoryBackend_StatementCap_OldestEvicted(t *testing.T) {
 	require.NoError(t, err)
 
 	// One more statement pushes the oldest out.
-	_, err = backend.ExecuteStatement(context.Background(), "SELECT 2", "cluster", "", "db", "", "", "", false, "")
+	_, err = backend.ExecuteStatement(context.Background(), "SELECT 2", "cluster", "", "db", "", "", "", false, "", nil)
 	require.NoError(t, err)
 
 	assert.LessOrEqual(t, backend.StatementCount(), redshiftdata.MaxStatementHistoryForTest)

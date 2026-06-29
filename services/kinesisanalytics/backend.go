@@ -144,9 +144,10 @@ type StorageBackend interface {
 // All resource maps are nested by region (outer key = region) so that
 // same-named resources are isolated across regions.
 type InMemoryBackend struct {
-	apps          map[string]map[string]*Application // region → name → app
-	appsByARN     map[string]map[string]*Application // region → arn → app
-	cancelFuncs   map[string]context.CancelFunc      // "region:name" → cancel
+	svcCtx        context.Context
+	apps          map[string]map[string]*Application
+	appsByARN     map[string]map[string]*Application
+	cancelFuncs   map[string]context.CancelFunc
 	defaultRegion string
 	accountID     string
 	nextID        int64
@@ -155,14 +156,25 @@ type InMemoryBackend struct {
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
-// NewInMemoryBackend creates a new in-memory Kinesis Analytics backend.
+// NewInMemoryBackend creates a new in-memory Kinesis Analytics backend with a background service context.
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), region, accountID)
+}
+
+// NewInMemoryBackendWithContext creates a new in-memory Kinesis Analytics backend whose
+// background goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, region, accountID string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		apps:          make(map[string]map[string]*Application),
 		appsByARN:     make(map[string]map[string]*Application),
 		cancelFuncs:   make(map[string]context.CancelFunc),
 		defaultRegion: region,
 		accountID:     accountID,
+		svcCtx:        svcCtx,
 	}
 }
 
@@ -577,10 +589,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 	}
 
 	if app.CreateTimestamp != nil && createTimestamp.Unix() != app.CreateTimestamp.Unix() {
-		return fmt.Errorf(
-			"%w: CreateTimestamp does not match stored value",
-			awserr.New("ConcurrentModificationException", awserr.ErrConflict),
-		)
+		return fmt.Errorf("%w: CreateTimestamp does not match stored value", ErrConcurrentUpdate)
 	}
 
 	// Cancel any in-flight lifecycle goroutine.
@@ -595,7 +604,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 	app.LastUpdateTimestamp = &now
 
 	appARN := app.ApplicationARN
-	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancelCtx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFuncs[key] = cancel
 
 	go func() {
@@ -803,7 +812,7 @@ func (b *InMemoryBackend) launchTransition(region, name, targetStatus string) {
 		cancel()
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFuncs[key] = cancel
 
 	go func() {

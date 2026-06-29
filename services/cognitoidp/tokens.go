@@ -3,12 +3,17 @@ package cognitoidp
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"math/big"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -29,11 +34,17 @@ const confirmCodeLen = 6
 // tokenExpirySeconds is the lifetime in seconds for ID and access tokens.
 const tokenExpirySeconds = 3600
 
+// signingCertValidityYears is the validity window of the generated signing certificate.
+const signingCertValidityYears = 10
+
 // tokenIssuer generates and signs JWTs for a user pool.
 type tokenIssuer struct {
+	certErr    error
 	privateKey *rsa.PrivateKey
 	keyID      string
 	issuerURL  string
+	certPEM    string
+	certOnce   sync.Once
 }
 
 // newTokenIssuer generates a stable RSA-2048 keypair for this user pool.
@@ -79,6 +90,15 @@ type JWK struct {
 	Alg string `json:"alg,omitempty"`
 }
 
+// PublicKeyForKID returns the RSA public key if kid matches this issuer's key ID.
+func (t *tokenIssuer) PublicKeyForKID(kid string) (*rsa.PublicKey, bool) {
+	if t.keyID != kid {
+		return nil, false
+	}
+
+	return &t.privateKey.PublicKey, true
+}
+
 // JWKS returns the JSON Web Key Set for this token issuer.
 func (t *tokenIssuer) JWKS() JWKSResponse {
 	pub := &t.privateKey.PublicKey
@@ -98,6 +118,57 @@ func (t *tokenIssuer) JWKS() JWKSResponse {
 	}
 }
 
+// SigningCertificatePEM returns a deterministic, PEM-encoded, self-signed X.509
+// certificate that wraps this issuer's RSA public key. AWS Cognito returns such a
+// certificate from GetSigningCertificate for clients that validate JWT signatures
+// against an X.509 chain rather than the JWKS endpoint.
+//
+// The certificate is generated once and cached, so repeated calls for the same pool
+// return the identical PEM. The template fields (serial number, validity window) are
+// derived deterministically from the issuer key ID so the result is stable for the
+// pool's lifetime and across snapshot restore (which preserves the RSA key + key ID).
+func (t *tokenIssuer) SigningCertificatePEM() (string, error) {
+	t.certOnce.Do(func() {
+		t.certPEM, t.certErr = t.buildSigningCertificate()
+	})
+
+	return t.certPEM, t.certErr
+}
+
+func (t *tokenIssuer) buildSigningCertificate() (string, error) {
+	// Derive a deterministic serial number from the key ID so the certificate is
+	// stable for a given pool.
+	digest := sha256.Sum256([]byte(t.keyID + "|" + t.issuerURL))
+	serial := new(big.Int).SetBytes(digest[:])
+
+	// Use a fixed validity window so the certificate bytes do not change between calls.
+	notBefore := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	notAfter := notBefore.AddDate(signingCertValidityYears, 0, 0)
+
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   t.issuerURL,
+			Organization: []string{"gopherstack-cognito-idp"},
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &t.privateKey.PublicKey, t.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("creating signing certificate: %w", err)
+	}
+
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+
+	return string(pemBytes), nil
+}
+
 // TokenResult contains the three tokens returned on successful authentication.
 type TokenResult struct {
 	IDToken      string `json:"idToken,omitempty"`
@@ -108,24 +179,40 @@ type TokenResult struct {
 
 // TokenParams holds the inputs for token issuance.
 type TokenParams struct {
-	ClientID string   `json:"clientID,omitempty"`
-	Username string   `json:"username,omitempty"`
-	UserSub  string   `json:"userSub,omitempty"`
-	Scopes   []string `json:"scopes,omitempty"`
-	Groups   []string `json:"groups,omitempty"`
-	AuthTime int64    `json:"authTime,omitempty"`
+	Attributes        map[string]string `json:"attributes,omitempty"`
+	ClientID          string            `json:"clientID,omitempty"`
+	Username          string            `json:"username,omitempty"`
+	UserSub           string            `json:"userSub,omitempty"`
+	Scopes            []string          `json:"scopes,omitempty"`
+	Groups            []string          `json:"groups,omitempty"`
+	AuthTime          int64             `json:"authTime,omitempty"`
+	AccessTokenExpiry time.Duration     `json:"accessTokenExpiry,omitempty"`
+	IDTokenExpiry     time.Duration     `json:"idTokenExpiry,omitempty"`
 }
 
 // defaultAccessScope is the default scope on access tokens when the client has no configured scopes.
 const defaultAccessScope = "aws.cognito.signin.user.admin"
 
 // Issue generates ID, Access, and Refresh tokens for the given user.
+//
+//nolint:gocognit,cyclop,funlen // complexity matches JWT issuance contract with per-client expiry
 func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 	now := time.Now()
 	if p.AuthTime == 0 {
 		p.AuthTime = now.Unix()
 	}
-	exp := now.Add(time.Duration(tokenExpirySeconds) * time.Second)
+
+	defaultExpiry := time.Duration(tokenExpirySeconds) * time.Second
+	accessExpiry := defaultExpiry
+	if p.AccessTokenExpiry > 0 {
+		accessExpiry = p.AccessTokenExpiry
+	}
+	idExpiry := defaultExpiry
+	if p.IDTokenExpiry > 0 {
+		idExpiry = p.IDTokenExpiry
+	}
+
+	exp := now.Add(idExpiry)
 
 	idClaims := jwt.MapClaims{
 		"sub":              p.UserSub,
@@ -139,6 +226,19 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 	}
 	if len(p.Groups) > 0 {
 		idClaims["cognito:groups"] = p.Groups
+	}
+
+	// Include standard user attributes in the ID token (email, phone_number, name, etc.)
+	standardAttrs := []string{
+		"email", "email_verified", "phone_number", "phone_number_verified",
+		"name", "given_name", "family_name", "middle_name", "nickname",
+		"preferred_username", "website", "zoneinfo", "locale", "birthdate",
+		"gender", "address", "updated_at",
+	}
+	for _, attr := range standardAttrs {
+		if val, ok := p.Attributes[attr]; ok {
+			idClaims[attr] = val
+		}
 	}
 
 	idToken := jwt.NewWithClaims(jwt.SigningMethodRS256, idClaims)
@@ -181,8 +281,11 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 		"username":  p.Username,
 		"scope":     scope,
 		"iat":       now.Unix(),
-		"exp":       exp.Unix(),
+		"exp":       now.Add(accessExpiry).Unix(),
 		"auth_time": p.AuthTime,
+	}
+	if len(p.Groups) > 0 {
+		accessClaims["cognito:groups"] = p.Groups
 	}
 
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodRS256, accessClaims)
@@ -204,7 +307,7 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 		IDToken:      idTokenString,
 		AccessToken:  accessTokenString,
 		RefreshToken: refreshTokenString,
-		ExpiresIn:    tokenExpirySeconds,
+		ExpiresIn:    int32(accessExpiry.Seconds()),
 	}, nil
 }
 

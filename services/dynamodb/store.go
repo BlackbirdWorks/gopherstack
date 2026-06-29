@@ -49,11 +49,21 @@ type KinesisDestinationEntry struct {
 
 // storedExport holds the fields needed to satisfy DescribeExport and ListExports.
 type storedExport struct {
-	CreatedAt    time.Time
-	ExportArn    string
-	ExportStatus string
-	TableArn     string
-	S3Bucket     string
+	CreatedAt       time.Time
+	StartTime       time.Time
+	EndTime         time.Time
+	ExportArn       string
+	ExportStatus    string
+	TableArn        string
+	S3Bucket        string
+	S3Prefix        string
+	ExportFormat    string
+	ExportType      string
+	ExportManifest  string
+	FailureCode     string
+	FailureMessage  string
+	BilledSizeBytes int64
+	ItemCount       int64
 }
 
 // storedImport holds the fields needed to satisfy DescribeImport and ListImports.
@@ -151,19 +161,27 @@ type InMemoryDB struct {
 
 // Backup holds the metadata and a point-in-time item snapshot for a DynamoDB on-demand backup.
 type Backup struct {
-	CreationDateTime      time.Time                               `json:"CreationDateTime"`
-	TableArn              string                                  `json:"TableArn"`
-	TableID               string                                  `json:"TableID"`
-	BackupArn             string                                  `json:"BackupArn"`
-	BackupName            string                                  `json:"BackupName"`
-	BackupStatus          string                                  `json:"BackupStatus"`
-	BackupType            string                                  `json:"BackupType"`
-	TableName             string                                  `json:"TableName"`
-	Items                 []map[string]any                        `json:"Items"`
-	KeySchema             []models.KeySchemaElement               `json:"KeySchema"`
-	AttributeDefinitions  []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	ProvisionedThroughput models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
-	SizeBytes             int64                                   `json:"SizeBytes"`
+	CreationDateTime       time.Time                               `json:"CreationDateTime"`
+	SSEKMSMasterKeyArn     string                                  `json:"SSEKMSMasterKeyArn,omitempty"`
+	SSEType                string                                  `json:"SSEType,omitempty"`
+	StreamViewType         string                                  `json:"StreamViewType,omitempty"`
+	BackupName             string                                  `json:"BackupName"`
+	BackupType             string                                  `json:"BackupType"`
+	TableArn               string                                  `json:"TableArn"`
+	TableID                string                                  `json:"TableID"`
+	BackupArn              string                                  `json:"BackupArn"`
+	BackupStatus           string                                  `json:"BackupStatus"`
+	TableName              string                                  `json:"TableName"`
+	BillingMode            string                                  `json:"BillingMode,omitempty"`
+	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
+	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	Items                  []map[string]any                        `json:"Items"`
+	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	SizeBytes              int64                                   `json:"SizeBytes"`
+	SSEEnabled             bool                                    `json:"SSEEnabled,omitempty"`
+	StreamsEnabled         bool                                    `json:"StreamsEnabled,omitempty"`
 }
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.
@@ -196,50 +214,50 @@ const (
 //
 
 type Table struct {
-	CreationDateTime time.Time `json:"CreationDateTime"`
-	kinesisEmitter   KinesisEmitter
-	pkIndex          map[string]int
-	pkskIndex        map[string]map[string]int
-	// itemsByOffset is a query-snapshot-only field populated instead of Items
-	// when a known PK constrains the query to a small set of items (#57).
-	// nil on live tables and full-scan snapshots.
+	CreationDateTime           time.Time `json:"CreationDateTime"`
+	kinesisEmitter             KinesisEmitter
+	pkIndex                    map[string]int
+	pkskIndex                  map[string]map[string]int
 	itemsByOffset              map[int]map[string]any
 	mu                         *lockmetrics.RWMutex
 	activateTimer              *time.Timer
-	Tags                       *tags.Tags                    `json:"Tags,omitempty"`
-	AutoScaling                *autoScalingSettings          `json:"AutoScaling,omitempty"`
-	Name                       string                        `json:"Name"`
-	SSEKMSMasterKeyArn         string                        `json:"SSEKMSMasterKeyArn,omitempty"`
-	TableClass                 string                        `json:"TableClass,omitempty"`
-	GlobalTableName            string                        `json:"GlobalTableName,omitempty"`
-	TTLAttribute               string                        `json:"TTLAttribute,omitempty"`
-	StreamViewType             string                        `json:"StreamViewType,omitempty"`
-	StreamARN                  string                        `json:"StreamARN,omitempty"`
-	TableArn                   string                        `json:"TableArn"`
-	Status                     string                        `json:"Status"`
-	TableID                    string                        `json:"TableID"`
-	SSEType                    string                        `json:"SSEType,omitempty"`
-	BillingMode                string                        `json:"BillingMode,omitempty"`
-	ResourcePolicy             string                        `json:"ResourcePolicy,omitempty"`
-	GlobalSecondaryIndexes     []models.GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
+	Tags                       *tags.Tags                `json:"Tags,omitempty"`
+	AutoScaling                *autoScalingSettings      `json:"AutoScaling,omitempty"`
+	OnDemandMaxWriteRRU        *int64                    `json:"OnDemandMaxWriteRRU,omitempty"`
+	OnDemandMaxReadRRU         *int64                    `json:"OnDemandMaxReadRRU,omitempty"`
+	BillingMode                string                    `json:"BillingMode,omitempty"`
+	GlobalTableName            string                    `json:"GlobalTableName,omitempty"`
+	TTLAttribute               string                    `json:"TTLAttribute,omitempty"`
+	StreamViewType             string                    `json:"StreamViewType,omitempty"`
+	StreamARN                  string                    `json:"StreamARN,omitempty"`
+	StreamCreatedAt            time.Time                 `json:"StreamCreatedAt"`
+	TableArn                   string                    `json:"TableArn"`
+	Status                     string                    `json:"Status"`
+	TableID                    string                    `json:"TableID"`
+	SSEType                    string                    `json:"SSEType,omitempty"`
+	TableClass                 string                    `json:"TableClass,omitempty"`
+	ResourcePolicy             string                    `json:"ResourcePolicy,omitempty"`
+	Name                       string                    `json:"Name"`
+	SSEKMSMasterKeyArn         string                    `json:"SSEKMSMasterKeyArn,omitempty"`
+	KeySchema                  []models.KeySchemaElement `json:"KeySchema"`
 	pitrSnapshots              []pitrSnapshot
-	Replicas                   []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	Replicas                   []models.ReplicaDescription  `json:"Replicas,omitempty"`
+	LocalSecondaryIndexes      []models.LocalSecondaryIndex `json:"LocalSecondaryIndexes,omitempty"`
+	AttributeDefinitions       []models.AttributeDefinition `json:"AttributeDefinitions"`
+	KinesisDestinations        []KinesisDestinationEntry    `json:"KinesisDestinations,omitempty"`
+	Items                      []map[string]any             `json:"Items"`
+	streamShards               []StreamShard
 	StreamRecords              []models.StreamRecord                   `json:"StreamRecords,omitempty"`
-	KeySchema                  []models.KeySchemaElement               `json:"KeySchema"`
-	LocalSecondaryIndexes      []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
-	AttributeDefinitions       []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	KinesisDestinations        []KinesisDestinationEntry               `json:"KinesisDestinations,omitempty"`
-	Items                      []map[string]any                        `json:"Items"`
-	streamShards               []StreamShard                           // shard genealogy for this table's stream
+	GlobalSecondaryIndexes     []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
 	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq                  int64
-	streamTrimSeq              int64 // oldest sequence still in the ring buffer (0 if buffer not yet full)
-	StreamHead                 int   `json:"StreamHead,omitempty"`
-	PITREnabled                bool  `json:"PITREnabled,omitempty"`
-	SSEEnabled                 bool  `json:"SSEEnabled,omitempty"`
-	StreamsEnabled             bool  `json:"StreamsEnabled"`
-	DeletionProtectionEnabled  bool  `json:"DeletionProtectionEnabled"`
-	ContributorInsightsEnabled bool  `json:"ContributorInsightsEnabled,omitempty"`
+	StreamHead                 int `json:"StreamHead,omitempty"`
+	streamTrimSeq              int64
+	PITREnabled                bool `json:"PITREnabled,omitempty"`
+	SSEEnabled                 bool `json:"SSEEnabled,omitempty"`
+	StreamsEnabled             bool `json:"StreamsEnabled"`
+	DeletionProtectionEnabled  bool `json:"DeletionProtectionEnabled"`
+	ContributorInsightsEnabled bool `json:"ContributorInsightsEnabled,omitempty"`
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -784,12 +802,22 @@ func (db *InMemoryDB) storeExport(desc exportDescriptionFields) {
 	db.mu.Lock("storeExport")
 	defer db.mu.Unlock()
 
+	now := time.Now()
 	rec := storedExport{
-		CreatedAt:    time.Now(),
-		ExportArn:    desc.ExportArn,
-		ExportStatus: desc.ExportStatus,
-		TableArn:     desc.TableArn,
-		S3Bucket:     desc.S3Bucket,
+		CreatedAt:       now,
+		StartTime:       now,
+		ExportArn:       desc.ExportArn,
+		ExportStatus:    desc.ExportStatus,
+		TableArn:        desc.TableArn,
+		S3Bucket:        desc.S3Bucket,
+		S3Prefix:        desc.S3Prefix,
+		ExportFormat:    desc.ExportFormat,
+		ExportType:      desc.ExportType,
+		ExportManifest:  desc.ExportManifest,
+		FailureCode:     desc.FailureCode,
+		FailureMessage:  desc.FailureMessage,
+		BilledSizeBytes: desc.BilledSizeBytes,
+		ItemCount:       desc.ItemCount,
 	}
 	db.exports[desc.ExportArn] = rec
 	evictOldest(
@@ -833,31 +861,92 @@ func (db *InMemoryDB) lookupExport(exportARN string) (exportDescriptionFields, b
 		return exportDescriptionFields{}, false
 	}
 
-	return exportDescriptionFields{
-		ExportArn:    e.ExportArn,
-		ExportStatus: e.ExportStatus,
-		TableArn:     e.TableArn,
-		S3Bucket:     e.S3Bucket,
-	}, true
+	desc := exportDescriptionFields{
+		ExportArn:       e.ExportArn,
+		ExportStatus:    e.ExportStatus,
+		TableArn:        e.TableArn,
+		S3Bucket:        e.S3Bucket,
+		S3Prefix:        e.S3Prefix,
+		ExportFormat:    e.ExportFormat,
+		ExportType:      e.ExportType,
+		ExportManifest:  e.ExportManifest,
+		FailureCode:     e.FailureCode,
+		FailureMessage:  e.FailureMessage,
+		BilledSizeBytes: e.BilledSizeBytes,
+		ItemCount:       e.ItemCount,
+	}
+	if !e.StartTime.IsZero() {
+		desc.StartTime = float64(e.StartTime.Unix())
+	}
+	if !e.EndTime.IsZero() {
+		desc.EndTime = float64(e.EndTime.Unix())
+		desc.ExportTime = float64(e.EndTime.Unix())
+	}
+
+	return desc, true
 }
 
-// listExportsWire returns all stored exports as wire-format structs, optionally
-// filtered by tableArn. nextToken is reserved for future pagination support.
-func (db *InMemoryDB) listExportsWire(tableArn, _ string) *listExportsOutput {
+// updateExport merges completed-export fields into an existing storedExport record.
+func (db *InMemoryDB) updateExport(
+	exportARN string,
+	status, manifest, failureCode, failureMessage string,
+	itemCount, billedBytes int64,
+) {
+	db.mu.Lock("updateExport")
+	defer db.mu.Unlock()
+
+	e, ok := db.exports[exportARN]
+	if !ok {
+		return
+	}
+	e.ExportStatus = status
+	e.ExportManifest = manifest
+	e.FailureCode = failureCode
+	e.FailureMessage = failureMessage
+	e.ItemCount = itemCount
+	e.BilledSizeBytes = billedBytes
+	e.EndTime = time.Now()
+	db.exports[exportARN] = e
+}
+
+// listExportsWire returns stored exports filtered by requestRegion and optionally by
+// tableArn. nextToken is an opaque cursor (exclusive-start ARN); maxResults caps page size.
+func (db *InMemoryDB) listExportsWire(
+	tableArn, nextToken string,
+	maxResults int,
+	requestRegion string,
+) *listExportsOutput {
 	db.mu.RLock("listExportsWire")
 
 	summaries := make([]exportDescriptionFields, 0, len(db.exports))
 	for _, e := range db.exports {
+		if db.regionFromARN(e.ExportArn) != requestRegion {
+			continue
+		}
+
 		if tableArn != "" && e.TableArn != tableArn {
 			continue
 		}
 
-		summaries = append(summaries, exportDescriptionFields{
-			ExportArn:    e.ExportArn,
-			ExportStatus: e.ExportStatus,
-			TableArn:     e.TableArn,
-			S3Bucket:     e.S3Bucket,
-		})
+		d := exportDescriptionFields{
+			ExportArn:       e.ExportArn,
+			ExportStatus:    e.ExportStatus,
+			TableArn:        e.TableArn,
+			S3Bucket:        e.S3Bucket,
+			S3Prefix:        e.S3Prefix,
+			ExportFormat:    e.ExportFormat,
+			ExportType:      e.ExportType,
+			BilledSizeBytes: e.BilledSizeBytes,
+			ItemCount:       e.ItemCount,
+		}
+		if !e.StartTime.IsZero() {
+			d.StartTime = float64(e.StartTime.Unix())
+		}
+		if !e.EndTime.IsZero() {
+			d.EndTime = float64(e.EndTime.Unix())
+			d.ExportTime = float64(e.EndTime.Unix())
+		}
+		summaries = append(summaries, d)
 	}
 
 	db.mu.RUnlock()
@@ -867,7 +956,37 @@ func (db *InMemoryDB) listExportsWire(tableArn, _ string) *listExportsOutput {
 		return summaries[i].ExportArn < summaries[j].ExportArn
 	})
 
-	return &listExportsOutput{ExportSummaries: summaries}
+	// Apply ExclusiveStart (NextToken is the last-seen ARN).
+	start := 0
+	if nextToken != "" {
+		for i, s := range summaries {
+			if s.ExportArn == nextToken {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+	summaries = summaries[start:]
+
+	// Apply page cap.
+	const defaultMaxResults = 25
+
+	pageSize := defaultMaxResults
+	if maxResults > 0 {
+		pageSize = maxResults
+	}
+
+	var outNextToken string
+	if len(summaries) > pageSize {
+		outNextToken = summaries[pageSize-1].ExportArn
+		summaries = summaries[:pageSize]
+	}
+
+	return &listExportsOutput{
+		ExportSummaries: summaries,
+		NextToken:       outNextToken,
+	}
 }
 
 // storeImport persists an import record so it can be retrieved by DescribeImport/ListImports.

@@ -10,11 +10,20 @@ import (
 
 var (
 	// ErrCapacityProviderNotFound is returned when a capacity provider does not exist.
-	ErrCapacityProviderNotFound = awserr.New("CapacityProviderNotFoundException", awserr.ErrNotFound)
+	ErrCapacityProviderNotFound = awserr.New(
+		"CapacityProviderNotFoundException",
+		awserr.ErrNotFound,
+	)
 	// ErrCapacityProviderAlreadyExists is returned when a capacity provider already exists.
-	ErrCapacityProviderAlreadyExists = awserr.New("CapacityProviderAlreadyExistsException", awserr.ErrAlreadyExists)
+	ErrCapacityProviderAlreadyExists = awserr.New(
+		"CapacityProviderAlreadyExistsException",
+		awserr.ErrAlreadyExists,
+	)
 	// ErrExpressGatewayServiceNotFound is returned when an express gateway service does not exist.
-	ErrExpressGatewayServiceNotFound = awserr.New("ExpressGatewayServiceNotFoundException", awserr.ErrNotFound)
+	ErrExpressGatewayServiceNotFound = awserr.New(
+		"ExpressGatewayServiceNotFoundException",
+		awserr.ErrNotFound,
+	)
 	// ErrExpressGatewayServiceAlreadyExists is returned when an express gateway service already exists.
 	ErrExpressGatewayServiceAlreadyExists = awserr.New(
 		"ExpressGatewayServiceAlreadyExistsException", awserr.ErrAlreadyExists,
@@ -22,7 +31,10 @@ var (
 	// ErrAccountSettingNotFound is returned when an account setting does not exist.
 	ErrAccountSettingNotFound = awserr.New("AccountSettingNotFoundException", awserr.ErrNotFound)
 	// ErrServiceDeploymentNotFound is returned when a service deployment does not exist.
-	ErrServiceDeploymentNotFound = awserr.New("ServiceDeploymentNotFoundException", awserr.ErrNotFound)
+	ErrServiceDeploymentNotFound = awserr.New(
+		"ServiceDeploymentNotFoundException",
+		awserr.ErrNotFound,
+	)
 )
 
 // Tag is a key/value metadata pair.
@@ -187,7 +199,9 @@ func attributeKey(name, targetID string) string {
 // ---- CapacityProvider operations ----
 
 // CreateCapacityProvider creates a new capacity provider.
-func (b *InMemoryBackend) CreateCapacityProvider(input CreateCapacityProviderInput) (*CapacityProvider, error) {
+func (b *InMemoryBackend) CreateCapacityProvider(
+	input CreateCapacityProviderInput,
+) (*CapacityProvider, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
@@ -236,7 +250,9 @@ func (b *InMemoryBackend) DeleteCapacityProvider(nameOrArn string) (*CapacityPro
 }
 
 // DescribeCapacityProviders returns capacity providers, optionally filtered by name/ARN.
-func (b *InMemoryBackend) DescribeCapacityProviders(nameOrArns []string) ([]CapacityProvider, error) {
+func (b *InMemoryBackend) DescribeCapacityProviders(
+	nameOrArns []string,
+) ([]CapacityProvider, error) {
 	b.mu.RLock("DescribeCapacityProviders")
 	defer b.mu.RUnlock()
 
@@ -348,7 +364,9 @@ func (b *InMemoryBackend) DeleteAttributes(cluster string, attrs []Attribute) ([
 
 // DeleteTaskDefinitions deletes task definitions that are INACTIVE.
 // Definitions that are not INACTIVE are reported as failures.
-func (b *InMemoryBackend) DeleteTaskDefinitions(taskDefinitionArns []string) ([]TaskDefinition, []Failure, error) {
+func (b *InMemoryBackend) DeleteTaskDefinitions(
+	taskDefinitionArns []string,
+) ([]TaskDefinition, []Failure, error) {
 	if len(taskDefinitionArns) == 0 {
 		return nil, nil, fmt.Errorf("%w: taskDefinitions is required", ErrInvalidParameter)
 	}
@@ -481,7 +499,9 @@ func (b *InMemoryBackend) CreateExpressGatewayService(
 }
 
 // DeleteExpressGatewayService deletes an express gateway service by ARN.
-func (b *InMemoryBackend) DeleteExpressGatewayService(serviceArn string) (*ExpressGatewayService, error) {
+func (b *InMemoryBackend) DeleteExpressGatewayService(
+	serviceArn string,
+) (*ExpressGatewayService, error) {
 	if serviceArn == "" {
 		return nil, fmt.Errorf("%w: serviceArn is required", ErrInvalidParameter)
 	}
@@ -502,7 +522,9 @@ func (b *InMemoryBackend) DeleteExpressGatewayService(serviceArn string) (*Expre
 }
 
 // DescribeExpressGatewayService returns an express gateway service by ARN.
-func (b *InMemoryBackend) DescribeExpressGatewayService(serviceArn string) (*ExpressGatewayService, error) {
+func (b *InMemoryBackend) DescribeExpressGatewayService(
+	serviceArn string,
+) (*ExpressGatewayService, error) {
 	if serviceArn == "" {
 		return nil, fmt.Errorf("%w: serviceArn is required", ErrInvalidParameter)
 	}

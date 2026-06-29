@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -223,7 +224,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusBadRequest, map[string]string{
+		return c.JSON(http.StatusNotFound, map[string]string{
 			keyType:    "ResourceNotFoundException",
 			keyMessage: err.Error(),
 		})
@@ -863,6 +864,10 @@ func (h *Handler) handleListTagsForResource(
 	for k, v := range tags {
 		out = append(out, tagInput{Key: k, Value: v})
 	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Key < out[j].Key
+	})
 
 	return &listTagsForResourceOutput{Tags: out, NextToken: nextToken}, nil
 }

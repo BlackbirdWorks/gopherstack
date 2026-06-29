@@ -1,6 +1,8 @@
 package cloudwatchlogs
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -624,4 +626,325 @@ func (b *InMemoryBackend) UpdateDeliveryConfiguration(id, fieldDelimiter string,
 	b.deliveries[id] = delivery
 
 	return nil
+}
+
+// ---- GetLogFields ----
+
+// DiscoverLogFields returns the set of field names discovered from the log
+// events stored for the given log group. It always includes the system fields
+// (@timestamp, @message, @ingestionTime, @logStream) and additionally parses
+// any JSON-formatted event messages to surface their top-level keys. The
+// returned slice is sorted for deterministic output. The log group must exist.
+func (b *InMemoryBackend) DiscoverLogFields(
+	ctx context.Context,
+	logGroupName string,
+) ([]string, error) {
+	if logGroupName == "" {
+		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("DiscoverLogFields")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.groupsStore(region)[logGroupName]; !exists {
+		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
+	}
+
+	fieldSet := map[string]struct{}{
+		keyTimestamp:     {},
+		keyMessageField:  {},
+		keyIngestionTime: {},
+		keyLogStream:     {},
+	}
+
+	for _, streams := range b.eventsStore(region)[logGroupName] {
+		for _, ev := range streams {
+			for _, name := range jsonMessageFields(ev.Message) {
+				fieldSet[name] = struct{}{}
+			}
+		}
+	}
+
+	fields := make([]string, 0, len(fieldSet))
+	for name := range fieldSet {
+		fields = append(fields, name)
+	}
+	sort.Strings(fields)
+
+	return fields, nil
+}
+
+// jsonMessageFields returns the sorted top-level keys of a log event message if
+// the message is a JSON object. Non-JSON messages yield no extra fields.
+func jsonMessageFields(message string) []string {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" || trimmed[0] != '{' {
+		return nil
+	}
+
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+		return nil
+	}
+
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+
+	return keys
+}
+
+// ---- ListAggregateLogGroupSummaries ----
+
+// AggregateLogGroupSummary describes aggregated statistics for a single log group.
+type AggregateLogGroupSummary struct {
+	LogGroupName  string `json:"logGroupName"`
+	LogGroupArn   string `json:"logGroupArn"`
+	LogGroupClass string `json:"logGroupClass,omitempty"`
+	StoredBytes   int64  `json:"storedBytes"`
+	LogEventCount int64  `json:"logEventCount"`
+}
+
+// ListAggregateLogGroupSummaries returns aggregate summaries derived from the
+// real log groups and their stored events for the current region. Summaries are
+// sorted by log group name for deterministic output.
+func (b *InMemoryBackend) ListAggregateLogGroupSummaries(
+	ctx context.Context,
+) []AggregateLogGroupSummary {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListAggregateLogGroupSummaries")
+	defer b.mu.RUnlock()
+
+	groups := b.groupsStore(region)
+	events := b.eventsStore(region)
+
+	summaries := make([]AggregateLogGroupSummary, 0, len(groups))
+	for name, group := range groups {
+		var count int64
+		for _, streams := range events[name] {
+			count += int64(len(streams))
+		}
+
+		summaries = append(summaries, AggregateLogGroupSummary{
+			LogGroupName:  name,
+			LogGroupArn:   group.Arn,
+			LogGroupClass: group.LogGroupClass,
+			StoredBytes:   group.StoredBytes,
+			LogEventCount: count,
+		})
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].LogGroupName < summaries[j].LogGroupName
+	})
+
+	return summaries
+}
+
+// ---- StartLiveTail (validation only) ----
+
+// ValidateLiveTailLogGroups validates that every supplied log group identifier
+// resolves to an existing log group. StartLiveTail is a streaming (HTTP/2
+// event-stream) operation that cannot be meaningfully emulated over the standard
+// JSON response, so the backend only performs input validation and returns
+// ResourceNotFoundException for any unknown log group.
+func (b *InMemoryBackend) ValidateLiveTailLogGroups(
+	ctx context.Context,
+	logGroupIdentifiers []string,
+) error {
+	if len(logGroupIdentifiers) == 0 {
+		return fmt.Errorf("%w: logGroupIdentifiers is required", ErrValidation)
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ValidateLiveTailLogGroups")
+	defer b.mu.RUnlock()
+
+	groups := b.groupsStore(region)
+	for _, id := range logGroupIdentifiers {
+		name := normalizeLogGroupIdentifier(id)
+		if _, exists := groups[name]; !exists {
+			return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, name)
+		}
+	}
+
+	return nil
+}
+
+// ---- TestTransformer ----
+
+// TestTransformerOutput is a single transformed log event result. It mirrors the
+// AWS TransformedLogRecord shape, carrying both the original and transformed
+// message plus the 1-based event number.
+type TestTransformerOutput struct {
+	EventMessage            string `json:"eventMessage"`
+	TransformedEventMessage string `json:"transformedEventMessage"`
+	EventNumber             int64  `json:"eventNumber"`
+}
+
+// ApplyTransformer applies the supplied transformer processors to the supplied
+// sample log event messages and returns the transformed results. The transform
+// is deterministic: processors are applied in order to each event. Supported
+// processors mirror a useful subset of the AWS transformer grammar:
+//
+//   - addKeys: add fixed key/value entries to the (JSON) event
+//   - deleteKeys: remove keys from the (JSON) event
+//   - renameKeys: rename keys within the (JSON) event
+//   - lowerCaseString / upperCaseString: case-fold named string fields
+//   - copyValue: copy one field's value into another
+//
+// Events that are not JSON objects are passed through unchanged for
+// JSON-oriented processors. Unknown processors are ignored.
+func ApplyTransformer(
+	messages []string,
+	processors []map[string]any,
+) []TestTransformerOutput {
+	results := make([]TestTransformerOutput, 0, len(messages))
+
+	for i, msg := range messages {
+		transformed := applyProcessorsToMessage(msg, processors)
+		results = append(results, TestTransformerOutput{
+			EventNumber:             int64(i + 1),
+			EventMessage:            msg,
+			TransformedEventMessage: transformed,
+		})
+	}
+
+	return results
+}
+
+func applyProcessorsToMessage(message string, processors []map[string]any) string {
+	obj, isJSON := decodeJSONObject(message)
+
+	for _, proc := range processors {
+		for name, raw := range proc {
+			cfg, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			if isJSON {
+				applyJSONProcessor(name, cfg, obj)
+			}
+		}
+	}
+
+	if !isJSON {
+		return message
+	}
+
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return message
+	}
+
+	return string(out)
+}
+
+func decodeJSONObject(message string) (map[string]any, bool) {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" || trimmed[0] != '{' {
+		return nil, false
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+		return nil, false
+	}
+
+	return obj, true
+}
+
+//nolint:gocognit,cyclop // dispatches over all JSON processors; complexity is inherent
+func applyJSONProcessor(name string, cfg map[string]any, obj map[string]any) {
+	switch name {
+	case "addKeys":
+		for _, entry := range entriesField(cfg, "entries") {
+			key, _ := entry["key"].(string)
+			if key == "" {
+				continue
+			}
+			_, exists := obj[key]
+			overwrite, _ := entry["overwriteIfExists"].(bool)
+			if !exists || overwrite {
+				obj[key] = entry["value"]
+			}
+		}
+	case "deleteKeys":
+		for _, key := range stringSliceField(cfg, "withKeys") {
+			delete(obj, key)
+		}
+	case "renameKeys":
+		for _, entry := range entriesField(cfg, "entries") {
+			key, _ := entry["key"].(string)
+			renameTo, _ := entry["renameTo"].(string)
+			if key == "" || renameTo == "" {
+				continue
+			}
+			if v, exists := obj[key]; exists {
+				obj[renameTo] = v
+				delete(obj, key)
+			}
+		}
+	case "copyValue":
+		for _, entry := range entriesField(cfg, "entries") {
+			source, _ := entry["source"].(string)
+			target, _ := entry["target"].(string)
+			if source == "" || target == "" {
+				continue
+			}
+			if v, exists := obj[source]; exists {
+				obj[target] = v
+			}
+		}
+	case "lowerCaseString":
+		applyStringCase(cfg, obj, strings.ToLower)
+	case "upperCaseString":
+		applyStringCase(cfg, obj, strings.ToUpper)
+	}
+}
+
+func applyStringCase(cfg map[string]any, obj map[string]any, fn func(string) string) {
+	for _, key := range stringSliceField(cfg, "withKeys") {
+		if s, ok := obj[key].(string); ok {
+			obj[key] = fn(s)
+		}
+	}
+}
+
+func entriesField(cfg map[string]any, key string) []map[string]any {
+	raw, ok := cfg[key].([]any)
+	if !ok {
+		return nil
+	}
+
+	entries := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if m, isMap := item.(map[string]any); isMap {
+			entries = append(entries, m)
+		}
+	}
+
+	return entries
+}
+
+func stringSliceField(cfg map[string]any, key string) []string {
+	raw, ok := cfg[key].([]any)
+	if !ok {
+		return nil
+	}
+
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if s, isStr := item.(string); isStr {
+			out = append(out, s)
+		}
+	}
+
+	return out
 }

@@ -110,6 +110,7 @@ type getExecutionHistoryInput struct {
 // Handler is the Echo HTTP service handler for Step Functions operations.
 type Handler struct {
 	Backend       StorageBackend
+	svcCtx        context.Context
 	tags          map[string]*tags.Tags
 	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
@@ -117,11 +118,17 @@ type Handler struct {
 
 // NewHandler creates a new Step Functions handler.
 func NewHandler(backend StorageBackend) *Handler {
+	svcCtx := context.Background()
+	if bk, ok := backend.(*InMemoryBackend); ok {
+		svcCtx = bk.svcCtx
+	}
+
 	return &Handler{
 		Backend:       backend,
 		DefaultRegion: config.DefaultRegion,
 		tags:          make(map[string]*tags.Tags),
 		tagsMu:        lockmetrics.New("sfn.tags"),
+		svcCtx:        svcCtx,
 	}
 }
 
@@ -233,7 +240,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(target, "AmazonStates.") || strings.HasPrefix(target, "AWSStepFunctions.")
+		return strings.HasPrefix(target, "AmazonStates.") ||
+			strings.HasPrefix(target, "AWSStepFunctions.")
 	}
 }
 
@@ -330,6 +338,28 @@ type startExecutionOutput struct {
 
 type stopExecutionOutput struct {
 	StopDate *float64 `json:"stopDate"`
+}
+
+type describeMapRunInput struct {
+	MapRunArn string `json:"mapRunArn"`
+}
+
+type listMapRunsInput struct {
+	ExecutionArn string `json:"executionArn"`
+	NextToken    string `json:"nextToken"`
+	MaxResults   int    `json:"maxResults"`
+}
+
+type updateMapRunInput struct {
+	MapRunArn                  string  `json:"mapRunArn"`
+	MaxConcurrency             int     `json:"maxConcurrency,omitempty"`
+	ToleratedFailureCount      int     `json:"toleratedFailureCount,omitempty"`
+	ToleratedFailurePercentage float64 `json:"toleratedFailurePercentage,omitempty"`
+}
+
+type listMapRunsOutput struct {
+	NextToken string   `json:"nextToken,omitempty"`
+	MapRuns   []MapRun `json:"mapRuns"`
 }
 
 type listExecutionsOutput struct {
@@ -488,12 +518,19 @@ func (h *Handler) createStateMachineAction(ctx context.Context, b []byte) (any, 
 		return nil, err
 	}
 
-	sm, err := h.Backend.CreateStateMachine(ctx, input.Name, input.Definition, input.RoleArn, input.Type)
+	sm, err := h.Backend.CreateStateMachine(
+		ctx,
+		input.Name,
+		input.Definition,
+		input.RoleArn,
+		input.Type,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil || input.EncryptionConfiguration != nil {
+	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil ||
+		input.EncryptionConfiguration != nil {
 		if cfgErr := h.Backend.SetStateMachineConfigurations(
 			sm.StateMachineArn, input.TracingConfiguration, input.LoggingConfiguration, input.EncryptionConfiguration,
 		); cfgErr != nil {
@@ -533,12 +570,17 @@ func (h *Handler) updateStateMachineAction(b []byte) (any, error) {
 		return nil, fmt.Errorf("%w: stateMachineArn must not be empty", ErrValidation)
 	}
 
-	updateDate, err := h.Backend.UpdateStateMachine(input.StateMachineArn, input.Definition, input.RoleArn)
+	updateDate, err := h.Backend.UpdateStateMachine(
+		input.StateMachineArn,
+		input.Definition,
+		input.RoleArn,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil || input.EncryptionConfiguration != nil {
+	if input.TracingConfiguration != nil || input.LoggingConfiguration != nil ||
+		input.EncryptionConfiguration != nil {
 		if cfgErr := h.Backend.SetStateMachineConfigurations(
 			input.StateMachineArn,
 			input.TracingConfiguration,
@@ -605,7 +647,11 @@ func (h *Handler) versionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.PublishStateMachineVersion(input.StateMachineArn, input.Description, input.RevisionID)
+			return h.Backend.PublishStateMachineVersion(
+				input.StateMachineArn,
+				input.Description,
+				input.RevisionID,
+			)
 		},
 		"DescribeStateMachineVersion": func(b []byte) (any, error) {
 			var input describeStateMachineVersionInput
@@ -639,7 +685,10 @@ func (h *Handler) versionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &listStateMachineVersionsOutput{StateMachineVersions: versions, NextToken: next}, nil
+			return &listStateMachineVersionsOutput{
+				StateMachineVersions: versions,
+				NextToken:            next,
+			}, nil
 		},
 	}
 }
@@ -699,7 +748,10 @@ func (h *Handler) aliasActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &listStateMachineAliasesOutput{StateMachineAliases: aliases, NextToken: next}, nil
+			return &listStateMachineAliasesOutput{
+				StateMachineAliases: aliases,
+				NextToken:           next,
+			}, nil
 		},
 	}
 }
@@ -715,11 +767,19 @@ const (
 func validateTags(existing, newTags map[string]string) error {
 	for k, v := range newTags {
 		if len(k) == 0 || len(k) > maxTagKeyLen {
-			return fmt.Errorf("%w: tag key must be 1-%d characters", ErrTagPolicyViolation, maxTagKeyLen)
+			return fmt.Errorf(
+				"%w: tag key must be 1-%d characters",
+				ErrTagPolicyViolation,
+				maxTagKeyLen,
+			)
 		}
 
 		if len(v) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value must be 0-%d characters", ErrTagPolicyViolation, maxTagValueLen)
+			return fmt.Errorf(
+				"%w: tag value must be 0-%d characters",
+				ErrTagPolicyViolation,
+				maxTagValueLen,
+			)
 		}
 	}
 
@@ -731,7 +791,11 @@ func validateTags(existing, newTags map[string]string) error {
 	}
 
 	if merged > maxTagsPerResource {
-		return fmt.Errorf("%w: resource cannot have more than %d tags", ErrTagPolicyViolation, maxTagsPerResource)
+		return fmt.Errorf(
+			"%w: resource cannot have more than %d tags",
+			ErrTagPolicyViolation,
+			maxTagsPerResource,
+		)
 	}
 
 	return nil
@@ -1023,20 +1087,46 @@ type validateStateMachineDefinitionInput struct {
 // mapRunActions returns handler functions for Map Run operations.
 func (h *Handler) mapRunActions() map[string]actionFn {
 	return map[string]actionFn{
-		"DescribeMapRun": func(_ []byte) (any, error) {
-			// DescribeMapRun describes a Map Run. In-process simulation returns a stub.
-			return map[string]any{"MapRunArn": "", "ExecutionArn": "", "Status": "SUCCEEDED"}, nil
+		"DescribeMapRun": func(b []byte) (any, error) {
+			var input describeMapRunInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeMapRun(input.MapRunArn)
 		},
-		"ListMapRuns": func(_ []byte) (any, error) {
-			// ListMapRuns lists Map Runs for an execution. In-process simulation returns empty list.
-			return map[string]any{"MapRuns": []any{}}, nil
+		"ListMapRuns": func(b []byte) (any, error) {
+			var input listMapRunsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			runs, next, err := h.Backend.ListMapRuns(
+				input.ExecutionArn,
+				input.NextToken,
+				input.MaxResults,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &listMapRunsOutput{NextToken: next, MapRuns: runs}, nil
 		},
 		"TestState": func(body []byte) (any, error) {
 			return h.handleTestState(body)
 		},
-		"UpdateMapRun": func(_ []byte) (any, error) {
-			// UpdateMapRun updates a Map Run's concurrency. In-process simulation is a no-op.
-			return map[string]any{}, nil
+		"UpdateMapRun": func(b []byte) (any, error) {
+			var input updateMapRunInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.UpdateMapRun(
+				input.MapRunArn,
+				input.MaxConcurrency,
+				input.ToleratedFailureCount,
+				input.ToleratedFailurePercentage,
+			)
 		},
 	}
 }
@@ -1149,10 +1239,11 @@ type testStateInput struct {
 }
 
 type testStateOutput struct {
-	Output string `json:"output,omitempty"`
-	Error  string `json:"error,omitempty"`
-	Cause  string `json:"cause,omitempty"`
-	Status string `json:"status"`
+	Output    string `json:"output,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Cause     string `json:"cause,omitempty"`
+	Status    string `json:"status"`
+	NextState string `json:"nextState,omitempty"`
 }
 
 // handleTestState executes a single state definition in isolation and returns its output.
@@ -1170,13 +1261,33 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 	}
 
 	if len(states) != 1 {
-		return nil, fmt.Errorf("%w: TestState definition must contain exactly one state", ErrInvalidDefinition)
+		return nil, fmt.Errorf(
+			"%w: TestState definition must contain exactly one state",
+			ErrInvalidDefinition,
+		)
 	}
 
 	var stateName string
 
 	for k := range states {
 		stateName = k
+	}
+
+	// Extract Next field and replace with End:true so TestState can run
+	// non-terminal states without a synthetic next state in the SM.
+	var nextStateName string
+
+	var rawState map[string]json.RawMessage
+	if unmarshalErr := json.Unmarshal(states[stateName], &rawState); unmarshalErr == nil {
+		if nextRaw, hasNext := rawState["Next"]; hasNext {
+			_ = json.Unmarshal(nextRaw, &nextStateName)
+			delete(rawState, "Next")
+			rawState["End"] = json.RawMessage(`true`)
+		}
+
+		if modifiedDef, marshalErr := json.Marshal(map[string]any{stateName: rawState}); marshalErr == nil {
+			input.Definition = string(modifiedDef)
+		}
 	}
 
 	smDef := fmt.Sprintf(`{"StartAt":%q,"States":%s}`, stateName, input.Definition)
@@ -1201,7 +1312,7 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 		stateInput = "{}"
 	}
 
-	result, execErr := executor.Execute(context.Background(), "test-state", stateInput)
+	result, execErr := executor.Execute(h.svcCtx, "test-state", stateInput)
 	if execErr != nil {
 		out := &testStateOutput{Status: "FAILED", Error: execErr.Error()}
 
@@ -1214,11 +1325,20 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 
 	outputBytes, _ := json.Marshal(result.Output)
 
-	return &testStateOutput{Status: "SUCCEEDED", Output: string(outputBytes)}, nil
+	return &testStateOutput{
+		Status:    "SUCCEEDED",
+		Output:    string(outputBytes),
+		NextState: nextStateName,
+	}, nil
 }
 
 // handleError writes a standardized JSON error response.
-func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, reqErr error) error {
+func (h *Handler) handleError(
+	ctx context.Context,
+	c *echo.Context,
+	action string,
+	reqErr error,
+) error {
 	log := logger.Load(ctx)
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 
@@ -1249,10 +1369,15 @@ func classifyError(reqErr error) (string, int) {
 
 	mappings := []mapping{
 		{ErrStateMachineDoesNotExist, "StateMachineDoesNotExist", http.StatusNotFound},
-		{ErrStateMachineVersionDoesNotExist, "StateMachineVersionDoesNotExist", http.StatusNotFound},
+		{
+			ErrStateMachineVersionDoesNotExist,
+			"StateMachineVersionDoesNotExist",
+			http.StatusNotFound,
+		},
 		{ErrStateMachineAliasDoesNotExist, "StateMachineAliasDoesNotExist", http.StatusNotFound},
 		{ErrExecutionDoesNotExist, "ExecutionDoesNotExist", http.StatusNotFound},
 		{ErrActivityDoesNotExist, "ActivityDoesNotExist", http.StatusNotFound},
+		{ErrMapRunDoesNotExist, "MapRunDoesNotExist", http.StatusNotFound},
 		{ErrTaskTokenNotFound, "TaskDoesNotExist", http.StatusNotFound},
 		{ErrStateMachineAlreadyExists, "StateMachineAlreadyExists", http.StatusConflict},
 		{ErrStateMachineAliasAlreadyExists, "StateMachineAliasAlreadyExists", http.StatusConflict},

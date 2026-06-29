@@ -117,6 +117,7 @@ type FindingService struct {
 	EventLastSeen  string `json:"eventLastSeen"`
 	ResourceRole   string `json:"resourceRole"`
 	ServiceName    string `json:"serviceName"`
+	UserFeedback   string `json:"userFeedback,omitempty"`
 	Count          int32  `json:"count"`
 	Archived       bool   `json:"archived"`
 }
@@ -539,9 +540,12 @@ func (b *InMemoryBackend) ArchiveFindings(detectorID string, findingIDs []string
 		return ErrDetectorNotFound
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
+
 	for _, id := range findingIDs {
 		if f, ok := b.findings[detectorID][id]; ok {
 			f.Service.Archived = true
+			f.UpdatedAt = now
 		}
 	}
 
@@ -557,9 +561,12 @@ func (b *InMemoryBackend) UnarchiveFindings(detectorID string, findingIDs []stri
 		return ErrDetectorNotFound
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
+
 	for _, id := range findingIDs {
 		if f, ok := b.findings[detectorID][id]; ok {
 			f.Service.Archived = false
+			f.UpdatedAt = now
 		}
 	}
 
@@ -623,21 +630,11 @@ func (b *InMemoryBackend) GetFindingsStatistics(detectorID string) (map[string]a
 		return nil, ErrDetectorNotFound
 	}
 
-	countBySeverity := map[string]int{
-		"Low":    0,
-		"Medium": 0,
-		"High":   0,
-	}
+	countBySeverity := map[string]int{}
 
 	for _, f := range b.findings[detectorID] {
-		switch {
-		case f.Severity < severityLowThreshold:
-			countBySeverity["Low"]++
-		case f.Severity < severityHighThreshold:
-			countBySeverity["Medium"]++
-		default:
-			countBySeverity["High"]++
-		}
+		key := fmt.Sprintf("%.1f", f.Severity)
+		countBySeverity[key]++
 	}
 
 	return map[string]any{
@@ -656,8 +653,14 @@ func (b *InMemoryBackend) UpdateFindingsFeedback(detectorID string, findingIDs [
 		return ErrDetectorNotFound
 	}
 
-	_ = findingIDs
-	_ = feedback
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	for _, id := range findingIDs {
+		if f, ok := b.findings[detectorID][id]; ok {
+			f.Service.UserFeedback = feedback
+			f.UpdatedAt = now
+		}
+	}
 
 	return nil
 }

@@ -479,31 +479,17 @@ func (h *Handler) iamSimulateCustomPolicyDispatch() map[string]iamActionFn {
 			resourceArns := parseIndexedValues(vals, "ResourceArns.member.")
 			policyInputList := parseIndexedValues(vals, "PolicyInputList.member.")
 
-			results, err := h.Backend.SimulateCustomPolicy(policyInputList, actionNames, resourceArns)
+			results, err := h.Backend.SimulateCustomPolicy(
+				policyInputList, actionNames, resourceArns, parseConditionContext(vals),
+			)
 			if err != nil {
 				return nil, err
-			}
-
-			xmlResults := make([]SimulationEvalResultXML, 0, len(results))
-			for _, r := range results {
-				entry := SimulationEvalResultXML{
-					EvalActionName:   r.ActionName,
-					EvalResourceName: r.ResourceName,
-					EvalDecision:     r.Decision,
-				}
-
-				for policyID, decision := range r.EvalDecisionDetails {
-					entry.EvalDecisionDetails = append(entry.EvalDecisionDetails,
-						EvalDecisionDetailEntry{Key: policyID, Value: decision})
-				}
-
-				xmlResults = append(xmlResults, entry)
 			}
 
 			return &SimulateCustomPolicyResponse{
 				Xmlns: iamXMLNS,
 				SimulateCustomPolicyResult: SimulateCustomPolicyResult{
-					EvaluationResults: xmlResults,
+					EvaluationResults: simResultsToXML(results),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

@@ -785,16 +785,17 @@ func (b *InMemoryBackend) CreateDistribution(
 
 	id := generateID()
 	d := &Distribution{
-		ID:              id,
-		ARN:             b.distributionARN(id),
-		DomainName:      strings.ToLower(id) + ".cloudfront.net",
-		Status:          statusDeployed,
-		ETag:            uuid.NewString(),
-		CallerReference: callerRef,
-		Comment:         comment,
-		Enabled:         enabled,
-		RawConfig:       rawConfig,
-		Tags:            make(map[string]string),
+		ID:               id,
+		ARN:              b.distributionARN(id),
+		DomainName:       strings.ToLower(id) + ".cloudfront.net",
+		Status:           statusDeployed,
+		ETag:             uuid.NewString(),
+		CallerReference:  callerRef,
+		Comment:          comment,
+		Enabled:          enabled,
+		RawConfig:        rawConfig,
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
+		Tags:             make(map[string]string),
 	}
 	b.distributions[id] = d
 	b.distributionARNs[d.ARN] = id
@@ -835,6 +836,8 @@ func (b *InMemoryBackend) UpdateDistribution(
 	d.Enabled = enabled
 	d.RawConfig = rawConfig
 	d.ETag = uuid.NewString()
+	d.Status = statusInProgress
+	d.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := b.copyDistribution(d)
 
 	return cp, nil
@@ -1046,11 +1049,30 @@ func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error
 	return cp, nil
 }
 
+// CountInProgressInvalidations returns the number of in-progress invalidations for a distribution.
+func (b *InMemoryBackend) CountInProgressInvalidations(distributionID string) int {
+	b.mu.RLock("CountInProgressInvalidations")
+	defer b.mu.RUnlock()
+
+	count := 0
+	for _, inv := range b.invalidations[distributionID] {
+		if inv.Status == statusInProgress {
+			count++
+		}
+	}
+
+	return count
+}
+
 // CreateInvalidation creates a new cache invalidation for the given distribution.
 func (b *InMemoryBackend) CreateInvalidation(
 	distributionID, callerRef string,
 	paths []string,
 ) (*Invalidation, error) {
+	if callerRef == "" {
+		return nil, fmt.Errorf("%w: CallerReference must not be empty", ErrValidation)
+	}
+
 	if err := validateInvalidationPaths(paths); err != nil {
 		return nil, err
 	}
@@ -1218,16 +1240,17 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 	copy(rawCopy, src.RawConfig)
 
 	d := &Distribution{
-		ID:              id,
-		ARN:             b.distributionARN(id),
-		DomainName:      strings.ToLower(id) + ".cloudfront.net",
-		Status:          statusDeployed,
-		ETag:            uuid.NewString(),
-		CallerReference: callerRef,
-		Comment:         src.Comment,
-		Enabled:         src.Enabled,
-		RawConfig:       rawCopy,
-		Tags:            make(map[string]string),
+		ID:               id,
+		ARN:              b.distributionARN(id),
+		DomainName:       strings.ToLower(id) + ".cloudfront.net",
+		Status:           statusDeployed,
+		ETag:             uuid.NewString(),
+		CallerReference:  callerRef,
+		Comment:          src.Comment,
+		Enabled:          src.Enabled,
+		RawConfig:        rawCopy,
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
+		Tags:             make(map[string]string),
 	}
 
 	b.distributions[id] = d

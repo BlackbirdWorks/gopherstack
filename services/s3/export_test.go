@@ -142,6 +142,29 @@ func BackdateObjectForTest(b *InMemoryBackend, bucketName, key string, t time.Ti
 	obj.mu.Unlock()
 }
 
+// BackdateUploadForTest sets the Initiated time of a multipart upload to t.
+// Used in janitor tests to simulate aged uploads without waiting.
+func BackdateUploadForTest(b *InMemoryBackend, bucket string, uploadID *string, t time.Time) {
+	if uploadID == nil {
+		return
+	}
+
+	b.mu.RLock("BackdateUploadForTest")
+	upload := b.uploads[bucket][*uploadID]
+	b.mu.RUnlock()
+
+	if upload == nil {
+		return
+	}
+
+	// Mutate directly — Initiated has no per-upload lock.
+	b.mu.Lock("BackdateUploadForTest.write")
+	if u := b.uploads[bucket][*uploadID]; u != nil {
+		u.Initiated = t
+	}
+	b.mu.Unlock()
+}
+
 // StorageClassTransitionsForObject returns the StorageClassTransitions history
 // for the latest version of an object. Used in janitor transition tests.
 func StorageClassTransitionsForObject(

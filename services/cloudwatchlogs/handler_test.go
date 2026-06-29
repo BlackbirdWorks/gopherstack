@@ -656,7 +656,13 @@ func TestHandler_InsightsWorkflow(t *testing.T) {
 
 	// Set up log group, stream, and events.
 	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/insights/test"}`)
-	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"/insights/test","logStreamName":"stream1"}`)
+	doLogsRequest(
+		t,
+		h,
+		e,
+		"CreateLogStream",
+		`{"logGroupName":"/insights/test","logStreamName":"stream1"}`,
+	)
 	doLogsRequest(t, h, e, "PutLogEvents", `{
 "logGroupName":"/insights/test","logStreamName":"stream1",
 "logEvents":[
@@ -699,6 +705,14 @@ func TestHandler_InsightsWorkflow(t *testing.T) {
 	queries, ok := descOut["queries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, queries, 1)
+
+	// Put query into Running state so StopQuery can cancel it (AWS parity: StopQuery
+	// returns InvalidOperationException if the query is already Complete).
+	cloudwatchlogs.SetQueryStatusInternal(
+		h.Backend.(*cloudwatchlogs.InMemoryBackend),
+		queryID,
+		cloudwatchlogs.QueryStatusRunning,
+	)
 
 	// StopQuery cancels the query.
 	rec4 := doLogsRequest(t, h, e, "StopQuery", `{"queryId":"`+queryID+`"}`)
@@ -958,7 +972,13 @@ func TestHandler_DeleteLogStream(t *testing.T) {
 	assert.Empty(t, desc2["logStreams"])
 
 	// Delete non-existent stream → 404.
-	rec = doLogsRequest(t, h, e, "DeleteLogStream", `{"logGroupName":"g","logStreamName":"nonexistent"}`)
+	rec = doLogsRequest(
+		t,
+		h,
+		e,
+		"DeleteLogStream",
+		`{"logGroupName":"g","logStreamName":"nonexistent"}`,
+	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
@@ -1033,9 +1053,12 @@ func TestHandler_NewOperations(t *testing.T) {
 	}{
 		// AssociateKmsKey
 		{
-			name:     "AssociateKmsKey/LogGroup",
-			action:   "AssociateKmsKey",
-			body:     map[string]any{"logGroupName": "/my/group", "kmsKeyId": "arn:aws:kms:us-east-1:123:key/abc"},
+			name:   "AssociateKmsKey/LogGroup",
+			action: "AssociateKmsKey",
+			body: map[string]any{
+				"logGroupName": "/my/group",
+				"kmsKeyId":     "arn:aws:kms:us-east-1:123:key/abc",
+			},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -1114,9 +1137,11 @@ func TestHandler_NewOperations(t *testing.T) {
 			wantKey:  "delivery",
 		},
 		{
-			name:     "CreateDelivery/MissingSource",
-			action:   "CreateDelivery",
-			body:     map[string]any{"deliveryDestinationArn": "arn:aws:logs:us-east-1:123:delivery-destination:dst"},
+			name:   "CreateDelivery/MissingSource",
+			action: "CreateDelivery",
+			body: map[string]any{
+				"deliveryDestinationArn": "arn:aws:logs:us-east-1:123:delivery-destination:dst",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -1127,9 +1152,14 @@ func TestHandler_NewOperations(t *testing.T) {
 		},
 		// CreateExportTask
 		{
-			name:     "CreateExportTask/OK",
-			action:   "CreateExportTask",
-			body:     map[string]any{"logGroupName": "/my/group", "destination": "my-bucket", "from": 1000, "to": 2000},
+			name:   "CreateExportTask/OK",
+			action: "CreateExportTask",
+			body: map[string]any{
+				"logGroupName": "/my/group",
+				"destination":  "my-bucket",
+				"from":         1000,
+				"to":           2000,
+			},
 			wantCode: http.StatusOK,
 			wantKey:  "taskId",
 		},
@@ -1157,9 +1187,11 @@ func TestHandler_NewOperations(t *testing.T) {
 			wantKey:  "importId",
 		},
 		{
-			name:     "CreateImportTask/MissingRoleArn",
-			action:   "CreateImportTask",
-			body:     map[string]any{"importSourceArn": "arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc"},
+			name:   "CreateImportTask/MissingRoleArn",
+			action: "CreateImportTask",
+			body: map[string]any{
+				"importSourceArn": "arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -1170,9 +1202,11 @@ func TestHandler_NewOperations(t *testing.T) {
 		},
 		// CreateLogAnomalyDetector
 		{
-			name:     "CreateLogAnomalyDetector/OK",
-			action:   "CreateLogAnomalyDetector",
-			body:     map[string]any{"logGroupArnList": []string{"arn:aws:logs:us-east-1:123:log-group:/my/group"}},
+			name:   "CreateLogAnomalyDetector/OK",
+			action: "CreateLogAnomalyDetector",
+			body: map[string]any{
+				"logGroupArnList": []string{"arn:aws:logs:us-east-1:123:log-group:/my/group"},
+			},
 			wantCode: http.StatusOK,
 			wantKey:  "anomalyDetectorArn",
 		},
@@ -1223,9 +1257,12 @@ func TestHandler_NewOperations(t *testing.T) {
 		},
 		// DeleteAccountPolicy
 		{
-			name:     "DeleteAccountPolicy/OK",
-			action:   "DeleteAccountPolicy",
-			body:     map[string]any{"policyName": "my-policy", "policyType": "DATA_PROTECTION_POLICY"},
+			name:   "DeleteAccountPolicy/OK",
+			action: "DeleteAccountPolicy",
+			body: map[string]any{
+				"policyName": "my-policy",
+				"policyType": "DATA_PROTECTION_POLICY",
+			},
 			wantCode: http.StatusOK,
 		},
 		{

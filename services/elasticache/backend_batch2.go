@@ -343,7 +343,7 @@ func (b *InMemoryBackend) DeleteUserSafe(ctx context.Context, userID string) (*U
 func (b *InMemoryBackend) AppendUpdateActions(actions []*UpdateAction) {
 	b.mu.Lock("AppendUpdateActions")
 	defer b.mu.Unlock()
-	b.updateActions = append(b.updateActions, actions...)
+	b.appendUpdateActionsLocked(actions...)
 }
 
 // ListUpdateActionsByServiceUpdate returns update actions filtered by service update name.

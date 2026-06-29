@@ -1086,7 +1086,7 @@ func TestRDSHandler_FormActions(t *testing.T) {
 				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=logportion-db&Engine=postgres",
 			},
 			body: "Action=DownloadDBLogFilePortion&Version=2014-10-31" +
-				"&DBInstanceIdentifier=logportion-db&LogFileName=error.log",
+				"&DBInstanceIdentifier=logportion-db&LogFileName=error/postgresql.log",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DownloadDBLogFilePortionResponse"},
 		},

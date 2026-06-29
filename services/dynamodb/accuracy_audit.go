@@ -105,7 +105,10 @@ func sumCapacityMaps(
 }
 
 // buildBaseConsumedCapacity creates the base ConsumedCapacity with table name and totals.
-func buildBaseConsumedCapacity(tableName string, totalRCU, totalWCU float64) *types.ConsumedCapacity {
+func buildBaseConsumedCapacity(
+	tableName string,
+	totalRCU, totalWCU float64,
+) *types.ConsumedCapacity {
 	cc := &types.ConsumedCapacity{
 		TableName:     aws.String(tableName),
 		CapacityUnits: aws.Float64(totalRCU + totalWCU),
@@ -582,14 +585,22 @@ func validateEAVTypes(eav map[string]any) error {
 
 		if len(m) != 1 {
 			return NewValidationException(
-				fmt.Sprintf("ExpressionAttributeValues[%q]: expected exactly one type key, got %d", name, len(m)),
+				fmt.Sprintf(
+					"ExpressionAttributeValues[%q]: expected exactly one type key, got %d",
+					name,
+					len(m),
+				),
 			)
 		}
 
 		for typeKey := range m {
 			if !isValidDynamoDBTypeKey(typeKey) {
 				return NewValidationException(
-					fmt.Sprintf("ExpressionAttributeValues[%q]: unknown type key %q", name, typeKey),
+					fmt.Sprintf(
+						"ExpressionAttributeValues[%q]: unknown type key %q",
+						name,
+						typeKey,
+					),
 				)
 			}
 		}
@@ -1043,44 +1054,87 @@ func validateCreateTableKeySchema(schema []models.KeySchemaElement) error {
 func validateGSIThroughput(
 	gsis []types.GlobalSecondaryIndex, billingMode types.BillingMode,
 ) error {
-	if billingMode == types.BillingModePayPerRequest {
-		return nil
-	}
-
-	// PROVISIONED: only validate GSIs that explicitly supplied a throughput
-	// block — a nil ProvisionedThroughput is allowed so tests and SDK clients
-	// can lean on the backend's default capacity (matches existing
-	// validateProvisionedThroughput behaviour for the table itself).
+	isPPR := billingMode == types.BillingModePayPerRequest
 	for _, g := range gsis {
-		pt := g.ProvisionedThroughput
-		if pt == nil {
-			continue
-		}
-
-		if pt.ReadCapacityUnits != nil && *pt.ReadCapacityUnits <= 0 {
-			return NewValidationException(
-				"One or more parameter values were invalid: " +
-					"GSI ReadCapacityUnits must be a positive number",
-			)
-		}
-		if pt.WriteCapacityUnits != nil && *pt.WriteCapacityUnits <= 0 {
-			return NewValidationException(
-				"One or more parameter values were invalid: " +
-					"GSI WriteCapacityUnits must be a positive number",
-			)
+		if err := validateGSIThroughputEntry(g.ProvisionedThroughput, isPPR); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-func validateProvisionedThroughput(pt *types.ProvisionedThroughput, billingMode types.BillingMode) error {
-	if billingMode == types.BillingModePayPerRequest {
+// validateGSIThroughputEntry validates a single GSI's ProvisionedThroughput against the
+// table billing mode. isPPR is true when the table uses PAY_PER_REQUEST billing.
+func validateGSIThroughputEntry(pt *types.ProvisionedThroughput, isPPR bool) error {
+	if pt == nil {
 		return nil
 	}
 
+	if isPPR {
+		if (pt.ReadCapacityUnits != nil && *pt.ReadCapacityUnits > 0) ||
+			(pt.WriteCapacityUnits != nil && *pt.WriteCapacityUnits > 0) {
+			return NewValidationException(
+				"One or more parameter values were invalid: " +
+					"Neither ReadCapacityUnits nor WriteCapacityUnits can be specified on a GSI when BillingMode is PAY_PER_REQUEST",
+			)
+		}
+
+		return nil
+	}
+
+	if pt.ReadCapacityUnits != nil && *pt.ReadCapacityUnits <= 0 {
+		return NewValidationException(
+			"One or more parameter values were invalid: " +
+				"GSI ReadCapacityUnits must be a positive number",
+		)
+	}
+
+	if pt.WriteCapacityUnits != nil && *pt.WriteCapacityUnits <= 0 {
+		return NewValidationException(
+			"One or more parameter values were invalid: " +
+				"GSI WriteCapacityUnits must be a positive number",
+		)
+	}
+
+	return nil
+}
+
+func validateProvisionedThroughput(
+	pt *types.ProvisionedThroughput,
+	billingMode types.BillingMode,
+) error {
+	if billingMode == types.BillingModePayPerRequest {
+		// PAY_PER_REQUEST tables must not have explicit positive throughput.
+		if pt != nil && pt.ReadCapacityUnits != nil && *pt.ReadCapacityUnits > 0 {
+			return NewValidationException(
+				"One or more parameter values were invalid: " +
+					"Neither ReadCapacityUnits nor WriteCapacityUnits can be specified when BillingMode is PAY_PER_REQUEST",
+			)
+		}
+		if pt != nil && pt.WriteCapacityUnits != nil && *pt.WriteCapacityUnits > 0 {
+			return NewValidationException(
+				"One or more parameter values were invalid: " +
+					"Neither ReadCapacityUnits nor WriteCapacityUnits can be specified when BillingMode is PAY_PER_REQUEST",
+			)
+		}
+
+		return nil
+	}
+
+	// PROVISIONED (or default): nil throughput is allowed (caller uses defaults).
+	// Explicit PROVISIONED with nil throughput is an error on real AWS, but many
+	// existing callers omit throughput when relying on defaults, so we only
+	// validate when throughput is explicitly provided.
 	if pt == nil {
-		return nil // caller relies on defaults; validated by the SDK in production
+		if billingMode == types.BillingModeProvisioned {
+			return NewValidationException(
+				"One or more parameter values were invalid: " +
+					"ReadCapacityUnits and WriteCapacityUnits must be specified for tables with PROVISIONED billing mode",
+			)
+		}
+
+		return nil
 	}
 
 	if pt.ReadCapacityUnits != nil && *pt.ReadCapacityUnits <= 0 {
@@ -1119,7 +1173,8 @@ func validateNumberNoLeadingZeros(k, n string) error {
 	}
 
 	// "0" alone is fine; "0.5" is fine (decimal); "01", "007" are not.
-	if len(s) >= minLeadingZeroCheckLen && s[0] == '0' && s[1] != '.' && s[1] != 'e' && s[1] != 'E' {
+	if len(s) >= minLeadingZeroCheckLen && s[0] == '0' && s[1] != '.' && s[1] != 'e' &&
+		s[1] != 'E' {
 		return NewValidationException(
 			fmt.Sprintf(
 				"The parameter cannot be converted to a numeric value: %s. "+

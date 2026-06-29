@@ -2,9 +2,11 @@ package dataplane
 
 import (
 	"bytes"
+	"errors"
 	"maps"
 	"sort"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
@@ -159,15 +161,19 @@ func (r *Reader) readBoolOrInt() (bool, error) {
 // handleGetItem decodes a GetItem request, delegates to the backend, and writes
 // the DAX-shaped response.
 func (s *Server) handleGetItem(r *Reader, w *Writer) error {
-	table, key, _, err := s.readKeyedRequest(r)
+	table, key, params, err := s.readKeyedRequest(r)
 	if err != nil {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
-	out, err := s.backend.GetItem(ctx, &awsddb.GetItemInput{TableName: &table, Key: key})
+	out, err := s.backend.GetItem(ctx, &awsddb.GetItemInput{
+		TableName:      &table,
+		Key:            key,
+		ConsistentRead: aws.Bool(params.consistentRead),
+	})
 	if err != nil {
 		return s.writeBackendError(w, err)
 	}
@@ -196,7 +202,7 @@ func (s *Server) handlePutItem(r *Reader, w *Writer) error {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	ks, err := s.schemaFor(ctx, table)
@@ -249,7 +255,7 @@ func (s *Server) handleDeleteItem(r *Reader, w *Writer) error {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	in := &awsddb.DeleteItemInput{TableName: &table, Key: key}
@@ -286,7 +292,7 @@ func (s *Server) readKeyedRequest(r *Reader) (string, map[string]types.Attribute
 		return "", nil, itemOpParams{}, err
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	ks, err := s.schemaFor(ctx, table)
@@ -401,6 +407,36 @@ func (s *Server) writeNonKeyAttributes(w *Writer, item map[string]types.Attribut
 
 // writeBackendError maps a DynamoDB backend error onto a DAX error response.
 func (s *Server) writeBackendError(w *Writer, err error) error {
+	var condFailed *types.ConditionalCheckFailedException
+	if errors.As(err, &condFailed) {
+		return s.writeError(w, statusBadRequest, "ConditionalCheckFailedException", err.Error())
+	}
+
+	var resNotFound *types.ResourceNotFoundException
+	if errors.As(err, &resNotFound) {
+		return s.writeError(w, statusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	var txCanceled *types.TransactionCanceledException
+	if errors.As(err, &txCanceled) {
+		return s.writeError(w, statusBadRequest, "TransactionCanceledException", err.Error())
+	}
+
+	var txConflict *types.TransactionConflictException
+	if errors.As(err, &txConflict) {
+		return s.writeError(w, statusBadRequest, "TransactionConflictException", err.Error())
+	}
+
+	var throughputExceeded *types.ProvisionedThroughputExceededException
+	if errors.As(err, &throughputExceeded) {
+		return s.writeError(w, statusBadRequest, "ProvisionedThroughputExceededException", err.Error())
+	}
+
+	var itemSizeExceeded *types.ItemCollectionSizeLimitExceededException
+	if errors.As(err, &itemSizeExceeded) {
+		return s.writeError(w, statusBadRequest, "ItemCollectionSizeLimitExceededException", err.Error())
+	}
+
 	return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 }
 

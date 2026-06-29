@@ -250,14 +250,30 @@ type createServiceInput struct {
 	Tags                  []tagInput                  `json:"Tags"`
 }
 
+type instanceConfigurationOutput struct {
+	CPU    string `json:"Cpu,omitempty"`
+	Memory string `json:"Memory,omitempty"`
+}
+
+type imageRepositoryOutput struct {
+	ImageIdentifier     string `json:"ImageIdentifier"`
+	ImageRepositoryType string `json:"ImageRepositoryType,omitempty"`
+}
+
+type sourceConfigurationOutput struct {
+	ImageRepository *imageRepositoryOutput `json:"ImageRepository,omitempty"`
+}
+
 type serviceOutput struct {
-	ServiceArn  string `json:"ServiceArn"`
-	ServiceID   string `json:"ServiceId"`
-	ServiceName string `json:"ServiceName"`
-	ServiceURL  string `json:"ServiceUrl"`
-	Status      string `json:"Status"`
-	CreatedAt   int64  `json:"CreatedAt"`
-	UpdatedAt   int64  `json:"UpdatedAt"`
+	InstanceConfiguration *instanceConfigurationOutput `json:"InstanceConfiguration,omitempty"`
+	SourceConfiguration   *sourceConfigurationOutput   `json:"SourceConfiguration,omitempty"`
+	ServiceArn            string                       `json:"ServiceArn"`
+	ServiceID             string                       `json:"ServiceId"`
+	ServiceName           string                       `json:"ServiceName"`
+	ServiceURL            string                       `json:"ServiceUrl"`
+	Status                string                       `json:"Status"`
+	CreatedAt             int64                        `json:"CreatedAt"`
+	UpdatedAt             int64                        `json:"UpdatedAt"`
 }
 
 type createServiceOutput struct {
@@ -266,7 +282,7 @@ type createServiceOutput struct {
 }
 
 func toServiceOutput(svc *Service) serviceOutput {
-	return serviceOutput{
+	out := serviceOutput{
 		ServiceArn:  svc.ServiceArn,
 		ServiceID:   svc.ServiceID,
 		ServiceName: svc.ServiceName,
@@ -275,6 +291,23 @@ func toServiceOutput(svc *Service) serviceOutput {
 		CreatedAt:   svc.CreatedAt.Unix(),
 		UpdatedAt:   svc.UpdatedAt.Unix(),
 	}
+
+	if svc.CPU != "" || svc.Memory != "" {
+		out.InstanceConfiguration = &instanceConfigurationOutput{
+			CPU:    svc.CPU,
+			Memory: svc.Memory,
+		}
+	}
+
+	if svc.ImageURI != "" {
+		out.SourceConfiguration = &sourceConfigurationOutput{
+			ImageRepository: &imageRepositoryOutput{
+				ImageIdentifier: svc.ImageURI,
+			},
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateService(
@@ -1576,9 +1609,14 @@ func (h *Handler) handleAssociateCustomDomain(
 		return nil, err
 	}
 
+	svc, err := h.Backend.DescribeService(in.ServiceArn)
+	if err != nil {
+		return nil, err
+	}
+
 	return &associateCustomDomainOutput{
 		CustomDomain: toCustomDomainOutput(cd),
-		DNSTarget:    in.DomainName,
+		DNSTarget:    svc.ServiceURL,
 		ServiceArn:   in.ServiceArn,
 	}, nil
 }
@@ -1611,9 +1649,14 @@ func (h *Handler) handleDisassociateCustomDomain(
 		return nil, err
 	}
 
+	svc, err := h.Backend.DescribeService(in.ServiceArn)
+	if err != nil {
+		return nil, err
+	}
+
 	return &disassociateCustomDomainOutput{
 		CustomDomain: toCustomDomainOutput(cd),
-		DNSTarget:    in.DomainName,
+		DNSTarget:    svc.ServiceURL,
 		ServiceArn:   in.ServiceArn,
 	}, nil
 }

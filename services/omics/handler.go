@@ -158,6 +158,7 @@ const (
 	keyNextToken  = "nextToken"
 	keyImportJobs = "importJobs"
 	keyErrors     = "errors"
+	keyTags       = "tags"
 )
 
 // Handler handles HealthOmics HTTP requests.
@@ -1195,7 +1196,7 @@ func (h *Handler) handleDeleteReferenceStore(c *echo.Context, id string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	return c.JSON(http.StatusOK, map[string]any{"id": id})
 }
 
 func (h *Handler) handleGetReferenceStore(c *echo.Context, id string) error {
@@ -1349,7 +1350,7 @@ func (h *Handler) handleDeleteSequenceStore(c *echo.Context, id string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	return c.JSON(http.StatusOK, map[string]any{"id": id})
 }
 
 func (h *Handler) handleGetSequenceStore(c *echo.Context, id string) error {
@@ -1812,18 +1813,24 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 		WorkflowID string            `json:"workflowId"`
 		RoleArn    string            `json:"roleArn"`
 		Name       string            `json:"name"`
+		RunBatchID string            `json:"runBatchId"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	run, err := h.Backend.StartRun(req.WorkflowID, req.RoleArn, req.Name, req.Parameters, req.Tags)
+	run, err := h.Backend.StartRun(req.WorkflowID, req.RoleArn, req.Name, req.RunBatchID, req.Parameters, req.Tags)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, run)
+	return c.JSON(http.StatusCreated, map[string]any{
+		"arn":    run.Arn,
+		"id":     run.ID,
+		"status": run.Status,
+		keyTags:  run.Tags,
+	})
 }
 
 func (h *Handler) handleCancelRun(c *echo.Context, id string) error {
@@ -1888,6 +1895,7 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		Name          string            `json:"name"`
 		Description   string            `json:"description"`
 		Engine        string            `json:"engine"`
+		DefinitionURI string            `json:"definitionUri"`
 		DefinitionZip []byte            `json:"definitionZip"`
 	}
 
@@ -1899,6 +1907,7 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		req.Name,
 		req.Description,
 		string(req.DefinitionZip),
+		req.DefinitionURI,
 		req.Engine,
 		req.Tags,
 	)
@@ -1906,7 +1915,12 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, wf)
+	return c.JSON(http.StatusCreated, map[string]any{
+		"arn":    wf.Arn,
+		"id":     wf.ID,
+		"status": wf.Status,
+		keyTags:  wf.Tags,
+	})
 }
 
 func (h *Handler) handleDeleteWorkflow(c *echo.Context, id string) error {
@@ -1951,7 +1965,12 @@ func (h *Handler) handleUpdateWorkflow(c *echo.Context, id string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	wf, err := h.Backend.GetWorkflow(id)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, wf)
 }
 
 func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string) error {
@@ -2030,16 +2049,26 @@ func (h *Handler) handleUpdateWorkflowVersion(
 
 func (h *Handler) handleCreateAnnotationStore(c *echo.Context) error {
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		Name        string            `json:"name"`
-		StoreFormat string            `json:"storeFormat"`
+		Tags         map[string]string `json:"tags"`
+		Reference    map[string]any    `json:"reference"`
+		SseConfig    map[string]any    `json:"sseConfig"`
+		StoreOptions map[string]any    `json:"storeOptions"`
+		Name         string            `json:"name"`
+		StoreFormat  string            `json:"storeFormat"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	as, err := h.Backend.CreateAnnotationStore(req.Name, req.StoreFormat, req.Tags)
+	as, err := h.Backend.CreateAnnotationStore(
+		req.Name,
+		req.StoreFormat,
+		req.Reference,
+		req.SseConfig,
+		req.StoreOptions,
+		req.Tags,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -2251,15 +2280,16 @@ func (h *Handler) handleUpdateAnnotationStoreVersion(
 
 func (h *Handler) handleCreateVariantStore(c *echo.Context) error {
 	var req struct {
-		Tags map[string]string `json:"tags"`
-		Name string            `json:"name"`
+		Tags      map[string]string `json:"tags"`
+		Reference map[string]any    `json:"reference"`
+		Name      string            `json:"name"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	vs, err := h.Backend.CreateVariantStore(req.Name, req.Tags)
+	vs, err := h.Backend.CreateVariantStore(req.Name, req.Reference, req.Tags)
 	if err != nil {
 		return h.mapError(c, err)
 	}

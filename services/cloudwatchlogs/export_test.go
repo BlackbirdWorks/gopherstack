@@ -65,6 +65,25 @@ func AddLogAnomalyDetectorInternal(b *InMemoryBackend, detector LogAnomalyDetect
 	b.AddLogAnomalyDetectorInternal(detector)
 }
 
+// AddAnomalyInternal exposes the backend seeding helper for testing.
+func AddAnomalyInternal(b *InMemoryBackend, anomaly Anomaly) {
+	b.AddAnomalyInternal(anomaly)
+}
+
+// AddScheduledQueryRunInternal exposes the backend seeding helper for testing.
+func AddScheduledQueryRunInternal(
+	b *InMemoryBackend,
+	scheduledQueryArn string,
+	run ScheduledQueryRunSummary,
+) {
+	b.AddScheduledQueryRunInternal(scheduledQueryArn, run)
+}
+
+// SetQueryStatusInternal exposes the backend query-status setter for testing.
+func SetQueryStatusInternal(b *InMemoryBackend, queryID string, status QueryStatus) {
+	b.SetQueryStatusInternal(queryID, status)
+}
+
 // GetParsedInsightsQueryCacheSize returns the parsed Insights query cache size.
 func (b *InMemoryBackend) GetParsedInsightsQueryCacheSize() int {
 	b.mu.RLock("GetParsedInsightsQueryCacheSize")

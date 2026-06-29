@@ -785,6 +785,19 @@ type Backend interface {
 		httpTokens, httpEndpoint, instanceMetadataTags string,
 		hopLimit int,
 	) error
+	ModifyInstancePlacement(instanceID string, placement InstancePlacement) (*Instance, error)
+	ModifyInstanceCPUOptions(
+		instanceID string,
+		opts InstanceCPUOptions,
+	) (*Instance, error)
+	ModifyInstanceMaintenanceOptions(
+		instanceID string,
+		opts InstanceMaintenanceOptions,
+	) (*Instance, error)
+	ModifyInstanceNetworkPerformanceOptions(
+		instanceID string,
+		opts InstanceNetworkPerformanceOptions,
+	) (*Instance, error)
 	DescribeInstanceCreditSpecifications(ids []string) []InstanceCreditSpec
 	ModifyInstanceCreditSpecification(instanceID, cpuCredits string) error
 	DescribeInstanceTopology(ids []string) []InstanceTopologyItem
@@ -898,6 +911,10 @@ type Backend interface {
 	DeleteInstanceEventWindow(id string) error
 	DescribeInstanceEventWindows(ids []string) []*InstanceEventWindow
 	ModifyInstanceEventWindow(id, name, cronExpression string) error
+	AssociateInstanceEventWindow(
+		id string,
+		instanceIDs, instanceTags, dedicatedHostIDs []string,
+	) (*InstanceEventWindow, error)
 	CreateSpotDatafeedSubscription(bucket, prefix string) (*SpotDatafeed, error)
 	DeleteSpotDatafeedSubscription()
 	DescribeSpotDatafeedSubscription() *SpotDatafeed

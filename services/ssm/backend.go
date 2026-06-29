@@ -54,7 +54,6 @@ const (
 	StringType        = "String"
 	StringListType    = "StringList"
 	SecureStringType  = "SecureString"
-	mockKMSKeyStr     = "gopherstack-mock-kms-key-32byte!"
 	maxHistoryResults = 50
 	// defaultCommandExpirySecs is the default TTL for SSM commands in seconds (1 hour).
 	// AWS SSM commands expire after 1 hour by default.
@@ -110,15 +109,19 @@ func validateParameterName(name string) error {
 	return nil
 }
 
-// mockGCM is a package-level GCM cipher instance built once from the mock KMS key.
-// The AES block and GCM AEAD are stateless after construction, so sharing is safe.
-//
-//nolint:gochecknoglobals // intentional package-level singleton for GCM pool optimisation
-var mockGCM cipher.AEAD
+// aes256KeyLen is the byte length of an AES-256 key.
+const aes256KeyLen = 32
 
-//nolint:gochecknoinits // init is the correct place to initialise the GCM singleton
-func init() {
-	block, err := aes.NewCipher([]byte(mockKMSKeyStr))
+// newInstanceGCM generates a random AES-256 key and returns a GCM cipher for
+// it. Each InMemoryBackend instance calls this once so that different instances
+// have distinct keys and their ciphertexts are not interchangeable.
+func newInstanceGCM() cipher.AEAD {
+	key := make([]byte, aes256KeyLen)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		panic("ssm: failed to generate instance KMS key: " + err.Error())
+	}
+
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		panic("ssm: failed to create AES cipher: " + err.Error())
 	}
@@ -128,36 +131,36 @@ func init() {
 		panic("ssm: failed to create GCM: " + err.Error())
 	}
 
-	mockGCM = gcm
+	return gcm
 }
 
-// encryptValue encrypts a value using AES-256 (mock KMS encryption).
-func encryptValue(plaintext string) (string, error) {
-	nonce := make([]byte, mockGCM.NonceSize())
+// encryptValue encrypts a value using the provided AES-GCM cipher.
+func encryptValue(gcm cipher.AEAD, plaintext string) (string, error) {
+	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", err
 	}
 
-	ciphertext := mockGCM.Seal(nonce, nonce, []byte(plaintext), nil)
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
 
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// decryptValue decrypts a value encrypted with encryptValue.
-func decryptValue(ciphertext string) (string, error) {
+// decryptValue decrypts a value encrypted with encryptValue using the same cipher.
+func decryptValue(gcm cipher.AEAD, ciphertext string) (string, error) {
 	ciphertextBytes, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {
 		return "", err
 	}
 
-	nonceSize := mockGCM.NonceSize()
+	nonceSize := gcm.NonceSize()
 	if len(ciphertextBytes) < nonceSize {
 		return "", ErrCiphertextTooShort
 	}
 
 	nonce, ciphertextOnly := ciphertextBytes[:nonceSize], ciphertextBytes[nonceSize:]
 
-	plaintext, err := mockGCM.Open(nil, nonce, ciphertextOnly, nil)
+	plaintext, err := gcm.Open(nil, nonce, ciphertextOnly, nil)
 	if err != nil {
 		return "", err
 	}
@@ -176,24 +179,22 @@ type KMSEncryptor interface {
 
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
-	kms                      KMSEncryptor
-	activations              map[string]map[string]Activation
-	maintenanceWindows       map[string]map[string]MaintenanceWindow
-	maintenanceWindowTargets map[string]map[string]MaintenanceWindowTarget
-	maintenanceWindowTasks   map[string]map[string]MaintenanceWindowTask
-	sessions                 map[string]map[string]Session
-	patchGroupToBaseline     map[string]map[string]string
-	tags                     map[string]map[string]*tags.Tags
-	associations             map[string]map[string]Association
-	documentVersions         map[string]map[string][]DocumentVersion
-	documentPermissions      map[string]map[string][]string
-	commands                 map[string]map[string]Command
-	commandInvocations       map[string]map[string][]CommandInvocation
-	history                  map[string]map[string][]ParameterHistory
-	parameters               map[string]map[string]Parameter
-	// paramNamesSorted holds per-region parameter names in sorted order for
-	// binary-search prefix lookups in GetParametersByPath (O(log n + k) vs O(n)).
-	paramNamesSorted           map[string][]string
+	kms                        KMSEncryptor
+	gcm                        cipher.AEAD // per-instance key; not shared across backends
+	activations                map[string]map[string]Activation
+	maintenanceWindows         map[string]map[string]MaintenanceWindow
+	maintenanceWindowTargets   map[string]map[string]MaintenanceWindowTarget
+	maintenanceWindowTasks     map[string]map[string]MaintenanceWindowTask
+	sessions                   map[string]map[string]Session
+	patchGroupToBaseline       map[string]map[string]string
+	tags                       map[string]map[string]*tags.Tags
+	associations               map[string]map[string]Association
+	documentVersions           map[string]map[string][]DocumentVersion
+	documentPermissions        map[string]map[string][]string
+	commands                   map[string]map[string]Command
+	commandInvocations         map[string]map[string][]CommandInvocation
+	history                    map[string]map[string][]ParameterHistory
+	parameters                 map[string]map[string]Parameter
 	documents                  map[string]map[string]Document
 	opsItems                   map[string]map[string]OpsItem
 	opsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem
@@ -221,8 +222,8 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new empty InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
+		gcm:                        newInstanceGCM(),
 		parameters:                 make(map[string]map[string]Parameter),
-		paramNamesSorted:           make(map[string][]string),
 		history:                    make(map[string]map[string][]ParameterHistory),
 		tags:                       make(map[string]map[string]*tags.Tags),
 		documents:                  make(map[string]map[string]Document),
@@ -318,24 +319,6 @@ func (b *InMemoryBackend) documentPermissionsStore(region string) map[string][]s
 
 func (b *InMemoryBackend) commandsStore(region string) map[string]Command {
 	return b.commands[region]
-}
-
-// expireCommandsLocked removes commands (and their invocations) in the region
-// whose ExpiresAfter timestamp has passed. It mirrors the background janitor's
-// sweep so commands are pruned on the write path even when the janitor is
-// disabled or runs at a long interval. The backend mutex must be held.
-func (b *InMemoryBackend) expireCommandsLocked(region string, now float64) {
-	commands := b.commands[region]
-	if commands == nil {
-		return
-	}
-
-	for id, cmd := range commands {
-		if cmd.ExpiresAfter > 0 && cmd.ExpiresAfter < now {
-			delete(commands, id)
-			delete(b.commandInvocations[region], id)
-		}
-	}
 }
 
 func (b *InMemoryBackend) commandInvocationsStore(region string) map[string][]CommandInvocation {
@@ -459,12 +442,12 @@ func (b *InMemoryBackend) encryptSSMValue(keyID, plaintext string) (string, erro
 		return base64.StdEncoding.EncodeToString(ct), nil
 	}
 
-	return encryptValue(plaintext)
+	return encryptValue(b.gcm, plaintext)
 }
 
 // decryptSSMValue decrypts a stored SecureString value.  When the value was
 // encrypted with KMS (detected by attempting KMS decrypt when a backend is
-// available), the KMS path is used; otherwise falls back to the mock cipher.
+// available), the KMS path is used; otherwise falls back to the instance cipher.
 func (b *InMemoryBackend) decryptSSMValue(keyID, ciphertext string) (string, error) {
 	if keyID != "" && b.kms != nil {
 		ct, err := base64.StdEncoding.DecodeString(ciphertext)
@@ -479,7 +462,7 @@ func (b *InMemoryBackend) decryptSSMValue(keyID, ciphertext string) (string, err
 		return string(pt), nil
 	}
 
-	return decryptValue(ciphertext)
+	return decryptValue(b.gcm, ciphertext)
 }
 
 // PutParameter creates or updates a parameter.
@@ -777,9 +760,6 @@ func (b *InMemoryBackend) PutParameter(
 	}
 
 	params[input.Name] = param
-	if !exists {
-		b.insertSortedParamName(region, input.Name)
-	}
 
 	// Store in history (store encrypted value for SecureString)
 	paramHistory := ParameterHistory{
@@ -915,13 +895,14 @@ func (b *InMemoryBackend) DeleteParameter(
 
 	delete(params, input.Name)
 	delete(b.historyStore(region), input.Name)
-	b.removeSortedParamName(region, input.Name)
 
 	tags := b.tagsStore(region)
 	if t, ok := tags[input.Name]; ok {
 		t.Close()
 		delete(tags, input.Name)
 	}
+
+	b.cleanupEmptyParamRegion(region)
 
 	return &DeleteParameterOutput{}, nil
 }
@@ -949,7 +930,6 @@ func (b *InMemoryBackend) DeleteParameters(
 		if _, exists := params[name]; exists {
 			delete(params, name)
 			delete(history, name)
-			b.removeSortedParamName(region, name)
 			if t, ok := tags[name]; ok {
 				t.Close()
 				delete(tags, name)
@@ -959,6 +939,8 @@ func (b *InMemoryBackend) DeleteParameters(
 			output.InvalidParameters = append(output.InvalidParameters, name)
 		}
 	}
+
+	b.cleanupEmptyParamRegion(region)
 
 	return output, nil
 }
@@ -1088,40 +1070,21 @@ func paramByPathMatchesFilters(param Parameter, filters []ParameterFilter) bool 
 	return paramMatchesFilters(meta, filters)
 }
 
-// insertSortedParamName inserts name into the sorted paramNamesSorted[region] slice.
-// Caller must hold the write lock.
-func (b *InMemoryBackend) insertSortedParamName(region, name string) {
-	names := b.paramNamesSorted[region]
-	i := sort.SearchStrings(names, name)
-	b.paramNamesSorted[region] = slices.Insert(names, i, name)
-}
-
-// removeSortedParamName removes name from the sorted paramNamesSorted[region] slice.
-// Caller must hold the write lock.
-func (b *InMemoryBackend) removeSortedParamName(region, name string) {
-	names := b.paramNamesSorted[region]
-	i := sort.SearchStrings(names, name)
-	if i < len(names) && names[i] == name {
-		b.paramNamesSorted[region] = slices.Delete(names, i, i+1)
-	}
-}
-
-// collectPathParamsSorted uses binary search on the sorted name index to find
-// parameters matching path in O(log n + k) instead of O(n).
-func (b *InMemoryBackend) collectPathParamsSorted(
+// collectPathParams returns all parameters whose names begin with path, applying
+// the recursive and filter constraints. It performs a linear scan over store
+// (O(n)) and sorts the result by name. This replaces the previous binary-search
+// approach that required maintaining a sorted slice on every PutParameter write
+// (O(n) insert); the emulator write path is now O(1) and reads are O(n log n).
+func collectPathParams(
 	store map[string]Parameter,
-	sortedNames []string,
 	path string,
 	recursive bool,
 	filters []ParameterFilter,
 ) []Parameter {
-	// Find first name >= path via binary search, then scan while HasPrefix.
-	start := sort.SearchStrings(sortedNames, path)
 	var matched []Parameter
-	for i := start; i < len(sortedNames); i++ {
-		name := sortedNames[i]
+	for name, param := range store {
 		if !strings.HasPrefix(name, path) {
-			break
+			continue
 		}
 		if !recursive {
 			suffix := name[len(path):]
@@ -1129,17 +1092,33 @@ func (b *InMemoryBackend) collectPathParamsSorted(
 				continue
 			}
 		}
-		param, ok := store[name]
-		if !ok {
-			continue
-		}
 		if len(filters) > 0 && !paramByPathMatchesFilters(param, filters) {
 			continue
 		}
 		matched = append(matched, param)
 	}
-	// Results are already sorted since sortedNames is sorted.
+
+	sort.Slice(matched, func(i, j int) bool { return matched[i].Name < matched[j].Name })
+
 	return matched
+}
+
+// cleanupEmptyInnerMap removes the region key from a two-level map when the
+// inner map is empty. Prevents empty maps from accumulating indefinitely.
+// Caller must hold the write lock.
+func cleanupEmptyInnerMap[V any](outer map[string]map[string]V, region string) {
+	if len(outer[region]) == 0 {
+		delete(outer, region)
+	}
+}
+
+// cleanupEmptyParamRegion removes the per-region inner maps for parameters,
+// history, and tags when the last parameter in a region is deleted.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) cleanupEmptyParamRegion(region string) {
+	cleanupEmptyInnerMap(b.parameters, region)
+	cleanupEmptyInnerMap(b.history, region)
+	cleanupEmptyInnerMap(b.tags, region)
 }
 
 // decryptParamsSlice returns a copy of params with SecureString values decrypted
@@ -1179,9 +1158,8 @@ func (b *InMemoryBackend) GetParametersByPath(
 		path += "/"
 	}
 
-	matched := b.collectPathParamsSorted(
+	matched := collectPathParams(
 		b.parametersStore(region),
-		b.paramNamesSorted[region],
 		path,
 		input.Recursive,
 		input.ParameterFilters,
@@ -1217,8 +1195,13 @@ func (b *InMemoryBackend) GetParametersByPath(
 	}
 
 	return &GetParametersByPathOutput{
-		Parameters: b.decryptParamsSlice(matched[startIdx:end], input.WithDecryption, region, account),
-		NextToken:  nextToken,
+		Parameters: b.decryptParamsSlice(
+			matched[startIdx:end],
+			input.WithDecryption,
+			region,
+			account,
+		),
+		NextToken: nextToken,
 	}, nil
 }
 
@@ -1853,6 +1836,10 @@ func (b *InMemoryBackend) DeleteDocument(
 	delete(b.documentVersionsStore(region), input.Name)
 	delete(b.documentPermissionsStore(region), input.Name)
 
+	cleanupEmptyInnerMap(b.documents, region)
+	cleanupEmptyInnerMap(b.documentVersions, region)
+	cleanupEmptyInnerMap(b.documentPermissions, region)
+
 	return &DeleteDocumentOutput{}, nil
 }
 
@@ -1956,7 +1943,8 @@ func (b *InMemoryBackend) ListDocumentVersions(
 	}, nil
 }
 
-// SendCommand records a command stub and returns a generated command ID.
+// SendCommand creates a command and drives it through the AWS state machine:
+// Pending → InProgress → Success (synchronous no-op runner path).
 func (b *InMemoryBackend) SendCommand(
 	ctx context.Context,
 	input *SendCommandInput,
@@ -1972,21 +1960,19 @@ func (b *InMemoryBackend) SendCommand(
 	now := UnixTimeFloat(time.Now())
 	cmdID := uuid.NewString()
 
-	// Prune any commands that have aged out so the commands/invocations maps do
-	// not grow unbounded between (or without) janitor runs.
-	b.expireCommandsLocked(region, now)
-
 	timeoutSecs := input.TimeoutSeconds
 	if timeoutSecs == 0 {
 		timeoutSecs = 3600
 	}
 
+	// Start in Pending state; transition through InProgress to Success so callers
+	// that snapshot state between transitions observe correct intermediate values.
 	cmd := Command{
 		CommandID:          cmdID,
 		DocumentName:       input.DocumentName,
 		Parameters:         input.Parameters,
-		Status:             commandStatusSuccess,
-		StatusDetails:      commandStatusSuccess,
+		Status:             commandStatusPending,
+		StatusDetails:      commandStatusPending,
 		RequestedDateTime:  now,
 		ExpiresAfter:       now + b.commandExpirySecs,
 		InstanceIDs:        input.InstanceIDs,
@@ -2009,8 +1995,8 @@ func (b *InMemoryBackend) SendCommand(
 			CommandID:         cmdID,
 			InstanceID:        instanceID,
 			DocumentName:      input.DocumentName,
-			Status:            commandStatusSuccess,
-			StatusDetails:     commandStatusSuccess,
+			Status:            commandStatusPending,
+			StatusDetails:     commandStatusPending,
 			RequestedDateTime: now,
 			Comment:           input.Comment,
 		}
@@ -2021,7 +2007,40 @@ func (b *InMemoryBackend) SendCommand(
 	}
 	b.commandInvocationsStore(region)[cmdID] = invocations
 
-	return &SendCommandOutput{Command: cmd}, nil
+	// Drive state machine: Pending → InProgress → Success under the same lock so
+	// a reader can never observe a mid-transition state unless it explicitly races.
+	b.advanceCommandState(region, cmdID, commandStatusInProgress)
+	b.advanceCommandState(region, cmdID, commandStatusSuccess)
+
+	// Return a snapshot of the final state.
+	finalCmd := b.commandsStore(region)[cmdID]
+
+	return &SendCommandOutput{Command: finalCmd}, nil
+}
+
+// advanceCommandState mutates the command and all its invocations to the given
+// status. Must be called with b.mu held.
+func (b *InMemoryBackend) advanceCommandState(region, cmdID, status string) {
+	store := b.commandsStore(region)
+
+	cmd, ok := store[cmdID]
+	if !ok {
+		return
+	}
+
+	cmd.Status = status
+	cmd.StatusDetails = status
+	store[cmdID] = cmd
+
+	invStore := b.commandInvocationsStore(region)
+	invs := invStore[cmdID]
+
+	for i := range invs {
+		invs[i].Status = status
+		invs[i].StatusDetails = status
+	}
+
+	invStore[cmdID] = invs
 }
 
 // ListCommands returns recorded commands.
@@ -2174,7 +2193,6 @@ func (b *InMemoryBackend) Reset() {
 	}
 
 	b.parameters = make(map[string]map[string]Parameter)
-	b.paramNamesSorted = make(map[string][]string)
 	b.history = make(map[string]map[string][]ParameterHistory)
 	b.tags = make(map[string]map[string]*tags.Tags)
 	b.documents = make(map[string]map[string]Document)

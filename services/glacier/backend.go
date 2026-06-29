@@ -24,10 +24,12 @@ var (
 	ErrJobNotFound = errors.New("ResourceNotFoundException: Job not found")
 	// ErrUploadNotFound is returned when a multipart upload does not exist.
 	ErrUploadNotFound = errors.New("ResourceNotFoundException: Multipart upload not found")
+	// ErrResourceInUse is returned when creating a vault that already exists.
+	ErrResourceInUse = errors.New("ResourceInUseException: vault already exists")
 	// ErrValidation is returned when an invalid parameter is supplied.
 	ErrValidation = errors.New("InvalidParameterValueException: invalid parameter")
 	// ErrVaultNotEmpty is returned when deleting a vault that still has archives.
-	ErrVaultNotEmpty = errors.New("InvalidParameterValueException: Vault not empty")
+	ErrVaultNotEmpty = errors.New("ConflictException: Vault not empty")
 	// ErrLockConflict is returned when a vault lock is already in progress.
 	ErrLockConflict = errors.New("InvalidParameterValueException: Vault lock already in progress")
 	// ErrLockAlreadyLocked is returned when attempting to initiate a lock on an already-locked vault.
@@ -92,9 +94,10 @@ type StorageBackend interface {
 	DeleteVault(accountID, region, vaultName string) error
 	ListVaults(accountID, region string) []*Vault
 
-	UploadArchive(accountID, region, vaultName, description, checksum string, size int64) (*Archive, error)
+	UploadArchive(accountID, region, vaultName, description, checksum string, size int64, data []byte) (*Archive, error)
 	DeleteArchive(accountID, region, vaultName, archiveID string) error
 	ListArchives(accountID, region, vaultName string) ([]*Archive, error)
+	GetArchiveData(archiveID string) ([]byte, bool)
 
 	InitiateJob(accountID, region, vaultName string, req *initiateJobRequest) (*Job, error)
 	DescribeJob(accountID, region, vaultName, jobID string) (*Job, error)
@@ -174,6 +177,7 @@ type InMemoryBackend struct {
 	// vaultsByAccountRegion indexes vault names by accountID+region for O(1) ListVaults
 	// instead of a full scan of all vaults across every account and region.
 	vaultsByAccountRegion map[string]map[string]map[string]struct{} // accountID -> region -> vaultName -> {}
+	archiveData           map[string][]byte
 	// retrievalDelay is the simulated asynchronous retrieval window applied to newly
 	// initiated jobs. Jobs stay InProgress until CreationDate+retrievalDelay, matching
 	// AWS, which does not make archive/inventory output available immediately.
@@ -193,6 +197,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		provisionedCapacity:   make(map[string][]*ProvisionedCapacity),
 		dataRetrievalPolicies: make(map[string]string),
 		vaultsByAccountRegion: make(map[string]map[string]map[string]struct{}),
+		archiveData:           make(map[string][]byte),
 		retrievalDelay:        defaultRetrievalDelay,
 	}
 }
@@ -296,7 +301,7 @@ func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vau
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
 	if _, ok := b.vaults[key]; ok {
-		return b.vaults[key], nil
+		return nil, ErrResourceInUse
 	}
 
 	v := &Vault{
@@ -396,7 +401,7 @@ func (b *InMemoryBackend) ListVaults(accountID, region string) []*Vault {
 // UploadArchive uploads an archive to a vault.
 func (b *InMemoryBackend) UploadArchive(
 	accountID, region, vaultName, description, checksum string,
-	size int64,
+	size int64, data []byte,
 ) (*Archive, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -417,6 +422,7 @@ func (b *InMemoryBackend) UploadArchive(
 	}
 
 	b.archives[key][archiveID] = a
+	b.archiveData[archiveID] = append([]byte(nil), data...)
 	b.vaults[key].NumberOfArchives++
 	b.vaults[key].SizeInBytes += size
 
@@ -450,6 +456,7 @@ func (b *InMemoryBackend) DeleteArchive(accountID, region, vaultName, archiveID 
 	}
 
 	delete(b.archives[key], archiveID)
+	delete(b.archiveData, archiveID)
 
 	return nil
 }
@@ -475,6 +482,19 @@ func (b *InMemoryBackend) ListArchives(accountID, region, vaultName string) ([]*
 	sort.Slice(result, func(i, j int) bool { return result[i].ArchiveID < result[j].ArchiveID })
 
 	return result, nil
+}
+
+// GetArchiveData returns the data for an archive.
+func (b *InMemoryBackend) GetArchiveData(archiveID string) ([]byte, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	data, ok := b.archiveData[archiveID]
+	if !ok {
+		return nil, false
+	}
+
+	return data, true
 }
 
 // isValidTier reports whether tier is one of the allowed retrieval tier values.
@@ -619,8 +639,8 @@ func promoteJobIfReady(j *Job) {
 // ListJobs returns all jobs for the given vault.
 // Returns ErrVaultNotFound if the vault does not exist.
 func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
@@ -636,8 +656,9 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job,
 	result := make([]*Job, 0, len(jobs))
 
 	for _, j := range jobs {
-		promoteJobIfReady(j)
-		result = append(result, cloneJob(j))
+		cj := cloneJob(j)
+		promoteJobIfReady(cj)
+		result = append(result, cj)
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].JobID < result[j].JobID })
@@ -1327,6 +1348,7 @@ func (b *InMemoryBackend) AddArchiveInternal(accountID, region, vaultName string
 	}
 
 	b.archives[key][a.ArchiveID] = cloneArchive(a)
+	b.archiveData[a.ArchiveID] = make([]byte, a.Size)
 }
 
 // AddMultipartUploadInternal adds an in-progress multipart upload directly to the backend for testing.

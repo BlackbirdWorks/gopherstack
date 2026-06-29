@@ -363,7 +363,7 @@ func TestRefinement1_CreateCliToken_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateCliToken(context.Background(), "missing-env")
+	_, _, err := b.CreateCliToken(context.Background(), "missing-env")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound)
@@ -373,7 +373,7 @@ func TestRefinement1_CreateWebLoginToken_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateWebLoginToken(context.Background(), "missing-env")
+	_, _, err := b.CreateWebLoginToken(context.Background(), "missing-env")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound)
@@ -385,7 +385,7 @@ func TestRefinement1_CreateCliToken_HappyPath(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	seedEnv(t, b, "cli-env")
 
-	token, err := b.CreateCliToken(context.Background(), "cli-env")
+	token, _, err := b.CreateCliToken(context.Background(), "cli-env")
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
@@ -400,7 +400,7 @@ func TestRefinement1_CreateWebLoginToken_HappyPath(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	seedEnv(t, b, "web-env")
 
-	token, err := b.CreateWebLoginToken(context.Background(), "web-env")
+	token, _, err := b.CreateWebLoginToken(context.Background(), "web-env")
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)

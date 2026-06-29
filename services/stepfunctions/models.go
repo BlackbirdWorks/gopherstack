@@ -140,3 +140,33 @@ type AliasRoutingConfig struct {
 	StateMachineVersionArn string `json:"stateMachineVersionArn"`
 	Weight                 int    `json:"weight"`
 }
+
+// MapRun represents an AWS Step Functions Map Run (a Map state parallel execution group).
+type MapRun struct {
+	StopDate                   *float64         `json:"stopDate,omitempty"`
+	RedriveDate                *float64         `json:"redriveDate,omitempty"`
+	MapRunArn                  string           `json:"mapRunArn"`
+	ExecutionArn               string           `json:"executionArn"`
+	StateMachineArn            string           `json:"stateMachineArn"`
+	Status                     string           `json:"status"`
+	ItemCounts                 MapRunItemCounts `json:"itemCounts"`
+	StartDate                  float64          `json:"startDate"`
+	ToleratedFailurePercentage float64          `json:"toleratedFailurePercentage,omitempty"`
+	MaxConcurrency             int              `json:"maxConcurrency,omitempty"`
+	ToleratedFailureCount      int              `json:"toleratedFailureCount,omitempty"`
+	RedriveCount               int              `json:"redriveCount,omitempty"`
+}
+
+// MapRunItemCounts holds item-level counts for a Map Run.
+type MapRunItemCounts struct {
+	Total                 int `json:"total"`
+	Succeeded             int `json:"succeeded"`
+	Failed                int `json:"failed"`
+	Pending               int `json:"pending"`
+	Running               int `json:"running"`
+	Aborted               int `json:"aborted"`
+	TimedOut              int `json:"timedOut"`
+	ResultsWritten        int `json:"resultsWritten"`
+	FailuresNotRedrivable int `json:"failuresNotRedrivable,omitempty"`
+	PendingRedrive        int `json:"pendingRedrive,omitempty"`
+}

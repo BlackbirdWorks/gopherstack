@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,8 +22,9 @@ import (
 )
 
 const (
-	keyPosition = "position"
-	litTrue     = "true"
+	keyPosition       = "position"
+	litTrue           = "true"
+	headerContentType = "Content-Type"
 )
 
 const (
@@ -43,6 +45,7 @@ const (
 	keyResponseType         = "responseType"
 	keyHTTPMethod           = "httpMethod"
 	keyStatusCode           = "statusCode"
+	keySdkType              = "sdkType"
 	// keyItem is the response collection key used by AWS API Gateway list
 	// operations. The AWS Go SDK v2 deserializer expects the singular "item"
 	// for every list response (it is the wire name in the smithy model).
@@ -174,27 +177,30 @@ const (
 
 // path segment constants used in REST route matching.
 const (
-	apiGWUnknownOp             = "Unknown"
-	apiGWSegResources          = "resources"
-	apiGWSegDeployment         = "deployments"
-	apiGWSegStages             = "stages"
-	apiGWSegMethods            = "methods"
-	apiGWSegInteg              = "integration"
-	apiGWSegResponses          = "responses"
-	apiGWSegAuthorizers        = "authorizers"
-	apiGWSegValidators         = "requestvalidators"
-	apiGWSegAPIKeys            = "apikeys"
-	apiGWSegDomainNames        = "domainnames"
-	apiGWSegBasePathMappings   = "basepathmappings"
-	apiGWSegAccessAssociations = "accessassociations"
-	apiGWSegDocumentation      = "documentation"
-	apiGWSegDocParts           = "parts"
-	apiGWSegDocVersions        = "versions"
-	apiGWSegModels             = "models"
-	apiGWSegUsagePlans         = "usageplans"
-	apiGWSegUsagePlanKeys      = "keys"
-	apiGWSegGatewayResponses   = "gatewayresponses"
-	apiGWSegClientCerts        = "clientcertificates"
+	apiGWUnknownOp                       = "Unknown"
+	apiGWSegResources                    = "resources"
+	apiGWSegDeployment                   = "deployments"
+	apiGWSegStages                       = "stages"
+	apiGWSegMethods                      = "methods"
+	apiGWSegInteg                        = "integration"
+	apiGWSegResponses                    = "responses"
+	apiGWSegAuthorizers                  = "authorizers"
+	apiGWSegValidators                   = "requestvalidators"
+	apiGWSegAPIKeys                      = "apikeys"
+	apiGWSegDomainNames                  = "domainnames"
+	apiGWSegBasePathMappings             = "basepathmappings"
+	apiGWSegAccessAssociations           = "accessassociations"
+	apiGWSegDocumentation                = "documentation"
+	apiGWSegDocParts                     = "parts"
+	apiGWSegDocVersions                  = "versions"
+	apiGWSegModels                       = "models"
+	apiGWSegUsagePlans                   = "usageplans"
+	apiGWSegUsagePlanKeys                = "keys"
+	apiGWSegGatewayResponses             = "gatewayresponses"
+	apiGWSegClientCerts                  = "clientcertificates"
+	apiGWSegSdkTypes                     = "sdktypes"
+	apiGWSegSdks                         = "sdks"
+	apiGWSegDomainNameAccessAssociations = "domainnameaccessassociations"
 
 	// apiGWMinTagPathSegs is the minimum number of path segments for a /tags/{arn} path.
 	apiGWMinTagPathSegs = 2
@@ -238,6 +244,7 @@ type deleteResourceInput struct {
 }
 
 type putMethodInput struct {
+	RequestParameters  map[string]bool   `json:"requestParameters,omitempty"`
 	RequestModels      map[string]string `json:"requestModels,omitempty"`
 	RestAPIID          string            `json:"restApiId"`
 	ResourceID         string            `json:"resourceId"`
@@ -526,6 +533,11 @@ type getUsagePlanKeyInput struct {
 	KeyID       string `json:"keyId"`
 }
 
+type updateUsageInput struct {
+	UsagePlanID string `json:"usagePlanId"`
+	KeyID       string `json:"keyId"`
+}
+
 type getUsagePlanKeysInput struct {
 	UsagePlanID string `json:"usagePlanId"`
 }
@@ -612,9 +624,16 @@ type getExportInput struct {
 	ExportType string `json:"exportType"`
 }
 
+// JWKSProvider resolves RSA public keys for JWT signature verification.
+// Implementations return an error when the issuer or key is unknown.
+type JWKSProvider interface {
+	GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error)
+}
+
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend        StorageBackend
+	jwksProvider   JWKSProvider
 	authCache      *authorizerCache
 	lambda         LambdaInvoker
 	httpClient     *http.Client
@@ -633,6 +652,11 @@ func NewHandler(backend StorageBackend) *Handler {
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
 func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 	h.lambda = lambda
+}
+
+// SetJWKSProvider configures the JWKS provider used to verify Cognito JWT signatures.
+func (h *Handler) SetJWKSProvider(p JWKSProvider) {
+	h.jwksProvider = p
 }
 
 // SetHTTPClient configures the HTTP client used for HTTP/HTTP_PROXY integrations.
@@ -809,7 +833,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if strings.HasPrefix(path, "/restapis") ||
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
+			strings.HasPrefix(path, "/domainnameaccessassociations") ||
 			strings.HasPrefix(path, "/usageplans") ||
+			strings.HasPrefix(path, "/sdktypes") ||
 			(path == "/account" || strings.HasPrefix(path, "/account/")) ||
 			strings.HasPrefix(path, "/"+apiGWSegClientCerts) {
 			return true
@@ -864,6 +890,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // Handler returns the Echo handler function for API Gateway requests.
+//
+//nolint:cyclop // top-level request dispatcher; complexity is inherent to action routing
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
@@ -889,7 +917,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		isRESTPath := strings.HasPrefix(path, "/restapis") ||
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
+			strings.HasPrefix(path, "/domainnameaccessassociations") ||
 			strings.HasPrefix(path, "/usageplans") ||
+			strings.HasPrefix(path, "/sdktypes") ||
 			(path == "/account" || strings.HasPrefix(path, "/account/")) ||
 			strings.HasPrefix(path, "/"+apiGWSegClientCerts) ||
 			isAPIGWTagPath
@@ -937,7 +967,7 @@ func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
 	}
@@ -1011,7 +1041,7 @@ func (h *Handler) dispatchAndRespond(
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	c.Response().Header().Set("Content-Type", contentType)
+	c.Response().Header().Set(headerContentType, contentType)
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
 	}
@@ -1039,6 +1069,19 @@ func detectImportRESTAPI(
 		}
 
 		return opImportRestAPI, encoded, true
+	case action == opCreateAPIKey && method == http.MethodPost && query.Get("mode") == "import":
+		// ImportApiKeys (POST /apikeys?mode=import&format=csv) carries the raw API
+		// key file (csv or json) as the verbatim HTTP body.
+		in := importAPIKeysInput{
+			Body:   body,
+			Format: query.Get("format"),
+		}
+		encoded, err := json.Marshal(in)
+		if err != nil {
+			return "", nil, false
+		}
+
+		return opImportAPIKeys, encoded, true
 	case action == opPutRestAPI && method == http.MethodPut && pathParams[keyRestAPIID] != "":
 		in := PutRestAPIInput{
 			RestAPIID:      pathParams[keyRestAPIID],
@@ -1150,6 +1193,29 @@ func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 		return parseAPIGWTagsPath(method, segs, n)
 	case apiGWSegClientCerts:
 		return parseAPIGWClientCertificatesPath(method, segs, n)
+	case apiGWSegSdkTypes:
+		return parseAPIGWSdkTypesPath(method, segs, n)
+	case apiGWSegDomainNameAccessAssociations:
+		// GET /domainnameaccessassociations → GetDomainNameAccessAssociations
+		if n == pathDepth1 && method == http.MethodGet {
+			return opGetDomainNameAccessAssociations, nil, true
+		}
+
+		return apiGWUnknownOp, nil, false
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWSdkTypesPath handles /sdktypes and /sdktypes/{id} paths.
+func parseAPIGWSdkTypesPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	switch {
+	// GET /sdktypes → GetSdkTypes
+	case n == pathDepth1 && method == http.MethodGet:
+		return opGetSdkTypes, nil, true
+	// GET /sdktypes/{id} → GetSdkType
+	case n == pathDepth2 && method == http.MethodGet:
+		return opGetSdkType, map[string]string{"id": segs[1]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1327,6 +1393,8 @@ func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[
 		return parseAPIGWUsagePlansDepth3(method, segs)
 	case pathDepth4:
 		return parseAPIGWUsagePlansDepth4(method, segs)
+	case pathDepth5:
+		return parseAPIGWUsagePlansDepth5(method, segs)
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1366,6 +1434,21 @@ func parseAPIGWUsagePlansDepth4(method string, segs []string) (string, map[strin
 		return opGetUsagePlanKey, params, true
 	case http.MethodDelete:
 		return opDeleteUsagePlanKey, params, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWUsagePlansDepth5 handles /usageplans/{id}/keys/{keyId}/usage paths.
+func parseAPIGWUsagePlansDepth5(method string, segs []string) (string, map[string]string, bool) {
+	if segs[2] != apiGWSegUsagePlanKeys || segs[4] != "usage" {
+		return apiGWUnknownOp, nil, false
+	}
+
+	params := map[string]string{keyUsagePlanID: segs[1], "keyId": segs[3]}
+
+	if method == http.MethodPatch {
+		return opUpdateUsage, params, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1674,6 +1757,13 @@ func parseAPIGWRestAPIsStageDeep(method string, segs []string, n int, apiID stri
 		return opFlushStageAuthorizersCache, stageParams, true
 	}
 
+	// GET /restapis/{id}/stages/{stage}/sdks/{sdkType} → GetSdk
+	if n == 6 && segs[4] == apiGWSegSdks && method == http.MethodGet {
+		sdkParams := map[string]string{keyRestAPIID: apiID, keyStageName: segs[3], keySdkType: segs[5]}
+
+		return opGetSdk, sdkParams, true
+	}
+
 	return apiGWUnknownOp, nil, false
 }
 
@@ -1934,6 +2024,145 @@ func (h *Handler) handleUserRequestEcho(c *echo.Context) error {
 	return nil
 }
 
+// testInvokeMethod executes a test invocation of a method, routing through the real
+// integration when Lambda is configured. Falls back to mock/stub for unsupported types.
+func (h *Handler) testInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMethodOutput, error) {
+	resource, err := h.Backend.GetResource(input.RestAPIID, input.ResourceID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: resource %s", ErrResourceNotFound, input.ResourceID)
+	}
+
+	integration, err := h.Backend.GetIntegration(input.RestAPIID, input.ResourceID, input.HTTPMethod)
+	if err != nil {
+		integration, _ = h.Backend.GetIntegration(input.RestAPIID, input.ResourceID, "ANY")
+	}
+
+	if integration == nil {
+		// No integration: return empty 200.
+		return &TestInvokeMethodOutput{
+			Status:  http.StatusOK,
+			Body:    "{}",
+			Latency: 1,
+			Log:     "Test invocation: no integration configured",
+			Headers: map[string]string{headerContentType: contentTypeJSON},
+		}, nil
+	}
+
+	switch integration.Type {
+	case IntegrationTypeMock:
+		// For MOCK, select the integration response matching "200" and apply its template.
+		body := `{"statusCode": 200}`
+		ir, irErr := h.Backend.GetIntegrationResponse(
+			input.RestAPIID, input.ResourceID, input.HTTPMethod, "200",
+		)
+		if irErr == nil {
+			if t, ok := ir.ResponseTemplates["application/json"]; ok && t != "" {
+				body = t
+			}
+		}
+
+		return &TestInvokeMethodOutput{
+			Status:  http.StatusOK,
+			Body:    body,
+			Latency: 1,
+			Log:     "Test invocation: MOCK integration",
+			Headers: map[string]string{headerContentType: contentTypeJSON},
+		}, nil
+
+	case IntegrationTypeAWSProxy, "AWS":
+		return h.invokeLambdaTestMethod(input, resource, integration)
+
+	default:
+		return h.Backend.TestInvokeMethod(input)
+	}
+}
+
+func (h *Handler) invokeLambdaTestMethod(
+	input TestInvokeMethodInput,
+	resource *Resource,
+	integration *Integration,
+) (*TestInvokeMethodOutput, error) {
+	if h.lambda == nil {
+		return h.Backend.TestInvokeMethod(input)
+	}
+
+	// Build a synthetic HTTP request from the TestInvokeMethodInput.
+	rawPath := input.PathWithQueryString
+	if rawPath == "" {
+		rawPath = resource.Path
+	}
+
+	syntheticReq, reqErr := http.NewRequestWithContext(
+		context.Background(),
+		input.HTTPMethod,
+		"http://test-invoke-endpoint"+rawPath,
+		strings.NewReader(input.Body),
+	)
+	if reqErr != nil {
+		return nil, fmt.Errorf("test invoke: failed to build request: %w", reqErr)
+	}
+
+	for k, v := range input.Headers {
+		syntheticReq.Header.Set(k, v)
+	}
+
+	event, buildErr := BuildProxyEvent(syntheticReq, input.RestAPIID, "test-invoke", resource.Path, rawPath, nil)
+	if buildErr != nil {
+		return nil, fmt.Errorf("test invoke: failed to build proxy event: %w", buildErr)
+	}
+
+	payload, _ := json.Marshal(event)
+
+	lambdaFn := ExtractLambdaFunctionName(integration.URI)
+	respBytes, _, invokeErr := h.lambda.InvokeFunction(context.Background(), lambdaFn, "RequestResponse", payload)
+
+	return lambdaTestOutput(respBytes, invokeErr), nil
+}
+
+// lambdaTestOutput converts a raw Lambda invocation result into a TestInvokeMethodOutput.
+// Any invocation error is surfaced as a 502 response body rather than a Go error,
+// because TestInvokeMethod always returns a (possibly error-body) output, never a Go error.
+func lambdaTestOutput(respBytes []byte, invokeErr error) *TestInvokeMethodOutput {
+	if invokeErr != nil {
+		return &TestInvokeMethodOutput{
+			Status:  http.StatusBadGateway,
+			Body:    `{"message":"Lambda invocation failed"}`,
+			Latency: 1,
+			Log:     "Test invocation: Lambda error: " + invokeErr.Error(),
+			Headers: map[string]string{headerContentType: contentTypeJSON},
+		}
+	}
+
+	var lambdaResp LambdaProxyResponse
+	if json.Unmarshal(respBytes, &lambdaResp) == nil {
+		sc := lambdaResp.StatusCode
+		if sc == 0 {
+			sc = http.StatusOK
+		}
+
+		hdrs := lambdaResp.Headers
+		if hdrs == nil {
+			hdrs = map[string]string{headerContentType: contentTypeJSON}
+		}
+
+		return &TestInvokeMethodOutput{
+			Status:  sc,
+			Body:    lambdaResp.Body,
+			Latency: 1,
+			Log:     "Test invocation: AWS_PROXY Lambda integration",
+			Headers: hdrs,
+		}
+	}
+
+	return &TestInvokeMethodOutput{
+		Status:  http.StatusOK,
+		Body:    string(respBytes),
+		Latency: 1,
+		Log:     "Test invocation: Lambda raw response",
+		Headers: map[string]string{headerContentType: contentTypeJSON},
+	}
+}
+
 func (h *Handler) restAPIActions() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateRestAPI: func(b []byte) (int, any, error) {
@@ -2051,17 +2280,22 @@ func (h *Handler) methodActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			m, err := h.Backend.PutMethod(PutMethodInput{
-				RestAPIID:          input.RestAPIID,
-				ResourceID:         input.ResourceID,
-				HTTPMethod:         input.HTTPMethod,
-				AuthorizationType:  input.AuthorizationType,
-				AuthorizerID:       input.AuthorizerID,
-				RequestValidatorID: input.RequestValidatorID,
-				APIKeyRequired:     input.APIKeyRequired,
-				RequestModels:      input.RequestModels,
-				OperationName:      input.OperationName,
-			})
+			switch input.AuthorizationType {
+			case AuthTypeNone, AuthTypeAWSIAM, AuthTypeCustom, AuthTypeCognitoUserPool:
+			default:
+				return 0, nil, fmt.Errorf(
+					"%w: invalid authorizationType %q; must be NONE, AWS_IAM, CUSTOM, or COGNITO_USER_POOLS",
+					ErrInvalidParameter, input.AuthorizationType,
+				)
+			}
+			if (input.AuthorizationType == AuthTypeCustom || input.AuthorizationType == AuthTypeCognitoUserPool) &&
+				input.AuthorizerID == "" {
+				return 0, nil, fmt.Errorf(
+					"%w: authorizerId is required when authorizationType is %s",
+					ErrInvalidParameter, input.AuthorizationType,
+				)
+			}
+			m, err := h.Backend.PutMethod(PutMethodInput(input))
 			if err != nil {
 				return 0, nil, err
 			}
@@ -2368,6 +2602,15 @@ func (h *Handler) integrationActions() map[string]actionFn {
 			var input putIntegrationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
+			}
+			switch input.Type {
+			case IntegrationTypeAWS, IntegrationTypeAWSProxy,
+				IntegrationTypeHTTP, IntegrationTypeHTTPProxy, IntegrationTypeMock:
+			default:
+				return 0, nil, fmt.Errorf(
+					"%w: invalid integration type %q; must be AWS, AWS_PROXY, HTTP, HTTP_PROXY, or MOCK",
+					ErrInvalidParameter, input.Type,
+				)
 			}
 			integ, err := h.Backend.PutIntegration(
 				input.RestAPIID,
@@ -2747,7 +2990,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) (int, 
 // handleError writes a standardized JSON error response.
 func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, reqErr error) error {
 	log := logger.Load(ctx)
-	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
 
 	var errType string
 	var statusCode int
@@ -3116,6 +3359,9 @@ func (h *Handler) getDeleteUpdateActionsExt2b() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
+			if _, err := h.Backend.GetStage(input.RestAPIID, input.StageName); err != nil {
+				return 0, nil, err
+			}
 
 			return http.StatusAccepted, map[string]any{}, nil
 		},
@@ -3423,7 +3669,7 @@ func (h *Handler) updatePatchActionsCore2() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			out, err := h.Backend.TestInvokeMethod(input.TestInvokeMethodInput)
+			out, err := h.testInvokeMethod(input.TestInvokeMethodInput)
 			if err != nil {
 				return 0, nil, err
 			}

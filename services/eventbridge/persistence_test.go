@@ -63,7 +63,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				// The default event bus always exists; just verify restore worked
-				buses, _, err := b.ListEventBuses(context.Background(), "", "")
+				buses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
 				require.NoError(t, err)
 				assert.NotNil(t, buses)
 			},

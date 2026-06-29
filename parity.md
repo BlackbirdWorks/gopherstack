@@ -347,9 +347,9 @@ all data-plane errors to `ValidationException`.
 - **UI:** route exists; no UI for CancelResourceRequest, ListResources detail, progress polling.
 
 ### cloudformation
-- **Parity:** ListHookResults/DescribeChangeSetHooks/BatchDescribeTypeConfigurations/ListTypeVersions/ListTypeRegistrations empty stubs (handler_ops.go:1346,1356,1017,1058,1067); ListStackRefactors/Actions return []string not summaries (handler_ops.go:1220,1230; backend_ops.go:918); ListStackSetOperations/AutoDeploymentTargets/StackInstanceResourceDrifts wrong shapes / ignore params (handler_ops.go:546,606,637; backend_ops.go:262,363); DescribeEvents ignores StackName, returns all (handler_ops.go:1366); ImportStacksToStackSet ignores stackIDs (backend_ops.go:352); ListStackSets/StackInstances/StackSetOperations/GeneratedTemplates/ResourceScans ignore nextToken — no pagination (backend_ops.go:91,190,262,517,581).
-- **Performance:** DescribeEvents("") copies all events all stacks under RLock (backend_ops.go:1019-1027); pruneDriftDetections O(n) per DeleteStack (backend.go:1153-1158).
-- **Leaks:** all maps unbounded, no eviction for completed/deleted (backend.go:192-222).
+- **Parity:** FIXED. All stubs implemented; pagination added to ListStackSets/StackInstances/StackSetOperations/GeneratedTemplates/ResourceScans/DescribeEvents; DescribeEvents filters by StackName with nextToken; ImportStacksToStackSet uses stackIDs; all shapes corrected.
+- **Performance:** FIXED. DescribeEvents no longer per-stack lock; pruneDriftDetections uses reverse index O(1).
+- **Leaks:** FIXED. events capped at 1000/stack; DELETE_COMPLETE stacks capped at 1000 via evictDeletedStacks(); stackSetOperations capped at 1000/stackSet via trimStackSetOperations.
 - **UI:** route exists; no UI for stack sets, instances, drift, change sets, type mgmt, resource scans, generated templates, refactors, hook results, stack policies, signal/rollback.
 
 ### cloudfront

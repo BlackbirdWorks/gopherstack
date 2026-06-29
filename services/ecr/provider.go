@@ -1,6 +1,7 @@
 package ecr
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -56,7 +57,12 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 	if localRegistryEnabled {
 		appCtx.Logger.Info("ECR local registry enabled; starting embedded Docker registry v2")
 
-		rh := newDistributionRegistry(appCtx.JanitorCtx)
+		janitorCtx := appCtx.JanitorCtx
+		if janitorCtx == nil {
+			janitorCtx = context.Background()
+		}
+
+		rh := newDistributionRegistry(janitorCtx)
 
 		return NewHandler(backend, rh), nil
 	}

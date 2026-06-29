@@ -1376,15 +1376,16 @@ func (h *Handler) handleDeleteGuardrail(c *echo.Context, id string) error {
 // --- Foundation model handlers ---
 
 type foundationModelSummaryOutput struct {
-	ModelArn                   string   `json:"modelArn"`
-	ModelID                    string   `json:"modelId"`
-	ModelName                  string   `json:"modelName"`
-	ProviderName               string   `json:"providerName"`
-	InputModalities            []string `json:"inputModalities,omitempty"`
-	OutputModalities           []string `json:"outputModalities,omitempty"`
-	InferenceTypesSupported    []string `json:"inferenceTypesSupported,omitempty"`
-	CustomizationsSupported    []string `json:"customizationsSupported,omitempty"`
-	ResponseStreamingSupported bool     `json:"responseStreamingSupported"`
+	ModelLifecycle             *FoundationModelLifecycle `json:"modelLifecycle,omitempty"`
+	ModelArn                   string                    `json:"modelArn"`
+	ModelID                    string                    `json:"modelId"`
+	ModelName                  string                    `json:"modelName"`
+	ProviderName               string                    `json:"providerName"`
+	InputModalities            []string                  `json:"inputModalities,omitempty"`
+	OutputModalities           []string                  `json:"outputModalities,omitempty"`
+	InferenceTypesSupported    []string                  `json:"inferenceTypesSupported,omitempty"`
+	CustomizationsSupported    []string                  `json:"customizationsSupported,omitempty"`
+	ResponseStreamingSupported bool                      `json:"responseStreamingSupported"`
 }
 
 type listFoundationModelsOutput struct {
@@ -1398,17 +1399,7 @@ func (h *Handler) handleListFoundationModels(c *echo.Context) error {
 	summaries := make([]foundationModelSummaryOutput, 0, len(models))
 
 	for _, m := range models {
-		summaries = append(summaries, foundationModelSummaryOutput{
-			ModelArn:                   m.ModelArn,
-			ModelID:                    m.ModelID,
-			ModelName:                  m.ModelName,
-			ProviderName:               m.ProviderName,
-			InputModalities:            m.InputModalities,
-			OutputModalities:           m.OutputModalities,
-			InferenceTypesSupported:    m.InferenceTypesSupported,
-			CustomizationsSupported:    m.CustomizationsSupported,
-			ResponseStreamingSupported: m.ResponseStreamingSupported,
-		})
+		summaries = append(summaries, foundationModelToOutput(m))
 	}
 
 	return c.JSON(
@@ -1428,18 +1419,23 @@ func (h *Handler) handleGetFoundationModel(c *echo.Context, modelID string) erro
 	}
 
 	return c.JSON(http.StatusOK, getFoundationModelOutput{
-		ModelDetails: foundationModelSummaryOutput{
-			ModelArn:                   m.ModelArn,
-			ModelID:                    m.ModelID,
-			ModelName:                  m.ModelName,
-			ProviderName:               m.ProviderName,
-			InputModalities:            m.InputModalities,
-			OutputModalities:           m.OutputModalities,
-			InferenceTypesSupported:    m.InferenceTypesSupported,
-			CustomizationsSupported:    m.CustomizationsSupported,
-			ResponseStreamingSupported: m.ResponseStreamingSupported,
-		},
+		ModelDetails: foundationModelToOutput(m),
 	})
+}
+
+func foundationModelToOutput(m *FoundationModelSummary) foundationModelSummaryOutput {
+	return foundationModelSummaryOutput{
+		ModelArn:                   m.ModelArn,
+		ModelID:                    m.ModelID,
+		ModelName:                  m.ModelName,
+		ProviderName:               m.ProviderName,
+		InputModalities:            m.InputModalities,
+		OutputModalities:           m.OutputModalities,
+		InferenceTypesSupported:    m.InferenceTypesSupported,
+		CustomizationsSupported:    m.CustomizationsSupported,
+		ResponseStreamingSupported: m.ResponseStreamingSupported,
+		ModelLifecycle:             m.ModelLifecycle,
+	}
 }
 
 // --- Provisioned model throughput handlers ---

@@ -905,6 +905,7 @@ func (b *InMemoryBackend) CreateRouteTable(vpcID string) (*RouteTable, error) {
 		Associations: []RouteAssociation{},
 	}
 	b.routeTables[id] = rt
+	b.indexRouteTableLocked(id, vpcID)
 
 	return rt, nil
 }
@@ -914,10 +915,12 @@ func (b *InMemoryBackend) DeleteRouteTable(id string) error {
 	b.mu.Lock("DeleteRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.routeTables[id]; !ok {
+	rt, ok := b.routeTables[id]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrRouteTableNotFound, id)
 	}
 
+	b.deindexRouteTableLocked(id, rt.VPCID)
 	delete(b.routeTables, id)
 	delete(b.tags, id)
 
@@ -1232,7 +1235,11 @@ func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 
 	for _, rule := range rules {
 		if !ruleExists(sg.EgressRules, rule) {
-			return fmt.Errorf("%w: rule not found in group %s", ErrNetworkInterfacePermissionNotFound, groupID)
+			return fmt.Errorf(
+				"%w: rule not found in group %s",
+				ErrNetworkInterfacePermissionNotFound,
+				groupID,
+			)
 		}
 	}
 
@@ -1445,7 +1452,7 @@ func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value str
 	}
 
 	switch attr {
-	case "description":
+	case filterKeyDescription:
 		eni.Description = value
 	case attrSourceDest:
 		eni.SourceDestCheck = value == ec2BooleanTrue

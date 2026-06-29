@@ -396,8 +396,10 @@ func TestEvaluator_Mutate_ListIndexOutOfRange(t *testing.T) {
 			wantList: []any{map[string]any{"N": "1"}},
 		},
 		{
-			name:     "REMOVE in range deletes and shifts",
-			item:     map[string]any{"L": []any{map[string]any{"N": "1"}, map[string]any{"N": "2"}}},
+			name: "REMOVE in range deletes and shifts",
+			item: map[string]any{
+				"L": []any{map[string]any{"N": "1"}, map[string]any{"N": "2"}},
+			},
 			index:    0,
 			value:    nil,
 			isRemove: true,
@@ -1251,7 +1253,9 @@ func TestEvaluator_ApplyDelete_SS_NS(t *testing.T) {
 				Actions: []expr.UpdateAction{{
 					Type: expr.TokenDELETE,
 					Items: []expr.UpdateItem{{
-						Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "s", Type: expr.ElementKey}}},
+						Path: &expr.PathExpr{
+							Elements: []expr.PathElement{{Name: "s", Type: expr.ElementKey}},
+						},
 						Value: &expr.ValuePlaceholder{Name: ":v"},
 					}},
 				}},

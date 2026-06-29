@@ -732,7 +732,7 @@ func (b *InMemoryBackend) TransferCertificate(certID, targetAccount string) erro
 	if !ok {
 		return fmt.Errorf("certificate %q not found: %w", certID, ErrCertificateNotFound)
 	}
-	cert.Status = "PENDING_TRANSFER"
+	cert.Status = certStatusPendingXfer
 	cert.LastModifiedAt = time.Now()
 	b.certificateTransfers[certID] = targetAccount
 

@@ -834,18 +834,18 @@ type modifyClusterDBRevisionResponse struct {
 
 func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
-	cluster, err := h.Backend.DescribeClusters(id)
+	clusters, _, err := h.Backend.DescribeClusters(id, "", 0)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(cluster) == 0 {
+	if len(clusters) == 0 {
 		return &modifyClusterDBRevisionResponse{Xmlns: redshiftXMLNS}, nil
 	}
 
 	return &modifyClusterDBRevisionResponse{
 		Xmlns:  redshiftXMLNS,
-		Result: toXMLCluster(&cluster[0]),
+		Result: toXMLCluster(&clusters[0]),
 	}, nil
 }
 

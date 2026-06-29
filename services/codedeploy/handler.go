@@ -928,12 +928,13 @@ func (h *Handler) handleDeleteDeploymentGroup(
 }
 
 type createDeploymentInput struct {
-	ApplicationName               string `json:"applicationName"`
-	DeploymentGroupName           string `json:"deploymentGroupName"`
-	Description                   string `json:"description"`
-	FileExistsBehavior            string `json:"fileExistsBehavior"`
-	UpdateOutdatedInstancesOnly   bool   `json:"updateOutdatedInstancesOnly"`
-	IgnoreApplicationStopFailures bool   `json:"ignoreApplicationStopFailures"`
+	Revision                      *revisionLocationInput `json:"revision"`
+	ApplicationName               string                 `json:"applicationName"`
+	DeploymentGroupName           string                 `json:"deploymentGroupName"`
+	Description                   string                 `json:"description"`
+	FileExistsBehavior            string                 `json:"fileExistsBehavior"`
+	UpdateOutdatedInstancesOnly   bool                   `json:"updateOutdatedInstancesOnly"`
+	IgnoreApplicationStopFailures bool                   `json:"ignoreApplicationStopFailures"`
 }
 
 type createDeploymentOutput struct {
@@ -954,6 +955,7 @@ func (h *Handler) handleCreateDeployment(
 		UpdateOutdatedInstancesOnly:   in.UpdateOutdatedInstancesOnly,
 		IgnoreApplicationStopFailures: in.IgnoreApplicationStopFailures,
 		Creator:                       "user",
+		Revision:                      revisionFromWire(in.Revision),
 	}
 
 	d, err := h.Backend.CreateDeployment(in.ApplicationName, in.DeploymentGroupName, opts)
@@ -968,19 +970,31 @@ type getDeploymentInput struct {
 	DeploymentID string `json:"deploymentId"`
 }
 
+// deploymentOverview holds a summary of instance counts for a deployment.
+type deploymentOverview struct {
+	Pending    int64 `json:"Pending"`
+	InProgress int64 `json:"InProgress"`
+	Succeeded  int64 `json:"Succeeded"`
+	Failed     int64 `json:"Failed"`
+	Skipped    int64 `json:"Skipped"`
+	Ready      int64 `json:"Ready"`
+}
+
 type deploymentInfo struct {
-	CompleteTime                  *int64 `json:"completeTime,omitempty"`
-	DeploymentID                  string `json:"deploymentId"`
-	ApplicationName               string `json:"applicationName"`
-	DeploymentGroupName           string `json:"deploymentGroupName"`
-	DeploymentConfigName          string `json:"deploymentConfigName,omitempty"`
-	Status                        string `json:"status"`
-	Creator                       string `json:"creator"`
-	Description                   string `json:"description,omitempty"`
-	FileExistsBehavior            string `json:"fileExistsBehavior,omitempty"`
-	CreateTime                    int64  `json:"createTime"`
-	UpdateOutdatedInstancesOnly   bool   `json:"updateOutdatedInstancesOnly,omitempty"`
-	IgnoreApplicationStopFailures bool   `json:"ignoreApplicationStopFailures,omitempty"`
+	DeploymentOverview            *deploymentOverview    `json:"deploymentOverview,omitempty"`
+	Revision                      *revisionLocationInput `json:"revision,omitempty"`
+	CompleteTime                  *int64                 `json:"completeTime,omitempty"`
+	DeploymentID                  string                 `json:"deploymentId"`
+	ApplicationName               string                 `json:"applicationName"`
+	DeploymentGroupName           string                 `json:"deploymentGroupName"`
+	DeploymentConfigName          string                 `json:"deploymentConfigName,omitempty"`
+	Status                        string                 `json:"status"`
+	Creator                       string                 `json:"creator"`
+	Description                   string                 `json:"description,omitempty"`
+	FileExistsBehavior            string                 `json:"fileExistsBehavior,omitempty"`
+	CreateTime                    int64                  `json:"createTime"`
+	UpdateOutdatedInstancesOnly   bool                   `json:"updateOutdatedInstancesOnly,omitempty"`
+	IgnoreApplicationStopFailures bool                   `json:"ignoreApplicationStopFailures,omitempty"`
 }
 
 type getDeploymentOutput struct {
@@ -1012,6 +1026,8 @@ func (h *Handler) handleGetDeployment(
 		FileExistsBehavior:            d.FileExistsBehavior,
 		UpdateOutdatedInstancesOnly:   d.UpdateOutdatedInstancesOnly,
 		IgnoreApplicationStopFailures: d.IgnoreApplicationStopFailures,
+		Revision:                      revisionToWire(d.Revision),
+		DeploymentOverview:            deploymentOverviewForStatus(d.Status),
 	}
 
 	if d.CompleteTime != nil {
@@ -1167,6 +1183,90 @@ func tagEntriesToMap(entries []tagEntry) map[string]string {
 	return m
 }
 
+// revisionFromWire converts a wire revisionLocationInput to a backend RevisionLocation.
+func revisionFromWire(r *revisionLocationInput) *RevisionLocation {
+	if r == nil {
+		return nil
+	}
+
+	out := &RevisionLocation{RevisionType: r.RevisionType}
+
+	if r.S3Location != nil {
+		out.S3Location = &RevisionS3Location{
+			Bucket:     r.S3Location.Bucket,
+			Key:        r.S3Location.Key,
+			BundleType: r.S3Location.BundleType,
+			ETag:       r.S3Location.ETag,
+			Version:    r.S3Location.Version,
+		}
+	}
+
+	if r.GitHubLocation != nil {
+		out.GitHubLocation = &RevisionGitHubLocation{
+			Repository: r.GitHubLocation.Repository,
+			CommitID:   r.GitHubLocation.CommitID,
+		}
+	}
+
+	if r.AppSpecContent != nil {
+		out.AppSpecContent = &RevisionAppSpecContent{
+			Content: r.AppSpecContent.Content,
+			Sha256:  r.AppSpecContent.Sha256,
+		}
+	}
+
+	return out
+}
+
+// revisionToWire converts a backend RevisionLocation to the wire revisionLocationInput.
+func revisionToWire(r *RevisionLocation) *revisionLocationInput {
+	if r == nil {
+		return nil
+	}
+
+	out := &revisionLocationInput{RevisionType: r.RevisionType}
+
+	if r.S3Location != nil {
+		out.S3Location = &s3LocationEntry{
+			Bucket:     r.S3Location.Bucket,
+			Key:        r.S3Location.Key,
+			BundleType: r.S3Location.BundleType,
+			ETag:       r.S3Location.ETag,
+			Version:    r.S3Location.Version,
+		}
+	}
+
+	if r.GitHubLocation != nil {
+		out.GitHubLocation = &gitHubLocationEntry{
+			Repository: r.GitHubLocation.Repository,
+			CommitID:   r.GitHubLocation.CommitID,
+		}
+	}
+
+	if r.AppSpecContent != nil {
+		out.AppSpecContent = &appSpecContentEntry{
+			Content: r.AppSpecContent.Content,
+			Sha256:  r.AppSpecContent.Sha256,
+		}
+	}
+
+	return out
+}
+
+// deploymentOverviewForStatus returns a synthetic DeploymentOverview based on deployment status.
+func deploymentOverviewForStatus(status string) *deploymentOverview {
+	switch status {
+	case statusSucceeded:
+		return &deploymentOverview{Succeeded: 1}
+	case "Failed":
+		return &deploymentOverview{Failed: 1}
+	case statusStopped:
+		return &deploymentOverview{Skipped: 1}
+	default:
+		return &deploymentOverview{InProgress: 1}
+	}
+}
+
 // --- New operations ---
 
 type addTagsToOnPremisesInstancesInput struct {
@@ -1191,8 +1291,32 @@ func (h *Handler) handleAddTagsToOnPremisesInstances(
 	return &addTagsToOnPremisesInstancesOutput{}, nil
 }
 
+// s3LocationEntry is the wire format for an S3 deployment revision.
+type s3LocationEntry struct {
+	Bucket     string `json:"bucket,omitempty"`
+	Key        string `json:"key,omitempty"`
+	BundleType string `json:"bundleType,omitempty"`
+	ETag       string `json:"eTag,omitempty"`
+	Version    string `json:"version,omitempty"`
+}
+
+// gitHubLocationEntry is the wire format for a GitHub deployment revision.
+type gitHubLocationEntry struct {
+	Repository string `json:"repository,omitempty"`
+	CommitID   string `json:"commitId,omitempty"`
+}
+
+// appSpecContentEntry is the wire format for an AppSpecContent revision.
+type appSpecContentEntry struct {
+	Content string `json:"content,omitempty"`
+	Sha256  string `json:"sha256,omitempty"`
+}
+
 type revisionLocationInput struct {
-	RevisionType string `json:"revisionType"`
+	S3Location     *s3LocationEntry     `json:"s3Location,omitempty"`
+	GitHubLocation *gitHubLocationEntry `json:"gitHubLocation,omitempty"`
+	AppSpecContent *appSpecContentEntry `json:"appSpecContent,omitempty"`
+	RevisionType   string               `json:"revisionType"`
 }
 
 type revisionInfoOutput struct {
@@ -1386,6 +1510,8 @@ func (h *Handler) handleBatchGetDeployments(
 			FileExistsBehavior:            d.FileExistsBehavior,
 			UpdateOutdatedInstancesOnly:   d.UpdateOutdatedInstancesOnly,
 			IgnoreApplicationStopFailures: d.IgnoreApplicationStopFailures,
+			Revision:                      revisionToWire(d.Revision),
+			DeploymentOverview:            deploymentOverviewForStatus(d.Status),
 		}
 
 		if d.CompleteTime != nil {
@@ -1670,7 +1796,7 @@ func (h *Handler) handleStopDeployment(
 		return nil, err
 	}
 
-	return &stopDeploymentOutput{Status: "Stopped"}, nil
+	return &stopDeploymentOutput{Status: statusStopped}, nil
 }
 
 type skipWaitTimeInput struct {

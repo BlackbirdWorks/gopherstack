@@ -297,19 +297,42 @@ func (b *InMemoryBackend) ListModelPackages(
 // AutoMLJob
 // ---------------------------------------------------------------------------
 
+// AutoMLOutputDataConfig specifies the S3 output location for an AutoML job.
+type AutoMLOutputDataConfig struct {
+	S3OutputPath string `json:"S3OutputPath,omitempty"`
+	KmsKeyID     string `json:"KmsKeyId,omitempty"`
+}
+
+// AutoMLJobObjective specifies the optimization metric for an AutoML job.
+type AutoMLJobObjective struct {
+	MetricName string `json:"MetricName"`
+}
+
 // AutoMLJob represents a SageMaker AutoML job.
 type AutoMLJob struct {
-	CreationTime    time.Time         `json:"CreationTime"`
-	Tags            map[string]string `json:"Tags,omitempty"`
-	AutoMLJobName   string            `json:"AutoMLJobName"`
-	AutoMLJobArn    string            `json:"AutoMLJobArn"`
-	AutoMLJobStatus string            `json:"AutoMLJobStatus"`
-	RoleArn         string            `json:"RoleArn,omitempty"`
+	CreationTime       time.Time               `json:"CreationTime"`
+	Tags               map[string]string       `json:"Tags,omitempty"`
+	OutputDataConfig   *AutoMLOutputDataConfig `json:"OutputDataConfig,omitempty"`
+	AutoMLJobObjective *AutoMLJobObjective     `json:"AutoMLJobObjective,omitempty"`
+	AutoMLJobName      string                  `json:"AutoMLJobName"`
+	AutoMLJobArn       string                  `json:"AutoMLJobArn"`
+	AutoMLJobStatus    string                  `json:"AutoMLJobStatus"`
+	RoleArn            string                  `json:"RoleArn,omitempty"`
 }
 
 func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
+
+	if j.OutputDataConfig != nil {
+		odc := *j.OutputDataConfig
+		cp.OutputDataConfig = &odc
+	}
+
+	if j.AutoMLJobObjective != nil {
+		obj := *j.AutoMLJobObjective
+		cp.AutoMLJobObjective = &obj
+	}
 
 	return &cp
 }
@@ -394,6 +417,37 @@ func (b *InMemoryBackend) ListAutoMLJobs(ctx context.Context, nextToken string) 
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(b.autoMLJobsStore(region), nextToken, cloneAutoMLJob)
+}
+
+// SetAutoMLJobExtras sets optional configuration fields on an existing AutoML job
+// that were not included in the original CreateAutoMLJob signature.
+func (b *InMemoryBackend) SetAutoMLJobExtras(
+	ctx context.Context,
+	name string,
+	outputDataConfig *AutoMLOutputDataConfig,
+	objective *AutoMLJobObjective,
+) error {
+	b.mu.Lock("SetAutoMLJobExtras")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.autoMLJobsStore(region)[name]
+	if !ok {
+		return fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
+	}
+
+	if outputDataConfig != nil {
+		odc := *outputDataConfig
+		j.OutputDataConfig = &odc
+	}
+
+	if objective != nil {
+		obj := *objective
+		j.AutoMLJobObjective = &obj
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1028,20 +1082,53 @@ func (b *InMemoryBackend) ListImageVersions(
 // CompilationJob
 // ---------------------------------------------------------------------------
 
+// CompilationInputConfig specifies the model source for a Neo compilation job.
+type CompilationInputConfig struct {
+	S3Uri            string `json:"S3Uri,omitempty"`
+	DataInputConfig  string `json:"DataInputConfig,omitempty"`
+	Framework        string `json:"Framework,omitempty"`
+	FrameworkVersion string `json:"FrameworkVersion,omitempty"`
+}
+
+// CompilationOutputConfig specifies the output destination for a Neo compilation job.
+type CompilationOutputConfig struct {
+	S3OutputLocation string `json:"S3OutputLocation,omitempty"`
+	TargetDevice     string `json:"TargetDevice,omitempty"`
+	KmsKeyID         string `json:"KmsKeyId,omitempty"`
+}
+
 // CompilationJob represents a SageMaker Neo compilation job.
 type CompilationJob struct {
-	CreationTime         time.Time         `json:"CreationTime"`
-	LastModifiedTime     time.Time         `json:"LastModifiedTime"`
-	Tags                 map[string]string `json:"Tags,omitempty"`
-	CompilationJobName   string            `json:"CompilationJobName"`
-	CompilationJobArn    string            `json:"CompilationJobArn"`
-	CompilationJobStatus string            `json:"CompilationJobStatus"`
-	RoleArn              string            `json:"RoleArn,omitempty"`
+	CreationTime         time.Time                `json:"CreationTime"`
+	LastModifiedTime     time.Time                `json:"LastModifiedTime"`
+	Tags                 map[string]string        `json:"Tags,omitempty"`
+	InputConfig          *CompilationInputConfig  `json:"InputConfig,omitempty"`
+	OutputConfig         *CompilationOutputConfig `json:"OutputConfig,omitempty"`
+	StoppingCondition    *StoppingCondition       `json:"StoppingCondition,omitempty"`
+	CompilationJobName   string                   `json:"CompilationJobName"`
+	CompilationJobArn    string                   `json:"CompilationJobArn"`
+	CompilationJobStatus string                   `json:"CompilationJobStatus"`
+	RoleArn              string                   `json:"RoleArn,omitempty"`
 }
 
 func cloneCompilationJob(j *CompilationJob) *CompilationJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
+
+	if j.InputConfig != nil {
+		ic := *j.InputConfig
+		cp.InputConfig = &ic
+	}
+
+	if j.OutputConfig != nil {
+		oc := *j.OutputConfig
+		cp.OutputConfig = &oc
+	}
+
+	if j.StoppingCondition != nil {
+		sc := *j.StoppingCondition
+		cp.StoppingCondition = &sc
+	}
 
 	return &cp
 }
@@ -1146,6 +1233,45 @@ func (b *InMemoryBackend) ListCompilationJobs(ctx context.Context, nextToken str
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(b.compilationJobsStore(region), nextToken, cloneCompilationJob)
+}
+
+// SetCompilationJobExtras sets optional configuration fields on an existing compilation job
+// that were not included in the original CreateCompilationJob signature.
+func (b *InMemoryBackend) SetCompilationJobExtras(
+	ctx context.Context,
+	name string,
+	inputConfig *CompilationInputConfig,
+	outputConfig *CompilationOutputConfig,
+	stoppingCondition *StoppingCondition,
+) error {
+	b.mu.Lock("SetCompilationJobExtras")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.compilationJobsStore(region)[name]
+	if !ok {
+		return fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
+	}
+
+	if inputConfig != nil {
+		ic := *inputConfig
+		j.InputConfig = &ic
+	}
+
+	if outputConfig != nil {
+		oc := *outputConfig
+		j.OutputConfig = &oc
+	}
+
+	if stoppingCondition != nil {
+		sc := *stoppingCondition
+		j.StoppingCondition = &sc
+	}
+
+	j.LastModifiedTime = time.Now()
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------

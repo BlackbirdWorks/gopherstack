@@ -405,7 +405,11 @@ func TestDynamoDBCBOR_CRC32Header(t *testing.T) {
 	putRR := httptest.NewRecorder()
 	require.NoError(t, serveEchoHandler(handler.Handler(), putRR, putReq))
 	assert.Equal(t, http.StatusOK, putRR.Code)
-	assert.NotEmpty(t, putRR.Header().Get("X-Amz-Crc32"), "X-Amz-Crc32 must be set for CBOR responses")
+	assert.NotEmpty(
+		t,
+		putRR.Header().Get("X-Amz-Crc32"),
+		"X-Amz-Crc32 must be set for CBOR responses",
+	)
 }
 
 // TestDynamoDBCBOR_JSONAndCBORCoexist verifies that JSON and CBOR requests can

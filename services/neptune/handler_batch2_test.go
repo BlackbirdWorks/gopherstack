@@ -51,6 +51,7 @@ func TestBatch2_DeleteDBCluster_DeletionProtection(t *testing.T) {
 				"Action":              {"DeleteDBCluster"},
 				"Version":             {"2014-10-31"},
 				"DBClusterIdentifier": {"del-prot-cluster"},
+				"SkipFinalSnapshot":   {"true"},
 			})
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)

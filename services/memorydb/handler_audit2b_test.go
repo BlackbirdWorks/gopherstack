@@ -262,20 +262,19 @@ func TestAudit2b_ACL_ClusterMembership(t *testing.T) {
 	}
 }
 
-// -- User UserGroupCount accurate (finding 17) -----------------------------------
+// -- User ACLNames accurate (finding 17) -----------------------------------------
 
-func TestAudit2b_User_UserGroupCount_Accurate(t *testing.T) {
+func TestAudit2b_User_ACLNames_Accurate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		aclCount  int
-		wantCount float64
+		name     string
+		aclCount int
 	}{
-		{"user in 0 ACLs", 0, 0},
-		{"user in 1 ACL", 1, 1},
-		{"user in 2 ACLs", 2, 2},
-		{"user in 3 ACLs", 3, 3},
+		{"user in 0 ACLs", 0},
+		{"user in 1 ACL", 1},
+		{"user in 2 ACLs", 2},
+		{"user in 3 ACLs", 3},
 	}
 
 	for _, tt := range tests {
@@ -304,8 +303,9 @@ func TestAudit2b_User_UserGroupCount_Accurate(t *testing.T) {
 			users := doDescribeUsers(t, h, "ugc-user")
 			require.Len(t, users, 1)
 			user, _ := users[0].(map[string]any)
-			assert.InDelta(t, tt.wantCount, user["UserGroupCount"], 0.001,
-				"UserGroupCount should be %v for user in %d ACLs", tt.wantCount, tt.aclCount)
+			aclNames, _ := user["ACLNames"].([]any)
+			assert.Len(t, aclNames, tt.aclCount,
+				"ACLNames length should be %d for user in %d ACLs", tt.aclCount, tt.aclCount)
 		})
 	}
 }

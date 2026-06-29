@@ -24,7 +24,12 @@ func TestBatch2_ResourceDataSync_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Create
-	rec = doRequest(t, h, "CreateResourceDataSync", `{"SyncName":"my-sync","SyncType":"SyncToDestination"}`)
+	rec = doRequest(
+		t,
+		h,
+		"CreateResourceDataSync",
+		`{"SyncName":"my-sync","SyncType":"SyncToDestination"}`,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// List shows it
@@ -89,7 +94,12 @@ func TestBatch2_ServiceSetting_GetPutReset(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	// Get default
-	rec := doRequest(t, h, "GetServiceSetting", `{"SettingId":"/ssm/parameter-store/default-parameter-tier"}`)
+	rec := doRequest(
+		t,
+		h,
+		"GetServiceSetting",
+		`{"SettingId":"/ssm/parameter-store/default-parameter-tier"}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assertBodyContains(t, rec, "Default")
 
@@ -99,12 +109,22 @@ func TestBatch2_ServiceSetting_GetPutReset(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Get updated
-	rec = doRequest(t, h, "GetServiceSetting", `{"SettingId":"/ssm/parameter-store/default-parameter-tier"}`)
+	rec = doRequest(
+		t,
+		h,
+		"GetServiceSetting",
+		`{"SettingId":"/ssm/parameter-store/default-parameter-tier"}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assertBodyContains(t, rec, "Advanced")
 
 	// Reset
-	rec = doRequest(t, h, "ResetServiceSetting", `{"SettingId":"/ssm/parameter-store/default-parameter-tier"}`)
+	rec = doRequest(
+		t,
+		h,
+		"ResetServiceSetting",
+		`{"SettingId":"/ssm/parameter-store/default-parameter-tier"}`,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -121,7 +141,12 @@ func TestBatch2_ResourcePolicies(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Put
-	rec = doRequest(t, h, "PutResourcePolicy", `{"ResourceArn":`+arn+`,"Policy":"{\"Version\":\"2012-10-17\"}"}`)
+	rec = doRequest(
+		t,
+		h,
+		"PutResourcePolicy",
+		`{"ResourceArn":`+arn+`,"Policy":"{\"Version\":\"2012-10-17\"}"}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assertBodyContains(t, rec, "PolicyId")
 
@@ -138,7 +163,10 @@ func TestBatch2_ParameterLabels(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create a parameter first
-	_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/my/param", Value: "val", Type: "String"})
+	_, err := b.PutParameter(
+		context.TODO(),
+		&ssm.PutParameterInput{Name: "/my/param", Value: "val", Type: "String"},
+	)
 	require.NoError(t, err)
 
 	// Label it
@@ -260,21 +288,47 @@ func TestBatch2_ListNodes(t *testing.T) {
 func TestBatch2_MaintenanceWindowExecutions(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newTestHandler(t)
+	h, b := newTestHandler(t)
 
-	rec := doRequest(t, h, "DescribeMaintenanceWindowExecutions", `{"WindowId":"mw-001"}`)
+	win, err := b.CreateMaintenanceWindow(context.Background(), &ssm.CreateMaintenanceWindowInput{
+		Name:     "test-window",
+		Schedule: "rate(7 days)",
+		Duration: 2,
+	})
+	require.NoError(t, err)
+
+	windowID := win.WindowID
+
+	rec := doRequest(t, h, "DescribeMaintenanceWindowExecutions", `{"WindowId":"`+windowID+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "DescribeMaintenanceWindowExecutionTasks", `{"WindowExecutionId":"we-001"}`)
+	execID := "mwexec-" + windowID
+
+	rec = doRequest(
+		t,
+		h,
+		"DescribeMaintenanceWindowExecutionTasks",
+		`{"WindowExecutionId":"`+execID+`"}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "DescribeMaintenanceWindowExecutionTaskInvocations", `{"WindowExecutionId":"we-001"}`)
+	rec = doRequest(
+		t,
+		h,
+		"DescribeMaintenanceWindowExecutionTaskInvocations",
+		`{"WindowExecutionId":"`+execID+`"}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, "DescribeMaintenanceWindowSchedule", `{}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doRequest(t, h, "GetMaintenanceWindowExecution", `{"WindowId":"mw-001","WindowExecutionId":"we-001"}`)
+	rec = doRequest(
+		t,
+		h,
+		"GetMaintenanceWindowExecution",
+		`{"WindowId":"`+windowID+`","WindowExecutionId":"`+execID+`"}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 

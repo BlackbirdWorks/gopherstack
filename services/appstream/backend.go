@@ -63,17 +63,22 @@ func (s *storedStack) toStack() *Stack {
 }
 
 type storedFleet struct {
-	CreatedTime           time.Time         `json:"createdTime"`
-	Tags                  map[string]string `json:"tags"`
-	Name                  string            `json:"name"`
-	Arn                   string            `json:"arn"`
-	DisplayName           string            `json:"displayName"`
-	Description           string            `json:"description"`
-	InstanceType          string            `json:"instanceType"`
-	FleetType             string            `json:"fleetType"`
-	State                 string            `json:"state"`
-	MaxUserDurationSecs   int               `json:"maxUserDurationSecs"`
-	DisconnectTimeoutSecs int               `json:"disconnectTimeoutSecs"`
+	EnableDefaultInternetAccess *bool             `json:"enableDefaultInternetAccess,omitempty"`
+	CreatedTime                 time.Time         `json:"createdTime"`
+	Tags                        map[string]string `json:"tags"`
+	Name                        string            `json:"name"`
+	Arn                         string            `json:"arn"`
+	DisplayName                 string            `json:"displayName"`
+	Description                 string            `json:"description"`
+	InstanceType                string            `json:"instanceType"`
+	FleetType                   string            `json:"fleetType"`
+	State                       string            `json:"state"`
+	ImageName                   string            `json:"imageName,omitempty"`
+	ImageArn                    string            `json:"imageArn,omitempty"`
+	DesiredInstances            int               `json:"desiredInstances"`
+	MaxUserDurationSecs         int               `json:"maxUserDurationSecs"`
+	DisconnectTimeoutSecs       int               `json:"disconnectTimeoutSecs"`
+	IdleDisconnectTimeoutSecs   int               `json:"idleDisconnectTimeoutSecs"`
 }
 
 func (f *storedFleet) toFleet() *Fleet {
@@ -81,17 +86,22 @@ func (f *storedFleet) toFleet() *Fleet {
 	maps.Copy(tags, f.Tags)
 
 	return &Fleet{
-		CreatedTime:           f.CreatedTime,
-		Tags:                  tags,
-		Name:                  f.Name,
-		Arn:                   f.Arn,
-		DisplayName:           f.DisplayName,
-		Description:           f.Description,
-		InstanceType:          f.InstanceType,
-		FleetType:             f.FleetType,
-		State:                 f.State,
-		MaxUserDurationSecs:   f.MaxUserDurationSecs,
-		DisconnectTimeoutSecs: f.DisconnectTimeoutSecs,
+		EnableDefaultInternetAccess: f.EnableDefaultInternetAccess,
+		CreatedTime:                 f.CreatedTime,
+		Tags:                        tags,
+		Name:                        f.Name,
+		Arn:                         f.Arn,
+		DisplayName:                 f.DisplayName,
+		Description:                 f.Description,
+		InstanceType:                f.InstanceType,
+		FleetType:                   f.FleetType,
+		State:                       f.State,
+		ImageName:                   f.ImageName,
+		ImageArn:                    f.ImageArn,
+		DesiredInstances:            f.DesiredInstances,
+		MaxUserDurationSecs:         f.MaxUserDurationSecs,
+		DisconnectTimeoutSecs:       f.DisconnectTimeoutSecs,
+		IdleDisconnectTimeoutSecs:   f.IdleDisconnectTimeoutSecs,
 	}
 }
 
@@ -307,8 +317,9 @@ func isValidFleetType(ft string) bool {
 
 // CreateFleet creates a new fleet.
 func (b *InMemoryBackend) CreateFleet(
-	name, displayName, description, instanceType, fleetType string,
-	maxUserDuration, disconnectTimeout int,
+	name, displayName, description, instanceType, fleetType, imageName, imageArn string,
+	desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
+	enableDefaultInternetAccess *bool,
 	tags map[string]string,
 ) (*Fleet, error) {
 	if instanceType == "" {
@@ -349,18 +360,28 @@ func (b *InMemoryBackend) CreateFleet(
 		dt = defaultDisconnectTimeout
 	}
 
+	desired := desiredInstances
+	if desired == 0 {
+		desired = 1
+	}
+
 	f := &storedFleet{
-		CreatedTime:           time.Now().UTC(),
-		Tags:                  storedTags,
-		Name:                  name,
-		Arn:                   arn,
-		DisplayName:           displayName,
-		Description:           description,
-		InstanceType:          instanceType,
-		FleetType:             ft,
-		State:                 fleetStateStopped,
-		MaxUserDurationSecs:   mux,
-		DisconnectTimeoutSecs: dt,
+		EnableDefaultInternetAccess: enableDefaultInternetAccess,
+		CreatedTime:                 time.Now().UTC(),
+		Tags:                        storedTags,
+		Name:                        name,
+		Arn:                         arn,
+		DisplayName:                 displayName,
+		Description:                 description,
+		InstanceType:                instanceType,
+		FleetType:                   ft,
+		State:                       fleetStateStopped,
+		ImageName:                   imageName,
+		ImageArn:                    imageArn,
+		DesiredInstances:            desired,
+		MaxUserDurationSecs:         mux,
+		DisconnectTimeoutSecs:       dt,
+		IdleDisconnectTimeoutSecs:   idleDisconnectTimeout,
 	}
 	b.fleets[name] = f
 	b.tags[arn] = storedTags
@@ -397,8 +418,10 @@ func (b *InMemoryBackend) DescribeFleets(names []string) ([]*Fleet, error) {
 }
 
 // UpdateFleet updates mutable fields of an existing fleet.
-func (b *InMemoryBackend) UpdateFleet(name, displayName, description, instanceType string,
-	maxUserDuration, disconnectTimeout int,
+func (b *InMemoryBackend) UpdateFleet(
+	name, displayName, description, instanceType, imageName, imageArn string,
+	desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
+	enableDefaultInternetAccess *bool,
 ) (*Fleet, error) {
 	b.mu.Lock("UpdateFleet")
 	defer b.mu.Unlock()
@@ -420,12 +443,32 @@ func (b *InMemoryBackend) UpdateFleet(name, displayName, description, instanceTy
 		f.InstanceType = instanceType
 	}
 
+	if imageName != "" {
+		f.ImageName = imageName
+	}
+
+	if imageArn != "" {
+		f.ImageArn = imageArn
+	}
+
+	if desiredInstances > 0 {
+		f.DesiredInstances = desiredInstances
+	}
+
 	if maxUserDuration > 0 {
 		f.MaxUserDurationSecs = maxUserDuration
 	}
 
 	if disconnectTimeout > 0 {
 		f.DisconnectTimeoutSecs = disconnectTimeout
+	}
+
+	if idleDisconnectTimeout >= 0 && idleDisconnectTimeout != f.IdleDisconnectTimeoutSecs {
+		f.IdleDisconnectTimeoutSecs = idleDisconnectTimeout
+	}
+
+	if enableDefaultInternetAccess != nil {
+		f.EnableDefaultInternetAccess = enableDefaultInternetAccess
 	}
 
 	return f.toFleet(), nil

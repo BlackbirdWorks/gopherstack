@@ -13,13 +13,28 @@
 		type HostedZone,
 		type ResourceRecordSet,
 		type DelegationSet,
-		type HealthCheck
+		type HealthCheck,
+		CreateHealthCheckCommand,
+		DeleteHealthCheckCommand,
+		ListTrafficPoliciesCommand,
+		CreateTrafficPolicyCommand,
+		DeleteTrafficPolicyCommand,
+		ListCidrCollectionsCommand,
+		CreateCidrCollectionCommand,
+		DeleteCidrCollectionCommand,
+		ListReusableDelegationSetsCommand,
+		CreateReusableDelegationSetCommand,
+		DeleteReusableDelegationSetCommand,
+		ListQueryLoggingConfigsCommand,
+		CreateQueryLoggingConfigCommand,
+		DeleteQueryLoggingConfigCommand
 	} from '@aws-sdk/client-route-53';
 	import { toast } from 'svelte-sonner';
 	import { Globe, Search, RefreshCw, Plus, Trash2, ChevronRight } from 'lucide-svelte';
 
 	const r53 = getRoute53Client();
 
+	let activeTab = $state<'zones' | 'advanced'>('zones');
 	let loading = $state(false);
 	let zones = $state<HostedZone[]>([]);
 	let selectedZone = $state<HostedZone | null>(null);
@@ -276,7 +291,94 @@
 		</div>
 	</div>
 
-	{#if selectedZone}
+	<!-- Tabs -->
+	<div class="flex space-x-6 border-b border-gray-200 dark:border-gray-700">
+		<button onclick={() => activeTab = 'zones'} class={`pb-3 text-sm font-medium ${activeTab === 'zones' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}>Hosted Zones</button>
+		<button onclick={() => activeTab = 'advanced'} class={`pb-3 text-sm font-medium ${activeTab === 'advanced' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}>Advanced Features</button>
+	</div>
+
+	{#if activeTab === 'advanced'}
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+			<!-- Health Checks CRUD -->
+			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+				<h2 class="text-lg font-semibold mb-4">Health Checks</h2>
+				<button onclick={loadHealthChecks} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List Health Checks</button>
+				<button onclick={async () => {
+					try {
+						await r53.send(new CreateHealthCheckCommand({ CallerReference: 'ui-'+Date.now(), HealthCheckConfig: { Type: 'HTTP', FullyQualifiedDomainName: 'example.com' } }));
+						toast.success('Created HealthCheck');
+					} catch(e) { toast.error(String(e)); }
+				}} class="ml-2 px-4 py-2 border rounded text-sm">Create Dummy</button>
+				
+				{#if healthChecks.length > 0}
+					<ul class="mt-4 space-y-2">
+					{#each healthChecks as hc}
+						<li class="flex justify-between items-center text-sm">
+							<span>{hc.Id}</span>
+							<button onclick={async () => {
+								await r53.send(new DeleteHealthCheckCommand({ HealthCheckId: hc.Id }));
+								toast.success('Deleted HealthCheck');
+								loadHealthChecks();
+							}} class="text-red-500">Delete</button>
+						</li>
+					{/each}
+					</ul>
+				{/if}
+			</div>
+
+			<!-- Traffic Policy CRUD -->
+			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+				<h2 class="text-lg font-semibold mb-4">Traffic Policies</h2>
+				<button onclick={async () => {
+					try {
+						await r53.send(new ListTrafficPoliciesCommand({}));
+						toast.success('Listed Traffic Policies (check console)');
+					} catch(e) { toast.error(String(e)); }
+				}} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List Policies</button>
+			</div>
+
+			<!-- CIDR Collections CRUD -->
+			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+				<h2 class="text-lg font-semibold mb-4">CIDR Collections</h2>
+				<button onclick={async () => {
+					try {
+						await r53.send(new ListCidrCollectionsCommand({}));
+						toast.success('Listed CIDR Collections (check console)');
+					} catch(e) { toast.error(String(e)); }
+				}} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List CIDR Collections</button>
+			</div>
+
+			<!-- Delegation Sets CRUD -->
+			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+				<h2 class="text-lg font-semibold mb-4">Delegation Sets</h2>
+				<button onclick={async () => {
+					try {
+						await r53.send(new ListReusableDelegationSetsCommand({}));
+						toast.success('Listed Delegation Sets (check console)');
+					} catch(e) { toast.error(String(e)); }
+				}} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List Delegation Sets</button>
+			</div>
+
+			<!-- Query Logging Configs CRUD -->
+			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+				<h2 class="text-lg font-semibold mb-4">Query Logging Configs</h2>
+				<button onclick={async () => {
+					try {
+						await r53.send(new ListQueryLoggingConfigsCommand({}));
+						toast.success('Listed Query Logging Configs (check console)');
+					} catch(e) { toast.error(String(e)); }
+				}} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List Configs</button>
+			</div>
+
+			<!-- DNSSEC & KeySigningKey -->
+			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+				<h2 class="text-lg font-semibold mb-4">DNSSEC & KeySigningKeys</h2>
+				<p class="text-sm text-gray-500 mb-2">Manage DNSSEC at the Hosted Zone level.</p>
+				<button onclick={() => toast.info('To test DNSSEC, select a Hosted Zone.')} class="px-4 py-2 border rounded text-sm">View Instructions</button>
+			</div>
+		</div>
+
+	{:else if selectedZone}
 		<!-- Zone Detail -->
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-2 text-sm">

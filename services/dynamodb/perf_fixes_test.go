@@ -59,12 +59,19 @@ func TestDeepCopyItem_NestedMutationIsolation(t *testing.T) {
 			},
 			mutate: func(copied map[string]any) {
 				// Mutate a value deep inside the nested map.
-				copied["m"].(map[string]any)["M"].(map[string]any)["inner"] = map[string]any{"S": "mutated"}
+				copied["m"].(map[string]any)["M"].(map[string]any)["inner"] = map[string]any{
+					"S": "mutated",
+				}
 			},
 			verify: func(t *testing.T, orig map[string]any) {
 				t.Helper()
 				inner := orig["m"].(map[string]any)["M"].(map[string]any)["inner"]
-				assert.Equal(t, map[string]any{"S": "original"}, inner, "nested map value should be unchanged")
+				assert.Equal(
+					t,
+					map[string]any{"S": "original"},
+					inner,
+					"nested map value should be unchanged",
+				)
 			},
 		},
 		{
@@ -85,7 +92,12 @@ func TestDeepCopyItem_NestedMutationIsolation(t *testing.T) {
 			verify: func(t *testing.T, orig map[string]any) {
 				t.Helper()
 				list := orig["l"].(map[string]any)["L"].([]any)
-				assert.Equal(t, map[string]any{"S": "a"}, list[0], "original list[0] should be unchanged")
+				assert.Equal(
+					t,
+					map[string]any{"S": "a"},
+					list[0],
+					"original list[0] should be unchanged",
+				)
 			},
 		},
 		{
@@ -102,7 +114,12 @@ func TestDeepCopyItem_NestedMutationIsolation(t *testing.T) {
 			verify: func(t *testing.T, orig map[string]any) {
 				t.Helper()
 				ss := orig["ss"].(map[string]any)["SS"].([]string)
-				assert.Equal(t, "apple", ss[0], "original SS[0] should be unchanged after mutating the copy")
+				assert.Equal(
+					t,
+					"apple",
+					ss[0],
+					"original SS[0] should be unchanged after mutating the copy",
+				)
 			},
 		},
 		{
@@ -118,7 +135,12 @@ func TestDeepCopyItem_NestedMutationIsolation(t *testing.T) {
 			verify: func(t *testing.T, orig map[string]any) {
 				t.Helper()
 				ns := orig["ns"].(map[string]any)["NS"].([]string)
-				assert.Equal(t, "1", ns[0], "original NS[0] should be unchanged after mutating the copy")
+				assert.Equal(
+					t,
+					"1",
+					ns[0],
+					"original NS[0] should be unchanged after mutating the copy",
+				)
 			},
 		},
 	}
@@ -154,7 +176,12 @@ func TestDeepCopyItem_ListElementMutation(t *testing.T) {
 	list[0] = map[string]any{"S": "mutated"}
 
 	origList := original["l"].(map[string]any)["L"].([]any)
-	assert.Equal(t, map[string]any{"S": "a"}, origList[0], "original list element should be unchanged")
+	assert.Equal(
+		t,
+		map[string]any{"S": "a"},
+		origList[0],
+		"original list element should be unchanged",
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +241,9 @@ func TestSweepTxnTokens_RemovesExpiredTokens(t *testing.T) {
 							Put: &types.Put{
 								TableName: aws.String("TxnTTLTable"),
 								Item: map[string]types.AttributeValue{
-									"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("pk-%d", i)},
+									"pk": &types.AttributeValueMemberS{
+										Value: fmt.Sprintf("pk-%d", i),
+									},
 								},
 							},
 						},
@@ -223,7 +252,12 @@ func TestSweepTxnTokens_RemovesExpiredTokens(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			assert.Equal(t, tt.injectExpired+tt.injectFresh, db.TxnTokenCount(), "total before sweep")
+			assert.Equal(
+				t,
+				tt.injectExpired+tt.injectFresh,
+				db.TxnTokenCount(),
+				"total before sweep",
+			)
 
 			janitor := dynamodb.NewJanitor(db, dynamodb.Settings{})
 			janitor.SweepTxnTokens(t.Context())
@@ -358,7 +392,12 @@ func TestStreamARNIndex_EnableDisableStream(t *testing.T) {
 
 	tbl, ok := db.GetTable("IndexedStreamTable")
 	require.True(t, ok)
-	assert.Equal(t, "NEW_IMAGE", tbl.StreamViewType, "StreamViewType should be set after EnableStream")
+	assert.Equal(
+		t,
+		"NEW_IMAGE",
+		tbl.StreamViewType,
+		"StreamViewType should be set after EnableStream",
+	)
 
 	_, found := db.LookupStreamARNIndex(tbl.StreamARN)
 	assert.True(t, found, "stream should be in index after EnableStream")
@@ -595,7 +634,13 @@ func TestScanPerformance_LimitVsFullTable(t *testing.T) {
 	}
 
 	elapsed := time.Since(start)
-	assert.Less(t, elapsed, maxDuration, "100 limited scans on %d items should complete quickly", numItems)
+	assert.Less(
+		t,
+		elapsed,
+		maxDuration,
+		"100 limited scans on %d items should complete quickly",
+		numItems,
+	)
 }
 
 // BenchmarkScanWithLimit measures the performance of Scan with a small Limit

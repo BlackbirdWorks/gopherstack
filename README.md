@@ -51,11 +51,14 @@ The dashboard lets you browse and manage DynamoDB tables, S3 buckets, and more �
 - **Data Integrity**: Automatic checksum calculation supporting CRC32, CRC32C, SHA1, and SHA256.
 - **Compression**: Integrated Gzip compression for efficient memory usage.
 
-### Lambda (image-based only)
+### Lambda (Zip and Image packaging)
 
-Gopherstack supports AWS Lambda with **Docker image-based functions only** (`PackageType: Image`).
+Gopherstack supports AWS Lambda with both **Zip** (`PackageType: Zip`) and **container image** (`PackageType: Image`) functions.
 
-> **Important:** Only `PackageType: Image` is supported. Zip deployments, S3-based code delivery, and direct Go binary execution on the host are **not supported**. Your function must be packaged as a Docker image (e.g. a standard AWS base image or your own custom image).
+- **Zip functions**: The uploaded archive is extracted and run on the matching AWS runtime base image, so the standard managed runtimes work without modification — `python3.9`–`python3.13`, `nodejs18.x`/`20.x`/`22.x`, `java11`/`17`/`21`, `dotnet8`/`dotnet9`, `ruby3.2`/`3.3`, and `provided.al2`/`provided.al2023`.
+- **Image functions**: Provide an `ImageUri` (a standard AWS base image or your own custom image).
+
+> **Important:** Both packaging modes require a running Docker (or Podman) daemon to execute invocations. S3-based code delivery and direct Go binary execution on the host are not supported. All other Gopherstack services continue to work without Docker.
 
 - **Supported operations**: `CreateFunction`, `GetFunction`, `ListFunctions`, `DeleteFunction`, `UpdateFunctionCode`, `UpdateFunctionConfiguration`, `Invoke`, `PutFunctionConcurrency`, `GetFunctionConcurrency`
 - **Invocation modes**: `RequestResponse` (synchronous) and `Event` (asynchronous / fire-and-forget)

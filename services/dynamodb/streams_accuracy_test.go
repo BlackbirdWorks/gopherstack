@@ -246,7 +246,10 @@ func TestUnit_Streams_GetShardIterator_AllIteratorTypes(t *testing.T) {
 		ShardIteratorType: streamstypes.ShardIteratorTypeTrimHorizon,
 	})
 	require.NoError(t, err)
-	recOut, err := db.GetRecords(ctx, &dynamodbstreams.GetRecordsInput{ShardIterator: iterH.ShardIterator})
+	recOut, err := db.GetRecords(
+		ctx,
+		&dynamodbstreams.GetRecordsInput{ShardIterator: iterH.ShardIterator},
+	)
 	require.NoError(t, err)
 	require.Len(t, recOut.Records, 3)
 	seqNum := aws.ToString(recOut.Records[1].Dynamodb.SequenceNumber) // middle record
@@ -360,7 +363,12 @@ func TestUnit_Streams_Shards_ShardSplitOnRingBufferWrap(t *testing.T) {
 	second := shards[1]
 	assert.Equal(t, ddb.StreamShardID, first.ShardID)
 	assert.NotEqual(t, int64(0), first.EndingSequenceNum, "first shard must be closed after split")
-	assert.Equal(t, first.ShardID, second.ParentShardID, "second shard's parent must be the first shard")
+	assert.Equal(
+		t,
+		first.ShardID,
+		second.ParentShardID,
+		"second shard's parent must be the first shard",
+	)
 	assert.Equal(t, int64(0), second.EndingSequenceNum, "second shard must still be open")
 }
 
@@ -408,7 +416,11 @@ func TestUnit_Streams_GetRecords_ClosedShardReturnsNilIterator(t *testing.T) {
 		}
 		iter = recOut.NextShardIterator
 	}
-	assert.True(t, gotNil, "GetRecords on a drained closed shard must return a nil NextShardIterator")
+	assert.True(
+		t,
+		gotNil,
+		"GetRecords on a drained closed shard must return a nil NextShardIterator",
+	)
 }
 
 func TestUnit_Streams_Shards_DescribeStreamReturnsGenealogy(t *testing.T) {

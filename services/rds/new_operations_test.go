@@ -922,6 +922,7 @@ func TestRDSBackend_ModifyDBInstance_NewFields(t *testing.T) {
 		StorageType:           "io1",
 		BackupRetentionPeriod: 14,
 		MultiAZ:               true,
+		ApplyImmediately:      true,
 	}
 
 	inst, err := b.ModifyDBInstance("mod-db", "db.r5.large", 100, opts)

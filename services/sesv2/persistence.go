@@ -10,6 +10,8 @@ import (
 
 type backendSnapshot struct {
 	DedicatedIPPools            map[string]*DedicatedIPPool                 `json:"dedicatedIPPools"`
+	DedicatedIPs                map[string]*DedicatedIP                     `json:"dedicatedIPs"`
+	ReputationEntities          map[string]*ReputationEntity                `json:"reputationEntities"`
 	EmailIdentityPolicies       map[string]map[string]string                `json:"emailIdentityPolicies"`
 	EventDestinations           map[string]map[string]*EventDestination     `json:"eventDestinations"`
 	ContactLists                map[string]*ContactList                     `json:"contactLists"`
@@ -19,6 +21,9 @@ type backendSnapshot struct {
 	DeliverabilityTestReports   map[string]*DeliverabilityTestReport        `json:"deliverabilityTestReports"`
 	ConfigurationSets           map[string]*ConfigurationSet                `json:"configurationSets"`
 	ExportJobs                  map[string]*ExportJob                       `json:"exportJobs"`
+	ImportJobs                  map[string]*ImportJob                       `json:"importJobs,omitempty"`
+	SuppressedDestinations      map[string]*SuppressedDestination           `json:"suppressedDestinations,omitempty"`
+	AccountDetails              *AccountDetails                             `json:"accountDetails,omitempty"`
 	Identities                  map[string]*EmailIdentity                   `json:"identities"`
 	ResourceTags                map[string]map[string]string                `json:"resourceTags"`
 	MultiRegionEndpoints        map[string]map[string]any                   `json:"multiRegionEndpoints"`
@@ -64,6 +69,14 @@ func ensureCoreMaps(s *backendSnapshot) {
 		s.DedicatedIPPools = make(map[string]*DedicatedIPPool)
 	}
 
+	if s.DedicatedIPs == nil {
+		s.DedicatedIPs = make(map[string]*DedicatedIP)
+	}
+
+	if s.ReputationEntities == nil {
+		s.ReputationEntities = make(map[string]*ReputationEntity)
+	}
+
 	if s.DeliverabilityTestReports == nil {
 		s.DeliverabilityTestReports = make(map[string]*DeliverabilityTestReport)
 	}
@@ -76,6 +89,14 @@ func ensureExtendedMaps(s *backendSnapshot) {
 
 	if s.ExportJobs == nil {
 		s.ExportJobs = make(map[string]*ExportJob)
+	}
+
+	if s.ImportJobs == nil {
+		s.ImportJobs = make(map[string]*ImportJob)
+	}
+
+	if s.SuppressedDestinations == nil {
+		s.SuppressedDestinations = make(map[string]*SuppressedDestination)
 	}
 
 	if s.EmailIdentityPolicies == nil {
@@ -117,9 +138,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Contacts:                    b.contacts,
 		CustomVerificationTemplates: b.customVerificationTemplates,
 		DedicatedIPPools:            b.dedicatedIPPools,
+		DedicatedIPs:                b.dedicatedIPs,
+		ReputationEntities:          b.reputationEntities,
 		DeliverabilityTestReports:   b.deliverabilityTestReports,
 		EmailTemplates:              b.emailTemplates,
 		ExportJobs:                  b.exportJobs,
+		ImportJobs:                  b.importJobs,
+		SuppressedDestinations:      b.suppressedDestinations,
+		AccountDetails:              b.accountDetails,
 		EmailIdentityPolicies:       b.emailIdentityPolicies,
 		Emails:                      b.emails,
 		AccountID:                   b.accountID,
@@ -162,9 +188,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.contacts = snap.Contacts
 	b.customVerificationTemplates = snap.CustomVerificationTemplates
 	b.dedicatedIPPools = snap.DedicatedIPPools
+	b.dedicatedIPs = snap.DedicatedIPs
+	b.reputationEntities = snap.ReputationEntities
 	b.deliverabilityTestReports = snap.DeliverabilityTestReports
 	b.emailTemplates = snap.EmailTemplates
 	b.exportJobs = snap.ExportJobs
+	b.importJobs = snap.ImportJobs
+	b.suppressedDestinations = snap.SuppressedDestinations
+	b.accountDetails = snap.AccountDetails
 	b.emailIdentityPolicies = snap.EmailIdentityPolicies
 	b.emails = snap.Emails
 	b.accountID = snap.AccountID

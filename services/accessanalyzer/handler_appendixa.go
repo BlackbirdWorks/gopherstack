@@ -8,6 +8,12 @@ import (
 )
 
 const (
+	keyMessage = "message"
+	keyResult  = "result"
+	keyReasons = "reasons"
+)
+
+const (
 	opApplyArchiveRule              = "ApplyArchiveRule"
 	opCancelPolicyGeneration        = "CancelPolicyGeneration"
 	opCheckAccessNotGranted         = "CheckAccessNotGranted"
@@ -247,26 +253,66 @@ func (h *Handler) handleCancelPolicyGeneration(path string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleCheckAccessNotGranted(_ []byte) (any, int, error) { //nolint:unparam // existing issue.
-	return map[string]any{
-		"result":  "PASS",                                                      //nolint:goconst // existing issue.
-		"message": "The specified policy does not grant the specified access.", //nolint:goconst // existing issue.
-	}, http.StatusOK, nil
+func (h *Handler) handleCheckAccessNotGranted(body []byte) (any, int, error) {
+	var req struct {
+		PolicyDocument string       `json:"policyDocument"`
+		PolicyType     string       `json:"policyType"`
+		Access         []AccessSpec `json:"access"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	res := CheckAccessNotGranted(req.PolicyDocument, req.Access)
+	out := map[string]any{keyResult: res.Result, keyMessage: res.Message}
+
+	if len(res.Reasons) > 0 {
+		out[keyReasons] = res.Reasons
+	}
+
+	return out, http.StatusOK, nil
 }
 
-func (h *Handler) handleCheckNoNewAccess(_ []byte) (any, int, error) { //nolint:unparam // existing issue.
-	return map[string]any{
-		"result":  "PASS",
-		"message": "The updated policy does not grant new access.",
-	}, http.StatusOK, nil
+func (h *Handler) handleCheckNoNewAccess(body []byte) (any, int, error) {
+	var req struct {
+		ExistingPolicyDocument string `json:"existingPolicyDocument"`
+		NewPolicyDocument      string `json:"newPolicyDocument"`
+		PolicyType             string `json:"policyType"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	res := CheckNoNewAccess(req.ExistingPolicyDocument, req.NewPolicyDocument)
+	out := map[string]any{keyResult: res.Result, keyMessage: res.Message}
+
+	if len(res.Reasons) > 0 {
+		out[keyReasons] = res.Reasons
+	}
+
+	return out, http.StatusOK, nil
 }
 
-func (h *Handler) handleCheckNoPublicAccess(_ []byte) (any, int, error) { //nolint:unparam // existing issue.
-	return map[string]any{
-		"result":  "PASS",
-		"message": "The policy does not grant public access.",
-		"reasons": []any{},
-	}, http.StatusOK, nil
+func (h *Handler) handleCheckNoPublicAccess(body []byte) (any, int, error) {
+	var req struct {
+		PolicyDocument string `json:"policyDocument"`
+		ResourceType   string `json:"resourceType"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	res := CheckNoPublicAccess(req.PolicyDocument)
+
+	reasons := make([]any, 0, len(res.Reasons))
+	for _, r := range res.Reasons {
+		reasons = append(reasons, r)
+	}
+
+	return map[string]any{keyResult: res.Result, keyMessage: res.Message, keyReasons: reasons}, http.StatusOK, nil
 }
 
 func (h *Handler) handleCreateAccessPreview(body []byte) (any, int, error) {
@@ -650,11 +696,35 @@ func (h *Handler) handleUpdateAnalyzer(path string) (any, int, error) {
 	return map[string]any{"configuration": map[string]any{}, "arn": a.Arn}, http.StatusOK, nil
 }
 
-func (h *Handler) handleValidatePolicy(_ []byte) (any, int, error) { //nolint:unparam // existing issue.
-	return map[string]any{
-		"findings":  []any{},
-		"nextToken": "",
-	}, http.StatusOK, nil
+func (h *Handler) handleValidatePolicy(body []byte) (any, int, error) {
+	var req struct {
+		PolicyDocument string `json:"policyDocument"`
+		PolicyType     string `json:"policyType"`
+		NextToken      string `json:"nextToken"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	policyType := req.PolicyType
+	if policyType == "" {
+		policyType = "IDENTITY_POLICY"
+	}
+
+	raw := ValidatePolicy(req.PolicyDocument, policyType)
+	findings := make([]any, 0, len(raw))
+
+	for _, f := range raw {
+		findings = append(findings, map[string]any{
+			"findingType":   f.FindingType,
+			"issueCode":     f.IssueCode,
+			"learnMoreLink": f.LearnMoreLink,
+			"locations":     f.Locations,
+		})
+	}
+
+	return map[string]any{"findings": findings}, http.StatusOK, nil
 }
 
 // ---- JSON serialization helpers ----

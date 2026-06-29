@@ -284,13 +284,12 @@ func TestAppMesh_TagOperations(t *testing.T) {
 
 	// Get mesh ARN
 	rec := doRequest(t, h, http.MethodGet, "/meshes/tagged-mesh", nil)
-	body := getBody(t, rec)
-	arn := body["metadata"].(map[string]any)["arn"].(string)
+	arn := getBody(t, rec)["metadata"].(map[string]any)["arn"].(string)
 
 	// ListTags
 	rec = doRequest(t, h, http.MethodGet, fmt.Sprintf("/tags?resourceArn=%s", arn), nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
+	body := getBody(t, rec)
 	tags := body["tags"].([]any)
 	assert.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].(map[string]any)["key"])

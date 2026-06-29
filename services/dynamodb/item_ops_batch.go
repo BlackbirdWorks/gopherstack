@@ -167,9 +167,12 @@ func (db *InMemoryDB) batchGetResponses(
 	}
 
 	return &dynamodb.BatchGetItemOutput{
-		Responses:        responses,
-		UnprocessedKeys:  unprocessedKeys,
-		ConsumedCapacity: batchGetConsumedCapacity(input.ReturnConsumedCapacity, input.RequestItems),
+		Responses:       responses,
+		UnprocessedKeys: unprocessedKeys,
+		ConsumedCapacity: batchGetConsumedCapacity(
+			input.ReturnConsumedCapacity,
+			input.RequestItems,
+		),
 	}, nil
 }
 
@@ -186,7 +189,10 @@ func (db *InMemoryDB) batchGetTable(
 	unprocessedKeys map[string]types.KeysAndAttributes,
 ) (bool, []map[string]types.AttributeValue) {
 	pkDef, skDef := getPKAndSK(table.KeySchema)
-	proj := resolveProjection(aws.ToString(keysAndAttrs.ProjectionExpression), keysAndAttrs.AttributesToGet)
+	proj := resolveProjection(
+		aws.ToString(keysAndAttrs.ProjectionExpression),
+		keysAndAttrs.AttributesToGet,
+	)
 	projector, _ := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
 
 	var tableResults []map[string]types.AttributeValue
@@ -535,7 +541,10 @@ func (db *InMemoryDB) processBatchPutRequests(
 	return modifiedIndices
 }
 
-func (db *InMemoryDB) processBatchDeleteRequests(table *Table, requests []types.WriteRequest) map[int]bool {
+func (db *InMemoryDB) processBatchDeleteRequests(
+	table *Table,
+	requests []types.WriteRequest,
+) map[int]bool {
 	deletedIndices := make(map[int]bool)
 
 	for _, req := range requests {

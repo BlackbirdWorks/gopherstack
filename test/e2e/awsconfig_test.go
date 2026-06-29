@@ -19,6 +19,7 @@ func TestAWSConfigDashboard(t *testing.T) {
 	err := stack.AWSConfigHandler.Backend.PutConfigurationRecorder(
 		"default",
 		"arn:aws:iam::000000000000:role/config-role",
+		nil,
 	)
 	require.NoError(t, err)
 

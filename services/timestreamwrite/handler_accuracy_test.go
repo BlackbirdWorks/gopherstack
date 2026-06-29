@@ -589,6 +589,10 @@ func TestAccuracy_DescribeBatchLoadTaskNoProgressReport(t *testing.T) {
 	cr := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
 		"TargetDatabaseName": "npr-db",
 		"TargetTableName":    "npr-tbl",
+		"DataSourceConfiguration": map[string]any{
+			"DataFormat":                "CSV",
+			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, cr.Code)
 

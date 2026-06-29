@@ -82,6 +82,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.replicationConfig = copyReplicationConfig(snap.ReplicationConfig)
 	b.signingConfig = copySigningSettings(snap.SigningConfig)
 	b.layerUploads = make(map[string]*layerUploadState)
+	b.repoUploadIndex = make(map[string]map[string]struct{})
+	b.layerUploadQueue = make([]layerUploadQueueEntry, 0)
 
 	return nil
 }

@@ -58,6 +58,8 @@ const (
 
 	// kindPipeline is the resource kind string for pipelines.
 	kindPipeline = "pipeline"
+	// kindWebhook is the resource kind string for webhooks.
+	kindWebhook = "webhook"
 
 	// keyPipelineExecutionID and keyStatus are JSON keys shared across the
 	// execution-detail response maps.
@@ -187,6 +189,7 @@ type WebhookAuthConfig struct {
 
 // Webhook represents a CodePipeline webhook with full AWS-parity fields.
 type Webhook struct {
+	Tags                        map[string]string `json:"-"`
 	AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitzero"`
 	Name                        string            `json:"name"`
 	TargetPipeline              string            `json:"targetPipeline"`
@@ -647,7 +650,7 @@ func (b *InMemoryBackend) resolveResourceARN(region, resourceARN string) (string
 	}
 
 	if n, ok := b.webhookARNIndexStore(region)[resourceARN]; ok {
-		return "webhook", n, nil
+		return kindWebhook, n, nil
 	}
 
 	return "", "", ErrNotFound
@@ -669,10 +672,8 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 	switch kind {
 	case kindPipeline:
 		return tagsToSortedSlice(b.pipelinesStore(region)[name].Tags), nil
-	case "webhook":
-		// Webhooks support tagging but we don't store tags on them yet;
-		// return empty slice for now.
-		return []Tag{}, nil
+	case kindWebhook:
+		return tagsToSortedSlice(b.webhooksStore(region)[name].Tags), nil
 	default:
 		return nil, fmt.Errorf("%w: ARN %q", ErrResourceNotFound, resourceARN)
 	}
@@ -690,17 +691,27 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 		return err
 	}
 
-	if kind != kindPipeline {
-		return fmt.Errorf("%w: ARN %q is not a pipeline", ErrResourceNotFound, resourceARN)
-	}
+	switch kind {
+	case kindPipeline:
+		p := b.pipelinesStore(region)[name]
+		if p.Tags == nil {
+			p.Tags = make(map[string]string)
+		}
 
-	p := b.pipelinesStore(region)[name]
-	if p.Tags == nil {
-		p.Tags = make(map[string]string)
-	}
+		for _, t := range tags {
+			p.Tags[t.Key] = t.Value
+		}
+	case kindWebhook:
+		wh := b.webhooksStore(region)[name]
+		if wh.Tags == nil {
+			wh.Tags = make(map[string]string)
+		}
 
-	for _, t := range tags {
-		p.Tags[t.Key] = t.Value
+		for _, t := range tags {
+			wh.Tags[t.Key] = t.Value
+		}
+	default:
+		return fmt.Errorf("%w: ARN %q is not a taggable resource", ErrResourceNotFound, resourceARN)
 	}
 
 	return nil
@@ -718,14 +729,19 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 		return err
 	}
 
-	if kind != kindPipeline {
-		return fmt.Errorf("%w: ARN %q is not a pipeline", ErrResourceNotFound, resourceARN)
-	}
-
-	p := b.pipelinesStore(region)[name]
-
-	for _, k := range tagKeys {
-		delete(p.Tags, k)
+	switch kind {
+	case kindPipeline:
+		p := b.pipelinesStore(region)[name]
+		for _, k := range tagKeys {
+			delete(p.Tags, k)
+		}
+	case kindWebhook:
+		wh := b.webhooksStore(region)[name]
+		for _, k := range tagKeys {
+			delete(wh.Tags, k)
+		}
+	default:
+		return fmt.Errorf("%w: ARN %q is not a taggable resource", ErrResourceNotFound, resourceARN)
 	}
 
 	return nil

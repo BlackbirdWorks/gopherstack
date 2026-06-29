@@ -406,17 +406,15 @@ func TestGetCallerIdentity_AssumedRole_ReturnsAssumedRoleArn(t *testing.T) {
 	assert.Contains(t, ciResp.GetCallerIdentityResult.UserID, "my-session")
 }
 
-func TestGetCallerIdentity_UnknownAccessKey_ReturnsDefaultIdentity(t *testing.T) {
+func TestGetCallerIdentity_UnknownAsiaKey_ReturnsInvalidClientTokenId(t *testing.T) {
 	t.Parallel()
 
 	backend := sts.NewInMemoryBackend()
 
-	resp, err := backend.GetCallerIdentity("ASIANOTISSUED1234567", "")
-	require.NoError(t, err)
-
-	// Falls back to default (root) identity.
-	assert.Equal(t, sts.MockAccountID, resp.GetCallerIdentityResult.Account)
-	assert.Equal(t, sts.MockUserArn, resp.GetCallerIdentityResult.Arn)
+	// ASIA-prefixed keys are temporary session credentials. AWS returns
+	// InvalidClientTokenId when such a key is not found in the session store.
+	_, err := backend.GetCallerIdentity("ASIANOTISSUED1234567", "")
+	require.ErrorIs(t, err, sts.ErrUnknownAccessKeyID)
 }
 
 func TestGetCallerIdentity_EmptyAccessKey_ReturnsDefaultIdentity(t *testing.T) {

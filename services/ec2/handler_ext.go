@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -94,6 +95,7 @@ type describeImagesResponse struct {
 	XMLName   xml.Name   `xml:"DescribeImagesResponse"`
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
+	NextToken string     `xml:"nextToken,omitempty"`
 	ImagesSet amiItemSet `xml:"imagesSet"`
 }
 
@@ -652,6 +654,43 @@ func instanceHealthForState(stateName string) instanceStatusDetails {
 	}
 }
 
+const (
+	describeImagesMaxResults     = 1000
+	describeImagesMinResults     = 1
+	describeImagesDefaultResults = 1000
+)
+
+// parseImagesPagination parses MaxResults and NextToken from query values,
+// returning (maxResults, offset, error).
+func parseImagesPagination(vals url.Values) (int, int, error) {
+	maxResults := describeImagesDefaultResults
+	if v := vals.Get("MaxResults"); v != "" {
+		n, parseErr := strconv.Atoi(v)
+		if parseErr != nil || n < describeImagesMinResults || n > describeImagesMaxResults {
+			return 0, 0, fmt.Errorf(
+				"%w: MaxResults must be between %d and %d",
+				ErrInvalidParameter, describeImagesMinResults, describeImagesMaxResults,
+			)
+		}
+		maxResults = n
+	}
+
+	offset := 0
+	if tok := vals.Get("NextToken"); tok != "" {
+		decoded, decErr := base64.StdEncoding.DecodeString(tok)
+		if decErr != nil {
+			return 0, 0, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		}
+		n, parseErr := strconv.Atoi(string(decoded))
+		if parseErr != nil || n < 0 {
+			return 0, 0, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		}
+		offset = n
+	}
+
+	return maxResults, offset, nil
+}
+
 func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
 	amis := h.Backend.DescribeImages()
 
@@ -667,29 +706,61 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 		requested[id] = struct{}{}
 	}
 
-	items := make([]amiItem, 0, len(amis))
-	for _, a := range amis {
+	// Pre-filter by ID, then apply named EC2 filters (name, architecture, state, etc.).
+	idFiltered := make([]*AMIStub, 0, len(amis))
+	for i := range amis {
 		if len(requested) > 0 {
-			if _, ok := requested[a.ImageID]; !ok {
+			if _, ok := requested[amis[i].ImageID]; !ok {
 				continue
 			}
 		}
+		idFiltered = append(idFiltered, &amis[i])
+	}
 
-		items = append(items, amiItem{
+	filters := parseEC2Filters(vals)
+	idFiltered = applyImageFilters(idFiltered, filters, h.Backend)
+
+	filtered := make([]amiItem, 0, len(idFiltered))
+	for _, a := range idFiltered {
+		st := a.State
+		if st == "" {
+			st = stateAvailable
+		}
+
+		filtered = append(filtered, amiItem{
 			ImageID:        a.ImageID,
 			Name:           a.Name,
 			Description:    a.Description,
 			Architecture:   a.Architecture,
 			Platform:       a.Platform,
-			State:          stateAvailable,
+			State:          st,
 			RootDeviceName: a.RootDeviceName,
 		})
+	}
+
+	maxResults, offset, err := parseImagesPagination(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	if offset > len(filtered) {
+		offset = len(filtered)
+	}
+	filtered = filtered[offset:]
+
+	var nextToken string
+	if len(filtered) > maxResults {
+		nextToken = base64.StdEncoding.EncodeToString(
+			[]byte(strconv.Itoa(offset + maxResults)),
+		)
+		filtered = filtered[:maxResults]
 	}
 
 	return &describeImagesResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		ImagesSet: amiItemSet{Items: items},
+		NextToken: nextToken,
+		ImagesSet: amiItemSet{Items: filtered},
 	}, nil
 }
 
@@ -756,6 +827,9 @@ func (h *Handler) handleCreateKeyPair(vals url.Values, reqID string) (any, error
 func (h *Handler) handleDescribeKeyPairs(vals url.Values, reqID string) (any, error) {
 	names := parseMemberList(vals, "KeyName")
 	kps := h.Backend.DescribeKeyPairs(names)
+
+	filters := parseEC2Filters(vals)
+	kps = applyKeyPairFilters(kps, filters, h.Backend)
 
 	items := make([]keyPairItem, 0, len(kps))
 	for _, kp := range kps {
@@ -897,7 +971,12 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		_, _ = fmt.Sscan(sizeStr, &size)
 	}
 
-	iops, throughput, err := parseVolumePerf(vals.Get("Iops"), vals.Get("Throughput"), volType, size)
+	iops, throughput, err := parseVolumePerf(
+		vals.Get("Iops"),
+		vals.Get("Throughput"),
+		volType,
+		size,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -949,6 +1028,9 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 func (h *Handler) handleDescribeVolumes(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VolumeId")
 	vols := h.Backend.DescribeVolumes(ids)
+
+	filters := parseEC2Filters(vals)
+	vols = applyVolumeFilters(vols, filters, h.Backend)
 
 	items := make([]volumeItem, 0, len(vols))
 	for _, vol := range vols {
@@ -1060,7 +1142,10 @@ func (h *Handler) handleAssociateAddress(vals url.Values, reqID string) (any, er
 	}
 
 	if targetID == "" {
-		return nil, fmt.Errorf("%w: InstanceId or NetworkInterfaceId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: InstanceId or NetworkInterfaceId is required",
+			ErrInvalidParameter,
+		)
 	}
 
 	assocID, err := h.Backend.AssociateAddress(allocationID, targetID)
@@ -1113,6 +1198,9 @@ func (h *Handler) handleReleaseAddress(vals url.Values, reqID string) (any, erro
 func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "AllocationId")
 	addrs := h.Backend.DescribeAddresses(ids)
+
+	filters := parseEC2Filters(vals)
+	addrs = applyAddressFilters(addrs, filters, h.Backend)
 
 	items := make([]addressItem, 0, len(addrs))
 	for _, addr := range addrs {
@@ -1177,6 +1265,9 @@ func (h *Handler) handleDeleteInternetGateway(vals url.Values, reqID string) (an
 func (h *Handler) handleDescribeInternetGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InternetGatewayId")
 	igws := h.Backend.DescribeInternetGateways(ids)
+
+	filters := parseEC2Filters(vals)
+	igws = applyIGWFilters(igws, filters, h.Backend)
 
 	items := make([]igwItem, 0, len(igws))
 	for _, igw := range igws {
@@ -1289,6 +1380,9 @@ func (h *Handler) handleDeleteRouteTable(vals url.Values, reqID string) (any, er
 func (h *Handler) handleDescribeRouteTables(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "RouteTableId")
 	rts := h.Backend.DescribeRouteTables(ids)
+
+	filters := parseEC2Filters(vals)
+	rts = applyRouteTableFilters(rts, filters, h.Backend)
 
 	items := make([]routeTableItem, 0, len(rts))
 	for _, rt := range rts {
@@ -1442,6 +1536,9 @@ func (h *Handler) handleDescribeNatGateways(vals url.Values, reqID string) (any,
 	ids := parseMemberList(vals, "NatGatewayId")
 	ngws := h.Backend.DescribeNatGateways(ids)
 
+	filters := parseEC2Filters(vals)
+	ngws = applyNatGWFilters(ngws, filters, h.Backend)
+
 	items := make([]natGatewayItem, 0, len(ngws))
 	for _, ngw := range ngws {
 		items = append(items, toNatGatewayItem(ngw))
@@ -1457,6 +1554,9 @@ func (h *Handler) handleDescribeNatGateways(vals url.Values, reqID string) (any,
 func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "NetworkInterfaceId")
 	enis := h.Backend.DescribeNetworkInterfaces(ids)
+
+	filters := parseEC2Filters(vals)
+	enis = applyENIFilters(enis, filters, h.Backend)
 
 	items := make([]networkInterfaceItem, 0, len(enis))
 	for _, eni := range enis {
@@ -1886,7 +1986,7 @@ func (h *Handler) handleModifyNetworkInterfaceAttribute(
 	_, hasSdc := vals["SourceDestCheck.Value"]
 
 	if hasDesc {
-		attr = "description"
+		attr = filterKeyDescription
 		value = vals.Get("Description.Value")
 	} else if hasSdc {
 		attr = attrSourceDest
@@ -2154,6 +2254,9 @@ func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any
 func (h *Handler) handleDescribeSpotInstanceRequests(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SpotInstanceRequestId")
 	reqs := h.Backend.DescribeSpotInstanceRequests(ids)
+
+	filters := parseEC2Filters(vals)
+	reqs = applySpotRequestFilters(reqs, filters, h.Backend)
 
 	items := make([]spotInstanceRequestItem, 0, len(reqs))
 	for _, req := range reqs {

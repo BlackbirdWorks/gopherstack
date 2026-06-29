@@ -104,6 +104,23 @@ func a1PersonalizeUnmarshal(t *testing.T, rec *httptest.ResponseRecorder) map[st
 	return m
 }
 
+// a1PersonalizeCreateCampaign creates a solution version then a campaign with the given name.
+func a1PersonalizeCreateCampaign(t *testing.T, h *personalize.Handler, name string) {
+	t.Helper()
+
+	rec := a1PersonalizeDo(t, h, "CreateSolutionVersion", map[string]any{
+		"solutionArn": "arn:aws:personalize:us-east-1:000000000000:solution/sol",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	svArn := a1PersonalizeUnmarshal(t, rec)["solutionVersionArn"].(string)
+
+	rec = a1PersonalizeDo(t, h, "CreateCampaign", map[string]any{
+		"name":               name,
+		"solutionVersionArn": svArn,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
 // --- Protocol accuracy ---
 
 func TestAudit1_Personalize_Protocol_ContentType(t *testing.T) {
@@ -492,7 +509,7 @@ func TestAudit1_Personalize_StopSolutionVersionCreation(t *testing.T) {
 
 	rec = a1PersonalizeDo(t, h, "DescribeSolutionVersion", map[string]any{"solutionVersionArn": svArn})
 	sv := a1PersonalizeUnmarshal(t, rec)["solutionVersion"].(map[string]any)
-	assert.Equal(t, "STOP PENDING", sv["status"])
+	assert.Equal(t, "STOPPED", sv["status"])
 }
 
 func TestAudit1_Personalize_GetSolutionMetrics(t *testing.T) {
@@ -1024,6 +1041,7 @@ func TestAudit1_Personalize_GetRecommendations(t *testing.T) {
 			t.Parallel()
 
 			h := a1PersonalizeHandler(t)
+			a1PersonalizeCreateCampaign(t, h, "my-campaign")
 			rec := a1PersonalizeRuntimeDo(t, h, "GetRecommendations", tt.input)
 
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -1062,6 +1080,7 @@ func TestAudit1_Personalize_GetPersonalizedRanking(t *testing.T) {
 			t.Parallel()
 
 			h := a1PersonalizeHandler(t)
+			a1PersonalizeCreateCampaign(t, h, "my-campaign")
 			rec := a1PersonalizeRuntimeDo(t, h, "GetPersonalizedRanking", map[string]any{
 				"campaignArn": "arn:aws:personalize:us-east-1:000000000000:campaign/my-campaign",
 				"userId":      "user-789",

@@ -1809,7 +1809,8 @@ func TestAudit_Pagination_FilterByCurrentState(t *testing.T) {
 			require.NoError(t, err)
 
 			// Query immediately — pipe should be in CREATING state
-			result := b.ListPipes(context.Background(), pipes.ListPipesFilter{CurrentState: tt.filterState})
+			result, err := b.ListPipes(context.Background(), pipes.ListPipesFilter{CurrentState: tt.filterState})
+			require.NoError(t, err)
 			assert.GreaterOrEqual(t, len(result.Pipes), tt.wantMinCount)
 		})
 	}
@@ -1883,10 +1884,12 @@ func TestAudit_Errors(t *testing.T) {
 			wantType:   "ValidationException",
 		},
 		{
+			// Real AWS returns ConflictException (409), not ValidationException (400).
 			name:       "start_already_desired_running_returns_400",
 			method:     http.MethodPost,
 			path:       "/v1/pipes/already-running-pipe/start",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
+			wantType:   "ConflictException",
 			setup: func(t *testing.T, h *pipes.Handler) {
 				t.Helper()
 				auditCreate(t, h, "already-running-pipe", map[string]any{
@@ -1897,10 +1900,12 @@ func TestAudit_Errors(t *testing.T) {
 			},
 		},
 		{
+			// Real AWS returns ConflictException (409), not ValidationException (400).
 			name:       "stop_already_desired_stopped_returns_400",
 			method:     http.MethodPost,
 			path:       "/v1/pipes/already-stopped-pipe/stop",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
+			wantType:   "ConflictException",
 			setup: func(t *testing.T, h *pipes.Handler) {
 				t.Helper()
 				auditCreate(t, h, "already-stopped-pipe", map[string]any{
@@ -2271,7 +2276,8 @@ func TestAudit_ListPipes_SourceTargetPrefix(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			result := b.ListPipes(context.Background(), pipes.ListPipesFilter{TargetPrefix: tt.targetPrefix})
+			result, err := b.ListPipes(context.Background(), pipes.ListPipesFilter{TargetPrefix: tt.targetPrefix})
+			require.NoError(t, err)
 			assert.Len(t, result.Pipes, tt.wantCount)
 		})
 	}

@@ -31,10 +31,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if cp, ok := ctx.Config.(config.Provider); ok {
 		cfg := cp.GetGlobalConfig()
-		backend = NewInMemoryBackendWithConfig(cfg.GetAccountID(), cfg.GetRegion())
+		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, cfg.GetAccountID(), cfg.GetRegion())
 		defaultRegion = cfg.GetRegion()
 	} else {
-		backend = NewInMemoryBackend()
+		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, MockAccountID, MockRegion)
 	}
 
 	handler := NewHandler(backend).WithJanitor()

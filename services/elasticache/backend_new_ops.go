@@ -225,7 +225,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 	defer b.mu.Unlock()
 
 	id := "ldgnf-" + globalReplicationGroupIDSuffix
-	if _, exists := b.globalReplicationGroups[id]; exists {
+	if _, exists := b.getGlobalReplicationGroup(id); exists {
 		return nil, ErrGlobalReplicationGroupExists
 	}
 
@@ -263,7 +263,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		Tags:                          tags.New("elasticache.grg." + id + ".tags"),
 		NodeGroupCount:                nodeGroupCount,
 	}
-	b.globalReplicationGroups[id] = grg
+	b.putGlobalReplicationGroup(id, grg)
 	b.appendEventLocked(id, "global-replication-group", "global replication group created")
 
 	return grg, nil
@@ -584,7 +584,7 @@ func (b *InMemoryBackend) AddCacheSecurityGroupInternal(sg *CacheSecurityGroup) 
 func (b *InMemoryBackend) AddGlobalReplicationGroupInternal(grg *GlobalReplicationGroup) {
 	b.mu.Lock("AddGlobalReplicationGroupInternal")
 	defer b.mu.Unlock()
-	b.globalReplicationGroups[grg.GlobalReplicationGroupID] = grg
+	b.putGlobalReplicationGroup(grg.GlobalReplicationGroupID, grg)
 }
 
 // AddServerlessCacheInternal seeds a serverless cache for testing.

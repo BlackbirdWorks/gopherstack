@@ -89,10 +89,13 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 
 	region := getRegionFromContext(ctx, db)
 
+	now := time.Now().UTC()
+
 	table.mu.Lock("EnableStream")
 	table.StreamsEnabled = true
 	table.StreamViewType = viewType
-	table.StreamARN = db.buildStreamARNInRegion(tableName, region)
+	table.StreamCreatedAt = now
+	table.StreamARN = db.buildStreamARNInRegion(tableName, region, now)
 	newARN := table.StreamARN
 	// Initialize the first shard when enabling streams (clearing any prior shard history).
 	table.streamShards = []StreamShard{
@@ -166,6 +169,7 @@ func (db *InMemoryDB) DescribeStream(
 	tableName := found.Name
 	viewType := found.StreamViewType
 	keySchema := found.KeySchema
+	streamCreatedAt := found.StreamCreatedAt
 	shards := make([]StreamShard, len(found.streamShards))
 	copy(shards, found.streamShards)
 	found.mu.RUnlock()
@@ -211,19 +215,36 @@ func (db *InMemoryDB) DescribeStream(
 	// return a single open shard with empty sequence numbers.
 	sdkShards := buildSDKShards(shards)
 
+	var creationRequestDateTime *time.Time
+	if !streamCreatedAt.IsZero() {
+		t := streamCreatedAt
+		creationRequestDateTime = &t
+	}
+
 	return &dynamodbstreams.DescribeStreamOutput{
 		StreamDescription: &streamstypes.StreamDescription{
 			StreamArn:               aws.String(streamARN),
-			StreamLabel:             aws.String("latest"),
+			StreamLabel:             aws.String(streamLabelFromARN(streamARN)),
 			StreamStatus:            streamstypes.StreamStatusEnabled,
 			StreamViewType:          streamstypes.StreamViewType(viewType),
 			TableName:               aws.String(tableName),
 			KeySchema:               sdkKeySchema,
-			CreationRequestDateTime: nil,
+			CreationRequestDateTime: creationRequestDateTime,
 			LastEvaluatedShardId:    lastEvaluatedShardID,
 			Shards:                  sdkShards,
 		},
 	}, nil
+}
+
+// streamLabelFromARN extracts the stream label from a DynamoDB stream ARN.
+// The label is the last path segment after /stream/: e.g. "2024-01-01T00:00:00.000".
+func streamLabelFromARN(streamARN string) string {
+	const sep = "/stream/"
+	if idx := strings.LastIndex(streamARN, sep); idx >= 0 {
+		return streamARN[idx+len(sep):]
+	}
+
+	return streamARN
 }
 
 // buildSDKShards converts internal StreamShard slice to SDK Shard slice.
@@ -469,7 +490,8 @@ func (db *InMemoryDB) GetRecords(
 		)
 	}
 
-	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, currentSeq, db.defaultRegion)
+	region := getRegionFromContext(ctx, db)
+	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, currentSeq, region)
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
 
@@ -582,7 +604,7 @@ func (db *InMemoryDB) ListStreams(
 		streams = append(streams, streamstypes.Stream{
 			TableName:   aws.String(se.tableName),
 			StreamArn:   aws.String(se.arn),
-			StreamLabel: aws.String("latest"),
+			StreamLabel: aws.String(streamLabelFromARN(se.arn)),
 		})
 	}
 
@@ -662,14 +684,18 @@ func (db *InMemoryDB) collectEnabledStreams(requestRegion, filterTable string) [
 	return collected
 }
 
-// buildStreamARN generates a stream ARN for the given table using the backend's default region.
-func (db *InMemoryDB) buildStreamARN(tableName string) string {
-	return db.buildStreamARNInRegion(tableName, db.defaultRegion)
-}
-
 // buildStreamARNInRegion generates a stream ARN for the given table in a specific region.
-func (db *InMemoryDB) buildStreamARNInRegion(tableName, region string) string {
-	return arn.Build("dynamodb", region, db.accountID, "table/"+tableName+"/stream/2024-01-01T00:00:00.000")
+// The stream label embedded in the ARN is the ISO 8601 timestamp (ms precision) at which
+// the stream was enabled, matching real AWS DynamoDB Streams behavior.
+func (db *InMemoryDB) buildStreamARNInRegion(tableName, region string, createdAt time.Time) string {
+	label := createdAt.UTC().Format("2006-01-02T15:04:05.000")
+
+	return arn.Build(
+		"dynamodb",
+		region,
+		db.accountID,
+		"table/"+tableName+"/stream/"+label,
+	)
 }
 
 // streamARNRegion extracts the region from a DynamoDB stream ARN
@@ -744,7 +770,9 @@ func buildSDKStreamItem(item map[string]any) (map[string]streamstypes.AttributeV
 
 // toStreamAttributeValue converts a wire-format attribute value (single-key type map)
 // to a dynamodbstreams AttributeValue.
-func toStreamAttributeValue(v any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func toStreamAttributeValue(
+	v any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	m, ok := v.(map[string]any)
 	if !ok {
 		return nil, ErrInvalidAttributeValue
@@ -761,7 +789,10 @@ func toStreamAttributeValue(v any) (streamstypes.AttributeValue, error) { //noli
 	return nil, ErrUnknownAttributeType
 }
 
-func dispatchStreamType(typKey string, val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func dispatchStreamType(
+	typKey string,
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	switch typKey {
 	case "S":
 		s, ok := val.(string)
@@ -804,7 +835,9 @@ func dispatchStreamType(typKey string, val any) (streamstypes.AttributeValue, er
 }
 
 // dispatchStreamTypeBinary converts a wire "B" value ([]byte or base64 string) to a streams AttributeValue.
-func dispatchStreamTypeBinary(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func dispatchStreamTypeBinary(
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	switch b := val.(type) {
 	case []byte:
 		return &streamstypes.AttributeValueMemberB{Value: b}, nil
@@ -822,7 +855,9 @@ func dispatchStreamTypeBinary(val any) (streamstypes.AttributeValue, error) { //
 
 // dispatchStreamTypeBinarySet converts a wire "BS" value to a streams AttributeValue.
 // Accepts [][]byte, []string (base64), or []any containing the above.
-func dispatchStreamTypeBinarySet(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func dispatchStreamTypeBinarySet(
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	bs, err := toByteSliceSliceFrom(val)
 	if err != nil {
 		return nil, err
@@ -831,7 +866,9 @@ func dispatchStreamTypeBinarySet(val any) (streamstypes.AttributeValue, error) {
 	return &streamstypes.AttributeValueMemberBS{Value: bs}, nil
 }
 
-func handleMapAttribute(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func handleMapAttribute(
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	mVal, ok := val.(map[string]any)
 	if !ok {
 		return nil, ErrTypeMismatchM
@@ -845,7 +882,9 @@ func handleMapAttribute(val any) (streamstypes.AttributeValue, error) { //nolint
 	return &streamstypes.AttributeValueMemberM{Value: inner}, nil
 }
 
-func handleListAttribute(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func handleListAttribute(
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	lVal, ok := val.([]any)
 	if !ok {
 		return nil, ErrTypeMismatchL

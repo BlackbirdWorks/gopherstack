@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -378,19 +379,17 @@ func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 		"DescribeLoggingStatus": func(_ url.Values) (any, error) {
 			return h.loggingStatusResponse(), nil
 		},
-		"DescribeOrderableClusterOptions":    h.handleDescribeOrderableClusterOptions,
-		"DescribePartners":                   h.handleDescribePartners,
-		"DescribeReservedNodeExchangeStatus": h.handleDescribeReservedNodeExchangeStatus,
-		"DescribeReservedNodeOfferings":      h.handleDescribeReservedNodeOfferings,
-		"DescribeReservedNodes":              h.handleDescribeReservedNodes,
-		"DescribeResize":                     h.handleDescribeResize,
-		"DescribeSnapshotCopyGrants":         h.handleDescribeSnapshotCopyGrants,
-		"DescribeSnapshotSchedules":          h.handleDescribeSnapshotSchedules,
-		"DescribeStorage":                    h.handleDescribeStorage,
-		"DescribeTableRestoreStatus":         h.handleDescribeTableRestoreStatus,
-		"DescribeTags": func(_ url.Values) (any, error) {
-			return h.describeTagsResponse(), nil
-		},
+		"DescribeOrderableClusterOptions":             h.handleDescribeOrderableClusterOptions,
+		"DescribePartners":                            h.handleDescribePartners,
+		"DescribeReservedNodeExchangeStatus":          h.handleDescribeReservedNodeExchangeStatus,
+		"DescribeReservedNodeOfferings":               h.handleDescribeReservedNodeOfferings,
+		"DescribeReservedNodes":                       h.handleDescribeReservedNodes,
+		"DescribeResize":                              h.handleDescribeResize,
+		"DescribeSnapshotCopyGrants":                  h.handleDescribeSnapshotCopyGrants,
+		"DescribeSnapshotSchedules":                   h.handleDescribeSnapshotSchedules,
+		"DescribeStorage":                             h.handleDescribeStorage,
+		"DescribeTableRestoreStatus":                  h.handleDescribeTableRestoreStatus,
+		"DescribeTags":                                h.handleDescribeTags,
 		"DescribeUsageLimits":                         h.handleDescribeUsageLimits,
 		"DisableLogging":                              h.handleDisableLogging,
 		"DisableSnapshotCopy":                         h.handleDisableSnapshotCopy,
@@ -453,6 +452,13 @@ func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {
 	nodeType := vals.Get("NodeType")
 	dbName := vals.Get("DBName")
 	masterUser := vals.Get("MasterUsername")
+	password := vals.Get("MasterUserPassword")
+
+	if password != "" {
+		if err := validateMasterUserPassword(password); err != nil {
+			return nil, err
+		}
+	}
 
 	cluster, err := h.Backend.CreateCluster(id, nodeType, dbName, masterUser)
 	if err != nil {
@@ -467,6 +473,23 @@ func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {
 
 func (h *Handler) handleDeleteCluster(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
+	skipFinalStr := vals.Get("SkipFinalClusterSnapshot")
+	finalSnapshotID := vals.Get("FinalClusterSnapshotIdentifier")
+
+	// When SkipFinalClusterSnapshot is explicitly "false", enforce AWS snapshot semantics.
+	if skipFinalStr == "false" {
+		if finalSnapshotID == "" {
+			return nil, fmt.Errorf(
+				"%w: FinalClusterSnapshotIdentifier is required when SkipFinalClusterSnapshot is false",
+				ErrInvalidParameter,
+			)
+		}
+
+		if _, err := h.Backend.CreateClusterSnapshot(finalSnapshotID, id); err != nil {
+			return nil, err
+		}
+	}
+
 	cluster, err := h.Backend.DeleteCluster(id)
 	if err != nil {
 		return nil, err
@@ -480,20 +503,110 @@ func (h *Handler) handleDeleteCluster(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
-	clusters, err := h.Backend.DescribeClusters(id)
+	tagKey := vals.Get("TagKey")
+	tagValue := vals.Get("TagValue")
+	marker := vals.Get("Marker")
+
+	maxRecords := 0
+	if s := vals.Get("MaxRecords"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxRecords = n
+		}
+	}
+
+	clusters, nextMarker, err := h.Backend.DescribeClusters(id, marker, maxRecords)
 	if err != nil {
 		return nil, err
 	}
+
+	// Fetch the live tag map once when tag filters are active.
+	// cloneCluster sets Tags=nil so we cannot read tags from the cloned value.
+	var allTags map[string]map[string]string
+	if tagKey != "" || tagValue != "" {
+		allTags = h.Backend.DescribeTags()
+	}
+
 	members := make([]xmlCluster, 0, len(clusters))
+
 	for _, c := range clusters {
 		cp := c
+		if tagKey != "" || tagValue != "" {
+			if !clusterMatchesTagFilter(allTags[c.ClusterIdentifier], tagKey, tagValue) {
+				continue
+			}
+		}
+
 		members = append(members, toXMLCluster(&cp))
 	}
 
 	return &describeClustersResponse{
 		Xmlns:    redshiftXMLNS,
 		Clusters: xmlClusterList{Members: members},
+		Marker:   nextMarker,
 	}, nil
+}
+
+// clusterMatchesTagFilter returns true when the cluster tags satisfy both the key and value filter.
+// An empty filter string is treated as "match any".
+func clusterMatchesTagFilter(tags map[string]string, tagKey, tagValue string) bool {
+	for k, v := range tags {
+		keyMatch := tagKey == "" || k == tagKey
+		valMatch := tagValue == "" || v == tagValue
+		if keyMatch && valMatch {
+			return true
+		}
+	}
+
+	return false
+}
+
+// validateMasterUserPassword enforces AWS CreateCluster password rules.
+// Password must be 8-64 printable ASCII chars, contain at least one uppercase letter,
+// one lowercase letter, and one digit; must not contain space, /, ", @, ', or \.
+func validateMasterUserPassword(password string) error {
+	const (
+		minLen = 8
+		maxLen = 64
+	)
+
+	if l := len(password); l < minLen || l > maxLen {
+		return fmt.Errorf(
+			"%w: MasterUserPassword must be 8–64 characters (got %d)",
+			ErrInvalidParameter, l,
+		)
+	}
+
+	for _, ch := range password {
+		switch ch {
+		case ' ', '/', '"', '@', '\'', '\\':
+			return fmt.Errorf(
+				"%w: MasterUserPassword must not contain space, /, \", @, ', or \\",
+				ErrInvalidParameter,
+			)
+		}
+	}
+
+	var hasUpper, hasLower, hasDigit bool
+
+	for _, ch := range password {
+		switch {
+		case ch >= 'A' && ch <= 'Z':
+			hasUpper = true
+		case ch >= 'a' && ch <= 'z':
+			hasLower = true
+		case ch >= '0' && ch <= '9':
+			hasDigit = true
+		}
+	}
+
+	if !hasUpper || !hasLower || !hasDigit {
+		return fmt.Errorf(
+			"%w: MasterUserPassword must contain at least one uppercase letter, one lowercase letter, and one digit",
+			ErrInvalidParameter,
+		)
+	}
+
+	return nil
 }
 
 func toXMLCluster(c *Cluster) xmlCluster {
@@ -527,8 +640,18 @@ func toXMLCluster(c *Cluster) xmlCluster {
 				ParameterApplyStatus: "in-sync",
 			}},
 		},
-		DBName:         c.DBName,
-		MasterUsername: c.MasterUsername,
+		DBName:                     c.DBName,
+		MasterUsername:             c.MasterUsername,
+		KmsKeyID:                   c.KmsKeyID,
+		PreferredMaintenanceWindow: c.PreferredMaintenanceWindow,
+		IamRoles: func() xmlIamRoles {
+			roles := make([]xmlIamRole, 0, len(c.IamRoles))
+			for _, arn := range c.IamRoles {
+				roles = append(roles, xmlIamRole{IamRoleArn: arn, ApplyStatus: "in-sync"})
+			}
+
+			return xmlIamRoles{Members: roles}
+		}(),
 	}
 }
 
@@ -655,8 +778,11 @@ type xmlCluster struct {
 	MultiAZ                          string                `xml:"MultiAZ"`
 	ClusterIdentifier                string                `xml:"ClusterIdentifier"`
 	MasterUsername                   string                `xml:"MasterUsername"`
+	KmsKeyID                         string                `xml:"KmsKeyId,omitempty"`
+	PreferredMaintenanceWindow       string                `xml:"PreferredMaintenanceWindow,omitempty"`
 	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
 	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
+	IamRoles                         xmlIamRoles           `xml:"IamRoles"`
 	NumberOfNodes                    int                   `xml:"NumberOfNodes,omitempty"`
 	EndpointPort                     int                   `xml:"Endpoint>Port,omitempty"`
 	EnhancedVpcRouting               bool                  `xml:"EnhancedVpcRouting"`
@@ -687,6 +813,15 @@ type xmlClusterParamGroups struct {
 	Members []xmlClusterParamGroup `xml:"ClusterParameterGroup"`
 }
 
+type xmlIamRole struct {
+	IamRoleArn  string `xml:"IamRoleArn"`
+	ApplyStatus string `xml:"ApplyStatus"`
+}
+
+type xmlIamRoles struct {
+	Members []xmlIamRole `xml:"ClusterIamRole"`
+}
+
 type createClusterResponse struct {
 	XMLName xml.Name   `xml:"CreateClusterResponse"`
 	Xmlns   string     `xml:"xmlns,attr"`
@@ -706,6 +841,7 @@ type xmlClusterList struct {
 type describeClustersResponse struct {
 	XMLName  xml.Name       `xml:"DescribeClustersResponse"`
 	Xmlns    string         `xml:"xmlns,attr"`
+	Marker   string         `xml:"DescribeClustersResult>Marker,omitempty"`
 	Clusters xmlClusterList `xml:"DescribeClustersResult>Clusters"`
 }
 
@@ -741,7 +877,14 @@ type redshiftTaggedResource struct {
 	ResourceType string     `xml:"ResourceType"`
 }
 
-func (h *Handler) describeTagsResponse() any {
+// handleDescribeTags returns tagged resources, optionally filtered by ResourceName,
+// ResourceType, TagKey, and TagValue. Real AWS DescribeTags supports these filters.
+func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
+	resourceName := vals.Get("ResourceName")
+	resourceType := vals.Get("ResourceType")
+	tagKey := vals.Get("TagKey")
+	tagValue := vals.Get("TagValue")
+
 	allTags := h.Backend.DescribeTags()
 
 	type describeTagsResult struct {
@@ -755,9 +898,29 @@ func (h *Handler) describeTagsResponse() any {
 		DescribeTagsResult describeTagsResult `xml:"DescribeTagsResult"`
 	}
 
+	// ResourceType filter: only "cluster" resources are currently stored.
+	if resourceType != "" && resourceType != keyResourceCluster {
+		return &response{Xmlns: redshiftXMLNS}, nil
+	}
+
 	var resources []redshiftTaggedResource
+
 	for clusterID, tags := range allTags {
+		if resourceName != "" {
+			// Accept exact cluster-ID match or ARN suffix match.
+			if clusterID != resourceName && !strings.HasSuffix(resourceName, ":cluster:"+clusterID) {
+				continue
+			}
+		}
+
 		for k, v := range tags {
+			if tagKey != "" && k != tagKey {
+				continue
+			}
+			if tagValue != "" && v != tagValue {
+				continue
+			}
+
 			resources = append(resources, redshiftTaggedResource{
 				Tag:          svcTags.KV{Key: k, Value: v},
 				ResourceName: clusterID,
@@ -771,7 +934,7 @@ func (h *Handler) describeTagsResponse() any {
 		DescribeTagsResult: describeTagsResult{
 			TaggedResources: resources,
 		},
-	}
+	}, nil
 }
 
 func (h *Handler) handleCreateTags(vals url.Values) (any, error) {

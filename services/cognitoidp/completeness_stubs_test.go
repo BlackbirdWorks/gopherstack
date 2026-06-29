@@ -23,14 +23,10 @@ func TestCompleteness_StubOperations(t *testing.T) {
 	// Ops still returning HTTP 200 with arbitrary/empty inputs (no pool validation required).
 	// Ops with real stateful backends (requiring valid UserPoolId) are tested in completeness_impl_test.go.
 	stubs := []string{
-		"AdminGetDevice",
-		"AdminLinkProviderForUser",
 		"AdminListDevices",
-		"AdminListUserAuthEvents",
 		"AdminSetUserSettings",
 		"AdminUpdateAuthEventFeedback",
 		"AdminUpdateDeviceStatus",
-		"CompleteWebAuthnRegistration",
 		"ConfirmDevice",
 		"DeleteWebAuthnCredential",
 		"DescribeUserPoolDomain",
@@ -268,6 +264,188 @@ func TestHandler_GetSigningCertificate(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestHandler_AdminGetDevice_Validation covers the HTTP handler for AdminGetDevice.
+// Devices are never persisted, so a valid pool/user/device key still resolves to a
+// ResourceNotFoundException, while unknown pools/users are rejected up front.
+func TestHandler_AdminGetDevice_Validation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, clientID := setupHandlerPoolAndClient(t, h, "getdevice-pool")
+	signUpAndConfirmViaHandler(t, h, clientID, "device-user")
+
+	tests := []struct {
+		name     string
+		poolID   string
+		username string
+		device   string
+		wantCode int
+	}{
+		{
+			name:     "pool_not_found",
+			poolID:   "bad-pool",
+			username: "device-user",
+			device:   "dk",
+			wantCode: http.StatusBadRequest,
+		},
+		{name: "user_not_found", poolID: poolID, username: "ghost", device: "dk", wantCode: http.StatusBadRequest},
+		{
+			name:     "device_not_found",
+			poolID:   poolID,
+			username: "device-user",
+			device:   "dk",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doCognitoRequest(t, h, "AdminGetDevice", map[string]any{
+				"UserPoolId": tt.poolID,
+				"Username":   tt.username,
+				"DeviceKey":  tt.device,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestHandler_AdminListUserAuthEvents_Validation covers the HTTP handler for
+// AdminListUserAuthEvents: a valid pool/user returns an empty AuthEvents list, while
+// unknown pools/users are rejected.
+func TestHandler_AdminListUserAuthEvents_Validation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, clientID := setupHandlerPoolAndClient(t, h, "authevents-pool")
+	signUpAndConfirmViaHandler(t, h, clientID, "ae-user")
+
+	t.Run("success_empty", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doCognitoRequest(t, h, "AdminListUserAuthEvents", map[string]any{
+			"UserPoolId": poolID,
+			"Username":   "ae-user",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp struct {
+			AuthEvents []map[string]any `json:"AuthEvents"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Empty(t, resp.AuthEvents)
+	})
+
+	t.Run("user_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doCognitoRequest(t, h, "AdminListUserAuthEvents", map[string]any{
+			"UserPoolId": poolID,
+			"Username":   "ghost",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+// TestHandler_AdminLinkProviderForUser_Links covers the HTTP handler for
+// AdminLinkProviderForUser, verifying the external identity is recorded on the
+// destination user.
+func TestHandler_AdminLinkProviderForUser_Links(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, clientID := setupHandlerPoolAndClient(t, h, "link-pool")
+	signUpAndConfirmViaHandler(t, h, clientID, "native-user")
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doCognitoRequest(t, h, "AdminLinkProviderForUser", map[string]any{
+			"UserPoolId": poolID,
+			"DestinationUser": map[string]any{
+				"ProviderName":           "Cognito",
+				"ProviderAttributeValue": "native-user",
+			},
+			"SourceUser": map[string]any{
+				"ProviderName":           "Google",
+				"ProviderAttributeName":  "Cognito_Subject",
+				"ProviderAttributeValue": "google-12345",
+			},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("destination_user_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doCognitoRequest(t, h, "AdminLinkProviderForUser", map[string]any{
+			"UserPoolId": poolID,
+			"DestinationUser": map[string]any{
+				"ProviderName":           "Cognito",
+				"ProviderAttributeValue": "ghost",
+			},
+			"SourceUser": map[string]any{
+				"ProviderName":           "Google",
+				"ProviderAttributeValue": "google-99999",
+			},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+// TestHandler_CompleteWebAuthnRegistration_Validation covers the HTTP handler for
+// CompleteWebAuthnRegistration: an invalid access token is rejected, a valid token with
+// a credential payload succeeds (validation-only — no passkey is persisted).
+func TestHandler_CompleteWebAuthnRegistration_Validation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, clientID := setupHandlerPoolAndClient(t, h, "webauthn-pool")
+	signUpAndConfirmViaHandler(t, h, clientID, "wa-user")
+
+	initRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"AuthFlow": "USER_PASSWORD_AUTH",
+		"ClientId": clientID,
+		"AuthParameters": map[string]string{
+			"USERNAME": "wa-user",
+			"PASSWORD": "Pass1234!",
+		},
+	})
+	require.Equal(t, http.StatusOK, initRec.Code)
+
+	var initResp struct {
+		AuthenticationResult *struct {
+			AccessToken string `json:"AccessToken,omitempty"`
+		} `json:"AuthenticationResult"`
+	}
+	require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp))
+	require.NotNil(t, initResp.AuthenticationResult)
+	accessToken := initResp.AuthenticationResult.AccessToken
+	require.NotEmpty(t, accessToken)
+
+	t.Run("invalid_token", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{
+			"AccessToken": "not-a-real-token",
+			"Credential":  map[string]any{"id": "abc"},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{
+			"AccessToken": accessToken,
+			"Credential":  map[string]any{"id": "abc", "type": "public-key"},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
 }
 
 // TestHandler_AdminResetUserPassword covers the HTTP handler for AdminResetUserPassword.

@@ -142,18 +142,25 @@ type Output struct {
 	Overwrite         bool           `json:"Overwrite,omitempty"`
 }
 
+// RecipeRef holds a reference to a DataBrew recipe and optional version.
+type RecipeRef struct {
+	Name          string `json:"Name"`
+	RecipeVersion string `json:"RecipeVersion,omitempty"`
+}
+
 // Job represents a DataBrew job.
 type Job struct {
 	ProfileConfiguration     map[string]any    `json:"ProfileConfiguration,omitempty"`
 	JobSample                map[string]any    `json:"JobSample,omitempty"`
 	Tags                     map[string]string `json:"Tags,omitempty"`
+	RecipeReference          *RecipeRef        `json:"RecipeReference,omitempty"`
 	EncryptionMode           string            `json:"EncryptionMode,omitempty"`
 	EncryptionKeyArn         string            `json:"EncryptionKeyArn,omitempty"`
 	DatasetName              string            `json:"DatasetName,omitempty"`
 	ProjectName              string            `json:"ProjectName,omitempty"`
 	Name                     string            `json:"Name"`
 	CreatedBy                string            `json:"CreatedBy,omitempty"`
-	RecipeName               string            `json:"RecipeName,omitempty"`
+	RecipeName               string            `json:"-"`
 	RoleArn                  string            `json:"RoleArn,omitempty"`
 	LogSubscription          string            `json:"LogSubscription,omitempty"`
 	Type                     string            `json:"Type,omitempty"`
@@ -174,7 +181,7 @@ type Job struct {
 type JobRun struct {
 	DatasetName   string  `json:"DatasetName,omitempty"`
 	JobName       string  `json:"JobName"`
-	RunID         string  `json:"RunID"`
+	RunID         string  `json:"RunId"`
 	State         string  `json:"State"`
 	LogGroupName  string  `json:"LogGroupName,omitempty"`
 	StartedOn     float64 `json:"StartedOn,omitempty"`
@@ -773,6 +780,9 @@ func (b *InMemoryBackend) CreateJob(
 		Tags: maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate: float64(time.Now().Unix()),
 	}
+	if recipeName != "" {
+		j.RecipeReference = &RecipeRef{Name: recipeName, RecipeVersion: "LATEST_WORKING"}
+	}
 	store[name] = j
 
 	return j, nil
@@ -797,7 +807,9 @@ func (b *InMemoryBackend) DescribeJob(ctx context.Context, name string) (*Job, e
 func (b *InMemoryBackend) ListJobs(
 	ctx context.Context,
 	maxResults int,
-	nextToken string,
+	nextToken,
+	datasetName,
+	projectName string,
 ) ([]*Job, string) {
 	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
@@ -805,7 +817,18 @@ func (b *InMemoryBackend) ListJobs(
 	region := getRegion(ctx, b.defaultRegion)
 	store := b.jobsStore(region)
 	keys := sortedKeys(store)
-	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
+	var filtered []string
+	for _, k := range keys {
+		j := store[k]
+		if datasetName != "" && j.DatasetName != datasetName {
+			continue
+		}
+		if projectName != "" && j.ProjectName != projectName {
+			continue
+		}
+		filtered = append(filtered, k)
+	}
+	pageKeys, next := paginateKeys(filtered, maxResults, nextToken)
 	out := make([]*Job, 0, len(pageKeys))
 	for _, k := range pageKeys {
 		cp := *store[k]

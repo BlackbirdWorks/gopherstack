@@ -29,6 +29,7 @@ const (
 	keyVersionID       = "VersionId"
 	keyBackupJobID     = "BackupJobId"
 	keyCreationTime    = "CreationTime"
+	keyVaultType       = "VaultType"
 )
 
 const (
@@ -1556,12 +1557,18 @@ func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error 
 		return h.handleError(c, err)
 	}
 
+	vaultType := v.VaultType
+	if vaultType == "" {
+		vaultType = VaultTypeBackupVault
+	}
+
 	resp := map[string]any{
 		keyBackupVaultName:       v.BackupVaultName,
 		keyBackupVaultArn:        v.BackupVaultArn,
 		keyCreationDate:          epochSeconds(v.CreationTime),
 		"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
 		keyVaultState:            "AVAILABLE",
+		keyVaultType:             vaultType,
 	}
 	setOptionalStr(resp, "EncryptionKeyArn", v.EncryptionKeyArn)
 	setOptionalStr(resp, "CreatorRequestId", v.CreatorRequestID)
@@ -1599,12 +1606,18 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(vaults))
 
 	for _, v := range vaults {
+		vt := v.VaultType
+		if vt == "" {
+			vt = VaultTypeBackupVault
+		}
+
 		item := map[string]any{
 			keyBackupVaultName:       v.BackupVaultName,
 			keyBackupVaultArn:        v.BackupVaultArn,
 			keyCreationDate:          epochSeconds(v.CreationTime),
 			"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
 			keyVaultState:            "AVAILABLE",
+			keyVaultType:             vt,
 		}
 		if v.EncryptionKeyArn != "" {
 			item["EncryptionKeyArn"] = v.EncryptionKeyArn
@@ -1885,6 +1898,9 @@ func (h *Handler) handleGetBackupPlan(c *echo.Context, id string) error {
 		keyVersionID:     p.VersionID,
 		keyCreationDate:  epochSeconds(p.CreationTime),
 		"BackupPlan":     planDoc,
+	}
+	if p.UpdateTime != nil {
+		resp["LastExecutionDate"] = epochSeconds(*p.UpdateTime)
 	}
 	if p.Tags != nil {
 		if t := p.Tags.Clone(); len(t) > 0 {
@@ -2428,6 +2444,7 @@ func (h *Handler) handleCreateLogicallyAirGappedBackupVault(
 		keyBackupVaultName: v.BackupVaultName,
 		keyCreationDate:    epochSeconds(v.CreationTime),
 		keyVaultState:      statusCreating,
+		keyVaultType:       VaultTypeAirGapped,
 	})
 }
 
@@ -3119,12 +3136,14 @@ func (h *Handler) handleListBackupSelections(c *echo.Context, planID string) err
 
 	items := make([]map[string]any, 0, len(sels))
 	for _, sel := range sels {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			keyBackupPlanID: sel.BackupPlanID,
 			keySelectionID:  sel.SelectionID,
 			"SelectionName": sel.SelectionName,
 			keyCreationDate: epochSeconds(sel.CreationTime),
-		})
+		}
+		setOptionalStr(item, "IamRoleArn", sel.IAMRoleArn)
+		items = append(items, item)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

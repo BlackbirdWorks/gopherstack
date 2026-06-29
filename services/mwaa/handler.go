@@ -498,7 +498,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 }
 
 func (h *Handler) handleCreateCliToken(c *echo.Context, name string) error {
-	token, err := h.Backend.CreateCliToken(h.contextWithRegion(c), name)
+	token, hostname, err := h.Backend.CreateCliToken(h.contextWithRegion(c), name)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -509,14 +509,14 @@ func (h *Handler) handleCreateCliToken(c *echo.Context, name string) error {
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
 		"CliToken":          token,
-		"WebServerHostname": name + ".airflow." + h.DefaultRegion + ".amazonaws.com",
+		"WebServerHostname": hostname,
 	})
 
 	return nil
 }
 
 func (h *Handler) handleCreateWebLoginToken(c *echo.Context, name string) error {
-	token, err := h.Backend.CreateWebLoginToken(h.contextWithRegion(c), name)
+	token, hostname, err := h.Backend.CreateWebLoginToken(h.contextWithRegion(c), name)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -527,7 +527,7 @@ func (h *Handler) handleCreateWebLoginToken(c *echo.Context, name string) error 
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
 		"WebToken":          token,
-		"WebServerHostname": name + ".airflow." + h.DefaultRegion + ".amazonaws.com",
+		"WebServerHostname": hostname,
 	})
 
 	return nil

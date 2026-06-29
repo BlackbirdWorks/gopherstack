@@ -720,12 +720,16 @@ func (h *S3Handler) mapObjectsToXML(
 			checksumAlgo = string(obj.ChecksumAlgorithm[0])
 		}
 
+		sc := string(obj.StorageClass)
+		if sc == "" {
+			sc = storageStandard
+		}
 		contents = append(contents, ObjectXML{
 			Key:               encodeListKey(encodingType, key),
 			LastModified:      obj.LastModified.Format(time.RFC3339),
 			Size:              *obj.Size,
 			ETag:              aws.ToString(obj.ETag),
-			StorageClass:      storageStandard,
+			StorageClass:      sc,
 			ChecksumAlgorithm: checksumAlgo,
 		})
 	}

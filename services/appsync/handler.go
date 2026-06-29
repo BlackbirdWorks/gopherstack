@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -876,14 +877,23 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 
 // listGraphqlAPIs handles GET /v1/apis.
 func (h *Handler) listGraphqlAPIs(ctx context.Context, c *echo.Context) error {
-	apiType := c.Request().URL.Query().Get("apiType")
+	q := c.Request().URL.Query()
+	apiType := q.Get("apiType")
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	apis, err := h.Backend.ListGraphqlAPIs(apiType)
 	if err != nil {
 		return h.handleError(ctx, c, "ListGraphqlApis", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"graphqlApis": apis})
+	page, tok := appsyncPaginate(apis, nextToken, maxResults)
+	out := map[string]any{"graphqlApis": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // getGraphqlAPI handles GET /v1/apis/{apiId}.
@@ -1042,12 +1052,22 @@ func (h *Handler) getDataSource(ctx context.Context, c *echo.Context, apiID, nam
 
 // listDataSources handles GET /v1/apis/{apiId}/datasources.
 func (h *Handler) listDataSources(ctx context.Context, c *echo.Context, apiID string) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
 	dss, err := h.Backend.ListDataSources(apiID)
 	if err != nil {
 		return h.handleError(ctx, c, "ListDataSources", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"dataSources": dss})
+	page, tok := appsyncPaginate(dss, nextToken, maxResults)
+	out := map[string]any{"dataSources": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // deleteDataSource handles DELETE /v1/apis/{apiId}/datasources/{name}.
@@ -1171,12 +1191,22 @@ func (h *Handler) getResolver(ctx context.Context, c *echo.Context, apiID, typeN
 
 // listResolvers handles GET /v1/apis/{apiId}/types/{typeName}/resolvers.
 func (h *Handler) listResolvers(ctx context.Context, c *echo.Context, apiID, typeName string) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
 	resolvers, err := h.Backend.ListResolvers(apiID, typeName)
 	if err != nil {
 		return h.handleError(ctx, c, "ListResolvers", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"resolvers": resolvers})
+	page, tok := appsyncPaginate(resolvers, nextToken, maxResults)
+	out := map[string]any{"resolvers": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // deleteResolver handles DELETE /v1/apis/{apiId}/types/{typeName}/resolvers/{fieldName}.
@@ -1907,12 +1937,22 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 
 // listAPIKeys handles GET /v1/apis/{apiId}/apikeys.
 func (h *Handler) listAPIKeys(ctx context.Context, c *echo.Context, apiID string) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
 	keys, err := h.Backend.ListAPIKeys(apiID)
 	if err != nil {
 		return h.handleError(ctx, c, "ListApiKeys", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"apiKeys": keys})
+	page, tok := appsyncPaginate(keys, nextToken, maxResults)
+	out := map[string]any{"apiKeys": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // deleteAPIKey handles DELETE /v1/apis/{apiId}/apikeys/{keyId}.
@@ -1955,12 +1995,22 @@ func (h *Handler) getFunction(ctx context.Context, c *echo.Context, apiID, funct
 
 // listFunctions handles GET /v1/apis/{apiId}/functions.
 func (h *Handler) listFunctions(ctx context.Context, c *echo.Context, apiID string) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
 	fns, err := h.Backend.ListFunctions(apiID)
 	if err != nil {
 		return h.handleError(ctx, c, "ListFunctions", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"functions": fns})
+	page, tok := appsyncPaginate(fns, nextToken, maxResults)
+	out := map[string]any{"functions": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // deleteFunction handles DELETE /v1/apis/{apiId}/functions/{functionId}.
@@ -1988,12 +2038,22 @@ func (h *Handler) getType(ctx context.Context, c *echo.Context, apiID, typeName 
 func (h *Handler) listTypes(ctx context.Context, c *echo.Context, apiID string) error {
 	// The format query parameter (SDL or JSON) is accepted for AWS SDK compatibility.
 	// Each type is returned in the format it was stored in.
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
 	types, err := h.Backend.ListTypes(apiID)
 	if err != nil {
 		return h.handleError(ctx, c, "ListTypes", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"types": types})
+	page, tok := appsyncPaginate(types, nextToken, maxResults)
+	out := map[string]any{"types": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // deleteType handles DELETE /v1/apis/{apiId}/types/{typeName}.
@@ -2017,12 +2077,22 @@ func (h *Handler) getDomainName(ctx context.Context, c *echo.Context, domainName
 
 // listDomainNames handles GET /v1/domainnames.
 func (h *Handler) listDomainNames(ctx context.Context, c *echo.Context) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
 	dns, err := h.Backend.ListDomainNames()
 	if err != nil {
 		return h.handleError(ctx, c, "ListDomainNames", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"domainNameConfigs": dns})
+	page, tok := appsyncPaginate(dns, nextToken, maxResults)
+	out := map[string]any{"domainNameConfigs": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // deleteDomainName handles DELETE /v1/domainnames/{domainName}.
@@ -2345,12 +2415,22 @@ func (h *Handler) getChannelNamespace(ctx context.Context, c *echo.Context, apiI
 
 // listChannelNamespaces handles GET /v2/apis/{apiId}/channelNamespaces.
 func (h *Handler) listChannelNamespaces(ctx context.Context, c *echo.Context, apiID string) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
 	nss, err := h.Backend.ListChannelNamespaces(apiID)
 	if err != nil {
 		return h.handleError(ctx, c, "ListChannelNamespaces", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"channelNamespaces": nss})
+	page, tok := appsyncPaginate(nss, nextToken, maxResults)
+	out := map[string]any{"channelNamespaces": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // updateChannelNamespace handles PUT/PATCH /v2/apis/{apiId}/channelNamespaces/{name}.
@@ -2646,4 +2726,31 @@ func (h *Handler) handleSchemaMerge(ctx context.Context, c *echo.Context, apiID 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"sourceApiSchemaMetadata": []any{}, keyStatus: status})
+}
+
+// appsyncPaginate slices items using an integer-offset nextToken and returns the page
+// and the token for the following page (empty string when exhausted).
+// maxResults ≤ 0 means no limit; cap is applied by the caller.
+func appsyncPaginate[T any](items []T, nextToken string, maxResults int) ([]T, string) {
+	if len(items) == 0 {
+		return items, ""
+	}
+
+	start := 0
+	if nextToken != "" {
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx > 0 && idx < len(items) {
+			start = idx
+		}
+	}
+
+	if maxResults <= 0 {
+		return items[start:], ""
+	}
+
+	end := start + maxResults
+	if end >= len(items) {
+		return items[start:], ""
+	}
+
+	return items[start:end], strconv.Itoa(end)
 }

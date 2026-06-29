@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -11,6 +13,417 @@ import (
 // awserrFromDetail converts an ErrorDetail to an error wrapping ErrNotFound.
 func awserrFromDetail(d ErrorDetail) error {
 	return awserr.New(d.ErrorCode+": "+d.ErrorMessage, awserr.ErrNotFound)
+}
+
+// validateSchemaDefinition checks a schema definition string against its DataFormat.
+// Returns (true, "") when valid; (false, errMsg) otherwise.
+func validateSchemaDefinition(dataFormat, definition string) (bool, string) {
+	switch strings.ToUpper(dataFormat) {
+	case "AVRO":
+		return validateAvroSchema(definition)
+	case "JSON":
+		return validateJSONSchema(definition)
+	case "PROTOBUF":
+		return validateProtobufSchema(definition)
+	default:
+		return false, "unsupported DataFormat: " + dataFormat
+	}
+}
+
+func validateAvroSchema(def string) (bool, string) {
+	var v map[string]any
+	if err := json.Unmarshal([]byte(def), &v); err != nil {
+		return false, "schema is not valid JSON: " + err.Error()
+	}
+
+	if _, ok := v["type"]; !ok {
+		return false, "AVRO schema must have a 'type' field"
+	}
+
+	return true, ""
+}
+
+func validateJSONSchema(def string) (bool, string) {
+	var v any
+	if err := json.Unmarshal([]byte(def), &v); err != nil {
+		return false, "schema is not valid JSON: " + err.Error()
+	}
+
+	return true, ""
+}
+
+func validateProtobufSchema(def string) (bool, string) {
+	if !strings.Contains(def, "syntax") {
+		return false, "PROTOBUF schema must contain a 'syntax' declaration"
+	}
+
+	if !strings.Contains(def, "message") {
+		return false, "PROTOBUF schema must contain at least one 'message' declaration"
+	}
+
+	return true, ""
+}
+
+// parseVersionRanges parses an AWS-style version range string (e.g. "1-3,5,7-9")
+// into a sorted list of individual version numbers.
+func parseVersionRanges(versions string) ([]int64, error) {
+	if versions == "" {
+		return nil, nil
+	}
+
+	var nums []int64
+
+	for part := range strings.SplitSeq(versions, ",") {
+		part = strings.TrimSpace(part)
+
+		lo, hi, hasRange := strings.Cut(part, "-")
+
+		if !hasRange {
+			v, err := strconv.ParseInt(lo, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid version number %q", ErrValidation, part)
+			}
+
+			nums = append(nums, v)
+
+			continue
+		}
+
+		start, err := strconv.ParseInt(strings.TrimSpace(lo), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid version range %q", ErrValidation, part)
+		}
+
+		end, err := strconv.ParseInt(strings.TrimSpace(hi), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid version range %q", ErrValidation, part)
+		}
+
+		if start > end {
+			return nil, fmt.Errorf(
+				"%w: version range start %d > end %d",
+				ErrValidation,
+				start,
+				end,
+			)
+		}
+
+		for v := start; v <= end; v++ {
+			nums = append(nums, v)
+		}
+	}
+
+	return nums, nil
+}
+
+// generateETLScript produces a Python or Scala Glue ETL script from DagNodes/DagEdges.
+// language should be "Python" or "Scala"; defaults to Python.
+func generateETLScript(nodes []dagNode, edges []dagEdge, language string) (string, string) {
+	if strings.ToUpper(language) == "SCALA" {
+		return "", buildScalaScript(nodes, edges)
+	}
+
+	return buildPythonScript(nodes, edges), ""
+}
+
+// nodeArg returns the value of the named argument from a dagNode, or "" if absent.
+func nodeArg(n dagNode, name string) string {
+	for _, a := range n.Args {
+		if a.Name == name {
+			return a.Value
+		}
+	}
+
+	return ""
+}
+
+func buildPythonScript(nodes []dagNode, edges []dagEdge) string {
+	var sb strings.Builder
+
+	sb.WriteString("import sys\n")
+	sb.WriteString("from awsglue.transforms import *\n")
+	sb.WriteString("from awsglue.utils import getResolvedOptions\n")
+	sb.WriteString("from pyspark.context import SparkContext\n")
+	sb.WriteString("from awsglue.context import GlueContext\n")
+	sb.WriteString("from awsglue.job import Job\n")
+	sb.WriteString("args = getResolvedOptions(sys.argv, [\"JOB_NAME\"])\n")
+	sb.WriteString("sc = SparkContext()\n")
+	sb.WriteString("glueContext = GlueContext(sc)\n")
+	sb.WriteString("spark = glueContext.spark_session\n")
+	sb.WriteString("job = Job(glueContext)\n")
+	sb.WriteString("job.init(args[\"JOB_NAME\"], args)\n")
+
+	// Build edge target→source index for variable references.
+	targetSource := make(map[string]string, len(edges))
+	for _, e := range edges {
+		targetSource[e.Target] = e.Source
+	}
+
+	for _, n := range nodes {
+		switch strings.ToUpper(n.NodeType) {
+		case "DATASOURCE":
+			db := nodeArg(n, "database")
+			tbl := nodeArg(n, "table_name")
+			fmt.Fprintf(&sb,
+				"%s = glueContext.create_dynamic_frame.from_catalog("+
+					"database=\"%s\", table_name=\"%s\", transformation_ctx=\"%s\")\n",
+				n.ID, db, tbl, n.ID)
+		case "DATASINK":
+			src := targetSource[n.ID]
+			db := nodeArg(n, "database")
+			tbl := nodeArg(n, "table_name")
+			fmt.Fprintf(&sb,
+				"glueContext.write_dynamic_frame.from_catalog("+
+					"frame=%s, database=\"%s\", table_name=\"%s\", transformation_ctx=\"%s\")\n",
+				src, db, tbl, n.ID)
+		case "APPLYMAPPING":
+			src := targetSource[n.ID]
+			fmt.Fprintf(
+				&sb,
+				"%s = ApplyMapping.apply(frame=%s, mappings=[], transformation_ctx=\"%s\")\n",
+				n.ID,
+				src,
+				n.ID,
+			)
+		default:
+			src := targetSource[n.ID]
+			if src == "" {
+				src = "None"
+			}
+
+			fmt.Fprintf(&sb, "%s = %s.apply(frame=%s, transformation_ctx=\"%s\")\n",
+				n.ID, n.NodeType, src, n.ID)
+		}
+	}
+
+	sb.WriteString("job.commit()\n")
+
+	return sb.String()
+}
+
+func buildScalaScript(nodes []dagNode, edges []dagEdge) string {
+	var sb strings.Builder
+
+	sb.WriteString("import com.amazonaws.services.glue.GlueContext\n")
+	sb.WriteString("import com.amazonaws.services.glue.util.{Job, JsonOptions}\n")
+	sb.WriteString("import org.apache.spark.SparkContext\n")
+	sb.WriteString("object GlueApp {\n")
+	sb.WriteString("  def main(sysArgs: Array[String]): Unit = {\n")
+	sb.WriteString("    val sc: SparkContext = new SparkContext()\n")
+	sb.WriteString("    val glueContext: GlueContext = new GlueContext(sc)\n")
+	sb.WriteString("    Job.init(\"glue_job\", glueContext, Map.empty)\n")
+
+	targetSource := make(map[string]string, len(edges))
+	for _, e := range edges {
+		targetSource[e.Target] = e.Source
+	}
+
+	for _, n := range nodes {
+		switch strings.ToUpper(n.NodeType) {
+		case "DATASOURCE":
+			db := nodeArg(n, "database")
+			tbl := nodeArg(n, "table_name")
+			fmt.Fprintf(&sb,
+				"    val %s = glueContext.getCatalogSource("+
+					"database=\"%s\", tableName=\"%s\", transformationContext=\"%s\").getDynamicFrame()\n",
+				n.ID, db, tbl, n.ID)
+		case "DATASINK":
+			src := targetSource[n.ID]
+			db := nodeArg(n, "database")
+			tbl := nodeArg(n, "table_name")
+			fmt.Fprintf(&sb,
+				"    glueContext.getCatalogSink("+
+					"database=\"%s\", tableName=\"%s\", transformationContext=\"%s\").writeDynamicFrame(%s)\n",
+				db, tbl, n.ID, src)
+		default:
+			src := targetSource[n.ID]
+			if src == "" {
+				src = "null"
+			}
+
+			fmt.Fprintf(&sb, "    val %s = %s.apply(%s, transformationContext=\"%s\")\n",
+				n.ID, n.NodeType, src, n.ID)
+		}
+	}
+
+	sb.WriteString("    Job.commit()\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n")
+
+	return sb.String()
+}
+
+// parseETLScriptDAG extracts DagNodes and DagEdges from a Glue ETL Python script.
+// Recognises create_dynamic_frame.from_catalog (DataSource), ApplyMapping.apply,
+// and write_dynamic_frame (DataSink) patterns generated by generateETLScript.
+func parseETLScriptDAG(script string) ([]dagNode, []dagEdge) {
+	if script == "" {
+		return []dagNode{}, []dagEdge{}
+	}
+
+	var nodes []dagNode
+	var edges []dagEdge
+
+	for lineNum, line := range strings.Split(script, "\n") {
+		n, e := parseETLLine(strings.TrimSpace(line), lineNum+1)
+		nodes = append(nodes, n...)
+		edges = append(edges, e...)
+	}
+
+	if nodes == nil {
+		nodes = []dagNode{}
+	}
+
+	if edges == nil {
+		edges = []dagEdge{}
+	}
+
+	return nodes, edges
+}
+
+// parseETLLine parses a single line of a Glue ETL Python script, returning any
+// DagNodes and DagEdges found on that line.
+func parseETLLine(line string, lineNum int) ([]dagNode, []dagEdge) {
+	switch {
+	case strings.Contains(line, "create_dynamic_frame.from_catalog"):
+		return parseDataSourceLine(line, lineNum)
+
+	case strings.Contains(line, "ApplyMapping.apply"):
+		return parseApplyMappingLine(line, lineNum)
+
+	case strings.Contains(line, "write_dynamic_frame"):
+		return parseDataSinkLine(line, lineNum)
+	}
+
+	return nil, nil
+}
+
+func parseDataSourceLine(line string, lineNum int) ([]dagNode, []dagEdge) {
+	id, db, tbl := parsePythonDataSource(line)
+	if id == "" {
+		return nil, nil
+	}
+
+	return []dagNode{{
+		ID:         id,
+		NodeType:   "DataSource",
+		LineNumber: lineNum,
+		Args: []dagNodeArg{
+			{Name: "database", Value: db},
+			{Name: "table_name", Value: tbl},
+		},
+	}}, nil
+}
+
+func parseApplyMappingLine(line string, lineNum int) ([]dagNode, []dagEdge) {
+	id, src := parsePythonApplyMapping(line)
+	if id == "" {
+		return nil, nil
+	}
+
+	nodes := []dagNode{{ID: id, NodeType: "ApplyMapping", LineNumber: lineNum}}
+
+	var edges []dagEdge
+	if src != "" {
+		edges = []dagEdge{{Source: src, Target: id, TargetParameter: "frame"}}
+	}
+
+	return nodes, edges
+}
+
+func parseDataSinkLine(line string, lineNum int) ([]dagNode, []dagEdge) {
+	id, src, db, tbl := parsePythonDataSink(line)
+	if id == "" {
+		return nil, nil
+	}
+
+	nodes := []dagNode{{
+		ID:         id,
+		NodeType:   "DataSink",
+		LineNumber: lineNum,
+		Args: []dagNodeArg{
+			{Name: "database", Value: db},
+			{Name: "table_name", Value: tbl},
+		},
+	}}
+
+	var edges []dagEdge
+	if src != "" {
+		edges = []dagEdge{{Source: src, Target: id, TargetParameter: "frame"}}
+	}
+
+	return nodes, edges
+}
+
+// parsePythonDataSource extracts (id, database, table_name) from a
+// create_dynamic_frame.from_catalog assignment line.
+func parsePythonDataSource(line string) (string, string, string) {
+	// Pattern: {id} = glueContext.create_dynamic_frame.from_catalog(...)
+	var id string
+	if before, _, ok := strings.Cut(line, " = "); ok {
+		id = strings.TrimSpace(before)
+	}
+
+	return id, extractQuotedArg(line, "database"), extractQuotedArg(line, "table_name")
+}
+
+// parsePythonApplyMapping extracts (id, sourceFrame) from an ApplyMapping.apply line.
+func parsePythonApplyMapping(line string) (string, string) {
+	var id string
+	if before, _, ok := strings.Cut(line, " = "); ok {
+		id = strings.TrimSpace(before)
+	}
+
+	src := extractQuotedArg(line, "frame")
+	if src == "" {
+		// frame arg is an identifier, not a quoted string.
+		src = extractIdentifierArg(line, "frame")
+	}
+
+	return id, src
+}
+
+// parsePythonDataSink extracts (id, sourceFrame, db, table) from a write_dynamic_frame line.
+func parsePythonDataSink(line string) (string, string, string, string) {
+	// Pattern: write_dynamic_frame.from_catalog(frame={src}, database="{db}", table_name="{tbl}", ...)
+	return extractQuotedArg(line, "transformation_ctx"),
+		extractIdentifierArg(line, "frame"),
+		extractQuotedArg(line, "database"),
+		extractQuotedArg(line, "table_name")
+}
+
+// extractQuotedArg finds key="value" in s and returns value.
+func extractQuotedArg(s, key string) string {
+	_, after, ok := strings.Cut(s, key+"=\"")
+	if !ok {
+		return ""
+	}
+
+	val, _, _ := strings.Cut(after, "\"")
+
+	return val
+}
+
+// extractIdentifierArg finds key=identifier (no quotes) in s and returns the identifier.
+func extractIdentifierArg(s, key string) string {
+	_, after, ok := strings.Cut(s, key+"=")
+	if !ok {
+		return ""
+	}
+
+	// identifier ends at ',' or ')' or end of string.
+	end := strings.IndexAny(after, ",)")
+	if end < 0 {
+		end = len(after)
+	}
+
+	val := strings.TrimSpace(after[:end])
+	// Strip surrounding quotes if present.
+	if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
+		return val[1 : len(val)-1]
+	}
+
+	return val
 }
 
 // This file contains stub implementations for Glue operations acknowledged in
@@ -254,7 +667,10 @@ func (h *Handler) handleCancelStatement(
 }
 
 // checkSchemaVersionValidityInput holds input for CheckSchemaVersionValidity.
-type checkSchemaVersionValidityInput struct{}
+type checkSchemaVersionValidityInput struct {
+	DataFormat       string `json:"DataFormat"`
+	SchemaDefinition string `json:"SchemaDefinition"`
+}
 
 // checkSchemaVersionValidityOutput holds the result for CheckSchemaVersionValidity.
 type checkSchemaVersionValidityOutput struct {
@@ -264,9 +680,19 @@ type checkSchemaVersionValidityOutput struct {
 
 func (h *Handler) handleCheckSchemaVersionValidity(
 	_ context.Context,
-	_ *checkSchemaVersionValidityInput,
+	in *checkSchemaVersionValidityInput,
 ) (*checkSchemaVersionValidityOutput, error) {
-	return &checkSchemaVersionValidityOutput{Valid: true}, nil
+	if in.DataFormat == "" {
+		return nil, fmt.Errorf("%w: DataFormat is required", ErrValidation)
+	}
+
+	if in.SchemaDefinition == "" {
+		return nil, fmt.Errorf("%w: SchemaDefinition is required", ErrValidation)
+	}
+
+	valid, errMsg := validateSchemaDefinition(in.DataFormat, in.SchemaDefinition)
+
+	return &checkSchemaVersionValidityOutput{Valid: valid, Error: errMsg}, nil
 }
 
 // createBlueprintInput holds input for CreateBlueprint.
@@ -457,7 +883,11 @@ func (h *Handler) handleCreateIntegrationResourceProperty(
 	_ context.Context,
 	in *createIntegrationResourcePropertyInput,
 ) (*createIntegrationResourcePropertyOutput, error) {
-	prop, err := h.Backend.CreateIntegrationResourceProperty(in.ResourceArn, in.SourceProperties, in.TargetProperties)
+	prop, err := h.Backend.CreateIntegrationResourceProperty(
+		in.ResourceArn,
+		in.SourceProperties,
+		in.TargetProperties,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +985,11 @@ func (h *Handler) handleCreatePartitionIndex(
 	_ context.Context,
 	in *createPartitionIndexInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.CreatePartitionIndex(in.DatabaseName, in.TableName, in.PartitionIndex)
+	return &emptyOutput{}, h.Backend.CreatePartitionIndex(
+		in.DatabaseName,
+		in.TableName,
+		in.PartitionIndex,
+	)
 }
 
 // createRegistryInput holds input for CreateRegistry.
@@ -651,8 +1085,34 @@ func (h *Handler) handleCreateSchema(
 	}, nil
 }
 
+// dagNodeArg is an argument for a DAG node.
+type dagNodeArg struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+	Param bool   `json:"Param,omitempty"`
+}
+
+// dagNode represents a node in a Glue ETL DAG.
+type dagNode struct {
+	ID         string       `json:"Id"`
+	NodeType   string       `json:"NodeType"`
+	Args       []dagNodeArg `json:"Args"`
+	LineNumber int          `json:"LineNumber,omitempty"`
+}
+
+// dagEdge represents a directed edge in a Glue ETL DAG.
+type dagEdge struct {
+	Source          string `json:"Source"`
+	Target          string `json:"Target"`
+	TargetParameter string `json:"TargetParameter,omitempty"`
+}
+
 // createScriptInput holds input for CreateScript.
-type createScriptInput struct{}
+type createScriptInput struct {
+	Language string    `json:"Language"`
+	DagEdges []dagEdge `json:"DagEdges"`
+	DagNodes []dagNode `json:"DagNodes"`
+}
 
 // createScriptOutput holds the result for CreateScript.
 type createScriptOutput struct {
@@ -662,9 +1122,11 @@ type createScriptOutput struct {
 
 func (h *Handler) handleCreateScript(
 	_ context.Context,
-	_ *createScriptInput,
+	in *createScriptInput,
 ) (*createScriptOutput, error) {
-	return &createScriptOutput{PythonScript: "", ScalaCode: ""}, nil
+	py, sc := generateETLScript(in.DagNodes, in.DagEdges, in.Language)
+
+	return &createScriptOutput{PythonScript: py, ScalaCode: sc}, nil
 }
 
 // createSecurityConfigurationInput holds input for CreateSecurityConfiguration.
@@ -949,16 +1411,25 @@ func (h *Handler) handleDeleteColumnStatisticsTaskSettings(
 	_ context.Context,
 	in *deleteColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.DeleteColumnStatisticsTaskSettings(in.DatabaseName, in.TableName)
+	return &emptyOutput{}, h.Backend.DeleteColumnStatisticsTaskSettings(
+		in.DatabaseName,
+		in.TableName,
+	)
 }
 
 // deleteConnectionTypeInput holds input for DeleteConnectionType.
-type deleteConnectionTypeInput struct{}
+type deleteConnectionTypeInput struct {
+	ConnectionType string `json:"ConnectionType"`
+}
 
 func (h *Handler) handleDeleteConnectionType(
 	_ context.Context,
-	_ *deleteConnectionTypeInput,
+	in *deleteConnectionTypeInput,
 ) (*emptyOutput, error) {
+	if in.ConnectionType == "" {
+		return nil, fmt.Errorf("%w: ConnectionType is required", ErrValidation)
+	}
+
 	return &emptyOutput{}, nil
 }
 
@@ -1031,23 +1502,28 @@ func (h *Handler) handleDeleteIntegration(
 }
 
 // deleteIntegrationResourcePropertyInput holds input for DeleteIntegrationResourceProperty.
-type deleteIntegrationResourcePropertyInput struct{}
+type deleteIntegrationResourcePropertyInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
 
 func (h *Handler) handleDeleteIntegrationResourceProperty(
 	_ context.Context,
-	_ *deleteIntegrationResourcePropertyInput,
+	in *deleteIntegrationResourcePropertyInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteIntegrationResourceProperty(in.ResourceArn)
 }
 
 // deleteIntegrationTablePropertiesInput holds input for DeleteIntegrationTableProperties.
-type deleteIntegrationTablePropertiesInput struct{}
+type deleteIntegrationTablePropertiesInput struct {
+	ResourceArn string `json:"ResourceArn"`
+	TableName   string `json:"TableName"`
+}
 
 func (h *Handler) handleDeleteIntegrationTableProperties(
 	_ context.Context,
-	_ *deleteIntegrationTablePropertiesInput,
+	in *deleteIntegrationTablePropertiesInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteIntegrationTableProperties(in.ResourceArn, in.TableName)
 }
 
 // deleteMLTransformInput holds input for DeleteMLTransform.
@@ -1105,7 +1581,11 @@ func (h *Handler) handleDeletePartitionIndex(
 	_ context.Context,
 	in *deletePartitionIndexInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.DeletePartitionIndex(in.DatabaseName, in.TableName, in.IndexName)
+	return &emptyOutput{}, h.Backend.DeletePartitionIndex(
+		in.DatabaseName,
+		in.TableName,
+		in.IndexName,
+	)
 }
 
 // deleteRegistryInput holds input for DeleteRegistry.
@@ -1186,18 +1666,56 @@ func (h *Handler) handleDeleteSchema(
 }
 
 // deleteSchemaVersionsInput holds input for DeleteSchemaVersions.
-type deleteSchemaVersionsInput struct{}
+type deleteSchemaVersionsInput struct {
+	SchemaID *schemaIDInput `json:"SchemaId"`
+	Versions string         `json:"Versions"`
+}
+
+// schemaVersionError is a per-version error in a DeleteSchemaVersions response.
+type schemaVersionError struct {
+	ErrorDetails  ErrorDetail `json:"ErrorDetails"`
+	VersionNumber int64       `json:"VersionNumber"`
+}
 
 // deleteSchemaVersionsOutput holds the result for DeleteSchemaVersions.
 type deleteSchemaVersionsOutput struct {
-	SchemaVersionErrors []any `json:"SchemaVersionErrors"`
+	SchemaVersionErrors []schemaVersionError `json:"SchemaVersionErrors"`
 }
 
 func (h *Handler) handleDeleteSchemaVersions(
 	_ context.Context,
-	_ *deleteSchemaVersionsInput,
+	in *deleteSchemaVersionsInput,
 ) (*deleteSchemaVersionsOutput, error) {
-	return &deleteSchemaVersionsOutput{SchemaVersionErrors: []any{}}, nil
+	registryName, schemaName := "", ""
+	if in.SchemaID != nil {
+		registryName = in.SchemaID.RegistryName
+		schemaName = in.SchemaID.SchemaName
+	}
+
+	versions, err := parseVersionRanges(in.Versions)
+	if err != nil {
+		return nil, err
+	}
+
+	var errs []schemaVersionError
+
+	for _, v := range versions {
+		if delErr := h.Backend.DeleteSchemaVersion(registryName, schemaName, v); delErr != nil {
+			errs = append(errs, schemaVersionError{
+				VersionNumber: v,
+				ErrorDetails: ErrorDetail{
+					ErrorCode:    errEntityNotFoundCode,
+					ErrorMessage: delErr.Error(),
+				},
+			})
+		}
+	}
+
+	if errs == nil {
+		errs = []schemaVersionError{}
+	}
+
+	return &deleteSchemaVersionsOutput{SchemaVersionErrors: errs}, nil
 }
 
 // deleteSecurityConfigurationInput holds input for DeleteSecurityConfiguration.
@@ -1351,33 +1869,87 @@ func (h *Handler) handleDescribeConnectionType(
 }
 
 // describeEntityInput holds input for DescribeEntity.
-type describeEntityInput struct{}
+type describeEntityInput struct {
+	ConnectionName      string `json:"ConnectionName"`
+	EntityName          string `json:"EntityName"`
+	CatalogID           string `json:"CatalogId,omitempty"`
+	DataStoreAPIVersion string `json:"DataStoreApiVersion,omitempty"`
+	NextToken           string `json:"NextToken,omitempty"`
+}
+
+// entityField describes a single field returned by DescribeEntity.
+type entityField struct {
+	FieldName                string   `json:"FieldName"`
+	Label                    string   `json:"Label,omitempty"`
+	Description              string   `json:"Description,omitempty"`
+	FieldType                string   `json:"FieldType"`
+	NativeDataType           string   `json:"NativeDataType,omitempty"`
+	SupportedFilterOperators []string `json:"SupportedFilterOperators,omitempty"`
+	IsNullable               bool     `json:"IsNullable"`
+	IsRetrievable            bool     `json:"IsRetrievable"`
+	IsPartitionable          bool     `json:"IsPartitionable"`
+	IsCreateable             bool     `json:"IsCreateable"`
+	IsUpdateable             bool     `json:"IsUpdateable"`
+	IsUpsertable             bool     `json:"IsUpsertable"`
+	IsFilterable             bool     `json:"IsFilterable"`
+}
 
 // describeEntityOutput holds the result for DescribeEntity.
 type describeEntityOutput struct {
-	Fields []any `json:"Fields"`
+	NextToken string        `json:"NextToken,omitempty"`
+	Fields    []entityField `json:"Fields"`
 }
 
 func (h *Handler) handleDescribeEntity(
 	_ context.Context,
-	_ *describeEntityInput,
+	in *describeEntityInput,
 ) (*describeEntityOutput, error) {
-	return &describeEntityOutput{Fields: []any{}}, nil
+	if in.ConnectionName == "" {
+		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
+	}
+
+	if in.EntityName == "" {
+		return nil, fmt.Errorf("%w: EntityName is required", ErrValidation)
+	}
+
+	if _, err := h.Backend.GetConnection(in.ConnectionName); err != nil {
+		return nil, err
+	}
+
+	return &describeEntityOutput{Fields: []entityField{}}, nil
 }
 
 // describeInboundIntegrationsInput holds input for DescribeInboundIntegrations.
-type describeInboundIntegrationsInput struct{}
+type describeInboundIntegrationsInput struct {
+	IntegrationArn string `json:"IntegrationArn,omitempty"`
+	TargetArn      string `json:"TargetArn,omitempty"`
+	Marker         string `json:"Marker,omitempty"`
+	MaxRecords     int    `json:"MaxRecords,omitempty"`
+}
 
 // describeInboundIntegrationsOutput holds the result for DescribeInboundIntegrations.
 type describeInboundIntegrationsOutput struct {
-	Integrations []any `json:"Integrations"`
+	Marker       string `json:"Marker,omitempty"`
+	Integrations []any  `json:"Integrations"`
 }
 
 func (h *Handler) handleDescribeInboundIntegrations(
 	_ context.Context,
-	_ *describeInboundIntegrationsInput,
+	in *describeInboundIntegrationsInput,
 ) (*describeInboundIntegrationsOutput, error) {
-	return &describeInboundIntegrationsOutput{Integrations: []any{}}, nil // inbound integrations are always empty
+	all := h.Backend.ListIntegrations()
+
+	result := make([]any, 0, len(all))
+	for _, ig := range all {
+		// Filter by IntegrationArn when specified.
+		if in.IntegrationArn != "" && ig.IntegrationName != in.IntegrationArn {
+			continue
+		}
+
+		result = append(result, ig)
+	}
+
+	return &describeInboundIntegrationsOutput{Integrations: result}, nil
 }
 
 // describeIntegrationsInput holds input for DescribeIntegrations.
@@ -1864,23 +2436,31 @@ func (h *Handler) handleGetDataQualityRuleRecommendationRun(
 		return nil, err
 	}
 
-	return &getDataQualityRuleRecommendationRunOutput{RunID: run.RecommendationRunID, Status: run.Status}, nil
+	return &getDataQualityRuleRecommendationRunOutput{
+		RunID:  run.RecommendationRunID,
+		Status: run.Status,
+	}, nil
 }
 
 // getDataflowGraphInput holds input for GetDataflowGraph.
-type getDataflowGraphInput struct{}
+type getDataflowGraphInput struct {
+	PythonScript string `json:"PythonScript,omitempty"`
+	Language     string `json:"Language,omitempty"`
+}
 
 // getDataflowGraphOutput holds the result for GetDataflowGraph.
 type getDataflowGraphOutput struct {
-	DagNodes []any `json:"DagNodes"`
-	DagEdges []any `json:"DagEdges"`
+	DagNodes []dagNode `json:"DagNodes"`
+	DagEdges []dagEdge `json:"DagEdges"`
 }
 
 func (h *Handler) handleGetDataflowGraph(
 	_ context.Context,
-	_ *getDataflowGraphInput,
+	in *getDataflowGraphInput,
 ) (*getDataflowGraphOutput, error) {
-	return &getDataflowGraphOutput{DagNodes: []any{}, DagEdges: []any{}}, nil
+	nodes, edges := parseETLScriptDAG(in.PythonScript)
+
+	return &getDataflowGraphOutput{DagNodes: nodes, DagEdges: edges}, nil
 }
 
 // getDevEndpointInput holds input for GetDevEndpoint.
@@ -1921,17 +2501,39 @@ func (h *Handler) handleGetDevEndpoints(
 }
 
 // getEntityRecordsInput holds input for GetEntityRecords.
-type getEntityRecordsInput struct{}
+type getEntityRecordsInput struct {
+	ConnectionName      string `json:"ConnectionName"`
+	EntityName          string `json:"EntityName"`
+	CatalogID           string `json:"CatalogId,omitempty"`
+	NextToken           string `json:"NextToken,omitempty"`
+	DataStoreAPIVersion string `json:"DataStoreApiVersion,omitempty"`
+	FilterPredicate     string `json:"FilterPredicate,omitempty"`
+	OrderBy             string `json:"OrderBy,omitempty"`
+	Limit               int    `json:"Limit,omitempty"`
+}
 
 // getEntityRecordsOutput holds the result for GetEntityRecords.
 type getEntityRecordsOutput struct {
-	Records []any `json:"Records"`
+	NextToken string `json:"NextToken,omitempty"`
+	Records   []any  `json:"Records"`
 }
 
 func (h *Handler) handleGetEntityRecords(
 	_ context.Context,
-	_ *getEntityRecordsInput,
+	in *getEntityRecordsInput,
 ) (*getEntityRecordsOutput, error) {
+	if in.ConnectionName == "" {
+		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
+	}
+
+	if in.EntityName == "" {
+		return nil, fmt.Errorf("%w: EntityName is required", ErrValidation)
+	}
+
+	if _, err := h.Backend.GetConnection(in.ConnectionName); err != nil {
+		return nil, err
+	}
+
 	return &getEntityRecordsOutput{Records: []any{}}, nil
 }
 
@@ -2156,7 +2758,10 @@ func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 			return nil, err
 		}
 
-		return &getMaterializedViewRefreshTaskRunOutput{RunID: run.TaskRunID, Status: run.Status}, nil
+		return &getMaterializedViewRefreshTaskRunOutput{
+			RunID:  run.TaskRunID,
+			Status: run.Status,
+		}, nil
 	}
 
 	runs := h.Backend.ListMaterializedViewRefreshTaskRuns()
@@ -2164,7 +2769,10 @@ func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 		return &getMaterializedViewRefreshTaskRunOutput{Status: stateSucceeded}, nil
 	}
 
-	return &getMaterializedViewRefreshTaskRunOutput{RunID: runs[0].TaskRunID, Status: runs[0].Status}, nil
+	return &getMaterializedViewRefreshTaskRunOutput{
+		RunID:  runs[0].TaskRunID,
+		Status: runs[0].Status,
+	}, nil
 }
 
 // getPartitionInput holds input for GetPartition.
@@ -2221,6 +2829,7 @@ const maxGetPartitionsResults = 1000
 type getPartitionsInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	Expression   string `json:"Expression,omitempty"`
 	MaxResults   *int32 `json:"MaxResults,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
 }
@@ -2236,12 +2845,46 @@ func (h *Handler) handleGetPartitions(
 	in *getPartitionsInput,
 ) (*getPartitionsOutput, error) {
 	if in.MaxResults != nil && (*in.MaxResults < 1 || *in.MaxResults > maxGetPartitionsResults) {
-		return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxGetPartitionsResults)
+		return nil, fmt.Errorf(
+			"%w: MaxResults must be between 1 and %d",
+			ErrValidation,
+			maxGetPartitionsResults,
+		)
 	}
 
 	partitions, err := h.Backend.GetPartitions(in.DatabaseName, in.TableName)
 	if err != nil {
 		return nil, err
+	}
+
+	if in.Expression != "" {
+		var tbl *Table
+
+		tbl, err = h.Backend.GetTable(in.DatabaseName, in.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		keyNames := make([]string, len(tbl.PartitionKeys))
+		for i, col := range tbl.PartitionKeys {
+			keyNames[i] = col.Name
+		}
+
+		var pred partitionExpr
+
+		pred, err = parsePartitionExpr(in.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid Expression: %w", ErrValidation, err)
+		}
+
+		filtered := partitions[:0]
+		for _, p := range partitions {
+			if pred.eval(keyNames, p.Values) {
+				filtered = append(filtered, p)
+			}
+		}
+
+		partitions = filtered
 	}
 
 	limit := maxGetPartitionsResults
@@ -2556,7 +3199,12 @@ func (h *Handler) handleGetSchemaVersionsDiff(
 		v2 = in.SecondSchemaVersionNumber.Number
 	}
 
-	diff, err := h.Backend.GetSchemaVersionsDiff(in.SchemaID.RegistryName, in.SchemaID.SchemaName, v1, v2)
+	diff, err := h.Backend.GetSchemaVersionsDiff(
+		in.SchemaID.RegistryName,
+		in.SchemaID.SchemaName,
+		v1,
+		v2,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -3883,7 +4531,9 @@ func (h *Handler) handleStartColumnStatisticsTaskRun(
 		return nil, err
 	}
 
-	return &startColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRunID: run.ColumnStatisticsTaskRunID}, nil
+	return &startColumnStatisticsTaskRunOutput{
+		ColumnStatisticsTaskRunID: run.ColumnStatisticsTaskRunID,
+	}, nil
 }
 
 // startColumnStatisticsTaskRunScheduleInput holds input for StartColumnStatisticsTaskRunSchedule.

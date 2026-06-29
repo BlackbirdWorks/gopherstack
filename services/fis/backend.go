@@ -230,13 +230,25 @@ type InMemoryBackend struct {
 	faultStore           *chaos.FaultStore
 	safetyLever          *SafetyLever
 	mu                   *lockmetrics.RWMutex
+	svcCtx               context.Context
 	accountID            string
 	region               string
 	actionProviders      []service.FISActionProvider
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with a background service context.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose experiment goroutines
+// are parented by svcCtx so they are cancelled on server shutdown. If svcCtx is nil,
+// [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	safetyLeverARN := arn.Build("fis", region, accountID, "safety-lever/"+accountID)
 
 	return &InMemoryBackend{
@@ -250,6 +262,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("fis"),
+		svcCtx:               svcCtx,
 		safetyLever: &SafetyLever{
 			ID:    accountID,
 			Arn:   safetyLeverARN,
@@ -842,10 +855,9 @@ func (b *InMemoryBackend) StartExperiment(
 	id := generateID("EXP")
 	arnStr := arn.Build("fis", region, accountID, "experiment/"+id)
 
-	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
-	// experiment goroutine is NOT cancelled when the HTTP response is sent.
-
-	expCtx, cancel := context.WithCancel(context.Background())
+	// expCtx derives from b.svcCtx — NOT the HTTP request context — so the experiment
+	// goroutine is not cancelled when the HTTP response is sent, but IS cancelled on shutdown.
+	expCtx, cancel := context.WithCancel(b.svcCtx)
 	exp := buildExperimentFromTemplate(id, arnStr, tpl, input.Tags, cancel)
 	exp.TargetAccountConfigurationsCount = tplAccountCount
 
@@ -912,8 +924,8 @@ func buildExperimentFromTemplate(
 		}
 	}
 
-	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
-	// experiment goroutine is NOT cancelled when the HTTP response is sent.
+	// expCtx derives from svcCtx — NOT the HTTP request context — so the experiment
+	// goroutine is not cancelled when the HTTP response is sent.
 	// cancel is passed in from StartExperiment and stored on the returned experiment.
 
 	now := time.Now()

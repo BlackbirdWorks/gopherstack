@@ -286,8 +286,7 @@ type createConnectionInput struct {
 }
 
 type createConnectionOutput struct {
-	ConnectionArn string     `json:"ConnectionArn"`
-	Tags          []tagEntry `json:"Tags,omitempty"`
+	ConnectionArn string `json:"ConnectionArn"`
 }
 
 func (h *Handler) handleCreateConnection(
@@ -305,10 +304,7 @@ func (h *Handler) handleCreateConnection(
 		return nil, err
 	}
 
-	return &createConnectionOutput{
-		ConnectionArn: conn.ConnectionArn,
-		Tags:          tagsToSortedArray(conn.Tags),
-	}, nil
+	return &createConnectionOutput{ConnectionArn: conn.ConnectionArn}, nil
 }
 
 type getConnectionInput struct {
@@ -316,13 +312,12 @@ type getConnectionInput struct {
 }
 
 type connectionView struct {
-	ConnectionName   string     `json:"ConnectionName"`
-	ConnectionArn    string     `json:"ConnectionArn"`
-	ConnectionStatus string     `json:"ConnectionStatus"`
-	OwnerAccountID   string     `json:"OwnerAccountId"`
-	ProviderType     string     `json:"ProviderType"`
-	HostArn          string     `json:"HostArn,omitempty"`
-	Tags             []tagEntry `json:"Tags,omitempty"`
+	ConnectionName   string `json:"ConnectionName"`
+	ConnectionArn    string `json:"ConnectionArn"`
+	ConnectionStatus string `json:"ConnectionStatus"`
+	OwnerAccountID   string `json:"OwnerAccountId"`
+	ProviderType     string `json:"ProviderType"`
+	HostArn          string `json:"HostArn,omitempty"`
 }
 
 type getConnectionOutput struct {
@@ -337,7 +332,6 @@ func connectionToView(c *Connection) connectionView {
 		OwnerAccountID:   c.OwnerAccountID,
 		ProviderType:     c.ProviderType,
 		HostArn:          c.HostArn,
-		Tags:             tagsToSortedArray(c.Tags),
 	}
 }
 
@@ -408,16 +402,23 @@ func (h *Handler) handleDeleteConnection(
 
 // --- Host operations ---
 
+type vpcConfigurationView struct {
+	VpcID            string   `json:"VpcId"`
+	TLSCertificate   string   `json:"TlsCertificate,omitempty"`
+	SubnetIDs        []string `json:"SubnetIds"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+}
+
 type createHostInput struct {
-	Name             string     `json:"Name"`
-	ProviderType     string     `json:"ProviderType"`
-	ProviderEndpoint string     `json:"ProviderEndpoint"`
-	Tags             []tagEntry `json:"Tags"`
+	Name             string                `json:"Name"`
+	ProviderType     string                `json:"ProviderType"`
+	ProviderEndpoint string                `json:"ProviderEndpoint"`
+	VpcConfiguration *vpcConfigurationView `json:"VpcConfiguration"`
+	Tags             []tagEntry            `json:"Tags"`
 }
 
 type createHostOutput struct {
-	HostArn string     `json:"HostArn"`
-	Tags    []tagEntry `json:"Tags,omitempty"`
+	HostArn string `json:"HostArn"`
 }
 
 func (h *Handler) handleCreateHost(
@@ -428,41 +429,92 @@ func (h *Handler) handleCreateHost(
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	host, err := h.Backend.CreateHost(ctx, in.Name, in.ProviderType, in.ProviderEndpoint, tagsFromArray(in.Tags))
+	host, err := h.Backend.CreateHost(
+		ctx, in.Name, in.ProviderType, in.ProviderEndpoint,
+		vpcConfigFromView(in.VpcConfiguration), tagsFromArray(in.Tags),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createHostOutput{HostArn: host.HostArn, Tags: tagsToSortedArray(host.Tags)}, nil
+	return &createHostOutput{HostArn: host.HostArn}, nil
 }
 
 type getHostInput struct {
 	HostArn string `json:"HostArn"`
 }
 
-type hostView struct {
-	Name             string     `json:"Name"`
-	HostArn          string     `json:"HostArn"`
-	ProviderType     string     `json:"ProviderType"`
-	ProviderEndpoint string     `json:"ProviderEndpoint"`
-	Status           string     `json:"Status"`
-	StatusMessage    string     `json:"StatusMessage,omitempty"`
-	Tags             []tagEntry `json:"Tags,omitempty"`
+// getHostView is the GetHost response shape — HostArn is NOT included (caller already knows it).
+type getHostView struct {
+	Name             string                `json:"Name"`
+	ProviderType     string                `json:"ProviderType"`
+	ProviderEndpoint string                `json:"ProviderEndpoint"`
+	Status           string                `json:"Status"`
+	VpcConfiguration *vpcConfigurationView `json:"VpcConfiguration,omitempty"`
+	StatusMessage    string                `json:"StatusMessage,omitempty"`
+}
+
+// listHostView is the ListHosts per-item shape — includes HostArn.
+type listHostView struct {
+	Name             string                `json:"Name"`
+	HostArn          string                `json:"HostArn"`
+	ProviderType     string                `json:"ProviderType"`
+	ProviderEndpoint string                `json:"ProviderEndpoint"`
+	Status           string                `json:"Status"`
+	VpcConfiguration *vpcConfigurationView `json:"VpcConfiguration,omitempty"`
+	StatusMessage    string                `json:"StatusMessage,omitempty"`
 }
 
 type getHostOutput struct {
-	hostView
+	getHostView
 }
 
-func hostToView(h *Host) hostView {
-	return hostView{
+func vpcConfigFromView(v *vpcConfigurationView) *VpcConfiguration {
+	if v == nil {
+		return nil
+	}
+
+	return &VpcConfiguration{
+		VpcID:            v.VpcID,
+		TLSCertificate:   v.TLSCertificate,
+		SubnetIDs:        v.SubnetIDs,
+		SecurityGroupIDs: v.SecurityGroupIDs,
+	}
+}
+
+func vpcConfigToView(v *VpcConfiguration) *vpcConfigurationView {
+	if v == nil {
+		return nil
+	}
+
+	return &vpcConfigurationView{
+		VpcID:            v.VpcID,
+		TLSCertificate:   v.TLSCertificate,
+		SubnetIDs:        v.SubnetIDs,
+		SecurityGroupIDs: v.SecurityGroupIDs,
+	}
+}
+
+func hostToGetView(h *Host) getHostView {
+	return getHostView{
+		Name:             h.Name,
+		ProviderType:     h.ProviderType,
+		ProviderEndpoint: h.ProviderEndpoint,
+		Status:           h.Status,
+		StatusMessage:    h.StatusMessage,
+		VpcConfiguration: vpcConfigToView(h.VpcConfiguration),
+	}
+}
+
+func hostToListView(h *Host) listHostView {
+	return listHostView{
 		Name:             h.Name,
 		HostArn:          h.HostArn,
 		ProviderType:     h.ProviderType,
 		ProviderEndpoint: h.ProviderEndpoint,
 		Status:           h.Status,
 		StatusMessage:    h.StatusMessage,
-		Tags:             tagsToSortedArray(h.Tags),
+		VpcConfiguration: vpcConfigToView(h.VpcConfiguration),
 	}
 }
 
@@ -479,7 +531,7 @@ func (h *Handler) handleGetHost(
 		return nil, err
 	}
 
-	return &getHostOutput{hostToView(host)}, nil
+	return &getHostOutput{hostToGetView(host)}, nil
 }
 
 type listHostsInput struct {
@@ -488,8 +540,8 @@ type listHostsInput struct {
 }
 
 type listHostsOutput struct {
-	NextToken string     `json:"NextToken,omitempty"`
-	Hosts     []hostView `json:"Hosts"`
+	NextToken string         `json:"NextToken,omitempty"`
+	Hosts     []listHostView `json:"Hosts"`
 }
 
 func (h *Handler) handleListHosts(
@@ -498,9 +550,9 @@ func (h *Handler) handleListHosts(
 ) (*listHostsOutput, error) {
 	hosts := h.Backend.ListHosts(ctx)
 
-	views := make([]hostView, len(hosts))
+	views := make([]listHostView, len(hosts))
 	for i, host := range hosts {
-		views[i] = hostToView(host)
+		views[i] = hostToListView(host)
 	}
 
 	p := page.New(views, in.NextToken, in.MaxResults, defaultCSCMaxResults)
@@ -530,8 +582,9 @@ func (h *Handler) handleDeleteHost(
 }
 
 type updateHostInput struct {
-	HostArn          string `json:"HostArn"`
-	ProviderEndpoint string `json:"ProviderEndpoint"`
+	VpcConfiguration *vpcConfigurationView `json:"VpcConfiguration"`
+	HostArn          string                `json:"HostArn"`
+	ProviderEndpoint string                `json:"ProviderEndpoint"`
 }
 
 type updateHostOutput struct{}
@@ -544,7 +597,8 @@ func (h *Handler) handleUpdateHost(
 		return nil, fmt.Errorf("%w: HostArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UpdateHost(ctx, in.HostArn, in.ProviderEndpoint); err != nil {
+	vpcCfg := vpcConfigFromView(in.VpcConfiguration)
+	if err := h.Backend.UpdateHost(ctx, in.HostArn, in.ProviderEndpoint, vpcCfg); err != nil {
 		return nil, err
 	}
 

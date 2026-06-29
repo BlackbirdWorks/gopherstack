@@ -114,17 +114,28 @@ func (r *invocationRing) reset() {
 
 // InMemoryBackend stores Bedrock Runtime state in memory.
 type InMemoryBackend struct {
+	svcCtx             context.Context
 	mu                 *lockmetrics.RWMutex
 	asyncInvokes       map[string]*AsyncInvoke
-	tokenIndex         map[string]string // clientRequestToken → invocationArn (idempotency)
+	tokenIndex         map[string]string
 	accountID          string
 	region             string
 	invocations        invocationRing
 	asyncInvokeCounter int
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with a background service context.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose background
+// goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		invocations:  newInvocationRing(maxInvocationHistory),
 		asyncInvokes: make(map[string]*AsyncInvoke),
@@ -132,6 +143,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("bedrockruntime"),
+		svcCtx:       svcCtx,
 	}
 }
 
@@ -166,7 +178,7 @@ func (b *InMemoryBackend) RecordInvocation(operation, modelID, input, output str
 	b.invocations.push(inv)
 
 	if b.invocations.evictions > prevEvictions {
-		logger.Load(context.Background()).Warn(
+		logger.Load(b.svcCtx).Warn(
 			"bedrockruntime: invocationRing full, oldest entry evicted",
 			"capacity", len(b.invocations.buf),
 		)

@@ -126,7 +126,12 @@ func TestECS_ListContainerInstances(t *testing.T) {
 
 			h := newTestHandler(t)
 			tt.setup(h)
-			rec := doECSRequest(t, h, "ListContainerInstances", map[string]any{"cluster": tt.cluster})
+			rec := doECSRequest(
+				t,
+				h,
+				"ListContainerInstances",
+				map[string]any{"cluster": tt.cluster},
+			)
 
 			require.Equal(t, tt.wantCode, rec.Code)
 
@@ -321,7 +326,11 @@ func TestECS_DeregisterContainerInstance_WithoutForce_NoLinkedTasks(t *testing.T
 	require.NoError(t, err)
 
 	// Deregister without force succeeds because no tasks are linked to this CI.
-	_, err = backend.DeregisterContainerInstance("ci-running-cluster", ci.ContainerInstanceArn, false)
+	_, err = backend.DeregisterContainerInstance(
+		"ci-running-cluster",
+		ci.ContainerInstanceArn,
+		false,
+	)
 	require.NoError(t, err)
 }
 
@@ -398,9 +407,11 @@ func TestECS_UpdateContainerInstancesState_NotFound(t *testing.T) {
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "update-ci-notfound"})
 
 	rec := doECSRequest(t, h, "UpdateContainerInstancesState", map[string]any{
-		"cluster":            "update-ci-notfound",
-		"containerInstances": []string{"arn:aws:ecs:us-east-1:000000000000:container-instance/x/nonexistent"},
-		"status":             "DRAINING",
+		"cluster": "update-ci-notfound",
+		"containerInstances": []string{
+			"arn:aws:ecs:us-east-1:000000000000:container-instance/x/nonexistent",
+		},
+		"status": "DRAINING",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -921,7 +932,12 @@ func TestECS_UpdateServicePrimaryTaskSet(t *testing.T) {
 		{
 			name: "task set not found",
 			setup: func(h *ecs.Handler) map[string]any {
-				createTestServiceForTaskSet(t, h, "primary-ts-notfound-cluster", "primary-ts-notfound-svc")
+				createTestServiceForTaskSet(
+					t,
+					h,
+					"primary-ts-notfound-cluster",
+					"primary-ts-notfound-svc",
+				)
 
 				return map[string]any{
 					"cluster":        "primary-ts-notfound-cluster",
@@ -975,7 +991,16 @@ func TestECS_ExecuteCommand(t *testing.T) {
 			name: "execute command on running task",
 			setup: func(h *ecs.Handler) map[string]any {
 				tdArn := registerTestTaskDef(t, h, "exec-task")
-				rec := doECSRequest(t, h, "RunTask", map[string]any{"taskDefinition": tdArn, "count": 1})
+				rec := doECSRequest(
+					t,
+					h,
+					"RunTask",
+					map[string]any{
+						"taskDefinition":       tdArn,
+						"count":                1,
+						"enableExecuteCommand": true,
+					},
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
@@ -1002,7 +1027,12 @@ func TestECS_ExecuteCommand(t *testing.T) {
 			name: "missing command",
 			setup: func(h *ecs.Handler) map[string]any {
 				tdArn := registerTestTaskDef(t, h, "exec-nocmd-task")
-				rec := doECSRequest(t, h, "RunTask", map[string]any{"taskDefinition": tdArn, "count": 1})
+				rec := doECSRequest(
+					t,
+					h,
+					"RunTask",
+					map[string]any{"taskDefinition": tdArn, "count": 1},
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any

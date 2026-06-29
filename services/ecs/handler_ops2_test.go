@@ -472,7 +472,11 @@ func TestECS_UpdateExpressGatewayService(t *testing.T) {
 			svc, ok := resp["service"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "arn:aws:iam::000000000000:role/new-exec", svc["executionRoleArn"])
-			assert.Equal(t, "arn:aws:iam::000000000000:role/new-infra", svc["infrastructureRoleArn"])
+			assert.Equal(
+				t,
+				"arn:aws:iam::000000000000:role/new-infra",
+				svc["infrastructureRoleArn"],
+			)
 		})
 	}
 }

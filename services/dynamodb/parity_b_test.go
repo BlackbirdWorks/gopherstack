@@ -64,10 +64,6 @@ func TestParity_Query_ConsistentRead_GSI_Rejected(t *testing.T) {
 					{"AttributeName": "email", "KeyType": "HASH"},
 				},
 				"Projection": map[string]any{"ProjectionType": "ALL"},
-				"ProvisionedThroughput": map[string]any{
-					"ReadCapacityUnits":  1,
-					"WriteCapacityUnits": 1,
-				},
 			},
 		},
 		"BillingMode": "PAY_PER_REQUEST",

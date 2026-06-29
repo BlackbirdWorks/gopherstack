@@ -541,8 +541,8 @@ func TestHandlerAgentVersions(t *testing.T) {
 		rec2 := doRequest(t, h2, e2, http.MethodPost, "/agents/"+aid+"/agentversions", map[string]any{
 			"description": "initial version",
 		})
-		if rec2.Code != http.StatusOK {
-			t.Errorf("got %d want 200: %s", rec2.Code, rec2.Body.String())
+		if rec2.Code != http.StatusAccepted {
+			t.Errorf("got %d want 202: %s", rec2.Code, rec2.Body.String())
 		}
 	})
 

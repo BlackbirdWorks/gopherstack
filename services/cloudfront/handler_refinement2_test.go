@@ -17,13 +17,14 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*testing.T, *cloudfront.Handler) string
-		check      func(*testing.T, *httptest.ResponseRecorder, string)
-		name       string
-		method     string
-		path       string
-		body       []byte
-		wantStatus int
+		setup       func(*testing.T, *cloudfront.Handler) string
+		check       func(*testing.T, *httptest.ResponseRecorder, string)
+		headersFunc func(*testing.T, *cloudfront.Handler, string) map[string]string
+		name        string
+		method      string
+		path        string
+		body        []byte
+		wantStatus  int
 	}{
 		{
 			name:   "create_fle",
@@ -153,6 +154,15 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 
 				return "/2020-05-31/field-level-encryption/" + fle.ID
 			},
+			headersFunc: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				parts := strings.Split(strings.TrimRight(path, "/"), "/")
+				id := parts[len(parts)-1]
+				fle, err := h.Backend.GetFieldLevelEncryption(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": fle.ETag}
+			},
 			wantStatus: http.StatusNoContent,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
@@ -189,7 +199,11 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headersFunc != nil {
+				hdrs = tt.headersFunc(t, h, path)
+			}
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.check != nil {
@@ -204,13 +218,14 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*testing.T, *cloudfront.Handler) string
-		check      func(*testing.T, *httptest.ResponseRecorder, string)
-		name       string
-		method     string
-		path       string
-		body       []byte
-		wantStatus int
+		setup       func(*testing.T, *cloudfront.Handler) string
+		check       func(*testing.T, *httptest.ResponseRecorder, string)
+		headersFunc func(*testing.T, *cloudfront.Handler, string) map[string]string
+		name        string
+		method      string
+		path        string
+		body        []byte
+		wantStatus  int
 	}{
 		{
 			name:   "create_fle_profile",
@@ -327,6 +342,15 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID
 			},
+			headersFunc: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				parts := strings.Split(strings.TrimRight(path, "/"), "/")
+				id := parts[len(parts)-1]
+				p, err := h.Backend.GetFieldLevelEncryptionProfile(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": p.ETag}
+			},
 			wantStatus: http.StatusNoContent,
 			check:      nil,
 		},
@@ -344,7 +368,11 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headersFunc != nil {
+				hdrs = tt.headersFunc(t, h, path)
+			}
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.check != nil {
@@ -359,13 +387,14 @@ func TestPublicKeyCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*testing.T, *cloudfront.Handler) string
-		check      func(*testing.T, *httptest.ResponseRecorder, string)
-		name       string
-		method     string
-		path       string
-		body       []byte
-		wantStatus int
+		setup       func(*testing.T, *cloudfront.Handler) string
+		check       func(*testing.T, *httptest.ResponseRecorder, string)
+		headersFunc func(*testing.T, *cloudfront.Handler, string) map[string]string
+		name        string
+		method      string
+		path        string
+		body        []byte
+		wantStatus  int
 	}{
 		{
 			name:   "create_public_key",
@@ -484,6 +513,15 @@ func TestPublicKeyCRUD(t *testing.T) {
 
 				return "/2020-05-31/public-key/" + pk.ID
 			},
+			headersFunc: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				parts := strings.Split(strings.TrimRight(path, "/"), "/")
+				id := parts[len(parts)-1]
+				pk, err := h.Backend.GetPublicKey(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": pk.ETag}
+			},
 			wantStatus: http.StatusNoContent,
 			check:      nil,
 		},
@@ -517,7 +555,11 @@ func TestPublicKeyCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headersFunc != nil {
+				hdrs = tt.headersFunc(t, h, path)
+			}
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.check != nil {
@@ -532,13 +574,14 @@ func TestKeyGroupCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*testing.T, *cloudfront.Handler) string
-		check      func(*testing.T, *httptest.ResponseRecorder, string)
-		name       string
-		method     string
-		path       string
-		body       []byte
-		wantStatus int
+		setup       func(*testing.T, *cloudfront.Handler) string
+		check       func(*testing.T, *httptest.ResponseRecorder, string)
+		headersFunc func(*testing.T, *cloudfront.Handler, string) map[string]string
+		name        string
+		method      string
+		path        string
+		body        []byte
+		wantStatus  int
 	}{
 		{
 			name:   "create_key_group",
@@ -651,6 +694,15 @@ func TestKeyGroupCRUD(t *testing.T) {
 
 				return "/2020-05-31/key-group/" + kg.ID
 			},
+			headersFunc: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				parts := strings.Split(strings.TrimRight(path, "/"), "/")
+				id := parts[len(parts)-1]
+				kg, err := h.Backend.GetKeyGroup(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": kg.ETag}
+			},
 			wantStatus: http.StatusNoContent,
 			check:      nil,
 		},
@@ -684,7 +736,11 @@ func TestKeyGroupCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headersFunc != nil {
+				hdrs = tt.headersFunc(t, h, path)
+			}
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.check != nil {
@@ -849,13 +905,14 @@ func TestKeyValueStoreCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*testing.T, *cloudfront.Handler) string
-		check      func(*testing.T, *httptest.ResponseRecorder, string)
-		name       string
-		method     string
-		path       string
-		body       []byte
-		wantStatus int
+		setup       func(*testing.T, *cloudfront.Handler) string
+		check       func(*testing.T, *httptest.ResponseRecorder, string)
+		headersFunc func(*testing.T, *cloudfront.Handler, string) map[string]string
+		name        string
+		method      string
+		path        string
+		body        []byte
+		wantStatus  int
 	}{
 		{
 			name:   "create_key_value_store",
@@ -925,6 +982,15 @@ func TestKeyValueStoreCRUD(t *testing.T) {
 
 				return "/2020-05-31/key-value-store/" + kvs.ID
 			},
+			headersFunc: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				parts := strings.Split(strings.TrimRight(path, "/"), "/")
+				id := parts[len(parts)-1]
+				kvs, err := h.Backend.GetKeyValueStore(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": kvs.ETag}
+			},
 			wantStatus: http.StatusNoContent,
 			check:      nil,
 		},
@@ -958,7 +1024,11 @@ func TestKeyValueStoreCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headersFunc != nil {
+				hdrs = tt.headersFunc(t, h, path)
+			}
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.check != nil {
@@ -973,13 +1043,14 @@ func TestVpcOriginCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*testing.T, *cloudfront.Handler) string
-		check      func(*testing.T, *httptest.ResponseRecorder, string)
-		name       string
-		method     string
-		path       string
-		body       []byte
-		wantStatus int
+		setup       func(*testing.T, *cloudfront.Handler) string
+		check       func(*testing.T, *httptest.ResponseRecorder, string)
+		headersFunc func(*testing.T, *cloudfront.Handler, string) map[string]string
+		name        string
+		method      string
+		path        string
+		body        []byte
+		wantStatus  int
 	}{
 		{
 			name:   "create_vpc_origin",
@@ -1075,6 +1146,15 @@ func TestVpcOriginCRUD(t *testing.T) {
 
 				return "/2020-05-31/vpc-origin/" + origin.ID
 			},
+			headersFunc: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				parts := strings.Split(strings.TrimRight(path, "/"), "/")
+				id := parts[len(parts)-1]
+				origin, err := h.Backend.GetVpcOrigin(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": origin.ETag}
+			},
 			wantStatus: http.StatusNoContent,
 			check:      nil,
 		},
@@ -1108,7 +1188,11 @@ func TestVpcOriginCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headersFunc != nil {
+				hdrs = tt.headersFunc(t, h, path)
+			}
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.check != nil {
@@ -1123,13 +1207,14 @@ func TestContinuousDeploymentPolicyCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*testing.T, *cloudfront.Handler) string
-		check      func(*testing.T, *httptest.ResponseRecorder, string)
-		name       string
-		method     string
-		path       string
-		body       []byte
-		wantStatus int
+		setup       func(*testing.T, *cloudfront.Handler) string
+		check       func(*testing.T, *httptest.ResponseRecorder, string)
+		headersFunc func(*testing.T, *cloudfront.Handler, string) map[string]string
+		name        string
+		method      string
+		path        string
+		body        []byte
+		wantStatus  int
 	}{
 		{
 			name:   "list_continuous_deployment_policies",
@@ -1201,6 +1286,15 @@ func TestContinuousDeploymentPolicyCRUD(t *testing.T) {
 
 				return "/2020-05-31/continuous-deployment-policy/" + p.ID
 			},
+			headersFunc: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				parts := strings.Split(strings.TrimRight(path, "/"), "/")
+				id := parts[len(parts)-1]
+				p, err := h.Backend.GetContinuousDeploymentPolicy(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": p.ETag}
+			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
@@ -1219,6 +1313,15 @@ func TestContinuousDeploymentPolicyCRUD(t *testing.T) {
 				require.NoError(t, err)
 
 				return "/2020-05-31/continuous-deployment-policy/" + p.ID
+			},
+			headersFunc: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				parts := strings.Split(strings.TrimRight(path, "/"), "/")
+				id := parts[len(parts)-1]
+				p, err := h.Backend.GetContinuousDeploymentPolicy(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusNoContent,
 			check:      nil,
@@ -1253,7 +1356,11 @@ func TestContinuousDeploymentPolicyCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headersFunc != nil {
+				hdrs = tt.headersFunc(t, h, path)
+			}
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.check != nil {

@@ -37,11 +37,11 @@ func TestDataSync_UpdateLocationS3(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "not found returns 400",
+			name: "not found returns 404",
 			body: map[string]any{
 				"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 	}
 
@@ -94,14 +94,42 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "not found returns 400",
+			name: "not found returns 404",
 			body: map[string]any{
 				"TaskExecutionArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist/execution/notexist",
 				"Options":          map[string]any{"BytesPerSecond": 1048576},
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 	}
+
+	// The Options applied via UpdateTaskExecution must be observable on
+	// DescribeTaskExecution (the round-trip the prior stub broke).
+	// Use a fresh execution so the Describe call (which auto-advances state)
+	// does not race with the parallel table subtests that expect execArn to
+	// remain updatable (LAUNCHING).
+	rec2 := doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var startResp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &startResp2))
+	execArn2 := startResp2["TaskExecutionArn"].(string)
+
+	updRec := doRequest(t, h, "UpdateTaskExecution", map[string]any{
+		"TaskExecutionArn": execArn2,
+		"Options":          map[string]any{"BytesPerSecond": 2097152},
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	descRec := doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn2})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp struct {
+		Options map[string]any `json:"Options"`
+	}
+
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	assert.InDelta(t, float64(2097152), descResp.Options["BytesPerSecond"], 0)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -110,23 +138,6 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
-
-	// The Options applied via UpdateTaskExecution must be observable on
-	// DescribeTaskExecution (the round-trip the prior stub broke).
-	updRec := doRequest(t, h, "UpdateTaskExecution", map[string]any{
-		"TaskExecutionArn": execArn,
-		"Options":          map[string]any{"BytesPerSecond": 2097152},
-	})
-	require.Equal(t, http.StatusOK, updRec.Code)
-
-	descRec := doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
-	require.Equal(t, http.StatusOK, descRec.Code)
-
-	var descResp struct {
-		Options map[string]any `json:"Options"`
-	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
-	assert.InDelta(t, float64(2097152), descResp.Options["BytesPerSecond"], 0)
 }
 
 // TestDataSync_AzureBlob covers the AzureBlob location lifecycle.
@@ -183,7 +194,7 @@ func TestDataSync_AzureBlob(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationAzureBlob", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// Missing required field
 	rec = doRequest(t, h, "CreateLocationAzureBlob", map[string]any{"Subdirectory": "/x"})
@@ -239,7 +250,7 @@ func TestDataSync_Efs(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationEfs", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestDataSync_FsxLustre covers the FSx Lustre location lifecycle.
@@ -284,7 +295,7 @@ func TestDataSync_FsxLustre(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationFsxLustre", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestDataSync_FsxOntap covers the FSx ONTAP location lifecycle.
@@ -334,7 +345,7 @@ func TestDataSync_FsxOntap(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationFsxOntap", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestDataSync_FsxOpenZfs covers the FSx OpenZFS location lifecycle.
@@ -384,7 +395,7 @@ func TestDataSync_FsxOpenZfs(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationFsxOpenZfs", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestDataSync_FsxWindows covers the FSx Windows location lifecycle.
@@ -445,7 +456,7 @@ func TestDataSync_FsxWindows(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationFsxWindows", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestDataSync_Hdfs covers the HDFS location lifecycle.
@@ -519,7 +530,7 @@ func TestDataSync_Hdfs(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationHdfs", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestDataSync_Nfs covers the NFS location lifecycle.
@@ -579,7 +590,7 @@ func TestDataSync_Nfs(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationNfs", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestDataSync_ObjectStorage covers the ObjectStorage location lifecycle.
@@ -646,7 +657,7 @@ func TestDataSync_ObjectStorage(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationObjectStorage", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestDataSync_Smb covers the SMB location lifecycle.
@@ -715,5 +726,5 @@ func TestDataSync_Smb(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationSmb", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

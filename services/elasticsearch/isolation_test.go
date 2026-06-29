@@ -31,14 +31,20 @@ func TestElasticsearchDomainRegionIsolation(t *testing.T) {
 	)
 
 	// 1. Create a domain named "search1" in us-east-1.
-	eastDomain, err := backend.CreateDomain(ctxEast, "search1", eastVersion, ClusterConfig{}, EBSOptions{})
+	eastDomain, err := backend.CreateDomain(
+		ctxEast,
+		CreateDomainInput{Name: "search1", ElasticsearchVersion: eastVersion},
+	)
 	require.NoError(t, err)
 	assert.Contains(t, eastDomain.ARN, "us-east-1")
 	assert.Contains(t, eastDomain.Endpoint, "us-east-1")
 	assert.Equal(t, eastVersion, eastDomain.ElasticsearchVersion)
 
 	// 2. Create a domain with the SAME NAME in us-west-2 with a different version.
-	westDomain, err := backend.CreateDomain(ctxWest, "search1", westVersion, ClusterConfig{}, EBSOptions{})
+	westDomain, err := backend.CreateDomain(
+		ctxWest,
+		CreateDomainInput{Name: "search1", ElasticsearchVersion: westVersion},
+	)
 	require.NoError(t, err)
 	assert.Contains(t, westDomain.ARN, "us-west-2")
 	assert.Contains(t, westDomain.Endpoint, "us-west-2")
@@ -88,10 +94,10 @@ func TestElasticsearchTagRegionIsolation(t *testing.T) {
 	ctxWest := ctxRegion("us-west-2")
 
 	// Same-named domain in both regions.
-	eastDomain, err := backend.CreateDomain(ctxEast, "shared-dom", "", ClusterConfig{}, EBSOptions{})
+	eastDomain, err := backend.CreateDomain(ctxEast, CreateDomainInput{Name: "shared-dom"})
 	require.NoError(t, err)
 
-	westDomain, err := backend.CreateDomain(ctxWest, "shared-dom", "", ClusterConfig{}, EBSOptions{})
+	westDomain, err := backend.CreateDomain(ctxWest, CreateDomainInput{Name: "shared-dom"})
 	require.NoError(t, err)
 	require.NotEqual(t, eastDomain.ARN, westDomain.ARN)
 

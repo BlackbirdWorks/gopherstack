@@ -164,7 +164,13 @@ func TestNodeRegistrationScript(t *testing.T) {
 	h := newTestHandler(t)
 	clusterID := createTestCluster(t, h)
 
-	rec := doRequest(t, h, http.MethodPost, "/prod/clusters/"+clusterID+"/nodeRegistrationScript", nil)
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/prod/clusters/"+clusterID+"/nodeRegistrationScript",
+		nil,
+	)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
@@ -205,10 +211,16 @@ func TestNode_CRUD(t *testing.T) {
 	assert.Equal(t, nodeID, descResp["Id"])
 
 	// Update node
-	rec = doRequest(t, h, http.MethodPut, "/prod/clusters/"+clusterID+"/nodes/"+nodeID, map[string]any{
-		"name": "updated-node",
-		"Role": "BACKUP",
-	})
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPut,
+		"/prod/clusters/"+clusterID+"/nodes/"+nodeID,
+		map[string]any{
+			"name": "updated-node",
+			"Role": "BACKUP",
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
@@ -216,9 +228,15 @@ func TestNode_CRUD(t *testing.T) {
 	assert.Equal(t, "BACKUP", updateResp["Role"])
 
 	// UpdateNodeState
-	rec = doRequest(t, h, http.MethodPut, "/prod/clusters/"+clusterID+"/nodes/"+nodeID+"/state", map[string]any{
-		"State": "DRAINING",
-	})
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPut,
+		"/prod/clusters/"+clusterID+"/nodes/"+nodeID+"/state",
+		map[string]any{
+			"State": "DRAINING",
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var stateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stateResp))
@@ -253,8 +271,16 @@ func TestNode_NotFound(t *testing.T) {
 		{"describe missing cluster", http.MethodGet, "/prod/clusters/missing/nodes/n1"},
 		{"describe missing node", http.MethodGet, "/prod/clusters/" + clusterID + "/nodes/missing"},
 		{"update missing node", http.MethodPut, "/prod/clusters/" + clusterID + "/nodes/missing"},
-		{"update-state missing node", http.MethodPut, "/prod/clusters/" + clusterID + "/nodes/missing/state"},
-		{"delete missing node", http.MethodDelete, "/prod/clusters/" + clusterID + "/nodes/missing"},
+		{
+			"update-state missing node",
+			http.MethodPut,
+			"/prod/clusters/" + clusterID + "/nodes/missing/state",
+		},
+		{
+			"delete missing node",
+			http.MethodDelete,
+			"/prod/clusters/" + clusterID + "/nodes/missing",
+		},
 		{"list nodes missing cluster", http.MethodGet, "/prod/clusters/missing/nodes"},
 	}
 
@@ -309,7 +335,11 @@ func TestListClusterAlerts(t *testing.T) {
 			if tt.setupCluster {
 				clusterID = createTestCluster(t, h)
 				if tt.forceState != "" {
-					medialive.ForceClusterState(h.Backend.(*medialive.InMemoryBackend), clusterID, tt.forceState)
+					medialive.ForceClusterState(
+						h.Backend.(*medialive.InMemoryBackend),
+						clusterID,
+						tt.forceState,
+					)
 				}
 			}
 
