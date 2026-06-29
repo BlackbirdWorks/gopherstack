@@ -476,6 +476,112 @@ cross-account; Cloud Control (disjoint state); KMS use by S3/DynamoDB/Secrets Ma
 
 ---
 
+# Path to 100% — popular services (remediation plan)
+
+An ordered, actionable checklist distilled from the deep dives and the cross-service audit
+above, scoped to the popular tier (DynamoDB, S3, Lambda, EC2, ECR, ECS, SQS, SNS, EventBridge,
+Kinesis, Firehose, IAM, STS, KMS, Secrets Manager, Step Functions, API Gateway v1/v2, SSM,
+CloudFormation, CloudWatch, CloudWatch Logs, Route 53, ElastiCache, OpenSearch). Ordered by
+leverage: cheap wiring first, then cross-service behavior, then per-service correctness,
+lifecycle realism, and console coverage. Each item points back to the cited section above.
+
+## P0 — Cross-service wiring (cheap, highest leverage)
+
+These are missing `Set*` hookups in `cli.go`; the delivery/integration code already exists, so
+each is roughly a one-line addition that flips a silent no-op into a working integration. Closing
+P0 fixes ~15 interop paths at once.
+
+- [ ] **SNS → Lambda** — call `snsBk.SetLambdaBackend(lambdaBk)` (adapter wrapping
+  `InvokeFunction`) (`sns/lambda_firehose_delivery.go:83`).
+- [ ] **SNS → Firehose** — `snsBk.SetFirehoseBackend(...)` with a `PutRecordBatch` adapter
+  (`lambda_firehose_delivery.go:109`).
+- [ ] **SNS DLQ + HTTP-failure redrive** — `snsBk.SetSQSSender(...)` so failed HTTP/Lambda/
+  Firehose deliveries reach the subscription DLQ (`backend.go:2925-2937`).
+- [ ] **EventBridge rule → Kinesis / Firehose / Step Functions / ECS** — set `dt.KinesisStream`/
+  `dt.Firehose`/`dt.StepFunctions`/`dt.ECS` in `wireEventBridgeDelivery` (`cli.go:3187-3207`;
+  dispatch already at `eventbridge/delivery.go:468-517`).
+- [ ] **EventBridge rule → CloudWatch Logs / API destination** — add ARN cases in
+  `deliverToTarget` (+ real HTTP invocation for API destinations/connections)
+  (`delivery.go:418-421`).
+- [ ] **Scheduler → EventBus / Kinesis / SageMaker / ECS** — add the missing setters in
+  `wireSchedulerRunner` (`cli.go:5680-5711`; dispatch at `scheduler/runner.go:603-745`); also
+  wire the FIFO-SQS sender.
+- [ ] **Step Functions → ECS / Glue / EventBridge** — call `SetECSIntegration`/`SetGlueIntegration`/
+  `SetEventBridgeIntegration` (`stepfunctions/asl/executor.go:1294-1379`).
+- [ ] **Pipes → SNS/SQS/Kinesis/EventBridge/Logs/Firehose targets** — add the setters in
+  `wirePipesRunner` (`cli.go:5739-5764`; dispatch at `pipes/runner.go:434-642`).
+
+## P1 — Cross-service behavior (beyond wiring)
+
+- [ ] **Carry region across the SQS/SNS delivery boundary** — `arnToSQSQueueURL` and the
+  SNS/S3/EventBridge sinks drop the region and resolve targets by name in the default region
+  (`cli.go:3540-3552`; `sqs/sns_delivery.go:76,131`). Thread region through so cross-region targets
+  resolve.
+- [ ] **Lambda ESM: poll Kafka/MSK/DocumentDB/MQ sources** (`event_source_poller.go:278-281`).
+- [ ] **Lambda ESM: apply `FilterCriteria`** before invoke (currently stored, never used).
+- [ ] **Lambda async DLQ/destinations** — dispatch OnFailure/OnSuccess to SQS/SNS/EventBridge after
+  retries (`lambda/backend.go:2119-2132`).
+- [ ] **EventBridge input-transformer JSON-quoting** of string variables (`delivery.go:618-630`);
+  forward the request `Limit` in ListRules/ListTargetsByRule.
+- [ ] **Scheduler `at()` one-time schedules + FlexibleTimeWindow** (`runner.go:201-214`).
+- [ ] **Pipes: poll non-SQS sources** (Kinesis/DynamoDB/MQ/MSK/Kafka) (`runner.go:231-239`).
+- [ ] **API Gateway → AWS service integrations** (SQS/SNS/DynamoDB/StepFunctions direct)
+  (`apigateway/proxy.go:429-440`).
+- [ ] **Governance observer hooks** — a central API-call recorder feeding **CloudTrail** and
+  **Config**; real **Backup** recovery points from source services; **Cognito → Lambda triggers**;
+  route **S3 SSE-KMS / DynamoDB SSE / Secrets Manager** through the real **KMS** backend; make
+  **RAM** shares grant cross-principal visibility; make **Cloud Control** write through to the real
+  service backends instead of its private map.
+
+## P2 — Per-service correctness must-fixes (load-bearing)
+
+The highest-impact non-lifecycle gaps per service (full lists in the deep dives above):
+
+- [ ] **S3** — enforce bucket policy/ACL/PAB and bucket default encryption on the data plane;
+  add SigV4 header-auth + `aws-chunked` body decode; multi-range GET; Object Lock GOVERNANCE bypass.
+- [ ] **DynamoDB** — emit `TransactionConflictException`; async export/import (`IN_PROGRESS`);
+  validate `UpdateTable` throughput vs billing mode; copy items on replica creation.
+- [ ] **Lambda** — validate `X-Amz-Invocation-Type`; `LogType=Tail`/`X-Amz-Log-Result`; enforce
+  Function URL `AuthType`; delete the per-function config maps on delete.
+- [ ] **EC2** — rebuild secondary indexes in `Restore`; implement the high-value stub families
+  (VPN/IPAM/TransitGateway) you depend on; opaque pagination tokens.
+- [ ] **IAM** — implement `Date*`/`Numeric*`/set condition operators in the simulator; boundaries in
+  `SimulateCustomPolicy`. **STS** — reject AssumeRole for non-existent roles; validate web-identity JWT.
+- [ ] **KMS** — validate key-policy JSON (`MalformedPolicyDocumentException`). **Secrets Manager** —
+  validate resource-policy JSON; `ResourceExistsException` on token reuse with new content; opaque tokens.
+- [ ] **Step Functions** — Retry/Catch on Map & Parallel; Distributed Map; JSONata + Variables; full
+  history-event detail.
+- [ ] **API Gateway** — usage-plan quota/throttle enforcement; real request-validator schema check;
+  default page size 25; opaque tokens. **v2** — `x-amzn-ErrorType` header; raw OpenAPI export; enforce
+  REQUEST/Lambda authorizers.
+- [ ] **CloudFormation** — change-set `Remove`/`Replacement`; drift vs live backend state; provision
+  stack-set instances; `Fn::ForEach`. **SSM** — real run-command/automation output + terminal states.
+- [ ] **CloudWatch** — paginate GetMetricData; extended/trimmed statistics; EC2/AutoScaling alarm
+  actions. **Logs** — broaden Insights + filter-pattern engines; real export-to-S3; data-protection masking.
+- [ ] **ECR** — background lifecycle-policy expiration; real/paginated scan findings. **ECS** —
+  self-stop tasks on container exit; deployment circuit-breaker; managed-scaling.
+- [ ] **Route 53** — honor Weight/latency/geo/multivalue and health-check status in `TestDNSAnswer`;
+  resolve alias targets.
+
+## P3 — Lifecycle realism (async state machines)
+
+- [ ] **ElastiCache / OpenSearch** — emit `creating`/`modifying`/`deleting`(/`Processing`) transitions
+  instead of resolving instantly, so SDK waiters work. (Same pattern recurs across the extended tier.)
+- [ ] **Lambda / DynamoDB / others** — Pending→Active and ProvisionedConcurrency IN_PROGRESS windows.
+
+## P4 — Console coverage
+
+- [ ] Wire the missing console actions called out per service (e.g. DynamoDB transactions/restore/
+  native export; ECS RunTask/StopTask/ExecuteCommand; API Gateway resource/method/integration editing;
+  SSM documents/run-command/sessions; Kinesis Split/Merge argument bugs; SNS SMS-sandbox; Lambda
+  concurrency/destinations/ESM-filters). Full per-service UI gaps are listed in each section above.
+
+> **Note:** this plan is the remediation roadmap only — no code is changed by this PR, which remains
+> documentation-only (`parity.md`). Items should be checked off (and deleted from the sections above)
+> as they land in follow-up implementation PRs.
+
+---
+
 # Popular services — remaining gaps
 
 Same four axes, same code-cited rule. These services are largely complete (most prior-audit
