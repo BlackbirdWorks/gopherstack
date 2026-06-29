@@ -25,7 +25,7 @@ type dataPlane struct {
 
 // newDataPlane constructs a DAX data-plane bound to its own DynamoDB backend.
 // ctx is the process lifecycle context used for the data-plane's logging.
-func newDataPlane(ctx context.Context, addr string) *dataPlane {
+func newDataPlane(ctx context.Context, addr string, daxBackend StorageBackend) *dataPlane {
 	if addr == "" {
 		addr = defaultDataPlaneAddr
 	}
@@ -33,7 +33,7 @@ func newDataPlane(ctx context.Context, addr string) *dataPlane {
 	backend := dynamodb.NewInMemoryDB()
 
 	return &dataPlane{
-		server:  dataplane.NewServer(ctx, backend),
+		server:  dataplane.NewServer(ctx, backend, daxBackend),
 		backend: backend,
 		addr:    addr,
 	}
@@ -63,7 +63,7 @@ func (h *Handler) EnableDataPlane(ctx context.Context, addr string) *dataPlane {
 		return h.dataPlane
 	}
 
-	h.dataPlane = newDataPlane(ctx, addr)
+	h.dataPlane = newDataPlane(ctx, addr, h.Backend)
 
 	return h.dataPlane
 }

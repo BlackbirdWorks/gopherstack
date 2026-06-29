@@ -146,5 +146,61 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.AccountID = snap.AccountID
 	b.Region = snap.Region
 
+	b.recoverAsyncTransitions()
+
 	return nil
+}
+
+func (b *InMemoryBackend) recoverAsyncTransitions() {
+	for name, c := range b.clusters {
+		b.recoverClusterState(name, c)
+
+		for i := range c.Nodes {
+			if c.Nodes[i].NodeStatus == StatusRebooting {
+				b.recoverNodeState(name, c.Nodes[i].NodeID)
+			}
+		}
+	}
+}
+
+func (b *InMemoryBackend) recoverClusterState(name string, c *Cluster) {
+	switch c.Status {
+	case StatusCreating, StatusModifying:
+		go func(cName string) {
+			b.mu.Lock("Restore:cluster-recovery")
+			defer b.mu.Unlock()
+			if cl, ok := b.clusters[cName]; ok {
+				cl.Status = StatusAvailable
+			}
+		}(name)
+	case StatusDeleting:
+		go func(cName, cArn string) {
+			b.mu.Lock("Restore:delete-recovery")
+			defer b.mu.Unlock()
+			if cl, ok := b.clusters[cName]; ok && cl.Status == StatusDeleting {
+				delete(b.clusters, cName)
+				delete(b.tags, cArn)
+				b.emitEventLocked(cName, EventSourceTypeCluster,
+					fmt.Sprintf("Cluster %s has been deleted.", cName))
+			}
+		}(name, c.ClusterArn)
+	}
+}
+
+func (b *InMemoryBackend) recoverNodeState(cName, nodeID string) {
+	go func() {
+		b.mu.Lock("Restore:node-recovery")
+		defer b.mu.Unlock()
+		if cl, ok := b.clusters[cName]; ok {
+			for j := range cl.Nodes {
+				if cl.Nodes[j].NodeID == nodeID {
+					cl.Nodes[j].NodeStatus = StatusAvailable
+					b.emitEventLocked(cName, EventSourceTypeNode,
+						fmt.Sprintf("Node %s reboot complete.", nodeID))
+
+					break
+				}
+			}
+		}
+	}()
 }

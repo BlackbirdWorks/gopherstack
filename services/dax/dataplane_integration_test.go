@@ -11,6 +11,8 @@ import (
 	v2types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	v1creds "github.com/aws/aws-sdk-go/aws/credentials"
 	v1dynamodb "github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/dax"
 )
@@ -812,4 +814,123 @@ func assertNumber(t *testing.T, item map[string]*v1dynamodb.AttributeValue, key,
 	if *av.N != want {
 		t.Fatalf("attribute %q: got %q want %q", key, *av.N, want)
 	}
+}
+
+func TestDataPlaneCaching(t *testing.T) {
+	t.Parallel()
+
+	handler := dax.NewHandler(dax.NewInMemoryBackend("000000000000", "us-east-1"))
+	dp := handler.EnableDataPlane(context.TODO(), "127.0.0.1:0")
+	if err := handler.StartWorker(context.Background()); err != nil {
+		t.Fatalf("start data plane: %v", err)
+	}
+	t.Cleanup(func() { handler.Shutdown(context.Background()) })
+	createIntegrationTable(t, handler.DataPlaneBackend())
+	endpoint := "dax://" + dp.Addr().String()
+
+	client := newDaxClient(t, endpoint)
+
+	// 1. Put via DAX
+	_, err := client.PutItem(&v1dynamodb.PutItemInput{
+		TableName: new(integrationTable),
+		Item: map[string]*v1dynamodb.AttributeValue{
+			"pk":   {S: new("cache#1")},
+			"name": {S: new("Original")},
+		},
+	})
+	require.NoError(t, err)
+
+	// 2. Get via DAX (loads cache)
+	out1, err := client.GetItem(&v1dynamodb.GetItemInput{
+		TableName: new(integrationTable),
+		Key: map[string]*v1dynamodb.AttributeValue{
+			"pk": {S: new("cache#1")},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Original", *out1.Item["name"].S)
+
+	// 3. Mutate backend directly (bypassing DAX cache)
+	backend := handler.DataPlaneBackend()
+	_, err = backend.PutItem(context.Background(), &v2dynamodb.PutItemInput{
+		TableName: new(integrationTable),
+		Item: map[string]v2types.AttributeValue{
+			"pk":   &v2types.AttributeValueMemberS{Value: "cache#1"},
+			"name": &v2types.AttributeValueMemberS{Value: "Bypassed"},
+		},
+	})
+	require.NoError(t, err)
+
+	// 4. Get via DAX again - should return cached "Original"
+	out2, err := client.GetItem(&v1dynamodb.GetItemInput{
+		TableName: new(integrationTable),
+		Key: map[string]*v1dynamodb.AttributeValue{
+			"pk": {S: new("cache#1")},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Original", *out2.Item["name"].S, "Expected cached Original value, but got Bypassed")
+
+	// 5. Update via DAX (invalidates cache)
+	_, err = client.UpdateItem(&v1dynamodb.UpdateItemInput{
+		TableName: new(integrationTable),
+		Key: map[string]*v1dynamodb.AttributeValue{
+			"pk": {S: new("cache#1")},
+		},
+		UpdateExpression: new("SET #n = :v"),
+		ExpressionAttributeNames: map[string]*string{
+			"#n": new("name"),
+		},
+		ExpressionAttributeValues: map[string]*v1dynamodb.AttributeValue{
+			":v": {S: new("UpdatedViaDax")},
+		},
+	})
+	require.NoError(t, err)
+
+	// 6. Get via DAX - should return "UpdatedViaDax"
+	out3, err := client.GetItem(&v1dynamodb.GetItemInput{
+		TableName: new(integrationTable),
+		Key: map[string]*v1dynamodb.AttributeValue{
+			"pk": {S: new("cache#1")},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "UpdatedViaDax", *out3.Item["name"].S)
+}
+
+func TestDataPlaneProjectionExpression(t *testing.T) {
+	// Must run serially due to ANTLR lexer issue in the client SDK
+	// t.Parallel()
+
+	endpoint := newDataPlaneFixture(t)
+	client := newDaxClient(t, endpoint)
+
+	_, err := client.PutItem(&v1dynamodb.PutItemInput{
+		TableName: new(integrationTable),
+		Item: map[string]*v1dynamodb.AttributeValue{
+			"pk":     {S: new("proj#1")},
+			"name":   {S: new("Ada")},
+			"age":    {N: new("25")},
+			"hidden": {S: new("secret")},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetItem(&v1dynamodb.GetItemInput{
+		TableName: new(integrationTable),
+		Key: map[string]*v1dynamodb.AttributeValue{
+			"pk": {S: new("proj#1")},
+		},
+		ProjectionExpression: new("#n, age"),
+		ExpressionAttributeNames: map[string]*string{
+			"#n": new("name"),
+		},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, out.Item, 2)
+	assert.Equal(t, "Ada", *out.Item["name"].S)
+	assert.Equal(t, "25", *out.Item["age"].N)
+	assert.NotContains(t, out.Item, "hidden")
+	assert.NotContains(t, out.Item, "pk") // unless pk is requested, it's not returned
 }

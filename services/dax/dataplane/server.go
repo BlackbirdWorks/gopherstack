@@ -87,35 +87,48 @@ type Backend interface {
 	DescribeTable(context.Context, *awsddb.DescribeTableInput) (*awsddb.DescribeTableOutput, error)
 }
 
+// TTLLookup provides TTL configuration for the item and query caches.
+type TTLLookup interface {
+	GetDefaultTTL() (recordTTL time.Duration, queryTTL time.Duration)
+}
+
+type cacheEntry struct {
+	item      map[string]types.AttributeValue
+	expiresAt time.Time
+}
+
 // Server is a DAX data-plane TCP listener. It accepts DAX client connections,
 // performs the protocol handshake, and serves item operations by delegating to
 // a DynamoDB Backend.
 type Server struct {
 	backend Backend
+	ttl     TTLLookup
 	// baseCtx is the data-plane lifecycle context, tagged worker=dax-dataplane.
 	// The data plane is a raw TCP server with no per-request context, so its
 	// goroutines log via logger.Load(baseCtx) rather than an embedded *slog.Logger.
-	baseCtx  context.Context //nolint:containedctx // lifecycle ctx for the data-plane accept/serve goroutines.
-	ln       net.Listener
-	conns    map[net.Conn]struct{}
-	attrToID map[string]int64 // joined attr names -> id
-	idToAttr map[int64][]string
-	mu       sync.Mutex
-	attrMu   sync.Mutex
-	nextID   int64
-	closed   bool
+	baseCtx   context.Context //nolint:containedctx // lifecycle ctx for the data-plane accept/serve goroutines.
+	ln        net.Listener
+	conns     map[net.Conn]struct{}
+	attrToID  map[string]int64 // joined attr names -> id
+	idToAttr  map[int64][]string
+	itemCache sync.Map // key -> cacheEntry
+	mu        sync.Mutex
+	attrMu    sync.Mutex
+	nextID    int64
+	closed    bool
 }
 
 // NewServer creates a DAX data-plane server backed by the given DynamoDB
 // backend. ctx is the process lifecycle context; the server tags it
 // worker=dax-dataplane so all data-plane records are attributable.
-func NewServer(ctx context.Context, backend Backend) *Server {
+func NewServer(ctx context.Context, backend Backend, ttl TTLLookup) *Server {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	return &Server{
 		backend:  backend,
+		ttl:      ttl,
 		baseCtx:  logger.WithWorker(ctx, "dax", "dataplane"),
 		conns:    make(map[net.Conn]struct{}),
 		attrToID: make(map[string]int64),

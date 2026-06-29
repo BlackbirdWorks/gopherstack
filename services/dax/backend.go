@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -333,7 +334,7 @@ func applyCreateClusterDefaults(input *CreateClusterInput) {
 }
 
 // buildClusterNodes builds the node list for a new cluster.
-func (b *InMemoryBackend) buildClusterNodes(input CreateClusterInput, now time.Time) []Node {
+func (b *InMemoryBackend) buildClusterNodes(input CreateClusterInput, now time.Time, nextNodeIndex *int) []Node {
 	capacity := input.ReplicationFactor
 	const maxCapacity = 100
 	if capacity > maxCapacity {
@@ -344,14 +345,16 @@ func (b *InMemoryBackend) buildClusterNodes(input CreateClusterInput, now time.T
 	nodes := make([]Node, 0, capacity)
 
 	for i := range capacity {
-		nodeID := fmt.Sprintf("%s-%04d", input.ClusterName, i)
+		nodeIdx := *nextNodeIndex
+		*nextNodeIndex++
+		nodeID := fmt.Sprintf("%s-%04d", input.ClusterName, nodeIdx)
 		az := b.Region + "a"
 
 		if i < len(input.AvailabilityZones) {
 			az = input.AvailabilityZones[i]
 		}
 
-		addr := nodeEndpointAddress(input.ClusterName, fmt.Sprintf("%04d", i), b.Region)
+		addr := nodeEndpointAddress(input.ClusterName, fmt.Sprintf("%04d", nodeIdx), b.Region)
 		nodes = append(nodes, Node{
 			NodeID:               nodeID,
 			NodeStatus:           StatusAvailable,
@@ -394,7 +397,8 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 
 	now := time.Now().UTC()
 	clusterARN := b.clusterARN(input.ClusterName)
-	nodes := b.buildClusterNodes(input, now)
+	var nextIndex int
+	nodes := b.buildClusterNodes(input, now, &nextIndex)
 
 	sseStatus := sseStatusDisabled
 	if input.SSESpecificationEnabled {
@@ -408,35 +412,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 
 	clusterEndpoint := clusterEndpointAddress(input.ClusterName, b.Region)
 
-	cluster := &Cluster{
-		ClusterName:                   input.ClusterName,
-		ClusterArn:                    clusterARN,
-		Description:                   input.Description,
-		NodeType:                      input.NodeType,
-		Status:                        StatusAvailable,
-		IamRoleArn:                    input.IamRoleArn,
-		SubnetGroupName:               input.SubnetGroupName,
-		SecurityGroupIDs:              input.SecurityGroupIDs,
-		PreferredMaintenanceWindow:    maintenanceWindow,
-		ClusterEndpointEncryptionType: input.ClusterEndpointEncryptionType,
-		CreateTime:                    now,
-		TotalNodes:                    input.ReplicationFactor,
-		ActiveNodes:                   input.ReplicationFactor,
-		Nodes:                         nodes,
-		Endpoint: &Endpoint{
-			Address: clusterEndpoint,
-			Port:    daxPort,
-			URL:     daxURL(clusterEndpoint, daxClusterURLPort),
-		},
-		ParameterGroup: ParameterGroupStatus{
-			ParameterGroupName:   input.ParameterGroupName,
-			ParameterApplyStatus: paramApplyStatusInSync,
-		},
-		SSEDescription: SSEDescription{
-			Status: sseStatus,
-		},
-		Tags: make(map[string]string),
-	}
+	cluster := b.initCluster(input, nextIndex, nodes, clusterARN, clusterEndpoint, now, maintenanceWindow, sseStatus)
 
 	if input.NotificationTopicArn != "" {
 		cluster.NotificationConfiguration = &NotificationConfiguration{
@@ -457,9 +433,64 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Cluster %s has been created.", input.ClusterName))
 
+	if os.Getenv("DAX_TEST_SYNC") == "1" {
+		cluster.Status = StatusAvailable
+	} else {
+		go func(cName string) {
+			time.Sleep(time.Second)
+			b.mu.Lock("CreateCluster:async")
+			defer b.mu.Unlock()
+			if c, ok := b.clusters[cName]; ok && c.Status == StatusCreating {
+				c.Status = StatusAvailable
+			}
+		}(input.ClusterName)
+	}
+
 	cp := b.clusterCopy(cluster)
 
 	return cp, nil
+}
+
+// initCluster is a helper to build a Cluster object.
+func (b *InMemoryBackend) initCluster(
+	input CreateClusterInput,
+	nextIndex int,
+	nodes []Node,
+	clusterARN, clusterEndpoint string,
+	now time.Time,
+	maintenanceWindow string,
+	sseStatus string,
+) *Cluster {
+	return &Cluster{
+		ClusterName:                   input.ClusterName,
+		ClusterArn:                    clusterARN,
+		Description:                   input.Description,
+		NodeType:                      input.NodeType,
+		Status:                        StatusCreating,
+		IamRoleArn:                    input.IamRoleArn,
+		SubnetGroupName:               input.SubnetGroupName,
+		SecurityGroupIDs:              input.SecurityGroupIDs,
+		PreferredMaintenanceWindow:    maintenanceWindow,
+		ClusterEndpointEncryptionType: input.ClusterEndpointEncryptionType,
+		CreateTime:                    now,
+		TotalNodes:                    input.ReplicationFactor,
+		ActiveNodes:                   input.ReplicationFactor,
+		NextNodeIndex:                 nextIndex,
+		Nodes:                         nodes,
+		Endpoint: &Endpoint{
+			Address: clusterEndpoint,
+			Port:    daxPort,
+			URL:     daxURL(clusterEndpoint, daxClusterURLPort),
+		},
+		ParameterGroup: ParameterGroupStatus{
+			ParameterGroupName:   input.ParameterGroupName,
+			ParameterApplyStatus: paramApplyStatusInSync,
+		},
+		SSEDescription: SSEDescription{
+			Status: sseStatus,
+		},
+		Tags: make(map[string]string),
+	}
 }
 
 // collectClustersLocked collects clusters, filtering by name if provided.
@@ -558,6 +589,49 @@ func (b *InMemoryBackend) DescribeClusters(
 	return result, token, nil
 }
 
+func paginateList[T any](
+	all []T,
+	maxResults int,
+	nextToken string,
+	getName func(T) string,
+	copyFunc func(T) T,
+) ([]T, string) {
+	sort.Slice(all, func(i, j int) bool {
+		return getName(all[i]) < getName(all[j])
+	})
+
+	start := 0
+	if nextToken != "" {
+		for i, item := range all {
+			if getName(item) == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	if start >= len(all) {
+		return []T{}, ""
+	}
+
+	end := start + maxResults
+	newNextToken := ""
+	if end < len(all) {
+		newNextToken = getName(all[end])
+	} else {
+		end = len(all)
+	}
+
+	page := all[start:end]
+	result := make([]T, 0, len(page))
+	for _, item := range page {
+		result = append(result, copyFunc(item))
+	}
+
+	return result, newNextToken
+}
+
 // UpdateCluster updates a DAX cluster's configuration.
 func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, error) {
 	if input.ClusterName == "" {
@@ -638,13 +712,28 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	}
 
 	cp := b.clusterCopy(cluster)
+	cluster.Status = StatusDeleting
 	cp.Status = StatusDeleting
 
 	b.emitEventLocked(clusterName, EventSourceTypeCluster,
-		fmt.Sprintf("Cluster %s has been deleted.", clusterName))
+		fmt.Sprintf("Cluster %s is being deleted.", clusterName))
 
-	delete(b.clusters, clusterName)
-	delete(b.tags, cluster.ClusterArn)
+	if os.Getenv("DAX_TEST_SYNC") == "1" {
+		delete(b.clusters, clusterName)
+		delete(b.tags, cluster.ClusterArn)
+	} else {
+		go func(cName string, cArn string) {
+			time.Sleep(time.Second)
+			b.mu.Lock("DeleteCluster:async")
+			defer b.mu.Unlock()
+			if c, exists := b.clusters[cName]; exists && c.Status == StatusDeleting {
+				delete(b.clusters, cName)
+				delete(b.tags, cArn)
+				b.emitEventLocked(cName, EventSourceTypeCluster,
+					fmt.Sprintf("Cluster %s has been deleted.", cName))
+			}
+		}(clusterName, cluster.ClusterArn)
+	}
 
 	return cp, nil
 }
@@ -700,8 +789,10 @@ func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFac
 			az = input.AvailabilityZones[j]
 		}
 
-		nodeID := fmt.Sprintf("%s-%04d", input.ClusterName, i)
-		addr := nodeEndpointAddress(input.ClusterName, fmt.Sprintf("%04d", i), b.Region)
+		nodeIdx := cluster.NextNodeIndex
+		cluster.NextNodeIndex++
+		nodeID := fmt.Sprintf("%s-%04d", input.ClusterName, nodeIdx)
+		addr := nodeEndpointAddress(input.ClusterName, fmt.Sprintf("%04d", nodeIdx), b.Region)
 
 		cluster.Nodes = append(cluster.Nodes, Node{
 			NodeID:               nodeID,
@@ -719,9 +810,19 @@ func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFac
 
 	cluster.TotalNodes = input.NewReplicationFactor
 	cluster.ActiveNodes = input.NewReplicationFactor
+	cluster.Status = StatusModifying
 
 	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Replication factor increased to %d.", input.NewReplicationFactor))
+
+	go func(cName string) {
+		time.Sleep(time.Second)
+		b.mu.Lock("IncreaseReplicationFactor:async")
+		defer b.mu.Unlock()
+		if c, exists := b.clusters[cName]; exists && c.Status == StatusModifying {
+			c.Status = StatusAvailable
+		}
+	}(input.ClusterName)
 
 	return b.clusterCopy(cluster), nil
 }
@@ -783,9 +884,19 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 
 	cluster.TotalNodes = input.NewReplicationFactor
 	cluster.ActiveNodes = input.NewReplicationFactor
+	cluster.Status = StatusModifying
 
 	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Replication factor decreased to %d.", input.NewReplicationFactor))
+
+	go func(cName string) {
+		time.Sleep(time.Second)
+		b.mu.Lock("DecreaseReplicationFactor:async")
+		defer b.mu.Unlock()
+		if c, exists := b.clusters[cName]; exists && c.Status == StatusModifying {
+			c.Status = StatusAvailable
+		}
+	}(input.ClusterName)
 
 	return b.clusterCopy(cluster), nil
 }
@@ -1026,59 +1137,54 @@ func (b *InMemoryBackend) DescribeParameterGroups(
 	b.mu.RLock("DescribeParameterGroups")
 	defer b.mu.RUnlock()
 
+	return describeNamedGroups(
+		b.paramGroups, names, maxResults, nextToken, ErrParameterGroupNotFound,
+		func(pg *ParameterGroup) string { return pg.ParameterGroupName }, paramGroupCopy,
+	)
+}
+
+// describeNamedGroups implements the shared DAX "describe named groups with
+// pagination" pattern: a named lookup returns all matches unpaginated (erroring
+// on any missing name), while an unfiltered request returns one paginated page.
+func describeNamedGroups[T any](
+	store map[string]*T,
+	names []string,
+	maxResults int,
+	nextToken string,
+	notFound error,
+	nameOf func(*T) string,
+	copyFn func(*T) *T,
+) ([]*T, string, error) {
 	if maxResults <= 0 {
 		maxResults = maxPageSizeDefault
 	}
 
-	var all []*ParameterGroup
+	all := make([]*T, 0, len(store))
 
 	if len(names) > 0 {
 		for _, name := range names {
-			pg, ok := b.paramGroups[name]
+			item, ok := store[name]
 			if !ok {
-				return nil, "", fmt.Errorf("%w: %s", ErrParameterGroupNotFound, name)
+				return nil, "", fmt.Errorf("%w: %s", notFound, name)
 			}
-
-			cp := paramGroupCopy(pg)
-			all = append(all, cp)
+			all = append(all, item)
 		}
-		// Named lookup: return all matches without pagination.
-		return all, "", nil
-	}
 
-	for _, pg := range b.paramGroups {
-		cp := paramGroupCopy(pg)
-		all = append(all, cp)
-	}
-
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].ParameterGroupName < all[j].ParameterGroupName
-	})
-
-	start := 0
-	if nextToken != "" {
-		for i, pg := range all {
-			if pg.ParameterGroupName == nextToken {
-				start = i
-
-				break
-			}
+		result := make([]*T, 0, len(all))
+		for _, item := range all {
+			result = append(result, copyFn(item))
 		}
+
+		return result, "", nil
 	}
 
-	if start >= len(all) {
-		return []*ParameterGroup{}, "", nil
+	for _, item := range store {
+		all = append(all, item)
 	}
 
-	end := start + maxResults
-	newNextToken := ""
-	if end < len(all) {
-		newNextToken = all[end].ParameterGroupName
-	} else {
-		end = len(all)
-	}
+	result, newNextToken := paginateList(all, maxResults, nextToken, nameOf, copyFn)
 
-	return all[start:end], newNextToken, nil
+	return result, newNextToken, nil
 }
 
 // UpdateParameterGroup updates parameter values in a parameter group.
@@ -1310,8 +1416,8 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 		return nil, err
 	}
 
-	if len(subnetIDs) == 0 {
-		return nil, fmt.Errorf("%w: at least one SubnetId is required", ErrInvalidParameterValue)
+	if err := validateSubnetIDs(subnetIDs); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateSubnetGroup")
@@ -1348,63 +1454,22 @@ func (b *InMemoryBackend) DescribeSubnetGroups(
 	b.mu.RLock("DescribeSubnetGroups")
 	defer b.mu.RUnlock()
 
-	if maxResults <= 0 {
-		maxResults = maxPageSizeDefault
-	}
-
-	var all []*SubnetGroup
-
-	if len(names) > 0 {
-		for _, name := range names {
-			sg, ok := b.subnetGroups[name]
-			if !ok {
-				return nil, "", fmt.Errorf("%w: %s", ErrSubnetGroupNotFound, name)
-			}
-
-			all = append(all, subnetGroupCopy(sg))
-		}
-
-		return all, "", nil
-	}
-
-	for _, sg := range b.subnetGroups {
-		all = append(all, subnetGroupCopy(sg))
-	}
-
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].SubnetGroupName < all[j].SubnetGroupName
-	})
-
-	start := 0
-	if nextToken != "" {
-		for i, sg := range all {
-			if sg.SubnetGroupName == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	if start >= len(all) {
-		return []*SubnetGroup{}, "", nil
-	}
-
-	end := start + maxResults
-	newNextToken := ""
-	if end < len(all) {
-		newNextToken = all[end].SubnetGroupName
-	} else {
-		end = len(all)
-	}
-
-	return all[start:end], newNextToken, nil
+	return describeNamedGroups(
+		b.subnetGroups, names, maxResults, nextToken, ErrSubnetGroupNotFound,
+		func(sg *SubnetGroup) string { return sg.SubnetGroupName }, subnetGroupCopy,
+	)
 }
 
 // UpdateSubnetGroup updates a subnet group's description and/or subnet list.
 func (b *InMemoryBackend) UpdateSubnetGroup(input UpdateSubnetGroupInput) (*SubnetGroup, error) {
 	if input.SubnetGroupName == "" {
-		return nil, fmt.Errorf("%w: SubnetGroupName is required", ErrSubnetGroupNotFound)
+		return nil, fmt.Errorf("%w: SubnetGroupName is required", ErrInvalidParameterValue)
+	}
+
+	if len(input.SubnetIDs) > 0 {
+		if err := validateSubnetIDs(input.SubnetIDs); err != nil {
+			return nil, err
+		}
 	}
 
 	b.mu.Lock("UpdateSubnetGroup")
@@ -1647,6 +1712,23 @@ func subnetGroupCopy(sg *SubnetGroup) *SubnetGroup {
 	return &cp
 }
 
+// subnetRegexp validates subnet IDs.
+var subnetRegexp = regexp.MustCompile(`^subnet-[0-9a-f]{8}([0-9a-f]{9})?$`)
+
+// validateSubnetIDs checks the format of subnet IDs.
+func validateSubnetIDs(ids []string) error {
+	if len(ids) == 0 {
+		return fmt.Errorf("%w: at least one SubnetId is required", ErrInvalidParameterValue)
+	}
+	for _, id := range ids {
+		if !subnetRegexp.MatchString(id) {
+			return fmt.Errorf("%w: invalid subnet ID %q", ErrInvalidParameterValue, id)
+		}
+	}
+
+	return nil
+}
+
 // subnetEntriesFromIDs converts string subnet IDs to SubnetEntry slices using default AZ.
 func subnetEntriesFromIDs(ids []string, region string) []SubnetEntry {
 	entries := make([]SubnetEntry, 0, len(ids))
@@ -1701,6 +1783,41 @@ func removeSpecificNodes(nodes []Node, nodeIDsToRemove []string, clusterName str
 	}
 
 	return kept, nil
+}
+
+const defaultTTL = 5 * time.Minute
+
+// GetDefaultTTL returns the TTLs configured in the first available cluster's param group, or defaults.
+func (b *InMemoryBackend) GetDefaultTTL() (time.Duration, time.Duration) {
+	b.mu.RLock("GetDefaultTTL")
+	defer b.mu.RUnlock()
+
+	// Default to 5 minutes if no clusters exist.
+	recordTTL := defaultTTL
+	queryTTL := defaultTTL
+
+	for _, c := range b.clusters {
+		pgName := c.ParameterGroup.ParameterGroupName
+		pg, ok := b.paramGroups[pgName]
+		if !ok {
+			break
+		}
+
+		if val, has := pg.Parameters[paramRecordTTL]; has {
+			if ms, err := strconv.ParseInt(val, 10, 64); err == nil {
+				recordTTL = time.Duration(ms) * time.Millisecond
+			}
+		}
+		if val, has := pg.Parameters[paramQueryTTL]; has {
+			if ms, err := strconv.ParseInt(val, 10, 64); err == nil {
+				queryTTL = time.Duration(ms) * time.Millisecond
+			}
+		}
+
+		break // just use the first cluster's param group
+	}
+
+	return recordTTL, queryTTL
 }
 
 // vpcIDFromSubnets returns a deterministic placeholder VPC ID derived from the first subnet ID.

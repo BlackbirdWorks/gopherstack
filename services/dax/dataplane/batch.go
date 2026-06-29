@@ -44,12 +44,22 @@ func (s *Server) handleBatchWriteItem(r *Reader, w *Writer) error {
 		requestItems[table] = writes
 	}
 
-	if _, err = readItemOptionalParams(r); err != nil {
+	if _, err = readItemOptionalParams(r, nil); err != nil {
 		return err
 	}
 
 	if _, err = s.backend.BatchWriteItem(ctx, &awsddb.BatchWriteItemInput{RequestItems: requestItems}); err != nil {
 		return s.writeBackendError(w, err)
+	}
+
+	for table, writes := range requestItems {
+		for _, wreq := range writes {
+			if wreq.PutRequest != nil {
+				s.invalidateItemCache(table, wreq.PutRequest.Item)
+			} else if wreq.DeleteRequest != nil {
+				s.invalidateItemCache(table, wreq.DeleteRequest.Key)
+			}
+		}
 	}
 
 	return s.writeBatchWriteResponse(w)

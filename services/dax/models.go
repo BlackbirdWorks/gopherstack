@@ -197,6 +197,7 @@ type Cluster struct {
 	SecurityGroupIDs              []string                   `json:"securityGroupIds"`
 	ActiveNodes                   int                        `json:"activeNodes"`
 	TotalNodes                    int                        `json:"totalNodes"`
+	NextNodeIndex                 int                        `json:"nextNodeIndex"`
 }
 
 // ParameterGroup represents a DAX parameter group.

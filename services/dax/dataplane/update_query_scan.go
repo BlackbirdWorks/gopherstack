@@ -62,6 +62,8 @@ func (s *Server) handleUpdateItem(r *Reader, w *Writer) error {
 		return s.writeBackendError(w, err)
 	}
 
+	s.invalidateItemCache(table, key)
+
 	if err = writeOK(w); err != nil {
 		return err
 	}
