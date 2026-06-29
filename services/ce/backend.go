@@ -38,6 +38,10 @@ const (
 	defaultSavingsPlansType = "COMPUTE_SP"
 	mapKeyRegion            = "Region"
 	mapKeyCurrencyCode      = "CurrencyCode"
+	dimKeyService           = "SERVICE"
+	dimKeyRegion            = "REGION"
+	dimKeyUsageType         = "USAGE_TYPE"
+	dimKeyLinkedAccount     = "LINKED_ACCOUNT"
 )
 
 // Synthetic data ratio constants used in cost simulation.
@@ -1164,29 +1168,80 @@ func (b *InMemoryBackend) GetCostCategories(costCategoryName string) []string {
 	return values
 }
 
+// syntheticServiceDef describes a synthetic AWS service used in the cost ledger seed
+// and as a fallback when real ledger entries are absent for a queried time period.
+type syntheticServiceDef struct {
+	name      string
+	usageType string
+	weight    float64
+}
+
+// syntheticServiceCatalog is the canonical list of services used in both the cost
+// ledger seed and the synthetic-group fallback for GroupBy queries.
+//
+//nolint:gochecknoglobals // package-level catalog shared by seed and fallback
+var syntheticServiceCatalog = []syntheticServiceDef{
+	{"Amazon Elastic Compute Cloud - Compute", "BoxUsage:t3.medium", 0.40},
+	{"Amazon Simple Storage Service", "TimedStorage-ByteHrs", 0.15},
+	{"Amazon Relational Database Service", "InstanceUsage:db.t3.medium", 0.10},
+	{"AWS Lambda", "Lambda-GB-Second", 0.08},
+	{"Amazon CloudFront", "US-DataTransfer-Out-Bytes", 0.07},
+	{"Amazon DynamoDB", "TimedStorage-ByteHrs", 0.05},
+	{"Amazon Elastic Load Balancing", "LoadBalancerUsage", 0.04},
+	{"AWS Key Management Service", "KMS-Requests", 0.03},
+	{"Amazon Route 53", "DNS-Queries", 0.02},
+	{"AWS CloudTrail", "EUS-DataScanned", 0.01},
+	{"Amazon SNS", "DeliveryAttempts-HTTP", 0.005},
+	{"Amazon SQS", "SQS-Requests", 0.005},
+}
+
+// syntheticBaseMonthlyTotal is the base monthly cost used when no ledger entries
+// exist for the queried period (e.g. historical ranges before the seed window).
+const syntheticBaseMonthlyTotal = 3000.0
+
+// syntheticGroupsFallback generates GroupBy result groups from the service catalog
+// when the cost ledger contains no entries for the queried period.
+// The groups mirror what would appear for real data, giving callers a valid
+// non-empty response shape for any time period.
+func syntheticGroupsFallback(accountID, region string, groupBy []GroupBySpec, metrics []string) []CostGroup {
+	groups := make([]CostGroup, 0, len(syntheticServiceCatalog))
+
+	for _, svc := range syntheticServiceCatalog {
+		keys := make([]string, 0, len(groupBy))
+		for _, g := range groupBy {
+			switch strings.ToUpper(g.Key) {
+			case dimKeyService:
+				keys = append(keys, svc.name)
+			case dimKeyRegion:
+				keys = append(keys, region)
+			case dimKeyUsageType:
+				keys = append(keys, svc.usageType)
+			case dimKeyLinkedAccount:
+				keys = append(keys, accountID)
+			default:
+				keys = append(keys, "Other")
+			}
+		}
+
+		amount := syntheticBaseMonthlyTotal * svc.weight
+		amounts := make(map[string]float64, len(metrics))
+		for _, m := range metrics {
+			amounts[m] = amount
+		}
+
+		groups = append(groups, CostGroup{
+			Keys:    keys,
+			Metrics: buildMetricValues(amounts, metrics),
+		})
+	}
+
+	return groups
+}
+
 // seedCostLedger populates the cost ledger with 90 days of synthetic data.
 // Seeded distributions: EC2~40%, S3~15%, RDS~10%, Lambda~8%, CloudFront~7%, others rest.
 func (b *InMemoryBackend) seedCostLedger() {
-	type serviceDef struct {
-		name      string
-		usageType string
-		weight    float64
-	}
-
-	services := []serviceDef{
-		{"Amazon Elastic Compute Cloud - Compute", "BoxUsage:t3.medium", 0.40},
-		{"Amazon Simple Storage Service", "TimedStorage-ByteHrs", 0.15},
-		{"Amazon Relational Database Service", "InstanceUsage:db.t3.medium", 0.10},
-		{"AWS Lambda", "Lambda-GB-Second", 0.08},
-		{"Amazon CloudFront", "US-DataTransfer-Out-Bytes", 0.07},
-		{"Amazon DynamoDB", "TimedStorage-ByteHrs", 0.05},
-		{"Amazon Elastic Load Balancing", "LoadBalancerUsage", 0.04},
-		{"AWS Key Management Service", "KMS-Requests", 0.03},
-		{"Amazon Route 53", "DNS-Queries", 0.02},
-		{"AWS CloudTrail", "EUS-DataScanned", 0.01},
-		{"Amazon SNS", "DeliveryAttempts-HTTP", 0.005},
-		{"Amazon SQS", "SQS-Requests", 0.005},
-	}
+	services := syntheticServiceCatalog
 
 	now := time.Now().UTC()
 	totalDailyBase := 150.0
@@ -1275,13 +1330,13 @@ func extractGroupKeys(e CostEntry, groupBy []GroupBySpec) []string {
 
 	for _, g := range groupBy {
 		switch strings.ToUpper(g.Key) {
-		case "SERVICE":
+		case dimKeyService:
 			keys = append(keys, e.Service)
-		case "REGION":
+		case dimKeyRegion:
 			keys = append(keys, e.Region)
-		case "USAGE_TYPE":
+		case dimKeyUsageType:
 			keys = append(keys, e.UsageType)
-		case "LINKED_ACCOUNT":
+		case dimKeyLinkedAccount:
 			keys = append(keys, e.Account)
 		default:
 			keys = append(keys, e.Tags[g.Key])
@@ -1436,6 +1491,10 @@ func (b *InMemoryBackend) GetCostAndUsage(
 
 		if len(groupBy) > 0 {
 			r.Groups = aggregateByGroup(entries, groupBy, metrics)
+			if len(r.Groups) == 0 {
+				r.Groups = syntheticGroupsFallback(b.accountID, b.region, groupBy, metrics)
+			}
+
 			r.Total = map[string]MetricValue{}
 		} else {
 			r.Total = aggregateTotals(entries, metrics)
@@ -1458,13 +1517,13 @@ func (b *InMemoryBackend) GetDimensionValues(dimension string) []string {
 		var val string
 
 		switch strings.ToUpper(dimension) {
-		case "SERVICE":
+		case dimKeyService:
 			val = e.Service
-		case "REGION", "AZ":
+		case dimKeyRegion, "AZ":
 			val = e.Region
-		case "USAGE_TYPE":
+		case dimKeyUsageType:
 			val = e.UsageType
-		case "LINKED_ACCOUNT":
+		case dimKeyLinkedAccount:
 			val = e.Account
 		case "INSTANCE_TYPE":
 			val = syntheticInstanceType
@@ -1574,7 +1633,7 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(
 	}
 
 	if total == 0 {
-		return nil
+		total = syntheticBaseMonthlyTotal
 	}
 
 	commitment := total * spCommitmentRatio
