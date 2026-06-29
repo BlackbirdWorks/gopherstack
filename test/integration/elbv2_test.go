@@ -119,7 +119,7 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, healthOut.TargetHealthDescriptions, 2)
 
-	// DeregisterTargets - remove one target, expect one left.
+	// DeregisterTargets - deregister one target; it transitions to draining state.
 	_, err = client.DeregisterTargets(ctx, &elbv2sdk.DeregisterTargetsInput{
 		TargetGroupArn: aws.String(tgArn),
 		Targets: []elbv2types.TargetDescription{
@@ -128,11 +128,18 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Deregistered target remains visible in draining state; the other stays healthy.
 	healthOut2, err := client.DescribeTargetHealth(ctx, &elbv2sdk.DescribeTargetHealthInput{
 		TargetGroupArn: aws.String(tgArn),
 	})
 	require.NoError(t, err)
-	require.Len(t, healthOut2.TargetHealthDescriptions, 1)
+	require.Len(t, healthOut2.TargetHealthDescriptions, 2)
+	healthByID := map[string]elbv2types.TargetHealthDescription{}
+	for _, d := range healthOut2.TargetHealthDescriptions {
+		healthByID[aws.ToString(d.Target.Id)] = d
+	}
+	require.Contains(t, healthByID, targetIP2)
+	assert.Equal(t, elbv2types.TargetHealthStateEnumDraining, healthByID[targetIP2].TargetHealth.State)
 
 	// CreateListener forwarding to the target group.
 	createListOut, err := client.CreateListener(ctx, &elbv2sdk.CreateListenerInput{

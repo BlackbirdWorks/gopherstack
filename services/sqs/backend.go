@@ -2964,24 +2964,29 @@ func (b *InMemoryBackend) CancelMessageMoveTask(
 
 	state.mu.Lock()
 
-	// Per AWS: cancelling a task that is not RUNNING returns ResourceInConflict.
-	if state.status != MoveTaskStatusRunning && state.status != MoveTaskStatusCancelling {
+	switch state.status {
+	case MoveTaskStatusRunning, MoveTaskStatusCancelling:
+		state.status = MoveTaskStatusCancelling
+		moved := state.movedCount
+		state.mu.Unlock()
+		state.cancel()
+
+		return &CancelMessageMoveTaskOutput{
+			ApproximateNumberOfMessagesMoved: moved,
+		}, nil
+	case MoveTaskStatusCompleted, MoveTaskStatusCancelled:
+		// Idempotent: return success with the final moved count.
+		moved := state.movedCount
+		state.mu.Unlock()
+
+		return &CancelMessageMoveTaskOutput{
+			ApproximateNumberOfMessagesMoved: moved,
+		}, nil
+	default:
 		state.mu.Unlock()
 
 		return nil, ErrMoveTaskNotRunning
 	}
-
-	state.status = MoveTaskStatusCancelling
-	// Capture movedCount under the lock before releasing it, to avoid a race
-	// with the goroutine that increments movedCount concurrently.
-	moved := state.movedCount
-	state.mu.Unlock()
-
-	state.cancel()
-
-	return &CancelMessageMoveTaskOutput{
-		ApproximateNumberOfMessagesMoved: moved,
-	}, nil
 }
 
 // listMessageMoveTasksDefaultMaxResults is the default number of results returned by

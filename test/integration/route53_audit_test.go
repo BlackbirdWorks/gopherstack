@@ -48,7 +48,7 @@ func TestIntegration_Route53Audit_GetAccountLimit(t *testing.T) {
 	assert.GreaterOrEqual(t, limitOut.Count, int64(numZones),
 		"GetAccountLimit count should reflect the number of hosted zones in the account")
 	assert.Equal(t, route53types.AccountLimitTypeMaxHostedZonesByOwner, limitOut.Limit.Type)
-	assert.Positive(t, limitOut.Limit.Value, "documented limit value should be populated")
+	assert.Positive(t, aws.ToInt64(limitOut.Limit.Value), "documented limit value should be populated")
 }
 
 // TestIntegration_Route53Audit_GetHostedZoneLimit verifies that

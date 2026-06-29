@@ -99,7 +99,7 @@ func TestIntegration_EC2Audit_ModifyInstancePlacement(t *testing.T) {
 	inst := descOut.Reservations[0].Instances[0]
 	require.NotNil(t, inst.Placement, "Placement should be reflected after modification")
 	assert.Equal(t, ec2types.TenancyDedicated, inst.Placement.Tenancy)
-	assert.Equal(t, ec2types.AffinityHost, inst.Placement.Affinity)
+	assert.Equal(t, string(ec2types.AffinityHost), aws.ToString(inst.Placement.Affinity))
 }
 
 // TestIntegration_EC2Audit_ModifyInstanceMaintenanceOptions verifies that

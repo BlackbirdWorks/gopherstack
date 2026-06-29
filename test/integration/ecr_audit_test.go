@@ -46,11 +46,13 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Configure replication to two destination regions, one with an explicit
-	// registry ID.
+	// Configure replication to two destination regions.  The AWS SDK requires
+	// RegistryId on every destination, so the first uses the emulator's default
+	// account ID and the second uses an explicit third-party account ID.
 	const (
 		destRegion1     = "us-west-2"
 		destRegion2     = "eu-west-1"
+		destRegistryID1 = "000000000000" // emulator default account ID
 		destRegistryID2 = "210987654321"
 	)
 
@@ -58,7 +60,7 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus(t *testing.T) {
 		ReplicationConfiguration: &types.ReplicationConfiguration{
 			Rules: []types.ReplicationRule{{
 				Destinations: []types.ReplicationDestination{
-					{Region: aws.String(destRegion1)},
+					{Region: aws.String(destRegion1), RegistryId: aws.String(destRegistryID1)},
 					{Region: aws.String(destRegion2), RegistryId: aws.String(destRegistryID2)},
 				},
 			}},
@@ -96,7 +98,8 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus(t *testing.T) {
 
 	require.Contains(t, byRegion, destRegion1)
 	require.Contains(t, byRegion, destRegion2)
-	// The destination with an explicit registry ID echoes that ID.
+	// Each destination echoes the registry ID it was configured with.
+	assert.Equal(t, destRegistryID1, *byRegion[destRegion1].RegistryId)
 	assert.Equal(t, destRegistryID2, *byRegion[destRegion2].RegistryId)
 }
 
@@ -104,7 +107,6 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus(t *testing.T) {
 // that with no replication configuration set, an empty replicationStatuses
 // list is returned for an existing image.
 func TestIntegration_ECRAudit_DescribeImageReplicationStatus_NoConfig(t *testing.T) {
-	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
 	client := createECRClient(t)

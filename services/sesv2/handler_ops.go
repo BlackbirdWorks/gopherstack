@@ -1887,9 +1887,7 @@ func (h *Handler) handlePutConfigurationSetArchivingOptions(
 	name string,
 ) (any, error) {
 	var in struct {
-		ArchivingOptions struct {
-			ArchiveARN string `json:"ArchiveArn"`
-		} `json:"ArchivingOptions"`
+		ArchiveARN string `json:"ArchiveArn"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
@@ -1898,7 +1896,7 @@ func (h *Handler) handlePutConfigurationSetArchivingOptions(
 
 	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetArchivingOptions(
 		name,
-		in.ArchivingOptions.ArchiveARN,
+		in.ArchiveARN,
 	)
 }
 

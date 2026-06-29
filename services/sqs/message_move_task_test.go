@@ -608,7 +608,7 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 			wantBodyContain: "InvalidParameterValue",
 		},
 		{
-			name:   "CancelMessageMoveTask_on_completed_task_returns_conflict",
+			name:   "CancelMessageMoveTask_on_completed_task_returns_ok",
 			action: "CancelMessageMoveTask",
 			setup: func(t *testing.T, h *sqs.Handler) map[string]any {
 				t.Helper()
@@ -643,8 +643,7 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 
 				return map[string]any{"TaskHandle": handle}
 			},
-			wantCode:        http.StatusBadRequest,
-			wantBodyContain: "ResourceInConflict",
+			wantCode: http.StatusOK,
 		},
 	}
 
@@ -906,7 +905,7 @@ func TestSQS_StartMessageMoveTask_Validation(t *testing.T) {
 }
 
 // TestSQS_CancelMessageMoveTask_NotRunning verifies that cancelling a task that has
-// already completed returns ErrMoveTaskNotRunning, matching AWS ResourceInConflict semantics.
+// already completed returns success (idempotent cancel — same handle, same result).
 func TestSQS_CancelMessageMoveTask_NotRunning(t *testing.T) {
 	t.Parallel()
 
@@ -943,12 +942,11 @@ func TestSQS_CancelMessageMoveTask_NotRunning(t *testing.T) {
 			listOut.Results[0].Status == sqs.MoveTaskStatusCompleted
 	}, 2*time.Second, 10*time.Millisecond, "task should complete")
 
-	// Cancelling a completed task must return ErrMoveTaskNotRunning.
+	// Cancelling a completed task returns success (idempotent cancel).
 	_, err = b.CancelMessageMoveTask(&sqs.CancelMessageMoveTaskInput{
 		TaskHandle: startOut.TaskHandle,
 	})
-	require.Error(t, err)
-	require.ErrorIs(t, err, sqs.ErrMoveTaskNotRunning)
+	require.NoError(t, err)
 }
 
 func TestSQS_MoveTaskJanitorPruning(t *testing.T) {

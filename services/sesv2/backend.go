@@ -769,6 +769,10 @@ func (b *InMemoryBackend) CreateDedicatedIPPool(
 		return nil, fmt.Errorf("%w: PoolName is required", ErrInvalidInput)
 	}
 
+	if scalingMode == "" {
+		scalingMode = scalingModeStandard
+	}
+
 	if scalingMode != scalingModeStandard && scalingMode != scalingModeManaged {
 		return nil, fmt.Errorf(
 			"%w: ScalingMode must be %s or %s, got %s",
