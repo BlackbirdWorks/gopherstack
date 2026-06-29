@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -328,7 +330,11 @@ func (t *Table) extractStreamKeys(item map[string]any) map[string]any {
 
 // appendStreamRecord adds a new record to the table's stream ring buffer.
 // Must be called with table.mu held (write lock).
-func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[string]any) {
+func (t *Table) appendStreamRecord(
+	eventName string,
+	oldItem, newImage map[string]any,
+	principalID, principalType string,
+) {
 	if !t.StreamsEnabled {
 		return
 	}
@@ -344,27 +350,45 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	}
 
 	record := models.StreamRecord{
-		EventID:                     fmt.Sprintf("%s-%s", t.Name, seq),
+		EventID:                     strings.ReplaceAll(uuid.NewString(), "-", ""),
 		EventName:                   eventName,
 		SequenceNumber:              seq,
 		ApproximateCreationDateTime: time.Now().Unix(),
 		Keys:                        t.extractStreamKeys(keySource),
+		UserIdentityPrincipalID:     principalID,
+		UserIdentityType:            principalType,
 	}
 
 	switch t.StreamViewType {
 	case streamViewTypeNewAndOldImages:
 		record.OldImage = oldItem
 		record.NewImage = newImage
+		record.StreamViewType = "NEW_AND_OLD_IMAGES"
 	case streamViewTypeNewImage:
 		record.NewImage = newImage
+		record.StreamViewType = "NEW_IMAGE"
 	case streamViewTypeOldImage:
 		record.OldImage = oldItem
+		record.StreamViewType = "OLD_IMAGE"
 	case streamViewTypeKeysOnly:
-		// Keys only — no image data included.
+		record.StreamViewType = "KEYS_ONLY"
 	default:
 		record.OldImage = oldItem
 		record.NewImage = newImage
+		record.StreamViewType = "NEW_AND_OLD_IMAGES"
 	}
+
+	var size int64
+	if s, err := CalculateItemSize(record.Keys); err == nil {
+		size += int64(s)
+	}
+	if s, err := CalculateItemSize(record.OldImage); err == nil {
+		size += int64(s)
+	}
+	if s, err := CalculateItemSize(record.NewImage); err == nil {
+		size += int64(s)
+	}
+	record.SizeBytes = size
 
 	// O(1) ring buffer: pre-allocate once, then overwrite in-place.
 	// When the buffer is not yet full, append normally. Once full, overwrite
@@ -459,12 +483,21 @@ func (t *Table) streamRecordsInOrder() ([]models.StreamRecord, []models.StreamRe
 	}
 
 	if n < maxStreamRecords {
-		// Buffer not yet full: already in insertion order.
-		return t.StreamRecords, nil
+		// Buffer not yet full.
+		res := make([]models.StreamRecord, n)
+		copy(res, t.StreamRecords)
+
+		return res, nil
 	}
 
 	// Ring is full: split at StreamHead.
-	return t.StreamRecords[t.StreamHead:], t.StreamRecords[:t.StreamHead]
+	tail := make([]models.StreamRecord, n-t.StreamHead)
+	copy(tail, t.StreamRecords[t.StreamHead:])
+
+	head := make([]models.StreamRecord, t.StreamHead)
+	copy(head, t.StreamRecords[:t.StreamHead])
+
+	return tail, head
 }
 
 func BuildKeyString(item map[string]any, attrName string) string {

@@ -92,9 +92,9 @@ func (db *InMemoryDB) PutItem(
 
 	// Capture stream event
 	if matchIndex != -1 {
-		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem))
+		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem), "", "")
 	} else {
-		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem))
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem), "", "")
 	}
 
 	globalTableName := table.GlobalTableName
@@ -516,7 +516,7 @@ func (db *InMemoryDB) DeleteItem(
 	if oldItem != nil && matchIndex != -1 {
 		db.deleteItemAtIndex(table, matchIndex)
 		// Capture stream REMOVE event
-		table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil)
+		table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil, "", "")
 	}
 
 	out := db.buildDeleteItemOutput(input, table, oldItem)
@@ -687,9 +687,9 @@ func (db *InMemoryDB) UpdateItem(
 
 	// Capture stream event for UpdateItem
 	if matchIndex != -1 {
-		table.appendStreamRecord(streamEventModify, deepCopyItem(existing), deepCopyItem(updated))
+		table.appendStreamRecord(streamEventModify, deepCopyItem(existing), deepCopyItem(updated), "", "")
 	} else {
-		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated))
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated), "", "")
 	}
 
 	globalTableName := table.GlobalTableName

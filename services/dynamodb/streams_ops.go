@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -170,38 +171,38 @@ func (db *InMemoryDB) DescribeStream(
 	viewType := found.StreamViewType
 	keySchema := found.KeySchema
 	streamCreatedAt := found.StreamCreatedAt
-	shards := make([]StreamShard, len(found.streamShards))
-	copy(shards, found.streamShards)
-	found.mu.RUnlock()
+	shardSlice := found.streamShards
 
-	// Apply pagination: skip shards up to and including ExclusiveStartShardId.
 	exclusiveStart := aws.ToString(input.ExclusiveStartShardId)
 	if exclusiveStart != "" {
-		found := false
-		for i, s := range shards {
+		foundStart := false
+		for i, s := range shardSlice {
 			if s.ShardID == exclusiveStart {
-				shards = shards[i+1:]
-				found = true
+				shardSlice = shardSlice[i+1:]
+				foundStart = true
 
 				break
 			}
 		}
-		if !found {
-			shards = nil
+		if !foundStart {
+			shardSlice = nil
 		}
 	}
 
-	// Apply limit.
 	limit := maxDescribeShards
 	if input.Limit != nil && *input.Limit > 0 && int(*input.Limit) < limit {
 		limit = int(*input.Limit)
 	}
 
 	var lastEvaluatedShardID *string
-	if len(shards) > limit {
-		lastEvaluatedShardID = aws.String(shards[limit-1].ShardID)
-		shards = shards[:limit]
+	if len(shardSlice) > limit {
+		lastEvaluatedShardID = aws.String(shardSlice[limit-1].ShardID)
+		shardSlice = shardSlice[:limit]
 	}
+
+	shards := make([]StreamShard, len(shardSlice))
+	copy(shards, shardSlice)
+	found.mu.RUnlock()
 
 	sdkKeySchema := make([]streamstypes.KeySchemaElement, 0, len(keySchema))
 	for _, ks := range keySchema {
@@ -334,27 +335,23 @@ func (db *InMemoryDB) GetShardIterator(
 	found.mu.RLock("GetShardIterator")
 	currentSeq := found.streamSeq
 	trimSeq := found.streamTrimSeq
-	shards := make([]StreamShard, len(found.streamShards))
-	copy(shards, found.streamShards)
-	found.mu.RUnlock()
-
-	// Validate the requested shard ID against the known shards for this stream.
-	// A single active shard (streamShardID) is always valid as the canonical ID.
-	if !isValidShardID(requestedShardID, shards) {
-		return nil, NewResourceNotFoundException(
-			"Shard " + requestedShardID + " does not exist in stream " + streamARN,
-		)
-	}
-
-	// Find the shard to determine its sequence bounds for validation.
 	var shardStartSeq, shardEndSeq int64
-	for _, s := range shards {
+	var foundShard bool
+	for _, s := range found.streamShards {
 		if s.ShardID == requestedShardID {
 			shardStartSeq = s.StartingSequenceNum
 			shardEndSeq = s.EndingSequenceNum
+			foundShard = true
 
 			break
 		}
+	}
+	found.mu.RUnlock()
+
+	if !foundShard {
+		return nil, NewResourceNotFoundException(
+			"Shard " + requestedShardID + " does not exist in stream " + streamARN,
+		)
 	}
 
 	// Determine start sequence from iterator type.
@@ -388,32 +385,12 @@ func resolveStartSeq(
 		startSeq = currentSeq + 1
 	case streamstypes.ShardIteratorTypeAtSequenceNumber,
 		streamstypes.ShardIteratorTypeAfterSequenceNumber:
-		seqStr := aws.ToString(input.SequenceNumber)
-		if seqStr == "" {
-			return 0, NewValidationException(
-				"SequenceNumber is required for AT_SEQUENCE_NUMBER and AFTER_SEQUENCE_NUMBER iterator types",
-			)
-		}
-
-		seq, err := parseSeqNum(seqStr)
+		var err error
+		startSeq, err = resolveExplicitStartSeq(input, trimSeq, shardStartSeq, shardEndSeq)
 		if err != nil {
-			return 0, NewValidationException("Invalid SequenceNumber: " + seqStr)
+			return 0, err
 		}
-
-		if trimSeq > 0 && seq < trimSeq {
-			return 0, NewTrimmedDataAccessException(
-				fmt.Sprintf("Sequence number %s has been trimmed; earliest available is %s",
-					seqStr, seqNumString(trimSeq)),
-			)
-		}
-
-		if input.ShardIteratorType == streamstypes.ShardIteratorTypeAfterSequenceNumber {
-			startSeq = seq + 1
-		} else {
-			startSeq = seq
-		}
-
-	default: // TrimHorizon — start from beginning of shard
+	case streamstypes.ShardIteratorTypeTrimHorizon:
 		startSeq = shardStartSeq
 		if startSeq == 0 {
 			startSeq = 1
@@ -422,6 +399,8 @@ func resolveStartSeq(
 		if trimSeq > startSeq {
 			startSeq = trimSeq
 		}
+	default:
+		return 0, NewValidationException("Invalid ShardIteratorType: " + string(input.ShardIteratorType))
 	}
 
 	// For closed shards, clamp startSeq beyond the shard's end so GetRecords returns nothing.
@@ -432,21 +411,37 @@ func resolveStartSeq(
 	return startSeq, nil
 }
 
-// isValidShardID checks whether the given shardID is known for the stream.
-// The canonical first shard ID is always valid. Additional shards created via
-// shard splits are also valid.
-func isValidShardID(shardID string, shards []StreamShard) bool {
-	// If shards list is empty, only the canonical first shard is valid.
-	if len(shards) == 0 {
-		return shardID == streamShardID
-	}
-	for _, s := range shards {
-		if s.ShardID == shardID {
-			return true
-		}
+func resolveExplicitStartSeq(
+	input *dynamodbstreams.GetShardIteratorInput,
+	trimSeq, shardStartSeq, shardEndSeq int64,
+) (int64, error) {
+	seqStr := aws.ToString(input.SequenceNumber)
+	if seqStr == "" {
+		return 0, NewValidationException(
+			"SequenceNumber is required for AT_SEQUENCE_NUMBER and AFTER_SEQUENCE_NUMBER iterator types",
+		)
 	}
 
-	return false
+	seq, err := parseSeqNum(seqStr)
+	if err != nil {
+		return 0, NewValidationException("Invalid SequenceNumber: " + seqStr)
+	}
+
+	if trimSeq > 0 && seq < trimSeq {
+		return 0, NewTrimmedDataAccessException(
+			fmt.Sprintf("Sequence number %s has been trimmed; earliest available is %s",
+				seqStr, seqNumString(trimSeq)),
+		)
+	}
+	if seq < shardStartSeq || (shardEndSeq > 0 && seq > shardEndSeq) {
+		return 0, NewValidationException("SequenceNumber is outside the bounds of the shard")
+	}
+
+	if input.ShardIteratorType == streamstypes.ShardIteratorTypeAfterSequenceNumber {
+		return seq + 1, nil
+	}
+
+	return seq, nil
 }
 
 // GetRecords reads stream records starting from the given opaque shard iterator.
@@ -519,11 +514,7 @@ func (db *InMemoryDB) GetRecords(
 }
 
 // resolveIterator resolves a shard iterator token to (tableName, startSeq, endSeq).
-// endSeq is the owning shard's EndingSequenceNumber (0 for an open shard / legacy
-// tokens). It tries the opaque store first, then falls back to the legacy plain-text
-// format "tableName:startSeq:timestamp" so existing tests continue to work.
 func (db *InMemoryDB) resolveIterator(token string) (string, int64, int64, error) {
-	// Try the opaque store.
 	entry := db.iteratorStore.Get(token)
 	if entry != nil {
 		if time.Now().After(entry.ExpiresAt) {
@@ -535,29 +526,7 @@ func (db *InMemoryDB) resolveIterator(token string) (string, int64, int64, error
 		return entry.TableName, entry.StartSeq, entry.EndSeq, nil
 	}
 
-	// Fall back to legacy plain-text "tableName:startSeq:timestamp" format.
-	parts := strings.Split(token, ":")
-	if len(parts) != iteratorPartCount {
-		return "", 0, 0, NewValidationException("Invalid shard iterator")
-	}
-
-	startSeq, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return "", 0, 0, NewValidationException("Invalid shard iterator: invalid sequence number")
-	}
-
-	ts, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
-		return "", 0, 0, NewValidationException("Invalid shard iterator: invalid timestamp")
-	}
-
-	iterTime := time.Unix(ts, 0)
-	now := time.Now()
-	if iterTime.After(now) || now.Sub(iterTime) > shardIteratorTTL {
-		return "", 0, 0, NewExpiredIteratorException("Shard iterator has expired")
-	}
-
-	return parts[0], startSeq, 0, nil
+	return "", 0, 0, NewValidationException("Invalid shard iterator")
 }
 
 // ListStreams returns a list of all enabled streams, optionally filtered by table name.
@@ -622,11 +591,9 @@ type streamListEntry struct {
 
 // sortStreamListEntries sorts entries by ARN for deterministic pagination.
 func sortStreamListEntries(entries []streamListEntry) {
-	for i := 1; i < len(entries); i++ {
-		for j := i; j > 0 && entries[j].arn < entries[j-1].arn; j-- {
-			entries[j], entries[j-1] = entries[j-1], entries[j]
-		}
-	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].arn < entries[j].arn
+	})
 }
 
 func (db *InMemoryDB) GetRecentEvents(tableName string) []models.StreamRecord {
@@ -723,7 +690,15 @@ func buildSDKRecord(r models.StreamRecord, region string) streamstypes.Record {
 		Dynamodb: &streamstypes.StreamRecord{
 			SequenceNumber:              aws.String(r.SequenceNumber),
 			ApproximateCreationDateTime: &createdAt,
+			StreamViewType:              streamstypes.StreamViewType(r.StreamViewType),
+			SizeBytes:                   aws.Int64(r.SizeBytes),
 		},
+	}
+	if r.UserIdentityPrincipalID != "" {
+		rec.UserIdentity = &streamstypes.Identity{
+			PrincipalId: aws.String(r.UserIdentityPrincipalID),
+			Type:        aws.String(r.UserIdentityType),
+		}
 	}
 
 	if r.Keys != nil {
@@ -1000,22 +975,24 @@ func appendMatchingRecords(
 	startSeq, limit, nextSeq int64,
 	region string,
 ) ([]streamstypes.Record, int64) {
-	for _, r := range src {
+	if len(src) == 0 || int64(len(records)) >= limit {
+		return records, nextSeq
+	}
+
+	startSeqStr := seqNumString(startSeq)
+	idx := sort.Search(len(src), func(i int) bool {
+		return src[i].SequenceNumber >= startSeqStr
+	})
+
+	for i := idx; i < len(src); i++ {
 		if int64(len(records)) >= limit {
 			return records, nextSeq
 		}
-
-		seq, parseErr := strconv.ParseInt(strings.TrimLeft(r.SequenceNumber, "0"), 10, 64)
-		if parseErr != nil {
-			seq = 0
-		}
-
-		if seq < startSeq {
-			continue
-		}
-
+		r := src[i]
 		records = append(records, buildSDKRecord(r, region))
-		nextSeq = seq + 1
+		if seq, err := parseSeqNum(r.SequenceNumber); err == nil {
+			nextSeq = seq + 1
+		}
 	}
 
 	return records, nextSeq

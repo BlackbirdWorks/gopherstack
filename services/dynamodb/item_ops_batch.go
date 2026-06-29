@@ -573,7 +573,7 @@ func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
 			continue
 		}
 		// Capture stream record (REMOVE)
-		table.appendStreamRecord(streamEventRemove, deepCopyItem(table.Items[idx]), nil)
+		table.appendStreamRecord(streamEventRemove, deepCopyItem(table.Items[idx]), nil, "", "")
 
 		// Delete by swapping with last and truncating
 		table.Items[idx] = table.Items[len(table.Items)-1]
@@ -657,13 +657,13 @@ func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any)
 	oldItem, matchIndex := db.findMatchForPut(table, item)
 	if matchIndex != -1 {
 		// Capture stream event (MODIFY) before overwriting in place.
-		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(item))
+		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(item), "", "")
 		table.Items[matchIndex] = item
 
 		return matchIndex
 	}
 	// Capture stream event (INSERT) for the new item.
-	table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(item))
+	table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(item), "", "")
 	idx := len(table.Items)
 	table.Items = append(table.Items, item)
 
