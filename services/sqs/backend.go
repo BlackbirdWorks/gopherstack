@@ -2974,15 +2974,9 @@ func (b *InMemoryBackend) CancelMessageMoveTask(
 		return &CancelMessageMoveTaskOutput{
 			ApproximateNumberOfMessagesMoved: moved,
 		}, nil
-	case MoveTaskStatusCompleted, MoveTaskStatusCancelled:
-		// Idempotent: return success with the final moved count.
-		moved := state.movedCount
-		state.mu.Unlock()
-
-		return &CancelMessageMoveTaskOutput{
-			ApproximateNumberOfMessagesMoved: moved,
-		}, nil
 	default:
+		// Terminal states (Completed, Cancelled, Failed) cannot be cancelled;
+		// AWS rejects the request rather than treating it as idempotent.
 		state.mu.Unlock()
 
 		return nil, ErrMoveTaskNotRunning

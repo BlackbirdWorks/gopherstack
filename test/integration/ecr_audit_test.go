@@ -107,6 +107,7 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus(t *testing.T) {
 // that with no replication configuration set, an empty replicationStatuses
 // list is returned for an existing image.
 func TestIntegration_ECRAudit_DescribeImageReplicationStatus_NoConfig(t *testing.T) {
+	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
 	client := createECRClient(t)

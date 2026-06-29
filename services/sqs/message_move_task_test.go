@@ -608,7 +608,7 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 			wantBodyContain: "InvalidParameterValue",
 		},
 		{
-			name:   "CancelMessageMoveTask_on_completed_task_returns_ok",
+			name:   "CancelMessageMoveTask_on_completed_task_rejected",
 			action: "CancelMessageMoveTask",
 			setup: func(t *testing.T, h *sqs.Handler) map[string]any {
 				t.Helper()
@@ -643,7 +643,7 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 
 				return map[string]any{"TaskHandle": handle}
 			},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -942,11 +942,11 @@ func TestSQS_CancelMessageMoveTask_NotRunning(t *testing.T) {
 			listOut.Results[0].Status == sqs.MoveTaskStatusCompleted
 	}, 2*time.Second, 10*time.Millisecond, "task should complete")
 
-	// Cancelling a completed task returns success (idempotent cancel).
+	// Cancelling a completed (terminal) task is rejected by AWS.
 	_, err = b.CancelMessageMoveTask(&sqs.CancelMessageMoveTaskInput{
 		TaskHandle: startOut.TaskHandle,
 	})
-	require.NoError(t, err)
+	require.Error(t, err)
 }
 
 func TestSQS_MoveTaskJanitorPruning(t *testing.T) {
