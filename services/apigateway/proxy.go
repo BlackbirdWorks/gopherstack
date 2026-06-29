@@ -27,6 +27,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+var (
+	errUnexpectedSigningMethod = errors.New("unexpected JWT signing method")
+	errNoJWKSProvider          = errors.New("no JWKS provider configured")
+)
+
 // defaultAuthorizerTTL is the default authorizer result cache TTL (AWS default: 300 s).
 const defaultAuthorizerTTL = 300 * time.Second
 
@@ -480,12 +485,6 @@ func (h *Handler) runAuthorizer(
 	r *http.Request,
 	apiID, stageName, authorizerID string,
 ) bool {
-	if h.lambda == nil {
-		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
-
-		return true
-	}
-
 	auth, err := h.Backend.GetAuthorizer(apiID, authorizerID)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer not found", "authorizerId", authorizerID)
@@ -516,8 +515,16 @@ func (h *Handler) runAuthorizer(
 		}
 	}
 
+	// Cognito authorizers verify the JWT locally — no Lambda needed.
 	if auth.Type == AuthTypeCognitoUserPool {
 		return h.runCognitoAuthorizer(ctx, w, r, auth, cacheKey, ttl)
+	}
+
+	// All other authorizer types invoke a Lambda function.
+	if h.lambda == nil {
+		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
+
+		return true
 	}
 
 	// Build the authorizer event based on type.
@@ -585,7 +592,22 @@ func (h *Handler) runCognitoAuthorizer(
 		return true
 	}
 
-	token, _, parseErr := new(jwt.Parser).ParseUnverified(tokenStr, jwt.MapClaims{})
+	keyfunc := func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, errUnexpectedSigningMethod
+		}
+
+		iss, _ := t.Claims.(jwt.MapClaims)["iss"].(string)
+		kid, _ := t.Header["kid"].(string)
+
+		if h.jwksProvider == nil {
+			return nil, errNoJWKSProvider
+		}
+
+		return h.jwksProvider.GetJWTPublicKey(iss, kid)
+	}
+
+	token, parseErr := jwt.Parse(tokenStr, keyfunc, jwt.WithExpirationRequired())
 	if parseErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: cognito authorizer invalid token", "error", parseErr)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -594,7 +616,7 @@ func (h *Handler) runCognitoAuthorizer(
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
+	if !ok || !token.Valid {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 
 		return true
@@ -610,17 +632,17 @@ func (h *Handler) runCognitoAuthorizer(
 }
 
 // authorizerCacheKey builds the cache key for an authorizer invocation.
-// TOKEN: authorizerID + ":" + extracted token (using identityValidationExpression if set)
+// TOKEN / COGNITO_USER_POOLS: authorizerID + ":" + extracted token (per-token granularity)
 // REQUEST: authorizerID + ":" + method + " " + path (per-request granularity).
 func (h *Handler) authorizerCacheKey(r *http.Request, auth *Authorizer, authorizerID string) string {
-	if auth.Type != "TOKEN" {
-		return authorizerID + ":" + r.Method + " " + r.URL.Path
+	if auth.Type == "TOKEN" || auth.Type == AuthTypeCognitoUserPool {
+		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
+		token = h.applyIdentityValidation(auth.IdentityValidationExpression, token)
+
+		return authorizerID + ":" + token
 	}
 
-	token := extractTokenFromIdentitySource(r, auth.IdentitySource)
-	token = h.applyIdentityValidation(auth.IdentityValidationExpression, token)
-
-	return authorizerID + ":" + token
+	return authorizerID + ":" + r.Method + " " + r.URL.Path
 }
 
 // applyIdentityValidation normalizes a token using the authorizer's identityValidationExpression.

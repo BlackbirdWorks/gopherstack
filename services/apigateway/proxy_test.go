@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 var (
@@ -1611,4 +1612,96 @@ func TestProxy_APIKeyRequired_EnabledThenDisabled(t *testing.T) {
 
 	// Second: key is now disabled → should be forbidden.
 	assert.Equal(t, http.StatusForbidden, makeReq())
+}
+
+// TestRunCognitoAuthorizer_ValidToken verifies that a JWT signed by the emulator's
+// Cognito backend is accepted, while a tampered token is rejected.
+func TestRunCognitoAuthorizer_ValidToken(t *testing.T) {
+	t.Parallel()
+
+	const endpoint = "http://localhost:8000"
+
+	cognitoBk := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", endpoint)
+
+	pool, err := cognitoBk.CreateUserPool("test-pool")
+	require.NoError(t, err)
+
+	client, err := cognitoBk.CreateUserPoolClient(pool.ID, "test-client")
+	require.NoError(t, err)
+
+	_, err = cognitoBk.SignUp(client.ClientID, "testuser", "Password1!", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, cognitoBk.AdminConfirmSignUp(pool.ID, "testuser"))
+
+	result, err := cognitoBk.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "testuser", "Password1!")
+	require.NoError(t, err)
+	idToken := result.Tokens.IDToken
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	h.SetJWKSProvider(cognitoBk)
+
+	e := echo.New()
+
+	createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"cognito-api"}`)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	apiID := createResp["id"].(string)
+
+	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
+
+	childRec := postWithHandler(t, h, e, "CreateResource",
+		`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"secure"}`)
+	require.Equal(t, http.StatusCreated, childRec.Code)
+
+	var childResp map[string]any
+	require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp))
+	childID := childResp["id"].(string)
+
+	authBody := `{
+"restApiId":"` + apiID + `",
+"name":"cognito-auth",
+"type":"COGNITO_USER_POOLS",
+"identitySource":"method.request.header.Authorization"
+}`
+	authRec := postWithHandler(t, h, e, "CreateAuthorizer", authBody)
+	require.Equal(t, http.StatusCreated, authRec.Code)
+
+	var authResp map[string]any
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+	authID := authResp["id"].(string)
+
+	putMethodBody := `{"restApiId":"` + apiID + `","resourceId":"` + childID +
+		`","httpMethod":"GET","authorizationType":"COGNITO_USER_POOLS","authorizerId":"` + authID + `"}`
+	methodRec := postWithHandler(t, h, e, "PutMethod", putMethodBody)
+	require.Equal(t, http.StatusCreated, methodRec.Code)
+
+	integRec := postWithHandler(t, h, e, "PutIntegration",
+		`{"restApiId":"`+apiID+`","resourceId":"`+childID+`","httpMethod":"GET","type":"MOCK"}`)
+	require.Equal(t, http.StatusCreated, integRec.Code)
+
+	deplRec := postWithHandler(t, h, e, "CreateDeployment",
+		`{"restApiId":"`+apiID+`","stageName":"prod","description":"v1"}`)
+	require.Equal(t, http.StatusCreated, deplRec.Code)
+
+	// Valid Cognito ID token → 200 (MOCK integration returns 200 by default).
+	rr := authReq(t, h, e, apiID, idToken)
+	assert.Equal(t, http.StatusOK, rr.Code, "valid Cognito-signed token must be accepted")
+
+	// Tampered token → 401.
+	parts := strings.Split(idToken, ".")
+	require.Len(t, parts, 3)
+	tampered := parts[0] + "." + parts[1] + ".invalidsignature"
+	rr = authReq(t, h, e, apiID, tampered)
+	assert.Equal(t, http.StatusUnauthorized, rr.Code, "tampered token must be rejected")
+
+	// No token → 401.
+	rr = authReq(t, h, e, apiID, "")
+	assert.Equal(t, http.StatusUnauthorized, rr.Code, "missing token must be rejected")
 }

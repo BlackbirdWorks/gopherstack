@@ -2,6 +2,8 @@ package cognitoidp
 
 import (
 	"crypto/rand"
+	"crypto/rsa"
+	"errors"
 	"fmt"
 	"maps"
 	"math/big"
@@ -1025,6 +1027,35 @@ func (b *InMemoryBackend) GetUserPoolJWKS(userPoolID string) (*JWKSResponse, err
 	jwks := pool.issuer.JWKS()
 
 	return &jwks, nil
+}
+
+// ErrJWTKeyNotFound is returned when a JWT key ID is not found for a known issuer.
+var ErrJWTKeyNotFound = errors.New("JWT key ID not found for issuer")
+
+// ErrJWTIssuerUnknown is returned when no pool matches the given issuer URL.
+var ErrJWTIssuerUnknown = errors.New("JWT issuer not managed by this emulator")
+
+// GetJWTPublicKey returns the RSA public key for the user pool whose issuerURL
+// matches and whose key ID equals kid. Returns nil, nil when no pool matches
+// (caller should reject the token as unauthorized).
+func (b *InMemoryBackend) GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error) {
+	b.mu.RLock("GetJWTPublicKey")
+	defer b.mu.RUnlock()
+
+	for _, pool := range b.pools {
+		if pool.issuer == nil || pool.issuer.issuerURL != issuerURL {
+			continue
+		}
+
+		key, ok := pool.issuer.PublicKeyForKID(kid)
+		if !ok {
+			return nil, fmt.Errorf("%w: %q for issuer %q", ErrJWTKeyNotFound, kid, issuerURL)
+		}
+
+		return key, nil
+	}
+
+	return nil, ErrJWTIssuerUnknown
 }
 
 // findUserByClientID finds a user and their pool using the clientID.

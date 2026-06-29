@@ -35,12 +35,14 @@ const (
 )
 
 var (
-	errNoTokenFound         = errors.New("no token found in identity source")
-	errInvalidJWTClaimsType = errors.New("invalid JWT claims type")
-	errJWTExpired           = errors.New("JWT expired")
-	errJWTMissingIss        = errors.New("JWT missing iss claim")
-	errJWTIssuerMismatch    = errors.New("JWT issuer mismatch")
-	errJWTAudienceMismatch  = errors.New("JWT audience mismatch")
+	errNoTokenFound            = errors.New("no token found in identity source")
+	errInvalidJWTClaimsType    = errors.New("invalid JWT claims type")
+	errJWTExpired              = errors.New("JWT expired")
+	errJWTMissingIss           = errors.New("JWT missing iss claim")
+	errJWTIssuerMismatch       = errors.New("JWT issuer mismatch")
+	errJWTAudienceMismatch     = errors.New("JWT audience mismatch")
+	errUnexpectedSigningMethod = errors.New("unexpected JWT signing method")
+	errNoJWKSProvider          = errors.New("no JWKS provider configured")
 )
 
 // httpAPIEvent is the Lambda payload for HTTP API (format version 2.0).
@@ -179,7 +181,7 @@ func (h *Handler) enforceRouteAuth(c *echo.Context, apiID string, route *Route) 
 		return c.String(http.StatusUnauthorized, "Unauthorized")
 	}
 
-	if jwtErr := enforceJWTAuthorizer(c.Request(), authorizer); jwtErr != nil {
+	if jwtErr := h.enforceJWTAuthorizer(c.Request(), authorizer); jwtErr != nil {
 		log.Info("apigatewayv2: JWT validation failed", "error", jwtErr)
 
 		return c.String(http.StatusUnauthorized, "Unauthorized")
@@ -554,8 +556,9 @@ func splitHTTPPathSegs(path string) []string {
 
 // enforceJWTAuthorizer validates the JWT token extracted from the request using
 // the authorizer's identity source and JwtConfiguration (issuer + audience).
-// Signature verification is skipped — we validate exp, iss, and aud only.
-func enforceJWTAuthorizer(r *http.Request, auth *Authorizer) error {
+// Signature is verified against the JWKS provider when available; tokens from
+// unknown issuers are always rejected.
+func (h *Handler) enforceJWTAuthorizer(r *http.Request, auth *Authorizer) error {
 	tokenStr := extractJWTToken(r, auth.IdentitySource)
 	if tokenStr == "" {
 		return errNoTokenFound
@@ -565,18 +568,39 @@ func enforceJWTAuthorizer(r *http.Request, auth *Authorizer) error {
 	tokenStr = strings.TrimPrefix(tokenStr, "Bearer ")
 	tokenStr = strings.TrimPrefix(tokenStr, "bearer ")
 
-	// ParseUnverified: we check structural validity, exp, iss, aud — not signature.
-	token, _, parseErr := new(jwt.Parser).ParseUnverified(tokenStr, jwt.MapClaims{})
+	cfg := auth.JwtConfiguration
+
+	keyfunc := func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, errUnexpectedSigningMethod
+		}
+
+		kid, _ := t.Header["kid"].(string)
+
+		// Use the configured issuer for key lookup; iss claim is validated below.
+		issuer := ""
+		if cfg != nil {
+			issuer = cfg.Issuer
+		}
+
+		if h.jwksProvider == nil {
+			return nil, errNoJWKSProvider
+		}
+
+		return h.jwksProvider.GetJWTPublicKey(issuer, kid)
+	}
+
+	token, parseErr := jwt.Parse(tokenStr, keyfunc, jwt.WithExpirationRequired())
 	if parseErr != nil {
 		return fmt.Errorf("invalid JWT: %w", parseErr)
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
+	if !ok || !token.Valid {
 		return errInvalidJWTClaimsType
 	}
 
-	return validateJWTClaims(claims, auth.JwtConfiguration)
+	return validateJWTClaims(claims, cfg)
 }
 
 // validateJWTClaims checks exp, iss, and aud claims against the JwtConfiguration.

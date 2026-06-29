@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -623,9 +624,16 @@ type getExportInput struct {
 	ExportType string `json:"exportType"`
 }
 
+// JWKSProvider resolves RSA public keys for JWT signature verification.
+// Implementations return an error when the issuer or key is unknown.
+type JWKSProvider interface {
+	GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error)
+}
+
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend        StorageBackend
+	jwksProvider   JWKSProvider
 	authCache      *authorizerCache
 	lambda         LambdaInvoker
 	httpClient     *http.Client
@@ -644,6 +652,11 @@ func NewHandler(backend StorageBackend) *Handler {
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
 func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 	h.lambda = lambda
+}
+
+// SetJWKSProvider configures the JWKS provider used to verify Cognito JWT signatures.
+func (h *Handler) SetJWKSProvider(p JWKSProvider) {
+	h.jwksProvider = p
 }
 
 // SetHTTPClient configures the HTTP client used for HTTP/HTTP_PROXY integrations.

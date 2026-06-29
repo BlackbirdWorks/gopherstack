@@ -90,6 +90,15 @@ type JWK struct {
 	Alg string `json:"alg,omitempty"`
 }
 
+// PublicKeyForKID returns the RSA public key if kid matches this issuer's key ID.
+func (t *tokenIssuer) PublicKeyForKID(kid string) (*rsa.PublicKey, bool) {
+	if t.keyID != kid {
+		return nil, false
+	}
+
+	return &t.privateKey.PublicKey, true
+}
+
 // JWKS returns the JSON Web Key Set for this token issuer.
 func (t *tokenIssuer) JWKS() JWKSResponse {
 	pub := &t.privateKey.PublicKey

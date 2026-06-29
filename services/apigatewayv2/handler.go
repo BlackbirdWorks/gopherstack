@@ -2,6 +2,7 @@ package apigatewayv2
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"io"
@@ -84,9 +85,15 @@ type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
 }
 
-// Handler is the Echo HTTP handler for API Gateway v2 (HTTP API) operations.
+// JWKSProvider resolves RSA public keys for JWT signature verification.
+// Implementations return an error when the issuer or key is unknown.
+type JWKSProvider interface {
+	GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error)
+}
+
 type Handler struct {
 	Backend       StorageBackend
+	jwksProvider  JWKSProvider
 	lambdaInvoker LambdaInvoker
 	managementAPI apigatewaymanagementapi.StorageBackend
 }
@@ -99,6 +106,11 @@ func NewHandler(backend StorageBackend) *Handler {
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
 func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 	h.lambdaInvoker = lambda
+}
+
+// SetJWKSProvider configures the JWKS provider used to verify JWT authorizer signatures.
+func (h *Handler) SetJWKSProvider(p JWKSProvider) {
+	h.jwksProvider = p
 }
 
 // SetManagementAPIBackend configures the Management API backend for WebSocket connections.

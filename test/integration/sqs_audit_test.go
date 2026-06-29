@@ -184,9 +184,16 @@ func TestIntegration_SQSAudit_MessageMoveTaskLifecycle(t *testing.T) {
 		assert.NotEmpty(c, listOut.Results)
 	}, 5*time.Second, 50*time.Millisecond, "task should appear in ListMessageMoveTasks")
 
-	// CancelMessageMoveTask should not error (task may already be complete).
+	// CancelMessageMoveTask: the move task races to completion, so cancel either
+	// succeeds (still running) or is rejected by AWS for a terminal-state task.
+	// Either is fine — we only verify the operation is implemented (not unknown-action).
 	_, err = client.CancelMessageMoveTask(ctx, &sqs.CancelMessageMoveTaskInput{
 		TaskHandle: startOut.TaskHandle,
 	})
-	require.NoError(t, err, "CancelMessageMoveTask should not return an unknown-action error")
+	if err != nil {
+		require.NotContains(t, err.Error(), "UnknownOperation",
+			"CancelMessageMoveTask should be implemented")
+		require.NotContains(t, err.Error(), "InvalidAction",
+			"CancelMessageMoveTask should be implemented")
+	}
 }

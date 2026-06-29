@@ -2616,6 +2616,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["APIGatewayV2"], byName["Lambda"])
 
+	// Wire API Gateway → Cognito for JWT signature verification.
+	wireAPIGatewayCognito(byName["APIGateway"], byName["APIGatewayV2"], byName["CognitoIDP"])
+
 	// Wire API Gateway V2 -> API Gateway Management API for WebSocket connections.
 	wireAPIGatewayManagementAPI(byName["APIGatewayV2"], byName["APIGatewayManagementAPI"])
 
@@ -3368,6 +3371,25 @@ func wireAPIGatewayLambda(apigwReg, apigwv2Reg, lambdaReg service.Registerable) 
 	}
 	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
 		apigwv2H.SetLambdaInvoker(lambdaBk)
+	}
+}
+
+// wireAPIGatewayCognito wires the Cognito JWKS provider into both API Gateway handlers
+// so that Cognito JWT authorizers verify token signatures rather than skipping them.
+func wireAPIGatewayCognito(apigwReg, apigwv2Reg, cognitoReg service.Registerable) {
+	cognitoH, ok := cognitoReg.(*cognitoidpbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cognitoBk := cognitoH.Backend
+
+	if apigwH, ok2 := apigwReg.(*apigwbackend.Handler); ok2 {
+		apigwH.SetJWKSProvider(cognitoBk)
+	}
+
+	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
+		apigwv2H.SetJWKSProvider(cognitoBk)
 	}
 }
 

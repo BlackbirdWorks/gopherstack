@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 var errShouldNotBeCalled = errors.New("should not be called")
@@ -426,6 +427,90 @@ func TestHTTPAPIProxy_JWTAuthorizer(t *testing.T) {
 	rr = doProxyRequest(t, h, http.MethodGet, api.APIID, "/secure",
 		map[string]string{"Authorization": "Bearer not-a-jwt"})
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+// TestHTTPAPIProxy_JWTAuthorizer_ValidCognitoToken verifies that a token issued and
+// signed by the emulator's Cognito backend passes the JWT authorizer signature check.
+func TestHTTPAPIProxy_JWTAuthorizer_ValidCognitoToken(t *testing.T) {
+	t.Parallel()
+
+	const endpoint = "http://localhost:8000"
+
+	cognitoBk := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", endpoint)
+
+	pool, err := cognitoBk.CreateUserPool("test-pool")
+	require.NoError(t, err)
+
+	client, err := cognitoBk.CreateUserPoolClient(pool.ID, "test-client")
+	require.NoError(t, err)
+
+	_, err = cognitoBk.SignUp(client.ClientID, "testuser", "Password1!", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, cognitoBk.AdminConfirmSignUp(pool.ID, "testuser"))
+
+	result, err := cognitoBk.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "testuser", "Password1!")
+	require.NoError(t, err)
+	idToken := result.Tokens.IDToken
+
+	// Build the API Gateway handler with the Cognito backend wired as JWKS provider.
+	h := newTestHandler()
+	h.SetLambdaInvoker(&mockLambdaInvoker{})
+	h.SetJWKSProvider(cognitoBk)
+
+	issuerURL := endpoint + "/" + pool.ID
+
+	rr := doRequest(t, h, http.MethodPost, "/v2/apis", map[string]any{
+		"name": "jwt-cognito-api", "protocolType": "HTTP",
+	})
+	require.Equal(t, http.StatusCreated, rr.Code)
+
+	var api apigatewayv2.API
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+
+	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/authorizers", map[string]any{
+		"name":           "cognito-jwt",
+		"authorizerType": "JWT",
+		"identitySource": []string{"$request.header.Authorization"},
+		"jwtConfiguration": map[string]any{
+			"issuer":   issuerURL,
+			"audience": []string{client.ClientID},
+		},
+	})
+	require.Equal(t, http.StatusCreated, rr.Code)
+
+	var authorizer apigatewayv2.Authorizer
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &authorizer))
+
+	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/integrations", map[string]any{
+		"integrationType": "AWS_PROXY",
+		"integrationUri":  "arn:aws:lambda:us-east-1:123456789012:function:fn/invocations",
+	})
+	require.Equal(t, http.StatusCreated, rr.Code)
+
+	var integ apigatewayv2.Integration
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+
+	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/routes", map[string]any{
+		"routeKey":          "GET /secure",
+		"authorizationType": "JWT",
+		"authorizerId":      authorizer.AuthorizerID,
+		"target":            "integrations/" + integ.IntegrationID,
+	})
+	require.Equal(t, http.StatusCreated, rr.Code)
+
+	// Valid Cognito ID token → 200.
+	rr = doProxyRequest(t, h, http.MethodGet, api.APIID, "/secure",
+		map[string]string{"Authorization": "Bearer " + idToken})
+	assert.Equal(t, http.StatusOK, rr.Code, "valid Cognito-signed token must be accepted")
+
+	// Tampered token (replace signature) → 401.
+	parts := strings.Split(idToken, ".")
+	require.Len(t, parts, 3)
+	tamperedToken := parts[0] + "." + parts[1] + ".invalidsignature"
+	rr = doProxyRequest(t, h, http.MethodGet, api.APIID, "/secure",
+		map[string]string{"Authorization": "Bearer " + tamperedToken})
+	assert.Equal(t, http.StatusUnauthorized, rr.Code, "tampered token must be rejected")
 }
 
 // TestHTTPAPIProxy_LambdaResponse verifies that Lambda response fields (status code,
