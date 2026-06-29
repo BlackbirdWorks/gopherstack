@@ -638,3 +638,504 @@ reach full LocalStack parity and beyond. Highest-leverage themes across the flee
 - _Recently closed:_ SAML JSON tags; AcceptInboundConnection not-found; AssociatePackages validation;
   DeleteDomain cascade; CancelDomainConfigChange mutates state; single-lock ListDomainNames; O(1)
   CreateApplication.
+
+---
+
+# Extended services — remaining gaps
+
+Tier-2 of the LocalStack-core set, same four axes and code-cited rule. As with the popular
+tier, most prior-audit gaps are fixed (see `_Recently closed_` lines). The dominant remaining
+themes here: **synchronous lifecycles** (most clusters/jobs/deployments jump straight to a
+terminal state with no intermediate transition, so SDK waiters never observe `CREATING`/
+`IN_PROGRESS`/`PENDING`), **query/exec engines that return synthetic or empty result sets**
+(athena non-SELECT, timestreamquery, redshiftdata, cloudtrail Lake, config evaluation),
+**non-opaque pagination tokens** (raw index/ARN), **not-found mapped to HTTP 400** across the
+code* and several data services, and **console trailing the backend** on advanced ops.
+
+## Email & auth
+
+### ses
+- **Parity:** `GetSendQuota` Max24Hour/Rate are hardcoded constants (`SentLast24Hours` now tracked)
+  (`backend.go:778`); `VerifyEmailIdentity` marks identities verified synchronously, no `Pending`
+  (`backend.go:360`).
+- **Performance:** `GetSendQuota` does an O(n) reverse scan of all retained emails under RLock per call
+  (`backend.go:769`).
+- **UI:** GetSendQuota and suppression-list ops not surfaced.
+- _Recently closed:_ janitor Shutdowner + cancel/done channel; send-quota counter.
+
+### sesv2
+- **Parity:** `BatchGetMetricData` returns one timestamp with hardcoded `0` (`backend.go:606`);
+  `GetDomainDeliverabilityCampaign`/`GetDomainStatisticsReport` fully-shaped but all-zero
+  (`backend_ops.go:632,652`).
+- **Performance:** `SendEmail` holds the write lock during the compaction copy (`backend.go:556`).
+- **UI:** Tenant, MultiRegionEndpoint, ReputationEntity, BatchGetMetricData have no panels.
+- _Recently closed:_ Tenant/MultiRegion/PutAccount* persist; Tag ops real; ListEmailIdentities sorts
+  outside the lock.
+
+### cognitoidp
+- **Parity:** `randomAlphanumeric` swallows `crypto/rand` errors, substituting `chars[0]` and weakening
+  token entropy (`backend.go:2431`); `AdminListUserAuthEvents` always empty (`handler_completeness.go:194`);
+  ~40 completeness-table ops are validation-only stubs (`handler_completeness.go:13`).
+- **Performance:** `sweepExpiredRefreshTokens` holds the write lock across the full scan + deletes
+  (`janitor.go:57`).
+- **Leaks:** `tokenRevokedBefore` (pool:username) never purged on DeleteUserPool/AdminDeleteUser
+  (`backend.go:187,345,777`).
+- **UI:** WebAuthn, UserImportJob, AuthEvents, device ops uncovered.
+- _Recently closed:_ AssociateSoftwareToken per-user secret; real AdminLinkProviderForUser.
+
+### cognitoidentity
+- **Parity:** `ListIdentityPools` uses the pool name as the `nextToken` cursor (`backend.go:413,436`);
+  `GetOpenIDToken` ignores `logins`, issuing tokens without validating provider tokens (`backend.go:671`);
+  `GetCredentialsForIdentity` mints a synthetic non-STS `SecretAccessKey` (`backend.go:660`).
+- **Performance:** `mergeExistingIdentity`/`lookupOrCreateDeveloperIdentity` O(n) per-pool scans
+  (`backend.go:571,881`); `DeleteIdentities` O(deleted·n) per-id filter (`backend.go:819`).
+- _Recently closed:_ developer-identity ops UI; GetCredentialsForIdentity login-token matching.
+
+## Databases & data APIs
+
+### rds
+- **Parity:** `GetPerformanceInsightsData` ignores the StartTime/EndTime/period window — returns all stored
+  points regardless of range (`batch3.go:79-107`). Otherwise parity is strong.
+- _Recently closed:_ error sentinels → `awserr.New`; handler_stubs removed; PI no longer synthesized;
+  events bounded (512); reconciler → one lazy self-terminating goroutine (leak gone).
+
+### rdsdata
+- **Parity:** `BeginTransaction` mints sequential `txn-%06d` IDs, not random (`backend.go:259`);
+  `BatchExecuteStatement` always returns empty `GeneratedFields` even for INSERT…RETURNING (`backend.go:245`).
+- **Performance:** `appendStatementLocked` does make+copy on every trim instead of a ring buffer
+  (`backend.go:163`).
+- **Leaks:** `executedStatements`/`transactions` grow one bucket per region key with no eviction (per-region
+  slice capped at 1000, region count unbounded) (`backend.go:95,107`).
+- _Recently closed:_ real per-resource SQLite engine executes SQL with genuine result sets/transactions.
+
+### redshift
+- **Parity:** `ListRecommendations` empty (`handler_completeness.go:920`); `DescribeNodeConfigurationOptions`
+  one static option (`:866`); `ModifyAquaConfiguration` no-op fixed `auto`/`disabled` (`:935`);
+  `GetIdentityCenterAuthToken` canned (`:888`); every mapped error returns HTTP 400/`Sender` even for
+  not-found (`handler.go:716,736`).
+- **Performance:** serverless list ops `sort.Slice` on every read, no index (`backend_serverless.go:215,398,
+  602,728,893`).
+- **Leaks:** `CreateCluster` spawns a raw unmanaged `go func(){time.Sleep…}` per cluster, no stop channel/WG
+  (`backend.go:571`; dormant unless `clusterActivationDelay>0`).
+- **UI:** IdcApplication, ScheduledAction, Register/DeregisterNamespace, AQUA have no pages.
+- _Recently closed:_ ~35 completeness ops wired to real handlers; wire-level AWS error envelope.
+
+### redshiftdata
+- **Parity:** `GetStatementResult`/`V2` return synthetic `mock_value`/`mockColumnSize=256` regardless of SQL
+  (`handler.go:374-389`); `BatchExecuteStatement` sub-statements hardcode `HasResultSet:false` even for
+  SELECT subs (`backend.go:401`; single-statement path is correct at `:329`).
+- **Performance:** `ListStatements` clones all matches under RLock then `sort.Slice` even for one page
+  (`backend.go:516-530`).
+- _Recently closed:_ ring-buffer eviction + age-based janitor; UUID IDs; `sqlHasResultSet` for single stmt.
+
+### neptune
+- **Parity:** `Marker` pagination is a numeric offset (`handler.go:2738,2762`); `DescribeGlobalClusters`
+  ignores Marker/MaxRecords (`handler.go:1089`); `DescribeDBParameters`/`DescribeDBClusterParameters` return
+  empty lists (`handler.go:1354,1399`); `ApplyPendingMaintenanceAction` validates then no-ops
+  (`backend.go:1773`); clusters created directly `available`, no `creating→available` (`backend.go:740`).
+- **Performance:** `DescribeDBClusters` clones every match (`backend.go:816`).
+- **UI:** no GlobalCluster/Failover/Switchover/EventSubscriptions/ApplyPendingMaintenance.
+- _Recently closed:_ ClusterParameterGroups pagination + Marker; ModifyDBClusterParameterGroup wired.
+
+### docdb
+- **Parity:** `DescribeDBEngineVersions` response has no `Marker` (`handler.go:843`); `DescribeGlobalClusters`
+  un-paginated (`handler.go:865`); `DescribePendingMaintenanceActions` empty (`backend.go:1938`); clusters
+  created directly `available` (`backend.go:88-90`).
+- **Performance:** `GetClusterMembers` scans all instances per cluster on `DescribeDBClusters`
+  (`backend.go:1017`).
+- **UI:** FailoverGlobalCluster/ModifyGlobalCluster/SwitchoverGlobalCluster uncovered.
+- _Recently closed:_ ClusterParameterGroups marker + real writes; DescribeDBClusterParameters overlay;
+  unified tag store; cert filter-by-ID; GlobalCluster/EventSubscription UI.
+
+### timestreamwrite
+- **Parity:** `Handler.Backend` is the concrete `*InMemoryBackend`, not the `StorageBackend` interface, so
+  alternative backends can't be injected (`handler.go:316,322`).
+- **Leaks:** `StartWorker` launches `go janitor.Run(ctx)` fire-and-forget, unawaited (inner sweeper ticker is
+  worker.Group-managed) (`handler.go:371`).
+- **UI:** no `timestreamwrite` route; the shared Timestream console manages DB/table but exposes no
+  `WriteRecords` ingestion path (`ui/src/routes/timestream/+page.svelte`).
+- _Recently closed:_ StorageBackend interface + assertion; sweeper lifecycle-managed; DB/table UI.
+
+### timestreamquery
+- **Parity:** `QueryWithOptions` returns `[]Row{}` for every query — schema inferred from SQL but data always
+  empty (`backend.go:412`); `queries` map not region-isolated, UUID-keyed (`backend.go:118`).
+- **Performance:** eviction iterates the map to delete an arbitrary key, no LRU (`backend.go:434-439`);
+  `regionFromARN` uses unbounded `strings.Split` not `SplitN` (`backend.go:50`).
+- _Recently closed:_ query cache bounded (`maxRetainedQueries`); dedicated Query/Cancel/Prepare/scheduled UI.
+
+### qldb
+- **Won't-fix:** service intentionally removed (AWS end-of-support 2025-07-31); only `services/qldb/README.md`
+  remains with migration guidance (issues #2073/#1819). Not a parity gap.
+
+## Analytics & ML
+
+### glue
+- **Parity:** `DescribeEntity` returns empty `Fields` after validating the connection (`handler_stubs.go:1955`);
+  `GetEntityRecords` returns empty `Records` (`handler_stubs.go:2536`); `DeleteConnectionType` is a no-op
+  (`handler_stubs.go:1425`).
+- **Performance:** `runReconciler` ticks unconditionally and takes the global write lock each tick even with
+  nothing pending (`backend.go:475`).
+- **Leaks:** `NewInMemoryBackend` starts `go b.runReconciler()` but `Close()` has zero callers, so the
+  goroutine + ticker leak (`backend.go:460`; `provider.go:29`).
+- _Recently closed:_ CheckSchemaVersionValidity/CreateScript/DeleteSchemaVersions/GetDataflowGraph et al. now
+  real; entire Glue UI.
+
+### athena
+- **Parity:** all four sentinels equal `InvalidRequestException`, indistinguishable (`backend.go:39-46`);
+  `paginateQueryExecutionIDs` token is the raw next exec ID, enumerable (`handler.go:710-735`); SQL engine is
+  SELECT-only — non-SELECT silently returns empty (`backend_sql.go:52-54`).
+- **Performance:** `ExtractResource` JSON-unmarshals the whole body per request (`handler.go:150-165`); janitor
+  holds the global write lock for the whole execution sweep (`janitor.go:79-91`).
+- **Leaks:** `queryResults` never evicted (janitor deletes only `queryExecutions`) (`backend.go:1169`;
+  `janitor.go:88`); sessions/calculations have no sweep.
+- _Recently closed:_ workgroup/named-query/catalog/prepared-statement pagination; derived
+  GetQueryRuntimeStatistics; extended-op UI.
+
+### emr
+- **Parity:** clusters created directly `WAITING`, no STARTING→BOOTSTRAPPING→RUNNING (`backend.go:1005`); steps
+  created `PENDING` and never advance except `CancelSteps`→CANCELLED (`backend.go:922-923,1664-1667`);
+  `GetPersistentAppUIPresignedURL` returns a static URL without verifying the UI exists; `ErrNotFound`→
+  `InvalidRequestException`/400, not `ClusterNotFoundException` (`handler.go:305-306`).
+- **Performance:** `ListClusters` re-sorts all clusters every call (`backend.go:1112`).
+- **Leaks:** janitor started with bare `go h.janitor.Run(ctx)`, not tied to Shutdown (honors ctx) (`handler.go:57`);
+  empty region stores never GC'd (`backend.go:726`).
+- **UI:** no RunJobFlow, DescribeJobFlows, SetVisibleToAllUsers, PutBlockPublicAccessConfiguration.
+- _Recently closed:_ CancelSteps per-step results; release-label regex; on-cluster presigned-URL validation.
+
+### lakeformation
+- **Parity:** `GetWorkUnitResults` returns the stored query string, not result data; `GetQueryStatistics`
+  synthetic (hardcoded 1s); `GetDataLakePrincipal` synthetic `:user/gopherstack-user`; pagination token is
+  `base64(strconv.Itoa(idx))`, guessable (`NewHMAC` helper exists but unused) (`pkgs/page/page.go:47`).
+- **Performance:** `ListPermissions` deep-copies the full filtered slice every call (`backend.go:544-575`).
+- **UI:** no Get/PutDataLakeSettings, query-planning, or credential-vending panels.
+- _Recently closed:_ SearchByLFTags MaxResults; real GetTableObjects; ExtendTransaction; O(1) permission
+  lookup; single-lock BatchGrantPermissions.
+
+### sagemaker
+- **Parity:** core lifecycle (models/endpoints/configs/training/processing/transform/notebooks) is now real
+  FSM-backed, but ~120 peripheral ops remain canned stubs — Create stubs return `""` ARN, List stubs return
+  `[]`, `DescribePipelineExecution` always `Succeeded` (`handler_stubs.go:226,233-294,437,486-598`).
+- **Performance:** stub List ops bypass pagination (`handler_stubs.go:486+`); real List ops paginate.
+- **UI:** real ProcessingJob/TransformJob backends have no panels; ~120 stub ops unsurfaced.
+- _Recently closed:_ core model/endpoint/training/processing/notebook lifecycle moved from stubs to real FSM.
+
+### sagemakerruntime
+- **Parity:** `InvokeEndpoint` returns hardcoded `"mock response from Gopherstack"` ignoring input/endpoint
+  config (`handler.go:32,159`); stream hardcoded (`handler.go:201`); no endpoint-existence check, so the
+  unknown-endpoint error shape is never produced (`handler.go:130-133`).
+- **Performance:** `evictOldest` O(n) scan, but only when the 1000-cap map overflows (`backend.go:218-241`).
+- _Recently closed:_ Shutdown + FIFO caps; async output honors caller `X-Amzn-Sagemaker-Outputlocation`; UI.
+
+### appsync
+- **Parity:** real GraphQL execution exists, but nested selection sets are NOT projected — `executeSelectionSet`
+  resolves only top-level fields, returning whole resolver payloads (`graphql.go:139-178`); HTTP/Relational/
+  OpenSearch data sources return `ErrUnsupportedDataSource` (`graphql.go:259`); `EvaluateCode` rejects
+  non-trivial JS (`jseval.go:31-34`); Event APIs have no real event-bus/WebSocket.
+- **Performance:** `randomAPIID`/`randomAPIKeyID` read `crypto/rand` per char while the write lock is held
+  (`backend.go:279-309,414-437`).
+- **Leaks:** `sourceAssocs` orphaned on API delete (`DeleteGraphqlAPI` doesn't prune it) (`backend.go:605-639`).
+- **UI:** ExecuteGraphQL, EvaluateCode/EvaluateMappingTemplate, schema-merge ops uncovered.
+- _Recently closed:_ List pagination; GraphQL execution from empty-stub to real resolver dispatch.
+
+## Networking, edge & DNS
+
+### cloudfront
+- **Parity:** ~80 ops route through `dispatchStubs` returning empty/minimal XML — tenants, FLE, key-groups,
+  public-keys, realtime-logs, KV-stores, streaming/VPC origins, trust stores, monitoring subs remain stubs
+  (`handler.go:1969-2199`); `ListDistributionsBy*` do raw `strings.Contains` over `RawConfig` → false positives
+  (`backend_batch2.go:320-331`); `GetManagedCertificateDetails` fabricates a SUCCESS cert when none stored
+  (`backend_batch2.go:457-470`).
+- **Performance:** `distributionsByConfigSearch` O(n×config) under RLock (`backend_batch2.go:320-331`);
+  `runInvalidationReconciler` ticks every 20ms taking the global write lock with no idle short-circuit
+  (`backend.go:617-632`).
+- **UI:** no KV stores, key groups, public keys, FLE, realtime logs, streaming/VPC origins, trust stores,
+  monitoring subs, tenants.
+- _Recently closed:_ Distribution List Marker/MaxItems pagination; cache/origin/response-policy + OAC +
+  invalidation UI; reconciler stoppable via Close().
+
+### acm
+- **Parity:** `RequestCertificate` never validates ValidationMethod/CT-logging preference — unknown method
+  issues immediately (`backend.go:480-485`); `ImportCertificate` hardcodes `KeyAlgorithm:EC`, no key/cert match
+  (`backend.go:676`); `ExportCertificate` returns a hardcoded chain when missing (`backend.go:813-815`);
+  `RenewCertificate` on IMPORTED returns RequestInProgressException not ValidationException (`backend.go:714`);
+  `PutAccountConfiguration` accepts DaysBeforeExpiry >45 (`backend.go:1456-1458`); Revoke has no InUseBy guard
+  (`backend.go:1480-1545`).
+- **Performance:** `ListCertificates` deep-copies + sorts all certs before paginating (`backend.go:955-985`);
+  janitor sweeps all certs/timers under the full write lock hourly (`janitor.go:80-133`).
+- **Leaks:** terminal-state certs only transition status, never deleted (`janitor.go:88-99`).
+- **UI:** RevokeCertificate uses a hand-rolled `fetch` bypassing the SDK (`+page.svelte:279`).
+- _Recently closed:_ KeyAlgorithm validation → ValidationException; request modal adds KeyAlgorithm/CAArn.
+
+### route53resolver
+- **Parity:** `ListResolverEndpoints`/`ListResolverRules` ignore Filters (the input structs don't declare a
+  `Filters` field) (`handler.go:394-397,418-421`); pagination tokens encode a raw position index
+  (`pkgs/page/page.go:46,52`); `PutResolverQueryLogConfigPolicy`/`PutFirewallRuleGroupPolicy` store raw policy
+  strings with no validation.
+- **Performance:** a single `b.mu` guards all resource types — any write blocks all cross-type reads
+  (`backend.go:323`); `DeleteResolverEndpoint` cascades over all rules/associations under the write lock.
+- **UI:** Outpost resolvers and rule-association management absent.
+- _Recently closed:_ firewall rule-groups/domain-lists, QueryLog configs, DNSSEC configs, ResolverConfig UI.
+
+## Governance & accounts
+
+### cloudtrail
+- **Parity:** `GetQueryResults` returns hardcoded empty rows/zero stats (`handler.go:1343-1347`;
+  `backend.go:1311`); `ListQueries` ignores EventDataStore/QueryStatus filters (`backend.go:1325`);
+  `ListImportFailures` hardcoded `[]` (`backend.go:1581`); Register/DeregisterOrganizationDelegatedAdmin are
+  validation-only no-ops (`backend.go:962,1474`); channel IDs sequential not UUID (`backend.go:758`).
+- **Leaks:** `events` is append-only, never capped/evicted; LookupEvents copies the whole slice each call
+  (`backend.go:1614,227,1680`).
+- **UI:** only Trails/Event-History/EDS tabs; no channels, imports/exports, Lake queries, insight selectors,
+  dashboards, delegated admin.
+- _Recently closed:_ LookupEvents NextToken pagination + newest-first; EDS insight selectors.
+
+### config
+- **Parity:** `StartConfigRulesEvaluation` marks every rule COMPLIANT regardless of resources/logic
+  (`backend_ext.go:187-195`); `PutEvaluations`/`PutExternalEvaluation` store only last `ComplianceType` per
+  rule, dropping per-resource granularity (`backend_real.go:369-388`); conformance-pack compliance ops return
+  empty stubs (`backend_real.go:469,655,678,681`; `backend_ext.go:139`); `GetResourceConfigHistory` keeps only
+  the latest item per resource (`backend_real.go:544-575`); `StartResourceEvaluation` returns constant
+  `"eval-stub"` (`backend_ext.go:208`); org rule/pack statuses hardcoded (`backend_real.go:475-490`);
+  `DescribeConfigRules` accepts but never echoes NextToken (`handler.go:558-560`).
+- **UI:** no delivery-channel, configuration-aggregators, resource config-item browser, or manual
+  evaluate/PutEvaluations trigger.
+
+### organizations
+- **Parity:** `CreateAccount`/`CreateGovCloudAccount` complete synchronously to `SUCCEEDED`, no `IN_PROGRESS`
+  (`backend.go:643-651`); `AttachPolicy` records attachment but enforces nothing (no effective-policy eval).
+- **Leaks:** `createStatuses` map grows unbounded, never pruned (`backend.go:653`; negligible).
+- **UI:** no delegated-administrator console, handshake/invitation management, policy-type enable/disable, or
+  CreateAccountStatus tracking.
+- _Recently closed:_ all list ops paginate via `page.New`; `extractErrorType` string-splitting → `awserr.Classify`.
+
+## Resource & tag management
+
+### ram
+- **Parity:** `GetResourcePolicies` emits a hardcoded empty-statement policy for every ARN, ignoring real state
+  (`backend.go:1315`); `ramPaginate` token is base64 around a raw slice index (`handler.go:769`).
+- **Performance:** `CreateResourceShare` O(n) name-collision scan (`backend.go:344`); `clonePermission`
+  deep-copies the whole `Versions` map per read (`backend.go:162-170`); `ListResourceShares` `sort.Slice` per
+  read (`backend.go:443`).
+- **Leaks:** `DeleteResourceShare` soft-deletes (`Status=statusDeleted`) and never removes from the map;
+  associations retained — unbounded growth (`backend.go:560`).
+- **UI:** no GetResourcePolicies, PromotePermission/ResourceShareCreatedFromPolicy, ReplacePermissionAssociations.
+- _Recently closed:_ ListResources/ListPrincipals filters; Promote no longer a no-op.
+
+### resourcegroupstaggingapi
+- **Parity:** `GetResources` token is the raw last `ResourceARN`, non-opaque (`backend.go:~664`);
+  `ExcludeCompliantResources` hard-empties the result set, no tag-policy engine (`backend.go:594-595`);
+  `GetComplianceSummary` and `ListRequiredTags` are empty stubs (`backend.go:1219,1285`).
+- **Performance:** `GetResources` takes the full write lock on the read-and-cache path; `GetTagKeys`/
+  `GetTagValues` likewise `Lock()` despite being reads (`backend.go:584,794,830`).
+- _Recently closed:_ per-region cache TTL (30s); Tag/Untag/GetComplianceSummary UI.
+
+### resourcegroups
+- **Parity:** `ErrTagSyncTaskNotFound` returns `{"message":…}` with no `__type`/`x-amzn-errortype`, so SDKs
+  can't extract the code (`backend.go:44`; `handler.go:358`); `SearchResources` only iterates explicitly
+  grouped ARNs, no cross-service fan-out (`backend.go:1409-1424`); `paginate[T]` encodes the item key directly
+  as the token (`backend.go:367-388`).
+- **Performance:** `ListTagSyncTasks` takes a full write lock to evict stale tasks on a read path
+  (`backend.go:1529`); `groupMatchesFilters` O(n²) `ListGroups` under config filters (`backend.go:878-906`).
+- **Leaks:** `groupingStatuses` appends per ARN per `GroupResources` with no trim/TTL (`backend.go:1167`).
+- **UI:** no StartTagSyncTask/CancelTagSyncTask/GetTagSyncTask, ListGroupingStatuses, SearchResources,
+  UpdateAccountSettings.
+- _Recently closed:_ PutGroupConfiguration validation; GroupResources/UngroupResources/ListTagSyncTasks UI.
+
+### cloudcontrol
+- **Parity:** no cross-service dispatch — resources live in a private `b.resources` map, so CloudControl and
+  native APIs see disjoint state (`backend.go:103,167`); every op returns synchronous `SUCCESS`, `IN_PROGRESS`
+  only via test-only `AddProgressEvent` (`backend.go:180,283,315,478`); `CancelResourceRequest` returns
+  ValidationException not `UnsupportedActionException` for terminal requests (`backend.go:348-349`);
+  `applyPatch` flattens JSON-Pointer paths, breaking nested patches (`backend.go:583-590`).
+- **Performance:** `ListResources` O(n) `HasPrefix` scan over all resources (`backend.go:221-225`).
+- **Leaks:** `requests`/`clientTokens` grow unbounded, cleared only by `Reset()` (`backend.go:104-105`).
+- **UI:** no CancelResourceRequest or progress polling beyond a single status lookup.
+
+## Compute & deployment
+
+### batch
+- **Parity:** job state machine collapses the chain — `getJobsToAdvance` jumps SUBMITTED/PENDING/RUNNABLE/
+  STARTING straight to RUNNING in one tick (`janitor.go:202-204`); array jobs store `ArrayProperties` but never
+  fan out into child jobs or a status summary (`backend.go:1899-1934`); all sentinels collapse to
+  `ClientException`/400, no `ResourceNotFoundException` (`handler.go:357-360`).
+- **Performance:** multiple list paths `sort.Slice` the full key set per call (`backend.go:1980,2411,2626`).
+- **UI:** no scheduling-policies or consumable-resources tabs (`+page.svelte:203-208`).
+- _Recently closed:_ job-state simulation; HMAC pagination; full-sweep-under-lock fixed.
+
+### eks
+- **Parity:** `DeleteCluster` cascades nodegroup deletion immediately, no `ResourceInUseException` precondition
+  (`backend.go:556-590`); `CreateNodegroup` doesn't validate required `nodeRole`/`subnets` (`backend.go:610-720`);
+  `stableID` is FNV-1a 32-bit (8-hex collision space) for ARNs (`backend.go:1260`).
+- **Performance:** `findTagsForARNLocked` + helpers do O(n×m) nested ARN scans across all resource maps
+  (`backend.go:901,914,936,965`).
+- **UI:** OIDC/identity-provider association ops uncovered (access-entries/addons/fargate/pod-identity present).
+- _Recently closed:_ AfterFunc delete-race → worker.Group; nodegroup/addon/fargate UI.
+
+### elasticbeanstalk
+- **Parity:** environments created directly `Ready`, no Launching→Ready / Terminating lifecycle
+  (`backend.go:683,923`); `ComposeEnvironments` is a stub returning existing envs (`backend.go:~1335`).
+- **UI:** RebuildEnvironment, Request/RetrieveEnvironmentInfo, managed platform versions, composed environments
+  uncovered.
+- **Performance / Leaks:** none remaining (indexed DNS/ops-role lookups; events ring-capped at 1000).
+- _Recently closed:_ ResourceNotFoundException; real timestamps + DateUpdated; config-template key separator;
+  bounded events.
+
+## Storage & transfer
+
+### efs
+- **Parity:** `creating→available` lifecycle only simulated when `fsActivationDelay>0` (default 0, so
+  out-of-box file systems skip `creating`) (`backend.go:711,740`).
+- **Performance:** every Describe* allocates + sorts the full slice each call (`backend.go:798,1056`).
+- **Leaks:** the activation goroutine uses a raw `time.Sleep` with no cancellation (gated by non-default delay)
+  (`backend.go:743`).
+- **UI:** no replication, backup policy, account preferences, or resource-tag UI.
+- _Recently closed:_ mount-target VPC/AZ fields; O(1) idempotency + subnet indexes; binary-search pagination.
+
+### transfer
+- **Parity:** `TestConnection`/`TestIdentityProvider` validate then return canned/synthetic results
+  (`handler.go:3380,3411`).
+- **Performance:** `ListServers` deep-clones every server under lock via `cloneServer` (`backend.go:975`).
+- **Leaks / UI:** none remaining (worker-managed state transitions; full Transfer UI present).
+- _Recently closed:_ security-policy full shape; worker-managed transitions; entire Transfer UI.
+
+### backup
+- **Parity:** `GetBackupPlanFromJSON` returns empty Rules (`handler.go:4114-4122`); `GetBackupPlanFromTemplate`
+  always `"template-plan"` (`handler.go:4123-4130`); `ListBackupPlanTemplates` empty (`handler.go:4131-4133`).
+  (Note: a leftover untracked build artifact `handler.go.tmp.*` sits in the service dir.)
+- **Performance:** `ListBackupVaults`/`ListBackupJobsFiltered`/`ListRecoveryPointsFiltered` sort before
+  paginate (`backend.go:489`; `backend_parity.go:117,179`); `paginateByID` O(n) linear cursor scan
+  (`backend_parity.go:544`).
+- **UI:** no selections, frameworks, report plans, restore testing, legal holds, vault policies/notifications,
+  copy jobs.
+- _Recently closed:_ protected-resource, restore-job, copy-job, legal-hold, report ops now real.
+
+## Messaging & integration
+
+### mq
+- **Parity:** `DeleteConfiguration` is a phantom op (AWS MQ has no such API) (`handler.go:87`); `Promote` is a
+  read-locked no-op with no failover/switchover (`backend.go:1514-1531`); `RebootBroker` returns 200 NoContent
+  empty body, not `{}` (`handler.go:680`).
+- **Performance:** `DescribeBroker`/`ListBrokers` take the full write lock to call `promoteRebootingToRunning`,
+  penalizing reads (`backend.go:722,745`); O(n) creator-request-ID + config-name dup scans (`backend.go:692,1167`).
+- **UI:** Promote and configuration create/delete absent.
+- _Recently closed:_ RebootBroker + ListConfigurations UI.
+
+### apigatewaymanagementapi
+- **Parity:** `GetConnection` still emits a non-AWS `connectionId` field and `Connection` carries
+  `postedMessages`/`bytesSent` (`types.go:45-46`); oversized payload returns plain `{message}` 413 not modeled
+  `PayloadTooLargeException` (`handler.go:199-216`); `DeleteConnection` returns 204, AWS returns 200
+  (`handler.go:261`); no Forbidden/LimitExceeded modeling.
+- **Performance:** `Broadcast` holds the write lock for the whole fan-out with per-conn make+copy
+  (`backend.go:278-306`); `Stats` iterates all connections per poll (`backend.go:342-344`).
+- **Leaks:** `connections` map unbounded; only manual `PruneIdle`, no reaper (`backend.go:310`).
+- **UI:** no `GetConnection` call; server `?q=` search path dead.
+- _Recently closed:_ manual PruneIdle endpoint + UI modal.
+
+### scheduler
+- **Parity:** `nextToken` is a transparent `group/name` composite (`backend.go:494`; `paginate:801`); an unknown
+  token silently restarts from index 0 (`backend.go:802-814`); `FlexibleTimeWindow` stored/echoed but never
+  honored at delivery (`runner.go:170-175,282`); one-time `at(...)` schedules never fire — `isDue` handles only
+  `rate(`/`cron(` (`runner.go:201-213`).
+- **Performance:** the runner calls `ListSchedules(...,0)` cloning all schedules every tick (`runner.go:156`).
+- _Recently closed:_ List clone narrowed to matched items.
+
+### pipes
+- **Parity:** runner routes only SQS sources; Kinesis/DynamoDB-Streams/MSK/Kafka/MQ sources accepted by the
+  handler are silently unrouted (`runner.go:231-235`).
+- **Performance:** `sortedPipeNames` hand-rolled O(n²) selection sort (`backend.go:1135-1148`); `ListPipes`
+  holds RLock for the entire collect/filter/clone (`backend.go:1092-1094`).
+- **Leaks / UI:** none material (delayed transitions tracked via `b.wg`/`svcCtx`); no non-SQS source guidance
+  or DLQ/filter editor surfaced.
+- _Recently closed:_ StartPipe already-RUNNING → ConflictException.
+
+### kafka
+- **Parity:** `ListNodes`/`ListScramSecrets` lack pagination (`handler.go:2452,2019`); CREATING→ACTIVE advances
+  only inside `DescribeCluster`, so a cluster only ever `ListClusters`'d stays CREATING forever
+  (`backend.go:707`; `handler.go:1318`); `DeleteCluster` removes synchronously, no DELETING (`backend.go:757`).
+- **Leaks:** `maxClustersPerRegion` cap silently evicts an arbitrary existing cluster on overflow — non-AWS,
+  data-losing (`backend.go:605`).
+- **UI:** no `kafka` route — every op uncovered.
+- _Recently closed:_ list pagination for clusters/configs/replicators/topics/revisions; CREATING initial state;
+  O(1) name index.
+
+## Discovery, workflow & tracing
+
+### servicediscovery
+- **Parity:** `CreateNamespace` completes synchronously, stamping `Status:SUCCESS` while returning an
+  `OperationId` implying async work — `GetOperation` never simulates PENDING/IN_PROGRESS (`backend.go:351-359,844`);
+  `DiscoverInstances` honors MaxResults but ignores NextToken (`handler.go:1029`).
+- **Performance:** List ops do full map iteration + `sort.Slice` every call, no index (`backend.go:453-477,
+  585-606,699-721`); `countServicesInNamespace` adds an O(n) scan per namespace per list (`backend.go:441`).
+- **UI:** no DeleteNamespace/DeleteService/DeregisterInstance/DiscoverInstances/tag/health ops.
+- _Recently closed:_ DiscoverInstances MaxResults; full pagination helpers + cursors.
+
+### swf
+- **Parity:** `openCountsLocked` hardcodes `openTimers:0`/`openChildWorkflowExecutions:0` (`backend.go:1250-1251`);
+  count handlers never set `Truncated` (`handler.go:881,908`); `DescribeWorkflowExecution` type-asserts the
+  concrete backend, bypassing the interface (`handler.go:1082`); StartTimer/CancelTimer/child/signal decisions
+  append history events with empty attribute maps and timers never fire `TimerFired` (`backend.go:1740-1748`);
+  domain ARN uses `defaultRegion`/`defaultAccountID`, never `awsmeta.Region(ctx)` (`backend.go:540,396`).
+- **Performance:** `openCountsLocked` O(n)+O(n·m) scans per call (`backend.go:1232-1245`); `PollForDecisionTask`
+  copies the full history slice under the write lock (`backend.go:1454-1462`).
+- **Leaks:** `activeActivityTasks` has no heartbeat-timeout reaper (`backend.go:1415,1475`); flat
+  executions/history/domains maps with no region dimension.
+- **UI:** no RegisterWorkflowType/RegisterActivityType, CountOpen/ClosedWorkflowExecutions, Deprecate* ops.
+- _Recently closed:_ executionOrder duplicate-key growth bounded; SWF UI route added.
+
+### xray
+- **Parity:** group & sampling-rule ARNs built from construction-time `b.region`/`b.accountID`, no per-request
+  region (`backend.go:375-381`); flat resource maps with no region key, cross-region leak (`backend.go:283-308`).
+- **Leaks:** `insights`/`insightEvents`/`serviceWindows`/`samplingStats` maps never evicted (janitor sweeps only
+  traces + retrievals) (`backend.go:289-298`; `janitor.go:71-101`).
+- **UI:** no sampling-rule CRUD, insights view, PutTraceSegments, group create/update/delete, or trace retrieval.
+- _Recently closed:_ groupsByARN O(1) index; insight detection; service-graph topology from segments;
+  ListRetrievedTraces segment payloads; retrieval-token janitor sweep.
+
+## Developer tools (CI/CD)
+
+_Cross-cutting across all four: client-guessable decimal-index pagination tokens and `*NotFoundException`
+mapped to HTTP 400 instead of 404._
+
+### codebuild
+- **Parity:** `StartBuild` builds are created `IN_PROGRESS` with a single SUBMITTED phase, never advancing to
+  SUCCEEDED/phases/logs (`backend.go:842-854`); `DescribeCodeCoverages`/`DescribeTestCases`/`GetReportGroupTrend`
+  empty (`backend.go:2004,2009,2014`); `ListShared*`/`ListCuratedEnvironmentImages` stubbed (`backend.go:2019-2029`);
+  `StartSandboxConnection` returns `wss://localhost:9999/<id>` (`handler.go:1604`); list inputs empty, no
+  pagination (`handler.go:472,603`).
+- **Performance:** env-override merge O(n·m) nested loop (`backend.go:771-786`).
+- **Leaks:** janitor sweeps only `builds`; `sandboxesByProject`/`batchesByProject`/`commandsBySandbox` unbounded
+  (`janitor.go:81`; `backend.go:391-397`).
+- **UI:** sandbox/batch ops absent.
+- _Recently closed:_ janitor single-pass delete + `buildsByProject` cleanup.
+
+### codecommit
+- **Parity:** `GetFile`/`GetFolder`/`GetFolderFiles` ignore `commitSpecifier`, reading HEAD
+  (`backend_ops.go:818,841,867`); `DeleteFile` ignores `parentCommitID` (`backend_ops.go:895`);
+  `EvaluatePullRequestApprovalRules` always `Satisfied:true` (`backend_ops.go:565`); `GetMergeConflicts` always
+  false (`backend_ops.go:1272`); `repoMetadata` emits `"Arn"` not `"arn"` (`handler.go:434`).
+- **Performance:** comment getters O(n) scans (`backend_ops.go:688,708`); `GetBlob` O(n) over all files
+  (`backend_ops.go:1120`).
+- **UI:** merge ops (MergePullRequestByFastForward, …) absent.
+- _Recently closed:_ ListFileCommitHistory filePath filtering; CreatePullRequest UI.
+
+### codepipeline
+- **Parity:** `GetPipelineExecution` returns synthetic `Succeeded` for unknown IDs instead of not-found
+  (`backend.go:1301-1306`); `StartPipelineExecution` sets `InProgress` and never finalizes the parent
+  (`backend.go:1244,1258-1270`); `RetryStageExecution`/`RollbackStage` ignore inputs, mutate nothing
+  (`backend.go:1454,1477-1481`); `OverrideStageCondition` no-op (`backend.go:1499-1500`); `StopPipelineExecution`
+  discards `reason` (`backend.go:1335`).
+- **Performance:** `DeleteCustomActionType` iterates all pipelines/stages under the write lock (`backend.go:867,879`).
+- **Leaks:** `executions`/`actionExecutions` slices grow unbounded per StartPipelineExecution (`backend.go:1251,1270`).
+- **UI:** job-polling ops (PollForJobs, AcknowledgeJob, PutJobSuccessResult) absent.
+- _Recently closed:_ ListPipelines pagination; webhook tag storage.
+
+### codedeploy
+- **Parity:** `CreateDeployment` immediately `Succeeded` with faked `completeTime`, no lifecycle
+  (`backend.go:902-916`); `ContinueDeployment` validates only (`backend.go:1347-1356`);
+  `BatchGetDeploymentInstances`/`BatchGetDeploymentTargets` hardcoded `Succeeded` (`backend.go:1267,1294`);
+  `BatchGetApplicationRevisions` stores no revision data (`backend.go:1188`); list ops have no NextToken/
+  MaxResults (`handler.go:354,884,1047`).
+- **Leaks:** `AddTagsToOnPremisesInstances` auto-registers unknown names, growing `onPremisesInstances`
+  unboundedly (`backend.go:1168-1180`); **no janitor exists** — `deployments` map never evicted (`backend.go:894`).
+- **UI:** GetDeploymentTarget/BatchGetDeploymentTargets absent.
+- _Recently closed:_ ListDeploymentInstances + BatchGetDeploymentInstances UI.
