@@ -67,7 +67,9 @@ func boostAuthorizer(t *testing.T, handler *apigateway.Handler, e *echo.Echo, ap
 		e,
 		"CreateAuthorizer",
 		fmt.Sprintf(
-			`{"restApiId":%q,"name":"auth","type":"TOKEN","authorizerUri":"arn:aws:lambda:us-east-1:123:function:auth"}`,
+			`{"restApiId":%q,"name":"auth","type":"TOKEN",`+
+				`"authorizerUri":"arn:aws:lambda:us-east-1:123:function:auth",`+
+				`"identitySource":"method.request.header.Authorization"}`,
 			apiID,
 		),
 	)

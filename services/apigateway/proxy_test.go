@@ -1668,7 +1668,8 @@ func TestRunCognitoAuthorizer_ValidToken(t *testing.T) {
 "restApiId":"` + apiID + `",
 "name":"cognito-auth",
 "type":"COGNITO_USER_POOLS",
-"identitySource":"method.request.header.Authorization"
+"identitySource":"method.request.header.Authorization",
+"providerARNs":["arn:aws:cognito-idp:us-east-1:000000000000:userpool/` + pool.ID + `"]
 }`
 	authRec := postWithHandler(t, h, e, "CreateAuthorizer", authBody)
 	require.Equal(t, http.StatusCreated, authRec.Code)

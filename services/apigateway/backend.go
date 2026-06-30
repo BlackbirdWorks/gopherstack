@@ -1138,18 +1138,8 @@ func (b *InMemoryBackend) DeleteStage(restAPIID, stageName string) error {
 
 // CreateAuthorizer creates a new authorizer for a REST API.
 func (b *InMemoryBackend) CreateAuthorizer(restAPIID string, input CreateAuthorizerInput) (*Authorizer, error) {
-	if input.Name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
-	}
-	if input.Type == "" {
-		return nil, fmt.Errorf("%w: type is required", ErrInvalidParameter)
-	}
-
-	// AWS rejects AuthorizerResultTtlInSeconds outside [0, 3600].
-	const maxAuthorizerTTL = 3600
-	if input.AuthorizerResultTTLInSeconds < 0 || input.AuthorizerResultTTLInSeconds > maxAuthorizerTTL {
-		return nil, fmt.Errorf("%w: authorizerResultTtlInSeconds must be in [0, %d]",
-			ErrInvalidParameter, maxAuthorizerTTL)
+	if err := validateCreateAuthorizerInput(input); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateAuthorizer")
@@ -3789,4 +3779,42 @@ func buildModelRef(data *apiData, modelName string, oas30 bool) map[string]any {
 	}
 
 	return map[string]any{exportKeyType: exportKeyObject, exportKeyDescription: m.Description}
+}
+
+func validateCreateAuthorizerInput(input CreateAuthorizerInput) error {
+	if input.Name == "" {
+		return fmt.Errorf("%w: name is required", ErrInvalidParameter)
+	}
+	if input.Type != AuthTypeToken && input.Type != AuthTypeRequest && input.Type != AuthTypeCognitoUserPool {
+		return fmt.Errorf("%w: Invalid authorizer type %s", ErrInvalidParameter, input.Type)
+	}
+
+	if (input.Type == AuthTypeToken || input.Type == AuthTypeRequest) && input.AuthorizerURI == "" {
+		return fmt.Errorf("%w: authorizerUri is required for %s authorizers", ErrInvalidParameter, input.Type)
+	}
+
+	if input.Type == AuthTypeCognitoUserPool && len(input.ProviderARNs) == 0 {
+		return fmt.Errorf("%w: providerARNs is required for COGNITO_USER_POOLS authorizers", ErrInvalidParameter)
+	}
+
+	if input.Type == AuthTypeToken && input.IdentitySource == "" {
+		return fmt.Errorf("%w: identitySource is required for TOKEN authorizers", ErrInvalidParameter)
+	}
+
+	if input.Type == AuthTypeRequest && input.IdentitySource == "" {
+		return fmt.Errorf("%w: identitySource is required for REQUEST authorizers", ErrInvalidParameter)
+	}
+
+	return validateAuthorizerTTL(input)
+}
+
+func validateAuthorizerTTL(input CreateAuthorizerInput) error {
+	// AWS rejects AuthorizerResultTtlInSeconds outside [0, 3600].
+	const maxAuthorizerTTL = 3600
+	if input.AuthorizerResultTTLInSeconds < 0 || input.AuthorizerResultTTLInSeconds > maxAuthorizerTTL {
+		return fmt.Errorf("%w: authorizerResultTtlInSeconds must be in [0, %d]",
+			ErrInvalidParameter, maxAuthorizerTTL)
+	}
+
+	return nil
 }

@@ -22,6 +22,8 @@ const (
 	AuthTypeAWSIAM          = "AWS_IAM"
 	AuthTypeCustom          = "CUSTOM"
 	AuthTypeCognitoUserPool = "COGNITO_USER_POOLS"
+	AuthTypeToken           = "TOKEN"
+	AuthTypeRequest         = "REQUEST"
 )
 
 // unixEpochTime wraps [time.Time] and marshals to/from a JSON number (Unix seconds),
