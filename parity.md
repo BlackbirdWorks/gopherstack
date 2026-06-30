@@ -805,18 +805,14 @@ and (2) **there is no SigV4 header-auth or `aws-chunked` body decoding**. Detail
 ## Messaging & streaming
 
 ### sqs (deep dive)
-- **Parity — DLQ/redrive:** `applyRedrivePolicy` never checks that source and DLQ share a type — AWS rejects a
-  FIFO source pointing at a standard DLQ (and vice-versa) with `InvalidParameterValue`; here any same-region
-  queue is accepted, and a missing/cross-region DLQ silently no-ops (`backend.go:377-404`). Over-`maxReceiveCount`
-  messages are only routed to the DLQ lazily on a receive/janitor pick (`backend.go:1683-1692`), so a never-polled
-  queue keeps them on the source.
-- **Parity — system attributes:** `MD5OfMessageSystemAttributes` is never computed/returned on SendMessage(Batch)
-  even when `MessageSystemAttributes` (AWSTraceHeader) is supplied (`backend.go:1151-1156`).
+- **Parity — DLQ/redrive:** Over-`maxReceiveCount` messages are only routed to the DLQ lazily on a
+  receive/janitor pick (`backend.go:1683-1692`), so a never-polled queue keeps them on the source.
 - **Performance:** `computeMD5OfMessageAttributes` re-sorts+re-encodes the attribute set on subset-receive
   (`handler.go:788-801`; full-set path now memoizes — low residual).
 - **Leaks / UI:** none material (activity-gated prune; move-task panel, tags, redrive present).
-- _Recently closed:_ send-time MD5 memoization; activity-gated prune; in-flight caps (120k/20k); FIFO per-group
-  300 TPS; RedriveAllowPolicy validation.
+- _Recently closed:_ RedrivePolicy cross-queue strict type and existence validation; MD5OfMessageSystemAttributes
+  emission on SendMessage(Batch); send-time MD5 memoization; activity-gated prune; in-flight caps (120k/20k);
+  FIFO per-group 300 TPS; RedriveAllowPolicy validation.
 
 ### sns (deep dive)
 - **Parity — delivery retry/backoff:** HTTP/HTTPS, Lambda, and Firehose deliveries are fire-once — any network

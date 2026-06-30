@@ -107,6 +107,7 @@ type Message struct {
 	ReceiptHandle                    string                           `json:"receiptHandle"`
 	MD5OfBody                        string                           `json:"md5OfBody"`
 	MD5OfMessageAttributes           string                           `json:"md5OfMessageAttributes,omitempty"`
+	MD5OfMessageSystemAttributes     string                           `json:"md5OfMessageSystemAttributes,omitempty"`
 	SentTimestamp                    int64                            `json:"sentTimestamp"`
 	ApproximateFirstReceiveTimestamp int64                            `json:"approximateFirstReceiveTimestamp"`
 	ApproximateReceiveCount          int                              `json:"approximateReceiveCount"`
@@ -278,10 +279,11 @@ const attrAWSTraceHeader = "AWSTraceHeader"
 
 // SendMessageOutput is the output for SendMessage.
 type SendMessageOutput struct {
-	MessageID              string
-	MD5OfBody              string
-	MD5OfMessageAttributes string
-	SequenceNumber         string
+	MessageID                    string
+	MD5OfBody                    string
+	MD5OfMessageAttributes       string
+	MD5OfMessageSystemAttributes string
+	SequenceNumber               string
 }
 
 // ReceiveMessageInput is the input for ReceiveMessage.
@@ -338,11 +340,12 @@ type SendMessageBatchInput struct {
 
 // SendMessageBatchResultEntry is a successful entry in a SendMessageBatch result.
 type SendMessageBatchResultEntry struct {
-	ID                     string
-	MessageID              string
-	MD5OfBody              string
-	MD5OfMessageAttributes string
-	SequenceNumber         string
+	ID                           string
+	MessageID                    string
+	MD5OfBody                    string
+	MD5OfMessageAttributes       string
+	MD5OfMessageSystemAttributes string
+	SequenceNumber               string
 }
 
 // BatchResultErrorEntry is a failed entry in a batch result.

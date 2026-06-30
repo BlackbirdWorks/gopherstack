@@ -374,21 +374,27 @@ type redrivePolicy struct {
 }
 
 // applyRedrivePolicy parses the RedrivePolicy attribute and wires up DLQ fields on q.
-func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBackend) {
+func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBackend) error {
 	raw, ok := attrs[attrRedrivePolicy]
-	if !ok || raw == "" {
-		return
+	if !ok {
+		return nil
+	}
+	if raw == "" {
+		q.MaxReceiveCount = 0
+		q.dlq = nil
+
+		return nil
 	}
 
 	var pol redrivePolicy
 
 	if err := json.Unmarshal([]byte(raw), &pol); err != nil {
-		return
+		return &InvalidParameterError{Message: "Invalid value for the parameter RedrivePolicy."}
 	}
 
 	count, err := pol.MaxReceiveCount.Int64()
 	if err != nil || count <= 0 {
-		return
+		return &InvalidParameterError{Message: "Invalid value for the parameter RedrivePolicy."}
 	}
 
 	dlqName := queueNameFromARN(pol.DeadLetterTargetArn)
@@ -396,11 +402,27 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 	// DLQ must reside in the same region as the source queue (AWS rule).
 	dlq, exists := backend.lookupQueueByName(q.Region, dlqName)
 	if !exists {
-		return
+		return &InvalidParameterError{
+			Message: fmt.Sprintf(
+				"Value %v for parameter RedrivePolicy is invalid. Reason: Dead letter target does not exist.",
+				raw,
+			),
+		}
+	}
+
+	if q.IsFIFO != dlq.IsFIFO {
+		return &InvalidParameterError{
+			Message: fmt.Sprintf(
+				"Value %v for parameter RedrivePolicy is invalid. Reason: Dead letter target does not match source queue type.",
+				raw,
+			),
+		}
 	}
 
 	q.MaxReceiveCount = int(count)
 	q.dlq = dlq
+
+	return nil
 }
 
 // computeMD5 returns the hex-encoded MD5 hash of the given string.
@@ -614,9 +636,11 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		inFlightByHandle:    make(map[string]*InFlightMessage),
 	}
 
-	b.queues[queueKey(region, input.QueueName)] = q
+	if err := applyRedrivePolicy(q, attrs, b); err != nil {
+		return nil, err
+	}
 
-	applyRedrivePolicy(q, attrs, b)
+	b.queues[queueKey(region, input.QueueName)] = q
 
 	return &CreateQueueOutput{QueueURL: queueURL}, nil
 }
@@ -776,11 +800,13 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 		return ErrQueueNotFound
 	}
 
-	maps.Copy(q.Attributes, input.Attributes)
-
 	if _, hasRedrive := input.Attributes[attrRedrivePolicy]; hasRedrive {
-		applyRedrivePolicy(q, input.Attributes, b)
+		if err := applyRedrivePolicy(q, input.Attributes, b); err != nil {
+			return err
+		}
 	}
+
+	maps.Copy(q.Attributes, input.Attributes)
 
 	q.Attributes[attrLastModifiedTimestamp] = strconv.FormatInt(time.Now().Unix(), 10)
 
@@ -1042,6 +1068,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	md5Body := computeMD5(input.MessageBody)
 	sha256Body := computeSHA256(input.MessageBody)
 	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
+	md5SysAttrs := computeMD5OfMessageAttributes(input.MessageSystemAttributes)
 	msgID := uuid.New().String()
 
 	// #55: resolve queue under global RLock, then mutate under per-queue lock.
@@ -1057,7 +1084,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	out, err := sendMessageLocked(q, input, md5Body, sha256Body, md5Attrs, msgID, time.Now())
+	out, err := sendMessageLocked(q, input, md5Body, sha256Body, md5Attrs, md5SysAttrs, msgID, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -1073,7 +1100,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 func sendMessageLocked(
 	q *Queue,
 	input *SendMessageInput,
-	md5Body, sha256Body, md5Attrs, msgID string,
+	md5Body, sha256Body, md5Attrs, md5SysAttrs, msgID string,
 	now time.Time,
 ) (*SendMessageOutput, error) {
 	if err := validateMessageSize(input.MessageBody, input.MessageAttributes, q); err != nil {
@@ -1095,15 +1122,16 @@ func sendMessageLocked(
 	}
 
 	msg := &Message{
-		MessageID:              msgID,
-		Body:                   input.MessageBody,
-		MD5OfBody:              md5Body,
-		MD5OfMessageAttributes: md5Attrs,
-		MessageGroupID:         input.MessageGroupID,
-		MessageDeduplicationID: input.MessageDeduplicationID,
-		SequenceNumber:         seqNum,
-		SentTimestamp:          now.UnixMilli(),
-		MessageAttributes:      input.MessageAttributes,
+		MessageID:                    msgID,
+		Body:                         input.MessageBody,
+		MD5OfBody:                    md5Body,
+		MD5OfMessageAttributes:       md5Attrs,
+		MD5OfMessageSystemAttributes: md5SysAttrs,
+		MessageGroupID:               input.MessageGroupID,
+		MessageDeduplicationID:       input.MessageDeduplicationID,
+		SequenceNumber:               seqNum,
+		SentTimestamp:                now.UnixMilli(),
+		MessageAttributes:            input.MessageAttributes,
 		Attributes: buildInitialMessageAttributes(
 			sentTS,
 			input.MessageSystemAttributes,
@@ -1149,10 +1177,11 @@ func sendMessageLocked(
 	close(old)
 
 	return &SendMessageOutput{
-		MessageID:              msgID,
-		MD5OfBody:              md5Body,
-		MD5OfMessageAttributes: md5Attrs,
-		SequenceNumber:         seqNum,
+		MessageID:                    msgID,
+		MD5OfBody:                    md5Body,
+		MD5OfMessageAttributes:       md5Attrs,
+		MD5OfMessageSystemAttributes: md5SysAttrs,
+		SequenceNumber:               seqNum,
 	}, nil
 }
 
@@ -2014,10 +2043,11 @@ func validateBatchEnvelope(ids []string) error {
 // batchEntryPrep holds pre-computed crypto digests and a generated message ID for one
 // SendMessageBatch entry, computed outside the queue lock.
 type batchEntryPrep struct {
-	md5Body    string
-	sha256Body string
-	md5Attrs   string
-	msgID      string
+	md5Body     string
+	sha256Body  string
+	md5Attrs    string
+	md5SysAttrs string
+	msgID       string
 }
 
 // processSendMessageBatchEntries iterates over batch entries (already lock-held on q),
@@ -2041,7 +2071,7 @@ func processSendMessageBatchEntries(
 			DelaySeconds:            entry.DelaySeconds,
 			MessageAttributes:       entry.MessageAttributes,
 			MessageSystemAttributes: entry.MessageSystemAttributes,
-		}, p.md5Body, p.sha256Body, p.md5Attrs, p.msgID, now)
+		}, p.md5Body, p.sha256Body, p.md5Attrs, p.md5SysAttrs, p.msgID, now)
 		if err != nil {
 			out.Failed = append(out.Failed, BatchResultErrorEntry{
 				ID:          entry.ID,
@@ -2054,11 +2084,12 @@ func processSendMessageBatchEntries(
 		}
 
 		out.Successful = append(out.Successful, SendMessageBatchResultEntry{
-			ID:                     entry.ID,
-			MessageID:              sendOut.MessageID,
-			MD5OfBody:              sendOut.MD5OfBody,
-			MD5OfMessageAttributes: sendOut.MD5OfMessageAttributes,
-			SequenceNumber:         sendOut.SequenceNumber,
+			ID:                           entry.ID,
+			MessageID:                    sendOut.MessageID,
+			MD5OfBody:                    sendOut.MD5OfBody,
+			MD5OfMessageAttributes:       sendOut.MD5OfMessageAttributes,
+			MD5OfMessageSystemAttributes: sendOut.MD5OfMessageSystemAttributes,
+			SequenceNumber:               sendOut.SequenceNumber,
 		})
 	}
 
@@ -2122,10 +2153,11 @@ func (b *InMemoryBackend) SendMessageBatch(
 		totalBytes += entryBytes
 
 		preps[i] = batchEntryPrep{
-			md5Body:    computeMD5(entry.MessageBody),
-			sha256Body: computeSHA256(entry.MessageBody),
-			md5Attrs:   computeMD5OfMessageAttributes(entry.MessageAttributes),
-			msgID:      uuid.New().String(),
+			md5Body:     computeMD5(entry.MessageBody),
+			sha256Body:  computeSHA256(entry.MessageBody),
+			md5Attrs:    computeMD5OfMessageAttributes(entry.MessageAttributes),
+			md5SysAttrs: computeMD5OfMessageAttributes(entry.MessageSystemAttributes),
+			msgID:       uuid.New().String(),
 		}
 	}
 

@@ -168,23 +168,20 @@ func TestRedrivePolicy_NoMovementWithoutDLQ(t *testing.T) {
 	}
 }
 
-func TestRedrivePolicy_InvalidJSONIgnored(t *testing.T) {
+func TestRedrivePolicy_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		policy  string
-		msgBody string
+		name   string
+		policy string
 	}{
 		{
-			name:    "malformed_json",
-			policy:  "{not valid json",
-			msgBody: "ok",
+			name:   "malformed_json",
+			policy: "{not valid json",
 		},
 		{
-			name:    "empty_json_object_no_dlq_fields",
-			policy:  "{}",
-			msgBody: "also ok",
+			name:   "empty_json_object_no_dlq_fields",
+			policy: "{}",
 		},
 	}
 
@@ -197,26 +194,15 @@ func TestRedrivePolicy_InvalidJSONIgnored(t *testing.T) {
 
 			queueName := "bad-policy-" + tt.name
 
-			require.NotPanics(t, func() {
-				_, err := b.CreateQueue(&sqs.CreateQueueInput{
-					QueueName: queueName,
-					Endpoint:  "localhost",
-					Attributes: map[string]string{
-						"RedrivePolicy": tt.policy,
-					},
-				})
-				require.NoError(t, err)
+			_, err := b.CreateQueue(&sqs.CreateQueueInput{
+				QueueName: queueName,
+				Endpoint:  "localhost",
+				Attributes: map[string]string{
+					"RedrivePolicy": tt.policy,
+				},
 			})
-
-			qURL := "http://localhost/000000000000/" + queueName
-
-			_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: tt.msgBody})
-			require.NoError(t, err)
-
-			out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 1})
-			require.NoError(t, err)
-			require.Len(t, out.Messages, 1)
-			assert.Equal(t, tt.msgBody, out.Messages[0].Body)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "Invalid value for the parameter RedrivePolicy.")
 		})
 	}
 }
