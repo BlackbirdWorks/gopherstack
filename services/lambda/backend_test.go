@@ -501,26 +501,26 @@ func TestInMemoryBackend_ResolveQualifier(t *testing.T) {
 	require.NoError(t, err)
 
 	// Invoke with no qualifier should succeed (resolves to ErrLambdaUnavailable, not ErrFunctionNotFound)
-	_, _, invokeErr := backend.InvokeFunctionWithQualifier(
-		t.Context(), "resolve-fn", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	_, _, _, invokeErr := backend.InvokeFunctionWithQualifier(
+		t.Context(), "resolve-fn", "", "", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
 	)
 	require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
 
 	// Invoke with alias qualifier (resolves alias → version → config)
-	_, _, invokeErr = backend.InvokeFunctionWithQualifier(
-		t.Context(), "resolve-fn", "stable", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	_, _, _, invokeErr = backend.InvokeFunctionWithQualifier(
+		t.Context(), "resolve-fn", "stable", "", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
 	)
 	require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
 
 	// Invoke with version qualifier
-	_, _, invokeErr = backend.InvokeFunctionWithQualifier(
-		t.Context(), "resolve-fn", "1", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	_, _, _, invokeErr = backend.InvokeFunctionWithQualifier(
+		t.Context(), "resolve-fn", "1", "", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
 	)
 	require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
 
 	// Invoke with non-existent version should return ErrVersionNotFound
-	_, _, invokeErr = backend.InvokeFunctionWithQualifier(
-		t.Context(), "resolve-fn", "999", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	_, _, _, invokeErr = backend.InvokeFunctionWithQualifier(
+		t.Context(), "resolve-fn", "999", "", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
 	)
 	require.ErrorIs(t, invokeErr, lambda.ErrVersionNotFound)
 }

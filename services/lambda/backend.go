@@ -149,8 +149,8 @@ type StorageBackend interface {
 // Backends implement this to support ?Qualifier= on Invoke (alias or version qualifier).
 type QualifierInvoker interface {
 	InvokeFunctionWithQualifier(
-		ctx context.Context, name, qualifier string, invocationType InvocationType, payload []byte,
-	) ([]byte, int, error)
+		ctx context.Context, name, qualifier, clientContext, logType string, invocationType InvocationType, payload []byte,
+	) ([]byte, string, int, error)
 }
 
 // QualifierResolver is an optional extension of StorageBackend that resolves a
@@ -1852,7 +1852,9 @@ func (b *InMemoryBackend) InvokeFunction(
 	invocationType InvocationType,
 	payload []byte,
 ) ([]byte, int, error) {
-	return b.InvokeFunctionWithQualifier(ctx, name, "", invocationType, payload)
+	result, _, statusCode, err := b.InvokeFunctionWithQualifier(ctx, name, "", "", "", invocationType, payload)
+
+	return result, statusCode, err
 }
 
 // asyncInvocationEnqueueTimeout is the maximum time a background goroutine will wait
@@ -1893,23 +1895,23 @@ func (b *InMemoryBackend) checkRecursiveLoop(ctx context.Context, functionName s
 // InvokeFunctionWithQualifier invokes a Lambda function using an optional qualifier.
 func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	ctx context.Context,
-	name, qualifier string,
+	name, qualifier, clientContext, logType string,
 	invocationType InvocationType,
 	payload []byte,
-) ([]byte, int, error) {
+) ([]byte, string, int, error) {
 	fn, err := b.resolveQualifier(name, qualifier)
 	if err != nil {
-		return nil, http.StatusNotFound, err
+		return nil, "", http.StatusNotFound, err
 	}
 
 	if invocationType == InvocationTypeDryRun {
-		return nil, http.StatusNoContent, nil
+		return nil, "", http.StatusNoContent, nil
 	}
 
 	// Enforce RecursiveLoop=Deny: reject self-invocations when the function name
 	// is already in the current invocation chain.
 	if loopErr := b.checkRecursiveLoop(ctx, fn.FunctionName); loopErr != nil {
-		return nil, http.StatusBadRequest, loopErr
+		return nil, "", http.StatusBadRequest, loopErr
 	}
 
 	// Propagate the invocation chain to nested Lambda calls.
@@ -1918,7 +1920,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// Check FIS fault injection state for this function.
 	fisPayload, fisStatus, fisErr := b.applyFISFaultToInvocation(ctx, fn.FunctionName)
 	if fisPayload != nil || fisErr != nil {
-		return fisPayload, fisStatus, fisErr
+		return fisPayload, "", fisStatus, fisErr
 	}
 
 	// Enforce reserved concurrency limits for all invocation types.
@@ -1926,7 +1928,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// for both synchronous (RequestResponse) and asynchronous (Event) invocations.
 	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName)
 	if concErr != nil {
-		return nil, http.StatusTooManyRequests, concErr
+		return nil, "", http.StatusTooManyRequests, concErr
 	}
 
 	// For synchronous invocations, release the concurrency slot when this function returns.
@@ -1943,7 +1945,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 			b.releaseConcurrencySlot(fn.FunctionName)
 		}
 
-		return nil, http.StatusInternalServerError, srvErr
+		return nil, "", http.StatusInternalServerError, srvErr
 	}
 
 	timeout := time.Duration(fn.Timeout) * time.Second
@@ -1952,37 +1954,67 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	}
 
 	if invocationType == InvocationTypeEvent {
-		inv := &pendingInvocation{
-			requestID: uuid.New().String(),
-			payload:   payload,
-			deadline:  time.Now().Add(timeout),
-			createdAt: time.Now(),
-			result:    make(chan invocationResult, 1),
-		}
+		b.invokeEvent(ctx, fn, srv, payload, clientContext, timeout, trackConcurrency)
 
-		b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
-
-		return nil, http.StatusAccepted, nil
+		return nil, "", http.StatusAccepted, nil
 	}
 
-	result, isError, invokeErr := srv.invoke(ctx, payload, timeout)
+	return b.invokeSync(ctx, fn, srv, payload, clientContext, logType, timeout)
+}
+
+func (b *InMemoryBackend) invokeSync(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	srv *runtimeServer,
+	payload []byte,
+	clientContext, logType string,
+	timeout time.Duration,
+) ([]byte, string, int, error) {
+	result, isError, reqID, invokeErr := srv.invoke(ctx, payload, clientContext, timeout)
 	if invokeErr != nil {
-		// On invocation timeout the container process is likely hung or dead.
-		// Reset the runtime so the next invocation gets a fresh container instead
-		// of perpetually timing out.
 		if errors.Is(invokeErr, ErrInvocationTimeout) {
 			b.cleanupTimedOutRuntime(fn.FunctionName)
 		}
 
-		return nil, http.StatusInternalServerError, invokeErr
+		return nil, "", http.StatusInternalServerError, invokeErr
 	}
 
-	// Per Lambda convention, function-level errors (isError=true) still return HTTP 200.
 	_ = isError
 
 	b.dispatchInvocationLog(context.WithoutCancel(ctx), fn.FunctionName, payload, result)
 
-	return result, http.StatusOK, nil
+	var logResult string
+	if logType == LogTypeTail {
+		logData := fmt.Sprintf(
+			"START RequestId: %s Version: $LATEST\nEND RequestId: %s\n"+
+				"REPORT RequestId: %s\tDuration: 1.00 ms\tBilled Duration: 1 ms\tMemory Size: 128 MB\tMax Memory Used: 64 MB\n",
+			reqID, reqID, reqID,
+		)
+		logResult = base64.StdEncoding.EncodeToString([]byte(logData))
+	}
+
+	return result, logResult, http.StatusOK, nil
+}
+
+func (b *InMemoryBackend) invokeEvent(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	srv *runtimeServer,
+	payload []byte,
+	clientContext string,
+	timeout time.Duration,
+	trackConcurrency bool,
+) {
+	inv := &pendingInvocation{
+		requestID:     uuid.New().String(),
+		payload:       payload,
+		clientContext: clientContext,
+		deadline:      time.Now().Add(timeout),
+		createdAt:     time.Now(),
+		result:        make(chan invocationResult, 1),
+	}
+
+	b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
 }
 
 // enqueueAsyncInvocation places inv into the runtime queue and then waits for the
@@ -3958,6 +3990,11 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
 	delete(b.activeConcurrencies, name)
 	delete(b.provisionedConcurrencies, name)
 	delete(b.fisFaults, name)
+	delete(b.permissions, name)
+	delete(b.fnCodeSigningConfigs, name)
+	delete(b.runtimeManagementConfigs, name)
+	delete(b.functionRecursionConfigs, name)
+	delete(b.functionScalingConfigs, name)
 	for id, m := range b.eventSourceMappings {
 		if strings.HasSuffix(m.FunctionARN, ":function:"+name) {
 			if ids, ok := b.esmByFunctionARN[m.FunctionARN]; ok {

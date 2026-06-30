@@ -41,9 +41,10 @@ func (e *ExportedRuntimeServer) Stop(ctx context.Context) {
 func (e *ExportedRuntimeServer) Invoke(
 	ctx context.Context,
 	payload []byte,
+	clientContext string,
 	timeout time.Duration,
-) ([]byte, bool, error) {
-	return e.inner.invoke(ctx, payload, timeout)
+) ([]byte, bool, string, error) {
+	return e.inner.invoke(ctx, payload, clientContext, timeout)
 }
 
 // BaseImageForRuntime exports the internal runtimeBaseImages lookup for testing.

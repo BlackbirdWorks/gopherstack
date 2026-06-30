@@ -52,6 +52,9 @@ const (
 	InvocationTypeEvent InvocationType = "Event"
 	// InvocationTypeDryRun validates without executing.
 	InvocationTypeDryRun InvocationType = "DryRun"
+
+	LogTypeNone = "None"
+	LogTypeTail = "Tail"
 )
 
 // FunctionCode holds the code location for a Lambda function.
@@ -742,8 +745,13 @@ type PutFunctionScalingConfigInput struct {
 // SnapStart holds the SnapStart configuration for a Lambda function.
 // ApplyOn can be "PublishedVersions" or "None".
 type SnapStart struct {
-	ApplyOn string `json:"ApplyOn"`
+	ApplyOn string `json:"ApplyOn,omitempty"`
 }
+
+const (
+	SnapStartApplyOnNone              = "None"
+	SnapStartApplyOnPublishedVersions = "PublishedVersions"
+)
 
 // SnapStartResponse is the SnapStart field returned in GetFunction/GetFunctionConfiguration.
 type SnapStartResponse struct {

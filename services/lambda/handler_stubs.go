@@ -342,8 +342,8 @@ func (h *Handler) handleInvokeWithResponseStream(c *echo.Context, name string) e
 	var invokeErr error
 
 	if qi, ok := h.Backend.(QualifierInvoker); ok && qualifier != "" {
-		result, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(
-			ctx, name, qualifier, InvocationTypeRequestResponse, body,
+		result, _, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(
+			ctx, name, qualifier, "", "", InvocationTypeRequestResponse, body,
 		)
 	} else {
 		result, statusCode, invokeErr = h.Backend.InvokeFunction(ctx, name, InvocationTypeRequestResponse, body)

@@ -1369,7 +1369,7 @@ func (h *Handler) validateSnapStartInput(c *echo.Context, s *SnapStart) bool {
 		return true
 	}
 
-	if s.ApplyOn != "None" && s.ApplyOn != "PublishedVersions" {
+	if s.ApplyOn != SnapStartApplyOnNone && s.ApplyOn != SnapStartApplyOnPublishedVersions {
 		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 			"SnapStart.ApplyOn must be one of [PublishedVersions, None]")
 
@@ -1912,13 +1912,37 @@ func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFu
 		applySnapStart(fn, input.SnapStart)
 	}
 }
+func (h *Handler) validateInvocationHeaders(c *echo.Context) (string, string, string, error) {
+	invType := c.Request().Header.Get("X-Amz-Invocation-Type")
+	if invType == "" {
+		invType = InvocationTypeRequestResponse
+	} else if invType != InvocationTypeRequestResponse &&
+		invType != InvocationTypeEvent &&
+		invType != InvocationTypeDryRun {
+		return "", "", "", h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"Invalid InvocationType",
+		)
+	}
+
+	logType := c.Request().Header.Get("X-Amz-Log-Type")
+	if logType != "" && logType != LogTypeTail && logType != LogTypeNone {
+		return "", "", "", h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Invalid LogType")
+	}
+
+	clientContext := c.Request().Header.Get("X-Amz-Client-Context")
+
+	return invType, logType, clientContext, nil
+}
 
 func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	ctx := c.Request().Context()
 
-	invType := c.Request().Header.Get("X-Amz-Invocation-Type")
-	if invType == "" {
-		invType = InvocationTypeRequestResponse
+	invType, logType, clientContext, valErr := h.validateInvocationHeaders(c)
+	if valErr != nil {
+		return valErr
 	}
 
 	qualifier := c.Request().URL.Query().Get("Qualifier")
@@ -1939,11 +1963,20 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	executedVersion := h.resolveExecutedVersion(name, qualifier)
 
 	var result []byte
+	var logResult string
 	var statusCode int
 	var invokeErr error
 
-	if qi, ok := h.Backend.(QualifierInvoker); ok && qualifier != "" {
-		result, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(ctx, name, qualifier, invType, body)
+	if qi, ok := h.Backend.(QualifierInvoker); ok {
+		result, logResult, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(
+			ctx,
+			name,
+			qualifier,
+			clientContext,
+			logType,
+			invType,
+			body,
+		)
 	} else {
 		result, statusCode, invokeErr = h.Backend.InvokeFunction(ctx, name, invType, body)
 	}
@@ -1954,6 +1987,10 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 
 	// Set X-Amz-Executed-Version on all successful responses (real AWS always sends this).
 	c.Response().Header().Set("X-Amz-Executed-Version", executedVersion)
+
+	if logResult != "" {
+		c.Response().Header().Set("X-Amz-Log-Result", logResult)
+	}
 
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
@@ -1970,7 +2007,7 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		// payload shape and set the header so SDK clients can distinguish
 		// function errors from successful invocations.
 		if isLambdaFunctionErrorPayload(result) {
-			c.Response().Header().Set("X-Amz-Function-Error", "Unhandled")
+			c.Response().Header().Set("X-Amz-Function-Error", "Handled")
 		}
 
 		return c.JSONBlob(http.StatusOK, result)
@@ -2030,6 +2067,8 @@ func isLambdaFunctionErrorPayload(result []byte) bool {
 
 // writeError writes a Lambda-formatted JSON error response.
 func (h *Handler) writeError(c *echo.Context, status int, errType, message string) error {
+	c.Response().Header().Set("X-Amzn-Errortype", errType)
+
 	return c.JSON(status, &Error{
 		Type:    errType,
 		Message: message,
