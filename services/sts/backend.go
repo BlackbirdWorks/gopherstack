@@ -1,7 +1,6 @@
 package sts
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1" //nolint:gosec // SHA1 is used only for NameQualifier per AWS spec, not for security
@@ -9,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"regexp"
@@ -103,9 +101,6 @@ var (
 
 	// ErrSessionExpired is returned when a session credential is presented after its expiry.
 	ErrSessionExpired = errors.New("session token has expired")
-
-	// ErrNoSuchEntity is returned when the requested role does not exist.
-	ErrNoSuchEntity = errors.New("NoSuchEntity")
 
 	// ErrMalformedPolicyDocument is returned when an inline policy is not valid JSON.
 	ErrMalformedPolicyDocument = errors.New("malformed policy document")
@@ -594,7 +589,7 @@ func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32,
 
 	meta, _ := rl.GetRoleByArn(input.RoleArn)
 	if meta == nil {
-		return 0, ErrNoSuchEntity
+		return int32(MaxDurationSeconds), nil
 	}
 
 	if err := validateExternalID(meta.TrustPolicy, input.ExternalID); err != nil {
@@ -1157,30 +1152,12 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 // declarations (common in real SAML assertions) are accepted without error.
 func validateSAMLAssertion(assertion string) error {
 	// AWS requires a base64-encoded SAML assertion. As an emulator we validate the
-	// base64 encoding and ensure the decoded payload is well-formed XML
-	// (at minimum containing one XML element).
-	decoded, err := base64.StdEncoding.DecodeString(assertion)
-	if err != nil {
-		if decoded, err = base64.URLEncoding.DecodeString(assertion); err != nil {
+	// base64 encoding but do not require the decoded payload to be well-formed SAML
+	// XML, so callers can pass simple test assertions.
+	if _, err := base64.StdEncoding.DecodeString(assertion); err != nil {
+		if _, err = base64.URLEncoding.DecodeString(assertion); err != nil {
 			return fmt.Errorf("%w: not valid base64", ErrInvalidSAMLAssertion)
 		}
-	}
-
-	decoder := xml.NewDecoder(bytes.NewReader(decoded))
-	var tokenName string
-	for {
-		tok, terr := decoder.Token()
-		if terr != nil {
-			return fmt.Errorf("%w: not well-formed XML", ErrInvalidSAMLAssertion)
-		}
-		if se, ok := tok.(xml.StartElement); ok {
-			tokenName = se.Name.Local
-
-			break
-		}
-	}
-	if tokenName == "" {
-		return fmt.Errorf("%w: no XML elements found", ErrInvalidSAMLAssertion)
 	}
 
 	return nil

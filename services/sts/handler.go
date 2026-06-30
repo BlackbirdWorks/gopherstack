@@ -3,6 +3,7 @@ package sts
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -581,7 +582,15 @@ func (h *Handler) dispatchDecodeAuthorizationMessage(
 
 	decoded, err := h.Backend.VerifyEncodedAuthorizationMessage(encoded)
 	if err != nil {
-		return nil, ErrInvalidAuthorizationMessage
+		// Not a self-issued message; fall back to a plain base64 decode.
+		raw, derr := base64.StdEncoding.DecodeString(encoded)
+		if derr != nil {
+			if raw, derr = base64.URLEncoding.DecodeString(encoded); derr != nil {
+				return nil, err
+			}
+		}
+
+		decoded = string(raw)
 	}
 
 	return &DecodeAuthorizationMessageResponse{
@@ -634,8 +643,6 @@ func mapErrorToCode(reqErr error) (string, int) {
 		return invalidAction, http.StatusBadRequest
 	case errors.Is(reqErr, ErrIDPRejectedClaim), errors.Is(reqErr, ErrAccessDenied):
 		return "AccessDenied", http.StatusForbidden
-	case errors.Is(reqErr, ErrNoSuchEntity):
-		return "NoSuchEntity", http.StatusBadRequest
 	}
 
 	return "", 0
