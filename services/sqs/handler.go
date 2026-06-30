@@ -801,7 +801,7 @@ func (h *Handler) handleReceiveMessage(
 		case len(returnedAttrs) == len(msg.MessageAttributes):
 			md5Attrs = msg.MD5OfMessageAttributes
 		default:
-			md5Attrs = computeMD5OfMessageAttributes(returnedAttrs)
+			md5Attrs = computeMD5OfSubset(msg, returnedAttrs)
 		}
 
 		msgs = append(msgs, jsonReceivedMessage{

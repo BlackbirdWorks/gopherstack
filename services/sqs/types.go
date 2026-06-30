@@ -96,21 +96,27 @@ type MessageAttributeValue struct {
 
 // Message represents an SQS message.
 type Message struct {
+	VisibleAt                        time.Time                        `json:"visibleAt,omitzero"`
 	MessageAttributes                map[string]MessageAttributeValue `json:"messageAttributes,omitempty"`
 	Attributes                       map[string]string                `json:"attributes,omitempty"`
-	VisibleAt                        time.Time                        `json:"visibleAt,omitzero"`
-	Body                             string                           `json:"body"`
-	MessageGroupID                   string                           `json:"messageGroupID,omitempty"`
 	MessageDeduplicationID           string                           `json:"messageDeduplicationID,omitempty"`
+	MessageGroupID                   string                           `json:"messageGroupID,omitempty"`
 	SequenceNumber                   string                           `json:"sequenceNumber,omitempty"`
 	MessageID                        string                           `json:"messageID"`
 	ReceiptHandle                    string                           `json:"receiptHandle"`
 	MD5OfBody                        string                           `json:"md5OfBody"`
 	MD5OfMessageAttributes           string                           `json:"md5OfMessageAttributes,omitempty"`
 	MD5OfMessageSystemAttributes     string                           `json:"md5OfMessageSystemAttributes,omitempty"`
-	SentTimestamp                    int64                            `json:"sentTimestamp"`
-	ApproximateFirstReceiveTimestamp int64                            `json:"approximateFirstReceiveTimestamp"`
-	ApproximateReceiveCount          int                              `json:"approximateReceiveCount"`
+	Body                             string                           `json:"body"`
+	encodedAttrs                     []encodedMessageAttribute
+	SentTimestamp                    int64 `json:"sentTimestamp"`
+	ApproximateFirstReceiveTimestamp int64 `json:"approximateFirstReceiveTimestamp"`
+	ApproximateReceiveCount          int   `json:"approximateReceiveCount"`
+}
+
+type encodedMessageAttribute struct {
+	Name  string
+	Bytes []byte
 }
 
 // InFlightMessage wraps a message that has been received but not deleted.

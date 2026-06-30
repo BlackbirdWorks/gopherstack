@@ -422,6 +422,18 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 	q.MaxReceiveCount = int(count)
 	q.dlq = dlq
 
+	now := time.Now()
+
+	q.mu.Lock()
+	var remaining []*Message
+	for _, msg := range q.messages {
+		if !tryRouteToDLQ(q, msg, now) {
+			remaining = append(remaining, msg)
+		}
+	}
+	q.messages = remaining
+	q.mu.Unlock()
+
 	return nil
 }
 
@@ -1675,7 +1687,9 @@ func sweepInFlight(q *Queue, cutoff, now time.Time) {
 
 		if now.After(inf.VisibleAt) {
 			delete(q.inFlightByHandle, inf.ReceiptHandle)
-			q.messages = append(q.messages, inf.Msg)
+			if !tryRouteToDLQ(q, inf.Msg, now) {
+				q.messages = append(q.messages, inf.Msg)
+			}
 			changed = true
 
 			continue
@@ -1709,14 +1723,7 @@ func pickVisibleMessages(
 			continue
 		}
 
-		if q.MaxReceiveCount > 0 && q.dlq != nil &&
-			msg.ApproximateReceiveCount >= q.MaxReceiveCount {
-			msg.ReceiptHandle = ""
-			q.dlq.messages = append(q.dlq.messages, msg)
-			if now.Before(msg.VisibleAt) {
-				q.dlq.delayedCount++
-			}
-
+		if tryRouteToDLQ(q, msg, now) {
 			continue
 		}
 
@@ -1906,8 +1913,11 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 
 	if visibilityTimeout == 0 {
 		// Move back to the visible queue immediately.
-		inf.Msg.VisibleAt = time.Now()
-		q.messages = append(q.messages, inf.Msg)
+		now := time.Now()
+		inf.Msg.VisibleAt = now
+		if !tryRouteToDLQ(q, inf.Msg, now) {
+			q.messages = append(q.messages, inf.Msg)
+		}
 		delete(q.inFlightByHandle, receiptHandle)
 
 		// Remove from inFlightMessages slice.
@@ -3108,4 +3118,75 @@ func (b *InMemoryBackend) ListMessageMoveTasks(
 	}
 
 	return &ListMessageMoveTasksOutput{Results: results}, nil
+}
+
+// tryRouteToDLQ moves msg to the DLQ if it exceeds MaxReceiveCount.
+// Returns true if the message was moved. Caller must hold q.mu.
+func tryRouteToDLQ(q *Queue, msg *Message, now time.Time) bool {
+	if q.MaxReceiveCount > 0 && q.dlq != nil && msg.ApproximateReceiveCount >= q.MaxReceiveCount {
+		msg.ReceiptHandle = ""
+
+		q.dlq.mu.Lock()
+		q.dlq.messages = append(q.dlq.messages, msg)
+		if now.Before(msg.VisibleAt) {
+			q.dlq.delayedCount++
+		}
+		q.dlq.hasActivity.Store(true)
+		q.dlq.mu.Unlock()
+
+		return true
+	}
+
+	return false
+}
+
+// encodeMessageAttribute encodes a single attribute per SQS rules.
+func encodeMessageAttribute(name string, attr MessageAttributeValue) []byte {
+	var buf []byte
+	buf = appendWithLength(buf, []byte(name))
+	buf = appendWithLength(buf, []byte(attr.DataType))
+
+	if strings.HasPrefix(attr.DataType, "Binary") {
+		buf = append(buf, msgAttrTransportTypeBinary)
+		buf = appendWithLength(buf, attr.BinaryValue)
+	} else {
+		buf = append(buf, msgAttrTransportTypeString)
+		buf = appendWithLength(buf, []byte(attr.StringValue))
+	}
+
+	return buf
+}
+
+// computeMD5OfSubset uses pre-encoded attributes from msg to efficiently hash a subset.
+func computeMD5OfSubset(msg *Message, returnedAttrs map[string]MessageAttributeValue) string {
+	if len(returnedAttrs) == 0 {
+		return ""
+	}
+
+	if msg.encodedAttrs == nil {
+		if len(msg.MessageAttributes) == 0 {
+			return ""
+		}
+		names := collections.SortedKeys(msg.MessageAttributes)
+		encoded := make([]encodedMessageAttribute, 0, len(names))
+		for _, name := range names {
+			encoded = append(encoded, encodedMessageAttribute{
+				Name:  name,
+				Bytes: encodeMessageAttribute(name, msg.MessageAttributes[name]),
+			})
+		}
+		msg.encodedAttrs = encoded
+	}
+
+	var buf []byte
+	for _, ea := range msg.encodedAttrs {
+		if _, ok := returnedAttrs[ea.Name]; ok {
+			buf = append(buf, ea.Bytes...)
+		}
+	}
+
+	//nolint:gosec // MD5 required by SQS wire protocol
+	hash := md5.Sum(buf)
+
+	return hex.EncodeToString(hash[:])
 }
