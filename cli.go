@@ -5681,50 +5681,78 @@ func wireDynamoDBStreams(ddbReg, streamsReg service.Registerable) {
 
 // wireSchedulerRunner configures the Scheduler runner with Lambda, SQS, SNS, and StepFunctions
 // target invokers so that schedule expressions actually fire their targets.
-func wireSchedulerRunner(schedReg, lambdaReg, sqsReg, snsReg, sfnReg, ebReg, kinesisReg, sagemakerReg, ecsReg service.Registerable) {
+func wireSchedulerRunner(
+	schedReg, lambdaReg, sqsReg, snsReg, sfnReg, ebReg, kinesisReg, sagemakerReg, ecsReg service.Registerable,
+) {
 	schedH, ok := schedReg.(*schedulerbackend.Handler)
-	if !ok { return }
+	if !ok {
+		return
+	}
 
 	runner := schedH.GetRunner()
+	wireSchedulerMessaging(runner, lambdaReg, sqsReg, snsReg)
+	wireSchedulerWorkflow(runner, sfnReg, ebReg, kinesisReg)
+	wireSchedulerCompute(runner, sagemakerReg, ecsReg)
+}
 
+func wireSchedulerMessaging(
+	runner *schedulerbackend.Runner,
+	lambdaReg, sqsReg, snsReg service.Registerable,
+) {
 	if lambdaH, ok := lambdaReg.(*lambdabackend.Handler); ok {
-		if lambdaBk, ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); ok {
+		if lambdaBk, ok2 := lambdaH.Backend.(*lambdabackend.InMemoryBackend); ok2 {
 			runner.SetLambdaInvoker(&schedulerLambdaAdapter{backend: lambdaBk})
 		}
 	}
+
 	if sqsH, ok := sqsReg.(*sqsbackend.Handler); ok {
-		if sqsBk, ok := sqsH.Backend.(*sqsbackend.InMemoryBackend); ok {
+		if sqsBk, ok2 := sqsH.Backend.(*sqsbackend.InMemoryBackend); ok2 {
 			runner.SetSQSSender(&sqsSenderAdapter{backend: sqsBk})
-			// FIFO sender is not explicitly wired in the old one, but let's check if it exists later.
 		}
 	}
+
 	if snsH, ok := snsReg.(*snsbackend.Handler); ok {
-		if snsBk, ok := snsH.Backend.(*snsbackend.InMemoryBackend); ok {
+		if snsBk, ok2 := snsH.Backend.(*snsbackend.InMemoryBackend); ok2 {
 			runner.SetSNSPublisher(&snsPublisherAdapter{backend: snsBk})
 		}
 	}
+}
+
+func wireSchedulerWorkflow(
+	runner *schedulerbackend.Runner,
+	sfnReg, ebReg, kinesisReg service.Registerable,
+) {
 	if sfnH, ok := sfnReg.(*sfnbackend.Handler); ok {
-		if sfnBk, ok := sfnH.Backend.(*sfnbackend.InMemoryBackend); ok {
+		if sfnBk, ok2 := sfnH.Backend.(*sfnbackend.InMemoryBackend); ok2 {
 			runner.SetStepFunctionsStarter(&sfnStarterAdapter{backend: sfnBk})
 		}
 	}
+
 	if ebH, ok := ebReg.(*ebbackend.Handler); ok {
-		if ebBk, ok := ebH.Backend.(*ebbackend.InMemoryBackend); ok {
+		if ebBk, ok2 := ebH.Backend.(*ebbackend.InMemoryBackend); ok2 {
 			runner.SetEventBusPutter(&schedEventBusAdapter{backend: ebBk})
 		}
 	}
+
 	if kinesisH, ok := kinesisReg.(*kinesisbackend.Handler); ok {
-		if kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); ok {
+		if kinesisBk, ok2 := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); ok2 {
 			runner.SetKinesisRecordPutter(&schedKinesisAdapter{backend: kinesisBk})
 		}
 	}
+}
+
+func wireSchedulerCompute(
+	runner *schedulerbackend.Runner,
+	sagemakerReg, ecsReg service.Registerable,
+) {
 	if sagemakerH, ok := sagemakerReg.(*sagemakerbackend.Handler); ok {
 		if sagemakerBk := sagemakerH.Backend; sagemakerBk != nil {
 			runner.SetSageMakerPipelineStarter(&schedSageMakerAdapter{backend: sagemakerBk})
 		}
 	}
+
 	if ecsH, ok := ecsReg.(*ecsbackend.Handler); ok {
-		if ecsBk, ok := ecsH.Backend.(*ecsbackend.InMemoryBackend); ok {
+		if ecsBk, ok2 := ecsH.Backend.(*ecsbackend.InMemoryBackend); ok2 {
 			runner.SetECSTaskRunner(&schedECSAdapter{backend: ecsBk})
 		}
 	}
