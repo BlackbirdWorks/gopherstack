@@ -691,7 +691,7 @@ func (h *Handler) handleListDeliveryStreams(
 	ctx context.Context,
 	in *listDeliveryStreamsInput,
 ) (*listDeliveryStreamsOutput, error) {
-	names := h.Backend.ListDeliveryStreams(ctx)
+	names := h.Backend.ListDeliveryStreams(ctx, in.DeliveryStreamType)
 
 	// Apply ExclusiveStartDeliveryStreamName cursor.
 	if in.ExclusiveStartDeliveryStreamName != "" {

@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -58,6 +59,7 @@ const (
 	protocolHTTP            = "http"
 	protocolSMS             = "sms"
 	protocolApplication     = "application"
+	protocolSQS             = "sqs"
 	// attrPendingConfirmation is the SNS subscription attribute key whose
 	// value is "true" while a subscription awaits confirmation. The key uses
 	// the PascalCase attribute name returned by GetSubscriptionAttributes.
@@ -85,6 +87,7 @@ var (
 	ErrPermissionLabelNotFound          = errors.New("AuthorizationError")
 	ErrSandboxPhoneNotVerified          = errors.New("InvalidParameter")
 	ErrOptedOut                         = errors.New("KMSOptInRequired")
+	ErrHTTPStatus                       = errors.New("HTTP status")
 )
 
 const (
@@ -1313,16 +1316,18 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(
 
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.
 type httpDelivery struct {
-	signer          *notificationSigner // nil disables signing
-	sqsSender       SQSSender           // optional; non-nil when subscription has a DLQ
-	endpoint        string
-	body            string
-	subject         string
-	messageID       string
-	topicARN        string
-	subscriptionARN string
-	redrivePolicy   string // JSON RedrivePolicy; non-empty when DLQ is configured
-	rawDelivery     bool
+	signer               *notificationSigner // nil disables signing
+	sqsSender            SQSSender           // optional; non-nil when subscription has a DLQ
+	endpoint             string
+	body                 string
+	subject              string
+	messageID            string
+	topicARN             string
+	subscriptionARN      string
+	redrivePolicy        string // JSON RedrivePolicy; non-empty when DLQ is configured
+	deliveryPolicy       string
+	topicEffectivePolicy string
+	rawDelivery          bool
 }
 
 // publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.
@@ -1660,7 +1665,7 @@ func validateRedrivePolicy(policy string) error {
 	}
 
 	parts := strings.Split(parsed.DeadLetterTargetArn, ":")
-	if len(parts) < 6 || parts[0] != "arn" || parts[2] != "sqs" {
+	if len(parts) < 6 || parts[0] != "arn" || parts[2] != protocolSQS {
 		return fmt.Errorf(
 			"%w: RedrivePolicy.deadLetterTargetArn must be a valid SQS queue ARN, got %s",
 			ErrInvalidParameter, parsed.DeadLetterTargetArn,
@@ -1813,13 +1818,16 @@ func (b *InMemoryBackend) collectPublishTargets(
 
 		if sub.Protocol == protocolHTTP || sub.Protocol == protocolHTTPS {
 			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{
-				endpoint:        sub.Endpoint,
-				body:            msg,
-				subject:         subject,
-				subscriptionARN: sub.SubscriptionArn,
-				rawDelivery:     sub.RawMessageDelivery,
-				redrivePolicy:   sub.RedrivePolicy,
-				sqsSender:       b.sqsSender,
+				endpoint:             sub.Endpoint,
+				body:                 msg,
+				subject:              subject,
+				topicARN:             topicArn,
+				subscriptionARN:      sub.SubscriptionArn,
+				rawDelivery:          sub.RawMessageDelivery,
+				redrivePolicy:        sub.RedrivePolicy,
+				deliveryPolicy:       sub.DeliveryPolicy,
+				topicEffectivePolicy: b.topics[topicArn].Attributes["EffectiveDeliveryPolicy"],
+				sqsSender:            b.sqsSender,
 			})
 		}
 
@@ -2073,7 +2081,7 @@ func (b *InMemoryBackend) dispatchHTTPDeliveries(deliveries []httpDelivery, clie
 			select {
 			case b.workerSem <- struct{}{}:
 				defer func() { <-b.workerSem }()
-				deliverHTTPWithMeta(ctx, d, client)
+				deliverHTTPWithMeta(ctx, d, client, b)
 			case <-ctx.Done():
 				// Service is shutting down; drop this delivery rather than
 				// blocking indefinitely on a full semaphore.
@@ -2829,29 +2837,133 @@ type snsHTTPNotification struct {
 	UnsubscribeURL   string `json:"UnsubscribeURL"`
 }
 
-// deliverHTTPWithMeta sends a best-effort HTTP POST with SNS notification headers
-// to the endpoint. Standard AWS SNS headers are added when metadata is available.
-// When rawDelivery is false the body is wrapped in a SNS Notification JSON envelope
-// (matching what AWS SNS sends to http/https subscribers by default).
-// On network error or non-2xx response, the message is forwarded to the DLQ when
-// a RedrivePolicy is configured.
-func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client) {
-	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
-	defer cancel()
+func parseTopicEffectivePolicy(topicEffectivePolicy, protocol string) *int {
+	var tp map[string]struct {
+		DefaultHealthyRetryPolicy struct {
+			NumRetries *int `json:"numRetries"`
+		} `json:"defaultHealthyRetryPolicy"`
+	}
+	if err := json.Unmarshal([]byte(topicEffectivePolicy), &tp); err == nil {
+		pKey := protocol
+		if pKey == protocolHTTPS {
+			pKey = protocolHTTP
+		}
+		if protoPol, ok := tp[pKey]; ok {
+			return protoPol.DefaultHealthyRetryPolicy.NumRetries
+		}
+	}
 
+	return nil
+}
+
+func parseSubPolicy(subPolicy string) *int {
+	var sp struct {
+		HealthyRetryPolicy struct {
+			NumRetries *int `json:"numRetries"`
+		} `json:"healthyRetryPolicy"`
+	}
+	if err := json.Unmarshal([]byte(subPolicy), &sp); err == nil {
+		return sp.HealthyRetryPolicy.NumRetries
+	}
+
+	return nil
+}
+
+// getRetryConfig parses the EffectiveDeliveryPolicy and/or DeliveryPolicy for a given protocol.
+// It returns the number of retries configured.
+func getRetryConfig(topicEffectivePolicy, subPolicy, protocol string) int {
+	numRetries := 3
+
+	if topicEffectivePolicy != "" {
+		if nr := parseTopicEffectivePolicy(topicEffectivePolicy, protocol); nr != nil {
+			numRetries = *nr
+		}
+	}
+
+	if subPolicy != "" {
+		if nr := parseSubPolicy(subPolicy); nr != nil {
+			numRetries = *nr
+		}
+	}
+
+	if numRetries < 0 {
+		numRetries = 0
+	}
+
+	return numRetries
+}
+
+func (b *InMemoryBackend) logDeliveryStatus(
+	ctx context.Context,
+	topicARN, protocol, endpoint, status string,
+	err error,
+) {
+	b.mu.RLock("logDeliveryStatus")
+	topic, ok := b.topics[topicARN]
+	if !ok {
+		b.mu.RUnlock()
+
+		return
+	}
+
+	// Determine the protocol prefix
+	constHTTPPrefix := "HTTP"
+	constHTTPSPrefix := "HTTPS"
+	var prefix string
+	switch protocol {
+	case protocolHTTP, protocolHTTPS:
+		prefix = constHTTPPrefix
+		if protocol == protocolHTTPS {
+			if topic.Attributes["HTTPSSuccessFeedbackRoleArn"] != "" {
+				prefix = constHTTPSPrefix
+			} else {
+				prefix = constHTTPPrefix
+			}
+		}
+	case protocolLambda:
+		prefix = "Lambda"
+	case protocolFirehose:
+		prefix = "Firehose"
+	case protocolApplication:
+		prefix = "Application"
+	case protocolSQS:
+		prefix = "SQS"
+	default:
+		prefix = constHTTPPrefix
+	}
+
+	roleArnAttr := prefix + "SuccessFeedbackRoleArn"
+	if status == "FAILURE" {
+		roleArnAttr = prefix + "FailureFeedbackRoleArn"
+	}
+
+	roleArn := topic.Attributes[roleArnAttr]
+	b.mu.RUnlock()
+
+	if roleArn == "" {
+		return
+	}
+
+	l := logger.Load(ctx).With(
+		"protocol", protocol,
+		"endpoint", endpoint,
+		"status", status,
+		"role_arn", roleArn,
+		"topic_arn", topicARN,
+	)
+	if err != nil {
+		l.InfoContext(ctx, "SNS delivery status", "error", err.Error())
+	} else {
+		l.InfoContext(ctx, "SNS delivery status")
+	}
+}
+
+func buildHTTPDeliveryPayload(d httpDelivery) string {
 	body := d.body
 
-	// When RawMessageDelivery is false (the default), wrap the message in the
-	// standard SNS Notification JSON envelope. This matches what real AWS SNS
-	// delivers to http/https subscribers so that notification handling libraries
-	// (e.g. aws-sns-body-parser) can parse the payload correctly.
 	if !d.rawDelivery && d.messageID != "" {
 		timestamp := time.Now().UTC().Format(time.RFC3339)
 
-		// Derive region from topic ARN (arn:aws:sns:<region>:…) so the fallback
-		// certURL reflects the actual region rather than a hardcoded us-east-1.
-		// ARN layout: arn:aws:sns:<region>:<account>:<topic>; region is the 4th
-		// colon-separated field, and splitting into 6 keeps the topic name intact.
 		const (
 			arnFieldCount   = 6
 			arnRegionIndex  = 3
@@ -2896,45 +3008,60 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 		}
 	}
 
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		d.endpoint,
-		strings.NewReader(body),
-	)
-	if err != nil {
-		sendSubscriptionDLQ(parent, d)
+	return body
+}
 
-		return
+// deliverHTTPWithMeta sends a best-effort HTTP POST with SNS notification headers
+// to the endpoint. Standard AWS SNS headers are added when metadata is available.
+// When rawDelivery is false the body is wrapped in a SNS Notification JSON envelope
+// (matching what AWS SNS sends to http/https subscribers by default).
+// On network error or non-2xx response, the message is forwarded to the DLQ when
+// a RedrivePolicy is configured.
+func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client, b *InMemoryBackend) {
+	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
+	defer cancel()
+
+	body := buildHTTPDeliveryPayload(d)
+
+	protocol := protocolHTTP
+	if strings.HasPrefix(d.endpoint, "https://") {
+		protocol = protocolHTTPS
+	}
+	numRetries := getRetryConfig(d.topicEffectivePolicy, d.deliveryPolicy, protocol)
+
+	var err error
+	var resp *http.Response
+
+	for i := 0; i <= numRetries; i++ {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, d.endpoint, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Amz-Sns-Message-Type", messageTypeNotification)
+		if d.messageID != "" {
+			req.Header.Set("X-Amz-Sns-Message-Id", d.messageID)
+		}
+		if d.topicARN != "" {
+			req.Header.Set("X-Amz-Sns-Topic-Arn", d.topicARN)
+		}
+		if d.subscriptionARN != "" {
+			req.Header.Set("X-Amz-Sns-Subscription-Arn", d.subscriptionARN)
+		}
+
+		resp, err = client.Do(req)
+		if err == nil {
+			defer func() { _ = resp.Body.Close() }()
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDeliveryResponseBytes))
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				b.logDeliveryStatus(parent, d.topicARN, protocol, d.endpoint, "SUCCESS", nil)
+
+				return
+			}
+			err = fmt.Errorf("%w: %d", ErrHTTPStatus, resp.StatusCode)
+		}
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-
-	// Add standard AWS SNS HTTP notification headers.
-	req.Header.Set("X-Amz-Sns-Message-Type", messageTypeNotification)
-	if d.messageID != "" {
-		req.Header.Set("X-Amz-Sns-Message-Id", d.messageID)
-	}
-	if d.topicARN != "" {
-		req.Header.Set("X-Amz-Sns-Topic-Arn", d.topicARN)
-	}
-	if d.subscriptionARN != "" {
-		req.Header.Set("X-Amz-Sns-Subscription-Arn", d.subscriptionARN)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		sendSubscriptionDLQ(parent, d)
-
-		return
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDeliveryResponseBytes))
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		sendSubscriptionDLQ(parent, d)
-	}
+	b.logDeliveryStatus(parent, d.topicARN, protocol, d.endpoint, "FAILURE", err)
+	sendSubscriptionDLQ(parent, d)
 }
 
 // sendSubscriptionDLQ delivers the message body to the DLQ configured in d.redrivePolicy when
@@ -3565,6 +3692,12 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 	client := b.httpClient
 	signer := b.signer
 	sqsSender := b.sqsSender
+
+	var topicEffectivePolicy string
+	if topic, ok := b.topics[topicArn]; ok {
+		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+	}
+
 	b.mu.RUnlock()
 
 	for _, msg := range toReplay {
@@ -3575,22 +3708,25 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 			FilterPolicy:       sub.FilterPolicy,
 			RawMessageDelivery: sub.RawMessageDelivery,
 			RedrivePolicy:      sub.RedrivePolicy,
+			DeliveryPolicy:     sub.DeliveryPolicy,
 		}
 
 		if sub.Protocol == protocolHTTP || sub.Protocol == protocolHTTPS {
 			d := httpDelivery{
-				endpoint:        sub.Endpoint,
-				body:            msg.Message,
-				subject:         msg.Subject,
-				messageID:       msg.MessageID,
-				topicARN:        topicArn,
-				subscriptionARN: sub.SubscriptionArn,
-				rawDelivery:     sub.RawMessageDelivery,
-				redrivePolicy:   sub.RedrivePolicy,
-				sqsSender:       sqsSender,
-				signer:          signer,
+				endpoint:             sub.Endpoint,
+				body:                 msg.Message,
+				subject:              msg.Subject,
+				messageID:            msg.MessageID,
+				topicARN:             topicArn,
+				subscriptionARN:      sub.SubscriptionArn,
+				rawDelivery:          sub.RawMessageDelivery,
+				redrivePolicy:        sub.RedrivePolicy,
+				deliveryPolicy:       sub.DeliveryPolicy,
+				topicEffectivePolicy: topicEffectivePolicy,
+				sqsSender:            sqsSender,
+				signer:               signer,
 			}
-			deliverHTTPWithMeta(b.svcCtx, d, client)
+			deliverHTTPWithMeta(b.svcCtx, d, client, b)
 		}
 
 		if emitter != nil {

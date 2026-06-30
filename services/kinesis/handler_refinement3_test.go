@@ -1550,12 +1550,12 @@ func TestRefinement3_UpdateShardCount_SecondScaleStillWorks(t *testing.T) {
 
 	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "double-scale-stream",
-		ShardCount: 1,
+		ShardCount: 2,
 	}))
 
 	_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "double-scale-stream",
-		TargetShardCount: 3,
+		TargetShardCount: 4,
 		ScalingType:      "UNIFORM_SCALING",
 	})
 	require.NoError(t, err)
@@ -1566,7 +1566,7 @@ func TestRefinement3_UpdateShardCount_SecondScaleStillWorks(t *testing.T) {
 		ScalingType:      "UNIFORM_SCALING",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, 3, out2.CurrentShardCount, "current count after first scale is 3 open shards")
+	assert.Equal(t, 4, out2.CurrentShardCount, "current count after first scale is 4 open shards")
 	assert.Equal(t, 2, out2.TargetShardCount)
 }
 
@@ -1743,7 +1743,7 @@ func TestRefinement3_UpdateShardCount_LargeScale(t *testing.T) {
 	b := kinesis.NewInMemoryBackend()
 	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "large-scale-stream",
-		ShardCount: 1,
+		ShardCount: 5,
 	}))
 
 	out, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
@@ -1752,7 +1752,7 @@ func TestRefinement3_UpdateShardCount_LargeScale(t *testing.T) {
 		ScalingType:      "UNIFORM_SCALING",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, 1, out.CurrentShardCount)
+	assert.Equal(t, 5, out.CurrentShardCount)
 	assert.Equal(t, 10, out.TargetShardCount)
 
 	// Verify 10 open shards via ListShards.

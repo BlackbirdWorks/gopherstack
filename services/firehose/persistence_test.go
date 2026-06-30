@@ -45,7 +45,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *firehose.InMemoryBackend, _ string) {
 				t.Helper()
 
-				streams := b.ListDeliveryStreams(context.TODO())
+				streams := b.ListDeliveryStreams(context.TODO(), "")
 				assert.Empty(t, streams)
 			},
 		},
@@ -99,7 +99,7 @@ func TestRestore_ClosesExistingTagsBeforeReplace(t *testing.T) {
 	require.NoError(t, b.Restore(t.Context(), snap))
 
 	// Only the new stream should be visible now.
-	names := b.ListDeliveryStreams(context.TODO())
+	names := b.ListDeliveryStreams(context.TODO(), "")
 	assert.Equal(t, []string{"new-stream"}, names)
 }
 

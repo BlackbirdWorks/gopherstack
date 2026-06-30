@@ -320,7 +320,33 @@ func shardForPartitionKey(shards []*Shard, partitionKey string) *Shard {
 func (s *Shard) nextSequenceNumber() string {
 	s.NextSeq++
 
-	return fmt.Sprintf("%020d", s.NextSeq)
+	var idx int64
+	if _, err := fmt.Sscanf(s.ID, "shardId-%d", &idx); err != nil {
+		idx = 0
+	}
+	const shardIDModulus = 10000
+
+	// AWS sequence numbers encode time and shard info. We use a 49-prefix, timestamp, shard index, and seq.
+	return fmt.Sprintf(
+		"49%014d%04d%020d",
+		time.Now().UnixNano()/int64(time.Millisecond),
+		idx%shardIDModulus,
+		s.NextSeq,
+	)
+}
+
+func checkOnDemandLimit(streams map[string]*Stream, limit int) error {
+	onDemandCount := 0
+	for _, s := range streams {
+		if s.StreamMode == streamModeOnDemand {
+			onDemandCount++
+		}
+	}
+	if onDemandCount >= limit {
+		return ErrLimitExceeded
+	}
+
+	return nil
 }
 
 // CreateStream creates a new Kinesis stream.
@@ -395,17 +421,13 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 	streamMode := input.StreamMode
 	if streamMode == "" {
 		streamMode = streamModeProvisioned
+	} else if streamMode != streamModeProvisioned && streamMode != streamModeOnDemand {
+		return ErrInvalidArgument
 	}
 
 	if streamMode == streamModeOnDemand {
-		onDemandCount := 0
-		for _, s := range streams {
-			if s.StreamMode == streamModeOnDemand {
-				onDemandCount++
-			}
-		}
-		if onDemandCount >= b.onDemandStreamCountLimit {
-			return ErrLimitExceeded
+		if err := checkOnDemandLimit(streams, b.onDemandStreamCountLimit); err != nil {
+			return err
 		}
 	}
 
@@ -1424,6 +1446,35 @@ func (b *InMemoryBackend) SubscribeToShard(
 	}, nil
 }
 
+func findOverlappingParents(start, end *big.Int, oldOpenShards []*Shard) (string, string) {
+	var parents []string
+	for _, os := range oldOpenShards {
+		osStart, _ := new(big.Int).SetString(os.HashKeyRangeStart, hashKeyDecimalBase)
+		osEnd, _ := new(big.Int).SetString(os.HashKeyRangeEnd, hashKeyDecimalBase)
+
+		maxStart := start
+		if osStart.Cmp(maxStart) > 0 {
+			maxStart = osStart
+		}
+		minEnd := end
+		if osEnd.Cmp(minEnd) < 0 {
+			minEnd = osEnd
+		}
+		if maxStart.Cmp(minEnd) <= 0 {
+			parents = append(parents, os.ID)
+		}
+	}
+	var pid, apid string
+	if len(parents) > 0 {
+		pid = parents[0]
+	}
+	if len(parents) > 1 {
+		apid = parents[1]
+	}
+
+	return pid, apid
+}
+
 // UpdateShardCount resizes a stream to the given number of shards.
 // Existing records in the stream are not migrated; new shards start empty.
 func (b *InMemoryBackend) UpdateShardCount(
@@ -1456,12 +1507,18 @@ func (b *InMemoryBackend) UpdateShardCount(
 
 	// Count only open shards as the current count (AWS semantics).
 	currentCount := 0
+	var oldOpenShards []*Shard
 	for _, s := range stream.Shards {
 		if !s.Closed {
 			currentCount++
+			oldOpenShards = append(oldOpenShards, s)
 		}
 	}
 	targetCount := input.TargetShardCount
+
+	if targetCount > currentCount*2 || targetCount < currentCount/2 {
+		return nil, ErrInvalidArgument
+	}
 
 	maxHashKey := new(big.Int).Sub(
 		new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),
@@ -1489,19 +1546,21 @@ func (b *InMemoryBackend) UpdateShardCount(
 			)
 		}
 
+		pid, apid := findOverlappingParents(start, end, oldOpenShards)
+
 		newShards[i] = &Shard{
-			ID:                fmt.Sprintf("shardId-%012d", startIdx+i),
-			HashKeyRangeStart: start.String(),
-			HashKeyRangeEnd:   end.String(),
+			ID:                    fmt.Sprintf("shardId-%012d", startIdx+i),
+			HashKeyRangeStart:     start.String(),
+			HashKeyRangeEnd:       end.String(),
+			ParentShardID:         pid,
+			AdjacentParentShardID: apid,
 		}
 	}
 
 	// Mark all currently open shards as CLOSED (AWS semantics: old shards
 	// remain visible in DescribeStream/ListShards with CLOSED status).
-	for _, s := range stream.Shards {
-		if !s.Closed {
-			s.Closed = true
-		}
+	for _, s := range oldOpenShards {
+		s.Closed = true
 	}
 
 	allShards := make([]*Shard, 0, len(stream.Shards)+targetCount)
@@ -1698,6 +1757,9 @@ func (b *InMemoryBackend) MergeShards(ctx context.Context, input *MergeShardsInp
 	shard2 := findShard(stream.Shards, input.AdjacentShardToMerge)
 
 	if shard1 == nil || shard2 == nil {
+		return ErrInvalidArgument
+	}
+	if shard1.Closed || shard2.Closed {
 		return ErrInvalidArgument
 	}
 

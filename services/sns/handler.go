@@ -596,8 +596,8 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 	}
 
 	validProtocols := map[string]bool{
-		protocolEmail: true, protocolEmailJSON: true, "http": true, "https": true,
-		"sqs": true, "lambda": true, "sms": true, "application": true, "firehose": true,
+		protocolEmail: true, protocolEmailJSON: true, protocolHTTP: true, protocolHTTPS: true,
+		protocolSQS: true, protocolLambda: true, protocolSMS: true, protocolApplication: true, protocolFirehose: true,
 	}
 	if !validProtocols[protocol] {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameter",

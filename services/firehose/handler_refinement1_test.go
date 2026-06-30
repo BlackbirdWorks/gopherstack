@@ -116,9 +116,9 @@ func TestUpdateDestination_VersionCheck(t *testing.T) {
 			wantErr:          false,
 		},
 		{
-			name:             "empty_version_skips_check",
+			name:             "empty_version_fails_check",
 			currentVersionID: "",
-			wantErr:          false,
+			wantErr:          true,
 		},
 		{
 			name:             "mismatched_version",

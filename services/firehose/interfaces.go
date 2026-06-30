@@ -8,7 +8,7 @@ type StorageBackend interface {
 	CreateDeliveryStream(ctx context.Context, input CreateDeliveryStreamInput) (*DeliveryStream, error)
 	DeleteDeliveryStream(ctx context.Context, name string) error
 	DescribeDeliveryStream(ctx context.Context, name string) (*DeliveryStream, error)
-	ListDeliveryStreams(ctx context.Context) []string
+	ListDeliveryStreams(ctx context.Context, deliveryStreamType string) []string
 	PutRecord(ctx context.Context, streamName string, data []byte) error
 	PutRecordBatch(ctx context.Context, streamName string, records [][]byte) (int, error)
 	UpdateDestination(ctx context.Context, streamName, currentVersionID string, input UpdateDestinationInput) error
