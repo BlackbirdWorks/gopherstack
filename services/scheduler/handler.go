@@ -204,6 +204,11 @@ type Handler struct {
 	cancel  context.CancelFunc
 }
 
+// Runner returns the internal runner for cross-service wiring.
+func (h *Handler) Runner() *Runner {
+	return h.runner
+}
+
 // NewHandler creates a new Scheduler handler.
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{

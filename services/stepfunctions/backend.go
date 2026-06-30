@@ -185,13 +185,14 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	lambdaInvoker  asl.LambdaInvoker
-	sqsIntegration asl.SQSIntegration
-	snsIntegration asl.SNSIntegration
-	ddbIntegration asl.DynamoDBIntegration
-	// svcCtx is the service lifecycle context. Execution goroutines derive their
-	// contexts from it so that all active executions are cancelled on server shutdown.
-	svcCtx context.Context
+	lambdaInvoker   asl.LambdaInvoker
+	sqsIntegration  asl.SQSIntegration
+	snsIntegration  asl.SNSIntegration
+	ddbIntegration  asl.DynamoDBIntegration
+	ecsIntegration  asl.ECSIntegration
+	glueIntegration asl.GlueIntegration
+	ebIntegration   asl.EventBridgeIntegration
+	svcCtx          context.Context
 	// tasksByToken maps task token → task entry for SendTaskSuccess/Failure.
 	tasksByToken map[string]*activityTaskEntry
 	// smVersions maps state machine ARN → ordered list of version ARNs.
@@ -381,6 +382,27 @@ func (b *InMemoryBackend) SetDynamoDBIntegration(ddb asl.DynamoDBIntegration) {
 	b.mu.Lock("SetDynamoDBIntegration")
 	defer b.mu.Unlock()
 	b.ddbIntegration = ddb
+}
+
+// SetECSIntegration configures the ECS integration.
+func (b *InMemoryBackend) SetECSIntegration(ecs asl.ECSIntegration) {
+	b.mu.Lock("SetECSIntegration")
+	defer b.mu.Unlock()
+	b.ecsIntegration = ecs
+}
+
+// SetGlueIntegration configures the Glue integration.
+func (b *InMemoryBackend) SetGlueIntegration(glue asl.GlueIntegration) {
+	b.mu.Lock("SetGlueIntegration")
+	defer b.mu.Unlock()
+	b.glueIntegration = glue
+}
+
+// SetEventBridgeIntegration configures the EventBridge integration.
+func (b *InMemoryBackend) SetEventBridgeIntegration(eb asl.EventBridgeIntegration) {
+	b.mu.Lock("SetEventBridgeIntegration")
+	defer b.mu.Unlock()
+	b.ebIntegration = eb
 }
 
 func (b *InMemoryBackend) smARN(region, name string) string {
@@ -823,6 +845,9 @@ func (b *InMemoryBackend) StartSyncExecution(
 	sqsIntegration := b.sqsIntegration
 	snsIntegration := b.snsIntegration
 	ddbIntegration := b.ddbIntegration
+	ecsIntegration := b.ecsIntegration
+	glueIntegration := b.glueIntegration
+	ebIntegration := b.ebIntegration
 	b.mu.RUnlock()
 
 	parsedSM, parseErr := asl.Parse(definition)
@@ -849,6 +874,9 @@ func (b *InMemoryBackend) StartSyncExecution(
 	executor.SetSQSIntegration(sqsIntegration)
 	executor.SetSNSIntegration(snsIntegration)
 	executor.SetDynamoDBIntegration(ddbIntegration)
+	executor.SetECSIntegration(ecsIntegration)
+	executor.SetGlueIntegration(glueIntegration)
+	executor.SetEventBridgeIntegration(ebIntegration)
 	executor.SetActivityInvoker(b)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(
@@ -924,6 +952,26 @@ func finalizeSyncExecutionResult(
 	return syncResult
 }
 
+func (b *InMemoryBackend) initializeExecutionRecord(smArn, name, execArn, input, def string, now float64) *Execution {
+	exec := &Execution{
+		StartDate:       now,
+		ExecutionArn:    execArn,
+		StateMachineArn: smArn,
+		Name:            name,
+		Status:          statusRunning,
+		Input:           input,
+	}
+	b.executions[execArn] = exec
+	b.executionDefinitions[execArn] = def
+	b.history[execArn] = []*HistoryEvent{
+		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
+	}
+	b.smExecutions[smArn] = append(b.smExecutions[smArn], execArn)
+	b.addToStatusBucket(smArn, statusRunning, execArn)
+
+	return exec
+}
+
 // StartExecution creates an execution and runs the ASL interpreter asynchronously.
 func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*Execution, error) {
 	if len(input) > maxExecutionInputBytes {
@@ -988,27 +1036,15 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 
 	const millisPerSecond = 1000.0
 	now := float64(time.Now().UnixMilli()) / millisPerSecond
-	exec := &Execution{
-		StartDate:       now,
-		ExecutionArn:    execArn,
-		StateMachineArn: stateMachineArn,
-		Name:            name,
-		Status:          statusRunning,
-		Input:           input,
-	}
-	b.executions[execArn] = exec
-
-	// Snapshot the definition at execution start time for DescribeStateMachineForExecution.
-	b.executionDefinitions[execArn] = definition
-
-	b.history[execArn] = []*HistoryEvent{
-		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
-	}
+	exec := b.initializeExecutionRecord(stateMachineArn, name, execArn, input, definition, now)
 
 	lambdaInvoker := b.lambdaInvoker
 	sqsIntegration := b.sqsIntegration
 	snsIntegration := b.snsIntegration
 	ddbIntegration := b.ddbIntegration
+	ecsIntegration := b.ecsIntegration
+	glueIntegration := b.glueIntegration
+	ebIntegration := b.ebIntegration
 
 	// Register the execution in the SM→executions index and store a cancel fn
 	// so StopExecution and DeleteStateMachine can cancel the goroutine.
@@ -1018,8 +1054,6 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
 	ctx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFns[execArn] = cancel
-	b.smExecutions[stateMachineArn] = append(b.smExecutions[stateMachineArn], execArn)
-	b.addToStatusBucket(stateMachineArn, statusRunning, execArn)
 
 	var activityInvoker asl.ActivityInvoker = b
 
@@ -1027,8 +1061,18 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 
 	// Run the ASL interpreter asynchronously.
 	go b.runParsedExecution(
-		ctx, execArn, parsedSM, input,
-		lambdaInvoker, sqsIntegration, snsIntegration, ddbIntegration, activityInvoker,
+		ctx,
+		execArn,
+		parsedSM,
+		input,
+		lambdaInvoker,
+		sqsIntegration,
+		snsIntegration,
+		ddbIntegration,
+		ecsIntegration,
+		glueIntegration,
+		ebIntegration,
+		activityInvoker,
 	)
 
 	return exec, nil
@@ -1158,6 +1202,8 @@ func stateExitedEventType(stateType string) string {
 		return "WaitStateExited"
 	case "Succeed":
 		return "SucceedStateExited"
+	case "Fail":
+		return "FailStateExited"
 	case "Parallel":
 		return "ParallelStateExited"
 	case "Map":
@@ -1263,6 +1309,9 @@ func (b *InMemoryBackend) runParsedExecution(
 	sqsIntegration asl.SQSIntegration,
 	snsIntegration asl.SNSIntegration,
 	ddbIntegration asl.DynamoDBIntegration,
+	ecsIntegration asl.ECSIntegration,
+	glueIntegration asl.GlueIntegration,
+	ebIntegration asl.EventBridgeIntegration,
 	activityInvoker asl.ActivityInvoker,
 ) {
 	rec := &historyRecorder{backend: b}
@@ -1270,6 +1319,9 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetSQSIntegration(sqsIntegration)
 	executor.SetSNSIntegration(snsIntegration)
 	executor.SetDynamoDBIntegration(ddbIntegration)
+	executor.SetECSIntegration(ecsIntegration)
+	executor.SetGlueIntegration(glueIntegration)
+	executor.SetEventBridgeIntegration(ebIntegration)
 	executor.SetActivityInvoker(activityInvoker)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(b)
@@ -1944,6 +1996,23 @@ func (b *InMemoryBackend) ListStateMachineAliases(
 	return aliases, token, nil
 }
 
+func (b *InMemoryBackend) resetExecutionForRedrive(exec *Execution, executionARN, smARN string, now float64) {
+	oldStatus := exec.Status
+	exec.Status = statusRunning
+	exec.Output = ""
+	exec.Error = ""
+	exec.Cause = ""
+	exec.StopDate = nil
+	exec.StartDate = now
+	exec.RedriveCount++
+	exec.RedriveDate = &now
+	b.removeFromStatusBucket(smARN, oldStatus, executionARN)
+	b.addToStatusBucket(smARN, statusRunning, executionARN)
+	b.history[executionARN] = []*HistoryEvent{
+		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
+	}
+}
+
 // RedriveExecution re-runs a FAILED or ABORTED execution starting from its last known state.
 // AWS Step Functions re-runs from the last state that was reached before failure.
 // In this implementation we restart the entire execution with the original input (AWS parity for STANDARD executions).
@@ -1993,22 +2062,7 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 
 	// Reset the execution to RUNNING.
 	now := float64(time.Now().Unix())
-	oldStatus := exec.Status
-	exec.Status = statusRunning
-	exec.Output = ""
-	exec.Error = ""
-	exec.Cause = ""
-	exec.StopDate = nil
-	exec.StartDate = now
-	exec.RedriveCount++
-	exec.RedriveDate = &now
-	b.removeFromStatusBucket(smARN, oldStatus, executionARN)
-	b.addToStatusBucket(smARN, statusRunning, executionARN)
-
-	// Reset history.
-	b.history[executionARN] = []*HistoryEvent{
-		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
-	}
+	b.resetExecutionForRedrive(exec, executionARN, smARN, now)
 
 	// Snapshot the (possibly-updated) definition.
 	b.executionDefinitions[executionARN] = definition
@@ -2017,6 +2071,9 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 	sqsIntegration := b.sqsIntegration
 	snsIntegration := b.snsIntegration
 	ddbIntegration := b.ddbIntegration
+	ecsIntegration := b.ecsIntegration
+	glueIntegration := b.glueIntegration
+	ebIntegration := b.ebIntegration
 
 	//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
 	ctx, cancel := context.WithCancel(b.svcCtx)
@@ -2033,8 +2090,18 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 	b.mu.Unlock()
 
 	go b.runParsedExecution(
-		ctx, executionARN, parsedSM, originalInput,
-		lambdaInvoker, sqsIntegration, snsIntegration, ddbIntegration, activityInvoker,
+		ctx,
+		executionARN,
+		parsedSM,
+		originalInput,
+		lambdaInvoker,
+		sqsIntegration,
+		snsIntegration,
+		ddbIntegration,
+		ecsIntegration,
+		glueIntegration,
+		ebIntegration,
+		activityInvoker,
 	)
 
 	b.mu.RLock("RedriveExecution.result")

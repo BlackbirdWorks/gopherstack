@@ -1,10 +1,12 @@
 package eventbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/http"
 	"regexp"
 	"strings"
 	"sync"
@@ -69,6 +71,12 @@ type DeliveryTargets struct {
 	KinesisStream   KinesisStreamPublisher
 	ECS             ECSTaskRunner
 	StepFunctions   StepFunctionsExecutor
+	CloudWatchLogs  CloudWatchLogsPublisher
+}
+
+// CloudWatchLogsPublisher delivers an event to a CloudWatch Logs log group.
+type CloudWatchLogsPublisher interface {
+	PutLogEvents(ctx context.Context, logGroupName, logStreamName string, logEvents []any) error
 }
 
 // deliverScheduledRule delivers a scheduled-rule synthetic event directly to the
@@ -415,6 +423,10 @@ func deliverToTarget(
 		return deliverToECS(ctx, dt.ECS, targetARN, payload)
 	case isStateMachineARN(targetARN):
 		return deliverToStepFunctions(ctx, dt.StepFunctions, targetARN, payload)
+	case isCloudWatchLogsARN(targetARN):
+		return deliverToCloudWatchLogs(ctx, dt.CloudWatchLogs, targetARN, payload)
+	case isAPIDestinationARN(targetARN):
+		return deliverToAPIDestination(ctx, target, targetARN, payload)
 	default:
 		logger.Load(ctx).
 			WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", targetARN)
@@ -764,4 +776,48 @@ func deliverToStepFunctions(
 	}
 
 	return false
+}
+
+func isCloudWatchLogsARN(arn string) bool {
+	return strings.HasPrefix(arn, "arn:aws:logs:")
+}
+
+func isAPIDestinationARN(arn string) bool {
+	return strings.HasPrefix(arn, "arn:aws:events:") && strings.Contains(arn, ":api-destination/")
+}
+
+func deliverToCloudWatchLogs(ctx context.Context, svc CloudWatchLogsPublisher, arn, payload string) bool {
+	if svc == nil {
+		return false
+	}
+	parts := strings.Split(arn, ":")
+	if len(parts) < 7 || parts[5] != "log-group" {
+		return false
+	}
+	logGroupName := parts[6]
+
+	err := svc.PutLogEvents(ctx, logGroupName, "EventBridge", []any{payload})
+
+	return err != nil
+}
+
+const apiDestTimeout = 5 * time.Second
+
+func deliverToAPIDestination(ctx context.Context, _ *Target, _, payload string) bool {
+	// Emulate API destination invocation
+	// In real AWS this uses an API destination connection to get the endpoint URL.
+	// For emulation without the full backend state, we'll perform a generic HTTP POST.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost", bytes.NewBufferString(payload))
+	if err != nil {
+		return true
+	}
+
+	client := &http.Client{Timeout: apiDestTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return true
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode >= http.StatusBadRequest
 }
