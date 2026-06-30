@@ -64,26 +64,27 @@ func buildLambdaTransformPayload(records [][]byte, streamARN, region string) []b
 	return payload
 }
 
-// parseLambdaTransformResponse parses the Lambda response and returns "Ok" and failed records.
-func parseLambdaTransformResponse(result []byte) ([][]byte, [][]byte) {
+// parseLambdaTransformResponse parses the Lambda response and returns only "Ok" records.
+func parseLambdaTransformResponse(result []byte) [][]byte {
 	var resp lambdaTransformResponse
 	if err := json.Unmarshal(result, &resp); err != nil {
-		return nil, nil
+		return nil
 	}
 
-	var ok, failed [][]byte
+	out := make([][]byte, 0, len(resp.Records))
+
 	for _, rec := range resp.Records {
+		if rec.Result != "Ok" {
+			continue
+		}
+
 		data, err := base64.StdEncoding.DecodeString(rec.Data)
 		if err != nil {
 			continue
 		}
 
-		if rec.Result == "Ok" {
-			ok = append(ok, data)
-		} else {
-			failed = append(failed, data)
-		}
+		out = append(out, data)
 	}
 
-	return ok, failed
+	return out
 }

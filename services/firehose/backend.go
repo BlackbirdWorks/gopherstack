@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -155,73 +155,6 @@ type FailureDescription struct {
 	Type    string `json:"Type,omitempty"`
 }
 
-// DataFormatConversionConfiguration controls format conversion.
-type DataFormatConversionConfiguration struct {
-	InputFormatConfiguration  *InputFormatConfiguration  `json:"InputFormatConfiguration,omitempty"`
-	OutputFormatConfiguration *OutputFormatConfiguration `json:"OutputFormatConfiguration,omitempty"`
-	SchemaConfiguration       *SchemaConfiguration       `json:"SchemaConfiguration,omitempty"`
-	Enabled                   bool                       `json:"Enabled"`
-}
-
-type InputFormatConfiguration struct {
-	Deserializer *Deserializer `json:"Deserializer,omitempty"`
-}
-
-type Deserializer struct {
-	HiveJSONSerDe  *HiveJSONSerDe  `json:"HiveJsonSerDe,omitempty"`
-	OpenXJSONSerDe *OpenXJSONSerDe `json:"OpenXJsonSerDe,omitempty"`
-}
-
-type HiveJSONSerDe struct {
-	TimestampFormats []string `json:"TimestampFormats,omitempty"`
-}
-
-type OpenXJSONSerDe struct {
-	ColumnToJSONKeyMappings            map[string]string `json:"ColumnToJsonKeyMappings,omitempty"`
-	CaseInsensitive                    bool              `json:"CaseInsensitive,omitempty"`
-	ConvertDotsInJSONKeysToUnderscores bool              `json:"ConvertDotsInJsonKeysToUnderscores,omitempty"`
-}
-
-type OutputFormatConfiguration struct {
-	Serializer *Serializer `json:"Serializer,omitempty"`
-}
-
-type Serializer struct {
-	OrcSerDe     *OrcSerDe     `json:"OrcSerDe,omitempty"`
-	ParquetSerDe *ParquetSerDe `json:"ParquetSerDe,omitempty"`
-}
-
-type OrcSerDe struct {
-	Compression                         string   `json:"Compression,omitempty"`
-	FormatVersion                       string   `json:"FormatVersion,omitempty"`
-	BloomFilterColumns                  []string `json:"BloomFilterColumns,omitempty"`
-	BloomFilterFalsePositiveProbability float64  `json:"BloomFilterFalsePositiveProbability,omitempty"`
-	DictionaryKeyThreshold              float64  `json:"DictionaryKeyThreshold,omitempty"`
-	PaddingTolerance                    float64  `json:"PaddingTolerance,omitempty"`
-	BlockSizeBytes                      int      `json:"BlockSizeBytes,omitempty"`
-	RowIndexStride                      int      `json:"RowIndexStride,omitempty"`
-	StripeSizeBytes                     int      `json:"StripeSizeBytes,omitempty"`
-	EnablePadding                       bool     `json:"EnablePadding,omitempty"`
-}
-
-type ParquetSerDe struct {
-	Compression                 string `json:"Compression,omitempty"`
-	WriterVersion               string `json:"WriterVersion,omitempty"`
-	BlockSizeBytes              int    `json:"BlockSizeBytes,omitempty"`
-	MaxPaddingBytes             int    `json:"MaxPaddingBytes,omitempty"`
-	PageSizeBytes               int    `json:"PageSizeBytes,omitempty"`
-	EnableDictionaryCompression bool   `json:"EnableDictionaryCompression,omitempty"`
-}
-
-type SchemaConfiguration struct {
-	CatalogID    string `json:"CatalogId,omitempty"`
-	DatabaseName string `json:"DatabaseName,omitempty"`
-	Region       string `json:"Region,omitempty"`
-	RoleARN      string `json:"RoleARN,omitempty"`
-	TableName    string `json:"TableName,omitempty"`
-	VersionID    string `json:"VersionId,omitempty"`
-}
-
 // S3DestinationDescription holds the effective S3 destination config stored on the stream.
 type S3DestinationDescription struct {
 	BufferingHints                   *BufferingHints                   `json:"BufferingHints,omitempty"`
@@ -230,17 +163,15 @@ type S3DestinationDescription struct {
 	EncryptionConfiguration          *S3EncryptionConfiguration        `json:"EncryptionConfiguration,omitempty"`
 	CloudWatchLoggingOptions         *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions,omitempty"`
 	DynamicPartitioningConfiguration *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration,omitempty"`
-
-	FormatConvCfg     *DataFormatConversionConfiguration `json:"DataFormatConversionConfiguration,omitempty"`
-	BucketARN         string                             `json:"BucketARN,omitempty"`
-	RoleARN           string                             `json:"RoleARN,omitempty"`
-	Prefix            string                             `json:"Prefix,omitempty"`
-	ErrorOutputPrefix string                             `json:"ErrorOutputPrefix,omitempty"`
-	CompressionFormat string                             `json:"CompressionFormat,omitempty"`
-	FileExtension     string                             `json:"FileExtension,omitempty"`
-	CustomTimeZone    string                             `json:"CustomTimeZone,omitempty"`
-	DestinationID     string                             `json:"DestinationId,omitempty"`
-	S3BackupMode      string                             `json:"S3BackupMode,omitempty"`
+	BucketARN                        string                            `json:"BucketARN,omitempty"`
+	RoleARN                          string                            `json:"RoleARN,omitempty"`
+	Prefix                           string                            `json:"Prefix,omitempty"`
+	ErrorOutputPrefix                string                            `json:"ErrorOutputPrefix,omitempty"`
+	CompressionFormat                string                            `json:"CompressionFormat,omitempty"`
+	FileExtension                    string                            `json:"FileExtension,omitempty"`
+	CustomTimeZone                   string                            `json:"CustomTimeZone,omitempty"`
+	DestinationID                    string                            `json:"DestinationId,omitempty"`
+	S3BackupMode                     string                            `json:"S3BackupMode,omitempty"`
 }
 
 // S3BackupDescription holds the S3 backup destination configuration.
@@ -620,21 +551,15 @@ func (b *InMemoryBackend) DescribeDeliveryStream(ctx context.Context, name strin
 }
 
 // ListDeliveryStreams returns all delivery stream names in the request's region
-// in alphabetical order, optionally filtered by deliveryStreamType.
-func (b *InMemoryBackend) ListDeliveryStreams(ctx context.Context, deliveryStreamType string) []string {
+// in alphabetical order.
+func (b *InMemoryBackend) ListDeliveryStreams(ctx context.Context) []string {
 	b.mu.RLock("ListDeliveryStreams")
 	defer b.mu.RUnlock()
 
 	region := getRegionFromContext(ctx, b)
 	streams := b.regionStore(region)
 
-	names := make([]string, 0)
-	for name, s := range streams {
-		if deliveryStreamType == "" || s.DeliveryStreamType == deliveryStreamType {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(streams)
 
 	return names
 }
@@ -780,43 +705,28 @@ func (b *InMemoryBackend) UpdateDestination(
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
 	}
 
-	// A caller may omit the current version to skip optimistic-concurrency
-	// checking; only enforce the match when a version is explicitly supplied.
 	if currentVersionID != "" && s.VersionID != currentVersionID {
 		return fmt.Errorf("%w: version mismatch: expected %s got %s", ErrValidation, currentVersionID, s.VersionID)
 	}
 
-	switch {
-	case input.S3Destination != nil:
+	if input.S3Destination != nil {
 		s.S3Destination = input.S3Destination
-		s.HTTPEndpointDestination = nil
-		s.RedshiftDestination = nil
-		s.OpenSearchDestination = nil
-		s.SplunkDestination = nil
-	case input.HTTPEndpointDestination != nil:
+	}
+
+	if input.HTTPEndpointDestination != nil {
 		s.HTTPEndpointDestination = input.HTTPEndpointDestination
-		s.S3Destination = nil
-		s.RedshiftDestination = nil
-		s.OpenSearchDestination = nil
-		s.SplunkDestination = nil
-	case input.RedshiftDestination != nil:
+	}
+
+	if input.RedshiftDestination != nil {
 		s.RedshiftDestination = input.RedshiftDestination
-		s.S3Destination = nil
-		s.HTTPEndpointDestination = nil
-		s.OpenSearchDestination = nil
-		s.SplunkDestination = nil
-	case input.OpenSearchDestination != nil:
+	}
+
+	if input.OpenSearchDestination != nil {
 		s.OpenSearchDestination = input.OpenSearchDestination
-		s.S3Destination = nil
-		s.HTTPEndpointDestination = nil
-		s.RedshiftDestination = nil
-		s.SplunkDestination = nil
-	case input.SplunkDestination != nil:
+	}
+
+	if input.SplunkDestination != nil {
 		s.SplunkDestination = input.SplunkDestination
-		s.S3Destination = nil
-		s.HTTPEndpointDestination = nil
-		s.RedshiftDestination = nil
-		s.OpenSearchDestination = nil
 	}
 
 	s.LastUpdateTimestamp = time.Now()
@@ -967,7 +877,6 @@ type flushSnapshot struct {
 	streamName     string
 	region         string
 	records        [][]byte
-	backupRecords  [][]byte
 }
 
 // extractForFlushLocked snapshots and resets the stream buffer when shouldFlushLocked
@@ -1018,11 +927,10 @@ func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnaps
 	}
 
 	snap := &flushSnapshot{
-		records:       s.Records,
-		backupRecords: s.BackupRecords,
-		streamARN:     s.ARN,
-		streamName:    s.Name,
-		region:        s.Region,
+		records:    s.Records,
+		streamARN:  s.ARN,
+		streamName: s.Name,
+		region:     s.Region,
 	}
 
 	if s.S3Destination != nil && b.s3 != nil {
@@ -1051,176 +959,43 @@ func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnaps
 	}
 
 	s.Records = [][]byte{}
-	s.BackupRecords = [][]byte{}
 	s.bufferSizeBytes = 0
 	s.lastFlush = time.Now()
 
 	return snap
 }
 
-// getActiveProcessingConfig returns the processing configuration from the active destination.
-func (snap *flushSnapshot) getActiveProcessingConfig() *ProcessingConfiguration {
-	if snap.s3Dest != nil {
-		return snap.s3Dest.ProcessingConfiguration
-	}
-	if snap.httpDest != nil {
-		return snap.httpDest.ProcessingConfiguration
-	}
-	if snap.redshiftDest != nil {
-		return snap.redshiftDest.ProcessingConfiguration
-	}
-	if snap.openSearchDest != nil {
-		return snap.openSearchDest.ProcessingConfiguration
-	}
-	if snap.splunkDest != nil {
-		return snap.splunkDest.ProcessingConfiguration
-	}
-
-	return nil
-}
-
-// getS3BackupConfig returns the S3 backup settings for the active destination.
-func (snap *flushSnapshot) getS3BackupConfig() (string, string, string, bool) {
-	switch {
-	case snap.s3Dest != nil:
-		if snap.s3Dest.S3BackupMode == "Enabled" && snap.s3Dest.S3BackupDescription != nil {
-			desc := snap.s3Dest.S3BackupDescription
-
-			return desc.BucketARN, desc.Prefix, desc.CompressionFormat, true
-		}
-	case snap.httpDest != nil && snap.httpDest.S3BackupDescription != nil:
-		desc := snap.httpDest.S3BackupDescription
-
-		return desc.BucketARN, desc.Prefix, desc.CompressionFormat, true
-	case snap.redshiftDest != nil && snap.redshiftDest.S3BackupDescription != nil:
-		desc := snap.redshiftDest.S3BackupDescription
-
-		return desc.BucketARN, desc.Prefix, desc.CompressionFormat, true
-	case snap.openSearchDest != nil && snap.openSearchDest.S3BackupDescription != nil:
-		desc := snap.openSearchDest.S3BackupDescription
-
-		return desc.BucketARN, desc.Prefix, desc.CompressionFormat, true
-	case snap.splunkDest != nil && snap.splunkDest.S3BackupDescription != nil:
-		desc := snap.splunkDest.S3BackupDescription
-
-		return desc.BucketARN, desc.Prefix, desc.CompressionFormat, true
-	}
-
-	return "", "", "", false
-}
-
-// getErrorOutputConfig returns the S3 settings for failed records.
-func (snap *flushSnapshot) getErrorOutputConfig() (string, string, string) {
-	if snap.s3Dest != nil {
-		errPrefix := snap.s3Dest.ErrorOutputPrefix
-		if errPrefix == "" {
-			errPrefix = snap.s3Dest.Prefix
-		}
-
-		return snap.s3Dest.BucketARN, errPrefix, snap.s3Dest.CompressionFormat
-	}
-
-	b, p, c, _ := snap.getS3BackupConfig()
-
-	return b, p, c
-}
-
-func (b *InMemoryBackend) incrementFailedRecords(ctx context.Context, streamName string, count int64) {
-	b.mu.Lock("incrementFailedRecords")
-	defer b.mu.Unlock()
-	region := getRegionFromContext(ctx, b)
-	if streams, ok1 := b.streams[region]; ok1 {
-		if s, ok2 := streams[streamName]; ok2 {
-			s.Metrics.FailedRecords += count
-		}
-	}
-}
-
-func (b *InMemoryBackend) deliverActiveDestinations(
-	ctx context.Context,
-	records [][]byte,
-	snap *flushSnapshot,
-	streamName string,
-) {
-	var deliverErr error
-	if snap.s3Dest != nil {
-		deliverErr = b.deliverToS3(ctx, records, snap.s3Dest, streamName)
-	}
-	if snap.httpDest != nil {
-		b.deliverToHTTPEndpoint(ctx, records, snap.httpDest, snap.streamARN)
-	}
-	if snap.redshiftDest != nil {
-		b.deliverToRedshift(ctx, records, snap.redshiftDest, snap.streamARN)
-	}
-	if snap.openSearchDest != nil {
-		b.deliverToOpenSearch(ctx, records, snap.openSearchDest, snap.streamARN)
-	}
-	if snap.splunkDest != nil {
-		b.deliverToSplunk(ctx, records, snap.splunkDest, snap.streamARN)
-	}
-
-	if deliverErr != nil {
-		b.incrementFailedRecords(ctx, streamName, int64(len(records)))
-		errBucket, errPrefix, errCompression := snap.getErrorOutputConfig()
-		_ = b.deliverToS3Raw(ctx, records, errBucket, errPrefix, errCompression, streamName)
-	}
-}
-
 // deliverSnapshot applies optional Lambda transformation and delivers records to all
-// applyTransform runs the Lambda processor over records and returns the records
-// that should continue to the main destination. Failed/dropped records are routed
-// to the configured error output, or silently dropped when none is configured
-// (AWS never delivers them to the main destination).
-func (b *InMemoryBackend) applyTransform(
-	ctx context.Context,
-	records [][]byte,
-	snap *flushSnapshot,
-	streamName string,
-) [][]byte {
-	okRecords, failedRecords, err := b.transformRecords(
-		ctx,
-		records,
-		snap.getActiveProcessingConfig(),
-		snap.streamARN,
-		snap.region,
-	)
-	if err != nil {
-		// Complete transform failure -> all records fail.
-		failedRecords = records
-		okRecords = nil
-	}
-
-	if len(failedRecords) == 0 {
-		return okRecords
-	}
-
-	b.incrementFailedRecords(ctx, streamName, int64(len(failedRecords)))
-
-	if errBucket, errPrefix, errCompression := snap.getErrorOutputConfig(); errBucket != "" {
-		_ = b.deliverToS3Raw(ctx, failedRecords, errBucket, errPrefix, errCompression, streamName)
-	}
-
-	return okRecords
-}
-
 // configured destinations. Called after the write lock has been released.
 func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapshot, streamName string) {
 	records := snap.records
 
-	procConfig := snap.getActiveProcessingConfig()
-	if procConfig != nil && procConfig.Enabled {
-		records = b.applyTransform(ctx, records, snap, streamName)
-	}
-
-	if len(records) > 0 {
-		b.deliverActiveDestinations(ctx, records, snap, streamName)
-	}
-
-	if len(snap.backupRecords) > 0 {
-		bARN, pref, comp, enabled := snap.getS3BackupConfig()
-		if enabled {
-			_ = b.deliverToS3Raw(ctx, snap.backupRecords, bARN, pref, comp, streamName)
+	// Apply Lambda transformation for S3 destination (only S3 supports it today).
+	if snap.s3Dest != nil &&
+		snap.s3Dest.ProcessingConfiguration != nil &&
+		snap.s3Dest.ProcessingConfiguration.Enabled {
+		transformed, err := b.transformRecords(ctx, records, snap.s3Dest, snap.streamARN, snap.region)
+		if err == nil && len(transformed) > 0 {
+			_ = b.deliverToS3(ctx, transformed, snap.s3Dest, streamName)
 		}
+	} else if snap.s3Dest != nil {
+		_ = b.deliverToS3(ctx, records, snap.s3Dest, streamName)
+	}
+
+	if snap.httpDest != nil {
+		b.deliverToHTTPEndpoint(ctx, records, snap.httpDest, snap.streamARN)
+	}
+
+	if snap.redshiftDest != nil {
+		b.deliverToRedshift(ctx, records, snap.redshiftDest, snap.streamARN)
+	}
+
+	if snap.openSearchDest != nil {
+		b.deliverToOpenSearch(ctx, records, snap.openSearchDest, snap.streamARN)
+	}
+
+	if snap.splunkDest != nil {
+		b.deliverToSplunk(ctx, records, snap.splunkDest, snap.streamARN)
 	}
 }
 
@@ -1245,18 +1020,22 @@ func (b *InMemoryBackend) flushStream(ctx context.Context, region, streamName st
 }
 
 // transformRecords invokes the configured Lambda function to transform records.
+// It returns only the records marked as "Ok" in the Lambda response.
+// An error is returned if payload marshaling or Lambda invocation fails, allowing
+// the caller to handle the failure (e.g., drop records) rather than silently
+// delivering originals.
 func (b *InMemoryBackend) transformRecords(
 	ctx context.Context,
 	records [][]byte,
-	procConfig *ProcessingConfiguration,
+	dest *S3DestinationDescription,
 	streamARN, region string,
-) ([][]byte, [][]byte, error) {
-	if b.lambda == nil || procConfig == nil {
-		return records, nil, nil
+) ([][]byte, error) {
+	if b.lambda == nil || dest.ProcessingConfiguration == nil {
+		return records, nil
 	}
 
 	functionName := ""
-	for _, proc := range procConfig.Processors {
+	for _, proc := range dest.ProcessingConfiguration.Processors {
 		if proc.Type == "Lambda" {
 			for _, p := range proc.Parameters {
 				if p.ParameterName == "LambdaArn" {
@@ -1267,37 +1046,28 @@ func (b *InMemoryBackend) transformRecords(
 	}
 
 	if functionName == "" {
-		return records, nil, nil
+		return records, nil
 	}
 
 	payload := buildLambdaTransformPayload(records, streamARN, region)
 	if payload == nil {
-		return nil, nil, ErrTransformPayload
+		return nil, ErrTransformPayload
 	}
 
 	result, _, err := b.lambda.InvokeFunction(ctx, functionName, "RequestResponse", payload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("lambda transform invocation failed: %w", err)
+		return nil, fmt.Errorf("lambda transform invocation failed: %w", err)
 	}
 
-	ok, failed := parseLambdaTransformResponse(result)
-
-	return ok, failed, nil
+	return parseLambdaTransformResponse(result), nil
 }
 
+// deliverToS3 concatenates records and writes a single S3 object.
 func (b *InMemoryBackend) deliverToS3(
 	ctx context.Context,
 	records [][]byte,
 	dest *S3DestinationDescription,
 	streamName string,
-) error {
-	return b.deliverToS3Raw(ctx, records, dest.BucketARN, dest.Prefix, dest.CompressionFormat, streamName)
-}
-
-func (b *InMemoryBackend) deliverToS3Raw(
-	ctx context.Context,
-	records [][]byte,
-	bucketARN, prefix, compression, streamName string,
 ) error {
 	var buf bytes.Buffer
 	for _, rec := range records {
@@ -1318,7 +1088,7 @@ func (b *InMemoryBackend) deliverToS3Raw(
 		return nil
 	}
 
-	compression = strings.ToUpper(compression)
+	compression := strings.ToUpper(dest.CompressionFormat)
 	if compression == "" {
 		compression = "UNCOMPRESSED"
 	}
@@ -1338,7 +1108,8 @@ func (b *InMemoryBackend) deliverToS3Raw(
 		finalBody = body
 	}
 
-	bucket := bucketFromARN(bucketARN)
+	bucket := bucketFromARN(dest.BucketARN)
+	prefix := dest.Prefix
 	key := buildS3Key(prefix, streamName, time.Now())
 
 	input := &sdk_s3.PutObjectInput{

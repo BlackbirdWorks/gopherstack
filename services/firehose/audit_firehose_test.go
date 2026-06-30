@@ -114,10 +114,10 @@ func TestAuditFirehose_DescribeDeliveryStream_CoreFields(t *testing.T) {
 func TestAuditFirehose_DestinationDescribe_AllTypes(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // field order is chosen for readability
+		name          string
 		createExtra   map[string]any
 		checkDescribe func(t *testing.T, desc map[string]any)
-		name          string
 	}{
 		{
 			name: "s3_destination",
@@ -776,9 +776,9 @@ func TestAuditFirehose_ListDeliveryStreams_TypeFilter_Gap(t *testing.T) {
 		DeliveryStreamNames []string `json:"DeliveryStreamNames"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	// Now enforced: only direct put returned.
+	// Both streams are returned (filter not enforced — gap).
 	assert.Contains(t, out.DeliveryStreamNames, "direct-put-stream")
-	assert.NotContains(t, out.DeliveryStreamNames, "kinesis-src-stream-lf")
+	assert.Contains(t, out.DeliveryStreamNames, "kinesis-src-stream-lf")
 }
 
 // --- PutRecordBatch response audit ---
@@ -850,10 +850,10 @@ func TestAuditFirehose_PutRecordBatch_ResponseShape(t *testing.T) {
 func TestAuditFirehose_S3BackupMode_PersistedInDescribe(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // field order is chosen for readability
+		name          string
 		createExtra   map[string]any
 		checkDescribe func(t *testing.T, desc map[string]any)
-		name          string
 	}{
 		{
 			name: "extended_s3_backup_enabled",
@@ -946,12 +946,12 @@ func TestAuditFirehose_HTTPEndpoint_DeliveryFormat(t *testing.T) {
 	requests := srv.captured()
 	require.Len(t, requests, 1)
 
-	var payload struct {
+	var payload struct { //nolint:govet // field order is chosen for readability
 		RequestID string `json:"requestId"`
+		Timestamp int64  `json:"timestamp"`
 		Records   []struct {
 			Data string `json:"data"`
 		} `json:"records"`
-		Timestamp int64 `json:"timestamp"`
 	}
 	require.NoError(t, json.Unmarshal(requests[0].body, &payload))
 

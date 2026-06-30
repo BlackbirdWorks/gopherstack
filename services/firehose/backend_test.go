@@ -99,7 +99,7 @@ func TestDeleteDeliveryStream(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			names := b.ListDeliveryStreams(context.TODO(), "")
+			names := b.ListDeliveryStreams(context.TODO())
 			assert.Empty(t, names)
 		})
 	}
@@ -176,7 +176,7 @@ func TestListDeliveryStreams(t *testing.T) {
 	_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "s1"})
 	_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "s2"})
 
-	names := b.ListDeliveryStreams(context.TODO(), "")
+	names := b.ListDeliveryStreams(context.TODO())
 	assert.Len(t, names, 2)
 }
 
@@ -673,8 +673,8 @@ func TestLambdaTransformation_ErrorDropsRecords(t *testing.T) {
 	require.NoError(t, b.PutRecord(context.TODO(), "err-lambda-stream", []byte("input")))
 	b.FlushAll(t.Context())
 
-	// Lambda error → records MUST be delivered to S3 (ErrorOutputPrefix).
-	assert.NotEmpty(t, s3mock.calls)
+	// Lambda error → records must not be delivered to S3.
+	assert.Empty(t, s3mock.calls)
 }
 
 // TestPutRecord_FlushSnapshotUnderLock verifies that after a size-based flush the
@@ -744,7 +744,7 @@ func TestUpdateDestination(t *testing.T) {
 				tt.setup(b)
 			}
 			err := b.UpdateDestination(
-				context.TODO(), tt.streamName, "1", firehose.UpdateDestinationInput{S3Destination: tt.newDest},
+				context.TODO(), tt.streamName, "", firehose.UpdateDestinationInput{S3Destination: tt.newDest},
 			)
 			if tt.wantErr != nil {
 				require.Error(t, err)
@@ -772,7 +772,7 @@ func TestListDeliveryStreams_SortedOrder(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	names := b.ListDeliveryStreams(context.TODO(), "")
+	names := b.ListDeliveryStreams(context.TODO())
 	require.Len(t, names, 3)
 	assert.Equal(t, []string{"alpha-stream", "middle-stream", "zebra-stream"}, names)
 }
