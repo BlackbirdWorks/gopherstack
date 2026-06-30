@@ -173,15 +173,19 @@ func TestInMemoryBackend_OIDCProvider(t *testing.T) {
 	t.Run("UpdateOIDCProviderThumbprint", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		p, err := b.CreateOpenIDConnectProvider("https://example.com", nil, []string{"old-thumb"})
+		p, err := b.CreateOpenIDConnectProvider(
+			"https://example.com",
+			nil,
+			[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
+		)
 		require.NoError(t, err)
 
-		err = b.UpdateOpenIDConnectProviderThumbprint(p.Arn, []string{"new-thumb"})
+		err = b.UpdateOpenIDConnectProviderThumbprint(p.Arn, []string{"9e99a48a9960b14926bb7f3b02e22da2b0ab7280"})
 		require.NoError(t, err)
 
 		got, err := b.GetOpenIDConnectProvider(p.Arn)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"new-thumb"}, got.ThumbprintList)
+		assert.Equal(t, []string{"9e99a48a9960b14926bb7f3b02e22da2b0ab7280"}, got.ThumbprintList)
 	})
 
 	t.Run("UpdateOIDCProviderThumbprint_NotFound", func(t *testing.T) {
@@ -189,7 +193,7 @@ func TestInMemoryBackend_OIDCProvider(t *testing.T) {
 		b := iam.NewInMemoryBackend()
 		err := b.UpdateOpenIDConnectProviderThumbprint(
 			"arn:aws:iam::000000000000:oidc-provider/ghost",
-			[]string{"thumb"},
+			[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
 		)
 		require.ErrorIs(t, err, iam.ErrOIDCProviderNotFound)
 	})
@@ -552,7 +556,7 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 			action: "GetOpenIDConnectProvider",
 			setup: func(b *iam.InMemoryBackend) string {
 				p, _ := b.CreateOpenIDConnectProvider(
-					"https://example.com", []string{"client-1"}, []string{"thumb-1"},
+					"https://example.com", []string{"client-1"}, []string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
 				)
 
 				return p.Arn
@@ -564,14 +568,22 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.Equal(t, "https://example.com", resp.GetOpenIDConnectProviderResult.URL)
 				assert.Equal(t, []string{"client-1"}, resp.GetOpenIDConnectProviderResult.ClientIDList)
-				assert.Equal(t, []string{"thumb-1"}, resp.GetOpenIDConnectProviderResult.ThumbprintList)
+				assert.Equal(
+					t,
+					[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
+					resp.GetOpenIDConnectProviderResult.ThumbprintList,
+				)
 			},
 		},
 		{
 			name:   "UpdateOpenIDConnectProviderThumbprint",
 			action: "UpdateOpenIDConnectProviderThumbprint",
 			setup: func(b *iam.InMemoryBackend) string {
-				p, _ := b.CreateOpenIDConnectProvider("https://example.com", nil, []string{"old"})
+				p, _ := b.CreateOpenIDConnectProvider(
+					"https://example.com",
+					nil,
+					[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
+				)
 
 				return p.Arn
 			},
@@ -586,7 +598,7 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 				providers, err := b.ListOpenIDConnectProviders()
 				require.NoError(t, err)
 				require.Len(t, providers, 1)
-				assert.Equal(t, []string{"new-thumb"}, providers[0].ThumbprintList)
+				assert.Equal(t, []string{"9e99a48a9960b14926bb7f3b02e22da2b0ab7280"}, providers[0].ThumbprintList)
 			},
 		},
 		{
@@ -641,7 +653,7 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 
 			if providerArn != "" {
 				params["OpenIDConnectProviderArn"] = providerArn
-				params["ThumbprintList.member.1"] = "new-thumb"
+				params["ThumbprintList.member.1"] = "9e99a48a9960b14926bb7f3b02e22da2b0ab7280"
 			}
 
 			req := iamRequest(tt.action, params)
@@ -685,7 +697,7 @@ func TestIAMHandler_OIDCProvider_Errors(t *testing.T) {
 			action: "UpdateOpenIDConnectProviderThumbprint",
 			params: map[string]string{
 				"OpenIDConnectProviderArn": "arn:aws:iam::000000000000:oidc-provider/ghost",
-				"ThumbprintList.member.1":  "thumb",
+				"ThumbprintList.member.1":  "990f41981148b53dc7c615a6b0c2a26555cc5d85",
 			},
 			wantCode:   "NoSuchEntity",
 			wantStatus: http.StatusBadRequest,

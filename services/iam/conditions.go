@@ -1,9 +1,13 @@
 package iam
 
 import (
+	"bytes"
+	"encoding/base64"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // ctxKeySourceIP is the IAM condition key for the caller's source IP address.
@@ -116,10 +120,22 @@ func evalSingleCondition(operator, ctxVal string, condVals []string) bool {
 		baseOp = operator
 	}
 
+	baseOp = strings.TrimPrefix(baseOp, "forallvalues:")
+	baseOp = strings.TrimPrefix(baseOp, "foranyvalue:")
+
 	if result, ok := evalStringCondition(baseOp, ctxVal, condVals); ok {
 		return result
 	}
 	if result, ok := evalIPARNCondition(baseOp, ctxVal, condVals); ok {
+		return result
+	}
+	if result, ok := evalNumericCondition(baseOp, ctxVal, condVals); ok {
+		return result
+	}
+	if result, ok := evalDateCondition(baseOp, ctxVal, condVals); ok {
+		return result
+	}
+	if result, ok := evalBinaryCondition(baseOp, ctxVal, condVals); ok {
 		return result
 	}
 	// Unknown operator — treat as not matching (conservative default).
@@ -236,4 +252,112 @@ func toLower(ss []string) []string {
 	}
 
 	return out
+}
+
+// evalNumericCondition handles numeric operators.
+func evalNumericCondition(baseOp, ctxVal string, condVals []string) (bool, bool) {
+	switch baseOp {
+	case "numericequals",
+		"numericnotequals",
+		"numericlessthan",
+		"numericlessthanequals",
+		"numericgreaterthan",
+		"numericgreaterthanequals":
+		ctxNum, err := strconv.ParseFloat(ctxVal, 64)
+		if err != nil {
+			return false, true // invalid number => no match
+		}
+		for _, v := range condVals {
+			condNum, errParse := strconv.ParseFloat(v, 64)
+			if errParse != nil {
+				continue
+			}
+			match := false
+			switch baseOp {
+			case "numericequals":
+				match = ctxNum == condNum
+			case "numericnotequals":
+				match = ctxNum != condNum
+			case "numericlessthan":
+				match = ctxNum < condNum
+			case "numericlessthanequals":
+				match = ctxNum <= condNum
+			case "numericgreaterthan":
+				match = ctxNum > condNum
+			case "numericgreaterthanequals":
+				match = ctxNum >= condNum
+			}
+			if match {
+				return true, true
+			}
+		}
+
+		return false, true
+	}
+
+	return false, false
+}
+
+// evalDateCondition handles date operators.
+func evalDateCondition(baseOp, ctxVal string, condVals []string) (bool, bool) {
+	switch baseOp {
+	case "dateequals",
+		"datenotequals",
+		"datelessthan",
+		"datelessthanequals",
+		"dategreaterthan",
+		"dategreaterthanequals":
+		ctxTime, err := time.Parse(time.RFC3339, ctxVal)
+		if err != nil {
+			return false, true
+		}
+		for _, v := range condVals {
+			condTime, errParse := time.Parse(time.RFC3339, v)
+			if errParse != nil {
+				continue
+			}
+			match := false
+			switch baseOp {
+			case "dateequals":
+				match = ctxTime.Equal(condTime)
+			case "datenotequals":
+				match = !ctxTime.Equal(condTime)
+			case "datelessthan":
+				match = ctxTime.Before(condTime)
+			case "datelessthanequals":
+				match = ctxTime.Before(condTime) || ctxTime.Equal(condTime)
+			case "dategreaterthan":
+				match = ctxTime.After(condTime)
+			case "dategreaterthanequals":
+				match = ctxTime.After(condTime) || ctxTime.Equal(condTime)
+			}
+			if match {
+				return true, true
+			}
+		}
+
+		return false, true
+	}
+
+	return false, false
+}
+
+// evalBinaryCondition handles binary operators.
+func evalBinaryCondition(baseOp, ctxVal string, condVals []string) (bool, bool) {
+	if baseOp == "binaryequals" {
+		ctxBytes, err := base64.StdEncoding.DecodeString(ctxVal)
+		if err != nil {
+			return false, true
+		}
+		for _, v := range condVals {
+			condBytes, errParse := base64.StdEncoding.DecodeString(v)
+			if errParse == nil && bytes.Equal(ctxBytes, condBytes) {
+				return true, true
+			}
+		}
+
+		return false, true
+	}
+
+	return false, false
 }

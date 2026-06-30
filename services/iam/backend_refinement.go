@@ -613,7 +613,7 @@ func (b *InMemoryBackend) ListInstanceProfilesForRole(roleName string) ([]Instan
 // SimulateCustomPolicy simulates the effect of one or more custom IAM policies against a set of actions and resources.
 // This is a best-effort simulation — results are authoritative only for policies provided directly.
 func (b *InMemoryBackend) SimulateCustomPolicy(
-	policyInputList, actionNames, resourceArns []string,
+	policyInputList, permissionsBoundaryPolicyInputList, actionNames, resourceArns []string,
 	ctx ConditionContext,
 ) ([]SimulationResult, error) {
 	if len(actionNames) == 0 {
@@ -642,6 +642,24 @@ func (b *InMemoryBackend) SimulateCustomPolicy(
 				detail[key] = evalDecisionStr(r)
 			}
 
+			// Boundary enforcement.
+			var allowedByBoundary *bool
+
+			if len(permissionsBoundaryPolicyInputList) > 0 {
+				evalResult, allowedByBoundary = enforcePermissionsBoundary(
+					permissionsBoundaryPolicyInputList, action, resource, ctx, evalResult,
+				)
+			}
+
+			// Add PermissionsBoundary decision to details.
+			if allowedByBoundary != nil {
+				if *allowedByBoundary {
+					detail["PermissionsBoundaryPolicy"] = "allowed"
+				} else {
+					detail["PermissionsBoundaryPolicy"] = "explicitDeny"
+				}
+			}
+
 			results = append(results, SimulationResult{
 				ActionName:          action,
 				ResourceName:        resource,
@@ -652,6 +670,21 @@ func (b *InMemoryBackend) SimulateCustomPolicy(
 	}
 
 	return results, nil
+}
+
+func enforcePermissionsBoundary(
+	boundaryPolicies []string, action, resource string, ctx ConditionContext, evalResult EvaluationResult,
+) (EvaluationResult, *bool) {
+	boundaryResult := EvaluatePolicies(boundaryPolicies, action, resource, ctx)
+	allowed := boundaryResult == EvalAllow
+
+	if evalResult == EvalAllow && !allowed {
+		evalResult = EvalImplicitDeny
+	} else if evalResult == EvalImplicitDeny && boundaryResult == EvalExplicitDeny {
+		evalResult = EvalExplicitDeny
+	}
+
+	return evalResult, &allowed
 }
 
 // ---- GetServiceLinkedRoleDeletionStatus ----

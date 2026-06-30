@@ -51,7 +51,7 @@ func TestSubstituteVariables(t *testing.T) {
 			name: "unknown_variable_preserved",
 			doc:  `{"Resource":"${aws:principaltag/team}"}`,
 			ctx:  iam.ConditionContext{},
-			want: `{"Resource":"${aws:principaltag/team}"}`,
+			want: `{"Resource":""}`,
 		},
 		{
 			name: "extra_context_variable",

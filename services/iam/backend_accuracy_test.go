@@ -507,7 +507,7 @@ func TestSimulatePrincipalPolicy_AllowWithoutBoundary(t *testing.T) {
 	_ = b.AttachUserPolicy("petra", pol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/petra",
+		"arn:aws:iam::000000000000:user/petra", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
 		iam.ConditionContext{},
@@ -532,7 +532,7 @@ func TestSimulatePrincipalPolicy_BoundaryDeniesAllowedAction(t *testing.T) {
 	_ = b.AttachUserPolicy("quinn", identityPol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/quinn",
+		"arn:aws:iam::000000000000:user/quinn", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
 		iam.ConditionContext{},
@@ -556,7 +556,7 @@ func TestSimulatePrincipalPolicy_BoundaryAllowsActionGrantedByIdentity(t *testin
 	_ = b.AttachUserPolicy("rosa", identityPol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/rosa",
+		"arn:aws:iam::000000000000:user/rosa", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
 		iam.ConditionContext{},
@@ -582,7 +582,7 @@ func TestSimulatePrincipalPolicy_RoleBoundaryEnforced(t *testing.T) {
 	_ = b.AttachRolePolicy("TestRole", identityPol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:role/TestRole",
+		"arn:aws:iam::000000000000:role/TestRole", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
 		iam.ConditionContext{},
@@ -1017,7 +1017,7 @@ func TestSimulatePrincipalPolicy_ExplicitDenyTakesPrecedence(t *testing.T) {
 	_ = b.AttachUserPolicy("explicit-deny-user", identityPol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/explicit-deny-user",
+		"arn:aws:iam::000000000000:user/explicit-deny-user", "", "", nil,
 		[]string{"s3:DeleteObject", "s3:GetObject"},
 		[]string{"arn:aws:s3:::bucket/*"},
 		iam.ConditionContext{},

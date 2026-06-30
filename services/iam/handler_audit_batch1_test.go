@@ -783,7 +783,7 @@ func TestHandler_OIDCProvider_CRUD(t *testing.T) {
 	req := iamRequest("CreateOpenIDConnectProvider", map[string]string{
 		"Url":                     "https://example.com/oidc",
 		"ClientIDList.member.1":   "client1",
-		"ThumbprintList.member.1": "abc123def456",
+		"ThumbprintList.member.1": "990f41981148b53dc7c615a6b0c2a26555cc5d85",
 	})
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))

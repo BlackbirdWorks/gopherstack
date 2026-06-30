@@ -1415,7 +1415,15 @@ func TestSimulatePrincipalPolicy_Backend(t *testing.T) {
 			b := iam.NewInMemoryBackend()
 			tt.setup(b)
 
-			results, err := b.SimulatePrincipalPolicy(tt.principalArn, tt.actions, tt.resources, iam.ConditionContext{})
+			results, err := b.SimulatePrincipalPolicy(
+				tt.principalArn,
+				"",
+				"",
+				nil,
+				tt.actions,
+				tt.resources,
+				iam.ConditionContext{},
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -1495,7 +1503,7 @@ func TestSimulatePrincipalPolicy_GroupInheritance(t *testing.T) {
 
 	// Simulate: s3:GetObject should be allowed via group membership.
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/carol",
+		"arn:aws:iam::000000000000:user/carol", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"*"},
 		iam.ConditionContext{},
@@ -1510,7 +1518,7 @@ func TestSimulatePrincipalPolicy_GroupInheritance(t *testing.T) {
 	require.NoError(t, err)
 
 	results2, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/carol",
+		"arn:aws:iam::000000000000:user/carol", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"*"},
 		iam.ConditionContext{},
@@ -1544,7 +1552,7 @@ func TestSimulatePrincipalPolicy_GroupInlinePolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/dave",
+		"arn:aws:iam::000000000000:user/dave", "", "", nil,
 		[]string{"ec2:DescribeInstances"},
 		[]string{"*"},
 		iam.ConditionContext{},
@@ -1580,7 +1588,7 @@ func TestSimulatePrincipalPolicy_MultipleResourcesAndActions(t *testing.T) {
 	resources := []string{"arn:aws:s3:::my-bucket", "*"}
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:role/worker",
+		"arn:aws:iam::000000000000:role/worker", "", "", nil,
 		actions,
 		resources,
 		iam.ConditionContext{},

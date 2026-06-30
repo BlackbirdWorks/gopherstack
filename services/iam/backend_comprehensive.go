@@ -247,9 +247,9 @@ func (b *InMemoryBackend) EnableMFADevice(userName, serialNumber, authCode1, aut
 		)
 	}
 
-	// Auth codes accepted as-is in the mock (no TOTP validation).
-	_ = authCode1
-	_ = authCode2
+	if err := b.validateAuthCodes(authCode1, authCode2); err != nil {
+		return err
+	}
 
 	c := b.comp()
 	c.mu.Lock()
@@ -385,9 +385,9 @@ func (b *InMemoryBackend) ResyncMFADevice(userName, serialNumber, authCode1, aut
 		)
 	}
 
-	// Auth codes accepted as-is in the mock (no TOTP validation).
-	_ = authCode1
-	_ = authCode2
+	if err := b.validateAuthCodes(authCode1, authCode2); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -595,4 +595,25 @@ func (b *InMemoryBackend) GetOrganizationsAccessReport(jobID string) (string, ti
 	}
 
 	return jobStatusCompleted, createdAt, true
+}
+
+func (b *InMemoryBackend) validateAuthCodes(code1, code2 string) error {
+	if len(code1) != 6 || len(code2) != 6 {
+		return fmt.Errorf("%w: codes must be 6 digits", ErrInvalidAuthenticationCode)
+	}
+	for _, c := range code1 {
+		if c < '0' || c > '9' {
+			return fmt.Errorf("%w: codes must be numeric", ErrInvalidAuthenticationCode)
+		}
+	}
+	for _, c := range code2 {
+		if c < '0' || c > '9' {
+			return fmt.Errorf("%w: codes must be numeric", ErrInvalidAuthenticationCode)
+		}
+	}
+	if code1 == code2 {
+		return fmt.Errorf("%w: codes must be distinct", ErrInvalidAuthenticationCode)
+	}
+
+	return nil
 }

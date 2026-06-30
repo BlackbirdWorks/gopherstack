@@ -549,7 +549,10 @@ func stmtActionMatchesTrust(action any, want string) bool {
 // validateTrustPolicyPrincipal parses the trust policy and validates the Principal field.
 // Allowed shapes: "*", a string ARN, or a map with keys AWS/Service/Federated.
 // Returns nil if the policy is empty or valid; returns ErrMalformedPolicyDocument otherwise.
-func validateTrustPolicyPrincipal(policyJSON string) error {
+// maxARNParts is the number of components in a parsed AWS ARN.
+const maxARNParts = 6
+
+func (b *InMemoryBackend) validateTrustPolicyPrincipal(policyJSON string) error {
 	if policyJSON == "" {
 		return nil
 	}
@@ -577,18 +580,69 @@ func validateTrustPolicyPrincipal(policyJSON string) error {
 			)
 		}
 
-		// Validate ARN format for AWS principals.
-		for _, a := range p.AWS {
-			if a == "*" {
-				continue
-			}
+		if err := b.validateTrustPrincipalBlock(p, i); err != nil {
+			return err
+		}
+	}
 
-			if !strings.HasPrefix(strings.ToLower(a), "arn:aws") {
-				return fmt.Errorf(
-					"%w: statement[%d] Principal.AWS %q is not a valid ARN",
-					ErrMalformedPolicyDocument, i, a,
-				)
+	return nil
+}
+
+func (b *InMemoryBackend) validateTrustPrincipalBlock(p trustPrincipal, i int) error {
+	// Validate ARN format for AWS principals.
+	for _, a := range p.AWS {
+		if err := b.validateAWSPrincipal(a, i); err != nil {
+			return err
+		}
+	}
+
+	for _, s := range p.Service {
+		if !strings.HasSuffix(s, ".amazonaws.com") {
+			return fmt.Errorf("%w: invalid service principal", ErrMalformedPolicyDocument)
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) validateAWSPrincipal(a string, i int) error {
+	if a == "*" {
+		return nil
+	}
+
+	if !strings.HasPrefix(strings.ToLower(a), "arn:aws") {
+		return fmt.Errorf(
+			"%w: statement[%d] Principal.AWS %q is not a valid ARN",
+			ErrMalformedPolicyDocument, i, a,
+		)
+	}
+
+	parts := strings.SplitN(a, ":", maxARNParts)
+	if len(parts) == maxARNParts {
+		accountID := parts[4]
+		resource := parts[5]
+
+		if accountID != b.accountID && accountID != "" {
+			return fmt.Errorf("%w: invalid cross-account principal", ErrMalformedPolicyDocument)
+		}
+		if accountID == b.accountID {
+			if err := b.validatePrincipalResource(resource); err != nil {
+				return err
 			}
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) validatePrincipalResource(resource string) error {
+	if userName, ok := strings.CutPrefix(resource, "user/"); ok {
+		if _, exists := b.users[userName]; !exists {
+			return fmt.Errorf("%w: user %q not found", ErrMalformedPolicyDocument, userName)
+		}
+	} else if roleName, okRole := strings.CutPrefix(resource, "role/"); okRole {
+		if _, exists := b.roles[roleName]; !exists {
+			return fmt.Errorf("%w: role %q not found", ErrMalformedPolicyDocument, roleName)
 		}
 	}
 

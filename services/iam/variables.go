@@ -47,6 +47,8 @@ func SubstituteVariables(doc string, ctx ConditionContext) string {
 
 		if replacement, ok := replacements[inner]; ok {
 			result.WriteString(replacement)
+		} else if isTagVariable(inner) {
+			result.WriteString("")
 		} else {
 			result.WriteString(varName)
 		}
@@ -71,4 +73,11 @@ func buildVariableReplacements(ctx ConditionContext) map[string]string {
 	}
 
 	return m
+}
+
+func isTagVariable(inner string) bool {
+	return strings.HasPrefix(inner, "aws:principaltag/") ||
+		strings.HasPrefix(inner, "aws:requesttag/") ||
+		strings.HasPrefix(inner, "aws:resourcetag/") ||
+		strings.HasPrefix(inner, "aws:principalenv/")
 }

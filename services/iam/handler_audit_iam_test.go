@@ -218,7 +218,7 @@ func TestSimulatePrincipalPolicy_ConditionContext_SourceIP(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			results, simErr := b.SimulatePrincipalPolicy(
-				userArn, []string{"s3:GetObject"}, []string{"*"}, tt.ctx,
+				userArn, "", "", nil, []string{"s3:GetObject"}, []string{"*"}, tt.ctx,
 			)
 			require.NoError(t, simErr)
 			require.Len(t, results, 1)
@@ -268,7 +268,7 @@ func TestSimulateCustomPolicy_ConditionContext_ExtraKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			results, err := b.SimulateCustomPolicy(
-				[]string{policyDoc}, []string{"s3:GetObject"}, []string{"*"}, tt.ctx,
+				[]string{policyDoc}, nil, []string{"s3:GetObject"}, []string{"*"}, tt.ctx,
 			)
 			require.NoError(t, err)
 			require.Len(t, results, 1)

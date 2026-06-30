@@ -478,9 +478,14 @@ func (h *Handler) iamSimulateCustomPolicyDispatch() map[string]iamActionFn {
 			actionNames := parseIndexedValues(vals, "ActionNames.member.")
 			resourceArns := parseIndexedValues(vals, "ResourceArns.member.")
 			policyInputList := parseIndexedValues(vals, "PolicyInputList.member.")
+			permissionsBoundaryPolicyInputList := parseIndexedValues(vals, "PermissionsBoundaryPolicyInputList.member.")
 
 			results, err := h.Backend.SimulateCustomPolicy(
-				policyInputList, actionNames, resourceArns, parseConditionContext(vals),
+				policyInputList,
+				permissionsBoundaryPolicyInputList,
+				actionNames,
+				resourceArns,
+				parseConditionContext(vals),
 			)
 			if err != nil {
 				return nil, err
