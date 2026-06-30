@@ -196,7 +196,9 @@ type Backend interface {
 		ctx context.Context,
 		repositoryName string,
 		imageID ImageIdentifier,
-	) (*ImageScanFindingsResult, error)
+		maxResults int,
+		nextToken string,
+	) (*ImageScanFindingsResult, string, error)
 
 	// StartImageScan starts an image scan and returns the scan status.
 	StartImageScan(ctx context.Context, repositoryName string, imageID ImageIdentifier) (*ImageScanStartResult, error)

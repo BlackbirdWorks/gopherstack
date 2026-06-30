@@ -294,11 +294,10 @@ func (s *stubBackend) DescribeImageSigningStatus(_ context.Context,
 	return &ecr.ImageSigningStatusResult{}, nil
 }
 
-func (s *stubBackend) DescribeImageScanFindings(_ context.Context,
-	_ string,
-	_ ecr.ImageIdentifier,
-) (*ecr.ImageScanFindingsResult, error) {
-	return &ecr.ImageScanFindingsResult{}, nil
+func (s *stubBackend) DescribeImageScanFindings(
+	_ context.Context, _ string, _ ecr.ImageIdentifier, _ int, _ string,
+) (*ecr.ImageScanFindingsResult, string, error) {
+	return &ecr.ImageScanFindingsResult{}, "", nil
 }
 
 func (s *stubBackend) StartImageScan(

@@ -957,35 +957,13 @@ func (h *Handler) handleDescribeImages(
 		return nil, err
 	}
 
-	// Apply filter.tagStatus when listing all images (not by specific imageIds).
-	// AWS DescribeImages supports filter: { tagStatus: "TAGGED" | "UNTAGGED" | "ANY" }.
-	if in.Filter != nil && in.Filter.TagStatus != "" && len(in.ImageIDs) == 0 {
-		filtered := imgs[:0]
-		for _, img := range imgs {
-			isTagged := len(img.Tags) > 0
-			if passesTagFilter(isTagged, in.Filter.TagStatus) {
-				filtered = append(filtered, img)
-			}
-		}
-		imgs = filtered
-	}
-
-	// Apply nextToken cursor when paginating without specific imageIds.
-	if in.NextToken != "" && len(in.ImageIDs) == 0 {
-		start := 0
-		for i, img := range imgs {
-			if img.ImageDigest == in.NextToken {
-				start = i
-
-				break
-			}
-		}
-		imgs = imgs[start:]
+	if len(in.ImageIDs) == 0 {
+		imgs = filterAndPaginateImages(imgs, in.Filter, in.NextToken, in.MaxResults)
 	}
 
 	var nextToken string
-	if in.MaxResults > 0 && len(in.ImageIDs) == 0 && len(imgs) > in.MaxResults {
-		nextToken = imgs[in.MaxResults].ImageDigest
+	if len(in.ImageIDs) == 0 && in.MaxResults > 0 && len(imgs) > in.MaxResults {
+		nextToken = base64.StdEncoding.EncodeToString([]byte(imgs[in.MaxResults].ImageDigest))
 		imgs = imgs[:in.MaxResults]
 	}
 
@@ -995,6 +973,37 @@ func (h *Handler) handleDescribeImages(
 	}
 
 	return &describeImagesOutput{ImageDetails: details, NextToken: nextToken}, nil
+}
+
+func filterAndPaginateImages(imgs []Image, filter *describeImagesFilter, nextToken string, _ int) []Image {
+	if filter != nil && filter.TagStatus != "" {
+		filtered := imgs[:0]
+		for _, img := range imgs {
+			isTagged := len(img.Tags) > 0
+			if passesTagFilter(isTagged, filter.TagStatus) {
+				filtered = append(filtered, img)
+			}
+		}
+		imgs = filtered
+	}
+
+	if nextToken != "" {
+		decoded, decErr := base64.StdEncoding.DecodeString(nextToken)
+		if decErr == nil {
+			cursorKey := string(decoded)
+			start := 0
+			for i, img := range imgs {
+				if img.ImageDigest == cursorKey {
+					start = i
+
+					break
+				}
+			}
+			imgs = imgs[start:]
+		}
+	}
+
+	return imgs
 }
 
 type listImagesFilter struct {
@@ -1771,6 +1780,7 @@ type describeImageScanFindingsOutput struct {
 	ImageScanStatus   scanStatusView           `json:"imageScanStatus"`
 	RegistryID        string                   `json:"registryId"`
 	RepositoryName    string                   `json:"repositoryName"`
+	NextToken         string                   `json:"nextToken,omitempty"`
 }
 
 type scanStatusView struct {
@@ -1778,11 +1788,25 @@ type scanStatusView struct {
 	Status      string `json:"status"`
 }
 
+type describeImageScanFindingsInput struct {
+	ImageID        ImageIdentifier `json:"imageId"`
+	RepositoryName string          `json:"repositoryName"`
+	RegistryID     string          `json:"registryId,omitempty"`
+	NextToken      string          `json:"nextToken,omitempty"`
+	MaxResults     int             `json:"maxResults,omitempty"`
+}
+
 func (h *Handler) handleDescribeImageScanFindings(
 	ctx context.Context,
-	in *imageInput,
+	in *describeImageScanFindingsInput,
 ) (*describeImageScanFindingsOutput, error) {
-	findings, err := h.Backend.DescribeImageScanFindings(ctx, in.RepositoryName, in.ImageID)
+	findings, nextToken, err := h.Backend.DescribeImageScanFindings(
+		ctx,
+		in.RepositoryName,
+		in.ImageID,
+		in.MaxResults,
+		in.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1796,6 +1820,7 @@ func (h *Handler) handleDescribeImageScanFindings(
 		},
 		RegistryID:     findings.RegistryID,
 		RepositoryName: findings.RepositoryName,
+		NextToken:      nextToken,
 	}, nil
 }
 

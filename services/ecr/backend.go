@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1816,24 +1817,56 @@ func (b *InMemoryBackend) DescribeImageScanFindings(
 	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	imageID ImageIdentifier,
-) (*ImageScanFindingsResult, error) {
+	maxResults int,
+	nextToken string,
+) (*ImageScanFindingsResult, string, error) {
 	b.mu.RLock("DescribeImageScanFindings")
 	defer b.mu.RUnlock()
 
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, "", fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	findings := b.imageScanFindings[repositoryName][img.ImageDigest]
 	if findings == nil {
-		return nil, fmt.Errorf("%w: image scan not found for %s in %s",
+		return nil, "", fmt.Errorf("%w: image scan not found for %s in %s",
 			ErrScanNotFoundException, img.ImageDigest, repositoryName)
 	}
 
 	cp := copyImageScanFindingsResult(findings)
 
-	return &cp, nil
+	if maxResults <= 0 {
+		maxResults = 100 // AWS default
+	}
+
+	// Simple pagination using findings index as nextToken
+	var startIdx int
+	if nextToken != "" {
+		parsed, err := strconv.Atoi(nextToken)
+		if err == nil {
+			startIdx = parsed
+		}
+	}
+
+	total := len(cp.Findings)
+	if startIdx >= total {
+		cp.Findings = nil
+
+		return &cp, "", nil
+	}
+
+	endIdx := startIdx + maxResults
+	var outNextToken string
+	if endIdx < total {
+		outNextToken = strconv.Itoa(endIdx)
+	} else {
+		endIdx = total
+	}
+
+	cp.Findings = cp.Findings[startIdx:endIdx]
+
+	return &cp, outNextToken, nil
 }
 
 // StartImageScan starts an image scan and returns the scan status.
@@ -1846,7 +1879,7 @@ func (b *InMemoryBackend) StartImageScan(ctx context.Context, //nolint:revive //
 
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	if b.imageScanFindings[repositoryName] == nil {
@@ -2186,7 +2219,7 @@ func (b *InMemoryBackend) UpdateImageStorageClass(
 
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	if target == "ARCHIVE" {

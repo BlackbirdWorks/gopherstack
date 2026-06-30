@@ -69,11 +69,11 @@ func makeImage(digest, tag string) ecr.Image {
 func TestAuditECR_ScanNotFoundException_UnscannedImage(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+	tests := []struct {
+		wantErrIs error
 		name      string
 		scanFirst bool
 		wantErr   bool
-		wantErrIs error
 	}{
 		{
 			name:      "unscanned_returns_ScanNotFoundException",
@@ -105,8 +105,8 @@ func TestAuditECR_ScanNotFoundException_UnscannedImage(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			_, err := b.DescribeImageScanFindings(context.Background(), "my-repo",
-				ecr.ImageIdentifier{ImageDigest: digest})
+			_, _, err := b.DescribeImageScanFindings(context.Background(), "my-repo",
+				ecr.ImageIdentifier{ImageDigest: digest}, 0, "")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -132,8 +132,8 @@ func TestAuditECR_StartImageScan_ThenDescribeFindings(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "scan-repo", result.RepositoryName)
 
-	findings, err := b.DescribeImageScanFindings(context.Background(), "scan-repo",
-		ecr.ImageIdentifier{ImageDigest: digest})
+	findings, _, err := b.DescribeImageScanFindings(context.Background(), "scan-repo",
+		ecr.ImageIdentifier{ImageDigest: digest}, 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, "COMPLETE", findings.Status)
 	assert.Equal(t, digest, findings.ImageID.ImageDigest)
@@ -607,9 +607,9 @@ func TestAuditECR_DescribeImages_ReturnsAll(t *testing.T) {
 func TestAuditECR_GetAuthorizationToken(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: test struct, cosmetic only
-		name       string
+	tests := []struct {
 		body       map[string]any
+		name       string
 		wantTokens int
 	}{
 		{
