@@ -79,18 +79,16 @@ func TestAssumeRoleWithSAML_ValidationErrors(t *testing.T) {
 		{
 			name: "missing_role_arn",
 			input: &sts.AssumeRoleWithSAMLInput{
-				PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
-				SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-					"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+				PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
+				SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 			},
 			wantErr: sts.ErrMissingRoleArn,
 		},
 		{
 			name: "missing_principal_arn",
 			input: &sts.AssumeRoleWithSAMLInput{
-				RoleArn: "arn:aws:iam::123456789012:role/SAMLRole",
-				SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-					"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+				RoleArn:       "arn:aws:iam::123456789012:role/SAMLRole",
+				SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 			},
 			wantErr: sts.ErrMissingPrincipalArn,
 		},
@@ -105,10 +103,9 @@ func TestAssumeRoleWithSAML_ValidationErrors(t *testing.T) {
 		{
 			name: "duration_too_short",
 			input: &sts.AssumeRoleWithSAMLInput{
-				RoleArn:      "arn:aws:iam::123456789012:role/SAMLRole",
-				PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
-				SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-					"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+				RoleArn:         "arn:aws:iam::123456789012:role/SAMLRole",
+				PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
+				SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 				DurationSeconds: 100,
 			},
 			wantErr: sts.ErrInvalidDuration,
@@ -116,10 +113,9 @@ func TestAssumeRoleWithSAML_ValidationErrors(t *testing.T) {
 		{
 			name: "duration_too_long",
 			input: &sts.AssumeRoleWithSAMLInput{
-				RoleArn:      "arn:aws:iam::123456789012:role/SAMLRole",
-				PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
-				SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-					"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+				RoleArn:         "arn:aws:iam::123456789012:role/SAMLRole",
+				PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
+				SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 				DurationSeconds: sts.MaxDurationSeconds + 1,
 			},
 			wantErr: sts.ErrInvalidDuration,
@@ -142,10 +138,9 @@ func TestAssumeRoleWithSAML_SessionTrackedForCallerIdentity(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-		RoleArn:      "arn:aws:iam::123456789012:role/SAMLRole",
-		PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
-		SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-			"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+		RoleArn:       "arn:aws:iam::123456789012:role/SAMLRole",
+		PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
+		SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 	})
 	require.NoError(t, err)
 
@@ -168,27 +163,21 @@ func TestHandler_AssumeRoleWithSAML(t *testing.T) {
 		{
 			name: "success",
 			formValues: url.Values{
-				"Action":       {"AssumeRoleWithSAML"},
-				"Version":      {"2011-06-15"},
-				"RoleArn":      {"arn:aws:iam::123456789012:role/SAMLRole"},
-				"PrincipalArn": {"arn:aws:iam::123456789012:saml-provider/MySAMLIdP"},
-				"SAMLAssertion": {
-					"PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-						"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
-				},
+				"Action":        {"AssumeRoleWithSAML"},
+				"Version":       {"2011-06-15"},
+				"RoleArn":       {"arn:aws:iam::123456789012:role/SAMLRole"},
+				"PrincipalArn":  {"arn:aws:iam::123456789012:saml-provider/MySAMLIdP"},
+				"SAMLAssertion": {"PHNhbWxwOkFzc2VydGlvbj4="},
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name: "missing_principal_arn_returns_400",
 			formValues: url.Values{
-				"Action":  {"AssumeRoleWithSAML"},
-				"Version": {"2011-06-15"},
-				"RoleArn": {"arn:aws:iam::123456789012:role/SAMLRole"},
-				"SAMLAssertion": {
-					"PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-						"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
-				},
+				"Action":        {"AssumeRoleWithSAML"},
+				"Version":       {"2011-06-15"},
+				"RoleArn":       {"arn:aws:iam::123456789012:role/SAMLRole"},
+				"SAMLAssertion": {"PHNhbWxwOkFzc2VydGlvbj4="},
 			},
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "MissingParameter",
@@ -207,13 +196,10 @@ func TestHandler_AssumeRoleWithSAML(t *testing.T) {
 		{
 			name: "missing_role_arn_returns_400",
 			formValues: url.Values{
-				"Action":       {"AssumeRoleWithSAML"},
-				"Version":      {"2011-06-15"},
-				"PrincipalArn": {"arn:aws:iam::123456789012:saml-provider/MySAMLIdP"},
-				"SAMLAssertion": {
-					"PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-						"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
-				},
+				"Action":        {"AssumeRoleWithSAML"},
+				"Version":       {"2011-06-15"},
+				"PrincipalArn":  {"arn:aws:iam::123456789012:saml-provider/MySAMLIdP"},
+				"SAMLAssertion": {"PHNhbWxwOkFzc2VydGlvbj4="},
 			},
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "MissingParameter",
@@ -221,14 +207,11 @@ func TestHandler_AssumeRoleWithSAML(t *testing.T) {
 		{
 			name: "invalid_duration_returns_400",
 			formValues: url.Values{
-				"Action":       {"AssumeRoleWithSAML"},
-				"Version":      {"2011-06-15"},
-				"RoleArn":      {"arn:aws:iam::123456789012:role/SAMLRole"},
-				"PrincipalArn": {"arn:aws:iam::123456789012:saml-provider/MySAMLIdP"},
-				"SAMLAssertion": {
-					"PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-						"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
-				},
+				"Action":          {"AssumeRoleWithSAML"},
+				"Version":         {"2011-06-15"},
+				"RoleArn":         {"arn:aws:iam::123456789012:role/SAMLRole"},
+				"PrincipalArn":    {"arn:aws:iam::123456789012:saml-provider/MySAMLIdP"},
+				"SAMLAssertion":   {"PHNhbWxwOkFzc2VydGlvbj4="},
 				"DurationSeconds": {"100"},
 			},
 			wantStatus: http.StatusBadRequest,

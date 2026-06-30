@@ -213,10 +213,9 @@ func TestRefinement1_AssumeRoleWithSAMLNameQualifier(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	input := &sts.AssumeRoleWithSAMLInput{
-		RoleArn:      "arn:aws:iam::000000000000:role/test-role",
-		PrincipalArn: "arn:aws:iam::000000000000:saml-provider/MyIdP",
-		SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-			"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+		RoleArn:       "arn:aws:iam::000000000000:role/test-role",
+		PrincipalArn:  "arn:aws:iam::000000000000:saml-provider/MyIdP",
+		SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 	}
 
 	resp, err := b.AssumeRoleWithSAML(input)
@@ -230,10 +229,9 @@ func TestRefinement1_AssumeRoleWithSAMLSessionName(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	input := &sts.AssumeRoleWithSAMLInput{
-		RoleArn:      "arn:aws:iam::000000000000:role/test-role",
-		PrincipalArn: "arn:aws:iam::000000000000:saml-provider/MyIdP",
-		SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-			"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+		RoleArn:         "arn:aws:iam::000000000000:role/test-role",
+		PrincipalArn:    "arn:aws:iam::000000000000:saml-provider/MyIdP",
+		SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 		RoleSessionName: "my-saml-session",
 	}
 
@@ -342,11 +340,10 @@ func TestRefinement1_AssumeRoleWithWebIdentityTagsStored(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-		RoleArn:         "arn:aws:iam::000000000000:role/test-role",
-		RoleSessionName: "test-session",
-		WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
-			"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
-		Tags: []sts.Tag{{Key: "Env", Value: "test"}},
+		RoleArn:          "arn:aws:iam::000000000000:role/test-role",
+		RoleSessionName:  "test-session",
+		WebIdentityToken: "eyJhbGciOiJtb2NrIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ0ZXN0LXN1YmplY3QiLCJhdWQiOiJ0ZXN0LWF1ZCJ9.mock",
+		Tags:             []sts.Tag{{Key: "Env", Value: "test"}},
 	})
 	require.NoError(t, err)
 
@@ -369,10 +366,9 @@ func TestRefinement1_AssumeRoleWithSAMLSourceIdentity(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-		RoleArn:      "arn:aws:iam::000000000000:role/test-role",
-		PrincipalArn: "arn:aws:iam::000000000000:saml-provider/MyIdP",
-		SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
-			"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+		RoleArn:        "arn:aws:iam::000000000000:role/test-role",
+		PrincipalArn:   "arn:aws:iam::000000000000:saml-provider/MyIdP",
+		SAMLAssertion:  "PHNhbWxwOkFzc2VydGlvbj4=",
 		SourceIdentity: "my-saml-identity",
 	})
 	require.NoError(t, err)
@@ -385,11 +381,10 @@ func TestRefinement1_AssumeRoleWithWebIdentitySourceIdentity(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-		RoleArn:         "arn:aws:iam::000000000000:role/test-role",
-		RoleSessionName: "test-session",
-		WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
-			"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
-		SourceIdentity: "my-oidc-identity",
+		RoleArn:          "arn:aws:iam::000000000000:role/test-role",
+		RoleSessionName:  "test-session",
+		WebIdentityToken: "eyJhbGciOiJtb2NrIn0.eyJzdWIiOiJzdWIxIn0.sig",
+		SourceIdentity:   "my-oidc-identity",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "my-oidc-identity", resp.AssumeRoleWithWebIdentityResult.SourceIdentity)
