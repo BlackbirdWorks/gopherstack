@@ -458,7 +458,9 @@ func mergeConstraints(tdConstraints, inputConstraints []PlacementConstraint) []P
 	}
 
 	seen := make(map[string]struct{}, len(tdConstraints))
-	merged := make([]PlacementConstraint, 0, len(tdConstraints)+len(inputConstraints))
+	// Pre-size to the task-definition constraints; append grows for any extra
+	// input constraints (avoids a flagged len+len capacity expression).
+	merged := make([]PlacementConstraint, 0, len(tdConstraints))
 
 	for _, c := range tdConstraints {
 		key := strings.ToLower(c.Type) + "|" + c.Expression
