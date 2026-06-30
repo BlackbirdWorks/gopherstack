@@ -1167,26 +1167,49 @@ func (b *InMemoryBackend) deliverActiveDestinations(
 }
 
 // deliverSnapshot applies optional Lambda transformation and delivers records to all
+// applyTransform runs the Lambda processor over records and returns the records
+// that should continue to the main destination. Failed/dropped records are routed
+// to the configured error output, or silently dropped when none is configured
+// (AWS never delivers them to the main destination).
+func (b *InMemoryBackend) applyTransform(
+	ctx context.Context,
+	records [][]byte,
+	snap *flushSnapshot,
+	streamName string,
+) [][]byte {
+	okRecords, failedRecords, err := b.transformRecords(
+		ctx,
+		records,
+		snap.getActiveProcessingConfig(),
+		snap.streamARN,
+		snap.region,
+	)
+	if err != nil {
+		// Complete transform failure -> all records fail.
+		failedRecords = records
+		okRecords = nil
+	}
+
+	if len(failedRecords) == 0 {
+		return okRecords
+	}
+
+	b.incrementFailedRecords(ctx, streamName, int64(len(failedRecords)))
+
+	if errBucket, errPrefix, errCompression := snap.getErrorOutputConfig(); errBucket != "" {
+		_ = b.deliverToS3Raw(ctx, failedRecords, errBucket, errPrefix, errCompression, streamName)
+	}
+
+	return okRecords
+}
+
 // configured destinations. Called after the write lock has been released.
 func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapshot, streamName string) {
 	records := snap.records
 
 	procConfig := snap.getActiveProcessingConfig()
 	if procConfig != nil && procConfig.Enabled {
-		okRecords, failedRecords, err := b.transformRecords(ctx, records, procConfig, snap.streamARN, snap.region)
-		if err != nil {
-			// Complete transform failure -> all records fail
-			failedRecords = records
-			records = nil
-		} else {
-			records = okRecords
-		}
-
-		if len(failedRecords) > 0 {
-			b.incrementFailedRecords(ctx, streamName, int64(len(failedRecords)))
-			errBucket, errPrefix, errCompression := snap.getErrorOutputConfig()
-			_ = b.deliverToS3Raw(ctx, failedRecords, errBucket, errPrefix, errCompression, streamName)
-		}
+		records = b.applyTransform(ctx, records, snap, streamName)
 	}
 
 	if len(records) > 0 {
