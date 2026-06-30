@@ -1,12 +1,13 @@
 package ec2
 
 import (
-	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -677,12 +678,8 @@ func parseImagesPagination(vals url.Values) (int, int, error) {
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		decoded, decErr := base64.StdEncoding.DecodeString(tok)
-		if decErr != nil {
-			return 0, 0, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
-		}
-		n, parseErr := strconv.Atoi(string(decoded))
-		if parseErr != nil || n < 0 {
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
 			return 0, 0, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
 		}
 		offset = n
@@ -750,9 +747,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 
 	var nextToken string
 	if len(filtered) > maxResults {
-		nextToken = base64.StdEncoding.EncodeToString(
-			[]byte(strconv.Itoa(offset + maxResults)),
-		)
+		nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
 		filtered = filtered[:maxResults]
 	}
 

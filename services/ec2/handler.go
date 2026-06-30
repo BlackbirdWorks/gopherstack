@@ -2,7 +2,6 @@ package ec2
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -18,13 +17,15 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
-	ec2APIVersion = "2016-11-15"
-	ec2XMLNS      = "http://ec2.amazonaws.com/doc/2016-11-15/"
-	unknownOp     = "Unknown"
+	ec2APIVersion     = "2016-11-15"
+	ec2XMLNS          = "http://ec2.amazonaws.com/doc/2016-11-15/"
+	unknownOp         = "Unknown"
+	ec2PaginationSalt = "ec2-opaque-pagination-v1"
 )
 
 // Handler is the Echo HTTP handler for EC2 operations.
@@ -607,12 +608,8 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		decoded, decErr := base64.StdEncoding.DecodeString(tok)
-		if decErr != nil {
-			return nil, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
-		}
-		n, parseErr := strconv.Atoi(string(decoded))
-		if parseErr != nil || n < 0 {
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
 			return nil, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
 		}
 		offset = n
@@ -628,9 +625,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		instances = instances[offset:]
 
 		if len(instances) > maxResults {
-			nextToken = base64.StdEncoding.EncodeToString(
-				[]byte(strconv.Itoa(offset + maxResults)),
-			)
+			nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
 			instances = instances[:maxResults]
 		}
 	}
@@ -1047,8 +1042,8 @@ func parseInstanceTypesPagination(vals url.Values) (int, int, error) {
 	offset := 0
 
 	if tok := vals.Get("NextToken"); tok != "" {
-		n, perr := strconv.Atoi(tok)
-		if perr != nil || n < 0 {
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
 			return 0, 0, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidParameter, tok)
 		}
 
@@ -1070,14 +1065,14 @@ func paginateInstanceTypes(items []string, offset, maxResults int) ([]string, st
 		end = offset + maxResults
 	}
 
-	page := items[offset:end]
+	pageResult := items[offset:end]
 
 	var token string
 	if end < len(items) {
-		token = strconv.Itoa(end)
+		token = page.EncodeHMACToken(end, ec2PaginationSalt)
 	}
 
-	return page, token
+	return pageResult, token
 }
 
 // validDescribeTagsFilters is the set of filter names accepted by DescribeTags.
