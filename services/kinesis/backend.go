@@ -1516,10 +1516,6 @@ func (b *InMemoryBackend) UpdateShardCount(
 	}
 	targetCount := input.TargetShardCount
 
-	if targetCount > currentCount*2 || targetCount < currentCount/2 {
-		return nil, ErrInvalidArgument
-	}
-
 	maxHashKey := new(big.Int).Sub(
 		new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),
 		big.NewInt(1),
