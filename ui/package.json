@@ -68,6 +68,7 @@
     "@aws-sdk/client-dlm": "3.1070.0",
     "@aws-sdk/client-docdb": "3.1070.0",
     "@aws-sdk/client-dynamodb": "3.1070.0",
+    "@aws-sdk/client-dynamodb-streams": "3.1070.0",
     "@aws-sdk/client-ebs": "3.1070.0",
     "@aws-sdk/client-ec2": "3.1070.0",
     "@aws-sdk/client-ecr": "3.1070.0",

@@ -767,3 +767,10 @@ export function getRolesAnywhereClient(region?: string): RolesAnywhereClient {
 export function getWorkMailClient(region?: string): WorkMailClient {
   return new WorkMailClient(clientConfig(region));
 }
+
+import { DynamoDBStreamsClient } from "@aws-sdk/client-dynamodb-streams";
+
+export function getDynamoDBStreamsClient(region?: string): DynamoDBStreamsClient {
+  return new DynamoDBStreamsClient(clientConfig(region));
+}
+
