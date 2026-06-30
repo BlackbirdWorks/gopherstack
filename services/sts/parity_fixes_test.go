@@ -88,9 +88,9 @@ func TestParity_AssumeRoleWithSAML_SAMLAssertionValidation(t *testing.T) {
 			wantErr:       sts.ErrInvalidSAMLAssertion,
 		},
 		{
-			name:          "valid_base64_non_xml_accepted",
-			samlAssertion: "dGVzdA==", // "test" — valid base64; emulator accepts non-XML payloads
-			wantErr:       nil,
+			name:          "valid_base64_non_xml_rejected",
+			samlAssertion: "dGVzdA==", // "test" — valid base64; now rejected because not XML
+			wantErr:       sts.ErrInvalidSAMLAssertion,
 		},
 		{
 			name:          "valid_base64_xml_accepted",
@@ -145,9 +145,10 @@ func TestParity_AssumeRoleWithSAML_SAMLAssertionViaHandler(t *testing.T) {
 			wantError:     "InvalidIdentityToken",
 		},
 		{
-			name:          "valid_base64_non_xml_returns_200",
+			name:          "valid_base64_non_xml_returns_400_InvalidIdentityToken",
 			samlAssertion: "dGVzdA==",
-			wantCode:      http.StatusOK,
+			wantCode:      http.StatusBadRequest,
+			wantError:     "InvalidIdentityToken",
 		},
 		{
 			name:          "valid_saml_xml_returns_200",
@@ -279,11 +280,12 @@ func TestParity_DecodeAuthorizationMessage_ViaHandler(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name: "arbitrary_base64_returns_200",
+			name: "arbitrary_base64_returns_400",
 			setupMsg: func(_ *sts.InMemoryBackend) string {
 				return "SGVsbG8=" // base64("Hello")
 			},
-			wantCode: http.StatusOK,
+			wantCode:  http.StatusBadRequest,
+			wantError: "InvalidAuthorizationMessageException",
 		},
 		{
 			name: "garbage_non_base64_returns_400",

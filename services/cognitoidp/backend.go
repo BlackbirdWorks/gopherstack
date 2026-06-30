@@ -1239,6 +1239,10 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	b.mu.Lock("InitiateAuthRefreshToken")
 	defer b.mu.Unlock()
 
+	if refreshToken == "" {
+		return nil, fmt.Errorf("%w: Missing required parameter REFRESH_TOKEN", ErrInvalidParameter)
+	}
+
 	entry, ok := b.refreshTokens[refreshToken]
 	if !ok {
 		return nil, fmt.Errorf("%w: refresh token not found or expired", ErrNotAuthorized)
@@ -1258,12 +1262,8 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
 	}
 
-	poolUsers, ok := b.users[entry.PoolID]
-	if !ok {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
-	}
-
-	user, ok := poolUsers[entry.Username]
+	// A missing pool entry yields a nil map, whose lookup safely reports !ok.
+	user, ok := b.users[entry.PoolID][entry.Username]
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}

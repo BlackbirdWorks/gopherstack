@@ -495,11 +495,11 @@ func TestAuditSM_UpdateSecretVersionStage_MoveAWSCURRENT(t *testing.T) {
 func TestAuditSM_GetRandomPassword_Constraints(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+	tests := []struct {
+		checkFn func(t *testing.T, pw string)
 		name    string
 		input   sm.GetRandomPasswordInput
 		wantErr bool
-		checkFn func(t *testing.T, pw string)
 	}{
 		{
 			name:  "default_length_32",
@@ -766,10 +766,10 @@ func TestAuditSM_DescribeSecret_AllFields(t *testing.T) {
 func TestAuditSM_UpdateSecret_ValueAndMeta(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+	tests := []struct {
+		checkFn     func(t *testing.T, desc *sm.DescribeSecretOutput, val *sm.GetSecretValueOutput)
 		name        string
 		updateInput sm.UpdateSecretInput
-		checkFn     func(t *testing.T, desc *sm.DescribeSecretOutput, val *sm.GetSecretValueOutput)
 	}{
 		{
 			name: "update_description_only",

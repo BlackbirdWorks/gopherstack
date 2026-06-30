@@ -225,8 +225,7 @@ func TestAssumeRole_ExternalID_MultipleStatements_ORSemantics(t *testing.T) {
 func TestAssumeRole_ExternalID_RoleLookupError(t *testing.T) {
 	t.Parallel()
 
-	// When the role cannot be found in the lookup, AssumeRole still succeeds
-	// (the role may exist but not be in IAM — passthrough mode).
+	// When the role cannot be found in the lookup, AssumeRole returns ErrNoSuchEntity.
 	backend := sts.NewInMemoryBackend()
 	backend.SetRoleLookup(&stubRoleLookup{err: errStubRoleNotFound})
 
@@ -234,8 +233,8 @@ func TestAssumeRole_ExternalID_RoleLookupError(t *testing.T) {
 		RoleArn:         "arn:aws:iam::123456789012:role/Unknown",
 		RoleSessionName: "session",
 	})
-	require.NoError(t, err)
-	assert.NotNil(t, resp)
+	require.ErrorIs(t, err, sts.ErrNoSuchEntity)
+	assert.Nil(t, resp)
 }
 
 func TestAssumeRole_ExternalID_EmptyTrustPolicy(t *testing.T) {

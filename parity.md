@@ -910,39 +910,28 @@ and (2) **there is no SigV4 header-auth or `aws-chunked` body decoding**. Detail
   O(1) opaque pagination tokens.
 
 ### sts (deep dive)
-- **Parity — AssumeRole:** when a `RoleLookup` is wired but the role ARN is unknown, `roleDerivedMaxDuration`
-  returns the default max with no error, so **AssumeRole succeeds for a non-existent role** instead of
-  `NoSuchEntity` (`backend.go:590-593`). No call validates that the role's trust policy permits the caller/
+- **Parity — AssumeRole:** No call validates that the role's trust policy permits the caller/
   federated principal (only `ExternalId` is checked, and only when a lookup exists);
   `AssumeRoleWithSAML`/`WithWebIdentity` skip trust evaluation entirely (`backend.go:1026-1051`).
-- **Parity — SAML/web-identity:** `validateSAMLAssertion` checks base64 only, not well-formed SAML XML or
-  audience/issuer (`backend.go:1153-1164`); the web-identity JWT is parsed for claims but never validated for
+- **Parity — SAML/web-identity:** the web-identity JWT is parsed for claims but never validated for
   `exp`/signature/`aud`, so expired/forged tokens are accepted (`backend.go:1041-1051,1550`).
-  `DecodeAuthorizationMessage` falls back to decoding any base64 blob after the self-issued HMAC check fails,
-  so non-STS messages still decode (`handler.go:583-594`).
 - **Performance / Leaks:** none remaining (ticker eviction + lazy expiry-delete).
 - **UI:** counters-only plus a `GetAccessKeyInfo` validator; no interactive forms for AssumeRole /
   AssumeRoleWithSAML / WithWebIdentity / AssumeRoot / GetSessionToken / GetFederationToken (`+page.svelte:357-372`).
 - _Recently closed:_ ASIA-key GetCallerIdentity InvalidClientTokenId/ExpiredToken; session-token-mismatch 400;
-  role-chaining 1h cap; backend self-issued auth-message HMAC verification.
+  role-chaining 1h cap; backend self-issued auth-message HMAC verification; AssumeRole NoSuchEntity for non-existent role; SAML XML well-formedness validation; DecodeAuthorizationMessage fallback decode disabled.
 
 ### kms (deep dive)
-- **Parity — key policies:** `PutKeyPolicy` stores the policy verbatim with no JSON parse/validation
-  (`backend.go:2789`; `handler.go:609-628`), so `MalformedPolicyDocumentException` (invalid JSON, missing
-  Version/Statement, unresolvable principal) is never produced — the only check is `PolicyName == "default"`.
-  This is the **sole remaining op-level divergence**: crypto, encryption-context AAD binding, grants +
+- **Parity:** crypto, encryption-context AAD binding, grants +
   constraints, asymmetric Sign/Verify/GetPublicKey, HMAC, multi-region keys, rotation (auto + on-demand +
   history), and custom key stores are all real and at parity (`crypto.go:166-558,704-730`;
   `backend.go:1809-1933,2232-2544`).
 - **Performance / Leaks:** none remaining (`lastUsage` purged on janitor finalization, `janitor.go:238`).
 - **UI:** `DescribeCustomKeyStores` and `GetKeyLastUsage` have no console surface.
 - _Recently closed:_ real crypto + AAD context binding; grant constraint enforcement; rotation history; MRK
-  config; lastUsage purge; O(1) `clearResolutionCache`; full sign/verify/grant/import UI.
+  config; lastUsage purge; O(1) `clearResolutionCache`; full sign/verify/grant/import UI; PutKeyPolicy MalformedPolicyDocumentException and JSON validation.
 
 ### secretsmanager (deep dive)
-- **Parity — resource policies:** `PutResourcePolicy` stores the policy verbatim (`backend.go:2170`) without the
-  JSON/Version/Statement validation `ValidateResourcePolicy` already performs (`backend.go:2704-2732`), so a
-  malformed policy never yields `MalformedPolicyDocumentException`; `BlockPublicPolicy` is unenforced.
 - **Parity — idempotency/pagination:** reusing a `ClientRequestToken` with *different* content does not raise
   `ResourceExistsException` — `PutSecretValue` silently creates a new version (`backend.go:535-563`).
   `ListSecrets`/`ListSecretVersionIds`/`BatchGetSecretValue` tokens are plain `strconv.Itoa` offsets
@@ -954,7 +943,7 @@ and (2) **there is no SigV4 header-auth or `aws-chunked` body decoding**. Detail
 - **UI:** no coverage for PutSecretValue, resource-policy ops, BatchGetSecretValue, GetRandomPassword,
   StopReplicationToReplica.
 - _Recently closed:_ `ValidateResourcePolicy` JSON/Version/Statement checks; same-token same-content idempotency;
-  `X-Amzn-Errortype` header on errors.
+  `X-Amzn-Errortype` header on errors; `PutResourcePolicy` JSON/Version/Statement validation and `BlockPublicPolicy` enforcement.
 
 ## Orchestration & APIs
 

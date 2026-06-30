@@ -880,8 +880,8 @@ type GetKeyLastUsageInput struct {
 
 // GetKeyLastUsageOutput is the response payload for GetKeyLastUsage.
 type GetKeyLastUsageOutput struct {
-	KeyCreationDate   float64           `json:"KeyCreationDate,omitempty"`
-	KeyID             string            `json:"KeyId,omitempty"` //nolint:tagliatelle // AWS API uses KeyId
 	KeyLastUsage      *KeyLastUsageData `json:"KeyLastUsage,omitempty"`
+	KeyID             string            `json:"KeyId,omitempty"`
+	KeyCreationDate   float64           `json:"KeyCreationDate,omitempty"`
 	TrackingStartDate float64           `json:"TrackingStartDate,omitempty"`
 }

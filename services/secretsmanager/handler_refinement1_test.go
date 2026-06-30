@@ -91,7 +91,7 @@ func TestRefinement1_ResourcePolicyCount(t *testing.T) {
 
 	_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 		SecretID:       "pol-secret",
-		ResourcePolicy: `{"Version":"2012-10-17"}`,
+		ResourcePolicy: `{"Version":"2012-10-17","Statement":[]}`,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, secretsmanager.ResourcePolicyCount(b))
@@ -256,7 +256,7 @@ func TestRefinement1_DeleteSecretCascade(t *testing.T) {
 
 	_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 		SecretID:       "cascade",
-		ResourcePolicy: `{"Version":"2012-10-17"}`,
+		ResourcePolicy: `{"Version":"2012-10-17","Statement":[]}`,
 	})
 	require.NoError(t, err)
 
@@ -666,7 +666,7 @@ func TestRefinement1_ResetCleansAllMaps(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 		SecretID:       "reset-s",
-		ResourcePolicy: `{}`,
+		ResourcePolicy: `{"Version":"2012-10-17","Statement":[]}`,
 	})
 	require.NoError(t, err)
 	_, err = b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
