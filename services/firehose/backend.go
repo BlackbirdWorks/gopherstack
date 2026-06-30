@@ -780,9 +780,7 @@ func (b *InMemoryBackend) UpdateDestination(
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
 	}
 
-	// A caller may omit the current version to skip optimistic-concurrency
-	// checking; only enforce the match when a version is explicitly supplied.
-	if currentVersionID != "" && s.VersionID != currentVersionID {
+	if s.VersionID != currentVersionID {
 		return fmt.Errorf("%w: version mismatch: expected %s got %s", ErrValidation, currentVersionID, s.VersionID)
 	}
 
