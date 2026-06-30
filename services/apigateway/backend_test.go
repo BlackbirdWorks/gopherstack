@@ -370,11 +370,8 @@ func TestBackend_Authorizer(t *testing.T) {
 				require.NoError(t, err)
 
 				auth, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
-					Name: "my-auth",
-					Type: "TOKEN",
-					AuthorizerURI: "arn:aws:apigateway:us-east-1:lambda:path/" +
-						"2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:auth/invocations",
-
+					Name:           "my-auth",
+					Type:           "TOKEN",
 					IdentitySource: "method.request.header.Authorization",
 				})
 				require.NoError(t, err)
@@ -394,11 +391,8 @@ func TestBackend_Authorizer(t *testing.T) {
 				require.NoError(t, err)
 
 				created, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
-					Name:           "my-auth",
-					Type:           "TOKEN",
-					IdentitySource: "method.request.header.Authorization",
-					AuthorizerURI: "arn:aws:apigateway:us-east-1:lambda:path/" +
-						"2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:auth/invocations",
+					Name: "my-auth",
+					Type: "TOKEN",
 				})
 				require.NoError(t, err)
 
@@ -432,11 +426,8 @@ func TestBackend_Authorizer(t *testing.T) {
 				require.NoError(t, err)
 
 				_, err = b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
-					Name:           "my-auth",
-					Type:           "TOKEN",
-					IdentitySource: "method.request.header.Authorization",
-					AuthorizerURI: "arn:aws:apigateway:us-east-1:lambda:path/" +
-						"2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:auth/invocations",
+					Name: "my-auth",
+					Type: "TOKEN",
 				})
 				require.NoError(t, err)
 
@@ -456,11 +447,8 @@ func TestBackend_Authorizer(t *testing.T) {
 				require.NoError(t, err)
 
 				created, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
-					Name:           "my-auth",
-					Type:           "TOKEN",
-					IdentitySource: "method.request.header.Authorization",
-					AuthorizerURI: "arn:aws:apigateway:us-east-1:lambda:path/" +
-						"2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:auth/invocations",
+					Name: "my-auth",
+					Type: "TOKEN",
 				})
 				require.NoError(t, err)
 
@@ -496,11 +484,8 @@ func TestBackend_Authorizer(t *testing.T) {
 				require.NoError(t, err)
 
 				created, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
-					Name:           "my-auth",
-					Type:           "TOKEN",
-					IdentitySource: "method.request.header.Authorization",
-					AuthorizerURI: "arn:aws:apigateway:us-east-1:lambda:path/" +
-						"2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:auth/invocations",
+					Name: "my-auth",
+					Type: "TOKEN",
 				})
 				require.NoError(t, err)
 

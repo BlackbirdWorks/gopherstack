@@ -365,7 +365,7 @@ func (h *Handler) applyMethodControls(
 	}
 
 	if method.RequestValidatorID != "" {
-		if h.runRequestValidator(ctx, w, r, apiID, method) {
+		if h.runRequestValidator(ctx, w, r, apiID, method.RequestValidatorID) {
 			return true
 		}
 	}
@@ -676,22 +676,14 @@ func (h *Handler) runRequestValidator(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID string,
-	method *Method,
+	apiID, validatorID string,
 ) bool {
-	if method.RequestValidatorID == "" {
-		return false
-	}
-	rv, err := h.Backend.GetRequestValidator(apiID, method.RequestValidatorID)
+	rv, err := h.Backend.GetRequestValidator(apiID, validatorID)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: request validator not found",
-			"validatorId", method.RequestValidatorID)
+			"validatorId", validatorID)
 
 		return false // fail open when validator config is missing
-	}
-
-	if rv.ValidateRequestParameters && validateRequestParameters(w, r, method) {
-		return true
 	}
 
 	if rv.ValidateRequestBody && r.Body != nil {
@@ -1669,34 +1661,4 @@ func resolveRequestParamSource(r *http.Request, src string) string {
 	}
 
 	return ""
-}
-
-func validateRequestParameters(w http.ResponseWriter, r *http.Request, method *Method) bool {
-	for param, required := range method.RequestParameters {
-		if !required {
-			continue
-		}
-		parts := strings.Split(param, ".")
-		if len(parts) != 4 || parts[0] != "method" || parts[1] != "request" {
-			continue
-		}
-		kind := parts[2]
-		name := parts[3]
-		switch kind {
-		case "header":
-			if r.Header.Get(name) == "" {
-				http.Error(w, "Bad Request: missing required header "+name, http.StatusBadRequest)
-
-				return true
-			}
-		case "querystring":
-			if r.URL.Query().Get(name) == "" {
-				http.Error(w, "Bad Request: missing required querystring "+name, http.StatusBadRequest)
-
-				return true
-			}
-		}
-	}
-
-	return false
 }
