@@ -773,4 +773,3 @@ import { DynamoDBStreamsClient } from "@aws-sdk/client-dynamodb-streams";
 export function getDynamoDBStreamsClient(region?: string): DynamoDBStreamsClient {
   return new DynamoDBStreamsClient(clientConfig(region));
 }
-
