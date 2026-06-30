@@ -246,17 +246,25 @@ func checkPackedPolicyBudget(policy string, policyArns []string) error {
 	return nil
 }
 
-// validateJWTNotExpired checks the "exp" claim in a JWT payload and returns ErrExpiredToken
-// when the token is expired. Returns nil when the claim is absent (mock permissive).
-func validateJWTNotExpired(token string) error {
+// validateWebIdentityJWT checks the "exp", "aud", and basic structure/signature of a JWT payload.
+func validateWebIdentityJWT(token string) error {
+	parts := strings.Split(token, ".")
+	const jwtPartsCount = 3
+	if len(parts) != jwtPartsCount {
+		return fmt.Errorf("%w: JWT must have 3 parts", ErrInvalidIdentityToken)
+	}
+	if parts[2] == "" {
+		return fmt.Errorf("%w: JWT missing signature", ErrInvalidIdentityToken)
+	}
+
 	claims := parseJWTPayloadClaims(token)
 	if claims == nil {
-		return nil
+		return fmt.Errorf("%w: invalid JWT payload", ErrInvalidIdentityToken)
 	}
 
 	exp, ok := claims["exp"]
 	if !ok {
-		return nil
+		return fmt.Errorf("%w: JWT missing exp claim", ErrInvalidIdentityToken)
 	}
 
 	var expTime time.Time
@@ -272,11 +280,15 @@ func validateJWTNotExpired(token string) error {
 
 		expTime = time.Unix(n, 0).UTC()
 	default:
-		return nil
+		return fmt.Errorf("%w: invalid exp claim type", ErrInvalidIdentityToken)
 	}
 
 	if time.Now().UTC().After(expTime) {
 		return fmt.Errorf("%w: JWT exp claim is %s", ErrExpiredToken, expTime.Format(time.RFC3339))
+	}
+
+	if aud, okAud := claims["aud"]; !okAud || aud == "" {
+		return fmt.Errorf("%w: JWT missing aud claim", ErrInvalidIdentityToken)
 	}
 
 	return nil

@@ -1108,9 +1108,10 @@ func TestAccuracy_AssumedRoleArn_PathStripped_WebIdentityAndSAML(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-			RoleArn:          roleArn,
-			RoleSessionName:  "sess",
-			WebIdentityToken: "header.payload.sig",
+			RoleArn:         roleArn,
+			RoleSessionName: "sess",
+			WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
+				"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, wantArn, resp.AssumeRoleWithWebIdentityResult.AssumedRoleUser.Arn)
@@ -1124,7 +1125,8 @@ func TestAccuracy_AssumedRoleArn_PathStripped_WebIdentityAndSAML(t *testing.T) {
 			RoleArn:         roleArn,
 			RoleSessionName: "sess",
 			PrincipalArn:    "arn:aws:iam::" + acct + ":saml-provider/Example",
-			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, wantArn, resp.AssumeRoleWithSAMLResult.AssumedRoleUser.Arn)

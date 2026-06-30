@@ -123,11 +123,14 @@ func TestBatch2_AssumeRoleWithSAML_ResultBeforeMetadata(t *testing.T) {
 
 	h, _, e := accuracyHandler(t)
 	form := url.Values{
-		"Action":        {"AssumeRoleWithSAML"},
-		"Version":       {"2011-06-15"},
-		"RoleArn":       {"arn:aws:iam::123456789012:role/R"},
-		"PrincipalArn":  {"arn:aws:iam::123456789012:saml-provider/MyIdP"},
-		"SAMLAssertion": {"PHNhbWxwOkFzc2VydGlvbj4="},
+		"Action":       {"AssumeRoleWithSAML"},
+		"Version":      {"2011-06-15"},
+		"RoleArn":      {"arn:aws:iam::123456789012:role/R"},
+		"PrincipalArn": {"arn:aws:iam::123456789012:saml-provider/MyIdP"},
+		"SAMLAssertion": {
+			"PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+		},
 	}
 	rec := accuracyPost(t, h, e, form)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -199,11 +202,14 @@ func TestBatch2_AssumeRoleWithWebIdentity_ResultBeforeMetadata(t *testing.T) {
 
 	h, _, e := accuracyHandler(t)
 	form := url.Values{
-		"Action":           {"AssumeRoleWithWebIdentity"},
-		"Version":          {"2011-06-15"},
-		"RoleArn":          {"arn:aws:iam::123456789012:role/R"},
-		"RoleSessionName":  {"session"},
-		"WebIdentityToken": {"token"},
+		"Action":          {"AssumeRoleWithWebIdentity"},
+		"Version":         {"2011-06-15"},
+		"RoleArn":         {"arn:aws:iam::123456789012:role/R"},
+		"RoleSessionName": {"session"},
+		"WebIdentityToken": {
+			"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiAiYWJjMjM0IiwgI" +
+				"mF1ZCI6ICJhdWRpZW5jZSIsICJleHAiOiAyNTI0NjA4MDAwfQ.c2lnbmF0dXJl",
+		},
 	}
 	rec := accuracyPost(t, h, e, form)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -226,9 +232,10 @@ func TestBatch2_AssumeRoleWithWebIdentity_RespectsRoleMaxSessionDuration(t *test
 		b.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{MaxSessionDuration: 900}})
 
 		resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-			RoleArn:          "arn:aws:iam::123456789012:role/SmallMaxRole",
-			RoleSessionName:  "session",
-			WebIdentityToken: "token",
+			RoleArn:         "arn:aws:iam::123456789012:role/SmallMaxRole",
+			RoleSessionName: "session",
+			WebIdentityToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiAiYWJjMjM0IiwgI" +
+				"mF1ZCI6ICJhdWRpZW5jZSIsICJleHAiOiAyNTI0NjA4MDAwfQ.c2lnbmF0dXJl",
 		})
 		require.NoError(t, err)
 		assert.NotEmpty(t, resp.AssumeRoleWithWebIdentityResult.Credentials.AccessKeyID)
@@ -241,10 +248,11 @@ func TestBatch2_AssumeRoleWithWebIdentity_RespectsRoleMaxSessionDuration(t *test
 		b.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{MaxSessionDuration: 900}})
 
 		_, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-			RoleArn:          "arn:aws:iam::123456789012:role/SmallMaxRole",
-			RoleSessionName:  "session",
-			WebIdentityToken: "token",
-			DurationSeconds:  1800,
+			RoleArn:         "arn:aws:iam::123456789012:role/SmallMaxRole",
+			RoleSessionName: "session",
+			WebIdentityToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiAiYWJjMjM0IiwgI" +
+				"mF1ZCI6ICJhdWRpZW5jZSIsICJleHAiOiAyNTI0NjA4MDAwfQ.c2lnbmF0dXJl",
+			DurationSeconds: 1800,
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidDuration)
 	})
@@ -254,10 +262,11 @@ func TestBatch2_AssumeRoleWithWebIdentity_RespectsRoleMaxSessionDuration(t *test
 
 		b := sts.NewInMemoryBackend()
 		resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-			RoleArn:          "arn:aws:iam::123456789012:role/R",
-			RoleSessionName:  "session",
-			WebIdentityToken: "token",
-			DurationSeconds:  sts.MaxDurationSeconds,
+			RoleArn:         "arn:aws:iam::123456789012:role/R",
+			RoleSessionName: "session",
+			WebIdentityToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiAiYWJjMjM0IiwgI" +
+				"mF1ZCI6ICJhdWRpZW5jZSIsICJleHAiOiAyNTI0NjA4MDAwfQ.c2lnbmF0dXJl",
+			DurationSeconds: sts.MaxDurationSeconds,
 		})
 		require.NoError(t, err)
 		assert.NotEmpty(t, resp.AssumeRoleWithWebIdentityResult.Credentials.AccessKeyID)
@@ -274,9 +283,10 @@ func TestBatch2_AssumeRoleWithSAML_RespectsRoleMaxSessionDuration(t *testing.T) 
 		b.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{MaxSessionDuration: 900}})
 
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/SmallMaxRole",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      "arn:aws:iam::123456789012:role/SmallMaxRole",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 		})
 		require.NoError(t, err)
 		assert.NotEmpty(t, resp.AssumeRoleWithSAMLResult.Credentials.AccessKeyID)
@@ -289,9 +299,10 @@ func TestBatch2_AssumeRoleWithSAML_RespectsRoleMaxSessionDuration(t *testing.T) 
 		b.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{MaxSessionDuration: 900}})
 
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:         "arn:aws:iam::123456789012:role/SmallMaxRole",
-			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      "arn:aws:iam::123456789012:role/SmallMaxRole",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 			DurationSeconds: 1800,
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidDuration)
@@ -302,9 +313,10 @@ func TestBatch2_AssumeRoleWithSAML_RespectsRoleMaxSessionDuration(t *testing.T) 
 
 		b := sts.NewInMemoryBackend()
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:         "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 			DurationSeconds: sts.MaxDurationSeconds,
 		})
 		require.NoError(t, err)

@@ -263,10 +263,10 @@ func buildParityJWT(t *testing.T, expUnix int64) string {
 	t.Helper()
 
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
-	payload, err := json.Marshal(map[string]any{"sub": "test", "exp": expUnix})
+	payload, err := json.Marshal(map[string]any{"sub": "test", "aud": "audience", "exp": expUnix})
 	require.NoError(t, err)
 
-	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + "."
+	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".mock-signature"
 }
 
 // TestJWTExpiry_Wire confirms that AssumeRoleWithWebIdentity rejects expired tokens.

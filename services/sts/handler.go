@@ -3,7 +3,6 @@ package sts
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -564,9 +563,7 @@ func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoRe
 
 // dispatchDecodeAuthorizationMessage handles the DecodeAuthorizationMessage action.
 // Messages issued by IssueEncodedAuthorizationMessage on this backend are verified and
-// their plaintext returned. As an emulator we also accept any other valid base64 blob
-// (real clients pass encoded messages this server never issued) and return its decoded
-// bytes, so the operation stays usable; only a non-base64 or empty input is rejected.
+// their plaintext returned.
 func (h *Handler) dispatchDecodeAuthorizationMessage(
 	r *http.Request,
 ) (*DecodeAuthorizationMessageResponse, error) {
@@ -582,15 +579,7 @@ func (h *Handler) dispatchDecodeAuthorizationMessage(
 
 	decoded, err := h.Backend.VerifyEncodedAuthorizationMessage(encoded)
 	if err != nil {
-		// Not a self-issued message; fall back to a plain base64 decode.
-		raw, derr := base64.StdEncoding.DecodeString(encoded)
-		if derr != nil {
-			if raw, derr = base64.URLEncoding.DecodeString(encoded); derr != nil {
-				return nil, err
-			}
-		}
-
-		decoded = string(raw)
+		return nil, err
 	}
 
 	return &DecodeAuthorizationMessageResponse{
@@ -643,6 +632,8 @@ func mapErrorToCode(reqErr error) (string, int) {
 		return invalidAction, http.StatusBadRequest
 	case errors.Is(reqErr, ErrIDPRejectedClaim), errors.Is(reqErr, ErrAccessDenied):
 		return "AccessDenied", http.StatusForbidden
+	case errors.Is(reqErr, ErrNoSuchEntity):
+		return "NoSuchEntity", http.StatusBadRequest
 	}
 
 	return "", 0

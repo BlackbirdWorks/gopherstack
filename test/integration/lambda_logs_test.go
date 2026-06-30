@@ -118,8 +118,8 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 	// Invoke the function. This test verifies Lambda → CloudWatch Logs wiring and
 	// therefore requires a working Lambda runtime. If the runtime is unavailable
 	// (no Docker), skip instead of simulating logs directly.
-	result, status, invokeErr := lambdaBackend.InvokeFunctionWithQualifier(
-		ctx, "log-test-fn", "", lambdapkg.InvocationTypeRequestResponse,
+	result, _, status, invokeErr := lambdaBackend.InvokeFunctionWithQualifier(
+		ctx, "log-test-fn", "", "", "", lambdapkg.InvocationTypeRequestResponse,
 		[]byte(`{"event":"test"}`),
 	)
 

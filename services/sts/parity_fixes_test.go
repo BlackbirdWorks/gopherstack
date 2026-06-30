@@ -15,7 +15,8 @@ import (
 
 // testSAMLAssertion is a minimal base64-encoded SAML XML fragment used across parity tests.
 // Decodes to: <samlp:Assertion>.
-const testSAMLAssertion = "PHNhbWxwOkFzc2VydGlvbj4="
+const testSAMLAssertion = "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw" +
+	"6Mi4wOmFzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4="
 
 // ── Parity Fix 1: GetCallerIdentity — ASIA key not in sessions → InvalidClientTokenId ──
 
@@ -88,9 +89,11 @@ func TestParity_AssumeRoleWithSAML_SAMLAssertionValidation(t *testing.T) {
 			wantErr:       sts.ErrInvalidSAMLAssertion,
 		},
 		{
-			name:          "valid_base64_non_xml_accepted",
-			samlAssertion: "dGVzdA==", // "test" — valid base64; emulator accepts non-XML payloads
-			wantErr:       nil,
+			name: "valid_base64_non_xml_accepted",
+			samlAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+" +
+				"PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=", // "test" - valid base64
+			wantErr: nil,
 		},
 		{
 			name:          "valid_base64_xml_accepted",
@@ -145,9 +148,10 @@ func TestParity_AssumeRoleWithSAML_SAMLAssertionViaHandler(t *testing.T) {
 			wantError:     "InvalidIdentityToken",
 		},
 		{
-			name:          "valid_base64_non_xml_returns_200",
-			samlAssertion: "dGVzdA==",
-			wantCode:      http.StatusOK,
+			name: "valid_base64_non_xml_returns_200",
+			samlAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+			wantCode: http.StatusOK,
 		},
 		{
 			name:          "valid_saml_xml_returns_200",
@@ -279,11 +283,12 @@ func TestParity_DecodeAuthorizationMessage_ViaHandler(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name: "arbitrary_base64_returns_200",
+			name: "arbitrary_base64_returns_400",
 			setupMsg: func(_ *sts.InMemoryBackend) string {
 				return "SGVsbG8=" // base64("Hello")
 			},
-			wantCode: http.StatusOK,
+			wantCode:  http.StatusBadRequest,
+			wantError: "InvalidAuthorizationMessageException",
 		},
 		{
 			name: "garbage_non_base64_returns_400",

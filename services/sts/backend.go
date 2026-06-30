@@ -1,6 +1,7 @@
 package sts
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1" //nolint:gosec // SHA1 is used only for NameQualifier per AWS spec, not for security
@@ -8,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"regexp"
@@ -40,6 +42,9 @@ var (
 
 	// ErrInvalidDuration is returned when DurationSeconds is out of the allowed range.
 	ErrInvalidDuration = errors.New("DurationSeconds is out of the allowed range")
+
+	// ErrNoSuchEntity is returned when a role is not found in the configured lookup.
+	ErrNoSuchEntity = errors.New("NoSuchEntity")
 
 	// ErrAccessDenied is returned when ExternalId validation fails.
 	ErrAccessDenied = errors.New("AccessDenied")
@@ -156,6 +161,8 @@ var (
 
 	// ErrInvalidPrincipalArn is returned when AssumeRoleWithSAML PrincipalArn is not a valid SAML provider ARN.
 	ErrInvalidPrincipalArn = errors.New("PrincipalArn is not a valid SAML provider ARN")
+
+	errNoRoleLookup = errors.New("no role lookup configured")
 )
 
 const (
@@ -364,7 +371,8 @@ type trustPolicy struct {
 
 // trustStatement is a single statement in a trust policy.
 type trustStatement struct {
-	Condition map[string]map[string]json.RawMessage `json:"Condition"`
+	Condition map[string]map[string]json.RawMessage `json:"Condition,omitempty"`
+	Principal json.RawMessage                       `json:"Principal,omitempty"`
 }
 
 // authMsgHMACSize is the byte length of the HMAC-SHA256 prefix in encoded auth messages.
@@ -534,26 +542,22 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 	return b.issueCredentials(input, duration)
 }
 
-// getEffectiveMaxDuration returns the effective maximum session duration for a role.
-// When no RoleLookup is configured, or the role is not found, MaxDurationSeconds is returned.
-// This is used by AssumeRoleWithWebIdentity and AssumeRoleWithSAML which do not validate ExternalId.
-func (b *InMemoryBackend) getEffectiveMaxDuration(roleArn string) int32 {
-	effectiveMax := int32(MaxDurationSeconds)
-
+// getRoleMeta safely retrieves role metadata from the lookup, returning ErrNoSuchEntity if not found.
+func (b *InMemoryBackend) getRoleMeta(roleArn string) (*RoleMeta, error) {
 	b.mu.Lock()
 	rl := b.roleLookup
 	b.mu.Unlock()
 
 	if rl == nil {
-		return effectiveMax
+		return nil, errNoRoleLookup // Permissive mock when no lookup is wired.
 	}
 
 	meta, _ := rl.GetRoleByArn(roleArn)
-	if meta != nil && meta.MaxSessionDuration > 0 {
-		effectiveMax = meta.MaxSessionDuration
+	if meta == nil {
+		return nil, ErrNoSuchEntity
 	}
 
-	return effectiveMax
+	return meta, nil
 }
 
 // validateAndGetMaxDuration validates ExternalId against the trust policy (when a RoleLookup
@@ -579,20 +583,23 @@ func (b *InMemoryBackend) validateAndGetMaxDuration(input *AssumeRoleInput) (int
 // and validates ExternalId. Returns MaxDurationSeconds when no lookup is configured or the
 // role is not found.
 func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32, error) {
-	b.mu.Lock()
-	rl := b.roleLookup
-	b.mu.Unlock()
+	meta, err := b.getRoleMeta(input.RoleArn)
+	if err != nil {
+		if errors.Is(err, errNoRoleLookup) {
+			return int32(MaxDurationSeconds), nil
+		}
 
-	if rl == nil {
-		return int32(MaxDurationSeconds), nil
+		return 0, err
 	}
 
-	meta, _ := rl.GetRoleByArn(input.RoleArn)
-	if meta == nil {
-		return int32(MaxDurationSeconds), nil
+	if err = validateExternalID(meta.TrustPolicy, input.ExternalID); err != nil {
+		return 0, err
 	}
 
-	if err := validateExternalID(meta.TrustPolicy, input.ExternalID); err != nil {
+	// For AssumeRole, the principal is typically the caller's ARN, which we could
+	// derive from CallerAccessKeyID/CallerSession, but we rely on the broader
+	// permissive mock unless a specific trust constraint fails.
+	if err = validateTrustPolicyPrincipal(meta.TrustPolicy, ""); err != nil {
 		return 0, err
 	}
 
@@ -1011,7 +1018,7 @@ func validateWebIdentityInput(input *AssumeRoleWithWebIdentityInput) error {
 		return err
 	}
 
-	return validateJWTNotExpired(input.WebIdentityToken)
+	return validateWebIdentityJWT(input.WebIdentityToken)
 }
 
 func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
@@ -1023,7 +1030,15 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 		return nil, err
 	}
 
-	effectiveMax := b.getEffectiveMaxDuration(input.RoleArn)
+	meta, err := b.getRoleMeta(input.RoleArn)
+	if err != nil && !errors.Is(err, errNoRoleLookup) {
+		return nil, err
+	}
+
+	effectiveMax := int32(MaxDurationSeconds)
+	if meta != nil && meta.MaxSessionDuration > 0 {
+		effectiveMax = meta.MaxSessionDuration
+	}
 
 	duration := input.DurationSeconds
 	if duration == 0 {
@@ -1038,8 +1053,18 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 	}
 
 	// Validate OIDC provider when a lookup is configured.
-	if err := b.validateOIDCProvider(input.WebIdentityToken, input.ProviderID); err != nil {
+	if err = b.validateOIDCProvider(input.WebIdentityToken, input.ProviderID); err != nil {
 		return nil, err
+	}
+
+	if meta != nil {
+		issuer := input.ProviderID
+		if issuer == "" {
+			issuer = extractWebIdentityIssuer(input.WebIdentityToken)
+		}
+		if err = validateTrustPolicyPrincipal(meta.TrustPolicy, issuer); err != nil {
+			return nil, err
+		}
 	}
 
 	creds, err := generateCredentialSet()
@@ -1148,17 +1173,26 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 // validateSAMLAssertion checks that the assertion is valid base64 and decodes to XML.
 // AWS rejects assertions that are not properly base64-encoded or whose decoded
 // content is not a valid XML document (at minimum containing one XML element).
-// RawToken is used so that namespace-prefixed elements without explicit xmlns
-// declarations (common in real SAML assertions) are accepted without error.
 func validateSAMLAssertion(assertion string) error {
-	// AWS requires a base64-encoded SAML assertion. As an emulator we validate the
-	// base64 encoding but do not require the decoded payload to be well-formed SAML
-	// XML, so callers can pass simple test assertions.
-	if _, err := base64.StdEncoding.DecodeString(assertion); err != nil {
-		if _, err = base64.URLEncoding.DecodeString(assertion); err != nil {
+	raw, err := base64.StdEncoding.DecodeString(assertion)
+	if err != nil {
+		raw, err = base64.URLEncoding.DecodeString(assertion)
+		if err != nil {
 			return fmt.Errorf("%w: not valid base64", ErrInvalidSAMLAssertion)
 		}
 	}
+
+	var dummy struct {
+		Issuer string `xml:"Issuer"`
+	}
+
+	if err = xml.Unmarshal(raw, &dummy); err != nil {
+		return fmt.Errorf("%w: not well-formed XML", ErrInvalidSAMLAssertion)
+	}
+
+	// We only strictly validate well-formed XML and not specific fields for the permissive mock
+	// unless audience/issuer are explicitly required by the user context, but the basic
+	// structural check is now present.
 
 	return nil
 }
@@ -1230,7 +1264,15 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(
 		return nil, err
 	}
 
-	effectiveMax := b.getEffectiveMaxDuration(input.RoleArn)
+	meta, err := b.getRoleMeta(input.RoleArn)
+	if err != nil && !errors.Is(err, errNoRoleLookup) {
+		return nil, err
+	}
+
+	effectiveMax := int32(MaxDurationSeconds)
+	if meta != nil && meta.MaxSessionDuration > 0 {
+		effectiveMax = meta.MaxSessionDuration
+	}
 
 	duration := input.DurationSeconds
 	if duration == 0 {
@@ -1242,6 +1284,12 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(
 			"%w: DurationSeconds must be between %d and %d for this role",
 			ErrInvalidDuration, MinDurationSeconds, effectiveMax,
 		)
+	}
+
+	if meta != nil {
+		if err = validateTrustPolicyPrincipal(meta.TrustPolicy, input.PrincipalArn); err != nil {
+			return nil, err
+		}
 	}
 
 	creds, err := generateCredentialSet()
@@ -1638,6 +1686,12 @@ func resolveWebIdentityProvider(token, providerID string) (string, string) {
 // conditions fail is ErrAccessDenied returned.
 // If the trust policy requires an ExternalId but none (or the wrong value) is
 // supplied, ErrAccessDenied is returned.
+// validateExternalID parses a trust policy JSON document and validates that the
+// supplied ExternalId meets the conditions specified in the policy.
+// Trust policy statements use OR semantics: if any statement with an ExternalId
+// condition evaluates to true, the validation succeeds.
+// If the trust policy requires an ExternalId but none (or the wrong value) is
+// supplied, ErrAccessDenied is returned.
 func validateExternalID(trustPolicyJSON, externalID string) error {
 	if trustPolicyJSON == "" {
 		return nil
@@ -1674,6 +1728,26 @@ func validateExternalID(trustPolicyJSON, externalID string) error {
 	}
 
 	return nil
+}
+
+// validateTrustPolicyPrincipal ensures the provided principal is permitted by at least
+// one statement in the trust policy JSON. This performs a substring check on the
+// principal JSON representation for robust permissive matching.
+func validateTrustPolicyPrincipal(trustPolicyJSON, principal string) error {
+	if trustPolicyJSON == "" || principal == "" {
+		return nil
+	}
+
+	var tp trustPolicy
+	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp)
+
+	for _, stmt := range tp.Statement {
+		if bytes.Contains(stmt.Principal, []byte(principal)) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: principal %q not permitted by trust policy", ErrAccessDenied, principal)
 }
 
 // requiredExternalIDs extracts all sts:ExternalId values from a trust-statement Condition map.

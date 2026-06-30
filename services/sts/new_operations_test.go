@@ -15,13 +15,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
-// makeJWT constructs a minimal unsigned JWT with the given JSON payload (no signature validation needed in mock).
+// makeJWT constructs a minimal unsigned JWT with the given JSON payload.
 func makeJWT(payload string) string {
-	// header: {"alg":"none","typ":"JWT"}
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
-	encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	h := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	p := base64.RawURLEncoding.EncodeToString([]byte(payload))
 
-	return header + "." + encodedPayload + ".sig"
+	return h + "." + p + ".mock-signature"
 }
 
 // ---- GetFederationToken tests ----------------------------------------------
@@ -208,32 +207,24 @@ func TestAssumeRoleWithWebIdentity_Success(t *testing.T) {
 		wantSubject string
 	}{
 		{
-			name: "opaque_token_uses_placeholder",
-			input: &sts.AssumeRoleWithWebIdentityInput{
-				RoleArn:          "arn:aws:iam::123456789012:role/WebRole",
-				RoleSessionName:  "web-session",
-				WebIdentityToken: "some-opaque-token",
-			},
-			wantSubject: "WebIdentitySubject",
-		},
-		{
 			name: "jwt_token_subject_extracted",
 			input: &sts.AssumeRoleWithWebIdentityInput{
 				RoleArn:          "arn:aws:iam::123456789012:role/WebRole",
 				RoleSessionName:  "jwt-session",
-				WebIdentityToken: makeJWT(`{"sub":"user-12345","aud":"my-app"}`),
+				WebIdentityToken: makeJWT(`{"sub":"user-12345","aud":"my-app","exp":2524608000}`),
 			},
 			wantSubject: "user-12345",
 		},
 		{
 			name: "custom_provider_is_used",
 			input: &sts.AssumeRoleWithWebIdentityInput{
-				RoleArn:          "arn:aws:iam::123456789012:role/WebRole",
-				RoleSessionName:  "provider-session",
-				WebIdentityToken: "token",
-				ProviderID:       "www.amazon.com",
+				RoleArn:         "arn:aws:iam::123456789012:role/WebRole",
+				RoleSessionName: "provider-session",
+				WebIdentityToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiAiYWJjMjM0IiwgI" +
+					"mF1ZCI6ICJhdWRpZW5jZSIsICJleHAiOiAyNTI0NjA4MDAwfQ.c2lnbmF0dXJl",
+				ProviderID: "www.amazon.com",
 			},
-			wantSubject: "WebIdentitySubject",
+			wantSubject: "abc234",
 		},
 	}
 
@@ -270,16 +261,18 @@ func TestAssumeRoleWithWebIdentity_ValidationErrors(t *testing.T) {
 		{
 			name: "missing_role_arn",
 			input: &sts.AssumeRoleWithWebIdentityInput{
-				RoleSessionName:  "session",
-				WebIdentityToken: "token",
+				RoleSessionName: "session",
+				WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
+					"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
 			},
 			wantErr: sts.ErrMissingRoleArn,
 		},
 		{
 			name: "missing_session_name",
 			input: &sts.AssumeRoleWithWebIdentityInput{
-				RoleArn:          "arn:aws:iam::123456789012:role/WebRole",
-				WebIdentityToken: "token",
+				RoleArn: "arn:aws:iam::123456789012:role/WebRole",
+				WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
+					"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
 			},
 			wantErr: sts.ErrMissingSessionName,
 		},
@@ -294,20 +287,22 @@ func TestAssumeRoleWithWebIdentity_ValidationErrors(t *testing.T) {
 		{
 			name: "duration_too_short",
 			input: &sts.AssumeRoleWithWebIdentityInput{
-				RoleArn:          "arn:aws:iam::123456789012:role/WebRole",
-				RoleSessionName:  "session",
-				WebIdentityToken: "token",
-				DurationSeconds:  100,
+				RoleArn:         "arn:aws:iam::123456789012:role/WebRole",
+				RoleSessionName: "session",
+				WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
+					"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
+				DurationSeconds: 100,
 			},
 			wantErr: sts.ErrInvalidDuration,
 		},
 		{
 			name: "duration_too_long",
 			input: &sts.AssumeRoleWithWebIdentityInput{
-				RoleArn:          "arn:aws:iam::123456789012:role/WebRole",
-				RoleSessionName:  "session",
-				WebIdentityToken: "token",
-				DurationSeconds:  sts.MaxDurationSeconds + 1,
+				RoleArn:         "arn:aws:iam::123456789012:role/WebRole",
+				RoleSessionName: "session",
+				WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
+					"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
+				DurationSeconds: sts.MaxDurationSeconds + 1,
 			},
 			wantErr: sts.ErrInvalidDuration,
 		},
@@ -329,9 +324,10 @@ func TestAssumeRoleWithWebIdentity_SessionTrackedForCallerIdentity(t *testing.T)
 
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-		RoleArn:          "arn:aws:iam::123456789012:role/WebRole",
-		RoleSessionName:  "web-session",
-		WebIdentityToken: "some-token",
+		RoleArn:         "arn:aws:iam::123456789012:role/WebRole",
+		RoleSessionName: "web-session",
+		WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
+			"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
 	})
 	require.NoError(t, err)
 
@@ -355,11 +351,13 @@ func TestHandler_AssumeRoleWithWebIdentity(t *testing.T) {
 		{
 			name: "success",
 			formValues: url.Values{
-				"Action":           {"AssumeRoleWithWebIdentity"},
-				"Version":          {"2011-06-15"},
-				"RoleArn":          {"arn:aws:iam::123456789012:role/WebRole"},
-				"RoleSessionName":  {"web-session"},
-				"WebIdentityToken": {"some-token"},
+				"Action":          {"AssumeRoleWithWebIdentity"},
+				"Version":         {"2011-06-15"},
+				"RoleArn":         {"arn:aws:iam::123456789012:role/WebRole"},
+				"RoleSessionName": {"web-session"},
+				"WebIdentityToken": {
+					"eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiYXVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
+				},
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -377,10 +375,12 @@ func TestHandler_AssumeRoleWithWebIdentity(t *testing.T) {
 		{
 			name: "missing_role_arn_returns_400",
 			formValues: url.Values{
-				"Action":           {"AssumeRoleWithWebIdentity"},
-				"Version":          {"2011-06-15"},
-				"RoleSessionName":  {"session"},
-				"WebIdentityToken": {"token"},
+				"Action":          {"AssumeRoleWithWebIdentity"},
+				"Version":         {"2011-06-15"},
+				"RoleSessionName": {"session"},
+				"WebIdentityToken": {
+					"eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiYXVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
+				},
 			},
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "MissingParameter",

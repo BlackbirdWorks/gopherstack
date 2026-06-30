@@ -277,11 +277,13 @@ func TestRefinement2_AssumeRoleWithWebIdentityWithPolicyArns(t *testing.T) {
 	h := sts.NewHandler(b)
 
 	rec := r1PostForm(t, h, url.Values{
-		"Action":                  {"AssumeRoleWithWebIdentity"},
-		"Version":                 {"2011-06-15"},
-		"RoleArn":                 {"arn:aws:iam::000000000000:role/test-role"},
-		"RoleSessionName":         {"my-session"},
-		"WebIdentityToken":        {"eyJhbGciOiJtb2NrIn0.eyJzdWIiOiJzdWIxIn0.sig"},
+		"Action":          {"AssumeRoleWithWebIdentity"},
+		"Version":         {"2011-06-15"},
+		"RoleArn":         {"arn:aws:iam::000000000000:role/test-role"},
+		"RoleSessionName": {"my-session"},
+		"WebIdentityToken": {
+			"eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiYXVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
+		},
 		"PolicyArns.member.1.arn": {"arn:aws:iam::aws:policy/ReadOnlyAccess"},
 	})
 
@@ -300,11 +302,14 @@ func TestRefinement2_AssumeRoleWithSAMLWithPolicyArns(t *testing.T) {
 	h := sts.NewHandler(b)
 
 	rec := r1PostForm(t, h, url.Values{
-		"Action":                  {"AssumeRoleWithSAML"},
-		"Version":                 {"2011-06-15"},
-		"RoleArn":                 {"arn:aws:iam::000000000000:role/test-role"},
-		"PrincipalArn":            {"arn:aws:iam::000000000000:saml-provider/MyIdP"},
-		"SAMLAssertion":           {"PHNhbWxwOkFzc2VydGlvbj4="},
+		"Action":       {"AssumeRoleWithSAML"},
+		"Version":      {"2011-06-15"},
+		"RoleArn":      {"arn:aws:iam::000000000000:role/test-role"},
+		"PrincipalArn": {"arn:aws:iam::000000000000:saml-provider/MyIdP"},
+		"SAMLAssertion": {
+			"PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+		},
 		"PolicyArns.member.1.arn": {"arn:aws:iam::aws:policy/ReadOnlyAccess"},
 	})
 

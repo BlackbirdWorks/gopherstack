@@ -20,10 +20,11 @@ func TestRefinement4_AssumeRoleWithSAML_Tags(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-			Tags:          []sts.Tag{{Key: "aws:reserved", Value: "v"}},
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+			Tags: []sts.Tag{{Key: "aws:reserved", Value: "v"}},
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidTagKey)
 	})
@@ -33,10 +34,11 @@ func TestRefinement4_AssumeRoleWithSAML_Tags(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-			Tags:          []sts.Tag{{Key: "k", Value: "v1"}, {Key: "K", Value: "v2"}},
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+			Tags: []sts.Tag{{Key: "k", Value: "v1"}, {Key: "K", Value: "v2"}},
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidTagKey)
 	})
@@ -46,10 +48,11 @@ func TestRefinement4_AssumeRoleWithSAML_Tags(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-			Tags:          []sts.Tag{{Key: "team", Value: "eng"}},
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+			Tags: []sts.Tag{{Key: "team", Value: "eng"}},
 		})
 		require.NoError(t, err)
 
@@ -71,9 +74,10 @@ func TestRefinement4_AssumeRoleWithSAML_PrincipalArnValidation(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 		})
 		require.NoError(t, err)
 	})
@@ -83,9 +87,10 @@ func TestRefinement4_AssumeRoleWithSAML_PrincipalArnValidation(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:role/NotASAMLProvider",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:role/NotASAMLProvider",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidPrincipalArn)
 	})
@@ -95,9 +100,10 @@ func TestRefinement4_AssumeRoleWithSAML_PrincipalArnValidation(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "not-an-arn",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "not-an-arn",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidPrincipalArn)
 	})
@@ -113,9 +119,10 @@ func TestRefinement4_AssumeRoleWithSAML_RoleSessionName(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:         "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 			RoleSessionName: "my-session",
 		})
 		require.NoError(t, err)
@@ -126,9 +133,10 @@ func TestRefinement4_AssumeRoleWithSAML_RoleSessionName(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:         "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 			RoleSessionName: "bad:session",
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidSessionName)
@@ -139,9 +147,10 @@ func TestRefinement4_AssumeRoleWithSAML_RoleSessionName(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
 		})
 		require.NoError(t, err)
 		assert.NotEmpty(t, resp.AssumeRoleWithSAMLResult.Credentials.AccessKeyID)
@@ -309,10 +318,11 @@ func TestRefinement4_AssumeRoleWithSAML_PolicyArnsValidation(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-			PolicyArns:    []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+			PolicyArns: []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
 		})
 		require.NoError(t, err)
 	})
@@ -327,10 +337,11 @@ func TestRefinement4_AssumeRoleWithSAML_PolicyArnsValidation(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-			PolicyArns:    arns,
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+				"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+			PolicyArns: arns,
 		})
 		require.ErrorIs(t, err, sts.ErrTooManyPolicyArns)
 	})
@@ -343,10 +354,11 @@ func TestRefinement4_AssumeRoleWithSAML_PackedPolicySizeWithArns(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-		RoleArn:       "arn:aws:iam::123456789012:role/R",
-		PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-		SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-		PolicyArns:    []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
+		RoleArn:      "arn:aws:iam::123456789012:role/R",
+		PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+		SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+			"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+		PolicyArns: []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
 	})
 	require.NoError(t, err)
 	assert.Positive(t, resp.AssumeRoleWithSAMLResult.PackedPolicySize)
@@ -359,10 +371,11 @@ func TestRefinement4_AssumeRoleWithSAML_MalformedPolicy(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-		RoleArn:       "arn:aws:iam::123456789012:role/R",
-		PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-		SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-		Policy:        "not-json",
+		RoleArn:      "arn:aws:iam::123456789012:role/R",
+		PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+		SAMLAssertion: "PEFzc2VydGlvbiB4bWxucz0idXJuOm9hc2lzOm5hbWVzOnRjOlNBTUw6Mi4wOm" +
+			"Fzc2VydGlvbiI+PElzc3Vlcj5Jc3N1ZXI8L0lzc3Vlcj48L0Fzc2VydGlvbj4=",
+		Policy: "not-json",
 	})
 	require.ErrorIs(t, err, sts.ErrMalformedPolicyDocument)
 }
@@ -390,10 +403,11 @@ func TestRefinement4_AssumeRoleWithWebIdentity_PolicyValidation(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-			RoleArn:          "arn:aws:iam::123456789012:role/R",
-			RoleSessionName:  "session",
-			WebIdentityToken: "header.eyJzdWIiOiJ0ZXN0In0.sig",
-			Policy:           `{"Version":"2012-10-17"}`,
+			RoleArn:         "arn:aws:iam::123456789012:role/R",
+			RoleSessionName: "session",
+			WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
+				"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
+			Policy: `{"Version":"2012-10-17"}`,
 		})
 		require.ErrorIs(t, err, sts.ErrMalformedPolicyDocument)
 	})
@@ -403,10 +417,11 @@ func TestRefinement4_AssumeRoleWithWebIdentity_PolicyValidation(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-			RoleArn:          "arn:aws:iam::123456789012:role/R",
-			RoleSessionName:  "session",
-			WebIdentityToken: "header.eyJzdWIiOiJ0ZXN0In0.sig",
-			Policy:           `{"Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`,
+			RoleArn:         "arn:aws:iam::123456789012:role/R",
+			RoleSessionName: "session",
+			WebIdentityToken: "eyJhbGciOiJub25lIn0.eyJzdWIiOiAidGVzdCIsICJhdWQiOiAiY" +
+				"XVkaWVuY2UiLCAiZXhwIjogMjUyNDYwODAwMH0.mock-signature",
+			Policy: `{"Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`,
 		})
 		require.NoError(t, err)
 	})
