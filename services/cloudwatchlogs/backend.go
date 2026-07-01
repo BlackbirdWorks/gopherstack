@@ -3131,7 +3131,7 @@ func (b *InMemoryBackend) ListLogAnomalyDetectors(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3235,7 +3235,7 @@ func (b *InMemoryBackend) ListScheduledQueries(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3359,7 +3359,7 @@ func (b *InMemoryBackend) DescribeAccountPolicies(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3485,7 +3485,7 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3656,7 +3656,7 @@ func (b *InMemoryBackend) DescribeQueryDefinitions(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
