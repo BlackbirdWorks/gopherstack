@@ -3947,13 +3947,13 @@ func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
 		return
 	}
 
-	if ec2H, ok := ec2Reg.(*ec2backend.Handler); ok {
+	if ec2H, okEC2 := ec2Reg.(*ec2backend.Handler); okEC2 {
 		if ec2Bk, isEC2 := ec2H.Backend.(*ec2backend.InMemoryBackend); isEC2 {
 			cwBk.SetEC2Actioner(&cwEC2ActionerAdapter{backend: ec2Bk})
 		}
 	}
 
-	if asgH, ok := asgReg.(*autoscalingbackend.Handler); ok {
+	if asgH, okASG := asgReg.(*autoscalingbackend.Handler); okASG {
 		if asgBk, isASG := asgH.Backend.(*autoscalingbackend.InMemoryBackend); isASG {
 			cwBk.SetAutoScalingExecutor(&cwAutoScalingAdapter{backend: asgBk})
 		}

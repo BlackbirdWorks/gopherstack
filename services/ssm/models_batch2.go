@@ -24,31 +24,28 @@ type ResourceDataSync struct {
 // AutomationExecution represents a running or completed SSM automation execution.
 type AutomationExecution struct {
 	Parameters            map[string][]string  `json:"Parameters,omitempty"`
-	StartTime             float64              `json:"ExecutionStartTime"`
-	EndTime               float64              `json:"ExecutionEndTime,omitempty"`
 	AutomationExecutionID string               `json:"AutomationExecutionId"`
 	DocumentName          string               `json:"DocumentName"`
 	DocumentVersion       string               `json:"DocumentVersion"`
 	Status                string               `json:"AutomationExecutionStatus"`
-	ExecutionType         string               `json:"ExecutionType"` // "Standard" or "ChangeRequest"
+	ExecutionType         string               `json:"ExecutionType"`
 	Mode                  string               `json:"Mode,omitempty"`
 	FailureMessage        string               `json:"FailureMessage,omitempty"`
 	Steps                 []AutomationStepExec `json:"StepExecutions,omitempty"`
-	// completeAfter is the Unix timestamp (seconds) at which an InProgress
-	// automation lazily transitions to its terminal status. Zero means the
-	// execution completes on the next read (or was started without a delay).
-	completeAfter float64
+	StartTime             float64              `json:"ExecutionStartTime"`
+	EndTime               float64              `json:"ExecutionEndTime,omitempty"`
+	completeAfter         float64
 }
 
 // AutomationStepExec represents a single step in an automation execution.
 type AutomationStepExec struct {
-	StepName           string     `json:"StepName"`
-	Action             string     `json:"Action"`
-	StepStatus         string     `json:"StepStatus"`
+	StepName           string  `json:"StepName"`
+	Action             string  `json:"Action"`
+	StepStatus         string  `json:"StepStatus"`
 	StepExecutionID    string  `json:"StepExecutionId,omitempty"`
+	FailureMessage     string  `json:"FailureMessage,omitempty"`
 	ExecutionStartTime float64 `json:"ExecutionStartTime,omitempty"`
 	ExecutionEndTime   float64 `json:"ExecutionEndTime,omitempty"`
-	FailureMessage     string  `json:"FailureMessage,omitempty"`
 }
 
 // --- ServiceSetting ---
