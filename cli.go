@@ -2631,6 +2631,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire DynamoDB Streams → Lambda event source mapping poller.
 	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
 
+	// Wire Lambda async DeadLetterConfig / DestinationConfig delivery to SQS/SNS/Lambda.
+	wireLambdaAsyncDestinations(byName["Lambda"], byName["SQS"], byName["SNS"])
+
 	// Wire CloudWatch alarm actions → SNS and Lambda backends.
 	wireCloudWatchAlarmActions(byName["CloudWatch"], byName["SNS"], byName["Lambda"])
 
@@ -3576,6 +3579,91 @@ func wireSQSLambda(sqsReg, lambdaReg service.Registerable) {
 	}
 }
 
+// wireLambdaAsyncDestinations connects the Lambda backend to the SQS, SNS, and
+// Lambda backends so that async-invocation DeadLetterConfig and DestinationConfig
+// (OnSuccess/OnFailure) outcomes are actually delivered to their target ARNs.
+func wireLambdaAsyncDestinations(lambdaReg, sqsReg, snsReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	adapter := &lambdaAsyncDeliveryAdapter{lambda: lambdaBk}
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		if sqsBk, bk2Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend); bk2Ok {
+			adapter.sqs = sqsBk
+		}
+	}
+
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		if snsBk, bk2Ok := snsH.Backend.(*snsbackend.InMemoryBackend); bk2Ok {
+			adapter.sns = snsBk
+		}
+	}
+
+	lambdaBk.SetAsyncDestinationDelivery(adapter)
+}
+
+// lambdaAsyncDeliveryAdapter routes an async-invocation outcome to its target ARN,
+// dispatching by the ARN's service (SQS queue, SNS topic, or Lambda function).
+type lambdaAsyncDeliveryAdapter struct {
+	sqs    *sqsbackend.InMemoryBackend
+	sns    *snsbackend.InMemoryBackend
+	lambda *lambdabackend.InMemoryBackend
+}
+
+func (a *lambdaAsyncDeliveryAdapter) DeliverToTarget(
+	ctx context.Context,
+	targetARN string,
+	payload []byte,
+	attributes map[string]string,
+) error {
+	switch {
+	case strings.HasPrefix(targetARN, "arn:aws:sqs:"):
+		if a.sqs == nil {
+			return nil
+		}
+
+		attrs := make(map[string]sqsbackend.MessageAttributeValue, len(attributes))
+		for k, v := range attributes {
+			attrs[k] = sqsbackend.MessageAttributeValue{DataType: "String", StringValue: v}
+		}
+
+		_, err := a.sqs.SendMessage(&sqsbackend.SendMessageInput{
+			QueueURL:          arnToSQSQueueURL(targetARN),
+			MessageBody:       string(payload),
+			MessageAttributes: attrs,
+		})
+
+		return err
+	case strings.HasPrefix(targetARN, "arn:aws:sns:"):
+		if a.sns == nil {
+			return nil
+		}
+
+		_, err := a.sns.Publish(targetARN, string(payload), "", "", nil)
+
+		return err
+	case strings.HasPrefix(targetARN, "arn:aws:lambda:"):
+		if a.lambda == nil {
+			return nil
+		}
+
+		fnName := targetARN[strings.LastIndex(targetARN, ":")+1:]
+		_, _, err := a.lambda.InvokeFunction(ctx, fnName, lambdabackend.InvocationTypeEvent, payload)
+
+		return err
+	default:
+		return nil
+	}
+}
+
 // sqsReaderAdapter adapts the SQS InMemoryBackend to the lambda.SQSReader interface.
 type sqsReaderAdapter struct {
 	backend *sqsbackend.InMemoryBackend
@@ -3594,12 +3682,27 @@ func (a *sqsReaderAdapter) ReceiveMessagesLocal(
 
 	result := make([]*lambdabackend.SQSMessage, len(msgs))
 	for i, m := range msgs {
+		var msgAttrs map[string]lambdabackend.SQSMessageAttribute
+		if len(m.MessageAttributes) > 0 {
+			msgAttrs = make(map[string]lambdabackend.SQSMessageAttribute, len(m.MessageAttributes))
+			for k, v := range m.MessageAttributes {
+				msgAttrs[k] = lambdabackend.SQSMessageAttribute{
+					DataType:    v.DataType,
+					StringValue: v.StringValue,
+					BinaryValue: v.BinaryValue,
+				}
+			}
+		}
+
 		result[i] = &lambdabackend.SQSMessage{
-			MessageID:     m.MessageID,
-			ReceiptHandle: m.ReceiptHandle,
-			Body:          m.Body,
-			Attributes:    m.Attributes,
-			MD5OfBody:     m.MD5OfBody,
+			MessageID:              m.MessageID,
+			ReceiptHandle:          m.ReceiptHandle,
+			Body:                   m.Body,
+			Attributes:             m.Attributes,
+			MessageAttributes:      msgAttrs,
+			MD5OfBody:              m.MD5OfBody,
+			MD5OfMessageAttributes: m.MD5OfMessageAttributes,
+			SentTimestampMillis:    m.SentTimestamp,
 		}
 	}
 
