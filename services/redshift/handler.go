@@ -1,6 +1,7 @@
 package redshift
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -56,6 +57,27 @@ func NewHandler(backend StorageBackend) *Handler {
 func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
+
+// StartWorker implements service.BackgroundWorker. It starts the managed cluster
+// lifecycle reconciler using the framework-provided background context, so no
+// context.Background() is introduced.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	h.Backend.StartReconciler(ctx)
+
+	return nil
+}
+
+// Shutdown implements service.Shutdowner. It stops the reconciler and waits for
+// its goroutine to exit, guaranteeing a clean, leak-free shutdown.
+func (h *Handler) Shutdown(_ context.Context) {
+	h.Backend.StopReconciler()
+}
+
+// Ensure Handler satisfies the optional background-lifecycle interfaces.
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Redshift" }

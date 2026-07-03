@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -365,44 +366,54 @@ type Cluster struct {
 
 // InMemoryBackend is the in-memory store for Redshift clusters.
 type InMemoryBackend struct {
-	dnsRegistrar        DNSRegistrar
-	clusters            map[string]*Cluster
-	reservedNodes       map[string]*ReservedNode
-	partners            map[string]*Partner
-	dataShares          map[string]*DataShare
-	securityGroups      map[string]*ClusterSecurityGroup
-	snapshots           map[string]*Snapshot
-	endpointAuths       map[string]*EndpointAuthorization
-	activeResizes       map[string]*ResizeProgress
-	parameterGroups     map[string]*ClusterParameterGroup
-	subnetGroups        map[string]*ClusterSubnetGroup
-	loggingStatuses     map[string]*LoggingStatus
-	eventSubscriptions  map[string]*EventSubscription
-	events              map[string]*Event
-	snapshotCopyGrants  map[string]*SnapshotCopyGrant
-	snapshotSchedules   map[string]*SnapshotSchedule
-	usageLimits         map[string]*UsageLimit
-	authProfiles        map[string]*AuthenticationProfile
-	resourcePolicies    map[string]*ResourcePolicy
-	tableRestores       map[string]*TableRestoreStatus
-	snapshotCopyConfigs map[string]*SnapshotCopyConfig
-	hsmClientCerts      map[string]*HsmClientCertificate
-	hsmConfigs          map[string]*HsmConfiguration
-	scheduledActions    map[string]*ScheduledAction
-	customDomains       map[string]*CustomDomainAssociation
-	endpointAccesses    map[string]*EndpointAccess
-	integrations        map[string]*Integration
-	idcApplications     map[string]*IdcApplication
-	// Serverless resources
+	dnsRegistrar           DNSRegistrar
+	customDomains          map[string]*CustomDomainAssociation
+	events                 map[string]*Event
+	partners               map[string]*Partner
+	dataShares             map[string]*DataShare
+	securityGroups         map[string]*ClusterSecurityGroup
+	snapshots              map[string]*Snapshot
+	endpointAuths          map[string]*EndpointAuthorization
+	activeResizes          map[string]*ResizeProgress
+	parameterGroups        map[string]*ClusterParameterGroup
+	subnetGroups           map[string]*ClusterSubnetGroup
+	loggingStatuses        map[string]*LoggingStatus
+	eventSubscriptions     map[string]*EventSubscription
+	clusters               map[string]*Cluster
+	snapshotCopyGrants     map[string]*SnapshotCopyGrant
+	snapshotSchedules      map[string]*SnapshotSchedule
+	usageLimits            map[string]*UsageLimit
+	authProfiles           map[string]*AuthenticationProfile
+	resourcePolicies       map[string]*ResourcePolicy
+	tableRestores          map[string]*TableRestoreStatus
+	snapshotCopyConfigs    map[string]*SnapshotCopyConfig
+	hsmClientCerts         map[string]*HsmClientCertificate
+	hsmConfigs             map[string]*HsmConfiguration
+	reservedNodes          map[string]*ReservedNode
+	scheduledActions       map[string]*ScheduledAction
+	slScheduledActions     map[string]*ServerlessScheduledAction
+	integrations           map[string]*Integration
+	idcApplications        map[string]*IdcApplication
 	slNamespaces           map[string]*Namespace
 	slWorkgroups           map[string]*Workgroup
 	slSnapshots            map[string]*ServerlessSnapshot
 	slUsageLimits          map[string]*ServerlessUsageLimit
-	slScheduledActions     map[string]*ServerlessScheduledAction
+	endpointAccesses       map[string]*EndpointAccess
+	clusterTransitions     map[string]*clusterTransition
 	mu                     *lockmetrics.RWMutex
-	accountID              string
+	reconcileStop          chan struct{}
 	region                 string
+	accountID              string
+	slNamespaceIdx         sortedStringIndex
+	slWorkgroupIdx         sortedStringIndex
+	slSnapshotIdx          sortedStringIndex
+	slUsageLimitIdx        sortedStringIndex
+	slScheduledActionIdx   sortedStringIndex
+	reconcileWG            sync.WaitGroup
 	clusterActivationDelay time.Duration
+	reconcileInterval      time.Duration
+	reconcileMu            sync.Mutex
+	reconcileOn            bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -440,6 +451,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		slSnapshots:         make(map[string]*ServerlessSnapshot),
 		slUsageLimits:       make(map[string]*ServerlessUsageLimit),
 		slScheduledActions:  make(map[string]*ServerlessScheduledAction),
+		clusterTransitions:  make(map[string]*clusterTransition),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("redshift"),
@@ -487,6 +499,8 @@ func (b *InMemoryBackend) Reset() {
 	b.slSnapshots = make(map[string]*ServerlessSnapshot)
 	b.slUsageLimits = make(map[string]*ServerlessUsageLimit)
 	b.slScheduledActions = make(map[string]*ServerlessScheduledAction)
+	b.clusterTransitions = make(map[string]*clusterTransition)
+	b.resetServerlessIndexes()
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -549,7 +563,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 
 	initialStatus := clusterStatusAvailable
 	if b.clusterActivationDelay > 0 {
-		initialStatus = "creating"
+		initialStatus = clusterStatusCreating
 	}
 
 	cluster := &Cluster{
@@ -566,16 +580,14 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 	}
 	b.clusters[id] = cluster
 
+	// Schedule the creating→available transition instead of spawning an
+	// unmanaged per-cluster goroutine. The managed reconciler (or a lazy read)
+	// advances it, so cluster deletion and Reset cancel it deterministically.
 	if b.clusterActivationDelay > 0 {
-		delay := b.clusterActivationDelay
-		go func() {
-			time.Sleep(delay)
-			b.mu.Lock("CreateCluster.activate")
-			defer b.mu.Unlock()
-			if c, ok := b.clusters[id]; ok && c.Status == "creating" {
-				c.Status = clusterStatusAvailable
-			}
-		}()
+		b.scheduleClusterTransitionLocked(id, &clusterTransition{
+			effectiveAt: time.Now().Add(b.clusterActivationDelay),
+			status:      clusterStatusAvailable,
+		})
 	}
 
 	if b.dnsRegistrar != nil {
@@ -597,7 +609,22 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 
+	// When an activation delay is configured, model AWS's asynchronous deletion:
+	// the cluster enters "deleting" and is removed by the reconciler once the
+	// delay elapses. This supersedes any pending creating→available transition.
+	if b.clusterActivationDelay > 0 {
+		cluster.Status = clusterStatusDeleting
+		cp := cloneCluster(cluster)
+		b.scheduleClusterTransitionLocked(id, &clusterTransition{
+			effectiveAt: time.Now().Add(b.clusterActivationDelay),
+			remove:      true,
+		})
+
+		return &cp, nil
+	}
+
 	cp := cloneCluster(cluster)
+	delete(b.clusterTransitions, id)
 	cluster.Tags.Close()
 	delete(b.clusters, id)
 
@@ -611,6 +638,11 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 // DescribeClusters returns clusters. If id is non-empty, returns only that cluster.
 // When marker and maxRecords are used, returns a page of results sorted by ClusterIdentifier.
 func (b *InMemoryBackend) DescribeClusters(id, marker string, maxRecords int) ([]Cluster, string, error) {
+	// Advance any due lifecycle transitions before reading so SDK waiters that
+	// poll DescribeClusters always observe the current state, even when the
+	// background reconciler is not running.
+	b.advanceClusterStates(time.Now())
+
 	b.mu.RLock("DescribeClusters")
 	defer b.mu.RUnlock()
 

@@ -248,6 +248,12 @@ type StorageBackend interface {
 	Snapshot(ctx context.Context) []byte
 	Restore(ctx context.Context, data []byte) error
 	SetDNSRegistrar(dns DNSRegistrar)
+
+	// StartReconciler starts the managed background reconciler that advances
+	// cluster lifecycle state (creating→available, deleting→gone).
+	StartReconciler(ctx context.Context)
+	// StopReconciler stops the reconciler and waits for its goroutine to exit.
+	StopReconciler()
 }
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.

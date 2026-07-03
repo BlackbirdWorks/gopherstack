@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -183,6 +182,7 @@ func (b *InMemoryBackend) CreateNamespace(
 		LogExports:    exportsCopy,
 	}
 	b.slNamespaces[namespaceName] = ns
+	b.slNamespaceIdx.insert(namespaceName)
 
 	return cloneNamespace(ns), nil
 }
@@ -207,12 +207,15 @@ func (b *InMemoryBackend) ListNamespaces(maxResults int, nextToken string) ([]*N
 	b.mu.RLock("ListNamespaces")
 	defer b.mu.RUnlock()
 
-	list := make([]*Namespace, 0, len(b.slNamespaces))
-	for _, ns := range b.slNamespaces {
-		list = append(list, cloneNamespace(ns))
-	}
+	// Iterate the pre-sorted index so results are ordered without re-sorting.
+	keys := b.slNamespaceIdx.ordered()
+	list := make([]*Namespace, 0, len(keys))
 
-	sort.Slice(list, func(i, j int) bool { return list[i].NamespaceName < list[j].NamespaceName })
+	for _, name := range keys {
+		if ns, ok := b.slNamespaces[name]; ok {
+			list = append(list, cloneNamespace(ns))
+		}
+	}
 
 	if maxResults <= 0 {
 		maxResults = serverlessDefaultPageSize()
@@ -293,6 +296,7 @@ func (b *InMemoryBackend) DeleteNamespace(namespaceName string) (*Namespace, err
 
 	cp := cloneNamespace(ns)
 	delete(b.slNamespaces, namespaceName)
+	b.slNamespaceIdx.remove(namespaceName)
 
 	return cp, nil
 }
@@ -366,6 +370,7 @@ func (b *InMemoryBackend) CreateWorkgroup(
 		SecurityGroupIDs: sgCopy,
 	}
 	b.slWorkgroups[workgroupName] = wg
+	b.slWorkgroupIdx.insert(workgroupName)
 
 	return cloneWorkgroup(wg), nil
 }
@@ -390,12 +395,15 @@ func (b *InMemoryBackend) ListWorkgroups(maxResults int, nextToken string) ([]*W
 	b.mu.RLock("ListWorkgroups")
 	defer b.mu.RUnlock()
 
-	list := make([]*Workgroup, 0, len(b.slWorkgroups))
-	for _, wg := range b.slWorkgroups {
-		list = append(list, cloneWorkgroup(wg))
-	}
+	// Iterate the pre-sorted index so results are ordered without re-sorting.
+	keys := b.slWorkgroupIdx.ordered()
+	list := make([]*Workgroup, 0, len(keys))
 
-	sort.Slice(list, func(i, j int) bool { return list[i].WorkgroupName < list[j].WorkgroupName })
+	for _, name := range keys {
+		if wg, ok := b.slWorkgroups[name]; ok {
+			list = append(list, cloneWorkgroup(wg))
+		}
+	}
 
 	if maxResults <= 0 {
 		maxResults = serverlessDefaultPageSize()
@@ -469,6 +477,7 @@ func (b *InMemoryBackend) DeleteWorkgroup(workgroupName string) (*Workgroup, err
 
 	cp := cloneWorkgroup(wg)
 	delete(b.slWorkgroups, workgroupName)
+	b.slWorkgroupIdx.remove(workgroupName)
 
 	return cp, nil
 }
@@ -559,6 +568,7 @@ func (b *InMemoryBackend) CreateServerlessSnapshot(
 		AdminUsername:      ns.AdminUsername,
 	}
 	b.slSnapshots[snapshotName] = snap
+	b.slSnapshotIdx.insert(snapshotName)
 
 	return cloneServerlessSnapshot(snap), nil
 }
@@ -591,15 +601,20 @@ func (b *InMemoryBackend) ListServerlessSnapshots(
 	b.mu.RLock("ListServerlessSnapshots")
 	defer b.mu.RUnlock()
 
-	list := make([]*ServerlessSnapshot, 0, len(b.slSnapshots))
+	// Iterate the pre-sorted index so results are ordered without re-sorting.
+	keys := b.slSnapshotIdx.ordered()
+	list := make([]*ServerlessSnapshot, 0, len(keys))
 
-	for _, snap := range b.slSnapshots {
+	for _, name := range keys {
+		snap, ok := b.slSnapshots[name]
+		if !ok {
+			continue
+		}
+
 		if namespaceName == "" || snap.NamespaceName == namespaceName {
 			list = append(list, cloneServerlessSnapshot(snap))
 		}
 	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].SnapshotName < list[j].SnapshotName })
 
 	if maxResults <= 0 {
 		maxResults = serverlessDefaultPageSize()
@@ -646,6 +661,7 @@ func (b *InMemoryBackend) DeleteServerlessSnapshot(
 
 	cp := cloneServerlessSnapshot(snap)
 	delete(b.slSnapshots, snapshotName)
+	b.slSnapshotIdx.remove(snapshotName)
 
 	return cp, nil
 }
@@ -683,6 +699,7 @@ func (b *InMemoryBackend) CreateServerlessUsageLimit(
 		BreachAction:  breachAction,
 	}
 	b.slUsageLimits[id] = ul
+	b.slUsageLimitIdx.insert(id)
 
 	return cloneServerlessUsageLimit(ul), nil
 }
@@ -717,15 +734,20 @@ func (b *InMemoryBackend) ListServerlessUsageLimits(
 	b.mu.RLock("ListServerlessUsageLimits")
 	defer b.mu.RUnlock()
 
-	list := make([]*ServerlessUsageLimit, 0, len(b.slUsageLimits))
+	// Iterate the pre-sorted index so results are ordered without re-sorting.
+	keys := b.slUsageLimitIdx.ordered()
+	list := make([]*ServerlessUsageLimit, 0, len(keys))
 
-	for _, ul := range b.slUsageLimits {
+	for _, id := range keys {
+		ul, ok := b.slUsageLimits[id]
+		if !ok {
+			continue
+		}
+
 		if resourceArn == "" || ul.ResourceArn == resourceArn {
 			list = append(list, cloneServerlessUsageLimit(ul))
 		}
 	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].UsageLimitID < list[j].UsageLimitID })
 
 	if maxResults <= 0 {
 		maxResults = serverlessDefaultPageSize()
@@ -800,6 +822,7 @@ func (b *InMemoryBackend) DeleteServerlessUsageLimit(
 
 	cp := cloneServerlessUsageLimit(ul)
 	delete(b.slUsageLimits, usageLimitID)
+	b.slUsageLimitIdx.remove(usageLimitID)
 
 	return cp, nil
 }
@@ -848,6 +871,7 @@ func (b *InMemoryBackend) CreateServerlessScheduledAction(
 		TargetAction:        targetAction,
 	}
 	b.slScheduledActions[scheduledActionName] = sa
+	b.slScheduledActionIdx.insert(scheduledActionName)
 
 	return cloneServerlessScheduledAction(sa), nil
 }
@@ -882,18 +906,20 @@ func (b *InMemoryBackend) ListServerlessScheduledActions(
 	b.mu.RLock("ListServerlessScheduledActions")
 	defer b.mu.RUnlock()
 
-	list := make([]*ServerlessScheduledAction, 0, len(b.slScheduledActions))
+	// Iterate the pre-sorted index so results are ordered without re-sorting.
+	keys := b.slScheduledActionIdx.ordered()
+	list := make([]*ServerlessScheduledAction, 0, len(keys))
 
-	for _, sa := range b.slScheduledActions {
+	for _, name := range keys {
+		sa, ok := b.slScheduledActions[name]
+		if !ok {
+			continue
+		}
+
 		if namespaceName == "" || sa.NamespaceName == namespaceName {
 			list = append(list, cloneServerlessScheduledAction(sa))
 		}
 	}
-
-	sort.Slice(
-		list,
-		func(i, j int) bool { return list[i].ScheduledActionName < list[j].ScheduledActionName },
-	)
 
 	if maxResults <= 0 {
 		maxResults = serverlessDefaultPageSize()
@@ -976,6 +1002,7 @@ func (b *InMemoryBackend) DeleteServerlessScheduledAction(
 
 	cp := cloneServerlessScheduledAction(sa)
 	delete(b.slScheduledActions, scheduledActionName)
+	b.slScheduledActionIdx.remove(scheduledActionName)
 
 	return cp, nil
 }
