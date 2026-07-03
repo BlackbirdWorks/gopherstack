@@ -678,9 +678,13 @@ func (b *InMemoryBackend) ExecuteCommand(
 		Interactive:   interactive,
 		Session: Session{
 			SessionID: sessionID,
+			// Honesty signal: gopherstack has no real SSM data channel or ECS Exec
+			// agent, so this stream URL is deliberately NOT the real
+			// ssmmessages.<region>.amazonaws.com host (which would look connectable
+			// but lie). It uses the reserved, non-resolvable ".invalid" TLD
+			// (RFC 6761) so callers cannot mistake it for a live AWS endpoint.
 			StreamURL: fmt.Sprintf(
-				"wss://ssmmessages.%s.amazonaws.com/v1/data-channel/%s",
-				b.region,
+				"wss://ssm-emulated.gopherstack.invalid/v1/data-channel/%s",
 				sessionID,
 			),
 			TokenValue: uuid.NewString(),

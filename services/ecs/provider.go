@@ -48,6 +48,10 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 	reconciler := NewReconciler(backend)
 	janitor := NewJanitor(backend, 0)
 
+	// Evict per-cluster reconciler state when a cluster is deleted or purged so
+	// Reconciler.sems does not grow one permanent entry per cluster ever created.
+	backend.RegisterClusterDeleteHook(reconciler.EvictCluster)
+
 	if appCtx.JanitorCtx != nil {
 		go reconciler.Start(appCtx.JanitorCtx)
 		go janitor.Run(appCtx.JanitorCtx)

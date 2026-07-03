@@ -15,6 +15,7 @@ const (
 	containerHealthStatusHealthy     = "HEALTHY"
 	deploymentRolloutStateInProgress = "IN_PROGRESS"
 	deploymentRolloutStateCompleted  = "COMPLETED"
+	deploymentRolloutStateFailed     = "FAILED"
 )
 
 // ---- Container runtime status ----
