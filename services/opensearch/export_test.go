@@ -1,5 +1,74 @@
 package opensearch
 
+import "time"
+
+// ExpireDomainProcessing forces a domain's processing window into the past so
+// tests can deterministically observe the settled (post-window) state without a
+// wall-clock sleep. It leaves the ProcessingStatus intact for delete windows.
+func ExpireDomainProcessing(b *InMemoryBackend, name string) {
+	b.mu.Lock("ExpireDomainProcessing")
+	defer b.mu.Unlock()
+
+	if d, ok := b.domains[name]; ok {
+		d.ProcessingUntil = time.Now().Add(-time.Hour)
+	}
+}
+
+// ExpireCollectionStatus forces a serverless collection's CREATING/DELETING
+// window into the past.
+func ExpireCollectionStatus(b *InMemoryBackend, id string) {
+	b.mu.Lock("ExpireCollectionStatus")
+	defer b.mu.Unlock()
+
+	for _, c := range b.slCollections {
+		if c.ID == id {
+			c.StatusUntil = time.Now().Add(-time.Hour)
+		}
+	}
+}
+
+// ExpireOutboundConnection forces an outbound connection's DELETING window into
+// the past.
+func ExpireOutboundConnection(b *InMemoryBackend, id string) {
+	b.mu.Lock("ExpireOutboundConnection")
+	defer b.mu.Unlock()
+
+	if c, ok := b.outboundConnections[id]; ok {
+		c.StatusUntil = time.Now().Add(-time.Hour)
+	}
+}
+
+// ExpireVpcEndpoint forces a VPC endpoint's DELETING window into the past.
+func ExpireVpcEndpoint(b *InMemoryBackend, id string) {
+	b.mu.Lock("ExpireVpcEndpoint")
+	defer b.mu.Unlock()
+
+	if ep, ok := b.vpcEndpoints[id]; ok {
+		ep.StatusUntil = time.Now().Add(-time.Hour)
+	}
+}
+
+// DomainProcessingState resolves the (Processing, UpgradeProcessing,
+// DomainProcessingStatus) reported for a domain copy at the current instant,
+// mirroring what toDomainStatusJSON emits over the wire.
+func DomainProcessingState(d *Domain) (bool, bool, string) {
+	return domainProcessing(d, time.Now())
+}
+
+// DomainServiceSoftwareStatus returns the stored service-software update status
+// for a domain, or an empty string when none is scheduled.
+func DomainServiceSoftwareStatus(b *InMemoryBackend, name string) string {
+	b.mu.RLock("DomainServiceSoftwareStatus")
+	defer b.mu.RUnlock()
+
+	d, ok := b.domains[name]
+	if !ok || d.ServiceSoftware == nil {
+		return ""
+	}
+
+	return d.ServiceSoftware.UpdateStatus
+}
+
 // DomainCount returns the number of domains in the backend.
 func DomainCount(b *InMemoryBackend) int {
 	b.mu.RLock("DomainCount")

@@ -113,6 +113,14 @@ type StorageBackend interface {
 	GetIndex(domainName, indexName string) (*DomainIndex, error)
 	UpdateIndex(domainName, indexName string, mappings, settings map[string]any) (*DomainIndex, error)
 
+	// Document operations (real per-index document storage + bounded search)
+	IndexDocument(domainName, indexName, docID string, doc map[string]any) (string, bool, error)
+	GetDocument(domainName, indexName, docID string) (map[string]any, error)
+	DeleteDocument(domainName, indexName, docID string) error
+	CountDocuments(domainName, indexName string) (int, error)
+	DomainDocumentCount(domainName string) int
+	SearchIndex(domainName, indexName string, query map[string]any, size int) (*SearchResult, error)
+
 	// Upgrade operations
 	UpgradeDomain(domainName, upgradeName string) error
 	GetUpgradeHistory(domainName string) ([]*UpgradeHistory, error)

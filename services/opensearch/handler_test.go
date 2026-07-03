@@ -1251,9 +1251,27 @@ func TestOpenSearchHandler_CancelServiceSoftwareUpdate(t *testing.T) {
 				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
 					map[string]any{"DomainName": "my-domain"})
 				r.Body.Close()
+				// A pending update must exist for cancellation to be valid.
+				_, err := h.Backend.StartServiceSoftwareUpdate("my-domain", "")
+				require.NoError(t, err)
 			},
-			wantCode:     http.StatusOK,
-			wantContains: []string{"ServiceSoftwareOptions", "CANCELLED"},
+			wantCode: http.StatusOK,
+			// After cancelling a scheduled install the update remains available,
+			// so the domain returns to the ELIGIBLE state (never a "CANCELLED"
+			// value, which is not a real AWS status).
+			wantContains: []string{"ServiceSoftwareOptions", "ELIGIBLE"},
+		},
+		{
+			name:       "no_update_pending",
+			domainName: "no-update",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "no-update"})
+				r.Body.Close()
+			},
+			// No scheduled update → AWS-accurate ValidationException.
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:       "domain_not_found",
