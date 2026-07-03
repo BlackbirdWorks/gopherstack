@@ -230,11 +230,28 @@ func (h *Handler) testDNSAnswer(c *echo.Context) error {
 	recordType := q.Get("recordtype")
 	zoneID := q.Get("hostedzoneid")
 
+	// Route 53 derives the client's region/geolocation from the resolver IP
+	// (or the EDNS0 client-subnet IP when supplied). Build the query context
+	// from those signals so routing-policy records resolve correctly.
+	clientIP := q.Get("edns0clientsubnetip")
+	if clientIP == "" {
+		clientIP = q.Get("resolverip")
+	}
+
+	region, continent, country, subdivision := geoIPLookup(clientIP)
+	qctx := DNSQueryContext{
+		ClientRegion:    region,
+		ContinentCode:   continent,
+		CountryCode:     country,
+		SubdivisionCode: subdivision,
+		ResolverIP:      clientIP,
+	}
+
 	var recordData []string
 	responseCode := "NOERROR"
 
 	if zoneID != "" {
-		values, err := h.Backend.TestDNSAnswer(zoneID, recordName, recordType)
+		values, err := h.Backend.TestDNSAnswer(zoneID, recordName, recordType, qctx)
 		if err == nil {
 			recordData = values
 		}
