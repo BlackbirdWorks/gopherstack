@@ -21,6 +21,13 @@ func (h *S3Handler) listObjectsV2(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "ListObjectsV2")
+
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, "", actionListBucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	q := r.URL.Query()
 	input := h.prepareListObjectsV2Input(bucketName, q)
 

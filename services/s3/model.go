@@ -306,11 +306,15 @@ type Grant struct {
 	Permission string  `xml:"Permission"`
 }
 
-// Grantee identifies who is being granted permissions.
+// Grantee identifies who is being granted permissions. A CanonicalUser grantee
+// carries ID/DisplayName; a Group grantee (AllUsers / AuthenticatedUsers /
+// LogDelivery) carries URI instead.
 type Grantee struct {
-	XmlnsXsi string `xml:"xmlns:xsi,attr"`
-	XsiType  string `xml:"xsi:type,attr"`
-	ID       string `xml:"ID"`
+	XmlnsXsi    string `xml:"xmlns:xsi,attr"`
+	XsiType     string `xml:"xsi:type,attr"`
+	ID          string `xml:"ID,omitempty"`
+	DisplayName string `xml:"DisplayName,omitempty"`
+	URI         string `xml:"URI,omitempty"`
 }
 
 // ListMultipartUploadsResult is the XML response for ListMultipartUploads.

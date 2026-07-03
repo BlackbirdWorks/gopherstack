@@ -138,7 +138,11 @@ func (h *S3Handler) handleGetBucketPolicyStatus(
 		return
 	}
 
-	if policy != "" && policyGrantsPublicGetObject(policy) {
+	// A public policy only makes the bucket public when the Public Access Block
+	// isn't restricting public bucket policies. RestrictPublicBuckets causes S3
+	// to report IsPublic=false regardless of the policy content.
+	pab, _ := loadPublicAccessBlock(ctx, h.Backend, bucket)
+	if policy != "" && policyGrantsPublicGetObject(policy) && !pab.RestrictPublicBuckets {
 		isPublic = sqlValTrue
 	}
 
@@ -192,7 +196,7 @@ func actionIncludesGetObject(action any) bool {
 	check := func(s string) bool {
 		s = strings.ToLower(s)
 
-		return s == "s3:getobject" || s == "s3:*" || s == "*"
+		return s == actionGetObjectLower || s == "s3:*" || s == "*"
 	}
 
 	switch v := action.(type) {
