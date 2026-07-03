@@ -14,6 +14,12 @@ func MatchPatternForTest(pattern, event string) bool {
 	return matchPattern(pattern, event)
 }
 
+// SubstituteInputTemplateForTest exposes the input-transformer template scanner
+// so external tests can assert context-aware, valid-JSON substitution directly.
+func SubstituteInputTemplateForTest(template string, vars map[string]any) string {
+	return substituteInputTemplate(template, vars)
+}
+
 // ScheduleForTest wraps a scheduleExpression for testing.
 type ScheduleForTest struct {
 	expr scheduleExpression

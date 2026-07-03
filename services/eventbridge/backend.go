@@ -101,13 +101,17 @@ type StorageBackend interface {
 	DescribeEventBus(ctx context.Context, name string) (*EventBus, error)
 	PutRule(ctx context.Context, input PutRuleInput) (*Rule, error)
 	DeleteRule(ctx context.Context, name, eventBusName string) error
-	ListRules(ctx context.Context, eventBusName, namePrefix, nextToken string) ([]Rule, string, error)
+	ListRules(ctx context.Context, eventBusName, namePrefix, nextToken string, limit int) ([]Rule, string, error)
 	DescribeRule(ctx context.Context, name, eventBusName string) (*Rule, error)
 	EnableRule(ctx context.Context, name, eventBusName string) error
 	DisableRule(ctx context.Context, name, eventBusName string) error
 	PutTargets(ctx context.Context, ruleName, eventBusName string, targets []Target) ([]FailedEntry, error)
 	RemoveTargets(ctx context.Context, ruleName, eventBusName string, ids []string) ([]FailedEntry, error)
-	ListTargetsByRule(ctx context.Context, ruleName, eventBusName, nextToken string) ([]Target, string, error)
+	ListTargetsByRule(
+		ctx context.Context,
+		ruleName, eventBusName, nextToken string,
+		limit int,
+	) ([]Target, string, error)
 	PutEvents(ctx context.Context, entries []EventEntry) []EventResultEntry
 	GetEventLog(ctx context.Context) []EventLogEntry
 	ActivateEventSource(ctx context.Context, name string) error
@@ -208,8 +212,11 @@ type InMemoryBackend struct {
 	// targetsByARN indexes (region → ARN → set of "busKey/ruleName" targetKeys)
 	// for O(1) ListRuleNamesByTarget lookups. Kept consistent on PutTargets /
 	// RemoveTargets / DeleteRule / DeleteEventBus / Reset.
-	targetsByARN    map[string]map[string]map[string]struct{}
-	patternCache    sync.Map
+	targetsByARN map[string]map[string]map[string]struct{}
+	patternCache sync.Map
+	// apiDestLimiters holds per-destination-ARN rate limiters (*apiDestLimiter)
+	// used to honour each API destination's InvocationRateLimitPerSecond.
+	apiDestLimiters sync.Map
 	region          string
 	accountID       string
 	eventLog        []EventLogEntry
@@ -336,9 +343,15 @@ func (b *InMemoryBackend) SetDeliveryTimeout(d time.Duration) {
 }
 
 // SetDeliveryTargets configures the service references used for fan-out delivery.
+// The backend registers itself as the API-destination resolver (unless the
+// caller supplied one) so outbound HTTP delivery can look up destination and
+// connection state without a separate wiring step.
 func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
 	b.mu.Lock("SetDeliveryTargets")
 	defer b.mu.Unlock()
+	if dt != nil && dt.APIDestinations == nil {
+		dt.APIDestinations = b
+	}
 	b.deliveryTargets = dt
 }
 
@@ -964,8 +977,10 @@ func (b *InMemoryBackend) DeleteRule(ctx context.Context, name, eventBusName str
 }
 
 // ListRules returns rules for an event bus optionally filtered by name prefix.
+// limit caps the page size (0 uses the default); AWS EventBridge honours the
+// Limit request parameter, so it is threaded through to pagination here.
 func (b *InMemoryBackend) ListRules(ctx context.Context,
-	eventBusName, namePrefix, nextToken string,
+	eventBusName, namePrefix, nextToken string, limit int,
 ) ([]Rule, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
@@ -987,7 +1002,7 @@ func (b *InMemoryBackend) ListRules(ctx context.Context,
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }
@@ -1170,8 +1185,10 @@ func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 }
 
 // ListTargetsByRule returns targets for a rule with optional pagination.
+// limit caps the page size (0 uses the default); AWS EventBridge honours the
+// Limit request parameter, so it is threaded through to pagination here.
 func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
-	ruleName, eventBusName, nextToken string,
+	ruleName, eventBusName, nextToken string, limit int,
 ) ([]Target, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
@@ -1191,7 +1208,7 @@ func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }
@@ -1375,6 +1392,7 @@ func (b *InMemoryBackend) Reset() {
 	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
 	b.targetsByARN = make(map[string]map[string]map[string]struct{})
 	b.patternCache = sync.Map{}
+	b.apiDestLimiters = sync.Map{}
 
 	// Re-create the default event bus so it is always available after reset.
 	b.busesStore(b.region)[defaultEventBusName] = &EventBus{
@@ -1642,6 +1660,7 @@ func (b *InMemoryBackend) CreateConnection(ctx context.Context, input CreateConn
 		ConnectionArn:     b.connectionARN(input.Name),
 		AuthorizationType: input.AuthorizationType,
 		AuthParameters:    maskConnectionAuthParameters(input.AuthParameters),
+		authSecret:        cloneConnectionAuthParameters(input.AuthParameters),
 		ConnectionState:   "AUTHORIZED",
 		CreationTime:      now,
 		Description:       input.Description,
@@ -1927,6 +1946,7 @@ func (b *InMemoryBackend) UpdateConnection(ctx context.Context, input UpdateConn
 	}
 	if input.AuthParameters != nil {
 		conn.AuthParameters = maskConnectionAuthParameters(input.AuthParameters)
+		conn.authSecret = cloneConnectionAuthParameters(input.AuthParameters)
 	}
 	conn.LastModifiedTime = time.Now()
 
@@ -2854,6 +2874,11 @@ func (b *InMemoryBackend) UpdatePipe(
 // captureEventInArchives stores the entry in any archive whose EventSourceArn
 // matches the event bus ARN and whose EventPattern matches the event.
 // Must be called with b.mu held for writing.
+//
+// Archive patterns are matched via the shared pattern cache
+// (getOrCompilePattern) rather than recompiling the pattern regexes for every
+// archive on every event, so a hot PutEvents path compiles each distinct
+// pattern at most once instead of once per archive per event.
 func (b *InMemoryBackend) captureEventInArchives(region string, entry EventEntry, busName string) {
 	busARN := b.busARN(region, busName)
 	envelope := buildEventEnvelope(entry)
@@ -2862,13 +2887,17 @@ func (b *InMemoryBackend) captureEventInArchives(region string, entry EventEntry
 		if archive.EventSourceArn != busARN {
 			continue
 		}
-		if archive.EventPattern == "" || matchPattern(archive.EventPattern, envelope) {
-			archivedEvents[archive.ArchiveName] = append(
-				archivedEvents[archive.ArchiveName],
-				entry,
-			)
-			archive.EventCount++
+		if archive.EventPattern != "" {
+			compiled, err := b.getOrCompilePattern(archive.EventPattern)
+			if err != nil || !matchCompiledPattern(compiled, envelope) {
+				continue
+			}
 		}
+		archivedEvents[archive.ArchiveName] = append(
+			archivedEvents[archive.ArchiveName],
+			entry,
+		)
+		archive.EventCount++
 	}
 }
 
@@ -2955,12 +2984,20 @@ func isValidHTTPMethod(method string) bool {
 	return ok
 }
 
+// Connection authorization types accepted by CreateConnection and honoured by
+// API-destination delivery.
+const (
+	connectionAuthAPIKey = "API_KEY"
+	connectionAuthBasic  = "BASIC"
+	connectionAuthOAuth  = "OAUTH_CLIENT_CREDENTIALS"
+)
+
 // isValidConnectionAuthType reports whether authType is a valid connection authorization type.
 func isValidConnectionAuthType(authType string) bool {
 	validAuthTypes := map[string]struct{}{
-		"API_KEY":                  {},
-		"BASIC":                    {},
-		"OAUTH_CLIENT_CREDENTIALS": {},
+		connectionAuthAPIKey: {},
+		connectionAuthBasic:  {},
+		connectionAuthOAuth:  {},
 	}
 	_, ok := validAuthTypes[authType]
 
@@ -3075,6 +3112,229 @@ func maskHTTPParameters(p *ConnectionHTTPParameters) *ConnectionHTTPParameters {
 	}
 
 	return m
+}
+
+// cloneConnectionAuthParameters deep-copies auth parameters, preserving the
+// plaintext secret values. It is used to retain the un-masked credentials on
+// the stored connection for outbound API-destination signing, independent of
+// the masked copy returned by Describe/List.
+func cloneConnectionAuthParameters(p *ConnectionAuthParameters) *ConnectionAuthParameters {
+	if p == nil {
+		return nil
+	}
+
+	clone := &ConnectionAuthParameters{}
+
+	if p.BasicAuthParameters != nil {
+		bp := *p.BasicAuthParameters
+		clone.BasicAuthParameters = &bp
+	}
+	if p.APIKeyAuthParameters != nil {
+		ap := *p.APIKeyAuthParameters
+		clone.APIKeyAuthParameters = &ap
+	}
+	if p.OAuthParameters != nil {
+		op := &ConnectionOAuthParameters{
+			AuthorizationEndpoint: p.OAuthParameters.AuthorizationEndpoint,
+			HTTPMethod:            p.OAuthParameters.HTTPMethod,
+		}
+		if p.OAuthParameters.ClientParameters != nil {
+			cp := *p.OAuthParameters.ClientParameters
+			op.ClientParameters = &cp
+		}
+		op.OAuthHTTPParameters = cloneHTTPParameters(p.OAuthParameters.OAuthHTTPParameters)
+		clone.OAuthParameters = op
+	}
+	clone.InvocationHTTPParameters = cloneHTTPParameters(p.InvocationHTTPParameters)
+
+	return clone
+}
+
+// cloneHTTPParameters deep-copies custom HTTP body/header/query parameters,
+// retaining any secret values verbatim.
+func cloneHTTPParameters(p *ConnectionHTTPParameters) *ConnectionHTTPParameters {
+	if p == nil {
+		return nil
+	}
+
+	clone := &ConnectionHTTPParameters{}
+	clone.BodyParameters = append(clone.BodyParameters, p.BodyParameters...)
+	clone.HeaderParameters = append(clone.HeaderParameters, p.HeaderParameters...)
+	clone.QueryStringParameters = append(clone.QueryStringParameters, p.QueryStringParameters...)
+
+	return clone
+}
+
+// ---------------------------------------------------------------------------
+// API destination delivery resolution
+// ---------------------------------------------------------------------------
+
+// apiDestLimiter spaces requests to a single API destination so that no more
+// than the configured rate per second are dispatched. next is the earliest
+// time the next request may fire.
+type apiDestLimiter struct {
+	next time.Time
+	mu   sync.Mutex
+}
+
+// ResolveAPIDestination resolves an API-destination ARN to the concrete
+// invocation config plus the (un-masked) connection credentials used to sign
+// the outbound request. It returns false if the destination does not exist.
+// Reads use direct nil-safe map access under the read lock to avoid the
+// lazy-init writes performed by the *Store accessors.
+func (b *InMemoryBackend) ResolveAPIDestination(destARN string) (*ResolvedAPIDestination, bool) {
+	region := arnRegion(destARN)
+	if region == "" {
+		region = b.region
+	}
+	name := arnResourceName(destARN, "api-destination")
+	if name == "" {
+		return nil, false
+	}
+
+	b.mu.RLock("ResolveAPIDestination")
+	defer b.mu.RUnlock()
+
+	dest, ok := b.apiDestinations[region][name]
+	if !ok {
+		return nil, false
+	}
+
+	resolved := &ResolvedAPIDestination{
+		HTTPMethod:         dest.HTTPMethod,
+		Endpoint:           dest.InvocationEndpoint,
+		RateLimitPerSecond: dest.InvocationRateLimitPerSecond,
+	}
+
+	connRegion := arnRegion(dest.ConnectionArn)
+	if connRegion == "" {
+		connRegion = region
+	}
+	connName := arnResourceName(dest.ConnectionArn, "connection")
+	if conn, connOK := b.connections[connRegion][connName]; connOK {
+		applyConnectionAuthToResolved(resolved, conn)
+	}
+
+	return resolved, true
+}
+
+// applyConnectionAuthToResolved copies a connection's (un-masked) auth into the
+// resolved destination.
+func applyConnectionAuthToResolved(resolved *ResolvedAPIDestination, conn *Connection) {
+	resolved.AuthType = conn.AuthorizationType
+
+	auth := conn.authSecret
+	if auth == nil {
+		return
+	}
+
+	if auth.BasicAuthParameters != nil {
+		resolved.BasicUsername = auth.BasicAuthParameters.Username
+		resolved.BasicPassword = auth.BasicAuthParameters.Password
+	}
+	if auth.APIKeyAuthParameters != nil {
+		resolved.APIKeyName = auth.APIKeyAuthParameters.APIKeyName
+		resolved.APIKeyValue = auth.APIKeyAuthParameters.APIKeyValue
+	}
+	if auth.OAuthParameters != nil {
+		oauth := &ResolvedOAuth{
+			AuthorizationEndpoint: auth.OAuthParameters.AuthorizationEndpoint,
+			HTTPMethod:            auth.OAuthParameters.HTTPMethod,
+		}
+		if auth.OAuthParameters.ClientParameters != nil {
+			oauth.ClientID = auth.OAuthParameters.ClientParameters.ClientID
+			oauth.ClientSecret = auth.OAuthParameters.ClientParameters.ClientSecret
+		}
+		if hp := auth.OAuthParameters.OAuthHTTPParameters; hp != nil {
+			oauth.HeaderParameters = hp.HeaderParameters
+			oauth.QueryStringParameters = hp.QueryStringParameters
+			oauth.BodyParameters = hp.BodyParameters
+		}
+		resolved.OAuth = oauth
+	}
+	if hp := auth.InvocationHTTPParameters; hp != nil {
+		resolved.HeaderParameters = hp.HeaderParameters
+		resolved.QueryStringParameters = hp.QueryStringParameters
+		resolved.BodyParameters = hp.BodyParameters
+	}
+}
+
+// WaitAPIDestinationRateLimit blocks until the destination's configured
+// InvocationRateLimitPerSecond permits another request, or ctx is cancelled.
+// A non-positive rate imposes no limit. Requests are spaced by 1s/rate so a
+// burst of deliveries to the same destination is throttled to the target rate.
+func (b *InMemoryBackend) WaitAPIDestinationRateLimit(
+	ctx context.Context,
+	destARN string,
+	ratePerSecond int,
+) {
+	if ratePerSecond <= 0 {
+		return
+	}
+
+	interval := time.Second / time.Duration(ratePerSecond)
+	limAny, _ := b.apiDestLimiters.LoadOrStore(destARN, &apiDestLimiter{})
+	lim, ok := limAny.(*apiDestLimiter)
+	if !ok {
+		return
+	}
+
+	lim.mu.Lock()
+	now := time.Now()
+	start := lim.next
+	if start.Before(now) {
+		start = now
+	}
+	lim.next = start.Add(interval)
+	wait := time.Until(start)
+	lim.mu.Unlock()
+
+	if wait <= 0 {
+		return
+	}
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+}
+
+// arnFieldCount is the number of ":"-separated fields in an ARN
+// (arn:partition:service:region:account:resource); the resource itself may
+// contain further ":" so the split is bounded to this count.
+const arnFieldCount = 6
+
+// arnRegion returns the region field (index 3) of an ARN, or "" if malformed.
+func arnRegion(a string) string {
+	parts := strings.SplitN(a, ":", arnFieldCount)
+	if len(parts) < arnFieldCount {
+		return ""
+	}
+
+	return parts[3]
+}
+
+// arnResourceName extracts the resource name from an EventBridge ARN of the form
+// arn:aws:events:region:account:<resourceType>/<name>[/<suffix>]. It returns ""
+// if the ARN does not carry the expected resource type.
+func arnResourceName(a, resourceType string) string {
+	parts := strings.SplitN(a, ":", arnFieldCount)
+	if len(parts) < arnFieldCount {
+		return ""
+	}
+	resource := parts[arnFieldCount-1]
+	prefix := resourceType + "/"
+	if !strings.HasPrefix(resource, prefix) {
+		return ""
+	}
+	rest := resource[len(prefix):]
+	if name, _, found := strings.Cut(rest, "/"); found {
+		return name
+	}
+
+	return rest
 }
 
 // ---------------------------------------------------------------------------

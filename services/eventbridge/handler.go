@@ -447,6 +447,21 @@ type putEventsOutput struct {
 	FailedEntryCount int                `json:"FailedEntryCount"`
 }
 
+// countFailedEntries returns the number of PutEvents/PutPartnerEvents result
+// entries that carry an ErrorCode. AWS reports this in the FailedEntryCount
+// field so callers can tell how many events in a batch were rejected without
+// scanning every entry.
+func countFailedEntries(entries []EventResultEntry) int {
+	failed := 0
+	for i := range entries {
+		if entries[i].ErrorCode != "" {
+			failed++
+		}
+	}
+
+	return failed
+}
+
 type listTagsForResourceOutput struct {
 	Tags []svcTags.KV `json:"Tags"`
 }
@@ -558,6 +573,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 				input.EventBusName,
 				input.NamePrefix,
 				input.NextToken,
+				input.Limit,
 			)
 			if err != nil {
 				return nil, err
@@ -651,6 +667,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 				input.Rule,
 				input.EventBusName,
 				input.NextToken,
+				input.Limit,
 			)
 			if err != nil {
 				return nil, err
@@ -671,7 +688,7 @@ func (h *Handler) eventsActions() map[string]actionFn {
 			entries := h.Backend.PutEvents(ctx, input.Entries)
 
 			return &putEventsOutput{
-				FailedEntryCount: 0,
+				FailedEntryCount: countFailedEntries(entries),
 				Entries:          entries,
 			}, nil
 		},
@@ -1432,7 +1449,7 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 			entries := h.Backend.PutPartnerEvents(ctx, input.Entries)
 
 			return &putEventsOutput{
-				FailedEntryCount: 0,
+				FailedEntryCount: countFailedEntries(entries),
 				Entries:          entries,
 			}, nil
 		},
