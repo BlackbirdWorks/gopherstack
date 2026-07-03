@@ -618,7 +618,7 @@ func (b *InMemoryBackend) StartAutomationExecution(
 		DocumentVersion:       input.DocumentVersion,
 		Parameters:            input.Parameters,
 		Status:                automationStatusInProgress,
-		StartTime:             now,
+		StartTime:             UnixTimeFloat(now),
 		ExecutionType:         "Standard",
 		Mode:                  mode,
 		Steps:                 b.buildAutomationSteps(region, input.DocumentName),
@@ -684,7 +684,7 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 	}
 
 	sort.Slice(list, func(i, k int) bool {
-		return list[i].StartTime.Before(list[k].StartTime)
+		return list[i].StartTime < list[k].StartTime
 	})
 
 	return &DescribeAutomationExecutionsOutputFull{AutomationExecutionMetadataList: list}, nil
@@ -701,8 +701,7 @@ func (b *InMemoryBackend) StopAutomationExecution(
 
 	if exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]; exists {
 		exec.Status = automationStatusStopped
-		now := time.Now().UTC()
-		exec.EndTime = &now
+		exec.EndTime = UnixTimeFloat(time.Now().UTC())
 	}
 
 	return &StopAutomationExecutionOutput{}, nil
@@ -777,7 +776,7 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 		AutomationExecutionID: execID,
 		DocumentName:          input.DocumentName,
 		Status:                automationStatusInProgress,
-		StartTime:             time.Now().UTC(),
+		StartTime:             UnixTimeFloat(time.Now().UTC()),
 		ExecutionType:         "ChangeRequest",
 		Steps:                 b.buildAutomationSteps(region, input.DocumentName),
 	}

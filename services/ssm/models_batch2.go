@@ -24,8 +24,8 @@ type ResourceDataSync struct {
 // AutomationExecution represents a running or completed SSM automation execution.
 type AutomationExecution struct {
 	Parameters            map[string][]string  `json:"Parameters,omitempty"`
-	StartTime             time.Time            `json:"StartTime"`
-	EndTime               *time.Time           `json:"EndTime,omitempty"`
+	StartTime             float64              `json:"ExecutionStartTime"`
+	EndTime               float64              `json:"ExecutionEndTime,omitempty"`
 	AutomationExecutionID string               `json:"AutomationExecutionId"`
 	DocumentName          string               `json:"DocumentName"`
 	DocumentVersion       string               `json:"DocumentVersion"`
@@ -45,10 +45,10 @@ type AutomationStepExec struct {
 	StepName           string     `json:"StepName"`
 	Action             string     `json:"Action"`
 	StepStatus         string     `json:"StepStatus"`
-	StepExecutionID    string     `json:"StepExecutionId,omitempty"`
-	ExecutionStartTime *time.Time `json:"ExecutionStartTime,omitempty"`
-	ExecutionEndTime   *time.Time `json:"ExecutionEndTime,omitempty"`
-	FailureMessage     string     `json:"FailureMessage,omitempty"`
+	StepExecutionID    string  `json:"StepExecutionId,omitempty"`
+	ExecutionStartTime float64 `json:"ExecutionStartTime,omitempty"`
+	ExecutionEndTime   float64 `json:"ExecutionEndTime,omitempty"`
+	FailureMessage     string  `json:"FailureMessage,omitempty"`
 }
 
 // --- ServiceSetting ---

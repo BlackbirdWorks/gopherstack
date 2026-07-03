@@ -82,16 +82,14 @@ func (b *InMemoryBackend) buildAutomationSteps(region, docName string) []Automat
 // Success with an end time. Must be called with b.mu held.
 func completeAutomationLocked(exec *AutomationExecution, now time.Time) {
 	for i := range exec.Steps {
-		start := now
-		end := now
 		exec.Steps[i].StepStatus = automationStatusSuccess
-		exec.Steps[i].ExecutionStartTime = &start
-		exec.Steps[i].ExecutionEndTime = &end
+		exec.Steps[i].ExecutionStartTime = UnixTimeFloat(now)
+		exec.Steps[i].ExecutionEndTime = UnixTimeFloat(now)
 	}
 
 	exec.Status = automationStatusSuccess
 	exec.completeAfter = 0
-	exec.EndTime = &now
+	exec.EndTime = UnixTimeFloat(now)
 }
 
 // materializeAutomationLocked lazily completes an InProgress execution whose
