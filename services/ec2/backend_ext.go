@@ -40,6 +40,7 @@ const (
 	attrSourceDest    = "sourceDestCheck"
 	ec2BooleanTrue    = "true"
 	volTypeDefaultGP2 = "gp2"
+	volTypeGP3        = "gp3"
 )
 
 // KeyPair represents an EC2 key pair.
@@ -126,6 +127,7 @@ type NatGateway struct {
 	CreateTime   time.Time `json:"createTime"`
 	ID           string    `json:"id,omitempty"`
 	SubnetID     string    `json:"subnetID,omitempty"`
+	VPCID        string    `json:"vpcID,omitempty"`
 	AllocationID string    `json:"allocationID,omitempty"`
 	PublicIP     string    `json:"publicIP,omitempty"`
 	PrivateIP    string    `json:"privateIP,omitempty"`
@@ -1048,7 +1050,8 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	b.mu.Lock("CreateNatGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.subnets[subnetID]; !ok {
+	subnet, ok := b.subnets[subnetID]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
@@ -1061,6 +1064,7 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	ngw := &NatGateway{
 		ID:           id,
 		SubnetID:     subnetID,
+		VPCID:        subnet.VPCID,
 		AllocationID: allocationID,
 		PublicIP:     addr.PublicIP,
 		PrivateIP:    b.allocPrivateIP(),
@@ -1068,6 +1072,7 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 		CreateTime:   time.Now(),
 	}
 	b.natGateways[id] = ngw
+	b.indexNatGatewayLocked(ngw)
 
 	return ngw, nil
 }
@@ -1083,6 +1088,7 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	}
 
 	b.recycleIPLocked(ngw.PrivateIP)
+	b.deindexNatGatewayLocked(ngw)
 	delete(b.natGateways, id)
 	delete(b.tags, id)
 
@@ -1293,6 +1299,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 	}
 	b.networkInterfaces[id] = eni
 	b.indexENILocked(id, eni)
+	b.indexENIByVPCLocked(id, eni)
 
 	return eni, nil
 }
@@ -1319,6 +1326,7 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 
 	b.recycleENIIPsLocked(eni)
 	b.deindexENILocked(id, eni)
+	b.deindexENIByVPCLocked(id, eni)
 	delete(b.networkInterfaces, id)
 	delete(b.tags, id)
 

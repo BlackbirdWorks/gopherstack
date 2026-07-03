@@ -149,9 +149,7 @@ func (b *InMemoryBackend) Reset() {
 	b.launchTemplates = make(map[string]*LaunchTemplate)
 	b.vpcEndpoints = make(map[string]*VpcEndpoint)
 	b.tags = make(map[string]map[string]string)
-	b.instanceIDsByVPC = make(map[string]map[string]struct{})
-	b.eniIDsByInstance = make(map[string]map[string]struct{})
-	b.eniIDByAttachment = make(map[string]string)
+	initSecondaryIndexMaps(b)
 	b.freePrivateIPs = nil
 	b.nextPrivateIPIndex = 0
 	b.nextElasticIPIndex = 0
@@ -172,12 +170,14 @@ func (b *InMemoryBackend) Reset() {
 		AvailabilityZone: b.Region + "a",
 		IsDefault:        true,
 	}
+	b.indexSubnetLocked("subnet-default", vpcDefaultName)
 	b.securityGroups["sg-default"] = &SecurityGroup{
 		ID:          "sg-default",
 		Name:        "default",
 		Description: "default VPC security group",
 		VPCID:       vpcDefaultName,
 	}
+	b.indexSGLocked("sg-default", vpcDefaultName)
 }
 
 // resetNewOpsMapsLocked re-initialises all "new operations" resource maps introduced
