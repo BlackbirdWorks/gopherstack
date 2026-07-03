@@ -12,15 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-)
-
-const (
-	ownerElasticacheStub = "elasticache-stub"
 )
 
 const (
@@ -1215,7 +1212,7 @@ func (h *Handler) deleteCacheParameterGroup(ctx context.Context, c *echo.Context
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: ownerElasticacheStub})
+	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: newRequestID()})
 }
 
 // describeCacheParameterGroupsResultXML is the XML result for DescribeCacheParameterGroups.
@@ -1483,7 +1480,7 @@ func (h *Handler) deleteCacheSubnetGroup(ctx context.Context, c *echo.Context, f
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: ownerElasticacheStub})
+	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: newRequestID()})
 }
 
 // describeCacheSubnetGroupsResultXML is the XML result for DescribeCacheSubnetGroups.
@@ -1914,23 +1911,46 @@ func xmlResp(c *echo.Context, status int, v any) error {
 	return nil
 }
 
-// xmlErrorDetail holds the error code and message for an ElastiCache XML error.
+// xmlErrorDetail holds the fault type, code, and message for an ElastiCache XML
+// error, matching the AWS query-protocol error envelope.
 type xmlErrorDetail struct {
+	Type    string `xml:"Type"`
 	Code    string `xml:"Code"`
 	Message string `xml:"Message"`
 }
 
 type xmlErrorResp struct {
 	XMLName   xml.Name       `xml:"ErrorResponse"`
+	Xmlns     string         `xml:"xmlns,attr"`
 	Error     xmlErrorDetail `xml:"Error"`
 	RequestID string         `xml:"RequestId"`
 }
 
+// faultType classifies an HTTP status into the AWS query-protocol fault Type.
+// Client-side faults (4xx: validation, not-found, conflict) are "Sender";
+// server-side faults (5xx) are "Receiver".
+func faultType(status int) string {
+	if status >= http.StatusInternalServerError {
+		return "Receiver"
+	}
+
+	return "Sender"
+}
+
+// newRequestID returns a fresh correlation ID for a response, mirroring the
+// per-request x-amzn-RequestId AWS attaches to every call.
+func newRequestID() string {
+	return uuid.NewString()
+}
+
 func xmlError(c *echo.Context, status int, code, message string) error {
-	resp := xmlErrorResp{}
+	resp := xmlErrorResp{
+		Xmlns:     elasticacheNS,
+		RequestID: newRequestID(),
+	}
+	resp.Error.Type = faultType(status)
 	resp.Error.Code = code
 	resp.Error.Message = message
-	resp.RequestID = ownerElasticacheStub
 
 	return xmlResp(c, status, resp)
 }

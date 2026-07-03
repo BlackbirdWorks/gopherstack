@@ -115,12 +115,11 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(
 		}
 	}
 
+	b.markCreatingLocked(&sc.PendingStatus, &sc.AvailableAt)
 	store[opts.Name] = sc
 	b.appendEventLocked(opts.Name, "serverless-cache", "serverless cache created")
 
-	cp := *sc
-
-	return &cp, nil
+	return b.serverlessCacheView(sc), nil
 }
 
 // majorVersionStr returns a human-readable major version string for an engine.
@@ -176,9 +175,9 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(
 		sc.SecurityGroupIDs = opts.SecurityGroupIDs
 	}
 
-	result := *sc
+	b.markTransitionLocked(&sc.PendingStatus, &sc.AvailableAt, statusModifying)
 
-	return &result, nil
+	return b.serverlessCacheView(sc), nil
 }
 
 // ----------------------------------------
