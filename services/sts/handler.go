@@ -297,6 +297,11 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 	if callerKey != "" {
 		secToken := r.Header.Get("X-Amz-Security-Token")
 		input.CallerSession = h.Backend.LookupSession(callerKey, secToken)
+		if input.CallerSession != nil {
+			// The caller is itself an assumed-role session (role chaining); its
+			// ARN is the principal evaluated against the target role's trust policy.
+			input.CallerArn = input.CallerSession.AssumedRoleArn
+		}
 	}
 
 	return h.Backend.AssumeRole(input)

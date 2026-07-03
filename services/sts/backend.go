@@ -170,6 +170,14 @@ const (
 	jwtPartCount = 3
 	// jwtMinParts is the minimum number of parts required to attempt payload extraction.
 	jwtMinParts = 2
+
+	// JWT registered-claim names used when parsing and issuing web-identity tokens.
+	jwtClaimSub = "sub"
+	jwtClaimIss = "iss"
+	jwtClaimAud = "aud"
+	jwtClaimExp = "exp"
+	jwtClaimIat = "iat"
+	jwtClaimNbf = "nbf"
 	// base64Pad2 indicates two '=' padding characters are needed.
 	base64Pad2 = 2
 	// base64Pad1 indicates one '=' padding character is needed.
@@ -292,7 +300,7 @@ func mergeTransitiveTags(parent *SessionInfo, childTags []Tag) []Tag {
 // - format: arn:<partition>:iam::<12-digit-account>:role/<name>.
 func validateRoleArn(roleArn string) error {
 	parts := strings.SplitN(roleArn, ":", arnComponentCount)
-	if len(parts) < arnComponentCount || parts[0] != "arn" || parts[2] != "iam" {
+	if len(parts) < arnComponentCount || parts[0] != "arn" || parts[2] != arnServiceIAM {
 		return fmt.Errorf("%w: %q", ErrInvalidRoleArn, roleArn)
 	}
 
@@ -511,6 +519,10 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 		return nil, err
 	}
 
+	if err = b.checkAssumeRoleTrust(input); err != nil {
+		return nil, err
+	}
+
 	duration := input.DurationSeconds
 	if duration == 0 {
 		// Clamp default to the role's MaxSessionDuration when it's less than the standard default.
@@ -601,6 +613,107 @@ func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32,
 	}
 
 	return int32(MaxDurationSeconds), nil
+}
+
+// lookupRoleMeta returns the RoleMeta for the given role ARN via the configured
+// RoleLookup, or nil when no lookup is wired or the role is not found. It never
+// returns an error: a missing role or lookup means the emulator falls back to
+// permissive behaviour for trust evaluation.
+func (b *InMemoryBackend) lookupRoleMeta(roleArn string) *RoleMeta {
+	b.mu.Lock()
+	rl := b.roleLookup
+	b.mu.Unlock()
+
+	if rl == nil {
+		return nil
+	}
+
+	meta, _ := rl.GetRoleByArn(roleArn)
+
+	return meta
+}
+
+// checkAssumeRoleTrust evaluates the target role's trust policy against the
+// calling principal for sts:AssumeRole. It is a no-op (permissive) unless a
+// caller ARN was resolved, a RoleLookup is wired, and the role carries a
+// non-empty trust policy — mirroring the emulator's "enforce only what is
+// positively known" stance so callers without a resolvable identity are not
+// spuriously denied.
+func (b *InMemoryBackend) checkAssumeRoleTrust(input *AssumeRoleInput) error {
+	if input.CallerArn == "" {
+		return nil
+	}
+
+	meta := b.lookupRoleMeta(input.RoleArn)
+	if meta == nil || meta.TrustPolicy == "" {
+		return nil
+	}
+
+	return evaluateAssumeRoleTrust(meta.TrustPolicy, trustEval{
+		action:     actionAssumeRole,
+		callerArn:  input.CallerArn,
+		externalID: input.ExternalID,
+		conditionCtx: map[string]string{
+			condKeyPrincipalArn: input.CallerArn,
+		},
+	})
+}
+
+// checkWebIdentityTrust evaluates the target role's trust policy against the
+// federated OIDC identity (issuer/audience) for sts:AssumeRoleWithWebIdentity.
+// It is permissive unless the token yields an issuer, a RoleLookup is wired, and
+// the role carries a non-empty trust policy.
+func (b *InMemoryBackend) checkWebIdentityTrust(input *AssumeRoleWithWebIdentityInput) error {
+	issuer := input.ProviderID
+	if issuer == "" {
+		issuer = extractWebIdentityIssuer(input.WebIdentityToken)
+	}
+
+	if issuer == "" {
+		return nil
+	}
+
+	meta := b.lookupRoleMeta(input.RoleArn)
+	if meta == nil || meta.TrustPolicy == "" {
+		return nil
+	}
+
+	host := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(issuer, "https://"), "http://"))
+	condCtx := map[string]string{}
+
+	if aud := extractWebIdentityAudience(input.WebIdentityToken); aud != "" {
+		condCtx[host+":aud"] = aud
+	}
+
+	if sub := extractWebIdentitySubject(input.WebIdentityToken); sub != "" &&
+		sub != webIdentitySubjectPlaceholder {
+		condCtx[host+":sub"] = sub
+	}
+
+	return evaluateAssumeRoleTrust(meta.TrustPolicy, trustEval{
+		action:       actionAssumeRoleWithWebID,
+		federatedArn: issuer,
+		conditionCtx: condCtx,
+	})
+}
+
+// checkSAMLTrust evaluates the target role's trust policy against the federated
+// SAML provider (PrincipalArn) for sts:AssumeRoleWithSAML. It is permissive
+// unless a RoleLookup is wired and the role carries a non-empty trust policy.
+func (b *InMemoryBackend) checkSAMLTrust(input *AssumeRoleWithSAMLInput) error {
+	if input.PrincipalArn == "" {
+		return nil
+	}
+
+	meta := b.lookupRoleMeta(input.RoleArn)
+	if meta == nil || meta.TrustPolicy == "" {
+		return nil
+	}
+
+	return evaluateAssumeRoleTrust(meta.TrustPolicy, trustEval{
+		action:       actionAssumeRoleWithSAML,
+		federatedArn: input.PrincipalArn,
+	})
 }
 
 // issueCredentials generates credentials, stores the session, and builds the response.
@@ -763,7 +876,7 @@ func (b *InMemoryBackend) GetCallerIdentity(
 }
 
 func (b *InMemoryBackend) rootCallerIdentity() *GetCallerIdentityResponse {
-	callerArn := arn.Build("iam", "", b.accountID, "root")
+	callerArn := arn.Build(arnServiceIAM, "", b.accountID, "root")
 
 	return &GetCallerIdentityResponse{
 		Xmlns: STSNamespace,
@@ -1011,7 +1124,7 @@ func validateWebIdentityInput(input *AssumeRoleWithWebIdentityInput) error {
 		return err
 	}
 
-	return validateJWTNotExpired(input.WebIdentityToken)
+	return validateWebIdentityToken(input.WebIdentityToken)
 }
 
 func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
@@ -1039,6 +1152,11 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 
 	// Validate OIDC provider when a lookup is configured.
 	if err := b.validateOIDCProvider(input.WebIdentityToken, input.ProviderID); err != nil {
+		return nil, err
+	}
+
+	// Enforce the role's trust policy against the federated OIDC identity.
+	if err := b.checkWebIdentityTrust(input); err != nil {
 		return nil, err
 	}
 
@@ -1189,6 +1307,10 @@ func validateSAMLInput(input *AssumeRoleWithSAMLInput) error {
 		return err
 	}
 
+	if err := validateSAMLTemporalConditions(input.SAMLAssertion); err != nil {
+		return err
+	}
+
 	// RoleSessionName is optional for SAML (derived from assertion), but when supplied validate it.
 	if input.RoleSessionName != "" {
 		if err := validateRoleSessionName(input.RoleSessionName); err != nil {
@@ -1242,6 +1364,11 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(
 			"%w: DurationSeconds must be between %d and %d for this role",
 			ErrInvalidDuration, MinDurationSeconds, effectiveMax,
 		)
+	}
+
+	// Enforce the role's trust policy against the federated SAML provider.
+	if err := b.checkSAMLTrust(input); err != nil {
+		return nil, err
 	}
 
 	creds, err := generateCredentialSet()
@@ -1420,7 +1547,7 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 	}
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
-	assumedPrincipal := arn.Build("iam", "", b.accountID, "root")
+	assumedPrincipal := arn.Build(arnServiceIAM, "", b.accountID, "root")
 
 	session := &SessionInfo{
 		Expiration:      expiration,
@@ -1508,13 +1635,13 @@ func (b *InMemoryBackend) GetWebIdentityToken(
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"mock","typ":"JWT"}`))
 
 	claims := map[string]any{
-		"sub": MockUserID,
-		"aud": input.Audience,
-		"iss": issuer,
-		"exp": expiration.Unix(),
-		"iat": now.Unix(),
-		"nbf": now.Unix(),
-		"acc": b.accountID,
+		jwtClaimSub: MockUserID,
+		jwtClaimAud: input.Audience,
+		jwtClaimIss: issuer,
+		jwtClaimExp: expiration.Unix(),
+		jwtClaimIat: now.Unix(),
+		jwtClaimNbf: now.Unix(),
+		"acc":       b.accountID,
 	}
 
 	// Include session tags as custom claims when present.
@@ -1588,7 +1715,7 @@ func extractWebIdentitySubject(token string) string {
 		return webIdentitySubjectPlaceholder
 	}
 
-	if sub, ok := claims["sub"].(string); ok && sub != "" {
+	if sub, ok := claims[jwtClaimSub].(string); ok && sub != "" {
 		return sub
 	}
 
@@ -1603,7 +1730,7 @@ func extractWebIdentityIssuer(token string) string {
 		return ""
 	}
 
-	if iss, ok := claims["iss"].(string); ok && iss != "" {
+	if iss, ok := claims[jwtClaimIss].(string); ok && iss != "" {
 		return iss
 	}
 
@@ -1871,7 +1998,7 @@ func extractWebIdentityAudience(token string) string {
 		return ""
 	}
 
-	switch v := claims["aud"].(type) {
+	switch v := claims[jwtClaimAud].(type) {
 	case string:
 		return v
 	case []any:

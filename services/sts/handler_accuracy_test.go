@@ -1110,7 +1110,7 @@ func TestAccuracy_AssumedRoleArn_PathStripped_WebIdentityAndSAML(t *testing.T) {
 		resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
 			RoleArn:          roleArn,
 			RoleSessionName:  "sess",
-			WebIdentityToken: "header.payload.sig",
+			WebIdentityToken: buildJWT(t, map[string]any{"sub": "user", "iss": "https://example.com"}),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, wantArn, resp.AssumeRoleWithWebIdentityResult.AssumedRoleUser.Arn)
