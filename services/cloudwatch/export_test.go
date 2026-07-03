@@ -112,3 +112,66 @@ func (b *InMemoryBackend) MetricPointsCapForTest(namespace, metricKey string) in
 
 // CwMaxMetricDataPointsForTest exposes the per-series data-point cap for tests.
 const CwMaxMetricDataPointsForTest = cwMaxMetricDataPoints
+
+// ComputeExtendedStatsForTest exposes computeExtendedStats for unit testing.
+func ComputeExtendedStatsForTest(sortedVals []float64, stats []string) map[string]float64 {
+	return computeExtendedStats(sortedVals, stats)
+}
+
+// ComputeExtendedStatForTest exposes computeExtendedStat for unit testing.
+func ComputeExtendedStatForTest(sortedVals []float64, stat string) (float64, bool) {
+	return computeExtendedStat(sortedVals, stat)
+}
+
+// ExpandDatumValuesForTest exposes expandDatumValues for unit testing.
+func ExpandDatumValuesForTest(d MetricDatum) []float64 { return expandDatumValues(d) }
+
+// PaginateMetricDataForTest exposes paginateMetricData for unit testing.
+func PaginateMetricDataForTest(
+	all []MetricDataResult,
+	maxDatapoints int,
+	nextToken string,
+) GetMetricDataPage {
+	return paginateMetricData(all, maxDatapoints, nextToken)
+}
+
+// AnnotateArithmeticMessagesForTest exposes annotateArithmeticMessages for testing.
+func AnnotateArithmeticMessagesForTest(r *MetricDataResult) { annotateArithmeticMessages(r) }
+
+// ParseEC2AutomateVerbForTest exposes parseEC2AutomateVerb for unit testing.
+func ParseEC2AutomateVerbForTest(action string) (string, bool) {
+	return parseEC2AutomateVerb(action)
+}
+
+// ParseScalingPolicyARNForTest exposes parseScalingPolicyARN for unit testing.
+func ParseScalingPolicyARNForTest(action string) (string, string, bool) {
+	return parseScalingPolicyARN(action)
+}
+
+// ExtractAlarmRuleRefsForTest exposes extractAlarmRuleRefs, flattened to parallel
+// func/name slices for the external test package.
+func ExtractAlarmRuleRefsForTest(rule string) ([]string, []string) {
+	refs := extractAlarmRuleRefs(rule)
+	funcs := make([]string, 0, len(refs))
+	names := make([]string, 0, len(refs))
+	for _, r := range refs {
+		funcs = append(funcs, r.Func)
+		names = append(names, r.Name)
+	}
+
+	return funcs, names
+}
+
+// ParseRelativeDurationForTest exposes parseRelativeDuration for unit testing.
+func ParseRelativeDurationForTest(s string) (time.Duration, bool) {
+	return parseRelativeDuration(s)
+}
+
+// RenderMetricWidgetPNGForTest exposes renderMetricWidgetPNG for unit testing.
+func RenderMetricWidgetPNGForTest(
+	b *InMemoryBackend,
+	widgetJSON string,
+	now time.Time,
+) ([]byte, error) {
+	return renderMetricWidgetPNG(b, widgetJSON, now)
+}

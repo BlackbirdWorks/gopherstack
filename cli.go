@@ -2634,8 +2634,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Lambda async DeadLetterConfig / DestinationConfig delivery to SQS/SNS/Lambda.
 	wireLambdaAsyncDestinations(byName["Lambda"], byName["SQS"], byName["SNS"])
 
-	// Wire CloudWatch alarm actions → SNS and Lambda backends.
+	// Wire CloudWatch alarm actions → SNS, Lambda, EC2, and Auto Scaling backends.
 	wireCloudWatchAlarmActions(byName["CloudWatch"], byName["SNS"], byName["Lambda"])
+	wireCloudWatchInfraActions(
+		byName["CloudWatch"], byName["EC2"], byName["Autoscaling"],
+	)
 
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
@@ -3928,6 +3931,67 @@ func wireCloudWatchAlarmActions(cwReg, snsReg, lambdaReg service.Registerable) {
 			cwBk.SetLambdaInvoker(&cwLambdaInvokerAdapter{backend: lambdaBk})
 		}
 	}
+}
+
+// wireCloudWatchInfraActions connects the CloudWatch backend to the EC2 and Auto
+// Scaling backends so that arn:aws:automate EC2 alarm actions and scaling-policy
+// alarm actions actually mutate instance state / trigger scaling.
+func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
+	cwH, ok := cwReg.(*cwbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cwBk, ok := cwH.Backend.(*cwbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if ec2H, ok := ec2Reg.(*ec2backend.Handler); ok {
+		if ec2Bk, isEC2 := ec2H.Backend.(*ec2backend.InMemoryBackend); isEC2 {
+			cwBk.SetEC2Actioner(&cwEC2ActionerAdapter{backend: ec2Bk})
+		}
+	}
+
+	if asgH, ok := asgReg.(*autoscalingbackend.Handler); ok {
+		if asgBk, isASG := asgH.Backend.(*autoscalingbackend.InMemoryBackend); isASG {
+			cwBk.SetAutoScalingExecutor(&cwAutoScalingAdapter{backend: asgBk})
+		}
+	}
+}
+
+// cwEC2ActionerAdapter adapts the EC2 backend to the cloudwatch.EC2InstanceActioner interface.
+type cwEC2ActionerAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *cwEC2ActionerAdapter) StopInstances(ids []string) error {
+	_, err := a.backend.StopInstances(ids)
+
+	return err
+}
+
+func (a *cwEC2ActionerAdapter) TerminateInstances(ids []string) error {
+	_, err := a.backend.TerminateInstances(ids)
+
+	return err
+}
+
+func (a *cwEC2ActionerAdapter) RebootInstances(ids []string) error {
+	return a.backend.RebootInstances(ids)
+}
+
+// cwAutoScalingAdapter adapts the Auto Scaling backend to the
+// cloudwatch.AutoScalingPolicyExecutor interface.
+type cwAutoScalingAdapter struct {
+	backend *autoscalingbackend.InMemoryBackend
+}
+
+func (a *cwAutoScalingAdapter) ExecuteScalingPolicy(asgName, policyName string) error {
+	return a.backend.ExecutePolicy(autoscalingbackend.ExecutePolicyInput{
+		AutoScalingGroupName: asgName,
+		PolicyName:           policyName,
+	})
 }
 
 // cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.

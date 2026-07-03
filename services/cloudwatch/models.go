@@ -161,13 +161,34 @@ type MetricTransformation struct {
 	DefaultValue    float64 `json:"DefaultValue,omitempty"`
 }
 
+// MetricDataMessage is a diagnostic message returned by GetMetricData, either
+// at the top level of the response or attached to an individual MetricDataResult.
+// Code is a short machine-readable identifier (e.g. "ArithmeticError",
+// "Forbidden", "MaxDatapointsExceeded"); Value is the human-readable text.
+type MetricDataMessage struct {
+	Code  string `json:"Code"`
+	Value string `json:"Value"`
+}
+
 // MetricDataResult is a single result entry in a GetMetricData response.
+// StatusCode is "Complete", "PartialData", "InternalError", or "Forbidden".
+// Messages carries per-result diagnostics (e.g. arithmetic errors in metric math).
 type MetricDataResult struct {
-	Timestamps []time.Time `json:"Timestamps"`
-	ID         string      `json:"Id"`
-	Label      string      `json:"Label,omitempty"`
-	StatusCode string      `json:"StatusCode"`
-	Values     []float64   `json:"Values"`
+	Timestamps []time.Time         `json:"Timestamps"`
+	ID         string              `json:"Id"`
+	Label      string              `json:"Label,omitempty"`
+	StatusCode string              `json:"StatusCode"`
+	Values     []float64           `json:"Values"`
+	Messages   []MetricDataMessage `json:"Messages,omitempty"`
+}
+
+// GetMetricDataPage is the paginated result of a GetMetricData request.
+// NextToken is non-empty when the response was truncated to honour MaxDatapoints.
+// Messages carries top-level diagnostics (e.g. a truncation notice).
+type GetMetricDataPage struct {
+	NextToken string
+	Results   []MetricDataResult
+	Messages  []MetricDataMessage
 }
 
 // DashboardEntry represents a single CloudWatch dashboard summary entry returned by ListDashboards.
