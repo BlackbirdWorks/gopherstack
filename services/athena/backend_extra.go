@@ -289,7 +289,7 @@ func (b *InMemoryBackend) GetSession(id string) (*Session, error) {
 
 	s, ok := b.sessions[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: session %q not found", ErrNotFound, id)
+		return nil, fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
 	}
 
 	cp := *s
@@ -304,7 +304,7 @@ func (b *InMemoryBackend) GetSessionStatus(id string) (SessionStatus, error) {
 
 	s, ok := b.sessions[id]
 	if !ok {
-		return SessionStatus{}, fmt.Errorf("%w: session %q not found", ErrNotFound, id)
+		return SessionStatus{}, fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
 	}
 
 	return s.Status, nil
@@ -316,7 +316,7 @@ func (b *InMemoryBackend) GetSessionEndpoint(id string) (string, error) {
 	defer b.mu.RUnlock()
 
 	if _, ok := b.sessions[id]; !ok {
-		return "", fmt.Errorf("%w: session %q not found", ErrNotFound, id)
+		return "", fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
 	}
 
 	return fmt.Sprintf(notebookEndpointBase, b.region) + id, nil
@@ -329,7 +329,7 @@ func (b *InMemoryBackend) TerminateSession(id string) (string, error) {
 
 	s, ok := b.sessions[id]
 	if !ok {
-		return "", fmt.Errorf("%w: session %q not found", ErrNotFound, id)
+		return "", fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
 	}
 
 	if s.Status.State == sessionStateTerminated {
@@ -421,7 +421,7 @@ func (b *InMemoryBackend) StartCalculationExecution(
 
 	s, ok := b.sessions[sessionID]
 	if !ok {
-		return "", "", fmt.Errorf("%w: session %q not found", ErrNotFound, sessionID)
+		return "", "", fmt.Errorf("%w: session %q not found", ErrResourceNotFound, sessionID)
 	}
 
 	if s.Status.State == sessionStateTerminated {
@@ -459,7 +459,7 @@ func (b *InMemoryBackend) GetCalculationExecution(id string) (*CalculationExecut
 
 	c, ok := b.calculations[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: calculation execution %q not found", ErrNotFound, id)
+		return nil, fmt.Errorf("%w: calculation execution %q not found", ErrResourceNotFound, id)
 	}
 
 	cp := *c
@@ -475,7 +475,7 @@ func (b *InMemoryBackend) GetCalculationExecutionStatus(id string) (CalculationS
 	c, ok := b.calculations[id]
 	if !ok {
 		return CalculationStatus{}, CalculationStatistics{},
-			fmt.Errorf("%w: calculation execution %q not found", ErrNotFound, id)
+			fmt.Errorf("%w: calculation execution %q not found", ErrResourceNotFound, id)
 	}
 
 	return c.Status, c.Statistics, nil
@@ -488,7 +488,7 @@ func (b *InMemoryBackend) GetCalculationExecutionCode(id string) (string, error)
 
 	c, ok := b.calculations[id]
 	if !ok {
-		return "", fmt.Errorf("%w: calculation execution %q not found", ErrNotFound, id)
+		return "", fmt.Errorf("%w: calculation execution %q not found", ErrResourceNotFound, id)
 	}
 
 	return c.CodeBlock, nil
@@ -501,7 +501,7 @@ func (b *InMemoryBackend) StopCalculationExecution(id string) (string, error) {
 
 	c, ok := b.calculations[id]
 	if !ok {
-		return "", fmt.Errorf("%w: calculation execution %q not found", ErrNotFound, id)
+		return "", fmt.Errorf("%w: calculation execution %q not found", ErrResourceNotFound, id)
 	}
 
 	switch c.Status.State {
@@ -530,7 +530,7 @@ func (b *InMemoryBackend) ListCalculationExecutions(sessionID, stateFilter strin
 	defer b.mu.RUnlock()
 
 	if _, ok := b.sessions[sessionID]; !ok {
-		return nil, fmt.Errorf("%w: session %q not found", ErrNotFound, sessionID)
+		return nil, fmt.Errorf("%w: session %q not found", ErrResourceNotFound, sessionID)
 	}
 
 	out := make([]CalculationSummary, 0, len(b.calculations))
@@ -690,7 +690,7 @@ func (b *InMemoryBackend) GetDatabase(catalog, name string) (*Database, error) {
 
 	d, ok := dbs[name]
 	if !ok {
-		return nil, fmt.Errorf("%w: database %q not found in catalog %q", ErrNotFound, name, catalog)
+		return nil, fmt.Errorf("%w: database %q not found in catalog %q", ErrMetadata, name, catalog)
 	}
 
 	cp := *d
@@ -735,7 +735,7 @@ func (b *InMemoryBackend) GetTableMetadata(catalog, database, table string) (*Ta
 
 	t, ok := tables[table]
 	if !ok {
-		return nil, fmt.Errorf("%w: table %q not found in %s/%s", ErrNotFound, table, catalog, database)
+		return nil, fmt.Errorf("%w: table %q not found in %s/%s", ErrMetadata, table, catalog, database)
 	}
 
 	cp := *t
@@ -986,7 +986,7 @@ func (b *InMemoryBackend) UpdatePreparedStatement(name, workGroup, queryStatemen
 
 	ps, ok := b.preparedStatements[key]
 	if !ok {
-		return fmt.Errorf("%w: prepared statement %q not found in workgroup %q", ErrNotFound, name, workGroup)
+		return fmt.Errorf("%w: prepared statement %q not found in workgroup %q", ErrResourceNotFound, name, workGroup)
 	}
 
 	ps.QueryStatement = queryStatement
@@ -1043,7 +1043,7 @@ func (b *InMemoryBackend) ListExecutors(sessionID, stateFilter string) ([]Execut
 
 	s, ok := b.sessions[sessionID]
 	if !ok {
-		return nil, fmt.Errorf("%w: session %q not found", ErrNotFound, sessionID)
+		return nil, fmt.Errorf("%w: session %q not found", ErrResourceNotFound, sessionID)
 	}
 
 	out := make([]Executor, 0, 1)

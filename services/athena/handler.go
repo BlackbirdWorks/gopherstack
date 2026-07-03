@@ -24,13 +24,15 @@ var ErrUnknownOperation = errors.New("InvalidRequestException")
 type Handler struct {
 	Backend StorageBackend
 	janitor *Janitor
+	// tokens signs and verifies opaque ListQueryExecutions pagination tokens.
+	tokens *pageTokenCodec
 	// dispatch is the pre-built immutable dispatch table, set once in NewHandler.
 	dispatch map[string]athenaActionFn
 }
 
 // NewHandler creates a new Athena handler with the given storage backend.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, tokens: newPageTokenCodec()}
 	h.dispatch = h.buildDispatchTable()
 
 	return h
@@ -147,25 +149,30 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return "Unknown"
 }
 
+// resourceNameEnvelope is the minimal projection ExtractResource decodes. Only
+// the "Name" field is needed for the telemetry resource label, so we decode into
+// this one-field struct instead of unmarshalling the entire request body into a
+// map[string]any on every request.
+type resourceNameEnvelope struct {
+	Name string `json:"Name"`
+}
+
 // ExtractResource extracts the primary resource name from the request body.
+// It decodes only the "Name" field rather than the whole body: httputils.ReadBody
+// caches and rewinds the body, so this does not conflict with the dispatcher's
+// own read, and the typed decode avoids allocating a map for every field.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
+	if err != nil || len(body) == 0 {
 		return ""
 	}
 
-	var data map[string]any
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	var env resourceNameEnvelope
+	if uerr := json.Unmarshal(body, &env); uerr != nil {
 		return ""
 	}
 
-	if name, exists := data["Name"]; exists {
-		if nameStr, ok := name.(string); ok {
-			return nameStr
-		}
-	}
-
-	return ""
+	return env.Name
 }
 
 // Handler returns the Echo HTTP handler for Athena operations.
@@ -375,8 +382,6 @@ type exportNotebookInput struct {
 // --- Dispatch ---
 
 type athenaActionFn func([]byte) (any, error)
-
-const errTypeInvalidRequest = "InvalidRequestException"
 
 func (h *Handler) buildDispatchTable() map[string]athenaActionFn {
 	ops := h.workGroupOps()
@@ -654,26 +659,7 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 
 			return map[string]any{"QueryExecution": qe}, nil
 		},
-		"ListQueryExecutions": func(b []byte) (any, error) {
-			var input listQueryExecutionsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			ids, err := h.Backend.ListQueryExecutions(input.WorkGroup)
-			if err != nil {
-				return nil, err
-			}
-
-			ids, nextToken := paginateQueryExecutionIDs(ids, input.MaxResults, input.NextToken)
-
-			out := map[string]any{"QueryExecutionIds": ids}
-			if nextToken != "" {
-				out["NextToken"] = nextToken
-			}
-
-			return out, nil
-		},
+		"ListQueryExecutions": h.handleListQueryExecutions,
 		"BatchGetQueryExecution": func(b []byte) (any, error) {
 			var input batchGetQueryExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -703,36 +689,32 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 // for Athena GetQueryResults. The minimum is 1.
 const athenaMaxQueryResultsPageSize = 1000
 
-// paginateQueryExecutionIDs applies AWS-style MaxResults/NextToken pagination to
-// a list of query-execution IDs. The returned token is the first un-returned ID
-// (the next-page lookup includes the token element). An empty token means the
-// last page.
-func paginateQueryExecutionIDs(ids []string, maxResults int, nextToken string) ([]string, string) {
-	limit := maxListQueryExecutionsPageSize
-	if maxResults > 0 && maxResults < limit {
-		limit = maxResults
+// handleListQueryExecutions lists query-execution IDs for a workgroup with
+// opaque-token pagination.
+func (h *Handler) handleListQueryExecutions(b []byte) (any, error) {
+	var input listQueryExecutionsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
 	}
 
-	start := 0
+	ids, err := h.Backend.ListQueryExecutions(input.WorkGroup)
+	if err != nil {
+		return nil, err
+	}
+
+	ids, nextToken, err := h.tokens.paginateQueryExecutionIDs(
+		ids, input.MaxResults, input.NextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	out := map[string]any{"QueryExecutionIds": ids}
 	if nextToken != "" {
-		for i, id := range ids {
-			if id == nextToken {
-				start = i
-
-				break
-			}
-		}
+		out["NextToken"] = nextToken
 	}
 
-	ids = ids[start:]
-
-	token := ""
-	if len(ids) > limit {
-		token = ids[limit]
-		ids = ids[:limit]
-	}
-
-	return ids, token
+	return out, nil
 }
 
 type getQueryResultsInput struct {
@@ -1069,23 +1051,30 @@ func (h *Handler) handleError(
 	log := logger.Load(ctx)
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
 
+	// AWS Athena returns HTTP 400 for every modeled client-side exception
+	// (InvalidRequestException, MetadataException, ResourceNotFoundException,
+	// SessionAlreadyExistsException, TooManyRequestsException); only the __type
+	// distinguishes them. The order of these cases matters: the more specific
+	// sentinels are checked before the InvalidRequestException-backed ones.
 	statusCode := http.StatusBadRequest
 
 	var errorType string
 
 	switch {
-	case errors.Is(reqErr, ErrNotFound):
-		errorType = errTypeInvalidRequest
-	case errors.Is(reqErr, ErrAlreadyExists):
-		errorType = errTypeInvalidRequest
-	case errors.Is(reqErr, ErrProtected):
-		errorType = errTypeInvalidRequest
-	case errors.Is(reqErr, ErrValidation):
-		errorType = errTypeInvalidRequest
-	case errors.Is(reqErr, ErrUnknownOperation):
-		errorType = errTypeInvalidRequest
+	case errors.Is(reqErr, ErrResourceNotFound):
+		errorType = errTypeResourceNotFoundExc
+	case errors.Is(reqErr, ErrMetadata):
+		errorType = errTypeMetadataExc
+	case errors.Is(reqErr, ErrSessionExists):
+		errorType = errTypeSessionExistsExc
+	case errors.Is(reqErr, ErrNotFound),
+		errors.Is(reqErr, ErrAlreadyExists),
+		errors.Is(reqErr, ErrProtected),
+		errors.Is(reqErr, ErrValidation),
+		errors.Is(reqErr, ErrUnknownOperation):
+		errorType = errTypeInvalidRequestExc
 	default:
-		errorType = "InternalServerError"
+		errorType = errTypeInternalServer
 		statusCode = http.StatusInternalServerError
 	}
 
