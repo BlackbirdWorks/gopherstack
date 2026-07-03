@@ -508,6 +508,8 @@ type InMemoryBackend struct {
 	// Batch 1 additions.
 	trustStores                         map[string]*TrustStore
 	streamingDistributions              map[string]*StreamingDistribution
+	streamingDistributionARNs           map[string]string                  // ARN → streaming dist ID (tag lookups)
+	streamingDistributionCallerRefs     map[string]string                  // CallerRef → streaming dist ID (idempotency)
 	monitoringSubscriptions             map[string]*MonitoringSubscription // distribution ID → subscription
 	resourcePolicies                    map[string]*resourcePolicyEntry    // resource ARN → policy
 	distributionCachePolicies           map[string]string                  // distribution ID → cache policy ID
@@ -571,6 +573,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		distributionFunctionAssociations:    make(map[string][]FunctionAssociation),
 		trustStores:                         make(map[string]*TrustStore),
 		streamingDistributions:              make(map[string]*StreamingDistribution),
+		streamingDistributionARNs:           make(map[string]string),
+		streamingDistributionCallerRefs:     make(map[string]string),
 		monitoringSubscriptions:             make(map[string]*MonitoringSubscription),
 		resourcePolicies:                    make(map[string]*resourcePolicyEntry),
 		distributionCachePolicies:           make(map[string]string),
@@ -713,6 +717,8 @@ func (b *InMemoryBackend) resetPoliciesAndKeys() {
 	b.vpcOrigins = make(map[string]*VpcOrigin)
 	b.trustStores = make(map[string]*TrustStore)
 	b.streamingDistributions = make(map[string]*StreamingDistribution)
+	b.streamingDistributionARNs = make(map[string]string)
+	b.streamingDistributionCallerRefs = make(map[string]string)
 	b.monitoringSubscriptions = make(map[string]*MonitoringSubscription)
 	b.resourcePolicies = make(map[string]*resourcePolicyEntry)
 	b.keyValueStoreData = make(map[string]map[string]string)
@@ -962,6 +968,21 @@ func (b *InMemoryBackend) ListOAIs() []*OriginAccessIdentity {
 	return list
 }
 
+// taggableTags returns a pointer to the Tags map for the resource identified by resourceARN,
+// searching every taggable resource kind (distributions, streaming distributions).
+// Must be called with the lock held.
+func (b *InMemoryBackend) taggableTags(resourceARN string) (*map[string]string, bool) {
+	if id, ok := b.distributionARNs[resourceARN]; ok {
+		return &b.distributions[id].Tags, true
+	}
+
+	if id, ok := b.streamingDistributionARNs[resourceARN]; ok {
+		return &b.streamingDistributions[id].Tags, true
+	}
+
+	return nil, false
+}
+
 // TagResource adds or updates tags on a resource by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
 	if err := validateCFTags(kv); err != nil {
@@ -971,27 +992,26 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	id, ok := b.distributionARNs[resourceARN]
+	tags, ok := b.taggableTags(resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	d := b.distributions[id]
-	if d.Tags == nil {
-		d.Tags = make(map[string]string, len(kv))
+	if *tags == nil {
+		*tags = make(map[string]string, len(kv))
 	}
 
 	netNew := 0
 	for k := range kv {
-		if _, exists := d.Tags[k]; !exists {
+		if _, exists := (*tags)[k]; !exists {
 			netNew++
 		}
 	}
-	if len(d.Tags)+netNew > maxTagCount {
+	if len(*tags)+netNew > maxTagCount {
 		return fmt.Errorf("%w: resource cannot have more than %d tags", ErrInvalidTagging, maxTagCount)
 	}
 
-	maps.Copy(d.Tags, kv)
+	maps.Copy(*tags, kv)
 
 	return nil
 }
@@ -1001,14 +1021,13 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	id, ok := b.distributionARNs[resourceARN]
+	tags, ok := b.taggableTags(resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	d := b.distributions[id]
 	for _, k := range keys {
-		delete(d.Tags, k)
+		delete(*tags, k)
 	}
 
 	return nil
@@ -1019,14 +1038,13 @@ func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error
 	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
 
-	id, ok := b.distributionARNs[resourceARN]
+	tags, ok := b.taggableTags(resourceARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	d := b.distributions[id]
-	cp := make(map[string]string, len(d.Tags))
-	maps.Copy(cp, d.Tags)
+	cp := make(map[string]string, len(*tags))
+	maps.Copy(cp, *tags)
 
 	return cp, nil
 }

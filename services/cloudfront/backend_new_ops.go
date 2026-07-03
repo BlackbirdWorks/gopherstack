@@ -2,7 +2,10 @@ package cloudfront
 
 import (
 	"fmt"
+	"maps"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,6 +23,10 @@ var ErrTrustStoreNotFound = awserr.New("NoSuchTrustStore", awserr.ErrNotFound)
 
 // ErrStreamingDistributionNotFound is returned when a streaming distribution does not exist.
 var ErrStreamingDistributionNotFound = awserr.New("NoSuchStreamingDistribution", awserr.ErrNotFound)
+
+// ErrStreamingDistributionNotDisabled is returned when deleting a streaming distribution
+// that is still enabled.
+var ErrStreamingDistributionNotDisabled = awserr.New("StreamingDistributionNotDisabled", awserr.ErrConflict)
 
 // ---------------------------------------------------------------------------
 // TrustStore
@@ -119,90 +126,172 @@ func (b *InMemoryBackend) DeleteTrustStore(id string) error {
 // StreamingDistribution
 // ---------------------------------------------------------------------------
 
+// StreamingDistributionS3Origin models the S3Origin element of a StreamingDistributionConfig.
+type StreamingDistributionS3Origin struct {
+	DomainName           string `json:"domainName,omitempty"`
+	OriginAccessIdentity string `json:"originAccessIdentity,omitempty"`
+}
+
+// StreamingDistributionTrustedSigners models the TrustedSigners element of a
+// StreamingDistributionConfig.
+type StreamingDistributionTrustedSigners struct {
+	Items   []string `json:"items,omitempty"`
+	Enabled bool     `json:"enabled"`
+}
+
+// StreamingDistributionConfig models the mutable configuration of a streaming distribution.
+type StreamingDistributionConfig struct {
+	CallerReference string                              `json:"callerReference"`
+	Comment         string                              `json:"comment,omitempty"`
+	PriceClass      string                              `json:"priceClass,omitempty"`
+	S3Origin        StreamingDistributionS3Origin       `json:"s3Origin"`
+	Aliases         []string                            `json:"aliases,omitempty"`
+	TrustedSigners  StreamingDistributionTrustedSigners `json:"trustedSigners"`
+	Enabled         bool                                `json:"enabled"`
+}
+
 // StreamingDistribution represents a CloudFront RTMP streaming distribution.
 type StreamingDistribution struct {
-	ID         string `json:"id"`
-	ARN        string `json:"arn"`
-	DomainName string `json:"domainName"`
-	Status     string `json:"status"`
-	ETag       string `json:"etag"`
-	RawConfig  []byte `json:"rawConfig,omitempty"`
+	Tags             map[string]string           `json:"tags,omitempty"`
+	ARN              string                      `json:"arn"`
+	DomainName       string                      `json:"domainName"`
+	Status           string                      `json:"status"`
+	ETag             string                      `json:"etag"`
+	ID               string                      `json:"id"`
+	LastModifiedTime string                      `json:"lastModifiedTime,omitempty"`
+	RawConfig        []byte                      `json:"rawConfig,omitempty"`
+	Config           StreamingDistributionConfig `json:"config"`
 }
 
 func (b *InMemoryBackend) streamingDistributionARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:streaming-distribution/%s", b.accountID, id)
 }
 
-func (b *InMemoryBackend) CreateStreamingDistribution(rawConfig []byte) (*StreamingDistribution, error) {
+// copyStreamingDistribution returns a deep copy of a StreamingDistribution.
+// Must be called with the lock held.
+func (b *InMemoryBackend) copyStreamingDistribution(sd *StreamingDistribution) *StreamingDistribution {
+	cp := *sd
+	cp.Config.Aliases = append([]string(nil), sd.Config.Aliases...)
+	cp.Config.TrustedSigners.Items = append([]string(nil), sd.Config.TrustedSigners.Items...)
+	cp.RawConfig = append([]byte(nil), sd.RawConfig...)
+
+	if sd.Tags != nil {
+		cp.Tags = make(map[string]string, len(sd.Tags))
+		maps.Copy(cp.Tags, sd.Tags)
+	}
+
+	return &cp
+}
+
+// CreateStreamingDistribution creates a new RTMP streaming distribution.
+// If a streaming distribution with the same non-empty CallerReference already exists, it
+// is returned without creating a duplicate (idempotent).
+func (b *InMemoryBackend) CreateStreamingDistribution(
+	cfg StreamingDistributionConfig,
+	rawConfig []byte,
+) (*StreamingDistribution, error) {
 	b.mu.Lock("CreateStreamingDistribution")
 	defer b.mu.Unlock()
 
+	if cfg.CallerReference != "" {
+		if existingID, ok := b.streamingDistributionCallerRefs[cfg.CallerReference]; ok {
+			return b.copyStreamingDistribution(b.streamingDistributions[existingID]), nil
+		}
+	}
+
 	id := generateID()
 	sd := &StreamingDistribution{
-		ID:         id,
-		ARN:        b.streamingDistributionARN(id),
-		DomainName: id + ".cloudfront.net",
-		Status:     statusDeployed,
-		ETag:       uuid.NewString(),
-		RawConfig:  rawConfig,
+		ID:               id,
+		ARN:              b.streamingDistributionARN(id),
+		DomainName:       strings.ToLower(id) + ".cloudfront.net",
+		Status:           statusDeployed,
+		ETag:             uuid.NewString(),
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
+		Config:           cfg,
+		RawConfig:        rawConfig,
+		Tags:             make(map[string]string),
 	}
 	b.streamingDistributions[id] = sd
-	cp := *sd
+	b.streamingDistributionARNs[sd.ARN] = id
 
-	return &cp, nil
+	if cfg.CallerReference != "" {
+		b.streamingDistributionCallerRefs[cfg.CallerReference] = id
+	}
+
+	return b.copyStreamingDistribution(sd), nil
 }
 
+// GetStreamingDistribution returns a streaming distribution by ID.
 func (b *InMemoryBackend) GetStreamingDistribution(id string) (*StreamingDistribution, error) {
 	b.mu.RLock("GetStreamingDistribution")
 	defer b.mu.RUnlock()
 
 	sd, ok := b.streamingDistributions[id]
 	if !ok {
-		return nil, ErrStreamingDistributionNotFound
+		return nil, fmt.Errorf("%w: streaming distribution %s not found", ErrStreamingDistributionNotFound, id)
 	}
-	cp := *sd
 
-	return &cp, nil
+	return b.copyStreamingDistribution(sd), nil
 }
 
+// ListStreamingDistributions returns all streaming distributions sorted by ID.
 func (b *InMemoryBackend) ListStreamingDistributions() []*StreamingDistribution {
 	b.mu.RLock("ListStreamingDistributions")
 	defer b.mu.RUnlock()
 
 	out := make([]*StreamingDistribution, 0, len(b.streamingDistributions))
 	for _, sd := range b.streamingDistributions {
-		cp := *sd
-		out = append(out, &cp)
+		out = append(out, b.copyStreamingDistribution(sd))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
 	return out
 }
 
-func (b *InMemoryBackend) UpdateStreamingDistribution(id string, rawConfig []byte) (*StreamingDistribution, error) {
+// UpdateStreamingDistribution updates an existing streaming distribution's config.
+// CallerReference is immutable and is preserved from the existing config.
+func (b *InMemoryBackend) UpdateStreamingDistribution(
+	id string,
+	cfg StreamingDistributionConfig,
+	rawConfig []byte,
+) (*StreamingDistribution, error) {
 	b.mu.Lock("UpdateStreamingDistribution")
 	defer b.mu.Unlock()
 
 	sd, ok := b.streamingDistributions[id]
 	if !ok {
-		return nil, ErrStreamingDistributionNotFound
+		return nil, fmt.Errorf("%w: streaming distribution %s not found", ErrStreamingDistributionNotFound, id)
 	}
-	if len(rawConfig) > 0 {
-		sd.RawConfig = rawConfig
-	}
-	sd.ETag = uuid.NewString()
-	cp := *sd
 
-	return &cp, nil
+	cfg.CallerReference = sd.Config.CallerReference
+	sd.Config = cfg
+	sd.RawConfig = rawConfig
+	sd.ETag = uuid.NewString()
+	sd.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+
+	return b.copyStreamingDistribution(sd), nil
 }
 
+// DeleteStreamingDistribution deletes a streaming distribution by ID.
+// The streaming distribution must be disabled first, mirroring AWS's requirement.
 func (b *InMemoryBackend) DeleteStreamingDistribution(id string) error {
 	b.mu.Lock("DeleteStreamingDistribution")
 	defer b.mu.Unlock()
 
-	if _, ok := b.streamingDistributions[id]; !ok {
-		return ErrStreamingDistributionNotFound
+	sd, ok := b.streamingDistributions[id]
+	if !ok {
+		return fmt.Errorf("%w: streaming distribution %s not found", ErrStreamingDistributionNotFound, id)
 	}
+
+	if sd.Config.Enabled {
+		return fmt.Errorf(
+			"%w: streaming distribution %s must be disabled before it can be deleted",
+			ErrStreamingDistributionNotDisabled, id,
+		)
+	}
+
+	delete(b.streamingDistributionARNs, sd.ARN)
+	delete(b.streamingDistributionCallerRefs, sd.Config.CallerReference)
 	delete(b.streamingDistributions, id)
 
 	return nil

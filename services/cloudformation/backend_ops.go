@@ -12,16 +12,17 @@ import (
 )
 
 const (
-	statusComplete              = "COMPLETE"
-	statusEnabled               = "ENABLED"
-	resourceScanCompletePercent = 100
-	typeKindResource            = "RESOURCE"
-	typeVisibilityPublic        = "PUBLIC"
-	typeVisibilityPrivate       = "PRIVATE"
-	typeStatusDeprecated        = "DEPRECATED"
-	driftStatusDrifted          = "DRIFTED"
-	driftStatusModified         = "MODIFIED"
-	driftStatusDeleted          = "DELETED"
+	statusComplete               = "COMPLETE"
+	statusEnabled                = "ENABLED"
+	resourceScanCompletePercent  = 100
+	typeKindResource             = "RESOURCE"
+	typeVisibilityPublic         = "PUBLIC"
+	typeVisibilityPrivate        = "PRIVATE"
+	typeStatusDeprecated         = "DEPRECATED"
+	provisioningTypeFullyMutable = "FULLY_MUTABLE"
+	driftStatusDrifted           = "DRIFTED"
+	driftStatusModified          = "MODIFIED"
+	driftStatusDeleted           = "DELETED"
 )
 
 // ---- Stack Sets ----

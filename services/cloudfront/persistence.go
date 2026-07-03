@@ -6,10 +6,11 @@ import (
 )
 
 type backendSnapshot struct {
-	Distributions  map[string]*Distribution         `json:"distributions"`
-	OAIs           map[string]*OriginAccessIdentity `json:"oais"`
-	Invalidations  map[string][]*Invalidation       `json:"invalidations,omitempty"`
-	AnycastIPLists map[string]*AnycastIPList        `json:"anycastIPLists,omitempty"`
+	Distributions          map[string]*Distribution          `json:"distributions"`
+	OAIs                   map[string]*OriginAccessIdentity  `json:"oais"`
+	Invalidations          map[string][]*Invalidation        `json:"invalidations,omitempty"`
+	AnycastIPLists         map[string]*AnycastIPList         `json:"anycastIPLists,omitempty"`
+	StreamingDistributions map[string]*StreamingDistribution `json:"streamingDistributions,omitempty"`
 
 	CachePolicies       map[string]*CachePolicy        `json:"cachePolicies,omitempty"`
 	ConnectionFunctions map[string]*ConnectionFunction `json:"connectionFunctions,omitempty"`
@@ -50,6 +51,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		OAIs:                             b.oais,
 		Invalidations:                    b.invalidations,
 		AnycastIPLists:                   b.anycastIPLists,
+		StreamingDistributions:           b.streamingDistributions,
 		CachePolicies:                    b.cachePolicies,
 		ConnectionFunctions:              b.connectionFunctions,
 		ConnectionGroups:                 b.connectionGroups,
@@ -89,6 +91,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 type backendIndexes struct {
 	distributionARNs                  map[string]string
 	distributionCallerRefs            map[string]string
+	streamingDistributionARNs         map[string]string
+	streamingDistributionCallerRefs   map[string]string
 	oaiCallerRefs                     map[string]string
 	cachePolicyByName                 map[string]string
 	originAccessControlByName         map[string]string
@@ -102,8 +106,11 @@ type backendIndexes struct {
 	keyValueStoreByName               map[string]string
 }
 
-// rebuildIndexes derives all secondary indexes from a snapshot.
-func rebuildIndexes(snap *backendSnapshot) backendIndexes {
+// rebuildDistributionIndexes derives the ARN and CallerReference indexes for distributions
+// and streaming distributions.
+func rebuildDistributionIndexes(
+	snap *backendSnapshot,
+) (map[string]string, map[string]string, map[string]string, map[string]string) {
 	arnIndex := make(map[string]string, len(snap.Distributions))
 	callerRefIndex := make(map[string]string, len(snap.Distributions))
 
@@ -113,6 +120,23 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 			callerRefIndex[d.CallerReference] = id
 		}
 	}
+
+	sdARNIndex := make(map[string]string, len(snap.StreamingDistributions))
+	sdCallerRefIndex := make(map[string]string, len(snap.StreamingDistributions))
+
+	for id, sd := range snap.StreamingDistributions {
+		sdARNIndex[sd.ARN] = id
+		if sd.Config.CallerReference != "" {
+			sdCallerRefIndex[sd.Config.CallerReference] = id
+		}
+	}
+
+	return arnIndex, callerRefIndex, sdARNIndex, sdCallerRefIndex
+}
+
+// rebuildIndexes derives all secondary indexes from a snapshot.
+func rebuildIndexes(snap *backendSnapshot) backendIndexes {
+	arnIndex, callerRefIndex, sdARNIndex, sdCallerRefIndex := rebuildDistributionIndexes(snap)
 
 	oaiCallerRefIndex := make(map[string]string, len(snap.OAIs))
 
@@ -185,6 +209,8 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 	return backendIndexes{
 		distributionARNs:                  arnIndex,
 		distributionCallerRefs:            callerRefIndex,
+		streamingDistributionARNs:         sdARNIndex,
+		streamingDistributionCallerRefs:   sdCallerRefIndex,
 		oaiCallerRefs:                     oaiCallerRefIndex,
 		cachePolicyByName:                 cachePolicyByName,
 		originAccessControlByName:         oacByName,
@@ -217,6 +243,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.oais = snap.OAIs
 	b.invalidations = snap.Invalidations
 	b.anycastIPLists = snap.AnycastIPLists
+	b.streamingDistributions = snap.StreamingDistributions
 	b.cachePolicies = snap.CachePolicies
 	b.connectionFunctions = snap.ConnectionFunctions
 	b.connectionGroups = snap.ConnectionGroups
@@ -238,6 +265,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
 	b.distributionARNs = idx.distributionARNs
 	b.distributionCallerRefs = idx.distributionCallerRefs
+	b.streamingDistributionARNs = idx.streamingDistributionARNs
+	b.streamingDistributionCallerRefs = idx.streamingDistributionCallerRefs
 	b.oaiCallerRefs = idx.oaiCallerRefs
 	b.cachePolicyByName = idx.cachePolicyByName
 	b.originAccessControlByName = idx.originAccessControlByName
@@ -278,6 +307,10 @@ func ensureNonNilBaseEntities(snap *backendSnapshot) {
 
 	if snap.AnycastIPLists == nil {
 		snap.AnycastIPLists = make(map[string]*AnycastIPList)
+	}
+
+	if snap.StreamingDistributions == nil {
+		snap.StreamingDistributions = make(map[string]*StreamingDistribution)
 	}
 
 	if snap.ConnectionFunctions == nil {

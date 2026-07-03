@@ -213,6 +213,9 @@ const (
 	// Path segment constants used in parseCFPath.
 	sfxDistribution   = "distribution"
 	sfxResourcePolicy = "resource-policy"
+
+	// resourceParamWithTags is the Resource query-param value marking the *WithTags create variant.
+	resourceParamWithTags = "WithTags"
 )
 
 // Handler is the Echo HTTP handler for AWS CloudFront operations (REST-XML protocol).
@@ -483,7 +486,7 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		return op, id
 	}
 
-	if op, id := parseCFEncryptionKeyPath(method, suffix); op != "" {
+	if op, id := parseCFEncryptionKeyPath(method, suffix, resourceParam); op != "" {
 		return op, id
 	}
 
@@ -533,7 +536,7 @@ func parseCFDistributionCorePath(method, suffix, resourceParam string) (string, 
 // parseCFDistributionRoot handles the distribution collection and simple CRUD operations.
 func parseCFDistributionRoot(method, suffix, resourceParam string) (string, string) {
 	switch {
-	case suffix == sfxDistribution && method == http.MethodPost && resourceParam != "WithTags":
+	case suffix == sfxDistribution && method == http.MethodPost && resourceParam != resourceParamWithTags:
 		return opCreateDistribution, ""
 	case suffix == sfxDistribution && method == http.MethodGet:
 		return opListDistributions, ""
@@ -791,7 +794,7 @@ func parseCFFunctionPath(method, suffix string) (string, string) {
 
 // parseCFEncryptionKeyPath routes field-level encryption, key group, key value store, public key,
 // realtime log config, streaming distribution, trust store, vpc origin, and anycast paths.
-func parseCFEncryptionKeyPath(method, suffix string) (string, string) {
+func parseCFEncryptionKeyPath(method, suffix, resourceParam string) (string, string) {
 	if op, id := parseCFFieldLevelEncryptionPath(method, suffix); op != "" {
 		return op, id
 	}
@@ -800,7 +803,7 @@ func parseCFEncryptionKeyPath(method, suffix string) (string, string) {
 		return op, id
 	}
 
-	return parseCFStreamingTrustVPCPath(method, suffix)
+	return parseCFStreamingTrustVPCPath(method, suffix, resourceParam)
 }
 
 // parseCFFieldLevelEncryptionPath routes field-level encryption and profile paths.
@@ -958,11 +961,8 @@ func parseCFPublicKeyRealtimePath(method, suffix string) (string, string) {
 }
 
 // parseCFStreamingTrustVPCPath routes streaming distribution, trust store, vpc origin, and anycast paths.
-func parseCFStreamingTrustVPCPath(method, suffix string) (string, string) {
-	if op, id := parseCFResourcePath(method, suffix, "streaming-distribution",
-		opCreateStreamingDistribution, opListStreamingDistributions,
-		opGetStreamingDistribution, opUpdateStreamingDistribution, opDeleteStreamingDistribution,
-		opGetStreamingDistributionConfig, ""); op != "" {
+func parseCFStreamingTrustVPCPath(method, suffix, resourceParam string) (string, string) {
+	if op, id := parseCFStreamingDistributionPath(method, suffix, resourceParam); op != "" {
 		return op, id
 	}
 
@@ -985,6 +985,25 @@ func parseCFStreamingTrustVPCPath(method, suffix string) (string, string) {
 	}
 
 	return "", ""
+}
+
+// parseCFStreamingDistributionPath routes streaming distribution paths, including the
+// CreateStreamingDistributionWithTags variant (POST .../streaming-distribution?Resource=WithTags).
+func parseCFStreamingDistributionPath(method, suffix, resourceParam string) (string, string) {
+	const streamingDistributionResource = "streaming-distribution"
+
+	if suffix == streamingDistributionResource && method == http.MethodPost {
+		if resourceParam == resourceParamWithTags {
+			return opCreateStreamingDistributionWithTags, ""
+		}
+
+		return opCreateStreamingDistribution, ""
+	}
+
+	return parseCFResourcePath(method, suffix, streamingDistributionResource,
+		"", opListStreamingDistributions,
+		opGetStreamingDistribution, opUpdateStreamingDistribution, opDeleteStreamingDistribution,
+		opGetStreamingDistributionConfig, "")
 }
 
 // parseCFConnectionPath routes connection function, group, and continuous deployment policy paths.
@@ -1193,7 +1212,7 @@ func parseCFTaggingOps(method, suffix, resourceParam string) (string, string) {
 		}
 	}
 
-	if suffix == sfxDistribution && method == http.MethodPost && resourceParam == "WithTags" {
+	if suffix == sfxDistribution && method == http.MethodPost && resourceParam == resourceParamWithTags {
 		return opCreateDistributionWithTags, ""
 	}
 
@@ -1611,6 +1630,10 @@ func (h *Handler) dispatchCreateExtended(c *echo.Context, operation string) erro
 		return h.handleCreateKeyValueStore(c)
 	case opCreateVpcOrigin:
 		return h.handleCreateVpcOrigin(c)
+	case opCreateStreamingDistribution:
+		return h.handleCreateStreamingDistribution(c)
+	case opCreateStreamingDistributionWithTags:
+		return h.handleCreateStreamingDistributionWithTags(c)
 	default:
 
 		return errNotDispatched
@@ -1762,13 +1785,35 @@ func (h *Handler) dispatchFieldLevelEncryptionOps(
 	return errNotDispatched
 }
 
-// dispatchGetOrMutateExtOps handles public key, key group, log config, key value store, and VPC origin operations.
+// dispatchGetOrMutateExtOps handles public key, key group, log config, key value store, VPC origin,
+// and streaming distribution operations.
 func (h *Handler) dispatchGetOrMutateExtOps(c *echo.Context, operation, resource string) error {
 	if err := h.dispatchPublicKeyAndGroupOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchLogStoreVPCOps(c, operation, resource)
+	if err := h.dispatchLogStoreVPCOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchStreamingDistributionOps(c, operation, resource)
+}
+
+// dispatchStreamingDistributionOps handles get, update, and delete operations for streaming distributions.
+func (h *Handler) dispatchStreamingDistributionOps(c *echo.Context, operation, resource string) error {
+	switch operation {
+	case opGetStreamingDistribution:
+		return h.handleGetStreamingDistribution(c, resource)
+	case opGetStreamingDistributionConfig:
+		return h.handleGetStreamingDistributionConfig(c, resource)
+	case opUpdateStreamingDistribution:
+		return h.handleUpdateStreamingDistribution(c, resource)
+	case opDeleteStreamingDistribution:
+		return h.handleDeleteStreamingDistribution(c, resource)
+	default:
+
+		return errNotDispatched
+	}
 }
 
 // dispatchPublicKeyAndGroupOps handles public key and key group operations.
@@ -1907,6 +1952,8 @@ func (h *Handler) dispatchListExtended(c *echo.Context, operation string) error 
 		return h.handleListVpcOrigins(c)
 	case opListContinuousDeploymentPolicies:
 		return h.handleListContinuousDeploymentPolicies(c)
+	case opListStreamingDistributions:
+		return h.handleListStreamingDistributions(c)
 	default:
 
 		return errNotDispatched
@@ -2035,7 +2082,7 @@ func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, _ cfStubHelpe
 	return errNotDispatched
 }
 
-// dispatchStubsMonitoringAndStreaming handles monitoring subscription and streaming distribution stubs.
+// dispatchStubsMonitoringAndStreaming handles monitoring subscription and web ACL disassociation stubs.
 func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, _ cfStubHelpers, operation string) error {
 	switch operation {
 	case opCreateMonitoringSubscription:
@@ -2064,28 +2111,6 @@ func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, _ cfStubH
 		)
 
 		return h.handleDisassociateDistributionTenantWebACL(c, tenantID)
-	case opCreateStreamingDistribution:
-		return h.handleCreateStreamingDistribution(c)
-	case opCreateStreamingDistributionWithTags:
-		return h.handleCreateStreamingDistributionWithTags(c)
-	case opGetStreamingDistribution:
-		sdID := extractStreamingDistID(c.Request().URL.Path)
-
-		return h.handleGetStreamingDistribution(c, sdID)
-	case opGetStreamingDistributionConfig:
-		sdID := extractStreamingDistID(c.Request().URL.Path)
-
-		return h.handleGetStreamingDistributionConfig(c, sdID)
-	case opUpdateStreamingDistribution:
-		sdID := extractStreamingDistID(c.Request().URL.Path)
-
-		return h.handleUpdateStreamingDistribution(c, sdID)
-	case opDeleteStreamingDistribution:
-		sdID := extractStreamingDistID(c.Request().URL.Path)
-
-		return h.handleDeleteStreamingDistribution(c, sdID)
-	case opListStreamingDistributions:
-		return h.handleListStreamingDistributions(c)
 	}
 
 	return errNotDispatched
@@ -2338,6 +2363,8 @@ func notFoundCodeExtended(err error) (string, bool) {
 		return "NoSuchVpcOrigin", true
 	case errors.Is(err, ErrDistributionTenantNotFound):
 		return "NoSuchDistributionTenant", true
+	case errors.Is(err, ErrStreamingDistributionNotFound):
+		return "NoSuchStreamingDistribution", true
 	}
 
 	return "", false
@@ -2353,6 +2380,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionAlreadyExists", err.Error()))
 	case errors.Is(err, ErrInvalidTagging):
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidTagging", err.Error()))
+	case errors.Is(err, ErrStreamingDistributionNotDisabled):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("StreamingDistributionNotDisabled", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", err.Error()))
 	default:
@@ -5431,7 +5460,6 @@ func (h *Handler) handleGetKeyValueStore(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, kvsResponseXML(kvs))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 	items := h.Backend.ListKeyValueStores()
 
@@ -5610,16 +5638,6 @@ func extractMonitoringDistID(path string) string {
 	suffix := strings.TrimPrefix(path, cfPathPrefix+"distribution/")
 
 	return strings.TrimSuffix(suffix, "/monitoring-subscription")
-}
-
-// extractStreamingDistID extracts streaming distribution ID from its path.
-func extractStreamingDistID(path string) string {
-	suffix := strings.TrimPrefix(path, cfPathPrefix+"streaming-distribution/")
-	if id, _, found := strings.Cut(suffix, "/"); found {
-		return id
-	}
-
-	return suffix
 }
 
 // extractResourceID extracts the resource ID from a CloudFront API path.

@@ -2278,3 +2278,26 @@ re-architecture and are explicitly left as standalone follow-ups:
 
 No stubs, no `//nolint`, no regressions: every previously-green test still
 passes alongside the new table-driven suites.
+
+---
+
+# §B / §D re-verification — status (pass-9, 2026-07-03)
+
+Looped 2-agent audit (disjoint services) re-read every §B accuracy and §D leak
+finding from the 2026-06-10 audit against current code. **All 15 were already
+closed by earlier passes; the §B/§D lists are stale.** No code changed.
+Confirmed already-correct:
+
+- **§B** — STS `GetCallerIdentity` maps `ErrUnknownAccessKeyID` → 400
+  `InvalidClientTokenId` (handler.go:611); DynamoDB rejects `ConsistentRead` on
+  GSI/LSI, `BatchGetItem` duplicate keys (`validateNoDuplicateBatchKeys`), and
+  the 20-GSI ceiling on `UpdateTable` add-path (`validateGSICount`); S3
+  `CompleteMultipartUpload` rejects empty parts (`ErrEmptyParts`→`InvalidRequest`);
+  Kinesis `GetRecords` counts data bytes only, `ListStreamConsumers` boundary is
+  correct (finding's `<=`→`<` was backwards), `CreateStream` enforces `streamNameRe`;
+  Bedrock routes `ErrValidation`→400 (no spurious 500 path), `modelUnits` capped at
+  `maxProvisionedModelUnits`=1000; Account `ListRegions` honors maxResults/nextToken.
+- **§D** — ECR `layerUploads` prune via `layerUploadTTL` (24h) + DeleteRepository
+  sweep; EventBridge event log capped at `maxEventLogSize`=1000 (drop-oldest);
+  Route53 tags evicted on hosted-zone/health-check delete; Elasticsearch
+  `AssociatePackage` returns `ConflictException` on duplicate.
