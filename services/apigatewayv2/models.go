@@ -141,6 +141,7 @@ type Deployment struct {
 	APIID            string  `json:"-"`
 	Description      string  `json:"description,omitempty"`
 	DeploymentStatus string  `json:"deploymentStatus"`
+	AutoDeployed     bool    `json:"autoDeployed"`
 }
 
 // Authorizer represents an authorizer for an HTTP API.
