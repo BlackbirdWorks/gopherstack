@@ -152,9 +152,29 @@ type Change struct {
 
 // ResourceChange describes a resource-level change.
 type ResourceChange struct {
-	Action       string `xml:"Action"            json:"action"`
-	LogicalID    string `xml:"LogicalResourceId" json:"logicalID"`
-	ResourceType string `xml:"ResourceType"      json:"resourceType"`
+	Action       string                 `xml:"Action"                       json:"action"`
+	LogicalID    string                 `xml:"LogicalResourceId"            json:"logicalID"`
+	PhysicalID   string                 `xml:"PhysicalResourceId,omitempty" json:"physicalID,omitempty"`
+	ResourceType string                 `xml:"ResourceType"                 json:"resourceType"`
+	Replacement  string                 `xml:"Replacement,omitempty"        json:"replacement,omitempty"`
+	Scope        []string               `xml:"Scope,omitempty"              json:"scope,omitempty"`
+	Details      []ResourceChangeDetail `xml:"Details,omitempty"            json:"details,omitempty"`
+}
+
+// ResourceChangeDetail describes a single property-level detail of a resource change,
+// mirroring the AWS CloudFormation ResourceChangeDetail shape.
+type ResourceChangeDetail struct {
+	Target       *ResourceTargetDefinition `xml:"Target,omitempty"       json:"target,omitempty"`
+	Evaluation   string                    `xml:"Evaluation,omitempty"   json:"evaluation,omitempty"`
+	ChangeSource string                    `xml:"ChangeSource,omitempty" json:"changeSource,omitempty"`
+}
+
+// ResourceTargetDefinition identifies the property targeted by a change detail and
+// whether changing it requires the resource to be recreated (replaced).
+type ResourceTargetDefinition struct {
+	Attribute          string `xml:"Attribute,omitempty"          json:"attribute,omitempty"`
+	Name               string `xml:"Name,omitempty"               json:"name,omitempty"`
+	RequiresRecreation string `xml:"RequiresRecreation,omitempty" json:"requiresRecreation,omitempty"`
 }
 
 // DriftDetectionStatus holds the status of a stack drift detection operation.
@@ -170,12 +190,24 @@ type DriftDetectionStatus struct {
 
 // StackResourceDrift holds drift information for a single stack resource.
 type StackResourceDrift struct {
-	Timestamp                time.Time `xml:"Timestamp"                    json:"timestamp"`
-	StackID                  string    `xml:"StackId"                      json:"stackID"`
-	LogicalResourceID        string    `xml:"LogicalResourceId"            json:"logicalResourceID"`
-	PhysicalResourceID       string    `xml:"PhysicalResourceId,omitempty" json:"physicalResourceID,omitempty"`
-	ResourceType             string    `xml:"ResourceType"                 json:"resourceType"`
-	StackResourceDriftStatus string    `xml:"StackResourceDriftStatus"     json:"stackResourceDriftStatus"`
+	Timestamp                time.Time            `xml:"Timestamp"                    json:"timestamp"`
+	StackID                  string               `xml:"StackId"                      json:"stackID"`
+	LogicalResourceID        string               `xml:"LogicalResourceId"            json:"logicalResourceID"`
+	PhysicalResourceID       string               `xml:"PhysicalResourceId,omitempty" json:"physicalResourceID,omitempty"`
+	ResourceType             string               `xml:"ResourceType"                 json:"resourceType"`
+	StackResourceDriftStatus string               `xml:"StackResourceDriftStatus"     json:"stackResourceDriftStatus"`
+	ExpectedProperties       string               `xml:"ExpectedProperties,omitempty" json:"expectedProperties,omitempty"`
+	ActualProperties         string               `xml:"ActualProperties,omitempty"   json:"actualProperties,omitempty"`
+	PropertyDifferences      []PropertyDifference `xml:"PropertyDifferences"          json:"propertyDifferences,omitempty"`
+}
+
+// PropertyDifference describes a single property-level difference between the
+// expected (template) state and the actual (live) state of a stack resource.
+type PropertyDifference struct {
+	PropertyPath   string `xml:"PropertyPath"   json:"propertyPath"`
+	ExpectedValue  string `xml:"ExpectedValue"  json:"expectedValue"`
+	ActualValue    string `xml:"ActualValue"    json:"actualValue"`
+	DifferenceType string `xml:"DifferenceType" json:"differenceType"`
 }
 
 // ParameterDeclaration describes a parameter declared in a CloudFormation template.

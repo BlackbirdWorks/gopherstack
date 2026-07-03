@@ -116,6 +116,7 @@ func (b *InMemoryBackend) ListStackSets(nextToken string) (page.Page[StackSetSum
 }
 
 func (b *InMemoryBackend) CreateStackInstances(
+	ctx context.Context,
 	stackSetName string,
 	accounts, regions []string,
 ) (string, error) {
@@ -129,29 +130,11 @@ func (b *InMemoryBackend) CreateStackInstances(
 	for _, acct := range accounts {
 		for _, region := range regions {
 			// Deduplicate: skip if instance already exists.
-			alreadyExists := false
-			for _, existing := range b.stackInstances[stackSetName] {
-				if existing.Account == acct && existing.Region == region {
-					alreadyExists = true
-
-					break
-				}
-			}
-			if alreadyExists {
+			if b.stackInstanceExists(stackSetName, acct, region) {
 				continue
 			}
-			stackResource := fmt.Sprintf("stack/%s/%s", stackSetName, uuid.New().String())
-			instanceStackID := arn.Build("cloudformation", region, acct, stackResource)
-			b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], StackInstance{
-				StackSetID:      ss.StackSetID,
-				StackSetName:    stackSetName,
-				StackID:         instanceStackID,
-				Account:         acct,
-				Region:          region,
-				Status:          "CURRENT",
-				DriftStatus:     "NOT_CHECKED",
-				LastOperationID: opID,
-			})
+			inst := b.provisionStackInstance(ctx, ss, acct, region, opID)
+			b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], inst)
 		}
 	}
 	b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
@@ -159,7 +142,62 @@ func (b *InMemoryBackend) CreateStackInstances(
 	return opID, nil
 }
 
+// stackInstanceExists reports whether a stack instance for the account/region
+// already exists in the stack set. Must be called with b.mu held.
+func (b *InMemoryBackend) stackInstanceExists(stackSetName, acct, region string) bool {
+	for _, existing := range b.stackInstances[stackSetName] {
+		if existing.Account == acct && existing.Region == region {
+			return true
+		}
+	}
+
+	return false
+}
+
+// provisionStackInstance provisions a real child stack for a stack-set instance
+// using the stack set's template, so the instance's resources are actually
+// created (matching AWS, which deploys a managed child stack per account/region
+// rather than merely recording a row). The child stack is named
+// StackSet-<setName>-<uuid> to mirror AWS naming. Must be called with b.mu held.
+func (b *InMemoryBackend) provisionStackInstance(
+	ctx context.Context,
+	ss *StackSet,
+	acct, region, opID string,
+) StackInstance {
+	status := "CURRENT"
+	statusReason := ""
+	childName := fmt.Sprintf("StackSet-%s-%s", ss.StackSetName, uuid.New().String())
+
+	var instanceStackID string
+	if ss.TemplateBody != "" {
+		child, err := b.createStackLocked(ctx, childName, ss.TemplateBody, nil, StackOptions{}, "")
+		if err != nil {
+			status = "INOPERABLE"
+			statusReason = err.Error()
+		} else {
+			instanceStackID = child.StackID
+		}
+	}
+	if instanceStackID == "" {
+		stackResource := fmt.Sprintf("stack/%s/%s", ss.StackSetName, uuid.New().String())
+		instanceStackID = arn.Build("cloudformation", region, acct, stackResource)
+	}
+
+	return StackInstance{
+		StackSetID:      ss.StackSetID,
+		StackSetName:    ss.StackSetName,
+		StackID:         instanceStackID,
+		Account:         acct,
+		Region:          region,
+		Status:          status,
+		StatusReason:    statusReason,
+		DriftStatus:     "NOT_CHECKED",
+		LastOperationID: opID,
+	}
+}
+
 func (b *InMemoryBackend) DeleteStackInstances(
+	ctx context.Context,
 	stackSetName string,
 	accounts, regions []string,
 ) (string, error) {
@@ -181,6 +219,12 @@ func (b *InMemoryBackend) DeleteStackInstances(
 		}
 		if keep {
 			filtered = append(filtered, inst)
+
+			continue
+		}
+		// Tear down the provisioned child stack, if any.
+		if childName, ok := b.stackIDIndex[inst.StackID]; ok {
+			_ = b.deleteStackLocked(ctx, childName)
 		}
 	}
 	b.stackInstances[stackSetName] = filtered
@@ -710,7 +754,7 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 	if len(items) == 0 {
 		items = []ScannedResource{
 			{
-				ResourceType:       "AWS::S3::Bucket",
+				ResourceType:       resTypeS3Bucket,
 				ResourceIdentifier: "example-bucket",
 				ManagedByStack:     false,
 			},

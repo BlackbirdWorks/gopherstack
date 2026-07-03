@@ -120,8 +120,16 @@ type StorageBackend interface {
 	DeleteStackSet(name string) error
 	DescribeStackSet(name string) (*StackSet, error)
 	ListStackSets(nextToken string) (page.Page[StackSetSummary], error)
-	CreateStackInstances(stackSetName string, accounts, regions []string) (string, error)
-	DeleteStackInstances(stackSetName string, accounts, regions []string) (string, error)
+	CreateStackInstances(
+		ctx context.Context,
+		stackSetName string,
+		accounts, regions []string,
+	) (string, error)
+	DeleteStackInstances(
+		ctx context.Context,
+		stackSetName string,
+		accounts, regions []string,
+	) (string, error)
 	UpdateStackInstances(stackSetName string, accounts, regions []string) (string, error)
 	ListStackInstances(stackSetName, nextToken string) (page.Page[StackInstance], error)
 	DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error)
@@ -220,6 +228,7 @@ type InMemoryBackend struct {
 	typeVersions        map[string][]*RegisteredTypeVersion             // typeArn → versions
 	resourceScanItems   map[string][]ScannedResource                    // scanID → scanned resources
 	resourceDriftStatus map[string]map[string]string                    // stackID → logicalID → drift status
+	resourceDriftDetail map[string]map[string]StackResourceDrift        // stackID → logicalID → drift detail
 	driftByStackID      map[string][]string                             // stackID → detectionIDs (reverse index)
 	creator             *ResourceCreator
 	resolver            DynamicRefResolver
@@ -290,6 +299,7 @@ func NewInMemoryBackendWithConfig(
 		typeVersions:        make(map[string][]*RegisteredTypeVersion),
 		resourceScanItems:   make(map[string][]ScannedResource),
 		resourceDriftStatus: make(map[string]map[string]string),
+		resourceDriftDetail: make(map[string]map[string]StackResourceDrift),
 		driftByStackID:      make(map[string][]string),
 		creator:             creator,
 		resolver:            resolver,
@@ -1399,38 +1409,32 @@ func (b *InMemoryBackend) CreateChangeSet(
 	return cs, nil
 }
 
-// computeChanges computes the change set diff from a template body against an existing stack.
+// computeChanges computes the change set diff from a template body against an
+// existing stack. It reports Add for new resources, Remove for resources dropped
+// from the template, and Modify (with property-level Details, Scope and a
+// Replacement flag) for resources whose type or properties changed. Pre-existing
+// resources that are unchanged are omitted entirely, matching AWS.
 func (b *InMemoryBackend) computeChanges(templateBody string, stack *Stack) []Change {
 	if templateBody == "" {
 		return nil
 	}
 
-	tmpl, err := ParseTemplate(templateBody)
+	newTmpl, err := ParseTemplate(templateBody)
 	if err != nil {
 		return nil
 	}
 
-	changes := make([]Change, 0, len(tmpl.Resources))
-
-	for logicalID, res := range tmpl.Resources {
-		action := "Add"
-		if stack != nil && b.resources[stack.StackID] != nil {
-			if _, exists := b.resources[stack.StackID][logicalID]; exists {
-				action = "Modify"
-			}
-		}
-
-		changes = append(changes, Change{
-			Type: "Resource",
-			ResourceChange: ResourceChange{
-				Action:       action,
-				LogicalID:    logicalID,
-				ResourceType: res.Type,
-			},
-		})
+	// CREATE change set: no prior stack, so every resource is an Add.
+	if stack == nil {
+		return addChangesForTemplate(newTmpl)
 	}
 
-	return changes
+	var oldTmpl *Template
+	if stack.TemplateBody != "" {
+		oldTmpl, _ = ParseTemplate(stack.TemplateBody)
+	}
+
+	return diffTemplates(oldTmpl, newTmpl, b.resources[stack.StackID])
 }
 
 // DescribeChangeSet returns details for a change set.
