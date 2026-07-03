@@ -612,6 +612,17 @@ func (h *Handler) handleUpdateKeyValueStore(c *echo.Context, id string) error {
 		_ = xml.Unmarshal(body, &req)
 	}
 
+	current, getErr := h.Backend.GetKeyValueStore(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current KeyValueStore ETag"))
+	}
+
 	kvs, updateErr := h.Backend.UpdateKeyValueStore(id, req.Comment)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)

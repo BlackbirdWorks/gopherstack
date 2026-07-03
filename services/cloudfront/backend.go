@@ -22,7 +22,9 @@ import (
 )
 
 const (
-	statusDeployed   = "Deployed"
+	statusDeployed = "Deployed"
+	// kvsStatusReady is the terminal status of a synchronously provisioned KVS.
+	kvsStatusReady   = "READY"
 	statusInProgress = "InProgress"
 
 	// maxInvalidationPaths is the AWS limit on paths per invalidation batch.
@@ -173,6 +175,12 @@ var (
 	ErrKeyValueStoreNotFound = awserr.New("EntityNotFound", awserr.ErrNotFound)
 	// ErrVpcOriginNotFound is returned when a requested VPC origin does not exist.
 	ErrVpcOriginNotFound = awserr.New("NoSuchVpcOrigin", awserr.ErrNotFound)
+	// ErrPublicKeyInUse is returned when a public key is still referenced by a key
+	// group or a field-level-encryption profile and therefore cannot be deleted.
+	ErrPublicKeyInUse = awserr.New("PublicKeyInUse", awserr.ErrConflict)
+	// ErrFLEProfileInUse is returned when a field-level-encryption profile is still
+	// referenced by a field-level-encryption config and therefore cannot be deleted.
+	ErrFLEProfileInUse = awserr.New("FieldLevelEncryptionProfileInUse", awserr.ErrConflict)
 )
 
 // ErrPreconditionFailed is returned when an If-Match ETag check fails in a data-plane operation.
@@ -411,12 +419,32 @@ type OriginRequestPolicy struct {
 	ETag               string                 `json:"eTag"`
 }
 
+// FLEQueryArgProfile associates a query argument with a field-level-encryption
+// profile. It mirrors the AWS QueryArgProfile shape.
+type FLEQueryArgProfile struct {
+	QueryArg  string `json:"queryArg"`
+	ProfileID string `json:"profileId"`
+}
+
 // FieldLevelEncryption represents a CloudFront Field Level Encryption config.
 type FieldLevelEncryption struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Comment string `json:"comment,omitempty"`
 	ETag    string `json:"eTag"`
+	// QueryArgProfiles are the query-arg → profile associations. Each referenced
+	// ProfileID must correspond to an existing FLE profile (referential integrity).
+	QueryArgProfiles []FLEQueryArgProfile `json:"queryArgProfiles,omitempty"`
+	// ForwardWhenQueryArgProfileIsUnknown mirrors the AWS QueryArgProfileConfig flag.
+	ForwardWhenQueryArgProfileIsUnknown bool `json:"forwardWhenQueryArgProfileIsUnknown,omitempty"`
+}
+
+// EncryptionEntity is one entity in an FLE profile that maps a public key to a
+// set of field patterns. It mirrors the AWS EncryptionEntity shape.
+type EncryptionEntity struct {
+	PublicKeyID   string   `json:"publicKeyId"`
+	ProviderID    string   `json:"providerId"`
+	FieldPatterns []string `json:"fieldPatterns,omitempty"`
 }
 
 // FieldLevelEncryptionProfile represents a CloudFront Field Level Encryption Profile.
@@ -425,6 +453,9 @@ type FieldLevelEncryptionProfile struct {
 	Name    string `json:"name"`
 	Comment string `json:"comment,omitempty"`
 	ETag    string `json:"eTag"`
+	// EncryptionEntities reference public keys. Each PublicKeyID must correspond to
+	// an existing public key (referential integrity enforced on create/update).
+	EncryptionEntities []EncryptionEntity `json:"encryptionEntities,omitempty"`
 }
 
 // PublicKey represents a CloudFront Public Key.
@@ -461,6 +492,12 @@ type KeyValueStore struct {
 	Name    string `json:"name"`
 	Comment string `json:"comment,omitempty"`
 	ETag    string `json:"eTag"`
+	// Status reflects the provisioning state (AWS: PROVISIONING → READY). The
+	// emulator provisions synchronously and reports READY immediately.
+	Status string `json:"status"`
+	// LastModifiedTime is an RFC3339 timestamp (CloudFront is a REST-XML API, so
+	// timestamps are serialized as ISO-8601 strings, not epoch numbers).
+	LastModifiedTime string `json:"lastModifiedTime"`
 }
 
 // VpcOrigin represents a CloudFront VPC Origin.
@@ -527,7 +564,13 @@ type InMemoryBackend struct {
 	// Audit batch additions.
 	keyValueStoreData map[string]map[string]string // KVS ID → key → value
 	keyValueDataETags map[string]string            // KVS ID → current data-plane ETag
-	mu                *lockmetrics.RWMutex
+	// distSearchTokens maps a distribution ID to the set of config tokens it
+	// contains; distSearchInverted is the inverted index (token → distribution IDs).
+	// Together they make ListDistributionsBy* lookups O(k) instead of O(n×config)
+	// and eliminate the substring false positives of the previous raw scan.
+	distSearchTokens   map[string]map[string]struct{}
+	distSearchInverted map[string]map[string]struct{}
+	mu                 *lockmetrics.RWMutex
 	// lifecycle: tracks when InProgress invalidations become Completed.
 	invalidationReadyAt       map[string]map[string]time.Time // distributionID → invID → readyAt
 	tenantInvalidationReadyAt map[string]map[string]time.Time // tenantID → invID → readyAt
@@ -575,6 +618,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		keyValueStores:                      make(map[string]*KeyValueStore),
 		keyValueStoreByName:                 make(map[string]string),
 		vpcOrigins:                          make(map[string]*VpcOrigin),
+		distSearchTokens:                    make(map[string]map[string]struct{}),
+		distSearchInverted:                  make(map[string]map[string]struct{}),
 		distributionFunctionAssociations:    make(map[string][]FunctionAssociation),
 		trustStores:                         make(map[string]*TrustStore),
 		streamingDistributions:              make(map[string]*StreamingDistribution),
@@ -673,6 +718,8 @@ func (b *InMemoryBackend) Reset() {
 // resetDistributions clears distribution-related maps.
 func (b *InMemoryBackend) resetDistributions() {
 	b.distributions = make(map[string]*Distribution)
+	b.distSearchTokens = make(map[string]map[string]struct{})
+	b.distSearchInverted = make(map[string]map[string]struct{})
 	b.distributionARNs = make(map[string]string)
 	b.distributionCallerRefs = make(map[string]string)
 	b.distributionAliases = make(map[string][]string)
@@ -800,6 +847,7 @@ func (b *InMemoryBackend) CreateDistribution(
 	b.distributions[id] = d
 	b.distributionARNs[d.ARN] = id
 	b.distributionCallerRefs[callerRef] = id
+	b.indexDistributionConfig(id, rawConfig)
 	cp := b.copyDistribution(d)
 
 	return cp, nil
@@ -838,6 +886,7 @@ func (b *InMemoryBackend) UpdateDistribution(
 	d.ETag = uuid.NewString()
 	d.Status = statusInProgress
 	d.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	b.reindexDistributionConfig(id, rawConfig)
 	cp := b.copyDistribution(d)
 
 	return cp, nil
@@ -863,6 +912,7 @@ func (b *InMemoryBackend) DeleteDistribution(id string) error {
 	delete(b.invalidations, id)
 	delete(b.distributionAliases, id)
 	delete(b.distributionWebACLs, id)
+	b.deindexDistributionConfig(id)
 
 	return nil
 }
@@ -1255,6 +1305,7 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 
 	b.distributions[id] = d
 	b.distributionARNs[d.ARN] = id
+	b.indexDistributionConfig(id, rawCopy)
 
 	return b.copyDistribution(d), nil
 }
@@ -2207,9 +2258,91 @@ func (b *InMemoryBackend) DeleteOriginRequestPolicy(id string) error {
 
 // --- Field Level Encryption CRUD ---
 
-// CreateFieldLevelEncryption creates a new Field Level Encryption config.
+// renameInIndex moves id from oldName to newName in a name→ID uniqueness index,
+// returning false when newName is already taken. A no-op when the name is
+// unchanged. Must be called with the lock held.
+func renameInIndex(byName map[string]string, id, oldName, newName string) bool {
+	if newName == oldName {
+		return true
+	}
+
+	if _, exists := byName[newName]; exists {
+		return false
+	}
+
+	delete(byName, oldName)
+	byName[newName] = id
+
+	return true
+}
+
+// requireProfilesExist verifies every referenced FLE profile ID exists.
+// Must be called with the lock held.
+func (b *InMemoryBackend) requireProfilesExist(profiles []FLEQueryArgProfile) error {
+	for _, p := range profiles {
+		if p.ProfileID == "" {
+			continue
+		}
+
+		if _, ok := b.fieldLevelEncryptionProfiles[p.ProfileID]; !ok {
+			return fmt.Errorf(
+				"%w: field level encryption profile %s not found",
+				ErrFLEProfileNotFound,
+				p.ProfileID,
+			)
+		}
+	}
+
+	return nil
+}
+
+// requirePublicKeysExist verifies every public key referenced by the entities exists.
+// Must be called with the lock held.
+func (b *InMemoryBackend) requirePublicKeysExist(entities []EncryptionEntity) error {
+	for _, e := range entities {
+		if e.PublicKeyID == "" {
+			continue
+		}
+
+		if _, ok := b.publicKeys[e.PublicKeyID]; !ok {
+			return fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, e.PublicKeyID)
+		}
+	}
+
+	return nil
+}
+
+// cloneQueryArgProfiles returns a defensive copy of the profile slice.
+func cloneQueryArgProfiles(in []FLEQueryArgProfile) []FLEQueryArgProfile {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]FLEQueryArgProfile, len(in))
+	copy(out, in)
+
+	return out
+}
+
+// cloneEncryptionEntities returns a deep copy of the entity slice.
+func cloneEncryptionEntities(in []EncryptionEntity) []EncryptionEntity {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]EncryptionEntity, len(in))
+	for i, e := range in {
+		e.FieldPatterns = append([]string(nil), e.FieldPatterns...)
+		out[i] = e
+	}
+
+	return out
+}
+
+// CreateFieldLevelEncryption creates a new Field Level Encryption config. Every
+// referenced FLE profile ID must exist (referential integrity).
 func (b *InMemoryBackend) CreateFieldLevelEncryption(
-	name, comment string,
+	name, comment string, queryArgProfiles []FLEQueryArgProfile,
 ) (*FieldLevelEncryption, error) {
 	b.mu.Lock("CreateFieldLevelEncryption")
 	defer b.mu.Unlock()
@@ -2226,16 +2359,22 @@ func (b *InMemoryBackend) CreateFieldLevelEncryption(
 		)
 	}
 
+	if err := b.requireProfilesExist(queryArgProfiles); err != nil {
+		return nil, err
+	}
+
 	id := generateID()
 	fle := &FieldLevelEncryption{
-		ID:      id,
-		Name:    name,
-		Comment: comment,
-		ETag:    uuid.NewString(),
+		ID:               id,
+		Name:             name,
+		Comment:          comment,
+		ETag:             uuid.NewString(),
+		QueryArgProfiles: cloneQueryArgProfiles(queryArgProfiles),
 	}
 	b.fieldLevelEncryptions[id] = fle
 	b.fieldLevelEncryptionByName[name] = id
 	cp := *fle
+	cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 
 	return &cp, nil
 }
@@ -2251,6 +2390,7 @@ func (b *InMemoryBackend) GetFieldLevelEncryption(id string) (*FieldLevelEncrypt
 	}
 
 	cp := *fle
+	cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 
 	return &cp, nil
 }
@@ -2263,6 +2403,7 @@ func (b *InMemoryBackend) ListFieldLevelEncryptions() []*FieldLevelEncryption {
 	list := make([]*FieldLevelEncryption, 0, len(b.fieldLevelEncryptions))
 	for _, fle := range b.fieldLevelEncryptions {
 		cp := *fle
+		cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 		list = append(list, &cp)
 	}
 
@@ -2272,8 +2413,9 @@ func (b *InMemoryBackend) ListFieldLevelEncryptions() []*FieldLevelEncryption {
 }
 
 // UpdateFieldLevelEncryption updates an existing Field Level Encryption config.
+// Every referenced FLE profile ID must exist (referential integrity).
 func (b *InMemoryBackend) UpdateFieldLevelEncryption(
-	id, name, comment string,
+	id, name, comment string, queryArgProfiles []FLEQueryArgProfile,
 ) (*FieldLevelEncryption, error) {
 	b.mu.Lock("UpdateFieldLevelEncryption")
 	defer b.mu.Unlock()
@@ -2283,23 +2425,21 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryption(
 		return nil, fmt.Errorf("%w: field level encryption %s not found", ErrFLENotFound, id)
 	}
 
-	if name != fle.Name {
-		if _, exists := b.fieldLevelEncryptionByName[name]; exists {
-			return nil, fmt.Errorf(
-				"%w: field level encryption with name %q already exists",
-				ErrAlreadyExists,
-				name,
-			)
-		}
+	if err := b.requireProfilesExist(queryArgProfiles); err != nil {
+		return nil, err
+	}
 
-		delete(b.fieldLevelEncryptionByName, fle.Name)
-		b.fieldLevelEncryptionByName[name] = id
+	if !renameInIndex(b.fieldLevelEncryptionByName, id, fle.Name, name) {
+		return nil, fmt.Errorf(
+			"%w: field level encryption with name %q already exists", ErrAlreadyExists, name)
 	}
 
 	fle.Name = name
 	fle.Comment = comment
+	fle.QueryArgProfiles = cloneQueryArgProfiles(queryArgProfiles)
 	fle.ETag = uuid.NewString()
 	cp := *fle
+	cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 
 	return &cp, nil
 }
@@ -2323,8 +2463,9 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryption(id string) error {
 // --- Field Level Encryption Profile CRUD ---
 
 // CreateFieldLevelEncryptionProfile creates a new Field Level Encryption Profile.
+// Every public key referenced by an EncryptionEntity must exist (referential integrity).
 func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
-	name, comment string,
+	name, comment string, entities []EncryptionEntity,
 ) (*FieldLevelEncryptionProfile, error) {
 	b.mu.Lock("CreateFieldLevelEncryptionProfile")
 	defer b.mu.Unlock()
@@ -2341,16 +2482,22 @@ func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
 		)
 	}
 
+	if err := b.requirePublicKeysExist(entities); err != nil {
+		return nil, err
+	}
+
 	id := generateID()
 	p := &FieldLevelEncryptionProfile{
-		ID:      id,
-		Name:    name,
-		Comment: comment,
-		ETag:    uuid.NewString(),
+		ID:                 id,
+		Name:               name,
+		Comment:            comment,
+		ETag:               uuid.NewString(),
+		EncryptionEntities: cloneEncryptionEntities(entities),
 	}
 	b.fieldLevelEncryptionProfiles[id] = p
 	b.fieldLevelEncryptionProfileByName[name] = id
 	cp := *p
+	cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 
 	return &cp, nil
 }
@@ -2372,6 +2519,7 @@ func (b *InMemoryBackend) GetFieldLevelEncryptionProfile(
 	}
 
 	cp := *p
+	cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 
 	return &cp, nil
 }
@@ -2384,6 +2532,7 @@ func (b *InMemoryBackend) ListFieldLevelEncryptionProfiles() []*FieldLevelEncryp
 	list := make([]*FieldLevelEncryptionProfile, 0, len(b.fieldLevelEncryptionProfiles))
 	for _, p := range b.fieldLevelEncryptionProfiles {
 		cp := *p
+		cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 		list = append(list, &cp)
 	}
 
@@ -2392,9 +2541,10 @@ func (b *InMemoryBackend) ListFieldLevelEncryptionProfiles() []*FieldLevelEncryp
 	return list
 }
 
-// UpdateFieldLevelEncryptionProfile updates an existing FLE profile.
+// UpdateFieldLevelEncryptionProfile updates an existing FLE profile. Every public
+// key referenced by an EncryptionEntity must exist (referential integrity).
 func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
-	id, name, comment string,
+	id, name, comment string, entities []EncryptionEntity,
 ) (*FieldLevelEncryptionProfile, error) {
 	b.mu.Lock("UpdateFieldLevelEncryptionProfile")
 	defer b.mu.Unlock()
@@ -2408,28 +2558,41 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
 		)
 	}
 
-	if name != p.Name {
-		if _, exists := b.fieldLevelEncryptionProfileByName[name]; exists {
-			return nil, fmt.Errorf(
-				"%w: field level encryption profile with name %q already exists",
-				ErrAlreadyExists,
-				name,
-			)
-		}
+	if err := b.requirePublicKeysExist(entities); err != nil {
+		return nil, err
+	}
 
-		delete(b.fieldLevelEncryptionProfileByName, p.Name)
-		b.fieldLevelEncryptionProfileByName[name] = id
+	if !renameInIndex(b.fieldLevelEncryptionProfileByName, id, p.Name, name) {
+		return nil, fmt.Errorf(
+			"%w: field level encryption profile with name %q already exists", ErrAlreadyExists, name)
 	}
 
 	p.Name = name
 	p.Comment = comment
+	p.EncryptionEntities = cloneEncryptionEntities(entities)
 	p.ETag = uuid.NewString()
 	cp := *p
+	cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 
 	return &cp, nil
 }
 
-// DeleteFieldLevelEncryptionProfile deletes an FLE profile by ID.
+// fleProfileReferencedBy returns the ID of an FLE config that references the given
+// profile, or "" if none. Must be called with the lock held.
+func (b *InMemoryBackend) fleProfileReferencedBy(profileID string) string {
+	for _, fle := range b.fieldLevelEncryptions {
+		for _, qp := range fle.QueryArgProfiles {
+			if qp.ProfileID == profileID {
+				return fle.ID
+			}
+		}
+	}
+
+	return ""
+}
+
+// DeleteFieldLevelEncryptionProfile deletes an FLE profile by ID. It returns
+// ErrFLEProfileInUse when the profile is still referenced by an FLE config.
 func (b *InMemoryBackend) DeleteFieldLevelEncryptionProfile(id string) error {
 	b.mu.Lock("DeleteFieldLevelEncryptionProfile")
 	defer b.mu.Unlock()
@@ -2440,6 +2603,15 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryptionProfile(id string) error {
 			"%w: field level encryption profile %s not found",
 			ErrFLEProfileNotFound,
 			id,
+		)
+	}
+
+	if configID := b.fleProfileReferencedBy(id); configID != "" {
+		return fmt.Errorf(
+			"%w: field level encryption profile %s is referenced by config %s",
+			ErrFLEProfileInUse,
+			id,
+			configID,
 		)
 	}
 
@@ -2536,7 +2708,29 @@ func (b *InMemoryBackend) UpdatePublicKey(id, comment string) (*PublicKey, error
 	return &cp, nil
 }
 
-// DeletePublicKey deletes a Public Key by ID.
+// publicKeyReferencedBy reports the kind and ID of the first resource that
+// references the given public key, or ("", "") if none. Must be called with the
+// lock held.
+func (b *InMemoryBackend) publicKeyReferencedBy(pkID string) (string, string) {
+	for _, kg := range b.keyGroups {
+		if slices.Contains(kg.Items, pkID) {
+			return "key group", kg.ID
+		}
+	}
+
+	for _, p := range b.fieldLevelEncryptionProfiles {
+		for _, e := range p.EncryptionEntities {
+			if e.PublicKeyID == pkID {
+				return "field level encryption profile", p.ID
+			}
+		}
+	}
+
+	return "", ""
+}
+
+// DeletePublicKey deletes a Public Key by ID. It returns ErrPublicKeyInUse when
+// the key is still referenced by a key group or an FLE profile.
 func (b *InMemoryBackend) DeletePublicKey(id string) error {
 	b.mu.Lock("DeletePublicKey")
 	defer b.mu.Unlock()
@@ -2544,6 +2738,16 @@ func (b *InMemoryBackend) DeletePublicKey(id string) error {
 	pk, ok := b.publicKeys[id]
 	if !ok {
 		return fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, id)
+	}
+
+	if kind, refID := b.publicKeyReferencedBy(id); kind != "" {
+		return fmt.Errorf(
+			"%w: public key %s is referenced by %s %s",
+			ErrPublicKeyInUse,
+			id,
+			kind,
+			refID,
+		)
 	}
 
 	delete(b.publicKeyByName, pk.Name)
@@ -2849,11 +3053,13 @@ func (b *InMemoryBackend) CreateKeyValueStore(name, comment string) (*KeyValueSt
 
 	id := uuid.NewString()
 	kvs := &KeyValueStore{
-		ID:      id,
-		ARN:     b.keyValueStoreARN(id),
-		Name:    name,
-		Comment: comment,
-		ETag:    uuid.NewString(),
+		ID:               id,
+		ARN:              b.keyValueStoreARN(id),
+		Name:             name,
+		Comment:          comment,
+		ETag:             uuid.NewString(),
+		Status:           kvsStatusReady,
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 	}
 	b.keyValueStores[id] = kvs
 	b.keyValueStoreByName[name] = id
