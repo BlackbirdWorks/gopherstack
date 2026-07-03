@@ -1430,6 +1430,10 @@ func (h *Handler) handleDeleteConnectionType(
 		return nil, fmt.Errorf("%w: ConnectionType is required", ErrValidation)
 	}
 
+	if err := h.Backend.DeleteConnectionType(in.ConnectionType); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 
@@ -1854,7 +1858,10 @@ type describeConnectionTypeInput struct {
 
 // describeConnectionTypeOutput holds the result for DescribeConnectionType.
 type describeConnectionTypeOutput struct {
-	ConnectionType string `json:"ConnectionType"`
+	ConnectionType string   `json:"ConnectionType"`
+	Description    string   `json:"Description,omitempty"`
+	Category       string   `json:"Category,omitempty"`
+	Capabilities   []string `json:"Capabilities,omitempty"`
 }
 
 func (h *Handler) handleDescribeConnectionType(
@@ -1865,7 +1872,17 @@ func (h *Handler) handleDescribeConnectionType(
 		return nil, fmt.Errorf("%w: ConnectionType is required", ErrValidation)
 	}
 
-	return &describeConnectionTypeOutput{ConnectionType: in.ConnectionType}, nil
+	info, err := h.Backend.DescribeConnectionType(in.ConnectionType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeConnectionTypeOutput{
+		ConnectionType: info.ConnectionType,
+		Description:    info.Description,
+		Category:       info.Category,
+		Capabilities:   info.Capabilities,
+	}, nil
 }
 
 // describeEntityInput holds input for DescribeEntity.
@@ -1877,27 +1894,10 @@ type describeEntityInput struct {
 	NextToken           string `json:"NextToken,omitempty"`
 }
 
-// entityField describes a single field returned by DescribeEntity.
-type entityField struct {
-	FieldName                string   `json:"FieldName"`
-	Label                    string   `json:"Label,omitempty"`
-	Description              string   `json:"Description,omitempty"`
-	FieldType                string   `json:"FieldType"`
-	NativeDataType           string   `json:"NativeDataType,omitempty"`
-	SupportedFilterOperators []string `json:"SupportedFilterOperators,omitempty"`
-	IsNullable               bool     `json:"IsNullable"`
-	IsRetrievable            bool     `json:"IsRetrievable"`
-	IsPartitionable          bool     `json:"IsPartitionable"`
-	IsCreateable             bool     `json:"IsCreateable"`
-	IsUpdateable             bool     `json:"IsUpdateable"`
-	IsUpsertable             bool     `json:"IsUpsertable"`
-	IsFilterable             bool     `json:"IsFilterable"`
-}
-
 // describeEntityOutput holds the result for DescribeEntity.
 type describeEntityOutput struct {
 	NextToken string        `json:"NextToken,omitempty"`
-	Fields    []entityField `json:"Fields"`
+	Fields    []EntityField `json:"Fields"`
 }
 
 func (h *Handler) handleDescribeEntity(
@@ -1912,11 +1912,12 @@ func (h *Handler) handleDescribeEntity(
 		return nil, fmt.Errorf("%w: EntityName is required", ErrValidation)
 	}
 
-	if _, err := h.Backend.GetConnection(in.ConnectionName); err != nil {
+	fields, err := h.Backend.DescribeEntity(in.ConnectionName, in.EntityName)
+	if err != nil {
 		return nil, err
 	}
 
-	return &describeEntityOutput{Fields: []entityField{}}, nil
+	return &describeEntityOutput{Fields: fields}, nil
 }
 
 // describeInboundIntegrationsInput holds input for DescribeInboundIntegrations.
@@ -2514,8 +2515,8 @@ type getEntityRecordsInput struct {
 
 // getEntityRecordsOutput holds the result for GetEntityRecords.
 type getEntityRecordsOutput struct {
-	NextToken string `json:"NextToken,omitempty"`
-	Records   []any  `json:"Records"`
+	NextToken string           `json:"NextToken,omitempty"`
+	Records   []map[string]any `json:"Records"`
 }
 
 func (h *Handler) handleGetEntityRecords(
@@ -2530,11 +2531,14 @@ func (h *Handler) handleGetEntityRecords(
 		return nil, fmt.Errorf("%w: EntityName is required", ErrValidation)
 	}
 
-	if _, err := h.Backend.GetConnection(in.ConnectionName); err != nil {
+	records, nextToken, err := h.Backend.GetEntityRecords(
+		in.ConnectionName, in.EntityName, in.Limit, in.NextToken,
+	)
+	if err != nil {
 		return nil, err
 	}
 
-	return &getEntityRecordsOutput{Records: []any{}}, nil
+	return &getEntityRecordsOutput{Records: records, NextToken: nextToken}, nil
 }
 
 // getIdentityCenterConfigurationInput holds input for GetGlueIdentityCenterConfiguration.
@@ -3747,16 +3751,36 @@ func (h *Handler) handleListColumnStatisticsTaskRuns(
 // listConnectionTypesInput holds input for ListConnectionTypes.
 type listConnectionTypesInput struct{}
 
+// connectionTypeBrief is the per-type summary returned by ListConnectionTypes.
+type connectionTypeBrief struct {
+	ConnectionType string   `json:"ConnectionType"`
+	Description    string   `json:"Description,omitempty"`
+	Category       string   `json:"Category,omitempty"`
+	Capabilities   []string `json:"Capabilities,omitempty"`
+}
+
 // listConnectionTypesOutput holds the result for ListConnectionTypes.
 type listConnectionTypesOutput struct {
-	ConnectionTypes []any `json:"ConnectionTypes"`
+	ConnectionTypes []connectionTypeBrief `json:"ConnectionTypes"`
 }
 
 func (h *Handler) handleListConnectionTypes(
 	_ context.Context,
 	_ *listConnectionTypesInput,
 ) (*listConnectionTypesOutput, error) {
-	return &listConnectionTypesOutput{ConnectionTypes: []any{}}, nil
+	infos := h.Backend.ListConnectionTypes()
+
+	out := make([]connectionTypeBrief, 0, len(infos))
+	for _, info := range infos {
+		out = append(out, connectionTypeBrief{
+			ConnectionType: info.ConnectionType,
+			Description:    info.Description,
+			Category:       info.Category,
+			Capabilities:   info.Capabilities,
+		})
+	}
+
+	return &listConnectionTypesOutput{ConnectionTypes: out}, nil
 }
 
 // listCrawlsInput holds input for ListCrawls.
@@ -3906,18 +3930,34 @@ func (h *Handler) handleListDevEndpoints(
 }
 
 // listEntitiesInput holds input for ListEntities.
-type listEntitiesInput struct{}
+type listEntitiesInput struct {
+	ConnectionName   string `json:"ConnectionName"`
+	CatalogID        string `json:"CatalogId,omitempty"`
+	ParentEntityName string `json:"ParentEntityName,omitempty"`
+	NextToken        string `json:"NextToken,omitempty"`
+	DataStoreAPIVer  string `json:"DataStoreApiVersion,omitempty"`
+}
 
 // listEntitiesOutput holds the result for ListEntities.
 type listEntitiesOutput struct {
-	Entities []any `json:"Entities"`
+	NextToken string             `json:"NextToken,omitempty"`
+	Entities  []EntityDescriptor `json:"Entities"`
 }
 
 func (h *Handler) handleListEntities(
 	_ context.Context,
-	_ *listEntitiesInput,
+	in *listEntitiesInput,
 ) (*listEntitiesOutput, error) {
-	return &listEntitiesOutput{Entities: []any{}}, nil
+	if in.ConnectionName == "" {
+		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
+	}
+
+	entities, err := h.Backend.ListEntities(in.ConnectionName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listEntitiesOutput{Entities: entities}, nil
 }
 
 // listIntegrationResourcePropertiesInput holds input for ListIntegrationResourceProperties.
@@ -4333,7 +4373,10 @@ func (h *Handler) handleQuerySchemaVersionMetadata(
 }
 
 // registerConnectionTypeInput holds input for RegisterConnectionType.
-type registerConnectionTypeInput struct{}
+type registerConnectionTypeInput struct {
+	ConnectionType string `json:"ConnectionType"`
+	Description    string `json:"Description,omitempty"`
+}
 
 // registerConnectionTypeOutput holds the result for RegisterConnectionType.
 type registerConnectionTypeOutput struct {
@@ -4343,9 +4386,18 @@ type registerConnectionTypeOutput struct {
 
 func (h *Handler) handleRegisterConnectionType(
 	_ context.Context,
-	_ *registerConnectionTypeInput,
+	in *registerConnectionTypeInput,
 ) (*registerConnectionTypeOutput, error) {
-	return &registerConnectionTypeOutput{Status: stateReady}, nil
+	if in.ConnectionType == "" {
+		return nil, fmt.Errorf("%w: ConnectionType is required", ErrValidation)
+	}
+
+	info, err := h.Backend.RegisterConnectionType(in.ConnectionType, in.Description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &registerConnectionTypeOutput{ConnectionType: info.ConnectionType, Status: stateReady}, nil
 }
 
 // registerSchemaVersionInput holds input for RegisterSchemaVersion.

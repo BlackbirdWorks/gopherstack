@@ -457,24 +457,35 @@ func TestDescribeInboundIntegrations(t *testing.T) {
 	}
 }
 
-// TestDeleteConnectionType verifies that ConnectionType is required.
+// TestDeleteConnectionType verifies real state mutation: built-in types are
+// undeletable (distinct AccessDeniedException), unknown types are
+// EntityNotFoundException, and a registered custom type can be deleted once.
 func TestDeleteConnectionType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		input    map[string]any
 		name     string
+		wantType string
 		wantCode int
 	}{
 		{
 			name:     "empty body missing ConnectionType returns 400",
 			input:    map[string]any{},
 			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
 		},
 		{
-			name:     "valid ConnectionType returns 200",
+			name:     "built-in Salesforce is undeletable",
 			input:    map[string]any{"ConnectionType": "Salesforce"},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
+			wantType: "AccessDeniedException",
+		},
+		{
+			name:     "unknown type returns EntityNotFound",
+			input:    map[string]any{"ConnectionType": "NoSuchType"},
+			wantCode: http.StatusBadRequest,
+			wantType: "EntityNotFoundException",
 		},
 	}
 
@@ -485,8 +496,31 @@ func TestDeleteConnectionType(t *testing.T) {
 			h := newTestHandler(t)
 			rec := doGlueRequest(t, h, "DeleteConnectionType", tc.input)
 			assert.Equal(t, tc.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tc.wantType)
 		})
 	}
+}
+
+// TestDeleteConnectionType_CustomRoundTrip verifies a custom type registered via
+// RegisterConnectionType can be deleted, and a second delete is EntityNotFound.
+func TestDeleteConnectionType_CustomRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	regRec := doGlueRequest(t, h, "RegisterConnectionType", map[string]any{
+		"ConnectionType": "MyCustomConn",
+		"Description":    "custom connector",
+	})
+	require.Equal(t, http.StatusOK, regRec.Code)
+
+	delRec := doGlueRequest(t, h, "DeleteConnectionType", map[string]any{"ConnectionType": "MyCustomConn"})
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	// Second delete: already gone → EntityNotFoundException.
+	del2 := doGlueRequest(t, h, "DeleteConnectionType", map[string]any{"ConnectionType": "MyCustomConn"})
+	assert.Equal(t, http.StatusBadRequest, del2.Code)
+	assert.Contains(t, del2.Body.String(), "EntityNotFoundException")
 }
 
 // TestDeleteIntegrationResourceProperty verifies creation then deletion round-trip.
@@ -751,7 +785,9 @@ func TestGetEntityRecords(t *testing.T) {
 	}
 }
 
-// TestGetEntityRecords_ValidConnection verifies a valid connection returns empty records.
+// TestGetEntityRecords_ValidConnection verifies a valid connection + known entity
+// returns real, schema-shaped records (not an empty success), and that an unknown
+// entity returns EntityNotFoundException.
 func TestGetEntityRecords_ValidConnection(t *testing.T) {
 	t.Parallel()
 
@@ -777,10 +813,23 @@ func TestGetEntityRecords_ValidConnection(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		NextToken string `json:"NextToken"`
-		Records   []any  `json:"Records"`
+		NextToken string           `json:"NextToken"`
+		Records   []map[string]any `json:"Records"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Empty(t, out.Records)
-	assert.Empty(t, out.NextToken)
+	require.NotEmpty(t, out.Records)
+	// Each record must conform to the Account schema.
+	for _, r := range out.Records {
+		assert.Contains(t, r, "Id")
+		assert.Contains(t, r, "Name")
+		assert.Contains(t, r, "AnnualRevenue")
+	}
+
+	// An unknown entity for a valid connection is EntityNotFoundException, not empty.
+	missRec := doGlueRequest(t, h, "GetEntityRecords", map[string]any{
+		"ConnectionName": "sfconn",
+		"EntityName":     "DoesNotExist",
+	})
+	assert.Equal(t, http.StatusBadRequest, missRec.Code)
+	assert.Contains(t, missRec.Body.String(), "EntityNotFoundException")
 }
