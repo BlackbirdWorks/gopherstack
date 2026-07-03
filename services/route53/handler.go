@@ -2041,7 +2041,7 @@ func (h *Handler) getHealthCheckStatus(c *echo.Context, path string) error {
 	logger.Load(ctx).DebugContext(ctx, "Route53 GetHealthCheckStatus", "id", id, "status", status)
 
 	hc, hcErr := h.Backend.GetHealthCheck(id)
-	observerRegions := []string{"us-east-1", "us-west-2", "eu-west-1"}
+	observerRegions := []string{defaultRegion, regionUSWest2, regionEUWest1}
 	if hcErr == nil && len(hc.Config.Regions) > 0 {
 		observerRegions = hc.Config.Regions
 	}
@@ -2052,10 +2052,10 @@ func (h *Handler) getHealthCheckStatus(c *echo.Context, path string) error {
 	for _, region := range observerRegions {
 		obsStatus := status
 		if hcErr == nil && hc.Config.Inverted {
-			if obsStatus == "Healthy" {
-				obsStatus = "Unhealthy"
+			if obsStatus == defaultHealthStatus {
+				obsStatus = healthUnhealthy
 			} else {
-				obsStatus = "Healthy"
+				obsStatus = defaultHealthStatus
 			}
 		}
 

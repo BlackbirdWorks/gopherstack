@@ -77,7 +77,7 @@ type StorageBackend interface {
 	CountZonesByReusableDelegationSet(id string) (int, error)
 
 	// DNS query simulation
-	TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error)
+	TestDNSAnswer(zoneID, recordName, recordType string, qctx DNSQueryContext) ([]string, error)
 
 	// Traffic policy operations
 	CreateTrafficPolicy(name, document, comment string) (*TrafficPolicy, error)

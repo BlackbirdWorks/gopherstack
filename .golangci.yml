@@ -498,6 +498,10 @@ linters:
       # isolation_test.go uses unexported types and must be in the same package.
       - path: 'elasticache/isolation_test.go'
         linters: [ testpackage, paralleltest ]
+      # routing_test.go white-box tests unexported routing helpers and the
+      # injectable RNG field, so it must live in the same package.
+      - path: 'route53/routing_test.go'
+        linters: [ testpackage ]
       - text: 'should have a package comment'
         linters: [ revive ]
       - text: 'exported \S+ \S+ should have comment( \(or a comment on this block\))? or be unexported'
