@@ -168,17 +168,23 @@ type Archive struct {
 
 // Connection represents an EventBridge connection.
 type Connection struct {
-	ConnectionArn      string                    `json:"ConnectionArn"`
-	AuthorizationType  string                    `json:"AuthorizationType"`
-	AuthParameters     *ConnectionAuthParameters `json:"AuthParameters,omitempty"`
-	ConnectionState    string                    `json:"ConnectionState"`
-	CreationTime       time.Time                 `json:"CreationTime"`
-	Description        string                    `json:"Description,omitempty"`
-	LastAuthorizedTime time.Time                 `json:"LastAuthorizedTime,omitzero"`
-	LastModifiedTime   time.Time                 `json:"LastModifiedTime"`
-	Name               string                    `json:"Name"`
-	SecretArn          string                    `json:"SecretArn,omitempty"`
-	StateReason        string                    `json:"StateReason,omitempty"`
+	AuthParameters *ConnectionAuthParameters `json:"AuthParameters,omitempty"`
+	// authSecret holds the un-masked credentials used to sign outbound
+	// API-destination requests. AWS keeps these in Secrets Manager and never
+	// returns them from Describe/List; the exported AuthParameters above are
+	// always masked. This field is unexported so it is never serialized into
+	// API responses or persistence snapshots.
+	authSecret         *ConnectionAuthParameters
+	ConnectionArn      string    `json:"ConnectionArn"`
+	AuthorizationType  string    `json:"AuthorizationType"`
+	ConnectionState    string    `json:"ConnectionState"`
+	CreationTime       time.Time `json:"CreationTime"`
+	Description        string    `json:"Description,omitempty"`
+	LastAuthorizedTime time.Time `json:"LastAuthorizedTime,omitzero"`
+	LastModifiedTime   time.Time `json:"LastModifiedTime"`
+	Name               string    `json:"Name"`
+	SecretArn          string    `json:"SecretArn,omitempty"`
+	StateReason        string    `json:"StateReason,omitempty"`
 }
 
 // Endpoint represents an EventBridge global endpoint.

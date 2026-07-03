@@ -145,7 +145,7 @@ func TestRegionIsolation_Rules(t *testing.T) {
 			}
 
 			// List rules from the list region.
-			rules, _, err := b.ListRules(regionCtx(tc.listRegion), "default", "", "")
+			rules, _, err := b.ListRules(regionCtx(tc.listRegion), "default", "", "", 0)
 			if err != nil {
 				t.Fatalf("ListRules: %v", err)
 			}
