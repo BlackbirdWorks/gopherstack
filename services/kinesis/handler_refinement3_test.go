@@ -837,10 +837,10 @@ func TestRefinement3_UpdateShardCount_UniqueShardIDs(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Scale again.
+	// Scale again (3 -> 2 stays within the AWS 50%-200% per-call window).
 	_, err = b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "update-uniqueids-stream",
-		TargetShardCount: 1,
+		TargetShardCount: 2,
 		ScalingType:      "UNIFORM_SCALING",
 	})
 	require.NoError(t, err)

@@ -1068,8 +1068,10 @@ func errorDetails(err error) (string, string, int) {
 		return "InvalidArgumentException",
 			"Invalid argument.",
 			http.StatusBadRequest
+	case errors.Is(err, ErrShardCountScaling):
+		return errTypeValidation, err.Error(), http.StatusBadRequest
 	case errors.Is(err, ErrValidation):
-		return "ValidationException", err.Error(), http.StatusBadRequest
+		return errTypeValidation, err.Error(), http.StatusBadRequest
 	case errors.Is(err, ErrShardIteratorExpired):
 		return "ExpiredIteratorException",
 			"The shard iterator has expired.",
