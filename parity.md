@@ -3,6 +3,49 @@
 **Goal: 100% real AWS emulation (match and exceed LocalStack's open tier), starting with
 DynamoDB and the most-used LocalStack-core services.**
 
+---
+
+## 🟢 SWEEP PROGRESS (branch `parity-sweep-2`, PR #2381) — updated 2026-07-03
+
+Deep-dive parity implemented, tested (table-driven + `-race`), lint-clean, and **merged to
+`parity-sweep-2`** (full CI green) for the following **24 services**. Each replaced stubs/
+partial emulation with real AWS behavior across the four axes (parity / perf / leaks / UI):
+
+- **Core popular + DynamoDB tier (19):** s3 (SigV4 + data-plane access control + aws-chunked),
+  lambda (invoke validation / async DLQ+destinations / ESM filters / Function-URL auth /
+  lifecycle), eventbridge (real API-destination HTTP delivery + input-transformer),
+  kinesis (2×/0.5× reshard caps + UI), iam (condition set-qualifiers + PrincipalTag/RequestTag),
+  firehose (all-destination transform + format conversion + failure routing),
+  ec2 (Restore secondary-index rebuild + DeleteVpc perf + user-data/gp3 validation),
+  cloudformation (change-set completeness + live-state drift + StackSets + Fn::ForEach),
+  opensearch (lifecycle processing windows + real doc/search engine), apigateway v1
+  (request/param validation + usage-plan quota/throttle + opaque pagination),
+  ssm (RunCommand output + automation execution + session leak),
+  route53 (weighted/latency/geo/multivalue/failover DNS resolution + health checks),
+  cloudwatch (GetMetricData pagination + extended statistics + EC2/ASG alarm actions + real
+  widget PNG), cloudwatchlogs (Logs Insights engine + JSON filter patterns + real S3 export),
+  ecs (deployment circuit-breaker rollback + task lifecycle states + Reconciler leak),
+  sts (trust-policy validation + web-identity/SAML token validation),
+  elasticache (observable lifecycle states + error envelope + reachable endpoint),
+  ecr (real lifecycle-policy image expiry + distinct ENHANCED scan findings),
+  apigatewayv2 (x-amzn-ErrorType headers + REQUEST/IAM authorizers + mapping conflict).
+- **Extended tier (5):** redshift (managed cluster reconciler — goroutine-leak fix + real
+  Advisor recs), cloudfront (key-group/public-key/FLE referential integrity + config-search
+  index), athena (real DDL/DML SQL engine + opaque pagination + queryResults leak),
+  glue (managed reconciler leak fix + real DescribeEntity/GetEntityRecords),
+  awsconfig (real rule evaluation + per-resource compliance + config history).
+- **Done + pushed, not yet merged:** cloudtrail (`parity/cloudtrail` — Lake query engine +
+  events ring-buffer leak cap; verified green, awaiting merge).
+
+Method: worktree-isolated subagents, one service each, 2 at a time, merged into
+`parity-sweep-2` after local build/vet/`-race`/lint verification. 8 CI/serialization/race
+fixes applied forward (incl. a real route53 concurrency data race + ssm/ecr epoch-`Date`
+serialization class). **Remaining:** most other extended-tier services are already largely
+complete (grep-verify before dispatching — this doc over-counts done work); the genuine
+remaining gaps are the leak/perf/query-engine items in the still-unmerged extended sections.
+
+---
+
 This document is the live punch-list for the **DynamoDB family** (`dynamodb`,
 `dynamodbstreams`, `dax`) plus the **popular services** (S3, Lambda, SQS, SNS, IAM, STS,
 KMS, Secrets Manager, SSM, CloudFormation, CloudWatch, CloudWatch Logs, EventBridge,
