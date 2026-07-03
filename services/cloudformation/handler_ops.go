@@ -415,7 +415,7 @@ func (h *Handler) handleCreateStackInstances(form url.Values, c *echo.Context) e
 	}
 	accounts := parseMemberList(form, "Accounts.")
 	regions := parseMemberList(form, "Regions.")
-	opID, err := h.Backend.CreateStackInstances(name, accounts, regions)
+	opID, err := h.Backend.CreateStackInstances(c.Request().Context(), name, accounts, regions)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
@@ -442,7 +442,7 @@ func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) e
 	}
 	accounts := parseMemberList(form, "Accounts.")
 	regions := parseMemberList(form, "Regions.")
-	opID, err := h.Backend.DeleteStackInstances(name, accounts, regions)
+	opID, err := h.Backend.DeleteStackInstances(c.Request().Context(), name, accounts, regions)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}

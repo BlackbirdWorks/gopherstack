@@ -133,10 +133,24 @@ func (h *Handler) handleDescribeChangeSetFull(form url.Values, c *echo.Context) 
 		return h.xmlError(c, "ChangeSetNotFoundException", err.Error())
 	}
 
+	type targetXML struct {
+		Attribute          string `xml:"Attribute,omitempty"`
+		Name               string `xml:"Name,omitempty"`
+		RequiresRecreation string `xml:"RequiresRecreation,omitempty"`
+	}
+	type detailXML struct {
+		Target       *targetXML `xml:"Target,omitempty"`
+		Evaluation   string     `xml:"Evaluation,omitempty"`
+		ChangeSource string     `xml:"ChangeSource,omitempty"`
+	}
 	type resourceChangeXML struct {
-		Action       string `xml:"Action"`
-		LogicalID    string `xml:"LogicalResourceId"`
-		ResourceType string `xml:"ResourceType"`
+		Action       string      `xml:"Action"`
+		LogicalID    string      `xml:"LogicalResourceId"`
+		PhysicalID   string      `xml:"PhysicalResourceId,omitempty"`
+		ResourceType string      `xml:"ResourceType"`
+		Replacement  string      `xml:"Replacement,omitempty"`
+		Scope        []string    `xml:"Scope>member,omitempty"`
+		Details      []detailXML `xml:"Details>member,omitempty"`
 	}
 	type changeXML struct {
 		Type           string            `xml:"Type"`
@@ -144,12 +158,28 @@ func (h *Handler) handleDescribeChangeSetFull(form url.Values, c *echo.Context) 
 	}
 	changes := make([]changeXML, 0, len(cs.Changes))
 	for _, ch := range cs.Changes {
+		details := make([]detailXML, 0, len(ch.ResourceChange.Details))
+		for _, d := range ch.ResourceChange.Details {
+			dx := detailXML{Evaluation: d.Evaluation, ChangeSource: d.ChangeSource}
+			if d.Target != nil {
+				dx.Target = &targetXML{
+					Attribute:          d.Target.Attribute,
+					Name:               d.Target.Name,
+					RequiresRecreation: d.Target.RequiresRecreation,
+				}
+			}
+			details = append(details, dx)
+		}
 		changes = append(changes, changeXML{
 			Type: ch.Type,
 			ResourceChange: resourceChangeXML{
 				Action:       ch.ResourceChange.Action,
 				LogicalID:    ch.ResourceChange.LogicalID,
+				PhysicalID:   ch.ResourceChange.PhysicalID,
 				ResourceType: ch.ResourceChange.ResourceType,
+				Replacement:  ch.ResourceChange.Replacement,
+				Scope:        ch.ResourceChange.Scope,
+				Details:      details,
 			},
 		})
 	}
