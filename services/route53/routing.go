@@ -271,11 +271,17 @@ func (b *InMemoryBackend) filterHealthy(candidates []*ResourceRecordSet) []*Reso
 	return healthy
 }
 
-// sortBySetIdentifier orders candidates deterministically for stable tie-breaks.
-func sortBySetIdentifier(candidates []*ResourceRecordSet) {
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].SetIdentifier < candidates[j].SetIdentifier
+// sortBySetIdentifier returns a deterministically-ordered copy of candidates for
+// stable tie-breaks. It copies the slice so callers never mutate a shared record
+// set in place (concurrent DNS queries would otherwise race on the backing array).
+func sortBySetIdentifier(candidates []*ResourceRecordSet) []*ResourceRecordSet {
+	sorted := make([]*ResourceRecordSet, len(candidates))
+	copy(sorted, candidates)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].SetIdentifier < sorted[j].SetIdentifier
 	})
+
+	return sorted
 }
 
 // selectWeighted picks one record set proportional to its Weight. Healthy
@@ -286,7 +292,7 @@ func selectWeighted(candidates []*ResourceRecordSet, qctx DNSQueryContext) *Reso
 		return nil
 	}
 
-	sortBySetIdentifier(candidates)
+	candidates = sortBySetIdentifier(candidates)
 
 	var total int64
 	var lastPositive *ResourceRecordSet
@@ -332,7 +338,7 @@ func selectLatency(candidates []*ResourceRecordSet, qctx DNSQueryContext) *Resou
 		return nil
 	}
 
-	sortBySetIdentifier(candidates)
+	candidates = sortBySetIdentifier(candidates)
 
 	clientCoord, ok := awsRegionCoords[qctx.ClientRegion]
 	if !ok {
@@ -415,7 +421,7 @@ func selectGeo(candidates []*ResourceRecordSet, qctx DNSQueryContext) *ResourceR
 		return nil
 	}
 
-	sortBySetIdentifier(candidates)
+	candidates = sortBySetIdentifier(candidates)
 
 	var best *ResourceRecordSet
 	bestScore := geoScoreNone
@@ -443,7 +449,7 @@ func selectFailover(healthy []*ResourceRecordSet) *ResourceRecordSet {
 		return nil
 	}
 
-	sortBySetIdentifier(healthy)
+	healthy = sortBySetIdentifier(healthy)
 
 	var secondary *ResourceRecordSet
 	for _, rrs := range healthy {
