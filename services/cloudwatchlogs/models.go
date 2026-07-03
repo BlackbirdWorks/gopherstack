@@ -159,15 +159,18 @@ type QueryInfo struct {
 
 // ExportTask represents a CloudWatch Logs export task.
 type ExportTask struct {
-	TaskName          string `json:"taskName,omitempty"`
-	TaskID            string `json:"taskId"`
-	LogGroupName      string `json:"logGroupName"`
-	Destination       string `json:"destination"`
-	DestinationPrefix string `json:"destinationPrefix,omitempty"`
-	Status            string `json:"status"`
-	From              int64  `json:"from"`
-	To                int64  `json:"to"`
-	CreationTime      int64  `json:"creationTime"`
+	TaskName            string `json:"taskName,omitempty"`
+	TaskID              string `json:"taskId"`
+	LogGroupName        string `json:"logGroupName"`
+	Destination         string `json:"destination"`
+	DestinationPrefix   string `json:"destinationPrefix,omitempty"`
+	LogStreamNamePrefix string `json:"logStreamNamePrefix,omitempty"`
+	Status              string `json:"status"`
+	StatusMessage       string `json:"statusMessage,omitempty"`
+	From                int64  `json:"from"`
+	To                  int64  `json:"to"`
+	CreationTime        int64  `json:"creationTime"`
+	CompletionTime      int64  `json:"completionTime,omitempty"`
 }
 
 // ImportTask represents a CloudWatch Logs import task (from CloudTrail Lake).
