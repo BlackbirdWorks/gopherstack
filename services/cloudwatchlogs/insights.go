@@ -2,45 +2,123 @@ package cloudwatchlogs
 
 import (
 	"fmt"
-	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
 
-// filterCondition holds a field name and the compiled regex to match against that field.
-type filterCondition struct {
-	re    *regexp.Regexp
-	field string
-}
+// keyPtr is the built-in field name for the record pointer returned by Logs Insights.
+const keyPtr = "@ptr"
 
-// insightsQuery holds the parsed representation of a Logs Insights query string.
+// Boolean/null literal keywords shared by the expression and JSON-pattern parsers.
+const (
+	literalTrue  = "true"
+	literalFalse = "false"
+	literalNull  = "null"
+)
+
+// twoCharToken is the byte length of a two-character operator token.
+const twoCharToken = 2
+
+// decimalPlaces is the number of fractional digits used when formatting
+// non-integral aggregate results (avg, pct, stddev), matching AWS's typical
+// Logs Insights output precision.
+const decimalPlaces = 4
+
+// insightsQuery is the parsed representation of a CloudWatch Logs Insights query.
+// A query is a pipeline of stages executed left-to-right, exactly as AWS applies
+// the pipe-separated commands. outputFields records the ordered set of columns the
+// final result rows should contain; it is updated by fields/display/stats stages.
 type insightsQuery struct {
-	statsBy   string
-	sortField string
-	fields    []string
-	filters   []filterCondition
-	limit     int
-	sortDesc  bool
-	hasStats  bool
+	stages       []queryStage
+	outputFields []string
+	limit        int
+	hasStats     bool
 }
 
-// defaultInsightsFields are returned when no explicit fields command is given.
-func defaultInsightsFields() []string {
-	return []string{keyTimestamp, keyMessageField, keyIngestionTime}
+// queryStage is a single command in the Insights pipeline.
+type queryStage interface {
+	apply(recs []*insightsRecord) []*insightsRecord
 }
 
-// parseInsightsQuery parses a CloudWatch Logs Insights query string into an insightsQuery.
-// The query is a sequence of pipe-separated commands.
-func parseInsightsQuery(query string) (*insightsQuery, error) {
-	q := &insightsQuery{
-		sortField: keyTimestamp,
-		sortDesc:  false,
-		limit:     0,
+// insightsRecord is a single log record flowing through the pipeline. It carries
+// the underlying event plus any fields materialised by parse/fields/stats stages.
+type insightsRecord struct {
+	ev    *OutputLogEvent
+	extra map[string]cwValue
+	order []string
+}
+
+func newInsightsRecord(ev *OutputLogEvent) *insightsRecord {
+	return &insightsRecord{ev: ev, extra: nil, order: nil}
+}
+
+// setField stores a materialised field value, preserving first-seen order.
+func (r *insightsRecord) setField(name string, v cwValue) {
+	if r.extra == nil {
+		r.extra = make(map[string]cwValue)
 	}
 
-	commands := splitPipes(query)
-	for _, cmd := range commands {
+	if _, seen := r.extra[name]; !seen {
+		r.order = append(r.order, name)
+	}
+
+	r.extra[name] = v
+}
+
+// resolve returns the value of a field for this record, checking materialised
+// fields first, then Insights built-ins, then JSON extraction from @message.
+func (r *insightsRecord) resolve(name string) cwValue {
+	if r.extra != nil {
+		if v, ok := r.extra[name]; ok {
+			return v
+		}
+	}
+
+	if v, ok := r.resolveBuiltin(name); ok {
+		return v
+	}
+
+	return resolveJSONField(r.ev.Message, name)
+}
+
+// resolveBuiltin resolves the @-prefixed system fields.
+func (r *insightsRecord) resolveBuiltin(name string) (cwValue, bool) {
+	switch name {
+	case keyMessageField:
+		return stringValue(r.ev.Message), true
+	case keyTimestamp:
+		return numFromInt(r.ev.Timestamp), true
+	case keyIngestionTime:
+		return numFromInt(r.ev.IngestionTime), true
+	case keyPtr:
+		return stringValue(r.ev.Ptr), true
+	default:
+		return cwValue{}, false
+	}
+}
+
+// resolveString returns the string form of a resolved field.
+func (r *insightsRecord) resolveString(name string) string {
+	return r.resolve(name).String()
+}
+
+// defaultInsightsFields are returned when no explicit fields/display command is given.
+func defaultInsightsFields() []string {
+	return []string{keyTimestamp, keyMessageField, keyPtr}
+}
+
+// parseInsightsQuery parses a CloudWatch Logs Insights query string into an
+// insightsQuery. The query is a sequence of pipe-separated commands.
+func parseInsightsQuery(query string) (*insightsQuery, error) {
+	q := &insightsQuery{
+		stages:       nil,
+		outputFields: defaultInsightsFields(),
+		limit:        0,
+		hasStats:     false,
+	}
+
+	for _, cmd := range splitPipes(query) {
 		cmd = strings.TrimSpace(cmd)
 		if cmd == "" {
 			continue
@@ -54,16 +132,191 @@ func parseInsightsQuery(query string) (*insightsQuery, error) {
 	return q, nil
 }
 
+// cloneInsightsQuery returns a shallow copy safe for concurrent execution. Stages
+// are immutable after parsing, so the slice header copy is sufficient.
 func cloneInsightsQuery(q *insightsQuery) *insightsQuery {
 	if q == nil {
 		return nil
 	}
 
 	cp := *q
-	cp.fields = append([]string(nil), q.fields...)
-	cp.filters = append([]filterCondition(nil), q.filters...)
+	cp.stages = slices.Clone(q.stages)
+	cp.outputFields = slices.Clone(q.outputFields)
 
 	return &cp
+}
+
+// parseCommand parses a single pipeline command and appends the corresponding stage.
+func parseCommand(q *insightsQuery, cmd string) error {
+	keyword, rest := splitKeyword(cmd)
+
+	switch strings.ToLower(keyword) {
+	case "fields", "display":
+		return parseFieldsCommand(q, rest)
+	case "filter", "where":
+		return parseFilterCommand(q, rest)
+	case "parse":
+		return parseParseCommand(q, rest)
+	case "sort":
+		return parseSortCommand(q, rest)
+	case "limit":
+		return parseLimitCommand(q, rest)
+	case "stats":
+		return parseStatsCommand(q, rest)
+	case "dedup":
+		return parseDedupCommand(q, rest)
+	default:
+		// Unknown commands are ignored for forward compatibility.
+		return nil
+	}
+}
+
+// splitKeyword splits a command into its leading keyword and the remainder.
+func splitKeyword(cmd string) (string, string) {
+	cmd = strings.TrimSpace(cmd)
+	idx := strings.IndexFunc(cmd, func(r rune) bool { return r == ' ' || r == '\t' })
+	if idx < 0 {
+		return cmd, ""
+	}
+
+	return cmd[:idx], strings.TrimSpace(cmd[idx+1:])
+}
+
+// executeQuery executes a parsed query against events and returns result rows.
+func executeQuery(q *insightsQuery, events []*OutputLogEvent) [][]ResultField {
+	recs := make([]*insightsRecord, len(events))
+	for i, ev := range events {
+		recs[i] = newInsightsRecord(ev)
+	}
+
+	for _, st := range q.stages {
+		recs = st.apply(recs)
+	}
+
+	return projectRows(q, recs)
+}
+
+// projectRows converts the final record set into result rows using outputFields.
+func projectRows(q *insightsQuery, recs []*insightsRecord) [][]ResultField {
+	fields := q.outputFields
+	if len(fields) == 0 {
+		fields = defaultInsightsFields()
+	}
+
+	rows := make([][]ResultField, 0, len(recs))
+	for _, rec := range recs {
+		row := make([]ResultField, 0, len(fields))
+		for _, f := range fields {
+			v := rec.resolve(f)
+			if !v.isSet {
+				// AWS omits fields that do not resolve for a given record; keep
+				// the column but with an empty value for stable row width.
+				row = append(row, ResultField{Field: f, Value: ""})
+
+				continue
+			}
+
+			row = append(row, ResultField{Field: f, Value: v.String()})
+		}
+
+		rows = append(rows, row)
+	}
+
+	return rows
+}
+
+// cwValue is a dynamically-typed value used during query evaluation. Numeric
+// values carry both the parsed float and the original text so comparisons and
+// output preserve AWS-accurate formatting.
+type cwValue struct {
+	text  string
+	num   float64
+	isNum bool
+	isSet bool
+}
+
+// stringValue builds a string-typed value, inferring a numeric interpretation
+// when the text parses cleanly as a number (so JSON/plain numeric strings sort
+// and compare numerically, matching Logs Insights).
+func stringValue(s string) cwValue {
+	v := cwValue{text: s, num: 0, isNum: false, isSet: true}
+	if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil && s != "" {
+		v.num = f
+		v.isNum = true
+	}
+
+	return v
+}
+
+// literalString builds a pure string value that is never treated as numeric,
+// used for quoted string literals in queries.
+func literalString(s string) cwValue {
+	return cwValue{text: s, num: 0, isNum: false, isSet: true}
+}
+
+// numFromFloat builds a numeric value.
+func numFromFloat(f float64) cwValue {
+	return cwValue{text: formatFloat(f), num: f, isNum: true, isSet: true}
+}
+
+// numFromInt builds a numeric value from an integer.
+func numFromInt(i int64) cwValue {
+	return cwValue{text: strconv.FormatInt(i, 10), num: float64(i), isNum: true, isSet: true}
+}
+
+// String returns the display form of the value.
+func (v cwValue) String() string {
+	return v.text
+}
+
+// truthy reports whether the value is logically true for filter evaluation.
+func (v cwValue) truthy() bool {
+	if !v.isSet {
+		return false
+	}
+
+	if v.isNum {
+		return v.num != 0
+	}
+
+	return v.text != "" && !strings.EqualFold(v.text, "false")
+}
+
+// formatFloat renders a float the way Logs Insights does: integers without a
+// decimal point, and fractional values rounded to decimalPlaces with trailing
+// zeros trimmed.
+func formatFloat(f float64) string {
+	if f == float64(int64(f)) {
+		return strconv.FormatInt(int64(f), 10)
+	}
+
+	s := strconv.FormatFloat(f, 'f', decimalPlaces, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+
+	return s
+}
+
+// compareValues returns -1, 0, or 1 comparing a and b. If both values are
+// numeric the comparison is numeric; otherwise it is lexical on the text form.
+func compareValues(a, b cwValue) int {
+	if a.isNum && b.isNum {
+		switch {
+		case a.num < b.num:
+			return -1
+		case a.num > b.num:
+			return 1
+		default:
+			return 0
+		}
+	}
+
+	return strings.Compare(a.text, b.text)
+}
+
+// valuesEqual reports value equality using numeric comparison when possible.
+func valuesEqual(a, b cwValue) bool {
+	return compareValues(a, b) == 0
 }
 
 // regexState tracks parser state while inside a regex literal /.../.
@@ -72,8 +325,8 @@ type regexState struct {
 	escaped     bool
 }
 
-// advanceRegex processes one byte inside a regex literal, returning the updated state
-// and whether the regex literal has ended (closing '/').
+// advanceRegex processes one byte inside a regex literal, returning the updated
+// state and whether the regex literal has ended (closing '/').
 func advanceRegex(ch byte, st regexState) (regexState, bool) {
 	if st.escaped {
 		return regexState{inCharClass: st.inCharClass, escaped: false}, false
@@ -83,20 +336,20 @@ func advanceRegex(ch byte, st regexState) (regexState, bool) {
 	case '\\':
 		return regexState{inCharClass: st.inCharClass, escaped: true}, false
 	case '[':
-		return regexState{inCharClass: true}, false
+		return regexState{inCharClass: true, escaped: false}, false
 	case ']':
-		return regexState{inCharClass: false}, false
+		return regexState{inCharClass: false, escaped: false}, false
 	case '/':
 		if !st.inCharClass {
-			return regexState{}, true
+			return regexState{inCharClass: false, escaped: false}, true
 		}
 	}
 
-	return regexState{inCharClass: st.inCharClass}, false
+	return regexState{inCharClass: st.inCharClass, escaped: false}, false
 }
 
-// splitPipes splits query string on '|' but not within regex literals /.../,
-// correctly handling escaped characters (e.g. /foo\/bar/) and character classes (e.g. /[a|b]/).
+// splitPipes splits a query on '|' but not within regex literals /.../,
+// correctly handling escaped characters and character classes.
 func splitPipes(query string) []string {
 	var parts []string
 	var cur strings.Builder
@@ -121,7 +374,7 @@ func splitPipes(query string) []string {
 		switch ch {
 		case '/':
 			inRegex = true
-			rs = regexState{}
+			rs = regexState{inCharClass: false, escaped: false}
 			cur.WriteByte(ch)
 		case '|':
 			parts = append(parts, cur.String())
@@ -138,265 +391,114 @@ func splitPipes(query string) []string {
 	return parts
 }
 
-// parseCommand parses a single command token and updates the query.
-func parseCommand(q *insightsQuery, cmd string) error {
-	lower := strings.ToLower(cmd)
+// splitTopLevelCommas splits s on commas that are not nested inside parentheses,
+// brackets, or quotes/regex literals — used for fields and stats argument lists.
+func splitTopLevelCommas(s string) []string {
+	var parts []string
+	var cur strings.Builder
+	depth := 0
+	inStr := byte(0)
 
-	switch {
-	case strings.HasPrefix(lower, "fields "):
-		return parseFields(q, cmd[len("fields "):])
-	case strings.HasPrefix(lower, "filter "):
-		return parseFilter(q, cmd[len("filter "):])
-	case strings.HasPrefix(lower, "sort "):
-		return parseSort(q, cmd[len("sort "):])
-	case strings.HasPrefix(lower, "limit "):
-		return parseLimit(q, cmd[len("limit "):])
-	case strings.HasPrefix(lower, "stats "):
-		return parseStats(q, cmd[len("stats "):])
-	}
-
-	// Unknown commands are silently ignored (forward compatibility).
-	return nil
-}
-
-func parseFields(q *insightsQuery, rest string) error {
-	parts := strings.SplitSeq(rest, ",")
-	for p := range parts {
-		f := strings.TrimSpace(p)
-		if f != "" {
-			q.fields = append(q.fields, f)
+	for i := range len(s) {
+		ch := s[i]
+		switch {
+		case inStr != 0:
+			cur.WriteByte(ch)
+			if ch == inStr {
+				inStr = 0
+			}
+		case ch == '"' || ch == '\'' || ch == '/':
+			inStr = ch
+			cur.WriteByte(ch)
+		case ch == '(' || ch == '[':
+			depth++
+			cur.WriteByte(ch)
+		case ch == ')' || ch == ']':
+			depth--
+			cur.WriteByte(ch)
+		case ch == ',' && depth == 0:
+			parts = append(parts, strings.TrimSpace(cur.String()))
+			cur.Reset()
+		default:
+			cur.WriteByte(ch)
 		}
 	}
 
-	return nil
+	if strings.TrimSpace(cur.String()) != "" {
+		parts = append(parts, strings.TrimSpace(cur.String()))
+	}
+
+	return parts
 }
 
-func parseFilter(q *insightsQuery, rest string) error {
-	rest = strings.TrimSpace(rest)
-	// Support: filter @field like /pattern/ or filter @field like "string"
-	lower := strings.ToLower(rest)
-	likeIdx := strings.Index(lower, " like ")
-	if likeIdx < 0 {
-		// Unknown filter form — skip.
-		return nil
-	}
-
-	fieldName := strings.TrimSpace(rest[:likeIdx])
-	pattern := strings.TrimSpace(rest[likeIdx+len(" like "):])
-	re, err := extractRegexPattern(pattern)
-	if err != nil {
-		return fmt.Errorf("invalid filter pattern %q: %w", pattern, err)
-	}
-	q.filters = append(q.filters, filterCondition{field: fieldName, re: re})
-
-	return nil
-}
-
-// extractRegexPattern extracts the pattern from /pattern/ or "string" syntax.
-func extractRegexPattern(s string) (*regexp.Regexp, error) {
-	s = strings.TrimSpace(s)
-
-	if strings.HasPrefix(s, "/") && strings.HasSuffix(s, "/") {
-		inner := s[1 : len(s)-1]
-
-		return regexp.Compile(inner)
-	}
-
-	if (strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`)) ||
-		(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
-		inner := s[1 : len(s)-1]
-
-		return regexp.Compile(regexp.QuoteMeta(inner))
-	}
-
-	// Treat as literal string.
-	return regexp.Compile(regexp.QuoteMeta(s))
-}
-
-const sortDirectionParts = 2
-
-func parseSort(q *insightsQuery, rest string) error {
-	parts := strings.Fields(rest)
-	if len(parts) == 0 {
-		return nil
-	}
-	q.sortField = parts[0]
-	if len(parts) >= sortDirectionParts {
-		q.sortDesc = strings.EqualFold(parts[1], "desc")
-	}
-
-	return nil
-}
-
-func parseLimit(q *insightsQuery, rest string) error {
-	rest = strings.TrimSpace(rest)
-	n, err := strconv.Atoi(rest)
+// parseLimitCommand parses "limit N".
+func parseLimitCommand(q *insightsQuery, rest string) error {
+	n, err := strconv.Atoi(strings.TrimSpace(rest))
 	if err != nil {
 		return fmt.Errorf("invalid limit %q: %w", rest, err)
 	}
+
 	q.limit = n
+	q.stages = append(q.stages, &limitStage{n: n})
 
 	return nil
 }
 
-func parseStats(q *insightsQuery, rest string) error {
-	// Support: stats count(*) by field
-	q.hasStats = true
-	lower := strings.ToLower(rest)
-	byIdx := strings.Index(lower, " by ")
-	if byIdx >= 0 {
-		q.statsBy = strings.TrimSpace(rest[byIdx+4:])
-	}
-
-	return nil
+// limitStage truncates the record set to at most n records.
+type limitStage struct {
+	n int
 }
 
-// executeQuery executes a parsed insights query against the provided events and returns result rows.
-func executeQuery(q *insightsQuery, events []*OutputLogEvent) [][]ResultField {
-	// Apply filters.
-	filtered := applyFilters(q.filters, events)
-
-	// Handle stats aggregation.
-	if q.hasStats {
-		return executeStats(q, filtered)
+func (s *limitStage) apply(recs []*insightsRecord) []*insightsRecord {
+	if s.n > 0 && len(recs) > s.n {
+		return recs[:s.n]
 	}
 
-	// Sort.
-	sorted := sortEvents(filtered, q.sortField, q.sortDesc)
+	return recs
+}
 
-	// Apply limit.
-	if q.limit > 0 && len(sorted) > q.limit {
-		sorted = sorted[:q.limit]
+// parseDedupCommand parses "dedup field1, field2".
+func parseDedupCommand(q *insightsQuery, rest string) error {
+	var fields []string
+	for _, f := range splitTopLevelCommas(rest) {
+		if f != "" {
+			fields = append(fields, f)
+		}
 	}
 
-	// Project fields.
-	fields := q.fields
 	if len(fields) == 0 {
-		fields = defaultInsightsFields()
+		return nil
 	}
 
-	rows := make([][]ResultField, len(sorted))
-	for i, ev := range sorted {
-		rows[i] = projectFields(ev, fields)
-	}
+	q.stages = append(q.stages, &dedupStage{fields: fields})
 
-	return rows
+	return nil
 }
 
-func applyFilters(filters []filterCondition, events []*OutputLogEvent) []*OutputLogEvent {
-	if len(filters) == 0 {
-		return events
-	}
+// dedupStage keeps only the first record for each distinct combination of the
+// named field values, mirroring the Logs Insights dedup command.
+type dedupStage struct {
+	fields []string
+}
 
-	out := make([]*OutputLogEvent, 0, len(events))
-	for _, ev := range events {
-		match := true
-		for _, fc := range filters {
-			val := eventFieldAsString(ev, fc.field)
-			if !fc.re.MatchString(val) {
-				match = false
+func (s *dedupStage) apply(recs []*insightsRecord) []*insightsRecord {
+	seen := make(map[string]struct{}, len(recs))
+	out := make([]*insightsRecord, 0, len(recs))
 
-				break
-			}
+	for _, rec := range recs {
+		parts := make([]string, len(s.fields))
+		for i, f := range s.fields {
+			parts[i] = rec.resolveString(f)
 		}
-		if match {
-			out = append(out, ev)
+
+		key := strings.Join(parts, "\x00")
+		if _, ok := seen[key]; ok {
+			continue
 		}
+
+		seen[key] = struct{}{}
+		out = append(out, rec)
 	}
 
 	return out
-}
-
-func sortEvents(events []*OutputLogEvent, field string, desc bool) []*OutputLogEvent {
-	cp := make([]*OutputLogEvent, len(events))
-	copy(cp, events)
-
-	sort.SliceStable(cp, func(i, j int) bool {
-		vi := fieldValue(cp[i], field)
-		vj := fieldValue(cp[j], field)
-		if desc {
-			return vi > vj
-		}
-
-		return vi < vj
-	})
-
-	return cp
-}
-
-// fieldValue returns the sort key for a field. For numeric fields, zero-padded string comparison works
-// because timestamps are int64 represented as decimal strings of equal length.
-func fieldValue(ev *OutputLogEvent, field string) string {
-	switch field {
-	case keyTimestamp:
-		return fmt.Sprintf("%020d", ev.Timestamp)
-	case keyIngestionTime:
-		return fmt.Sprintf("%020d", ev.IngestionTime)
-	case keyMessageField:
-		return ev.Message
-	}
-
-	return ""
-}
-
-// projectFields maps an event to a slice of ResultField for the requested field names.
-func projectFields(ev *OutputLogEvent, fields []string) []ResultField {
-	row := make([]ResultField, 0, len(fields))
-	for _, f := range fields {
-		row = append(row, ResultField{
-			Field: f,
-			Value: eventFieldAsString(ev, f),
-		})
-	}
-
-	return row
-}
-
-func eventFieldAsString(ev *OutputLogEvent, field string) string {
-	switch field {
-	case keyTimestamp:
-		return strconv.FormatInt(ev.Timestamp, 10)
-	case keyIngestionTime:
-		return strconv.FormatInt(ev.IngestionTime, 10)
-	case keyMessageField:
-		return ev.Message
-	}
-
-	return ""
-}
-
-// executeStats performs a basic aggregation (count(*) by field).
-func executeStats(q *insightsQuery, events []*OutputLogEvent) [][]ResultField {
-	if q.statsBy == "" {
-		// count(*) with no group-by: one row.
-		return [][]ResultField{
-			{
-				{Field: "count(*)", Value: strconv.Itoa(len(events))},
-			},
-		}
-	}
-
-	counts := make(map[string]int)
-	order := make([]string, 0, len(events))
-	for _, ev := range events {
-		key := eventFieldAsString(ev, q.statsBy)
-		if _, seen := counts[key]; !seen {
-			order = append(order, key)
-		}
-		counts[key]++
-	}
-
-	rows := make([][]ResultField, 0, len(counts))
-	for _, key := range order {
-		rows = append(rows, []ResultField{
-			{Field: q.statsBy, Value: key},
-			{Field: "count(*)", Value: strconv.Itoa(counts[key])},
-		})
-	}
-
-	if q.limit > 0 && len(rows) > q.limit {
-		rows = rows[:q.limit]
-	}
-
-	return rows
 }
