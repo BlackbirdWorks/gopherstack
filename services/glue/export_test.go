@@ -1,8 +1,36 @@
 package glue
 
+import "time"
+
 // GlueResourceNameForTest exposes glueResourceName for unit tests.
 func GlueResourceNameForTest(resourceARN, resourceType string) string {
 	return glueResourceName(resourceARN, resourceType)
+}
+
+// PendingDueForTest reports whether any lifecycle transition is due at now. It
+// exposes the reconciler's cheap pending-work guard so tests can assert the
+// performance optimisation: an idle backend reports no due work (so the reconciler
+// never takes the global write lock).
+func PendingDueForTest(b *InMemoryBackend, now time.Time) bool {
+	b.mu.RLock("PendingDueForTest")
+	defer b.mu.RUnlock()
+
+	return b.pendingDueLocked(now)
+}
+
+// AdvanceStatesForTest exposes advanceStates so tests can drive lazy transition
+// advancement deterministically without waiting on the ticker.
+func AdvanceStatesForTest(b *InMemoryBackend, now time.Time) {
+	b.advanceStates(now)
+}
+
+// CustomConnectionTypeCountForTest returns the number of registered custom
+// connection types. Used only in tests.
+func CustomConnectionTypeCountForTest(b *InMemoryBackend) int {
+	b.mu.RLock("CustomConnectionTypeCountForTest")
+	defer b.mu.RUnlock()
+
+	return len(b.customConnectionTypes)
 }
 
 // DatabaseCount returns the number of databases stored in the backend. Used only in tests.

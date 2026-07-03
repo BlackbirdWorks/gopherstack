@@ -13,6 +13,22 @@ type StorageBackend interface {
 	// Reset clears all backend state, returning it to the initial empty state.
 	Reset()
 
+	// Managed reconciler lifecycle. StartReconciler is invoked by the service
+	// framework's BackgroundWorker hook; StopReconciler by its Shutdowner hook.
+	StartReconciler(ctx context.Context)
+	StopReconciler()
+
+	// Connection-type registry operations.
+	RegisterConnectionType(name, description string) (*ConnectionTypeInfo, error)
+	DeleteConnectionType(name string) error
+	ListConnectionTypes() []*ConnectionTypeInfo
+	DescribeConnectionType(name string) (*ConnectionTypeInfo, error)
+
+	// Connector entity metadata/data operations.
+	DescribeEntity(connectionName, entityName string) ([]EntityField, error)
+	GetEntityRecords(connectionName, entityName string, limit int, nextToken string) ([]map[string]any, string, error)
+	ListEntities(connectionName string) ([]EntityDescriptor, error)
+
 	// Database operations.
 	CreateDatabase(input DatabaseInput, tags map[string]string) (*Database, error)
 	GetDatabase(name string) (*Database, error)

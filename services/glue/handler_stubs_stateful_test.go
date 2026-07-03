@@ -1414,7 +1414,8 @@ func TestIntegrationTableProperties(t *testing.T) {
 	}
 }
 
-// TestDescribeConnectionType verifies required-field validation.
+// TestDescribeConnectionType verifies required-field validation and that unknown
+// types return EntityNotFoundException while built-in types resolve.
 func TestDescribeConnectionType(t *testing.T) {
 	t.Parallel()
 
@@ -1424,11 +1425,20 @@ func TestDescribeConnectionType(t *testing.T) {
 		wantCode int
 	}{
 		{name: "missing_type_returns_400", input: map[string]any{}, wantCode: http.StatusBadRequest},
-		{name: "known_type_returns_200", input: map[string]any{"ConnectionType": "JDBC"}, wantCode: http.StatusOK},
 		{
-			name:     "custom_type_returns_200",
-			input:    map[string]any{"ConnectionType": "CUSTOM_CONN"},
+			name:     "known_type_returns_200",
+			input:    map[string]any{"ConnectionType": "JDBC"},
 			wantCode: http.StatusOK,
+		},
+		{
+			name:     "case_insensitive_returns_200",
+			input:    map[string]any{"ConnectionType": "salesforce"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "unknown_type_returns_400",
+			input:    map[string]any{"ConnectionType": "CUSTOM_CONN"},
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
