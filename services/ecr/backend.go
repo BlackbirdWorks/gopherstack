@@ -425,13 +425,13 @@ type EnhancedFindingResourceDetails struct {
 
 // AwsEcrContainerImageDetails describes the ECR image an enhanced finding covers.
 type AwsEcrContainerImageDetails struct {
-	PushedAt       time.Time `json:"pushedAt"`
-	Architecture   string    `json:"architecture,omitempty"`
-	ImageHash      string    `json:"imageHash,omitempty"`
-	Platform       string    `json:"platform,omitempty"`
-	RegistryID     string    `json:"registryId,omitempty"`
-	RepositoryName string    `json:"repositoryName,omitempty"`
-	ImageTags      []string  `json:"imageTags,omitempty"`
+	Architecture   string   `json:"architecture,omitempty"`
+	ImageHash      string   `json:"imageHash,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	RegistryID     string   `json:"registryId,omitempty"`
+	RepositoryName string   `json:"repositoryName,omitempty"`
+	ImageTags      []string `json:"imageTags,omitempty"`
+	PushedAt       float64  `json:"pushedAt"`
 }
 
 // ImageScanStartResult is returned by StartImageScan.

@@ -293,7 +293,7 @@ func buildEnhancedFindings(
 						RegistryID:     registryID,
 						Architecture:   "amd64",
 						Platform:       "LINUX",
-						PushedAt:       firstObserved,
+						PushedAt:       float64(firstObserved.Unix()),
 						ImageTags:      tags,
 					},
 				},
