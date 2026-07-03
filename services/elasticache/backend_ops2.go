@@ -388,11 +388,20 @@ func (b *InMemoryBackend) DeleteGlobalReplicationGroup(
 
 	grg, ok := b.getGlobalReplicationGroup(id)
 
-	if !ok {
+	if !ok || isReaped(b.now(), grg.PendingStatus, grg.AvailableAt) {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
 
+	if d := b.pendingUntil(); !d.IsZero() {
+		grg.PendingStatus = statusDeleting
+		grg.AvailableAt = d
+		b.appendEventLocked(id, "global-replication-group", "global replication group deleting")
+
+		return b.globalReplicationGroupView(grg), nil
+	}
+
 	result := *grg
+	grg.Tags.Close()
 	b.deleteGlobalReplicationGroup(id)
 
 	b.appendEventLocked(id, "global-replication-group", "global replication group deleted")
@@ -409,20 +418,26 @@ func (b *InMemoryBackend) DescribeGlobalReplicationGroups(
 	b.mu.RLock("DescribeGlobalReplicationGroups")
 	defer b.mu.RUnlock()
 
+	now := b.now()
 	if id != "" {
 		grg, ok := b.getGlobalReplicationGroup(id)
 
-		if !ok {
+		if !ok || isReaped(now, grg.PendingStatus, grg.AvailableAt) {
 			return page.Page[GlobalReplicationGroup]{}, ErrGlobalReplicationGroupNotFound
 		}
 
-		return page.Page[GlobalReplicationGroup]{Data: []GlobalReplicationGroup{*grg}}, nil
+		view := *b.globalReplicationGroupView(grg)
+
+		return page.Page[GlobalReplicationGroup]{Data: []GlobalReplicationGroup{view}}, nil
 	}
 
 	grgs := b.listGlobalReplicationGroups()
 	out := make([]GlobalReplicationGroup, 0, len(grgs))
 	for _, grg := range grgs {
-		out = append(out, *grg)
+		if isReaped(now, grg.PendingStatus, grg.AvailableAt) {
+			continue
+		}
+		out = append(out, *b.globalReplicationGroupView(grg))
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -542,9 +557,9 @@ func (b *InMemoryBackend) ModifyGlobalReplicationGroup(
 	}
 
 	_ = automaticFailoverEnabled
-	result := *grg
+	b.markTransitionLocked(&grg.PendingStatus, &grg.AvailableAt, statusModifying)
 
-	return &result, nil
+	return b.globalReplicationGroupView(grg), nil
 }
 
 // RebalanceSlotsInGlobalReplicationGroup rebalances slots.
@@ -690,13 +705,23 @@ func (b *InMemoryBackend) DeleteServerlessCache(ctx context.Context, name string
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+	b.pruneRegionLocked(region)
 	store := b.serverlessCachesStore(region)
 	sc, ok := store[name]
-	if !ok {
+	if !ok || isReaped(b.now(), sc.PendingStatus, sc.AvailableAt) {
 		return nil, ErrServerlessCacheNotFound
 	}
 
+	if d := b.pendingUntil(); !d.IsZero() {
+		sc.PendingStatus = statusDeleting
+		sc.AvailableAt = d
+		b.appendEventLocked(name, "serverless-cache", "serverless cache deleting")
+
+		return b.serverlessCacheView(sc), nil
+	}
+
 	result := *sc
+	sc.Tags.Close()
 	delete(store, name)
 	b.appendEventLocked(name, "serverless-cache", "serverless cache deleted")
 
@@ -736,8 +761,10 @@ func (b *InMemoryBackend) DescribeServerlessCaches(
 
 	region := getRegion(ctx, b.region)
 
-	return describePaged(b.serverlessCachesStore(region), name, ErrServerlessCacheNotFound, nil,
+	p, err := describePaged(b.serverlessCachesStore(region), name, ErrServerlessCacheNotFound, nil,
 		func(sc ServerlessCache) string { return sc.Name }, marker, maxRecords)
+
+	return b.finalizeServerlessCachePage(name, p, err)
 }
 
 // DescribeServerlessCacheSnapshots returns a paginated list of serverless cache snapshots.
@@ -812,9 +839,9 @@ func (b *InMemoryBackend) ModifyServerlessCache(
 		sc.Description = description
 	}
 
-	result := *sc
+	b.markTransitionLocked(&sc.PendingStatus, &sc.AvailableAt, statusModifying)
 
-	return &result, nil
+	return b.serverlessCacheView(sc), nil
 }
 
 // StartMigration starts a migration for a replication group.
@@ -988,9 +1015,9 @@ func (b *InMemoryBackend) RebootCacheCluster(
 		}
 	}
 
-	result := *c
+	b.markTransitionLocked(&c.PendingStatus, &c.AvailableAt, statusRebooting)
 
-	return &result, nil
+	return b.clusterView(c), nil
 }
 
 // DeleteCacheSecurityGroup deletes a cache security group.

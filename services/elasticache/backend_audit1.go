@@ -308,12 +308,11 @@ func (b *InMemoryBackend) CreateReplicationGroupFull(
 	}
 
 	rg := b.buildReplicationGroupFromCreateOpts(region, opts)
+	b.markCreatingLocked(&rg.PendingStatus, &rg.AvailableAt)
 	rgStore[opts.ID] = rg
 	b.appendEventLocked(opts.ID, "replication-group", "replication group created")
 
-	cp := *rg
-
-	return &cp, nil
+	return b.replicationGroupView(rg), nil
 }
 
 // buildReplicationGroupFromCreateOpts assembles the ReplicationGroup from opts.
@@ -421,11 +420,10 @@ func (b *InMemoryBackend) ModifyReplicationGroupFull(
 	}
 
 	b.applyModifyOptsLocked(rg, opts)
+	b.markTransitionLocked(&rg.PendingStatus, &rg.AvailableAt, statusModifying)
 	b.appendEventLocked(id, "replication-group", "replication group modified")
 
-	cp := *rg
-
-	return &cp, nil
+	return b.replicationGroupView(rg), nil
 }
 
 // applyModifyOptsLocked applies modification options to an existing replication group.
