@@ -3,6 +3,7 @@ package firehose
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,8 +36,21 @@ type lambdaTransformResponseRecord struct {
 	Data     string `json:"data"`
 }
 
-// buildLambdaTransformPayload builds the JSON payload for a Lambda transformation invocation.
-func buildLambdaTransformPayload(records [][]byte, streamARN, region string) []byte {
+// transformOutcome is the result of a Lambda transformation: records marked "Ok"
+// are delivered downstream, while records marked "ProcessingFailed" are routed to
+// the S3 error/backup destination. Records marked "Dropped" are intentionally
+// discarded and appear in neither slice.
+type transformOutcome struct {
+	Ok     [][]byte
+	Failed [][]byte
+}
+
+// buildLambdaTransformPayload builds the JSON payload for a Lambda transformation
+// invocation. It returns the marshaled event and a map from the deterministic
+// record ID to the original record bytes so that "ProcessingFailed" records can be
+// recovered (and routed to the error destination) even when the Lambda response
+// omits their data.
+func buildLambdaTransformPayload(records [][]byte, streamARN, region string) ([]byte, map[string][]byte) {
 	now := time.Now().UnixMilli()
 
 	event := lambdaTransformEvent{
@@ -46,9 +60,13 @@ func buildLambdaTransformPayload(records [][]byte, streamARN, region string) []b
 		Records:           make([]lambdaTransformRecord, len(records)),
 	}
 
+	idToOriginal := make(map[string][]byte, len(records))
+
 	for i, rec := range records {
+		recordID := strconv.Itoa(i)
+		idToOriginal[recordID] = rec
 		event.Records[i] = lambdaTransformRecord{
-			RecordID:                    uuid.NewString(),
+			RecordID:                    recordID,
 			Data:                        base64.StdEncoding.EncodeToString(rec),
 			ApproximateArrivalTimestamp: now,
 		}
@@ -57,34 +75,63 @@ func buildLambdaTransformPayload(records [][]byte, streamARN, region string) []b
 	payload, err := json.Marshal(event)
 	if err != nil {
 		// If we can't marshal the payload, return nil so the caller
-		// can propagate the failure and drop the records.
-		return nil
+		// can propagate the failure and route the records to the error output.
+		return nil, nil
 	}
 
-	return payload
+	return payload, idToOriginal
 }
 
-// parseLambdaTransformResponse parses the Lambda response and returns only "Ok" records.
-func parseLambdaTransformResponse(result []byte) [][]byte {
+// parseLambdaTransformResponse parses the Lambda response, separating "Ok" records
+// (to be delivered) from "ProcessingFailed" records (to be routed to the S3 error
+// destination). "Dropped" records are discarded. idToOriginal maps record IDs back
+// to their source bytes so failed records carry their original payload even when the
+// Lambda omits the data field. A record whose data cannot be decoded is treated as a
+// processing failure so it is not silently lost.
+func parseLambdaTransformResponse(result []byte, idToOriginal map[string][]byte) (transformOutcome, bool) {
 	var resp lambdaTransformResponse
 	if err := json.Unmarshal(result, &resp); err != nil {
-		return nil
+		return transformOutcome{}, false
 	}
 
-	out := make([][]byte, 0, len(resp.Records))
+	out := transformOutcome{
+		Ok:     make([][]byte, 0, len(resp.Records)),
+		Failed: make([][]byte, 0),
+	}
 
 	for _, rec := range resp.Records {
-		if rec.Result != "Ok" {
-			continue
-		}
+		switch rec.Result {
+		case "Ok":
+			data, err := base64.StdEncoding.DecodeString(rec.Data)
+			if err != nil {
+				out.Failed = append(out.Failed, originalOrDecoded(rec, idToOriginal))
 
-		data, err := base64.StdEncoding.DecodeString(rec.Data)
-		if err != nil {
-			continue
-		}
+				continue
+			}
 
-		out = append(out, data)
+			out.Ok = append(out.Ok, data)
+		case "Dropped":
+			// Intentionally discarded by the transform function.
+			continue
+		default:
+			// "ProcessingFailed" (and any unknown result) is routed to the error output.
+			out.Failed = append(out.Failed, originalOrDecoded(rec, idToOriginal))
+		}
 	}
 
-	return out
+	return out, true
+}
+
+// originalOrDecoded returns the original source bytes for a record ID when known,
+// falling back to decoding the response data field.
+func originalOrDecoded(rec lambdaTransformResponseRecord, idToOriginal map[string][]byte) []byte {
+	if orig, ok := idToOriginal[rec.RecordID]; ok && len(orig) > 0 {
+		return orig
+	}
+
+	if data, err := base64.StdEncoding.DecodeString(rec.Data); err == nil && len(data) > 0 {
+		return data
+	}
+
+	return nil
 }

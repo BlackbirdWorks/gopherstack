@@ -235,20 +235,21 @@ const (
 // s3DestinationInput holds the S3 destination configuration from the API request.
 // It maps both S3DestinationConfiguration and ExtendedS3DestinationConfiguration fields.
 type s3DestinationInput struct {
-	BufferingHints                   *BufferingHints                   `json:"BufferingHints"`
-	ProcessingConfiguration          *ProcessingConfiguration          `json:"ProcessingConfiguration"`
-	S3BackupConfiguration            *s3BackupInput                    `json:"S3BackupConfiguration"`
-	EncryptionConfiguration          *S3EncryptionConfiguration        `json:"EncryptionConfiguration"`
-	CloudWatchLoggingOptions         *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions"`
-	DynamicPartitioningConfiguration *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration"`
-	BucketARN                        string                            `json:"BucketARN"`
-	RoleARN                          string                            `json:"RoleARN"`
-	Prefix                           string                            `json:"Prefix"`
-	ErrorOutputPrefix                string                            `json:"ErrorOutputPrefix"`
-	CompressionFormat                string                            `json:"CompressionFormat"`
-	FileExtension                    string                            `json:"FileExtension"`
-	CustomTimeZone                   string                            `json:"CustomTimeZone"`
-	S3BackupMode                     string                            `json:"S3BackupMode"`
+	BufferingHints                    *BufferingHints                   `json:"BufferingHints"`
+	ProcessingConfiguration           *ProcessingConfiguration          `json:"ProcessingConfiguration"`
+	S3BackupConfiguration             *s3BackupInput                    `json:"S3BackupConfiguration"`
+	EncryptionConfiguration           *S3EncryptionConfiguration        `json:"EncryptionConfiguration"`
+	CloudWatchLoggingOptions          *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions"`
+	DynamicPartitioningConfiguration  *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration"`
+	DataFormatConversionConfiguration *DataFormatConversionConfig       `json:"DataFormatConversionConfiguration"`
+	BucketARN                         string                            `json:"BucketARN"`
+	RoleARN                           string                            `json:"RoleARN"`
+	Prefix                            string                            `json:"Prefix"`
+	ErrorOutputPrefix                 string                            `json:"ErrorOutputPrefix"`
+	CompressionFormat                 string                            `json:"CompressionFormat"`
+	FileExtension                     string                            `json:"FileExtension"`
+	CustomTimeZone                    string                            `json:"CustomTimeZone"`
+	S3BackupMode                      string                            `json:"S3BackupMode"`
 }
 
 // s3BackupInput holds the S3 backup destination configuration.
@@ -381,6 +382,7 @@ func buildS3DestinationDescription(raw *s3DestinationInput) *S3DestinationDescri
 		EncryptionConfiguration:          raw.EncryptionConfiguration,
 		CloudWatchLoggingOptions:         raw.CloudWatchLoggingOptions,
 		DynamicPartitioningConfiguration: raw.DynamicPartitioningConfiguration,
+		DataFormatConversion:             raw.DataFormatConversionConfiguration,
 	}
 
 	dest.S3BackupDescription = buildS3BackupDescription(raw.S3BackupConfiguration)
@@ -551,6 +553,12 @@ func (h *Handler) handleCreateDeliveryStream(
 		rawS3 = in.S3DestinationConfiguration
 	}
 
+	if rawS3 != nil {
+		if err := validateDataFormatConversion(rawS3.DataFormatConversionConfiguration); err != nil {
+			return nil, err
+		}
+	}
+
 	s, err := h.Backend.CreateDeliveryStream(ctx, CreateDeliveryStreamInput{
 		Name:                    in.DeliveryStreamName,
 		DeliveryStreamType:      in.DeliveryStreamType,
@@ -687,11 +695,21 @@ type listDeliveryStreamsOutput struct {
 	HasMoreDeliveryStreams bool     `json:"HasMoreDeliveryStreams"`
 }
 
+// isValidDeliveryStreamType reports whether s is a DeliveryStreamType filter value AWS
+// accepts on ListDeliveryStreams.
+func isValidDeliveryStreamType(s string) bool {
+	return s == deliveryStreamTypeDirectPut || s == deliveryStreamTypeKinesisSource
+}
+
 func (h *Handler) handleListDeliveryStreams(
 	ctx context.Context,
 	in *listDeliveryStreamsInput,
 ) (*listDeliveryStreamsOutput, error) {
-	names := h.Backend.ListDeliveryStreams(ctx)
+	if in.DeliveryStreamType != "" && !isValidDeliveryStreamType(in.DeliveryStreamType) {
+		return nil, fmt.Errorf("%w: invalid DeliveryStreamType %q", ErrValidation, in.DeliveryStreamType)
+	}
+
+	names := h.Backend.ListDeliveryStreamsByType(ctx, in.DeliveryStreamType)
 
 	// Apply ExclusiveStartDeliveryStreamName cursor.
 	if in.ExclusiveStartDeliveryStreamName != "" {
@@ -932,6 +950,12 @@ func (h *Handler) handleUpdateDestination(
 	rawS3 := in.ExtendedS3DestinationUpdate
 	if rawS3 == nil {
 		rawS3 = in.S3DestinationUpdate
+	}
+
+	if rawS3 != nil {
+		if err := validateDataFormatConversion(rawS3.DataFormatConversionConfiguration); err != nil {
+			return nil, err
+		}
 	}
 
 	update := UpdateDestinationInput{

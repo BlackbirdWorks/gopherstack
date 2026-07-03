@@ -47,7 +47,7 @@ func TestBuildS3Key(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			key := buildS3Key(tt.prefix, tt.streamName, ts)
+			key := buildS3Key(tt.prefix, tt.streamName, "", ts)
 			assert.True(t, strings.HasPrefix(key, tt.wantPrefix), "key=%q wantPrefix=%q", key, tt.wantPrefix)
 			assert.Contains(t, key, tt.wantContains, "key=%q wantContains=%q", key, tt.wantContains)
 		})

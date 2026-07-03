@@ -213,6 +213,116 @@ resource "aws_kinesis_firehose_delivery_stream" "encrypted" {
 }
 
 # ---------------------------------------------------------------------------
+# 5. Extended S3 stream with Parquet data-format conversion
+#    (mirrors terraform-provider-aws extendedS3DataFormatConversion coverage)
+# ---------------------------------------------------------------------------
+
+resource "aws_glue_catalog_database" "firehose" {
+  name = "firehose_comprehensive_db"
+}
+
+resource "aws_kinesis_firehose_delivery_stream" "s3_parquet" {
+  name        = "firehose-comprehensive-parquet"
+  destination = "extended_s3"
+
+  timeouts {
+    create = "2m"
+    delete = "2m"
+    update = "2m"
+  }
+
+  extended_s3_configuration {
+    role_arn            = aws_iam_role.firehose.arn
+    bucket_arn          = aws_s3_bucket.primary.arn
+    buffering_size      = 128
+    error_output_prefix = "conversion-errors/"
+
+    data_format_conversion_configuration {
+      enabled = true
+
+      input_format_configuration {
+        deserializer {
+          open_x_json_ser_de {}
+        }
+      }
+
+      output_format_configuration {
+        serializer {
+          parquet_ser_de {}
+        }
+      }
+
+      schema_configuration {
+        database_name = aws_glue_catalog_database.firehose.name
+        role_arn      = aws_iam_role.firehose.arn
+        table_name    = "events"
+      }
+    }
+  }
+
+  tags = {
+    Environment = "test"
+    Purpose     = "data-format-conversion"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 6. Extended S3 stream with dynamic partitioning by a jq query key
+#    (mirrors terraform-provider-aws dynamicPartitioning coverage)
+# ---------------------------------------------------------------------------
+
+resource "aws_kinesis_firehose_delivery_stream" "s3_dynamic_partitioning" {
+  name        = "firehose-comprehensive-dynpart"
+  destination = "extended_s3"
+
+  timeouts {
+    create = "2m"
+    delete = "2m"
+    update = "2m"
+  }
+
+  extended_s3_configuration {
+    role_arn            = aws_iam_role.firehose.arn
+    bucket_arn          = aws_s3_bucket.primary.arn
+    buffering_size      = 64
+    buffering_interval  = 60
+    prefix              = "data/customer=!{partitionKeyFromQuery:customer_id}/"
+    error_output_prefix = "errors/!{firehose:error-output-type}/"
+
+    dynamic_partitioning_configuration {
+      enabled = true
+
+      retry_options {
+        duration_in_seconds = 300
+      }
+    }
+
+    processing_configuration {
+      enabled = true
+
+      processors {
+        type = "MetadataExtraction"
+
+        parameters {
+          parameter_name  = "MetadataExtractionQuery"
+          parameter_value = "{customer_id:.customer_id}"
+        }
+
+        parameters {
+          parameter_name  = "JsonParsingEngine"
+          parameter_value = "JQ-1.6"
+        }
+      }
+    }
+  }
+
+  tags = {
+    Environment = "test"
+    Purpose     = "dynamic-partitioning"
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Outputs
 # ---------------------------------------------------------------------------
 
@@ -239,4 +349,14 @@ output "http_endpoint_stream_arn" {
 output "encrypted_stream_arn" {
   description = "ARN of the server-side encrypted delivery stream"
   value       = aws_kinesis_firehose_delivery_stream.encrypted.arn
+}
+
+output "s3_parquet_stream_arn" {
+  description = "ARN of the Parquet data-format-conversion delivery stream"
+  value       = aws_kinesis_firehose_delivery_stream.s3_parquet.arn
+}
+
+output "s3_dynamic_partitioning_stream_arn" {
+  description = "ARN of the dynamic-partitioning delivery stream"
+  value       = aws_kinesis_firehose_delivery_stream.s3_dynamic_partitioning.arn
 }

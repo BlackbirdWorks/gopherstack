@@ -11,11 +11,16 @@
 		PutRecordBatchCommand,
 		StartDeliveryStreamEncryptionCommand,
 		StopDeliveryStreamEncryptionCommand,
+		ListTagsForDeliveryStreamCommand,
+		TagDeliveryStreamCommand,
+		UntagDeliveryStreamCommand,
+		UpdateDestinationCommand,
 		type DeliveryStreamDescription,
-		type DestinationDescription
+		type DestinationDescription,
+		type UpdateDestinationCommandInput
 	} from '@aws-sdk/client-firehose';
 	import { toast } from 'svelte-sonner';
-	import { Flame, Search, RefreshCw, Plus, Trash2, ChevronRight, Send, Database, Archive, Key, Shield, ShieldOff } from 'lucide-svelte';
+	import { Flame, Search, RefreshCw, Plus, Trash2, ChevronRight, Send, Database, Archive, Key, Shield, ShieldOff, Tag, Pencil, X } from 'lucide-svelte';
 
 	const firehose = getFirehoseClient();
 
@@ -23,8 +28,26 @@
 	let streamNames = $state<string[]>([]);
 	let selectedStream = $state<DeliveryStreamDescription | null>(null);
 	let loadingDetail = $state(false);
-	let activeTab = $state<'overview' | 'destinations' | 'encryption' | 'put'>('overview');
+	let activeTab = $state<'overview' | 'destinations' | 'tags' | 'encryption' | 'put'>('overview');
 	let searchQuery = $state('');
+
+	// Tags
+	let tagList = $state<{ Key: string; Value: string }[]>([]);
+	let loadingTags = $state(false);
+	let newTagKey = $state('');
+	let newTagValue = $state('');
+	let savingTag = $state(false);
+
+	// Update Destination
+	let showUpdateDest = $state(false);
+	let updatingDest = $state(false);
+	let updDestType = $state<'s3' | 'http' | 'splunk'>('s3');
+	let updBucket = $state('');
+	let updPrefix = $state('');
+	let updRoleArn = $state('');
+	let updHttpUrl = $state('');
+	let updSplunkEndpoint = $state('');
+	let updSplunkToken = $state('');
 
 	// Create Stream
 	let showCreateStream = $state(false);
@@ -82,6 +105,8 @@
 			const resp = await firehose.send(new DescribeDeliveryStreamCommand({ DeliveryStreamName: name }));
 			selectedStream = resp.DeliveryStreamDescription ?? null;
 			activeTab = 'overview';
+			tagList = [];
+			void loadTags(name);
 		} catch (e) {
 			toast.error('Failed to load stream details: ' + String(e));
 		} finally {
@@ -231,14 +256,117 @@
 
 	function getDestinationLabel(dest: DestinationDescription): string {
 		if (dest.S3DestinationDescription) return `S3: ${dest.S3DestinationDescription.BucketARN}`;
+		if (dest.ExtendedS3DestinationDescription) return `S3: ${dest.ExtendedS3DestinationDescription.BucketARN}`;
 		if (dest.RedshiftDestinationDescription) return `Redshift: ${dest.RedshiftDestinationDescription.ClusterJDBCURL ?? ''}`;
 		if (dest.AmazonopensearchserviceDestinationDescription) return `OpenSearch: ${dest.AmazonopensearchserviceDestinationDescription.DomainARN ?? ''}`;
+		if (dest.HttpEndpointDestinationDescription) return `HTTP: ${dest.HttpEndpointDestinationDescription.EndpointConfiguration?.Url ?? ''}`;
+		if (dest.SplunkDestinationDescription) return `Splunk: ${dest.SplunkDestinationDescription.HECEndpoint ?? ''}`;
 		return 'Unknown destination';
+	}
+
+	async function loadTags(name: string) {
+		loadingTags = true;
+		try {
+			const resp = await firehose.send(new ListTagsForDeliveryStreamCommand({ DeliveryStreamName: name }));
+			tagList = (resp.Tags ?? []).map((t) => ({ Key: t.Key ?? '', Value: t.Value ?? '' }));
+		} catch (e) {
+			toast.error('Failed to load tags: ' + String(e));
+		} finally {
+			loadingTags = false;
+		}
+	}
+
+	async function addTag() {
+		if (!selectedStream?.DeliveryStreamName || !newTagKey.trim()) return;
+		savingTag = true;
+		try {
+			await firehose.send(new TagDeliveryStreamCommand({
+				DeliveryStreamName: selectedStream.DeliveryStreamName,
+				Tags: [{ Key: newTagKey.trim(), Value: newTagValue.trim() }]
+			}));
+			toast.success(`Tag "${newTagKey}" applied`);
+			newTagKey = '';
+			newTagValue = '';
+			await loadTags(selectedStream.DeliveryStreamName);
+		} catch (e) {
+			toast.error('Failed to add tag: ' + String(e));
+		} finally {
+			savingTag = false;
+		}
+	}
+
+	async function removeTag(key: string) {
+		if (!selectedStream?.DeliveryStreamName) return;
+		try {
+			await firehose.send(new UntagDeliveryStreamCommand({
+				DeliveryStreamName: selectedStream.DeliveryStreamName,
+				TagKeys: [key]
+			}));
+			toast.success(`Tag "${key}" removed`);
+			await loadTags(selectedStream.DeliveryStreamName);
+		} catch (e) {
+			toast.error('Failed to remove tag: ' + String(e));
+		}
+	}
+
+	function openUpdateDest() {
+		const dest = (selectedStream?.Destinations ?? [])[0];
+		const s3 = dest?.ExtendedS3DestinationDescription ?? dest?.S3DestinationDescription;
+		updDestType = dest?.HttpEndpointDestinationDescription ? 'http' : dest?.SplunkDestinationDescription ? 'splunk' : 's3';
+		updBucket = s3?.BucketARN?.replace('arn:aws:s3:::', '') ?? '';
+		updPrefix = s3?.Prefix ?? '';
+		updRoleArn = s3?.RoleARN ?? '';
+		updHttpUrl = dest?.HttpEndpointDestinationDescription?.EndpointConfiguration?.Url ?? '';
+		updSplunkEndpoint = dest?.SplunkDestinationDescription?.HECEndpoint ?? '';
+		updSplunkToken = '';
+		showUpdateDest = true;
+	}
+
+	async function submitUpdateDest() {
+		if (!selectedStream?.DeliveryStreamName) return;
+		const dest = (selectedStream.Destinations ?? [])[0];
+		const destinationId = dest?.DestinationId ?? 'destinationId-000000000001';
+		const version = selectedStream.VersionId ?? '';
+		updatingDest = true;
+		try {
+			const cmd: UpdateDestinationCommandInput = {
+				DeliveryStreamName: selectedStream.DeliveryStreamName,
+				CurrentDeliveryStreamVersionId: version,
+				DestinationId: destinationId
+			};
+			if (updDestType === 's3') {
+				cmd.ExtendedS3DestinationUpdate = {
+					BucketARN: `arn:aws:s3:::${updBucket.trim()}`,
+					RoleARN: updRoleArn.trim() || 'arn:aws:iam::123456789012:role/firehose-role',
+					Prefix: updPrefix.trim() || undefined
+				};
+			} else if (updDestType === 'http') {
+				cmd.HttpEndpointDestinationUpdate = {
+					EndpointConfiguration: { Url: updHttpUrl.trim() }
+				};
+			} else {
+				cmd.SplunkDestinationUpdate = {
+					HECEndpoint: updSplunkEndpoint.trim(),
+					HECEndpointType: 'Raw',
+					HECToken: updSplunkToken.trim() || undefined
+				};
+			}
+			await firehose.send(new UpdateDestinationCommand(cmd));
+			toast.success('Destination updated');
+			showUpdateDest = false;
+			await selectStream(selectedStream.DeliveryStreamName);
+		} catch (e) {
+			toast.error('Failed to update destination: ' + String(e));
+		} finally {
+			updatingDest = false;
+		}
 	}
 
 	function getRetryDuration(dest: DestinationDescription): number | undefined {
 		return dest.RedshiftDestinationDescription?.RetryOptions?.DurationInSeconds ??
-			dest.AmazonopensearchserviceDestinationDescription?.RetryOptions?.DurationInSeconds;
+			dest.AmazonopensearchserviceDestinationDescription?.RetryOptions?.DurationInSeconds ??
+			dest.HttpEndpointDestinationDescription?.RetryOptions?.DurationInSeconds ??
+			dest.SplunkDestinationDescription?.RetryOptions?.DurationInSeconds;
 	}
 
 	onMount(loadStreams);
@@ -317,9 +445,9 @@
 
 		<!-- Tabs -->
 		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-			{#each [['overview', 'Overview'], ['destinations', 'Destinations'], ['encryption', 'Encryption'], ['put', 'Put Record']] as [tab, label]}
+			{#each [['overview', 'Overview'], ['destinations', 'Destinations'], ['tags', 'Tags'], ['encryption', 'Encryption'], ['put', 'Put Record']] as [tab, label]}
 				<button
-					onclick={() => (activeTab = tab as 'overview' | 'destinations' | 'encryption' | 'put')}
+					onclick={() => (activeTab = tab as 'overview' | 'destinations' | 'tags' | 'encryption' | 'put')}
 					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-red-500 text-red-600 dark:text-red-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
 				>
 					{label}
@@ -347,6 +475,11 @@
 		{/if}
 
 		{#if activeTab === 'destinations'}
+			<div class="flex justify-end">
+				<button onclick={openUpdateDest} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
+					<Pencil class="w-4 h-4" /> Update Destination
+				</button>
+			</div>
 			{#if (selectedStream.Destinations ?? []).length === 0}
 				<div class="text-center py-12 text-gray-500">
 					<Database class="w-10 h-10 mx-auto mb-2 opacity-40" />
@@ -430,6 +563,54 @@
 										</div>
 									{/if}
 
+									{#if dest.HttpEndpointDestinationDescription}
+										{@const http = dest.HttpEndpointDestinationDescription}
+										<div class="mt-3 grid grid-cols-2 gap-3 text-xs">
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2 col-span-2">
+												<div class="text-gray-400 mb-1">Endpoint URL</div>
+												<div class="font-mono text-gray-800 dark:text-gray-200 truncate">{http.EndpointConfiguration?.Url ?? '-'}</div>
+											</div>
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">Endpoint Name</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{http.EndpointConfiguration?.Name ?? '-'}</div>
+											</div>
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">S3 Backup Mode</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{http.S3BackupMode ?? '-'}</div>
+											</div>
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">Buffer Size / Interval</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{http.BufferingHints?.SizeInMBs ?? '-'} MB / {http.BufferingHints?.IntervalInSeconds ?? '-'}s</div>
+											</div>
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">Content Encoding</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{http.RequestConfiguration?.ContentEncoding ?? 'NONE'}</div>
+											</div>
+										</div>
+									{/if}
+
+									{#if dest.SplunkDestinationDescription}
+										{@const splunk = dest.SplunkDestinationDescription}
+										<div class="mt-3 grid grid-cols-2 gap-3 text-xs">
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2 col-span-2">
+												<div class="text-gray-400 mb-1">HEC Endpoint</div>
+												<div class="font-mono text-gray-800 dark:text-gray-200 truncate">{splunk.HECEndpoint ?? '-'}</div>
+											</div>
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">HEC Endpoint Type</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{splunk.HECEndpointType ?? '-'}</div>
+											</div>
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">Ack Timeout</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{splunk.HECAcknowledgmentTimeoutInSeconds ?? '-'}s</div>
+											</div>
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">S3 Backup Mode</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{splunk.S3BackupMode ?? '-'}</div>
+											</div>
+										</div>
+									{/if}
+
 									{#if retryDuration !== undefined}
 										<div class="mt-3 border border-orange-200 dark:border-orange-800 rounded-lg p-3 bg-orange-50 dark:bg-orange-900/20">
 											<div class="flex items-center justify-between mb-2">
@@ -457,6 +638,50 @@
 					{/each}
 				</div>
 			{/if}
+		{/if}
+
+		{#if activeTab === 'tags'}
+			<div class="max-w-2xl space-y-4">
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+					<div class="flex items-center gap-2 mb-4">
+						<Tag class="w-5 h-5 text-red-500" />
+						<h3 class="font-medium text-gray-900 dark:text-white">Resource Tags</h3>
+					</div>
+
+					<div class="flex flex-wrap gap-2 items-end mb-4">
+						<div class="flex-1 min-w-[8rem]">
+							<label for="tag-key" class="block text-xs font-medium text-gray-500 mb-1">Key</label>
+							<input id="tag-key" bind:value={newTagKey} type="text" placeholder="Environment" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+						</div>
+						<div class="flex-1 min-w-[8rem]">
+							<label for="tag-value" class="block text-xs font-medium text-gray-500 mb-1">Value</label>
+							<input id="tag-value" bind:value={newTagValue} type="text" placeholder="production" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+						</div>
+						<button onclick={addTag} disabled={savingTag || !newTagKey.trim()} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+							<Plus class="w-4 h-4" /> {savingTag ? 'Saving...' : 'Add Tag'}
+						</button>
+					</div>
+
+					{#if loadingTags}
+						<div class="text-sm text-gray-400">Loading tags...</div>
+					{:else if tagList.length === 0}
+						<div class="text-sm text-gray-400">No tags applied.</div>
+					{:else}
+						<div class="space-y-2">
+							{#each tagList as tag}
+								<div class="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2 text-sm">
+									<div class="font-mono text-gray-800 dark:text-gray-200">
+										<span class="text-gray-500">{tag.Key}</span> = {tag.Value || '""'}
+									</div>
+									<button onclick={() => removeTag(tag.Key)} class="text-red-500 hover:text-red-700 p-1" aria-label={`Remove tag ${tag.Key}`}>
+										<X class="w-4 h-4" />
+									</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			</div>
 		{/if}
 
 		{#if activeTab === 'encryption'}
@@ -633,6 +858,67 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Update Destination Modal -->
+{#if showUpdateDest}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Update Destination</h2>
+			<p class="text-sm text-gray-500 dark:text-gray-400">
+				Switch or reconfigure the destination for <span class="font-mono">{selectedStream?.DeliveryStreamName}</span>
+				(version {selectedStream?.VersionId ?? '-'}).
+			</p>
+			<div>
+				<label for="upd-dest-type" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Destination Type</label>
+				<select id="upd-dest-type" bind:value={updDestType} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+					<option value="s3">Amazon S3</option>
+					<option value="http">HTTP Endpoint</option>
+					<option value="splunk">Splunk</option>
+				</select>
+			</div>
+
+			{#if updDestType === 's3'}
+				<div class="space-y-3">
+					<div>
+						<label for="upd-bucket" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">S3 Bucket Name</label>
+						<input id="upd-bucket" bind:value={updBucket} type="text" placeholder="my-bucket" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div>
+						<label for="upd-prefix" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Prefix (optional)</label>
+						<input id="upd-prefix" bind:value={updPrefix} type="text" placeholder="data/" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div>
+						<label for="upd-role" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IAM Role ARN</label>
+						<input id="upd-role" bind:value={updRoleArn} type="text" placeholder="arn:aws:iam::123456789012:role/firehose-role" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+				</div>
+			{:else if updDestType === 'http'}
+				<div>
+					<label for="upd-http-url" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Endpoint URL</label>
+					<input id="upd-http-url" bind:value={updHttpUrl} type="text" placeholder="https://example.com/firehose" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+				</div>
+			{:else}
+				<div class="space-y-3">
+					<div>
+						<label for="upd-splunk-ep" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">HEC Endpoint</label>
+						<input id="upd-splunk-ep" bind:value={updSplunkEndpoint} type="text" placeholder="https://splunk:8088" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div>
+						<label for="upd-splunk-token" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">HEC Token (optional)</label>
+						<input id="upd-splunk-token" bind:value={updSplunkToken} type="text" placeholder="hec-token" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+				</div>
+			{/if}
+
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showUpdateDest = false)} class="flex-1 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={submitUpdateDest} disabled={updatingDest} class="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+					{updatingDest ? 'Updating...' : 'Update Destination'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Create Stream Modal -->
 {#if showCreateStream}
