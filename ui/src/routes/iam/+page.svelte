@@ -17,19 +17,37 @@ ListRolePoliciesCommand, GetRolePolicyCommand, PutRolePolicyCommand, DeleteRoleP
 ListGroupsForUserCommand,
 GetLoginProfileCommand, CreateLoginProfileCommand, UpdateLoginProfileCommand, DeleteLoginProfileCommand,
 ListVirtualMFADevicesCommand, DeactivateMFADeviceCommand,
+SimulateCustomPolicyCommand,
+GenerateCredentialReportCommand, GetCredentialReportCommand,
 type User, type Role, type Group, type Policy as ManagedPolicy, type AccessKeyMetadata,
 type VirtualMFADevice
 } from '@aws-sdk/client-iam';
 import { toast } from 'svelte-sonner';
 import {
 Users, Shield, RefreshCw, Search, UserCircle, ChevronRight, FileText,
-Copy, Plus, Trash2, Key, BarChart3, BookOpen, X, Eye, EyeOff
+Copy, Plus, Trash2, Key, BarChart3, BookOpen, X, Eye, EyeOff,
+FlaskConical, ClipboardList, CheckCircle2, XCircle
 } from 'lucide-svelte';
 
 const iam = getIAMClient();
 
 // ─── Types ───
-type MainTab = 'users' | 'roles' | 'groups' | 'policies' | 'metrics' | 'docs';
+type MainTab = 'users' | 'roles' | 'groups' | 'policies' | 'simulator' | 'report' | 'metrics' | 'docs';
+
+interface SimResult {
+EvalActionName?: string;
+EvalResourceName?: string;
+EvalDecision?: string;
+}
+
+interface CredReportRow {
+user: string;
+arn: string;
+passwordEnabled: string;
+mfaActive: string;
+key1Active: string;
+key2Active: string;
+}
 type PolicyScope = 'Local' | 'AWS' | 'All';
 
 interface AccountSummary {
@@ -78,6 +96,20 @@ let savingRoleInlinePolicy = $state(false);
 
 // Group membership
 let userGroups = $state<{ GroupName?: string; GroupId?: string }[]>([]);
+
+// Policy simulator state
+let simPolicyDoc = $state('{\n  "Version": "2012-10-17",\n  "Statement": [{\n    "Effect": "Allow",\n    "Action": "s3:GetObject",\n    "Resource": "arn:aws:s3:::example-bucket/*"\n  }]\n}');
+let simActions = $state('s3:GetObject');
+let simResources = $state('arn:aws:s3:::example-bucket/*');
+let simResults = $state<SimResult[]>([]);
+let simRunning = $state(false);
+let simError = $state('');
+
+// Credential report state
+let credReportRows = $state<CredReportRow[]>([]);
+let credReportGenerated = $state('');
+let credReportLoading = $state(false);
+let credReportError = $state('');
 
 // Login profile
 let loginProfileExists = $state<boolean | null>(null);
@@ -384,6 +416,89 @@ else if (t === 'roles' && roles.length === 0) await loadRoles();
 else if (t === 'groups' && groups.length === 0) await loadGroups();
 else if (t === 'policies') await loadPolicies();
 else if (t === 'metrics') await loadSummary();
+else if (t === 'report' && credReportRows.length === 0) await loadCredentialReport();
+}
+
+// ─── Policy simulator ───
+
+async function runSimulation() {
+const actions = simActions.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+if (actions.length === 0) { toast.error('At least one action is required'); return; }
+const resources = simResources.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+simRunning = true;
+simError = '';
+simResults = [];
+try {
+const res = await iam.send(new SimulateCustomPolicyCommand({
+PolicyInputList: [simPolicyDoc],
+ActionNames: actions,
+ResourceArns: resources.length > 0 ? resources : undefined,
+}));
+simResults = (res.EvaluationResults ?? []).map(r => ({
+EvalActionName: r.EvalActionName,
+EvalResourceName: r.EvalResourceName,
+EvalDecision: r.EvalDecision,
+}));
+if (simResults.length === 0) toast.info('No evaluation results returned');
+} catch (e) {
+simError = e instanceof Error ? e.message : String(e);
+toast.error('Simulation failed: ' + simError);
+} finally {
+simRunning = false;
+}
+}
+
+// ─── Credential report ───
+
+function decodeCredReport(content: unknown): string {
+if (content == null) return '';
+if (typeof content === 'string') { try { return atob(content); } catch { return content; } }
+// Uint8Array / ArrayBuffer / array-like of bytes (avoid cross-realm instanceof).
+try {
+const bytes = content instanceof ArrayBuffer ? new Uint8Array(content) : new Uint8Array(content as ArrayLike<number>);
+return new TextDecoder().decode(bytes);
+} catch {
+return String(content);
+}
+}
+
+function parseCredReport(csv: string): CredReportRow[] {
+const lines = csv.trim().split('\n');
+if (lines.length < 2) return [];
+const header = lines[0].split(',');
+const idx = (name: string) => header.indexOf(name);
+const rows: CredReportRow[] = [];
+for (let i = 1; i < lines.length; i++) {
+const cols = lines[i].split(',');
+if (cols.length < 2) continue;
+const at = (name: string) => { const j = idx(name); return j >= 0 && j < cols.length ? cols[j] : ''; };
+rows.push({
+user: at('user') || cols[0],
+arn: at('arn') || cols[1],
+passwordEnabled: at('password_enabled'),
+mfaActive: at('mfa_active'),
+key1Active: at('access_key_1_active'),
+key2Active: at('access_key_2_active'),
+});
+}
+return rows;
+}
+
+async function loadCredentialReport() {
+credReportLoading = true;
+credReportError = '';
+try {
+await iam.send(new GenerateCredentialReportCommand({}));
+const res = await iam.send(new GetCredentialReportCommand({}));
+const csv = decodeCredReport(res.Content);
+credReportRows = parseCredReport(csv);
+credReportGenerated = res.GeneratedTime ? new Date(res.GeneratedTime).toLocaleString() : new Date().toLocaleString();
+} catch (e) {
+credReportError = e instanceof Error ? e.message : String(e);
+toast.error('Credential report failed: ' + credReportError);
+} finally {
+credReportLoading = false;
+}
 }
 
 async function refresh() {
@@ -394,6 +509,7 @@ else if (tab === 'roles') { roles = []; await loadRoles(); }
 else if (tab === 'groups') { groups = []; await loadGroups(); }
 else if (tab === 'policies') { policies = []; await loadPolicies(); }
 else if (tab === 'metrics') await loadSummary();
+else if (tab === 'report') { credReportRows = []; await loadCredentialReport(); }
 await loadAccountAlias();
 }
 
@@ -651,7 +767,8 @@ const iam_docs = [
 <div class="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg flex-wrap">
 {#each ([
 ['users','Users'], ['roles','Roles'], ['groups','Groups'],
-['policies','Policies'], ['metrics','Metrics'], ['docs','Docs']
+['policies','Policies'], ['simulator','Simulator'], ['report','Credential Report'],
+['metrics','Metrics'], ['docs','Docs']
 ] as [MainTab, string][]) as [t, label]}
 <button id="{t}-tab" onclick={() => selectTab(t)}
 class="px-3 py-2 rounded-md text-sm font-medium transition-colors {tab === t
@@ -667,7 +784,7 @@ class="px-3 py-2 rounded-md text-sm font-medium transition-colors {tab === t
 {/each}
 </div>
 
-{#if tab !== 'metrics' && tab !== 'docs'}
+{#if tab !== 'metrics' && tab !== 'docs' && tab !== 'simulator' && tab !== 'report'}
 <div class="relative flex-1">
 <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
 <input type="text" placeholder="Search {tab}..." bind:value={search}
@@ -701,8 +818,122 @@ class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-whi
 {/if}
 </div>
 
+<!-- ─── Policy Simulator Tab ─── -->
+{#if tab === 'simulator'}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+<div class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+<FlaskConical class="w-4 h-4 text-indigo-500" />
+<span class="font-semibold text-slate-800 dark:text-white text-sm">Simulate Custom Policy</span>
+</div>
+<div class="p-4 space-y-3">
+<div>
+<label for="sim-policy" class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Policy Document (JSON)</label>
+<textarea id="sim-policy" bind:value={simPolicyDoc} rows="10"
+class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono"></textarea>
+</div>
+<div>
+<label for="sim-actions" class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Actions (comma or space separated)</label>
+<input id="sim-actions" type="text" bind:value={simActions}
+class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm font-mono" />
+</div>
+<div>
+<label for="sim-resources" class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Resource ARNs (optional)</label>
+<input id="sim-resources" type="text" bind:value={simResources}
+class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm font-mono" />
+</div>
+<button id="run-simulation" onclick={runSimulation} disabled={simRunning}
+class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+<FlaskConical class="w-4 h-4" />{simRunning ? 'Simulating…' : 'Run Simulation'}
+</button>
+</div>
+</div>
+<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+<div class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+<span class="font-semibold text-slate-800 dark:text-white text-sm">Evaluation Results</span>
+</div>
+<div class="p-4">
+{#if simError}
+<p class="text-sm text-red-500">{simError}</p>
+{:else if simResults.length === 0}
+<p class="text-sm text-slate-400" id="sim-empty">No results yet. Run a simulation.</p>
+{:else}
+<div class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each simResults as r}
+<div class="py-2 flex items-center justify-between gap-2">
+<div class="min-w-0">
+<p class="font-mono text-xs text-slate-800 dark:text-slate-200 truncate">{r.EvalActionName}</p>
+<p class="font-mono text-[11px] text-slate-400 truncate">{r.EvalResourceName}</p>
+</div>
+{#if r.EvalDecision === 'allowed'}
+<span class="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-green-600 dark:text-green-400"><CheckCircle2 class="w-4 h-4" />allowed</span>
+{:else}
+<span class="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-red-500"><XCircle class="w-4 h-4" />{r.EvalDecision}</span>
+{/if}
+</div>
+{/each}
+</div>
+{/if}
+</div>
+</div>
+</div>
+
+<!-- ─── Credential Report Tab ─── -->
+{:else if tab === 'report'}
+<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+<div class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2">
+<ClipboardList class="w-4 h-4 text-indigo-500" />
+<span class="font-semibold text-slate-800 dark:text-white text-sm">Credential Report</span>
+{#if credReportGenerated}<span class="text-xs text-slate-400">generated {credReportGenerated}</span>{/if}
+</div>
+<button id="regen-report" onclick={loadCredentialReport} disabled={credReportLoading}
+class="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 flex items-center gap-1">
+<RefreshCw class="w-3.5 h-3.5" />Regenerate
+</button>
+</div>
+{#if credReportLoading}
+<div class="p-12 text-center text-slate-500">
+<div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mb-3"></div>
+<p>Generating report…</p>
+</div>
+{:else if credReportError}
+<p class="p-4 text-sm text-red-500">{credReportError}</p>
+{:else if credReportRows.length === 0}
+<p class="p-12 text-center text-sm text-slate-400" id="report-empty">No credential data.</p>
+{:else}
+<div class="overflow-x-auto">
+<table class="w-full text-sm">
+<thead>
+<tr class="text-left text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+<th class="px-4 py-2 font-medium">User</th>
+<th class="px-4 py-2 font-medium">Password</th>
+<th class="px-4 py-2 font-medium">MFA</th>
+<th class="px-4 py-2 font-medium">Access Key 1</th>
+<th class="px-4 py-2 font-medium">Access Key 2</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each credReportRows as row}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-2">
+<p class="font-medium text-slate-900 dark:text-white">{row.user}</p>
+<p class="text-[11px] text-slate-400 font-mono truncate max-w-xs">{row.arn}</p>
+</td>
+<td class="px-4 py-2"><span class="text-xs {row.passwordEnabled === 'true' ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}">{row.passwordEnabled || 'n/a'}</span></td>
+<td class="px-4 py-2"><span class="text-xs {row.mfaActive === 'true' ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}">{row.mfaActive || 'n/a'}</span></td>
+<td class="px-4 py-2"><span class="text-xs {row.key1Active === 'true' ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}">{row.key1Active || 'false'}</span></td>
+<td class="px-4 py-2"><span class="text-xs {row.key2Active === 'true' ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}">{row.key2Active || 'false'}</span></td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+</div>
+
 <!-- ─── Metrics Tab ─── -->
-{#if tab === 'metrics'}
+{:else if tab === 'metrics'}
 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
 {#each [
 { label: 'Users', value: summary['Users'] ?? users.length },

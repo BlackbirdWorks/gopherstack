@@ -6,9 +6,11 @@ import "strings"
 // with values from the provided ConditionContext.
 //
 // Supported variables:
-//   - ${aws:username}      → IAM user name
-//   - ${aws:userid}        → IAM user ID
-//   - ${aws:sourceip}      → caller source IP
+//   - ${aws:username}            → IAM user name
+//   - ${aws:userid}              → IAM user ID
+//   - ${aws:sourceip}            → caller source IP
+//   - ${aws:PrincipalTag/<key>}  → value of a principal tag (empty if absent)
+//   - ${aws:RequestTag/<key>}    → value of a request tag (empty if absent)
 //
 // Unknown variables are left unchanged to avoid masking policy mistakes.
 func SubstituteVariables(doc string, ctx ConditionContext) string {
@@ -47,8 +49,8 @@ func SubstituteVariables(doc string, ctx ConditionContext) string {
 
 		if replacement, ok := replacements[inner]; ok {
 			result.WriteString(replacement)
-		} else if isTagVariable(inner) {
-			result.WriteString("")
+		} else if tagVal, isTag := resolveTagVariable(inner, ctx); isTag {
+			result.WriteString(tagVal)
 		} else {
 			result.WriteString(varName)
 		}
@@ -75,9 +77,26 @@ func buildVariableReplacements(ctx ConditionContext) map[string]string {
 	return m
 }
 
-func isTagVariable(inner string) bool {
-	return strings.HasPrefix(inner, "aws:principaltag/") ||
-		strings.HasPrefix(inner, "aws:requesttag/") ||
-		strings.HasPrefix(inner, "aws:resourcetag/") ||
-		strings.HasPrefix(inner, "aws:principalenv/")
+// resolveTagVariable resolves tag-based and environment policy variables. The
+// second return value reports whether inner was a recognised tag/env variable;
+// recognised-but-absent tags resolve to the empty string (matching AWS, which
+// treats an unresolved policy variable in a Resource/Principal element as the
+// empty string). resourcetag and principalenv remain recognised placeholders.
+func resolveTagVariable(inner string, ctx ConditionContext) (string, bool) {
+	if k, ok := strings.CutPrefix(inner, "aws:principaltag/"); ok {
+		v, _ := lookupTag(ctx.PrincipalTags, k)
+
+		return v, true
+	}
+	if k, ok := strings.CutPrefix(inner, "aws:requesttag/"); ok {
+		v, _ := lookupTag(ctx.RequestTags, k)
+
+		return v, true
+	}
+	if strings.HasPrefix(inner, "aws:resourcetag/") ||
+		strings.HasPrefix(inner, "aws:principalenv/") {
+		return "", true
+	}
+
+	return "", false
 }

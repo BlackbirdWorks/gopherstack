@@ -220,9 +220,10 @@ func collectResourcePolicies(ctx context.Context, providers []ResourcePolicyProv
 // buildConditionContext constructs the per-request condition evaluation context.
 func buildConditionContext(r *http.Request, user *User) ConditionContext {
 	return ConditionContext{
-		SourceIP: extractClientIP(r),
-		Username: user.UserName,
-		UserID:   user.UserID,
+		SourceIP:      extractClientIP(r),
+		Username:      user.UserName,
+		UserID:        user.UserID,
+		PrincipalTags: user.Tags,
 	}
 }
 

@@ -9,6 +9,9 @@ import {
   ListAccountAliasesCommand,
   GetAccountSummaryCommand,
   CreateUserCommand,
+  SimulateCustomPolicyCommand,
+  GenerateCredentialReportCommand,
+  GetCredentialReportCommand,
 } from "@aws-sdk/client-iam";
 
 const mockSend = vi.fn();
@@ -309,5 +312,72 @@ describe("IAM Page", () => {
       timeout: 3000,
     });
     expect(screen.getByText("1 of 1 policies")).toBeInTheDocument();
+  });
+
+  it("shows Simulator and Credential Report tabs", () => {
+    render(IAMPage);
+    const labels = screen.getAllByRole("button").map((b) => b.textContent?.trim());
+    expect(labels.some((n) => n?.includes("Simulator"))).toBe(true);
+    expect(labels.some((n) => n?.includes("Credential Report"))).toBe(true);
+  });
+
+  it("runs a policy simulation and shows the decision", async () => {
+    mockSend.mockImplementation((cmd) => {
+      if (cmd instanceof SimulateCustomPolicyCommand)
+        return Promise.resolve({
+          EvaluationResults: [
+            {
+              EvalActionName: "s3:GetObject",
+              EvalResourceName: "arn:aws:s3:::example-bucket/*",
+              EvalDecision: "allowed",
+            },
+          ],
+        });
+      return defaultMockImpl(cmd);
+    });
+    render(IAMPage);
+    await waitFor(() => expect(screen.getByText("No users found")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await fireEvent.click(document.querySelector("#simulator-tab")!);
+    await fireEvent.click(document.querySelector("#run-simulation")!);
+    await waitFor(() => expect(screen.getByText("allowed")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    const simCmd = mockSend.mock.calls
+      .map((c) => c[0])
+      .find((c) => c instanceof SimulateCustomPolicyCommand);
+    expect(simCmd).toBeTruthy();
+    expect((simCmd as SimulateCustomPolicyCommand).input.ActionNames).toContain("s3:GetObject");
+  });
+
+  it("loads and renders the credential report", async () => {
+    const csv =
+      "user,arn,user_creation_time,password_enabled,password_last_used," +
+      "password_last_changed,password_next_rotation,mfa_active," +
+      "access_key_1_active,access_key_2_active\n" +
+      "alice,arn:aws:iam::123:user/alice,2024-01-01T00:00:00Z,true,N/A,N/A,N/A,false,true,false";
+    mockSend.mockImplementation((cmd) => {
+      if (cmd instanceof GenerateCredentialReportCommand)
+        return Promise.resolve({ State: "COMPLETE" });
+      if (cmd instanceof GetCredentialReportCommand)
+        return Promise.resolve({
+          Content: new TextEncoder().encode(csv),
+          GeneratedTime: new Date("2024-01-02T00:00:00Z"),
+        });
+      return defaultMockImpl(cmd);
+    });
+    render(IAMPage);
+    await waitFor(() => expect(screen.getByText("No users found")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await fireEvent.click(document.querySelector("#report-tab")!);
+    await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    const genCmd = mockSend.mock.calls
+      .map((c) => c[0])
+      .find((c) => c instanceof GenerateCredentialReportCommand);
+    expect(genCmd).toBeTruthy();
   });
 });
