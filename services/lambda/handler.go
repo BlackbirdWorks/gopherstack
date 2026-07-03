@@ -1964,11 +1964,12 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 
 	var result []byte
 	var logResult string
+	var functionError string
 	var statusCode int
 	var invokeErr error
 
 	if qi, ok := h.Backend.(QualifierInvoker); ok {
-		result, logResult, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(
+		result, logResult, functionError, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(
 			ctx,
 			name,
 			qualifier,
@@ -2001,13 +2002,14 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	}
 
 	if len(result) > 0 {
-		// AWS Lambda signals an unhandled function error to the SDK via the
-		// X-Amz-Function-Error response header (with the body still HTTP 200
-		// containing the errorMessage/errorType JSON payload). Detect the
-		// payload shape and set the header so SDK clients can distinguish
-		// function errors from successful invocations.
-		if isLambdaFunctionErrorPayload(result) {
-			c.Response().Header().Set("X-Amz-Function-Error", "Handled")
+		// AWS Lambda signals a function error to the SDK via the X-Amz-Function-Error
+		// response header (the body is still HTTP 200 containing the
+		// errorMessage/errorType JSON payload). The value is "Unhandled" when the
+		// runtime reported the error itself and "Handled" when the function returned
+		// an error-shaped payload — the backend classifies this from the runtime's
+		// response vs error endpoint rather than guessing from the payload.
+		if functionError != "" {
+			c.Response().Header().Set("X-Amz-Function-Error", functionError)
 		}
 
 		return c.JSONBlob(http.StatusOK, result)

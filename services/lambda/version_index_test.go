@@ -68,7 +68,7 @@ func TestLambda_VersionIndex_ResolveQualifier(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, _, err := backend.InvokeFunctionWithQualifier(
+			_, _, _, _, err := backend.InvokeFunctionWithQualifier(
 				t.Context(),
 				fnName,
 				tt.qualifier,

@@ -71,11 +71,24 @@ type KinesisRecord struct {
 
 // SQSMessage is a single SQS message delivered to a Lambda function via ESM.
 type SQSMessage struct {
-	Attributes    map[string]string
-	MessageID     string
-	ReceiptHandle string
-	Body          string
-	MD5OfBody     string
+	Attributes             map[string]string
+	MessageAttributes      map[string]SQSMessageAttribute
+	MessageID              string
+	ReceiptHandle          string
+	Body                   string
+	MD5OfBody              string
+	MD5OfMessageAttributes string
+	// SentTimestampMillis is the SQS SentTimestamp in Unix milliseconds, used to
+	// enforce MaximumRecordAgeInSeconds. Zero means unknown (never expired).
+	SentTimestampMillis int64
+}
+
+// SQSMessageAttribute is a user-supplied SQS message attribute delivered to the
+// Lambda function in the event record's messageAttributes map.
+type SQSMessageAttribute struct {
+	DataType    string `json:"dataType"`
+	StringValue string `json:"stringValue,omitempty"`
+	BinaryValue []byte `json:"binaryValue,omitempty"`
 }
 
 // SQSReader is the interface for consuming SQS messages in the ESM poller.
@@ -95,7 +108,10 @@ type EventSourcePoller struct {
 	ddbStreamsReader DynamoDBStreamsReader
 	lambdaBackend    *InMemoryBackend
 	shardIterators   map[string]string
-	mu               *lockmetrics.RWMutex
+	// sqsBatchBuffers holds partial SQS batches per mapping UUID while the
+	// MaximumBatchingWindow has not yet elapsed. Keyed by ESM UUID.
+	sqsBatchBuffers map[string]*sqsBatchBuffer
+	mu              *lockmetrics.RWMutex
 	// notifyC allows callers to trigger an immediate poll without waiting for the next tick.
 	notifyC chan struct{}
 	// sqsInvoker is an optional override for the Lambda invocation step used
@@ -118,11 +134,12 @@ func NewEventSourcePoller(
 	kinesisReader KinesisReader,
 ) *EventSourcePoller {
 	return &EventSourcePoller{
-		lambdaBackend:  lambdaBackend,
-		kinesisReader:  kinesisReader,
-		shardIterators: make(map[string]string),
-		mu:             lockmetrics.New("lambda.esm"),
-		notifyC:        make(chan struct{}, 1),
+		lambdaBackend:   lambdaBackend,
+		kinesisReader:   kinesisReader,
+		shardIterators:  make(map[string]string),
+		sqsBatchBuffers: make(map[string]*sqsBatchBuffer),
+		mu:              lockmetrics.New("lambda.esm"),
+		notifyC:         make(chan struct{}, 1),
 	}
 }
 
@@ -299,6 +316,12 @@ func (p *EventSourcePoller) sweepStaleIterators(activeUUIDs map[string]struct{})
 			delete(p.shardIterators, key)
 		}
 	}
+
+	for uuid := range p.sqsBatchBuffers {
+		if _, active := activeUUIDs[uuid]; !active {
+			delete(p.sqsBatchBuffers, uuid)
+		}
+	}
 }
 
 // RemoveMapping removes any per-mapping poller state for the given ESM UUID.
@@ -314,6 +337,8 @@ func (p *EventSourcePoller) RemoveMapping(uuid string) {
 
 		delete(p.shardIterators, key)
 	}
+
+	delete(p.sqsBatchBuffers, uuid)
 }
 
 // processMapping reads new records from all shards and invokes Lambda.
@@ -400,9 +425,14 @@ func (p *EventSourcePoller) invokeLambda(
 		Records []lambdaRecord `json:"Records"`
 	}
 
-	eventRecords := make([]lambdaRecord, len(records))
-	for i, r := range records {
-		eventRecords[i] = lambdaRecord{
+	eventRecords := make([]lambdaRecord, 0, len(records))
+	for _, r := range records {
+		// Apply FilterCriteria: records matching no filter are skipped.
+		if !eventFilterMatches(m.FilterCriteria, kinesisFilterView(r.PartitionKey, r.SequenceNumber, r.Data)) {
+			continue
+		}
+
+		eventRecords = append(eventRecords, lambdaRecord{
 			Kinesis: kinesisRecord{
 				KinesisSchemaVersion:        "1.0",
 				PartitionKey:                r.PartitionKey,
@@ -417,7 +447,11 @@ func (p *EventSourcePoller) invokeLambda(
 			InvokeIdentityArn: m.FunctionARN,
 			AWSRegion:         p.lambdaBackend.region,
 			EventSourceARN:    m.EventSourceARN,
-		}
+		})
+	}
+
+	if len(eventRecords) == 0 {
+		return
 	}
 
 	payload, err := json.Marshal(lambdaEvent{Records: eventRecords})
@@ -592,9 +626,14 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 		Records []lambdaRecord `json:"Records"`
 	}
 
-	eventRecords := make([]lambdaRecord, len(records))
-	for i, r := range records {
-		eventRecords[i] = lambdaRecord{
+	eventRecords := make([]lambdaRecord, 0, len(records))
+	for _, r := range records {
+		// Apply FilterCriteria: records matching no filter are skipped.
+		if !eventFilterMatches(m.FilterCriteria, dynamoDBFilterView(r.EventName, r.NewImage, r.OldImage, r.Keys)) {
+			continue
+		}
+
+		eventRecords = append(eventRecords, lambdaRecord{
 			EventID:        r.EventID,
 			EventName:      r.EventName,
 			EventVersion:   "1.1",
@@ -610,7 +649,11 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 				NewImage:                    r.NewImage,
 				OldImage:                    r.OldImage,
 			},
-		}
+		})
+	}
+
+	if len(eventRecords) == 0 {
+		return
 	}
 
 	payload, err := json.Marshal(lambdaEvent{Records: eventRecords})
@@ -655,26 +698,129 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 		return
 	}
 
-	if len(msgs) == 0 {
+	log := logger.Load(ctx)
+
+	// Enforce MaximumRecordAgeInSeconds: messages older than the limit are dropped
+	// (deleted) instead of invoked, matching AWS's record-age expiry.
+	kept, expired := splitByRecordAge(msgs, m.MaximumRecordAgeInSeconds)
+	if len(expired) > 0 {
+		if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, receiptHandles(expired)); delErr != nil {
+			log.WarnContext(ctx, "esm sqs: failed to delete expired messages", "error", delErr)
+		}
+	}
+
+	// Apply FilterCriteria: records that match no filter are discarded (deleted)
+	// without invoking the function, exactly as AWS drops filtered-out records.
+	matched, filtered := splitByFilter(m.FilterCriteria, kept)
+	if len(filtered) > 0 {
+		if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, receiptHandles(filtered)); delErr != nil {
+			log.WarnContext(ctx, "esm sqs: failed to delete filtered messages", "error", delErr)
+		}
+	}
+
+	// Honor MaximumBatchingWindowInSeconds: buffer partial batches until the batch
+	// fills or the window elapses before invoking.
+	batch, flush := p.accumulateSQSBatch(m, matched)
+	if !flush || len(batch) == 0 {
 		return
 	}
 
-	toDelete, invErr := p.invokeLambdaForSQS(ctx, m, msgs)
-	if invErr != nil {
-		logger.Load(ctx).WarnContext(ctx, "esm sqs: Lambda invocation failed",
-			"function", m.FunctionARN, "error", invErr)
-
-		return
-	}
-
+	toDelete := p.deliverSQSBatch(ctx, m, batch)
 	if len(toDelete) == 0 {
 		return
 	}
 
 	if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, toDelete); delErr != nil {
-		logger.Load(ctx).WarnContext(ctx, "esm sqs: failed to delete messages",
+		log.WarnContext(ctx, "esm sqs: failed to delete messages",
 			"queue", m.EventSourceARN, "error", delErr)
 	}
+}
+
+// deliverSQSBatch invokes the function for a batch of SQS messages, honoring
+// BisectBatchOnFunctionError. It returns the receipt handles that should be
+// deleted from the queue.
+func (p *EventSourcePoller) deliverSQSBatch(
+	ctx context.Context,
+	m *EventSourceMapping,
+	batch []*SQSMessage,
+) []string {
+	toDelete, invErr := p.invokeLambdaForSQS(ctx, m, batch)
+	if invErr == nil {
+		return toDelete
+	}
+
+	log := logger.Load(ctx)
+
+	// BisectBatchOnFunctionError: on a whole-batch function error, split the batch
+	// in half and retry each half so a single poison message does not fail the
+	// entire batch. Batches of one that still fail are left for redelivery.
+	if m.BisectBatchOnFunctionError && len(batch) > 1 {
+		const bisectParts = 2
+
+		mid := len(batch) / bisectParts
+		left := p.deliverSQSBatch(ctx, m, batch[:mid])
+		right := p.deliverSQSBatch(ctx, m, batch[mid:])
+
+		return append(left, right...)
+	}
+
+	log.WarnContext(ctx, "esm sqs: Lambda invocation failed",
+		"function", m.FunctionARN, "error", invErr)
+
+	return nil
+}
+
+// sqsEventRecord is a single record in the SQS event payload delivered to Lambda.
+type sqsEventRecord struct {
+	Attributes             map[string]string              `json:"attributes,omitempty"`
+	MessageAttributes      map[string]SQSMessageAttribute `json:"messageAttributes"`
+	MessageID              string                         `json:"messageId"`
+	ReceiptHandle          string                         `json:"receiptHandle"`
+	Body                   string                         `json:"body"`
+	MD5OfBody              string                         `json:"md5OfBody"`
+	MD5OfMessageAttributes string                         `json:"md5OfMessageAttributes,omitempty"`
+	EventSource            string                         `json:"eventSource"`
+	EventSourceARN         string                         `json:"eventSourceARN"`
+	AWSRegion              string                         `json:"awsRegion"`
+}
+
+// buildSQSEventPayload marshals a batch of SQS messages into the Lambda SQS event
+// payload. Each record includes the user message attributes and their MD5, and
+// carries the supplied region (derived from the queue ARN).
+func buildSQSEventPayload(region, esmARN string, msgs []*SQSMessage) ([]byte, error) {
+	type sqsEvent struct {
+		Records []sqsEventRecord `json:"Records"`
+	}
+
+	records := make([]sqsEventRecord, len(msgs))
+
+	for i, msg := range msgs {
+		msgAttrs := msg.MessageAttributes
+		if msgAttrs == nil {
+			// AWS always emits messageAttributes as an object (empty when none).
+			msgAttrs = map[string]SQSMessageAttribute{}
+		}
+
+		records[i] = sqsEventRecord{
+			MessageID:              msg.MessageID,
+			ReceiptHandle:          msg.ReceiptHandle,
+			Body:                   msg.Body,
+			Attributes:             msg.Attributes,
+			MessageAttributes:      msgAttrs,
+			MD5OfBody:              msg.MD5OfBody,
+			MD5OfMessageAttributes: msg.MD5OfMessageAttributes,
+			EventSource:            "aws:sqs",
+			EventSourceARN:         esmARN,
+			AWSRegion:              region,
+		}
+	}
+
+	payload, err := json.Marshal(sqsEvent{Records: records})
+	if err != nil {
+		return nil, fmt.Errorf("marshal sqs event: %w", err)
+	}
+
+	return payload, nil
 }
 
 // batchItemFailures is the structure returned by a Lambda function when
@@ -694,38 +840,15 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 	m *EventSourceMapping,
 	msgs []*SQSMessage,
 ) ([]string, error) {
-	type sqsEventRecord struct {
-		Attributes     map[string]string `json:"attributes,omitempty"`
-		MessageID      string            `json:"messageId"`
-		ReceiptHandle  string            `json:"receiptHandle"`
-		Body           string            `json:"body"`
-		MD5OfBody      string            `json:"md5OfBody"`
-		EventSource    string            `json:"eventSource"`
-		EventSourceARN string            `json:"eventSourceARN"`
-		AWSRegion      string            `json:"awsRegion"`
-	}
-	type sqsEvent struct {
-		Records []sqsEventRecord `json:"Records"`
+	// SQS event records carry the ARN's region, not the backend default region.
+	region := sqsRegionFromARN(m.EventSourceARN)
+	if region == "" {
+		region = p.lambdaBackend.region
 	}
 
-	records := make([]sqsEventRecord, len(msgs))
-
-	for i, msg := range msgs {
-		records[i] = sqsEventRecord{
-			MessageID:      msg.MessageID,
-			ReceiptHandle:  msg.ReceiptHandle,
-			Body:           msg.Body,
-			Attributes:     msg.Attributes,
-			MD5OfBody:      msg.MD5OfBody,
-			EventSource:    "aws:sqs",
-			EventSourceARN: m.EventSourceARN,
-			AWSRegion:      p.lambdaBackend.region,
-		}
-	}
-
-	payload, err := json.Marshal(sqsEvent{Records: records})
+	payload, err := buildSQSEventPayload(region, m.EventSourceARN, msgs)
 	if err != nil {
-		return nil, fmt.Errorf("marshal sqs event: %w", err)
+		return nil, err
 	}
 
 	fnName := functionNameFromARN(m.FunctionARN)

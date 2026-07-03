@@ -420,6 +420,92 @@ func PushInvocationLog(
 	b.pushInvocationLog(ctx, functionName, payload, result)
 }
 
+// EventFilterMatches exports eventFilterMatches for testing FilterCriteria evaluation.
+func EventFilterMatches(fc *FilterCriteria, record map[string]any) bool {
+	return eventFilterMatches(fc, record)
+}
+
+// SQSFilterView exports sqsFilterView for testing.
+func SQSFilterView(msg *SQSMessage) map[string]any { return sqsFilterView(msg) }
+
+// ClassifyFunctionError exports classifyFunctionError for testing X-Amz-Function-Error.
+func ClassifyFunctionError(isError bool, result []byte) string {
+	return classifyFunctionError(isError, result)
+}
+
+// SQSRegionFromARN exports sqsRegionFromARN for testing.
+func SQSRegionFromARN(arn string) string { return sqsRegionFromARN(arn) }
+
+// SplitByRecordAge exports splitByRecordAge for testing MaximumRecordAge enforcement.
+func SplitByRecordAge(msgs []*SQSMessage, maxAgeSecs int) ([]*SQSMessage, []*SQSMessage) {
+	return splitByRecordAge(msgs, maxAgeSecs)
+}
+
+// SplitByFilter exports splitByFilter for testing FilterCriteria enforcement.
+func SplitByFilter(fc *FilterCriteria, msgs []*SQSMessage) ([]*SQSMessage, []*SQSMessage) {
+	return splitByFilter(fc, msgs)
+}
+
+// BuildSQSEventPayload exports buildSQSEventPayload for testing the event record shape.
+func BuildSQSEventPayload(region, esmARN string, msgs []*SQSMessage) ([]byte, error) {
+	return buildSQSEventPayload(region, esmARN, msgs)
+}
+
+// AccumulateSQSBatch exports the poller's batching-window accumulation for testing.
+func AccumulateSQSBatch(p *EventSourcePoller, m *EventSourceMapping, msgs []*SQSMessage) ([]*SQSMessage, bool) {
+	return p.accumulateSQSBatch(m, msgs)
+}
+
+// BuildFunctionURLHandler exports buildFunctionURLHandler for testing auth/CORS.
+func BuildFunctionURLHandler(b *InMemoryBackend, functionName string) http.HandlerFunc {
+	return b.buildFunctionURLHandler(functionName)
+}
+
+// SetFunctionURLConfigForTest inserts a function URL config directly for testing.
+func SetFunctionURLConfigForTest(b *InMemoryBackend, functionName string, cfg *FunctionURLConfig) {
+	b.mu.Lock("SetFunctionURLConfigForTest")
+	defer b.mu.Unlock()
+	b.functionURLConfigs[functionName] = cfg
+}
+
+// AsyncOutcomeForTest describes a completed async invocation for delivery testing.
+type AsyncOutcomeForTest struct {
+	FunctionName    string
+	RequestID       string
+	FunctionError   string
+	RequestPayload  []byte
+	ResponsePayload []byte
+	InvokeCount     int
+	StatusCode      int
+	Success         bool
+}
+
+// DispatchAsyncOutcomeForTest exports dispatchAsyncOutcome for testing DLQ/destination delivery.
+func DispatchAsyncOutcomeForTest(ctx context.Context, b *InMemoryBackend, o AsyncOutcomeForTest) {
+	b.dispatchAsyncOutcome(ctx, asyncOutcome{
+		functionName:    o.FunctionName,
+		requestID:       o.RequestID,
+		requestPayload:  o.RequestPayload,
+		responsePayload: o.ResponsePayload,
+		functionError:   o.FunctionError,
+		invokeCount:     o.InvokeCount,
+		statusCode:      o.StatusCode,
+		success:         o.Success,
+	})
+}
+
+// GetFunctionStateForTest returns the stored State for a function.
+func GetFunctionStateForTest(b *InMemoryBackend, name string) FunctionState {
+	b.mu.RLock("GetFunctionStateForTest")
+	defer b.mu.RUnlock()
+
+	if fn, ok := b.functions[name]; ok {
+		return fn.State
+	}
+
+	return ""
+}
+
 // WithInvocationChainForTest injects a function name into the context's invocation chain.
 // This allows tests to simulate recursive self-invocations without a real container.
 func WithInvocationChainForTest(ctx context.Context, functionName string) context.Context {

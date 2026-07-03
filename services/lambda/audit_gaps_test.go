@@ -600,7 +600,7 @@ func TestAudit_RecursiveLoop_Deny_BlocksSelfInvoke(t *testing.T) {
 	// Use the exported helpers from export_test.go — but RecursiveLoop tests need internal access.
 	// Instead, call InvokeFunctionWithQualifier twice simulating nesting by wrapping context.
 	// We test via the backend directly, injecting the chain.
-	_, _, _, err := bk.InvokeFunctionWithQualifier(
+	_, _, _, _, err := bk.InvokeFunctionWithQualifier(
 		lambda.WithInvocationChainForTest(ctx, "recursive-fn"),
 		"recursive-fn",
 		"",
@@ -636,7 +636,7 @@ func TestAudit_RecursiveLoop_Terminate_AllowsSelfInvoke(t *testing.T) {
 	// With Terminate mode, self-invocation should NOT return ErrInvalidParameterValue
 	// (it will fail for other reasons like no runtime, but not for recursion rejection)
 	ctx := lambda.WithInvocationChainForTest(context.Background(), "recursive-terminate-fn")
-	_, _, _, err := bk.InvokeFunctionWithQualifier(
+	_, _, _, _, err := bk.InvokeFunctionWithQualifier(
 		ctx,
 		"recursive-terminate-fn",
 		"",
