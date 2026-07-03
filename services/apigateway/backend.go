@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/csv"
 	"encoding/json"
@@ -10,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +42,13 @@ var (
 	ErrNotFound                            = errors.New("NotFoundException")
 	ErrAlreadyExists                       = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	ErrInvalidParameter                    = errors.New("BadRequestException")
+
+	// ErrQuotaExceeded is returned by the data plane when an API key has exhausted
+	// its usage-plan quota for the current period (AWS maps this to HTTP 429).
+	ErrQuotaExceeded = errors.New("LimitExceededException")
+	// ErrThrottled is returned by the data plane when an API key exceeds the
+	// usage-plan rate/burst throttle (AWS maps this to HTTP 429).
+	ErrThrottled = errors.New("TooManyRequestsException")
 )
 
 // StorageBackend is the interface for the API Gateway in-memory store.
@@ -55,6 +62,11 @@ type StorageBackend interface {
 
 	// Resources
 	GetResources(restAPIID, position string, limit int) ([]Resource, string, error)
+	// ResourcesForRouting returns every resource for an API together with a version
+	// counter that changes whenever the API's resource set is mutated. The data-plane
+	// proxy uses it to build and cache a routing trie without re-copying the full
+	// resource set (and paging past AWS's default page size) on every request.
+	ResourcesForRouting(restAPIID string) ([]Resource, uint64, error)
 	GetResource(restAPIID, resourceID string) (*Resource, error)
 	CreateResource(restAPIID, parentID, pathPart string) (*Resource, error)
 	DeleteResource(restAPIID, resourceID string) error
@@ -216,6 +228,11 @@ type StorageBackend interface {
 
 	// Usage operations.
 	GetUsage(input GetUsageInput) (*UsageData, error)
+	// EnforceUsagePlan applies usage-plan quota and throttle/burst limits for an API
+	// key on the given API stage. It returns nil when the request is allowed (or when
+	// the key is not associated with a usage plan for the stage), ErrQuotaExceeded when
+	// the period quota is exhausted, or ErrThrottled when the rate/burst limit is hit.
+	EnforceUsagePlan(apiID, stageName, keyID string) error
 
 	// VPC Link operations.
 	CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, error)
@@ -250,7 +267,8 @@ const (
 	arnSplitParts = 2
 
 	// defaultPageSize is used when no limit is specified in paginated list operations.
-	defaultPageSize = 500
+	// AWS API Gateway defaults list operations to a page size of 25.
+	defaultPageSize = 25
 
 	// clientCertValidityDays is the number of days a generated client certificate is valid.
 	// AWS issues certificates with a 2-year validity period.
@@ -286,22 +304,57 @@ func stageInvokeURL(restAPIID, stageName string) string {
 	return "/proxy/" + restAPIID + "/" + stageName
 }
 
-// paginatePage applies limit/position-based cursor pagination to a pre-sorted slice.
-// It returns the page slice and the next position cursor (empty string if last page).
-func paginatePage[T any](all []T, limit int, position string) ([]T, string) {
-	startIdx := parsePosition(position)
+// encodePosition returns an opaque, mutation-stable pagination cursor for the given
+// sort key. The cursor encodes the key of the last item on the current page (rather
+// than a fragile numeric offset), so concurrent inserts/deletes do not cause items
+// to be skipped or repeated across pages. AWS returns similarly opaque tokens.
+func encodePosition(key string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte("k:" + key))
+}
+
+// decodePosition reverses encodePosition. It returns ("", false) for an empty or
+// malformed cursor, in which case pagination restarts from the beginning.
+func decodePosition(position string) (string, bool) {
+	if position == "" {
+		return "", false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(position)
+	if err != nil {
+		return "", false
+	}
+	s := string(raw)
+	after, ok := strings.CutPrefix(s, "k:")
+	if !ok {
+		return "", false
+	}
+
+	return after, true
+}
+
+// paginatePageByKey applies limit/cursor pagination to a slice that is already sorted
+// ascending by the key returned by keyOf. It returns the page and an opaque next-page
+// cursor (empty when the last page is reached). The cursor is mutation-stable: it is
+// derived from the last returned item's key, so resuming does the right thing even if
+// the underlying collection changed between calls.
+func paginatePageByKey[T any](all []T, limit int, position string, keyOf func(T) string) ([]T, string) {
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+
+	startIdx := 0
+	if cursor, ok := decodePosition(position); ok {
+		// Resume at the first item strictly after the cursor key.
+		startIdx = sort.Search(len(all), func(i int) bool { return keyOf(all[i]) > cursor })
+	}
+
 	if startIdx >= len(all) {
 		return []T{}, ""
 	}
 
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
 	end := startIdx + limit
-
 	var outPosition string
 	if end < len(all) {
-		outPosition = strconv.Itoa(end)
+		outPosition = encodePosition(keyOf(all[end-1]))
 	} else {
 		end = len(all)
 	}
@@ -344,6 +397,9 @@ type apiData struct {
 	documentationVersions map[string]*DocumentationVersion
 	models                map[string]*Model
 	api                   RestAPI
+	// resourceVersion is bumped whenever the resource set is mutated. The data-plane
+	// proxy uses it to invalidate its cached routing trie.
+	resourceVersion uint64
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -351,6 +407,8 @@ type InMemoryBackend struct {
 	account                      *Account
 	apis                         map[string]*apiData
 	apiKeys                      map[string]*APIKey
+	apiKeysByValue               map[string]string           // key value → key ID, O(1) data-plane lookup
+	usage                        *usageTracker               // usage-plan quota + throttle state
 	basePathMappings             map[string]*BasePathMapping // key: domainName + "#" + basePath
 	domainNames                  map[string]*DomainName
 	domainNameAccessAssociations map[string]*DomainNameAccessAssociation
@@ -375,6 +433,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		},
 		apis:                         make(map[string]*apiData),
 		apiKeys:                      make(map[string]*APIKey),
+		apiKeysByValue:               make(map[string]string),
+		usage:                        newUsageTracker(),
 		basePathMappings:             make(map[string]*BasePathMapping),
 		domainNames:                  make(map[string]*DomainName),
 		domainNameAccessAssociations: make(map[string]*DomainNameAccessAssociation),
@@ -478,23 +538,9 @@ func (b *InMemoryBackend) GetRestAPIs(limit int, position string) ([]RestAPI, st
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
-	startIdx := parsePosition(position)
-	if startIdx >= len(all) {
-		return []RestAPI{}, "", nil
-	}
+	page, pos := paginatePageByKey(all, limit, position, func(a RestAPI) string { return a.ID })
 
-	if limit <= 0 {
-		limit = 500
-	}
-	end := startIdx + limit
-	var outPosition string
-	if end < len(all) {
-		outPosition = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return all[startIdx:end], outPosition, nil
+	return page, pos, nil
 }
 
 // GetResources returns all resources for a REST API with pagination.
@@ -513,23 +559,30 @@ func (b *InMemoryBackend) GetResources(restAPIID, position string, limit int) ([
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
-	startIdx := parsePosition(position)
-	if startIdx >= len(all) {
-		return []Resource{}, "", nil
+	page, pos := paginatePageByKey(all, limit, position, func(r Resource) string { return r.ID })
+
+	return page, pos, nil
+}
+
+// ResourcesForRouting returns every resource for the API plus a version counter that
+// changes on any resource-set mutation. Unlike GetResources it is not paginated: the
+// data-plane proxy needs the complete set to build a routing trie, and it uses the
+// version to cache that trie across requests instead of rebuilding it every time.
+func (b *InMemoryBackend) ResourcesForRouting(restAPIID string) ([]Resource, uint64, error) {
+	b.mu.RLock("ResourcesForRouting")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, 0, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	if limit <= 0 {
-		limit = 500
-	}
-	end := startIdx + limit
-	var outPosition string
-	if end < len(all) {
-		outPosition = strconv.Itoa(end)
-	} else {
-		end = len(all)
+	all := make([]Resource, 0, len(d.resources))
+	for _, r := range d.resources {
+		all = append(all, *r)
 	}
 
-	return all[startIdx:end], outPosition, nil
+	return all, d.resourceVersion, nil
 }
 
 // GetResource returns a single resource.
@@ -581,6 +634,7 @@ func (b *InMemoryBackend) CreateResource(restAPIID, parentID, pathPart string) (
 		ResourceMethods: make(map[string]*Method),
 	}
 	d.resources[id] = res
+	d.resourceVersion++
 
 	cp := *res
 
@@ -600,6 +654,7 @@ func (b *InMemoryBackend) DeleteResource(restAPIID, resourceID string) error {
 		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
 	delete(d.resources, resourceID)
+	d.resourceVersion++
 
 	return nil
 }
@@ -1410,18 +1465,6 @@ func computePath(parentPath, pathPart string) string {
 	return strings.TrimRight(parentPath, "/") + "/" + pathPart
 }
 
-func parsePosition(position string) int {
-	if position == "" {
-		return 0
-	}
-	idx, err := strconv.Atoi(position)
-	if err != nil || idx < 0 {
-		return 0
-	}
-
-	return idx
-}
-
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
@@ -1455,6 +1498,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.apis = make(map[string]*apiData)
 	b.apiKeys = make(map[string]*APIKey)
+	b.apiKeysByValue = make(map[string]string)
+	b.usage = newUsageTracker()
 	b.basePathMappings = make(map[string]*BasePathMapping)
 	b.domainNames = make(map[string]*DomainName)
 	b.domainNameAccessAssociations = make(map[string]*DomainNameAccessAssociation)
@@ -1502,6 +1547,7 @@ func (b *InMemoryBackend) CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 		LastUpdatedDate: now,
 	}
 	b.apiKeys[id] = key
+	b.apiKeysByValue[value] = id
 
 	cp := *key
 
@@ -1895,19 +1941,24 @@ func (b *InMemoryBackend) GetAPIKey(id string) (*APIKey, error) {
 	return &cp, nil
 }
 
-// GetAPIKeyByValue retrieves an API key by its value (the secret string sent in x-api-key).
+// GetAPIKeyByValue retrieves an API key by its value (the secret string sent in
+// x-api-key). It resolves the key in O(1) via the value→ID index instead of a
+// linear scan, because it runs on the hot data-plane path for every apiKey-required
+// request.
 func (b *InMemoryBackend) GetAPIKeyByValue(value string) (*APIKey, error) {
 	b.mu.RLock("GetAPIKeyByValue")
 	defer b.mu.RUnlock()
-	for _, k := range b.apiKeys {
-		if k.Value == value {
-			cp := *k
-
-			return &cp, nil
-		}
+	id, ok := b.apiKeysByValue[value]
+	if !ok {
+		return nil, fmt.Errorf("%w: API key with value not found", ErrAPIKeyNotFound)
 	}
+	k, ok := b.apiKeys[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: API key with value not found", ErrAPIKeyNotFound)
+	}
+	cp := *k
 
-	return nil, fmt.Errorf("%w: API key with value not found", ErrAPIKeyNotFound)
+	return &cp, nil
 }
 
 // GetAPIKeys returns all API keys sorted by ID.
@@ -1927,9 +1978,11 @@ func (b *InMemoryBackend) GetAPIKeys() ([]APIKey, error) {
 func (b *InMemoryBackend) DeleteAPIKey(id string) error {
 	b.mu.Lock("DeleteAPIKey")
 	defer b.mu.Unlock()
-	if _, ok := b.apiKeys[id]; !ok {
+	key, ok := b.apiKeys[id]
+	if !ok {
 		return fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
 	}
+	delete(b.apiKeysByValue, key.Value)
 	delete(b.apiKeys, id)
 
 	return nil
@@ -2616,6 +2669,7 @@ func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input Upd
 
 		res.PathPart = input.PathPart
 		res.Path = computePath(parentPath, input.PathPart)
+		d.resourceVersion++
 	}
 
 	if input.CorsConfiguration != nil {
@@ -2782,7 +2836,7 @@ func (b *InMemoryBackend) GetAPIKeysPage(limit int, position string) ([]APIKey, 
 		all = append(all, *k)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-	page, pos := paginatePage(all, limit, position)
+	page, pos := paginatePageByKey(all, limit, position, func(k APIKey) string { return k.ID })
 
 	return page, pos, nil
 }
@@ -2797,7 +2851,7 @@ func (b *InMemoryBackend) GetDomainNamesPage(limit int, position string) ([]Doma
 		all = append(all, *d)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].DomainNameValue < all[j].DomainNameValue })
-	page, pos := paginatePage(all, limit, position)
+	page, pos := paginatePageByKey(all, limit, position, func(d DomainName) string { return d.DomainNameValue })
 
 	return page, pos, nil
 }
@@ -2812,7 +2866,7 @@ func (b *InMemoryBackend) GetUsagePlansPage(limit int, position string) ([]Usage
 		all = append(all, *p)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-	page, pos := paginatePage(all, limit, position)
+	page, pos := paginatePageByKey(all, limit, position, func(p UsagePlan) string { return p.ID })
 
 	return page, pos, nil
 }
@@ -3410,21 +3464,73 @@ func (b *InMemoryBackend) DeleteClientCertificate(id string) error {
 	return nil
 }
 
-// GetUsage returns mock usage data for a usage plan.
+// GetUsage returns real per-key usage data for a usage plan. Each item is keyed by
+// API key ID and contains a [used, remaining] pair reflecting the requests the data
+// plane has actually metered against the plan's quota.
 func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
 	b.mu.RLock("GetUsage")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.usagePlans[input.UsagePlanID]; !ok {
+	plan, ok := b.usagePlans[input.UsagePlanID]
+	if !ok {
 		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
+	}
+
+	items := make(map[string][]any)
+	for keyID := range b.usagePlanKeys[input.UsagePlanID] {
+		used, remaining := b.usage.usageForKey(plan, keyID)
+		items[keyID] = []any{[]int{used, remaining}}
 	}
 
 	return &UsageData{
 		UsagePlanID: input.UsagePlanID,
 		StartDate:   input.StartDate,
 		EndDate:     input.EndDate,
-		Items:       map[string][]any{},
+		Items:       items,
 	}, nil
+}
+
+// EnforceUsagePlan applies usage-plan quota and throttle limits for an API key on the
+// given API stage. It returns nil when the request is allowed or when the key is not
+// associated with a usage plan for the stage (unmetered, matching a bare API key),
+// ErrQuotaExceeded when the period quota is exhausted, or ErrThrottled when the
+// rate/burst limit is exceeded.
+func (b *InMemoryBackend) EnforceUsagePlan(apiID, stageName, keyID string) error {
+	b.mu.Lock("EnforceUsagePlan")
+	defer b.mu.Unlock()
+
+	plan := b.usagePlanForKeyLocked(keyID, apiID, stageName)
+	if plan == nil {
+		return nil
+	}
+
+	return b.usage.enforce(plan, apiID, stageName, keyID, time.Now())
+}
+
+// usagePlanForKeyLocked returns the usage plan that both contains keyID and is
+// associated with the given api:stage, or nil. Callers must hold b.mu.
+func (b *InMemoryBackend) usagePlanForKeyLocked(keyID, apiID, stageName string) *UsagePlan {
+	// Deterministic iteration by plan ID so a key in multiple plans resolves stably.
+	ids := make([]string, 0, len(b.usagePlans))
+	for id := range b.usagePlans {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		plan := b.usagePlans[id]
+		if _, associated := b.usagePlanKeys[id][keyID]; !associated {
+			continue
+		}
+		for i := range plan.APIStages {
+			st := plan.APIStages[i]
+			if st.RestAPIID == apiID && st.Stage == stageName {
+				return plan
+			}
+		}
+	}
+
+	return nil
 }
 
 // UpdateClientCertificate updates the description of a client certificate.
