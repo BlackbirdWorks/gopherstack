@@ -682,7 +682,7 @@ func putRecordErrorCode(err error) string {
 		return "ProvisionedThroughputExceededException"
 	}
 	if errors.Is(err, ErrInvalidArgument) {
-		return "ValidationException"
+		return errTypeValidation
 	}
 
 	return "InternalFailure"
@@ -1515,6 +1515,18 @@ func (b *InMemoryBackend) UpdateShardCount(
 		}
 	}
 	targetCount := input.TargetShardCount
+
+	if targetCount > maxShardsPerStream {
+		return nil, ErrInvalidArgument
+	}
+
+	// AWS caps a single UpdateShardCount call to between 50% and 200% of the
+	// current open shard count: the target may not exceed double the current
+	// count, nor drop below half of it. Requests outside this window are
+	// rejected with ValidationException (never partially applied).
+	if targetCount > 2*currentCount || 2*targetCount < currentCount {
+		return nil, ErrShardCountScaling
+	}
 
 	maxHashKey := new(big.Int).Sub(
 		new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),
