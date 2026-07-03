@@ -131,8 +131,8 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 		return c.String(http.StatusNotFound, "Not Found")
 	}
 
-	// JWT authorizer enforcement.
-	if authErr := h.enforceRouteAuth(c, apiID, matchedRoute); authErr != nil {
+	// Route authorization enforcement (NONE / JWT / CUSTOM / AWS_IAM).
+	if authErr := h.enforceRouteAuth(c, apiID, stageName, resourcePath, matchedRoute); authErr != nil {
 		return authErr
 	}
 
@@ -165,29 +165,58 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 	}
 }
 
-// enforceRouteAuth checks JWT authorization for the matched route and returns an
-// error (already written to c) if authorization fails.
-func (h *Handler) enforceRouteAuth(c *echo.Context, apiID string, route *Route) error {
-	if route.AuthorizationType != authorizerTypeJWT || route.AuthorizerID == "" {
-		return nil
-	}
-
+// enforceRouteAuth enforces the matched route's authorization type on the data
+// plane. It dispatches to the JWT, REQUEST (Lambda), or AWS_IAM authorizer as
+// appropriate and returns an error (already written to c) when authorization
+// fails. NONE routes pass through.
+func (h *Handler) enforceRouteAuth(
+	c *echo.Context,
+	apiID, stageName, resourcePath string,
+	route *Route,
+) error {
 	log := logger.Load(c.Request().Context())
 
-	authorizer, authErr := h.Backend.GetAuthorizer(apiID, route.AuthorizerID)
-	if authErr != nil {
-		log.Warn("apigatewayv2: authorizer not found", "id", route.AuthorizerID)
+	switch route.AuthorizationType {
+	case authorizationTypeAWSIAM:
+		return h.enforceIAMAuth(c)
 
-		return c.String(http.StatusUnauthorized, "Unauthorized")
+	case authorizerTypeJWT:
+		if route.AuthorizerID == "" {
+			return nil
+		}
+
+		authorizer, authErr := h.Backend.GetAuthorizer(apiID, route.AuthorizerID)
+		if authErr != nil {
+			log.Warn("apigatewayv2: authorizer not found", "id", route.AuthorizerID)
+
+			return writeErr(c, http.StatusUnauthorized, msgUnauthorized)
+		}
+
+		if jwtErr := h.enforceJWTAuthorizer(c.Request(), authorizer); jwtErr != nil {
+			log.Info("apigatewayv2: JWT validation failed", "error", jwtErr)
+
+			return writeErr(c, http.StatusUnauthorized, msgUnauthorized)
+		}
+
+		return nil
+
+	case authorizationTypeCustom:
+		if route.AuthorizerID == "" {
+			return nil
+		}
+
+		authorizer, authErr := h.Backend.GetAuthorizer(apiID, route.AuthorizerID)
+		if authErr != nil {
+			log.Warn("apigatewayv2: authorizer not found", "id", route.AuthorizerID)
+
+			return writeErr(c, http.StatusUnauthorized, msgUnauthorized)
+		}
+
+		return h.enforceRequestAuthorizer(c, apiID, stageName, route, authorizer, resourcePath)
+
+	default: // NONE or unset
+		return nil
 	}
-
-	if jwtErr := h.enforceJWTAuthorizer(c.Request(), authorizer); jwtErr != nil {
-		log.Info("apigatewayv2: JWT validation failed", "error", jwtErr)
-
-		return c.String(http.StatusUnauthorized, "Unauthorized")
-	}
-
-	return nil
 }
 
 // buildV1Payload constructs a payload format 1.0 Lambda event and marshals it.
