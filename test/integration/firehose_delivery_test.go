@@ -409,7 +409,7 @@ func TestIntegration_Firehose_HandlerUpdateDestination(t *testing.T) {
 
 	require.NoError(
 		t,
-		fhBk.UpdateDestination(context.Background(), "updatable-stream", "", firehosepkg.UpdateDestinationInput{
+		fhBk.UpdateDestination(context.Background(), "updatable-stream", "1", firehosepkg.UpdateDestinationInput{
 			S3Destination: &firehosepkg.S3DestinationDescription{BucketARN: "arn:aws:s3:::updated-bucket"},
 		}),
 	)

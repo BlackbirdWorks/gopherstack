@@ -451,7 +451,7 @@ simRunning = false;
 // ─── Credential report ───
 
 function decodeCredReport(content: unknown): string {
-if (content == null) return '';
+if (content === null || content === undefined) return '';
 if (typeof content === 'string') { try { return atob(content); } catch { return content; } }
 // Uint8Array / ArrayBuffer / array-like of bytes (avoid cross-realm instanceof).
 try {
