@@ -6,8 +6,6 @@ import "fmt"
 // are acknowledged but not yet deeply implemented. All methods follow the
 // gopherstack convention of returning empty/success results.
 
-const complianceTypeCompliant = "COMPLIANT"
-
 // DeletePendingAggregationRequest is a no-op stub.
 func (b *InMemoryBackend) DeletePendingAggregationRequest(_, _ string) error { return nil }
 
@@ -103,11 +101,6 @@ func (b *InMemoryBackend) GetOrganizationConformancePackDetailedStatus() []any {
 	return []any{}
 }
 
-// GetResourceEvaluationSummary returns an empty summary.
-func (b *InMemoryBackend) GetResourceEvaluationSummary() *BaseConfigurationItem {
-	return &BaseConfigurationItem{}
-}
-
 // ListAggregateDiscoveredResources returns an empty list.
 func (b *InMemoryBackend) ListAggregateDiscoveredResources() []any {
 	return []any{}
@@ -139,9 +132,6 @@ func (b *InMemoryBackend) ListConfigurationRecorders() []ConfigurationRecorderSu
 func (b *InMemoryBackend) ListConformancePackComplianceScores() []any {
 	return []any{}
 }
-
-// ListResourceEvaluations returns an empty list.
-func (b *InMemoryBackend) ListResourceEvaluations() []any { return []any{} }
 
 // ListStoredQueries returns metadata for all stored queries.
 func (b *InMemoryBackend) ListStoredQueries() []StoredQueryMetadata {
@@ -182,27 +172,11 @@ func (b *InMemoryBackend) PutStoredQuery(name string) error {
 	return nil
 }
 
-// StartConfigRulesEvaluation triggers an evaluation run for all config rules.
-// It marks every rule as COMPLIANT so that GetComplianceDetailsByConfigRule can return results.
-func (b *InMemoryBackend) StartConfigRulesEvaluation() error {
-	b.mu.Lock("StartConfigRulesEvaluation")
-	defer b.mu.Unlock()
-
-	for name := range b.configRules {
-		b.ruleEvaluations[name] = complianceTypeCompliant
-	}
-
-	return nil
-}
-
-// GetConfigRuleComplianceType returns the compliance type for a config rule after evaluation,
-// or empty string if no evaluation has run for that rule yet.
+// GetConfigRuleComplianceType returns the rolled-up compliance type for a config
+// rule after evaluation, or empty string if no evaluation has run for that rule yet.
 func (b *InMemoryBackend) GetConfigRuleComplianceType(ruleName string) string {
 	b.mu.RLock("GetConfigRuleComplianceType")
 	defer b.mu.RUnlock()
 
 	return b.ruleEvaluations[ruleName]
 }
-
-// StartResourceEvaluation returns a stub evaluation ID.
-func (b *InMemoryBackend) StartResourceEvaluation() string { return "eval-stub" }

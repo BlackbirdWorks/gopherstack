@@ -2,8 +2,10 @@ package awsconfig
 
 import (
 	"context"
+	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -655,14 +657,23 @@ func (h *Handler) handleGetAggregateResourceConfig(
 }
 
 // GetComplianceDetailsByResource request/response types and handler.
+type getComplianceDetailsByResourceInput struct {
+	ResourceType    string   `json:"ResourceType"`
+	ResourceID      string   `json:"ResourceId"`
+	NextToken       string   `json:"NextToken,omitempty"`
+	ComplianceTypes []string `json:"ComplianceTypes,omitempty"`
+}
 type getComplianceDetailsByResourceOutput struct {
-	EvaluationResults []any `json:"EvaluationResults"`
+	NextToken         string                     `json:"NextToken,omitempty"`
+	EvaluationResults []DetailedEvaluationResult `json:"EvaluationResults"`
 }
 
 func (h *Handler) handleGetComplianceDetailsByResource(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getComplianceDetailsByResourceInput,
 ) (*getComplianceDetailsByResourceOutput, error) {
-	return &getComplianceDetailsByResourceOutput{EvaluationResults: []any{}}, nil
+	return &getComplianceDetailsByResourceOutput{
+		EvaluationResults: h.Backend.GetComplianceDetailsByResource(in.ResourceType, in.ResourceID, in.ComplianceTypes),
+	}, nil
 }
 
 // GetComplianceSummaryByConfigRule request/response types and handler.
@@ -792,29 +803,64 @@ func (h *Handler) handleGetOrganizationCustomRulePolicy(
 type getResourceConfigHistoryInput struct {
 	ResourceType string `json:"resourceType"`
 	ResourceID   string `json:"resourceId"`
+	NextToken    string `json:"nextToken,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
 }
 type getResourceConfigHistoryOutput struct {
-	ConfigurationItems []ResourceConfigItem `json:"ConfigurationItems"`
+	NextToken          string               `json:"nextToken,omitempty"`
+	ConfigurationItems []ResourceConfigItem `json:"configurationItems"`
 }
 
 func (h *Handler) handleGetResourceConfigHistory(
 	_ context.Context, in *getResourceConfigHistoryInput,
 ) (*getResourceConfigHistoryOutput, error) {
-	return &getResourceConfigHistoryOutput{
-		ConfigurationItems: h.Backend.GetResourceConfigHistory(in.ResourceType, in.ResourceID),
-	}, nil
+	if err := page.ValidateToken(in.NextToken); err != nil {
+		return nil, fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
+	items, next := h.Backend.GetResourceConfigHistoryPage(in.ResourceType, in.ResourceID, in.Limit, in.NextToken)
+
+	return &getResourceConfigHistoryOutput{ConfigurationItems: items, NextToken: next}, nil
 }
 
 // GetResourceEvaluationSummary request/response types and handler.
+type getResourceEvaluationSummaryInput struct {
+	ResourceEvaluationID string `json:"ResourceEvaluationId"`
+}
+type resourceEvaluationStatus struct {
+	Status string `json:"Status"`
+}
+type resourceEvaluationDetails struct {
+	ResourceID   string `json:"ResourceId,omitempty"`
+	ResourceType string `json:"ResourceType,omitempty"`
+}
 type getResourceEvaluationSummaryOutput struct {
-	ResourceEvaluationSummary *BaseConfigurationItem `json:"ResourceEvaluationSummary"`
+	EvaluationStatus         *resourceEvaluationStatus  `json:"EvaluationStatus,omitempty"`
+	ResourceDetails          *resourceEvaluationDetails `json:"ResourceDetails,omitempty"`
+	ResourceEvaluationID     string                     `json:"ResourceEvaluationId,omitempty"`
+	EvaluationMode           string                     `json:"EvaluationMode,omitempty"`
+	Compliance               string                     `json:"Compliance,omitempty"`
+	EvaluationStartTimestamp float64                    `json:"EvaluationStartTimestamp,omitempty"`
 }
 
 func (h *Handler) handleGetResourceEvaluationSummary(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getResourceEvaluationSummaryInput,
 ) (*getResourceEvaluationSummaryOutput, error) {
+	re := h.Backend.GetResourceEvaluationSummaryByID(in.ResourceEvaluationID)
+	if re == nil {
+		return nil, fmt.Errorf("%w: %s", ErrResourceNotFound, in.ResourceEvaluationID)
+	}
+
 	return &getResourceEvaluationSummaryOutput{
-		ResourceEvaluationSummary: h.Backend.GetResourceEvaluationSummary(),
+		ResourceEvaluationID:     re.ResourceEvaluationID,
+		EvaluationMode:           re.EvaluationMode,
+		EvaluationStatus:         &resourceEvaluationStatus{Status: re.Status},
+		EvaluationStartTimestamp: re.StartTime,
+		Compliance:               re.Compliance,
+		ResourceDetails: &resourceEvaluationDetails{
+			ResourceID:   re.ResourceID,
+			ResourceType: re.ResourceType,
+		},
 	}, nil
 }
 
@@ -890,16 +936,30 @@ func (h *Handler) handleListDiscoveredResources(
 }
 
 // ListResourceEvaluations request/response types and handler.
+type resourceEvaluationSummary struct {
+	ResourceEvaluationID     string  `json:"ResourceEvaluationId"`
+	EvaluationMode           string  `json:"EvaluationMode"`
+	EvaluationStartTimestamp float64 `json:"EvaluationStartTimestamp"`
+}
 type listResourceEvaluationsOutput struct {
-	ResourceEvaluations []any `json:"ResourceEvaluations"`
+	ResourceEvaluations []resourceEvaluationSummary `json:"ResourceEvaluations"`
 }
 
 func (h *Handler) handleListResourceEvaluations(
 	_ context.Context, _ *emptyInput,
 ) (*listResourceEvaluationsOutput, error) {
-	return &listResourceEvaluationsOutput{
-		ResourceEvaluations: h.Backend.ListResourceEvaluations(),
-	}, nil
+	evals := h.Backend.ListResourceEvaluationSummaries()
+
+	out := make([]resourceEvaluationSummary, 0, len(evals))
+	for _, e := range evals {
+		out = append(out, resourceEvaluationSummary{
+			ResourceEvaluationID:     e.ResourceEvaluationID,
+			EvaluationMode:           e.EvaluationMode,
+			EvaluationStartTimestamp: e.StartTime,
+		})
+	}
+
+	return &listResourceEvaluationsOutput{ResourceEvaluations: out}, nil
 }
 
 // ListStoredQueries request/response types and handler.
@@ -1037,26 +1097,60 @@ func (h *Handler) handlePutConformancePack(
 	)
 }
 
+// evaluationBody accepts the AWS-shaped evaluation payload. AWS uses
+// ComplianceResourceType/ComplianceResourceId; ConfigRuleName is carried
+// alongside so the result can be associated with its rule.
+type evaluationBody struct {
+	ConfigRuleName         string `json:"ConfigRuleName,omitempty"`
+	ComplianceResourceType string `json:"ComplianceResourceType,omitempty"`
+	ComplianceResourceID   string `json:"ComplianceResourceId,omitempty"`
+	ComplianceType         string `json:"ComplianceType"`
+	Annotation             string `json:"Annotation,omitempty"`
+}
+
+func (e evaluationBody) toResult(fallbackRule string) EvaluationResult {
+	rule := e.ConfigRuleName
+	if rule == "" {
+		rule = fallbackRule
+	}
+
+	return EvaluationResult{
+		ConfigRuleName: rule,
+		ComplianceType: e.ComplianceType,
+		ResourceType:   e.ComplianceResourceType,
+		ResourceID:     e.ComplianceResourceID,
+		Annotation:     e.Annotation,
+	}
+}
+
 // PutEvaluations request/response types and handler.
 type putEvaluationsInput struct {
-	Evaluations []EvaluationResult `json:"Evaluations"`
+	ConfigRuleName string           `json:"ConfigRuleName,omitempty"`
+	ResultToken    string           `json:"ResultToken,omitempty"`
+	Evaluations    []evaluationBody `json:"Evaluations"`
 }
 
 func (h *Handler) handlePutEvaluations(
 	_ context.Context, in *putEvaluationsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutEvaluations(in.Evaluations)
+	results := make([]EvaluationResult, 0, len(in.Evaluations))
+	for _, e := range in.Evaluations {
+		results = append(results, e.toResult(in.ConfigRuleName))
+	}
+
+	return &emptyOutput{}, h.Backend.PutEvaluations(results)
 }
 
 // PutExternalEvaluation request/response types and handler.
 type putExternalEvaluationInput struct {
-	ExternalEvaluation EvaluationResult `json:"ExternalEvaluation"`
+	ConfigRuleName     string         `json:"ConfigRuleName"`
+	ExternalEvaluation evaluationBody `json:"ExternalEvaluation"`
 }
 
 func (h *Handler) handlePutExternalEvaluation(
 	_ context.Context, in *putExternalEvaluationInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutExternalEvaluation(in.ExternalEvaluation)
+	return &emptyOutput{}, h.Backend.PutExternalEvaluation(in.ExternalEvaluation.toResult(in.ConfigRuleName))
 }
 
 // PutOrganizationConfigRule request/response types and handler.
@@ -1194,16 +1288,30 @@ func (h *Handler) handleStartRemediationExecution(
 }
 
 // StartResourceEvaluation request/response types and handler.
+type startResourceEvaluationDetails struct {
+	ResourceID            string `json:"ResourceId"`
+	ResourceType          string `json:"ResourceType"`
+	ResourceConfiguration string `json:"ResourceConfiguration"`
+}
+type startResourceEvaluationInput struct {
+	ResourceDetails startResourceEvaluationDetails `json:"ResourceDetails"`
+	EvaluationMode  string                         `json:"EvaluationMode"`
+}
 type startResourceEvaluationOutput struct {
 	ResourceEvaluationID string `json:"ResourceEvaluationId"`
 }
 
 func (h *Handler) handleStartResourceEvaluation(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *startResourceEvaluationInput,
 ) (*startResourceEvaluationOutput, error) {
-	return &startResourceEvaluationOutput{
-		ResourceEvaluationID: h.Backend.StartResourceEvaluation(),
-	}, nil
+	id := h.Backend.StartResourceEvaluation(
+		in.ResourceDetails.ResourceType,
+		in.ResourceDetails.ResourceID,
+		in.EvaluationMode,
+		in.ResourceDetails.ResourceConfiguration,
+	)
+
+	return &startResourceEvaluationOutput{ResourceEvaluationID: id}, nil
 }
 
 // TagResource request/response types and handler.

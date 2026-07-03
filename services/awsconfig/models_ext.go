@@ -64,6 +64,30 @@ type EvaluationResult struct {
 	ComplianceType string `json:"ComplianceType"`
 	ResourceType   string `json:"ResourceType"`
 	ResourceID     string `json:"ResourceId"`
+	Annotation     string `json:"Annotation,omitempty"`
+}
+
+// EvaluationResultQualifier identifies the rule and resource an evaluation is for.
+type EvaluationResultQualifier struct {
+	ConfigRuleName string `json:"ConfigRuleName"`
+	ResourceType   string `json:"ResourceType,omitempty"`
+	ResourceID     string `json:"ResourceId,omitempty"`
+}
+
+// EvaluationResultIdentifier uniquely identifies an evaluation result.
+type EvaluationResultIdentifier struct {
+	EvaluationResultQualifier EvaluationResultQualifier `json:"EvaluationResultQualifier"`
+	OrderingTimestamp         float64                   `json:"OrderingTimestamp"`
+}
+
+// DetailedEvaluationResult is the per-resource evaluation result returned by the
+// GetComplianceDetailsBy* APIs. Timestamps are epoch seconds.
+type DetailedEvaluationResult struct {
+	ComplianceType             string                     `json:"ComplianceType"`
+	Annotation                 string                     `json:"Annotation,omitempty"`
+	EvaluationResultIdentifier EvaluationResultIdentifier `json:"EvaluationResultIdentifier"`
+	ResultRecordedTime         float64                    `json:"ResultRecordedTime"`
+	ConfigRuleInvokedTime      float64                    `json:"ConfigRuleInvokedTime"`
 }
 
 // DeliveryChannelStatusInfo holds status info for a delivery channel.
