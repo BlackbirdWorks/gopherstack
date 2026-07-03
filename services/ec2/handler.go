@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -501,12 +502,75 @@ func (h *Handler) dispatch(action string, vals url.Values, reqID string) (any, e
 
 // ---- action handlers ----
 
+// maxUserDataBytes is the AWS limit on decoded EC2 user data (16 KiB).
+const maxUserDataBytes = 16384
+
+// validateUserData enforces the AWS EC2 contract for the UserData parameter:
+// it must be valid standard base64 and, once decoded, must not exceed the
+// 16 KiB limit. An empty value is accepted (user data is optional). Malformed
+// base64 yields InvalidUserData.Malformed; an over-limit payload yields
+// InvalidParameterValue, matching AWS error codes.
+func validateUserData(userData string) error {
+	if userData == "" {
+		return nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(userData)
+	if err != nil {
+		return fmt.Errorf(
+			"%w: user data must be a valid base64-encoded string",
+			ErrInvalidUserData,
+		)
+	}
+
+	if len(decoded) > maxUserDataBytes {
+		return fmt.Errorf(
+			"%w: User data is limited to %d bytes",
+			ErrInvalidParameter,
+			maxUserDataBytes,
+		)
+	}
+
+	return nil
+}
+
+// applyInstanceLaunchSettings persists the base64 user data and applies the key
+// name and security groups to each freshly launched instance.
+func (h *Handler) applyInstanceLaunchSettings(
+	instances []*Instance,
+	userData, keyName string,
+	sgIDs []string,
+) error {
+	for _, inst := range instances {
+		if userData != "" {
+			// Store as-is; DescribeInstanceAttribute returns the raw (base64) form.
+			if err := h.Backend.SetInstanceAttribute(inst.ID, attrUserData, userData); err != nil {
+				return err
+			}
+		}
+
+		if keyName != "" {
+			inst.KeyName = keyName
+		}
+
+		if len(sgIDs) > 0 {
+			inst.SecurityGroups = sgIDs
+		}
+	}
+
+	return nil
+}
+
 func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	instanceType := vals.Get("InstanceType")
 	subnetID := vals.Get("SubnetId")
 	userData := vals.Get("UserData")
 	keyName := vals.Get("KeyName")
+
+	if err := validateUserData(userData); err != nil {
+		return nil, err
+	}
 
 	minCount, maxCount, err := parseRunInstancesCounts(vals)
 	if err != nil {
@@ -525,21 +589,8 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	for _, inst := range instances {
-		if userData != "" {
-			// Store as-is; DescribeInstanceAttribute returns the raw (base64) form.
-			if attrErr := h.Backend.SetInstanceAttribute(inst.ID, attrUserData, userData); attrErr != nil {
-				return nil, attrErr
-			}
-		}
-
-		if keyName != "" {
-			inst.KeyName = keyName
-		}
-
-		if len(sgIDs) > 0 {
-			inst.SecurityGroups = sgIDs
-		}
+	if err = h.applyInstanceLaunchSettings(instances, userData, keyName, sgIDs); err != nil {
+		return nil, err
 	}
 
 	if cb, c := h.computeBackend(); c != nil {
@@ -610,7 +661,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 	if tok := vals.Get("NextToken"); tok != "" {
 		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
 		if n == 0 {
-			return nil, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+			return nil, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
 		}
 		offset = n
 	}
@@ -1044,7 +1095,7 @@ func parseInstanceTypesPagination(vals url.Values) (int, int, error) {
 	if tok := vals.Get("NextToken"); tok != "" {
 		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
 		if n == 0 {
-			return 0, 0, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidParameter, tok)
+			return 0, 0, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidPaginationToken, tok)
 		}
 
 		offset = n
@@ -1275,6 +1326,9 @@ var errCodeLookup = []struct {
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
 	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
 	{ErrCIDRConflict, "InvalidVpc.Conflict"},
+	{ErrInvalidUserData, "InvalidUserData.Malformed"},
+	{ErrMissingParameter, "MissingParameter"},
+	{ErrInvalidPaginationToken, "InvalidPaginationToken"},
 	{ErrInvalidParameter, "InvalidParameterValue"},
 }
 

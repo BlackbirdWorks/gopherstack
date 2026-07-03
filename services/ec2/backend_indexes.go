@@ -145,6 +145,72 @@ func (b *InMemoryBackend) deindexSGLocked(sgID, vpcID string) {
 	}
 }
 
+// indexENIByVPCLocked records eniID under its VPC. Unlike indexENILocked (keyed
+// by the ENI's instance, which changes on attach/detach), the ENI's VPC is
+// immutable, so this is maintained only at ENI create/delete sites — never on
+// attach/detach — to keep the DeleteVpc cascade correct.
+func (b *InMemoryBackend) indexENIByVPCLocked(eniID string, eni *NetworkInterface) {
+	if eni == nil || eni.VPCID == "" {
+		return
+	}
+
+	ids, ok := b.eniIDsByVPC[eni.VPCID]
+	if !ok {
+		ids = make(map[string]struct{})
+		b.eniIDsByVPC[eni.VPCID] = ids
+	}
+
+	ids[eniID] = struct{}{}
+}
+
+func (b *InMemoryBackend) deindexENIByVPCLocked(eniID string, eni *NetworkInterface) {
+	if eni == nil || eni.VPCID == "" {
+		return
+	}
+
+	ids, ok := b.eniIDsByVPC[eni.VPCID]
+	if !ok {
+		return
+	}
+
+	delete(ids, eniID)
+	if len(ids) == 0 {
+		delete(b.eniIDsByVPC, eni.VPCID)
+	}
+}
+
+// indexNatGatewayLocked records a NAT gateway under its VPC so DeleteVpc can
+// find it without scanning the whole natGateways map.
+func (b *InMemoryBackend) indexNatGatewayLocked(ngw *NatGateway) {
+	if ngw == nil || ngw.VPCID == "" {
+		return
+	}
+
+	ids, ok := b.natGatewayIDsByVPC[ngw.VPCID]
+	if !ok {
+		ids = make(map[string]struct{})
+		b.natGatewayIDsByVPC[ngw.VPCID] = ids
+	}
+
+	ids[ngw.ID] = struct{}{}
+}
+
+func (b *InMemoryBackend) deindexNatGatewayLocked(ngw *NatGateway) {
+	if ngw == nil || ngw.VPCID == "" {
+		return
+	}
+
+	ids, ok := b.natGatewayIDsByVPC[ngw.VPCID]
+	if !ok {
+		return
+	}
+
+	delete(ids, ngw.ID)
+	if len(ids) == 0 {
+		delete(b.natGatewayIDsByVPC, ngw.VPCID)
+	}
+}
+
 func initSecondaryIndexMaps(b *InMemoryBackend) {
 	b.instanceIDsByVPC = make(map[string]map[string]struct{})
 	b.eniIDsByInstance = make(map[string]map[string]struct{})
@@ -152,6 +218,8 @@ func initSecondaryIndexMaps(b *InMemoryBackend) {
 	b.subnetIDsByVPC = make(map[string]map[string]struct{})
 	b.routeTableIDsByVPC = make(map[string]map[string]struct{})
 	b.sgIDsByVPC = make(map[string]map[string]struct{})
+	b.natGatewayIDsByVPC = make(map[string]map[string]struct{})
+	b.eniIDsByVPC = make(map[string]map[string]struct{})
 }
 
 func (b *InMemoryBackend) rebuildSecondaryIndexesLocked() {
@@ -163,6 +231,11 @@ func (b *InMemoryBackend) rebuildSecondaryIndexesLocked() {
 
 	for eniID, eni := range b.networkInterfaces {
 		b.indexENILocked(eniID, eni)
+		b.indexENIByVPCLocked(eniID, eni)
+	}
+
+	for _, ngw := range b.natGateways {
+		b.indexNatGatewayLocked(ngw)
 	}
 
 	for id, subnet := range b.subnets {

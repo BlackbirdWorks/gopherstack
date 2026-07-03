@@ -28,6 +28,16 @@ var (
 	ErrCIDRConflict          = errors.New("InvalidVpc.Conflict")
 	ErrDryRunOperation       = errors.New("request would have succeeded, but DryRun flag is set")
 	ErrDuplicatePermission   = errors.New("InvalidPermission.Duplicate")
+
+	// ErrInvalidUserData is returned when RunInstances / ModifyInstanceAttribute
+	// user data is not valid base64 or exceeds the 16 KiB decoded-size limit.
+	ErrInvalidUserData = errors.New("InvalidUserData.Malformed")
+	// ErrMissingParameter is returned when a required parameter (e.g. the
+	// ModifyInstanceAttribute attribute selector) is absent.
+	ErrMissingParameter = errors.New("MissingParameter")
+	// ErrInvalidPaginationToken is returned when a NextToken is forged, tampered
+	// with, or otherwise fails HMAC verification.
+	ErrInvalidPaginationToken = errors.New("InvalidPaginationToken")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -348,6 +358,8 @@ type InMemoryBackend struct {
 	subnetIDsByVPC                     map[string]map[string]struct{}
 	routeTableIDsByVPC                 map[string]map[string]struct{}
 	sgIDsByVPC                         map[string]map[string]struct{}
+	natGatewayIDsByVPC                 map[string]map[string]struct{}
+	eniIDsByVPC                        map[string]map[string]struct{}
 	snapshotBlockPublicAccess          string
 	ebsDefaultKmsKeyID                 string
 	imageBlockPublicAccess             string
@@ -669,6 +681,7 @@ func (b *InMemoryBackend) RunInstances(
 		b.instances[id] = inst
 		b.indexInstanceLocked(inst)
 		b.indexENILocked(eniID, b.networkInterfaces[eniID])
+		b.indexENIByVPCLocked(eniID, b.networkInterfaces[eniID])
 		instances = append(instances, inst)
 	}
 
@@ -919,6 +932,7 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			}
 
 			b.deindexENILocked(eniID, eni)
+			b.deindexENIByVPCLocked(eniID, eni)
 			b.recycleENIIPsLocked(eni)
 			delete(b.networkInterfaces, eniID)
 			delete(b.tags, eniID)
@@ -1133,18 +1147,16 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 	// Cascade: detach and delete internet gateways attached to this VPC.
 	b.cascadeDeleteVpcIGWsLocked(id)
 
-	// Build subnet set for this VPC using the secondary index so the NAT
-	// gateway scan does a cheap set-membership check instead of a sub-lookup.
-	subnetSet := b.subnetIDsByVPC[id]
-
-	// Cascade: delete NAT gateways in subnets belonging to this VPC.
-	for ngwID, ngw := range b.natGateways {
-		if _, inVPC := subnetSet[ngw.SubnetID]; inVPC {
+	// Cascade: delete NAT gateways belonging to this VPC via secondary index,
+	// avoiding a full-map scan under the write lock.
+	for ngwID := range b.natGatewayIDsByVPC[id] {
+		if ngw, ok := b.natGateways[ngwID]; ok {
 			b.recycleIPLocked(ngw.PrivateIP)
 			delete(b.natGateways, ngwID)
 			delete(b.tags, ngwID)
 		}
 	}
+	delete(b.natGatewayIDsByVPC, id)
 
 	// Cascade: remove route tables belonging to this VPC via secondary index.
 	for rtID := range b.routeTableIDsByVPC[id] {
@@ -1160,17 +1172,20 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 	}
 	delete(b.sgIDsByVPC, id)
 
-	// Cascade: remove network interfaces belonging to this VPC.
-	for eniID, eni := range b.networkInterfaces {
-		if eni.VPCID == id {
+	// Cascade: remove network interfaces belonging to this VPC via secondary
+	// index, avoiding a full-map scan under the write lock.
+	for eniID := range b.eniIDsByVPC[id] {
+		if eni, ok := b.networkInterfaces[eniID]; ok {
 			b.recycleENIIPsLocked(eni)
+			b.deindexENILocked(eniID, eni)
 			delete(b.networkInterfaces, eniID)
 			delete(b.tags, eniID)
 		}
 	}
+	delete(b.eniIDsByVPC, id)
 
 	// Cascade: remove subnets belonging to this VPC via secondary index.
-	for subnetID := range subnetSet {
+	for subnetID := range b.subnetIDsByVPC[id] {
 		delete(b.subnets, subnetID)
 		delete(b.tags, subnetID)
 	}
@@ -1286,6 +1301,7 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	for ngwID, ngw := range b.natGateways {
 		if ngw.SubnetID == id {
 			b.recycleIPLocked(ngw.PrivateIP)
+			b.deindexNatGatewayLocked(ngw)
 			delete(b.natGateways, ngwID)
 			delete(b.tags, ngwID)
 		}
@@ -1295,6 +1311,8 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	for eniID, eni := range b.networkInterfaces {
 		if eni.SubnetID == id {
 			b.recycleENIIPsLocked(eni)
+			b.deindexENILocked(eniID, eni)
+			b.deindexENIByVPCLocked(eniID, eni)
 			delete(b.networkInterfaces, eniID)
 			delete(b.tags, eniID)
 		}
