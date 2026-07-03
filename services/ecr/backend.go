@@ -347,13 +347,10 @@ type ImageScanFindingsResult struct {
 // under enhancedFindings when the registry uses ENHANCED scanning. It carries
 // package-level vulnerability detail that the BASIC finding shape lacks.
 type EnhancedImageScanFinding struct {
-	FirstObservedAt             time.Time                    `json:"firstObservedAt"`
-	LastObservedAt              time.Time                    `json:"lastObservedAt"`
-	UpdatedAt                   time.Time                    `json:"updatedAt"`
 	PackageVulnerabilityDetails *PackageVulnerabilityDetails `json:"packageVulnerabilityDetails,omitempty"`
 	Remediation                 *Remediation                 `json:"remediation,omitempty"`
-	AwsAccountID                string                       `json:"awsAccountId,omitempty"`
 	Description                 string                       `json:"description,omitempty"`
+	AwsAccountID                string                       `json:"awsAccountId,omitempty"`
 	FindingArn                  string                       `json:"findingArn,omitempty"`
 	Severity                    string                       `json:"severity,omitempty"`
 	Status                      string                       `json:"status,omitempty"`
@@ -361,13 +358,15 @@ type EnhancedImageScanFinding struct {
 	Type                        string                       `json:"type,omitempty"`
 	FixAvailable                string                       `json:"fixAvailable,omitempty"`
 	Resources                   []EnhancedFindingResource    `json:"resources,omitempty"`
+	UpdatedAt                   float64                      `json:"updatedAt"`
+	LastObservedAt              float64                      `json:"lastObservedAt"`
+	FirstObservedAt             float64                      `json:"firstObservedAt"`
 	Score                       float64                      `json:"score,omitempty"`
 }
 
 // PackageVulnerabilityDetails describes the vulnerability behind an enhanced
 // finding, including CVSS scoring and the affected packages.
 type PackageVulnerabilityDetails struct {
-	VendorCreatedAt        time.Time           `json:"vendorCreatedAt"`
 	VulnerabilityID        string              `json:"vulnerabilityId,omitempty"`
 	Source                 string              `json:"source,omitempty"`
 	SourceURL              string              `json:"sourceUrl,omitempty"`
@@ -376,6 +375,7 @@ type PackageVulnerabilityDetails struct {
 	ReferenceUrls          []string            `json:"referenceUrls,omitempty"`
 	RelatedVulnerabilities []string            `json:"relatedVulnerabilities,omitempty"`
 	VulnerablePackages     []VulnerablePackage `json:"vulnerablePackages,omitempty"`
+	VendorCreatedAt        float64             `json:"vendorCreatedAt"`
 }
 
 // CVSSScore is a single CVSS scoring entry for an enhanced finding.
