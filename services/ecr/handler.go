@@ -51,6 +51,7 @@ type Handler struct {
 	Backend         Backend
 	ops             map[string]service.JSONOpFunc
 	registryHandler http.Handler
+	janitor         *Janitor
 	setEndpointOnce sync.Once
 	registryEnabled bool
 }
@@ -66,6 +67,33 @@ func NewHandler(backend Backend, registryHandler http.Handler) *Handler {
 	h.ops = h.buildOps()
 
 	return h
+}
+
+// WithJanitor attaches a background lifecycle-expiry janitor to the handler.
+// interval=0 uses the default of one minute. The optional taskTimeout bounds
+// each sweep; 0 means no per-task timeout. It is a no-op unless the backend is
+// an *InMemoryBackend.
+func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Duration) *Handler {
+	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
+		j := NewJanitor(memBackend, interval)
+		if len(taskTimeout) > 0 {
+			j.TaskTimeout = taskTimeout[0]
+		}
+
+		h.janitor = j
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if one is configured. It satisfies
+// the service.BackgroundWorker interface.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // RegistryEnabled returns true if the embedded Docker registry is enabled.

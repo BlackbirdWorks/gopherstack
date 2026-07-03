@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -190,4 +191,117 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus_Errors(t *testing.T
 	require.Error(t, err)
 	var repoNotFound *types.RepositoryNotFoundException
 	assert.ErrorAs(t, err, &repoNotFound)
+}
+
+// TestIntegration_ECRAudit_LifecyclePolicy_ExpiresImages verifies that applying
+// a lifecycle policy actually deletes images, mirroring the AWS ECR lifecycle
+// evaluation job (terraform-provider-aws: aws_ecr_lifecycle_policy).
+func TestIntegration_ECRAudit_LifecyclePolicy_ExpiresImages(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECRClient(t)
+	ctx := t.Context()
+
+	repoName := "audit-lc-repo-" + uuid.NewString()[:8]
+
+	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
+		RepositoryName: aws.String(repoName),
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{
+			RepositoryName: aws.String(repoName),
+			Force:          true,
+		})
+	})
+
+	// Push five images with distinct manifests (so each has a distinct digest).
+	for i := range 5 {
+		_, err = client.PutImage(ctx, &ecr.PutImageInput{
+			RepositoryName: aws.String(repoName),
+			ImageManifest:  aws.String(fmt.Sprintf(`{"schemaVersion":2,"n":%d}`, i)),
+			ImageTag:       aws.String(fmt.Sprintf("v%d", i)),
+		})
+		require.NoError(t, err)
+	}
+
+	// Keep only the two most recent images.
+	policy := `{"rules":[{"rulePriority":1,"description":"keep 2",` +
+		`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":2},` +
+		`"action":{"type":"expire"}}]}`
+
+	_, err = client.PutLifecyclePolicy(ctx, &ecr.PutLifecyclePolicyInput{
+		RepositoryName:      aws.String(repoName),
+		LifecyclePolicyText: aws.String(policy),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeImages(ctx, &ecr.DescribeImagesInput{
+		RepositoryName: aws.String(repoName),
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.ImageDetails, 2, "lifecycle policy imageCountMoreThan:2 must leave 2 images")
+}
+
+// TestIntegration_ECRAudit_EnhancedScan_DistinctFindings verifies that ENHANCED
+// registry scanning returns Inspector-style enhancedFindings distinct from the
+// BASIC finding shape.
+func TestIntegration_ECRAudit_EnhancedScan_DistinctFindings(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECRClient(t)
+	ctx := t.Context()
+
+	repoName := "audit-enh-scan-" + uuid.NewString()[:8]
+
+	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
+		RepositoryName: aws.String(repoName),
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{
+			RepositoryName: aws.String(repoName),
+			Force:          true,
+		})
+		// Restore BASIC scanning so other tests are unaffected.
+		_, _ = client.PutRegistryScanningConfiguration(ctx, &ecr.PutRegistryScanningConfigurationInput{
+			ScanType: types.ScanTypeBasic,
+		})
+	})
+
+	_, err = client.PutImage(ctx, &ecr.PutImageInput{
+		RepositoryName: aws.String(repoName),
+		ImageManifest:  aws.String(`{"schemaVersion":2,"enh":"scan"}`),
+		ImageTag:       aws.String("v1"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutRegistryScanningConfiguration(ctx, &ecr.PutRegistryScanningConfigurationInput{
+		ScanType: types.ScanTypeEnhanced,
+	})
+	require.NoError(t, err)
+
+	_, err = client.StartImageScan(ctx, &ecr.StartImageScanInput{
+		RepositoryName: aws.String(repoName),
+		ImageId:        &types.ImageIdentifier{ImageTag: aws.String("v1")},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeImageScanFindings(ctx, &ecr.DescribeImageScanFindingsInput{
+		RepositoryName: aws.String(repoName),
+		ImageId:        &types.ImageIdentifier{ImageTag: aws.String("v1")},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ImageScanFindings)
+	require.NotEmpty(t, out.ImageScanFindings.EnhancedFindings,
+		"ENHANCED scanning must return enhancedFindings")
+
+	f := out.ImageScanFindings.EnhancedFindings[0]
+	require.NotNil(t, f.PackageVulnerabilityDetails)
+	assert.NotEmpty(t, aws.ToString(f.PackageVulnerabilityDetails.VulnerabilityId))
+	assert.NotEmpty(t, f.PackageVulnerabilityDetails.Cvss, "enhanced findings carry CVSS scores")
 }
