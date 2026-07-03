@@ -2967,6 +2967,74 @@ func TestTerraform_APIGateway_DataPlane(t *testing.T) {
 	}
 }
 
+// TestTerraform_APIGateway_RequestValidation provisions a REST API whose GET method
+// declares a required querystring parameter and a request validator, then confirms the
+// data plane rejects a request missing the parameter with HTTP 400 and accepts one that
+// includes it with HTTP 200. Mirrors terraform-provider-aws's
+// aws_api_gateway_request_validator acceptance coverage, extended to runtime behavior.
+func TestTerraform_APIGateway_RequestValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "required_query_param",
+			fixture: "apigateway/request_validation",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"APIName": "tf-apigw-rv-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				apiClient := createAPIGatewayClient(t)
+				apis, err := apiClient.GetRestApis(ctx, &apigwsvc.GetRestApisInput{})
+				require.NoError(t, err)
+
+				var apiID string
+				for _, api := range apis.Items {
+					if aws.ToString(api.Name) == vars["APIName"].(string) {
+						apiID = aws.ToString(api.Id)
+
+						break
+					}
+				}
+				require.NotEmpty(t, apiID, "REST API %q should be present", vars["APIName"].(string))
+
+				base := endpoint + "/restapis/" + apiID + "/prod/_user_request_/items"
+
+				// Missing required query parameter → 400.
+				missReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base, nil)
+				require.NoError(t, err)
+				missResp, err := http.DefaultClient.Do(missReq)
+				require.NoError(t, err)
+				defer missResp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, missResp.StatusCode,
+					"request missing required query param must be rejected with 400")
+
+				// Required query parameter present → 200.
+				okReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"?q=hello", nil)
+				require.NoError(t, err)
+				okResp, err := http.DefaultClient.Do(okReq)
+				require.NoError(t, err)
+				defer okResp.Body.Close()
+				assert.Equal(t, http.StatusOK, okResp.StatusCode,
+					"request with required query param must be accepted with 200")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_Scheduler provisions an EventBridge Scheduler schedule and verifies it exists.
 func TestTerraform_Scheduler(t *testing.T) {
 	t.Parallel()

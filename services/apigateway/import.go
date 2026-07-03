@@ -335,6 +335,7 @@ func ensureResourcePath(data *apiData, path string) *Resource {
 				ResourceMethods: make(map[string]*Method),
 			}
 			data.resources[child.ID] = child
+			data.resourceVersion++
 		}
 		current = child
 	}

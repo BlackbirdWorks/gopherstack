@@ -632,20 +632,32 @@ type JWKSProvider interface {
 
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
-	Backend        StorageBackend
-	jwksProvider   JWKSProvider
-	authCache      *authorizerCache
-	lambda         LambdaInvoker
-	httpClient     *http.Client
-	selRegexpCache sync.Map // map[string]*regexp.Regexp — compiled selection-pattern regexps
+	Backend      StorageBackend
+	jwksProvider JWKSProvider
+	lambda       LambdaInvoker
+	authCache    *authorizerCache
+	httpClient   *http.Client
+	// selRegexpCache is a bounded LRU of compiled selection-pattern regexps. It is
+	// keyed by user-supplied patterns, so it must be size-capped to prevent unbounded
+	// growth.
+	selRegexpCache *regexpCache
+	// dispatchCache is the op→handler table, built exactly once (see dispatchOnce)
+	// instead of per request.
+	dispatchCache map[string]actionFn
+	// trieCache holds the per-API routing trie (map[apiID]*trieCacheEntry). It is
+	// rebuilt only when the API's resource-set version changes.
+	trieCache sync.Map
+	// dispatchOnce guards the one-time build of dispatchCache.
+	dispatchOnce sync.Once
 }
 
 // NewHandler creates a new API Gateway handler with a default HTTP client timeout.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend:    backend,
-		authCache:  newAuthorizerCache(),
-		httpClient: &http.Client{Timeout: apiGWHTTPTimeout},
+		Backend:        backend,
+		authCache:      newAuthorizerCache(),
+		httpClient:     &http.Client{Timeout: apiGWHTTPTimeout},
+		selRegexpCache: newRegexpCache(defaultRegexpCacheMaxEntries),
 	}
 }
 
@@ -2775,7 +2787,19 @@ func (h *Handler) stageActions() map[string]actionFn {
 	}
 }
 
+// dispatchTable returns the op→handler table, building it exactly once and caching it.
+// The table's closures capture the receiver, so a single build is valid for the
+// handler's lifetime; rebuilding it (13 sub-constructors + maps.Copy) per request was
+// pure overhead.
 func (h *Handler) dispatchTable() map[string]actionFn {
+	h.dispatchOnce.Do(func() {
+		h.dispatchCache = h.buildDispatchTable()
+	})
+
+	return h.dispatchCache
+}
+
+func (h *Handler) buildDispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.restAPIActions())
 	maps.Copy(table, h.resourceActions())
