@@ -2236,6 +2236,11 @@ func TestTerraform_OpenSearch(t *testing.T) {
 				require.NoError(t, err, "DescribeDomain should succeed after terraform apply")
 				require.NotNil(t, out.DomainStatus)
 				assert.Equal(t, vars["DomainName"].(string), aws.ToString(out.DomainStatus.DomainName))
+				// The terraform-provider-aws create waiter settles when the domain
+				// reports Created && !Processing with DomainProcessingStatus Active.
+				assert.True(t, aws.ToBool(out.DomainStatus.Created), "domain should report Created")
+				assert.False(t, aws.ToBool(out.DomainStatus.Processing), "settled domain must not be Processing")
+				assert.Equal(t, "Active", string(out.DomainStatus.DomainProcessingStatus))
 			},
 		},
 	}

@@ -155,9 +155,12 @@ func (b *InMemoryBackend) UpgradeDomain(domainName, upgradeName string) error {
 	b.mu.Lock("UpgradeDomain")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domains[domainName]; !ok {
+	d, ok := b.domains[domainName]
+	if !ok || deleteWindowElapsed(d, b.clock()) {
 		return fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
 	}
+
+	b.beginProcessing(d, dpsUpgrading)
 
 	uh := &UpgradeHistory{
 		UpgradeName:    upgradeName,
@@ -417,9 +420,14 @@ func (b *InMemoryBackend) ListDomainNamesByEngine(engineType string) []string {
 	b.mu.RLock("ListDomainNamesByEngine")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
 	out := make([]string, 0, len(b.domains))
 
 	for name, d := range b.domains {
+		if deleteWindowElapsed(d, now) {
+			continue
+		}
+
 		if engineType == "" {
 			out = append(out, name)
 
@@ -464,9 +472,14 @@ func (b *InMemoryBackend) ListDomainEntriesFiltered(engineType string) []DomainE
 	b.mu.RLock("ListDomainEntriesFiltered")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
 	out := make([]DomainEntry, 0, len(b.domains))
 
 	for name, d := range b.domains {
+		if deleteWindowElapsed(d, now) {
+			continue
+		}
+
 		if engineType == "" {
 			out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
 
