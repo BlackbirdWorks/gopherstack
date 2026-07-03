@@ -41,6 +41,7 @@ func (j *Janitor) Run(ctx context.Context) {
 	g := worker.NewGroup(ctx, "ssm")
 	g.Ticker("CommandSweeper", j.Interval, j.TaskTimeout, j.sweepExpiredCommands)
 	g.Ticker("ParameterExpirer", j.Interval, j.TaskTimeout, j.sweepExpiredParameters)
+	g.Ticker("SessionSweeper", j.Interval, j.TaskTimeout, j.sweepTerminatedSessions)
 
 	<-ctx.Done()
 	g.Stop()
@@ -50,6 +51,52 @@ func (j *Janitor) Run(ctx context.Context) {
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepExpiredCommands(ctx)
 	j.sweepExpiredParameters(ctx)
+	j.sweepTerminatedSessions(ctx)
+}
+
+// sweepTerminatedSessions evicts terminated (history) sessions whose EndDate is
+// older than the retention window, preventing unbounded growth of the sessions
+// store while preserving recent history for DescribeSessions.
+func (j *Janitor) sweepTerminatedSessions(ctx context.Context) {
+	b := j.Backend
+	cutoff := UnixTimeFloat(time.Now()) - sessionHistoryRetentionSecs
+
+	b.mu.Lock("SSMJanitorSession")
+
+	type expiredSession struct {
+		region string
+		id     string
+	}
+	var expired []expiredSession
+
+	for region, sessions := range b.sessions {
+		for id, s := range sessions {
+			if s.Status == sessionStatusTerminated && s.EndDate > 0 && s.EndDate < cutoff {
+				expired = append(expired, expiredSession{region: region, id: id})
+			}
+		}
+	}
+
+	regions := make(map[string]struct{}, len(expired))
+	for _, e := range expired {
+		delete(b.sessions[e.region], e.id)
+		regions[e.region] = struct{}{}
+	}
+
+	for region := range regions {
+		cleanupEmptyInnerMap(b.sessions, region)
+	}
+
+	b.mu.Unlock()
+
+	count := len(expired)
+
+	telemetry.RecordWorkerItems("ssm", "SessionSweeper", count)
+	telemetry.RecordWorkerTask("ssm", "SessionSweeper", "success")
+
+	if count > 0 {
+		logger.Load(ctx).InfoContext(ctx, "SSM janitor: terminated sessions evicted", "count", count)
+	}
 }
 
 // sweepExpiredCommands removes commands whose ExpiresAfter timestamp has passed,

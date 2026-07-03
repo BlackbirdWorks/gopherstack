@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -389,11 +390,16 @@ func (b *InMemoryBackend) DeleteInventory(
 	defer b.mu.Unlock()
 
 	store := b.inventoryStore(region)
+
+	removed := 0
+
 	for instanceID, items := range store {
 		filtered := items[:0]
 		for _, item := range items {
 			if item.TypeName != input.TypeName {
 				filtered = append(filtered, item)
+			} else {
+				removed++
 			}
 		}
 
@@ -406,17 +412,50 @@ func (b *InMemoryBackend) DeleteInventory(
 
 	cleanupEmptyInnerMap(b.inventory, region)
 
-	return &DeleteInventoryOutput{}, nil
+	// Record a real deletion job so DescribeInventoryDeletions can report it.
+	deletionID := "deletion-" + uuid.NewString()
+	deletion := InventoryDeletion{
+		DeletionID:        deletionID,
+		TypeName:          input.TypeName,
+		LastStatus:        "Complete",
+		LastStatusMessage: "The inventory deletion has completed.",
+		DeletionStartTime: time.Now().UTC(),
+		DeletionSummary: &InventoryDeletionSummary{
+			TotalCount:     removed,
+			RemainingCount: 0,
+			SummaryItems:   []any{},
+		},
+	}
+	b.inventoryDeletions[region] = append(b.inventoryDeletions[region], deletion)
+
+	return &DeleteInventoryOutput{
+		DeletionID:      deletionID,
+		TypeName:        input.TypeName,
+		DeletionSummary: deletion.DeletionSummary,
+	}, nil
 }
 
-// DescribeInventoryDeletions returns an empty list.
-// The in-memory backend does not track deletion jobs.
+// DescribeInventoryDeletions returns the recorded DeleteInventory jobs,
+// optionally filtered to a single DeletionId, backed by real stored state.
 func (b *InMemoryBackend) DescribeInventoryDeletions(
-	_ context.Context,
-	_ *DescribeInventoryDeletionsInput,
+	ctx context.Context,
+	input *DescribeInventoryDeletionsInput,
 ) (*DescribeInventoryDeletionsOutput, error) {
+	region := getRegion(ctx)
+	b.mu.RLock("DescribeInventoryDeletions")
+	defer b.mu.RUnlock()
+
+	deletions := make([]any, 0, len(b.inventoryDeletionsStore(region)))
+	for _, d := range b.inventoryDeletionsStore(region) {
+		if input.DeletionID != "" && d.DeletionID != input.DeletionID {
+			continue
+		}
+
+		deletions = append(deletions, d)
+	}
+
 	return &DescribeInventoryDeletionsOutput{
-		InventoryDeletions: []any{},
+		InventoryDeletions: deletions,
 	}, nil
 }
 
@@ -728,16 +767,28 @@ func (b *InMemoryBackend) GetDefaultPatchBaseline(
 	}
 
 	if id, ok := b.patchGroupToBaselineStore(region)[key]; ok {
+		os := input.OperatingSystem
+		if os == "" {
+			os = b.patchBaselinesStore(region)[id].OperatingSystem
+		}
+
 		return &GetDefaultPatchBaselineOutput{
 			BaselineID:      id,
-			OperatingSystem: input.OperatingSystem,
+			OperatingSystem: os,
 		}, nil
 	}
 
-	// No default registered — return a synthetic default ID.
+	// No default registered for this OS: fall back to the AWS-managed default
+	// baseline, which is real state seeded into the store (its ID is stable and
+	// GetPatchBaseline can describe it), rather than a fabricated all-zeros ID.
+	os := input.OperatingSystem
+	if os == "" {
+		os = "WINDOWS"
+	}
+
 	return &GetDefaultPatchBaselineOutput{
-		BaselineID:      "pb-00000000000000000",
-		OperatingSystem: input.OperatingSystem,
+		BaselineID:      defaultBaselineID(os),
+		OperatingSystem: os,
 	}, nil
 }
 
@@ -971,7 +1022,8 @@ func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 	b.mu.RLock("DescribeEffectivePatchesForPatchBaseline")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.patchBaselinesStore(region)[input.BaselineID]; !exists {
+	baseline, exists := b.patchBaselinesStore(region)[input.BaselineID]
+	if !exists {
 		return nil, fmt.Errorf(
 			"%w: baseline %q not found",
 			ErrPatchBaselineNotFound,
@@ -979,26 +1031,149 @@ func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 		)
 	}
 
-	return &DescribeEffectivePatchesForPatchBaselineOutput{
-		EffectivePatches: []EffectivePatch{},
-	}, nil
+	effective := b.effectivePatchesForBaseline(region, baseline)
+
+	return paginateEffectivePatches(effective, input.NextToken, input.MaxResults), nil
 }
 
-// GetDeployablePatchSnapshotForInstance returns a stub snapshot ID.
-// The in-memory backend generates a synthetic snapshot URL.
+// effectivePatchesForBaseline derives the effective patch set for a baseline
+// from its explicitly-approved patches plus the region's available-patch
+// catalogue (matched on OS/product), backing the response with real stored
+// state instead of an empty list. Must be called with b.mu held.
+func (b *InMemoryBackend) effectivePatchesForBaseline(
+	region string,
+	baseline PatchBaseline,
+) []EffectivePatch {
+	level := baseline.ApprovedPatchesComplianceLevel
+	if level == "" {
+		level = "UNSPECIFIED"
+	}
+
+	approvalDate := time.Unix(int64(baseline.CreatedDate), 0).UTC().Format(time.RFC3339)
+
+	effective := make([]EffectivePatch, 0, len(baseline.ApprovedPatches))
+
+	approved := make(map[string]struct{}, len(baseline.ApprovedPatches))
+	for _, id := range baseline.ApprovedPatches {
+		approved[id] = struct{}{}
+		p := id
+		effective = append(effective, EffectivePatch{
+			Patch: &Patch{Name: p, Classification: "SecurityUpdates"},
+			PatchStatus: &PatchStatus{
+				DeploymentStatus: "EXPLICIT_APPROVED",
+				ComplianceLevel:  level,
+				ApprovalDate:     approvalDate,
+			},
+		})
+	}
+
+	// Include catalogue patches for the baseline's OS/product that are not
+	// explicitly rejected — these are AVAILABLE for approval.
+	rejected := make(map[string]struct{}, len(baseline.RejectedPatches))
+	for _, id := range baseline.RejectedPatches {
+		rejected[id] = struct{}{}
+	}
+
+	for _, p := range b.availablePatches[region] {
+		if _, isApproved := approved[p.Name]; isApproved {
+			continue
+		}
+
+		if _, isRejected := rejected[p.Name]; isRejected {
+			continue
+		}
+
+		patch := p
+		effective = append(effective, EffectivePatch{
+			Patch: &patch,
+			PatchStatus: &PatchStatus{
+				DeploymentStatus: "AVAILABLE",
+				ComplianceLevel:  level,
+			},
+		})
+	}
+
+	return effective
+}
+
+// paginateEffectivePatches applies opaque index-based pagination to an effective
+// patch list.
+func paginateEffectivePatches(
+	all []EffectivePatch,
+	nextToken string,
+	maxResults *int64,
+) *DescribeEffectivePatchesForPatchBaselineOutput {
+	startIdx := parseNextToken(nextToken)
+
+	const defaultMax = 100
+
+	limit := int64(defaultMax)
+	if maxResults != nil && *maxResults > 0 {
+		limit = *maxResults
+	}
+
+	if startIdx >= len(all) {
+		return &DescribeEffectivePatchesForPatchBaselineOutput{
+			EffectivePatches: []EffectivePatch{},
+		}
+	}
+
+	end := startIdx + int(limit)
+
+	var token string
+
+	if end < len(all) {
+		token = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return &DescribeEffectivePatchesForPatchBaselineOutput{
+		EffectivePatches: all[startIdx:end],
+		NextToken:        token,
+	}
+}
+
+// GetDeployablePatchSnapshotForInstance returns the deployable patch snapshot
+// for an instance. The snapshot is backed by the instance's effective patch
+// baseline (looked up via its recorded patch state or the default baseline for
+// its OS) rather than a random URL, and the Product reflects the real baseline
+// OS. A caller-supplied SnapshotId is preserved so repeated calls are stable.
 func (b *InMemoryBackend) GetDeployablePatchSnapshotForInstance(
-	_ context.Context,
+	ctx context.Context,
 	input *GetDeployablePatchSnapshotForInstanceInput,
 ) (*GetDeployablePatchSnapshotForInstanceOutput, error) {
+	region := getRegion(ctx)
+	b.mu.RLock("GetDeployablePatchSnapshotForInstance")
+	defer b.mu.RUnlock()
+
 	snapshotID := input.SnapshotID
 	if snapshotID == "" {
 		snapshotID = uuid.NewString()
 	}
 
+	// Resolve the instance's effective baseline: prefer its recorded patch
+	// state, else the AWS default baseline for its OS (Windows fallback).
+	product := "AmazonLinux2"
+	baselineID := defaultBaselineID("AMAZON_LINUX_2")
+
+	if st, ok := b.instancePatchStatesStore(region)[input.InstanceID]; ok && st != nil {
+		if st.BaselineID != "" {
+			baselineID = st.BaselineID
+		}
+
+		if bl, found := b.patchBaselinesStore(region)[st.BaselineID]; found &&
+			bl.OperatingSystem != "" {
+			product = bl.OperatingSystem
+		}
+	}
+
 	return &GetDeployablePatchSnapshotForInstanceOutput{
-		InstanceID:          input.InstanceID,
-		SnapshotID:          snapshotID,
-		SnapshotDownloadURL: "https://s3.amazonaws.com/gopherstack-patch-snapshot/" + snapshotID,
+		InstanceID: input.InstanceID,
+		SnapshotID: snapshotID,
+		Product:    product,
+		SnapshotDownloadURL: "https://patch-baseline-snapshot-" + region +
+			".s3." + region + ".amazonaws.com/" + baselineID + "-" + snapshotID,
 	}, nil
 }
 

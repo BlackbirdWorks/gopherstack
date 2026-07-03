@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,7 +26,11 @@ type DeleteActivationOutput struct{}
 type DeleteAssociationOutput struct{}
 
 // DeleteInventoryOutput is the response for DeleteInventory.
-type DeleteInventoryOutput struct{}
+type DeleteInventoryOutput struct {
+	DeletionSummary *InventoryDeletionSummary `json:"DeletionSummary,omitempty"`
+	DeletionID      string                    `json:"DeletionId,omitempty"`
+	TypeName        string                    `json:"TypeName,omitempty"`
+}
 
 // DeleteOpsItemOutput is the response for DeleteOpsItem.
 type DeleteOpsItemOutput struct{}
@@ -981,7 +986,19 @@ func (b *InMemoryBackend) DeleteAssociation(
 
 	delete(associations, input.AssociationID)
 
+	// Evict the association's execution records and their per-execution targets
+	// so deleted associations do not leak execution state.
+	if execs := b.associationExecutionsStore(region); execs != nil {
+		for _, e := range execs[input.AssociationID] {
+			delete(b.associationExecTargetsStore(region), e.ExecutionID)
+		}
+
+		delete(execs, input.AssociationID)
+	}
+
 	cleanupEmptyInnerMap(b.associations, region)
+	cleanupEmptyInnerMap(b.associationExecutions, region)
+	cleanupEmptyInnerMap(b.associationExecTargets, region)
 
 	return &DeleteAssociationOutput{}, nil
 }
@@ -1665,7 +1682,48 @@ func (b *InMemoryBackend) TerminateSession(
 	sess.EndDate = UnixTimeFloat(timeNow())
 	sessions[input.SessionID] = sess
 
+	// Bound retained terminated (history) sessions so the store cannot grow
+	// without limit under repeated Start/Terminate cycles.
+	b.evictExcessTerminatedSessionsLocked(region)
+
 	return &TerminateSessionOutput{SessionID: input.SessionID}, nil
+}
+
+// evictExcessTerminatedSessionsLocked removes the oldest terminated sessions
+// once their count in the region exceeds maxTerminatedSessionsPerRegion.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) evictExcessTerminatedSessionsLocked(region string) {
+	sessions := b.sessionsStore(region)
+
+	terminated := make([]Session, 0, len(sessions))
+	for _, s := range sessions {
+		if s.Status == sessionStatusTerminated {
+			terminated = append(terminated, s)
+		}
+	}
+
+	if len(terminated) <= maxTerminatedSessionsPerRegion {
+		return
+	}
+
+	// Oldest first by EndDate (tie-broken by SessionID for determinism).
+	slices.SortFunc(terminated, func(a, c Session) int {
+		if a.EndDate != c.EndDate {
+			if a.EndDate < c.EndDate {
+				return -1
+			}
+
+			return 1
+		}
+
+		return strings.Compare(a.SessionID, c.SessionID)
+	})
+
+	for _, s := range terminated[:len(terminated)-maxTerminatedSessionsPerRegion] {
+		delete(sessions, s.SessionID)
+	}
+
+	cleanupEmptyInnerMap(b.sessions, region)
 }
 
 // UpdateAssociation updates an existing association.

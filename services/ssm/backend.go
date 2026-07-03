@@ -216,7 +216,18 @@ type InMemoryBackend struct {
 	miscResourceTags           map[string]map[string]map[string]string
 	resourceIDToOpsMetadataArn map[string]map[string]string
 	opsItemEvents              map[string][]OpsItemEventSummary
-	commandExpirySecs          float64
+	// associationExecutions holds stable execution records per association,
+	// keyed region → associationID → executions (newest first).
+	associationExecutions map[string]map[string][]AssociationExecution
+	// associationExecTargets holds the per-execution target records,
+	// keyed region → executionID → targets.
+	associationExecTargets map[string]map[string][]AssociationExecutionTarget
+	// inventoryDeletions holds DeleteInventory job records per region, returned
+	// by DescribeInventoryDeletions.
+	inventoryDeletions      map[string][]InventoryDeletion
+	commandExpirySecs       float64
+	commandExecDelaySecs    float64
+	automationExecDelaySecs float64
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
@@ -259,6 +270,9 @@ func NewInMemoryBackend() *InMemoryBackend {
 		resourceIDToOpsMetadataArn: make(map[string]map[string]string),
 		miscResourceTags:           make(map[string]map[string]map[string]string),
 		opsItemEvents:              make(map[string][]OpsItemEventSummary),
+		associationExecutions:      make(map[string]map[string][]AssociationExecution),
+		associationExecTargets:     make(map[string]map[string][]AssociationExecutionTarget),
+		inventoryDeletions:         make(map[string][]InventoryDeletion),
 	}
 
 	b.registerDefaultDocuments(defaultRegion)
@@ -280,6 +294,31 @@ func (b *InMemoryBackend) WithKMS(e KMSEncryptor) *InMemoryBackend {
 func (b *InMemoryBackend) WithCommandTTL(d time.Duration) *InMemoryBackend {
 	if d > 0 {
 		b.commandExpirySecs = d.Seconds()
+	}
+
+	return b
+}
+
+// WithCommandExecDelay sets how long a SendCommand invocation stays in the
+// InProgress state before completing. The default of zero means commands
+// complete synchronously (fast). A positive delay makes the InProgress window
+// observable to SDK waiters: reads lazily complete the command once the delay
+// has elapsed.
+func (b *InMemoryBackend) WithCommandExecDelay(d time.Duration) *InMemoryBackend {
+	if d > 0 {
+		b.commandExecDelaySecs = d.Seconds()
+	}
+
+	return b
+}
+
+// WithAutomationExecDelay sets how long a StartAutomationExecution stays in the
+// InProgress state before reaching a terminal status. Zero (the default)
+// completes automations synchronously; a positive delay makes the InProgress
+// window observable, with reads lazily completing the execution once elapsed.
+func (b *InMemoryBackend) WithAutomationExecDelay(d time.Duration) *InMemoryBackend {
+	if d > 0 {
+		b.automationExecDelaySecs = d.Seconds()
 	}
 
 	return b
@@ -333,6 +372,18 @@ func (b *InMemoryBackend) associationsStore(region string) map[string]Associatio
 	return b.associations[region]
 }
 
+func (b *InMemoryBackend) associationExecutionsStore(
+	region string,
+) map[string][]AssociationExecution {
+	return b.associationExecutions[region]
+}
+
+func (b *InMemoryBackend) associationExecTargetsStore(
+	region string,
+) map[string][]AssociationExecutionTarget {
+	return b.associationExecTargets[region]
+}
+
 func (b *InMemoryBackend) maintenanceWindowsStore(region string) map[string]MaintenanceWindow {
 	return b.maintenanceWindows[region]
 }
@@ -375,6 +426,10 @@ func (b *InMemoryBackend) patchBaselinesStore(region string) map[string]PatchBas
 
 func (b *InMemoryBackend) inventoryStore(region string) map[string][]InventoryItem {
 	return b.inventory[region]
+}
+
+func (b *InMemoryBackend) inventoryDeletionsStore(region string) []InventoryDeletion {
+	return b.inventoryDeletions[region]
 }
 
 func (b *InMemoryBackend) complianceStore(region string) map[string][]ComplianceItem {
@@ -1989,6 +2044,8 @@ func (b *InMemoryBackend) SendCommand(
 	}
 	b.commandsStore(region)[cmdID] = cmd
 
+	stdout, stderr, finalStatus := renderCommandOutput(input.DocumentName, input.Parameters)
+
 	invocations := make([]CommandInvocation, 0, len(input.InstanceIDs))
 	for _, instanceID := range input.InstanceIDs {
 		inv := CommandInvocation{
@@ -1999,6 +2056,9 @@ func (b *InMemoryBackend) SendCommand(
 			StatusDetails:     commandStatusPending,
 			RequestedDateTime: now,
 			Comment:           input.Comment,
+			pendingStdout:     stdout,
+			pendingStderr:     stderr,
+			finalStatus:       finalStatus,
 		}
 		invocations = append(invocations, inv)
 	}
@@ -2007,20 +2067,29 @@ func (b *InMemoryBackend) SendCommand(
 	}
 	b.commandInvocationsStore(region)[cmdID] = invocations
 
-	// Drive state machine: Pending → InProgress → Success under the same lock so
-	// a reader can never observe a mid-transition state unless it explicitly races.
-	b.advanceCommandState(region, cmdID, commandStatusInProgress)
-	b.advanceCommandState(region, cmdID, commandStatusSuccess)
+	// Drive Pending → InProgress immediately so the InProgress window is always
+	// observable. When no exec delay is configured the command then completes
+	// synchronously (revealing output); otherwise it stays InProgress and is
+	// lazily completed by reads once b.commandExecDelaySecs has elapsed.
+	b.setCommandStatus(region, cmdID, commandStatusInProgress)
 
-	// Return a snapshot of the final state.
+	if b.commandExecDelaySecs <= 0 {
+		b.completeCommand(region, cmdID)
+	} else {
+		pending := b.commandsStore(region)[cmdID]
+		pending.completeAfter = now + b.commandExecDelaySecs
+		b.commandsStore(region)[cmdID] = pending
+	}
+
+	// Return a snapshot of the current state.
 	finalCmd := b.commandsStore(region)[cmdID]
 
 	return &SendCommandOutput{Command: finalCmd}, nil
 }
 
-// advanceCommandState mutates the command and all its invocations to the given
-// status. Must be called with b.mu held.
-func (b *InMemoryBackend) advanceCommandState(region, cmdID, status string) {
+// setCommandStatus mutates the command and all its invocations to the given
+// non-terminal status. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) setCommandStatus(region, cmdID, status string) {
 	store := b.commandsStore(region)
 
 	cmd, ok := store[cmdID]
@@ -2043,14 +2112,78 @@ func (b *InMemoryBackend) advanceCommandState(region, cmdID, status string) {
 	invStore[cmdID] = invs
 }
 
+// completeCommand transitions an InProgress command to its terminal status and
+// reveals the rendered output on each invocation. The command status is the
+// worst per-invocation status (Failed dominates Success). Must be called with
+// b.mu held for writing.
+func (b *InMemoryBackend) completeCommand(region, cmdID string) {
+	store := b.commandsStore(region)
+
+	cmd, ok := store[cmdID]
+	if !ok {
+		return
+	}
+
+	invStore := b.commandInvocationsStore(region)
+	invs := invStore[cmdID]
+
+	overall := commandStatusSuccess
+
+	for i := range invs {
+		final := invs[i].finalStatus
+		if final == "" {
+			final = commandStatusSuccess
+		}
+
+		invs[i].Status = final
+		invs[i].StatusDetails = final
+		invs[i].StandardOutputContent = invs[i].pendingStdout
+		invs[i].StandardErrorContent = invs[i].pendingStderr
+
+		if final != commandStatusSuccess {
+			overall = final
+		}
+	}
+
+	invStore[cmdID] = invs
+
+	cmd.Status = overall
+	cmd.StatusDetails = overall
+	cmd.completeAfter = 0
+	store[cmdID] = cmd
+}
+
+// materializeCommandLocked lazily completes an InProgress command whose exec
+// delay has elapsed. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) materializeCommandLocked(region, cmdID string, nowUnix float64) {
+	cmd, ok := b.commandsStore(region)[cmdID]
+	if !ok || cmd.Status != commandStatusInProgress {
+		return
+	}
+
+	if cmd.completeAfter == 0 || nowUnix >= cmd.completeAfter {
+		b.completeCommand(region, cmdID)
+	}
+}
+
+// materializeCommandsLocked lazily completes every eligible InProgress command
+// in the region. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) materializeCommandsLocked(region string, nowUnix float64) {
+	for cmdID := range b.commandsStore(region) {
+		b.materializeCommandLocked(region, cmdID, nowUnix)
+	}
+}
+
 // ListCommands returns recorded commands.
 func (b *InMemoryBackend) ListCommands(
 	ctx context.Context,
 	input *ListCommandsInput,
 ) (*ListCommandsOutput, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("ListCommands")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListCommands")
+	defer b.mu.Unlock()
+
+	b.materializeCommandsLocked(region, UnixTimeFloat(timeNow()))
 
 	store := b.commandsStore(region)
 	all := make([]Command, 0, len(store))
@@ -2096,12 +2229,14 @@ func (b *InMemoryBackend) GetCommandInvocation(
 	input *GetCommandInvocationInput,
 ) (*GetCommandInvocationOutput, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("GetCommandInvocation")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetCommandInvocation")
+	defer b.mu.Unlock()
 
 	if _, exists := b.commandsStore(region)[input.CommandID]; !exists {
 		return nil, ErrCommandNotFound
 	}
+
+	b.materializeCommandLocked(region, input.CommandID, UnixTimeFloat(timeNow()))
 
 	for _, inv := range b.commandInvocationsStore(region)[input.CommandID] {
 		if inv.InstanceID == input.InstanceID {
@@ -2129,8 +2264,10 @@ func (b *InMemoryBackend) ListCommandInvocations(
 	input *ListCommandInvocationsInput,
 ) (*ListCommandInvocationsOutput, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("ListCommandInvocations")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListCommandInvocations")
+	defer b.mu.Unlock()
+
+	b.materializeCommandsLocked(region, UnixTimeFloat(timeNow()))
 
 	all := make([]CommandInvocation, 0, len(b.commandInvocationsStore(region)))
 	for cmdID, invs := range b.commandInvocationsStore(region) {
@@ -2221,27 +2358,37 @@ func (b *InMemoryBackend) Reset() {
 	b.executionPreviews = make(map[string]map[string]*ExecutionPreview)
 	b.inventory = make(map[string]map[string][]InventoryItem)
 	b.compliance = make(map[string]map[string][]ComplianceItem)
+	b.associationExecutions = make(map[string]map[string][]AssociationExecution)
+	b.associationExecTargets = make(map[string]map[string][]AssociationExecutionTarget)
+	b.inventoryDeletions = make(map[string][]InventoryDeletion)
 	b.opsItemEvents = nil
 	b.registerDefaultDocuments(defaultRegion)
 }
 
 const (
-	activationCodeChars        = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	activationCodeLen          = 20
-	windowIDPrefix             = "mw-"
-	windowTargetIDPrefix       = "mwt-"
-	windowTaskIDPrefix         = "mwtask-"
-	sessionIDPrefix            = "session-"
-	sessionStatusConnected     = "Connected"
-	sessionStatusTerminated    = "Terminated"
-	activationIDPrefix         = "act-"
-	baselineIDPrefix           = "pb-"
-	opsItemIDPrefix            = "oi-"
-	opsMetadataArnTpl          = "arn:aws:ssm:%s:%s:opsmetadata/%s"
-	defaultAccountID           = "123456789012"
-	defaultRegion              = "us-east-1"
-	defaultOpsItemStatus       = "Open"
-	defaultActivationExpiryHrs = 24
+	activationCodeChars     = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	activationCodeLen       = 20
+	windowIDPrefix          = "mw-"
+	windowTargetIDPrefix    = "mwt-"
+	windowTaskIDPrefix      = "mwtask-"
+	sessionIDPrefix         = "session-"
+	sessionStatusConnected  = "Connected"
+	sessionStatusTerminated = "Terminated"
+	// maxTerminatedSessionsPerRegion bounds retained terminated (history)
+	// sessions; the oldest are evicted first once the cap is exceeded.
+	maxTerminatedSessionsPerRegion = 200
+	// sessionHistoryRetentionSecs is how long a terminated session is retained
+	// for DescribeSessions history before the janitor evicts it (24h, matching
+	// AWS Session Manager history retention semantics).
+	sessionHistoryRetentionSecs = 24 * 60 * 60
+	activationIDPrefix          = "act-"
+	baselineIDPrefix            = "pb-"
+	opsItemIDPrefix             = "oi-"
+	opsMetadataArnTpl           = "arn:aws:ssm:%s:%s:opsmetadata/%s"
+	defaultAccountID            = "123456789012"
+	defaultRegion               = "us-east-1"
+	defaultOpsItemStatus        = "Open"
+	defaultActivationExpiryHrs  = 24
 )
 
 const (
@@ -2447,6 +2594,7 @@ func (b *InMemoryBackend) CreateAssociation(
 		b.associations[region] = make(map[string]Association)
 	}
 	b.associationsStore(region)[assocID] = assoc
+	b.recordAssociationExecutionLocked(region, assoc)
 
 	return &CreateAssociationOutput{AssociationDescription: assoc}, nil
 }
@@ -2497,6 +2645,7 @@ func (b *InMemoryBackend) CreateAssociationBatch(
 		}
 
 		assocs[assocID] = assoc
+		b.recordAssociationExecutionLocked(region, assoc)
 		output.Successful = append(output.Successful, assoc)
 	}
 

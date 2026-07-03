@@ -10,36 +10,39 @@ import (
 )
 
 type backendSnapshot struct {
-	Parameters                 map[string]map[string]Parameter               `json:"parameters"`
-	History                    map[string]map[string][]ParameterHistory      `json:"history"`
-	Tags                       map[string]map[string]*tags.Tags              `json:"tags"`
-	Documents                  map[string]map[string]Document                `json:"documents"`
-	DocumentVersions           map[string]map[string][]DocumentVersion       `json:"document_versions"`
-	DocumentPermissions        map[string]map[string][]string                `json:"document_permissions"`
-	Commands                   map[string]map[string]Command                 `json:"commands"`
-	CommandInvocations         map[string]map[string][]CommandInvocation     `json:"command_invocations"`
-	Activations                map[string]map[string]Activation              `json:"activations"`
-	Associations               map[string]map[string]Association             `json:"associations"`
-	MaintenanceWindows         map[string]map[string]MaintenanceWindow       `json:"maintenance_windows"`
-	MaintenanceWindowTargets   map[string]map[string]MaintenanceWindowTarget `json:"maintenance_window_targets"`
-	MaintenanceWindowTasks     map[string]map[string]MaintenanceWindowTask   `json:"maintenance_window_tasks"`
-	Sessions                   map[string]map[string]Session                 `json:"sessions"`
-	PatchGroupToBaseline       map[string]map[string]string                  `json:"patch_group_to_baseline"`
-	OpsItems                   map[string]map[string]OpsItem                 `json:"ops_items"`
-	OpsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem    `json:"ops_item_related_items"`
-	OpsMetadata                map[string]map[string]OpsMetadata             `json:"ops_metadata"`
-	PatchBaselines             map[string]map[string]PatchBaseline           `json:"patch_baselines"`
-	Inventory                  map[string]map[string][]InventoryItem         `json:"inventory"`
-	Compliance                 map[string]map[string][]ComplianceItem        `json:"compliance"`
-	ResourceDataSyncs          map[string]map[string]*ResourceDataSync       `json:"resource_data_syncs"`
-	ParameterLabels            map[string]map[string]map[int64][]string      `json:"parameter_labels"`
-	AutomationExecutions       map[string]map[string]*AutomationExecution    `json:"automation_executions"`
-	ServiceSettings            map[string]map[string]*ServiceSetting         `json:"service_settings"`
-	ResourcePolicies           map[string]map[string][]*ResourcePolicy       `json:"resource_policies"`
-	ExecutionPreviews          map[string]map[string]*ExecutionPreview       `json:"execution_previews"`
-	MiscResourceTags           map[string]map[string]map[string]string       `json:"misc_resource_tags"`
-	ResourceIDToOpsMetadataArn map[string]map[string]string                  `json:"resource_id_to_ops_metadata_arn"`
-	OpsItemEvents              map[string][]OpsItemEventSummary              `json:"ops_item_events"`
+	Parameters                 map[string]map[string]Parameter                    `json:"parameters"`
+	History                    map[string]map[string][]ParameterHistory           `json:"history"`
+	Tags                       map[string]map[string]*tags.Tags                   `json:"tags"`
+	Documents                  map[string]map[string]Document                     `json:"documents"`
+	DocumentVersions           map[string]map[string][]DocumentVersion            `json:"document_versions"`
+	DocumentPermissions        map[string]map[string][]string                     `json:"document_permissions"`
+	Commands                   map[string]map[string]Command                      `json:"commands"`
+	CommandInvocations         map[string]map[string][]CommandInvocation          `json:"command_invocations"`
+	Activations                map[string]map[string]Activation                   `json:"activations"`
+	Associations               map[string]map[string]Association                  `json:"associations"`
+	MaintenanceWindows         map[string]map[string]MaintenanceWindow            `json:"maintenance_windows"`
+	MaintenanceWindowTargets   map[string]map[string]MaintenanceWindowTarget      `json:"maintenance_window_targets"`
+	MaintenanceWindowTasks     map[string]map[string]MaintenanceWindowTask        `json:"maintenance_window_tasks"`
+	Sessions                   map[string]map[string]Session                      `json:"sessions"`
+	PatchGroupToBaseline       map[string]map[string]string                       `json:"patch_group_to_baseline"`
+	OpsItems                   map[string]map[string]OpsItem                      `json:"ops_items"`
+	OpsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem         `json:"ops_item_related_items"`
+	OpsMetadata                map[string]map[string]OpsMetadata                  `json:"ops_metadata"`
+	PatchBaselines             map[string]map[string]PatchBaseline                `json:"patch_baselines"`
+	Inventory                  map[string]map[string][]InventoryItem              `json:"inventory"`
+	Compliance                 map[string]map[string][]ComplianceItem             `json:"compliance"`
+	ResourceDataSyncs          map[string]map[string]*ResourceDataSync            `json:"resource_data_syncs"`
+	ParameterLabels            map[string]map[string]map[int64][]string           `json:"parameter_labels"`
+	AutomationExecutions       map[string]map[string]*AutomationExecution         `json:"automation_executions"`
+	ServiceSettings            map[string]map[string]*ServiceSetting              `json:"service_settings"`
+	ResourcePolicies           map[string]map[string][]*ResourcePolicy            `json:"resource_policies"`
+	ExecutionPreviews          map[string]map[string]*ExecutionPreview            `json:"execution_previews"`
+	MiscResourceTags           map[string]map[string]map[string]string            `json:"misc_resource_tags"`
+	ResourceIDToOpsMetadataArn map[string]map[string]string                       `json:"resource_id_to_ops_metadata_arn"`
+	OpsItemEvents              map[string][]OpsItemEventSummary                   `json:"ops_item_events"`
+	AssociationExecutions      map[string]map[string][]AssociationExecution       `json:"association_executions"`
+	AssociationExecTargets     map[string]map[string][]AssociationExecutionTarget `json:"association_exec_targets"`
+	InventoryDeletions         map[string][]InventoryDeletion                     `json:"inventory_deletions"`
 }
 
 // initSnapshotDefaults initializes nil maps in the snapshot for core fields.
@@ -166,6 +169,18 @@ func initSnapshotNewFields(snap *backendSnapshot) { //nolint:gocognit,cyclop // 
 	if snap.OpsItemEvents == nil {
 		snap.OpsItemEvents = make(map[string][]OpsItemEventSummary)
 	}
+
+	if snap.AssociationExecutions == nil {
+		snap.AssociationExecutions = make(map[string]map[string][]AssociationExecution)
+	}
+
+	if snap.AssociationExecTargets == nil {
+		snap.AssociationExecTargets = make(map[string]map[string][]AssociationExecutionTarget)
+	}
+
+	if snap.InventoryDeletions == nil {
+		snap.InventoryDeletions = make(map[string][]InventoryDeletion)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -204,6 +219,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		MiscResourceTags:           b.miscResourceTags,
 		ResourceIDToOpsMetadataArn: b.resourceIDToOpsMetadataArn,
 		OpsItemEvents:              b.opsItemEvents,
+		AssociationExecutions:      b.associationExecutions,
+		AssociationExecTargets:     b.associationExecTargets,
+		InventoryDeletions:         b.inventoryDeletions,
 	}
 
 	data, err := json.Marshal(snap)
@@ -266,6 +284,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.miscResourceTags = snap.MiscResourceTags
 	b.resourceIDToOpsMetadataArn = snap.ResourceIDToOpsMetadataArn
 	b.opsItemEvents = snap.OpsItemEvents
+	b.associationExecutions = snap.AssociationExecutions
+	b.associationExecTargets = snap.AssociationExecTargets
+	b.inventoryDeletions = snap.InventoryDeletions
 
 	// Re-seed built-in documents if they are absent from the snapshot
 	// (e.g. snapshots taken before document support was added).

@@ -391,3 +391,62 @@ func TestIntegration_SSM_GetCommandInvocation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Success", string(invResp.Status))
 }
+
+// TestIntegration_SSM_GetCommandInvocation_Output verifies AWS-RunShellScript
+// output is rendered and surfaced through GetCommandInvocation, mirroring the
+// behaviour terraform-provider-aws relies on when reading command results.
+func TestIntegration_SSM_GetCommandInvocation_Output(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	instanceID := "i-1234567890abcdef0"
+
+	sendResp, err := client.SendCommand(ctx, &ssm.SendCommandInput{
+		DocumentName: aws.String("AWS-RunShellScript"),
+		InstanceIds:  []string{instanceID},
+		Parameters: map[string][]string{
+			"commands": {"echo hello", "echo world"},
+		},
+	})
+	require.NoError(t, err)
+	cmdID := *sendResp.Command.CommandId
+
+	invResp, err := client.GetCommandInvocation(ctx, &ssm.GetCommandInvocationInput{
+		CommandId:  aws.String(cmdID),
+		InstanceId: aws.String(instanceID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Success", string(invResp.Status))
+	require.NotNil(t, invResp.StandardOutputContent)
+	assert.Equal(t, "hello\nworld\n", *invResp.StandardOutputContent,
+		"command output must reflect the executed echo statements")
+}
+
+// TestIntegration_SSM_StartAutomationExecution runs an automation and confirms it
+// reaches a terminal Success status with populated step executions.
+func TestIntegration_SSM_StartAutomationExecution(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	startResp, err := client.StartAutomationExecution(ctx, &ssm.StartAutomationExecutionInput{
+		DocumentName: aws.String("AWS-RestartEC2Instance"),
+	})
+	require.NoError(t, err)
+	execID := *startResp.AutomationExecutionId
+	require.NotEmpty(t, execID)
+
+	getResp, err := client.GetAutomationExecution(ctx, &ssm.GetAutomationExecutionInput{
+		AutomationExecutionId: aws.String(execID),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getResp.AutomationExecution)
+	assert.Equal(t, "Success",
+		string(getResp.AutomationExecution.AutomationExecutionStatus),
+		"automation must reach a terminal Success status")
+	assert.NotEmpty(t, getResp.AutomationExecution.StepExecutions,
+		"automation must populate step executions")
+}
