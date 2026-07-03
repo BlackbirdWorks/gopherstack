@@ -752,10 +752,9 @@ func TestAuditFirehose_ListDeliveryStreams_Pagination(t *testing.T) {
 	}
 }
 
-// TestAuditFirehose_ListDeliveryStreams_TypeFilter_Gap documents that
-// DeliveryStreamType filtering is not implemented — all streams are returned
-// regardless of the filter value.
-func TestAuditFirehose_ListDeliveryStreams_TypeFilter_Gap(t *testing.T) {
+// TestAuditFirehose_ListDeliveryStreams_TypeFilter verifies that the
+// DeliveryStreamType filter is honored: only streams of the requested type are returned.
+func TestAuditFirehose_ListDeliveryStreams_TypeFilter(t *testing.T) {
 	t.Parallel()
 
 	h, _ := auditHandler(t)
@@ -769,16 +768,30 @@ func TestAuditFirehose_ListDeliveryStreams_TypeFilter_Gap(t *testing.T) {
 		},
 	})
 
-	// Filter for DirectPut only — implementation gap: both are returned.
+	// Filter for DirectPut only — the Kinesis-source stream must be excluded.
 	rec := doFirehoseRequest(t, h, "ListDeliveryStreams",
 		map[string]any{"DeliveryStreamType": "DirectPut"})
 	var out struct {
 		DeliveryStreamNames []string `json:"DeliveryStreamNames"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	// Both streams are returned (filter not enforced — gap).
 	assert.Contains(t, out.DeliveryStreamNames, "direct-put-stream")
-	assert.Contains(t, out.DeliveryStreamNames, "kinesis-src-stream-lf")
+	assert.NotContains(t, out.DeliveryStreamNames, "kinesis-src-stream-lf")
+
+	// Filter for KinesisStreamAsSource only — the DirectPut stream must be excluded.
+	rec2 := doFirehoseRequest(t, h, "ListDeliveryStreams",
+		map[string]any{"DeliveryStreamType": "KinesisStreamAsSource"})
+	var out2 struct {
+		DeliveryStreamNames []string `json:"DeliveryStreamNames"`
+	}
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	assert.Contains(t, out2.DeliveryStreamNames, "kinesis-src-stream-lf")
+	assert.NotContains(t, out2.DeliveryStreamNames, "direct-put-stream")
+
+	// An invalid filter value is rejected with InvalidArgumentException.
+	recInvalid := doFirehoseRequest(t, h, "ListDeliveryStreams",
+		map[string]any{"DeliveryStreamType": "Bogus"})
+	assert.Equal(t, http.StatusBadRequest, recInvalid.Code)
 }
 
 // --- PutRecordBatch response audit ---
