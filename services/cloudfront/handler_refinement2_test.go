@@ -58,7 +58,7 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFieldLevelEncryption("list-fle-cfg", "comment")
+				_, err := h.Backend.CreateFieldLevelEncryption("list-fle-cfg", "comment", nil)
 				require.NoError(t, err)
 
 				return ""
@@ -77,7 +77,7 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				fle, err := h.Backend.CreateFieldLevelEncryption("get-fle-cfg", "a comment")
+				fle, err := h.Backend.CreateFieldLevelEncryption("get-fle-cfg", "a comment", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption/" + fle.ID
@@ -96,7 +96,7 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				fle, err := h.Backend.CreateFieldLevelEncryption("get-fle-cfg2", "comment2")
+				fle, err := h.Backend.CreateFieldLevelEncryption("get-fle-cfg2", "comment2", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption/" + fle.ID + "/config"
@@ -114,7 +114,7 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 			body:   []byte(`<FieldLevelEncryptionConfig><Comment>updated</Comment></FieldLevelEncryptionConfig>`),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				fle, err := h.Backend.CreateFieldLevelEncryption("upd-fle-cfg", "original")
+				fle, err := h.Backend.CreateFieldLevelEncryption("upd-fle-cfg", "original", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption/" + fle.ID
@@ -149,7 +149,7 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				fle, err := h.Backend.CreateFieldLevelEncryption("del-fle-cfg", "delete me")
+				fle, err := h.Backend.CreateFieldLevelEncryption("del-fle-cfg", "delete me", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption/" + fle.ID
@@ -257,7 +257,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFieldLevelEncryptionProfile("list-fle-profile", "comment")
+				_, err := h.Backend.CreateFieldLevelEncryptionProfile("list-fle-profile", "comment", nil)
 				require.NoError(t, err)
 
 				return ""
@@ -276,7 +276,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("get-fle-profile", "comment")
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("get-fle-profile", "comment", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID
@@ -295,7 +295,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("get-fle-profile2", "comment2")
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("get-fle-profile2", "comment2", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID + "/config"
@@ -318,7 +318,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("old-fle-profile", "original")
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("old-fle-profile", "original", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID
@@ -337,7 +337,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("del-fle-profile", "delete me")
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("del-fle-profile", "delete me", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID
@@ -1554,7 +1554,7 @@ func TestNewDispatchRefactoring(t *testing.T) {
 			method: http.MethodGet,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				fle, err := h.Backend.CreateFieldLevelEncryption("route-fle-cfg", "comment")
+				fle, err := h.Backend.CreateFieldLevelEncryption("route-fle-cfg", "comment", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption/" + fle.ID
@@ -1566,7 +1566,7 @@ func TestNewDispatchRefactoring(t *testing.T) {
 			method: http.MethodGet,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("route-fle-profile", "comment")
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("route-fle-profile", "comment", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID
@@ -1753,7 +1753,7 @@ func TestBackendFLEDirectly(t *testing.T) {
 			name: "create_get_list_update_delete",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				fle, err := b.CreateFieldLevelEncryption("fle-backend-test", "comment")
+				fle, err := b.CreateFieldLevelEncryption("fle-backend-test", "comment", nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, fle.ID)
 
@@ -1764,7 +1764,7 @@ func TestBackendFLEDirectly(t *testing.T) {
 				list := b.ListFieldLevelEncryptions()
 				assert.Len(t, list, 1)
 
-				updated, err := b.UpdateFieldLevelEncryption(fle.ID, "fle-backend-test-new", "updated")
+				updated, err := b.UpdateFieldLevelEncryption(fle.ID, "fle-backend-test-new", "updated", nil)
 				require.NoError(t, err)
 				assert.Equal(t, "updated", updated.Comment)
 
@@ -1777,9 +1777,9 @@ func TestBackendFLEDirectly(t *testing.T) {
 			name: "create_duplicate_name_fails",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateFieldLevelEncryption("dup-fle", "comment")
+				_, err := b.CreateFieldLevelEncryption("dup-fle", "comment", nil)
 				require.NoError(t, err)
-				_, err = b.CreateFieldLevelEncryption("dup-fle", "comment")
+				_, err = b.CreateFieldLevelEncryption("dup-fle", "comment", nil)
 				require.Error(t, err)
 			},
 		},
@@ -1787,7 +1787,7 @@ func TestBackendFLEDirectly(t *testing.T) {
 			name: "get_fle_profile_list_update_delete",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				p, err := b.CreateFieldLevelEncryptionProfile("profile-test", "comment")
+				p, err := b.CreateFieldLevelEncryptionProfile("profile-test", "comment", nil)
 				require.NoError(t, err)
 
 				got, err := b.GetFieldLevelEncryptionProfile(p.ID)
@@ -1797,7 +1797,7 @@ func TestBackendFLEDirectly(t *testing.T) {
 				list := b.ListFieldLevelEncryptionProfiles()
 				assert.Len(t, list, 1)
 
-				updated, err := b.UpdateFieldLevelEncryptionProfile(p.ID, "profile-test-new", "updated")
+				updated, err := b.UpdateFieldLevelEncryptionProfile(p.ID, "profile-test-new", "updated", nil)
 				require.NoError(t, err)
 				assert.Equal(t, "updated", updated.Comment)
 
@@ -2159,10 +2159,10 @@ func TestNewBackendNewResourcesPersistence(t *testing.T) {
 
 	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
 
-	fle, err := b.CreateFieldLevelEncryption("persist-fle", "comment")
+	fle, err := b.CreateFieldLevelEncryption("persist-fle", "comment", nil)
 	require.NoError(t, err)
 
-	fleP, err := b.CreateFieldLevelEncryptionProfile("persist-fle-profile", "comment")
+	fleP, err := b.CreateFieldLevelEncryptionProfile("persist-fle-profile", "comment", nil)
 	require.NoError(t, err)
 
 	pk, err := b.CreatePublicKey("pk-persist-ref", "persist-pk", "comment", testRSA2048PublicKeyPEM)

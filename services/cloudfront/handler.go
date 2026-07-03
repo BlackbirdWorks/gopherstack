@@ -1747,7 +1747,7 @@ func (h *Handler) dispatchFieldLevelEncryptionOps(
 	case opGetFieldLevelEncryption:
 		return h.handleGetFieldLevelEncryption(c, resource)
 	case opGetFieldLevelEncryptionConfig:
-		return h.handleGetFieldLevelEncryption(c, resource)
+		return h.handleGetFieldLevelEncryptionConfig(c, resource)
 	case opUpdateFieldLevelEncryptionConfig:
 		return h.handleUpdateFieldLevelEncryption(c, resource)
 	case opDeleteFieldLevelEncryptionConfig:
@@ -1755,7 +1755,7 @@ func (h *Handler) dispatchFieldLevelEncryptionOps(
 	case opGetFieldLevelEncryptionProfile:
 		return h.handleGetFieldLevelEncryptionProfile(c, resource)
 	case opGetFieldLevelEncryptionProfileConfig:
-		return h.handleGetFieldLevelEncryptionProfile(c, resource)
+		return h.handleGetFieldLevelEncryptionProfileConfig(c, resource)
 	case opUpdateFieldLevelEncryptionProfile:
 		return h.handleUpdateFieldLevelEncryptionProfile(c, resource)
 	case opDeleteFieldLevelEncryptionProfile:
@@ -1780,7 +1780,7 @@ func (h *Handler) dispatchPublicKeyAndGroupOps(c *echo.Context, operation, resou
 	case opGetPublicKey:
 		return h.handleGetPublicKey(c, resource)
 	case opGetPublicKeyConfig:
-		return h.handleGetPublicKey(c, resource)
+		return h.handleGetPublicKeyConfig(c, resource)
 	case opUpdatePublicKey:
 		return h.handleUpdatePublicKey(c, resource)
 	case opDeletePublicKey:
@@ -1788,7 +1788,7 @@ func (h *Handler) dispatchPublicKeyAndGroupOps(c *echo.Context, operation, resou
 	case opGetKeyGroup:
 		return h.handleGetKeyGroup(c, resource)
 	case opGetKeyGroupConfig:
-		return h.handleGetKeyGroup(c, resource)
+		return h.handleGetKeyGroupConfig(c, resource)
 	case opUpdateKeyGroup:
 		return h.handleUpdateKeyGroup(c, resource)
 	case opDeleteKeyGroup:
@@ -2354,6 +2354,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrDistributionNotDisabled):
 		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionNotDisabled", err.Error()))
+	case errors.Is(err, ErrPublicKeyInUse):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("PublicKeyInUse", err.Error()))
+	case errors.Is(err, ErrFLEProfileInUse):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("FieldLevelEncryptionProfileInUse", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionAlreadyExists", err.Error()))
 	case errors.Is(err, ErrInvalidTagging):
@@ -4773,15 +4777,69 @@ func orpResponseXML(p *OriginRequestPolicy) string {
 
 // --- Field Level Encryption handlers ---
 
+// fleConfigRequestXML parses a FieldLevelEncryptionConfig request body.
+type fleConfigRequestXML struct {
+	XMLName          xml.Name `xml:"FieldLevelEncryptionConfig"`
+	CallerReference  string   `xml:"CallerReference"`
+	Comment          string   `xml:"Comment"`
+	QueryArgProfiles []struct {
+		QueryArg  string `xml:"QueryArg"`
+		ProfileID string `xml:"ProfileId"`
+	} `xml:"QueryArgProfileConfig>QueryArgProfiles>Items>QueryArgProfile"`
+	ForwardWhenQueryArgProfileIsUnknown bool `xml:"QueryArgProfileConfig>ForwardWhenQueryArgProfileIsUnknown"`
+}
+
+// toBackend converts the parsed request into backend query-arg profiles.
+func (r fleConfigRequestXML) toBackend() []FLEQueryArgProfile {
+	if len(r.QueryArgProfiles) == 0 {
+		return nil
+	}
+
+	out := make([]FLEQueryArgProfile, 0, len(r.QueryArgProfiles))
+	for _, p := range r.QueryArgProfiles {
+		out = append(out, FLEQueryArgProfile{QueryArg: p.QueryArg, ProfileID: p.ProfileID})
+	}
+
+	return out
+}
+
+// fleConfigInnerXML renders the inner fields of a FieldLevelEncryptionConfig
+// element (without the enclosing element itself), so it can be reused for both
+// the wrapped and config-only responses.
+func fleConfigInnerXML(fle *FieldLevelEncryption) string {
+	var items strings.Builder
+	for _, p := range fle.QueryArgProfiles {
+		items.WriteString(`<QueryArgProfile><QueryArg>`)
+		items.WriteString(xmlEscape(p.QueryArg))
+		items.WriteString(`</QueryArg><ProfileId>`)
+		items.WriteString(xmlEscape(p.ProfileID))
+		items.WriteString(`</ProfileId></QueryArgProfile>`)
+	}
+
+	return fmt.Sprintf(`<CallerReference>%s</CallerReference>`+
+		`<Comment>%s</Comment>`+
+		`<QueryArgProfileConfig>`+
+		`<ForwardWhenQueryArgProfileIsUnknown>%t</ForwardWhenQueryArgProfileIsUnknown>`+
+		`<QueryArgProfiles><Quantity>%d</Quantity><Items>%s</Items></QueryArgProfiles>`+
+		`</QueryArgProfileConfig>`,
+		xmlEscape(fle.Name), xmlEscape(fle.Comment),
+		fle.ForwardWhenQueryArgProfileIsUnknown, len(fle.QueryArgProfiles), items.String())
+}
+
 func fleResponseXML(fle *FieldLevelEncryption) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<FieldLevelEncryption xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<FieldLevelEncryptionConfig>`+
-		`<Comment>%s</Comment>`+
-		`</FieldLevelEncryptionConfig>`+
+		`<FieldLevelEncryption xmlns="%s"><Id>%s</Id>`+
+		`<FieldLevelEncryptionConfig>%s</FieldLevelEncryptionConfig>`+
 		`</FieldLevelEncryption>`,
-		cfNS, fle.ID, fle.Comment)
+		cfNS, fle.ID, fleConfigInnerXML(fle))
+}
+
+// fleConfigResponseXML renders the config-only response (root =
+// FieldLevelEncryptionConfig) returned by GetFieldLevelEncryptionConfig.
+func fleConfigResponseXML(fle *FieldLevelEncryption) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<FieldLevelEncryptionConfig xmlns="%s">%s</FieldLevelEncryptionConfig>`,
+		cfNS, fleConfigInnerXML(fle))
 }
 
 func (h *Handler) handleCreateFieldLevelEncryption(c *echo.Context) error {
@@ -4790,21 +4848,17 @@ func (h *Handler) handleCreateFieldLevelEncryption(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
-	var req struct {
-		Comment string `xml:"Comment"`
-		Name    string `xml:"QueryArgProfileConfig>QueryArgProfiles>Items>QueryArgProfile>Profile"`
-	}
-
+	var req fleConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
 
-	name := req.Name
+	name := req.CallerReference
 	if name == "" {
 		name = generateID()
 	}
 
-	fle, createErr := h.Backend.CreateFieldLevelEncryption(name, req.Comment)
+	fle, createErr := h.Backend.CreateFieldLevelEncryption(name, req.Comment, req.toBackend())
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -4866,11 +4920,7 @@ func (h *Handler) handleUpdateFieldLevelEncryption(c *echo.Context, id string) e
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
-	var req struct {
-		Comment string `xml:"Comment"`
-		Name    string `xml:"QueryArgProfileConfig>QueryArgProfiles>Items>QueryArgProfile>Profile"`
-	}
-
+	var req fleConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
@@ -4880,12 +4930,12 @@ func (h *Handler) handleUpdateFieldLevelEncryption(c *echo.Context, id string) e
 		return h.handleError(c, getErr)
 	}
 
-	name := req.Name
+	name := req.CallerReference
 	if name == "" {
 		name = current.Name
 	}
 
-	fle, updateErr := h.Backend.UpdateFieldLevelEncryption(id, name, req.Comment)
+	fle, updateErr := h.Backend.UpdateFieldLevelEncryption(id, name, req.Comment, req.toBackend())
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -4916,16 +4966,79 @@ func (h *Handler) handleDeleteFieldLevelEncryption(c *echo.Context, id string) e
 
 // --- Field Level Encryption Profile handlers ---
 
+// fleProfileConfigRequestXML parses a FieldLevelEncryptionProfileConfig body.
+type fleProfileConfigRequestXML struct {
+	XMLName            xml.Name `xml:"FieldLevelEncryptionProfileConfig"`
+	Name               string   `xml:"Name"`
+	CallerReference    string   `xml:"CallerReference"`
+	Comment            string   `xml:"Comment"`
+	EncryptionEntities []struct {
+		PublicKeyID   string   `xml:"PublicKeyId"`
+		ProviderID    string   `xml:"ProviderId"`
+		FieldPatterns []string `xml:"FieldPatterns>Items>FieldPattern"`
+	} `xml:"EncryptionEntities>Items>EncryptionEntity"`
+}
+
+// toBackend converts the parsed request into backend encryption entities.
+func (r fleProfileConfigRequestXML) toBackend() []EncryptionEntity {
+	if len(r.EncryptionEntities) == 0 {
+		return nil
+	}
+
+	out := make([]EncryptionEntity, 0, len(r.EncryptionEntities))
+	for _, e := range r.EncryptionEntities {
+		out = append(out, EncryptionEntity{
+			PublicKeyID:   e.PublicKeyID,
+			ProviderID:    e.ProviderID,
+			FieldPatterns: append([]string(nil), e.FieldPatterns...),
+		})
+	}
+
+	return out
+}
+
+// fleProfileConfigInnerXML renders the inner fields of a
+// FieldLevelEncryptionProfileConfig element.
+func fleProfileConfigInnerXML(p *FieldLevelEncryptionProfile) string {
+	var entities strings.Builder
+	for _, e := range p.EncryptionEntities {
+		var patterns strings.Builder
+		for _, fp := range e.FieldPatterns {
+			patterns.WriteString(`<FieldPattern>`)
+			patterns.WriteString(xmlEscape(fp))
+			patterns.WriteString(`</FieldPattern>`)
+		}
+
+		fmt.Fprintf(&entities, `<EncryptionEntity>`+
+			`<PublicKeyId>%s</PublicKeyId>`+
+			`<ProviderId>%s</ProviderId>`+
+			`<FieldPatterns><Quantity>%d</Quantity><Items>%s</Items></FieldPatterns>`+
+			`</EncryptionEntity>`,
+			xmlEscape(e.PublicKeyID), xmlEscape(e.ProviderID),
+			len(e.FieldPatterns), patterns.String())
+	}
+
+	return fmt.Sprintf(`<Name>%s</Name>`+
+		`<Comment>%s</Comment>`+
+		`<EncryptionEntities><Quantity>%d</Quantity><Items>%s</Items></EncryptionEntities>`,
+		xmlEscape(p.Name), xmlEscape(p.Comment),
+		len(p.EncryptionEntities), entities.String())
+}
+
 func fleProfileResponseXML(p *FieldLevelEncryptionProfile) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<FieldLevelEncryptionProfile xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<FieldLevelEncryptionProfileConfig>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</FieldLevelEncryptionProfileConfig>`+
+		`<FieldLevelEncryptionProfile xmlns="%s"><Id>%s</Id>`+
+		`<FieldLevelEncryptionProfileConfig>%s</FieldLevelEncryptionProfileConfig>`+
 		`</FieldLevelEncryptionProfile>`,
-		cfNS, p.ID, p.Name, p.Comment)
+		cfNS, p.ID, fleProfileConfigInnerXML(p))
+}
+
+// fleProfileConfigResponseXML renders the config-only response (root =
+// FieldLevelEncryptionProfileConfig) for GetFieldLevelEncryptionProfileConfig.
+func fleProfileConfigResponseXML(p *FieldLevelEncryptionProfile) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<FieldLevelEncryptionProfileConfig xmlns="%s">%s</FieldLevelEncryptionProfileConfig>`,
+		cfNS, fleProfileConfigInnerXML(p))
 }
 
 func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error {
@@ -4934,11 +5047,7 @@ func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
-	var req struct {
-		Name    string `xml:"Name"`
-		Comment string `xml:"Comment"`
-	}
-
+	var req fleProfileConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
@@ -4947,7 +5056,7 @@ func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error
 		req.Name = generateID()
 	}
 
-	p, createErr := h.Backend.CreateFieldLevelEncryptionProfile(req.Name, req.Comment)
+	p, createErr := h.Backend.CreateFieldLevelEncryptionProfile(req.Name, req.Comment, req.toBackend())
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -5011,11 +5120,7 @@ func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id st
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
-	var req struct {
-		Name    string `xml:"Name"`
-		Comment string `xml:"Comment"`
-	}
-
+	var req fleProfileConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
@@ -5030,7 +5135,7 @@ func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id st
 		name = current.Name
 	}
 
-	p, updateErr := h.Backend.UpdateFieldLevelEncryptionProfile(id, name, req.Comment)
+	p, updateErr := h.Backend.UpdateFieldLevelEncryptionProfile(id, name, req.Comment, req.toBackend())
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -5501,8 +5606,11 @@ func kvsResponseXML(kvs *KeyValueStore) string {
 		`<ARN>%s</ARN>`+
 		`<Name>%s</Name>`+
 		`<Comment>%s</Comment>`+
+		`<Status>%s</Status>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
 		`</KeyValueStore>`,
-		cfNS, kvs.ID, kvs.ARN, kvs.Name, kvs.Comment)
+		cfNS, kvs.ID, kvs.ARN, xmlEscape(kvs.Name), xmlEscape(kvs.Comment),
+		kvs.Status, kvs.LastModifiedTime)
 }
 
 type keyValueStoreRequestXML struct {
@@ -5548,16 +5656,17 @@ func (h *Handler) handleGetKeyValueStore(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, kvsResponseXML(kvs))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 	items := h.Backend.ListKeyValueStores()
 
 	type kvsSummaryXML struct {
-		XMLName xml.Name `xml:"KeyValueStore"`
-		ID      string   `xml:"Id"`
-		ARN     string   `xml:"ARN"`
-		Name    string   `xml:"Name"`
-		Comment string   `xml:"Comment"`
+		XMLName          xml.Name `xml:"KeyValueStore"`
+		ID               string   `xml:"Id"`
+		ARN              string   `xml:"ARN"`
+		Name             string   `xml:"Name"`
+		Comment          string   `xml:"Comment"`
+		Status           string   `xml:"Status"`
+		LastModifiedTime string   `xml:"LastModifiedTime"`
 	}
 
 	type kvsListXML struct {
@@ -5571,7 +5680,14 @@ func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 
 	summaries := make([]kvsSummaryXML, 0, len(items))
 	for _, kvs := range items {
-		summaries = append(summaries, kvsSummaryXML{ID: kvs.ID, ARN: kvs.ARN, Name: kvs.Name, Comment: kvs.Comment})
+		summaries = append(summaries, kvsSummaryXML{
+			ID:               kvs.ID,
+			ARN:              kvs.ARN,
+			Name:             kvs.Name,
+			Comment:          kvs.Comment,
+			Status:           kvs.Status,
+			LastModifiedTime: kvs.LastModifiedTime,
+		})
 	}
 
 	list := kvsListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}

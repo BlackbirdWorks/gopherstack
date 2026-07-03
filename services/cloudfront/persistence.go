@@ -271,6 +271,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.restoreCoreFields(&snap)
 	b.restoreBatch2Fields(&snap)
 	b.restoreIndexes(idx)
+	b.rebuildDistributionSearchIndex()
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

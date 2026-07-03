@@ -167,7 +167,6 @@ func (h *Handler) handleGetStreamingDistributionConfig(c *echo.Context, id strin
 	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(config))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListStreamingDistributions(c *echo.Context) error {
 	items := h.Backend.ListStreamingDistributions()
 

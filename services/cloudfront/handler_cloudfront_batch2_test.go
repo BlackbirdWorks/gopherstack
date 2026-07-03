@@ -222,22 +222,40 @@ func TestBatch2_UpdateKeyValueStore(t *testing.T) {
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
 
-	// Create KVS
-	createResp := cfOK(t, h, http.MethodPost, prefix+"key-value-store",
+	// Create KVS.
+	createRec := cfRequest(t, h, http.MethodPost, prefix+"key-value-store",
 		`<KeyValueStoreRequest><Name>test-kvs</Name><Comment>initial</Comment></KeyValueStoreRequest>`)
-	kvsID := extractXMLID(t, createResp)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create: want 201, got %d: %s", createRec.Code, createRec.Body.String())
+	}
+	kvsID := extractXMLID(t, createRec.Body.String())
 	if kvsID == "" {
 		t.Fatal("no KVS ID in create response")
 	}
-
-	// Update KVS
-	updateResp := cfOK(t, h, http.MethodPut, prefix+"key-value-store/"+kvsID,
-		`<KeyValueStoreRequest><Name>test-kvs</Name><Comment>updated</Comment></KeyValueStoreRequest>`)
-	if !strings.Contains(updateResp, "KeyValueStore") {
-		t.Errorf("expected KeyValueStore in update response, got: %s", updateResp)
+	etag := createRec.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag in create response")
 	}
-	if !strings.Contains(updateResp, "updated") {
-		t.Errorf("expected updated comment in response, got: %s", updateResp)
+	if !strings.Contains(createRec.Body.String(), "<Status>READY</Status>") {
+		t.Errorf("expected READY status in create response, got: %s", createRec.Body.String())
+	}
+
+	// Update without If-Match must be rejected with 412.
+	noMatch := cfRequest(t, h, http.MethodPut, prefix+"key-value-store/"+kvsID,
+		`<KeyValueStoreRequest><Name>test-kvs</Name><Comment>x</Comment></KeyValueStoreRequest>`)
+	if noMatch.Code != http.StatusPreconditionFailed {
+		t.Errorf("update without If-Match: want 412, got %d", noMatch.Code)
+	}
+
+	// Update with matching If-Match succeeds.
+	updateRec := cfRequestWithBodyHeaders(t, h, http.MethodPut, prefix+"key-value-store/"+kvsID,
+		`<KeyValueStoreRequest><Name>test-kvs</Name><Comment>updated</Comment></KeyValueStoreRequest>`,
+		map[string]string{"If-Match": etag})
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("update: want 200, got %d: %s", updateRec.Code, updateRec.Body.String())
+	}
+	if !strings.Contains(updateRec.Body.String(), "updated") {
+		t.Errorf("expected updated comment in response, got: %s", updateRec.Body.String())
 	}
 }
 
