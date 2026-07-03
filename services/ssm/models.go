@@ -433,21 +433,33 @@ type Command struct {
 	RequestedDateTime  float64             `json:"RequestedDateTime"`
 	ExpiresAfter       float64             `json:"ExpiresAfter"`
 	TimeoutSeconds     int32               `json:"TimeoutSeconds,omitempty"`
+	// completeAfter is the Unix timestamp (seconds) at which an InProgress
+	// command lazily transitions to its terminal status. Zero means the command
+	// completes on the next read (or was created without an exec delay).
+	completeAfter float64
 }
 
 // CommandInvocation represents the invocation of a command on an instance.
 type CommandInvocation struct {
-	CommandID             string  `json:"CommandId"`
-	InstanceID            string  `json:"InstanceId"`
-	DocumentName          string  `json:"DocumentName"`
-	Status                string  `json:"Status"`
-	StatusDetails         string  `json:"StatusDetails"`
-	StandardOutputContent string  `json:"StandardOutputContent,omitempty"`
-	StandardErrorContent  string  `json:"StandardErrorContent,omitempty"`
-	StandardOutputURL     string  `json:"StandardOutputUrl,omitempty"`
-	StandardErrorURL      string  `json:"StandardErrorUrl,omitempty"`
-	Comment               string  `json:"Comment,omitempty"`
-	RequestedDateTime     float64 `json:"RequestedDateTime"`
+	CommandID             string `json:"CommandId"`
+	InstanceID            string `json:"InstanceId"`
+	DocumentName          string `json:"DocumentName"`
+	Status                string `json:"Status"`
+	StatusDetails         string `json:"StatusDetails"`
+	StandardOutputContent string `json:"StandardOutputContent,omitempty"`
+	StandardErrorContent  string `json:"StandardErrorContent,omitempty"`
+	StandardOutputURL     string `json:"StandardOutputUrl,omitempty"`
+	StandardErrorURL      string `json:"StandardErrorUrl,omitempty"`
+	Comment               string `json:"Comment,omitempty"`
+	// pendingStdout/pendingStderr hold the rendered command output that is
+	// revealed (copied into StandardOutputContent/StandardErrorContent) only
+	// once the invocation reaches a terminal status, mirroring AWS behaviour
+	// where output is unavailable while a command is still InProgress.
+	pendingStdout string
+	pendingStderr string
+	// finalStatus is the terminal status this invocation will resolve to.
+	finalStatus       string
+	RequestedDateTime float64 `json:"RequestedDateTime"`
 }
 
 // SendCommandInput is the request payload for SendCommand.

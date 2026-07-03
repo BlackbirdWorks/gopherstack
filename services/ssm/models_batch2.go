@@ -32,14 +32,23 @@ type AutomationExecution struct {
 	Status                string               `json:"AutomationExecutionStatus"`
 	ExecutionType         string               `json:"ExecutionType"` // "Standard" or "ChangeRequest"
 	Mode                  string               `json:"Mode,omitempty"`
+	FailureMessage        string               `json:"FailureMessage,omitempty"`
 	Steps                 []AutomationStepExec `json:"StepExecutions,omitempty"`
+	// completeAfter is the Unix timestamp (seconds) at which an InProgress
+	// automation lazily transitions to its terminal status. Zero means the
+	// execution completes on the next read (or was started without a delay).
+	completeAfter float64
 }
 
 // AutomationStepExec represents a single step in an automation execution.
 type AutomationStepExec struct {
-	StepName   string `json:"StepName"`
-	Action     string `json:"Action"`
-	StepStatus string `json:"StepStatus"`
+	StepName           string     `json:"StepName"`
+	Action             string     `json:"Action"`
+	StepStatus         string     `json:"StepStatus"`
+	StepExecutionID    string     `json:"StepExecutionId,omitempty"`
+	ExecutionStartTime *time.Time `json:"ExecutionStartTime,omitempty"`
+	ExecutionEndTime   *time.Time `json:"ExecutionEndTime,omitempty"`
+	FailureMessage     string     `json:"FailureMessage,omitempty"`
 }
 
 // --- ServiceSetting ---
