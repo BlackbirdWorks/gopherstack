@@ -7,32 +7,33 @@ import (
 )
 
 type backendSnapshot struct {
-	Things                 map[string]*Thing        `json:"things"`
-	Policies               map[string]*Policy       `json:"policies"`
-	Rules                  map[string]*TopicRule    `json:"rules"`
-	CertificateTransfers   map[string]string        `json:"certificateTransfers"`
-	ThingBillingGroups     map[string]string        `json:"thingBillingGroups"`
-	ThingThingGroups       map[string][]string      `json:"thingThingGroups"`
-	PackageVersionSboms    map[string]*SbomDocument `json:"packageVersionSboms"`
-	JobTargets             map[string][]string      `json:"jobTargets"`
-	PolicyTargets          map[string][]string      `json:"policyTargets"`
-	SecurityProfileTargets map[string][]string      `json:"securityProfileTargets"`
-	ThingPrincipals        map[string][]string      `json:"thingPrincipals"`
-	AuditMitigationTasks   map[string]string        `json:"auditMitigationTasks"`
-	AuditTasks             map[string]string        `json:"auditTasks"`
-
-	ThingIndexingConfiguration      *ThingIndexingConfiguration      `json:"thingIndexingConfiguration,omitempty"`
-	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration `json:"thingGroupIndexingConfiguration,omitempty"`
-
-	RegistrationTasks map[string]*ThingRegistrationTask `json:"registrationTasks"`
-
-	// Device Defender: audit + detect mitigation-action tasks and violations.
-	AuditMitigationTaskObjects map[string]*AuditMitigationTask               `json:"auditMitigationTaskObjects"`
-	AuditMitigationExecutions  map[string][]*AuditMitigationActionExecution  `json:"auditMitigationExecutions"`
-	DetectMitigationTasks      map[string]*DetectMitigationTask              `json:"detectMitigationTasks"`
-	DetectMitigationExecutions map[string][]*DetectMitigationActionExecution `json:"detectMitigationExecutions"`
-	ActiveViolations           map[string]*ActiveViolation                   `json:"activeViolations"`
-	ViolationEvents            []*ViolationEvent                             `json:"violationEvents"`
+	AuditTasks                      map[string]string                             `json:"auditTasks"`
+	MetricValues                    map[string][]*MetricDatapoint                 `json:"metricValues"`
+	Rules                           map[string]*TopicRule                         `json:"rules"`
+	CertificateTransfers            map[string]string                             `json:"certificateTransfers"`
+	ThingBillingGroups              map[string]string                             `json:"thingBillingGroups"`
+	ThingThingGroups                map[string][]string                           `json:"thingThingGroups"`
+	PackageVersionSboms             map[string]*SbomDocument                      `json:"packageVersionSboms"`
+	JobTargets                      map[string][]string                           `json:"jobTargets"`
+	PolicyTargets                   map[string][]string                           `json:"policyTargets"`
+	SecurityProfileTargets          map[string][]string                           `json:"securityProfileTargets"`
+	ThingPrincipals                 map[string][]string                           `json:"thingPrincipals"`
+	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration              `json:"thingGroupIndexingConfiguration"`
+	Policies                        map[string]*Policy                            `json:"policies"`
+	Things                          map[string]*Thing                             `json:"things"`
+	AuditMitigationTasks            map[string]string                             `json:"auditMitigationTasks"`
+	RegistrationTasks               map[string]*ThingRegistrationTask             `json:"registrationTasks"`
+	AuditMitigationTaskObjects      map[string]*AuditMitigationTask               `json:"auditMitigationTaskObjects"`
+	AuditMitigationExecutions       map[string][]*AuditMitigationActionExecution  `json:"auditMitigationExecutions"`
+	DetectMitigationTasks           map[string]*DetectMitigationTask              `json:"detectMitigationTasks"`
+	DetectMitigationExecutions      map[string][]*DetectMitigationActionExecution `json:"detectMitigationExecutions"`
+	ActiveViolations                map[string]*ActiveViolation                   `json:"activeViolations"`
+	BehaviorTrainingSummaries       map[string][]*BehaviorModelTrainingSummary    `json:"behaviorTrainingSummaries"`
+	AccountEncryptionConfig         *AccountEncryptionConfiguration               `json:"accountEncryptionConfig"`
+	SbomValidationResults           map[string][]*SbomValidationResult            `json:"sbomValidationResults"`
+	ThingIndexingConfiguration      *ThingIndexingConfiguration                   `json:"thingIndexingConfiguration"`
+	ThingConnectivity               map[string]*ThingConnectivityData             `json:"thingConnectivity"`
+	ViolationEvents                 []*ViolationEvent                             `json:"violationEvents"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -85,6 +86,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	ddSnap := b.snapshotDeviceDefender()
+	finalSnap := b.snapshotFinalOps()
 
 	snap := backendSnapshot{
 		Things:                 things,
@@ -112,6 +114,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		DetectMitigationExecutions: ddSnap.DetectMitigationExecutions,
 		ActiveViolations:           ddSnap.ActiveViolations,
 		ViolationEvents:            ddSnap.ViolationEvents,
+
+		AccountEncryptionConfig:   finalSnap.AccountEncryptionConfig,
+		SbomValidationResults:     finalSnap.SbomValidationResults,
+		MetricValues:              finalSnap.MetricValues,
+		ThingConnectivity:         finalSnap.ThingConnectivity,
+		BehaviorTrainingSummaries: finalSnap.BehaviorTrainingSummaries,
 	}
 
 	data, err := json.Marshal(snap)
@@ -197,6 +205,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		ViolationEvents:            snap.ViolationEvents,
 	})
 
+	b.restoreFinalOps(finalOpsSnapshot{
+		AccountEncryptionConfig:   snap.AccountEncryptionConfig,
+		SbomValidationResults:     snap.SbomValidationResults,
+		MetricValues:              snap.MetricValues,
+		ThingConnectivity:         snap.ThingConnectivity,
+		BehaviorTrainingSummaries: snap.BehaviorTrainingSummaries,
+	})
+
 	return nil
 }
 
@@ -256,6 +272,8 @@ func ensureNonNilSnap(snap *backendSnapshot) {
 	if snap.RegistrationTasks == nil {
 		snap.RegistrationTasks = make(map[string]*ThingRegistrationTask)
 	}
+
+	ensureNonNilFinalOpsSnap(snap)
 }
 
 func copyStringMap(m map[string]string) map[string]string {

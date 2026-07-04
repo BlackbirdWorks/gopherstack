@@ -393,6 +393,51 @@ type StorageBackend interface {
 	) []*ViolationEvent
 	PutVerificationStateOnViolation(violationID, verificationState, description string) error
 	SeedActiveViolation(input *SeedActiveViolationInput) (*ActiveViolation, error)
+
+	// Final stub batch: encryption configuration.
+	DescribeEncryptionConfiguration() *AccountEncryptionConfiguration
+	UpdateEncryptionConfiguration(input *UpdateEncryptionConfigurationInput) error
+
+	// Final stub batch: authorization testing.
+	TestAuthorization(input *TestAuthorizationInput) ([]*AuthResult, error)
+	TestInvokeAuthorizer(authorizerName string, input *TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error)
+
+	// Final stub batch: principal-policy detachment.
+	DetachPrincipalPolicy(policyName, principal string) error
+
+	// Final stub batch: topic rule destination confirmation.
+	ConfirmTopicRuleDestination(token string) error
+
+	// Final stub batch: command executions.
+	DeleteCommandExecution(executionID, targetARN string) error
+
+	// Final stub batch: Device Defender ML behavior model training.
+	GetBehaviorModelTrainingSummaries(
+		securityProfileName string, maxResults int32, nextToken string,
+	) ([]*BehaviorModelTrainingSummary, string, error)
+
+	// Final stub batch: outgoing certificate transfers.
+	ListOutgoingCertificates() []*OutgoingCertificate
+
+	// Final stub batch: SBOM validation.
+	DisassociateSbomFromPackageVersion(packageName, versionName string) error
+	ListSbomValidationResults(
+		packageName, versionName string, maxResults int32, nextToken string,
+	) ([]*SbomValidationResult, string, error)
+
+	// Final stub batch: security profile metric values.
+	ListMetricValues(
+		thingName, metricName string, startTime, endTime float64, maxResults int32, nextToken string,
+	) ([]*MetricDatapoint, string, error)
+
+	// Final stub batch: thing connectivity.
+	GetThingConnectivityData(thingName string) (*ThingConnectivityData, error)
+
+	// Final stub batch: provisioning template versions.
+	DescribeProvisioningTemplateVersion(name string, versionID int32) (*ProvisioningTemplateVersion, error)
+
+	// Final stub batch: security profile behavior validation.
+	ValidateSecurityProfileBehaviors(behaviors []SecurityProfileBehavior) (bool, []string)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

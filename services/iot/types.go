@@ -277,6 +277,12 @@ type TopicRuleDestination struct {
 	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
 	ARN               string                        `json:"arn"`
 	Status            string                        `json:"status"`
+	// ConfirmationToken is the token that must be presented to
+	// ConfirmTopicRuleDestination to transition an HTTP destination from
+	// IN_PROGRESS to ENABLED. AWS delivers this out-of-band (via a
+	// confirmation request sent to the destination URL), so it is never
+	// serialized back to callers.
+	ConfirmationToken string `json:"-"`
 }
 
 // HTTPURLDestinationProperties holds properties for an HTTP URL destination.

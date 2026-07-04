@@ -78,48 +78,24 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		// not through this canned table.
 
 		// ---- Topics ----
-		opCreateTopic: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"TopicId": "new-topic"})
-		},
-		opDescribeTopic:                withID("TopicId"),
-		opUpdateTopic:                  withID("TopicId"),
-		opDeleteTopic:                  withID("TopicId"),
-		opListTopics:                   withList("TopicsSummaries"),
-		opSearchTopics:                 withList("TopicsSummaries"),
-		opDescribeTopicPerms:           withIDAndPerms("TopicId"),
-		opUpdateTopicPerms:             withIDAndPerms("TopicId"),
-		opDescribeTopicRefresh:         withID("TopicId"),
-		opCreateTopicRefreshSchedule:   withID("TopicId"),
-		opDescribeTopicRefreshSchedule: withID("TopicId"),
-		opUpdateTopicRefreshSchedule:   withID("TopicId"),
-		opDeleteTopicRefreshSchedule:   withID("TopicId"),
-		opListTopicRefreshSchedules:    withList("RefreshSchedules"),
-		opBatchCreateTopicAnswers:      withID("TopicId"),
-		opBatchDeleteTopicAnswers:      withID("TopicId"),
-		opListTopicReviewedAnswers:     withID("TopicId"),
+		// CreateTopic, DescribeTopic, UpdateTopic, DeleteTopic, ListTopics, topic
+		// permissions, topic refresh/refresh-schedules, and reviewed answers are
+		// real (backed by InMemoryBackend) and routed via dispatchTopic in
+		// handler_topics.go, not through this canned table.
+		opSearchTopics: withList("TopicsSummaries"),
 
 		// ---- VPC Connections ----
-		opCreateVPCConnection: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"VPCConnectionId": "new-vpc"})
-		},
-		opDescribeVPCConnection: func(resID, _ string) map[string]any {
-			return reqID(map[string]any{"VPCConnection": map[string]any{"VPCConnectionId": resID}})
-		},
-		opUpdateVPCConnection: withID("VPCConnectionId"),
-		opDeleteVPCConnection: withID("VPCConnectionId"),
-		opListVPCConnections:  withList("VPCConnectionSummaries"),
+		// CreateVPCConnection, DescribeVPCConnection, UpdateVPCConnection,
+		// DeleteVPCConnection, and ListVPCConnections are real (backed by
+		// InMemoryBackend) and routed via dispatchVPCConnection in
+		// handler_vpcconnections.go, not through this canned table.
 
 		// ---- IAM Policy Assignments ----
-		opCreateIAMPolicyAssignment: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"AssignmentName": "new-assign"})
-		},
-		opDescribeIAMPolicyAssignment: func(_, subID string) map[string]any {
-			return reqID(map[string]any{"IAMPolicyAssignment": map[string]any{"AssignmentName": subID}})
-		},
-		opUpdateIAMPolicyAssignment:       withSubID("AssignmentName"),
-		opDeleteIAMPolicyAssignment:       withSubID("AssignmentName"),
-		opListIAMPolicyAssignments:        withList("IAMPolicyAssignments"),
-		opListIAMPolicyAssignmentsForUser: withList("IAMPolicyAssignments"),
+		// CreateIAMPolicyAssignment, DescribeIAMPolicyAssignment,
+		// UpdateIAMPolicyAssignment, DeleteIAMPolicyAssignment,
+		// ListIAMPolicyAssignments, and ListIAMPolicyAssignmentsForUser are real
+		// (backed by InMemoryBackend) and routed via dispatchIAMPolicyAssignment
+		// in handler_iampolicyassignments.go, not through this canned table.
 
 		// ---- Custom Permissions ----
 		opCreateCustomPermissions: func(_, _ string) map[string]any {

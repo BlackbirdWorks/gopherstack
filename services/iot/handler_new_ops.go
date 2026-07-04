@@ -160,6 +160,11 @@ func resolveProvisioningTemplateOps(path, method string) string {
 		strings.Contains(path, "/versions/") &&
 		method == http.MethodDelete:
 		return opDeleteProvisioningTemplateVersion
+	// GET /provisioning-templates/{templateName}/versions/{versionId} → DescribeProvisioningTemplateVersion
+	case strings.HasPrefix(path, "/provisioning-templates/") &&
+		strings.Contains(path, "/versions/") &&
+		method == http.MethodGet:
+		return opDescribeProvisioningTemplateVersion
 	// GET /provisioning-templates/{templateName} → DescribeProvisioningTemplate
 	case strings.HasPrefix(path, "/provisioning-templates/") && method == http.MethodGet:
 		return opDescribeProvisioningTemplate
@@ -178,6 +183,10 @@ func resolveAuthorizerOps(path, method string) string {
 	switch {
 	case path == "/authorizers" && method == http.MethodGet:
 		return opListAuthorizers
+	// POST /authorizer/{authorizerName}/test → TestInvokeAuthorizer (checked before
+	// the generic POST case below, which is CreateAuthorizer).
+	case strings.HasPrefix(path, "/authorizer/") && strings.HasSuffix(path, "/test") && method == http.MethodPost:
+		return opTestInvokeAuthorizer
 	case strings.HasPrefix(path, "/authorizer/") && method == http.MethodPost:
 		return opCreateAuthorizer
 	case strings.HasPrefix(path, "/authorizer/") && method == http.MethodGet:
@@ -772,7 +781,7 @@ func (h *Handler) handleDeleteProvisioningTemplateVersion(c *echo.Context) error
 	}
 	name := parts[0]
 	var versionID int32
-	if _, err := parseInt32(parts[1], &versionID); err != nil {
+	if err := parseInt32(parts[1], &versionID); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "invalid versionId"})
 	}
 	if err := h.Backend.DeleteProvisioningTemplateVersion(name, versionID); err != nil {
@@ -1147,13 +1156,13 @@ func (h *Handler) handleDeleteSecurityProfile(c *echo.Context) error {
 // Helper
 // ---------------------------------------------------------------------------
 
-func parseInt32(s string, out *int32) (bool, error) {
+func parseInt32(s string, out *int32) error {
 	var n int
 	_, err := fmt.Sscanf(s, "%d", &n)
 	if err != nil {
-		return false, err
+		return err
 	}
 	*out = int32(n) //nolint:gosec // safe: versionId values are small positive integers
 
-	return true, nil
+	return nil
 }

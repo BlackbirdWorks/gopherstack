@@ -51,15 +51,15 @@ type RuleDispatcher interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	dispatcher                 RuleDispatcher
-	things                     map[string]*Thing
-	policies                   map[string]*Policy
+	customMetrics              map[string]*CustomMetric
+	resourceTags               map[string]map[string]string
 	rules                      map[string]*TopicRule
 	certificateTransfers       map[string]string
 	thingBillingGroups         map[string]string
 	thingThingGroups           map[string][]string
 	packageVersionSboms        map[string]*SbomDocument
 	jobTargets                 map[string][]string
-	policyTargets              map[string][]string
+	fleetMetrics               map[string]*FleetMetric
 	securityProfileTargets     map[string][]string
 	thingPrincipals            map[string][]string
 	auditMitigationTasks       map[string]string
@@ -76,7 +76,7 @@ type InMemoryBackend struct {
 	jobTemplates               map[string]*JobTemplate
 	roleAliases                map[string]*RoleAlias
 	domainConfigs              map[string]*DomainConfiguration
-	provTemplates              map[string]*ProvisioningTemplate
+	dimensions                 map[string]*Dimension
 	provTemplateVersions       map[string][]*ProvisioningTemplateVersion
 	authorizers                map[string]*Authorizer
 	billingGroups              map[string]*BillingGroup
@@ -85,10 +85,10 @@ type InMemoryBackend struct {
 	securityProfiles           map[string]*SecurityProfile
 	caCertificates             map[string]*CACertificate
 	streams                    map[string]*IoTStream
-	fleetMetrics               map[string]*FleetMetric
-	customMetrics              map[string]*CustomMetric
-	dimensions                 map[string]*Dimension
-	resourceTags               map[string]map[string]string
+	policyTargets              map[string][]string
+	policies                   map[string]*Policy
+	provTemplates              map[string]*ProvisioningTemplate
+	things                     map[string]*Thing
 	auditConfiguration         *AccountAuditConfiguration
 	auditTaskObjects           map[string]*AuditTask
 	otaUpdates                 map[string]*OTAUpdate
@@ -111,6 +111,11 @@ type InMemoryBackend struct {
 	detectMitigationTasks      map[string]*DetectMitigationTask
 	detectMitigationExecutions map[string][]*DetectMitigationActionExecution
 	activeViolations           map[string]*ActiveViolation
+	accountEncryptionConfig    *AccountEncryptionConfiguration
+	sbomValidationResults      map[string][]*SbomValidationResult
+	metricValues               map[string][]*MetricDatapoint
+	thingConnectivity          map[string]*ThingConnectivityData
+	behaviorTrainingSummaries  map[string][]*BehaviorModelTrainingSummary
 	registrationCode           string
 	defaultAuthorizer          string
 	accountID                  string
@@ -183,6 +188,11 @@ func NewInMemoryBackend() *InMemoryBackend {
 		detectMitigationTasks:      make(map[string]*DetectMitigationTask),
 		detectMitigationExecutions: make(map[string][]*DetectMitigationActionExecution),
 		activeViolations:           make(map[string]*ActiveViolation),
+
+		sbomValidationResults:     make(map[string][]*SbomValidationResult),
+		metricValues:              make(map[string][]*MetricDatapoint),
+		thingConnectivity:         make(map[string]*ThingConnectivityData),
+		behaviorTrainingSummaries: make(map[string][]*BehaviorModelTrainingSummary),
 
 		accountID: "000000000000",
 		region:    "us-east-1",
@@ -267,6 +277,17 @@ func (b *InMemoryBackend) Reset() {
 	b.thingIndexingConfig = nil
 	b.thingGroupIndexingConfig = nil
 	b.resetDeviceDefender()
+	b.resetFinalOps()
+}
+
+// resetFinalOps clears final-stub-batch backend state (called from Reset,
+// lock held).
+func (b *InMemoryBackend) resetFinalOps() {
+	b.accountEncryptionConfig = nil
+	b.sbomValidationResults = make(map[string][]*SbomValidationResult)
+	b.metricValues = make(map[string][]*MetricDatapoint)
+	b.thingConnectivity = make(map[string]*ThingConnectivityData)
+	b.behaviorTrainingSummaries = make(map[string][]*BehaviorModelTrainingSummary)
 }
 
 // resetDeviceDefender clears all Device Defender backend state (audit + detect
@@ -607,8 +628,20 @@ func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyO
 	}, nil
 }
 
-// AttachPrincipalPolicy attaches a policy to a principal (stub, no-op).
-func (b *InMemoryBackend) AttachPrincipalPolicy(_ *AttachPrincipalPolicyInput) error {
+// AttachPrincipalPolicy attaches a policy to a principal. The attachment is
+// recorded in the same policyTargets index used by AttachPolicy/DetachPolicy
+// so that ListPrincipalPolicies, ListPolicyPrincipals, and
+// DetachPrincipalPolicy observe it.
+func (b *InMemoryBackend) AttachPrincipalPolicy(input *AttachPrincipalPolicyInput) error {
+	if input.PolicyName == "" || input.Principal == "" {
+		return nil
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.policyTargets[input.PolicyName] = append(b.policyTargets[input.PolicyName], input.Principal)
+
 	return nil
 }
 
@@ -683,11 +716,14 @@ func (b *InMemoryBackend) AssociateSbomWithPackageVersion(
 	key := packageVersionKey(input.PackageName, input.VersionName)
 	b.packageVersionSboms[key] = input.Sbom
 
+	result := computeSbomValidationResult(input.Sbom)
+	b.sbomValidationResults[key] = []*SbomValidationResult{result}
+
 	return &AssociateSbomWithPackageVersionOutput{
 		PackageName:          input.PackageName,
 		VersionName:          input.VersionName,
 		Sbom:                 input.Sbom,
-		SbomValidationStatus: "IN_PROGRESS",
+		SbomValidationStatus: result.ValidationResult,
 	}, nil
 }
 
@@ -1052,6 +1088,9 @@ const certStatusActive = "ACTIVE"
 
 // certStatusInactive is the AWS IoT certificate INACTIVE status value.
 const certStatusInactive = "INACTIVE"
+
+// certStatusPendingTransfer is the AWS IoT certificate PENDING_TRANSFER status value.
+const certStatusPendingTransfer = "PENDING_TRANSFER"
 
 // randomHex generates a cryptographically random hex string of n bytes (2n characters).
 func randomHex(n int) string {
@@ -1436,7 +1475,7 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 // isValidCertStatus reports whether s is a legal AWS IoT certificate status.
 func isValidCertStatus(s string) bool {
 	switch s {
-	case certStatusActive, certStatusInactive, "REVOKED", "PENDING_TRANSFER", "PENDING_ACTIVATION":
+	case certStatusActive, certStatusInactive, "REVOKED", certStatusPendingTransfer, "PENDING_ACTIVATION":
 		return true
 	}
 
@@ -1667,14 +1706,19 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 		b.region, b.accountID, uuid.NewString())
 
 	dest := &TopicRuleDestination{
-		ARN:    arn,
-		Status: "ENABLED",
+		ARN: arn,
 	}
 
 	if input.DestinationConfiguration != nil && input.DestinationConfiguration.HTTPURLConfiguration != nil {
 		dest.HTTPURLProperties = &HTTPURLDestinationProperties{
 			ConfirmationURL: input.DestinationConfiguration.HTTPURLConfiguration.ConfirmationURL,
 		}
+		// HTTP destinations require confirmation before they can be used,
+		// matching AWS's real IN_PROGRESS -> ENABLED lifecycle.
+		dest.Status = statusInProgress
+		dest.ConfirmationToken = randomHex(certIDHexLen)
+	} else {
+		dest.Status = statusEnabled
 	}
 
 	b.topicRuleDestinations[arn] = dest

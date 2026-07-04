@@ -188,6 +188,95 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*ThemeAlias, string, error)
 
+	// Topics
+	CreateTopic(
+		accountID, topicID, name, description, userExperienceVersion string,
+		dataSets []map[string]any,
+		permissions []ResourcePermission,
+		tags map[string]string,
+	) (*Topic, error)
+	DescribeTopic(accountID, topicID string) (*Topic, error)
+	UpdateTopic(
+		accountID, topicID, name, description, userExperienceVersion string,
+		dataSets []map[string]any,
+	) (*Topic, error)
+	DeleteTopic(accountID, topicID string) error
+	ListTopics(accountID string, maxResults int32, nextToken string) ([]*Topic, string, error)
+
+	// Topic permissions
+	DescribeTopicPermissions(accountID, topicID string) (*Topic, []ResourcePermission, error)
+	UpdateTopicPermissions(
+		accountID, topicID string,
+		grant, revoke []ResourcePermission,
+	) (*Topic, []ResourcePermission, error)
+
+	// Topic refresh
+	DescribeTopicRefresh(accountID, topicID, refreshID string) (*TopicRefreshDetails, error)
+
+	// Topic refresh schedules
+	CreateTopicRefreshSchedule(
+		accountID, topicID, datasetID, datasetArn, refreshType string,
+		isEnabled bool,
+		scheduleConfig map[string]any,
+	) (*TopicRefreshSchedule, error)
+	DescribeTopicRefreshSchedule(accountID, topicID, datasetID string) (*TopicRefreshSchedule, error)
+	UpdateTopicRefreshSchedule(
+		accountID, topicID, datasetID, refreshType string,
+		isEnabled *bool,
+		scheduleConfig map[string]any,
+	) (*TopicRefreshSchedule, error)
+	DeleteTopicRefreshSchedule(accountID, topicID, datasetID string) error
+	ListTopicRefreshSchedules(accountID, topicID string) ([]*TopicRefreshSchedule, error)
+
+	// Topic reviewed answers
+	BatchCreateTopicReviewedAnswer(
+		accountID, topicID string,
+		answers []map[string]any,
+	) ([]*TopicReviewedAnswer, []TopicAnswerError, error)
+	BatchDeleteTopicReviewedAnswer(
+		accountID, topicID string,
+		answerIDs []string,
+	) ([]string, []TopicAnswerError, error)
+	ListTopicReviewedAnswers(accountID, topicID string) ([]*TopicReviewedAnswer, error)
+
+	// VPC connections
+	CreateVPCConnection(
+		accountID, vpcConnectionID, name, vpcID string,
+		subnetIDs, securityGroupIDs, dnsResolvers []string,
+		roleArn string,
+		tags map[string]string,
+	) (*VPCConnection, error)
+	DescribeVPCConnection(accountID, vpcConnectionID string) (*VPCConnection, error)
+	UpdateVPCConnection(
+		accountID, vpcConnectionID, name string,
+		subnetIDs, securityGroupIDs, dnsResolvers []string,
+		roleArn string,
+	) (*VPCConnection, error)
+	DeleteVPCConnection(accountID, vpcConnectionID string) error
+	ListVPCConnections(accountID string, maxResults int32, nextToken string) ([]*VPCConnection, string, error)
+
+	// IAM policy assignments
+	CreateIAMPolicyAssignment(
+		accountID, namespace, assignmentName, assignmentStatus, policyArn string,
+		identities map[string][]string,
+	) (*IAMPolicyAssignment, error)
+	DescribeIAMPolicyAssignment(accountID, namespace, assignmentName string) (*IAMPolicyAssignment, error)
+	UpdateIAMPolicyAssignment(
+		accountID, namespace, assignmentName, assignmentStatus, policyArn string,
+		identities map[string][]string,
+	) (*IAMPolicyAssignment, error)
+	DeleteIAMPolicyAssignment(accountID, namespace, assignmentName string) error
+	ListIAMPolicyAssignments(
+		accountID, namespace, statusFilter string,
+		maxResults int32,
+		nextToken string,
+	) ([]*IAMPolicyAssignment, string, error)
+	ListIAMPolicyAssignmentsForUser(
+		accountID, namespace, userName string,
+		maxResults int32,
+		nextToken string,
+	) ([]*IAMPolicyAssignment, string, error)
+
 	AccountID() string
 	Region() string
 	Reset()
@@ -387,6 +476,78 @@ type ThemeAlias struct {
 	AliasName          string
 	Arn                string
 	ThemeVersionNumber int64
+}
+
+// Topic represents a QuickSight topic (a natural-language Q&A data source).
+type Topic struct {
+	CreatedTime           time.Time
+	LastUpdatedTime       time.Time
+	TopicID               string
+	Arn                   string
+	Name                  string
+	Description           string
+	UserExperienceVersion string
+	DataSets              []map[string]any
+	Permissions           []ResourcePermission
+}
+
+// TopicRefreshSchedule represents one refresh schedule for a topic's dataset,
+// keyed by DatasetId.
+type TopicRefreshSchedule struct {
+	ScheduleConfig map[string]any
+	DatasetID      string
+	DatasetArn     string
+	RefreshType    string
+	IsEnabled      bool
+}
+
+// TopicRefreshDetails represents the status of a single topic refresh execution.
+type TopicRefreshDetails struct {
+	RefreshID     string
+	RefreshStatus string
+}
+
+// TopicReviewedAnswer represents one human-reviewed answer attached to a topic.
+type TopicReviewedAnswer struct {
+	PrimaryVisual map[string]any
+	Template      map[string]any
+	AnswerID      string
+	DatasetArn    string
+	Question      string
+	Mode          string
+}
+
+// TopicAnswerError represents a single failed entry in a batch reviewed-answer
+// create/delete operation.
+type TopicAnswerError struct {
+	AnswerID string
+	Message  string
+}
+
+// VPCConnection represents a QuickSight VPC connection.
+type VPCConnection struct {
+	CreatedTime        time.Time
+	LastUpdatedTime    time.Time
+	VPCConnectionID    string
+	Arn                string
+	Name               string
+	VPCID              string
+	RoleArn            string
+	Status             string
+	AvailabilityStatus string
+	SubnetIDs          []string
+	SecurityGroupIDs   []string
+	DNSResolvers       []string
+}
+
+// IAMPolicyAssignment represents a QuickSight IAM policy assignment, scoped by namespace.
+type IAMPolicyAssignment struct {
+	Identities       map[string][]string
+	AssignmentID     string
+	AssignmentName   string
+	AssignmentStatus string
+	PolicyArn        string
+	Namespace        string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

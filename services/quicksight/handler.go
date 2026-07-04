@@ -334,6 +334,7 @@ const (
 	// JSON response keys.
 	keyRequestID            = "RequestId"
 	keyStatus               = "Status"
+	keyUpdateStatus         = "UpdateStatus"
 	keyNextToken            = "NextToken"
 	keyGroup                = "Group"
 	keyGroupList            = "GroupList"
@@ -908,6 +909,8 @@ func (h *Handler) dispatch(c *echo.Context) error {
 		return h.dispatchTemplate(c, op)
 	case isThemeOp(op):
 		return h.dispatchTheme(c, op)
+	case isTopicFamilyOp(op):
+		return h.dispatchTopicFamily(c, op)
 	case op != opUnknown:
 		return h.dispatchNew(c, op)
 	default:
@@ -918,6 +921,32 @@ func (h *Handler) dispatch(c *echo.Context) error {
 			fmt.Sprintf("operation %q not implemented", op),
 		)
 	}
+}
+
+// isTopicFamilyOp reports whether op is one of the Topic, VPC Connection, or IAM
+// Policy Assignment operations. These three families are grouped behind a single
+// dispatch() case (routed on to dispatchTopicFamily) purely to keep dispatch's
+// cyclomatic complexity in budget; the families themselves are unrelated.
+func isTopicFamilyOp(op string) bool {
+	return isTopicOp(op) || isVPCConnectionOp(op) || isIAMPolicyAssignmentOp(op)
+}
+
+func (h *Handler) dispatchTopicFamily(c *echo.Context, op string) error {
+	switch {
+	case isTopicOp(op):
+		return h.dispatchTopic(c, op)
+	case isVPCConnectionOp(op):
+		return h.dispatchVPCConnection(c, op)
+	case isIAMPolicyAssignmentOp(op):
+		return h.dispatchIAMPolicyAssignment(c, op)
+	}
+
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
 }
 
 func (h *Handler) dispatchNamespace(c *echo.Context, op string) error {
@@ -2482,7 +2511,7 @@ func (h *Handler) handleUpdateDataSource(c *echo.Context) error {
 		keyDataSourceID: ds.DataSourceID,
 		keyRequestID:    reqIDPlaceholder,
 		keyStatus:       http.StatusOK,
-		"UpdateStatus":  ds.Status,
+		keyUpdateStatus: ds.Status,
 	})
 }
 
@@ -2982,11 +3011,11 @@ func (h *Handler) handleUpdateAnalysis(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyAnalysisID:  a.AnalysisID,
-		keyArn:         a.Arn,
-		keyRequestID:   reqIDPlaceholder,
-		keyStatus:      http.StatusOK,
-		"UpdateStatus": a.Status,
+		keyAnalysisID:   a.AnalysisID,
+		keyArn:          a.Arn,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+		keyUpdateStatus: a.Status,
 	})
 }
 

@@ -222,10 +222,12 @@ const (
 	opValidateSecurityProfileBehaviors      = "ValidateSecurityProfileBehaviors"
 )
 
-// allStubOps returns remaining stub operation names.
+// allStubOps returns remaining stub operation names. Operations implemented
+// against real backend state (see handler_final_ops.go) are listed directly
+// in GetSupportedOperations' core op list instead, and are no longer
+// dispatched here.
 func allStubOps() []string {
 	return []string{
-		opConfirmTopicRuleDestination,
 		opCreateAuditSuppression,
 		opCreateCommand,
 		opCreateDynamicThingGroup,
@@ -236,7 +238,6 @@ func allStubOps() []string {
 		opCreateProvisioningClaim,
 		opDeleteAuditSuppression,
 		opDeleteCommand,
-		opDeleteCommandExecution,
 		opDeleteDynamicThingGroup,
 		opDeleteOTAUpdate,
 		opDeletePackage,
@@ -244,13 +245,8 @@ func allStubOps() []string {
 		opDeleteV2LoggingLevel,
 		opDescribeAuditFinding,
 		opDescribeAuditSuppression,
-		opDescribeEncryptionConfiguration,
 		opDescribeEventConfigurations,
-		opDescribeProvisioningTemplateVersion,
-		opDetachPrincipalPolicy,
 		opDetachSecurityProfile,
-		opDisassociateSbomFromPackageVersion,
-		opGetBehaviorModelTrainingSummaries,
 		opGetCommand,
 		opGetCommandExecution,
 		opGetLoggingOptions,
@@ -258,18 +254,14 @@ func allStubOps() []string {
 		opGetPackage,
 		opGetPackageConfiguration,
 		opGetPackageVersion,
-		opGetThingConnectivityData,
 		opGetV2LoggingOptions,
 		opListAuditFindings,
 		opListAuditSuppressions,
 		opListCommandExecutions,
 		opListCommands,
-		opListMetricValues,
 		opListOTAUpdates,
-		opListOutgoingCertificates,
 		opListPackageVersions,
 		opListPackages,
-		opListSbomValidationResults,
 		opListSecurityProfilesForTarget,
 		opListTargetsForSecurityProfile,
 		opListV2LoggingLevels,
@@ -277,39 +269,72 @@ func allStubOps() []string {
 		opSetLoggingOptions,
 		opSetV2LoggingLevel,
 		opSetV2LoggingOptions,
-		opTestAuthorization,
-		opTestInvokeAuthorizer,
 		opTransferCertificate,
 		opUpdateAuditSuppression,
 		opUpdateCommand,
 		opUpdateDynamicThingGroup,
-		opUpdateEncryptionConfiguration,
 		opUpdateEventConfigurations,
 		opUpdatePackage,
 		opUpdatePackageConfiguration,
 		opUpdatePackageVersion,
-		opValidateSecurityProfileBehaviors,
 	}
 }
 
-// dispatchStubOp returns (true, err) if op is a known stub operation.
+// dispatchStubOp returns (true, err) if op is a known stub operation. The 14
+// operations implemented in this batch (see handler_final_ops.go) have been
+// removed from this switch and are now dispatched by dispatchFinalOps
+// instead.
 func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 	switch op {
-	case opConfirmTopicRuleDestination,
-		opDeleteCommandExecution,
-		opDescribeEncryptionConfiguration,
-		opDescribeProvisioningTemplateVersion,
-		opDetachPrincipalPolicy,
-		opDisassociateSbomFromPackageVersion,
-		opGetBehaviorModelTrainingSummaries,
-		opGetThingConnectivityData,
-		opListMetricValues,
-		opListOutgoingCertificates,
-		opListSbomValidationResults,
-		opTestAuthorization,
-		opTestInvokeAuthorizer,
-		opUpdateEncryptionConfiguration,
-		opValidateSecurityProfileBehaviors:
+	case opCreateAuditSuppression,
+		opCreateCommand,
+		opCreateDynamicThingGroup,
+		opCreateKeysAndCertificate,
+		opCreateOTAUpdate,
+		opCreatePackage,
+		opCreatePackageVersion,
+		opCreateProvisioningClaim,
+		opDeleteAuditSuppression,
+		opDeleteCommand,
+		opDeleteDynamicThingGroup,
+		opDeleteOTAUpdate,
+		opDeletePackage,
+		opDeletePackageVersion,
+		opDeleteV2LoggingLevel,
+		opDescribeAuditFinding,
+		opDescribeAuditSuppression,
+		opDescribeEventConfigurations,
+		opDetachSecurityProfile,
+		opGetCommand,
+		opGetCommandExecution,
+		opGetLoggingOptions,
+		opGetOTAUpdate,
+		opGetPackage,
+		opGetPackageConfiguration,
+		opGetPackageVersion,
+		opGetV2LoggingOptions,
+		opListAuditFindings,
+		opListAuditSuppressions,
+		opListCommandExecutions,
+		opListCommands,
+		opListOTAUpdates,
+		opListPackageVersions,
+		opListPackages,
+		opListSecurityProfilesForTarget,
+		opListTargetsForSecurityProfile,
+		opListV2LoggingLevels,
+		opRejectCertificateTransfer,
+		opSetLoggingOptions,
+		opSetV2LoggingLevel,
+		opSetV2LoggingOptions,
+		opTransferCertificate,
+		opUpdateAuditSuppression,
+		opUpdateCommand,
+		opUpdateDynamicThingGroup,
+		opUpdateEventConfigurations,
+		opUpdatePackage,
+		opUpdatePackageConfiguration,
+		opUpdatePackageVersion:
 		return true, h.handleStub(c, op)
 	}
 

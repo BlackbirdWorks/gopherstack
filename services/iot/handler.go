@@ -401,6 +401,23 @@ func (h *Handler) GetSupportedOperations() []string {
 		opPutVerificationStateOnViolation,
 		opListRelatedResourcesForAuditFinding,
 		opDeleteAccountAuditConfiguration,
+		// Final stub batch: implemented against real backend state (see
+		// handler_final_ops.go / dispatchFinalOps).
+		opDescribeEncryptionConfiguration,
+		opUpdateEncryptionConfiguration,
+		opTestAuthorization,
+		opTestInvokeAuthorizer,
+		opDetachPrincipalPolicy,
+		opConfirmTopicRuleDestination,
+		opDeleteCommandExecution,
+		opGetBehaviorModelTrainingSummaries,
+		opListOutgoingCertificates,
+		opDisassociateSbomFromPackageVersion,
+		opListSbomValidationResults,
+		opListMetricValues,
+		opGetThingConnectivityData,
+		opDescribeProvisioningTemplateVersion,
+		opValidateSecurityProfileBehaviors,
 	)
 
 	return append(core, allStubOps()...)
@@ -430,7 +447,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 // matchIoTPath reports whether path belongs to the IoT control-plane.
 func matchIoTPath(path string) bool {
-	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path)
+	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) || matchFinalOpsPath(path)
 }
 
 // matchBatch4Path reports whether path belongs to the batch-4 routes (bulk
@@ -596,6 +613,10 @@ func resolveOperation(path, method string) string {
 	}
 
 	if op := resolveDeviceDefenderOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveFinalOps(path, method); op != unknownOperation {
 		return op
 	}
 
@@ -928,6 +949,16 @@ func resolveGroupAndPackageOps(path, method string) string {
 		method == http.MethodPut:
 
 		return opAssociateSbomWithPackageVersion
+	case strings.HasPrefix(path, "/packages/") &&
+		strings.HasSuffix(path, "/sbom") &&
+		method == http.MethodDelete:
+
+		return opDisassociateSbomFromPackageVersion
+	case strings.HasPrefix(path, "/packages/") &&
+		strings.HasSuffix(path, "/sbom-validation-results") &&
+		method == http.MethodGet:
+
+		return opListSbomValidationResults
 	}
 
 	return unknownOperation
@@ -975,6 +1006,11 @@ func thingOperation(path, method string) string {
 	// PUT /things/{thingName}/principals → AttachThingPrincipal
 	if method == http.MethodPut && strings.HasSuffix(path, "/principals") {
 		return opAttachThingPrincipal
+	}
+
+	// POST /things/{thingName}/connectivity-data → GetThingConnectivityData
+	if method == http.MethodPost && strings.HasSuffix(path, "/connectivity-data") {
+		return opGetThingConnectivityData
 	}
 
 	switch method {
@@ -1190,7 +1226,11 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 		return true, err
 	}
 
-	return h.dispatchDeviceDefenderOps(c, op)
+	if handled, err := h.dispatchDeviceDefenderOps(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchFinalOps(c, op)
 }
 
 func (h *Handler) dispatchMiscNewOps(c *echo.Context, op string) (bool, error) {

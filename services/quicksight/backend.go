@@ -93,6 +93,22 @@ var (
 	ErrThemeAliasNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrThemeAliasAlreadyExists is returned when a theme alias already exists.
 	ErrThemeAliasAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrTopicNotFound is returned when a topic does not exist.
+	ErrTopicNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTopicAlreadyExists is returned when a topic already exists.
+	ErrTopicAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrTopicRefreshScheduleNotFound is returned when a topic refresh schedule does not exist.
+	ErrTopicRefreshScheduleNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTopicRefreshScheduleAlreadyExists is returned when a topic refresh schedule already exists.
+	ErrTopicRefreshScheduleAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrVPCConnectionNotFound is returned when a VPC connection does not exist.
+	ErrVPCConnectionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrVPCConnectionAlreadyExists is returned when a VPC connection already exists.
+	ErrVPCConnectionAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrIAMPolicyAssignmentNotFound is returned when an IAM policy assignment does not exist.
+	ErrIAMPolicyAssignmentNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrIAMPolicyAssignmentAlreadyExists is returned when an IAM policy assignment already exists.
+	ErrIAMPolicyAssignmentAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 	// ErrUnknownOperation is returned when the requested operation is not implemented.
@@ -265,62 +281,71 @@ func (a *storedAnalysis) toAnalysis() *Analysis {
 
 // state is the serializable snapshot of the backend.
 type state struct {
-	Namespaces    map[string]*storedNamespace    `json:"namespaces"`
-	Groups        map[string]*storedGroup        `json:"groups"`
-	GroupMembers  map[string]bool                `json:"groupMembers"`
-	Users         map[string]*storedUser         `json:"users"`
-	DataSources   map[string]*storedDataSource   `json:"dataSources"`
-	DataSets      map[string]*storedDataSet      `json:"dataSets"`
-	Ingestions    map[string]*storedIngestion    `json:"ingestions"`
-	Dashboards    map[string]*storedDashboard    `json:"dashboards"`
-	Analyses      map[string]*storedAnalysis     `json:"analyses"`
-	Tags          map[string]map[string]string   `json:"tags"`
-	Folders       map[string]*storedFolder       `json:"folders"`
-	FolderMembers map[string]*storedFolderMember `json:"folderMembers"`
-	Templates     map[string]*storedTemplate     `json:"templates"`
-	Themes        map[string]*storedTheme        `json:"themes"`
+	Namespaces           map[string]*storedNamespace           `json:"namespaces"`
+	Groups               map[string]*storedGroup               `json:"groups"`
+	GroupMembers         map[string]bool                       `json:"groupMembers"`
+	Users                map[string]*storedUser                `json:"users"`
+	DataSources          map[string]*storedDataSource          `json:"dataSources"`
+	DataSets             map[string]*storedDataSet             `json:"dataSets"`
+	Ingestions           map[string]*storedIngestion           `json:"ingestions"`
+	Dashboards           map[string]*storedDashboard           `json:"dashboards"`
+	Analyses             map[string]*storedAnalysis            `json:"analyses"`
+	Tags                 map[string]map[string]string          `json:"tags"`
+	Folders              map[string]*storedFolder              `json:"folders"`
+	FolderMembers        map[string]*storedFolderMember        `json:"folderMembers"`
+	Templates            map[string]*storedTemplate            `json:"templates"`
+	Themes               map[string]*storedTheme               `json:"themes"`
+	Topics               map[string]*storedTopic               `json:"topics"`
+	VPCConnections       map[string]*storedVPCConnection       `json:"vpcConnections"`
+	IAMPolicyAssignments map[string]*storedIAMPolicyAssignment `json:"iamPolicyAssignments"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu            *lockmetrics.RWMutex
-	namespaces    map[string]*storedNamespace
-	groups        map[string]*storedGroup
-	groupMembers  map[string]bool
-	users         map[string]*storedUser
-	dataSources   map[string]*storedDataSource
-	dataSets      map[string]*storedDataSet
-	ingestions    map[string]*storedIngestion
-	dashboards    map[string]*storedDashboard
-	analyses      map[string]*storedAnalysis
-	tags          map[string]map[string]string
-	folders       map[string]*storedFolder
-	folderMembers map[string]*storedFolderMember
-	templates     map[string]*storedTemplate
-	themes        map[string]*storedTheme
-	accountID     string
-	region        string
+	mu                   *lockmetrics.RWMutex
+	namespaces           map[string]*storedNamespace
+	groups               map[string]*storedGroup
+	groupMembers         map[string]bool
+	users                map[string]*storedUser
+	dataSources          map[string]*storedDataSource
+	dataSets             map[string]*storedDataSet
+	ingestions           map[string]*storedIngestion
+	dashboards           map[string]*storedDashboard
+	analyses             map[string]*storedAnalysis
+	tags                 map[string]map[string]string
+	folders              map[string]*storedFolder
+	folderMembers        map[string]*storedFolderMember
+	templates            map[string]*storedTemplate
+	themes               map[string]*storedTheme
+	topics               map[string]*storedTopic
+	vpcConnections       map[string]*storedVPCConnection
+	iamPolicyAssignments map[string]*storedIAMPolicyAssignment
+	accountID            string
+	region               string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID:     accountID,
-		region:        region,
-		namespaces:    make(map[string]*storedNamespace),
-		groups:        make(map[string]*storedGroup),
-		groupMembers:  make(map[string]bool),
-		users:         make(map[string]*storedUser),
-		dataSources:   make(map[string]*storedDataSource),
-		dataSets:      make(map[string]*storedDataSet),
-		ingestions:    make(map[string]*storedIngestion),
-		dashboards:    make(map[string]*storedDashboard),
-		analyses:      make(map[string]*storedAnalysis),
-		tags:          make(map[string]map[string]string),
-		folders:       make(map[string]*storedFolder),
-		folderMembers: make(map[string]*storedFolderMember),
-		templates:     make(map[string]*storedTemplate),
-		themes:        make(map[string]*storedTheme),
+		accountID:            accountID,
+		region:               region,
+		namespaces:           make(map[string]*storedNamespace),
+		groups:               make(map[string]*storedGroup),
+		groupMembers:         make(map[string]bool),
+		users:                make(map[string]*storedUser),
+		dataSources:          make(map[string]*storedDataSource),
+		dataSets:             make(map[string]*storedDataSet),
+		ingestions:           make(map[string]*storedIngestion),
+		dashboards:           make(map[string]*storedDashboard),
+		analyses:             make(map[string]*storedAnalysis),
+		tags:                 make(map[string]map[string]string),
+		folders:              make(map[string]*storedFolder),
+		folderMembers:        make(map[string]*storedFolderMember),
+		templates:            make(map[string]*storedTemplate),
+		themes:               make(map[string]*storedTheme),
+		topics:               make(map[string]*storedTopic),
+		vpcConnections:       make(map[string]*storedVPCConnection),
+		iamPolicyAssignments: make(map[string]*storedIAMPolicyAssignment),
 	}
 	b.mu = lockmetrics.New("quicksight")
 
@@ -361,6 +386,9 @@ func (b *InMemoryBackend) Reset() {
 	b.folderMembers = make(map[string]*storedFolderMember)
 	b.templates = make(map[string]*storedTemplate)
 	b.themes = make(map[string]*storedTheme)
+	b.topics = make(map[string]*storedTopic)
+	b.vpcConnections = make(map[string]*storedVPCConnection)
+	b.iamPolicyAssignments = make(map[string]*storedIAMPolicyAssignment)
 
 	b.namespaces[nsKey(b.accountID, defaultNamespace)] = &storedNamespace{
 		Name:           defaultNamespace,
@@ -377,20 +405,23 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	s := state{
-		Namespaces:    b.namespaces,
-		Groups:        b.groups,
-		GroupMembers:  b.groupMembers,
-		Users:         b.users,
-		DataSources:   b.dataSources,
-		DataSets:      b.dataSets,
-		Ingestions:    b.ingestions,
-		Dashboards:    b.dashboards,
-		Analyses:      b.analyses,
-		Tags:          b.tags,
-		Folders:       b.folders,
-		FolderMembers: b.folderMembers,
-		Templates:     b.templates,
-		Themes:        b.themes,
+		Namespaces:           b.namespaces,
+		Groups:               b.groups,
+		GroupMembers:         b.groupMembers,
+		Users:                b.users,
+		DataSources:          b.dataSources,
+		DataSets:             b.dataSets,
+		Ingestions:           b.ingestions,
+		Dashboards:           b.dashboards,
+		Analyses:             b.analyses,
+		Tags:                 b.tags,
+		Folders:              b.folders,
+		FolderMembers:        b.folderMembers,
+		Templates:            b.templates,
+		Themes:               b.themes,
+		Topics:               b.topics,
+		VPCConnections:       b.vpcConnections,
+		IAMPolicyAssignments: b.iamPolicyAssignments,
 	}
 
 	data, _ := json.Marshal(s)
@@ -422,6 +453,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.folderMembers = s.FolderMembers
 	b.templates = s.Templates
 	b.themes = s.Themes
+	b.topics = s.Topics
+	b.vpcConnections = s.VPCConnections
+	b.iamPolicyAssignments = s.IAMPolicyAssignments
 
 	if b.folders == nil {
 		b.folders = make(map[string]*storedFolder)
@@ -434,6 +468,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 	if b.themes == nil {
 		b.themes = make(map[string]*storedTheme)
+	}
+	if b.topics == nil {
+		b.topics = make(map[string]*storedTopic)
+	}
+	if b.vpcConnections == nil {
+		b.vpcConnections = make(map[string]*storedVPCConnection)
+	}
+	if b.iamPolicyAssignments == nil {
+		b.iamPolicyAssignments = make(map[string]*storedIAMPolicyAssignment)
 	}
 
 	return nil
