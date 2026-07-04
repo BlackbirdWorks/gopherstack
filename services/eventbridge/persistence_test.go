@@ -63,7 +63,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				// The default event bus always exists; just verify restore worked
-				buses, _, err := b.ListEventBuses(context.Background(), "", "")
+				buses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
 				require.NoError(t, err)
 				assert.NotNil(t, buses)
 			},
@@ -77,11 +77,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := eventbridge.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := eventbridge.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -92,7 +92,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -136,12 +136,12 @@ func TestHandler_Snapshot_IncludesTags(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			// Restore into a fresh handler and verify tags round-tripped.
 			fresh := eventbridge.NewHandler(eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1"))
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			listBody, err := json.Marshal(map[string]string{"ResourceARN": tt.resourceARN})
 			require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestHandler_Restore_InvalidData(t *testing.T) {
 	t.Parallel()
 
 	h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
-	err := h.Restore([]byte("not-valid-json"))
+	err := h.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const defaultArchiveJanitorInterval = time.Minute
@@ -32,17 +33,11 @@ func NewArchiveJanitor(backend *InMemoryBackend, interval time.Duration) *Archiv
 
 // Run executes the janitor loop until ctx is cancelled.
 func (j *ArchiveJanitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, "eventbridge")
+	g.Ticker("ArchiveJanitor", j.Interval, 0, j.SweepOnce)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			j.SweepOnce(ctx)
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce executes one archive cleanup pass.

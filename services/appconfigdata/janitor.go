@@ -3,6 +3,8 @@ package appconfigdata
 import (
 	"context"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -28,15 +30,14 @@ func NewJanitor(backend *InMemoryBackend) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, "appconfigdata")
+	g.Ticker("SessionSweeper", j.Interval, 0, j.sweep)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			j.Backend.SweepExpiredSessions(ctx, j.SessionTTL)
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
+}
+
+// sweep prunes expired retrieval sessions.
+func (j *Janitor) sweep(ctx context.Context) {
+	j.Backend.SweepExpiredSessions(ctx, j.SessionTTL)
 }

@@ -140,7 +140,15 @@ func TestInMemoryBackend_ArchiveCRUD(t *testing.T) {
 				tt.setup(t, bk)
 			}
 
-			a, err := bk.UploadArchive(testAccountID, testRegion, tt.vaultName, tt.description, "checksum", 1024)
+			a, err := bk.UploadArchive(
+				testAccountID,
+				testRegion,
+				tt.vaultName,
+				tt.description,
+				"checksum",
+				1024,
+				[]byte("data"),
+			)
 			if tt.wantErr {
 				require.Error(t, err)
 

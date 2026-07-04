@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -52,6 +53,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"BatchUpdateCluster",
 		"CopySnapshot",
+		"ExportSnapshot",
 		"CreateACL",
 		"CreateCluster",
 		"CreateMultiRegionCluster",
@@ -282,6 +284,9 @@ func (h *Handler) dispatchSnapshotAndEngineOps(
 	case "DeleteSnapshot":
 
 		return true, h.handleDeleteSnapshot(ctx, c, body)
+	case "ExportSnapshot":
+
+		return true, h.handleExportSnapshot(ctx, c, body)
 	case "DescribeEngineVersions":
 
 		return true, h.handleDescribeEngineVersions(ctx, c, body)
@@ -685,7 +690,7 @@ func (h *Handler) handleCreateUser(ctx context.Context, c *echo.Context, body []
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, createUserResponse{User: toUserObject(user, 0)})
+	return c.JSON(http.StatusOK, createUserResponse{User: toUserObject(user, []string{})})
 }
 
 func (h *Handler) handleDescribeUsers(ctx context.Context, c *echo.Context, body []byte) error {
@@ -707,8 +712,8 @@ func (h *Handler) handleDescribeUsers(ctx context.Context, c *echo.Context, body
 	objs := make([]userObject, 0, len(users))
 
 	for _, u := range users {
-		count := countUserGroupMemberships(allACLs, u.Name)
-		objs = append(objs, toUserObject(u, count))
+		names := aclNamesForUser(allACLs, u.Name)
+		objs = append(objs, toUserObject(u, names))
 	}
 
 	return c.JSON(http.StatusOK, describeUserResponse{Users: objs, NextToken: nextToken})
@@ -730,7 +735,7 @@ func (h *Handler) handleDeleteUser(ctx context.Context, c *echo.Context, body []
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, deleteUserResponse{User: toUserObject(user, 0)})
+	return c.JSON(http.StatusOK, deleteUserResponse{User: toUserObject(user, []string{})})
 }
 
 func (h *Handler) handleUpdateUser(ctx context.Context, c *echo.Context, body []byte) error {
@@ -749,7 +754,7 @@ func (h *Handler) handleUpdateUser(ctx context.Context, c *echo.Context, body []
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, updateUserResponse{User: toUserObject(user, 0)})
+	return c.JSON(http.StatusOK, updateUserResponse{User: toUserObject(user, []string{})})
 }
 
 // -- ParameterGroup handlers -----------------------------------------------------
@@ -1024,6 +1029,25 @@ func (h *Handler) handleDescribeSnapshots(ctx context.Context, c *echo.Context, 
 	}
 
 	return c.JSON(http.StatusOK, describeSnapshotResponse{Snapshots: objs, NextToken: nextToken})
+}
+
+func (h *Handler) handleExportSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
+	var req exportSnapshotRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.SnapshotName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SnapshotName is required")
+	}
+
+	s, err := h.Backend.ExportSnapshot(ctx, &req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, exportSnapshotResponse{Snapshot: toSnapshotObject(s)})
 }
 
 // -- EngineVersion handlers ------------------------------------------------------
@@ -1599,12 +1623,12 @@ func enginePatchVersionFor(engine, engineVersion string) string {
 func toClusterObject(c *Cluster, showShards bool) clusterObject {
 	region := c.Region
 	if region == "" {
-		region = "us-east-1"
+		region = config.DefaultRegion
 	}
 
 	var shards []shardObject
 	if showShards {
-		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port)
+		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port, region)
 	}
 
 	sgs := make([]securityGroupMembership, 0, len(c.SecurityGroupIDs))
@@ -1612,34 +1636,42 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 		sgs = append(sgs, securityGroupMembership{SecurityGroupID: id, Status: "active"})
 	}
 
+	pgStatus := c.ParameterGroupStatus
+	if pgStatus == "" {
+		pgStatus = "in-sync"
+	}
+
 	return clusterObject{
-		Name:                     c.Name,
-		ARN:                      c.ARN,
-		Description:              c.Description,
-		Status:                   c.Status,
-		NodeType:                 c.NodeType,
-		EngineVersion:            c.EngineVersion,
-		EnginePatchVersion:       enginePatchVersionFor(c.Engine, c.EngineVersion),
-		Engine:                   c.Engine,
-		DataTiering:              c.DataTiering,
-		NetworkType:              c.NetworkType,
-		IPDiscovery:              c.IPDiscovery,
-		AutoMinorVersionUpgrade:  c.AutoMinorVersionUpgrade,
-		ACLName:                  c.ACLName,
-		SubnetGroupName:          c.SubnetGroupName,
-		ParameterGroupName:       c.ParameterGroupName,
-		KmsKeyID:                 c.KmsKeyID,
-		SnsTopicArn:              c.SnsTopicArn,
-		SnsTopicStatus:           c.SnsTopicStatus,
-		MaintenanceWindow:        c.MaintenanceWindow,
-		SnapshotWindow:           c.SnapshotWindow,
-		NumberOfShards:           c.NumShards,
-		TLSEnabled:               c.TLSEnabled,
-		SnapshotRetentionLimit:   c.SnapshotRetentionLimit,
-		Shards:                   shards,
-		AvailabilityMode:         c.AvailabilityMode,
-		NumberOfReplicasPerShard: c.NumReplicasPerShard,
-		SecurityGroups:           sgs,
+		Name:                          c.Name,
+		ARN:                           c.ARN,
+		Description:                   c.Description,
+		Status:                        c.Status,
+		NodeType:                      c.NodeType,
+		EngineVersion:                 c.EngineVersion,
+		EnginePatchVersion:            enginePatchVersionFor(c.Engine, c.EngineVersion),
+		Engine:                        c.Engine,
+		DataTiering:                   c.DataTiering,
+		NetworkType:                   c.NetworkType,
+		IPDiscovery:                   c.IPDiscovery,
+		AutoMinorVersionUpgrade:       c.AutoMinorVersionUpgrade,
+		ACLName:                       c.ACLName,
+		SubnetGroupName:               c.SubnetGroupName,
+		ParameterGroupName:            c.ParameterGroupName,
+		ParameterGroupStatus:          pgStatus,
+		MultiRegionClusterName:        c.MultiRegionClusterName,
+		MultiRegionParameterGroupName: c.MultiRegionParameterGroupName,
+		KmsKeyID:                      c.KmsKeyID,
+		SnsTopicArn:                   c.SnsTopicArn,
+		SnsTopicStatus:                c.SnsTopicStatus,
+		MaintenanceWindow:             c.MaintenanceWindow,
+		SnapshotWindow:                c.SnapshotWindow,
+		NumberOfShards:                c.NumShards,
+		TLSEnabled:                    c.TLSEnabled,
+		SnapshotRetentionLimit:        c.SnapshotRetentionLimit,
+		Shards:                        shards,
+		AvailabilityMode:              c.AvailabilityMode,
+		NumberOfReplicasPerShard:      c.NumReplicasPerShard,
+		SecurityGroups:                sgs,
 		ClusterEndpoint: &endpointObject{
 			Address: c.Name + ".memorydb." + region + ".amazonaws.com",
 			Port:    c.Port,
@@ -1648,7 +1680,7 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 }
 
 // buildShards constructs a slice of shardObjects with evenly-distributed slots and nodes.
-func buildShards(clusterName string, numShards, numReplicas, port int32) []shardObject {
+func buildShards(clusterName string, numShards, numReplicas, port int32, region string) []shardObject {
 	const totalSlots = 16384
 
 	const maxShards = 256
@@ -1660,7 +1692,7 @@ func buildShards(clusterName string, numShards, numReplicas, port int32) []shard
 
 	slotsPerShard := totalSlots / nShards
 
-	zones := []string{"us-east-1a", "us-east-1b", "us-east-1c"}
+	zones := []string{region + "a", region + "b", region + "c"}
 
 	// No capacity hint — user-derived values in the make capacity position
 	// trigger CodeQL go/slice-memory-allocation-excessive-size even after
@@ -1689,7 +1721,7 @@ func buildShards(clusterName string, numShards, numReplicas, port int32) []shard
 				AvailabilityZone: zones[ni%len(zones)],
 				CreateTime:       float64(time.Now().Unix()),
 				Endpoint: &endpointObject{
-					Address: nodeName + ".memorydb.us-east-1.amazonaws.com",
+					Address: nodeName + ".memorydb." + region + ".amazonaws.com",
 					Port:    port,
 				},
 			})
@@ -1755,11 +1787,21 @@ func toSubnetGroupObject(sg *SubnetGroup) subnetGroupObject {
 }
 
 // toUserObject converts a User to its JSON representation.
-func toUserObject(u *User, userGroupCount int32) userObject {
+func toUserObject(u *User, aclNames []string) userObject {
 	auth := &authenticationObject{Type: u.AuthType}
 	if u.AuthType == "password" && len(u.Passwords) > 0 {
 		count := min(len(u.Passwords), math.MaxInt32)
 		auth.PasswordCount = int32(count) //nolint:gosec // count is clamped to math.MaxInt32 above
+	}
+
+	engine := u.Engine
+	if engine == "" {
+		engine = engineRedis
+	}
+
+	names := aclNames
+	if names == nil {
+		names = []string{}
 	}
 
 	return userObject{
@@ -1767,22 +1809,24 @@ func toUserObject(u *User, userGroupCount int32) userObject {
 		ARN:                  u.ARN,
 		AccessString:         u.AccessString,
 		Status:               u.Status,
+		Engine:               engine,
 		Authentication:       auth,
 		MinimumEngineVersion: engineVersion62,
-		UserGroupCount:       userGroupCount,
+		ACLNames:             names,
 	}
 }
 
-// countUserGroupMemberships returns the number of ACLs that contain userName.
-func countUserGroupMemberships(acls []*ACL, userName string) int32 {
-	var count int32
+// aclNamesForUser returns the names of all ACLs that contain userName.
+func aclNamesForUser(acls []*ACL, userName string) []string {
+	names := []string{}
+
 	for _, a := range acls {
 		if slices.Contains(a.UserNames, userName) {
-			count++
+			names = append(names, a.Name)
 		}
 	}
 
-	return count
+	return names
 }
 
 // toParameterGroupObject converts a ParameterGroup to its JSON representation.

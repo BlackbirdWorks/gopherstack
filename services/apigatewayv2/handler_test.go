@@ -2,6 +2,7 @@ package apigatewayv2_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -1671,17 +1672,20 @@ func TestHandler_Persistence(t *testing.T) {
 	h := apigatewayv2.NewHandler(backend)
 
 	// Create an API via backend
-	api, err := backend.CreateAPI(apigatewayv2.CreateAPIInput{Name: "snap-api", ProtocolType: "HTTP"})
+	api, err := backend.CreateAPI(
+		context.Background(),
+		apigatewayv2.CreateAPIInput{Name: "snap-api", ProtocolType: "HTTP"},
+	)
 	require.NoError(t, err)
 
 	// Test Snapshot
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore into a new backend/handler
 	b2 := apigatewayv2.NewInMemoryBackend()
 	h2 := apigatewayv2.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	got, err := b2.GetAPI(api.APIID)
 	require.NoError(t, err)
@@ -2532,7 +2536,10 @@ func TestBackend_Reset(t *testing.T) {
 		{
 			name: "clears_apis",
 			setup: func(b *apigatewayv2.InMemoryBackend) {
-				_, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+				_, err := b.CreateAPI(
+					context.Background(),
+					apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"},
+				)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *apigatewayv2.InMemoryBackend) {
@@ -2545,12 +2552,18 @@ func TestBackend_Reset(t *testing.T) {
 		{
 			name: "clears_domain_names",
 			setup: func(b *apigatewayv2.InMemoryBackend) {
-				_, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{DomainNameValue: "example.com"})
+				_, err := b.CreateDomainName(
+					context.Background(),
+					apigatewayv2.CreateDomainNameInput{DomainNameValue: "example.com"},
+				)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *apigatewayv2.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{DomainNameValue: "example.com"})
+				_, err := b.CreateDomainName(
+					context.Background(),
+					apigatewayv2.CreateDomainNameInput{DomainNameValue: "example.com"},
+				)
 				require.NoError(t, err)
 			},
 		},

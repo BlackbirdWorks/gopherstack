@@ -758,11 +758,11 @@ func TestInMemoryBackend_PersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeIdentityPool(context.Background(), pool.IdentityPoolID)
 	require.NoError(t, err)
@@ -799,13 +799,13 @@ func TestHandler_PersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := cognitoidentity.NewHandler(b2, "us-east-1")
 
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	pools, _ := b2.ListIdentityPools(context.Background(), 0, "")
 	assert.Len(t, pools, 1)

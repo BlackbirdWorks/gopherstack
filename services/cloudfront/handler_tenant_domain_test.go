@@ -359,13 +359,13 @@ func TestDistributionTenant_PersistenceRoundTrip(t *testing.T) {
 		t.Fatalf("invalidation create failed: %d %s", invRR.Code, invRR.Body.String())
 	}
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	if len(snap) == 0 {
 		t.Fatal("expected non-empty snapshot")
 	}
 
 	h2 := newCFHandler(t)
-	if err := h2.Restore(snap); err != nil {
+	if err := h2.Restore(t.Context(), snap); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}
 

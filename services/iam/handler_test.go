@@ -121,7 +121,7 @@ func TestInMemoryBackend_Roles(t *testing.T) {
 	t.Run("CreateAndGetRole", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		doc := `{"Version":"2012-10-17","Statement":[]}`
+		doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 		r, err := b.CreateRole("MyRole", "/", doc, "")
 		require.NoError(t, err)
 		assert.Equal(t, "MyRole", r.RoleName)
@@ -233,7 +233,11 @@ func TestInMemoryBackend_Policies(t *testing.T) {
 	t.Run("CreateAndListPolicy", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		pol, err := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17"}`)
+		pol, err := b.CreatePolicy(
+			"MyPolicy",
+			"/",
+			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		)
 		require.NoError(t, err)
 		assert.Equal(t, "MyPolicy", pol.PolicyName)
 		assert.NotEmpty(t, pol.Arn)
@@ -619,7 +623,7 @@ func TestIAMHandler_Roles(t *testing.T) {
 
 		req := iamRequest("CreateRole", map[string]string{
 			"RoleName":                 "MyRole",
-			"AssumeRolePolicyDocument": `{"Version":"2012-10-17"}`,
+			"AssumeRolePolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 		})
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
@@ -690,7 +694,7 @@ func TestIAMHandler_Roles(t *testing.T) {
 
 		req := iamRequest("CreateRole", map[string]string{
 			"RoleName":                 "MyRoleWithDuration",
-			"AssumeRolePolicyDocument": `{"Version":"2012-10-17"}`,
+			"AssumeRolePolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			"MaxSessionDuration":       "7200",
 		})
 		rec := httptest.NewRecorder()
@@ -717,7 +721,7 @@ func TestIAMHandler_Policies(t *testing.T) {
 
 		req := iamRequest("CreatePolicy", map[string]string{
 			"PolicyName":     "MyPolicy",
-			"PolicyDocument": `{"Version":"2012-10-17"}`,
+			"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 		})
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
@@ -1381,7 +1385,12 @@ func TestIAMHandler_TagAndList(t *testing.T) {
 		{
 			name: "role",
 			setup: func(b *iam.InMemoryBackend) string {
-				_, _ = b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+				_, _ = b.CreateRole(
+					"MyRole",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					"",
+				)
 
 				return "MyRole"
 			},
@@ -1423,7 +1432,11 @@ func TestIAMHandler_TagAndList(t *testing.T) {
 		{
 			name: "policy",
 			setup: func(b *iam.InMemoryBackend) string {
-				pol, _ := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17"}`)
+				pol, _ := b.CreatePolicy(
+					"MyPolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 
 				return pol.Arn
 			},
@@ -1488,7 +1501,12 @@ func TestIAMHandler_UntagAndVerify(t *testing.T) {
 		{
 			name: "role",
 			setup: func(b *iam.InMemoryBackend) string {
-				_, _ = b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+				_, _ = b.CreateRole(
+					"MyRole",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					"",
+				)
 
 				return "MyRole"
 			},
@@ -1536,7 +1554,11 @@ func TestIAMHandler_UntagAndVerify(t *testing.T) {
 		{
 			name: "policy",
 			setup: func(b *iam.InMemoryBackend) string {
-				pol, _ := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17"}`)
+				pol, _ := b.CreatePolicy(
+					"MyPolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 
 				return pol.Arn
 			},

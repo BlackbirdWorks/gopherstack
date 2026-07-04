@@ -68,6 +68,7 @@ type Repository struct {
 	Description          string     `json:"description,omitempty"`
 	AdministratorAccount string     `json:"administratorAccount"`
 	Region               string     `json:"region"`
+	UpstreamRepositories []string   `json:"upstreamRepositories,omitempty"`
 }
 
 // PackageGroup represents an AWS CodeArtifact package group.
@@ -393,6 +394,7 @@ func (b *InMemoryBackend) CreateRepository(
 	ctx context.Context,
 	domainName, repoName, description string,
 	kv map[string]string,
+	upstreams []string,
 ) (*Repository, error) {
 	region := getRegion(ctx, b.region)
 
@@ -424,6 +426,7 @@ func (b *InMemoryBackend) CreateRepository(
 		Region:               region,
 		CreatedTime:          time.Now().UTC(),
 		Tags:                 t,
+		UpstreamRepositories: upstreams,
 	}
 	repositories[key] = r
 	cp := *r
@@ -1655,7 +1658,7 @@ func (b *InMemoryBackend) PutPackageOriginConfiguration(
 
 // UpdateRepository updates repository description or upstreams.
 func (b *InMemoryBackend) UpdateRepository(
-	ctx context.Context, domainName, repoName, description string,
+	ctx context.Context, domainName, repoName, description string, upstreams []string,
 ) (*Repository, error) {
 	region := getRegion(ctx, b.region)
 
@@ -1671,6 +1674,10 @@ func (b *InMemoryBackend) UpdateRepository(
 
 	if description != "" {
 		repo.Description = description
+	}
+
+	if upstreams != nil {
+		repo.UpstreamRepositories = upstreams
 	}
 
 	cp := *repo

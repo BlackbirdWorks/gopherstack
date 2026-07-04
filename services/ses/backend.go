@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -74,6 +75,7 @@ type SendTemplatedEmailInput struct {
 	Tags                 []Tag
 	From                 string
 	TemplateName         string
+	TemplateData         string
 	ConfigurationSetName string
 	ReturnPath           string
 	SourceArn            string
@@ -82,6 +84,11 @@ type SendTemplatedEmailInput struct {
 	Bcc                  []string
 	ReplyTo              []string
 }
+
+// maxRecipientsPerMessage is the AWS SES limit on the combined number of
+// To, Cc and Bcc recipients in a single SendEmail/SendTemplatedEmail call.
+// Exceeding it yields a MessageRejected error in real SES.
+const maxRecipientsPerMessage = 50
 
 // Errors returned by the SES backend.
 var (
@@ -257,6 +264,8 @@ type InMemoryBackend struct {
 	customVerifTemplates  map[string]*CustomVerificationEmailTemplate
 	policies              map[string]map[string]string // identity → policyName → policyDocument
 	activeRuleSet         string
+	region                string
+	accountID             string
 	mu                    *lockmetrics.RWMutex
 	emails                []Email
 	emailTTL              time.Duration
@@ -280,8 +289,28 @@ func NewInMemoryBackend() *InMemoryBackend {
 		emailTTL:              defaultEmailTTL,
 		configuredEmailTTL:    defaultEmailTTL,
 		accountSendingEnabled: true,
+		region:                config.DefaultRegion,
+		accountID:             defaultAccountID,
 		mu:                    lockmetrics.New("ses"),
 	}
+}
+
+// WithRegion sets the AWS region for this backend instance and returns it for chaining.
+func (b *InMemoryBackend) WithRegion(region string) *InMemoryBackend {
+	if region != "" {
+		b.region = region
+	}
+
+	return b
+}
+
+// WithAccountID sets the AWS account ID for this backend instance and returns it for chaining.
+func (b *InMemoryBackend) WithAccountID(accountID string) *InMemoryBackend {
+	if accountID != "" {
+		b.accountID = accountID
+	}
+
+	return b
 }
 
 // WithEmailTTL sets the TTL for stored sent emails and returns the backend for chaining.
@@ -375,12 +404,7 @@ func (b *InMemoryBackend) ListIdentities(nextToken string, maxItems int) page.Pa
 	b.mu.RLock("ListIdentities")
 	defer b.mu.RUnlock()
 
-	out := make([]string, 0, len(b.identities))
-	for id := range b.identities {
-		out = append(out, id)
-	}
-
-	sort.Strings(out)
+	out := collections.SortedKeys(b.identities)
 
 	return page.New(out, nextToken, maxItems, sesDefaultMaxItems)
 }
@@ -452,10 +476,24 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
+	if len(in.To)+len(in.Cc)+len(in.Bcc) == 0 {
+		return "", fmt.Errorf(
+			"%w: Destination must contain at least one ToAddress, CcAddress, or BccAddress",
+			ErrInvalidParameter,
+		)
+	}
+
 	// AWS SES caps a single message at 10 MiB total (subject + body + headers).
 	const maxMessageBytes = 10 * 1024 * 1024
 	if len(in.Subject)+len(in.BodyHTML)+len(in.BodyText) > maxMessageBytes {
 		return "", fmt.Errorf("%w: message exceeds 10 MB", ErrMessageRejected)
+	}
+
+	if total := len(in.To) + len(in.Cc) + len(in.Bcc); total > maxRecipientsPerMessage {
+		return "", fmt.Errorf(
+			"%w: Recipient count exceeds %d (got %d)",
+			ErrMessageRejected, maxRecipientsPerMessage, total,
+		)
 	}
 
 	b.mu.Lock("SendEmail")
@@ -463,8 +501,8 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 
 	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
-			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
-			ErrMessageRejected, in.From,
+			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
+			ErrMessageRejected, strings.ToUpper(b.region), in.From,
 		)
 	}
 
@@ -498,13 +536,27 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
+	// Validate template data up front so malformed JSON is rejected with
+	// InvalidParameterValue regardless of verification state, matching SES.
+	vars, err := parseTemplateData(in.TemplateData)
+	if err != nil {
+		return "", err
+	}
+
+	if total := len(in.To) + len(in.Cc) + len(in.Bcc); total > maxRecipientsPerMessage {
+		return "", fmt.Errorf(
+			"%w: Recipient count exceeds %d (got %d)",
+			ErrMessageRejected, maxRecipientsPerMessage, total,
+		)
+	}
+
 	b.mu.Lock("SendTemplatedEmail")
 	defer b.mu.Unlock()
 
 	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
-			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
-			ErrMessageRejected, in.From,
+			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
+			ErrMessageRejected, strings.ToUpper(b.region), in.From,
 		)
 	}
 
@@ -522,9 +574,9 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 		Cc:                   in.Cc,
 		Bcc:                  in.Bcc,
 		ReplyTo:              in.ReplyTo,
-		Subject:              tmpl.SubjectPart,
-		BodyHTML:             tmpl.HTMLPart,
-		BodyText:             tmpl.TextPart,
+		Subject:              renderTemplateVars(tmpl.SubjectPart, vars),
+		BodyHTML:             renderTemplateVars(tmpl.HTMLPart, vars),
+		BodyText:             renderTemplateVars(tmpl.TextPart, vars),
 		ConfigurationSetName: in.ConfigurationSetName,
 		Tags:                 in.Tags,
 		ReturnPath:           in.ReturnPath,
@@ -644,12 +696,7 @@ func (b *InMemoryBackend) ListTemplates(nextToken string, maxItems int) page.Pag
 	b.mu.RLock("ListTemplates")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.templates))
-	for name := range b.templates {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.templates)
 
 	return page.New(names, nextToken, maxItems, sesDefaultMaxItems)
 }
@@ -696,12 +743,7 @@ func (b *InMemoryBackend) ListConfigurationSets(nextToken string, maxItems int) 
 	b.mu.RLock("ListConfigurationSets")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.configSets))
-	for name := range b.configSets {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.configSets)
 
 	return page.New(names, nextToken, maxItems, sesDefaultMaxItems)
 }
@@ -1311,10 +1353,10 @@ func (b *InMemoryBackend) ListCustomVerificationEmailTemplates() []CustomVerific
 
 // Region returns the AWS region for this backend instance.
 func (b *InMemoryBackend) Region() string {
-	return config.DefaultRegion
+	return b.region
 }
 
 // AccountID returns the simulated AWS account ID.
 func (b *InMemoryBackend) AccountID() string {
-	return defaultAccountID
+	return b.accountID
 }

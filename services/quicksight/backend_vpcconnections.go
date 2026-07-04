@@ -178,19 +178,15 @@ func (b *InMemoryBackend) ListVPCConnections(
 
 	start := 0
 	if nextToken != "" {
-		for i, v := range all {
-			if v.VPCConnectionID == nextToken {
-				start = i
-
-				break
-			}
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
 		}
 	}
 
 	end := start + int(maxResults)
 	var next string
 	if end < len(all) {
-		next = all[end].VPCConnectionID
+		next = encodePageToken(end)
 	} else {
 		end = len(all)
 	}

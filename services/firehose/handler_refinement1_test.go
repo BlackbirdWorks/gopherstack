@@ -116,9 +116,9 @@ func TestUpdateDestination_VersionCheck(t *testing.T) {
 			wantErr:          false,
 		},
 		{
-			name:             "empty_version_skips_check",
+			name:             "empty_version_rejected",
 			currentVersionID: "",
-			wantErr:          false,
+			wantErr:          true,
 		},
 		{
 			name:             "mismatched_version",
@@ -139,8 +139,10 @@ func TestUpdateDestination_VersionCheck(t *testing.T) {
 				context.TODO(),
 				"ver-stream",
 				tt.currentVersionID,
-				&firehose.S3DestinationDescription{
-					BucketARN: "arn:aws:s3:::new-bucket",
+				firehose.UpdateDestinationInput{
+					S3Destination: &firehose.S3DestinationDescription{
+						BucketARN: "arn:aws:s3:::new-bucket",
+					},
 				},
 			)
 
@@ -163,8 +165,10 @@ func TestUpdateDestination_IncrementsVersionID(t *testing.T) {
 	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "ver-inc"})
 	require.NoError(t, err)
 
-	err = b.UpdateDestination(context.TODO(), "ver-inc", "1", &firehose.S3DestinationDescription{
-		BucketARN: "arn:aws:s3:::bucket",
+	err = b.UpdateDestination(context.TODO(), "ver-inc", "1", firehose.UpdateDestinationInput{
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::bucket",
+		},
 	})
 	require.NoError(t, err)
 

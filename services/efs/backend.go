@@ -216,11 +216,14 @@ type AccessPoint struct {
 
 // ReplicationDestination represents a destination in an EFS replication configuration.
 type ReplicationDestination struct {
-	FileSystemID         string `json:"FileSystemId,omitempty"`
-	Region               string `json:"Region,omitempty"`
-	AvailabilityZoneName string `json:"AvailabilityZoneName,omitempty"`
-	KmsKeyID             string `json:"KmsKeyID,omitempty"`
-	Status               string `json:"Status,omitempty"`
+	FileSystemID            string `json:"FileSystemId,omitempty"`
+	FileSystemArn           string `json:"FileSystemArn,omitempty"`
+	Region                  string `json:"Region,omitempty"`
+	AvailabilityZoneName    string `json:"AvailabilityZoneName,omitempty"`
+	KmsKeyID                string `json:"KmsKeyID,omitempty"`
+	OwnerID                 string `json:"OwnerId,omitempty"`
+	LastReplicatedTimestamp string `json:"LastReplicatedTimestamp,omitempty"`
+	Status                  string `json:"Status,omitempty"`
 }
 
 // ReplicationConfiguration represents an EFS replication configuration.
@@ -229,6 +232,7 @@ type ReplicationConfiguration struct {
 	SourceFileSystemARN         string                   `json:"SourceFileSystemArn"`
 	SourceFileSystemID          string                   `json:"SourceFileSystemId"`
 	SourceFileSystemRegion      string                   `json:"SourceFileSystemRegion"`
+	SourceFileSystemOwnerID     string                   `json:"SourceFileSystemOwnerId"`
 	Destinations                []ReplicationDestination `json:"Destinations"`
 	CreationTime                int64                    `json:"CreationTime"`
 }
@@ -291,10 +295,20 @@ type InMemoryBackend struct {
 	mountTargetsByARN         map[string]map[string]*MountTarget
 	accessPointsByARN         map[string]map[string]*AccessPoint
 	accessPointsByClientToken map[string]map[string]*AccessPoint
-	accountPreferences        AccountPreferences
-	mu                        *lockmetrics.RWMutex
-	accountID                 string
-	region                    string
+	// Performance indexes: avoid O(n) scans on hot paths.
+	creationTokenIdx map[string]map[string]string              // region → creationToken → fsID
+	mtSubnetIdx      map[string]map[string]map[string]string   // region → fsID → subnetID → mtID
+	apByFS           map[string]map[string]map[string]struct{} // region → fsID → apID → {}
+
+	accountPreferences AccountPreferences
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
+	// fsActivationDelay controls how long CreateFileSystem waits before transitioning
+	// a file system from "creating" to "available". Zero (default) means the transition
+	// is synchronous and immediate, matching legacy behaviour. A non-zero value enables
+	// the AWS-accurate lifecycle simulation and is only set in parity tests.
+	fsActivationDelay time.Duration
 }
 
 // LifecyclePolicy represents an EFS lifecycle management policy.
@@ -330,6 +344,9 @@ func (b *InMemoryBackend) initRegionMaps() {
 	b.mountTargetsByARN = make(map[string]map[string]*MountTarget)
 	b.accessPointsByARN = make(map[string]map[string]*AccessPoint)
 	b.accessPointsByClientToken = make(map[string]map[string]*AccessPoint)
+	b.creationTokenIdx = make(map[string]map[string]string)
+	b.mtSubnetIdx = make(map[string]map[string]map[string]string)
+	b.apByFS = make(map[string]map[string]map[string]struct{})
 }
 
 // The following per-region store helpers return the inner map for region,
@@ -421,6 +438,80 @@ func (b *InMemoryBackend) apClientTokenStore(region string) map[string]*AccessPo
 	}
 
 	return b.accessPointsByClientToken[region]
+}
+
+func (b *InMemoryBackend) tokenIdxStore(region string) map[string]string {
+	if b.creationTokenIdx[region] == nil {
+		b.creationTokenIdx[region] = make(map[string]string)
+	}
+
+	return b.creationTokenIdx[region]
+}
+
+func (b *InMemoryBackend) mtSubnetStore(region, fsID string) map[string]string {
+	if b.mtSubnetIdx[region] == nil {
+		b.mtSubnetIdx[region] = make(map[string]map[string]string)
+	}
+
+	if b.mtSubnetIdx[region][fsID] == nil {
+		b.mtSubnetIdx[region][fsID] = make(map[string]string)
+	}
+
+	return b.mtSubnetIdx[region][fsID]
+}
+
+func (b *InMemoryBackend) apFSStore(region, fsID string) map[string]struct{} {
+	if b.apByFS[region] == nil {
+		b.apByFS[region] = make(map[string]map[string]struct{})
+	}
+
+	if b.apByFS[region][fsID] == nil {
+		b.apByFS[region][fsID] = make(map[string]struct{})
+	}
+
+	return b.apByFS[region][fsID]
+}
+
+// subnetDerivedVpcID returns a stable synthetic VpcID derived from a subnet ID.
+// AWS derives VpcId from the subnet; since the mock has no VPC backend, we synthesise
+// it deterministically: "subnet-XXXXXXXX" → "vpc-XXXXXXXX", anything else → "vpc-00000000".
+func subnetDerivedVpcID(subnetID string) string {
+	const prefix = "subnet-"
+	if strings.HasPrefix(subnetID, prefix) {
+		return "vpc-" + subnetID[len(prefix):]
+	}
+
+	return "vpc-00000000"
+}
+
+// mountTargetAZName returns the availability zone name for a new mount target.
+// If the file system was pinned to a zone (One Zone storage class), that zone is used;
+// otherwise the first zone in the region is returned as a default.
+func mountTargetAZName(fs *FileSystem, region string) string {
+	if fs.AvailabilityZoneName != "" {
+		return fs.AvailabilityZoneName
+	}
+
+	return region + "a"
+}
+
+// azNameToID converts an AZ name like "us-east-1a" to an AZ ID like "use1-az1".
+// The mapping is approximate but sufficient for mock parity.
+func azNameToID(azName string) string {
+	if azName == "" {
+		return ""
+	}
+	// Strip the trailing zone letter (a=1, b=2, …) to build the ID suffix.
+	letter := azName[len(azName)-1]
+	suffix := int(letter-'a') + 1
+	// Compress the region prefix: drop hyphens and digits except the last digit.
+	// e.g. "us-east-1" → "use1", "us-west-2" → "usw2", "eu-west-1" → "euw1"
+	regionPart := azName[:len(azName)-1] // strip trailing letter
+	if idx := strings.LastIndex(regionPart, "-"); idx >= 0 {
+		regionPart = strings.ReplaceAll(regionPart[:idx], "-", "") + regionPart[idx+1:]
+	}
+
+	return fmt.Sprintf("%s-az%d", regionPart, suffix)
 }
 
 // Reset clears all stored resources, returning the backend to its empty initial state.
@@ -576,33 +667,31 @@ func (b *InMemoryBackend) CreateFileSystem(
 	defer b.mu.Unlock()
 
 	fileSystems := b.fsStore(region)
+	tokenIdx := b.tokenIdxStore(region)
 
-	// Idempotency: if creationToken already used, compare args.
-	for _, fs := range fileSystems {
-		if fs.CreationToken == req.CreationToken {
-			if fs.PerformanceMode == req.PerformanceMode &&
-				fs.ThroughputMode == req.ThroughputMode &&
-				fs.Encrypted == req.Encrypted &&
-				fs.KmsKeyID == req.KmsKeyID &&
-				fs.AvailabilityZoneName == req.AvailabilityZoneName {
-				cp := *fs
+	// O(1) idempotency check via creation-token index.
+	if existingID, ok := tokenIdx[req.CreationToken]; ok {
+		fs := fileSystems[existingID]
+		cp := *fs
 
-				return &cp, fmt.Errorf(
-					"%w: file system with token %s already exists (identical args)",
-					ErrCreationTokenExists,
-					req.CreationToken,
-				)
-			}
-
-			cp := *fs
-
+		if fs.PerformanceMode == req.PerformanceMode &&
+			fs.ThroughputMode == req.ThroughputMode &&
+			fs.Encrypted == req.Encrypted &&
+			fs.KmsKeyID == req.KmsKeyID &&
+			fs.AvailabilityZoneName == req.AvailabilityZoneName {
 			return &cp, fmt.Errorf(
-				"%w: file system with token %s already exists with different parameters (FileSystemId: %s)",
-				ErrAlreadyExists,
+				"%w: file system with token %s already exists (identical args)",
+				ErrCreationTokenExists,
 				req.CreationToken,
-				fs.FileSystemID,
 			)
 		}
+
+		return &cp, fmt.Errorf(
+			"%w: file system with token %s already exists with different parameters (FileSystemId: %s)",
+			ErrAlreadyExists,
+			req.CreationToken,
+			fs.FileSystemID,
+		)
 	}
 
 	id := "fs-" + uuid.NewString()[:8]
@@ -618,6 +707,11 @@ func (b *InMemoryBackend) CreateFileSystem(
 
 	name := req.Tags["Name"]
 
+	initialState := statusAvailable
+	if b.fsActivationDelay > 0 {
+		initialState = statusCreating
+	}
+
 	fs := &FileSystem{
 		FileSystemID:                   id,
 		FileSystemArn:                  fsARN,
@@ -625,7 +719,7 @@ func (b *InMemoryBackend) CreateFileSystem(
 		Name:                           name,
 		PerformanceMode:                req.PerformanceMode,
 		ThroughputMode:                 req.ThroughputMode,
-		LifeCycleState:                 statusAvailable,
+		LifeCycleState:                 initialState,
 		Encrypted:                      req.Encrypted,
 		KmsKeyID:                       kmsKeyID,
 		AvailabilityZoneName:           req.AvailabilityZoneName,
@@ -638,6 +732,24 @@ func (b *InMemoryBackend) CreateFileSystem(
 	}
 	fileSystems[id] = fs
 	b.fsARNStore(region)[fsARN] = fs
+	tokenIdx[req.CreationToken] = id
+
+	// When a non-zero activation delay is configured, simulate the AWS
+	// "creating" → "available" lifecycle transition asynchronously.
+	// The goroutine is self-terminating and guards against concurrent deletion.
+	if b.fsActivationDelay > 0 {
+		delay := b.fsActivationDelay
+
+		go func() {
+			time.Sleep(delay)
+			b.mu.Lock("CreateFileSystem.activate")
+			defer b.mu.Unlock()
+			if cur, ok := b.fsStore(region)[id]; ok && cur.LifeCycleState == statusCreating {
+				cur.LifeCycleState = statusAvailable
+			}
+		}()
+	}
+
 	cp := *fs
 
 	return &cp, nil
@@ -702,27 +814,29 @@ func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, fileSystemID str
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	// Reject delete if mount targets or access points exist (AWS: FileSystemInUse).
-	for _, mt := range b.mtStore(region) {
-		if mt.FileSystemID == fileSystemID {
-			return fmt.Errorf(
-				"%w: file system %s has existing mount targets",
-				ErrFileSystemInUse,
-				fileSystemID,
-			)
-		}
+	// O(1) conflict check via indexes: reject delete if mount targets or access points exist.
+	if b.mtSubnetIdx[region] != nil && len(b.mtSubnetIdx[region][fileSystemID]) > 0 {
+		return fmt.Errorf(
+			"%w: file system %s has existing mount targets",
+			ErrFileSystemInUse,
+			fileSystemID,
+		)
 	}
-	for _, ap := range b.apStore(region) {
-		if ap.FileSystemID == fileSystemID {
-			return fmt.Errorf(
-				"%w: file system %s has existing access points",
-				ErrFileSystemInUse,
-				fileSystemID,
-			)
-		}
+
+	if b.apByFS[region] != nil && len(b.apByFS[region][fileSystemID]) > 0 {
+		return fmt.Errorf(
+			"%w: file system %s has existing access points",
+			ErrFileSystemInUse,
+			fileSystemID,
+		)
 	}
 
 	delete(b.fsARNStore(region), fs.FileSystemArn)
+	// Remove from creation-token index so the token can be reused.
+	if b.creationTokenIdx[region] != nil {
+		delete(b.creationTokenIdx[region], fs.CreationToken)
+	}
+
 	fs.Tags.Close()
 	delete(fileSystems, fileSystemID)
 	delete(b.lifecycleStore(region), fileSystemID)
@@ -846,10 +960,10 @@ func (b *InMemoryBackend) CreateMountTarget(
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, req.FileSystemID)
 	}
 
-	// One mount target per subnet per file system.
+	// O(1) subnet conflict check via index: one mount target per subnet per file system.
 	if req.SubnetID != "" {
-		for _, mt := range mountTargets {
-			if mt.FileSystemID == req.FileSystemID && mt.SubnetID == req.SubnetID {
+		if b.mtSubnetIdx[region] != nil {
+			if _, dup := b.mtSubnetIdx[region][req.FileSystemID][req.SubnetID]; dup {
 				return nil, fmt.Errorf(
 					"%w: mount target already exists for file system %s in subnet %s",
 					ErrMountTargetConflict,
@@ -876,19 +990,31 @@ func (b *InMemoryBackend) CreateMountTarget(
 	sgs := make([]string, len(req.SecurityGroups))
 	copy(sgs, req.SecurityGroups)
 
+	// Synthesise VPC and AZ fields from the subnet ID and file system config.
+	// AWS derives these from real VPC/subnet metadata; the mock approximates them
+	// deterministically so callers receive non-empty, stable values.
+	vpcID := subnetDerivedVpcID(req.SubnetID)
+	azName := mountTargetAZName(fs, region)
+	azID := azNameToID(azName)
+
 	mt := &MountTarget{
-		MountTargetID:      id,
-		MountTargetArn:     mtARN,
-		FileSystemID:       req.FileSystemID,
-		SubnetID:           req.SubnetID,
-		IPAddress:          req.IPAddress,
-		NetworkInterfaceID: eniID,
-		LifeCycleState:     statusAvailable,
-		OwnerID:            b.accountID,
-		SecurityGroups:     sgs,
+		MountTargetID:        id,
+		MountTargetArn:       mtARN,
+		FileSystemID:         req.FileSystemID,
+		SubnetID:             req.SubnetID,
+		VpcID:                vpcID,
+		AvailabilityZoneName: azName,
+		AvailabilityZoneID:   azID,
+		IPAddress:            req.IPAddress,
+		NetworkInterfaceID:   eniID,
+		LifeCycleState:       statusAvailable,
+		OwnerID:              b.accountID,
+		SecurityGroups:       sgs,
 	}
 	mountTargets[id] = mt
 	b.mtARNStore(region)[mtARN] = mt
+	// Update subnet index for O(1) conflict detection.
+	b.mtSubnetStore(region, req.FileSystemID)[req.SubnetID] = id
 	fs.NumberOfMountTargets++
 
 	cp := *mt
@@ -977,6 +1103,10 @@ func (b *InMemoryBackend) DeleteMountTarget(ctx context.Context, mountTargetID s
 	}
 	delete(b.mtARNStore(region), mt.MountTargetArn)
 	delete(mountTargets, mountTargetID)
+	// Clean up subnet index.
+	if b.mtSubnetIdx[region] != nil && b.mtSubnetIdx[region][mt.FileSystemID] != nil {
+		delete(b.mtSubnetIdx[region][mt.FileSystemID], mt.SubnetID)
+	}
 
 	return nil
 }
@@ -1048,6 +1178,7 @@ func (b *InMemoryBackend) CreateAccessPoint(
 	if req.ClientToken != "" {
 		b.apClientTokenStore(region)[req.ClientToken] = ap
 	}
+	b.apFSStore(region, req.FileSystemID)[id] = struct{}{}
 	cp := copyAccessPoint(ap)
 
 	return cp, nil
@@ -1113,6 +1244,11 @@ func (b *InMemoryBackend) DeleteAccessPoint(ctx context.Context, accessPointID s
 	if ap.ClientToken != "" {
 		delete(b.apClientTokenStore(region), ap.ClientToken)
 	}
+	// Clean up apByFS index.
+	if b.apByFS[region] != nil && b.apByFS[region][ap.FileSystemID] != nil {
+		delete(b.apByFS[region][ap.FileSystemID], accessPointID)
+	}
+
 	ap.Tags.Close()
 	delete(accessPoints, accessPointID)
 
@@ -1247,12 +1383,35 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		if dests[i].Status == "" {
 			dests[i].Status = "ENABLED"
 		}
+		if dests[i].OwnerID == "" {
+			dests[i].OwnerID = b.accountID
+		}
+		// Assign a destination file-system ID and ARN when not provided by the caller.
+		// Real AWS creates a read-only replica; we record a synthetic ID here.
+		if dests[i].FileSystemID == "" {
+			destRegion := dests[i].Region
+			if destRegion == "" {
+				destRegion = region
+			}
+			destFSID := "fs-" + uuid.NewString()[:8]
+			dests[i].FileSystemID = destFSID
+			dests[i].FileSystemArn = arn.Build("elasticfilesystem", destRegion, b.accountID, "file-system/"+destFSID)
+		} else if dests[i].FileSystemArn == "" {
+			destRegion := dests[i].Region
+			if destRegion == "" {
+				destRegion = region
+			}
+			dests[i].FileSystemArn = arn.Build(
+				"elasticfilesystem", destRegion, b.accountID, "file-system/"+dests[i].FileSystemID,
+			)
+		}
 	}
 
 	rc := &ReplicationConfiguration{
 		OriginalSourceFileSystemARN: fs.FileSystemArn,
 		SourceFileSystemARN:         fs.FileSystemArn,
 		SourceFileSystemID:          sourceFileSystemID,
+		SourceFileSystemOwnerID:     b.accountID,
 		SourceFileSystemRegion:      region,
 		CreationTime:                time.Now().UTC().Unix(),
 		Destinations:                dests,
@@ -1318,16 +1477,27 @@ func (b *InMemoryBackend) DescribeReplicationConfigurations(
 	replicationConfigs := b.replicationStore(region)
 
 	if fileSystemID != "" {
-		rc, ok := replicationConfigs[fileSystemID]
-		if !ok {
-			return []*ReplicationConfiguration{}, nil
+		// Match source OR destination file system ID, matching real AWS behaviour.
+		if rc, ok := replicationConfigs[fileSystemID]; ok {
+			cp := *rc
+			cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
+			copy(cp.Destinations, rc.Destinations)
+
+			return []*ReplicationConfiguration{&cp}, nil
+		}
+		for _, rc := range replicationConfigs {
+			for _, d := range rc.Destinations {
+				if d.FileSystemID == fileSystemID {
+					cp := *rc
+					cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
+					copy(cp.Destinations, rc.Destinations)
+
+					return []*ReplicationConfiguration{&cp}, nil
+				}
+			}
 		}
 
-		cp := *rc
-		cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
-		copy(cp.Destinations, rc.Destinations)
-
-		return []*ReplicationConfiguration{&cp}, nil
+		return []*ReplicationConfiguration{}, nil
 	}
 
 	list := make([]*ReplicationConfiguration, 0, len(replicationConfigs))
@@ -1701,6 +1871,7 @@ func (b *InMemoryBackend) UpdateFileSystemProtection(
 
 // paginate applies cursor-based pagination to a sorted slice.
 // Items after marker are returned up to maxItems. nextToken is non-empty when more items remain.
+// Marker lookup uses binary search (O(log n)) since the slice is already sorted by keyFn.
 func paginate[T any](
 	items []T,
 	marker string,
@@ -1708,18 +1879,12 @@ func paginate[T any](
 	keyFn func(T) string,
 ) ([]T, string, error) {
 	if marker != "" {
-		start := -1
-		for i, item := range items {
-			if keyFn(item) == marker {
-				start = i + 1
-
-				break
-			}
-		}
-		if start == -1 {
+		// Binary search: find the leftmost index where keyFn(items[i]) >= marker.
+		idx := sort.Search(len(items), func(i int) bool { return keyFn(items[i]) >= marker })
+		if idx >= len(items) || keyFn(items[idx]) != marker {
 			return nil, "", fmt.Errorf("%w: invalid pagination marker", ErrValidation)
 		}
-		items = items[start:]
+		items = items[idx+1:]
 	}
 
 	if maxItems <= 0 || maxItems >= len(items) {

@@ -158,7 +158,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, networks, 1)
 
-				proposals, err := b.ListProposals(networks[0].ID)
+				proposals, err := b.ListProposals(networks[0].ID, "")
 				require.NoError(t, err)
 				require.Len(t, proposals, 1)
 				assert.Equal(t, "test proposal", proposals[0].Description)
@@ -189,11 +189,11 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 			b := managedblockchain.NewInMemoryBackend()
 			tt.setup(t, b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := managedblockchain.NewInMemoryBackend()
-			err := b2.Restore(snap)
+			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			tt.verify(t, b2)

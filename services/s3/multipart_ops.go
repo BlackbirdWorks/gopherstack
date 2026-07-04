@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 func (h *S3Handler) createMultipartUpload(
@@ -27,6 +28,11 @@ func (h *S3Handler) createMultipartUpload(
 	h.setOperation(ctx, "CreateMultipartUpload")
 
 	tagging := r.Header.Get("X-Amz-Tagging")
+	if err := validateTaggingHeader(tagging); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
 
 	// Capture SSE config at session-init time and pin it on the upload via
 	// ctx. CompleteMultipartUpload reads it back to apply envelope encryption
@@ -45,10 +51,10 @@ func (h *S3Handler) createMultipartUpload(
 		Key:                  aws.String(key),
 		Tagging:              aws.String(tagging),
 		ServerSideEncryption: types.ServerSideEncryption(sse.Algorithm),
-		SSEKMSKeyId:          nilStringIfEmpty(sse.KMSKeyID),
-		SSECustomerAlgorithm: nilStringIfEmpty(sse.SSECAlgorithm),
-		SSECustomerKeyMD5:    nilStringIfEmpty(sse.SSECKeyMD5),
-		SSECustomerKey:       nilStringIfEmpty(sse.SSECKeyB64),
+		SSEKMSKeyId:          ptrconv.NilIfEmpty(sse.KMSKeyID),
+		SSECustomerAlgorithm: ptrconv.NilIfEmpty(sse.SSECAlgorithm),
+		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(sse.SSECKeyMD5),
+		SSECustomerKey:       ptrconv.NilIfEmpty(sse.SSECKeyB64),
 	})
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -87,6 +93,10 @@ func (h *S3Handler) uploadPart(
 	}
 
 	h.setOperation(ctx, "UploadPart")
+
+	// Strip aws-chunked / STREAMING-* framing so part content and ETag match
+	// the real bytes, not the chunk-signature envelope.
+	r = maybeDecodeChunkedBody(r)
 
 	if md5Header := r.Header.Get("Content-MD5"); md5Header != "" {
 		ctx = context.WithValue(ctx, md5Key, md5Header)
@@ -149,8 +159,8 @@ func (h *S3Handler) uploadPartCopy(
 			return
 		}
 
-		start, end, ok := parseRange(srcRange, int64(len(data)))
-		if !ok {
+		start, end, result := parseRange(srcRange, int64(len(data)))
+		if result != rangeOK {
 			WriteError(ctx, w, r, ErrInvalidArgument)
 
 			return
@@ -331,19 +341,23 @@ func (h *S3Handler) listMultipartUploads(
 		return
 	}
 
+	encodingType := q.Get("encoding-type")
 	result := ListMultipartUploadsResult{
 		Xmlns:              xmlNamespaceS3,
 		Bucket:             bucketName,
-		Delimiter:          q.Get("delimiter"),
+		Prefix:             encodeListKey(encodingType, q.Get("prefix")),
+		Delimiter:          encodeListKey(encodingType, q.Get("delimiter")),
+		KeyMarker:          encodeListKey(encodingType, q.Get("key-marker")),
 		MaxUploads:         int(aws.ToInt32(out.MaxUploads)),
 		IsTruncated:        aws.ToBool(out.IsTruncated),
-		NextKeyMarker:      aws.ToString(out.NextKeyMarker),
+		NextKeyMarker:      encodeListKey(encodingType, aws.ToString(out.NextKeyMarker)),
 		NextUploadIDMarker: aws.ToString(out.NextUploadIdMarker),
+		EncodingType:       encodingType,
 	}
 
 	for _, u := range out.Uploads {
 		result.Uploads = append(result.Uploads, MultipartUpload{
-			Key:       aws.ToString(u.Key),
+			Key:       encodeListKey(encodingType, aws.ToString(u.Key)),
 			UploadID:  aws.ToString(u.UploadId),
 			Initiated: aws.ToTime(u.Initiated),
 		})
@@ -351,7 +365,7 @@ func (h *S3Handler) listMultipartUploads(
 
 	for _, cp := range out.CommonPrefixes {
 		result.CommonPrefixes = append(result.CommonPrefixes, CommonPrefixXML{
-			Prefix: aws.ToString(cp.Prefix),
+			Prefix: encodeListKey(encodingType, aws.ToString(cp.Prefix)),
 		})
 	}
 

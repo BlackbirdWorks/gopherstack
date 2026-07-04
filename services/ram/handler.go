@@ -2,18 +2,19 @@ package ram
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -742,18 +743,31 @@ func epochSeconds(t time.Time) float64 {
 
 const ramMaxResults = 100
 
-// ramParseNextToken converts an opaque NextToken string to a slice start index.
+// ramParseNextToken decodes an opaque NextToken string to a slice start index.
+// Tokens are base64-encoded offsets; a plain-integer fallback handles any
+// tokens produced before this change.
 func ramParseNextToken(token string) int {
 	if token == "" {
 		return 0
 	}
-
+	// Try base64-encoded offset first (current format).
+	if decoded, decErr := base64.StdEncoding.DecodeString(token); decErr == nil {
+		if idx, atoiErr := strconv.Atoi(string(decoded)); atoiErr == nil && idx >= 0 {
+			return idx
+		}
+	}
+	// Fallback: plain decimal offset from tokens produced before this change.
 	idx, err := strconv.Atoi(token)
 	if err != nil || idx < 0 {
 		return 0
 	}
 
 	return idx
+}
+
+// ramEncodeNextToken encodes a pagination offset as an opaque base64 token.
+func ramEncodeNextToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
 
 // ramPaginate applies MaxResults/NextToken pagination to a slice.
@@ -784,7 +798,7 @@ func ramPaginate[T any](items []T, nextToken string, maxResults *int32) ([]T, st
 	var outToken string
 
 	if end < len(items) {
-		outToken = strconv.Itoa(end)
+		outToken = ramEncodeNextToken(end)
 	} else {
 		end = len(items)
 	}
@@ -800,13 +814,7 @@ type tagObject struct {
 
 // toTagObjects converts a map of tags to a slice of tag objects sorted by key.
 func toTagObjects(tags map[string]string) []tagObject {
-	keys := make([]string, 0, len(tags))
-
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 	result := make([]tagObject, 0, len(keys))
 
 	for _, k := range keys {

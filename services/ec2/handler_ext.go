@@ -6,6 +6,32 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+const (
+	// gp2 IOPS scaling: 3 IOPS per GB, min 100, max 16 000.
+	gp2IOPSPerGB = 3
+	gp2IOPSMin   = 100
+	gp2IOPSMax   = 16000
+
+	// gp3 defaults per AWS documentation.
+	gp3DefaultIOPS       = 3000
+	gp3DefaultThroughput = 125
+
+	// gp3 provisioning bounds and coupling ratios per AWS documentation.
+	// IOPS must be 3 000–16 000; throughput 125–1 000 MiB/s.
+	gp3MinIOPS       = 3000
+	gp3MaxIOPS       = 16000
+	gp3MinThroughput = 125
+	gp3MaxThroughput = 1000
+	// gp3MaxIOPSPerGiB caps provisioned IOPS above the free 3 000 baseline at
+	// 500 IOPS per GiB of volume size.
+	gp3MaxIOPSPerGiB = 500
+	// gp3IOPSPerThroughput encodes the max throughput-to-IOPS ratio of 0.25
+	// MiB/s per provisioned IOPS (i.e. throughput * 4 must not exceed IOPS).
+	gp3IOPSPerThroughput = 4
 )
 
 // ---- XML response types for extended operations ----
@@ -83,6 +109,7 @@ type describeImagesResponse struct {
 	XMLName   xml.Name   `xml:"DescribeImagesResponse"`
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
+	NextToken string     `xml:"nextToken,omitempty"`
 	ImagesSet amiItemSet `xml:"imagesSet"`
 }
 
@@ -160,6 +187,8 @@ type volumeItem struct {
 	CreateTime string          `xml:"createTime"`
 	KmsKeyID   string          `xml:"kmsKeyId,omitempty"`
 	Size       int             `xml:"size"`
+	Iops       int             `xml:"iops,omitempty"`
+	Throughput int             `xml:"throughput,omitempty"`
 	Encrypted  bool            `xml:"encrypted"`
 }
 
@@ -193,6 +222,8 @@ type createVolumeResponse struct {
 	CreateTime string   `xml:"createTime"`
 	KmsKeyID   string   `xml:"kmsKeyId,omitempty"`
 	Size       int      `xml:"size"`
+	Iops       int      `xml:"iops,omitempty"`
+	Throughput int      `xml:"throughput,omitempty"`
 	Encrypted  bool     `xml:"encrypted"`
 }
 
@@ -637,6 +668,39 @@ func instanceHealthForState(stateName string) instanceStatusDetails {
 	}
 }
 
+const (
+	describeImagesMaxResults     = 1000
+	describeImagesMinResults     = 1
+	describeImagesDefaultResults = 1000
+)
+
+// parseImagesPagination parses MaxResults and NextToken from query values,
+// returning (maxResults, offset, error).
+func parseImagesPagination(vals url.Values) (int, int, error) {
+	maxResults := describeImagesDefaultResults
+	if v := vals.Get("MaxResults"); v != "" {
+		n, parseErr := strconv.Atoi(v)
+		if parseErr != nil || n < describeImagesMinResults || n > describeImagesMaxResults {
+			return 0, 0, fmt.Errorf(
+				"%w: MaxResults must be between %d and %d",
+				ErrInvalidParameter, describeImagesMinResults, describeImagesMaxResults,
+			)
+		}
+		maxResults = n
+	}
+
+	offset := 0
+	if tok := vals.Get("NextToken"); tok != "" {
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return 0, 0, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
+		}
+		offset = n
+	}
+
+	return maxResults, offset, nil
+}
+
 func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
 	amis := h.Backend.DescribeImages()
 
@@ -652,29 +716,59 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 		requested[id] = struct{}{}
 	}
 
-	items := make([]amiItem, 0, len(amis))
-	for _, a := range amis {
+	// Pre-filter by ID, then apply named EC2 filters (name, architecture, state, etc.).
+	idFiltered := make([]*AMIStub, 0, len(amis))
+	for i := range amis {
 		if len(requested) > 0 {
-			if _, ok := requested[a.ImageID]; !ok {
+			if _, ok := requested[amis[i].ImageID]; !ok {
 				continue
 			}
 		}
+		idFiltered = append(idFiltered, &amis[i])
+	}
 
-		items = append(items, amiItem{
+	filters := parseEC2Filters(vals)
+	idFiltered = applyImageFilters(idFiltered, filters, h.Backend)
+
+	filtered := make([]amiItem, 0, len(idFiltered))
+	for _, a := range idFiltered {
+		st := a.State
+		if st == "" {
+			st = stateAvailable
+		}
+
+		filtered = append(filtered, amiItem{
 			ImageID:        a.ImageID,
 			Name:           a.Name,
 			Description:    a.Description,
 			Architecture:   a.Architecture,
 			Platform:       a.Platform,
-			State:          stateAvailable,
+			State:          st,
 			RootDeviceName: a.RootDeviceName,
 		})
+	}
+
+	maxResults, offset, err := parseImagesPagination(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	if offset > len(filtered) {
+		offset = len(filtered)
+	}
+	filtered = filtered[offset:]
+
+	var nextToken string
+	if len(filtered) > maxResults {
+		nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
+		filtered = filtered[:maxResults]
 	}
 
 	return &describeImagesResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		ImagesSet: amiItemSet{Items: items},
+		NextToken: nextToken,
+		ImagesSet: amiItemSet{Items: filtered},
 	}, nil
 }
 
@@ -742,6 +836,9 @@ func (h *Handler) handleDescribeKeyPairs(vals url.Values, reqID string) (any, er
 	names := parseMemberList(vals, "KeyName")
 	kps := h.Backend.DescribeKeyPairs(names)
 
+	filters := parseEC2Filters(vals)
+	kps = applyKeyPairFilters(kps, filters, h.Backend)
+
 	items := make([]keyPairItem, 0, len(kps))
 	for _, kp := range kps {
 		items = append(items, keyPairItem{
@@ -784,6 +881,8 @@ func toVolumeItem(vol *Volume) volumeItem {
 		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
 		KmsKeyID:   vol.KmsKeyID,
+		Iops:       vol.Iops,
+		Throughput: vol.Throughput,
 	}
 
 	if vol.Attachment != nil {
@@ -799,6 +898,119 @@ func toVolumeItem(vol *Volume) volumeItem {
 	return item
 }
 
+// parsePositiveInt parses s as a positive integer; returns an error wrapping
+// ErrInvalidParameter if the string is present but invalid or non-positive.
+func parsePositiveInt(s, field string) (int, error) {
+	if s == "" {
+		return 0, nil
+	}
+
+	v, err := strconv.Atoi(s)
+	if err != nil || v <= 0 {
+		return 0, fmt.Errorf("%w: invalid %s value: %s", ErrInvalidParameter, field, s)
+	}
+
+	return v, nil
+}
+
+// defaultIOPSForType returns the IOPS to use when the caller did not specify,
+// based on volume type and size. Returns 0 for types without an IOPS concept.
+func defaultIOPSForType(volType string, size int) int {
+	switch volType {
+	case volTypeGP3:
+		return gp3DefaultIOPS
+	case volTypeDefaultGP2:
+		effectiveSize := size
+		if effectiveSize <= 0 {
+			effectiveSize = 8
+		}
+
+		return max(gp2IOPSMin, min(effectiveSize*gp2IOPSPerGB, gp2IOPSMax))
+	}
+
+	return 0
+}
+
+// parseVolumePerf parses and validates the Iops and Throughput form fields,
+// enforcing AWS rules: io1/io2 require Iops; gp3/gp2 get type-based defaults.
+func parseVolumePerf(iopsStr, throughputStr, volType string, size int) (int, int, error) {
+	iops, err := parsePositiveInt(iopsStr, "Iops")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	throughput, err := parsePositiveInt(throughputStr, "Throughput")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	effectiveVolType := volType
+	if effectiveVolType == "" {
+		effectiveVolType = volTypeDefaultGP2
+	}
+
+	// io1 and io2 require an explicit Iops value.
+	if (effectiveVolType == "io1" || effectiveVolType == "io2") && iops == 0 {
+		return 0, 0, fmt.Errorf("%w: The parameter Iops is not optional for volume type %s",
+			ErrInvalidParameter, effectiveVolType)
+	}
+
+	if iops == 0 {
+		iops = defaultIOPSForType(effectiveVolType, size)
+	}
+
+	if throughput == 0 && effectiveVolType == volTypeGP3 {
+		throughput = gp3DefaultThroughput
+	}
+
+	if effectiveVolType == volTypeGP3 {
+		if verr := validateGP3Coupling(iops, throughput, size); verr != nil {
+			return 0, 0, verr
+		}
+	}
+
+	return iops, throughput, nil
+}
+
+// validateGP3Coupling enforces the AWS gp3 iops/throughput coupling rules on a
+// volume create: IOPS in [3000,16000], throughput in [125,1000] MiB/s, IOPS
+// above the free 3000 baseline capped at 500 IOPS/GiB, and throughput capped at
+// 0.25 MiB/s per provisioned IOPS. size <= 0 (unspecified) skips the size-ratio
+// check because CreateVolume applies a default size downstream.
+func validateGP3Coupling(iops, throughput, size int) error {
+	if iops < gp3MinIOPS || iops > gp3MaxIOPS {
+		return fmt.Errorf(
+			"%w: Iops must be between %d and %d for gp3 volumes",
+			ErrInvalidParameter, gp3MinIOPS, gp3MaxIOPS,
+		)
+	}
+
+	if throughput < gp3MinThroughput || throughput > gp3MaxThroughput {
+		return fmt.Errorf(
+			"%w: Throughput must be between %d and %d MiB/s for gp3 volumes",
+			ErrInvalidParameter, gp3MinThroughput, gp3MaxThroughput,
+		)
+	}
+
+	// IOPS above the free 3000 baseline may not exceed 500 IOPS per GiB.
+	if size > 0 && iops > gp3MinIOPS && iops > size*gp3MaxIOPSPerGiB {
+		return fmt.Errorf(
+			"%w: Iops of %d exceeds the maximum ratio of %d IOPS per GiB for a %d GiB gp3 volume",
+			ErrInvalidParameter, iops, gp3MaxIOPSPerGiB, size,
+		)
+	}
+
+	// Throughput may not exceed 0.25 MiB/s per provisioned IOPS.
+	if throughput*gp3IOPSPerThroughput > iops {
+		return fmt.Errorf(
+			"%w: Throughput of %d MiB/s exceeds the maximum ratio of 0.25 MiB/s per provisioned IOPS (Iops=%d)",
+			ErrInvalidParameter, throughput, iops,
+		)
+	}
+
+	return nil
+}
+
 func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error) {
 	az := vals.Get("AvailabilityZone")
 	volType := vals.Get("VolumeType")
@@ -810,6 +1022,16 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 	if sizeStr != "" {
 		// If parsing fails, size defaults to 0 and CreateVolume will use the default size.
 		_, _ = fmt.Sscan(sizeStr, &size)
+	}
+
+	iops, throughput, err := parseVolumePerf(
+		vals.Get("Iops"),
+		vals.Get("Throughput"),
+		volType,
+		size,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	vol, err := h.Backend.CreateVolume(az, volType, size)
@@ -830,6 +1052,16 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		}
 	}
 
+	// Apply IOPS and throughput.
+	if iops > 0 || throughput > 0 {
+		if perfErr := h.Backend.SetVolumePerformance(vol.ID, iops, throughput); perfErr != nil {
+			return nil, perfErr
+		}
+
+		vol.Iops = iops
+		vol.Throughput = throughput
+	}
+
 	return &createVolumeResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
@@ -841,12 +1073,17 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
 		KmsKeyID:   vol.KmsKeyID,
+		Iops:       vol.Iops,
+		Throughput: vol.Throughput,
 	}, nil
 }
 
 func (h *Handler) handleDescribeVolumes(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VolumeId")
 	vols := h.Backend.DescribeVolumes(ids)
+
+	filters := parseEC2Filters(vals)
+	vols = applyVolumeFilters(vols, filters, h.Backend)
 
 	items := make([]volumeItem, 0, len(vols))
 	for _, vol := range vols {
@@ -958,7 +1195,10 @@ func (h *Handler) handleAssociateAddress(vals url.Values, reqID string) (any, er
 	}
 
 	if targetID == "" {
-		return nil, fmt.Errorf("%w: InstanceId or NetworkInterfaceId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: InstanceId or NetworkInterfaceId is required",
+			ErrInvalidParameter,
+		)
 	}
 
 	assocID, err := h.Backend.AssociateAddress(allocationID, targetID)
@@ -1011,6 +1251,9 @@ func (h *Handler) handleReleaseAddress(vals url.Values, reqID string) (any, erro
 func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "AllocationId")
 	addrs := h.Backend.DescribeAddresses(ids)
+
+	filters := parseEC2Filters(vals)
+	addrs = applyAddressFilters(addrs, filters, h.Backend)
 
 	items := make([]addressItem, 0, len(addrs))
 	for _, addr := range addrs {
@@ -1075,6 +1318,9 @@ func (h *Handler) handleDeleteInternetGateway(vals url.Values, reqID string) (an
 func (h *Handler) handleDescribeInternetGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InternetGatewayId")
 	igws := h.Backend.DescribeInternetGateways(ids)
+
+	filters := parseEC2Filters(vals)
+	igws = applyIGWFilters(igws, filters, h.Backend)
 
 	items := make([]igwItem, 0, len(igws))
 	for _, igw := range igws {
@@ -1187,6 +1433,9 @@ func (h *Handler) handleDeleteRouteTable(vals url.Values, reqID string) (any, er
 func (h *Handler) handleDescribeRouteTables(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "RouteTableId")
 	rts := h.Backend.DescribeRouteTables(ids)
+
+	filters := parseEC2Filters(vals)
+	rts = applyRouteTableFilters(rts, filters, h.Backend)
 
 	items := make([]routeTableItem, 0, len(rts))
 	for _, rt := range rts {
@@ -1345,6 +1594,9 @@ func (h *Handler) handleDescribeNatGateways(vals url.Values, reqID string) (any,
 	ids := parseMemberList(vals, "NatGatewayId")
 	ngws := h.Backend.DescribeNatGateways(ids)
 
+	filters := parseEC2Filters(vals)
+	ngws = applyNatGWFilters(ngws, filters, h.Backend)
+
 	items := make([]natGatewayItem, 0, len(ngws))
 	for _, ngw := range ngws {
 		items = append(items, toNatGatewayItem(ngw))
@@ -1360,6 +1612,9 @@ func (h *Handler) handleDescribeNatGateways(vals url.Values, reqID string) (any,
 func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "NetworkInterfaceId")
 	enis := h.Backend.DescribeNetworkInterfaces(ids)
+
+	filters := parseEC2Filters(vals)
+	enis = applyENIFilters(enis, filters, h.Backend)
 
 	items := make([]networkInterfaceItem, 0, len(enis))
 	for _, eni := range enis {
@@ -1789,7 +2044,7 @@ func (h *Handler) handleModifyNetworkInterfaceAttribute(
 	_, hasSdc := vals["SourceDestCheck.Value"]
 
 	if hasDesc {
-		attr = "description"
+		attr = filterKeyDescription
 		value = vals.Get("Description.Value")
 	} else if hasSdc {
 		attr = attrSourceDest
@@ -1826,12 +2081,13 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 	// AWS uses different value wrappers per attribute type.
 	attrName, attrValue := parseModifyInstanceAttributeValue(vals)
 
+	// AWS rejects a ModifyInstanceAttribute call that does not identify a
+	// recognised attribute to change, rather than silently succeeding.
 	if attrName == "" {
-		return &modifyInstanceAttributeResponse{
-			Xmlns:     ec2XMLNS,
-			RequestID: reqID,
-			Return:    true,
-		}, nil
+		return nil, fmt.Errorf(
+			"%w: the request must contain exactly one modifiable attribute",
+			ErrMissingParameter,
+		)
 	}
 
 	// Enforce stopped-state requirement for certain attributes at the handler level.
@@ -2057,6 +2313,9 @@ func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any
 func (h *Handler) handleDescribeSpotInstanceRequests(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SpotInstanceRequestId")
 	reqs := h.Backend.DescribeSpotInstanceRequests(ids)
+
+	filters := parseEC2Filters(vals)
+	reqs = applySpotRequestFilters(reqs, filters, h.Backend)
 
 	items := make([]spotInstanceRequestItem, 0, len(reqs))
 	for _, req := range reqs {

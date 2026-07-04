@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1179,14 +1180,12 @@ func TestAudit1_ReportCreation_FullLifecycle(t *testing.T) {
 	tests := []struct {
 		name        string
 		bucket      string
-		wantStatus  string
 		wantS3Parts []string
 		wantErr     bool
 	}{
 		{
 			name:        "valid_bucket",
 			bucket:      "my-report-bucket",
-			wantStatus:  "SUCCEEDED",
 			wantS3Parts: []string{"my-report-bucket", "AwsTagPolicies", "report.csv"},
 		},
 		{
@@ -1213,9 +1212,16 @@ func TestAudit1_ReportCreation_FullLifecycle(t *testing.T) {
 
 			require.NoError(t, err)
 
+			// Immediately after Start the report is RUNNING.
+			assert.Equal(t, "RUNNING", resourcegroupstaggingapi.ReportStatus(b))
+
+			// Advance clock past the running window so DescribeReportCreation returns SUCCEEDED.
+			fastForward := time.Now().Add(resourcegroupstaggingapi.ReportRunningDuration() + time.Second)
+			resourcegroupstaggingapi.SetClockFunc(b, func() time.Time { return fastForward })
+
 			desc := b.DescribeReportCreation(context.Background())
 			require.NotNil(t, desc.Status)
-			assert.Equal(t, tt.wantStatus, *desc.Status)
+			assert.Equal(t, "SUCCEEDED", *desc.Status)
 			require.NotNil(t, desc.S3Location)
 
 			for _, part := range tt.wantS3Parts {
@@ -1455,10 +1461,10 @@ func TestAudit1_SnapshotRestore_ProvidersClearedTaggersCleared(t *testing.T) {
 	require.Equal(t, 1, resourcegroupstaggingapi.TaggerCount(b))
 	require.Equal(t, 1, resourcegroupstaggingapi.UntaggerCount(b))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	b2 := newBackend(t)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Providers, taggers, and untaggers are runtime callbacks; they cannot be serialized.
 	assert.Equal(t, 0, resourcegroupstaggingapi.ProviderCount(b2))

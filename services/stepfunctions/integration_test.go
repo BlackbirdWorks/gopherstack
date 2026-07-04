@@ -21,6 +21,9 @@ func TestNewSQSIntegration_SFNSendMessage(t *testing.T) {
 	t.Parallel()
 
 	sqsBackend := sqs.NewInMemoryBackend()
+	// Stop the SQS backend's background janitor goroutine when the test ends so
+	// goleak does not flag it as a leak.
+	t.Cleanup(sqsBackend.Close)
 	out, setupErr := sqsBackend.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "test-queue",
 		Endpoint:  "localhost",
@@ -212,7 +215,11 @@ func TestSetServiceIntegrations(t *testing.T) {
 		{
 			name: "SQS",
 			set: func(b *stepfunctions.InMemoryBackend) {
-				b.SetSQSIntegration(stepfunctions.NewSQSIntegration(sqs.NewInMemoryBackend()))
+				sqsBackend := sqs.NewInMemoryBackend()
+				// Stop the SQS backend's background janitor goroutine to avoid
+				// leaking it past the test.
+				t.Cleanup(sqsBackend.Close)
+				b.SetSQSIntegration(stepfunctions.NewSQSIntegration(sqsBackend))
 				b.SetSQSIntegration(nil)
 			},
 		},

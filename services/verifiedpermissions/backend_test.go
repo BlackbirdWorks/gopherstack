@@ -1075,11 +1075,11 @@ func TestBackend_Snapshot_Restore(t *testing.T) {
 				storeIDs = append(storeIDs, ps.PolicyStoreID)
 			}
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := newTestBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			stores2, _ := b2.ListPolicyStores("", 0)
 			assert.Len(t, stores2, tt.numStores)
@@ -1105,7 +1105,7 @@ func TestBackend_Restore_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 

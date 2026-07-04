@@ -1,17 +1,19 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -115,6 +117,7 @@ type FindingService struct {
 	EventLastSeen  string `json:"eventLastSeen"`
 	ResourceRole   string `json:"resourceRole"`
 	ServiceName    string `json:"serviceName"`
+	UserFeedback   string `json:"userFeedback,omitempty"`
 	Count          int32  `json:"count"`
 	Archived       bool   `json:"archived"`
 }
@@ -202,29 +205,26 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) detectorARN(id string) string {
-	return fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s", b.region, b.accountID, id)
+	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s", id))
 }
 
 func (b *InMemoryBackend) filterARN(detectorID, filterName string) string {
-	return fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s/filter/%s", b.region, b.accountID, detectorID, filterName)
+	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s/filter/%s", detectorID, filterName))
 }
 
 func (b *InMemoryBackend) ipSetARN(detectorID, ipSetID string) string {
-	return fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s/ipset/%s", b.region, b.accountID, detectorID, ipSetID)
+	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s/ipset/%s", detectorID, ipSetID))
 }
 
 func (b *InMemoryBackend) threatIntelSetARN(detectorID, setID string) string {
-	return fmt.Sprintf(
-		"arn:aws:guardduty:%s:%s:detector/%s/threatintelset/%s",
-		b.region,
-		b.accountID,
-		detectorID,
-		setID,
+	return arn.Build(
+		"guardduty", b.region, b.accountID,
+		fmt.Sprintf("detector/%s/threatintelset/%s", detectorID, setID),
 	)
 }
 
 func (b *InMemoryBackend) findingARN(detectorID, findingID string) string {
-	return fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s/finding/%s", b.region, b.accountID, detectorID, findingID)
+	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s/finding/%s", detectorID, findingID))
 }
 
 // CreateDetector creates a new GuardDuty detector for this account+region.
@@ -346,6 +346,10 @@ func (b *InMemoryBackend) DeleteDetector(detectorID string) error {
 	delete(b.findings, detectorID)
 	delete(b.ipSets, detectorID)
 	delete(b.threatIntelSets, detectorID)
+	delete(b.members, detectorID)
+	delete(b.publishingDestinations, detectorID)
+	delete(b.threatEntitySets, detectorID)
+	delete(b.trustedEntitySets, detectorID)
 	delete(b.tags, b.detectorARN(detectorID))
 
 	return nil
@@ -356,12 +360,7 @@ func (b *InMemoryBackend) ListDetectors() []string {
 	b.mu.RLock("ListDetectors")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.detectors))
-	for id := range b.detectors {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.detectors)
 
 	return ids
 }
@@ -490,12 +489,7 @@ func (b *InMemoryBackend) ListFilters(detectorID string) ([]string, error) {
 		return nil, ErrDetectorNotFound
 	}
 
-	names := make([]string, 0, len(b.filters[detectorID]))
-	for name := range b.filters[detectorID] {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.filters[detectorID])
 
 	return names, nil
 }
@@ -532,12 +526,7 @@ func (b *InMemoryBackend) ListFindings(detectorID string) ([]string, error) {
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.findings[detectorID]))
-	for id := range b.findings[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.findings[detectorID])
 
 	return ids, nil
 }
@@ -551,9 +540,12 @@ func (b *InMemoryBackend) ArchiveFindings(detectorID string, findingIDs []string
 		return ErrDetectorNotFound
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
+
 	for _, id := range findingIDs {
 		if f, ok := b.findings[detectorID][id]; ok {
 			f.Service.Archived = true
+			f.UpdatedAt = now
 		}
 	}
 
@@ -569,9 +561,12 @@ func (b *InMemoryBackend) UnarchiveFindings(detectorID string, findingIDs []stri
 		return ErrDetectorNotFound
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
+
 	for _, id := range findingIDs {
 		if f, ok := b.findings[detectorID][id]; ok {
 			f.Service.Archived = false
+			f.UpdatedAt = now
 		}
 	}
 
@@ -635,21 +630,11 @@ func (b *InMemoryBackend) GetFindingsStatistics(detectorID string) (map[string]a
 		return nil, ErrDetectorNotFound
 	}
 
-	countBySeverity := map[string]int{
-		"Low":    0,
-		"Medium": 0,
-		"High":   0,
-	}
+	countBySeverity := map[string]int{}
 
 	for _, f := range b.findings[detectorID] {
-		switch {
-		case f.Severity < severityLowThreshold:
-			countBySeverity["Low"]++
-		case f.Severity < severityHighThreshold:
-			countBySeverity["Medium"]++
-		default:
-			countBySeverity["High"]++
-		}
+		key := fmt.Sprintf("%.1f", f.Severity)
+		countBySeverity[key]++
 	}
 
 	return map[string]any{
@@ -668,8 +653,14 @@ func (b *InMemoryBackend) UpdateFindingsFeedback(detectorID string, findingIDs [
 		return ErrDetectorNotFound
 	}
 
-	_ = findingIDs
-	_ = feedback
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	for _, id := range findingIDs {
+		if f, ok := b.findings[detectorID][id]; ok {
+			f.Service.UserFeedback = feedback
+			f.UpdatedAt = now
+		}
+	}
 
 	return nil
 }
@@ -803,12 +794,7 @@ func (b *InMemoryBackend) ListIPSets(detectorID string) ([]string, error) {
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.ipSets[detectorID]))
-	for id := range b.ipSets[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.ipSets[detectorID])
 
 	return ids, nil
 }
@@ -942,12 +928,7 @@ func (b *InMemoryBackend) ListThreatIntelSets(detectorID string) ([]string, erro
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.threatIntelSets[detectorID]))
-	for id := range b.threatIntelSets[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.threatIntelSets[detectorID])
 
 	return ids, nil
 }
@@ -1027,7 +1008,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -1052,7 +1033,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		MemberSeq              int64                                        `json:"memberSeq"`
 	}
 
-	data, _ := json.Marshal(snap{
+	return persistence.MarshalSnapshot(ctx, "guardduty", snap{
 		Detectors:              b.detectors,
 		Filters:                b.filters,
 		Findings:               b.findings,
@@ -1072,12 +1053,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		TrustedEntitySets:      b.trustedEntitySets,
 		MemberSeq:              b.memberSeq,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
@@ -1103,7 +1082,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	var s snap
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "guardduty", data, &s); err != nil {
 		return err
 	}
 

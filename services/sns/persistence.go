@@ -1,30 +1,34 @@
 package sns
 
 import (
-	"encoding/json"
+	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
-	Topics               map[string]*Topic               `json:"topics"`
-	Subscriptions        map[string]*Subscription        `json:"subscriptions"`
-	TopicTags            map[string]*svcTags.Tags        `json:"topicTags"`
-	PlatformApplications map[string]*PlatformApplication `json:"platformApplications,omitempty"`
-	PlatformEndpoints    map[string]*PlatformEndpoint    `json:"platformEndpoints,omitempty"`
-	SMSSandbox           map[string]*SandboxPhoneNumber  `json:"smsSandbox,omitempty"`
-	OptedOutPhoneNumbers map[string]bool                 `json:"optedOutPhoneNumbers,omitempty"`
-	SMSAttributes        map[string]string               `json:"smsAttributes,omitempty"`
-	AccountID            string                          `json:"accountID"`
-	Region               string                          `json:"region"`
+	Topics               map[string]*Topic                `json:"topics"`
+	Subscriptions        map[string]*Subscription         `json:"subscriptions"`
+	TopicTags            map[string]*svcTags.Tags         `json:"topicTags"`
+	PlatformApplications map[string]*PlatformApplication  `json:"platformApplications,omitempty"`
+	PlatformEndpoints    map[string]*PlatformEndpoint     `json:"platformEndpoints,omitempty"`
+	SMSSandbox           map[string]*SandboxPhoneNumber   `json:"smsSandbox,omitempty"`
+	OptedOutPhoneNumbers map[string]bool                  `json:"optedOutPhoneNumbers,omitempty"`
+	SMSAttributes        map[string]string                `json:"smsAttributes,omitempty"`
+	OriginationNumbers   map[string][]XMLOriginationPhone `json:"originationNumbers,omitempty"`
+	SMSSandboxEnabled    *bool                            `json:"smsSandboxEnabled,omitempty"`
+	AccountID            string                           `json:"accountID"`
+	Region               string                           `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	sandboxEnabled := b.smsSandboxEnabled
 	snap := backendSnapshot{
 		Topics:               b.topics,
 		Subscriptions:        b.subscriptions,
@@ -34,22 +38,22 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		SMSSandbox:           b.smsSandbox,
 		OptedOutPhoneNumbers: b.optedOutPhoneNumbers,
 		SMSAttributes:        b.smsAttributes,
+		OriginationNumbers:   b.originationNumbers,
 		AccountID:            b.accountID,
 		Region:               b.region,
+		SMSSandboxEnabled:    &sandboxEnabled,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "sns", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
 // The event emitter is not restored — it is re-wired by the CLI after restore.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "sns", data, &snap); err != nil {
 		return err
 	}
 
@@ -88,6 +92,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.SMSAttributes = make(map[string]string)
 	}
 
+	if snap.OriginationNumbers == nil {
+		snap.OriginationNumbers = make(map[string][]XMLOriginationPhone)
+	}
+
 	b.topics = snap.Topics
 	b.subscriptions = snap.Subscriptions
 	b.topicTags = snap.TopicTags
@@ -96,8 +104,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.smsSandbox = snap.SMSSandbox
 	b.optedOutPhoneNumbers = snap.OptedOutPhoneNumbers
 	b.smsAttributes = snap.SMSAttributes
+	b.originationNumbers = snap.OriginationNumbers
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	if snap.SMSSandboxEnabled != nil {
+		b.smsSandboxEnabled = *snap.SMSSandboxEnabled
+	} else {
+		b.smsSandboxEnabled = true // default for old snapshots that lack this field
+	}
 
 	// Rebuild the per-topic subscription index and restore the parsed filter-policy
 	// cache for each subscription (both are transient and not persisted).
@@ -121,20 +135,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
-	type restorer interface{ Restore([]byte) error }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+		return r.Restore(ctx, data)
 	}
 
 	return nil

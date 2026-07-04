@@ -1,6 +1,9 @@
 package rekognition
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for Rekognition storage operations.
 type StorageBackend interface {
@@ -13,7 +16,7 @@ type StorageBackend interface {
 	DeleteFaces(collectionID string, faceIDs []string) ([]string, error)
 	ListFaces(collectionID string, maxResults int32, nextToken string) ([]*Face, string, error)
 	SearchFaces(collectionID, faceID string, maxFaces int32) ([]*FaceMatch, error)
-	SearchFacesByImage(collectionID string, maxFaces int32) ([]*FaceMatch, error)
+	SearchFacesByImage(collectionID string, maxFaces int32, imageKey string) ([]*FaceMatch, error)
 
 	CreateStreamProcessor(name, roleARN string, tags map[string]string) (*StreamProcessor, error)
 	DeleteStreamProcessor(name string) error
@@ -64,7 +67,7 @@ type StorageBackend interface {
 		faceIDs []string,
 	) ([]*DisassociatedFace, []*UnsuccessfulFaceDisassociation, error)
 	SearchUsers(collectionID, userID string, maxUsers int32) ([]*UserMatch, error)
-	SearchUsersByImage(collectionID string, maxUsers int32) ([]*UserMatch, error)
+	SearchUsersByImage(collectionID string, maxUsers int32, imageKey string) ([]*UserMatch, error)
 
 	// Face Liveness
 	CreateFaceLivenessSession() (string, error)
@@ -80,8 +83,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Collection represents an Amazon Rekognition face collection.

@@ -289,6 +289,12 @@ func TestCreateScheduledQuery_ScheduleExpressionValidation(t *testing.T) {
 		"ScheduleConfiguration": map[string]any{
 			"ScheduleExpression": "PLACEHOLDER",
 		},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+		},
 	}
 
 	tests := []struct {
@@ -342,6 +348,12 @@ func TestCreateScheduledQuery_ConflictReturns409(t *testing.T) {
 		"QueryString":                    "SELECT 1",
 		"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 		"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+		},
 	}
 
 	rec1 := doRequest(t, h, "CreateScheduledQuery", body)
@@ -375,6 +387,12 @@ func TestListScheduledQueries_EnrichedResponse(t *testing.T) {
 				"DatabaseName": "mydb",
 				"TableName":    "mytable",
 			},
+		},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
 		},
 	}
 	rec := doRequest(t, h, "CreateScheduledQuery", createBody)
@@ -413,6 +431,12 @@ func TestListScheduledQueries_Pagination(t *testing.T) {
 			"QueryString":                    "SELECT 1",
 			"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 			"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+			"NotificationConfiguration": map[string]any{
+				"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+			},
+			"ErrorReportConfiguration": map[string]any{
+				"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+			},
 		}
 		rec := doRequest(t, h, "CreateScheduledQuery", body)
 		require.Equal(t, http.StatusOK, rec.Code)

@@ -54,11 +54,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := ses.NewInMemoryBackend()
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := ses.NewInMemoryBackend()
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -69,7 +69,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := ses.NewInMemoryBackend()
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -79,11 +79,11 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	h := ses.NewHandler(ses.NewInMemoryBackend())
 	require.NoError(t, h.Backend.VerifyEmailIdentity("delegate@test.com"))
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := ses.NewHandler(ses.NewInMemoryBackend())
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	identities := h2.Backend.ListIdentities("", 0).Data
 	require.Len(t, identities, 1)
@@ -101,11 +101,11 @@ func TestInMemoryBackend_RestorePreservesEmails(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ses.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	emails := fresh.ListEmails()
 	require.Len(t, emails, 1)

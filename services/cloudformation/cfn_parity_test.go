@@ -468,7 +468,9 @@ func TestChangeSet_TypeAndExecutionStatus(t *testing.T) {
 		{
 			name: "existing stack → ChangeSetType=UPDATE",
 			setup: func(b *cloudformation.InMemoryBackend) {
-				_, _ = b.CreateStack(t.Context(), "existing-stack", simpleTemplate, nil,
+				// Create with a different template so the change set (simpleTemplate)
+				// carries a real change (a Remove) and is therefore AVAILABLE.
+				_, _ = b.CreateStack(t.Context(), "existing-stack", modifiedTemplate, nil,
 					cloudformation.StackOptions{})
 			},
 			stackName:         "existing-stack",
@@ -503,7 +505,7 @@ func TestChangeSet_ExecutionStatus_AfterExecute(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateChangeSet(t.Context(), "exec-status-stack", "my-cs",
-		simpleTemplate, "test", nil)
+		modifiedTemplate, "test", nil)
 	require.NoError(t, err)
 
 	// After execute, the changeset is removed (EXECUTE_COMPLETE).
@@ -526,7 +528,7 @@ func TestChangeSet_ExecutionStatus_HTTP(t *testing.T) {
 		"Action":        {"CreateChangeSet"},
 		"StackName":     {"cs-exec-http"},
 		"ChangeSetName": {"http-cs"},
-		"TemplateBody":  {simpleTemplate},
+		"TemplateBody":  {modifiedTemplate},
 	})
 
 	resp := postFormValues(t, h, url.Values{
@@ -579,14 +581,14 @@ func TestStackInstance_StackIDAssigned(t *testing.T) {
 			_, err := b.CreateStackSet("inst-test-ss", "test", simpleTemplate)
 			require.NoError(t, err)
 
-			_, err = b.CreateStackInstances("inst-test-ss", tc.accounts, tc.regions)
+			_, err = b.CreateStackInstances(t.Context(), "inst-test-ss", tc.accounts, tc.regions)
 			require.NoError(t, err)
 
 			instances, err := b.ListStackInstances("inst-test-ss", "")
 			require.NoError(t, err)
-			assert.Len(t, instances, tc.wantLen)
+			assert.Len(t, instances.Data, tc.wantLen)
 
-			for _, inst := range instances {
+			for _, inst := range instances.Data {
 				assert.NotEmpty(t, inst.StackID, "expected StackID to be assigned for %s/%s",
 					inst.Account, inst.Region)
 				assert.True(t, strings.HasPrefix(inst.StackID, "arn:aws:cloudformation:"),
@@ -606,16 +608,16 @@ func TestStackInstance_NoDuplicates(t *testing.T) {
 	_, err := b.CreateStackSet("dedup-ss", "test", simpleTemplate)
 	require.NoError(t, err)
 
-	_, err = b.CreateStackInstances("dedup-ss", []string{"111111111111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances(t.Context(), "dedup-ss", []string{"111111111111"}, []string{"us-east-1"})
 	require.NoError(t, err)
 
 	// Creating the same instance again should not duplicate it.
-	_, err = b.CreateStackInstances("dedup-ss", []string{"111111111111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances(t.Context(), "dedup-ss", []string{"111111111111"}, []string{"us-east-1"})
 	require.NoError(t, err)
 
 	instances, err := b.ListStackInstances("dedup-ss", "")
 	require.NoError(t, err)
-	assert.Len(t, instances, 1, "expected no duplicate instances")
+	assert.Len(t, instances.Data, 1, "expected no duplicate instances")
 }
 
 // ---- StackSet operation results (table-driven) -----------------------------------
@@ -653,15 +655,19 @@ func TestStackSetOperationResults(t *testing.T) {
 			_, err := b.CreateStackSet("op-results-ss", "test", simpleTemplate)
 			require.NoError(t, err)
 
-			_, err = b.CreateStackInstances("op-results-ss", tc.accounts, tc.regions)
+			_, err = b.CreateStackInstances(t.Context(), "op-results-ss", tc.accounts, tc.regions)
 			require.NoError(t, err)
 
 			// Get the operation ID from ListStackSetOperations.
-			opIDs, err := b.ListStackSetOperations("op-results-ss", "")
+			opsPage, err := b.ListStackSetOperations("op-results-ss", "")
 			require.NoError(t, err)
-			require.NotEmpty(t, opIDs)
+			require.NotEmpty(t, opsPage.Data)
 
-			results, err := b.ListStackSetOperationResults("op-results-ss", opIDs[0], "")
+			results, err := b.ListStackSetOperationResults(
+				"op-results-ss",
+				opsPage.Data[0].OperationID,
+				"",
+			)
 			require.NoError(t, err)
 			assert.Len(t, results, tc.wantResultN)
 
@@ -852,9 +858,13 @@ func TestGeneratedTemplate_Body(t *testing.T) {
 			wantContains: []string{"AWSTemplateFormatVersion", "Resources"},
 		},
 		{
-			name:         "with Type/LogicalID resource IDs",
-			resourceIDs:  []string{"AWS::SQS::Queue/MyQueue", "AWS::SNS::Topic/MyTopic"},
-			wantContains: []string{"AWS::SQS::Queue", "AWS::SNS::Topic", "AWSTemplateFormatVersion"},
+			name:        "with Type/LogicalID resource IDs",
+			resourceIDs: []string{"AWS::SQS::Queue/MyQueue", "AWS::SNS::Topic/MyTopic"},
+			wantContains: []string{
+				"AWS::SQS::Queue",
+				"AWS::SNS::Topic",
+				"AWSTemplateFormatVersion",
+			},
 		},
 		{
 			name:         "no resource IDs and no stacks yields empty resources",
@@ -1049,7 +1059,7 @@ func TestDescribeStackInstance_Fields(t *testing.T) {
 	b := newBackend()
 	_, err := b.CreateStackSet("field-ss", "test", simpleTemplate)
 	require.NoError(t, err)
-	_, err = b.CreateStackInstances("field-ss", []string{"123456789012"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances(t.Context(), "field-ss", []string{"123456789012"}, []string{"us-east-1"})
 	require.NoError(t, err)
 
 	inst, err := b.DescribeStackInstance("field-ss", "123456789012", "us-east-1")
@@ -1074,16 +1084,16 @@ func TestListStackSetOperations_SortedByCreationTime(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create multiple operations by calling CreateStackInstances multiple times.
-	_, err = b.CreateStackInstances("sort-ops-ss", []string{"111111111111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances(t.Context(), "sort-ops-ss", []string{"111111111111"}, []string{"us-east-1"})
 	require.NoError(t, err)
 	_, err = b.UpdateStackInstances("sort-ops-ss", []string{"111111111111"}, []string{"us-east-1"})
 	require.NoError(t, err)
 	_, err = b.UpdateStackSet("sort-ops-ss", "", simpleTemplate)
 	require.NoError(t, err)
 
-	opIDs, err := b.ListStackSetOperations("sort-ops-ss", "")
+	opsPage2, err := b.ListStackSetOperations("sort-ops-ss", "")
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(opIDs), 3, "expected at least 3 operations")
+	assert.GreaterOrEqual(t, len(opsPage2.Data), 3, "expected at least 3 operations")
 }
 
 // ---- Handler: DescribeType for registered type ------------------------------------
@@ -1267,15 +1277,15 @@ func TestDeleteStackInstances_Selective(t *testing.T) {
 			_, err := b.CreateStackSet("del-sel-ss", "test", simpleTemplate)
 			require.NoError(t, err)
 
-			_, err = b.CreateStackInstances("del-sel-ss", tc.createAccounts, tc.createRegions)
+			_, err = b.CreateStackInstances(t.Context(), "del-sel-ss", tc.createAccounts, tc.createRegions)
 			require.NoError(t, err)
 
-			_, err = b.DeleteStackInstances("del-sel-ss", tc.deleteAccounts, tc.deleteRegions)
+			_, err = b.DeleteStackInstances(t.Context(), "del-sel-ss", tc.deleteAccounts, tc.deleteRegions)
 			require.NoError(t, err)
 
 			remaining, err := b.ListStackInstances("del-sel-ss", "")
 			require.NoError(t, err)
-			assert.Len(t, remaining, tc.wantRemaining)
+			assert.Len(t, remaining.Data, tc.wantRemaining)
 		})
 	}
 }

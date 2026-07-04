@@ -322,25 +322,26 @@ func errorResponse(code, msg string) map[string]string {
 // --- RunJobFlow ---
 
 type runJobFlowInput struct {
-	SecurityConfiguration   string              `json:"SecurityConfiguration"`
-	ReleaseLabel            string              `json:"ReleaseLabel"`
-	OSReleaseLabel          string              `json:"OSReleaseLabel"`
-	LogURI                  string              `json:"LogUri"`
-	ServiceRole             string              `json:"ServiceRole"`
-	AutoScalingRole         string              `json:"AutoScalingRole"`
-	Name                    string              `json:"Name"`
-	ScaleDownBehavior       string              `json:"ScaleDownBehavior"`
-	CustomAmiID             string              `json:"CustomAmiId"`
-	Tags                    []Tag               `json:"Tags"`
-	Applications            []Application       `json:"Applications"`
-	Configurations          []Configuration     `json:"Configurations"`
-	Steps                   []StepSpec          `json:"Steps"`
-	Instances               RunJobFlowInstances `json:"Instances"`
-	StepConcurrencyLevel    int                 `json:"StepConcurrencyLevel"`
-	EbsRootVolumeSize       int                 `json:"EbsRootVolumeSize"`
-	EbsRootVolumeIops       int                 `json:"EbsRootVolumeIops"`
-	EbsRootVolumeThroughput int                 `json:"EbsRootVolumeThroughput"`
-	VisibleToAllUsers       bool                `json:"VisibleToAllUsers"`
+	SecurityConfiguration   string                  `json:"SecurityConfiguration"`
+	ReleaseLabel            string                  `json:"ReleaseLabel"`
+	OSReleaseLabel          string                  `json:"OSReleaseLabel"`
+	LogURI                  string                  `json:"LogUri"`
+	ServiceRole             string                  `json:"ServiceRole"`
+	AutoScalingRole         string                  `json:"AutoScalingRole"`
+	Name                    string                  `json:"Name"`
+	ScaleDownBehavior       string                  `json:"ScaleDownBehavior"`
+	CustomAmiID             string                  `json:"CustomAmiId"`
+	Tags                    []Tag                   `json:"Tags"`
+	Applications            []Application           `json:"Applications"`
+	Configurations          []Configuration         `json:"Configurations"`
+	Steps                   []StepSpec              `json:"Steps"`
+	BootstrapActions        []BootstrapActionConfig `json:"BootstrapActions"`
+	Instances               RunJobFlowInstances     `json:"Instances"`
+	StepConcurrencyLevel    int                     `json:"StepConcurrencyLevel"`
+	EbsRootVolumeSize       int                     `json:"EbsRootVolumeSize"`
+	EbsRootVolumeIops       int                     `json:"EbsRootVolumeIops"`
+	EbsRootVolumeThroughput int                     `json:"EbsRootVolumeThroughput"`
+	VisibleToAllUsers       bool                    `json:"VisibleToAllUsers"`
 }
 
 type runJobFlowOutput struct {
@@ -357,6 +358,7 @@ func (h *Handler) handleRunJobFlow(ctx context.Context, in *runJobFlowInput) (*r
 		Applications:            in.Applications,
 		Configurations:          in.Configurations,
 		Steps:                   in.Steps,
+		BootstrapActions:        in.BootstrapActions,
 		Instances:               in.Instances,
 		LogURI:                  in.LogURI,
 		ServiceRole:             in.ServiceRole,
@@ -596,17 +598,28 @@ func (h *Handler) handleListInstanceFleets(
 
 type listBootstrapActionsInput struct {
 	ClusterID string `json:"ClusterId"`
+	Marker    string `json:"Marker"`
 }
 
 type listBootstrapActionsOutput struct {
-	BootstrapActions []any `json:"BootstrapActions"`
+	Marker           string    `json:"Marker,omitempty"`
+	BootstrapActions []Command `json:"BootstrapActions"`
 }
 
 func (h *Handler) handleListBootstrapActions(
-	_ context.Context,
-	_ *listBootstrapActionsInput,
+	ctx context.Context,
+	in *listBootstrapActionsInput,
 ) (*listBootstrapActionsOutput, error) {
-	return &listBootstrapActionsOutput{BootstrapActions: []any{}}, nil
+	commands, nextMarker, err := h.Backend.ListBootstrapActions(ctx, in.ClusterID, in.Marker)
+	if err != nil {
+		return nil, err
+	}
+
+	if commands == nil {
+		commands = []Command{}
+	}
+
+	return &listBootstrapActionsOutput{BootstrapActions: commands, Marker: nextMarker}, nil
 }
 
 // --- GetAutoTerminationPolicy ---
@@ -734,11 +747,17 @@ func (h *Handler) handleCancelSteps(
 	ctx context.Context,
 	in *cancelStepsInput,
 ) (*cancelStepsOutput, error) {
-	if err := h.Backend.CancelSteps(ctx, in.ClusterID, in.StepIDs); err != nil {
+	results, err := h.Backend.CancelSteps(ctx, in.ClusterID, in.StepIDs)
+	if err != nil {
 		return nil, err
 	}
 
-	return &cancelStepsOutput{CancelStepsInfoList: []any{}}, nil
+	list := make([]any, 0, len(results))
+	for _, r := range results {
+		list = append(list, r)
+	}
+
+	return &cancelStepsOutput{CancelStepsInfoList: list}, nil
 }
 
 // --- CreatePersistentAppUI ---

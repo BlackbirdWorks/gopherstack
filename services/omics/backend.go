@@ -2,7 +2,8 @@ package omics
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"sort"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -67,6 +70,9 @@ type regionState struct {
 	readSetImportJobs     map[string]map[string]*ReadSetImportJob
 	multipartUploads      map[string]map[string]*MultipartReadSetUpload
 	uploadParts           map[string]map[string][]*ReadSetUploadPart
+	uploadPartData        map[string]map[string]map[string]map[int][]byte // storeID→uploadID→source→partNum→bytes
+	readSetBytes          map[string]map[string][]byte                    // storeID→readSetID→bytes
+	referenceBytes        map[string]map[string][]byte                    // storeID→refID→bytes
 	runGroups             map[string]*RunGroup
 	runs                  map[string]*Run
 	runTasks              map[string]map[string]*RunTask
@@ -97,6 +103,9 @@ func newRegionState() *regionState {
 		readSetImportJobs:     make(map[string]map[string]*ReadSetImportJob),
 		multipartUploads:      make(map[string]map[string]*MultipartReadSetUpload),
 		uploadParts:           make(map[string]map[string][]*ReadSetUploadPart),
+		uploadPartData:        make(map[string]map[string]map[string]map[int][]byte),
+		readSetBytes:          make(map[string]map[string][]byte),
+		referenceBytes:        make(map[string]map[string][]byte),
 		runGroups:             make(map[string]*RunGroup),
 		runs:                  make(map[string]*Run),
 		runTasks:              make(map[string]map[string]*RunTask),
@@ -152,21 +161,19 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(b.regions)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "omics", b.regions)
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	return json.Unmarshal(data, &b.regions)
+	return persistence.UnmarshalSnapshot(ctx, "omics", data, &b.regions)
 }
 
 // region returns the regionState for the given region, creating it if needed.
@@ -250,6 +257,7 @@ func (b *InMemoryBackend) CreateReferenceStore(
 	st.referenceStores[rs.ID] = rs
 	st.references[rs.ID] = make(map[string]*ReferenceMetadata)
 	st.referenceImportJobs[rs.ID] = make(map[string]*ReferenceImportJob)
+	st.referenceBytes[rs.ID] = make(map[string][]byte)
 
 	if tags != nil {
 		st.tags[rs.Arn] = copyTags(tags)
@@ -276,6 +284,7 @@ func (b *InMemoryBackend) DeleteReferenceStore(id string) error {
 	delete(st.referenceStores, id)
 	delete(st.references, id)
 	delete(st.referenceImportJobs, id)
+	delete(st.referenceBytes, id)
 
 	return nil
 }
@@ -470,6 +479,7 @@ func (b *InMemoryBackend) StartReferenceImportJob(
 			UpdateTime:   time.Now().UTC(),
 		}
 		st.references[referenceStoreID][refID] = ref
+		st.referenceBytes[referenceStoreID][refID] = []byte{}
 	}
 
 	st.referenceImportJobs[referenceStoreID][job.ID] = job
@@ -523,13 +533,7 @@ func (b *InMemoryBackend) ListReferenceImportJobs(
 	}
 
 	jobs := st.referenceImportJobs[referenceStoreID]
-	ids := make([]string, 0, len(jobs))
-
-	for id := range jobs {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(jobs)
 	page, outToken := paginateStrings(ids, nextToken, maxResults)
 
 	result := make([]*ReferenceImportJob, 0, len(page))
@@ -558,12 +562,15 @@ func (b *InMemoryBackend) CreateSequenceStore(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	now := time.Now().UTC()
 	ss := &SequenceStore{
 		ID:           newID(),
 		Name:         name,
 		Description:  description,
+		Status:       statusActive,
 		Tags:         copyTags(tags),
-		CreationTime: time.Now().UTC(),
+		CreationTime: now,
+		UpdateTime:   now,
 	}
 	ss.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "sequenceStore/"+ss.ID)
 
@@ -575,6 +582,8 @@ func (b *InMemoryBackend) CreateSequenceStore(
 	st.readSetImportJobs[ss.ID] = make(map[string]*ReadSetImportJob)
 	st.multipartUploads[ss.ID] = make(map[string]*MultipartReadSetUpload)
 	st.uploadParts[ss.ID] = make(map[string][]*ReadSetUploadPart)
+	st.uploadPartData[ss.ID] = make(map[string]map[string]map[int][]byte)
+	st.readSetBytes[ss.ID] = make(map[string][]byte)
 
 	if tags != nil {
 		st.tags[ss.Arn] = copyTags(tags)
@@ -605,6 +614,8 @@ func (b *InMemoryBackend) DeleteSequenceStore(id string) error {
 	delete(st.readSetImportJobs, id)
 	delete(st.multipartUploads, id)
 	delete(st.uploadParts, id)
+	delete(st.uploadPartData, id)
+	delete(st.readSetBytes, id)
 
 	return nil
 }
@@ -681,6 +692,7 @@ func (b *InMemoryBackend) UpdateSequenceStore(
 		ss.Description = description
 	}
 
+	ss.UpdateTime = time.Now().UTC()
 	result := *ss
 
 	return &result, nil
@@ -1099,6 +1111,7 @@ func (b *InMemoryBackend) CreateMultipartReadSetUpload(
 	}
 	st.multipartUploads[sequenceStoreID][upload.UploadID] = upload
 	st.uploadParts[sequenceStoreID][upload.UploadID] = nil
+	st.uploadPartData[sequenceStoreID][upload.UploadID] = make(map[string]map[int][]byte)
 
 	result := *upload
 
@@ -1122,6 +1135,7 @@ func (b *InMemoryBackend) AbortMultipartReadSetUpload(sequenceStoreID, uploadID 
 
 	delete(st.multipartUploads[sequenceStoreID], uploadID)
 	delete(st.uploadParts[sequenceStoreID], uploadID)
+	delete(st.uploadPartData[sequenceStoreID], uploadID)
 
 	return nil
 }
@@ -1162,8 +1176,26 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
 		Tags:         maps.Clone(upload.Tags),
 	}
 	st.readSets[sequenceStoreID][rsID] = rs
+
+	// Concatenate stored part bytes (SOURCE1 then SOURCE2, in part-number order) as the read set body.
+	partData := st.uploadPartData[sequenceStoreID][uploadID]
+	var combined []byte
+	for _, src := range []string{"SOURCE1", "SOURCE2"} {
+		srcParts := partData[src]
+		partNums := make([]int, 0, len(srcParts))
+		for n := range srcParts {
+			partNums = append(partNums, n)
+		}
+		sort.Ints(partNums)
+		for _, n := range partNums {
+			combined = append(combined, srcParts[n]...)
+		}
+	}
+	st.readSetBytes[sequenceStoreID][rsID] = combined
+
 	delete(st.multipartUploads[sequenceStoreID], uploadID)
 	delete(st.uploadParts[sequenceStoreID], uploadID)
+	delete(st.uploadPartData[sequenceStoreID], uploadID)
 
 	result := *rs
 
@@ -1252,6 +1284,90 @@ func (b *InMemoryBackend) ListReadSetUploadParts(
 	}
 
 	return result, outToken, nil
+}
+
+// UploadReadSetPart stores binary data for a single part and returns its SHA256 checksum.
+func (b *InMemoryBackend) UploadReadSetPart(
+	sequenceStoreID, uploadID string,
+	partNumber int,
+	partSource string,
+	data []byte,
+) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	st := b.region(b.defaultRegion)
+
+	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+		return "", fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
+	}
+
+	if _, ok := st.multipartUploads[sequenceStoreID][uploadID]; !ok {
+		return "", fmt.Errorf("%w: upload %s not found", ErrNotFound, uploadID)
+	}
+
+	if st.uploadPartData[sequenceStoreID][uploadID] == nil {
+		st.uploadPartData[sequenceStoreID][uploadID] = make(map[string]map[int][]byte)
+	}
+	if st.uploadPartData[sequenceStoreID][uploadID][partSource] == nil {
+		st.uploadPartData[sequenceStoreID][uploadID][partSource] = make(map[int][]byte)
+	}
+	st.uploadPartData[sequenceStoreID][uploadID][partSource][partNumber] = data
+
+	// Update or append the upload part metadata.
+	parts := st.uploadParts[sequenceStoreID][uploadID]
+	found := false
+	for _, p := range parts {
+		if p.PartNumber == partNumber && p.Source == partSource {
+			p.PartSize = int64(len(data))
+			p.LastUpdatedTime = time.Now().UTC()
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		parts = append(parts, &ReadSetUploadPart{
+			PartNumber:      partNumber,
+			Source:          partSource,
+			PartSize:        int64(len(data)),
+			LastUpdatedTime: time.Now().UTC(),
+		})
+		st.uploadParts[sequenceStoreID][uploadID] = parts
+	}
+
+	sum := sha256.Sum256(data)
+
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// GetReadSetBytes returns the stored binary body for a read set.
+func (b *InMemoryBackend) GetReadSetBytes(sequenceStoreID, id string) ([]byte, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	st := b.region(b.defaultRegion)
+
+	if _, ok := st.readSets[sequenceStoreID][id]; !ok {
+		return nil, fmt.Errorf("%w: read set %s not found", ErrNotFound, id)
+	}
+
+	return st.readSetBytes[sequenceStoreID][id], nil
+}
+
+// GetReferenceBytes returns the stored binary body for a reference.
+func (b *InMemoryBackend) GetReferenceBytes(referenceStoreID, id string) ([]byte, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	st := b.region(b.defaultRegion)
+
+	if _, ok := st.references[referenceStoreID][id]; !ok {
+		return nil, fmt.Errorf("%w: reference %s not found", ErrNotFound, id)
+	}
+
+	return st.referenceBytes[referenceStoreID][id], nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1397,7 +1513,7 @@ func (b *InMemoryBackend) UpdateRunGroup(
 
 // StartRun starts a new workflow run.
 func (b *InMemoryBackend) StartRun(
-	workflowID, roleARN, name string,
+	workflowID, roleARN, name, runBatchID string,
 	params map[string]any,
 	tags map[string]string,
 ) (*Run, error) {
@@ -1411,12 +1527,11 @@ func (b *InMemoryBackend) StartRun(
 		Name:         name,
 		WorkflowID:   workflowID,
 		RoleARN:      roleARN,
+		RunBatchID:   runBatchID,
 		Params:       params,
 		Tags:         copyTags(tags),
-		Status:       statusCompleted,
+		Status:       statusPending,
 		CreationTime: now,
-		StartTime:    &now,
-		StopTime:     &now,
 	}
 	run.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "run/"+id)
 
@@ -1429,12 +1544,10 @@ func (b *InMemoryBackend) StartRun(
 		TaskID:       taskID,
 		RunID:        id,
 		Name:         "task-1",
-		Status:       statusCompleted,
+		Status:       statusPending,
 		CPUs:         stubTaskCPUs,
 		Memory:       stubTaskMemory,
 		CreationTime: now,
-		StartTime:    &now,
-		StopTime:     &now,
 	}
 
 	if tags != nil {
@@ -1452,12 +1565,17 @@ func (b *InMemoryBackend) CancelRun(id string) error {
 	defer b.mu.Unlock()
 
 	st := b.region(b.defaultRegion)
+	run, ok := st.runs[id]
 
-	if _, ok := st.runs[id]; !ok {
+	if !ok {
 		return fmt.Errorf("%w: run %s not found", ErrNotFound, id)
 	}
 
-	st.runs[id].Status = statusCancelled
+	if run.Status == statusCompleted || run.Status == statusCancelled || run.Status == statusFailed {
+		return fmt.Errorf("%w: run %s is already in terminal state %s", ErrValidation, id, run.Status)
+	}
+
+	run.Status = statusCancelled
 
 	return nil
 }
@@ -1574,7 +1692,7 @@ func (b *InMemoryBackend) ListRunTasks(
 
 // CreateWorkflow creates a new workflow.
 func (b *InMemoryBackend) CreateWorkflow(
-	name, description, _ /* definitionZip */, engine string,
+	name, description, _ /* definitionZip */, _ /* definitionURI */, engine string,
 	tags map[string]string,
 ) (*Workflow, error) {
 	if name == "" {
@@ -1590,7 +1708,8 @@ func (b *InMemoryBackend) CreateWorkflow(
 		Name:         name,
 		Description:  description,
 		Engine:       engine,
-		Status:       statusActive,
+		Type:         "PRIVATE",
+		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: time.Now().UTC(),
 	}
@@ -1721,7 +1840,9 @@ func (b *InMemoryBackend) CreateWorkflowVersion(
 		WorkflowID:   workflowID,
 		VersionName:  versionName,
 		Description:  description,
-		Status:       statusActive,
+		Engine:       wf.Engine,
+		Type:         wf.Type,
+		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: time.Now().UTC(),
 	}
@@ -1731,8 +1852,6 @@ func (b *InMemoryBackend) CreateWorkflowVersion(
 		b.accountID,
 		fmt.Sprintf("workflow/%s/version/%s", workflowID, versionName),
 	)
-
-	_ = wf
 
 	st.workflowVersions[workflowID][versionName] = wv
 
@@ -1808,13 +1927,7 @@ func (b *InMemoryBackend) ListWorkflowVersions(
 	}
 
 	versions := st.workflowVersions[workflowID]
-	names := make([]string, 0, len(versions))
-
-	for name := range versions {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(versions)
 	page, outToken := paginateStrings(names, nextToken, maxResults)
 
 	result := make([]*WorkflowVersion, 0, len(page))
@@ -1858,6 +1971,7 @@ func (b *InMemoryBackend) UpdateWorkflowVersion(workflowID, versionName, descrip
 // CreateAnnotationStore creates a new annotation store.
 func (b *InMemoryBackend) CreateAnnotationStore(
 	name, storeFormat string,
+	reference, sseConfig, storeOptions map[string]any,
 	tags map[string]string,
 ) (*AnnotationStore, error) {
 	if name == "" {
@@ -1878,7 +1992,10 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 		ID:           newID(),
 		Name:         name,
 		StoreFormat:  storeFormat,
-		Status:       statusActive,
+		Reference:    reference,
+		SseConfig:    sseConfig,
+		StoreOptions: storeOptions,
+		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: now,
 		UpdateTime:   now,
@@ -2255,6 +2372,7 @@ func (b *InMemoryBackend) UpdateAnnotationStoreVersion(
 // CreateVariantStore creates a new variant store.
 func (b *InMemoryBackend) CreateVariantStore(
 	name string,
+	reference map[string]any,
 	tags map[string]string,
 ) (*VariantStore, error) {
 	if name == "" {
@@ -2274,7 +2392,8 @@ func (b *InMemoryBackend) CreateVariantStore(
 	vs := &VariantStore{
 		ID:           newID(),
 		Name:         name,
-		Status:       statusActive,
+		Reference:    reference,
+		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: now,
 		UpdateTime:   now,
@@ -2547,7 +2666,7 @@ func (b *InMemoryBackend) GetShare(shareID string) (*Share, error) {
 
 // ListShares lists shares by resource owner.
 func (b *InMemoryBackend) ListShares(
-	_ /* resourceOwner */ string,
+	resourceOwner string,
 	maxResults int,
 	nextToken string,
 ) ([]*Share, string, error) {
@@ -2555,9 +2674,29 @@ func (b *InMemoryBackend) ListShares(
 	defer b.mu.RUnlock()
 
 	st := b.region(b.defaultRegion)
-	ids := sortedKeys2(st.shares)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	allIDs := sortedKeys2(st.shares)
 
+	var ids []string
+
+	for _, id := range allIDs {
+		s := st.shares[id]
+		isSelf := strings.Contains(s.ResourceARN, ":"+b.accountID+":")
+
+		switch resourceOwner {
+		case "SELF":
+			if isSelf {
+				ids = append(ids, id)
+			}
+		case "OTHER":
+			if !isSelf {
+				ids = append(ids, id)
+			}
+		default:
+			ids = append(ids, id)
+		}
+	}
+
+	page, outToken := paginateStrings(ids, nextToken, maxResults)
 	result := make([]*Share, 0, len(page))
 
 	for _, id := range page {
@@ -2676,7 +2815,9 @@ func (b *InMemoryBackend) UpdateRunCache(id, name, description string) error {
 		rc.Name = name
 	}
 
-	_ = description
+	if description != "" {
+		rc.Description = description
+	}
 
 	return nil
 }
@@ -2715,12 +2856,17 @@ func (b *InMemoryBackend) CancelRunBatch(id string) error {
 	defer b.mu.Unlock()
 
 	st := b.region(b.defaultRegion)
+	rb, ok := st.runBatches[id]
 
-	if _, ok := st.runBatches[id]; !ok {
+	if !ok {
 		return fmt.Errorf("%w: run batch %s not found", ErrNotFound, id)
 	}
 
-	st.runBatches[id].Status = statusCancelled
+	if rb.Status == statusCompleted || rb.Status == statusCancelled || rb.Status == statusFailed {
+		return fmt.Errorf("%w: run batch %s is already in terminal state %s", ErrValidation, id, rb.Status)
+	}
+
+	rb.Status = statusCancelled
 
 	return nil
 }
@@ -2812,8 +2958,8 @@ func (b *InMemoryBackend) DeleteRunBatches(ids []string) ([]RunBatchDeleteError,
 // ListRunsInBatch lists runs that belong to a run batch.
 func (b *InMemoryBackend) ListRunsInBatch(
 	batchID string,
-	_ /* maxResults */ int,
-	_ /* nextToken */ string,
+	maxResults int,
+	nextToken string,
 ) ([]*Run, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -2824,7 +2970,24 @@ func (b *InMemoryBackend) ListRunsInBatch(
 		return nil, "", fmt.Errorf("%w: run batch %s not found", ErrNotFound, batchID)
 	}
 
-	return []*Run{}, "", nil
+	var ids []string
+
+	for id, r := range st.runs {
+		if r.RunBatchID == batchID {
+			ids = append(ids, id)
+		}
+	}
+
+	sort.Strings(ids)
+	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	result := make([]*Run, 0, len(page))
+
+	for _, id := range page {
+		r := *st.runs[id]
+		result = append(result, &r)
+	}
+
+	return result, outToken, nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -3022,12 +3185,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 // ────────────────────────────────────────────────────────────────────────────
 
 func sortedKeys2[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }

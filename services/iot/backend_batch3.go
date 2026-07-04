@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // ---------------------------------------------------------------------------
@@ -37,7 +40,7 @@ func cloneOTAUpdate(o *OTAUpdate) *OTAUpdate {
 }
 
 func (b *InMemoryBackend) otaARN(id string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:otaupdate/%s", b.region, b.accountID, id)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("otaupdate/%s", id))
 }
 
 func (b *InMemoryBackend) CreateOTAUpdate(
@@ -131,7 +134,7 @@ func cloneIoTPackage(p *IoTPackage) *IoTPackage {
 }
 
 func (b *InMemoryBackend) packageARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:package/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("package/%s", name))
 }
 
 func (b *InMemoryBackend) CreateIoTPackage(name, description string, tags map[string]string) (*IoTPackage, error) {
@@ -239,8 +242,8 @@ func cloneIoTPackageVersion(v *IoTPackageVersion) *IoTPackageVersion {
 }
 
 func (b *InMemoryBackend) packageVersionARN(packageName, versionName string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:package/%s/version/%s",
-		b.region, b.accountID, packageName, versionName)
+	return arn.Build("iot", b.region, b.accountID,
+		fmt.Sprintf("package/%s/version/%s", packageName, versionName))
 }
 
 func (b *InMemoryBackend) CreateIoTPackageVersion(
@@ -333,11 +336,7 @@ func (b *InMemoryBackend) ListIoTPackageVersions(packageName string) []*IoTPacka
 	if m == nil {
 		return []*IoTPackageVersion{}
 	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 	out := make([]*IoTPackageVersion, 0, len(keys))
 	for _, k := range keys {
 		out = append(out, cloneIoTPackageVersion(m[k]))
@@ -777,7 +776,7 @@ func (b *InMemoryBackend) TransferCertificate(certID, targetAccount string) erro
 	if !ok {
 		return fmt.Errorf("certificate %q not found: %w", certID, ErrCertificateNotFound)
 	}
-	cert.Status = "PENDING_TRANSFER"
+	cert.Status = certStatusPendingTransfer
 	cert.LastModifiedAt = time.Now()
 	b.certificateTransfers[certID] = targetAccount
 
@@ -912,7 +911,7 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 	if _, exists := b.thingGroups[input.ThingGroupName]; exists {
 		return nil, fmt.Errorf("%w: dynamic thing group %q already exists", ErrAlreadyExists, input.ThingGroupName)
 	}
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thinggroup/%s", b.region, b.accountID, input.ThingGroupName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thinggroup/%s", input.ThingGroupName))
 	id := uuid.NewString()
 	attrs := make(map[string]string)
 	if input.Attributes != nil {
@@ -1007,7 +1006,7 @@ func cloneIoTCommand(cmd *IoTCommand) *IoTCommand {
 }
 
 func (b *InMemoryBackend) commandARN(id string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:command/%s", b.region, b.accountID, id)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("command/%s", id))
 }
 
 func (b *InMemoryBackend) CreateCommand(

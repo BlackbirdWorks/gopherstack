@@ -132,7 +132,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	backend.AddParameterGroupInternal("persist-dpg", "neptune1.3")
 	backend.AddEventSubscriptionInternal("persist-sub", "arn:aws:sns:us-east-1:000000000000:test")
 
-	data := backend.Snapshot()
+	data := backend.Snapshot(t.Context())
 	require.NotEmpty(t, data)
 
 	// Verify it's valid JSON
@@ -140,7 +140,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &raw))
 
 	restored := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, restored.Restore(data))
+	require.NoError(t, restored.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, neptune.ClusterCount(restored))
 	assert.Equal(t, 1, neptune.ClusterSnapshotCount(restored))
@@ -190,6 +190,7 @@ func TestRefinement1_DeleteDBCluster_CascadesClearRoles(t *testing.T) {
 		"Action":              {"DeleteDBCluster"},
 		"Version":             {"2014-10-31"},
 		"DBClusterIdentifier": {"cascade-cluster"},
+		"SkipFinalSnapshot":   {"true"},
 	})
 
 	assert.Equal(t, 0, neptune.ClusterRoleCount(backend, "cascade-cluster"))
@@ -218,6 +219,7 @@ func TestRefinement1_DeleteDBCluster_CascadesClearEndpoints(t *testing.T) {
 		"Action":              {"DeleteDBCluster"},
 		"Version":             {"2014-10-31"},
 		"DBClusterIdentifier": {"ep-cluster"},
+		"SkipFinalSnapshot":   {"true"},
 	})
 
 	assert.Equal(t, 0, neptune.ClusterEndpointCount(backend))
@@ -322,7 +324,7 @@ func TestRefinement1_CloneCluster_NoSharedSlice(t *testing.T) {
 	createCluster(t, h, "member-cluster")
 	createInstance(t, h, "member-inst", "member-cluster")
 
-	clusters, err := backend.DescribeDBClusters(context.Background(), "member-cluster")
+	clusters, err := backend.DescribeDBClusters(context.Background(), "member-cluster", neptune.DBClusterFilters{})
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 	require.Len(t, clusters[0].DBClusterMembers, 1)
@@ -330,7 +332,7 @@ func TestRefinement1_CloneCluster_NoSharedSlice(t *testing.T) {
 	// Mutate the returned copy — should not affect stored state.
 	clusters[0].DBClusterMembers[0].DBInstanceIdentifier = "mutated"
 
-	clusters2, err := backend.DescribeDBClusters(context.Background(), "member-cluster")
+	clusters2, err := backend.DescribeDBClusters(context.Background(), "member-cluster", neptune.DBClusterFilters{})
 	require.NoError(t, err)
 	assert.NotEqual(t, "mutated", clusters2[0].DBClusterMembers[0].DBInstanceIdentifier)
 }
@@ -676,11 +678,11 @@ func TestRefinement1_Persistence_EmptyRestore(t *testing.T) {
 	t.Parallel()
 
 	backend := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	data := backend.Snapshot()
+	data := backend.Snapshot(t.Context())
 	require.NotEmpty(t, data)
 
 	fresh := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(data))
+	require.NoError(t, fresh.Restore(t.Context(), data))
 	assert.Equal(t, 0, neptune.ClusterCount(fresh))
 }
 
@@ -689,7 +691,7 @@ func TestRefinement1_Persistence_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	backend := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	err := backend.Restore([]byte(`not-json`))
+	err := backend.Restore(t.Context(), []byte(`not-json`))
 	require.Error(t, err)
 }
 

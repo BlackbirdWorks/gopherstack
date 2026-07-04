@@ -1,13 +1,22 @@
 package rekognition
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+)
+
+const (
+	maxAsyncJobs         = 10_000
+	maxMediaAnalysisJobs = 10_000
 )
 
 var (
@@ -136,6 +145,7 @@ type storedAsyncJob struct {
 	JobType      string `json:"jobType"`
 	CollectionID string `json:"collectionId"`
 	JobStatus    string `json:"jobStatus"`
+	PollCount    int    `json:"pollCount"`
 }
 
 // storedMediaAnalysisJob holds a media analysis job.
@@ -156,7 +166,7 @@ func (j *storedMediaAnalysisJob) toMediaAnalysisJob() *MediaAnalysisJob {
 }
 
 func (b *InMemoryBackend) projectARN(name string) string {
-	return fmt.Sprintf("arn:aws:rekognition:%s:%s:project/%s", b.region, b.accountID, name)
+	return arn.Build("rekognition", b.region, b.accountID, fmt.Sprintf("project/%s", name))
 }
 
 func (b *InMemoryBackend) projectVersionARN(projectARN, versionName string) string {
@@ -214,11 +224,7 @@ func (b *InMemoryBackend) DescribeProjects(
 	defer b.mu.RUnlock()
 
 	// Collect and sort all project ARN keys.
-	keys := make([]string, 0, len(b.projects))
-	for k := range b.projects {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.projects)
 
 	// Build a filter set if requested.
 	filter := make(map[string]bool, len(projectARNs))
@@ -447,11 +453,7 @@ func (b *InMemoryBackend) ListProjectPolicies(
 
 	policyMap := b.projectPolicies[projectARN]
 
-	keys := make([]string, 0, len(policyMap))
-	for k := range policyMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(policyMap)
 
 	start := 0
 	if nextToken != "" {
@@ -643,18 +645,133 @@ func (b *InMemoryBackend) ListDatasetEntries(
 	return result, outToken, nil
 }
 
-// ListDatasetLabels returns an empty list of labels (not tracked by this mock).
+// datasetPaginationToken is the opaque pagination cursor for dataset label listing.
+type datasetPaginationToken struct {
+	Offset int `json:"o"`
+}
+
+// countLabelsFromEntry parses one JSON-lines entry and accumulates label counts.
+func countLabelsFromEntry(entry string, counts map[string]int64) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(entry), &obj); err != nil {
+		return
+	}
+
+	for key, val := range obj {
+		const metaSuffix = "-metadata"
+		if len(key) < len(metaSuffix) || key[len(key)-len(metaSuffix):] != metaSuffix {
+			continue
+		}
+
+		countLabelsFromMeta(val, counts)
+	}
+}
+
+// countLabelsFromMeta parses a -metadata block and increments label counts.
+func countLabelsFromMeta(raw json.RawMessage, counts map[string]int64) {
+	var meta map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return
+	}
+
+	// Single-label: "class-name"
+	if cn, ok := meta["class-name"]; ok {
+		var name string
+		if err := json.Unmarshal(cn, &name); err == nil && name != "" {
+			counts[name]++
+		}
+	}
+
+	// Multi-label: "class-map": {"LabelA": ..., "LabelB": ...}
+	if cm, ok := meta["class-map"]; ok {
+		var classMap map[string]json.RawMessage
+		if err := json.Unmarshal(cm, &classMap); err == nil {
+			for name := range classMap {
+				counts[name]++
+			}
+		}
+	}
+}
+
+// decodeDatasetPageToken decodes an opaque pagination token into an offset.
+func decodeDatasetPageToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return 0
+	}
+
+	var tok datasetPaginationToken
+	if err = json.Unmarshal(decoded, &tok); err != nil || tok.Offset <= 0 {
+		return 0
+	}
+
+	return tok.Offset
+}
+
+// ListDatasetLabels parses stored dataset entries and returns labels with occurrence counts.
 func (b *InMemoryBackend) ListDatasetLabels(
-	datasetARN string, maxResults int32, nextToken string, //nolint:revive // existing issue.
+	datasetARN string, maxResults int32, nextToken string,
 ) ([]*DatasetLabel, string, error) {
 	b.mu.RLock("ListDatasetLabels")
-	defer b.mu.RUnlock()
 
 	if _, exists := b.datasets[datasetARN]; !exists {
+		b.mu.RUnlock()
+
 		return nil, "", ErrDatasetNotFound
 	}
 
-	return []*DatasetLabel{}, "", nil
+	// Clone entries under lock.
+	src := b.datasetEntries[datasetARN]
+	entries := make([]string, len(src))
+	copy(entries, src)
+
+	b.mu.RUnlock()
+
+	// Parse entries and count label occurrences (best-effort).
+	counts := make(map[string]int64)
+	for _, entry := range entries {
+		countLabelsFromEntry(entry, counts)
+	}
+
+	// Sort by label name.
+	names := make([]string, 0, len(counts))
+	for n := range counts {
+		names = append(names, n)
+	}
+
+	sort.Strings(names)
+
+	start := decodeDatasetPageToken(nextToken)
+
+	const maxPerPage = 100
+	limit := int(maxPerPage)
+
+	if maxResults > 0 && int(maxResults) < limit {
+		limit = int(maxResults)
+	}
+
+	end := min(start+limit, len(names))
+
+	result := make([]*DatasetLabel, 0, end-start)
+	for _, n := range names[start:end] {
+		result = append(result, &DatasetLabel{
+			LabelName:  n,
+			EntryCount: counts[n],
+		})
+	}
+
+	var outToken string
+
+	if end < len(names) {
+		tok, _ := json.Marshal(datasetPaginationToken{Offset: end})
+		outToken = base64.RawURLEncoding.EncodeToString(tok)
+	}
+
+	return result, outToken, nil
 }
 
 // UpdateDatasetEntries appends changes to dataset entries.
@@ -671,10 +788,21 @@ func (b *InMemoryBackend) UpdateDatasetEntries(datasetARN string, changes []byte
 	return nil
 }
 
-// DistributeDatasetEntries is a no-op for the in-memory backend.
-func (b *InMemoryBackend) DistributeDatasetEntries(
-	datasets []DatasetDistribution, //nolint:revive // existing issue.
-) error {
+// DistributeDatasetEntries validates datasets and marks them as UPDATE_IN_PROGRESS.
+func (b *InMemoryBackend) DistributeDatasetEntries(datasets []DatasetDistribution) error {
+	b.mu.Lock("DistributeDatasetEntries")
+	defer b.mu.Unlock()
+
+	for _, d := range datasets {
+		ds, ok := b.datasets[d.DatasetARN]
+		if !ok {
+			return ErrDatasetNotFound
+		}
+
+		ds.Status = "UPDATE_IN_PROGRESS"
+		ds.LastUpdatedTimestamp = time.Now()
+	}
+
 	return nil
 }
 
@@ -744,11 +872,7 @@ func (b *InMemoryBackend) ListUsers(
 
 	userMap := b.users[collectionID]
 
-	keys := make([]string, 0, len(userMap))
-	for k := range userMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(userMap)
 
 	start := 0
 	if nextToken != "" {
@@ -908,7 +1032,7 @@ func (b *InMemoryBackend) SearchUsers(collectionID, userID string, maxUsers int3
 
 		matches = append(matches, &UserMatch{
 			User:       u.toUser(),
-			Similarity: defaultFaceSimilarity,
+			Similarity: userSimilarity(userID, u),
 		})
 
 		if len(matches) >= limit {
@@ -919,8 +1043,13 @@ func (b *InMemoryBackend) SearchUsers(collectionID, userID string, maxUsers int3
 	return matches, nil
 }
 
-// SearchUsersByImage returns up to maxUsers users with a simulated similarity score.
-func (b *InMemoryBackend) SearchUsersByImage(collectionID string, maxUsers int32) ([]*UserMatch, error) {
+// SearchUsersByImage returns up to maxUsers users with a deterministic similarity
+// score derived from the image reference and each candidate user's identity.
+func (b *InMemoryBackend) SearchUsersByImage(
+	collectionID string,
+	maxUsers int32,
+	imageKey string,
+) ([]*UserMatch, error) {
 	b.mu.RLock("SearchUsersByImage")
 	defer b.mu.RUnlock()
 
@@ -942,7 +1071,7 @@ func (b *InMemoryBackend) SearchUsersByImage(collectionID string, maxUsers int32
 	for _, u := range userMap {
 		matches = append(matches, &UserMatch{
 			User:       u.toUser(),
-			Similarity: defaultFaceSimilarity,
+			Similarity: userSimilarity(imageKey, u),
 		})
 
 		if len(matches) >= limit {
@@ -963,10 +1092,19 @@ func (b *InMemoryBackend) CreateFaceLivenessSession() (string, error) {
 	defer b.mu.Unlock()
 
 	sessionID := uuid.NewString()
+
+	// Derive confidence from session ID hash: range 75.0-99.9
+	var h uint32
+	for _, c := range sessionID {
+		h = h*31 + uint32(c) //nolint:mnd,gosec // hash multiplier; G115 safe: unicode codepoints are non-negative
+	}
+
+	confidence := float32(75.0) + float32(h%250)/10.0 //nolint:mnd // confidence range
+
 	b.livenessSessions[sessionID] = &storedLivenessSession{
 		SessionID:  sessionID,
 		Status:     "SUCCEEDED", //nolint:goconst // existing issue.
-		Confidence: 99.0,        //nolint:mnd // existing issue.
+		Confidence: confidence,
 	}
 
 	return sessionID, nil
@@ -998,37 +1136,64 @@ func (b *InMemoryBackend) StartAsyncJob(jobType, collectionID string) (string, e
 	b.mu.Lock("StartAsyncJob")
 	defer b.mu.Unlock()
 
+	// Evict a random entry if at capacity.
+	if len(b.asyncJobs) >= maxAsyncJobs {
+		for k := range b.asyncJobs {
+			delete(b.asyncJobs, k)
+
+			break
+		}
+	}
+
 	jobID := uuid.NewString()
 	b.asyncJobs[jobID] = &storedAsyncJob{
 		JobID:        jobID,
 		JobType:      jobType,
 		CollectionID: collectionID,
-		JobStatus:    "SUCCEEDED",
+		JobStatus:    "IN_PROGRESS",
 	}
 
 	return jobID, nil
 }
 
-// GetAsyncJob returns an async job by ID.
+// GetAsyncJob returns an async job by ID, simulating state progression on each poll.
 func (b *InMemoryBackend) GetAsyncJob(jobID string) (*AsyncJob, error) {
-	b.mu.RLock("GetAsyncJob")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetAsyncJob")
+	defer b.mu.Unlock()
 
 	job, exists := b.asyncJobs[jobID]
 	if !exists {
 		return nil, ErrAsyncJobNotFound
 	}
 
-	return &AsyncJob{
-		JobID:     job.JobID,
-		JobStatus: job.JobStatus,
-	}, nil
+	switch job.PollCount {
+	case 0:
+		job.PollCount++
+
+		return &AsyncJob{JobID: job.JobID, JobStatus: "IN_PROGRESS"}, nil
+	case 1:
+		job.PollCount++
+		job.JobStatus = "SUCCEEDED"
+
+		return &AsyncJob{JobID: job.JobID, JobStatus: "SUCCEEDED"}, nil
+	default:
+		return &AsyncJob{JobID: job.JobID, JobStatus: job.JobStatus}, nil
+	}
 }
 
 // StartMediaAnalysisJob creates a new media analysis job.
 func (b *InMemoryBackend) StartMediaAnalysisJob(jobName string) (string, error) {
 	b.mu.Lock("StartMediaAnalysisJob")
 	defer b.mu.Unlock()
+
+	// Evict a random entry if at capacity.
+	if len(b.mediaAnalysisJobs) >= maxMediaAnalysisJobs {
+		for k := range b.mediaAnalysisJobs {
+			delete(b.mediaAnalysisJobs, k)
+
+			break
+		}
+	}
 
 	jobID := uuid.NewString()
 	b.mediaAnalysisJobs[jobID] = &storedMediaAnalysisJob{
@@ -1061,11 +1226,7 @@ func (b *InMemoryBackend) ListMediaAnalysisJobs(
 	b.mu.RLock("ListMediaAnalysisJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.mediaAnalysisJobs))
-	for k := range b.mediaAnalysisJobs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.mediaAnalysisJobs)
 
 	start := 0
 	if nextToken != "" {

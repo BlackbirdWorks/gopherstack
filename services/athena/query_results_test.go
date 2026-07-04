@@ -93,7 +93,7 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := athena.NewInMemoryBackend()
+			b := athena.NewInMemoryBackend("", "")
 			b.InsertRows(catalog, database, table, rows)
 
 			h := athena.NewHandler(b)
@@ -101,7 +101,7 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 			id, err := b.StartQueryExecution(
 				tt.query, "primary",
 				athena.QueryExecutionContext{Catalog: catalog, Database: database},
-				athena.ResultConfiguration{}, nil,
+				athena.ResultConfiguration{}, nil, nil,
 			)
 			require.NoError(t, err)
 
@@ -167,7 +167,7 @@ func TestGetQueryResults_Pagination(t *testing.T) {
 		testRows = append(testRows, map[string]any{"n": i})
 	}
 
-	b := athena.NewInMemoryBackend()
+	b := athena.NewInMemoryBackend("", "")
 	b.InsertRows(catalog, database, table, testRows)
 
 	h := athena.NewHandler(b)
@@ -175,7 +175,7 @@ func TestGetQueryResults_Pagination(t *testing.T) {
 	id, err := b.StartQueryExecution(
 		"SELECT * FROM "+database+"."+table, "primary",
 		athena.QueryExecutionContext{Catalog: catalog, Database: database},
-		athena.ResultConfiguration{}, nil,
+		athena.ResultConfiguration{}, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -210,14 +210,14 @@ func TestGetQueryResults_Pagination(t *testing.T) {
 
 	rs2 := resp2["ResultSet"].(map[string]any)
 	rows2 := rs2["Rows"].([]any)
-	assert.Len(t, rows2, 4, "page 2: header + 3 remaining data rows")
+	assert.Len(t, rows2, 3, "page 2: 3 remaining data rows (no header on continuation pages)")
 }
 
 // TestGetQueryResults_CatalogQualifiedTable verifies 3-part table names are resolved.
 func TestGetQueryResults_CatalogQualifiedTable(t *testing.T) {
 	t.Parallel()
 
-	b := athena.NewInMemoryBackend()
+	b := athena.NewInMemoryBackend("", "")
 	b.InsertRows("AwsDataCatalog", "mydb", "orders", []map[string]any{
 		{"order_id": "ORD-001", "status": "shipped"},
 		{"order_id": "ORD-002", "status": "pending"},
@@ -229,7 +229,7 @@ func TestGetQueryResults_CatalogQualifiedTable(t *testing.T) {
 		"SELECT status FROM AwsDataCatalog.mydb.orders WHERE status = 'shipped'",
 		"primary",
 		athena.QueryExecutionContext{},
-		athena.ResultConfiguration{}, nil,
+		athena.ResultConfiguration{}, nil, nil,
 	)
 	require.NoError(t, err)
 

@@ -544,11 +544,11 @@ func TestParity_Snapshot_IncludesMulticastGroups(t *testing.T) {
 	mg2, err := b.CreateMulticastGroup(testAccountID, testRegion, "mg-snap-2", "desc2", nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotwireless.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	got1, err := b2.GetMulticastGroup(testAccountID, testRegion, mg1.ID)
 	require.NoError(t, err)
@@ -575,11 +575,11 @@ func TestParity_Snapshot_IncludesNetworkAnalyzerConfigs(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotwireless.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	got, err := b2.GetNetworkAnalyzerConfig(testAccountID, testRegion, nc.Name)
 	require.NoError(t, err)
@@ -598,11 +598,11 @@ func TestParity_Snapshot_IncludesImportTasks(t *testing.T) {
 	task, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, "snap-dest")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotwireless.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	got, err := b2.GetWirelessDeviceImportTask(task.ID)
 	require.NoError(t, err)
@@ -619,11 +619,11 @@ func TestParity_Snapshot_IncludesLogLevels(t *testing.T) {
 	require.NoError(t, b.UpdateLogLevelsByResourceTypes("ERROR"))
 	require.NoError(t, b.PutResourceLogLevel("res-001", "DEBUG"))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotwireless.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, "ERROR", b2.GetLogLevelsByResourceTypes())
 	assert.Equal(t, "DEBUG", b2.GetResourceLogLevel("res-001"))
@@ -652,11 +652,11 @@ func TestParity_SnapshotRestore_FullRoundTrip(t *testing.T) {
 	it, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, "snap-dest")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotwireless.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify all resources survived.
 	gotDev, err := b2.GetWirelessDevice(testAccountID, testRegion, dev.ID)

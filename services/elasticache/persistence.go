@@ -1,9 +1,10 @@
 package elasticache
 
 import (
-	"encoding/json"
+	"context"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -47,7 +48,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -83,24 +84,20 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Snapshots:                 b.snapshots,
 		CacheSecurityGroups:       b.cacheSecurityGroups,
 		CacheSecurityGroupIngress: b.cacheSecurityGroupIngress,
-		GlobalReplicationGroups:   b.globalReplicationGroups,
-		ServerlessCaches:          b.serverlessCaches,
-		ServerlessCacheSnapshots:  b.serverlessCacheSnapshots,
-		Users:                     b.users,
-		UserGroups:                b.userGroups,
-		ReservedCacheNodes:        b.reservedCacheNodes,
-		Events:                    b.events.marshalJSON(),
-		EngineMode:                b.engineMode,
-		AccountID:                 b.accountID,
-		Region:                    b.region,
+		GlobalReplicationGroups:   b.cloneGlobalReplicationGroups(),
+
+		ServerlessCaches:         b.serverlessCaches,
+		ServerlessCacheSnapshots: b.serverlessCacheSnapshots,
+		Users:                    b.users,
+		UserGroups:               b.userGroups,
+		ReservedCacheNodes:       b.reservedCacheNodes,
+		Events:                   b.events.marshalJSON(),
+		EngineMode:               b.engineMode,
+		AccountID:                b.accountID,
+		Region:                   b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "elasticache", snap)
 }
 
 // restoreClusters converts the snapshot's clusterSnapshot nested map into Cluster objects.
@@ -147,9 +144,9 @@ func (b *InMemoryBackend) restoreNewOpMaps(snap *backendSnapshot) {
 	}
 
 	if snap.GlobalReplicationGroups != nil {
-		b.globalReplicationGroups = snap.GlobalReplicationGroups
+		b.setGlobalReplicationGroups(snap.GlobalReplicationGroups)
 	} else {
-		b.globalReplicationGroups = make(map[string]*GlobalReplicationGroup)
+		b.setGlobalReplicationGroups(make(map[string]*GlobalReplicationGroup))
 	}
 
 	if snap.ServerlessCaches != nil {
@@ -185,10 +182,10 @@ func (b *InMemoryBackend) restoreNewOpMaps(snap *backendSnapshot) {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "elasticache", data, &snap); err != nil {
 		return err
 	}
 
@@ -213,6 +210,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	if snap.Snapshots == nil {
 		snap.Snapshots = make(map[string]map[string]*CacheSnapshot)
+	}
+
+	for _, regionClusters := range b.clusters {
+		for _, c := range regionClusters {
+			if c.mini != nil {
+				c.mini.Close()
+			}
+		}
 	}
 
 	b.clusters = restoreClusters(snap.Clusters)
@@ -250,20 +255,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
-	type restorer interface{ Restore([]byte) error }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+		return r.Restore(ctx, data)
 	}
 
 	return nil

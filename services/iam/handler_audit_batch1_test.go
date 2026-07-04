@@ -26,7 +26,7 @@ func TestHandler_AttachDetachUserPolicy_RoundTrip(t *testing.T) {
 	e := echo.New()
 	h, b := newTestHandler(t)
 	_, _ = b.CreateUser("alice", "/", "")
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, _ := b.CreatePolicy("P", "/", doc)
 
 	// Attach.
@@ -67,7 +67,7 @@ func TestHandler_AttachRolePolicy_RoundTrip(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 	p, _ := b.CreatePolicy("P", "/", doc)
 
@@ -98,7 +98,7 @@ func TestHandler_AttachGroupPolicy_RoundTrip(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateGroup("Admins", "/")
 	p, _ := b.CreatePolicy("P", "/", doc)
 
@@ -132,7 +132,7 @@ func TestHandler_UserInlinePolicy_RoundTrip(t *testing.T) {
 	e := echo.New()
 	h, b := newTestHandler(t)
 	_, _ = b.CreateUser("alice", "/", "")
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 
 	req := iamRequest("PutUserPolicy", map[string]string{
 		"UserName":       "alice",
@@ -171,7 +171,7 @@ func TestHandler_RoleInlinePolicy_RoundTrip(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 
 	req := iamRequest("PutRolePolicy", map[string]string{
@@ -211,7 +211,7 @@ func TestHandler_GroupInlinePolicy_RoundTrip(t *testing.T) {
 	e := echo.New()
 	h, b := newTestHandler(t)
 	_, _ = b.CreateGroup("Ops", "/")
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 
 	req := iamRequest("PutGroupPolicy", map[string]string{
 		"GroupName":      "Ops",
@@ -243,7 +243,7 @@ func TestHandler_PolicyVersion_CRUD(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, _ := b.CreatePolicy("VersionedPolicy", "/", doc)
 
 	// CreatePolicyVersion.
@@ -308,7 +308,7 @@ func TestHandler_PolicyVersion_LimitExceeded(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, _ := b.CreatePolicy("LP", "/", doc)
 
 	// Create 4 more versions to hit the cap (v1 + v2 + v3 + v4 + v5 = 5).
@@ -633,7 +633,7 @@ func TestHandler_InstanceProfile_CRUD(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 
 	// CreateInstanceProfile.
@@ -698,7 +698,7 @@ func TestHandler_InstanceProfile_OneRoleLimit(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("R1", "/", doc, "")
 	_, _ = b.CreateRole("R2", "/", doc, "")
 	_, _ = b.CreateInstanceProfile("IP", "/")
@@ -783,7 +783,7 @@ func TestHandler_OIDCProvider_CRUD(t *testing.T) {
 	req := iamRequest("CreateOpenIDConnectProvider", map[string]string{
 		"Url":                     "https://example.com/oidc",
 		"ClientIDList.member.1":   "client1",
-		"ThumbprintList.member.1": "abc123def456",
+		"ThumbprintList.member.1": "990f41981148b53dc7c615a6b0c2a26555cc5d85",
 	})
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
@@ -833,7 +833,11 @@ func TestHandler_PermissionsBoundary_UserRoundTrip(t *testing.T) {
 	e := echo.New()
 	h, b := newTestHandler(t)
 	_, _ = b.CreateUser("alice", "/", "")
-	p, _ := b.CreatePolicy("Boundary", "/", `{"Version":"2012-10-17","Statement":[]}`)
+	p, _ := b.CreatePolicy(
+		"Boundary",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 
 	req := iamRequest("PutUserPermissionsBoundary", map[string]string{
 		"UserName":            "alice",
@@ -859,7 +863,7 @@ func TestHandler_PermissionsBoundary_RoleRoundTrip(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 	p, _ := b.CreatePolicy("Boundary", "/", doc)
 
@@ -917,7 +921,7 @@ func TestHandler_GetAccountSummary(t *testing.T) {
 
 	_, _ = b.CreateUser("alice", "/", "")
 	_, _ = b.CreateUser("bob", "/", "")
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("R", "/", doc, "")
 	_, _ = b.CreateGroup("G", "/")
 
@@ -961,7 +965,7 @@ func TestHandler_UpdateAssumeRolePolicy(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 
 	newDoc := `{"Version":"2012-10-17","Statement":[` +
@@ -984,7 +988,7 @@ func TestHandler_GetAccountAuthorizationDetails(t *testing.T) {
 	e := echo.New()
 	h, b := newTestHandler(t)
 	_, _ = b.CreateUser("alice", "/", "")
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("R", "/", doc, "")
 
 	req := iamRequest("GetAccountAuthorizationDetails", map[string]string{})
@@ -1002,7 +1006,7 @@ func TestHandler_ListEntitiesForPolicy(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateUser("alice", "/", "")
 	p, _ := b.CreatePolicy("P", "/", doc)
 	_ = b.AttachUserPolicy("alice", p.Arn)
@@ -1109,7 +1113,7 @@ func TestHandler_TagRole_RoundTrip(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 
 	req := iamRequest("TagRole", map[string]string{
@@ -1142,7 +1146,7 @@ func TestHandler_UpdateRole(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 
 	req := iamRequest("UpdateRole", map[string]string{

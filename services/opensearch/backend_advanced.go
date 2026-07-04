@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -105,6 +106,11 @@ const (
 	upgradeProgressComplete = float64(100)
 	// autoTuneScheduleLookahead is the look-ahead duration for the next auto-tune window.
 	autoTuneScheduleLookahead = 24 * time.Hour
+	// maxUpgradeHistoryPerDomain caps the number of upgrade history entries kept
+	// per domain to prevent unbounded memory growth in long-running backends.
+	maxUpgradeHistoryPerDomain = 100
+	// maxMaintenancesPerDomain caps the number of maintenance records kept per domain.
+	maxMaintenancesPerDomain = 200
 	// maxDataNodesR6gLarge is the max data-node count for r6g.large.search.
 	maxDataNodesR6gLarge = 40
 	// maxDataNodesR6gXLarge is the max data-node count for r6g.xlarge.search.
@@ -149,9 +155,12 @@ func (b *InMemoryBackend) UpgradeDomain(domainName, upgradeName string) error {
 	b.mu.Lock("UpgradeDomain")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domains[domainName]; !ok {
+	d, ok := b.domains[domainName]
+	if !ok || deleteWindowElapsed(d, b.clock()) {
 		return fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
 	}
+
+	b.beginProcessing(d, dpsUpgrading)
 
 	uh := &UpgradeHistory{
 		UpgradeName:    upgradeName,
@@ -178,6 +187,10 @@ func (b *InMemoryBackend) UpgradeDomain(domainName, upgradeName string) error {
 
 	key := upgradeHistoryKey(domainName)
 	b.upgradeHistory[key] = append(b.upgradeHistory[key], uh)
+	// Trim to the cap, keeping the most recent entries.
+	if len(b.upgradeHistory[key]) > maxUpgradeHistoryPerDomain {
+		b.upgradeHistory[key] = b.upgradeHistory[key][len(b.upgradeHistory[key])-maxUpgradeHistoryPerDomain:]
+	}
 
 	return nil
 }
@@ -407,9 +420,14 @@ func (b *InMemoryBackend) ListDomainNamesByEngine(engineType string) []string {
 	b.mu.RLock("ListDomainNamesByEngine")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
 	out := make([]string, 0, len(b.domains))
 
 	for name, d := range b.domains {
+		if deleteWindowElapsed(d, now) {
+			continue
+		}
+
 		if engineType == "" {
 			out = append(out, name)
 
@@ -419,11 +437,11 @@ func (b *InMemoryBackend) ListDomainNamesByEngine(engineType string) []string {
 		// OpenSearch domains have EngineVersion starting with "OpenSearch_"
 		// Elasticsearch domains have EngineVersion starting with a number.
 		switch engineType {
-		case "OpenSearch":
+		case engineTypeOpenSearch:
 			if isOpenSearchEngine(d.EngineVersion) {
 				out = append(out, name)
 			}
-		case "Elasticsearch":
+		case engineTypeElasticsearch:
 			if !isOpenSearchEngine(d.EngineVersion) {
 				out = append(out, name)
 			}
@@ -440,4 +458,49 @@ func isOpenSearchEngine(engineVersion string) bool {
 	}
 
 	return engineVersion[:11] == "OpenSearch_"
+}
+
+// DomainEntry holds the name and engine version of a domain, used for list responses.
+type DomainEntry struct {
+	Name          string
+	EngineVersion string
+}
+
+// ListDomainEntriesFiltered returns name+engine version for all domains matching engineType,
+// under a single read lock. Pass an empty string to return all domains.
+func (b *InMemoryBackend) ListDomainEntriesFiltered(engineType string) []DomainEntry {
+	b.mu.RLock("ListDomainEntriesFiltered")
+	defer b.mu.RUnlock()
+
+	now := b.clock()
+	out := make([]DomainEntry, 0, len(b.domains))
+
+	for name, d := range b.domains {
+		if deleteWindowElapsed(d, now) {
+			continue
+		}
+
+		if engineType == "" {
+			out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+
+			continue
+		}
+
+		switch engineType {
+		case engineTypeOpenSearch:
+			if isOpenSearchEngine(d.EngineVersion) {
+				out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+			}
+		case engineTypeElasticsearch:
+			if !isOpenSearchEngine(d.EngineVersion) {
+				out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+			}
+		default:
+			if strings.HasPrefix(d.EngineVersion, engineType+"_") {
+				out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+			}
+		}
+	}
+
+	return out
 }

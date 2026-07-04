@@ -29,7 +29,7 @@ type stubResolver struct {
 	smErr   error
 }
 
-func (s *stubResolver) ResolveSSMParameter(name string) (string, error) {
+func (s *stubResolver) ResolveSSMParameter(_ context.Context, name string) (string, error) {
 	if s.ssmErr != nil {
 		return "", s.ssmErr
 	}
@@ -41,11 +41,11 @@ func (s *stubResolver) ResolveSSMParameter(name string) (string, error) {
 	return "", fmt.Errorf("%w: %s", errStubParamNotFound, name)
 }
 
-func (s *stubResolver) ResolveSSMSecureParameter(name string) (string, error) {
-	return s.ResolveSSMParameter(name)
+func (s *stubResolver) ResolveSSMSecureParameter(ctx context.Context, name string) (string, error) {
+	return s.ResolveSSMParameter(ctx, name)
 }
 
-func (s *stubResolver) ResolveSecret(secretID, jsonKey string) (string, error) {
+func (s *stubResolver) ResolveSecret(_ context.Context, secretID, jsonKey string) (string, error) {
 	if s.smErr != nil {
 		return "", s.smErr
 	}
@@ -189,7 +189,7 @@ func TestResolveDynamicRefsInTemplate_SSM(t *testing.T) {
 			t.Parallel()
 
 			tmpl := tt.setup(t)
-			err := cloudformation.ResolveDynamicRefsInTemplate(tmpl, tt.resolver)
+			err := cloudformation.ResolveDynamicRefsInTemplate(context.Background(), tmpl, tt.resolver)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -304,7 +304,7 @@ func TestResolveDynamicRefsInTemplate_SecretsManager(t *testing.T) {
 			t.Parallel()
 
 			tmpl := tt.setup(t)
-			err := cloudformation.ResolveDynamicRefsInTemplate(tmpl, tt.resolver)
+			err := cloudformation.ResolveDynamicRefsInTemplate(context.Background(), tmpl, tt.resolver)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -575,11 +575,11 @@ func TestNewDynamicRefResolver_NoSSMOrSM(t *testing.T) {
 	resolver := cloudformation.NewDynamicRefResolver(backends)
 	require.NotNil(t, resolver)
 
-	_, err := resolver.ResolveSSMParameter("/some/param")
+	_, err := resolver.ResolveSSMParameter(context.Background(), "/some/param")
 	require.Error(t, err)
 	require.ErrorIs(t, err, cloudformation.ErrDynamicRefFailed)
 
-	_, err = resolver.ResolveSecret("some-secret", "")
+	_, err = resolver.ResolveSecret(context.Background(), "some-secret", "")
 	require.Error(t, err)
 	require.ErrorIs(t, err, cloudformation.ErrDynamicRefFailed)
 }
@@ -615,17 +615,19 @@ func TestNewDynamicRefResolver_RealSSM(t *testing.T) {
 	}{
 		{
 			name: "plain_param",
-			call: func() (string, error) { return resolver.ResolveSSMParameter("/test/param") },
+			call: func() (string, error) { return resolver.ResolveSSMParameter(context.Background(), "/test/param") },
 			want: "hello",
 		},
 		{
 			name: "secure_param",
-			call: func() (string, error) { return resolver.ResolveSSMSecureParameter("/test/secure") },
+			call: func() (string, error) {
+				return resolver.ResolveSSMSecureParameter(context.Background(), "/test/secure")
+			},
 			want: "secret-val",
 		},
 		{
 			name:    "missing_param",
-			call:    func() (string, error) { return resolver.ResolveSSMParameter("/not/there") },
+			call:    func() (string, error) { return resolver.ResolveSSMParameter(context.Background(), "/not/there") },
 			wantErr: true,
 		},
 	}
@@ -704,7 +706,7 @@ func TestNewDynamicRefResolver_RealSecretsManager(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := resolver.ResolveSecret(tt.secretID, tt.jsonKey)
+			got, err := resolver.ResolveSecret(context.Background(), tt.secretID, tt.jsonKey)
 
 			if tt.wantErr {
 				require.Error(t, err)

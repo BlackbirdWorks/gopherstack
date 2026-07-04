@@ -104,14 +104,15 @@ type StackEvent struct {
 
 // StackResource represents a resource within a stack.
 type StackResource struct {
-	Timestamp  time.Time      `json:"timestamp"`
-	Properties map[string]any `json:"properties,omitempty"`
-	LogicalID  string         `json:"logicalID"`
-	PhysicalID string         `json:"physicalID"`
-	Type       string         `json:"type"`
-	Status     string         `json:"status"`
-	StackID    string         `json:"stackID"`
-	StackName  string         `json:"stackName"`
+	Timestamp      time.Time      `json:"timestamp"`
+	Properties     map[string]any `json:"properties,omitempty"`
+	LogicalID      string         `json:"logicalID"`
+	PhysicalID     string         `json:"physicalID"`
+	Type           string         `json:"type"`
+	Status         string         `json:"status"`
+	StackID        string         `json:"stackID"`
+	StackName      string         `json:"stackName"`
+	DeletionPolicy string         `json:"deletionPolicy,omitempty"`
 }
 
 // ChangeSet represents a CloudFormation change set.
@@ -151,9 +152,29 @@ type Change struct {
 
 // ResourceChange describes a resource-level change.
 type ResourceChange struct {
-	Action       string `xml:"Action"            json:"action"`
-	LogicalID    string `xml:"LogicalResourceId" json:"logicalID"`
-	ResourceType string `xml:"ResourceType"      json:"resourceType"`
+	Action       string                 `xml:"Action"                       json:"action"`
+	LogicalID    string                 `xml:"LogicalResourceId"            json:"logicalID"`
+	PhysicalID   string                 `xml:"PhysicalResourceId,omitempty" json:"physicalID,omitempty"`
+	ResourceType string                 `xml:"ResourceType"                 json:"resourceType"`
+	Replacement  string                 `xml:"Replacement,omitempty"        json:"replacement,omitempty"`
+	Scope        []string               `xml:"Scope,omitempty"              json:"scope,omitempty"`
+	Details      []ResourceChangeDetail `xml:"Details,omitempty"            json:"details,omitempty"`
+}
+
+// ResourceChangeDetail describes a single property-level detail of a resource change,
+// mirroring the AWS CloudFormation ResourceChangeDetail shape.
+type ResourceChangeDetail struct {
+	Target       *ResourceTargetDefinition `xml:"Target,omitempty"       json:"target,omitempty"`
+	Evaluation   string                    `xml:"Evaluation,omitempty"   json:"evaluation,omitempty"`
+	ChangeSource string                    `xml:"ChangeSource,omitempty" json:"changeSource,omitempty"`
+}
+
+// ResourceTargetDefinition identifies the property targeted by a change detail and
+// whether changing it requires the resource to be recreated (replaced).
+type ResourceTargetDefinition struct {
+	Attribute          string `xml:"Attribute,omitempty"          json:"attribute,omitempty"`
+	Name               string `xml:"Name,omitempty"               json:"name,omitempty"`
+	RequiresRecreation string `xml:"RequiresRecreation,omitempty" json:"requiresRecreation,omitempty"`
 }
 
 // DriftDetectionStatus holds the status of a stack drift detection operation.
@@ -169,12 +190,24 @@ type DriftDetectionStatus struct {
 
 // StackResourceDrift holds drift information for a single stack resource.
 type StackResourceDrift struct {
-	Timestamp                time.Time `xml:"Timestamp"                    json:"timestamp"`
-	StackID                  string    `xml:"StackId"                      json:"stackID"`
-	LogicalResourceID        string    `xml:"LogicalResourceId"            json:"logicalResourceID"`
-	PhysicalResourceID       string    `xml:"PhysicalResourceId,omitempty" json:"physicalResourceID,omitempty"`
-	ResourceType             string    `xml:"ResourceType"                 json:"resourceType"`
-	StackResourceDriftStatus string    `xml:"StackResourceDriftStatus"     json:"stackResourceDriftStatus"`
+	Timestamp                time.Time            `xml:"Timestamp"                    json:"timestamp"`
+	StackID                  string               `xml:"StackId"                      json:"stackID"`
+	LogicalResourceID        string               `xml:"LogicalResourceId"            json:"logicalResourceID"`
+	PhysicalResourceID       string               `xml:"PhysicalResourceId,omitempty" json:"physicalResourceID,omitempty"`
+	ResourceType             string               `xml:"ResourceType"                 json:"resourceType"`
+	StackResourceDriftStatus string               `xml:"StackResourceDriftStatus"     json:"stackResourceDriftStatus"`
+	ExpectedProperties       string               `xml:"ExpectedProperties,omitempty" json:"expectedProperties,omitempty"`
+	ActualProperties         string               `xml:"ActualProperties,omitempty"   json:"actualProperties,omitempty"`
+	PropertyDifferences      []PropertyDifference `xml:"PropertyDifferences"          json:"propertyDifferences,omitempty"`
+}
+
+// PropertyDifference describes a single property-level difference between the
+// expected (template) state and the actual (live) state of a stack resource.
+type PropertyDifference struct {
+	PropertyPath   string `xml:"PropertyPath"   json:"propertyPath"`
+	ExpectedValue  string `xml:"ExpectedValue"  json:"expectedValue"`
+	ActualValue    string `xml:"ActualValue"    json:"actualValue"`
+	DifferenceType string `xml:"DifferenceType" json:"differenceType"`
 }
 
 // ParameterDeclaration describes a parameter declared in a CloudFormation template.
@@ -370,4 +403,44 @@ type ChangeSetHook struct {
 	TypeName          string `xml:"TypeName,omitempty"`
 	TypeVersionID     string `xml:"TypeVersionId,omitempty"`
 	TypeConfigVersion string `xml:"TypeConfigVersionId,omitempty"`
+}
+
+// StackSetOperationSummary is a brief summary of a StackSet operation.
+type StackSetOperationSummary struct {
+	CreationTime time.Time `xml:"CreationTime,omitempty"`
+	OperationID  string    `xml:"OperationId"`
+	Action       string    `xml:"Action"`
+	Status       string    `xml:"Status"`
+}
+
+// AutoDeploymentTarget represents a deployment target for a SERVICE_MANAGED StackSet.
+type AutoDeploymentTarget struct {
+	OrganizationalUnitID string   `xml:"OrganizationalUnitId,omitempty"`
+	Regions              []string `xml:"Regions>member,omitempty"`
+}
+
+// StackRefactorSummary is a brief summary of a stack refactor operation.
+type StackRefactorSummary struct {
+	StackRefactorID string `xml:"StackRefactorId"`
+	Status          string `xml:"Status,omitempty"`
+	Description     string `xml:"Description,omitempty"`
+}
+
+// StackRefactorAction is a single action performed during a stack refactor.
+type StackRefactorAction struct {
+	Action             string `xml:"Action,omitempty"`
+	Description        string `xml:"Description,omitempty"`
+	StackName          string `xml:"StackName,omitempty"`
+	LogicalResourceID  string `xml:"LogicalResourceId,omitempty"`
+	PhysicalResourceID string `xml:"PhysicalResourceId,omitempty"`
+	ResourceType       string `xml:"ResourceType,omitempty"`
+}
+
+// TypeConfigurationDetail holds configuration detail for a CloudFormation type.
+type TypeConfigurationDetail struct {
+	TypeArn                string `xml:"TypeArn,omitempty"`
+	TypeName               string `xml:"TypeName,omitempty"`
+	Alias                  string `xml:"Alias,omitempty"`
+	Configuration          string `xml:"Configuration,omitempty"`
+	IsDefaultConfiguration bool   `xml:"IsDefaultConfiguration,omitempty"`
 }

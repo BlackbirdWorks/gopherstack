@@ -13,6 +13,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // handlePostObject implements browser-style POST form-data uploads to S3.
@@ -77,6 +79,32 @@ func (h *S3Handler) handlePostObject(
 		key = strings.ReplaceAll(key, "${filename}", fileName)
 	}
 
+	put, buildErr := buildPostPutInput(bucketName, key, fileBody, fields)
+	if buildErr != nil {
+		WriteError(ctx, w, r, buildErr)
+
+		return
+	}
+
+	ver, putErr := h.Backend.PutObject(ctx, put)
+	if putErr != nil {
+		WriteError(ctx, w, r, putErr)
+
+		return
+	}
+
+	h.dispatchPostObjectNotification(ctx, bucketName, key, aws.ToString(ver.ETag), len(fileBody))
+
+	writePostObjectResponse(w, r, bucketName, key, ver.ETag, fields)
+}
+
+// buildPostPutInput constructs the PutObjectInput for a POST form upload from
+// the parsed form fields, validating any x-amz-tagging value.
+func buildPostPutInput(
+	bucketName, key string,
+	fileBody []byte,
+	fields map[string]string,
+) (*s3.PutObjectInput, error) {
 	objContentType := fields["Content-Type"]
 	if objContentType == "" {
 		objContentType = "binary/octet-stream"
@@ -94,35 +122,41 @@ func (h *S3Handler) handlePostObject(
 		Key:                aws.String(key),
 		Body:               bytes.NewReader(fileBody),
 		ContentType:        aws.String(objContentType),
-		ContentDisposition: nilStringIfEmpty(fields["Content-Disposition"]),
-		ContentEncoding:    nilStringIfEmpty(fields["Content-Encoding"]),
-		CacheControl:       nilStringIfEmpty(fields["Cache-Control"]),
+		ContentDisposition: ptrconv.NilIfEmpty(fields["Content-Disposition"]),
+		ContentEncoding:    ptrconv.NilIfEmpty(fields["Content-Encoding"]),
+		CacheControl:       ptrconv.NilIfEmpty(fields["Cache-Control"]),
 		Metadata:           userMeta,
 	}
+
 	if v := fields["x-amz-tagging"]; v != "" {
+		if tagErr := validateTaggingHeader(v); tagErr != nil {
+			return nil, tagErr
+		}
 		put.Tagging = aws.String(v)
 	}
 
-	ver, putErr := h.Backend.PutObject(ctx, put)
-	if putErr != nil {
-		WriteError(ctx, w, r, putErr)
+	return put, nil
+}
 
+// dispatchPostObjectNotification fires an ObjectCreated event for a POST upload
+// when the bucket has a notification configuration.
+func (h *S3Handler) dispatchPostObjectNotification(
+	ctx context.Context,
+	bucketName, key, etag string,
+	size int,
+) {
+	if h.notifier == nil {
 		return
 	}
 
-	if h.notifier != nil {
-		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
-			ctx, bucketName,
-		); ncErr == nil && notifXML != "" {
-			etag := aws.ToString(ver.ETag)
-			size := int64(len(fileBody))
-			go h.notifier.DispatchObjectCreated(
-				h.notificationDispatchContext(), bucketName, key, etag, size, notifXML,
-			)
-		}
+	notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(ctx, bucketName)
+	if ncErr != nil || notifXML == "" {
+		return
 	}
 
-	writePostObjectResponse(w, r, bucketName, key, ver.ETag, fields)
+	go h.notifier.DispatchObjectCreated(
+		h.notificationDispatchContext(), bucketName, key, etag, int64(size), notifXML,
+	)
 }
 
 // parsePostFormUpload reads a multipart/form-data body and returns the

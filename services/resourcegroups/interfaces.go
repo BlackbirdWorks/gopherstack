@@ -21,7 +21,9 @@ type StorageBackend interface {
 	UpdateGroup(ctx context.Context, nameOrARN, description, displayName string, criticality int) (*Group, error)
 	UpdateGroupQuery(ctx context.Context, nameOrARN string, query *ResourceQuery) (*Group, error)
 	DeleteGroup(ctx context.Context, nameOrARN string) error
-	ListGroups(ctx context.Context, filters []ListGroupsFilter) []Group
+	// ListGroups returns groups sorted by name with optional filtering and pagination.
+	// Returns the page of groups and a continuation token (empty when exhausted).
+	ListGroups(ctx context.Context, filters []ListGroupsFilter, nextToken string, maxResults int) ([]Group, string)
 
 	// Tag operations on group resources.
 	GetTagsByARN(ctx context.Context, resourceARN string) (map[string]string, error)
@@ -39,9 +41,31 @@ type StorageBackend interface {
 	// Resource grouping.
 	GroupResources(ctx context.Context, nameOrARN string, resourceARNs []string) ([]string, error)
 	UngroupResources(ctx context.Context, nameOrARN string, resourceARNs []string) (*UngroupResourcesResult, error)
-	ListGroupResources(ctx context.Context, nameOrARN string) ([]ResourceIdentifier, error)
-	ListGroupingStatuses(ctx context.Context, nameOrARN string) ([]GroupingStatusItem, error)
-	SearchResources(ctx context.Context, q *ResourceQuery) ([]ResourceIdentifier, error)
+	// ListGroupResources returns resource identifiers for a group with optional filtering and pagination.
+	// Returns identifiers, a continuation token (empty when exhausted), and any error.
+	ListGroupResources(
+		ctx context.Context,
+		nameOrARN string,
+		filters []ListGroupResourcesFilter,
+		nextToken string,
+		maxResults int,
+	) ([]ResourceIdentifier, string, error)
+	// ListGroupingStatuses returns grouping/ungrouping status history with optional pagination.
+	// Returns statuses, a continuation token (empty when exhausted), and any error.
+	ListGroupingStatuses(
+		ctx context.Context,
+		nameOrARN string,
+		nextToken string,
+		maxResults int,
+	) ([]GroupingStatusItem, string, error)
+	// SearchResources searches grouped resources filtered by the ResourceQuery.
+	// Returns identifiers, a continuation token (empty when exhausted), and any error.
+	SearchResources(
+		ctx context.Context,
+		q *ResourceQuery,
+		nextToken string,
+		maxResults int,
+	) ([]ResourceIdentifier, string, error)
 
 	// Tag-sync tasks.
 	StartTagSyncTask(
@@ -51,14 +75,21 @@ type StorageBackend interface {
 	) (*TagSyncTask, error)
 	CancelTagSyncTask(ctx context.Context, taskARN string) error
 	GetTagSyncTask(ctx context.Context, taskARN string) (*TagSyncTask, error)
-	ListTagSyncTasks(ctx context.Context, filters []ListTagSyncTasksFilter) ([]TagSyncTask, error)
+	// ListTagSyncTasks returns tasks with optional filtering and pagination.
+	// Returns tasks, a continuation token (empty when exhausted), and any error.
+	ListTagSyncTasks(
+		ctx context.Context,
+		filters []ListTagSyncTasksFilter,
+		nextToken string,
+		maxResults int,
+	) ([]TagSyncTask, string, error)
 
 	// Lifecycle.
 	Reset()
 	Region() string
 	AccountID() string
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.

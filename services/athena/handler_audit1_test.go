@@ -32,7 +32,7 @@ import (
 func a1Handler(t *testing.T) *athena.Handler {
 	t.Helper()
 
-	return athena.NewHandler(athena.NewInMemoryBackend())
+	return athena.NewHandler(athena.NewInMemoryBackend("", ""))
 }
 
 func a1Do(t *testing.T, h *athena.Handler, action, body string) *httptest.ResponseRecorder {
@@ -609,7 +609,7 @@ func TestAudit1_CapacityReservation_Lifecycle(t *testing.T) {
 			name: "cancel_sets_cancelling_status",
 			fn: func(t *testing.T, h *athena.Handler) {
 				t.Helper()
-				a1Do(t, h, "CreateCapacityReservation", `{"Name":"res2","TargetDpus":4}`)
+				a1Do(t, h, "CreateCapacityReservation", `{"Name":"res2","TargetDpus":24}`)
 				rec := a1Do(t, h, "CancelCapacityReservation", `{"Name":"res2"}`)
 				require.Equal(t, http.StatusOK, rec.Code)
 
@@ -622,7 +622,7 @@ func TestAudit1_CapacityReservation_Lifecycle(t *testing.T) {
 			name: "delete_after_cancel_succeeds",
 			fn: func(t *testing.T, h *athena.Handler) {
 				t.Helper()
-				a1Do(t, h, "CreateCapacityReservation", `{"Name":"res3","TargetDpus":4}`)
+				a1Do(t, h, "CreateCapacityReservation", `{"Name":"res3","TargetDpus":24}`)
 				a1Do(t, h, "CancelCapacityReservation", `{"Name":"res3"}`)
 				rec := a1Do(t, h, "DeleteCapacityReservation", `{"Name":"res3"}`)
 				require.Equal(t, http.StatusOK, rec.Code)
@@ -635,7 +635,7 @@ func TestAudit1_CapacityReservation_Lifecycle(t *testing.T) {
 			name: "delete_active_returns_error",
 			fn: func(t *testing.T, h *athena.Handler) {
 				t.Helper()
-				a1Do(t, h, "CreateCapacityReservation", `{"Name":"active-res","TargetDpus":4}`)
+				a1Do(t, h, "CreateCapacityReservation", `{"Name":"active-res","TargetDpus":24}`)
 				rec := a1Do(t, h, "DeleteCapacityReservation", `{"Name":"active-res"}`)
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				assert.NotEmpty(t, a1Unmarshal(t, rec)["__type"])

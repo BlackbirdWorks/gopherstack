@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -372,7 +372,9 @@ func (h *Handler) handleCancelQuery(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{
+		"CancellationMessage": "Query has been successfully cancelled.",
+	})
 }
 
 type createScheduledQueryInput struct {
@@ -427,15 +429,24 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: ScheduleConfiguration.ScheduleExpression is required", ErrValidation)
 	}
 
-	notificationTopicArn := ""
-	if req.NotificationConfiguration.SnsConfiguration != nil {
-		notificationTopicArn = req.NotificationConfiguration.SnsConfiguration.TopicArn
+	if req.NotificationConfiguration.SnsConfiguration == nil ||
+		req.NotificationConfiguration.SnsConfiguration.TopicArn == "" {
+		return nil, fmt.Errorf(
+			"%w: NotificationConfiguration.SnsConfiguration.TopicArn is required",
+			ErrValidation,
+		)
 	}
 
-	errorReportBucket := ""
-	if req.ErrorReportConfiguration.S3Configuration != nil {
-		errorReportBucket = req.ErrorReportConfiguration.S3Configuration.BucketName
+	if req.ErrorReportConfiguration.S3Configuration == nil ||
+		req.ErrorReportConfiguration.S3Configuration.BucketName == "" {
+		return nil, fmt.Errorf(
+			"%w: ErrorReportConfiguration.S3Configuration.BucketName is required",
+			ErrValidation,
+		)
 	}
+
+	notificationTopicArn := req.NotificationConfiguration.SnsConfiguration.TopicArn
+	errorReportBucket := req.ErrorReportConfiguration.S3Configuration.BucketName
 
 	targetDB := ""
 	targetTable := ""
@@ -808,12 +819,7 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 	}
 
 	if len(sq.Tags) > 0 {
-		tagKeys := make([]string, 0, len(sq.Tags))
-		for k := range sq.Tags {
-			tagKeys = append(tagKeys, k)
-		}
-
-		sort.Strings(tagKeys)
+		tagKeys := collections.SortedKeys(sq.Tags)
 
 		tagList := make([]map[string]string, 0, len(tagKeys))
 		for _, k := range tagKeys {

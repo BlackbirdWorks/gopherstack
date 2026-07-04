@@ -1,13 +1,18 @@
 package workspaces
 
 import (
-	"encoding/json"
+	"context"
+	"encoding/base64"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -22,7 +27,51 @@ const (
 	statePending          = "PENDING"
 	errMsgNotFound        = "Workspace not found"
 	ownerAmazon           = "Amazon"
+
+	// describeWorkspacesMaxResults is the AWS maximum results per page.
+	describeWorkspacesMaxResults = 25
+	// bundlesPageSize is the AWS default page size for DescribeWorkspaceBundles.
+	bundlesPageSize = 25
+	// directoriesPageSize is the AWS default page size for DescribeWorkspaceDirectories.
+	directoriesPageSize = 50
+	// maxTagsPerResource is the AWS limit for tags per resource.
+	maxTagsPerResource = 50
+	// maxWorkspacesPerCreate is the AWS limit per CreateWorkspaces call.
+	maxWorkspacesPerCreate = 25
+	// maxTagKeyLen is the AWS limit for tag key length.
+	maxTagKeyLen = 128
+	// maxTagValueLen is the AWS limit for tag value length.
+	maxTagValueLen = 256
 )
+
+// stateRegistered is the registration state for workspace directories.
+const stateRegistered = "REGISTERED"
+
+// Bundle storage capacities in GiB matching real Amazon-owned bundle defaults.
+const (
+	bundleValueUserGiB       int32 = 10
+	bundleStandardUserGiB    int32 = 50
+	bundlePerformanceUserGiB int32 = 100
+	bundlePowerUserGiB       int32 = 100
+	bundlePowerProUserGiB    int32 = 100
+	bundleStdRootGiB         int32 = 80
+	bundlePowerRootGiB       int32 = 175
+)
+
+func isValidComputeTypeName(name string) bool {
+	switch name {
+	case "VALUE", "STANDARD", "PERFORMANCE", "POWER",
+		"GRAPHICS", "GRAPHICSPRO", "POWERPRO",
+		"GRAPHICS_G4DN", "GRAPHICSPRO_G4DN":
+		return true
+	}
+
+	return false
+}
+
+func isValidRunningMode(mode string) bool {
+	return mode == "ALWAYS_ON" || mode == "AUTO_STOP"
+}
 
 var (
 	// ErrWorkspaceNotFound is returned when a workspace does not exist.
@@ -33,17 +82,21 @@ var (
 
 // storedWorkspace holds a workspace with all persisted fields.
 type storedWorkspace struct {
-	Properties   *WorkspaceProperties `json:"properties,omitempty"`
-	Tags         map[string]string    `json:"tags"`
-	WorkspaceID  string               `json:"workspaceId"`
-	DirectoryID  string               `json:"directoryId"`
-	UserName     string               `json:"userName"`
-	BundleID     string               `json:"bundleId"`
-	State        string               `json:"state"`
-	ComputerName string               `json:"computerName"`
-	SubnetID     string               `json:"subnetId"`
-	ErrorCode    string               `json:"errorCode"`
-	ErrorMessage string               `json:"errorMessage"`
+	Properties                  *WorkspaceProperties `json:"properties,omitempty"`
+	Tags                        map[string]string    `json:"tags"`
+	WorkspaceID                 string               `json:"workspaceId"`
+	DirectoryID                 string               `json:"directoryId"`
+	UserName                    string               `json:"userName"`
+	BundleID                    string               `json:"bundleId"`
+	State                       string               `json:"state"`
+	ComputerName                string               `json:"computerName"`
+	SubnetID                    string               `json:"subnetId"`
+	VolumeEncryptionKey         string               `json:"volumeEncryptionKey,omitempty"`
+	ErrorCode                   string               `json:"errorCode"`
+	ErrorMessage                string               `json:"errorMessage"`
+	Region                      string               `json:"region"`
+	UserVolumeEncryptionEnabled bool                 `json:"userVolumeEncryptionEnabled"`
+	RootVolumeEncryptionEnabled bool                 `json:"rootVolumeEncryptionEnabled"`
 }
 
 func (w *storedWorkspace) toWorkspace() *Workspace {
@@ -57,17 +110,20 @@ func (w *storedWorkspace) toWorkspace() *Workspace {
 	}
 
 	return &Workspace{
-		WorkspaceID:  w.WorkspaceID,
-		DirectoryID:  w.DirectoryID,
-		UserName:     w.UserName,
-		BundleID:     w.BundleID,
-		State:        w.State,
-		ComputerName: w.ComputerName,
-		SubnetID:     w.SubnetID,
-		ErrorCode:    w.ErrorCode,
-		ErrorMessage: w.ErrorMessage,
-		Tags:         tags,
-		Properties:   props,
+		WorkspaceID:                 w.WorkspaceID,
+		DirectoryID:                 w.DirectoryID,
+		UserName:                    w.UserName,
+		BundleID:                    w.BundleID,
+		State:                       w.State,
+		ComputerName:                w.ComputerName,
+		SubnetID:                    w.SubnetID,
+		VolumeEncryptionKey:         w.VolumeEncryptionKey,
+		UserVolumeEncryptionEnabled: w.UserVolumeEncryptionEnabled,
+		RootVolumeEncryptionEnabled: w.RootVolumeEncryptionEnabled,
+		ErrorCode:                   w.ErrorCode,
+		ErrorMessage:                w.ErrorMessage,
+		Tags:                        tags,
+		Properties:                  props,
 	}
 }
 
@@ -129,27 +185,56 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// regionFor returns the region from ctx when present, falling back to b.region.
+func (b *InMemoryBackend) regionFor(ctx context.Context) string {
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
+	}
+
+	return b.region
+}
+
 // CreateWorkspace creates a new WorkSpace and returns it.
+// Returns InvalidParameterValuesException when spec.DirectoryID is not registered.
 func (b *InMemoryBackend) CreateWorkspace(
-	userID, directoryID, bundleID string,
-	tags map[string]string,
+	ctx context.Context,
+	spec *WorkspaceCreationSpec,
 ) (*Workspace, error) {
+	region := b.regionFor(ctx)
+
 	b.mu.Lock("CreateWorkspace")
 	defer b.mu.Unlock()
+
+	if _, ok := b.dirSettings[spec.DirectoryID]; !ok {
+		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"directory %q is not registered", spec.DirectoryID)
+	}
 
 	b.counter++
 	workspaceID := fmt.Sprintf("%s%0*x", workspaceIDPrefix, workspaceIDHexLen, b.counter)
 
 	storedTags := make(map[string]string)
-	maps.Copy(storedTags, tags)
+	maps.Copy(storedTags, spec.Tags)
+
+	var props *WorkspaceProperties
+	if spec.Properties != nil {
+		p := *spec.Properties
+		props = &p
+	}
 
 	w := &storedWorkspace{
-		WorkspaceID: workspaceID,
-		DirectoryID: directoryID,
-		UserName:    userID,
-		BundleID:    bundleID,
-		State:       stateAvailable,
-		Tags:        storedTags,
+		WorkspaceID:                 workspaceID,
+		DirectoryID:                 spec.DirectoryID,
+		UserName:                    spec.UserName,
+		BundleID:                    spec.BundleID,
+		SubnetID:                    spec.SubnetID,
+		VolumeEncryptionKey:         spec.VolumeEncryptionKey,
+		UserVolumeEncryptionEnabled: spec.UserVolumeEncryptionEnabled,
+		RootVolumeEncryptionEnabled: spec.RootVolumeEncryptionEnabled,
+		State:                       stateAvailable,
+		Tags:                        storedTags,
+		Properties:                  props,
+		Region:                      region,
 	}
 
 	b.workspaces[workspaceID] = w
@@ -159,41 +244,118 @@ func (b *InMemoryBackend) CreateWorkspace(
 }
 
 // DescribeWorkspaces returns workspaces matching the given filters.
+// Results are sorted by WorkspaceId and paginated (max 25 per page, matching AWS).
 func (b *InMemoryBackend) DescribeWorkspaces(
+	ctx context.Context,
 	workspaceIDs, directoryIDs, userIDs, bundleIDs []string,
-	_ int32, _ string,
+	limit int32, nextToken string,
 ) ([]*Workspace, string, error) {
 	b.mu.RLock("DescribeWorkspaces")
 	defer b.mu.RUnlock()
 
+	matched := b.filterWorkspaces(b.regionFor(ctx), workspaceIDs, directoryIDs, userIDs, bundleIDs)
+
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].WorkspaceID < matched[j].WorkspaceID
+	})
+
+	matched = advanceCursor(matched, nextToken)
+
+	pageSize := resolvePageSize(limit)
+
+	var newToken string
+
+	if len(matched) > pageSize {
+		newToken = base64.StdEncoding.EncodeToString([]byte(matched[pageSize].WorkspaceID))
+		matched = matched[:pageSize]
+	}
+
+	result := make([]*Workspace, 0, len(matched))
+	for _, w := range matched {
+		result = append(result, w.toWorkspace())
+	}
+
+	return result, newToken, nil
+}
+
+// filterWorkspaces returns all stored workspaces that match all provided filters.
+// Must be called with a read lock held.
+func (b *InMemoryBackend) filterWorkspaces(
+	region string,
+	workspaceIDs, directoryIDs, userIDs, bundleIDs []string,
+) []*storedWorkspace {
 	idFilter := buildFilter(workspaceIDs)
 	dirFilter := buildFilter(directoryIDs)
 	userFilter := buildFilter(userIDs)
 	bundleFilter := buildFilter(bundleIDs)
 
-	var result []*Workspace
+	var matched []*storedWorkspace
 
 	for _, w := range b.workspaces {
-		if !matchesFilter(idFilter, w.WorkspaceID) {
+		if region != "" && w.Region != "" && w.Region != region {
 			continue
 		}
 
-		if !matchesFilter(dirFilter, w.DirectoryID) {
-			continue
+		if matchesFilter(idFilter, w.WorkspaceID) &&
+			matchesFilter(dirFilter, w.DirectoryID) &&
+			matchesFilter(userFilter, w.UserName) &&
+			matchesFilter(bundleFilter, w.BundleID) {
+			matched = append(matched, w)
 		}
-
-		if !matchesFilter(userFilter, w.UserName) {
-			continue
-		}
-
-		if !matchesFilter(bundleFilter, w.BundleID) {
-			continue
-		}
-
-		result = append(result, w.toWorkspace())
 	}
 
-	return result, "", nil
+	return matched
+}
+
+// advanceCursor removes all items that sort before the decoded nextToken cursor.
+func advanceCursor(items []*storedWorkspace, nextToken string) []*storedWorkspace {
+	if nextToken == "" {
+		return items
+	}
+
+	cursorBytes, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return items
+	}
+
+	cursor := string(cursorBytes)
+
+	for i, w := range items {
+		if w.WorkspaceID >= cursor {
+			return items[i:]
+		}
+	}
+
+	return nil
+}
+
+// resolvePageSize clamps limit to the AWS-allowed range.
+func resolvePageSize(limit int32) int {
+	if limit <= 0 || int(limit) > describeWorkspacesMaxResults {
+		return describeWorkspacesMaxResults
+	}
+
+	return int(limit)
+}
+
+// validateTagEntry checks a single tag key and value for AWS constraints.
+func validateTagEntry(key, value string) error {
+	if key == "" {
+		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"tag key must not be empty")
+	}
+
+	if len(key) > maxTagKeyLen {
+		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"tag key exceeds maximum length of %d", maxTagKeyLen)
+	}
+
+	if len(value) > maxTagValueLen {
+		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"tag value for key %q exceeds maximum length of %d", key, maxTagValueLen)
+	}
+
+	return nil
 }
 
 // buildFilter converts a string slice to a set for O(1) membership tests.
@@ -223,9 +385,37 @@ func matchesFilter(filter map[string]struct{}, value string) bool {
 }
 
 // GetWorkspacesConnectionStatus returns connection status for the given workspace IDs.
-func (b *InMemoryBackend) GetWorkspacesConnectionStatus(workspaceIDs []string) ([]*WorkspaceConnectionStatus, error) {
+// If no IDs are provided, returns status for all workspaces. AVAILABLE workspaces
+// report DISCONNECTED (not yet connected in this emulator); STOPPED workspaces
+// report NOT_CONNECTED, matching real AWS behaviour for offline workspaces.
+func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
+	workspaceIDs []string,
+) ([]*WorkspaceConnectionStatus, error) {
 	b.mu.RLock("GetWorkspacesConnectionStatus")
 	defer b.mu.RUnlock()
+
+	connectionStateFor := func(state string) string {
+		switch state {
+		case stateStopped:
+			return "NOT_CONNECTED"
+		default:
+			return "DISCONNECTED"
+		}
+	}
+
+	if len(workspaceIDs) == 0 {
+		result := make([]*WorkspaceConnectionStatus, 0, len(b.workspaces))
+
+		for _, w := range b.workspaces {
+			result = append(result, &WorkspaceConnectionStatus{
+				WorkspaceID:       w.WorkspaceID,
+				ConnectionState:   connectionStateFor(w.State),
+				LastKnownUserTime: time.Time{},
+			})
+		}
+
+		return result, nil
+	}
 
 	result := make([]*WorkspaceConnectionStatus, 0, len(workspaceIDs))
 
@@ -237,7 +427,7 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(workspaceIDs []string) (
 
 		result = append(result, &WorkspaceConnectionStatus{
 			WorkspaceID:       w.WorkspaceID,
-			ConnectionState:   "UNKNOWN",
+			ConnectionState:   connectionStateFor(w.State),
 			LastKnownUserTime: time.Time{},
 		})
 	}
@@ -246,7 +436,34 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(workspaceIDs []string) (
 }
 
 // ModifyWorkspaceProperties updates and persists mutable properties of a WorkSpace.
-func (b *InMemoryBackend) ModifyWorkspaceProperties(workspaceID string, props WorkspaceProperties) error {
+// Returns InvalidParameterValuesException for unknown compute type names or running modes.
+func (b *InMemoryBackend) ModifyWorkspaceProperties(
+	workspaceID string,
+	props WorkspaceProperties,
+) error {
+	if props.ComputeTypeName != "" && !isValidComputeTypeName(props.ComputeTypeName) {
+		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"invalid ComputeTypeName: %q", props.ComputeTypeName)
+	}
+
+	if props.RunningMode != "" && !isValidRunningMode(props.RunningMode) {
+		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"invalid RunningMode: %q, must be ALWAYS_ON or AUTO_STOP", props.RunningMode)
+	}
+
+	if props.RunningModeAutoStopTimeoutInMinutes != 0 {
+		// AWS requires the timeout to be a multiple of 60 and between 60 and 600.
+		t := props.RunningModeAutoStopTimeoutInMinutes
+		if t < 60 || t > 600 || t%60 != 0 {
+			return awserr.Newf(
+				errInvalidParameterValues,
+				awserr.ErrInvalidParameter,
+				"RunningModeAutoStopTimeoutInMinutes must be a multiple of 60 between 60 and 600, got %d",
+				t,
+			)
+		}
+	}
+
 	b.mu.Lock("ModifyWorkspaceProperties")
 	defer b.mu.Unlock()
 
@@ -377,7 +594,10 @@ func (b *InMemoryBackend) TerminateWorkspaces(workspaceIDs []string) ([]FailedRe
 
 // collectFailures returns FailedRequests for any workspace IDs not found.
 // Must be called with a lock held.
-func (b *InMemoryBackend) collectFailures(workspaceIDs []string, errCode, errMsg string) []FailedRequest {
+func (b *InMemoryBackend) collectFailures(
+	workspaceIDs []string,
+	errCode, errMsg string,
+) []FailedRequest {
 	var failures []FailedRequest
 
 	for _, id := range workspaceIDs {
@@ -394,9 +614,32 @@ func (b *InMemoryBackend) collectFailures(workspaceIDs []string, errCode, errMsg
 }
 
 // CreateTags applies tags to a workspace resource ID.
+// Returns InvalidParameterValuesException if tag key/value limits are exceeded
+// or if applying the tags would exceed the 50-tag limit per resource.
 func (b *InMemoryBackend) CreateTags(resourceID string, tags map[string]string) error {
+	for k, v := range tags {
+		if err := validateTagEntry(k, v); err != nil {
+			return err
+		}
+	}
+
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
+
+	existing := b.tags[resourceID]
+	// Count distinct keys after merge to enforce 50-tag limit.
+	newCount := len(existing)
+
+	for k := range tags {
+		if _, exists := existing[k]; !exists {
+			newCount++
+		}
+	}
+
+	if newCount > maxTagsPerResource {
+		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"resource %q would exceed maximum tag count of %d", resourceID, maxTagsPerResource)
+	}
 
 	if b.tags[resourceID] == nil {
 		b.tags[resourceID] = make(map[string]string)
@@ -443,21 +686,100 @@ func (b *InMemoryBackend) DescribeTags(resourceID string) (map[string]string, er
 	return result, nil
 }
 
+// amazonBundleList returns the predefined Amazon-owned bundles sorted by BundleID.
+func amazonBundleList() []*WorkspaceBundle {
+	return []*WorkspaceBundle{
+		{
+			BundleID:    "wsb-1b5w9hkng",
+			Name:        "PowerPro",
+			Owner:       ownerAmazon,
+			Description: "PowerPro with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "POWERPRO"},
+			UserStorage: BundleStorage{Capacity: bundlePowerProUserGiB},
+			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
+		},
+		{
+			BundleID:    "wsb-b0s22j3d7",
+			Name:        "Performance",
+			Owner:       ownerAmazon,
+			Description: "Performance with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "PERFORMANCE"},
+			UserStorage: BundleStorage{Capacity: bundlePerformanceUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
+		},
+		{
+			BundleID:    "wsb-bh8rsxt14",
+			Name:        "Value",
+			Owner:       ownerAmazon,
+			Description: "Value with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "VALUE"},
+			UserStorage: BundleStorage{Capacity: bundleValueUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
+		},
+		{
+			BundleID:    "wsb-clj85qzj1",
+			Name:        "Power",
+			Owner:       ownerAmazon,
+			Description: "Power with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "POWER"},
+			UserStorage: BundleStorage{Capacity: bundlePowerUserGiB},
+			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
+		},
+		{
+			BundleID:    "wsb-gm4d5tx2v",
+			Name:        "Standard",
+			Owner:       ownerAmazon,
+			Description: "Standard with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "STANDARD"},
+			UserStorage: BundleStorage{Capacity: bundleStandardUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
+		},
+	}
+}
+
 // DescribeWorkspaceBundles returns workspace bundles, optionally filtered by IDs or owner.
+// When no owner is specified, returns both Amazon-owned and account-owned custom bundles.
+// When owner is "Amazon", returns only Amazon-owned bundles.
+// When owner is an account ID, returns custom bundles for that account.
+// Results are sorted by BundleID and paginated (max 25 per page, matching AWS).
 func (b *InMemoryBackend) DescribeWorkspaceBundles(
-	bundleIDs []string, owner string, _ string,
+	_ context.Context,
+	bundleIDs []string, owner string, nextToken string,
 ) ([]*WorkspaceBundle, string, error) {
-	bundles := hardcodedBundles()
+	b.mu.RLock("DescribeWorkspaceBundles")
+	defer b.mu.RUnlock()
+
+	var bundles []*WorkspaceBundle
+
+	// Include Amazon bundles unless the caller explicitly requests a specific account.
+	if owner == "" || owner == ownerAmazon {
+		bundles = append(bundles, amazonBundleList()...)
+	}
+
+	// Include custom bundles when the caller wants all bundles or account-specific bundles.
+	if owner != ownerAmazon {
+		for _, bun := range b.customBundles {
+			bundles = append(bundles, &WorkspaceBundle{
+				BundleID:    bun.BundleID,
+				Name:        bun.Name,
+				Owner:       b.accountID,
+				Description: bun.Description,
+				ImageID:     bun.ImageID,
+				ComputeType: BundleComputeType{Name: bun.ComputeType},
+			})
+		}
+	}
+
+	sort.Slice(bundles, func(i, j int) bool {
+		return bundles[i].BundleID < bundles[j].BundleID
+	})
 
 	if len(bundleIDs) > 0 {
-		idFilter := make(map[string]struct{}, len(bundleIDs))
-		for _, id := range bundleIDs {
-			idFilter[id] = struct{}{}
-		}
-
+		idFilter := buildFilter(bundleIDs)
 		filtered := bundles[:0]
+
 		for _, bun := range bundles {
-			if _, ok := idFilter[bun.BundleID]; ok {
+			if matchesFilter(idFilter, bun.BundleID) {
 				filtered = append(filtered, bun)
 			}
 		}
@@ -465,42 +787,122 @@ func (b *InMemoryBackend) DescribeWorkspaceBundles(
 		return filtered, "", nil
 	}
 
-	if owner != "" && owner != ownerAmazon {
-		return []*WorkspaceBundle{}, "", nil
+	bundles = advanceBundleCursor(bundles, nextToken)
+
+	var newToken string
+
+	if len(bundles) > bundlesPageSize {
+		newToken = base64.StdEncoding.EncodeToString([]byte(bundles[bundlesPageSize].BundleID))
+		bundles = bundles[:bundlesPageSize]
 	}
 
-	return bundles, "", nil
+	return bundles, newToken, nil
 }
 
-// hardcodedBundles returns the predefined Amazon-owned bundles.
-func hardcodedBundles() []*WorkspaceBundle {
-	return []*WorkspaceBundle{
-		{
-			BundleID:    "wsb-bh8rsxt14",
-			Name:        "Value",
-			Owner:       ownerAmazon,
-			Description: "Value with Windows 10 and Office 2019",
-		},
-		{
-			BundleID:    "wsb-gm4d5tx2v",
-			Name:        "Standard",
-			Owner:       ownerAmazon,
-			Description: "Standard with Windows 10 and Office 2019",
-		},
-		{
-			BundleID:    "wsb-b0s22j3d7",
-			Name:        "Performance",
-			Owner:       ownerAmazon,
-			Description: "Performance with Windows 10 and Office 2019",
-		},
+// advanceBundleCursor removes all bundles that sort before the decoded nextToken cursor.
+func advanceBundleCursor(bundles []*WorkspaceBundle, nextToken string) []*WorkspaceBundle {
+	if nextToken == "" {
+		return bundles
 	}
+
+	cursorBytes, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return bundles
+	}
+
+	cursor := string(cursorBytes)
+
+	for i, bun := range bundles {
+		if bun.BundleID >= cursor {
+			return bundles[i:]
+		}
+	}
+
+	return nil
 }
 
 // DescribeWorkspaceDirectories returns workspace directories matching the given filters.
+// Only directories that have been registered via RegisterWorkspaceDirectory are returned.
+// Results are sorted by DirectoryID and paginated (max 50 per page, matching AWS).
 func (b *InMemoryBackend) DescribeWorkspaceDirectories(
-	_ []string, _ string,
+	_ context.Context,
+	directoryIDs []string, nextToken string,
 ) ([]*WorkspaceDirectory, string, error) {
-	return []*WorkspaceDirectory{}, "", nil
+	b.mu.RLock("DescribeWorkspaceDirectories")
+	defer b.mu.RUnlock()
+
+	filter := buildFilter(directoryIDs)
+	var result []*WorkspaceDirectory
+
+	for id, ds := range b.dirSettings {
+		if !matchesFilter(filter, id) {
+			continue
+		}
+
+		state := ds.Properties["State"]
+		if state == "" {
+			state = stateRegistered
+		}
+
+		subnetRaw := ds.Properties["SubnetIds"]
+		var subnetIDs []string
+
+		if subnetRaw != "" {
+			subnetIDs = strings.Split(subnetRaw, ",")
+		}
+
+		result = append(result, &WorkspaceDirectory{
+			DirectoryID:   id,
+			DirectoryName: ds.Properties["DirectoryName"],
+			DirectoryType: ds.Properties["DirectoryType"],
+			Alias:         ds.Properties["Alias"],
+			State:         state,
+			SubnetIDs:     subnetIDs,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].DirectoryID < result[j].DirectoryID
+	})
+
+	if result == nil {
+		result = []*WorkspaceDirectory{}
+	}
+
+	result = advanceDirCursor(result, nextToken)
+
+	var newToken string
+
+	if len(result) > directoriesPageSize {
+		newToken = base64.StdEncoding.EncodeToString(
+			[]byte(result[directoriesPageSize].DirectoryID),
+		)
+		result = result[:directoriesPageSize]
+	}
+
+	return result, newToken, nil
+}
+
+// advanceDirCursor removes all directories that sort before the decoded nextToken cursor.
+func advanceDirCursor(dirs []*WorkspaceDirectory, nextToken string) []*WorkspaceDirectory {
+	if nextToken == "" {
+		return dirs
+	}
+
+	cursorBytes, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return dirs
+	}
+
+	cursor := string(cursorBytes)
+
+	for i, d := range dirs {
+		if d.DirectoryID >= cursor {
+			return dirs[i:]
+		}
+	}
+
+	return nil
 }
 
 // AccountID returns the account ID.
@@ -536,25 +938,23 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(backendSnapshot{
+	return persistence.MarshalSnapshot(ctx, "workspaces", backendSnapshot{
 		Workspaces: b.workspaces,
 		Tags:       b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "workspaces", data, &snap); err != nil {
 		return err
 	}
 

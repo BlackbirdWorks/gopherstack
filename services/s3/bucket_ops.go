@@ -569,9 +569,17 @@ func (h *S3Handler) listObjects(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "ListObjects")
+
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, "", actionListBucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
+	encodingType := r.URL.Query().Get("encoding-type")
 
 	logger.Load(ctx).DebugContext(
 		ctx,
@@ -627,13 +635,14 @@ func (h *S3Handler) listObjects(
 	)
 
 	resp := ListBucketResult{
-		Name:        bucketName,
-		Prefix:      prefix,
-		Delimiter:   delimiter,
-		Marker:      marker,
-		NextMarker:  nextMarker,
-		MaxKeys:     int(maxKeys),
-		IsTruncated: isTruncated,
+		Name:         bucketName,
+		Prefix:       encodeListKey(encodingType, prefix),
+		Delimiter:    encodeListKey(encodingType, delimiter),
+		Marker:       encodeListKey(encodingType, marker),
+		NextMarker:   encodeListKey(encodingType, nextMarker),
+		EncodingType: encodingType,
+		MaxKeys:      int(maxKeys),
+		IsTruncated:  isTruncated,
 	}
 
 	seenPrefixes := make(map[string]struct{})
@@ -645,13 +654,17 @@ func (h *S3Handler) listObjects(
 		prefix,
 		delimiter,
 		seenPrefixes,
+		encodingType,
 	)
 	// Merge backend-level common prefixes (populated when delimiter is set).
 	for _, cp := range out.CommonPrefixes {
 		p := aws.ToString(cp.Prefix)
 		if _, seen := seenPrefixes[p]; !seen {
 			seenPrefixes[p] = struct{}{}
-			resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: p})
+			resp.CommonPrefixes = append(
+				resp.CommonPrefixes,
+				CommonPrefixXML{Prefix: encodeListKey(encodingType, p)},
+			)
 		}
 	}
 
@@ -690,6 +703,7 @@ func (h *S3Handler) mapObjectsToXML(
 	objects []types.Object,
 	prefix, delimiter string,
 	seenPrefixes map[string]struct{},
+	encodingType string,
 ) ([]ObjectXML, []CommonPrefixXML) {
 	var contents []ObjectXML
 	var commonPrefixes []CommonPrefixXML
@@ -699,7 +713,10 @@ func (h *S3Handler) mapObjectsToXML(
 		if cp, isCommon := commonPrefixFor(key, prefix, delimiter); isCommon {
 			if _, seen := seenPrefixes[cp]; !seen {
 				seenPrefixes[cp] = struct{}{}
-				commonPrefixes = append(commonPrefixes, CommonPrefixXML{Prefix: cp})
+				commonPrefixes = append(
+					commonPrefixes,
+					CommonPrefixXML{Prefix: encodeListKey(encodingType, cp)},
+				)
 			}
 
 			continue
@@ -710,12 +727,16 @@ func (h *S3Handler) mapObjectsToXML(
 			checksumAlgo = string(obj.ChecksumAlgorithm[0])
 		}
 
+		sc := string(obj.StorageClass)
+		if sc == "" {
+			sc = storageStandard
+		}
 		contents = append(contents, ObjectXML{
-			Key:               key,
+			Key:               encodeListKey(encodingType, key),
 			LastModified:      obj.LastModified.Format(time.RFC3339),
 			Size:              *obj.Size,
 			ETag:              aws.ToString(obj.ETag),
-			StorageClass:      storageStandard,
+			StorageClass:      sc,
 			ChecksumAlgorithm: checksumAlgo,
 		})
 	}
@@ -831,13 +852,14 @@ func (h *S3Handler) listObjectVersions(
 	keyMarker := q.Get("key-marker")
 	versionIDMarker := q.Get("version-id-marker")
 	delimiter := q.Get("delimiter")
+	encodingType := q.Get("encoding-type")
 
 	// n is provably in [0, defaultMaxKeys] before the int32 conversion: it
 	// starts at the constant default and is only reassigned to a parsed value
 	// that is positive and no greater than defaultMaxKeys.
 	n := defaultMaxKeys
 	if mk := q.Get("max-keys"); mk != "" {
-		if v, err := strconv.Atoi(mk); err == nil && v > 0 && v <= defaultMaxKeys {
+		if v, err := strconv.Atoi(mk); err == nil && v >= 0 && v <= defaultMaxKeys {
 			n = v
 		}
 	}
@@ -867,17 +889,29 @@ func (h *S3Handler) listObjectVersions(
 
 	resp := ListVersionsResult{
 		Name:                bucketName,
-		Prefix:              prefix,
-		KeyMarker:           keyMarker,
+		Prefix:              encodeListKey(encodingType, prefix),
+		KeyMarker:           encodeListKey(encodingType, keyMarker),
 		VersionIDMarker:     versionIDMarker,
-		NextKeyMarker:       aws.ToString(out.NextKeyMarker),
+		NextKeyMarker:       encodeListKey(encodingType, aws.ToString(out.NextKeyMarker)),
 		NextVersionIDMarker: aws.ToString(out.NextVersionIdMarker),
 		MaxKeys:             int(maxKeys),
 		IsTruncated:         aws.ToBool(out.IsTruncated),
-		Delimiter:           delimiter,
+		Delimiter:           encodeListKey(encodingType, delimiter),
+		EncodingType:        encodingType,
 	}
 
-	// Map SDK types to XML
+	mapListVersionsOutput(&resp, out, encodingType)
+
+	httputils.WriteXML(ctx, w, http.StatusOK, resp)
+}
+
+// mapListVersionsOutput maps the backend ListObjectVersions output (SDK types)
+// into the XML response, applying the requested encoding type to keys/prefixes.
+func mapListVersionsOutput(
+	resp *ListVersionsResult,
+	out *s3.ListObjectVersionsOutput,
+	encodingType string,
+) {
 	for _, v := range out.Versions {
 		size := int64(0)
 		if v.Size != nil {
@@ -888,7 +922,7 @@ func (h *S3Handler) listObjectVersions(
 			etag = *v.ETag
 		}
 		resp.Versions = append(resp.Versions, ObjectVersionXML{
-			Key:          *v.Key,
+			Key:          encodeListKey(encodingType, *v.Key),
 			VersionID:    *v.VersionId,
 			IsLatest:     *v.IsLatest,
 			LastModified: v.LastModified.Format(time.RFC3339),
@@ -904,7 +938,7 @@ func (h *S3Handler) listObjectVersions(
 
 	for _, d := range out.DeleteMarkers {
 		resp.DeleteMarkers = append(resp.DeleteMarkers, DeleteMarkerXML{
-			Key:          *d.Key,
+			Key:          encodeListKey(encodingType, *d.Key),
 			VersionID:    *d.VersionId,
 			IsLatest:     *d.IsLatest,
 			LastModified: d.LastModified.Format(time.RFC3339),
@@ -918,23 +952,21 @@ func (h *S3Handler) listObjectVersions(
 	for _, cp := range out.CommonPrefixes {
 		resp.CommonPrefixes = append(
 			resp.CommonPrefixes,
-			CommonPrefixXML{Prefix: aws.ToString(cp.Prefix)},
+			CommonPrefixXML{Prefix: encodeListKey(encodingType, aws.ToString(cp.Prefix))},
 		)
 	}
-
-	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 // validCannedACLs is the complete set of canned ACL strings that AWS S3 accepts
 // for PutBucketAcl.
 var validCannedACLs = map[string]struct{}{ //nolint:gochecknoglobals // package-level lookup table
 	aclPrivate:                  {},
-	"public-read":               {},
-	"public-read-write":         {},
-	"authenticated-read":        {},
+	aclPublicRead:               {},
+	aclPublicReadWrite:          {},
+	aclAuthenticatedRead:        {},
 	"bucket-owner-read":         {},
 	"bucket-owner-full-control": {},
-	"log-delivery-write":        {},
+	aclLogDeliveryWrite:         {},
 }
 
 func (h *S3Handler) putBucketACL(
@@ -979,7 +1011,7 @@ func (h *S3Handler) getBucketACL(
 ) {
 	h.setOperation(ctx, "GetBucketAcl")
 
-	_, err := h.Backend.GetBucketACL(ctx, bucketName)
+	canned, err := h.Backend.GetBucketACL(ctx, bucketName)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -993,16 +1025,7 @@ func (h *S3Handler) getBucketACL(
 			DisplayName: gopherstackName,
 		},
 		ACL: AccessControlList{
-			Grants: []Grant{
-				{
-					Grantee: Grantee{
-						XmlnsXsi: "http://www.w3.org/2001/XMLSchema-instance",
-						XsiType:  "CanonicalUser",
-						ID:       gopherstackName,
-					},
-					Permission: "FULL_CONTROL",
-				},
-			},
+			Grants: cannedACLGrants(canned, gopherstackName, gopherstackName),
 		},
 	}
 
@@ -1480,6 +1503,15 @@ func (h *S3Handler) putBucketReplication(
 
 	var cfg ReplicationConfiguration
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
+		}, http.StatusBadRequest)
+
+		return
+	}
+
+	if cfg.Role == "" || len(cfg.Rules) == 0 {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    errMalformedXML,
 			Message: errMalformedXMLMsg,

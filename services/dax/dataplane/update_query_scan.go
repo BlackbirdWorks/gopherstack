@@ -37,7 +37,7 @@ func (s *Server) handleUpdateItem(r *Reader, w *Writer) error {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	ks, err := s.schemaFor(ctx, table)
@@ -61,6 +61,8 @@ func (s *Server) handleUpdateItem(r *Reader, w *Writer) error {
 	if err != nil {
 		return s.writeBackendError(w, err)
 	}
+
+	s.invalidateItemCache(table, key)
 
 	if err = writeOK(w); err != nil {
 		return err
@@ -174,7 +176,7 @@ func (s *Server) handleQuery(r *Reader, w *Writer) error {
 	in.ExpressionAttributeNames = dec.namesMap()
 	in.ExpressionAttributeValues = dec.valuesMap()
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	out, err := s.backend.Query(ctx, in)
@@ -217,7 +219,7 @@ func (s *Server) handleScan(r *Reader, w *Writer) error {
 	in.ExpressionAttributeNames = dec.namesMap()
 	in.ExpressionAttributeValues = dec.valuesMap()
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	out, err := s.backend.Scan(ctx, in)
@@ -313,7 +315,7 @@ func (p *queryScanParams) setTotalSegments(total int32) {
 
 // decodeScanQueryParams reads the shared Scan/Query optional-params map.
 func (s *Server) decodeScanQueryParams(r *Reader, dec *decodedExpression, p *queryScanParams) error {
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	ks, err := s.schemaFor(ctx, p.table())

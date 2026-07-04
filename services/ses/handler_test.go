@@ -485,7 +485,7 @@ func TestSESBackend_SnapshotIsolation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Mutate original after snapshot.
@@ -498,7 +498,7 @@ func TestSESBackend_SnapshotIsolation(t *testing.T) {
 
 	// Restore into a fresh backend.
 	fresh := ses.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Fresh backend should have the original state, not the mutated state.
 	assert.Equal(t, 1, fresh.IdentityCount())

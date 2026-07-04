@@ -1,13 +1,15 @@
 package appstream
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -61,17 +63,22 @@ func (s *storedStack) toStack() *Stack {
 }
 
 type storedFleet struct {
-	CreatedTime           time.Time         `json:"createdTime"`
-	Tags                  map[string]string `json:"tags"`
-	Name                  string            `json:"name"`
-	Arn                   string            `json:"arn"`
-	DisplayName           string            `json:"displayName"`
-	Description           string            `json:"description"`
-	InstanceType          string            `json:"instanceType"`
-	FleetType             string            `json:"fleetType"`
-	State                 string            `json:"state"`
-	MaxUserDurationSecs   int               `json:"maxUserDurationSecs"`
-	DisconnectTimeoutSecs int               `json:"disconnectTimeoutSecs"`
+	EnableDefaultInternetAccess *bool             `json:"enableDefaultInternetAccess,omitempty"`
+	CreatedTime                 time.Time         `json:"createdTime"`
+	Tags                        map[string]string `json:"tags"`
+	Name                        string            `json:"name"`
+	Arn                         string            `json:"arn"`
+	DisplayName                 string            `json:"displayName"`
+	Description                 string            `json:"description"`
+	InstanceType                string            `json:"instanceType"`
+	FleetType                   string            `json:"fleetType"`
+	State                       string            `json:"state"`
+	ImageName                   string            `json:"imageName,omitempty"`
+	ImageArn                    string            `json:"imageArn,omitempty"`
+	DesiredInstances            int               `json:"desiredInstances"`
+	MaxUserDurationSecs         int               `json:"maxUserDurationSecs"`
+	DisconnectTimeoutSecs       int               `json:"disconnectTimeoutSecs"`
+	IdleDisconnectTimeoutSecs   int               `json:"idleDisconnectTimeoutSecs"`
 }
 
 func (f *storedFleet) toFleet() *Fleet {
@@ -79,17 +86,22 @@ func (f *storedFleet) toFleet() *Fleet {
 	maps.Copy(tags, f.Tags)
 
 	return &Fleet{
-		CreatedTime:           f.CreatedTime,
-		Tags:                  tags,
-		Name:                  f.Name,
-		Arn:                   f.Arn,
-		DisplayName:           f.DisplayName,
-		Description:           f.Description,
-		InstanceType:          f.InstanceType,
-		FleetType:             f.FleetType,
-		State:                 f.State,
-		MaxUserDurationSecs:   f.MaxUserDurationSecs,
-		DisconnectTimeoutSecs: f.DisconnectTimeoutSecs,
+		EnableDefaultInternetAccess: f.EnableDefaultInternetAccess,
+		CreatedTime:                 f.CreatedTime,
+		Tags:                        tags,
+		Name:                        f.Name,
+		Arn:                         f.Arn,
+		DisplayName:                 f.DisplayName,
+		Description:                 f.Description,
+		InstanceType:                f.InstanceType,
+		FleetType:                   f.FleetType,
+		State:                       f.State,
+		ImageName:                   f.ImageName,
+		ImageArn:                    f.ImageArn,
+		DesiredInstances:            f.DesiredInstances,
+		MaxUserDurationSecs:         f.MaxUserDurationSecs,
+		DisconnectTimeoutSecs:       f.DisconnectTimeoutSecs,
+		IdleDisconnectTimeoutSecs:   f.IdleDisconnectTimeoutSecs,
 	}
 }
 
@@ -188,11 +200,11 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Region() string { return b.region }
 
 func (b *InMemoryBackend) stackARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:stack/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("stack/%s", name))
 }
 
 func (b *InMemoryBackend) fleetARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:fleet/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("fleet/%s", name))
 }
 
 // CreateStack creates a new stack.
@@ -305,8 +317,9 @@ func isValidFleetType(ft string) bool {
 
 // CreateFleet creates a new fleet.
 func (b *InMemoryBackend) CreateFleet(
-	name, displayName, description, instanceType, fleetType string,
-	maxUserDuration, disconnectTimeout int,
+	name, displayName, description, instanceType, fleetType, imageName, imageArn string,
+	desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
+	enableDefaultInternetAccess *bool,
 	tags map[string]string,
 ) (*Fleet, error) {
 	if instanceType == "" {
@@ -347,18 +360,28 @@ func (b *InMemoryBackend) CreateFleet(
 		dt = defaultDisconnectTimeout
 	}
 
+	desired := desiredInstances
+	if desired == 0 {
+		desired = 1
+	}
+
 	f := &storedFleet{
-		CreatedTime:           time.Now().UTC(),
-		Tags:                  storedTags,
-		Name:                  name,
-		Arn:                   arn,
-		DisplayName:           displayName,
-		Description:           description,
-		InstanceType:          instanceType,
-		FleetType:             ft,
-		State:                 fleetStateStopped,
-		MaxUserDurationSecs:   mux,
-		DisconnectTimeoutSecs: dt,
+		EnableDefaultInternetAccess: enableDefaultInternetAccess,
+		CreatedTime:                 time.Now().UTC(),
+		Tags:                        storedTags,
+		Name:                        name,
+		Arn:                         arn,
+		DisplayName:                 displayName,
+		Description:                 description,
+		InstanceType:                instanceType,
+		FleetType:                   ft,
+		State:                       fleetStateStopped,
+		ImageName:                   imageName,
+		ImageArn:                    imageArn,
+		DesiredInstances:            desired,
+		MaxUserDurationSecs:         mux,
+		DisconnectTimeoutSecs:       dt,
+		IdleDisconnectTimeoutSecs:   idleDisconnectTimeout,
 	}
 	b.fleets[name] = f
 	b.tags[arn] = storedTags
@@ -395,8 +418,10 @@ func (b *InMemoryBackend) DescribeFleets(names []string) ([]*Fleet, error) {
 }
 
 // UpdateFleet updates mutable fields of an existing fleet.
-func (b *InMemoryBackend) UpdateFleet(name, displayName, description, instanceType string,
-	maxUserDuration, disconnectTimeout int,
+func (b *InMemoryBackend) UpdateFleet(
+	name, displayName, description, instanceType, imageName, imageArn string,
+	desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
+	enableDefaultInternetAccess *bool,
 ) (*Fleet, error) {
 	b.mu.Lock("UpdateFleet")
 	defer b.mu.Unlock()
@@ -418,12 +443,32 @@ func (b *InMemoryBackend) UpdateFleet(name, displayName, description, instanceTy
 		f.InstanceType = instanceType
 	}
 
+	if imageName != "" {
+		f.ImageName = imageName
+	}
+
+	if imageArn != "" {
+		f.ImageArn = imageArn
+	}
+
+	if desiredInstances > 0 {
+		f.DesiredInstances = desiredInstances
+	}
+
 	if maxUserDuration > 0 {
 		f.MaxUserDurationSecs = maxUserDuration
 	}
 
 	if disconnectTimeout > 0 {
 		f.DisconnectTimeoutSecs = disconnectTimeout
+	}
+
+	if idleDisconnectTimeout >= 0 && idleDisconnectTimeout != f.IdleDisconnectTimeoutSecs {
+		f.IdleDisconnectTimeoutSecs = idleDisconnectTimeout
+	}
+
+	if enableDefaultInternetAccess != nil {
+		f.EnableDefaultInternetAccess = enableDefaultInternetAccess
 	}
 
 	return f.toFleet(), nil
@@ -661,11 +706,11 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(backendSnapshot{ //nolint:musttag // existing issue.
+	return persistence.MarshalSnapshot(ctx, "appstream", backendSnapshot{
 		Stacks:               b.stacks,
 		Fleets:               b.fleets,
 		Associations:         b.associations,
@@ -691,17 +736,18 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		UsageReport:          b.usageReport,
 		Themes:               b.themes,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error { //nolint:gocognit,cyclop,funlen // existing issue.
+func (b *InMemoryBackend) Restore( //nolint:gocognit,cyclop,funlen // existing issue.
+	ctx context.Context,
+	data []byte,
+) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil { //nolint:musttag // existing issue.
+	if err := persistence.UnmarshalSnapshot(ctx, "appstream", data, &snap); err != nil {
 		return err
 	}
 

@@ -128,6 +128,7 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -221,6 +222,7 @@ func TestGetFunctionEventInvokeConfig(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -303,6 +305,7 @@ func TestUpdateFunctionEventInvokeConfig(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -385,6 +388,7 @@ func TestDeleteFunctionEventInvokeConfig(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -462,6 +466,7 @@ func TestListFunctionEventInvokeConfigs(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -566,6 +571,7 @@ func TestPutFunctionConcurrency(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -647,6 +653,7 @@ func TestGetFunctionConcurrency(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -712,6 +719,7 @@ func TestDeleteFunctionConcurrency(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -821,6 +829,7 @@ func TestConcurrencyEnforcement(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -890,6 +899,7 @@ func TestGetFunction_ReservedConcurrentExecutions(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -1010,6 +1020,7 @@ func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 
 			if tt.setup != nil {
 				tt.setup(t, bk)
@@ -1080,6 +1091,7 @@ func TestBackend_PutGetDeleteFunctionConcurrency(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 
 			if tt.setup != nil {
 				tt.setup(t, bk)

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ---------------------------------------------------------------------------
@@ -104,7 +106,7 @@ func cloneJob(j *Job) *Job {
 }
 
 func (b *InMemoryBackend) jobARN(jobID string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:job/%s", b.region, b.accountID, jobID)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("job/%s", jobID))
 }
 
 // CreateJobInput holds input for CreateJob.
@@ -317,7 +319,7 @@ func cloneJobTemplate(jt *JobTemplate) *JobTemplate {
 }
 
 func (b *InMemoryBackend) jobTemplateARN(id string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:jobtemplate/%s", b.region, b.accountID, id)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("jobtemplate/%s", id))
 }
 
 // CreateJobTemplateInput holds input for CreateJobTemplate.
@@ -420,7 +422,7 @@ func cloneRoleAlias(ra *RoleAlias) *RoleAlias {
 }
 
 func (b *InMemoryBackend) roleAliasARN(alias string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:rolealias/%s", b.region, b.accountID, alias)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("rolealias/%s", alias))
 }
 
 // CreateRoleAliasInput holds input for CreateRoleAlias.
@@ -542,7 +544,7 @@ func cloneDomainConfig(dc *DomainConfiguration) *DomainConfiguration {
 }
 
 func (b *InMemoryBackend) domainConfigARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:domainconfiguration/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("domainconfiguration/%s", name))
 }
 
 // CreateDomainConfigurationInput holds input for CreateDomainConfiguration.
@@ -673,7 +675,7 @@ func cloneProvTemplate(pt *ProvisioningTemplate) *ProvisioningTemplate {
 }
 
 func (b *InMemoryBackend) provTemplateARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:provisioningtemplate/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("provisioningtemplate/%s", name))
 }
 
 // CreateProvisioningTemplateInput holds input for CreateProvisioningTemplate.
@@ -868,7 +870,7 @@ func cloneAuthorizer(a *Authorizer) *Authorizer {
 }
 
 func (b *InMemoryBackend) authorizerARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:authorizer/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("authorizer/%s", name))
 }
 
 // CreateAuthorizerInput holds input for CreateAuthorizer.
@@ -1003,7 +1005,7 @@ func cloneBillingGroup(bg *BillingGroup) *BillingGroup {
 }
 
 func (b *InMemoryBackend) billingGroupARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:billinggroup/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("billinggroup/%s", name))
 }
 
 // CreateBillingGroupInput holds input for CreateBillingGroup.
@@ -1118,7 +1120,7 @@ func cloneScheduledAudit(sa *ScheduledAudit) *ScheduledAudit {
 }
 
 func (b *InMemoryBackend) scheduledAuditARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:scheduledaudit/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("scheduledaudit/%s", name))
 }
 
 // CreateScheduledAuditInput holds input for CreateScheduledAudit.
@@ -1244,7 +1246,7 @@ func cloneMitigationAction(ma *MitigationAction) *MitigationAction {
 }
 
 func (b *InMemoryBackend) mitigationActionARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:mitigationaction/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("mitigationaction/%s", name))
 }
 
 // CreateMitigationActionInput holds input for CreateMitigationAction.
@@ -1364,7 +1366,7 @@ func cloneSecurityProfile(sp *SecurityProfile) *SecurityProfile {
 }
 
 func (b *InMemoryBackend) securityProfileARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:securityprofile/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("securityprofile/%s", name))
 }
 
 // CreateSecurityProfileInput holds input for CreateSecurityProfile.

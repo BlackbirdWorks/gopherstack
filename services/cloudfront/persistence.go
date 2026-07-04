@@ -1,8 +1,11 @@
 package cloudfront
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -45,54 +48,63 @@ type backendSnapshot struct {
 	ResourcePolicies        map[string]*resourcePolicyEntry       `json:"resourcePolicies,omitempty"`
 	ManagedCertificates     map[string]*ManagedCertificateDetails `json:"managedCertificates,omitempty"`
 
+	DistributionCachePolicies           map[string]string `json:"distributionCachePolicies,omitempty"`
+	DistributionOriginRequestPolicies   map[string]string `json:"distributionOriginRequestPolicies,omitempty"`
+	DistributionResponseHeadersPolicies map[string]string `json:"distributionResponseHeadersPolicies,omitempty"`
+	DistributionRealtimeLogConfigs      map[string]string `json:"distributionRealtimeLogConfigs,omitempty"`
+
 	AccountID string `json:"accountId"`
 	Region    string `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Distributions:                    b.distributions,
-		OAIs:                             b.oais,
-		Invalidations:                    b.invalidations,
-		AnycastIPLists:                   b.anycastIPLists,
-		StreamingDistributions:           b.streamingDistributions,
-		TrustStores:                      b.trustStores,
-		CachePolicies:                    b.cachePolicies,
-		ConnectionFunctions:              b.connectionFunctions,
-		ConnectionGroups:                 b.connectionGroups,
-		ContinuousDeploymentPolicies:     b.continuousDeploymentPolicies,
-		OriginAccessControls:             b.originAccessControls,
-		ResponseHeadersPolicies:          b.responseHeadersPolicies,
-		Functions:                        b.functions,
-		OriginRequestPolicies:            b.originRequestPolicies,
-		FieldLevelEncryptions:            b.fieldLevelEncryptions,
-		FieldLevelEncryptionProfiles:     b.fieldLevelEncryptionProfiles,
-		PublicKeys:                       b.publicKeys,
-		KeyGroups:                        b.keyGroups,
-		RealtimeLogConfigs:               b.realtimeLogConfigs,
-		KeyValueStores:                   b.keyValueStores,
-		VpcOrigins:                       b.vpcOrigins,
-		DistributionFunctionAssociations: b.distributionFunctionAssociations,
-		DistributionAliases:              b.distributionAliases,
-		DistributionWebACLs:              b.distributionWebACLs,
-		DistributionTenantWebACLs:        b.distributionTenantWebACLs,
-		DistributionTenants:              b.distributionTenants,
-		TenantInvalidations:              b.tenantInvalidations,
-		MonitoringSubscriptions:          b.monitoringSubscriptions,
-		ResourcePolicies:                 b.resourcePolicies,
-		ManagedCertificates:              b.managedCertificates,
-		AccountID:                        b.accountID,
-		Region:                           b.region,
+		Distributions:                       b.distributions,
+		OAIs:                                b.oais,
+		Invalidations:                       b.invalidations,
+		AnycastIPLists:                      b.anycastIPLists,
+		StreamingDistributions:              b.streamingDistributions,
+		TrustStores:                         b.trustStores,
+		CachePolicies:                       b.cachePolicies,
+		ConnectionFunctions:                 b.connectionFunctions,
+		ConnectionGroups:                    b.connectionGroups,
+		ContinuousDeploymentPolicies:        b.continuousDeploymentPolicies,
+		OriginAccessControls:                b.originAccessControls,
+		ResponseHeadersPolicies:             b.responseHeadersPolicies,
+		Functions:                           b.functions,
+		OriginRequestPolicies:               b.originRequestPolicies,
+		FieldLevelEncryptions:               b.fieldLevelEncryptions,
+		FieldLevelEncryptionProfiles:        b.fieldLevelEncryptionProfiles,
+		PublicKeys:                          b.publicKeys,
+		KeyGroups:                           b.keyGroups,
+		RealtimeLogConfigs:                  b.realtimeLogConfigs,
+		KeyValueStores:                      b.keyValueStores,
+		VpcOrigins:                          b.vpcOrigins,
+		DistributionFunctionAssociations:    b.distributionFunctionAssociations,
+		DistributionAliases:                 b.distributionAliases,
+		DistributionWebACLs:                 b.distributionWebACLs,
+		DistributionTenantWebACLs:           b.distributionTenantWebACLs,
+		DistributionTenants:                 b.distributionTenants,
+		TenantInvalidations:                 b.tenantInvalidations,
+		MonitoringSubscriptions:             b.monitoringSubscriptions,
+		ResourcePolicies:                    b.resourcePolicies,
+		ManagedCertificates:                 b.managedCertificates,
+		DistributionCachePolicies:           b.distributionCachePolicies,
+		DistributionOriginRequestPolicies:   b.distributionOriginRequestPolicies,
+		DistributionResponseHeadersPolicies: b.distributionResponseHeadersPolicies,
+		DistributionRealtimeLogConfigs:      b.distributionRealtimeLogConfigs,
+		AccountID:                           b.accountID,
+		Region:                              b.region,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
 		// Log the marshal failure so operators can detect data-loss scenarios.
-		slog.Default().Warn("cloudfront: Snapshot marshal failure", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "cloudfront: Snapshot marshal failure", "error", err)
 
 		return nil
 	}
@@ -128,6 +140,7 @@ type backendIndexes struct {
 	distributionTenantsByDomain       map[string]string
 	anycastIPListARNs                 map[string]string
 	anycastIPListByName               map[string]string
+	connectionFunctionByName          map[string]string
 }
 
 // rebuildDistributionIndexes derives the ARN and CallerReference indexes for distributions
@@ -229,6 +242,11 @@ func rebuildNameIndexes(snap *backendSnapshot) backendIndexes {
 		kvsByName[kvs.Name] = id
 	}
 
+	cfnByName := make(map[string]string, len(snap.ConnectionFunctions))
+	for id, fn := range snap.ConnectionFunctions {
+		cfnByName[fn.Name] = id
+	}
+
 	return backendIndexes{
 		cachePolicyByName:                 cachePolicyByName,
 		originAccessControlByName:         oacByName,
@@ -240,6 +258,7 @@ func rebuildNameIndexes(snap *backendSnapshot) backendIndexes {
 		keyGroupByName:                    kgByName,
 		realtimeLogConfigByName:           rlcByName,
 		keyValueStoreByName:               kvsByName,
+		connectionFunctionByName:          cfnByName,
 	}
 }
 
@@ -309,10 +328,10 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 	return idx
 }
 
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "cloudfront", data, &snap); err != nil {
 		return err
 	}
 
@@ -320,11 +339,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	ensureNonNil(&snap)
-
 	idx := rebuildIndexes(&snap)
-
 	b.restoreCollections(&snap)
 	b.restoreIndexes(&idx)
+	b.rebuildDistributionSearchIndex()
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -364,6 +382,10 @@ func (b *InMemoryBackend) restoreCollections(snap *backendSnapshot) {
 	b.monitoringSubscriptions = snap.MonitoringSubscriptions
 	b.resourcePolicies = snap.ResourcePolicies
 	b.managedCertificates = snap.ManagedCertificates
+	b.distributionCachePolicies = snap.DistributionCachePolicies
+	b.distributionOriginRequestPolicies = snap.DistributionOriginRequestPolicies
+	b.distributionResponseHeadersPolicies = snap.DistributionResponseHeadersPolicies
+	b.distributionRealtimeLogConfigs = snap.DistributionRealtimeLogConfigs
 }
 
 // restoreIndexes assigns the derived lookup indexes onto the backend. Must be called with the
@@ -392,6 +414,7 @@ func (b *InMemoryBackend) restoreIndexes(idx *backendIndexes) {
 	b.connectionGroupByName = idx.connectionGroupByName
 	b.connectionGroupByRoutingEndpoint = idx.connectionGroupByRoutingEndpoint
 	b.connectionFunctionARNs = idx.connectionFunctionARNs
+	b.connectionFunctionByName = idx.connectionFunctionByName
 	b.anycastIPListARNs = idx.anycastIPListARNs
 	b.anycastIPListByName = idx.anycastIPListByName
 }
@@ -403,6 +426,7 @@ func ensureNonNil(snap *backendSnapshot) {
 	ensureNonNilPolicies(snap)
 	ensureNonNilNewResources(snap)
 	ensureNonNilTenantExtras(snap)
+	ensureNonNilDistributionPolicyMaps(snap)
 }
 
 func ensureNonNilBaseEntities(snap *backendSnapshot) {
@@ -535,8 +559,32 @@ func ensureNonNilNewResources(snap *backendSnapshot) {
 	}
 }
 
+// ensureNonNilDistributionPolicyMaps initialises the distribution-to-policy association maps
+// (added alongside the ListDistributionsBy{CachePolicy,OriginRequestPolicy,
+// ResponseHeadersPolicy,RealtimeLogConfig} parity work) to empty maps when absent from an older
+// snapshot.
+func ensureNonNilDistributionPolicyMaps(snap *backendSnapshot) {
+	if snap.DistributionCachePolicies == nil {
+		snap.DistributionCachePolicies = make(map[string]string)
+	}
+
+	if snap.DistributionOriginRequestPolicies == nil {
+		snap.DistributionOriginRequestPolicies = make(map[string]string)
+	}
+
+	if snap.DistributionResponseHeadersPolicies == nil {
+		snap.DistributionResponseHeadersPolicies = make(map[string]string)
+	}
+
+	if snap.DistributionRealtimeLogConfigs == nil {
+		snap.DistributionRealtimeLogConfigs = make(map[string]string)
+	}
+}
+
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
+func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}

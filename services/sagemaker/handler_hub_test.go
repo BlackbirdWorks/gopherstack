@@ -574,11 +574,11 @@ func TestHub_SnapshotRestore(t *testing.T) {
 		}).Code,
 	)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	recDesc := doSageMakerRequest(t, h2, "DescribeHub", map[string]any{"HubName": "persist-hub"})
 	require.Equal(t, http.StatusOK, recDesc.Code)

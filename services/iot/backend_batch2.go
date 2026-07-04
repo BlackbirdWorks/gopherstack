@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ---------------------------------------------------------------------------
@@ -33,7 +35,7 @@ func cloneCACert(c *CACertificate) *CACertificate {
 }
 
 func (b *InMemoryBackend) caCertARN(id string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:cacert/%s", b.region, b.accountID, id)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cacert/%s", id))
 }
 
 func (b *InMemoryBackend) RegisterCACertificate(pem, status string) (*CACertificate, error) {
@@ -162,7 +164,7 @@ func cloneStream(s *IoTStream) *IoTStream {
 }
 
 func (b *InMemoryBackend) streamARN(id string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:stream/%s", b.region, b.accountID, id)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("stream/%s", id))
 }
 
 // CreateStreamInput holds input for CreateStream.
@@ -284,7 +286,7 @@ func cloneFleetMetric(fm *FleetMetric) *FleetMetric {
 }
 
 func (b *InMemoryBackend) fleetMetricARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:fleetmetric/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("fleetmetric/%s", name))
 }
 
 // CreateFleetMetricInput holds input for CreateFleetMetric.
@@ -408,7 +410,7 @@ func cloneCustomMetric(cm *CustomMetric) *CustomMetric {
 }
 
 func (b *InMemoryBackend) customMetricARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:custommetric/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("custommetric/%s", name))
 }
 
 // CreateCustomMetricInput holds input for CreateCustomMetric.
@@ -519,7 +521,7 @@ func cloneDimension(d *Dimension) *Dimension {
 }
 
 func (b *InMemoryBackend) dimensionARN(name string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:dimension/%s", b.region, b.accountID, name)
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("dimension/%s", name))
 }
 
 // CreateDimensionInput holds input for CreateDimension.

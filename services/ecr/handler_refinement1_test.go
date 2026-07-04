@@ -808,11 +808,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			b1 := newRefinementBackend()
 			require.NoError(t, b1.TagResource(context.Background(), tt.arn, tt.tags))
 
-			snap := b1.Snapshot()
+			snap := b1.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := newRefinementBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			got, err := b2.ListTagsForResource(context.Background(), tt.arn)
 			require.NoError(t, err)

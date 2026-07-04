@@ -258,6 +258,7 @@ type transcriptionJobOutput struct {
 	JobExecutionSettings      *JobExecutionSettings       `json:"JobExecutionSettings,omitempty"`
 	ContentRedaction          *ContentRedaction           `json:"ContentRedaction,omitempty"`
 	Subtitles                 *SubtitlesOutput            `json:"Subtitles,omitempty"`
+	Media                     *Media                      `json:"Media,omitempty"`
 	Transcript                transcriptOutput            `json:"Transcript"`
 	CreationTime              *string                     `json:"CreationTime,omitempty"`
 	StartTime                 *string                     `json:"StartTime,omitempty"`
@@ -294,7 +295,7 @@ type handleStartTranscriptionJobInput struct {
 	JobExecutionSettings      *JobExecutionSettings       `json:"JobExecutionSettings"`
 	Media                     Media                       `json:"Media"`
 	MediaFormat               string                      `json:"MediaFormat"`
-	OutputEncryptionKMSKeyID  string                      `json:"OutputEncryptionKMSKeyID"`
+	OutputEncryptionKMSKeyID  string                      `json:"OutputEncryptionKMSKeyId"`
 	OutputKey                 string                      `json:"OutputKey"`
 	OutputBucketName          string                      `json:"OutputBucketName"`
 	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
@@ -399,6 +400,11 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 		Transcript: transcriptOutput{
 			TranscriptFileURI: transcriptURI,
 		},
+	}
+
+	if job.Media.MediaFileURI != "" {
+		m := job.Media
+		out.Media = &m
 	}
 
 	if job.ContentRedaction != nil {
@@ -603,7 +609,7 @@ func (h *Handler) handleDeleteLanguageModel(
 type createMedicalVocabularyInput struct {
 	VocabularyName    string `json:"VocabularyName"`
 	LanguageCode      string `json:"LanguageCode"`
-	VocabularyFileURI string `json:"VocabularyFileURI"`
+	VocabularyFileURI string `json:"VocabularyFileUri"`
 }
 
 type createMedicalVocabularyOutput struct {
@@ -633,7 +639,7 @@ func (h *Handler) handleCreateMedicalVocabulary(
 type createVocabularyInput struct {
 	VocabularyName    string   `json:"VocabularyName"`
 	LanguageCode      string   `json:"LanguageCode"`
-	VocabularyFileURI string   `json:"VocabularyFileURI"`
+	VocabularyFileURI string   `json:"VocabularyFileUri"`
 	Phrases           []string `json:"Phrases"`
 }
 
@@ -669,7 +675,7 @@ func (h *Handler) handleCreateVocabulary(
 type createVocabularyFilterInput struct {
 	VocabularyFilterName    string   `json:"VocabularyFilterName"`
 	LanguageCode            string   `json:"LanguageCode"`
-	VocabularyFilterFileURI string   `json:"VocabularyFilterFileURI"`
+	VocabularyFilterFileURI string   `json:"VocabularyFilterFileUri"`
 	Words                   []string `json:"Words"`
 }
 

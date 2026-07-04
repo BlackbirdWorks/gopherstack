@@ -1101,6 +1101,8 @@ func TestBatch1_DeregisterTargets_Success(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
+	// AWS: deregistered targets enter draining state and remain visible until
+	// deregistration_delay expires. Check the target is in draining state.
 	rec2 := doELBv2(t, h, url.Values{
 		"Action":         {"DescribeTargetHealth"},
 		"Version":        {"2015-12-01"},
@@ -1109,12 +1111,20 @@ func TestBatch1_DeregisterTargets_Success(t *testing.T) {
 	var resp struct {
 		Result struct {
 			TargetHealthDescriptions struct {
-				Members []struct{} `xml:"member"`
+				Members []struct {
+					TargetHealth struct {
+						State  string `xml:"State"`
+						Reason string `xml:"Reason"`
+					} `xml:"TargetHealth"`
+				} `xml:"member"`
 			} `xml:"TargetHealthDescriptions"`
 		} `xml:"DescribeTargetHealthResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &resp))
-	assert.Empty(t, resp.Result.TargetHealthDescriptions.Members)
+	require.Len(t, resp.Result.TargetHealthDescriptions.Members, 1)
+	th := resp.Result.TargetHealthDescriptions.Members[0].TargetHealth
+	assert.Equal(t, "draining", th.State)
+	assert.Equal(t, "Target.DeregistrationInProgress", th.Reason)
 }
 
 // ---- Listener CRUD ----
@@ -2036,12 +2046,26 @@ func TestBatch1_GetResourcePolicy(t *testing.T) {
 	h := newBatch1Handler()
 	lbArn := b1CreateLB(t, h, "grp-lb")
 
+	// No resource policy is set, so AWS returns ResourceNotFound (404).
 	rec := doELBv2(t, h, url.Values{
 		"Action":      {"GetResourcePolicy"},
 		"Version":     {"2015-12-01"},
 		"ResourceArn": {lbArn},
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	// After a policy is stored on the backend, GetResourcePolicy returns it.
+	be, ok := h.Backend.(*elbv2.InMemoryBackend)
+	require.True(t, ok)
+	require.NoError(t, be.PutResourcePolicy(lbArn, `{"Version":"2012-10-17"}`))
+
+	rec2 := doELBv2(t, h, url.Values{
+		"Action":      {"GetResourcePolicy"},
+		"Version":     {"2015-12-01"},
+		"ResourceArn": {lbArn},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "2012-10-17")
 }
 
 func TestBatch1_GetResourcePolicy_MissingArn(t *testing.T) {
@@ -2419,12 +2443,60 @@ func TestBatch1_DeleteSharedTrustStoreAssociation(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(tsRec.Body.Bytes(), &tsResp))
 	tsArn := tsResp.Result.TrustStores.Members[0].TrustStoreArn
 
-	rec := doELBv2(t, h, url.Values{
+	lbArn := b1CreateLB(t, h, "shared-assoc-lb")
+	tgArn := b1CreateTG(t, h, "shared-assoc-tg")
+
+	// Create an HTTPS listener with mutual authentication referencing the trust store.
+	listRec := doELBv2(t, h, url.Values{
+		"Action":                                 {"CreateListener"},
+		"Version":                                {"2015-12-01"},
+		"LoadBalancerArn":                        {lbArn},
+		"Protocol":                               {"HTTPS"},
+		"Port":                                   {"443"},
+		"DefaultActions.member.1.Type":           {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {tgArn},
+		"Certificates.member.1.CertificateArn":   {"arn:aws:acm:us-east-1:000000000000:certificate/ccc"},
+		"MutualAuthentication.Mode":              {"verify"},
+		"MutualAuthentication.TrustStoreArn":     {tsArn},
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	var listResp struct {
+		Result struct {
+			Listeners struct {
+				Members []struct {
+					ListenerArn string `xml:"ListenerArn"`
+				} `xml:"member"`
+			} `xml:"Listeners"`
+		} `xml:"CreateListenerResult"`
+	}
+	require.NoError(t, xml.Unmarshal(listRec.Body.Bytes(), &listResp))
+	listenerArn := listResp.Result.Listeners.Members[0].ListenerArn
+
+	// Missing ResourceArn is a validation error.
+	missingRec := doELBv2(t, h, url.Values{
 		"Action":        {"DeleteSharedTrustStoreAssociation"},
 		"Version":       {"2015-12-01"},
 		"TrustStoreArn": {tsArn},
 	})
+	assert.Equal(t, http.StatusBadRequest, missingRec.Code)
+
+	// Deleting the existing association succeeds.
+	rec := doELBv2(t, h, url.Values{
+		"Action":        {"DeleteSharedTrustStoreAssociation"},
+		"Version":       {"2015-12-01"},
+		"TrustStoreArn": {tsArn},
+		"ResourceArn":   {listenerArn},
+	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Deleting again returns AssociationNotFound (404).
+	rec2 := doELBv2(t, h, url.Values{
+		"Action":        {"DeleteSharedTrustStoreAssociation"},
+		"Version":       {"2015-12-01"},
+		"TrustStoreArn": {tsArn},
+		"ResourceArn":   {listenerArn},
+	})
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
 
 // ---- RemoveTrustStoreRevocations ----

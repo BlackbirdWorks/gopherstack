@@ -2,6 +2,7 @@
 package mq
 
 import (
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"net"
@@ -579,13 +580,7 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 	brokerArn := arn.Build("mq", b.region, b.accountID, "broker:"+name)
 	created := time.Now().UTC().Format(time.RFC3339)
 
-	endpoint := buildEndpoint(engineType, b.region, id)
-	instances := []BrokerInstance{
-		{
-			ConsoleURL: fmt.Sprintf("http://%s.mq.%s.amazonaws.com:8162", id, b.region),
-			Endpoints:  []string{endpoint},
-		},
-	}
+	instances := buildBrokerInstances(engineType, deploymentMode, b.region, id)
 
 	userMap := make(map[string]*User)
 	for _, u := range users {
@@ -732,6 +727,13 @@ func (b *InMemoryBackend) DescribeBroker(brokerID string) (*Broker, error) {
 		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
 
+	if br.BrokerState == BrokerStateDeleting {
+		delete(b.brokers, br.BrokerID)
+		delete(b.tags, br.BrokerArn)
+
+		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
+	}
+
 	cp := b.copyBroker(br)
 	promoteRebootingToRunning(br)
 
@@ -744,7 +746,15 @@ func (b *InMemoryBackend) ListBrokers() []*Broker {
 	defer b.mu.Unlock()
 
 	list := make([]*Broker, 0, len(b.brokers))
-	for _, br := range b.brokers {
+
+	for id, br := range b.brokers {
+		if br.BrokerState == BrokerStateDeleting {
+			delete(b.brokers, id)
+			delete(b.tags, br.BrokerArn)
+
+			continue
+		}
+
 		list = append(list, b.copyBroker(br))
 		promoteRebootingToRunning(br)
 	}
@@ -754,7 +764,9 @@ func (b *InMemoryBackend) ListBrokers() []*Broker {
 	return list
 }
 
-// DeleteBroker removes a broker by ID or name.
+// DeleteBroker transitions a broker to DELETION_IN_PROGRESS and returns its
+// identifiers. The broker is fully removed from the map on the next
+// DescribeBroker / ListBrokers call via promoteDeletingToDeleted.
 func (b *InMemoryBackend) DeleteBroker(brokerID string) (*Broker, error) {
 	b.mu.Lock("DeleteBroker")
 	defer b.mu.Unlock()
@@ -765,8 +777,7 @@ func (b *InMemoryBackend) DeleteBroker(brokerID string) (*Broker, error) {
 	}
 
 	cp := b.copyBroker(br)
-	delete(b.brokers, br.BrokerID)
-	delete(b.tags, br.BrokerArn)
+	br.BrokerState = BrokerStateDeleting
 
 	return cp, nil
 }
@@ -794,6 +805,56 @@ func (b *InMemoryBackend) RebootBroker(brokerID string) error {
 func promoteRebootingToRunning(br *Broker) {
 	if br != nil && br.BrokerState == BrokerStateRebooting {
 		br.BrokerState = BrokerStateRunning
+	}
+}
+
+// buildBrokerInstances returns the correct number of BrokerInstance entries
+// for the given engine type and deployment mode.
+func buildBrokerInstances(engineType, deploymentMode, region, id string) []BrokerInstance {
+	consoleURL := fmt.Sprintf("http://%s.mq.%s.amazonaws.com:8162", id, region)
+	endpoint := buildEndpoint(engineType, region, id)
+
+	switch deploymentMode {
+	case DeploymentModeActiveStandby:
+		return []BrokerInstance{
+			{
+				ConsoleURL: fmt.Sprintf("http://%s-1.mq.%s.amazonaws.com:8162", id, region),
+				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-1")},
+			},
+			{
+				ConsoleURL: fmt.Sprintf("http://%s-2.mq.%s.amazonaws.com:8162", id, region),
+				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-2")},
+			},
+		}
+	case DeploymentModeCluster:
+		return []BrokerInstance{
+			{
+				ConsoleURL: fmt.Sprintf("http://%s-1.mq.%s.amazonaws.com:15671", id, region),
+				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-1")},
+			},
+			{
+				ConsoleURL: fmt.Sprintf("http://%s-2.mq.%s.amazonaws.com:15671", id, region),
+				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-2")},
+			},
+			{
+				ConsoleURL: fmt.Sprintf("http://%s-3.mq.%s.amazonaws.com:15671", id, region),
+				Endpoints:  []string{buildEndpointSuffix(engineType, region, id, "-3")},
+			},
+		}
+	default:
+		return []BrokerInstance{{ConsoleURL: consoleURL, Endpoints: []string{endpoint}}}
+	}
+}
+
+// buildEndpointSuffix builds an endpoint URL with a host suffix (e.g. "-1", "-2").
+func buildEndpointSuffix(engineType, region, id, suffix string) string {
+	host := id + suffix + ".mq." + region + ".amazonaws.com"
+
+	switch engineType {
+	case EngineTypeRabbitMQ:
+		return "amqps://" + net.JoinHostPort(host, "5671")
+	default:
+		return "ssl://" + net.JoinHostPort(host, "61617")
 	}
 }
 
@@ -1141,13 +1202,30 @@ func (b *InMemoryBackend) CreateConfiguration(
 		Created:        now,
 		Tags:           tagsCopy,
 		Revisions:      []ConfigurationRevision{rev},
-		Data:           map[int32]string{1: ""},
+		Data:           map[int32]string{1: defaultConfigurationData(engineType)},
 	}
 
 	b.configurations[id] = cfg
 	b.tags[configArn] = tagsCopy
 
 	return b.copyConfiguration(cfg), nil
+}
+
+// defaultConfigurationData returns a base64-encoded default broker configuration
+// appropriate for the given engine type, matching what AWS MQ seeds for revision 1.
+func defaultConfigurationData(engineType string) string {
+	var raw string
+
+	switch engineType {
+	case EngineTypeRabbitMQ:
+		raw = "# Default RabbitMQ configuration\n"
+	default:
+		raw = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" +
+			"<broker xmlns=\"http://activemq.apache.org/schema/core\">\n" +
+			"</broker>\n"
+	}
+
+	return base64.StdEncoding.EncodeToString([]byte(raw))
 }
 
 // DescribeConfiguration returns a configuration by ID.

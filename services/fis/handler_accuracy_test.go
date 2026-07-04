@@ -679,7 +679,8 @@ func TestAccuracy_ListActions_BuiltinCatalog(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, http.MethodGet, "/actions", nil)
+	// Use maxResults=100 to retrieve all built-in actions in a single page.
+	rec := doRequest(t, h, http.MethodGet, "/actions?maxResults=100", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
@@ -1005,12 +1006,12 @@ func TestAccuracy_Restore_MarksRunningExperimentsFailed(t *testing.T) {
 	mem, ok := h.Backend.(*fis.ExportedInMemoryBackend)
 	require.True(t, ok)
 
-	snap := mem.Snapshot()
+	snap := mem.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore into a fresh backend.
 	fresh := fis.NewTestBackend()
-	err := fresh.Restore(snap)
+	err := fresh.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	exp, err := fresh.GetExperiment(expID)

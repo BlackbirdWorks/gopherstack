@@ -1,8 +1,11 @@
 package resourcegroupstaggingapi
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // backendSnapshot is the serializable form of InMemoryBackend state.
@@ -15,7 +18,7 @@ type backendSnapshot struct {
 // Snapshot serializes the backend state to JSON.
 // Providers, taggers, and untaggers are runtime callbacks and cannot be
 // serialized; they must be re-registered after a Restore.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -27,7 +30,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("resourcegroupstaggingapi: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "resourcegroupstaggingapi: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -39,10 +42,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 // Providers, taggers, and untaggers are runtime callbacks that cannot be serialized;
 // they are cleared by this call and must be re-registered (e.g., via wireResourceGroupsTagging)
 // after restore to re-enable cross-service tag operations.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "resourcegroupstaggingapi", data, &snap); err != nil {
 		return err
 	}
 

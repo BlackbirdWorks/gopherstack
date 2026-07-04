@@ -23,12 +23,12 @@ func TestEventBridgeRegionIsolation(t *testing.T) { //nolint:paralleltest // exi
 	require.NoError(t, err)
 
 	// 3. Verify us-east-1 only sees its bus
-	eastBuses, _, err := backend.ListEventBuses(ctxEast, "", "")
+	eastBuses, _, err := backend.ListEventBuses(ctxEast, "", "", 0)
 	require.NoError(t, err)
 	assert.True(t, containsBus(eastBuses, "bus-east"))
 
 	// 4. Verify us-west-2 only sees its bus
-	westBuses, _, err := backend.ListEventBuses(ctxWest, "", "")
+	westBuses, _, err := backend.ListEventBuses(ctxWest, "", "", 0)
 	require.NoError(t, err)
 	assert.True(t, containsBus(westBuses, "bus-east"))
 
@@ -41,12 +41,12 @@ func TestEventBridgeRegionIsolation(t *testing.T) { //nolint:paralleltest // exi
 	require.NoError(t, err)
 
 	// 6. Verify rule1 NOT in us-west-2
-	westRules, _, err := backend.ListRules(ctxWest, "bus-east", "", "")
+	westRules, _, err := backend.ListRules(ctxWest, "bus-east", "", "", 0)
 	require.NoError(t, err)
 	assert.False(t, containsRule(westRules, "rule1"))
 
 	// 7. Verify rule1 IS in us-east-1
-	eastRules, _, err := backend.ListRules(ctxEast, "bus-east", "", "")
+	eastRules, _, err := backend.ListRules(ctxEast, "bus-east", "", "", 0)
 	require.NoError(t, err)
 	assert.True(t, containsRule(eastRules, "rule1"))
 }

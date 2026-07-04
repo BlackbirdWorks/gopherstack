@@ -33,7 +33,9 @@ func (b *InMemoryBackend) CreatePipeSimple(
 
 // ListPipesAll returns all pipes without filtering (test convenience).
 func (b *InMemoryBackend) ListPipesAll() []*Pipe {
-	return b.ListPipes(context.Background(), ListPipesFilter{}).Pipes
+	res, _ := b.ListPipes(context.Background(), ListPipesFilter{})
+
+	return res.Pipes
 }
 
 // EpochMillisForTest exposes epochMillis for direct unit testing of timestamp precision.
@@ -56,4 +58,39 @@ func WaitPipeRunning(t *testing.T, b *InMemoryBackend, name string) {
 	}
 
 	t.Fatalf("pipe %q did not reach RUNNING state within 500ms", name)
+}
+
+// WaitPipeStopped waits up to 500ms for a pipe to reach STOPPED state.
+func WaitPipeStopped(t *testing.T, b *InMemoryBackend, name string) {
+	t.Helper()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		p, err := b.GetPipe(context.Background(), name)
+		if err == nil && p.CurrentState == stateStopped {
+			return
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatalf("pipe %q did not reach STOPPED state within 500ms", name)
+}
+
+// EnrichmentCallCountForTest returns the enrichment call count for a pipe in the default region.
+func (b *InMemoryBackend) EnrichmentCallCountForTest(pipeName string) int64 {
+	return b.GetEnrichmentCallCount(context.Background(), pipeName)
+}
+
+// EnrichmentIndexSizeForTest returns the total number of entries in the enrichment counter map
+// for the default region (used to verify that deleted pipes are pruned).
+func (b *InMemoryBackend) EnrichmentIndexSizeForTest() int {
+	b.mu.RLock("EnrichmentIndexSizeForTest")
+	defer b.mu.RUnlock()
+
+	if m := b.enrichmentCallCount[b.region]; m != nil {
+		return len(m)
+	}
+
+	return 0
 }

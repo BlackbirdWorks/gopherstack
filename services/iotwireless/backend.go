@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // Sentinel errors for IoT Wireless backend operations.
@@ -143,7 +145,10 @@ type StorageBackend interface {
 	CreateWirelessGatewayTask(gatewayID, taskDefID string) (*GatewayTask, error)
 	GetWirelessGatewayTask(gatewayID string) (*GatewayTask, error)
 	DeleteWirelessGatewayTask(gatewayID string) error
-	CreateWirelessGatewayTaskDefinition(name string, autoCreateTasks bool) (*GatewayTaskDefinition, error)
+	CreateWirelessGatewayTaskDefinition(
+		accountID, region, name string,
+		autoCreateTasks bool,
+	) (*GatewayTaskDefinition, error)
 	GetWirelessGatewayTaskDefinition(id string) (*GatewayTaskDefinition, error)
 	ListWirelessGatewayTaskDefinitions() []*GatewayTaskDefinition
 	DeleteWirelessGatewayTaskDefinition(id string) error
@@ -262,35 +267,35 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 func wirelessDeviceARN(region, accountID, id string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:WirelessDevice/%s", region, accountID, id)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("WirelessDevice/%s", id))
 }
 
 func wirelessGatewayARN(region, accountID, id string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:WirelessGateway/%s", region, accountID, id)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("WirelessGateway/%s", id))
 }
 
 func serviceProfileARN(region, accountID, id string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:ServiceProfile/%s", region, accountID, id)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("ServiceProfile/%s", id))
 }
 
 func destinationARN(region, accountID, name string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:Destination/%s", region, accountID, name)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("Destination/%s", name))
 }
 
 func deviceProfileARN(region, accountID, id string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:DeviceProfile/%s", region, accountID, id)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("DeviceProfile/%s", id))
 }
 
 func fuotaTaskARN(region, accountID, id string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:FuotaTask/%s", region, accountID, id)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("FuotaTask/%s", id))
 }
 
 func partnerAccountARN(accountID, region, partnerAccountID string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:PartnerAccount/%s", region, accountID, partnerAccountID)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("PartnerAccount/%s", partnerAccountID))
 }
 
 func iotCertificateARN(accountID, region, certID string) string {
-	return fmt.Sprintf("arn:aws:iot:%s:%s:cert/%s", region, accountID, certID)
+	return arn.Build("iot", region, accountID, fmt.Sprintf("cert/%s", certID))
 }
 
 // Reset clears all in-memory state, returning the backend to a pristine condition.
@@ -1014,11 +1019,11 @@ func (b *InMemoryBackend) UpdateDestination(
 }
 
 func multicastGroupARN(region, accountID, id string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:MulticastGroup/%s", region, accountID, id)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("MulticastGroup/%s", id))
 }
 
 func networkAnalyzerConfigARN(region, accountID, name string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:NetworkAnalyzerConfiguration/%s", region, accountID, name)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("NetworkAnalyzerConfiguration/%s", name))
 }
 
 func copyMulticastGroup(mg *MulticastGroup) *MulticastGroup {

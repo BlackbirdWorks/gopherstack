@@ -36,7 +36,7 @@ const (
 	// granularity1Minute is the only supported CloudWatch metric granularity.
 	granularity1Minute = "1Minute"
 	// lbStateAdded is the state for a load balancer that has been attached to the ASG.
-	lbStateAdded = "Added"
+	lbStateAdded = "InService"
 	// maxAccountASGs is the simulated account limit for Auto Scaling groups.
 	maxAccountASGs = int32(200)
 	// maxAccountLaunchConfigs is the simulated account limit for launch configurations.
@@ -298,10 +298,32 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
+// Close stops any in-flight lifecycle-hook expiry timers so their goroutines do
+// not outlive the backend. It is safe to call multiple times.
+func (b *InMemoryBackend) Close() {
+	b.mu.Lock("Close")
+	defer b.mu.Unlock()
+
+	for token, action := range b.pendingHookTokens {
+		action.timer.Stop()
+		delete(b.pendingHookTokens, token)
+	}
+}
+
+// lcInstanceType returns the InstanceType from the named launch configuration, or
+// "t2.micro" if the launch configuration is not found (preserving previous default).
+func lcInstanceType(lcs map[string]*LaunchConfiguration, lcName string) string {
+	if lc, ok := lcs[lcName]; ok && lc.InstanceType != "" {
+		return lc.InstanceType
+	}
+
+	return "t2.micro"
+}
+
 // makeInstances creates the desired number of healthy InService instances for an ASG.
 // The fake service immediately puts instances in InService/Healthy state so that
 // Terraform provider capacity checks do not time out.
-func makeInstances(count int32, azs []string, launchConfigName string) []Instance {
+func makeInstances(count int32, azs []string, launchConfigName, instanceType string) []Instance {
 	// Clamp to valid range before use to avoid CodeQL
 	// go/slice-memory-allocation-excessive-size on the capacity hint.
 	n := max(0, min(maxDesiredCapacity, int(count)))
@@ -329,7 +351,7 @@ func makeInstances(count int32, azs []string, launchConfigName string) []Instanc
 			LifecycleState:          lifecycleStateInService,
 			HealthStatus:            healthStatusHealthy,
 			LaunchConfigurationName: launchConfigName,
-			InstanceType:            "t2.micro",
+			InstanceType:            instanceType,
 			LaunchTime:              now,
 		})
 	}
@@ -339,7 +361,9 @@ func makeInstances(count int32, azs []string, launchConfigName string) []Instanc
 
 // adjustInstances adjusts the instances slice to match the new desired count.
 // It adds or removes instances from the end, preserving existing instance IDs.
-func adjustInstances(existing []Instance, desired int32, azs []string, launchConfigName string) []Instance {
+func adjustInstances(
+	existing []Instance, desired int32, azs []string, launchConfigName, instanceType string,
+) []Instance {
 	current := len(existing)
 	want := int(desired)
 
@@ -354,7 +378,7 @@ func adjustInstances(existing []Instance, desired int32, azs []string, launchCon
 	// Add new instances for the delta.
 	delta := desired - int32(current) //nolint:gosec // current <= math.MaxInt32 (bounded by desired which is int32)
 
-	return append(existing, makeInstances(delta, azs, launchConfigName)...)
+	return append(existing, makeInstances(delta, azs, launchConfigName, instanceType)...)
 }
 
 // CreateAutoScalingGroup creates a new Auto Scaling group.
@@ -401,7 +425,10 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	}
 
 	// Use the shared makeInstances helper so all instance IDs use the same format.
-	instances := makeInstances(desired, azs, input.LaunchConfigurationName)
+	instances := makeInstances(
+		desired, azs, input.LaunchConfigurationName,
+		lcInstanceType(b.launchConfigurations, input.LaunchConfigurationName),
+	)
 
 	group := &AutoScalingGroup{
 		AutoScalingGroupName: input.AutoScalingGroupName,
@@ -433,7 +460,6 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		TerminationPolicies:              input.TerminationPolicies,
 		Instances:                        instances,
 		CreatedTime:                      time.Now(),
-		Status:                           "Active",
 	}
 
 	if input.NewInstancesProtectedFromScaleIn {
@@ -1262,6 +1288,7 @@ func (b *InMemoryBackend) applyDesiredCapacityChange(g *AutoScalingGroup, newDes
 			oldLen := len(g.Instances)
 			g.Instances = adjustInstances(
 				g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName,
+				lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName),
 			)
 			// Add newly launched instances to index.
 			for _, inst := range g.Instances[oldLen:] {
@@ -1379,6 +1406,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 			targetGroup.DesiredCapacity,
 			targetGroup.AvailabilityZones,
 			targetGroup.LaunchConfigurationName,
+			lcInstanceType(b.launchConfigurations, targetGroup.LaunchConfigurationName),
 		)
 	}
 
@@ -1461,6 +1489,8 @@ func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 	}
 
 	cp := hook
+	// GlobalTimeout = HeartbeatTimeout * numberOfRetries; AWS uses numberOfRetries=1 by default.
+	cp.GlobalTimeout = cp.HeartbeatTimeout
 	b.lifecycleHooks[hook.AutoScalingGroupName][hook.LifecycleHookName] = &cp
 
 	return nil
@@ -2472,7 +2502,10 @@ func (b *InMemoryBackend) ExecutePolicy(input ExecutePolicyInput) error {
 
 	if g.DesiredCapacity != newDesired {
 		g.DesiredCapacity = newDesired
-		g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
+		g.Instances = adjustInstances(
+			g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName,
+			lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName),
+		)
 		g.LastScalingActivity = time.Now()
 	}
 
@@ -2489,7 +2522,10 @@ func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Inst
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
-	newInstances := makeInstances(count, g.AvailabilityZones, g.LaunchConfigurationName)
+	newInstances := makeInstances(
+		count, g.AvailabilityZones, g.LaunchConfigurationName,
+		lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName),
+	)
 	g.Instances = append(g.Instances, newInstances...)
 	g.DesiredCapacity = int32(len(g.Instances)) //nolint:gosec // bounded by maxDesiredCapacity
 
@@ -2731,8 +2767,14 @@ func (b *InMemoryBackend) PutScheduledUpdateGroupAction(groupName string, action
 		b.scheduledActions[groupName] = make(map[string]*ScheduledAction)
 	}
 
+	scheduledARN := fmt.Sprintf(
+		"arn:aws:autoscaling:%s:%s:scheduledUpdateGroupAction:%s:autoScalingGroupName/%s:scheduledActionName/%s",
+		config.DefaultRegion, config.DefaultAccountID, uuid.NewString(), groupName, action.ScheduledActionName,
+	)
+
 	b.scheduledActions[groupName][action.ScheduledActionName] = &ScheduledAction{
 		ScheduledActionName:  action.ScheduledActionName,
+		ScheduledActionARN:   scheduledARN,
 		AutoScalingGroupName: groupName,
 		Recurrence:           action.Recurrence,
 		TimeZone:             action.TimeZone,
@@ -2785,7 +2827,6 @@ func (b *InMemoryBackend) PutWarmPool(input WarmPoolInput) error {
 	b.warmPools[input.AutoScalingGroupName] = &WarmPool{
 		AutoScalingGroupName:     input.AutoScalingGroupName,
 		PoolState:                poolState,
-		Status:                   "Active",
 		MinSize:                  input.MinSize,
 		MaxGroupPreparedCapacity: input.MaxGroupPreparedCapacity,
 		InstanceReusePolicy:      input.InstanceReusePolicy,

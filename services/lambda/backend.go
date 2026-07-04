@@ -14,8 +14,10 @@ import (
 	mrand "math/rand/v2"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,11 +26,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -105,28 +109,26 @@ const maxConcurrentInvocationLogs = 256
 const extractParentDirPerm = 0o750
 
 // invocationChainKeyType is the context key type used to track the current Lambda invocation chain.
-// Its value is a set (map[string]struct{}) of function names currently in the call stack.
+// Its value is a []string of function names currently in the call stack.
 type invocationChainKeyType struct{}
 
 // withInvocationChain returns a context carrying the updated invocation chain.
+// Uses a []string instead of a map to avoid per-call heap allocation on the hot invocation path.
+// make+copy ensures the new slice never shares backing array with existing.
 func withInvocationChain(ctx context.Context, functionName string) context.Context {
-	existing, _ := ctx.Value(invocationChainKeyType{}).(map[string]struct{})
-	next := make(map[string]struct{}, len(existing)+1)
-	for k := range existing {
-		next[k] = struct{}{}
-	}
-
-	next[functionName] = struct{}{}
+	existing, _ := ctx.Value(invocationChainKeyType{}).([]string)
+	next := make([]string, len(existing)+1)
+	copy(next, existing)
+	next[len(existing)] = functionName
 
 	return context.WithValue(ctx, invocationChainKeyType{}, next)
 }
 
 // invocationChainContains reports whether functionName is already in the call chain.
 func invocationChainContains(ctx context.Context, functionName string) bool {
-	chain, _ := ctx.Value(invocationChainKeyType{}).(map[string]struct{})
-	_, ok := chain[functionName]
+	chain, _ := ctx.Value(invocationChainKeyType{}).([]string)
 
-	return ok
+	return slices.Contains(chain, functionName)
 }
 
 // StorageBackend defines the interface for Lambda backend operations.
@@ -136,7 +138,12 @@ type StorageBackend interface {
 	ListFunctions(marker string, maxItems int) page.Page[*FunctionConfiguration]
 	DeleteFunction(name string) error
 	UpdateFunction(fn *FunctionConfiguration) error
-	InvokeFunction(ctx context.Context, name string, invocationType InvocationType, payload []byte) ([]byte, int, error)
+	InvokeFunction(
+		ctx context.Context,
+		name string,
+		invocationType InvocationType,
+		payload []byte,
+	) ([]byte, int, error)
 	Purge(ctx context.Context, cutoff time.Time)
 }
 
@@ -144,8 +151,16 @@ type StorageBackend interface {
 // Backends implement this to support ?Qualifier= on Invoke (alias or version qualifier).
 type QualifierInvoker interface {
 	InvokeFunctionWithQualifier(
-		ctx context.Context, name, qualifier string, invocationType InvocationType, payload []byte,
-	) ([]byte, int, error)
+		ctx context.Context, name, qualifier, clientContext, logType string, invocationType InvocationType, payload []byte,
+	) ([]byte, string, string, int, error)
+}
+
+// QualifierResolver is an optional extension of StorageBackend that resolves a
+// qualifier (version number or alias name) to a function configuration for
+// GetFunction/GetFunctionConfiguration. Backends implement this to support
+// ?Qualifier= on the read paths.
+type QualifierResolver interface {
+	GetFunctionByQualifier(name, qualifier string) (*FunctionConfiguration, error)
 }
 
 // S3CodeFetcher can retrieve zip bytes from an S3-compatible store.
@@ -197,9 +212,9 @@ type InMemoryBackend struct {
 	s3Fetcher                S3CodeFetcher
 	docker                   container.Runtime
 	dnsRegistrar             DNSRegistrar
-	activeConcurrencies      map[string]int
-	layerVersionCounters     map[string]int64
-	aliases                  map[string]map[string]*FunctionAlias
+	ctx                      context.Context
+	logSem                   chan struct{}
+	fisFaults                map[string]*FISInvocationFault
 	versionCounters          map[string]int
 	functions                map[string]*FunctionConfiguration
 	functionURLServers       map[string]*functionURLServer
@@ -212,17 +227,12 @@ type InMemoryBackend struct {
 	provisionedConcurrencies map[string]map[string]*ProvisionedConcurrencyConfig
 	layers                   map[string][]*LayerVersion
 	eventSourceMappings      map[string]*EventSourceMapping
-	// esmByFunctionARN indexes ESM UUIDs by function ARN for O(1) list-by-function.
-	esmByFunctionARN map[string]map[string]struct{}
-	// versionIndex indexes published versions by function name and version number.
-	versionIndex map[string]map[string]*FunctionVersion
-	// cleanupSem bounds concurrent runtime cleanup goroutines.
-	cleanupSem chan struct{}
-	// logSem bounds concurrent invocation-log delivery goroutines so that a
-	// slow CloudWatch Logs backend cannot leak goroutines under high load.
-	logSem                   chan struct{}
+	esmByFunctionARN         map[string]map[string]struct{}
+	versionIndex             map[string]map[string]*FunctionVersion
+	cleanupSem               chan struct{}
+	layerVersionCounters     map[string]int64
 	layerPolicies            map[string]map[int64]map[string]*LayerVersionStatement
-	fisFaults                map[string]*FISInvocationFault
+	aliases                  map[string]map[string]*FunctionAlias
 	permissions              map[string]map[string]*FunctionPermission
 	codeSigningConfigs       map[string]*CodeSigningConfig
 	fnCodeSigningConfigs     map[string]string
@@ -232,22 +242,74 @@ type InMemoryBackend struct {
 	functionScalingConfigs   map[string]*FunctionScalingConfig
 	durableExecs             *durableExecutionStore
 	asyncEnqueueWaiters      chan struct{}
+	shutdown                 chan struct{}
 	mu                       *lockmetrics.RWMutex
 	portAlloc                *portalloc.Allocator
 	runtimes                 map[string]*functionRuntime
-	region                   string
+	activeConcurrencies      map[string]int
+	asyncDelivery            AsyncDestinationDelivery
 	accountID                string
+	region                   string
+	sigV4Secret              string
 	settings                 Settings
+	asyncWG                  sync.WaitGroup
+	activationDelay          time.Duration
+	pcActivationDelay        time.Duration
 	cscIDCounter             int
+	shutdownOnce             sync.Once
 }
 
-// NewInMemoryBackend creates a new Lambda in-memory backend.
+// SetActivationDelay configures how long a newly created function stays in the
+// Pending state before transitioning to Active. Zero (the default) creates
+// functions directly in Active, matching the near-instant activation of ZIP
+// functions; a positive delay reproduces the Pending→Active window AWS exhibits
+// for VPC and container functions.
+func (b *InMemoryBackend) SetActivationDelay(d time.Duration) {
+	b.mu.Lock("SetActivationDelay")
+	defer b.mu.Unlock()
+	b.activationDelay = d
+}
+
+// SetProvisionedConcurrencyDelay configures how long a provisioned concurrency
+// config stays IN_PROGRESS before transitioning to READY. Zero (the default)
+// reports READY immediately.
+func (b *InMemoryBackend) SetProvisionedConcurrencyDelay(d time.Duration) {
+	b.mu.Lock("SetProvisionedConcurrencyDelay")
+	defer b.mu.Unlock()
+	b.pcActivationDelay = d
+}
+
+// SetSigV4Secret sets the shared secret used to verify SigV4 signatures on
+// AWS_IAM Function URL invocations. When empty the default "test" secret is used.
+func (b *InMemoryBackend) SetSigV4Secret(secret string) {
+	b.mu.Lock("SetSigV4Secret")
+	defer b.mu.Unlock()
+	b.sigV4Secret = secret
+}
+
+// NewInMemoryBackend creates a new Lambda in-memory backend with a background service context.
 func NewInMemoryBackend(
 	dockerClient container.Runtime,
 	portAlloc *portalloc.Allocator,
 	settings Settings,
 	accountID, region string,
 ) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), dockerClient, portAlloc, settings, accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new Lambda in-memory backend whose background
+// goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(
+	svcCtx context.Context,
+	dockerClient container.Runtime,
+	portAlloc *portalloc.Allocator,
+	settings Settings,
+	accountID, region string,
+) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		functions:                make(map[string]*FunctionConfiguration),
 		runtimes:                 make(map[string]*functionRuntime),
@@ -278,11 +340,13 @@ func NewInMemoryBackend(
 		functionScalingConfigs:   make(map[string]*FunctionScalingConfig),
 		durableExecs:             newDurableExecutionStore(),
 		asyncEnqueueWaiters:      make(chan struct{}, maxAsyncEnqueueWaiters),
+		shutdown:                 make(chan struct{}),
 		docker:                   dockerClient,
 		portAlloc:                portAlloc,
 		settings:                 settings,
 		accountID:                accountID,
 		region:                   region,
+		ctx:                      svcCtx,
 		mu:                       lockmetrics.New("lambda"),
 	}
 }
@@ -290,6 +354,13 @@ func NewInMemoryBackend(
 // Close shuts down all active function URL servers and runtime API servers.
 // It is safe to call concurrently and should be called when the backend is no longer needed.
 func (b *InMemoryBackend) Close(ctx context.Context) {
+	// Signal in-flight async (Event) invocation goroutines to stop waiting on a
+	// container response so they exit instead of lingering until their per-event
+	// timeout. shutdownOnce keeps Close idempotent and safe to call concurrently.
+	b.shutdownOnce.Do(func() {
+		close(b.shutdown)
+	})
+
 	b.mu.Lock("Close")
 
 	urlServers := make([]*functionURLServer, 0, len(b.functionURLServers))
@@ -331,6 +402,10 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 	}
 
 	wg.Wait()
+
+	// Wait for async invocation goroutines (unblocked by closing b.shutdown above)
+	// to finish so no background work outlives the backend.
+	b.asyncWG.Wait()
 }
 
 // SetDNSRegistrar sets the optional DNS registrar used to register function URL hostnames.
@@ -405,8 +480,22 @@ func (b *InMemoryBackend) SetDynamoDBStreamsReader(r DynamoDBStreamsReader) {
 	}
 }
 
+// esmFunctionName normalizes a function reference (bare name or full function ARN)
+// to the bare function name used for event-source-mapping indexing.
+func esmFunctionName(functionName string) string {
+	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
+		parts := strings.Split(functionName, ":")
+
+		return parts[len(parts)-1]
+	}
+
+	return functionName
+}
+
 // CreateEventSourceMapping creates a new event source mapping.
-func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappingInput) (*EventSourceMapping, error) {
+func (b *InMemoryBackend) CreateEventSourceMapping(
+	input *CreateEventSourceMappingInput,
+) (*EventSourceMapping, error) {
 	b.mu.Lock("CreateEventSourceMapping")
 	defer b.mu.Unlock()
 
@@ -430,7 +519,14 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 		startingPosition = "TRIM_HORIZON"
 	}
 
-	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+input.FunctionName)
+	// The function may be supplied as a bare name or a full function ARN. Normalize
+	// to the bare name so the stored index key matches lookups by name.
+	fnARN := arn.Build(
+		"lambda",
+		b.region,
+		b.accountID,
+		"function:"+esmFunctionName(input.FunctionName),
+	)
 
 	m := &EventSourceMapping{
 		UUID:                                id,
@@ -488,7 +584,7 @@ func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMappin
 
 // ListEventSourceMappings returns a page of event source mappings, optionally filtered by function name.
 func (b *InMemoryBackend) ListEventSourceMappings(
-	functionName, marker string,
+	functionName, eventSourceARN, marker string,
 	maxItems int,
 ) page.Page[*EventSourceMapping] {
 	b.mu.RLock("ListEventSourceMappings")
@@ -497,7 +593,12 @@ func (b *InMemoryBackend) ListEventSourceMappings(
 	var result []*EventSourceMapping
 
 	if functionName != "" {
-		fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+functionName)
+		fnARN := arn.Build(
+			"lambda",
+			b.region,
+			b.accountID,
+			"function:"+esmFunctionName(functionName),
+		)
 		ids := b.esmByFunctionARN[fnARN]
 		result = make([]*EventSourceMapping, 0, len(ids))
 		for id := range ids {
@@ -510,6 +611,17 @@ func (b *InMemoryBackend) ListEventSourceMappings(
 		for _, m := range b.eventSourceMappings {
 			result = append(result, m)
 		}
+	}
+
+	// Apply optional EventSourceArn filter.
+	if eventSourceARN != "" {
+		filtered := result[:0]
+		for _, m := range result {
+			if m.EventSourceARN == eventSourceARN {
+				filtered = append(filtered, m)
+			}
+		}
+		result = filtered
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -553,6 +665,7 @@ func (b *InMemoryBackend) functionURLHostname(functionName string) string {
 // The mutex is released before port allocation and listener startup (IO) to avoid
 // holding the lock during potentially slow system calls.
 func (b *InMemoryBackend) CreateFunctionURLConfig(
+	ctx context.Context,
 	functionName, authType string,
 	cors *FunctionURLCors,
 	invokeMode string,
@@ -574,7 +687,7 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 	b.mu.Unlock()
 
 	// Allocate port and start listener outside the lock (IO).
-	urlStr, startErr := b.allocateAndStartURLServerUnlocked(functionName)
+	urlStr, startErr := b.allocateAndStartURLServerUnlocked(ctx, functionName)
 	if startErr != nil {
 		return nil, startErr
 	}
@@ -607,7 +720,10 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 			delete(b.functionURLServers, functionName)
 
 			go func(s *functionURLServer) {
-				shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+				shutdownCtx, cancel := context.WithTimeout(
+					context.WithoutCancel(ctx),
+					containerShutdownTimeout,
+				)
 				defer cancel()
 				_ = s.server.Shutdown(shutdownCtx)
 
@@ -627,8 +743,11 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 
 // allocateAndStartURLServerUnlocked allocates a port and starts the HTTP listener
 // without holding b.mu. The caller must commit srv to b.functionURLServers under the lock.
-func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(functionName string) (string, error) {
-	urlStr, srv, err := b.doAllocateAndStart(functionName)
+func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(
+	ctx context.Context,
+	functionName string,
+) (string, error) {
+	urlStr, srv, err := b.doAllocateAndStart(ctx, functionName)
 	if err != nil {
 		return "", err
 	}
@@ -644,7 +763,10 @@ func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(functionName string)
 
 // doAllocateAndStart is the core port-alloc + listener startup logic used by
 // allocateAndStartURLServerUnlocked.
-func (b *InMemoryBackend) doAllocateAndStart(functionName string) (string, *functionURLServer, error) {
+func (b *InMemoryBackend) doAllocateAndStart(
+	ctx context.Context,
+	functionName string,
+) (string, *functionURLServer, error) {
 	if b.portAlloc == nil {
 		return fmt.Sprintf("http://localhost/%s/", functionName), nil, nil
 	}
@@ -654,11 +776,15 @@ func (b *InMemoryBackend) doAllocateAndStart(functionName string) (string, *func
 		return "", nil, fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, allocErr)
 	}
 
-	srv, listenErr := b.startFunctionURLServer(functionName, port)
+	srv, listenErr := b.startFunctionURLServer(ctx, functionName, port)
 	if listenErr != nil {
 		_ = b.portAlloc.Release(port)
 
-		return "", nil, fmt.Errorf("%w: failed to start URL listener: %w", ErrLambdaUnavailable, listenErr)
+		return "", nil, fmt.Errorf(
+			"%w: failed to start URL listener: %w",
+			ErrLambdaUnavailable,
+			listenErr,
+		)
 	}
 
 	hostname := b.functionURLHostname(functionName)
@@ -705,7 +831,7 @@ func (b *InMemoryBackend) DeleteFunctionURLConfig(functionName string) error {
 	b.mu.Unlock()
 
 	if srv != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 		defer cancel()
 		_ = srv.server.Shutdown(shutdownCtx)
 
@@ -726,10 +852,14 @@ const functionURLReadHeaderTimeout = 30 * time.Second
 
 // startFunctionURLServer starts an HTTP server on the given port that converts HTTP requests
 // to Lambda invocation events and returns the function's response.
-func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) (*functionURLServer, error) {
+func (b *InMemoryBackend) startFunctionURLServer(
+	ctx context.Context,
+	functionName string,
+	port int,
+) (*functionURLServer, error) {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	lc := &net.ListenConfig{}
-	ln, err := lc.Listen(context.Background(), "tcp", addr)
+	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -742,9 +872,19 @@ func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) 
 		ReadHeaderTimeout: functionURLReadHeaderTimeout,
 	}
 
+	log := logger.Load(ctx)
+
 	go func() {
-		if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			slog.Default().Warn("lambda: function URL server stopped", "function", functionName, "error", serveErr)
+		if serveErr := srv.Serve(ln); serveErr != nil &&
+			!errors.Is(serveErr, http.ErrServerClosed) {
+			log.WarnContext(
+				ctx,
+				"lambda: function URL server stopped",
+				"function",
+				functionName,
+				"error",
+				serveErr,
+			)
 		}
 	}()
 
@@ -771,14 +911,17 @@ type lambdaURLRequestContext struct {
 
 // lambdaURLEvent is a simplified Lambda Function URL (HTTP API v2) event.
 type lambdaURLEvent struct {
-	Headers         map[string]string       `json:"headers"`
-	RawPath         string                  `json:"rawPath"`
-	RawQueryString  string                  `json:"rawQueryString"`
-	Body            string                  `json:"body,omitempty"`
-	Version         string                  `json:"version"`
-	RouteKey        string                  `json:"routeKey"`
-	RequestContext  lambdaURLRequestContext `json:"requestContext"`
-	IsBase64Encoded bool                    `json:"isBase64Encoded"`
+	Headers               map[string]string       `json:"headers"`
+	QueryStringParameters map[string]string       `json:"queryStringParameters,omitempty"`
+	PathParameters        map[string]string       `json:"pathParameters,omitempty"`
+	RawPath               string                  `json:"rawPath"`
+	RawQueryString        string                  `json:"rawQueryString"`
+	Body                  string                  `json:"body,omitempty"`
+	Version               string                  `json:"version"`
+	RouteKey              string                  `json:"routeKey"`
+	Cookies               []string                `json:"cookies,omitempty"`
+	RequestContext        lambdaURLRequestContext `json:"requestContext"`
+	IsBase64Encoded       bool                    `json:"isBase64Encoded"`
 }
 
 // lambdaURLResponse is a simplified Lambda Function URL response.
@@ -790,8 +933,36 @@ type lambdaURLResponse struct {
 }
 
 // buildFunctionURLHandler builds an [http.HandlerFunc] that invokes the Lambda function.
+// It enforces the configured AuthType (AWS_IAM verifies SigV4, returning 403 on a bad
+// or missing signature) and applies CORS: OPTIONS preflight requests are answered
+// directly with the configured CORS headers, and those headers are echoed on real
+// responses.
 func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := b.lookupFunctionURLConfig(functionName)
+
+		cors := functionURLCors(cfg)
+
+		// Answer CORS preflight requests without invoking the function.
+		if r.Method == http.MethodOptions && cors != nil {
+			applyCORSHeaders(w, r, cors, true)
+			w.WriteHeader(http.StatusOK)
+
+			return
+		}
+
+		if authErr := b.enforceFunctionURLAuth(cfg, r); authErr != nil {
+			if cors != nil {
+				applyCORSHeaders(w, r, cors, false)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"Message":"Forbidden"}`))
+
+			return
+		}
+
 		payload, buildErr := b.buildURLEventPayload(r)
 		if buildErr != nil {
 			http.Error(w, buildErr.Error(), http.StatusInternalServerError)
@@ -799,15 +970,125 @@ func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.Hand
 			return
 		}
 
-		result, _, invokeErr := b.InvokeFunction(r.Context(), functionName, InvocationTypeRequestResponse, payload)
+		result, _, invokeErr := b.InvokeFunction(
+			r.Context(),
+			functionName,
+			InvocationTypeRequestResponse,
+			payload,
+		)
 		if invokeErr != nil {
 			http.Error(w, invokeErr.Error(), http.StatusInternalServerError)
 
 			return
 		}
 
+		if cors != nil {
+			applyCORSHeaders(w, r, cors, false)
+		}
+
 		writeFunctionURLResponse(w, result)
 	}
+}
+
+// lookupFunctionURLConfig returns a copy-free reference to the function's URL config.
+func (b *InMemoryBackend) lookupFunctionURLConfig(functionName string) *FunctionURLConfig {
+	b.mu.RLock("lookupFunctionURLConfig")
+	defer b.mu.RUnlock()
+
+	return b.functionURLConfigs[functionName]
+}
+
+// functionURLCors returns the CORS config when present.
+func functionURLCors(cfg *FunctionURLConfig) *FunctionURLCors {
+	if cfg == nil {
+		return nil
+	}
+
+	return cfg.Cors
+}
+
+// enforceFunctionURLAuth verifies the request against the URL's AuthType. For
+// AWS_IAM it requires a valid SigV4 signature; NONE (or an unset config) is open.
+func (b *InMemoryBackend) enforceFunctionURLAuth(cfg *FunctionURLConfig, r *http.Request) error {
+	if cfg == nil || cfg.AuthType != functionURLAuthAWSIAM {
+		return nil
+	}
+
+	b.mu.RLock("functionURLSecret")
+	secret := b.sigV4Secret
+	b.mu.RUnlock()
+
+	if !strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256") {
+		return ErrFunctionURLForbidden
+	}
+
+	if sErr := httputils.NewSigV4Validator(secret).Verify(r); sErr != nil {
+		return ErrFunctionURLForbidden
+	}
+
+	return nil
+}
+
+// functionURLAuthAWSIAM is the AuthType requiring SigV4 verification.
+const functionURLAuthAWSIAM = "AWS_IAM"
+
+// ErrFunctionURLForbidden is returned when an AWS_IAM function URL request is
+// missing or has an invalid SigV4 signature.
+var ErrFunctionURLForbidden = errors.New("Forbidden")
+
+// applyCORSHeaders writes the CORS response headers for a function URL request.
+// When preflight is true the full preflight header set (methods, headers, max-age)
+// is emitted; otherwise only the origin/credentials/expose-headers subset applies.
+func applyCORSHeaders(w http.ResponseWriter, r *http.Request, cors *FunctionURLCors, preflight bool) {
+	origin := r.Header.Get("Origin")
+	h := w.Header()
+
+	h.Set("Access-Control-Allow-Origin", corsAllowOrigin(cors.AllowOrigins, origin))
+
+	if cors.AllowCredentials {
+		h.Set("Access-Control-Allow-Credentials", "true")
+	}
+
+	if len(cors.ExposeHeaders) > 0 {
+		h.Set("Access-Control-Expose-Headers", strings.Join(cors.ExposeHeaders, ","))
+	}
+
+	if !preflight {
+		return
+	}
+
+	if len(cors.AllowMethods) > 0 {
+		h.Set("Access-Control-Allow-Methods", strings.Join(cors.AllowMethods, ","))
+	}
+
+	if len(cors.AllowHeaders) > 0 {
+		h.Set("Access-Control-Allow-Headers", strings.Join(cors.AllowHeaders, ","))
+	}
+
+	if cors.MaxAge > 0 {
+		h.Set("Access-Control-Max-Age", strconv.Itoa(cors.MaxAge))
+	}
+}
+
+// corsAllowOrigin resolves the Access-Control-Allow-Origin value. A wildcard or
+// an empty allow-list echoes "*"; otherwise the request origin is echoed when it
+// is in the allow-list, falling back to the first configured origin.
+func corsAllowOrigin(allowed []string, origin string) string {
+	if len(allowed) == 0 {
+		return "*"
+	}
+
+	for _, a := range allowed {
+		if a == "*" {
+			return "*"
+		}
+
+		if a == origin {
+			return origin
+		}
+	}
+
+	return allowed[0]
 }
 
 // maxFunctionURLBodyBytes caps the request body for Lambda Function URL invokes.
@@ -830,15 +1111,23 @@ func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) 
 
 	headers := make(map[string]string, len(r.Header))
 	for k, vs := range r.Header {
+		// AWS omits the Cookie header from `headers` and surfaces it via `cookies`.
+		if strings.EqualFold(k, "Cookie") {
+			continue
+		}
+
 		headers[strings.ToLower(k)] = strings.Join(vs, ",")
 	}
 
 	event := lambdaURLEvent{
-		Version:        "2.0",
-		RouteKey:       "$default",
-		RawPath:        r.URL.Path,
-		RawQueryString: r.URL.RawQuery,
-		Headers:        headers,
+		Version:               "2.0",
+		RouteKey:              "$default",
+		RawPath:               r.URL.Path,
+		RawQueryString:        r.URL.RawQuery,
+		Headers:               headers,
+		Cookies:               requestCookies(r),
+		QueryStringParameters: flattenQuery(r.URL.Query()),
+		PathParameters:        map[string]string{},
 		RequestContext: lambdaURLRequestContext{
 			HTTP: lambdaURLHTTPContext{
 				Method:   r.Method,
@@ -867,6 +1156,37 @@ func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) 
 	}
 
 	return json.Marshal(event)
+}
+
+// requestCookies extracts the request cookies as "name=value" strings, matching
+// the `cookies` array AWS Lambda Function URLs place in the event payload.
+func requestCookies(r *http.Request) []string {
+	cookies := r.Cookies()
+	if len(cookies) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(cookies))
+	for _, ck := range cookies {
+		out = append(out, ck.Name+"="+ck.Value)
+	}
+
+	return out
+}
+
+// flattenQuery collapses a url.Values into the single-value map AWS uses for
+// queryStringParameters. Repeated keys are comma-joined, as AWS does.
+func flattenQuery(values url.Values) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(values))
+	for k, vs := range values {
+		out[k] = strings.Join(vs, ",")
+	}
+
+	return out
 }
 
 // writeFunctionURLResponse writes the Lambda function URL response to the HTTP response writer.
@@ -920,7 +1240,8 @@ func validateEphemeralStorage(fn *FunctionConfiguration) error {
 		return nil
 	}
 
-	if fn.EphemeralStorage.Size < minEphemeralStorageSize || fn.EphemeralStorage.Size > maxEphemeralStorageSize {
+	if fn.EphemeralStorage.Size < minEphemeralStorageSize ||
+		fn.EphemeralStorage.Size > maxEphemeralStorageSize {
 		return fmt.Errorf(
 			"%w: EphemeralStorage.Size must be between %d and %d MB",
 			ErrInvalidParameterValue, minEphemeralStorageSize, maxEphemeralStorageSize,
@@ -946,10 +1267,42 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 		return ErrFunctionAlreadyExists
 	}
 
-	if fn.MemorySize != 0 && (fn.MemorySize < 128 || fn.MemorySize > 10240 || fn.MemorySize%64 != 0) {
-		return fmt.Errorf("%w: MemorySize must be between 128 and 10240 and divisible by 64", ErrInvalidParameterValue)
+	if fn.MemorySize != 0 &&
+		(fn.MemorySize < 128 || fn.MemorySize > 10240 || fn.MemorySize%64 != 0) {
+		return fmt.Errorf(
+			"%w: MemorySize must be between 128 and 10240 and divisible by 64",
+			ErrInvalidParameterValue,
+		)
 	}
 
+	if err := validateEphemeralStorage(fn); err != nil {
+		return err
+	}
+
+	applyFunctionCreateDefaults(fn)
+
+	// AWS Lambda always sets Version to "$LATEST" for the live (mutable) code.
+	// Published versions have numbered versions (1, 2, …) in separate records.
+	fn.Version = versionLatest
+
+	// Reproduce AWS's Pending→Active creation window when an activation delay is
+	// configured. With no delay (the default) the function is created directly
+	// Active, matching the near-instant activation of ZIP functions.
+	if b.activationDelay > 0 {
+		fn.State = FunctionStatePending
+		fn.StateReason = "The function is being created."
+		fn.StateReasonCode = "Creating"
+		b.scheduleFunctionActive(fn.FunctionName, b.activationDelay)
+	}
+
+	b.functions[fn.FunctionName] = fn
+
+	return nil
+}
+
+// applyFunctionCreateDefaults fills in the AWS default values for optional
+// function fields left unset by the caller.
+func applyFunctionCreateDefaults(fn *FunctionConfiguration) {
 	if fn.Tags == nil {
 		fn.Tags = make(map[string]string)
 	}
@@ -958,29 +1311,51 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 		fn.Architectures = []string{"x86_64"}
 	}
 
-	if err := validateEphemeralStorage(fn); err != nil {
-		return err
-	}
-
 	if fn.TracingConfig == nil {
 		fn.TracingConfig = &TracingConfig{Mode: "PassThrough"}
 	}
 
-	if fn.PackageType == "" {
-		if fn.ImageURI != "" {
-			fn.PackageType = "Image"
-		} else {
-			fn.PackageType = "Zip"
+	if fn.LoggingConfig == nil {
+		fn.LoggingConfig = &LoggingConfig{
+			LogFormat: "Text",
+			LogGroup:  "/aws/lambda/" + fn.FunctionName,
 		}
 	}
 
-	// AWS Lambda always sets Version to "$LATEST" for the live (mutable) code.
-	// Published versions have numbered versions (1, 2, …) in separate records.
-	fn.Version = versionLatest
+	if fn.PackageType == "" {
+		fn.PackageType = "Zip"
+		if fn.ImageURI != "" {
+			fn.PackageType = "Image"
+		}
+	}
+}
 
-	b.functions[fn.FunctionName] = fn
+// scheduleFunctionActive transitions a Pending function to Active after the delay.
+func (b *InMemoryBackend) scheduleFunctionActive(name string, delay time.Duration) {
+	b.asyncWG.Go(func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
 
-	return nil
+		select {
+		case <-timer.C:
+		case <-b.shutdown:
+			return
+		case <-b.ctx.Done():
+			return
+		}
+
+		b.mu.Lock("scheduleFunctionActive")
+		defer b.mu.Unlock()
+
+		fn, ok := b.functions[name]
+		if !ok || fn.State != FunctionStatePending {
+			return
+		}
+
+		fn.State = FunctionStateActive
+		fn.StateReason = ""
+		fn.StateReasonCode = ""
+	})
 }
 
 // GetFunction retrieves a Lambda function configuration by name.
@@ -988,6 +1363,7 @@ func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, erro
 	b.mu.RLock("GetFunction")
 	defer b.mu.RUnlock()
 
+	name = extractFunctionName(name)
 	fn, ok := b.functions[name]
 	if !ok {
 		return nil, ErrFunctionNotFound
@@ -996,8 +1372,81 @@ func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, erro
 	return fn, nil
 }
 
+// GetFunctionByQualifier returns the configuration for a specific qualifier
+// (version number, alias name, "$LATEST", or empty for $LATEST).
+//
+// Matching real AWS GetFunction/GetFunctionConfiguration behaviour:
+//   - "" or "$LATEST" returns the live function configuration unchanged.
+//   - A numeric version returns the immutable published snapshot, with
+//     FunctionArn suffixed ":<version>" and Version set to that number.
+//   - An alias name resolves to the alias's primary target version, but the
+//     returned FunctionArn is suffixed with the alias name (":<alias>") — AWS
+//     echoes the qualifier you asked for in the ARN while reporting the
+//     resolved Version. Weighted routing config does NOT affect GetFunction.
+//
+// Returns ErrFunctionNotFound when the function does not exist and
+// ErrVersionNotFound when the qualifier resolves to no known version/alias.
+func (b *InMemoryBackend) GetFunctionByQualifier(
+	name, qualifier string,
+) (*FunctionConfiguration, error) {
+	if qualifier == "" || qualifier == versionLatest {
+		return b.GetFunction(name)
+	}
+
+	b.mu.RLock("GetFunctionByQualifier")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	// Resolve an alias qualifier to its primary target version, but remember the
+	// alias name so the returned ARN carries the alias suffix (AWS behaviour).
+	resolved := qualifier
+	aliasSuffix := ""
+
+	if aliasMap := b.aliases[name]; aliasMap != nil {
+		if alias, ok := aliasMap[qualifier]; ok {
+			resolved = alias.FunctionVersion
+			aliasSuffix = qualifier
+		}
+	}
+
+	if resolved == versionLatest {
+		// Alias points at $LATEST: return the live config but with the alias ARN.
+		fn := b.functions[name]
+		cfg := versionToConfig(fnToVersion(fn))
+		cfg.FunctionArn = buildVersionARN(b.region, b.accountID, name, aliasSuffix)
+
+		return cfg, nil
+	}
+
+	vMap := b.versionIndex[name]
+	if vMap == nil {
+		return nil, ErrVersionNotFound
+	}
+
+	v, ok := vMap[resolved]
+	if !ok {
+		return nil, ErrVersionNotFound
+	}
+
+	cfg := versionToConfig(v)
+
+	// For an alias qualifier, AWS returns the ARN with the alias suffix while
+	// the Version field reports the resolved numeric version.
+	if aliasSuffix != "" {
+		cfg.FunctionArn = buildVersionARN(b.region, b.accountID, name, aliasSuffix)
+	}
+
+	return cfg, nil
+}
+
 // ListFunctions returns a page of Lambda function configurations sorted by name.
-func (b *InMemoryBackend) ListFunctions(marker string, maxItems int) page.Page[*FunctionConfiguration] {
+func (b *InMemoryBackend) ListFunctions(
+	marker string,
+	maxItems int,
+) page.Page[*FunctionConfiguration] {
 	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 
@@ -1008,6 +1457,54 @@ func (b *InMemoryBackend) ListFunctions(marker string, maxItems int) page.Page[*
 
 	sort.Slice(fns, func(i, j int) bool {
 		return fns[i].FunctionName < fns[j].FunctionName
+	})
+
+	return page.New(fns, marker, maxItems, lambdaDefaultMaxItems)
+}
+
+// ListFunctionsAll returns a page of all published versions across all functions,
+// sorted by FunctionName then numerically by version. This is the response for
+// ListFunctions?FunctionVersion=ALL.
+func (b *InMemoryBackend) ListFunctionsAll(
+	marker string,
+	maxItems int,
+) page.Page[*FunctionConfiguration] {
+	b.mu.RLock("ListFunctionsAll")
+	defer b.mu.RUnlock()
+
+	var fns []*FunctionConfiguration
+
+	// Include $LATEST for each function.
+	for _, fn := range b.functions {
+		fns = append(fns, fn)
+	}
+
+	// Include all published versions.
+	for name, vMap := range b.versionIndex {
+		for _, v := range vMap {
+			cfg := versionToConfig(v)
+			cfg.FunctionName = name
+			fns = append(fns, cfg)
+		}
+	}
+
+	// Sort by FunctionName, then by Version (numerically: $LATEST sorts last).
+	sort.Slice(fns, func(i, j int) bool {
+		if fns[i].FunctionName != fns[j].FunctionName {
+			return fns[i].FunctionName < fns[j].FunctionName
+		}
+		// $LATEST > any number
+		if fns[i].Version == versionLatest {
+			return false
+		}
+		if fns[j].Version == versionLatest {
+			return true
+		}
+		// Both are version numbers — compare numerically.
+		ni, _ := strconv.Atoi(fns[i].Version)
+		nj, _ := strconv.Atoi(fns[j].Version)
+
+		return ni < nj
 	})
 
 	return page.New(fns, marker, maxItems, lambdaDefaultMaxItems)
@@ -1049,7 +1546,7 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 
 	// Clean up runtime resources; must not hold b.mu while stopping the server.
 	if rt != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 		defer cancel()
 		b.cleanupRuntime(shutdownCtx, rt)
 	}
@@ -1080,21 +1577,33 @@ func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 	b.mu.Unlock()
 
 	// Clean up the old container asynchronously — we must not hold b.mu while stopping.
-	// context.Background is intentional: the caller's ctx (HTTP request) completes long
-	// before the container shuts down. rt is passed as a parameter to make the capture
-	// explicit and safe against future refactoring.
+	// rt is passed as a parameter to make the capture explicit and safe against future refactoring.
 	if rt != nil {
+		// Capture sem under RLock so that a concurrent Reset() cannot replace b.cleanupSem
+		// between the send and the goroutine's deferred release.
+		b.mu.RLock("cleanupSem.updateFn")
+		sem := b.cleanupSem
+		b.mu.RUnlock()
+
 		select {
-		case b.cleanupSem <- struct{}{}:
+		case sem <- struct{}{}:
 			go func(evicted *functionRuntime) { // #nosec G118 -- intentional detached context for background cleanup
-				defer func() { <-b.cleanupSem }()
-				shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+				defer func() { <-sem }()
+				shutdownCtx, cancel := context.WithTimeout(
+					b.ctx,
+					containerShutdownTimeout,
+				)
 				defer cancel()
 				b.cleanupRuntime(shutdownCtx, evicted)
-			}(rt)
+			}(
+				rt,
+			)
 		default:
 			// Already at max concurrent cleanups; run inline (rare, only under extreme load).
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+			shutdownCtx, cancel := context.WithTimeout(
+				b.ctx,
+				containerShutdownTimeout,
+			)
 			defer cancel()
 			b.cleanupRuntime(shutdownCtx, rt)
 		}
@@ -1214,7 +1723,10 @@ func versionInList(versions []*FunctionVersion, target string) bool {
 }
 
 // CreateAlias creates a new alias for a Lambda function pointing to a version.
-func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*FunctionAlias, error) {
+func (b *InMemoryBackend) CreateAlias(
+	name string,
+	input *CreateAliasInput,
+) (*FunctionAlias, error) {
 	b.mu.Lock("CreateAlias")
 	defer b.mu.Unlock()
 
@@ -1305,7 +1817,10 @@ func (b *InMemoryBackend) ListAliases(
 }
 
 // UpdateAlias updates an existing alias.
-func (b *InMemoryBackend) UpdateAlias(name, aliasName string, input *UpdateAliasInput) (*FunctionAlias, error) {
+func (b *InMemoryBackend) UpdateAlias(
+	name, aliasName string,
+	input *UpdateAliasInput,
+) (*FunctionAlias, error) {
 	b.mu.Lock("UpdateAlias")
 	defer b.mu.Unlock()
 
@@ -1355,10 +1870,25 @@ func (b *InMemoryBackend) DeleteAlias(name, aliasName string) error {
 	return nil
 }
 
+// extractFunctionName parses an ARN and returns the function name.
+func extractFunctionName(name string) string {
+	if strings.Contains(name, ":function:") {
+		parts := strings.Split(name, ":")
+		for i, p := range parts {
+			if p == "function" && i+1 < len(parts) {
+				return parts[i+1]
+			}
+		}
+	}
+
+	return name
+}
+
 // resolveQualifier resolves a function name with an optional qualifier to a FunctionConfiguration.
 // Qualifier may be a version number, alias name, or "$LATEST" (default when empty).
 // Returns the resolved function config.
 func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionConfiguration, error) {
+	name = extractFunctionName(name)
 	if qualifier == "" || qualifier == versionLatest {
 		return b.GetFunction(name)
 	}
@@ -1515,6 +2045,44 @@ func versionToFn(v *FunctionVersion) *FunctionConfiguration {
 		LastModified: v.CreatedAt,
 		State:        v.State,
 		SnapStart:    v.SnapStart,
+		Version:      v.Version,
+	}
+}
+
+// versionToConfig builds a complete FunctionConfiguration response from an
+// immutable version snapshot. Unlike versionToFn (used for the invocation hot
+// path, which only needs runtime-critical fields), this preserves every
+// control-plane field AWS returns from GetFunction on a published version,
+// including Version, Layers, VpcConfig, TracingConfig, and the version ARN.
+func versionToConfig(v *FunctionVersion) *FunctionConfiguration {
+	return &FunctionConfiguration{
+		FunctionName:      v.FunctionName,
+		FunctionArn:       v.FunctionArn,
+		Description:       v.Description,
+		Runtime:           v.Runtime,
+		Handler:           v.Handler,
+		Role:              v.Role,
+		MemorySize:        v.MemorySize,
+		Timeout:           v.Timeout,
+		PackageType:       v.PackageType,
+		ImageURI:          v.ImageURI,
+		ImageConfig:       v.ImageConfig,
+		Environment:       deepCopyEnvironment(v.Environment),
+		VpcConfig:         v.VpcConfig,
+		TracingConfig:     v.TracingConfig,
+		FileSystemConfigs: v.FileSystemConfigs,
+		DeadLetterConfig:  v.DeadLetterConfig,
+		Layers:            deepCopyFunctionLayers(v.Layers),
+		CodeSize:          v.CodeSize,
+		CodeSha256:        v.CodeSha256,
+		RevisionID:        v.RevisionID,
+		LastModified:      v.CreatedAt,
+		State:             v.State,
+		Version:           v.Version,
+		SnapStart:         copySnapStart(v.SnapStart),
+		// Published versions are immutable: their last-update status is always
+		// Successful (AWS never reports Pending/InProgress for a numbered version).
+		LastUpdateStatus: LastUpdateStatusSuccessful,
 	}
 }
 
@@ -1536,7 +2104,9 @@ func (b *InMemoryBackend) InvokeFunction(
 	invocationType InvocationType,
 	payload []byte,
 ) ([]byte, int, error) {
-	return b.InvokeFunctionWithQualifier(ctx, name, "", invocationType, payload)
+	result, _, _, statusCode, err := b.InvokeFunctionWithQualifier(ctx, name, "", "", "", invocationType, payload)
+
+	return result, statusCode, err
 }
 
 // asyncInvocationEnqueueTimeout is the maximum time a background goroutine will wait
@@ -1577,23 +2147,23 @@ func (b *InMemoryBackend) checkRecursiveLoop(ctx context.Context, functionName s
 // InvokeFunctionWithQualifier invokes a Lambda function using an optional qualifier.
 func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	ctx context.Context,
-	name, qualifier string,
+	name, qualifier, clientContext, logType string,
 	invocationType InvocationType,
 	payload []byte,
-) ([]byte, int, error) {
+) ([]byte, string, string, int, error) {
 	fn, err := b.resolveQualifier(name, qualifier)
 	if err != nil {
-		return nil, http.StatusNotFound, err
+		return nil, "", "", http.StatusNotFound, err
 	}
 
 	if invocationType == InvocationTypeDryRun {
-		return nil, http.StatusNoContent, nil
+		return nil, "", "", http.StatusNoContent, nil
 	}
 
 	// Enforce RecursiveLoop=Deny: reject self-invocations when the function name
 	// is already in the current invocation chain.
 	if loopErr := b.checkRecursiveLoop(ctx, fn.FunctionName); loopErr != nil {
-		return nil, http.StatusBadRequest, loopErr
+		return nil, "", "", http.StatusBadRequest, loopErr
 	}
 
 	// Propagate the invocation chain to nested Lambda calls.
@@ -1602,7 +2172,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// Check FIS fault injection state for this function.
 	fisPayload, fisStatus, fisErr := b.applyFISFaultToInvocation(ctx, fn.FunctionName)
 	if fisPayload != nil || fisErr != nil {
-		return fisPayload, fisStatus, fisErr
+		return fisPayload, "", "", fisStatus, fisErr
 	}
 
 	// Enforce reserved concurrency limits for all invocation types.
@@ -1610,7 +2180,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// for both synchronous (RequestResponse) and asynchronous (Event) invocations.
 	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName)
 	if concErr != nil {
-		return nil, http.StatusTooManyRequests, concErr
+		return nil, "", "", http.StatusTooManyRequests, concErr
 	}
 
 	// For synchronous invocations, release the concurrency slot when this function returns.
@@ -1627,7 +2197,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 			b.releaseConcurrencySlot(fn.FunctionName)
 		}
 
-		return nil, http.StatusInternalServerError, srvErr
+		return nil, "", "", http.StatusInternalServerError, srvErr
 	}
 
 	timeout := time.Duration(fn.Timeout) * time.Second
@@ -1636,37 +2206,88 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	}
 
 	if invocationType == InvocationTypeEvent {
-		inv := &pendingInvocation{
-			requestID: uuid.New().String(),
-			payload:   payload,
-			deadline:  time.Now().Add(timeout),
-			createdAt: time.Now(),
-			result:    make(chan invocationResult, 1),
-		}
+		b.invokeEvent(ctx, fn, srv, payload, clientContext, timeout, trackConcurrency)
 
-		b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
-
-		return nil, http.StatusAccepted, nil
+		return nil, "", "", http.StatusAccepted, nil
 	}
 
-	result, isError, invokeErr := srv.invoke(ctx, payload, timeout)
+	return b.invokeSync(ctx, fn, srv, payload, clientContext, logType, timeout)
+}
+
+// classifyFunctionError maps an invocation outcome to the AWS X-Amz-Function-Error
+// header value. A runtime that reports via the /error endpoint (isError) is an
+// Unhandled error; a normal /response whose payload merely has the Lambda error
+// shape is a Handled error; anything else is not a function error.
+func classifyFunctionError(isError bool, result []byte) string {
+	if isError {
+		return "Unhandled"
+	}
+
+	if isLambdaFunctionErrorPayload(result) {
+		return "Handled"
+	}
+
+	return ""
+}
+
+func (b *InMemoryBackend) invokeSync(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	srv *runtimeServer,
+	payload []byte,
+	clientContext, logType string,
+	timeout time.Duration,
+) ([]byte, string, string, int, error) {
+	result, isError, reqID, invokeErr := srv.invoke(ctx, payload, clientContext, timeout)
 	if invokeErr != nil {
-		// On invocation timeout the container process is likely hung or dead.
-		// Reset the runtime so the next invocation gets a fresh container instead
-		// of perpetually timing out.
 		if errors.Is(invokeErr, ErrInvocationTimeout) {
 			b.cleanupTimedOutRuntime(fn.FunctionName)
 		}
 
-		return nil, http.StatusInternalServerError, invokeErr
+		return nil, "", "", http.StatusInternalServerError, invokeErr
 	}
 
-	// Per Lambda convention, function-level errors (isError=true) still return HTTP 200.
-	_ = isError
+	functionError := classifyFunctionError(isError, result)
 
 	b.dispatchInvocationLog(context.WithoutCancel(ctx), fn.FunctionName, payload, result)
 
-	return result, http.StatusOK, nil
+	var logResult string
+	if logType == LogTypeTail {
+		logResult = base64.StdEncoding.EncodeToString([]byte(buildTailLog(reqID)))
+	}
+
+	return result, logResult, functionError, http.StatusOK, nil
+}
+
+// buildTailLog produces the base64-worthy CloudWatch-style log tail returned in
+// the X-Amz-Log-Result header when LogType=Tail is requested.
+func buildTailLog(reqID string) string {
+	return fmt.Sprintf(
+		"START RequestId: %s Version: $LATEST\nEND RequestId: %s\n"+
+			"REPORT RequestId: %s\tDuration: 1.00 ms\tBilled Duration: 1 ms\tMemory Size: 128 MB\tMax Memory Used: 64 MB\n",
+		reqID, reqID, reqID,
+	)
+}
+
+func (b *InMemoryBackend) invokeEvent(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	srv *runtimeServer,
+	payload []byte,
+	clientContext string,
+	timeout time.Duration,
+	trackConcurrency bool,
+) {
+	inv := &pendingInvocation{
+		requestID:     uuid.New().String(),
+		payload:       payload,
+		clientContext: clientContext,
+		deadline:      time.Now().Add(timeout),
+		createdAt:     time.Now(),
+		result:        make(chan invocationResult, 1),
+	}
+
+	b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
 }
 
 // enqueueAsyncInvocation places inv into the runtime queue and then waits for the
@@ -1687,6 +2308,8 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 	timeout time.Duration,
 	trackConcurrency bool,
 ) {
+	log := logger.Load(ctx)
+
 	// Fast path: try a non-blocking enqueue without spawning a goroutine.
 	// Even on the fast path we still need a goroutine to clean up srv.pending on
 	// container timeout, so only skip the goroutine when there's nothing to track
@@ -1696,7 +2319,9 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 		case srv.queue <- inv:
 			// Invocation queued; spawn a minimal goroutine only to clean up srv.pending
 			// if the container picks up the invocation but never responds.
-			go b.waitAndCleanPending(srv, inv, timeout, false, functionName)
+			b.asyncWG.Go(func() {
+				b.waitAndCleanPending(log, srv, inv, timeout, false, functionName)
+			})
 
 			return
 		default:
@@ -1707,7 +2332,7 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 	select {
 	case b.asyncEnqueueWaiters <- struct{}{}:
 	default:
-		logger.Load(ctx).WarnContext(ctx, "lambda: async invocation dropped: enqueue waiters saturated",
+		log.WarnContext(ctx, "lambda: async invocation dropped: enqueue waiters saturated",
 			"function", functionName, "requestID", inv.requestID)
 
 		if trackConcurrency {
@@ -1717,27 +2342,36 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 		return
 	}
 
-	go func() {
+	b.asyncWG.Go(func() {
 		defer func() {
 			<-b.asyncEnqueueWaiters
 		}()
 
-		enqueueCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncInvocationEnqueueTimeout)
+		enqueueCtx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			asyncInvocationEnqueueTimeout,
+		)
 		defer cancel()
 
 		select {
 		case srv.queue <- inv:
-			b.waitAndCleanPending(srv, inv, timeout, trackConcurrency, functionName)
+			b.waitAndCleanPending(log, srv, inv, timeout, trackConcurrency, functionName)
 
 		case <-enqueueCtx.Done():
-			logger.Load(ctx).WarnContext(ctx, "lambda: async invocation dropped: queue full",
+			log.WarnContext(ctx, "lambda: async invocation dropped: queue full",
 				"function", functionName, "requestID", inv.requestID)
 
 			if trackConcurrency {
 				b.releaseConcurrencySlot(functionName)
 			}
+
+		case <-b.shutdown:
+			// Backend is shutting down; drop the still-queueing invocation.
+			if trackConcurrency {
+				b.releaseConcurrencySlot(functionName)
+			}
 		}
-	}()
+	})
 }
 
 // defaultAsyncMaxRetryAttempts is the number of automatic retries AWS Lambda performs
@@ -1748,13 +2382,14 @@ const defaultAsyncMaxRetryAttempts = 2
 // the retry loop and, once all attempts are exhausted or completed, releases the
 // concurrency slot if one was acquired.
 func (b *InMemoryBackend) waitAndCleanPending(
+	log *slog.Logger,
 	srv *runtimeServer,
 	inv *pendingInvocation,
 	timeout time.Duration,
 	trackConcurrency bool,
 	functionName string,
 ) {
-	b.runAsyncInvocationRetryLoop(srv, inv, timeout, functionName)
+	b.runAsyncInvocationRetryLoop(log, srv, inv, timeout, functionName)
 
 	if trackConcurrency {
 		b.releaseConcurrencySlot(functionName)
@@ -1765,6 +2400,7 @@ func (b *InMemoryBackend) waitAndCleanPending(
 // according to the function's event invoke configuration (MaximumRetryAttempts,
 // MaximumEventAgeInSeconds). Default retry count mirrors AWS Lambda: 2 retries.
 func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
+	log *slog.Logger,
 	srv *runtimeServer,
 	inv *pendingInvocation,
 	timeout time.Duration,
@@ -1774,7 +2410,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 	currentInv := inv
 
 	for attempt := range maxRetries + 1 {
-		result, ok, containerTimedOut := waitForAsyncResult(srv, currentInv, timeout)
+		result, ok, containerTimedOut := b.waitForAsyncResult(srv, currentInv, timeout)
 		if !ok {
 			// A container timeout means the process is hung; evict it so the next
 			// invocation gets a fresh container, matching the synchronous timeout path.
@@ -1786,17 +2422,35 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 		}
 
 		if !result.isError || attempt == maxRetries {
+			outcome := asyncOutcome{
+				functionName:    functionName,
+				requestID:       inv.requestID,
+				requestPayload:  inv.payload,
+				responsePayload: result.payload,
+				functionError:   classifyFunctionError(result.isError, result.payload),
+				invokeCount:     attempt + 1,
+				statusCode:      result.statusCode,
+				success:         !result.isError,
+			}
+
 			if !result.isError {
-				b.dispatchInvocationLog(context.Background(), functionName, inv.payload, result.payload)
+				b.dispatchInvocationLog(
+					b.ctx,
+					functionName,
+					inv.payload,
+					result.payload,
+				)
 			} else {
-				slog.Default().Warn("lambda: async invocation failed after retries",
+				log.Warn("lambda: async invocation failed after retries",
 					"function", functionName, "attempts", attempt+1)
 			}
+
+			b.dispatchAsyncOutcome(context.WithoutCancel(b.ctx), outcome)
 
 			return
 		}
 
-		newInv := scheduleAsyncRetry(srv, inv, timeout, maxEventAgeDL, attempt+1, functionName)
+		newInv := scheduleAsyncRetry(b.ctx, log, srv, inv, timeout, maxEventAgeDL, attempt+1, functionName)
 		if newInv == nil {
 			return // retry dropped (queue full or event too old)
 		}
@@ -1841,7 +2495,7 @@ func (b *InMemoryBackend) readAsyncRetryConfig(
 // Returns:
 //   - (result, true, false)  — container responded in time
 //   - (zero, false, true)    — container timed out; the caller should clean up the runtime
-func waitForAsyncResult(
+func (b *InMemoryBackend) waitForAsyncResult(
 	srv *runtimeServer,
 	inv *pendingInvocation,
 	timeout time.Duration,
@@ -1864,6 +2518,13 @@ func waitForAsyncResult(
 		srv.pending.LoadAndDelete(inv.requestID)
 
 		return invocationResult{}, false, true
+	case <-b.shutdown:
+		// Backend is shutting down; abandon the wait and remove the stale pending
+		// entry. Treated like a timeout (not a container timeout) so the caller
+		// stops retrying without evicting a runtime.
+		srv.pending.LoadAndDelete(inv.requestID)
+
+		return invocationResult{}, false, false
 	}
 }
 
@@ -1871,6 +2532,8 @@ func waitForAsyncResult(
 // It returns the new invocation on success or nil if the event is too old or the queue
 // remains full after asyncInvocationEnqueueTimeout.
 func scheduleAsyncRetry(
+	ctx context.Context,
+	log *slog.Logger,
 	srv *runtimeServer,
 	original *pendingInvocation,
 	timeout time.Duration,
@@ -1879,7 +2542,7 @@ func scheduleAsyncRetry(
 	functionName string,
 ) *pendingInvocation {
 	if !maxEventAgeDL.IsZero() && time.Now().After(maxEventAgeDL) {
-		slog.Default().Warn("lambda: async retry dropped: event age exceeded",
+		log.WarnContext(ctx, "lambda: async retry dropped: event age exceeded",
 			"function", functionName, "attempt", attempt)
 
 		return nil
@@ -1893,14 +2556,14 @@ func scheduleAsyncRetry(
 		createdAt: original.createdAt,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), asyncInvocationEnqueueTimeout)
+	ctx, cancel := context.WithTimeout(ctx, asyncInvocationEnqueueTimeout)
 	defer cancel()
 
 	select {
 	case srv.queue <- newInv:
 		return newInv
 	case <-ctx.Done():
-		slog.Default().Warn("lambda: async retry dropped: queue full",
+		log.WarnContext(ctx, "lambda: async retry dropped: queue full",
 			"function", functionName, "requestID", newInv.requestID, "attempt", attempt)
 
 		return nil
@@ -1938,7 +2601,11 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, err
 
 	// Reserved concurrency of 0 disables all invocations regardless of type.
 	if reserved == 0 {
-		return false, fmt.Errorf("%w: reserved concurrency is 0 for function %s", ErrTooManyRequests, functionName)
+		return false, fmt.Errorf(
+			"%w: reserved concurrency is 0 for function %s",
+			ErrTooManyRequests,
+			functionName,
+		)
 	}
 
 	active := b.activeConcurrencies[functionName]
@@ -1967,6 +2634,7 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, err
 }
 
 // releaseConcurrencySlot decrements the active concurrency counter for a function.
+// Entries are deleted when the count reaches zero to prevent unbounded map growth.
 // Must not be called with b.mu held.
 func (b *InMemoryBackend) releaseConcurrencySlot(functionName string) {
 	b.mu.Lock("releaseConcurrencySlot")
@@ -1974,6 +2642,9 @@ func (b *InMemoryBackend) releaseConcurrencySlot(functionName string) {
 
 	if b.activeConcurrencies[functionName] > 0 {
 		b.activeConcurrencies[functionName]--
+		if b.activeConcurrencies[functionName] == 0 {
+			delete(b.activeConcurrencies, functionName)
+		}
 	}
 }
 
@@ -1981,9 +2652,19 @@ func (b *InMemoryBackend) releaseConcurrencySlot(functionName string) {
 // goroutine count is bounded by b.logSem; when saturated, the log is dropped
 // (best-effort observability) so a slow CloudWatch Logs backend cannot leak
 // goroutines under high invocation throughput.
-func (b *InMemoryBackend) dispatchInvocationLog(ctx context.Context, functionName string, payload, result []byte) {
+func (b *InMemoryBackend) dispatchInvocationLog(
+	ctx context.Context,
+	functionName string,
+	payload, result []byte,
+) {
+	// Capture the semaphore channel under the read lock so that a concurrent Reset()
+	// cannot replace b.logSem between the send and the goroutine's deferred release.
+	b.mu.RLock("dispatchInvocationLog.sem")
+	sem := b.logSem
+	b.mu.RUnlock()
+
 	select {
-	case b.logSem <- struct{}{}:
+	case sem <- struct{}{}:
 	default:
 		logger.Load(ctx).WarnContext(ctx, "lambda: invocation log dropped: logSem saturated",
 			"function", functionName)
@@ -1992,13 +2673,18 @@ func (b *InMemoryBackend) dispatchInvocationLog(ctx context.Context, functionNam
 	}
 
 	go func() {
-		defer func() { <-b.logSem }()
+		defer func() { <-sem }()
 		b.pushInvocationLog(ctx, functionName, payload, result)
 	}()
 }
 
 // pushInvocationLog writes a minimal invocation log entry to CloudWatch Logs when a backend is set.
-func (b *InMemoryBackend) pushInvocationLog(ctx context.Context, functionName string, _ []byte, result []byte) {
+func (b *InMemoryBackend) pushInvocationLog(
+	ctx context.Context,
+	functionName string,
+	_ []byte,
+	result []byte,
+) {
 	b.mu.RLock("pushInvocationLog")
 	cwl := b.cwLogs
 	b.mu.RUnlock()
@@ -2104,9 +2790,14 @@ func (b *InMemoryBackend) cleanupRuntime(ctx context.Context, rt *functionRuntim
 	shutdownCtx, cancel := context.WithTimeout(ctx, containerShutdownTimeout)
 	defer cancel()
 
-	if containerID != "" && b.docker != nil {
-		_ = b.docker.StopAndRemove(shutdownCtx, containerID) // #nosec G703
-	}
+	defer func() {
+		// Stop and remove the container
+		if containerID != "" && b.docker != nil {
+			if !b.settings.KeepContainers {
+				_ = b.docker.StopAndRemove(ctx, containerID)
+			}
+		}
+	}()
 
 	if srv != nil {
 		srv.stop(shutdownCtx)
@@ -2140,15 +2831,19 @@ func (b *InMemoryBackend) cleanupTimedOutRuntime(functionName string) {
 		return
 	}
 
+	b.mu.RLock("cleanupSem.timedOut")
+	sem := b.cleanupSem
+	b.mu.RUnlock()
+
 	select {
-	case b.cleanupSem <- struct{}{}:
+	case sem <- struct{}{}:
 	default:
 		// Already at max concurrent cleanups; skip
 		return
 	}
 	go func() {
-		defer func() { <-b.cleanupSem }()
-		ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		defer func() { <-sem }()
+		ctx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 		defer cancel()
 		b.cleanupRuntime(ctx, rt)
 	}()
@@ -2156,7 +2851,10 @@ func (b *InMemoryBackend) cleanupTimedOutRuntime(functionName string) {
 
 // getOrCreateRuntime returns the runtime server for a function, creating it on first use.
 // Must not be called with b.mu held.
-func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionConfiguration) (*runtimeServer, error) {
+func (b *InMemoryBackend) getOrCreateRuntime(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+) (*runtimeServer, error) {
 	b.mu.Lock("getOrCreateRuntime")
 	rt, ok := b.runtimes[fn.FunctionName]
 
@@ -2184,20 +2882,24 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 		b.mu.Unlock()
 
 		// Clean up the evicted runtime asynchronously outside b.mu.
-		// context.Background is intentional: the caller's ctx may be cancelled by the
-		// time the goroutine runs, and we still need to release container/port resources.
 		if evicted != nil {
+			// Capture sem under RLock so that a concurrent Reset() cannot replace
+			// b.cleanupSem between the send and the goroutine's deferred release.
+			b.mu.RLock("cleanupSem.evict")
+			sem := b.cleanupSem
+			b.mu.RUnlock()
+
 			select {
-			case b.cleanupSem <- struct{}{}:
+			case sem <- struct{}{}:
 				go func(rt *functionRuntime) { // #nosec G118 -- intentional detached cleanup goroutine
-					defer func() { <-b.cleanupSem }()
-					cleanupCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+					defer func() { <-sem }()
+					cleanupCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 					defer cancel()
 					b.cleanupRuntime(cleanupCtx, rt)
 				}(evicted)
 			default:
 				// cleanupSem is full; run inline to avoid leaking the evicted runtime's resources.
-				cleanupCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+				cleanupCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 				defer cancel()
 				b.cleanupRuntime(cleanupCtx, evicted)
 			}
@@ -2226,7 +2928,11 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 
 	if startErr := srv.start(ctx); startErr != nil {
 		_ = b.portAlloc.Release(port)
-		rt.startErr = fmt.Errorf("%w: runtime server start failed: %w", ErrLambdaUnavailable, startErr)
+		rt.startErr = fmt.Errorf(
+			"%w: runtime server start failed: %w",
+			ErrLambdaUnavailable,
+			startErr,
+		)
 		rt.started = true
 		rt.mu.Unlock()
 
@@ -2260,7 +2966,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 // the next invocation can retry. This helper exists to keep getOrCreateRuntime within the
 // statement-count limit.
 func (b *InMemoryBackend) handleContainerStartFailure(
-	_ context.Context,
+	ctx context.Context,
 	functionName string,
 	rt *functionRuntime,
 	srv *runtimeServer,
@@ -2273,16 +2979,16 @@ func (b *InMemoryBackend) handleContainerStartFailure(
 	// Container startup failure is fatal: stop the runtime server, release the
 	// port, and surface the error so the caller gets an immediate failure instead
 	// of silently timing out on every subsequent invoke.
-	// context.Background is intentional: the caller's HTTP context may already be
-	// cancelled (e.g. client disconnect), but we still need to release resources.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(ctx, containerShutdownTimeout)
 	defer cancel()
 	srv.stop(shutdownCtx)
 	_ = b.portAlloc.Release(port)
 
 	// Stop any container that was created before the error occurred.
-	if containerID != "" {
-		_ = b.docker.StopAndRemove(shutdownCtx, containerID) // #nosec G703
+	if containerID != "" && b.docker != nil {
+		if !b.settings.KeepContainers {
+			_ = b.docker.StopAndRemove(ctx, containerID)
+		}
 	}
 
 	for _, d := range layerDirs {
@@ -2338,6 +3044,59 @@ var runtimeBaseImages = map[string]string{
 // Returns "" if the runtime is unknown.
 func baseImageForRuntime(runtime string) string {
 	return runtimeBaseImages[runtime]
+}
+
+// deprecatedRuntimes are AWS Lambda runtime identifiers that are valid (AWS
+// recognises them and CreateFunction is accepted) but are past their
+// deprecation date and can no longer be executed. We accept them at the
+// control plane for parity — real AWS returns InvalidParameterValueException
+// only for runtimes it has never heard of, not for deprecated ones — but they
+// are deliberately absent from runtimeBaseImages so the Docker run path treats
+// them as unknown.
+//
+//nolint:gochecknoglobals // intentional package-level lookup set
+var deprecatedRuntimes = map[string]struct{}{
+	"nodejs":         {},
+	"nodejs4.3":      {},
+	"nodejs4.3-edge": {},
+	"nodejs6.10":     {},
+	"nodejs8.10":     {},
+	"nodejs10.x":     {},
+	"nodejs12.x":     {},
+	"nodejs14.x":     {},
+	"nodejs16.x":     {},
+	"python2.7":      {},
+	"python3.6":      {},
+	"python3.7":      {},
+	"python3.8":      {},
+	"java8":          {},
+	"java8.al2":      {},
+	"dotnetcore1.0":  {},
+	"dotnetcore2.0":  {},
+	"dotnetcore2.1":  {},
+	"dotnetcore3.1":  {},
+	"dotnet5.0":      {},
+	"dotnet6":        {},
+	"dotnet7":        {},
+	"go1.x":          {},
+	"ruby2.5":        {},
+	"ruby2.7":        {},
+	"provided.al2":   {}, // still runnable, but listed here as a safety net
+}
+
+// isValidRuntime reports whether a runtime identifier is one AWS Lambda
+// recognises — either a currently runnable runtime (runtimeBaseImages) or a
+// known-but-deprecated one. Unknown identifiers are rejected by CreateFunction
+// with InvalidParameterValueException, matching real AWS, which enforces an
+// enum constraint on the 'runtime' member.
+func isValidRuntime(runtime string) bool {
+	if _, ok := runtimeBaseImages[runtime]; ok {
+		return true
+	}
+
+	_, ok := deprecatedRuntimes[runtime]
+
+	return ok
 }
 
 // extractZip extracts zip bytes into a new temporary directory and returns the directory path.
@@ -2404,7 +3163,11 @@ func extractZipFile(destDir string, f *zip.File) error {
 	}
 	defer rc.Close()
 
-	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) // #nosec G304 G703
+	outFile, err := os.OpenFile(
+		destPath,
+		os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
+		f.Mode(),
+	) // #nosec G304 G703
 	if err != nil {
 		return fmt.Errorf("create file %q: %w", destPath, err)
 	}
@@ -2452,7 +3215,7 @@ func (b *InMemoryBackend) startContainer(
 	// Extract layer zips and prepare the /opt mount for both Zip and Image functions.
 	layerMount, layerDirs, layerErr := b.prepareLayerMount(fn)
 	if layerErr != nil {
-		slog.Default().WarnContext(ctx, "lambda: layer extraction failed",
+		logger.Load(ctx).WarnContext(ctx, "lambda: layer extraction failed",
 			"function", fn.FunctionName, "error", layerErr)
 	}
 
@@ -2497,19 +3260,30 @@ func (b *InMemoryBackend) startZipContainer(
 	zipData := fn.ZipData
 	if len(zipData) == 0 && fn.S3BucketCode != "" && fn.S3KeyCode != "" {
 		if b.s3Fetcher == nil {
-			return "", "", fmt.Errorf("%w: S3 code delivery requires S3 integration", ErrLambdaUnavailable)
+			return "", "", fmt.Errorf(
+				"%w: S3 code delivery requires S3 integration",
+				ErrLambdaUnavailable,
+			)
 		}
 
 		var fetchErr error
 
 		zipData, fetchErr = b.s3Fetcher.GetObjectBytes(ctx, fn.S3BucketCode, fn.S3KeyCode)
 		if fetchErr != nil {
-			return "", "", fmt.Errorf("%w: failed to fetch zip from S3: %w", ErrLambdaUnavailable, fetchErr)
+			return "", "", fmt.Errorf(
+				"%w: failed to fetch zip from S3: %w",
+				ErrLambdaUnavailable,
+				fetchErr,
+			)
 		}
 	}
 
 	if len(zipData) == 0 {
-		return "", "", fmt.Errorf("%w: no zip data available for function %q", ErrLambdaUnavailable, fn.FunctionName)
+		return "", "", fmt.Errorf(
+			"%w: no zip data available for function %q",
+			ErrLambdaUnavailable,
+			fn.FunctionName,
+		)
 	}
 
 	zipDir, extractErr := extractZip(zipData)
@@ -2529,7 +3303,13 @@ func (b *InMemoryBackend) startZipContainer(
 		Mounts: mounts,
 	}
 
-	if fn.Handler != "" {
+	// Custom runtimes (provided.*) ship the executable as the zip's "bootstrap"
+	// file at /var/task. The provided.al2 base image's default entrypoint runs
+	// /var/runtime/bootstrap, so run the function's bootstrap directly instead
+	// (matching real AWS, which execs /var/task/bootstrap for custom runtimes).
+	if strings.HasPrefix(fn.Runtime, "provided") {
+		spec.Entrypoint = []string{"/var/task/bootstrap"}
+	} else if fn.Handler != "" {
 		spec.Cmd = []string{fn.Handler}
 	}
 
@@ -2606,7 +3386,10 @@ func (b *InMemoryBackend) prepareLayerMount(fn *FunctionConfiguration) (string, 
 			if lv.Version == layerVersion && len(lv.ZipData) > 0 {
 				data := make([]byte, len(lv.ZipData))
 				copy(data, lv.ZipData)
-				entries = append(entries, layerEntry{name: layerName, version: layerVersion, zipData: data})
+				entries = append(
+					entries,
+					layerEntry{name: layerName, version: layerVersion, zipData: data},
+				)
 
 				break
 			}
@@ -2629,7 +3412,12 @@ func (b *InMemoryBackend) prepareLayerMount(fn *FunctionConfiguration) (string, 
 		if extractErr := extractZipIntoDir(optDir, entry.zipData); extractErr != nil {
 			_ = os.RemoveAll(optDir)
 
-			return "", nil, fmt.Errorf("extract layer %q v%d: %w", entry.name, entry.version, extractErr)
+			return "", nil, fmt.Errorf(
+				"extract layer %q v%d: %w",
+				entry.name,
+				entry.version,
+				extractErr,
+			)
 		}
 	}
 
@@ -2663,7 +3451,9 @@ func (b *InMemoryBackend) buildLayerVersionARN(layerName string, version int64) 
 }
 
 // PublishLayerVersion creates a new immutable version of the named layer.
-func (b *InMemoryBackend) PublishLayerVersion(input *PublishLayerVersionInput) (*PublishLayerVersionOutput, error) {
+func (b *InMemoryBackend) PublishLayerVersion(
+	input *PublishLayerVersionInput,
+) (*PublishLayerVersionOutput, error) {
 	if input == nil || input.Content == nil {
 		return nil, fmt.Errorf("%w: Content is required", ErrLambdaUnavailable)
 	}
@@ -2709,7 +3499,10 @@ func (b *InMemoryBackend) PublishLayerVersion(input *PublishLayerVersionInput) (
 }
 
 // GetLayerVersion retrieves metadata for a specific layer version.
-func (b *InMemoryBackend) GetLayerVersion(layerName string, version int64) (*GetLayerVersionOutput, error) {
+func (b *InMemoryBackend) GetLayerVersion(
+	layerName string,
+	version int64,
+) (*GetLayerVersionOutput, error) {
 	b.mu.RLock("GetLayerVersion")
 	defer b.mu.RUnlock()
 
@@ -2738,18 +3531,13 @@ func (b *InMemoryBackend) GetLayerVersion(layerName string, version int64) (*Get
 
 // ListLayers returns a paginated summary of all layers with their latest version.
 // Marker is an opaque cursor; maxItems uses lambdaDefaultMaxItems when zero.
-func (b *InMemoryBackend) ListLayers(marker string, maxItems int) page.Page[*Layer] {
+func (b *InMemoryBackend) ListLayers(compatibleRuntime, marker string, maxItems int) page.Page[*Layer] {
 	b.mu.RLock("ListLayers")
 	defer b.mu.RUnlock()
 
 	result := make([]*Layer, 0, len(b.layers))
 
-	names := make([]string, 0, len(b.layers))
-	for name := range b.layers {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.layers)
 
 	for _, name := range names {
 		versions := b.layers[name]
@@ -2758,6 +3546,11 @@ func (b *InMemoryBackend) ListLayers(marker string, maxItems int) page.Page[*Lay
 		}
 
 		latest := versions[len(versions)-1]
+
+		// Filter by CompatibleRuntime when provided.
+		if compatibleRuntime != "" && !slices.Contains(latest.CompatibleRuntimes, compatibleRuntime) {
+			continue
+		}
 
 		result = append(result, &Layer{
 			LayerArn:  b.buildLayerARN(name),
@@ -2778,7 +3571,7 @@ func (b *InMemoryBackend) ListLayers(marker string, maxItems int) page.Page[*Lay
 }
 
 // ListLayerVersions returns all versions of a specific layer in descending order.
-func (b *InMemoryBackend) ListLayerVersions(layerName string) ([]*LayerVersion, error) {
+func (b *InMemoryBackend) ListLayerVersions(layerName, compatibleRuntime string) ([]*LayerVersion, error) {
 	b.mu.RLock("ListLayerVersions")
 	defer b.mu.RUnlock()
 
@@ -2787,10 +3580,13 @@ func (b *InMemoryBackend) ListLayerVersions(layerName string) ([]*LayerVersion, 
 		return nil, ErrLayerNotFound
 	}
 
-	// Return a copy in reverse order (newest first).
-	result := make([]*LayerVersion, len(versions))
-	for i, lv := range versions {
-		result[len(versions)-1-i] = &LayerVersion{
+	// Return a copy in reverse order (newest first), applying optional runtime filter.
+	result := make([]*LayerVersion, 0, len(versions))
+	for _, lv := range slices.Backward(versions) {
+		if compatibleRuntime != "" && !slices.Contains(lv.CompatibleRuntimes, compatibleRuntime) {
+			continue
+		}
+		result = append(result, &LayerVersion{
 			LayerVersionArn:    lv.LayerVersionArn,
 			Description:        lv.Description,
 			CreatedDate:        lv.CreatedDate,
@@ -2798,7 +3594,7 @@ func (b *InMemoryBackend) ListLayerVersions(layerName string) ([]*LayerVersion, 
 			CompatibleRuntimes: lv.CompatibleRuntimes,
 			LicenseInfo:        lv.LicenseInfo,
 			Version:            lv.Version,
-		}
+		})
 	}
 
 	return result, nil
@@ -2831,7 +3627,10 @@ func (b *InMemoryBackend) DeleteLayerVersion(layerName string, version int64) er
 }
 
 // GetLayerVersionPolicy returns the resource policy for a layer version.
-func (b *InMemoryBackend) GetLayerVersionPolicy(layerName string, version int64) (*LayerVersionPolicy, error) {
+func (b *InMemoryBackend) GetLayerVersionPolicy(
+	layerName string,
+	version int64,
+) (*LayerVersionPolicy, error) {
 	b.mu.RLock("GetLayerVersionPolicy")
 	defer b.mu.RUnlock()
 
@@ -2922,7 +3721,11 @@ func (b *InMemoryBackend) AddLayerVersionPermission(
 }
 
 // RemoveLayerVersionPermission removes a permission statement from a layer version's resource policy.
-func (b *InMemoryBackend) RemoveLayerVersionPermission(layerName string, version int64, statementID string) error {
+func (b *InMemoryBackend) RemoveLayerVersionPermission(
+	layerName string,
+	version int64,
+	statementID string,
+) error {
 	b.mu.Lock("RemoveLayerVersionPermission")
 	defer b.mu.Unlock()
 
@@ -2963,12 +3766,7 @@ func buildLayerPolicy(stmts map[string]*LayerVersionStatement) (string, error) {
 
 	statements := make([]map[string]string, 0, len(stmts))
 
-	stmtIDs := make([]string, 0, len(stmts))
-	for sid := range stmts {
-		stmtIDs = append(stmtIDs, sid)
-	}
-
-	sort.Strings(stmtIDs)
+	stmtIDs := collections.SortedKeys(stmts)
 
 	for _, sid := range stmtIDs {
 		s := stmts[sid]
@@ -3033,7 +3831,9 @@ func (b *InMemoryBackend) PutFunctionEventInvokeConfig(
 }
 
 // GetFunctionEventInvokeConfig returns the event invoke configuration for a function.
-func (b *InMemoryBackend) GetFunctionEventInvokeConfig(name string) (*FunctionEventInvokeConfig, error) {
+func (b *InMemoryBackend) GetFunctionEventInvokeConfig(
+	name string,
+) (*FunctionEventInvokeConfig, error) {
 	b.mu.RLock("GetFunctionEventInvokeConfig")
 	defer b.mu.RUnlock()
 
@@ -3159,7 +3959,10 @@ func validateEventInvokeConfigInput(input *PutFunctionEventInvokeConfigInput) er
 
 // PutFunctionConcurrency sets the reserved concurrent executions for a function.
 // Setting ReservedConcurrentExecutions to 0 disables all invocations of the function.
-func (b *InMemoryBackend) PutFunctionConcurrency(name string, reserved int) (*FunctionConcurrency, error) {
+func (b *InMemoryBackend) PutFunctionConcurrency(
+	name string,
+	reserved int,
+) (*FunctionConcurrency, error) {
 	b.mu.Lock("PutFunctionConcurrency")
 	defer b.mu.Unlock()
 
@@ -3169,7 +3972,10 @@ func (b *InMemoryBackend) PutFunctionConcurrency(name string, reserved int) (*Fu
 	}
 
 	if reserved < 0 {
-		return nil, fmt.Errorf("%w: ReservedConcurrentExecutions must be >= 0", ErrInvalidParameterValue)
+		return nil, fmt.Errorf(
+			"%w: ReservedConcurrentExecutions must be >= 0",
+			ErrInvalidParameterValue,
+		)
 	}
 
 	b.functionConcurrencies[name] = reserved
@@ -3228,11 +4034,17 @@ func (b *InMemoryBackend) PutProvisionedConcurrencyConfig(
 	}
 
 	if requested <= 0 {
-		return nil, fmt.Errorf("%w: ProvisionedConcurrentExecutions must be > 0", ErrInvalidParameterValue)
+		return nil, fmt.Errorf(
+			"%w: ProvisionedConcurrentExecutions must be > 0",
+			ErrInvalidParameterValue,
+		)
 	}
 
 	if qualifier == versionLatest {
-		return nil, fmt.Errorf("%w: provisioned concurrency is not supported for $LATEST", ErrInvalidParameterValue)
+		return nil, fmt.Errorf(
+			"%w: provisioned concurrency is not supported for $LATEST",
+			ErrInvalidParameterValue,
+		)
 	}
 
 	if _, exists := b.provisionedConcurrencies[name]; !exists {
@@ -3242,15 +4054,74 @@ func (b *InMemoryBackend) PutProvisionedConcurrencyConfig(
 	cfg := &ProvisionedConcurrencyConfig{
 		AllocatedProvisionedConcurrentExecutions: requested,
 		AvailableProvisionedConcurrentExecutions: requested,
-		FunctionArn:                              buildAliasARN(b.region, b.accountID, fn.FunctionName, qualifier),
+		FunctionArn: buildAliasARN(
+			b.region,
+			b.accountID,
+			fn.FunctionName,
+			qualifier,
+		),
 		LastModified:                             time.Now().UTC().Format(time.RFC3339),
 		RequestedProvisionedConcurrentExecutions: requested,
-		Status:                                   "READY",
+		Status:                                   provisionedConcurrencyReady,
+	}
+
+	// When a warm-up delay is configured, provisioned concurrency starts
+	// IN_PROGRESS with zero available capacity and transitions to READY after the
+	// delay, mirroring AWS's real pre-warming window. With no delay (the default)
+	// it reports READY immediately.
+	if b.pcActivationDelay > 0 {
+		cfg.Status = provisionedConcurrencyInProgress
+		cfg.AvailableProvisionedConcurrentExecutions = 0
+		b.scheduleProvisionedConcurrencyReady(name, qualifier, b.pcActivationDelay)
 	}
 
 	b.provisionedConcurrencies[name][qualifier] = cfg
 
 	return cfg, nil
+}
+
+const (
+	provisionedConcurrencyReady      = "READY"
+	provisionedConcurrencyInProgress = "IN_PROGRESS"
+)
+
+// scheduleProvisionedConcurrencyReady transitions a provisioned concurrency config
+// from IN_PROGRESS to READY after the given delay.
+func (b *InMemoryBackend) scheduleProvisionedConcurrencyReady(name, qualifier string, delay time.Duration) {
+	b.asyncWG.Go(func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+		case <-b.shutdown:
+			return
+		case <-b.ctx.Done():
+			return
+		}
+
+		b.mu.Lock("provisionedConcurrencyReady")
+		defer b.mu.Unlock()
+
+		qualifiers, ok := b.provisionedConcurrencies[name]
+		if !ok {
+			return
+		}
+
+		cfg, ok := qualifiers[qualifier]
+		if !ok {
+			return
+		}
+
+		// Copy-on-write: replace the map entry with a new config so any caller
+		// holding the previous pointer (returned live by Get) never observes a
+		// concurrent field write.
+		updated := *cfg
+		updated.Status = provisionedConcurrencyReady
+		updated.AvailableProvisionedConcurrentExecutions = updated.RequestedProvisionedConcurrentExecutions
+		updated.LastModified = time.Now().UTC().Format(time.RFC3339)
+		qualifiers[qualifier] = &updated
+	})
 }
 
 // GetProvisionedConcurrencyConfig returns the provisioned concurrency configuration for a function qualifier.
@@ -3305,7 +4176,9 @@ func (b *InMemoryBackend) DeleteProvisionedConcurrencyConfig(name, qualifier str
 }
 
 // ListProvisionedConcurrencyConfigs returns all provisioned concurrency configurations for a function.
-func (b *InMemoryBackend) ListProvisionedConcurrencyConfigs(name string) ([]*ProvisionedConcurrencyConfig, error) {
+func (b *InMemoryBackend) ListProvisionedConcurrencyConfigs(
+	name string,
+) ([]*ProvisionedConcurrencyConfig, error) {
 	b.mu.RLock("ListProvisionedConcurrencyConfigs")
 	defer b.mu.RUnlock()
 
@@ -3368,10 +4241,16 @@ func (b *InMemoryBackend) Reset() {
 	b.functionScalingConfigs = make(map[string]*FunctionScalingConfig)
 	b.durableExecs.reset()
 
+	// Replace semaphore channels so that goroutines launched after Reset() use fresh
+	// channels. Goroutines launched before Reset() captured the old channel references
+	// (via the RLock capture pattern) and release correctly to those old channels.
+	b.cleanupSem = make(chan struct{}, maxCleanupConcurrency)
+	b.logSem = make(chan struct{}, maxConcurrentInvocationLogs)
+
 	b.mu.Unlock()
 
 	// Shut down URL servers and release ports outside the lock.
-	ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+	ctx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -3451,6 +4330,11 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
 	delete(b.activeConcurrencies, name)
 	delete(b.provisionedConcurrencies, name)
 	delete(b.fisFaults, name)
+	delete(b.permissions, name)
+	delete(b.fnCodeSigningConfigs, name)
+	delete(b.runtimeManagementConfigs, name)
+	delete(b.functionRecursionConfigs, name)
+	delete(b.functionScalingConfigs, name)
 	for id, m := range b.eventSourceMappings {
 		if strings.HasSuffix(m.FunctionARN, ":function:"+name) {
 			if ids, ok := b.esmByFunctionARN[m.FunctionARN]; ok {
@@ -3466,8 +4350,11 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
 }
 
 // shutdownPurgedResources shuts down URL servers and runtimes outside the lock.
-func (b *InMemoryBackend) shutdownPurgedResources(urlServers []*functionURLServer, rts []*functionRuntime) {
-	ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+func (b *InMemoryBackend) shutdownPurgedResources(
+	urlServers []*functionURLServer,
+	rts []*functionRuntime,
+) {
+	ctx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -3491,7 +4378,10 @@ func (b *InMemoryBackend) shutdownPurgedResources(urlServers []*functionURLServe
 // --- AddPermission / resource-based policy ---
 
 // AddPermission adds a permission statement to a function's resource-based policy.
-func (b *InMemoryBackend) AddPermission(functionName string, input *AddPermissionInput) (*AddPermissionOutput, error) {
+func (b *InMemoryBackend) AddPermission(
+	functionName string,
+	input *AddPermissionInput,
+) (*AddPermissionOutput, error) {
 	b.mu.Lock("AddPermission")
 	defer b.mu.Unlock()
 
@@ -3524,10 +4414,13 @@ func (b *InMemoryBackend) AddPermission(functionName string, input *AddPermissio
 
 	b.permissions[functionName][input.StatementID] = perm
 
-	stmtJSON := fmt.Sprintf(
-		`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q}`,
-		input.StatementID, input.Principal, input.Action,
+	resourceArn := arn.Build(
+		"lambda",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("function:%s", functionName),
 	)
+	stmtJSON := buildPermissionStatementJSON(perm, resourceArn)
 
 	return &AddPermissionOutput{Statement: &stmtJSON}, nil
 }
@@ -3581,11 +4474,24 @@ func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, erro
 
 	stmts := make([]string, 0, len(perms))
 
+	resourceArn := arn.Build(
+		"lambda",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("function:%s", functionName),
+	)
+
+	// Sort statements for deterministic output.
+	sortedPerms := make([]*FunctionPermission, 0, len(perms))
 	for _, p := range perms {
-		stmts = append(stmts, fmt.Sprintf(
-			`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q}`,
-			p.StatementID, p.Principal, p.Action,
-		))
+		sortedPerms = append(sortedPerms, p)
+	}
+	sort.Slice(sortedPerms, func(i, j int) bool {
+		return sortedPerms[i].StatementID < sortedPerms[j].StatementID
+	})
+
+	for _, p := range sortedPerms {
+		stmts = append(stmts, buildPermissionStatementJSON(p, resourceArn))
 	}
 
 	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[%s]}`, strings.Join(stmts, ","))
@@ -3594,10 +4500,48 @@ func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, erro
 	return &GetPolicyOutput{Policy: &policy, RevisionID: &rev}, nil
 }
 
+// buildPermissionStatementJSON builds the IAM policy statement JSON for a FunctionPermission.
+// It includes a Condition block when SourceArn or SourceAccount are set, matching real AWS output.
+func buildPermissionStatementJSON(p *FunctionPermission, resourceArn string) string {
+	// Determine principal format: account IDs and "*" use root principal; services use Service key.
+	var principalJSON string
+	switch {
+	case p.Principal == "*":
+		principalJSON = `"*"`
+	case strings.Contains(p.Principal, ".amazonaws.com") || strings.Contains(p.Principal, ".aws.amazon.com"):
+		principalJSON = fmt.Sprintf(`{"Service":%q}`, p.Principal)
+	default:
+		// Account principal: arn:aws:iam::{account}:root
+		principalJSON = fmt.Sprintf(`{"AWS":%q}`, p.Principal)
+	}
+
+	base := fmt.Sprintf(
+		`{"Sid":%q,"Effect":"Allow","Principal":%s,"Action":%q,"Resource":%q`,
+		p.StatementID, principalJSON, p.Action, resourceArn,
+	)
+
+	// Build Condition block for source constraints.
+	var conditions []string
+	if p.SourceArn != "" {
+		conditions = append(conditions, fmt.Sprintf(`"ArnLike":{"AWS:SourceArn":%q}`, p.SourceArn))
+	}
+	if p.SourceAccount != "" {
+		conditions = append(conditions, fmt.Sprintf(`"StringEquals":{"AWS:SourceAccount":%q}`, p.SourceAccount))
+	}
+
+	if len(conditions) > 0 {
+		return base + `,"Condition":{` + strings.Join(conditions, ",") + `}}`
+	}
+
+	return base + "}"
+}
+
 // --- Code signing configs ---
 
 // CreateCodeSigningConfig creates a new Lambda code signing configuration.
-func (b *InMemoryBackend) CreateCodeSigningConfig(input *CreateCodeSigningConfigInput) (*CodeSigningConfig, error) {
+func (b *InMemoryBackend) CreateCodeSigningConfig(
+	input *CreateCodeSigningConfigInput,
+) (*CodeSigningConfig, error) {
 	b.mu.Lock("CreateCodeSigningConfig")
 	defer b.mu.Unlock()
 
@@ -3780,7 +4724,9 @@ func (b *InMemoryBackend) ListFunctionsByCodeSigningConfig(cscARN string) ([]str
 // --- Capacity providers ---
 
 // CreateCapacityProvider creates a new Lambda capacity provider.
-func (b *InMemoryBackend) CreateCapacityProvider(input *CreateCapacityProviderInput) (*CapacityProvider, error) {
+func (b *InMemoryBackend) CreateCapacityProvider(
+	input *CreateCapacityProviderInput,
+) (*CapacityProvider, error) {
 	b.mu.Lock("CreateCapacityProvider")
 	defer b.mu.Unlock()
 
@@ -3869,6 +4815,52 @@ func (b *InMemoryBackend) ListCapacityProviders() []*CapacityProvider {
 	return cps
 }
 
+// SeedCapacityProviderFunctionVersions assigns the given function-version ARNs to
+// the named capacity provider. AWS exposes no public assignment API in this
+// emulator's surface, so this internal helper is the only way to populate the
+// assignments observed by ListFunctionVersionsByCapacityProvider (primarily for
+// tests). It returns ErrFunctionNotFound if the provider does not exist.
+func (b *InMemoryBackend) SeedCapacityProviderFunctionVersions(
+	name string,
+	versions ...string,
+) error {
+	b.mu.Lock("SeedCapacityProviderFunctionVersions")
+	defer b.mu.Unlock()
+
+	cp, ok := b.capacityProviders[name]
+	if !ok {
+		return ErrFunctionNotFound
+	}
+
+	cp.AssignedFunctionVersions = append(cp.AssignedFunctionVersions, versions...)
+
+	return nil
+}
+
+// ListFunctionVersionsByCapacityProvider returns a page of function-version ARNs
+// assigned to the named capacity provider. It returns ErrFunctionNotFound if the
+// provider does not exist. Assignments are populated only via the internal
+// SeedCapacityProviderFunctionVersions helper, since AWS exposes no public
+// assignment API in this emulator's surface.
+func (b *InMemoryBackend) ListFunctionVersionsByCapacityProvider(
+	name, marker string,
+	maxItems int,
+) (page.Page[string], error) {
+	b.mu.RLock("ListFunctionVersionsByCapacityProvider")
+	defer b.mu.RUnlock()
+
+	cp, ok := b.capacityProviders[name]
+	if !ok {
+		return page.Page[string]{}, ErrFunctionNotFound
+	}
+
+	versions := make([]string, len(cp.AssignedFunctionVersions))
+	copy(versions, cp.AssignedFunctionVersions)
+	sort.Strings(versions)
+
+	return page.New(versions, marker, maxItems, lambdaDefaultMaxItems), nil
+}
+
 // --- Account settings ---
 
 // accountDefaultCodeSizeZipped is the default Lambda zip package size limit (50 MB).
@@ -3895,13 +4887,20 @@ func (b *InMemoryBackend) GetAccountSettings() *AccountSettingsOutput {
 		totalCodeSize += fn.CodeSize
 	}
 
+	// Compute unreserved concurrency: subtract sum of all per-function reserved values.
+	totalReserved := 0
+	for _, reserved := range b.functionConcurrencies {
+		totalReserved += reserved
+	}
+	unreserved := max(0, accountDefaultConcurrentExecutions-totalReserved)
+
 	return &AccountSettingsOutput{
 		AccountLimit: &AccountLimit{
 			CodeSizeUnzipped:               accountDefaultCodeSizeUnzipped,
 			CodeSizeZipped:                 accountDefaultCodeSizeZipped,
 			ConcurrentExecutions:           accountDefaultConcurrentExecutions,
 			TotalCodeSize:                  accountDefaultTotalCodeSize,
-			UnreservedConcurrentExecutions: accountDefaultConcurrentExecutions,
+			UnreservedConcurrentExecutions: unreserved,
 		},
 		AccountUsage: &AccountUsage{
 			FunctionCount: fnCount,
@@ -4061,7 +5060,9 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 }
 
 // GetRuntimeManagementConfig returns the runtime management config for a function.
-func (b *InMemoryBackend) GetRuntimeManagementConfig(name string) (*RuntimeManagementConfig, error) {
+func (b *InMemoryBackend) GetRuntimeManagementConfig(
+	name string,
+) (*RuntimeManagementConfig, error) {
 	b.mu.RLock("GetRuntimeManagementConfig")
 	defer b.mu.RUnlock()
 
@@ -4111,7 +5112,9 @@ func (b *InMemoryBackend) PutRuntimeManagementConfig(
 }
 
 // GetFunctionRecursionConfig returns the recursion config for a function.
-func (b *InMemoryBackend) GetFunctionRecursionConfig(name string) (*FunctionRecursionConfig, error) {
+func (b *InMemoryBackend) GetFunctionRecursionConfig(
+	name string,
+) (*FunctionRecursionConfig, error) {
 	b.mu.RLock("GetFunctionRecursionConfig")
 	defer b.mu.RUnlock()
 
@@ -4193,7 +5196,9 @@ func (b *InMemoryBackend) PutFunctionScalingConfig(
 }
 
 // GetLayerVersionByArn retrieves a layer version by its full ARN.
-func (b *InMemoryBackend) GetLayerVersionByArn(layerVersionARN string) (*GetLayerVersionOutput, error) {
+func (b *InMemoryBackend) GetLayerVersionByArn(
+	layerVersionARN string,
+) (*GetLayerVersionOutput, error) {
 	layerName, version := parseLayerARN(layerVersionARN)
 	if layerName == "" || version == 0 {
 		return nil, ErrLayerVersionNotFound

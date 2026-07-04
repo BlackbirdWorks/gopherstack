@@ -60,11 +60,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := apigateway.NewInMemoryBackend()
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := apigateway.NewInMemoryBackend()
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -75,7 +75,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -88,12 +88,12 @@ func TestAPIGatewayHandler_Persistence(t *testing.T) {
 	_, err := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "snap-api", Description: "test"})
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := apigateway.NewInMemoryBackend()
 	freshH := apigateway.NewHandler(fresh)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 
 	apis, _, err := fresh.GetRestAPIs(0, "")
 	require.NoError(t, err)
@@ -148,8 +148,8 @@ func TestAPIGatewayBackend_DeploymentOperations(t *testing.T) {
 	api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "deploy-api", Description: "test"})
 	require.NoError(t, err)
 
-	// Create deployment
-	dep, err := b.CreateDeployment(api.ID, "prod", "initial deployment")
+	// Create deployment without a stage so it can be deleted directly.
+	dep, err := b.CreateDeployment(api.ID, "", "initial deployment")
 	require.NoError(t, err)
 	require.NotEmpty(t, dep.ID)
 

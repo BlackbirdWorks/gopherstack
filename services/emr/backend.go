@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -77,14 +79,15 @@ const (
 	timelineKeyCreation = "CreationDateTime"
 	timelineKeyEnd      = "EndDateTime"
 
-	listClustersPageSize     = 50
-	listSecConfigsPageSize   = 50
-	listReleaseLabelsPage    = 50
-	listInstanceTypesPage    = 50
-	listStepsPageSize        = 50
-	listInstancesPageSize    = 500
-	listStudiosPageSize      = 50
-	listNotebookExecPageSize = 50
+	listClustersPageSize         = 50
+	listSecConfigsPageSize       = 50
+	listReleaseLabelsPage        = 50
+	listInstanceTypesPage        = 50
+	listStepsPageSize            = 50
+	listInstancesPageSize        = 500
+	listStudiosPageSize          = 50
+	listNotebookExecPageSize     = 50
+	listBootstrapActionsPageSize = 50
 
 	instanceGroupStateRunning = "RUNNING"
 
@@ -217,6 +220,25 @@ type Application struct {
 	Version string `json:"Version,omitempty"`
 }
 
+// BootstrapActionScript holds the script path and arguments for a bootstrap action.
+type BootstrapActionScript struct {
+	Path string   `json:"Path"`
+	Args []string `json:"Args,omitempty"`
+}
+
+// BootstrapActionConfig is the full bootstrap action specification used in RunJobFlow input.
+type BootstrapActionConfig struct {
+	Name                  string                `json:"Name"`
+	ScriptBootstrapAction BootstrapActionScript `json:"ScriptBootstrapAction"`
+}
+
+// Command is the flattened representation of a bootstrap action returned by ListBootstrapActions.
+type Command struct {
+	Name       string   `json:"Name"`
+	ScriptPath string   `json:"ScriptPath"`
+	Args       []string `json:"Args,omitempty"`
+}
+
 // StepHadoopJarStep defines the JAR execution for a step.
 type StepHadoopJarStep struct {
 	Jar       string   `json:"Jar"`
@@ -235,6 +257,12 @@ type StepTimeline struct {
 type StepStatus struct {
 	State    string       `json:"State"`
 	Timeline StepTimeline `json:"Timeline"`
+}
+
+// CancelStepsInfo represents the result of cancelling a single step.
+type CancelStepsInfo struct {
+	StepID string `json:"StepId"`
+	Status string `json:"Status"`
 }
 
 // Step represents an EMR step attached to a cluster.
@@ -477,6 +505,7 @@ type Cluster struct {
 	SecurityConfiguration       string        `json:"SecurityConfiguration,omitempty"`
 	CustomAmiID                 string        `json:"CustomAmiId,omitempty"`
 	instanceGroups              []InstanceGroup
+	bootstrapActions            []BootstrapActionConfig
 	Tags                        []Tag           `json:"Tags"`
 	Applications                []Application   `json:"Applications,omitempty"`
 	Configurations              []Configuration `json:"Configurations,omitempty"`
@@ -609,25 +638,26 @@ type RunJobFlowInstances struct {
 
 // RunJobFlowParams is the full input for creating a new cluster.
 type RunJobFlowParams struct {
-	SecurityConfiguration   string              `json:"SecurityConfiguration,omitempty"`
-	ReleaseLabel            string              `json:"ReleaseLabel"`
-	OSReleaseLabel          string              `json:"OSReleaseLabel,omitempty"`
-	LogURI                  string              `json:"LogUri,omitempty"`
-	ServiceRole             string              `json:"ServiceRole,omitempty"`
-	AutoScalingRole         string              `json:"AutoScalingRole,omitempty"`
-	Name                    string              `json:"Name"`
-	ScaleDownBehavior       string              `json:"ScaleDownBehavior,omitempty"`
-	CustomAmiID             string              `json:"CustomAmiId,omitempty"`
-	Tags                    []Tag               `json:"Tags,omitempty"`
-	Applications            []Application       `json:"Applications,omitempty"`
-	Configurations          []Configuration     `json:"Configurations,omitempty"`
-	Steps                   []StepSpec          `json:"Steps,omitempty"`
-	Instances               RunJobFlowInstances `json:"Instances"`
-	StepConcurrencyLevel    int                 `json:"StepConcurrencyLevel,omitempty"`
-	EbsRootVolumeSize       int                 `json:"EbsRootVolumeSize,omitempty"`
-	EbsRootVolumeIops       int                 `json:"EbsRootVolumeIops,omitempty"`
-	EbsRootVolumeThroughput int                 `json:"EbsRootVolumeThroughput,omitempty"`
-	VisibleToAllUsers       bool                `json:"VisibleToAllUsers"`
+	SecurityConfiguration   string                  `json:"SecurityConfiguration,omitempty"`
+	ReleaseLabel            string                  `json:"ReleaseLabel"`
+	OSReleaseLabel          string                  `json:"OSReleaseLabel,omitempty"`
+	LogURI                  string                  `json:"LogUri,omitempty"`
+	ServiceRole             string                  `json:"ServiceRole,omitempty"`
+	AutoScalingRole         string                  `json:"AutoScalingRole,omitempty"`
+	Name                    string                  `json:"Name"`
+	ScaleDownBehavior       string                  `json:"ScaleDownBehavior,omitempty"`
+	CustomAmiID             string                  `json:"CustomAmiId,omitempty"`
+	Tags                    []Tag                   `json:"Tags,omitempty"`
+	Applications            []Application           `json:"Applications,omitempty"`
+	Configurations          []Configuration         `json:"Configurations,omitempty"`
+	Steps                   []StepSpec              `json:"Steps,omitempty"`
+	BootstrapActions        []BootstrapActionConfig `json:"BootstrapActions,omitempty"`
+	Instances               RunJobFlowInstances     `json:"Instances"`
+	StepConcurrencyLevel    int                     `json:"StepConcurrencyLevel,omitempty"`
+	EbsRootVolumeSize       int                     `json:"EbsRootVolumeSize,omitempty"`
+	EbsRootVolumeIops       int                     `json:"EbsRootVolumeIops,omitempty"`
+	EbsRootVolumeThroughput int                     `json:"EbsRootVolumeThroughput,omitempty"`
+	VisibleToAllUsers       bool                    `json:"VisibleToAllUsers"`
 }
 
 // ListClustersParams holds filter and pagination params for ListClusters.
@@ -779,27 +809,34 @@ func (b *InMemoryBackend) nextPersistentAppUIID() string {
 	return fmt.Sprintf("pau-%013d", n)
 }
 
-// validateReleaseLabel returns an error if the label is not in the registry.
+// releaseLabelRe matches any emr-X.Y.Z label (e.g. emr-6.14.0, emr-7.3.0).
+var releaseLabelRe = regexp.MustCompile(`^emr-\d+\.\d+(\.\d+)*$`)
+
+// validateReleaseLabel returns an error if the label is not a valid EMR release label.
 func validateReleaseLabel(label string) error {
-	if _, ok := releaseLabelApps[label]; !ok {
-		return fmt.Errorf("%w: invalid ReleaseLabel %q", ErrValidation, label)
+	if _, ok := releaseLabelApps[label]; ok {
+		return nil
 	}
 
-	return nil
+	if releaseLabelRe.MatchString(label) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: invalid ReleaseLabel %q", ErrValidation, label)
 }
 
 // buildInstanceGroups converts input specs to InstanceGroup records.
 func (b *InMemoryBackend) buildInstanceGroups(specs []InstanceGroupSpec) []InstanceGroup {
 	groups := make([]InstanceGroup, 0, len(specs))
 
-	for i, spec := range specs {
+	for _, spec := range specs {
 		market := spec.Market
 		if market == "" {
 			market = "ON_DEMAND"
 		}
 
 		groups = append(groups, InstanceGroup{
-			ID:                     fmt.Sprintf("ig-%013d-%d", b.counter.Load(), i),
+			ID:                     fmt.Sprintf("ig-%013d", b.counter.Add(1)),
 			Name:                   spec.Name,
 			Market:                 market,
 			BidPrice:               spec.BidPrice,
@@ -824,6 +861,26 @@ func cloneConfigurations(cfgs []Configuration) []Configuration {
 	out := make([]Configuration, len(cfgs))
 	for i, c := range cfgs {
 		out[i] = cloneConfiguration(c)
+	}
+
+	return out
+}
+
+// cloneBootstrapActions deep-copies a slice of BootstrapActionConfig.
+func cloneBootstrapActions(src []BootstrapActionConfig) []BootstrapActionConfig {
+	if src == nil {
+		return nil
+	}
+
+	out := make([]BootstrapActionConfig, len(src))
+	for i, ba := range src {
+		out[i] = BootstrapActionConfig{
+			Name: ba.Name,
+			ScriptBootstrapAction: BootstrapActionScript{
+				Path: ba.ScriptBootstrapAction.Path,
+				Args: slices.Clone(ba.ScriptBootstrapAction.Args),
+			},
+		}
 	}
 
 	return out
@@ -967,6 +1024,7 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 		KeepJobFlowAliveWhenNoSteps: params.Instances.KeepJobFlowAliveWhenNoSteps,
 		instanceGroups:              groups,
 		steps:                       steps,
+		bootstrapActions:            cloneBootstrapActions(params.BootstrapActions),
 	}
 	b.clustersStore(region)[id] = cluster
 	b.arnIndexStore(region)[clusterARN] = id
@@ -1022,6 +1080,8 @@ func (c Cluster) clone() Cluster {
 		cp.steps = make([]Step, len(c.steps))
 		copy(cp.steps, c.steps)
 	}
+
+	cp.bootstrapActions = cloneBootstrapActions(c.bootstrapActions)
 
 	if c.managedScalingPolicy != nil {
 		msp := *c.managedScalingPolicy
@@ -1095,7 +1155,7 @@ func (b *InMemoryBackend) gatherClusterSummaries(
 
 		status := ClusterStatus{
 			State:             c.Status.State,
-			StateChangeReason: maps.Clone(c.Status.StateChangeReason),
+			StateChangeReason: c.Status.StateChangeReason,
 		}
 		list = append(list, ClusterSummary{
 			ID:           c.ID,
@@ -1324,12 +1384,7 @@ func mapToTags(m map[string]string) []Tag {
 }
 
 func sortedTagKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }
@@ -1500,6 +1555,35 @@ func (b *InMemoryBackend) ListSteps(
 	return p.Data, p.Next
 }
 
+// ListBootstrapActions returns the bootstrap actions for a cluster, paginated.
+func (b *InMemoryBackend) ListBootstrapActions(
+	ctx context.Context,
+	clusterID, marker string,
+) ([]Command, string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListBootstrapActions")
+	defer b.mu.RUnlock()
+
+	cluster, ok := b.clustersStore(region)[clusterID]
+	if !ok {
+		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	commands := make([]Command, len(cluster.bootstrapActions))
+	for i, ba := range cluster.bootstrapActions {
+		commands[i] = Command{
+			Name:       ba.Name,
+			ScriptPath: ba.ScriptBootstrapAction.Path,
+			Args:       slices.Clone(ba.ScriptBootstrapAction.Args),
+		}
+	}
+
+	p := page.New(commands, marker, listBootstrapActionsPageSize, listBootstrapActionsPageSize)
+
+	return p.Data, p.Next, nil
+}
+
 func filterSteps(steps []Step, stateSet, idSet map[string]bool) []Step {
 	filtered := make([]Step, 0, len(steps))
 
@@ -1555,7 +1639,11 @@ func (b *InMemoryBackend) DescribeStep(ctx context.Context, clusterID, stepID st
 }
 
 // CancelSteps cancels pending steps on a cluster.
-func (b *InMemoryBackend) CancelSteps(ctx context.Context, clusterID string, stepIDs []string) error {
+func (b *InMemoryBackend) CancelSteps(
+	ctx context.Context,
+	clusterID string,
+	stepIDs []string,
+) ([]*CancelStepsInfo, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CancelSteps")
@@ -1563,19 +1651,29 @@ func (b *InMemoryBackend) CancelSteps(ctx context.Context, clusterID string, ste
 
 	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
 	idSet := buildStringSet(stepIDs)
+	results := make([]*CancelStepsInfo, 0, len(stepIDs))
 
 	for i := range cluster.steps {
 		s := &cluster.steps[i]
-		if (idSet == nil || idSet[s.ID]) && s.Status.State == StepStatePending {
-			s.Status.State = StepStateCancelled
+		if idSet == nil || idSet[s.ID] {
+			status := "SUCCESS"
+			if s.Status.State != StepStatePending {
+				status = "QUEUED"
+			} else {
+				s.Status.State = StepStateCancelled
+			}
+			results = append(results, &CancelStepsInfo{
+				StepID: s.ID,
+				Status: status,
+			})
 		}
 	}
 
-	return nil
+	return results, nil
 }
 
 // ModifyCluster updates StepConcurrencyLevel on a cluster.
@@ -2520,6 +2618,18 @@ func (b *InMemoryBackend) DescribePersistentAppUI(ctx context.Context, id string
 	cp := *ui
 
 	return &cp, nil
+}
+
+// GetOnClusterPresignedURL returns a presigned URL for an on-cluster app UI, verifying cluster exists.
+func (b *InMemoryBackend) GetOnClusterPresignedURL(_ context.Context, clusterID, region string) (string, error) {
+	b.mu.RLock("GetOnClusterPresignedURL")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clustersStore(region)[clusterID]; !ok {
+		return "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	return b.GetPresignedURL(clusterID, region), nil
 }
 
 // GetPresignedURL returns a synthetic presigned URL for a persistent app UI.

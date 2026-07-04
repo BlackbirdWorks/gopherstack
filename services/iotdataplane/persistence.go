@@ -1,10 +1,13 @@
 package iotdataplane
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"maps"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // ErrNoSnapshot is returned when a backend does not support snapshot/restore.
@@ -94,7 +97,7 @@ func snapToEntry(es *shadowEntrySnap) *shadowEntry {
 }
 
 // Snapshot serialises backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -135,19 +138,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		RetainedMessages: retained,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "iotdataplane", snap)
 }
 
 // Restore deserialises backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "iotdataplane", data, &snap); err != nil {
 		return err
 	}
 
@@ -220,21 +218,21 @@ func restoreRetainedMessages(snapMsgs map[string]*retainedMessageSnap) map[strin
 }
 
 // Snapshot implements persistence by delegating to the backend if it supports it.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	s, ok := h.Backend.(Snapshottable)
 	if !ok {
 		return nil
 	}
 
-	return s.Snapshot()
+	return s.Snapshot(ctx)
 }
 
 // Restore implements persistence by delegating to the backend if it supports it.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	s, ok := h.Backend.(Snapshottable)
 	if !ok {
 		return ErrNoSnapshot
 	}
 
-	return s.Restore(data)
+	return s.Restore(ctx, data)
 }

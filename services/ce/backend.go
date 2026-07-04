@@ -15,7 +15,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -36,6 +38,10 @@ const (
 	defaultSavingsPlansType = "COMPUTE_SP"
 	mapKeyRegion            = "Region"
 	mapKeyCurrencyCode      = "CurrencyCode"
+	dimKeyService           = "SERVICE"
+	dimKeyRegion            = "REGION"
+	dimKeyUsageType         = "USAGE_TYPE"
+	dimKeyLinkedAccount     = "LINKED_ACCOUNT"
 )
 
 // Synthetic data ratio constants used in cost simulation.
@@ -135,6 +141,7 @@ type SplitChargeRule struct {
 // AnomalyMonitor represents an in-memory AWS CE anomaly monitor.
 type AnomalyMonitor struct {
 	CreationDate     time.Time         `json:"creationDate"`
+	LastUpdatedDate  time.Time         `json:"lastUpdatedDate"`
 	Tags             map[string]string `json:"tags"`
 	MonitorARN       string            `json:"monitorARN"`
 	MonitorName      string            `json:"monitorName"`
@@ -148,6 +155,7 @@ type AnomalySubscription struct {
 	Tags             map[string]string `json:"tags"`
 	SubscriptionARN  string            `json:"subscriptionARN"`
 	SubscriptionName string            `json:"subscriptionName"`
+	AccountID        string            `json:"accountID"`
 	Frequency        string            `json:"frequency"`
 	MonitorARNList   []string          `json:"monitorARNList"`
 	Subscribers      []Subscriber      `json:"subscribers"`
@@ -531,15 +539,20 @@ func (b *InMemoryBackend) Reset() {
 }
 
 func (b *InMemoryBackend) buildCostCategoryARN(name string) string {
-	return fmt.Sprintf("arn:aws:ce::%s:costcategory/%s", b.accountID, name)
+	return arn.Build("ce", "", b.accountID, fmt.Sprintf("costcategory/%s", name))
 }
 
 func (b *InMemoryBackend) buildAnomalyMonitorARN() string {
-	return fmt.Sprintf("arn:aws:ce::%s:anomalymonitor/%s", b.accountID, uuid.NewString())
+	return arn.Build("ce", "", b.accountID, fmt.Sprintf("anomalymonitor/%s", uuid.NewString()))
 }
 
 func (b *InMemoryBackend) buildAnomalySubscriptionARN() string {
-	return fmt.Sprintf("arn:aws:ce::%s:anomalysubscription/%s", b.accountID, uuid.NewString())
+	return arn.Build(
+		"ce",
+		"",
+		b.accountID,
+		fmt.Sprintf("anomalysubscription/%s", uuid.NewString()),
+	)
 }
 
 func effectiveStart() string {
@@ -619,8 +632,8 @@ func (b *InMemoryBackend) DescribeCostCategoryDefinition(catARN string) (*CostCa
 	return &out, nil
 }
 
-// ListCostCategoryDefinitions returns all cost categories sorted by name.
-func (b *InMemoryBackend) ListCostCategoryDefinitions() []*CostCategory {
+// ListCostCategoryDefinitions returns cost categories sorted by name with opaque pagination.
+func (b *InMemoryBackend) ListCostCategoryDefinitions(maxResults int, nextPageToken string) ([]*CostCategory, string) {
 	b.mu.RLock("ListCostCategoryDefinitions")
 	defer b.mu.RUnlock()
 
@@ -630,11 +643,9 @@ func (b *InMemoryBackend) ListCostCategoryDefinitions() []*CostCategory {
 		result = append(result, &out)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
+	return paginateList(result, maxResults, nextPageToken, func(c *CostCategory) string {
+		return c.Name
 	})
-
-	return result
 }
 
 // UpdateCostCategoryDefinition updates an existing cost category.
@@ -788,13 +799,15 @@ func (b *InMemoryBackend) CreateAnomalyMonitor(
 	tagsCopy := make(map[string]string, len(resourceTags))
 	maps.Copy(tagsCopy, resourceTags)
 
+	now := time.Now().UTC()
 	monARN := b.buildAnomalyMonitorARN()
 	mon := &AnomalyMonitor{
 		MonitorARN:       monARN,
 		MonitorName:      monitorName,
 		MonitorType:      monitorType,
 		MonitorDimension: monitorDimension,
-		CreationDate:     time.Now().UTC(),
+		CreationDate:     now,
+		LastUpdatedDate:  now,
 		Tags:             tagsCopy,
 	}
 	b.anomalyMonitors[monARN] = mon
@@ -819,7 +832,10 @@ func (b *InMemoryBackend) DeleteAnomalyMonitor(monARN string) error {
 }
 
 // GetAnomalyMonitors returns anomaly monitors, optionally filtered by ARNs, sorted by MonitorARN.
-func (b *InMemoryBackend) GetAnomalyMonitors(monitorARNList []string) []*AnomalyMonitor {
+// maxResults and nextPageToken implement opaque-cursor pagination (real AWS behaviour).
+func (b *InMemoryBackend) GetAnomalyMonitors(
+	monitorARNList []string, maxResults int, nextPageToken string,
+) ([]*AnomalyMonitor, string) {
 	b.mu.RLock("GetAnomalyMonitors")
 	defer b.mu.RUnlock()
 
@@ -847,11 +863,9 @@ func (b *InMemoryBackend) GetAnomalyMonitors(monitorARNList []string) []*Anomaly
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].MonitorARN < result[j].MonitorARN
+	return paginateList(result, maxResults, nextPageToken, func(m *AnomalyMonitor) string {
+		return m.MonitorARN
 	})
-
-	return result
 }
 
 // UpdateAnomalyMonitor updates the name of an anomaly monitor.
@@ -867,6 +881,7 @@ func (b *InMemoryBackend) UpdateAnomalyMonitor(
 	}
 
 	mon.MonitorName = monitorName
+	mon.LastUpdatedDate = time.Now().UTC()
 
 	out := *mon
 
@@ -906,6 +921,7 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 	sub := &AnomalySubscription{
 		SubscriptionARN:  subARN,
 		SubscriptionName: subscriptionName,
+		AccountID:        b.accountID,
 		Frequency:        frequency,
 		MonitorARNList:   monCopy,
 		Subscribers:      subsCopy,
@@ -935,11 +951,13 @@ func (b *InMemoryBackend) DeleteAnomalySubscription(subARN string) error {
 }
 
 // GetAnomalySubscriptions returns anomaly subscriptions, optionally filtered by ARNs or monitor ARN,
-// sorted by SubscriptionARN.
+// sorted by SubscriptionARN. maxResults and nextPageToken implement opaque-cursor pagination.
 func (b *InMemoryBackend) GetAnomalySubscriptions(
 	subscriptionARNList []string,
 	monitorARN string,
-) []*AnomalySubscription {
+	maxResults int,
+	nextPageToken string,
+) ([]*AnomalySubscription, string) {
 	b.mu.RLock("GetAnomalySubscriptions")
 	defer b.mu.RUnlock()
 
@@ -978,16 +996,51 @@ func (b *InMemoryBackend) GetAnomalySubscriptions(
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].SubscriptionARN < result[j].SubscriptionARN
+	return paginateList(result, maxResults, nextPageToken, func(s *AnomalySubscription) string {
+		return s.SubscriptionARN
 	})
-
-	return result
 }
 
 // containsString reports whether s appears in slice.
 func containsString(slice []string, s string) bool {
 	return slices.Contains(slice, s)
+}
+
+// paginateList sorts list by keyFn, applies the opaque nextPageToken cursor, and returns
+// at most maxResults items plus the token for the following page (empty on the last page).
+func paginateList[T any](list []T, maxResults int, nextPageToken string, keyFn func(T) string) ([]T, string) {
+	sort.Slice(list, func(i, j int) bool {
+		return keyFn(list[i]) < keyFn(list[j])
+	})
+
+	start := 0
+	if nextPageToken != "" {
+		for i := range list {
+			if keyFn(list[i]) >= nextPageToken {
+				start = i
+
+				break
+			}
+
+			start = i + 1
+		}
+	}
+
+	const defaultPageSize = 100
+	limit := maxResults
+	if limit <= 0 || limit > defaultPageSize {
+		limit = defaultPageSize
+	}
+
+	end := min(start+limit, len(list))
+	page := list[start:end]
+
+	next := ""
+	if end < len(list) {
+		next = keyFn(list[end])
+	}
+
+	return page, next
 }
 
 // UpdateAnomalySubscription updates a CE anomaly subscription.
@@ -1034,9 +1087,11 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 	return &out, nil
 }
 
-// GetAnomalies returns detected anomalies, optionally filtered by monitor ARN and feedback type,
-// sorted by AnomalyID.
-func (b *InMemoryBackend) GetAnomalies(monitorARN, feedback string) []*Anomaly {
+// GetAnomalies returns detected anomalies, optionally filtered by monitor ARN, feedback type,
+// and date interval. maxResults and nextPageToken implement opaque-cursor pagination.
+func (b *InMemoryBackend) GetAnomalies(
+	monitorARN, feedback, startDate, endDate string, maxResults int, nextPageToken string,
+) ([]*Anomaly, string) {
 	b.mu.RLock("GetAnomalies")
 	defer b.mu.RUnlock()
 
@@ -1051,15 +1106,22 @@ func (b *InMemoryBackend) GetAnomalies(monitorARN, feedback string) []*Anomaly {
 			continue
 		}
 
+		// Filter by date interval: anomaly must overlap [startDate, endDate].
+		if startDate != "" && a.AnomalyEndDate != "" && a.AnomalyEndDate < startDate {
+			continue
+		}
+
+		if endDate != "" && a.AnomalyStartDate != "" && a.AnomalyStartDate > endDate {
+			continue
+		}
+
 		out := *a
 		result = append(result, &out)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].AnomalyID < result[j].AnomalyID
+	return paginateList(result, maxResults, nextPageToken, func(a *Anomaly) string {
+		return a.AnomalyID
 	})
-
-	return result
 }
 
 // AddAnomaly inserts an anomaly into the backend. It is intended for testing.
@@ -1106,29 +1168,80 @@ func (b *InMemoryBackend) GetCostCategories(costCategoryName string) []string {
 	return values
 }
 
+// syntheticServiceDef describes a synthetic AWS service used in the cost ledger seed
+// and as a fallback when real ledger entries are absent for a queried time period.
+type syntheticServiceDef struct {
+	name      string
+	usageType string
+	weight    float64
+}
+
+// syntheticServiceCatalog is the canonical list of services used in both the cost
+// ledger seed and the synthetic-group fallback for GroupBy queries.
+//
+//nolint:gochecknoglobals // package-level catalog shared by seed and fallback
+var syntheticServiceCatalog = []syntheticServiceDef{
+	{"Amazon Elastic Compute Cloud - Compute", "BoxUsage:t3.medium", 0.40},
+	{"Amazon Simple Storage Service", "TimedStorage-ByteHrs", 0.15},
+	{"Amazon Relational Database Service", "InstanceUsage:db.t3.medium", 0.10},
+	{"AWS Lambda", "Lambda-GB-Second", 0.08},
+	{"Amazon CloudFront", "US-DataTransfer-Out-Bytes", 0.07},
+	{"Amazon DynamoDB", "TimedStorage-ByteHrs", 0.05},
+	{"Amazon Elastic Load Balancing", "LoadBalancerUsage", 0.04},
+	{"AWS Key Management Service", "KMS-Requests", 0.03},
+	{"Amazon Route 53", "DNS-Queries", 0.02},
+	{"AWS CloudTrail", "EUS-DataScanned", 0.01},
+	{"Amazon SNS", "DeliveryAttempts-HTTP", 0.005},
+	{"Amazon SQS", "SQS-Requests", 0.005},
+}
+
+// syntheticBaseMonthlyTotal is the base monthly cost used when no ledger entries
+// exist for the queried period (e.g. historical ranges before the seed window).
+const syntheticBaseMonthlyTotal = 3000.0
+
+// syntheticGroupsFallback generates GroupBy result groups from the service catalog
+// when the cost ledger contains no entries for the queried period.
+// The groups mirror what would appear for real data, giving callers a valid
+// non-empty response shape for any time period.
+func syntheticGroupsFallback(accountID, region string, groupBy []GroupBySpec, metrics []string) []CostGroup {
+	groups := make([]CostGroup, 0, len(syntheticServiceCatalog))
+
+	for _, svc := range syntheticServiceCatalog {
+		keys := make([]string, 0, len(groupBy))
+		for _, g := range groupBy {
+			switch strings.ToUpper(g.Key) {
+			case dimKeyService:
+				keys = append(keys, svc.name)
+			case dimKeyRegion:
+				keys = append(keys, region)
+			case dimKeyUsageType:
+				keys = append(keys, svc.usageType)
+			case dimKeyLinkedAccount:
+				keys = append(keys, accountID)
+			default:
+				keys = append(keys, "Other")
+			}
+		}
+
+		amount := syntheticBaseMonthlyTotal * svc.weight
+		amounts := make(map[string]float64, len(metrics))
+		for _, m := range metrics {
+			amounts[m] = amount
+		}
+
+		groups = append(groups, CostGroup{
+			Keys:    keys,
+			Metrics: buildMetricValues(amounts, metrics),
+		})
+	}
+
+	return groups
+}
+
 // seedCostLedger populates the cost ledger with 90 days of synthetic data.
 // Seeded distributions: EC2~40%, S3~15%, RDS~10%, Lambda~8%, CloudFront~7%, others rest.
 func (b *InMemoryBackend) seedCostLedger() {
-	type serviceDef struct {
-		name      string
-		usageType string
-		weight    float64
-	}
-
-	services := []serviceDef{
-		{"Amazon Elastic Compute Cloud - Compute", "BoxUsage:t3.medium", 0.40},
-		{"Amazon Simple Storage Service", "TimedStorage-ByteHrs", 0.15},
-		{"Amazon Relational Database Service", "InstanceUsage:db.t3.medium", 0.10},
-		{"AWS Lambda", "Lambda-GB-Second", 0.08},
-		{"Amazon CloudFront", "US-DataTransfer-Out-Bytes", 0.07},
-		{"Amazon DynamoDB", "TimedStorage-ByteHrs", 0.05},
-		{"Amazon Elastic Load Balancing", "LoadBalancerUsage", 0.04},
-		{"AWS Key Management Service", "KMS-Requests", 0.03},
-		{"Amazon Route 53", "DNS-Queries", 0.02},
-		{"AWS CloudTrail", "EUS-DataScanned", 0.01},
-		{"Amazon SNS", "DeliveryAttempts-HTTP", 0.005},
-		{"Amazon SQS", "SQS-Requests", 0.005},
-	}
+	services := syntheticServiceCatalog
 
 	now := time.Now().UTC()
 	totalDailyBase := 150.0
@@ -1217,13 +1330,13 @@ func extractGroupKeys(e CostEntry, groupBy []GroupBySpec) []string {
 
 	for _, g := range groupBy {
 		switch strings.ToUpper(g.Key) {
-		case "SERVICE":
+		case dimKeyService:
 			keys = append(keys, e.Service)
-		case "REGION":
+		case dimKeyRegion:
 			keys = append(keys, e.Region)
-		case "USAGE_TYPE":
+		case dimKeyUsageType:
 			keys = append(keys, e.UsageType)
-		case "LINKED_ACCOUNT":
+		case dimKeyLinkedAccount:
 			keys = append(keys, e.Account)
 		default:
 			keys = append(keys, e.Tags[g.Key])
@@ -1326,11 +1439,7 @@ func aggregateByGroup(entries []CostEntry, groupBy []GroupBySpec, metrics []stri
 		}
 	}
 
-	gkeys := make([]string, 0, len(groupMap))
-	for gk := range groupMap {
-		gkeys = append(gkeys, gk)
-	}
-	sort.Strings(gkeys)
+	gkeys := collections.SortedKeys(groupMap)
 
 	groups := make([]CostGroup, 0, len(gkeys))
 	for _, gk := range gkeys {
@@ -1382,6 +1491,10 @@ func (b *InMemoryBackend) GetCostAndUsage(
 
 		if len(groupBy) > 0 {
 			r.Groups = aggregateByGroup(entries, groupBy, metrics)
+			if len(r.Groups) == 0 {
+				r.Groups = syntheticGroupsFallback(b.accountID, b.region, groupBy, metrics)
+			}
+
 			r.Total = map[string]MetricValue{}
 		} else {
 			r.Total = aggregateTotals(entries, metrics)
@@ -1404,13 +1517,13 @@ func (b *InMemoryBackend) GetDimensionValues(dimension string) []string {
 		var val string
 
 		switch strings.ToUpper(dimension) {
-		case "SERVICE":
+		case dimKeyService:
 			val = e.Service
-		case "REGION", "AZ":
+		case dimKeyRegion, "AZ":
 			val = e.Region
-		case "USAGE_TYPE":
+		case dimKeyUsageType:
 			val = e.UsageType
-		case "LINKED_ACCOUNT":
+		case dimKeyLinkedAccount:
 			val = e.Account
 		case "INSTANCE_TYPE":
 			val = syntheticInstanceType
@@ -1431,12 +1544,7 @@ func (b *InMemoryBackend) GetDimensionValues(dimension string) []string {
 		}
 	}
 
-	vals := make([]string, 0, len(seen))
-	for v := range seen {
-		vals = append(vals, v)
-	}
-
-	sort.Strings(vals)
+	vals := collections.SortedKeys(seen)
 
 	return vals
 }
@@ -1454,12 +1562,7 @@ func (b *InMemoryBackend) GetTagKeys() []string {
 		}
 	}
 
-	keys := make([]string, 0, len(seen))
-	for k := range seen {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(seen)
 
 	return keys
 }
@@ -1477,12 +1580,7 @@ func (b *InMemoryBackend) GetTagValues(tagKey string) []string {
 		}
 	}
 
-	vals := make([]string, 0, len(seen))
-	for v := range seen {
-		vals = append(vals, v)
-	}
-
-	sort.Strings(vals)
+	vals := collections.SortedKeys(seen)
 
 	return vals
 }
@@ -1535,7 +1633,7 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(
 	}
 
 	if total == 0 {
-		return nil
+		total = syntheticBaseMonthlyTotal
 	}
 
 	commitment := total * spCommitmentRatio
@@ -1543,9 +1641,11 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(
 
 	return []SavingsPlansUtilizationDetail{
 		{
-			SavingsPlanARN: fmt.Sprintf(
-				"arn:aws:savingsplans::%s:savingsplan/synthetic-sp-1",
+			SavingsPlanARN: arn.Build(
+				"savingsplans",
+				"",
 				b.accountID,
+				"savingsplan/synthetic-sp-1",
 			),
 			Utilization: SavingsPlansUtilizationAgg{
 				TotalCommitment:       fmt.Sprintf("%.4f", commitment),
@@ -1787,7 +1887,7 @@ func (b *InMemoryBackend) GetRightsizingRecommendations(
 	}
 
 	instanceID := fmt.Sprintf("i-synthetic%s", b.accountID[:8])
-	resourceARN := fmt.Sprintf("arn:aws:ec2:%s:%s:instance/%s", b.region, b.accountID, instanceID)
+	resourceARN := arn.Build("ec2", b.region, b.accountID, fmt.Sprintf("instance/%s", instanceID))
 
 	return []RightsizingRecommendation{
 		{

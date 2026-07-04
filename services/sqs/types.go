@@ -3,6 +3,7 @@ package sqs
 import (
 	"encoding/xml"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -95,20 +96,27 @@ type MessageAttributeValue struct {
 
 // Message represents an SQS message.
 type Message struct {
+	VisibleAt                        time.Time                        `json:"visibleAt,omitzero"`
 	MessageAttributes                map[string]MessageAttributeValue `json:"messageAttributes,omitempty"`
 	Attributes                       map[string]string                `json:"attributes,omitempty"`
-	VisibleAt                        time.Time                        `json:"visibleAt,omitzero"`
-	Body                             string                           `json:"body"`
-	MessageGroupID                   string                           `json:"messageGroupID,omitempty"`
 	MessageDeduplicationID           string                           `json:"messageDeduplicationID,omitempty"`
+	MessageGroupID                   string                           `json:"messageGroupID,omitempty"`
 	SequenceNumber                   string                           `json:"sequenceNumber,omitempty"`
 	MessageID                        string                           `json:"messageID"`
 	ReceiptHandle                    string                           `json:"receiptHandle"`
 	MD5OfBody                        string                           `json:"md5OfBody"`
 	MD5OfMessageAttributes           string                           `json:"md5OfMessageAttributes,omitempty"`
-	SentTimestamp                    int64                            `json:"sentTimestamp"`
-	ApproximateFirstReceiveTimestamp int64                            `json:"approximateFirstReceiveTimestamp"`
-	ApproximateReceiveCount          int                              `json:"approximateReceiveCount"`
+	MD5OfMessageSystemAttributes     string                           `json:"md5OfMessageSystemAttributes,omitempty"`
+	Body                             string                           `json:"body"`
+	encodedAttrs                     []encodedMessageAttribute
+	SentTimestamp                    int64 `json:"sentTimestamp"`
+	ApproximateFirstReceiveTimestamp int64 `json:"approximateFirstReceiveTimestamp"`
+	ApproximateReceiveCount          int   `json:"approximateReceiveCount"`
+}
+
+type encodedMessageAttribute struct {
+	Name  string
+	Bytes []byte
 }
 
 // InFlightMessage wraps a message that has been received but not deleted.
@@ -167,7 +175,11 @@ type Queue struct {
 	// Approximate: may overcount until next mutation reconciles it.
 	delayedCount    int
 	MaxReceiveCount int
-	IsFIFO          bool
+	// hasActivity is set atomically when a message is enqueued, letting the
+	// janitor skip queues that have never had (or no longer have) pending work.
+	// Cleared by pruneState after confirming the queue is fully idle.
+	hasActivity atomic.Bool
+	IsFIFO      bool
 }
 
 // fifoPerGroupTPS is the AWS-documented per-message-group send rate when
@@ -273,10 +285,11 @@ const attrAWSTraceHeader = "AWSTraceHeader"
 
 // SendMessageOutput is the output for SendMessage.
 type SendMessageOutput struct {
-	MessageID              string
-	MD5OfBody              string
-	MD5OfMessageAttributes string
-	SequenceNumber         string
+	MessageID                    string
+	MD5OfBody                    string
+	MD5OfMessageAttributes       string
+	MD5OfMessageSystemAttributes string
+	SequenceNumber               string
 }
 
 // ReceiveMessageInput is the input for ReceiveMessage.
@@ -333,11 +346,12 @@ type SendMessageBatchInput struct {
 
 // SendMessageBatchResultEntry is a successful entry in a SendMessageBatch result.
 type SendMessageBatchResultEntry struct {
-	ID                     string
-	MessageID              string
-	MD5OfBody              string
-	MD5OfMessageAttributes string
-	SequenceNumber         string
+	ID                           string
+	MessageID                    string
+	MD5OfBody                    string
+	MD5OfMessageAttributes       string
+	MD5OfMessageSystemAttributes string
+	SequenceNumber               string
 }
 
 // BatchResultErrorEntry is a failed entry in a batch result.
@@ -393,6 +407,23 @@ type XMLResponseMetadata struct {
 type XMLAttribute struct {
 	Name  string `xml:"Name"`
 	Value string `xml:"Value"`
+}
+
+// XMLMessageAttributeValue holds the typed value of a user-defined message attribute
+// in SQS Query protocol (XML) responses, matching the AWS wire format.
+// BinaryValue is base64-encoded because Go's encoding/xml does not automatically
+// base64-encode []byte fields (unlike encoding/json), and AWS requires base64 on the wire.
+type XMLMessageAttributeValue struct {
+	DataType    string `xml:"DataType"`
+	StringValue string `xml:"StringValue,omitempty"`
+	BinaryValue string `xml:"BinaryValue,omitempty"` // base64-encoded raw bytes
+}
+
+// XMLMessageAttribute represents a user-defined message attribute in an SQS
+// Query protocol ReceiveMessage XML response.
+type XMLMessageAttribute struct {
+	Name  string                   `xml:"Name"`
+	Value XMLMessageAttributeValue `xml:"Value"`
 }
 
 // XMLErrorDetail is an empty element in SQS error responses.
@@ -498,11 +529,13 @@ type SendMessageResponse struct {
 
 // XMLMessage represents a message in a ReceiveMessage XML response.
 type XMLMessage struct {
-	MessageID     string         `xml:"MessageId"`
-	ReceiptHandle string         `xml:"ReceiptHandle"`
-	MD5OfBody     string         `xml:"MD5OfBody"`
-	Body          string         `xml:"Body"`
-	Attributes    []XMLAttribute `xml:"Attribute"`
+	MessageID              string                `xml:"MessageId"`
+	ReceiptHandle          string                `xml:"ReceiptHandle"`
+	MD5OfBody              string                `xml:"MD5OfBody"`
+	MD5OfMessageAttributes string                `xml:"MD5OfMessageAttributes,omitempty"`
+	Body                   string                `xml:"Body"`
+	Attributes             []XMLAttribute        `xml:"Attribute"`
+	MessageAttributes      []XMLMessageAttribute `xml:"MessageAttribute"`
 }
 
 // ReceiveMessageResult holds the result of a ReceiveMessage operation.

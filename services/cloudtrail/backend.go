@@ -31,6 +31,9 @@ var (
 	ErrQueryNotFound = awserr.New("InactiveQueryException", awserr.ErrNotFound)
 	// ErrTerminationProtected is returned when trying to delete a termination-protected resource.
 	ErrTerminationProtected = awserr.New("EventDataStoreTerminationProtectedException", awserr.ErrConflict)
+	// ErrInsightNotEnabled is returned when GetInsightSelectors is called on a trail with no
+	// insight selectors configured. AWS returns InsightNotEnabledException in this case.
+	ErrInsightNotEnabled = awserr.New("InsightNotEnabledException", awserr.ErrInvalidParameter)
 )
 
 // AdvancedFieldSelector represents a filter condition in an advanced event selector.
@@ -887,6 +890,9 @@ func (b *InMemoryBackend) CreateEventDataStore(
 	if billingMode == "" {
 		billingMode = "EXTENDABLE_RETENTION_PRICING"
 	}
+	if retentionPeriod == 0 {
+		retentionPeriod = 2557
+	}
 	now := time.Now().UTC()
 	eds := &EventDataStore{
 		EventDataStoreID:       id,
@@ -1425,6 +1431,7 @@ func (b *InMemoryBackend) PutInsightSelectors(trailNameOrARN string, selectors [
 }
 
 // GetInsightSelectors returns insight selectors for a trail.
+// AWS returns InsightNotEnabledException when no insight selectors are configured.
 func (b *InMemoryBackend) GetInsightSelectors(trailNameOrARN string) (string, []InsightSelector, error) {
 	b.mu.RLock("GetInsightSelectors")
 	defer b.mu.RUnlock()
@@ -1432,6 +1439,9 @@ func (b *InMemoryBackend) GetInsightSelectors(trailNameOrARN string) (string, []
 	t := b.findByNameOrARNLocked(trailNameOrARN)
 	if t == nil {
 		return "", nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, trailNameOrARN)
+	}
+	if len(t.InsightSelectors) == 0 {
+		return "", nil, fmt.Errorf("%w: trail %s does not have Insights enabled", ErrInsightNotEnabled, trailNameOrARN)
 	}
 	cp := make([]InsightSelector, len(t.InsightSelectors))
 	copy(cp, t.InsightSelectors)

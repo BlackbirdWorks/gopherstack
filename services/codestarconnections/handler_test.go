@@ -353,6 +353,7 @@ func TestHandler_ListConnections(t *testing.T) {
 					"GitHubEnterpriseServer",
 					"https://example.com",
 					nil,
+					nil,
 				)
 				if err != nil {
 					return ""
@@ -527,6 +528,7 @@ func TestHandler_GetHost(t *testing.T) {
 					"GitHubEnterpriseServer",
 					"https://example.com",
 					nil,
+					nil,
 				)
 				if err != nil {
 					return ""
@@ -567,7 +569,7 @@ func TestHandler_GetHost(t *testing.T) {
 			assert.Equal(t, "test-host", out["Name"])
 			assert.Equal(t, "GitHubEnterpriseServer", out["ProviderType"])
 			assert.Equal(t, "https://example.com", out["ProviderEndpoint"])
-			assert.Equal(t, "AVAILABLE", out["Status"])
+			assert.Equal(t, "PENDING", out["Status"])
 		})
 	}
 }
@@ -576,8 +578,8 @@ func TestHandler_ListHosts(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_, _ = h.Backend.CreateHost(context.Background(), "host1", "GitHubEnterpriseServer", "https://a.com", nil)
-	_, _ = h.Backend.CreateHost(context.Background(), "host2", "GitHubEnterpriseServer", "https://b.com", nil)
+	_, _ = h.Backend.CreateHost(context.Background(), "host1", "GitHubEnterpriseServer", "https://a.com", nil, nil)
+	_, _ = h.Backend.CreateHost(context.Background(), "host2", "GitHubEnterpriseServer", "https://b.com", nil, nil)
 
 	rec := doRequest(t, h, "ListHosts", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -605,6 +607,7 @@ func TestHandler_DeleteHost(t *testing.T) {
 					"del-host",
 					"GitHubEnterpriseServer",
 					"https://x.com",
+					nil,
 					nil,
 				)
 				if err != nil {
@@ -660,6 +663,7 @@ func TestHandler_UpdateHost(t *testing.T) {
 					"upd-host",
 					"GitHubEnterpriseServer",
 					"https://old.com",
+					nil,
 					nil,
 				)
 				if err != nil {
@@ -1558,7 +1562,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	// Seed some state.
 	_, err := h.Backend.CreateConnection(context.Background(), "c1", "GitHub", "", nil)
 	require.NoError(t, err)
-	_, err = h.Backend.CreateHost(context.Background(), "h1", "GitHub", "https://example.com", nil)
+	_, err = h.Backend.CreateHost(context.Background(), "h1", "GitHub", "https://example.com", nil, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, h.Backend.ConnectionCount())
@@ -1870,7 +1874,8 @@ func TestRefinement1_SortedTags(t *testing.T) {
 	assert.Equal(t, []string{"a-tag", "m-tag", "z-tag"}, keys)
 }
 
-// TestRefinement1_GetConnectionIncludesTags verifies Tags are included in GetConnection response.
+// TestRefinement1_GetConnectionIncludesTags verifies Tags are NOT in GetConnection response
+// but ARE accessible via ListTagsForResource.
 func TestRefinement1_GetConnectionIncludesTags(t *testing.T) {
 	t.Parallel()
 
@@ -1892,13 +1897,21 @@ func TestRefinement1_GetConnectionIncludesTags(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
 	conn := out["Connection"].(map[string]any)
-	tags, ok := conn["Tags"].([]any)
-	require.True(t, ok)
+	_, hasTags := conn["Tags"]
+	assert.False(t, hasTags, "GetConnection should not include Tags in response")
+
+	recTags := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": arn})
+	require.Equal(t, http.StatusOK, recTags.Code)
+
+	var tagsOut map[string]any
+	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &tagsOut))
+	tags := tagsOut["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].(map[string]any)["Key"].(string))
 }
 
-// TestRefinement1_GetHostIncludesTags verifies Tags are included in GetHost response.
+// TestRefinement1_GetHostIncludesTags verifies Tags are NOT in GetHost response
+// but ARE accessible via ListTagsForResource.
 func TestRefinement1_GetHostIncludesTags(t *testing.T) {
 	t.Parallel()
 
@@ -1920,8 +1933,15 @@ func TestRefinement1_GetHostIncludesTags(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
-	tags, ok := out["Tags"].([]any)
-	require.True(t, ok)
+	_, hasTags := out["Tags"]
+	assert.False(t, hasTags, "GetHost should not include Tags in response")
+
+	recTags := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": hostArn})
+	require.Equal(t, http.StatusOK, recTags.Code)
+
+	var tagsOut map[string]any
+	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &tagsOut))
+	tags := tagsOut["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "platform", tags[0].(map[string]any)["Value"].(string))
 }
@@ -2018,7 +2038,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 
 	_, err := b.CreateConnection(context.Background(), "persist-conn", "GitHub", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
-	_, err = b.CreateHost(context.Background(), "persist-host", "GitHub", "https://example.com", nil)
+	_, err = b.CreateHost(context.Background(), "persist-host", "GitHub", "https://example.com", nil, nil)
 	require.NoError(t, err)
 	link, err := b.CreateRepositoryLink(context.Background(), "conn-arn", "owner", "persist-repo", "")
 	require.NoError(t, err)
@@ -2033,11 +2053,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.ConnectionCount())
 	assert.Equal(t, 1, b2.HostCount())
@@ -2194,7 +2214,7 @@ func TestRefinement1_HostTags_NonNil(t *testing.T) {
 	t.Parallel()
 
 	b := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
-	host, err := b.CreateHost(context.Background(), "no-tag-host", "GitHub", "https://example.com", nil)
+	host, err := b.CreateHost(context.Background(), "no-tag-host", "GitHub", "https://example.com", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, host.Tags, "Tags must never be nil")
 }

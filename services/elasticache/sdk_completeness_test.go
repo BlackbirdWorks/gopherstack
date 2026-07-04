@@ -16,7 +16,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1")
+	backend := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1", nil)
 	h := elasticache.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &elasticachesdk.Client{}, h.GetSupportedOperations(), []string{})
 }

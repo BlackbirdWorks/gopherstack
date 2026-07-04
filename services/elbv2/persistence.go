@@ -1,58 +1,57 @@
 package elbv2
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // errBackendNotInMemory is returned when the Handler's backend cannot be cast to *InMemoryBackend.
 var errBackendNotInMemory = errors.New("elbv2: backend is not *InMemoryBackend")
 
 type backendSnapshot struct {
-	LoadBalancers map[string]*LoadBalancer        `json:"loadBalancers"`
-	TargetGroups  map[string]*TargetGroup         `json:"targetGroups"`
-	Listeners     map[string]*Listener            `json:"listeners"`
-	Rules         map[string]*Rule                `json:"rules"`
-	TrustStores   map[string]*TrustStore          `json:"trustStores"`
-	TargetReadyAt map[string]map[string]time.Time `json:"targetReadyAt"`
-	AccountID     string                          `json:"accountID"`
-	Region        string                          `json:"region"`
-	RuleCounter   int                             `json:"ruleCounter"`
+	LoadBalancers    map[string]*LoadBalancer        `json:"loadBalancers"`
+	TargetGroups     map[string]*TargetGroup         `json:"targetGroups"`
+	Listeners        map[string]*Listener            `json:"listeners"`
+	Rules            map[string]*Rule                `json:"rules"`
+	TrustStores      map[string]*TrustStore          `json:"trustStores"`
+	ResourcePolicies map[string]string               `json:"resourcePolicies"`
+	TargetReadyAt    map[string]map[string]time.Time `json:"targetReadyAt"`
+	AccountID        string                          `json:"accountID"`
+	Region           string                          `json:"region"`
+	RuleCounter      int                             `json:"ruleCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		LoadBalancers: b.loadBalancers,
-		TargetGroups:  b.targetGroups,
-		Listeners:     b.listeners,
-		Rules:         b.rules,
-		TrustStores:   b.trustStores,
-		TargetReadyAt: b.targetReadyAt,
-		RuleCounter:   b.ruleCounter,
-		AccountID:     b.accountID,
-		Region:        b.region,
+		LoadBalancers:    b.loadBalancers,
+		TargetGroups:     b.targetGroups,
+		Listeners:        b.listeners,
+		Rules:            b.rules,
+		TrustStores:      b.trustStores,
+		ResourcePolicies: b.resourcePolicies,
+		TargetReadyAt:    b.targetReadyAt,
+		RuleCounter:      b.ruleCounter,
+		AccountID:        b.accountID,
+		Region:           b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "elbv2", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "elbv2", data, &snap); err != nil {
 		return err
 	}
 
@@ -79,11 +78,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.TrustStores = make(map[string]*TrustStore)
 	}
 
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]string)
+	}
+
 	b.loadBalancers = snap.LoadBalancers
 	b.targetGroups = snap.TargetGroups
 	b.listeners = snap.Listeners
 	b.rules = snap.Rules
 	b.trustStores = snap.TrustStores
+	b.resourcePolicies = snap.ResourcePolicies
 	b.targetReadyAt = snap.TargetReadyAt
 	b.ruleCounter = snap.RuleCounter
 	b.accountID = snap.AccountID
@@ -93,21 +97,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	b, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return nil
 	}
 
-	return b.Snapshot()
+	return b.Snapshot(ctx)
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	b, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return errBackendNotInMemory
 	}
 
-	return b.Restore(data)
+	return b.Restore(ctx, data)
 }

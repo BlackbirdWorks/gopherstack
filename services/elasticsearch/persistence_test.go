@@ -35,10 +35,19 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 
 				_, err := b.CreateDomain(
 					context.Background(),
-					"my-domain",
-					"7.10",
-					elasticsearch.ClusterConfig{InstanceType: "t3.small.elasticsearch", InstanceCount: 1},
-					elasticsearch.EBSOptions{EBSEnabled: true, VolumeType: "gp2", VolumeSize: 10},
+					elasticsearch.CreateDomainInput{
+						Name:                 "my-domain",
+						ElasticsearchVersion: "7.10",
+						ClusterConfig: elasticsearch.ClusterConfig{
+							InstanceType:  "t3.small.elasticsearch",
+							InstanceCount: 1,
+						},
+						EBSOptions: elasticsearch.EBSOptions{
+							EBSEnabled: true,
+							VolumeType: "gp2",
+							VolumeSize: 10,
+						},
+					},
 				)
 				require.NoError(t, err)
 			},
@@ -63,10 +72,7 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 
 				d, err := b.CreateDomain(
 					context.Background(),
-					"tagged-domain",
-					"",
-					elasticsearch.ClusterConfig{},
-					elasticsearch.EBSOptions{},
+					elasticsearch.CreateDomainInput{Name: "tagged-domain"},
 				)
 				require.NoError(t, err)
 
@@ -97,11 +103,11 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 			b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 			tt.setup(t, b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-			err := b2.Restore(snap)
+			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			tt.verify(t, b2)

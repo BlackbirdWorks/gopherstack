@@ -499,7 +499,7 @@ func TestBatch1_BatchDisableStandardsPath(t *testing.T) {
 	assert.Len(t, disabledSubs, 1)
 
 	sub := disabledSubs[0].(map[string]any)
-	assert.Equal(t, "INCOMPLETE", sub["StandardsStatus"])
+	assert.Equal(t, "DELETING", sub["StandardsStatus"])
 }
 
 // Batch-1 accuracy gap: GetEnabledStandards is POST /standards/get.

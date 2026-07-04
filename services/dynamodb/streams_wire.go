@@ -8,6 +8,46 @@ import (
 	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 )
 
+// wireStreamDescription mirrors StreamDescription but with timestamps as float64 epoch seconds.
+type wireStreamDescription struct {
+	CreationRequestDateTime *float64                        `json:"CreationRequestDateTime,omitempty"`
+	LastEvaluatedShardID    *string                         `json:"LastEvaluatedShardId,omitempty"`
+	StreamArn               *string                         `json:"StreamArn,omitempty"`
+	StreamLabel             *string                         `json:"StreamLabel,omitempty"`
+	TableName               *string                         `json:"TableName,omitempty"`
+	StreamStatus            streamstypes.StreamStatus       `json:"StreamStatus,omitempty"`
+	StreamViewType          streamstypes.StreamViewType     `json:"StreamViewType,omitempty"`
+	KeySchema               []streamstypes.KeySchemaElement `json:"KeySchema,omitempty"`
+	Shards                  []streamstypes.Shard            `json:"Shards,omitempty"`
+}
+
+type wireDescribeStreamOutput struct {
+	StreamDescription *wireStreamDescription `json:"StreamDescription,omitempty"`
+}
+
+func toWireDescribeStreamOutput(out *dynamodbstreams.DescribeStreamOutput) *wireDescribeStreamOutput {
+	if out == nil || out.StreamDescription == nil {
+		return &wireDescribeStreamOutput{}
+	}
+	sd := out.StreamDescription
+	wd := &wireStreamDescription{
+		KeySchema:            sd.KeySchema,
+		LastEvaluatedShardID: sd.LastEvaluatedShardId,
+		Shards:               sd.Shards,
+		StreamArn:            sd.StreamArn,
+		StreamLabel:          sd.StreamLabel,
+		StreamStatus:         sd.StreamStatus,
+		StreamViewType:       sd.StreamViewType,
+		TableName:            sd.TableName,
+	}
+	if sd.CreationRequestDateTime != nil {
+		epochSecs := float64(sd.CreationRequestDateTime.Unix())
+		wd.CreationRequestDateTime = &epochSecs
+	}
+
+	return &wireDescribeStreamOutput{StreamDescription: wd}
+}
+
 type wireStreamRecord struct {
 	Dynamodb     *wireStreamRecordData      `json:"dynamodb,omitempty"`
 	UserIdentity *streamstypes.Identity     `json:"userIdentity,omitempty"`
@@ -19,7 +59,8 @@ type wireStreamRecord struct {
 }
 
 type wireStreamRecordData struct {
-	ApproximateCreationDateTime *string                     `json:"ApproximateCreationDateTime,omitempty"`
+	// ApproximateCreationDateTime is Unix epoch seconds (float64) per DynamoDB Streams JSON 1.0 protocol.
+	ApproximateCreationDateTime *float64                    `json:"ApproximateCreationDateTime,omitempty"`
 	Keys                        map[string]any              `json:"Keys,omitempty"`
 	NewImage                    map[string]any              `json:"NewImage,omitempty"`
 	OldImage                    map[string]any              `json:"OldImage,omitempty"`
@@ -98,9 +139,8 @@ func toWireStreamRecordData(record *streamstypes.StreamRecord) (*wireStreamRecor
 	}
 
 	if record.ApproximateCreationDateTime != nil {
-		wireData.ApproximateCreationDateTime = aws.String(
-			record.ApproximateCreationDateTime.Format("2006-01-02T15:04:05Z"),
-		)
+		epochSecs := float64(record.ApproximateCreationDateTime.Unix())
+		wireData.ApproximateCreationDateTime = &epochSecs
 	}
 
 	return wireData, nil

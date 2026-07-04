@@ -635,11 +635,11 @@ func TestPersistence_DeviceWebAuthnAndUserSettingsSurviveSnapshot(t *testing.T) 
 	))
 
 	// Snapshot and restore into a fresh backend.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := newTestBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Device survives with its remembered status.
 	dev, err := b2.AdminGetDevice(pool.ID, "persist-families-user", "persist-device")

@@ -200,6 +200,7 @@ func TestSQS_Permissions_Backend(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			queueName := "perm-test-" + tt.name
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: queueName, Endpoint: "localhost"})

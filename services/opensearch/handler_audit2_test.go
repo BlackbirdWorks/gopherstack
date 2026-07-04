@@ -629,11 +629,11 @@ func TestAudit2_Persistence_PackagesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	pkgID := pkg.PackageID
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	pkgs, err := fresh.DescribePackages([]string{pkgID})
 	require.NoError(t, err)
@@ -656,11 +656,11 @@ func TestAudit2_Persistence_VpcEndpointsRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	epID := ep.VpcEndpointID
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	endpoints := fresh.ListVpcEndpoints()
 	require.NotEmpty(t, endpoints)
@@ -684,11 +684,11 @@ func TestAudit2_Persistence_UpgradeHistoryRoundTrip(t *testing.T) {
 	err := b.UpgradeDomain("uh-persist", "OpenSearch_2.17")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	history, err := fresh.GetUpgradeHistory("uh-persist")
 	require.NoError(t, err)
@@ -705,11 +705,11 @@ func TestAudit2_Persistence_AutoTunesRoundTrip(t *testing.T) {
 	err := b.SetAutoTune("at-persist", "ENABLED", nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Domain should still exist.
 	d, err := fresh.DescribeDomain("at-persist")
@@ -731,11 +731,11 @@ func TestAudit2_Persistence_ReservedInstancesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	riID := ri.ReservedInstanceID
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	instances := fresh.DescribeReservedInstances()
 	require.NotEmpty(t, instances)
@@ -765,11 +765,11 @@ func TestAudit2_Persistence_OutboundConnectionsRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	connID := conn.ConnectionID
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	conns := fresh.DescribeOutboundConnections()
 	require.NotEmpty(t, conns)
@@ -801,11 +801,11 @@ func TestAudit2_Persistence_ScheduledActionsRoundTrip(t *testing.T) {
 	_, err := b.UpdateScheduledAction("sa-persist", action)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	actions := fresh.ListScheduledActions("sa-persist")
 	require.Len(t, actions, 1)
@@ -828,11 +828,11 @@ func TestAudit2_Persistence_DomainIndexesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "my-index", idx.IndexName)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	restoredIdx, err := fresh.GetIndex("idx-persist", "my-index")
 	require.NoError(t, err)
@@ -853,11 +853,11 @@ func TestAudit2_Persistence_CountersRoundTrip(t *testing.T) {
 	_, err = b.CreatePackage("pkg-counter", "TXT-DICTIONARY", "", nil, nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Creating new items after restore should not reuse old IDs.
 	conn2, err := fresh.CreateOutboundConnection("alias2", nil, nil)
@@ -1343,11 +1343,11 @@ func TestAudit2_Persistence_DomainMaintenanceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, m.MaintenanceID)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	maintenances, err := fresh.ListDomainMaintenances("maint-domain")
 	require.NoError(t, err)

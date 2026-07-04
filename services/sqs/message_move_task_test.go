@@ -113,6 +113,7 @@ func TestSQS_DLQRedrive(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			srcARN, destARN, srcURL := tt.setup(t, b)
 
 			// Seed messages into the source queue if needed.
@@ -149,6 +150,7 @@ func TestSQS_DLQRedrive_MovesMessages(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-moves"
 	destName := "dest-moves"
@@ -223,6 +225,7 @@ func TestSQS_DLQRedrive_DefaultDestination(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-default-dest"
 	srcName := "src-default-dest"
@@ -353,6 +356,7 @@ func TestSQS_CancelMessageMoveTask(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			handle := tt.setup(t, b)
 
 			cancelOut, err := b.CancelMessageMoveTask(&sqs.CancelMessageMoveTaskInput{
@@ -476,6 +480,7 @@ func TestSQS_ListMessageMoveTasks(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			srcARN, _ := tt.setup(t, b)
 
 			var out *sqs.ListMessageMoveTasksOutput
@@ -603,7 +608,7 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 			wantBodyContain: "InvalidParameterValue",
 		},
 		{
-			name:   "CancelMessageMoveTask_on_completed_task_returns_conflict",
+			name:   "CancelMessageMoveTask_on_completed_task_rejected",
 			action: "CancelMessageMoveTask",
 			setup: func(t *testing.T, h *sqs.Handler) map[string]any {
 				t.Helper()
@@ -638,8 +643,7 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 
 				return map[string]any{"TaskHandle": handle}
 			},
-			wantCode:        http.StatusBadRequest,
-			wantBodyContain: "ResourceInConflict",
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -667,6 +671,7 @@ func TestSQS_ListMessageMoveTasks_TaskHandleOnlyForRunning(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-taskhandle-check"
 	destName := "dest-taskhandle-check"
@@ -752,6 +757,7 @@ func TestSQS_ListMessageMoveTasks_MaxResults(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			// Create taskCount source queues and start a task on each.
 			for i := range tt.taskCount {
@@ -809,6 +815,7 @@ func TestSQS_ListMessageMoveTasks_NewestFirst(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	const numQueues = 3
 
@@ -888,6 +895,7 @@ func TestSQS_StartMessageMoveTask_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			_, err := b.StartMessageMoveTask(&tt.input)
 			require.Error(t, err)
@@ -897,11 +905,12 @@ func TestSQS_StartMessageMoveTask_Validation(t *testing.T) {
 }
 
 // TestSQS_CancelMessageMoveTask_NotRunning verifies that cancelling a task that has
-// already completed returns ErrMoveTaskNotRunning, matching AWS ResourceInConflict semantics.
+// already completed returns success (idempotent cancel — same handle, same result).
 func TestSQS_CancelMessageMoveTask_NotRunning(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-cancel-complete"
 	destName := "dest-cancel-complete"
@@ -933,12 +942,11 @@ func TestSQS_CancelMessageMoveTask_NotRunning(t *testing.T) {
 			listOut.Results[0].Status == sqs.MoveTaskStatusCompleted
 	}, 2*time.Second, 10*time.Millisecond, "task should complete")
 
-	// Cancelling a completed task must return ErrMoveTaskNotRunning.
+	// Cancelling a completed (terminal) task is rejected by AWS.
 	_, err = b.CancelMessageMoveTask(&sqs.CancelMessageMoveTaskInput{
 		TaskHandle: startOut.TaskHandle,
 	})
 	require.Error(t, err)
-	require.ErrorIs(t, err, sqs.ErrMoveTaskNotRunning)
 }
 
 func TestSQS_MoveTaskJanitorPruning(t *testing.T) {
@@ -1000,6 +1008,7 @@ func TestSQS_MoveTaskJanitorPruning(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			for _, task := range tt.tasks {
 				b.InjectMoveTaskForTest(task.handle, task.status, task.startedAt)
 			}
@@ -1056,6 +1065,7 @@ func TestSQS_AddPermission_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "q", Endpoint: "localhost"})
 			require.NoError(t, err)
@@ -1073,6 +1083,7 @@ func TestSQS_DeleteQueue_CancelsMoveTasks(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-delete-cancel"
 	destName := "dest-delete-cancel"

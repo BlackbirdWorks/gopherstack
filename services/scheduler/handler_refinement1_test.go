@@ -623,11 +623,11 @@ func TestRefinement1_PersistenceRoundTripWithGroupName(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	s, err := fresh.GetSchedule(context.Background(), "grp-sched", "mygrp")
 	require.NoError(t, err)

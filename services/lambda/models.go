@@ -3,6 +3,8 @@ package lambda
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // PackageTypeImage is the Image-based Lambda package type (Docker image).
@@ -50,6 +52,9 @@ const (
 	InvocationTypeEvent InvocationType = "Event"
 	// InvocationTypeDryRun validates without executing.
 	InvocationTypeDryRun InvocationType = "DryRun"
+
+	LogTypeNone = "None"
+	LogTypeTail = "Tail"
 )
 
 // FunctionCode holds the code location for a Lambda function.
@@ -97,11 +102,20 @@ type DeadLetterConfig struct {
 	TargetArn string `json:"TargetArn,omitempty"`
 }
 
-// FunctionConfiguration represents a Lambda function's configuration.
+// LoggingConfig holds the function's logging configuration.
+// Real AWS returns this on every GetFunction / GetFunctionConfiguration response.
+type LoggingConfig struct {
+	ApplicationLogLevel string `json:"ApplicationLogLevel,omitempty"`
+	LogFormat           string `json:"LogFormat"`
+	LogGroup            string `json:"LogGroup,omitempty"`
+	SystemLogLevel      string `json:"SystemLogLevel,omitempty"`
+}
+
 type FunctionConfiguration struct {
 	CreatedAt                    time.Time               `json:"-"`
 	Environment                  *EnvironmentConfig      `json:"Environment,omitempty"`
 	EphemeralStorage             *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	LoggingConfig                *LoggingConfig          `json:"LoggingConfig,omitempty"`
 	ReservedConcurrentExecutions *int                    `json:"ReservedConcurrentExecutions,omitempty"`
 	VpcConfig                    *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig                *TracingConfig          `json:"TracingConfig,omitempty"`
@@ -612,11 +626,12 @@ type ListFunctionsByCodeSigningConfigOutput struct {
 
 // CapacityProvider holds a Lambda capacity provider configuration.
 type CapacityProvider struct {
-	CapacityProviderArn       string `json:"CapacityProviderArn"`
-	LastModifiedTime          string `json:"LastModifiedTime"`
-	Name                      string `json:"Name"`
-	Status                    string `json:"Status,omitempty"`
-	TargetOnDemandConcurrency int    `json:"TargetOnDemandConcurrency,omitempty"`
+	CapacityProviderArn       string   `json:"CapacityProviderArn"`
+	LastModifiedTime          string   `json:"LastModifiedTime"`
+	Name                      string   `json:"Name"`
+	Status                    string   `json:"Status,omitempty"`
+	AssignedFunctionVersions  []string `json:"-"`
+	TargetOnDemandConcurrency int      `json:"TargetOnDemandConcurrency,omitempty"`
 }
 
 // CreateCapacityProviderInput is the request body for CreateCapacityProvider.
@@ -669,12 +684,12 @@ type AccountSettingsOutput struct {
 
 // buildCodeSigningConfigARN constructs a Lambda code signing config ARN.
 func buildCodeSigningConfigARN(region, accountID, cscID string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:code-signing-config:%s", region, accountID, cscID)
+	return arn.Build("lambda", region, accountID, fmt.Sprintf("code-signing-config:%s", cscID))
 }
 
 // buildCapacityProviderARN constructs a Lambda capacity provider ARN.
 func buildCapacityProviderARN(region, accountID, name string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:capacity-provider:%s", region, accountID, name)
+	return arn.Build("lambda", region, accountID, fmt.Sprintf("capacity-provider:%s", name))
 }
 
 // CheckpointDurableExecutionInput is the request body for CheckpointDurableExecution.
@@ -730,8 +745,13 @@ type PutFunctionScalingConfigInput struct {
 // SnapStart holds the SnapStart configuration for a Lambda function.
 // ApplyOn can be "PublishedVersions" or "None".
 type SnapStart struct {
-	ApplyOn string `json:"ApplyOn"`
+	ApplyOn string `json:"ApplyOn,omitempty"`
 }
+
+const (
+	SnapStartApplyOnNone              = "None"
+	SnapStartApplyOnPublishedVersions = "PublishedVersions"
+)
 
 // SnapStartResponse is the SnapStart field returned in GetFunction/GetFunctionConfiguration.
 type SnapStartResponse struct {

@@ -1,5 +1,7 @@
 package resourcegroupstaggingapi
 
+import "time"
+
 // ProviderCount returns the number of registered resource providers (plain + filtered).
 func ProviderCount(b *InMemoryBackend) int {
 	b.mu.RLock("ProviderCount")
@@ -78,6 +80,15 @@ func ReportS3Location(b *InMemoryBackend) string {
 func SetNowFunc(b *InMemoryBackend, fn func() string) {
 	b.nowFunc = fn
 }
+
+// SetClockFunc replaces the backend's clock with fn for deterministic time-based testing.
+// Used to control RUNNING→SUCCEEDED report lifecycle transitions.
+func SetClockFunc(b *InMemoryBackend, fn func() time.Time) {
+	b.clockFunc = fn
+}
+
+// ReportRunningDuration returns the reportRunningDuration constant for use in tests.
+func ReportRunningDuration() time.Duration { return reportRunningDuration }
 
 // HandlerOpsLen returns the number of operations returned by GetSupportedOperations.
 func HandlerOpsLen(h *Handler) int {

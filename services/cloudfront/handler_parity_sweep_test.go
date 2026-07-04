@@ -127,12 +127,12 @@ func TestParitySweep_AnycastIPList_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	restored, err := b2.GetAnycastIPList(list.ID)
 	require.NoError(t, err)

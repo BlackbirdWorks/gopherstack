@@ -279,14 +279,13 @@ type experimentTemplateStopConditionDTO struct {
 
 // experimentTemplateLogConfigurationDTO is the JSON representation of log configuration.
 type experimentTemplateLogConfigurationDTO struct {
-	//nolint:lll // struct tag for CloudWatch config is necessarily long
-	CloudWatchLogsConfiguration *experimentTemplateCloudWatchLogsConfigurationDTO `json:"cloudWatchLogsConfiguration,omitempty"`
-	S3Configuration             *experimentTemplateS3ConfigurationDTO             `json:"s3Configuration,omitempty"`
-	LogSchemaVersion            int                                               `json:"logSchemaVersion"`
+	CloudWatchLogsConfiguration *cwLogsConfigurationDTO               `json:"cloudWatchLogsConfiguration,omitempty"`
+	S3Configuration             *experimentTemplateS3ConfigurationDTO `json:"s3Configuration,omitempty"`
+	LogSchemaVersion            int                                   `json:"logSchemaVersion"`
 }
 
-// experimentTemplateCloudWatchLogsConfigurationDTO holds the CloudWatch log group ARN.
-type experimentTemplateCloudWatchLogsConfigurationDTO struct {
+// cwLogsConfigurationDTO holds the CloudWatch log group ARN.
+type cwLogsConfigurationDTO struct {
 	LogGroupArn string `json:"logGroupArn"`
 }
 
@@ -579,14 +578,16 @@ type listExperimentTargetAccountConfigurationsResponseDTO struct {
 type ExperimentResolvedTarget struct {
 	ResourceType         string
 	TargetName           string
+	ResolvedArns         []string
 	TargetResourcesCount int
 }
 
 // resolvedTargetDTO is the JSON representation of a resolved target.
 type resolvedTargetDTO struct {
-	ResourceType         string `json:"resourceType"`
-	TargetName           string `json:"targetName"`
-	TargetResourcesCount int    `json:"targetResourcesCount"`
+	ResourceType         string   `json:"resourceType"`
+	TargetName           string   `json:"targetName"`
+	ResolvedArns         []string `json:"resolvedArns,omitempty"`
+	TargetResourcesCount int      `json:"targetResourcesCount"`
 }
 
 // listExperimentResolvedTargetsResponseDTO is the outer envelope for ListExperimentResolvedTargets.

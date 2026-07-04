@@ -581,11 +581,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := newTestBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	desc, err := b2.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)

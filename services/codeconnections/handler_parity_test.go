@@ -1087,11 +1087,11 @@ func TestParity_SnapshotRestore_HostsByName(t *testing.T) {
 			h := newTestHandler()
 			createHost(t, h, "snap-host", "GitHubEnterpriseServer", "https://ghe.example.com")
 
-			snap := h.Backend.Snapshot()
+			snap := h.Backend.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			newBackend := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
-			require.NoError(t, newBackend.Restore(snap))
+			require.NoError(t, newBackend.Restore(t.Context(), snap))
 
 			// Attempting to create a host with same name should fail (name index restored).
 			_, err := newBackend.CreateHost(

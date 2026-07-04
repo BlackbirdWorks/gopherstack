@@ -828,40 +828,15 @@ func (h *Handler) handleGetJob(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListJobs(c *echo.Context) error {
-	jobs := h.Backend.ListJobs()
-	if jobs == nil {
-		jobs = []*Job{}
-	}
-
 	q := c.Request().URL.Query()
 	statusFilter := q.Get("status")
 	queueFilter := q.Get("queue")
 	order := q.Get("order")
 	maxResults := parseMaxResults(q.Get("maxResults"))
 
-	if statusFilter != "" || queueFilter != "" {
-		filtered := jobs[:0:0]
-
-		for _, j := range jobs {
-			if statusFilter != "" && j.Status != statusFilter {
-				continue
-			}
-
-			if queueFilter != "" && j.Queue != queueFilter && j.QueueArn != queueFilter {
-				continue
-			}
-
-			filtered = append(filtered, j)
-		}
-
-		jobs = filtered
-	}
-
-	// Backend returns newest-first by default; ASCENDING reverses that order.
-	if order == orderAscending {
-		for i, j := 0, len(jobs)-1; i < j; i, j = i+1, j-1 {
-			jobs[i], jobs[j] = jobs[j], jobs[i]
-		}
+	jobs := h.Backend.ListJobsFiltered(statusFilter, queueFilter, order)
+	if jobs == nil {
+		jobs = []*Job{}
 	}
 
 	nextTokenIn := q.Get("nextToken")
@@ -1241,33 +1216,13 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 	order := q.Get("order")
 	maxResults := parseMaxResults(q.Get("maxResults"))
 
-	jobs := h.Backend.ListJobs()
+	jobs := h.Backend.ListJobsFiltered(statusFilter, queueFilter, order)
 	if jobs == nil {
 		jobs = []*Job{}
 	}
 
-	filtered := jobs[:0:0]
-	for _, j := range jobs {
-		if statusFilter != "" && j.Status != statusFilter {
-			continue
-		}
-
-		if queueFilter != "" && j.Queue != queueFilter && j.QueueArn != queueFilter {
-			continue
-		}
-
-		filtered = append(filtered, j)
-	}
-
-	// Backend returns newest-first by default; ASCENDING reverses that order.
-	if order == orderAscending {
-		for i, j := 0, len(filtered)-1; i < j; i, j = i+1, j-1 {
-			filtered[i], filtered[j] = filtered[j], filtered[i]
-		}
-	}
-
 	nextTokenIn := q.Get("nextToken")
-	pg := page.New(filtered, nextTokenIn, maxResults, defaultJobsPageSize)
+	pg := page.New(jobs, nextTokenIn, maxResults, defaultJobsPageSize)
 
 	out := searchJobsOutput{Jobs: pg.Data}
 	if pg.Next != "" {

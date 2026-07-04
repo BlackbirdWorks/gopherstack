@@ -1,6 +1,7 @@
 package verifiedpermissions
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -11,7 +12,9 @@ import (
 	cedar "github.com/cedar-policy/cedar-go"
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -155,16 +158,8 @@ type BatchGetPolicyItem struct {
 
 // BatchGetPolicyResult holds the results of a BatchGetPolicy call.
 type BatchGetPolicyResult struct {
-	Results []batchGetPolicyOutputItem `json:"results"`
-	Errors  []batchGetPolicyErrorItem  `json:"errors"`
-}
-
-type batchGetPolicyOutputItem struct {
-	PolicyStoreID   string `json:"policyStoreId"`
-	PolicyID        string `json:"policyId"`
-	PolicyType      string `json:"policyType"`
-	CreatedDate     string `json:"createdDate"`
-	LastUpdatedDate string `json:"lastUpdatedDate"`
+	Results []Policy                  `json:"results"`
+	Errors  []batchGetPolicyErrorItem `json:"errors"`
 }
 
 type batchGetPolicyErrorItem struct {
@@ -242,7 +237,7 @@ const (
 
 // arnNoRegion builds an ARN with empty region (verifiedpermissions uses global ARNs).
 func arnNoRegion(accountID, resourceType, resourceID string) string {
-	return fmt.Sprintf("arn:aws:verifiedpermissions::%s:%s/%s", accountID, resourceType, resourceID)
+	return arn.Build("verifiedpermissions", "", accountID, fmt.Sprintf("%s/%s", resourceType, resourceID))
 }
 
 // policyStoreARN builds the ARN for a policy store.
@@ -252,17 +247,21 @@ func policyStoreARN(accountID, _, policyStoreID string) string {
 
 // policyARN builds the ARN for a policy.
 func policyARN(accountID, policyStoreID, policyID string) string {
-	return fmt.Sprintf("arn:aws:verifiedpermissions::%s:policy/%s/%s", accountID, policyStoreID, policyID)
+	return arn.Build("verifiedpermissions", "", accountID, fmt.Sprintf("policy/%s/%s", policyStoreID, policyID))
 }
 
 // policyTemplateARN builds the ARN for a policy template.
 func policyTemplateARN(accountID, policyStoreID, templateID string) string {
-	return fmt.Sprintf("arn:aws:verifiedpermissions::%s:policy-template/%s/%s", accountID, policyStoreID, templateID)
+	resource := fmt.Sprintf("policy-template/%s/%s", policyStoreID, templateID)
+
+	return arn.Build("verifiedpermissions", "", accountID, resource)
 }
 
 // identitySourceARN builds the ARN for an identity source.
 func identitySourceARN(accountID, policyStoreID, sourceID string) string {
-	return fmt.Sprintf("arn:aws:verifiedpermissions::%s:identity-source/%s/%s", accountID, policyStoreID, sourceID)
+	resource := fmt.Sprintf("identity-source/%s/%s", policyStoreID, sourceID)
+
+	return arn.Build("verifiedpermissions", "", accountID, resource)
 }
 
 // clonePolicyStore returns a deep copy of a PolicyStore.
@@ -328,10 +327,15 @@ type InMemoryBackend struct {
 	schemas         map[string]*PolicyStoreSchema         // policyStoreID -> schema
 	// arnIndex maps ARN -> (resourceType, policyStoreID, resourceID) for O(1) tag ops
 	// values are encoded as "policyStore:<id>", "policy:<storeID>:<policyID>", etc.
-	arnIndex  map[string]string
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	arnIndex     map[string]string
+	resourceTags map[string]map[string]string // ARN -> tags (all resource types)
+	// policySetCache caches the compiled Cedar PolicySet per policy store.
+	// Invalidated by CreatePolicy/UpdatePolicy/DeletePolicy.
+	policySetCache map[string]*cedar.PolicySet
+	policySetDirty map[string]bool
+	mu             *lockmetrics.RWMutex
+	accountID      string
+	region         string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -343,6 +347,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		identitySources: make(map[string]map[string]*IdentitySource),
 		schemas:         make(map[string]*PolicyStoreSchema),
 		arnIndex:        make(map[string]string),
+		resourceTags:    make(map[string]map[string]string),
+		policySetCache:  make(map[string]*cedar.PolicySet),
+		policySetDirty:  make(map[string]bool),
 		accountID:       accountID,
 		region:          region,
 		mu:              lockmetrics.New("verifiedpermissions"),
@@ -404,19 +411,25 @@ func extractSchemaNamespaces(schemaJSON string) []string {
 		return []string{}
 	}
 
-	ns := make([]string, 0, len(top))
-
-	for k := range top {
-		ns = append(ns, k)
-	}
-
-	sort.Strings(ns)
+	ns := collections.SortedKeys(top)
 
 	return ns
 }
 
-// buildCedarPolicySet builds a cedar PolicySet from stored STATIC policies in a store.
+// buildCedarPolicySet returns the Cedar PolicySet for a store, rebuilding only when dirty.
+// Caller must hold at least a read lock; when dirty, caller must hold a write lock to
+// promote the cache entry.  In practice all auth callers drop the read lock before calling
+// this, then re-acquire as a write lock when dirty — but since we are under a single
+// read lock here, we use a simple always-rebuild-when-dirty approach: build outside the
+// lock and let the caller store the result.  The returned value is safe to use after the
+// lock is released because it is immutable once built.
 func (b *InMemoryBackend) buildCedarPolicySet(policyStoreID string) *cedar.PolicySet {
+	if !b.policySetDirty[policyStoreID] {
+		if cached, ok := b.policySetCache[policyStoreID]; ok {
+			return cached
+		}
+	}
+
 	ps := cedar.NewPolicySet()
 
 	policies := b.policies[policyStoreID]
@@ -438,7 +451,16 @@ func (b *InMemoryBackend) buildCedarPolicySet(policyStoreID string) *cedar.Polic
 		}
 	}
 
+	b.policySetCache[policyStoreID] = ps
+	b.policySetDirty[policyStoreID] = false
+
 	return ps
+}
+
+// invalidatePolicySetCache marks the compiled Cedar policy set for policyStoreID as dirty.
+// Must be called under the write lock whenever STATIC policies change.
+func (b *InMemoryBackend) invalidatePolicySetCache(policyStoreID string) {
+	b.policySetDirty[policyStoreID] = true
 }
 
 // evaluateCedar runs cedar authorization and returns the AuthDecision.
@@ -535,6 +557,9 @@ func (b *InMemoryBackend) CreatePolicyStore(
 	b.policyTemplates[id] = make(map[string]*PolicyTemplate)
 	b.identitySources[id] = make(map[string]*IdentitySource)
 	b.arnIndex[ps.Arn] = arnKindPolicyStore + ":" + id
+	if len(merged) > 0 {
+		b.resourceTags[ps.Arn] = maps.Clone(merged)
+	}
 
 	return clonePolicyStore(ps), nil
 }
@@ -676,6 +701,7 @@ func (b *InMemoryBackend) CreatePolicy(policyStoreID string, params CreatePolicy
 	}
 	b.policies[policyStoreID][id] = p
 	b.arnIndex[policyARN(b.accountID, policyStoreID, id)] = arnKindPolicy + ":" + policyStoreID + ":" + id
+	b.invalidatePolicySetCache(policyStoreID)
 
 	return clonePolicy(p), nil
 }
@@ -809,6 +835,7 @@ func (b *InMemoryBackend) UpdatePolicy(policyStoreID, policyID string, params Up
 	}
 
 	p.LastUpdated = time.Now()
+	b.invalidatePolicySetCache(policyStoreID)
 
 	return clonePolicy(p), nil
 }
@@ -829,6 +856,7 @@ func (b *InMemoryBackend) DeletePolicy(policyStoreID, policyID string) error {
 
 	delete(b.arnIndex, policyARN(b.accountID, policyStoreID, policyID))
 	delete(policies, policyID)
+	b.invalidatePolicySetCache(policyStoreID)
 
 	return nil
 }
@@ -964,106 +992,77 @@ func (b *InMemoryBackend) Reset() {
 	b.identitySources = make(map[string]map[string]*IdentitySource)
 	b.schemas = make(map[string]*PolicyStoreSchema)
 	b.arnIndex = make(map[string]string)
+	b.resourceTags = make(map[string]map[string]string)
+	b.policySetCache = make(map[string]*cedar.PolicySet)
+	b.policySetDirty = make(map[string]bool)
 }
 
-// resolveARN looks up an ARN in the index and returns the resource info tuple.
-// Returns (resourceType, policyStoreID) e.g. ("policyStore", "abc").
-func (b *InMemoryBackend) resolveARN(resourceARN string) (string, string, bool) {
-	val, exists := b.arnIndex[resourceARN]
-	if !exists {
-		return "", "", false
-	}
+// resolveARN reports whether resourceARN is a known registered resource ARN.
+func (b *InMemoryBackend) resolveARN(resourceARN string) bool {
+	_, exists := b.arnIndex[resourceARN]
 
-	parts := strings.SplitN(val, ":", 3) //nolint:mnd // max 3 parts: kind:storeID:resourceID
-	switch parts[0] {
-	case arnKindPolicyStore:
-		return arnKindPolicyStore, parts[1], true
-	case arnKindPolicy:
-		return arnKindPolicy, parts[1], true
-	case arnKindPolicyTemplate:
-		return arnKindPolicyTemplate, parts[1], true
-	case arnKindIdentitySource:
-		return arnKindIdentitySource, parts[1], true
-	}
-
-	return "", "", false
+	return exists
 }
 
 // TagResource adds or updates tags on a resource identified by its ARN.
+// Supports policy stores, policies, policy templates, and identity sources.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	rtype, storeID, ok := b.resolveARN(resourceARN)
+	ok := b.resolveARN(resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
 	}
 
-	// Only policy stores have a Tags field in the current model; extend for others.
-	if rtype == arnKindPolicyStore {
-		ps := b.policyStores[storeID]
-		if ps == nil {
-			return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, storeID)
-		}
-
-		if err := validateTagInput(ps.Tags, tags); err != nil {
-			return err
-		}
-
-		if ps.Tags == nil {
-			ps.Tags = make(map[string]string, len(tags))
-		}
-
-		maps.Copy(ps.Tags, tags)
+	existing := b.resourceTags[resourceARN]
+	if existing == nil {
+		existing = make(map[string]string)
 	}
+
+	if err := validateTagInput(existing, tags); err != nil {
+		return err
+	}
+
+	if b.resourceTags[resourceARN] == nil {
+		b.resourceTags[resourceARN] = make(map[string]string, len(tags))
+	}
+
+	maps.Copy(b.resourceTags[resourceARN], tags)
 
 	return nil
 }
 
 // UntagResource removes tags from a resource identified by its ARN.
+// Supports policy stores, policies, policy templates, and identity sources.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	rtype, storeID, ok := b.resolveARN(resourceARN)
+	ok := b.resolveARN(resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
 	}
 
-	if rtype == "policyStore" {
-		ps := b.policyStores[storeID]
-		if ps == nil {
-			return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, storeID)
-		}
-
-		for _, k := range tagKeys {
-			delete(ps.Tags, k)
-		}
+	for _, k := range tagKeys {
+		delete(b.resourceTags[resourceARN], k)
 	}
 
 	return nil
 }
 
 // ListTagsForResource returns the tags for a resource identified by its ARN.
+// Supports policy stores, policies, policy templates, and identity sources.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	rtype, storeID, ok := b.resolveARN(resourceARN)
+	ok := b.resolveARN(resourceARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: resource with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
 	}
 
-	if rtype == "policyStore" {
-		ps := b.policyStores[storeID]
-		if ps == nil {
-			return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, storeID)
-		}
-
-		return maps.Clone(ps.Tags), nil
-	}
-
-	return map[string]string{}, nil
+	return maps.Clone(b.resourceTags[resourceARN]), nil
 }
 
 // BatchGetPolicy retrieves multiple policies in a single request.
@@ -1110,7 +1109,7 @@ func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPol
 	b.mu.RUnlock()
 
 	result := BatchGetPolicyResult{
-		Results: make([]batchGetPolicyOutputItem, 0, len(items)),
+		Results: make([]Policy, 0, len(items)),
 		Errors:  make([]batchGetPolicyErrorItem, 0, len(items)),
 	}
 
@@ -1118,13 +1117,7 @@ func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPol
 		if e.err != nil {
 			result.Errors = append(result.Errors, *e.err)
 		} else {
-			result.Results = append(result.Results, batchGetPolicyOutputItem{
-				PolicyStoreID:   e.policy.PolicyStoreID,
-				PolicyID:        e.policy.PolicyID,
-				PolicyType:      e.policy.PolicyType,
-				CreatedDate:     e.policy.CreatedDate.UTC().Format(timeFormat),
-				LastUpdatedDate: e.policy.LastUpdated.UTC().Format(timeFormat),
-			})
+			result.Results = append(result.Results, *e.policy)
 		}
 	}
 
@@ -1147,16 +1140,16 @@ func (b *InMemoryBackend) BatchIsAuthorized(
 		)
 	}
 
-	b.mu.RLock("BatchIsAuthorized")
+	b.mu.Lock("BatchIsAuthorized")
 
 	if _, ok := b.policyStores[policyStoreID]; !ok {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
 	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	decisions := make([]AuthDecision, 0, len(requests))
 
@@ -1181,16 +1174,16 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 		)
 	}
 
-	b.mu.RLock("BatchIsAuthorizedWithToken")
+	b.mu.Lock("BatchIsAuthorizedWithToken")
 
 	if _, ok := b.policyStores[policyStoreID]; !ok {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
 	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	decisions := make([]AuthDecision, 0, len(requests))
 
@@ -1203,16 +1196,16 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 
 // IsAuthorized evaluates a single authorization request against stored Cedar policies.
 func (b *InMemoryBackend) IsAuthorized(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error) {
-	b.mu.RLock("IsAuthorized")
+	b.mu.Lock("IsAuthorized")
 
 	if _, ok := b.policyStores[policyStoreID]; !ok {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
 	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	result := evaluateCedar(ps, req)
 
@@ -1224,16 +1217,16 @@ func (b *InMemoryBackend) IsAuthorizedWithToken(
 	policyStoreID string,
 	req AuthorizationRequest,
 ) (*AuthDecision, error) {
-	b.mu.RLock("IsAuthorizedWithToken")
+	b.mu.Lock("IsAuthorizedWithToken")
 
 	if _, ok := b.policyStores[policyStoreID]; !ok {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
 	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	result := evaluateCedar(ps, req)
 
@@ -1474,12 +1467,15 @@ func applyIdentitySourceConfig(is *IdentitySource, cfg IdentitySourceConfig) {
 
 // paginate slices items starting after nextToken and up to maxResults.
 // Returns the page and the next continuation token (empty string if last page).
+// Tokens are base64-encoded resource IDs to prevent clients from relying on their format.
 func paginate[T any](items []T, nextToken string, maxResults int, idFn func(T) string) ([]T, string) {
 	start := 0
 
 	if nextToken != "" {
+		rawID := decodePageToken(nextToken)
+
 		for i, item := range items {
-			if idFn(item) == nextToken {
+			if idFn(item) == rawID {
 				start = i + 1
 
 				break
@@ -1490,10 +1486,25 @@ func paginate[T any](items []T, nextToken string, maxResults int, idFn func(T) s
 	items = items[start:]
 
 	if maxResults > 0 && len(items) > maxResults {
-		return items[:maxResults], idFn(items[maxResults])
+		return items[:maxResults], encodePageToken(idFn(items[maxResults-1]))
 	}
 
 	return items, ""
+}
+
+// encodePageToken base64-encodes an ID to produce an opaque pagination token.
+func encodePageToken(id string) string {
+	return base64.StdEncoding.EncodeToString([]byte(id))
+}
+
+// decodePageToken reverses encodePageToken; returns the raw ID or the token itself on failure.
+func decodePageToken(token string) string {
+	b, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return token
+	}
+
+	return string(b)
 }
 
 // AddPolicyStoreInternal inserts a pre-built PolicyStore directly into the backend (for test seeding).

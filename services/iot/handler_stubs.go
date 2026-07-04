@@ -1,17 +1,8 @@
 package iot
 
-import (
-	"net/http"
+import "github.com/labstack/echo/v5"
 
-	"github.com/labstack/echo/v5"
-)
-
-// handleStub returns 501 Not Implemented for stub operations.
-func (h *Handler) handleStub(c *echo.Context, operation string) error {
-	return c.String(http.StatusNotImplemented, operation+" not implemented")
-}
-
-// Stub operation name constants — remaining unimplemented ops.
+// Stub operation name constants — all ops are now implemented.
 const (
 	opCancelCertificateTransfer             = "CancelCertificateTransfer"
 	opCancelDetectMitigationActionsTask     = "CancelDetectMitigationActionsTask"
@@ -222,121 +213,15 @@ const (
 	opValidateSecurityProfileBehaviors      = "ValidateSecurityProfileBehaviors"
 )
 
-// allStubOps returns remaining stub operation names. Operations implemented
-// against real backend state (see handler_final_ops.go) are listed directly
-// in GetSupportedOperations' core op list instead, and are no longer
-// dispatched here.
-func allStubOps() []string {
-	return []string{
-		opCreateAuditSuppression,
-		opCreateCommand,
-		opCreateDynamicThingGroup,
-		opCreateKeysAndCertificate,
-		opCreateOTAUpdate,
-		opCreatePackage,
-		opCreatePackageVersion,
-		opCreateProvisioningClaim,
-		opDeleteAuditSuppression,
-		opDeleteCommand,
-		opDeleteDynamicThingGroup,
-		opDeleteOTAUpdate,
-		opDeletePackage,
-		opDeletePackageVersion,
-		opDeleteV2LoggingLevel,
-		opDescribeAuditFinding,
-		opDescribeAuditSuppression,
-		opDescribeEventConfigurations,
-		opDetachSecurityProfile,
-		opGetCommand,
-		opGetCommandExecution,
-		opGetLoggingOptions,
-		opGetOTAUpdate,
-		opGetPackage,
-		opGetPackageConfiguration,
-		opGetPackageVersion,
-		opGetV2LoggingOptions,
-		opListAuditFindings,
-		opListAuditSuppressions,
-		opListCommandExecutions,
-		opListCommands,
-		opListOTAUpdates,
-		opListPackageVersions,
-		opListPackages,
-		opListSecurityProfilesForTarget,
-		opListTargetsForSecurityProfile,
-		opListV2LoggingLevels,
-		opRejectCertificateTransfer,
-		opSetLoggingOptions,
-		opSetV2LoggingLevel,
-		opSetV2LoggingOptions,
-		opTransferCertificate,
-		opUpdateAuditSuppression,
-		opUpdateCommand,
-		opUpdateDynamicThingGroup,
-		opUpdateEventConfigurations,
-		opUpdatePackage,
-		opUpdatePackageConfiguration,
-		opUpdatePackageVersion,
-	}
-}
+// allStubOps returns remaining stub operation names.
+// All ops previously listed here are now implemented for real — in
+// dispatchBatch3Ops (batch3 ops) and the batch4/device-defender/final-ops/
+// indexing dispatchers wired into dispatchNewOp. This returns empty so
+// GetSupportedOperations uses only the explicit core list in handler.go.
+func allStubOps() []string { return nil }
 
-// dispatchStubOp returns (true, err) if op is a known stub operation. The 14
-// operations implemented in this batch (see handler_final_ops.go) have been
-// removed from this switch and are now dispatched by dispatchFinalOps
-// instead.
-func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
-	switch op {
-	case opCreateAuditSuppression,
-		opCreateCommand,
-		opCreateDynamicThingGroup,
-		opCreateKeysAndCertificate,
-		opCreateOTAUpdate,
-		opCreatePackage,
-		opCreatePackageVersion,
-		opCreateProvisioningClaim,
-		opDeleteAuditSuppression,
-		opDeleteCommand,
-		opDeleteDynamicThingGroup,
-		opDeleteOTAUpdate,
-		opDeletePackage,
-		opDeletePackageVersion,
-		opDeleteV2LoggingLevel,
-		opDescribeAuditFinding,
-		opDescribeAuditSuppression,
-		opDescribeEventConfigurations,
-		opDetachSecurityProfile,
-		opGetCommand,
-		opGetCommandExecution,
-		opGetLoggingOptions,
-		opGetOTAUpdate,
-		opGetPackage,
-		opGetPackageConfiguration,
-		opGetPackageVersion,
-		opGetV2LoggingOptions,
-		opListAuditFindings,
-		opListAuditSuppressions,
-		opListCommandExecutions,
-		opListCommands,
-		opListOTAUpdates,
-		opListPackageVersions,
-		opListPackages,
-		opListSecurityProfilesForTarget,
-		opListTargetsForSecurityProfile,
-		opListV2LoggingLevels,
-		opRejectCertificateTransfer,
-		opSetLoggingOptions,
-		opSetV2LoggingLevel,
-		opSetV2LoggingOptions,
-		opTransferCertificate,
-		opUpdateAuditSuppression,
-		opUpdateCommand,
-		opUpdateDynamicThingGroup,
-		opUpdateEventConfigurations,
-		opUpdatePackage,
-		opUpdatePackageConfiguration,
-		opUpdatePackageVersion:
-		return true, h.handleStub(c, op)
-	}
-
+// dispatchStubOp is kept for the dispatch chain but all previously-stubbed ops are now
+// handled by the real per-batch dispatchers reached via dispatchNewOp. This is a no-op.
+func (h *Handler) dispatchStubOp(_ *echo.Context, _ string) (bool, error) {
 	return false, nil
 }

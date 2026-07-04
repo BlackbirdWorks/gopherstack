@@ -44,9 +44,9 @@ func TestQuickSight_FinalStub_Persistence(t *testing.T) {
 	seedTestFlow(backend, "flow1", "Flow One")
 
 	// Snapshot, then restore onto a brand-new backend/handler.
-	snapshot := backend.Snapshot()
+	snapshot := backend.Snapshot(t.Context())
 	restoredBackend := quicksight.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, restoredBackend.Restore(snapshot))
+	require.NoError(t, restoredBackend.Restore(t.Context(), snapshot))
 	restoredHandler := quicksight.NewHandler(restoredBackend)
 
 	acRec := doRequest(t, restoredHandler, http.MethodGet, accountPath("/action-connectors/ac1"), nil)

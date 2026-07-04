@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const defaultAppSyncJanitorInterval = 1 * time.Hour
@@ -25,17 +26,16 @@ func NewJanitor(backend *InMemoryBackend) *Janitor {
 
 // Run executes the janitor loop.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, "appsync")
+	g.Ticker("APIKeySweeper", j.Interval, 0, j.sweep)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			evicted := j.Backend.SweepExpiredAPIKeys()
-			telemetry.RecordWorkerItems("appsync", "APIKeySweeper", evicted)
-			telemetry.RecordWorkerTask("appsync", "APIKeySweeper", "success")
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
+}
+
+// sweep prunes expired API keys and records telemetry for the pass.
+func (j *Janitor) sweep(_ context.Context) {
+	evicted := j.Backend.SweepExpiredAPIKeys()
+	telemetry.RecordWorkerItems("appsync", "APIKeySweeper", evicted)
+	telemetry.RecordWorkerTask("appsync", "APIKeySweeper", "success")
 }

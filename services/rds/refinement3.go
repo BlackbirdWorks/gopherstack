@@ -3,10 +3,12 @@ package rds
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 const proxyRandSuffixBytes = 4
@@ -113,15 +115,11 @@ const (
 
 var (
 	// ErrDBProxyAlreadyExists is returned when a DB proxy with the same name already exists.
-	ErrDBProxyAlreadyExists = errors.New("DBProxyAlreadyExists")
-	// ErrDBProxyEndpointAlreadyExists is returned when a DB proxy endpoint with the same name already exists.
-	ErrDBProxyEndpointAlreadyExists = errors.New("DBProxyEndpointAlreadyExists")
-	// ErrCannotDeleteDefaultProxyEndpoint is returned when attempting to delete a default proxy endpoint.
-	ErrCannotDeleteDefaultProxyEndpoint = errors.New("InvalidDBProxyEndpointStateFault")
-	// ErrActivityStreamAlreadyStarted is returned when the activity stream is already started.
-	ErrActivityStreamAlreadyStarted = errors.New("InvalidDBClusterStateFault")
-	// ErrActivityStreamNotStarted is returned when the activity stream is not started.
-	ErrActivityStreamNotStarted = errors.New("InvalidDBClusterStateFault")
+	ErrDBProxyAlreadyExists             = awserr.New("DBProxyAlreadyExists", awserr.ErrAlreadyExists)
+	ErrDBProxyEndpointAlreadyExists     = awserr.New("DBProxyEndpointAlreadyExists", awserr.ErrAlreadyExists)
+	ErrCannotDeleteDefaultProxyEndpoint = awserr.New("InvalidDBProxyEndpointStateFault", awserr.ErrConflict)
+	ErrActivityStreamAlreadyStarted     = awserr.New("InvalidDBClusterStateFault", awserr.ErrConflict)
+	ErrActivityStreamNotStarted         = awserr.New("InvalidDBClusterStateFault", awserr.ErrConflict)
 )
 
 // CreateDBProxy creates a new RDS DB proxy.
@@ -135,7 +133,7 @@ func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth
 
 	proxy := &DBProxy{
 		DBProxyName:       name,
-		DBProxyARN:        fmt.Sprintf("arn:aws:rds:%s:%s:db-proxy:prx-%s", b.region, b.accountID, name),
+		DBProxyARN:        arn.Build("rds", b.region, b.accountID, fmt.Sprintf("db-proxy:prx-%s", name)),
 		Status:            instanceStatusAvailable,
 		Endpoint:          fmt.Sprintf("%s.proxy-%s.%s.rds.amazonaws.com", name, proxyRandSuffix(), b.region),
 		EngineFamily:      engineFamily,
@@ -157,7 +155,7 @@ func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth
 	tg := &DBProxyTargetGroup{
 		DBProxyName:          name,
 		TargetGroupName:      proxyDefaultTargetGroupName,
-		TargetGroupARN:       fmt.Sprintf("arn:aws:rds:%s:%s:target-group:%s/default", b.region, b.accountID, name),
+		TargetGroupARN:       arn.Build("rds", b.region, b.accountID, fmt.Sprintf("target-group:%s/default", name)),
 		IsDefault:            true,
 		Status:               instanceStatusAvailable,
 		CreatedDate:          time.Now(),
@@ -269,7 +267,7 @@ func (b *InMemoryBackend) RegisterDBProxyTargets(
 
 	for _, id := range dbInstanceIDs {
 		target := DBProxyTarget{
-			TargetARN:     fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", b.region, b.accountID, id),
+			TargetARN:     arn.Build("rds", b.region, b.accountID, fmt.Sprintf("db:%s", id)),
 			Endpoint:      fmt.Sprintf("%s.%s.rds.amazonaws.com", id, b.region),
 			RdsResourceID: id,
 			Port:          proxyDefaultPort,
@@ -283,7 +281,7 @@ func (b *InMemoryBackend) RegisterDBProxyTargets(
 
 	for _, id := range dbClusterIDs {
 		target := DBProxyTarget{
-			TargetARN:        fmt.Sprintf("arn:aws:rds:%s:%s:cluster:%s", b.region, b.accountID, id),
+			TargetARN:        arn.Build("rds", b.region, b.accountID, fmt.Sprintf("cluster:%s", id)),
 			Endpoint:         fmt.Sprintf("%s.cluster-%s.%s.rds.amazonaws.com", id, b.accountID[:8], b.region),
 			TrackedClusterID: id,
 			RdsResourceID:    id,
@@ -419,7 +417,7 @@ func (b *InMemoryBackend) CreateDBProxyEndpoint(
 
 	ep := &DBProxyEndpoint{
 		DBProxyEndpointName: endpointName,
-		DBProxyEndpointARN:  fmt.Sprintf("arn:aws:rds:%s:%s:db-proxy-endpoint:%s", b.region, b.accountID, endpointName),
+		DBProxyEndpointARN:  arn.Build("rds", b.region, b.accountID, fmt.Sprintf("db-proxy-endpoint:%s", endpointName)),
 		DBProxyName:         proxyName,
 		Status:              instanceStatusAvailable,
 		Endpoint: fmt.Sprintf(

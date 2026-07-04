@@ -22,11 +22,13 @@ func (p *Provider) Name() string { return "Athena" }
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var settings Settings
 
+	accountID, region := service.AccountRegionOrDefault(ctx)
+
 	if cp, ok := ctx.Config.(ConfigProvider); ok {
 		settings = cp.GetAthenaSettings()
 	}
 
-	backend := NewInMemoryBackend()
+	backend := NewInMemoryBackend(region, accountID)
 	handler := NewHandler(backend)
 	handler.WithJanitor(settings.JanitorInterval, settings.ExecutionTTL, ctx.JanitorTimeout)
 

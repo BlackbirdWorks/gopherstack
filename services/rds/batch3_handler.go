@@ -77,12 +77,15 @@ func (h *Handler) handleDescribeCustomDBEngineVersions(vals url.Values) (any, er
 func (h *Handler) handleGetPerformanceInsightsMetricsReal(vals url.Values) (any, error) {
 	resourceID := vals.Get("DBResourceIdentifier")
 	if resourceID == "" {
-		resourceID = vals.Get("ResourceIdentifier")
+		resourceID = vals.Get("Identifier")
 	}
 
 	period := parsePIPeriod(vals.Get("PeriodInSeconds"))
 	startTime, endTime := parsePITimeRange(vals.Get("StartTime"), vals.Get("EndTime"))
-	metricKeyDataPoints := h.collectPIMetrics(vals, resourceID, startTime, endTime, period)
+	metricKeyDataPoints, err := h.collectPIMetrics(vals, resourceID, startTime, endTime, period)
+	if err != nil {
+		return nil, err
+	}
 
 	return &getPerformanceInsightsMetricsResponse{
 		Xmlns:            rdsXMLNS,
@@ -136,7 +139,7 @@ func (h *Handler) collectPIMetrics(
 	resourceID string,
 	startTime, endTime time.Time,
 	period int,
-) []xmlMetricKeyDataPoints {
+) ([]xmlMetricKeyDataPoints, error) {
 	var result []xmlMetricKeyDataPoints
 
 	for i := 1; ; i++ {
@@ -149,7 +152,10 @@ func (h *Handler) collectPIMetrics(
 			}
 		}
 
-		points := h.Backend.GetPerformanceInsightsData(resourceID, metric, startTime, endTime, period)
+		points, err := h.Backend.GetPerformanceInsightsData(resourceID, metric, startTime, endTime, period)
+		if err != nil {
+			return nil, err
+		}
 		dataPoints := make([]xmlDataPoint, 0, len(points))
 
 		for _, p := range points {
@@ -163,5 +169,5 @@ func (h *Handler) collectPIMetrics(
 		}
 	}
 
-	return result
+	return result, nil
 }

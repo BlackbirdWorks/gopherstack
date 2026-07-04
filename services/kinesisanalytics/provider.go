@@ -3,7 +3,6 @@ package kinesisanalytics
 import (
 	"errors"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -24,16 +23,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		return nil, ErrNilAppContext
 	}
 
-	accountID := config.DefaultAccountID
-	region := config.DefaultRegion
+	accountID, region := service.AccountRegionOrDefault(ctx)
 
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
-	}
-
-	backend := NewInMemoryBackend(region, accountID)
+	backend := NewInMemoryBackendWithContext(ctx.JanitorCtx, region, accountID)
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.DefaultRegion = region

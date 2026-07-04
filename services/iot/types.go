@@ -64,6 +64,21 @@ type CreateThingInput struct {
 // AttributePayload holds thing attributes.
 type AttributePayload struct {
 	Attributes map[string]string `json:"attributes"`
+	// Merge controls whether attributes are merged (true, default) or replaced (false).
+	Merge *bool `json:"merge,omitempty"`
+}
+
+// ThingShadow represents the state of an AWS IoT Device Shadow.
+type ThingShadow struct {
+	State    map[string]any `json:"state"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+	Version  int64          `json:"version"`
+}
+
+// shadowKey is the composite key for named vs classic shadows.
+type shadowKey struct {
+	thingName  string
+	shadowName string // empty string = classic shadow
 }
 
 // CreateThingOutput is the output for CreateThing.

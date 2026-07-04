@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -27,11 +28,7 @@ const wcuBytesPerUnit = 1024
 // Keys only ever contain scalar key attributes (S, N, or B), so we serialize the
 // sorted attribute names together with their typed scalar value.
 func canonicalKey(key map[string]types.AttributeValue) string {
-	names := make([]string, 0, len(key))
-	for name := range key {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(key)
 
 	var sb strings.Builder
 	for _, name := range names {
@@ -123,11 +120,7 @@ func (db *InMemoryDB) BatchGetItem(
 	}
 
 	// Sort table names for deterministic processing (AWS also tends toward this).
-	tableNames := make([]string, 0, len(input.RequestItems))
-	for name := range input.RequestItems {
-		tableNames = append(tableNames, name)
-	}
-	sort.Strings(tableNames)
+	tableNames := collections.SortedKeys(input.RequestItems)
 
 	return db.batchGetResponses(input, tableNames, tableRefs)
 }
@@ -174,9 +167,12 @@ func (db *InMemoryDB) batchGetResponses(
 	}
 
 	return &dynamodb.BatchGetItemOutput{
-		Responses:        responses,
-		UnprocessedKeys:  unprocessedKeys,
-		ConsumedCapacity: batchGetConsumedCapacity(input.ReturnConsumedCapacity, input.RequestItems),
+		Responses:       responses,
+		UnprocessedKeys: unprocessedKeys,
+		ConsumedCapacity: batchGetConsumedCapacity(
+			input.ReturnConsumedCapacity,
+			input.RequestItems,
+		),
 	}, nil
 }
 
@@ -193,7 +189,10 @@ func (db *InMemoryDB) batchGetTable(
 	unprocessedKeys map[string]types.KeysAndAttributes,
 ) (bool, []map[string]types.AttributeValue) {
 	pkDef, skDef := getPKAndSK(table.KeySchema)
-	proj := resolveProjection(aws.ToString(keysAndAttrs.ProjectionExpression), keysAndAttrs.AttributesToGet)
+	proj := resolveProjection(
+		aws.ToString(keysAndAttrs.ProjectionExpression),
+		keysAndAttrs.AttributesToGet,
+	)
 	projector, _ := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
 
 	var tableResults []map[string]types.AttributeValue
@@ -382,11 +381,7 @@ func (db *InMemoryDB) BatchWriteItem(
 	}
 
 	// Process tables in sorted order (deadlock prevention)
-	tableNames := make([]string, 0, len(tables))
-	for name := range tables {
-		tableNames = append(tableNames, name)
-	}
-	sort.Strings(tableNames)
+	tableNames := collections.SortedKeys(tables)
 
 	// Sequential processing for simplicity and deadlock prevention
 	for _, tableName := range tableNames {
@@ -546,7 +541,10 @@ func (db *InMemoryDB) processBatchPutRequests(
 	return modifiedIndices
 }
 
-func (db *InMemoryDB) processBatchDeleteRequests(table *Table, requests []types.WriteRequest) map[int]bool {
+func (db *InMemoryDB) processBatchDeleteRequests(
+	table *Table,
+	requests []types.WriteRequest,
+) map[int]bool {
 	deletedIndices := make(map[int]bool)
 
 	for _, req := range requests {
@@ -575,7 +573,7 @@ func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
 			continue
 		}
 		// Capture stream record (REMOVE)
-		table.appendStreamRecord(streamEventRemove, deepCopyItem(table.Items[idx]), nil)
+		table.appendStreamRecord(streamEventRemove, deepCopyItem(table.Items[idx]), nil, "", "")
 
 		// Delete by swapping with last and truncating
 		table.Items[idx] = table.Items[len(table.Items)-1]
@@ -659,13 +657,13 @@ func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any)
 	oldItem, matchIndex := db.findMatchForPut(table, item)
 	if matchIndex != -1 {
 		// Capture stream event (MODIFY) before overwriting in place.
-		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(item))
+		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(item), "", "")
 		table.Items[matchIndex] = item
 
 		return matchIndex
 	}
 	// Capture stream event (INSERT) for the new item.
-	table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(item))
+	table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(item), "", "")
 	idx := len(table.Items)
 	table.Items = append(table.Items, item)
 

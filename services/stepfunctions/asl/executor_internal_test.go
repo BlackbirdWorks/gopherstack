@@ -122,3 +122,52 @@ func TestJSONPathCacheNilFallback(t *testing.T) {
 	parts := getCachedJSONPathParts("x.y.z", nil)
 	assert.Equal(t, []string{"x", "y", "z"}, parts)
 }
+
+func TestStringMatchesPattern(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		value   string
+		pattern string
+		want    bool
+	}{
+		// AWS doc example: "log-*.txt" matches "log-20190101.txt".
+		{name: "doc_example_match", value: "log-20190101.txt", pattern: "log-*.txt", want: true},
+		{name: "doc_example_no_match_ext", value: "log-20190101.log", pattern: "log-*.txt", want: false},
+		// '*' matches the empty string.
+		{name: "star_matches_empty", value: "logtxt", pattern: "log*txt", want: true},
+		// Leading and trailing wildcards.
+		{name: "leading_star", value: "abcdef", pattern: "*def", want: true},
+		{name: "trailing_star", value: "abcdef", pattern: "abc*", want: true},
+		{name: "only_star", value: "anything", pattern: "*", want: true},
+		{name: "only_star_empty_value", value: "", pattern: "*", want: true},
+		// Multiple wildcards require backtracking.
+		{name: "multiple_stars", value: "axbxcxd", pattern: "a*b*c*d", want: true},
+		{name: "multiple_stars_no_match", value: "axbxc", pattern: "a*b*c*d", want: false},
+		// Anchoring: pattern must match the whole string.
+		{name: "anchored_no_partial", value: "prefix-log-1.txt", pattern: "log-*.txt", want: false},
+		// Exact match with no wildcard.
+		{name: "exact_match", value: "hello", pattern: "hello", want: true},
+		{name: "exact_no_match", value: "hello", pattern: "world", want: false},
+		// Empty pattern only matches empty string.
+		{name: "empty_pattern_empty_value", value: "", pattern: "", want: true},
+		{name: "empty_pattern_nonempty_value", value: "x", pattern: "", want: false},
+		// Escaped literal asterisk: "\\*" in the Go string is a backslash + '*'.
+		{name: "escaped_star_literal_match", value: "a*b", pattern: `a\*b`, want: true},
+		{name: "escaped_star_literal_no_wildcard", value: "axb", pattern: `a\*b`, want: false},
+		// Escaped backslash: "\\\\" is backslash + backslash.
+		{name: "escaped_backslash_match", value: `a\b`, pattern: `a\\b`, want: true},
+		// Trailing backslash with no following char is treated as a literal mismatch.
+		{name: "consecutive_stars", value: "abc", pattern: "a**c", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := stringMatchesPattern(tt.value, tt.pattern)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

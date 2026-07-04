@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 var (
@@ -40,6 +42,12 @@ var (
 
 	// ErrIndexNotFound is returned when a fleet index does not exist.
 	ErrIndexNotFound = errors.New("index not found")
+
+	// ErrVersionsLimitExceeded is returned when a policy already has the maximum allowed versions.
+	ErrVersionsLimitExceeded = errors.New("versions limit exceeded")
+
+	// ErrShadowNotFound is returned when a Device Shadow does not exist.
+	ErrShadowNotFound = errors.New("shadow not found")
 )
 
 // RuleDispatcher is implemented by the CLI wiring layer and dispatches rule actions.
@@ -51,6 +59,7 @@ type RuleDispatcher interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	dispatcher                 RuleDispatcher
+	shadows                    map[shadowKey]*ThingShadow // thing+name → shadow
 	customMetrics              map[string]*CustomMetric
 	resourceTags               map[string]map[string]string
 	rules                      map[string]*TopicRule
@@ -179,6 +188,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		auditSuppressions:      make(map[string]*AuditSuppression),
 		auditFindings:          make(map[string]*AuditFinding),
 		v2LoggingLevels:        make(map[string]*V2LoggingLevel),
+		shadows:                make(map[shadowKey]*ThingShadow),
 		commands:               make(map[string]*IoTCommand),
 		commandExecutions:      make(map[string]*IoTCommandExecution),
 		registrationTasks:      make(map[string]*ThingRegistrationTask),
@@ -403,12 +413,7 @@ func cloneSbomDocument(s *SbomDocument) *SbomDocument {
 
 // sortedKeys returns a sorted slice of the keys in a map.
 func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }
@@ -437,7 +442,7 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 		maps.Copy(attrs, input.AttributePayload.Attributes)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thing/%s", b.region, b.accountID, input.ThingName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thing/%s", input.ThingName))
 	id := uuid.NewString()
 
 	b.things[input.ThingName] = &Thing{
@@ -495,6 +500,10 @@ func (b *InMemoryBackend) DeleteThing(thingName string) error {
 		return fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
+	if principals := b.thingPrincipals[thingName]; len(principals) > 0 {
+		return fmt.Errorf("%w: thing %q has attached principals", ErrDeleteConflict, thingName)
+	}
+
 	delete(b.things, thingName)
 
 	return nil
@@ -523,7 +532,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 		actions = []RuleAction{}
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:rule/%s", b.region, b.accountID, input.RuleName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("rule/%s", input.RuleName))
 
 	sqlVersion := payload.AWSIoTSQLVersion
 	if sqlVersion == "" {
@@ -599,7 +608,7 @@ func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyO
 		return nil, fmt.Errorf("%w: policy %q already exists", ErrAlreadyExists, input.PolicyName)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:policy/%s", b.region, b.accountID, input.PolicyName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("policy/%s", input.PolicyName))
 	now := time.Now()
 
 	b.policies[input.PolicyName] = &Policy{
@@ -736,7 +745,7 @@ func (b *InMemoryBackend) AssociateTargetsWithJob(
 
 	b.jobTargets[input.JobID] = append(b.jobTargets[input.JobID], input.Targets...)
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:job/%s", b.region, b.accountID, input.JobID)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("job/%s", input.JobID))
 
 	return &AssociateTargetsWithJobOutput{
 		JobID:  input.JobID,
@@ -841,6 +850,10 @@ func (b *InMemoryBackend) DeletePolicy(policyName string) error {
 
 	if _, ok := b.policies[policyName]; !ok {
 		return fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
+	}
+
+	if targets := b.policyTargets[policyName]; len(targets) > 0 {
+		return fmt.Errorf("%w: policy %q has attached targets", ErrDeleteConflict, policyName)
 	}
 
 	delete(b.policies, policyName)
@@ -959,12 +972,16 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 		t.ThingType = input.ThingTypeName
 	}
 
-	if input.AttributePayload != nil && input.AttributePayload.Attributes != nil {
-		if t.Attributes == nil {
+	if input.AttributePayload != nil {
+		if input.AttributePayload.Merge != nil && !*input.AttributePayload.Merge {
+			t.Attributes = make(map[string]string)
+		} else if t.Attributes == nil {
 			t.Attributes = make(map[string]string)
 		}
 
-		maps.Copy(t.Attributes, input.AttributePayload.Attributes)
+		if input.AttributePayload.Attributes != nil {
+			maps.Copy(t.Attributes, input.AttributePayload.Attributes)
+		}
 	}
 
 	t.Version++
@@ -1002,7 +1019,7 @@ func (b *InMemoryBackend) AddThingInternal(t Thing) {
 	}
 
 	if t.ARN == "" {
-		t.ARN = fmt.Sprintf("arn:aws:iot:%s:%s:thing/%s", b.region, b.accountID, t.ThingName)
+		t.ARN = arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thing/%s", t.ThingName))
 	}
 
 	if t.Attributes == nil {
@@ -1022,7 +1039,7 @@ func (b *InMemoryBackend) AddPolicyInternal(p Policy) {
 	defer b.mu.Unlock()
 
 	if p.ARN == "" {
-		p.ARN = fmt.Sprintf("arn:aws:iot:%s:%s:policy/%s", b.region, b.accountID, p.PolicyName)
+		p.ARN = arn.Build("iot", b.region, b.accountID, fmt.Sprintf("policy/%s", p.PolicyName))
 	}
 
 	b.policies[p.PolicyName] = &p
@@ -1034,7 +1051,7 @@ func (b *InMemoryBackend) AddRuleInternal(r TopicRule) {
 	defer b.mu.Unlock()
 
 	if r.ARN == "" {
-		r.ARN = fmt.Sprintf("arn:aws:iot:%s:%s:rule/%s", b.region, b.accountID, r.RuleName)
+		r.ARN = arn.Build("iot", b.region, b.accountID, fmt.Sprintf("rule/%s", r.RuleName))
 	}
 
 	if r.Actions == nil {
@@ -1092,6 +1109,12 @@ const certStatusInactive = "INACTIVE"
 // certStatusPendingTransfer is the AWS IoT certificate PENDING_TRANSFER status value.
 const certStatusPendingTransfer = "PENDING_TRANSFER"
 
+// certStatusRevoked is the AWS IoT certificate REVOKED status value.
+const certStatusRevoked = "REVOKED"
+
+// certStatusPendingActivation is the AWS IoT certificate PENDING_ACTIVATION status value.
+const certStatusPendingActivation = "PENDING_ACTIVATION"
+
 // randomHex generates a cryptographically random hex string of n bytes (2n characters).
 func randomHex(n int) string {
 	b := make([]byte, n)
@@ -1115,7 +1138,7 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 		return nil, fmt.Errorf("%w: thing type %q already exists", ErrAlreadyExists, input.ThingTypeName)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thingtype/%s", b.region, b.accountID, input.ThingTypeName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thingtype/%s", input.ThingTypeName))
 	tt := &ThingType{
 		ThingTypeName:        input.ThingTypeName,
 		ThingTypeID:          uuid.NewString(),
@@ -1218,7 +1241,7 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 		return nil, fmt.Errorf("%w: thing group %q already exists", ErrAlreadyExists, input.ThingGroupName)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thinggroup/%s", b.region, b.accountID, input.ThingGroupName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thinggroup/%s", input.ThingGroupName))
 	id := uuid.NewString()
 
 	attrs := make(map[string]string)
@@ -1386,7 +1409,7 @@ func (b *InMemoryBackend) ListThingsInThingGroup(input *ListThingsInThingGroupIn
 // newCertificate creates a new Certificate with a random 64-hex-char ID.
 func (b *InMemoryBackend) newCertificate(pem, status string) *Certificate {
 	certID := randomHex(certIDHexLen)
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:cert/%s", b.region, b.accountID, certID)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cert/%s", certID))
 	now := time.Now()
 
 	return &Certificate{
@@ -1475,7 +1498,8 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 // isValidCertStatus reports whether s is a legal AWS IoT certificate status.
 func isValidCertStatus(s string) bool {
 	switch s {
-	case certStatusActive, certStatusInactive, "REVOKED", certStatusPendingTransfer, "PENDING_ACTIVATION":
+	case certStatusActive, certStatusInactive, certStatusRevoked,
+		certStatusPendingTransfer, certStatusPendingActivation:
 		return true
 	}
 
@@ -1484,6 +1508,11 @@ func isValidCertStatus(s string) bool {
 
 // UpdateCertificate updates the status of a certificate.
 func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error {
+	switch input.NewStatus {
+	case certStatusPendingTransfer, certStatusPendingActivation:
+		return fmt.Errorf("%w: status %q cannot be set via UpdateCertificate", ErrValidation, input.NewStatus)
+	}
+
 	if input.NewStatus != "" && !isValidCertStatus(input.NewStatus) {
 		return fmt.Errorf("%w: invalid certificate status %q", ErrValidation, input.NewStatus)
 	}
@@ -1507,8 +1536,13 @@ func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.certificates[certificateID]; !ok {
+	cert, ok := b.certificates[certificateID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrCertificateNotFound, certificateID)
+	}
+
+	if cert.Status == certStatusActive {
+		return fmt.Errorf("%w: certificate %q must be deactivated before deletion", ErrDeleteConflict, certificateID)
 	}
 
 	delete(b.certificates, certificateID)
@@ -1562,6 +1596,9 @@ func (b *InMemoryBackend) ListAttachedPolicies(input *ListAttachedPoliciesInput)
 // PolicyVersion operations
 // -----------------------------------------------------------
 
+// maxPolicyVersions is the maximum number of versions allowed per policy (AWS limit).
+const maxPolicyVersions = 5
+
 // CreatePolicyVersion creates a new version of an existing policy.
 func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (*PolicyVersion, error) {
 	if input.PolicyName == "" {
@@ -1577,6 +1614,16 @@ func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (
 	}
 
 	versions := b.policyVersions[input.PolicyName]
+
+	if len(versions) >= maxPolicyVersions {
+		return nil, fmt.Errorf(
+			"%w: policy %q already has %d versions",
+			ErrVersionsLimitExceeded,
+			input.PolicyName,
+			maxPolicyVersions,
+		)
+	}
+
 	versionID := strconv.Itoa(len(versions) + 1)
 
 	if input.SetAsDefault {
@@ -1702,8 +1749,8 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:ruledestination/http/%s",
-		b.region, b.accountID, uuid.NewString())
+	arn := arn.Build("iot", b.region, b.accountID,
+		fmt.Sprintf("ruledestination/http/%s", uuid.NewString()))
 
 	dest := &TopicRuleDestination{
 		ARN: arn,
@@ -1806,8 +1853,8 @@ func (b *InMemoryBackend) CreateCertificateProvider(
 			ErrAlreadyExists, input.CertificateProviderName)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:certificateprovider/%s",
-		b.region, b.accountID, input.CertificateProviderName)
+	arn := arn.Build("iot", b.region, b.accountID,
+		fmt.Sprintf("certificateprovider/%s", input.CertificateProviderName))
 
 	ops := make([]string, len(input.AccountDefaultForOperations))
 	copy(ops, input.AccountDefaultForOperations)
@@ -1910,4 +1957,97 @@ func (b *InMemoryBackend) addThingToGroupByName(thingName, groupName string) {
 	}
 
 	b.thingGroupMembers[groupName] = append(members, thingName)
+}
+
+// -----------------------------------------------------------
+// Device Shadow operations
+// -----------------------------------------------------------
+
+// GetThingShadow returns the shadow for a thing (classic or named).
+func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) (*ThingShadow, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.things[thingName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	key := shadowKey{thingName: thingName, shadowName: shadowName}
+	s, ok := b.shadows[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
+	}
+
+	cp := *s
+
+	return &cp, nil
+}
+
+// UpdateThingShadow creates or updates the shadow for a thing.
+func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, state map[string]any) (*ThingShadow, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.things[thingName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	key := shadowKey{thingName: thingName, shadowName: shadowName}
+	existing := b.shadows[key]
+
+	version := int64(1)
+	if existing != nil {
+		version = existing.Version + 1
+	}
+
+	s := &ThingShadow{
+		State:   state,
+		Version: version,
+	}
+	b.shadows[key] = s
+
+	cp := *s
+
+	return &cp, nil
+}
+
+// DeleteThingShadow deletes the shadow for a thing.
+func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.things[thingName]; !ok {
+		return fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	key := shadowKey{thingName: thingName, shadowName: shadowName}
+	if _, ok := b.shadows[key]; !ok {
+		return fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
+	}
+
+	delete(b.shadows, key)
+
+	return nil
+}
+
+// ListNamedShadowsForThing returns all named shadow names for a thing.
+func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.things[thingName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	var names []string
+
+	for k := range b.shadows {
+		if k.thingName == thingName && k.shadowName != "" {
+			names = append(names, k.shadowName)
+		}
+	}
+
+	slices.Sort(names)
+
+	return names, nil
 }

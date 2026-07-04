@@ -104,23 +104,49 @@ func (db *InMemoryDB) ScanWithContext(
 		AttributeDefinitions:   attrDefs,
 	}
 
-	pkDef, skDef, err := db.getScanKeySchema(snapshotTable, input)
+	pkDef, skDef, projection, err := db.getScanKeySchema(snapshotTable, input)
 	if err != nil {
 		return nil, err
 	}
 
-	// Process scan outside the lock
-	items, lastKey, scannedCount := db.doScan(ctx, itemsCopy, ttlAttr, snapshotTable, input, pkDef, skDef)
+	if verr := validateSelectConstraints(input.Select, aws.ToString(input.IndexName), projection); verr != nil {
+		return nil, verr
+	}
 
+	// Process scan outside the lock; pass the table's own key schema separately
+	// so that GSI/LSI scans can include the base-table PK in LastEvaluatedKey.
+	items, lastKey, scannedCount := db.doScan(
+		ctx,
+		itemsCopy,
+		ttlAttr,
+		snapshotTable,
+		input,
+		pkDef,
+		skDef,
+		keySchema,
+	)
+
+	return db.buildScanOutput(ctx, tableName, billingMode, input, items, lastKey, scannedCount)
+}
+
+// buildScanOutput enforces read throughput and assembles the ScanOutput.
+func (db *InMemoryDB) buildScanOutput(
+	ctx context.Context,
+	tableName, billingMode string,
+	input *dynamodb.ScanInput,
+	items []map[string]any,
+	lastKey map[string]any,
+	scannedCount int32,
+) (*dynamodb.ScanOutput, error) {
 	// Enforce throughput: charge RCU per scanned item.
 	// Double for strongly-consistent; bypass for PAY_PER_REQUEST.
-	n := int(scannedCount) // #nosec G115 -- scannedCount is bounded by len(table.Items) which fits in int
+	n := int(scannedCount) // #nosec G115 -- bounded by len(table.Items) which fits in int
 	region := getRegionFromContext(ctx, db)
 	consistentRead := aws.ToBool(input.ConsistentRead)
 	rcuUnits := applyConsistentReadMultiplier(rcuForCount(n), consistentRead)
 
 	if !isOnDemandTable(billingMode) {
-		if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {
+		if err := db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {
 			return nil, err
 		}
 	}
@@ -136,7 +162,10 @@ func (db *InMemoryDB) ScanWithContext(
 		Count:        int32(len(items)), // #nosec G115
 		ScannedCount: scannedCount,
 		ConsumedCapacity: consumedCapacityForScan(
-			tableName, input.ReturnConsumedCapacity, int(scannedCount), aws.ToBool(input.ConsistentRead),
+			tableName,
+			input.ReturnConsumedCapacity,
+			int(scannedCount),
+			aws.ToBool(input.ConsistentRead),
 		),
 	}
 
@@ -151,19 +180,24 @@ func (db *InMemoryDB) ScanWithContext(
 func (db *InMemoryDB) getScanKeySchema(
 	table *Table,
 	input *dynamodb.ScanInput,
-) (models.KeySchemaElement, models.KeySchemaElement, error) {
+) (models.KeySchemaElement, models.KeySchemaElement, *models.Projection, error) {
 	indexName := aws.ToString(input.IndexName)
 	if indexName == "" {
 		pk, sk := getPKAndSK(table.KeySchema)
 
-		return pk, sk, nil
+		return pk, sk, nil, nil
 	}
 
 	for _, gsi := range table.GlobalSecondaryIndexes {
 		if gsi.IndexName == indexName {
+			if aws.ToBool(input.ConsistentRead) {
+				return models.KeySchemaElement{}, models.KeySchemaElement{}, nil, NewValidationException(
+					"Consistent reads are not supported on global secondary indexes",
+				)
+			}
 			pk, sk := getPKAndSK(gsi.KeySchema)
 
-			return pk, sk, nil
+			return pk, sk, &gsi.Projection, nil
 		}
 	}
 
@@ -171,11 +205,11 @@ func (db *InMemoryDB) getScanKeySchema(
 		if lsi.IndexName == indexName {
 			pk, sk := getPKAndSK(lsi.KeySchema)
 
-			return pk, sk, nil
+			return pk, sk, &lsi.Projection, nil
 		}
 	}
 
-	return models.KeySchemaElement{}, models.KeySchemaElement{}, NewResourceNotFoundException(
+	return models.KeySchemaElement{}, models.KeySchemaElement{}, nil, NewResourceNotFoundException(
 		fmt.Sprintf("Index: %s not found", indexName),
 	)
 }
@@ -187,6 +221,7 @@ func (db *InMemoryDB) doScan(
 	table *Table,
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
 ) ([]map[string]any, map[string]any, int32) {
 	_ = ctx // ctx reserved for future use (e.g., metrics, cancellation)
 
@@ -213,21 +248,44 @@ func (db *InMemoryDB) doScan(
 	candidate = applySegmentFilter(candidate, input, pkDef)
 
 	// Apply ExclusiveStartKey: skip items up to and including the start-key item.
-	candidate = applyExclusiveStartKey(candidate, input.ExclusiveStartKey, pkDef, skDef)
+	candidate = applyExclusiveStartKey(
+		candidate,
+		input.ExclusiveStartKey,
+		pkDef,
+		skDef,
+		tableKeySchema,
+	)
 
 	projector, _ := ParseProjector(proj, input.ExpressionAttributeNames)
 
-	return scanPage(candidate, filter, eav, input.ExpressionAttributeNames, projector, pkDef, skDef, limit)
+	// Pre-parse the filter expression once to avoid re-parsing per item in the hot loop.
+	parsedFilter, _ := ParseConditionStr(filter)
+
+	return scanPage(
+		candidate,
+		parsedFilter,
+		eav,
+		input.ExpressionAttributeNames,
+		projector,
+		pkDef,
+		skDef,
+		tableKeySchema,
+		limit,
+	)
 }
 
 // scanPage iterates candidate items up to 1MB or limit, applying filter and projection.
+// tableKeySchema is the base-table primary key schema; when scanning a GSI/LSI it is used
+// to include the table PK in LastEvaluatedKey so pagination tokens are unambiguous.
+// parsedFilter is a pre-parsed filter expression (nil = no filter).
 func scanPage(
 	candidate []map[string]any,
-	filter string,
+	parsedFilter *ParsedCondition,
 	eav map[string]any,
 	eans map[string]string,
 	projector *Projector,
 	pkDef, skDef models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
 	limit int,
 ) ([]map[string]any, map[string]any, int32) {
 	const maxResponseSize = 1024 * 1024 // 1MB
@@ -243,26 +301,26 @@ func scanPage(
 		// AWS scans up to 1MB of data before applying FilterExpression and returning.
 		if totalScannedSize+itemSize > maxResponseSize && i > 0 {
 			scannedCount--
-			lastKey = buildLastKey(candidate[i-1], pkDef, skDef)
+			lastKey = buildLastKey(candidate[i-1], pkDef, skDef, tableKeySchema)
 
 			break
 		}
 		totalScannedSize += itemSize
 
-		if passesFilter(filter, item, eav, eans) {
+		if parsedFilter.Evaluate(item, eav, eans) {
 			results = append(results, projector.Project(item))
 		}
 
 		if limit > 0 && int(scannedCount) >= limit {
 			if i < len(candidate)-1 {
-				lastKey = buildLastKey(item, pkDef, skDef)
+				lastKey = buildLastKey(item, pkDef, skDef, tableKeySchema)
 			}
 
 			break
 		}
 
 		if totalScannedSize >= maxResponseSize && i < len(candidate)-1 {
-			lastKey = buildLastKey(item, pkDef, skDef)
+			lastKey = buildLastKey(item, pkDef, skDef, tableKeySchema)
 
 			break
 		}
@@ -271,28 +329,21 @@ func scanPage(
 	return results, lastKey, scannedCount
 }
 
-// passesFilter evaluates a filter expression against an item, returning true if it matches.
-func passesFilter(filter string, item, eav map[string]any, eans map[string]string) bool {
-	if filter == "" {
-		return true
-	}
-
-	match, err := evaluateExpression(filter, item, eav, eans)
-	if err != nil {
-		return false
-	}
-
-	return match
-}
-
 // buildLastKey creates a LastEvaluatedKey map for the given item.
-func buildLastKey(item map[string]any, pkDef, skDef models.KeySchemaElement) map[string]any {
-	key := map[string]any{pkDef.AttributeName: item[pkDef.AttributeName]}
+// tableKeySchema is the base-table primary key schema; when scanning a GSI/LSI
+// it is merged in so that the token includes both the index keys and the table
+// PK, matching AWS DynamoDB's pagination behaviour.
+func buildLastKey(
+	item map[string]any,
+	pkDef, skDef models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
+) map[string]any {
+	indexSchema := []models.KeySchemaElement{pkDef}
 	if skDef.AttributeName != "" {
-		key[skDef.AttributeName] = item[skDef.AttributeName]
+		indexSchema = append(indexSchema, skDef)
 	}
 
-	return key
+	return extractKeyWithBase(item, indexSchema, tableKeySchema)
 }
 
 // applySegmentFilter partitions items by parallel scan segment using FNV hash on PK.
@@ -382,25 +433,17 @@ func applyExclusiveStartKey(
 	candidate []map[string]any,
 	exclusiveStartKey map[string]types.AttributeValue,
 	pkDef, skDef models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
 ) []map[string]any {
 	if len(exclusiveStartKey) == 0 {
 		return candidate
 	}
 
 	startKey := models.FromSDKItem(exclusiveStartKey)
-	pkName := pkDef.AttributeName
-	skName := skDef.AttributeName
+	tablePKDef, tableSKDef := getPKAndSK(tableKeySchema)
 
 	for i, item := range candidate {
-		if !compareAttributeValues(item[pkName], startKey[pkName]) {
-			continue
-		}
-
-		if skName == "" {
-			return candidate[i+1:]
-		}
-
-		if compareAttributeValues(item[skName], startKey[skName]) {
+		if itemMatchesStartKeyMap(item, startKey, pkDef, skDef, tablePKDef, tableSKDef) {
 			return candidate[i+1:]
 		}
 	}

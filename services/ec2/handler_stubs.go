@@ -58,7 +58,8 @@ func stubSupportedOperations() []string {
 		// "CreateCustomerGateway", — moved to advancedNetworkingSupportedOperations
 		// "CreateDelegateMacVolumeOwnershipTask", — moved to macHostSupportedOperations
 		// CreateEgressOnlyInternetGateway — moved to ec2CoreSupportedOperations
-		"CreateFleet",
+		// "CreateFleet", — already listed in the core GetSupportedOperations list;
+		// real implementation in handler_batch5.go
 		// "CreateFpgaImage", — moved to handler_fpga_image.go
 		// "CreateImageUsageReport", — moved to imageOpsSupportedOperations()
 		// "CreateInstanceExportTask", — moved to vmImportExportSupportedOperations

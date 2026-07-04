@@ -100,13 +100,13 @@ func TestECSServiceIndexConsistency(t *testing.T) {
 				require.NoError(t, err)
 
 				for _, name := range []string{"alpha", "beta", "gamma"} {
-					_, svcErr := b.CreateService(ecs.CreateServiceInput{
+					_, err = b.CreateService(ecs.CreateServiceInput{
 						ServiceName:    name,
 						Cluster:        clusterName,
 						TaskDefinition: tdArn,
 						DesiredCount:   1,
 					})
-					require.NoError(t, svcErr)
+					require.NoError(t, err)
 				}
 
 				require.Len(t, b.GetServicesForReconcilerForTest(), 3)

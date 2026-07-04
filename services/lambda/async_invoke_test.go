@@ -23,8 +23,10 @@ const (
 // newAsyncTestBackend returns a backend with no Docker/port-alloc so that
 // getOrCreateRuntime returns an error quickly. Tests that call EnqueueAsync directly
 // bypass getOrCreateRuntime and provide their own runtime server.
-func newAsyncTestBackend() *lambda.InMemoryBackend {
-	return lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+func newAsyncTestBackend(t *testing.T) *lambda.InMemoryBackend {
+	t.Helper()
+
+	return closeBackend(t, lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1"))
 }
 
 // startAsyncTestServer creates and starts an ExportedRuntimeServer on the given port,
@@ -75,7 +77,7 @@ func TestEnqueueAsync_QueueBehavior(t *testing.T) {
 
 			// Use a non-started server: no HTTP listener needed for queue tests.
 			srv := lambda.NewExportedRuntimeServer(asyncInvokeQueueBehaviorBase + i)
-			bk := newAsyncTestBackend()
+			bk := newAsyncTestBackend(t)
 
 			// Pre-fill the queue to the requested depth.
 			if tt.fillCount > 0 {
@@ -129,7 +131,7 @@ func TestEnqueueAsync_BoundsSlowPathWaiters(t *testing.T) {
 			t.Parallel()
 
 			srv := lambda.NewExportedRuntimeServer(asyncInvokeQueueBehaviorBase + 100 + i)
-			bk := newAsyncTestBackend()
+			bk := newAsyncTestBackend(t)
 
 			filled := lambda.FillQueue(srv, lambda.RuntimeQueueSize)
 			require.Equal(t, lambda.RuntimeQueueSize, filled, "queue should be full for slow-path enqueue")
@@ -180,7 +182,7 @@ func TestEnqueueAsync_PendingCleanup(t *testing.T) {
 			t.Parallel()
 
 			srv := startAsyncTestServer(t, tt.port)
-			bk := newAsyncTestBackend()
+			bk := newAsyncTestBackend(t)
 
 			lambda.EnqueueAsync(t.Context(), bk, srv, "fn-clean", []byte(`{}`), tt.invocationTimeout, false)
 
@@ -234,7 +236,7 @@ func TestEnqueueAsync_ConcurrencySlotLifetime(t *testing.T) {
 			t.Parallel()
 
 			srv := startAsyncTestServer(t, tt.port)
-			bk := newAsyncTestBackend()
+			bk := newAsyncTestBackend(t)
 
 			const fnName = "fn-slot"
 
@@ -402,7 +404,7 @@ func TestEnqueueAsync_Retry(t *testing.T) {
 			t.Parallel()
 
 			srv := startAsyncTestServer(t, tt.port)
-			bk := newAsyncTestBackend()
+			bk := newAsyncTestBackend(t)
 
 			require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: tt.fnName}))
 

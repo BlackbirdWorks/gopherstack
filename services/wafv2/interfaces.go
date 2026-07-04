@@ -106,8 +106,8 @@ type StorageBackend interface {
 		id, lockToken, versionToExpire string,
 		expiryTimestamp *int64,
 	) (*ManagedRuleSet, error)
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

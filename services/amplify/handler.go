@@ -20,6 +20,8 @@ import (
 const (
 	amplifyAppsPrefix        = "/apps"
 	amplifyTagsPrefix        = "/tags/"
+	amplifyWebhooksPrefix    = "/webhooks/"
+	amplifyArtifactsPrefix   = "/artifacts/"
 	amplifyServiceIdentifier = ":amplify"
 
 	// Path segment counts for Amplify routes.
@@ -116,6 +118,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return strings.Contains(arn, amplifyServiceIdentifier)
 		}
 
+		if strings.HasPrefix(path, amplifyWebhooksPrefix) || strings.HasPrefix(path, amplifyArtifactsPrefix) {
+			return true
+		}
+
 		return false
 	}
 }
@@ -147,27 +153,24 @@ func parseAmplifyOperation(method, path string) string {
 	}
 
 	segs := splitAmplifyPath(path)
-
-	switch len(segs) {
-	case pathSegsApps:
-		// /apps
-		return parseAppsOperation(method)
-	case pathSegsAppID:
-		// /apps/{appId}
-		return parseAppIDOperation(method)
-	case pathSegsAppSub:
-		// /apps/{appId}/branches
-		if segs[2] == arnResourceBranches {
-			return parseBranchesOperation(method)
-		}
-	case pathSegsAppBranch:
-		// /apps/{appId}/branches/{branchName}
-		if segs[2] == arnResourceBranches {
-			return parseBranchOperation(method)
-		}
+	if len(segs) == 0 {
+		return opUnknown
 	}
 
-	return opUnknown
+	switch segs[0] {
+	case subWebhooks:
+		return parseWebhookIDOp(method)
+	case subArtifactsRoot:
+		if method == http.MethodGet {
+			return "GetArtifactUrl"
+		}
+
+		return opUnknown
+	case arnResourceApps:
+		return parseAppsPathOp(method, segs)
+	default:
+		return opUnknown
+	}
 }
 
 func parseAppsOperation(method string) string {
@@ -200,6 +203,8 @@ func parseAppIDOperation(method string) string {
 		return "GetApp"
 	case http.MethodDelete:
 		return "DeleteApp"
+	case http.MethodPost:
+		return "UpdateApp"
 	default:
 		return opUnknown
 	}
@@ -222,6 +227,8 @@ func parseBranchOperation(method string) string {
 		return "GetBranch"
 	case http.MethodDelete:
 		return "DeleteBranch"
+	case http.MethodPost:
+		return "UpdateBranch"
 	default:
 		return opUnknown
 	}
@@ -272,28 +279,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		segs := splitAmplifyPath(path)
-
-		if len(segs) == 0 || segs[0] != arnResourceApps {
+		if len(segs) == 0 {
 			return c.JSON(http.StatusNotFound, amplifyError("not found"))
 		}
 
-		switch len(segs) {
-		case pathSegsApps:
-			return h.handleApps(ctx, c)
-		case pathSegsAppID:
-			return h.handleAppID(ctx, c, segs[1])
-		case pathSegsAppSub:
-			if segs[2] == arnResourceBranches {
-				return h.handleBranches(ctx, c, segs[1])
-			}
-
-			return c.JSON(http.StatusNotFound, amplifyError("not found"))
-		case pathSegsAppBranch:
-			if segs[2] == arnResourceBranches {
-				return h.handleBranchName(ctx, c, segs[1], segs[3])
-			}
-
-			return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		switch segs[0] {
+		case arnResourceApps:
+			return h.routeApps(ctx, c, segs)
+		case subWebhooks:
+			return h.routeWebhooks(ctx, c, segs)
+		case subArtifactsRoot:
+			return h.routeArtifacts(ctx, c, segs)
 		default:
 			return c.JSON(http.StatusNotFound, amplifyError("not found"))
 		}
@@ -312,13 +308,15 @@ func (h *Handler) handleApps(ctx context.Context, c *echo.Context) error {
 	}
 }
 
-// handleAppID handles GET/DELETE /apps/{appId}.
+// handleAppID handles GET/POST/DELETE /apps/{appId}.
 func (h *Handler) handleAppID(ctx context.Context, c *echo.Context, appID string) error {
 	switch c.Request().Method {
 	case http.MethodGet:
 		return h.getApp(ctx, c, appID)
 	case http.MethodDelete:
 		return h.deleteApp(ctx, c, appID)
+	case http.MethodPost:
+		return h.updateApp(ctx, c, appID)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
 	}
@@ -336,13 +334,15 @@ func (h *Handler) handleBranches(ctx context.Context, c *echo.Context, appID str
 	}
 }
 
-// handleBranchName handles GET/DELETE /apps/{appId}/branches/{branchName}.
+// handleBranchName handles GET/POST/DELETE /apps/{appId}/branches/{branchName}.
 func (h *Handler) handleBranchName(ctx context.Context, c *echo.Context, appID, branchName string) error {
 	switch c.Request().Method {
 	case http.MethodGet:
 		return h.getBranch(ctx, c, appID, branchName)
 	case http.MethodDelete:
 		return h.deleteBranch(ctx, c, appID, branchName)
+	case http.MethodPost:
+		return h.updateBranch(ctx, c, appID, branchName)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
 	}
@@ -392,7 +392,7 @@ func (h *Handler) createApp(ctx context.Context, c *echo.Context) error {
 		return h.handleBackendError(ctx, c, "CreateApp", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"app": toAppView(app)})
+	return c.JSON(http.StatusCreated, map[string]any{keyApp: toAppView(app)})
 }
 
 // getApp handles GET /apps/{appId}.
@@ -402,7 +402,7 @@ func (h *Handler) getApp(ctx context.Context, c *echo.Context, appID string) err
 		return h.handleBackendError(ctx, c, "GetApp", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"app": toAppView(app)})
+	return c.JSON(http.StatusOK, map[string]any{keyApp: toAppView(app)})
 }
 
 // listApps handles GET /apps.
@@ -474,7 +474,7 @@ func (h *Handler) createBranch(ctx context.Context, c *echo.Context, appID strin
 		return h.handleBackendError(ctx, c, "CreateBranch", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"branch": toBranchView(branch)})
+	return c.JSON(http.StatusCreated, map[string]any{keyBranch: toBranchView(branch)})
 }
 
 // getBranch handles GET /apps/{appId}/branches/{branchName}.
@@ -484,7 +484,7 @@ func (h *Handler) getBranch(ctx context.Context, c *echo.Context, appID, branchN
 		return h.handleBackendError(ctx, c, "GetBranch", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"branch": toBranchView(branch)})
+	return c.JSON(http.StatusOK, map[string]any{keyBranch: toBranchView(branch)})
 }
 
 // listBranches handles GET /apps/{appId}/branches.

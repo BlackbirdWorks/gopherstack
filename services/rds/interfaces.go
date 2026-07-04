@@ -1,6 +1,9 @@
 package rds
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the interface for RDS backend implementations.
 // All mutating methods must be safe for concurrent use.
@@ -9,8 +12,8 @@ type StorageBackend interface {
 	Region() string
 	AccountID() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 
 	// DB instance operations
 	CreateDBInstance(
@@ -142,8 +145,8 @@ type StorageBackend interface {
 	) (*CustomDBEngineVersion, error)
 	DescribeCustomDBEngineVersions(engine, engineVersion string) []CustomDBEngineVersion
 	DescribeOrderableDBInstanceOptions(engine, engineVersion string) []OrderableDBInstanceOption
-	DescribeDBLogFiles(instanceID string) ([]DBLogFile, error)
-	DownloadDBLogFilePortion(instanceID, logFileName string) (string, error)
+	DescribeDBLogFiles(instanceID string, filter LogFileFilter) ([]DBLogFile, error)
+	DownloadDBLogFilePortion(instanceID, logFileName, marker string, numberOfLines int) (LogFilePortion, error)
 
 	// IAM role operations
 	AddRoleToDBCluster(clusterID, roleARN string) error
@@ -317,7 +320,7 @@ type StorageBackend interface {
 		resourceID, metric string,
 		startTime, endTime time.Time,
 		periodInSeconds int,
-	) []PIDataPoint
+	) ([]PIDataPoint, error)
 }
 
 // Ensure InMemoryBackend satisfies the StorageBackend interface at compile time.

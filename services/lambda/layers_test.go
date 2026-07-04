@@ -20,8 +20,10 @@ import (
 )
 
 // newLayerBackend returns a fresh backend suitable for layer tests.
-func newLayerBackend() *lambda.InMemoryBackend {
-	return lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
+func newLayerBackend(t *testing.T) *lambda.InMemoryBackend {
+	t.Helper()
+
+	return closeBackend(t, lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1"))
 }
 
 // publishLayerInput builds a minimal PublishLayerVersionInput.
@@ -66,7 +68,7 @@ func TestInMemoryBackend_PublishLayerVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 
 			out, err := bk.PublishLayerVersion(tt.input)
 
@@ -87,7 +89,7 @@ func TestInMemoryBackend_PublishLayerVersion(t *testing.T) {
 func TestInMemoryBackend_PublishLayerVersion_Increments(t *testing.T) {
 	t.Parallel()
 
-	bk := newLayerBackend()
+	bk := newLayerBackend(t)
 
 	out1, err := bk.PublishLayerVersion(publishLayerInput("layer-a", "", []byte("z1"), nil))
 	require.NoError(t, err)
@@ -147,7 +149,7 @@ func TestInMemoryBackend_GetLayerVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
@@ -204,12 +206,12 @@ func TestInMemoryBackend_ListLayers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
 
-			layers := bk.ListLayers("", 0)
+			layers := bk.ListLayers("", "", 0)
 			assert.Len(t, layers.Data, tt.wantCount)
 
 			for i, name := range tt.wantNames {
@@ -226,28 +228,28 @@ func TestInMemoryBackend_ListLayers(t *testing.T) {
 func TestInMemoryBackend_ListLayers_Pagination(t *testing.T) {
 	t.Parallel()
 
-	bk := newLayerBackend()
+	bk := newLayerBackend(t)
 	for _, name := range []string{"l-a", "l-b", "l-c", "l-d", "l-e"} {
 		_, err := bk.PublishLayerVersion(publishLayerInput(name, "", []byte("z"), nil))
 		require.NoError(t, err)
 	}
 
 	// First page of 2.
-	first := bk.ListLayers("", 2)
+	first := bk.ListLayers("", "", 2)
 	require.Len(t, first.Data, 2)
 	assert.Equal(t, "l-a", first.Data[0].LayerName)
 	assert.Equal(t, "l-b", first.Data[1].LayerName)
 	require.NotEmpty(t, first.Next, "expected NextMarker for first page")
 
 	// Second page using marker.
-	second := bk.ListLayers(first.Next, 2)
+	second := bk.ListLayers("", first.Next, 2)
 	require.Len(t, second.Data, 2)
 	assert.Equal(t, "l-c", second.Data[0].LayerName)
 	assert.Equal(t, "l-d", second.Data[1].LayerName)
 	require.NotEmpty(t, second.Next)
 
 	// Final page.
-	third := bk.ListLayers(second.Next, 2)
+	third := bk.ListLayers("", second.Next, 2)
 	require.Len(t, third.Data, 1)
 	assert.Equal(t, "l-e", third.Data[0].LayerName)
 	assert.Empty(t, third.Next, "no marker expected on final page")
@@ -283,12 +285,12 @@ func TestInMemoryBackend_ListLayerVersions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
 
-			versions, err := bk.ListLayerVersions(tt.layerName)
+			versions, err := bk.ListLayerVersions(tt.layerName, "")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -347,7 +349,7 @@ func TestInMemoryBackend_DeleteLayerVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
@@ -422,7 +424,7 @@ func TestInMemoryBackend_LayerVersionPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
@@ -465,7 +467,7 @@ func TestLayerHTTPHandler(t *testing.T) {
 	t.Parallel()
 
 	newHandlerAndBackend := func() (*lambda.Handler, *lambda.InMemoryBackend) {
-		bk := newLayerBackend()
+		bk := newLayerBackend(t)
 		h := lambda.NewHandler(bk)
 		h.DefaultRegion = "us-east-1"
 		h.AccountID = "123456789012"
@@ -667,7 +669,7 @@ func TestCreateFunctionWithLayers(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "123456789012"
@@ -709,7 +711,7 @@ func TestCreateFunctionWithLayers(t *testing.T) {
 func TestPersistenceLayers(t *testing.T) {
 	t.Parallel()
 
-	bk := newLayerBackend()
+	bk := newLayerBackend(t)
 
 	// Publish two layers with multiple versions each.
 	_, err := bk.PublishLayerVersion(publishLayerInput("layer-a", "v1", []byte("zip-a1"), []string{"python3.9"}))
@@ -730,18 +732,18 @@ func TestPersistenceLayers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot → Restore.
-	snap := bk.Snapshot()
+	snap := bk.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	bk2 := newLayerBackend()
-	require.NoError(t, bk2.Restore(snap))
+	bk2 := newLayerBackend(t)
+	require.NoError(t, bk2.Restore(t.Context(), snap))
 
 	// Verify layers are present.
-	layers := bk2.ListLayers("", 0)
+	layers := bk2.ListLayers("", "", 0)
 	assert.Len(t, layers.Data, 2)
 
 	// Verify versions are restored.
-	versions, err := bk2.ListLayerVersions("layer-a")
+	versions, err := bk2.ListLayerVersions("layer-a", "")
 	require.NoError(t, err)
 	assert.Len(t, versions, 2)
 
@@ -894,7 +896,7 @@ func TestPrepareLayerMount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}

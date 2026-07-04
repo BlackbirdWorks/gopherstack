@@ -116,9 +116,9 @@ func instanceMatchesFilter(inst *Instance, filterName string, values []string, b
 		return anyEqual(inst.State.Name, values)
 	case "image-id":
 		return anyEqual(inst.ImageID, values)
-	case "vpc-id":
+	case filterKeyVPCID:
 		return anyEqual(inst.VPCID, values)
-	case "subnet-id":
+	case filterKeySubnetID:
 		return anyEqual(inst.SubnetID, values)
 	case "instance-type":
 		return anyEqual(inst.InstanceType, values)
@@ -176,7 +176,7 @@ groupLoop:
 // sgMatchesFilter returns true if the security group matches any value in the filter.
 func sgMatchesFilter(sg *SecurityGroup, filterName string, values []string) bool {
 	switch filterName {
-	case "vpc-id":
+	case filterKeyVPCID:
 		return anyEqual(sg.VPCID, values)
 	case "group-name":
 		return anyEqual(sg.Name, values)

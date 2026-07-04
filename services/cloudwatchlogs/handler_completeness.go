@@ -956,10 +956,38 @@ func (h *Handler) handleDescribeFieldIndexes(
 	return map[string]any{"fieldIndexes": []any{}}, nil
 }
 
+// handleDescribeImportTaskBatches validates the request and returns an
+// empty-but-valid response. The backend tracks import tasks (DescribeImportTasks)
+// but does not model per-task import batches, so this is validation-only: the
+// task identifier is required and, when supplied, must reference a known import
+// task; otherwise an empty importTaskBatches list is returned.
 func (h *Handler) handleDescribeImportTaskBatches(
 	ctx context.Context, //nolint:revive // existing issue.
-	_ []byte,
+	body []byte,
 ) (any, error) {
+	var input struct {
+		TaskID string `json:"taskId"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	if input.TaskID == "" {
+		return nil, fmt.Errorf("%w: taskId is required", ErrValidation)
+	}
+
+	if b := cwlBackend(h); b != nil {
+		tasks, _, err := b.DescribeImportTasks(input.TaskID, 1, "")
+		if err != nil {
+			return nil, err
+		}
+		if len(tasks) == 0 {
+			return nil, fmt.Errorf("%w: import task %s not found", ErrImportTaskNotFound, input.TaskID)
+		}
+	}
+
 	return map[string]any{"importTaskBatches": []any{}}, nil
 }
 
@@ -970,19 +998,106 @@ func (h *Handler) handleDisassociateSourceFromS3TableIntegration(
 	return struct{}{}, nil
 }
 
-func (h *Handler) handleGetLogFields(ctx context.Context, _ []byte) (any, error) { //nolint:revive // existing issue.
-	return map[string]any{"logRecordPointer": "", "logRecord": map[string]any{}}, nil
+// handleGetLogFields returns the set of field names discovered from the log
+// events stored for the given log group. The AWS SDK models this operation with
+// a dataSourceName/dataSourceType pair; the data source name is interpreted as
+// the log group (name or ARN identifier). The log group must exist; otherwise a
+// ResourceNotFoundException is returned. The response uses the AWS logFields
+// shape (a list of {logFieldName} items), derived from real stored events.
+func (h *Handler) handleGetLogFields(ctx context.Context, body []byte) (any, error) {
+	var input struct {
+		DataSourceName     string `json:"dataSourceName"`
+		LogGroupIdentifier string `json:"logGroupIdentifier"`
+		LogGroupName       string `json:"logGroupName"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	name := input.LogGroupName
+	if name == "" {
+		name = normalizeLogGroupIdentifier(input.LogGroupIdentifier)
+	}
+	if name == "" {
+		name = normalizeLogGroupIdentifier(input.DataSourceName)
+	}
+	if name == "" {
+		return nil, fmt.Errorf("%w: dataSourceName is required", ErrValidation)
+	}
+
+	b := cwlBackend(h)
+	if b == nil {
+		return map[string]any{"logFields": []any{}}, nil
+	}
+
+	fields, err := b.DiscoverLogFields(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	logFields := make([]map[string]any, 0, len(fields))
+	for _, f := range fields {
+		logFields = append(logFields, map[string]any{"logFieldName": f})
+	}
+
+	return map[string]any{"logFields": logFields}, nil
 }
 
-func (h *Handler) handleGetLogObject(ctx context.Context, _ []byte) (any, error) { //nolint:revive // existing issue.
-	return map[string]any{}, nil
+// handleGetLogObject resolves a stored log event from its log record pointer and
+// returns the record fields. The pointer is the same base64-encoded pointer
+// returned by GetLogRecord; an unresolvable pointer yields a
+// ResourceNotFoundException (or InvalidParameterException for malformed input).
+func (h *Handler) handleGetLogObject(ctx context.Context, body []byte) (any, error) {
+	var input struct {
+		LogObjectPointer string `json:"logObjectPointer"`
+		LogRecordPointer string `json:"logRecordPointer"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	pointer := input.LogObjectPointer
+	if pointer == "" {
+		pointer = input.LogRecordPointer
+	}
+	if pointer == "" {
+		return nil, fmt.Errorf("%w: logObjectPointer is required", ErrValidation)
+	}
+
+	b := cwlBackend(h)
+	if b == nil {
+		return nil, fmt.Errorf("%w: log object %s not found", ErrLogStreamNotFound, pointer)
+	}
+
+	record, err := b.GetLogRecord(ctx, pointer)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"fieldStream": record}, nil
 }
 
+// handleListAggregateLogGroupSummaries returns aggregate summaries derived from
+// the real log groups and their stored events for the current region.
 func (h *Handler) handleListAggregateLogGroupSummaries(
-	ctx context.Context, //nolint:revive // existing issue.
+	ctx context.Context,
 	_ []byte,
 ) (any, error) {
-	return map[string]any{"logGroupSummaries": []any{}}, nil
+	b := cwlBackend(h)
+	if b == nil {
+		return map[string]any{"logGroupSummaries": []any{}}, nil
+	}
+
+	summaries := b.ListAggregateLogGroupSummaries(ctx)
+	if summaries == nil {
+		summaries = []AggregateLogGroupSummary{}
+	}
+
+	return map[string]any{"logGroupSummaries": summaries}, nil
 }
 
 func (h *Handler) handleListSourcesForS3TableIntegration(
@@ -999,10 +1114,58 @@ func (h *Handler) handlePutBearerTokenAuthentication(
 	return struct{}{}, nil
 }
 
-func (h *Handler) handleStartLiveTail(ctx context.Context, _ []byte) (any, error) { //nolint:revive // existing issue.
+// handleStartLiveTail is validation-only. StartLiveTail is a streaming (HTTP/2
+// event-stream) operation that cannot be meaningfully emulated over the standard
+// unary JSON response, so rather than returning a silent empty success this
+// handler validates the supplied log group ARNs/identifiers and returns
+// ResourceNotFoundException when any does not exist. A valid request returns an
+// empty (but well-formed) responseStream.
+func (h *Handler) handleStartLiveTail(ctx context.Context, body []byte) (any, error) {
+	var input struct {
+		LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(input.LogGroupIdentifiers) == 0 {
+		return nil, fmt.Errorf("%w: logGroupIdentifiers is required", ErrValidation)
+	}
+
+	if b := cwlBackend(h); b != nil {
+		if err := b.ValidateLiveTailLogGroups(ctx, input.LogGroupIdentifiers); err != nil {
+			return nil, err
+		}
+	}
+
 	return map[string]any{"responseStream": map[string]any{}}, nil
 }
 
-func (h *Handler) handleTestTransformer(ctx context.Context, _ []byte) (any, error) { //nolint:revive // existing issue.
-	return map[string]any{"transformedLogs": []any{}}, nil
+// handleTestTransformer applies the supplied transformer config to the supplied
+// sample log event messages and returns the deterministically transformed
+// results.
+func (h *Handler) handleTestTransformer(
+	_ context.Context,
+	body []byte,
+) (any, error) {
+	var input struct {
+		LogGroupIdentifier string           `json:"logGroupIdentifier"`
+		TransformerConfig  []map[string]any `json:"transformerConfig"`
+		LogEventMessages   []string         `json:"logEventMessages"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(input.LogEventMessages) == 0 {
+		return nil, fmt.Errorf("%w: logEventMessages is required", ErrValidation)
+	}
+
+	transformed := ApplyTransformer(input.LogEventMessages, input.TransformerConfig)
+
+	return map[string]any{"transformedLogs": transformed}, nil
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -86,6 +87,13 @@ const (
 	// Query service.  These are accepted by TagResource so that the unified write-service
 	// tag store can hold tags for both resource types.
 	scheduledQueryARNFragment = "scheduled-query/"
+
+	// defaultMemoryRetentionHours is the AWS default for MemoryStoreRetentionPeriodInHours
+	// when no retention properties are specified at table creation time.
+	defaultMemoryRetentionHours = int64(6)
+	// defaultMagneticRetentionDays is the AWS default for MagneticStoreRetentionPeriodInDays
+	// when no retention properties are specified at table creation time.
+	defaultMagneticRetentionDays = int64(73)
 )
 
 // RetentionProperties holds the memory and magnetic store retention durations.
@@ -322,7 +330,7 @@ func (b *InMemoryBackend) ensureNonNilMapsLocked() {
 }
 
 func databaseARN(name string) string {
-	return fmt.Sprintf("arn:aws:timestream:%s:%s:database/%s", config.DefaultRegion, config.DefaultAccountID, name)
+	return arn.Build("timestream", config.DefaultRegion, config.DefaultAccountID, fmt.Sprintf("database/%s", name))
 }
 
 func tableARN(dbName, tblName string) string {
@@ -511,6 +519,13 @@ func (b *InMemoryBackend) CreateTable(
 		tbl.RetentionProperties = inp.RetentionProperties
 		tbl.MagneticStoreWriteProperties = inp.MagneticStoreWriteProperties
 		tbl.Schema = inp.Schema
+	}
+
+	if tbl.RetentionProperties == nil {
+		tbl.RetentionProperties = &RetentionProperties{
+			MemoryStoreRetentionPeriodInHours:  defaultMemoryRetentionHours,
+			MagneticStoreRetentionPeriodInDays: defaultMagneticRetentionDays,
+		}
 	}
 
 	b.tables[dbName][tblName] = tbl
@@ -1032,7 +1047,7 @@ func (b *InMemoryBackend) ResumeBatchLoadTask(taskID string) error {
 		return fmt.Errorf("%w: batch load task %s not found", ErrBatchLoadTaskNotFound, taskID)
 	}
 
-	if task.TaskStatus != BatchLoadStatusPendingResume && task.TaskStatus != BatchLoadStatusFailed {
+	if task.TaskStatus != BatchLoadStatusProgressStopped && task.TaskStatus != BatchLoadStatusFailed {
 		return fmt.Errorf(
 			"%w: task %s cannot be resumed from status %s",
 			ErrInvalidBatchLoadStatus,

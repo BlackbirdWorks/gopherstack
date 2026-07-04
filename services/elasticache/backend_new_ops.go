@@ -55,11 +55,13 @@ type EC2SecurityGroupMembership struct {
 // GlobalReplicationGroup represents an ElastiCache global replication group.
 type GlobalReplicationGroup struct {
 	CreatedAt                     time.Time         `json:"createdAt"`
+	AvailableAt                   time.Time         `json:"availableAt,omitzero"`
 	Tags                          *tags.Tags        `json:"tags,omitempty"`
 	SecondaryReplicationGroups    map[string]string `json:"secondaryReplicationGroups,omitempty"`
 	GlobalReplicationGroupID      string            `json:"globalReplicationGroupId"`
 	Description                   string            `json:"description"`
 	Status                        string            `json:"status"`
+	PendingStatus                 string            `json:"pendingStatus,omitempty"`
 	ARN                           string            `json:"arn"`
 	Engine                        string            `json:"engine"`
 	EngineVersion                 string            `json:"engineVersion"`
@@ -76,12 +78,14 @@ type ServerlessCacheEndpoint struct {
 // ServerlessCache represents an ElastiCache serverless cache.
 type ServerlessCache struct {
 	CreatedAt              time.Time                `json:"createdAt"`
+	AvailableAt            time.Time                `json:"availableAt,omitzero"`
 	Tags                   *tags.Tags               `json:"tags,omitempty"`
 	Endpoint               *ServerlessCacheEndpoint `json:"endpoint,omitempty"`
 	ReaderEndpoint         *ServerlessCacheEndpoint `json:"readerEndpoint,omitempty"`
 	Name                   string                   `json:"name"`
 	Description            string                   `json:"description"`
 	Status                 string                   `json:"status"`
+	PendingStatus          string                   `json:"pendingStatus,omitempty"`
 	ARN                    string                   `json:"arn"`
 	Engine                 string                   `json:"engine"`
 	KmsKeyID               string                   `json:"kmsKeyId,omitempty"`
@@ -225,7 +229,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 	defer b.mu.Unlock()
 
 	id := "ldgnf-" + globalReplicationGroupIDSuffix
-	if _, exists := b.globalReplicationGroups[id]; exists {
+	if _, exists := b.getGlobalReplicationGroup(id); exists {
 		return nil, ErrGlobalReplicationGroupExists
 	}
 
@@ -263,10 +267,11 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		Tags:                          tags.New("elasticache.grg." + id + ".tags"),
 		NodeGroupCount:                nodeGroupCount,
 	}
-	b.globalReplicationGroups[id] = grg
+	b.markCreatingLocked(&grg.PendingStatus, &grg.AvailableAt)
+	b.putGlobalReplicationGroup(id, grg)
 	b.appendEventLocked(id, "global-replication-group", "global replication group created")
 
-	return grg, nil
+	return b.globalReplicationGroupView(grg), nil
 }
 
 // ----------------------------------------
@@ -313,10 +318,11 @@ func (b *InMemoryBackend) CreateServerlessCache(
 		Endpoint:       ep,
 		ReaderEndpoint: readerEp,
 	}
+	b.markCreatingLocked(&sc.PendingStatus, &sc.AvailableAt)
 	store[name] = sc
 	b.appendEventLocked(name, "serverless-cache", "serverless cache created")
 
-	return sc, nil
+	return b.serverlessCacheView(sc), nil
 }
 
 // ----------------------------------------
@@ -584,7 +590,7 @@ func (b *InMemoryBackend) AddCacheSecurityGroupInternal(sg *CacheSecurityGroup) 
 func (b *InMemoryBackend) AddGlobalReplicationGroupInternal(grg *GlobalReplicationGroup) {
 	b.mu.Lock("AddGlobalReplicationGroupInternal")
 	defer b.mu.Unlock()
-	b.globalReplicationGroups[grg.GlobalReplicationGroupID] = grg
+	b.putGlobalReplicationGroup(grg.GlobalReplicationGroupID, grg)
 }
 
 // AddServerlessCacheInternal seeds a serverless cache for testing.

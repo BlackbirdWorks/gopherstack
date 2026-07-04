@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -124,7 +125,12 @@ func TestEC2Lifecycle_TerminateInstances_ReturnsShuttingDown(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, changes, 1)
 
-	assert.Equal(t, "shutting-down", changes[0].CurrentState.Name, "TerminateInstances must return shutting-down")
+	assert.Equal(
+		t,
+		"shutting-down",
+		changes[0].CurrentState.Name,
+		"TerminateInstances must return shutting-down",
+	)
 
 	// Backend state is shutting-down until reconciler runs.
 	all := b.DescribeInstances([]string{instances[0].ID}, "")
@@ -164,7 +170,7 @@ func TestEC2Lifecycle_BackgroundReconciler(t *testing.T) {
 	// This test exercises the production background reconciler, so it starts the
 	// goroutine explicitly and stops it on cleanup. All other tests drive
 	// lifecycle transitions via TickLifecycleForTest and leave it stopped.
-	b.StartLifecycleReconciler()
+	b.StartLifecycleReconciler(context.Background())
 	t.Cleanup(b.StopLifecycleReconciler)
 
 	instances, err := b.RunInstances("ami-123", "t2.micro", "", 1)

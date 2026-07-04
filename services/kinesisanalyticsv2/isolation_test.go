@@ -90,6 +90,9 @@ func TestKinesisAnalyticsV2SnapshotRegionIsolation(t *testing.T) {
 	_, err = backend.CreateApplication(ctxWest, "snap-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
+	err = backend.StartApplication(ctxEast, "snap-app")
+	require.NoError(t, err)
+
 	// Create snapshot on east app only.
 	_, err = backend.CreateApplicationSnapshot(ctxEast, "snap-app", "snap-1")
 	require.NoError(t, err)

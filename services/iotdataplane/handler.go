@@ -720,9 +720,13 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "thingName is required"})
 	}
 
+	if err := validateThingName(thingName); err != nil {
+		return h.handleError(c, err)
+	}
+
 	names, err := h.Backend.ListNamedShadowsForThing(thingName)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	q := c.Request().URL.Query()

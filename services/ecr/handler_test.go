@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -51,7 +52,9 @@ func newTestECRClient(t *testing.T, h *ecr.Handler) *ecrsdk.Client {
 	cfg, err := awscfg.LoadDefaultConfig(
 		t.Context(),
 		awscfg.WithRegion(testRegion),
-		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+		awscfg.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
 	)
 	require.NoError(t, err)
 
@@ -60,7 +63,12 @@ func newTestECRClient(t *testing.T, h *ecr.Handler) *ecrsdk.Client {
 	})
 }
 
-func doECRRequest(t *testing.T, h *ecr.Handler, action string, body any) *httptest.ResponseRecorder {
+func doECRRequest(
+	t *testing.T,
+	h *ecr.Handler,
+	action string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	bodyBytes, err := json.Marshal(body)
@@ -315,7 +323,12 @@ func TestECR_DescribeRepositories(t *testing.T) { //nolint:paralleltest // exist
 			h := newTestHandler(t)
 
 			for _, repoName := range tt.repos {
-				rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": repoName})
+				rec := doECRRequest(
+					t,
+					h,
+					"CreateRepository",
+					map[string]any{"repositoryName": repoName},
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
@@ -364,11 +377,21 @@ func TestECR_DeleteRepository(t *testing.T) { //nolint:paralleltest // existing 
 			h := newTestHandler(t)
 
 			if tt.create != "" {
-				rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": tt.create})
+				rec := doECRRequest(
+					t,
+					h,
+					"CreateRepository",
+					map[string]any{"repositoryName": tt.create},
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
-			rec := doECRRequest(t, h, "DeleteRepository", map[string]any{"repositoryName": tt.delete})
+			rec := doECRRequest(
+				t,
+				h,
+				"DeleteRepository",
+				map[string]any{"repositoryName": tt.delete},
+			)
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			if tt.wantCode == http.StatusOK {
@@ -404,7 +427,10 @@ func TestECR_GetAuthorizationToken(t *testing.T) { //nolint:paralleltest // exis
 
 	decoded, err := base64.StdEncoding.DecodeString(tokenRaw)
 	require.NoError(t, err)
-	assert.Equal(t, "AWS:dummy-password", string(decoded))
+	parts := strings.SplitN(string(decoded), ":", 2)
+	require.Len(t, parts, 2, "token must be user:password")
+	assert.Equal(t, "AWS", parts[0])
+	assert.NotEmpty(t, parts[1], "password must be non-empty")
 
 	assert.NotZero(t, entry["expiresAt"])
 }
@@ -511,7 +537,12 @@ func TestECR_MissingSDKOperations(t *testing.T) { //nolint:paralleltest // exist
 		rec = doECRRequest(t, h, action, map[string]any{})
 		assert.Equal(t, http.StatusOK, rec.Code, action)
 	}
-	rec = doECRRequest(t, h, "PutRegistryScanningConfiguration", map[string]any{"scanType": "BASIC"})
+	rec = doECRRequest(
+		t,
+		h,
+		"PutRegistryScanningConfiguration",
+		map[string]any{"scanType": "BASIC"},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h, "PutReplicationConfiguration", map[string]any{
 		"replicationConfiguration": map[string]any{"rules": []any{}},
@@ -701,11 +732,11 @@ func TestECR_Persistence(t *testing.T) { //nolint:paralleltest // existing issue
 	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "persist-me"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	snapshot := h.Snapshot()
+	snapshot := h.Snapshot(t.Context())
 	require.NotEmpty(t, snapshot)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snapshot))
+	require.NoError(t, h2.Restore(t.Context(), snapshot))
 
 	rec2 := doECRRequest(t, h2, "DescribeRepositories", map[string]any{})
 	require.Equal(t, http.StatusOK, rec2.Code)
@@ -886,7 +917,12 @@ func TestECR_BatchCheckLayerAvailability(t *testing.T) { //nolint:paralleltest /
 			h := newTestHandler(t)
 
 			// Repository must exist for BatchCheckLayerAvailability.
-			rec0 := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": tt.repositoryName})
+			rec0 := doECRRequest(
+				t,
+				h,
+				"CreateRepository",
+				map[string]any{"repositoryName": tt.repositoryName},
+			)
 			require.Equal(t, http.StatusOK, rec0.Code)
 
 			if tt.preUpload {
@@ -965,8 +1001,11 @@ func TestECR_BatchDeleteImage(t *testing.T) { //nolint:paralleltest // existing 
 			setup: func(b *ecr.InMemoryBackend) {
 				b.CreateRepoInternal("my-repo")
 				b.AddImageInternal("my-repo", ecr.Image{
-					ImageDigest:    "sha256:tag111",
-					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:tag111", ImageTag: "latest"},
+					ImageDigest: "sha256:tag111",
+					ImageID: ecr.ImageIdentifier{
+						ImageDigest: "sha256:tag111",
+						ImageTag:    "latest",
+					},
 					RepositoryName: "my-repo",
 					RegistryID:     testAccountID,
 				})
@@ -1056,9 +1095,12 @@ func TestECR_BatchGetImage(t *testing.T) { //nolint:paralleltest // existing iss
 			setup: func(b *ecr.InMemoryBackend) {
 				b.CreateRepoInternal("my-repo")
 				b.AddImageInternal("my-repo", ecr.Image{
-					ImageDigest:    "sha256:gettag",
-					ImageManifest:  `{"schemaVersion":2}`,
-					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:gettag", ImageTag: "stable"},
+					ImageDigest:   "sha256:gettag",
+					ImageManifest: `{"schemaVersion":2}`,
+					ImageID: ecr.ImageIdentifier{
+						ImageDigest: "sha256:gettag",
+						ImageTag:    "stable",
+					},
 					RepositoryName: "my-repo",
 					RegistryID:     testAccountID,
 				})
@@ -1093,7 +1135,10 @@ func TestECR_BatchGetImage(t *testing.T) { //nolint:paralleltest // existing iss
 		})
 	}
 }
-func TestECR_BatchGetRepositoryScanningConfiguration(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_BatchGetRepositoryScanningConfiguration( //nolint:paralleltest // existing issue.
+	t *testing.T,
+) {
 	tests := []struct {
 		name            string
 		setup           func(*ecr.Handler)
@@ -1112,7 +1157,12 @@ func TestECR_BatchGetRepositoryScanningConfiguration(t *testing.T) { //nolint:pa
 		{
 			name: "existing repository returns config",
 			setup: func(h *ecr.Handler) {
-				rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "scan-repo"})
+				rec := doECRRequest(
+					t,
+					h,
+					"CreateRepository",
+					map[string]any{"repositoryName": "scan-repo"},
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			repositoryNames: []string{"scan-repo"},
@@ -1235,7 +1285,10 @@ func TestECR_CreatePullThroughCacheRule(t *testing.T) { //nolint:paralleltest //
 		})
 	}
 }
-func TestECR_CreatePullThroughCacheRule_AlreadyExists(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_CreatePullThroughCacheRule_AlreadyExists( //nolint:paralleltest // existing issue.
+	t *testing.T,
+) {
 	h := newTestHandler(t)
 
 	rec := doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
@@ -1254,7 +1307,10 @@ func TestECR_CreatePullThroughCacheRule_AlreadyExists(t *testing.T) { //nolint:p
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Contains(t, out["__type"], "PullThroughCacheRuleAlreadyExistsException")
 }
-func TestECR_CreateRepositoryCreationTemplate(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_CreateRepositoryCreationTemplate( //nolint:paralleltest // existing issue.
+	t *testing.T,
+) {
 	tests := []struct {
 		name       string
 		prefix     string
@@ -1305,7 +1361,12 @@ func TestECR_DeleteLifecyclePolicy(t *testing.T) { //nolint:paralleltest // exis
 		{
 			name: "deletes lifecycle policy for existing repo",
 			setup: func(h *ecr.Handler) {
-				rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "policy-repo"})
+				rec := doECRRequest(
+					t,
+					h,
+					"CreateRepository",
+					map[string]any{"repositoryName": "policy-repo"},
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				rec2 := doECRRequest(t, h, "PutLifecyclePolicy", map[string]any{
@@ -1456,32 +1517,43 @@ func TestECR_SDKClient_NewOperations(t *testing.T) { //nolint:paralleltest // ex
 	imageID := putImageOut.Image.ImageId
 	_, err = client.PutSigningConfiguration(ctx, &ecrsdk.PutSigningConfigurationInput{
 		SigningConfiguration: &types.SigningConfiguration{Rules: []types.SigningRule{{
-			SigningProfileArn: aws.String("arn:aws:signer:us-east-1:000000000000:/signing-profiles/test"),
+			SigningProfileArn: aws.String(
+				"arn:aws:signer:us-east-1:000000000000:/signing-profiles/test",
+			),
 		}}},
 	})
 	require.NoError(t, err)
-	signingOut, err := client.DescribeImageSigningStatus(ctx, &ecrsdk.DescribeImageSigningStatusInput{
-		ImageId:        imageID,
-		RepositoryName: aws.String("sdk-client-repo"),
-	})
+	signingOut, err := client.DescribeImageSigningStatus(
+		ctx,
+		&ecrsdk.DescribeImageSigningStatusInput{
+			ImageId:        imageID,
+			RepositoryName: aws.String("sdk-client-repo"),
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, signingOut.RegistryId)
 	assert.Equal(t, testAccountID, *signingOut.RegistryId)
 	require.Len(t, signingOut.SigningStatuses, 1)
 	assert.Equal(t, types.SigningStatusComplete, signingOut.SigningStatuses[0].Status)
 
-	_, err = client.PutRegistryScanningConfiguration(ctx, &ecrsdk.PutRegistryScanningConfigurationInput{
-		ScanType: types.ScanTypeEnhanced,
-		Rules: []types.RegistryScanningRule{{
-			ScanFrequency: types.ScanFrequencyScanOnPush,
-			RepositoryFilters: []types.ScanningRepositoryFilter{{
-				Filter:     aws.String("sdk-client-*"),
-				FilterType: types.ScanningRepositoryFilterTypeWildcard,
+	_, err = client.PutRegistryScanningConfiguration(
+		ctx,
+		&ecrsdk.PutRegistryScanningConfigurationInput{
+			ScanType: types.ScanTypeEnhanced,
+			Rules: []types.RegistryScanningRule{{
+				ScanFrequency: types.ScanFrequencyScanOnPush,
+				RepositoryFilters: []types.ScanningRepositoryFilter{{
+					Filter:     aws.String("sdk-client-*"),
+					FilterType: types.ScanningRepositoryFilterTypeWildcard,
+				}},
 			}},
-		}},
-	})
+		},
+	)
 	require.NoError(t, err)
-	scanningOut, err := client.GetRegistryScanningConfiguration(ctx, &ecrsdk.GetRegistryScanningConfigurationInput{})
+	scanningOut, err := client.GetRegistryScanningConfiguration(
+		ctx,
+		&ecrsdk.GetRegistryScanningConfigurationInput{},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, scanningOut.ScanningConfiguration)
 	assert.Equal(t, types.ScanTypeEnhanced, scanningOut.ScanningConfiguration.ScanType)
@@ -1508,17 +1580,25 @@ func TestECR_SDKClient_NewOperations(t *testing.T) { //nolint:paralleltest // ex
 		UpstreamRegistryUrl: aws.String("registry-1.docker.io"),
 	})
 	require.NoError(t, err)
-	rulesOut, err := client.DescribePullThroughCacheRules(ctx, &ecrsdk.DescribePullThroughCacheRulesInput{})
+	rulesOut, err := client.DescribePullThroughCacheRules(
+		ctx,
+		&ecrsdk.DescribePullThroughCacheRulesInput{},
+	)
 	require.NoError(t, err)
 	require.Len(t, rulesOut.PullThroughCacheRules, 1)
 	assert.Equal(t, "docker-hub", *rulesOut.PullThroughCacheRules[0].EcrRepositoryPrefix)
 
-	_, err = client.CreateRepositoryCreationTemplate(ctx, &ecrsdk.CreateRepositoryCreationTemplateInput{
-		Prefix:             aws.String("team/"),
-		AppliedFor:         []types.RCTAppliedFor{types.RCTAppliedForCreateOnPush},
-		ImageTagMutability: types.ImageTagMutabilityMutable,
-		ResourceTags:       []types.Tag{{Key: aws.String("team"), Value: aws.String("platform")}},
-	})
+	_, err = client.CreateRepositoryCreationTemplate(
+		ctx,
+		&ecrsdk.CreateRepositoryCreationTemplateInput{
+			Prefix:             aws.String("team/"),
+			AppliedFor:         []types.RCTAppliedFor{types.RCTAppliedForCreateOnPush},
+			ImageTagMutability: types.ImageTagMutabilityMutable,
+			ResourceTags: []types.Tag{
+				{Key: aws.String("team"), Value: aws.String("platform")},
+			},
+		},
+	)
 	require.NoError(t, err)
 	templatesOut, err := client.DescribeRepositoryCreationTemplates(
 		ctx,
@@ -1529,15 +1609,28 @@ func TestECR_SDKClient_NewOperations(t *testing.T) { //nolint:paralleltest // ex
 	assert.Equal(t, "team/", *templatesOut.RepositoryCreationTemplates[0].Prefix)
 	assert.Len(t, templatesOut.RepositoryCreationTemplates[0].ResourceTags, 1)
 
-	_, err = client.RegisterPullTimeUpdateExclusion(ctx, &ecrsdk.RegisterPullTimeUpdateExclusionInput{
-		PrincipalArn: aws.String("arn:aws:iam::000000000000:role/sdk-client"),
-	})
+	_, err = client.RegisterPullTimeUpdateExclusion(
+		ctx,
+		&ecrsdk.RegisterPullTimeUpdateExclusionInput{
+			PrincipalArn: aws.String("arn:aws:iam::000000000000:role/sdk-client"),
+		},
+	)
 	require.NoError(t, err)
-	exclusionsOut, err := client.ListPullTimeUpdateExclusions(ctx, &ecrsdk.ListPullTimeUpdateExclusionsInput{})
+	exclusionsOut, err := client.ListPullTimeUpdateExclusions(
+		ctx,
+		&ecrsdk.ListPullTimeUpdateExclusionsInput{},
+	)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"arn:aws:iam::000000000000:role/sdk-client"}, exclusionsOut.PullTimeUpdateExclusions)
+	assert.Equal(
+		t,
+		[]string{"arn:aws:iam::000000000000:role/sdk-client"},
+		exclusionsOut.PullTimeUpdateExclusions,
+	)
 }
-func TestECR_BackendPutImageReturnsDefensiveCopy(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_BackendPutImageReturnsDefensiveCopy( //nolint:paralleltest // existing issue.
+	t *testing.T,
+) {
 	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
 	_, err := backend.CreateRepository(context.Background(), "copy-repo", "", false, "", "")
 	require.NoError(t, err)
@@ -1560,20 +1653,28 @@ func TestECR_BackendPutImageReturnsDefensiveCopy(t *testing.T) { //nolint:parall
 	assert.Equal(t, "ACTIVE", stored[0].ImageStatus)
 	assert.Equal(t, "latest", stored[0].ImageID.ImageTag)
 }
-func TestECR_RestoreClearsInFlightLayerUploads(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_RestoreClearsInFlightLayerUploads( //nolint:paralleltest // existing issue.
+	t *testing.T,
+) {
 	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
 	h := ecr.NewHandler(backend, nil)
 
 	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "restore-repo"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	rec = doECRRequest(t, h, "InitiateLayerUpload", map[string]any{"repositoryName": "restore-repo"})
+	rec = doECRRequest(
+		t,
+		h,
+		"InitiateLayerUpload",
+		map[string]any{"repositoryName": "restore-repo"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var upload map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &upload))
-	snapshot := h.Snapshot()
+	snapshot := h.Snapshot(t.Context())
 	require.NotEmpty(t, snapshot)
-	require.NoError(t, h.Restore(snapshot))
+	require.NoError(t, h.Restore(t.Context(), snapshot))
 
 	rec = doECRRequest(t, h, "UploadLayerPart", map[string]any{
 		"repositoryName": "restore-repo",
@@ -1640,7 +1741,9 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	rec = doECRRequest(t, h, "PutReplicationConfiguration", map[string]any{
 		"replicationConfiguration": map[string]any{
 			"rules": []map[string]any{{
-				"destinations": []map[string]any{{"region": "us-west-2", "registryId": testAccountID}},
+				"destinations": []map[string]any{
+					{"region": "us-west-2", "registryId": testAccountID},
+				},
 			}},
 		},
 	})
@@ -1667,12 +1770,12 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	backend.SetRegistryPolicyInternal(`{"Version":"2012-10-17"}`)
 
 	// Snapshot and restore
-	snapshot := h.Snapshot()
+	snapshot := h.Snapshot(t.Context())
 	require.NotEmpty(t, snapshot)
 
 	backend2 := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
 	h2 := ecr.NewHandler(backend2, nil)
-	require.NoError(t, h2.Restore(snapshot))
+	require.NoError(t, h2.Restore(t.Context(), snapshot))
 
 	// Verify layer availability is restored
 	rec = doECRRequest(t, h2, "BatchCheckLayerAvailability", map[string]any{
@@ -1695,9 +1798,19 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	rec = doECRRequest(t, h2, "DeleteRegistryPolicy", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doECRRequest(t, h2, "GetLifecyclePolicy", map[string]any{"repositoryName": "persist-repo"})
+	rec = doECRRequest(
+		t,
+		h2,
+		"GetLifecyclePolicy",
+		map[string]any{"repositoryName": "persist-repo"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
-	rec = doECRRequest(t, h2, "GetLifecyclePolicyPreview", map[string]any{"repositoryName": "persist-repo"})
+	rec = doECRRequest(
+		t,
+		h2,
+		"GetLifecyclePolicyPreview",
+		map[string]any{"repositoryName": "persist-repo"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h2, "DescribeImageScanFindings", map[string]any{
 		"repositoryName": "persist-repo",
@@ -1710,7 +1823,12 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h2, "GetSigningConfiguration", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
-	rec = doECRRequest(t, h2, "GetAccountSetting", map[string]any{"name": "BASIC_SCAN_TYPE_VERSION"})
+	rec = doECRRequest(
+		t,
+		h2,
+		"GetAccountSetting",
+		map[string]any{"name": "BASIC_SCAN_TYPE_VERSION"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h2, "DeregisterPullTimeUpdateExclusion", map[string]any{
 		"principalArn": "arn:aws:iam::000000000000:role/persist",

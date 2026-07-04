@@ -1,0 +1,20 @@
+services:
+  gopherstack:
+    build: ../..
+    ports:
+      - "8000:8000"
+      - "10000-10100:10000-10100"
+    # Lambda runs on real Docker inside gopherstack, so it needs the host
+    # Docker socket to launch the function container.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp
+    healthcheck:
+      test: ["CMD", "./gopherstack", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    environment:
+      - LAMBDA_DOCKER_HOST=host.docker.internal
+

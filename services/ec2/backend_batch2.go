@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // Errors for batch2 operations.
@@ -280,11 +282,7 @@ func (b *InMemoryBackend) ModifyVpcEndpointServicePermissions(
 		delete(existing, p)
 	}
 
-	result := make([]string, 0, len(existing))
-	for p := range existing {
-		result = append(result, p)
-	}
-	sort.Strings(result)
+	result := collections.SortedKeys(existing)
 	b.vpcEndpointServicePermissions[serviceID] = result
 
 	return nil

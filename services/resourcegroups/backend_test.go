@@ -97,7 +97,7 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			groups := b.ListGroups(context.Background(), nil)
+			groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 			assert.Empty(t, groups)
 		})
 	}
@@ -173,7 +173,7 @@ func TestResourceGroupsListGroups(t *testing.T) {
 	_, _ = b.CreateGroup(context.Background(), "group-a", "", nil, nil, nil)
 	_, _ = b.CreateGroup(context.Background(), "group-b", "", nil, nil, nil)
 
-	groups := b.ListGroups(context.Background(), nil)
+	groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 	assert.Len(t, groups, 2)
 }
 
@@ -339,11 +339,11 @@ func TestResourceGroupsSnapshotRestore(t *testing.T) {
 	}, tags.FromMap("test.rg", map[string]string{"env": "test"}), nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	g, err := b2.GetGroup(context.Background(), "snap-group")
 	require.NoError(t, err)
@@ -358,6 +358,6 @@ func TestResourceGroupsRestoreInvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-json"))
+	err := b.Restore(t.Context(), []byte("not-json"))
 	require.Error(t, err)
 }

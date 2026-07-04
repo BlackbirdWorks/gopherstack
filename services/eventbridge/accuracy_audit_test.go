@@ -188,7 +188,7 @@ func TestAudit_Target_RetryPolicyStored(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	targets, _, err := b.ListTargetsByRule(context.Background(), "r", "", "")
+	targets, _, err := b.ListTargetsByRule(context.Background(), "r", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	require.NotNil(t, targets[0].RetryPolicy)
@@ -216,7 +216,7 @@ func TestAudit_Target_DeadLetterConfigStored(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	targets, _, err := b.ListTargetsByRule(context.Background(), "r", "", "")
+	targets, _, err := b.ListTargetsByRule(context.Background(), "r", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	require.NotNil(t, targets[0].DeadLetterConfig)
@@ -245,7 +245,7 @@ func TestAudit_Target_BatchParametersStored(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	targets, _, err := b.ListTargetsByRule(context.Background(), "r", "", "")
+	targets, _, err := b.ListTargetsByRule(context.Background(), "r", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	require.NotNil(t, targets[0].BatchParameters)
@@ -2049,7 +2049,7 @@ func TestAudit_EventBus_ListPagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	buses, _, err := b.ListEventBuses(context.Background(), "page-bus-", "")
+	buses, _, err := b.ListEventBuses(context.Background(), "page-bus-", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, buses, 5)
 }
@@ -2080,7 +2080,7 @@ func TestAudit_EventBus_DeleteCleansUpRulesAndTargets(t *testing.T) {
 	require.ErrorIs(t, err, eventbridge.ErrEventBusNotFound)
 
 	// Rules on deleted bus should also be gone.
-	rules, _, err := b.ListRules(context.Background(), "to-delete", "", "")
+	rules, _, err := b.ListRules(context.Background(), "to-delete", "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, rules)
 }

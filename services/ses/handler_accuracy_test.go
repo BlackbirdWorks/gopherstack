@@ -438,7 +438,7 @@ func TestSendBulkTemplatedEmail_PerDestination(t *testing.T) {
 		{To: []string{"b@example.com"}, Cc: []string{"cc@example.com"}},
 	}
 
-	msgIDs, err := b.SendBulkTemplatedEmail("sender@example.com", "t", destinations)
+	msgIDs, err := b.SendBulkTemplatedEmail("sender@example.com", "t", "", destinations)
 	require.NoError(t, err)
 	assert.Len(t, msgIDs, 2)
 
@@ -509,11 +509,11 @@ func TestIdentityRecord_SnapshotRestore(t *testing.T) {
 	require.NoError(t, b.SetIdentityMailFromDomain("a@example.com", "mail.example.com"))
 	require.NoError(t, b.SetIdentityNotificationTopic("a@example.com", "Bounce", "arn:topic"))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ses.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	dkim := fresh.GetIdentityDkimAttributes([]string{"a@example.com"})
 	assert.True(t, dkim["a@example.com"].DkimEnabled)
@@ -536,11 +536,11 @@ func TestConfigurationSet_SnapshotRestore(t *testing.T) {
 	require.NoError(t, b.UpdateConfigurationSetSendingEnabled("cs1", false))
 	require.NoError(t, b.UpdateConfigurationSetReputationMetricsEnabled("cs1", true))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ses.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	desc, err := fresh.DescribeConfigurationSet("cs1")
 	require.NoError(t, err)

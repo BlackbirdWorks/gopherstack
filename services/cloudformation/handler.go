@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -325,8 +326,8 @@ func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, "InternalFailure", "failed to marshal schema: "+err.Error())
 	}
 
-	arn := fmt.Sprintf("arn:aws:cloudformation:%s::type/resource/%s/00000001",
-		config.DefaultRegion, strings.ReplaceAll(typeName, "::", "-"))
+	typeResource := fmt.Sprintf("type/resource/%s/00000001", strings.ReplaceAll(typeName, "::", "-"))
+	arnStr := arn.Build("cloudformation", config.DefaultRegion, "", typeResource)
 
 	type typeResult struct {
 		Arn              string `xml:"Arn"`
@@ -350,7 +351,7 @@ func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
 		Xmlns:     cfnNS,
 		RequestID: uuid.New().String(),
 		Result: typeResult{
-			Arn:              arn,
+			Arn:              arnStr,
 			DefaultVersionID: "00000001",
 			IsActivated:      true,
 			IsDefaultVersion: true,

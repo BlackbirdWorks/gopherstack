@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -56,8 +58,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CountOpenWorkflowExecutions",
 		"CountPendingActivityTasks",
 		"CountPendingDecisionTasks",
-		"DeleteActivityType",
-		"DeleteWorkflowType",
 		"DeprecateActivityType",
 		"DeprecateDomain",
 		"DeprecateWorkflowType",
@@ -169,13 +169,11 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"DescribeWorkflowType":           service.WrapOp(h.handleDescribeWorkflowType),
 		"DeprecateWorkflowType":          service.WrapOp(h.handleDeprecateWorkflowType),
 		"UndeprecateWorkflowType":        service.WrapOp(h.handleUndeprecateWorkflowType),
-		"DeleteWorkflowType":             service.WrapOp(h.handleDeleteWorkflowType),
 		"RegisterActivityType":           service.WrapOp(h.handleRegisterActivityType),
 		"ListActivityTypes":              service.WrapOp(h.handleListActivityTypes),
 		"DescribeActivityType":           service.WrapOp(h.handleDescribeActivityType),
 		"DeprecateActivityType":          service.WrapOp(h.handleDeprecateActivityType),
 		"UndeprecateActivityType":        service.WrapOp(h.handleUndeprecateActivityType),
-		"DeleteActivityType":             service.WrapOp(h.handleDeleteActivityType),
 		"CountOpenWorkflowExecutions":    service.WrapOp(h.handleCountOpenWorkflowExecutions),
 		"CountClosedWorkflowExecutions":  service.WrapOp(h.handleCountClosedWorkflowExecutions),
 		"CountPendingActivityTasks":      service.WrapOp(h.handleCountPendingActivityTasks),
@@ -222,6 +220,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var errType string
 
 	switch {
+	case errors.Is(err, ErrWorkflowAlreadyStarted):
+		code = http.StatusBadRequest
+		errType = "WorkflowExecutionAlreadyStartedFault"
 	case errors.Is(err, ErrAlreadyExists):
 		code = http.StatusBadRequest
 		errType = "DomainAlreadyExistsFault"
@@ -304,8 +305,15 @@ type domainConfigOutput struct {
 	WorkflowExecutionRetentionPeriodInDays string `json:"workflowExecutionRetentionPeriodInDays"`
 }
 
+type domainInfoOutput struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status"`
+	Arn         string `json:"arn,omitempty"`
+}
+
 type describeDomainOutput struct {
-	DomainInfo    *Domain            `json:"domainInfo"`
+	DomainInfo    *domainInfoOutput  `json:"domainInfo"`
 	Configuration domainConfigOutput `json:"configuration"`
 }
 
@@ -327,7 +335,12 @@ func (h *Handler) handleDescribeDomain(
 	}
 
 	return &describeDomainOutput{
-		DomainInfo:    d,
+		DomainInfo: &domainInfoOutput{
+			Name:        d.Name,
+			Description: d.Description,
+			Status:      d.Status,
+			Arn:         d.Arn,
+		},
 		Configuration: domainConfigOutput{WorkflowExecutionRetentionPeriodInDays: retention},
 	}, nil
 }
@@ -335,8 +348,8 @@ func (h *Handler) handleDescribeDomain(
 // --- ListDomains ---
 
 type listDomainsOutput struct {
-	NextPageToken string   `json:"nextPageToken,omitempty"`
-	DomainInfos   []Domain `json:"domainInfos"`
+	NextPageToken string             `json:"nextPageToken,omitempty"`
+	DomainInfos   []domainInfoOutput `json:"domainInfos"`
 }
 
 type handleListDomainsInput struct {
@@ -352,8 +365,17 @@ func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInpu
 	}
 	sort.Slice(domains, func(i, j int) bool { return domains[i].Name < domains[j].Name })
 	domains, nextPageToken := applyPageTokenSlice(domains, in.NextPageToken, in.MaximumPageSize)
+	infos := make([]domainInfoOutput, len(domains))
+	for i, d := range domains {
+		infos[i] = domainInfoOutput{
+			Name:        d.Name,
+			Description: d.Description,
+			Status:      d.Status,
+			Arn:         d.Arn,
+		}
+	}
 
-	return &listDomainsOutput{DomainInfos: domains, NextPageToken: nextPageToken}, nil
+	return &listDomainsOutput{DomainInfos: infos, NextPageToken: nextPageToken}, nil
 }
 
 // --- DeprecateDomain ---
@@ -584,26 +606,6 @@ func (h *Handler) handleUndeprecateWorkflowType(
 	return &undeprecateWorkflowTypeOutput{}, nil
 }
 
-// --- DeleteWorkflowType ---
-
-type deleteWorkflowTypeOutput struct{}
-
-type handleDeleteWorkflowTypeInput struct {
-	Domain       string          `json:"domain"`
-	WorkflowType workflowTypeRef `json:"workflowType"`
-}
-
-func (h *Handler) handleDeleteWorkflowType(
-	_ context.Context,
-	in *handleDeleteWorkflowTypeInput,
-) (*deleteWorkflowTypeOutput, error) {
-	if err := h.Backend.DeleteWorkflowType(in.Domain, in.WorkflowType.Name, in.WorkflowType.Version); err != nil {
-		return nil, err
-	}
-
-	return &deleteWorkflowTypeOutput{}, nil
-}
-
 // --- RegisterActivityType ---
 
 type registerActivityTypeOutput struct{}
@@ -784,26 +786,6 @@ func (h *Handler) handleUndeprecateActivityType(
 	}
 
 	return &undeprecateActivityTypeOutput{}, nil
-}
-
-// --- DeleteActivityType ---
-
-type deleteActivityTypeOutput struct{}
-
-type handleDeleteActivityTypeInput struct {
-	Domain       string          `json:"domain"`
-	ActivityType activityTypeRef `json:"activityType"`
-}
-
-func (h *Handler) handleDeleteActivityType(
-	_ context.Context,
-	in *handleDeleteActivityTypeInput,
-) (*deleteActivityTypeOutput, error) {
-	if err := h.Backend.DeleteActivityType(in.Domain, in.ActivityType.Name, in.ActivityType.Version); err != nil {
-		return nil, err
-	}
-
-	return &deleteActivityTypeOutput{}, nil
 }
 
 // --- Execution counts ---
@@ -1047,13 +1029,15 @@ type openCountsOutput struct {
 	OpenDecisionTasks           int `json:"openDecisionTasks"`
 	OpenTimers                  int `json:"openTimers"`
 	OpenChildWorkflowExecutions int `json:"openChildWorkflowExecutions"`
+	OpenLambdaFunctions         int `json:"openLambdaFunctions"`
 }
 
 type describeWorkflowExecutionOutput struct {
-	ExecutionConfiguration executionConfigOutput `json:"executionConfiguration"`
-	LatestExecutionContext string                `json:"latestExecutionContext,omitempty"`
-	ExecutionInfo          executionInfoOutput   `json:"executionInfo"`
-	OpenCounts             openCountsOutput      `json:"openCounts"`
+	ExecutionConfiguration      executionConfigOutput `json:"executionConfiguration"`
+	LatestExecutionContext      string                `json:"latestExecutionContext,omitempty"`
+	ExecutionInfo               executionInfoOutput   `json:"executionInfo"`
+	OpenCounts                  openCountsOutput      `json:"openCounts"`
+	LatestActivityTaskTimestamp float64               `json:"latestActivityTaskTimestamp,omitempty"`
 }
 
 type handleDescribeWorkflowExecutionInput struct {
@@ -1074,7 +1058,7 @@ func (h *Handler) handleDescribeWorkflowExecution(
 		Execution:       workflowExecutionRef{WorkflowID: exec.WorkflowID, RunID: exec.RunID},
 		StartTimestamp:  exec.StartTimestamp,
 		CloseTimestamp:  exec.CloseTimestamp,
-		ExecutionStatus: exec.Status,
+		ExecutionStatus: execStatusToAPIStatus(exec.Status),
 		CloseStatus:     exec.CloseStatus,
 		TagList:         exec.TagList,
 		CancelRequested: exec.CancelRequested,
@@ -1106,6 +1090,7 @@ func (h *Handler) handleDescribeWorkflowExecution(
 			OpenDecisionTasks:           c["openDecisionTasks"],
 			OpenTimers:                  c["openTimers"],
 			OpenChildWorkflowExecutions: c["openChildWorkflowExecutions"],
+			OpenLambdaFunctions:         0,
 		}
 	}
 
@@ -1191,12 +1176,22 @@ type handleListOpenWorkflowExecutionsInput struct {
 	MaximumPageSize int                   `json:"maximumPageSize,omitempty"`
 }
 
+// execStatusToAPIStatus converts an internal execution status to the AWS API status.
+// AWS only uses "OPEN" or "CLOSED" for executionStatus.
+func execStatusToAPIStatus(internalStatus string) string {
+	if internalStatus == statusRunning {
+		return "OPEN"
+	}
+
+	return "CLOSED"
+}
+
 func executionToInfo(e WorkflowExecution) executionInfoOutput {
 	info := executionInfoOutput{
 		Execution:       workflowExecutionRef{WorkflowID: e.WorkflowID, RunID: e.RunID},
 		StartTimestamp:  e.StartTimestamp,
 		CloseTimestamp:  e.CloseTimestamp,
-		ExecutionStatus: e.Status,
+		ExecutionStatus: execStatusToAPIStatus(e.Status),
 		CloseStatus:     e.CloseStatus,
 		TagList:         e.TagList,
 		CancelRequested: e.CancelRequested,
@@ -1282,11 +1277,7 @@ func (h *Handler) handleListTagsForResource(
 	if err != nil {
 		return nil, err
 	}
-	keys := make([]string, 0, len(tagMap))
-	for k := range tagMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tagMap)
 	tags := make([]resourceTag, 0, len(keys))
 	for _, k := range keys {
 		tags = append(tags, resourceTag{Key: k, Value: tagMap[k]})
@@ -1347,16 +1338,39 @@ type handlePollForActivityTaskInput struct {
 	Identity string      `json:"identity,omitempty"`
 }
 
+type pollForActivityTaskOutput struct {
+	WorkflowExecution *workflowExecutionRef     `json:"workflowExecution,omitempty"`
+	ActivityType      *ActivityTaskActivityType `json:"activityType,omitempty"`
+	TaskToken         string                    `json:"taskToken,omitempty"`
+	ActivityID        string                    `json:"activityId,omitempty"`
+	Input             string                    `json:"input,omitempty"`
+	StartedEventID    int64                     `json:"startedEventId,omitempty"`
+	ScheduledEventID  int64                     `json:"scheduledEventId,omitempty"`
+}
+
 func (h *Handler) handlePollForActivityTask(
 	_ context.Context,
 	in *handlePollForActivityTaskInput,
-) (*ActivityTask, error) {
+) (*pollForActivityTaskOutput, error) {
 	task := h.Backend.PollForActivityTask(in.Domain, in.TaskList.Name)
 	if task == nil {
-		return &ActivityTask{}, nil
+		return &pollForActivityTaskOutput{}, nil
+	}
+	out := &pollForActivityTaskOutput{
+		TaskToken:        task.TaskToken,
+		ActivityID:       task.ActivityID,
+		Input:            task.Input,
+		StartedEventID:   task.StartedEventID,
+		ScheduledEventID: task.ScheduledEventID,
+	}
+	if task.ActivityType.Name != "" {
+		out.ActivityType = &task.ActivityType
+	}
+	if task.WorkflowID != "" {
+		out.WorkflowExecution = &workflowExecutionRef{WorkflowID: task.WorkflowID, RunID: task.RunID}
 	}
 
-	return task, nil
+	return out, nil
 }
 
 // --- PollForDecisionTask ---
@@ -1370,8 +1384,6 @@ type decisionTaskOutput struct {
 	WorkflowType           *decisionTaskWorkflowTypeOutput `json:"workflowType,omitempty"`
 	WorkflowExecution      *workflowExecutionRef           `json:"workflowExecution,omitempty"`
 	TaskToken              string                          `json:"taskToken"`
-	WorkflowID             string                          `json:"workflowId"`
-	RunID                  string                          `json:"runId"`
 	NextPageToken          string                          `json:"nextPageToken,omitempty"`
 	Events                 []HistoryEvent                  `json:"events"`
 	StartedEventID         int64                           `json:"startedEventId"`
@@ -1397,8 +1409,6 @@ func (h *Handler) handlePollForDecisionTask(
 	}
 	out := &decisionTaskOutput{
 		TaskToken:              task.TaskToken,
-		WorkflowID:             task.WorkflowID,
-		RunID:                  task.RunID,
 		Events:                 task.Events,
 		StartedEventID:         task.StartedEventID,
 		PreviousStartedEventID: task.PreviousStartedEventID,
@@ -1551,13 +1561,35 @@ type scheduleActivityDecisionAttrs struct {
 	HeartbeatTimeout       string          `json:"heartbeatTimeout,omitempty"`
 }
 
+type requestCancelActivityDecisionAttrs struct {
+	ActivityID string `json:"activityId"`
+}
+
+type startTimerDecisionAttrs struct {
+	TimerID            string `json:"timerId"`
+	StartToFireTimeout string `json:"startToFireTimeout,omitempty"`
+}
+
+type cancelTimerDecisionAttrs struct {
+	TimerID string `json:"timerId"`
+}
+
+type recordMarkerDecisionAttrs struct {
+	MarkerName string `json:"markerName"`
+	Details    string `json:"details,omitempty"`
+}
+
 //nolint:lll // AWS API field names exceed 120 chars; cannot shorten JSON tags
 type decisionInput struct {
-	CompleteWorkflowExecutionDecisionAttributes *completeWorkflowDecisionAttrs `json:"completeWorkflowExecutionDecisionAttributes,omitempty"`
-	FailWorkflowExecutionDecisionAttributes     *failWorkflowDecisionAttrs     `json:"failWorkflowExecutionDecisionAttributes,omitempty"`
-	CancelWorkflowExecutionDecisionAttributes   *cancelWorkflowDecisionAttrs   `json:"cancelWorkflowExecutionDecisionAttributes,omitempty"`
-	ScheduleActivityTaskDecisionAttributes      *scheduleActivityDecisionAttrs `json:"scheduleActivityTaskDecisionAttributes,omitempty"`
-	DecisionType                                string                         `json:"decisionType"`
+	CompleteWorkflowExecutionDecisionAttributes *completeWorkflowDecisionAttrs      `json:"completeWorkflowExecutionDecisionAttributes,omitempty"`
+	FailWorkflowExecutionDecisionAttributes     *failWorkflowDecisionAttrs          `json:"failWorkflowExecutionDecisionAttributes,omitempty"`
+	CancelWorkflowExecutionDecisionAttributes   *cancelWorkflowDecisionAttrs        `json:"cancelWorkflowExecutionDecisionAttributes,omitempty"`
+	ScheduleActivityTaskDecisionAttributes      *scheduleActivityDecisionAttrs      `json:"scheduleActivityTaskDecisionAttributes,omitempty"`
+	RequestCancelActivityTaskDecisionAttributes *requestCancelActivityDecisionAttrs `json:"requestCancelActivityTaskDecisionAttributes,omitempty"`
+	StartTimerDecisionAttributes                *startTimerDecisionAttrs            `json:"startTimerDecisionAttributes,omitempty"`
+	CancelTimerDecisionAttributes               *cancelTimerDecisionAttrs           `json:"cancelTimerDecisionAttributes,omitempty"`
+	RecordMarkerDecisionAttributes              *recordMarkerDecisionAttrs          `json:"recordMarkerDecisionAttributes,omitempty"`
+	DecisionType                                string                              `json:"decisionType"`
 }
 
 type handleRespondDecisionTaskCompletedInput struct {
@@ -1636,6 +1668,10 @@ func (h *Handler) handleSignalWorkflowExecution(
 	_ context.Context,
 	in *handleSignalWorkflowExecutionInput,
 ) (*signalWorkflowExecutionOutput, error) {
+	if in.SignalName == "" {
+		return nil, fmt.Errorf("%w: signalName is required", ErrValidation)
+	}
+
 	if err := h.Backend.SignalWorkflowExecution(
 		in.Domain,
 		in.WorkflowID,

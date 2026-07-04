@@ -39,7 +39,13 @@ func TestValidateFargateCPUMemory(t *testing.T) {
 			t.Parallel()
 			err := validateFargateCPUMemory(tt.cpu, tt.memory)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("validateFargateCPUMemory(%q, %q) error = %v, wantErr %v", tt.cpu, tt.memory, err, tt.wantErr)
+				t.Errorf(
+					"validateFargateCPUMemory(%q, %q) error = %v, wantErr %v",
+					tt.cpu,
+					tt.memory,
+					err,
+					tt.wantErr,
+				)
 			}
 		})
 	}
@@ -69,7 +75,12 @@ func TestValidatePlatformVersion(t *testing.T) {
 			t.Parallel()
 			err := validatePlatformVersion(tt.pv)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("validatePlatformVersion(%q) error = %v, wantErr %v", tt.pv, err, tt.wantErr)
+				t.Errorf(
+					"validatePlatformVersion(%q) error = %v, wantErr %v",
+					tt.pv,
+					err,
+					tt.wantErr,
+				)
 			}
 		})
 	}
@@ -98,7 +109,12 @@ func TestValidateDeploymentController(t *testing.T) {
 			t.Parallel()
 			err := validateDeploymentController(tt.dc)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("validateDeploymentController(%v) error = %v, wantErr %v", tt.dc, err, tt.wantErr)
+				t.Errorf(
+					"validateDeploymentController(%v) error = %v, wantErr %v",
+					tt.dc,
+					err,
+					tt.wantErr,
+				)
 			}
 		})
 	}
@@ -115,8 +131,13 @@ func TestDeploymentConfigurationWithAWSDefaults(t *testing.T) {
 		if out == nil {
 			t.Fatal("expected non-nil result")
 		}
-		if out.MinimumHealthyPercent == nil || *out.MinimumHealthyPercent != defaultMinimumHealthyPercent {
-			t.Errorf("MinimumHealthyPercent = %v, want %d", out.MinimumHealthyPercent, defaultMinimumHealthyPercent)
+		if out.MinimumHealthyPercent == nil ||
+			*out.MinimumHealthyPercent != defaultMinimumHealthyPercent {
+			t.Errorf(
+				"MinimumHealthyPercent = %v, want %d",
+				out.MinimumHealthyPercent,
+				defaultMinimumHealthyPercent,
+			)
 		}
 		if out.MaximumPercent == nil || *out.MaximumPercent != defaultMaximumPercent {
 			t.Errorf("MaximumPercent = %v, want %d", out.MaximumPercent, defaultMaximumPercent)
@@ -167,6 +188,7 @@ func TestRegisterTaskDefinition_RequiresCompatibilities(t *testing.T) {
 	td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
 		Family:                  "myapp",
 		RequiresCompatibilities: []string{"FARGATE"},
+		NetworkMode:             networkModeAwsvpc,
 		CPU:                     "256",
 		Memory:                  "512",
 		ContainerDefinitions: []ContainerDefinition{
@@ -188,6 +210,7 @@ func TestRegisterTaskDefinition_FargateValidation_InvalidCPU(t *testing.T) {
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
 		Family:                  "myapp",
 		RequiresCompatibilities: []string{"FARGATE"},
+		NetworkMode:             networkModeAwsvpc,
 		CPU:                     "128",
 		Memory:                  "512",
 		ContainerDefinitions:    []ContainerDefinition{{Name: "app", Image: "nginx"}},
@@ -207,6 +230,7 @@ func TestRegisterTaskDefinition_FargateValidation_InvalidMemory(t *testing.T) {
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
 		Family:                  "myapp",
 		RequiresCompatibilities: []string{"FARGATE"},
+		NetworkMode:             networkModeAwsvpc,
 		CPU:                     "256",
 		Memory:                  "9999",
 		ContainerDefinitions:    []ContainerDefinition{{Name: "app", Image: "nginx"}},
@@ -487,7 +511,10 @@ func TestCreateService_NetworkConfiguration(t *testing.T) {
 		t.Fatal("NetworkConfiguration not stored")
 	}
 	if len(svc.NetworkConfiguration.AwsvpcConfiguration.Subnets) != 2 {
-		t.Errorf("Subnets = %v, want 2 subnets", svc.NetworkConfiguration.AwsvpcConfiguration.Subnets)
+		t.Errorf(
+			"Subnets = %v, want 2 subnets",
+			svc.NetworkConfiguration.AwsvpcConfiguration.Subnets,
+		)
 	}
 }
 
@@ -789,7 +816,10 @@ func TestContainerDefinition_NewFields(t *testing.T) {
 	}
 
 	secrets := []SecretReference{
-		{Name: "DB_PASSWORD", ValueFrom: "arn:aws:secretsmanager:us-east-1:123456789012:secret:db-pass"},
+		{
+			Name:      "DB_PASSWORD",
+			ValueFrom: "arn:aws:secretsmanager:us-east-1:123456789012:secret:db-pass",
+		},
 	}
 
 	td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -927,7 +957,9 @@ func TestUpdateService_LoadBalancers(t *testing.T) {
 	updated, err := b.UpdateService(UpdateServiceInput{
 		Service: "my-svc",
 		LoadBalancers: []LoadBalancer{
-			{TargetGroupArn: "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/new-tg/abc"},
+			{
+				TargetGroupArn: "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/new-tg/abc",
+			},
 		},
 	})
 	if err != nil {
@@ -968,7 +1000,10 @@ func TestDeploymentConfiguration_MinMaxPercent_Stored(t *testing.T) {
 
 	if svc.DeploymentConfiguration.MinimumHealthyPercent == nil ||
 		*svc.DeploymentConfiguration.MinimumHealthyPercent != 75 {
-		t.Errorf("MinimumHealthyPercent = %v, want 75", svc.DeploymentConfiguration.MinimumHealthyPercent)
+		t.Errorf(
+			"MinimumHealthyPercent = %v, want 75",
+			svc.DeploymentConfiguration.MinimumHealthyPercent,
+		)
 	}
 	if svc.DeploymentConfiguration.MaximumPercent == nil ||
 		*svc.DeploymentConfiguration.MaximumPercent != 150 {
@@ -1013,7 +1048,10 @@ func TestMountPoints_VolumeFrom(t *testing.T) {
 		t.Errorf("VolumesFrom = %v, want 1", td.ContainerDefinitions[1].VolumesFrom)
 	}
 	if td.ContainerDefinitions[1].VolumesFrom[0].SourceContainer != "app" {
-		t.Errorf("SourceContainer = %q, want app", td.ContainerDefinitions[1].VolumesFrom[0].SourceContainer)
+		t.Errorf(
+			"SourceContainer = %q, want app",
+			td.ContainerDefinitions[1].VolumesFrom[0].SourceContainer,
+		)
 	}
 }
 
@@ -1080,6 +1118,9 @@ func TestContainerDependency(t *testing.T) {
 		t.Fatalf("DependsOn len = %d, want 1", len(td.ContainerDefinitions[1].DependsOn))
 	}
 	if td.ContainerDefinitions[1].DependsOn[0].Condition != "COMPLETE" {
-		t.Errorf("DependsOn condition = %q, want COMPLETE", td.ContainerDefinitions[1].DependsOn[0].Condition)
+		t.Errorf(
+			"DependsOn condition = %q, want COMPLETE",
+			td.ContainerDefinitions[1].DependsOn[0].Condition,
+		)
 	}
 }

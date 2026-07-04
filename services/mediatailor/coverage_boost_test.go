@@ -138,11 +138,11 @@ func TestBackend_SnapshotAndRestore(t *testing.T) {
 			_, err := b.PutPlaybackConfiguration("snap-cfg", "https://ads.com", "https://video.com", nil)
 			require.NoError(t, err)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotEmpty(t, snap)
 
 			b2 := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
-			err = b2.Restore(snap)
+			err = b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			assert.Equal(t, "111111111111", b2.AccountID())
@@ -169,7 +169,7 @@ func TestBackend_RestoreInvalidJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
-			err := b.Restore([]byte("not json"))
+			err := b.Restore(t.Context(), []byte("not json"))
 			require.Error(t, err)
 		})
 	}
@@ -317,7 +317,7 @@ func TestUntagResource(t *testing.T) {
 		wantCode int
 	}{
 		{name: "untag existing resource succeeds", wantCode: http.StatusNoContent},
-		{name: "untag non-existent resource returns 404", wantCode: http.StatusNotFound},
+		{name: "untag non-existent resource is idempotent", wantCode: http.StatusNoContent},
 	}
 
 	for i, tt := range tests {

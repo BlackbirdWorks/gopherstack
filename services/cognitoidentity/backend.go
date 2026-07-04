@@ -101,11 +101,21 @@ type RoleMapping struct {
 	AmbiguousRoleResolution string              `json:"ambiguousRoleResolution,omitempty"`
 }
 
+// PoolExtendedConfig carries optional fields added in later API versions that
+// would otherwise require touching every existing CreateIdentityPool/UpdateIdentityPool
+// call site. Pass as a trailing variadic arg; callers that omit it get zero values.
+type PoolExtendedConfig struct {
+	OpenIDConnectProviderARNs []string
+	SamlProviderARNs          []string
+}
+
 // IdentityPool represents an Amazon Cognito Identity Pool.
 type IdentityPool struct {
 	CreatedAt                      time.Time          `json:"createdAt"`
 	SupportedLoginProviders        map[string]string  `json:"supportedLoginProviders,omitempty"`
 	Tags                           map[string]string  `json:"tags,omitempty"`
+	OpenIDConnectProviderARNs      []string           `json:"openIdConnectProviderARNs,omitempty"`
+	SamlProviderARNs               []string           `json:"samlProviderARNs,omitempty"`
 	IdentityPoolID                 string             `json:"identityPoolID"`
 	IdentityPoolName               string             `json:"identityPoolName"`
 	ARN                            string             `json:"arn"`
@@ -251,6 +261,7 @@ func (b *InMemoryBackend) CreateIdentityPool(
 	providers []IdentityProvider,
 	supportedLoginProviders map[string]string,
 	tags map[string]string,
+	opts ...*PoolExtendedConfig,
 ) (*IdentityPool, error) {
 	region := getRegion(ctx, b.region)
 
@@ -277,6 +288,11 @@ func (b *InMemoryBackend) CreateIdentityPool(
 		poolID,
 	)
 
+	var cfg PoolExtendedConfig
+	if len(opts) > 0 && opts[0] != nil {
+		cfg = *opts[0]
+	}
+
 	pool := &IdentityPool{
 		IdentityPoolID:                 poolID,
 		IdentityPoolName:               name,
@@ -287,6 +303,8 @@ func (b *InMemoryBackend) CreateIdentityPool(
 		IdentityProviders:              cloneProviders(providers),
 		SupportedLoginProviders:        cloneStringMap(supportedLoginProviders),
 		Tags:                           cloneStringMap(tags),
+		OpenIDConnectProviderARNs:      cloneStringSlice(cfg.OpenIDConnectProviderARNs),
+		SamlProviderARNs:               cloneStringSlice(cfg.SamlProviderARNs),
 		CreatedAt:                      time.Now(),
 	}
 
@@ -386,8 +404,11 @@ func (b *InMemoryBackend) ListIdentityPools(
 	})
 
 	// Apply cursor: skip all pools up to and including the one named by nextToken.
+	// Default to len(keys) so an unrecognised / past-end token returns an empty page.
 	startIdx := 0
 	if nextToken != "" {
+		startIdx = len(keys)
+
 		for i, id := range keys {
 			if regionPools[id].IdentityPoolName == nextToken {
 				startIdx = i + 1
@@ -433,6 +454,7 @@ func (b *InMemoryBackend) UpdateIdentityPool(
 	providers []IdentityProvider,
 	supportedLoginProviders map[string]string,
 	tags map[string]string,
+	opts ...*PoolExtendedConfig,
 ) (*IdentityPool, error) {
 	if poolID == "" {
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
@@ -473,6 +495,11 @@ func (b *InMemoryBackend) UpdateIdentityPool(
 	pool.SupportedLoginProviders = cloneStringMap(supportedLoginProviders)
 	if tags != nil {
 		pool.Tags = cloneStringMap(tags)
+	}
+
+	if len(opts) > 0 && opts[0] != nil {
+		pool.OpenIDConnectProviderARNs = cloneStringSlice(opts[0].OpenIDConnectProviderARNs)
+		pool.SamlProviderARNs = cloneStringSlice(opts[0].SamlProviderARNs)
 	}
 
 	return clonePool(pool), nil
@@ -1542,6 +1569,18 @@ func cloneStringMap(m map[string]string) map[string]string {
 	return out
 }
 
+// cloneStringSlice returns a shallow copy of a string slice.
+func cloneStringSlice(s []string) []string {
+	if s == nil {
+		return nil
+	}
+
+	cp := make([]string, len(s))
+	copy(cp, s)
+
+	return cp
+}
+
 // clonePool returns a deep copy of an IdentityPool to prevent callers from
 // mutating the backend's internal maps and slices.
 func clonePool(pool *IdentityPool) *IdentityPool {
@@ -1549,6 +1588,8 @@ func clonePool(pool *IdentityPool) *IdentityPool {
 	cp.IdentityProviders = cloneProviders(pool.IdentityProviders)
 	cp.SupportedLoginProviders = cloneStringMap(pool.SupportedLoginProviders)
 	cp.Tags = cloneStringMap(pool.Tags)
+	cp.OpenIDConnectProviderARNs = cloneStringSlice(pool.OpenIDConnectProviderARNs)
+	cp.SamlProviderARNs = cloneStringSlice(pool.SamlProviderARNs)
 
 	return &cp
 }

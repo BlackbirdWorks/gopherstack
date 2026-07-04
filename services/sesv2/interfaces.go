@@ -1,6 +1,10 @@
 package sesv2
 
-import "github.com/blackbirdworks/gopherstack/pkgs/page"
+import (
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
 
 // StorageBackend is the interface for sesv2 storage operations.
 type StorageBackend interface {
@@ -30,13 +34,13 @@ type StorageBackend interface {
 	DeleteConfigurationSet(name string) error
 
 	// Configuration set attribute ops
-	PutConfigurationSetArchivingOptions(name string) error
+	PutConfigurationSetArchivingOptions(name, archiveARN string) error
 	PutConfigurationSetDeliveryOptions(name, tlsPolicy, sendingPoolName string) error
 	PutConfigurationSetReputationOptions(name string, metricsEnabled bool) error
 	PutConfigurationSetSendingOptions(name string, sendingEnabled bool) error
 	PutConfigurationSetSuppressionOptions(name string, suppressedReasons []string) error
 	PutConfigurationSetTrackingOptions(name, customRedirectDomain, httpsPolicy string) error
-	PutConfigurationSetVdmOptions(name string) error
+	PutConfigurationSetVdmOptions(name string, dashboardOptions, guardianOptions map[string]any) error
 
 	// Event destination ops
 	CreateConfigurationSetEventDestination(
@@ -99,7 +103,7 @@ type StorageBackend interface {
 	GetDedicatedIps() []map[string]any
 	PutDedicatedIPInPool(ip, poolName string) error
 	PutDedicatedIPPoolScalingAttributes(poolName, scalingMode string) error
-	PutDedicatedIPWarmupAttributes(ip, warmupStatus string) error
+	PutDedicatedIPWarmupAttributes(ip string, warmupPercentage int) error
 
 	// Deliverability test report ops
 	CreateDeliverabilityTestReport(
@@ -149,10 +153,14 @@ type StorageBackend interface {
 	GetAccount() (*AccountDetails, error)
 	PutAccountDetails(details *AccountDetails) error
 	PutAccountSendingAttributes(sendingEnabled bool) error
-	PutAccountSuppressionAttributes() error
-	PutAccountVdmAttributes() error
-	PutAccountDedicatedIPWarmupAttributes() error
+	PutAccountSuppressionAttributes(suppressedReasons []string) error
+	PutAccountVdmAttributes(vdmAttributes map[string]any) error
+	PutAccountDedicatedIPWarmupAttributes(autoWarmupEnabled bool) error
 	GetBlacklistReports() (map[string][]string, error)
+
+	TagResource(arn string, tags map[string]string) error
+	UntagResource(arn string, tagKeys []string) error
+	ListTagsForResource(arn string) (map[string]string, error)
 
 	// Insights / analytics (stubs)
 	GetEmailAddressInsights(emailAddress string) (map[string]any, error)
@@ -178,7 +186,7 @@ type StorageBackend interface {
 	// Reputation entity ops (stubs)
 	GetReputationEntity(entityID string) (map[string]any, error)
 	ListReputationEntities(nextToken string, pageSize int) ([]map[string]any, string, error)
-	UpdateReputationEntityCustomerManagedStatus(entityID string) error
+	UpdateReputationEntityCustomerManagedStatus(entityID, status string) error
 	UpdateReputationEntityPolicy(entityID, policy string) error
 
 	// Metrics
@@ -188,8 +196,8 @@ type StorageBackend interface {
 	Region() string
 	AccountID() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

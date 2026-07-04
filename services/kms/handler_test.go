@@ -1734,11 +1734,11 @@ func TestKMSSnapshotRestoreWithKeyMaterials(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot and restore to new backend
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	restored := kms.NewInMemoryBackend()
-	require.NoError(t, restored.Restore(snap))
+	require.NoError(t, restored.Restore(t.Context(), snap))
 
 	// Decrypt using restored backend — must use same per-key material
 	decOut, err := restored.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
@@ -1963,11 +1963,11 @@ func TestKMSSnapshotRestoreRSA3072(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	restored := kms.NewInMemoryBackend()
-	require.NoError(t, restored.Restore(snap))
+	require.NoError(t, restored.Restore(t.Context(), snap))
 
 	verifyOut, err := restored.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
@@ -2176,13 +2176,13 @@ func TestKMSHandlerSnapshotRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	// Restore into a new backend via handler wrapper
 	backend2 := kms.NewInMemoryBackend()
 	h2 := kms.NewHandler(backend2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Decrypt with restored handler's backend
 	decOut, err := backend2.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
@@ -2210,11 +2210,11 @@ func TestKMSBackendSnapshotRestoreECDSA(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := orig.Snapshot()
+	snap := orig.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	restored := kms.NewInMemoryBackend()
-	require.NoError(t, restored.Restore(snap))
+	require.NoError(t, restored.Restore(t.Context(), snap))
 
 	verifyOut, err := restored.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
@@ -2279,30 +2279,34 @@ func TestKMSHandlerTaggedKeysByARN(t *testing.T) {
 	keyARN := keyOut.KeyMetadata.Arn
 
 	// TaggedKeys should return the key with empty tags
-	tagged := h.TaggedKeys()
+	tagged := h.TaggedKeys(context.Background())
 	require.Len(t, tagged, 1)
 	assert.Equal(t, keyARN, tagged[0].ARN)
 
 	// TagKeyByARN
-	require.NoError(t, h.TagKeyByARN(keyARN, map[string]string{"env": "test"}))
+	require.NoError(t, h.TagKeyByARN(context.Background(), keyARN, map[string]string{"env": "test"}))
 
-	taggedAfter := h.TaggedKeys()
+	taggedAfter := h.TaggedKeys(context.Background())
 	require.Len(t, taggedAfter, 1)
 	assert.Equal(t, "test", taggedAfter[0].Tags["env"])
 
 	// TagKeyByARN on non-existent ARN should fail
-	err = h.TagKeyByARN("arn:aws:kms:us-east-1:000000000000:key/non-existent", map[string]string{})
+	err = h.TagKeyByARN(
+		context.Background(),
+		"arn:aws:kms:us-east-1:000000000000:key/non-existent",
+		map[string]string{},
+	)
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 
 	// UntagKeyByARN
-	require.NoError(t, h.UntagKeyByARN(keyARN, []string{"env"}))
+	require.NoError(t, h.UntagKeyByARN(context.Background(), keyARN, []string{"env"}))
 
-	taggedFinal := h.TaggedKeys()
+	taggedFinal := h.TaggedKeys(context.Background())
 	require.Len(t, taggedFinal, 1)
 	assert.Empty(t, taggedFinal[0].Tags["env"])
 
 	// UntagKeyByARN on non-existent ARN should fail
-	err = h.UntagKeyByARN("arn:aws:kms:us-east-1:000000000000:key/non-existent", []string{"env"})
+	err = h.UntagKeyByARN(context.Background(), "arn:aws:kms:us-east-1:000000000000:key/non-existent", []string{"env"})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
 
@@ -2460,9 +2464,39 @@ func TestKMSBackendPutKeyPolicyNotFound(t *testing.T) {
 	b := kms.NewInMemoryBackend()
 	err := b.PutKeyPolicy(context.Background(), &kms.PutKeyPolicyInput{
 		KeyID:  "non-existent",
-		Policy: `{"Version":"2012-10-17"}`,
+		Policy: `{"Version":"2012-10-17", "Statement":[]}`,
 	})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
+}
+
+// TestKMSBackendPutKeyPolicyValidation verifies PutKeyPolicy validates the policy JSON.
+func TestKMSBackendPutKeyPolicyValidation(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		policy string
+	}{
+		{"invalid json", `{"Version": "2012-10-17", "State`},
+		{"missing version", `{"Statement": []}`},
+		{"missing statement", `{"Version": "2012-10-17"}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotErr := b.PutKeyPolicy(context.Background(), &kms.PutKeyPolicyInput{
+				KeyID:  key.KeyMetadata.KeyID,
+				Policy: tc.policy,
+			})
+			require.ErrorIs(t, gotErr, kms.ErrMalformedPolicyDocument)
+		})
+	}
 }
 
 // TestKMSBackendReEncryptShortBlob verifies ReEncrypt fails with ciphertext too short.
@@ -2607,14 +2641,14 @@ func TestKMSKeyMaterialUnavailableAfterManualRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Build a snapshot without key_materials to simulate an old-format snapshot.
-	snap := orig.Snapshot()
+	snap := orig.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	// Strip key_materials from the JSON.
 	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
 
 	restored := kms.NewInMemoryBackend()
-	require.NoError(t, restored.Restore([]byte(stripped)))
+	require.NoError(t, restored.Restore(t.Context(), []byte(stripped)))
 
 	// Encrypt should fail with ErrKeyMaterialUnavailable.
 	_, encErr := restored.Encrypt(context.Background(), &kms.EncryptInput{
@@ -2681,12 +2715,12 @@ func TestKMSBackendReEncryptKeyMaterialUnavailable(t *testing.T) {
 	require.NoError(t, err)
 
 	// Simulate old-format snapshot without key materials.
-	snap := orig.Snapshot()
+	snap := orig.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
 
 	restored := kms.NewInMemoryBackend()
-	require.NoError(t, restored.Restore([]byte(stripped)))
+	require.NoError(t, restored.Restore(t.Context(), []byte(stripped)))
 
 	_, err = restored.ReEncrypt(context.Background(), &kms.ReEncryptInput{
 		CiphertextBlob:   encOut.CiphertextBlob,
@@ -2710,12 +2744,12 @@ func TestKMSBackendDecryptKeyMaterialUnavailable(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := orig.Snapshot()
+	snap := orig.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
 
 	restored := kms.NewInMemoryBackend()
-	require.NoError(t, restored.Restore([]byte(stripped)))
+	require.NoError(t, restored.Restore(t.Context(), []byte(stripped)))
 
 	_, err = restored.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
@@ -2733,12 +2767,12 @@ func TestKMSBackendGetPublicKeyMaterialUnavailable(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := orig.Snapshot()
+	snap := orig.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
 
 	restored := kms.NewInMemoryBackend()
-	require.NoError(t, restored.Restore([]byte(stripped)))
+	require.NoError(t, restored.Restore(t.Context(), []byte(stripped)))
 
 	_, err = restored.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: key.KeyMetadata.KeyID})
 	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)

@@ -626,11 +626,10 @@ func TestS3Control_CreateAccessGrantsLocation(t *testing.T) {
 			wantBodyContains: "AccessGrantsLocationArn",
 		},
 		{
-			name:             "creates_location_with_empty_body",
-			accountID:        "000000000000",
-			body:             `<CreateAccessGrantsLocationRequest></CreateAccessGrantsLocationRequest>`,
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "AccessGrantsLocationId",
+			name:       "empty_body_missing_role_rejected",
+			accountID:  "000000000000",
+			body:       `<CreateAccessGrantsLocationRequest></CreateAccessGrantsLocationRequest>`,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1053,11 +1052,11 @@ func TestS3Control_NewOps_SnapshotRestore(t *testing.T) {
 			original := s3control.NewInMemoryBackend()
 			tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := s3control.NewInMemoryBackend()
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh)
 		})

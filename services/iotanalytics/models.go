@@ -392,6 +392,7 @@ type Datastore struct {
 	Status                  string                   `json:"status"`
 	CreationTime            float64                  `json:"creationTime"`
 	LastUpdate              float64                  `json:"lastUpdate"`
+	LastMessageArrivalTime  float64                  `json:"lastMessageArrivalTime,omitempty"`
 }
 
 // Dataset stores all metadata and state for a single IoT Analytics dataset.
@@ -469,18 +470,20 @@ type createChannelRequest struct {
 
 // createChannelResponse is the response body for CreateChannel.
 type createChannelResponse struct {
-	ChannelName string `json:"channelName"`
-	ChannelARN  string `json:"channelArn"`
+	RetentionPeriod *RetentionPeriod `json:"retentionPeriod,omitempty"`
+	ChannelName     string           `json:"channelName"`
+	ChannelARN      string           `json:"channelArn"`
 }
 
 // channelSummary is a summary of a channel for list operations.
 type channelSummary struct {
-	ChannelName            string  `json:"channelName"`
-	ChannelARN             string  `json:"channelArn,omitempty"`
-	Status                 string  `json:"status"`
-	CreationTime           float64 `json:"creationTime"`
-	LastUpdateTime         float64 `json:"lastUpdateTime,omitempty"`
-	LastMessageArrivalTime float64 `json:"lastMessageArrivalTime,omitempty"`
+	ChannelStorage         *ChannelStorage `json:"channelStorage,omitempty"`
+	ChannelName            string          `json:"channelName"`
+	ChannelARN             string          `json:"channelArn,omitempty"`
+	Status                 string          `json:"status"`
+	CreationTime           float64         `json:"creationTime"`
+	LastUpdateTime         float64         `json:"lastUpdateTime,omitempty"`
+	LastMessageArrivalTime float64         `json:"lastMessageArrivalTime,omitempty"`
 }
 
 // listChannelsResponse is the response body for ListChannels.
@@ -494,17 +497,29 @@ type describeChannelResponse struct {
 	Channel channelDetail `json:"channel"`
 }
 
+// channelStatisticsSize is the estimated storage size of a channel.
+type channelStatisticsSize struct {
+	EstimatedSizeInBytes float64 `json:"estimatedSizeInBytes,omitempty"`
+	EstimatedOn          float64 `json:"estimatedOn,omitempty"`
+}
+
+// channelStatistics holds statistics for a channel.
+type channelStatistics struct {
+	Size *channelStatisticsSize `json:"size,omitempty"`
+}
+
 // channelDetail is a detailed view of a channel.
 type channelDetail struct {
-	Storage                *ChannelStorage  `json:"storage,omitempty"`
-	RetentionPeriod        *RetentionPeriod `json:"retentionPeriod,omitempty"`
-	Name                   string           `json:"name"`
-	ARN                    string           `json:"arn"`
-	Status                 string           `json:"status"`
-	Tags                   []tagDTO         `json:"tags,omitempty"`
-	CreationTime           float64          `json:"creationTime"`
-	LastUpdateTime         float64          `json:"lastUpdateTime,omitempty"`
-	LastMessageArrivalTime float64          `json:"lastMessageArrivalTime,omitempty"`
+	Storage                *ChannelStorage    `json:"storage,omitempty"`
+	RetentionPeriod        *RetentionPeriod   `json:"retentionPeriod,omitempty"`
+	Statistics             *channelStatistics `json:"statistics,omitempty"`
+	Name                   string             `json:"name"`
+	ARN                    string             `json:"arn"`
+	Status                 string             `json:"status"`
+	Tags                   []tagDTO           `json:"tags,omitempty"`
+	CreationTime           float64            `json:"creationTime"`
+	LastUpdateTime         float64            `json:"lastUpdateTime,omitempty"`
+	LastMessageArrivalTime float64            `json:"lastMessageArrivalTime,omitempty"`
 }
 
 // updateChannelRequest is the request body for UpdateChannel.
@@ -525,17 +540,20 @@ type createDatastoreRequest struct {
 
 // createDatastoreResponse is the response body for CreateDatastore.
 type createDatastoreResponse struct {
-	DatastoreName string `json:"datastoreName"`
-	DatastoreARN  string `json:"datastoreArn"`
+	RetentionPeriod *RetentionPeriod `json:"retentionPeriod,omitempty"`
+	DatastoreName   string           `json:"datastoreName"`
+	DatastoreARN    string           `json:"datastoreArn"`
 }
 
 // datastoreSummary is a summary of a datastore for list operations.
 type datastoreSummary struct {
-	DatastoreName  string  `json:"datastoreName"`
-	DatastoreARN   string  `json:"datastoreArn,omitempty"`
-	Status         string  `json:"status"`
-	CreationTime   float64 `json:"creationTime"`
-	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
+	DatastoreStorage       *DatastoreStorage `json:"datastoreStorage,omitempty"`
+	DatastoreName          string            `json:"datastoreName"`
+	DatastoreARN           string            `json:"datastoreArn,omitempty"`
+	Status                 string            `json:"status"`
+	CreationTime           float64           `json:"creationTime"`
+	LastUpdateTime         float64           `json:"lastUpdateTime,omitempty"`
+	LastMessageArrivalTime float64           `json:"lastMessageArrivalTime,omitempty"`
 }
 
 // listDatastoresResponse is the response body for ListDatastores.
@@ -549,12 +567,24 @@ type describeDatastoreResponse struct {
 	Datastore datastoreDetail `json:"datastore"`
 }
 
+// datastoreStatisticsSize is the estimated storage size of a datastore.
+type datastoreStatisticsSize struct {
+	EstimatedSizeInBytes float64 `json:"estimatedSizeInBytes,omitempty"`
+	EstimatedOn          float64 `json:"estimatedOn,omitempty"`
+}
+
+// datastoreStatistics holds statistics for a datastore.
+type datastoreStatistics struct {
+	Size *datastoreStatisticsSize `json:"size,omitempty"`
+}
+
 // datastoreDetail is a detailed view of a datastore.
 type datastoreDetail struct {
 	Storage                 *DatastoreStorage        `json:"storage,omitempty"`
 	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	FileFormatConfiguration *FileFormatConfiguration `json:"fileFormatConfiguration,omitempty"`
 	Partitions              *DatastorePartitions     `json:"partitions,omitempty"`
+	Statistics              *datastoreStatistics     `json:"statistics,omitempty"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Status                  string                   `json:"status"`
@@ -650,6 +680,7 @@ type pipelineReprocessingSummary struct {
 	ID           string  `json:"id"`
 	Status       string  `json:"status"`
 	CreationTime float64 `json:"creationTime"`
+	StartTime    float64 `json:"startTime,omitempty"`
 	EndTime      float64 `json:"endTime,omitempty"`
 }
 
@@ -732,7 +763,7 @@ type batchPutMessageRequest struct {
 
 // BatchPutMessageErrorEntry is a per-message error in BatchPutMessage.
 type BatchPutMessageErrorEntry struct {
-	ChannelName  string `json:"channelName,omitempty"`
+	ChannelName  string `json:"-"`
 	ErrorCode    string `json:"errorCode,omitempty"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
 	MessageID    string `json:"messageId,omitempty"`
@@ -788,9 +819,17 @@ type createDatasetContentResponse struct {
 	VersionID string `json:"versionId"`
 }
 
+// datasetContentEntry is a single data entry in a GetDatasetContent response.
+type datasetContentEntry struct {
+	EntryName string `json:"entryName,omitempty"`
+	DataURI   string `json:"dataURI,omitempty"`
+}
+
 // getDatasetContentResponse is the response for GetDatasetContent.
 type getDatasetContentResponse struct {
 	Status    *datasetContentStatusDTO `json:"status"`
+	VersionID string                   `json:"versionId,omitempty"`
+	Entries   []datasetContentEntry    `json:"entries"`
 	Timestamp float64                  `json:"timestamp,omitempty"`
 }
 

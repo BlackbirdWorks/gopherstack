@@ -317,6 +317,83 @@ func TestGetComplianceSummaryByConfigRule(t *testing.T) {
 	if out == nil {
 		t.Fatal("expected non-nil slice")
 	}
+
+	if len(out) != 0 {
+		t.Fatalf("expected empty summary for fresh backend, got %v", out)
+	}
+}
+
+func TestGetComplianceSummaryByConfigRule_Aggregates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		wantType         string
+		evaluations      []awsconfig.EvaluationResult
+		wantCompliant    int32
+		wantNonCompliant int32
+	}{
+		{
+			name: "all compliant",
+			evaluations: []awsconfig.EvaluationResult{
+				{ConfigRuleName: "r1", ComplianceType: "COMPLIANT"},
+				{ConfigRuleName: "r2", ComplianceType: "COMPLIANT"},
+			},
+			wantCompliant:    2,
+			wantNonCompliant: 0,
+			wantType:         "COMPLIANT",
+		},
+		{
+			name: "mixed becomes non-compliant",
+			evaluations: []awsconfig.EvaluationResult{
+				{ConfigRuleName: "r1", ComplianceType: "COMPLIANT"},
+				{ConfigRuleName: "r2", ComplianceType: "NON_COMPLIANT"},
+			},
+			wantCompliant:    1,
+			wantNonCompliant: 1,
+			wantType:         "NON_COMPLIANT",
+		},
+		{
+			name: "not applicable ignored in counts",
+			evaluations: []awsconfig.EvaluationResult{
+				{ConfigRuleName: "r1", ComplianceType: "NOT_APPLICABLE"},
+			},
+			wantCompliant:    0,
+			wantNonCompliant: 0,
+			wantType:         "COMPLIANT",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := awsconfig.NewInMemoryBackend()
+			if err := b.PutEvaluations(tc.evaluations); err != nil {
+				t.Fatalf("PutEvaluations: %v", err)
+			}
+
+			out := b.GetComplianceSummaryByConfigRule()
+			if len(out) != 1 {
+				t.Fatalf("expected one summary, got %v", out)
+			}
+
+			got := out[0]
+			if got.ComplianceType != tc.wantType {
+				t.Errorf("ComplianceType = %q, want %q", got.ComplianceType, tc.wantType)
+			}
+
+			if got.ComplianceSummary.CompliantResourceCount.CappedCount != tc.wantCompliant {
+				t.Errorf("CompliantResourceCount = %d, want %d",
+					got.ComplianceSummary.CompliantResourceCount.CappedCount, tc.wantCompliant)
+			}
+
+			if got.ComplianceSummary.NonCompliantResourceCount.CappedCount != tc.wantNonCompliant {
+				t.Errorf("NonCompliantResourceCount = %d, want %d",
+					got.ComplianceSummary.NonCompliantResourceCount.CappedCount, tc.wantNonCompliant)
+			}
+		})
+	}
 }
 
 // --- Group 6: Delivery channel status ---
@@ -325,7 +402,7 @@ func TestDescribeDeliveryChannelStatus(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutDeliveryChannel("chan1", "my-bucket", "")
+	_ = b.PutDeliveryChannel("chan1", "my-bucket", "", "", nil)
 
 	statuses := b.DescribeDeliveryChannelStatus(nil)
 	if len(statuses) != 1 || statuses[0].Name != "chan1" {
@@ -337,8 +414,8 @@ func TestDescribeDeliveryChannelStatus_Filtered(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutDeliveryChannel("chan1", "bucket1", "")
-	_ = b.PutDeliveryChannel("chan2", "bucket2", "")
+	_ = b.PutDeliveryChannel("chan1", "bucket1", "", "", nil)
+	_ = b.PutDeliveryChannel("chan2", "bucket2", "", "", nil)
 
 	statuses := b.DescribeDeliveryChannelStatus([]string{"chan1"})
 	if len(statuses) != 1 || statuses[0].Name != "chan1" {
@@ -352,7 +429,7 @@ func TestDescribeConformancePackStatus(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutConformancePack("pack1")
+	_ = b.PutConformancePack("pack1", "", "")
 
 	statuses := b.DescribeConformancePackStatus(nil)
 	if len(statuses) != 1 || statuses[0].ConformancePackName != "pack1" {

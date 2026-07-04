@@ -27,7 +27,7 @@ type mockPersistable struct {
 	mu         sync.Mutex
 }
 
-func (m *mockPersistable) Snapshot() []byte {
+func (m *mockPersistable) Snapshot(_ context.Context) []byte {
 	m.snapshots.Add(1)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -35,7 +35,7 @@ func (m *mockPersistable) Snapshot() []byte {
 	return m.data
 }
 
-func (m *mockPersistable) Restore(data []byte) error {
+func (m *mockPersistable) Restore(_ context.Context, data []byte) error {
 	m.restores.Add(1)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -151,7 +151,7 @@ func TestNewManager(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			mgr := persistence.NewManager(tt.store)
+			mgr := persistence.NewManager(t.Context(), tt.store)
 			require.NotNil(t, mgr)
 		})
 	}
@@ -216,7 +216,7 @@ func TestManager_Register_RestoreAll(t *testing.T) {
 			p := &mockPersistable{}
 			tt.setup(store, p)
 
-			mgr := persistence.NewManager(store)
+			mgr := persistence.NewManager(t.Context(), store)
 			mgr.Register("svc", p)
 			mgr.RestoreAll(t.Context())
 
@@ -232,7 +232,7 @@ func TestManager_Register_RestoreAll(t *testing.T) {
 func TestManager_RestoreAll_NoServices(t *testing.T) {
 	t.Parallel()
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 
 	require.NotPanics(t, func() {
 		mgr.RestoreAll(t.Context())
@@ -253,7 +253,7 @@ func TestManager_RestoreAll_MultipleServices(t *testing.T) {
 		persistables[name] = &mockPersistable{}
 	}
 
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 
 	for _, name := range services {
 		mgr.Register(name, persistables[name])
@@ -305,7 +305,7 @@ func TestManager_SaveAll(t *testing.T) {
 
 			p := &mockPersistable{data: tt.snapshotData}
 
-			mgr := persistence.NewManager(store)
+			mgr := persistence.NewManager(t.Context(), store)
 			mgr.Register("svc", p)
 			mgr.SaveAll(t.Context())
 
@@ -318,7 +318,7 @@ func TestManager_SaveAll_MultipleServices(t *testing.T) {
 	t.Parallel()
 
 	store := newMemStore()
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		mgr.Register(name, &mockPersistable{data: []byte(`{"ok":true}`)})
@@ -334,7 +334,7 @@ func TestManager_SaveAll_MultipleServices(t *testing.T) {
 func TestManager_Notify_UnknownService(t *testing.T) {
 	t.Parallel()
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 
 	require.NotPanics(t, func() {
 		mgr.Notify("nonexistent")
@@ -347,7 +347,7 @@ func TestManager_Notify_TriggersDebouncedSave(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"notify":true}`)}
 
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 	mgr.Register("svc", p)
 	mgr.Notify("svc")
 
@@ -364,7 +364,7 @@ func TestManager_Notify_SaveAllCancelsPendingTimer(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"cancel":true}`)}
 
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 	mgr.Register("svc", p)
 
 	mgr.Notify("svc")
@@ -384,7 +384,7 @@ func TestManager_Notify_ResetTimerOnRapidCalls(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"rapid":true}`)}
 
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 	mgr.Register("svc", p)
 
 	// Rapid calls must not create multiple concurrent saves.
@@ -409,7 +409,7 @@ func TestManager_Notify_GenerationSkipsStaleCallback(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"gen":true}`)}
 
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 	mgr.Register("svc", p)
 
 	mgr.Notify("svc")
@@ -432,7 +432,7 @@ func TestManager_Notify_StaleGenerationSkipped(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"gen":true}`)}
 
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 	mgr.Register("svc", p)
 
 	// Two Notify calls within the debounce window: only the second timer's
@@ -456,7 +456,7 @@ func TestManager_Notify_SaveErrorInCallback(t *testing.T) {
 
 	p := &mockPersistable{data: []byte(`{"err":true}`)}
 
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 	mgr.Register("svc", p)
 
 	// Single Notify so generation remains 1; saveIfCurrent will proceed to save.
@@ -479,7 +479,7 @@ func TestManager_Notify_ConcurrentNotify(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"concurrent":true}`)}
 
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 	mgr.Register("svc", p)
 
 	const goroutines = 20
@@ -507,7 +507,7 @@ func TestManager_RestoreAll_WithCancelledContext(t *testing.T) {
 	require.NoError(t, store.Save("svc", "snapshot", []byte(`{"x":1}`)))
 
 	p := &mockPersistable{}
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 	mgr.Register("svc", p)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -524,7 +524,7 @@ func TestManager_RestoreAll_WithCancelledContext(t *testing.T) {
 func TestManager_ExportAll_Empty(t *testing.T) {
 	t.Parallel()
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 	result := mgr.ExportAll()
 
 	assert.Empty(t, result, "empty manager must return empty map")
@@ -563,7 +563,7 @@ func TestManager_ExportAll(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			mgr := persistence.NewManager(newMemStore())
+			mgr := persistence.NewManager(t.Context(), newMemStore())
 			mgr.Register("svc", &mockPersistable{data: tt.data})
 
 			result := mgr.ExportAll()
@@ -586,7 +586,7 @@ func TestManager_ExportAll_MultipleServices(t *testing.T) {
 		"gamma": []byte(`{"c":3}`),
 	}
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 
 	for name, data := range snapshots {
 		mgr.Register(name, &mockPersistable{data: data})
@@ -604,7 +604,7 @@ func TestManager_ExportAll_MultipleServices(t *testing.T) {
 func TestManager_ExportAll_MixedEmptyAndNonEmpty(t *testing.T) {
 	t.Parallel()
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 	mgr.Register("present", &mockPersistable{data: []byte(`{"ok":true}`)})
 	mgr.Register("absent", &mockPersistable{data: nil})
 	mgr.Register("empty", &mockPersistable{data: []byte{}})
@@ -621,7 +621,7 @@ func TestManager_ExportAll_DoesNotWriteStore(t *testing.T) {
 	t.Parallel()
 
 	store := newMemStore()
-	mgr := persistence.NewManager(store)
+	mgr := persistence.NewManager(t.Context(), store)
 	mgr.Register("svc", &mockPersistable{data: []byte(`{"x":1}`)})
 
 	_ = mgr.ExportAll()
@@ -632,7 +632,7 @@ func TestManager_ExportAll_DoesNotWriteStore(t *testing.T) {
 func TestManager_ExportAll_ConcurrentSafety(t *testing.T) {
 	t.Parallel()
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 
 	for i := range 10 {
 		mgr.Register(fmt.Sprintf("svc%d", i), &mockPersistable{data: []byte(`{"ok":true}`)})
@@ -657,7 +657,7 @@ func TestManager_ExportAll_ConcurrentSafety(t *testing.T) {
 func TestManager_ImportAll_Empty(t *testing.T) {
 	t.Parallel()
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 
 	err := mgr.ImportAll(t.Context(), map[string][]byte{})
 
@@ -700,7 +700,7 @@ func TestManager_ImportAll(t *testing.T) {
 			t.Parallel()
 
 			p := &mockPersistable{restoreErr: tt.setupErr}
-			mgr := persistence.NewManager(newMemStore())
+			mgr := persistence.NewManager(t.Context(), newMemStore())
 			mgr.Register("svc", p)
 
 			err := mgr.ImportAll(t.Context(), tt.snapshots)
@@ -726,7 +726,7 @@ func TestManager_ImportAll_MultipleServices(t *testing.T) {
 	}
 
 	persistables := make(map[string]*mockPersistable, len(snapshots))
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 
 	for name := range snapshots {
 		p := &mockPersistable{}
@@ -747,7 +747,7 @@ func TestManager_ImportAll_MultipleServices(t *testing.T) {
 func TestManager_ImportAll_MultipleErrors(t *testing.T) {
 	t.Parallel()
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 	mgr.Register("alpha", &mockPersistable{restoreErr: errAlpha})
 	mgr.Register("beta", &mockPersistable{restoreErr: errBeta})
 
@@ -767,7 +767,7 @@ func TestManager_ImportAll_PartialSuccess(t *testing.T) {
 	good := &mockPersistable{}
 	bad := &mockPersistable{restoreErr: errRestore}
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 	mgr.Register("good", good)
 	mgr.Register("bad", bad)
 
@@ -787,7 +787,7 @@ func TestManager_ImportAll_WithCancelledContext(t *testing.T) {
 	t.Parallel()
 
 	p := &mockPersistable{}
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 	mgr.Register("svc", p)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -809,14 +809,14 @@ type statefulPersistable struct {
 	mu    sync.Mutex
 }
 
-func (s *statefulPersistable) Snapshot() []byte {
+func (s *statefulPersistable) Snapshot(_ context.Context) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return []byte(`{"state":"` + s.state + `"}`)
 }
 
-func (s *statefulPersistable) Restore(data []byte) error {
+func (s *statefulPersistable) Restore(_ context.Context, data []byte) error {
 	var v struct {
 		State string `json:"state"`
 	}
@@ -877,7 +877,7 @@ func TestManager_ExportImport_RoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			mgr := persistence.NewManager(newMemStore())
+			mgr := persistence.NewManager(t.Context(), newMemStore())
 			services := make(map[string]*statefulPersistable, len(tt.initial))
 
 			for name, state := range tt.initial {
@@ -917,7 +917,7 @@ func TestManager_ExportImport_RoundTrip_PartialLoad(t *testing.T) {
 	alpha := &statefulPersistable{state: "alpha-value"}
 	beta := &statefulPersistable{state: "beta-value"}
 
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 	mgr.Register("alpha", alpha)
 	mgr.Register("beta", beta)
 
@@ -939,7 +939,7 @@ func TestManager_ExportImport_RoundTrip_MultipleRounds(t *testing.T) {
 
 	// Simulate a workflow where state is mutated between rounds.
 	svc := &statefulPersistable{state: "v1"}
-	mgr := persistence.NewManager(newMemStore())
+	mgr := persistence.NewManager(t.Context(), newMemStore())
 	mgr.Register("svc", svc)
 
 	// Round 1: export v1.

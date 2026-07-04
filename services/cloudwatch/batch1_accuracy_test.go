@@ -1198,7 +1198,7 @@ func TestBackend_AnomalyDetector_CRUD(t *testing.T) {
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "NS", p.Data[0].Namespace)
 
-	require.NoError(t, b.DeleteAnomalyDetector("NS", "M", "Average"))
+	require.NoError(t, b.DeleteAnomalyDetector("NS", "M", "Average", nil))
 
 	p, err = b.DescribeAnomalyDetectors("NS", "M", "", 0)
 	require.NoError(t, err)

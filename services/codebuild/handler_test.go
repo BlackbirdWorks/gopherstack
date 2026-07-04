@@ -1425,18 +1425,18 @@ func TestCodeBuild_PersistenceSnapshotRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	build, err := b.StartBuild("snap-proj")
+	build, err := b.StartBuild("snap-proj", codebuild.StartBuildConfig{})
 	require.NoError(t, err)
 	require.NotEmpty(t, build.ID)
 
 	// Snapshot and restore.
 	h := codebuild.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := codebuild.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Project is restored.
 	projs := b2.ListProjects()
@@ -2088,11 +2088,11 @@ func TestHandler_NewOperations_PersistenceRoundTrip(t *testing.T) {
 	})
 
 	// Snapshot and restore.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify fleet is restored.
 	fleets, notFound := b2.BatchGetFleets([]string{"persist-fleet"})

@@ -15,6 +15,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	VaultTypeBackupVault = "BACKUP_VAULT"
+	VaultTypeAirGapped   = "LOGICALLY_AIR_GAPPED_BACKUP_VAULT"
+)
+
 var (
 	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrConflict)
@@ -121,6 +126,7 @@ type Vault struct {
 	BackupVaultArn         string     `json:"backupVaultArn"`
 	EncryptionKeyArn       string     `json:"encryptionKeyArn,omitempty"`
 	CreatorRequestID       string     `json:"creatorRequestId,omitempty"`
+	VaultType              string     `json:"vaultType,omitempty"`
 	AccountID              string     `json:"accountId"`
 	Region                 string     `json:"region"`
 	NumberOfRecoveryPoints int64      `json:"numberOfRecoveryPoints"`
@@ -397,6 +403,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
 // isValidVaultName reports whether name is an acceptable AWS Backup vault name:
 // 2–50 alphanumeric or hyphen characters.
 func isValidVaultName(name string) bool {
@@ -439,6 +448,7 @@ func (b *InMemoryBackend) CreateBackupVault(
 		BackupVaultArn:   vaultARN,
 		EncryptionKeyArn: encryptionKeyArn,
 		CreatorRequestID: creatorRequestID,
+		VaultType:        VaultTypeBackupVault,
 		AccountID:        b.accountID,
 		Region:           b.region,
 		CreationTime:     time.Now().UTC(),
@@ -694,7 +704,7 @@ func (b *InMemoryBackend) StartBackupJob(
 		ResourceArn:     resourceArn,
 		IAMRoleArn:      iamRoleArn,
 		ResourceType:    resourceType,
-		State:           "CREATED",
+		State:           statusCreated,
 		AccountID:       b.accountID,
 		Region:          b.region,
 		CreationTime:    time.Now().UTC(),
@@ -1010,6 +1020,7 @@ func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
 		BackupVaultName:  name,
 		BackupVaultArn:   vaultARN,
 		CreatorRequestID: creatorRequestID,
+		VaultType:        VaultTypeAirGapped,
 		AccountID:        b.accountID,
 		Region:           b.region,
 		CreationTime:     time.Now().UTC(),
@@ -1081,7 +1092,7 @@ func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
 		RestoreAccessBackupVaultName: vaultName,
 		RestoreAccessBackupVaultArn:  vaultARN,
 		SourceBackupVaultArn:         sourceVaultArn,
-		VaultState:                   "CREATING",
+		VaultState:                   statusCreating,
 		CreationDate:                 time.Now().UTC(),
 	}
 	b.restoreAccessVaults[vaultName] = rav

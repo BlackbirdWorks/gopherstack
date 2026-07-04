@@ -5,20 +5,98 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// backend_stubs.go provides stub implementations for the SSM operations
-// that are acknowledged but not yet fully implemented.  Each stub returns an
-// empty success response, which is sufficient for the SDK-completeness test
-// and for callers that only need the operation to not error.
+// backend_stubs.go provides in-memory implementations for SSM operations that
+// have stateful behaviour but return empty or simple responses.
 
-// --- Stub input/output types ---
+// --- Operation output types ---
 
-// StubOutput is a generic empty response used by all stub operations.
-type StubOutput struct{}
+// CreateResourceDataSyncOutput is the response for CreateResourceDataSync.
+type CreateResourceDataSyncOutput struct{}
+
+// DeleteActivationOutput is the response for DeleteActivation.
+type DeleteActivationOutput struct{}
+
+// DeleteAssociationOutput is the response for DeleteAssociation.
+type DeleteAssociationOutput struct{}
+
+// DeleteInventoryOutput is the response for DeleteInventory.
+type DeleteInventoryOutput struct {
+	DeletionSummary *InventoryDeletionSummary `json:"DeletionSummary,omitempty"`
+	DeletionID      string                    `json:"DeletionId,omitempty"`
+	TypeName        string                    `json:"TypeName,omitempty"`
+}
+
+// DeleteOpsItemOutput is the response for DeleteOpsItem.
+type DeleteOpsItemOutput struct{}
+
+// DeleteOpsMetadataOutput is the response for DeleteOpsMetadata.
+type DeleteOpsMetadataOutput struct{}
+
+// DeleteResourceDataSyncOutput is the response for DeleteResourceDataSync.
+type DeleteResourceDataSyncOutput struct{}
+
+// DeleteResourcePolicyOutput is the response for DeleteResourcePolicy.
+type DeleteResourcePolicyOutput struct{}
+
+// DeregisterManagedInstanceOutput is the response for DeregisterManagedInstance.
+type DeregisterManagedInstanceOutput struct{}
+
+// DeregisterPatchBaselineForPatchGroupOutput is the response for DeregisterPatchBaselineForPatchGroup.
+type DeregisterPatchBaselineForPatchGroupOutput struct {
+	BaselineID string `json:"BaselineId"`
+	PatchGroup string `json:"PatchGroup"`
+}
+
+// DeregisterTargetFromMaintenanceWindowOutput is the response for DeregisterTargetFromMaintenanceWindow.
+type DeregisterTargetFromMaintenanceWindowOutput struct {
+	WindowID       string `json:"WindowId"`
+	WindowTargetID string `json:"WindowTargetId"`
+}
+
+// DeregisterTaskFromMaintenanceWindowOutput is the response for DeregisterTaskFromMaintenanceWindow.
+type DeregisterTaskFromMaintenanceWindowOutput struct {
+	WindowID     string `json:"WindowId"`
+	WindowTaskID string `json:"WindowTaskId"`
+}
+
+// DisassociateOpsItemRelatedItemOutput is the response for DisassociateOpsItemRelatedItem.
+type DisassociateOpsItemRelatedItemOutput struct{}
+
+// PutComplianceItemsOutput is the response for PutComplianceItems.
+type PutComplianceItemsOutput struct{}
+
+// PutInventoryOutput is the response for PutInventory.
+type PutInventoryOutput struct{}
+
+// SendAutomationSignalOutput is the response for SendAutomationSignal.
+type SendAutomationSignalOutput struct{}
+
+// StartAssociationsOnceOutput is the response for StartAssociationsOnce.
+type StartAssociationsOnceOutput struct{}
+
+// StopAutomationExecutionOutput is the response for StopAutomationExecution.
+type StopAutomationExecutionOutput struct{}
+
+// UpdateDocumentMetadataOutput is the response for UpdateDocumentMetadata.
+type UpdateDocumentMetadataOutput struct{}
+
+// UpdateManagedInstanceRoleOutput is the response for UpdateManagedInstanceRole.
+type UpdateManagedInstanceRoleOutput struct{}
+
+// UpdateOpsItemOutput is the response for UpdateOpsItem.
+type UpdateOpsItemOutput struct{}
+
+// UpdateResourceDataSyncOutput is the response for UpdateResourceDataSync.
+type UpdateResourceDataSyncOutput struct{}
+
+// UpdateServiceSettingOutput is the response for UpdateServiceSetting.
+type UpdateServiceSettingOutput struct{}
 
 // CreateResourceDataSyncInput is the request for CreateResourceDataSync.
 type CreateResourceDataSyncInput struct {
@@ -870,7 +948,10 @@ type UpdateServiceSettingInput struct {
 }
 
 // DeleteActivation removes a stored activation by ID.
-func (b *InMemoryBackend) DeleteActivation(ctx context.Context, input *DeleteActivationInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteActivation(
+	ctx context.Context,
+	input *DeleteActivationInput,
+) (*DeleteActivationOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteActivation")
 	defer b.mu.Unlock()
@@ -883,11 +964,17 @@ func (b *InMemoryBackend) DeleteActivation(ctx context.Context, input *DeleteAct
 	delete(activations, input.ActivationID)
 	delete(b.miscResourceTagsStore(region), input.ActivationID)
 
-	return &StubOutput{}, nil
+	cleanupEmptyInnerMap(b.activations, region)
+	cleanupEmptyInnerMap(b.miscResourceTags, region)
+
+	return &DeleteActivationOutput{}, nil
 }
 
 // DeleteAssociation removes a stored association by ID.
-func (b *InMemoryBackend) DeleteAssociation(ctx context.Context, input *DeleteAssociationInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteAssociation(
+	ctx context.Context,
+	input *DeleteAssociationInput,
+) (*DeleteAssociationOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteAssociation")
 	defer b.mu.Unlock()
@@ -899,28 +986,45 @@ func (b *InMemoryBackend) DeleteAssociation(ctx context.Context, input *DeleteAs
 
 	delete(associations, input.AssociationID)
 
-	return &StubOutput{}, nil
+	// Evict the association's execution records and their per-execution targets
+	// so deleted associations do not leak execution state.
+	if execs := b.associationExecutionsStore(region); execs != nil {
+		for _, e := range execs[input.AssociationID] {
+			delete(b.associationExecTargetsStore(region), e.ExecutionID)
+		}
+
+		delete(execs, input.AssociationID)
+	}
+
+	cleanupEmptyInnerMap(b.associations, region)
+	cleanupEmptyInnerMap(b.associationExecutions, region)
+	cleanupEmptyInnerMap(b.associationExecTargets, region)
+
+	return &DeleteAssociationOutput{}, nil
 }
 
 // DeregisterPatchBaselineForPatchGroup removes a patch group association.
 func (b *InMemoryBackend) DeregisterPatchBaselineForPatchGroup(
 	ctx context.Context,
 	input *DeregisterPatchBaselineForPatchGroupInput,
-) (*StubOutput, error) {
+) (*DeregisterPatchBaselineForPatchGroupOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeregisterPatchBaselineForPatchGroup")
 	defer b.mu.Unlock()
 
 	delete(b.patchGroupToBaselineStore(region), input.PatchGroup)
 
-	return &StubOutput{}, nil
+	return &DeregisterPatchBaselineForPatchGroupOutput{
+		BaselineID: input.BaselineID,
+		PatchGroup: input.PatchGroup,
+	}, nil
 }
 
 // DeregisterTargetFromMaintenanceWindow removes a target from a maintenance window.
 func (b *InMemoryBackend) DeregisterTargetFromMaintenanceWindow(
 	ctx context.Context,
 	input *DeregisterTargetFromMaintenanceWindowInput,
-) (*StubOutput, error) {
+) (*DeregisterTargetFromMaintenanceWindowOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeregisterTargetFromMaintenanceWindow")
 	defer b.mu.Unlock()
@@ -932,14 +1036,19 @@ func (b *InMemoryBackend) DeregisterTargetFromMaintenanceWindow(
 
 	delete(targets, input.WindowTargetID)
 
-	return &StubOutput{}, nil
+	cleanupEmptyInnerMap(b.maintenanceWindowTargets, region)
+
+	return &DeregisterTargetFromMaintenanceWindowOutput{
+		WindowID:       input.WindowID,
+		WindowTargetID: input.WindowTargetID,
+	}, nil
 }
 
 // DeregisterTaskFromMaintenanceWindow removes a task from a maintenance window.
 func (b *InMemoryBackend) DeregisterTaskFromMaintenanceWindow(
 	ctx context.Context,
 	input *DeregisterTaskFromMaintenanceWindowInput,
-) (*StubOutput, error) {
+) (*DeregisterTaskFromMaintenanceWindowOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeregisterTaskFromMaintenanceWindow")
 	defer b.mu.Unlock()
@@ -951,7 +1060,12 @@ func (b *InMemoryBackend) DeregisterTaskFromMaintenanceWindow(
 
 	delete(tasks, input.WindowTaskID)
 
-	return &StubOutput{}, nil
+	cleanupEmptyInnerMap(b.maintenanceWindowTasks, region)
+
+	return &DeregisterTaskFromMaintenanceWindowOutput{
+		WindowID:     input.WindowID,
+		WindowTaskID: input.WindowTaskID,
+	}, nil
 }
 
 // DescribeActivations lists stored activations.
@@ -1149,7 +1263,9 @@ func (b *InMemoryBackend) DescribeMaintenanceWindows(
 	}
 
 	if startIdx >= len(all) {
-		return &DescribeMaintenanceWindowsOutput{WindowIdentities: []MaintenanceWindowIdentity{}}, nil
+		return &DescribeMaintenanceWindowsOutput{
+			WindowIdentities: []MaintenanceWindowIdentity{},
+		}, nil
 	}
 
 	end := startIdx + int(maxResults)
@@ -1344,7 +1460,10 @@ func (b *InMemoryBackend) GetMaintenanceWindow(
 }
 
 // GetOpsItem retrieves an OpsItem by ID.
-func (b *InMemoryBackend) GetOpsItem(ctx context.Context, input *GetOpsItemInput) (*GetOpsItemOutput, error) {
+func (b *InMemoryBackend) GetOpsItem(
+	ctx context.Context,
+	input *GetOpsItemInput,
+) (*GetOpsItemOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetOpsItem")
 	defer b.mu.RUnlock()
@@ -1422,6 +1541,9 @@ func (b *InMemoryBackend) RegisterPatchBaselineForPatchGroup(
 		return nil, ErrPatchBaselineNotFound
 	}
 
+	if b.patchGroupToBaseline[region] == nil {
+		b.patchGroupToBaseline[region] = make(map[string]string)
+	}
 	b.patchGroupToBaselineStore(region)[input.PatchGroup] = input.BaselineID
 
 	return &RegisterPatchBaselineForPatchGroupOutput{
@@ -1454,6 +1576,9 @@ func (b *InMemoryBackend) RegisterTargetWithMaintenanceWindow(
 		Name:           input.Name,
 	}
 
+	if b.maintenanceWindowTargets[region] == nil {
+		b.maintenanceWindowTargets[region] = make(map[string]MaintenanceWindowTarget)
+	}
 	b.maintenanceWindowTargetsStore(region)[targetID] = target
 
 	return &RegisterTargetWithMaintenanceWindowOutput{WindowTargetID: targetID}, nil
@@ -1486,13 +1611,19 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		MaxErrors:      input.MaxErrors,
 	}
 
+	if b.maintenanceWindowTasks[region] == nil {
+		b.maintenanceWindowTasks[region] = make(map[string]MaintenanceWindowTask)
+	}
 	b.maintenanceWindowTasksStore(region)[taskID] = task
 
 	return &RegisterTaskWithMaintenanceWindowOutput{WindowTaskID: taskID}, nil
 }
 
 // StartSession creates a new SSM Session Manager session.
-func (b *InMemoryBackend) StartSession(ctx context.Context, input *StartSessionInput) (*StartSessionOutput, error) {
+func (b *InMemoryBackend) StartSession(
+	ctx context.Context,
+	input *StartSessionInput,
+) (*StartSessionOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("StartSession")
 	defer b.mu.Unlock()
@@ -1520,6 +1651,9 @@ func (b *InMemoryBackend) StartSession(ctx context.Context, input *StartSessionI
 		}
 	}
 
+	if b.sessions[region] == nil {
+		b.sessions[region] = make(map[string]Session)
+	}
 	b.sessionsStore(region)[sessionID] = sess
 
 	return &StartSessionOutput{
@@ -1548,7 +1682,48 @@ func (b *InMemoryBackend) TerminateSession(
 	sess.EndDate = UnixTimeFloat(timeNow())
 	sessions[input.SessionID] = sess
 
+	// Bound retained terminated (history) sessions so the store cannot grow
+	// without limit under repeated Start/Terminate cycles.
+	b.evictExcessTerminatedSessionsLocked(region)
+
 	return &TerminateSessionOutput{SessionID: input.SessionID}, nil
+}
+
+// evictExcessTerminatedSessionsLocked removes the oldest terminated sessions
+// once their count in the region exceeds maxTerminatedSessionsPerRegion.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) evictExcessTerminatedSessionsLocked(region string) {
+	sessions := b.sessionsStore(region)
+
+	terminated := make([]Session, 0, len(sessions))
+	for _, s := range sessions {
+		if s.Status == sessionStatusTerminated {
+			terminated = append(terminated, s)
+		}
+	}
+
+	if len(terminated) <= maxTerminatedSessionsPerRegion {
+		return
+	}
+
+	// Oldest first by EndDate (tie-broken by SessionID for determinism).
+	slices.SortFunc(terminated, func(a, c Session) int {
+		if a.EndDate != c.EndDate {
+			if a.EndDate < c.EndDate {
+				return -1
+			}
+
+			return 1
+		}
+
+		return strings.Compare(a.SessionID, c.SessionID)
+	})
+
+	for _, s := range terminated[:len(terminated)-maxTerminatedSessionsPerRegion] {
+		delete(sessions, s.SessionID)
+	}
+
+	cleanupEmptyInnerMap(b.sessions, region)
 }
 
 // UpdateAssociation updates an existing association.
@@ -1634,7 +1809,10 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 }
 
 // UpdateOpsItem updates an OpsItem including OperationalData.
-func (b *InMemoryBackend) UpdateOpsItem(ctx context.Context, input *UpdateOpsItemInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateOpsItem(
+	ctx context.Context,
+	input *UpdateOpsItemInput,
+) (*UpdateOpsItemOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateOpsItem")
 	defer b.mu.Unlock()
@@ -1682,7 +1860,7 @@ func (b *InMemoryBackend) UpdateOpsItem(ctx context.Context, input *UpdateOpsIte
 		EventID:   "event-update-" + input.OpsItemID,
 	})
 
-	return &StubOutput{}, nil
+	return &UpdateOpsItemOutput{}, nil
 }
 
 // UpdateOpsMetadata updates OpsMetadata.

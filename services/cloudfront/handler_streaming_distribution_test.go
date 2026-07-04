@@ -347,11 +347,11 @@ func TestStreamingDistributionSnapshotRestore(t *testing.T) {
 
 	require.NoError(t, b.TagResource(sd.ARN, map[string]string{"team": "video"}))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.GetStreamingDistribution(sd.ID)
 	require.NoError(t, err)

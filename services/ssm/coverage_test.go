@@ -399,11 +399,11 @@ func TestSSMHandler_SnapshotRestore_Delegation(t *testing.T) {
 			origBackend := ssm.NewInMemoryBackend()
 			tt.setup(origBackend)
 
-			snap := origBackend.Snapshot()
+			snap := origBackend.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			freshBackend := ssm.NewInMemoryBackend()
-			require.NoError(t, freshBackend.Restore(snap))
+			require.NoError(t, freshBackend.Restore(t.Context(), snap))
 
 			tt.check(t, freshBackend)
 		})
@@ -555,12 +555,12 @@ func TestSSMHandler_HandlerSnapshotRestore(t *testing.T) {
 			tt.setup(backend)
 			h := ssm.NewHandler(backend)
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			freshBackend := ssm.NewInMemoryBackend()
 			freshH := ssm.NewHandler(freshBackend)
-			require.NoError(t, freshH.Restore(snap))
+			require.NoError(t, freshH.Restore(t.Context(), snap))
 
 			if tt.name == "with_data" {
 				out, err := freshBackend.GetParameter(context.TODO(), &ssm.GetParameterInput{Name: "/h-snap"})

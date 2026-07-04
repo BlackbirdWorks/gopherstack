@@ -92,9 +92,9 @@ func (db *InMemoryDB) PutItem(
 
 	// Capture stream event
 	if matchIndex != -1 {
-		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem))
+		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem), "", "")
 	} else {
-		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem))
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem), "", "")
 	}
 
 	globalTableName := table.GlobalTableName
@@ -128,6 +128,23 @@ func (db *InMemoryDB) findMatchForPut(table *Table, item map[string]any) (map[st
 	return nil, -1
 }
 
+// conditionalCheckFailed builds a ConditionalCheckFailedException, attaching the
+// existing item when the caller requested ReturnValuesOnConditionCheckFailure=ALL_OLD.
+// This mirrors AWS, which returns the current item in the error body so clients doing
+// optimistic locking can inspect it without issuing a follow-up read.
+func conditionalCheckFailed(
+	rv types.ReturnValuesOnConditionCheckFailure,
+	oldItem map[string]any,
+) *Error {
+	if rv == types.ReturnValuesOnConditionCheckFailureAllOld && oldItem != nil {
+		// oldItem is already in DynamoDB wire form (e.g. {"pk":{"S":"a"}}), which is
+		// exactly the shape AWS returns in the ConditionalCheckFailedException body.
+		return NewConditionalCheckFailedExceptionWithItem("The conditional request failed", oldItem)
+	}
+
+	return NewConditionalCheckFailedException("The conditional request failed")
+}
+
 func (db *InMemoryDB) checkPutCondition(
 	ctx context.Context,
 	input *dynamodb.PutItemInput,
@@ -157,19 +174,24 @@ func (db *InMemoryDB) checkPutCondition(
 		return err
 	}
 	if !match {
-		return NewConditionalCheckFailedException("The conditional request failed")
+		return conditionalCheckFailed(input.ReturnValuesOnConditionCheckFailure, oldItem)
 	}
 
 	return nil
 }
 
 func (db *InMemoryDB) doPut(table *Table, item map[string]any, matchIndex int) {
+	itemSize, _ := CalculateItemSize(item)
 	if matchIndex != -1 {
+		table.totalItemSizeBytes += int64(itemSize) - int64(table.itemSizes[matchIndex])
+		table.itemSizes[matchIndex] = itemSize
 		table.Items[matchIndex] = item
 		db.updateIndexes(table, item, matchIndex)
 	} else {
 		idx := len(table.Items)
 		table.Items = append(table.Items, item)
+		table.itemSizes = append(table.itemSizes, itemSize)
+		table.totalItemSizeBytes += int64(itemSize)
 		db.updateIndexes(table, item, idx)
 	}
 }
@@ -183,7 +205,11 @@ const lsiMaxCollectionBytes = 10 * bytesPerGB
 // checkLSICollectionSize enforces the 10 GB per-collection limit for tables with LSIs.
 // Returns (collectionBytes, nil) when the limit is not exceeded, (-1, nil) for non-LSI
 // tables, and (-1, error) when the limit would be exceeded. Must be called under table.mu.
-func (db *InMemoryDB) checkLSICollectionSize(table *Table, newItem map[string]any, oldMatchIndex int) (int64, error) {
+func (db *InMemoryDB) checkLSICollectionSize(
+	table *Table,
+	newItem map[string]any,
+	oldMatchIndex int,
+) (int64, error) {
 	if len(table.LocalSecondaryIndexes) == 0 {
 		return -1, nil
 	}
@@ -201,26 +227,37 @@ func (db *InMemoryDB) checkLSICollectionSize(table *Table, newItem map[string]an
 	return size, nil
 }
 
-// computeLSICollectionSize returns the projected total byte size of all items sharing
-// pkVal as their partition key, as if newItem replaces the item at oldMatchIndex (or
-// is appended when oldMatchIndex == -1). Must be called under table.mu held.
-func computeLSICollectionSize(table *Table, pkVal string, newItem map[string]any, oldMatchIndex int) int64 {
+// currentLSICollectionBytes returns the total byte size of all items currently
+// stored under pkVal as their partition key (the item collection). Must be called
+// under table.mu.
+func currentLSICollectionBytes(table *Table, pkVal string) int64 {
 	var total int64
 
 	if skMap, ok := table.pkskIndex[pkVal]; ok {
 		for _, offset := range skMap {
-			sz, _ := CalculateItemSize(table.Items[offset])
-			total += int64(sz)
+			total += int64(table.itemSizes[offset])
 		}
 	} else if offset, ok2 := table.pkIndex[pkVal]; ok2 {
-		sz, _ := CalculateItemSize(table.Items[offset])
-		total += int64(sz)
+		total += int64(table.itemSizes[offset])
 	}
+
+	return total
+}
+
+// computeLSICollectionSize returns the projected total byte size of all items sharing
+// pkVal as their partition key, as if newItem replaces the item at oldMatchIndex (or
+// is appended when oldMatchIndex == -1). Must be called under table.mu held.
+func computeLSICollectionSize(
+	table *Table,
+	pkVal string,
+	newItem map[string]any,
+	oldMatchIndex int,
+) int64 {
+	total := currentLSICollectionBytes(table, pkVal)
 
 	// Subtract old item (it will be replaced).
 	if oldMatchIndex != -1 {
-		sz, _ := CalculateItemSize(table.Items[oldMatchIndex])
-		total -= int64(sz)
+		total -= int64(table.itemSizes[oldMatchIndex])
 	}
 
 	// Add new item.
@@ -228,6 +265,38 @@ func computeLSICollectionSize(table *Table, pkVal string, newItem map[string]any
 	total += int64(sz)
 
 	return total
+}
+
+// buildItemCollectionMetrics builds the ItemCollectionMetrics for a write, or nil.
+// AWS only returns metrics for tables with at least one local secondary index; the
+// ItemCollectionKey is the partition-key attribute only, and SizeEstimateRangeGB
+// brackets the projected collection size. Must be called under table.mu.
+func buildItemCollectionMetrics(
+	table *Table,
+	rim types.ReturnItemCollectionMetrics,
+	pkKey map[string]types.AttributeValue,
+	collectionBytes int64,
+) *types.ItemCollectionMetrics {
+	if rim == "" || rim == types.ReturnItemCollectionMetricsNone {
+		return nil
+	}
+	if len(table.LocalSecondaryIndexes) == 0 {
+		return nil
+	}
+
+	sizeGB := collectionBytesToGB(collectionBytes)
+
+	return &types.ItemCollectionMetrics{
+		ItemCollectionKey:   pkKey,
+		SizeEstimateRangeGB: []float64{sizeGB, sizeGB},
+	}
+}
+
+// pkOnlyKey extracts the partition-key attribute (only) from a full SDK key/item.
+func pkOnlyKey(table *Table, src map[string]types.AttributeValue) map[string]types.AttributeValue {
+	pkDef, _ := getPKAndSK(table.KeySchema)
+
+	return map[string]types.AttributeValue{pkDef.AttributeName: src[pkDef.AttributeName]}
 }
 
 // collectionBytesToGB converts a byte count to GB, returning 0 for negative values.
@@ -286,20 +355,14 @@ func (db *InMemoryDB) populatePutItemOutput(
 		}
 	}
 
-	// ItemCollectionMetrics: only for tables with LSI and when requested.
+	// ItemCollectionMetrics: only for tables with an LSI and when requested.
 	// ItemCollectionKey contains only the partition key attribute (not the full item).
-	if input.ReturnItemCollectionMetrics != "" &&
-		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
-		pkDef, _ := getPKAndSK(table.KeySchema)
-		pkKey := map[string]types.AttributeValue{
-			pkDef.AttributeName: input.Item[pkDef.AttributeName],
-		}
-		sizeGB := collectionBytesToGB(lsiCollectionBytes)
-		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
-			ItemCollectionKey:   pkKey,
-			SizeEstimateRangeGB: []float64{sizeGB, sizeGB},
-		}
-	}
+	out.ItemCollectionMetrics = buildItemCollectionMetrics(
+		table,
+		input.ReturnItemCollectionMetrics,
+		pkOnlyKey(table, input.Item),
+		lsiCollectionBytes,
+	)
 
 	return out
 }
@@ -453,7 +516,7 @@ func (db *InMemoryDB) DeleteItem(
 	if oldItem != nil && matchIndex != -1 {
 		db.deleteItemAtIndex(table, matchIndex)
 		// Capture stream REMOVE event
-		table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil)
+		table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil, "", "")
 	}
 
 	out := db.buildDeleteItemOutput(input, table, oldItem)
@@ -463,7 +526,13 @@ func (db *InMemoryDB) DeleteItem(
 
 	// Propagate deletion to global table replicas after releasing the primary lock.
 	if globalTableName != "" && oldItem != nil {
-		db.replicateItemMutation(tableName, globalTableName, region, deepCopyItem(wireKey), "DELETE")
+		db.replicateItemMutation(
+			tableName,
+			globalTableName,
+			region,
+			deepCopyItem(wireKey),
+			"DELETE",
+		)
 	}
 
 	return out, nil
@@ -498,7 +567,7 @@ func (db *InMemoryDB) checkDeleteCondition(
 	}
 
 	if !match {
-		return NewConditionalCheckFailedException("The conditional request failed")
+		return conditionalCheckFailed(input.ReturnValuesOnConditionCheckFailure, oldItem)
 	}
 
 	return nil
@@ -531,13 +600,15 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 		}
 	}
 
-	if input.ReturnItemCollectionMetrics != "" &&
-		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
-		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
-			ItemCollectionKey:   input.Key,
-			SizeEstimateRangeGB: []float64{0.0, 1.0},
-		}
-	}
+	// ItemCollectionMetrics reflect the collection remaining after the delete.
+	pkDef, _ := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyString(models.FromSDKItem(input.Key), pkDef.AttributeName)
+	out.ItemCollectionMetrics = buildItemCollectionMetrics(
+		table,
+		input.ReturnItemCollectionMetrics,
+		pkOnlyKey(table, input.Key),
+		currentLSICollectionBytes(table, pkVal),
+	)
 
 	return out
 }
@@ -616,9 +687,9 @@ func (db *InMemoryDB) UpdateItem(
 
 	// Capture stream event for UpdateItem
 	if matchIndex != -1 {
-		table.appendStreamRecord(streamEventModify, deepCopyItem(existing), deepCopyItem(updated))
+		table.appendStreamRecord(streamEventModify, deepCopyItem(existing), deepCopyItem(updated), "", "")
 	} else {
-		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated))
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated), "", "")
 	}
 
 	globalTableName := table.GlobalTableName
@@ -661,7 +732,7 @@ func (db *InMemoryDB) checkUpdateCondition(
 		return err
 	}
 	if !match {
-		return NewConditionalCheckFailedException("The conditional request failed")
+		return conditionalCheckFailed(input.ReturnValuesOnConditionCheckFailure, item)
 	}
 
 	return nil
@@ -711,12 +782,18 @@ func (db *InMemoryDB) doUpdate(
 		return nil, nil, err
 	}
 
+	updatedSize, _ := CalculateItemSize(updated)
+
 	if matchIndex != -1 {
+		table.totalItemSizeBytes += int64(updatedSize) - int64(table.itemSizes[matchIndex])
+		table.itemSizes[matchIndex] = updatedSize
 		table.Items[matchIndex] = updated
 		db.updateIndexes(table, updated, matchIndex)
 	} else {
 		newIdx := len(table.Items)
 		table.Items = append(table.Items, updated)
+		table.itemSizes = append(table.itemSizes, updatedSize)
+		table.totalItemSizeBytes += int64(updatedSize)
 		db.updateIndexes(table, updated, newIdx)
 	}
 
@@ -819,14 +896,15 @@ func (db *InMemoryDB) populateUpdateOutput(
 		}
 	}
 
-	// Handle ItemCollectionMetrics
-	if input.ReturnItemCollectionMetrics != "" &&
-		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
-		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
-			ItemCollectionKey:   input.Key,
-			SizeEstimateRangeGB: []float64{0.0, 1.0},
-		}
-	}
+	// ItemCollectionMetrics reflect the collection after the update is applied.
+	pkDef, _ := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyString(models.FromSDKItem(input.Key), pkDef.AttributeName)
+	out.ItemCollectionMetrics = buildItemCollectionMetrics(
+		table,
+		input.ReturnItemCollectionMetrics,
+		pkOnlyKey(table, input.Key),
+		currentLSICollectionBytes(table, pkVal),
+	)
 
 	return out, nil
 }
@@ -850,10 +928,13 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 
 	// Swap with last strategy for O(1) deletion
 	lastIdx := len(table.Items) - 1
+	deletedSize := table.itemSizes[matchIndex]
+
 	if matchIndex != lastIdx {
 		// Move last item to deleted spot
 		lastItem := table.Items[lastIdx]
 		table.Items[matchIndex] = lastItem
+		table.itemSizes[matchIndex] = table.itemSizes[lastIdx]
 
 		// Update index for the moved item
 		db.updateIndexes(table, lastItem, matchIndex)
@@ -861,6 +942,8 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 
 	// Shrink slice
 	table.Items = table.Items[:lastIdx]
+	table.itemSizes = table.itemSizes[:lastIdx]
+	table.totalItemSizeBytes -= int64(deletedSize)
 }
 
 // deepCopyItem returns a deep copy of a wire-format item so that mutations
@@ -917,13 +1000,7 @@ func deepCopyAny(v any) any {
 	}
 }
 
-// estimateTableSizeBytes computes the total estimated size of all items in the table.
-func estimateTableSizeBytes(items []map[string]any) int64 {
-	var total int64
-	for _, item := range items {
-		size, _ := CalculateItemSize(item)
-		total += int64(size)
-	}
-
-	return total
+// estimateTableSizeBytes returns the cached total estimated size of all items.
+func estimateTableSizeBytes(table *Table) int64 {
+	return table.totalItemSizeBytes
 }

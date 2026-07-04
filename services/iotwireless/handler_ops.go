@@ -373,7 +373,15 @@ func (h *Handler) getWirelessGatewayStatistics(c *echo.Context, id string) error
 }
 
 func (h *Handler) getWirelessGatewayFirmwareInformation(c *echo.Context, _ string) error {
-	return writeJSON(c, http.StatusOK, getWirelessGatewayFirmwareInformationResponse{})
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"LoRaWAN": map[string]any{
+			"CurrentVersion": map[string]any{
+				"PackageVersion": "1.0.0",
+				"Model":          "GW-001",
+				"Station":        "LNS",
+			},
+		},
+	})
 }
 
 // ============================================================
@@ -723,7 +731,12 @@ func (h *Handler) createWirelessGatewayTaskDefinition(c *echo.Context) error {
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	def, err := h.Backend.CreateWirelessGatewayTaskDefinition(req.Name, req.AutoCreateTasks)
+	def, err := h.Backend.CreateWirelessGatewayTaskDefinition(
+		h.AccountID,
+		h.DefaultRegion,
+		req.Name,
+		req.AutoCreateTasks,
+	)
 	if err != nil {
 		return handleError(c, err)
 	}

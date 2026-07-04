@@ -44,6 +44,13 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 var (
 	// ErrSecretNotFound is returned when the specified secret does not exist.
 	ErrSecretNotFound = errors.New(errResourceNotFoundException)
+
+	// ErrMalformedPolicyDocument is returned when the resource policy is malformed.
+	ErrMalformedPolicyDocument = errors.New("MalformedPolicyDocumentException")
+
+	// ErrPublicPolicyException is returned when the policy is overly broad.
+	ErrPublicPolicyException = errors.New("PublicPolicyException")
+
 	// ErrSecretAlreadyExists is returned when a secret with the given name already exists.
 	ErrSecretAlreadyExists = errors.New("ResourceExistsException")
 	// ErrSecretDeleted is returned when an operation is attempted on a deleted secret.
@@ -122,6 +129,7 @@ type InMemoryBackend struct {
 	mu                 *lockmetrics.RWMutex
 	now                func() time.Time
 	schedulerStop      chan struct{}
+	svcCtx             context.Context
 	accountID          string
 	region             string
 	schedulerOnce      sync.Once
@@ -139,8 +147,19 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return NewInMemoryBackendWithConfig(MockAccountID, MockRegion)
 }
 
-// NewInMemoryBackendWithConfig creates a new Secrets Manager backend with the given account ID and region.
+// NewInMemoryBackendWithConfig creates a new Secrets Manager backend with the given account ID and region
+// and a background service context.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new Secrets Manager backend whose background
+// goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		secrets:            make(map[string]map[string]*Secret),
 		resourcePolicies:   make(map[string]map[string]string),
@@ -150,6 +169,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		mu:                 lockmetrics.New("secretsmanager"),
 		now:                time.Now,
 		schedulerStop:      make(chan struct{}),
+		svcCtx:             svcCtx,
 	}
 }
 
@@ -282,6 +302,13 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 		return nil, err
 	}
 
+	if input.SecretString != "" && len(input.SecretBinary) > 0 {
+		return nil, fmt.Errorf(
+			"%w: you must provide either SecretString or SecretBinary, but not both",
+			ErrInvalidParameter,
+		)
+	}
+
 	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
 		return nil, err
 	}
@@ -394,6 +421,10 @@ func seedInitialVersion(secret *Secret, input *CreateSecretInput) string {
 func (b *InMemoryBackend) GetSecretValue(
 	ctx context.Context, input *GetSecretValueInput,
 ) (*GetSecretValueOutput, error) {
+	if input.SecretID == "" {
+		return nil, fmt.Errorf("%w: SecretId is required", ErrInvalidParameter)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("GetSecretValue")
@@ -434,13 +465,14 @@ func (b *InMemoryBackend) GetSecretValue(
 	version.LastAccessedDate = &accessDay
 
 	return &GetSecretValueOutput{
-		ARN:           secret.ARN,
-		Name:          secret.Name,
-		VersionID:     version.VersionID,
-		SecretString:  version.SecretString,
-		SecretBinary:  version.SecretBinary,
-		VersionStages: version.StagingLabels,
-		CreatedDate:   version.CreatedDate,
+		ARN:              secret.ARN,
+		Name:             secret.Name,
+		VersionID:        version.VersionID,
+		SecretString:     version.SecretString,
+		SecretBinary:     version.SecretBinary,
+		VersionStages:    version.StagingLabels,
+		CreatedDate:      version.CreatedDate,
+		LastAccessedDate: version.LastAccessedDate,
 	}, nil
 }
 
@@ -469,9 +501,20 @@ func (b *InMemoryBackend) findVersion(secret *Secret, versionID, versionStage st
 func (b *InMemoryBackend) PutSecretValue(
 	ctx context.Context, input *PutSecretValueInput,
 ) (*PutSecretValueOutput, error) {
+	if input.SecretID == "" {
+		return nil, fmt.Errorf("%w: SecretId is required", ErrInvalidParameter)
+	}
+
 	if input.SecretString == "" && len(input.SecretBinary) == 0 {
 		return nil, fmt.Errorf(
 			"%w: you must provide either SecretString or SecretBinary",
+			ErrInvalidParameter,
+		)
+	}
+
+	if input.SecretString != "" && len(input.SecretBinary) > 0 {
+		return nil, fmt.Errorf(
+			"%w: you must provide either SecretString or SecretBinary, but not both",
 			ErrInvalidParameter,
 		)
 	}
@@ -513,17 +556,7 @@ func (b *InMemoryBackend) PutSecretValue(
 		}
 	}
 
-	b.rotateStagingLabels(secret)
-
-	// Determine staging labels: AWSCURRENT is always applied; any additional
-	// labels provided in VersionStages are merged in (e.g. AWSPENDING).
-	stagingLabels := []string{StagingLabelCurrent}
-
-	for _, label := range input.VersionStages {
-		if label != StagingLabelCurrent {
-			stagingLabels = append(stagingLabels, label)
-		}
-	}
+	callerWantsCurrentLabel, stagingLabels := b.resolveStagingLabels(secret, input.VersionStages)
 
 	now := UnixTimeFloat(time.Now())
 	version := &SecretVersion{
@@ -535,7 +568,11 @@ func (b *InMemoryBackend) PutSecretValue(
 	}
 
 	secret.Versions[versionID] = version
-	secret.CurrentVersionID = versionID
+
+	if callerWantsCurrentLabel {
+		secret.CurrentVersionID = versionID
+	}
+
 	secret.LastChangedDate = &now
 	b.syncReplicationStatusLocked(region, secret)
 
@@ -569,6 +606,32 @@ func (b *InMemoryBackend) rotateStagingLabels(secret *Secret) {
 
 		v.StagingLabels = newLabels
 	}
+}
+
+// resolveStagingLabels determines the staging labels for a new version and — when
+// AWSCURRENT is requested — rotates the existing AWSCURRENT label to AWSPREVIOUS.
+// Returns (wantsCurrentLabel, labels). Must be called with a write lock held.
+func (b *InMemoryBackend) resolveStagingLabels(secret *Secret, requested []string) (bool, []string) {
+	wantsCurrent := len(requested) == 0 || slices.Contains(requested, StagingLabelCurrent)
+
+	if !wantsCurrent {
+		out := make([]string, len(requested))
+		copy(out, requested)
+
+		return false, out
+	}
+
+	b.rotateStagingLabels(secret)
+
+	out := []string{StagingLabelCurrent}
+
+	for _, label := range requested {
+		if label != StagingLabelCurrent {
+			out = append(out, label)
+		}
+	}
+
+	return true, out
 }
 
 // pruneVersions removes the oldest unlabeled versions when the total version count
@@ -646,6 +709,16 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 
 	now := UnixTimeFloat(b.now())
 
+	// AWS rejects combining ForceDeleteWithoutRecovery with RecoveryWindowInDays:
+	// the two parameters are mutually exclusive. Real AWS returns
+	// InvalidParameterException for this combination.
+	if input.ForceDeleteWithoutRecovery && input.RecoveryWindowInDays != nil {
+		return nil, fmt.Errorf(
+			"%w: you can't use ForceDeleteWithoutRecovery in conjunction with RecoveryWindowInDays",
+			ErrInvalidParameter,
+		)
+	}
+
 	if input.ForceDeleteWithoutRecovery {
 		if secret.Tags != nil {
 			secret.Tags.Close()
@@ -686,6 +759,7 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 
 	secret.DeletedDate = &now
 	deletionDate := UnixTimeFloat(b.now().Add(time.Duration(recoveryDays) * hoursPerDay * time.Hour))
+	secret.ScheduledDeletionDate = &deletionDate
 
 	return &DeleteSecretOutput{
 		ARN:          secret.ARN,
@@ -1203,12 +1277,23 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInp
 		return ErrSecretDeleted
 	}
 
-	existingCount := 0
+	// Count only net new keys: keys already present are updates, not additions.
+	var existingKeys map[string]string
 	if secret.Tags != nil {
-		existingCount = len(secret.Tags.Clone())
+		existingKeys = secret.Tags.Clone()
 	}
-	// Count net new keys (keys not already present don't increase the total).
-	if err := validateTagCount(existingCount, len(input.Tags)); err != nil {
+
+	netNew := 0
+
+	for _, t := range input.Tags {
+		if _, alreadyExists := existingKeys[t.Key]; !alreadyExists {
+			netNew++
+		}
+	}
+
+	existingCount := len(existingKeys)
+
+	if err := validateTagCount(existingCount, netNew); err != nil {
 		return err
 	}
 
@@ -1722,7 +1807,7 @@ type TaggedSecretInfo struct {
 
 // TaggedSecrets returns a snapshot of all secrets with their ARNs and tags.
 // Intended for use by the Resource Groups Tagging API provider.
-func (b *InMemoryBackend) TaggedSecrets() []TaggedSecretInfo {
+func (b *InMemoryBackend) TaggedSecrets(_ context.Context) []TaggedSecretInfo {
 	b.mu.RLock("TaggedSecrets")
 	defer b.mu.RUnlock()
 
@@ -1760,7 +1845,7 @@ func regionFromARN(resourceARN, defaultRegion string) string {
 
 // TagSecretByARN applies tags to the secret identified by its ARN. The region is taken
 // from the ARN so cross-service callers (Resource Groups Tagging API) reach the right region.
-func (b *InMemoryBackend) TagSecretByARN(secretARN string, newTags map[string]string) error {
+func (b *InMemoryBackend) TagSecretByARN(_ context.Context, secretARN string, newTags map[string]string) error {
 	region := regionFromARN(secretARN, b.region)
 
 	b.mu.Lock("TagSecretByARN")
@@ -1783,7 +1868,7 @@ func (b *InMemoryBackend) TagSecretByARN(secretARN string, newTags map[string]st
 }
 
 // UntagSecretByARN removes the specified tag keys from the secret identified by its ARN.
-func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagSecretByARN(_ context.Context, secretARN string, tagKeys []string) error {
 	region := regionFromARN(secretARN, b.region)
 
 	b.mu.Lock("UntagSecretByARN")
@@ -1830,6 +1915,13 @@ func (b *InMemoryBackend) BatchGetSecretValue(
 	out := &BatchGetSecretValueOutput{
 		SecretValues: []SecretValueEntry{},
 		Errors:       []APIErrorType{},
+	}
+
+	if len(input.SecretIDList) > 0 && len(input.Filters) > 0 {
+		return nil, fmt.Errorf(
+			"%w: you cannot specify both SecretIdList and Filters in the same request",
+			ErrInvalidParameter,
+		)
 	}
 
 	if len(input.SecretIDList) > 0 {
@@ -1956,15 +2048,16 @@ func secretVersionEntry(secret *Secret, ver *SecretVersion) SecretValueEntry {
 }
 
 // batchMatchesFilters returns true if the secret matches all provided filters.
+// Name and description filters use prefix matching, consistent with ListSecrets.
 func batchMatchesFilters(secret *Secret, filters []BatchGetSecretValueFilter) bool {
 	for _, f := range filters {
 		switch f.Key {
 		case "name":
-			if !anyMatch(f.Values, secret.Name) {
+			if !anyMatchPrefix(f.Values, secret.Name) {
 				return false
 			}
 		case "description":
-			if !anyMatch(f.Values, secret.Description) {
+			if !anyMatchPrefix(f.Values, secret.Description) {
 				return false
 			}
 		case "tag-key":
@@ -1979,11 +2072,6 @@ func batchMatchesFilters(secret *Secret, filters []BatchGetSecretValueFilter) bo
 	}
 
 	return true
-}
-
-// anyMatch returns true if target equals any of the values.
-func anyMatch(values []string, target string) bool {
-	return slices.Contains(values, target)
 }
 
 // CancelRotateSecret cancels an in-progress rotation by removing the AWSPENDING staging label.
@@ -2025,8 +2113,6 @@ func (b *InMemoryBackend) CancelRotateSecret(
 
 		ver.StagingLabels = newLabels
 	}
-
-	secret.RotationEnabled = false
 
 	return &CancelRotateSecretOutput{
 		ARN:       secret.ARN,
@@ -2086,6 +2172,23 @@ func (b *InMemoryBackend) PutResourcePolicy(
 
 	if secret.DeletedDate != nil {
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	if errs := validateResourcePolicyDocument(input.ResourcePolicy); len(errs) > 0 {
+		return nil, ErrMalformedPolicyDocument
+	}
+
+	blockPublic := true
+	if input.BlockPublicPolicy != nil {
+		blockPublic = *input.BlockPublicPolicy
+	}
+	if blockPublic {
+		s := strings.ReplaceAll(input.ResourcePolicy, " ", "")
+		s = strings.ReplaceAll(s, "\n", "")
+		s = strings.ReplaceAll(s, "\t", "")
+		if strings.Contains(s, `"Principal":"*"`) || strings.Contains(s, `"Principal":{"AWS":"*"}`) {
+			return nil, ErrPublicPolicyException
+		}
 	}
 
 	b.resourcePoliciesStore(region)[name] = input.ResourcePolicy
@@ -2161,6 +2264,13 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 	}
 
 	for _, replica := range input.AddReplicaRegions {
+		if _, found := existingByRegion[replica.Region]; found && !input.ForceOverwriteReplicaSecret {
+			return nil, fmt.Errorf(
+				"%w: a replica already exists in region %s; use ForceOverwriteReplicaSecret to overwrite",
+				ErrSecretAlreadyExists, replica.Region,
+			)
+		}
+
 		status := ReplicationStatusType{
 			Region:        replica.Region,
 			KmsKeyID:      replica.KmsKeyID,
@@ -2431,7 +2541,7 @@ func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
 
 	// Phase 2: invoke Lambda WITHOUT holding the lock, then promote or abort.
 	for _, p := range pending {
-		ctx := context.WithValue(context.Background(), regionContextKey{}, p.region)
+		ctx := context.WithValue(b.svcCtx, regionContextKey{}, p.region)
 		lambdaErr := b.runLambdaRotationSteps(ctx, p.lambdaARN, p.secretID, p.versionID)
 		if lambdaErr != nil {
 			_ = b.AbortRotation(ctx, p.secretID, p.versionID)
@@ -2614,23 +2724,27 @@ func (b *InMemoryBackend) ValidateResourcePolicy(
 		}
 	}
 
-	// Parse the JSON policy document.
+	errs := validateResourcePolicyDocument(input.ResourcePolicy)
+
+	return &ValidateResourcePolicyOutput{
+		PolicyValidationPassed: len(errs) == 0,
+		ValidationErrors:       errs,
+	}, nil
+}
+
+func validateResourcePolicyDocument(policyStr string) []PolicyValidationException {
 	var policy map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(input.ResourcePolicy), &policy); err != nil {
-		return &ValidateResourcePolicyOutput{
-			PolicyValidationPassed: false,
-			ValidationErrors: []PolicyValidationException{
-				{
-					CheckName:    "SyntaxCheck",
-					ErrorMessage: "Policy document is not valid JSON: " + err.Error(),
-				},
+	if err := json.Unmarshal([]byte(policyStr), &policy); err != nil {
+		return []PolicyValidationException{
+			{
+				CheckName:    "SyntaxCheck",
+				ErrorMessage: "Policy document is not valid JSON: " + err.Error(),
 			},
-		}, nil
+		}
 	}
 
 	var errs []PolicyValidationException
 
-	// Validate required top-level fields.
 	if _, hasVersion := policy["Version"]; !hasVersion {
 		errs = append(errs, PolicyValidationException{
 			CheckName:    "VersionCheck",
@@ -2645,8 +2759,5 @@ func (b *InMemoryBackend) ValidateResourcePolicy(
 		})
 	}
 
-	return &ValidateResourcePolicyOutput{
-		PolicyValidationPassed: len(errs) == 0,
-		ValidationErrors:       errs,
-	}, nil
+	return errs
 }

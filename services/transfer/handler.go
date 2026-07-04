@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -29,19 +29,21 @@ const (
 const transferTargetPrefix = "TransferService."
 
 const (
-	keyDescription      = "Description"
-	keyStatus           = "Status"
-	keyWorkflowID       = "WorkflowId"
-	keyConnectorID      = "ConnectorId"
-	keyURL              = "Url"
-	keyTransferID       = "TransferId"
-	keyStepType         = "Type"
-	keyStepName         = "Name"
-	keySourceFileLoc    = "SourceFileLocation"
-	keyLocalProfileID   = "LocalProfileId"
-	keyPartnerProfileID = "PartnerProfileId"
-	keyArn              = "Arn"
-	keyTags             = "Tags"
+	keyDescription        = "Description"
+	keyStatus             = "Status"
+	keyWorkflowID         = "WorkflowId"
+	keyConnectorID        = "ConnectorId"
+	keyURL                = "Url"
+	keyTransferID         = "TransferId"
+	keyStepType           = "Type"
+	keyStepName           = "Name"
+	keySourceFileLoc      = "SourceFileLocation"
+	keyLocalProfileID     = "LocalProfileId"
+	keyPartnerProfileID   = "PartnerProfileId"
+	keyArn                = "Arn"
+	keyTags               = "Tags"
+	keyWebAppID           = "WebAppId"
+	keySecurityPolicyName = "SecurityPolicyName"
 )
 
 var (
@@ -67,6 +69,15 @@ func NewHandler(backend StorageBackend) *Handler {
 func (h *Handler) Reset() {
 	h.Backend.Reset()
 	h.ops = h.buildOps()
+}
+
+// Shutdown stops the backend's scheduled server state-transition timers so no
+// timer goroutine outlives the service. Invoked on server shutdown via
+// service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(interface{ Close() }); ok {
+		c.Close()
+	}
 }
 
 // Name returns the service name.
@@ -917,10 +928,12 @@ type listUsersInput struct {
 }
 
 type userListItem struct {
-	Arn      string `json:"Arn"`
-	UserName string `json:"UserName"`
-	HomeDir  string `json:"HomeDirectory"`
-	Role     string `json:"Role"`
+	Arn               string `json:"Arn"`
+	UserName          string `json:"UserName"`
+	HomeDir           string `json:"HomeDirectory"`
+	Role              string `json:"Role"`
+	HomeDirectoryType string `json:"HomeDirectoryType,omitempty"`
+	SSHPublicKeyCount int    `json:"SshPublicKeyCount"`
 }
 
 type listUsersOutput struct {
@@ -944,10 +957,12 @@ func (h *Handler) handleListUsers(_ context.Context, in *listUsersInput) (*listU
 	for i := range users {
 		u := &users[i]
 		items = append(items, userListItem{
-			Arn:      userARN(u.AccountID, u.Region, u.ServerID, u.UserName),
-			UserName: u.UserName,
-			HomeDir:  u.HomeDir,
-			Role:     u.Role,
+			Arn:               userARN(u.AccountID, u.Region, u.ServerID, u.UserName),
+			UserName:          u.UserName,
+			HomeDir:           u.HomeDir,
+			Role:              u.Role,
+			HomeDirectoryType: u.HomeDirectoryType,
+			SSHPublicKeyCount: h.Backend.CountUserSSHPublicKeys(in.ServerID, u.UserName),
 		})
 	}
 
@@ -988,6 +1003,7 @@ type updateUserOutput struct {
 	UserName string `json:"UserName"`
 }
 
+//nolint:dupl // handleUpdateUser and handleUpdateAccess are structurally similar but serve different entity types
 func (h *Handler) handleUpdateUser(
 	_ context.Context,
 	in *updateUserInput,
@@ -1742,10 +1758,14 @@ func (h *Handler) handleListAccesses(
 }
 
 type updateAccessInput struct {
-	ServerID   string `json:"ServerId"`
-	ExternalID string `json:"ExternalId"`
-	Role       string `json:"Role"`
-	HomeDir    string `json:"HomeDirectory"`
+	PosixProfile          *posixProfileInput           `json:"PosixProfile,omitempty"`
+	ServerID              string                       `json:"ServerId"`
+	ExternalID            string                       `json:"ExternalId"`
+	Role                  string                       `json:"Role"`
+	HomeDir               string                       `json:"HomeDirectory"`
+	HomeDirectoryType     string                       `json:"HomeDirectoryType,omitempty"`
+	Policy                string                       `json:"Policy,omitempty"`
+	HomeDirectoryMappings []homeDirectoryMapEntryInput `json:"HomeDirectoryMappings,omitempty"`
 }
 
 type updateAccessOutput struct {
@@ -1753,6 +1773,7 @@ type updateAccessOutput struct {
 	ExternalID string `json:"ExternalId"`
 }
 
+//nolint:dupl // handleUpdateAccess and handleUpdateUser are structurally similar but serve different entity types
 func (h *Handler) handleUpdateAccess(
 	_ context.Context,
 	in *updateAccessInput,
@@ -1765,7 +1786,20 @@ func (h *Handler) handleUpdateAccess(
 		return nil, fmt.Errorf("%w: ExternalId is required", errInvalidRequest)
 	}
 
-	a, err := h.Backend.UpdateAccess(in.ServerID, in.ExternalID, in.Role, in.HomeDir)
+	a, err := h.Backend.UpdateAccessFull(&UpdateAccessInput{
+		ServerID:                 in.ServerID,
+		ExternalID:               in.ExternalID,
+		Role:                     in.Role,
+		HomeDir:                  in.HomeDir,
+		HomeDirectoryType:        in.HomeDirectoryType,
+		SetHomeDirectoryType:     in.HomeDirectoryType != "",
+		Policy:                   in.Policy,
+		SetPolicy:                in.Policy != "",
+		PosixProfile:             toPosixProfile(in.PosixProfile),
+		SetPosixProfile:          in.PosixProfile != nil,
+		HomeDirectoryMappings:    toHomeDirectoryMappings(in.HomeDirectoryMappings),
+		SetHomeDirectoryMappings: in.HomeDirectoryMappings != nil,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1938,13 +1972,13 @@ func (h *Handler) handleDescribeConnector(
 	}
 
 	connMap := map[string]any{
-		keyConnectorID:       c.ConnectorID,
-		keyURL:               c.URL,
-		"AccessRole":         c.AccessRole,
-		keyArn:               connectorARN(c.AccountID, c.Region, c.ConnectorID),
-		keyTags:              tagsToList(c.Tags),
-		"LoggingRole":        c.LoggingRole,
-		"SecurityPolicyName": c.SecurityPolicyName,
+		keyConnectorID:        c.ConnectorID,
+		keyURL:                c.URL,
+		"AccessRole":          c.AccessRole,
+		keyArn:                connectorARN(c.AccountID, c.Region, c.ConnectorID),
+		keyTags:               tagsToList(c.Tags),
+		"LoggingRole":         c.LoggingRole,
+		keySecurityPolicyName: c.SecurityPolicyName,
 	}
 
 	if c.SftpConfig != nil {
@@ -1992,8 +2026,10 @@ func (h *Handler) handleListConnectors(
 
 	for i, c := range page {
 		out[i] = map[string]any{
-			keyConnectorID: c.ConnectorID,
-			keyURL:         c.URL,
+			keyConnectorID:        c.ConnectorID,
+			keyURL:                c.URL,
+			keyArn:                connectorARN(c.AccountID, c.Region, c.ConnectorID),
+			keySecurityPolicyName: c.SecurityPolicyName,
 		}
 	}
 
@@ -2001,11 +2037,13 @@ func (h *Handler) handleListConnectors(
 }
 
 type updateConnectorInput struct {
-	SftpConfig  *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
-	As2Config   *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
-	ConnectorID string                    `json:"ConnectorId"`
-	URL         string                    `json:"Url"`
-	AccessRole  string                    `json:"AccessRole"`
+	SftpConfig         *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
+	As2Config          *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
+	ConnectorID        string                    `json:"ConnectorId"`
+	URL                string                    `json:"Url"`
+	AccessRole         string                    `json:"AccessRole"`
+	LoggingRole        string                    `json:"LoggingRole,omitempty"`
+	SecurityPolicyName string                    `json:"SecurityPolicyName,omitempty"`
 }
 
 type updateConnectorOutput struct {
@@ -2020,13 +2058,17 @@ func (h *Handler) handleUpdateConnector(
 		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.UpdateConnector(
-		in.ConnectorID,
-		in.URL,
-		in.AccessRole,
-		toConnectorSftpConfig(in.SftpConfig),
-		toConnectorAs2Config(in.As2Config),
-	)
+	c, err := h.Backend.UpdateConnectorFull(&UpdateConnectorInput{
+		ConnectorID:           in.ConnectorID,
+		URL:                   in.URL,
+		AccessRole:            in.AccessRole,
+		SftpConfig:            toConnectorSftpConfig(in.SftpConfig),
+		As2Config:             toConnectorAs2Config(in.As2Config),
+		LoggingRole:           in.LoggingRole,
+		SetLoggingRole:        in.LoggingRole != "",
+		SecurityPolicyName:    in.SecurityPolicyName,
+		SetSecurityPolicyName: in.SecurityPolicyName != "",
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2076,15 +2118,20 @@ func (h *Handler) handleDescribeProfile(
 		return nil, err
 	}
 
-	return &describeProfileOutput{
-		Profile: map[string]any{
-			"ProfileId":   p.ProfileID,
-			"ProfileType": p.ProfileType,
-			"As2Id":       p.As2ID,
-			keyArn:        profileARN(p.AccountID, p.Region, p.ProfileID),
-			keyTags:       tagsToList(p.Tags),
-		},
-	}, nil
+	profileMap := map[string]any{
+		"ProfileId":      p.ProfileID,
+		"ProfileType":    p.ProfileType,
+		"As2Id":          p.As2ID,
+		keyArn:           profileARN(p.AccountID, p.Region, p.ProfileID),
+		keyTags:          tagsToList(p.Tags),
+		"CertificateIds": p.CertificateIDs,
+	}
+
+	if profileMap["CertificateIds"] == nil {
+		profileMap["CertificateIds"] = []string{}
+	}
+
+	return &describeProfileOutput{Profile: profileMap}, nil
 }
 
 type listProfilesInput struct {
@@ -2130,8 +2177,9 @@ func (h *Handler) handleListProfiles(
 }
 
 type updateProfileInput struct {
-	ProfileID string `json:"ProfileId"`
-	As2ID     string `json:"As2Id"`
+	ProfileID      string   `json:"ProfileId"`
+	As2ID          string   `json:"As2Id"`
+	CertificateIDs []string `json:"CertificateIds,omitempty"`
 }
 
 type updateProfileOutput struct {
@@ -2146,7 +2194,12 @@ func (h *Handler) handleUpdateProfile(
 		return nil, fmt.Errorf("%w: ProfileId is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.UpdateProfile(in.ProfileID, in.As2ID)
+	p, err := h.Backend.UpdateProfileFull(&UpdateProfileInput{
+		ProfileID:         in.ProfileID,
+		As2ID:             in.As2ID,
+		CertificateIDs:    in.CertificateIDs,
+		SetCertificateIDs: in.CertificateIDs != nil,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2273,26 +2326,69 @@ func (h *Handler) handleUpdateWebApp(
 	return &updateWebAppOutput{WebAppID: w.WebAppID}, nil
 }
 
-// --- WebApp Customization stubs ---
+// --- WebApp Customization ---
+
+type webAppCustomizationInput struct {
+	WebAppID    string `json:"WebAppId"`
+	Title       string `json:"Title"`
+	LogoFile    string `json:"LogoFile"`
+	FaviconFile string `json:"FaviconFile"`
+}
+
+type describeWebAppCustomizationOutput struct {
+	WebAppCustomization map[string]any `json:"WebAppCustomization"`
+}
 
 func (h *Handler) handleDeleteWebAppCustomization(
 	_ context.Context,
-	_ *struct{},
+	in *webAppCustomizationInput,
 ) (*struct{}, error) {
+	if in.WebAppID == "" {
+		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteWebAppCustomization(in.WebAppID); err != nil {
+		return nil, err
+	}
+
 	return &struct{}{}, nil
 }
 
 func (h *Handler) handleDescribeWebAppCustomization(
 	_ context.Context,
-	_ *struct{},
-) (*map[string]any, error) {
-	return &map[string]any{"WebAppCustomization": map[string]any{}}, nil
+	in *webAppCustomizationInput,
+) (*describeWebAppCustomizationOutput, error) {
+	if in.WebAppID == "" {
+		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
+	}
+
+	c, err := h.Backend.DescribeWebAppCustomization(in.WebAppID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeWebAppCustomizationOutput{
+		WebAppCustomization: map[string]any{
+			keyWebAppID:   c.WebAppID,
+			"Title":       c.Title,
+			"LogoFile":    c.LogoFile,
+			"FaviconFile": c.FaviconFile,
+		},
+	}, nil
 }
 
 func (h *Handler) handleUpdateWebAppCustomization(
 	_ context.Context,
-	_ *struct{},
+	in *webAppCustomizationInput,
 ) (*struct{}, error) {
+	if in.WebAppID == "" {
+		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.UpdateWebAppCustomization(in.WebAppID, in.Title, in.LogoFile, in.FaviconFile); err != nil {
+		return nil, err
+	}
+
 	return &struct{}{}, nil
 }
 
@@ -2427,11 +2523,11 @@ func (h *Handler) handleImportCertificate(
 	}
 
 	switch in.Usage {
-	case "SIGNING", "ENCRYPTION":
+	case "SIGNING", "ENCRYPTION", "TLS":
 		// valid
 	default:
 		return nil, fmt.Errorf(
-			"%w: Usage must be SIGNING or ENCRYPTION, got %q",
+			"%w: Usage must be SIGNING, ENCRYPTION, or TLS, got %q",
 			errInvalidRequest,
 			in.Usage,
 		)
@@ -2486,6 +2582,10 @@ func (h *Handler) handleDescribeCertificate(
 		keyDescription:  c.Description,
 		keyStatus:       c.Status,
 		keyArn:          certificateARN(c.AccountID, c.Region, c.CertificateID),
+	}
+
+	if c.Body != "" {
+		certMap["Certificate"] = c.Body
 	}
 
 	if !c.NotBeforeDate.IsZero() {
@@ -2642,7 +2742,7 @@ func (h *Handler) handleDescribeHostKey(
 	hkMap := map[string]any{
 		"HostKeyId":    hk.HostKeyID,
 		keyDescription: hk.Description,
-		"Type":         hk.Type,
+		keyStepType:    hk.Type,
 		"DateImported": hk.CreatedAt.Format(time.RFC3339),
 		keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
 		keyTags:        tagsToList(hk.Tags),
@@ -2690,7 +2790,7 @@ func (h *Handler) handleListHostKeys(
 		item := map[string]any{
 			"HostKeyId":    hk.HostKeyID,
 			keyDescription: hk.Description,
-			"Type":         hk.Type,
+			keyStepType:    hk.Type,
 			"DateImported": hk.CreatedAt.Format(time.RFC3339),
 			keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
 		}
@@ -2969,6 +3069,134 @@ func (h *Handler) handleListFileTransferResults(
 	return &map[string]any{"FileTransferResults": results}, nil
 }
 
+// securityPolicyDef holds the static attributes of a named AWS Transfer security policy.
+type securityPolicyDef struct {
+	Type                 string   // "SERVER" or "CONNECTOR"
+	Protocols            []string // e.g. ["SFTP"] or ["SFTP","FTPS"]
+	SSHCiphers           []string
+	SSHKexs              []string
+	SSHMacs              []string
+	TLSCiphers           []string // non-empty only for SERVER policies
+	SSHHostKeyAlgorithms []string // non-empty only for CONNECTOR policies
+	Fips                 bool
+}
+
+const (
+	secPolicyTypeServer    = "SERVER"
+	secPolicyTypeConnector = "CONNECTOR"
+)
+
+// Security policy SSH/TLS algorithm name constants (avoids repeated string literals).
+const (
+	sshKexNistp384             = "ecdh-sha2-nistp384"
+	sshKexNistp256             = "ecdh-sha2-nistp256"
+	sshKexDH16                 = "diffie-hellman-group16-sha512"
+	sshMacETMSHA256            = "hmac-sha2-256-etm@openssh.com"
+	sshMacETMSHA512            = "hmac-sha2-512-etm@openssh.com"
+	tlsCipherAES256GCM         = "TLS_AES_256_GCM_SHA384"
+	tlsCipherECDHERSAAES256GCM = "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+)
+
+// securityPolicyCatalog returns the ordered catalog of AWS Transfer security
+// policies. It is a function (not a var) to avoid package-level mutable state.
+func securityPolicyCatalog() []struct {
+	name string
+	def  securityPolicyDef
+} {
+	sftp := []string{protocolSFTP}
+	sftpFTPS := []string{protocolSFTP, protocolFTPS}
+	stdCiphers := []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"}
+	fipsCiphers := []string{"aes256-ctr", "aes192-ctr", "aes128-ctr"}
+	stdKexs := []string{"curve25519-sha256", sshKexNistp384, sshKexNistp256, sshKexDH16}
+	legacyKexs := []string{sshKexNistp384, sshKexNistp256, sshKexDH16, "diffie-hellman-group14-sha256"}
+	fipsKexs := []string{sshKexNistp384, sshKexNistp256, sshKexDH16}
+	pqKex := "ecdh-sha2-nistp256-kyber-512r3-sha256-d00@openquantumsafe.org"
+	pqKexs := []string{pqKex, "curve25519-sha256", sshKexNistp384, sshKexNistp256, sshKexDH16}
+	pqFIPSKexs := []string{pqKex, sshKexNistp384, sshKexNistp256, sshKexDH16}
+	stdMacs := []string{sshMacETMSHA256, sshMacETMSHA512, "hmac-sha2-256"}
+	legacyMacs := []string{sshMacETMSHA256, sshMacETMSHA512, "hmac-sha2-256", "hmac-sha2-512"}
+	fipsMacs := []string{sshMacETMSHA256, sshMacETMSHA512}
+	stdTLS := []string{
+		tlsCipherAES256GCM, "TLS_AES_128_GCM_SHA256",
+		tlsCipherECDHERSAAES256GCM, "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+	}
+	legacyTLS := []string{
+		tlsCipherAES256GCM, "TLS_AES_128_GCM_SHA256",
+		tlsCipherECDHERSAAES256GCM, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+	}
+	fipsTLS := []string{tlsCipherAES256GCM, tlsCipherECDHERSAAES256GCM, "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"}
+	fipsLegacyTLS := []string{tlsCipherAES256GCM, tlsCipherECDHERSAAES256GCM}
+	connHKAlgs := []string{sshKeyTypeECDSAP384, sshKeyTypeECDSAP256, "rsa-sha2-512", "rsa-sha2-256"}
+
+	type entry = struct {
+		name string
+		def  securityPolicyDef
+	}
+
+	return []entry{
+		{"TransferSecurityPolicy-2024-01", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS,
+			SSHCiphers: stdCiphers, SSHKexs: stdKexs, SSHMacs: stdMacs, TLSCiphers: stdTLS,
+		}},
+		{"TransferSecurityPolicy-2023-05", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS,
+			SSHCiphers: stdCiphers, SSHKexs: stdKexs, SSHMacs: stdMacs, TLSCiphers: stdTLS,
+		}},
+		{"TransferSecurityPolicy-2022-03", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS,
+			SSHCiphers: stdCiphers, SSHKexs: legacyKexs, SSHMacs: stdMacs, TLSCiphers: legacyTLS,
+		}},
+		{"TransferSecurityPolicy-2020-06", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS,
+			SSHCiphers: stdCiphers, SSHKexs: legacyKexs, SSHMacs: legacyMacs, TLSCiphers: legacyTLS,
+		}},
+		{"TransferSecurityPolicy-FIPS-2024-01", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: fipsKexs, SSHMacs: stdMacs, TLSCiphers: fipsTLS,
+		}},
+		{"TransferSecurityPolicy-FIPS-2023-05", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: fipsKexs, SSHMacs: stdMacs, TLSCiphers: fipsTLS,
+		}},
+		{"TransferSecurityPolicy-FIPS-2020-06", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftp, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: fipsKexs, SSHMacs: fipsMacs, TLSCiphers: fipsLegacyTLS,
+		}},
+		{"TransferSecurityPolicy-PQ-SSH-2023-04", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftp,
+			SSHCiphers: stdCiphers, SSHKexs: pqKexs, SSHMacs: stdMacs,
+		}},
+		{"TransferSecurityPolicy-PQ-SSH-FIPS-2023-04", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftp, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: pqFIPSKexs, SSHMacs: fipsMacs,
+		}},
+		{"TransferSecurityPolicy-Connector-2023-05", securityPolicyDef{
+			Type: secPolicyTypeConnector, Protocols: sftp,
+			SSHCiphers: stdCiphers, SSHKexs: stdKexs, SSHMacs: stdMacs, SSHHostKeyAlgorithms: connHKAlgs,
+		}},
+		{"TransferSecurityPolicy-FIPS-Connector-2023-05", securityPolicyDef{
+			Type: secPolicyTypeConnector, Protocols: sftp, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: fipsKexs, SSHMacs: fipsMacs, SSHHostKeyAlgorithms: connHKAlgs,
+		}},
+	}
+}
+
+// lookupSecurityPolicy returns the definition for the named policy, or nil if unknown.
+func lookupSecurityPolicy(name string) *securityPolicyDef {
+	for _, e := range securityPolicyCatalog() {
+		if e.name == name {
+			d := e.def
+
+			return &d
+		}
+	}
+
+	return nil
+}
+
+// ErrSecurityPolicyNotFound is returned when a named security policy is not found.
+var ErrSecurityPolicyNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+
 type describeSecurityPolicyInput struct {
 	SecurityPolicyName string `json:"SecurityPolicyName"`
 }
@@ -2977,49 +3205,60 @@ func (h *Handler) handleDescribeSecurityPolicy(
 	_ context.Context,
 	in *describeSecurityPolicyInput,
 ) (*map[string]any, error) {
-	name := in.SecurityPolicyName
-	if name == "" {
-		name = "TransferSecurityPolicy-2024-01"
+	if in.SecurityPolicyName == "" {
+		return nil, fmt.Errorf("%w: SecurityPolicyName is required", errInvalidRequest)
 	}
 
-	isFIPS := strings.Contains(name, "FIPS")
-
-	ciphers := []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"}
-	kexs := []string{"curve25519-sha256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"}
-	macs := []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"}
-	tlsCiphers := []string{"TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"}
-
-	if isFIPS {
-		ciphers = []string{"aes256-ctr", "aes192-ctr", "aes128-ctr"}
-		kexs = []string{"ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"}
-		macs = []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com"}
-		tlsCiphers = []string{"TLS_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"}
+	pol := lookupSecurityPolicy(in.SecurityPolicyName)
+	if pol == nil {
+		return nil, fmt.Errorf("%w: security policy %q not found", ErrSecurityPolicyNotFound, in.SecurityPolicyName)
 	}
 
-	return &map[string]any{
-		"SecurityPolicy": map[string]any{
-			"SecurityPolicyName": name,
-			"Protocols":          []string{"SFTP"},
-			"SshCiphers":         ciphers,
-			"SshKexs":            kexs,
-			"SshMacs":            macs,
-			"TlsCiphers":         tlsCiphers,
-		},
-	}, nil
+	body := map[string]any{
+		keySecurityPolicyName: in.SecurityPolicyName,
+		"Fips":                pol.Fips,
+		keyStepType:           pol.Type,
+		"Protocols":           pol.Protocols,
+		"SshCiphers":          pol.SSHCiphers,
+		"SshKexs":             pol.SSHKexs,
+		"SshMacs":             pol.SSHMacs,
+	}
+
+	if len(pol.TLSCiphers) > 0 {
+		body["TlsCiphers"] = pol.TLSCiphers
+	}
+
+	if len(pol.SSHHostKeyAlgorithms) > 0 {
+		body["SshHostKeyAlgorithms"] = pol.SSHHostKeyAlgorithms
+	}
+
+	return &map[string]any{"SecurityPolicy": body}, nil
+}
+
+type listSecurityPoliciesInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
+}
+
+type listSecurityPoliciesOutput struct {
+	NextToken           string   `json:"NextToken,omitempty"`
+	SecurityPolicyNames []string `json:"SecurityPolicyNames"`
 }
 
 func (h *Handler) handleListSecurityPolicies(
 	_ context.Context,
-	_ *struct{},
-) (*map[string]any, error) {
-	return &map[string]any{
-		"SecurityPolicyNames": []string{
-			"TransferSecurityPolicy-2024-01",
-			"TransferSecurityPolicy-2023-05",
-			"TransferSecurityPolicy-2022-03",
-			"TransferSecurityPolicy-FIPS-2024-01",
-		},
-	}, nil
+	in *listSecurityPoliciesInput,
+) (*listSecurityPoliciesOutput, error) {
+	catalog := securityPolicyCatalog()
+	names := make([]string, len(catalog))
+
+	for i, p := range catalog {
+		names[i] = p.name
+	}
+
+	names, nextToken := applyNextTokenItems(names, in.NextToken, in.MaxResults)
+
+	return &listSecurityPoliciesOutput{SecurityPolicyNames: names, NextToken: nextToken}, nil
 }
 
 type sendWorkflowStepStateInput struct {
@@ -3186,12 +3425,7 @@ func (h *Handler) handleTestIdentityProvider(
 
 // tagsToList converts a map of tags to the AWS list format sorted by key.
 func tagsToList(tags map[string]string) []map[string]string {
-	keys := make([]string, 0, len(tags))
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 
 	list := make([]map[string]string, 0, len(tags))
 	for _, k := range keys {

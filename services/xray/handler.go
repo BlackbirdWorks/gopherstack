@@ -22,6 +22,20 @@ const (
 	keyTypeField = "__type"
 
 	defaultResourcePoliciesPageSize = 25
+	defaultGroupsPageSize           = 25
+	defaultSamplingRulesPageSize    = 25
+	defaultInsightEventsPageSize    = 50
+	defaultInsightSummariesPageSize = 50
+	defaultIndexingRulesPageSize    = 25
+	defaultTraceSummariesPageSize   = 100
+	defaultSamplingStatsPageSize    = 25
+
+	maxTraceSegmentsPerCall = 50
+	maxSegmentDocumentBytes = 64 * 1024
+
+	timeRangeTypeTraceID = "TraceId"
+	timeRangeTypeEvent   = "Event"
+	timeRangeTypeService = "Service"
 )
 
 const (
@@ -573,7 +587,19 @@ func (h *Handler) handleGetGroup(_ context.Context, body []byte) ([]byte, error)
 	})
 }
 
-func (h *Handler) handleGetGroups(_ context.Context, _ []byte) ([]byte, error) {
+type getGroupsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
+
+func (h *Handler) handleGetGroups(_ context.Context, body []byte) ([]byte, error) {
+	var in getGroupsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
 	groups := h.Backend.GetGroups()
 	views := make([]groupView, 0, len(groups))
 
@@ -581,10 +607,13 @@ func (h *Handler) handleGetGroups(_ context.Context, _ []byte) ([]byte, error) {
 		views = append(views, toGroupView(&groups[i]))
 	}
 
-	return json.Marshal(map[string]any{
-		"Groups":     views,
-		keyNextToken: "",
-	})
+	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultGroupsPageSize)
+	resp := map[string]any{
+		"Groups":     pg.Data,
+		keyNextToken: pg.Next,
+	}
+
+	return json.Marshal(resp)
 }
 
 type updateGroupInput struct {
@@ -750,7 +779,18 @@ func (h *Handler) handleCreateSamplingRule(_ context.Context, body []byte) ([]by
 	})
 }
 
-func (h *Handler) handleGetSamplingRules(_ context.Context, _ []byte) ([]byte, error) {
+type getSamplingRulesInput struct {
+	NextToken string `json:"NextToken"`
+}
+
+func (h *Handler) handleGetSamplingRules(_ context.Context, body []byte) ([]byte, error) {
+	var in getSamplingRulesInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
 	rules := h.Backend.GetSamplingRules()
 	records := make([]samplingRuleRecord, 0, len(rules))
 
@@ -758,9 +798,11 @@ func (h *Handler) handleGetSamplingRules(_ context.Context, _ []byte) ([]byte, e
 		records = append(records, toSamplingRuleRecord(&rules[i]))
 	}
 
+	pg := page.New(records, in.NextToken, 0, defaultSamplingRulesPageSize)
+
 	return json.Marshal(map[string]any{
-		"SamplingRuleRecords": records,
-		keyNextToken:          "",
+		"SamplingRuleRecords": pg.Data,
+		keyNextToken:          pg.Next,
 	})
 }
 
@@ -857,6 +899,18 @@ func (h *Handler) handlePutTraceSegments(_ context.Context, body []byte) ([]byte
 		}
 	}
 
+	if len(in.TraceSegmentDocuments) > maxTraceSegmentsPerCall {
+		return nil, fmt.Errorf("%w: PutTraceSegments accepts at most %d documents per call, got %d",
+			errInvalidRequest, maxTraceSegmentsPerCall, len(in.TraceSegmentDocuments))
+	}
+
+	for i, doc := range in.TraceSegmentDocuments {
+		if len(doc) > maxSegmentDocumentBytes {
+			return nil, fmt.Errorf("%w: segment document %d exceeds maximum size of %d bytes (got %d)",
+				errInvalidRequest, i, maxSegmentDocumentBytes, len(doc))
+		}
+	}
+
 	unprocessed := h.Backend.PutTraceSegments(in.TraceSegmentDocuments)
 
 	type unprocessedSegment struct {
@@ -925,6 +979,8 @@ type getTraceSummariesInput struct {
 	NextToken        string  `json:"NextToken"`
 	StartTime        float64 `json:"StartTime"`
 	EndTime          float64 `json:"EndTime"`
+	MaxResults       int32   `json:"MaxResults"`
+	Sampling         bool    `json:"Sampling"`
 }
 
 type traceSummaryHTTPView struct {
@@ -1013,6 +1069,14 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 		}
 	}
 
+	if in.TimeRangeType != "" &&
+		in.TimeRangeType != timeRangeTypeTraceID &&
+		in.TimeRangeType != timeRangeTypeEvent &&
+		in.TimeRangeType != timeRangeTypeService {
+		return nil, fmt.Errorf("%w: TimeRangeType must be %q, %q, or %q, got %q",
+			errInvalidRequest, timeRangeTypeTraceID, timeRangeTypeEvent, timeRangeTypeService, in.TimeRangeType)
+	}
+
 	traces := h.Backend.GetTraceSummaries()
 	allSegs := h.Backend.GetAllParsedSegments()
 
@@ -1037,10 +1101,12 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 		summaries = append(summaries, buildTraceSummaryView(traces[i].TraceID, sd))
 	}
 
+	pg := page.New(summaries, in.NextToken, int(in.MaxResults), defaultTraceSummariesPageSize)
+
 	return json.Marshal(map[string]any{
-		"TraceSummaries":       summaries,
+		"TraceSummaries":       pg.Data,
 		"TracesProcessedCount": len(summaries),
-		keyNextToken:           "",
+		keyNextToken:           pg.Next,
 	})
 }
 
@@ -1166,6 +1232,19 @@ func (h *Handler) handlePutEncryptionConfig(_ context.Context, body []byte) ([]b
 		in.Type = encTypeNone
 	}
 
+	if in.Type != encTypeNone && in.Type != encTypeKMS {
+		return nil, fmt.Errorf("%w: Type must be %q or %q, got %q",
+			errInvalidRequest, encTypeNone, encTypeKMS, in.Type)
+	}
+
+	if in.Type == encTypeKMS && in.KeyID == "" {
+		return nil, fmt.Errorf("%w: KeyId is required when Type is %q", errInvalidRequest, encTypeKMS)
+	}
+
+	if in.Type == encTypeNone && in.KeyID != "" {
+		return nil, fmt.Errorf("%w: KeyId must not be set when Type is %q", errInvalidRequest, encTypeNone)
+	}
+
 	cfg, err := h.Backend.PutEncryptionConfig(in.Type, in.KeyID)
 	if err != nil {
 		return nil, err
@@ -1232,7 +1311,19 @@ type indexingRuleView struct {
 	ModifiedAt float64 `json:"ModifiedAt"`
 }
 
-func (h *Handler) handleGetIndexingRules(_ context.Context, _ []byte) ([]byte, error) {
+type getIndexingRulesInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
+
+func (h *Handler) handleGetIndexingRules(_ context.Context, body []byte) ([]byte, error) {
+	var in getIndexingRulesInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
 	rules := h.Backend.GetIndexingRules()
 	views := make([]indexingRuleView, 0, len(rules))
 
@@ -1243,9 +1334,11 @@ func (h *Handler) handleGetIndexingRules(_ context.Context, _ []byte) ([]byte, e
 		})
 	}
 
+	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultIndexingRulesPageSize)
+
 	return json.Marshal(map[string]any{
-		"IndexingRules": views,
-		keyNextToken:    "",
+		"IndexingRules": pg.Data,
+		keyNextToken:    pg.Next,
 	})
 }
 
@@ -1256,16 +1349,18 @@ type getInsightInput struct {
 }
 
 type insightView struct {
-	InsightID string  `json:"InsightId"`
-	GroupARN  string  `json:"GroupARN"`
-	GroupName string  `json:"GroupName"`
-	State     string  `json:"State"`
-	Summary   string  `json:"Summary"`
-	StartTime float64 `json:"StartTime"`
+	InsightID  string   `json:"InsightId"`
+	GroupARN   string   `json:"GroupARN"`
+	GroupName  string   `json:"GroupName"`
+	State      string   `json:"State"`
+	Summary    string   `json:"Summary"`
+	Categories []string `json:"Categories,omitempty"`
+	StartTime  float64  `json:"StartTime"`
+	EndTime    float64  `json:"EndTime,omitempty"`
 }
 
 func toInsightView(i *Insight) insightView {
-	return insightView{
+	v := insightView{
 		InsightID: i.InsightID,
 		GroupARN:  i.GroupARN,
 		GroupName: i.GroupName,
@@ -1273,6 +1368,11 @@ func toInsightView(i *Insight) insightView {
 		Summary:   i.Summary,
 		StartTime: float64(i.StartTime.Unix()),
 	}
+	if !i.EndTime.IsZero() {
+		v.EndTime = float64(i.EndTime.Unix())
+	}
+
+	return v
 }
 
 func (h *Handler) handleGetInsight(_ context.Context, body []byte) ([]byte, error) {
@@ -1335,9 +1435,11 @@ func (h *Handler) handleGetInsightEvents(_ context.Context, body []byte) ([]byte
 		})
 	}
 
+	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultInsightEventsPageSize)
+
 	return json.Marshal(map[string]any{
-		"InsightEvents": views,
-		keyNextToken:    "",
+		"InsightEvents": pg.Data,
+		keyNextToken:    pg.Next,
 	})
 }
 
@@ -1409,9 +1511,11 @@ func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]b
 		views = append(views, toInsightView(&summaries[i]))
 	}
 
+	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultInsightSummariesPageSize)
+
 	return json.Marshal(map[string]any{
-		"InsightSummaries": views,
-		keyNextToken:       "",
+		"InsightSummaries": pg.Data,
+		keyNextToken:       pg.Next,
 	})
 }
 
@@ -1453,7 +1557,18 @@ type samplingStatisticSummaryView struct {
 	Timestamp    float64 `json:"Timestamp"`
 }
 
-func (h *Handler) handleGetSamplingStatisticSummaries(_ context.Context, _ []byte) ([]byte, error) {
+type getSamplingStatisticSummariesInput struct {
+	NextToken string `json:"NextToken"`
+}
+
+func (h *Handler) handleGetSamplingStatisticSummaries(_ context.Context, body []byte) ([]byte, error) {
+	var in getSamplingStatisticSummariesInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
 	summaries := h.Backend.GetSamplingStatisticSummaries()
 	views := make([]samplingStatisticSummaryView, 0, len(summaries))
 
@@ -1467,9 +1582,11 @@ func (h *Handler) handleGetSamplingStatisticSummaries(_ context.Context, _ []byt
 		})
 	}
 
+	pg := page.New(views, in.NextToken, 0, defaultSamplingStatsPageSize)
+
 	return json.Marshal(map[string]any{
-		"SamplingStatisticSummaries": views,
-		keyNextToken:                 "",
+		"SamplingStatisticSummaries": pg.Data,
+		keyNextToken:                 pg.Next,
 	})
 }
 

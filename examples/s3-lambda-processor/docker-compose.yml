@@ -1,0 +1,19 @@
+services:
+  gopherstack:
+    build: ../..
+    ports:
+      - "8000:8000"
+      - "10000-10100:10000-10100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/gopherstack-lambda:/tmp/gopherstack-lambda
+    healthcheck:
+      test: ["CMD", "./gopherstack", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    environment:
+      - LAMBDA_DOCKER_HOST=host.docker.internal
+      - TMPDIR=/tmp/gopherstack-lambda
+

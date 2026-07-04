@@ -188,7 +188,14 @@ func TestResourceCreator_S3Bucket(t *testing.T) {
 			backends := newServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::S3::Bucket", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::S3::Bucket",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 
 			if tt.wantPhysID != "" {
@@ -305,7 +312,14 @@ func TestResourceCreator_DynamoDBTable(t *testing.T) {
 			backends := newServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::DynamoDB::Table", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::DynamoDB::Table",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPhysID, physID)
 
@@ -368,7 +382,14 @@ func TestResourceCreator_SQSQueue(t *testing.T) {
 			backends := newServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::SQS::Queue", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::SQS::Queue",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 
 			if tt.wantNotEmpty {
@@ -421,7 +442,14 @@ func TestResourceCreator_SNSTopic(t *testing.T) {
 			backends := newServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::SNS::Topic", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::SNS::Topic",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Contains(t, physID, tt.wantContains)
 
@@ -471,7 +499,14 @@ func TestResourceCreator_SSMParameter(t *testing.T) {
 			backends := newServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::SSM::Parameter", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::SSM::Parameter",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPhysID, physID)
 
@@ -558,7 +593,14 @@ func TestResourceCreator_SecretsManagerSecret(t *testing.T) {
 			backends := newServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::SecretsManager::Secret", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::SecretsManager::Secret",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Contains(t, physID, tt.wantContains)
 
@@ -676,7 +718,11 @@ func TestBackend_CreateStack_RealResources(t *testing.T) {
 
 			backends := newServiceBackends()
 			creator := cloudformation.NewResourceCreator(backends)
-			backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
+			backend := cloudformation.NewInMemoryBackendWithConfig(
+				"000000000000",
+				"us-east-1",
+				creator,
+			)
 
 			stack, err := backend.CreateStack(
 				t.Context(),
@@ -743,12 +789,28 @@ func TestBackend_UpdateStack_WithNewResource(t *testing.T) {
 
 			backends := newServiceBackends()
 			creator := cloudformation.NewResourceCreator(backends)
-			backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
+			backend := cloudformation.NewInMemoryBackendWithConfig(
+				"000000000000",
+				"us-east-1",
+				creator,
+			)
 
-			_, err := backend.CreateStack(t.Context(), tt.stackName, tt.tmpl1, nil, cloudformation.StackOptions{})
+			_, err := backend.CreateStack(
+				t.Context(),
+				tt.stackName,
+				tt.tmpl1,
+				nil,
+				cloudformation.StackOptions{},
+			)
 			require.NoError(t, err)
 
-			updated, err := backend.UpdateStack(t.Context(), tt.stackName, tt.tmpl2, nil, cloudformation.StackOptions{})
+			updated, err := backend.UpdateStack(
+				t.Context(),
+				tt.stackName,
+				tt.tmpl2,
+				nil,
+				cloudformation.StackOptions{},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, updated.StackStatus)
 		})
@@ -780,7 +842,7 @@ func newExtendedServiceBackends() *cloudformation.ServiceBackends {
 	)
 	b.Route53 = route53backend.NewHandler(route53backend.NewInMemoryBackend())
 	b.ElastiCache = elasticachebackend.NewHandler(
-		elasticachebackend.NewInMemoryBackend("", "000000000000", "us-east-1"),
+		elasticachebackend.NewInMemoryBackend("", "000000000000", "us-east-1", nil),
 	)
 	b.Scheduler = schedulerbackend.NewHandler(
 		schedulerbackend.NewInMemoryBackend("000000000000", "us-east-1"),
@@ -871,7 +933,14 @@ func TestResourceCreator_Lambda_NilBackend(t *testing.T) {
 				return
 			}
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::Lambda::Function", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::Lambda::Function",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPhysID, physID)
 		})
@@ -1001,7 +1070,7 @@ func TestResourceCreator_IAMResources(t *testing.T) {
 			resourceType: "AWS::IAM::Policy",
 			props: map[string]any{
 				"PolicyName":     "cfn-my-policy",
-				"PolicyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+				"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			},
 			wantContains: "cfn-my-policy",
 		},
@@ -1011,7 +1080,7 @@ func TestResourceCreator_IAMResources(t *testing.T) {
 			resourceType: "AWS::IAM::ManagedPolicy",
 			props: map[string]any{
 				"ManagedPolicyName": "cfn-managed-policy",
-				"PolicyDocument":    `{"Version":"2012-10-17","Statement":[]}`,
+				"PolicyDocument":    `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			},
 			wantContains: "cfn-managed-policy",
 		},
@@ -1189,7 +1258,14 @@ func TestResourceCreator_KinesisStream(t *testing.T) {
 			backends := newExtendedServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::Kinesis::Stream", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::Kinesis::Stream",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
@@ -1236,7 +1312,14 @@ func TestResourceCreator_CloudWatchAlarm(t *testing.T) {
 			backends := newExtendedServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::CloudWatch::Alarm", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::CloudWatch::Alarm",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPhysID, physID)
 
@@ -1278,7 +1361,14 @@ func TestResourceCreator_Route53HostedZone(t *testing.T) {
 			backends := newExtendedServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::Route53::HostedZone", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::Route53::HostedZone",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
@@ -1320,7 +1410,13 @@ func TestResourceCreator_Route53RecordSet(t *testing.T) {
 // newLambdaServiceBackends creates a ServiceBackends with a real Lambda backend.
 func newLambdaServiceBackends() *cloudformation.ServiceBackends {
 	b := newExtendedServiceBackends()
-	lambdaBk := lambdabackend.NewInMemoryBackend(nil, nil, lambdabackend.DefaultSettings(), "000000000000", "us-east-1")
+	lambdaBk := lambdabackend.NewInMemoryBackend(
+		nil,
+		nil,
+		lambdabackend.DefaultSettings(),
+		"000000000000",
+		"us-east-1",
+	)
 	b.Lambda = lambdabackend.NewHandler(lambdaBk)
 
 	return b
@@ -1471,7 +1567,14 @@ func TestResourceCreator_ElastiCacheCacheCluster(t *testing.T) {
 			backends := newExtendedServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::ElastiCache::CacheCluster", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::ElastiCache::CacheCluster",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPhysID, physID)
 
@@ -1530,7 +1633,14 @@ func TestResourceCreator_EventBus(t *testing.T) {
 			backends := newExtendedServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::Events::EventBus", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::Events::EventBus",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Contains(t, physID, tt.wantContains)
 
@@ -1572,7 +1682,14 @@ func TestResourceCreator_SchedulerSchedule(t *testing.T) {
 			backends := newExtendedServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::Scheduler::Schedule", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::Scheduler::Schedule",
+				tt.props,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Contains(t, physID, tt.wantContains)
 
@@ -1810,7 +1927,11 @@ func TestResourceCreator_NewTypes_NilBackends(t *testing.T) {
 			name:         "route53_record_set_nil",
 			logicalID:    "MyRecord",
 			resourceType: "AWS::Route53::RecordSet",
-			props:        map[string]any{"HostedZoneId": "Z123", "Name": "api.example.com", "Type": "A"},
+			props: map[string]any{
+				"HostedZoneId": "Z123",
+				"Name":         "api.example.com",
+				"Type":         "A",
+			},
 		},
 		{
 			name:         "elasticache_cluster_nil",
@@ -1852,7 +1973,11 @@ func TestResourceCreator_NewTypes_NilBackends(t *testing.T) {
 			name:         "lambda_alias_nil",
 			logicalID:    "MyAlias",
 			resourceType: "AWS::Lambda::Alias",
-			props:        map[string]any{"FunctionName": "my-fn", "Name": "prod", "FunctionVersion": "$LATEST"},
+			props: map[string]any{
+				"FunctionName":    "my-fn",
+				"Name":            "prod",
+				"FunctionVersion": "$LATEST",
+			},
 		},
 		{
 			name:         "lambda_version_nil",
@@ -1864,13 +1989,21 @@ func TestResourceCreator_NewTypes_NilBackends(t *testing.T) {
 			name:         "apigw_resource_nil",
 			logicalID:    "MyResource",
 			resourceType: "AWS::ApiGateway::Resource",
-			props:        map[string]any{"RestApiId": "abc123", "ParentId": "root", "PathPart": "items"},
+			props: map[string]any{
+				"RestApiId": "abc123",
+				"ParentId":  "root",
+				"PathPart":  "items",
+			},
 		},
 		{
 			name:         "apigw_method_nil",
 			logicalID:    "MyMethod",
 			resourceType: "AWS::ApiGateway::Method",
-			props:        map[string]any{"RestApiId": "abc123", "ResourceId": "res1", "HttpMethod": "GET"},
+			props: map[string]any{
+				"RestApiId":  "abc123",
+				"ResourceId": "res1",
+				"HttpMethod": "GET",
+			},
 		},
 		{
 			name:         "apigw_deployment_nil",
@@ -2033,7 +2166,14 @@ func TestResourceCreator_LambdaPermission_RealBackend(t *testing.T) {
 			backends := newLambdaServiceBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), tt.logicalID, "AWS::Lambda::Permission", tt.props, nil, nil)
+			physID, err := rc.Create(
+				t.Context(),
+				tt.logicalID,
+				"AWS::Lambda::Permission",
+				tt.props,
+				nil,
+				nil,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -2259,14 +2399,21 @@ func TestResourceCreator_Phase2Types_NilBackends(t *testing.T) {
 		},
 		{
 			name: "rds_parameter_group", logicalID: "MyPG", resourceType: "AWS::RDS::DBParameterGroup",
-			props: map[string]any{"DBParameterGroupName": "stub-pg", "Family": "postgres14", "Description": "desc"},
+			props: map[string]any{
+				"DBParameterGroupName": "stub-pg",
+				"Family":               "postgres14",
+				"Description":          "desc",
+			},
 		},
 		{
 			name:         "elasticache_replication_group",
 			logicalID:    "MyRG",
 			resourceType: "AWS::ElastiCache::ReplicationGroup",
 
-			props: map[string]any{"ReplicationGroupId": "stub-rg", "ReplicationGroupDescription": "desc"},
+			props: map[string]any{
+				"ReplicationGroupId":          "stub-rg",
+				"ReplicationGroupDescription": "desc",
+			},
 		},
 		{
 			name:         "elasticache_subnet_group",
@@ -2329,7 +2476,11 @@ func TestResourceCreator_Phase2Types_NilBackends(t *testing.T) {
 		},
 		{
 			name: "route53resolver_rule", logicalID: "MyRule", resourceType: "AWS::Route53Resolver::ResolverRule",
-			props: map[string]any{"Name": "stub-rule", "DomainName": "example.internal", "RuleType": "FORWARD"},
+			props: map[string]any{
+				"Name":       "stub-rule",
+				"DomainName": "example.internal",
+				"RuleType":   "FORWARD",
+			},
 		},
 		{
 			name: "swf_domain", logicalID: "MyDomain", resourceType: "AWS::SWF::Domain",
@@ -2355,7 +2506,12 @@ func TestResourceCreator_Phase2Types_NilBackends(t *testing.T) {
 			name: "cognito_user_pool_client", logicalID: "MyClient", resourceType: "AWS::Cognito::UserPoolClient",
 			props: map[string]any{"ClientName": "stub-client", "UserPoolId": "us-east-1_stubpool"},
 		},
-		{name: "ec2_eip", logicalID: "MyEIP", resourceType: "AWS::EC2::EIP", props: map[string]any{}},
+		{
+			name:         "ec2_eip",
+			logicalID:    "MyEIP",
+			resourceType: "AWS::EC2::EIP",
+			props:        map[string]any{},
+		},
 		{
 			name: "ec2_nat_gateway", logicalID: "MyNGW", resourceType: "AWS::EC2::NatGateway",
 			props: map[string]any{"SubnetId": "subnet-1", "AllocationId": "eipalloc-abc123"},
@@ -2465,6 +2621,9 @@ func TestResourceCreator_Phase2Types_RealBackends(t *testing.T) {
 			props: map[string]any{
 				"Family":      "unit-test-family",
 				"NetworkMode": "awsvpc",
+				"ContainerDefinitions": []any{
+					map[string]any{"Name": "app", "Image": "nginx:latest"},
+				},
 			},
 			wantNotEmpty: true,
 		},
@@ -2655,6 +2814,9 @@ func TestResourceCreator_Phase2_ECSServiceCreateDelete(t *testing.T) {
 		map[string]any{
 			"Family":      "unit-ecs-family",
 			"NetworkMode": "bridge",
+			"ContainerDefinitions": []any{
+				map[string]any{"Name": "app", "Image": "nginx:latest"},
+			},
 		}, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, tdARN)

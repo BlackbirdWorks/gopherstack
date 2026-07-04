@@ -269,7 +269,11 @@ func buildQueuedTranscriptionJob(input *TranscriptionJob) TranscriptionJob {
 // buildCompletedTranscriptionJob initialises a job as COMPLETED with synthetic results.
 func buildCompletedTranscriptionJob(input *TranscriptionJob) TranscriptionJob {
 	now := time.Now()
-	transcriptText := "This is a synthetic transcription result for " + input.JobName + "."
+	mediaURI := ""
+	if input.Media.MediaFileURI != "" {
+		mediaURI = input.Media.MediaFileURI
+	}
+	transcriptText := deriveTranscriptText(input.JobName, mediaURI)
 
 	job := *input
 	job.JobStatus = jobStatusCompleted

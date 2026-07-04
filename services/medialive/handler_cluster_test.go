@@ -164,7 +164,13 @@ func TestNodeRegistrationScript(t *testing.T) {
 	h := newTestHandler(t)
 	clusterID := createTestCluster(t, h)
 
-	rec := doRequest(t, h, http.MethodPost, "/prod/clusters/"+clusterID+"/nodeRegistrationScript", nil)
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/prod/clusters/"+clusterID+"/nodeRegistrationScript",
+		nil,
+	)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
@@ -205,10 +211,16 @@ func TestNode_CRUD(t *testing.T) {
 	assert.Equal(t, nodeID, descResp["Id"])
 
 	// Update node
-	rec = doRequest(t, h, http.MethodPut, "/prod/clusters/"+clusterID+"/nodes/"+nodeID, map[string]any{
-		"name": "updated-node",
-		"Role": "BACKUP",
-	})
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPut,
+		"/prod/clusters/"+clusterID+"/nodes/"+nodeID,
+		map[string]any{
+			"name": "updated-node",
+			"Role": "BACKUP",
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
@@ -216,9 +228,15 @@ func TestNode_CRUD(t *testing.T) {
 	assert.Equal(t, "BACKUP", updateResp["Role"])
 
 	// UpdateNodeState
-	rec = doRequest(t, h, http.MethodPut, "/prod/clusters/"+clusterID+"/nodes/"+nodeID+"/state", map[string]any{
-		"State": "DRAINING",
-	})
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPut,
+		"/prod/clusters/"+clusterID+"/nodes/"+nodeID+"/state",
+		map[string]any{
+			"State": "DRAINING",
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var stateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stateResp))
@@ -253,8 +271,16 @@ func TestNode_NotFound(t *testing.T) {
 		{"describe missing cluster", http.MethodGet, "/prod/clusters/missing/nodes/n1"},
 		{"describe missing node", http.MethodGet, "/prod/clusters/" + clusterID + "/nodes/missing"},
 		{"update missing node", http.MethodPut, "/prod/clusters/" + clusterID + "/nodes/missing"},
-		{"update-state missing node", http.MethodPut, "/prod/clusters/" + clusterID + "/nodes/missing/state"},
-		{"delete missing node", http.MethodDelete, "/prod/clusters/" + clusterID + "/nodes/missing"},
+		{
+			"update-state missing node",
+			http.MethodPut,
+			"/prod/clusters/" + clusterID + "/nodes/missing/state",
+		},
+		{
+			"delete missing node",
+			http.MethodDelete,
+			"/prod/clusters/" + clusterID + "/nodes/missing",
+		},
 		{"list nodes missing cluster", http.MethodGet, "/prod/clusters/missing/nodes"},
 	}
 
@@ -263,6 +289,76 @@ func TestNode_NotFound(t *testing.T) {
 			t.Parallel()
 			rec := doRequest(t, h, tc.method, tc.path, map[string]any{})
 			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+func TestListClusterAlerts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		forceState    string
+		wantAlertCode string
+		wantStatus    int
+		setupCluster  bool
+		wantEmpty     bool
+	}{
+		{
+			name:         "cluster not found returns 404",
+			setupCluster: false,
+			wantStatus:   http.StatusNotFound,
+		},
+		{
+			name:         "active cluster returns empty alerts",
+			setupCluster: true,
+			forceState:   "",
+			wantStatus:   http.StatusOK,
+			wantEmpty:    true,
+		},
+		{
+			name:          "non-active cluster returns synthetic alert",
+			setupCluster:  true,
+			forceState:    "DELETING",
+			wantStatus:    http.StatusOK,
+			wantAlertCode: "CLUSTER_NOT_READY",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			clusterID := "missing-cluster-id"
+
+			if tt.setupCluster {
+				clusterID = createTestCluster(t, h)
+				if tt.forceState != "" {
+					medialive.ForceClusterState(
+						h.Backend.(*medialive.InMemoryBackend),
+						clusterID,
+						tt.forceState,
+					)
+				}
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/prod/clusters/"+clusterID+"/alerts", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				alerts := resp["Alerts"].([]any)
+
+				if tt.wantEmpty {
+					assert.Empty(t, alerts)
+				} else {
+					require.NotEmpty(t, alerts)
+					first := alerts[0].(map[string]any)
+					assert.Equal(t, tt.wantAlertCode, first["AlertCode"])
+				}
+			}
 		})
 	}
 }

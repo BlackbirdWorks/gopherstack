@@ -18,7 +18,7 @@ func GlobalReplicationGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("GlobalReplicationGroupCount")
 	defer b.mu.RUnlock()
 
-	return len(b.globalReplicationGroups)
+	return len(b.listGlobalReplicationGroups())
 }
 
 // ServerlessCacheCount returns the number of serverless caches across all regions.
@@ -92,6 +92,23 @@ func EventCount(b *InMemoryBackend) int {
 	defer b.mu.RUnlock()
 
 	return b.events.n
+}
+
+// AddClusterInRGInternal seeds a cluster that belongs to a replication group (uses default region).
+func AddClusterInRGInternal(b *InMemoryBackend, clusterID, replicationGroupID string) {
+	b.mu.Lock("AddClusterInRGInternal")
+	defer b.mu.Unlock()
+
+	b.clustersStore(b.region)[clusterID] = &Cluster{
+		ClusterID:          clusterID,
+		ReplicationGroupID: replicationGroupID,
+		Engine:             engineRedis,
+		EngineVersion:      versionRedis710,
+		Status:             statusAvailable,
+		NodeType:           nodeTypeT3Micro,
+		Region:             b.region,
+		ARN:                b.clusterARN(b.region, clusterID),
+	}
 }
 
 // AddSnapshotInternal seeds an automated snapshot for a given replication group (uses default region).

@@ -1731,11 +1731,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	d, _ := createDeploy(h.Backend, "persisted-app", "persisted-dg", "", "")
 	_, _ = createCfg(h.Backend, "persisted-cfg", "Lambda")
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, h2.Backend.ApplicationCount())
 	assert.Equal(t, 1, h2.Backend.DeploymentGroupCount("persisted-app"))

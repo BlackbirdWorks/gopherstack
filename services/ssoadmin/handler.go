@@ -1,9 +1,11 @@
 package ssoadmin
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -37,18 +39,22 @@ const (
 )
 
 // paginateStrings applies MaxResults + NextToken pagination to an
-// already-sorted string slice. It returns the page plus the NextToken for the
-// following page, which is the value of the first item not returned (a stable
-// cursor because the slice is sorted and values are unique). The token is nil
-// (untyped) on the last page so the JSON response omits/zeroes it as AWS does.
+// already-sorted string slice. NextToken is base64-encoded to be opaque to
+// callers. The token is nil (untyped) on the last page so the JSON response
+// omits/zeroes it as AWS does.
 func paginateStrings(items []string, maxResults int, nextToken string) ([]string, any) {
 	start := 0
 
 	if nextToken != "" {
+		cursor := nextToken
+		if dec, err := base64.StdEncoding.DecodeString(nextToken); err == nil {
+			cursor = string(dec)
+		}
+
 		start = len(items)
 
 		for i, v := range items {
-			if v >= nextToken {
+			if v >= cursor {
 				start = i
 
 				break
@@ -71,27 +77,32 @@ func paginateStrings(items []string, maxResults int, nextToken string) ([]string
 
 	var next any
 	if end < len(items) {
-		next = items[end]
+		next = base64.StdEncoding.EncodeToString([]byte(items[end]))
 	}
 
 	return page, next
 }
 
 // paginateBy sorts items by keyFn, then applies MaxResults + NextToken
-// pagination using the key as the cursor. It returns the page plus the
-// NextToken (nil on the last page). Used for object-shaped list responses.
+// pagination using the key as the cursor. NextToken is base64-encoded to be
+// opaque to callers. Returns the page plus the NextToken (nil on the last page).
 func paginateBy[T any](items []T, maxResults int, nextToken string, keyFn func(T) string) ([]T, any) {
-	sort.Slice(items, func(i, j int) bool {
-		return keyFn(items[i]) < keyFn(items[j])
+	slices.SortFunc(items, func(a, b T) int {
+		return strings.Compare(keyFn(a), keyFn(b))
 	})
 
 	start := 0
 
 	if nextToken != "" {
+		cursor := nextToken
+		if dec, err := base64.StdEncoding.DecodeString(nextToken); err == nil {
+			cursor = string(dec)
+		}
+
 		start = len(items)
 
 		for i := range items {
-			if keyFn(items[i]) >= nextToken {
+			if keyFn(items[i]) >= cursor {
 				start = i
 
 				break
@@ -114,7 +125,7 @@ func paginateBy[T any](items []T, maxResults int, nextToken string, keyFn func(T
 
 	var next any
 	if end < len(items) {
-		next = keyFn(items[end])
+		next = base64.StdEncoding.EncodeToString([]byte(keyFn(items[end])))
 	}
 
 	return page, next
@@ -465,10 +476,6 @@ func (h *Handler) handleListInstances(c *echo.Context, body []byte) error {
 	}
 
 	instances := h.Backend.ListInstances()
-	sort.Slice(instances, func(i, j int) bool {
-		return instances[i].InstanceArn < instances[j].InstanceArn
-	})
-
 	views := make([]instanceView, 0, len(instances))
 	for _, inst := range instances {
 		views = append(views, instanceView{
@@ -889,6 +896,18 @@ func (h *Handler) handleAttachManagedPolicyToPermissionSet(c *echo.Context, body
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
+
+	if req.ManagedPolicyArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ManagedPolicyArn is required")
 	}
 
 	name := req.ManagedPolicyArn

@@ -1,7 +1,6 @@
 package opensearch
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -56,6 +56,12 @@ const (
 	jsonKeyAppName          = "Name"
 	jsonKeyAppArn           = "Arn"
 	jsonKeyDataSource       = "DataSource"
+	// Index data-plane operation segments and document response keys.
+	indexOpDoc      = "_doc"
+	indexOpSearch   = "_search"
+	indexOpCount    = "_count"
+	jsonKeyDocIndex = "_index"
+	jsonKeyDocID    = "_id"
 )
 
 // marshalDataSourceType converts any DataSourceType value (typically a
@@ -510,8 +516,8 @@ type domainEndpointOptionsJSON struct {
 
 // samlOptionsJSON is the JSON representation of SAML options.
 type samlOptionsJSON struct {
-	IDPEntityID           string `json:"Idp,omitempty"`
-	IDPMetadataContent    string `json:"MasterBackendRole,omitempty"`
+	IDPEntityID           string `json:"IDPEntityID,omitempty"`
+	IDPMetadataContent    string `json:"IDPMetadataContent,omitempty"`
 	RolesKey              string `json:"RolesKey,omitempty"`
 	SubjectKey            string `json:"SubjectKey,omitempty"`
 	SessionTimeoutMinutes int    `json:"SessionTimeoutMinutes,omitempty"`
@@ -661,6 +667,9 @@ type domainStatusJSON struct {
 	AccessPolicies              string                              `json:"AccessPolicies,omitempty"`
 	ClusterConfig               clusterConfigJSON                   `json:"ClusterConfig"`
 	Processing                  bool                                `json:"Processing"`
+	UpgradeProcessing           bool                                `json:"UpgradeProcessing"`
+	Created                     bool                                `json:"Created"`
+	Deleted                     bool                                `json:"Deleted"`
 }
 
 // clusterConfigJSON is the JSON representation of cluster config.
@@ -854,7 +863,7 @@ func (h *Handler) handleUpdateIndexRoute(w http.ResponseWriter, r *http.Request,
 
 		return
 	}
-	h.writeJSON(r, w, idx)
+	h.writeJSON(r, w, toIndexResponseJSON(idx))
 }
 
 // dispatchDomainPutRoutes handles PUT under a domain path (UpdateDomainConfig, UpdateIndex).
@@ -1234,22 +1243,13 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 
 func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) {
 	engineTypeFilter := r.URL.Query().Get("engineType")
-	names := h.Backend.ListDomainNames()
-	entries := make([]domainNameEntry, 0, len(names))
+	domainEntries := h.Backend.ListDomainEntriesFiltered(engineTypeFilter)
+	entries := make([]domainNameEntry, 0, len(domainEntries))
 
-	for _, name := range names {
-		d, err := h.Backend.DescribeDomain(name)
-		if err != nil {
-			continue
-		}
-
-		if engineTypeFilter != "" && !strings.HasPrefix(d.EngineVersion, engineTypeFilter+"_") {
-			continue
-		}
-
+	for _, de := range domainEntries {
 		entries = append(entries, domainNameEntry{
-			DomainName:    name,
-			EngineVersion: d.EngineVersion,
+			DomainName:    de.Name,
+			EngineVersion: de.EngineVersion,
 		})
 	}
 
@@ -1420,22 +1420,43 @@ func toLogPublishingOptionsJSON(
 	return out
 }
 
+// Shared, immutable empty option structs. toDomainStatusJSON emits these when a
+// domain has no configured value, so the common case allocates nothing per call.
+// They are only ever read (for marshalling) and replaced wholesale — never
+// mutated in place — by applyDomainOptionalFields, so sharing is safe.
+//
+//nolint:gochecknoglobals // intentional shared zero-value response fragments
+var (
+	emptyEBSOptions              = &ebsOptionsJSON{}
+	emptyEncryptAtRestOptions    = &encryptAtRestOptionsJSON{}
+	emptyNodeToNodeEncrypt       = &nodeToNodeEncryptJSON{}
+	emptyCognitoOptions          = &cognitoOptionsJSON{}
+	emptyAdvancedSecurityOptions = &advancedSecurityOptionsJSON{}
+)
+
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
+	processing, upgradeProcessing, dps := domainProcessing(d, time.Now())
+
 	out := domainStatusJSON{
 		DomainName:             d.Name,
 		ARN:                    d.ARN,
 		EngineVersion:          d.EngineVersion,
 		Endpoint:               d.Endpoint,
-		Processing:             false,
-		DomainProcessingStatus: domainStatusActive,
-		AccessPolicies:         d.AccessPolicies,
-		ClusterConfig:          toClusterConfigJSON(d.ClusterConfig),
+		Processing:             processing,
+		UpgradeProcessing:      upgradeProcessing,
+		DomainProcessingStatus: dps,
+		// A domain object always represents an initiated creation; Deleted is set
+		// once a delete has been requested.
+		Created:        true,
+		Deleted:        d.Deleted,
+		AccessPolicies: d.AccessPolicies,
+		ClusterConfig:  toClusterConfigJSON(d.ClusterConfig),
 		// Always emit these fields so providers see a consistent response shape.
-		EBSOptions:                  &ebsOptionsJSON{},
-		EncryptionAtRestOptions:     &encryptAtRestOptionsJSON{},
-		NodeToNodeEncryptionOptions: &nodeToNodeEncryptJSON{},
-		CognitoOptions:              &cognitoOptionsJSON{},
-		AdvancedSecurityOptions:     toAdvancedSecurityOptionsJSON(nil),
+		EBSOptions:                  emptyEBSOptions,
+		EncryptionAtRestOptions:     emptyEncryptAtRestOptions,
+		NodeToNodeEncryptionOptions: emptyNodeToNodeEncrypt,
+		CognitoOptions:              emptyCognitoOptions,
+		AdvancedSecurityOptions:     emptyAdvancedSecurityOptions,
 	}
 	applyDomainOptionalFields(d, &out)
 
@@ -2984,18 +3005,7 @@ func (h *Handler) handleInstanceTypeLimitsRoutes(w http.ResponseWriter, r *http.
 	// Path: /2021-01-01/opensearch/instanceTypeLimits/{EngineVersion}/{InstanceType}
 	rest := strings.TrimPrefix(r.URL.Path, openSearchInstanceTypeLimitsPath)
 	rest = strings.TrimPrefix(rest, "/")
-	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split into 2: engineVersion, instanceType
-
-	engineVersion := ""
-	instanceType := ""
-
-	if len(parts) >= 1 {
-		engineVersion = parts[0]
-	}
-
-	if len(parts) >= 2 { //nolint:mnd // 2 path segments: engineVersion and instanceType
-		instanceType = parts[1]
-	}
+	engineVersion, instanceType, _ := strings.Cut(rest, "/")
 
 	limits, err := h.Backend.DescribeInstanceTypeLimits(instanceType, engineVersion)
 	if err != nil {
@@ -3340,7 +3350,7 @@ func (h *Handler) dispatchDomainGetStatusRoutes(
 
 		return true
 	default:
-		return h.dispatchDomainGetVpcRoutes(w, trimmed)
+		return h.dispatchDomainGetVpcRoutes(w, r, trimmed)
 	}
 }
 
@@ -3442,7 +3452,7 @@ func (h *Handler) dispatchDomainGetUpgradeRoutes(
 
 // dispatchDomainGetVpcRoutes handles VPC-related GET sub-routes on a domain.
 // Returns true if handled.
-func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed string) bool {
+func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
 	switch {
 	case strings.HasSuffix(trimmed, "/vpcEndpoints"):
 		// ListVpcEndpointsForDomain
@@ -3454,7 +3464,7 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed stri
 		}
 		endpoints := h.Backend.ListVpcEndpointsForDomain(domainArn)
 		httputils.WriteJSON(
-			context.Background(),
+			r.Context(),
 			w,
 			http.StatusOK,
 			map[string]any{"VpcEndpointSummaryList": endpoints},
@@ -3467,7 +3477,7 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed stri
 			principals = []AuthorizedPrincipal{}
 		}
 		httputils.WriteJSON(
-			context.Background(),
+			r.Context(),
 			w,
 			http.StatusOK,
 			map[string]any{"AuthorizedPrincipalList": principals},
@@ -3528,13 +3538,13 @@ func (h *Handler) dispatchDomainGetResourceByID(
 ) bool {
 	switch {
 	case strings.Contains(trimmed, "/dataSource/"):
-		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd // path split count
-		if len(parts) != 2 || parts[1] == "" {
+		domainName, dsName, ok := strings.Cut(trimmed, "/dataSource/")
+		if !ok || dsName == "" {
 			h.writeJSON(r, w, map[string]any{jsonKeyDataSource: map[string]any{}})
 
 			return true
 		}
-		ds, err := h.Backend.GetDataSource(parts[0], parts[1])
+		ds, err := h.Backend.GetDataSource(domainName, dsName)
 		if err != nil {
 			h.writeJSON(r, w, map[string]any{jsonKeyDataSource: map[string]any{}})
 
@@ -3542,13 +3552,13 @@ func (h *Handler) dispatchDomainGetResourceByID(
 		}
 		h.writeJSON(r, w, map[string]any{jsonKeyDataSource: ds})
 	case strings.Contains(trimmed, "/maintenance/"):
-		parts := strings.SplitN(trimmed, "/maintenance/", 2) //nolint:mnd // path split count
-		if len(parts) != 2 || parts[1] == "" {
+		domainName, maintenanceID, ok := strings.Cut(trimmed, "/maintenance/")
+		if !ok || maintenanceID == "" {
 			h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
 
 			return true
 		}
-		m, err := h.Backend.GetDomainMaintenanceStatus(parts[0], parts[1])
+		m, err := h.Backend.GetDomainMaintenanceStatus(domainName, maintenanceID)
 		if err != nil {
 			h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
 
@@ -3556,27 +3566,56 @@ func (h *Handler) dispatchDomainGetResourceByID(
 		}
 		h.writeJSON(r, w, m)
 	case strings.Contains(trimmed, "/index/"):
-		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
-		if len(parts) != 2 || parts[1] == "" {
-			h.writeError(
-				r,
-				w,
-				http.StatusNotFound,
-				"ResourceNotFoundException",
-				"invalid index path",
-			)
+		return h.handleIndexGetRoute(w, r, trimmed)
+	default:
+		return false
+	}
+
+	return true
+}
+
+// handleIndexGetRoute handles GET routes under {domainName}/index/{indexName}:
+// index metadata, document fetch (_doc/{id}) and document count (_count).
+func (h *Handler) handleIndexGetRoute(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	sp, ok := parseIndexSubPath(trimmed)
+	if !ok {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+
+		return true
+	}
+
+	switch sp.op {
+	case indexOpCount:
+		count, err := h.Backend.CountDocuments(sp.domain, sp.index)
+		if err != nil {
+			h.writeIndexError(r, w, err)
 
 			return true
 		}
-		idx, err := h.Backend.GetIndex(parts[0], parts[1])
+		h.writeJSON(r, w, map[string]any{"count": count})
+	case indexOpDoc:
+		doc, err := h.Backend.GetDocument(sp.domain, sp.index, sp.docID)
+		if err != nil {
+			h.writeIndexError(r, w, err)
+
+			return true
+		}
+		h.writeJSON(r, w, map[string]any{
+			jsonKeyDocIndex: sp.index,
+			jsonKeyDocID:    sp.docID,
+			"found":         true,
+			"_source":       doc,
+		})
+	case "":
+		idx, err := h.Backend.GetIndex(sp.domain, sp.index)
 		if err != nil {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 			return true
 		}
-		h.writeJSON(r, w, idx)
+		h.writeJSON(r, w, toIndexResponseJSON(idx))
 	default:
-		return false
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "unsupported index operation")
 	}
 
 	return true
@@ -3666,18 +3705,99 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 	return true
 }
 
-// handleCreateIndexRoute handles the POST {domainName}/index/{indexName} route.
+// indexResponseJSON is the metadata view of an index. It deliberately omits the
+// raw document store (which can be large) while surfacing the real document
+// count.
+type indexResponseJSON struct {
+	Mappings      map[string]any `json:"Mappings,omitempty"`
+	Settings      map[string]any `json:"Settings,omitempty"`
+	Aliases       map[string]any `json:"Aliases,omitempty"`
+	IndexName     string         `json:"IndexName"`
+	IndexStatus   string         `json:"IndexStatus"`
+	DocumentCount int            `json:"DocumentCount"`
+}
+
+// toIndexResponseJSON builds the index metadata response from a backend index.
+func toIndexResponseJSON(idx *DomainIndex) indexResponseJSON {
+	return indexResponseJSON{
+		IndexName:     idx.IndexName,
+		IndexStatus:   idx.IndexStatus,
+		Mappings:      idx.Mappings,
+		Settings:      idx.Settings,
+		Aliases:       idx.Aliases,
+		DocumentCount: idx.DocumentCount,
+	}
+}
+
+// indexSubPath describes a parsed {domain}/index/{index}[/{op}[/{id}]] path.
+type indexSubPath struct {
+	domain string
+	index  string
+	op     string // "", "_doc", "_search", "_count"
+	docID  string
+}
+
+// parseIndexSubPath splits a domain-scoped index path into its components.
+func parseIndexSubPath(trimmed string) (indexSubPath, bool) {
+	domain, rest, found := strings.Cut(trimmed, "/index/")
+	if !found || rest == "" {
+		return indexSubPath{}, false
+	}
+
+	// Segments: [0]=index, [1]=op (_doc/_search/_count), [2]=docID.
+	const (
+		segOp  = 1
+		segDoc = 2
+	)
+
+	segs := strings.Split(rest, "/")
+	sp := indexSubPath{domain: domain, index: segs[0]}
+
+	if sp.index == "" {
+		return indexSubPath{}, false
+	}
+
+	if len(segs) > segOp {
+		sp.op = segs[segOp]
+	}
+
+	if len(segs) > segDoc {
+		sp.docID = segs[segDoc]
+	}
+
+	return sp, true
+}
+
+// handleCreateIndexRoute handles POST routes under {domainName}/index/{indexName}:
+// index creation, document indexing (_doc) and bounded search (_search).
 func (h *Handler) handleCreateIndexRoute(
 	w http.ResponseWriter,
 	r *http.Request,
 	trimmed string,
 ) bool {
-	parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
-	if len(parts) != 2 {                           //nolint:mnd // path split count
+	sp, ok := parseIndexSubPath(trimmed)
+	if !ok {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
 
 		return true
 	}
+
+	switch sp.op {
+	case indexOpDoc:
+		h.handleIndexDocument(w, r, sp)
+	case indexOpSearch:
+		h.handleSearchIndex(w, r, sp)
+	case "":
+		h.handleCreateIndex(w, r, sp)
+	default:
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "unsupported index operation")
+	}
+
+	return true
+}
+
+// handleCreateIndex creates an index and returns its metadata.
+func (h *Handler) handleCreateIndex(w http.ResponseWriter, r *http.Request, sp indexSubPath) {
 	body, _ := httputils.ReadBody(r)
 	var req struct {
 		Mappings map[string]any `json:"Mappings"`
@@ -3687,15 +3807,102 @@ func (h *Handler) handleCreateIndexRoute(
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
-	idx, err := h.Backend.CreateIndex(parts[0], parts[1], req.Mappings, req.Settings, req.Aliases)
+	idx, err := h.Backend.CreateIndex(sp.domain, sp.index, req.Mappings, req.Settings, req.Aliases)
 	if err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
-		return true
+		return
 	}
-	h.writeJSON(r, w, idx)
+	h.writeJSON(r, w, toIndexResponseJSON(idx))
+}
 
-	return true
+// handleIndexDocument stores a document in an index.
+func (h *Handler) handleIndexDocument(w http.ResponseWriter, r *http.Request, sp indexSubPath) {
+	body, _ := httputils.ReadBody(r)
+	var doc map[string]any
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &doc); err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid document body")
+
+			return
+		}
+	}
+
+	id, created, err := h.Backend.IndexDocument(sp.domain, sp.index, sp.docID, doc)
+	if err != nil {
+		h.writeIndexError(r, w, err)
+
+		return
+	}
+
+	result := "updated"
+	if created {
+		result = "created"
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		jsonKeyDocIndex: sp.index,
+		jsonKeyDocID:    id,
+		"result":        result,
+		"created":       created,
+	})
+}
+
+// handleSearchIndex runs a bounded search over an index's stored documents.
+func (h *Handler) handleSearchIndex(w http.ResponseWriter, r *http.Request, sp indexSubPath) {
+	body, _ := httputils.ReadBody(r)
+	var req struct {
+		Query map[string]any `json:"query"`
+		Size  *int           `json:"size"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid search body")
+
+			return
+		}
+	}
+
+	size := 0
+	if req.Size != nil {
+		size = *req.Size
+	}
+
+	res, err := h.Backend.SearchIndex(sp.domain, sp.index, req.Query, size)
+	if err != nil {
+		h.writeIndexError(r, w, err)
+
+		return
+	}
+
+	hits := make([]map[string]any, 0, len(res.Hits))
+	for _, hit := range res.Hits {
+		hits = append(hits, map[string]any{
+			jsonKeyDocIndex: hit.Index,
+			jsonKeyDocID:    hit.ID,
+			"_source":       hit.Source,
+		})
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"hits": map[string]any{
+			"total": map[string]any{"value": res.Total, "relation": "eq"},
+			"hits":  hits,
+		},
+	})
+}
+
+// writeIndexError maps backend index/document errors to the AWS-accurate HTTP
+// status and error code.
+func (h *Handler) writeIndexError(r *http.Request, w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrDomainNotFound), errors.Is(err, ErrConnectionNotFound):
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+	case errors.Is(err, ErrValidation):
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
+	default:
+		h.writeError(r, w, http.StatusInternalServerError, "InternalException", err.Error())
+	}
 }
 
 // dispatchDomainDeleteRoutesExtended handles DELETE sub-routes on a domain.
@@ -3707,9 +3914,9 @@ func (h *Handler) dispatchDomainDeleteRoutesExtended(
 ) bool {
 	if strings.Contains(trimmed, "/dataSource/") {
 		// DeleteDataSource: {domainName}/dataSource/{name}
-		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd // path split count
-		if len(parts) == 2 {                                //nolint:mnd // path split count
-			_ = h.Backend.DeleteDataSource(parts[0], parts[1])
+		domainName, dsName, ok := strings.Cut(trimmed, "/dataSource/")
+		if ok {
+			_ = h.Backend.DeleteDataSource(domainName, dsName)
 		}
 		h.writeJSON(r, w, map[string]any{"Message": "DataSource deleted"})
 
@@ -3717,22 +3924,44 @@ func (h *Handler) dispatchDomainDeleteRoutesExtended(
 	}
 
 	if strings.Contains(trimmed, "/index/") {
-		// DeleteIndex: {domainName}/index/{indexName}
-		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
-		if len(parts) == 2 {                           //nolint:mnd // path split count
-			idx, err := h.Backend.DeleteIndex(parts[0], parts[1])
-			if err != nil {
-				h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		return h.handleIndexDeleteRoute(w, r, trimmed)
+	}
 
-				return true
-			}
-			h.writeJSON(r, w, idx)
-		} else {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
-		}
+	return false
+}
+
+// handleIndexDeleteRoute handles DELETE routes under {domainName}/index/{indexName}:
+// document deletion (_doc/{id}) and index deletion.
+func (h *Handler) handleIndexDeleteRoute(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	sp, ok := parseIndexSubPath(trimmed)
+	if !ok {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
 
 		return true
 	}
 
-	return false
+	if sp.op == indexOpDoc {
+		if err := h.Backend.DeleteDocument(sp.domain, sp.index, sp.docID); err != nil {
+			h.writeIndexError(r, w, err)
+
+			return true
+		}
+		h.writeJSON(r, w, map[string]any{
+			jsonKeyDocIndex: sp.index,
+			jsonKeyDocID:    sp.docID,
+			"result":        "deleted",
+		})
+
+		return true
+	}
+
+	idx, err := h.Backend.DeleteIndex(sp.domain, sp.index)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return true
+	}
+	h.writeJSON(r, w, toIndexResponseJSON(idx))
+
+	return true
 }

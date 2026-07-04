@@ -12,14 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-)
-
-const (
-	ownerElasticacheStub = "elasticache-stub"
 )
 
 const (
@@ -463,7 +461,7 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 
 func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
-	clusters, descErr := h.Backend.DescribeClusters(ctx, id, "", 0)
+	clusters, descErr := h.Backend.DescribeClusters(ctx, id, "", 0, false)
 	if descErr != nil {
 		if errors.Is(descErr, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -495,8 +493,9 @@ func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form 
 func (h *Handler) describeCacheClusters(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
 	marker, maxRecords := parsePagination(form)
+	notInRG := strings.EqualFold(form.Get("ShowCacheClustersNotInReplicationGroups"), "true")
 
-	p, err := h.Backend.DescribeClusters(ctx, id, marker, maxRecords)
+	p, err := h.Backend.DescribeClusters(ctx, id, marker, maxRecords, notInRG)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -955,6 +954,11 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 		n = 1
 	}
 
+	region := cl.Region
+	if region == "" {
+		region = config.DefaultRegion
+	}
+
 	nodes := make([]cacheNode, 0, n)
 	for i := range n {
 		nodeID := fmt.Sprintf("%04d", i+1)
@@ -962,7 +966,7 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 			CacheNodeID:              nodeID,
 			CacheNodeStatus:          status,
 			CacheNodeCreateTime:      cl.CreatedAt.UTC().Format(time.RFC3339),
-			CustomerAvailabilityZone: "us-east-1a",
+			CustomerAvailabilityZone: region + "a",
 			Endpoint: cacheEndpoint{
 				Address: cl.Endpoint,
 				Port:    cl.Port,
@@ -1208,7 +1212,7 @@ func (h *Handler) deleteCacheParameterGroup(ctx context.Context, c *echo.Context
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: ownerElasticacheStub})
+	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: newRequestID()})
 }
 
 // describeCacheParameterGroupsResultXML is the XML result for DescribeCacheParameterGroups.
@@ -1476,7 +1480,7 @@ func (h *Handler) deleteCacheSubnetGroup(ctx context.Context, c *echo.Context, f
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: ownerElasticacheStub})
+	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: newRequestID()})
 }
 
 // describeCacheSubnetGroupsResultXML is the XML result for DescribeCacheSubnetGroups.
@@ -1640,9 +1644,12 @@ func (h *Handler) describeSnapshots(ctx context.Context, c *echo.Context, form u
 	snapshotName := form.Get("SnapshotName")
 	clusterID := form.Get("CacheClusterId")
 	replicationGroupID := form.Get("ReplicationGroupId")
+	snapshotSource := form.Get("SnapshotSource")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeSnapshots(ctx, snapshotName, clusterID, replicationGroupID, marker, maxRecords)
+	p, err := h.Backend.DescribeSnapshots(
+		ctx, snapshotName, clusterID, replicationGroupID, snapshotSource, marker, maxRecords,
+	)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
 			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Snapshot not found")
@@ -1904,23 +1911,46 @@ func xmlResp(c *echo.Context, status int, v any) error {
 	return nil
 }
 
-// xmlErrorDetail holds the error code and message for an ElastiCache XML error.
+// xmlErrorDetail holds the fault type, code, and message for an ElastiCache XML
+// error, matching the AWS query-protocol error envelope.
 type xmlErrorDetail struct {
+	Type    string `xml:"Type"`
 	Code    string `xml:"Code"`
 	Message string `xml:"Message"`
 }
 
 type xmlErrorResp struct {
 	XMLName   xml.Name       `xml:"ErrorResponse"`
+	Xmlns     string         `xml:"xmlns,attr"`
 	Error     xmlErrorDetail `xml:"Error"`
 	RequestID string         `xml:"RequestId"`
 }
 
+// faultType classifies an HTTP status into the AWS query-protocol fault Type.
+// Client-side faults (4xx: validation, not-found, conflict) are "Sender";
+// server-side faults (5xx) are "Receiver".
+func faultType(status int) string {
+	if status >= http.StatusInternalServerError {
+		return "Receiver"
+	}
+
+	return "Sender"
+}
+
+// newRequestID returns a fresh correlation ID for a response, mirroring the
+// per-request x-amzn-RequestId AWS attaches to every call.
+func newRequestID() string {
+	return uuid.NewString()
+}
+
 func xmlError(c *echo.Context, status int, code, message string) error {
-	resp := xmlErrorResp{}
+	resp := xmlErrorResp{
+		Xmlns:     elasticacheNS,
+		RequestID: newRequestID(),
+	}
+	resp.Error.Type = faultType(status)
 	resp.Error.Code = code
 	resp.Error.Message = message
-	resp.RequestID = ownerElasticacheStub
 
 	return xmlResp(c, status, resp)
 }

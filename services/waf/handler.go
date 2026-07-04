@@ -77,10 +77,12 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // Snapshot returns a serialized snapshot of the backend state.
-func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
+func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
 
 // Restore restores the backend state from a snapshot.
-func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}
 
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
@@ -103,7 +105,45 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 		return nil, err
 	}
 
+	// Transition any ChangeToken present in the request body to INSYNC.
+	// GetChangeTokenStatus is a read — it carries the token as a lookup key, not as a consumed token.
+	if action != "GetChangeTokenStatus" {
+		var tokenHolder struct {
+			ChangeToken string `json:"ChangeToken"`
+		}
+		if jerr := json.Unmarshal(body, &tokenHolder); jerr == nil && tokenHolder.ChangeToken != "" {
+			h.Backend.MarkChangeTokenUsed(tokenHolder.ChangeToken)
+		}
+	}
+
 	return json.Marshal(result)
+}
+
+// paginate returns a window of items starting after nextMarker, limited to limit items,
+// and the next page marker (last returned item's key), or "" if no more pages.
+func paginate[T any](items []T, nextMarker string, limit int, keyFn func(T) string) ([]T, string) {
+	const defaultLimit = 100
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+
+	start := 0
+	if nextMarker != "" {
+		for i, item := range items {
+			if keyFn(item) == nextMarker {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+	items = items[start:]
+
+	if len(items) > limit {
+		return items[:limit], keyFn(items[limit-1])
+	}
+
+	return items, ""
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
@@ -332,7 +372,14 @@ func (h *Handler) opListWebACLs(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"WebACLs": h.Backend.ListWebACLs()}, nil
+	page, next := paginate(h.Backend.ListWebACLs(), in.NextMarker, in.Limit,
+		func(s WebACLSummary) string { return s.WebACLId })
+	result := map[string]any{"WebACLs": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- Rule ---
@@ -420,7 +467,14 @@ func (h *Handler) opListRules(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"Rules": h.Backend.ListRules()}, nil
+	page, next := paginate(h.Backend.ListRules(), in.NextMarker, in.Limit,
+		func(s RuleSummary) string { return s.RuleId })
+	result := map[string]any{"Rules": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- IPSet ---
@@ -506,7 +560,14 @@ func (h *Handler) opListIPSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"IPSets": h.Backend.ListIPSets()}, nil
+	page, next := paginate(h.Backend.ListIPSets(), in.NextMarker, in.Limit,
+		func(s IPSetSummary) string { return s.IPSetId })
+	result := map[string]any{"IPSets": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- ByteMatchSet ---
@@ -592,7 +653,14 @@ func (h *Handler) opListByteMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"ByteMatchSets": h.Backend.ListByteMatchSets()}, nil
+	page, next := paginate(h.Backend.ListByteMatchSets(), in.NextMarker, in.Limit,
+		func(s ByteMatchSetSummary) string { return s.ByteMatchSetId })
+	result := map[string]any{"ByteMatchSets": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- SizeConstraintSet ---
@@ -679,7 +747,14 @@ func (h *Handler) opListSizeConstraintSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"SizeConstraintSets": h.Backend.ListSizeConstraintSets()}, nil
+	page, next := paginate(h.Backend.ListSizeConstraintSets(), in.NextMarker, in.Limit,
+		func(s SizeConstraintSetSummary) string { return s.SizeConstraintSetId })
+	result := map[string]any{"SizeConstraintSets": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- SqlInjectionMatchSet ---
@@ -771,7 +846,14 @@ func (h *Handler) opListSqlInjectionMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"SqlInjectionMatchSets": h.Backend.ListSqlInjectionMatchSets()}, nil
+	page, next := paginate(h.Backend.ListSqlInjectionMatchSets(), in.NextMarker, in.Limit,
+		func(s SqlInjectionMatchSetSummary) string { return s.SqlInjectionMatchSetId })
+	result := map[string]any{"SqlInjectionMatchSets": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- XssMatchSet ---
@@ -862,7 +944,14 @@ func (h *Handler) opListXssMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"XssMatchSets": h.Backend.ListXssMatchSets()}, nil
+	page, next := paginate(h.Backend.ListXssMatchSets(), in.NextMarker, in.Limit,
+		func(s XssMatchSetSummary) string { return s.XssMatchSetId })
+	result := map[string]any{"XssMatchSets": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- GeoMatchSet ---
@@ -948,7 +1037,14 @@ func (h *Handler) opListGeoMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"GeoMatchSets": h.Backend.ListGeoMatchSets()}, nil
+	page, next := paginate(h.Backend.ListGeoMatchSets(), in.NextMarker, in.Limit,
+		func(s GeoMatchSetSummary) string { return s.GeoMatchSetId })
+	result := map[string]any{"GeoMatchSets": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- Tags ---
@@ -1003,18 +1099,26 @@ func (h *Handler) opListTagsForResource(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]any{
-		"TagInfoForResource": map[string]any{
-			"ResourceARN": in.ResourceARN,
-			"TagList":     tags,
-		},
-	}, nil
+	page, next := paginate(tags, in.NextMarker, in.Limit, func(t Tag) string { return t.Key })
+	tagInfo := map[string]any{
+		"ResourceARN": in.ResourceARN,
+		"TagList":     page,
+	}
+	if next != "" {
+		tagInfo["NextMarker"] = next
+	}
+
+	return map[string]any{"TagInfoForResource": tagInfo}, nil
 }
 
 // --- GetSampledRequests ---
 
 func (h *Handler) opGetSampledRequests(body []byte) (any, error) {
 	var in struct {
+		TimeWindow struct {
+			StartTime string `json:"StartTime"`
+			EndTime   string `json:"EndTime"`
+		} `json:"TimeWindow"`
 		WebAclId string `json:"WebAclId"` //nolint:revive,staticcheck // AWS SDK field name
 		RuleId   string `json:"RuleId"`   //nolint:revive,staticcheck // AWS SDK field name
 		MaxItems int64  `json:"MaxItems"`
@@ -1029,6 +1133,10 @@ func (h *Handler) opGetSampledRequests(body []byte) (any, error) {
 	return map[string]any{
 		"SampledRequests": samples,
 		"PopulationSize":  int64(len(samples)),
+		"TimeWindow": map[string]any{
+			"StartTime": in.TimeWindow.StartTime,
+			"EndTime":   in.TimeWindow.EndTime,
+		},
 	}, nil
 }
 
@@ -1122,7 +1230,14 @@ func (h *Handler) opListRateBasedRules(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"Rules": h.Backend.ListRateBasedRules()}, nil
+	page, next := paginate(h.Backend.ListRateBasedRules(), in.NextMarker, in.Limit,
+		func(s RateBasedRuleSummary) string { return s.RuleId })
+	result := map[string]any{"Rules": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 func (h *Handler) opGetRateBasedRuleManagedKeys(body []byte) (any, error) {
@@ -1226,7 +1341,14 @@ func (h *Handler) opListRegexPatternSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"RegexPatternSets": h.Backend.ListRegexPatternSets()}, nil
+	page, next := paginate(h.Backend.ListRegexPatternSets(), in.NextMarker, in.Limit,
+		func(s RegexPatternSetSummary) string { return s.RegexPatternSetId })
+	result := map[string]any{"RegexPatternSets": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- RegexMatchSet ---
@@ -1312,7 +1434,14 @@ func (h *Handler) opListRegexMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"RegexMatchSets": h.Backend.ListRegexMatchSets()}, nil
+	page, next := paginate(h.Backend.ListRegexMatchSets(), in.NextMarker, in.Limit,
+		func(s RegexMatchSetSummary) string { return s.RegexMatchSetId })
+	result := map[string]any{"RegexMatchSets": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- RuleGroup ---
@@ -1400,7 +1529,14 @@ func (h *Handler) opListRuleGroups(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"RuleGroups": h.Backend.ListRuleGroups()}, nil
+	page, next := paginate(h.Backend.ListRuleGroups(), in.NextMarker, in.Limit,
+		func(s RuleGroupSummary) string { return s.RuleGroupId })
+	result := map[string]any{"RuleGroups": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 func (h *Handler) opListActivatedRulesInRuleGroup(body []byte) (any, error) {
@@ -1419,7 +1555,14 @@ func (h *Handler) opListActivatedRulesInRuleGroup(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]any{"ActivatedRules": rules}, nil
+	page, next := paginate(rules, in.NextMarker, in.Limit,
+		func(r ActivatedRule) string { return r.RuleId })
+	result := map[string]any{"ActivatedRules": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 func (h *Handler) opListSubscribedRuleGroups(_ []byte) (any, error) {
@@ -1486,7 +1629,14 @@ func (h *Handler) opListLoggingConfigurations(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	return map[string]any{"LoggingConfigurations": h.Backend.ListLoggingConfigurations()}, nil
+	page, next := paginate(h.Backend.ListLoggingConfigurations(), in.NextMarker, in.Limit,
+		func(c LoggingConfiguration) string { return c.ResourceArn })
+	result := map[string]any{"LoggingConfigurations": page}
+	if next != "" {
+		result["NextMarker"] = next
+	}
+
+	return result, nil
 }
 
 // --- PermissionPolicy ---

@@ -30,9 +30,10 @@ func TestSimulatePrincipalPolicy_EvalDecisionDetails_Populated(t *testing.T) {
 	require.NoError(t, b.AttachUserPolicy("alice", pol.Arn))
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/alice",
+		"arn:aws:iam::000000000000:user/alice", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -56,9 +57,10 @@ func TestSimulatePrincipalPolicy_EvalDecisionDetails_ImplicitDeny(t *testing.T) 
 	require.NoError(t, b.AttachUserPolicy("bob", pol.Arn))
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/bob",
+		"arn:aws:iam::000000000000:user/bob", "", "", nil,
 		[]string{"s3:DeleteObject"}, // not allowed by the policy
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -86,9 +88,10 @@ func TestSimulatePrincipalPolicy_EvalDecisionDetails_MultiplePolcies(t *testing.
 	require.NoError(t, b.AttachUserPolicy("carol", denyPol.Arn))
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/carol",
+		"arn:aws:iam::000000000000:user/carol", "", "", nil,
 		[]string{"s3:DeleteObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -121,9 +124,10 @@ func TestSimulatePrincipalPolicy_PermissionsBoundary_PresentWhenBoundarySet(t *t
 	require.NoError(t, b.AttachUserPolicy("dave", pol.Arn))
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/dave",
+		"arn:aws:iam::000000000000:user/dave", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -153,9 +157,10 @@ func TestSimulatePrincipalPolicy_PermissionsBoundary_BlocksAction(t *testing.T) 
 	require.NoError(t, b.AttachUserPolicy("eve", pol.Arn))
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/eve",
+		"arn:aws:iam::000000000000:user/eve", "", "", nil,
 		[]string{"ec2:DescribeInstances"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -178,9 +183,10 @@ func TestSimulatePrincipalPolicy_PermissionsBoundary_AbsentWhenNoBoundary(t *tes
 	require.NoError(t, b.AttachUserPolicy("frank", pol.Arn))
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/frank",
+		"arn:aws:iam::000000000000:user/frank", "", "", nil,
 		[]string{"s3:PutObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -200,9 +206,10 @@ func TestSimulateCustomPolicy_EvalDecisionDetails_TwoPolicies(t *testing.T) {
 	denyDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"s3:GetObject","Resource":"*"}]}`
 
 	results, err := b.SimulateCustomPolicy(
-		[]string{allowDoc, denyDoc},
+		[]string{allowDoc, denyDoc}, nil,
 		[]string{"s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -759,7 +766,11 @@ func TestOIDCProvider_ARNFormat(t *testing.T) {
 
 	b := newBackend(t)
 
-	provider, err := b.CreateOpenIDConnectProvider("https://oidc.example.com", nil, []string{"abc123"})
+	provider, err := b.CreateOpenIDConnectProvider(
+		"https://oidc.example.com",
+		nil,
+		[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
+	)
 	require.NoError(t, err)
 
 	assert.True(t, strings.HasPrefix(provider.Arn, "arn:aws:iam::"),
@@ -773,8 +784,16 @@ func TestOIDCProvider_ListIncludesCreated(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, _ = b.CreateOpenIDConnectProvider("https://oidc-a.example.com", nil, []string{"aa"})
-	_, _ = b.CreateOpenIDConnectProvider("https://oidc-b.example.com", nil, []string{"bb"})
+	_, _ = b.CreateOpenIDConnectProvider(
+		"https://oidc-a.example.com",
+		nil,
+		[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
+	)
+	_, _ = b.CreateOpenIDConnectProvider(
+		"https://oidc-b.example.com",
+		nil,
+		[]string{"9e99a48a9960b14926bb7f3b02e22da2b0ab7280"},
+	)
 
 	providers, err := b.ListOpenIDConnectProviders()
 	require.NoError(t, err)
@@ -809,9 +828,10 @@ func TestSimulatePrincipalPolicy_InlinePolicyDetailed(t *testing.T) {
 	require.NoError(t, b.PutUserPolicy("inline-user", "AllowS3Put", inlineDoc))
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/inline-user",
+		"arn:aws:iam::000000000000:user/inline-user", "", "", nil,
 		[]string{"s3:PutObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -848,9 +868,10 @@ func TestSimulatePrincipalPolicy_RoleBoundary_Enforced(t *testing.T) {
 	require.NoError(t, b.AttachRolePolicy("limited-role", pol.Arn))
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:role/limited-role",
+		"arn:aws:iam::000000000000:role/limited-role", "", "", nil,
 		[]string{"ec2:DescribeInstances", "s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
@@ -888,7 +909,7 @@ func TestGetPolicyVersion_VersionIdMatchesRequested(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			doc := `{"Version":"2012-10-17","Statement":[]}`
+			doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 			p, err := b.CreatePolicy("VersionIdPolicy-"+tc.name, "/", doc)
 			require.NoError(t, err)
 
@@ -917,7 +938,7 @@ func TestPolicy_UpdateDateSetOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("UpdateDatePolicy", "/", doc)
 	require.NoError(t, err)
 
@@ -929,7 +950,7 @@ func TestPolicy_DefaultVersionIdSetOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("DefaultVerPolicy", "/", doc)
 	require.NoError(t, err)
 
@@ -941,7 +962,7 @@ func TestPolicy_IsAttachableTrueOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("IsAttachablePolicy", "/", doc)
 	require.NoError(t, err)
 
@@ -999,7 +1020,7 @@ func TestPolicy_AttachmentCount(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			doc := `{"Version":"2012-10-17","Statement":[]}`
+			doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 			p, err := b.CreatePolicy("AttCountPolicy-"+tc.name, "/", doc)
 			require.NoError(t, err)
 
@@ -1029,7 +1050,7 @@ func TestPolicy_UpdateDateAdvancesOnNewDefault(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			doc := `{"Version":"2012-10-17","Statement":[]}`
+			doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 			p, err := b.CreatePolicy("UpdateDateAdv-"+tc.name, "/", doc)
 			require.NoError(t, err)
 
@@ -1062,7 +1083,7 @@ func TestPolicy_DefaultVersionIdAfterSetDefault(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("DefVerAfterSet", "/", doc)
 	require.NoError(t, err)
 

@@ -2175,11 +2175,11 @@ func TestInMemoryBackend_Persistence(t *testing.T) {
 			b1 := autoscaling.NewInMemoryBackend()
 			tt.setup(b1)
 
-			snap := b1.Snapshot()
+			snap := b1.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := autoscaling.NewInMemoryBackend()
-			err := b2.Restore(snap)
+			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			tt.check(t, b2)

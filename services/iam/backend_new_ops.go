@@ -40,6 +40,10 @@ func (b *InMemoryBackend) CreatePolicyVersion(
 		return nil, fmt.Errorf("%w: policy document must not be empty", ErrMalformedPolicyDocument)
 	}
 
+	if err := validateIdentityPolicyDocument(policyDocument); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreatePolicyVersion")
 	defer b.mu.Unlock()
 
@@ -186,6 +190,7 @@ func (b *InMemoryBackend) CreateServiceLinkedRole(
 
 	b.roles[roleName] = role
 	b.roleByARN[role.Arn] = roleName
+	b.sortedRoleNames = insertSorted(b.sortedRoleNames, roleName)
 
 	return &role, nil
 }

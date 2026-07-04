@@ -336,6 +336,7 @@ type applicationDescType struct {
 	ApplicationArn         string                 `xml:"ApplicationArn"`
 	Description            string                 `xml:"Description,omitempty"`
 	DateCreated            string                 `xml:"DateCreated,omitempty"`
+	DateUpdated            string                 `xml:"DateUpdated,omitempty"`
 }
 
 func toApplicationDesc(app *Application, configTemplateNames []string) applicationDescType {
@@ -349,6 +350,7 @@ func toApplicationDesc(app *Application, configTemplateNames []string) applicati
 		ApplicationArn:         app.ApplicationARN,
 		Description:            app.Description,
 		DateCreated:            app.DateCreated,
+		DateUpdated:            app.DateUpdated,
 		ConfigurationTemplates: templates,
 	}
 }
@@ -493,6 +495,7 @@ type environmentDescType struct {
 	VersionLabel      string              `xml:"VersionLabel,omitempty"`
 	OperationsRole    string              `xml:"OperationsRole,omitempty"`
 	DateCreated       string              `xml:"DateCreated,omitempty"`
+	DateUpdated       string              `xml:"DateUpdated,omitempty"`
 	Status            string              `xml:"Status"`
 	Health            string              `xml:"Health"`
 	Tier              environmentTierType `xml:"Tier"`
@@ -536,6 +539,7 @@ func toEnvironmentDesc(env *Environment) environmentDescType {
 		VersionLabel:      env.VersionLabel,
 		OperationsRole:    env.OperationsRole,
 		DateCreated:       env.DateCreated,
+		DateUpdated:       env.DateUpdated,
 		Status:            env.Status,
 		Health:            env.Health,
 		Tier: environmentTierType{
@@ -761,6 +765,7 @@ type appVersionDescType struct {
 	ApplicationVersionArn  string                      `xml:"ApplicationVersionArn"`
 	Description            string                      `xml:"Description,omitempty"`
 	DateCreated            string                      `xml:"DateCreated,omitempty"`
+	DateUpdated            string                      `xml:"DateUpdated,omitempty"`
 	Status                 string                      `xml:"Status"`
 }
 
@@ -782,6 +787,7 @@ func toAppVersionDesc(ver *ApplicationVersion) appVersionDescType {
 		ApplicationVersionArn: ver.ApplicationVersionARN,
 		Description:           ver.Description,
 		DateCreated:           ver.DateCreated,
+		DateUpdated:           ver.DateUpdated,
 		Status:                ver.Status,
 	}
 	if ver.S3Bucket != "" || ver.S3Key != "" {
@@ -1956,7 +1962,10 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
 	}
 
-	health, status := h.Backend.DescribeEnvironmentHealth(ctx, envName)
+	health, status, err := h.Backend.DescribeEnvironmentHealth(ctx, envName)
+	if err != nil {
+		return nil, err
+	}
 
 	return &describeEnvironmentHealthResponse{
 		Xmlns: ebXMLNS,

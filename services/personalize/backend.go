@@ -2,15 +2,17 @@ package personalize
 
 import (
 	"fmt"
+	"hash/fnv"
 	"maps"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const (
@@ -219,27 +221,38 @@ type DataDeletionJob struct {
 	NumDeleted          int32
 }
 
+// storedFeatureTransformation represents a built-in feature transformation.
+type storedFeatureTransformation struct {
+	CreationTime  time.Time
+	LastUpdated   time.Time
+	DefaultValues map[string]string
+	ARN           string
+	Name          string
+	Status        string
+}
+
 // InMemoryBackend stores Amazon Personalize state.
 type InMemoryBackend struct {
-	datasetGroups      map[string]*DatasetGroup
-	datasets           map[string]*Dataset
-	schemas            map[string]*Schema
-	solutions          map[string]*Solution
-	solutionVersions   map[string]*SolutionVersion
-	campaigns          map[string]*Campaign
-	datasetImportJobs  map[string]*DatasetImportJob
-	datasetExportJobs  map[string]*DatasetExportJob
-	batchInferenceJobs map[string]*BatchInferenceJob
-	batchSegmentJobs   map[string]*BatchSegmentJob
-	eventTrackers      map[string]*EventTracker
-	filters            map[string]*Filter
-	recommenders       map[string]*Recommender
-	metricAttributions map[string]*MetricAttribution
-	dataDeletionJobs   map[string]*DataDeletionJob
-	tags               map[string]map[string]string
-	accountID          string
-	region             string
-	mu                 sync.RWMutex
+	mu                     *lockmetrics.RWMutex
+	datasetGroups          map[string]*DatasetGroup
+	datasets               map[string]*Dataset
+	schemas                map[string]*Schema
+	solutions              map[string]*Solution
+	solutionVersions       map[string]*SolutionVersion
+	campaigns              map[string]*Campaign
+	datasetImportJobs      map[string]*DatasetImportJob
+	datasetExportJobs      map[string]*DatasetExportJob
+	batchInferenceJobs     map[string]*BatchInferenceJob
+	batchSegmentJobs       map[string]*BatchSegmentJob
+	eventTrackers          map[string]*EventTracker
+	filters                map[string]*Filter
+	recommenders           map[string]*Recommender
+	metricAttributions     map[string]*MetricAttribution
+	dataDeletionJobs       map[string]*DataDeletionJob
+	featureTransformations map[string]*storedFeatureTransformation
+	tags                   map[string]map[string]string
+	accountID              string
+	region                 string
 }
 
 // NewInMemoryBackend returns a stateful Amazon Personalize backend.
@@ -251,32 +264,64 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region = defaultRegion
 	}
 
-	return &InMemoryBackend{
-		datasetGroups:      make(map[string]*DatasetGroup),
-		datasets:           make(map[string]*Dataset),
-		schemas:            make(map[string]*Schema),
-		solutions:          make(map[string]*Solution),
-		solutionVersions:   make(map[string]*SolutionVersion),
-		campaigns:          make(map[string]*Campaign),
-		datasetImportJobs:  make(map[string]*DatasetImportJob),
-		datasetExportJobs:  make(map[string]*DatasetExportJob),
-		batchInferenceJobs: make(map[string]*BatchInferenceJob),
-		batchSegmentJobs:   make(map[string]*BatchSegmentJob),
-		eventTrackers:      make(map[string]*EventTracker),
-		filters:            make(map[string]*Filter),
-		recommenders:       make(map[string]*Recommender),
-		metricAttributions: make(map[string]*MetricAttribution),
-		dataDeletionJobs:   make(map[string]*DataDeletionJob),
-		tags:               make(map[string]map[string]string),
-		accountID:          accountID,
-		region:             region,
+	epoch := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
+	builtinFTs := map[string]*storedFeatureTransformation{}
+	for _, name := range []string{
+		"aws-feature-transformation",
+		"aws-explicit-contextual-bandits-feature-transformation",
+	} {
+		ftArn := arn.Build("personalize", region, accountID, "feature-transformation/"+name)
+		builtinFTs[ftArn] = &storedFeatureTransformation{
+			ARN:          ftArn,
+			Name:         name,
+			Status:       statusActive,
+			CreationTime: epoch,
+			LastUpdated:  epoch,
+		}
 	}
+
+	return &InMemoryBackend{
+		datasetGroups:          make(map[string]*DatasetGroup),
+		datasets:               make(map[string]*Dataset),
+		schemas:                make(map[string]*Schema),
+		solutions:              make(map[string]*Solution),
+		solutionVersions:       make(map[string]*SolutionVersion),
+		campaigns:              make(map[string]*Campaign),
+		datasetImportJobs:      make(map[string]*DatasetImportJob),
+		datasetExportJobs:      make(map[string]*DatasetExportJob),
+		batchInferenceJobs:     make(map[string]*BatchInferenceJob),
+		batchSegmentJobs:       make(map[string]*BatchSegmentJob),
+		eventTrackers:          make(map[string]*EventTracker),
+		filters:                make(map[string]*Filter),
+		recommenders:           make(map[string]*Recommender),
+		metricAttributions:     make(map[string]*MetricAttribution),
+		dataDeletionJobs:       make(map[string]*DataDeletionJob),
+		featureTransformations: builtinFTs,
+		tags:                   make(map[string]map[string]string),
+		accountID:              accountID,
+		region:                 region,
+		mu:                     lockmetrics.New("personalize"),
+	}
+}
+
+// GetFeatureTransformation looks up a feature transformation by ARN or name.
+func (b *InMemoryBackend) GetFeatureTransformation(arnOrName string) (*storedFeatureTransformation, error) {
+	b.mu.RLock("GetFeatureTransformation")
+	defer b.mu.RUnlock()
+
+	for _, ft := range b.featureTransformations {
+		if ft.ARN == arnOrName || ft.Name == arnOrName {
+			return ft, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: feature transformation %q not found", ErrNotFound, arnOrName)
 }
 
 // Reset clears all in-memory Personalize state for the /_gopherstack/reset
 // test hook so suites start from a clean slate.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.datasetGroups = make(map[string]*DatasetGroup)
@@ -295,6 +340,22 @@ func (b *InMemoryBackend) Reset() {
 	b.metricAttributions = make(map[string]*MetricAttribution)
 	b.dataDeletionJobs = make(map[string]*DataDeletionJob)
 	b.tags = make(map[string]map[string]string)
+	// featureTransformations are read-only builtins; re-seed to restore after reset.
+	epoch := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
+	b.featureTransformations = make(map[string]*storedFeatureTransformation)
+	for _, name := range []string{
+		"aws-feature-transformation",
+		"aws-explicit-contextual-bandits-feature-transformation",
+	} {
+		ftArn := b.personalizeARN("feature-transformation", name)
+		b.featureTransformations[ftArn] = &storedFeatureTransformation{
+			ARN:          ftArn,
+			Name:         name,
+			Status:       statusActive,
+			CreationTime: epoch,
+			LastUpdated:  epoch,
+		}
+	}
 }
 
 // Region returns the configured region.
@@ -311,7 +372,7 @@ func (b *InMemoryBackend) CreateDatasetGroup(
 	name, domain, kmsKeyArn, roleArn string,
 	tags map[string]string,
 ) (*DatasetGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDatasetGroup")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -342,7 +403,7 @@ func (b *InMemoryBackend) CreateDatasetGroup(
 
 // DescribeDatasetGroup returns a dataset group by name or ARN.
 func (b *InMemoryBackend) DescribeDatasetGroup(nameOrArn string) (*DatasetGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDatasetGroup")
 	defer b.mu.RUnlock()
 
 	if dg := b.findDatasetGroup(nameOrArn); dg != nil {
@@ -354,7 +415,7 @@ func (b *InMemoryBackend) DescribeDatasetGroup(nameOrArn string) (*DatasetGroup,
 
 // DeleteDatasetGroup removes a dataset group.
 func (b *InMemoryBackend) DeleteDatasetGroup(nameOrArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDatasetGroup")
 	defer b.mu.Unlock()
 
 	dg := b.findDatasetGroup(nameOrArn)
@@ -369,7 +430,7 @@ func (b *InMemoryBackend) DeleteDatasetGroup(nameOrArn string) error {
 
 // ListDatasetGroups returns all dataset groups.
 func (b *InMemoryBackend) ListDatasetGroups(maxResults int, nextToken string) ([]*DatasetGroup, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListDatasetGroups")
 	defer b.mu.RUnlock()
 
 	names := sortedKeys(b.datasetGroups)
@@ -397,7 +458,7 @@ func (b *InMemoryBackend) CreateDataset(
 	name, datasetGroupArn, datasetType, schemaArn string,
 	tags map[string]string,
 ) (*Dataset, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDataset")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -428,7 +489,7 @@ func (b *InMemoryBackend) CreateDataset(
 
 // DescribeDataset returns a dataset by name or ARN.
 func (b *InMemoryBackend) DescribeDataset(nameOrArn string) (*Dataset, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDataset")
 	defer b.mu.RUnlock()
 
 	if ds := b.findDataset(nameOrArn); ds != nil {
@@ -440,7 +501,7 @@ func (b *InMemoryBackend) DescribeDataset(nameOrArn string) (*Dataset, error) {
 
 // UpdateDataset updates a dataset's schema.
 func (b *InMemoryBackend) UpdateDataset(nameOrArn, schemaArn string) (*Dataset, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateDataset")
 	defer b.mu.Unlock()
 
 	ds := b.findDataset(nameOrArn)
@@ -457,7 +518,7 @@ func (b *InMemoryBackend) UpdateDataset(nameOrArn, schemaArn string) (*Dataset, 
 
 // DeleteDataset removes a dataset.
 func (b *InMemoryBackend) DeleteDataset(nameOrArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDataset")
 	defer b.mu.Unlock()
 
 	ds := b.findDataset(nameOrArn)
@@ -472,7 +533,7 @@ func (b *InMemoryBackend) DeleteDataset(nameOrArn string) error {
 
 // ListDatasets returns datasets, optionally filtered by dataset group ARN.
 func (b *InMemoryBackend) ListDatasets(datasetGroupArn string, maxResults int, nextToken string) ([]*Dataset, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListDatasets")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.datasets))
@@ -503,7 +564,7 @@ func (b *InMemoryBackend) findDataset(nameOrArn string) *Dataset {
 
 // CreateSchema creates a new schema.
 func (b *InMemoryBackend) CreateSchema(name, schema, domain string) (*Schema, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateSchema")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -529,7 +590,7 @@ func (b *InMemoryBackend) CreateSchema(name, schema, domain string) (*Schema, er
 
 // DescribeSchema returns a schema by name or ARN.
 func (b *InMemoryBackend) DescribeSchema(nameOrArn string) (*Schema, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeSchema")
 	defer b.mu.RUnlock()
 
 	if s := b.findSchema(nameOrArn); s != nil {
@@ -541,7 +602,7 @@ func (b *InMemoryBackend) DescribeSchema(nameOrArn string) (*Schema, error) {
 
 // DeleteSchema removes a schema.
 func (b *InMemoryBackend) DeleteSchema(nameOrArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSchema")
 	defer b.mu.Unlock()
 
 	s := b.findSchema(nameOrArn)
@@ -555,7 +616,7 @@ func (b *InMemoryBackend) DeleteSchema(nameOrArn string) error {
 
 // ListSchemas returns all schemas.
 func (b *InMemoryBackend) ListSchemas(maxResults int, nextToken string) ([]*Schema, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListSchemas")
 	defer b.mu.RUnlock()
 
 	names := sortedKeys(b.schemas)
@@ -584,7 +645,7 @@ func (b *InMemoryBackend) CreateSolution(
 	performAutoML, performHPO bool,
 	tags map[string]string,
 ) (*Solution, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateSolution")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -616,7 +677,7 @@ func (b *InMemoryBackend) CreateSolution(
 
 // DescribeSolution returns a solution by name or ARN.
 func (b *InMemoryBackend) DescribeSolution(nameOrArn string) (*Solution, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeSolution")
 	defer b.mu.RUnlock()
 
 	if sol := b.findSolution(nameOrArn); sol != nil {
@@ -628,7 +689,7 @@ func (b *InMemoryBackend) DescribeSolution(nameOrArn string) (*Solution, error) 
 
 // UpdateSolution updates solution configuration.
 func (b *InMemoryBackend) UpdateSolution(nameOrArn string, performAutoML, performHPO bool) (*Solution, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateSolution")
 	defer b.mu.Unlock()
 
 	sol := b.findSolution(nameOrArn)
@@ -644,7 +705,7 @@ func (b *InMemoryBackend) UpdateSolution(nameOrArn string, performAutoML, perfor
 
 // DeleteSolution removes a solution.
 func (b *InMemoryBackend) DeleteSolution(nameOrArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSolution")
 	defer b.mu.Unlock()
 
 	sol := b.findSolution(nameOrArn)
@@ -663,7 +724,7 @@ func (b *InMemoryBackend) ListSolutions(
 	maxResults int,
 	nextToken string,
 ) ([]*Solution, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListSolutions")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.solutions))
@@ -697,7 +758,7 @@ func (b *InMemoryBackend) CreateSolutionVersion(
 	solutionArn, trainingMode string,
 	tags map[string]string,
 ) (*SolutionVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateSolutionVersion")
 	defer b.mu.Unlock()
 
 	if solutionArn == "" {
@@ -725,7 +786,7 @@ func (b *InMemoryBackend) CreateSolutionVersion(
 
 // DescribeSolutionVersion returns a solution version by ARN.
 func (b *InMemoryBackend) DescribeSolutionVersion(svArn string) (*SolutionVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeSolutionVersion")
 	defer b.mu.RUnlock()
 
 	sv, ok := b.solutionVersions[svArn]
@@ -738,7 +799,7 @@ func (b *InMemoryBackend) DescribeSolutionVersion(svArn string) (*SolutionVersio
 
 // DeleteSolutionVersion removes a solution version.
 func (b *InMemoryBackend) DeleteSolutionVersion(svArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSolutionVersion")
 	defer b.mu.Unlock()
 
 	if _, ok := b.solutionVersions[svArn]; !ok {
@@ -756,7 +817,7 @@ func (b *InMemoryBackend) ListSolutionVersions(
 	maxResults int,
 	nextToken string,
 ) ([]*SolutionVersion, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListSolutionVersions")
 	defer b.mu.RUnlock()
 
 	arns := make([]string, 0, len(b.solutionVersions))
@@ -770,24 +831,25 @@ func (b *InMemoryBackend) ListSolutionVersions(
 	return paginate(arns, func(a string) *SolutionVersion { return b.solutionVersions[a] }, maxResults, nextToken)
 }
 
-// StopSolutionVersionCreation transitions a solution version to STOP PENDING.
+// StopSolutionVersionCreation transitions a solution version to STOPPED.
 func (b *InMemoryBackend) StopSolutionVersionCreation(svArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("StopSolutionVersionCreation")
 	defer b.mu.Unlock()
 
 	sv, ok := b.solutionVersions[svArn]
 	if !ok {
 		return fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
 	}
-	sv.Status = statusStopPending
+	sv.Status = statusStopped
 	sv.LastUpdatedDateTime = time.Now().UTC()
 
 	return nil
 }
 
-// GetSolutionMetrics returns mock accuracy metrics for a solution version.
+// GetSolutionMetrics returns deterministic accuracy metrics for a solution version.
+// Values are derived from the ARN hash so each solution version gets distinct (but stable) metrics.
 func (b *InMemoryBackend) GetSolutionMetrics(svArn string) (map[string]any, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetSolutionMetrics")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.solutionVersions[svArn]; !ok {
@@ -797,16 +859,25 @@ func (b *InMemoryBackend) GetSolutionMetrics(svArn string) (map[string]any, erro
 	return map[string]any{
 		keySolutionVersionArn: svArn,
 		"metrics": map[string]any{
-			"coverage":                   mockMetricValue,
-			"mean_reciprocal_rank_at_25": mockMetricValue,
-			"normalized_discounted_cumulative_gain_at_5":  mockMetricValue,
-			"normalized_discounted_cumulative_gain_at_10": mockMetricValue,
-			"normalized_discounted_cumulative_gain_at_25": mockMetricValue,
-			"precision_at_5":  mockMetricValue,
-			"precision_at_10": mockMetricValue,
-			"precision_at_25": mockMetricValue,
+			"coverage":                   svMetric(svArn, "coverage"),
+			"mean_reciprocal_rank_at_25": svMetric(svArn, "mrr@25"),
+			"normalized_discounted_cumulative_gain_at_5":  svMetric(svArn, "ndcg@5"),
+			"normalized_discounted_cumulative_gain_at_10": svMetric(svArn, "ndcg@10"),
+			"normalized_discounted_cumulative_gain_at_25": svMetric(svArn, "ndcg@25"),
+			"precision_at_5":  svMetric(svArn, "p@5"),
+			"precision_at_10": svMetric(svArn, "p@10"),
+			"precision_at_25": svMetric(svArn, "p@25"),
 		},
 	}, nil
+}
+
+// svMetric returns a stable [0.01, 0.99] metric value derived from the solution version ARN and metric name.
+func svMetric(svArn, metricName string) float64 {
+	const buckets = 98 // maps hash into [0.01, 0.99]
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(svArn + "|" + metricName))
+
+	return float64(h.Sum32()%buckets+1) / 100.0 //nolint:mnd // 100.0 converts integer percent to float ratio
 }
 
 // --- Campaign ---
@@ -817,7 +888,7 @@ func (b *InMemoryBackend) CreateCampaign(
 	minProvisionedTPS int32,
 	tags map[string]string,
 ) (*Campaign, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCampaign")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -847,7 +918,7 @@ func (b *InMemoryBackend) CreateCampaign(
 
 // DescribeCampaign returns a campaign by name or ARN.
 func (b *InMemoryBackend) DescribeCampaign(nameOrArn string) (*Campaign, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCampaign")
 	defer b.mu.RUnlock()
 
 	if c := b.findCampaign(nameOrArn); c != nil {
@@ -862,7 +933,7 @@ func (b *InMemoryBackend) UpdateCampaign(
 	nameOrArn, solutionVersionArn string,
 	minProvisionedTPS int32,
 ) (*Campaign, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateCampaign")
 	defer b.mu.Unlock()
 
 	c := b.findCampaign(nameOrArn)
@@ -882,7 +953,7 @@ func (b *InMemoryBackend) UpdateCampaign(
 
 // DeleteCampaign removes a campaign.
 func (b *InMemoryBackend) DeleteCampaign(nameOrArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCampaign")
 	defer b.mu.Unlock()
 
 	c := b.findCampaign(nameOrArn)
@@ -897,7 +968,7 @@ func (b *InMemoryBackend) DeleteCampaign(nameOrArn string) error {
 
 // ListCampaigns returns campaigns, optionally filtered by solution ARN.
 func (b *InMemoryBackend) ListCampaigns(solutionArn string, maxResults int, nextToken string) ([]*Campaign, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListCampaigns")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.campaigns))
@@ -931,7 +1002,7 @@ func (b *InMemoryBackend) CreateEventTracker(
 	name, datasetGroupArn string,
 	tags map[string]string,
 ) (*EventTracker, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateEventTracker")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -961,7 +1032,7 @@ func (b *InMemoryBackend) CreateEventTracker(
 
 // DescribeEventTracker returns an event tracker by name or ARN.
 func (b *InMemoryBackend) DescribeEventTracker(nameOrArn string) (*EventTracker, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeEventTracker")
 	defer b.mu.RUnlock()
 
 	if et := b.findEventTracker(nameOrArn); et != nil {
@@ -973,7 +1044,7 @@ func (b *InMemoryBackend) DescribeEventTracker(nameOrArn string) (*EventTracker,
 
 // DeleteEventTracker removes an event tracker.
 func (b *InMemoryBackend) DeleteEventTracker(nameOrArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteEventTracker")
 	defer b.mu.Unlock()
 
 	et := b.findEventTracker(nameOrArn)
@@ -992,7 +1063,7 @@ func (b *InMemoryBackend) ListEventTrackers(
 	maxResults int,
 	nextToken string,
 ) ([]*EventTracker, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListEventTrackers")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.eventTrackers))
@@ -1026,7 +1097,7 @@ func (b *InMemoryBackend) CreateFilter(
 	name, datasetGroupArn, filterExpression string,
 	tags map[string]string,
 ) (*Filter, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateFilter")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -1056,7 +1127,7 @@ func (b *InMemoryBackend) CreateFilter(
 
 // DescribeFilter returns a filter by name or ARN.
 func (b *InMemoryBackend) DescribeFilter(nameOrArn string) (*Filter, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeFilter")
 	defer b.mu.RUnlock()
 
 	if f := b.findFilter(nameOrArn); f != nil {
@@ -1068,7 +1139,7 @@ func (b *InMemoryBackend) DescribeFilter(nameOrArn string) (*Filter, error) {
 
 // DeleteFilter removes a filter.
 func (b *InMemoryBackend) DeleteFilter(nameOrArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteFilter")
 	defer b.mu.Unlock()
 
 	f := b.findFilter(nameOrArn)
@@ -1083,7 +1154,7 @@ func (b *InMemoryBackend) DeleteFilter(nameOrArn string) error {
 
 // ListFilters returns filters, optionally filtered by dataset group ARN.
 func (b *InMemoryBackend) ListFilters(datasetGroupArn string, maxResults int, nextToken string) ([]*Filter, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListFilters")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.filters))
@@ -1118,7 +1189,7 @@ func (b *InMemoryBackend) CreateRecommender(
 	minRPS int32,
 	tags map[string]string,
 ) (*Recommender, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateRecommender")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -1149,7 +1220,7 @@ func (b *InMemoryBackend) CreateRecommender(
 
 // DescribeRecommender returns a recommender by name or ARN.
 func (b *InMemoryBackend) DescribeRecommender(nameOrArn string) (*Recommender, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeRecommender")
 	defer b.mu.RUnlock()
 
 	if r := b.findRecommender(nameOrArn); r != nil {
@@ -1161,7 +1232,7 @@ func (b *InMemoryBackend) DescribeRecommender(nameOrArn string) (*Recommender, e
 
 // UpdateRecommender updates recommender configuration.
 func (b *InMemoryBackend) UpdateRecommender(nameOrArn string, minRPS int32) (*Recommender, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateRecommender")
 	defer b.mu.Unlock()
 
 	r := b.findRecommender(nameOrArn)
@@ -1178,7 +1249,7 @@ func (b *InMemoryBackend) UpdateRecommender(nameOrArn string, minRPS int32) (*Re
 
 // DeleteRecommender removes a recommender.
 func (b *InMemoryBackend) DeleteRecommender(nameOrArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRecommender")
 	defer b.mu.Unlock()
 
 	r := b.findRecommender(nameOrArn)
@@ -1197,7 +1268,7 @@ func (b *InMemoryBackend) ListRecommenders(
 	maxResults int,
 	nextToken string,
 ) ([]*Recommender, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListRecommenders")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.recommenders))
@@ -1213,7 +1284,7 @@ func (b *InMemoryBackend) ListRecommenders(
 
 // StartRecommender transitions a recommender to ACTIVE.
 func (b *InMemoryBackend) StartRecommender(recommenderArn string) (*Recommender, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartRecommender")
 	defer b.mu.Unlock()
 
 	r := b.findRecommender(recommenderArn)
@@ -1228,7 +1299,7 @@ func (b *InMemoryBackend) StartRecommender(recommenderArn string) (*Recommender,
 
 // StopRecommender transitions a recommender to INACTIVE.
 func (b *InMemoryBackend) StopRecommender(recommenderArn string) (*Recommender, error) {
-	b.mu.Lock()
+	b.mu.Lock("StopRecommender")
 	defer b.mu.Unlock()
 
 	r := b.findRecommender(recommenderArn)
@@ -1262,7 +1333,7 @@ func (b *InMemoryBackend) CreateMetricAttribution(
 	metricsOutputConfig map[string]any,
 	tags map[string]string,
 ) (*MetricAttribution, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateMetricAttribution")
 	defer b.mu.Unlock()
 
 	if name == "" {
@@ -1292,7 +1363,7 @@ func (b *InMemoryBackend) CreateMetricAttribution(
 
 // DescribeMetricAttribution returns a metric attribution by name or ARN.
 func (b *InMemoryBackend) DescribeMetricAttribution(nameOrArn string) (*MetricAttribution, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeMetricAttribution")
 	defer b.mu.RUnlock()
 
 	if ma := b.findMetricAttribution(nameOrArn); ma != nil {
@@ -1307,7 +1378,7 @@ func (b *InMemoryBackend) UpdateMetricAttribution(
 	nameOrArn string,
 	metricsOutputConfig map[string]any,
 ) (*MetricAttribution, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateMetricAttribution")
 	defer b.mu.Unlock()
 
 	ma := b.findMetricAttribution(nameOrArn)
@@ -1324,7 +1395,7 @@ func (b *InMemoryBackend) UpdateMetricAttribution(
 
 // DeleteMetricAttribution removes a metric attribution.
 func (b *InMemoryBackend) DeleteMetricAttribution(nameOrArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteMetricAttribution")
 	defer b.mu.Unlock()
 
 	ma := b.findMetricAttribution(nameOrArn)
@@ -1343,7 +1414,7 @@ func (b *InMemoryBackend) ListMetricAttributions(
 	maxResults int,
 	nextToken string,
 ) ([]*MetricAttribution, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListMetricAttributions")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.metricAttributions))
@@ -1357,29 +1428,47 @@ func (b *InMemoryBackend) ListMetricAttributions(
 	return paginate(names, func(n string) *MetricAttribution { return b.metricAttributions[n] }, maxResults, nextToken)
 }
 
-// ListMetricAttributionMetrics returns mock metrics for a metric attribution.
+// ListMetricAttributionMetrics returns metrics for a metric attribution with pagination.
 func (b *InMemoryBackend) ListMetricAttributionMetrics(
 	metricAttributionArn string,
-	_ int,
-	_ string,
+	maxResults int,
+	nextToken string,
 ) ([]map[string]any, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListMetricAttributionMetrics")
 	defer b.mu.RUnlock()
 
 	if b.findMetricAttribution(metricAttributionArn) == nil {
 		return nil, "", fmt.Errorf("%w: metric attribution %q not found", ErrNotFound, metricAttributionArn)
 	}
 
-	metrics := []map[string]any{
+	allMetrics := []map[string]any{
 		{
 			"eventType":             "click",
 			"expression":            "SUM(DataSource.EVENT_VALUE)",
 			keyMetricAttributionArn: metricAttributionArn,
 			"metricName":            "sum-of-event-value",
 		},
+		{
+			"eventType":             "purchase",
+			"expression":            "SUM(DataSource.EVENT_VALUE)",
+			keyMetricAttributionArn: metricAttributionArn,
+			"metricName":            "sum-purchase-value",
+		},
 	}
 
-	return metrics, "", nil
+	// Build string keys for pagination helper (use metricName as key).
+	keys := make([]string, len(allMetrics))
+	byKey := make(map[string]map[string]any, len(allMetrics))
+	for i, m := range allMetrics {
+		k := m["metricName"].(string) //nolint:errcheck // metricName is always string; set by this func above
+		keys[i] = k
+		byKey[k] = m
+	}
+	sort.Strings(keys)
+
+	paged, outToken := paginate(keys, func(k string) map[string]any { return byKey[k] }, maxResults, nextToken)
+
+	return paged, outToken, nil
 }
 
 func (b *InMemoryBackend) findMetricAttribution(nameOrArn string) *MetricAttribution {
@@ -1403,7 +1492,7 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 	dataSource map[string]any,
 	tags map[string]string,
 ) (*DatasetImportJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDatasetImportJob")
 	defer b.mu.Unlock()
 
 	if jobName == "" {
@@ -1432,7 +1521,7 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 
 // DescribeDatasetImportJob returns a dataset import job by ARN.
 func (b *InMemoryBackend) DescribeDatasetImportJob(jobArn string) (*DatasetImportJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDatasetImportJob")
 	defer b.mu.RUnlock()
 
 	job, ok := b.datasetImportJobs[jobArn]
@@ -1449,7 +1538,7 @@ func (b *InMemoryBackend) ListDatasetImportJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*DatasetImportJob, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListDatasetImportJobs")
 	defer b.mu.RUnlock()
 
 	arns := make([]string, 0, len(b.datasetImportJobs))
@@ -1471,7 +1560,7 @@ func (b *InMemoryBackend) CreateDatasetExportJob(
 	jobOutput map[string]any,
 	tags map[string]string,
 ) (*DatasetExportJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDatasetExportJob")
 	defer b.mu.Unlock()
 
 	if jobName == "" {
@@ -1500,7 +1589,7 @@ func (b *InMemoryBackend) CreateDatasetExportJob(
 
 // DescribeDatasetExportJob returns a dataset export job by ARN.
 func (b *InMemoryBackend) DescribeDatasetExportJob(jobArn string) (*DatasetExportJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDatasetExportJob")
 	defer b.mu.RUnlock()
 
 	job, ok := b.datasetExportJobs[jobArn]
@@ -1517,7 +1606,7 @@ func (b *InMemoryBackend) ListDatasetExportJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*DatasetExportJob, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListDatasetExportJobs")
 	defer b.mu.RUnlock()
 
 	arns := make([]string, 0, len(b.datasetExportJobs))
@@ -1539,7 +1628,7 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 	jobInput, jobOutput map[string]any,
 	tags map[string]string,
 ) (*BatchInferenceJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateBatchInferenceJob")
 	defer b.mu.Unlock()
 
 	if jobName == "" {
@@ -1569,7 +1658,7 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 
 // DescribeBatchInferenceJob returns a batch inference job by ARN.
 func (b *InMemoryBackend) DescribeBatchInferenceJob(jobArn string) (*BatchInferenceJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeBatchInferenceJob")
 	defer b.mu.RUnlock()
 
 	job, ok := b.batchInferenceJobs[jobArn]
@@ -1586,7 +1675,7 @@ func (b *InMemoryBackend) ListBatchInferenceJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*BatchInferenceJob, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListBatchInferenceJobs")
 	defer b.mu.RUnlock()
 
 	arns := make([]string, 0, len(b.batchInferenceJobs))
@@ -1608,7 +1697,7 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 	jobInput, jobOutput map[string]any,
 	tags map[string]string,
 ) (*BatchSegmentJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateBatchSegmentJob")
 	defer b.mu.Unlock()
 
 	if jobName == "" {
@@ -1638,7 +1727,7 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 
 // DescribeBatchSegmentJob returns a batch segment job by ARN.
 func (b *InMemoryBackend) DescribeBatchSegmentJob(jobArn string) (*BatchSegmentJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeBatchSegmentJob")
 	defer b.mu.RUnlock()
 
 	job, ok := b.batchSegmentJobs[jobArn]
@@ -1655,7 +1744,7 @@ func (b *InMemoryBackend) ListBatchSegmentJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*BatchSegmentJob, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListBatchSegmentJobs")
 	defer b.mu.RUnlock()
 
 	arns := make([]string, 0, len(b.batchSegmentJobs))
@@ -1677,7 +1766,7 @@ func (b *InMemoryBackend) CreateDataDeletionJob(
 	dataSource map[string]any,
 	tags map[string]string,
 ) (*DataDeletionJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDataDeletionJob")
 	defer b.mu.Unlock()
 
 	if jobName == "" {
@@ -1707,7 +1796,7 @@ func (b *InMemoryBackend) CreateDataDeletionJob(
 
 // DescribeDataDeletionJob returns a data deletion job by ARN.
 func (b *InMemoryBackend) DescribeDataDeletionJob(jobArn string) (*DataDeletionJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDataDeletionJob")
 	defer b.mu.RUnlock()
 
 	job, ok := b.dataDeletionJobs[jobArn]
@@ -1724,7 +1813,7 @@ func (b *InMemoryBackend) ListDataDeletionJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*DataDeletionJob, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListDataDeletionJobs")
 	defer b.mu.RUnlock()
 
 	arns := make([]string, 0, len(b.dataDeletionJobs))
@@ -1738,11 +1827,50 @@ func (b *InMemoryBackend) ListDataDeletionJobs(
 	return paginate(arns, func(a string) *DataDeletionJob { return b.dataDeletionJobs[a] }, maxResults, nextToken)
 }
 
+// --- Runtime validation ---
+
+// ValidateCampaignOrRecommender returns nil if either campaignArn or recommenderArn resolves
+// to an existing resource. Returns ErrNotFound if neither exists.
+func (b *InMemoryBackend) ValidateCampaignOrRecommender(campaignArn, recommenderArn string) error {
+	b.mu.RLock("ValidateCampaignOrRecommender")
+	defer b.mu.RUnlock()
+
+	if campaignArn != "" {
+		if b.findCampaign(campaignArn) != nil {
+			return nil
+		}
+	}
+	if recommenderArn != "" {
+		if b.findRecommender(recommenderArn) != nil {
+			return nil
+		}
+	}
+
+	ref := campaignArn
+	if ref == "" {
+		ref = recommenderArn
+	}
+
+	return fmt.Errorf("%w: campaign or recommender %q not found", ErrNotFound, ref)
+}
+
+// ValidateCampaign returns nil if campaignArn resolves to an existing campaign.
+func (b *InMemoryBackend) ValidateCampaign(campaignArn string) error {
+	b.mu.RLock("ValidateCampaign")
+	defer b.mu.RUnlock()
+
+	if b.findCampaign(campaignArn) != nil {
+		return nil
+	}
+
+	return fmt.Errorf("%w: campaign %q not found", ErrNotFound, campaignArn)
+}
+
 // --- Tags ---
 
 // TagResource adds tags to a resource identified by ARN.
 func (b *InMemoryBackend) TagResource(resourceArn string, newTags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	if !b.arnExists(resourceArn) {
@@ -1758,7 +1886,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, newTags map[string]str
 
 // UntagResource removes tags from a resource.
 func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	if !b.arnExists(resourceArn) {
@@ -1773,7 +1901,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error
 
 // ListTagsForResource returns tags for a resource.
 func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	if !b.arnExists(resourceArn) {
@@ -1880,11 +2008,7 @@ func copyStringMap(m map[string]string) map[string]string {
 }
 
 func sortedKeys[T any](m map[string]T) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }

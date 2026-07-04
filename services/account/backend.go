@@ -7,11 +7,17 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
 	errNoAlternateContact = errors.New("ResourceNotFoundException: no alternate contact found")
 	errNoContactInfo      = errors.New("ResourceNotFoundException: no contact information set")
+	errRegionNotFound     = errors.New("ResourceNotFoundException: region not found")
+	errRegionNotOptIn     = errors.New("ValidationException: only opt-in regions can be enabled or disabled")
+	errNoPendingUpdate    = errors.New("ResourceNotFoundException: no primary email update in progress")
+	errInvalidOTP         = errors.New("ValidationException: invalid OTP")
 	// errInvalidNextToken is returned when ListRegions receives an undecodable cursor.
 	errInvalidNextToken = errors.New("ValidationException: invalid nextToken")
 )
@@ -35,6 +41,11 @@ const (
 	ContactTypeOperations ContactType = "OPERATIONS"
 	ContactTypeSecurity   ContactType = "SECURITY"
 )
+
+// isValidContactType reports whether ct is one of the three accepted values.
+func isValidContactType(ct ContactType) bool {
+	return ct == ContactTypeBilling || ct == ContactTypeOperations || ct == ContactTypeSecurity
+}
 
 // Details holds information about the AWS account.
 type Details struct {
@@ -83,28 +94,49 @@ type StorageBackend interface {
 	Reset()
 	DescribeAccount() (*Details, error)
 	ListRegions(statusFilter []RegionOptStatus, maxResults int, nextToken string) ([]*Region, string, error)
+	EnableRegion(regionName string) error
+	DisableRegion(regionName string) error
+	GetRegionOptStatus(regionName string) (RegionOptStatus, error)
 	GetAlternateContact(ContactType) (*AlternateContact, error)
 	PutAlternateContact(*AlternateContact) error
 	DeleteAlternateContact(ContactType) error
 	GetContactInformation() (*ContactInformation, error)
 	PutContactInformation(*ContactInformation) error
+	GetPrimaryEmail() string
+	StartPrimaryEmailUpdate(email string) (string, error)
+	AcceptPrimaryEmailUpdate(otp, email string) error
+	PutAccountName(name string) error
+	CloseAccount() error
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	accountID         string
 	region            string
+	accountName       string
+	primaryEmail      string
+	pendingEmail      string
+	pendingOTP        string
 	alternateContacts map[ContactType]*AlternateContact
 	contactInfo       *ContactInformation
 	regions           []*Region
+	closed            bool
 	mu                sync.RWMutex
 }
+
+// simOTP is a fixed OTP used for simulation — callers pass it back to AcceptPrimaryEmailUpdate.
+const simOTP = "123456"
+
+// defaultPrimaryEmail is the initial primary email for all new backends.
+const defaultPrimaryEmail = "admin@example.com"
 
 // NewInMemoryBackend creates a new in-memory backend for the account service.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		accountID:         accountID,
 		region:            region,
+		accountName:       "Test Account",
+		primaryEmail:      defaultPrimaryEmail,
 		alternateContacts: make(map[ContactType]*AlternateContact),
 	}
 	b.initDefaultRegions()
@@ -120,6 +152,7 @@ func (b *InMemoryBackend) initDefaultRegions() {
 		{RegionName: "us-west-2", RegionOptStatus: RegionOptStatusEnabledDefault},
 		{RegionName: "eu-west-1", RegionOptStatus: RegionOptStatusEnabledDefault},
 		{RegionName: "eu-central-1", RegionOptStatus: RegionOptStatusEnabledDefault},
+		// Opt-in regions: already ENABLED but can be disabled via DisableRegion.
 		{RegionName: "ap-southeast-1", RegionOptStatus: RegionOptStatusEnabled},
 		{RegionName: "ap-northeast-1", RegionOptStatus: RegionOptStatusEnabled},
 	}
@@ -132,6 +165,11 @@ func (b *InMemoryBackend) Reset() {
 
 	b.alternateContacts = make(map[ContactType]*AlternateContact)
 	b.contactInfo = nil
+	b.accountName = "Test Account"
+	b.primaryEmail = defaultPrimaryEmail
+	b.pendingEmail = ""
+	b.pendingOTP = ""
+	b.closed = false
 	b.initDefaultRegions()
 }
 
@@ -141,10 +179,10 @@ func (b *InMemoryBackend) DescribeAccount() (*Details, error) {
 	defer b.mu.RUnlock()
 
 	return &Details{
-		Arn:          fmt.Sprintf("arn:aws:organizations::%s:account/o-fake/%s", b.accountID, b.accountID),
-		Email:        "admin@example.com",
+		Arn:          arn.Build("organizations", "", b.accountID, fmt.Sprintf("account/o-fake/%s", b.accountID)),
+		Email:        b.primaryEmail,
 		ID:           b.accountID,
-		Name:         "Test Account",
+		Name:         b.accountName,
 		Status:       "ACTIVE",
 		JoinedMethod: "CREATED",
 	}, nil
@@ -198,6 +236,66 @@ func (b *InMemoryBackend) ListRegions(
 	page := filtered[:maxResults]
 
 	return page, encodeRegionToken(page[len(page)-1].RegionName), nil
+}
+
+// EnableRegion transitions an opt-in region from DISABLED to ENABLED.
+// ENABLED_BY_DEFAULT regions return a ValidationException per AWS semantics.
+func (b *InMemoryBackend) EnableRegion(regionName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, r := range b.regions {
+		if r.RegionName != regionName {
+			continue
+		}
+
+		if r.RegionOptStatus == RegionOptStatusEnabledDefault {
+			return fmt.Errorf("%w: %s", errRegionNotOptIn, regionName)
+		}
+
+		r.RegionOptStatus = RegionOptStatusEnabled
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s", errRegionNotFound, regionName)
+}
+
+// DisableRegion transitions an opt-in region from ENABLED to DISABLED.
+// ENABLED_BY_DEFAULT regions return a ValidationException per AWS semantics.
+func (b *InMemoryBackend) DisableRegion(regionName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, r := range b.regions {
+		if r.RegionName != regionName {
+			continue
+		}
+
+		if r.RegionOptStatus == RegionOptStatusEnabledDefault {
+			return fmt.Errorf("%w: %s", errRegionNotOptIn, regionName)
+		}
+
+		r.RegionOptStatus = RegionOptStatusDisabled
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s", errRegionNotFound, regionName)
+}
+
+// GetRegionOptStatus returns the current opt-in status for a single region.
+func (b *InMemoryBackend) GetRegionOptStatus(regionName string) (RegionOptStatus, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for _, r := range b.regions {
+		if r.RegionName == regionName {
+			return r.RegionOptStatus, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: %s", errRegionNotFound, regionName)
 }
 
 // encodeRegionToken produces an opaque pagination cursor for the given RegionName.
@@ -276,6 +374,66 @@ func (b *InMemoryBackend) PutContactInformation(info *ContactInformation) error 
 
 	cp := *info
 	b.contactInfo = &cp
+
+	return nil
+}
+
+// GetPrimaryEmail returns the current primary email address.
+func (b *InMemoryBackend) GetPrimaryEmail() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.primaryEmail
+}
+
+// StartPrimaryEmailUpdate initiates a primary email change.
+// Returns a fixed simulation OTP that the caller must pass to AcceptPrimaryEmailUpdate.
+func (b *InMemoryBackend) StartPrimaryEmailUpdate(email string) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.pendingEmail = email
+	b.pendingOTP = simOTP
+
+	return simOTP, nil
+}
+
+// AcceptPrimaryEmailUpdate confirms a pending email change using the OTP.
+func (b *InMemoryBackend) AcceptPrimaryEmailUpdate(otp, email string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.pendingEmail == "" {
+		return errNoPendingUpdate
+	}
+
+	if otp != b.pendingOTP || email != b.pendingEmail {
+		return errInvalidOTP
+	}
+
+	b.primaryEmail = b.pendingEmail
+	b.pendingEmail = ""
+	b.pendingOTP = ""
+
+	return nil
+}
+
+// PutAccountName updates the account's display name.
+func (b *InMemoryBackend) PutAccountName(name string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.accountName = name
+
+	return nil
+}
+
+// CloseAccount marks the account as closed.
+func (b *InMemoryBackend) CloseAccount() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.closed = true
 
 	return nil
 }

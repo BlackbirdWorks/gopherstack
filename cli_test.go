@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -709,6 +710,78 @@ func TestPanicRecoveryMiddleware_RecoversPanic(t *testing.T) {
 	}
 }
 
+func TestAWSMetaMiddleware_PopulatesCtxbag(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		authHeader    string
+		accountHeader string
+		defaultRegion string
+		defaultAcct   string
+		wantRegion    string
+		wantAccount   string
+	}{
+		{
+			name:          "falls back to configured defaults",
+			defaultRegion: "eu-west-1",
+			defaultAcct:   "111122223333",
+			wantRegion:    "eu-west-1",
+			wantAccount:   "111122223333",
+		},
+		{
+			name:          "sigv4 scope overrides default region",
+			authHeader:    "AWS4-HMAC-SHA256 Credential=AKIA/20260606/ap-south-1/s3/aws4_request",
+			defaultRegion: "us-east-1",
+			defaultAcct:   "111122223333",
+			wantRegion:    "ap-south-1",
+			wantAccount:   "111122223333",
+		},
+		{
+			name:          "account header overrides configured account",
+			accountHeader: "444455556666",
+			defaultRegion: "us-east-1",
+			defaultAcct:   "111122223333",
+			wantRegion:    "us-east-1",
+			wantAccount:   "444455556666",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotRegion, gotAccount string
+
+			handler := func(c *echo.Context) error {
+				ctx := c.Request().Context()
+				gotRegion = awsmeta.Region(ctx)
+				gotAccount = awsmeta.Account(ctx)
+
+				return c.NoContent(http.StatusOK)
+			}
+
+			wrapped := awsMetaMiddleware(tt.defaultRegion, tt.defaultAcct)(handler)
+
+			req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+
+			if tt.accountHeader != "" {
+				req.Header.Set("X-Amz-Account-Id", tt.accountHeader)
+			}
+
+			rec := httptest.NewRecorder()
+			c := echo.New().NewContext(req, rec)
+
+			require.NoError(t, wrapped(c))
+			assert.Equal(t, tt.wantRegion, gotRegion)
+			assert.Equal(t, tt.wantAccount, gotAccount)
+		})
+	}
+}
+
 // TestHealthEndpoint_GoroutineAndMemStats verifies that the /_gopherstack/health
 // response includes goroutine count and memory stats fields.
 //
@@ -827,7 +900,7 @@ type testPersistable struct {
 	mu         sync.Mutex
 }
 
-func (p *testPersistable) Snapshot() []byte {
+func (p *testPersistable) Snapshot(_ context.Context) []byte {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -837,7 +910,7 @@ func (p *testPersistable) Snapshot() []byte {
 	return cp
 }
 
-func (p *testPersistable) Restore(data []byte) error {
+func (p *testPersistable) Restore(_ context.Context, data []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -869,8 +942,10 @@ func (p *testPersistable) Data() []byte {
 }
 
 // newTestManager creates a persistence.Manager with a NullStore (no disk I/O).
-func newTestManager(services map[string]*testPersistable) *persistence.Manager {
-	mgr := persistence.NewManager(persistence.NullStore{})
+func newTestManager(t *testing.T, services map[string]*testPersistable) *persistence.Manager {
+	t.Helper()
+
+	mgr := persistence.NewManager(t.Context(), persistence.NullStore{})
 	for name, svc := range services {
 		mgr.Register(name, svc)
 	}
@@ -906,7 +981,7 @@ func postJSON(t *testing.T, handler echo.HandlerFunc, body []byte) *httptest.Res
 func TestBuildSnapshotHandler_EmptyManager(t *testing.T) {
 	t.Parallel()
 
-	mgr := newTestManager(nil)
+	mgr := newTestManager(t, nil)
 	handler := buildSnapshotHandler(mgr)
 	rec := postJSON(t, handler, []byte(`{}`))
 
@@ -967,7 +1042,7 @@ func TestBuildSnapshotHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			mgr := newTestManager(tt.services)
+			mgr := newTestManager(t, tt.services)
 			handler := buildSnapshotHandler(mgr)
 			rec := postJSON(t, handler, []byte(`{}`))
 
@@ -991,7 +1066,7 @@ func TestBuildSnapshotHandler_ResponseIsValidJSON(t *testing.T) {
 	t.Parallel()
 
 	snap := []byte(`{"items":[1,2,3],"active":true}`)
-	mgr := newTestManager(map[string]*testPersistable{"svc": {data: snap}})
+	mgr := newTestManager(t, map[string]*testPersistable{"svc": {data: snap}})
 	handler := buildSnapshotHandler(mgr)
 	rec := postJSON(t, handler, []byte(`{}`))
 
@@ -1014,7 +1089,7 @@ func TestBuildSnapshotHandler_ResponseIsValidJSON(t *testing.T) {
 func TestBuildLoadHandler_EmptyBundle(t *testing.T) {
 	t.Parallel()
 
-	mgr := newTestManager(map[string]*testPersistable{"svc": {data: nil}})
+	mgr := newTestManager(t, map[string]*testPersistable{"svc": {data: nil}})
 	handler := buildLoadHandler(mgr)
 
 	body, _ := json.Marshal(snapshotBundle{
@@ -1077,7 +1152,7 @@ func TestBuildLoadHandler(t *testing.T) {
 			t.Parallel()
 
 			svc := &testPersistable{restoreErr: tt.setupErr}
-			mgr := newTestManager(map[string]*testPersistable{"svc": svc})
+			mgr := newTestManager(t, map[string]*testPersistable{"svc": svc})
 			handler := buildLoadHandler(mgr)
 
 			e := echo.New()
@@ -1109,7 +1184,7 @@ func TestBuildLoadHandler(t *testing.T) {
 func TestBuildLoadHandler_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	mgr := newTestManager(nil)
+	mgr := newTestManager(t, nil)
 	handler := buildLoadHandler(mgr)
 
 	e := echo.New()
@@ -1162,7 +1237,7 @@ func TestSnapshotLoadRoundTrip(t *testing.T) {
 				services[name] = &testPersistable{data: data}
 			}
 
-			mgr := newTestManager(services)
+			mgr := newTestManager(t, services)
 
 			snapshotHandler := buildSnapshotHandler(mgr)
 			loadHandler := buildLoadHandler(mgr)
@@ -1228,8 +1303,8 @@ func TestSnapshotLoadRoundTrip_CrossManagerLoad(t *testing.T) {
 	svcA := &testPersistable{data: snapData}
 	svcB := &testPersistable{data: nil}
 
-	mgrA := newTestManager(map[string]*testPersistable{"svc": svcA})
-	mgrB := newTestManager(map[string]*testPersistable{"svc": svcB})
+	mgrA := newTestManager(t, map[string]*testPersistable{"svc": svcA})
+	mgrB := newTestManager(t, map[string]*testPersistable{"svc": svcB})
 
 	e := echo.New()
 
@@ -1260,7 +1335,7 @@ func TestSnapshotLoadRoundTrip_EmptyServicesProduceEmptyBundle(t *testing.T) {
 	t.Parallel()
 
 	svc := &testPersistable{data: nil}
-	mgr := newTestManager(map[string]*testPersistable{"svc": svc})
+	mgr := newTestManager(t, map[string]*testPersistable{"svc": svc})
 
 	e := echo.New()
 
@@ -1281,7 +1356,7 @@ func TestBuildEchoServer_SnapshotLoadRoutes(t *testing.T) {
 	t.Parallel()
 
 	cli := parseCLI(t, nil)
-	mgr := persistence.NewManager(persistence.NullStore{})
+	mgr := persistence.NewManager(t.Context(), persistence.NullStore{})
 	var svcs []service.Registerable
 
 	e := buildEchoServer(t.Context(), nil, mgr, svcs, cli)
@@ -1309,7 +1384,7 @@ func TestBuildSnapshotHandler_MultipleServices_StatePreservedIndependently(t *te
 		"sns":     {data: []byte(`{"topics":["arn:aws:sns:us-east-1:000000000000:alerts"]}`)},
 	}
 
-	mgr := newTestManager(services)
+	mgr := newTestManager(t, services)
 	e := echo.New()
 
 	// Snapshot.

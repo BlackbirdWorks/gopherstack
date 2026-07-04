@@ -1,7 +1,7 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -9,8 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 var (
@@ -133,7 +135,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // analyzerARN returns the ARN for an analyzer by name.
 func (b *InMemoryBackend) analyzerARN(name string) string {
-	return fmt.Sprintf("arn:aws:access-analyzer:%s:%s:analyzer/%s", b.region, b.accountID, name)
+	return arn.Build("access-analyzer", b.region, b.accountID, fmt.Sprintf("analyzer/%s", name))
 }
 
 // CreateAnalyzer creates a new analyzer.
@@ -221,7 +223,8 @@ func (b *InMemoryBackend) DeleteAnalyzer(name string) error {
 	return nil
 }
 
-// CreateArchiveRule adds an archive rule to an analyzer.
+// CreateArchiveRule adds an archive rule to an analyzer and immediately archives
+// all active findings for that analyzer (AWS auto-apply behavior).
 func (b *InMemoryBackend) CreateArchiveRule(
 	analyzerName, ruleName string,
 	filter map[string]FilterCriterion,
@@ -248,6 +251,13 @@ func (b *InMemoryBackend) CreateArchiveRule(
 	}
 
 	rules[ruleName] = rule
+
+	for _, f := range b.findings[analyzerName] {
+		if f.Status == FindingStatusActive {
+			f.Status = FindingStatusArchived
+			f.UpdatedAt = now
+		}
+	}
 
 	return copyArchiveRule(rule), nil
 }
@@ -531,7 +541,7 @@ func (b *InMemoryBackend) Region() string { return b.region }
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -542,18 +552,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Tags         map[string]map[string]string       `json:"tags"`
 	}
 
-	data, _ := json.Marshal(snap{
+	return persistence.MarshalSnapshot(ctx, "accessanalyzer", snap{
 		Analyzers:    b.analyzers,
 		ArchiveRules: b.archiveRules,
 		Findings:     b.findings,
 		Tags:         b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
@@ -565,7 +573,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	var s snap
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "accessanalyzer", data, &s); err != nil {
 		return err
 	}
 

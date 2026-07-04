@@ -128,6 +128,28 @@ func (b *InMemoryBackend) SetVolumeEncryption(
 	return nil
 }
 
+// SetVolumePerformance sets the IOPS and throughput (MB/s) on an existing volume.
+// A value of 0 leaves that field unchanged.
+func (b *InMemoryBackend) SetVolumePerformance(volumeID string, iops, throughput int) error {
+	b.mu.Lock("SetVolumePerformance")
+	defer b.mu.Unlock()
+
+	vol, ok := b.volumes[volumeID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
+	}
+
+	if iops > 0 {
+		vol.Iops = iops
+	}
+
+	if throughput > 0 {
+		vol.Throughput = throughput
+	}
+
+	return nil
+}
+
 // spotPriceBaseTable holds per-instance-type baseline prices in USD/hr.
 // Values are approximate AWS on-demand prices used as a seed for spot history.
 //

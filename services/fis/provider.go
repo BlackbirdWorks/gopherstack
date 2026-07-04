@@ -3,7 +3,6 @@ package fis
 import (
 	"errors"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -24,20 +23,13 @@ func (p *Provider) Name() string { return "FIS" }
 
 // Init initializes the FIS service backend and handler.
 //
-//nolint:ireturn,nolintlint // architecturally required to return interface
+//nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if ctx == nil {
 		return nil, ErrNilAppContext
 	}
 
-	accountID := config.DefaultAccountID
-	region := config.DefaultRegion
-
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
-	}
+	accountID, region := service.AccountRegionOrDefault(ctx)
 
 	var settings Settings
 
@@ -45,7 +37,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetFISSettings()
 	}
 
-	backend := NewInMemoryBackend(accountID, region)
+	backend := NewInMemoryBackendWithContext(ctx.JanitorCtx, accountID, region)
 	handler := NewHandler(backend)
 	handler.DefaultRegion = region
 	handler.AccountID = accountID

@@ -1,13 +1,15 @@
 package sesv2
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
-	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -15,11 +17,14 @@ import (
 
 // AccountDetails stores account-level SESv2 settings.
 type AccountDetails struct {
-	MailType        string `json:"mailType"`
-	WebsiteURL      string `json:"websiteURL"`
-	ContactLanguage string `json:"contactLanguage"`
-	UseCaseName     string `json:"useCaseName"`
-	SendingEnabled  bool   `json:"sendingEnabled"`
+	VdmAttributes         map[string]any `json:"vdmAttributes,omitempty"`
+	MailType              string         `json:"mailType"`
+	WebsiteURL            string         `json:"websiteURL"`
+	ContactLanguage       string         `json:"contactLanguage"`
+	UseCaseName           string         `json:"useCaseName"`
+	SuppressionAttributes []string       `json:"suppressionAttributes,omitempty"`
+	SendingEnabled        bool           `json:"sendingEnabled"`
+	AutoWarmupEnabled     bool           `json:"autoWarmupEnabled,omitempty"`
 }
 
 // SuppressedDestination stores a suppressed email address.
@@ -75,18 +80,42 @@ func (b *InMemoryBackend) PutAccountSendingAttributes(sendingEnabled bool) error
 	return nil
 }
 
-// PutAccountSuppressionAttributes is a no-op stub.
-func (b *InMemoryBackend) PutAccountSuppressionAttributes() error {
+func (b *InMemoryBackend) PutAccountSuppressionAttributes(suppressedReasons []string) error {
+	b.mu.Lock("PutAccountSuppressionAttributes")
+	defer b.mu.Unlock()
+
+	if b.accountDetails == nil {
+		b.accountDetails = &AccountDetails{}
+	}
+
+	b.accountDetails.SuppressionAttributes = suppressedReasons
+
 	return nil
 }
 
-// PutAccountVdmAttributes is a no-op stub.
-func (b *InMemoryBackend) PutAccountVdmAttributes() error {
+func (b *InMemoryBackend) PutAccountVdmAttributes(vdmAttributes map[string]any) error {
+	b.mu.Lock("PutAccountVdmAttributes")
+	defer b.mu.Unlock()
+
+	if b.accountDetails == nil {
+		b.accountDetails = &AccountDetails{}
+	}
+
+	b.accountDetails.VdmAttributes = vdmAttributes
+
 	return nil
 }
 
-// PutAccountDedicatedIPWarmupAttributes is a no-op stub.
-func (b *InMemoryBackend) PutAccountDedicatedIPWarmupAttributes() error {
+func (b *InMemoryBackend) PutAccountDedicatedIPWarmupAttributes(autoWarmupEnabled bool) error {
+	b.mu.Lock("PutAccountDedicatedIPWarmupAttributes")
+	defer b.mu.Unlock()
+
+	if b.accountDetails == nil {
+		b.accountDetails = &AccountDetails{}
+	}
+
+	b.accountDetails.AutoWarmupEnabled = autoWarmupEnabled
+
 	return nil
 }
 
@@ -148,12 +177,7 @@ func (b *InMemoryBackend) ListSuppressedDestinations(
 	b.mu.RLock("ListSuppressedDestinations")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.suppressedDestinations))
-	for k := range b.suppressedDestinations {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.suppressedDestinations)
 
 	items := make([]*SuppressedDestination, 0, len(keys))
 	for _, k := range keys {
@@ -217,12 +241,7 @@ func (b *InMemoryBackend) ListContactLists(nextToken string, pageSize int) page.
 	b.mu.RLock("ListContactLists")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.contactLists))
-	for k := range b.contactLists {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.contactLists)
 
 	items := make([]*ContactList, 0, len(keys))
 	for _, k := range keys {
@@ -330,12 +349,7 @@ func (b *InMemoryBackend) ListContacts(
 		)
 	}
 
-	keys := make([]string, 0, len(listContacts))
-	for k := range listContacts {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(listContacts)
 
 	items := make([]*Contact, 0, len(keys))
 	for _, k := range keys {
@@ -408,12 +422,7 @@ func (b *InMemoryBackend) ListCustomVerificationEmailTemplates(
 	b.mu.RLock("ListCustomVerificationEmailTemplates")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.customVerificationTemplates))
-	for k := range b.customVerificationTemplates {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.customVerificationTemplates)
 
 	items := make([]*CustomVerificationEmailTemplate, 0, len(keys))
 	for _, k := range keys {
@@ -460,31 +469,82 @@ func (b *InMemoryBackend) ListDedicatedIPPools(nextToken string, pageSize int) p
 	b.mu.RLock("ListDedicatedIPPools")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.dedicatedIPPools))
-	for k := range b.dedicatedIPPools {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.dedicatedIPPools)
 
 	return page.New(keys, nextToken, pageSize, sesv2DefaultMaxItems)
 }
 
-// GetDedicatedIP returns an empty dedicated IP (stub).
-func (b *InMemoryBackend) GetDedicatedIP(_ string) (map[string]any, error) {
+// dedicatedIPToMap renders a dedicated IP as the AWS-shaped response map.
+func dedicatedIPToMap(ip *DedicatedIP) map[string]any {
 	return map[string]any{
+		"Ip":               ip.IP,
+		"PoolName":         ip.PoolName,
+		"WarmupPercentage": ip.WarmupPercentage,
+		"WarmupStatus":     ip.WarmupStatus,
+	}
+}
+
+// GetDedicatedIP returns the stored dedicated IP attributes. IPs that have never
+// been assigned to a pool or warmed up are reported as fully warmed up, matching
+// the prior stub behaviour for IPs SES manages implicitly.
+func (b *InMemoryBackend) GetDedicatedIP(ip string) (map[string]any, error) {
+	b.mu.RLock("GetDedicatedIP")
+	defer b.mu.RUnlock()
+
+	if d, ok := b.dedicatedIPs[ip]; ok {
+		return dedicatedIPToMap(d), nil
+	}
+
+	return map[string]any{
+		"Ip":               ip,
 		"WarmupPercentage": warmupPercentComplete,
 		"WarmupStatus":     warmupDone,
 	}, nil
 }
 
-// GetDedicatedIps returns empty dedicated IPs (stub).
+// GetDedicatedIps returns all tracked dedicated IPs.
 func (b *InMemoryBackend) GetDedicatedIps() []map[string]any {
-	return []map[string]any{}
+	b.mu.RLock("GetDedicatedIps")
+	defer b.mu.RUnlock()
+
+	keys := collections.SortedKeys(b.dedicatedIPs)
+
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, dedicatedIPToMap(b.dedicatedIPs[k]))
+	}
+
+	return out
 }
 
-// PutDedicatedIPInPool is a no-op stub.
-func (b *InMemoryBackend) PutDedicatedIPInPool(_, _ string) error {
+// dedicatedIPLocked returns the tracked dedicated IP, creating a default entry if
+// it does not yet exist. Callers must hold the write lock.
+func (b *InMemoryBackend) dedicatedIPLocked(ip string) *DedicatedIP {
+	d, ok := b.dedicatedIPs[ip]
+	if !ok {
+		d = &DedicatedIP{
+			IP:               ip,
+			WarmupPercentage: warmupPercentComplete,
+			WarmupStatus:     warmupDone,
+		}
+		b.dedicatedIPs[ip] = d
+	}
+
+	return d
+}
+
+// PutDedicatedIPInPool moves a dedicated IP into the requested pool. The
+// destination pool must exist.
+func (b *InMemoryBackend) PutDedicatedIPInPool(ip, poolName string) error {
+	b.mu.Lock("PutDedicatedIPInPool")
+	defer b.mu.Unlock()
+
+	if _, ok := b.dedicatedIPPools[poolName]; !ok {
+		return fmt.Errorf("%w: dedicated IP pool %s not found", ErrNotFound, poolName)
+	}
+
+	b.dedicatedIPLocked(ip).PoolName = poolName
+
 	return nil
 }
 
@@ -503,8 +563,21 @@ func (b *InMemoryBackend) PutDedicatedIPPoolScalingAttributes(poolName, scalingM
 	return nil
 }
 
-// PutDedicatedIPWarmupAttributes is a no-op stub.
-func (b *InMemoryBackend) PutDedicatedIPWarmupAttributes(_, _ string) error {
+// PutDedicatedIPWarmupAttributes records the warmup percentage for a dedicated IP
+// and derives the warmup status from it.
+func (b *InMemoryBackend) PutDedicatedIPWarmupAttributes(ip string, warmupPercentage int) error {
+	b.mu.Lock("PutDedicatedIPWarmupAttributes")
+	defer b.mu.Unlock()
+
+	d := b.dedicatedIPLocked(ip)
+	d.WarmupPercentage = warmupPercentage
+
+	if warmupPercentage >= warmupPercentComplete {
+		d.WarmupStatus = warmupDone
+	} else {
+		d.WarmupStatus = warmupInProgress
+	}
+
 	return nil
 }
 
@@ -545,12 +618,7 @@ func (b *InMemoryBackend) ListDeliverabilityTestReports(
 	b.mu.RLock("ListDeliverabilityTestReports")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.deliverabilityTestReports))
-	for k := range b.deliverabilityTestReports {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.deliverabilityTestReports)
 
 	items := make([]*DeliverabilityTestReport, 0, len(keys))
 	for _, k := range keys {
@@ -561,14 +629,44 @@ func (b *InMemoryBackend) ListDeliverabilityTestReports(
 	return page.New(items, nextToken, pageSize, sesv2DefaultMaxItems)
 }
 
-// GetDomainDeliverabilityCampaign returns an empty stub.
-func (b *InMemoryBackend) GetDomainDeliverabilityCampaign(_, _ string) (map[string]any, error) {
-	return map[string]any{}, nil
+func (b *InMemoryBackend) GetDomainDeliverabilityCampaign(domain, campaignID string) (map[string]any, error) {
+	now := float64(time.Now().Unix())
+
+	return map[string]any{
+		"CampaignId":        campaignID,
+		"FromAddress":       "sender@" + domain,
+		"Subject":           "",
+		"FirstSeenDateTime": now,
+		"LastSeenDateTime":  now,
+		"InboxCount":        float64(0),
+		"SpamCount":         float64(0),
+		"ReadRate":          float64(0),
+		"DeleteRate":        float64(0),
+		"ReadDeleteRate":    float64(0),
+		"ProjectedVolume":   float64(0),
+		"Esps":              []any{},
+		"SendingIps":        []any{},
+	}, nil
 }
 
-// GetDomainStatisticsReport returns a stub report.
-func (b *InMemoryBackend) GetDomainStatisticsReport(_, _, _ string) (map[string]any, error) {
-	return map[string]any{}, nil
+func (b *InMemoryBackend) GetDomainStatisticsReport(domain, startDate, endDate string) (map[string]any, error) {
+	_ = startDate
+	_ = endDate
+
+	return map[string]any{
+		"Domain": domain,
+		"OverallVolume": map[string]any{
+			"VolumeStatistics": map[string]any{
+				"InboxRawCount":  float64(0),
+				"SpamRawCount":   float64(0),
+				"ProjectedInbox": float64(0),
+				"ProjectedSpam":  float64(0),
+			},
+			"ReadRatePercent":     float64(0),
+			"DomainIspPlacements": []any{},
+		},
+		"DailyVolumes": []any{},
+	}, nil
 }
 
 // ListDomainDeliverabilityCampaigns returns empty list.
@@ -650,12 +748,7 @@ func (b *InMemoryBackend) ListEmailTemplates(
 	b.mu.RLock("ListEmailTemplates")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.emailTemplates))
-	for k := range b.emailTemplates {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.emailTemplates)
 
 	items := make([]*EmailTemplate, 0, len(keys))
 	for _, k := range keys {
@@ -666,7 +759,7 @@ func (b *InMemoryBackend) ListEmailTemplates(
 	return page.New(items, nextToken, pageSize, sesv2DefaultMaxItems)
 }
 
-// TestRenderEmailTemplate renders a template with merge data (stub).
+// TestRenderEmailTemplate renders a template with merge data.
 func (b *InMemoryBackend) TestRenderEmailTemplate(name, templateData string) (string, error) {
 	b.mu.RLock("TestRenderEmailTemplate")
 	defer b.mu.RUnlock()
@@ -676,17 +769,33 @@ func (b *InMemoryBackend) TestRenderEmailTemplate(name, templateData string) (st
 		return "", fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
 	}
 
-	_ = templateData
-
-	rendered := ""
-	if t.TemplateContent != nil {
-		rendered = t.TemplateContent.HTML
-		if rendered == "" {
-			rendered = t.TemplateContent.Text
+	vars := map[string]string{}
+	if strings.TrimSpace(templateData) != "" {
+		raw := map[string]any{}
+		if err := json.Unmarshal([]byte(templateData), &raw); err != nil {
+			return "", fmt.Errorf("%w: TemplateData must be valid JSON", ErrInvalidInput)
+		}
+		for k, v := range raw {
+			vars[k] = fmt.Sprintf("%v", v)
 		}
 	}
 
-	return rendered, nil
+	renderVars := func(s string) string {
+		for k, v := range vars {
+			s = strings.ReplaceAll(s, "{{"+k+"}}", v)
+		}
+
+		return s
+	}
+
+	subject, html, text := "", "", ""
+	if t.TemplateContent != nil {
+		subject = renderVars(t.TemplateContent.Subject)
+		html = renderVars(t.TemplateContent.HTML)
+		text = renderVars(t.TemplateContent.Text)
+	}
+
+	return strings.Join([]string{subject, html, text}, "\n---\n"), nil
 }
 
 // ---- export / import jobs ----
@@ -732,12 +841,7 @@ func (b *InMemoryBackend) ListExportJobs(nextToken string, pageSize int) page.Pa
 	b.mu.RLock("ListExportJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.exportJobs))
-	for k := range b.exportJobs {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.exportJobs)
 
 	items := make([]*ExportJob, 0, len(keys))
 	for _, k := range keys {
@@ -789,12 +893,7 @@ func (b *InMemoryBackend) ListImportJobs(nextToken string, pageSize int) page.Pa
 	b.mu.RLock("ListImportJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.importJobs))
-	for k := range b.importJobs {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.importJobs)
 
 	items := make([]*ImportJob, 0, len(keys))
 	for _, k := range keys {
@@ -948,14 +1047,17 @@ func (b *InMemoryBackend) UpdateConfigurationSetEventDestination(
 	return nil
 }
 
-// PutConfigurationSetArchivingOptions validates the config set exists (archiving not modelled).
-func (b *InMemoryBackend) PutConfigurationSetArchivingOptions(name string) error {
-	b.mu.RLock("PutConfigurationSetArchivingOptions")
-	defer b.mu.RUnlock()
+// PutConfigurationSetArchivingOptions stores the archive ARN on the config set.
+func (b *InMemoryBackend) PutConfigurationSetArchivingOptions(name, archiveARN string) error {
+	b.mu.Lock("PutConfigurationSetArchivingOptions")
+	defer b.mu.Unlock()
 
-	if _, ok := b.configurationSets[name]; !ok {
+	cs, ok := b.configurationSets[name]
+	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
+
+	cs.ArchivingOptions = &ArchivingOptions{ArchiveARN: archiveARN}
 
 	return nil
 }
@@ -1052,13 +1154,22 @@ func (b *InMemoryBackend) PutConfigurationSetTrackingOptions(
 	return nil
 }
 
-// PutConfigurationSetVdmOptions validates the config set exists (VDM not modelled).
-func (b *InMemoryBackend) PutConfigurationSetVdmOptions(name string) error {
-	b.mu.RLock("PutConfigurationSetVdmOptions")
-	defer b.mu.RUnlock()
+// PutConfigurationSetVdmOptions stores the VDM options on the config set.
+func (b *InMemoryBackend) PutConfigurationSetVdmOptions(
+	name string,
+	dashboardOptions, guardianOptions map[string]any,
+) error {
+	b.mu.Lock("PutConfigurationSetVdmOptions")
+	defer b.mu.Unlock()
 
-	if _, ok := b.configurationSets[name]; !ok {
+	cs, ok := b.configurationSets[name]
+	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+	}
+
+	cs.VdmOptions = &VdmOptions{
+		DashboardOptions: dashboardOptions,
+		GuardianOptions:  guardianOptions,
 	}
 
 	return nil
@@ -1162,16 +1273,30 @@ func (b *InMemoryBackend) PutEmailIdentityMailFromAttributes(
 
 // ---- email sending ----
 
-// SendBulkEmail sends bulk emails (stub — records sent emails).
+// SendBulkEmail sends bulk emails — records sent emails with actual recipients.
 func (b *InMemoryBackend) SendBulkEmail(
 	fromEmailAddress string,
 	bulkEmailEntries []map[string]any,
 ) ([]map[string]any, error) {
 	results := make([]map[string]any, 0, len(bulkEmailEntries))
 
-	for range bulkEmailEntries {
-		msgID := "sesv2-bulk-" + uuid.New().String()
-		_, _ = b.SendEmail(fromEmailAddress, []string{}, "", "", "")
+	for _, entry := range bulkEmailEntries {
+		var toAddresses []string
+		if dest, destOK := entry["Destination"].(map[string]any); destOK {
+			if raw, rawOK := dest["ToAddresses"].([]any); rawOK {
+				for _, v := range raw {
+					if s, strOK := v.(string); strOK {
+						toAddresses = append(toAddresses, s)
+					}
+				}
+			}
+		}
+
+		msgID, _ := b.SendEmail(fromEmailAddress, toAddresses, "", "", "")
+		if msgID == "" {
+			msgID = "sesv2-bulk-" + uuid.New().String()
+		}
+
 		results = append(results, map[string]any{
 			"MessageId": msgID,
 			keyStatus:   keyStatusSuccess,
@@ -1199,101 +1324,322 @@ func (b *InMemoryBackend) SendCustomVerificationEmail(
 	}
 
 	msgID := "sesv2-cvr-" + uuid.New().String()
-	_, _ = b.SendEmail("noreply@example.com", []string{emailAddress}, "Verify your email", "", "")
+
+	email := Email{
+		MessageID: msgID,
+		From:      "noreply@example.com",
+		To:        []string{emailAddress},
+		Subject:   "Verify your email",
+		Timestamp: time.Now(),
+	}
+
+	b.mu.Lock("SendCustomVerificationEmail-record")
+	b.emails = append(b.emails, email)
+	if len(b.emails) >= emailCompactionHighWater {
+		trimmed := make([]Email, maxRetainedEmails, emailCompactionHighWater)
+		copy(trimmed, b.emails[len(b.emails)-maxRetainedEmails:])
+		b.emails = trimmed
+	}
+	b.mu.Unlock()
 
 	return msgID, nil
 }
 
-// ---- multi-region endpoints (stubs) ----
+// ---- multi-region endpoints ----
 
-// CreateMultiRegionEndpoint creates a multi-region endpoint (stub).
 func (b *InMemoryBackend) CreateMultiRegionEndpoint(endpointName string) (string, error) {
-	_ = endpointName
+	b.mu.Lock("CreateMultiRegionEndpoint")
+	defer b.mu.Unlock()
 
-	return "CREATING", nil
+	b.multiRegionEndpoints[endpointName] = map[string]any{
+		"EndpointName": endpointName,
+		keyStatus:      "READY",
+	}
+
+	return "READY", nil
 }
 
-// GetMultiRegionEndpoint returns a stub.
-func (b *InMemoryBackend) GetMultiRegionEndpoint(_ string) (map[string]any, error) {
-	return map[string]any{keyStatus: "READY"}, nil
+func (b *InMemoryBackend) GetMultiRegionEndpoint(endpointName string) (map[string]any, error) {
+	b.mu.RLock("GetMultiRegionEndpoint")
+	defer b.mu.RUnlock()
+
+	ep, ok := b.multiRegionEndpoints[endpointName]
+	if !ok {
+		return nil, fmt.Errorf("%w: MultiRegionEndpoint %s not found", ErrNotFound, endpointName)
+	}
+
+	out := make(map[string]any, len(ep))
+	maps.Copy(out, ep)
+
+	return out, nil
 }
 
-// DeleteMultiRegionEndpoint is a no-op stub.
-func (b *InMemoryBackend) DeleteMultiRegionEndpoint(_ string) error {
+func (b *InMemoryBackend) DeleteMultiRegionEndpoint(endpointName string) error {
+	b.mu.Lock("DeleteMultiRegionEndpoint")
+	defer b.mu.Unlock()
+
+	delete(b.multiRegionEndpoints, endpointName)
+
 	return nil
 }
 
-// ListMultiRegionEndpoints returns empty list.
 func (b *InMemoryBackend) ListMultiRegionEndpoints(
-	_ string,
+	nextToken string,
+	pageSize int,
+) ([]map[string]any, string, error) {
+	b.mu.RLock("ListMultiRegionEndpoints")
+
+	all := make([]map[string]any, 0, len(b.multiRegionEndpoints))
+	for _, ep := range b.multiRegionEndpoints {
+		cp := make(map[string]any, len(ep))
+		maps.Copy(cp, ep)
+		all = append(all, cp)
+	}
+
+	b.mu.RUnlock()
+
+	return paginateMaps(all, nextToken, pageSize, "EndpointName")
+}
+
+const keyTenantName = "TenantName"
+
+// paginateMaps applies simple nextToken/pageSize pagination to a slice of
+// maps, using keyName as the cursor field. Returns the page, next token, and nil error.
+func paginateMaps(
+	all []map[string]any,
+	nextToken string,
+	pageSize int,
+	keyName string,
+) ([]map[string]any, string, error) {
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 100
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, item := range all {
+			if item[keyName] == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := start + pageSize
+
+	var next string
+	if end < len(all) {
+		v, ok := all[end][keyName].(string)
+		if ok {
+			next = v
+		}
+	} else {
+		end = len(all)
+	}
+
+	return all[start:end], next, nil
+}
+
+// ---- tenants ----
+
+func (b *InMemoryBackend) CreateTenant(tenantName string) (map[string]any, error) {
+	b.mu.Lock("CreateTenant")
+	defer b.mu.Unlock()
+
+	b.tenants[tenantName] = map[string]any{keyTenantName: tenantName, keyStatus: "ACTIVE"}
+
+	return map[string]any{keyTenantName: tenantName}, nil
+}
+
+func (b *InMemoryBackend) GetTenant(tenantName string) (map[string]any, error) {
+	b.mu.RLock("GetTenant")
+	defer b.mu.RUnlock()
+
+	t, ok := b.tenants[tenantName]
+	if !ok {
+		return nil, fmt.Errorf("%w: Tenant %s not found", ErrNotFound, tenantName)
+	}
+
+	out := make(map[string]any, len(t))
+	maps.Copy(out, t)
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) DeleteTenant(tenantName string) error {
+	b.mu.Lock("DeleteTenant")
+	defer b.mu.Unlock()
+
+	delete(b.tenants, tenantName)
+
+	return nil
+}
+
+func (b *InMemoryBackend) ListTenants(nextToken string, pageSize int) ([]map[string]any, string, error) {
+	b.mu.RLock("ListTenants")
+
+	all := make([]map[string]any, 0, len(b.tenants))
+	for _, t := range b.tenants {
+		cp := make(map[string]any, len(t))
+		maps.Copy(cp, t)
+		all = append(all, cp)
+	}
+
+	b.mu.RUnlock()
+
+	return paginateMaps(all, nextToken, pageSize, keyTenantName)
+}
+
+func (b *InMemoryBackend) CreateTenantResourceAssociation(tenantName, resourceArn string) error {
+	b.mu.Lock("CreateTenantResourceAssociation")
+	defer b.mu.Unlock()
+
+	b.tenantResources[tenantName] = append(b.tenantResources[tenantName], resourceArn)
+	b.resourceTenants[resourceArn] = append(b.resourceTenants[resourceArn], tenantName)
+
+	return nil
+}
+
+func (b *InMemoryBackend) DeleteTenantResourceAssociation(tenantName, resourceArn string) error {
+	b.mu.Lock("DeleteTenantResourceAssociation")
+	defer b.mu.Unlock()
+
+	b.tenantResources[tenantName] = removeString(b.tenantResources[tenantName], resourceArn)
+	b.resourceTenants[resourceArn] = removeString(b.resourceTenants[resourceArn], tenantName)
+
+	return nil
+}
+
+func (b *InMemoryBackend) ListResourceTenants(
+	resourceArn string,
 	_ int,
 ) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
+	b.mu.RLock("ListResourceTenants")
+	names := b.resourceTenants[resourceArn]
+	b.mu.RUnlock()
+
+	out := make([]map[string]any, 0, len(names))
+	for _, n := range names {
+		out = append(out, map[string]any{keyTenantName: n})
+	}
+
+	return out, "", nil
 }
 
-// ---- tenants (stubs) ----
+func (b *InMemoryBackend) ListTenantResources(
+	tenantName string,
+	_ int,
+) ([]map[string]any, string, error) {
+	b.mu.RLock("ListTenantResources")
+	arns := b.tenantResources[tenantName]
+	b.mu.RUnlock()
 
-// CreateTenant creates a tenant (stub).
-func (b *InMemoryBackend) CreateTenant(_ string) (map[string]any, error) {
-	return map[string]any{}, nil
+	out := make([]map[string]any, 0, len(arns))
+	for _, a := range arns {
+		out = append(out, map[string]any{"ResourceArn": a})
+	}
+
+	return out, "", nil
 }
 
-// GetTenant returns a stub.
-func (b *InMemoryBackend) GetTenant(_ string) (map[string]any, error) {
-	return map[string]any{}, nil
+func removeString(s []string, v string) []string {
+	out := s[:0]
+	for _, x := range s {
+		if x != v {
+			out = append(out, x)
+		}
+	}
+
+	return out
 }
 
-// DeleteTenant is a no-op stub.
-func (b *InMemoryBackend) DeleteTenant(_ string) error {
-	return nil
+// ---- reputation entities ----
+
+// reputationEntityToMap renders a reputation entity as the AWS-shaped response map.
+func reputationEntityToMap(e *ReputationEntity) map[string]any {
+	m := map[string]any{
+		"ReputationEntityReference": e.EntityRef,
+	}
+
+	if e.EntityType != "" {
+		m["ReputationEntityType"] = e.EntityType
+	}
+
+	if e.CustomerManagedStatus != "" {
+		m["CustomerManagedStatus"] = map[string]any{keyStatus: e.CustomerManagedStatus}
+	}
+
+	if e.ReputationPolicy != "" {
+		m["ReputationManagementPolicy"] = e.ReputationPolicy
+	}
+
+	return m
 }
 
-// ListTenants returns empty list.
-func (b *InMemoryBackend) ListTenants(_ string, _ int) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
+// reputationEntityLocked returns the tracked reputation entity, creating an entry
+// if it does not yet exist. Callers must hold the write lock.
+func (b *InMemoryBackend) reputationEntityLocked(entityID string) *ReputationEntity {
+	e, ok := b.reputationEntities[entityID]
+	if !ok {
+		e = &ReputationEntity{EntityRef: entityID}
+		b.reputationEntities[entityID] = e
+	}
+
+	return e
 }
 
-// CreateTenantResourceAssociation is a no-op stub.
-func (b *InMemoryBackend) CreateTenantResourceAssociation(_, _ string) error {
-	return nil
+// GetReputationEntity returns the stored reputation entity attributes. Entities
+// in SES exist implicitly for every configuration set and identity, so an entity
+// that has never been updated is reported with its reference and no overrides
+// rather than as not-found.
+func (b *InMemoryBackend) GetReputationEntity(entityID string) (map[string]any, error) {
+	b.mu.RLock("GetReputationEntity")
+	defer b.mu.RUnlock()
+
+	if e, ok := b.reputationEntities[entityID]; ok {
+		return reputationEntityToMap(e), nil
+	}
+
+	return reputationEntityToMap(&ReputationEntity{EntityRef: entityID}), nil
 }
 
-// DeleteTenantResourceAssociation is a no-op stub.
-func (b *InMemoryBackend) DeleteTenantResourceAssociation(_, _ string) error {
-	return nil
-}
-
-// ListResourceTenants returns empty list.
-func (b *InMemoryBackend) ListResourceTenants(_ string, _ int) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
-}
-
-// ListTenantResources returns empty list.
-func (b *InMemoryBackend) ListTenantResources(_ string, _ int) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
-}
-
-// ---- reputation entities (stubs) ----
-
-// GetReputationEntity returns a stub.
-func (b *InMemoryBackend) GetReputationEntity(_ string) (map[string]any, error) {
-	return map[string]any{}, nil
-}
-
-// ListReputationEntities returns empty list.
+// ListReputationEntities returns all tracked reputation entities.
 func (b *InMemoryBackend) ListReputationEntities(
 	_ string,
 	_ int,
 ) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
+	b.mu.RLock("ListReputationEntities")
+	defer b.mu.RUnlock()
+
+	keys := collections.SortedKeys(b.reputationEntities)
+
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, reputationEntityToMap(b.reputationEntities[k]))
+	}
+
+	return out, "", nil
 }
 
-// UpdateReputationEntityCustomerManagedStatus is a no-op stub.
-func (b *InMemoryBackend) UpdateReputationEntityCustomerManagedStatus(_ string) error {
+// UpdateReputationEntityCustomerManagedStatus stores the customer-managed status.
+func (b *InMemoryBackend) UpdateReputationEntityCustomerManagedStatus(
+	entityID, status string,
+) error {
+	b.mu.Lock("UpdateReputationEntityCustomerManagedStatus")
+	defer b.mu.Unlock()
+
+	b.reputationEntityLocked(entityID).CustomerManagedStatus = status
+
 	return nil
 }
 
-// UpdateReputationEntityPolicy is a no-op stub.
-func (b *InMemoryBackend) UpdateReputationEntityPolicy(_, _ string) error {
+// UpdateReputationEntityPolicy stores the reputation management policy.
+func (b *InMemoryBackend) UpdateReputationEntityPolicy(entityID, policy string) error {
+	b.mu.Lock("UpdateReputationEntityPolicy")
+	defer b.mu.Unlock()
+
+	b.reputationEntityLocked(entityID).ReputationPolicy = policy
+
 	return nil
 }

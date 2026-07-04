@@ -71,6 +71,10 @@ func TestRefinement2_BatchLoadTaskTimestampsAreFloats(t *testing.T) {
 	rec := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
 		"TargetDatabaseName": "blt-ts-db",
 		"TargetTableName":    "blt-ts-tbl",
+		"DataSourceConfiguration": map[string]any{
+			"DataFormat":                "CSV",
+			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -385,7 +389,7 @@ func TestRefinement2_PersistenceSnapshotRestore(t *testing.T) {
 	require.NotEmpty(t, data)
 
 	b2 := timestreamwrite.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, timestreamwrite.DatabaseCount(b2))
 	assert.Equal(t, 1, timestreamwrite.TableCount(b2))

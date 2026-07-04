@@ -203,11 +203,11 @@ func TestHandler_Persistence(t *testing.T) {
 	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 
 	// Snapshot should delegate to the backend and return non-nil bytes.
-	data := h.Snapshot()
+	data := h.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	// Restore should delegate to the backend without error.
-	require.NoError(t, h.Restore(data))
+	require.NoError(t, h.Restore(t.Context(), data))
 }
 
 func TestHandler_InsightsInvalidJSON(t *testing.T) {

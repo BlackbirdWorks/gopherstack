@@ -45,7 +45,7 @@ func TestRefinement1_Reset(t *testing.T) {
 				assert.Equal(t, 0, b.ReplayCount())
 				assert.Equal(t, 0, b.PartnerSourceCount())
 
-				buses, _, err := b.ListEventBuses(context.Background(), "", "")
+				buses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
 				require.NoError(t, err)
 				assert.Len(t, buses, 1)
 				assert.Equal(t, "default", buses[0].Name)
@@ -75,7 +75,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	for range 5 {
 		b.Reset()
 
-		buses, _, err := b.ListEventBuses(context.Background(), "", "")
+		buses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
 		require.NoError(t, err)
 		assert.Len(t, buses, 1)
 	}
@@ -658,12 +658,12 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddPartnerSourceInternal(&eventbridge.PartnerEventSource{Name: "ps1"})
 
 	// Snapshot
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	// Restore into a new backend
 	b2 := eventbridge.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, b.APIDestinationCount(), b2.APIDestinationCount())
 	assert.Equal(t, b.ArchiveCount(), b2.ArchiveCount())

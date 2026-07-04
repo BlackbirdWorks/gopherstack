@@ -1,6 +1,7 @@
 package iotanalytics_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -620,12 +621,12 @@ func TestRefinement2_TagValidation(t *testing.T) {
 		{
 			name:       "valid_tags",
 			tags:       []map[string]string{{"key": "env", "value": "test"}},
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "key_128_chars_ok",
 			tags:       []map[string]string{{"key": strings.Repeat("k", 128), "value": "v"}},
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "key_129_chars_rejected",
@@ -635,7 +636,7 @@ func TestRefinement2_TagValidation(t *testing.T) {
 		{
 			name:       "value_256_chars_ok",
 			tags:       []map[string]string{{"key": "k", "value": strings.Repeat("v", 256)}},
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "value_257_chars_rejected",
@@ -1093,7 +1094,7 @@ func TestRefinement2_BackendDirect_RetentionPeriodValidation(t *testing.T) {
 			t.Parallel()
 
 			b := iotanalytics.NewInMemoryBackend()
-			_, err := b.CreateChannel("ret_ch", nil, nil, tt.retention)
+			_, err := b.CreateChannel(context.Background(), "ret_ch", nil, nil, tt.retention)
 
 			if tt.wantErr {
 				require.Error(t, err)

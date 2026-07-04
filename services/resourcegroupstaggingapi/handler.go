@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -156,6 +157,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrMissingS3Bucket), errors.Is(err, ErrValidation):
 		code = http.StatusBadRequest
 		errType = "ValidationException"
+	case errors.Is(err, ErrConcurrentModification):
+		code = http.StatusConflict
+		errType = "ConcurrentModificationException"
 	case errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		code = http.StatusBadRequest
 		errType = "ValidationException"
@@ -180,6 +184,10 @@ func (h *Handler) handleGetTagKeys(ctx context.Context, in *GetTagKeysInput) (*G
 }
 
 func (h *Handler) handleGetTagValues(ctx context.Context, in *GetTagValuesInput) (*GetTagValuesOutput, error) {
+	if in.Key == nil || *in.Key == "" {
+		return nil, fmt.Errorf("%w: Key is required for GetTagValues", ErrValidation)
+	}
+
 	return h.Backend.GetTagValues(ctx, in), nil
 }
 
@@ -209,6 +217,15 @@ func (h *Handler) handleGetComplianceSummary(
 	ctx context.Context,
 	in *GetComplianceSummaryInput,
 ) (*GetComplianceSummaryOutput, error) {
+	for _, g := range in.GroupBy {
+		if !isValidGroupByValue(g) {
+			return nil, fmt.Errorf(
+				"%w: invalid GroupBy value %q; valid values are REGION, RESOURCE_TYPE, TARGET_ID",
+				ErrValidation, g,
+			)
+		}
+	}
+
 	return h.Backend.GetComplianceSummary(ctx, in), nil
 }
 

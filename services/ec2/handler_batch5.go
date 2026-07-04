@@ -179,10 +179,38 @@ type fleetItem struct {
 	TotalTargetCapacity             int    `xml:"targetCapacitySpecification>totalTargetCapacity"`
 }
 
+type fleetErrorItem struct {
+	ErrorCode    string `xml:"errorCode,omitempty"`
+	ErrorMessage string `xml:"errorMessage,omitempty"`
+}
+
+type fleetErrorSet struct {
+	Items []fleetErrorItem `xml:"item"`
+}
+
+type fleetInstanceIDSet struct {
+	Items []string `xml:"item"`
+}
+
+type fleetInstanceItem struct {
+	InstanceType string             `xml:"instanceType,omitempty"`
+	Platform     string             `xml:"platform,omitempty"`
+	InstanceIDs  fleetInstanceIDSet `xml:"instanceIds"`
+}
+
+type fleetInstanceItemSet struct {
+	Items []fleetInstanceItem `xml:"item"`
+}
+
+// createFleetResponse matches the AWS CreateFleet response shape:
+// fleetId, errors (per-launch-spec failures), and instances (launched set).
 type createFleetResponse struct {
-	XMLName   xml.Name `xml:"CreateFleetResponse"`
-	RequestID string   `xml:"requestId"`
-	FleetID   string   `xml:"fleetId"`
+	XMLName   xml.Name             `xml:"CreateFleetResponse"`
+	RequestID string               `xml:"requestId"`
+	FleetID   string               `xml:"fleetId"`
+	FleetType string               `xml:"type,omitempty"`
+	Errors    fleetErrorSet        `xml:"errors"`
+	Instances fleetInstanceItemSet `xml:"fleetInstanceSet"`
 }
 
 type deleteFleetsResponse struct {
@@ -491,13 +519,19 @@ func (h *Handler) handleDescribeTrafficMirrorFilters(vals url.Values, reqID stri
 
 	resp := &describeTrafficMirrorFiltersResponse{RequestID: reqID}
 	for _, f := range filters {
-		resp.TrafficMirrorFilters.Items = append(resp.TrafficMirrorFilters.Items, toTrafficMirrorFilterItem(f))
+		resp.TrafficMirrorFilters.Items = append(
+			resp.TrafficMirrorFilters.Items,
+			toTrafficMirrorFilterItem(f),
+		)
 	}
 
 	return resp, nil
 }
 
-func (h *Handler) handleModifyTrafficMirrorFilterNetworkServices(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleModifyTrafficMirrorFilterNetworkServices(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	id := vals.Get("TrafficMirrorFilterId")
 	add := parseMemberList(vals, "AddNetworkService")
 	remove := parseMemberList(vals, "RemoveNetworkService")
@@ -602,7 +636,10 @@ func (h *Handler) handleDeleteTrafficMirrorFilterRule(vals url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleDescribeTrafficMirrorFilterRules(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeTrafficMirrorFilterRules(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	filterID := vals.Get("TrafficMirrorFilterId")
 
 	rules, err := h.Backend.DescribeTrafficMirrorFilterRules(filterID)
@@ -697,7 +734,10 @@ func (h *Handler) handleDescribeTrafficMirrorSessions(vals url.Values, reqID str
 
 	resp := &describeTrafficMirrorSessionsResponse{RequestID: reqID}
 	for _, s := range sessions {
-		resp.TrafficMirrorSessions.Items = append(resp.TrafficMirrorSessions.Items, toTrafficMirrorSessionItem(s))
+		resp.TrafficMirrorSessions.Items = append(
+			resp.TrafficMirrorSessions.Items,
+			toTrafficMirrorSessionItem(s),
+		)
 	}
 
 	return resp, nil
@@ -770,7 +810,10 @@ func (h *Handler) handleDescribeTrafficMirrorTargets(vals url.Values, reqID stri
 
 	resp := &describeTrafficMirrorTargetsResponse{RequestID: reqID}
 	for _, t := range targets {
-		resp.TrafficMirrorTargets.Items = append(resp.TrafficMirrorTargets.Items, toTrafficMirrorTargetItem(t))
+		resp.TrafficMirrorTargets.Items = append(
+			resp.TrafficMirrorTargets.Items,
+			toTrafficMirrorTargetItem(t),
+		)
 	}
 
 	return resp, nil
@@ -790,6 +833,9 @@ func toFleetItem(f *Fleet) fleetItem {
 
 func (h *Handler) handleCreateFleet(vals url.Values, reqID string) (any, error) {
 	fleetType := vals.Get("Type")
+	if fleetType == "" {
+		fleetType = fleetTypeDefault
+	}
 
 	totalTarget := 0
 	parseIntValue(vals.Get("TargetCapacitySpecification.TotalTargetCapacity"), &totalTarget)
@@ -802,6 +848,9 @@ func (h *Handler) handleCreateFleet(vals url.Values, reqID string) (any, error) 
 	return &createFleetResponse{
 		RequestID: reqID,
 		FleetID:   f.FleetID,
+		FleetType: fleetType,
+		Errors:    fleetErrorSet{Items: []fleetErrorItem{}},
+		Instances: fleetInstanceItemSet{Items: []fleetInstanceItem{}},
 	}, nil
 }
 
@@ -925,7 +974,10 @@ func (h *Handler) handleDescribeNetworkInsightsPaths(vals url.Values, reqID stri
 
 	resp := &describeNetworkInsightsPathsResponse{RequestID: reqID}
 	for _, p := range paths {
-		resp.NetworkInsightsPaths.Items = append(resp.NetworkInsightsPaths.Items, toNetworkInsightsPathItem(p))
+		resp.NetworkInsightsPaths.Items = append(
+			resp.NetworkInsightsPaths.Items,
+			toNetworkInsightsPathItem(p),
+		)
 	}
 
 	return resp, nil
@@ -969,7 +1021,10 @@ func (h *Handler) handleDeleteNetworkInsightsAnalysis(vals url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleDescribeNetworkInsightsAnalyses(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeNetworkInsightsAnalyses(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "NetworkInsightsAnalysisId")
 	analyses := h.Backend.DescribeNetworkInsightsAnalyses(ids)
 
@@ -986,7 +1041,9 @@ func (h *Handler) handleDescribeNetworkInsightsAnalyses(vals url.Values, reqID s
 
 // ---- Network Insights Access Scope handlers ----
 
-func toNetworkInsightsAccessScopeItem(s *NetworkInsightsAccessScope) networkInsightsAccessScopeItem {
+func toNetworkInsightsAccessScopeItem(
+	s *NetworkInsightsAccessScope,
+) networkInsightsAccessScopeItem {
 	return networkInsightsAccessScopeItem{
 		NetworkInsightsAccessScopeID:  s.NetworkInsightsAccessScopeID,
 		NetworkInsightsAccessScopeArn: s.NetworkInsightsAccessScopeArn,
@@ -1005,7 +1062,10 @@ func (h *Handler) handleCreateNetworkInsightsAccessScope(_ url.Values, reqID str
 	}, nil
 }
 
-func (h *Handler) handleDeleteNetworkInsightsAccessScope(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDeleteNetworkInsightsAccessScope(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	id := vals.Get("NetworkInsightsAccessScopeId")
 	if err := h.Backend.DeleteNetworkInsightsAccessScope(id); err != nil {
 		return nil, err
@@ -1018,7 +1078,10 @@ func (h *Handler) handleDeleteNetworkInsightsAccessScope(vals url.Values, reqID 
 	}, nil
 }
 
-func (h *Handler) handleDescribeNetworkInsightsAccessScopes(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeNetworkInsightsAccessScopes(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "NetworkInsightsAccessScopeId")
 	scopes := h.Backend.DescribeNetworkInsightsAccessScopes(ids)
 
@@ -1033,7 +1096,10 @@ func (h *Handler) handleDescribeNetworkInsightsAccessScopes(vals url.Values, req
 	return resp, nil
 }
 
-func (h *Handler) handleGetNetworkInsightsAccessScopeContent(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleGetNetworkInsightsAccessScopeContent(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	id := vals.Get("NetworkInsightsAccessScopeId")
 	scopes := h.Backend.DescribeNetworkInsightsAccessScopes([]string{id})
 
@@ -1060,7 +1126,10 @@ func toNetworkInsightsAccessScopeAnalysisItem(
 	}
 }
 
-func (h *Handler) handleStartNetworkInsightsAccessScopeAnalysis(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleStartNetworkInsightsAccessScopeAnalysis(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	scopeID := vals.Get("NetworkInsightsAccessScopeId")
 
 	a, err := h.Backend.StartNetworkInsightsAccessScopeAnalysis(scopeID)
@@ -1074,7 +1143,10 @@ func (h *Handler) handleStartNetworkInsightsAccessScopeAnalysis(vals url.Values,
 	}, nil
 }
 
-func (h *Handler) handleDeleteNetworkInsightsAccessScopeAnalysis(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDeleteNetworkInsightsAccessScopeAnalysis(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	id := vals.Get("NetworkInsightsAccessScopeAnalysisId")
 	if err := h.Backend.DeleteNetworkInsightsAccessScopeAnalysis(id); err != nil {
 		return nil, err
@@ -1087,7 +1159,10 @@ func (h *Handler) handleDeleteNetworkInsightsAccessScopeAnalysis(vals url.Values
 	}, nil
 }
 
-func (h *Handler) handleDescribeNetworkInsightsAccessScopeAnalyses(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeNetworkInsightsAccessScopeAnalyses(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "NetworkInsightsAccessScopeAnalysisId")
 	analyses := h.Backend.DescribeNetworkInsightsAccessScopeAnalyses(ids)
 
@@ -1259,7 +1334,9 @@ func toReservedInstancesListingItem(l *ReservedInstancesListing) reservedInstanc
 	}
 }
 
-func toReservedInstancesModificationItem(m *ReservedInstancesModification) reservedInstancesModificationItem {
+func toReservedInstancesModificationItem(
+	m *ReservedInstancesModification,
+) reservedInstancesModificationItem {
 	return reservedInstancesModificationItem{
 		ReservedInstancesModificationID: m.ReservedInstancesModificationID,
 		Status:                          m.Status,
@@ -1273,13 +1350,19 @@ func (h *Handler) handleDescribeReservedInstances(vals url.Values, reqID string)
 
 	resp := &describeReservedInstancesResponse{RequestID: reqID}
 	for _, ri := range ris {
-		resp.ReservedInstancesSet.Items = append(resp.ReservedInstancesSet.Items, toReservedInstanceItem(ri))
+		resp.ReservedInstancesSet.Items = append(
+			resp.ReservedInstancesSet.Items,
+			toReservedInstanceItem(ri),
+		)
 	}
 
 	return resp, nil
 }
 
-func (h *Handler) handleDescribeReservedInstancesOfferings(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeReservedInstancesOfferings(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	instanceType := vals.Get("InstanceType")
 	az := vals.Get("AvailabilityZone")
 	productDesc := vals.Get("ProductDescription")
@@ -1297,7 +1380,10 @@ func (h *Handler) handleDescribeReservedInstancesOfferings(vals url.Values, reqI
 	return resp, nil
 }
 
-func (h *Handler) handlePurchaseReservedInstancesOffering(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handlePurchaseReservedInstancesOffering(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	offeringID := vals.Get("ReservedInstancesOfferingId")
 
 	instanceCount := 1
@@ -1347,7 +1433,10 @@ func (h *Handler) handleCancelReservedInstancesListing(vals url.Values, reqID st
 	}, nil
 }
 
-func (h *Handler) handleDescribeReservedInstancesListings(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeReservedInstancesListings(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "ReservedInstancesListingId")
 	listings := h.Backend.DescribeReservedInstancesListings(ids)
 
@@ -1362,7 +1451,10 @@ func (h *Handler) handleDescribeReservedInstancesListings(vals url.Values, reqID
 	return resp, nil
 }
 
-func (h *Handler) handleDescribeReservedInstancesModifications(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeReservedInstancesModifications(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "ReservedInstancesModificationId")
 	mods := h.Backend.DescribeReservedInstancesModifications(ids)
 
@@ -1382,7 +1474,10 @@ func (h *Handler) handleModifyReservedInstances(vals url.Values, reqID string) (
 	targetInstanceType := vals.Get("ReservedInstancesConfigurationSetItemType.1.InstanceType")
 
 	targetCount := 0
-	parseIntValue(vals.Get("ReservedInstancesConfigurationSetItemType.1.InstanceCount"), &targetCount)
+	parseIntValue(
+		vals.Get("ReservedInstancesConfigurationSetItemType.1.InstanceCount"),
+		&targetCount,
+	)
 
 	mod, err := h.Backend.ModifyReservedInstances(riIDs, targetInstanceType, targetCount)
 	if err != nil {

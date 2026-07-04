@@ -1,6 +1,9 @@
 package dlm
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for DLM storage operations.
 type StorageBackend interface {
@@ -10,7 +13,7 @@ type StorageBackend interface {
 	DeleteLifecyclePolicy(policyID string) error
 	GetLifecyclePolicies(policyIDs []string, state string) ([]*PolicySummary, error)
 	GetLifecyclePolicy(policyID string) (*Policy, error)
-	UpdateLifecyclePolicy(policyID, description, executionRoleARN, state string) error
+	UpdateLifecyclePolicy(policyID, description, executionRoleARN, state string, policyDetails map[string]any) error
 
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
@@ -19,8 +22,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Policy holds full lifecycle policy details.

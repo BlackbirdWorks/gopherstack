@@ -667,11 +667,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			b1.AddPolicyInternal(iot.Policy{PolicyName: "snap-policy"})
 			b1.AddRuleInternal(iot.TopicRule{RuleName: "snap-rule", SQL: "SELECT temperature FROM 'devices/#'"})
 
-			snap := b1.Snapshot()
+			snap := b1.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := newRefBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			assert.Equal(t, 1, b2.ThingCount())
 			assert.Equal(t, 1, b2.PolicyCount())
@@ -699,11 +699,11 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 			t.Parallel()
 
 			b1 := newRefBackend()
-			snap := b1.Snapshot()
+			snap := b1.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := newRefBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			assert.Equal(t, 0, b2.ThingCount())
 		})
@@ -727,11 +727,11 @@ func TestRefinement1_HandlerSnapshot(t *testing.T) {
 			h, b := newRefHandler()
 			b.AddThingInternal(iot.Thing{ThingName: "snap-via-handler"})
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			h2, b2 := newRefHandler()
-			require.NoError(t, h2.Restore(snap))
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
 			assert.Equal(t, 1, b2.ThingCount())
 		})
@@ -1072,7 +1072,7 @@ func TestRefinement1_BrokerPublish_NotStarted(t *testing.T) {
 			t.Parallel()
 
 			b := newRefBackend()
-			broker := iot.NewBroker(b, 0, nil)
+			broker := iot.NewBroker(b, 0)
 			err := broker.Publish("sensor/temp", []byte("25"), false, 0)
 			require.ErrorIs(t, err, tt.wantErr)
 		})
@@ -1101,7 +1101,7 @@ func TestRefinement1_HandlerBroker(t *testing.T) {
 				h := iot.NewHandler(b, nil)
 				assert.Nil(t, h.Broker())
 			} else {
-				broker := iot.NewBroker(b, 0, nil)
+				broker := iot.NewBroker(b, 0)
 				h := iot.NewHandler(b, broker)
 				assert.Equal(t, broker, h.Broker())
 			}
@@ -1170,7 +1170,7 @@ func TestRefinement1_Restore_NilMaps(t *testing.T) {
 			t.Parallel()
 
 			b := newRefBackend()
-			err := b.Restore(tt.json)
+			err := b.Restore(t.Context(), tt.json)
 			require.NoError(t, err)
 			assert.Equal(t, 0, b.ThingCount())
 		})
@@ -1248,11 +1248,11 @@ func TestRefinement1_PersistenceWithAssociations(t *testing.T) {
 				CertificateID: "cert-abc",
 			}))
 
-			snap := b1.Snapshot()
+			snap := b1.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := newRefBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			assert.Equal(t, 1, b2.ThingCount())
 			assert.Equal(t, 1, b2.CertTransferCount())
@@ -1309,11 +1309,11 @@ func TestRefinement1_SbomDeepCopy(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			snap := b1.Snapshot()
+			snap := b1.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := newRefBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			// Verify the SBOM was preserved by re-associating (no error means backend was restored).
 			_, err2 := b2.AssociateSbomWithPackageVersion(&iot.AssociateSbomWithPackageVersionInput{

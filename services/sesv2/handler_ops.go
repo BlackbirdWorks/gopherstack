@@ -21,12 +21,14 @@ const (
 	keyStatus             = "Status"
 	keyStatusSuccess      = "SUCCESS"
 	warmupDone            = "DONE"
+	warmupInProgress      = "IN_PROGRESS"
 	warmupPercentComplete = 100
 
 	// path depth sentinels for segment-count comparisons.
 	pathDepth2 = 2
 	pathDepth3 = 3
 	pathDepth4 = 4
+	pathDepth5 = 5
 )
 
 // dispatchExtendedOps handles all 89 newly-added SES v2 operations.
@@ -62,15 +64,15 @@ func (h *Handler) dispatchAccountAndSuppressionOps(c *echo.Context, op, resource
 	case opGetBlacklistReports:
 		return h.handleGetBlacklistReports()
 	case opPutAccountDedicatedIPWarmupAttributes:
-		return h.handlePutAccountDedicatedIPWarmupAttributes()
+		return h.handlePutAccountDedicatedIPWarmupAttributes(c)
 	case opPutAccountDetails:
 		return h.handlePutAccountDetails(c)
 	case opPutAccountSendingAttributes:
 		return h.handlePutAccountSendingAttributes(c)
 	case opPutAccountSuppressionAttributes:
-		return h.handlePutAccountSuppressionAttributes()
+		return h.handlePutAccountSuppressionAttributes(c)
 	case opPutAccountVdmAttributes:
-		return h.handlePutAccountVdmAttributes()
+		return h.handlePutAccountVdmAttributes(c)
 	case opPutSuppressedDestination:
 		return h.handlePutSuppressedDestination(c)
 	case opGetSuppressedDestination:
@@ -145,7 +147,7 @@ func (h *Handler) dispatchDedicatedIPOps(c *echo.Context, op, resource string) (
 	case opPutDedicatedIPPoolScalingAttributes:
 		return h.handlePutDedicatedIPPoolScalingAttributes(c, resource)
 	case opPutDedicatedIPWarmupAttributes:
-		return h.handlePutDedicatedIPWarmupAttributes(resource)
+		return h.handlePutDedicatedIPWarmupAttributes(c, resource)
 	}
 
 	return nil, errOpNotHandled
@@ -254,7 +256,7 @@ func (h *Handler) dispatchEmailIdentityOps(c *echo.Context, op, resource string)
 func (h *Handler) dispatchConfigSetAttrOps(c *echo.Context, op, resource string) (any, error) {
 	switch op {
 	case opPutConfigurationSetArchivingOptions:
-		return h.handlePutConfigurationSetArchivingOptions(resource)
+		return h.handlePutConfigurationSetArchivingOptions(c, resource)
 	case opPutConfigurationSetDeliveryOptions:
 		return h.handlePutConfigurationSetDeliveryOptions(c, resource)
 	case opPutConfigurationSetReputationOptions:
@@ -266,7 +268,7 @@ func (h *Handler) dispatchConfigSetAttrOps(c *echo.Context, op, resource string)
 	case opPutConfigurationSetTrackingOptions:
 		return h.handlePutConfigurationSetTrackingOptions(c, resource)
 	case opPutConfigurationSetVdmOptions:
-		return h.handlePutConfigurationSetVdmOptions(resource)
+		return h.handlePutConfigurationSetVdmOptions(c, resource)
 	}
 
 	return nil, errOpNotHandled
@@ -321,7 +323,7 @@ func (h *Handler) dispatchReputationEntityOps(c *echo.Context, op, resource stri
 	case opListReputationEntities:
 		return h.handleListReputationEntities(c)
 	case opUpdateReputationEntityCustomerManagedStatus:
-		return h.handleUpdateReputationEntityCustomerManagedStatus(resource)
+		return h.handleUpdateReputationEntityCustomerManagedStatus(c, resource)
 	case opUpdateReputationEntityPolicy:
 		return h.handleUpdateReputationEntityPolicy(c, resource)
 	}
@@ -409,6 +411,31 @@ func parseExtendedPathsExtGroup(method string, segments []string) (string, strin
 		return parseResourceTenantsPath(method, segments)
 	case "reputation-entities":
 		return parseReputationEntityPath(method, segments)
+	case "reputation":
+		return parseReputationPath(method, segments)
+	}
+
+	return unknownAction, ""
+}
+
+// parseReputationPath routes the AWS SDK-shaped reputation entity paths of the
+// form /v2/email/reputation/entities/{Type}/{Reference}[/customer-managed-status|/policy].
+// The entity reference is returned as the resource identifier.
+func parseReputationPath(method string, segments []string) (string, string) {
+	if len(segments) < pathDepth2 || segments[1] != "entities" {
+		return unknownAction, ""
+	}
+
+	switch {
+	case len(segments) == pathDepth2 && method == http.MethodGet:
+		return opListReputationEntities, ""
+	case len(segments) == pathDepth4 && method == http.MethodGet:
+		return opGetReputationEntity, segments[3]
+	case len(segments) == pathDepth5 && segments[4] == "customer-managed-status" &&
+		method == http.MethodPut:
+		return opUpdateReputationEntityCustomerManagedStatus, segments[3]
+	case len(segments) == pathDepth5 && segments[4] == "policy" && method == http.MethodPut:
+		return opUpdateReputationEntityPolicy, segments[3]
 	}
 
 	return unknownAction, ""
@@ -930,8 +957,14 @@ func (h *Handler) handleGetBlacklistReports() (any, error) {
 	return map[string]any{"BlacklistReport": reports}, nil
 }
 
-func (h *Handler) handlePutAccountDedicatedIPWarmupAttributes() (any, error) {
-	if err := h.Backend.PutAccountDedicatedIPWarmupAttributes(); err != nil {
+func (h *Handler) handlePutAccountDedicatedIPWarmupAttributes(c *echo.Context) (any, error) {
+	var in struct {
+		AutoWarmupEnabled bool `json:"AutoWarmupEnabled"`
+	}
+
+	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+
+	if err := h.Backend.PutAccountDedicatedIPWarmupAttributes(in.AutoWarmupEnabled); err != nil {
 		return nil, err
 	}
 
@@ -982,16 +1015,28 @@ func (h *Handler) handlePutAccountSendingAttributes(c *echo.Context) (any, error
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handlePutAccountSuppressionAttributes() (any, error) {
-	if err := h.Backend.PutAccountSuppressionAttributes(); err != nil {
+func (h *Handler) handlePutAccountSuppressionAttributes(c *echo.Context) (any, error) {
+	var in struct {
+		SuppressedReasons []string `json:"SuppressedReasons"`
+	}
+
+	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+
+	if err := h.Backend.PutAccountSuppressionAttributes(in.SuppressedReasons); err != nil {
 		return nil, err
 	}
 
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handlePutAccountVdmAttributes() (any, error) {
-	if err := h.Backend.PutAccountVdmAttributes(); err != nil {
+func (h *Handler) handlePutAccountVdmAttributes(c *echo.Context) (any, error) {
+	var in struct {
+		VdmAttributes map[string]any `json:"VdmAttributes"`
+	}
+
+	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+
+	if err := h.Backend.PutAccountVdmAttributes(in.VdmAttributes); err != nil {
 		return nil, err
 	}
 
@@ -1343,8 +1388,18 @@ func (h *Handler) handlePutDedicatedIPPoolScalingAttributes(
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handlePutDedicatedIPWarmupAttributes(ip string) (any, error) {
-	if err := h.Backend.PutDedicatedIPWarmupAttributes(ip, warmupDone); err != nil {
+type putDedicatedIPWarmupInput struct {
+	WarmupPercentage int `json:"WarmupPercentage"`
+}
+
+func (h *Handler) handlePutDedicatedIPWarmupAttributes(c *echo.Context, ip string) (any, error) {
+	var in putDedicatedIPWarmupInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	if err := h.Backend.PutDedicatedIPWarmupAttributes(ip, in.WarmupPercentage); err != nil {
 		return nil, err
 	}
 
@@ -1827,8 +1882,22 @@ func (h *Handler) handleUpdateConfigurationSetEventDestination(
 
 // configuration set attribute handlers
 
-func (h *Handler) handlePutConfigurationSetArchivingOptions(name string) (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetArchivingOptions(name)
+func (h *Handler) handlePutConfigurationSetArchivingOptions(
+	c *echo.Context,
+	name string,
+) (any, error) {
+	var in struct {
+		ArchiveARN string `json:"ArchiveArn"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetArchivingOptions(
+		name,
+		in.ArchiveARN,
+	)
 }
 
 func (h *Handler) handlePutConfigurationSetDeliveryOptions(
@@ -1922,8 +1991,26 @@ func (h *Handler) handlePutConfigurationSetTrackingOptions(
 	)
 }
 
-func (h *Handler) handlePutConfigurationSetVdmOptions(name string) (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetVdmOptions(name)
+func (h *Handler) handlePutConfigurationSetVdmOptions(
+	c *echo.Context,
+	name string,
+) (any, error) {
+	var in struct {
+		VdmOptions struct {
+			DashboardOptions map[string]any `json:"DashboardOptions"`
+			GuardianOptions  map[string]any `json:"GuardianOptions"`
+		} `json:"VdmOptions"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetVdmOptions(
+		name,
+		in.VdmOptions.DashboardOptions,
+		in.VdmOptions.GuardianOptions,
+	)
 }
 
 // bulk email handler
@@ -2133,7 +2220,7 @@ func (h *Handler) handleGetReputationEntity(entityID string) (any, error) {
 		return nil, err
 	}
 
-	return result, nil
+	return map[string]any{"ReputationEntity": result}, nil
 }
 
 func (h *Handler) handleListReputationEntities(c *echo.Context) (any, error) {
@@ -2150,8 +2237,29 @@ func (h *Handler) handleListReputationEntities(c *echo.Context) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleUpdateReputationEntityCustomerManagedStatus(entityID string) (any, error) {
-	if err := h.Backend.UpdateReputationEntityCustomerManagedStatus(entityID); err != nil {
+type updateReputationEntityCustomerManagedStatusInput struct {
+	// SendingStatus is the field name used by the AWS SDK.
+	SendingStatus string `json:"SendingStatus"`
+	// CustomerManagedStatus is accepted as an alias for callers that post it directly.
+	CustomerManagedStatus string `json:"CustomerManagedStatus"`
+}
+
+func (h *Handler) handleUpdateReputationEntityCustomerManagedStatus(
+	c *echo.Context,
+	entityID string,
+) (any, error) {
+	var in updateReputationEntityCustomerManagedStatusInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	status := in.SendingStatus
+	if status == "" {
+		status = in.CustomerManagedStatus
+	}
+
+	if err := h.Backend.UpdateReputationEntityCustomerManagedStatus(entityID, status); err != nil {
 		return nil, err
 	}
 
@@ -2159,6 +2267,9 @@ func (h *Handler) handleUpdateReputationEntityCustomerManagedStatus(entityID str
 }
 
 type updateReputationEntityPolicyInput struct {
+	// ReputationEntityPolicy is the field name used by the AWS SDK.
+	ReputationEntityPolicy string `json:"ReputationEntityPolicy"`
+	// Policy is accepted as an alias for callers that post it directly.
 	Policy string `json:"Policy"`
 }
 
@@ -2172,7 +2283,12 @@ func (h *Handler) handleUpdateReputationEntityPolicy(
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	if err := h.Backend.UpdateReputationEntityPolicy(entityID, in.Policy); err != nil {
+	policy := in.ReputationEntityPolicy
+	if policy == "" {
+		policy = in.Policy
+	}
+
+	if err := h.Backend.UpdateReputationEntityPolicy(entityID, policy); err != nil {
 		return nil, err
 	}
 

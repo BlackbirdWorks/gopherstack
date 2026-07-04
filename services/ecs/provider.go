@@ -3,7 +3,6 @@ package ecs
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -40,12 +39,7 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		}
 	}
 
-	log := appCtx.Logger
-	if log == nil {
-		log = slog.Default()
-	}
-
-	runner, err := newTaskRunner()
+	runner, err := newTaskRunner(appCtx.JanitorCtx)
 	if err != nil {
 		return nil, fmt.Errorf("init ECS task runner: %w", err)
 	}
@@ -54,12 +48,16 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 	reconciler := NewReconciler(backend)
 	janitor := NewJanitor(backend, 0)
 
+	// Evict per-cluster reconciler state when a cluster is deleted or purged so
+	// Reconciler.sems does not grow one permanent entry per cluster ever created.
+	backend.RegisterClusterDeleteHook(reconciler.EvictCluster)
+
 	if appCtx.JanitorCtx != nil {
 		go reconciler.Start(appCtx.JanitorCtx)
 		go janitor.Run(appCtx.JanitorCtx)
 	}
 
-	log.Info("ECS service initialized")
+	appCtx.Logger.Info("ECS service initialized")
 
 	return NewHandler(backend), nil
 }

@@ -112,7 +112,10 @@ func TestRefinement1_BatchTTLSweep_ContextCancel(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 
 	for i := range 5 {
-		_, err := db.CreateTable(t.Context(), makeCreateTableInput(fmt.Sprintf("ctx-ttl-%d", i), "pk"))
+		_, err := db.CreateTable(
+			t.Context(),
+			makeCreateTableInput(fmt.Sprintf("ctx-ttl-%d", i), "pk"),
+		)
 		require.NoError(t, err)
 	}
 

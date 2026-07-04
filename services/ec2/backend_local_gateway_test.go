@@ -310,11 +310,11 @@ func TestLocalGateway_SnapshotRestoreRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := bk.Snapshot()
+	snap := bk.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	restored := newTestBackend()
-	require.NoError(t, restored.Restore(snap))
+	require.NoError(t, restored.Restore(t.Context(), snap))
 
 	assert.Len(t, restored.DescribeLocalGateways(nil), 1)
 	assert.Len(t, restored.DescribeLocalGatewayVirtualInterfaces(nil), 1)

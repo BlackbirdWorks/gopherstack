@@ -338,13 +338,20 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
-	case errors.Is(err, ErrAlreadyExists):
+	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ConflictException",
 			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
+	case errors.Is(err, ErrQuota):
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "ServiceQuotaExceededException",
+			keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ValidationException",
@@ -357,11 +364,12 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "InternalException",
+			keyMessageField: err.Error(),
+		})
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}
 }
 
@@ -516,6 +524,7 @@ type pipeSummary struct {
 	Name             string  `json:"Name"`
 	Source           string  `json:"Source"`
 	Target           string  `json:"Target"`
+	Enrichment       string  `json:"Enrichment,omitempty"`
 	Description      string  `json:"Description,omitempty"`
 	CurrentState     string  `json:"CurrentState"`
 	DesiredState     string  `json:"DesiredState"`
@@ -548,7 +557,11 @@ func (h *Handler) handleListPipes(ctx context.Context, query url.Values) ([]byte
 		f.Limit = n
 	}
 
-	res := h.Backend.ListPipes(ctx, f)
+	res, err := h.Backend.ListPipes(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]pipeSummary, 0, len(res.Pipes))
 
 	for _, p := range res.Pipes {
@@ -557,6 +570,7 @@ func (h *Handler) handleListPipes(ctx context.Context, query url.Values) ([]byte
 			Name:             p.Name,
 			Source:           p.Source,
 			Target:           p.Target,
+			Enrichment:       p.Enrichment,
 			Description:      p.Description,
 			CurrentState:     p.CurrentState,
 			DesiredState:     p.DesiredState,

@@ -23,7 +23,7 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		return nil, ErrNilAppContext
 	}
 
-	backend := NewInMemoryBackend()
+	backend := NewInMemoryBackendWithContext(appCtx.JanitorCtx)
 	handler := NewHandler(backend)
 
 	return handler, nil

@@ -115,12 +115,11 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(
 		}
 	}
 
+	b.markCreatingLocked(&sc.PendingStatus, &sc.AvailableAt)
 	store[opts.Name] = sc
 	b.appendEventLocked(opts.Name, "serverless-cache", "serverless cache created")
 
-	cp := *sc
-
-	return &cp, nil
+	return b.serverlessCacheView(sc), nil
 }
 
 // majorVersionStr returns a human-readable major version string for an engine.
@@ -176,9 +175,9 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(
 		sc.SecurityGroupIDs = opts.SecurityGroupIDs
 	}
 
-	result := *sc
+	b.markTransitionLocked(&sc.PendingStatus, &sc.AvailableAt, statusModifying)
 
-	return &result, nil
+	return b.serverlessCacheView(sc), nil
 }
 
 // ----------------------------------------
@@ -343,7 +342,7 @@ func (b *InMemoryBackend) DeleteUserSafe(ctx context.Context, userID string) (*U
 func (b *InMemoryBackend) AppendUpdateActions(actions []*UpdateAction) {
 	b.mu.Lock("AppendUpdateActions")
 	defer b.mu.Unlock()
-	b.updateActions = append(b.updateActions, actions...)
+	b.appendUpdateActionsLocked(actions...)
 }
 
 // ListUpdateActionsByServiceUpdate returns update actions filtered by service update name.

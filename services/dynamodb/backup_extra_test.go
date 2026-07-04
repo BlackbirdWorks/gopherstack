@@ -147,10 +147,15 @@ func TestRestoreTableHasTableID(t *testing.T) {
 	})
 
 	// Create backup
-	createCode, createResp := doBackupRequest(t, h, "DynamoDB_20120810.CreateBackup", models.CreateBackupInput{
-		TableName:  "IDSourceTable",
-		BackupName: "id-test-backup",
-	})
+	createCode, createResp := doBackupRequest(
+		t,
+		h,
+		"DynamoDB_20120810.CreateBackup",
+		models.CreateBackupInput{
+			TableName:  "IDSourceTable",
+			BackupName: "id-test-backup",
+		},
+	)
 	require.Equal(t, http.StatusOK, createCode)
 	backupArn := createResp["BackupDetails"].(map[string]any)["BackupArn"].(string)
 
@@ -181,7 +186,11 @@ func TestRestoreTableHasTableID(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, restoreCode2)
 	td2 := restoreResp2["TableDescription"].(map[string]any)
-	assert.NotEmpty(t, td2["TableId"], "RestoreTableToPointInTime: restored table must have a TableId")
+	assert.NotEmpty(
+		t,
+		td2["TableId"],
+		"RestoreTableToPointInTime: restored table must have a TableId",
+	)
 }
 
 // TestUpdateTable_EmptyReplicaRegion tests that UpdateTable returns error for empty RegionName.

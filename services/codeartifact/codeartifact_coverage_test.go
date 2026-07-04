@@ -1499,14 +1499,14 @@ func TestCABackend_PersistenceRoundTrip(t *testing.T) {
 	_, err := b.CreateDomain(context.Background(), "snap-domain", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateRepository(context.Background(), "snap-domain", "snap-repo", "", nil)
+	_, err = b.CreateRepository(context.Background(), "snap-domain", "snap-repo", "", nil, nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := codeartifact.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	doms := b2.ListDomains(context.Background())

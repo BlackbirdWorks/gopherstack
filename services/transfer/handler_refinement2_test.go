@@ -48,7 +48,7 @@ func TestRefinement2_DeleteServerOnlineReturnsConflict(t *testing.T) {
 func TestRefinement2_DeleteServerBackendOnlineReturnsError(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -62,7 +62,7 @@ func TestRefinement2_DeleteServerBackendOnlineReturnsError(t *testing.T) {
 func TestRefinement2_DeleteServerOfflineSucceeds(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -85,7 +85,7 @@ func TestRefinement2_DeleteServerOfflineSucceeds(t *testing.T) {
 func TestRefinement2_DeleteServerAlsoDeletesSSHKeys(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -120,7 +120,7 @@ func TestRefinement2_DeleteServerAlsoDeletesSSHKeys(t *testing.T) {
 func TestRefinement2_DeleteUserAlsoDeletesSSHKeys(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -144,7 +144,7 @@ func TestRefinement2_DeleteUserAlsoDeletesSSHKeys(t *testing.T) {
 func TestRefinement2_CreateUserOnNonexistentServer(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	_, err := b.CreateUser("s-doesnotexist", "alice", "/alice", "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrNotFound)
@@ -168,7 +168,7 @@ func TestRefinement2_CreateUserOnNonexistentServerHTTP(t *testing.T) {
 func TestRefinement2_StartServerIdempotent(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "ONLINE", s.State)
@@ -185,7 +185,7 @@ func TestRefinement2_StartServerIdempotent(t *testing.T) {
 func TestRefinement2_StopServerIdempotent(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -212,7 +212,7 @@ func TestRefinement2_StopServerIdempotent(t *testing.T) {
 func TestRefinement2_CreateAccessDuplicateExternalID(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -253,7 +253,7 @@ func TestRefinement2_CreateAccessDuplicateExternalIDHTTP(t *testing.T) {
 func TestRefinement2_ImportSSHPublicKey51stKeyReturnsError(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -301,7 +301,7 @@ func TestRefinement2_SendWorkflowStepStateInvalidStatus(t *testing.T) {
 		t.Run(tt.status, func(t *testing.T) {
 			t.Parallel()
 
-			b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+			b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 			wf, err := b.CreateWorkflow("test", nil, nil, nil)
 			require.NoError(t, err)
 
@@ -553,7 +553,7 @@ func TestRefinement2_UserARNFormat(t *testing.T) {
 func TestRefinement2_ListServersSortedByServerID(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 
 	// Create multiple servers and collect their IDs.
 	for range 5 {
@@ -577,7 +577,7 @@ func TestRefinement2_ListServersSortedByServerID(t *testing.T) {
 func TestRefinement2_CreateServerDefaultsIdentityProviderType(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -588,7 +588,7 @@ func TestRefinement2_CreateServerDefaultsIdentityProviderType(t *testing.T) {
 func TestRefinement2_CreateServerDefaultsEndpointType(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -599,7 +599,7 @@ func TestRefinement2_CreateServerDefaultsEndpointType(t *testing.T) {
 func TestRefinement2_CreateServerDefaultsDomain(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -612,7 +612,7 @@ func TestRefinement2_CreateServerDefaultsDomain(t *testing.T) {
 func TestRefinement2_ServerUserCountMethod(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 

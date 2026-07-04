@@ -88,26 +88,57 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 
 	sqsSender := b.sqsSender
 
+	b.mu.RLock("lambda-topic-policy")
+	var topicEffectivePolicy string
+	if topic, ok := b.topics[ev.TopicARN]; ok {
+		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+	}
+	b.mu.RUnlock()
+
 	for _, sub := range ev.Subscriptions {
 		if sub.Protocol != protocolLambda {
 			continue
 		}
 
+		numRetries := getRetryConfig(topicEffectivePolicy, sub.DeliveryPolicy, protocolLambda)
 		payload := buildLambdaPayload(ev, sub)
-		_, _, err := lambda.InvokeFunction(b.svcCtx, sub.Endpoint, snsLambdaInvocationType, payload)
-		if err != nil && sub.RedrivePolicy != "" && sqsSender != nil {
-			sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, ev.Message)
+		var err error
+
+		for i := 0; i <= numRetries; i++ {
+			_, _, err = lambda.InvokeFunction(b.svcCtx, sub.Endpoint, snsLambdaInvocationType, payload)
+			if err == nil {
+				b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolLambda, sub.Endpoint, "SUCCESS", nil)
+
+				break
+			}
+		}
+
+		if err != nil {
+			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolLambda, sub.Endpoint, "FAILURE", err)
+			if sub.RedrivePolicy != "" && sqsSender != nil {
+				sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, ev.Message)
+			}
 		}
 	}
 }
 
 // deliverToFirehoseSubscriptions puts each Firehose-protocol subscription message as a batch record.
-// The stream name is extracted from the subscription endpoint ARN.
+// On delivery failure, the message is forwarded to the subscription DLQ when a RedrivePolicy is
+// configured and a SQSSender is wired — matching the HTTP/HTTPS and Lambda paths.
 func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublishedEvent) {
 	firehose := b.firehoseBackend
 	if firehose == nil {
 		return
 	}
+
+	sqsSender := b.sqsSender
+
+	b.mu.RLock("firehose-topic-policy")
+	var topicEffectivePolicy string
+	if topic, ok := b.topics[ev.TopicARN]; ok {
+		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+	}
+	b.mu.RUnlock()
 
 	for _, sub := range ev.Subscriptions {
 		if sub.Protocol != protocolFirehose {
@@ -119,8 +150,23 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 			continue
 		}
 
-		// Deliver the raw message body as a single record.
-		_, _ = firehose.PutRecordBatch(streamName, [][]byte{[]byte(ev.Message)})
+		numRetries := getRetryConfig(topicEffectivePolicy, sub.DeliveryPolicy, protocolFirehose)
+		var err error
+		for i := 0; i <= numRetries; i++ {
+			_, err = firehose.PutRecordBatch(streamName, [][]byte{[]byte(ev.Message)})
+			if err == nil {
+				b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "SUCCESS", nil)
+
+				break
+			}
+		}
+
+		if err != nil {
+			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "FAILURE", err)
+			if sub.RedrivePolicy != "" && sqsSender != nil {
+				sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, ev.Message)
+			}
+		}
 	}
 }
 
@@ -136,6 +182,50 @@ func firehoseStreamNameFromARN(endpoint string) string {
 	parts := strings.Split(endpoint, "/")
 
 	return parts[len(parts)-1]
+}
+
+// deliverToSMSSubscriptions delivers a topic publish to all SMS-protocol subscriptions.
+// Each delivery is recorded via PublishSMS so it is observable through DrainSMSDeliveries.
+// Opt-out and sandbox verification checks are enforced by PublishSMS; errors are silently
+// dropped (best-effort, matching AWS SNS behaviour for non-critical delivery channels).
+func (b *InMemoryBackend) deliverToSMSSubscriptions(ev *events.SNSPublishedEvent) {
+	for _, sub := range ev.Subscriptions {
+		if sub.Protocol != protocolSMS {
+			continue
+		}
+		_, _ = b.PublishSMS(sub.Endpoint, ev.Message)
+	}
+}
+
+// deliverToApplicationSubscriptions delivers a topic publish to all application-protocol
+// subscriptions (mobile push platform endpoints). Enabled endpoints generate a recorded
+// ApplicationDelivery observable via DrainApplicationDeliveries. Disabled or missing
+// endpoints are silently skipped (best-effort), matching AWS SNS behaviour.
+func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublishedEvent) {
+	for _, sub := range ev.Subscriptions {
+		if sub.Protocol != protocolApplication {
+			continue
+		}
+
+		b.mu.RLock("deliverToApplicationSubscriptions")
+		ep, exists := b.platformEndpoints[sub.Endpoint]
+		enabled := exists && ep.Attributes["Enabled"] != boolFalseStr
+		b.mu.RUnlock()
+
+		if !enabled {
+			continue
+		}
+
+		msgID := uuid.New().String()
+
+		b.mu.Lock("deliverToApplicationSubscriptions-record")
+		b.applicationDeliveries = append(b.applicationDeliveries, ApplicationDelivery{
+			EndpointARN: sub.Endpoint,
+			Message:     ev.Message,
+			MessageID:   msgID,
+		})
+		b.mu.Unlock()
+	}
 }
 
 // sendLambdaDLQ forwards a failed Lambda delivery to the DLQ configured in redrivePolicy.

@@ -22,9 +22,11 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 	encryptedStr := vals.Get("Encrypted")
 	enhancedVpcRoutingStr := vals.Get("EnhancedVpcRouting")
 	numberOfNodesStr := vals.Get("NumberOfNodes")
+	applyImmediatelyStr := vals.Get("ApplyImmediately")
 
 	encrypted := encryptedStr == paramValueTrue
 	enhancedVpcRouting := enhancedVpcRoutingStr == paramValueTrue
+	applyImmediately := applyImmediatelyStr != "false"
 
 	numberOfNodes := 0
 
@@ -44,6 +46,7 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 		masterUserPassword,
 		encrypted,
 		enhancedVpcRouting,
+		applyImmediately,
 	)
 	if err != nil {
 		return nil, err

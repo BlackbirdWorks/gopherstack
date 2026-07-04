@@ -40,6 +40,9 @@ const (
 	permissionTypeCustomer = "CUSTOMER_MANAGED"
 	// permissionTypeAWSManaged is the AWS-managed permission type.
 	permissionTypeAWSManaged = "AWS_MANAGED"
+	// permissionTypeCreatedFromPolicy is the type for permissions auto-created from
+	// resource policies, promotable to CUSTOMER_MANAGED via PromotePermissionCreatedFromPolicy.
+	permissionTypeCreatedFromPolicy = "CREATED_FROM_POLICY"
 	// resourceOwnerSelf is the owner filter for resources owned by the calling account.
 	resourceOwnerSelf = "SELF"
 	// resourceOwnerOtherAccounts is the owner filter for resources shared by other accounts.
@@ -530,8 +533,9 @@ func (b *InMemoryBackend) UpdateResourceShare(
 	return cloneResourceShare(rs), nil
 }
 
-// DeleteResourceShare soft-deletes a resource share by marking it DELETED.
-// This mirrors AWS behaviour where a share remains visible with DELETED status briefly.
+// DeleteResourceShare deletes a resource share and removes it from the store.
+// Associations for the share are disassociated before the share is removed so
+// that ListResources / ListPrincipals no longer return them.
 func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 	b.mu.Lock("DeleteResourceShare")
 	defer b.mu.Unlock()
@@ -542,16 +546,19 @@ func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 	}
 
 	now := time.Now()
-	rs.Status = statusDeleted
-	rs.LastUpdatedTime = now
 
-	// Mark all associations for this share as disassociated.
+	// Disassociate all associations for this share.
 	for _, a := range b.associations {
 		if a.ResourceShareARN == shareARN {
 			a.Status = associationStatusDisassociated
 			a.LastUpdatedTime = now
 		}
 	}
+
+	// Soft-delete: mark as DELETED but keep in the map so callers can still
+	// retrieve it with a DELETED status filter (matches real AWS behaviour).
+	rs.Status = statusDeleted
+	rs.LastUpdatedTime = now
 
 	return nil
 }
@@ -1283,15 +1290,29 @@ func (b *InMemoryBackend) GetResourceShareInvitations(
 }
 
 // GetResourcePolicies returns resource-based policy documents for shared resources.
-// In the mock, we return empty strings since we do not track actual resource policies.
+// Only ARNs that are actively associated with a resource share receive a policy entry;
+// ARNs not in any share are omitted, matching real AWS behaviour.
 func (b *InMemoryBackend) GetResourcePolicies(resourceARNs []string) []string {
 	b.mu.RLock("GetResourcePolicies")
 	defer b.mu.RUnlock()
 
+	// Build a set of resource ARNs that are actively associated with shares.
+	sharedARNs := make(map[string]struct{}, len(b.associations))
+	for _, a := range b.associations {
+		if a.AssociationType == associationTypeResource &&
+			a.Status != associationStatusDisassociated {
+			sharedARNs[a.AssociatedEntity] = struct{}{}
+		}
+	}
+
 	result := make([]string, 0, len(resourceARNs))
 
-	for range resourceARNs {
-		result = append(result, "{}")
+	for _, resourceARN := range resourceARNs {
+		if _, shared := sharedARNs[resourceARN]; !shared {
+			continue
+		}
+		// Emit a minimal RAM-managed policy for this shared resource.
+		result = append(result, `{"Version":"2012-10-17","Statement":[]}`)
 	}
 
 	return result
@@ -1388,10 +1409,29 @@ type SharePermissionAssociation struct {
 	Version       int32
 }
 
-// ListResources returns resources (resource-type associations) for shares, optionally filtered
-// by resource owner, share ARN, or resource type. Sorted by ARN.
+// ownerMatchesFilter reports whether the resource share identified by shareARN satisfies
+// the given resourceOwner filter ("SELF" or "OTHER-ACCOUNTS").
+// Returns false when the share is not found or the owner does not match.
+func (b *InMemoryBackend) ownerMatchesFilter(shareARN, resourceOwner string) bool {
+	rs, exists := b.resourceShares[shareARN]
+	if !exists {
+		return false
+	}
+
+	switch resourceOwner {
+	case resourceOwnerSelf:
+		return rs.OwningAccountID == b.accountID
+	case resourceOwnerOtherAccounts:
+		return rs.OwningAccountID != b.accountID
+	default:
+		return true
+	}
+}
+
+// ListResources returns resources (resource-type associations) for shares, filtered
+// by resourceOwner ("SELF" or "OTHER-ACCOUNTS"), share ARN, and resource type.
 func (b *InMemoryBackend) ListResources(
-	_ /* resourceOwner */, shareARN, _ /* resourceType */ string,
+	resourceOwner, shareARN, resourceType string,
 ) []*ResourceShareAssociation {
 	b.mu.RLock("ListResources")
 	defer b.mu.RUnlock()
@@ -1411,6 +1451,14 @@ func (b *InMemoryBackend) ListResources(
 			continue
 		}
 
+		if resourceOwner != "" && !b.ownerMatchesFilter(a.ResourceShareARN, resourceOwner) {
+			continue
+		}
+
+		if resourceType != "" && resourceTypeFromARN(a.AssociatedEntity) != resourceType {
+			continue
+		}
+
 		result = append(result, cloneAssociation(a))
 	}
 
@@ -1422,10 +1470,10 @@ func (b *InMemoryBackend) ListResources(
 	return result
 }
 
-// ListPrincipals returns principal associations for shares, optionally filtered
-// by resource owner or share ARN. Sorted by associated entity.
+// ListPrincipals returns principal associations for shares, filtered by
+// resourceOwner ("SELF" or "OTHER-ACCOUNTS") and share ARN. Sorted by associated entity.
 func (b *InMemoryBackend) ListPrincipals(
-	_ /* resourceOwner */, shareARN string,
+	resourceOwner, shareARN string,
 ) []*ResourceShareAssociation {
 	b.mu.RLock("ListPrincipals")
 	defer b.mu.RUnlock()
@@ -1442,6 +1490,10 @@ func (b *InMemoryBackend) ListPrincipals(
 		}
 
 		if shareARN != "" && a.ResourceShareARN != shareARN {
+			continue
+		}
+
+		if resourceOwner != "" && !b.ownerMatchesFilter(a.ResourceShareARN, resourceOwner) {
 			continue
 		}
 
@@ -1548,16 +1600,27 @@ func (b *InMemoryBackend) RejectResourceShareInvitation(
 
 // PromotePermissionCreatedFromPolicy promotes a CREATED_FROM_POLICY permission
 // to a CUSTOMER_MANAGED permission with the given name.
-// In this mock, it simply returns the existing permission (since all permissions are customer-managed).
 func (b *InMemoryBackend) PromotePermissionCreatedFromPolicy(
-	permissionARN string, _ /* name */ string,
+	permissionARN string, name string,
 ) (*Permission, error) {
-	b.mu.RLock("PromotePermissionCreatedFromPolicy")
-	defer b.mu.RUnlock()
+	b.mu.Lock("PromotePermissionCreatedFromPolicy")
+	defer b.mu.Unlock()
 
 	p, ok := b.permissions[permissionARN]
 	if !ok || p.Deleted {
 		return nil, fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
+	}
+
+	if p.PermissionType != permissionTypeCreatedFromPolicy {
+		return nil, fmt.Errorf(
+			"%w: permission %s is not of type CREATED_FROM_POLICY",
+			ErrInvalidParameter, permissionARN,
+		)
+	}
+
+	p.PermissionType = permissionTypeCustomer
+	if name != "" {
+		p.Name = name
 	}
 
 	return clonePermission(p), nil

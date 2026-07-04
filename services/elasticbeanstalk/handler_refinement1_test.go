@@ -343,11 +343,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	postEBForm(t, h,
 		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0")
 
-	snap := h.Backend.Snapshot()
+	snap := h.Backend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := elasticbeanstalk.NewHandler(elasticbeanstalk.NewInMemoryBackend("123456789012", "us-east-1"))
-	require.NoError(t, h2.Backend.Restore(snap))
+	require.NoError(t, h2.Backend.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, h2.Backend.ApplicationCount())
 	assert.Equal(t, 1, h2.Backend.EnvironmentCount())
@@ -508,7 +508,7 @@ func TestRefinement1_SnapshotNotNil(t *testing.T) {
 	t.Parallel()
 
 	b := elasticbeanstalk.NewInMemoryBackend("123456789012", "us-east-1")
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Must be valid JSON.

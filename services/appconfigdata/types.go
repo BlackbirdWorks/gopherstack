@@ -15,16 +15,20 @@ const (
 	maxContentBytes = 1 * 1024 * 1024
 	// minPollIntervalSeconds is the AWS-enforced minimum for RequiredMinimumPollIntervalInSeconds.
 	minPollIntervalSeconds = 15
+	// maxPollIntervalSeconds is the AWS-enforced maximum for RequiredMinimumPollIntervalInSeconds.
+	maxPollIntervalSeconds = 86400
+	// maxIdentifierLength is the AWS-enforced maximum length for application, environment,
+	// and configuration profile identifiers.
+	maxIdentifierLength = 2048
 	// DefaultSessionTTL is how long a session may be idle before the janitor evicts it.
-	// AWS tokens expire after ~1 h; we match that behaviour.
+	// AWS tokens expire after ~24 h; we use 1 h idle TTL with absolute 24 h cap.
 	DefaultSessionTTL = 1 * time.Hour
 	// sessionAbsoluteMaxTTL is the maximum session lifetime from creation, regardless of activity.
-	// Mirrors AWS token expiry semantics: no session lives longer than 1 h.
-	sessionAbsoluteMaxTTL = 1 * time.Hour
+	// AWS tokens are valid for up to 24 hours per the API documentation.
+	sessionAbsoluteMaxTTL = 24 * time.Hour
 	// tokenGracePeriod is how long a rotated (old) token remains valid for retry idempotency.
 	tokenGracePeriod = 5 * time.Minute
 	// tokenByteSize is the number of random bytes used per token (32 → 64 hex chars).
-	// Increased from 16 to 32 for stronger entropy, matching AWS token length expectations.
 	tokenByteSize = 32
 	// signingKeySize is the number of bytes used for the HMAC-SHA256 signing key.
 	signingKeySize = 32
@@ -34,11 +38,44 @@ const (
 	familyIDSize = 8
 )
 
+// AWS exception type names as returned in error response bodies and X-Amzn-ErrorType header.
+const (
+	exceptionBadRequest       = "BadRequestException"
+	exceptionResourceNotFound = "ResourceNotFoundException"
+	exceptionInternalServer   = "InternalServerException"
+	exceptionThrottling       = "ThrottlingException"
+	exceptionPayloadTooLarge  = "PayloadTooLargeException"
+)
+
+// AWS BadRequestReason values.
+const (
+	badRequestReasonInvalidParameters = "InvalidParameters"
+)
+
+// AWS InvalidParameterProblem values — identify why a specific parameter was rejected.
+const (
+	invalidParamProblemCorrupted                = "Corrupted"
+	invalidParamProblemExpired                  = "Expired"
+	invalidParamProblemPollIntervalNotSatisfied = "PollIntervalNotSatisfied"
+)
+
+// AWS ResourceType values for ResourceNotFoundException.
+const (
+	resourceTypeApplication          = "Application"
+	resourceTypeEnvironment          = "Environment"
+	resourceTypeConfigurationProfile = "ConfigurationProfile"
+	resourceTypeDeployment           = "Deployment"
+	resourceTypeConfiguration        = "Configuration"
+)
+
 var (
-	// ErrSessionNotFound is returned when the requested session token does not exist.
+	// ErrSessionNotFound is returned when the requested session token does not exist in the map.
 	ErrSessionNotFound = errors.New("bad request: invalid configuration token")
+	// ErrTokenCorrupted is returned when the token format or HMAC is invalid.
+	ErrTokenCorrupted = errors.New("bad request: configuration token is corrupted")
 	// ErrTokenExpired is returned when the session token has passed its expiry time.
-	ErrTokenExpired = errors.New("unauthorized: configuration token has expired")
+	// AWS returns BadRequestException (400) for expired tokens, not 401.
+	ErrTokenExpired = errors.New("bad request: configuration token has expired")
 	// ErrProfileNotFound is returned when no configuration has been stored for a profile.
 	ErrProfileNotFound = errors.New("resource not found: configuration profile not found")
 	// ErrResourceRemoved is returned when a session's app/env/profile was deleted after the session started.
@@ -47,7 +84,7 @@ var (
 	ErrContentTooLarge = errors.New("bad request: content exceeds maximum size of 1 MiB")
 	// ErrInvalidPollInterval is returned when RequiredMinimumPollIntervalInSeconds is out of range.
 	ErrInvalidPollInterval = errors.New(
-		"bad request: RequiredMinimumPollIntervalInSeconds must be 0 or >= 15",
+		"bad request: RequiredMinimumPollIntervalInSeconds must be 0 or between 15 and 86400",
 	)
 	// ErrPollTooFrequent is returned when a client polls faster than its declared minimum interval.
 	ErrPollTooFrequent = errors.New(
@@ -60,6 +97,8 @@ var (
 	ErrNoActiveDeployment = errors.New(
 		"resource not found: no active deployment found for the given application, environment, and configuration profile",
 	)
+	// ErrIdentifierTooLong is returned when an identifier exceeds the maximum allowed length.
+	ErrIdentifierTooLong = errors.New("bad request: identifier exceeds maximum length of 2048 characters")
 )
 
 // ConfigVersion records a historical snapshot of configuration content.
@@ -143,4 +182,40 @@ type startSessionRequest struct {
 // startSessionResponse is the JSON response for StartConfigurationSession.
 type startSessionResponse struct {
 	InitialConfigurationToken string `json:"InitialConfigurationToken"`
+}
+
+// awsErrorBody is the standard AWS REST-JSON error response body.
+// The __type field is how the AWS SDK identifies the exception type.
+type awsErrorBody struct {
+	Type    string `json:"__type"`
+	Message string `json:"message"`
+}
+
+// awsBadRequestBody is an extended BadRequestException body with Reason and Details.
+// AWS populates these for token-related parameter errors so clients can take targeted action.
+type awsBadRequestBody struct {
+	Details *invalidParamsDetail `json:"Details,omitempty"`
+	Type    string               `json:"__type"`
+	Message string               `json:"message"`
+	Reason  string               `json:"Reason,omitempty"`
+}
+
+// invalidParamsDetail wraps a map of parameter name → problem under "InvalidParameters".
+type invalidParamsDetail struct {
+	InvalidParameters map[string]invalidParamProblem `json:"InvalidParameters"`
+}
+
+// invalidParamProblem describes why a specific parameter was rejected.
+type invalidParamProblem struct {
+	Problem string `json:"Problem"`
+}
+
+// awsResourceNotFoundBody is a ResourceNotFoundException response body.
+// ResourceType identifies which resource kind was absent; ReferencedBy carries
+// the identifiers the caller supplied.
+type awsResourceNotFoundBody struct {
+	ReferencedBy map[string]string `json:"ReferencedBy,omitempty"`
+	Type         string            `json:"__type"`
+	Message      string            `json:"message"`
+	ResourceType string            `json:"ResourceType,omitempty"`
 }

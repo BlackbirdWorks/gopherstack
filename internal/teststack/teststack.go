@@ -1,6 +1,7 @@
 package teststack
 
 import (
+	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -573,6 +574,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
+	ctx                 context.Context
 	s3                  *s3backend.S3Handler
 	ddb                 *ddbbackend.DynamoDBHandler
 	ssm                 *ssmbackend.Handler
@@ -697,7 +699,7 @@ type handlers struct {
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
-func newHandlers() handlers {
+func newHandlers(ctx context.Context) handlers {
 	s3Bk := s3backend.NewInMemoryBackend(nil)
 	iamBk := iambackend.NewInMemoryBackend()
 	ddb := ddbbackend.NewHandler(ddbbackend.NewInMemoryDB())
@@ -708,6 +710,7 @@ func newHandlers() handlers {
 	sm := smbackend.NewHandler(smbackend.NewInMemoryBackend())
 
 	h := handlers{
+		ctx:     ctx,
 		s3Bk:    s3Bk,
 		iamBk:   iamBk,
 		s3:      s3backend.NewHandler(s3Bk),
@@ -729,7 +732,7 @@ func newHandlers() handlers {
 		kinesis: kinesisbackend.NewHandler(kinesisbackend.NewInMemoryBackend()),
 		elasticache: elasticachebackend.NewHandler(
 			elasticachebackend.NewInMemoryBackend(
-				elasticachebackend.EngineStub, config.DefaultAccountID, config.DefaultRegion,
+				elasticachebackend.EngineStub, config.DefaultAccountID, config.DefaultRegion, nil,
 			),
 		),
 		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend()),
@@ -845,7 +848,7 @@ func populateNewestHandlers(h *handlers) {
 	h.appConfig = appconfigbackend.NewHandler(
 		appconfigbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
-	h.athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend())
+	h.athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID))
 	h.autoscaling = autoscalingbackend.NewHandler(autoscalingbackend.NewInMemoryBackend())
 	h.appAutoScaling = applicationautoscalingbackend.NewHandler(
 		applicationautoscalingbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -901,7 +904,7 @@ func populateNewestHandlers(h *handlers) {
 	}
 
 	h.eks = eksbackend.NewHandler(
-		eksbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+		eksbackend.NewInMemoryBackend(h.ctx, config.DefaultAccountID, config.DefaultRegion),
 	)
 
 	h.elb = elbbackend.NewHandler(
@@ -1047,7 +1050,7 @@ func populateLatestMLHandlers(h *handlers) {
 // Extracted from populateLatestHandlers to satisfy the funlen limit.
 func populateTransferHandlers(h *handlers) {
 	h.transfer = transferbackend.NewHandler(
-		transferbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+		transferbackend.NewInMemoryBackend(h.ctx, config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.verifiedpermissions = verifiedpermissionsbackend.NewHandler(
 		verifiedpermissionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -1055,7 +1058,9 @@ func populateTransferHandlers(h *handlers) {
 	h.vpclattice = vpclatticebackend.NewHandler(
 		vpclatticebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
-	h.xray = xraybackend.NewHandler(xraybackend.NewInMemoryBackend())
+	h.xray = xraybackend.NewHandler(
+		xraybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.s3tables = s3tablesbackend.NewHandler(
 		s3tablesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1144,7 +1149,7 @@ func New(t *testing.T) *Stack {
 	t.Helper()
 
 	testLogger := logger.NewTestLogger()
-	h := newHandlers()
+	h := newHandlers(t.Context())
 
 	// Set up Echo with service registry and router.
 	e := echo.New()

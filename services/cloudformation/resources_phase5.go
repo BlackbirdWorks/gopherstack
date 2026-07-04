@@ -37,7 +37,10 @@ const (
 
 const defaultGlueDB = "default"
 
-var errGluePartition = errors.New("glue partition create failed")
+var (
+	errGluePartition         = errors.New("glue partition create failed")
+	errGluePartitionMissProp = errors.New("create Glue partition: DatabaseName and TableName are required")
+)
 
 // createPhase5Resource handles phase-5 resource types added for §K CloudFormation
 // resource-type coverage. It returns handled=false when resourceType is not a phase-5 type
@@ -825,11 +828,6 @@ func (rc *ResourceCreator) createSSMMaintenanceWindow(
 		return logicalID + "-stub", nil
 	}
 
-	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
-	if !ok {
-		return logicalID + "-stub", nil
-	}
-
 	name := strProp(props, "Name", params, physicalIDs)
 	if name == "" {
 		name = logicalID
@@ -853,7 +851,7 @@ func (rc *ResourceCreator) createSSMMaintenanceWindow(
 		allowUnassociated = v
 	}
 
-	out, err := imb.CreateMaintenanceWindow(ctx, &ssmbackend.CreateMaintenanceWindowInput{
+	out, err := rc.backends.SSM.Backend.CreateMaintenanceWindow(ctx, &ssmbackend.CreateMaintenanceWindowInput{
 		Name:                     name,
 		Schedule:                 schedule,
 		Duration:                 duration,
@@ -872,12 +870,7 @@ func (rc *ResourceCreator) deleteSSMMaintenanceWindow(ctx context.Context, windo
 		return nil
 	}
 
-	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
-	if !ok {
-		return nil
-	}
-
-	_, err := imb.DeleteMaintenanceWindow(ctx, &ssmbackend.DeleteMaintenanceWindowInput{
+	_, err := rc.backends.SSM.Backend.DeleteMaintenanceWindow(ctx, &ssmbackend.DeleteMaintenanceWindowInput{
 		WindowID: windowID,
 	})
 
@@ -894,11 +887,6 @@ func (rc *ResourceCreator) createSSMAssociation(
 		return logicalID + "-stub"
 	}
 
-	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
-	if !ok {
-		return logicalID + "-stub"
-	}
-
 	name := strProp(props, "Name", params, physicalIDs)
 	if name == "" {
 		name = logicalID
@@ -908,7 +896,7 @@ func (rc *ResourceCreator) createSSMAssociation(
 
 	// SSM Association requires a document; if it doesn't exist, CreateAssociation errors.
 	// Treat errors as a stub to avoid propagating document-not-found failures.
-	out, _ := imb.CreateAssociation(ctx, &ssmbackend.CreateAssociationInput{
+	out, _ := rc.backends.SSM.Backend.CreateAssociation(ctx, &ssmbackend.CreateAssociationInput{
 		Name:            name,
 		AssociationName: assocName,
 	})
@@ -924,12 +912,7 @@ func (rc *ResourceCreator) deleteSSMAssociation(ctx context.Context, assocID str
 		return nil
 	}
 
-	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
-	if !ok {
-		return nil
-	}
-
-	_, err := imb.DeleteAssociation(ctx, &ssmbackend.DeleteAssociationInput{
+	_, err := rc.backends.SSM.Backend.DeleteAssociation(ctx, &ssmbackend.DeleteAssociationInput{
 		AssociationID: assocID,
 	})
 
@@ -1206,7 +1189,7 @@ func (rc *ResourceCreator) createGluePartition(
 	tableName := strProp(props, "TableName", params, physicalIDs)
 
 	if dbName == "" || tableName == "" {
-		return logicalID + "-stub", nil
+		return "", errGluePartitionMissProp
 	}
 
 	var values []string
@@ -1272,11 +1255,6 @@ func (rc *ResourceCreator) createAppSyncDataSource(
 		return logicalID + "-stub", nil
 	}
 
-	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
-	if !ok {
-		return logicalID + "-stub", nil
-	}
-
 	apiID := strProp(props, "ApiId", params, physicalIDs)
 	name := strProp(props, "Name", params, physicalIDs)
 	dsType := strProp(props, "Type", params, physicalIDs)
@@ -1288,7 +1266,7 @@ func (rc *ResourceCreator) createAppSyncDataSource(
 		dsType = "NONE"
 	}
 
-	ds, err := imb.CreateDataSource(apiID, &appsyncbackend.DataSource{
+	ds, err := rc.backends.AppSync.Backend.CreateDataSource(apiID, &appsyncbackend.DataSource{
 		Name: name,
 		Type: appsyncbackend.DataSourceType(dsType),
 	})
@@ -1304,18 +1282,13 @@ func (rc *ResourceCreator) deleteAppSyncDataSource(arn string) error {
 		return nil
 	}
 
-	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
-	if !ok {
-		return nil
-	}
-
 	// ARN format: arn:aws:appsync:<region>:<account>:apis/<apiID>/datasources/<name>
 	apiID, name := parseAppSyncARNParts(arn, "datasources")
 	if apiID == "" || name == "" {
 		return nil
 	}
 
-	return imb.DeleteDataSource(apiID, name)
+	return rc.backends.AppSync.Backend.DeleteDataSource(apiID, name)
 }
 
 func (rc *ResourceCreator) createAppSyncResolver(
@@ -1324,11 +1297,6 @@ func (rc *ResourceCreator) createAppSyncResolver(
 	params, physicalIDs map[string]string,
 ) (string, error) {
 	if rc.backends.AppSync == nil {
-		return logicalID + "-stub", nil
-	}
-
-	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
-	if !ok {
 		return logicalID + "-stub", nil
 	}
 
@@ -1351,7 +1319,7 @@ func (rc *ResourceCreator) createAppSyncResolver(
 		dataSourceName = "none"
 	}
 
-	r, err := imb.CreateResolver(apiID, typeName, &appsyncbackend.Resolver{
+	r, err := rc.backends.AppSync.Backend.CreateResolver(apiID, typeName, &appsyncbackend.Resolver{
 		FieldName:      fieldName,
 		Kind:           kind,
 		DataSourceName: dataSourceName,
@@ -1365,11 +1333,6 @@ func (rc *ResourceCreator) createAppSyncResolver(
 
 func (rc *ResourceCreator) deleteAppSyncResolver(arn string) error {
 	if rc.backends.AppSync == nil {
-		return nil
-	}
-
-	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
-	if !ok {
 		return nil
 	}
 
@@ -1389,7 +1352,7 @@ func (rc *ResourceCreator) deleteAppSyncResolver(arn string) error {
 		return nil
 	}
 
-	return imb.DeleteResolver(apiID, typeName, fieldName)
+	return rc.backends.AppSync.Backend.DeleteResolver(apiID, typeName, fieldName)
 }
 
 func (rc *ResourceCreator) createAppSyncFunction(
@@ -1398,11 +1361,6 @@ func (rc *ResourceCreator) createAppSyncFunction(
 	params, physicalIDs map[string]string,
 ) (string, error) {
 	if rc.backends.AppSync == nil {
-		return logicalID + "-stub", nil
-	}
-
-	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
-	if !ok {
 		return logicalID + "-stub", nil
 	}
 
@@ -1417,7 +1375,7 @@ func (rc *ResourceCreator) createAppSyncFunction(
 		dataSourceName = "none"
 	}
 
-	f, err := imb.CreateFunction(apiID, &appsyncbackend.Function{
+	f, err := rc.backends.AppSync.Backend.CreateFunction(apiID, &appsyncbackend.Function{
 		Name:           name,
 		DataSourceName: dataSourceName,
 	})
@@ -1433,17 +1391,12 @@ func (rc *ResourceCreator) deleteAppSyncFunction(arn string) error {
 		return nil
 	}
 
-	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
-	if !ok {
-		return nil
-	}
-
 	apiID, funcID := parseAppSyncARNParts(arn, "functions")
 	if apiID == "" || funcID == "" {
 		return nil
 	}
 
-	return imb.DeleteFunction(apiID, funcID)
+	return rc.backends.AppSync.Backend.DeleteFunction(apiID, funcID)
 }
 
 func (rc *ResourceCreator) createAppSyncAPIKey(
@@ -1455,15 +1408,10 @@ func (rc *ResourceCreator) createAppSyncAPIKey(
 		return logicalID + "-stub", nil
 	}
 
-	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
-	if !ok {
-		return logicalID + "-stub", nil
-	}
-
 	apiID := strProp(props, "ApiId", params, physicalIDs)
 	description := strProp(props, "Description", params, physicalIDs)
 
-	key, err := imb.CreateAPIKey(apiID, description, 0)
+	key, err := rc.backends.AppSync.Backend.CreateAPIKey(apiID, description, 0)
 	if err != nil {
 		return "", fmt.Errorf("create AppSync API key for %s: %w", apiID, err)
 	}
@@ -1476,18 +1424,13 @@ func (rc *ResourceCreator) deleteAppSyncAPIKey(physicalID string) error {
 		return nil
 	}
 
-	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
-	if !ok {
-		return nil
-	}
-
 	const parts = 2
 	split := strings.SplitN(physicalID, "/", parts)
 	if len(split) < parts {
 		return nil
 	}
 
-	return imb.DeleteAPIKey(split[0], split[1])
+	return rc.backends.AppSync.Backend.DeleteAPIKey(split[0], split[1])
 }
 
 // parseAppSyncARNParts extracts apiID and resource name from an AppSync ARN.
@@ -1856,7 +1799,7 @@ func (rc *ResourceCreator) createPhase5ManagedResource(
 
 		return id, true, err
 	case "AWS::SecretsManager::ResourcePolicy":
-		id, err := rc.createSecretsManagerResourcePolicy(logicalID, props, params, physicalIDs)
+		id, err := rc.createSecretsManagerResourcePolicy(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
 	case "AWS::CloudFront::Function":
@@ -1894,7 +1837,7 @@ func (rc *ResourceCreator) deletePhase5ManagedResource(
 		return true, rc.deleteSSMDocument(ctx, physicalID)
 	case "AWS::SecretsManager::ResourcePolicy":
 
-		return true, rc.deleteSecretsManagerResourcePolicy(physicalID)
+		return true, rc.deleteSecretsManagerResourcePolicy(ctx, physicalID)
 	case "AWS::CloudFront::Function":
 
 		return true, rc.deleteCloudFrontFunction(physicalID)
@@ -2011,6 +1954,7 @@ func (rc *ResourceCreator) deleteSSMDocument(ctx context.Context, name string) e
 }
 
 func (rc *ResourceCreator) createSecretsManagerResourcePolicy(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -2023,7 +1967,7 @@ func (rc *ResourceCreator) createSecretsManagerResourcePolicy(
 	policy := strProp(props, "ResourcePolicy", params, physicalIDs)
 
 	if _, err := rc.backends.SecretsManager.Backend.PutResourcePolicy(
-		context.Background(),
+		ctx,
 		&secretsmanagerbackend.PutResourcePolicyInput{
 			SecretID:       secretID,
 			ResourcePolicy: policy,
@@ -2035,13 +1979,13 @@ func (rc *ResourceCreator) createSecretsManagerResourcePolicy(
 	return secretID, nil
 }
 
-func (rc *ResourceCreator) deleteSecretsManagerResourcePolicy(secretID string) error {
+func (rc *ResourceCreator) deleteSecretsManagerResourcePolicy(ctx context.Context, secretID string) error {
 	if rc.backends.SecretsManager == nil {
 		return nil
 	}
 
 	_, err := rc.backends.SecretsManager.Backend.DeleteResourcePolicy(
-		context.Background(),
+		ctx,
 		&secretsmanagerbackend.DeleteResourcePolicyInput{
 			SecretID: secretID,
 		},

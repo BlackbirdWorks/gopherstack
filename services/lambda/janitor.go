@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -33,28 +34,17 @@ func NewJanitor(backend *InMemoryBackend, _ Settings) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, lambdaWorkerService)
+	g.Ticker(runtimeJanitorName, j.Interval, j.TaskTimeout, j.sweep)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepIdleRuntimes(taskCtx)
-			j.sweepESMs(taskCtx)
-			cancel()
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
 }
 
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
-	}
-
-	return context.WithCancel(parent)
+// sweep runs one full janitor pass: evict idle runtimes and health-check ESMs.
+func (j *Janitor) sweep(ctx context.Context) {
+	j.sweepIdleRuntimes(ctx)
+	j.sweepESMs(ctx)
 }
 
 // sweepIdleRuntimes identifies runtimes that have been idle for longer than
@@ -89,15 +79,54 @@ func (j *Janitor) sweepIdleRuntimes(ctx context.Context) {
 
 	telemetry.RecordWorkerTask(lambdaWorkerService, runtimeJanitorName, "success")
 	telemetry.RecordWorkerItems(lambdaWorkerService, runtimeJanitorName, len(toEvict))
-	logger.Load(ctx).InfoContext(ctx, "Lambda janitor: evicted idle runtimes", "count", len(toEvict))
+	logger.Load(ctx).
+		InfoContext(ctx, "Lambda janitor: evicted idle runtimes", "count", len(toEvict))
 }
 
-// sweepESMs performs health checks on active event source mappings.
-// Currently it just records metrics.
-func (j *Janitor) sweepESMs(_ context.Context) {
+// esmHealthEntry is a snapshot of an ESM used for health checking outside the lock.
+type esmHealthEntry struct {
+	uuid        string
+	functionARN string
+}
+
+// sweepESMs performs health checks on enabled event source mappings.
+// For each enabled ESM whose function no longer exists, it marks the ESM
+// LastProcessingResult as "PROBLEM" — mirroring the AWS behaviour where a
+// deleted-function mapping transitions to a degraded state.
+func (j *Janitor) sweepESMs(ctx context.Context) {
 	j.Backend.mu.RLock("JanitorSweepESMs")
 	esmCount := len(j.Backend.eventSourceMappings)
+
+	var toCheck []esmHealthEntry
+	for id, esm := range j.Backend.eventSourceMappings {
+		if esm.State == ESMStateEnabled {
+			toCheck = append(toCheck, esmHealthEntry{uuid: id, functionARN: esm.FunctionARN})
+		}
+	}
 	j.Backend.mu.RUnlock()
+
+	// Check each enabled ESM's function without holding the lock.
+	var degraded []string
+	for _, entry := range toCheck {
+		fnName := functionNameFromARN(entry.functionARN)
+		if _, err := j.Backend.GetFunction(fnName); err != nil {
+			degraded = append(degraded, entry.uuid)
+		}
+	}
+
+	if len(degraded) > 0 {
+		j.Backend.mu.Lock("JanitorSweepESMs.degrade")
+		for _, id := range degraded {
+			if esm, ok := j.Backend.eventSourceMappings[id]; ok {
+				esm.LastProcessingResult = "PROBLEM"
+			}
+		}
+		j.Backend.mu.Unlock()
+
+		logger.Load(ctx).WarnContext(ctx, "Lambda janitor: ESMs with missing functions",
+			"count", len(degraded))
+		telemetry.RecordWorkerItems(lambdaWorkerService, esmJanitorName, len(degraded))
+	}
 
 	telemetry.RecordWorkerTask(lambdaWorkerService, esmJanitorName, "success")
 	telemetry.RecordWorkerItems(lambdaWorkerService, esmJanitorName, esmCount)

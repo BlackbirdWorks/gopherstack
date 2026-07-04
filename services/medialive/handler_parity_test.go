@@ -315,7 +315,10 @@ func TestMultiplexAlerts(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/prod/multiplexes", map[string]any{
 		"name":              "mux-1",
 		"AvailabilityZones": []string{"us-east-1a", "us-east-1b"},
-		"MultiplexSettings": map[string]any{"TransportStreamBitrate": 1000000, "TransportStreamId": 1},
+		"MultiplexSettings": map[string]any{
+			"TransportStreamBitrate": 1000000,
+			"TransportStreamId":      1,
+		},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
@@ -339,14 +342,26 @@ func TestChannelLifecycleExtras(t *testing.T) {
 	h := newTestHandler(t)
 	channelID := createTestChannel(t, h)
 
-	rec := doRequest(t, h, http.MethodPut, "/prod/channels/"+channelID+"/channelClass", map[string]any{
-		"channelClass": "SINGLE_PIPELINE",
-	})
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPut,
+		"/prod/channels/"+channelID+"/channelClass",
+		map[string]any{
+			"channelClass": "SINGLE_PIPELINE",
+		},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	ch := decodeBody(t, rec.Body.Bytes())["Channel"].(map[string]any)
 	assert.Equal(t, "SINGLE_PIPELINE", ch["ChannelClass"])
 
-	rec = doRequest(t, h, http.MethodPost, "/prod/channels/"+channelID+"/restartChannelPipelines", nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/prod/channels/"+channelID+"/restartChannelPipelines",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID+"/thumbnails", nil)
@@ -366,7 +381,13 @@ func TestInputDeviceLifecycleExtras(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, http.MethodPost, "/prod/claimDevice", map[string]any{"Id": "hd-device-1"})
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/prod/claimDevice",
+		map[string]any{"Id": "hd-device-1"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	for _, action := range []string{"start", "stop", "startInputDeviceMaintenanceWindow"} {

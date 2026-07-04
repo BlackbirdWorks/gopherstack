@@ -1013,11 +1013,11 @@ func TestRefinement3_Persistence_NewFields_RoundTrip(t *testing.T) {
 		[]mediaconvert.HopDestination{{Queue: "fallback", WaitMinutes: 3}})
 	require.NoError(t, err)
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := r3Backend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify queue.
 	got, err := b2.GetQueue(q.Name)

@@ -396,11 +396,11 @@ func TestCapacityFamily_SnapshotRestoreRoundTrip(t *testing.T) {
 	_, access := original.EnableCapacityManager(true)
 	assert.True(t, access)
 
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	restored := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, restored.Restore(snap))
+	require.NoError(t, restored.Restore(t.Context(), snap))
 
 	fleets := restored.DescribeCapacityReservationFleets([]string{fleet.CapacityReservationFleetID}, nil)
 	require.Len(t, fleets, 1)

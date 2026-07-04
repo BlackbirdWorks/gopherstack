@@ -505,3 +505,72 @@ func TestIntegration_CloudWatchLogs_Insights_QueryLanguage(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegration_CloudWatchLogs_Insights_Extended exercises the extended Logs
+// Insights engine (comparison operators, JSON field extraction, and aggregations)
+// against JSON-structured log events via the AWS SDK.
+func TestIntegration_CloudWatchLogs_Insights_Extended(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createCloudWatchLogsClient(t)
+	ctx := t.Context()
+
+	groupName := "/test/insights-ext-" + uuid.NewString()[:8]
+	streamName := "ext-stream"
+
+	_, err := client.CreateLogGroup(ctx, &cloudwatchlogssdk.CreateLogGroupInput{
+		LogGroupName: aws.String(groupName),
+	})
+	require.NoError(t, err)
+	_, err = client.CreateLogStream(ctx, &cloudwatchlogssdk.CreateLogStreamInput{
+		LogGroupName:  aws.String(groupName),
+		LogStreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UnixMilli()
+	_, err = client.PutLogEvents(ctx, &cloudwatchlogssdk.PutLogEventsInput{
+		LogGroupName:  aws.String(groupName),
+		LogStreamName: aws.String(streamName),
+		LogEvents: []cwlogstypes.InputLogEvent{
+			{Message: aws.String(`{"service":"api","latency":100}`), Timestamp: aws.Int64(now - 4000)},
+			{Message: aws.String(`{"service":"api","latency":300}`), Timestamp: aws.Int64(now - 3000)},
+			{Message: aws.String(`{"service":"db","latency":50}`), Timestamp: aws.Int64(now - 2000)},
+		},
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		query   string
+		wantLen int
+	}{
+		{name: "compare_gt", query: "filter latency > 100", wantLen: 1},
+		{name: "and_json", query: `filter service = "api" and latency >= 100`, wantLen: 2},
+		{name: "in_op", query: `filter service in ("db")`, wantLen: 1},
+		{name: "stats_avg_by", query: "stats avg(latency) as a by service", wantLen: 2},
+		{name: "stats_count_distinct", query: "stats count_distinct(service) as d", wantLen: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			startOut, serr := client.StartQuery(ctx, &cloudwatchlogssdk.StartQueryInput{
+				LogGroupName: aws.String(groupName),
+				QueryString:  aws.String(tt.query),
+				StartTime:    aws.Int64(0),
+				EndTime:      aws.Int64(now + 1000),
+			})
+			require.NoError(t, serr)
+
+			resultsOut, rerr := client.GetQueryResults(ctx, &cloudwatchlogssdk.GetQueryResultsInput{
+				QueryId: startOut.QueryId,
+			})
+			require.NoError(t, rerr)
+			assert.Equal(t, cwlogstypes.QueryStatusComplete, resultsOut.Status)
+			assert.Len(t, resultsOut.Results, tt.wantLen)
+		})
+	}
+}

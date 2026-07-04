@@ -16,6 +16,7 @@ import (
 	"io"
 	"maps"
 	"math/big"
+	"net"
 	"net/http"
 	"regexp"
 	"sort"
@@ -28,6 +29,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -55,6 +57,9 @@ const (
 	protocolFirehose        = "firehose"
 	protocolEmail           = "email"
 	protocolHTTP            = "http"
+	protocolSMS             = "sms"
+	protocolApplication     = "application"
+	protocolSQS             = "sqs"
 	// attrPendingConfirmation is the SNS subscription attribute key whose
 	// value is "true" while a subscription awaits confirmation. The key uses
 	// the PascalCase attribute name returned by GetSubscriptionAttributes.
@@ -82,6 +87,7 @@ var (
 	ErrPermissionLabelNotFound          = errors.New("AuthorizationError")
 	ErrSandboxPhoneNotVerified          = errors.New("InvalidParameter")
 	ErrOptedOut                         = errors.New("KMSOptInRequired")
+	ErrHTTPStatus                       = errors.New("HTTP status")
 )
 
 const (
@@ -151,6 +157,13 @@ const (
 	// defaultListOptedOutResults is the default page size for ListPhoneNumbersOptedOut.
 	defaultListOptedOutResults = 100
 
+	// maxListOriginationNumbersResults is the maximum MaxResults value for ListOriginationNumbers.
+	// AWS SNS caps MaxResults for this operation at 30.
+	maxListOriginationNumbersResults = 30
+
+	// defaultListOriginationNumbersResults is the default page size for ListOriginationNumbers.
+	defaultListOriginationNumbersResults = 30
+
 	// maxPublishBatchEntries is the maximum number of entries per PublishBatch request.
 	// This matches the AWS SNS service limit.
 	maxPublishBatchEntries = 10
@@ -180,6 +193,10 @@ const (
 	// output beyond stored attributes: Owner, TopicArn, EffectiveDeliveryPolicy,
 	// SubscriptionsConfirmed, SubscriptionsPending, SubscriptionsDeleted.
 	computedTopicAttrCount = 6
+
+	// arnPartCount is the number of colon-delimited fields in an AWS ARN:
+	// arn:{partition}:{service}:{region}:{account}:{resource}.
+	arnPartCount = 6
 )
 
 // isValidSMSAttributeName returns true if the attribute name is recognised by the AWS SNS API.
@@ -216,12 +233,25 @@ func isValidTopicName(name string) bool {
 	}
 
 	for _, c := range base {
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' &&
+			c != '_' {
 			return false
 		}
 	}
 
 	return true
+}
+
+// arnRegion extracts the region component from an AWS ARN.
+// ARN format: arn:{partition}:{service}:{region}:{account}:{resource}
+// Returns "" for malformed ARNs.
+func arnRegion(a string) string {
+	parts := strings.SplitN(a, ":", arnPartCount)
+	if len(parts) < arnPartCount {
+		return ""
+	}
+
+	return parts[3]
 }
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -230,6 +260,7 @@ type StorageBackend interface {
 	CreateTopicInRegion(name, region string, attributes map[string]string) (*Topic, error)
 	DeleteTopic(topicArn string) error
 	ListTopics(nextToken string) ([]Topic, string, error)
+	ListTopicsInRegion(region, nextToken string) ([]Topic, string, error)
 	GetTopicAttributes(topicArn string) (map[string]string, error)
 	SetTopicAttributes(topicArn, attrName, attrValue string) error
 	Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error)
@@ -239,10 +270,16 @@ type StorageBackend interface {
 	ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error)
 	GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error)
 	SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error
-	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
+	Publish(
+		topicArn, message, subject, messageStructure string,
+		attrs map[string]MessageAttribute,
+	) (string, error)
 	// PublishToTargetArn publishes directly to a platform endpoint ARN.
 	// In the mock, this generates and returns a unique message ID without real delivery.
-	PublishToTargetArn(targetArn, message, subject string, attrs map[string]MessageAttribute) (string, error)
+	PublishToTargetArn(
+		targetArn, message, subject string,
+		attrs map[string]MessageAttribute,
+	) (string, error)
 	// PublishSMS publishes directly to a phone number via SMS.
 	// In the mock, this generates and returns a unique message ID without real delivery.
 	PublishSMS(phoneNumber, message string) (string, error)
@@ -253,9 +290,19 @@ type StorageBackend interface {
 	SetTopicTags(arn string, kv *svcTags.Tags)
 	RemoveTopicTags(arn string, keys []string)
 	// Platform application operations.
-	CreatePlatformApplication(name, platform string, attributes map[string]string) (*PlatformApplication, error)
+	CreatePlatformApplication(
+		name, platform string,
+		attributes map[string]string,
+	) (*PlatformApplication, error)
+	CreatePlatformApplicationInRegion(
+		name, platform, region string,
+		attributes map[string]string,
+	) (*PlatformApplication, error)
 	GetPlatformApplicationAttributes(platformApplicationArn string) (map[string]string, error)
-	SetPlatformApplicationAttributes(platformApplicationArn string, attributes map[string]string) error
+	SetPlatformApplicationAttributes(
+		platformApplicationArn string,
+		attributes map[string]string,
+	) error
 	ListPlatformApplications(nextToken string) ([]PlatformApplication, string, error)
 	DeletePlatformApplication(platformApplicationArn string) error
 	// Platform endpoint operations.
@@ -265,7 +312,9 @@ type StorageBackend interface {
 	) (*PlatformEndpoint, error)
 	GetEndpointAttributes(endpointArn string) (map[string]string, error)
 	SetEndpointAttributes(endpointArn string, attributes map[string]string) error
-	ListEndpointsByPlatformApplication(platformApplicationArn, nextToken string) ([]PlatformEndpoint, string, error)
+	ListEndpointsByPlatformApplication(
+		platformApplicationArn, nextToken string,
+	) ([]PlatformEndpoint, string, error)
 	DeleteEndpoint(endpointArn string) error
 	// Permission operations.
 	AddPermission(topicArn, label string, accounts, actions []string) error
@@ -274,7 +323,10 @@ type StorageBackend interface {
 	GetSMSSandboxAccountStatus() (bool, error)
 	CreateSMSSandboxPhoneNumber(phoneNumber, languageCode string) error
 	DeleteSMSSandboxPhoneNumber(phoneNumber string) error
-	ListSMSSandboxPhoneNumbers(nextToken string, maxResults int) ([]SandboxPhoneNumber, string, error)
+	ListSMSSandboxPhoneNumbers(
+		nextToken string,
+		maxResults int,
+	) ([]SandboxPhoneNumber, string, error)
 	VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePassword string) error
 	// SMS opt-out operations.
 	CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool, error)
@@ -287,7 +339,7 @@ type StorageBackend interface {
 	GetDataProtectionPolicy(resourceArn string) (string, error)
 	PutDataProtectionPolicy(resourceArn, policy string) error
 	// Origination number operations.
-	ListOriginationNumbers(nextToken string) ([]XMLOriginationPhone, string, error)
+	ListOriginationNumbers(nextToken string, maxResults int) ([]XMLOriginationPhone, string, error)
 }
 
 // SMSDelivery records a single SMS message sent via PublishSMS.
@@ -295,6 +347,19 @@ type SMSDelivery struct {
 	PhoneNumber string
 	Message     string
 	MessageID   string
+}
+
+// ApplicationDelivery records a single message delivered to an application-protocol
+// (mobile push platform endpoint) subscription during a topic publish. AWS delivers
+// these to a platform endpoint; gopherstack records the delivery here and exposes it
+// via DrainApplicationDeliveries for inspection/testing.
+type ApplicationDelivery struct {
+	// EndpointARN is the target platform endpoint ARN.
+	EndpointARN string
+	// Message is the (per-protocol resolved) message body.
+	Message string
+	// MessageID is the generated message ID for the delivery.
+	MessageID string
 }
 
 // EmailDelivery records a single message delivered to an email or email-json
@@ -339,8 +404,9 @@ type notificationSigner struct {
 
 // newNotificationSigner generates a fresh RSA-2048 key pair and a self-signed
 // x.509 certificate. The returned signer is valid for the lifetime of the
-// backend instance.
-func newNotificationSigner() *notificationSigner {
+// backend instance. region is used to construct the default certURL so the
+// embedded SigningCertURL reflects the correct AWS region.
+func newNotificationSigner(region string) *notificationSigner {
 	key, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
 	if err != nil {
 		// Key generation failure is unrecoverable; panic with a clear message
@@ -371,7 +437,9 @@ func newNotificationSigner() *notificationSigner {
 		privateKey: key,
 		certPEM:    certPEM,
 		// certURL is set later via SetSigningCertBaseURL when the server address is known.
-		certURL: "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem",
+		// The initial value uses the backend region so URLs are correct before
+		// SetSigningCertBaseURL is called (e.g. in non-HTTP test scenarios).
+		certURL: fmt.Sprintf("https://sns.%s.amazonaws.com/SimpleNotificationService.pem", region),
 	}
 }
 
@@ -418,7 +486,11 @@ func canonicalNotificationString(msgID, topicARN, subject, message, timestamp st
 
 // LambdaInvoker can invoke a Lambda function for SNS subscription delivery.
 type LambdaInvoker interface {
-	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+	InvokeFunction(
+		ctx context.Context,
+		name, invocationType string,
+		payload []byte,
+	) ([]byte, int, error)
 }
 
 // FirehosePutter can put records to a Kinesis Firehose stream for SNS subscription delivery.
@@ -432,12 +504,19 @@ type SQSSender interface {
 	SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error
 }
 
+// SQSQueueChecker can verify whether an SQS queue identified by ARN exists.
+// Used to validate RedrivePolicy.deadLetterTargetArn during SetSubscriptionAttributes.
+type SQSQueueChecker interface {
+	QueueExists(ctx context.Context, queueARN string) (bool, error)
+}
+
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
 	lambdaBackend        LambdaInvoker
 	firehoseBackend      FirehosePutter
 	sqsSender            SQSSender
+	sqsChecker           SQSQueueChecker
 	svcCtx               context.Context
 	topicSubscriptions   map[string]map[string]*Subscription
 	httpClient           *http.Client
@@ -447,18 +526,25 @@ type InMemoryBackend struct {
 	smsSandbox           map[string]*SandboxPhoneNumber
 	optedOutPhoneNumbers map[string]bool
 	smsAttributes        map[string]string
-	mu                   *lockmetrics.RWMutex
-	subscriptions        map[string]*Subscription
-	platformEndpoints    map[string]*PlatformEndpoint
-	topicMessageArchive  map[string][]*ArchivedMessage // populated when ArchivePolicy is set
-	signer               *notificationSigner
-	workerSem            chan struct{}
-	accountID            string
-	region               string
-	smsDeliveries        []SMSDelivery
-	emailDeliveries      []EmailDelivery
-	deliveryWg           sync.WaitGroup
-	closing              atomic.Bool
+	// originationNumbers holds origination phone numbers keyed by region. AWS SNS exposes no
+	// public "create origination number" API (numbers are provisioned via Pinpoint / AWS
+	// End User Messaging), so a fresh account legitimately has none. This map reflects real
+	// state when populated via SeedOriginationNumber (used by tests / internal seeding).
+	originationNumbers    map[string][]XMLOriginationPhone
+	mu                    *lockmetrics.RWMutex
+	subscriptions         map[string]*Subscription
+	platformEndpoints     map[string]*PlatformEndpoint
+	topicMessageArchive   map[string][]*ArchivedMessage // populated when ArchivePolicy is set
+	signer                *notificationSigner
+	workerSem             chan struct{}
+	accountID             string
+	region                string
+	smsDeliveries         []SMSDelivery
+	emailDeliveries       []EmailDelivery
+	applicationDeliveries []ApplicationDelivery
+	deliveryWg            sync.WaitGroup
+	closing               atomic.Bool
+	smsSandboxEnabled     bool
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -476,7 +562,10 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 // context. The context is used when emitting SNS publish events (e.g. to SQS delivery)
 // so that event delivery is cancelled if the service is shut down.
 // If svcCtx is nil, [context.Background] is used.
-func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+func NewInMemoryBackendWithContext(
+	svcCtx context.Context,
+	accountID, region string,
+) *InMemoryBackend {
 	if svcCtx == nil {
 		svcCtx = context.Background()
 	}
@@ -492,13 +581,15 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		smsSandbox:           make(map[string]*SandboxPhoneNumber),
 		optedOutPhoneNumbers: make(map[string]bool),
 		smsAttributes:        make(map[string]string),
+		originationNumbers:   make(map[string][]XMLOriginationPhone),
 		accountID:            accountID,
 		region:               region,
+		smsSandboxEnabled:    true,
 		svcCtx:               svcCtx,
 		mu:                   lockmetrics.New("sns"),
 		httpClient:           &http.Client{Timeout: snsHTTPTimeout},
 		workerSem:            make(chan struct{}, snsMaxConcurrentDeliveries),
-		signer:               newNotificationSigner(),
+		signer:               newNotificationSigner(region),
 	}
 }
 
@@ -529,7 +620,9 @@ func (b *InMemoryBackend) SetSigningCertBaseURL(baseURL string) {
 
 // SetPublishEmitter registers an event emitter that fires when a message is published.
 // This is used to wire SNS→SQS delivery at startup.
-func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.SNSPublishedEvent]) {
+func (b *InMemoryBackend) SetPublishEmitter(
+	emitter events.EventEmitter[*events.SNSPublishedEvent],
+) {
 	b.mu.Lock("SetPublishEmitter")
 	defer b.mu.Unlock()
 
@@ -560,6 +653,15 @@ func (b *InMemoryBackend) SetSQSSender(sender SQSSender) {
 	b.sqsSender = sender
 }
 
+// SetSQSChecker wires the SQS queue checker used to verify deadLetterTargetArn existence
+// during SetSubscriptionAttributes. When nil, the existence check is skipped.
+func (b *InMemoryBackend) SetSQSChecker(checker SQSQueueChecker) {
+	b.mu.Lock("SetSQSChecker")
+	defer b.mu.Unlock()
+
+	b.sqsChecker = checker
+}
+
 // CreateTopic creates a new SNS topic using the backend's default region.
 func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string) (*Topic, error) {
 	return b.CreateTopicInRegion(name, b.region, attributes)
@@ -567,7 +669,10 @@ func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string)
 
 // CreateTopicInRegion creates a new SNS topic in the specified region.
 // If region is empty, the backend's default region is used.
-func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes map[string]string) (*Topic, error) {
+func (b *InMemoryBackend) CreateTopicInRegion(
+	name, region string,
+	attributes map[string]string,
+) (*Topic, error) {
 	if !isValidTopicName(name) {
 		return nil, fmt.Errorf(
 			"%w: Topic name must be 1-256 characters and contain only alphanumeric characters, hyphens, and underscores",
@@ -671,12 +776,23 @@ func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
 	return nil
 }
 
-// ListTopics returns a page of topics and the next pagination token.
+// ListTopics returns a page of topics across all regions, ordered by ARN.
+// This preserves backward compatibility for callers that don't need region filtering.
 func (b *InMemoryBackend) ListTopics(nextToken string) ([]Topic, string, error) {
-	b.mu.RLock("ListTopics")
+	return b.ListTopicsInRegion(b.region, nextToken)
+}
+
+// ListTopicsInRegion returns a page of topics belonging to region and the next pagination token.
+// AWS SNS ListTopics only returns topics in the caller's region.
+func (b *InMemoryBackend) ListTopicsInRegion(region, nextToken string) ([]Topic, string, error) {
+	b.mu.RLock("ListTopicsInRegion")
 	defer b.mu.RUnlock()
 
-	all := b.sortedTopics()
+	if region == "" {
+		region = b.region
+	}
+
+	all := b.sortedTopicsInRegion(region)
 
 	offset, err := decodeToken(nextToken)
 	if err != nil {
@@ -763,17 +879,25 @@ func isKnownTopicAttribute(name string) bool {
 		"ArchivePolicy", "DataProtectionPolicy", "SignatureVersion":
 		return true
 	// HTTP/HTTPS delivery status logging.
-	case "HTTPSuccessFeedbackRoleArn", "HTTPSuccessFeedbackSampleRate", "HTTPFailureFeedbackRoleArn",
-		"HTTPSSuccessFeedbackRoleArn", "HTTPSSuccessFeedbackSampleRate", "HTTPSFailureFeedbackRoleArn":
+	case "HTTPSuccessFeedbackRoleArn",
+		"HTTPSuccessFeedbackSampleRate",
+		"HTTPFailureFeedbackRoleArn",
+		"HTTPSSuccessFeedbackRoleArn",
+		"HTTPSSuccessFeedbackSampleRate",
+		"HTTPSFailureFeedbackRoleArn":
 		return true
 	// SQS delivery status logging.
 	case "SQSSuccessFeedbackRoleArn", "SQSSuccessFeedbackSampleRate", "SQSFailureFeedbackRoleArn":
 		return true
 	// Lambda delivery status logging.
-	case "LambdaSuccessFeedbackRoleArn", "LambdaSuccessFeedbackSampleRate", "LambdaFailureFeedbackRoleArn":
+	case "LambdaSuccessFeedbackRoleArn",
+		"LambdaSuccessFeedbackSampleRate",
+		"LambdaFailureFeedbackRoleArn":
 		return true
 	// Firehose delivery status logging.
-	case "FirehoseSuccessFeedbackRoleArn", "FirehoseSuccessFeedbackSampleRate", "FirehoseFailureFeedbackRoleArn":
+	case "FirehoseSuccessFeedbackRoleArn",
+		"FirehoseSuccessFeedbackSampleRate",
+		"FirehoseFailureFeedbackRoleArn":
 		return true
 	// Mobile application (GCM/APNS/etc.) delivery status logging.
 	case "ApplicationSuccessFeedbackRoleArn",
@@ -813,7 +937,8 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 	}
 
 	// ContentBasedDeduplication is only valid on FIFO topics.
-	if attrName == "ContentBasedDeduplication" && topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
+	if attrName == "ContentBasedDeduplication" &&
+		topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
 		return fmt.Errorf(
 			"%w: Invalid parameter: ContentBasedDeduplication is only applicable to FIFO topics",
 			ErrInvalidParameter,
@@ -849,22 +974,34 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 	return nil
 }
 
-// Subscribe creates a new subscription for the given topic, protocol, and endpoint.
-// If a confirmed subscription for the same topic+protocol+endpoint already exists,
-// the existing subscription ARN is returned (matching AWS deduplication behaviour).
-func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error) {
-	// Validate SMS endpoint is a valid E.164 phone number.
+// validateSubscribeEndpoint checks that the endpoint is valid for the given protocol.
+func validateSubscribeEndpoint(protocol, endpoint string) error {
 	if protocol == "sms" && !isValidE164(endpoint) {
-		return nil, fmt.Errorf("%w: Endpoint must be in E.164 format for SMS protocol", ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: Endpoint must be in E.164 format for SMS protocol",
+			ErrInvalidParameter,
+		)
 	}
 
-	// Validate email/email-json endpoints look like email addresses.
 	if (protocol == protocolEmail || protocol == protocolEmailJSON) && !isValidEmail(endpoint) {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"%w: Invalid parameter: Endpoint must be a valid email address for %s protocol",
 			ErrInvalidParameter,
 			protocol,
 		)
+	}
+
+	return nil
+}
+
+// Subscribe creates a new subscription for the given topic, protocol, and endpoint.
+// If a confirmed subscription for the same topic+protocol+endpoint already exists,
+// the existing subscription ARN is returned (matching AWS deduplication behaviour).
+func (b *InMemoryBackend) Subscribe(
+	topicArn, protocol, endpoint, filterPolicy string,
+) (*Subscription, error) {
+	if err := validateSubscribeEndpoint(protocol, endpoint); err != nil {
+		return nil, err
 	}
 
 	// Parse and validate the filter policy outside the backend lock so that
@@ -894,8 +1031,12 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 
 	parts := strings.Split(topic.TopicArn, ":")
 	topicName := parts[len(parts)-1]
+	topicRegion := arnRegion(topic.TopicArn)
+	if topicRegion == "" {
+		topicRegion = b.region
+	}
 
-	subArn := arn.Build("sns", b.region, b.accountID, topicName+":"+uuid.New().String())
+	subArn := arn.Build("sns", topicRegion, b.accountID, topicName+":"+uuid.New().String())
 
 	// HTTP and HTTPS subscriptions require out-of-band confirmation.
 	// Email/email-json require the recipient to click a link.
@@ -962,7 +1103,9 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 }
 
 // GetSubscriptionAttributes returns the attributes of a subscription.
-func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error) {
+func (b *InMemoryBackend) GetSubscriptionAttributes(
+	subscriptionArn string,
+) (map[string]string, error) {
 	b.mu.RLock("GetSubscriptionAttributes")
 	defer b.mu.RUnlock()
 
@@ -1013,7 +1156,9 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 // When ReplayPolicy is set to a non-empty value, archived messages from the topic
 // (published at or after replayFromTimestamp) are asynchronously delivered to this
 // subscription. This mirrors AWS SNS archive replay behaviour.
-func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error {
+func (b *InMemoryBackend) SetSubscriptionAttributes(
+	subscriptionArn, attrName, attrValue string,
+) error {
 	// Parse the FilterPolicy outside the backend lock so JSON validation does
 	// not serialize against unrelated SNS operations on large policies.
 	var parsedPolicy parsedFilterPolicy
@@ -1030,6 +1175,9 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 	// Pre-validate redrive policy outside the backend lock for the same reason.
 	if attrName == attrRedrivePolicy && attrValue != "" {
 		if err := validateRedrivePolicy(attrValue); err != nil {
+			return err
+		}
+		if err := b.checkDLQExists(attrValue); err != nil {
 			return err
 		}
 	}
@@ -1077,7 +1225,11 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 
 // applySubscriptionAttr mutates sub with the given attribute value.
 // Extracted to keep SetSubscriptionAttributes under the cyclomatic complexity budget.
-func applySubscriptionAttr(sub *Subscription, attrName, attrValue string, parsedPolicy parsedFilterPolicy) error {
+func applySubscriptionAttr(
+	sub *Subscription,
+	attrName, attrValue string,
+	parsedPolicy parsedFilterPolicy,
+) error {
 	switch attrName {
 	case attrRawMessageDelivery:
 		sub.RawMessageDelivery = strings.EqualFold(attrValue, "true")
@@ -1133,7 +1285,9 @@ func (b *InMemoryBackend) ListSubscriptions(nextToken string) ([]Subscription, s
 }
 
 // ListSubscriptionsByTopic returns a page of subscriptions for a topic and the next pagination token.
-func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error) {
+func (b *InMemoryBackend) ListSubscriptionsByTopic(
+	topicArn, nextToken string,
+) ([]Subscription, string, error) {
 	b.mu.RLock("ListSubscriptionsByTopic")
 	defer b.mu.RUnlock()
 
@@ -1162,16 +1316,18 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.
 type httpDelivery struct {
-	signer          *notificationSigner // nil disables signing
-	sqsSender       SQSSender           // optional; non-nil when subscription has a DLQ
-	endpoint        string
-	body            string
-	subject         string
-	messageID       string
-	topicARN        string
-	subscriptionARN string
-	redrivePolicy   string // JSON RedrivePolicy; non-empty when DLQ is configured
-	rawDelivery     bool
+	signer               *notificationSigner // nil disables signing
+	sqsSender            SQSSender           // optional; non-nil when subscription has a DLQ
+	endpoint             string
+	body                 string
+	subject              string
+	messageID            string
+	topicARN             string
+	subscriptionARN      string
+	redrivePolicy        string // JSON RedrivePolicy; non-empty when DLQ is configured
+	deliveryPolicy       string
+	topicEffectivePolicy string
+	rawDelivery          bool
 }
 
 // publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.
@@ -1214,7 +1370,11 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 
 	var rawPolicy map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(filterPolicy), &rawPolicy); err != nil {
-		return nil, fmt.Errorf("%w: FilterPolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
+		return nil, fmt.Errorf(
+			"%w: FilterPolicy is not valid JSON: %s",
+			ErrInvalidParameter,
+			err.Error(),
+		)
 	}
 
 	parsed := make(parsedFilterPolicy, len(rawPolicy))
@@ -1228,6 +1388,31 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 				"%w: FilterPolicy attribute %q must be a JSON array",
 				ErrInvalidParameter, key,
 			)
+		}
+
+		// The "$or" operator carries an array of nested sub-policy objects rather
+		// than scalar/operator conditions. When the AWS recognition rules are met
+		// (>=2 objects, no object using a reserved keyword as a top-level field),
+		// validate each sub-policy recursively and store the raw objects under the
+		// "$or" key for OR evaluation. Otherwise "$or" is treated as a normal
+		// attribute name, matching AWS.
+		if key == orOperatorKey && isRecognisedOrOperator(conditions) {
+			subConditions, err := validateOrSubPolicies(conditions)
+			if err != nil {
+				return nil, err
+			}
+
+			totalConditions += subConditions
+			if totalConditions > maxFilterPolicyConditions {
+				return nil, fmt.Errorf(
+					"%w: FilterPolicy exceeds %d total attribute conditions",
+					ErrInvalidParameter, maxFilterPolicyConditions,
+				)
+			}
+
+			parsed[key] = conditions
+
+			continue
 		}
 
 		totalConditions += len(conditions)
@@ -1251,6 +1436,66 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 	return parsed, nil
 }
 
+// orOperatorKey is the reserved field name for SNS OR-operator filter policies.
+const orOperatorKey = "$or"
+
+// minOrOperatorElems is the minimum number of sub-policy objects a "$or" array
+// must contain for AWS to recognise it as an OR relationship.
+const minOrOperatorElems = 2
+
+// isRecognisedOrOperator reports whether a "$or" array satisfies the AWS rules
+// for being treated as an OR relationship rather than a literal attribute name:
+//   - the value is an array of at least 2 elements,
+//   - every element is a JSON object, and
+//   - no element uses a reserved operator keyword as a top-level field name.
+//
+// When any rule is violated, AWS treats "$or" as an ordinary attribute key.
+func isRecognisedOrOperator(elems []json.RawMessage) bool {
+	if len(elems) < minOrOperatorElems {
+		return false
+	}
+
+	for _, elem := range elems {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(elem, &obj); err != nil {
+			return false
+		}
+
+		if len(obj) == 0 {
+			return false
+		}
+
+		for field := range obj {
+			if _, reserved := knownFilterPolicyOperators[field]; reserved {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// validateOrSubPolicies recursively parses each sub-policy object of a "$or"
+// array, rejecting malformed operators or numeric operands. It returns the total
+// number of conditions contained across all sub-policies so the caller can
+// enforce the global condition cap.
+func validateOrSubPolicies(elems []json.RawMessage) (int, error) {
+	total := 0
+
+	for _, elem := range elems {
+		sub, err := parseFilterPolicy(string(elem))
+		if err != nil {
+			return 0, err
+		}
+
+		for _, conds := range sub {
+			total += len(conds)
+		}
+	}
+
+	return total, nil
+}
+
 // knownFilterPolicyOperators is the set of object-condition keys recognised
 // by AWS SNS subscription FilterPolicy. Conditions containing any other key
 // are rejected at Subscribe / SetSubscriptionAttributes time so misconfigurations
@@ -1264,6 +1509,8 @@ var knownFilterPolicyOperators = map[string]struct{}{
 	"anything-but":       {},
 	"exists":             {},
 	"numeric":            {},
+	"wildcard":           {},
+	"cidr":               {},
 }
 
 // validateConditionShapes inspects each condition under a single FilterPolicy
@@ -1379,14 +1626,22 @@ func validateKmsMasterKeyID(v string) error {
 		// Accept any well-formed KMS ARN (key or alias).
 		parts := strings.Split(v, ":")
 		if len(parts) < 6 || parts[2] != "kms" {
-			return fmt.Errorf("%w: KmsMasterKeyId is not a valid KMS ARN: %s", ErrInvalidParameter, v)
+			return fmt.Errorf(
+				"%w: KmsMasterKeyId is not a valid KMS ARN: %s",
+				ErrInvalidParameter,
+				v,
+			)
 		}
 
 		return nil
 	case kmsKeyIDPattern.MatchString(v):
 		return nil
 	default:
-		return fmt.Errorf("%w: KmsMasterKeyId is not a valid key ID, ARN, or alias: %s", ErrInvalidParameter, v)
+		return fmt.Errorf(
+			"%w: KmsMasterKeyId is not a valid key ID, ARN, or alias: %s",
+			ErrInvalidParameter,
+			v,
+		)
 	}
 }
 
@@ -1398,7 +1653,11 @@ func validateRedrivePolicy(policy string) error {
 	}
 
 	if err := json.Unmarshal([]byte(policy), &parsed); err != nil {
-		return fmt.Errorf("%w: RedrivePolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
+		return fmt.Errorf(
+			"%w: RedrivePolicy is not valid JSON: %s",
+			ErrInvalidParameter,
+			err.Error(),
+		)
 	}
 
 	if parsed.DeadLetterTargetArn == "" {
@@ -1406,9 +1665,46 @@ func validateRedrivePolicy(policy string) error {
 	}
 
 	parts := strings.Split(parsed.DeadLetterTargetArn, ":")
-	if len(parts) < 6 || parts[0] != "arn" || parts[2] != "sqs" {
+	if len(parts) < 6 || parts[0] != "arn" || parts[2] != protocolSQS {
 		return fmt.Errorf(
 			"%w: RedrivePolicy.deadLetterTargetArn must be a valid SQS queue ARN, got %s",
+			ErrInvalidParameter, parsed.DeadLetterTargetArn,
+		)
+	}
+
+	return nil
+}
+
+// checkDLQExists verifies that the SQS queue named in a RedrivePolicy JSON exists,
+// when a SQSQueueChecker is wired. Returns nil when no checker is configured.
+func (b *InMemoryBackend) checkDLQExists(policy string) error {
+	checker := b.sqsChecker
+	if checker == nil {
+		return nil
+	}
+
+	var parsed struct {
+		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
+	}
+	// Shape is already validated by validateRedrivePolicy, so an unmarshal failure
+	// here cannot happen for a well-formed policy; ignore it and skip verification.
+	_ = json.Unmarshal([]byte(policy), &parsed)
+	if parsed.DeadLetterTargetArn == "" {
+		return nil
+	}
+
+	exists, err := checker.QueueExists(b.svcCtx, parsed.DeadLetterTargetArn)
+	if err != nil {
+		return fmt.Errorf(
+			"%w: could not verify deadLetterTargetArn: %s",
+			ErrInvalidParameter,
+			err.Error(),
+		)
+	}
+
+	if !exists {
+		return fmt.Errorf(
+			"%w: deadLetterTargetArn queue does not exist: %s",
 			ErrInvalidParameter, parsed.DeadLetterTargetArn,
 		)
 	}
@@ -1522,13 +1818,16 @@ func (b *InMemoryBackend) collectPublishTargets(
 
 		if sub.Protocol == protocolHTTP || sub.Protocol == protocolHTTPS {
 			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{
-				endpoint:        sub.Endpoint,
-				body:            msg,
-				subject:         subject,
-				subscriptionARN: sub.SubscriptionArn,
-				rawDelivery:     sub.RawMessageDelivery,
-				redrivePolicy:   sub.RedrivePolicy,
-				sqsSender:       b.sqsSender,
+				endpoint:             sub.Endpoint,
+				body:                 msg,
+				subject:              subject,
+				topicARN:             topicArn,
+				subscriptionARN:      sub.SubscriptionArn,
+				rawDelivery:          sub.RawMessageDelivery,
+				redrivePolicy:        sub.RedrivePolicy,
+				deliveryPolicy:       sub.DeliveryPolicy,
+				topicEffectivePolicy: b.topics[topicArn].Attributes["EffectiveDeliveryPolicy"],
+				sqsSender:            b.sqsSender,
 			})
 		}
 
@@ -1573,38 +1872,105 @@ func matchesFilterPolicyMessageBody(policy parsedFilterPolicy, message string) b
 	}
 
 	for key, conditions := range policy {
-		rawVal, exists := body[key]
-		if !exists {
-			if !matchesConditions("", false, conditions) {
+		if key == orOperatorKey && isRecognisedOrOperator(conditions) {
+			if !matchesOrBody(conditions, message) {
 				return false
 			}
 
 			continue
 		}
 
-		// Try to decode the JSON field as a string value for condition matching.
-		var strVal string
-		if err := json.Unmarshal(rawVal, &strVal); err != nil {
-			// Try number.
-			var numVal json.Number
-			if err2 := json.Unmarshal(rawVal, &numVal); err2 != nil {
-				// Cannot extract a scalar — treat as not-existing for filter.
-				if !matchesConditions("", false, conditions) {
-					return false
-				}
-
-				continue
-			}
-
-			strVal = numVal.String()
-		}
-
-		if !matchesConditions(strVal, true, conditions) {
+		if !matchesBodyKeyConditions(body, key, conditions) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// matchesBodyKeyConditions evaluates one FilterPolicy key against a JSON message
+// body. Scalar values (string, number, bool) match directly; JSON-array values
+// are expanded so the condition is satisfied when ANY element matches, mirroring
+// AWS message-body array handling.
+func matchesBodyKeyConditions(
+	body map[string]json.RawMessage,
+	key string,
+	conditions []json.RawMessage,
+) bool {
+	rawVal, exists := body[key]
+	if !exists {
+		return matchesConditions("", false, conditions)
+	}
+
+	for _, candidate := range bodyMatchValues(rawVal) {
+		if matchesConditions(candidate, true, conditions) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// bodyMatchValues extracts the candidate scalar string(s) from a JSON message
+// body value: a string, number, or boolean yields one candidate; a JSON array of
+// scalars yields one candidate per element. A value that cannot be reduced to a
+// scalar yields no candidates (the key is then treated as non-matching).
+func bodyMatchValues(raw json.RawMessage) []string {
+	if v, ok := scalarBodyValue(raw); ok {
+		return []string{v}
+	}
+
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		out := make([]string, 0, len(arr))
+		for _, elem := range arr {
+			if v, ok := scalarBodyValue(elem); ok {
+				out = append(out, v)
+			}
+		}
+
+		return out
+	}
+
+	return nil
+}
+
+// scalarBodyValue converts a single JSON scalar (string, number, or boolean) to
+// its string form for filter matching. It reports false for non-scalar values.
+func scalarBodyValue(raw json.RawMessage) (string, bool) {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s, true
+	}
+
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n.String(), true
+	}
+
+	var b bool
+	if err := json.Unmarshal(raw, &b); err == nil {
+		return strconv.FormatBool(b), true
+	}
+
+	return "", false
+}
+
+// matchesOrBody evaluates a recognised "$or" operator against a JSON message
+// body: it returns true when AT LEAST ONE sub-policy fully matches.
+func matchesOrBody(subPolicies []json.RawMessage, message string) bool {
+	for _, raw := range subPolicies {
+		sub, err := parseFilterPolicy(string(raw))
+		if err != nil {
+			continue
+		}
+
+		if matchesFilterPolicyMessageBody(sub, message) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Publish publishes a message to a topic and returns the message ID.
@@ -1653,7 +2019,10 @@ func parsePerProtocolMessages(message, messageStructure string) map[string]strin
 
 // validatePublishMessage checks message size, subject format, structure, and
 // attribute constraints before any backend lock is acquired.
-func validatePublishMessage(message, subject, messageStructure string, attrs map[string]MessageAttribute) error {
+func validatePublishMessage(
+	message, subject, messageStructure string,
+	attrs map[string]MessageAttribute,
+) error {
 	// AWS SNS counts the message body plus every attribute name + type + value
 	// toward the 256 KiB cap.
 	totalSize := len(message)
@@ -1712,7 +2081,7 @@ func (b *InMemoryBackend) dispatchHTTPDeliveries(deliveries []httpDelivery, clie
 			select {
 			case b.workerSem <- struct{}{}:
 				defer func() { <-b.workerSem }()
-				deliverHTTPWithMeta(ctx, d, client)
+				deliverHTTPWithMeta(ctx, d, client, b)
 			case <-ctx.Done():
 				// Service is shutting down; drop this delivery rather than
 				// blocking indefinitely on a full semaphore.
@@ -1830,6 +2199,8 @@ func (b *InMemoryBackend) Publish(
 	}
 	b.deliverToLambdaSubscriptions(ev)
 	b.deliverToFirehoseSubscriptions(ev)
+	b.deliverToSMSSubscriptions(ev)
+	b.deliverToApplicationSubscriptions(ev)
 
 	return messageID, nil
 }
@@ -1863,7 +2234,10 @@ func (b *InMemoryBackend) PublishToTargetArn(
 // Returns ErrSandboxPhoneNotVerified when the number is in the SMS sandbox but not yet verified.
 func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error) {
 	if !isValidE164(phoneNumber) {
-		return "", fmt.Errorf("%w: Invalid phone number; must be in E.164 format", ErrInvalidParameter)
+		return "", fmt.Errorf(
+			"%w: Invalid phone number; must be in E.164 format",
+			ErrInvalidParameter,
+		)
 	}
 
 	b.mu.RLock("PublishSMS-check")
@@ -1873,7 +2247,11 @@ func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error
 
 	// Opted-out numbers must not receive SMS regardless of sandbox state.
 	if optedOut {
-		return "", fmt.Errorf("%w: phone number %s has opted out of SMS messages", ErrOptedOut, phoneNumber)
+		return "", fmt.Errorf(
+			"%w: phone number %s has opted out of SMS messages",
+			ErrOptedOut,
+			phoneNumber,
+		)
 	}
 
 	// When the number is registered in the sandbox, it must be verified before
@@ -1911,9 +2289,26 @@ func (b *InMemoryBackend) DrainSMSDeliveries() []SMSDelivery {
 	return deliveries
 }
 
+// DrainApplicationDeliveries returns and clears all recorded application-protocol
+// deliveries. These are recorded when a topic publish fans out to application
+// (mobile push endpoint) subscriptions so tests can assert delivery without a
+// real push network.
+func (b *InMemoryBackend) DrainApplicationDeliveries() []ApplicationDelivery {
+	b.mu.Lock("DrainApplicationDeliveries")
+	defer b.mu.Unlock()
+
+	deliveries := b.applicationDeliveries
+	b.applicationDeliveries = nil
+
+	return deliveries
+}
+
 // recordEmailDeliveries annotates and stores email/email-json deliveries produced
 // by a publish so they can later be drained for inspection.
-func (b *InMemoryBackend) recordEmailDeliveries(deliveries []EmailDelivery, messageID, topicArn string) {
+func (b *InMemoryBackend) recordEmailDeliveries(
+	deliveries []EmailDelivery,
+	messageID, topicArn string,
+) {
 	if len(deliveries) == 0 {
 		return
 	}
@@ -1947,8 +2342,15 @@ func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]Messa
 	}
 
 	for key, conditions := range policy {
-		attr, attrExists := attrs[key]
-		if !matchesConditions(attr.StringValue, attrExists, conditions) {
+		if key == orOperatorKey && isRecognisedOrOperator(conditions) {
+			if !matchesOrAttributes(conditions, attrs) {
+				return false
+			}
+
+			continue
+		}
+
+		if !matchesAttributeConditions(key, conditions, attrs) {
 			return false
 		}
 	}
@@ -1956,35 +2358,87 @@ func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]Messa
 	return true
 }
 
+// matchesAttributeConditions evaluates a single FilterPolicy attribute key
+// against message attributes. For String.Array attributes, each array element is
+// matched independently and the condition is satisfied if ANY element matches
+// (OR across elements), mirroring AWS String.Array handling.
+func matchesAttributeConditions(
+	key string, conditions []json.RawMessage, attrs map[string]MessageAttribute,
+) bool {
+	attr, attrExists := attrs[key]
+
+	for _, candidate := range attributeMatchValues(attr, attrExists) {
+		if matchesConditions(candidate, attrExists, conditions) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// attributeMatchValues returns the set of scalar string values that a message
+// attribute contributes to filter matching. A String.Array attribute (its value
+// is a JSON array of strings) expands to one candidate per element; all other
+// attributes yield their single StringValue. A non-existent attribute yields a
+// single empty candidate so "exists":false and negated conditions still run.
+func attributeMatchValues(attr MessageAttribute, attrExists bool) []string {
+	if !attrExists {
+		return []string{""}
+	}
+
+	if attr.DataType == "String.Array" {
+		var elems []string
+		if err := json.Unmarshal([]byte(attr.StringValue), &elems); err == nil && len(elems) > 0 {
+			return elems
+		}
+	}
+
+	return []string{attr.StringValue}
+}
+
+// matchesOrAttributes evaluates a recognised "$or" operator against message
+// attributes: it returns true when AT LEAST ONE sub-policy fully matches.
+func matchesOrAttributes(subPolicies []json.RawMessage, attrs map[string]MessageAttribute) bool {
+	for _, raw := range subPolicies {
+		sub, err := parseFilterPolicy(string(raw))
+		if err != nil {
+			continue
+		}
+
+		if matchesParsedFilterPolicy(sub, attrs) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // matchObjectCondition evaluates a single JSON-object SNS filter condition such as
 // {"prefix": "order-"}, {"suffix": ".jpg"}, {"anything-but": [...]},
 // {"equals-ignore-case": "OrderId"}, {"exists": true}, or {"numeric": [">", 0]}.
 func matchObjectCondition(value string, attrExists bool, obj map[string]json.RawMessage) bool {
-	if prefixRaw, ok := obj["prefix"]; ok {
-		var prefix string
-		if err := json.Unmarshal(prefixRaw, &prefix); err == nil {
-			return attrExists && strings.HasPrefix(value, prefix)
-		}
-
-		return false
+	// String-operand operators share the same shape: decode a single string
+	// operand and apply a predicate. They require the attribute to exist.
+	stringOps := map[string]func(value, operand string) bool{
+		"prefix":             strings.HasPrefix,
+		"suffix":             strings.HasSuffix,
+		"equals-ignore-case": strings.EqualFold,
+		"wildcard":           matchWildcard,
+		"cidr":               matchCIDR,
 	}
 
-	if suffixRaw, ok := obj["suffix"]; ok {
-		var suffix string
-		if err := json.Unmarshal(suffixRaw, &suffix); err == nil {
-			return attrExists && strings.HasSuffix(value, suffix)
+	for name, pred := range stringOps {
+		raw, ok := obj[name]
+		if !ok {
+			continue
 		}
 
-		return false
-	}
-
-	if eqICaseRaw, ok := obj["equals-ignore-case"]; ok {
-		var want string
-		if err := json.Unmarshal(eqICaseRaw, &want); err == nil {
-			return attrExists && strings.EqualFold(value, want)
+		var operand string
+		if err := json.Unmarshal(raw, &operand); err != nil {
+			return false
 		}
 
-		return false
+		return attrExists && pred(value, operand)
 	}
 
 	if existsRaw, ok := obj["exists"]; ok {
@@ -2007,8 +2461,80 @@ func matchObjectCondition(value string, attrExists bool, obj map[string]json.Raw
 	return false
 }
 
-// matchAnythingBut handles {"anything-but": value}, {"anything-but": [...]},
-// and {"anything-but": {"prefix": "..."}} conditions.
+// matchWildcard reports whether value matches an SNS wildcard pattern. The only
+// wildcard metacharacter is '*', which matches any (possibly empty) run of
+// characters. All other characters match literally. AWS does not support a
+// single-character wildcard, so '*' is the sole special token.
+func matchWildcard(value, pattern string) bool {
+	segments := strings.Split(pattern, "*")
+
+	// No '*' in the pattern: it must match the value exactly.
+	if len(segments) == 1 {
+		return value == pattern
+	}
+
+	// The value must start with the first segment and end with the last segment.
+	if first := segments[0]; !strings.HasPrefix(value, first) {
+		return false
+	}
+
+	if last := segments[len(segments)-1]; !strings.HasSuffix(value, last) {
+		return false
+	}
+
+	// Consume the value left-to-right, matching each interior segment in order.
+	pos := len(segments[0])
+	end := len(value) - len(segments[len(segments)-1])
+
+	for _, seg := range segments[1 : len(segments)-1] {
+		if seg == "" {
+			continue
+		}
+
+		idx := strings.Index(value[pos:end], seg)
+		if idx < 0 {
+			return false
+		}
+
+		pos += idx + len(seg)
+	}
+
+	return pos <= end
+}
+
+// matchCIDR reports whether value is an IP address contained in the given CIDR
+// block. A bare IP (no prefix length) is treated as a /32 or /128 host route,
+// matching AWS which accepts either form for the cidr operator.
+func matchCIDR(value, cidr string) bool {
+	ip := net.ParseIP(value)
+	if ip == nil {
+		return false
+	}
+
+	if !strings.Contains(cidr, "/") {
+		target := net.ParseIP(cidr)
+
+		return target != nil && target.Equal(ip)
+	}
+
+	_, network, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return false
+	}
+
+	return network.Contains(ip)
+}
+
+// matchAnythingBut handles all SNS "anything-but" forms:
+//   - {"anything-but": "literal"} / {"anything-but": 123}
+//   - {"anything-but": ["a", "b", 1, 2]}
+//   - {"anything-but": {"prefix": "order-"}}
+//   - {"anything-but": {"suffix": "ball"}}
+//   - {"anything-but": {"equals-ignore-case": "Tennis"}}
+//   - {"anything-but": {"wildcard": "*ball"}}
+//
+// In every case the operator is satisfied only when the attribute exists and the
+// value does NOT match the negated condition.
 func matchAnythingBut(value string, attrExists bool, raw json.RawMessage) bool {
 	if !attrExists {
 		return false
@@ -2032,18 +2558,56 @@ func matchAnythingBut(value string, attrExists bool, raw json.RawMessage) bool {
 		return matchAnythingButArray(value, arr)
 	}
 
-	// Try as nested prefix object: {"anything-but": {"prefix": "order-"}}.
-	var prefixObj map[string]json.RawMessage
-	if errObj := json.Unmarshal(raw, &prefixObj); errObj == nil {
-		if prefixRaw, ok := prefixObj["prefix"]; ok {
-			var prefix string
-			if errP := json.Unmarshal(prefixRaw, &prefix); errP == nil {
-				return !strings.HasPrefix(value, prefix)
-			}
-		}
+	// Try as nested operator object: {"anything-but": {"prefix"|"suffix"|...: ...}}.
+	var obj map[string]json.RawMessage
+	if errObj := json.Unmarshal(raw, &obj); errObj == nil {
+		return matchAnythingButObject(value, obj)
 	}
 
 	return true
+}
+
+// matchAnythingButObject negates a nested string operator inside an
+// "anything-but" condition. It returns true when the value does NOT satisfy the
+// inner operator.
+func matchAnythingButObject(value string, obj map[string]json.RawMessage) bool {
+	if prefixRaw, ok := obj["prefix"]; ok {
+		var prefix string
+		if err := json.Unmarshal(prefixRaw, &prefix); err == nil {
+			return !strings.HasPrefix(value, prefix)
+		}
+
+		return false
+	}
+
+	if suffixRaw, ok := obj["suffix"]; ok {
+		var suffix string
+		if err := json.Unmarshal(suffixRaw, &suffix); err == nil {
+			return !strings.HasSuffix(value, suffix)
+		}
+
+		return false
+	}
+
+	if eqICaseRaw, ok := obj["equals-ignore-case"]; ok {
+		var want string
+		if err := json.Unmarshal(eqICaseRaw, &want); err == nil {
+			return !strings.EqualFold(value, want)
+		}
+
+		return false
+	}
+
+	if wildcardRaw, ok := obj["wildcard"]; ok {
+		var pattern string
+		if err := json.Unmarshal(wildcardRaw, &pattern); err == nil {
+			return !matchWildcard(value, pattern)
+		}
+
+		return false
+	}
+
+	return false
 }
 
 // matchAnythingButArray checks that value does not equal any element in the "anything-but" array.
@@ -2211,11 +2775,29 @@ func (b *InMemoryBackend) ListAllPlatformApplications() []PlatformApplication {
 	return apps
 }
 
-// sortedTopics returns topics sorted by TopicArn. Must be called with at least RLock held.
+// sortedTopics returns all topics sorted by TopicArn. Must be called with at least RLock held.
 func (b *InMemoryBackend) sortedTopics() []Topic {
 	topics := make([]Topic, 0, len(b.topics))
 	for _, t := range b.topics {
 		topics = append(topics, *t)
+	}
+
+	sort.Slice(topics, func(i, j int) bool {
+		return topics[i].TopicArn < topics[j].TopicArn
+	})
+
+	return topics
+}
+
+// sortedTopicsInRegion returns topics in the given region sorted by TopicArn.
+// Must be called with at least RLock held.
+// The region is extracted from the topic ARN (arn:partition:sns:REGION:account:name).
+func (b *InMemoryBackend) sortedTopicsInRegion(region string) []Topic {
+	topics := make([]Topic, 0, len(b.topics))
+	for _, t := range b.topics {
+		if arnRegion(t.TopicArn) == region {
+			topics = append(topics, *t)
+		}
 	}
 
 	sort.Slice(topics, func(i, j int) bool {
@@ -2255,26 +2837,147 @@ type snsHTTPNotification struct {
 	UnsubscribeURL   string `json:"UnsubscribeURL"`
 }
 
-// deliverHTTPWithMeta sends a best-effort HTTP POST with SNS notification headers
-// to the endpoint. Standard AWS SNS headers are added when metadata is available.
-// When rawDelivery is false the body is wrapped in a SNS Notification JSON envelope
-// (matching what AWS SNS sends to http/https subscribers by default).
-// On network error or non-2xx response, the message is forwarded to the DLQ when
-// a RedrivePolicy is configured.
-func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client) {
-	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
-	defer cancel()
+func parseTopicEffectivePolicy(topicEffectivePolicy, protocol string) *int {
+	var tp map[string]struct {
+		DefaultHealthyRetryPolicy struct {
+			NumRetries *int `json:"numRetries"`
+		} `json:"defaultHealthyRetryPolicy"`
+	}
+	if err := json.Unmarshal([]byte(topicEffectivePolicy), &tp); err == nil {
+		pKey := protocol
+		if pKey == protocolHTTPS {
+			pKey = protocolHTTP
+		}
+		if protoPol, ok := tp[pKey]; ok {
+			return protoPol.DefaultHealthyRetryPolicy.NumRetries
+		}
+	}
 
+	return nil
+}
+
+func parseSubPolicy(subPolicy string) *int {
+	var sp struct {
+		HealthyRetryPolicy struct {
+			NumRetries *int `json:"numRetries"`
+		} `json:"healthyRetryPolicy"`
+	}
+	if err := json.Unmarshal([]byte(subPolicy), &sp); err == nil {
+		return sp.HealthyRetryPolicy.NumRetries
+	}
+
+	return nil
+}
+
+// getRetryConfig parses the EffectiveDeliveryPolicy and/or DeliveryPolicy for a given protocol.
+// It returns the number of retries configured.
+func getRetryConfig(topicEffectivePolicy, subPolicy, protocol string) int {
+	numRetries := 3
+
+	if topicEffectivePolicy != "" {
+		if nr := parseTopicEffectivePolicy(topicEffectivePolicy, protocol); nr != nil {
+			numRetries = *nr
+		}
+	}
+
+	if subPolicy != "" {
+		if nr := parseSubPolicy(subPolicy); nr != nil {
+			numRetries = *nr
+		}
+	}
+
+	if numRetries < 0 {
+		numRetries = 0
+	}
+
+	return numRetries
+}
+
+func (b *InMemoryBackend) logDeliveryStatus(
+	ctx context.Context,
+	topicARN, protocol, endpoint, status string,
+	err error,
+) {
+	b.mu.RLock("logDeliveryStatus")
+	topic, ok := b.topics[topicARN]
+	if !ok {
+		b.mu.RUnlock()
+
+		return
+	}
+
+	// Determine the protocol prefix
+	constHTTPPrefix := "HTTP"
+	constHTTPSPrefix := "HTTPS"
+	var prefix string
+	switch protocol {
+	case protocolHTTP, protocolHTTPS:
+		prefix = constHTTPPrefix
+		if protocol == protocolHTTPS {
+			if topic.Attributes["HTTPSSuccessFeedbackRoleArn"] != "" {
+				prefix = constHTTPSPrefix
+			} else {
+				prefix = constHTTPPrefix
+			}
+		}
+	case protocolLambda:
+		prefix = "Lambda"
+	case protocolFirehose:
+		prefix = "Firehose"
+	case protocolApplication:
+		prefix = "Application"
+	case protocolSQS:
+		prefix = "SQS"
+	default:
+		prefix = constHTTPPrefix
+	}
+
+	roleArnAttr := prefix + "SuccessFeedbackRoleArn"
+	if status == "FAILURE" {
+		roleArnAttr = prefix + "FailureFeedbackRoleArn"
+	}
+
+	roleArn := topic.Attributes[roleArnAttr]
+	b.mu.RUnlock()
+
+	if roleArn == "" {
+		return
+	}
+
+	l := logger.Load(ctx).With(
+		"protocol", protocol,
+		"endpoint", endpoint,
+		"status", status,
+		"role_arn", roleArn,
+		"topic_arn", topicARN,
+	)
+	if err != nil {
+		l.InfoContext(ctx, "SNS delivery status", "error", err.Error())
+	} else {
+		l.InfoContext(ctx, "SNS delivery status")
+	}
+}
+
+func buildHTTPDeliveryPayload(d httpDelivery) string {
 	body := d.body
 
-	// When RawMessageDelivery is false (the default), wrap the message in the
-	// standard SNS Notification JSON envelope. This matches what real AWS SNS
-	// delivers to http/https subscribers so that notification handling libraries
-	// (e.g. aws-sns-body-parser) can parse the payload correctly.
 	if !d.rawDelivery && d.messageID != "" {
 		timestamp := time.Now().UTC().Format(time.RFC3339)
 
-		certURL := "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem"
+		const (
+			arnFieldCount   = 6
+			arnRegionIndex  = 3
+			arnMinFieldsReg = 4
+		)
+		topicRegion := "us-east-1"
+		if parts := strings.SplitN(d.topicARN, ":", arnFieldCount); len(parts) >= arnMinFieldsReg &&
+			parts[arnRegionIndex] != "" {
+			topicRegion = parts[arnRegionIndex]
+		}
+		certURL := fmt.Sprintf(
+			"https://sns.%s.amazonaws.com/SimpleNotificationService.pem",
+			topicRegion,
+		)
 		signature := "MOCK-SIGNATURE"
 		if d.signer != nil {
 			certURL = d.signer.certURL
@@ -2293,7 +2996,8 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 			SignatureVersion: "2",
 			Signature:        signature,
 			SigningCertURL:   certURL,
-			UnsubscribeURL:   "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,
+			UnsubscribeURL: "https://sns." + topicRegion +
+				".amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,
 		}
 		if d.subject != "" {
 			env.Subject = d.subject
@@ -2304,45 +3008,60 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 		}
 	}
 
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		d.endpoint,
-		strings.NewReader(body),
-	)
-	if err != nil {
-		sendSubscriptionDLQ(parent, d)
+	return body
+}
 
-		return
+// deliverHTTPWithMeta sends a best-effort HTTP POST with SNS notification headers
+// to the endpoint. Standard AWS SNS headers are added when metadata is available.
+// When rawDelivery is false the body is wrapped in a SNS Notification JSON envelope
+// (matching what AWS SNS sends to http/https subscribers by default).
+// On network error or non-2xx response, the message is forwarded to the DLQ when
+// a RedrivePolicy is configured.
+func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client, b *InMemoryBackend) {
+	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
+	defer cancel()
+
+	body := buildHTTPDeliveryPayload(d)
+
+	protocol := protocolHTTP
+	if strings.HasPrefix(d.endpoint, "https://") {
+		protocol = protocolHTTPS
+	}
+	numRetries := getRetryConfig(d.topicEffectivePolicy, d.deliveryPolicy, protocol)
+
+	var err error
+	var resp *http.Response
+
+	for i := 0; i <= numRetries; i++ {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, d.endpoint, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Amz-Sns-Message-Type", messageTypeNotification)
+		if d.messageID != "" {
+			req.Header.Set("X-Amz-Sns-Message-Id", d.messageID)
+		}
+		if d.topicARN != "" {
+			req.Header.Set("X-Amz-Sns-Topic-Arn", d.topicARN)
+		}
+		if d.subscriptionARN != "" {
+			req.Header.Set("X-Amz-Sns-Subscription-Arn", d.subscriptionARN)
+		}
+
+		resp, err = client.Do(req)
+		if err == nil {
+			defer func() { _ = resp.Body.Close() }()
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDeliveryResponseBytes))
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				b.logDeliveryStatus(parent, d.topicARN, protocol, d.endpoint, "SUCCESS", nil)
+
+				return
+			}
+			err = fmt.Errorf("%w: %d", ErrHTTPStatus, resp.StatusCode)
+		}
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-
-	// Add standard AWS SNS HTTP notification headers.
-	req.Header.Set("X-Amz-Sns-Message-Type", messageTypeNotification)
-	if d.messageID != "" {
-		req.Header.Set("X-Amz-Sns-Message-Id", d.messageID)
-	}
-	if d.topicARN != "" {
-		req.Header.Set("X-Amz-Sns-Topic-Arn", d.topicARN)
-	}
-	if d.subscriptionARN != "" {
-		req.Header.Set("X-Amz-Sns-Subscription-Arn", d.subscriptionARN)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		sendSubscriptionDLQ(parent, d)
-
-		return
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDeliveryResponseBytes))
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		sendSubscriptionDLQ(parent, d)
-	}
+	b.logDeliveryStatus(parent, d.topicARN, protocol, d.endpoint, "FAILURE", err)
+	sendSubscriptionDLQ(parent, d)
 }
 
 // sendSubscriptionDLQ delivers the message body to the DLQ configured in d.redrivePolicy when
@@ -2518,11 +3237,23 @@ func (b *InMemoryBackend) UntagTopicByARN(topicARN string, tagKeys []string) err
 	return nil
 }
 
-// CreatePlatformApplication creates a new SNS platform application (e.g. GCM, APNS).
+// CreatePlatformApplication creates a new SNS platform application using the backend's default region.
 func (b *InMemoryBackend) CreatePlatformApplication(
 	name, platform string,
 	attributes map[string]string,
 ) (*PlatformApplication, error) {
+	return b.CreatePlatformApplicationInRegion(name, platform, b.region, attributes)
+}
+
+// CreatePlatformApplicationInRegion creates a new SNS platform application (e.g. GCM, APNS)
+// with the ARN scoped to the specified region.
+func (b *InMemoryBackend) CreatePlatformApplicationInRegion(
+	name, platform, region string,
+	attributes map[string]string,
+) (*PlatformApplication, error) {
+	if region == "" {
+		region = b.region
+	}
 	if strings.ContainsAny(name, "/") || strings.ContainsAny(platform, "/") {
 		return nil, fmt.Errorf("%w: Name and Platform must not contain '/'", ErrInvalidParameter)
 	}
@@ -2542,10 +3273,10 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 		)
 	}
 
-	b.mu.Lock("CreatePlatformApplication")
+	b.mu.Lock("CreatePlatformApplicationInRegion")
 	defer b.mu.Unlock()
 
-	appArn := arn.Build("sns", b.region, b.accountID, "app/"+platform+"/"+name)
+	appArn := arn.Build("sns", region, b.accountID, "app/"+platform+"/"+name)
 
 	if _, exists := b.platformApplications[appArn]; exists {
 		return nil, ErrPlatformApplicationAlreadyExists
@@ -2574,7 +3305,9 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 //   - Enabled: always "true" for the application itself (not to be confused with endpoint Enabled).
 //   - EndpointActive: the number of enabled platform endpoints for this application.
 //   - EndpointDisabled: the number of disabled platform endpoints.
-func (b *InMemoryBackend) GetPlatformApplicationAttributes(platformApplicationArn string) (map[string]string, error) {
+func (b *InMemoryBackend) GetPlatformApplicationAttributes(
+	platformApplicationArn string,
+) (map[string]string, error) {
 	b.mu.RLock("GetPlatformApplicationAttributes")
 	defer b.mu.RUnlock()
 
@@ -2627,7 +3360,9 @@ func (b *InMemoryBackend) SetPlatformApplicationAttributes(
 }
 
 // ListPlatformApplications returns a page of platform applications and the next pagination token.
-func (b *InMemoryBackend) ListPlatformApplications(nextToken string) ([]PlatformApplication, string, error) {
+func (b *InMemoryBackend) ListPlatformApplications(
+	nextToken string,
+) ([]PlatformApplication, string, error) {
 	b.mu.RLock("ListPlatformApplications")
 	defer b.mu.RUnlock()
 
@@ -2712,7 +3447,11 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	platform := resourceParts[1]
 	appName := resourceParts[2]
 
-	endpointArn := arn.Build("sns", b.region, b.accountID,
+	appRegion := arnRegion(platformApplicationArn)
+	if appRegion == "" {
+		appRegion = b.region
+	}
+	endpointArn := arn.Build("sns", appRegion, b.accountID,
 		"endpoint/"+platform+"/"+appName+"/"+uuid.New().String())
 
 	// Allocate with room for Token and Enabled (endpointExtraAttrs) beyond caller-supplied attrs.
@@ -2760,7 +3499,10 @@ func (b *InMemoryBackend) GetEndpointAttributes(endpointArn string) (map[string]
 // SetEndpointAttributes updates attributes on a platform endpoint.
 // After the update, an EventEndpointUpdated event is fired to the platform
 // application's configured event topic, if any.
-func (b *InMemoryBackend) SetEndpointAttributes(endpointArn string, attributes map[string]string) error {
+func (b *InMemoryBackend) SetEndpointAttributes(
+	endpointArn string,
+	attributes map[string]string,
+) error {
 	b.mu.Lock("SetEndpointAttributes")
 
 	ep, exists := b.platformEndpoints[endpointArn]
@@ -2901,11 +3643,18 @@ func parseReplayFromTimestamp(replayPolicy string) (time.Time, error) {
 	}
 
 	if err := json.Unmarshal([]byte(replayPolicy), &p); err != nil {
-		return time.Time{}, fmt.Errorf("%w: ReplayPolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
+		return time.Time{}, fmt.Errorf(
+			"%w: ReplayPolicy is not valid JSON: %s",
+			ErrInvalidParameter,
+			err.Error(),
+		)
 	}
 
 	if p.ReplayFromTimestamp == "" {
-		return time.Time{}, fmt.Errorf("%w: ReplayPolicy must include replayFromTimestamp", ErrInvalidParameter)
+		return time.Time{}, fmt.Errorf(
+			"%w: ReplayPolicy must include replayFromTimestamp",
+			ErrInvalidParameter,
+		)
 	}
 
 	ts, err := time.Parse(time.RFC3339, p.ReplayFromTimestamp)
@@ -2924,7 +3673,11 @@ func parseReplayFromTimestamp(replayPolicy string) (time.Time, error) {
 // attribute: when set, a subscriber receives historical messages from the topic's
 // archive. Delivery uses the same mechanisms as a normal Publish (HTTP/HTTPS goroutines
 // and the event emitter for SQS/Lambda/Firehose).
-func (b *InMemoryBackend) replayMessagesToSubscription(sub Subscription, topicArn string, fromTime time.Time) {
+func (b *InMemoryBackend) replayMessagesToSubscription(
+	sub Subscription,
+	topicArn string,
+	fromTime time.Time,
+) {
 	b.mu.RLock("replayMessages")
 
 	archive := b.topicMessageArchive[topicArn]
@@ -2939,6 +3692,12 @@ func (b *InMemoryBackend) replayMessagesToSubscription(sub Subscription, topicAr
 	client := b.httpClient
 	signer := b.signer
 	sqsSender := b.sqsSender
+
+	var topicEffectivePolicy string
+	if topic, ok := b.topics[topicArn]; ok {
+		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+	}
+
 	b.mu.RUnlock()
 
 	for _, msg := range toReplay {
@@ -2949,22 +3708,25 @@ func (b *InMemoryBackend) replayMessagesToSubscription(sub Subscription, topicAr
 			FilterPolicy:       sub.FilterPolicy,
 			RawMessageDelivery: sub.RawMessageDelivery,
 			RedrivePolicy:      sub.RedrivePolicy,
+			DeliveryPolicy:     sub.DeliveryPolicy,
 		}
 
 		if sub.Protocol == protocolHTTP || sub.Protocol == protocolHTTPS {
 			d := httpDelivery{
-				endpoint:        sub.Endpoint,
-				body:            msg.Message,
-				subject:         msg.Subject,
-				messageID:       msg.MessageID,
-				topicARN:        topicArn,
-				subscriptionARN: sub.SubscriptionArn,
-				rawDelivery:     sub.RawMessageDelivery,
-				redrivePolicy:   sub.RedrivePolicy,
-				sqsSender:       sqsSender,
-				signer:          signer,
+				endpoint:             sub.Endpoint,
+				body:                 msg.Message,
+				subject:              msg.Subject,
+				messageID:            msg.MessageID,
+				topicARN:             topicArn,
+				subscriptionARN:      sub.SubscriptionArn,
+				rawDelivery:          sub.RawMessageDelivery,
+				redrivePolicy:        sub.RedrivePolicy,
+				deliveryPolicy:       sub.DeliveryPolicy,
+				topicEffectivePolicy: topicEffectivePolicy,
+				sqsSender:            sqsSender,
+				signer:               signer,
 			}
-			deliverHTTPWithMeta(b.svcCtx, d, client)
+			deliverHTTPWithMeta(b.svcCtx, d, client, b)
 		}
 
 		if emitter != nil {
@@ -3144,9 +3906,22 @@ func (b *InMemoryBackend) RemovePermission(topicArn, label string) error {
 	return nil
 }
 
-// GetSMSSandboxAccountStatus always returns true (sandbox mode) for the mock backend.
+// GetSMSSandboxAccountStatus returns whether the account is in SMS sandbox mode.
+// Defaults to true (sandbox mode active) matching the AWS default for new accounts.
 func (b *InMemoryBackend) GetSMSSandboxAccountStatus() (bool, error) {
-	return true, nil
+	b.mu.RLock("GetSMSSandboxAccountStatus")
+	defer b.mu.RUnlock()
+
+	return b.smsSandboxEnabled, nil
+}
+
+// SetSMSSandboxMode configures sandbox mode. AWS does not expose an API for this —
+// use this method in tests or operator tooling to simulate production mode.
+func (b *InMemoryBackend) SetSMSSandboxMode(enabled bool) {
+	b.mu.Lock("SetSMSSandboxMode")
+	defer b.mu.Unlock()
+
+	b.smsSandboxEnabled = enabled
 }
 
 // CreateSMSSandboxPhoneNumber adds a phone number to the SMS sandbox.
@@ -3266,7 +4041,10 @@ func (b *InMemoryBackend) CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool
 // ListPhoneNumbersOptedOut returns a paginated list of phone numbers opted out of SMS,
 // a next-page token (empty when the last page is reached), and any error.
 // maxResults controls the page size; 0 means the default (100). Values exceeding 100 are clamped.
-func (b *InMemoryBackend) ListPhoneNumbersOptedOut(nextToken string, maxResults int) ([]string, string, error) {
+func (b *InMemoryBackend) ListPhoneNumbersOptedOut(
+	nextToken string,
+	maxResults int,
+) ([]string, string, error) {
 	b.mu.RLock("ListPhoneNumbersOptedOut")
 	defer b.mu.RUnlock()
 
@@ -3386,10 +4164,62 @@ func (b *InMemoryBackend) PutDataProtectionPolicy(resourceArn, policy string) er
 	return nil
 }
 
-// ListOriginationNumbers returns a paginated list of origination phone numbers.
-// The mock backend maintains no origination numbers by default; callers receive an empty list.
-func (b *InMemoryBackend) ListOriginationNumbers(_ string) ([]XMLOriginationPhone, string, error) {
-	return []XMLOriginationPhone{}, "", nil
+// ListOriginationNumbers returns a paginated list of origination phone numbers for the
+// backend's region, a next-page token (empty when the last page is reached), and any error.
+// maxResults controls the page size; 0 means the default (30). Values exceeding 30 are clamped,
+// matching AWS SNS limits for this operation.
+//
+// AWS SNS exposes no public "create origination number" API: origination numbers are
+// provisioned by buying phone numbers through Pinpoint / AWS End User Messaging. A fresh
+// account therefore legitimately has none, so an empty list is AWS-accurate. State is
+// populated internally via [InMemoryBackend.SeedOriginationNumber] (used by tests).
+func (b *InMemoryBackend) ListOriginationNumbers(
+	nextToken string,
+	maxResults int,
+) ([]XMLOriginationPhone, string, error) {
+	b.mu.RLock("ListOriginationNumbers")
+	defer b.mu.RUnlock()
+
+	all := b.sortedOriginationNumbers()
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrInvalidParameter
+	}
+
+	size := resolvePageSize(maxResults, defaultListOriginationNumbersResults, maxListOriginationNumbersResults)
+	nums, next := paginate(all, offset, size)
+
+	return nums, next, nil
+}
+
+// sortedOriginationNumbers returns the origination numbers for the backend's region sorted
+// by phone number. Must be called with at least RLock held.
+func (b *InMemoryBackend) sortedOriginationNumbers() []XMLOriginationPhone {
+	src := b.originationNumbers[b.region]
+	nums := make([]XMLOriginationPhone, len(src))
+	copy(nums, src)
+
+	sort.Slice(nums, func(i, j int) bool {
+		return nums[i].PhoneNumber < nums[j].PhoneNumber
+	})
+
+	return nums
+}
+
+// SeedOriginationNumber populates an origination phone number for the backend's region.
+// It exists because AWS SNS provides no public API to create origination numbers (they are
+// provisioned via Pinpoint / AWS End User Messaging); this internal helper lets tests and
+// fixtures populate state that [InMemoryBackend.ListOriginationNumbers] then returns honestly.
+func (b *InMemoryBackend) SeedOriginationNumber(num XMLOriginationPhone) {
+	b.mu.Lock("SeedOriginationNumber")
+	defer b.mu.Unlock()
+
+	if b.originationNumbers == nil {
+		b.originationNumbers = make(map[string][]XMLOriginationPhone)
+	}
+
+	b.originationNumbers[b.region] = append(b.originationNumbers[b.region], num)
 }
 
 // WaitDeliveries stops accepting new HTTP/HTTPS delivery goroutines and blocks
@@ -3534,6 +4364,7 @@ func (b *InMemoryBackend) Reset() {
 	b.smsAttributes = make(map[string]string)
 	b.smsDeliveries = nil
 	b.emailDeliveries = nil
+	b.applicationDeliveries = nil
 }
 
 func (b *InMemoryBackend) archivePublishedMessage(

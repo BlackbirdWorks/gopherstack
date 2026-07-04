@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -18,7 +19,6 @@ const (
 	statusCreatePending = "CREATE_PENDING"
 	statusActive        = "ACTIVE"
 	statusCreateFailed  = "CREATE_FAILED"
-	statusDeleting      = "DELETING"
 
 	defaultAccountID = "000000000000"
 	defaultRegion    = "us-east-1"
@@ -56,6 +56,14 @@ const (
 	itemCountBase  = 100
 	itemCountMod   = 900
 )
+
+// maxResourceNameLen is the maximum number of characters allowed in any Amazon
+// Forecast resource name (DatasetName, PredictorName, etc.).
+const maxResourceNameLen = 256
+
+// resourceNameRegex matches valid Amazon Forecast resource names:
+// only alphanumeric characters, underscores, and hyphens are allowed.
+var resourceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 var (
 	// ErrNotFound is returned when a requested Forecast resource is absent.
@@ -109,11 +117,18 @@ type MonitorEvaluation struct {
 	MetricResults   []any     `json:"MetricResults"`
 }
 
+// arnEntry locates a resource by kind and name — used for cross-kind ARN lookups.
+type arnEntry struct {
+	kind resourceKind
+	name string
+}
+
 // InMemoryBackend stores Amazon Forecast state with concurrency-safe transitions.
 type InMemoryBackend struct {
 	resources   map[resourceKind]map[string]*Resource
 	evaluations map[string][]MonitorEvaluation
 	tags        map[string]map[string]string
+	arnIndex    map[string]arnEntry // ARN → (kind, name) for O(1) cross-kind lookup
 	accountID   string
 	region      string
 	mu          sync.RWMutex
@@ -132,6 +147,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		resources:   make(map[resourceKind]map[string]*Resource),
 		evaluations: make(map[string][]MonitorEvaluation),
 		tags:        make(map[string]map[string]string),
+		arnIndex:    make(map[string]arnEntry),
 		accountID:   accountID,
 		region:      region,
 	}
@@ -146,6 +162,7 @@ func (b *InMemoryBackend) Reset() {
 	b.resources = make(map[resourceKind]map[string]*Resource)
 	b.evaluations = make(map[string][]MonitorEvaluation)
 	b.tags = make(map[string]map[string]string)
+	b.arnIndex = make(map[string]arnEntry)
 }
 
 // Region returns backend region.
@@ -157,6 +174,21 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string]any, failed bool) (*Resource, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: resource name is required", ErrValidation)
+	}
+
+	if len(name) > maxResourceNameLen {
+		return nil, fmt.Errorf(
+			"%w: resource name must not exceed %d characters; got %d",
+			ErrValidation, maxResourceNameLen, len(name),
+		)
+	}
+
+	if !resourceNameRegex.MatchString(name) {
+		return nil, fmt.Errorf(
+			"%w: resource name %q contains invalid characters "+
+				"(only alphanumeric, underscore, and hyphen are allowed)",
+			ErrValidation, name,
+		)
 	}
 
 	b.mu.Lock()
@@ -183,6 +215,7 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 		Kind:      kind,
 	}
 	items[name] = resource
+	b.arnIndex[resource.ARN] = arnEntry{kind: kind, name: name}
 	if kind == kindMonitor {
 		b.evaluations[resource.ARN] = []MonitorEvaluation{newEvaluation(resource)}
 	}
@@ -235,8 +268,10 @@ func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
 		return fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
-	resource.Status = statusDeleting
-	resource.UpdatedAt = time.Now().UTC()
+	delete(b.resources[kind], resource.Name)
+	delete(b.arnIndex, resource.ARN)
+	delete(b.evaluations, resource.ARN)
+	delete(b.tags, resource.ARN)
 
 	return nil
 }
@@ -361,41 +396,81 @@ func stringValue(value any) string {
 }
 
 // UpdateResourceStatus handles StopResource and ResumeResource.
-func (b *InMemoryBackend) UpdateResourceStatus(arn, newStatus string) error {
+func (b *InMemoryBackend) UpdateResourceStatus(resourceARN, newStatus string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, kinds := range b.resources {
-		for _, resource := range kinds {
-			if resource.ARN == arn {
-				resource.Status = newStatus
-				resource.UpdatedAt = time.Now().UTC()
-
-				return nil
-			}
-		}
+	entry, ok := b.arnIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %q", ErrNotFound, arn)
+	resource := b.resources[entry.kind][entry.name]
+	resource.Status = newStatus
+	resource.UpdatedAt = time.Now().UTC()
+
+	return nil
 }
 
-// DeleteResourceTree deletes a resource and its children (mock implementation deleting just the resource).
-func (b *InMemoryBackend) DeleteResourceTree(arn string) error {
+// DeleteResourceTree deletes a resource and all dependent child resources
+// transitively, mirroring AWS Forecast behavior.
+func (b *InMemoryBackend) DeleteResourceTree(targetARN string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, kinds := range b.resources {
-		for _, resource := range kinds {
-			if resource.ARN == arn {
-				resource.Status = statusDeleting
-				resource.UpdatedAt = time.Now().UTC()
+	if _, ok := b.arnIndex[targetARN]; !ok {
+		return fmt.Errorf("%w: resource %q", ErrNotFound, targetARN)
+	}
 
-				return nil
+	b.deleteTreeLocked(targetARN)
+
+	return nil
+}
+
+// deleteTreeLocked performs a BFS from targetARN to collect all resources that
+// directly or indirectly reference it, then removes them all.
+// Must be called with b.mu held for write.
+func (b *InMemoryBackend) deleteTreeLocked(targetARN string) {
+	toDelete := map[string]struct{}{targetARN: {}}
+	queue := []string{targetARN}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		for _, items := range b.resources {
+			for _, r := range items {
+				if _, already := toDelete[r.ARN]; already {
+					continue
+				}
+
+				if arnReferencedBy(r, current) {
+					toDelete[r.ARN] = struct{}{}
+					queue = append(queue, r.ARN)
+				}
 			}
 		}
 	}
 
-	return fmt.Errorf("%w: resource %q", ErrNotFound, arn)
+	for arnToDelete := range toDelete {
+		if entry, ok := b.arnIndex[arnToDelete]; ok {
+			delete(b.resources[entry.kind], entry.name)
+			delete(b.arnIndex, arnToDelete)
+			delete(b.evaluations, arnToDelete)
+			delete(b.tags, arnToDelete)
+		}
+	}
+}
+
+// arnReferencedBy returns true if any string value in r.Data equals targetARN.
+func arnReferencedBy(r *Resource, targetARN string) bool {
+	for _, v := range r.Data {
+		if s, ok := v.(string); ok && s == targetARN {
+			return true
+		}
+	}
+
+	return false
 }
 
 // GetAccuracyMetrics returns deterministic backtest accuracy metrics for a

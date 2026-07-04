@@ -58,11 +58,14 @@ func TestSDK_RDS_FullLifecycle(t *testing.T) {
 	require.Len(t, descOut.DBInstances, 1)
 	assert.Equal(t, id, aws.ToString(descOut.DBInstances[0].DBInstanceIdentifier))
 
-	// ModifyDBInstance
+	// ModifyDBInstance. ApplyImmediately=true so the deferrable instance-class
+	// change takes effect now instead of landing in PendingModifiedValues
+	// (AWS defers class/storage changes to the maintenance window otherwise).
 	modOut, err := client.ModifyDBInstance(ctx, &rdssdk.ModifyDBInstanceInput{
 		DBInstanceIdentifier: aws.String(id),
 		DBInstanceClass:      aws.String("db.r5.large"),
 		AllocatedStorage:     aws.Int32(50),
+		ApplyImmediately:     aws.Bool(true),
 	})
 	require.NoError(t, err, "ModifyDBInstance should succeed")
 	assert.Equal(t, "db.r5.large", aws.ToString(modOut.DBInstance.DBInstanceClass))

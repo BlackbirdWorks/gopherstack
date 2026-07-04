@@ -107,3 +107,82 @@ func TestIntegration_Athena_WorkGroupAndNamedQueryLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, listNQOut.NamedQueryIds, queryID)
 }
+
+// TestIntegration_Athena_DDLAndDMLQueryLifecycle exercises the SQL engine beyond
+// SELECT via the AWS SDK: a CREATE TABLE (DDL) mutates the catalog, an INSERT
+// (DML) writes rows, and a subsequent SELECT returns those rows through
+// GetQueryResults. Mirrors the query-execution flow that terraform-provider-aws
+// drives against real Athena.
+func TestIntegration_Athena_DDLAndDMLQueryLifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createAthenaClient(t)
+	ctx := t.Context()
+
+	const (
+		workGroup    = "it-athena-ddl-wg"
+		database     = "default"
+		outputBucket = "s3://it-athena-ddl-results/"
+	)
+
+	_, err := client.CreateWorkGroup(ctx, &athenasdk.CreateWorkGroupInput{
+		Name: aws.String(workGroup),
+		Configuration: &athenatypes.WorkGroupConfiguration{
+			ResultConfiguration: &athenatypes.ResultConfiguration{
+				OutputLocation: aws.String(outputBucket),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.DeleteWorkGroup(ctx, &athenasdk.DeleteWorkGroupInput{
+			WorkGroup: aws.String(workGroup),
+		})
+	})
+
+	queryCtx := &athenatypes.QueryExecutionContext{
+		Catalog:  aws.String("AwsDataCatalog"),
+		Database: aws.String(database),
+	}
+
+	runQuery := func(sql string) string {
+		startOut, serr := client.StartQueryExecution(ctx, &athenasdk.StartQueryExecutionInput{
+			QueryString:           aws.String(sql),
+			WorkGroup:             aws.String(workGroup),
+			QueryExecutionContext: queryCtx,
+		})
+		require.NoError(t, serr)
+
+		id := aws.ToString(startOut.QueryExecutionId)
+		require.NotEmpty(t, id)
+
+		getOut, gerr := client.GetQueryExecution(ctx, &athenasdk.GetQueryExecutionInput{
+			QueryExecutionId: aws.String(id),
+		})
+		require.NoError(t, gerr)
+		require.NotNil(t, getOut.QueryExecution)
+		require.Equal(t, athenatypes.QueryExecutionStateSucceeded,
+			getOut.QueryExecution.Status.State, "query %q should succeed", sql)
+
+		return id
+	}
+
+	// DDL: create a table.
+	runQuery("CREATE EXTERNAL TABLE it_events (id bigint, label string)")
+
+	// DML: insert rows.
+	runQuery("INSERT INTO it_events VALUES (1, 'alpha'), (2, 'beta')")
+
+	// SELECT the inserted rows and read them via GetQueryResults.
+	selectID := runQuery("SELECT id, label FROM it_events")
+
+	resultsOut, err := client.GetQueryResults(ctx, &athenasdk.GetQueryResultsInput{
+		QueryExecutionId: aws.String(selectID),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resultsOut.ResultSet)
+	// Header row plus the two inserted data rows.
+	assert.Len(t, resultsOut.ResultSet.Rows, 3)
+}

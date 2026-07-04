@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,8 +22,13 @@ import (
 )
 
 const (
-	keyPosition = "position"
-	litTrue     = "true"
+	keyPosition       = "position"
+	litTrue           = "true"
+	headerContentType = "Content-Type"
+	// modeImport is the "mode" query parameter value that distinguishes
+	// ImportRestApi (POST /restapis?mode=import) and ImportApiKeys
+	// (POST /apikeys?mode=import) from their plain-create counterparts.
+	modeImport = "import"
 )
 
 const (
@@ -255,6 +261,7 @@ type deleteResourceInput struct {
 }
 
 type putMethodInput struct {
+	RequestParameters  map[string]bool   `json:"requestParameters,omitempty"`
 	RequestModels      map[string]string `json:"requestModels,omitempty"`
 	RestAPIID          string            `json:"restApiId"`
 	ResourceID         string            `json:"resourceId"`
@@ -629,27 +636,51 @@ type getExportInput struct {
 	ExportType string `json:"exportType"`
 }
 
+// JWKSProvider resolves RSA public keys for JWT signature verification.
+// Implementations return an error when the issuer or key is unknown.
+type JWKSProvider interface {
+	GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error)
+}
+
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
-	Backend        StorageBackend
-	authCache      *authorizerCache
-	lambda         LambdaInvoker
-	httpClient     *http.Client
-	selRegexpCache sync.Map // map[string]*regexp.Regexp — compiled selection-pattern regexps
+	Backend      StorageBackend
+	jwksProvider JWKSProvider
+	lambda       LambdaInvoker
+	authCache    *authorizerCache
+	httpClient   *http.Client
+	// selRegexpCache is a bounded LRU of compiled selection-pattern regexps. It is
+	// keyed by user-supplied patterns, so it must be size-capped to prevent unbounded
+	// growth.
+	selRegexpCache *regexpCache
+	// dispatchCache is the op→handler table, built exactly once (see dispatchOnce)
+	// instead of per request.
+	dispatchCache map[string]actionFn
+	// trieCache holds the per-API routing trie (map[apiID]*trieCacheEntry). It is
+	// rebuilt only when the API's resource-set version changes.
+	trieCache sync.Map
+	// dispatchOnce guards the one-time build of dispatchCache.
+	dispatchOnce sync.Once
 }
 
 // NewHandler creates a new API Gateway handler with a default HTTP client timeout.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend:    backend,
-		authCache:  newAuthorizerCache(),
-		httpClient: &http.Client{Timeout: apiGWHTTPTimeout},
+		Backend:        backend,
+		authCache:      newAuthorizerCache(),
+		httpClient:     &http.Client{Timeout: apiGWHTTPTimeout},
+		selRegexpCache: newRegexpCache(defaultRegexpCacheMaxEntries),
 	}
 }
 
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
 func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 	h.lambda = lambda
+}
+
+// SetJWKSProvider configures the JWKS provider used to verify Cognito JWT signatures.
+func (h *Handler) SetJWKSProvider(p JWKSProvider) {
+	h.jwksProvider = p
 }
 
 // SetHTTPClient configures the HTTP client used for HTTP/HTTP_PROXY integrations.
@@ -968,7 +999,7 @@ func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
 	}
@@ -1007,6 +1038,17 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
+	// OpenAPI import (ImportRestApi / PutRestApi) carries the raw spec document
+	// as the HTTP body. These are detected here because they share REST paths
+	// with CreateRestApi (POST /restapis) and UpdateRestApi (PUT /restapis/{id})
+	// but are distinguished by the request method/query, and the body must be
+	// passed through verbatim rather than treated as a flat field object.
+	if importAction, importBody, isImport := detectImportRESTAPI(
+		c.Request().Method, action, pathParams, c.Request().URL.Query(), body,
+	); isImport {
+		return h.dispatchAndRespond(ctx, c, importAction, importBody, contentTypeJSON)
+	}
+
 	// GET requests have no body; normalise to an empty JSON object so that
 	// json.Unmarshal calls in the action handlers don't fail with
 	// "unexpected end of JSON input".
@@ -1031,12 +1073,20 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		}
 	}
 
+	return h.dispatchAndRespond(ctx, c, action, body, contentTypeJSON)
+}
+
+// dispatchAndRespond runs an action through the dispatch table and writes the
+// HTTP response, including correct handling of 204 No Content responses.
+func (h *Handler) dispatchAndRespond(
+	ctx context.Context, c *echo.Context, action string, body []byte, contentType string,
+) error {
 	statusCode, response, reqErr := h.dispatch(ctx, action, body)
 	if reqErr != nil {
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	c.Response().Header().Set("Content-Type", contentTypeJSON)
+	c.Response().Header().Set(headerContentType, contentType)
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
 	}
@@ -1044,32 +1094,120 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 	return c.JSONBlob(statusCode, response)
 }
 
-// normalizePatchBody converts a JSON patch array (RFC 6902) to a flat JSON object.
-// AWS API Gateway REST PATCH endpoints accept patch operations like
-// [{"op":"replace","path":"/description","value":"foo"}].
-// This converts them to {"description":"foo"} so existing handlers can read them.
-// Bodies that are not JSON arrays are returned unchanged.
+// detectImportRESTAPI recognises ImportRestApi (POST /restapis?mode=import) and
+// PutRestApi (PUT /restapis/{id}) requests, returning the resolved action and a
+// JSON-encoded typed input whose Body field carries the raw spec document. The
+// AWS SDK sends the OpenAPI/Swagger document as the verbatim HTTP body, so it
+// must not be merged with path/query parameters like other operations.
+func detectImportRESTAPI(
+	method, action string, pathParams map[string]string, query url.Values, body []byte,
+) (string, []byte, bool) {
+	switch {
+	case action == opCreateRestAPI && method == http.MethodPost && query.Get("mode") == modeImport:
+		in := ImportRestAPIInput{
+			Body:           body,
+			FailOnWarnings: query.Get("failonwarnings") == litTrue,
+		}
+		encoded, err := json.Marshal(in)
+		if err != nil {
+			return "", nil, false
+		}
+
+		return opImportRestAPI, encoded, true
+	case action == opCreateAPIKey && method == http.MethodPost && query.Get("mode") == modeImport:
+		// ImportApiKeys (POST /apikeys?mode=import&format=csv) carries the raw API
+		// key file (csv or json) as the verbatim HTTP body.
+		in := importAPIKeysInput{
+			Body:   body,
+			Format: query.Get("format"),
+		}
+		encoded, err := json.Marshal(in)
+		if err != nil {
+			return "", nil, false
+		}
+
+		return opImportAPIKeys, encoded, true
+	case action == opPutRestAPI && method == http.MethodPut && pathParams[keyRestAPIID] != "":
+		in := PutRestAPIInput{
+			RestAPIID:      pathParams[keyRestAPIID],
+			Mode:           query.Get("mode"),
+			FailOnWarnings: query.Get("failonwarnings") == litTrue,
+			Body:           body,
+		}
+		encoded, err := json.Marshal(in)
+		if err != nil {
+			return "", nil, false
+		}
+
+		return opPutRestAPI, encoded, true
+	}
+
+	return "", nil, false
+}
+
+// patchOp is a single RFC 6902 JSON patch operation, e.g.
+// {"op":"replace","path":"/description","value":"foo"}.
+type patchOp struct {
+	Op    string          `json:"op"`
+	Path  string          `json:"path"`
+	Value json.RawMessage `json:"value"`
+}
+
+// normalizePatchBody converts a JSON patch array (RFC 6902) to a flat JSON object,
+// so PATCH handlers can read fields directly. AWS API Gateway REST PATCH endpoints
+// accept patch operations either as a bare array
+// ([{"op":"replace","path":"/description","value":"foo"}]) or, per the real
+// aws-sdk-go-v2 wire shape for operations like UpdateUsage/UpdateRestApi/UpdateStage,
+// wrapped in a "patchOperations" object field
+// ({"patchOperations":[{"op":"replace","path":"/description","value":"foo"}]}).
+// Both forms are flattened to {"description":"foo"}. Bodies that are neither a
+// patch array nor an object with a "patchOperations" array are returned unchanged.
 func normalizePatchBody(body []byte) []byte {
-	if len(body) == 0 || body[0] != '[' {
+	if len(body) == 0 {
 		return body
 	}
 
-	var ops []struct {
-		Op    string          `json:"op"`
-		Path  string          `json:"path"`
-		Value json.RawMessage `json:"value"`
-	}
+	var flattened []byte
 
-	if err := json.Unmarshal(body, &ops); err != nil || len(ops) == 0 {
+	switch body[0] {
+	case '[':
+		var ops []patchOp
+		if err := json.Unmarshal(body, &ops); err != nil || len(ops) == 0 || ops[0].Op == "" {
+			return body
+		}
+
+		flattened = flattenPatchOps(ops, nil)
+	case '{':
+		var wrapper struct {
+			PatchOperations []patchOp `json:"patchOperations"`
+		}
+
+		if err := json.Unmarshal(body, &wrapper); err != nil || len(wrapper.PatchOperations) == 0 {
+			return body
+		}
+
+		var rest map[string]json.RawMessage
+		_ = json.Unmarshal(body, &rest)
+		delete(rest, "patchOperations")
+
+		flattened = flattenPatchOps(wrapper.PatchOperations, rest)
+	default:
 		return body
 	}
 
-	// Verify at least one entry looks like a patch op (has an "op" field).
-	if ops[0].Op == "" {
+	if flattened == nil {
 		return body
 	}
 
-	m := make(map[string]json.RawMessage)
+	return flattened
+}
+
+// flattenPatchOps converts a list of RFC 6902 patch operations into a flat JSON
+// object, layered on top of base (any other sibling fields already present in
+// the request body; may be nil). Only "replace"/"add" ops are applied.
+func flattenPatchOps(ops []patchOp, base map[string]json.RawMessage) []byte {
+	m := make(map[string]json.RawMessage, len(base)+len(ops))
+	maps.Copy(m, base)
 
 	for _, op := range ops {
 		if op.Op != "replace" && op.Op != "add" {
@@ -1086,7 +1224,7 @@ func normalizePatchBody(body []byte) []byte {
 
 	out, err := json.Marshal(m)
 	if err != nil {
-		return body
+		return nil
 	}
 
 	return out
@@ -1287,7 +1425,7 @@ func parseAPIGWAPIKeysPath(method string, segs []string, n int, query url.Values
 	case n == 1 && method == http.MethodGet:
 		return opGetAPIKeys, nil, true
 	// POST /apikeys?mode=import → ImportApiKeys. POST /apikeys (no mode) → CreateAPIKey.
-	case n == 1 && method == http.MethodPost && query.Get("mode") == "import":
+	case n == 1 && method == http.MethodPost && query.Get("mode") == modeImport:
 		return opImportAPIKeys, nil, true
 	case n == 1 && method == http.MethodPost:
 		return opCreateAPIKey, nil, true
@@ -1467,7 +1605,7 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int, query url.Value
 			// POST /restapis?mode=import → ImportRestApi. POST /restapis
 			// (no mode) → CreateRestApi. Real AWS distinguishes the two
 			// solely by this query parameter (both use the same path).
-			if query.Get("mode") == "import" {
+			if query.Get("mode") == modeImport {
 				return opImportRestAPI, nil, true
 			}
 
@@ -1499,6 +1637,8 @@ func parseAPIGWRestAPIsDepth2(method, apiID string) (string, map[string]string, 
 	case http.MethodPatch:
 		return opUpdateRestAPI, params, true
 	case http.MethodPut:
+		// PUT /restapis/{id} is PutRestApi (OpenAPI import into an existing
+		// API). The body is the raw spec; detectImportRESTAPI handles it.
 		return opPutRestAPI, params, true
 	}
 
@@ -2037,6 +2177,145 @@ func (h *Handler) handleUserRequestEcho(c *echo.Context) error {
 	return nil
 }
 
+// testInvokeMethod executes a test invocation of a method, routing through the real
+// integration when Lambda is configured. Falls back to mock/stub for unsupported types.
+func (h *Handler) testInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMethodOutput, error) {
+	resource, err := h.Backend.GetResource(input.RestAPIID, input.ResourceID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: resource %s", ErrResourceNotFound, input.ResourceID)
+	}
+
+	integration, err := h.Backend.GetIntegration(input.RestAPIID, input.ResourceID, input.HTTPMethod)
+	if err != nil {
+		integration, _ = h.Backend.GetIntegration(input.RestAPIID, input.ResourceID, "ANY")
+	}
+
+	if integration == nil {
+		// No integration: return empty 200.
+		return &TestInvokeMethodOutput{
+			Status:  http.StatusOK,
+			Body:    "{}",
+			Latency: 1,
+			Log:     "Test invocation: no integration configured",
+			Headers: map[string]string{headerContentType: contentTypeJSON},
+		}, nil
+	}
+
+	switch integration.Type {
+	case IntegrationTypeMock:
+		// For MOCK, select the integration response matching "200" and apply its template.
+		body := `{"statusCode": 200}`
+		ir, irErr := h.Backend.GetIntegrationResponse(
+			input.RestAPIID, input.ResourceID, input.HTTPMethod, "200",
+		)
+		if irErr == nil {
+			if t, ok := ir.ResponseTemplates["application/json"]; ok && t != "" {
+				body = t
+			}
+		}
+
+		return &TestInvokeMethodOutput{
+			Status:  http.StatusOK,
+			Body:    body,
+			Latency: 1,
+			Log:     "Test invocation: MOCK integration",
+			Headers: map[string]string{headerContentType: contentTypeJSON},
+		}, nil
+
+	case IntegrationTypeAWSProxy, "AWS":
+		return h.invokeLambdaTestMethod(input, resource, integration)
+
+	default:
+		return h.Backend.TestInvokeMethod(input)
+	}
+}
+
+func (h *Handler) invokeLambdaTestMethod(
+	input TestInvokeMethodInput,
+	resource *Resource,
+	integration *Integration,
+) (*TestInvokeMethodOutput, error) {
+	if h.lambda == nil {
+		return h.Backend.TestInvokeMethod(input)
+	}
+
+	// Build a synthetic HTTP request from the TestInvokeMethodInput.
+	rawPath := input.PathWithQueryString
+	if rawPath == "" {
+		rawPath = resource.Path
+	}
+
+	syntheticReq, reqErr := http.NewRequestWithContext(
+		context.Background(),
+		input.HTTPMethod,
+		"http://test-invoke-endpoint"+rawPath,
+		strings.NewReader(input.Body),
+	)
+	if reqErr != nil {
+		return nil, fmt.Errorf("test invoke: failed to build request: %w", reqErr)
+	}
+
+	for k, v := range input.Headers {
+		syntheticReq.Header.Set(k, v)
+	}
+
+	event, buildErr := BuildProxyEvent(syntheticReq, input.RestAPIID, "test-invoke", resource.Path, rawPath, nil)
+	if buildErr != nil {
+		return nil, fmt.Errorf("test invoke: failed to build proxy event: %w", buildErr)
+	}
+
+	payload, _ := json.Marshal(event)
+
+	lambdaFn := ExtractLambdaFunctionName(integration.URI)
+	respBytes, _, invokeErr := h.lambda.InvokeFunction(context.Background(), lambdaFn, "RequestResponse", payload)
+
+	return lambdaTestOutput(respBytes, invokeErr), nil
+}
+
+// lambdaTestOutput converts a raw Lambda invocation result into a TestInvokeMethodOutput.
+// Any invocation error is surfaced as a 502 response body rather than a Go error,
+// because TestInvokeMethod always returns a (possibly error-body) output, never a Go error.
+func lambdaTestOutput(respBytes []byte, invokeErr error) *TestInvokeMethodOutput {
+	if invokeErr != nil {
+		return &TestInvokeMethodOutput{
+			Status:  http.StatusBadGateway,
+			Body:    `{"message":"Lambda invocation failed"}`,
+			Latency: 1,
+			Log:     "Test invocation: Lambda error: " + invokeErr.Error(),
+			Headers: map[string]string{headerContentType: contentTypeJSON},
+		}
+	}
+
+	var lambdaResp LambdaProxyResponse
+	if json.Unmarshal(respBytes, &lambdaResp) == nil {
+		sc := lambdaResp.StatusCode
+		if sc == 0 {
+			sc = http.StatusOK
+		}
+
+		hdrs := lambdaResp.Headers
+		if hdrs == nil {
+			hdrs = map[string]string{headerContentType: contentTypeJSON}
+		}
+
+		return &TestInvokeMethodOutput{
+			Status:  sc,
+			Body:    lambdaResp.Body,
+			Latency: 1,
+			Log:     "Test invocation: AWS_PROXY Lambda integration",
+			Headers: hdrs,
+		}
+	}
+
+	return &TestInvokeMethodOutput{
+		Status:  http.StatusOK,
+		Body:    string(respBytes),
+		Latency: 1,
+		Log:     "Test invocation: Lambda raw response",
+		Headers: map[string]string{headerContentType: contentTypeJSON},
+	}
+}
+
 func (h *Handler) restAPIActions() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateRestAPI: func(b []byte) (int, any, error) {
@@ -2154,17 +2433,22 @@ func (h *Handler) methodActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			m, err := h.Backend.PutMethod(PutMethodInput{
-				RestAPIID:          input.RestAPIID,
-				ResourceID:         input.ResourceID,
-				HTTPMethod:         input.HTTPMethod,
-				AuthorizationType:  input.AuthorizationType,
-				AuthorizerID:       input.AuthorizerID,
-				RequestValidatorID: input.RequestValidatorID,
-				APIKeyRequired:     input.APIKeyRequired,
-				RequestModels:      input.RequestModels,
-				OperationName:      input.OperationName,
-			})
+			switch input.AuthorizationType {
+			case AuthTypeNone, AuthTypeAWSIAM, AuthTypeCustom, AuthTypeCognitoUserPool:
+			default:
+				return 0, nil, fmt.Errorf(
+					"%w: invalid authorizationType %q; must be NONE, AWS_IAM, CUSTOM, or COGNITO_USER_POOLS",
+					ErrInvalidParameter, input.AuthorizationType,
+				)
+			}
+			if (input.AuthorizationType == AuthTypeCustom || input.AuthorizationType == AuthTypeCognitoUserPool) &&
+				input.AuthorizerID == "" {
+				return 0, nil, fmt.Errorf(
+					"%w: authorizerId is required when authorizationType is %s",
+					ErrInvalidParameter, input.AuthorizationType,
+				)
+			}
+			m, err := h.Backend.PutMethod(PutMethodInput(input))
 			if err != nil {
 				return 0, nil, err
 			}
@@ -2472,6 +2756,15 @@ func (h *Handler) integrationActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
+			switch input.Type {
+			case IntegrationTypeAWS, IntegrationTypeAWSProxy,
+				IntegrationTypeHTTP, IntegrationTypeHTTPProxy, IntegrationTypeMock:
+			default:
+				return 0, nil, fmt.Errorf(
+					"%w: invalid integration type %q; must be AWS, AWS_PROXY, HTTP, HTTP_PROXY, or MOCK",
+					ErrInvalidParameter, input.Type,
+				)
+			}
 			integ, err := h.Backend.PutIntegration(
 				input.RestAPIID,
 				input.ResourceID,
@@ -2635,7 +2928,19 @@ func (h *Handler) stageActions() map[string]actionFn {
 	}
 }
 
+// dispatchTable returns the op→handler table, building it exactly once and caching it.
+// The table's closures capture the receiver, so a single build is valid for the
+// handler's lifetime; rebuilding it (13 sub-constructors + maps.Copy) per request was
+// pure overhead.
 func (h *Handler) dispatchTable() map[string]actionFn {
+	h.dispatchOnce.Do(func() {
+		h.dispatchCache = h.buildDispatchTable()
+	})
+
+	return h.dispatchCache
+}
+
+func (h *Handler) buildDispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.restAPIActions())
 	maps.Copy(table, h.resourceActions())
@@ -2851,7 +3156,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) (int, 
 // handleError writes a standardized JSON error response.
 func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, reqErr error) error {
 	log := logger.Load(ctx)
-	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
 
 	var errType string
 	var statusCode int
@@ -3220,6 +3525,9 @@ func (h *Handler) getDeleteUpdateActionsExt2b() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
+			if _, err := h.Backend.GetStage(input.RestAPIID, input.StageName); err != nil {
+				return 0, nil, err
+			}
 
 			return http.StatusAccepted, map[string]any{}, nil
 		},
@@ -3527,7 +3835,7 @@ func (h *Handler) updatePatchActionsCore2() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			out, err := h.Backend.TestInvokeMethod(input.TestInvokeMethodInput)
+			out, err := h.testInvokeMethod(input.TestInvokeMethodInput)
 			if err != nil {
 				return 0, nil, err
 			}

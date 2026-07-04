@@ -103,7 +103,9 @@ func TestBatchExecuteStatement_Limit25(t *testing.T) {
 			stmts := make([]types.BatchStatementRequest, tt.count)
 			for i := range stmts {
 				stmts[i] = types.BatchStatementRequest{
-					Statement: aws.String(fmt.Sprintf("SELECT * FROM \"LimitTable\" WHERE pk = '%d'", i)),
+					Statement: aws.String(
+						fmt.Sprintf("SELECT * FROM \"LimitTable\" WHERE pk = '%d'", i),
+					),
 				}
 			}
 
@@ -312,10 +314,13 @@ func TestUpdateKinesisStreamingDestination_TableNotFound(t *testing.T) {
 
 	db := newRefinementDB(t)
 
-	_, err := db.UpdateKinesisStreamingDestination(t.Context(), &sdk.UpdateKinesisStreamingDestinationInput{
-		TableName: aws.String("NoTable"),
-		StreamArn: aws.String("arn:aws:kinesis:us-east-1:123:stream/s"),
-	})
+	_, err := db.UpdateKinesisStreamingDestination(
+		t.Context(),
+		&sdk.UpdateKinesisStreamingDestinationInput{
+			TableName: aws.String("NoTable"),
+			StreamArn: aws.String("arn:aws:kinesis:us-east-1:123:stream/s"),
+		},
+	)
 	require.Error(t, err)
 }
 
@@ -325,10 +330,13 @@ func TestUpdateKinesisStreamingDestination_MissingStreamARN(t *testing.T) {
 	db := newRefinementDB(t)
 	createTableForRefinement(t, db, "KinesisTable")
 
-	_, err := db.UpdateKinesisStreamingDestination(t.Context(), &sdk.UpdateKinesisStreamingDestinationInput{
-		TableName: aws.String("KinesisTable"),
-		StreamArn: aws.String(""),
-	})
+	_, err := db.UpdateKinesisStreamingDestination(
+		t.Context(),
+		&sdk.UpdateKinesisStreamingDestinationInput{
+			TableName: aws.String("KinesisTable"),
+			StreamArn: aws.String(""),
+		},
+	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "StreamArn")
 }
@@ -341,16 +349,22 @@ func TestUpdateKinesisStreamingDestination_ReturnsActive(t *testing.T) {
 
 	streamARN := "arn:aws:kinesis:us-east-1:123:stream/my-stream"
 
-	_, err := db.EnableKinesisStreamingDestination(t.Context(), &sdk.EnableKinesisStreamingDestinationInput{
-		TableName: aws.String("KinesisActiveTable"),
-		StreamArn: aws.String(streamARN),
-	})
+	_, err := db.EnableKinesisStreamingDestination(
+		t.Context(),
+		&sdk.EnableKinesisStreamingDestinationInput{
+			TableName: aws.String("KinesisActiveTable"),
+			StreamArn: aws.String(streamARN),
+		},
+	)
 	require.NoError(t, err)
 
-	out, err := db.UpdateKinesisStreamingDestination(t.Context(), &sdk.UpdateKinesisStreamingDestinationInput{
-		TableName: aws.String("KinesisActiveTable"),
-		StreamArn: aws.String(streamARN),
-	})
+	out, err := db.UpdateKinesisStreamingDestination(
+		t.Context(),
+		&sdk.UpdateKinesisStreamingDestinationInput{
+			TableName: aws.String("KinesisActiveTable"),
+			StreamArn: aws.String(streamARN),
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, types.DestinationStatusActive, out.DestinationStatus)
 	assert.Equal(t, "KinesisActiveTable", aws.ToString(out.TableName))
@@ -388,9 +402,12 @@ func TestUpdateTableReplicaAutoScaling_ReturnsDescription(t *testing.T) {
 	db := newRefinementDB(t)
 	createTableForRefinement(t, db, "ASTable")
 
-	out, err := db.UpdateTableReplicaAutoScaling(t.Context(), &sdk.UpdateTableReplicaAutoScalingInput{
-		TableName: aws.String("ASTable"),
-	})
+	out, err := db.UpdateTableReplicaAutoScaling(
+		t.Context(),
+		&sdk.UpdateTableReplicaAutoScalingInput{
+			TableName: aws.String("ASTable"),
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, out.TableAutoScalingDescription)
 	assert.Equal(t, "ASTable", aws.ToString(out.TableAutoScalingDescription.TableName))
@@ -502,12 +519,27 @@ func TestImportTable_ReturnsCompleted(t *testing.T) {
 		},
 		TableCreationParameters: &types.TableCreationParameters{
 			TableName: aws.String("ImportedTable"),
+			KeySchema: []types.KeySchemaElement{
+				{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+			},
+			AttributeDefinitions: []types.AttributeDefinition{
+				{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+			},
+			BillingMode: types.BillingModePayPerRequest,
 		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.ImportTableDescription)
-	assert.Equal(t, types.ImportStatusCompleted, out.ImportTableDescription.ImportStatus)
+	// With no S3 backend wired the import completes against the freshly created table.
+	assert.Equal(t, types.ImportStatusInProgress, out.ImportTableDescription.ImportStatus)
 	assert.NotEmpty(t, aws.ToString(out.ImportTableDescription.ImportArn))
+
+	// The target table must actually exist after ImportTable.
+	desc, err := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+		TableName: aws.String("ImportedTable"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "ImportedTable", aws.ToString(desc.Table.TableName))
 }
 
 // ---------------------------------------------------------------------------
@@ -638,10 +670,14 @@ func TestNthSmallest_QuickselectCorrectness(t *testing.T) {
 			want:  base,
 		},
 		{
-			name:  "n_equals_middle",
-			times: []time.Time{base.Add(3 * time.Hour), base.Add(1 * time.Hour), base.Add(2 * time.Hour)},
-			n:     2,
-			want:  base.Add(2 * time.Hour),
+			name: "n_equals_middle",
+			times: []time.Time{
+				base.Add(3 * time.Hour),
+				base.Add(1 * time.Hour),
+				base.Add(2 * time.Hour),
+			},
+			n:    2,
+			want: base.Add(2 * time.Hour),
 		},
 		{
 			name:  "n_beyond_length_returns_max",

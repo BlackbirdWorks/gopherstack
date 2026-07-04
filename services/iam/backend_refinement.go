@@ -613,7 +613,8 @@ func (b *InMemoryBackend) ListInstanceProfilesForRole(roleName string) ([]Instan
 // SimulateCustomPolicy simulates the effect of one or more custom IAM policies against a set of actions and resources.
 // This is a best-effort simulation — results are authoritative only for policies provided directly.
 func (b *InMemoryBackend) SimulateCustomPolicy(
-	policyInputList, actionNames, resourceArns []string,
+	policyInputList, permissionsBoundaryPolicyInputList, actionNames, resourceArns []string,
+	ctx ConditionContext,
 ) ([]SimulationResult, error) {
 	if len(actionNames) == 0 {
 		return nil, fmt.Errorf("%w: at least one action name is required", ErrInvalidAction)
@@ -630,15 +631,33 @@ func (b *InMemoryBackend) SimulateCustomPolicy(
 
 	for _, action := range actionNames {
 		for _, resource := range resourceArns {
-			evalResult := EvaluatePolicies(policyInputList, action, resource, ConditionContext{})
+			evalResult := EvaluatePolicies(policyInputList, action, resource, ctx)
 
 			// Per-policy detail: label each input policy by its index.
 			detail := make(map[string]string, len(policyInputList))
 
 			for i, doc := range policyInputList {
-				r := EvaluatePolicies([]string{doc}, action, resource, ConditionContext{})
+				r := EvaluatePolicies([]string{doc}, action, resource, ctx)
 				key := fmt.Sprintf("InputPolicy%d", i+1)
 				detail[key] = evalDecisionStr(r)
+			}
+
+			// Boundary enforcement.
+			var allowedByBoundary *bool
+
+			if len(permissionsBoundaryPolicyInputList) > 0 {
+				evalResult, allowedByBoundary = enforcePermissionsBoundary(
+					permissionsBoundaryPolicyInputList, action, resource, ctx, evalResult,
+				)
+			}
+
+			// Add PermissionsBoundary decision to details.
+			if allowedByBoundary != nil {
+				if *allowedByBoundary {
+					detail["PermissionsBoundaryPolicy"] = "allowed"
+				} else {
+					detail["PermissionsBoundaryPolicy"] = "explicitDeny"
+				}
 			}
 
 			results = append(results, SimulationResult{
@@ -653,14 +672,59 @@ func (b *InMemoryBackend) SimulateCustomPolicy(
 	return results, nil
 }
 
-// ---- GetServiceLinkedRoleDeletionStatus (stub) ----
+func enforcePermissionsBoundary(
+	boundaryPolicies []string, action, resource string, ctx ConditionContext, evalResult EvaluationResult,
+) (EvaluationResult, *bool) {
+	boundaryResult := EvaluatePolicies(boundaryPolicies, action, resource, ctx)
+	allowed := boundaryResult == EvalAllow
+
+	if evalResult == EvalAllow && !allowed {
+		evalResult = EvalImplicitDeny
+	} else if evalResult == EvalImplicitDeny && boundaryResult == EvalExplicitDeny {
+		evalResult = EvalExplicitDeny
+	}
+
+	return evalResult, &allowed
+}
+
+// ---- GetServiceLinkedRoleDeletionStatus ----
 
 // GetServiceLinkedRoleDeletionStatus returns the status of a service-linked role deletion task.
-// Gopherstack does not implement asynchronous deletion; this stub always reports succeeded.
+// Gopherstack synchronously deletes service-linked roles, so status is always SUCCEEDED.
 func (b *InMemoryBackend) GetServiceLinkedRoleDeletionStatus(deletionTaskID string) (string, error) {
 	if deletionTaskID == "" {
 		return "", fmt.Errorf("%w: DeletionTaskId must not be empty", ErrInvalidAction)
 	}
 
 	return "SUCCEEDED", nil
+}
+
+// ---- DeleteServiceLinkedRole ----
+
+// DeleteServiceLinkedRole deletes a service-linked role, forcibly removing all attached managed
+// and inline policies first. AWS deletes service-linked roles asynchronously; the mock is
+// synchronous — callers receive SUCCEEDED immediately from GetServiceLinkedRoleDeletionStatus.
+func (b *InMemoryBackend) DeleteServiceLinkedRole(roleName string) error {
+	if roleName == "" {
+		return fmt.Errorf("%w: RoleName must not be empty", ErrInvalidAction)
+	}
+
+	b.mu.Lock("DeleteServiceLinkedRole")
+	defer b.mu.Unlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	// Force-clear attached managed policies.
+	delete(b.rolePolicies, roleName)
+	// Force-clear inline policies.
+	delete(b.roleInlinePolicies, roleName)
+
+	role := b.roles[roleName]
+	delete(b.roles, roleName)
+	delete(b.roleByARN, role.Arn)
+	b.sortedRoleNames = deleteSorted(b.sortedRoleNames, roleName)
+
+	return nil
 }

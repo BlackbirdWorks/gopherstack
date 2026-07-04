@@ -17,7 +17,7 @@ import (
 func TestHandler_FISActions(t *testing.T) {
 	t.Parallel()
 
-	h := lambda.NewHandler(newSimpleBackend())
+	h := lambda.NewHandler(newSimpleBackend(t))
 
 	actions := h.FISActions()
 	require.Len(t, actions, 2)
@@ -78,7 +78,7 @@ func TestHandler_ExecuteFISAction_InvocationError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newSimpleBackend()
+			bk := newSimpleBackend(t)
 			h := lambda.NewHandler(bk)
 
 			actionID := "aws:lambda:invocation-error"
@@ -113,7 +113,7 @@ func TestHandler_ExecuteFISAction_InvocationError(t *testing.T) {
 func TestHandler_ExecuteFISAction_InvocationDelay(t *testing.T) {
 	t.Parallel()
 
-	bk := newSimpleBackend()
+	bk := newSimpleBackend(t)
 	h := lambda.NewHandler(bk)
 
 	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
@@ -137,7 +137,7 @@ func TestHandler_ExecuteFISAction_InvocationDelay(t *testing.T) {
 func TestHandler_ExecuteFISAction_FaultExpiry(t *testing.T) {
 	t.Parallel()
 
-	bk := newSimpleBackend()
+	bk := newSimpleBackend(t)
 	h := lambda.NewHandler(bk)
 
 	err := h.ExecuteFISAction(t.Context(), service.FISActionExecution{
@@ -161,7 +161,7 @@ func TestHandler_ExecuteFISAction_FaultExpiry(t *testing.T) {
 func TestHandler_ExecuteFISAction_FaultClearedOnContextCancel(t *testing.T) {
 	t.Parallel()
 
-	bk := newSimpleBackend()
+	bk := newSimpleBackend(t)
 	h := lambda.NewHandler(bk)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -187,7 +187,7 @@ func TestHandler_ExecuteFISAction_FaultClearedOnContextCancel(t *testing.T) {
 func TestFIS_SetAndClearFault(t *testing.T) {
 	t.Parallel()
 
-	bk := newSimpleBackend()
+	bk := newSimpleBackend(t)
 
 	assert.Nil(t, lambda.CheckFISFault(bk, "fn"), "no fault initially")
 
@@ -208,7 +208,7 @@ func TestFIS_SetAndClearFault(t *testing.T) {
 func TestFIS_CheckFault_ExpiredFaultRemoved(t *testing.T) {
 	t.Parallel()
 
-	bk := newSimpleBackend()
+	bk := newSimpleBackend(t)
 
 	// Install a fault that expired in the past.
 	lambda.SetFISFault(bk, "fn", &lambda.FISInvocationFault{
@@ -439,7 +439,7 @@ func TestBackend_ConcurrencySlot(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newSimpleBackend()
+			bk := newSimpleBackend(t)
 
 			const fnName = "test-fn"
 
@@ -476,7 +476,7 @@ func TestBackend_ConcurrencySlot(t *testing.T) {
 func TestBackend_ReleaseConcurrencySlot(t *testing.T) {
 	t.Parallel()
 
-	bk := newSimpleBackend()
+	bk := newSimpleBackend(t)
 
 	const fnName = "release-fn"
 
@@ -504,7 +504,7 @@ func TestBackend_ReleaseConcurrencySlot(t *testing.T) {
 func TestBackend_ReleaseConcurrencySlot_NopOnNoLimit(t *testing.T) {
 	t.Parallel()
 
-	bk := newSimpleBackend()
+	bk := newSimpleBackend(t)
 
 	// Should be a no-op without panicking.
 	assert.NotPanics(t, func() {

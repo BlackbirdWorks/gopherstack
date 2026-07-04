@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -17,15 +18,15 @@ const (
 	keyDefaultVersion           = "defaultVersion"
 	keyEndOfStandardSupportDate = "endOfStandardSupportDate"
 	keyEndOfExtendedSupportDate = "endOfExtendedSupportDate"
-	strFalse                    = "false"
 )
 
 const (
-	keyAddonName         = "addonName"
-	keyAddonVersions     = "addonVersions"
-	keyAddonVersion      = "addonVersion"
-	typeUpgradeReadiness = "UPGRADE_READINESS"
-	typeVersionUpdate    = "VersionUpdate"
+	keyAddonName              = "addonName"
+	keyAddonVersions          = "addonVersions"
+	keyAddonVersion           = "addonVersion"
+	typeUpgradeReadiness      = "UPGRADE_READINESS"
+	typeVersionUpdate         = "VersionUpdate"
+	connectorActivationWindow = 24 * time.Hour
 )
 
 const (
@@ -149,13 +150,7 @@ func (b *InMemoryBackend) ListAddons(clusterName string) ([]string, error) {
 	}
 
 	addons := b.addons[clusterName]
-	names := make([]string, 0, len(addons))
-
-	for name := range addons {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(addons)
 
 	return names, nil
 }
@@ -337,12 +332,7 @@ func (b *InMemoryBackend) ListCapabilities() []string {
 	b.mu.RLock("ListCapabilities")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.capabilities))
-	for name := range b.capabilities {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.capabilities)
 
 	return names
 }
@@ -665,13 +655,7 @@ func (b *InMemoryBackend) ListFargateProfiles(clusterName string) ([]string, err
 	}
 
 	profiles := b.fargateProfiles[clusterName]
-	names := make([]string, 0, len(profiles))
-
-	for name := range profiles {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(profiles)
 
 	return names, nil
 }
@@ -722,13 +706,7 @@ func (b *InMemoryBackend) ListAccessEntries(clusterName string) ([]string, error
 	}
 
 	entries := b.accessEntries[clusterName]
-	arns := make([]string, 0, len(entries))
-
-	for principalARN := range entries {
-		arns = append(arns, principalARN)
-	}
-
-	sort.Strings(arns)
+	arns := collections.SortedKeys(entries)
 
 	return arns, nil
 }
@@ -1105,13 +1083,16 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 		c.StorageConfig = upd.StorageConfig
 	}
 
-	return &Update{
+	u := &Update{
 		ID:          stableID(clusterName + "/config-update/" + time.Now().String()),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        "ConfigUpdate",
 		CreatedAt:   time.Now().UTC(),
-	}, nil
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
 }
 
 // VpcEndpointUpdate carries optional VPC endpoint access changes for UpdateClusterVpcEndpoint.
@@ -1158,14 +1139,17 @@ func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEn
 		params = append(params, UpdateParam{Type: "PublicAccessCidrs", Value: fmt.Sprintf("%v", upd.PublicAccessCIDRs)})
 	}
 
-	return &Update{
+	u := &Update{
 		ID:          stableID(clusterName + "/vpc-update/" + time.Now().String()),
 		ClusterName: clusterName,
 		Status:      statusSuccessful,
 		Type:        "EndpointAccessUpdate",
 		Params:      params,
 		CreatedAt:   time.Now().UTC(),
-	}, nil
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
 }
 
 // mergeClusterLogEntries applies logEntries on top of existing, enabling or disabling
@@ -1195,12 +1179,7 @@ func mergeClusterLogEntries(existing []ClusterLogEntry, updates []ClusterLogEntr
 		return nil
 	}
 
-	enabled := make([]string, 0, len(merged))
-	for t := range merged {
-		enabled = append(enabled, t)
-	}
-
-	sort.Strings(enabled)
+	enabled := collections.SortedKeys(merged)
 
 	return []ClusterLogEntry{{Types: enabled, Enabled: true}}
 }
@@ -1219,14 +1198,17 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 		c.Version = version
 	}
 
-	return &Update{
+	u := &Update{
 		ID:          stableID(clusterName + "/version-update/" + time.Now().String()),
 		ClusterName: clusterName,
-		Status:      statusSuccessful,
+		Status:      statusInProgress,
 		Type:        typeVersionUpdate,
 		Params:      []UpdateParam{{Type: "Version", Value: version}},
 		CreatedAt:   time.Now().UTC(),
-	}, nil
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
 }
 
 // UpdateNodegroupVersion updates the node group Kubernetes version.
@@ -1249,17 +1231,37 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 		ng.Version = version
 	}
 
-	return &Update{
+	u := &Update{
 		ID:          stableID(clusterName + "/" + nodegroupName + "/version-update/" + time.Now().String()),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        typeVersionUpdate,
 		Params:      []UpdateParam{{Type: "Version", Value: version}},
 		CreatedAt:   time.Now().UTC(),
-	}, nil
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
 }
 
-// DescribeUpdate returns an update record.
+// storeUpdateLocked stores an update record. Must be called with b.mu held.
+func (b *InMemoryBackend) storeUpdateLocked(u *Update) {
+	if b.updates[u.ClusterName] == nil {
+		b.updates[u.ClusterName] = make(map[string]*Update)
+	}
+
+	b.updates[u.ClusterName][u.ID] = u
+}
+
+// StoreUpdate stores an update record created outside the backend (e.g. by a handler).
+func (b *InMemoryBackend) StoreUpdate(u *Update) {
+	b.mu.Lock("StoreUpdate")
+	defer b.mu.Unlock()
+
+	b.storeUpdateLocked(u)
+}
+
+// DescribeUpdate returns an update record by cluster and update ID.
 func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update, error) {
 	b.mu.RLock("DescribeUpdate")
 	defer b.mu.RUnlock()
@@ -1268,16 +1270,17 @@ func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update,
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	return &Update{
-		ID:          updateID,
-		ClusterName: clusterName,
-		Status:      statusSuccessful,
-		Type:        typeVersionUpdate,
-		CreatedAt:   time.Now().UTC(),
-	}, nil
+	u, ok := b.updates[clusterName][updateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: update %s not found in cluster %s", ErrNotFound, updateID, clusterName)
+	}
+
+	cp := *u
+
+	return &cp, nil
 }
 
-// ListUpdates returns update IDs for a cluster.
+// ListUpdates returns all update IDs for a cluster sorted alphabetically.
 func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
 	b.mu.RLock("ListUpdates")
 	defer b.mu.RUnlock()
@@ -1286,14 +1289,17 @@ func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	return []string{}, nil
+	clusterUpdates := b.updates[clusterName]
+	ids := collections.SortedKeys(clusterUpdates)
+
+	return ids, nil
 }
 
 // --- Register / Deregister Cluster ---
 
 // RegisterCluster registers an external cluster.
 func (b *InMemoryBackend) RegisterCluster(
-	name, _, _ string,
+	name, provider, roleARN string,
 	kv map[string]string,
 ) (*Cluster, error) {
 	b.mu.Lock("RegisterCluster")
@@ -1321,6 +1327,13 @@ func (b *InMemoryBackend) RegisterCluster(
 		Region:          b.region,
 		CreatedAt:       time.Now().UTC(),
 		Tags:            t,
+		ConnectorConfig: &ConnectorConfig{
+			Provider:         provider,
+			RoleARN:          roleARN,
+			ActivationID:     stableID(name + "/activation-id"),
+			ActivationCode:   stableID(name + "/activation-code"),
+			ActivationExpiry: time.Now().Add(connectorActivationWindow).UTC().Format(time.RFC3339),
+		},
 	}
 	b.clusters[name] = c
 	b.nodegroups[name] = make(map[string]*Nodegroup)
@@ -1343,29 +1356,29 @@ func (b *InMemoryBackend) DeregisterCluster(name string) (*Cluster, error) {
 }
 
 // DescribeClusterVersions returns supported cluster versions.
-func (b *InMemoryBackend) DescribeClusterVersions() []map[string]string {
-	return []map[string]string{
+func (b *InMemoryBackend) DescribeClusterVersions() []map[string]any {
+	return []map[string]any{
 		{
 			keyClusterVersion:           defaultK8sVersion,
-			keyDefaultVersion:           "true",
+			keyDefaultVersion:           true,
 			keyEndOfStandardSupportDate: "2027-04-01",
 			keyEndOfExtendedSupportDate: "2028-04-01",
 		},
 		{
 			keyClusterVersion:           "1.31",
-			keyDefaultVersion:           strFalse,
+			keyDefaultVersion:           false,
 			keyEndOfStandardSupportDate: "2026-11-01",
 			keyEndOfExtendedSupportDate: "2027-11-01",
 		},
 		{
 			keyClusterVersion:           "1.30",
-			keyDefaultVersion:           strFalse,
+			keyDefaultVersion:           false,
 			keyEndOfStandardSupportDate: "2026-07-01",
 			keyEndOfExtendedSupportDate: "2027-07-01",
 		},
 		{
 			keyClusterVersion:           "1.29",
-			keyDefaultVersion:           strFalse,
+			keyDefaultVersion:           false,
 			keyEndOfStandardSupportDate: "2026-03-01",
 			keyEndOfExtendedSupportDate: "2027-03-01",
 		},

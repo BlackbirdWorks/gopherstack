@@ -496,7 +496,7 @@ func epochSeconds(ts interface{ Unix() int64 }) float64 {
 // createdAt/updatedAt as float64 Unix epoch seconds values.
 // Tags are always included (as an empty map if none are set).
 func applicationToMap(app *Application) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyApplicationID: app.ApplicationID,
 		"id":             app.ApplicationID, // ApplicationSummary.id in AWS SDK ListApplications response
 		keyArn:           app.Arn,
@@ -508,6 +508,11 @@ func applicationToMap(app *Application) map[string]any {
 		keyUpdatedAt:     epochSeconds(app.UpdatedAt),
 		keyTags:          app.Tags,
 	}
+	if app.Architecture != "" {
+		m["architecture"] = app.Architecture
+	}
+
+	return m
 }
 
 // jobRunToMap converts a JobRun to a map with float64 timestamps
@@ -515,7 +520,7 @@ func applicationToMap(app *Application) map[string]any {
 // createdAt/updatedAt as float64 Unix epoch seconds values.
 // Tags are always included (as an empty map if none are set).
 func jobRunToMap(jr *JobRun) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyApplicationID:   jr.ApplicationID,
 		"jobRunId":         jr.JobRunID,
 		"id":               jr.JobRunID, // JobRunSummary.id in AWS SDK ListJobRuns response
@@ -528,7 +533,13 @@ func jobRunToMap(jr *JobRun) map[string]any {
 		keyCreatedAt:       epochSeconds(jr.CreatedAt),
 		keyUpdatedAt:       epochSeconds(jr.UpdatedAt),
 		keyTags:            jr.Tags,
+		"attempt":          0,
 	}
+	if jr.ReleaseLabel != "" {
+		m[keyReleaseLabel] = jr.ReleaseLabel
+	}
+
+	return m
 }
 
 // --- Application handlers ---
@@ -538,6 +549,7 @@ type createApplicationBody struct {
 	Name         string            `json:"name"`
 	Type         string            `json:"type"`
 	ReleaseLabel string            `json:"releaseLabel"`
+	Architecture string            `json:"architecture"`
 }
 
 type createApplicationResponse struct {
@@ -554,7 +566,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		}
 	}
 
-	app, err := h.Backend.CreateApplication(in.Name, in.Type, in.ReleaseLabel, in.Tags)
+	app, err := h.Backend.CreateApplication(in.Name, in.Type, in.ReleaseLabel, in.Architecture, in.Tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -671,6 +683,7 @@ type startJobRunBody struct {
 	Tags             map[string]string `json:"tags"`
 	ExecutionRoleArn string            `json:"executionRoleArn"`
 	Name             string            `json:"name"`
+	Mode             string            `json:"mode"`
 }
 
 type startJobRunResponse struct {
@@ -687,7 +700,7 @@ func (h *Handler) handleStartJobRun(c *echo.Context, applicationID string, body 
 		}
 	}
 
-	jr, err := h.Backend.StartJobRun(applicationID, in.ExecutionRoleArn, in.Name, in.Tags)
+	jr, err := h.Backend.StartJobRun(applicationID, in.ExecutionRoleArn, in.Name, in.Mode, in.Tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}

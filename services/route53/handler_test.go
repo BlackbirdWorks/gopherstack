@@ -1960,11 +1960,11 @@ func TestRoute53_SnapshotRestore_NewOperations(t *testing.T) {
 	policyID := extractTrafficPolicyID(t, tpRec.Body.String())
 
 	// Snapshot and restore.
-	snap := h.Backend.Snapshot()
+	snap := h.Backend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	newBackend := route53.NewInMemoryBackend()
-	require.NoError(t, newBackend.Restore(snap))
+	require.NoError(t, newBackend.Restore(t.Context(), snap))
 	newHandler := route53.NewHandler(newBackend)
 
 	// Verify zone still accessible.

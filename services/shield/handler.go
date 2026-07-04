@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -54,8 +54,9 @@ const (
 )
 
 var (
-	errUnknownAction  = errors.New("unknown action")
-	errInvalidRequest = errors.New("invalid request")
+	errUnknownAction          = errors.New("unknown action")
+	errInvalidRequest         = errors.New("invalid request")
+	errInvalidPaginationToken = errors.New("invalid pagination token")
 )
 
 // floatSeconds converts t to a float64 seconds-since-epoch value (AWS timestamp protocol).
@@ -504,7 +505,7 @@ func (h *Handler) handleDescribeSubscription() ([]byte, error) {
 	}
 
 	// Gap 22: correct SubscriptionArn format — no trailing path segment.
-	subscriptionArn := fmt.Sprintf("arn:aws:shield::%s:subscription", h.Backend.AccountID())
+	subscriptionArn := arn.Build("shield", "", h.Backend.AccountID(), "subscription")
 
 	return json.Marshal(map[string]any{
 		"Subscription": map[string]any{
@@ -700,7 +701,11 @@ func (h *Handler) handleListProtections(body []byte) ([]byte, error) {
 	}
 
 	maxResults := clampMaxResults(req.MaxResults, maxProtectionsPerPage)
-	start := decodeOffsetToken(req.NextToken)
+
+	start, err := decodeOffsetToken(req.NextToken)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", errInvalidRequest, err.Error())
+	}
 
 	if start >= len(protections) {
 		return json.Marshal(map[string]any{"Protections": []map[string]any{}})
@@ -748,28 +753,35 @@ func sliceToSet(ss []string) map[string]struct{} {
 	return m
 }
 
-// decodeOffsetToken decodes a base64-encoded integer cursor token, returning 0 on any error.
-func decodeOffsetToken(token string) int {
-	if token == "" {
-		return 0
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(token)
-	if err != nil {
-		return 0
-	}
-
-	n, err := strconv.Atoi(string(decoded))
-	if err != nil || n < 0 {
-		return 0
-	}
-
-	return n
+type offsetToken struct {
+	O int `json:"o"`
 }
 
-// encodeOffsetToken encodes an integer cursor as a base64 string.
+// decodeOffsetToken decodes an opaque base64url(JSON) cursor token, returning 0 for an empty token.
+// Returns an error on any malformed input so callers can surface InvalidPaginationTokenException.
+func decodeOffsetToken(token string) (int, error) {
+	if token == "" {
+		return 0, nil
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return 0, errInvalidPaginationToken
+	}
+
+	var t offsetToken
+	if unmarshalErr := json.Unmarshal(raw, &t); unmarshalErr != nil || t.O < 0 {
+		return 0, errInvalidPaginationToken
+	}
+
+	return t.O, nil
+}
+
+// encodeOffsetToken encodes an integer cursor as an opaque base64url(JSON) string.
 func encodeOffsetToken(offset int) string {
-	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+	data, _ := json.Marshal(offsetToken{O: offset})
+
+	return base64.RawURLEncoding.EncodeToString(data)
 }
 
 // clampMaxResults clamps maxResults to [1, maxCap].
@@ -820,7 +832,7 @@ func applyProtectionFilters(
 		return protections
 	}
 
-	out := protections[:0]
+	out := make([]*Protection, 0, len(protections))
 
 	for _, p := range protections {
 		if protectionMatchesFilters(p, arnSet, nameSet, typeSet) {
@@ -1291,7 +1303,11 @@ func (h *Handler) handleListProtectionGroups(body []byte) ([]byte, error) {
 	}
 
 	maxResults := clampMaxResults(req.MaxResults, maxProtectionGroupsPerPage)
-	start := decodeOffsetToken(req.NextToken)
+
+	start, err := decodeOffsetToken(req.NextToken)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", errInvalidRequest, err.Error())
+	}
 
 	if start >= len(groups) {
 		return json.Marshal(map[string]any{"ProtectionGroups": []map[string]any{}})
@@ -1391,7 +1407,11 @@ func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
 	attacks := h.Backend.ListAttacks(req.ResourceARNs, startTime, endTime)
 
 	maxResults := clampMaxResults(req.MaxResults, maxAttacksPerPage)
-	start := decodeOffsetToken(req.NextToken)
+
+	start, err := decodeOffsetToken(req.NextToken)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", errInvalidRequest, err.Error())
+	}
 
 	var nextToken string
 
@@ -1472,10 +1492,15 @@ func (h *Handler) handleDeleteSubscription() error {
 	return h.Backend.DeleteSubscription()
 }
 
-// handleGetAttackVectorDefinitionVersion returns the current attack-vector taxonomy version (gap 11).
+// attackVectorDefinitionVersion is the taxonomy version returned by GetAttackVectorDefinitionVersion.
+// AWS Shield returns a date-stamped semantic version; we pin to the 2022-11-29 release which
+// introduced the current set of vector types used in this emulator.
+const attackVectorDefinitionVersion = "20221129.1"
+
+// handleGetAttackVectorDefinitionVersion returns the current attack-vector taxonomy version.
 func (h *Handler) handleGetAttackVectorDefinitionVersion() ([]byte, error) {
 	return json.Marshal(map[string]any{
-		"AttackVectorDefinitionVersion": "1",
+		"AttackVectorDefinitionVersion": attackVectorDefinitionVersion,
 	})
 }
 

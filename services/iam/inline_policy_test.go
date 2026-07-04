@@ -44,7 +44,7 @@ func TestInMemoryBackend_UserInlinePolicies(t *testing.T) {
 				_, _ = b.CreateUser("alice", "/", "")
 			},
 			action:  "put_get",
-			wantDoc: `{"Version":"2012-10-17"}`,
+			wantDoc: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 		},
 		{
 			name:    "PutUserPolicy_UserNotFound",
@@ -64,7 +64,11 @@ func TestInMemoryBackend_UserInlinePolicies(t *testing.T) {
 			name: "DeleteUserPolicy",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_ = b.PutUserPolicy("alice", "MyPolicy", `{"Version":"2012-10-17"}`)
+				_ = b.PutUserPolicy(
+					"alice",
+					"MyPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action: "delete",
 		},
@@ -80,8 +84,16 @@ func TestInMemoryBackend_UserInlinePolicies(t *testing.T) {
 			name: "ListUserPolicies_Sorted",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_ = b.PutUserPolicy("alice", "ZPolicy", "{}")
-				_ = b.PutUserPolicy("alice", "APolicy", "{}")
+				_ = b.PutUserPolicy(
+					"alice",
+					"ZPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
+				_ = b.PutUserPolicy(
+					"alice",
+					"APolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action: "list",
 		},
@@ -103,7 +115,11 @@ func TestInMemoryBackend_UserInlinePolicies(t *testing.T) {
 			name: "DeleteUser_WithInlinePolicy_Conflict",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_ = b.PutUserPolicy("alice", "MyPolicy", "{}")
+				_ = b.PutUserPolicy(
+					"alice",
+					"MyPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action:  "delete_user_conflict",
 			wantErr: iam.ErrDeleteConflict,
@@ -127,7 +143,11 @@ func TestInMemoryBackend_UserInlinePolicies(t *testing.T) {
 				assert.Equal(t, tt.wantDoc, doc)
 
 			case "put_notfound":
-				err := b.PutUserPolicy("nobody", "MyPolicy", "{}")
+				err := b.PutUserPolicy(
+					"nobody",
+					"MyPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				require.ErrorIs(t, err, tt.wantErr)
 
 			case "get_notfound":
@@ -185,7 +205,7 @@ func TestInMemoryBackend_RoleInlinePolicies(t *testing.T) {
 				_, _ = b.CreateRole("MyRole", "/", "{}", "")
 			},
 			action:  "put_get",
-			wantDoc: `{"Version":"2012-10-17"}`,
+			wantDoc: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 		},
 		{
 			name:    "PutRolePolicy_RoleNotFound",
@@ -205,7 +225,11 @@ func TestInMemoryBackend_RoleInlinePolicies(t *testing.T) {
 			name: "DeleteRolePolicy",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateRole("MyRole", "/", "{}", "")
-				_ = b.PutRolePolicy("MyRole", "InlinePolicy", "{}")
+				_ = b.PutRolePolicy(
+					"MyRole",
+					"InlinePolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action: "delete",
 		},
@@ -213,8 +237,16 @@ func TestInMemoryBackend_RoleInlinePolicies(t *testing.T) {
 			name: "ListRolePolicies_Sorted",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateRole("MyRole", "/", "{}", "")
-				_ = b.PutRolePolicy("MyRole", "ZPolicy", "{}")
-				_ = b.PutRolePolicy("MyRole", "APolicy", "{}")
+				_ = b.PutRolePolicy(
+					"MyRole",
+					"ZPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
+				_ = b.PutRolePolicy(
+					"MyRole",
+					"APolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action: "list",
 		},
@@ -222,7 +254,11 @@ func TestInMemoryBackend_RoleInlinePolicies(t *testing.T) {
 			name: "DeleteRole_WithInlinePolicy_Conflict",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateRole("MyRole", "/", "{}", "")
-				_ = b.PutRolePolicy("MyRole", "InlinePolicy", "{}")
+				_ = b.PutRolePolicy(
+					"MyRole",
+					"InlinePolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action:  "delete_role_conflict",
 			wantErr: iam.ErrDeleteConflict,
@@ -246,7 +282,11 @@ func TestInMemoryBackend_RoleInlinePolicies(t *testing.T) {
 				assert.Equal(t, tt.wantDoc, doc)
 
 			case "put_notfound":
-				err := b.PutRolePolicy("Ghost", "MyPolicy", "{}")
+				err := b.PutRolePolicy(
+					"Ghost",
+					"MyPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				require.ErrorIs(t, err, tt.wantErr)
 
 			case "get_notfound":
@@ -292,7 +332,7 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 				_, _ = b.CreateGroup("Admins", "/")
 			},
 			action:  "put_get",
-			wantDoc: `{"Version":"2012-10-17"}`,
+			wantDoc: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 		},
 		{
 			name:    "PutGroupPolicy_GroupNotFound",
@@ -312,7 +352,11 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 			name: "DeleteGroupPolicy",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateGroup("Admins", "/")
-				_ = b.PutGroupPolicy("Admins", "InlinePolicy", "{}")
+				_ = b.PutGroupPolicy(
+					"Admins",
+					"InlinePolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action: "delete",
 		},
@@ -320,8 +364,16 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 			name: "ListGroupPolicies_Sorted",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateGroup("Admins", "/")
-				_ = b.PutGroupPolicy("Admins", "ZPolicy", "{}")
-				_ = b.PutGroupPolicy("Admins", "APolicy", "{}")
+				_ = b.PutGroupPolicy(
+					"Admins",
+					"ZPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
+				_ = b.PutGroupPolicy(
+					"Admins",
+					"APolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action: "list",
 		},
@@ -329,7 +381,11 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 			name: "DeleteGroup_WithInlinePolicy_Conflict",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateGroup("Admins", "/")
-				_ = b.PutGroupPolicy("Admins", "InlinePolicy", "{}")
+				_ = b.PutGroupPolicy(
+					"Admins",
+					"InlinePolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action:  "delete_group_conflict",
 			wantErr: iam.ErrDeleteConflict,
@@ -353,7 +409,11 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 				assert.Equal(t, tt.wantDoc, doc)
 
 			case "put_notfound":
-				err := b.PutGroupPolicy("Ghost", "MyPolicy", "{}")
+				err := b.PutGroupPolicy(
+					"Ghost",
+					"MyPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				require.ErrorIs(t, err, tt.wantErr)
 
 			case "get_notfound":
@@ -568,7 +628,7 @@ func TestIAMHandler_UserInlinePolicies(t *testing.T) {
 			params: map[string]string{
 				"UserName":       "alice",
 				"PolicyName":     "MyPolicy",
-				"PolicyDocument": `{"Version":"2012-10-17"}`,
+				"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			},
 			wantCode:    http.StatusOK,
 			wantContain: "PutUserPolicyResponse",
@@ -577,7 +637,11 @@ func TestIAMHandler_UserInlinePolicies(t *testing.T) {
 			name: "GetUserPolicy",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_ = b.PutUserPolicy("alice", "MyPolicy", `{"Version":"2012-10-17"}`)
+				_ = b.PutUserPolicy(
+					"alice",
+					"MyPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action:      "GetUserPolicy",
 			params:      map[string]string{"UserName": "alice", "PolicyName": "MyPolicy"},
@@ -588,7 +652,11 @@ func TestIAMHandler_UserInlinePolicies(t *testing.T) {
 			name: "DeleteUserPolicy",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_ = b.PutUserPolicy("alice", "MyPolicy", "{}")
+				_ = b.PutUserPolicy(
+					"alice",
+					"MyPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action:      "DeleteUserPolicy",
 			params:      map[string]string{"UserName": "alice", "PolicyName": "MyPolicy"},
@@ -599,7 +667,11 @@ func TestIAMHandler_UserInlinePolicies(t *testing.T) {
 			name: "ListUserPolicies",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
-				_ = b.PutUserPolicy("alice", "MyPolicy", "{}")
+				_ = b.PutUserPolicy(
+					"alice",
+					"MyPolicy",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action:      "ListUserPolicies",
 			params:      map[string]string{"UserName": "alice"},
@@ -656,7 +728,7 @@ func TestIAMHandler_RoleInlinePolicies(t *testing.T) {
 			params: map[string]string{
 				"RoleName":       "MyRole",
 				"PolicyName":     "InlineP",
-				"PolicyDocument": `{"Version":"2012-10-17"}`,
+				"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			},
 			wantCode:    http.StatusOK,
 			wantContain: "PutRolePolicyResponse",
@@ -665,7 +737,11 @@ func TestIAMHandler_RoleInlinePolicies(t *testing.T) {
 			name: "GetRolePolicy",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateRole("MyRole", "/", "{}", "")
-				_ = b.PutRolePolicy("MyRole", "InlineP", `{"Version":"2012-10-17"}`)
+				_ = b.PutRolePolicy(
+					"MyRole",
+					"InlineP",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action:      "GetRolePolicy",
 			params:      map[string]string{"RoleName": "MyRole", "PolicyName": "InlineP"},
@@ -676,7 +752,11 @@ func TestIAMHandler_RoleInlinePolicies(t *testing.T) {
 			name: "DeleteRolePolicy",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateRole("MyRole", "/", "{}", "")
-				_ = b.PutRolePolicy("MyRole", "InlineP", "{}")
+				_ = b.PutRolePolicy(
+					"MyRole",
+					"InlineP",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action:      "DeleteRolePolicy",
 			params:      map[string]string{"RoleName": "MyRole", "PolicyName": "InlineP"},
@@ -687,7 +767,11 @@ func TestIAMHandler_RoleInlinePolicies(t *testing.T) {
 			name: "ListRolePolicies",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateRole("MyRole", "/", "{}", "")
-				_ = b.PutRolePolicy("MyRole", "InlineP", "{}")
+				_ = b.PutRolePolicy(
+					"MyRole",
+					"InlineP",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			action:      "ListRolePolicies",
 			params:      map[string]string{"RoleName": "MyRole"},
@@ -812,7 +896,7 @@ func TestIAMHandler_UpdateAssumeRolePolicy(t *testing.T) {
 			},
 			params: map[string]string{
 				"RoleName":       "MyRole",
-				"PolicyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+				"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			},
 			wantCode:    http.StatusOK,
 			wantContain: "UpdateAssumeRolePolicyResponse",
@@ -981,11 +1065,28 @@ func TestGetAccountAuthorizationDetails(t *testing.T) {
 				_, _ = b.CreateUser("alice", "/", "")
 				_, _ = b.CreateUser("bob", "/", "")
 				_, _ = b.CreateGroup("admins", "/")
-				_, _ = b.CreateRole("my-role", "/", `{"Version":"2012-10-17"}`, "")
-				pol, _ := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17"}`)
+				_, _ = b.CreateRole(
+					"my-role",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					"",
+				)
+				pol, _ := b.CreatePolicy(
+					"MyPolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				_ = b.AttachUserPolicy("alice", pol.Arn)
-				_ = b.PutUserPolicy("alice", "InlineP", `{"Version":"2012-10-17"}`)
-				_ = b.PutRolePolicy("my-role", "InlineR", `{"Version":"2012-10-17"}`)
+				_ = b.PutUserPolicy(
+					"alice",
+					"InlineP",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
+				_ = b.PutRolePolicy(
+					"my-role",
+					"InlineR",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			wantUsers:    2,
 			wantGroups:   1,
@@ -1029,7 +1130,11 @@ func TestGetAccountAuthorizationDetails_InlinePoliciesIncluded(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	_, _ = b.CreateUser("alice", "/", "")
-	_ = b.PutUserPolicy("alice", "MyInline", `{"Version":"2012-10-17"}`)
+	_ = b.PutUserPolicy(
+		"alice",
+		"MyInline",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 
 	req := iamRequest("GetAccountAuthorizationDetails", nil)
 	rec := httptest.NewRecorder()
@@ -1310,7 +1415,15 @@ func TestSimulatePrincipalPolicy_Backend(t *testing.T) {
 			b := iam.NewInMemoryBackend()
 			tt.setup(b)
 
-			results, err := b.SimulatePrincipalPolicy(tt.principalArn, tt.actions, tt.resources)
+			results, err := b.SimulatePrincipalPolicy(
+				tt.principalArn,
+				"",
+				"",
+				nil,
+				tt.actions,
+				tt.resources,
+				iam.ConditionContext{},
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -1390,9 +1503,10 @@ func TestSimulatePrincipalPolicy_GroupInheritance(t *testing.T) {
 
 	// Simulate: s3:GetObject should be allowed via group membership.
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/carol",
+		"arn:aws:iam::000000000000:user/carol", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1404,9 +1518,10 @@ func TestSimulatePrincipalPolicy_GroupInheritance(t *testing.T) {
 	require.NoError(t, err)
 
 	results2, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/carol",
+		"arn:aws:iam::000000000000:user/carol", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results2, 1)
@@ -1437,9 +1552,10 @@ func TestSimulatePrincipalPolicy_GroupInlinePolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/dave",
+		"arn:aws:iam::000000000000:user/dave", "", "", nil,
 		[]string{"ec2:DescribeInstances"},
 		[]string{"*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1472,9 +1588,10 @@ func TestSimulatePrincipalPolicy_MultipleResourcesAndActions(t *testing.T) {
 	resources := []string{"arn:aws:s3:::my-bucket", "*"}
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:role/worker",
+		"arn:aws:iam::000000000000:role/worker", "", "", nil,
 		actions,
 		resources,
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	assert.Len(t, results, len(actions)*len(resources),

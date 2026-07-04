@@ -102,6 +102,12 @@ func TestRefinement1_BackendReset(t *testing.T) {
 		"QueryString":                    "SELECT 1",
 		"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 		"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, timestreamquery.ScheduledQueryCount(backend))
@@ -122,6 +128,12 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 		"QueryString":                    "SELECT 1",
 		"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 		"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, timestreamquery.ScheduledQueryCount(backend))
@@ -181,6 +193,12 @@ func TestRefinement1_UpdateScheduledQueryInvalidState(t *testing.T) {
 				"QueryString":                    "SELECT 1",
 				"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 				"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+				"NotificationConfiguration": map[string]any{
+					"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+				},
+				"ErrorReportConfiguration": map[string]any{
+					"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+				},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -242,12 +260,44 @@ func TestRefinement1_CreateScheduledQueryRequiredFields(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
+			name: "missing notification configuration",
+			body: map[string]any{
+				"Name":                           "q",
+				"QueryString":                    "SELECT 1",
+				"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
+				"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+				"ErrorReportConfiguration": map[string]any{
+					"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing error report configuration",
+			body: map[string]any{
+				"Name":                           "q",
+				"QueryString":                    "SELECT 1",
+				"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
+				"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+				"NotificationConfiguration": map[string]any{
+					"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
 			name: "all required fields provided",
 			body: map[string]any{
 				"Name":                           "q",
 				"QueryString":                    "SELECT 1",
 				"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 				"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+				"NotificationConfiguration": map[string]any{
+					"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+				},
+				"ErrorReportConfiguration": map[string]any{
+					"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+				},
 			},
 			wantCode: http.StatusOK,
 		},
@@ -277,6 +327,12 @@ func TestRefinement1_DescribeScheduledQuery_DeepCopy(t *testing.T) {
 		"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 		"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
 		"Tags":                           []map[string]string{{"Key": "env", "Value": "prod"}},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -307,6 +363,12 @@ func TestRefinement1_ScheduledQueryToViewIncludesTags(t *testing.T) {
 		"Tags": []map[string]string{
 			{"Key": "team", "Value": "data"},
 			{"Key": "env", "Value": "test"},
+		},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -399,6 +461,12 @@ func TestRefinement1_Persistence_SnapshotRestore(t *testing.T) {
 		"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 		"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
 		"Tags":                           []map[string]string{{"Key": "k", "Value": "v"}},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -409,12 +477,12 @@ func TestRefinement1_Persistence_SnapshotRestore(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Snapshot.
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Create fresh backend and restore.
 	backend2 := timestreamquery.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, backend2.Restore(snap))
+	require.NoError(t, backend2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, timestreamquery.ScheduledQueryCount(backend2))
 
@@ -460,6 +528,12 @@ func TestRefinement1_ContentTypeHeader(t *testing.T) {
 					"QueryString":                    "SELECT 1",
 					"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 					"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+					"NotificationConfiguration": map[string]any{
+						"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+					},
+					"ErrorReportConfiguration": map[string]any{
+						"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+					},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				arn := parseResponse(t, rec)["Arn"].(string)
@@ -530,6 +604,12 @@ func TestRefinement1_HandleErrorBranches(t *testing.T) {
 				"QueryString":                    "SELECT 1",
 				"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 				"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+				"NotificationConfiguration": map[string]any{
+					"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+				},
+				"ErrorReportConfiguration": map[string]any{
+					"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+				},
 			},
 			wantCode: http.StatusConflict,
 			wantType: "ConflictException",
@@ -603,6 +683,12 @@ func TestRefinement1_ScheduledQueryCountTrack(t *testing.T) {
 		"QueryString":                    "SELECT 1",
 		"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 		"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, timestreamquery.ScheduledQueryCount(backend))
@@ -634,17 +720,23 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 				"QueryString":                    "SELECT 1",
 				"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123:role/r",
 				"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+				"NotificationConfiguration": map[string]any{
+					"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+				},
+				"ErrorReportConfiguration": map[string]any{
+					"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+				},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Snapshot via handler.
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			// Create new handler and restore.
 			backend2 := timestreamquery.NewInMemoryBackend("123456789012", "us-east-1")
 			h2 := timestreamquery.NewHandler(backend2)
-			require.NoError(t, h2.Restore(snap))
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
 			assert.Equal(t, 1, timestreamquery.ScheduledQueryCount(backend2))
 		})
@@ -658,7 +750,7 @@ func TestRefinement1_HandlerSnapshotWithInMemoryBackend(t *testing.T) {
 
 	h := timestreamquery.NewHandler(timestreamquery.NewInMemoryBackend("123", "us-east-1"))
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	assert.NotNil(t, snap, "InMemoryBackend always produces a valid snapshot")
 }
 
@@ -680,7 +772,7 @@ func TestRefinement1_PersistenceRestoreInvalidJSON(t *testing.T) {
 			t.Parallel()
 
 			b := timestreamquery.NewInMemoryBackend("000000000000", "us-east-1")
-			err := b.Restore(tt.data)
+			err := b.Restore(t.Context(), tt.data)
 
 			if tt.wantErr {
 				require.Error(t, err)

@@ -33,7 +33,7 @@ func TestImportSSHPublicKey_BodyIndexBounded(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := transfer.NewInMemoryBackend("123456789012", "us-east-1")
+			b := transfer.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 			srv, err := b.CreateServer([]string{"SFTP"}, nil)
 			require.NoError(t, err)
@@ -44,8 +44,8 @@ func TestImportSSHPublicKey_BodyIndexBounded(t *testing.T) {
 			keyIDs := make([]string, 0, len(tc.keys))
 
 			for _, body := range tc.keys {
-				k, err := b.ImportSSHPublicKey(srv.ServerID, "alice", body)
-				require.NoError(t, err)
+				k, importErr := b.ImportSSHPublicKey(srv.ServerID, "alice", body)
+				require.NoError(t, importErr)
 				keyIDs = append(keyIDs, k.SSHPublicKeyID)
 			}
 
@@ -53,8 +53,8 @@ func TestImportSSHPublicKey_BodyIndexBounded(t *testing.T) {
 			require.Equal(t, len(tc.keys), transfer.SSHKeyBodyIndexCount(b), "body index before delete")
 
 			for _, id := range keyIDs {
-				err := b.DeleteSSHPublicKey(srv.ServerID, "alice", id)
-				require.NoError(t, err)
+				deleteErr := b.DeleteSSHPublicKey(srv.ServerID, "alice", id)
+				require.NoError(t, deleteErr)
 			}
 
 			require.Equal(t, 0, transfer.SSHPublicKeyCount(b), "key store must be empty after delete")
@@ -70,7 +70,7 @@ func TestImportSSHPublicKey_DuplicateRejectedByIndex(t *testing.T) {
 
 	const keyBody = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBqzG1vdEIp+OOmEzJMFEXOvqOAvj0c9IITqKMqL5ooH test-dup"
 
-	b := transfer.NewInMemoryBackend("123456789012", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 	srv, err := b.CreateServer([]string{"SFTP"}, nil)
 	require.NoError(t, err)

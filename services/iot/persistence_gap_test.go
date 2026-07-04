@@ -1,6 +1,7 @@
 package iot_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,11 +22,11 @@ func TestPersistenceGap264_FullBackendStateSurvivesRoundTrip(t *testing.T) {
 	b1 := iot.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	seeded := seedPersistenceGapState(t, b1)
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(context.Background())
 	require.NotNil(t, snap)
 
 	b2 := iot.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(context.Background(), snap))
 
 	for _, tt := range persistenceGapChecks(seeded) {
 		t.Run(tt.name, func(t *testing.T) {
@@ -640,13 +641,13 @@ func TestPersistenceGap264_EmptySnapshotRestoresNotFound(t *testing.T) {
 	t.Parallel()
 
 	empty := iot.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	snap := empty.Snapshot()
+	snap := empty.Snapshot(context.Background())
 	require.NotNil(t, snap)
 
 	b := iot.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	seedPersistenceGapState(t, b)
 
-	require.NoError(t, b.Restore(snap))
+	require.NoError(t, b.Restore(context.Background(), snap))
 
 	tests := []struct {
 		call func() error

@@ -345,6 +345,10 @@ func (b *InMemoryBackend) DeleteContainerPolicy(ctx context.Context, name string
 		return ErrContainerNotFound
 	}
 
+	if c.ContainerPolicy == "" {
+		return ErrPolicyNotFound
+	}
+
 	c.ContainerPolicy = ""
 
 	return nil
@@ -415,6 +419,10 @@ func (b *InMemoryBackend) DeleteCorsPolicy(ctx context.Context, name string) err
 		return ErrContainerNotFound
 	}
 
+	if c.CorsPolicy == nil {
+		return ErrCorsPolicyNotFound
+	}
+
 	c.CorsPolicy = nil
 
 	return nil
@@ -470,6 +478,10 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(ctx context.Context, name string
 	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if c.LifecyclePolicy == "" {
+		return ErrLifecyclePolicyNotFound
 	}
 
 	c.LifecyclePolicy = ""
@@ -532,6 +544,10 @@ func (b *InMemoryBackend) DeleteMetricPolicy(ctx context.Context, name string) e
 	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if c.MetricPolicy == nil {
+		return ErrMetricPolicyNotFound
 	}
 
 	c.MetricPolicy = nil

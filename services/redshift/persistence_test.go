@@ -34,7 +34,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *redshift.InMemoryBackend, id string) {
 				t.Helper()
 
-				clusters, err := b.DescribeClusters(id)
+				clusters, _, err := b.DescribeClusters(id, "", 0)
 				require.NoError(t, err)
 				require.Len(t, clusters, 1)
 				assert.Equal(t, id, clusters[0].ClusterIdentifier)
@@ -46,7 +46,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *redshift.InMemoryBackend, _ string) {
 				t.Helper()
 
-				clusters, err := b.DescribeClusters("")
+				clusters, _, err := b.DescribeClusters("", "", 0)
 				require.NoError(t, err)
 				assert.Empty(t, clusters)
 			},
@@ -60,11 +60,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -75,7 +75,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -88,14 +88,14 @@ func TestRedshiftHandler_Persistence(t *testing.T) {
 	_, err := backend.CreateCluster("snap-cluster", "ra3.xlplus", "admin", "Pass1234!")
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 	freshH := redshift.NewHandler(fresh)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 
-	clusters, err := fresh.DescribeClusters("")
+	clusters, _, err := fresh.DescribeClusters("", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, clusters, 1)
 }

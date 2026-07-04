@@ -89,7 +89,12 @@ func TestTagRole_StoresOnModel(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+	_, err := b.CreateRole(
+		"MyRole",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		"",
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagRole("MyRole", map[string]string{"dept": "eng"}))
@@ -112,7 +117,12 @@ func TestUntagRole_RemovesKeys(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.CreateRole("R2", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+	_, err := b.CreateRole(
+		"R2",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		"",
+	)
 	require.NoError(t, err)
 	require.NoError(t, b.TagRole("R2", map[string]string{"x": "1", "y": "2"}))
 	require.NoError(t, b.UntagRole("R2", []string{"x"}))
@@ -127,7 +137,11 @@ func TestTagPolicy_StoresOnModel(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	pol, err := b.CreatePolicy("MyPol", "/", `{"Version":"2012-10-17","Statement":[]}`)
+	pol, err := b.CreatePolicy(
+		"MyPol",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagPolicy(pol.Arn, map[string]string{"owner": "infra"}))
@@ -150,7 +164,11 @@ func TestUntagPolicy_RemovesKeys(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	pol, _ := b.CreatePolicy("P1", "/", `{"Version":"2012-10-17","Statement":[]}`)
+	pol, _ := b.CreatePolicy(
+		"P1",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 	require.NoError(t, b.TagPolicy(pol.Arn, map[string]string{"a": "1", "b": "2"}))
 	require.NoError(t, b.UntagPolicy(pol.Arn, []string{"a"}))
 
@@ -489,9 +507,10 @@ func TestSimulatePrincipalPolicy_AllowWithoutBoundary(t *testing.T) {
 	_ = b.AttachUserPolicy("petra", pol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/petra",
+		"arn:aws:iam::000000000000:user/petra", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -513,9 +532,10 @@ func TestSimulatePrincipalPolicy_BoundaryDeniesAllowedAction(t *testing.T) {
 	_ = b.AttachUserPolicy("quinn", identityPol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/quinn",
+		"arn:aws:iam::000000000000:user/quinn", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -536,9 +556,10 @@ func TestSimulatePrincipalPolicy_BoundaryAllowsActionGrantedByIdentity(t *testin
 	_ = b.AttachUserPolicy("rosa", identityPol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/rosa",
+		"arn:aws:iam::000000000000:user/rosa", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -561,9 +582,10 @@ func TestSimulatePrincipalPolicy_RoleBoundaryEnforced(t *testing.T) {
 	_ = b.AttachRolePolicy("TestRole", identityPol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:role/TestRole",
+		"arn:aws:iam::000000000000:role/TestRole", "", "", nil,
 		[]string{"s3:GetObject"},
 		[]string{"arn:aws:s3:::my-bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -995,9 +1017,10 @@ func TestSimulatePrincipalPolicy_ExplicitDenyTakesPrecedence(t *testing.T) {
 	_ = b.AttachUserPolicy("explicit-deny-user", identityPol.Arn)
 
 	results, err := b.SimulatePrincipalPolicy(
-		"arn:aws:iam::000000000000:user/explicit-deny-user",
+		"arn:aws:iam::000000000000:user/explicit-deny-user", "", "", nil,
 		[]string{"s3:DeleteObject", "s3:GetObject"},
 		[]string{"arn:aws:s3:::bucket/*"},
+		iam.ConditionContext{},
 	)
 	require.NoError(t, err)
 	require.Len(t, results, 2)

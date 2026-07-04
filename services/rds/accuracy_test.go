@@ -1042,6 +1042,7 @@ func TestModifyDBInstanceUpdatesEngineVersion(t *testing.T) {
 		"Version":              {"2014-10-31"},
 		"DBInstanceIdentifier": {"ev-modify"},
 		"EngineVersion":        {"15.0"},
+		"ApplyImmediately":     {"true"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

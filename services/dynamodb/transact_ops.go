@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
@@ -60,7 +61,10 @@ func (db *InMemoryDB) TransactWriteItems(
 	}
 
 	out = &dynamodb.TransactWriteItemsOutput{
-		ConsumedCapacity: transactWriteConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
+		ConsumedCapacity: transactWriteConsumedCapacity(
+			input.ReturnConsumedCapacity,
+			input.TransactItems,
+		),
 	}
 
 	return out, nil
@@ -254,9 +258,10 @@ func (db *InMemoryDB) applyTransactItems(
 	snapshots := db.snapshotTables(tables)
 	for i, ti := range items {
 		if err := db.applyTransactWrite(ctx, tables, ti); err != nil {
-			logger.Load(ctx).ErrorContext(ctx, "Transaction failed during apply phase, rolling back",
-				"error", err,
-				"itemIndex", i)
+			logger.Load(ctx).
+				ErrorContext(ctx, "Transaction failed during apply phase, rolling back",
+					"error", err,
+					"itemIndex", i)
 			db.rollbackTables(tables, snapshots)
 
 			return err
@@ -351,8 +356,11 @@ func (db *InMemoryDB) TransactGetItems(
 	}
 
 	out := &dynamodb.TransactGetItemsOutput{
-		Responses:        responses,
-		ConsumedCapacity: transactReadConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
+		Responses: responses,
+		ConsumedCapacity: transactReadConsumedCapacity(
+			input.ReturnConsumedCapacity,
+			input.TransactItems,
+		),
 	}
 
 	return out, nil
@@ -437,16 +445,15 @@ func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []stri
 		}
 	}
 
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(seen)
 
 	return names
 }
 
-func (db *InMemoryDB) lockTablesWrite(ctx context.Context, tableNames []string) (map[string]*Table, error) {
+func (db *InMemoryDB) lockTablesWrite(
+	ctx context.Context,
+	tableNames []string,
+) (map[string]*Table, error) {
 	region := getRegionFromContext(ctx, db)
 	tables := make(map[string]*Table, len(tableNames))
 
@@ -476,7 +483,10 @@ func (db *InMemoryDB) lockTablesWrite(ctx context.Context, tableNames []string) 
 	return tables, nil
 }
 
-func (db *InMemoryDB) lockTablesRead(ctx context.Context, tableNames []string) (map[string]*Table, error) {
+func (db *InMemoryDB) lockTablesRead(
+	ctx context.Context,
+	tableNames []string,
+) (map[string]*Table, error) {
 	region := getRegionFromContext(ctx, db)
 	tables := make(map[string]*Table, len(tableNames))
 
@@ -644,8 +654,10 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 		}
 
 		if rv == types.ReturnValuesOnConditionCheckFailureAllOld && item != nil {
-			sdkItem, _ := models.ToSDKItem(item)
-			reason.Item = sdkItem
+			// item is already in DynamoDB wire form ({"attr":{"S":...}}), which is the
+			// shape AWS returns in CancellationReasons[].Item. Marshalling the smithy SDK
+			// union types instead would emit {"Value":...} and break SDK parsing.
+			reason.Item = item
 		}
 		reasons[idx] = reason
 
@@ -671,9 +683,9 @@ func (db *InMemoryDB) applyTransactWrite(
 		db.doPut(table, wireItem, matchIndex)
 		// Capture stream event for the committed transactional write.
 		if matchIndex != -1 {
-			table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem))
+			table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem), "", "")
 		} else {
-			table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem))
+			table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem), "", "")
 		}
 
 	case ti.Delete != nil:
@@ -682,7 +694,7 @@ func (db *InMemoryDB) applyTransactWrite(
 		oldItem, matchIndex := db.findMatchForPut(table, wireKey)
 		if matchIndex != -1 {
 			// Capture stream event (REMOVE) before the item is removed.
-			table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil)
+			table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil, "", "")
 			db.deleteItemAtIndex(table, matchIndex)
 		}
 
@@ -711,9 +723,11 @@ func (db *InMemoryDB) applyTransactWrite(
 		}
 		// Capture stream event for the committed transactional update.
 		if matchIndex != -1 {
-			table.appendStreamRecord(streamEventModify, deepCopyItem(oldItem), deepCopyItem(updated))
+			table.appendStreamRecord(
+				streamEventModify, deepCopyItem(oldItem), deepCopyItem(updated), "", "",
+			)
 		} else {
-			table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated))
+			table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated), "", "")
 		}
 	}
 
@@ -750,7 +764,10 @@ func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableS
 	return snapshots
 }
 
-func (db *InMemoryDB) rollbackTables(tables map[string]*Table, snapshots map[string]tableStateSnapshot) {
+func (db *InMemoryDB) rollbackTables(
+	tables map[string]*Table,
+	snapshots map[string]tableStateSnapshot,
+) {
 	for name, t := range tables {
 		if s, ok := snapshots[name]; ok {
 			t.Items = s.items

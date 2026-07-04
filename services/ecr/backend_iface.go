@@ -196,7 +196,9 @@ type Backend interface {
 		ctx context.Context,
 		repositoryName string,
 		imageID ImageIdentifier,
-	) (*ImageScanFindingsResult, error)
+		maxResults int,
+		nextToken string,
+	) (*ImageScanFindingsResult, string, error)
 
 	// StartImageScan starts an image scan and returns the scan status.
 	StartImageScan(ctx context.Context, repositoryName string, imageID ImageIdentifier) (*ImageScanStartResult, error)
@@ -284,6 +286,6 @@ type Backend interface {
 // support state serialisation and restoration (e.g. for --persist mode).
 // Backends that do not implement it are silently skipped during snapshot/restore.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }

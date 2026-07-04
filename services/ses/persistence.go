@@ -1,10 +1,13 @@
 package ses
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"maps"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -18,13 +21,15 @@ type backendSnapshot struct {
 	CustomVerifTemplates  map[string]*CustomVerificationEmailTemplate `json:"customVerifTemplates"`
 	Policies              map[string]map[string]string                `json:"policies,omitempty"`
 	ActiveRuleSet         string                                      `json:"activeRuleSet,omitempty"`
+	Region                string                                      `json:"region,omitempty"`
+	AccountID             string                                      `json:"accountID,omitempty"`
 	Emails                []Email                                     `json:"emails"`
 	AccountSendingEnabled bool                                        `json:"accountSendingEnabled"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -100,11 +105,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Policies:              pols,
 		ActiveRuleSet:         b.activeRuleSet,
 		AccountSendingEnabled: b.accountSendingEnabled,
+		Region:                b.region,
+		AccountID:             b.accountID,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("ses: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "ses: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -114,10 +121,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "ses", data, &snap); err != nil {
 		return err
 	}
 
@@ -137,6 +144,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.policies = snap.Policies
 	b.activeRuleSet = snap.ActiveRuleSet
 	b.accountSendingEnabled = snap.AccountSendingEnabled
+
+	if snap.Region != "" {
+		b.region = snap.Region
+	}
+
+	if snap.AccountID != "" {
+		b.accountID = snap.AccountID
+	}
 
 	// Drop emails outside the current TTL window and cap to maxRetainedEmails
 	// so that memory is bounded immediately after restore.
@@ -167,13 +182,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
-	return h.Backend.Snapshot()
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.Backend.Snapshot(ctx)
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
-	return h.Backend.Restore(data)
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
 }
 
 func ensureNonNilMaps(snap *backendSnapshot) {

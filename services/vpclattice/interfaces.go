@@ -1,40 +1,48 @@
 package vpclattice
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for VPC Lattice storage operations.
 type StorageBackend interface {
 	CreateService(
+		ctx context.Context,
 		name, authType, certificateArn, customDomainName string,
 		tags map[string]string,
 	) (*Service, error)
 	GetService(serviceID string) (*Service, error)
 	UpdateService(serviceID, authType, certificateArn string) (*Service, error)
 	DeleteService(serviceID string) (*Service, error)
-	ListServices(maxResults int32, nextToken string) ([]*ServiceSummary, string, error)
+	ListServices(ctx context.Context, maxResults int32, nextToken string) ([]*ServiceSummary, string, error)
 
-	CreateServiceNetwork(name, authType string, tags map[string]string) (*ServiceNetwork, error)
+	CreateServiceNetwork(ctx context.Context, name, authType string, tags map[string]string) (*ServiceNetwork, error)
 	GetServiceNetwork(snID string) (*ServiceNetwork, error)
 	UpdateServiceNetwork(snID, authType string) (*ServiceNetwork, error)
 	DeleteServiceNetwork(snID string) error
 	ListServiceNetworks(
+		ctx context.Context,
 		maxResults int32,
 		nextToken string,
 	) ([]*ServiceNetworkSummary, string, error)
 
 	CreateServiceNetworkServiceAssociation(
+		ctx context.Context,
 		serviceNetworkID, serviceID string,
 		tags map[string]string,
 	) (*ServiceNetworkServiceAssociation, error)
 	GetServiceNetworkServiceAssociation(snsaID string) (*ServiceNetworkServiceAssociation, error)
 	DeleteServiceNetworkServiceAssociation(snsaID string) error
 	ListServiceNetworkServiceAssociations(
+		ctx context.Context,
 		serviceNetworkID, serviceID string,
 		maxResults int32,
 		nextToken string,
 	) ([]*ServiceNetworkServiceAssociationSummary, string, error)
 
 	CreateServiceNetworkVpcAssociation(
+		ctx context.Context,
 		serviceNetworkID, vpcID string,
 		securityGroupIDs []string,
 		tags map[string]string,
@@ -46,6 +54,7 @@ type StorageBackend interface {
 	) (*ServiceNetworkVpcAssociation, error)
 	DeleteServiceNetworkVpcAssociation(snvaID string) error
 	ListServiceNetworkVpcAssociations(
+		ctx context.Context,
 		serviceNetworkID, vpcID string,
 		maxResults int32,
 		nextToken string,
@@ -92,6 +101,7 @@ type StorageBackend interface {
 	) ([]*RuleUpdateSuccess, []*RuleUpdateFailure, error)
 
 	CreateTargetGroup(
+		ctx context.Context,
 		name, tgType string,
 		config *TargetGroupConfig,
 		tags map[string]string,
@@ -100,15 +110,23 @@ type StorageBackend interface {
 	UpdateTargetGroup(tgID string, healthCheck *HealthCheckConfig) (*TargetGroup, error)
 	DeleteTargetGroup(tgID string) error
 	ListTargetGroups(
+		ctx context.Context,
 		tgType, serviceArn string,
 		maxResults int32,
 		nextToken string,
 	) ([]*TargetGroupSummary, string, error)
 	RegisterTargets(tgID string, targets []*Target) ([]*TargetFailure, error)
 	DeregisterTargets(tgID string, targets []*Target) ([]*TargetFailure, error)
-	ListTargets(tgID string, maxResults int32, nextToken string) ([]*TargetSummary, string, error)
+	ListTargets(
+		ctx context.Context,
+		tgID string,
+		filters []Target,
+		maxResults int32,
+		nextToken string,
+	) ([]*TargetSummary, string, error)
 
 	CreateAccessLogSubscription(
+		ctx context.Context,
 		resourceID, destinationArn, logType string,
 		tags map[string]string,
 	) (*AccessLogSubscription, error)
@@ -116,6 +134,7 @@ type StorageBackend interface {
 	UpdateAccessLogSubscription(alsID, destinationArn string) (*AccessLogSubscription, error)
 	DeleteAccessLogSubscription(alsID string) error
 	ListAccessLogSubscriptions(
+		ctx context.Context,
 		resourceID string,
 		maxResults int32,
 		nextToken string,
@@ -136,8 +155,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Service represents a VPC Lattice service.

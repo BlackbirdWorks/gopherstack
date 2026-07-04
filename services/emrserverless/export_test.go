@@ -29,3 +29,13 @@ func ARNIndexSizes(b *InMemoryBackend) (int, int) {
 
 	return len(b.applicationARNs), len(b.jobRunARNs)
 }
+
+// SetApplicationState forcibly sets an application's state. Used only in tests.
+func SetApplicationState(b *InMemoryBackend, id, state string) {
+	b.mu.Lock("SetApplicationState")
+	defer b.mu.Unlock()
+
+	if app, ok := b.applications[id]; ok {
+		app.State = state
+	}
+}

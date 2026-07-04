@@ -605,10 +605,10 @@ func TestBatch3_MLTransform_TaskRunStubs(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	})
 
-	t.Run("cancel-ml-task-run", func(t *testing.T) {
+	t.Run("cancel-ml-task-run-empty-ids-rejected", func(t *testing.T) {
 		t.Parallel()
 		rec := doGlueRequest(t, h, "CancelMLTaskRun", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
 

@@ -39,7 +39,7 @@ func TestTagQueue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 
 			url := tt.queueURL
 			if tt.queueName != "" {
@@ -89,7 +89,7 @@ func TestUntagQueue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			url := createTestQueue(t, b, tt.queueName)
 
 			err := b.TagQueue(&sqs.TagQueueInput{
@@ -130,7 +130,7 @@ func TestListQueueTags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			url := createTestQueue(t, b, tt.queueName)
 
 			out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})

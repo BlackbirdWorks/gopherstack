@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -973,7 +974,7 @@ func (b *InMemoryBackend) RegisterEventTopic(ctx context.Context, directoryID, t
 	st.eventTopics[key] = &storedEventTopic{
 		DirectoryID:     directoryID,
 		TopicName:       topicName,
-		TopicARN:        fmt.Sprintf("arn:aws:sns:%s:%s:%s", region, b.accountID, topicName),
+		TopicARN:        arn.Build("sns", region, b.accountID, topicName),
 		Status:          "Registered",
 		CreatedDateTime: time.Now().UTC(),
 	}
@@ -2453,8 +2454,22 @@ func (b *InMemoryBackend) ConnectDirectory(
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
+	if size != DirectorySizeSmall && size != DirectorySizeLarge && size != "" {
+		return nil, ErrInvalidParameter
+	}
 
 	st := b.state(region)
+
+	var count int32
+	for _, d := range st.directories {
+		if DirectoryType(d.DirType) == DirectoryTypeADConnector {
+			count++
+		}
+	}
+	if count >= 10 { //nolint:mnd // AWS connected directory limit
+		return nil, ErrDirectoryLimitExceeded
+	}
+
 	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeADConnector, size, "", nil, tags)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID

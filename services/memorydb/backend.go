@@ -267,6 +267,7 @@ type StorageBackend interface {
 	DescribeSnapshots(ctx context.Context, name, clusterName, snapshotType, source string) ([]*Snapshot, error)
 	CopySnapshot(ctx context.Context, req *copySnapshotRequest) (*Snapshot, error)
 	DeleteSnapshot(ctx context.Context, name string) (*Snapshot, error)
+	ExportSnapshot(ctx context.Context, req *exportSnapshotRequest) (*Snapshot, error)
 	DescribeEngineVersions(ctx context.Context, req *describeEngineVersionsRequest) ([]*EngineVersion, error)
 	DescribeEvents(ctx context.Context, req *describeEventsRequest) ([]*Event, error)
 	CreateMultiRegionCluster(ctx context.Context, req *createMultiRegionClusterRequest) (*MultiRegionCluster, error)
@@ -295,8 +296,8 @@ type StorageBackend interface {
 	DescribeServiceUpdates(ctx context.Context, req *describeServiceUpdatesRequest) ([]*ServiceUpdate, error)
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -2027,6 +2028,21 @@ func (b *InMemoryBackend) DeleteSnapshot(ctx context.Context, name string) (*Sna
 		SourceType: resourceKindSnapshot,
 		Message:    "Snapshot " + name + " deleted",
 	})
+
+	return s, nil
+}
+
+// ExportSnapshot validates the snapshot exists and returns it (export to S3 is a no-op in the mock).
+func (b *InMemoryBackend) ExportSnapshot(ctx context.Context, req *exportSnapshotRequest) (*Snapshot, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	s, ok := b.snapshotsStore(region)[req.SnapshotName]
+	if !ok {
+		return nil, ErrSnapshotNotFound
+	}
 
 	return s, nil
 }

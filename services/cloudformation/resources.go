@@ -151,6 +151,7 @@ type ResourceCreator struct {
 	backends           *ServiceBackends
 	nestedStackCreator NestedStackCreator
 	createHook         func(resourceType string) error // used by tests to inject creation errors
+	deleteHook         func(resourceType string)       // used by tests to observe deletion calls
 }
 
 // NewResourceCreator returns a ResourceCreator backed by the given services.
@@ -407,7 +408,7 @@ func (rc *ResourceCreator) createPlatformResources(
 
 		return physID, true, err
 	case "AWS::Events::EventBus":
-		physID, err := rc.createEventBus(logicalID, props, params, physicalIDs)
+		physID, err := rc.createEventBus(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case resTypeStepFunctionsStateMachine:
@@ -580,7 +581,7 @@ func (rc *ResourceCreator) createDataPlatformResource(
 	switch resourceType {
 	case "AWS::Kinesis::Stream":
 
-		return rc.createKinesisStream(logicalID, props, params, physicalIDs)
+		return rc.createKinesisStream(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::CloudWatch::Alarm":
 
 		return rc.createCloudWatchAlarm(logicalID, props, params, physicalIDs)
@@ -598,13 +599,13 @@ func (rc *ResourceCreator) createDataPlatformResource(
 		return rc.createRoute53HealthCheck(logicalID, props, params, physicalIDs)
 	case "AWS::ElastiCache::CacheCluster":
 
-		return rc.createElastiCacheCacheCluster(logicalID, props, params, physicalIDs)
+		return rc.createElastiCacheCacheCluster(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::ElastiCache::ReplicationGroup":
 
-		return rc.createElastiCacheReplicationGroup(logicalID, props, params, physicalIDs)
+		return rc.createElastiCacheReplicationGroup(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::ElastiCache::SubnetGroup":
 
-		return rc.createElastiCacheSubnetGroup(logicalID, props, params, physicalIDs)
+		return rc.createElastiCacheSubnetGroup(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::SNS::Subscription":
 
 		return rc.createSNSSubscription(logicalID, props, params, physicalIDs)
@@ -616,7 +617,7 @@ func (rc *ResourceCreator) createDataPlatformResource(
 		return rc.createS3BucketPolicy(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::Scheduler::Schedule":
 
-		return rc.createSchedulerSchedule(logicalID, props, params, physicalIDs)
+		return rc.createSchedulerSchedule(ctx, logicalID, props, params, physicalIDs)
 	default:
 
 		return rc.createNewServiceResource(ctx, logicalID, resourceType, props, params, physicalIDs)
@@ -653,7 +654,7 @@ func (rc *ResourceCreator) createNewServiceResource(
 		return physID, err
 	}
 
-	return rc.createMiscServiceResource(logicalID, resourceType, props, params, physicalIDs)
+	return rc.createMiscServiceResource(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
 // createRDSResource handles AWS::RDS::* resource creation.
@@ -722,24 +723,26 @@ func (rc *ResourceCreator) createContainerResource(
 // createMiscServiceResource handles Redshift, OpenSearch, Firehose, Route53Resolver, SWF, AppSync,
 // SES, ACM, Cognito, extended EC2, and phase-3 resource creation.
 func (rc *ResourceCreator) createMiscServiceResource(
+	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-	if physID, ok, err := rc.createMiscLegacyResource(logicalID, resourceType, props, params, physicalIDs); ok {
+	if physID, ok, err := rc.createMiscLegacyResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
 		return physID, err
 	}
 
-	if physID, ok, err := rc.createPhase3ComputeResource(logicalID, resourceType, props, params, physicalIDs); ok {
+	if physID, ok, err := rc.createPhase3ComputeResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
 		return physID, err
 	}
 
-	return rc.createPhase3DataResource(logicalID, resourceType, props, params, physicalIDs)
+	return rc.createPhase3DataResource(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
 // createMiscLegacyResource handles Redshift, OpenSearch, Firehose, Route53Resolver, SWF, AppSync,
 // SES, ACM, Cognito, and EC2 NatGateway/EIP resource creation.
 func (rc *ResourceCreator) createMiscLegacyResource(
+	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -755,7 +758,7 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 		return physID, true, err
 	case "AWS::Firehose::DeliveryStream":
 		physID, err := rc.createFirehoseDeliveryStream(
-			context.Background(),
+			ctx,
 			logicalID,
 			props,
 			params,
@@ -764,11 +767,11 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 
 		return physID, true, err
 	case "AWS::Route53Resolver::ResolverEndpoint":
-		physID, err := rc.createRoute53ResolverEndpoint(logicalID, props, params, physicalIDs)
+		physID, err := rc.createRoute53ResolverEndpoint(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::Route53Resolver::ResolverRule":
-		physID, err := rc.createRoute53ResolverRule(logicalID, props, params, physicalIDs)
+		physID, err := rc.createRoute53ResolverRule(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::SWF::Domain":
@@ -784,7 +787,7 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 
 		return physID, true, err
 	case "AWS::ACM::Certificate":
-		physID, err := rc.createACMCertificate(logicalID, props, params, physicalIDs)
+		physID, err := rc.createACMCertificate(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::Cognito::UserPool":
@@ -812,19 +815,21 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 // createPhase3ComputeResource handles EKS, EFS, Batch, CloudFront, AutoScaling,
 // ApiGatewayV2, CodeBuild, and Glue resource creation.
 func (rc *ResourceCreator) createPhase3ComputeResource(
+	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
-	if physID, ok, err := rc.createPhase3InfraResource(logicalID, resourceType, props, params, physicalIDs); ok {
+	if physID, ok, err := rc.createPhase3InfraResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
 		return physID, true, err
 	}
 
-	return rc.createPhase3AppServiceResource(logicalID, resourceType, props, params, physicalIDs)
+	return rc.createPhase3AppServiceResource(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
 // createPhase3InfraResource handles EKS, EFS, Batch, and CloudFront resource creation.
 func (rc *ResourceCreator) createPhase3InfraResource(
+	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -839,23 +844,23 @@ func (rc *ResourceCreator) createPhase3InfraResource(
 
 		return physID, true, err
 	case "AWS::EFS::FileSystem":
-		physID, err := rc.createEFSFileSystem(logicalID, props, params, physicalIDs)
+		physID, err := rc.createEFSFileSystem(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::EFS::MountTarget":
-		physID, err := rc.createEFSMountTarget(logicalID, props, params, physicalIDs)
+		physID, err := rc.createEFSMountTarget(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::Batch::ComputeEnvironment":
-		physID, err := rc.createBatchComputeEnvironment(logicalID, props, params, physicalIDs)
+		physID, err := rc.createBatchComputeEnvironment(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::Batch::JobQueue":
-		physID, err := rc.createBatchJobQueue(logicalID, props, params, physicalIDs)
+		physID, err := rc.createBatchJobQueue(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::Batch::JobDefinition":
-		physID, err := rc.createBatchJobDefinition(logicalID, props, params, physicalIDs)
+		physID, err := rc.createBatchJobDefinition(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::CloudFront::Distribution":
@@ -870,6 +875,7 @@ func (rc *ResourceCreator) createPhase3InfraResource(
 
 // createPhase3AppServiceResource handles AutoScaling, ApiGatewayV2, CodeBuild, and Glue resource creation.
 func (rc *ResourceCreator) createPhase3AppServiceResource(
+	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -884,7 +890,7 @@ func (rc *ResourceCreator) createPhase3AppServiceResource(
 
 		return physID, true, err
 	case "AWS::ApiGatewayV2::Api":
-		physID, err := rc.createAPIGatewayV2API(logicalID, props, params, physicalIDs)
+		physID, err := rc.createAPIGatewayV2API(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::ApiGatewayV2::Stage":
@@ -920,6 +926,7 @@ func (rc *ResourceCreator) createPhase3AppServiceResource(
 // createPhase3DataResource handles DocDB, Neptune, MSK, Transfer, CloudTrail,
 // CodePipeline, IoT, Pipes, EMR, and CloudWatch Dashboard resource creation.
 func (rc *ResourceCreator) createPhase3DataResource(
+	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -927,19 +934,19 @@ func (rc *ResourceCreator) createPhase3DataResource(
 	switch resourceType {
 	case "AWS::DocDB::DBCluster":
 
-		return rc.createDocDBCluster(logicalID, props, params, physicalIDs)
+		return rc.createDocDBCluster(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::DocDB::DBInstance":
 
-		return rc.createDocDBInstance(logicalID, props, params, physicalIDs)
+		return rc.createDocDBInstance(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::Neptune::DBCluster":
 
-		return rc.createNeptuneCluster(logicalID, props, params, physicalIDs)
+		return rc.createNeptuneCluster(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::Neptune::DBInstance":
 
-		return rc.createNeptuneInstance(logicalID, props, params, physicalIDs)
+		return rc.createNeptuneInstance(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::MSK::Cluster":
 
-		return rc.createMSKCluster(logicalID, props, params, physicalIDs)
+		return rc.createMSKCluster(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::Transfer::Server":
 
 		return rc.createTransferServer(logicalID, props, params, physicalIDs)
@@ -948,7 +955,7 @@ func (rc *ResourceCreator) createPhase3DataResource(
 		return rc.createCloudTrailTrail(logicalID, props, params, physicalIDs)
 	case "AWS::CodePipeline::Pipeline":
 
-		return rc.createCodePipelinePipeline(logicalID, props, params, physicalIDs)
+		return rc.createCodePipelinePipeline(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::IoT::Thing":
 
 		return rc.createIoTThing(logicalID, props, params, physicalIDs)
@@ -957,16 +964,16 @@ func (rc *ResourceCreator) createPhase3DataResource(
 		return rc.createIoTTopicRule(logicalID, props, params, physicalIDs)
 	case "AWS::Pipes::Pipe":
 
-		return rc.createPipesPipe(logicalID, props, params, physicalIDs)
+		return rc.createPipesPipe(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::EMR::Cluster":
 
-		return rc.createEMRCluster(logicalID, props, params, physicalIDs)
+		return rc.createEMRCluster(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::CloudWatch::Dashboard":
 
 		return rc.createCloudWatchDashboard(logicalID, props, params, physicalIDs)
 	default:
 
-		return rc.createPhase4Resource(logicalID, resourceType, props, params, physicalIDs)
+		return rc.createPhase4Resource(ctx, logicalID, resourceType, props, params, physicalIDs)
 	}
 }
 
@@ -988,6 +995,7 @@ func (rc *ResourceCreator) createELBv2Resource(
 
 // createPhase4Resource handles ELBv2, WAFv2, Backup, and RDS cluster resource creation.
 func (rc *ResourceCreator) createPhase4Resource(
+	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1000,13 +1008,13 @@ func (rc *ResourceCreator) createPhase4Resource(
 		return rc.createELBv2Resource(logicalID, resourceType, props, params, physicalIDs)
 	case "AWS::WAFv2::WebACL":
 
-		return rc.createWAFv2WebACL(logicalID, props, params, physicalIDs)
+		return rc.createWAFv2WebACL(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::WAFv2::IPSet":
 
-		return rc.createWAFv2IPSet(logicalID, props, params, physicalIDs)
+		return rc.createWAFv2IPSet(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::WAFv2::RuleGroup":
 
-		return rc.createWAFv2RuleGroup(logicalID, props, params, physicalIDs)
+		return rc.createWAFv2RuleGroup(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::Backup::BackupVault":
 
 		return rc.createBackupVault(logicalID, props, params, physicalIDs)
@@ -1025,7 +1033,7 @@ func (rc *ResourceCreator) createPhase4Resource(
 	default:
 
 		id, handled, err := rc.createPhase5Resource(
-			context.Background(),
+			ctx,
 			logicalID,
 			resourceType,
 			props,
@@ -1037,7 +1045,7 @@ func (rc *ResourceCreator) createPhase4Resource(
 		}
 		if !handled {
 			id, handled, err = rc.createPhase6Resource(
-				context.Background(),
+				ctx,
 				logicalID,
 				resourceType,
 				props,
@@ -1096,6 +1104,10 @@ func (rc *ResourceCreator) Delete(
 ) error {
 	if rc == nil {
 		return nil
+	}
+
+	if rc.deleteHook != nil {
+		rc.deleteHook(resourceType)
 	}
 
 	// Handle nested stack deletion regardless of service backends.
@@ -1222,7 +1234,7 @@ func (rc *ResourceCreator) deletePlatformResource(
 		return true, rc.deleteEventBridgeRule(ctx, physicalID)
 	case "AWS::Events::EventBus":
 
-		return true, rc.deleteEventBus(physicalID)
+		return true, rc.deleteEventBus(ctx, physicalID)
 	case resTypeStepFunctionsStateMachine:
 
 		return true, rc.deleteStepFunctionsStateMachine(ctx, physicalID)
@@ -1353,7 +1365,7 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 	switch resourceType {
 	case "AWS::Kinesis::Stream":
 
-		return rc.deleteKinesisStream(physicalID)
+		return rc.deleteKinesisStream(ctx, physicalID)
 	case "AWS::CloudWatch::Alarm", "AWS::CloudWatch::CompositeAlarm":
 
 		return rc.deleteCloudWatchAlarm(physicalID)
@@ -1368,7 +1380,7 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 		return rc.deleteElastiCacheReplicationGroup(ctx, physicalID)
 	case "AWS::ElastiCache::SubnetGroup":
 
-		return rc.deleteElastiCacheSubnetGroup(physicalID)
+		return rc.deleteElastiCacheSubnetGroup(ctx, physicalID)
 	case "AWS::SNS::Subscription":
 
 		return rc.deleteSNSSubscription(physicalID)
@@ -1380,7 +1392,7 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 		return rc.deleteS3BucketPolicy(ctx, physicalID)
 	case "AWS::Scheduler::Schedule":
 
-		return rc.deleteSchedulerSchedule(physicalID)
+		return rc.deleteSchedulerSchedule(ctx, physicalID)
 	default:
 		if handled, err := rc.deletePhase5Resource(ctx, resourceType, physicalID); handled {
 			return err
@@ -1390,26 +1402,27 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 			return err
 		}
 
-		return rc.deleteNewServiceResource(physicalID, resourceType)
+		return rc.deleteNewServiceResource(ctx, physicalID, resourceType)
 	}
 }
 
 // deleteNewServiceResource handles RDS, ECS, ECR, Redshift, OpenSearch, Firehose,
 // Route53Resolver, SWF, AppSync, SES, ACM, Cognito, extended EC2, and phase-3 resource deletions.
-func (rc *ResourceCreator) deleteNewServiceResource(physicalID, resourceType string) error {
-	if handled, err := rc.deleteComputeStorageResource(physicalID, resourceType); handled {
+func (rc *ResourceCreator) deleteNewServiceResource(ctx context.Context, physicalID, resourceType string) error {
+	if handled, err := rc.deleteComputeStorageResource(ctx, physicalID, resourceType); handled {
 		return err
 	}
 
-	if handled, err := rc.deletePhase3ComputeResource(physicalID, resourceType); handled {
+	if handled, err := rc.deletePhase3ComputeResource(ctx, physicalID, resourceType); handled {
 		return err
 	}
 
-	return rc.deleteAppNetworkResource(physicalID, resourceType)
+	return rc.deleteAppNetworkResource(ctx, physicalID, resourceType)
 }
 
 // deleteComputeStorageResource handles RDS, ECS, ECR, Lambda layer, Redshift, and OpenSearch deletions.
 func (rc *ResourceCreator) deleteComputeStorageResource(
+	ctx context.Context,
 	physicalID, resourceType string,
 ) (bool, error) {
 	switch resourceType {
@@ -1433,7 +1446,7 @@ func (rc *ResourceCreator) deleteComputeStorageResource(
 		return true, rc.deleteECSService(physicalID)
 	case "AWS::ECR::Repository":
 
-		return true, rc.deleteECRRepository(context.Background(), physicalID)
+		return true, rc.deleteECRRepository(ctx, physicalID)
 	case "AWS::Lambda::LayerVersion":
 
 		return true, rc.deleteLambdaLayerVersion(physicalID)
@@ -1454,17 +1467,17 @@ func (rc *ResourceCreator) deleteComputeStorageResource(
 
 // deleteAppNetworkResource handles Firehose, Route53Resolver, SWF, AppSync, SES, ACM,
 // Cognito, extended EC2, and phase-3 data/managed service resource deletions.
-func (rc *ResourceCreator) deleteAppNetworkResource(physicalID, resourceType string) error {
+func (rc *ResourceCreator) deleteAppNetworkResource(ctx context.Context, physicalID, resourceType string) error {
 	switch resourceType {
 	case "AWS::Firehose::DeliveryStream":
 
-		return rc.deleteFirehoseDeliveryStream(context.Background(), physicalID)
+		return rc.deleteFirehoseDeliveryStream(ctx, physicalID)
 	case "AWS::Route53Resolver::ResolverEndpoint":
 
-		return rc.deleteRoute53ResolverEndpoint(physicalID)
+		return rc.deleteRoute53ResolverEndpoint(ctx, physicalID)
 	case "AWS::Route53Resolver::ResolverRule":
 
-		return rc.deleteRoute53ResolverRule(physicalID)
+		return rc.deleteRoute53ResolverRule(ctx, physicalID)
 	case "AWS::SWF::Domain":
 
 		return rc.deleteSWFDomain(physicalID)
@@ -1476,7 +1489,7 @@ func (rc *ResourceCreator) deleteAppNetworkResource(physicalID, resourceType str
 		return rc.deleteSESEmailIdentity(physicalID)
 	case "AWS::ACM::Certificate":
 
-		return rc.deleteACMCertificate(physicalID)
+		return rc.deleteACMCertificate(ctx, physicalID)
 	case "AWS::Cognito::UserPool":
 
 		return rc.deleteCognitoUserPool(physicalID)
@@ -1491,7 +1504,7 @@ func (rc *ResourceCreator) deleteAppNetworkResource(physicalID, resourceType str
 		return rc.deleteEC2EIP(physicalID)
 	default:
 
-		return rc.deletePhase3DataResource(physicalID, resourceType)
+		return rc.deletePhase3DataResource(ctx, physicalID, resourceType)
 	}
 }
 
@@ -1822,7 +1835,7 @@ func (rc *ResourceCreator) deleteKMSKey(ctx context.Context, physicalID string) 
 }
 
 func (rc *ResourceCreator) createSecretsManagerSecret(
-	_ context.Context,
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1837,7 +1850,7 @@ func (rc *ResourceCreator) createSecretsManagerSecret(
 	description := strProp(props, "Description", params, physicalIDs)
 	secretString := strProp(props, "SecretString", params, physicalIDs)
 	out, err := rc.backends.SecretsManager.Backend.CreateSecret(
-		context.Background(),
+		ctx,
 		&secretsmanagerbackend.CreateSecretInput{
 			Name:         name,
 			Description:  description,
@@ -1850,12 +1863,12 @@ func (rc *ResourceCreator) createSecretsManagerSecret(
 	return out.ARN, nil
 }
 
-func (rc *ResourceCreator) deleteSecretsManagerSecret(_ context.Context, physicalID string) error {
+func (rc *ResourceCreator) deleteSecretsManagerSecret(ctx context.Context, physicalID string) error {
 	if rc.backends.SecretsManager == nil {
 		return nil
 	}
 	_, err := rc.backends.SecretsManager.Backend.DeleteSecret(
-		context.Background(),
+		ctx,
 		&secretsmanagerbackend.DeleteSecretInput{
 			SecretID:                   physicalID,
 			ForceDeleteWithoutRecovery: true,
@@ -1908,7 +1921,7 @@ func (rc *ResourceCreator) deleteLambdaFunction(name string) error {
 
 // createEventBridgeRule creates an EventBridge rule from CloudFormation template properties.
 func (rc *ResourceCreator) createEventBridgeRule(
-	_ context.Context,
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1942,7 +1955,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 		State:              state,
 	}
 
-	rule, err := rc.backends.EventBridge.Backend.PutRule(context.Background(), input)
+	rule, err := rc.backends.EventBridge.Backend.PutRule(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("create EventBridge rule: %w", err)
 	}
@@ -1950,7 +1963,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 	return rule.Arn, nil
 }
 
-func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID string) error {
+func (rc *ResourceCreator) deleteEventBridgeRule(ctx context.Context, physicalID string) error {
 	if rc.backends.EventBridge == nil {
 		return nil
 	}
@@ -1959,7 +1972,7 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 	name := parts[len(parts)-1]
 
 	return rc.backends.EventBridge.Backend.DeleteRule(
-		context.Background(),
+		ctx,
 		name,
 		defaultEventBusName,
 	)
@@ -1967,7 +1980,7 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.
 func (rc *ResourceCreator) createStepFunctionsStateMachine(
-	_ context.Context,
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1989,7 +2002,7 @@ func (rc *ResourceCreator) createStepFunctionsStateMachine(
 	}
 
 	sm, err := rc.backends.StepFunctions.Backend.CreateStateMachine(
-		context.Background(),
+		ctx,
 		name,
 		definition,
 		roleArn,
@@ -2099,13 +2112,13 @@ type serviceBackendsResolver struct {
 }
 
 // ResolveSSMParameter retrieves a plain-text (String / StringList) SSM parameter.
-func (r *serviceBackendsResolver) ResolveSSMParameter(name string) (string, error) {
+func (r *serviceBackendsResolver) ResolveSSMParameter(ctx context.Context, name string) (string, error) {
 	if r.ssm == nil {
 		return "", fmt.Errorf("%w: SSM backend is not available", ErrDynamicRefFailed)
 	}
 
 	out, err := r.ssm.Backend.GetParameter(
-		context.Background(),
+		ctx,
 		&ssmbackend.GetParameterInput{Name: name},
 	)
 	if err != nil {
@@ -2116,13 +2129,13 @@ func (r *serviceBackendsResolver) ResolveSSMParameter(name string) (string, erro
 }
 
 // ResolveSSMSecureParameter retrieves a SecureString SSM parameter with decryption.
-func (r *serviceBackendsResolver) ResolveSSMSecureParameter(name string) (string, error) {
+func (r *serviceBackendsResolver) ResolveSSMSecureParameter(ctx context.Context, name string) (string, error) {
 	if r.ssm == nil {
 		return "", fmt.Errorf("%w: SSM backend is not available", ErrDynamicRefFailed)
 	}
 
 	out, err := r.ssm.Backend.GetParameter(
-		context.Background(),
+		ctx,
 		&ssmbackend.GetParameterInput{Name: name, WithDecryption: true},
 	)
 	if err != nil {
@@ -2134,13 +2147,13 @@ func (r *serviceBackendsResolver) ResolveSSMSecureParameter(name string) (string
 
 // ResolveSecret retrieves a Secrets Manager secret value.
 // When jsonKey is non-empty the secret string is parsed as JSON and the key is extracted.
-func (r *serviceBackendsResolver) ResolveSecret(secretID, jsonKey string) (string, error) {
+func (r *serviceBackendsResolver) ResolveSecret(ctx context.Context, secretID, jsonKey string) (string, error) {
 	if r.sm == nil {
 		return "", fmt.Errorf("%w: SecretsManager backend is not available", ErrDynamicRefFailed)
 	}
 
 	out, err := r.sm.Backend.GetSecretValue(
-		context.Background(),
+		ctx,
 		&secretsmanagerbackend.GetSecretValueInput{SecretID: secretID})
 	if err != nil {
 		return "", err

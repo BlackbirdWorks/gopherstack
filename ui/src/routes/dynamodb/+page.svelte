@@ -2,6 +2,8 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount, onDestroy } from 'svelte';
 	import { newDynamoDBClient, getStoredRegion } from '$lib/aws/client';
+import { getDynamoDBStreamsClient } from '$lib/aws-client';
+import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } from '@aws-sdk/client-dynamodb-streams';
 	import {
 		ListTablesCommand,
 		DescribeTableCommand,
@@ -14,6 +16,18 @@
 		PutItemCommand,
 		ExecuteStatementCommand,
 		DescribeTimeToLiveCommand,
+		TransactWriteItemsCommand,
+		TransactGetItemsCommand,
+		ExecuteTransactionCommand,
+		BatchExecuteStatementCommand,
+		RestoreTableFromBackupCommand,
+		RestoreTableToPointInTimeCommand,
+		ExportTableToPointInTimeCommand,
+		ImportTableCommand,
+		ListExportsCommand,
+		ListImportsCommand,
+		BatchGetItemCommand,
+		UpdateItemCommand,
 		UpdateTimeToLiveCommand,
 		UpdateTableCommand,
 		ListBackupsCommand,
@@ -22,6 +36,10 @@
 		DescribeContinuousBackupsCommand,
 		UpdateContinuousBackupsCommand,
 		DescribeTableReplicaAutoScalingCommand,
+		ListTagsOfResourceCommand,
+		TagResourceCommand,
+		UntagResourceCommand,
+		type Tag,
 		type TableDescription,
 		type KeySchemaElement,
 		type ScalarAttributeType,
@@ -64,6 +82,7 @@
 	let queryFilterExp = $state('');
 	let queryLimit = $state(100);
 	let queryResults = $state<Record<string, unknown>[]>([]);
+let queryLastKey = $state<unknown>(null);
 	let queryLoading = $state(false);
 	let queryCount = $state(0);
 	let querySortOrder = $state<'ASC' | 'DESC'>('ASC');
@@ -73,6 +92,7 @@
 	let scanProjectionExp = $state('');
 	let scanLimit = $state(100);
 	let scanResults = $state<Record<string, unknown>[]>([]);
+let scanLastKey = $state<unknown>(null);
 	let scanLoading = $state(false);
 	let scanCount = $state(0);
 	let scanScannedCount = $state(0);
@@ -86,6 +106,12 @@
 	// Backups State
 	let backups = $state<BackupSummary[]>([]);
 	let backupsLoading = $state(false);
+
+	// Tags State
+	let tags = $state<Tag[]>([]);
+	let tagsLoading = $state(false);
+	let newTagKey = $state('');
+	let newTagValue = $state('');
 	let newBackupName = $state('');
 
 	// PITR State
@@ -109,6 +135,7 @@
 	let streamEventsHtml = $state('');
 	let streamEventsLoading = $state(false);
 	let streamBackendUnavailable = $state(false);
+let ddbStreams = $state(getDynamoDBStreamsClient());
 	let streamPollTimer: ReturnType<typeof setInterval> | undefined;
 	let streamFetchController: AbortController | undefined;
 
@@ -135,6 +162,24 @@
 	let streamsViewType = $state('NEW_AND_OLD_IMAGES');
 	let streamsEnabled = $state(false);
 	let streamARN = $state('');
+let editBillingMode = $state('PAY_PER_REQUEST');
+let editRcu = $state(5);
+let editWcu = $state(5);
+async function updateCapacity() {
+  if (!selectedTable) return;
+  try {
+    await ddb.send(new UpdateTableCommand({
+      TableName: selectedTable,
+      BillingMode: editBillingMode as 'PROVISIONED' | 'PAY_PER_REQUEST',
+      ...(editBillingMode === 'PROVISIONED' ? {
+        ProvisionedThroughput: { ReadCapacityUnits: editRcu, WriteCapacityUnits: editWcu }
+      } : {})
+    }));
+    toast.success("Capacity updated");
+    loadTables();
+  } catch (e) { toast.error(String(e)); }
+}
+
 
 	// Modals
 	let showNewItemModal = $state(false);
@@ -143,6 +188,31 @@
 	let importJson = $state('');
 	let showEditModal = $state(false);
 	let editItemJson = $state('');
+let updateExp = $state('');
+let updateCond = $state('');
+let batchGetKeys = $state('');
+async function execBatchGet() {
+  if (!selectedTable) return;
+  try {
+    const res = await ddb.send(new BatchGetItemCommand({
+      RequestItems: { [selectedTable]: { Keys: JSON.parse(batchGetKeys).map((k: unknown) => jsonToItem(k as Record<string, unknown>)) } }
+    }));
+    toast.success("BatchGet completed. Found: " + (res.Responses?.[selectedTable]?.length || 0));
+  } catch (e) { toast.error(String(e)); }
+}
+async function execUpdateItem() {
+  if (!selectedTable || !editItemJson) return;
+  try {
+    await ddb.send(new UpdateItemCommand({
+      TableName: selectedTable,
+      Key: buildItemKey(JSON.parse(editItemJson)),
+      UpdateExpression: updateExp || undefined,
+      ConditionExpression: updateCond || undefined
+    }));
+    toast.success("UpdateItem success");
+    showEditModal = false;
+  } catch (e) { toast.error(String(e)); }
+}
 
 	// GSI Create Modal State
 	let showCreateGsiModal = $state(false);
@@ -207,7 +277,53 @@
 		return key;
 	}
 
-	function exportJson(data: Record<string, unknown>[], filename: string): void {
+	
+let s3Exports: unknown[] = $state([]);
+let s3Imports: unknown[] = $state([]);
+async function loadExportsImports() {
+  if (!selectedTable) return;
+  try {
+    const e = await ddb.send(new ListExportsCommand({TableArn: selectedTableDesc?.TableArn}));
+    s3Exports = e.ExportSummaries || [];
+    const i = await ddb.send(new ListImportsCommand({}));
+    // Needs filter by table if supported
+    s3Imports = i.ImportSummaryList || [];
+  } catch(e){}
+}
+async function nativeExport() {
+  // eslint-disable-next-line no-alert
+  const bucket = prompt("S3 Bucket Name:");
+  if (!bucket || !selectedTableDesc?.TableArn) return;
+  try {
+    await ddb.send(new ExportTableToPointInTimeCommand({
+      TableArn: selectedTableDesc.TableArn,
+      S3Bucket: bucket,
+      ExportFormat: "DYNAMODB_JSON"
+    }));
+    toast.success("Export started");
+  } catch (e) { toast.error(String(e)); }
+}
+async function nativeImport() {
+  // eslint-disable-next-line no-alert
+  const bucket = prompt("S3 Bucket Name:");
+  // eslint-disable-next-line no-alert
+  const table = prompt("Target Table Name:");
+  if (!bucket || !table) return;
+  try {
+    await ddb.send(new ImportTableCommand({
+      S3BucketSource: { S3Bucket: bucket },
+      InputFormat: "DYNAMODB_JSON",
+      TableCreationParameters: {
+        TableName: table,
+        BillingMode: "PAY_PER_REQUEST",
+        KeySchema: [{AttributeName: "pk", KeyType: "HASH"}],
+        AttributeDefinitions: [{AttributeName: "pk", AttributeType: "S"}]
+      }
+    }));
+    toast.success("Import started");
+  } catch (e) { toast.error(String(e)); }
+}
+function exportJson(data: Record<string, unknown>[], filename: string): void {
 		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
@@ -343,7 +459,8 @@
 				...(queryIndexName ? { IndexName: queryIndexName } : {}),
 				...(queryFilterExp ? { FilterExpression: queryFilterExp } : {})
 			};
-			const res = await ddb.send(new QueryCommand(input));
+			const res = await ddb.send(new QueryCommand({...input, ExclusiveStartKey: queryLastKey as Record<string, AttributeValue>}));
+queryLastKey = res.LastEvaluatedKey;
 			queryResults = (res.Items ?? []).map((item) => itemToJson(item));
 			queryCount = res.Count ?? 0;
 		} catch (err: unknown) {
@@ -364,7 +481,8 @@
 				...(scanFilterExp ? { FilterExpression: scanFilterExp } : {}),
 				...(scanProjectionExp ? { ProjectionExpression: scanProjectionExp } : {})
 			};
-			const res = await ddb.send(new ScanCommand(input));
+			const res = await ddb.send(new ScanCommand({...input, ExclusiveStartKey: scanLastKey as Record<string, AttributeValue>}));
+scanLastKey = res.LastEvaluatedKey;
 			scanResults = (res.Items ?? []).map((item) => itemToJson(item));
 			scanCount = res.Count ?? 0;
 			scanScannedCount = res.ScannedCount ?? 0;
@@ -406,6 +524,12 @@
 		const pk = pkAttr ? String(item[pkAttr] ?? '') : '';
 		const sk = skAttr ? String(item[skAttr] ?? '') : '';
 		return pkAttr ? `${pk}\u0000${sk}` : JSON.stringify(item);
+	}
+
+	// approxItemSize gives a rough UTF-8 byte size for an item, surfaced in the
+	// Items tab to help gauge proximity to DynamoDB's 400 KB per-item limit.
+	function approxItemSize(item: Record<string, unknown>): string {
+		return formatBytes(new TextEncoder().encode(JSON.stringify(item)).length);
 	}
 
 	function toggleItemRow(item: Record<string, unknown>): void {
@@ -476,6 +600,46 @@
 		}
 	}
 
+	async function loadTags(): Promise<void> {
+		const arn = selectedTableDesc?.TableArn;
+		if (!arn) return;
+		tagsLoading = true;
+		try {
+			const res = await ddb.send(new ListTagsOfResourceCommand({ ResourceArn: arn }));
+			tags = res.Tags ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load tags: ${(err as Error).message}`);
+		} finally {
+			tagsLoading = false;
+		}
+	}
+
+	async function addTag(): Promise<void> {
+		const arn = selectedTableDesc?.TableArn;
+		if (!arn || !newTagKey) return;
+		try {
+			await ddb.send(new TagResourceCommand({ ResourceArn: arn, Tags: [{ Key: newTagKey, Value: newTagValue }] }));
+			newTagKey = '';
+			newTagValue = '';
+			toast.success('Tag added');
+			await loadTags();
+		} catch (err: unknown) {
+			toast.error(`Failed to add tag: ${(err as Error).message}`);
+		}
+	}
+
+	async function removeTag(key: string): Promise<void> {
+		const arn = selectedTableDesc?.TableArn;
+		if (!arn) return;
+		try {
+			await ddb.send(new UntagResourceCommand({ ResourceArn: arn, TagKeys: [key] }));
+			toast.success('Tag removed');
+			await loadTags();
+		} catch (err: unknown) {
+			toast.error(`Failed to remove tag: ${(err as Error).message}`);
+		}
+	}
+
 	async function createBackup(): Promise<void> {
 		if (!selectedTable || !newBackupName.trim()) return;
 		try {
@@ -515,7 +679,20 @@
 		}
 	}
 
-	async function togglePitr(): Promise<void> {
+	async function restorePitr() {
+  // eslint-disable-next-line no-alert
+  const name = prompt("New Table Name:");
+  if (!name || !selectedTable) return;
+  try {
+    await ddb.send(new RestoreTableToPointInTimeCommand({
+      SourceTableName: selectedTable,
+      TargetTableName: name,
+      UseLatestRestorableTime: true
+    }));
+    toast.success("Restoring table...");
+  } catch (e) { toast.error(String(e)); }
+}
+async function togglePitr(): Promise<void> {
 		if (!selectedTable) return;
 		const enable = pitrStatus !== 'ENABLED';
 		try {
@@ -622,7 +799,34 @@
 	}
 
 	// Stream Events
-	async function loadStreamEvents() {
+	
+async function loadNativeStreams() {
+  if (!streamARN) return;
+  try {
+    const desc = await ddbStreams.send(new DescribeStreamCommand({StreamArn: streamARN}));
+    if (!desc.StreamDescription?.Shards) return;
+    let recordsHtml = '';
+    for (const shard of desc.StreamDescription.Shards) {
+      if (!shard.ShardId) continue;
+      const it = await ddbStreams.send(new GetShardIteratorCommand({
+        StreamArn: streamARN,
+        ShardId: shard.ShardId,
+        ShardIteratorType: "TRIM_HORIZON"
+      }));
+      if (!it.ShardIterator) continue;
+      const recs = await ddbStreams.send(new GetRecordsCommand({ShardIterator: it.ShardIterator, Limit: 100}));
+      if (recs.Records) {
+         for (const r of recs.Records) {
+           recordsHtml += `<div>Native Stream Record: ${r.eventName} ${JSON.stringify(r.dynamodb)}</div>`;
+         }
+      }
+    }
+    streamEventsHtml = recordsHtml || "No native stream records found.";
+  } catch(e) {
+    streamEventsHtml = "Native streams error: " + String(e);
+  }
+}
+async function loadStreamEvents() {
 		if (!selectedTable) return;
 		if (!streamEventsHtml) streamEventsLoading = true;
 		const signal = streamFetchController?.signal;
@@ -635,6 +839,7 @@
 					streamBackendUnavailable = true;
 					streamEventsHtml = '';
 					stopStreamPolling();
+					await loadNativeStreams();
 				} else if (text === 'No recent stream events.' || text.trim() === '') {
 					streamEventsHtml = '';
 				} else {
@@ -739,7 +944,10 @@
 		showEditModal = true;
 	}
 
-	function setPartiqlExample(query: string) {
+	
+function nextQueryPage() { if (queryLastKey) executeQuery(); }
+function nextScanPage() { if (scanLastKey) executeScan(); }
+function setPartiqlExample(query: string) {
 		partiqlStatement = query;
 	}
 
@@ -807,6 +1015,12 @@
 	$effect(() => {
 		if (activeTab === 'replicas' && selectedTable) {
 			void loadReplicas();
+		}
+	});
+
+	$effect(() => {
+		if (activeTab === 'tags' && selectedTable) {
+			void loadTags();
 		}
 	});
 
@@ -985,7 +1199,7 @@
 
 		<div class="mb-4 border-b border-slate-200 dark:border-slate-700">
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups'], ['pitr', 'PITR'], ['replicas', 'Replicas']] as [id, label]}
+				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups'], ['pitr', 'PITR'], ['replicas', 'Replicas'], ['tags', 'Tags']] as [id, label]}
 					<li class="me-2">
 						<button onclick={() => { activeTab = id; }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
@@ -1398,6 +1612,7 @@
 									{#each getColumns(filteredItemsResults) as col}
 										<th class="px-4 py-3">{col}</th>
 									{/each}
+									<th class="px-4 py-3" title="Approximate UTF-8 size (max 400 KB)">~Size</th>
 									<th class="px-4 py-3">Actions</th>
 								</tr>
 							</thead>
@@ -1408,6 +1623,7 @@
 										{#each getColumns(filteredItemsResults) as col}
 											<td class="px-4 py-3 font-mono text-xs max-w-[200px] truncate" title={String(item[col] ?? '')}>{item[col] ?? ''}</td>
 										{/each}
+										<td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{approxItemSize(item)}</td>
 										<td class="px-4 py-3 whitespace-nowrap">
 											<button onclick={() => openEditItem(item)} class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 mr-2">Edit</button>
 											<button onclick={() => deleteItem(item)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Delete</button>
@@ -1784,7 +2000,7 @@
 						<input type="text" id="backup-name" bind:value={newBackupName} placeholder="my-backup-2024" required class="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
 					</div>
 					<button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-4 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700">Create Backup</button>
-					<button type="button" onclick={() => toast.success('Restore not supported in local emulator')} class="py-2.5 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Restore</button>
+
 				</form>
 				{#if backupsLoading}
 					<div class="flex justify-center p-8">
@@ -1850,7 +2066,8 @@
 							<p class="text-sm text-slate-600 dark:text-slate-400">Earliest restore point: <span class="font-mono font-medium text-slate-900 dark:text-white">{pitrEarliestRestoreDate.toLocaleString()}</span></p>
 						{/if}
 						<p class="text-sm text-slate-500 dark:text-slate-400">PITR lets you restore this table to any point in the last 35 days.</p>
-						<button onclick={togglePitr} disabled={pitrStatus === 'ENABLING' || pitrStatus === 'DISABLING'} class="text-white font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50 {pitrStatus === 'ENABLED' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}">
+						<button onclick={restorePitr} class="px-3 py-2 border rounded hover:bg-gray-100 text-sm">Restore</button>
+					<button onclick={togglePitr} disabled={pitrStatus === 'ENABLING' || pitrStatus === 'DISABLING'} class="text-white font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50 {pitrStatus === 'ENABLED' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}">
 							{pitrStatus === 'ENABLED' ? 'Disable PITR' : 'Enable PITR'}
 						</button>
 					</div>
@@ -1893,6 +2110,54 @@
 								<button onclick={addReplica} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2.5">Add Replica</button>
 							</div>
 						</div>
+					</div>
+				{/if}
+			</div>
+		{:else if activeTab === 'tags'}
+			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
+				<div class="flex items-center justify-between">
+					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Tags</h3>
+					<button type="button" onclick={() => loadTags()} disabled={tagsLoading} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+						{tagsLoading ? 'Loading...' : 'Refresh'}
+					</button>
+				</div>
+				<form onsubmit={(e) => { e.preventDefault(); addTag(); }} class="flex gap-3 items-end">
+					<div class="flex-1 max-w-xs">
+						<label for="tag-key" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Key</label>
+						<input type="text" id="tag-key" bind:value={newTagKey} placeholder="Environment" required class="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+					</div>
+					<div class="flex-1 max-w-xs">
+						<label for="tag-value" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Value</label>
+						<input type="text" id="tag-value" bind:value={newTagValue} placeholder="production" class="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+					</div>
+					<button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-4 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700">Add Tag</button>
+				</form>
+				{#if tagsLoading}
+					<p class="text-sm text-slate-500 dark:text-slate-400 py-4">Loading...</p>
+				{:else if tags.length === 0}
+					<p class="text-sm text-slate-500 dark:text-slate-400 py-4">No tags on this table.</p>
+				{:else}
+					<div class="overflow-x-auto">
+						<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+							<thead class="text-xs text-slate-700 uppercase bg-slate-100 dark:bg-slate-700 dark:text-slate-400">
+								<tr>
+									<th class="px-6 py-3">Key</th>
+									<th class="px-6 py-3">Value</th>
+									<th class="px-6 py-3">Actions</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each tags as tag}
+									<tr class="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+										<td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{tag.Key ?? '-'}</td>
+										<td class="px-6 py-4">{tag.Value ?? '-'}</td>
+										<td class="px-6 py-4">
+											<button onclick={() => tag.Key && removeTag(tag.Key)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Remove</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
 					</div>
 				{/if}
 			</div>

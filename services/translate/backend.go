@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 var (
@@ -142,6 +143,42 @@ func (b *InMemoryBackend) parallelDataARN(name string) string {
 	return arn.Build("translate", b.region, b.accountID, "parallel-data/"+name)
 }
 
+// parseCSVLanguages extracts source/target language codes and term count from CSV bytes.
+// CSV header row is: sourceLang,targetLang1[,targetLang2,...]; subsequent rows are terms.
+func parseCSVLanguages(csvBytes []byte) (string, []string, int) {
+	const minCols = 2
+
+	lines := strings.Split(strings.TrimSpace(string(csvBytes)), "\n")
+	if len(lines) == 0 {
+		return "", nil, 0
+	}
+
+	var srcLang string
+	var targets []string
+
+	// Parse header line.
+	header := strings.Split(strings.TrimSpace(lines[0]), ",")
+	if len(header) >= minCols {
+		srcLang = strings.TrimSpace(header[0])
+		for _, col := range header[1:] {
+			if t := strings.TrimSpace(col); t != "" {
+				targets = append(targets, t)
+			}
+		}
+	}
+
+	// Count non-empty, non-comment data rows.
+	termCount := 0
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			termCount++
+		}
+	}
+
+	return srcLang, targets, termCount
+}
+
 // ImportTerminology creates or overwrites a custom terminology.
 func (b *InMemoryBackend) ImportTerminology(
 	name, description string,
@@ -163,6 +200,11 @@ func (b *InMemoryBackend) ImportTerminology(
 	now := time.Now().UTC()
 	resourceARN := b.terminologyARN(name)
 
+	srcLang, targetLangs, termCount := parseCSVLanguages(data.File)
+	if srcLang == "" {
+		srcLang = "en"
+	}
+
 	existing, exists := b.terminologies[name]
 	if exists {
 		existing.Description = description
@@ -171,6 +213,9 @@ func (b *InMemoryBackend) ImportTerminology(
 		existing.LastUpdatedAt = now
 		existing.Format = data.Format
 		existing.SizeBytes = len(data.File)
+		existing.SourceLanguage = srcLang
+		existing.TargetLanguages = targetLangs
+		existing.TermCount = termCount
 
 		if tags != nil {
 			existing.Tags = tags
@@ -192,7 +237,9 @@ func (b *InMemoryBackend) ImportTerminology(
 		Format:          data.Format,
 		SizeBytes:       len(data.File),
 		Directionality:  "UNI",
-		SourceLanguage:  "en",
+		SourceLanguage:  srcLang,
+		TargetLanguages: targetLangs,
+		TermCount:       termCount,
 	}
 	b.terminologies[name] = term
 
@@ -216,6 +263,21 @@ func (b *InMemoryBackend) GetTerminology(name string) (*Terminology, error) {
 	return t, nil
 }
 
+// LookupTerminologies returns terminology entries for the given names (missing names skipped).
+func (b *InMemoryBackend) LookupTerminologies(names []string) []*Terminology {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	out := make([]*Terminology, 0, len(names))
+	for _, name := range names {
+		if t, ok := b.terminologies[name]; ok {
+			out = append(out, t)
+		}
+	}
+
+	return out
+}
+
 // DeleteTerminology removes a terminology by name.
 func (b *InMemoryBackend) DeleteTerminology(name string) error {
 	b.mu.Lock()
@@ -237,12 +299,7 @@ func (b *InMemoryBackend) ListTerminologies(maxResults int, nextToken string) ([
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.terminologies))
-	for name := range b.terminologies {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.terminologies)
 
 	return paginate(names, func(n string) *Terminology { return b.terminologies[n] }, maxResults, nextToken)
 }
@@ -347,12 +404,7 @@ func (b *InMemoryBackend) ListParallelData(maxResults int, nextToken string) ([]
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.parallelData))
-	for name := range b.parallelData {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.parallelData)
 
 	return paginate(names, func(n string) *ParallelData { return b.parallelData[n] }, maxResults, nextToken)
 }
@@ -405,6 +457,7 @@ func (b *InMemoryBackend) StopTextTranslationJob(jobID string) (*TranslationJob,
 
 	job.stopRequested = true
 	job.JobStatus = "STOP_REQUESTED"
+	job.EndAt = time.Now().UTC()
 
 	return job, nil
 }

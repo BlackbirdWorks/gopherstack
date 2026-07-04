@@ -178,6 +178,42 @@ func TestRedshiftHandler_DescribeClusterSnapshots(t *testing.T) {
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ClusterSnapshotNotFound"},
 		},
+		{
+			name: "response_includes_snapshot_type_and_create_time",
+			setup: func(h *redshift.Handler) {
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=meta-cluster")
+				postRedshiftForm(t, h, "Action=CreateClusterSnapshot&Version=2012-12-01"+
+					"&SnapshotIdentifier=meta-snap&ClusterIdentifier=meta-cluster")
+			},
+			body:     "Action=DescribeClusterSnapshots&Version=2012-12-01&SnapshotIdentifier=meta-snap",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"<SnapshotType>manual</SnapshotType>",
+				"<SnapshotCreateTime>",
+			},
+		},
+		{
+			name: "filter_by_snapshot_type_manual",
+			setup: func(h *redshift.Handler) {
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=type-cluster")
+				postRedshiftForm(t, h, "Action=CreateClusterSnapshot&Version=2012-12-01"+
+					"&SnapshotIdentifier=type-snap&ClusterIdentifier=type-cluster")
+			},
+			body:         "Action=DescribeClusterSnapshots&Version=2012-12-01&SnapshotType=manual",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"type-snap"},
+		},
+		{
+			name: "filter_by_snapshot_type_automated_returns_empty",
+			setup: func(h *redshift.Handler) {
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=auto-cluster")
+				postRedshiftForm(t, h, "Action=CreateClusterSnapshot&Version=2012-12-01"+
+					"&SnapshotIdentifier=auto-snap&ClusterIdentifier=auto-cluster")
+			},
+			body:         "Action=DescribeClusterSnapshots&Version=2012-12-01&SnapshotType=automated",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeClusterSnapshotsResponse"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -337,4 +373,27 @@ func TestRedshiftBackend_SnapshotCount(t *testing.T) {
 
 	postRedshiftForm(t, h, "Action=DeleteClusterSnapshot&Version=2012-12-01&SnapshotIdentifier=count-snap")
 	require.Equal(t, 0, redshift.SnapshotCount(b))
+}
+
+// TestRedshiftHandler_DescribeClusterSnapshots_SnapshotTypeFilter verifies that
+// the SnapshotType filter correctly includes and excludes snapshots by type.
+func TestRedshiftHandler_DescribeClusterSnapshots_SnapshotTypeFilter(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	h := redshift.NewHandler(b)
+
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=st-cluster")
+	postRedshiftForm(t, h, "Action=CreateClusterSnapshot&Version=2012-12-01"+
+		"&SnapshotIdentifier=manual-snap&ClusterIdentifier=st-cluster")
+
+	// manual filter: snapshot appears
+	rec := postRedshiftForm(t, h, "Action=DescribeClusterSnapshots&Version=2012-12-01&SnapshotType=manual")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "manual-snap")
+
+	// automated filter: snapshot absent
+	rec = postRedshiftForm(t, h, "Action=DescribeClusterSnapshots&Version=2012-12-01&SnapshotType=automated")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "manual-snap")
 }

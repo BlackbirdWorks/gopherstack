@@ -8,36 +8,39 @@ import (
 
 // Cluster represents an in-memory MemoryDB cluster.
 type Cluster struct {
-	CreatedAt               time.Time         `json:"createdAt"`
-	Tags                    map[string]string `json:"tags"`
-	KmsKeyID                string            `json:"kmsKeyID"`
-	SnsTopicArn             string            `json:"snsTopicArn"`
-	SnsTopicStatus          string            `json:"snsTopicStatus"`
-	Description             string            `json:"description"`
-	NodeType                string            `json:"nodeType"`
-	EngineVersion           string            `json:"engineVersion"`
-	ACLName                 string            `json:"aclName"`
-	SubnetGroupName         string            `json:"subnetGroupName"`
-	ParameterGroupName      string            `json:"parameterGroupName"`
-	Status                  string            `json:"status"`
-	MaintenanceWindow       string            `json:"maintenanceWindow"`
-	Name                    string            `json:"name"`
-	ARN                     string            `json:"arn"`
-	Region                  string            `json:"region"`
-	SnapshotWindow          string            `json:"snapshotWindow"`
-	Endpoint                string            `json:"endpoint"`
-	AvailabilityMode        string            `json:"availabilityMode"`
-	Engine                  string            `json:"engine"`
-	DataTiering             string            `json:"dataTiering"`
-	NetworkType             string            `json:"networkType"`
-	IPDiscovery             string            `json:"ipDiscovery"`
-	SecurityGroupIDs        []string          `json:"securityGroupIDs"`
-	NumReplicasPerShard     int32             `json:"numReplicasPerShard"`
-	SnapshotRetentionLimit  int32             `json:"snapshotRetentionLimit"`
-	Port                    int32             `json:"port"`
-	NumShards               int32             `json:"numShards"`
-	TLSEnabled              bool              `json:"tlsEnabled"`
-	AutoMinorVersionUpgrade bool              `json:"autoMinorVersionUpgrade"`
+	CreatedAt                     time.Time         `json:"createdAt"`
+	Tags                          map[string]string `json:"tags"`
+	KmsKeyID                      string            `json:"kmsKeyID"`
+	SnsTopicArn                   string            `json:"snsTopicArn"`
+	SnsTopicStatus                string            `json:"snsTopicStatus"`
+	Description                   string            `json:"description"`
+	NodeType                      string            `json:"nodeType"`
+	EngineVersion                 string            `json:"engineVersion"`
+	ACLName                       string            `json:"aclName"`
+	SubnetGroupName               string            `json:"subnetGroupName"`
+	ParameterGroupName            string            `json:"parameterGroupName"`
+	ParameterGroupStatus          string            `json:"parameterGroupStatus"`
+	MultiRegionClusterName        string            `json:"multiRegionClusterName"`
+	MultiRegionParameterGroupName string            `json:"multiRegionParameterGroupName"`
+	Status                        string            `json:"status"`
+	MaintenanceWindow             string            `json:"maintenanceWindow"`
+	Name                          string            `json:"name"`
+	ARN                           string            `json:"arn"`
+	Region                        string            `json:"region"`
+	SnapshotWindow                string            `json:"snapshotWindow"`
+	Endpoint                      string            `json:"endpoint"`
+	AvailabilityMode              string            `json:"availabilityMode"`
+	Engine                        string            `json:"engine"`
+	DataTiering                   string            `json:"dataTiering"`
+	NetworkType                   string            `json:"networkType"`
+	IPDiscovery                   string            `json:"ipDiscovery"`
+	SecurityGroupIDs              []string          `json:"securityGroupIDs"`
+	NumReplicasPerShard           int32             `json:"numReplicasPerShard"`
+	SnapshotRetentionLimit        int32             `json:"snapshotRetentionLimit"`
+	Port                          int32             `json:"port"`
+	NumShards                     int32             `json:"numShards"`
+	TLSEnabled                    bool              `json:"tlsEnabled"`
+	AutoMinorVersionUpgrade       bool              `json:"autoMinorVersionUpgrade"`
 }
 
 // ACL represents an in-memory MemoryDB Access Control List.
@@ -67,6 +70,7 @@ type User struct {
 	Tags         map[string]string `json:"tags"`
 	ARN          string            `json:"arn"`
 	Name         string            `json:"name"`
+	Engine       string            `json:"engine"`
 	AccessString string            `json:"accessString"`
 	Status       string            `json:"status"`
 	AuthType     string            `json:"authType"`
@@ -285,36 +289,39 @@ type securityGroupMembership struct {
 }
 
 type clusterObject struct {
-	ClusterEndpoint          *endpointObject           `json:"ClusterEndpoint,omitempty"`
-	PendingUpdates           *pendingUpdatesObject     `json:"PendingUpdates,omitempty"`
-	SubnetGroupName          string                    `json:"SubnetGroupName,omitempty"`
-	SnsTopicArn              string                    `json:"SnsTopicArn,omitempty"`
-	SnsTopicStatus           string                    `json:"SnsTopicStatus,omitempty"`
-	Description              string                    `json:"Description,omitempty"`
-	Status                   string                    `json:"Status,omitempty"`
-	NodeType                 string                    `json:"NodeType,omitempty"`
-	EngineVersion            string                    `json:"EngineVersion,omitempty"`
-	EnginePatchVersion       string                    `json:"EnginePatchVersion,omitempty"`
-	ARN                      string                    `json:"ARN,omitempty"`
-	Name                     string                    `json:"Name,omitempty"`
-	ACLName                  string                    `json:"ACLName,omitempty"`
-	KmsKeyID                 string                    `json:"KmsKeyId,omitempty"`
-	MaintenanceWindow        string                    `json:"MaintenanceWindow,omitempty"`
-	ParameterGroupName       string                    `json:"ParameterGroupName,omitempty"`
-	SnapshotWindow           string                    `json:"SnapshotWindow,omitempty"`
-	AvailabilityMode         string                    `json:"AvailabilityMode,omitempty"`
-	Engine                   string                    `json:"Engine,omitempty"`
-	DataTiering              string                    `json:"DataTiering,omitempty"`
-	NetworkType              string                    `json:"NetworkType,omitempty"`
-	IPDiscovery              string                    `json:"IPDiscovery,omitempty"`
-	Shards                   []shardObject             `json:"Shards,omitempty"`
-	Tags                     []tagEntry                `json:"Tags,omitempty"`
-	SecurityGroups           []securityGroupMembership `json:"SecurityGroups,omitempty"`
-	NumberOfShards           int32                     `json:"NumberOfShards,omitempty"`
-	SnapshotRetentionLimit   int32                     `json:"SnapshotRetentionLimit,omitempty"`
-	NumberOfReplicasPerShard int32                     `json:"NumberOfReplicasPerShard,omitempty"`
-	TLSEnabled               bool                      `json:"TLSEnabled"`
-	AutoMinorVersionUpgrade  bool                      `json:"AutoMinorVersionUpgrade"`
+	ClusterEndpoint               *endpointObject           `json:"ClusterEndpoint,omitempty"`
+	PendingUpdates                *pendingUpdatesObject     `json:"PendingUpdates,omitempty"`
+	SubnetGroupName               string                    `json:"SubnetGroupName,omitempty"`
+	SnsTopicArn                   string                    `json:"SnsTopicArn,omitempty"`
+	SnsTopicStatus                string                    `json:"SnsTopicStatus,omitempty"`
+	Description                   string                    `json:"Description,omitempty"`
+	Status                        string                    `json:"Status,omitempty"`
+	NodeType                      string                    `json:"NodeType,omitempty"`
+	EngineVersion                 string                    `json:"EngineVersion,omitempty"`
+	EnginePatchVersion            string                    `json:"EnginePatchVersion,omitempty"`
+	ARN                           string                    `json:"ARN,omitempty"`
+	Name                          string                    `json:"Name,omitempty"`
+	ACLName                       string                    `json:"ACLName,omitempty"`
+	KmsKeyID                      string                    `json:"KmsKeyId,omitempty"`
+	MaintenanceWindow             string                    `json:"MaintenanceWindow,omitempty"`
+	ParameterGroupName            string                    `json:"ParameterGroupName,omitempty"`
+	ParameterGroupStatus          string                    `json:"ParameterGroupStatus,omitempty"`
+	MultiRegionClusterName        string                    `json:"MultiRegionClusterName"`
+	MultiRegionParameterGroupName string                    `json:"MultiRegionParameterGroupName"`
+	SnapshotWindow                string                    `json:"SnapshotWindow,omitempty"`
+	AvailabilityMode              string                    `json:"AvailabilityMode,omitempty"`
+	Engine                        string                    `json:"Engine,omitempty"`
+	DataTiering                   string                    `json:"DataTiering,omitempty"`
+	NetworkType                   string                    `json:"NetworkType,omitempty"`
+	IPDiscovery                   string                    `json:"IPDiscovery,omitempty"`
+	Shards                        []shardObject             `json:"Shards,omitempty"`
+	Tags                          []tagEntry                `json:"Tags,omitempty"`
+	SecurityGroups                []securityGroupMembership `json:"SecurityGroups,omitempty"`
+	NumberOfShards                int32                     `json:"NumberOfShards,omitempty"`
+	SnapshotRetentionLimit        int32                     `json:"SnapshotRetentionLimit,omitempty"`
+	NumberOfReplicasPerShard      int32                     `json:"NumberOfReplicasPerShard,omitempty"`
+	TLSEnabled                    bool                      `json:"TLSEnabled"`
+	AutoMinorVersionUpgrade       bool                      `json:"AutoMinorVersionUpgrade"`
 }
 
 // shardObject represents a single shard in a MemoryDB cluster.
@@ -396,8 +403,9 @@ type userObject struct {
 	Name                 string                `json:"Name,omitempty"`
 	AccessString         string                `json:"AccessString,omitempty"`
 	Status               string                `json:"Status,omitempty"`
+	Engine               string                `json:"Engine,omitempty"`
 	MinimumEngineVersion string                `json:"MinimumEngineVersion,omitempty"`
-	UserGroupCount       int32                 `json:"UserGroupCount"`
+	ACLNames             []string              `json:"ACLNames"`
 }
 
 type parameterGroupObject struct {
@@ -662,6 +670,17 @@ type copySnapshotResponse struct {
 }
 
 type deleteSnapshotResponse struct {
+	Snapshot snapshotObject `json:"Snapshot"`
+}
+
+type exportSnapshotRequest struct {
+	SnapshotName string     `json:"SnapshotName"`
+	S3BucketName string     `json:"S3BucketName,omitempty"`
+	KmsKeyID     string     `json:"KmsKeyId,omitempty"`
+	Tags         []tagEntry `json:"Tags,omitempty"`
+}
+
+type exportSnapshotResponse struct {
 	Snapshot snapshotObject `json:"Snapshot"`
 }
 

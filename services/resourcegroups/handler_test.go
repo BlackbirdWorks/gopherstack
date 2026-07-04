@@ -722,11 +722,11 @@ func TestResourceGroupsHandler_SnapshotRestore(t *testing.T) {
 	h := newTestResourceGroupsHandler(t)
 	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "persist-group"})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestResourceGroupsHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	rec := doResourceGroupsRequest(t, h2, "GetGroup", map[string]any{"GroupName": "persist-group"})
 	assert.Equal(t, http.StatusOK, rec.Code)

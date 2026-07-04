@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -50,29 +51,16 @@ func NewJanitor(backend *InMemoryBackend, interval, experimentTTL time.Duration)
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, fisWorkerServiceName)
+	g.Ticker(
+		experimentSweeperComponent,
+		j.Interval,
+		j.TaskTimeout,
+		j.sweepCompletedExperiments,
+	)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepCompletedExperiments(taskCtx)
-			cancel()
-		}
-	}
-}
-
-// taskContext returns a child context bounded by TaskTimeout (if non-zero).
-// The caller is responsible for calling the returned cancel function.
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
-	}
-
-	return context.WithCancel(parent)
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.
@@ -90,7 +78,8 @@ func (j *Janitor) sweepCompletedExperiments(ctx context.Context) {
 	var swept []string
 
 	for id, exp := range j.Backend.experiments {
-		if isTerminalExperiment(exp.Status.Status) && exp.EndTime != nil && exp.EndTime.Before(cutoff) {
+		if isTerminalExperiment(exp.Status.Status) && exp.EndTime != nil &&
+			exp.EndTime.Before(cutoff) {
 			swept = append(swept, id)
 			delete(j.Backend.experimentARNIndex, exp.Arn)
 			delete(j.Backend.experiments, id)

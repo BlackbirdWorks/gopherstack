@@ -26,6 +26,9 @@ func ToSDKPutItemInput(input *PutItemInput) (*dynamodb.PutItemInput, error) {
 		ReturnItemCollectionMetrics: types.ReturnItemCollectionMetrics(
 			input.ReturnItemCollectionMetrics,
 		),
+		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(
+			input.ReturnValuesOnConditionCheckFailure,
+		),
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
@@ -88,6 +91,14 @@ func ToSDKDeleteItemInput(input *DeleteItemInput) (*dynamodb.DeleteItemInput, er
 		Key:                      key,
 		ConditionExpression:      ptrconv.NilIfEmpty(input.ConditionExpression),
 		ExpressionAttributeNames: input.ExpressionAttributeNames,
+		ReturnValues:             types.ReturnValue(input.ReturnValues),
+		ReturnConsumedCapacity:   types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
+		ReturnItemCollectionMetrics: types.ReturnItemCollectionMetrics(
+			input.ReturnItemCollectionMetrics,
+		),
+		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(
+			input.ReturnValuesOnConditionCheckFailure,
+		),
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
@@ -101,8 +112,22 @@ func ToSDKDeleteItemInput(input *DeleteItemInput) (*dynamodb.DeleteItemInput, er
 	return out, nil
 }
 
-func FromSDKDeleteItemOutput(*dynamodb.DeleteItemOutput) *DeleteItemOutput {
-	return &DeleteItemOutput{}
+func FromSDKDeleteItemOutput(output *dynamodb.DeleteItemOutput) *DeleteItemOutput {
+	out := &DeleteItemOutput{}
+	if output == nil {
+		return out
+	}
+	if len(output.Attributes) > 0 {
+		out.Attributes = FromSDKItem(output.Attributes)
+	}
+	if output.ConsumedCapacity != nil {
+		out.ConsumedCapacity = FromSDKConsumedCapacity(output.ConsumedCapacity)
+	}
+	if output.ItemCollectionMetrics != nil {
+		out.ItemCollectionMetrics = FromSDKItemCollectionMetrics(output.ItemCollectionMetrics)
+	}
+
+	return out
 }
 
 func ToSDKUpdateItemInput(input *UpdateItemInput) (*dynamodb.UpdateItemInput, error) {
@@ -121,6 +146,9 @@ func ToSDKUpdateItemInput(input *UpdateItemInput) (*dynamodb.UpdateItemInput, er
 		ReturnConsumedCapacity:   types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
 		ReturnItemCollectionMetrics: types.ReturnItemCollectionMetrics(
 			input.ReturnItemCollectionMetrics,
+		),
+		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(
+			input.ReturnValuesOnConditionCheckFailure,
 		),
 	}
 
@@ -400,14 +428,12 @@ func createPutTransactItem(item *TransactWriteItem) (*types.Put, error) {
 	}
 
 	return &types.Put{
-		Item:                      sdkPut.Item,
-		TableName:                 sdkPut.TableName,
-		ConditionExpression:       sdkPut.ConditionExpression,
-		ExpressionAttributeNames:  sdkPut.ExpressionAttributeNames,
-		ExpressionAttributeValues: sdkPut.ExpressionAttributeValues,
-		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(
-			item.Put.ReturnValues,
-		),
+		Item:                                sdkPut.Item,
+		TableName:                           sdkPut.TableName,
+		ConditionExpression:                 sdkPut.ConditionExpression,
+		ExpressionAttributeNames:            sdkPut.ExpressionAttributeNames,
+		ExpressionAttributeValues:           sdkPut.ExpressionAttributeValues,
+		ReturnValuesOnConditionCheckFailure: sdkPut.ReturnValuesOnConditionCheckFailure,
 	}, nil
 }
 
@@ -418,11 +444,12 @@ func createDeleteTransactItem(item *TransactWriteItem) (*types.Delete, error) {
 	}
 
 	return &types.Delete{
-		Key:                       sdkDel.Key,
-		TableName:                 sdkDel.TableName,
-		ConditionExpression:       sdkDel.ConditionExpression,
-		ExpressionAttributeNames:  sdkDel.ExpressionAttributeNames,
-		ExpressionAttributeValues: sdkDel.ExpressionAttributeValues,
+		Key:                                 sdkDel.Key,
+		TableName:                           sdkDel.TableName,
+		ConditionExpression:                 sdkDel.ConditionExpression,
+		ExpressionAttributeNames:            sdkDel.ExpressionAttributeNames,
+		ExpressionAttributeValues:           sdkDel.ExpressionAttributeValues,
+		ReturnValuesOnConditionCheckFailure: sdkDel.ReturnValuesOnConditionCheckFailure,
 	}, nil
 }
 
@@ -433,12 +460,13 @@ func createUpdateTransactItem(item *TransactWriteItem) (*types.Update, error) {
 	}
 
 	return &types.Update{
-		Key:                       sdkUpd.Key,
-		TableName:                 sdkUpd.TableName,
-		UpdateExpression:          sdkUpd.UpdateExpression,
-		ConditionExpression:       sdkUpd.ConditionExpression,
-		ExpressionAttributeNames:  sdkUpd.ExpressionAttributeNames,
-		ExpressionAttributeValues: sdkUpd.ExpressionAttributeValues,
+		Key:                                 sdkUpd.Key,
+		TableName:                           sdkUpd.TableName,
+		UpdateExpression:                    sdkUpd.UpdateExpression,
+		ConditionExpression:                 sdkUpd.ConditionExpression,
+		ExpressionAttributeNames:            sdkUpd.ExpressionAttributeNames,
+		ExpressionAttributeValues:           sdkUpd.ExpressionAttributeValues,
+		ReturnValuesOnConditionCheckFailure: sdkUpd.ReturnValuesOnConditionCheckFailure,
 	}, nil
 }
 
@@ -452,6 +480,9 @@ func createConditionCheckTransactItem(item *TransactWriteItem) (*types.Condition
 		TableName:                &item.ConditionCheck.TableName,
 		ConditionExpression:      &item.ConditionCheck.ConditionExpression,
 		ExpressionAttributeNames: item.ConditionCheck.ExpressionAttributeNames,
+		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(
+			item.ConditionCheck.ReturnValuesOnConditionCheckFailure,
+		),
 	}
 	if len(item.ConditionCheck.ExpressionAttributeValues) > 0 {
 		vals, vErr := ToSDKItem(item.ConditionCheck.ExpressionAttributeValues)

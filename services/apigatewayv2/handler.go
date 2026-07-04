@@ -1,6 +1,8 @@
 package apigatewayv2
 
 import (
+	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 )
 
 const (
@@ -77,14 +80,50 @@ const (
 	opUnknown = "Unknown"
 )
 
-// Handler is the Echo HTTP handler for API Gateway v2 (HTTP API) operations.
+// LambdaInvoker is the interface for invoking Lambda functions.
+type LambdaInvoker interface {
+	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
+// JWKSProvider resolves RSA public keys for JWT signature verification.
+// Implementations return an error when the issuer or key is unknown.
+type JWKSProvider interface {
+	GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error)
+}
+
 type Handler struct {
-	Backend StorageBackend
+	Backend               StorageBackend
+	jwksProvider          JWKSProvider
+	lambdaInvoker         LambdaInvoker
+	managementAPI         apigatewaymanagementapi.StorageBackend
+	authCache             *authorizerCache
+	subCollectionDispatch map[subDispatchKey]func(*Handler, *echo.Context, string) error
+	subResourceDispatch   map[subDispatchKey]func(*Handler, *echo.Context, string, string) error
 }
 
 // NewHandler creates a new API Gateway v2 Handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{
+		Backend:               backend,
+		authCache:             newAuthorizerCache(),
+		subCollectionDispatch: newSubCollectionDispatch(),
+		subResourceDispatch:   newSubResourceDispatch(),
+	}
+}
+
+// SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
+func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
+	h.lambdaInvoker = lambda
+}
+
+// SetJWKSProvider configures the JWKS provider used to verify JWT authorizer signatures.
+func (h *Handler) SetJWKSProvider(p JWKSProvider) {
+	h.jwksProvider = p
+}
+
+// SetManagementAPIBackend configures the Management API backend for WebSocket connections.
+func (h *Handler) SetManagementAPIBackend(managementAPI apigatewaymanagementapi.StorageBackend) {
+	h.managementAPI = managementAPI
 }
 
 // Name returns the service name.
@@ -145,8 +184,19 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/") ||
 			path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/") ||
 			path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/") ||
-			strings.HasPrefix(path, tagsPrefix+"/")
+			strings.HasPrefix(path, tagsPrefix+"/") ||
+			strings.HasPrefix(path, "/v2proxy/") ||
+			isUserRequestPath(path)
 	}
+}
+
+// isUserRequestPath reports whether the path follows the data-plane format:
+// /restapis/{apiId}/{stageName}/_user_request_/{resourcePath...}.
+func isUserRequestPath(path string) bool {
+	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	const minSegs = 4 // restapis, apiId, stageName, _user_request_
+
+	return len(segs) >= minSegs && segs[0] == "restapis" && segs[3] == "_user_request_"
 }
 
 // MatchPriority returns the routing priority.
@@ -564,6 +614,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		method := c.Request().Method
 
 		switch {
+		case strings.HasPrefix(path, "/v2proxy/"):
+			return h.handleStageProxyEcho(c)
+		case isUserRequestPath(path):
+			return h.handleUserRequestEcho(c)
 		case path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/"):
 			return h.handleDomainNamesPath(c, method, path)
 		case path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/"):
@@ -577,7 +631,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case strings.HasPrefix(path, tagsPrefix+"/"):
 			return h.handleTagsPath(c, method, path)
 		default:
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 	}
 }
@@ -602,7 +656,7 @@ func (h *Handler) handleAPIsPath(c *echo.Context, method, path string) error {
 	default:
 		logger.Load(c.Request().Context()).Warn("apigatewayv2: unhandled path", "path", path)
 
-		return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		return writeErr(c, http.StatusNotFound, msgNotFound)
 	}
 }
 
@@ -616,7 +670,7 @@ func (h *Handler) handleAPIs(c *echo.Context, method string) error {
 	case http.MethodPut:
 		return h.handleImportAPI(c)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+		return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 	}
 }
 
@@ -632,7 +686,7 @@ func (h *Handler) handleAPI(c *echo.Context, method, apiID string) error {
 	case http.MethodPut:
 		return h.handleReimportAPI(c, apiID)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+		return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 	}
 }
 
@@ -642,62 +696,69 @@ type subDispatchKey struct {
 	collection string
 }
 
+// newSubCollectionDispatch builds the (method, collection) → handler table for
+// /v2/apis/{apiId}/{collection}. It is built once per Handler (in NewHandler)
+// using method expressions, so it is not reallocated on every request.
+func newSubCollectionDispatch() map[subDispatchKey]func(*Handler, *echo.Context, string) error {
+	return map[subDispatchKey]func(*Handler, *echo.Context, string) error{
+		{http.MethodPost, collStages}:       (*Handler).handleCreateStage,
+		{http.MethodGet, collStages}:        (*Handler).handleGetStages,
+		{http.MethodPost, collRoutes}:       (*Handler).handleCreateRoute,
+		{http.MethodGet, collRoutes}:        (*Handler).handleGetRoutes,
+		{http.MethodPost, collIntegrations}: (*Handler).handleCreateIntegration,
+		{http.MethodGet, collIntegrations}:  (*Handler).handleGetIntegrations,
+		{http.MethodPost, collDeployments}:  (*Handler).handleCreateDeployment,
+		{http.MethodGet, collDeployments}:   (*Handler).handleGetDeployments,
+		{http.MethodPost, collAuthorizers}:  (*Handler).handleCreateAuthorizer,
+		{http.MethodGet, collAuthorizers}:   (*Handler).handleGetAuthorizers,
+		{http.MethodPost, collModels}:       (*Handler).handleCreateModel,
+		{http.MethodGet, collModels}:        (*Handler).handleGetModels,
+		{http.MethodDelete, collCors}:       (*Handler).handleDeleteCorsConfiguration,
+	}
+}
+
+// newSubResourceDispatch builds the (method, collection) → handler table for
+// /v2/apis/{apiId}/{collection}/{resourceId}. Built once per Handler.
+func newSubResourceDispatch() map[subDispatchKey]func(*Handler, *echo.Context, string, string) error {
+	return map[subDispatchKey]func(*Handler, *echo.Context, string, string) error{
+		{http.MethodGet, collStages}:          (*Handler).handleGetStage,
+		{http.MethodDelete, collStages}:       (*Handler).handleDeleteStage,
+		{http.MethodPatch, collStages}:        (*Handler).handleUpdateStage,
+		{http.MethodGet, collRoutes}:          (*Handler).handleGetRoute,
+		{http.MethodDelete, collRoutes}:       (*Handler).handleDeleteRoute,
+		{http.MethodPatch, collRoutes}:        (*Handler).handleUpdateRoute,
+		{http.MethodGet, collIntegrations}:    (*Handler).handleGetIntegration,
+		{http.MethodDelete, collIntegrations}: (*Handler).handleDeleteIntegration,
+		{http.MethodPatch, collIntegrations}:  (*Handler).handleUpdateIntegration,
+		{http.MethodGet, collDeployments}:     (*Handler).handleGetDeployment,
+		{http.MethodDelete, collDeployments}:  (*Handler).handleDeleteDeployment,
+		{http.MethodPatch, collDeployments}:   (*Handler).handleUpdateDeployment,
+		{http.MethodGet, collAuthorizers}:     (*Handler).handleGetAuthorizer,
+		{http.MethodDelete, collAuthorizers}:  (*Handler).handleDeleteAuthorizer,
+		{http.MethodPatch, collAuthorizers}:   (*Handler).handleUpdateAuthorizer,
+		{http.MethodGet, collModels}:          (*Handler).handleGetModel,
+		{http.MethodDelete, collModels}:       (*Handler).handleDeleteModel,
+		{http.MethodPatch, collModels}:        (*Handler).handleUpdateModel,
+		{http.MethodGet, collExports}:         (*Handler).handleExportAPI,
+	}
+}
+
 // handleSubCollection handles POST/GET on /v2/apis/{apiId}/{collection}.
 func (h *Handler) handleSubCollection(c *echo.Context, method, apiID, collection string) error {
-	dispatch := map[subDispatchKey]func(*echo.Context, string) error{
-		{http.MethodPost, collStages}:       h.handleCreateStage,
-		{http.MethodGet, collStages}:        h.handleGetStages,
-		{http.MethodPost, collRoutes}:       h.handleCreateRoute,
-		{http.MethodGet, collRoutes}:        h.handleGetRoutes,
-		{http.MethodPost, collIntegrations}: h.handleCreateIntegration,
-		{http.MethodGet, collIntegrations}:  h.handleGetIntegrations,
-		{http.MethodPost, collDeployments}:  h.handleCreateDeployment,
-		{http.MethodGet, collDeployments}:   h.handleGetDeployments,
-		{http.MethodPost, collAuthorizers}:  h.handleCreateAuthorizer,
-		{http.MethodGet, collAuthorizers}:   h.handleGetAuthorizers,
-		{http.MethodPost, collModels}:       h.handleCreateModel,
-		{http.MethodGet, collModels}:        h.handleGetModels,
-		{http.MethodDelete, collCors}:       h.handleDeleteCorsConfiguration,
+	if fn, ok := h.subCollectionDispatch[subDispatchKey{method, collection}]; ok {
+		return fn(h, c, apiID)
 	}
 
-	if fn, ok := dispatch[subDispatchKey{method, collection}]; ok {
-		return fn(c, apiID)
-	}
-
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 // handleSubResource handles GET/DELETE/PATCH on /v2/apis/{apiId}/{collection}/{resourceId}.
 func (h *Handler) handleSubResource(c *echo.Context, method, apiID, collection, resourceID string) error {
-	type twoArgHandler func(*echo.Context, string, string) error
-
-	dispatch := map[subDispatchKey]twoArgHandler{
-		{http.MethodGet, collStages}:          h.handleGetStage,
-		{http.MethodDelete, collStages}:       h.handleDeleteStage,
-		{http.MethodPatch, collStages}:        h.handleUpdateStage,
-		{http.MethodGet, collRoutes}:          h.handleGetRoute,
-		{http.MethodDelete, collRoutes}:       h.handleDeleteRoute,
-		{http.MethodPatch, collRoutes}:        h.handleUpdateRoute,
-		{http.MethodGet, collIntegrations}:    h.handleGetIntegration,
-		{http.MethodDelete, collIntegrations}: h.handleDeleteIntegration,
-		{http.MethodPatch, collIntegrations}:  h.handleUpdateIntegration,
-		{http.MethodGet, collDeployments}:     h.handleGetDeployment,
-		{http.MethodDelete, collDeployments}:  h.handleDeleteDeployment,
-		{http.MethodPatch, collDeployments}:   h.handleUpdateDeployment,
-		{http.MethodGet, collAuthorizers}:     h.handleGetAuthorizer,
-		{http.MethodDelete, collAuthorizers}:  h.handleDeleteAuthorizer,
-		{http.MethodPatch, collAuthorizers}:   h.handleUpdateAuthorizer,
-		{http.MethodGet, collModels}:          h.handleGetModel,
-		{http.MethodDelete, collModels}:       h.handleDeleteModel,
-		{http.MethodPatch, collModels}:        h.handleUpdateModel,
-		{http.MethodGet, collExports}:         h.handleExportAPI,
+	if fn, ok := h.subResourceDispatch[subDispatchKey{method, collection}]; ok {
+		return fn(h, c, apiID, resourceID)
 	}
 
-	if fn, ok := dispatch[subDispatchKey{method, collection}]; ok {
-		return fn(c, apiID, resourceID)
-	}
-
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 // handleDeepCollection handles POST on /v2/apis/{apiId}/{collection}/{resourceId}/{subCollection}.
@@ -742,7 +803,7 @@ func (h *Handler) handleDeepCollection(
 		return fn(c, apiID, resourceID)
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 // handleDomainNamesPath handles requests for /v2/domainnames and /v2/domainnames/{domainName}/...
@@ -754,12 +815,12 @@ func (h *Handler) handleDomainNamesPath(c *echo.Context, method, path string) er
 		switch method {
 		case http.MethodPost:
 			return handleCreateNoParent(c, "domain name", func(input CreateDomainNameInput) (*DomainName, error) {
-				return h.Backend.CreateDomainName(input)
+				return h.Backend.CreateDomainName(c.Request().Context(), input)
 			})
 		case http.MethodGet:
 			return h.handleGetDomainNames(c)
 		default:
-			return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+			return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 		}
 	}
 
@@ -792,7 +853,7 @@ func (h *Handler) handleDomainNamesPath(c *echo.Context, method, path string) er
 		}
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 func (h *Handler) handleAPIMappingsCollection(c *echo.Context, method, domainName string) error {
@@ -807,7 +868,7 @@ func (h *Handler) handleAPIMappingsCollection(c *echo.Context, method, domainNam
 		return h.handleGetAPIMappings(c, domainName)
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 func (h *Handler) handleAPIMappingResource(c *echo.Context, method, domainName, mappingID string) error {
@@ -820,7 +881,7 @@ func (h *Handler) handleAPIMappingResource(c *echo.Context, method, domainName, 
 		return h.handleUpdateAPIMapping(c, domainName, mappingID)
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 func (h *Handler) handleRoutingRulesCollection(c *echo.Context, method, domainName string) error {
@@ -828,22 +889,22 @@ func (h *Handler) handleRoutingRulesCollection(c *echo.Context, method, domainNa
 	case http.MethodPost:
 		return handleCreate(c, domainName, "routing rule", ErrDomainNameNotFound,
 			func(input CreateRoutingRuleInput) (*RoutingRule, error) {
-				return h.Backend.CreateRoutingRule(domainName, input)
+				return h.Backend.CreateRoutingRule(c.Request().Context(), domainName, input)
 			})
 	case http.MethodGet:
 		rules, err := h.Backend.ListRoutingRules(domainName)
 		if err != nil {
 			if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrRoutingRuleNotFound) {
-				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+				return writeErr(c, http.StatusNotFound, msgNotFound)
 			}
 
-			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusInternalServerError, err.Error())
 		}
 
 		return c.JSON(http.StatusOK, listRoutingRulesOutput{Items: rules})
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 func (h *Handler) handleRoutingRuleResource(c *echo.Context, method, domainName, ruleID string) error {
@@ -852,10 +913,10 @@ func (h *Handler) handleRoutingRuleResource(c *echo.Context, method, domainName,
 		rule, err := h.Backend.GetRoutingRule(domainName, ruleID)
 		if err != nil {
 			if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrRoutingRuleNotFound) {
-				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+				return writeErr(c, http.StatusNotFound, msgNotFound)
 			}
 
-			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusInternalServerError, err.Error())
 		}
 
 		return c.JSON(http.StatusOK, rule)
@@ -869,16 +930,16 @@ func (h *Handler) handleRoutingRuleResource(c *echo.Context, method, domainName,
 		err := h.Backend.DeleteRoutingRule(domainName, ruleID)
 		if err != nil {
 			if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrRoutingRuleNotFound) {
-				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+				return writeErr(c, http.StatusNotFound, msgNotFound)
 			}
 
-			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusInternalServerError, err.Error())
 		}
 
 		return c.NoContent(http.StatusNoContent)
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 // handlePortalsPath handles requests for /v2/portals and /v2/portals/{portalId}/...
@@ -895,7 +956,7 @@ func (h *Handler) handlePortalsPath(c *echo.Context, method, path string) error 
 		case http.MethodGet:
 			return h.handleListPortals(c)
 		default:
-			return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+			return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 		}
 	}
 
@@ -914,7 +975,7 @@ func (h *Handler) handlePortalsPath(c *echo.Context, method, path string) error 
 		return h.handlePortalSubAction(c, method, parts[0], parts[1])
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 func (h *Handler) handlePortalSubAction(c *echo.Context, method, portalID, action string) error {
@@ -923,10 +984,10 @@ func (h *Handler) handlePortalSubAction(c *echo.Context, method, portalID, actio
 		p, err := h.Backend.GetPortal(portalID)
 		if err != nil {
 			if errors.Is(err, ErrPortalNotFound) {
-				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+				return writeErr(c, http.StatusNotFound, msgNotFound)
 			}
 
-			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusInternalServerError, err.Error())
 		}
 
 		return c.JSON(http.StatusOK, p)
@@ -935,7 +996,7 @@ func (h *Handler) handlePortalSubAction(c *echo.Context, method, portalID, actio
 	case action == collPublish && method == http.MethodDelete:
 		return h.handleDisablePortal(c, portalID)
 	default:
-		return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		return writeErr(c, http.StatusNotFound, msgNotFound)
 	}
 }
 
@@ -957,7 +1018,7 @@ func (h *Handler) handlePortalProductsPath(c *echo.Context, method, path string)
 		case http.MethodGet:
 			return h.handleListPortalProducts(c)
 		default:
-			return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+			return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 		}
 	}
 
@@ -979,7 +1040,7 @@ func (h *Handler) handlePortalProductsPath(c *echo.Context, method, path string)
 		return h.handlePortalProductPage(c, method, parts[0], parts[1], parts[pathPartTwo])
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 func (h *Handler) handlePortalProductSubCollection(
@@ -1018,7 +1079,7 @@ func (h *Handler) handlePortalProductSubCollection(
 		}
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 func (h *Handler) handlePortalProductPage(
@@ -1045,7 +1106,7 @@ func (h *Handler) handlePortalProductPage(
 		}
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 func (h *Handler) handleVpcLinksPath(c *echo.Context, method, path string) error {
@@ -1059,12 +1120,12 @@ func (h *Handler) handleVpcLinksPath(c *echo.Context, method, path string) error
 		case http.MethodGet:
 			links, err := h.Backend.GetVpcLinks()
 			if err != nil {
-				return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+				return writeErr(c, http.StatusInternalServerError, err.Error())
 			}
 
 			return c.JSON(http.StatusOK, listVpcLinksOutput{Items: links})
 		default:
-			return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+			return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 		}
 	}
 
@@ -1073,10 +1134,10 @@ func (h *Handler) handleVpcLinksPath(c *echo.Context, method, path string) error
 		vpcLink, err := h.Backend.GetVpcLink(suffix)
 		if err != nil {
 			if errors.Is(err, ErrVpcLinkNotFound) {
-				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+				return writeErr(c, http.StatusNotFound, msgNotFound)
 			}
 
-			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusInternalServerError, err.Error())
 		}
 
 		return c.JSON(http.StatusOK, vpcLink)
@@ -1087,15 +1148,15 @@ func (h *Handler) handleVpcLinksPath(c *echo.Context, method, path string) error
 	case http.MethodDelete:
 		if err := h.Backend.DeleteVpcLink(suffix); err != nil {
 			if errors.Is(err, ErrVpcLinkNotFound) {
-				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+				return writeErr(c, http.StatusNotFound, msgNotFound)
 			}
 
-			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusInternalServerError, err.Error())
 		}
 
 		return c.NoContent(http.StatusNoContent)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+		return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 	}
 }
 
@@ -1104,18 +1165,18 @@ func (h *Handler) handleCreateAPI(c *echo.Context) error {
 
 	var input CreateAPIInput
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
-	api, err := h.Backend.CreateAPI(input)
+	api, err := h.Backend.CreateAPI(c.Request().Context(), input)
 	if err != nil {
 		log.Error("apigatewayv2: create api failed", "error", err)
 
 		if errors.Is(err, ErrBadRequest) {
-			return c.JSON(http.StatusBadRequest, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusBadRequest, err.Error())
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusCreated, api)
@@ -1128,7 +1189,7 @@ func (h *Handler) handleGetAPIs(c *echo.Context) error {
 	if err != nil {
 		log.Error("apigatewayv2: get apis failed", "error", err)
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	maxResults, nextToken := apigwPaginationParams(c)
@@ -1145,10 +1206,10 @@ func (h *Handler) handleGetAPI(c *echo.Context, apiID string) error {
 		log.Error("apigatewayv2: get api failed", "apiId", apiID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, api)
@@ -1161,10 +1222,10 @@ func (h *Handler) handleDeleteAPI(c *echo.Context, apiID string) error {
 		log.Error("apigatewayv2: delete api failed", "apiId", apiID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1175,7 +1236,7 @@ func (h *Handler) handleUpdateAPI(c *echo.Context, apiID string) error {
 
 	var input UpdateAPIInput
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
 	api, err := h.Backend.UpdateAPI(apiID, input)
@@ -1183,13 +1244,114 @@ func (h *Handler) handleUpdateAPI(c *echo.Context, apiID string) error {
 		log.Error("apigatewayv2: update api failed", "apiId", apiID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, api)
+}
+
+// openAPISpec is a minimal representation of an OpenAPI 3 / Swagger 2 document.
+// Only the fields needed to derive an API name, routes, and integrations are
+// modeled; unknown fields are ignored so that minimal specs are tolerated.
+type openAPISpec struct {
+	Paths map[string]map[string]openAPIOperation `json:"paths"`
+	Info  openAPIInfo                            `json:"info"`
+}
+
+type openAPIInfo struct {
+	Title string `json:"title"`
+}
+
+type openAPIOperation struct {
+	Integration *openAPIIntegration `json:"x-amazon-apigateway-integration"`
+}
+
+// openAPIIntegration models the x-amazon-apigateway-integration extension.
+type openAPIIntegration struct {
+	Type                 string `json:"type"`
+	HTTPMethod           string `json:"httpMethod"`
+	URI                  string `json:"uri"`
+	PayloadFormatVersion string `json:"payloadFormatVersion"`
+	ConnectionType       string `json:"connectionType"`
+	TimeoutInMillis      int32  `json:"timeoutInMillis"`
+}
+
+// parseOpenAPISpec decodes an OpenAPI body into an openAPISpec, tolerating
+// minimal/partial documents.
+func parseOpenAPISpec(body string) (*openAPISpec, error) {
+	var spec openAPISpec
+	if strings.TrimSpace(body) == "" {
+		return &spec, nil
+	}
+
+	if err := json.Unmarshal([]byte(body), &spec); err != nil {
+		return nil, err
+	}
+
+	return &spec, nil
+}
+
+// applyOpenAPIToAPI creates a route (and integration, when defined) for each
+// path+method in the spec. Entries that are not valid HTTP route keys are
+// skipped gracefully.
+//
+//nolint:gocognit // walks the full OpenAPI spec; complexity is inherent to the mapping
+func (h *Handler) applyOpenAPIToAPI(apiID string, spec *openAPISpec) {
+	for path, methods := range spec.Paths {
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+
+		for method, op := range methods {
+			routeKey := strings.ToUpper(method) + " " + path
+
+			// Skip route keys that the backend would reject (e.g. spec-level
+			// fields like "parameters" that share the path map).
+			if err := validateHTTPRouteKey(routeKey); err != nil {
+				continue
+			}
+
+			var target string
+
+			if op.Integration != nil {
+				integrationType := op.Integration.Type
+				switch integrationType {
+				case "http", "http_proxy":
+					integrationType = integrationTypeHTTPProxy
+				case "aws", "aws_proxy":
+					integrationType = IntegrationTypeAWSProxy
+				case "mock":
+					integrationType = "MOCK"
+				case "":
+					integrationType = IntegrationTypeAWSProxy
+				default:
+					integrationType = strings.ToUpper(integrationType)
+				}
+
+				integ, err := h.Backend.CreateIntegration(apiID, CreateIntegrationInput{
+					IntegrationType:      integrationType,
+					IntegrationMethod:    op.Integration.HTTPMethod,
+					IntegrationURI:       op.Integration.URI,
+					PayloadFormatVersion: op.Integration.PayloadFormatVersion,
+					ConnectionType:       op.Integration.ConnectionType,
+					TimeoutInMillis:      op.Integration.TimeoutInMillis,
+				})
+				if err == nil && integ != nil {
+					target = "integrations/" + integ.IntegrationID
+				}
+			}
+
+			if _, err := h.Backend.CreateRoute(apiID, CreateRouteInput{
+				RouteKey: routeKey,
+				Target:   target,
+			}); err != nil {
+				continue
+			}
+		}
+	}
 }
 
 func (h *Handler) handleImportAPI(c *echo.Context) error {
@@ -1197,17 +1359,28 @@ func (h *Handler) handleImportAPI(c *echo.Context) error {
 		Body string `json:"body"`
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
-	api, err := h.Backend.CreateAPI(CreateAPIInput{
-		Name:         "imported-api",
+	spec, err := parseOpenAPISpec(input.Body)
+	if err != nil {
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
+	}
+
+	name := spec.Info.Title
+	if name == "" {
+		name = "imported-api"
+	}
+
+	api, err := h.Backend.CreateAPI(c.Request().Context(), CreateAPIInput{
+		Name:         name,
 		ProtocolType: protocolTypeHTTP,
-		Description:  input.Body,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
+
+	h.applyOpenAPIToAPI(api.APIID, spec)
 
 	return c.JSON(http.StatusCreated, api)
 }
@@ -1217,17 +1390,44 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 		Body string `json:"body"`
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
-	api, err := h.Backend.UpdateAPI(apiID, UpdateAPIInput{Description: input.Body})
+	spec, err := parseOpenAPISpec(input.Body)
+	if err != nil {
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
+	}
+
+	// Replace existing routes and integrations from the new spec.
+	if routes, rErr := h.Backend.GetRoutes(apiID); rErr == nil {
+		for _, r := range routes {
+			_ = h.Backend.DeleteRoute(apiID, r.RouteID)
+		}
+	} else if errors.Is(rErr, ErrAPINotFound) {
+		return writeErr(c, http.StatusNotFound, msgNotFound)
+	}
+
+	if integrations, iErr := h.Backend.GetIntegrations(apiID); iErr == nil {
+		for _, i := range integrations {
+			_ = h.Backend.DeleteIntegration(apiID, i.IntegrationID)
+		}
+	}
+
+	update := UpdateAPIInput{}
+	if spec.Info.Title != "" {
+		update.Name = spec.Info.Title
+	}
+
+	api, err := h.Backend.UpdateAPI(apiID, update)
 	if err != nil {
 		if errors.Is(err, ErrAPINotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
+
+	h.applyOpenAPIToAPI(apiID, spec)
 
 	return c.JSON(http.StatusCreated, api)
 }
@@ -1239,36 +1439,48 @@ func (h *Handler) handleDeleteCorsConfiguration(c *echo.Context, apiID string) e
 		log.Error("apigatewayv2: delete cors configuration failed", "apiId", apiID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) error {
+	// API Gateway v2 only supports the OAS30 specification for exports.
+	if specification != "" && specification != "OAS30" {
+		return writeErr(c, http.StatusBadRequest, "specification must be OAS30")
+	}
+
 	spec, err := h.Backend.ExportAPI(apiID)
 	if err != nil {
 		if errors.Is(err, ErrAPINotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"body": spec, "specification": specification})
+	// AWS returns the raw OpenAPI document as the HTTP response body (the SDK's
+	// ExportApi `Body` blob), not a wrapper object.
+	blob, mErr := json.Marshal(spec)
+	if mErr != nil {
+		return writeErr(c, http.StatusInternalServerError, mErr.Error())
+	}
+
+	return c.JSONBlob(http.StatusOK, blob)
 }
 
 func (h *Handler) handleGetModelTemplate(c *echo.Context, apiID, modelID string) error {
 	model, err := h.Backend.GetModel(apiID, modelID)
 	if err != nil {
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrModelNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	// AWS returns the model's schema as the template value; fall back to an empty
@@ -1289,10 +1501,10 @@ func (h *Handler) handleDeleteAccessLogSettings(c *echo.Context, apiID, stageNam
 			"apiId", apiID, "stageName", stageName, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1300,7 +1512,7 @@ func (h *Handler) handleDeleteAccessLogSettings(c *echo.Context, apiID, stageNam
 
 func (h *Handler) handleDeleteRouteSettings(c *echo.Context, apiID, stageName, routeKey string) error {
 	if routeKey == "" {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: "routeKey is required"})
+		return writeErr(c, http.StatusBadRequest, "routeKey is required")
 	}
 
 	log := logger.Load(c.Request().Context())
@@ -1310,10 +1522,10 @@ func (h *Handler) handleDeleteRouteSettings(c *echo.Context, apiID, stageName, r
 			"apiId", apiID, "stageName", stageName, "routeKey", routeKey, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1321,7 +1533,7 @@ func (h *Handler) handleDeleteRouteSettings(c *echo.Context, apiID, stageName, r
 
 func (h *Handler) handleDeleteRouteRequestParameter(c *echo.Context, apiID, routeID, requestParameterKey string) error {
 	if requestParameterKey == "" {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: "requestParameterKey is required"})
+		return writeErr(c, http.StatusBadRequest, "requestParameterKey is required")
 	}
 
 	log := logger.Load(c.Request().Context())
@@ -1331,10 +1543,10 @@ func (h *Handler) handleDeleteRouteRequestParameter(c *echo.Context, apiID, rout
 			"apiId", apiID, "routeId", routeID, "key", requestParameterKey, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1362,10 +1574,10 @@ func (h *Handler) handleGetStage(c *echo.Context, apiID, stageName string) error
 		log.Error("apigatewayv2: get stage failed", "apiId", apiID, "stageName", stageName, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, stage)
@@ -1378,10 +1590,10 @@ func (h *Handler) handleDeleteStage(c *echo.Context, apiID, stageName string) er
 		log.Error("apigatewayv2: delete stage failed", "apiId", apiID, "stageName", stageName, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1417,10 +1629,10 @@ func (h *Handler) handleGetRoute(c *echo.Context, apiID, routeID string) error {
 		log.Error("apigatewayv2: get route failed", "apiId", apiID, "routeId", routeID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, route)
@@ -1433,10 +1645,10 @@ func (h *Handler) handleDeleteRoute(c *echo.Context, apiID, routeID string) erro
 		log.Error("apigatewayv2: delete route failed", "apiId", apiID, "routeId", routeID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1475,10 +1687,10 @@ func (h *Handler) handleGetIntegration(c *echo.Context, apiID, integrationID str
 		log.Error("apigatewayv2: get integration failed", "apiId", apiID, "integrationId", integrationID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, integration)
@@ -1492,10 +1704,10 @@ func (h *Handler) handleDeleteIntegration(c *echo.Context, apiID, integrationID 
 			"apiId", apiID, "integrationId", integrationID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1512,9 +1724,11 @@ func (h *Handler) handleUpdateIntegration(c *echo.Context, apiID, integrationID 
 // --- Deployment handlers ---
 
 func (h *Handler) handleCreateDeployment(c *echo.Context, apiID string) error {
-	return handleCreate(c, apiID, "deployment", ErrAPINotFound, func(input CreateDeploymentInput) (*Deployment, error) {
-		return h.Backend.CreateDeployment(apiID, input)
-	})
+	return handleCreateMulti(c, apiID, "deployment",
+		func(input CreateDeploymentInput) (*Deployment, error) {
+			return h.Backend.CreateDeployment(apiID, input)
+		},
+		ErrAPINotFound, ErrStageNotFound)
 }
 
 func (h *Handler) handleGetDeployments(c *echo.Context, apiID string) error {
@@ -1533,10 +1747,10 @@ func (h *Handler) handleGetDeployment(c *echo.Context, apiID, deploymentID strin
 		log.Error("apigatewayv2: get deployment failed", "apiId", apiID, "deploymentId", deploymentID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrDeploymentNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, deployment)
@@ -1549,10 +1763,10 @@ func (h *Handler) handleDeleteDeployment(c *echo.Context, apiID, deploymentID st
 		log.Error("apigatewayv2: delete deployment failed", "apiId", apiID, "deploymentId", deploymentID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrDeploymentNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1582,10 +1796,10 @@ func (h *Handler) handleGetAuthorizer(c *echo.Context, apiID, authorizerID strin
 		log.Error("apigatewayv2: get authorizer failed", "apiId", apiID, "authorizerId", authorizerID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrAuthorizerNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, authorizer)
@@ -1598,10 +1812,10 @@ func (h *Handler) handleDeleteAuthorizer(c *echo.Context, apiID, authorizerID st
 		log.Error("apigatewayv2: delete authorizer failed", "apiId", apiID, "authorizerId", authorizerID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrAuthorizerNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1646,7 +1860,7 @@ func handleCreateMulti[I, O any](
 
 	var input I
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
 	result, err := backendFn(input)
@@ -1654,20 +1868,20 @@ func handleCreateMulti[I, O any](
 		log.Error("apigatewayv2: create "+resourceName+" failed", "apiId", apiID, "error", err)
 
 		if errors.Is(err, awserr.ErrAlreadyExists) {
-			return c.JSON(http.StatusConflict, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusConflict, err.Error())
 		}
 
 		if errors.Is(err, ErrBadRequest) {
-			return c.JSON(http.StatusBadRequest, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusBadRequest, err.Error())
 		}
 
 		for _, nfe := range notFoundErrs {
 			if errors.Is(err, nfe) {
-				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+				return writeErr(c, http.StatusNotFound, msgNotFound)
 			}
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusCreated, result)
@@ -1685,7 +1899,7 @@ func handleUpdate[I, O any](
 
 	var input I
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
 	result, err := backendFn(input)
@@ -1695,11 +1909,11 @@ func handleUpdate[I, O any](
 
 		for _, nfe := range notFoundErrs {
 			if errors.Is(err, nfe) {
-				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+				return writeErr(c, http.StatusNotFound, msgNotFound)
 			}
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, result)
@@ -1736,10 +1950,10 @@ func handleGetList[T any](
 		log.Error("apigatewayv2: get "+resourceName+" failed", "apiId", apiID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	maxResults, nextToken := apigwPaginationParams(c)
@@ -1758,7 +1972,7 @@ func handleCreateNoParent[I, O any](
 
 	var input I
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
 	result, err := backendFn(input)
@@ -1766,14 +1980,14 @@ func handleCreateNoParent[I, O any](
 		log.Error("apigatewayv2: create "+resourceName+" failed", "error", err)
 
 		if errors.Is(err, awserr.ErrAlreadyExists) {
-			return c.JSON(http.StatusConflict, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusConflict, err.Error())
 		}
 
 		if errors.Is(err, ErrBadRequest) {
-			return c.JSON(http.StatusBadRequest, notFoundResponse{Message: err.Error()})
+			return writeErr(c, http.StatusBadRequest, err.Error())
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusCreated, result)
@@ -1806,10 +2020,10 @@ func (h *Handler) handleGetModel(c *echo.Context, apiID, modelID string) error {
 		log.Error("apigatewayv2: get model failed", "apiId", apiID, "modelId", modelID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrModelNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, model)
@@ -1822,10 +2036,10 @@ func (h *Handler) handleDeleteModel(c *echo.Context, apiID, modelID string) erro
 		log.Error("apigatewayv2: delete model failed", "apiId", apiID, "modelId", modelID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrModelNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1842,10 +2056,10 @@ func (h *Handler) handleGetIntegrationResponses(c *echo.Context, apiID, integrat
 			"apiId", apiID, "integrationId", integrationID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, listIntegrationResponsesOutput{Items: items})
@@ -1861,10 +2075,10 @@ func (h *Handler) handleGetIntegrationResponse(c *echo.Context, apiID, integrati
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) ||
 			errors.Is(err, ErrIntegrationResponseNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, ir)
@@ -1879,10 +2093,10 @@ func (h *Handler) handleDeleteIntegrationResponse(c *echo.Context, apiID, integr
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) ||
 			errors.Is(err, ErrIntegrationResponseNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1899,10 +2113,10 @@ func (h *Handler) handleGetRouteResponses(c *echo.Context, apiID, routeID string
 			"apiId", apiID, "routeId", routeID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, listRouteResponsesOutput{Items: items})
@@ -1918,10 +2132,10 @@ func (h *Handler) handleGetRouteResponse(c *echo.Context, apiID, routeID, respon
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) ||
 			errors.Is(err, ErrRouteResponseNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, rr)
@@ -1936,10 +2150,10 @@ func (h *Handler) handleDeleteRouteResponse(c *echo.Context, apiID, routeID, res
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) ||
 			errors.Is(err, ErrRouteResponseNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1975,7 +2189,7 @@ func (h *Handler) handleDeepResource(
 		return fn(c, apiID, resourceID, subResourceID)
 	}
 
-	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
 
 // --- Domain Name handlers ---
@@ -1987,7 +2201,7 @@ func (h *Handler) handleGetDomainNames(c *echo.Context) error {
 	if err != nil {
 		log.Error("apigatewayv2: get domain names failed", "error", err)
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, listDomainNamesOutput{Items: items})
@@ -2001,10 +2215,10 @@ func (h *Handler) handleGetDomainName(c *echo.Context, domainName string) error 
 		log.Error("apigatewayv2: get domain name failed", "domainName", domainName, "error", err)
 
 		if errors.Is(err, ErrDomainNameNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, dn)
@@ -2017,10 +2231,10 @@ func (h *Handler) handleDeleteDomainName(c *echo.Context, domainName string) err
 		log.Error("apigatewayv2: delete domain name failed", "domainName", domainName, "error", err)
 
 		if errors.Is(err, ErrDomainNameNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2034,10 +2248,10 @@ func (h *Handler) handleGetAPIMappings(c *echo.Context, domainName string) error
 		log.Error("apigatewayv2: get api mappings failed", "domainName", domainName, "error", err)
 
 		if errors.Is(err, ErrDomainNameNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, listAPIMappingsOutput{Items: items})
@@ -2052,10 +2266,10 @@ func (h *Handler) handleGetAPIMapping(c *echo.Context, domainName, mappingID str
 			"domainName", domainName, "mappingId", mappingID, "error", err)
 
 		if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrAPIMappingNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, m)
@@ -2069,10 +2283,10 @@ func (h *Handler) handleDeleteAPIMapping(c *echo.Context, domainName, mappingID 
 			"domainName", domainName, "mappingId", mappingID, "error", err)
 
 		if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrAPIMappingNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2087,7 +2301,7 @@ func (h *Handler) handleListPortals(c *echo.Context) error {
 	if err != nil {
 		log.Error("apigatewayv2: list portals failed", "error", err)
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, listPortalsOutput{Items: items})
@@ -2101,10 +2315,10 @@ func (h *Handler) handleGetPortal(c *echo.Context, portalID string) error {
 		log.Error("apigatewayv2: get portal failed", "portalId", portalID, "error", err)
 
 		if errors.Is(err, ErrPortalNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, p)
@@ -2119,7 +2333,7 @@ func (h *Handler) handleListPortalProducts(c *echo.Context) error {
 	if err != nil {
 		log.Error("apigatewayv2: list portal products failed", "error", err)
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, listPortalProductsOutput{Items: items})
@@ -2133,10 +2347,10 @@ func (h *Handler) handleGetPortalProduct(c *echo.Context, portalProductID string
 		log.Error("apigatewayv2: get portal product failed", "portalProductId", portalProductID, "error", err)
 
 		if errors.Is(err, ErrPortalProductNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, pp)
@@ -2150,10 +2364,10 @@ func (h *Handler) handleListProductPages(c *echo.Context, portalProductID string
 		log.Error("apigatewayv2: list product pages failed", "portalProductId", portalProductID, "error", err)
 
 		if errors.Is(err, ErrPortalProductNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, listProductPagesOutput{Items: items})
@@ -2168,10 +2382,10 @@ func (h *Handler) handleListProductRestEndpointPages(c *echo.Context, portalProd
 			"portalProductId", portalProductID, "error", err)
 
 		if errors.Is(err, ErrPortalProductNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, listProductREPagesOutput{Items: items})
@@ -2200,7 +2414,7 @@ func extractTagsOp(path, method string) string {
 func (h *Handler) handleTagsPath(c *echo.Context, method, path string) error {
 	resourceARN := strings.TrimPrefix(path, tagsPrefix+"/")
 	if resourceARN == "" {
-		return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		return writeErr(c, http.StatusNotFound, msgNotFound)
 	}
 
 	switch method {
@@ -2211,7 +2425,7 @@ func (h *Handler) handleTagsPath(c *echo.Context, method, path string) error {
 	case http.MethodDelete:
 		return h.handleUntagResource(c, resourceARN)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+		return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 	}
 }
 
@@ -2224,10 +2438,10 @@ func (h *Handler) handleGetTags(c *echo.Context, resourceARN string) error {
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
 			errors.Is(err, ErrDomainNameNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	if tags == nil {
@@ -2242,7 +2456,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 
 	var input tagResourceInput
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
 	if err := h.Backend.TagResource(resourceARN, input.Tags); err != nil {
@@ -2250,10 +2464,10 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
 			errors.Is(err, ErrDomainNameNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusCreated)
@@ -2270,10 +2484,10 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
 			errors.Is(err, ErrDomainNameNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2338,16 +2552,16 @@ func (h *Handler) handleUpdatePortal(c *echo.Context, portalID string) error {
 func (h *Handler) handlePublishPortal(c *echo.Context, portalID string) error {
 	var input PublishPortalInput
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
 	p, err := h.Backend.UpdatePortal(portalID, UpdatePortalInput{Status: "PUBLISHED"})
 	if err != nil {
 		if errors.Is(err, ErrPortalNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, p)
@@ -2357,10 +2571,10 @@ func (h *Handler) handleDisablePortal(c *echo.Context, portalID string) error {
 	p, err := h.Backend.UpdatePortal(portalID, UpdatePortalInput{Status: "DISABLED"})
 	if err != nil {
 		if errors.Is(err, ErrPortalNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, p)
@@ -2373,10 +2587,10 @@ func (h *Handler) handleDeletePortal(c *echo.Context, portalID string) error {
 		log.Error("apigatewayv2: delete portal failed", "portalId", portalID, "error", err)
 
 		if errors.Is(err, ErrPortalNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2394,10 +2608,10 @@ func (h *Handler) handleGetPortalProductSharingPolicy(c *echo.Context, portalPro
 	policy, err := h.Backend.GetPortalProductSharingPolicy(portalProductID)
 	if err != nil {
 		if errors.Is(err, ErrPortalProductNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, policy)
@@ -2406,16 +2620,16 @@ func (h *Handler) handleGetPortalProductSharingPolicy(c *echo.Context, portalPro
 func (h *Handler) handlePutPortalProductSharingPolicy(c *echo.Context, portalProductID string) error {
 	var input PortalProductSharingPolicy
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
 	policy, err := h.Backend.PutPortalProductSharingPolicy(portalProductID, input.PolicyDocument)
 	if err != nil {
 		if errors.Is(err, ErrPortalProductNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, policy)
@@ -2424,10 +2638,10 @@ func (h *Handler) handlePutPortalProductSharingPolicy(c *echo.Context, portalPro
 func (h *Handler) handleDeletePortalProductSharingPolicy(c *echo.Context, portalProductID string) error {
 	if err := h.Backend.DeletePortalProductSharingPolicy(portalProductID); err != nil {
 		if errors.Is(err, ErrPortalProductNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2456,10 +2670,10 @@ func (h *Handler) handleDeletePortalProduct(c *echo.Context, portalProductID str
 		log.Error("apigatewayv2: delete portal product failed", "portalProductId", portalProductID, "error", err)
 
 		if errors.Is(err, ErrPortalProductNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2474,10 +2688,10 @@ func (h *Handler) handleGetProductPage(c *echo.Context, portalProductID, pageID 
 			"portalProductId", portalProductID, "pageId", pageID, "error", err)
 
 		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductPageNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, p)
@@ -2491,10 +2705,10 @@ func (h *Handler) handleDeleteProductPage(c *echo.Context, portalProductID, page
 			"portalProductId", portalProductID, "pageId", pageID, "error", err)
 
 		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductPageNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2509,10 +2723,10 @@ func (h *Handler) handleGetProductRestEndpointPage(c *echo.Context, portalProduc
 			"portalProductId", portalProductID, "pageId", pageID, "error", err)
 
 		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductREPageNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, p)
@@ -2526,10 +2740,10 @@ func (h *Handler) handleDeleteProductRestEndpointPage(c *echo.Context, portalPro
 			"portalProductId", portalProductID, "pageId", pageID, "error", err)
 
 		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductREPageNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2542,10 +2756,15 @@ func (h *Handler) handleResetAuthorizersCache(c *echo.Context, apiID, stageName 
 		log.Error("apigatewayv2: reset authorizers cache failed", "apiId", apiID, "stageName", stageName, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	// Drop cached Lambda-authorizer decisions so subsequent requests re-invoke.
+	if h.authCache != nil {
+		h.authCache.reset()
 	}
 
 	return c.NoContent(http.StatusNoContent)

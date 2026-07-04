@@ -22,6 +22,7 @@ import (
 const (
 	firehoseTargetPrefix = "Firehose_20150804."
 	errFieldMessage      = "message"
+	errFieldType         = "__type"
 )
 
 var (
@@ -207,11 +208,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound,
-			map[string]any{"__type": "ResourceNotFoundException", errFieldMessage: err.Error()})
-	case errors.Is(err, ErrAlreadyExists), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, ErrValidation),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{errFieldMessage: err.Error()})
+			map[string]any{errFieldType: "ResourceNotFoundException", errFieldMessage: err.Error()})
+	case errors.Is(err, ErrAlreadyExists):
+		return c.JSON(http.StatusBadRequest,
+			map[string]any{errFieldType: "ResourceInUseException", errFieldMessage: err.Error()})
+	case errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest,
+			map[string]any{errFieldType: "UnknownOperationException", errFieldMessage: err.Error()})
+	case errors.Is(err, errInvalidRequest), errors.Is(err, awserr.ErrInvalidParameter),
+		errors.Is(err, ErrValidation), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		return c.JSON(http.StatusBadRequest,
+			map[string]any{errFieldType: "InvalidArgumentException", errFieldMessage: err.Error()})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{errFieldMessage: err.Error()})
 	}
@@ -228,20 +235,21 @@ const (
 // s3DestinationInput holds the S3 destination configuration from the API request.
 // It maps both S3DestinationConfiguration and ExtendedS3DestinationConfiguration fields.
 type s3DestinationInput struct {
-	BufferingHints                   *BufferingHints                   `json:"BufferingHints"`
-	ProcessingConfiguration          *ProcessingConfiguration          `json:"ProcessingConfiguration"`
-	S3BackupConfiguration            *s3BackupInput                    `json:"S3BackupConfiguration"`
-	EncryptionConfiguration          *S3EncryptionConfiguration        `json:"EncryptionConfiguration"`
-	CloudWatchLoggingOptions         *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions"`
-	DynamicPartitioningConfiguration *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration"`
-	BucketARN                        string                            `json:"BucketARN"`
-	RoleARN                          string                            `json:"RoleARN"`
-	Prefix                           string                            `json:"Prefix"`
-	ErrorOutputPrefix                string                            `json:"ErrorOutputPrefix"`
-	CompressionFormat                string                            `json:"CompressionFormat"`
-	FileExtension                    string                            `json:"FileExtension"`
-	CustomTimeZone                   string                            `json:"CustomTimeZone"`
-	S3BackupMode                     string                            `json:"S3BackupMode"`
+	BufferingHints                    *BufferingHints                   `json:"BufferingHints"`
+	ProcessingConfiguration           *ProcessingConfiguration          `json:"ProcessingConfiguration"`
+	S3BackupConfiguration             *s3BackupInput                    `json:"S3BackupConfiguration"`
+	EncryptionConfiguration           *S3EncryptionConfiguration        `json:"EncryptionConfiguration"`
+	CloudWatchLoggingOptions          *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions"`
+	DynamicPartitioningConfiguration  *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration"`
+	DataFormatConversionConfiguration *DataFormatConversionConfig       `json:"DataFormatConversionConfiguration"`
+	BucketARN                         string                            `json:"BucketARN"`
+	RoleARN                           string                            `json:"RoleARN"`
+	Prefix                            string                            `json:"Prefix"`
+	ErrorOutputPrefix                 string                            `json:"ErrorOutputPrefix"`
+	CompressionFormat                 string                            `json:"CompressionFormat"`
+	FileExtension                     string                            `json:"FileExtension"`
+	CustomTimeZone                    string                            `json:"CustomTimeZone"`
+	S3BackupMode                      string                            `json:"S3BackupMode"`
 }
 
 // s3BackupInput holds the S3 backup destination configuration.
@@ -374,6 +382,7 @@ func buildS3DestinationDescription(raw *s3DestinationInput) *S3DestinationDescri
 		EncryptionConfiguration:          raw.EncryptionConfiguration,
 		CloudWatchLoggingOptions:         raw.CloudWatchLoggingOptions,
 		DynamicPartitioningConfiguration: raw.DynamicPartitioningConfiguration,
+		DataFormatConversion:             raw.DataFormatConversionConfiguration,
 	}
 
 	dest.S3BackupDescription = buildS3BackupDescription(raw.S3BackupConfiguration)
@@ -544,6 +553,12 @@ func (h *Handler) handleCreateDeliveryStream(
 		rawS3 = in.S3DestinationConfiguration
 	}
 
+	if rawS3 != nil {
+		if err := validateDataFormatConversion(rawS3.DataFormatConversionConfiguration); err != nil {
+			return nil, err
+		}
+	}
+
 	s, err := h.Backend.CreateDeliveryStream(ctx, CreateDeliveryStreamInput{
 		Name:                    in.DeliveryStreamName,
 		DeliveryStreamType:      in.DeliveryStreamType,
@@ -584,19 +599,21 @@ func (h *Handler) handleDeleteDeliveryStream(
 }
 
 type deliveryStreamDescriptionFields struct {
-	EncryptionConfiguration             *EncryptionConfig                    `json:"EncryptionConfiguration,omitempty"`
-	Source                              *SourceDescription                   `json:"Source,omitempty"`
-	CreateTimestamp                     *int64                               `json:"CreateTimestamp,omitempty"`
-	LastUpdateTimestamp                 *int64                               `json:"LastUpdateTimestamp,omitempty"`
-	DeliveryStreamName                  string                               `json:"DeliveryStreamName"`
-	DeliveryStreamARN                   string                               `json:"DeliveryStreamARN"`
-	DeliveryStreamStatus                string                               `json:"DeliveryStreamStatus"`
-	DeliveryStreamType                  string                               `json:"DeliveryStreamType,omitempty"`
-	VersionID                           string                               `json:"VersionId,omitempty"`
-	S3DestinationDescriptions           []S3DestinationDescription           `json:"S3DestinationDescriptions,omitempty"`
-	HTTPEndpointDestinationDescriptions []HTTPEndpointDestinationDescription `json:"HTTPEndpointDestinationDescriptions,omitempty"` //nolint:lll // AWS field name must match the API spec
-	RedshiftDestinationDescriptions     []RedshiftDestinationDescription     `json:"RedshiftDestinationDescriptions,omitempty"`     //nolint:lll // AWS field name
-	HasMoreDestinations                 bool                                 `json:"HasMoreDestinations"`
+	EncryptionConfiguration                        *EncryptionConfig                    `json:"EncryptionConfiguration,omitempty"` //nolint:lll // AWS field name
+	Source                                         *SourceDescription                   `json:"Source,omitempty"`
+	CreateTimestamp                                *int64                               `json:"CreateTimestamp,omitempty"`
+	LastUpdateTimestamp                            *int64                               `json:"LastUpdateTimestamp,omitempty"` //nolint:lll // AWS field name
+	DeliveryStreamName                             string                               `json:"DeliveryStreamName"`
+	DeliveryStreamARN                              string                               `json:"DeliveryStreamARN"`
+	DeliveryStreamStatus                           string                               `json:"DeliveryStreamStatus"`
+	DeliveryStreamType                             string                               `json:"DeliveryStreamType,omitempty"` //nolint:lll // AWS field name
+	VersionID                                      string                               `json:"VersionId,omitempty"`
+	S3DestinationDescriptions                      []S3DestinationDescription           `json:"S3DestinationDescriptions,omitempty"`                      //nolint:lll // AWS field name
+	HTTPEndpointDestinationDescriptions            []HTTPEndpointDestinationDescription `json:"HTTPEndpointDestinationDescriptions,omitempty"`            //nolint:lll // AWS field name must match the API spec
+	RedshiftDestinationDescriptions                []RedshiftDestinationDescription     `json:"RedshiftDestinationDescriptions,omitempty"`                //nolint:lll // AWS field name
+	AmazonOpenSearchServiceDestinationDescriptions []OpenSearchDestinationDescription   `json:"AmazonOpenSearchServiceDestinationDescriptions,omitempty"` //nolint:lll // AWS field name
+	SplunkDestinationDescriptions                  []SplunkDestinationDescription       `json:"SplunkDestinationDescriptions,omitempty"`                  //nolint:lll // AWS field name
+	HasMoreDestinations                            bool                                 `json:"HasMoreDestinations"`
 }
 
 type describeDeliveryStreamInput struct {
@@ -654,6 +671,16 @@ func (h *Handler) handleDescribeDeliveryStream(
 		desc.RedshiftDestinationDescriptions = []RedshiftDestinationDescription{*s.RedshiftDestination}
 	}
 
+	if s.OpenSearchDestination != nil {
+		desc.AmazonOpenSearchServiceDestinationDescriptions = []OpenSearchDestinationDescription{ //nolint:lll // AWS field name
+			*s.OpenSearchDestination,
+		}
+	}
+
+	if s.SplunkDestination != nil {
+		desc.SplunkDestinationDescriptions = []SplunkDestinationDescription{*s.SplunkDestination}
+	}
+
 	return &describeDeliveryStreamOutput{DeliveryStreamDescription: desc}, nil
 }
 
@@ -668,11 +695,21 @@ type listDeliveryStreamsOutput struct {
 	HasMoreDeliveryStreams bool     `json:"HasMoreDeliveryStreams"`
 }
 
+// isValidDeliveryStreamType reports whether s is a DeliveryStreamType filter value AWS
+// accepts on ListDeliveryStreams.
+func isValidDeliveryStreamType(s string) bool {
+	return s == deliveryStreamTypeDirectPut || s == deliveryStreamTypeKinesisSource
+}
+
 func (h *Handler) handleListDeliveryStreams(
 	ctx context.Context,
 	in *listDeliveryStreamsInput,
 ) (*listDeliveryStreamsOutput, error) {
-	names := h.Backend.ListDeliveryStreams(ctx)
+	if in.DeliveryStreamType != "" && !isValidDeliveryStreamType(in.DeliveryStreamType) {
+		return nil, fmt.Errorf("%w: invalid DeliveryStreamType %q", ErrValidation, in.DeliveryStreamType)
+	}
+
+	names := h.Backend.ListDeliveryStreamsByType(ctx, in.DeliveryStreamType)
 
 	// Apply ExclusiveStartDeliveryStreamName cursor.
 	if in.ExclusiveStartDeliveryStreamName != "" {
@@ -730,7 +767,7 @@ func (h *Handler) handlePutRecord(ctx context.Context, in *handlePutRecordInput)
 		return nil, putErr
 	}
 
-	return &putRecordOutput{RecordID: newRecordID()}, nil
+	return &putRecordOutput{RecordID: newRecordID(ctx)}, nil
 }
 
 type handlePutRecordBatchInput struct {
@@ -738,9 +775,17 @@ type handlePutRecordBatchInput struct {
 	Records            []firehoseRecord `json:"Records"`
 }
 
+// putRecordBatchEntry holds the per-record response from PutRecordBatch.
+// On success RecordId is populated; on failure ErrorCode and ErrorMessage are set.
+type putRecordBatchEntry struct {
+	RecordID     string `json:"RecordId,omitempty"`
+	ErrorCode    string `json:"ErrorCode,omitempty"`
+	ErrorMessage string `json:"ErrorMessage,omitempty"`
+}
+
 type putRecordBatchOutput struct {
-	RequestResponses []struct{} `json:"RequestResponses"`
-	FailedPutCount   int        `json:"FailedPutCount"`
+	RequestResponses []putRecordBatchEntry `json:"RequestResponses"`
+	FailedPutCount   int                   `json:"FailedPutCount"`
 }
 
 func (h *Handler) handlePutRecordBatch(
@@ -762,9 +807,14 @@ func (h *Handler) handlePutRecordBatch(
 		return nil, err
 	}
 
+	responses := make([]putRecordBatchEntry, len(records))
+	for i := range records {
+		responses[i] = putRecordBatchEntry{RecordID: newRecordID(ctx)}
+	}
+
 	return &putRecordBatchOutput{
 		FailedPutCount:   failedCount,
-		RequestResponses: []struct{}{},
+		RequestResponses: responses,
 	}, nil
 }
 
@@ -872,12 +922,23 @@ func (h *Handler) handleUntagDeliveryStream(
 	return &untagDeliveryStreamOutput{}, nil
 }
 
+// aosUpdateField holds the AmazonOpenSearch update field separately so its long name
+// does not drive gofmt alignment in updateDestinationInput. Embedding keeps
+// JSON marshaling transparent.
+type aosUpdateField struct {
+	AmazonOpenSearchServiceDestinationUpdate *openSearchDestinationInput `json:"AmazonOpenSearchServiceDestinationUpdate"` //nolint:lll // AWS field name
+}
+
 type updateDestinationInput struct {
-	S3DestinationUpdate            *s3DestinationInput `json:"S3DestinationUpdate"`
-	ExtendedS3DestinationUpdate    *s3DestinationInput `json:"ExtendedS3DestinationUpdate"`
-	DeliveryStreamName             string              `json:"DeliveryStreamName"`
-	CurrentDeliveryStreamVersionID string              `json:"CurrentDeliveryStreamVersionId"`
-	DestinationID                  string              `json:"DestinationId"`
+	aosUpdateField
+	S3DestinationUpdate            *s3DestinationInput           `json:"S3DestinationUpdate"`
+	ExtendedS3DestinationUpdate    *s3DestinationInput           `json:"ExtendedS3DestinationUpdate"`
+	HTTPEndpointDestinationUpdate  *httpEndpointDestinationInput `json:"HttpEndpointDestinationUpdate"`
+	RedshiftDestinationUpdate      *redshiftDestinationInput     `json:"RedshiftDestinationUpdate"`
+	SplunkDestinationUpdate        *splunkDestinationInput       `json:"SplunkDestinationUpdate"`
+	DeliveryStreamName             string                        `json:"DeliveryStreamName"`
+	CurrentDeliveryStreamVersionID string                        `json:"CurrentDeliveryStreamVersionId"`
+	DestinationID                  string                        `json:"DestinationId"`
 }
 
 type updateDestinationOutput struct{}
@@ -886,18 +947,30 @@ func (h *Handler) handleUpdateDestination(
 	ctx context.Context,
 	in *updateDestinationInput,
 ) (*updateDestinationOutput, error) {
-	raw := in.ExtendedS3DestinationUpdate
-	if raw == nil {
-		raw = in.S3DestinationUpdate
+	rawS3 := in.ExtendedS3DestinationUpdate
+	if rawS3 == nil {
+		rawS3 = in.S3DestinationUpdate
 	}
 
-	dest := buildS3DestinationDescription(raw)
+	if rawS3 != nil {
+		if err := validateDataFormatConversion(rawS3.DataFormatConversionConfiguration); err != nil {
+			return nil, err
+		}
+	}
+
+	update := UpdateDestinationInput{
+		S3Destination:           buildS3DestinationDescription(rawS3),
+		HTTPEndpointDestination: buildHTTPEndpointDestination(in.HTTPEndpointDestinationUpdate),
+		RedshiftDestination:     buildRedshiftDestination(in.RedshiftDestinationUpdate),
+		OpenSearchDestination:   buildOpenSearchDestination(in.AmazonOpenSearchServiceDestinationUpdate),
+		SplunkDestination:       buildSplunkDestination(in.SplunkDestinationUpdate),
+	}
 
 	if err := h.Backend.UpdateDestination(
 		ctx,
 		in.DeliveryStreamName,
 		in.CurrentDeliveryStreamVersionID,
-		dest,
+		update,
 	); err != nil {
 		return nil, err
 	}

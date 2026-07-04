@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -27,6 +29,7 @@ const (
 	// errCodeInvalidParameterValue is the EC2 "InvalidParameterValue" API error code, shared by
 	// several sentinel error mappings below.
 	errCodeInvalidParameterValue = "InvalidParameterValue"
+	ec2PaginationSalt            = "ec2-opaque-pagination-v1"
 )
 
 // Handler is the Echo HTTP handler for EC2 operations.
@@ -242,6 +245,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeByoipCidrs",
 		"DescribeHosts",
 		"DescribeVpcPeeringConnections",
+		"CreateFleet",
 	}, extOps...)
 }
 
@@ -422,6 +426,11 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerImageOpsHandlers(h, ops)
 	registerMacHostOps(h, ops)
 	registerSecondaryNetOps(h, ops)
+	// registerInstanceAttrOps supplies the real implementations for the instance-modify
+	// and event-window-association operations that origin/parity-sweep-2's now-removed
+	// handler_audit.go duplicated (ModifyInstancePlacement, ModifyInstanceCpuOptions,
+	// ModifyInstanceMaintenanceOptions, ModifyInstanceNetworkPerformanceOptions,
+	// AssociateInstanceEventWindow) plus several more; see handler_instance_attrs.go.
 	registerInstanceAttrOps(h, ops)
 	registerSQLHaOps(h, ops)
 	registerVpcEncryptionControlOps(h, ops)
@@ -545,12 +554,75 @@ func (h *Handler) dispatch(action string, vals url.Values, reqID string) (any, e
 
 // ---- action handlers ----
 
+// maxUserDataBytes is the AWS limit on decoded EC2 user data (16 KiB).
+const maxUserDataBytes = 16384
+
+// validateUserData enforces the AWS EC2 contract for the UserData parameter:
+// it must be valid standard base64 and, once decoded, must not exceed the
+// 16 KiB limit. An empty value is accepted (user data is optional). Malformed
+// base64 yields InvalidUserData.Malformed; an over-limit payload yields
+// InvalidParameterValue, matching AWS error codes.
+func validateUserData(userData string) error {
+	if userData == "" {
+		return nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(userData)
+	if err != nil {
+		return fmt.Errorf(
+			"%w: user data must be a valid base64-encoded string",
+			ErrInvalidUserData,
+		)
+	}
+
+	if len(decoded) > maxUserDataBytes {
+		return fmt.Errorf(
+			"%w: User data is limited to %d bytes",
+			ErrInvalidParameter,
+			maxUserDataBytes,
+		)
+	}
+
+	return nil
+}
+
+// applyInstanceLaunchSettings persists the base64 user data and applies the key
+// name and security groups to each freshly launched instance.
+func (h *Handler) applyInstanceLaunchSettings(
+	instances []*Instance,
+	userData, keyName string,
+	sgIDs []string,
+) error {
+	for _, inst := range instances {
+		if userData != "" {
+			// Store as-is; DescribeInstanceAttribute returns the raw (base64) form.
+			if err := h.Backend.SetInstanceAttribute(inst.ID, attrUserData, userData); err != nil {
+				return err
+			}
+		}
+
+		if keyName != "" {
+			inst.KeyName = keyName
+		}
+
+		if len(sgIDs) > 0 {
+			inst.SecurityGroups = sgIDs
+		}
+	}
+
+	return nil
+}
+
 func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	instanceType := vals.Get("InstanceType")
 	subnetID := vals.Get("SubnetId")
 	userData := vals.Get("UserData")
 	keyName := vals.Get("KeyName")
+
+	if err := validateUserData(userData); err != nil {
+		return nil, err
+	}
 
 	minCount, maxCount, err := parseRunInstancesCounts(vals)
 	if err != nil {
@@ -569,21 +641,8 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	for _, inst := range instances {
-		if userData != "" {
-			// Store as-is; DescribeInstanceAttribute returns the raw (base64) form.
-			if attrErr := h.Backend.SetInstanceAttribute(inst.ID, attrUserData, userData); attrErr != nil {
-				return nil, attrErr
-			}
-		}
-
-		if keyName != "" {
-			inst.KeyName = keyName
-		}
-
-		if len(sgIDs) > 0 {
-			inst.SecurityGroups = sgIDs
-		}
+	if err = h.applyInstanceLaunchSettings(instances, userData, keyName, sgIDs); err != nil {
+		return nil, err
 	}
 
 	if cb, c := h.computeBackend(); c != nil {
@@ -652,7 +711,11 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		_, _ = fmt.Sscan(tok, &offset)
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return nil, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
+		}
+		offset = n
 	}
 
 	var nextToken string
@@ -665,7 +728,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		instances = instances[offset:]
 
 		if len(instances) > maxResults {
-			nextToken = strconv.Itoa(offset + maxResults)
+			nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
 			instances = instances[:maxResults]
 		}
 	}
@@ -800,6 +863,9 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 	ids := parseMemberList(vals, "VpcId")
 	vpcs := h.Backend.DescribeVpcs(ids)
 
+	filters := parseEC2Filters(vals)
+	vpcs = applyVPCFilters(vpcs, filters, h.Backend)
+
 	items := make([]vpcItem, 0, len(vpcs))
 	for _, v := range vpcs {
 		items = append(items, toVPCItem(v))
@@ -832,15 +898,41 @@ func (h *Handler) handleDescribeVpcAttribute(vals url.Values, reqID string) (any
 	vpcID := vals.Get("VpcId")
 	attr := vals.Get("Attribute")
 
-	// Return false for all VPC boolean attributes (enableDnsHostnames, enableDnsSupport, etc.).
-	// Terraform reads these to set up VPC configuration. The attribute name is used as the
-	// XML element name to match the AWS EC2 API response format.
+	attrValue := vpcAttributeValue(h.Backend.DescribeVpcs([]string{vpcID}), attr)
+
 	return &describeVpcAttributeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		VpcID:     vpcID,
-		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: ec2BooleanFalse},
+		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: attrValue},
 	}, nil
+}
+
+// vpcAttributeValue reads the persisted boolean value for a VPC attribute.
+// enableDnsSupport defaults to true (AWS default); all others default to false.
+func vpcAttributeValue(vpcs []*VPC, attr string) string {
+	if len(vpcs) == 0 {
+		if attr == attrEnableDNSSupport {
+			return ec2BooleanTrue
+		}
+
+		return ec2BooleanFalse
+	}
+
+	vpc := vpcs[0]
+	if v, ok := vpc.Attributes[attr]; ok {
+		if v {
+			return ec2BooleanTrue
+		}
+
+		return ec2BooleanFalse
+	}
+
+	if attr == attrEnableDNSSupport {
+		return ec2BooleanTrue
+	}
+
+	return ec2BooleanFalse
 }
 
 func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
@@ -867,6 +959,9 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SubnetId")
 	subnets := h.Backend.DescribeSubnets(ids)
+
+	filters := parseEC2Filters(vals)
+	subnets = applySubnetFilters(subnets, filters, h.Backend)
 
 	items := make([]subnetItem, 0, len(subnets))
 	for _, s := range subnets {
@@ -1050,9 +1145,9 @@ func parseInstanceTypesPagination(vals url.Values) (int, int, error) {
 	offset := 0
 
 	if tok := vals.Get("NextToken"); tok != "" {
-		n, perr := strconv.Atoi(tok)
-		if perr != nil || n < 0 {
-			return 0, 0, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidParameter, tok)
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return 0, 0, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidPaginationToken, tok)
 		}
 
 		offset = n
@@ -1073,14 +1168,14 @@ func paginateInstanceTypes(items []string, offset, maxResults int) ([]string, st
 		end = offset + maxResults
 	}
 
-	page := items[offset:end]
+	pageResult := items[offset:end]
 
 	var token string
 	if end < len(items) {
-		token = strconv.Itoa(end)
+		token = page.EncodeHMACToken(end, ec2PaginationSalt)
 	}
 
-	return page, token
+	return pageResult, token
 }
 
 // validDescribeTagsFilters is the set of filter names accepted by DescribeTags.
@@ -1094,10 +1189,13 @@ var validDescribeTagsFilters = map[string]bool{
 }
 
 // handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
-// If a filter with Name=resource-id is present, only tags for those resource IDs are returned.
+// Supports resource-id, key, value, and resource-type filters.
 // Unknown filter names are rejected with InvalidParameterValue per AWS behaviour.
 func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error) {
 	var resourceIDs []string
+
+	// keyFilters, valueFilters, typeFilters are post-fetch AND filters.
+	var keyFilters, valueFilters, typeFilters []string
 
 	for i := 1; i <= maxFiltersPerRequest; i++ {
 		name := vals.Get(fmt.Sprintf("Filter.%d.Name", i))
@@ -1113,8 +1211,17 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 			)
 		}
 
-		if name == "resource-id" {
-			resourceIDs = parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
+		filterVals := parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
+
+		switch name {
+		case "resource-id":
+			resourceIDs = filterVals
+		case "key":
+			keyFilters = filterVals
+		case "value":
+			valueFilters = filterVals
+		case "resource-type":
+			typeFilters = filterVals
 		}
 	}
 
@@ -1122,6 +1229,15 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 
 	items := make([]tagItem, 0, len(entries))
 	for _, e := range entries {
+		if len(keyFilters) > 0 && !anyEqual(e.Key, keyFilters) {
+			continue
+		}
+		if len(valueFilters) > 0 && !anyEqual(e.Value, valueFilters) {
+			continue
+		}
+		if len(typeFilters) > 0 && !anyEqual(e.ResourceType, typeFilters) {
+			continue
+		}
 		items = append(items, tagItem(e))
 	}
 
@@ -1260,6 +1376,7 @@ var errCodeLookup = []struct {
 	{ErrVpcEndpointNotFound, "InvalidVpcEndpointService.NotFound"},
 	{ErrByoipCidrNotFound, "InvalidByoipCidr.NotFound"},
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
+	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
 	{ErrCIDRConflict, "InvalidVpc.Conflict"},
 	{ErrClientVpnEndpointNotFound, "InvalidClientVpnEndpointId.NotFound"},
 	{ErrTrafficMirrorFilterNotFound, "InvalidTrafficMirrorFilterId.NotFound"},
@@ -1317,6 +1434,9 @@ var errCodeLookup = []struct {
 	{ErrInterruptibleAllocationNotFound, "InvalidCapacityReservationId.NotFound"},
 	{ErrPublicIPNotFound, "InvalidAddress.NotFound"},
 	{ErrInvalidParameter, errCodeInvalidParameterValue},
+	{ErrInvalidUserData, "InvalidUserData.Malformed"},
+	{ErrMissingParameter, "MissingParameter"},
+	{ErrInvalidPaginationToken, "InvalidPaginationToken"},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.
@@ -1479,7 +1599,7 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		groupItems = append(groupItems, instanceGroupItem{GroupID: sgID})
 	}
 
-	return instanceItem{
+	item := instanceItem{
 		InstanceID:       inst.ID,
 		ImageID:          inst.ImageID,
 		InstanceType:     inst.InstanceType,
@@ -1493,7 +1613,32 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		KeyName:          inst.KeyName,
 		GroupSet:         instanceGroupSet{Items: groupItems},
 		TagSet:           instanceTagItemSet{Items: tagItems},
+		Placement: instancePlacementItem{
+			Tenancy:          inst.Placement.Tenancy,
+			AvailabilityZone: inst.Placement.AvailabilityZone,
+			GroupName:        inst.Placement.GroupName,
+			Affinity:         inst.Placement.Affinity,
+		},
 	}
+
+	if inst.CPUOptions.CoreCount > 0 || inst.CPUOptions.ThreadsPerCore > 0 {
+		item.CPUOptions = &instanceCPUOptionsItem{
+			CoreCount:      inst.CPUOptions.CoreCount,
+			ThreadsPerCore: inst.CPUOptions.ThreadsPerCore,
+		}
+	}
+	if inst.MaintenanceOptions.AutoRecovery != "" {
+		item.MaintenanceOptions = &instanceMaintenanceOptionsItem{
+			AutoRecovery: inst.MaintenanceOptions.AutoRecovery,
+		}
+	}
+	if inst.NetworkPerformanceOptions.BandwidthWeighting != "" {
+		item.NetworkPerformanceOptions = &instanceNetworkPerformanceOptionsItem{
+			BandwidthWeighting: inst.NetworkPerformanceOptions.BandwidthWeighting,
+		}
+	}
+
+	return item
 }
 
 func toSGItem(sg *SecurityGroup) sgItem {
@@ -1560,20 +1705,44 @@ type instanceGroupSet struct {
 	Items []instanceGroupItem `xml:"item"`
 }
 
+type instancePlacementItem struct {
+	Tenancy          string `xml:"tenancy,omitempty"`
+	AvailabilityZone string `xml:"availabilityZone,omitempty"`
+	GroupName        string `xml:"groupName,omitempty"`
+	Affinity         string `xml:"affinity,omitempty"`
+}
+
+type instanceCPUOptionsItem struct {
+	CoreCount      int32 `xml:"coreCount"`
+	ThreadsPerCore int32 `xml:"threadsPerCore"`
+}
+
+type instanceMaintenanceOptionsItem struct {
+	AutoRecovery string `xml:"autoRecovery,omitempty"`
+}
+
+type instanceNetworkPerformanceOptionsItem struct {
+	BandwidthWeighting string `xml:"bandwidthWeighting,omitempty"`
+}
+
 type instanceItem struct {
-	LaunchTime       string             `xml:"launchTime"`
-	InstanceID       string             `xml:"instanceId"`
-	ImageID          string             `xml:"imageId"`
-	InstanceType     string             `xml:"instanceType"`
-	VPCID            string             `xml:"vpcId,omitempty"`
-	SubnetID         string             `xml:"subnetId,omitempty"`
-	PrivateIPAddress string             `xml:"privateIpAddress,omitempty"`
-	PublicIPAddress  string             `xml:"ipAddress,omitempty"`
-	PublicDNSName    string             `xml:"dnsName,omitempty"`
-	KeyName          string             `xml:"keyName,omitempty"`
-	StateItem        stateItem          `xml:"instanceState"`
-	GroupSet         instanceGroupSet   `xml:"groupSet"`
-	TagSet           instanceTagItemSet `xml:"tagSet"`
+	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
+	MaintenanceOptions        *instanceMaintenanceOptionsItem        `xml:"maintenanceOptions,omitempty"`
+	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
+	Placement                 instancePlacementItem                  `xml:"placement"`
+	PublicDNSName             string                                 `xml:"dnsName,omitempty"`
+	SubnetID                  string                                 `xml:"subnetId,omitempty"`
+	PrivateIPAddress          string                                 `xml:"privateIpAddress,omitempty"`
+	PublicIPAddress           string                                 `xml:"ipAddress,omitempty"`
+	LaunchTime                string                                 `xml:"launchTime"`
+	KeyName                   string                                 `xml:"keyName,omitempty"`
+	VPCID                     string                                 `xml:"vpcId,omitempty"`
+	InstanceType              string                                 `xml:"instanceType"`
+	ImageID                   string                                 `xml:"imageId"`
+	InstanceID                string                                 `xml:"instanceId"`
+	StateItem                 stateItem                              `xml:"instanceState"`
+	GroupSet                  instanceGroupSet                       `xml:"groupSet"`
+	TagSet                    instanceTagItemSet                     `xml:"tagSet"`
 }
 
 // instanceTagItem is the embedded per-instance tag entry in DescribeInstances

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -51,11 +52,49 @@ const maxShadowNameLength = 64
 // maxShadowVersion is the maximum shadow version before it resets to 1.
 const maxShadowVersion = 1<<31 - 1
 
+// maxThingNameLength is the maximum allowed IoT thing name length per AWS rules.
+const maxThingNameLength = 128
+
+// maxClientTokenLength is the maximum allowed clientToken length per AWS rules.
+const maxClientTokenLength = 64
+
 // keyTimestamp is the JSON key for shadow response timestamp fields.
 const keyTimestamp = "timestamp"
 
 // shadowNameRe validates shadow names per AWS IoT rules: alphanumeric, colon, underscore, hyphen.
 var shadowNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_-]+$`)
+
+// thingNameRe validates IoT thing names: alphanumeric, colon, underscore, hyphen, dot.
+// Hyphen at end of character class avoids range interpretation.
+var thingNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_.-]+$`)
+
+// validateThingName checks that a thing name meets AWS IoT naming rules.
+func validateThingName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: thing name must not be empty", ErrValidation)
+	}
+
+	if len(name) > maxThingNameLength {
+		return fmt.Errorf("%w: thing name exceeds %d characters", ErrValidation, maxThingNameLength)
+	}
+
+	if !thingNameRe.MatchString(name) {
+		return fmt.Errorf("%w: thing name must match [a-zA-Z0-9:_.-]+", ErrValidation)
+	}
+
+	return nil
+}
+
+// validateClientToken checks that a clientToken meets AWS IoT rules.
+// An empty token is always valid (token is optional).
+// Maximum length is 64 characters per AWS documentation.
+func validateClientToken(token string) error {
+	if len(token) > maxClientTokenLength {
+		return fmt.Errorf("%w: clientToken exceeds %d characters", ErrValidation, maxClientTokenLength)
+	}
+
+	return nil
+}
 
 // isShadowReservedName reports whether name is a reserved shadow operation keyword.
 // These are forbidden by AWS IoT rules to prevent routing ambiguity.
@@ -284,23 +323,19 @@ func buildMetaTimestamps(meta map[string]int64) map[string]map[string]int64 {
 
 // buildShadowResponse assembles the full AWS shadow response JSON from an entry.
 // clientToken is echoed when non-empty (comes from the UpdateThingShadow request).
+// AWS omits empty desired/reported sections from the state object.
 func buildShadowResponse(entry *shadowEntry, clientToken string) ([]byte, error) {
-	desired := entry.desired
-	if desired == nil {
-		desired = map[string]json.RawMessage{}
+	state := map[string]any{}
+
+	if len(entry.desired) > 0 {
+		state["desired"] = entry.desired
 	}
 
-	reported := entry.reported
-	if reported == nil {
-		reported = map[string]json.RawMessage{}
+	if len(entry.reported) > 0 {
+		state["reported"] = entry.reported
 	}
 
-	state := map[string]any{
-		"desired":  desired,
-		"reported": reported,
-	}
-
-	delta := computeDelta(desired, reported)
+	delta := computeDelta(entry.desired, entry.reported)
 	if delta != nil {
 		state["delta"] = delta
 	}
@@ -359,18 +394,17 @@ func (b *InMemoryBackend) Publish(topic string, payload []byte, qos int32, retai
 
 // sortedKeys returns a sorted copy of the keys of a map[string]V.
 func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }
 
 // GetThingShadow returns the shadow document for the named shadow of a thing.
 func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, error) {
+	if err := validateThingName(thingName); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("GetThingShadow")
 	defer b.mu.RUnlock()
 
@@ -387,26 +421,100 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 	return buildShadowResponse(entry, "")
 }
 
+// shadowUpdateInput holds the parsed fields from an UpdateThingShadow request body.
+type shadowUpdateInput struct {
+	Version       *int
+	ClientToken   string
+	StateDesired  json.RawMessage
+	StateReported json.RawMessage
+}
+
+// parseShadowUpdateDoc validates and parses an UpdateThingShadow request body.
+// It enforces the "state" key requirement, null/type checks, and clientToken length.
+func parseShadowUpdateDoc(document []byte) (*shadowUpdateInput, error) {
+	// Outer document uses RawMessage for State so we can detect absent vs null.
+	var outer struct {
+		Version     *int            `json:"version,omitempty"`
+		ClientToken string          `json:"clientToken,omitempty"`
+		State       json.RawMessage `json:"state"`
+	}
+
+	if err := json.Unmarshal(document, &outer); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON document", ErrValidation)
+	}
+
+	if len(outer.State) == 0 {
+		return nil, fmt.Errorf("%w: missing required field: state", ErrValidation)
+	}
+
+	if isJSONNull(outer.State) {
+		return nil, fmt.Errorf("%w: state must be a JSON object, not null", ErrValidation)
+	}
+
+	if err := validateClientToken(outer.ClientToken); err != nil {
+		return nil, err
+	}
+
+	var stateDoc struct {
+		Desired  json.RawMessage `json:"desired"`
+		Reported json.RawMessage `json:"reported"`
+	}
+
+	if err := json.Unmarshal(outer.State, &stateDoc); err != nil {
+		return nil, fmt.Errorf("%w: state must be a valid JSON object", ErrValidation)
+	}
+
+	return &shadowUpdateInput{
+		StateDesired:  stateDoc.Desired,
+		StateReported: stateDoc.Reported,
+		ClientToken:   outer.ClientToken,
+		Version:       outer.Version,
+	}, nil
+}
+
+// applyShadowStateSection merges a raw state section into existing state.
+// raw absent (nil) → keep existing; raw null → clear; raw object → merge patch.
+func applyShadowStateSection(
+	existing map[string]json.RawMessage,
+	existingMeta map[string]int64,
+	raw json.RawMessage,
+	sectionName string,
+	ts int64,
+) (map[string]json.RawMessage, map[string]int64, error) {
+	if len(raw) == 0 {
+		return existing, existingMeta, nil
+	}
+
+	if isJSONNull(raw) {
+		return nil, nil, nil
+	}
+
+	var patch map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &patch); err != nil {
+		return nil, nil, fmt.Errorf("%w: state.%s must be a JSON object", ErrValidation, sectionName)
+	}
+
+	return mergeStateFields(existing, patch), updateMetaFields(existingMeta, patch, ts), nil
+}
+
 // UpdateThingShadow merges the desired/reported state from document into the stored shadow.
-// AWS merge semantics: null values delete keys; missing sections are left unchanged.
+// AWS merge semantics: null values on individual keys delete them; a null section wipes the
+// entire section; missing sections are left unchanged. The state key is required.
 // The version is incremented on every successful update.
 // Returns the updated shadow response including delta, metadata, and echoed clientToken.
 func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, document []byte) ([]byte, error) {
+	if err := validateThingName(thingName); err != nil {
+		return nil, err
+	}
+
 	if err := validateShadowDocument(document); err != nil {
 		return nil, err
 	}
 
-	// Parse incoming document: extract state.desired, state.reported, version, clientToken.
-	var incoming struct {
-		State struct {
-			Desired  map[string]json.RawMessage `json:"desired"`
-			Reported map[string]json.RawMessage `json:"reported"`
-		} `json:"state"`
-		Version     *int   `json:"version,omitempty"`
-		ClientToken string `json:"clientToken,omitempty"`
+	input, err := parseShadowUpdateDoc(document)
+	if err != nil {
+		return nil, err
 	}
-
-	_ = json.Unmarshal(document, &incoming)
 
 	b.mu.Lock("UpdateThingShadow")
 	defer b.mu.Unlock()
@@ -417,38 +525,19 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 
 	current := b.shadows[thingName][shadowName]
 
-	// Enforce per-thing shadow cap when creating a new shadow.
 	if current == nil && len(b.shadows[thingName]) >= maxShadowsPerThing {
 		return nil, fmt.Errorf("%w: shadow limit (%d) per thing exceeded for %s",
 			ErrValidation, maxShadowsPerThing, thingName)
 	}
 
-	// Optimistic-locking version check.
-	if incoming.Version != nil {
-		currentVersion := 0
-		if current != nil {
-			currentVersion = current.version
-		}
-
-		if *incoming.Version != currentVersion {
-			return nil, fmt.Errorf("%w: expected %d, got %d",
-				ErrVersionConflict, currentVersion, *incoming.Version)
-		}
+	if conflictErr := checkVersionConflict(input.Version, current); conflictErr != nil {
+		return nil, conflictErr
 	}
 
-	newVersion := 1
-	if current != nil {
-		if current.version >= maxShadowVersion {
-			newVersion = 1
-		} else {
-			newVersion = current.version + 1
-		}
-	}
-
+	newVersion := nextShadowVersion(current)
 	now := time.Now()
 	ts := now.Unix()
 
-	// Deep merge desired and reported with existing state; update per-field metadata.
 	var existingDesired, existingReported map[string]json.RawMessage
 	var existingMetaDesired, existingMetaReported map[string]int64
 
@@ -459,20 +548,16 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 		existingMetaReported = current.metaReported
 	}
 
-	newDesired := existingDesired
-	newMetaDesired := existingMetaDesired
-
-	if incoming.State.Desired != nil {
-		newDesired = mergeStateFields(existingDesired, incoming.State.Desired)
-		newMetaDesired = updateMetaFields(existingMetaDesired, incoming.State.Desired, ts)
+	newDesired, newMetaDesired, err := applyShadowStateSection(
+		existingDesired, existingMetaDesired, input.StateDesired, "desired", ts)
+	if err != nil {
+		return nil, err
 	}
 
-	newReported := existingReported
-	newMetaReported := existingMetaReported
-
-	if incoming.State.Reported != nil {
-		newReported = mergeStateFields(existingReported, incoming.State.Reported)
-		newMetaReported = updateMetaFields(existingMetaReported, incoming.State.Reported, ts)
+	newReported, newMetaReported, err := applyShadowStateSection(
+		existingReported, existingMetaReported, input.StateReported, "reported", ts)
+	if err != nil {
+		return nil, err
 	}
 
 	newEntry := &shadowEntry{
@@ -484,8 +569,7 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 		metaReported: newMetaReported,
 	}
 
-	// Build the response before writing state so a marshal error cannot leave a partial update.
-	resp, err := buildShadowResponse(newEntry, incoming.ClientToken)
+	resp, err := buildShadowResponse(newEntry, input.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -495,9 +579,40 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	return resp, nil
 }
 
+// checkVersionConflict returns ErrVersionConflict if the request version doesn't match current.
+func checkVersionConflict(requestVersion *int, current *shadowEntry) error {
+	if requestVersion == nil {
+		return nil
+	}
+
+	currentVersion := 0
+	if current != nil {
+		currentVersion = current.version
+	}
+
+	if *requestVersion != currentVersion {
+		return fmt.Errorf("%w: expected %d, got %d", ErrVersionConflict, currentVersion, *requestVersion)
+	}
+
+	return nil
+}
+
+// nextShadowVersion returns version+1 for the current entry, or 1 if nil or at rollover cap.
+func nextShadowVersion(current *shadowEntry) int {
+	if current == nil || current.version >= maxShadowVersion {
+		return 1
+	}
+
+	return current.version + 1
+}
+
 // DeleteThingShadow removes the document for the named shadow of a thing and
 // returns the last known shadow state (AWS DeleteThingShadow response contract).
 func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byte, error) {
+	if err := validateThingName(thingName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("DeleteThingShadow")
 	defer b.mu.Unlock()
 
@@ -532,6 +647,10 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byt
 // ListNamedShadowsForThing returns the sorted list of named shadow names for the given thing.
 // The classic (unnamed) shadow is excluded from this list.
 func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, error) {
+	if err := validateThingName(thingName); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("ListNamedShadowsForThing")
 	defer b.mu.RUnlock()
 

@@ -322,11 +322,11 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, tagRec.Code)
 
 	// Snapshot and restore to a new handler.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := route53resolver.NewHandler(route53resolver.NewInMemoryBackend("000000000000", "us-east-1"))
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Tags must survive round-trip.
 	listRec := doRequest(t, h2, "ListTagsForResource", map[string]any{

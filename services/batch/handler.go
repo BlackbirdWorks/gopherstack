@@ -1224,7 +1224,10 @@ type listJobsInput struct {
 }
 
 type jobSummary struct {
+	StartedAt    *int64 `json:"startedAt,omitempty"`
+	StoppedAt    *int64 `json:"stoppedAt,omitempty"`
 	JobID        string `json:"jobId"`
+	JobARN       string `json:"jobArn,omitempty"`
 	JobName      string `json:"jobName"`
 	Status       string `json:"status"`
 	StatusReason string `json:"statusReason,omitempty"`
@@ -1236,12 +1239,25 @@ type listJobsOutput struct {
 	JobSummaryList []jobSummary `json:"jobSummaryList"`
 }
 
+func isValidJobStatus(s string) bool {
+	switch s {
+	case "SUBMITTED", "PENDING", "RUNNABLE", "STARTING", "RUNNING", "SUCCEEDED", "FAILED":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *Handler) handleListJobs(ctx context.Context, in *listJobsInput) (*listJobsOutput, error) {
 	// AWS Batch ListJobs requires a grouping key; this simulator scopes jobs by
 	// job queue, so jobQueue is mandatory (AWS returns ClientException
 	// otherwise). jobStatus remains an optional filter.
 	if strings.TrimSpace(in.JobQueue) == "" {
 		return nil, fmt.Errorf("%w: jobQueue is required", ErrValidation)
+	}
+
+	if in.JobStatus != "" && !isValidJobStatus(in.JobStatus) {
+		return nil, fmt.Errorf("%w: invalid jobStatus %q", ErrValidation, in.JobStatus)
 	}
 
 	var maxResults int32
@@ -1263,9 +1279,12 @@ func (h *Handler) handleListJobs(ctx context.Context, in *listJobsInput) (*listJ
 	for _, j := range jobs {
 		summaries = append(summaries, jobSummary{
 			JobID:        j.JobID,
+			JobARN:       j.JobARN,
 			JobName:      j.JobName,
 			Status:       j.Status,
 			CreatedAt:    j.CreatedAt,
+			StartedAt:    j.StartedAt,
+			StoppedAt:    j.StoppedAt,
 			StatusReason: j.StatusReason,
 		})
 	}

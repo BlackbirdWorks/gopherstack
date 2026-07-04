@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"regexp"
 	"slices"
 	"sort"
@@ -16,7 +17,9 @@ import (
 
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -36,6 +39,10 @@ var ErrMissingS3Bucket = errors.New("S3Bucket is required")
 
 // ErrValidation is returned when a request fails parameter validation.
 var ErrValidation = errors.New("ValidationException")
+
+// ErrConcurrentModification is returned when StartReportCreation is called while a report
+// is still running. AWS requires waiting for the current report to finish.
+var ErrConcurrentModification = errors.New("ConcurrentModificationException")
 
 const (
 	// maxARNsPerTagRequest is the maximum number of ARNs in a single TagResources or
@@ -156,6 +163,7 @@ type InMemoryBackend struct {
 	reportStates      map[string]*reportCreationState // region → report state
 	caches            map[string]*resourceCache       // region → resource cache
 	nowFunc           func() string
+	clockFunc         func() time.Time
 	accountID         string
 	defaultRegion     string
 	providers         []ResourceProvider
@@ -175,6 +183,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 
 	b.nowFunc = b.defaultNow
+	b.clockFunc = time.Now
 
 	return b
 }
@@ -299,6 +308,7 @@ type GetResourcesInput struct {
 	PaginationToken           string      `json:"PaginationToken,omitempty"`
 	TagFilters                []TagFilter `json:"TagFilters,omitempty"`
 	ResourceTypeFilters       []string    `json:"ResourceTypeFilters,omitempty"`
+	ResourceARNList           []string    `json:"ResourceARNList,omitempty"`
 	IncludeComplianceDetails  bool        `json:"IncludeComplianceDetails,omitempty"`
 	ExcludeCompliantResources bool        `json:"ExcludeCompliantResources,omitempty"`
 }
@@ -311,7 +321,7 @@ type GetResourcesOutput struct {
 
 // ComplianceDetails records tag-policy compliance information for a resource.
 type ComplianceDetails struct {
-	KeysWithNonCompliantValues []string `json:"KeysWithNonCompliantValues,omitempty"`
+	KeysWithNoncompliantValues []string `json:"KeysWithNoncompliantValues,omitempty"`
 	NoncompliantKeys           []string `json:"NoncompliantKeys,omitempty"`
 	ComplianceStatus           bool     `json:"ComplianceStatus"`
 }
@@ -575,6 +585,7 @@ func (b *InMemoryBackend) GetResources(ctx context.Context, input *GetResourcesI
 	defer b.mu.Unlock()
 
 	all := b.getResources(ctx, input.TagFilters, input.ResourceTypeFilters)
+	all = applyARNListFilter(all, input.ResourceARNList)
 	all = applyResourceTypeFilter(all, input.ResourceTypeFilters)
 	all = applyTagFilters(all, input.TagFilters)
 
@@ -592,6 +603,29 @@ func (b *InMemoryBackend) GetResources(ctx context.Context, input *GetResourcesI
 		ResourceTagMappingList: buildTagMappings(page, input.IncludeComplianceDetails),
 		PaginationToken:        nextToken,
 	}, nil
+}
+
+// applyARNListFilter returns only those resources whose ARN is in the provided set.
+// Returns all resources when arnList is empty.
+func applyARNListFilter(all []TaggedResource, arnList []string) []TaggedResource {
+	if len(arnList) == 0 {
+		return all
+	}
+
+	arnSet := make(map[string]struct{}, len(arnList))
+	for _, a := range arnList {
+		arnSet[a] = struct{}{}
+	}
+
+	filtered := make([]TaggedResource, 0, len(arnList))
+
+	for _, r := range all {
+		if _, ok := arnSet[r.ResourceARN]; ok {
+			filtered = append(filtered, r)
+		}
+	}
+
+	return filtered
 }
 
 // applyResourceTypeFilter filters resources by resource type.
@@ -686,15 +720,6 @@ func paginateStrings(all []string, token string, pageSize int) ([]string, *strin
 	return page, &tok
 }
 
-// ptrStringValue dereferences a *string and returns "" for nil.
-func ptrStringValue(s *string) string {
-	if s == nil {
-		return ""
-	}
-
-	return *s
-}
-
 // findTokenStart returns the index after the resource whose ARN equals token,
 // or 0 if the token is empty or not found.
 func findTokenStart(all []TaggedResource, token string) int {
@@ -721,13 +746,7 @@ func buildTagMappings(page []TaggedResource, includeCompliance bool) []ResourceT
 			ResourceARN: r.ResourceARN,
 			Tags:        make([]Tag, 0, len(r.Tags)),
 		}
-		keys := make([]string, 0, len(r.Tags))
-
-		for k := range r.Tags {
-			keys = append(keys, k)
-		}
-
-		sort.Strings(keys)
+		keys := collections.SortedKeys(r.Tags)
 
 		for _, k := range keys {
 			m.Tags = append(m.Tags, Tag{Key: k, Value: r.Tags[k]})
@@ -785,14 +804,9 @@ func (b *InMemoryBackend) GetTagKeys(ctx context.Context, input *GetTagKeysInput
 		}
 	}
 
-	keys := make([]string, 0, len(keySet))
-	for k := range keySet {
-		keys = append(keys, k)
-	}
+	keys := collections.SortedKeys(keySet)
 
-	sort.Strings(keys)
-
-	page, nextToken := paginateStrings(keys, ptrStringValue(input.PaginationToken), defaultResourcesPerPage)
+	page, nextToken := paginateStrings(keys, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
 
 	return &GetTagKeysOutput{TagKeys: page, PaginationToken: nextToken}
 }
@@ -831,14 +845,9 @@ func (b *InMemoryBackend) GetTagValues(ctx context.Context, input *GetTagValuesI
 		}
 	}
 
-	values := make([]string, 0, len(valSet))
-	for v := range valSet {
-		values = append(values, v)
-	}
+	values := collections.SortedKeys(valSet)
 
-	sort.Strings(values)
-
-	page, nextToken := paginateStrings(values, ptrStringValue(input.PaginationToken), defaultResourcesPerPage)
+	page, nextToken := paginateStrings(values, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
 
 	return &GetTagValuesOutput{TagValues: page, PaginationToken: nextToken}
 }
@@ -896,6 +905,10 @@ func validateTagEntries(tags map[string]string) error {
 			return fmt.Errorf("%w: tag key must not be empty", ErrValidation)
 		}
 
+		if strings.HasPrefix(k, "aws:") {
+			return fmt.Errorf("%w: tag key %q starts with reserved prefix \"aws:\"", ErrValidation, k)
+		}
+
 		if len(k) > maxTagKeyLength {
 			return fmt.Errorf("%w: tag key exceeds maximum length of %d", ErrValidation, maxTagKeyLength)
 		}
@@ -943,7 +956,7 @@ func (b *InMemoryBackend) TagResources(ctx context.Context, input *TagResourcesI
 					failed[arn] = FailureInfo{
 						ErrorCode:    "InternalServiceException",
 						ErrorMessage: err.Error(),
-						StatusCode:   500, //nolint:mnd // HTTP 500
+						StatusCode:   http.StatusInternalServerError,
 					}
 				}
 
@@ -955,7 +968,7 @@ func (b *InMemoryBackend) TagResources(ctx context.Context, input *TagResourcesI
 			failed[arn] = FailureInfo{
 				ErrorCode:    "InvalidParameterException",
 				ErrorMessage: "no registered tagger handles ARN: " + arn,
-				StatusCode:   400, //nolint:mnd // HTTP 400
+				StatusCode:   http.StatusBadRequest,
 			}
 		}
 	}
@@ -1025,7 +1038,7 @@ func (b *InMemoryBackend) UntagResources(
 					failed[arn] = FailureInfo{
 						ErrorCode:    "InternalServiceException",
 						ErrorMessage: err.Error(),
-						StatusCode:   500, //nolint:mnd // HTTP 500
+						StatusCode:   http.StatusInternalServerError,
 					}
 				}
 
@@ -1037,7 +1050,7 @@ func (b *InMemoryBackend) UntagResources(
 			failed[arn] = FailureInfo{
 				ErrorCode:    "InvalidParameterException",
 				ErrorMessage: "no registered untagger handles ARN: " + arn,
-				StatusCode:   400, //nolint:mnd // HTTP 400
+				StatusCode:   http.StatusBadRequest,
 			}
 		}
 	}
@@ -1050,17 +1063,23 @@ func (b *InMemoryBackend) UntagResources(
 	return out, nil
 }
 
+// reportStatusRunning is the status for a report job that is currently running.
+const reportStatusRunning = "RUNNING"
+
 // reportStatusSucceeded is the status for a successfully created report.
 const reportStatusSucceeded = "SUCCEEDED"
-
-// reportStatusNoReport is the status when no report has been generated in the last 90 days.
-const reportStatusNoReport = "NO REPORT"
 
 // reportS3PathTemplate is the S3 path template for generated reports.
 const reportS3PathTemplate = "AwsTagPolicies/report.csv"
 
+// reportRunningDuration is the simulated time a report stays in RUNNING state before
+// automatically transitioning to SUCCEEDED. AWS reports typically complete in 5-15 minutes;
+// the in-memory backend uses a 30-second window to keep tests fast.
+const reportRunningDuration = 30 * time.Second
+
 // reportCreationState holds the state of a StartReportCreation job.
 type reportCreationState struct {
+	startedAt  time.Time
 	S3Location string `json:"s3Location"`
 	StartDate  string `json:"startDate"`
 	Status     string `json:"status"`
@@ -1068,6 +1087,9 @@ type reportCreationState struct {
 
 // StartReportCreationInput is the request payload for StartReportCreation.
 type StartReportCreationInput struct {
+	// S3BucketRegion is the AWS region where the S3 bucket is located.
+	// When omitted, the current request region is assumed.
+	S3BucketRegion *string `json:"S3BucketRegion,omitempty"`
 	// S3Bucket is the Amazon S3 bucket to store the report in.
 	S3Bucket string `json:"S3Bucket"`
 }
@@ -1076,7 +1098,9 @@ type StartReportCreationInput struct {
 type StartReportCreationOutput struct{}
 
 // StartReportCreation records a new report creation request.
-// In the in-memory backend, the report is immediately set to SUCCEEDED.
+// The report begins in RUNNING state and transitions to SUCCEEDED after reportRunningDuration
+// as observed through DescribeReportCreation. AWS rejects a new request when a report is
+// currently RUNNING (ConcurrentModificationException).
 func (b *InMemoryBackend) StartReportCreation(
 	ctx context.Context,
 	input *StartReportCreationInput,
@@ -1089,10 +1113,20 @@ func (b *InMemoryBackend) StartReportCreation(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
+	now := b.clockFunc()
+
+	// Reject concurrent report creation while a previous report is still running.
+	if state := b.reportStates[region]; state != nil &&
+		state.Status == reportStatusRunning &&
+		now.Before(state.startedAt.Add(reportRunningDuration)) {
+		return nil, ErrConcurrentModification
+	}
+
 	b.reportStates[region] = &reportCreationState{
 		S3Location: "s3://" + input.S3Bucket + "/" + reportS3PathTemplate,
 		StartDate:  b.now(),
-		Status:     reportStatusSucceeded,
+		Status:     reportStatusRunning,
+		startedAt:  now,
 	}
 
 	return &StartReportCreationOutput{}, nil
@@ -1109,22 +1143,26 @@ type DescribeReportCreationOutput struct {
 	S3Location *string `json:"S3Location,omitempty"`
 	// StartDate is the date and time that the report was started.
 	StartDate *string `json:"StartDate,omitempty"`
-	// Status is the current status of the report (RUNNING, SUCCEEDED, FAILED, NO REPORT).
+	// Status is the current status of the report (RUNNING, SUCCEEDED, FAILED). Nil when no report exists.
 	Status *string `json:"Status"`
 }
 
 // DescribeReportCreation returns the status of the most recent StartReportCreation operation.
+// A RUNNING report transitions to SUCCEEDED once reportRunningDuration has elapsed.
 func (b *InMemoryBackend) DescribeReportCreation(ctx context.Context) *DescribeReportCreationOutput {
-	b.mu.RLock("DescribeReportCreation")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeReportCreation")
+	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
 	state := b.reportStates[region]
 
 	if state == nil {
-		s := reportStatusNoReport
+		return &DescribeReportCreationOutput{}
+	}
 
-		return &DescribeReportCreationOutput{Status: &s}
+	// Transition RUNNING → SUCCEEDED once the simulated run duration has elapsed.
+	if state.Status == reportStatusRunning && !b.clockFunc().Before(state.startedAt.Add(reportRunningDuration)) {
+		state.Status = reportStatusSucceeded
 	}
 
 	s3Loc := state.S3Location
@@ -1185,13 +1223,8 @@ func (b *InMemoryBackend) GetComplianceSummary(
 	b.mu.Lock("GetComplianceSummary")
 	defer b.mu.Unlock()
 
-	// Validate GroupBy values; silently ignore unknowns to match lenient AWS behaviour.
-	for _, g := range input.GroupBy {
-		if !isValidGroupByValue(g) {
-			// unknown GroupBy value — ignore rather than error
-			_ = g
-		}
-	}
+	// GroupBy validation is handled by the HTTP handler before reaching the backend.
+	// The handler enforces valid values (REGION, RESOURCE_TYPE, TARGET_ID).
 
 	// Resolve MaxResults.
 	maxResults := int32(defaultComplianceSummaryMaxResults)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -19,18 +20,18 @@ const (
 
 // RunJanitor periodically cleans up old async invocations and advances InProgress ones.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, "bedrockruntime")
+	g.Ticker("AsyncInvokeAdvancer", interval, 0, b.sweepAsyncInvokes)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			b.advanceAsyncInvokes(ctx)
-			b.sweepOldInvocations(ctx)
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
+}
+
+// sweepAsyncInvokes runs one janitor pass: advance InProgress invocations and
+// clean up old completed/failed ones.
+func (b *InMemoryBackend) sweepAsyncInvokes(ctx context.Context) {
+	b.advanceAsyncInvokes(ctx)
+	b.sweepOldInvocations(ctx)
 }
 
 // advanceAsyncInvokes moves InProgress invocations to Completed once the completion delay elapses.

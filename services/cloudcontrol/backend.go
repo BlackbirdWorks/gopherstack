@@ -345,7 +345,7 @@ func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressE
 		return nil, ErrNotFound
 	}
 
-	if isTerminalStatus(event.OperationStatus) {
+	if event.OperationStatus != "IN_PROGRESS" {
 		return nil, ErrValidation
 	}
 
@@ -480,16 +480,6 @@ func (b *InMemoryBackend) AddProgressEvent(event *ProgressEvent) {
 	defer b.mu.Unlock()
 
 	b.requests[event.RequestToken] = event
-}
-
-// isTerminalStatus reports whether the given operation status is a terminal state.
-func isTerminalStatus(status string) bool {
-	switch status {
-	case opStatusSuccess, "FAILED", opStatusCancelComplete:
-		return true
-	}
-
-	return false
 }
 
 // isValidTypeName reports whether typeName follows the CloudFormation resource type

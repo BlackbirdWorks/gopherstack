@@ -38,6 +38,9 @@ type Secret struct {
 	Tags *tags.Tags `json:"Tags,omitempty"`
 	// DeletedDate is set when the secret is deleted; nil means active.
 	DeletedDate *float64 `json:"DeletedDate,omitempty"`
+	// ScheduledDeletionDate is the Unix timestamp when the janitor will permanently
+	// purge this secret. Set at soft-delete time from the actual RecoveryWindowInDays.
+	ScheduledDeletionDate *float64 `json:"ScheduledDeletionDate,omitempty"`
 	// Versions holds all versions keyed by VersionId.
 	Versions map[string]*SecretVersion `json:"-"`
 	// LastChangedDate is the Unix timestamp of the most recent value change.
@@ -121,6 +124,8 @@ type GetSecretValueInput struct {
 
 // GetSecretValueOutput is the response payload for GetSecretValue.
 type GetSecretValueOutput struct {
+	// LastAccessedDate is the Unix timestamp (day granularity) of the most recent access.
+	LastAccessedDate *float64 `json:"LastAccessedDate,omitempty"`
 	// ARN is the full ARN of the secret.
 	ARN string `json:"ARN"`
 	// Name is the name of the secret.
@@ -464,10 +469,9 @@ type GetResourcePolicyOutput struct {
 
 // PutResourcePolicyInput is the request payload for PutResourcePolicy.
 type PutResourcePolicyInput struct {
-	// SecretId is the name or ARN of the secret.
-	SecretID string `json:"SecretId"`
-	// ResourcePolicy is the resource-based policy document.
-	ResourcePolicy string `json:"ResourcePolicy"`
+	BlockPublicPolicy *bool  `json:"BlockPublicPolicy,omitempty"`
+	SecretID          string `json:"SecretId"`
+	ResourcePolicy    string `json:"ResourcePolicy"`
 }
 
 // PutResourcePolicyOutput is the response payload for PutResourcePolicy.

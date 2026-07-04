@@ -247,9 +247,9 @@ func (b *InMemoryBackend) EnableMFADevice(userName, serialNumber, authCode1, aut
 		)
 	}
 
-	// Auth codes accepted as-is in the mock (no TOTP validation).
-	_ = authCode1
-	_ = authCode2
+	if err := b.validateAuthCodes(authCode1, authCode2); err != nil {
+		return err
+	}
 
 	c := b.comp()
 	c.mu.Lock()
@@ -330,6 +330,66 @@ func (b *InMemoryBackend) ListMFADevicesForUser(userName string) ([]VirtualMFADe
 	sort.Slice(devices, func(i, j int) bool { return devices[i].SerialNumber < devices[j].SerialNumber })
 
 	return devices, nil
+}
+
+// GetVirtualMFADevice returns the virtual MFA device with the given serial number
+// along with the user name it is currently assigned to (empty if unassigned).
+// It returns ErrUserNotFound (mapped to NoSuchEntity) when no such device exists.
+func (b *InMemoryBackend) GetVirtualMFADevice(serialNumber string) (VirtualMFADevice, string, error) {
+	b.mu.RLock("GetVirtualMFADevice")
+	dev, exists := b.virtualMFADevices[serialNumber]
+	b.mu.RUnlock()
+
+	if !exists {
+		return VirtualMFADevice{}, "", fmt.Errorf("%w: virtual MFA device %q not found", ErrUserNotFound, serialNumber)
+	}
+
+	c := b.comp()
+	c.mu.Lock()
+	owner := c.mfaUserLinks[serialNumber]
+	c.mu.Unlock()
+
+	return dev, owner, nil
+}
+
+// ResyncMFADevice resynchronizes the named virtual MFA device for a user.
+// AWS validates that the user exists and that the MFA device is associated
+// with that user; the resync itself stores no additional state (no TOTP
+// validation is performed in the mock). It returns ErrUserNotFound
+// (NoSuchEntity) when the user or association is missing.
+func (b *InMemoryBackend) ResyncMFADevice(userName, serialNumber, authCode1, authCode2 string) error {
+	b.mu.RLock("ResyncMFADevice-check")
+	_, userExists := b.users[userName]
+	_, deviceExists := b.virtualMFADevices[serialNumber]
+	b.mu.RUnlock()
+
+	if !userExists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	if !deviceExists {
+		return fmt.Errorf("%w: virtual MFA device %q not found", ErrUserNotFound, serialNumber)
+	}
+
+	c := b.comp()
+	c.mu.Lock()
+	owner := c.mfaUserLinks[serialNumber]
+	c.mu.Unlock()
+
+	if owner != userName {
+		return fmt.Errorf(
+			"%w: virtual MFA device %q is not associated with user %q",
+			ErrUserNotFound,
+			serialNumber,
+			userName,
+		)
+	}
+
+	if err := b.validateAuthCodes(authCode1, authCode2); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ---- Access Advisor ----
@@ -535,4 +595,25 @@ func (b *InMemoryBackend) GetOrganizationsAccessReport(jobID string) (string, ti
 	}
 
 	return jobStatusCompleted, createdAt, true
+}
+
+func (b *InMemoryBackend) validateAuthCodes(code1, code2 string) error {
+	if len(code1) != 6 || len(code2) != 6 {
+		return fmt.Errorf("%w: codes must be 6 digits", ErrInvalidAuthenticationCode)
+	}
+	for _, c := range code1 {
+		if c < '0' || c > '9' {
+			return fmt.Errorf("%w: codes must be numeric", ErrInvalidAuthenticationCode)
+		}
+	}
+	for _, c := range code2 {
+		if c < '0' || c > '9' {
+			return fmt.Errorf("%w: codes must be numeric", ErrInvalidAuthenticationCode)
+		}
+	}
+	if code1 == code2 {
+		return fmt.Errorf("%w: codes must be distinct", ErrInvalidAuthenticationCode)
+	}
+
+	return nil
 }

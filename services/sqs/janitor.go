@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -35,17 +36,11 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, sqsJanitorService)
+	g.Ticker(sqsJanitorComponent, j.Interval, 0, j.sweepExpiredMessages)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			j.sweepExpiredMessages(ctx)
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweepExpiredMessages removes messages that have exceeded the queue's MessageRetentionPeriod

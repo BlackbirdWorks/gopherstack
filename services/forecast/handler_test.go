@@ -134,6 +134,13 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			createBody: map[string]any{"ExplainabilityExportName": "explain-export", "ExplainabilityArn": "explain"},
 		},
 		{
+			name: "explainability", create: "CreateExplainability",
+			describe: "DescribeExplainability", list: "ListExplainabilities",
+			delete: "DeleteExplainability", arnField: "ExplainabilityArn",
+			status: "Status", listField: "Explainabilities",
+			createBody: map[string]any{"ExplainabilityName": "forecast-explain", "ResourceArn": "predictor"},
+		},
+		{
 			name: "what_if_analysis", create: "CreateWhatIfAnalysis", describe: "DescribeWhatIfAnalysis",
 			list: "ListWhatIfAnalyses", delete: "DeleteWhatIfAnalysis", arnField: "WhatIfAnalysisArn",
 			status: "Status", listField: "WhatIfAnalyses",
@@ -185,8 +192,16 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 
 			code, _ = request(t, h, tt.delete, map[string]any{tt.arnField: resourceARN})
 			require.Equal(t, http.StatusOK, code)
-			_, deleting := request(t, h, tt.describe, map[string]any{tt.arnField: resourceARN})
-			assert.Equal(t, "DELETING", deleting[tt.status])
+
+			// After delete, resource is removed; describe returns ResourceNotFoundException.
+			code, notFound := request(t, h, tt.describe, map[string]any{tt.arnField: resourceARN})
+			assert.Equal(t, http.StatusBadRequest, code)
+			assert.Equal(t, "ResourceNotFoundException", notFound["__type"])
+
+			// After delete, list returns empty.
+			_, afterDelete := request(t, h, tt.list, map[string]any{})
+			afterResources, _ := afterDelete[tt.listField].([]any)
+			assert.Empty(t, afterResources)
 		})
 	}
 }

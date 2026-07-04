@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 // TestRDSCoverage_StubOps covers all the stub RDS operations.
@@ -53,6 +55,16 @@ func TestRDSCoverage_StubOps(t *testing.T) {
 	}
 
 	h := newRDSHandler()
+	h.Backend.CreateDBInstance(
+		"db-test",
+		"db.t3.micro",
+		"mysql",
+		"admin",
+		"password",
+		"subnet-1",
+		20,
+		rds.DBInstanceOptions{PerformanceInsightsEnabled: true},
+	)
 
 	for _, op := range stubOps {
 		t.Run(op.action, func(t *testing.T) {
@@ -75,18 +87,23 @@ func TestRDSCoverage_BackendOps(t *testing.T) {
 
 	h := newRDSHandler()
 
-	// These ops may return 404 or success - just verify they don't panic.
-	ops := []string{
-		"Action=DescribeDBInstanceAutomatedBackups&Version=2014-10-31",
-		"Action=DescribeDBClusterAutomatedBackups&Version=2014-10-31",
-		"Action=DescribeDBSnapshotTenantDatabases&Version=2014-10-31",
-		"Action=DescribeTenantDatabases&Version=2014-10-31",
-		"Action=DescribeIntegrations&Version=2014-10-31",
-		"Action=DescribeDBShardGroups&Version=2014-10-31",
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"DescribeDBInstanceAutomatedBackups", "Action=DescribeDBInstanceAutomatedBackups&Version=2014-10-31"},
+		{"DescribeDBClusterAutomatedBackups", "Action=DescribeDBClusterAutomatedBackups&Version=2014-10-31"},
+		{"DescribeDBSnapshotTenantDatabases", "Action=DescribeDBSnapshotTenantDatabases&Version=2014-10-31"},
+		{"DescribeTenantDatabases", "Action=DescribeTenantDatabases&Version=2014-10-31"},
+		{"DescribeIntegrations", "Action=DescribeIntegrations&Version=2014-10-31"},
+		{"DescribeDBShardGroups", "Action=DescribeDBShardGroups&Version=2014-10-31"},
 	}
 
-	for _, body := range ops {
-		rec := postRDSForm(t, h, body)
-		assert.GreaterOrEqual(t, rec.Code, 200, "expected non-negative status for %s", body)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := postRDSForm(t, h, tt.body)
+			assert.GreaterOrEqual(t, rec.Code, 200, "expected non-negative status")
+		})
 	}
 }

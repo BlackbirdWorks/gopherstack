@@ -170,42 +170,66 @@ func (h *Handler) HandlerOpsLen() int {
 func (b *InMemoryBackend) AddActivationInternal(act Activation) {
 	b.mu.Lock("AddActivationInternal")
 	defer b.mu.Unlock()
-	b.activationsStore(b.Region())[act.ActivationID] = act
+	r := b.Region()
+	if b.activations[r] == nil {
+		b.activations[r] = make(map[string]Activation)
+	}
+	b.activationsStore(r)[act.ActivationID] = act
 }
 
 // AddAssociationInternal seeds an association directly into the backend for testing.
 func (b *InMemoryBackend) AddAssociationInternal(assoc Association) {
 	b.mu.Lock("AddAssociationInternal")
 	defer b.mu.Unlock()
-	b.associationsStore(b.Region())[assoc.AssociationID] = assoc
+	r := b.Region()
+	if b.associations[r] == nil {
+		b.associations[r] = make(map[string]Association)
+	}
+	b.associationsStore(r)[assoc.AssociationID] = assoc
 }
 
 // AddMaintenanceWindowInternal seeds a maintenance window directly into the backend for testing.
 func (b *InMemoryBackend) AddMaintenanceWindowInternal(mw MaintenanceWindow) {
 	b.mu.Lock("AddMaintenanceWindowInternal")
 	defer b.mu.Unlock()
-	b.maintenanceWindowsStore(b.Region())[mw.WindowID] = mw
+	r := b.Region()
+	if b.maintenanceWindows[r] == nil {
+		b.maintenanceWindows[r] = make(map[string]MaintenanceWindow)
+	}
+	b.maintenanceWindowsStore(r)[mw.WindowID] = mw
 }
 
 // AddOpsItemInternal seeds an OpsItem directly into the backend for testing.
 func (b *InMemoryBackend) AddOpsItemInternal(item OpsItem) {
 	b.mu.Lock("AddOpsItemInternal")
 	defer b.mu.Unlock()
-	b.opsItemsStore(b.Region())[item.OpsItemID] = item
+	r := b.Region()
+	if b.opsItems[r] == nil {
+		b.opsItems[r] = make(map[string]OpsItem)
+	}
+	b.opsItemsStore(r)[item.OpsItemID] = item
 }
 
 // AddOpsMetadataInternal seeds OpsMetadata directly into the backend for testing.
 func (b *InMemoryBackend) AddOpsMetadataInternal(meta OpsMetadata) {
 	b.mu.Lock("AddOpsMetadataInternal")
 	defer b.mu.Unlock()
-	b.opsMetadataStore(b.Region())[meta.OpsMetadataArn] = meta
+	r := b.Region()
+	if b.opsMetadata[r] == nil {
+		b.opsMetadata[r] = make(map[string]OpsMetadata)
+	}
+	b.opsMetadataStore(r)[meta.OpsMetadataArn] = meta
 }
 
 // AddPatchBaselineInternal seeds a patch baseline directly into the backend for testing.
 func (b *InMemoryBackend) AddPatchBaselineInternal(bl PatchBaseline) {
 	b.mu.Lock("AddPatchBaselineInternal")
 	defer b.mu.Unlock()
-	b.patchBaselinesStore(b.Region())[bl.BaselineID] = bl
+	r := b.Region()
+	if b.patchBaselines[r] == nil {
+		b.patchBaselines[r] = make(map[string]PatchBaseline)
+	}
+	b.patchBaselinesStore(r)[bl.BaselineID] = bl
 }
 
 // OpsItemRelatedItemCount returns the total number of related items across all OpsItems.
@@ -229,28 +253,44 @@ func (b *InMemoryBackend) GetPatchBaselineInternal(id string) PatchBaseline {
 func (b *InMemoryBackend) ForceInsertParameter(p Parameter) {
 	b.mu.Lock("ForceInsertParameter")
 	defer b.mu.Unlock()
-	b.parametersStore(b.Region())[p.Name] = p
+	r := b.Region()
+	if b.parameters[r] == nil {
+		b.parameters[r] = make(map[string]Parameter)
+	}
+	b.parametersStore(r)[p.Name] = p
 }
 
 // AddInstancePatchStateInternal seeds an InstancePatchState directly into the backend for testing.
 func (b *InMemoryBackend) AddInstancePatchStateInternal(s InstancePatchState) {
 	b.mu.Lock("AddInstancePatchStateInternal")
 	defer b.mu.Unlock()
-	b.instancePatchStatesStore(b.Region())[s.InstanceID] = &s
+	r := b.Region()
+	if b.instancePatchStates[r] == nil {
+		b.instancePatchStates[r] = make(map[string]*InstancePatchState)
+	}
+	b.instancePatchStatesStore(r)[s.InstanceID] = &s
 }
 
 // AddInstancePatchesInternal seeds PatchComplianceData for an instance directly into the backend for testing.
 func (b *InMemoryBackend) AddInstancePatchesInternal(instanceID string, patches []PatchComplianceData) {
 	b.mu.Lock("AddInstancePatchesInternal")
 	defer b.mu.Unlock()
-	b.instancePatchesStore(b.Region())[instanceID] = patches
+	r := b.Region()
+	if b.instancePatches[r] == nil {
+		b.instancePatches[r] = make(map[string][]PatchComplianceData)
+	}
+	b.instancePatchesStore(r)[instanceID] = patches
 }
 
 // AddInstancePropertyInternal seeds an InstanceProperty directly into the backend for testing.
 func (b *InMemoryBackend) AddInstancePropertyInternal(p InstanceProperty) {
 	b.mu.Lock("AddInstancePropertyInternal")
 	defer b.mu.Unlock()
-	b.instancePropertiesStore(b.Region())[p.InstanceID] = &p
+	r := b.Region()
+	if b.instanceProperties[r] == nil {
+		b.instanceProperties[r] = make(map[string]*InstanceProperty)
+	}
+	b.instancePropertiesStore(r)[p.InstanceID] = &p
 }
 
 // AddAvailablePatchInternal seeds a Patch into the available patches catalog for testing.
@@ -258,4 +298,64 @@ func (b *InMemoryBackend) AddAvailablePatchInternal(p Patch) {
 	b.mu.Lock("AddAvailablePatchInternal")
 	defer b.mu.Unlock()
 	b.availablePatches[b.Region()] = append(b.availablePatches[b.Region()], p)
+}
+
+// ForceCompleteCommands forces every InProgress command in every region to its
+// terminal state, regardless of its exec delay. Used by tests to deterministically
+// exercise the lazy completion path without sleeping.
+func (b *InMemoryBackend) ForceCompleteCommands() {
+	b.mu.Lock("ForceCompleteCommands")
+	defer b.mu.Unlock()
+
+	const farFuture = float64(int64(1) << 62)
+	for region := range b.commands {
+		b.materializeCommandsLocked(region, farFuture)
+	}
+}
+
+// ForceCompleteAutomations forces every InProgress automation execution to its
+// terminal state, regardless of its exec delay. Used by tests.
+func (b *InMemoryBackend) ForceCompleteAutomations() {
+	b.mu.Lock("ForceCompleteAutomations")
+	defer b.mu.Unlock()
+
+	future := timeNow().Add(1_000_000 * time.Hour)
+	for _, execs := range b.automationExecutions {
+		for _, e := range execs {
+			materializeAutomationLocked(e, future)
+		}
+	}
+}
+
+// SessionCount returns the number of sessions stored in the default region.
+func (b *InMemoryBackend) SessionCount() int {
+	b.mu.RLock("SessionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.sessionsStore(b.Region()))
+}
+
+// AddTerminatedSessionInternal seeds a terminated session with the given end
+// date directly into the default region for testing janitor eviction.
+func (b *InMemoryBackend) AddTerminatedSessionInternal(id string, endDate float64) {
+	b.mu.Lock("AddTerminatedSessionInternal")
+	defer b.mu.Unlock()
+	r := b.Region()
+	if b.sessions[r] == nil {
+		b.sessions[r] = make(map[string]Session)
+	}
+	b.sessionsStore(r)[id] = Session{
+		SessionID: id,
+		Status:    sessionStatusTerminated,
+		EndDate:   endDate,
+	}
+}
+
+// AssociationExecutionCount returns the number of stored execution records for
+// the given association in the default region.
+func (b *InMemoryBackend) AssociationExecutionCount(assocID string) int {
+	b.mu.RLock("AssociationExecutionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.associationExecutionsStore(b.Region())[assocID])
 }

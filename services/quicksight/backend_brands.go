@@ -164,7 +164,6 @@ func (b *InMemoryBackend) DeleteBrand(accountID, brandID string) error {
 	return nil
 }
 
-//nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListBrands(
 	accountID string,
 	maxResults int32,
@@ -188,19 +187,15 @@ func (b *InMemoryBackend) ListBrands(
 
 	start := 0
 	if nextToken != "" {
-		for i, brand := range all {
-			if brand.BrandID == nextToken {
-				start = i
-
-				break
-			}
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
 		}
 	}
 
 	end := start + int(maxResults)
 	var next string
 	if end < len(all) {
-		next = all[end].BrandID
+		next = encodePageToken(end)
 	} else {
 		end = len(all)
 	}

@@ -777,7 +777,7 @@ func TestCodeBuild_Sandbox(t *testing.T) {
 		require.Equal(t, http.StatusOK, listRec.Code)
 
 		var out struct {
-			CommandExecutions []string `json:"commandExecutions"`
+			CommandExecutions []map[string]any `json:"commandExecutions"`
 		}
 		require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
 		assert.Len(t, out.CommandExecutions, 2)

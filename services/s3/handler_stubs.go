@@ -11,6 +11,9 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
@@ -33,13 +36,20 @@ type s3PolicyStatus struct {
 type s3AbacConfiguration struct {
 	XMLName xml.Name `xml:"AbacConfiguration"`
 	Xmlns   string   `xml:"xmlns,attr"`
+	Status  string   `xml:"Status,omitempty"`
+}
+
+// s3DirectoryBucketEntry is one bucket in a ListDirectoryBuckets response.
+type s3DirectoryBucketEntry struct {
+	Name         string `xml:"Name"`
+	CreationDate string `xml:"CreationDate,omitempty"`
 }
 
 // s3DirectoryBucketsResult is the XML response for ListDirectoryBuckets.
 type s3DirectoryBucketsResult struct {
-	XMLName xml.Name `xml:"ListDirectoryBucketsResult"`
-	Xmlns   string   `xml:"xmlns,attr"`
-	Buckets []string `xml:"Buckets>Bucket>Name,omitempty"`
+	XMLName xml.Name                 `xml:"ListDirectoryBucketsResult"`
+	Xmlns   string                   `xml:"xmlns,attr"`
+	Buckets []s3DirectoryBucketEntry `xml:"Buckets>Bucket,omitempty"`
 }
 
 // routeBucketGetStubsExtra handles additional bucket GET sub-resource stubs.
@@ -75,8 +85,21 @@ func (h *S3Handler) routeBucketGetStubsExtra(
 
 	case q.Has("abac"):
 		h.setOperation(ctx, "GetBucketAbac")
-		httputils.WriteXML(ctx, w, http.StatusOK,
-			s3AbacConfiguration{Xmlns: xmlNamespaceS3})
+
+		configXML, err := h.Backend.GetBucketAbac(ctx, bucket)
+		if err != nil {
+			WriteError(ctx, w, r, err)
+
+			return true
+		}
+
+		var cfg s3AbacConfiguration
+		if configXML != "" {
+			_ = xml.Unmarshal([]byte(configXML), &cfg)
+		}
+
+		cfg.Xmlns = xmlNamespaceS3
+		httputils.WriteXML(ctx, w, http.StatusOK, cfg)
 
 		return true
 	}
@@ -115,7 +138,11 @@ func (h *S3Handler) handleGetBucketPolicyStatus(
 		return
 	}
 
-	if policy != "" && policyGrantsPublicGetObject(policy) {
+	// A public policy only makes the bucket public when the Public Access Block
+	// isn't restricting public bucket policies. RestrictPublicBuckets causes S3
+	// to report IsPublic=false regardless of the policy content.
+	pab, _ := loadPublicAccessBlock(ctx, h.Backend, bucket)
+	if policy != "" && policyGrantsPublicGetObject(policy) && !pab.RestrictPublicBuckets {
 		isPublic = sqlValTrue
 	}
 
@@ -169,7 +196,7 @@ func actionIncludesGetObject(action any) bool {
 	check := func(s string) bool {
 		s = strings.ToLower(s)
 
-		return s == "s3:getobject" || s == "s3:*" || s == "*"
+		return s == actionGetObjectLower || s == "s3:*" || s == "*"
 	}
 
 	switch v := action.(type) {
@@ -415,14 +442,34 @@ func (h *S3Handler) handleUpdateObjectEncryption(
 }
 
 // handleListDirectoryBuckets handles GET / with ?list-type=directory.
+// Returns only S3 Express directory buckets (name suffix --x-s3), matching the
+// AWS partition between ListBuckets (general-purpose) and ListDirectoryBuckets.
 func (h *S3Handler) handleListDirectoryBuckets(
 	ctx context.Context,
 	w http.ResponseWriter,
-	_ *http.Request,
+	r *http.Request,
 ) {
 	h.setOperation(ctx, "ListDirectoryBuckets")
+
+	buckets, err := h.Backend.ListDirectoryBuckets(ctx)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	entries := make([]s3DirectoryBucketEntry, 0, len(buckets))
+	for _, b := range buckets {
+		entry := s3DirectoryBucketEntry{Name: aws.ToString(b.Name)}
+		if b.CreationDate != nil {
+			entry.CreationDate = b.CreationDate.UTC().Format(time.RFC3339)
+		}
+
+		entries = append(entries, entry)
+	}
+
 	httputils.WriteXML(ctx, w, http.StatusOK,
-		s3DirectoryBucketsResult{Xmlns: xmlNamespaceS3, Buckets: []string{}})
+		s3DirectoryBucketsResult{Xmlns: xmlNamespaceS3, Buckets: entries})
 }
 
 // handlePutBucketAccelerate handles PUT /{bucket}?accelerate.
@@ -465,12 +512,33 @@ func (h *S3Handler) handlePutBucketAccelerate(
 }
 
 // handlePutBucketAbac handles PUT /{bucket}?abac.
+// Parses and stores the AbacConfiguration XML so that GetBucketAbac returns
+// the persisted config, matching real S3 Tables behaviour.
 func (h *S3Handler) handlePutBucketAbac(
 	ctx context.Context,
 	w http.ResponseWriter,
-	_ *http.Request,
+	r *http.Request,
 ) {
 	h.setOperation(ctx, "PutBucketAbac")
+
+	bucket, _, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" {
+		WriteError(ctx, w, r, ErrNoSuchBucket)
+
+		return
+	}
+
+	body, _ := httputils.ReadBody(r)
+
+	if err := h.Backend.PutBucketAbac(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -549,22 +617,62 @@ func (h *S3Handler) handleGetBucketRequestPayment(
 }
 
 // handleUpdateBucketMetadataInventoryTableConfig handles PUT /{bucket}?metadataInventoryTableConfiguration.
+// Persists the inventory table configuration so it survives round-trips, matching real S3 behaviour.
 func (h *S3Handler) handleUpdateBucketMetadataInventoryTableConfig(
 	ctx context.Context,
 	w http.ResponseWriter,
-	_ *http.Request,
+	r *http.Request,
 ) {
 	h.setOperation(ctx, "UpdateBucketMetadataInventoryTableConfiguration")
+
+	bucket, _, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" {
+		WriteError(ctx, w, r, ErrNoSuchBucket)
+
+		return
+	}
+
+	body, _ := httputils.ReadBody(r)
+
+	if err := h.Backend.UpdateBucketMetadataInventoryTableConfig(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
 // handleUpdateBucketMetadataJournalTableConfig handles PUT /{bucket}?metadataJournalTableConfiguration.
+// Persists the journal table configuration so it survives round-trips, matching real S3 behaviour.
 func (h *S3Handler) handleUpdateBucketMetadataJournalTableConfig(
 	ctx context.Context,
 	w http.ResponseWriter,
-	_ *http.Request,
+	r *http.Request,
 ) {
 	h.setOperation(ctx, "UpdateBucketMetadataJournalTableConfiguration")
+
+	bucket, _, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" {
+		WriteError(ctx, w, r, ErrNoSuchBucket)
+
+		return
+	}
+
+	body, _ := httputils.ReadBody(r)
+
+	if err := h.Backend.UpdateBucketMetadataJournalTableConfig(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 

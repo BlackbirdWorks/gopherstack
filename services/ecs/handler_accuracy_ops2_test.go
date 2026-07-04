@@ -319,8 +319,10 @@ func TestAccOps2_DescribeContainerInstances_UnknownReturnsFailure(t *testing.T) 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "dci-cluster"})
 
 	rec := doECSRequest(t, h, "DescribeContainerInstances", map[string]any{
-		"cluster":            "dci-cluster",
-		"containerInstances": []string{"arn:aws:ecs:us-east-1:000000000000:container-instance/dci-cluster/ghost"},
+		"cluster": "dci-cluster",
+		"containerInstances": []string{
+			"arn:aws:ecs:us-east-1:000000000000:container-instance/dci-cluster/ghost",
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -353,8 +355,11 @@ func TestAccOps2_DescribeContainerInstances_MixFoundAndMissing(t *testing.T) {
 	ciArn := regOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	rec := doECSRequest(t, h, "DescribeContainerInstances", map[string]any{
-		"cluster":            "dci-mix",
-		"containerInstances": []string{ciArn, "arn:aws:ecs:us-east-1:000000000000:container-instance/dci-mix/ghost"},
+		"cluster": "dci-mix",
+		"containerInstances": []string{
+			ciArn,
+			"arn:aws:ecs:us-east-1:000000000000:container-instance/dci-mix/ghost",
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

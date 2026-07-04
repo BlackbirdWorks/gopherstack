@@ -179,8 +179,6 @@ type getWirelessGatewayCertificateResponse struct {
 	LoRaWANNetworkServerCertificateID string `json:"LoRaWANNetworkServerCertificateId"`
 }
 
-type getWirelessGatewayFirmwareInformationResponse struct{}
-
 type getWirelessGatewayStatisticsResponse struct {
 	WirelessGatewayID    string `json:"WirelessGatewayId,omitempty"`
 	LastUplinkReceivedAt string `json:"LastUplinkReceivedAt,omitempty"`

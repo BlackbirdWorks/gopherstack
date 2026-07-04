@@ -10,13 +10,13 @@ import (
 	"net"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // ErrEmptyTemplate is returned when a template body is empty.
@@ -48,6 +48,10 @@ type Template struct {
 // TemplateParameter represents a CloudFormation template parameter.
 type TemplateParameter struct {
 	Default               any      `json:"Default"               yaml:"Default"`
+	MaxValue              *float64 `json:"MaxValue"              yaml:"MaxValue"`
+	MinValue              *float64 `json:"MinValue"              yaml:"MinValue"`
+	MaxLength             *int     `json:"MaxLength"             yaml:"MaxLength"`
+	MinLength             *int     `json:"MinLength"             yaml:"MinLength"`
 	Type                  string   `json:"Type"                  yaml:"Type"`
 	Description           string   `json:"Description"           yaml:"Description"`
 	AllowedPattern        string   `json:"AllowedPattern"        yaml:"AllowedPattern"`
@@ -59,18 +63,20 @@ type TemplateParameter struct {
 // TemplateResource represents a CloudFormation template resource.
 // DependsOn may be a single resource name (string) or a list of names ([]string).
 type TemplateResource struct {
-	Properties map[string]any `json:"Properties" yaml:"Properties"`
-	Type       string         `json:"Type"       yaml:"Type"`
-	DependsOn  []string       `json:"-"          yaml:"-"`
+	Properties     map[string]any `json:"Properties"     yaml:"Properties"`
+	Type           string         `json:"Type"           yaml:"Type"`
+	DeletionPolicy string         `json:"DeletionPolicy" yaml:"DeletionPolicy"`
+	DependsOn      []string       `json:"-"              yaml:"-"`
 }
 
 // UnmarshalJSON implements [json.Unmarshaler] for TemplateResource so that
 // DependsOn can be either a JSON string or a JSON array of strings.
 func (r *TemplateResource) UnmarshalJSON(data []byte) error {
 	type plain struct {
-		DependsOn  any            `json:"DependsOn"`
-		Properties map[string]any `json:"Properties"`
-		Type       string         `json:"Type"`
+		DependsOn      any            `json:"DependsOn"`
+		Properties     map[string]any `json:"Properties"`
+		Type           string         `json:"Type"`
+		DeletionPolicy string         `json:"DeletionPolicy"`
 	}
 
 	var p plain
@@ -81,6 +87,7 @@ func (r *TemplateResource) UnmarshalJSON(data []byte) error {
 	r.Type = p.Type
 	r.Properties = p.Properties
 	r.DependsOn = parseDependsOn(p.DependsOn)
+	r.DeletionPolicy = p.DeletionPolicy
 
 	return nil
 }
@@ -88,9 +95,10 @@ func (r *TemplateResource) UnmarshalJSON(data []byte) error {
 // UnmarshalYAML implements yaml.Unmarshaler for TemplateResource.
 func (r *TemplateResource) UnmarshalYAML(unmarshal func(any) error) error {
 	type plain struct {
-		DependsOn  any            `yaml:"DependsOn"`
-		Properties map[string]any `yaml:"Properties"`
-		Type       string         `yaml:"Type"`
+		DependsOn      any            `yaml:"DependsOn"`
+		Properties     map[string]any `yaml:"Properties"`
+		Type           string         `yaml:"Type"`
+		DeletionPolicy string         `yaml:"DeletionPolicy"`
 	}
 
 	var p plain
@@ -101,6 +109,7 @@ func (r *TemplateResource) UnmarshalYAML(unmarshal func(any) error) error {
 	r.Type = p.Type
 	r.Properties = p.Properties
 	r.DependsOn = parseDependsOn(p.DependsOn)
+	r.DeletionPolicy = p.DeletionPolicy
 
 	return nil
 }
@@ -149,6 +158,16 @@ func ParseTemplate(body string) (*Template, error) {
 		return nil, ErrEmptyTemplate
 	}
 
+	// Expand AWS Language Extensions (Fn::ForEach) before typed unmarshalling,
+	// since ForEach keys are arrays that don't fit the TemplateResource shape.
+	if strings.Contains(body, forEachPrefix) {
+		expanded, err := expandLanguageExtensions(body)
+		if err != nil {
+			return nil, err
+		}
+		body = expanded
+	}
+
 	var tmpl Template
 
 	if strings.HasPrefix(body, "{") {
@@ -164,6 +183,163 @@ func ParseTemplate(body string) (*Template, error) {
 	}
 
 	return &tmpl, nil
+}
+
+const forEachPrefix = "Fn::ForEach::"
+
+// ErrForEach is returned when an Fn::ForEach block is malformed.
+var ErrForEach = errors.New("invalid Fn::ForEach")
+
+// expandLanguageExtensions parses a template into a generic document, expands any
+// Fn::ForEach loops in the Resources section, and re-serialises it to JSON. This
+// implements the CloudFormation Languages Extensions transform for iterated
+// resource generation.
+func expandLanguageExtensions(body string) (string, error) {
+	doc, err := parseGenericTemplate(body)
+	if err != nil {
+		return "", err
+	}
+
+	resources, ok := doc["Resources"].(map[string]any)
+	if !ok {
+		return body, nil
+	}
+
+	expanded, err := expandForEachMap(resources)
+	if err != nil {
+		return "", err
+	}
+	doc["Resources"] = expanded
+
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialise expanded template: %w", err)
+	}
+
+	return string(out), nil
+}
+
+// parseGenericTemplate decodes a JSON or YAML template into a generic map.
+func parseGenericTemplate(body string) (map[string]any, error) {
+	var doc map[string]any
+	if strings.HasPrefix(strings.TrimSpace(body), "{") {
+		if err := json.Unmarshal([]byte(body), &doc); err != nil {
+			return nil, fmt.Errorf("failed to parse JSON template: %w", err)
+		}
+
+		return doc, nil
+	}
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML template: %w", err)
+	}
+
+	return doc, nil
+}
+
+// expandForEachMap walks a resources map, expanding every Fn::ForEach entry into
+// concrete resources and preserving non-loop entries. Nested loops are expanded
+// recursively.
+func expandForEachMap(resources map[string]any) (map[string]any, error) {
+	out := make(map[string]any, len(resources))
+	for _, key := range collections.SortedKeys(resources) {
+		val := resources[key]
+		if strings.HasPrefix(key, forEachPrefix) {
+			if err := expandForEachEntry(val, out); err != nil {
+				return nil, err
+			}
+
+			continue
+		}
+		out[key] = val
+	}
+
+	return out, nil
+}
+
+// expandForEachEntry expands a single Fn::ForEach block. The value must be a
+// 3-element array: [identifier, collection, outputTemplate]. For each item in
+// the collection, every entry of the output template is emitted with ${identifier}
+// substituted by the item value (in both the logical-ID key and the body).
+func expandForEachEntry(val any, out map[string]any) error {
+	parts, ok := val.([]any)
+	if !ok || len(parts) != 3 {
+		return fmt.Errorf("%w: expected [identifier, collection, template]", ErrForEach)
+	}
+
+	identifier, ok := parts[0].(string)
+	if !ok {
+		return fmt.Errorf("%w: identifier must be a string", ErrForEach)
+	}
+
+	collection := forEachCollection(parts[1])
+	outputTemplate, ok := parts[2].(map[string]any)
+	if !ok {
+		return fmt.Errorf("%w: output template must be a map", ErrForEach)
+	}
+
+	// The output template may itself contain nested Fn::ForEach loops.
+	outputTemplate, err := expandForEachMap(outputTemplate)
+	if err != nil {
+		return err
+	}
+
+	placeholder := "${" + identifier + "}"
+	for _, item := range collection {
+		for tmplKey, tmplBody := range outputTemplate {
+			resKey := strings.ReplaceAll(tmplKey, placeholder, item)
+			out[resKey] = substituteForEach(tmplBody, placeholder, item)
+		}
+	}
+
+	return nil
+}
+
+// forEachCollection normalises a ForEach collection value (a list literal or a
+// comma-delimited string) into a slice of string items.
+func forEachCollection(v any) []string {
+	switch c := v.(type) {
+	case []any:
+		items := make([]string, 0, len(c))
+		for _, e := range c {
+			items = append(items, fmt.Sprintf("%v", e))
+		}
+
+		return items
+	case string:
+		if c == "" {
+			return nil
+		}
+
+		return strings.Split(c, ",")
+	}
+
+	return nil
+}
+
+// substituteForEach recursively replaces the ${identifier} placeholder with the
+// loop item value throughout a value tree (map keys, strings, and nested lists).
+func substituteForEach(v any, placeholder, item string) any {
+	switch val := v.(type) {
+	case string:
+		return strings.ReplaceAll(val, placeholder, item)
+	case map[string]any:
+		out := make(map[string]any, len(val))
+		for k, child := range val {
+			newKey := strings.ReplaceAll(k, placeholder, item)
+			out[newKey] = substituteForEach(child, placeholder, item)
+		}
+
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, child := range val {
+			out[i] = substituteForEach(child, placeholder, item)
+		}
+
+		return out
+	}
+
+	return v
 }
 
 // ResolveParameters merges template defaults with provided overrides.
@@ -183,32 +359,103 @@ func ResolveParameters(tmpl *Template, overrides []Parameter) map[string]string 
 	return resolved
 }
 
-// ValidateParameters checks parameter values against AllowedValues constraints.
-// Returns an error if any parameter value is not in its AllowedValues list.
+// ValidateParameters checks parameter values against AllowedValues, AllowedPattern,
+// MinValue/MaxValue (Number type), and MinLength/MaxLength (String type) constraints.
 func ValidateParameters(tmpl *Template, resolved map[string]string) error {
-	names := make([]string, 0, len(tmpl.Parameters))
-	for name := range tmpl.Parameters {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
+	for _, name := range collections.SortedKeys(tmpl.Parameters) {
 		param := tmpl.Parameters[name]
-		if len(param.AllowedValues) == 0 {
-			continue
-		}
 		val, ok := resolved[name]
 		if !ok {
 			continue
 		}
-		if !slices.Contains(param.AllowedValues, val) {
-			msg := param.ConstraintDescription
-			if msg == "" {
-				msg = fmt.Sprintf("Parameter %s must be one of %v", name, param.AllowedValues)
-			}
-
-			return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+		if err := validateParamConstraints(name, val, param); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+// validateParamConstraints checks all constraints on a single resolved parameter value.
+func validateParamConstraints(name, val string, param TemplateParameter) error {
+	if err := validateAllowedValues(name, val, param); err != nil {
+		return err
+	}
+	if err := validateAllowedPattern(name, val, param); err != nil {
+		return err
+	}
+	if err := validateNumericRange(name, val, param); err != nil {
+		return err
+	}
+
+	return validateStringLength(name, val, param)
+}
+
+func constraintMsg(fallback string, param TemplateParameter) string {
+	if param.ConstraintDescription != "" {
+		return param.ConstraintDescription
+	}
+
+	return fallback
+}
+
+func validateAllowedValues(name, val string, param TemplateParameter) error {
+	if len(param.AllowedValues) == 0 || slices.Contains(param.AllowedValues, val) {
+		return nil
+	}
+	msg := constraintMsg(fmt.Sprintf("Parameter %s must be one of %v", name, param.AllowedValues), param)
+
+	return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+}
+
+func validateAllowedPattern(name, val string, param TemplateParameter) error {
+	if param.AllowedPattern == "" {
+		return nil
+	}
+	re, err := regexp.Compile(param.AllowedPattern)
+	if err != nil {
+		return fmt.Errorf("%w: parameter %s AllowedPattern is not a valid regex: %w", ErrParameterValidation, name, err)
+	}
+	if re.MatchString(val) {
+		return nil
+	}
+	msg := constraintMsg(fmt.Sprintf("Parameter %s must match pattern %s", name, param.AllowedPattern), param)
+
+	return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+}
+
+func validateNumericRange(name, val string, param TemplateParameter) error {
+	if param.Type != "Number" || (param.MinValue == nil && param.MaxValue == nil) {
+		return nil
+	}
+	n, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return fmt.Errorf("%w: parameter %s must be a number, got %q", ErrParameterValidation, name, val)
+	}
+	if param.MinValue != nil && n < *param.MinValue {
+		msg := constraintMsg(fmt.Sprintf("Parameter %s must be >= %v", name, *param.MinValue), param)
+
+		return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+	}
+	if param.MaxValue != nil && n > *param.MaxValue {
+		msg := constraintMsg(fmt.Sprintf("Parameter %s must be <= %v", name, *param.MaxValue), param)
+
+		return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+	}
+
+	return nil
+}
+
+func validateStringLength(name, val string, param TemplateParameter) error {
+	if param.MinLength != nil && len(val) < *param.MinLength {
+		msg := constraintMsg(fmt.Sprintf("Parameter %s must be at least %d characters", name, *param.MinLength), param)
+
+		return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+	}
+	if param.MaxLength != nil && len(val) > *param.MaxLength {
+		msg := constraintMsg(fmt.Sprintf("Parameter %s must be at most %d characters", name, *param.MaxLength), param)
+
+		return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
 	}
 
 	return nil
@@ -242,11 +489,7 @@ func evaluateConditions(raw map[string]any, params, physicalIDs map[string]strin
 	result := make(map[string]bool, len(raw))
 
 	// Build a sorted key list for deterministic iteration order.
-	names := make([]string, 0, len(raw))
-	for name := range raw {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(raw)
 
 	// Iterate until stable. Each pass reads from a snapshot of the previous
 	// state so that results don't depend on the evaluation order within a pass.
@@ -961,18 +1204,25 @@ func getLambdaFunctionAttribute(physID, attrName, accountID, region string) stri
 }
 
 func getSNSTopicAttribute(physID, attrName string) string {
-	if attrName == "TopicArn" {
+	// For SNS topics the physical ID is the topic ARN
+	// (arn:aws:sns:<region>:<account>:<topicName>).
+	switch attrName {
+	case "TopicArn", attrNameArn:
+		return physID
+	case "TopicName":
+		if idx := strings.LastIndex(physID, ":"); idx >= 0 {
+			return physID[idx+1:]
+		}
+
 		return physID
 	}
 
 	return physID
 }
 
-func getIAMRoleAttribute(physID, attrName string) string {
-	if attrName == attrNameArn || attrName == "RoleId" {
-		return physID
-	}
-
+func getIAMRoleAttribute(physID, _ string) string {
+	// For IAM roles the physical ID is the role ARN
+	// (arn:aws:iam::<account>:role/<roleName>); Arn resolves to it directly.
 	return physID
 }
 

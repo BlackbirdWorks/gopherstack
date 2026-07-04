@@ -678,7 +678,7 @@ func (h *DashboardHandler) Handler() echo.HandlerFunc {
 
 // setupSubRouter registers all routes for the dashboard.
 //
-//nolint:gocognit,gocyclo,cyclop,dupl,funlen // centralized route wiring keeps setup behavior explicit.
+//nolint:gocognit,gocyclo,cyclop,funlen // centralized route wiring keeps setup behavior explicit.
 func (h *DashboardHandler) setupSubRouter() {
 	// Static assets
 	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
@@ -844,6 +844,7 @@ func (h *DashboardHandler) setupSubRouter() {
 			req.Name,
 			req.ProviderType,
 			req.ProviderEndpoint,
+			nil,
 			nil,
 		)
 		if err != nil {
@@ -1984,6 +1985,7 @@ func (h *DashboardHandler) apiGatewayManagementAPICreateConnection(c *echo.Conte
 		connectionID,
 		sourceIP,
 		userAgent,
+		nil,
 	); err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}

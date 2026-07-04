@@ -642,7 +642,7 @@ func TestHandlerSubnetGroups(t *testing.T) {
 			body: map[string]any{
 				"SubnetGroupName": "my-sg",
 				"Description":     "My subnet group",
-				"SubnetIds":       []string{"subnet-abc123"},
+				"SubnetIds":       []string{"subnet-abc12345"},
 			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, resp map[string]any) {
@@ -652,7 +652,7 @@ func TestHandlerSubnetGroups(t *testing.T) {
 				subnets := sg["Subnets"].([]any)
 				require.Len(t, subnets, 1)
 				subnet := subnets[0].(map[string]any)
-				assert.Equal(t, "subnet-abc123", subnet["SubnetIdentifier"])
+				assert.Equal(t, "subnet-abc12345", subnet["SubnetIdentifier"])
 				assert.Equal(t, "us-east-1a", subnet["SubnetAvailabilityZone"])
 			},
 		},
@@ -675,7 +675,7 @@ func TestHandlerSubnetGroups(t *testing.T) {
 				t.Helper()
 				daxRequest(t, h, "CreateSubnetGroup", map[string]any{
 					"SubnetGroupName": "upd-sg",
-					"SubnetIds":       []string{"subnet-1"},
+					"SubnetIds":       []string{"subnet-11111111"},
 				})
 			},
 			body: map[string]any{
@@ -696,7 +696,7 @@ func TestHandlerSubnetGroups(t *testing.T) {
 				t.Helper()
 				daxRequest(t, h, "CreateSubnetGroup", map[string]any{
 					"SubnetGroupName": "sg-del",
-					"SubnetIds":       []string{"subnet-1"},
+					"SubnetIds":       []string{"subnet-11111111"},
 				})
 			},
 			body:       map[string]any{"SubnetGroupName": "sg-del"},
@@ -841,12 +841,12 @@ func TestHandlerErrorMapping(t *testing.T) {
 				t.Helper()
 				daxRequest(t, h, "CreateSubnetGroup", map[string]any{
 					"SubnetGroupName": "dup-sg",
-					"SubnetIds":       []string{"subnet-1"},
+					"SubnetIds":       []string{"subnet-11111111"},
 				})
 			},
 			body: map[string]any{
 				"SubnetGroupName": "dup-sg",
-				"SubnetIds":       []string{"subnet-1"},
+				"SubnetIds":       []string{"subnet-11111111"},
 			},
 			wantCode: "SubnetGroupAlreadyExistsFault",
 		},

@@ -267,25 +267,23 @@ func TestJanitor_PreservesActiveSessions(t *testing.T) {
 	}
 }
 
-// TestGetCallerIdentity_ExpiredSession_FallsBackToDefault verifies that an expired
-// session is treated as unknown: GetCallerIdentity falls back to the default identity.
-func TestGetCallerIdentity_ExpiredSession_FallsBackToDefault(t *testing.T) {
+// TestGetCallerIdentity_ExpiredSession_ReturnsExpiredToken verifies that an expired
+// ASIA session returns ExpiredTokenException rather than falling back to the root identity.
+// This matches AWS behaviour where expired temporary credentials are explicitly rejected.
+func TestGetCallerIdentity_ExpiredSession_ReturnsExpiredToken(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
-		wantARN    string
 		expiredAgo time.Duration
 	}{
 		{
 			name:       "expired_one_second_ago",
 			expiredAgo: time.Second,
-			wantARN:    sts.MockUserArn,
 		},
 		{
 			name:       "expired_one_hour_ago",
 			expiredAgo: time.Hour,
-			wantARN:    sts.MockUserArn,
 		},
 	}
 
@@ -312,10 +310,9 @@ func TestGetCallerIdentity_ExpiredSession_FallsBackToDefault(t *testing.T) {
 			// Force the session to be expired.
 			b.SetSessionExpiration(accessKeyID, time.Now().Add(-tt.expiredAgo))
 
-			// After expiry, GetCallerIdentity must return the default identity.
-			ciResp, err = b.GetCallerIdentity(accessKeyID, "")
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantARN, ciResp.GetCallerIdentityResult.Arn)
+			// After expiry, GetCallerIdentity must return ExpiredTokenException, not root identity.
+			_, err = b.GetCallerIdentity(accessKeyID, "")
+			require.ErrorIs(t, err, sts.ErrSessionExpired)
 		})
 	}
 }

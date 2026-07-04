@@ -338,8 +338,7 @@ func TestCFN_StackSetOperations(t *testing.T) {
 		"StackSetName": []string{"ops-test-set"},
 		"OperationId":  []string{opID},
 	}.Encode())
-	// Currently handler ignores StopStackSetOperation error; just verify no panic
-	assert.GreaterOrEqual(t, rec.Code, 200)
+	assert.NotEqual(t, http.StatusOK, rec.Code, "stopping a non-RUNNING operation should error")
 
 	// ListStackSetOperationResults
 	rec = postForm(t, h, url.Values{
@@ -524,8 +523,7 @@ func TestCFN_StackSetOperations_ListAutoDeploymentTargets_NotFound(t *testing.T)
 		"Action":       []string{"ListStackSetAutoDeploymentTargets"},
 		"StackSetName": []string{"nonexistent-set"},
 	}.Encode())
-	// The handler ignores errors here; just check no panic
-	assert.GreaterOrEqual(t, rec.Code, 200)
+	assert.NotEqual(t, http.StatusOK, rec.Code, "missing stack set should error")
 }
 
 // TestCFN_StackSetOperations_ImportNotFound ensures ImportStacksToStackSet

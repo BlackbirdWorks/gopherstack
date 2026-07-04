@@ -639,9 +639,10 @@ func TestDeleteDeliveryStream_ClosesTags(t *testing.T) {
 	assert.ErrorIs(t, descErr, firehose.ErrNotFound)
 }
 
-// TestLambdaTransformation_ErrorDropsRecords verifies that a Lambda invocation error
-// causes the records to be dropped (not silently delivered as originals).
-func TestLambdaTransformation_ErrorDropsRecords(t *testing.T) {
+// TestLambdaTransformation_ErrorRoutesToErrorOutput verifies that a Lambda invocation
+// error routes the source records to the S3 error output (under the ErrorOutputPrefix)
+// rather than dropping them silently or delivering them to the main destination path.
+func TestLambdaTransformation_ErrorRoutesToErrorOutput(t *testing.T) {
 	t.Parallel()
 
 	s3mock := &mockS3Storer{}
@@ -654,7 +655,8 @@ func TestLambdaTransformation_ErrorDropsRecords(t *testing.T) {
 	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "err-lambda-stream",
 		S3Destination: &firehose.S3DestinationDescription{
-			BucketARN: "arn:aws:s3:::err-bucket",
+			BucketARN:         "arn:aws:s3:::err-bucket",
+			ErrorOutputPrefix: "errors/",
 			ProcessingConfiguration: &firehose.ProcessingConfiguration{
 				Enabled: true,
 				Processors: []firehose.Processor{
@@ -673,8 +675,11 @@ func TestLambdaTransformation_ErrorDropsRecords(t *testing.T) {
 	require.NoError(t, b.PutRecord(context.TODO(), "err-lambda-stream", []byte("input")))
 	b.FlushAll(t.Context())
 
-	// Lambda error → records must not be delivered to S3.
-	assert.Empty(t, s3mock.calls)
+	// Lambda error → the original record is routed to the error output, not dropped.
+	require.Len(t, s3mock.calls, 1)
+	assert.Equal(t, "err-bucket", s3mock.calls[0].bucket)
+	assert.Contains(t, s3mock.calls[0].key, "errors/", "failed records must land under ErrorOutputPrefix")
+	assert.Contains(t, string(s3mock.calls[0].body), "input")
 }
 
 // TestPutRecord_FlushSnapshotUnderLock verifies that after a size-based flush the
@@ -743,7 +748,9 @@ func TestUpdateDestination(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			err := b.UpdateDestination(context.TODO(), tt.streamName, "", tt.newDest)
+			err := b.UpdateDestination(
+				context.TODO(), tt.streamName, "1", firehose.UpdateDestinationInput{S3Destination: tt.newDest},
+			)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)

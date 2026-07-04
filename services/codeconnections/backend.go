@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -301,6 +302,13 @@ func (b *InMemoryBackend) findResourceTagsLocked(
 		return host.Tags, true
 	}
 
+	// Repository links are keyed by ID, not ARN; scan by ARN.
+	for _, link := range b.repositoryLinksStore(region) {
+		if link.RepositoryLinkArn == resourceArn {
+			return link.Tags, true
+		}
+	}
+
 	return nil, false
 }
 
@@ -495,20 +503,22 @@ func (b *InMemoryBackend) AddHostInternal(ctx context.Context, host *Host) {
 
 // RepositoryLink represents an AWS CodeConnections repository link.
 type RepositoryLink struct {
-	CreatedAt         time.Time `json:"createdAt"`
-	ConnectionArn     string    `json:"connectionArn"`
-	OwnerID           string    `json:"ownerID"`
-	RepositoryName    string    `json:"repositoryName"`
-	RepositoryLinkID  string    `json:"repositoryLinkID"`
-	RepositoryLinkArn string    `json:"repositoryLinkArn"`
-	ProviderType      string    `json:"providerType"`
-	EncryptionKeyArn  string    `json:"encryptionKeyArn,omitempty"`
+	Tags              map[string]string `json:"tags,omitempty"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	ConnectionArn     string            `json:"connectionArn"`
+	OwnerID           string            `json:"ownerID"`
+	RepositoryName    string            `json:"repositoryName"`
+	RepositoryLinkID  string            `json:"repositoryLinkID"`
+	RepositoryLinkArn string            `json:"repositoryLinkArn"`
+	ProviderType      string            `json:"providerType"`
+	EncryptionKeyArn  string            `json:"encryptionKeyArn,omitempty"`
 }
 
 // CreateRepositoryLink creates a new repository link.
 func (b *InMemoryBackend) CreateRepositoryLink(
 	ctx context.Context,
 	connectionArn, ownerID, repoName, encryptionKeyArn string,
+	tags map[string]string,
 ) (*RepositoryLink, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -524,6 +534,9 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 		providerType = conn.ProviderType
 	}
 
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
 	link := &RepositoryLink{
 		ConnectionArn:     connectionArn,
 		OwnerID:           ownerID,
@@ -532,12 +545,15 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 		RepositoryLinkArn: linkArn,
 		ProviderType:      providerType,
 		EncryptionKeyArn:  encryptionKeyArn,
+		Tags:              tagsCopy,
 		CreatedAt:         time.Now().UTC(),
 	}
 
 	b.repositoryLinksStore(region)[id] = link
 
 	cp := *link
+	cp.Tags = make(map[string]string, len(link.Tags))
+	maps.Copy(cp.Tags, link.Tags)
 
 	return &cp, nil
 }
@@ -558,6 +574,8 @@ func (b *InMemoryBackend) GetRepositoryLink(
 	}
 
 	cp := *link
+	cp.Tags = make(map[string]string, len(link.Tags))
+	maps.Copy(cp.Tags, link.Tags)
 
 	return &cp, nil
 }
@@ -590,16 +608,18 @@ func (b *InMemoryBackend) AddRepositoryLinkInternal(ctx context.Context, link *R
 
 // SyncConfiguration represents an AWS CodeConnections sync configuration.
 type SyncConfiguration struct {
-	CreatedAt        time.Time `json:"createdAt"`
-	Branch           string    `json:"branch"`
-	ConfigFile       string    `json:"configFile"`
-	RepositoryLinkID string    `json:"repositoryLinkID"`
-	ResourceName     string    `json:"resourceName"`
-	RoleArn          string    `json:"roleArn"`
-	SyncType         string    `json:"syncType"`
-	OwnerID          string    `json:"ownerID"`
-	ProviderType     string    `json:"providerType"`
-	RepositoryName   string    `json:"repositoryName"`
+	CreatedAt               time.Time `json:"createdAt"`
+	Branch                  string    `json:"branch"`
+	ConfigFile              string    `json:"configFile"`
+	RepositoryLinkID        string    `json:"repositoryLinkID"`
+	ResourceName            string    `json:"resourceName"`
+	RoleArn                 string    `json:"roleArn"`
+	SyncType                string    `json:"syncType"`
+	OwnerID                 string    `json:"ownerID"`
+	ProviderType            string    `json:"providerType"`
+	RepositoryName          string    `json:"repositoryName"`
+	PublishDeploymentStatus string    `json:"publishDeploymentStatus,omitempty"`
+	TriggerResourceUpdateOn string    `json:"triggerResourceUpdateOn,omitempty"`
 }
 
 // syncConfigKey returns the composite map key for a sync configuration.
@@ -612,6 +632,7 @@ func syncConfigKey(resourceName, syncType string) string {
 func (b *InMemoryBackend) CreateSyncConfiguration(
 	ctx context.Context,
 	branch, configFile, repositoryLinkID, resourceName, roleArn, syncType string,
+	publishDeploymentStatus, triggerResourceUpdateOn string,
 ) (*SyncConfiguration, error) {
 	if !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
@@ -634,16 +655,18 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 	}
 
 	cfg := &SyncConfiguration{
-		Branch:           branch,
-		ConfigFile:       configFile,
-		RepositoryLinkID: repositoryLinkID,
-		ResourceName:     resourceName,
-		RoleArn:          roleArn,
-		SyncType:         syncType,
-		OwnerID:          ownerID,
-		ProviderType:     providerType,
-		RepositoryName:   repoName,
-		CreatedAt:        time.Now().UTC(),
+		Branch:                  branch,
+		ConfigFile:              configFile,
+		RepositoryLinkID:        repositoryLinkID,
+		ResourceName:            resourceName,
+		RoleArn:                 roleArn,
+		SyncType:                syncType,
+		OwnerID:                 ownerID,
+		ProviderType:            providerType,
+		RepositoryName:          repoName,
+		PublishDeploymentStatus: publishDeploymentStatus,
+		TriggerResourceUpdateOn: triggerResourceUpdateOn,
+		CreatedAt:               time.Now().UTC(),
 	}
 
 	b.syncConfigurationsStore(region)[syncConfigKey(resourceName, syncType)] = cfg
@@ -795,6 +818,8 @@ func (b *InMemoryBackend) ListRepositoryLinks(ctx context.Context) []*Repository
 
 	for _, link := range b.repositoryLinksStore(region) {
 		cp := *link
+		cp.Tags = make(map[string]string, len(link.Tags))
+		maps.Copy(cp.Tags, link.Tags)
 		result = append(result, &cp)
 	}
 
@@ -829,6 +854,8 @@ func (b *InMemoryBackend) UpdateRepositoryLink(
 	}
 
 	cp := *link
+	cp.Tags = make(map[string]string, len(link.Tags))
+	maps.Copy(cp.Tags, link.Tags)
 
 	return &cp, nil
 }
@@ -889,6 +916,7 @@ func (b *InMemoryBackend) ListSyncConfigurations(
 func (b *InMemoryBackend) UpdateSyncConfiguration(
 	ctx context.Context,
 	resourceName, syncType, branch, configFile, repositoryLinkID, roleArn string,
+	publishDeploymentStatus, triggerResourceUpdateOn string,
 ) (*SyncConfiguration, error) {
 	if syncType != "" && !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
@@ -920,6 +948,14 @@ func (b *InMemoryBackend) UpdateSyncConfiguration(
 
 	if roleArn != "" {
 		cfg.RoleArn = roleArn
+	}
+
+	if publishDeploymentStatus != "" {
+		cfg.PublishDeploymentStatus = publishDeploymentStatus
+	}
+
+	if triggerResourceUpdateOn != "" {
+		cfg.TriggerResourceUpdateOn = triggerResourceUpdateOn
 	}
 
 	cp := *cfg
@@ -991,27 +1027,24 @@ func (b *InMemoryBackend) GetSyncBlockerSummary(
 	}, nil
 }
 
-// UpdateSyncBlocker is a stub that accepts blocker resolution.
+// UpdateSyncBlocker is a stub that accepts blocker resolution and returns the resource summary.
 func (b *InMemoryBackend) UpdateSyncBlocker(
 	_ context.Context,
-	id, resolvedReason string,
+	id, resolvedReason, resourceName, syncType string,
 ) (*SyncBlockerSummary, error) {
 	_ = id
 	_ = resolvedReason
+	_ = syncType
 
 	return &SyncBlockerSummary{
+		ResourceName:   resourceName,
 		LatestBlockers: []SyncBlocker{},
 	}, nil
 }
 
 // sortedTagKeys returns the keys of the tags map in sorted order.
 func sortedTagKeys(tags map[string]string) []string {
-	keys := make([]string, 0, len(tags))
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 
 	return keys
 }

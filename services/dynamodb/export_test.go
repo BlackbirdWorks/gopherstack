@@ -31,7 +31,7 @@ func FindExclusiveStartIndex(
 	startKey map[string]any,
 	keySchema []models.KeySchemaElement,
 ) int {
-	return findExclusiveStartIndex(items, startKey, keySchema)
+	return findExclusiveStartIndex(items, startKey, keySchema, nil)
 }
 
 func CompareAny(v1, v2 any, typ string) int {
@@ -269,7 +269,10 @@ func (db *InMemoryDB) AddKinesisDestination(tableName, streamARN string) {
 	}
 
 	table.mu.Lock("AddKinesisDestination")
-	table.KinesisDestinations = append(table.KinesisDestinations, KinesisDestinationEntry{StreamARN: streamARN})
+	table.KinesisDestinations = append(
+		table.KinesisDestinations,
+		KinesisDestinationEntry{StreamARN: streamARN},
+	)
 	table.mu.Unlock()
 }
 
@@ -468,7 +471,10 @@ func (db *InMemoryDB) StoreExportForTest(exportARN, tableARN, bucket, status str
 }
 
 // GetKeySchemaForPartiQLForTest exposes getKeySchemaForPartiQL for testing.
-func (db *InMemoryDB) GetKeySchemaForPartiQLForTest(ctx context.Context, tableName string) (any, error) {
+func (db *InMemoryDB) GetKeySchemaForPartiQLForTest(
+	ctx context.Context,
+	tableName string,
+) (any, error) {
 	return db.getKeySchemaForPartiQL(ctx, tableName)
 }
 
@@ -516,7 +522,16 @@ func BuildConsumedCapacityWithIndexes(
 	gsiRCU, gsiWCU map[string]float64,
 	lsiRCU, lsiWCU map[string]float64,
 ) *types.ConsumedCapacity {
-	return buildConsumedCapacityWithIndexes(tableName, req, tableRCU, tableWCU, gsiRCU, gsiWCU, lsiRCU, lsiWCU)
+	return buildConsumedCapacityWithIndexes(
+		tableName,
+		req,
+		tableRCU,
+		tableWCU,
+		gsiRCU,
+		gsiWCU,
+		lsiRCU,
+		lsiWCU,
+	)
 }
 
 // ValidateTransactWriteItems exposes validateTransactWriteItems for external tests.
@@ -577,7 +592,10 @@ func ValidateCreateTableKeySchema(schema []models.KeySchemaElement) error {
 	return validateCreateTableKeySchema(schema)
 }
 
-func ValidateProvisionedThroughput(pt *types.ProvisionedThroughput, billingMode types.BillingMode) error {
+func ValidateProvisionedThroughput(
+	pt *types.ProvisionedThroughput,
+	billingMode types.BillingMode,
+) error {
 	return validateProvisionedThroughput(pt, billingMode)
 }
 
@@ -587,7 +605,11 @@ func ValidateNumberNoLeadingZeros(k, n string) error {
 
 // HandleRequest exposes the handler's dispatch method for use in tests.
 // It calls the internal dispatch function and returns the result.
-func (h *DynamoDBHandler) HandleRequest(ctx context.Context, action string, body []byte) (any, error) {
+func (h *DynamoDBHandler) HandleRequest(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
 	return h.dispatch(ctx, action, body)
 }
 

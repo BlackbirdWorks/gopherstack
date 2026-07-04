@@ -661,11 +661,11 @@ func TestHandler_Destub_PersistenceRoundtrip(t *testing.T) {
 		"PipelineName": "persist-pipeline", "PipelineDefinition": `{"Version":"v2"}`,
 	})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	recPolicy := doSageMakerRequest(t, h2, "GetModelPackageGroupPolicy", map[string]any{
 		"ModelPackageGroupName": "persist-group",

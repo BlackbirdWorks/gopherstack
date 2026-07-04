@@ -1,10 +1,9 @@
 package datasync
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
-	"sort"
 	"strings"
 	"time"
 
@@ -12,8 +11,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -458,11 +459,7 @@ func (b *InMemoryBackend) ListAgents(maxResults int32, nextToken string) ([]*Age
 	b.mu.RLock("ListAgents")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.agents))
-	for a := range b.agents {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.agents)
 
 	all := make([]*AgentListEntry, 0, len(arns))
 	for _, a := range arns {
@@ -565,11 +562,7 @@ func (b *InMemoryBackend) ListLocations(maxResults int32, nextToken string) ([]*
 	b.mu.RLock("ListLocations")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.locations))
-	for a := range b.locations {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.locations)
 
 	all := make([]*LocationListEntry, 0, len(arns))
 	for _, a := range arns {
@@ -687,11 +680,7 @@ func (b *InMemoryBackend) ListTasks(maxResults int32, nextToken string) ([]*Task
 	b.mu.RLock("ListTasks")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.tasks))
-	for a := range b.tasks {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.tasks)
 
 	all := make([]*TaskListEntry, 0, len(arns))
 	for _, a := range arns {
@@ -760,7 +749,7 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 		return ErrNotFound
 	}
 
-	delete(execMap, taskExecutionArn)
+	execMap[taskExecutionArn].Status = "CANCELLED"
 
 	if t, found := b.tasks[taskArn]; found && t.CurrentTaskExecutionArn == taskExecutionArn {
 		t.CurrentTaskExecutionArn = ""
@@ -770,9 +759,10 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 }
 
 // DescribeTaskExecution returns task execution details.
+// Executions in LAUNCHING state are lazily advanced to SUCCESS on first describe.
 func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskExecution, error) {
-	b.mu.RLock("DescribeTaskExecution")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeTaskExecution")
+	defer b.mu.Unlock()
 
 	taskArn := extractTaskArnFromExecution(taskExecutionArn)
 	if taskArn == "" {
@@ -789,6 +779,10 @@ func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskE
 		return nil, ErrNotFound
 	}
 
+	if e.Status == executionStatusLaunching {
+		e.Status = executionStatusSuccess
+	}
+
 	cp := e.toTaskExecution()
 
 	return &cp, nil
@@ -803,12 +797,14 @@ func (b *InMemoryBackend) ListTaskExecutions(
 	b.mu.RLock("ListTaskExecutions")
 	defer b.mu.RUnlock()
 
-	execMap := b.executions[taskArn]
-	execArns := make([]string, 0, len(execMap))
-	for a := range execMap {
-		execArns = append(execArns, a)
+	if taskArn != "" {
+		if _, ok := b.tasks[taskArn]; !ok {
+			return nil, "", ErrNotFound
+		}
 	}
-	sort.Strings(execArns)
+
+	execMap := b.executions[taskArn]
+	execArns := collections.SortedKeys(execMap)
 
 	all := make([]*TaskExecutionListEntry, 0, len(execArns))
 	for _, a := range execArns {
@@ -839,6 +835,13 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	}
 	maps.Copy(b.tags[resourceArn], tags)
 
+	if a, ok := b.agents[resourceArn]; ok {
+		if a.Tags == nil {
+			a.Tags = make(map[string]string)
+		}
+		maps.Copy(a.Tags, tags)
+	}
+
 	return nil
 }
 
@@ -853,6 +856,12 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error
 
 	for _, k := range keys {
 		delete(b.tags[resourceArn], k)
+	}
+
+	if a, ok := b.agents[resourceArn]; ok {
+		for _, k := range keys {
+			delete(a.Tags, k)
+		}
 	}
 
 	return nil
@@ -873,11 +882,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 
 	// Build sorted key list for stable pagination.
 	tagMap := b.tags[resourceArn]
-	keys := make([]string, 0, len(tagMap))
-	for k := range tagMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tagMap)
 
 	type tagEntry struct {
 		key   string
@@ -937,28 +942,26 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "datasync", snapshot{
 		Agents:     b.agents,
 		Locations:  b.locations,
 		Tasks:      b.tasks,
 		Executions: b.executions,
 		Tags:       b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "datasync", data, &snap); err != nil {
 		return err
 	}
 

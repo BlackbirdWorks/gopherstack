@@ -486,11 +486,11 @@ func TestTGWMulticast_SnapshotRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	domains := fresh.DescribeTransitGatewayMulticastDomains(nil)
 	require.Len(t, domains, 1)

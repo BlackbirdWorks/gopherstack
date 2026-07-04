@@ -1,6 +1,11 @@
 package awsconfig
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
 
 const (
 	orgRuleStatusCreateSuccessful = "CREATE_SUCCESSFUL"
@@ -315,7 +320,7 @@ func (b *InMemoryBackend) DescribeComplianceByConfigRule(names []string) []Compl
 	for _, name := range names {
 		ct := b.ruleEvaluations[name]
 		if ct == "" {
-			ct = "NOT_APPLICABLE"
+			ct = complianceNotApplicable
 		}
 
 		out = append(out, ComplianceByConfigRule{
@@ -327,29 +332,73 @@ func (b *InMemoryBackend) DescribeComplianceByConfigRule(names []string) []Compl
 	return out
 }
 
-// GetComplianceSummaryByConfigRule returns a stub compliance summary.
+// GetComplianceSummaryByConfigRule returns a compliance summary aggregated from
+// the recorded rule evaluations. AWS returns counts of compliant and
+// non-compliant config rules; here we derive those counts from the stored
+// per-rule compliance types populated via PutEvaluation(s)/PutExternalEvaluation.
+// When no evaluations have been recorded the result is an empty slice.
 func (b *InMemoryBackend) GetComplianceSummaryByConfigRule() []ComplianceSummary {
-	return []ComplianceSummary{}
+	b.mu.RLock("GetComplianceSummaryByConfigRule")
+	defer b.mu.RUnlock()
+
+	if len(b.ruleEvaluations) == 0 {
+		return []ComplianceSummary{}
+	}
+
+	var compliant, nonCompliant int32
+
+	for _, ct := range b.ruleEvaluations {
+		switch ct {
+		case "COMPLIANT":
+			compliant++
+		case "NON_COMPLIANT":
+			nonCompliant++
+		}
+	}
+
+	complianceType := "COMPLIANT"
+	if nonCompliant > 0 {
+		complianceType = "NON_COMPLIANT"
+	}
+
+	return []ComplianceSummary{{
+		ComplianceType: complianceType,
+		ComplianceSummary: ComplianceSummaryDetail{
+			CompliantResourceCount:    ResourceCount{CappedCount: compliant},
+			NonCompliantResourceCount: ResourceCount{CappedCount: nonCompliant},
+		},
+	}}
 }
 
-// PutEvaluations stores evaluation results from an AWS Lambda function for a config rule.
+// PutEvaluations stores evaluation results from an AWS Lambda function for a
+// config rule. Each result is retained per-(rule, resource) so the compliance
+// detail APIs can return real per-resource outcomes.
 func (b *InMemoryBackend) PutEvaluations(results []EvaluationResult) error {
 	b.mu.Lock("PutEvaluations")
 	defer b.mu.Unlock()
 
+	now := float64(time.Now().Unix())
+
 	for _, r := range results {
-		b.ruleEvaluations[r.ConfigRuleName] = r.ComplianceType
+		b.recordEvaluationLocked(r.ConfigRuleName, r.ResourceType, r.ResourceID, r.ComplianceType, r.Annotation, now)
 	}
 
 	return nil
 }
 
-// PutExternalEvaluation stores a single external evaluation result.
+// PutExternalEvaluation stores a single external evaluation result per-resource.
 func (b *InMemoryBackend) PutExternalEvaluation(result EvaluationResult) error {
 	b.mu.Lock("PutExternalEvaluation")
 	defer b.mu.Unlock()
 
-	b.ruleEvaluations[result.ConfigRuleName] = result.ComplianceType
+	b.recordEvaluationLocked(
+		result.ConfigRuleName,
+		result.ResourceType,
+		result.ResourceID,
+		result.ComplianceType,
+		result.Annotation,
+		float64(time.Now().Unix()),
+	)
 
 	return nil
 }
@@ -381,8 +430,8 @@ func (b *InMemoryBackend) DescribeDeliveryChannelStatus(names []string) []Delive
 	for _, name := range channelNames {
 		out = append(out, DeliveryChannelStatus{
 			Name:                      name,
-			ConfigHistoryDeliveryInfo: &DeliveryChannelStatusInfo{LastStatus: "SUCCESS"},
-			ConfigStreamDeliveryInfo:  &DeliveryChannelStatusInfo{LastStatus: "SUCCESS"},
+			ConfigHistoryDeliveryInfo: &DeliveryChannelStatusInfo{LastStatus: recorderStatusSuccess},
+			ConfigStreamDeliveryInfo:  &DeliveryChannelStatusInfo{LastStatus: recorderStatusSuccess},
 		})
 	}
 
@@ -507,7 +556,9 @@ func (b *InMemoryBackend) DescribeOrganizationConformancePackStatuses(
 
 // --- Group 9: ResourceConfig operations ---
 
-// PutResourceConfig stores configuration for a resource.
+// PutResourceConfig stores configuration for a resource. The latest state is kept
+// for discovery, and a configuration-history entry is appended whenever the
+// configuration actually changes (mirroring AWS Config which records on change).
 func (b *InMemoryBackend) PutResourceConfig(resourceType, resourceID, configuration string) error {
 	b.mu.Lock("PutResourceConfig")
 	defer b.mu.Unlock()
@@ -516,31 +567,67 @@ func (b *InMemoryBackend) PutResourceConfig(resourceType, resourceID, configurat
 		b.resourceConfigs[resourceType] = make(map[string]*ResourceConfigItem)
 	}
 
-	b.resourceConfigs[resourceType][resourceID] = &ResourceConfigItem{
-		ResourceType:  resourceType,
-		ResourceID:    resourceID,
-		Configuration: configuration,
+	b.captureCounter++
+
+	item := ResourceConfigItem{
+		ResourceType:                 resourceType,
+		ResourceID:                   resourceID,
+		Configuration:                configuration,
+		ConfigurationItemCaptureTime: float64(time.Now().Unix()),
+	}
+
+	b.resourceConfigs[resourceType][resourceID] = &item
+
+	key := resourceEvalKey(resourceType, resourceID)
+
+	hist := b.resourceHistory[key]
+	if len(hist) == 0 || hist[len(hist)-1].Configuration != configuration {
+		b.resourceHistory[key] = append(hist, item)
 	}
 
 	return nil
 }
 
-// GetResourceConfigHistory returns configuration history for a resource.
+// resourceHistoryLocked returns the configuration history for a resource ordered
+// most-recent first. The caller must hold at least a read lock.
+func (b *InMemoryBackend) resourceHistoryLocked(resourceType, resourceID string) []ResourceConfigItem {
+	hist := b.resourceHistory[resourceEvalKey(resourceType, resourceID)]
+	if len(hist) == 0 {
+		return []ResourceConfigItem{}
+	}
+
+	out := make([]ResourceConfigItem, len(hist))
+	for i, item := range hist {
+		out[len(hist)-1-i] = item
+	}
+
+	return out
+}
+
+// GetResourceConfigHistory returns the full configuration history for a resource,
+// most-recent first.
 func (b *InMemoryBackend) GetResourceConfigHistory(resourceType, resourceID string) []ResourceConfigItem {
 	b.mu.RLock("GetResourceConfigHistory")
 	defer b.mu.RUnlock()
 
-	byType := b.resourceConfigs[resourceType]
-	if byType == nil {
-		return []ResourceConfigItem{}
-	}
+	return b.resourceHistoryLocked(resourceType, resourceID)
+}
 
-	item, ok := byType[resourceID]
-	if !ok {
-		return []ResourceConfigItem{}
-	}
+// GetResourceConfigHistoryPage returns a page of a resource's configuration
+// history (most-recent first) along with an opaque continuation token.
+func (b *InMemoryBackend) GetResourceConfigHistoryPage(
+	resourceType, resourceID string,
+	limit int,
+	token string,
+) ([]ResourceConfigItem, string) {
+	b.mu.RLock("GetResourceConfigHistoryPage")
+	defer b.mu.RUnlock()
 
-	return []ResourceConfigItem{*item}
+	const defaultLimit = 100
+
+	p := page.New(b.resourceHistoryLocked(resourceType, resourceID), token, limit, defaultLimit)
+
+	return p.Data, p.Next
 }
 
 // ListDiscoveredResources returns all discovered resources of the given type.

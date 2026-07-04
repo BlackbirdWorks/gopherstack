@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -113,17 +114,28 @@ func (r *invocationRing) reset() {
 
 // InMemoryBackend stores Bedrock Runtime state in memory.
 type InMemoryBackend struct {
+	svcCtx             context.Context
 	mu                 *lockmetrics.RWMutex
 	asyncInvokes       map[string]*AsyncInvoke
-	tokenIndex         map[string]string // clientRequestToken → invocationArn (idempotency)
+	tokenIndex         map[string]string
 	accountID          string
 	region             string
 	invocations        invocationRing
 	asyncInvokeCounter int
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with a background service context.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose background
+// goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		invocations:  newInvocationRing(maxInvocationHistory),
 		asyncInvokes: make(map[string]*AsyncInvoke),
@@ -131,6 +143,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("bedrockruntime"),
+		svcCtx:       svcCtx,
 	}
 }
 
@@ -165,7 +178,7 @@ func (b *InMemoryBackend) RecordInvocation(operation, modelID, input, output str
 	b.invocations.push(inv)
 
 	if b.invocations.evictions > prevEvictions {
-		logger.Load(context.Background()).Warn(
+		logger.Load(b.svcCtx).Warn(
 			"bedrockruntime: invocationRing full, oldest entry evicted",
 			"capacity", len(b.invocations.buf),
 		)
@@ -257,8 +270,8 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 
 	b.asyncInvokeCounter++
 	id := strconv.Itoa(b.asyncInvokeCounter)
-	arn := fmt.Sprintf("arn:aws:bedrock:%s:%s:async-invoke/%s", b.region, b.accountID, id)
-	modelArn := fmt.Sprintf("arn:aws:bedrock:%s::foundation-model/%s", b.region, modelID)
+	arnStr := arn.Build("bedrock", b.region, b.accountID, fmt.Sprintf("async-invoke/%s", id))
+	modelArn := arn.Build("bedrock", b.region, "", fmt.Sprintf("foundation-model/%s", modelID))
 	now := time.Now().UTC()
 
 	var token *string
@@ -268,7 +281,7 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 	}
 
 	inv := &AsyncInvoke{
-		InvocationArn:      arn,
+		InvocationArn:      arnStr,
 		ModelArn:           modelArn,
 		OutputS3URI:        s3URI,
 		Status:             AsyncInvokeStatusInProgress,
@@ -278,10 +291,10 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 		Tags:               copyTags(tags),
 	}
 
-	b.asyncInvokes[arn] = inv
+	b.asyncInvokes[arnStr] = inv
 
 	if clientToken != "" {
-		b.tokenIndex[clientToken] = arn
+		b.tokenIndex[clientToken] = arnStr
 	}
 
 	cp := *inv

@@ -1,20 +1,24 @@
 package waf
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"sort"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
 	changeTokenStatusINSYNC      = "INSYNC"
 	changeTokenStatusPROVISIONED = "PROVISIONED"
+
+	maxChangeTokens = 10_000
 
 	updateInsert = "INSERT"
 	updateDelete = "DELETE"
@@ -435,23 +439,23 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) webACLARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:webacl/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("webacl/%s", id))
 }
 
 func (b *InMemoryBackend) ruleARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:rule/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("rule/%s", id))
 }
 
 func (b *InMemoryBackend) ipSetARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:ipset/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("ipset/%s", id))
 }
 
 func (b *InMemoryBackend) rateBasedRuleARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:ratebasedrule/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("ratebasedrule/%s", id))
 }
 
 func (b *InMemoryBackend) ruleGroupARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:rulegroup/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("rulegroup/%s", id))
 }
 
 // GetChangeToken returns a new change token in PROVISIONED state.
@@ -462,19 +466,38 @@ func (b *InMemoryBackend) GetChangeToken() string {
 	token := uuid.New().String()
 	b.changeTokens[token] = changeTokenStatusPROVISIONED
 
+	if len(b.changeTokens) > maxChangeTokens {
+		for k, v := range b.changeTokens {
+			if v == changeTokenStatusINSYNC {
+				delete(b.changeTokens, k)
+			}
+		}
+	}
+
 	return token
 }
 
 // GetChangeTokenStatus returns the status of a change token.
+// Unknown tokens return INSYNC, matching real AWS WAF Classic behavior.
 func (b *InMemoryBackend) GetChangeTokenStatus(token string) string {
 	b.mu.RLock("GetChangeTokenStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.changeTokens[token]; ok {
-		return changeTokenStatusINSYNC
+	if status, ok := b.changeTokens[token]; ok {
+		return status
 	}
 
 	return changeTokenStatusINSYNC
+}
+
+// MarkChangeTokenUsed transitions a change token from PROVISIONED to INSYNC.
+func (b *InMemoryBackend) MarkChangeTokenUsed(token string) {
+	b.mu.Lock("MarkChangeTokenUsed")
+	defer b.mu.Unlock()
+
+	if _, ok := b.changeTokens[token]; ok {
+		b.changeTokens[token] = changeTokenStatusINSYNC
+	}
 }
 
 // CreateWebACL creates a new WebACL.
@@ -1859,11 +1882,11 @@ type backendSnapshot struct {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(backendSnapshot{
+	return persistence.MarshalSnapshot(ctx, "waf", backendSnapshot{
 		ChangeTokens:          b.changeTokens,
 		WebACLs:               b.webACLs,
 		Rules:                 b.rules,
@@ -1882,17 +1905,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		PermissionPolicies:    b.permissionPolicies,
 		Tags:                  b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var s backendSnapshot
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "waf", data, &s); err != nil {
 		return err
 	}
 

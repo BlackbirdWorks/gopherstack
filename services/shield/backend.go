@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -111,12 +112,12 @@ func newShieldID() string {
 // protectionARN builds a Shield protection ARN.
 // Shield ARNs are global (no region component).
 func protectionARN(accountID, protectionID string) string {
-	return fmt.Sprintf("arn:aws:shield::%s:protection/%s", accountID, protectionID)
+	return arn.Build("shield", "", accountID, fmt.Sprintf("protection/%s", protectionID))
 }
 
 // protectionGroupARN builds a Shield protection group ARN.
 func protectionGroupARN(accountID, groupID string) string {
-	return fmt.Sprintf("arn:aws:shield::%s:protection-group/%s", accountID, groupID)
+	return arn.Build("shield", "", accountID, fmt.Sprintf("protection-group/%s", groupID))
 }
 
 // Protection represents an AWS Shield Advanced protection.
@@ -392,10 +393,26 @@ func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[st
 		Tags:          cloneTags(tags),
 	}
 	b.protections[id] = p
+	b.evictIndexLocked(b.resourceARNIndex)
+	b.evictIndexLocked(b.nameIndex)
 	b.resourceARNIndex[resourceARN] = id
 	b.nameIndex[name] = id
 
 	return cloneProtection(p), nil
+}
+
+// evictIndexLocked removes a random entry from idx when it is at the cap.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) evictIndexLocked(idx map[string]string) {
+	if len(idx) < maxIndexEntries {
+		return
+	}
+
+	for k := range idx {
+		delete(idx, k)
+
+		break
+	}
 }
 
 // DescribeProtection returns a protection by ID or resource ARN.
@@ -437,15 +454,17 @@ func (b *InMemoryBackend) DeleteProtection(protectionID string) error {
 }
 
 // ListProtections returns all protections sorted by name.
+// Clones are built under RLock; sorting happens after the lock is released.
 func (b *InMemoryBackend) ListProtections() []*Protection {
 	b.mu.RLock("ListProtections")
-	defer b.mu.RUnlock()
 
 	list := make([]*Protection, 0, len(b.protections))
 
 	for _, p := range b.protections {
 		list = append(list, cloneProtection(p))
 	}
+
+	b.mu.RUnlock()
 
 	slices.SortFunc(list, func(a, b *Protection) int {
 		if a.Name < b.Name {
@@ -466,6 +485,11 @@ const (
 	maxTagsPerResource = 50
 	maxTagKeyLen       = 128
 	maxTagValueLen     = 256
+)
+
+const (
+	// maxIndexEntries caps nameIndex and resourceARNIndex to prevent unbounded growth.
+	maxIndexEntries = 10_000
 )
 
 // TagResource adds tags to a protection, keyed by Shield protection ARN or resource ARN.
@@ -558,6 +582,7 @@ func (b *InMemoryBackend) resolveTaggableProtection(resourceARN string) (*Protec
 
 // resolveShieldProtectionARN resolves a Shield protection ARN (arn:aws:shield::*:protection/<id>)
 // to a protection, or returns nil if the ARN is not a Shield protection ARN or not found.
+// The ID is extracted directly from the ARN path — no O(n) scan needed.
 func (b *InMemoryBackend) resolveShieldProtectionARN(resourceARN string) *Protection {
 	if !strings.HasPrefix(resourceARN, "arn:aws:shield::") || !strings.Contains(resourceARN, ":protection/") {
 		return nil
@@ -568,20 +593,7 @@ func (b *InMemoryBackend) resolveShieldProtectionARN(resourceARN string) *Protec
 		return nil
 	}
 
-	id := parts[1]
-
-	if p, ok := b.protections[id]; ok {
-		return p
-	}
-
-	// Scan by ProtectionArn in case format differs.
-	for _, p := range b.protections {
-		if p.ProtectionArn == resourceARN {
-			return p
-		}
-	}
-
-	return nil
+	return b.protections[parts[1]]
 }
 
 // cloneTags returns a deep copy of the given tag map.
@@ -1093,15 +1105,17 @@ func (b *InMemoryBackend) DescribeProtectionGroup(id string) (*ProtectionGroup, 
 }
 
 // ListProtectionGroups returns all protection groups sorted by ID.
+// Clones are built under RLock; sorting happens after the lock is released.
 func (b *InMemoryBackend) ListProtectionGroups() []*ProtectionGroup {
 	b.mu.RLock("ListProtectionGroups")
-	defer b.mu.RUnlock()
 
 	list := make([]*ProtectionGroup, 0, len(b.protectionGroups))
 
 	for _, pg := range b.protectionGroups {
 		list = append(list, cloneProtectionGroup(pg))
 	}
+
+	b.mu.RUnlock()
 
 	slices.SortFunc(list, func(a, b *ProtectionGroup) int {
 		if a.ID < b.ID {

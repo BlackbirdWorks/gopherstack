@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // defaultIdleSessionTTLSeconds is the default agent idle session TTL (10 minutes),
@@ -73,15 +74,16 @@ const (
 
 // AgentConfig holds fields for creating or updating an Agent.
 type AgentConfig struct {
-	Tags            map[string]string
-	Guardrail       map[string]any
-	Memory          map[string]any
-	AgentName       string
-	Collaboration   string
-	Description     string
-	FoundationModel string
-	Instruction     string
-	RoleARN         string
+	Tags                    map[string]string
+	Guardrail               map[string]any
+	Memory                  map[string]any
+	AgentName               string
+	Collaboration           string
+	Description             string
+	FoundationModel         string
+	Instruction             string
+	RoleARN                 string
+	IdleSessionTTLInSeconds int
 }
 
 // ActionGroupConfig holds fields for creating or updating an AgentActionGroup.
@@ -687,7 +689,7 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 		PromptOverrideConfiguration: map[string]any{
 			"promptConfigurations": []any{},
 		},
-		IdleSessionTTLInSeconds: defaultIdleSessionTTLSeconds,
+		IdleSessionTTLInSeconds: ttlOrDefault(cfg.IdleSessionTTLInSeconds),
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
@@ -738,6 +740,14 @@ func (b *InMemoryBackend) UpdateAgent(_ context.Context, agentID string, cfg Age
 	return agentCopy(a), nil
 }
 
+func ttlOrDefault(ttl int) int {
+	if ttl > 0 {
+		return ttl
+	}
+
+	return defaultIdleSessionTTLSeconds
+}
+
 func applyAgentConfig(a *Agent, cfg AgentConfig) {
 	if cfg.Collaboration != "" {
 		a.Collaboration = cfg.Collaboration
@@ -765,6 +775,10 @@ func applyAgentConfig(a *Agent, cfg AgentConfig) {
 
 	if cfg.Memory != nil {
 		a.Memory = cfg.Memory
+	}
+
+	if cfg.IdleSessionTTLInSeconds > 0 {
+		a.IdleSessionTTLInSeconds = cfg.IdleSessionTTLInSeconds
 	}
 }
 
@@ -2741,13 +2755,7 @@ func paginate(ids []string, nextToken string, maxResults int) ([]string, string)
 }
 
 func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }

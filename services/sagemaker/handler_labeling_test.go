@@ -505,11 +505,11 @@ func TestLabelingFamily_SnapshotRestore(t *testing.T) {
 		).Code,
 	)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	rec := doSageMakerRequest(t, h2, "DescribeWorkforce", map[string]any{"WorkforceName": "persist-wf"})
 	assert.Equal(t, http.StatusOK, rec.Code)

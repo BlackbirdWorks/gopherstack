@@ -14,26 +14,26 @@ import (
 func TestOrganizationsChildrenIndexConsistency(t *testing.T) {
 	t.Parallel()
 
-	newBackend := func(t *testing.T) (*organizations.InMemoryBackend, string, string) {
+	newBackend := func(t *testing.T) (*organizations.InMemoryBackend, string) {
 		t.Helper()
 
 		b := organizations.NewInMemoryBackend("123456789012", "us-east-1")
 		_, root, err := b.CreateOrganization("ALL")
 		require.NoError(t, err)
 
-		return b, root.ID, root.ID
+		return b, root.ID
 	}
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "account_created_appears_in_list_children",
 			run: func(t *testing.T) {
 				t.Helper()
 
-				b, rootID, _ := newBackend(t)
+				b, rootID := newBackend(t)
 
 				// Create an account — should appear in root's ACCOUNT children.
 				status, err := b.CreateAccount("alice", "alice@example.com", "OrganizationAccountAccessRole", "", nil)
@@ -55,7 +55,7 @@ func TestOrganizationsChildrenIndexConsistency(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				b, rootID, _ := newBackend(t)
+				b, rootID := newBackend(t)
 
 				ou, err := b.CreateOrganizationalUnit(rootID, "Engineering", nil)
 				require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestOrganizationsChildrenIndexConsistency(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				b, rootID, _ := newBackend(t)
+				b, rootID := newBackend(t)
 
 				// Need an OU to move the account into so we can remove it
 				// (root accounts can't be directly removed in some paths; move first).
@@ -122,7 +122,7 @@ func TestOrganizationsChildrenIndexConsistency(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				b, rootID, _ := newBackend(t)
+				b, rootID := newBackend(t)
 
 				ou, err := b.CreateOrganizationalUnit(rootID, "Infra", nil)
 				require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestOrganizationsChildrenIndexConsistency(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				b, rootID, _ := newBackend(t)
+				b, rootID := newBackend(t)
 
 				ou, err := b.CreateOrganizationalUnit(rootID, "ToDelete", nil)
 				require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestOrganizationsChildrenIndexConsistency(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				b, rootID, _ := newBackend(t)
+				b, rootID := newBackend(t)
 
 				ou, err := b.CreateOrganizationalUnit(rootID, "HasAccounts", nil)
 				require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestOrganizationsChildrenIndexConsistency(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				b, rootID, _ := newBackend(t)
+				b, rootID := newBackend(t)
 
 				parent, err := b.CreateOrganizationalUnit(rootID, "Parent", nil)
 				require.NoError(t, err)
@@ -224,22 +224,22 @@ func BenchmarkListChildrenAccounts(b *testing.B) {
 		name := "bench" + string(rune('a'+i/26%26)) + string(rune('a'+i%26))
 		email := name + "@example.com"
 
-		status, err := backend.CreateAccount(name, email, "Role", "", nil)
-		if err != nil {
-			b.Fatal(err)
+		acct, createErr := backend.CreateAccount(name, email, "Role", "", nil)
+		if createErr != nil {
+			b.Fatal(createErr)
 		}
 
-		if err := backend.MoveAccount(status.AccountID, root.ID, ou.ID); err != nil {
-			b.Fatal(err)
+		if moveErr := backend.MoveAccount(acct.AccountID, root.ID, ou.ID); moveErr != nil {
+			b.Fatal(moveErr)
 		}
 	}
 
 	b.ResetTimer()
 
 	for range b.N {
-		children, err := backend.ListChildren(ou.ID, "ACCOUNT")
-		if err != nil {
-			b.Fatal(err)
+		children, listErr := backend.ListChildren(ou.ID, "ACCOUNT")
+		if listErr != nil {
+			b.Fatal(listErr)
 		}
 
 		if len(children) != n {

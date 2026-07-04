@@ -1,5 +1,7 @@
 package shield
 
+import "context"
+
 // StorageBackend is the interface for Shield Advanced storage operations.
 type StorageBackend interface {
 	CreateSubscription() error
@@ -44,8 +46,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

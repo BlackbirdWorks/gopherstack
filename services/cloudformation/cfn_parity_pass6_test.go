@@ -164,7 +164,7 @@ func TestParity_DynamicRef_ExactLimitNotError(t *testing.T) {
 			tmpl := mustParseTemplate(t, tmplBody)
 			resolver := &stubResolver{params: params}
 
-			err := cloudformation.ResolveDynamicRefsInTemplate(tmpl, resolver)
+			err := cloudformation.ResolveDynamicRefsInTemplate(context.Background(), tmpl, resolver)
 
 			if tt.wantErr {
 				require.Error(t, err)

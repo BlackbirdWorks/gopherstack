@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
@@ -20,8 +21,12 @@ import (
 )
 
 var (
-	errReplicaCreateRegionRequired = errors.New("RegionName is required for ReplicaUpdates Create action")
-	errReplicaDeleteRegionRequired = errors.New("RegionName is required for ReplicaUpdates Delete action")
+	errReplicaCreateRegionRequired = errors.New(
+		"RegionName is required for ReplicaUpdates Create action",
+	)
+	errReplicaDeleteRegionRequired = errors.New(
+		"RegionName is required for ReplicaUpdates Delete action",
+	)
 )
 
 // getRegionFromContext extracts the region from the request context.
@@ -30,8 +35,24 @@ func getRegionFromContext(ctx context.Context, db *InMemoryDB) string {
 	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
 		return region
 	}
+	// Fall back to the central awsmeta identity before the backend default so the
+	// region stays consistent with the rest of the stack.
+	if region := awsmeta.Region(ctx); region != "" {
+		return region
+	}
 
 	return db.defaultRegion
+}
+
+// accountFromContext returns the request's AWS account, preferring a per-request
+// override carried on awsmeta (e.g. X-Amz-Account-Id) over the backend default.
+// Falls back to db.accountID when awsmeta carries only the placeholder account.
+func accountFromContext(ctx context.Context, db *InMemoryDB) string {
+	if a := awsmeta.Account(ctx); a != "" && a != awsmeta.DefaultAccount {
+		return a
+	}
+
+	return db.accountID
 }
 
 // throttleKey returns the throttler key for the given region and table.
@@ -51,6 +72,47 @@ func (db *InMemoryDB) CreateTableInRegion(
 	return db.CreateTable(context.WithValue(ctx, regionContextKey{}, region), input)
 }
 
+// validateCreateTableInput validates a CreateTable request before any shared state
+// is touched. It returns a validation error describing the first failure encountered.
+func validateCreateTableInput(input *dynamodb.CreateTableInput) error {
+	if input.BillingMode != "" &&
+		input.BillingMode != types.BillingModeProvisioned &&
+		input.BillingMode != types.BillingModePayPerRequest {
+		return NewValidationException(fmt.Sprintf(
+			"1 validation error detected: Value '%s' at 'billingMode' failed to satisfy constraint:"+
+				" Member must satisfy enum value set: [PROVISIONED, PAY_PER_REQUEST]",
+			input.BillingMode,
+		))
+	}
+
+	if err := validateAttributeDefinitions(input); err != nil {
+		return err
+	}
+
+	if err := validateCreateTableKeySchema(models.FromSDKKeySchema(input.KeySchema)); err != nil {
+		return err
+	}
+
+	if err := validateProvisionedThroughput(input.ProvisionedThroughput, input.BillingMode); err != nil {
+		return err
+	}
+
+	// Enforce GSI/LSI count limits before constructing the table.
+	if err := validateGSICount(nil, len(input.GlobalSecondaryIndexes)); err != nil {
+		return err
+	}
+
+	if err := validateGSIThroughput(input.GlobalSecondaryIndexes, input.BillingMode); err != nil {
+		return err
+	}
+
+	if err := validateLSICount(models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (db *InMemoryDB) CreateTable(
 	ctx context.Context,
 	input *dynamodb.CreateTableInput,
@@ -66,28 +128,7 @@ func (db *InMemoryDB) CreateTable(
 	// touch no shared state and can run concurrently with other requests. Building
 	// the struct before the lock keeps the critical section to a handful of map ops,
 	// significantly reducing contention when thousands of tables are created together.
-	if err := validateAttributeDefinitions(input); err != nil {
-		return nil, err
-	}
-
-	if err := validateCreateTableKeySchema(models.FromSDKKeySchema(input.KeySchema)); err != nil {
-		return nil, err
-	}
-
-	if err := validateProvisionedThroughput(input.ProvisionedThroughput, input.BillingMode); err != nil {
-		return nil, err
-	}
-
-	// Enforce GSI/LSI count limits before constructing the table.
-	if err := validateGSICount(nil, len(input.GlobalSecondaryIndexes)); err != nil {
-		return nil, err
-	}
-
-	if err := validateGSIThroughput(input.GlobalSecondaryIndexes, input.BillingMode); err != nil {
-		return nil, err
-	}
-
-	if err := validateLSICount(models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes)); err != nil {
+	if err := validateCreateTableInput(input); err != nil {
 		return nil, err
 	}
 
@@ -97,9 +138,11 @@ func (db *InMemoryDB) CreateTable(
 	newTable.TableArn = arn.Build("dynamodb", region, db.accountID, "table/"+tableName)
 
 	if input.StreamSpecification != nil && aws.ToBool(input.StreamSpecification.StreamEnabled) {
+		streamCreatedAt := newTable.CreationDateTime
 		newTable.StreamsEnabled = true
 		newTable.StreamViewType = string(input.StreamSpecification.StreamViewType)
-		newTable.StreamARN = db.buildStreamARN(tableName)
+		newTable.StreamCreatedAt = streamCreatedAt
+		newTable.StreamARN = db.buildStreamARNInRegion(tableName, region, streamCreatedAt)
 		// Initialize the first shard so DescribeStream/GetShardIterator work immediately.
 		newTable.streamShards = []StreamShard{
 			{
@@ -165,6 +208,7 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 		GlobalSecondaryIndexes: models.FromSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
 		LocalSecondaryIndexes:  models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
 		Items:                  make([]map[string]any, 0),
+		itemSizes:              make([]int, 0),
 		mu:                     lockmetrics.New("ddb.table." + tableName),
 		ProvisionedThroughput: models.ProvisionedThroughputDescription{
 			ReadCapacityUnits:  models.DefaultReadCapacity,
@@ -193,8 +237,14 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 		t.BillingMode = string(types.BillingModeProvisioned)
 	}
 
+	if odt := input.OnDemandThroughput; odt != nil {
+		t.OnDemandMaxReadRRU = odt.MaxReadRequestUnits
+		t.OnDemandMaxWriteRRU = odt.MaxWriteRequestUnits
+	}
+
 	if input.SSESpecification != nil {
-		t.SSEEnabled = input.SSESpecification.Enabled == nil || aws.ToBool(input.SSESpecification.Enabled)
+		t.SSEEnabled = input.SSESpecification.Enabled == nil ||
+			aws.ToBool(input.SSESpecification.Enabled)
 		if t.SSEEnabled {
 			t.SSEType = string(input.SSESpecification.SSEType)
 			if t.SSEType == "" {
@@ -273,7 +323,10 @@ func validateAttributeDefinitions(input *dynamodb.CreateTableInput) error {
 }
 
 // buildCreateTableOutput constructs the wire response for CreateTable.
-func buildCreateTableOutput(input *dynamodb.CreateTableInput, t *Table) *dynamodb.CreateTableOutput {
+func buildCreateTableOutput(
+	input *dynamodb.CreateTableInput,
+	t *Table,
+) *dynamodb.CreateTableOutput {
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(input.GlobalSecondaryIndexes))
 	for i, gsi := range input.GlobalSecondaryIndexes {
 		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
@@ -482,7 +535,9 @@ func buildGSIDescriptions(
 	return gsiDescs
 }
 
-func buildLSIDescriptions(lsiList []models.LocalSecondaryIndex) []models.LocalSecondaryIndexDescription {
+func buildLSIDescriptions(
+	lsiList []models.LocalSecondaryIndex,
+) []models.LocalSecondaryIndexDescription {
 	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(lsiList))
 	for i, lsi := range lsiList {
 		lsiDescs[i] = models.LocalSecondaryIndexDescription{
@@ -528,21 +583,23 @@ func (db *InMemoryDB) DescribeTable(
 // responses. Field order is govet/fieldalignment-tuned.
 type tableSnapshot struct {
 	creationDT                time.Time
-	tableStatus               types.TableStatus
-	tableArn                  string
-	tableID                   string
+	onDemandMaxReadRRU        *int64
+	onDemandMaxWriteRRU       *int64
+	tableClass                string
 	streamARN                 string
 	streamViewType            string
-	tableClass                string
+	tableID                   string
 	globalTableName           string
 	billingMode               string
 	sseType                   string
 	sseKMSMasterKeyArn        string
-	replicaList               []models.ReplicaDescription
+	tableArn                  string
+	tableStatus               types.TableStatus
 	lsiList                   []models.LocalSecondaryIndex
-	keySchema                 []models.KeySchemaElement
 	attrDefs                  []models.AttributeDefinition
 	gsiList                   []models.GlobalSecondaryIndex
+	keySchema                 []models.KeySchemaElement
+	replicaList               []models.ReplicaDescription
 	pt                        models.ProvisionedThroughputDescription
 	itemCount                 int64
 	itemSizeBytes             int64
@@ -556,13 +613,22 @@ func snapshotTable(table *Table) tableSnapshot {
 	defer table.mu.RUnlock()
 
 	s := tableSnapshot{
-		keySchema:                 make([]models.KeySchemaElement, len(table.KeySchema)),
-		attrDefs:                  make([]models.AttributeDefinition, len(table.AttributeDefinitions)),
-		gsiList:                   make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes)),
-		lsiList:                   make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes)),
+		keySchema: make([]models.KeySchemaElement, len(table.KeySchema)),
+		attrDefs: make(
+			[]models.AttributeDefinition,
+			len(table.AttributeDefinitions),
+		),
+		gsiList: make(
+			[]models.GlobalSecondaryIndex,
+			len(table.GlobalSecondaryIndexes),
+		),
+		lsiList: make(
+			[]models.LocalSecondaryIndex,
+			len(table.LocalSecondaryIndexes),
+		),
 		replicaList:               make([]models.ReplicaDescription, len(table.Replicas)),
 		itemCount:                 int64(len(table.Items)),
-		itemSizeBytes:             estimateTableSizeBytes(table.Items),
+		itemSizeBytes:             estimateTableSizeBytes(table),
 		pt:                        table.ProvisionedThroughput,
 		tableStatus:               types.TableStatus(table.Status),
 		tableArn:                  table.TableArn,
@@ -578,6 +644,8 @@ func snapshotTable(table *Table) tableSnapshot {
 		sseEnabled:                table.SSEEnabled,
 		sseType:                   table.SSEType,
 		sseKMSMasterKeyArn:        table.SSEKMSMasterKeyArn,
+		onDemandMaxReadRRU:        table.OnDemandMaxReadRRU,
+		onDemandMaxWriteRRU:       table.OnDemandMaxWriteRRU,
 	}
 	copy(s.keySchema, table.KeySchema)
 	copy(s.attrDefs, table.AttributeDefinitions)
@@ -628,6 +696,13 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 		td.ProvisionedThroughput = &types.ProvisionedThroughputDescription{
 			ReadCapacityUnits:  &rcu,
 			WriteCapacityUnits: &wcu,
+		}
+	}
+
+	if s.onDemandMaxReadRRU != nil || s.onDemandMaxWriteRRU != nil {
+		td.OnDemandThroughput = &types.OnDemandThroughput{
+			MaxReadRequestUnits:  s.onDemandMaxReadRRU,
+			MaxWriteRequestUnits: s.onDemandMaxWriteRRU,
 		}
 	}
 
@@ -739,7 +814,7 @@ func (db *InMemoryDB) UpdateTable(
 	)
 
 	if updateErr := db.applyUpdateTableLocked(
-		table, tableName, input,
+		table, tableName, region, input,
 		&oldStreamARN, &newStreamARN, &rcu, &wcu, &out,
 	); updateErr != nil {
 		return nil, updateErr
@@ -774,14 +849,66 @@ func (db *InMemoryDB) UpdateTable(
 
 // applyUpdateTableLocked applies all table mutations under table.mu. It is extracted from
 // UpdateTable to reduce cognitive complexity of the parent function.
+// countUpdateTableMutations counts the mutually-exclusive UpdateTable mutation
+// groups present in the input; AWS allows at most one per call.
+func countUpdateTableMutations(input *dynamodb.UpdateTableInput) int {
+	mutations := 0
+	for _, present := range []bool{
+		input.ProvisionedThroughput != nil,
+		len(input.GlobalSecondaryIndexUpdates) > 0,
+		len(input.ReplicaUpdates) > 0,
+		input.SSESpecification != nil,
+		input.StreamSpecification != nil,
+		input.DeletionProtectionEnabled != nil,
+		input.TableClass != "",
+		input.BillingMode != "",
+	} {
+		if present {
+			mutations++
+		}
+	}
+
+	return mutations
+}
+
+// validateUpdateTableMutation enforces the at-most-one-mutation rule and
+// validates provisioned throughput against the effective billing mode.
+func validateUpdateTableMutation(table *Table, input *dynamodb.UpdateTableInput) error {
+	if countUpdateTableMutations(input) > 1 {
+		return NewValidationException(
+			"One or more parameter values were invalid: " +
+				"Up to one of the following can be updated per API call: " +
+				"ProvisionedThroughput, GlobalSecondaryIndexUpdates, ReplicaUpdates, " +
+				"SSESpecification, StreamSpecification, DeletionProtectionEnabled, " +
+				"TableClass, BillingMode",
+		)
+	}
+
+	if input.BillingMode == "" && input.ProvisionedThroughput == nil {
+		return nil
+	}
+
+	billingMode := table.BillingMode
+	if input.BillingMode != "" {
+		billingMode = string(input.BillingMode)
+	}
+
+	return validateProvisionedThroughput(input.ProvisionedThroughput, types.BillingMode(billingMode))
+}
+
 func (db *InMemoryDB) applyUpdateTableLocked(
 	table *Table,
 	tableName string,
+	region string,
 	input *dynamodb.UpdateTableInput,
 	oldStreamARN, newStreamARN *string,
 	rcu, wcu *int64,
 	out **dynamodb.UpdateTableOutput,
 ) error {
+	if err := validateUpdateTableMutation(table, input); err != nil {
+		return err
+	}
+
 	table.mu.Lock("UpdateTable")
 	defer table.mu.Unlock()
 
@@ -794,7 +921,12 @@ func (db *InMemoryDB) applyUpdateTableLocked(
 		}
 	}
 
-	*oldStreamARN, *newStreamARN = db.applyStreamSpec(table, tableName, input.StreamSpecification)
+	*oldStreamARN, *newStreamARN = db.applyStreamSpec(
+		table,
+		tableName,
+		input.StreamSpecification,
+		region,
+	)
 
 	if replicaErr := applyReplicaUpdates(table, input.ReplicaUpdates); replicaErr != nil {
 		return NewValidationException(replicaErr.Error())
@@ -884,6 +1016,21 @@ func (db *InMemoryDB) applyOneReplicaTableEntry(
 		if _, exists := db.Tables[regionName][tableName]; !exists {
 			replica := cloneTableSchema(source, tableName, regionName, db.accountID)
 			replica.GlobalTableName = tableName
+
+			source.mu.RLock("cloneItems")
+			replica.Items = make([]map[string]any, len(source.Items))
+			replica.itemSizes = make([]int, len(source.itemSizes))
+			replica.totalItemSizeBytes = source.totalItemSizeBytes
+			for i, item := range source.Items {
+				replica.Items[i] = deepCopyItem(item)
+				replica.itemSizes[i] = source.itemSizes[i]
+			}
+			source.mu.RUnlock()
+
+			if len(replica.Items) > 0 {
+				replica.rebuildIndexes()
+			}
+
 			db.Tables[regionName][tableName] = replica
 		} else {
 			db.Tables[regionName][tableName].GlobalTableName = tableName
@@ -969,7 +1116,11 @@ func applyReplicaDelete(table *Table, regionName string) {
 
 // applyReplicaUpdate applies per-replica setting overrides (table class, provisioned throughput)
 // from an UpdateReplicationGroupMemberAction. The replica must already exist.
-func applyReplicaUpdate(table *Table, regionName string, action *types.UpdateReplicationGroupMemberAction) {
+func applyReplicaUpdate(
+	table *Table,
+	regionName string,
+	action *types.UpdateReplicationGroupMemberAction,
+) {
 	for i := range table.Replicas {
 		if table.Replicas[i].RegionName != regionName {
 			continue
@@ -983,6 +1134,20 @@ func applyReplicaUpdate(table *Table, regionName string, action *types.UpdateRep
 			action.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
 			rcu := *action.ProvisionedThroughputOverride.ReadCapacityUnits
 			table.Replicas[i].ProvisionedReadCapacityUnits = &rcu
+		}
+
+		if len(action.GlobalSecondaryIndexes) > 0 {
+			overrides := make([]models.ReplicaGSIOverride, 0, len(action.GlobalSecondaryIndexes))
+			for _, g := range action.GlobalSecondaryIndexes {
+				ov := models.ReplicaGSIOverride{IndexName: aws.ToString(g.IndexName)}
+				if g.ProvisionedThroughputOverride != nil &&
+					g.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
+					rcu := *g.ProvisionedThroughputOverride.ReadCapacityUnits
+					ov.ProvisionedReadCapacity = &rcu
+				}
+				overrides = append(overrides, ov)
+			}
+			table.Replicas[i].GlobalSecondaryIndexes = overrides
 		}
 
 		return
@@ -1018,15 +1183,23 @@ func applyUpdateTableAttrDefs(table *Table, sdkADs []types.AttributeDefinition) 
 	for _, sdkAD := range sdkADs {
 		name := aws.ToString(sdkAD.AttributeName)
 		if _, found := existing[name]; !found {
-			table.AttributeDefinitions = append(table.AttributeDefinitions,
-				models.AttributeDefinition{AttributeName: name, AttributeType: string(sdkAD.AttributeType)})
+			table.AttributeDefinitions = append(
+				table.AttributeDefinitions,
+				models.AttributeDefinition{
+					AttributeName: name,
+					AttributeType: string(sdkAD.AttributeType),
+				},
+			)
 		}
 	}
 }
 
 // applyGSIUpdates applies Create / Update / Delete GSI actions.
 // Returns the first error encountered (e.g. LimitExceededException).
-func (db *InMemoryDB) applyGSIUpdates(table *Table, updates []types.GlobalSecondaryIndexUpdate) error {
+func (db *InMemoryDB) applyGSIUpdates(
+	table *Table,
+	updates []types.GlobalSecondaryIndexUpdate,
+) error {
 	for _, u := range updates {
 		switch {
 		case u.Create != nil:
@@ -1043,7 +1216,10 @@ func (db *InMemoryDB) applyGSIUpdates(table *Table, updates []types.GlobalSecond
 	return nil
 }
 
-func (db *InMemoryDB) applyGSICreate(table *Table, c *types.CreateGlobalSecondaryIndexAction) error {
+func (db *InMemoryDB) applyGSICreate(
+	table *Table,
+	c *types.CreateGlobalSecondaryIndexAction,
+) error {
 	if err := validateGSICount(table.GlobalSecondaryIndexes, 1); err != nil {
 		return err
 	}
@@ -1098,7 +1274,10 @@ func (db *InMemoryDB) applyGSICreate(table *Table, c *types.CreateGlobalSecondar
 	return nil
 }
 
-func (db *InMemoryDB) applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondaryIndexAction) { // Changed to method
+func (db *InMemoryDB) applyGSIUpdate(
+	table *Table,
+	u *types.UpdateGlobalSecondaryIndexAction,
+) { // Changed to method
 	idxName := aws.ToString(u.IndexName)
 
 	for i, gsi := range table.GlobalSecondaryIndexes {
@@ -1153,7 +1332,13 @@ func (db *InMemoryDB) applyGSIDelete(table *Table, d *types.DeleteGlobalSecondar
 			}
 		})
 	} else {
-		// Immediate removal
+		// Immediate removal: stop any pending create/activation timer to prevent
+		// the orphaned AfterFunc from firing after the GSI slice entry is gone.
+		gsiPtr := &table.GlobalSecondaryIndexes[foundIdx]
+		if gsiPtr.IndexStatusTimer != nil {
+			gsiPtr.IndexStatusTimer.Stop()
+			gsiPtr.IndexStatusTimer = nil
+		}
 		table.GlobalSecondaryIndexes = append(
 			table.GlobalSecondaryIndexes[:foundIdx],
 			table.GlobalSecondaryIndexes[foundIdx+1:]...,
@@ -1171,6 +1356,7 @@ func (db *InMemoryDB) applyStreamSpec(
 	table *Table,
 	tableName string,
 	ss *types.StreamSpecification,
+	region string,
 ) (string, string) {
 	if ss == nil {
 		return "", ""
@@ -1183,7 +1369,9 @@ func (db *InMemoryDB) applyStreamSpec(
 		table.StreamViewType = string(ss.StreamViewType)
 
 		if table.StreamARN == "" {
-			table.StreamARN = db.buildStreamARN(tableName)
+			streamCreatedAt := time.Now().UTC()
+			table.StreamCreatedAt = streamCreatedAt
+			table.StreamARN = db.buildStreamARNInRegion(tableName, region, streamCreatedAt)
 			// Initialize the first shard when streams are newly enabled via UpdateTable.
 			table.streamShards = []StreamShard{
 				{
@@ -1206,7 +1394,10 @@ func (db *InMemoryDB) applyStreamSpec(
 }
 
 // buildUpdateTableOutput constructs the UpdateTable response from the current table state.
-func buildUpdateTableOutput(input *dynamodb.UpdateTableInput, table *Table) *dynamodb.UpdateTableOutput {
+func buildUpdateTableOutput(
+	input *dynamodb.UpdateTableInput,
+	table *Table,
+) *dynamodb.UpdateTableOutput {
 	rcu := int64(table.ProvisionedThroughput.ReadCapacityUnits)
 	wcu := int64(table.ProvisionedThroughput.WriteCapacityUnits)
 
@@ -1283,6 +1474,25 @@ func toSDKReplicaDescriptions(replicas []models.ReplicaDescription) []types.Repl
 			}
 		}
 
+		if len(r.GlobalSecondaryIndexes) > 0 {
+			gsis := make(
+				[]types.ReplicaGlobalSecondaryIndexDescription,
+				len(r.GlobalSecondaryIndexes),
+			)
+			for j, g := range r.GlobalSecondaryIndexes {
+				name := g.IndexName
+				gd := types.ReplicaGlobalSecondaryIndexDescription{IndexName: &name}
+				if g.ProvisionedReadCapacity != nil {
+					rcu := *g.ProvisionedReadCapacity
+					gd.ProvisionedThroughputOverride = &types.ProvisionedThroughputOverride{
+						ReadCapacityUnits: &rcu,
+					}
+				}
+				gsis[j] = gd
+			}
+			desc.GlobalSecondaryIndexes = gsis
+		}
+
 		out[i] = desc
 	}
 
@@ -1303,11 +1513,24 @@ func (db *InMemoryDB) UpdateTimeToLive(
 		return nil, err
 	}
 
+	if input.TimeToLiveSpecification == nil {
+		return nil, NewValidationException("TimeToLiveSpecification is required")
+	}
+
+	attrName := aws.ToString(input.TimeToLiveSpecification.AttributeName)
+	enabled := aws.ToBool(input.TimeToLiveSpecification.Enabled)
+
+	if enabled && attrName == "" {
+		return nil, NewValidationException(
+			"TimeToLive attribute name must not be empty when enabling TTL",
+		)
+	}
+
 	table.mu.Lock("UpdateTimeToLive")
 	defer table.mu.Unlock()
 
-	if input.TimeToLiveSpecification.Enabled != nil && *input.TimeToLiveSpecification.Enabled {
-		table.TTLAttribute = aws.ToString(input.TimeToLiveSpecification.AttributeName)
+	if enabled {
+		table.TTLAttribute = attrName
 	} else {
 		table.TTLAttribute = ""
 	}

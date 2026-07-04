@@ -1,10 +1,13 @@
 package xray
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"maps"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -23,7 +26,7 @@ type backendSnapshot struct {
 }
 
 // Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -53,7 +56,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("xray: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "xray: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -68,7 +71,7 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 
 	if snap.SamplingRules == nil {
-		snap.SamplingRules = defaultSamplingRules()
+		snap.SamplingRules = make(map[string]*SamplingRule)
 	}
 
 	if snap.Traces == nil {
@@ -101,10 +104,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "xray", data, &snap); err != nil {
 		return err
 	}
 
@@ -114,6 +117,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	b.groups = snap.Groups
+	// Rebuild the ARN index from the restored groups.
+	b.groupsByARN = make(map[string]*Group, len(snap.Groups))
+	for _, g := range snap.Groups {
+		b.groupsByARN[g.GroupARN] = g
+	}
 	b.samplingRules = snap.SamplingRules
 	b.traces = snap.Traces
 	b.insights = snap.Insights
@@ -134,12 +142,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	// Ensure the built-in Default sampling rule is always present after restore.
 	if _, ok := b.samplingRules[defaultSamplingRuleName]; !ok {
-		maps.Copy(b.samplingRules, defaultSamplingRules())
+		maps.Copy(b.samplingRules, b.defaultSamplingRules())
 	}
 
 	// Rebuild parsed segment indexes from stored traces.
 	b.parsedSegments = make(map[string]*Segment)
 	b.traceSegments = make(map[string][]*Segment)
+	b.retrievalTimes = make(map[string]time.Time)
+	b.serviceWindows = make(map[string]*serviceInsightWindow)
 
 	for traceID, t := range b.traces {
 		for _, rawSeg := range t.Segments {
@@ -157,11 +167,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
-	return h.Backend.Snapshot()
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.Backend.Snapshot(ctx)
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
-	return h.Backend.Restore(data)
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
 }

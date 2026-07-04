@@ -1,17 +1,19 @@
 package rekognition
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"maps"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -27,8 +29,24 @@ const (
 	maxFacesPerPage            = 4096
 	maxStreamProcessorsPerPage = 1000
 
-	defaultFaceConfidence = 99.9
-	defaultFaceSimilarity = 90.0
+	// SearchFacesByImage synthetic similarity tuning.
+	defaultSearchMaxFaces = 5
+	minSearchSimilarity   = 75.0 // similarity range floor
+	searchSimilaritySpan  = 24   // similarity range width: yields [75.0, 99.0]
+	seedStride            = 7    // per-face seed multiplier for score variation
+
+	// Deterministic similarity tuning for face/user matching. Scores are derived
+	// from stored face/user state (IDs + ExternalImageId), never canned constants.
+	// A perfect identity match (same ExternalImageId) yields 100.0; otherwise the
+	// score is spread across [minSearchSimilarity, exactMatchSimilarity).
+	exactMatchSimilarity = 100.0
+	// Indexed-face confidence is derived per-face from its identity so distinct
+	// faces carry distinct (but stable) detection confidence values.
+	minFaceConfidence  = 90.0
+	faceConfidenceSpan = 1000 // confidence range width in milli-percent: [90.000, 99.999]
+	// milliScale expresses scores to 3 decimal places (milli-percent precision)
+	// so deterministic hashing spreads values smoothly across the range.
+	milliScale = 1000.0
 
 	maxTagCount        = 200
 	maxTagKeyLen       = 128
@@ -217,11 +235,11 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Region() string { return b.region }
 
 func (b *InMemoryBackend) collectionARN(collectionID string) string {
-	return fmt.Sprintf("arn:aws:rekognition:%s:%s:collection/%s", b.region, b.accountID, collectionID)
+	return arn.Build("rekognition", b.region, b.accountID, fmt.Sprintf("collection/%s", collectionID))
 }
 
 func (b *InMemoryBackend) streamProcessorARN(name string) string {
-	return fmt.Sprintf("arn:aws:rekognition:%s:%s:streamprocessor/%s", b.region, b.accountID, name)
+	return arn.Build("rekognition", b.region, b.accountID, fmt.Sprintf("streamprocessor/%s", name))
 }
 
 // CreateCollection creates a new face collection.
@@ -300,12 +318,7 @@ func paginateStringMap[V any, R any](
 	nextToken string,
 	convert func(V) R,
 ) ([]R, string) {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	start := 0
 	if nextToken != "" {
@@ -364,8 +377,10 @@ func (b *InMemoryBackend) IndexFaces(collectionID, externalImageID string) ([]*F
 		ImageID:         uuid.NewString(),
 		ExternalImageID: externalImageID,
 		CollectionID:    collectionID,
-		Confidence:      defaultFaceConfidence,
 	}
+	// Detection confidence is derived deterministically from the face's own
+	// identity so distinct faces carry distinct (but stable) values.
+	face.Confidence = faceConfidence(face)
 	b.faces[collectionID] = append(b.faces[collectionID], face)
 
 	return []*Face{face.toFace()}, nil
@@ -452,23 +467,23 @@ func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int3
 		return nil, ErrCollectionNotFound
 	}
 
-	var found bool
+	var query *storedFace
 
 	for _, f := range b.faces[collectionID] {
 		if f.FaceID == faceID {
-			found = true
+			query = f
 
 			break
 		}
 	}
 
-	if !found {
+	if query == nil {
 		return nil, ErrFaceNotFound
 	}
 
 	limit := int(maxFaces)
 	if limit <= 0 {
-		limit = 5
+		limit = defaultSearchMaxFaces
 	}
 
 	var matches []*FaceMatch
@@ -478,8 +493,10 @@ func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int3
 			continue
 		}
 
+		// Similarity is derived from the stored query/candidate identities,
+		// not a canned constant: same ExternalImageId scores 100.0.
 		matches = append(matches, &FaceMatch{
-			Similarity: defaultFaceSimilarity,
+			Similarity: faceSimilarity(query, f),
 			Face:       f.toFace(),
 		})
 
@@ -492,7 +509,13 @@ func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int3
 }
 
 // SearchFacesByImage searches for faces matching an image (simulated).
-func (b *InMemoryBackend) SearchFacesByImage(collectionID string, maxFaces int32) ([]*FaceMatch, error) {
+// imageKey is a stable string derived from the image reference (S3 path or byte length)
+// and is used to vary similarity scores per image rather than returning a fixed value.
+func (b *InMemoryBackend) SearchFacesByImage(
+	collectionID string,
+	maxFaces int32,
+	imageKey string,
+) ([]*FaceMatch, error) {
 	b.mu.RLock("SearchFacesByImage")
 	defer b.mu.RUnlock()
 
@@ -502,14 +525,18 @@ func (b *InMemoryBackend) SearchFacesByImage(collectionID string, maxFaces int32
 
 	limit := int(maxFaces)
 	if limit <= 0 {
-		limit = 5
+		limit = defaultSearchMaxFaces
 	}
 
+	// Derive a per-image seed from the imageKey so similarity varies by image.
+	seed := imageKeySeed(imageKey)
 	var matches []*FaceMatch
 
-	for _, f := range b.faces[collectionID] {
+	for i, f := range b.faces[collectionID] {
+		// Vary similarity in [75.0, 99.0] using image seed and face index.
+		similarity := minSearchSimilarity + float64((seed+uint32(i)*seedStride)%searchSimilaritySpan)
 		matches = append(matches, &FaceMatch{
-			Similarity: defaultFaceSimilarity,
+			Similarity: similarity,
 			Face:       f.toFace(),
 		})
 
@@ -519,6 +546,52 @@ func (b *InMemoryBackend) SearchFacesByImage(collectionID string, maxFaces int32
 	}
 
 	return matches, nil
+}
+
+// imageKeySeed converts an image key string to a uint32 (FNV-1a) for deterministic variation.
+func imageKeySeed(key string) uint32 {
+	var h uint32 = 2166136261
+	for i := range len(key) {
+		h ^= uint32(key[i])
+		h *= 16777619
+	}
+
+	return h
+}
+
+// faceConfidence derives a stable detection confidence in
+// [minFaceConfidence, 99.999] from a stored face's identity. Distinct faces
+// get distinct (but reproducible) confidence values rather than a flat constant.
+func faceConfidence(f *storedFace) float64 {
+	seed := imageKeySeed(f.FaceID + "|" + f.ExternalImageID)
+
+	return minFaceConfidence + float64(seed%faceConfidenceSpan)/milliScale
+}
+
+// faceSimilarity derives a deterministic similarity score for a candidate face
+// relative to a query face. Faces sharing a non-empty ExternalImageId are
+// treated as the same subject and score exactly exactMatchSimilarity; otherwise
+// the score is a stable value in [minSearchSimilarity, exactMatchSimilarity)
+// derived from both face identities.
+func faceSimilarity(query, candidate *storedFace) float64 {
+	if query.ExternalImageID != "" && query.ExternalImageID == candidate.ExternalImageID {
+		return exactMatchSimilarity
+	}
+
+	seed := imageKeySeed(query.FaceID + "|" + candidate.FaceID)
+	span := uint32((exactMatchSimilarity - minSearchSimilarity) * milliScale)
+
+	return minSearchSimilarity + float64(seed%span)/milliScale
+}
+
+// userSimilarity derives a deterministic similarity score for a candidate user
+// relative to a query identity (a user ID or image key), in
+// [minSearchSimilarity, exactMatchSimilarity).
+func userSimilarity(queryKey string, candidate *storedUser) float64 {
+	seed := imageKeySeed(queryKey + "|" + candidate.UserID)
+	span := uint32((exactMatchSimilarity - minSearchSimilarity) * milliScale)
+
+	return minSearchSimilarity + float64(seed%span)/milliScale
 }
 
 // CreateStreamProcessor creates a new stream processor.
@@ -749,7 +822,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -775,7 +848,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		tagsCopy[arn] = tc
 	}
 
-	data, _ := json.Marshal(&snapshot{
+	return persistence.MarshalSnapshot(ctx, "rekognition", &snapshot{
 		Collections:      colls,
 		Faces:            faces,
 		StreamProcessors: procs,
@@ -783,15 +856,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AccountID:        b.accountID,
 		Region:           b.region,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
 
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "rekognition", data, &s); err != nil {
 		return err
 	}
 

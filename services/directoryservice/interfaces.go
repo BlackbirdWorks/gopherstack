@@ -200,7 +200,7 @@ type StorageBackend interface {
 	Region() string
 	Reset()
 	BackendSnapshot() []byte
-	Restore(data []byte) error
+	Restore(ctx context.Context, data []byte) error
 }
 
 // DirectorySize matches the AWS DirectorySize enum.
@@ -233,8 +233,11 @@ const (
 type DirectoryStage string
 
 const (
-	DirectoryStageActive  DirectoryStage = "Active"
-	DirectoryStageDeleted DirectoryStage = "Deleted"
+	DirectoryStageRequested DirectoryStage = "Requested"
+	DirectoryStageCreating  DirectoryStage = "Creating"
+	DirectoryStageActive    DirectoryStage = "Active"
+	DirectoryStageDeleted   DirectoryStage = "Deleted"
+	DirectoryStageRestoring DirectoryStage = "Restoring"
 )
 
 // SnapshotStatus matches the AWS SnapshotStatus enum.

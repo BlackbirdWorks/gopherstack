@@ -325,19 +325,26 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	type errResp struct {
-		Message string `json:"message"`
-	}
+	var status int
+	var code string
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, errResp{err.Error()})
+		status, code = http.StatusNotFound, "ResourceNotFoundException"
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, errResp{err.Error()})
+		status, code = http.StatusConflict, "ConflictException"
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errResp{err.Error()})
+		status, code = http.StatusBadRequest, "ValidationException"
 	default:
-		return c.JSON(http.StatusInternalServerError, errResp{err.Error()})
+		status, code = http.StatusInternalServerError, "InternalServerException"
 	}
+
+	// restJson1 clients (aws-sdk-go-v2 / Terraform provider) classify the error
+	// by the x-amzn-errortype header or the "__type" body field. The Terraform
+	// delete-waiter polls GetCollaboration after delete and must recognize
+	// ResourceNotFoundException; emit both so the error is classified correctly.
+	c.Response().Header().Set("X-Amzn-Errortype", code)
+
+	return c.JSON(status, map[string]string{"__type": code, "message": err.Error()})
 }
 
 // classifyPath maps (method, path) to an operation name and primary resource.
@@ -1851,11 +1858,13 @@ func (h *Handler) handleCreateMembership(_ context.Context, body []byte) ([]byte
 		Tags                       map[string]string `json:"tags"`
 		CollaborationIdentifier    string            `json:"collaborationIdentifier"`
 		QueryLogStatus             string            `json:"queryLogStatus"`
+		MemberAbilities            []string          `json:"memberAbilities"`
 	}
 	_ = json.Unmarshal(body, &req)
 	m, err := h.Backend.CreateMembership(
 		req.CollaborationIdentifier,
 		req.QueryLogStatus,
+		req.MemberAbilities,
 		req.DefaultResultConfiguration,
 		req.PaymentConfiguration,
 		req.Tags,

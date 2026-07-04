@@ -64,11 +64,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -79,7 +79,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -142,11 +142,11 @@ func TestInMemoryBackend_SnapshotRestore_CompositeAndHistory(t *testing.T) {
 			original := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 			tt.setup(t, original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh)
 		})
@@ -167,13 +167,13 @@ func TestHandler_SnapshotRestore(t *testing.T) {
 	}))
 
 	// Handler.Snapshot delegates to the backend.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Create a fresh handler and restore into it.
 	b2 := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	h2 := cloudwatch.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	alarms, _, err := b2.DescribeAlarms([]string{"snap-alarm"}, nil, "", "", "", 0)
 	require.NoError(t, err)
@@ -284,11 +284,11 @@ func TestInMemoryBackend_SnapshotRestore_NewResourceTypes(t *testing.T) {
 			original := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 			tt.setup(t, original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh)
 		})
@@ -375,12 +375,12 @@ func TestHandler_SnapshotRestore_IncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Snapshot + restore into a fresh handler.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	h2 := cloudwatch.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Tags should have been restored.
 	rec = postForm(t, h2, "Action=ListTagsForResource&ResourceARN="+alarmARN)

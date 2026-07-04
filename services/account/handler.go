@@ -17,10 +17,16 @@ const (
 	accountService = "account"
 	matchPriority  = service.PriorityPathVersioned
 
-	pathAccount          = "/account"
-	pathRegions          = "/regions"
-	pathAlternateContact = "/account/alternateContact"
-	pathContact          = "/account/contact"
+	pathAccount            = "/account"
+	pathRegions            = "/regions"
+	pathRegionsEnable      = "/regions/enable"
+	pathRegionsDisable     = "/regions/disable"
+	pathAlternateContact   = "/account/alternateContact"
+	pathContact            = "/account/contact"
+	pathPrimaryEmail       = "/account/primaryEmail"
+	pathPrimaryEmailAccept = "/account/primaryEmail/accept"
+	pathAccountName        = "/account/accountName"
+	pathRegionsPrefix      = "/regions/"
 
 	queryAlternateContactType    = "alternateContactType"
 	queryRegionOptStatusContains = "regionOptStatusContains"
@@ -49,11 +55,19 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"DescribeAccount",
 		"ListRegions",
+		"EnableRegion",
+		"DisableRegion",
+		"GetRegionOptStatus",
 		"GetAlternateContact",
 		"PutAlternateContact",
 		"DeleteAlternateContact",
 		"GetContactInformation",
 		"PutContactInformation",
+		"GetPrimaryEmail",
+		"StartPrimaryEmailUpdate",
+		"AcceptPrimaryEmailUpdate",
+		"PutAccountName",
+		"CloseAccount",
 	}
 }
 
@@ -70,34 +84,52 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return path == pathAccount ||
 			path == pathRegions ||
+			path == pathRegionsEnable ||
+			path == pathRegionsDisable ||
 			path == pathAlternateContact ||
-			path == pathContact
+			path == pathContact ||
+			path == pathPrimaryEmail ||
+			path == pathPrimaryEmailAccept ||
+			path == pathAccountName ||
+			strings.HasPrefix(path, pathRegionsPrefix)
 	}
 }
 
 // MatchPriority returns the routing priority.
 func (h *Handler) MatchPriority() int { return matchPriority }
 
+// opKey is a (path, method) tuple used to look up the operation name.
+type opKey struct{ path, method string }
+
+// operationNames maps exact (path, method) pairs to their AWS operation name.
+var operationNames = map[opKey]string{ //nolint:gochecknoglobals // package-level lookup table; immutable after init
+	{pathAccount, http.MethodGet}:             "DescribeAccount",
+	{pathAccount, http.MethodDelete}:          "CloseAccount",
+	{pathRegions, http.MethodGet}:             "ListRegions",
+	{pathRegionsEnable, http.MethodPost}:      "EnableRegion",
+	{pathRegionsDisable, http.MethodPost}:     "DisableRegion",
+	{pathAlternateContact, http.MethodGet}:    "GetAlternateContact",
+	{pathAlternateContact, http.MethodPut}:    "PutAlternateContact",
+	{pathAlternateContact, http.MethodDelete}: "DeleteAlternateContact",
+	{pathContact, http.MethodGet}:             "GetContactInformation",
+	{pathContact, http.MethodPut}:             "PutContactInformation",
+	{pathPrimaryEmail, http.MethodGet}:        "GetPrimaryEmail",
+	{pathPrimaryEmail, http.MethodPut}:        "StartPrimaryEmailUpdate",
+	{pathPrimaryEmailAccept, http.MethodPut}:  "AcceptPrimaryEmailUpdate",
+	{pathAccountName, http.MethodPut}:         "PutAccountName",
+}
+
 // ExtractOperation returns the operation name for logging/telemetry.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	method := c.Request().Method
 
-	switch {
-	case path == pathAccount && method == http.MethodGet:
-		return "DescribeAccount"
-	case path == pathRegions && method == http.MethodGet:
-		return "ListRegions"
-	case path == pathAlternateContact && method == http.MethodGet:
-		return "GetAlternateContact"
-	case path == pathAlternateContact && method == http.MethodPut:
-		return "PutAlternateContact"
-	case path == pathAlternateContact && method == http.MethodDelete:
-		return "DeleteAlternateContact"
-	case path == pathContact && method == http.MethodGet:
-		return "GetContactInformation"
-	case path == pathContact && method == http.MethodPut:
-		return "PutContactInformation"
+	if op, ok := operationNames[opKey{path, method}]; ok {
+		return op
+	}
+
+	if strings.HasPrefix(path, pathRegionsPrefix) && method == http.MethodGet {
+		return "GetRegionOptStatus"
 	}
 
 	return "Unknown"
@@ -120,26 +152,41 @@ func (h *Handler) route(c *echo.Context) error {
 	method := c.Request().Method
 	q := c.Request().URL.Query()
 
-	switch path {
-	case pathAccount:
+	switch {
+	case path == pathAccount:
 		return h.routeAccount(c, method)
-	case pathRegions:
+	case path == pathRegions:
 		return h.routeRegions(c, method, q)
-	case pathAlternateContact:
+	case path == pathRegionsEnable:
+		return h.routeRegionEnable(c, method)
+	case path == pathRegionsDisable:
+		return h.routeRegionDisable(c, method)
+	case strings.HasPrefix(path, pathRegionsPrefix):
+		return h.routeRegionOptStatus(c, method, strings.TrimPrefix(path, pathRegionsPrefix))
+	case path == pathAlternateContact:
 		return h.routeAlternateContact(c, method, q)
-	case pathContact:
+	case path == pathContact:
 		return h.routeContact(c, method)
+	case path == pathPrimaryEmail:
+		return h.routePrimaryEmail(c, method)
+	case path == pathPrimaryEmailAccept:
+		return h.routePrimaryEmailAccept(c, method)
+	case path == pathAccountName:
+		return h.routeAccountName(c, method)
 	}
 
 	return writeError(c, http.StatusNotFound, "InvalidAction", "unsupported operation")
 }
 
 func (h *Handler) routeAccount(c *echo.Context, method string) error {
-	if method != http.MethodGet {
-		return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+	switch method {
+	case http.MethodGet:
+		return h.handleDescribeAccount(c)
+	case http.MethodDelete:
+		return h.handleCloseAccount(c)
 	}
 
-	return h.handleDescribeAccount(c)
+	return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
 }
 
 func (h *Handler) routeRegions(c *echo.Context, method string, q interface{ Get(string) string }) error {
@@ -150,8 +197,46 @@ func (h *Handler) routeRegions(c *echo.Context, method string, q interface{ Get(
 	return h.handleListRegions(c, q)
 }
 
+func (h *Handler) routeRegionEnable(c *echo.Context, method string) error {
+	if method != http.MethodPost {
+		return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+	}
+
+	return h.handleEnableRegion(c, body)
+}
+
+func (h *Handler) routeRegionDisable(c *echo.Context, method string) error {
+	if method != http.MethodPost {
+		return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+	}
+
+	return h.handleDisableRegion(c, body)
+}
+
+func (h *Handler) routeRegionOptStatus(c *echo.Context, method, regionName string) error {
+	if method != http.MethodGet {
+		return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+	}
+
+	return h.handleGetRegionOptStatus(c, regionName)
+}
+
 func (h *Handler) routeAlternateContact(c *echo.Context, method string, q interface{ Get(string) string }) error {
 	ct := q.Get(queryAlternateContactType)
+
+	if !isValidContactType(ContactType(ct)) && (method == http.MethodGet || method == http.MethodDelete) {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid alternateContactType: "+ct)
+	}
 
 	switch method {
 	case http.MethodGet:
@@ -186,6 +271,48 @@ func (h *Handler) routeContact(c *echo.Context, method string) error {
 	return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
 }
 
+func (h *Handler) routePrimaryEmail(c *echo.Context, method string) error {
+	switch method {
+	case http.MethodGet:
+		return h.handleGetPrimaryEmail(c)
+	case http.MethodPut:
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+		}
+
+		return h.handleStartPrimaryEmailUpdate(c, body)
+	}
+
+	return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+}
+
+func (h *Handler) routePrimaryEmailAccept(c *echo.Context, method string) error {
+	if method != http.MethodPut {
+		return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+	}
+
+	return h.handleAcceptPrimaryEmailUpdate(c, body)
+}
+
+func (h *Handler) routeAccountName(c *echo.Context, method string) error {
+	if method != http.MethodPut {
+		return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+	}
+
+	return h.handlePutAccountName(c, body)
+}
+
 func (h *Handler) handleDescribeAccount(c *echo.Context) error {
 	details, err := h.Backend.DescribeAccount()
 	if err != nil {
@@ -193,6 +320,14 @@ func (h *Handler) handleDescribeAccount(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Account": details})
+}
+
+func (h *Handler) handleCloseAccount(c *echo.Context) error {
+	if err := h.Backend.CloseAccount(); err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) handleListRegions(c *echo.Context, q interface{ Get(string) string }) error {
@@ -222,6 +357,62 @@ func (h *Handler) handleListRegions(c *echo.Context, q interface{ Get(string) st
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleEnableRegion(c *echo.Context, body []byte) error {
+	var req struct {
+		RegionName string `json:"RegionName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+	}
+
+	if strings.TrimSpace(req.RegionName) == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "RegionName is required")
+	}
+
+	if err := h.Backend.EnableRegion(req.RegionName); err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleDisableRegion(c *echo.Context, body []byte) error {
+	var req struct {
+		RegionName string `json:"RegionName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+	}
+
+	if strings.TrimSpace(req.RegionName) == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "RegionName is required")
+	}
+
+	if err := h.Backend.DisableRegion(req.RegionName); err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleGetRegionOptStatus(c *echo.Context, regionName string) error {
+	if strings.TrimSpace(regionName) == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "RegionName is required")
+	}
+
+	status, err := h.Backend.GetRegionOptStatus(regionName)
+	if err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"RegionName":      regionName,
+		"RegionOptStatus": status,
+	})
 }
 
 func (h *Handler) handleGetAlternateContact(c *echo.Context, contactType string) error {
@@ -302,6 +493,80 @@ func (h *Handler) handlePutContactInformation(c *echo.Context, body []byte) erro
 	}
 
 	if err := h.Backend.PutContactInformation(&info); err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleGetPrimaryEmail(c *echo.Context) error {
+	email := h.Backend.GetPrimaryEmail()
+
+	return c.JSON(http.StatusOK, map[string]any{"PrimaryEmail": email})
+}
+
+func (h *Handler) handleStartPrimaryEmailUpdate(c *echo.Context, body []byte) error {
+	var req struct {
+		PrimaryEmail string `json:"PrimaryEmail"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+	}
+
+	if strings.TrimSpace(req.PrimaryEmail) == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrimaryEmail is required")
+	}
+
+	_, err := h.Backend.StartPrimaryEmailUpdate(req.PrimaryEmail)
+	if err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Status": "PENDING"})
+}
+
+func (h *Handler) handleAcceptPrimaryEmailUpdate(c *echo.Context, body []byte) error {
+	var req struct {
+		Otp          string `json:"Otp"`
+		PrimaryEmail string `json:"PrimaryEmail"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+	}
+
+	requiredFields := []struct{ name, value string }{
+		{"Otp", req.Otp},
+		{"PrimaryEmail", req.PrimaryEmail},
+	}
+	for _, f := range requiredFields {
+		if strings.TrimSpace(f.value) == "" {
+			return writeError(c, http.StatusBadRequest, "ValidationException", f.name+" is required")
+		}
+	}
+
+	if err := h.Backend.AcceptPrimaryEmailUpdate(req.Otp, req.PrimaryEmail); err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Status": "ACCEPTED"})
+}
+
+func (h *Handler) handlePutAccountName(c *echo.Context, body []byte) error {
+	var req struct {
+		AccountName string `json:"AccountName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+	}
+
+	if strings.TrimSpace(req.AccountName) == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "AccountName is required")
+	}
+
+	if err := h.Backend.PutAccountName(req.AccountName); err != nil {
 		return writeBackendError(c, err)
 	}
 

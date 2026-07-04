@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -45,13 +44,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		return nil, ErrNilAppContext
 	}
 
-	var accountID, region string
-
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
-	}
+	accountID, region := service.AccountRegion(ctx)
 
 	var settings Settings
 
@@ -59,8 +52,13 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetEC2Settings()
 	}
 
+	svcCtx := ctx.JanitorCtx
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	backend := NewInMemoryBackend(accountID, region)
-	backend.StartLifecycleReconciler()
+	backend.StartLifecycleReconciler(svcCtx)
 
 	if cp, ok := ctx.Config.(ComputeProviderConfig); ok && cp.GetEC2ComputeProvider() == "docker" {
 		dc, err := NewDockerCompute(cp.GetEC2DockerComputeConfig())
@@ -68,7 +66,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 			return nil, err
 		}
 
-		if pingErr := dc.Ping(context.Background()); pingErr != nil && ctx.Logger != nil {
+		if pingErr := dc.Ping(svcCtx); pingErr != nil && ctx.Logger != nil {
 			ctx.Logger.Warn("ec2 docker compute ping failed; continuing with hook installed",
 				"error", pingErr)
 		}

@@ -5,8 +5,25 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
+
+// validateSelectConstraints enforces constraints on the Select parameter based on the index projection.
+func validateSelectConstraints(selectVal types.Select, indexName string, projection *models.Projection) error {
+	if selectVal == types.SelectAllAttributes && indexName != "" {
+		if projection != nil && projection.ProjectionType != string(types.ProjectionTypeAll) {
+			return NewValidationException(
+				"One or more parameter values were invalid: Select type ALL_ATTRIBUTES " +
+					"is not supported for index " + indexName +
+					" because its projection type is not ALL",
+			)
+		}
+	}
+
+	return nil
+}
 
 const (
 	MaxItemSize         = 400 * 1024 // 400 KB
@@ -233,9 +250,8 @@ func ValidateItemSize(item map[string]any) error {
 		return err // Internal validation error
 	}
 	if size > MaxItemSize {
-		return NewValidationException(
-			fmt.Sprintf("Item size %d exceeds limit %d", size, MaxItemSize),
-		)
+		// Matches AWS DynamoDB's ValidationException wording.
+		return NewValidationException("Item size has exceeded the maximum allowed size")
 	}
 
 	return nil
@@ -276,17 +292,24 @@ func validateKeyAttribute(k models.KeySchemaElement, val any) error {
 	// AWS key size limit is based on the attribute value size alone (name + value bytes).
 	attrSize := int(int64(len(k.AttributeName)) + CalculateAttrSize(val))
 
-	limit := MaxPartitionKeySize
+	// AWS phrases the partition-key and sort-key overflow messages differently.
 	if k.KeyType == "RANGE" {
-		limit = MaxSortKeySize
+		if attrSize > MaxSortKeySize {
+			return NewValidationException(fmt.Sprintf(
+				"One or more parameter values were invalid: "+
+					"Aggregated size of all range keys has exceeded the size limit of %d bytes",
+				MaxSortKeySize,
+			))
+		}
+
+		return nil
 	}
 
-	if attrSize > limit {
+	if attrSize > MaxPartitionKeySize {
 		return NewValidationException(fmt.Sprintf(
-			"Key element %s size %d exceeds limit %d",
-			k.AttributeName,
-			attrSize,
-			limit,
+			"One or more parameter values were invalid: "+
+				"Size of hashkey has exceeded the maximum size limit of %d bytes",
+			MaxPartitionKeySize,
 		))
 	}
 
@@ -486,7 +509,14 @@ func validateComplexValue(k, t string, val any) error {
 		if !ok {
 			return NewValidationException(fmt.Sprintf("Attribute %s of type L must be a list", k))
 		}
-		_ = list
+		for i, elem := range list {
+			// Each list element is itself an attribute value ({"S": "x"}, {"N": "1"}, etc.).
+			// Validate it as a single attribute using a synthetic name for the error message.
+			elemName := fmt.Sprintf("%s[%d]", k, i)
+			if err := validateAttribute(elemName, elem); err != nil {
+				return err
+			}
+		}
 	case "M":
 		m, ok := val.(map[string]any)
 		if !ok {
@@ -526,7 +556,10 @@ func validateQueryKeyValues(
 	return nil
 }
 
-func buildKeyNamesMap(keySchema []models.KeySchemaElement, attrNames map[string]string) map[string]string {
+func buildKeyNamesMap(
+	keySchema []models.KeySchemaElement,
+	attrNames map[string]string,
+) map[string]string {
 	keyNames := make(map[string]string, len(keySchema))
 	for _, k := range keySchema {
 		keyNames[k.AttributeName] = k.AttributeName

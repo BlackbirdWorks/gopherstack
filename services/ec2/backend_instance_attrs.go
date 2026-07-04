@@ -33,7 +33,11 @@ type InstancePlacement struct {
 	HostID               string `json:"hostId,omitempty"`
 	Tenancy              string `json:"tenancy,omitempty"`
 	HostResourceGroupArn string `json:"hostResourceGroupArn,omitempty"`
-	PartitionNumber      int32  `json:"partitionNumber,omitempty"`
+	// AvailabilityZone is set at RunInstances time from the launch subnet/AZ
+	// and echoed back verbatim by DescribeInstances; ModifyInstancePlacement
+	// does not currently support relocating an instance's AZ.
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	PartitionNumber  int32  `json:"partitionNumber,omitempty"`
 }
 
 // PrivateDNSNameOptions holds the per-instance private DNS hostname

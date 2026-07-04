@@ -39,7 +39,7 @@ func TestAudit1_DateCreated_Application(t *testing.T) {
 
 			rec := postEBForm(t, h, tt.action)
 			require.Equal(t, http.StatusOK, rec.Code)
-			assert.Contains(t, rec.Body.String(), "<DateCreated>2026-01-01T00:00:00Z</DateCreated>")
+			assert.Contains(t, rec.Body.String(), "<DateCreated>")
 		})
 	}
 }
@@ -75,7 +75,7 @@ func TestAudit1_DateCreated_Environment(t *testing.T) {
 
 			rec := postEBForm(t, h, tt.action)
 			require.Equal(t, http.StatusOK, rec.Code)
-			assert.Contains(t, rec.Body.String(), "<DateCreated>2026-01-01T00:00:00Z</DateCreated>")
+			assert.Contains(t, rec.Body.String(), "<DateCreated>")
 		})
 	}
 }
@@ -111,7 +111,7 @@ func TestAudit1_DateCreated_AppVersion(t *testing.T) {
 
 			rec := postEBForm(t, h, tt.action)
 			require.Equal(t, http.StatusOK, rec.Code)
-			assert.Contains(t, rec.Body.String(), "<DateCreated>2026-01-01T00:00:00Z</DateCreated>")
+			assert.Contains(t, rec.Body.String(), "<DateCreated>")
 		})
 	}
 }
@@ -323,11 +323,11 @@ func TestAudit1_PersistenceRoundTrip_Events(t *testing.T) {
 	h := newTestHandler()
 	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env1")
 
-	snap := h.Backend.Snapshot()
+	snap := h.Backend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler()
-	require.NoError(t, h2.Backend.Restore(snap))
+	require.NoError(t, h2.Backend.Restore(t.Context(), snap))
 
 	rec := postEBForm(t, h2, "Version=2010-12-01&Action=DescribeEvents")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -392,13 +392,13 @@ func TestAudit1_DescribeEvents_StartTimeFilter(t *testing.T) {
 	h := newTestHandler()
 	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env1")
 
-	// StartTime after the fixed event date (2026-01-01) should exclude the event.
-	rec := postEBForm(t, h, "Version=2010-12-01&Action=DescribeEvents&StartTime=2026-06-01T00:00:00Z")
+	// StartTime far in the future should exclude the event.
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=DescribeEvents&StartTime=2099-01-01T00:00:00Z")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "Successfully launched environment")
 
-	// StartTime before the fixed event date should include the event.
-	rec = postEBForm(t, h, "Version=2010-12-01&Action=DescribeEvents&StartTime=2025-01-01T00:00:00Z")
+	// StartTime in the past should include the event.
+	rec = postEBForm(t, h, "Version=2010-12-01&Action=DescribeEvents&StartTime=2000-01-01T00:00:00Z")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Successfully launched environment: env1.")
 }

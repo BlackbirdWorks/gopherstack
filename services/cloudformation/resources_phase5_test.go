@@ -17,8 +17,10 @@ import (
 )
 
 // newPhase5ServiceBackends creates a ServiceBackends with all phase-5 backends populated.
-func newPhase5ServiceBackends() *cloudformation.ServiceBackends {
-	b := newPhase4ServiceBackends()
+func newPhase5ServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
+	t.Helper()
+
+	b := newPhase4ServiceBackends(t)
 	b.AppAutoScaling = appautoscalingbackend.NewHandler(
 		appautoscalingbackend.NewInMemoryBackend("000000000000", "us-east-1"),
 	)
@@ -339,7 +341,7 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newPhase5ServiceBackends()
+			backends := newPhase5ServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
@@ -357,7 +359,7 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 func TestResourceCreator_Phase5_LogsResources(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 	cw, ok := backends.CloudWatchLogs.Backend.(*cwlogsbackend.InMemoryBackend)
@@ -426,7 +428,7 @@ func TestResourceCreator_Phase5_LogsResources(t *testing.T) {
 func TestResourceCreator_Phase5_EC2Volume(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 	ec2b, ok := backends.EC2.Backend.(*ec2backend.InMemoryBackend)
@@ -454,7 +456,7 @@ func TestResourceCreator_Phase5_EC2Volume(t *testing.T) {
 func TestResourceCreator_Phase5_KMSAlias(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 	kmsb, ok := backends.KMS.Backend.(*kmsbackend.InMemoryBackend)
@@ -492,7 +494,7 @@ func TestResourceCreator_Phase5_KMSAlias(t *testing.T) {
 func TestResourceCreator_Phase5_APIGatewayV2Children(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 	apigw, ok := backends.APIGatewayV2.Backend.(*apigatewayv2backend.InMemoryBackend)
@@ -535,7 +537,7 @@ func TestResourceCreator_Phase5_APIGatewayV2Children(t *testing.T) {
 func TestResourceCreator_Phase5_SecretsManagerResourcePolicy(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 
@@ -611,7 +613,7 @@ func TestResourceCreator_Phase5_GetAtt(t *testing.T) {
 func TestResourceCreator_AppAutoScaling_ScalableTarget_CreateDelete(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase5ServiceBackends()
+	backends := newPhase5ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{
@@ -649,7 +651,7 @@ func TestResourceCreator_AppAutoScaling_ScalableTarget_CreateDelete(t *testing.T
 func TestResourceCreator_AppAutoScaling_ScalingPolicy_CreateDelete(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase5ServiceBackends()
+	backends := newPhase5ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{
@@ -684,7 +686,7 @@ func TestResourceCreator_AppAutoScaling_ScalingPolicy_CreateDelete(t *testing.T)
 func TestResourceCreator_SSM_MaintenanceWindow_CreateDelete(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase5ServiceBackends()
+	backends := newPhase5ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{
@@ -708,7 +710,7 @@ func TestResourceCreator_SSM_MaintenanceWindow_CreateDelete(t *testing.T) {
 func TestResourceCreator_Glue_Crawler_CreateDelete(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase5ServiceBackends()
+	backends := newPhase5ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{
@@ -733,7 +735,7 @@ func TestResourceCreator_Glue_Crawler_CreateDelete(t *testing.T) {
 func TestResourceCreator_Glue_Trigger_CreateDelete(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase5ServiceBackends()
+	backends := newPhase5ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{
@@ -758,7 +760,7 @@ func TestResourceCreator_Glue_Trigger_CreateDelete(t *testing.T) {
 func TestResourceCreator_Glue_Connection_CreateDelete(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase5ServiceBackends()
+	backends := newPhase5ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{
@@ -813,7 +815,7 @@ func TestResourceCreator_SecretsManager_RotationSchedule_CreateDelete(t *testing
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newPhase5ServiceBackends()
+			backends := newPhase5ServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
@@ -831,7 +833,7 @@ func TestResourceCreator_SecretsManager_RotationSchedule_CreateDelete(t *testing
 func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase5ServiceBackends()
+	backends := newPhase5ServiceBackends(t)
 
 	// First create a GraphQL API to use as parent.
 	rc := cloudformation.NewResourceCreator(backends)
@@ -873,7 +875,7 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends2 := newPhase5ServiceBackends()
+			backends2 := newPhase5ServiceBackends(t)
 			// Re-create API in this backend so each subtest is independent.
 			rc2 := cloudformation.NewResourceCreator(backends2)
 			api2PhysID, err := rc2.Create(t.Context(), "MyAPI2", "AWS::AppSync::GraphQLApi", map[string]any{
@@ -891,6 +893,42 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 
 			err = rc2.Delete(t.Context(), tt.resourceType, physID, nil)
 			require.NoError(t, err)
+		})
+	}
+}
+
+// TestResourceCreator_GluePartition_MissingProps ensures creating a Glue Partition without
+// required DatabaseName/TableName returns an error instead of a stub physical ID.
+func TestResourceCreator_GluePartition_MissingProps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		props map[string]any
+		name  string
+	}{
+		{
+			name:  "missing_both",
+			props: map[string]any{},
+		},
+		{
+			name:  "missing_table",
+			props: map[string]any{"DatabaseName": "mydb"},
+		},
+		{
+			name:  "missing_database",
+			props: map[string]any{"TableName": "mytable"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backends := newPhase5ServiceBackends(t)
+			rc := cloudformation.NewResourceCreator(backends)
+
+			_, err := rc.Create(t.Context(), "MyPartition", "AWS::Glue::Partition", tt.props, nil, nil)
+			require.Error(t, err)
 		})
 	}
 }

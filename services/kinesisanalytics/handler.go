@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -423,21 +423,22 @@ func (h *Handler) handleStopApplication(
 func (h *Handler) handleUpdateApplication(
 	ctx context.Context,
 	in *updateApplicationInput,
-) (*struct{}, error) {
+) (*describeApplicationOutput, error) {
 	if in.ApplicationName == "" {
 		return nil, errApplicationName
 	}
 
-	if _, err := h.Backend.UpdateApplication(
+	app, err := h.Backend.UpdateApplication(
 		ctx,
 		in.ApplicationName,
 		in.CurrentApplicationVersionID,
 		in.ApplicationUpdate,
-	); err != nil {
+	)
+	if err != nil {
 		return nil, err
 	}
 
-	return &struct{}{}, nil
+	return &describeApplicationOutput{ApplicationDetail: toApplicationDetail(app)}, nil
 }
 
 func (h *Handler) handleListTagsForResource(
@@ -453,13 +454,7 @@ func (h *Handler) handleListTagsForResource(
 		return nil, err
 	}
 
-	keys := make([]string, 0, len(tagMap))
-
-	for k := range tagMap {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tagMap)
 
 	entries := make([]tagEntry, 0, len(keys))
 

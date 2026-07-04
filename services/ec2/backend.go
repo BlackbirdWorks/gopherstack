@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -44,6 +45,16 @@ var (
 	// ErrVpcBlockPublicAccessExclusionNotFound is returned when a VPC Block
 	// Public Access exclusion ID cannot be found.
 	ErrVpcBlockPublicAccessExclusionNotFound = errors.New("InvalidVpcBlockPublicAccessExclusionId.NotFound")
+
+	// ErrInvalidUserData is returned when RunInstances / ModifyInstanceAttribute
+	// user data is not valid base64 or exceeds the 16 KiB decoded-size limit.
+	ErrInvalidUserData = errors.New("InvalidUserData.Malformed")
+	// ErrMissingParameter is returned when a required parameter (e.g. the
+	// ModifyInstanceAttribute attribute selector) is absent.
+	ErrMissingParameter = errors.New("MissingParameter")
+	// ErrInvalidPaginationToken is returned when a NextToken is forged, tampered
+	// with, or otherwise fails HMAC verification.
+	ErrInvalidPaginationToken = errors.New("InvalidPaginationToken")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -198,17 +209,12 @@ type SecurityGroup struct {
 
 // VPC represents an EC2 VPC.
 type VPC struct {
-	ID        string `json:"id,omitempty"`
-	CIDRBlock string `json:"cidrBlock,omitempty"`
-	IsDefault bool   `json:"isDefault,omitempty"`
-
-	// ClassicLinkEnabled reports whether the VPC has been enabled for
-	// ClassicLink via EnableVpcClassicLink.
-	ClassicLinkEnabled bool `json:"classicLinkEnabled,omitempty"`
-
-	// ClassicLinkDNSSupported reports whether ClassicLink DNS support has been
-	// enabled for the VPC via EnableVpcClassicLinkDnsSupport.
-	ClassicLinkDNSSupported bool `json:"classicLinkDnsSupported,omitempty"`
+	Attributes              map[string]bool `json:"attributes,omitempty"`
+	ID                      string          `json:"id,omitempty"`
+	CIDRBlock               string          `json:"cidrBlock,omitempty"`
+	IsDefault               bool            `json:"isDefault,omitempty"`
+	ClassicLinkEnabled      bool            `json:"classicLinkEnabled,omitempty"`
+	ClassicLinkDNSSupported bool            `json:"classicLinkDnsSupported,omitempty"`
 }
 
 // Subnet represents an EC2 Subnet.
@@ -444,6 +450,11 @@ type InMemoryBackend struct {
 	eniIDByAttachment              map[string]string
 	eniIDsByInstance               map[string]map[string]struct{}
 	instanceIDsByVPC               map[string]map[string]struct{}
+	subnetIDsByVPC                 map[string]map[string]struct{}
+	routeTableIDsByVPC             map[string]map[string]struct{}
+	sgIDsByVPC                     map[string]map[string]struct{}
+	natGatewayIDsByVPC             map[string]map[string]struct{}
+	eniIDsByVPC                    map[string]map[string]struct{}
 	snapshotBlockPublicAccess      string
 	ebsDefaultKmsKeyID             string
 	imageBlockPublicAccess         string
@@ -531,6 +542,7 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initFpgaImageMaps(b)
 	initParitySweep2Maps(b)
 	initParityFinalMaps(b)
+	initSecondaryIndexMaps(b)
 	b.resetIpamDiscoveryMapsLocked()
 	b.resetIpamPolicyMapsLocked()
 	b.resetScheduledInstanceMapsLocked()
@@ -728,7 +740,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // deliberately do NOT start the background ticker (which would otherwise race
 // with their direct ticks and state assertions). Idempotent — safe to call
 // multiple times; only the first call starts the goroutine.
-func (b *InMemoryBackend) StartLifecycleReconciler() {
+//
+// The goroutine exits when ctx is cancelled OR when StopLifecycleReconciler is
+// called, whichever comes first.
+func (b *InMemoryBackend) StartLifecycleReconciler(ctx context.Context) {
 	b.lifecycleOnce.Do(func() {
 		go func() {
 			ticker := time.NewTicker(lifecycleReconcileInterval)
@@ -736,6 +751,8 @@ func (b *InMemoryBackend) StartLifecycleReconciler() {
 
 			for {
 				select {
+				case <-ctx.Done():
+					return
 				case <-b.lifecycleStop:
 					return
 				case <-ticker.C:
@@ -756,7 +773,28 @@ func (b *InMemoryBackend) StopLifecycleReconciler() {
 
 // reconcileInstanceLifecycle advances all instances in transitional states to their
 // next stable state. It is also called directly by tests via TickLifecycleForTest.
+// Performance: takes a cheap read-lock pass first to bail early when nothing is
+// transitional, avoiding a write-lock acquisition on every 50ms tick.
 func (b *InMemoryBackend) reconcileInstanceLifecycle() {
+	// Fast path: read-lock to detect any transitional instance.
+	b.mu.RLock("reconcileInstanceLifecycle-check")
+	hasTransitional := false
+	for _, inst := range b.instances {
+		switch inst.State {
+		case StatePending, StateStopping, StateShuttingDown:
+			hasTransitional = true
+		}
+		if hasTransitional {
+			break
+		}
+	}
+	b.mu.RUnlock()
+
+	if !hasTransitional {
+		return
+	}
+
+	// Slow path: write-lock to advance transitional instances.
 	b.mu.Lock("reconcileInstanceLifecycle")
 	defer b.mu.Unlock()
 
@@ -789,6 +827,7 @@ func (b *InMemoryBackend) initDefaults() {
 		AvailabilityZone: b.Region + "a",
 		IsDefault:        true,
 	}
+	b.indexSubnetLocked(defaultSubnetID, defaultVPCID)
 
 	defaultSGID := "sg-default"
 	b.securityGroups[defaultSGID] = &SecurityGroup{
@@ -797,6 +836,7 @@ func (b *InMemoryBackend) initDefaults() {
 		Description: "default VPC security group",
 		VPCID:       defaultVPCID,
 	}
+	b.indexSGLocked(defaultSGID, defaultVPCID)
 }
 
 // RunInstances creates one or more EC2 instance stubs.
@@ -823,10 +863,12 @@ func (b *InMemoryBackend) RunInstances(
 
 	vpcID := ""
 	mapPublicIP := false
+	availabilityZone := ""
 
 	if sub, ok := b.subnets[subnetID]; ok {
 		vpcID = sub.VPCID
 		mapPublicIP = sub.MapPublicIPOnLaunch
+		availabilityZone = sub.AvailabilityZone
 	}
 
 	// No capacity hint — user-derived values in the make capacity position
@@ -848,6 +890,7 @@ func (b *InMemoryBackend) RunInstances(
 			LaunchTime: time.Now(),
 			EnaSupport: true,
 		}
+		inst.Placement.AvailabilityZone = availabilityZone
 		inst.PrivateIP = b.allocPrivateIP()
 		if mapPublicIP {
 			inst.PublicIPAddress = b.allocElasticIP()
@@ -870,6 +913,7 @@ func (b *InMemoryBackend) RunInstances(
 		b.instances[id] = inst
 		b.indexInstanceLocked(inst)
 		b.indexENILocked(eniID, b.networkInterfaces[eniID])
+		b.indexENIByVPCLocked(eniID, b.networkInterfaces[eniID])
 		instances = append(instances, inst)
 	}
 
@@ -1120,6 +1164,7 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			}
 
 			b.deindexENILocked(eniID, eni)
+			b.deindexENIByVPCLocked(eniID, eni)
 			b.recycleENIIPsLocked(eni)
 			delete(b.networkInterfaces, eniID)
 			delete(b.tags, eniID)
@@ -1211,6 +1256,7 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 		},
 	}
 	b.securityGroups[id] = sg
+	b.indexSGLocked(id, vpcID)
 
 	return sg, nil
 }
@@ -1220,10 +1266,12 @@ func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
 	b.mu.Lock("DeleteSecurityGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.securityGroups[id]; !ok {
+	sg, ok := b.securityGroups[id]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, id)
 	}
 
+	b.deindexSGLocked(id, sg.VPCID)
 	delete(b.securityGroups, id)
 	delete(b.tags, id)
 
@@ -1307,6 +1355,8 @@ func (b *InMemoryBackend) cascadeDeleteVpcIGWsLocked(vpcID string) {
 // DeleteVpc removes a VPC by ID, cascade-deleting all dependent resources
 // (instances, internet gateways, NAT gateways, route tables, security groups,
 // network interfaces, and subnets) along with their tags.
+// Uses secondary indexes for instances, subnets, route tables, and security groups
+// to avoid O(n_all) scans for each resource type.
 func (b *InMemoryBackend) DeleteVpc(id string) error {
 	b.mu.Lock("DeleteVpc")
 	defer b.mu.Unlock()
@@ -1315,60 +1365,63 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, id)
 	}
 
-	// Cascade: terminate instances belonging to this VPC.
-	for instID, inst := range b.instances {
-		if inst.VPCID == id {
+	// Cascade: terminate instances belonging to this VPC via secondary index.
+	for instID := range b.instanceIDsByVPC[id] {
+		if inst, ok := b.instances[instID]; ok {
 			inst.State = StateTerminated
 			inst.TerminatedAt = time.Now()
 			delete(b.tags, instID)
 			b.detachVolumesAndEIPsLocked(instID)
 		}
 	}
+	delete(b.instanceIDsByVPC, id)
 
 	// Cascade: detach and delete internet gateways attached to this VPC.
 	b.cascadeDeleteVpcIGWsLocked(id)
 
-	// Cascade: delete NAT gateways in subnets belonging to this VPC.
-	for ngwID, ngw := range b.natGateways {
-		if sub, ok := b.subnets[ngw.SubnetID]; ok && sub.VPCID == id {
+	// Cascade: delete NAT gateways belonging to this VPC via secondary index,
+	// avoiding a full-map scan under the write lock.
+	for ngwID := range b.natGatewayIDsByVPC[id] {
+		if ngw, ok := b.natGateways[ngwID]; ok {
 			b.recycleIPLocked(ngw.PrivateIP)
 			delete(b.natGateways, ngwID)
 			delete(b.tags, ngwID)
 		}
 	}
+	delete(b.natGatewayIDsByVPC, id)
 
-	// Cascade: remove route tables belonging to this VPC.
-	for rtID, rt := range b.routeTables {
-		if rt.VPCID == id {
-			delete(b.routeTables, rtID)
-			delete(b.tags, rtID)
-		}
+	// Cascade: remove route tables belonging to this VPC via secondary index.
+	for rtID := range b.routeTableIDsByVPC[id] {
+		delete(b.routeTables, rtID)
+		delete(b.tags, rtID)
 	}
+	delete(b.routeTableIDsByVPC, id)
 
-	// Cascade: remove security groups belonging to this VPC.
-	for sgID, sg := range b.securityGroups {
-		if sg.VPCID == id {
-			delete(b.securityGroups, sgID)
-			delete(b.tags, sgID)
-		}
+	// Cascade: remove security groups belonging to this VPC via secondary index.
+	for sgID := range b.sgIDsByVPC[id] {
+		delete(b.securityGroups, sgID)
+		delete(b.tags, sgID)
 	}
+	delete(b.sgIDsByVPC, id)
 
-	// Cascade: remove network interfaces belonging to this VPC.
-	for eniID, eni := range b.networkInterfaces {
-		if eni.VPCID == id {
+	// Cascade: remove network interfaces belonging to this VPC via secondary
+	// index, avoiding a full-map scan under the write lock.
+	for eniID := range b.eniIDsByVPC[id] {
+		if eni, ok := b.networkInterfaces[eniID]; ok {
 			b.recycleENIIPsLocked(eni)
+			b.deindexENILocked(eniID, eni)
 			delete(b.networkInterfaces, eniID)
 			delete(b.tags, eniID)
 		}
 	}
+	delete(b.eniIDsByVPC, id)
 
-	// Cascade: remove subnets belonging to this VPC.
-	for subnetID, subnet := range b.subnets {
-		if subnet.VPCID == id {
-			delete(b.subnets, subnetID)
-			delete(b.tags, subnetID)
-		}
+	// Cascade: remove subnets belonging to this VPC via secondary index.
+	for subnetID := range b.subnetIDsByVPC[id] {
+		delete(b.subnets, subnetID)
+		delete(b.tags, subnetID)
 	}
+	delete(b.subnetIDsByVPC, id)
 
 	delete(b.vpcs, id)
 	delete(b.tags, id)
@@ -1451,6 +1504,7 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 		AvailabilityZone: az,
 	}
 	b.subnets[id] = s
+	b.indexSubnetLocked(id, vpcID)
 
 	return s, nil
 }
@@ -1479,6 +1533,7 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	for ngwID, ngw := range b.natGateways {
 		if ngw.SubnetID == id {
 			b.recycleIPLocked(ngw.PrivateIP)
+			b.deindexNatGatewayLocked(ngw)
 			delete(b.natGateways, ngwID)
 			delete(b.tags, ngwID)
 		}
@@ -1488,11 +1543,15 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	for eniID, eni := range b.networkInterfaces {
 		if eni.SubnetID == id {
 			b.recycleENIIPsLocked(eni)
+			b.deindexENILocked(eniID, eni)
+			b.deindexENIByVPCLocked(eniID, eni)
 			delete(b.networkInterfaces, eniID)
 			delete(b.tags, eniID)
 		}
 	}
 
+	subnet := b.subnets[id]
+	b.deindexSubnetLocked(id, subnet.VPCID)
 	delete(b.subnets, id)
 	delete(b.tags, id)
 
@@ -1707,15 +1766,20 @@ func (b *InMemoryBackend) DescribeTags(resourceIDs []string) []TagEntry {
 	b.mu.RLock("DescribeTags")
 	defer b.mu.RUnlock()
 
-	filterSet := make(map[string]bool, len(resourceIDs))
-	for _, id := range resourceIDs {
-		filterSet[id] = true
+	// Only build the filter set when callers actually supply IDs; avoids an
+	// unnecessary allocation on the common unfiltered path.
+	var filterSet map[string]bool
+	if len(resourceIDs) > 0 {
+		filterSet = make(map[string]bool, len(resourceIDs))
+		for _, id := range resourceIDs {
+			filterSet[id] = true
+		}
 	}
 
 	var entries []TagEntry
 
 	for resourceID, tagMap := range b.tags {
-		if len(filterSet) > 0 && !filterSet[resourceID] {
+		if filterSet != nil && !filterSet[resourceID] {
 			continue
 		}
 

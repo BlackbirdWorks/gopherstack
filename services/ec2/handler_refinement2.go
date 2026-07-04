@@ -74,6 +74,9 @@ func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, e
 	ids := parseMemberList(vals, "SnapshotId")
 	snaps := h.Backend.DescribeSnapshots(ids)
 
+	filters := parseEC2Filters(vals)
+	snaps = applySnapshotFilters(snaps, filters, h.Backend)
+
 	maxResults := 0
 	if v := vals.Get("MaxResults"); v != "" {
 		if _, scanErr := fmt.Sscan(v, &maxResults); scanErr != nil || maxResults < 5 || maxResults > 1000 {

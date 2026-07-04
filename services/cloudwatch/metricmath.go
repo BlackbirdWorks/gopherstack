@@ -12,6 +12,15 @@ import (
 const (
 	percentHundred = 100.0
 	fillArgCount   = 2
+
+	// iqmLowerPct and iqmUpperPct are the percentile boundaries for the
+	// interquartile mean (IQM) statistic.
+	iqmLowerPct = 25.0
+	iqmUpperPct = 75.0
+
+	// statSetMinInterior is the smallest sample count that has interior points
+	// (beyond Min and Max) when reconstructing a StatisticValues distribution.
+	statSetMinInterior = 2
 )
 
 // metricTimeSeries maps timestamp (unix seconds) to value for a single metric result.
@@ -495,40 +504,275 @@ func applyBinaryOp(op byte, lv, rv float64) float64 {
 	return 0
 }
 
-// computePercentiles computes percentile values from a sorted float64 slice.
-// stat strings are expected in the form "p99", "p95.5", etc.
-func computePercentiles(sortedVals []float64, stats []string) map[string]float64 {
-	out := make(map[string]float64, len(stats))
-	n := len(sortedVals)
+// reExtendedStat matches the AWS extended-statistic bounded functions:
+// TM/TC/TS/WM/PR with a parenthesised argument. The inner argument (group 2) is
+// split on the colon separately so single-value forms like "TM(90%)" can be told
+// apart from lower-only forms like "TM(10%:)".
+var reExtendedStat = regexp.MustCompile(`^(?i)(TM|TC|TS|WM|PR)\(([^)]*)\)$`)
 
+// statBounds holds the resolved lower/upper cutoff for a bounded extended stat.
+// percent is true when the raw bounds were percentile (%) forms; the resolved
+// lo/hi are always absolute value thresholds. loSet/hiSet track whether each
+// side was supplied.
+type statBounds struct {
+	lo, hi       float64
+	loSet, hiSet bool
+	percent      bool
+}
+
+// percentile computes the linearly-interpolated pct-th percentile of a sorted slice.
+func percentile(sortedVals []float64, pct float64) float64 {
+	n := len(sortedVals)
 	if n == 0 {
+		return 0
+	}
+	if n == 1 {
+		return sortedVals[0]
+	}
+
+	idx := pct / percentHundred * float64(n-1)
+	lo := int(idx)
+	hi := lo + 1
+
+	if hi >= n {
+		return sortedVals[n-1]
+	}
+
+	frac := idx - float64(lo)
+
+	return sortedVals[lo]*(1-frac) + sortedVals[hi]*frac
+}
+
+// computeExtendedStats resolves each requested extended statistic string against a
+// sorted value slice. Supported forms: pNN / pNN.N (percentile), TM/TC/TS/WM/PR
+// with (x:y) bounds, and IQM (interquartile mean). Unrecognised stats are skipped.
+func computeExtendedStats(sortedVals []float64, stats []string) map[string]float64 {
+	out := make(map[string]float64, len(stats))
+	if len(sortedVals) == 0 {
 		return out
 	}
 
 	for _, s := range stats {
-		lower := strings.ToLower(s)
-		if !strings.HasPrefix(lower, "p") {
-			continue
-		}
-
-		pct, err := strconv.ParseFloat(lower[1:], 64)
-		if err != nil || pct < 0 || pct > percentHundred {
-			continue
-		}
-
-		idx := pct / percentHundred * float64(n-1)
-		lo := int(idx)
-		hi := lo + 1
-
-		if hi >= n {
-			out[s] = sortedVals[n-1]
-		} else {
-			frac := idx - float64(lo)
-			out[s] = sortedVals[lo]*(1-frac) + sortedVals[hi]*frac
+		if v, ok := computeExtendedStat(sortedVals, s); ok {
+			out[s] = v
 		}
 	}
 
 	return out
+}
+
+// computeExtendedStat computes a single extended statistic. Returns false when the
+// stat string is not a recognised extended statistic.
+func computeExtendedStat(sortedVals []float64, stat string) (float64, bool) {
+	trimmed := strings.TrimSpace(stat)
+	lower := strings.ToLower(trimmed)
+
+	if lower == "iqm" {
+		// Interquartile mean: trimmed mean between the 25th and 75th percentiles.
+		return trimmedMean(sortedVals, statBounds{
+			lo:    percentile(sortedVals, iqmLowerPct),
+			hi:    percentile(sortedVals, iqmUpperPct),
+			loSet: true,
+			hiSet: true,
+		}), true
+	}
+
+	if strings.HasPrefix(lower, "p") && !strings.HasPrefix(lower, "pr(") {
+		pct, err := strconv.ParseFloat(lower[1:], 64)
+		if err != nil || pct < 0 || pct > percentHundred {
+			return 0, false
+		}
+
+		return percentile(sortedVals, pct), true
+	}
+
+	m := reExtendedStat.FindStringSubmatch(trimmed)
+	if m == nil {
+		return 0, false
+	}
+
+	fn := strings.ToUpper(m[1])
+	bounds, ok := parseStatBounds(m[2], sortedVals)
+	if !ok {
+		return 0, false
+	}
+
+	switch fn {
+	case "TM":
+		return trimmedMean(sortedVals, bounds), true
+	case "TC":
+		return float64(trimmedCount(sortedVals, bounds)), true
+	case "TS":
+		return trimmedSum(sortedVals, bounds), true
+	case "WM":
+		return winsorizedMean(sortedVals, bounds), true
+	case "PR":
+		return percentileRank(sortedVals, bounds), true
+	}
+
+	return 0, false
+}
+
+// parseStatBounds resolves the "x:y" argument of a bounded extended statistic into
+// absolute value thresholds. When the bounds use the percent form the cutoffs are
+// resolved via percentile against the sorted data; absolute forms are used
+// directly. A single value with no colon (e.g. "90%") is treated as the upper
+// bound per AWS semantics.
+func parseStatBounds(arg string, sortedVals []float64) (statBounds, bool) {
+	arg = strings.TrimSpace(arg)
+
+	var rawLo, rawHi string
+	if lo, hi, hasColon := strings.Cut(arg, ":"); hasColon {
+		rawLo, rawHi = strings.TrimSpace(lo), strings.TrimSpace(hi)
+	} else {
+		// Colonless single value maps to the upper bound.
+		rawHi = arg
+	}
+
+	lo, loSet, loPct, ok1 := parseBound(rawLo)
+	hi, hiSet, hiPct, ok2 := parseBound(rawHi)
+	if !ok1 || !ok2 {
+		return statBounds{}, false
+	}
+
+	// At least one bound must be present.
+	if !loSet && !hiSet {
+		return statBounds{}, false
+	}
+
+	percent := loPct || hiPct
+	b := statBounds{loSet: loSet, hiSet: hiSet, percent: percent}
+
+	if percent {
+		if loSet {
+			b.lo = percentile(sortedVals, lo)
+		}
+		if hiSet {
+			b.hi = percentile(sortedVals, hi)
+		}
+	} else {
+		b.lo, b.hi = lo, hi
+	}
+
+	return b, true
+}
+
+// parseBound parses a single bound token ("", "90", "90%"). It returns the numeric
+// value, whether the bound was set, whether it used the percent form, and whether
+// the token was well-formed.
+func parseBound(tok string) (float64, bool, bool, bool) {
+	if tok == "" {
+		return 0, false, false, true
+	}
+
+	percent := strings.HasSuffix(tok, "%")
+	numStr := strings.TrimSuffix(tok, "%")
+	if numStr == "" {
+		return 0, false, false, false
+	}
+
+	v, err := strconv.ParseFloat(numStr, 64)
+	if err != nil || v < 0 {
+		return 0, false, false, false
+	}
+	if percent && v > percentHundred {
+		return 0, false, false, false
+	}
+
+	return v, true, percent, true
+}
+
+// inBounds reports whether v falls within the (inclusive) resolved cutoffs.
+func (b statBounds) inBounds(v float64) bool {
+	if b.loSet && v < b.lo {
+		return false
+	}
+	if b.hiSet && v > b.hi {
+		return false
+	}
+
+	return true
+}
+
+// trimmedValues returns the subset of sortedVals that fall within the bounds.
+func trimmedValues(sortedVals []float64, b statBounds) []float64 {
+	out := make([]float64, 0, len(sortedVals))
+	for _, v := range sortedVals {
+		if b.inBounds(v) {
+			out = append(out, v)
+		}
+	}
+
+	return out
+}
+
+// trimmedMean is the mean of the values inside the bounds (TM / IQM).
+func trimmedMean(sortedVals []float64, b statBounds) float64 {
+	vals := trimmedValues(sortedVals, b)
+	if len(vals) == 0 {
+		return 0
+	}
+
+	var sum float64
+	for _, v := range vals {
+		sum += v
+	}
+
+	return sum / float64(len(vals))
+}
+
+// trimmedCount is the number of values inside the bounds (TC).
+func trimmedCount(sortedVals []float64, b statBounds) int {
+	return len(trimmedValues(sortedVals, b))
+}
+
+// trimmedSum is the sum of the values inside the bounds (TS).
+func trimmedSum(sortedVals []float64, b statBounds) float64 {
+	var sum float64
+	for _, v := range trimmedValues(sortedVals, b) {
+		sum += v
+	}
+
+	return sum
+}
+
+// winsorizedMean clamps out-of-bound values to the nearest cutoff (rather than
+// discarding them) and returns the mean over all points (WM).
+func winsorizedMean(sortedVals []float64, b statBounds) float64 {
+	if len(sortedVals) == 0 {
+		return 0
+	}
+
+	var sum float64
+	for _, v := range sortedVals {
+		switch {
+		case b.loSet && v < b.lo:
+			sum += b.lo
+		case b.hiSet && v > b.hi:
+			sum += b.hi
+		default:
+			sum += v
+		}
+	}
+
+	return sum / float64(len(sortedVals))
+}
+
+// percentileRank returns the percentage of data points whose value falls within
+// the (absolute) bounds (PR). PR always uses absolute value thresholds.
+func percentileRank(sortedVals []float64, b statBounds) float64 {
+	if len(sortedVals) == 0 {
+		return 0
+	}
+
+	count := 0
+	for _, v := range sortedVals {
+		if b.inBounds(v) {
+			count++
+		}
+	}
+
+	return float64(count) / float64(len(sortedVals)) * percentHundred
 }
 
 // evalRateExpr handles RATE(id) expressions — per-second rate of change between consecutive points.
@@ -563,7 +807,14 @@ func evalRateExpr(upper string, resolved map[string]MetricDataResult, result *Me
 	return true
 }
 
-// collectRawBuckets groups raw metric values into period-aligned buckets.
+// maxStatSetExpand caps the number of synthetic samples produced when expanding a
+// single StatisticValues datum, bounding memory for pathologically large counts.
+const maxStatSetExpand = 100000
+
+// collectRawBuckets groups raw metric values into period-aligned buckets. Datums
+// carrying a StatisticValues set are expanded into a synthetic sample distribution
+// (see expandDatumValues) so percentile and extended statistics remain meaningful
+// instead of collapsing the set to a single point.
 func collectRawBuckets(all []MetricDatum, startTime, endTime time.Time, period int32) map[int64][]float64 {
 	buckets := make(map[int64][]float64)
 
@@ -573,8 +824,49 @@ func collectRawBuckets(all []MetricDatum, startTime, endTime time.Time, period i
 		}
 
 		idx := d.Timestamp.Unix() / int64(period)
-		buckets[idx] = append(buckets[idx], d.Value)
+		buckets[idx] = append(buckets[idx], expandDatumValues(d)...)
 	}
 
 	return buckets
+}
+
+// expandDatumValues reconstructs an approximate sample distribution for a metric
+// datum. A plain datum contributes its single Value. A StatisticValues datum
+// (SampleCount/Sum/Min/Max) is expanded into SampleCount synthetic samples: one at
+// Min, one at Max, and the remainder at the residual mean so that the reconstructed
+// set preserves the datum's count, sum, minimum, and maximum exactly. The sample
+// count is capped at maxStatSetExpand to bound memory.
+func expandDatumValues(d MetricDatum) []float64 {
+	if !d.HasStatisticSet {
+		return []float64{d.Value}
+	}
+
+	n := int(d.Count)
+	if n <= 0 {
+		return nil
+	}
+
+	if n == 1 {
+		return []float64{d.Sum}
+	}
+
+	if n == statSetMinInterior {
+		return []float64{d.Min, d.Max}
+	}
+
+	capped := min(n, maxStatSetExpand)
+
+	// Residual mean for the interior points keeps the total sum exact for the true
+	// count; when capping is applied the proportions (and thus percentiles) are
+	// preserved even though the absolute count is reduced.
+	mid := (d.Sum - d.Min - d.Max) / float64(n-statSetMinInterior)
+
+	vals := make([]float64, 0, capped)
+	vals = append(vals, d.Min)
+	for range capped - statSetMinInterior {
+		vals = append(vals, mid)
+	}
+	vals = append(vals, d.Max)
+
+	return vals
 }

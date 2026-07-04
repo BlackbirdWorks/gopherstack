@@ -35,7 +35,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetXRaySettings()
 	}
 
-	backend := NewInMemoryBackend()
+	accountID, region := service.AccountRegionOrDefault(ctx)
+	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend)
 	handler.WithJanitor(settings.JanitorInterval, settings.TraceTTL, ctx.JanitorTimeout)
 

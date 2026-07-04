@@ -3,6 +3,7 @@ package resourcegroupstaggingapi //nolint:testpackage // needs access to unexpor
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,6 +85,10 @@ func TestResourceGroupsTaggingAPIRegionIsolation(t *testing.T) {
 	_, err = backend.StartReportCreation(ctxEast, &StartReportCreationInput{S3Bucket: "east-bucket"})
 	require.NoError(t, err)
 
+	// StartReportCreation sets RUNNING; advance clock past running window to see SUCCEEDED.
+	fastClock := time.Now().Add(reportRunningDuration + time.Second)
+	backend.clockFunc = func() time.Time { return fastClock }
+
 	eastReport := backend.DescribeReportCreation(ctxEast)
 	require.NotNil(t, eastReport.Status)
 	assert.Equal(t, reportStatusSucceeded, *eastReport.Status)
@@ -92,10 +97,9 @@ func TestResourceGroupsTaggingAPIRegionIsolation(t *testing.T) {
 
 	// us-west-2 has no report yet.
 	westReport := backend.DescribeReportCreation(ctxWest)
-	require.NotNil(t, westReport.Status)
-	assert.Equal(t, reportStatusNoReport, *westReport.Status)
+	assert.Nil(t, westReport.Status)
 
 	// 5. Reset clears all regions.
 	backend.Reset()
-	assert.Equal(t, reportStatusNoReport, *backend.DescribeReportCreation(ctxEast).Status)
+	assert.Nil(t, backend.DescribeReportCreation(ctxEast).Status)
 }

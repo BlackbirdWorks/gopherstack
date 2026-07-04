@@ -679,17 +679,20 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 
 	tags := tagsToMap(req.Tags)
 
-	ch, err := h.Backend.CreateChannel(req.ChannelName, tags, req.ChannelStorage, req.RetentionPeriod)
+	ch, err := h.Backend.CreateChannel(
+		c.Request().Context(), req.ChannelName, tags, req.ChannelStorage, req.RetentionPeriod)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, createChannelResponse{
-		ChannelName: ch.Name,
-		ChannelARN:  ch.ARN,
+		ChannelName:     ch.Name,
+		ChannelARN:      ch.ARN,
+		RetentionPeriod: ch.RetentionPeriod,
 	})
 }
 
+//nolint:dupl // mirrors handleListDatastores — same pagination pattern, different resource types
 func (h *Handler) handleListChannels(c *echo.Context) error {
 	maxResults, cursor := parsePagination(c)
 	channels := h.Backend.ListChannels()
@@ -714,6 +717,7 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 		summaries = append(summaries, channelSummary{
 			ChannelName:            ch.Name,
 			ChannelARN:             ch.ARN,
+			ChannelStorage:         ch.Storage,
 			Status:                 ch.Status,
 			CreationTime:           ch.CreationTime,
 			LastUpdateTime:         ch.LastUpdate,
@@ -734,19 +738,28 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, name string) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, describeChannelResponse{
-		Channel: channelDetail{
-			Storage:                ch.Storage,
-			RetentionPeriod:        ch.RetentionPeriod,
-			Tags:                   mapToTagsSorted(ch.Tags),
-			Name:                   ch.Name,
-			ARN:                    ch.ARN,
-			Status:                 ch.Status,
-			CreationTime:           ch.CreationTime,
-			LastUpdateTime:         ch.LastUpdate,
-			LastMessageArrivalTime: ch.LastMessageArrivalTime,
-		},
-	})
+	detail := channelDetail{
+		Storage:                ch.Storage,
+		RetentionPeriod:        ch.RetentionPeriod,
+		Tags:                   mapToTagsSorted(ch.Tags),
+		Name:                   ch.Name,
+		ARN:                    ch.ARN,
+		Status:                 ch.Status,
+		CreationTime:           ch.CreationTime,
+		LastUpdateTime:         ch.LastUpdate,
+		LastMessageArrivalTime: ch.LastMessageArrivalTime,
+	}
+
+	if c.Request().URL.Query().Get("includeStatistics") == "true" {
+		detail.Statistics = &channelStatistics{
+			Size: &channelStatisticsSize{
+				EstimatedSizeInBytes: 0,
+				EstimatedOn:          ch.LastUpdate,
+			},
+		}
+	}
+
+	return c.JSON(http.StatusOK, describeChannelResponse{Channel: detail})
 }
 
 func (h *Handler) handleUpdateChannel(c *echo.Context, name string, body []byte) error {
@@ -795,6 +808,7 @@ func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 	tags := tagsToMap(req.Tags)
 
 	ds, err := h.Backend.CreateDatastore(
+		c.Request().Context(),
 		req.DatastoreName,
 		tags,
 		req.DatastoreStorage,
@@ -807,11 +821,13 @@ func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, createDatastoreResponse{
-		DatastoreName: ds.Name,
-		DatastoreARN:  ds.ARN,
+		DatastoreName:   ds.Name,
+		DatastoreARN:    ds.ARN,
+		RetentionPeriod: ds.RetentionPeriod,
 	})
 }
 
+//nolint:dupl // mirrors handleListChannels — same pagination pattern, different resource types
 func (h *Handler) handleListDatastores(c *echo.Context) error {
 	maxResults, cursor := parsePagination(c)
 	datastores := h.Backend.ListDatastores()
@@ -834,11 +850,13 @@ func (h *Handler) handleListDatastores(c *echo.Context) error {
 		}
 
 		summaries = append(summaries, datastoreSummary{
-			DatastoreName:  ds.Name,
-			DatastoreARN:   ds.ARN,
-			Status:         ds.Status,
-			CreationTime:   ds.CreationTime,
-			LastUpdateTime: ds.LastUpdate,
+			DatastoreName:          ds.Name,
+			DatastoreARN:           ds.ARN,
+			DatastoreStorage:       ds.Storage,
+			Status:                 ds.Status,
+			CreationTime:           ds.CreationTime,
+			LastUpdateTime:         ds.LastUpdate,
+			LastMessageArrivalTime: ds.LastMessageArrivalTime,
 		})
 		count++
 	}
@@ -855,20 +873,29 @@ func (h *Handler) handleDescribeDatastore(c *echo.Context, name string) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, describeDatastoreResponse{
-		Datastore: datastoreDetail{
-			Storage:                 ds.Storage,
-			RetentionPeriod:         ds.RetentionPeriod,
-			FileFormatConfiguration: ds.FileFormatConfiguration,
-			Partitions:              ds.Partitions,
-			Tags:                    mapToTagsSorted(ds.Tags),
-			Name:                    ds.Name,
-			ARN:                     ds.ARN,
-			Status:                  ds.Status,
-			CreationTime:            ds.CreationTime,
-			LastUpdateTime:          ds.LastUpdate,
-		},
-	})
+	detail := datastoreDetail{
+		Storage:                 ds.Storage,
+		RetentionPeriod:         ds.RetentionPeriod,
+		FileFormatConfiguration: ds.FileFormatConfiguration,
+		Partitions:              ds.Partitions,
+		Tags:                    mapToTagsSorted(ds.Tags),
+		Name:                    ds.Name,
+		ARN:                     ds.ARN,
+		Status:                  ds.Status,
+		CreationTime:            ds.CreationTime,
+		LastUpdateTime:          ds.LastUpdate,
+	}
+
+	if c.Request().URL.Query().Get("includeStatistics") == "true" {
+		detail.Statistics = &datastoreStatistics{
+			Size: &datastoreStatisticsSize{
+				EstimatedSizeInBytes: 0,
+				EstimatedOn:          ds.LastUpdate,
+			},
+		}
+	}
+
+	return c.JSON(http.StatusOK, describeDatastoreResponse{Datastore: detail})
 }
 
 func (h *Handler) handleUpdateDatastore(c *echo.Context, name string, body []byte) error {
@@ -920,6 +947,7 @@ func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 	tags := tagsToMap(req.Tags)
 
 	ds, err := h.Backend.CreateDataset(
+		c.Request().Context(),
 		req.DatasetName,
 		tags,
 		req.Actions,
@@ -1046,7 +1074,7 @@ func (h *Handler) handleCreatePipeline(c *echo.Context, body []byte) error {
 
 	tags := tagsToMap(req.Tags)
 
-	p, err := h.Backend.CreatePipeline(req.PipelineName, tags, req.PipelineActivities)
+	p, err := h.Backend.CreatePipeline(c.Request().Context(), req.PipelineName, tags, req.PipelineActivities)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1185,7 +1213,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleUntagResource(c *echo.Context) error {
@@ -1350,28 +1378,50 @@ func (h *Handler) handleGetDatasetContent(c *echo.Context, datasetName string) e
 
 	return c.JSON(http.StatusOK, getDatasetContentResponse{
 		Status:    &datasetContentStatusDTO{State: content.Status},
+		Entries:   []datasetContentEntry{},
+		VersionID: content.VersionID,
 		Timestamp: content.CreationTime,
 	})
 }
 
 func (h *Handler) handleListDatasetContents(c *echo.Context, datasetName string) error {
+	maxResults, cursor := parsePagination(c)
+
 	contents, err := h.Backend.ListDatasetContents(datasetName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	summaries := make([]datasetContentSummary, 0, len(contents))
+	var nextToken *string
+
+	count := 0
 
 	for _, content := range contents {
+		if cursor != "" && content.VersionID <= cursor {
+			continue
+		}
+
+		if count >= maxResults {
+			tok := encodeNextToken(summaries[len(summaries)-1].Version)
+			nextToken = &tok
+
+			break
+		}
+
 		summaries = append(summaries, datasetContentSummary{
 			Version:        content.VersionID,
 			Status:         &datasetContentStatusDTO{State: content.Status},
 			CreationTime:   content.CreationTime,
 			CompletionTime: content.CompletionTime,
 		})
+		count++
 	}
 
-	return c.JSON(http.StatusOK, listDatasetContentsResponse{DatasetContentSummaries: summaries})
+	return c.JSON(http.StatusOK, listDatasetContentsResponse{
+		DatasetContentSummaries: summaries,
+		NextToken:               nextToken,
+	})
 }
 
 func (h *Handler) handleDeleteDatasetContent(c *echo.Context, datasetName string) error {
@@ -1430,6 +1480,16 @@ func (h *Handler) handleRunPipelineActivity(c *echo.Context, body []byte) error 
 	var req runPipelineActivityRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	const maxRunPayloads = 10
+	if len(req.Payloads) > maxRunPayloads {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			"payloads must not contain more than 10 items",
+		)
 	}
 
 	payloads, err := h.Backend.RunPipelineActivity(req.Payloads)

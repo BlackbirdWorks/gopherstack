@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -35,27 +36,11 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, sfnWorkerService)
+	g.Ticker(prunerName, j.Interval, j.TaskTimeout, j.sweepExecutions)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepExecutions(taskCtx)
-			cancel()
-		}
-	}
-}
-
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
-	}
-
-	return context.WithCancel(parent)
+	<-ctx.Done()
+	g.Stop()
 }
 
 func (j *Janitor) sweepExecutions(ctx context.Context) {

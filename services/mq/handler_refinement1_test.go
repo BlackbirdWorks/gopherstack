@@ -335,11 +335,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := mq.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, mq.BrokerCount(b2))
 	assert.Equal(t, 1, mq.ConfigurationCount(b2))
@@ -373,11 +373,11 @@ func TestRefinement1_TagsSync_AfterRestore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := mq.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// CreateTags via ARN should be reflected in DescribeBroker.
 	b2.CreateTags(br.BrokerArn, map[string]string{"added": "after-restore"})

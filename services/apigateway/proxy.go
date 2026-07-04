@@ -12,20 +12,34 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+)
+
+var (
+	errUnexpectedSigningMethod = errors.New("unexpected JWT signing method")
+	errNoJWKSProvider          = errors.New("no JWKS provider configured")
 )
 
 // defaultAuthorizerTTL is the default authorizer result cache TTL (AWS default: 300 s).
 const defaultAuthorizerTTL = 300 * time.Second
 
 const defaultAuthorizerCacheMaxEntries = 1024
+
+const defaultIdentitySource = "method.request.header.Authorization"
 
 // maxProxyRequestBodyBytes caps API Gateway proxy request bodies. AWS limits the
 // Lambda synchronous invoke payload to 6 MiB; bodies larger than that cannot be
@@ -56,12 +70,17 @@ type LambdaProxyEvent struct {
 
 // LambdaProxyContext provides context for the Lambda proxy event.
 type LambdaProxyContext struct {
-	ResourcePath string `json:"resourcePath"`
-	HTTPMethod   string `json:"httpMethod"`
-	Stage        string `json:"stage"`
-	APIId        string `json:"apiId"`
-	RequestID    string `json:"requestId,omitempty"`
+	Authorizer   map[string]any `json:"authorizer,omitempty"`
+	ResourcePath string         `json:"resourcePath"`
+	HTTPMethod   string         `json:"httpMethod"`
+	Stage        string         `json:"stage"`
+	APIId        string         `json:"apiId"`
+	RequestID    string         `json:"requestId,omitempty"`
 }
+
+type ctxKey int
+
+const ctxKeyClaims ctxKey = 1
 
 // LambdaProxyResponse is the response format from a Lambda proxy function.
 type LambdaProxyResponse struct {
@@ -115,6 +134,13 @@ func BuildProxyEvent(
 		mqsp[k] = vs
 	}
 
+	var authorizer map[string]any
+	if claims, ok := r.Context().Value(ctxKeyClaims).(jwt.MapClaims); ok {
+		authorizer = map[string]any{
+			"claims": claims,
+		}
+	}
+
 	return &LambdaProxyEvent{
 		HTTPMethod:            r.Method,
 		Path:                  path,
@@ -131,6 +157,7 @@ func BuildProxyEvent(
 			HTTPMethod:   r.Method,
 			Stage:        stageName,
 			APIId:        apiID,
+			Authorizer:   authorizer,
 		},
 	}, nil
 }
@@ -258,8 +285,8 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// Find the resource and integration.
-		resources, _, err := h.Backend.GetResources(apiID, "", 0)
+		// Resolve the routing trie (cached per resource-set version) and match.
+		trie, err := h.routingTrie(apiID)
 		if err != nil {
 			logger.Load(ctx).ErrorContext(ctx, "APIGateway proxy: failed to get resources", "error", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -268,7 +295,7 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 		}
 
 		// Match request path to resource path, extracting any path parameters.
-		resource, pathParams := findMatchingResource(resources, r.URL.Path, stageName)
+		resource, pathParams := matchResourceTrie(trie, r.URL.Path, stageName)
 		if resource == nil {
 			http.NotFound(w, r)
 
@@ -290,7 +317,7 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 		}
 
 		// Apply method-level access controls (authorizer + request validator).
-		if denied := h.applyMethodControls(ctx, w, r, apiID, stageName, resource.ID); denied {
+		if denied := h.applyMethodControls(ctx, w, r, apiID, stageName, resource.ID, pathParams); denied {
 			return
 		}
 
@@ -317,6 +344,7 @@ func (h *Handler) applyMethodControls(
 	w http.ResponseWriter,
 	r *http.Request,
 	apiID, stageName, resourceID string,
+	pathParams map[string]string,
 ) bool {
 	method, methodErr := h.Backend.GetMethod(apiID, resourceID, r.Method)
 	if methodErr != nil {
@@ -328,7 +356,7 @@ func (h *Handler) applyMethodControls(
 	}
 
 	if method.APIKeyRequired {
-		if h.enforceAPIKey(ctx, w, r, apiID) {
+		if h.enforceAPIKey(ctx, w, r, apiID, stageName) {
 			return true
 		}
 	}
@@ -340,7 +368,7 @@ func (h *Handler) applyMethodControls(
 	}
 
 	if method.RequestValidatorID != "" {
-		if h.runRequestValidator(ctx, w, r, apiID, method.RequestValidatorID) {
+		if h.runRequestValidator(ctx, w, r, apiID, method, pathParams) {
 			return true
 		}
 	}
@@ -348,9 +376,13 @@ func (h *Handler) applyMethodControls(
 	return false
 }
 
-// enforceAPIKey validates the x-api-key header against enabled API keys.
-// Returns true if the request was denied (response already written).
-func (h *Handler) enforceAPIKey(ctx context.Context, w http.ResponseWriter, r *http.Request, apiID string) bool {
+// enforceAPIKey validates the x-api-key header against enabled API keys and, when the
+// key is associated with a usage plan for the stage, enforces the plan's quota and
+// rate/burst throttle. Returns true if the request was denied (response already
+// written).
+func (h *Handler) enforceAPIKey(
+	ctx context.Context, w http.ResponseWriter, r *http.Request, apiID, stageName string,
+) bool {
 	keyValue := r.Header.Get("X-Api-Key")
 	if keyValue == "" {
 		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: missing x-api-key", "apiId", apiID)
@@ -374,7 +406,46 @@ func (h *Handler) enforceAPIKey(ctx context.Context, w http.ResponseWriter, r *h
 		return true
 	}
 
-	return false
+	return h.enforceUsagePlan(ctx, w, apiID, stageName, apiKey.ID)
+}
+
+// enforceUsagePlan applies usage-plan quota/throttle limits for the key and writes the
+// AWS-accurate 429 response when a limit is exceeded. Returns true when the request
+// was denied.
+func (h *Handler) enforceUsagePlan(
+	ctx context.Context, w http.ResponseWriter, apiID, stageName, keyID string,
+) bool {
+	err := h.Backend.EnforceUsagePlan(apiID, stageName, keyID)
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, ErrQuotaExceeded):
+		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: usage-plan quota exceeded",
+			"apiId", apiID, "keyId", keyID)
+		writeThrottleResponse(w, "LimitExceededException", "Limit Exceeded")
+
+		return true
+	case errors.Is(err, ErrThrottled):
+		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: usage-plan throttle exceeded",
+			"apiId", apiID, "keyId", keyID)
+		writeThrottleResponse(w, "TooManyRequestsException", "Too Many Requests")
+
+		return true
+	default:
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: usage-plan enforcement error", "error", err)
+
+		return false
+	}
+}
+
+// writeThrottleResponse writes the AWS API Gateway 429 error body and x-amzn-ErrorType
+// header used for quota (LimitExceededException) and throttle (TooManyRequestsException)
+// rejections.
+func writeThrottleResponse(w http.ResponseWriter, errorType, message string) {
+	w.Header().Set(headerContentType, "application/json")
+	w.Header().Set("X-Amzn-Errortype", errorType)
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
 }
 
 // dispatchIntegration routes the request to the appropriate integration handler.
@@ -405,10 +476,10 @@ func (h *Handler) dispatchIntegration(
 	case "AWS_PROXY":
 		h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, pathParams)
 	case "AWS":
-		h.handleAWSIntegration(ctx, w, r, apiID, integration)
+		h.handleAWSIntegration(ctx, w, r, apiID, stageName, resource, stageVars, integration)
 	case "HTTP", "HTTP_PROXY":
 		h.handleHTTPProxy(ctx, w, r, integration)
-	case "MOCK":
+	case IntegrationTypeMock:
 		h.handleMockIntegration(w, integration)
 	default:
 		http.Error(w, "Unsupported or unknown integration type for stage URL", http.StatusNotImplemented)
@@ -460,12 +531,6 @@ func (h *Handler) runAuthorizer(
 	r *http.Request,
 	apiID, stageName, authorizerID string,
 ) bool {
-	if h.lambda == nil {
-		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
-
-		return true
-	}
-
 	auth, err := h.Backend.GetAuthorizer(apiID, authorizerID)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer not found", "authorizerId", authorizerID)
@@ -496,8 +561,20 @@ func (h *Handler) runAuthorizer(
 		}
 	}
 
+	// Cognito authorizers verify the JWT locally — no Lambda needed.
+	if auth.Type == AuthTypeCognitoUserPool {
+		return h.runCognitoAuthorizer(ctx, w, r, auth, cacheKey, ttl)
+	}
+
+	// All other authorizer types invoke a Lambda function.
+	if h.lambda == nil {
+		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
+
+		return true
+	}
+
 	// Build the authorizer event based on type.
-	event := h.buildAuthorizerEvent(r, auth, apiID, stageName)
+	event := h.buildAuthorizerEvent(ctx, r, auth, apiID, stageName)
 
 	payload, _ := json.Marshal(event)
 
@@ -533,18 +610,85 @@ func (h *Handler) runAuthorizer(
 	return false
 }
 
-// authorizerCacheKey builds the cache key for an authorizer invocation.
-// TOKEN: authorizerID + ":" + extracted token (using identityValidationExpression if set)
-// REQUEST: authorizerID + ":" + method + " " + path (per-request granularity).
-func (h *Handler) authorizerCacheKey(r *http.Request, auth *Authorizer, authorizerID string) string {
-	if auth.Type != "TOKEN" {
-		return authorizerID + ":" + r.Method + " " + r.URL.Path
+// runCognitoAuthorizer verifies a JWT token for COGNITO_USER_POOLS authorizer type.
+func (h *Handler) runCognitoAuthorizer(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	auth *Authorizer,
+	cacheKey string,
+	ttl time.Duration,
+) bool {
+	tokenSource := auth.IdentitySource
+	if tokenSource == "" {
+		tokenSource = defaultIdentitySource
 	}
 
-	token := extractTokenFromIdentitySource(r, auth.IdentitySource)
-	token = h.applyIdentityValidation(auth.IdentityValidationExpression, token)
+	var tokenStr string
 
-	return authorizerID + ":" + token
+	if headerName, found := strings.CutPrefix(tokenSource, "method.request.header."); found {
+		tokenStr = r.Header.Get(headerName)
+	} else {
+		tokenStr = r.Header.Get("Authorization")
+	}
+
+	if tokenStr == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	keyfunc := func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, errUnexpectedSigningMethod
+		}
+
+		iss, _ := t.Claims.(jwt.MapClaims)["iss"].(string)
+		kid, _ := t.Header["kid"].(string)
+
+		if h.jwksProvider == nil {
+			return nil, errNoJWKSProvider
+		}
+
+		return h.jwksProvider.GetJWTPublicKey(iss, kid)
+	}
+
+	token, parseErr := jwt.Parse(tokenStr, keyfunc, jwt.WithExpirationRequired())
+	if parseErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: cognito authorizer invalid token", "error", parseErr)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	*r = *r.WithContext(context.WithValue(r.Context(), ctxKeyClaims, claims))
+
+	if ttl > 0 {
+		h.authCache.set(cacheKey, true, ttl)
+	}
+
+	return false
+}
+
+// authorizerCacheKey builds the cache key for an authorizer invocation.
+// TOKEN / COGNITO_USER_POOLS: authorizerID + ":" + extracted token (per-token granularity)
+// REQUEST: authorizerID + ":" + method + " " + path (per-request granularity).
+func (h *Handler) authorizerCacheKey(r *http.Request, auth *Authorizer, authorizerID string) string {
+	if auth.Type == "TOKEN" || auth.Type == AuthTypeCognitoUserPool {
+		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
+		token = h.applyIdentityValidation(auth.IdentityValidationExpression, token)
+
+		return authorizerID + ":" + token
+	}
+
+	return authorizerID + ":" + r.Method + " " + r.URL.Path
 }
 
 // applyIdentityValidation normalizes a token using the authorizer's identityValidationExpression.
@@ -571,37 +715,38 @@ func (h *Handler) applyIdentityValidation(expr, token string) string {
 	return token
 }
 
-// runRequestValidator enforces request validation rules when a requestValidatorId
-// is configured on the method. Returns true if validation failed and the response
-// has been written.
+// runRequestValidator enforces request validation rules when a requestValidatorId is
+// configured on the method. When ValidateRequestParameters is set it checks that every
+// required header/query/path parameter is present; when ValidateRequestBody is set it
+// checks the body is valid JSON and, if the method declares a request model, validates
+// it against the model's JSON Schema. Returns true if validation failed and the
+// AWS-accurate 400 response has been written.
 func (h *Handler) runRequestValidator(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID, validatorID string,
+	apiID string,
+	method *Method,
+	pathParams map[string]string,
 ) bool {
-	rv, err := h.Backend.GetRequestValidator(apiID, validatorID)
+	rv, err := h.Backend.GetRequestValidator(apiID, method.RequestValidatorID)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: request validator not found",
-			"validatorId", validatorID)
+			"validatorId", method.RequestValidatorID)
 
 		return false // fail open when validator config is missing
 	}
 
-	if rv.ValidateRequestBody && r.Body != nil {
-		bodyBytes, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProxyRequestBodyBytes))
-		if readErr != nil {
-			http.Error(w, "Bad Request: failed to read body", http.StatusBadRequest)
+	if rv.ValidateRequestParameters {
+		if missing := missingRequiredParameters(r, method, pathParams); len(missing) > 0 {
+			writeValidationError(w, "Missing required request parameters: ["+strings.Join(missing, ", ")+"]")
 
 			return true
 		}
+	}
 
-		// Replace body so downstream handlers can still read it.
-		r.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
-
-		if len(bodyBytes) > 0 && !json.Valid(bodyBytes) {
-			http.Error(w, "Bad Request: request body must be valid JSON", http.StatusBadRequest)
-
+	if rv.ValidateRequestBody {
+		if denied := h.validateRequestBody(ctx, w, r, apiID, method); denied {
 			return true
 		}
 	}
@@ -609,8 +754,156 @@ func (h *Handler) runRequestValidator(
 	return false
 }
 
+// validateRequestBody reads the request body (restoring it for downstream handlers),
+// requires it to be valid JSON, and validates it against the method's request model
+// schema when one is declared. Returns true when the AWS 400 body-validation response
+// has been written.
+func (h *Handler) validateRequestBody(
+	ctx context.Context, w http.ResponseWriter, r *http.Request, apiID string, method *Method,
+) bool {
+	if r.Body == nil {
+		return false
+	}
+
+	bodyBytes, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProxyRequestBodyBytes))
+	if readErr != nil {
+		writeValidationError(w, "Invalid request body")
+
+		return true
+	}
+
+	// Replace body so downstream handlers can still read it.
+	r.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+
+	if len(bodyBytes) == 0 || !json.Valid(bodyBytes) {
+		writeValidationError(w, "Invalid request body")
+
+		return true
+	}
+
+	schema := h.requestModelSchema(apiID, method, r.Header.Get("Content-Type"))
+	if schema == "" {
+		return false
+	}
+
+	if err := validateJSONAgainstSchema(bodyBytes, schema); err != nil {
+		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: request body schema validation failed",
+			"apiId", apiID, "error", err)
+		writeValidationError(w, "Invalid request body")
+
+		return true
+	}
+
+	return false
+}
+
+// requestModelSchema resolves the JSON Schema for the method's request model that
+// matches the request content type (falling back to application/json), or "" when the
+// method declares no usable model.
+func (h *Handler) requestModelSchema(apiID string, method *Method, contentType string) string {
+	if len(method.RequestModels) == 0 {
+		return ""
+	}
+
+	ct := contentType
+	if idx := strings.IndexByte(ct, ';'); idx >= 0 {
+		ct = ct[:idx]
+	}
+	ct = strings.TrimSpace(ct)
+
+	modelName := method.RequestModels[ct]
+	if modelName == "" {
+		modelName = method.RequestModels[contentTypeJSON]
+	}
+	if modelName == "" || strings.EqualFold(modelName, "Empty") {
+		return ""
+	}
+
+	model, err := h.Backend.GetModel(apiID, modelName)
+	if err != nil || model == nil {
+		return ""
+	}
+
+	return model.Schema
+}
+
+// writeValidationError writes the AWS API Gateway request-validation 400 response:
+// a JSON body of {"message": "..."} with the BAD_REQUEST error type header.
+func writeValidationError(w http.ResponseWriter, message string) {
+	w.Header().Set(headerContentType, "application/json")
+	w.Header().Set("X-Amzn-Errortype", "BadRequestException")
+	w.WriteHeader(http.StatusBadRequest)
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
+}
+
+// missingRequiredParameters returns the names of required request parameters (as
+// declared on the method's RequestParameters map) that are absent from the request.
+// Keys are "method.request.{location}.{name}" and map to whether the parameter is
+// required. Returned names are sorted for a stable error message.
+func missingRequiredParameters(r *http.Request, method *Method, pathParams map[string]string) []string {
+	var missing []string
+	query := r.URL.Query()
+
+	for spec, required := range method.RequestParameters {
+		if !required {
+			continue
+		}
+
+		location, name, ok := parseParameterSpec(spec)
+		if !ok {
+			continue
+		}
+
+		if !requestHasParameter(r, query, pathParams, location, name) {
+			missing = append(missing, spec)
+		}
+	}
+
+	sort.Strings(missing)
+
+	return missing
+}
+
+// parseParameterSpec splits a "method.request.{location}.{name}" spec into its
+// location ("header"/"querystring"/"path") and parameter name. The final bool reports
+// whether the spec was well-formed.
+func parseParameterSpec(spec string) (string, string, bool) {
+	const prefix = "method.request."
+	rest, found := strings.CutPrefix(spec, prefix)
+	if !found {
+		return "", "", false
+	}
+	loc, name, found := strings.Cut(rest, ".")
+	if !found || name == "" {
+		return "", "", false
+	}
+
+	return loc, name, true
+}
+
+// requestHasParameter reports whether the request carries a non-empty value for the
+// given parameter location and name.
+func requestHasParameter(
+	r *http.Request, query url.Values, pathParams map[string]string, location, name string,
+) bool {
+	switch location {
+	case paramLocationHeader:
+		return r.Header.Get(name) != ""
+	case paramLocationQuery:
+		return query.Has(name)
+	case paramLocationPath:
+		_, ok := pathParams[name]
+
+		return ok
+	default:
+		return true
+	}
+}
+
 // buildAuthorizerEvent constructs the event payload for the Lambda authorizer.
-func (h *Handler) buildAuthorizerEvent(r *http.Request, auth *Authorizer, apiID, stageName string) AuthorizerEvent {
+func (h *Handler) buildAuthorizerEvent(
+	ctx context.Context, r *http.Request, auth *Authorizer, apiID, stageName string,
+) AuthorizerEvent {
 	headers := make(map[string]string)
 	for k, vs := range r.Header {
 		if len(vs) > 0 {
@@ -647,8 +940,13 @@ func (h *Handler) buildAuthorizerEvent(r *http.Request, auth *Authorizer, apiID,
 		}
 	}
 
-	methodArn := fmt.Sprintf("arn:aws:execute-api:us-east-1:000000000000:%s/%s/%s%s",
-		apiID, stageName, r.Method, resourcePath)
+	region := awsmeta.Region(ctx)
+	if region == "" {
+		region = config.DefaultRegion
+	}
+
+	methodArn := arn.Build("execute-api", region, awsmeta.Account(ctx),
+		fmt.Sprintf("%s/%s/%s%s", apiID, stageName, r.Method, resourcePath))
 
 	event := AuthorizerEvent{
 		Type:                  auth.Type,
@@ -804,7 +1102,9 @@ func (h *Handler) handleAWSIntegration(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID string,
+	apiID, stageName string,
+	resource *Resource,
+	stageVars map[string]string,
 	integration *Integration,
 ) {
 	if h.lambda == nil {
@@ -829,9 +1129,22 @@ func (h *Handler) handleAWSIntegration(
 		return
 	}
 
+	resourcePath := "/"
+	if resource != nil && resource.Path != "" {
+		resourcePath = resource.Path
+	}
+
 	vtlCtx := VTLContext{
-		Body:      string(rawBody),
-		RequestID: r.Header.Get("X-Amzn-Requestid"),
+		Body:           string(rawBody),
+		RequestID:      r.Header.Get("X-Amzn-Requestid"),
+		HTTPMethod:     r.Method,
+		ResourcePath:   resourcePath,
+		Path:           r.URL.Path,
+		Stage:          stageName,
+		APIID:          apiID,
+		SourceIP:       realClientIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+		StageVariables: stageVars,
 	}
 
 	// Apply request mapping template (content-type "application/json" is standard).
@@ -968,25 +1281,119 @@ func (h *Handler) matchIntegrationResponse(
 	return nil
 }
 
-// cachedRegexp returns a compiled regexp for the pattern, using the handler's cache.
-// Returns nil if the pattern does not compile.
+// cachedRegexp returns a compiled regexp for the pattern, using the handler's bounded
+// LRU cache. Returns nil (also cached) if the pattern does not compile.
 func (h *Handler) cachedRegexp(pattern string) *regexp.Regexp {
-	if v, ok := h.selRegexpCache.Load(pattern); ok {
-		re, _ := v.(*regexp.Regexp)
-
+	if re, ok := h.selRegexpCache.get(pattern); ok {
 		return re
 	}
 
 	re, compileErr := regexp.Compile(pattern)
 	if compileErr != nil {
-		h.selRegexpCache.Store(pattern, (*regexp.Regexp)(nil))
+		h.selRegexpCache.put(pattern, nil)
 
 		return nil
 	}
 
-	h.selRegexpCache.Store(pattern, re)
+	h.selRegexpCache.put(pattern, re)
 
 	return re
+}
+
+// defaultRegexpCacheMaxEntries bounds the compiled selection-pattern regexp cache.
+const defaultRegexpCacheMaxEntries = 1024
+
+// regexpCache is a mutex-guarded LRU of compiled regexps keyed by user-supplied
+// selection patterns. It caps its size so that unbounded distinct patterns cannot leak
+// memory. A cached nil value records a pattern that failed to compile.
+type regexpCache struct {
+	entries    map[string]*list.Element
+	order      *list.List
+	mu         sync.Mutex
+	maxEntries int
+}
+
+type regexpCacheEntry struct {
+	re  *regexp.Regexp
+	key string
+}
+
+func newRegexpCache(maxEntries int) *regexpCache {
+	if maxEntries <= 0 {
+		maxEntries = defaultRegexpCacheMaxEntries
+	}
+
+	return &regexpCache{
+		entries:    make(map[string]*list.Element),
+		order:      list.New(),
+		maxEntries: maxEntries,
+	}
+}
+
+func (c *regexpCache) get(pattern string) (*regexp.Regexp, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	elem, ok := c.entries[pattern]
+	if !ok {
+		return nil, false
+	}
+	c.order.MoveToFront(elem)
+	entry, _ := elem.Value.(regexpCacheEntry)
+
+	return entry.re, true
+}
+
+func (c *regexpCache) put(pattern string, re *regexp.Regexp) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if elem, ok := c.entries[pattern]; ok {
+		elem.Value = regexpCacheEntry{re: re, key: pattern}
+		c.order.MoveToFront(elem)
+
+		return
+	}
+
+	elem := c.order.PushFront(regexpCacheEntry{re: re, key: pattern})
+	c.entries[pattern] = elem
+
+	for c.order.Len() > c.maxEntries {
+		back := c.order.Back()
+		if back == nil {
+			break
+		}
+		entry, _ := back.Value.(regexpCacheEntry)
+		delete(c.entries, entry.key)
+		c.order.Remove(back)
+	}
+}
+
+// trieCacheEntry pairs a built routing trie with the resource-set version it was built
+// from, so the proxy can detect staleness cheaply.
+type trieCacheEntry struct {
+	trie    *resourcePathTrie
+	version uint64
+}
+
+// routingTrie returns the cached routing trie for the API, rebuilding it only when the
+// backend reports a newer resource-set version.
+func (h *Handler) routingTrie(apiID string) (*resourcePathTrie, error) {
+	resources, version, err := h.Backend.ResourcesForRouting(apiID)
+	if err != nil {
+		return nil, err
+	}
+
+	if cached, ok := h.trieCache.Load(apiID); ok {
+		if entry, isEntry := cached.(*trieCacheEntry); isEntry && entry.version == version {
+			return entry.trie, nil
+		}
+	}
+
+	trie := buildResourceTrie(resources)
+	h.trieCache.Store(apiID, &trieCacheEntry{trie: trie, version: version})
+
+	return trie, nil
 }
 
 // writeCORSPreflight writes an HTTP 200 response with CORS preflight headers.
@@ -1256,6 +1663,23 @@ func parseStatusCode(s string) int {
 // Returns the matched resource and extracted path parameters, or nil if no match.
 // Stage name prefix is stripped from the request path before matching.
 func findMatchingResource(resources []Resource, requestPath, stageName string) (*Resource, map[string]string) {
+	return matchResourceTrie(buildResourceTrie(resources), requestPath, stageName)
+}
+
+// buildResourceTrie constructs a routing trie from the resource set. The proxy builds
+// this once per resource-set version and caches it instead of rebuilding per request.
+func buildResourceTrie(resources []Resource) *resourcePathTrie {
+	trie := newResourcePathTrie()
+	for _, resource := range resources {
+		trie.insert(resource)
+	}
+
+	return trie
+}
+
+// matchResourceTrie strips the stage prefix from the request path and matches it
+// against a pre-built routing trie.
+func matchResourceTrie(trie *resourcePathTrie, requestPath, stageName string) (*Resource, map[string]string) {
 	// Strip stage prefix: /{stageName}/... -> /...
 	stripped := requestPath
 	prefix := "/" + stageName
@@ -1265,11 +1689,6 @@ func findMatchingResource(resources []Resource, requestPath, stageName string) (
 
 	if stripped == "" {
 		stripped = "/"
-	}
-
-	trie := newResourcePathTrie()
-	for _, resource := range resources {
-		trie.insert(resource)
 	}
 
 	return trie.match(stripped)
@@ -1477,12 +1896,28 @@ func applyIntegrationRequestParams(incoming *http.Request, outgoing *http.Reques
 		switch paramType {
 		case paramLocationHeader:
 			outgoing.Header.Set(paramName, value)
-		case "querystring":
+		case paramLocationQuery:
 			outQuery.Set(paramName, value)
 		}
 	}
 
 	outgoing.URL.RawQuery = outQuery.Encode()
+}
+
+// realClientIP extracts the client IP from X-Forwarded-For or RemoteAddr.
+func realClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		host, _, _ := strings.Cut(xff, ",")
+
+		return strings.TrimSpace(host)
+	}
+
+	host := r.RemoteAddr
+	if idx := strings.LastIndexByte(host, ':'); idx >= 0 {
+		host = host[:idx]
+	}
+
+	return strings.Trim(host, "[]")
 }
 
 // resolveRequestParamSource resolves a parameter source expression against the incoming request.
@@ -1507,10 +1942,10 @@ func resolveRequestParamSource(r *http.Request, src string) string {
 	case paramLocationHeader:
 
 		return r.Header.Get(srcName)
-	case "querystring":
+	case paramLocationQuery:
 
 		return r.URL.Query().Get(srcName)
-	case "path":
+	case paramLocationPath:
 		// Return the named path segment from the raw URL path.
 		// This is a best-effort approximation: the actual value depends on route matching.
 		segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")

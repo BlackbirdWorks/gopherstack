@@ -190,7 +190,7 @@ func TestCoverage2_RemoveClientIDFromOpenIDConnectProvider(t *testing.T) {
 	oidc, err := b.CreateOpenIDConnectProvider(
 		"https://example.com",
 		[]string{"client-id-1"},
-		[]string{"sts.amazonaws.com"},
+		[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
 	)
 	require.NoError(t, err)
 
@@ -230,7 +230,7 @@ func TestCoverage2_ComprehensiveBackendReset(t *testing.T) {
 	oidc, err := b.CreateOpenIDConnectProvider(
 		"https://testoidc.com",
 		[]string{"sts.amazonaws.com"},
-		[]string{"client-1"},
+		[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
 	)
 	require.NoError(t, err)
 

@@ -2,6 +2,7 @@ package fis
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -428,15 +429,20 @@ func (h *Handler) handleListExperimentTemplates(c *echo.Context) error {
 		return h.writeError(c, http.StatusInternalServerError, err.Error(), "")
 	}
 
-	maxResults, start := paginateSlice(len(templates), c.Request().URL.Query())
+	ids := make([]string, len(templates))
+	for i, t := range templates {
+		ids[i] = t.ID
+	}
 
-	end := start + maxResults
-	end = min(end, len(templates))
+	q := c.Request().URL.Query()
+	maxResults, start := paginateWithToken(ids, q)
+
+	end := min(start+maxResults, len(templates))
 
 	var nextTok string
 
 	if end < len(templates) {
-		nextTok = templates[end-1].ID
+		nextTok = encodePageToken(end)
 	}
 
 	page := templates[start:end]
@@ -529,15 +535,19 @@ func (h *Handler) handleListExperiments(c *echo.Context) error {
 	}
 
 	// Apply cursor-based pagination.
-	maxResults, start := paginateSlice(len(experiments), q)
+	ids := make([]string, len(experiments))
+	for i, e := range experiments {
+		ids[i] = e.ID
+	}
 
-	end := start + maxResults
-	end = min(end, len(experiments))
+	maxResults, start := paginateWithToken(ids, q)
+
+	end := min(start+maxResults, len(experiments))
 
 	var nextTok string
 
 	if end < len(experiments) {
-		nextTok = experiments[end-1].ID
+		nextTok = encodePageToken(end)
 	}
 
 	page := experiments[start:end]
@@ -570,13 +580,31 @@ func (h *Handler) handleGetAction(c *echo.Context, id string) error {
 
 func (h *Handler) handleListActions(c *echo.Context) error {
 	actions := h.Backend.ListActions()
-	dtos := make([]actionDTO, len(actions))
 
-	for i := range actions {
-		dtos[i] = toActionDTO(&actions[i])
+	ids := make([]string, len(actions))
+	for i, a := range actions {
+		ids[i] = a.ID
 	}
 
-	return c.JSON(http.StatusOK, listActionsResponseDTO{Actions: dtos})
+	q := c.Request().URL.Query()
+	maxResults, start := paginateWithToken(ids, q)
+
+	end := min(start+maxResults, len(actions))
+
+	var nextTok string
+
+	if end < len(actions) {
+		nextTok = encodePageToken(end)
+	}
+
+	page := actions[start:end]
+	dtos := make([]actionDTO, len(page))
+
+	for i := range page {
+		dtos[i] = toActionDTO(&page[i])
+	}
+
+	return c.JSON(http.StatusOK, listActionsResponseDTO{Actions: dtos, NextToken: nextTok})
 }
 
 func (h *Handler) handleGetTargetResourceType(c *echo.Context, resourceType string) error {
@@ -592,13 +620,34 @@ func (h *Handler) handleGetTargetResourceType(c *echo.Context, resourceType stri
 
 func (h *Handler) handleListTargetResourceTypes(c *echo.Context) error {
 	types := h.Backend.ListTargetResourceTypes()
-	dtos := make([]targetResourceTypeDTO, len(types))
 
-	for i := range types {
-		dtos[i] = toTargetResourceTypeDTO(&types[i])
+	ids := make([]string, len(types))
+	for i, rt := range types {
+		ids[i] = rt.ResourceType
 	}
 
-	return c.JSON(http.StatusOK, listTargetResourceTypesResponseDTO{TargetResourceTypes: dtos})
+	q := c.Request().URL.Query()
+	maxResults, start := paginateWithToken(ids, q)
+
+	end := min(start+maxResults, len(types))
+
+	var nextTok string
+
+	if end < len(types) {
+		nextTok = encodePageToken(end)
+	}
+
+	page := types[start:end]
+	dtos := make([]targetResourceTypeDTO, len(page))
+
+	for i := range page {
+		dtos[i] = toTargetResourceTypeDTO(&page[i])
+	}
+
+	return c.JSON(
+		http.StatusOK,
+		listTargetResourceTypesResponseDTO{TargetResourceTypes: dtos, NextToken: nextTok},
+	)
 }
 
 // ----------------------------------------
@@ -849,7 +898,11 @@ func (h *Handler) writeError(c *echo.Context, status int, message, resourceID st
 	return h.writeTypedError(c, status, "", message, resourceID)
 }
 
-func (h *Handler) writeTypedError(c *echo.Context, status int, errType, message, resourceID string) error {
+func (h *Handler) writeTypedError(
+	c *echo.Context,
+	status int,
+	errType, message, resourceID string,
+) error {
 	resp := errorResponseDTO{Type: errType, Message: message, ResourceID: resourceID}
 
 	return c.JSON(status, resp)
@@ -1174,7 +1227,7 @@ func toTemplateDTO(tpl *ExperimentTemplate) experimentTemplateDTO {
 		}
 
 		if tpl.LogConfiguration.CloudWatchLogsConfiguration != nil {
-			lc.CloudWatchLogsConfiguration = &experimentTemplateCloudWatchLogsConfigurationDTO{
+			lc.CloudWatchLogsConfiguration = &cwLogsConfigurationDTO{
 				LogGroupArn: tpl.LogConfiguration.CloudWatchLogsConfiguration.LogGroupArn,
 			}
 		}
@@ -1365,10 +1418,24 @@ const defaultMaxResults = 20
 // absoluteMaxResults is the maximum allowed page size.
 const absoluteMaxResults = 100
 
-// paginateSlice parses maxResults and nextToken from query params for cursor-based pagination.
-// Returns (maxResults, startOffset, pageSlice-placeholder). The caller uses startOffset
-// to slice the pre-sorted slice from the backend.
-func paginateSlice(_ int, q url.Values) (int, int) {
+// encodePageToken encodes an integer offset as an opaque base64 token.
+func encodePageToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// decodePageToken decodes a token produced by encodePageToken.
+func decodePageToken(tok string) (int, error) {
+	b, err := base64.StdEncoding.DecodeString(tok)
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(string(b))
+}
+
+// paginateWithToken decodes the offset-based nextToken and returns (pageSize, startOffset).
+// The caller slices [startOffset : startOffset+pageSize].
+func paginateWithToken(_ []string, q url.Values) (int, int) {
 	mr := defaultMaxResults
 
 	if v := q.Get("maxResults"); v != "" {
@@ -1379,8 +1446,13 @@ func paginateSlice(_ int, q url.Values) (int, int) {
 
 	mr = min(mr, absoluteMaxResults)
 
-	// nextToken: future — decode opaque cursor to a start offset by ID.
-	_ = q.Get("nextToken")
+	start := 0
 
-	return mr, 0
+	if tok := q.Get("nextToken"); tok != "" {
+		if n, err := decodePageToken(tok); err == nil && n > 0 {
+			start = n
+		}
+	}
+
+	return mr, start
 }

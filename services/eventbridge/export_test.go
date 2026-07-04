@@ -14,6 +14,12 @@ func MatchPatternForTest(pattern, event string) bool {
 	return matchPattern(pattern, event)
 }
 
+// SubstituteInputTemplateForTest exposes the input-transformer template scanner
+// so external tests can assert context-aware, valid-JSON substitution directly.
+func SubstituteInputTemplateForTest(template string, vars map[string]any) string {
+	return substituteInputTemplate(template, vars)
+}
+
 // ScheduleForTest wraps a scheduleExpression for testing.
 type ScheduleForTest struct {
 	expr scheduleExpression
@@ -152,3 +158,38 @@ func (b *InMemoryBackend) EventLogLen() int {
 
 // MaxEventLogSizeForTest exposes the in-memory event log size cap.
 const MaxEventLogSizeForTest = maxEventLogSize
+
+// TargetsByARNCount returns how many targetKeys are indexed for the given region+ARN.
+func (b *InMemoryBackend) TargetsByARNCount(region, arn string) int {
+	b.mu.RLock("TargetsByARNCount")
+	defer b.mu.RUnlock()
+
+	if rm := b.targetsByARN[region]; rm != nil {
+		return len(rm[arn])
+	}
+
+	return 0
+}
+
+// ARNIndexConsistent verifies targetsByARN matches the canonical targets map.
+// Returns false and a description if not.
+func (b *InMemoryBackend) ARNIndexConsistent() (bool, string) {
+	b.mu.RLock("ARNIndexConsistent")
+	defer b.mu.RUnlock()
+
+	for region, regionTargets := range b.targets {
+		for targetKey, tMap := range regionTargets {
+			for _, t := range tMap {
+				if rm := b.targetsByARN[region]; rm == nil {
+					return false, fmt.Sprintf("targetsByARN[%s] is nil but canonical has entries", region)
+				} else if _, ok := rm[t.Arn][targetKey]; !ok {
+					return false, fmt.Sprintf(
+						"targetKey %s ARN %s missing from targetsByARN[%s]", targetKey, t.Arn, region,
+					)
+				}
+			}
+		}
+	}
+
+	return true, ""
+}

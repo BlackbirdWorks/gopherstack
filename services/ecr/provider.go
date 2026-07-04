@@ -1,9 +1,10 @@
 package ecr
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	"net/http"
 	"os"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -47,11 +48,6 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		region = config.DefaultRegion
 	}
 
-	log := appCtx.Logger
-	if log == nil {
-		log = slog.Default()
-	}
-
 	localRegistryEnabled := os.Getenv(enableLocalRegistryEnv) == "1"
 
 	// The endpoint for repository URIs is set to the Gopherstack server address.
@@ -59,17 +55,24 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 	// For now use an empty string; SetEndpoint() can be called later.
 	backend := NewInMemoryBackend(accountID, region, "")
 
+	var registryHandler http.Handler
+
 	if localRegistryEnabled {
-		log.Info("ECR local registry enabled; starting embedded Docker registry v2")
+		appCtx.Logger.Info("ECR local registry enabled; starting embedded Docker registry v2")
 
-		rh := newDistributionRegistry(appCtx.JanitorCtx)
+		janitorCtx := appCtx.JanitorCtx
+		if janitorCtx == nil {
+			janitorCtx = context.Background()
+		}
 
-		return NewHandler(backend, rh), nil
+		registryHandler = newDistributionRegistry(janitorCtx)
+	} else {
+		appCtx.Logger.Warn(
+			"ECR local registry is disabled; docker push/pull will not work. Set GOPHERSTACK_ENABLE_LOCAL_REGISTRY=1 to enable",
+		)
 	}
 
-	log.Warn(
-		"ECR local registry is disabled; docker push/pull will not work. Set GOPHERSTACK_ENABLE_LOCAL_REGISTRY=1 to enable",
-	)
-
-	return NewHandler(backend, nil), nil
+	// Attach the background lifecycle-expiry janitor. StartWorker runs it against
+	// appCtx.JanitorCtx once the service is registered.
+	return NewHandler(backend, registryHandler).WithJanitor(0, appCtx.JanitorTimeout), nil
 }

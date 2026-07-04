@@ -434,11 +434,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 		"rt-share",
 	))
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := ram.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, ram.ResourceShareCount(b2))
 	// Snapshot includes built-ins + 1 customer-managed permission.
@@ -645,7 +645,7 @@ func TestRefinement1_Snapshot_DeepCopy(t *testing.T) {
 	rs, err := b.CreateResourceShare("snap-share", false, map[string]string{"env": "test"}, nil, nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Mutate the live share; the snapshot should be unaffected.
@@ -653,7 +653,7 @@ func TestRefinement1_Snapshot_DeepCopy(t *testing.T) {
 	require.NoError(t, err)
 
 	b2 := ram.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	tags, err := b2.ListTagsForResource(rs.ARN)
 	require.NoError(t, err)

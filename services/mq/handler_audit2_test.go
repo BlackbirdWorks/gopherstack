@@ -27,7 +27,7 @@ func createAudit2Broker(t *testing.T, h *mq.Handler, name string) string {
 		"brokerName": name,
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusOK, rec.Code, "CreateBroker failed: %s", rec.Body.String())
+	require.Equal(t, http.StatusAccepted, rec.Code, "CreateBroker failed: %s", rec.Body.String())
 
 	return parseAccuracyMQ(t, rec)["brokerId"].(string)
 }
@@ -45,27 +45,27 @@ func TestMQ_Audit2_UsernameValidation(t *testing.T) {
 		{
 			name:     "valid username alphanumeric",
 			username: "alice",
-			wantCode: http.StatusCreated,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "valid username with hyphen",
 			username: "alice-b",
-			wantCode: http.StatusCreated,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "valid username with underscore",
 			username: "alice_b",
-			wantCode: http.StatusCreated,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "valid username exactly 2 chars",
 			username: "ab",
-			wantCode: http.StatusCreated,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "valid username exactly 100 chars",
 			username: strings.Repeat("a", 100),
-			wantCode: http.StatusCreated,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "username too short (1 char) rejected",
@@ -173,12 +173,12 @@ func TestMQ_Audit2_ActiveMQ_MaxUsers(t *testing.T) {
 		{
 			name:     "creating 249th user succeeds",
 			count:    249,
-			wantCode: http.StatusCreated,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "creating 250th user succeeds (at limit)",
 			count:    250,
-			wantCode: http.StatusCreated,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "creating 251st user fails (over limit)",
@@ -230,12 +230,12 @@ func TestMQ_Audit2_ActiveMQ_MaxGroups(t *testing.T) {
 		{
 			name:     "zero groups accepted",
 			groups:   nil,
-			wantCode: http.StatusCreated,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "20 groups accepted (at limit)",
 			groups:   makeGroups(20),
-			wantCode: http.StatusCreated,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "21 groups rejected (over limit)",
@@ -300,7 +300,7 @@ func TestMQ_Audit2_UpdateUser_MaxGroups(t *testing.T) {
 			rec := doAccuracyMQ(t, h, http.MethodPost,
 				fmt.Sprintf("/v1/brokers/%s/users/editme", bid),
 				map[string]any{"password": "ValidPass12!!"})
-			require.Equal(t, http.StatusCreated, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Now update with the test groups.
 			rec = doAccuracyMQ(t, h, http.MethodPut,
@@ -467,7 +467,7 @@ func TestMQ_Audit2_CreateBroker_Tags_KeyValueValidation(t *testing.T) {
 		{
 			name:     "valid tags accepted at create time",
 			tags:     map[string]string{"env": "prod"},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusAccepted,
 		},
 		{
 			name:     "key over 128 chars rejected at create time",

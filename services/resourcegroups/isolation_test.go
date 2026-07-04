@@ -47,21 +47,21 @@ func TestResourceGroupsRegionIsolation(t *testing.T) {
 	assert.Contains(t, westRead.ARN, "us-west-2")
 
 	// 3. ListGroups returns exactly one group per region.
-	eastList := backend.ListGroups(ctxEast, nil)
+	eastList, _ := backend.ListGroups(ctxEast, nil, "", 0)
 	require.Len(t, eastList, 1)
 	assert.Equal(t, "shared-group", eastList[0].Name)
 
-	westList := backend.ListGroups(ctxWest, nil)
+	westList, _ := backend.ListGroups(ctxWest, nil, "", 0)
 	require.Len(t, westList, 1)
 	assert.Equal(t, "shared-group", westList[0].Name)
 
 	// 4. Deleting in us-east-1 must not affect us-west-2.
 	require.NoError(t, backend.DeleteGroup(ctxEast, "shared-group"))
 
-	eastGone := backend.ListGroups(ctxEast, nil)
+	eastGone, _ := backend.ListGroups(ctxEast, nil, "", 0)
 	assert.Empty(t, eastGone)
 
-	westStill := backend.ListGroups(ctxWest, nil)
+	westStill, _ := backend.ListGroups(ctxWest, nil, "", 0)
 	require.Len(t, westStill, 1)
 	assert.Equal(t, "west desc", westStill[0].Description)
 }
@@ -87,21 +87,21 @@ func TestResourceGroupsTagSyncTaskRegionIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	// us-east-1 sees the resource; us-west-2 does not.
-	eastRes, err := backend.ListGroupResources(ctxEast, "app-group")
+	eastRes, _, err := backend.ListGroupResources(ctxEast, "app-group", nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, eastRes, 1)
 	assert.Equal(t, "arn:aws:s3:::east-bucket", eastRes[0].ResourceArn)
 
-	westRes, err := backend.ListGroupResources(ctxWest, "app-group")
+	westRes, _, err := backend.ListGroupResources(ctxWest, "app-group", nil, "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, westRes)
 
 	// SearchResources returns only the east resource from the east region.
-	eastSearch, err := backend.SearchResources(ctxEast, nil)
+	eastSearch, _, err := backend.SearchResources(ctxEast, nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, eastSearch, 1)
 
-	westSearch, err := backend.SearchResources(ctxWest, nil)
+	westSearch, _, err := backend.SearchResources(ctxWest, nil, "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, westSearch)
 
@@ -112,11 +112,11 @@ func TestResourceGroupsTagSyncTaskRegionIsolation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, task.TaskArn, "us-east-1")
 
-	eastTasks, err := backend.ListTagSyncTasks(ctxEast, nil)
+	eastTasks, _, err := backend.ListTagSyncTasks(ctxEast, nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, eastTasks, 1)
 
-	westTasks, err := backend.ListTagSyncTasks(ctxWest, nil)
+	westTasks, _, err := backend.ListTagSyncTasks(ctxWest, nil, "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, westTasks)
 
@@ -165,11 +165,11 @@ func TestResourceGroupsDefaultRegionFallback(t *testing.T) {
 	assert.Contains(t, g.ARN, "eu-central-1")
 
 	// Reading via the explicit default region sees it.
-	list := backend.ListGroups(rgCtxRegion("eu-central-1"), nil)
+	list, _ := backend.ListGroups(rgCtxRegion("eu-central-1"), nil, "", 0)
 	require.Len(t, list, 1)
 	assert.Equal(t, "def-group", list[0].Name)
 
 	// A different region sees nothing.
-	other := backend.ListGroups(rgCtxRegion("ap-south-1"), nil)
+	other, _ := backend.ListGroups(rgCtxRegion("ap-south-1"), nil, "", 0)
 	assert.Empty(t, other)
 }

@@ -1,14 +1,16 @@
 package ecs
 
 import (
-	"encoding/json"
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // Snapshottable is an optional interface that a Backend may implement to
 // support snapshot/restore for persistence or test isolation.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore([]byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(context.Context, []byte) error
 }
 
 type backendSnapshot struct {
@@ -147,7 +149,9 @@ func snapshotTaskProtections(src map[string]*TaskProtection) map[string]*TaskPro
 	return dst
 }
 
-func snapshotExpressGatewayServices(src map[string]*ExpressGatewayService) map[string]*ExpressGatewayService {
+func snapshotExpressGatewayServices(
+	src map[string]*ExpressGatewayService,
+) map[string]*ExpressGatewayService {
 	dst := make(map[string]*ExpressGatewayService, len(src))
 	for k, v := range src {
 		cp := *v
@@ -158,12 +162,39 @@ func snapshotExpressGatewayServices(src map[string]*ExpressGatewayService) map[s
 	return dst
 }
 
-func snapshotDaemons(src map[string]*Daemon) map[string]*Daemon {
-	dst := make(map[string]*Daemon, len(src))
-	for k, v := range src {
-		cp := *v
-		cp.Tags = copyTags(v.Tags)
-		dst[k] = &cp
+// snapshotDaemons flattens the cluster-nested in-memory daemon index (see
+// InMemoryBackend.daemons in backend.go, keyed by clusterName then daemonName)
+// into the flat ARN-keyed shape persisted on disk, preserving the existing
+// "daemons" snapshot field shape. restoreDaemons performs the inverse.
+func snapshotDaemons(src map[string]map[string]*Daemon) map[string]*Daemon {
+	dst := make(map[string]*Daemon)
+	for _, clusterDaemons := range src {
+		for _, v := range clusterDaemons {
+			cp := *v
+			cp.Tags = copyTags(v.Tags)
+			dst[cp.DaemonArn] = &cp
+		}
+	}
+
+	return dst
+}
+
+// restoreDaemons re-nests a flat ARN-keyed daemon snapshot (see snapshotDaemons)
+// back into the clusterName -> daemonName -> Daemon index used at runtime.
+func restoreDaemons(src map[string]*Daemon) map[string]map[string]*Daemon {
+	dst := make(map[string]map[string]*Daemon)
+
+	for arn, d := range src {
+		clusterName, daemonName, ok := parseDaemonArn(arn)
+		if !ok {
+			continue
+		}
+
+		if dst[clusterName] == nil {
+			dst[clusterName] = make(map[string]*Daemon)
+		}
+
+		dst[clusterName][daemonName] = d
 	}
 
 	return dst
@@ -204,7 +235,7 @@ func snapshotDaemonRevisions(src map[string]*DaemonRevision) map[string]*DaemonR
 }
 
 // Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -239,14 +270,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		DaemonRevisions:        snapshotDaemonRevisions(b.daemonRevisions),
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		// Marshalling a pure in-memory struct should never fail.
-		// Return nil so callers can detect and skip persistence.
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "ecs", snap)
 }
 
 // initSnapshotDefaults ensures all maps in the snapshot are non-nil so callers
@@ -325,9 +349,9 @@ func initDaemonSnapshotDefaults(snap *backendSnapshot) {
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "ecs", data, &snap); err != nil {
 		return err
 	}
 
@@ -348,7 +372,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.serviceDeployments = snap.ServiceDeployments
 	b.expressGatewayServices = snap.ExpressGatewayServices
 	b.taskProtections = snap.TaskProtections
-	b.daemons = snap.Daemons
+	b.daemons = restoreDaemons(snap.Daemons)
 	b.daemonTaskDefinitions = snap.DaemonTaskDefinitions
 	b.daemonDeployments = snap.DaemonDeployments
 	b.daemonRevisions = snap.DaemonRevisions
@@ -374,9 +398,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 // Snapshot implements Snapshottable by delegating to the backend when it
 // supports snapshotting. Returns nil for non-snapshottable backends.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
@@ -384,9 +408,9 @@ func (h *Handler) Snapshot() []byte {
 
 // Restore implements Snapshottable by delegating to the backend when it
 // supports snapshotting. Non-snapshottable backends are skipped.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(data)
+		return s.Restore(ctx, data)
 	}
 
 	return nil

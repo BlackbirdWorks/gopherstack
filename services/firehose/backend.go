@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -163,6 +163,7 @@ type S3DestinationDescription struct {
 	EncryptionConfiguration          *S3EncryptionConfiguration        `json:"EncryptionConfiguration,omitempty"`
 	CloudWatchLoggingOptions         *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions,omitempty"`
 	DynamicPartitioningConfiguration *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration,omitempty"`
+	DataFormatConversion             *DataFormatConversionConfig       `json:"DataFormatConversionConfiguration,omitempty"`
 	BucketARN                        string                            `json:"BucketARN,omitempty"`
 	RoleARN                          string                            `json:"RoleARN,omitempty"`
 	Prefix                           string                            `json:"Prefix,omitempty"`
@@ -332,6 +333,13 @@ type InMemoryBackend struct {
 	streams map[string]map[string]*DeliveryStream
 	// pollerCancel maps region → stream name → cancel func for active Kinesis source pollers.
 	pollerCancel map[string]map[string]context.CancelFunc
+	// sortedNamesCache caches the alphabetically sorted stream names per region so
+	// ListDeliveryStreams does not re-sort on every call. Invalidated on create/delete.
+	sortedNamesCache map[string][]string
+	// pendingFlush tracks the set of streams (region → name) that hold buffered records
+	// eligible for an interval-based flush, so intervalFlusher only inspects streams that
+	// could actually need flushing rather than scanning every stream each tick.
+	pendingFlush map[string]map[string]struct{}
 	mu           *lockmetrics.RWMutex
 	// svcCtx is the service lifecycle context; delivery operations use it so
 	// they are cancelled when the server shuts down rather than blocking indefinitely.
@@ -357,12 +365,14 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	}
 
 	return &InMemoryBackend{
-		streams:      make(map[string]map[string]*DeliveryStream),
-		pollerCancel: make(map[string]map[string]context.CancelFunc),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("firehose"),
-		svcCtx:       svcCtx,
+		streams:          make(map[string]map[string]*DeliveryStream),
+		pollerCancel:     make(map[string]map[string]context.CancelFunc),
+		sortedNamesCache: make(map[string][]string),
+		pendingFlush:     make(map[string]map[string]struct{}),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("firehose"),
+		svcCtx:           svcCtx,
 	}
 }
 
@@ -397,6 +407,32 @@ func (b *InMemoryBackend) pollerStore(region string) map[string]context.CancelFu
 	}
 
 	return b.pollerCancel[region]
+}
+
+// invalidateNamesCacheLocked drops the cached sorted-name slice for region so the next
+// ListDeliveryStreams rebuilds it. Must be called with the write lock held.
+func (b *InMemoryBackend) invalidateNamesCacheLocked(region string) {
+	delete(b.sortedNamesCache, region)
+}
+
+// markPendingFlushLocked records that region/name holds buffered records that may need an
+// interval flush. Must be called with the write lock held.
+func (b *InMemoryBackend) markPendingFlushLocked(region, name string) {
+	if b.pendingFlush[region] == nil {
+		b.pendingFlush[region] = make(map[string]struct{})
+	}
+	b.pendingFlush[region][name] = struct{}{}
+}
+
+// clearPendingFlushLocked removes region/name from the interval-flush watch set. Must be
+// called with the write lock held.
+func (b *InMemoryBackend) clearPendingFlushLocked(region, name string) {
+	if set := b.pendingFlush[region]; set != nil {
+		delete(set, name)
+		if len(set) == 0 {
+			delete(b.pendingFlush, region)
+		}
+	}
 }
 
 // SetS3Backend wires the S3 backend for actual record delivery.
@@ -478,6 +514,7 @@ func (b *InMemoryBackend) CreateDeliveryStream(
 		lastFlush:               now,
 	}
 	streams[input.Name] = s
+	b.invalidateNamesCacheLocked(region)
 
 	// Collect Kinesis poller info while holding the lock.
 	var kinesisStreamARN string
@@ -519,6 +556,8 @@ func (b *InMemoryBackend) DeleteDeliveryStream(ctx context.Context, name string)
 	}
 
 	delete(streams, name)
+	b.invalidateNamesCacheLocked(region)
+	b.clearPendingFlushLocked(region, name)
 
 	// Stop Kinesis poller if one is running for this stream.
 	pollers := b.pollerStore(region)
@@ -553,20 +592,64 @@ func (b *InMemoryBackend) DescribeDeliveryStream(ctx context.Context, name strin
 // ListDeliveryStreams returns all delivery stream names in the request's region
 // in alphabetical order.
 func (b *InMemoryBackend) ListDeliveryStreams(ctx context.Context) []string {
-	b.mu.RLock("ListDeliveryStreams")
-	defer b.mu.RUnlock()
+	return b.ListDeliveryStreamsByType(ctx, "")
+}
 
+// ListDeliveryStreamsByType returns delivery stream names in the request's region in
+// alphabetical order, optionally filtered to a single DeliveryStreamType (DirectPut or
+// KinesisStreamAsSource). An empty streamType returns all streams. The full sorted-name
+// list is cached per region and reused across calls until a create/delete invalidates it,
+// so repeated listing does not re-sort the whole namespace every time.
+func (b *InMemoryBackend) ListDeliveryStreamsByType(ctx context.Context, streamType string) []string {
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	names := make([]string, 0, len(streams))
-	for name := range streams {
-		names = append(names, name)
+	// Fast path: cached full list, no type filter.
+	if streamType == "" {
+		b.mu.RLock("ListDeliveryStreams")
+		if cached, ok := b.sortedNamesCache[region]; ok {
+			out := make([]string, len(cached))
+			copy(out, cached)
+			b.mu.RUnlock()
+
+			return out
+		}
+		b.mu.RUnlock()
 	}
 
-	sort.Strings(names)
+	b.mu.Lock("ListDeliveryStreams")
+	defer b.mu.Unlock()
 
-	return names
+	streams := b.regionStore(region)
+
+	sorted, ok := b.sortedNamesCache[region]
+	if !ok {
+		sorted = collections.SortedKeys(streams)
+		b.sortedNamesCache[region] = sorted
+	}
+
+	if streamType == "" {
+		out := make([]string, len(sorted))
+		copy(out, sorted)
+
+		return out
+	}
+
+	filtered := make([]string, 0, len(sorted))
+	for _, name := range sorted {
+		s := streams[name]
+		if s == nil {
+			continue
+		}
+		effectiveType := s.DeliveryStreamType
+		if effectiveType == "" {
+			effectiveType = deliveryStreamTypeDirectPut
+		}
+		if effectiveType == streamType {
+			filtered = append(filtered, name)
+		}
+	}
+
+	return filtered
 }
 
 // PutRecord appends a record to the delivery stream and flushes if buffer threshold is met.
@@ -608,6 +691,7 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data
 		s.BackupRecords = append(s.BackupRecords, data)
 	}
 	snap := b.extractForFlushLocked(s)
+	b.updateFlushWatchLocked(region, streamName, s, snap)
 	b.mu.Unlock()
 
 	if snap != nil {
@@ -615,6 +699,22 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data
 	}
 
 	return nil
+}
+
+// updateFlushWatchLocked keeps the interval-flush watch set in sync after buffering
+// records: a size-based flush (snap != nil) clears the entry, while remaining buffered
+// records for an active destination mark the stream as pending. Must be called with the
+// write lock held.
+func (b *InMemoryBackend) updateFlushWatchLocked(region, name string, s *DeliveryStream, snap *flushSnapshot) {
+	if snap != nil {
+		b.clearPendingFlushLocked(region, name)
+
+		return
+	}
+
+	if len(s.Records) > 0 && b.hasActiveDestinationLocked(s) {
+		b.markPendingFlushLocked(region, name)
+	}
 }
 
 // PutRecordBatch appends multiple records to the delivery stream and flushes if buffer threshold is met.
@@ -673,6 +773,7 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 	}
 
 	snap := b.extractForFlushLocked(s)
+	b.updateFlushWatchLocked(region, streamName, s, snap)
 	b.mu.Unlock()
 
 	if snap != nil {
@@ -682,11 +783,93 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 	return 0, nil
 }
 
-// UpdateDestination updates the S3 destination configuration of an existing stream.
+// UpdateDestinationInput holds the destination update fields for UpdateDestination.
+// Exactly one destination field should be non-nil.
+type UpdateDestinationInput struct {
+	S3Destination           *S3DestinationDescription
+	HTTPEndpointDestination *HTTPEndpointDestinationDescription
+	RedshiftDestination     *RedshiftDestinationDescription
+	OpenSearchDestination   *OpenSearchDestinationDescription
+	SplunkDestination       *SplunkDestinationDescription
+}
+
+// applyDestinationUpdate sets the single destination supplied in input and clears every
+// other destination type, so an UpdateDestination call can switch a stream from one
+// destination type to another. AWS permits exactly one destination update per call and a
+// stream has exactly one active destination; providing none or more than one is rejected.
+func applyDestinationUpdate(s *DeliveryStream, input UpdateDestinationInput) error {
+	provided := 0
+	if input.S3Destination != nil {
+		provided++
+	}
+	if input.HTTPEndpointDestination != nil {
+		provided++
+	}
+	if input.RedshiftDestination != nil {
+		provided++
+	}
+	if input.OpenSearchDestination != nil {
+		provided++
+	}
+	if input.SplunkDestination != nil {
+		provided++
+	}
+
+	if provided != 1 {
+		return fmt.Errorf("%w: exactly one destination update must be specified, got %d", ErrValidation, provided)
+	}
+
+	// Preserve the existing DestinationId across the switch when present.
+	destID := currentDestinationID(s)
+
+	s.S3Destination = input.S3Destination
+	s.HTTPEndpointDestination = input.HTTPEndpointDestination
+	s.RedshiftDestination = input.RedshiftDestination
+	s.OpenSearchDestination = input.OpenSearchDestination
+	s.SplunkDestination = input.SplunkDestination
+
+	setDestinationID(s, destID)
+
+	return nil
+}
+
+// currentDestinationID returns the DestinationId currently set on the stream's active
+// destination, or the default when none is set.
+func currentDestinationID(s *DeliveryStream) string {
+	switch {
+	case s.S3Destination != nil && s.S3Destination.DestinationID != "":
+		return s.S3Destination.DestinationID
+	case s.HTTPEndpointDestination != nil && s.HTTPEndpointDestination.DestinationID != "":
+		return s.HTTPEndpointDestination.DestinationID
+	case s.OpenSearchDestination != nil && s.OpenSearchDestination.DestinationID != "":
+		return s.OpenSearchDestination.DestinationID
+	case s.SplunkDestination != nil && s.SplunkDestination.DestinationID != "":
+		return s.SplunkDestination.DestinationID
+	default:
+		return "destinationId-000000000001"
+	}
+}
+
+// setDestinationID stamps destID onto whichever destination is now active on the stream.
+func setDestinationID(s *DeliveryStream, destID string) {
+	switch {
+	case s.S3Destination != nil:
+		s.S3Destination.DestinationID = destID
+	case s.HTTPEndpointDestination != nil:
+		s.HTTPEndpointDestination.DestinationID = destID
+	case s.OpenSearchDestination != nil:
+		s.OpenSearchDestination.DestinationID = destID
+	case s.SplunkDestination != nil:
+		s.SplunkDestination.DestinationID = destID
+	}
+}
+
+// UpdateDestination updates the destination configuration of an existing stream.
+// AWS allows updating exactly one destination type per call.
 func (b *InMemoryBackend) UpdateDestination(
 	ctx context.Context,
 	streamName, currentVersionID string,
-	dest *S3DestinationDescription,
+	input UpdateDestinationInput,
 ) error {
 	b.mu.Lock("UpdateDestination")
 	defer b.mu.Unlock()
@@ -699,16 +882,25 @@ func (b *InMemoryBackend) UpdateDestination(
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
 	}
 
-	if currentVersionID != "" && s.VersionID != currentVersionID {
+	// AWS requires CurrentDeliveryStreamVersionId on every UpdateDestination call and
+	// rejects the request when it does not match the stream's current version.
+	if currentVersionID == "" {
+		return fmt.Errorf("%w: CurrentDeliveryStreamVersionId is required", ErrValidation)
+	}
+
+	if s.VersionID != currentVersionID {
 		return fmt.Errorf("%w: version mismatch: expected %s got %s", ErrValidation, currentVersionID, s.VersionID)
 	}
 
-	s.S3Destination = dest
+	if err := applyDestinationUpdate(s, input); err != nil {
+		return err
+	}
+
 	s.LastUpdateTimestamp = time.Now()
 
 	v, err := strconv.Atoi(s.VersionID)
 	if err != nil {
-		logger.Load(context.Background()).WarnContext(context.Background(),
+		logger.Load(ctx).WarnContext(ctx,
 			"firehose: unexpected non-integer VersionID; resetting to 1",
 			"stream", streamName, "versionID", s.VersionID, "error", err)
 
@@ -762,9 +954,13 @@ func (b *InMemoryBackend) intervalFlusher(ctx context.Context) {
 				name   string
 			}
 			var refs []streamRef
-			for region, streams := range b.streams {
-				for name, s := range streams {
-					if b.shouldFlushByIntervalLocked(s) {
+			// Only inspect streams flagged as holding buffered records, rather than
+			// scanning every region×stream on each tick.
+			for region, pending := range b.pendingFlush {
+				streams := b.streams[region]
+				for name := range pending {
+					s := streams[name]
+					if s != nil && b.shouldFlushByIntervalLocked(s) {
 						refs = append(refs, streamRef{region: region, name: name})
 					}
 				}
@@ -852,6 +1048,9 @@ type flushSnapshot struct {
 	streamName     string
 	region         string
 	records        [][]byte
+	// backupRecords are the source records copied for an S3 backup destination
+	// (S3BackupMode=Enabled); they are delivered to the backup bucket verbatim.
+	backupRecords [][]byte
 }
 
 // extractForFlushLocked snapshots and resets the stream buffer when shouldFlushLocked
@@ -902,10 +1101,11 @@ func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnaps
 	}
 
 	snap := &flushSnapshot{
-		records:    s.Records,
-		streamARN:  s.ARN,
-		streamName: s.Name,
-		region:     s.Region,
+		records:       s.Records,
+		backupRecords: s.BackupRecords,
+		streamARN:     s.ARN,
+		streamName:    s.Name,
+		region:        s.Region,
 	}
 
 	if s.S3Destination != nil && b.s3 != nil {
@@ -934,6 +1134,7 @@ func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnaps
 	}
 
 	s.Records = [][]byte{}
+	s.BackupRecords = [][]byte{}
 	s.bufferSizeBytes = 0
 	s.lastFlush = time.Now()
 
@@ -941,37 +1142,220 @@ func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnaps
 }
 
 // deliverSnapshot applies optional Lambda transformation and delivers records to all
-// configured destinations. Called after the write lock has been released.
+// configured destinations, routing processing/delivery failures to the S3 error output and
+// recording the FailedRecords metric. Called after the write lock has been released.
 func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapshot, streamName string) {
-	records := snap.records
-
-	// Apply Lambda transformation for S3 destination (only S3 supports it today).
-	if snap.s3Dest != nil &&
-		snap.s3Dest.ProcessingConfiguration != nil &&
-		snap.s3Dest.ProcessingConfiguration.Enabled {
-		transformed, err := b.transformRecords(ctx, records, snap.s3Dest, snap.streamARN, snap.region)
-		if err == nil && len(transformed) > 0 {
-			_ = b.deliverToS3(ctx, transformed, snap.s3Dest, streamName)
-		}
-	} else if snap.s3Dest != nil {
-		_ = b.deliverToS3(ctx, records, snap.s3Dest, streamName)
+	if snap.s3Dest != nil {
+		b.deliverS3Destination(ctx, snap, streamName)
 	}
 
 	if snap.httpDest != nil {
-		b.deliverToHTTPEndpoint(ctx, records, snap.httpDest, snap.streamARN)
+		b.deliverProcessedNonS3(ctx, snap, streamName, snap.httpDest.ProcessingConfiguration,
+			snap.httpDest.S3BackupDescription, snap.httpDest.CloudWatchLoggingOptions,
+			func(recs [][]byte) {
+				b.deliverToHTTPEndpoint(ctx, recs, snap.httpDest, snap.streamARN)
+			})
 	}
 
 	if snap.redshiftDest != nil {
-		b.deliverToRedshift(ctx, records, snap.redshiftDest, snap.streamARN)
+		b.deliverProcessedNonS3(ctx, snap, streamName, snap.redshiftDest.ProcessingConfiguration,
+			snap.redshiftDest.S3BackupDescription, nil,
+			func(recs [][]byte) {
+				b.deliverToRedshift(ctx, recs, snap.redshiftDest, snap.streamARN)
+			})
 	}
 
 	if snap.openSearchDest != nil {
-		b.deliverToOpenSearch(ctx, records, snap.openSearchDest, snap.streamARN)
+		b.deliverProcessedNonS3(ctx, snap, streamName, snap.openSearchDest.ProcessingConfiguration,
+			snap.openSearchDest.S3BackupDescription, snap.openSearchDest.CloudWatchLoggingOptions,
+			func(recs [][]byte) {
+				b.deliverToOpenSearch(ctx, recs, snap.openSearchDest, snap.streamARN)
+			})
 	}
 
 	if snap.splunkDest != nil {
-		b.deliverToSplunk(ctx, records, snap.splunkDest, snap.streamARN)
+		b.deliverProcessedNonS3(ctx, snap, streamName, snap.splunkDest.ProcessingConfiguration,
+			snap.splunkDest.S3BackupDescription, snap.splunkDest.CloudWatchLoggingOptions,
+			func(recs [][]byte) {
+				b.deliverToSplunk(ctx, recs, snap.splunkDest, snap.streamARN)
+			})
 	}
+}
+
+// deliverS3Destination runs the S3 delivery pipeline: Lambda transform, optional
+// DataFormatConversion, dynamic-partitioned delivery, error-output routing for
+// processing/conversion/partition failures, the FailedRecords metric, and S3 backup.
+func (b *InMemoryBackend) deliverS3Destination(ctx context.Context, snap *flushSnapshot, streamName string) {
+	dest := snap.s3Dest
+
+	ok, failed, err := b.applyTransform(ctx, snap.records, dest.ProcessingConfiguration, snap.streamARN, snap.region)
+	if err != nil {
+		b.logDeliveryIssue(ctx, dest.CloudWatchLoggingOptions, streamName,
+			"lambda transform invocation failed; routing records to error output", err)
+		// Invocation failure: the transform produced no usable output, so every source
+		// record is routed to the error output, matching AWS's processing-failed behaviour.
+		failed = append(failed, snap.records...)
+		ok = nil
+	}
+
+	if dest.DataFormatConversion != nil && dest.DataFormatConversion.Enabled {
+		converted, convFailed := convertRecords(dest.DataFormatConversion, ok)
+		ok = converted
+		failed = append(failed, convFailed...)
+	}
+
+	unpartitioned, deliverErr := b.deliverToS3(ctx, ok, dest, streamName)
+	failed = append(failed, unpartitioned...)
+	if deliverErr != nil {
+		b.logDeliveryIssue(ctx, dest.CloudWatchLoggingOptions, streamName, "S3 delivery failed", deliverErr)
+		failed = append(failed, ok...)
+	}
+
+	if len(failed) > 0 {
+		b.routeToErrorOutput(ctx, failed, dest, streamName)
+		b.recordFailedRecords(snap.region, streamName, len(failed))
+	}
+
+	b.deliverS3Backup(ctx, snap, dest.S3BackupDescription, streamName)
+}
+
+// deliverProcessedNonS3 runs the shared delivery pipeline for non-S3 destinations: it
+// applies the Lambda transform, routes processing failures to the S3 backup destination (if
+// configured) and records them in the FailedRecords metric, then delivers the surviving
+// records via the supplied deliver func. It also delivers any S3 backup copies.
+func (b *InMemoryBackend) deliverProcessedNonS3(
+	ctx context.Context,
+	snap *flushSnapshot,
+	streamName string,
+	pc *ProcessingConfiguration,
+	backup *S3BackupDescription,
+	cwLog *CloudWatchLoggingOptions,
+	deliver func(records [][]byte),
+) {
+	ok, failed, err := b.applyTransform(ctx, snap.records, pc, snap.streamARN, snap.region)
+	if err != nil {
+		b.logDeliveryIssue(ctx, cwLog, streamName,
+			"lambda transform invocation failed; routing records to backup", err)
+		failed = append(failed, snap.records...)
+		ok = nil
+	}
+
+	if len(failed) > 0 {
+		if backup != nil {
+			_ = b.writeRecordsToBucket(ctx, failed, backup.BucketARN,
+				backup.Prefix, "", backup.CompressionFormat, streamName)
+		}
+		b.recordFailedRecords(snap.region, streamName, len(failed))
+	}
+
+	if len(ok) > 0 {
+		deliver(ok)
+	}
+
+	b.deliverS3Backup(ctx, snap, backup, streamName)
+}
+
+// deliverS3Backup delivers the buffered S3 backup copies (accumulated when S3BackupMode is
+// Enabled) to the backup bucket. It is a no-op when there are no backup records or no
+// backup destination is configured.
+func (b *InMemoryBackend) deliverS3Backup(
+	ctx context.Context,
+	snap *flushSnapshot,
+	backup *S3BackupDescription,
+	streamName string,
+) {
+	if len(snap.backupRecords) == 0 || backup == nil || backup.BucketARN == "" {
+		return
+	}
+
+	_ = b.writeRecordsToBucket(ctx, snap.backupRecords, backup.BucketARN,
+		backup.Prefix, "", backup.CompressionFormat, streamName)
+}
+
+// applyTransform runs the configured Lambda transform over records, separating the records
+// to deliver (ok) from records that failed processing (failed, to be routed to the error
+// output). When no transform is configured, all records pass through as ok. A non-nil error
+// indicates the invocation itself failed; callers route all source records to the error
+// output in that case.
+func (b *InMemoryBackend) applyTransform(
+	ctx context.Context,
+	records [][]byte,
+	pc *ProcessingConfiguration,
+	streamARN, region string,
+) ([][]byte, [][]byte, error) {
+	if b.lambda == nil || pc == nil || !pc.Enabled {
+		return records, nil, nil
+	}
+
+	functionName := lambdaFunctionName(pc)
+	if functionName == "" {
+		return records, nil, nil
+	}
+
+	payload, idToOriginal := buildLambdaTransformPayload(records, streamARN, region)
+	if payload == nil {
+		return nil, nil, ErrTransformPayload
+	}
+
+	result, _, invokeErr := b.lambda.InvokeFunction(ctx, functionName, "RequestResponse", payload)
+	if invokeErr != nil {
+		return nil, nil, fmt.Errorf("lambda transform invocation failed: %w", invokeErr)
+	}
+
+	outcome, parsed := parseLambdaTransformResponse(result, idToOriginal)
+	if !parsed {
+		return nil, nil, fmt.Errorf("%w: malformed lambda transform response", ErrTransformPayload)
+	}
+
+	return outcome.Ok, outcome.Failed, nil
+}
+
+// lambdaFunctionName extracts the Lambda function ARN from a ProcessingConfiguration.
+func lambdaFunctionName(pc *ProcessingConfiguration) string {
+	for _, proc := range pc.Processors {
+		if proc.Type != "Lambda" {
+			continue
+		}
+		for _, p := range proc.Parameters {
+			if p.ParameterName == "LambdaArn" {
+				return p.ParameterValue
+			}
+		}
+	}
+
+	return ""
+}
+
+// recordFailedRecords increments the FailedRecords delivery metric for a stream.
+func (b *InMemoryBackend) recordFailedRecords(region, streamName string, n int) {
+	if n <= 0 {
+		return
+	}
+
+	b.mu.Lock("recordFailedRecords")
+	defer b.mu.Unlock()
+
+	if s := b.regionStore(region)[streamName]; s != nil {
+		s.Metrics.FailedRecords += int64(n)
+	}
+}
+
+// logDeliveryIssue emits a delivery error to the logger, honouring the destination's
+// CloudWatch logging options: when logging is enabled the configured log group/stream are
+// attached so operators can correlate the failure, matching the CloudWatch error log that
+// Firehose writes for failed deliveries.
+func (b *InMemoryBackend) logDeliveryIssue(
+	ctx context.Context,
+	cwLog *CloudWatchLoggingOptions,
+	streamName, msg string,
+	err error,
+) {
+	attrs := []any{"stream", streamName, "error", err}
+	if cwLog != nil && cwLog.Enabled {
+		attrs = append(attrs, "logGroup", cwLog.LogGroupName, "logStream", cwLog.LogStreamName)
+	}
+
+	logger.Load(ctx).WarnContext(ctx, "firehose: "+msg, attrs...)
 }
 
 // flushStream delivers all buffered records for a stream to S3.
@@ -987,6 +1371,7 @@ func (b *InMemoryBackend) flushStream(ctx context.Context, region, streamName st
 	}
 
 	snap := b.extractAllRecordsLocked(s)
+	b.clearPendingFlushLocked(region, streamName)
 	b.mu.Unlock()
 
 	if snap != nil {
@@ -994,56 +1379,75 @@ func (b *InMemoryBackend) flushStream(ctx context.Context, region, streamName st
 	}
 }
 
-// transformRecords invokes the configured Lambda function to transform records.
-// It returns only the records marked as "Ok" in the Lambda response.
-// An error is returned if payload marshaling or Lambda invocation fails, allowing
-// the caller to handle the failure (e.g., drop records) rather than silently
-// delivering originals.
-func (b *InMemoryBackend) transformRecords(
-	ctx context.Context,
-	records [][]byte,
-	dest *S3DestinationDescription,
-	streamARN, region string,
-) ([][]byte, error) {
-	if b.lambda == nil || dest.ProcessingConfiguration == nil {
-		return records, nil
-	}
-
-	functionName := ""
-	for _, proc := range dest.ProcessingConfiguration.Processors {
-		if proc.Type == "Lambda" {
-			for _, p := range proc.Parameters {
-				if p.ParameterName == "LambdaArn" {
-					functionName = p.ParameterValue
-				}
-			}
-		}
-	}
-
-	if functionName == "" {
-		return records, nil
-	}
-
-	payload := buildLambdaTransformPayload(records, streamARN, region)
-	if payload == nil {
-		return nil, ErrTransformPayload
-	}
-
-	result, _, err := b.lambda.InvokeFunction(ctx, functionName, "RequestResponse", payload)
-	if err != nil {
-		return nil, fmt.Errorf("lambda transform invocation failed: %w", err)
-	}
-
-	return parseLambdaTransformResponse(result), nil
-}
-
-// deliverToS3 concatenates records and writes a single S3 object.
+// deliverToS3 writes records to the S3 destination, applying dynamic partitioning and the
+// configured file extension. Records that cannot be partitioned (per dynamic-partitioning
+// rules) are returned so the caller routes them to the error output. A non-nil error is
+// returned when an underlying PutObject call fails.
 func (b *InMemoryBackend) deliverToS3(
 	ctx context.Context,
 	records [][]byte,
 	dest *S3DestinationDescription,
 	streamName string,
+) ([][]byte, error) {
+	if b.s3 == nil || len(records) == 0 {
+		return nil, nil
+	}
+
+	groups, unpartitioned := resolvePartitions(records, dest.Prefix, dest.DynamicPartitioningConfiguration)
+
+	var firstErr error
+	for _, group := range groups {
+		if putErr := b.writeRecordsToBucket(
+			ctx, group.records, dest.BucketARN, group.prefix,
+			dest.FileExtension, dest.CompressionFormat, streamName,
+		); putErr != nil && firstErr == nil {
+			firstErr = putErr
+		}
+	}
+
+	return unpartitioned, firstErr
+}
+
+// routeToErrorOutput writes failed records to the S3 error output location: the backup
+// bucket under its prefix when an S3 backup destination is configured, otherwise the main
+// bucket under ErrorOutputPrefix (defaulting to "processing-failed/"). This mirrors AWS,
+// which delivers processing/delivery failures to the configured error prefix rather than
+// dropping them.
+func (b *InMemoryBackend) routeToErrorOutput(
+	ctx context.Context,
+	records [][]byte,
+	dest *S3DestinationDescription,
+	streamName string,
+) {
+	if b.s3 == nil || len(records) == 0 {
+		return
+	}
+
+	bucketARN := dest.BucketARN
+	prefix := dest.ErrorOutputPrefix
+	if prefix == "" {
+		prefix = "processing-failed/"
+	}
+
+	if dest.S3BackupDescription != nil && dest.S3BackupDescription.BucketARN != "" {
+		bucketARN = dest.S3BackupDescription.BucketARN
+	}
+
+	_ = b.writeRecordsToBucket(ctx, records, bucketARN, prefix, "", dest.CompressionFormat, streamName)
+}
+
+// writeRecordsToBucket concatenates records (newline-separated), optionally gzip-compresses
+// them, and writes a single object under the given bucket/prefix. fileExtension, when set,
+// is appended to the generated object key. It is a no-op when the effective body is empty.
+func (b *InMemoryBackend) writeRecordsToBucket(
+	ctx context.Context,
+	records [][]byte,
+	bucketARN, prefix, fileExtension, compressionFormat, streamName string,
 ) error {
+	if b.s3 == nil {
+		return nil
+	}
+
 	var buf bytes.Buffer
 	for _, rec := range records {
 		if len(rec) == 0 {
@@ -1057,13 +1461,11 @@ func (b *InMemoryBackend) deliverToS3(
 	}
 
 	body := buf.Bytes()
-
-	// Skip S3 delivery if all records were empty after filtering.
 	if len(body) == 0 {
 		return nil
 	}
 
-	compression := strings.ToUpper(dest.CompressionFormat)
+	compression := strings.ToUpper(compressionFormat)
 	if compression == "" {
 		compression = "UNCOMPRESSED"
 	}
@@ -1073,9 +1475,9 @@ func (b *InMemoryBackend) deliverToS3(
 
 	switch compression {
 	case "GZIP":
-		compressed, err := gzipCompress(body)
-		if err != nil {
-			return err
+		compressed, gzErr := gzipCompress(body)
+		if gzErr != nil {
+			return gzErr
 		}
 		finalBody = compressed
 		contentEncoding = aws.String("gzip")
@@ -1083,9 +1485,8 @@ func (b *InMemoryBackend) deliverToS3(
 		finalBody = body
 	}
 
-	bucket := bucketFromARN(dest.BucketARN)
-	prefix := dest.Prefix
-	key := buildS3Key(prefix, streamName, time.Now())
+	bucket := bucketFromARN(bucketARN)
+	key := buildS3Key(prefix, streamName, fileExtension, time.Now())
 
 	input := &sdk_s3.PutObjectInput{
 		Bucket:          aws.String(bucket),
@@ -1101,10 +1502,13 @@ func (b *InMemoryBackend) deliverToS3(
 }
 
 // buildS3Key constructs an S3 object key matching the AWS format:
-// The key format is: {prefix}{yyyy/MM/dd/HH/}{stream-name}-1-{yyyy-MM-dd-HH-mm-ss}-{uuid}.
-func buildS3Key(prefix, streamName string, t time.Time) string {
+// {prefix}{yyyy/MM/dd/HH/}{stream-name}-1-{yyyy-MM-dd-HH-mm-ss}-{uuid}{fileExtension}.
+// When fileExtension is set it is appended verbatim (AWS accepts extensions with or without
+// a leading dot).
+func buildS3Key(prefix, streamName, fileExtension string, t time.Time) string {
 	ts := t.UTC().Format("2006/01/02/15/")
 	filename := fmt.Sprintf("%s-1-%s-%s", streamName, t.UTC().Format("2006-01-02-15-04-05"), uuid.NewString())
+	filename += fileExtension
 
 	if prefix == "" {
 		return ts + filename
@@ -1340,10 +1744,10 @@ func streamCopy(s *DeliveryStream) *DeliveryStream {
 const recordIDBytes = 16
 
 // newRecordID generates a random hex record identifier.
-func newRecordID() string {
+func newRecordID(ctx context.Context) string {
 	b := make([]byte, recordIDBytes)
 	if _, err := rand.Read(b); err != nil {
-		logger.Load(context.Background()).WarnContext(context.Background(),
+		logger.Load(ctx).WarnContext(ctx,
 			"firehose: rand.Read failed; falling back to timestamp-based record ID", "error", err)
 
 		return fmt.Sprintf("rec-%d", time.Now().UnixNano())

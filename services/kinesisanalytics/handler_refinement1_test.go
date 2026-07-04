@@ -356,11 +356,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			b := newBackend()
 			tt.setup(b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := newBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			assert.Equal(t, tt.wantLen, kinesisanalytics.ApplicationCount(b2))
 
@@ -394,11 +394,11 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := newBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Zero(t, kinesisanalytics.ApplicationCount(b2))
 }
 
@@ -409,11 +409,11 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	h, b := newTestHandlerWithBackend(t)
 	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "hs-app", "", "", nil)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2, b2 := newTestHandlerWithBackend(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, kinesisanalytics.ApplicationCount(b2))
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -67,7 +68,7 @@ type TrustStore struct {
 }
 
 func (b *InMemoryBackend) trustStoreARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:trust-store/%s", b.accountID, id)
+	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("trust-store/%s", id))
 }
 
 // copyTrustStore returns a deep copy of a TrustStore. Must be called with the lock held.
@@ -238,7 +239,12 @@ type StreamingDistribution struct {
 }
 
 func (b *InMemoryBackend) streamingDistributionARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:streaming-distribution/%s", b.accountID, id)
+	return arn.Build(
+		"cloudfront",
+		"",
+		b.accountID,
+		fmt.Sprintf("streaming-distribution/%s", id),
+	)
 }
 
 // copyStreamingDistribution returns a deep copy of a StreamingDistribution.
@@ -603,13 +609,30 @@ func (b *InMemoryBackend) copyConnectionFunction(fn *ConnectionFunction) *Connec
 	return &cp
 }
 
-func (b *InMemoryBackend) GetConnectionFunction(id string) (*ConnectionFunction, error) {
+// resolveConnectionFunction returns the function and its UUID key by id or name, mirroring the
+// real API's "Identifier" request field which accepts either. Must be called with the lock held.
+func (b *InMemoryBackend) resolveConnectionFunction(idOrName string) (*ConnectionFunction, string) {
+	if fn, ok := b.connectionFunctions[idOrName]; ok {
+		return fn, idOrName
+	}
+
+	if uuid, ok := b.connectionFunctionByName[idOrName]; ok {
+		if fn, fnOK := b.connectionFunctions[uuid]; fnOK {
+			return fn, uuid
+		}
+	}
+
+	return nil, ""
+}
+
+// GetConnectionFunction returns a connection function looked up by ID or name.
+func (b *InMemoryBackend) GetConnectionFunction(idOrName string) (*ConnectionFunction, error) {
 	b.mu.RLock("GetConnectionFunction")
 	defer b.mu.RUnlock()
 
-	fn, ok := b.connectionFunctions[id]
-	if !ok {
-		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
+	fn, _ := b.resolveConnectionFunction(idOrName)
+	if fn == nil {
+		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, idOrName)
 	}
 
 	return b.copyConnectionFunction(fn), nil
@@ -629,12 +652,12 @@ func (b *InMemoryBackend) ListConnectionFunctions() []*ConnectionFunction {
 	return out
 }
 
-// UpdateConnectionFunction updates an existing connection function, replacing its comment,
-// runtime, and code (the real UpdateConnectionFunction request requires the full
-// ConnectionFunctionConfig and ConnectionFunctionCode, so this is a full replace, not a merge).
-// Updating a function resets it to the DEVELOPMENT stage, mirroring CloudFront Functions.
+// UpdateConnectionFunction updates an existing connection function, looked up by ID or name,
+// replacing its comment, runtime, and code (the real UpdateConnectionFunction request requires
+// the full ConnectionFunctionConfig and ConnectionFunctionCode, so this is a full replace, not a
+// merge). Updating a function resets it to the DEVELOPMENT stage, mirroring CloudFront Functions.
 func (b *InMemoryBackend) UpdateConnectionFunction(
-	id, comment, runtime string, code []byte,
+	idOrName, comment, runtime string, code []byte,
 ) (*ConnectionFunction, error) {
 	if runtime == "" {
 		runtime = defaultConnectionFunctionRuntime
@@ -646,9 +669,9 @@ func (b *InMemoryBackend) UpdateConnectionFunction(
 	b.mu.Lock("UpdateConnectionFunction")
 	defer b.mu.Unlock()
 
-	fn, ok := b.connectionFunctions[id]
-	if !ok {
-		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
+	fn, _ := b.resolveConnectionFunction(idOrName)
+	if fn == nil {
+		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, idOrName)
 	}
 
 	fn.Comment = comment
@@ -661,31 +684,32 @@ func (b *InMemoryBackend) UpdateConnectionFunction(
 	return b.copyConnectionFunction(fn), nil
 }
 
-// DeleteConnectionFunction deletes a connection function by ID.
-func (b *InMemoryBackend) DeleteConnectionFunction(id string) error {
+// DeleteConnectionFunction deletes a connection function looked up by ID or name.
+func (b *InMemoryBackend) DeleteConnectionFunction(idOrName string) error {
 	b.mu.Lock("DeleteConnectionFunction")
 	defer b.mu.Unlock()
 
-	fn, ok := b.connectionFunctions[id]
-	if !ok {
-		return fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
+	fn, id := b.resolveConnectionFunction(idOrName)
+	if fn == nil {
+		return fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, idOrName)
 	}
 
 	delete(b.connectionFunctionARNs, fn.ARN)
 	delete(b.connectionFunctions, id)
+	delete(b.connectionFunctionByName, fn.Name)
 
 	return nil
 }
 
-// PublishConnectionFunction promotes a connection function from DEVELOPMENT to LIVE, bumping
-// its ETag to reflect the new published version.
-func (b *InMemoryBackend) PublishConnectionFunction(id string) (*ConnectionFunction, error) {
+// PublishConnectionFunction promotes a connection function (looked up by ID or name) from
+// DEVELOPMENT to LIVE, bumping its ETag to reflect the new published version.
+func (b *InMemoryBackend) PublishConnectionFunction(idOrName string) (*ConnectionFunction, error) {
 	b.mu.Lock("PublishConnectionFunction")
 	defer b.mu.Unlock()
 
-	fn, ok := b.connectionFunctions[id]
-	if !ok {
-		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
+	fn, _ := b.resolveConnectionFunction(idOrName)
+	if fn == nil {
+		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, idOrName)
 	}
 
 	fn.Stage = functionStageLive
@@ -703,20 +727,21 @@ type ConnectionFunctionTestResult struct {
 	ExecutionLogs      []string
 }
 
-// TestConnectionFunction "executes" a connection function against a caller-supplied connection
-// object. Since there is no real JS runtime here, the mock computes a deterministic result
-// derived from the stored function code and the input connection object: ComputeUtilization
-// scales with code+input size, and FunctionOutput echoes the input event, matching real
-// CloudFront's contract that the function receives and can transform the connection object.
+// TestConnectionFunction "executes" a connection function (looked up by ID or name) against a
+// caller-supplied connection object. Since there is no real JS runtime here, the mock computes a
+// deterministic result derived from the stored function code and the input connection object:
+// ComputeUtilization scales with code+input size, and FunctionOutput echoes the input event,
+// matching real CloudFront's contract that the function receives and can transform the
+// connection object.
 func (b *InMemoryBackend) TestConnectionFunction(
-	id string, connectionObject []byte,
+	idOrName string, connectionObject []byte,
 ) (*ConnectionFunctionTestResult, error) {
 	b.mu.RLock("TestConnectionFunction")
 	defer b.mu.RUnlock()
 
-	fn, ok := b.connectionFunctions[id]
-	if !ok {
-		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
+	fn, _ := b.resolveConnectionFunction(idOrName)
+	if fn == nil {
+		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, idOrName)
 	}
 
 	// Deterministic utilization derived from the size of the function's code and the input,

@@ -12,13 +12,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
 	dnsNS1Default = "ns1.gopherstack.invalid"
 	dnsNS2Default = "ns2.gopherstack.invalid"
+
+	defaultNSTTL  = 172800 // 48 hours — AWS default for zone-apex NS records
+	defaultSOATTL = 900    // 15 minutes — AWS default for SOA records
 )
 
 // Errors returned by the backend.
@@ -44,6 +49,13 @@ var (
 	ErrInvalidMXRecord                 = errors.New("invalid MX record value")
 	ErrInvalidSRVRecord                = errors.New("invalid SRV record value")
 	ErrInvalidCAARecord                = errors.New("invalid CAA record value")
+	ErrInvalidTXTRecord                = errors.New("invalid TXT record value")
+	ErrInvalidCNAMERecord              = errors.New("invalid CNAME record value")
+	ErrInvalidNSRecord                 = errors.New("invalid NS record value")
+	ErrInvalidPTRRecord                = errors.New("invalid PTR record value")
+	ErrInvalidNAPTRRecord              = errors.New("invalid NAPTR record value")
+	ErrInvalidDSRecord                 = errors.New("invalid DS record value")
+	ErrInvalidSPFRecord                = errors.New("invalid SPF record value")
 	ErrTrafficPolicyInUse              = errors.New("TrafficPolicyInUse")
 	ErrKeySigningKeyNotInactive        = errors.New("KeySigningKeyNotInactive")
 	ErrTrafficPolicyAlreadyExists      = errors.New("TrafficPolicyAlreadyExists")
@@ -94,6 +106,16 @@ var (
 	reMX  = regexp.MustCompile(`^\d+ \S+$`)
 	reSRV = regexp.MustCompile(`^\d+ \d+ \d+ \S+$`)
 	reCAA = regexp.MustCompile(`^\d+ \S+ "`)
+	// reHostname matches a DNS domain name (used for CNAME/NS/PTR targets).
+	// Underscores are permitted because service-discovery names (e.g. _sip._tcp)
+	// are common and accepted by Route 53. A trailing dot is optional.
+	reHostname = regexp.MustCompile(
+		`^(\*\.)?([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?\.)+[A-Za-z][A-Za-z0-9-]{0,61}[A-Za-z0-9]\.?$`,
+	)
+	// reDS matches "<KeyTag> <Algorithm> <DigestType> <Digest(hex)>".
+	reDS = regexp.MustCompile(`^\d+ \d+ \d+ [0-9A-Fa-f]+$`)
+	// reNAPTR matches "<order> <pref> \"flags\" \"service\" \"regexp\" <replacement>".
+	reNAPTR = regexp.MustCompile(`^\d+ \d+ "[^"]*" "[^"]*" "[^"]*" \S+$`)
 )
 
 const (
@@ -147,13 +169,22 @@ type HealthCheckConfig struct {
 	Inverted                     bool             `json:"inverted,omitempty"`
 }
 
+// HealthCheckObservation represents a single observation of a health check.
+type HealthCheckObservation struct {
+	CheckedTime time.Time `json:"checkedTime"`
+	Region      string    `json:"region"`
+	IPAddress   string    `json:"ipAddress"`
+	Status      string    `json:"status"`
+}
+
 // HealthCheck represents a Route 53 health check.
 type HealthCheck struct {
-	CreatedAt       time.Time         `json:"createdAt"`
-	ID              string            `json:"id"`
-	CallerReference string            `json:"callerReference"`
-	Status          string            `json:"status"`
-	Config          HealthCheckConfig `json:"config"`
+	CreatedAt       time.Time                `json:"createdAt"`
+	ID              string                   `json:"id"`
+	CallerReference string                   `json:"callerReference"`
+	Status          string                   `json:"status"`
+	Observations    []HealthCheckObservation `json:"observations"`
+	Config          HealthCheckConfig        `json:"config"`
 }
 
 // FailoverPolicy is the failover role for a record set.
@@ -224,6 +255,8 @@ type AliasTarget struct {
 }
 
 // ResourceRecordSet represents a DNS resource record set.
+//
+//nolint:govet // fieldalignment: field order follows AWS documentation
 type ResourceRecordSet struct {
 	AliasTarget          *AliasTarget          `json:"aliasTarget,omitempty"`
 	GeoLocation          *GeoLocation          `json:"geoLocation,omitempty"`
@@ -237,7 +270,7 @@ type ResourceRecordSet struct {
 	HealthCheckID        string                `json:"healthCheckId,omitempty"`
 	Records              []ResourceRecord      `json:"records"`
 	TTL                  int64                 `json:"ttl"`
-	Weight               int64                 `json:"weight,omitempty"`
+	Weight               *int64                `json:"weight,omitempty"`
 	MultiValueAnswer     bool                  `json:"multiValueAnswer,omitempty"`
 }
 
@@ -371,6 +404,7 @@ type InMemoryBackend struct {
 	vpcAssociations        map[string][]vpcAssociation              // key: zone ID
 	vpcAssocAuthorizations map[string][]VPCAssociationAuthorization // key: zone ID
 	changes                map[string]*ChangeInfo                   // key: change ID
+	tags                   map[string]*svcTags.Tags
 	mu                     *lockmetrics.RWMutex
 }
 
@@ -388,6 +422,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		vpcAssociations:        make(map[string][]vpcAssociation),
 		vpcAssocAuthorizations: make(map[string][]VPCAssociationAuthorization),
 		changes:                make(map[string]*ChangeInfo),
+		tags:                   make(map[string]*svcTags.Tags),
 		mu:                     lockmetrics.New("route53"),
 	}
 }
@@ -474,9 +509,31 @@ func (b *InMemoryBackend) CreateHostedZone(
 		CreatedAt:       time.Now(),
 	}
 
-	b.zones[id] = &zoneData{
+	zd := &zoneData{
 		zone:    hz,
 		records: make(map[string]*ResourceRecordSet),
+	}
+	b.zones[id] = zd
+
+	// Seed the zone with the default NS and SOA records that AWS auto-creates.
+	nsKey := recordSetKey(name, "NS", "")
+	zd.records[nsKey] = &ResourceRecordSet{
+		Name: name,
+		Type: "NS",
+		TTL:  defaultNSTTL,
+		Records: []ResourceRecord{
+			{Value: dnsNS1Default + "."},
+			{Value: dnsNS2Default + "."},
+		},
+	}
+	soaKey := recordSetKey(name, "SOA", "")
+	zd.records[soaKey] = &ResourceRecordSet{
+		Name: name,
+		Type: "SOA",
+		TTL:  defaultSOATTL,
+		Records: []ResourceRecord{
+			{Value: dnsNS1Default + ". awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"},
+		},
 	}
 
 	// Register a synthetic INSYNC change so that GetChange on the zone-creation
@@ -493,6 +550,21 @@ func (b *InMemoryBackend) CreateHostedZone(
 	return &cp, nil
 }
 
+// zoneUserRecordCount returns the number of records in zd that are not the
+// zone-apex NS or SOA records seeded at creation time.
+func zoneUserRecordCount(zd *zoneData) int {
+	nsKey := recordSetKey(zd.zone.Name, "NS", "")
+	soaKey := recordSetKey(zd.zone.Name, "SOA", "")
+	count := 0
+	for key := range zd.records {
+		if key != nsKey && key != soaKey {
+			count++
+		}
+	}
+
+	return count
+}
+
 // DeleteHostedZone removes a hosted zone and all its record sets.
 func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 	b.mu.Lock("DeleteHostedZone")
@@ -503,9 +575,9 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
-	// AWS rejects deletion of zones that still contain resource record sets.
-	// The zone is considered non-empty if it has any user-managed records.
-	if len(zd.records) > 0 {
+	// AWS rejects deletion of zones that still contain resource record sets,
+	// but allows deletion when only the default NS and SOA records remain.
+	if zoneUserRecordCount(zd) > 0 {
 		return fmt.Errorf(
 			"%w: hosted zone %s contains resource record sets that must be deleted first",
 			ErrHostedZoneNotEmpty,
@@ -539,6 +611,7 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 	}
 
 	delete(b.zones, zoneID)
+	delete(b.tags, zoneID)
 
 	return nil
 }
@@ -581,6 +654,57 @@ func (b *InMemoryBackend) ListHostedZones(
 	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
 }
 
+// ListHostedZonesByName returns hosted zones sorted by name, paginating by DNSName and zoneID.
+func (b *InMemoryBackend) ListHostedZonesByName(
+	dnsName, zoneID string,
+	maxItems int,
+) ([]HostedZone, string, string, error) {
+	b.mu.RLock("ListHostedZonesByName")
+	defer b.mu.RUnlock()
+
+	result := make([]HostedZone, 0, len(b.zones))
+	for _, zd := range b.zones {
+		cp := zd.zone
+		cp.ResourceRecordSetCount = len(zd.records)
+		result = append(result, cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Name == result[j].Name {
+			return result[i].ID < result[j].ID
+		}
+
+		return result[i].Name < result[j].Name
+	})
+
+	var startIndex int
+	if dnsName != "" {
+		startIndex = len(result)
+		for i, z := range result {
+			if z.Name > dnsName || (z.Name == dnsName && strings.TrimPrefix(z.ID, "/hostedzone/") >= zoneID) {
+				startIndex = i
+
+				break
+			}
+		}
+	}
+
+	if startIndex >= len(result) {
+		return []HostedZone{}, "", "", nil
+	}
+
+	endIndex := startIndex + maxItems
+	var nextDNSName, nextZoneID string
+	if endIndex < len(result) {
+		nextDNSName = result[endIndex].Name
+		nextZoneID = strings.TrimPrefix(result[endIndex].ID, "/hostedzone/")
+	} else {
+		endIndex = len(result)
+	}
+
+	return result[startIndex:endIndex], nextDNSName, nextZoneID, nil
+}
+
 // ChangeAction is the action type for ChangeResourceRecordSets.
 type ChangeAction string
 
@@ -596,35 +720,111 @@ type Change struct {
 	ResourceRecordSet ResourceRecordSet
 }
 
+// maxCharacterStringLen is the DNS limit for a single quoted character-string
+// (RFC 1035): each string inside a TXT/SPF value may hold at most 255 octets.
+const maxCharacterStringLen = 255
+
+// isValidIPv4 reports whether value is a dotted-quad IPv4 address.
+func isValidIPv4(value string) bool {
+	return net.ParseIP(value) != nil && !strings.Contains(value, ":")
+}
+
+// isValidIPv6 reports whether value is an IPv6 address.
+func isValidIPv6(value string) bool {
+	return net.ParseIP(value) != nil && strings.Contains(value, ":")
+}
+
+// recordValueValidators maps a record type to a predicate that accepts a valid
+// value. Types absent from the map (SOA/HTTPS/SVCB/SSHFP/TLSA) accept any value.
+//
+//nolint:gochecknoglobals // static dispatch table initialized once at startup
+var recordValueValidators = map[string]func(string) bool{
+	recordTypeA:     isValidIPv4,
+	recordTypeAAAA:  isValidIPv6,
+	recordTypeMX:    reMX.MatchString,
+	recordTypeSRV:   reSRV.MatchString,
+	recordTypeCAA:   reCAA.MatchString,
+	recordTypeTXT:   isValidCharacterStrings,
+	recordTypeSPF:   isValidCharacterStrings,
+	recordTypeCNAME: reHostname.MatchString,
+	recordTypeNS:    reHostname.MatchString,
+	recordTypePTR:   reHostname.MatchString,
+	recordTypeDS:    reDS.MatchString,
+	recordTypeNAPTR: reNAPTR.MatchString,
+}
+
+// recordValueErrors maps a record type to the sentinel returned when its value
+// fails validation.
+//
+//nolint:gochecknoglobals // static dispatch table initialized once at startup
+var recordValueErrors = map[string]error{
+	recordTypeA:     ErrInvalidARecord,
+	recordTypeAAAA:  ErrInvalidAAAARecord,
+	recordTypeMX:    ErrInvalidMXRecord,
+	recordTypeSRV:   ErrInvalidSRVRecord,
+	recordTypeCAA:   ErrInvalidCAARecord,
+	recordTypeTXT:   ErrInvalidTXTRecord,
+	recordTypeSPF:   ErrInvalidSPFRecord,
+	recordTypeCNAME: ErrInvalidCNAMERecord,
+	recordTypeNS:    ErrInvalidNSRecord,
+	recordTypePTR:   ErrInvalidPTRRecord,
+	recordTypeDS:    ErrInvalidDSRecord,
+	recordTypeNAPTR: ErrInvalidNAPTRRecord,
+}
+
 // validateRecordValue checks per-type value format constraints.
 func validateRecordValue(rrType, value string) error {
-	switch rrType {
-	case recordTypeA:
-		if net.ParseIP(value) == nil || strings.Contains(value, ":") {
-			return fmt.Errorf("invalid IPv4 address for A record %q: %w", value, ErrInvalidARecord)
+	validate, ok := recordValueValidators[rrType]
+	if !ok || validate(value) {
+		return nil
+	}
+
+	return fmt.Errorf("invalid %s record value %q: %w", rrType, value, recordValueErrors[rrType])
+}
+
+// isValidCharacterStrings validates a TXT/SPF value. Route 53 requires the value
+// to be one or more double-quoted character-strings (e.g. `"v=spf1 ~all"` or
+// `"chunk-a" "chunk-b"`), each at most 255 octets. Embedded quotes must be
+// backslash-escaped.
+func isValidCharacterStrings(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) < 2 || trimmed[0] != '"' || trimmed[len(trimmed)-1] != '"' {
+		return false
+	}
+
+	inString := false
+	escaped := false
+	segLen := 0
+
+	for i := range len(trimmed) {
+		ch := trimmed[i]
+		if escaped {
+			escaped, segLen = false, segLen+1
+
+			continue
 		}
-	case recordTypeAAAA:
-		if net.ParseIP(value) == nil || !strings.Contains(value, ":") {
-			return fmt.Errorf("invalid IPv6 address for AAAA record %q: %w", value, ErrInvalidAAAARecord)
-		}
-	case recordTypeMX:
-		if !reMX.MatchString(value) {
-			return fmt.Errorf("MX record must be \"priority host\", got %q: %w", value, ErrInvalidMXRecord)
-		}
-	case recordTypeSRV:
-		if !reSRV.MatchString(value) {
-			return fmt.Errorf(
-				"SRV record must be \"priority weight port target\", got %q: %w",
-				value, ErrInvalidSRVRecord,
-			)
-		}
-	case recordTypeCAA:
-		if !reCAA.MatchString(value) {
-			return fmt.Errorf("CAA record must be \"flag tag \\\"value\\\"\", got %q: %w", value, ErrInvalidCAARecord)
+
+		switch ch {
+		case '\\':
+			escaped = true
+		case '"':
+			if inString && segLen > maxCharacterStringLen {
+				return false
+			}
+			inString, segLen = !inString, 0
+		case ' ':
+			if inString {
+				segLen++
+			}
+		default:
+			if !inString {
+				return false
+			}
+			segLen++
 		}
 	}
 
-	return nil
+	return !inString && !escaped
 }
 
 // validateRoutingPolicy enforces AWS mutual-exclusion rules for routing policies.
@@ -632,12 +832,9 @@ func validateRecordValue(rrType, value string) error {
 //nolint:cyclop // AWS has many mutually exclusive routing policy combinations to check
 func validateRoutingPolicy(rrs ResourceRecordSet) error {
 	policyCount := 0
-	// Weight=0 is a valid weighted routing value (used to stop sending traffic to a record).
-	// Because the Weight field defaults to zero when omitted from XML, we use Weight > 0
-	// as the weighted-routing indicator in policy counting; the weight range check below
-	// allows 0 through 255 so an explicit Weight=0 is still accepted once policyCount is
-	// confirmed to be 1 via another routing field or by the caller using a pointer type.
-	if rrs.Weight > 0 {
+	// Weight is a pointer: nil means omitted (no weighted routing), non-nil means
+	// the caller explicitly set a weight (including Weight=0, which stops traffic).
+	if rrs.Weight != nil {
 		policyCount++
 	}
 
@@ -690,7 +887,7 @@ func validateRoutingPolicy(rrs ResourceRecordSet) error {
 		return fmt.Errorf("%w: Failover must be PRIMARY or SECONDARY", ErrInvalidInput)
 	}
 
-	if rrs.Weight < 0 || rrs.Weight > 255 {
+	if rrs.Weight != nil && (*rrs.Weight < 0 || *rrs.Weight > 255) {
 		return fmt.Errorf("%w: Weight must be in range [0, 255]", ErrInvalidInput)
 	}
 
@@ -805,7 +1002,7 @@ func validateHealthCheckConfig(cfg HealthCheckConfig) error {
 
 	if cfg.InsufficientDataHealthStatus != "" {
 		switch cfg.InsufficientDataHealthStatus {
-		case defaultHealthStatus, "Unhealthy", "LastKnownStatus":
+		case defaultHealthStatus, healthUnhealthy, "LastKnownStatus":
 		default:
 			return fmt.Errorf(
 				"%w: InsufficientDataHealthStatus must be Healthy, Unhealthy, or LastKnownStatus",
@@ -874,13 +1071,22 @@ func validateChange(zd *zoneData, ch Change) error {
 
 	if ch.Action == ChangeActionDelete {
 		key := recordSetKey(rrs.Name, rrs.Type, rrs.SetIdentifier)
-		if _, exists := zd.records[key]; !exists {
+		existing, exists := zd.records[key]
+		if !exists {
 			return fmt.Errorf(
 				"%w: record set %s %s not found for DELETE",
 				ErrInvalidAction,
 				rrs.Name,
 				rrs.Type,
 			)
+		}
+
+		// AWS requires a DELETE to specify values that exactly match the existing
+		// record set (TTL and all resource record values, or the AliasTarget).
+		// If they do not match, Route 53 returns InvalidChangeBatch rather than
+		// silently deleting the record.
+		if err := deleteValuesMatch(existing, &rrs); err != nil {
+			return err
 		}
 	}
 
@@ -897,6 +1103,90 @@ func validateChange(zd *zoneData, ch Change) error {
 	}
 
 	return nil
+}
+
+// deleteValuesMatch enforces AWS's DELETE exact-match rule. When deleting a
+// resource record set you must supply the same TTL and the same set of resource
+// record values (or the same AliasTarget) that the record currently holds. If
+// the supplied change omits values/TTL entirely (a bare name+type delete) AWS
+// still accepts it, so we only enforce a match when the caller actually provided
+// values to compare against.
+func deleteValuesMatch(existing, want *ResourceRecordSet) error {
+	// Alias vs non-alias mismatch is always an error when an AliasTarget is given.
+	if want.AliasTarget != nil || existing.AliasTarget != nil {
+		if !aliasTargetsEqual(existing.AliasTarget, want.AliasTarget) {
+			return deleteMismatchErr(want)
+		}
+
+		return nil
+	}
+
+	// Bare delete: no values and no TTL supplied — accept (matches AWS, which
+	// keys the delete on name+type+SetIdentifier in that case).
+	if len(want.Records) == 0 && want.TTL == 0 {
+		return nil
+	}
+
+	if want.TTL != 0 && want.TTL != existing.TTL {
+		return deleteMismatchErr(want)
+	}
+
+	if len(want.Records) > 0 && !sameValueSet(recordValues(existing), recordValues(want)) {
+		return deleteMismatchErr(want)
+	}
+
+	return nil
+}
+
+// aliasTargetsEqual reports whether two AliasTargets are equivalent for the
+// purpose of DELETE matching (DNS name compared case-insensitively, ignoring a
+// trailing dot, alongside hosted-zone ID and EvaluateTargetHealth).
+func aliasTargetsEqual(a, b *AliasTarget) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	aName := strings.ToLower(strings.TrimSuffix(a.DNSName, "."))
+	bName := strings.ToLower(strings.TrimSuffix(b.DNSName, "."))
+
+	return aName == bName &&
+		a.HostedZoneID == b.HostedZoneID &&
+		a.EvaluateTargetHealth == b.EvaluateTargetHealth
+}
+
+// sameValueSet reports whether two value slices contain the same multiset of
+// values, irrespective of order (Route 53 treats resource record values as an
+// unordered set).
+func sameValueSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	counts := make(map[string]int, len(a))
+	for _, v := range a {
+		counts[v]++
+	}
+
+	for _, v := range b {
+		counts[v]--
+		if counts[v] < 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+// deleteMismatchErr builds the AWS-style InvalidChangeBatch error returned when
+// a DELETE does not match the current values of the record set.
+func deleteMismatchErr(rrs *ResourceRecordSet) error {
+	return fmt.Errorf(
+		"%w: Tried to delete resource record set [name='%s', type='%s'] "+
+			"but the values provided do not match the current values",
+		ErrInvalidAction,
+		rrs.Name,
+		rrs.Type,
+	)
 }
 
 // dnsOp represents a pending DNS registration to apply after record mutation.
@@ -1240,6 +1530,7 @@ func (b *InMemoryBackend) DeleteHealthCheck(id string) error {
 	}
 
 	delete(b.healthChecks, id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -1289,6 +1580,21 @@ func (b *InMemoryBackend) SetHealthCheckStatus(id, status string) error {
 	}
 
 	hc.Status = status
+	if hc.Observations == nil {
+		hc.Observations = []HealthCheckObservation{}
+	}
+	// Emulate an observation from a checker
+	hc.Observations = append(hc.Observations, HealthCheckObservation{
+		Region:      defaultRegion,
+		IPAddress:   "192.0.2.1",
+		Status:      status,
+		CheckedTime: time.Now().UTC(),
+	})
+	// keep last 50
+	const maxObservations = 50
+	if len(hc.Observations) > maxObservations {
+		hc.Observations = hc.Observations[len(hc.Observations)-maxObservations:]
+	}
 
 	return nil
 }
@@ -1310,6 +1616,7 @@ func (b *InMemoryBackend) Reset() {
 	b.vpcAssociations = make(map[string][]vpcAssociation)
 	b.vpcAssocAuthorizations = make(map[string][]VPCAssociationAuthorization)
 	b.changes = make(map[string]*ChangeInfo)
+	b.tags = make(map[string]*svcTags.Tags)
 }
 
 // kskKey builds the map key for a key signing key.
@@ -1879,12 +2186,7 @@ func (b *InMemoryBackend) ListCidrLocations(collectionID string) ([]string, erro
 		)
 	}
 
-	locations := make([]string, 0, len(col.Locations))
-	for name := range col.Locations {
-		locations = append(locations, name)
-	}
-
-	sort.Strings(locations)
+	locations := collections.SortedKeys(col.Locations)
 
 	return locations, nil
 }
@@ -2605,9 +2907,23 @@ func (b *InMemoryBackend) AddTrafficPolicyInternal(tp TrafficPolicy) {
 	b.trafficPolicies[tp.ID] = append(b.trafficPolicies[tp.ID], &cp)
 }
 
-func rrsValues(rrs *ResourceRecordSet) []string {
+// recordValues returns the literal resource-record values of a record set
+// without any alias recursion. It is used for DELETE match comparison.
+func recordValues(rrs *ResourceRecordSet) []string {
+	values := make([]string, 0, len(rrs.Records))
+	for _, r := range rrs.Records {
+		values = append(values, r.Value)
+	}
+
+	return values
+}
+
+// rrsValues resolves a record set to its answer values. Alias record sets
+// recurse into their in-zone target set (honouring EvaluateTargetHealth); when
+// the target is out-of-zone it falls back to the literal AliasTarget.DNSName.
+func (b *InMemoryBackend) rrsValues(zd *zoneData, rrs *ResourceRecordSet, depth int) []string {
 	if rrs.AliasTarget != nil {
-		return []string{strings.TrimSuffix(rrs.AliasTarget.DNSName, ".")}
+		return b.resolveAlias(zd, rrs, depth)
 	}
 
 	values := make([]string, 0, len(rrs.Records))
@@ -2618,11 +2934,134 @@ func rrsValues(rrs *ResourceRecordSet) []string {
 	return values
 }
 
-// TestDNSAnswer looks up a record in the hosted zone and returns matching values.
-// When routing-policy records (latency, geolocation, weighted, failover) exist for the
-// name/type, it selects the best match by routing policy rather than requiring a bare
-// (non-SetIdentifier) key.
-func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error) {
+// resolveAlias resolves an alias record set. It recurses into the target record
+// set when it lives in the same hosted zone, following simple and routing-policy
+// targets. When EvaluateTargetHealth is set and the resolved target is unhealthy
+// (or resolves to nothing), the alias yields no answer — matching Route 53. For
+// out-of-zone targets it returns the literal target DNS name.
+func (b *InMemoryBackend) resolveAlias(zd *zoneData, rrs *ResourceRecordSet, depth int) []string {
+	if depth >= maxAliasDepth {
+		return []string{}
+	}
+
+	targetName := normaliseName(rrs.AliasTarget.DNSName)
+
+	// In-zone simple target?
+	if target, found := zd.records[recordSetKey(targetName, rrs.Type, "")]; found {
+		if rrs.AliasTarget.EvaluateTargetHealth && !b.recordHealthy(target) {
+			return []string{}
+		}
+		vals := b.rrsValues(zd, target, depth+1)
+		if rrs.AliasTarget.EvaluateTargetHealth && len(vals) == 0 {
+			return []string{}
+		}
+
+		return vals
+	}
+
+	// In-zone routing-policy target set (has SetIdentifier records)?
+	if candidates := b.collectRoutingCandidates(zd, targetName, rrs.Type); len(candidates) > 0 {
+		vals := b.selectAnswer(zd, candidates, DNSQueryContext{}, depth+1)
+		if rrs.AliasTarget.EvaluateTargetHealth && len(vals) == 0 {
+			return []string{}
+		}
+
+		return vals
+	}
+
+	// Out-of-zone target: return the literal alias DNS name.
+	return []string{strings.TrimSuffix(rrs.AliasTarget.DNSName, ".")}
+}
+
+// collectRoutingCandidates gathers all SetIdentifier-bearing record sets for a
+// name/type. The caller must hold at least a read lock.
+func (b *InMemoryBackend) collectRoutingCandidates(
+	zd *zoneData,
+	name, recordType string,
+) []*ResourceRecordSet {
+	prefix := strings.ToLower(strings.TrimSuffix(name, ".")) + "|" + strings.ToUpper(recordType) + "|"
+
+	var candidates []*ResourceRecordSet
+	for k, rrs := range zd.records {
+		if strings.HasPrefix(k, prefix) && rrs.SetIdentifier != "" {
+			candidates = append(candidates, rrs)
+		}
+	}
+
+	return candidates
+}
+
+// selectAnswer applies the routing policy shared by the candidate record sets
+// and returns the resolved answer values for the winning record(s). Health
+// checks are consulted so unhealthy records are excluded. The caller must hold
+// at least a read lock.
+func (b *InMemoryBackend) selectAnswer(
+	zd *zoneData,
+	candidates []*ResourceRecordSet,
+	qctx DNSQueryContext,
+	depth int,
+) []string {
+	kind := classifyRouting(candidates)
+	healthy := b.filterHealthy(candidates)
+
+	switch kind {
+	case routingMultiValue:
+		return b.multiValueAnswer(zd, healthy, depth)
+	case routingWeighted:
+		if chosen := selectWeighted(healthy, qctx); chosen != nil {
+			return b.rrsValues(zd, chosen, depth)
+		}
+	case routingLatency:
+		if chosen := selectLatency(healthy, qctx); chosen != nil {
+			return b.rrsValues(zd, chosen, depth)
+		}
+	case routingGeo:
+		if chosen := selectGeo(healthy, qctx); chosen != nil {
+			return b.rrsValues(zd, chosen, depth)
+		}
+	case routingFailover:
+		if chosen := selectFailover(healthy); chosen != nil {
+			return b.rrsValues(zd, chosen, depth)
+		}
+	case routingSimple:
+		if len(healthy) > 0 {
+			sortBySetIdentifier(healthy)
+
+			return b.rrsValues(zd, healthy[0], depth)
+		}
+	}
+
+	return []string{}
+}
+
+// multiValueAnswer returns the values of up to maxMultiValueRecords healthy
+// record sets, ordered by SetIdentifier for determinism.
+func (b *InMemoryBackend) multiValueAnswer(
+	zd *zoneData,
+	healthy []*ResourceRecordSet,
+	depth int,
+) []string {
+	sortBySetIdentifier(healthy)
+
+	values := make([]string, 0, len(healthy))
+	for _, rrs := range healthy {
+		values = append(values, b.rrsValues(zd, rrs, depth)...)
+		if len(values) >= maxMultiValueRecords {
+			return values[:maxMultiValueRecords]
+		}
+	}
+
+	return values
+}
+
+// TestDNSAnswer looks up a record in the hosted zone and returns the values the
+// resolver would answer with, applying routing policy (weighted, latency,
+// geolocation, failover, multivalue), health-check status and alias recursion.
+// The DNSQueryContext supplies client-side signals (region, geo, weighted RNG).
+func (b *InMemoryBackend) TestDNSAnswer(
+	zoneID, recordName, recordType string,
+	qctx DNSQueryContext,
+) ([]string, error) {
 	b.mu.RLock("TestDNSAnswer")
 	defer b.mu.RUnlock()
 
@@ -2632,40 +3071,136 @@ func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) (
 	}
 
 	name := normaliseName(recordName)
-	key := recordSetKey(name, recordType, "")
 
-	// Try simple (non-routing-policy) lookup first.
-	if rrs, found := zd.records[key]; found {
-		return rrsValues(rrs), nil
+	// Simple (non-routing-policy) record wins outright.
+	if rrs, found := zd.records[recordSetKey(name, recordType, "")]; found {
+		return b.rrsValues(zd, rrs, 0), nil
 	}
 
-	// Fall back to routing-policy records: collect all records for name/type that
-	// have a SetIdentifier (latency, geolocation, weighted, failover routing).
-	prefix := strings.ToLower(strings.TrimSuffix(name, ".")) + "|" + strings.ToUpper(recordType) + "|"
-	var candidates []*ResourceRecordSet
-
-	for k, rrs := range zd.records {
-		if strings.HasPrefix(k, prefix) && rrs.SetIdentifier != "" {
-			candidates = append(candidates, rrs)
-		}
-	}
-
+	candidates := b.collectRoutingCandidates(zd, name, recordType)
 	if len(candidates) == 0 {
 		return []string{}, nil
 	}
 
-	// Sort candidates deterministically by SetIdentifier for stable test results.
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].SetIdentifier < candidates[j].SetIdentifier
-	})
+	return b.selectAnswer(zd, candidates, qctx, 0), nil
+}
 
-	// For failover routing: prefer PRIMARY if available.
-	for _, rrs := range candidates {
-		if rrs.Failover == FailoverPrimary {
-			return rrsValues(rrs), nil
+// GetHostedZoneCount returns the total number of hosted zones.
+func (b *InMemoryBackend) GetHostedZoneCount() int {
+	b.mu.RLock("GetHostedZoneCount")
+	defer b.mu.RUnlock()
+
+	return len(b.zones)
+}
+
+// GetHealthCheckCount returns the total number of health checks.
+func (b *InMemoryBackend) GetHealthCheckCount() int {
+	b.mu.RLock("GetHealthCheckCount")
+	defer b.mu.RUnlock()
+
+	return len(b.healthChecks)
+}
+
+// CountResourceRecordSets returns the number of resource record sets in the
+// given hosted zone. It returns ErrHostedZoneNotFound if the zone does not exist.
+func (b *InMemoryBackend) CountResourceRecordSets(zoneID string) (int, error) {
+	b.mu.RLock("CountResourceRecordSets")
+	defer b.mu.RUnlock()
+
+	zd, ok := b.zones[zoneID]
+	if !ok {
+		return 0, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	return len(zd.records), nil
+}
+
+// CountAssociatedVPCs returns the number of VPCs associated with the given
+// hosted zone. It returns ErrHostedZoneNotFound if the zone does not exist.
+func (b *InMemoryBackend) CountAssociatedVPCs(zoneID string) (int, error) {
+	b.mu.RLock("CountAssociatedVPCs")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.zones[zoneID]; !ok {
+		return 0, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	return len(b.vpcAssociations[zoneID]), nil
+}
+
+// CountZonesByReusableDelegationSet returns the number of hosted zones that use
+// the given reusable delegation set. It returns ErrDelegationSetNotFound if the
+// delegation set does not exist.
+func (b *InMemoryBackend) CountZonesByReusableDelegationSet(id string) (int, error) {
+	b.mu.RLock("CountZonesByReusableDelegationSet")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.reusableDelegationSets[id]; !ok {
+		return 0, fmt.Errorf("%w: delegation set %s not found", ErrDelegationSetNotFound, id)
+	}
+
+	// Hosted zones are not currently associated with a reusable delegation set
+	// in this backend, so no zones reference it.
+	return 0, nil
+}
+
+func (b *InMemoryBackend) ListTagsForResource(resourceID string) map[string]string {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+	if t, exists := b.tags[resourceID]; exists {
+		return t.Clone()
+	}
+
+	return make(map[string]string)
+}
+
+func (b *InMemoryBackend) ListTagsForResources(resourceIDs []string) map[string]map[string]string {
+	b.mu.RLock("ListTagsForResources")
+	defer b.mu.RUnlock()
+
+	result := make(map[string]map[string]string)
+	for _, id := range resourceIDs {
+		if t, ok := b.tags[id]; ok {
+			result[id] = t.Clone()
+		} else {
+			result[id] = make(map[string]string)
 		}
 	}
 
-	// Default: return first candidate (deterministic by SetIdentifier sort).
-	return rrsValues(candidates[0]), nil
+	return result
+}
+
+func (b *InMemoryBackend) ChangeTagsForResource(
+	resourceID string,
+	addTags map[string]string,
+	removeKeys []string,
+) error {
+	b.mu.Lock("ChangeTagsForResource")
+	defer b.mu.Unlock()
+
+	// check if the resource exists
+	// route53 allows tagging hostedzones and healthchecks
+	var exists bool
+	if _, okZone := b.zones[resourceID]; okZone {
+		exists = okZone
+	} else if _, okHC := b.healthChecks[resourceID]; okHC {
+		exists = okHC
+	}
+
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrHostedZoneNotFound, resourceID)
+	}
+
+	if b.tags[resourceID] == nil {
+		b.tags[resourceID] = svcTags.New("route53." + resourceID + ".tags")
+	}
+
+	if len(addTags) > 0 {
+		b.tags[resourceID].Merge(addTags)
+	}
+	if len(removeKeys) > 0 {
+		b.tags[resourceID].DeleteKeys(removeKeys)
+	}
+
+	return nil
 }

@@ -1,9 +1,11 @@
 package lakeformation
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // backendSnapshot is the serialisable form of InMemoryBackend state.
@@ -30,7 +32,7 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 	snap := backendSnapshot{
 		DataLakeSettings:       copyDataLakeSettings(b.dataLakeSettings),
 		Resources:              make(map[string]*ResourceInfo, len(b.resources)),
-		Permissions:            make([]*PermissionEntry, len(b.permissions)),
+		Permissions:            make([]*PermissionEntry, len(b.permissionsList)),
 		LFTags:                 make(map[string]*LFTag, len(b.lfTags)),
 		Transactions:           make(map[string]*transactionInfo, len(b.transactions)),
 		DataCellsFilters:       make(map[string]*DataCellsFilter, len(b.dataCellsFilters)),
@@ -47,7 +49,7 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 	}
 
 	// Deep-copy permissions including Principal/Resource pointer fields.
-	for i, p := range b.permissions {
+	for i, p := range b.permissionsList {
 		snap.Permissions[i] = deepCopyPermissionEntry(p)
 	}
 
@@ -111,20 +113,15 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 		snap.ResourceLFTags[k] = pairs
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		slog.Default().Warn("lakeformation: snapshot marshal failed", "error", err)
-
-		return nil, err
-	}
-
-	return data, nil
+	// Marshal failure is returned to the caller (the Persistable wrapper logs it
+	// via the context-aware logger); do not log through slog.Default() here.
+	return json.Marshal(snap)
 }
 
 // Restore deserialises a snapshot produced by Snapshot back into the backend.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "lakeformation", data, &snap); err != nil {
 		return err
 	}
 
@@ -139,9 +136,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.resources = make(map[string]*ResourceInfo, len(snap.Resources))
 	maps.Copy(b.resources, snap.Resources)
 
-	b.permissions = snap.Permissions
-	if b.permissions == nil {
-		b.permissions = make([]*PermissionEntry, 0)
+	b.permissionsList = snap.Permissions
+	if b.permissionsList == nil {
+		b.permissionsList = make([]*PermissionEntry, 0)
+	}
+	b.permissionsMap = make(map[string]*PermissionEntry)
+	for _, p := range b.permissionsList {
+		b.permissionsMap[permissionKey(p)] = p
 	}
 
 	b.lfTags = make(map[lfTagKey]*LFTag, len(snap.LFTags))

@@ -1,0 +1,17 @@
+--- handler.go
++++ handler.go
+@@ -354,12 +354,14 @@
+ }
+ 
+ func (h *Handler) writeError(c *echo.Context, err error) error {
+ 	switch {
+-	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrValidation):
++	case errors.Is(err, ErrNotFound):
++		return c.JSON(http.StatusNotFound, errorResponse("ResourceNotFoundException", err.Error()))
++	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrValidation):
+ 		return c.JSON(http.StatusBadRequest, errorResponse("ClientException", err.Error()))
+ 	default:
+-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
++		return c.JSON(http.StatusInternalServerError, errorResponse("ServerException", err.Error()))
+ 	}
+ }

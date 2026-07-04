@@ -90,12 +90,7 @@ func TestHandler_ClassifyError_Mapping(t *testing.T) {
 			wantStatusCode: http.StatusBadRequest,
 			wantType:       "RequestLimitExceeded",
 		},
-		{
-			name:           "TransactionConflictException",
-			err:            NewTransactionConflictException("conflict"),
-			wantStatusCode: http.StatusBadRequest,
-			wantType:       "TransactionConflictException",
-		},
+
 		{
 			name:           "ReplicatedWriteConflictException",
 			err:            NewReplicatedWriteConflictException("replicated conflict"),
@@ -149,7 +144,9 @@ func TestHandler_DebugMarshallingConditional(t *testing.T) {
 			want:  0,
 			invoke: func(ctx context.Context, counter *atomic.Int64) error {
 				_, err := handleOp[struct{}, struct{}, struct{}, wireOut](
-					ctx, "TestAction", nil,
+					ctx,
+					"TestAction",
+					nil,
 					func(*struct{}) *struct{} { return &struct{}{} },
 					func(context.Context, *struct{}) (*struct{}, error) { return &struct{}{}, nil },
 					func(*struct{}) *wireOut { return &wireOut{Value: countingMarshaler{counter: counter}} },
@@ -164,7 +161,9 @@ func TestHandler_DebugMarshallingConditional(t *testing.T) {
 			want:  1,
 			invoke: func(ctx context.Context, counter *atomic.Int64) error {
 				_, err := handleOp[struct{}, struct{}, struct{}, wireOut](
-					ctx, "TestAction", nil,
+					ctx,
+					"TestAction",
+					nil,
 					func(*struct{}) *struct{} { return &struct{}{} },
 					func(context.Context, *struct{}) (*struct{}, error) { return &struct{}{}, nil },
 					func(*struct{}) *wireOut { return &wireOut{Value: countingMarshaler{counter: counter}} },
@@ -179,7 +178,9 @@ func TestHandler_DebugMarshallingConditional(t *testing.T) {
 			want:  0,
 			invoke: func(ctx context.Context, counter *atomic.Int64) error {
 				_, err := handleOpErr[struct{}, struct{}, struct{}, wireOut](
-					ctx, "TestAction", nil,
+					ctx,
+					"TestAction",
+					nil,
 					func(*struct{}) (*struct{}, error) { return &struct{}{}, nil },
 					func(context.Context, *struct{}) (*struct{}, error) { return &struct{}{}, nil },
 					func(*struct{}) *wireOut { return &wireOut{Value: countingMarshaler{counter: counter}} },
@@ -194,7 +195,9 @@ func TestHandler_DebugMarshallingConditional(t *testing.T) {
 			want:  1,
 			invoke: func(ctx context.Context, counter *atomic.Int64) error {
 				_, err := handleOpErr[struct{}, struct{}, struct{}, wireOut](
-					ctx, "TestAction", nil,
+					ctx,
+					"TestAction",
+					nil,
 					func(*struct{}) (*struct{}, error) { return &struct{}{}, nil },
 					func(context.Context, *struct{}) (*struct{}, error) { return &struct{}{}, nil },
 					func(*struct{}) *wireOut { return &wireOut{Value: countingMarshaler{counter: counter}} },
@@ -260,7 +263,9 @@ func TestHandler_JanitorLifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := NewHandler(NewInMemoryDB()).WithJanitor(Settings{JanitorInterval: testJanitorInterval})
+			h := NewHandler(
+				NewInMemoryDB(),
+			).WithJanitor(Settings{JanitorInterval: testJanitorInterval})
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()

@@ -115,15 +115,38 @@ type updateProbeRequest struct {
 	State           string            `json:"state,omitempty"`
 }
 
+// probeWireBody is the probe shape returned on the wire.
+// The AWS networkmonitor API models createdAt/modifiedAt as epoch-second
+// timestamps (Iso8601Timestamp wire format = JSON Number), not RFC3339 strings.
+type probeWireBody struct {
+	CreatedAt       *float64          `json:"createdAt,omitempty"`
+	ModifiedAt      *float64          `json:"modifiedAt,omitempty"`
+	Tags            map[string]string `json:"tags,omitempty"`
+	PacketSize      *int32            `json:"packetSize,omitempty"`
+	DestinationPort *int32            `json:"destinationPort,omitempty"`
+	Destination     string            `json:"destination"`
+	SourceArn       string            `json:"sourceArn"`
+	Protocol        string            `json:"protocol"`
+	State           string            `json:"state"`
+	AddressFamily   string            `json:"addressFamily,omitempty"`
+	VpcID           string            `json:"vpcId,omitempty"`
+	ProbeID         string            `json:"probeId,omitempty"`
+	ProbeArn        string            `json:"probeArn,omitempty"`
+}
+
 // getMonitorResponse is the response body for GET /monitors/{monitorName}.
+// The AWS networkmonitor API models createdAt/modifiedAt as epoch-second
+// timestamps (Iso8601Timestamp wire format = JSON Number), so they are emitted
+// as numbers rather than RFC3339 strings; otherwise the SDK fails to
+// deserialize the response.
 type getMonitorResponse struct {
-	CreatedAt         *time.Time        `json:"createdAt"`
-	ModifiedAt        *time.Time        `json:"modifiedAt"`
+	CreatedAt         *float64          `json:"createdAt,omitempty"`
+	ModifiedAt        *float64          `json:"modifiedAt,omitempty"`
 	Tags              map[string]string `json:"tags,omitempty"`
 	MonitorArn        string            `json:"monitorArn"`
 	MonitorName       string            `json:"monitorName"`
 	State             string            `json:"state"`
-	Probes            []*Probe          `json:"probes,omitempty"`
+	Probes            []*probeWireBody  `json:"probes,omitempty"`
 	AggregationPeriod int64             `json:"aggregationPeriod"`
 }
 

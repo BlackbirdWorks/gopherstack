@@ -47,21 +47,46 @@ func resolveOTAUpdateOps(path, method string) string {
 }
 
 // resolvePackageVersionOps resolves ops on /packages/{name}/versions[/{versionName}].
+//
+//nolint:cyclop // mechanical routing switch
 func resolvePackageVersionOps(parts []string, method string) string {
 	if len(parts) == pathSplitTwo && parts[1] == pathSegmentVersions && method == http.MethodGet {
 		return opListPackageVersions
 	}
-	if len(parts) == pathSplitThree && parts[1] == pathSegmentVersions {
-		switch method {
-		case http.MethodPut:
-			return opCreatePackageVersion
-		case http.MethodGet:
-			return opGetPackageVersion
-		case http.MethodDelete:
-			return opDeletePackageVersion
-		case http.MethodPatch:
-			return opUpdatePackageVersion
+	if len(parts) < pathSplitThree || parts[1] != pathSegmentVersions {
+		return unknownOperation
+	}
+	// parts[2] may be "1.0.0" or "1.0.0/sbom" or "1.0.0/sbom-validation-results"
+	// Split parts[2] further to detect sub-paths.
+	versionAndSub := strings.SplitN(parts[2], "/", pathSplitTwo)
+	if len(versionAndSub) == pathSplitTwo {
+		// Has sub-path beyond the version name.
+		switch versionAndSub[1] {
+		case "sbom":
+			if method == http.MethodPut {
+				return opAssociateSbomWithPackageVersion
+			}
+			if method == http.MethodDelete {
+				return opDisassociateSbomFromPackageVersion
+			}
+		case "sbom-validation-results":
+			if method == http.MethodGet {
+				return opListSbomValidationResults
+			}
 		}
+
+		return unknownOperation
+	}
+
+	switch method {
+	case http.MethodPut:
+		return opCreatePackageVersion
+	case http.MethodGet:
+		return opGetPackageVersion
+	case http.MethodDelete:
+		return opDeletePackageVersion
+	case http.MethodPatch:
+		return opUpdatePackageVersion
 	}
 
 	return unknownOperation
@@ -155,6 +180,7 @@ func resolveV2LoggingOps(path, method string) string {
 	return unknownOperation
 }
 
+//nolint:cyclop // mechanical routing switch
 func resolveCommandOps(path, method string) string {
 	if path == "/commands" && method == http.MethodGet {
 		return opListCommands
@@ -183,8 +209,11 @@ func resolveCommandOps(path, method string) string {
 			}
 		case pathSplitThree:
 			if parts[1] == pathSegmentExecutions {
-				if method == http.MethodGet {
+				switch method {
+				case http.MethodGet:
 					return opGetCommandExecution
+				case http.MethodDelete:
+					return opDeleteCommandExecution
 				}
 			}
 		}
@@ -704,11 +733,17 @@ func (h *Handler) handleTransferCertificate(c *echo.Context) error {
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/certificates/")
 	certID := strings.TrimSuffix(trimmed, "/transfer")
 	targetAccount := c.Request().URL.Query().Get("targetAwsAccount")
-	if err := h.Backend.TransferCertificate(certID, targetAccount); err != nil {
-		return respondErr(c, err)
+
+	cert, lookupErr := h.Backend.DescribeCertificate(certID)
+	if lookupErr != nil {
+		return h.handleError(c, lookupErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"transferredCertificateArn": certID})
+	if transferErr := h.Backend.TransferCertificate(certID, targetAccount); transferErr != nil {
+		return respondErr(c, transferErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"transferredCertificateArn": cert.ARN})
 }
 
 func (h *Handler) handleRejectCertificateTransfer(c *echo.Context) error {
@@ -802,7 +837,7 @@ func (h *Handler) handleCreateDynamicThingGroup(c *echo.Context) error {
 		"thingGroupName": tg.ThingGroupName,
 		"thingGroupArn":  tg.ThingGroupARN,
 		keyThingGroupID:  tg.ThingGroupID,
-		"version":        tg.Version,
+		keyVersion:       tg.Version,
 	})
 }
 
@@ -831,7 +866,7 @@ func (h *Handler) handleUpdateDynamicThingGroup(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"version": version})
+	return c.JSON(http.StatusOK, map[string]any{keyVersion: version})
 }
 
 // --- Commands ---

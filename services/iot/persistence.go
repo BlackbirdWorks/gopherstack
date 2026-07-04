@@ -1,9 +1,12 @@
 package iot
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -78,7 +81,7 @@ type backendSnapshot struct {
 }
 
 // Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -172,7 +175,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("iot: failed to snapshot backend state", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "iot: failed to snapshot backend state", "error", err)
 
 		return nil
 	}
@@ -181,9 +184,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "iot", data, &snap); err != nil {
 		return err
 	}
 
@@ -356,9 +359,9 @@ func copyStringSliceMap(m map[string][]string) map[string][]string {
 
 // Snapshot implements persistence.Persistable by delegating to the backend
 // when it implements Snapshottable. Returns nil for non-snapshottable backends.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
@@ -366,9 +369,9 @@ func (h *Handler) Snapshot() []byte {
 
 // Restore implements persistence.Persistable by delegating to the backend
 // when it implements Snapshottable. Non-snapshottable backends are skipped.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(data)
+		return s.Restore(ctx, data)
 	}
 
 	return nil

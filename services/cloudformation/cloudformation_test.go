@@ -50,6 +50,12 @@ func postForm(t *testing.T, h *cloudformation.Handler, body string) *httptest.Re
 const simpleTemplate = `{"AWSTemplateFormatVersion":"2010-09-09",` +
 	`"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`
 
+// modifiedTemplate is simpleTemplate plus an additional resource; a change set
+// created from it against a simpleTemplate stack yields a real Add change.
+const modifiedTemplate = `{"AWSTemplateFormatVersion":"2010-09-09",` +
+	`"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
+	`"MyQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+
 const templateWithParams = `{
   "AWSTemplateFormatVersion": "2010-09-09",
   "Parameters": {
@@ -930,7 +936,7 @@ func TestBackend_ChangeSet(t *testing.T) {
 			},
 			stackName: "cs-stack",
 			csName:    "my-cs",
-			template:  simpleTemplate,
+			template:  modifiedTemplate,
 			wantCS:    true,
 		},
 		{

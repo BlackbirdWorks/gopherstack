@@ -1170,9 +1170,11 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 // handleListESMs handles GET /2015-03-31/event-source-mappings/.
 func (h *Handler) handleListESMs(c *echo.Context) error {
 	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
-		functionName := c.Request().URL.Query().Get("FunctionName")
+		q := c.Request().URL.Query()
+		functionName := q.Get("FunctionName")
+		eventSourceARN := q.Get("EventSourceArn")
 		marker, maxItems := parsePaginationParams(c.Request())
-		p := lambdaBk.ListEventSourceMappings(functionName, marker, maxItems)
+		p := lambdaBk.ListEventSourceMappings(functionName, eventSourceARN, marker, maxItems)
 		resp := make([]jsonESMResponse, len(p.Data))
 		for i, m := range p.Data {
 			resp[i] = toJSONESMResponse(m)
@@ -1367,7 +1369,7 @@ func (h *Handler) validateSnapStartInput(c *echo.Context, s *SnapStart) bool {
 		return true
 	}
 
-	if s.ApplyOn != "None" && s.ApplyOn != "PublishedVersions" {
+	if s.ApplyOn != SnapStartApplyOnNone && s.ApplyOn != SnapStartApplyOnPublishedVersions {
 		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 			"SnapStart.ApplyOn must be one of [PublishedVersions, None]")
 
@@ -1433,6 +1435,16 @@ func (h *Handler) validateCreateFunctionCode(c *echo.Context, input *CreateFunct
 		if input.Runtime == "" {
 			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 				"Runtime is required for Zip package type")
+
+			return false
+		}
+
+		if !isValidRuntime(input.Runtime) {
+			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				fmt.Sprintf(
+					"Value %q at 'runtime' failed to satisfy constraint: "+
+						"Member must satisfy enum value set", input.Runtime,
+				))
 
 			return false
 		}
@@ -1557,20 +1569,47 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
-	fn, err := h.Backend.GetFunction(name)
-	if err != nil {
-		if errors.Is(err, ErrFunctionNotFound) {
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				"Function not found: "+name)
-		}
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+	if !h.validateQualifier(c, qualifier) {
+		return nil
+	}
 
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	fn, err := h.resolveFunctionForRead(name, qualifier)
+	if err != nil {
+		return h.writeQualifiedReadError(c, name, qualifier, err)
 	}
 
 	return c.JSON(http.StatusOK, &GetFunctionOutput{
 		Configuration: fn,
 		Code:          buildCodeLocation(fn),
 	})
+}
+
+// resolveFunctionForRead returns the function configuration for the given
+// qualifier. When the qualifier is empty or "$LATEST", or the backend does not
+// support qualifier resolution, it falls back to the live configuration.
+func (h *Handler) resolveFunctionForRead(name, qualifier string) (*FunctionConfiguration, error) {
+	if qualifier != "" && qualifier != versionLatest {
+		if qr, ok := h.Backend.(QualifierResolver); ok {
+			return qr.GetFunctionByQualifier(name, qualifier)
+		}
+	}
+
+	return h.Backend.GetFunction(name)
+}
+
+// writeQualifiedReadError maps a qualifier-resolution error to the AWS response.
+func (h *Handler) writeQualifiedReadError(c *echo.Context, name, qualifier string, err error) error {
+	switch {
+	case errors.Is(err, ErrFunctionNotFound):
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			"Function not found: "+name)
+	case errors.Is(err, ErrVersionNotFound):
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			fmt.Sprintf("Function not found: %s:%s", name, qualifier))
+	default:
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
 }
 
 // parsePaginationParams extracts Marker and MaxItems from the request query string.
@@ -1589,6 +1628,19 @@ func parsePaginationParams(r *http.Request) (string, int) {
 
 func (h *Handler) handleListFunctions(c *echo.Context) error {
 	marker, maxItems := parsePaginationParams(c.Request())
+
+	// ?FunctionVersion=ALL returns all published versions in addition to $LATEST.
+	if c.Request().URL.Query().Get("FunctionVersion") == "ALL" {
+		if bk, ok := h.Backend.(*InMemoryBackend); ok {
+			p := bk.ListFunctionsAll(marker, maxItems)
+
+			return c.JSON(http.StatusOK, &ListFunctionsOutput{
+				Functions:  p.Data,
+				NextMarker: p.Next,
+			})
+		}
+	}
+
 	p := h.Backend.ListFunctions(marker, maxItems)
 
 	return c.JSON(http.StatusOK, &ListFunctionsOutput{
@@ -1740,6 +1792,14 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return nil
 	}
 
+	if input.Runtime != "" && !isValidRuntime(input.Runtime) {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf(
+				"Value %q at 'runtime' failed to satisfy constraint: "+
+					"Member must satisfy enum value set", input.Runtime,
+			))
+	}
+
 	if input.EphemeralStorage != nil {
 		if input.EphemeralStorage.Size < minEphemeralStorageSize ||
 			input.EphemeralStorage.Size > maxEphemeralStorageSize {
@@ -1852,13 +1912,37 @@ func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFu
 		applySnapStart(fn, input.SnapStart)
 	}
 }
+func (h *Handler) validateInvocationHeaders(c *echo.Context) (string, string, string, error) {
+	invType := c.Request().Header.Get("X-Amz-Invocation-Type")
+	if invType == "" {
+		invType = InvocationTypeRequestResponse
+	} else if invType != InvocationTypeRequestResponse &&
+		invType != InvocationTypeEvent &&
+		invType != InvocationTypeDryRun {
+		return "", "", "", h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"Invalid InvocationType",
+		)
+	}
+
+	logType := c.Request().Header.Get("X-Amz-Log-Type")
+	if logType != "" && logType != LogTypeTail && logType != LogTypeNone {
+		return "", "", "", h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Invalid LogType")
+	}
+
+	clientContext := c.Request().Header.Get("X-Amz-Client-Context")
+
+	return invType, logType, clientContext, nil
+}
 
 func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	ctx := c.Request().Context()
 
-	invType := c.Request().Header.Get("X-Amz-Invocation-Type")
-	if invType == "" {
-		invType = InvocationTypeRequestResponse
+	invType, logType, clientContext, valErr := h.validateInvocationHeaders(c)
+	if valErr != nil {
+		return valErr
 	}
 
 	qualifier := c.Request().URL.Query().Get("Qualifier")
@@ -1876,27 +1960,37 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		body = []byte("{}")
 	}
 
+	executedVersion := h.resolveExecutedVersion(name, qualifier)
+
 	var result []byte
+	var logResult string
+	var functionError string
 	var statusCode int
 	var invokeErr error
 
-	if qi, ok := h.Backend.(QualifierInvoker); ok && qualifier != "" {
-		result, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(ctx, name, qualifier, invType, body)
+	if qi, ok := h.Backend.(QualifierInvoker); ok {
+		result, logResult, functionError, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(
+			ctx,
+			name,
+			qualifier,
+			clientContext,
+			logType,
+			invType,
+			body,
+		)
 	} else {
 		result, statusCode, invokeErr = h.Backend.InvokeFunction(ctx, name, invType, body)
 	}
 
 	if invokeErr != nil {
-		if errors.Is(invokeErr, ErrFunctionNotFound) {
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				"Function not found: "+name)
-		}
+		return h.writeInvokeError(c, name, invokeErr)
+	}
 
-		if errors.Is(invokeErr, ErrTooManyRequests) {
-			return h.writeError(c, http.StatusTooManyRequests, "TooManyRequestsException", invokeErr.Error())
-		}
+	// Set X-Amz-Executed-Version on all successful responses (real AWS always sends this).
+	c.Response().Header().Set("X-Amz-Executed-Version", executedVersion)
 
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", invokeErr.Error())
+	if logResult != "" {
+		c.Response().Header().Set("X-Amz-Log-Result", logResult)
 	}
 
 	if statusCode == http.StatusNoContent {
@@ -1908,19 +2002,49 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	}
 
 	if len(result) > 0 {
-		// AWS Lambda signals an unhandled function error to the SDK via the
-		// X-Amz-Function-Error response header (with the body still HTTP 200
-		// containing the errorMessage/errorType JSON payload). Detect the
-		// payload shape and set the header so SDK clients can distinguish
-		// function errors from successful invocations.
-		if isLambdaFunctionErrorPayload(result) {
-			c.Response().Header().Set("X-Amz-Function-Error", "Unhandled")
+		// AWS Lambda signals a function error to the SDK via the X-Amz-Function-Error
+		// response header (the body is still HTTP 200 containing the
+		// errorMessage/errorType JSON payload). The value is "Unhandled" when the
+		// runtime reported the error itself and "Handled" when the function returned
+		// an error-shaped payload — the backend classifies this from the runtime's
+		// response vs error endpoint rather than guessing from the payload.
+		if functionError != "" {
+			c.Response().Header().Set("X-Amz-Function-Error", functionError)
 		}
 
 		return c.JSONBlob(http.StatusOK, result)
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+// resolveExecutedVersion returns the version string for the X-Amz-Executed-Version header.
+func (h *Handler) resolveExecutedVersion(name, qualifier string) string {
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return versionLatest
+	}
+
+	resolved, err := bk.resolveQualifier(name, qualifier)
+	if err != nil || resolved.Version == "" {
+		return versionLatest
+	}
+
+	return resolved.Version
+}
+
+// writeInvokeError translates invoke errors into HTTP error responses.
+func (h *Handler) writeInvokeError(c *echo.Context, name string, invokeErr error) error {
+	if errors.Is(invokeErr, ErrFunctionNotFound) {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			"Function not found: "+name)
+	}
+
+	if errors.Is(invokeErr, ErrTooManyRequests) {
+		return h.writeError(c, http.StatusTooManyRequests, "TooManyRequestsException", invokeErr.Error())
+	}
+
+	return h.writeError(c, http.StatusInternalServerError, "ServiceException", invokeErr.Error())
 }
 
 // isLambdaFunctionErrorPayload reports whether result looks like a Lambda
@@ -1945,6 +2069,8 @@ func isLambdaFunctionErrorPayload(result []byte) bool {
 
 // writeError writes a Lambda-formatted JSON error response.
 func (h *Handler) writeError(c *echo.Context, status int, errType, message string) error {
+	c.Response().Header().Set("X-Amzn-Errortype", errType)
+
 	return c.JSON(status, &Error{
 		Type:    errType,
 		Message: message,
@@ -1973,7 +2099,13 @@ func (h *Handler) handleCreateFunctionURLConfig(c *echo.Context, name string) er
 		input.AuthType = "NONE"
 	}
 
-	cfg, createErr := lambdaBk.CreateFunctionURLConfig(name, input.AuthType, input.Cors, input.InvokeMode)
+	cfg, createErr := lambdaBk.CreateFunctionURLConfig(
+		c.Request().Context(),
+		name,
+		input.AuthType,
+		input.Cors,
+		input.InvokeMode,
+	)
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -2323,7 +2455,7 @@ type TaggedFunctionInfo struct {
 
 // TaggedFunctions returns a snapshot of all Lambda functions with their ARNs and tags.
 // Intended for use by the Resource Groups Tagging API provider.
-func (h *Handler) TaggedFunctions() []TaggedFunctionInfo {
+func (h *Handler) TaggedFunctions(_ context.Context) []TaggedFunctionInfo {
 	p := h.Backend.ListFunctions("", 0)
 	fns := p.Data
 
@@ -2345,7 +2477,7 @@ func (h *Handler) TaggedFunctions() []TaggedFunctionInfo {
 }
 
 // TagFunctionByARN applies tags to the Lambda function identified by its ARN.
-func (h *Handler) TagFunctionByARN(fnARN string, newTags map[string]string) error {
+func (h *Handler) TagFunctionByARN(_ context.Context, fnARN string, newTags map[string]string) error {
 	p := h.Backend.ListFunctions("", 0)
 	fns := p.Data
 
@@ -2361,7 +2493,7 @@ func (h *Handler) TagFunctionByARN(fnARN string, newTags map[string]string) erro
 }
 
 // UntagFunctionByARN removes the specified tag keys from the Lambda function identified by its ARN.
-func (h *Handler) UntagFunctionByARN(fnARN string, tagKeys []string) error {
+func (h *Handler) UntagFunctionByARN(_ context.Context, fnARN string, tagKeys []string) error {
 	p := h.Backend.ListFunctions("", 0)
 	fns := p.Data
 
@@ -2475,14 +2607,17 @@ func parseLayerVersion(s string) (int64, error) {
 }
 
 func (h *Handler) handleListLayers(c *echo.Context, bk *InMemoryBackend) error {
+	q := c.Request().URL.Query()
+	compatibleRuntime := q.Get("CompatibleRuntime")
 	marker, maxItems := parsePaginationParams(c.Request())
-	p := bk.ListLayers(marker, maxItems)
+	p := bk.ListLayers(compatibleRuntime, marker, maxItems)
 
 	return c.JSON(http.StatusOK, &ListLayersOutput{Layers: p.Data, NextMarker: p.Next})
 }
 
 func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, layerName string) error {
-	versions, err := bk.ListLayerVersions(layerName)
+	compatibleRuntime := c.Request().URL.Query().Get("CompatibleRuntime")
+	versions, err := bk.ListLayerVersions(layerName, compatibleRuntime)
 	if err != nil {
 		if errors.Is(err, ErrLayerNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -3118,14 +3253,14 @@ func (h *Handler) handleRemovePermission(c *echo.Context, name string) error {
 // handleGetFunctionConfiguration handles GET /2015-03-31/functions/{name}/configuration.
 // Real AWS returns the function configuration without the code location.
 func (h *Handler) handleGetFunctionConfiguration(c *echo.Context, name string) error {
-	fn, err := h.Backend.GetFunction(name)
-	if err != nil {
-		if errors.Is(err, ErrFunctionNotFound) {
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				"Function not found: "+name)
-		}
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+	if !h.validateQualifier(c, qualifier) {
+		return nil
+	}
 
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	fn, err := h.resolveFunctionForRead(name, qualifier)
+	if err != nil {
+		return h.writeQualifiedReadError(c, name, qualifier, err)
 	}
 
 	// GetFunctionConfiguration returns the configuration only (no code location).

@@ -111,8 +111,10 @@ func TestAudit1_Enable_Disable(t *testing.T) {
 			fn: func(t *testing.T, h *inspector2.Handler) {
 				t.Helper()
 
-				// Enable first
-				auditDo(t, h, http.MethodPost, "/enable", map[string]any{})
+				// Enable only EC2, then disable it → all types disabled → DISABLED.
+				auditDo(t, h, http.MethodPost, "/enable", map[string]any{
+					"resourceTypes": []string{"EC2"},
+				})
 
 				rec := auditDo(t, h, http.MethodPost, "/disable", map[string]any{
 					"resourceTypes": []string{"EC2"},

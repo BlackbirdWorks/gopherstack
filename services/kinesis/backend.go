@@ -3,6 +3,7 @@ package kinesis
 import (
 	"cmp"
 	"context"
+	"crypto/md5" //nolint:gosec // MD5 used as a non-cryptographic hash key for Kinesis shard routing, matching the AWS API contract
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,8 +15,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
@@ -276,11 +275,11 @@ func initializeStreamRuntime(stream *Stream, streamName string) {
 	}
 }
 
-// hashKey computes a numeric hash key for a partition key using a simple mapping.
-// The result is in the range [0, 2^128-1] as required by Kinesis.
+// hashKey computes the Kinesis hash key for a partition key using MD5, matching
+// the AWS API contract. The result is in the range [0, 2^128-1].
 func hashKey(partitionKey string) *big.Int {
-	// Use a simple deterministic hash by interpreting the UUID v5 of the partition key.
-	sum := uuid.NewSHA1(uuid.NameSpaceOID, []byte(partitionKey))
+	//nolint:gosec // MD5 is intentional: AWS Kinesis uses MD5 for partition-key → shard routing
+	sum := md5.Sum([]byte(partitionKey))
 
 	return new(big.Int).SetBytes(sum[:])
 }
@@ -321,7 +320,33 @@ func shardForPartitionKey(shards []*Shard, partitionKey string) *Shard {
 func (s *Shard) nextSequenceNumber() string {
 	s.NextSeq++
 
-	return fmt.Sprintf("%020d", s.NextSeq)
+	var idx int64
+	if _, err := fmt.Sscanf(s.ID, "shardId-%d", &idx); err != nil {
+		idx = 0
+	}
+	const shardIDModulus = 10000
+
+	// AWS sequence numbers encode time and shard info. We use a 49-prefix, timestamp, shard index, and seq.
+	return fmt.Sprintf(
+		"49%014d%04d%020d",
+		time.Now().UnixNano()/int64(time.Millisecond),
+		idx%shardIDModulus,
+		s.NextSeq,
+	)
+}
+
+func checkOnDemandLimit(streams map[string]*Stream, limit int) error {
+	onDemandCount := 0
+	for _, s := range streams {
+		if s.StreamMode == streamModeOnDemand {
+			onDemandCount++
+		}
+	}
+	if onDemandCount >= limit {
+		return ErrLimitExceeded
+	}
+
+	return nil
 }
 
 // CreateStream creates a new Kinesis stream.
@@ -396,17 +421,13 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 	streamMode := input.StreamMode
 	if streamMode == "" {
 		streamMode = streamModeProvisioned
+	} else if streamMode != streamModeProvisioned && streamMode != streamModeOnDemand {
+		return ErrInvalidArgument
 	}
 
 	if streamMode == streamModeOnDemand {
-		onDemandCount := 0
-		for _, s := range streams {
-			if s.StreamMode == streamModeOnDemand {
-				onDemandCount++
-			}
-		}
-		if onDemandCount >= b.onDemandStreamCountLimit {
-			return ErrLimitExceeded
+		if err := checkOnDemandLimit(streams, b.onDemandStreamCountLimit); err != nil {
+			return err
 		}
 	}
 
@@ -457,6 +478,10 @@ func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamI
 	delete(b.faultsStore(region), input.StreamName)
 	b.faultsMu.Unlock()
 
+	if b.OnStreamPurged != nil {
+		b.OnStreamPurged(input.StreamName)
+	}
+
 	// Release lockmetrics resources for the deleted stream to prevent memory leaks.
 	stream.mu.Close()
 
@@ -484,31 +509,7 @@ func (b *InMemoryBackend) DescribeStream(
 
 	shards := make([]ShardDescription, len(stream.Shards))
 	for i, s := range stream.Shards {
-		seqStart := "0"
-		if s.Records.len() > 0 {
-			seqStart = s.Records.at(0).SequenceNumber
-		}
-
-		var seqEnd string
-		if s.Closed {
-			seqEnd = "0"
-			if s.Records.len() > 0 {
-				seqEnd = s.Records.last().SequenceNumber
-			}
-		} else if s.Records.len() > 0 {
-			seqEnd = s.Records.last().SequenceNumber
-		}
-
-		shards[i] = ShardDescription{
-			ShardID:                  s.ID,
-			HashKeyRangeStart:        s.HashKeyRangeStart,
-			HashKeyRangeEnd:          s.HashKeyRangeEnd,
-			SequenceNumberRangeStart: seqStart,
-			SequenceNumberRangeEnd:   seqEnd,
-			ParentShardID:            s.ParentShardID,
-			AdjacentParentShardID:    s.AdjacentParentShardID,
-			Closed:                   s.Closed,
-		}
+		shards[i] = shardDescription(s)
 	}
 
 	encType := stream.EncryptionType
@@ -681,7 +682,7 @@ func putRecordErrorCode(err error) string {
 		return "ProvisionedThroughputExceededException"
 	}
 	if errors.Is(err, ErrInvalidArgument) {
-		return "ValidationException"
+		return errTypeValidation
 	}
 
 	return "InternalFailure"
@@ -957,12 +958,16 @@ func shardDescription(s *Shard) ShardDescription {
 		seqStart = s.Records.at(0).SequenceNumber
 	}
 
+	// EndingSequenceNumber is reported only for CLOSED shards. AWS leaves it
+	// absent on open shards regardless of whether they currently hold records —
+	// KCL-style consumers treat its presence as the signal that a shard is
+	// closed and they should advance to the child shards. Reporting it on an
+	// open shard with records would make a consumer prematurely abandon the shard.
 	var seqEnd string
-	if s.Closed || s.Records.len() > 0 {
+	if s.Closed {
+		seqEnd = "0"
 		if s.Records.len() > 0 {
 			seqEnd = s.Records.last().SequenceNumber
-		} else {
-			seqEnd = "0"
 		}
 	}
 
@@ -1441,6 +1446,35 @@ func (b *InMemoryBackend) SubscribeToShard(
 	}, nil
 }
 
+func findOverlappingParents(start, end *big.Int, oldOpenShards []*Shard) (string, string) {
+	var parents []string
+	for _, os := range oldOpenShards {
+		osStart, _ := new(big.Int).SetString(os.HashKeyRangeStart, hashKeyDecimalBase)
+		osEnd, _ := new(big.Int).SetString(os.HashKeyRangeEnd, hashKeyDecimalBase)
+
+		maxStart := start
+		if osStart.Cmp(maxStart) > 0 {
+			maxStart = osStart
+		}
+		minEnd := end
+		if osEnd.Cmp(minEnd) < 0 {
+			minEnd = osEnd
+		}
+		if maxStart.Cmp(minEnd) <= 0 {
+			parents = append(parents, os.ID)
+		}
+	}
+	var pid, apid string
+	if len(parents) > 0 {
+		pid = parents[0]
+	}
+	if len(parents) > 1 {
+		apid = parents[1]
+	}
+
+	return pid, apid
+}
+
 // UpdateShardCount resizes a stream to the given number of shards.
 // Existing records in the stream are not migrated; new shards start empty.
 func (b *InMemoryBackend) UpdateShardCount(
@@ -1473,12 +1507,26 @@ func (b *InMemoryBackend) UpdateShardCount(
 
 	// Count only open shards as the current count (AWS semantics).
 	currentCount := 0
+	var oldOpenShards []*Shard
 	for _, s := range stream.Shards {
 		if !s.Closed {
 			currentCount++
+			oldOpenShards = append(oldOpenShards, s)
 		}
 	}
 	targetCount := input.TargetShardCount
+
+	if targetCount > maxShardsPerStream {
+		return nil, ErrInvalidArgument
+	}
+
+	// AWS caps a single UpdateShardCount call to between 50% and 200% of the
+	// current open shard count: the target may not exceed double the current
+	// count, nor drop below half of it. Requests outside this window are
+	// rejected with ValidationException (never partially applied).
+	if targetCount > 2*currentCount || 2*targetCount < currentCount {
+		return nil, ErrShardCountScaling
+	}
 
 	maxHashKey := new(big.Int).Sub(
 		new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),
@@ -1506,19 +1554,21 @@ func (b *InMemoryBackend) UpdateShardCount(
 			)
 		}
 
+		pid, apid := findOverlappingParents(start, end, oldOpenShards)
+
 		newShards[i] = &Shard{
-			ID:                fmt.Sprintf("shardId-%012d", startIdx+i),
-			HashKeyRangeStart: start.String(),
-			HashKeyRangeEnd:   end.String(),
+			ID:                    fmt.Sprintf("shardId-%012d", startIdx+i),
+			HashKeyRangeStart:     start.String(),
+			HashKeyRangeEnd:       end.String(),
+			ParentShardID:         pid,
+			AdjacentParentShardID: apid,
 		}
 	}
 
 	// Mark all currently open shards as CLOSED (AWS semantics: old shards
 	// remain visible in DescribeStream/ListShards with CLOSED status).
-	for _, s := range stream.Shards {
-		if !s.Closed {
-			s.Closed = true
-		}
+	for _, s := range oldOpenShards {
+		s.Closed = true
 	}
 
 	allShards := make([]*Shard, 0, len(stream.Shards)+targetCount)
@@ -1715,6 +1765,9 @@ func (b *InMemoryBackend) MergeShards(ctx context.Context, input *MergeShardsInp
 	shard2 := findShard(stream.Shards, input.AdjacentShardToMerge)
 
 	if shard1 == nil || shard2 == nil {
+		return ErrInvalidArgument
+	}
+	if shard1.Closed || shard2.Closed {
 		return ErrInvalidArgument
 	}
 

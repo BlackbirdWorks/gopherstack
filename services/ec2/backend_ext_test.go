@@ -1620,11 +1620,11 @@ func TestPersistenceWithExtendedResources(t *testing.T) {
 	_, err = b.RunInstances("ami-123", "t2.micro", "", 1)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := newTestBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	kps := b2.DescribeKeyPairs([]string{"persist-key"})
 	assert.Len(t, kps, 1)

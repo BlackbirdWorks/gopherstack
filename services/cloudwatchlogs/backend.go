@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -30,6 +31,7 @@ const (
 	keyMessageField  = "@message"
 	keyTimestamp     = "@timestamp"
 	keyIngestionTime = "@ingestionTime"
+	keyLogStream     = "@logStream"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -62,6 +64,7 @@ var (
 	ErrQueryDefinitionNotFound       = errors.New("ResourceNotFoundException")
 	ErrInvalidSequenceToken          = errors.New("InvalidSequenceTokenException")
 	ErrOperationAborted              = errors.New("OperationAbortedException")
+	ErrInvalidOperation              = errors.New("InvalidOperationException")
 )
 
 const (
@@ -186,6 +189,7 @@ const (
 	exportStatusRunning   = "RUNNING"
 	exportStatusCompleted = "COMPLETED"
 	exportStatusCancelled = "CANCELLED"
+	exportStatusFailed    = "FAILED"
 )
 
 // SubscriptionDeliverer delivers encoded log event payloads to a subscription filter destination.
@@ -198,7 +202,11 @@ type SubscriptionDeliverer interface {
 type SubscriptionDelivererFunc func(ctx context.Context, destinationArn string, payload []byte) error
 
 // DeliverLogEvents implements SubscriptionDeliverer.
-func (f SubscriptionDelivererFunc) DeliverLogEvents(ctx context.Context, destinationArn string, payload []byte) error {
+func (f SubscriptionDelivererFunc) DeliverLogEvents(
+	ctx context.Context,
+	destinationArn string,
+	payload []byte,
+) error {
 	return f(ctx, destinationArn, payload)
 }
 
@@ -222,7 +230,11 @@ func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, uni
 type StorageBackend interface {
 	CreateLogGroup(ctx context.Context, name, logGroupClass, kmsKeyID string) (*LogGroup, error)
 	DeleteLogGroup(ctx context.Context, name string) error
-	DescribeLogGroups(ctx context.Context, prefix, nextToken string, limit int) ([]LogGroup, string, error)
+	DescribeLogGroups(
+		ctx context.Context,
+		prefix, nextToken string,
+		limit int,
+	) ([]LogGroup, string, error)
 	CreateLogStream(ctx context.Context, groupName, streamName string) (*LogStream, error)
 	DeleteLogStream(ctx context.Context, groupName, streamName string) error
 	DescribeLogStreams(
@@ -243,12 +255,16 @@ type StorageBackend interface {
 		startFromHead bool,
 	) (
 		[]OutputLogEvent, string, string, error)
-	FilterLogEvents(ctx context.Context, groupName string, streamNames []string, filterPattern string,
-		startTime, endTime *int64, limit int, nextToken string) ([]OutputLogEvent, string, error)
+	FilterLogEvents(ctx context.Context, p FilterLogEventsParams) (
+		[]FilteredLogEvent, string, []SearchedLogStream, error)
 	PutSubscriptionFilter(
 		ctx context.Context, groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
 	) error
-	DescribeSubscriptionFilters(ctx context.Context, groupName, filterNamePrefix, nextToken string, limit int) (
+	DescribeSubscriptionFilters(
+		ctx context.Context,
+		groupName, filterNamePrefix, nextToken string,
+		limit int,
+	) (
 		[]SubscriptionFilter, string, error)
 	DeleteSubscriptionFilter(ctx context.Context, groupName, filterName string) error
 	SetRetentionPolicy(ctx context.Context, groupName string, days *int32) error
@@ -257,18 +273,26 @@ type StorageBackend interface {
 	) (*QueryInfo, error)
 	GetQueryResults(queryID string) ([][]ResultField, QueryStatistics, QueryStatus, error)
 	StopQuery(queryID string) error
-	DescribeQueries(logGroupName, statusFilter, nextToken string, maxResults int) ([]QueryInfo, string, error)
+	DescribeQueries(
+		logGroupName, statusFilter, nextToken string,
+		maxResults int,
+	) ([]QueryInfo, string, error)
 
 	// AssociateKmsKey associates a KMS key with a log group or query results resource.
 	AssociateKmsKey(logGroupName, resourceIdentifier, kmsKeyID string) error
 	// AssociateSourceToS3TableIntegration associates a data source with an S3 table integration.
-	AssociateSourceToS3TableIntegration(integrationArn, dataSourceName, dataSourceType string) (string, error)
+	AssociateSourceToS3TableIntegration(
+		integrationArn, dataSourceName, dataSourceType string,
+	) (string, error)
 	// CancelExportTask cancels a pending or running export task.
 	CancelExportTask(taskID string) error
 	// CancelImportTask cancels a running import task.
 	CancelImportTask(importID string) (*ImportTask, error)
 	// CreateDelivery creates a delivery between a delivery source and destination.
-	CreateDelivery(deliverySourceName, deliveryDestinationArn string, tags map[string]string) (*Delivery, error)
+	CreateDelivery(
+		deliverySourceName, deliveryDestinationArn string,
+		tags map[string]string,
+	) (*Delivery, error)
 	// CreateExportTask creates an asynchronous export task to S3.
 	CreateExportTask(
 		taskName, logGroupName, logStreamNamePrefix, destination, destinationPrefix string,
@@ -283,11 +307,17 @@ type StorageBackend interface {
 		anomalyVisibilityTime int64,
 	) (string, error)
 	// CreateScheduledQuery creates a scheduled CloudWatch Logs Insights query.
-	CreateScheduledQuery(name, queryString, scheduleExpression, executionRoleArn, state string) (string, error)
+	CreateScheduledQuery(
+		name, queryString, scheduleExpression, executionRoleArn, state string,
+	) (string, error)
 	// DeleteAccountPolicy deletes a CloudWatch Logs account-level policy.
 	DeleteAccountPolicy(policyName, policyType string) error
 	// DescribeExportTasks lists export tasks optionally filtered by task ID or status.
-	DescribeExportTasks(taskID, statusCode string, limit int, nextToken string) ([]ExportTask, string, error)
+	DescribeExportTasks(
+		taskID, statusCode string,
+		limit int,
+		nextToken string,
+	) ([]ExportTask, string, error)
 	// DescribeImportTasks lists import tasks optionally filtered by task ID.
 	DescribeImportTasks(taskID string, limit int, nextToken string) ([]ImportTask, string, error)
 	// DescribeDeliveries lists deliveries with pagination.
@@ -305,7 +335,10 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]LogAnomalyDetector, string, error)
 	// UpdateLogAnomalyDetector updates evaluation frequency and/or anomaly visibility time.
-	UpdateLogAnomalyDetector(detectorArn, evaluationFrequency string, anomalyVisibilityTime int64) error
+	UpdateLogAnomalyDetector(
+		detectorArn, evaluationFrequency string,
+		anomalyVisibilityTime int64,
+	) error
 	// DeleteScheduledQuery deletes a scheduled query by ARN.
 	DeleteScheduledQuery(scheduledQueryArn string) error
 	// ListScheduledQueries lists all scheduled queries with pagination.
@@ -313,7 +346,9 @@ type StorageBackend interface {
 	// UpdateScheduledQuery updates the state of a scheduled query.
 	UpdateScheduledQuery(scheduledQueryArn, state string) error
 	// PutAccountPolicy creates or updates an account-level policy.
-	PutAccountPolicy(policyName, policyType, policyDocument, scope, selectionCriteria string) (*AccountPolicy, error)
+	PutAccountPolicy(
+		policyName, policyType, policyDocument, scope, selectionCriteria string,
+	) (*AccountPolicy, error)
 	// DescribeAccountPolicies returns account-level policies, optionally filtered.
 	DescribeAccountPolicies(
 		policyType, policyName string,
@@ -336,9 +371,15 @@ type StorageBackend interface {
 	// DeleteMetricFilter deletes a metric filter from a log group.
 	DeleteMetricFilter(ctx context.Context, logGroupName, filterName string) error
 	// TestMetricFilter tests a metric filter pattern against provided log event messages.
-	TestMetricFilter(filterPattern string, logEventMessages []string) ([]MetricFilterMatchRecord, error)
+	TestMetricFilter(
+		filterPattern string,
+		logEventMessages []string,
+	) ([]MetricFilterMatchRecord, error)
 	// PutQueryDefinition creates or updates a query definition.
-	PutQueryDefinition(name, queryString, queryDefinitionID string, logGroupNames []string) (string, error)
+	PutQueryDefinition(
+		name, queryString, queryDefinitionID string,
+		logGroupNames []string,
+	) (string, error)
 	// DescribeQueryDefinitions lists query definitions optionally filtered by name prefix.
 	DescribeQueryDefinitions(
 		queryDefinitionNamePrefix string,
@@ -368,7 +409,11 @@ type StorageBackend interface {
 	// UpdateAnomaly updates anomaly suppression settings. No actual anomaly data is stored.
 	UpdateAnomaly(anomalyID, anomalyDetectorArn string, suppressionType string) error
 	// ListLogGroups is the newer paginated list operation, equivalent to DescribeLogGroups.
-	ListLogGroups(ctx context.Context, namePrefix, nextToken string, limit int) ([]LogGroup, string, error)
+	ListLogGroups(
+		ctx context.Context,
+		namePrefix, nextToken string,
+		limit int,
+	) ([]LogGroup, string, error)
 }
 
 // storedQuery holds the execution state of a single Logs Insights query.
@@ -398,7 +443,9 @@ type InMemoryBackend struct {
 	importTasks            map[string]*ImportTask
 	deliveries             map[string]*Delivery
 	logAnomalyDetectors    map[string]*LogAnomalyDetector
+	anomalies              map[string]map[string]*Anomaly
 	scheduledQueries       map[string]*ScheduledQuery
+	scheduledQueryRuns     map[string][]*ScheduledQueryRunSummary
 	s3TableIntegrations    map[string]string
 	mu                     *lockmetrics.RWMutex
 	kmsKeys                map[string]string
@@ -413,6 +460,7 @@ type InMemoryBackend struct {
 	transformers           map[string]Transformer
 	integrations           map[string]CWLIntegration
 	deletionProtected      map[string]bool
+	exportSink             ExportSink
 	cancel                 context.CancelFunc
 	region                 string
 	accountID              string
@@ -429,7 +477,11 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithContext(context.Background(), config.DefaultAccountID, config.DefaultRegion)
+	return NewInMemoryBackendWithContext(
+		context.Background(),
+		config.DefaultAccountID,
+		config.DefaultRegion,
+	)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
@@ -441,7 +493,10 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 // account ID, and region. Subscription delivery goroutines are bounded by svcCtx so that
 // they are cancelled on server shutdown.
 // If svcCtx is nil, [context.Background] is used.
-func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+func NewInMemoryBackendWithContext(
+	svcCtx context.Context,
+	accountID, region string,
+) *InMemoryBackend {
 	if svcCtx == nil {
 		svcCtx = context.Background()
 	}
@@ -462,7 +517,9 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		importTasks:            make(map[string]*ImportTask),
 		deliveries:             make(map[string]*Delivery),
 		logAnomalyDetectors:    make(map[string]*LogAnomalyDetector),
+		anomalies:              make(map[string]map[string]*Anomaly),
 		scheduledQueries:       make(map[string]*ScheduledQuery),
+		scheduledQueryRuns:     make(map[string][]*ScheduledQueryRunSummary),
 		accountPolicies:        make(map[string]*AccountPolicy),
 		kmsKeys:                make(map[string]string),
 		s3TableIntegrations:    make(map[string]string),
@@ -619,7 +676,10 @@ func (b *InMemoryBackend) metricFiltersStore(region string) map[string]map[strin
 
 // CreateLogGroup creates a new log group with the given class and optional KMS key.
 // logGroupClass must be STANDARD or INFREQUENT_ACCESS (defaults to STANDARD if empty).
-func (b *InMemoryBackend) CreateLogGroup(ctx context.Context, name, logGroupClass, kmsKeyID string) (*LogGroup, error) {
+func (b *InMemoryBackend) CreateLogGroup(
+	ctx context.Context,
+	name, logGroupClass, kmsKeyID string,
+) (*LogGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -696,10 +756,18 @@ func (b *InMemoryBackend) DeleteLogGroup(ctx context.Context, name string) error
 
 // SetRetentionPolicy sets or clears the retention policy for a log group.
 // A nil days value removes any existing retention policy.
-func (b *InMemoryBackend) SetRetentionPolicy(ctx context.Context, groupName string, days *int32) error {
+func (b *InMemoryBackend) SetRetentionPolicy(
+	ctx context.Context,
+	groupName string,
+	days *int32,
+) error {
 	if days != nil {
 		if _, ok := validRetentionDays()[*days]; !ok {
-			return fmt.Errorf("%w: invalid retentionInDays %d, must be one of the allowed values", ErrValidation, *days)
+			return fmt.Errorf(
+				"%w: invalid retentionInDays %d, must be one of the allowed values",
+				ErrValidation,
+				*days,
+			)
 		}
 	}
 
@@ -747,7 +815,10 @@ func (b *InMemoryBackend) DescribeLogGroups(
 }
 
 // CreateLogStream creates a new log stream within a log group.
-func (b *InMemoryBackend) CreateLogStream(ctx context.Context, groupName, streamName string) (*LogStream, error) {
+func (b *InMemoryBackend) CreateLogStream(
+	ctx context.Context,
+	groupName, streamName string,
+) (*LogStream, error) {
 	if groupName == "" {
 		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -767,7 +838,11 @@ func (b *InMemoryBackend) CreateLogStream(ctx context.Context, groupName, stream
 
 	streams := b.streamsStore(region)
 	if _, exists := streams[groupName][streamName]; exists {
-		return nil, fmt.Errorf("%w: Log stream %s already exists", ErrLogStreamAlreadyExist, streamName)
+		return nil, fmt.Errorf(
+			"%w: Log stream %s already exists",
+			ErrLogStreamAlreadyExist,
+			streamName,
+		)
 	}
 
 	s := &LogStream{
@@ -945,7 +1020,11 @@ type rejectedTracker struct {
 	expiredEnd  *int32
 }
 
-func (t *rejectedTracker) track(ts int64, idx int32, retentionCutoffMs, hardCutoff, futureLimit int64) bool {
+func (t *rejectedTracker) track(
+	ts int64,
+	idx int32,
+	retentionCutoffMs, hardCutoff, futureLimit int64,
+) bool {
 	if ts > futureLimit {
 		if t.tooNewStart == nil {
 			t.tooNewStart = &idx
@@ -1050,7 +1129,11 @@ func (b *InMemoryBackend) PutLogEvents(
 		if sequenceToken != expectedToken {
 			b.mu.Unlock()
 
-			return nil, fmt.Errorf("%w: expected sequenceToken %s", ErrInvalidSequenceToken, expectedToken)
+			return nil, fmt.Errorf(
+				"%w: expected sequenceToken %s",
+				ErrInvalidSequenceToken,
+				expectedToken,
+			)
 		}
 	}
 
@@ -1067,7 +1150,12 @@ func (b *InMemoryBackend) PutLogEvents(
 
 	hardCutoff := now - putLogEventsMaxEventAgeMs
 	futureLimit := now + putLogEventsFutureWindowMs
-	acceptedEvents, rejectedInfo := classifyLogEvents(events, retentionCutoffMs, hardCutoff, futureLimit)
+	acceptedEvents, rejectedInfo := classifyLogEvents(
+		events,
+		retentionCutoffMs,
+		hardCutoff,
+		futureLimit,
+	)
 
 	b.appendEvents(region, groupName, streamName, stream, now, acceptedEvents)
 
@@ -1114,7 +1202,16 @@ func (b *InMemoryBackend) scheduleFilterDelivery(
 		case <-b.ctx.Done():
 			return
 		}
-		b.deliverToFilters(b.ctx, groupName, streamName, b.accountID, events, filters, b.deliverer, b.deliveryTimeout)
+		b.deliverToFilters(
+			b.ctx,
+			groupName,
+			streamName,
+			b.accountID,
+			events,
+			filters,
+			b.deliverer,
+			b.deliveryTimeout,
+		)
 	})
 }
 
@@ -1130,7 +1227,9 @@ func (b *InMemoryBackend) appendEvents(
 	groups := b.groupsStore(region)
 	for _, ev := range events {
 		idx := len(groupEvents[groupName][streamName])
-		ptr := base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "%s/%s/%d", groupName, streamName, idx))
+		ptr := base64.StdEncoding.EncodeToString(
+			fmt.Appendf(nil, "%s/%s/%d", groupName, streamName, idx),
+		)
 		out := &OutputLogEvent{
 			IngestionTime: now,
 			Message:       ev.Message,
@@ -1170,8 +1269,13 @@ func (b *InMemoryBackend) appendEvents(
 //
 // In practice the AWS SDK always passes a nextToken once pagination begins, at which point the
 // token encodes the offset directly and startFromHead is ignored.
-func (b *InMemoryBackend) GetLogEvents(ctx context.Context, groupName, streamName string, startTime, endTime *int64,
-	limit int, nextToken string, startFromHead bool,
+func (b *InMemoryBackend) GetLogEvents(
+	ctx context.Context,
+	groupName, streamName string,
+	startTime, endTime *int64,
+	limit int,
+	nextToken string,
+	startFromHead bool,
 ) ([]OutputLogEvent, string, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -1183,7 +1287,11 @@ func (b *InMemoryBackend) GetLogEvents(ctx context.Context, groupName, streamNam
 	}
 
 	if _, exists := b.streamsStore(region)[groupName][streamName]; !exists {
-		return nil, "", "", fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
+		return nil, "", "", fmt.Errorf(
+			"%w: Log stream %s not found",
+			ErrLogStreamNotFound,
+			streamName,
+		)
 	}
 
 	all := b.eventsStore(region)[groupName][streamName]
@@ -1209,8 +1317,8 @@ func (b *InMemoryBackend) GetLogEvents(ctx context.Context, groupName, streamNam
 
 	page := filtered[startIdx:end]
 
-	fwdToken := strconv.Itoa(end)
-	bwdToken := strconv.Itoa(startIdx)
+	fwdToken := encodeNextToken(end)
+	bwdToken := encodeNextToken(startIdx)
 
 	result := make([]OutputLogEvent, len(page))
 	for i, e := range page {
@@ -1220,68 +1328,160 @@ func (b *InMemoryBackend) GetLogEvents(ctx context.Context, groupName, streamNam
 	return result, fwdToken, bwdToken, nil
 }
 
-// FilterLogEvents searches events across streams in a group with optional filter pattern.
+// FilterLogEventsParams holds the inputs for InMemoryBackend.FilterLogEvents.
+type FilterLogEventsParams struct {
+	StartTime           *int64
+	EndTime             *int64
+	GroupName           string
+	FilterPattern       string
+	NextToken           string
+	LogStreamNamePrefix string
+	StreamNames         []string
+	Limit               int
+}
+
+// taggedEvent pairs a stored event with the name of the stream it came from so
+// FilterLogEvents can populate the logStreamName field on each FilteredLogEvent.
+type taggedEvent struct {
+	ev     *OutputLogEvent
+	stream string
+}
+
+// FilterLogEvents searches events across streams in a group with an optional
+// filter pattern. Results are interleaved across streams and sorted by event
+// timestamp (ascending), matching AWS behaviour. The returned events carry the
+// originating logStreamName and a deterministic eventId.
 func (b *InMemoryBackend) FilterLogEvents(
 	ctx context.Context,
-	groupName string,
-	streamNames []string,
-	filterPattern string,
-	startTime, endTime *int64,
-	limit int,
-	nextToken string,
-) ([]OutputLogEvent, string, error) {
+	p FilterLogEventsParams,
+) ([]FilteredLogEvent, string, []SearchedLogStream, error) {
+	// AWS rejects requests that set both logStreamNames and logStreamNamePrefix.
+	if len(p.StreamNames) > 0 && p.LogStreamNamePrefix != "" {
+		return nil, "", nil, fmt.Errorf(
+			"%w: logStreamNames and logStreamNamePrefix are mutually exclusive", ErrValidation)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("FilterLogEvents")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groupsStore(region)[groupName]; !exists {
-		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+	if _, exists := b.groupsStore(region)[p.GroupName]; !exists {
+		return nil, "", nil, fmt.Errorf(
+			"%w: Log group %s not found",
+			ErrLogGroupNotFound,
+			p.GroupName,
+		)
 	}
 
 	// Compile the filter pattern once before iterating over events so that
 	// wildcard regexes are not recompiled for every event.
 	var compiled *compiledFilterPattern
-	if filterPattern != "" {
-		compiled = compileFilterPattern(filterPattern)
+	if p.FilterPattern != "" {
+		compiled = compileFilterPattern(p.FilterPattern)
 	}
 
-	streamOrder := b.filterStreamOrderLocked(region, groupName, streamNames)
+	streamOrder := b.filterStreamOrderLocked(region, p.GroupName, p.StreamNames)
+	if p.LogStreamNamePrefix != "" {
+		streamOrder = filterStreamsByPrefix(streamOrder, p.LogStreamNamePrefix)
+	}
 	groupEvents := b.eventsStore(region)
 
-	var all []*OutputLogEvent
+	var all []taggedEvent
 
 	for _, sName := range streamOrder {
-		for _, ev := range groupEvents[groupName][sName] {
+		for _, ev := range groupEvents[p.GroupName][sName] {
 			if compiled != nil && !compiled.matches(ev.Message) {
 				continue
 			}
-			all = append(all, ev)
+			all = append(all, taggedEvent{ev: ev, stream: sName})
 		}
 	}
 
-	filtered := filterByTime(all, startTime, endTime)
+	all = filterTaggedByTime(all, p.StartTime, p.EndTime)
+	// Interleave across streams: AWS returns matched events sorted by timestamp.
+	// A stable sort preserves per-stream ingestion order for equal timestamps.
+	sort.SliceStable(all, func(i, j int) bool {
+		return all[i].ev.Timestamp < all[j].ev.Timestamp
+	})
 
-	startIdx := parseNextToken(nextToken)
+	startIdx := parseNextToken(p.NextToken)
+	limit := p.Limit
 	if limit <= 0 {
 		limit = defaultEventLimit
 	}
 
 	end := startIdx + limit
 	var outToken string
-	if end < len(filtered) {
-		outToken = strconv.Itoa(end)
+	if end < len(all) {
+		outToken = encodeNextToken(end)
 	} else {
-		end = len(filtered)
+		end = len(all)
+	}
+	if startIdx > len(all) {
+		startIdx = len(all)
 	}
 
-	page := filtered[startIdx:end]
-	result := make([]OutputLogEvent, len(page))
-	for i, e := range page {
-		result[i] = *e
+	page := all[startIdx:end]
+	result := make([]FilteredLogEvent, len(page))
+	for i, te := range page {
+		result[i] = FilteredLogEvent{
+			EventID:       filteredEventID(p.GroupName, te.stream, te.ev),
+			LogStreamName: te.stream,
+			Message:       te.ev.Message,
+			IngestionTime: te.ev.IngestionTime,
+			Timestamp:     te.ev.Timestamp,
+		}
 	}
 
-	return result, outToken, nil
+	// AWS deprecated searchedLogStreams (it returns an empty list). We mirror
+	// that contract rather than fabricating data clients should not rely on.
+	return result, outToken, []SearchedLogStream{}, nil
+}
+
+// filterStreamsByPrefix returns only the stream names that start with prefix,
+// preserving order.
+func filterStreamsByPrefix(streams []string, prefix string) []string {
+	out := make([]string, 0, len(streams))
+	for _, s := range streams {
+		if strings.HasPrefix(s, prefix) {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// filterTaggedByTime applies the start/end time window to tagged events.
+func filterTaggedByTime(events []taggedEvent, startTime, endTime *int64) []taggedEvent {
+	if startTime == nil && endTime == nil {
+		return events
+	}
+
+	out := make([]taggedEvent, 0, len(events))
+	for _, te := range events {
+		if startTime != nil && te.ev.Timestamp < *startTime {
+			continue
+		}
+		if endTime != nil && te.ev.Timestamp > *endTime {
+			continue
+		}
+		out = append(out, te)
+	}
+
+	return out
+}
+
+// filteredEventID derives a deterministic, opaque event ID for a filtered event.
+// AWS returns a 56-character numeric eventId; we reuse the event's stable byte
+// pointer so the same event always yields the same ID without storing extra state.
+func filteredEventID(groupName, streamName string, ev *OutputLogEvent) string {
+	if ev.Ptr != "" {
+		return ev.Ptr
+	}
+
+	return base64.StdEncoding.EncodeToString(
+		fmt.Appendf(nil, "%s/%s/%d/%d", groupName, streamName, ev.Timestamp, ev.IngestionTime))
 }
 
 // PutSubscriptionFilter creates or updates a subscription filter for a log group.
@@ -1307,7 +1507,11 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 	}
 
 	if _, ok := validDistributions()[distribution]; !ok {
-		return fmt.Errorf("%w: invalid distribution %q, must be Random or ByLogStream", ErrValidation, distribution)
+		return fmt.Errorf(
+			"%w: invalid distribution %q, must be Random or ByLogStream",
+			ErrValidation,
+			distribution,
+		)
 	}
 
 	region := getRegion(ctx, b.region)
@@ -1390,7 +1594,7 @@ func (b *InMemoryBackend) DescribeSubscriptionFilters(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -1399,7 +1603,10 @@ func (b *InMemoryBackend) DescribeSubscriptionFilters(
 }
 
 // DeleteSubscriptionFilter removes a subscription filter from a log group.
-func (b *InMemoryBackend) DeleteSubscriptionFilter(ctx context.Context, groupName, filterName string) error {
+func (b *InMemoryBackend) DeleteSubscriptionFilter(
+	ctx context.Context,
+	groupName, filterName string,
+) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DeleteSubscriptionFilter")
@@ -1425,7 +1632,10 @@ func (b *InMemoryBackend) DeleteSubscriptionFilter(ctx context.Context, groupNam
 
 // matchingFilters returns subscription filters whose pattern matches any of the given events.
 // Must be called with the write lock held (called from PutLogEvents before Unlock).
-func (b *InMemoryBackend) matchingFilters(region, groupName string, events []InputLogEvent) []*SubscriptionFilter {
+func (b *InMemoryBackend) matchingFilters(
+	region, groupName string,
+	events []InputLogEvent,
+) []*SubscriptionFilter {
 	filters := b.subscriptionFiltersStore(region)[groupName]
 	if len(filters) == 0 {
 		return nil
@@ -1453,7 +1663,10 @@ type metricFilterMatch struct {
 // Events outer, filters inner: each event is visited once regardless of filter count,
 // cutting allocations from O(filters×events) repeated scans to a single pass.
 // Must be called while holding the write lock.
-func (b *InMemoryBackend) matchingMetricFilters(region, groupName string, events []InputLogEvent) []metricFilterMatch {
+func (b *InMemoryBackend) matchingMetricFilters(
+	region, groupName string,
+	events []InputLogEvent,
+) []metricFilterMatch {
 	mfMap := b.metricFiltersStore(region)[groupName]
 	if len(mfMap) == 0 {
 		return nil
@@ -1466,7 +1679,10 @@ func (b *InMemoryBackend) matchingMetricFilters(region, groupName string, events
 	}
 	entries := make([]filterEntry, 0, len(mfMap))
 	for _, f := range mfMap {
-		entries = append(entries, filterEntry{filter: f, compiled: b.getCompiledPattern(f.FilterPattern)})
+		entries = append(
+			entries,
+			filterEntry{filter: f, compiled: b.getCompiledPattern(f.FilterPattern)},
+		)
 	}
 
 	counts := make([]int, len(entries))
@@ -1491,7 +1707,10 @@ func (b *InMemoryBackend) matchingMetricFilters(region, groupName string, events
 
 // emitMetricFilterMatches calls the MetricEmitter for each matched metric filter transformation.
 // One data point is emitted per matched event per transformation.
-func (b *InMemoryBackend) emitMetricFilterMatches(emitter MetricEmitter, matches []metricFilterMatch) {
+func (b *InMemoryBackend) emitMetricFilterMatches(
+	emitter MetricEmitter,
+	matches []metricFilterMatch,
+) {
 	for _, m := range matches {
 		for _, t := range m.filter.MetricTransformations {
 			val, parseErr := strconv.ParseFloat(t.MetricValue, 64)
@@ -1606,8 +1825,9 @@ func (b *InMemoryBackend) deliverToFilters(
 		}
 
 		if deliverErr != nil {
-			logger.Load(ctx).WarnContext(ctx, "cloudwatchlogs: failed to deliver log events to subscription filter",
-				"logGroup", groupName, "filterName", f.FilterName, "destination", f.DestinationArn, "error", deliverErr)
+			logger.Load(ctx).
+				WarnContext(ctx, "cloudwatchlogs: failed to deliver log events to subscription filter",
+					"logGroup", groupName, "filterName", f.FilterName, "destination", f.DestinationArn, "error", deliverErr)
 		}
 	}
 }
@@ -1636,9 +1856,26 @@ func encodeSubscriptionPayload(payload subscriptionPayload) ([]byte, error) {
 }
 
 // compiledFilterPattern holds a parsed and pre-compiled filter pattern for efficient
-// repeated matching across many log events (used by FilterLogEvents).
+// repeated matching across many log events (used by FilterLogEvents, subscription
+// filters and metric filters).
+//
+// AWS unstructured (plain-text) filter-pattern semantics (see
+// https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPatternSyntax.html):
+//
+//   - Plain / quoted terms ("required") are AND-ed: every one must be present.
+//   - "-term" (exclude) terms must NOT be present.
+//   - "?term" (optional) terms are OR-ed: a message matches if it contains ANY of
+//     them. AWS documents that when "?" terms are combined with required or exclude
+//     terms, the "?" terms are ignored entirely; we honour that rule, so optional
+//     terms only take effect when there are no required and no exclude terms.
 type compiledFilterPattern struct {
-	terms []compiledTerm
+	// custom, when non-nil, fully determines matching (used for JSON "{...}"
+	// selector patterns and space-delimited "[...]" metric-filter patterns);
+	// the term slices below are then unused.
+	custom   func(message string) bool
+	required []compiledTerm // AND: all must match
+	optional []compiledTerm // OR: any matches (only used when required+exclude empty)
+	exclude  []compiledTerm // NONE may match
 }
 
 // compiledTerm holds a single pre-compiled term from a filter pattern.
@@ -1647,71 +1884,113 @@ type compiledTerm struct {
 	// re is used for wildcard terms.
 	re      *regexp.Regexp
 	exact   string
-	negate  bool
 	isExact bool // true => use exact (strings.Contains); false => use re
+}
+
+// match reports whether the message satisfies this single term.
+func (ct compiledTerm) match(message string) bool {
+	if ct.isExact {
+		return strings.Contains(message, ct.exact)
+	}
+
+	return ct.re.MatchString(message)
+}
+
+// compileTerm compiles a single (prefix-stripped) raw term into a compiledTerm.
+// Quoted terms become exact substrings, terms containing "*" become wildcard
+// regexes, and everything else is a plain substring.
+func compileTerm(t string) compiledTerm {
+	var ct compiledTerm
+
+	switch {
+	case len(t) >= 2 && t[0] == '"' && t[len(t)-1] == '"':
+		ct.isExact = true
+		ct.exact = t[1 : len(t)-1]
+	case strings.ContainsRune(t, '*'):
+		parts := strings.Split(t, "*")
+		escaped := make([]string, len(parts))
+		for i, p := range parts {
+			escaped[i] = regexp.QuoteMeta(p)
+		}
+		re, err := regexp.Compile(strings.Join(escaped, ".*"))
+		if err != nil {
+			// The wildcard expansion produced an invalid regex (this should not
+			// happen in practice because QuoteMeta escapes all special chars).
+			// Fall back to treating the raw term as a plain substring so the
+			// caller still receives a deterministic (if approximate) result.
+			ct.isExact = true
+			ct.exact = t
+		} else {
+			ct.re = re
+		}
+	default:
+		ct.isExact = true
+		ct.exact = t
+	}
+
+	return ct
 }
 
 // compileFilterPattern parses pattern into a compiledFilterPattern for efficient reuse.
 // An empty pattern always matches all messages.
 func compileFilterPattern(pattern string) *compiledFilterPattern {
-	rawTerms := parseFilterPatternTerms(pattern)
-	terms := make([]compiledTerm, 0, len(rawTerms))
-
-	for _, raw := range rawTerms {
-		negate := strings.HasPrefix(raw, "?")
-		t := raw
-		if negate {
-			t = raw[1:]
+	if trimmed := strings.TrimSpace(pattern); trimmed != "" {
+		switch trimmed[0] {
+		case '{':
+			return &compiledFilterPattern{custom: compileJSONFilterPattern(trimmed)}
+		case '[':
+			return &compiledFilterPattern{custom: compileSpaceFilterPattern(trimmed)}
 		}
-
-		var ct compiledTerm
-		ct.negate = negate
-
-		switch {
-		case len(t) >= 2 && t[0] == '"' && t[len(t)-1] == '"':
-			ct.isExact = true
-			ct.exact = t[1 : len(t)-1]
-		case strings.ContainsRune(t, '*'):
-			parts := strings.Split(t, "*")
-			escaped := make([]string, len(parts))
-			for i, p := range parts {
-				escaped[i] = regexp.QuoteMeta(p)
-			}
-			re, err := regexp.Compile(strings.Join(escaped, ".*"))
-			if err != nil {
-				// The wildcard expansion produced an invalid regex (this should not
-				// happen in practice because QuoteMeta escapes all special chars).
-				// Fall back to treating the raw term as a plain substring so the
-				// caller still receives a deterministic (if approximate) result.
-				ct.isExact = true
-				ct.exact = t
-			} else {
-				ct.re = re
-			}
-		default:
-			ct.isExact = true
-			ct.exact = t
-		}
-
-		terms = append(terms, ct)
 	}
 
-	return &compiledFilterPattern{terms: terms}
+	rawTerms := parseFilterPatternTerms(pattern)
+	cp := &compiledFilterPattern{}
+
+	for _, raw := range rawTerms {
+		switch {
+		case strings.HasPrefix(raw, "?") && len(raw) > 1:
+			cp.optional = append(cp.optional, compileTerm(raw[1:]))
+		case strings.HasPrefix(raw, "-") && len(raw) > 1:
+			cp.exclude = append(cp.exclude, compileTerm(raw[1:]))
+		default:
+			cp.required = append(cp.required, compileTerm(raw))
+		}
+	}
+
+	return cp
 }
 
-// matches reports whether the message satisfies all terms in the pattern.
+// matches reports whether the message satisfies the pattern, following AWS
+// unstructured filter-pattern semantics.
 func (p *compiledFilterPattern) matches(message string) bool {
-	for _, ct := range p.terms {
-		var hit bool
-		if ct.isExact {
-			hit = strings.Contains(message, ct.exact)
-		} else {
-			hit = ct.re.MatchString(message)
-		}
+	if p.custom != nil {
+		return p.custom(message)
+	}
 
-		if ct.negate == hit {
+	// Exclude terms: the message must not contain any of them.
+	for _, ct := range p.exclude {
+		if ct.match(message) {
 			return false
 		}
+	}
+
+	// Required terms: all must be present (AND).
+	for _, ct := range p.required {
+		if !ct.match(message) {
+			return false
+		}
+	}
+
+	// Optional ("?") terms only take effect when there are no required and no
+	// exclude terms; AWS ignores "?" terms when combined with other terms.
+	if len(p.optional) > 0 && len(p.required) == 0 && len(p.exclude) == 0 {
+		for _, ct := range p.optional {
+			if ct.match(message) {
+				return true
+			}
+		}
+
+		return false
 	}
 
 	return true
@@ -1719,12 +1998,15 @@ func (p *compiledFilterPattern) matches(message string) bool {
 
 // filterPatternMatches returns true when the CloudWatch Logs filter pattern matches the message.
 //
-// Pattern syntax:
+// Pattern syntax (AWS unstructured / plain-text):
 //   - Empty pattern matches all messages.
-//   - Space-separated terms (AND logic): all terms must match.
-//   - Term prefixed with "?" means NOT (the term must NOT appear).
+//   - Space-separated plain or quoted terms are AND-ed: all must be present.
+//   - A term prefixed with "?" is optional (OR): the message matches if it
+//     contains any "?" term. "?" terms are ignored when combined with plain or
+//     "-" terms (matching AWS behaviour).
+//   - A term prefixed with "-" must NOT appear in the message.
 //   - Quoted terms ("...") require an exact substring match.
-//   - Terms without quotes use substring matching; "*" inside a term is a wildcard.
+//   - "*" inside a term is a wildcard.
 func filterPatternMatches(pattern, message string) bool {
 	return compileFilterPattern(pattern).matches(message)
 }
@@ -1780,11 +2062,7 @@ func filterByTime(events []*OutputLogEvent, startTime, endTime *int64) []*Output
 }
 
 func sortedKeys(m map[string]*LogStream) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }
@@ -1794,7 +2072,10 @@ func sortedKeys(m map[string]*LogStream) []string {
 // returned in sorted order. When streamNames is non-empty, only the requested
 // names that exist in the group are returned, in sorted order, deduplicated.
 // Caller must hold b.mu (read or write).
-func (b *InMemoryBackend) filterStreamOrderLocked(region, groupName string, streamNames []string) []string {
+func (b *InMemoryBackend) filterStreamOrderLocked(
+	region, groupName string,
+	streamNames []string,
+) []string {
 	groupStreams := b.streamsStore(region)[groupName]
 	if len(streamNames) == 0 {
 		return sortedKeys(groupStreams)
@@ -1834,7 +2115,7 @@ func paginateGroups(all []LogGroup, nextToken string, limit int) ([]LogGroup, st
 
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -1856,7 +2137,7 @@ func paginateStreams(all []LogStream, nextToken string, limit int) ([]LogStream,
 
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -1864,9 +2145,21 @@ func paginateStreams(all []LogStream, nextToken string, limit int) ([]LogStream,
 	return all[startIdx:end], outToken
 }
 
+// encodeNextToken returns an opaque base64-encoded pagination cursor for the given slice offset.
+func encodeNextToken(idx int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(idx)))
+}
+
+// parseNextToken decodes a pagination cursor back to a slice offset.
+// Accepts base64-encoded cursors (new format) with graceful fallback to plain decimal
+// strings for backward compatibility.
 func parseNextToken(token string) int {
 	if token == "" {
 		return 0
+	}
+	// Attempt base64 decode first (new format).
+	if decoded, err := base64.StdEncoding.DecodeString(token); err == nil {
+		token = string(decoded)
 	}
 	idx, err := strconv.Atoi(token)
 	if err != nil || idx < 0 {
@@ -1975,39 +2268,88 @@ func (b *InMemoryBackend) getParsedInsightsQuery(queryString string) (*insightsQ
 
 // StartQuery stores a new insights query and executes it immediately against in-memory events.
 // collectQueryEvents scans events in the given log groups within [startTime, endTime].
+// Returns matching events, the total records scanned, and the total bytes scanned.
 // It must be called while holding at least a read lock.
 func (b *InMemoryBackend) collectQueryEvents(
 	region string, logGroupNames []string, startTime, endTime int64,
-) ([]*OutputLogEvent, float64) {
+) ([]*OutputLogEvent, float64, float64) {
 	var eventsOut []*OutputLogEvent
-	var recordsScanned float64
+	var recordsScanned, bytesScanned float64
 
 	groupEvents := b.eventsStore(region)
+	streams := b.streamsStore(region)
 	for _, groupName := range logGroupNames {
 		streamMap, exists := groupEvents[groupName]
 		if !exists {
 			continue
 		}
-		for _, evts := range streamMap {
-			for _, ev := range evts {
-				recordsScanned++
-				if startTime > 0 && ev.Timestamp < startTime {
-					continue
-				}
-				if endTime > 0 && ev.Timestamp > endTime {
-					continue
-				}
-				eventsOut = append(eventsOut, ev)
+		for streamName, evts := range streamMap {
+			// Narrow the scan by log stream: a stream whose [first,last] event
+			// window does not overlap the query's [startTime,endTime] range holds
+			// no matching records, so skip it entirely instead of scanning every
+			// event. This bounds the scan to streams that can contribute results.
+			if streamOutsideWindow(streams[groupName][streamName], startTime, endTime) {
+				continue
 			}
+			matched, records, bytes := scanStreamEvents(evts, startTime, endTime)
+			eventsOut = append(eventsOut, matched...)
+			recordsScanned += records
+			bytesScanned += bytes
 		}
 	}
 
-	return eventsOut, recordsScanned
+	return eventsOut, recordsScanned, bytesScanned
+}
+
+// scanStreamEvents returns the events in one stream that fall within
+// [startTime,endTime], along with the records and bytes scanned. A zero bound is
+// treated as unbounded on that side.
+func scanStreamEvents(
+	evts []*OutputLogEvent, startTime, endTime int64,
+) ([]*OutputLogEvent, float64, float64) {
+	out := make([]*OutputLogEvent, 0, len(evts))
+	var records, bytes float64
+
+	for _, ev := range evts {
+		records++
+		bytes += float64(len(ev.Message))
+		if startTime > 0 && ev.Timestamp < startTime {
+			continue
+		}
+		if endTime > 0 && ev.Timestamp > endTime {
+			continue
+		}
+		out = append(out, ev)
+	}
+
+	return out, records, bytes
+}
+
+// streamOutsideWindow reports whether a stream's event-time range is entirely
+// outside the query window [startTime,endTime]. A zero bound means unbounded on
+// that side. Streams with unknown ranges (nil timestamps) are never skipped.
+func streamOutsideWindow(stream *LogStream, startTime, endTime int64) bool {
+	if stream == nil || stream.FirstEventTimestamp == nil || stream.LastEventTimestamp == nil {
+		return false
+	}
+
+	if startTime > 0 && *stream.LastEventTimestamp < startTime {
+		return true
+	}
+
+	if endTime > 0 && *stream.FirstEventTimestamp > endTime {
+		return true
+	}
+
+	return false
 }
 
 // StartQuery stores a new insights query and executes it immediately against in-memory events.
 func (b *InMemoryBackend) StartQuery(
-	ctx context.Context, queryID, queryString string, logGroupNames []string, startTime, endTime int64,
+	ctx context.Context,
+	queryID, queryString string,
+	logGroupNames []string,
+	startTime, endTime int64,
 ) (*QueryInfo, error) {
 	q, parseErr := b.getParsedInsightsQuery(queryString)
 	if parseErr != nil {
@@ -2018,13 +2360,15 @@ func (b *InMemoryBackend) StartQuery(
 
 	// Collect events under a read lock, then release the lock before running the
 	// query. This prevents regex matching and sorting from holding the lock while
-	// still delivering a consistent snapshot (no writes can interleave the collect
-	// and execute phases — a copy of the slice is taken under the lock).
+	// still delivering a consistent snapshot. collectQueryEvents already returns a
+	// freshly allocated slice of pointers, so no additional copy is needed.
 	b.mu.RLock("StartQuery")
-	allEventsRaw, recordsScanned := b.collectQueryEvents(region, logGroupNames, startTime, endTime)
-	// Take a snapshot copy of the event pointers so we can safely release the lock.
-	allEvents := make([]*OutputLogEvent, len(allEventsRaw))
-	copy(allEvents, allEventsRaw)
+	allEvents, recordsScanned, bytesScanned := b.collectQueryEvents(
+		region,
+		logGroupNames,
+		startTime,
+		endTime,
+	)
 	b.mu.RUnlock()
 
 	// Execute the query outside the lock — regex matching and sorting can be non-trivial.
@@ -2033,7 +2377,7 @@ func (b *InMemoryBackend) StartQuery(
 	stats := QueryStatistics{
 		RecordsScanned: recordsScanned,
 		RecordsMatched: float64(len(results)),
-		BytesScanned:   0,
+		BytesScanned:   bytesScanned,
 	}
 
 	logGroupName := ""
@@ -2044,7 +2388,7 @@ func (b *InMemoryBackend) StartQuery(
 	info := QueryInfo{
 		QueryID:      queryID,
 		QueryString:  queryString,
-		Status:       QueryStatusComplete,
+		Status:       QueryStatusRunning,
 		CreateTime:   time.Now().UnixMilli(),
 		LogGroupName: logGroupName,
 	}
@@ -2082,19 +2426,33 @@ func (b *InMemoryBackend) StartQuery(
 }
 
 // GetQueryResults returns the results of a previously started query.
-func (b *InMemoryBackend) GetQueryResults(queryID string) ([][]ResultField, QueryStatistics, QueryStatus, error) {
+func (b *InMemoryBackend) GetQueryResults(
+	queryID string,
+) ([][]ResultField, QueryStatistics, QueryStatus, error) {
 	b.mu.RLock("GetQueryResults")
-	defer b.mu.RUnlock()
-
 	sq, ok := b.queries[queryID]
+	b.mu.RUnlock()
+
 	if !ok {
-		return nil, QueryStatistics{}, "", fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
+		return nil, QueryStatistics{}, "", fmt.Errorf(
+			"%w: query %s not found",
+			ErrQueryNotFound,
+			queryID,
+		)
 	}
 
-	return sq.results, sq.stats, sq.info.Status, nil
+	b.mu.Lock("GetQueryResultsTransition")
+	if sq.info.Status == QueryStatusRunning {
+		sq.info.Status = QueryStatusComplete
+	}
+	status := sq.info.Status
+	b.mu.Unlock()
+
+	return sq.results, sq.stats, status, nil
 }
 
-// StopQuery marks a query as cancelled. Since execution is synchronous, this is a no-op on results.
+// StopQuery cancels a query that is currently running or scheduled.
+// AWS returns InvalidOperationException when stopping a query that is not in a running state.
 func (b *InMemoryBackend) StopQuery(queryID string) error {
 	b.mu.Lock("StopQuery")
 	defer b.mu.Unlock()
@@ -2104,7 +2462,13 @@ func (b *InMemoryBackend) StopQuery(queryID string) error {
 		return fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
 	}
 
-	sq.info.Status = QueryStatusCancelled
+	// gopherstack completes Insights queries synchronously, so a query is almost
+	// always already Complete by the time a client calls StopQuery. Treat StopQuery
+	// as a transition to Cancelled for any non-cancelled query (idempotent otherwise),
+	// keeping the operation usable rather than erroring on the instant-complete result.
+	if sq.info.Status != QueryStatusCancelled {
+		sq.info.Status = QueryStatusCancelled
+	}
 
 	return nil
 }
@@ -2146,7 +2510,7 @@ func (b *InMemoryBackend) DescribeQueries(
 	end := startIdx + maxResults
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -2172,7 +2536,9 @@ func (b *InMemoryBackend) Reset() {
 	b.importTasks = make(map[string]*ImportTask)
 	b.deliveries = make(map[string]*Delivery)
 	b.logAnomalyDetectors = make(map[string]*LogAnomalyDetector)
+	b.anomalies = make(map[string]map[string]*Anomaly)
 	b.scheduledQueries = make(map[string]*ScheduledQuery)
+	b.scheduledQueryRuns = make(map[string][]*ScheduledQueryRunSummary)
 	b.accountPolicies = make(map[string]*AccountPolicy)
 	b.kmsKeys = make(map[string]string)
 	b.s3TableIntegrations = make(map[string]string)
@@ -2240,7 +2606,10 @@ func (b *InMemoryBackend) AssociateKmsKey(logGroupName, resourceIdentifier, kmsK
 	}
 
 	if logGroupName == "" && resourceIdentifier == "" {
-		return fmt.Errorf("%w: one of logGroupName or resourceIdentifier is required", ErrValidation)
+		return fmt.Errorf(
+			"%w: one of logGroupName or resourceIdentifier is required",
+			ErrValidation,
+		)
 	}
 
 	b.mu.Lock("AssociateKmsKey")
@@ -2368,9 +2737,12 @@ func (b *InMemoryBackend) CreateDelivery(
 }
 
 // CreateExportTask creates an export task to export log data to S3.
-// Returns the task ID.
+// Returns the task ID. When an S3 export sink is configured (see SetExportSink),
+// the matching log events are written to the destination bucket as gzipped
+// objects using the AWS key layout and the task completes synchronously;
+// otherwise the task starts PENDING and advances by janitor age.
 func (b *InMemoryBackend) CreateExportTask(
-	taskName, logGroupName, _, destination, destinationPrefix string,
+	taskName, logGroupName, logStreamNamePrefix, destination, destinationPrefix string,
 	from, to int64,
 ) (string, error) {
 	if logGroupName == "" {
@@ -2385,34 +2757,67 @@ func (b *InMemoryBackend) CreateExportTask(
 		return "", fmt.Errorf("%w: from (%d) must be less than to (%d)", ErrValidation, from, to)
 	}
 
-	taskID := uuid.New().String()
-
 	task := &ExportTask{
-		TaskID:            taskID,
-		TaskName:          taskName,
-		LogGroupName:      logGroupName,
-		Destination:       destination,
-		DestinationPrefix: destinationPrefix,
-		From:              from,
-		To:                to,
-		Status:            exportStatusPending,
-		CreationTime:      time.Now().UnixMilli(),
+		TaskID:              uuid.New().String(),
+		TaskName:            taskName,
+		LogGroupName:        logGroupName,
+		LogStreamNamePrefix: logStreamNamePrefix,
+		Destination:         destination,
+		DestinationPrefix:   destinationPrefix,
+		StatusMessage:       "",
+		From:                from,
+		To:                  to,
+		Status:              exportStatusPending,
+		CreationTime:        time.Now().UnixMilli(),
+		CompletionTime:      0,
 	}
 
 	b.mu.Lock("CreateExportTask")
-	defer b.mu.Unlock()
-
 	if len(b.exportTasks) >= maxExportTasks {
+		b.mu.Unlock()
+
 		return "", fmt.Errorf("%w: export task limit exceeded", ErrValidation)
 	}
 
-	b.exportTasks[taskID] = task
+	b.exportTasks[task.TaskID] = task
+	sink := b.exportSink
+	b.mu.Unlock()
 
-	return taskID, nil
+	if sink != nil {
+		b.finishExport(task)
+	}
+
+	return task.TaskID, nil
+}
+
+// finishExport materialises the export to S3 and records the terminal status.
+func (b *InMemoryBackend) finishExport(task *ExportTask) {
+	count, err := b.runExport(b.ctx, task)
+
+	b.mu.Lock("finishExport")
+	defer b.mu.Unlock()
+
+	stored, ok := b.exportTasks[task.TaskID]
+	if !ok {
+		return
+	}
+
+	stored.CompletionTime = time.Now().UnixMilli()
+	if err != nil {
+		stored.Status = exportStatusFailed
+		stored.StatusMessage = err.Error()
+
+		return
+	}
+
+	stored.Status = exportStatusCompleted
+	stored.StatusMessage = fmt.Sprintf("Completed successfully. Exported %d log events.", count)
 }
 
 // CreateImportTask creates an import task from a CloudTrail Lake event data store.
-func (b *InMemoryBackend) CreateImportTask(importRoleArn, importSourceArn string) (*ImportTask, error) {
+func (b *InMemoryBackend) CreateImportTask(
+	importRoleArn, importSourceArn string,
+) (*ImportTask, error) {
 	if importRoleArn == "" {
 		return nil, fmt.Errorf("%w: importRoleArn is required", ErrValidation)
 	}
@@ -2462,14 +2867,19 @@ func (b *InMemoryBackend) CreateLogAnomalyDetector(
 
 	if evaluationFrequency != "" {
 		if _, ok := validEvaluationFrequencies()[evaluationFrequency]; !ok {
-			return "", fmt.Errorf("%w: invalid evaluationFrequency %q", ErrValidation, evaluationFrequency)
+			return "", fmt.Errorf(
+				"%w: invalid evaluationFrequency %q",
+				ErrValidation,
+				evaluationFrequency,
+			)
 		}
 	}
 
 	if anomalyVisibilityTime != 0 {
 		const msPerDay = 24 * 60 * 60 * 1000
 		visibilityDays := anomalyVisibilityTime / msPerDay
-		if visibilityDays < anomalyVisibilityTimeMinDays || visibilityDays > anomalyVisibilityTimeMaxDays {
+		if visibilityDays < anomalyVisibilityTimeMinDays ||
+			visibilityDays > anomalyVisibilityTimeMaxDays {
 			return "", fmt.Errorf(
 				"%w: anomalyVisibilityTime must be between %d and %d days",
 				ErrValidation, anomalyVisibilityTimeMinDays, anomalyVisibilityTimeMaxDays,
@@ -2521,7 +2931,11 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 
 	if state != "" {
 		if _, ok := validScheduledQueryStates()[state]; !ok {
-			return "", fmt.Errorf("%w: invalid state %q, must be ENABLED or DISABLED", ErrValidation, state)
+			return "", fmt.Errorf(
+				"%w: invalid state %q, must be ENABLED or DISABLED",
+				ErrValidation,
+				state,
+			)
 		}
 	} else {
 		state = statusEnabled
@@ -2547,6 +2961,17 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	}
 
 	b.scheduledQueries[queryARN] = sq
+
+	// Seed an initial SUCCEEDED run so history is non-empty from creation.
+	now := time.Now().UnixMilli()
+	b.scheduledQueryRuns[queryARN] = []*ScheduledQueryRunSummary{
+		{
+			Arn:            queryARN,
+			RunStatus:      "SUCCEEDED",
+			ExecutionTime:  now,
+			InvocationTime: now,
+		},
+	}
 
 	return queryARN, nil
 }
@@ -2620,7 +3045,7 @@ func (b *InMemoryBackend) DescribeExportTasks(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -2656,7 +3081,7 @@ func (b *InMemoryBackend) DescribeImportTasks(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -2665,7 +3090,10 @@ func (b *InMemoryBackend) DescribeImportTasks(
 }
 
 // DescribeDeliveries lists deliveries with pagination.
-func (b *InMemoryBackend) DescribeDeliveries(limit int, nextToken string) ([]Delivery, string, error) {
+func (b *InMemoryBackend) DescribeDeliveries(
+	limit int,
+	nextToken string,
+) ([]Delivery, string, error) {
 	b.mu.RLock("DescribeDeliveries")
 	defer b.mu.RUnlock()
 
@@ -2687,7 +3115,7 @@ func (b *InMemoryBackend) DescribeDeliveries(limit int, nextToken string) ([]Del
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -2741,7 +3169,11 @@ func (b *InMemoryBackend) DeleteLogAnomalyDetector(detectorArn string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.logAnomalyDetectors[detectorArn]; !ok {
-		return fmt.Errorf("%w: anomaly detector %s not found", ErrLogAnomalyDetectorNotFound, detectorArn)
+		return fmt.Errorf(
+			"%w: anomaly detector %s not found",
+			ErrLogAnomalyDetectorNotFound,
+			detectorArn,
+		)
 	}
 	delete(b.logAnomalyDetectors, detectorArn)
 
@@ -2781,7 +3213,10 @@ func (b *InMemoryBackend) ListLogAnomalyDetectors(
 		cp.LogGroupArnList = slices.Clone(d.LogGroupArnList)
 		all = append(all, cp)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].CreationTimeStamp < all[j].CreationTimeStamp })
+	sort.Slice(
+		all,
+		func(i, j int) bool { return all[i].CreationTimeStamp < all[j].CreationTimeStamp },
+	)
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
@@ -2793,7 +3228,7 @@ func (b *InMemoryBackend) ListLogAnomalyDetectors(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -2811,7 +3246,11 @@ func (b *InMemoryBackend) UpdateLogAnomalyDetector(
 	}
 	if evaluationFrequency != "" {
 		if _, ok := validEvaluationFrequencies()[evaluationFrequency]; !ok {
-			return fmt.Errorf("%w: invalid evaluationFrequency %q", ErrValidation, evaluationFrequency)
+			return fmt.Errorf(
+				"%w: invalid evaluationFrequency %q",
+				ErrValidation,
+				evaluationFrequency,
+			)
 		}
 	}
 
@@ -2820,7 +3259,11 @@ func (b *InMemoryBackend) UpdateLogAnomalyDetector(
 
 	d, ok := b.logAnomalyDetectors[detectorArn]
 	if !ok {
-		return fmt.Errorf("%w: anomaly detector %s not found", ErrLogAnomalyDetectorNotFound, detectorArn)
+		return fmt.Errorf(
+			"%w: anomaly detector %s not found",
+			ErrLogAnomalyDetectorNotFound,
+			detectorArn,
+		)
 	}
 	if evaluationFrequency != "" {
 		d.EvaluationFrequency = evaluationFrequency
@@ -2829,7 +3272,8 @@ func (b *InMemoryBackend) UpdateLogAnomalyDetector(
 		if anomalyVisibilityTime != 0 {
 			const msPerDay = 24 * 60 * 60 * 1000
 			visibilityDays := anomalyVisibilityTime / msPerDay
-			if visibilityDays < anomalyVisibilityTimeMinDays || visibilityDays > anomalyVisibilityTimeMaxDays {
+			if visibilityDays < anomalyVisibilityTimeMinDays ||
+				visibilityDays > anomalyVisibilityTimeMaxDays {
 				return fmt.Errorf(
 					"%w: anomalyVisibilityTime must be between %d and %d days",
 					ErrValidation, anomalyVisibilityTimeMinDays, anomalyVisibilityTimeMaxDays,
@@ -2853,7 +3297,11 @@ func (b *InMemoryBackend) DeleteScheduledQuery(scheduledQueryArn string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.scheduledQueries[scheduledQueryArn]; !ok {
-		return fmt.Errorf("%w: scheduled query %s not found", ErrScheduledQueryNotFound, scheduledQueryArn)
+		return fmt.Errorf(
+			"%w: scheduled query %s not found",
+			ErrScheduledQueryNotFound,
+			scheduledQueryArn,
+		)
 	}
 	delete(b.scheduledQueries, scheduledQueryArn)
 
@@ -2861,7 +3309,10 @@ func (b *InMemoryBackend) DeleteScheduledQuery(scheduledQueryArn string) error {
 }
 
 // ListScheduledQueries lists all scheduled queries with pagination.
-func (b *InMemoryBackend) ListScheduledQueries(limit int, nextToken string) ([]ScheduledQuery, string, error) {
+func (b *InMemoryBackend) ListScheduledQueries(
+	limit int,
+	nextToken string,
+) ([]ScheduledQuery, string, error) {
 	b.mu.RLock("ListScheduledQueries")
 	defer b.mu.RUnlock()
 
@@ -2881,7 +3332,7 @@ func (b *InMemoryBackend) ListScheduledQueries(limit int, nextToken string) ([]S
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -2906,7 +3357,11 @@ func (b *InMemoryBackend) UpdateScheduledQuery(scheduledQueryArn, state string) 
 
 	sq, ok := b.scheduledQueries[scheduledQueryArn]
 	if !ok {
-		return fmt.Errorf("%w: scheduled query %s not found", ErrScheduledQueryNotFound, scheduledQueryArn)
+		return fmt.Errorf(
+			"%w: scheduled query %s not found",
+			ErrScheduledQueryNotFound,
+			scheduledQueryArn,
+		)
 	}
 	sq.State = state
 
@@ -2931,10 +3386,17 @@ func (b *InMemoryBackend) PutAccountPolicy(
 		scope = "ALL"
 	}
 	if _, ok := validAccountPolicyScopes()[scope]; !ok {
-		return nil, fmt.Errorf("%w: invalid scope %q, must be ALL or SELECTION_CRITERIA", ErrValidation, scope)
+		return nil, fmt.Errorf(
+			"%w: invalid scope %q, must be ALL or SELECTION_CRITERIA",
+			ErrValidation,
+			scope,
+		)
 	}
 	if scope == "SELECTION_CRITERIA" && selectionCriteria == "" {
-		return nil, fmt.Errorf("%w: selectionCriteria is required when scope is SELECTION_CRITERIA", ErrValidation)
+		return nil, fmt.Errorf(
+			"%w: selectionCriteria is required when scope is SELECTION_CRITERIA",
+			ErrValidation,
+		)
 	}
 
 	b.mu.Lock("PutAccountPolicy")
@@ -2994,7 +3456,7 @@ func (b *InMemoryBackend) DescribeAccountPolicies(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3005,7 +3467,10 @@ func (b *InMemoryBackend) DescribeAccountPolicies(
 // DisassociateKmsKey removes the KMS key association from a log group or resource.
 func (b *InMemoryBackend) DisassociateKmsKey(logGroupName, resourceIdentifier string) error {
 	if logGroupName == "" && resourceIdentifier == "" {
-		return fmt.Errorf("%w: one of logGroupName or resourceIdentifier is required", ErrValidation)
+		return fmt.Errorf(
+			"%w: one of logGroupName or resourceIdentifier is required",
+			ErrValidation,
+		)
 	}
 
 	b.mu.Lock("DisassociateKmsKey")
@@ -3065,7 +3530,9 @@ func (b *InMemoryBackend) PutMetricFilter(
 	}
 	metricFilters[logGroupName][filterName] = mf
 	count := len(metricFilters[logGroupName])
-	groups[logGroupName].MetricFilterCount = int32(count) // #nosec G115 -- count bounded by AWS API limit
+	groups[logGroupName].MetricFilterCount = int32(
+		count,
+	) // #nosec G115 -- count bounded by AWS API limit
 
 	return nil
 }
@@ -3091,7 +3558,9 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 				continue
 			}
 			cp := *mf
-			cp.MetricTransformations = append([]MetricTransformation(nil), mf.MetricTransformations...)
+			cp.MetricTransformations = append(
+				[]MetricTransformation(nil),
+				mf.MetricTransformations...)
 			all = append(all, cp)
 		}
 	}
@@ -3113,7 +3582,7 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3122,7 +3591,10 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 }
 
 // metricFilterMatches returns true if mf passes the given filter criteria.
-func metricFilterMatches(mf *MetricFilter, filterNamePrefix, metricName, metricNamespace string) bool {
+func metricFilterMatches(
+	mf *MetricFilter,
+	filterNamePrefix, metricName, metricNamespace string,
+) bool {
 	if filterNamePrefix != "" && !strings.HasPrefix(mf.FilterName, filterNamePrefix) {
 		return false
 	}
@@ -3140,7 +3612,10 @@ func metricFilterMatches(mf *MetricFilter, filterNamePrefix, metricName, metricN
 }
 
 // DeleteMetricFilter deletes a metric filter from a log group.
-func (b *InMemoryBackend) DeleteMetricFilter(ctx context.Context, logGroupName, filterName string) error {
+func (b *InMemoryBackend) DeleteMetricFilter(
+	ctx context.Context,
+	logGroupName, filterName string,
+) error {
 	if logGroupName == "" {
 		return fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -3173,7 +3648,9 @@ func (b *InMemoryBackend) DeleteMetricFilter(ctx context.Context, logGroupName, 
 		delete(metricFilters, logGroupName)
 	}
 	count := len(metricFilters[logGroupName])
-	groups[logGroupName].MetricFilterCount = int32(count) // #nosec G115 -- count bounded by AWS API limit
+	groups[logGroupName].MetricFilterCount = int32(
+		count,
+	) // #nosec G115 -- count bounded by AWS API limit
 
 	return nil
 }
@@ -3256,7 +3733,8 @@ func (b *InMemoryBackend) DescribeQueryDefinitions(
 
 	all := make([]QueryDefinition, 0, len(b.queryDefinitions))
 	for _, qd := range b.queryDefinitions {
-		if queryDefinitionNamePrefix != "" && !strings.HasPrefix(qd.Name, queryDefinitionNamePrefix) {
+		if queryDefinitionNamePrefix != "" &&
+			!strings.HasPrefix(qd.Name, queryDefinitionNamePrefix) {
 			continue
 		}
 		cp := *qd
@@ -3275,7 +3753,7 @@ func (b *InMemoryBackend) DescribeQueryDefinitions(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3293,7 +3771,11 @@ func (b *InMemoryBackend) DeleteQueryDefinition(queryDefinitionID string) error 
 	defer b.mu.Unlock()
 
 	if _, ok := b.queryDefinitions[queryDefinitionID]; !ok {
-		return fmt.Errorf("%w: query definition %s not found", ErrQueryDefinitionNotFound, queryDefinitionID)
+		return fmt.Errorf(
+			"%w: query definition %s not found",
+			ErrQueryDefinitionNotFound,
+			queryDefinitionID,
+		)
 	}
 	delete(b.queryDefinitions, queryDefinitionID)
 
@@ -3342,6 +3824,43 @@ func (b *InMemoryBackend) AddLogAnomalyDetectorInternal(detector LogAnomalyDetec
 	b.logAnomalyDetectors[detector.AnomalyDetectorArn] = &d
 }
 
+// AddAnomalyInternal seeds an Anomaly directly into the store for testing.
+// The anomaly is stored under its AnomalyDetectorArn.
+func (b *InMemoryBackend) AddAnomalyInternal(anomaly Anomaly) {
+	b.mu.Lock("AddAnomalyInternal")
+	defer b.mu.Unlock()
+
+	if b.anomalies[anomaly.AnomalyDetectorArn] == nil {
+		b.anomalies[anomaly.AnomalyDetectorArn] = make(map[string]*Anomaly)
+	}
+
+	a := anomaly
+	b.anomalies[anomaly.AnomalyDetectorArn][anomaly.AnomalyID] = &a
+}
+
+// AddScheduledQueryRunInternal seeds a ScheduledQueryRunSummary for testing.
+func (b *InMemoryBackend) AddScheduledQueryRunInternal(
+	scheduledQueryArn string,
+	run ScheduledQueryRunSummary,
+) {
+	b.mu.Lock("AddScheduledQueryRunInternal")
+	defer b.mu.Unlock()
+
+	r := run
+	b.scheduledQueryRuns[scheduledQueryArn] = append(b.scheduledQueryRuns[scheduledQueryArn], &r)
+}
+
+// SetQueryStatusInternal sets the status of an existing query for testing.
+// Used to place a query into Running or Scheduled state before calling StopQuery.
+func (b *InMemoryBackend) SetQueryStatusInternal(queryID string, status QueryStatus) {
+	b.mu.Lock("SetQueryStatusInternal")
+	defer b.mu.Unlock()
+
+	if sq, ok := b.queries[queryID]; ok {
+		sq.info.Status = status
+	}
+}
+
 // validLogGroupName returns true if name matches the AWS CloudWatch Logs allowed character set.
 // Pattern: [.\\-_/#A-Za-z0-9]+, length 1-512.
 func validLogGroupName(name string) bool {
@@ -3381,7 +3900,11 @@ func (b *InMemoryBackend) GetLogAnomalyDetector(detectorArn string) (*LogAnomaly
 
 	d, ok := b.logAnomalyDetectors[detectorArn]
 	if !ok {
-		return nil, fmt.Errorf("%w: anomaly detector %s not found", ErrLogAnomalyDetectorNotFound, detectorArn)
+		return nil, fmt.Errorf(
+			"%w: anomaly detector %s not found",
+			ErrLogAnomalyDetectorNotFound,
+			detectorArn,
+		)
 	}
 	cp := *d
 	cp.LogGroupArnList = slices.Clone(d.LogGroupArnList)
@@ -3400,7 +3923,11 @@ func (b *InMemoryBackend) GetScheduledQuery(scheduledQueryArn string) (*Schedule
 
 	sq, ok := b.scheduledQueries[scheduledQueryArn]
 	if !ok {
-		return nil, fmt.Errorf("%w: scheduled query %s not found", ErrScheduledQueryNotFound, scheduledQueryArn)
+		return nil, fmt.Errorf(
+			"%w: scheduled query %s not found",
+			ErrScheduledQueryNotFound,
+			scheduledQueryArn,
+		)
 	}
 	cp := *sq
 
@@ -3416,11 +3943,14 @@ func standardLogGroupFields() []LogGroupField {
 		{Name: keyMessageField, Percent: pct},
 		{Name: keyTimestamp, Percent: pct},
 		{Name: keyIngestionTime, Percent: pct},
-		{Name: "@logStream", Percent: pct},
+		{Name: keyLogStream, Percent: pct},
 	}
 }
 
-func (b *InMemoryBackend) GetLogGroupFields(ctx context.Context, logGroupName string) ([]LogGroupField, error) {
+func (b *InMemoryBackend) GetLogGroupFields(
+	ctx context.Context,
+	logGroupName string,
+) ([]LogGroupField, error) {
 	if logGroupName == "" {
 		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -3439,7 +3969,10 @@ func (b *InMemoryBackend) GetLogGroupFields(ctx context.Context, logGroupName st
 
 // GetLogRecord returns a single log event by its log record pointer.
 // The pointer is the base64-encoded "<groupName>/<streamName>/<index>" string.
-func (b *InMemoryBackend) GetLogRecord(ctx context.Context, logRecordPointer string) (map[string]string, error) {
+func (b *InMemoryBackend) GetLogRecord(
+	ctx context.Context,
+	logRecordPointer string,
+) (map[string]string, error) {
 	if logRecordPointer == "" {
 		return nil, fmt.Errorf("%w: logRecordPointer is required", ErrValidation)
 	}
@@ -3485,7 +4018,7 @@ func (b *InMemoryBackend) GetLogRecord(ctx context.Context, logRecordPointer str
 		keyMessageField:  ev.Message,
 		keyTimestamp:     strconv.FormatInt(ev.Timestamp, 10),
 		keyIngestionTime: strconv.FormatInt(ev.IngestionTime, 10),
-		"@logStream":     streamName,
+		keyLogStream:     streamName,
 		"@logGroup":      groupName,
 	}
 
@@ -3493,13 +4026,16 @@ func (b *InMemoryBackend) GetLogRecord(ctx context.Context, logRecordPointer str
 }
 
 // ListAnomalies lists anomalies for the given anomaly detector ARN with pagination.
-// Since this mock does not generate real anomalies, it returns an empty list.
-func (b *InMemoryBackend) ListAnomalies(anomalyDetectorArn string, _ int, _ string) ([]Anomaly, string, error) {
+func (b *InMemoryBackend) ListAnomalies(
+	anomalyDetectorArn string,
+	limit int,
+	nextToken string,
+) ([]Anomaly, string, error) {
+	b.mu.RLock("ListAnomalies")
+	defer b.mu.RUnlock()
+
 	if anomalyDetectorArn != "" {
-		b.mu.RLock("ListAnomalies")
-		_, ok := b.logAnomalyDetectors[anomalyDetectorArn]
-		b.mu.RUnlock()
-		if !ok {
+		if _, ok := b.logAnomalyDetectors[anomalyDetectorArn]; !ok {
 			return nil, "", fmt.Errorf(
 				"%w: anomaly detector %s not found",
 				ErrLogAnomalyDetectorNotFound,
@@ -3508,7 +4044,39 @@ func (b *InMemoryBackend) ListAnomalies(anomalyDetectorArn string, _ int, _ stri
 		}
 	}
 
-	return []Anomaly{}, "", nil
+	var all []Anomaly
+	if anomalyDetectorArn != "" {
+		for _, a := range b.anomalies[anomalyDetectorArn] {
+			all = append(all, *a)
+		}
+	} else {
+		for _, detectorAnomalies := range b.anomalies {
+			for _, a := range detectorAnomalies {
+				all = append(all, *a)
+			}
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].FirstSeen < all[j].FirstSeen })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []Anomaly{}, "", nil
+	}
+
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = encodeNextToken(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
 }
 
 // ListLogGroupsForQuery returns the log group names that were used in a specific query.
@@ -3532,11 +4100,10 @@ func (b *InMemoryBackend) ListLogGroupsForQuery(queryID string) ([]string, error
 }
 
 // GetScheduledQueryHistory returns the execution history for a scheduled query.
-// Since this is a mock, it returns an empty list.
 func (b *InMemoryBackend) GetScheduledQueryHistory(
 	scheduledQueryArn string,
-	_ string,
-	_ int,
+	nextToken string,
+	maxResults int,
 ) ([]ScheduledQueryRunSummary, string, error) {
 	if scheduledQueryArn == "" {
 		return nil, "", fmt.Errorf("%w: scheduledQueryArn is required", ErrValidation)
@@ -3546,24 +4113,89 @@ func (b *InMemoryBackend) GetScheduledQueryHistory(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.scheduledQueries[scheduledQueryArn]; !ok {
-		return nil, "", fmt.Errorf("%w: scheduled query %s not found", ErrScheduledQueryNotFound, scheduledQueryArn)
+		return nil, "", fmt.Errorf(
+			"%w: scheduled query %s not found",
+			ErrScheduledQueryNotFound,
+			scheduledQueryArn,
+		)
 	}
 
-	return []ScheduledQueryRunSummary{}, "", nil
+	runs := b.scheduledQueryRuns[scheduledQueryArn]
+	all := make([]ScheduledQueryRunSummary, 0, len(runs))
+	for _, r := range runs {
+		all = append(all, *r)
+	}
+	// Most recent invocations first.
+	sort.Slice(all, func(i, j int) bool { return all[i].InvocationTime > all[j].InvocationTime })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []ScheduledQueryRunSummary{}, "", nil
+	}
+
+	if maxResults <= 0 {
+		maxResults = defaultDescribeLimit
+	}
+
+	end := startIdx + maxResults
+	var outToken string
+	if end < len(all) {
+		outToken = encodeNextToken(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
 }
 
-// UpdateAnomaly updates anomaly suppression settings.
-// Validates that the anomaly detector exists; no actual anomaly data is stored.
-func (b *InMemoryBackend) UpdateAnomaly(_, anomalyDetectorArn string, _ string) error {
+// UpdateAnomaly updates the suppression state of a stored anomaly.
+func (b *InMemoryBackend) UpdateAnomaly(
+	anomalyID, anomalyDetectorArn, suppressionType string,
+) error {
 	if anomalyDetectorArn == "" {
 		return fmt.Errorf("%w: anomalyDetectorArn is required", ErrValidation)
 	}
 
-	b.mu.RLock("UpdateAnomaly")
-	defer b.mu.RUnlock()
+	if anomalyID == "" {
+		return fmt.Errorf("%w: anomalyId is required", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateAnomaly")
+	defer b.mu.Unlock()
 
 	if _, ok := b.logAnomalyDetectors[anomalyDetectorArn]; !ok {
-		return fmt.Errorf("%w: anomaly detector %s not found", ErrLogAnomalyDetectorNotFound, anomalyDetectorArn)
+		return fmt.Errorf(
+			"%w: anomaly detector %s not found",
+			ErrLogAnomalyDetectorNotFound,
+			anomalyDetectorArn,
+		)
+	}
+
+	detectorAnomalies, ok := b.anomalies[anomalyDetectorArn]
+	if !ok {
+		return fmt.Errorf(
+			"%w: anomaly %s not found in detector %s",
+			ErrLogAnomalyDetectorNotFound,
+			anomalyID,
+			anomalyDetectorArn,
+		)
+	}
+
+	anomaly, ok := detectorAnomalies[anomalyID]
+	if !ok {
+		return fmt.Errorf(
+			"%w: anomaly %s not found in detector %s",
+			ErrLogAnomalyDetectorNotFound,
+			anomalyID,
+			anomalyDetectorArn,
+		)
+	}
+
+	anomaly.SuppressedState = suppressionType
+	if suppressionType == "NO_SUPPRESSION" {
+		anomaly.SuppressedDate = 0
+	} else {
+		anomaly.SuppressedDate = time.Now().UnixMilli()
 	}
 
 	return nil

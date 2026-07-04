@@ -893,11 +893,11 @@ func TestBackend_SnapshotRestoreNewFields(t *testing.T) {
 		{EmailAddress: "sec@example.com"},
 	}))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := shield.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	access := b2.DescribeDRTAccess()
 	assert.Equal(t, "arn:aws:iam::123:role/DRTRole", access.RoleArn)

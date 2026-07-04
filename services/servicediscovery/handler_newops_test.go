@@ -206,7 +206,7 @@ func TestHandler_UpdateService(t *testing.T) {
 		wantKey  string
 		wantCode int
 	}{
-		{name: "success", wantCode: http.StatusOK, wantKey: "Service"},
+		{name: "success", wantCode: http.StatusOK, wantKey: "OperationId"},
 		{name: "missing_id", wantCode: http.StatusBadRequest},
 		{name: "not_found", wantCode: http.StatusBadRequest},
 		{name: "invalid_json", wantCode: http.StatusBadRequest},
@@ -664,11 +664,11 @@ func TestHandler_NewOps_PersistenceRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, healthRec.Code)
 
 	// Snapshot and restore.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify service attributes restored.
 	getRec := doSDRequest(t, h2, "GetServiceAttributes", map[string]any{"ServiceId": svcID})

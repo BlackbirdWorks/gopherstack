@@ -1479,11 +1479,11 @@ func TestBackend_Snapshot_And_Restore(t *testing.T) {
 			b := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
 			tt.setup(b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			acls := b2.ListWebACLs(context.Background())
 			sets := b2.ListIPSets(context.Background())
@@ -1501,11 +1501,11 @@ func TestHandler_Snapshot_And_Restore(t *testing.T) {
 	_, err := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	acls := h2.Backend.ListWebACLs(context.Background())
 	require.Len(t, acls, 1)
@@ -1516,7 +1516,7 @@ func TestBackend_Restore_InvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -2183,11 +2183,11 @@ func TestBackend_Snapshot_WithNewResources(t *testing.T) {
 	_, err = b.CreateAPIKey(context.Background(), "REGIONAL", []string{"example.com"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify regex pattern sets are restored (via delete which requires lookup).
 	rps2, err := b.CreateRegexPatternSet(context.Background(), "another-regex", "REGIONAL", "", nil, nil)

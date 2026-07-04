@@ -1220,10 +1220,10 @@ func TestUpdateShardCount(t *testing.T) {
 	}{
 		{
 			name:             "scale_up",
-			initialShards:    1,
+			initialShards:    2,
 			targetShards:     4,
 			wantCode:         http.StatusOK,
-			wantCurrentCount: 1,
+			wantCurrentCount: 2,
 			wantTargetCount:  4,
 		},
 		{

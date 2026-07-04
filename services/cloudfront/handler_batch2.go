@@ -281,7 +281,7 @@ func (h *Handler) handleDisassociateDistributionWebACL(c *echo.Context, distID s
 		return h.handleError(c, disErr)
 	}
 
-	return xmlResp(c, http.StatusOK, distributionResponseXML(d))
+	return xmlResp(c, http.StatusOK, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 func (h *Handler) handleDisassociateDistributionTenantWebACL(c *echo.Context, tenantID string) error {
@@ -348,7 +348,7 @@ func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {
 	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+d.ID)
 	c.Response().Header().Set("ETag", d.ETag)
 
-	return xmlResp(c, http.StatusCreated, distributionResponseXML(d))
+	return xmlResp(c, http.StatusCreated, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 // ---------------------------------------------------------------------------
@@ -388,7 +388,7 @@ func (h *Handler) handleUpdateDistributionWithStagingConfig(c *echo.Context, pri
 
 	c.Response().Header().Set("ETag", d.ETag)
 
-	return xmlResp(c, http.StatusOK, distributionResponseXML(d))
+	return xmlResp(c, http.StatusOK, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
 
 // ---------------------------------------------------------------------------
@@ -540,13 +540,23 @@ func (h *Handler) handleCreateInvalidationForTenant(c *echo.Context, tenantID st
 		return h.handleError(c, backendErr)
 	}
 
+	var pathsSB strings.Builder
+	for _, p := range inv.Paths {
+		fmt.Fprintf(&pathsSB, "<Path>%s</Path>", p)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<Invalidation xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<Status>%s</Status>`+
 		`<CreateTime>%s</CreateTime>`+
+		`<InvalidationBatch>`+
+		`<CallerReference>%s</CallerReference>`+
+		`<Paths><Quantity>%d</Quantity><Items>%s</Items></Paths>`+
+		`</InvalidationBatch>`+
 		`</Invalidation>`,
-		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339))
+		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339),
+		batch.CallerReference, len(inv.Paths), pathsSB.String())
 
 	c.Response().Header().Set(
 		"Location",
@@ -768,6 +778,17 @@ func (h *Handler) handleUpdateKeyValueStore(c *echo.Context, id string) error {
 	var req keyValueStoreRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
+	}
+
+	current, getErr := h.Backend.GetKeyValueStore(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current KeyValueStore ETag"))
 	}
 
 	kvs, updateErr := h.Backend.UpdateKeyValueStore(id, req.Comment)

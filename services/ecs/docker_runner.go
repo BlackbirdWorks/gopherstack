@@ -23,7 +23,11 @@ import (
 // dockerClient is the subset of the Docker API used by realDockerRunner.
 // It is defined as an interface to allow injection of fakes in tests.
 type dockerClient interface {
-	ImagePull(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error)
+	ImagePull(
+		ctx context.Context,
+		refStr string,
+		options dockerimage.PullOptions,
+	) (io.ReadCloser, error)
 	ContainerCreate(
 		ctx context.Context,
 		config *dockertypes.Config,
@@ -34,36 +38,45 @@ type dockerClient interface {
 	) (dockertypes.CreateResponse, error)
 	ContainerStart(ctx context.Context, containerID string, options dockertypes.StartOptions) error
 	ContainerStop(ctx context.Context, containerID string, options dockertypes.StopOptions) error
-	ContainerRemove(ctx context.Context, containerID string, options dockertypes.RemoveOptions) error
+	ContainerRemove(
+		ctx context.Context,
+		containerID string,
+		options dockertypes.RemoveOptions,
+	) error
 }
 
 // NewDockerRunner creates a TaskRunner backed by the local Docker daemon.
 // It uses the standard DOCKER_HOST / DOCKER_TLS_VERIFY environment variables
 // via client.FromEnv, so it works both locally and inside docker-in-docker.
-func NewDockerRunner() (TaskRunner, error) {
+func NewDockerRunner(ctx context.Context) (TaskRunner, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv(), client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("create docker client: %w", err)
 	}
 
-	return newDockerRunnerWithClient(cli), nil
+	return newDockerRunnerWithClient(ctx, cli), nil
 }
 
 // newDockerRunnerWithClient creates a realDockerRunner using the provided dockerClient.
 // This constructor is used by tests to inject a fake Docker client.
-func newDockerRunnerWithClient(cli dockerClient) *realDockerRunner {
-	return &realDockerRunner{cli: cli, containers: make(map[string][]string)}
+func newDockerRunnerWithClient(ctx context.Context, cli dockerClient) *realDockerRunner {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	return &realDockerRunner{cli: cli, containers: make(map[string][]string), svcCtx: ctx}
 }
 
 // realDockerRunner is a TaskRunner that launches Docker containers.
 type realDockerRunner struct {
 	containers map[string][]string
 	cli        dockerClient
+	svcCtx     context.Context
 	mu         sync.Mutex
 }
 
 func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
-	ctx := context.Background()
+	ctx := r.svcCtx
 	log := logger.Load(ctx)
 
 	// started accumulates container IDs that were successfully started during
@@ -121,11 +134,25 @@ func (r *realDockerRunner) rollbackContainers(ctx context.Context, containerIDs 
 
 	for _, id := range containerIDs {
 		if err := r.cli.ContainerStop(ctx, id, dockertypes.StopOptions{Timeout: &timeout}); err != nil {
-			log.WarnContext(ctx, "failed to stop container during rollback", "containerID", id, "error", err)
+			log.WarnContext(
+				ctx,
+				"failed to stop container during rollback",
+				"containerID",
+				id,
+				"error",
+				err,
+			)
 		}
 
 		if err := r.cli.ContainerRemove(ctx, id, dockertypes.RemoveOptions{Force: true}); err != nil {
-			log.WarnContext(ctx, "failed to remove container during rollback", "containerID", id, "error", err)
+			log.WarnContext(
+				ctx,
+				"failed to remove container during rollback",
+				"containerID",
+				id,
+				"error",
+				err,
+			)
 		}
 	}
 }
@@ -151,7 +178,11 @@ func (r *realDockerRunner) pullImage(ctx context.Context, image string) error {
 }
 
 // createContainer creates a Docker container for the given container definition.
-func (r *realDockerRunner) createContainer(ctx context.Context, task *Task, cd ContainerDefinition) (string, error) {
+func (r *realDockerRunner) createContainer(
+	ctx context.Context,
+	task *Task,
+	cd ContainerDefinition,
+) (string, error) {
 	portBindings, exposedPorts := buildPortMappings(cd.PortMappings)
 	env := buildEnv(cd.Environment)
 
@@ -229,7 +260,7 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 		return nil
 	}
 
-	ctx := context.Background()
+	ctx := r.svcCtx
 	timeout := 10
 
 	var (
@@ -262,10 +293,10 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 // newTaskRunner creates the appropriate TaskRunner based on the
 // GOPHERSTACK_ECS_RUNTIME environment variable.
 // Returns a no-op runner when the environment variable is absent or "none".
-func newTaskRunner() (TaskRunner, error) {
+func newTaskRunner(ctx context.Context) (TaskRunner, error) {
 	switch os.Getenv("GOPHERSTACK_ECS_RUNTIME") {
 	case "docker":
-		return NewDockerRunner()
+		return NewDockerRunner(ctx)
 	default:
 		// "none" or unset – no-op
 		return NewNoopRunner(), nil

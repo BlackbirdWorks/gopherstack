@@ -149,6 +149,7 @@ type FISActionDefinition struct {
 	ActionID    string // e.g., "aws:ec2:stop-instances"
 	Description string
 	TargetType  string // e.g., "aws:ec2:instance"; empty if action has no targets
+	TargetKey   string // key name used in the Targets map (e.g., "Instances", "Roles"); defaults to "Targets"
 	Parameters  []FISParamDef
 }
 

@@ -22,9 +22,11 @@ type RemediationException struct {
 
 // ConfigRuleEvaluationStatus holds the evaluation status for a config rule.
 type ConfigRuleEvaluationStatus struct {
-	ConfigRuleName               string  `json:"ConfigRuleName"`
-	LastSuccessfulInvocationTime float64 `json:"LastSuccessfulInvocationTime"`
-	LastFailedInvocationTime     float64 `json:"LastFailedInvocationTime"`
+	ConfigRuleName               string `json:"ConfigRuleName"`
+	LastSuccessfulInvocationTime string `json:"LastSuccessfulInvocationTime,omitempty"`
+	LastFailedInvocationTime     string `json:"LastFailedInvocationTime,omitempty"`
+	LastSuccessfulEvaluationTime string `json:"LastSuccessfulEvaluationTime,omitempty"`
+	LastFailedEvaluationTime     string `json:"LastFailedEvaluationTime,omitempty"`
 }
 
 // ComplianceResult holds a compliance type value.
@@ -38,16 +40,22 @@ type ComplianceByConfigRule struct {
 	Compliance     ComplianceResult `json:"Compliance"`
 }
 
-// ComplianceSummaryByConfigRule holds counts for a compliance summary.
-type ComplianceSummaryByConfigRule struct {
-	CompliantResourceCount    int32 `json:"CompliantResourceCount"`
-	NonCompliantResourceCount int32 `json:"NonCompliantResourceCount"`
+// ResourceCount holds a capped resource count returned by compliance summary APIs.
+type ResourceCount struct {
+	CappedCount int32 `json:"CappedCount"`
+	CapExceeded bool  `json:"CapExceeded"`
+}
+
+// ComplianceSummaryDetail holds the per-compliance-type counts.
+type ComplianceSummaryDetail struct {
+	CompliantResourceCount    ResourceCount `json:"CompliantResourceCount"`
+	NonCompliantResourceCount ResourceCount `json:"NonCompliantResourceCount"`
 }
 
 // ComplianceSummary holds a compliance summary by type.
 type ComplianceSummary struct {
-	ComplianceType                string                        `json:"ComplianceType"`
-	ComplianceSummaryByConfigRule ComplianceSummaryByConfigRule `json:"ComplianceSummaryByConfigRule"`
+	ComplianceType    string                  `json:"ComplianceType"`
+	ComplianceSummary ComplianceSummaryDetail `json:"ComplianceSummary"`
 }
 
 // EvaluationResult holds an evaluation result for a config rule.
@@ -56,6 +64,30 @@ type EvaluationResult struct {
 	ComplianceType string `json:"ComplianceType"`
 	ResourceType   string `json:"ResourceType"`
 	ResourceID     string `json:"ResourceId"`
+	Annotation     string `json:"Annotation,omitempty"`
+}
+
+// EvaluationResultQualifier identifies the rule and resource an evaluation is for.
+type EvaluationResultQualifier struct {
+	ConfigRuleName string `json:"ConfigRuleName"`
+	ResourceType   string `json:"ResourceType,omitempty"`
+	ResourceID     string `json:"ResourceId,omitempty"`
+}
+
+// EvaluationResultIdentifier uniquely identifies an evaluation result.
+type EvaluationResultIdentifier struct {
+	EvaluationResultQualifier EvaluationResultQualifier `json:"EvaluationResultQualifier"`
+	OrderingTimestamp         float64                   `json:"OrderingTimestamp"`
+}
+
+// DetailedEvaluationResult is the per-resource evaluation result returned by the
+// GetComplianceDetailsBy* APIs. Timestamps are epoch seconds.
+type DetailedEvaluationResult struct {
+	ComplianceType             string                     `json:"ComplianceType"`
+	Annotation                 string                     `json:"Annotation,omitempty"`
+	EvaluationResultIdentifier EvaluationResultIdentifier `json:"EvaluationResultIdentifier"`
+	ResultRecordedTime         float64                    `json:"ResultRecordedTime"`
+	ConfigRuleInvokedTime      float64                    `json:"ConfigRuleInvokedTime"`
 }
 
 // DeliveryChannelStatusInfo holds status info for a delivery channel.

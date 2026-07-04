@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 	"github.com/labstack/echo/v5"
@@ -110,11 +109,33 @@ func TestHandler_StreamsDispatch(t *testing.T) {
 	t.Run("GetRecords returns INSERT record", func(t *testing.T) {
 		t.Parallel()
 
-		handler, _ := newStreamEnabledHandler(t)
-		// Use current timestamp so the 3-part iterator (tableName:startSeq:timestamp) is valid.
-		iter := fmt.Sprintf("StreamHandlerTable:0:%d", time.Now().Unix())
-		w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"`+iter+`"}`)
+		handler, arn := newStreamEnabledHandler(t)
 
+		// First, DescribeStream to get the Shard ID
+		wDesc := doStreamsRequest(t, handler, "DescribeStream", `{"StreamArn":"`+arn+`"}`)
+		assert.Equal(t, http.StatusOK, wDesc.Code)
+		var descResp struct {
+			StreamDescription struct {
+				Shards []struct {
+					ShardID string `json:"ShardId"`
+				} `json:"Shards"`
+			} `json:"StreamDescription"`
+		}
+		require.NoError(t, json.Unmarshal(wDesc.Body.Bytes(), &descResp))
+		require.NotEmpty(t, descResp.StreamDescription.Shards)
+		shardID := descResp.StreamDescription.Shards[0].ShardID
+
+		// Then, GetShardIterator to get the iterator token
+		iterReq := fmt.Sprintf(`{"StreamArn":"%s","ShardId":"%s","ShardIteratorType":"TRIM_HORIZON"}`, arn, shardID)
+		wIter := doStreamsRequest(t, handler, "GetShardIterator", iterReq)
+		assert.Equal(t, http.StatusOK, wIter.Code)
+		var iterResp struct {
+			ShardIterator string `json:"ShardIterator"`
+		}
+		require.NoError(t, json.Unmarshal(wIter.Body.Bytes(), &iterResp))
+		require.NotEmpty(t, iterResp.ShardIterator)
+
+		w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"`+iterResp.ShardIterator+`"}`)
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "Records")
 		assert.Contains(t, w.Body.String(), "INSERT")
@@ -340,42 +361,42 @@ func TestHandler_ExtractResource(t *testing.T) {
 func TestHandler_ExportAndDescribeExport(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body           string
-		name           string
-		action         string
-		wantStatusCode int
-	}{
-		{
-			name:           "ExportTableToPointInTime returns stub",
-			action:         "ExportTableToPointInTime",
-			body:           `{"TableArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T","S3Bucket":"bucket"}`,
-			wantStatusCode: http.StatusOK,
-		},
-		{
-			name:           "DescribeExport returns stub",
-			action:         "DescribeExport",
-			body:           `{"ExportArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T/export/01"}`,
-			wantStatusCode: http.StatusOK,
-		},
+	doExport := func(t *testing.T, h *dynamodb.DynamoDBHandler, action, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(body))
+		req.Header.Set("X-Amz-Target", "DynamoDB_20120810."+action)
+		w := httptest.NewRecorder()
+		_ = serveEchoHandler(h.Handler(), w, req)
+
+		return w
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	db := dynamodb.NewInMemoryDB()
+	h := dynamodb.NewHandler(db)
 
-			db := dynamodb.NewInMemoryDB()
-			h := dynamodb.NewHandler(db)
+	// ExportTableToPointInTime records the export and returns its ARN.
+	w := doExport(t, h, "ExportTableToPointInTime",
+		`{"TableArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T","S3Bucket":"bucket"}`)
+	require.Equal(t, http.StatusOK, w.Code)
 
-			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.body))
-			req.Header.Set("X-Amz-Target", "DynamoDB_20120810."+tt.action)
-			w := httptest.NewRecorder()
-			echoHandler := h.Handler()
-			_ = serveEchoHandler(echoHandler, w, req)
-
-			assert.Equal(t, tt.wantStatusCode, w.Code)
-		})
+	var exp struct {
+		ExportDescription struct {
+			ExportArn string `json:"ExportArn"`
+		} `json:"ExportDescription"`
 	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &exp))
+	require.NotEmpty(t, exp.ExportDescription.ExportArn)
+
+	// DescribeExport on the returned ARN succeeds.
+	w = doExport(t, h, "DescribeExport",
+		`{"ExportArn":"`+exp.ExportDescription.ExportArn+`"}`)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// DescribeExport on an unknown ARN returns ExportNotFoundException (AWS parity).
+	w = doExport(t, h, "DescribeExport",
+		`{"ExportArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T/export/does-not-exist"}`)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "ExportNotFoundException")
 }
 
 // TestHandler_GetRecords_InvalidIterator verifies the error path in handleStreamsGetRecords.
@@ -410,9 +431,18 @@ func TestHandler_DescribeTable_ReturnsStreamFields(t *testing.T) {
 	var out models.DescribeTableOutput
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 
-	assert.Equal(t, streamARN, out.Table.LatestStreamArn, "DescribeTable should return LatestStreamArn")
+	assert.Equal(
+		t,
+		streamARN,
+		out.Table.LatestStreamArn,
+		"DescribeTable should return LatestStreamArn",
+	)
 	assert.NotEmpty(t, out.Table.LatestStreamLabel, "DescribeTable should return LatestStreamLabel")
-	require.NotNil(t, out.Table.StreamSpecification, "DescribeTable should return StreamSpecification")
+	require.NotNil(
+		t,
+		out.Table.StreamSpecification,
+		"DescribeTable should return StreamSpecification",
+	)
 	assert.True(t, out.Table.StreamSpecification.StreamEnabled)
 	assert.Equal(t, "NEW_AND_OLD_IMAGES", out.Table.StreamSpecification.StreamViewType)
 }

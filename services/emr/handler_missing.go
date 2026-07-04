@@ -217,7 +217,11 @@ func (h *Handler) handleGetOnClusterAppUIPresignedURL(
 	ctx context.Context,
 	in *getOnClusterAppUIPresignedURLInput,
 ) (*getOnClusterAppUIPresignedURLOutput, error) {
-	url := h.Backend.GetPresignedURL(in.ClusterID, getRegion(ctx, h.Backend.region))
+	region := getRegion(ctx, h.Backend.region)
+	url, err := h.Backend.GetOnClusterPresignedURL(ctx, in.ClusterID, region)
+	if err != nil {
+		return nil, err
+	}
 
 	return &getOnClusterAppUIPresignedURLOutput{URL: url}, nil
 }

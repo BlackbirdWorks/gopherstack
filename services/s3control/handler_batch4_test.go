@@ -623,11 +623,11 @@ func TestBatch4_StorageLensConfig_SnapshotRestore(t *testing.T) {
 			b.PutStorageLensConfiguration("acc1", tt.configName, tt.config)
 			require.Equal(t, 1, s3control.StorageLensConfigCount(b))
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := s3control.NewInMemoryBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 			assert.Equal(t, 1, s3control.StorageLensConfigCount(b2))
 
 			cfg, err := b2.GetStorageLensConfiguration("acc1", tt.configName)

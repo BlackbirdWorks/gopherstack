@@ -25,6 +25,7 @@ func newRealHandler(t *testing.T) (*lambda.Handler, *lambda.InMemoryBackend) {
 		nil, nil, lambda.DefaultSettings(),
 		"000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 	handler := lambda.NewHandler(backend)
 
 	return handler, backend
@@ -1237,7 +1238,7 @@ func TestLambda_ESMIndex_ListByFunctionName_UsesIndex(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := backend.ListEventSourceMappings(tt.filterFn, "", 0)
+			result := backend.ListEventSourceMappings(tt.filterFn, "", "", 0)
 			assert.Len(t, result.Data, tt.wantCount)
 
 			if tt.wantContains != "" {
@@ -1276,18 +1277,18 @@ func TestLambda_DeleteFunction_CascadesESMDelete(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify ESM exists before deletion.
-			before := backend.ListEventSourceMappings(fnName, "", 0)
+			before := backend.ListEventSourceMappings(fnName, "", "", 0)
 			require.Len(t, before.Data, 1)
 
 			// Delete the function.
 			require.NoError(t, backend.DeleteFunction(fnName))
 
 			// ESMs for the deleted function must be gone.
-			after := backend.ListEventSourceMappings(fnName, "", 0)
+			after := backend.ListEventSourceMappings(fnName, "", "", 0)
 			assert.Empty(t, after.Data)
 
 			// The global list must also be empty.
-			all := backend.ListEventSourceMappings("", "", 0)
+			all := backend.ListEventSourceMappings("", "", "", 0)
 			assert.Empty(t, all.Data)
 		})
 	}

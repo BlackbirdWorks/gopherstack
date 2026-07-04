@@ -19,11 +19,22 @@ import (
 )
 
 const (
-	keyInstanceType  = "InstanceType"
-	keyInstanceCount = "InstanceCount"
-	keyEBSEnabled    = "EBSEnabled"
-	keyVolumeSize    = "VolumeSize"
-	keyVolumeType    = "VolumeType"
+	keyInstanceType           = "InstanceType"
+	keyInstanceCount          = "InstanceCount"
+	keyEBSEnabled             = "EBSEnabled"
+	keyVolumeSize             = "VolumeSize"
+	keyVolumeType             = "VolumeType"
+	keyIops                   = "Iops"
+	keyThroughput             = "Throughput"
+	keyDedicatedMasterEnabled = "DedicatedMasterEnabled"
+	keyDedicatedMasterType    = "DedicatedMasterType"
+	keyDedicatedMasterCount   = "DedicatedMasterCount"
+	keyZoneAwarenessEnabled   = "ZoneAwarenessEnabled"
+	keyZoneAwarenessConfig    = "ZoneAwarenessConfig"
+	keyWarmEnabled            = "WarmEnabled"
+	keyWarmType               = "WarmType"
+	keyWarmCount              = "WarmCount"
+	keyColdStorageEnabled     = "ColdStorageEnabled"
 
 	keyCrossClusterSearchConnection = "CrossClusterSearchConnection"
 	minimumInstanceCount            = 1
@@ -557,39 +568,89 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return strings.TrimSuffix(rest, "/")
 }
 
+// domainZoneAwarenessConfig holds zone awareness sub-config.
+type domainZoneAwarenessConfig struct {
+	AvailabilityZoneCount int `json:"AvailabilityZoneCount"`
+}
+
 // domainClusterConfig holds the cluster configuration request parameters.
 type domainClusterConfig struct {
-	InstanceType  string `json:"InstanceType"`
-	InstanceCount int    `json:"InstanceCount"`
+	ZoneAwarenessConfig    *domainZoneAwarenessConfig `json:"ZoneAwarenessConfig,omitempty"`
+	InstanceType           string                     `json:"InstanceType"`
+	DedicatedMasterType    string                     `json:"DedicatedMasterType,omitempty"`
+	WarmType               string                     `json:"WarmType,omitempty"`
+	InstanceCount          int                        `json:"InstanceCount"`
+	DedicatedMasterCount   int                        `json:"DedicatedMasterCount,omitempty"`
+	WarmCount              int                        `json:"WarmCount,omitempty"`
+	DedicatedMasterEnabled bool                       `json:"DedicatedMasterEnabled"`
+	ZoneAwarenessEnabled   bool                       `json:"ZoneAwarenessEnabled"`
+	WarmEnabled            bool                       `json:"WarmEnabled"`
+	ColdStorageEnabled     bool                       `json:"ColdStorageEnabled"`
 }
 
 // domainEBSOptions holds the EBS options request parameters.
 type domainEBSOptions struct {
 	VolumeType string `json:"VolumeType"`
 	VolumeSize int    `json:"VolumeSize"`
+	Iops       int    `json:"Iops"`
+	Throughput int    `json:"Throughput"`
 	EBSEnabled bool   `json:"EBSEnabled"`
+}
+
+// domainSnapshotOptions holds snapshot configuration in requests/responses.
+type domainSnapshotOptions struct {
+	AutomatedSnapshotStartHour int `json:"AutomatedSnapshotStartHour"`
+}
+
+// domainEncryptionAtRestOptions holds encryption at rest configuration.
+type domainEncryptionAtRestOptions struct {
+	KmsKeyID string `json:"KmsKeyId,omitempty"`
+	Enabled  bool   `json:"Enabled"`
+}
+
+// domainNodeToNodeEncryptionOptions holds node-to-node encryption configuration.
+type domainNodeToNodeEncryptionOptions struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// domainEndpointOptions holds HTTPS/TLS endpoint configuration.
+type domainEndpointOptions struct {
+	TLSSecurityPolicy string `json:"TLSSecurityPolicy,omitempty"`
+	EnforceHTTPS      bool   `json:"EnforceHTTPS"`
 }
 
 // domainJSON is the JSON request body for CreateElasticsearchDomain.
 type domainJSON struct {
-	ClusterConfig        *domainClusterConfig `json:"ElasticsearchClusterConfig"`
-	EBSOptions           *domainEBSOptions    `json:"EBSOptions"`
-	DomainName           string               `json:"DomainName"`
-	ElasticsearchVersion string               `json:"ElasticsearchVersion"`
+	ClusterConfig        *domainClusterConfig               `json:"ElasticsearchClusterConfig"`
+	EBSOptions           *domainEBSOptions                  `json:"EBSOptions"`
+	SnapshotOptions      *domainSnapshotOptions             `json:"SnapshotOptions"`
+	EncryptionAtRest     *domainEncryptionAtRestOptions     `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryption *domainNodeToNodeEncryptionOptions `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOpts   *domainEndpointOptions             `json:"DomainEndpointOptions"`
+	AdvancedOptions      map[string]string                  `json:"AdvancedOptions"`
+	DomainName           string                             `json:"DomainName"`
+	ElasticsearchVersion string                             `json:"ElasticsearchVersion"`
+	AccessPolicies       string                             `json:"AccessPolicies"`
 }
 
 // domainStatusJSON is the JSON response for domain operations.
-type domainStatusJSON struct {
-	DomainName                 string             `json:"DomainName"`
-	DomainID                   string             `json:"DomainId"`
-	ARN                        string             `json:"ARN"`
-	ElasticsearchVersion       string             `json:"ElasticsearchVersion"`
-	Endpoint                   string             `json:"Endpoint"`
-	DomainProcessingStatus     string             `json:"DomainProcessingStatus"`
-	ElasticsearchClusterConfig clusterConfigJSON  `json:"ElasticsearchClusterConfig"`
-	EBSOptions                 ebsOptionsJSON     `json:"EBSOptions"`
-	CognitoOptions             cognitoOptionsJSON `json:"CognitoOptions"`
-	Processing                 bool               `json:"Processing"`
+type domainStatusJSON struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	ElasticsearchClusterConfig  clusterConfigJSON                 `json:"ElasticsearchClusterConfig"`
+	EBSOptions                  ebsOptionsJSON                    `json:"EBSOptions"`
+	CognitoOptions              cognitoOptionsJSON                `json:"CognitoOptions"`
+	SnapshotOptions             domainSnapshotOptions             `json:"SnapshotOptions"`
+	EncryptionAtRestOptions     domainEncryptionAtRestOptions     `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryptionOptions domainNodeToNodeEncryptionOptions `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOptions       domainEndpointOptions             `json:"DomainEndpointOptions"`
+	AdvancedOptions             map[string]string                 `json:"AdvancedOptions"`
+	DomainName                  string                            `json:"DomainName"`
+	DomainID                    string                            `json:"DomainId"`
+	ARN                         string                            `json:"ARN"`
+	ElasticsearchVersion        string                            `json:"ElasticsearchVersion"`
+	Endpoint                    string                            `json:"Endpoint"`
+	DomainProcessingStatus      string                            `json:"DomainProcessingStatus"`
+	AccessPolicies              string                            `json:"AccessPolicies"`
+	Processing                  bool                              `json:"Processing"`
 }
 
 // cognitoOptionsJSON is the JSON representation of Cognito options.
@@ -603,13 +664,24 @@ type cognitoOptionsJSON struct {
 type ebsOptionsJSON struct {
 	VolumeType string `json:"VolumeType"`
 	VolumeSize int    `json:"VolumeSize"`
+	Iops       int    `json:"Iops"`
+	Throughput int    `json:"Throughput"`
 	EBSEnabled bool   `json:"EBSEnabled"`
 }
 
 // clusterConfigJSON is the JSON representation of cluster config.
 type clusterConfigJSON struct {
-	InstanceType  string `json:"InstanceType"`
-	InstanceCount int    `json:"InstanceCount"`
+	ZoneAwarenessConfig    *domainZoneAwarenessConfig `json:"ZoneAwarenessConfig,omitempty"`
+	InstanceType           string                     `json:"InstanceType"`
+	DedicatedMasterType    string                     `json:"DedicatedMasterType,omitempty"`
+	WarmType               string                     `json:"WarmType,omitempty"`
+	InstanceCount          int                        `json:"InstanceCount"`
+	DedicatedMasterCount   int                        `json:"DedicatedMasterCount,omitempty"`
+	WarmCount              int                        `json:"WarmCount,omitempty"`
+	DedicatedMasterEnabled bool                       `json:"DedicatedMasterEnabled"`
+	ZoneAwarenessEnabled   bool                       `json:"ZoneAwarenessEnabled"`
+	WarmEnabled            bool                       `json:"WarmEnabled"`
+	ColdStorageEnabled     bool                       `json:"ColdStorageEnabled"`
 }
 
 // domainStatusWrapJSON wraps the domain status in a DomainStatus key.
@@ -635,13 +707,33 @@ type describeDomainsRequest struct {
 
 // describeDomainsResponse is the response for DescribeElasticsearchDomains.
 type describeDomainsResponse struct {
-	DomainStatusList []domainStatusJSON `json:"DomainStatusList"`
+	DomainStatusList   []domainStatusJSON      `json:"DomainStatusList"`
+	UnprocessedDomains []unprocessedDomainJSON `json:"UnprocessedDomains"`
+}
+
+// unprocessedDomainJSON represents a domain name that could not be described,
+// matching the AWS DescribeElasticsearchDomains UnprocessedDomains field.
+type unprocessedDomainJSON struct {
+	DomainName   string             `json:"DomainName"`
+	ErrorDetails domainErrorDetails `json:"ErrorDetails"`
+}
+
+// domainErrorDetails carries the error type and message for unprocessed domains.
+type domainErrorDetails struct {
+	ErrorType    string `json:"ErrorType"`
+	ErrorMessage string `json:"ErrorMessage"`
 }
 
 // updateDomainConfigRequest is the request body for UpdateElasticsearchDomainConfig.
 type updateDomainConfigRequest struct {
-	ClusterConfig *domainClusterConfig `json:"ElasticsearchClusterConfig"`
-	EBSOptions    *domainEBSOptions    `json:"EBSOptions"`
+	ClusterConfig        *domainClusterConfig               `json:"ElasticsearchClusterConfig"`
+	EBSOptions           *domainEBSOptions                  `json:"EBSOptions"`
+	SnapshotOptions      *domainSnapshotOptions             `json:"SnapshotOptions"`
+	EncryptionAtRest     *domainEncryptionAtRestOptions     `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryption *domainNodeToNodeEncryptionOptions `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOpts   *domainEndpointOptions             `json:"DomainEndpointOptions"`
+	AdvancedOptions      map[string]string                  `json:"AdvancedOptions"`
+	AccessPolicies       *string                            `json:"AccessPolicies"`
 }
 
 // ServeHTTP implements [http.Handler] for the Elasticsearch service.
@@ -897,20 +989,41 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cfg ClusterConfig
+	inp := CreateDomainInput{
+		Name:                 req.DomainName,
+		ElasticsearchVersion: req.ElasticsearchVersion,
+		AccessPolicies:       req.AccessPolicies,
+		AdvancedOptions:      req.AdvancedOptions,
+	}
+
 	if req.ClusterConfig != nil {
-		cfg.InstanceType = req.ClusterConfig.InstanceType
-		cfg.InstanceCount = req.ClusterConfig.InstanceCount
+		inp.ClusterConfig = clusterConfigFromRequest(req.ClusterConfig)
 	}
 
-	var ebsOpts EBSOptions
 	if req.EBSOptions != nil {
-		ebsOpts.EBSEnabled = req.EBSOptions.EBSEnabled
-		ebsOpts.VolumeSize = req.EBSOptions.VolumeSize
-		ebsOpts.VolumeType = req.EBSOptions.VolumeType
+		inp.EBSOptions = ebsOptsFromRequest(req.EBSOptions)
 	}
 
-	domain, err := h.Backend.CreateDomain(h.reqContext(r), req.DomainName, req.ElasticsearchVersion, cfg, ebsOpts)
+	if req.SnapshotOptions != nil {
+		inp.SnapshotOptions = SnapshotOptions{
+			AutomatedSnapshotStartHour: req.SnapshotOptions.AutomatedSnapshotStartHour,
+		}
+	}
+
+	if req.EncryptionAtRest != nil {
+		inp.EncryptionAtRestEnabled = req.EncryptionAtRest.Enabled
+	}
+
+	if req.NodeToNodeEncryption != nil {
+		inp.NodeToNodeEncryptionEnabled = req.NodeToNodeEncryption.Enabled
+	}
+
+	if req.DomainEndpointOpts != nil {
+		inp.EnforceHTTPS = req.DomainEndpointOpts.EnforceHTTPS
+		inp.TLSSecurityPolicy = req.DomainEndpointOpts.TLSSecurityPolicy
+	}
+
+	domain, err := h.Backend.CreateDomain(h.reqContext(r), inp)
 	if err != nil {
 		h.handleDomainError(r, w, err)
 
@@ -1018,18 +1131,32 @@ func (h *Handler) handleDescribeElasticsearchDomains(w http.ResponseWriter, r *h
 	}
 
 	list := make([]domainStatusJSON, 0, len(req.DomainNames))
+	var unprocessed []unprocessedDomainJSON
 	ctx := h.reqContext(r)
 
 	for _, name := range req.DomainNames {
 		d, descErr := h.Backend.DescribeDomain(ctx, name)
 		if descErr != nil {
+			unprocessed = append(unprocessed, unprocessedDomainJSON{
+				DomainName: name,
+				ErrorDetails: domainErrorDetails{
+					ErrorType:    "ResourceNotFoundException",
+					ErrorMessage: fmt.Sprintf("Domain not found: %s", name),
+				},
+			})
+
 			continue
 		}
 
 		list = append(list, toDomainStatusJSON(d))
 	}
 
-	h.writeJSON(r, w, describeDomainsResponse{DomainStatusList: list})
+	// AWS always emits both arrays (never null), even when empty.
+	if unprocessed == nil {
+		unprocessed = []unprocessedDomainJSON{}
+	}
+
+	h.writeJSON(r, w, describeDomainsResponse{DomainStatusList: list, UnprocessedDomains: unprocessed})
 }
 
 func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Request, name string) {
@@ -1050,19 +1177,38 @@ func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Reques
 	upd := UpdateConfig{}
 
 	if req.ClusterConfig != nil {
-		upd.ClusterConfig = &ClusterConfig{
-			InstanceType:  req.ClusterConfig.InstanceType,
-			InstanceCount: req.ClusterConfig.InstanceCount,
-		}
+		cfg := clusterConfigFromRequest(req.ClusterConfig)
+		upd.ClusterConfig = &cfg
 	}
 
 	if req.EBSOptions != nil {
-		upd.EBSOptions = &EBSOptions{
-			EBSEnabled: req.EBSOptions.EBSEnabled,
-			VolumeSize: req.EBSOptions.VolumeSize,
-			VolumeType: req.EBSOptions.VolumeType,
-		}
+		opts := ebsOptsFromRequest(req.EBSOptions)
+		upd.EBSOptions = &opts
 	}
+
+	if req.SnapshotOptions != nil {
+		so := SnapshotOptions{AutomatedSnapshotStartHour: req.SnapshotOptions.AutomatedSnapshotStartHour}
+		upd.SnapshotOptions = &so
+	}
+
+	if req.EncryptionAtRest != nil {
+		upd.EncryptionAtRestEnabled = &req.EncryptionAtRest.Enabled
+	}
+
+	if req.NodeToNodeEncryption != nil {
+		upd.NodeToNodeEncryptionEnabled = &req.NodeToNodeEncryption.Enabled
+	}
+
+	if req.DomainEndpointOpts != nil {
+		upd.EnforceHTTPS = &req.DomainEndpointOpts.EnforceHTTPS
+		upd.TLSSecurityPolicy = &req.DomainEndpointOpts.TLSSecurityPolicy
+	}
+
+	if req.AdvancedOptions != nil {
+		upd.AdvancedOptions = req.AdvancedOptions
+	}
+
+	upd.AccessPolicies = req.AccessPolicies
 
 	domain, err := h.Backend.UpdateDomainConfig(h.reqContext(r), name, upd)
 	if err != nil {
@@ -1075,28 +1221,74 @@ func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	activeStatus := elasticsearchConfigStatus{State: statusActiveCap}
-	out := describeDomainConfigOutput{}
-	out.DomainConfig.ElasticsearchVersion = elasticsearchConfigValue{
-		Options: domain.ElasticsearchVersion,
-		Status:  activeStatus,
-	}
-	out.DomainConfig.ElasticsearchClusterConfig = elasticsearchConfigValue{Options: map[string]any{
-		keyInstanceType:  domain.ClusterConfig.InstanceType,
-		keyInstanceCount: domain.ClusterConfig.InstanceCount,
-	}, Status: activeStatus}
-	out.DomainConfig.EBSOptions = elasticsearchConfigValue{Options: map[string]any{
-		keyEBSEnabled: domain.EBSOptions.EBSEnabled,
-		keyVolumeSize: domain.EBSOptions.VolumeSize,
-		keyVolumeType: domain.EBSOptions.VolumeType,
-	}, Status: activeStatus}
-	out.DomainConfig.AccessPolicies = elasticsearchConfigValue{Options: "", Status: activeStatus}
-	out.DomainConfig.AdvancedOptions = elasticsearchConfigValue{Options: map[string]any{}, Status: activeStatus}
+	h.writeJSON(r, w, buildDomainConfigOutput(domain))
+}
 
-	h.writeJSON(r, w, &out)
+// clusterConfigFromRequest converts a request cluster config into a backend ClusterConfig.
+func clusterConfigFromRequest(req *domainClusterConfig) ClusterConfig {
+	cfg := ClusterConfig{
+		InstanceType:           req.InstanceType,
+		InstanceCount:          req.InstanceCount,
+		DedicatedMasterEnabled: req.DedicatedMasterEnabled,
+		DedicatedMasterType:    req.DedicatedMasterType,
+		DedicatedMasterCount:   req.DedicatedMasterCount,
+		ZoneAwarenessEnabled:   req.ZoneAwarenessEnabled,
+		WarmEnabled:            req.WarmEnabled,
+		WarmType:               req.WarmType,
+		WarmCount:              req.WarmCount,
+		ColdStorageEnabled:     req.ColdStorageEnabled,
+	}
+
+	if req.ZoneAwarenessConfig != nil {
+		cfg.ZoneAwarenessConfig = ZoneAwarenessConfig{
+			AvailabilityZoneCount: req.ZoneAwarenessConfig.AvailabilityZoneCount,
+		}
+	}
+
+	return cfg
+}
+
+// ebsOptsFromRequest converts a request EBS options struct into a backend EBSOptions.
+func ebsOptsFromRequest(req *domainEBSOptions) EBSOptions {
+	return EBSOptions{
+		EBSEnabled: req.EBSEnabled,
+		VolumeSize: req.VolumeSize,
+		VolumeType: req.VolumeType,
+		Iops:       req.Iops,
+		Throughput: req.Throughput,
+	}
+}
+
+// toClusterConfigJSON converts a backend ClusterConfig to its JSON representation.
+func toClusterConfigJSON(c ClusterConfig) clusterConfigJSON {
+	cfg := clusterConfigJSON{
+		InstanceType:           c.InstanceType,
+		InstanceCount:          c.InstanceCount,
+		DedicatedMasterEnabled: c.DedicatedMasterEnabled,
+		DedicatedMasterType:    c.DedicatedMasterType,
+		DedicatedMasterCount:   c.DedicatedMasterCount,
+		ZoneAwarenessEnabled:   c.ZoneAwarenessEnabled,
+		WarmEnabled:            c.WarmEnabled,
+		WarmType:               c.WarmType,
+		WarmCount:              c.WarmCount,
+		ColdStorageEnabled:     c.ColdStorageEnabled,
+	}
+
+	if c.ZoneAwarenessEnabled {
+		cfg.ZoneAwarenessConfig = &domainZoneAwarenessConfig{
+			AvailabilityZoneCount: c.ZoneAwarenessConfig.AvailabilityZoneCount,
+		}
+	}
+
+	return cfg
 }
 
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
+	advOpts := d.AdvancedOptions
+	if advOpts == nil {
+		advOpts = map[string]string{}
+	}
+
 	return domainStatusJSON{
 		DomainName:             d.Name,
 		DomainID:               d.DomainID,
@@ -1105,19 +1297,100 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		Endpoint:               d.Endpoint,
 		Processing:             false,
 		DomainProcessingStatus: statusActiveCap,
+		AccessPolicies:         d.AccessPolicies,
+		AdvancedOptions:        advOpts,
 		EBSOptions: ebsOptionsJSON{
 			EBSEnabled: d.EBSOptions.EBSEnabled,
 			VolumeSize: d.EBSOptions.VolumeSize,
 			VolumeType: d.EBSOptions.VolumeType,
+			Iops:       d.EBSOptions.Iops,
+			Throughput: d.EBSOptions.Throughput,
 		},
-		ElasticsearchClusterConfig: clusterConfigJSON{
-			InstanceType:  d.ClusterConfig.InstanceType,
-			InstanceCount: d.ClusterConfig.InstanceCount,
+		ElasticsearchClusterConfig: toClusterConfigJSON(d.ClusterConfig),
+		CognitoOptions:             cognitoOptionsJSON{Enabled: false},
+		SnapshotOptions: domainSnapshotOptions{
+			AutomatedSnapshotStartHour: d.SnapshotOptions.AutomatedSnapshotStartHour,
 		},
-		CognitoOptions: cognitoOptionsJSON{
-			Enabled: false,
+		EncryptionAtRestOptions:     domainEncryptionAtRestOptions{Enabled: d.EncryptionAtRestEnabled},
+		NodeToNodeEncryptionOptions: domainNodeToNodeEncryptionOptions{Enabled: d.NodeToNodeEncryptionEnabled},
+		DomainEndpointOptions: domainEndpointOptions{
+			EnforceHTTPS:      d.EnforceHTTPS,
+			TLSSecurityPolicy: d.TLSSecurityPolicy,
 		},
 	}
+}
+
+// buildDomainConfigOutput builds the DescribeDomainConfig/UpdateDomainConfig response.
+func buildDomainConfigOutput(d *Domain) *describeDomainConfigOutput {
+	activeStatus := elasticsearchConfigStatus{State: statusActiveCap}
+	out := &describeDomainConfigOutput{}
+	out.DomainConfig.ElasticsearchVersion = elasticsearchConfigValue{
+		Options: d.ElasticsearchVersion,
+		Status:  activeStatus,
+	}
+
+	clusterOpts := map[string]any{
+		keyInstanceType:           d.ClusterConfig.InstanceType,
+		keyInstanceCount:          d.ClusterConfig.InstanceCount,
+		keyDedicatedMasterEnabled: d.ClusterConfig.DedicatedMasterEnabled,
+		keyZoneAwarenessEnabled:   d.ClusterConfig.ZoneAwarenessEnabled,
+		keyWarmEnabled:            d.ClusterConfig.WarmEnabled,
+		keyColdStorageEnabled:     d.ClusterConfig.ColdStorageEnabled,
+	}
+
+	if d.ClusterConfig.DedicatedMasterEnabled {
+		clusterOpts[keyDedicatedMasterType] = d.ClusterConfig.DedicatedMasterType
+		clusterOpts[keyDedicatedMasterCount] = d.ClusterConfig.DedicatedMasterCount
+	}
+
+	if d.ClusterConfig.WarmEnabled {
+		clusterOpts[keyWarmType] = d.ClusterConfig.WarmType
+		clusterOpts[keyWarmCount] = d.ClusterConfig.WarmCount
+	}
+
+	if d.ClusterConfig.ZoneAwarenessEnabled {
+		clusterOpts[keyZoneAwarenessConfig] = map[string]any{
+			"AvailabilityZoneCount": d.ClusterConfig.ZoneAwarenessConfig.AvailabilityZoneCount,
+		}
+	}
+
+	out.DomainConfig.ElasticsearchClusterConfig = elasticsearchConfigValue{Options: clusterOpts, Status: activeStatus}
+	out.DomainConfig.EBSOptions = elasticsearchConfigValue{Options: map[string]any{
+		keyEBSEnabled: d.EBSOptions.EBSEnabled,
+		keyVolumeSize: d.EBSOptions.VolumeSize,
+		keyVolumeType: d.EBSOptions.VolumeType,
+		keyIops:       d.EBSOptions.Iops,
+		keyThroughput: d.EBSOptions.Throughput,
+	}, Status: activeStatus}
+	out.DomainConfig.AccessPolicies = elasticsearchConfigValue{Options: d.AccessPolicies, Status: activeStatus}
+
+	advOpts := d.AdvancedOptions
+	if advOpts == nil {
+		advOpts = map[string]string{}
+	}
+
+	out.DomainConfig.AdvancedOptions = elasticsearchConfigValue{Options: advOpts, Status: activeStatus}
+	out.DomainConfig.SnapshotOptions = elasticsearchConfigValue{
+		Options: map[string]any{"AutomatedSnapshotStartHour": d.SnapshotOptions.AutomatedSnapshotStartHour},
+		Status:  activeStatus,
+	}
+	out.DomainConfig.EncryptionAtRestOptions = elasticsearchConfigValue{
+		Options: map[string]any{"Enabled": d.EncryptionAtRestEnabled},
+		Status:  activeStatus,
+	}
+	out.DomainConfig.NodeToNodeEncryptionOptions = elasticsearchConfigValue{
+		Options: map[string]any{"Enabled": d.NodeToNodeEncryptionEnabled},
+		Status:  activeStatus,
+	}
+	out.DomainConfig.DomainEndpointOptions = elasticsearchConfigValue{
+		Options: map[string]any{
+			"EnforceHTTPS":      d.EnforceHTTPS,
+			"TLSSecurityPolicy": d.TLSSecurityPolicy,
+		},
+		Status: activeStatus,
+	}
+
+	return out
 }
 
 type errorResponseJSON struct {
@@ -1150,11 +1423,15 @@ type elasticsearchConfigValue struct {
 
 // domainConfigFields holds the per-feature configuration values for a domain.
 type domainConfigFields struct {
-	ElasticsearchVersion       elasticsearchConfigValue `json:"ElasticsearchVersion"`
-	ElasticsearchClusterConfig elasticsearchConfigValue `json:"ElasticsearchClusterConfig"`
-	EBSOptions                 elasticsearchConfigValue `json:"EBSOptions"`
-	AccessPolicies             elasticsearchConfigValue `json:"AccessPolicies"`
-	AdvancedOptions            elasticsearchConfigValue `json:"AdvancedOptions"`
+	ElasticsearchVersion        elasticsearchConfigValue `json:"ElasticsearchVersion"`
+	ElasticsearchClusterConfig  elasticsearchConfigValue `json:"ElasticsearchClusterConfig"`
+	EBSOptions                  elasticsearchConfigValue `json:"EBSOptions"`
+	AccessPolicies              elasticsearchConfigValue `json:"AccessPolicies"`
+	AdvancedOptions             elasticsearchConfigValue `json:"AdvancedOptions"`
+	SnapshotOptions             elasticsearchConfigValue `json:"SnapshotOptions"`
+	EncryptionAtRestOptions     elasticsearchConfigValue `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryptionOptions elasticsearchConfigValue `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOptions       elasticsearchConfigValue `json:"DomainEndpointOptions"`
 }
 
 type describeDomainConfigOutput struct {
@@ -1166,7 +1443,7 @@ func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
 
 	tags, err := h.Backend.ListTags(h.reqContext(r), domainARN)
 	if err != nil {
-		h.writeJSON(r, w, &listTagsOutput{TagList: []svcTags.KV{}})
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return
 	}
@@ -1203,6 +1480,7 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	seen := make(map[string]bool, len(req.TagList))
 	for _, t := range req.TagList {
 		if len(t.Key) == 0 || len(t.Key) > maxTagKeyLen {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException",
@@ -1217,6 +1495,15 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 
 			return
 		}
+
+		if seen[t.Key] {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException",
+				fmt.Sprintf("Duplicate tag key: %s", t.Key))
+
+			return
+		}
+
+		seen[t.Key] = true
 	}
 
 	tagMap := make(map[string]string, len(req.TagList))
@@ -1276,24 +1563,7 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	activeStatus := elasticsearchConfigStatus{State: statusActiveCap}
-	out := describeDomainConfigOutput{}
-	out.DomainConfig.ElasticsearchVersion = elasticsearchConfigValue{
-		Options: d.ElasticsearchVersion,
-		Status:  activeStatus,
-	}
-	out.DomainConfig.ElasticsearchClusterConfig = elasticsearchConfigValue{Options: map[string]any{
-		keyInstanceType:  d.ClusterConfig.InstanceType,
-		keyInstanceCount: d.ClusterConfig.InstanceCount,
-	}, Status: activeStatus}
-	out.DomainConfig.EBSOptions = elasticsearchConfigValue{Options: map[string]any{
-		keyEBSEnabled: d.EBSOptions.EBSEnabled,
-		keyVolumeSize: d.EBSOptions.VolumeSize,
-		keyVolumeType: d.EBSOptions.VolumeType,
-	}, Status: activeStatus}
-	out.DomainConfig.AccessPolicies = elasticsearchConfigValue{Options: "", Status: activeStatus}
-	out.DomainConfig.AdvancedOptions = elasticsearchConfigValue{Options: map[string]any{}, Status: activeStatus}
-	h.writeJSON(r, w, &out)
+	h.writeJSON(r, w, buildDomainConfigOutput(d))
 }
 
 // --- New operations ---
@@ -1667,11 +1937,6 @@ func (h *Handler) handleAuthorizeVpcEndpointAccess(w http.ResponseWriter, r *htt
 	})
 }
 
-// cancelDomainConfigChangeOutput wraps the domain status after cancellation.
-type cancelDomainConfigChangeOutput struct {
-	DomainConfig domainConfigFields `json:"DomainConfig"`
-}
-
 func (h *Handler) handleCancelDomainConfigChange(w http.ResponseWriter, r *http.Request, domainName string) {
 	d, err := h.Backend.CancelDomainConfigChange(h.reqContext(r), domainName)
 	if err != nil {
@@ -1684,31 +1949,7 @@ func (h *Handler) handleCancelDomainConfigChange(w http.ResponseWriter, r *http.
 		return
 	}
 
-	activeStatus := elasticsearchConfigStatus{State: statusActiveCap}
-	out := cancelDomainConfigChangeOutput{}
-	out.DomainConfig.ElasticsearchVersion = elasticsearchConfigValue{
-		Options: d.ElasticsearchVersion,
-		Status:  activeStatus,
-	}
-	out.DomainConfig.ElasticsearchClusterConfig = elasticsearchConfigValue{
-		Options: map[string]any{
-			keyInstanceType:  d.ClusterConfig.InstanceType,
-			keyInstanceCount: d.ClusterConfig.InstanceCount,
-		},
-		Status: activeStatus,
-	}
-	out.DomainConfig.EBSOptions = elasticsearchConfigValue{
-		Options: map[string]any{
-			keyEBSEnabled: d.EBSOptions.EBSEnabled,
-			keyVolumeSize: d.EBSOptions.VolumeSize,
-			keyVolumeType: d.EBSOptions.VolumeType,
-		},
-		Status: activeStatus,
-	}
-	out.DomainConfig.AccessPolicies = elasticsearchConfigValue{Options: "", Status: activeStatus}
-	out.DomainConfig.AdvancedOptions = elasticsearchConfigValue{Options: map[string]any{}, Status: activeStatus}
-
-	h.writeJSON(r, w, &out)
+	h.writeJSON(r, w, buildDomainConfigOutput(d))
 }
 
 // cancelSoftwareUpdateRequest is the JSON body for CancelElasticsearchServiceSoftwareUpdate.
@@ -1725,6 +1966,7 @@ type serviceSoftwareOptionsJSON struct {
 	AutomatedUpdateDate string `json:"AutomatedUpdateDate"`
 	UpdateAvailable     bool   `json:"UpdateAvailable"`
 	Cancellable         bool   `json:"Cancellable"`
+	OptionalDeployment  bool   `json:"OptionalDeployment"`
 }
 
 // cancelSoftwareUpdateOutput is the response for CancelElasticsearchServiceSoftwareUpdate.
@@ -1886,26 +2128,77 @@ func (h *Handler) handleListVpcEndpoints(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// compatibleVersionEntry is the JSON representation of a compatible version pair.
+type compatibleVersionEntry struct {
+	SourceVersion  string   `json:"SourceVersion"`
+	TargetVersions []string `json:"TargetVersions"`
+}
+
+// compatibleVersionsFor returns the valid upgrade targets for a given Elasticsearch version.
+func compatibleVersionsFor(version string) []string {
+	switch version {
+	case elasticsearchVersion51, elasticsearchVersion53, elasticsearchVersion55:
+		return []string{elasticsearchVersion56}
+	case elasticsearchVersion56:
+		return []string{elasticsearchVersion68}
+	case elasticsearchVersion60, elasticsearchVersion62, elasticsearchVersion63,
+		elasticsearchVersion64, elasticsearchVersion65, elasticsearchVersion67:
+		return []string{elasticsearchVersion68}
+	case elasticsearchVersion68:
+		return []string{elasticsearchVersion71, defaultElasticsearchVersion}
+	case elasticsearchVersion71, elasticsearchVersion74,
+		elasticsearchVersion77, elasticsearchVersion78, elasticsearchVersion79:
+		return []string{defaultElasticsearchVersion}
+	case elasticsearchVersion713:
+		return []string{elasticsearchVersion716, elasticsearchVersion717}
+	case elasticsearchVersion716:
+		return []string{elasticsearchVersion717}
+	default:
+		return []string{}
+	}
+}
+
 func (h *Handler) handleGetCompatibleElasticsearchVersions(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"CompatibleElasticsearchVersions": []any{
-		map[string]any{
-			"SourceVersion": elasticsearchVersion68,
-			"TargetVersions": []string{
-				elasticsearchVersion71,
-				defaultElasticsearchVersion,
+	domainName := r.URL.Query().Get("domainName")
+
+	if domainName != "" {
+		d, err := h.Backend.DescribeDomain(h.reqContext(r), domainName)
+		if err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return
+		}
+
+		targets := compatibleVersionsFor(d.ElasticsearchVersion)
+		h.writeJSON(r, w, map[string]any{
+			"CompatibleElasticsearchVersions": []compatibleVersionEntry{
+				{SourceVersion: d.ElasticsearchVersion, TargetVersions: targets},
 			},
+		})
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"CompatibleElasticsearchVersions": []compatibleVersionEntry{
+		{
+			SourceVersion:  elasticsearchVersion68,
+			TargetVersions: []string{elasticsearchVersion71, defaultElasticsearchVersion},
 		},
-		map[string]any{
-			"SourceVersion":  elasticsearchVersion71,
-			"TargetVersions": []string{defaultElasticsearchVersion},
-		},
+		{SourceVersion: elasticsearchVersion71, TargetVersions: []string{defaultElasticsearchVersion}},
 	}})
 }
 
 func (h *Handler) handleListElasticsearchVersions(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{
-		"ElasticsearchVersions": []string{defaultElasticsearchVersion, elasticsearchVersion71, elasticsearchVersion68},
-	})
+	versions := []string{
+		elasticsearchVersion717, elasticsearchVersion716, elasticsearchVersion713,
+		defaultElasticsearchVersion, elasticsearchVersion79, elasticsearchVersion78,
+		elasticsearchVersion77, elasticsearchVersion74, elasticsearchVersion71,
+		elasticsearchVersion68, elasticsearchVersion67, elasticsearchVersion65,
+		elasticsearchVersion64, elasticsearchVersion63, elasticsearchVersion62,
+		elasticsearchVersion60, elasticsearchVersion56, elasticsearchVersion55,
+		elasticsearchVersion53, elasticsearchVersion51, "2.3", "1.5",
+	}
+	h.writeJSON(r, w, map[string]any{"ElasticsearchVersions": versions})
 }
 
 func (h *Handler) handleDeleteInboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {

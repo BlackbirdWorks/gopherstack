@@ -79,7 +79,7 @@ func TestRedshiftDeleteCluster(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "del-cluster", deleted.ClusterIdentifier)
 
-	_, err = b.DescribeClusters("del-cluster")
+	_, _, err = b.DescribeClusters("del-cluster", "", 0)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
 }
@@ -117,7 +117,7 @@ func TestRedshiftDescribeClusters(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			clusters, err := b.DescribeClusters(tt.clusterID)
+			clusters, _, err := b.DescribeClusters(tt.clusterID, "", 0)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)

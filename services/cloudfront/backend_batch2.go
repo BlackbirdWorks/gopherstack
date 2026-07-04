@@ -635,22 +635,9 @@ func (b *InMemoryBackend) UpdateDistributionWithStagingConfig(primaryID, staging
 	primary.RawConfig = rawCopy
 	primary.ETag = uuid.NewString()
 	primary.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	b.reindexDistributionConfig(primaryID, rawCopy)
 
 	return b.copyDistribution(primary), nil
-}
-
-// distributionsByConfigSearch scans all distributions and returns those whose raw config contains searchStr.
-// Must be called with the read lock held.
-func (b *InMemoryBackend) distributionsByConfigSearch(searchStr string) []*Distribution {
-	var out []*Distribution
-	for _, d := range b.distributions {
-		if strings.Contains(string(d.RawConfig), searchStr) {
-			cp := *d
-			out = append(out, &cp)
-		}
-	}
-
-	return out
 }
 
 // ListDistributionsByKeyGroup returns distributions that reference a key group.
@@ -740,6 +727,8 @@ func (b *InMemoryBackend) UpdateKeyValueStore(id, comment string) (*KeyValueStor
 		kvs.Comment = comment
 	}
 	kvs.ETag = uuid.NewString()
+	kvs.Status = kvsStatusReady
+	kvs.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := *kvs
 
 	return &cp, nil

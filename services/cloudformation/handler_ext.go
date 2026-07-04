@@ -152,23 +152,39 @@ func (h *Handler) handleDescribeStackResourceDrifts(form url.Values, c *echo.Con
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
+	type propertyDiffXML struct {
+		PropertyPath   string `xml:"PropertyPath"`
+		ExpectedValue  string `xml:"ExpectedValue"`
+		ActualValue    string `xml:"ActualValue"`
+		DifferenceType string `xml:"DifferenceType"`
+	}
 	type driftXML struct {
-		StackID                  string `xml:"StackId"`
-		LogicalResourceID        string `xml:"LogicalResourceId"`
-		PhysicalResourceID       string `xml:"PhysicalResourceId,omitempty"`
-		ResourceType             string `xml:"ResourceType"`
-		StackResourceDriftStatus string `xml:"StackResourceDriftStatus"`
-		Timestamp                string `xml:"Timestamp"`
+		StackID                  string            `xml:"StackId"`
+		LogicalResourceID        string            `xml:"LogicalResourceId"`
+		PhysicalResourceID       string            `xml:"PhysicalResourceId,omitempty"`
+		ResourceType             string            `xml:"ResourceType"`
+		StackResourceDriftStatus string            `xml:"StackResourceDriftStatus"`
+		ExpectedProperties       string            `xml:"ExpectedProperties,omitempty"`
+		ActualProperties         string            `xml:"ActualProperties,omitempty"`
+		Timestamp                string            `xml:"Timestamp"`
+		PropertyDifferences      []propertyDiffXML `xml:"PropertyDifferences>member,omitempty"`
 	}
 
 	members := make([]driftXML, 0, len(drifts))
 	for _, d := range drifts {
+		propDiffs := make([]propertyDiffXML, 0, len(d.PropertyDifferences))
+		for _, pd := range d.PropertyDifferences {
+			propDiffs = append(propDiffs, propertyDiffXML(pd))
+		}
 		members = append(members, driftXML{
 			StackID:                  d.StackID,
 			LogicalResourceID:        d.LogicalResourceID,
 			PhysicalResourceID:       d.PhysicalResourceID,
 			ResourceType:             d.ResourceType,
 			StackResourceDriftStatus: d.StackResourceDriftStatus,
+			ExpectedProperties:       d.ExpectedProperties,
+			ActualProperties:         d.ActualProperties,
+			PropertyDifferences:      propDiffs,
 			Timestamp:                d.Timestamp.Format("2006-01-02T15:04:05Z"),
 		})
 	}

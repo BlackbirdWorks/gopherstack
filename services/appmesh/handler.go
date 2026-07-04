@@ -36,7 +36,10 @@ const (
 
 	defaultMaxResults = 100
 
+	keyMesh               = "mesh"
 	keyVirtualNode        = "virtualNode"
+	keyVirtualRouter      = "virtualRouter"
+	keyVirtualGateway     = "virtualGateway"
 	keyRoute              = "route"
 	keyVirtualService     = "virtualService"
 	keyGatewayRoute       = "gatewayRoute"

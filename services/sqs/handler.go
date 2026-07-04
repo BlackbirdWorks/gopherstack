@@ -310,7 +310,12 @@ func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
 }
 
 // sqsRoute dispatches an SQS action to the appropriate handler method.
-func (h *Handler) sqsRoute(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
+func (h *Handler) sqsRoute(
+	ctx context.Context,
+	r *http.Request,
+	action string,
+	body []byte,
+) ([]byte, error) {
 	fn, ok := h.sqsDispatchTable()[action]
 	if !ok {
 		return nil, ErrUnknownAction
@@ -459,10 +464,11 @@ type jsonListQueuesResp struct {
 }
 
 type jsonSendMessageResp struct {
-	MessageID              string `json:"MessageId"`
-	MD5OfMessageBody       string `json:"MD5OfMessageBody"`
-	MD5OfMessageAttributes string `json:"MD5OfMessageAttributes,omitempty"`
-	SequenceNumber         string `json:"SequenceNumber,omitempty"`
+	MessageID                    string `json:"MessageId"`
+	MD5OfMessageBody             string `json:"MD5OfMessageBody"`
+	MD5OfMessageAttributes       string `json:"MD5OfMessageAttributes,omitempty"`
+	MD5OfMessageSystemAttributes string `json:"MD5OfMessageSystemAttributes,omitempty"`
+	SequenceNumber               string `json:"SequenceNumber,omitempty"`
 }
 
 type jsonReceivedMessage struct {
@@ -484,11 +490,12 @@ type jsonGetQueueAttributesResp struct {
 }
 
 type jsonBatchSuccess struct {
-	ID                     string `json:"Id"`
-	MessageID              string `json:"MessageId,omitempty"`
-	MD5OfMessageBody       string `json:"MD5OfMessageBody,omitempty"`
-	MD5OfMessageAttributes string `json:"MD5OfMessageAttributes,omitempty"`
-	SequenceNumber         string `json:"SequenceNumber,omitempty"`
+	ID                           string `json:"Id"`
+	MessageID                    string `json:"MessageId,omitempty"`
+	MD5OfMessageBody             string `json:"MD5OfMessageBody,omitempty"`
+	MD5OfMessageAttributes       string `json:"MD5OfMessageAttributes,omitempty"`
+	MD5OfMessageSystemAttributes string `json:"MD5OfMessageSystemAttributes,omitempty"`
+	SequenceNumber               string `json:"SequenceNumber,omitempty"`
 }
 
 type jsonBatchFailure struct {
@@ -712,10 +719,11 @@ func (h *Handler) handleSendMessage(
 	}
 
 	return jsonSendMessageResp{
-		MessageID:              out.MessageID,
-		MD5OfMessageBody:       out.MD5OfBody,
-		MD5OfMessageAttributes: out.MD5OfMessageAttributes,
-		SequenceNumber:         out.SequenceNumber,
+		MessageID:                    out.MessageID,
+		MD5OfMessageBody:             out.MD5OfBody,
+		MD5OfMessageAttributes:       out.MD5OfMessageAttributes,
+		MD5OfMessageSystemAttributes: out.MD5OfMessageSystemAttributes,
+		SequenceNumber:               out.SequenceNumber,
 	}, nil
 }
 
@@ -775,14 +783,35 @@ func (h *Handler) handleReceiveMessage(
 			attrs = map[string]string{}
 		}
 
+		// AWS computes MD5OfMessageAttributes over only the attributes actually
+		// returned to the consumer. When the caller requests a subset via
+		// MessageAttributeNames, the digest must cover that subset so SDK-side
+		// checksum verification passes (it would otherwise fail against the
+		// send-time digest computed over the full attribute set).
+		returnedAttrs := filterMsgAttrs(msg.MessageAttributes, req.MessageAttributeNames)
+
+		// When the full attribute set is returned (filterMsgAttrs returns all
+		// attrs), reuse the MD5 that was computed at send time to avoid the
+		// O(k log k) sort on every receive for attribute-heavy messages.
+		// If the returned count is smaller, the subset must be re-hashed.
+		var md5Attrs string
+		switch {
+		case len(returnedAttrs) == 0:
+			// no attributes requested or message has none
+		case len(returnedAttrs) == len(msg.MessageAttributes):
+			md5Attrs = msg.MD5OfMessageAttributes
+		default:
+			md5Attrs = computeMD5OfSubset(msg, returnedAttrs)
+		}
+
 		msgs = append(msgs, jsonReceivedMessage{
 			MessageID:              msg.MessageID,
 			ReceiptHandle:          msg.ReceiptHandle,
 			MD5OfBody:              msg.MD5OfBody,
-			MD5OfMessageAttributes: msg.MD5OfMessageAttributes,
+			MD5OfMessageAttributes: md5Attrs,
 			Body:                   msg.Body,
 			Attributes:             filterSystemAttrs(attrs, effectiveAttrNames),
-			MessageAttributes:      filterJSONMsgAttrs(msg.MessageAttributes, req.MessageAttributeNames),
+			MessageAttributes:      toJSONMsgAttrs(returnedAttrs),
 		})
 	}
 
@@ -871,11 +900,12 @@ func (h *Handler) handleSendMessageBatch(
 
 	for _, s := range out.Successful {
 		result.Successful = append(result.Successful, jsonBatchSuccess{
-			ID:                     s.ID,
-			MessageID:              s.MessageID,
-			MD5OfMessageBody:       s.MD5OfBody,
-			MD5OfMessageAttributes: s.MD5OfMessageAttributes,
-			SequenceNumber:         s.SequenceNumber,
+			ID:                           s.ID,
+			MessageID:                    s.MessageID,
+			MD5OfMessageBody:             s.MD5OfBody,
+			MD5OfMessageAttributes:       s.MD5OfMessageAttributes,
+			MD5OfMessageSystemAttributes: s.MD5OfMessageSystemAttributes,
+			SequenceNumber:               s.SequenceNumber,
 		})
 	}
 
@@ -1084,6 +1114,11 @@ const errTypeInvalidParameterValue = "com.amazonaws.sqs#InvalidParameterValue"
 // invalidParameterValueMessage returns the AWS error message for parameter-validation
 // sentinel errors, or ("", false) if the error is not a parameter error.
 func invalidParameterValueMessage(err error) (string, bool) {
+	var ipe *InvalidParameterError
+	if errors.As(err, &ipe) {
+		return ipe.Message, true
+	}
+
 	switch {
 	case errors.Is(err, ErrInvalidWaitTime):
 		return "Value for parameter WaitTimeSeconds is invalid. Reason: Must be between 0 and 20, if provided.", true
@@ -1146,11 +1181,19 @@ func sqsCoreErrorDetails(err error) (errorEntry, bool) {
 	rows := [...]errRow{
 		{
 			ErrQueueNotFound,
-			errorEntry{"com.amazonaws.sqs#QueueDoesNotExist", "The specified queue does not exist.", badReq},
+			errorEntry{
+				"com.amazonaws.sqs#QueueDoesNotExist",
+				"The specified queue does not exist.",
+				badReq,
+			},
 		},
 		{
 			ErrQueueAlreadyExists,
-			errorEntry{"com.amazonaws.sqs#QueueNameExists", "A queue with this name already exists.", badReq},
+			errorEntry{
+				"com.amazonaws.sqs#QueueNameExists",
+				"A queue with this name already exists.",
+				badReq,
+			},
 		},
 		{
 			ErrReceiptHandleInvalid,
@@ -1183,11 +1226,19 @@ func sqsCoreErrorDetails(err error) (errorEntry, bool) {
 		},
 		{
 			ErrInvalidBatchEntry,
-			errorEntry{"com.amazonaws.sqs#EmptyBatchRequest", "The batch request is empty.", badReq},
+			errorEntry{
+				"com.amazonaws.sqs#EmptyBatchRequest",
+				"The batch request is empty.",
+				badReq,
+			},
 		},
 		{
 			ErrInvalidAttribute,
-			errorEntry{"com.amazonaws.sqs#InvalidAttributeValue", "Invalid attribute value.", badReq},
+			errorEntry{
+				"com.amazonaws.sqs#InvalidAttributeValue",
+				"Invalid attribute value.",
+				badReq,
+			},
 		},
 		{
 			ErrMessageTooLarge,
@@ -1389,16 +1440,23 @@ func toJSONMsgAttrs(attrs map[string]MessageAttributeValue) map[string]jsonMsgAt
 	return result
 }
 
-func filterJSONMsgAttrs(attrs map[string]MessageAttributeValue, requested []string) map[string]jsonMsgAttr {
+// filterMsgAttrs returns the subset of message attributes the consumer asked
+// for via the ReceiveMessage MessageAttributeNames parameter. AWS supports
+// exact names, the "All"/".*" wildcards, and "<prefix>.*" prefix wildcards.
+// The result is the internal MessageAttributeValue representation so callers
+// can recompute MD5OfMessageAttributes over exactly the returned subset.
+func filterMsgAttrs(
+	attrs map[string]MessageAttributeValue, requested []string,
+) map[string]MessageAttributeValue {
 	if len(attrs) == 0 || len(requested) == 0 {
-		return map[string]jsonMsgAttr{}
+		return nil
 	}
 
 	// AWS SDKs may send either "All" or ".*" to request all message attributes.
 	// Both are treated as wildcards that return every attribute, matching the
 	// behaviour of the real SQS service.
 	if containsStr(requested, attrAll) || containsStr(requested, ".*") {
-		return toJSONMsgAttrs(attrs)
+		return attrs
 	}
 
 	exact := make(map[string]struct{}, len(requested))
@@ -1413,17 +1471,17 @@ func filterJSONMsgAttrs(attrs map[string]MessageAttributeValue, requested []stri
 		exact[name] = struct{}{}
 	}
 
-	result := make(map[string]jsonMsgAttr)
+	result := make(map[string]MessageAttributeValue)
 	for name, value := range attrs {
 		if _, ok := exact[name]; ok {
-			result[name] = jsonMsgAttr(value)
+			result[name] = value
 
 			continue
 		}
 
 		for _, prefix := range prefixes {
 			if strings.HasPrefix(name, prefix) {
-				result[name] = jsonMsgAttr(value)
+				result[name] = value
 
 				break
 			}

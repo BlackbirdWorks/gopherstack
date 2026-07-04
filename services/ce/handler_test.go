@@ -1985,7 +1985,7 @@ func TestHandler_SortedOutput(t *testing.T) {
 			verify: func(t *testing.T, h *ce.Handler) {
 				t.Helper()
 
-				cats := h.Backend.ListCostCategoryDefinitions()
+				cats, _ := h.Backend.ListCostCategoryDefinitions(0, "")
 				require.Len(t, cats, 1)
 
 				rec := doRequest(t, h, "ListTagsForResource", map[string]any{
@@ -2171,11 +2171,11 @@ func TestHandler_SnapshotRestoreWithAnomalies(t *testing.T) {
 		FeedbackType: "YES",
 	})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	rec := doRequest(t, fresh, "GetAnomalies", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)

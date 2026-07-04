@@ -1,11 +1,14 @@
 package dax
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // errSnapshotIntegrity is the sentinel error for snapshot referential integrity failures.
@@ -91,7 +94,7 @@ func rebuildTagIndex(s *backendSnapshot) {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 
 	snap := backendSnapshot{
@@ -109,7 +112,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RUnlock()
 
 	if err != nil {
-		slog.Default().Error("dax: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).ErrorContext(ctx, "dax: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -118,9 +121,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "dax", data, &snap); err != nil {
 		return err
 	}
 
@@ -143,5 +146,61 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.AccountID = snap.AccountID
 	b.Region = snap.Region
 
+	b.recoverAsyncTransitions()
+
 	return nil
+}
+
+func (b *InMemoryBackend) recoverAsyncTransitions() {
+	for name, c := range b.clusters {
+		b.recoverClusterState(name, c)
+
+		for i := range c.Nodes {
+			if c.Nodes[i].NodeStatus == StatusRebooting {
+				b.recoverNodeState(name, c.Nodes[i].NodeID)
+			}
+		}
+	}
+}
+
+func (b *InMemoryBackend) recoverClusterState(name string, c *Cluster) {
+	switch c.Status {
+	case StatusCreating, StatusModifying:
+		go func(cName string) {
+			b.mu.Lock("Restore:cluster-recovery")
+			defer b.mu.Unlock()
+			if cl, ok := b.clusters[cName]; ok {
+				cl.Status = StatusAvailable
+			}
+		}(name)
+	case StatusDeleting:
+		go func(cName, cArn string) {
+			b.mu.Lock("Restore:delete-recovery")
+			defer b.mu.Unlock()
+			if cl, ok := b.clusters[cName]; ok && cl.Status == StatusDeleting {
+				delete(b.clusters, cName)
+				delete(b.tags, cArn)
+				b.emitEventLocked(cName, EventSourceTypeCluster,
+					fmt.Sprintf("Cluster %s has been deleted.", cName))
+			}
+		}(name, c.ClusterArn)
+	}
+}
+
+func (b *InMemoryBackend) recoverNodeState(cName, nodeID string) {
+	go func() {
+		b.mu.Lock("Restore:node-recovery")
+		defer b.mu.Unlock()
+		if cl, ok := b.clusters[cName]; ok {
+			for j := range cl.Nodes {
+				if cl.Nodes[j].NodeID == nodeID {
+					cl.Nodes[j].NodeStatus = StatusAvailable
+					b.emitEventLocked(cName, EventSourceTypeNode,
+						fmt.Sprintf("Node %s reboot complete.", nodeID))
+
+					break
+				}
+			}
+		}
+	}()
 }

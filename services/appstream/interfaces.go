@@ -1,6 +1,9 @@
 package appstream
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for AppStream 2.0 storage operations.
 type StorageBackend interface {
@@ -11,11 +14,13 @@ type StorageBackend interface {
 	DeleteStack(name string) error
 
 	// Fleets
-	CreateFleet(name, displayName, description, instanceType, fleetType string,
-		maxUserDuration, disconnectTimeout int, tags map[string]string) (*Fleet, error)
+	CreateFleet(name, displayName, description, instanceType, fleetType, imageName, imageArn string,
+		desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
+		enableDefaultInternetAccess *bool, tags map[string]string) (*Fleet, error)
 	DescribeFleets(names []string) ([]*Fleet, error)
-	UpdateFleet(name, displayName, description, instanceType string,
-		maxUserDuration, disconnectTimeout int) (*Fleet, error)
+	UpdateFleet(name, displayName, description, instanceType, imageName, imageArn string,
+		desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
+		enableDefaultInternetAccess *bool) (*Fleet, error)
 	DeleteFleet(name string) error
 	StartFleet(name string) error
 	StopFleet(name string) error
@@ -153,8 +158,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Stack holds AppStream 2.0 stack details.
@@ -169,17 +174,22 @@ type Stack struct {
 
 // Fleet holds AppStream 2.0 fleet details.
 type Fleet struct {
-	CreatedTime           time.Time
-	Tags                  map[string]string
-	Name                  string
-	Arn                   string
-	DisplayName           string
-	Description           string
-	InstanceType          string
-	FleetType             string
-	State                 string
-	MaxUserDurationSecs   int
-	DisconnectTimeoutSecs int
+	EnableDefaultInternetAccess *bool
+	CreatedTime                 time.Time
+	Tags                        map[string]string
+	Name                        string
+	Arn                         string
+	DisplayName                 string
+	Description                 string
+	InstanceType                string
+	FleetType                   string
+	State                       string
+	ImageName                   string
+	ImageArn                    string
+	DesiredInstances            int
+	MaxUserDurationSecs         int
+	DisconnectTimeoutSecs       int
+	IdleDisconnectTimeoutSecs   int
 }
 
 // AppBlock holds AppStream 2.0 app block details.

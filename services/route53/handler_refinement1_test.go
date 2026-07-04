@@ -725,11 +725,11 @@ func TestRefinement1_SnapshotRestore_KSK(t *testing.T) {
 			_, err = b.CreateKeySigningKey(hz.ID, "caller-1", "key1", "arn:kms:test", "ACTIVE")
 			require.NoError(t, err)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotEmpty(t, snap)
 
 			b2 := route53.NewInMemoryBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			assert.Equal(t, tt.wantKSKCount, route53.KeySigningKeyCount(b2))
 		})
@@ -759,11 +759,11 @@ func TestRefinement1_SnapshotRestore_VPCAssociation(t *testing.T) {
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1"))
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotEmpty(t, snap)
 
 			b2 := route53.NewInMemoryBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			assert.Equal(t, tt.wantVPCCount, route53.VPCAssociationCount(b2))
 		})

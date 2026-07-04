@@ -2,10 +2,13 @@ package codecommit
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -31,7 +34,9 @@ const (
 	keyDestCommitID     = "destinationCommitId"
 	keyBlobID           = "blobId"
 	keyFilePath         = "filePath"
+	keyFileMode         = "fileMode"
 	prStatusMerged      = "MERGED"
+	fileModeNormal      = "NORMAL"
 )
 
 const codecommitTargetPrefix = "CodeCommit_20150413."
@@ -40,6 +45,32 @@ var (
 	errUnknownAction  = errors.New("unknown action")
 	errInvalidRequest = errors.New("invalid request")
 )
+
+// paginateStrings slices a sorted string slice using the nextToken cursor and maxResults limit.
+// The nextToken is an opaque decimal index into the slice.
+// Returns the page and the next token (empty string if no more pages).
+func paginateStrings(items []string, nextToken string, maxResults int) ([]string, string) {
+	start := 0
+	if nextToken != "" {
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx >= 0 {
+			start = idx
+		}
+	}
+	if start > len(items) {
+		start = len(items)
+	}
+	end := len(items)
+	if maxResults > 0 && start+maxResults < end {
+		end = start + maxResults
+	}
+	page := items[start:end]
+	token := ""
+	if end < len(items) {
+		token = strconv.Itoa(end)
+	}
+
+	return page, token
+}
 
 // Handler is the Echo HTTP handler for AWS CodeCommit operations.
 type Handler struct {
@@ -474,20 +505,69 @@ func (h *Handler) handleDeleteRepository(body []byte) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleListRepositories(_ []byte) (any, error) {
-	repos := h.Backend.ListRepositories()
-	items := make([]map[string]any, 0, len(repos))
+func (h *Handler) handleListRepositories(body []byte) (any, error) {
+	var in struct {
+		SortBy     string `json:"sortBy"` // "repositoryName" (default) or "lastModifiedDate"
+		Order      string `json:"order"`  // "ASCENDING" (default) or "DESCENDING"
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
+	}
+	// Ignore parse errors — all fields are optional.
+	_ = json.Unmarshal(body, &in)
 
-	for _, r := range repos {
+	repos := h.Backend.ListRepositories()
+
+	// Apply sort.
+	switch in.SortBy {
+	case "lastModifiedDate":
+		sort.Slice(repos, func(i, j int) bool {
+			if strings.EqualFold(in.Order, "DESCENDING") {
+				return repos[i].LastModifiedDate.After(repos[j].LastModifiedDate)
+			}
+
+			return repos[i].LastModifiedDate.Before(repos[j].LastModifiedDate)
+		})
+	default:
+		// Default: sort by repositoryName ascending (already sorted by backend).
+		if strings.EqualFold(in.Order, "DESCENDING") {
+			sort.Slice(repos, func(i, j int) bool {
+				return repos[i].RepositoryName > repos[j].RepositoryName
+			})
+		}
+	}
+
+	// Apply pagination.
+	start := 0
+	if in.NextToken != "" {
+		if idx, err := strconv.Atoi(in.NextToken); err == nil && idx >= 0 {
+			start = idx
+		}
+	}
+	if start > len(repos) {
+		start = len(repos)
+	}
+	end := len(repos)
+	if in.MaxResults > 0 && start+in.MaxResults < end {
+		end = start + in.MaxResults
+	}
+	page := repos[start:end]
+
+	items := make([]map[string]any, 0, len(page))
+	for _, r := range page {
 		items = append(items, map[string]any{
 			keyRepositoryID:   r.RepositoryID,
 			keyRepositoryName: r.RepositoryName,
 		})
 	}
 
-	return map[string]any{
+	resp := map[string]any{
 		"repositories": items,
-	}, nil
+	}
+	if end < len(repos) {
+		resp["nextToken"] = strconv.Itoa(end)
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleTagResource(body []byte) (any, error) {
@@ -590,12 +670,25 @@ type createBranchInput struct {
 	CommitID       string `json:"commitId"`
 }
 
+type createCommitPutFileEntry struct {
+	FilePath    string `json:"filePath"`
+	FileContent string `json:"fileContent"` // base64-encoded
+	FileMode    string `json:"fileMode"`
+}
+
+type createCommitDeleteFileEntry struct {
+	FilePath string `json:"filePath"`
+}
+
 type createCommitInput struct {
-	RepositoryName string `json:"repositoryName"`
-	BranchName     string `json:"branchName"`
-	AuthorName     string `json:"authorName"`
-	Email          string `json:"email"`
-	CommitMessage  string `json:"commitMessage"`
+	RepositoryName string                        `json:"repositoryName"`
+	BranchName     string                        `json:"branchName"`
+	AuthorName     string                        `json:"authorName"`
+	Email          string                        `json:"email"`
+	CommitMessage  string                        `json:"commitMessage"`
+	ParentCommitID string                        `json:"parentCommitId"`
+	PutFiles       []createCommitPutFileEntry    `json:"putFiles"`
+	DeleteFiles    []createCommitDeleteFileEntry `json:"deleteFiles"`
 }
 
 type pullRequestTargetInput struct {
@@ -835,10 +928,17 @@ func (h *Handler) handleBatchGetCommits(body []byte) (any, error) {
 }
 
 // commitToMap converts a Commit to the AWS-accurate JSON map representation.
+// The author/committer date is returned as a Unix timestamp string, matching the real AWS API.
 func commitToMap(c *Commit) map[string]any {
 	parents := c.Parents
 	if parents == nil {
 		parents = []string{}
+	}
+
+	// AWS returns the commit date as a Unix epoch integer formatted as a decimal string.
+	date := ""
+	if !c.CreatedAt.IsZero() {
+		date = strconv.FormatInt(c.CreatedAt.Unix(), 10)
 	}
 
 	return map[string]any{
@@ -849,12 +949,12 @@ func commitToMap(c *Commit) map[string]any {
 		"author": map[string]any{
 			"name":  c.AuthorName,
 			"email": c.AuthorEmail,
-			"date":  "",
+			"date":  date,
 		},
 		"committer": map[string]any{
 			"name":  c.CommitterName,
 			"email": c.CommitterEmail,
-			"date":  "",
+			"date":  date,
 		},
 		"additionalData": c.AdditionalData,
 	}
@@ -925,7 +1025,43 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: branchName is required", errInvalidRequest)
 	}
 
-	commit, err := h.Backend.CreateCommit(in.RepositoryName, in.BranchName, in.AuthorName, in.Email, in.CommitMessage)
+	// Decode putFiles entries.
+	putFiles := make([]PutFileEntry, 0, len(in.PutFiles))
+	filesAdded := make([]any, 0, len(in.PutFiles))
+	for _, pf := range in.PutFiles {
+		content, err := base64.StdEncoding.DecodeString(pf.FileContent)
+		if err != nil {
+			content = []byte(pf.FileContent)
+		}
+		fileMode := pf.FileMode
+		if fileMode == "" {
+			fileMode = fileModeNormal
+		}
+		putFiles = append(putFiles, PutFileEntry{
+			FilePath:    pf.FilePath,
+			FileContent: content,
+			FileMode:    fileMode,
+		})
+		filesAdded = append(filesAdded, map[string]any{
+			keyFilePath:    pf.FilePath,
+			"blobId":       "",
+			keyFileMode:    fileMode,
+			"absolutePath": pf.FilePath,
+		})
+	}
+
+	deleteFiles := make([]string, 0, len(in.DeleteFiles))
+	filesDeleted := make([]any, 0, len(in.DeleteFiles))
+	for _, df := range in.DeleteFiles {
+		deleteFiles = append(deleteFiles, df.FilePath)
+		filesDeleted = append(filesDeleted, map[string]any{keyFilePath: df.FilePath})
+	}
+
+	commit, err := h.Backend.CreateCommit(
+		in.RepositoryName, in.BranchName,
+		in.AuthorName, in.Email, in.CommitMessage,
+		in.ParentCommitID, putFiles, deleteFiles,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -933,9 +1069,9 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 	return map[string]any{
 		keyCommitID:    commit.CommitID,
 		keyTreeID:      commit.TreeID,
-		"filesAdded":   []any{},
+		"filesAdded":   filesAdded,
 		"filesUpdated": []any{},
-		"filesDeleted": []any{},
+		"filesDeleted": filesDeleted,
 	}, nil
 }
 
@@ -1077,6 +1213,8 @@ func (h *Handler) handleGetCommit(body []byte) (any, error) {
 func (h *Handler) handleListBranches(body []byte) (any, error) {
 	var in struct {
 		RepositoryName string `json:"repositoryName"`
+		NextToken      string `json:"nextToken"`
+		MaxResults     int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
@@ -1087,9 +1225,17 @@ func (h *Handler) handleListBranches(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]any{
-		"branches": branches,
-	}, nil
+	// Apply pagination.
+	page, nextToken := paginateStrings(branches, in.NextToken, in.MaxResults)
+
+	resp := map[string]any{
+		"branches": page,
+	}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleGetPullRequest(body []byte) (any, error) {
@@ -1118,6 +1264,9 @@ func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 	var in struct {
 		RepositoryName    string `json:"repositoryName"`
 		PullRequestStatus string `json:"pullRequestStatus"`
+		AuthorARN         string `json:"authorArn"`
+		NextToken         string `json:"nextToken"`
+		MaxResults        int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
@@ -1127,16 +1276,27 @@ func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	if in.PullRequestStatus != "" && in.PullRequestStatus != prStatusOpen && in.PullRequestStatus != prStatusClosed {
-		return nil, fmt.Errorf("%w: pullRequestStatus must be OPEN or CLOSED", ErrValidation)
+	if in.PullRequestStatus != "" &&
+		in.PullRequestStatus != prStatusOpen &&
+		in.PullRequestStatus != prStatusClosed &&
+		in.PullRequestStatus != prStatusMerged {
+		return nil, fmt.Errorf("%w: pullRequestStatus must be OPEN, CLOSED, or MERGED", ErrValidation)
 	}
 
-	ids, err := h.Backend.ListPullRequests(in.RepositoryName, in.PullRequestStatus)
+	ids, err := h.Backend.ListPullRequests(in.RepositoryName, in.PullRequestStatus, in.AuthorARN)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
+	// Apply pagination.
+	ids, nextToken := paginateStrings(ids, in.NextToken, in.MaxResults)
+
+	resp := map[string]any{
 		"pullRequestIds": ids,
-	}, nil
+	}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return resp, nil
 }

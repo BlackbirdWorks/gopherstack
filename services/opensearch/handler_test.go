@@ -22,6 +22,12 @@ func newTestHandler() *opensearch.Handler {
 	return opensearch.NewHandler(bk)
 }
 
+func newTestHandlerAndBackend() (*opensearch.InMemoryBackend, *opensearch.Handler) {
+	bk := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	return bk, opensearch.NewHandler(bk)
+}
+
 func doRequest(t *testing.T, h *opensearch.Handler, method, path string, body any) *http.Response {
 	t.Helper()
 
@@ -694,12 +700,19 @@ func TestOpenSearchHandler_AcceptInboundConnection(t *testing.T) {
 		connectionID string
 		wantContains []string
 		wantCode     int
+		seedConn     bool
 	}{
 		{
 			name:         "success",
 			connectionID: "conn-123",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"conn-123", "ACTIVE"},
+			seedConn:     true,
+		},
+		{
+			name:         "not_found",
+			connectionID: "conn-nonexistent",
+			wantCode:     http.StatusNotFound,
 		},
 		{
 			name:         "empty_id",
@@ -712,7 +725,12 @@ func TestOpenSearchHandler_AcceptInboundConnection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			if tt.seedConn {
+				opensearch.SeedInboundConnection(b, tt.connectionID)
+			}
+			h := opensearch.NewHandler(b)
+
 			path := "/2021-01-01/opensearch/cc/inboundConnection/" + tt.connectionID + "/accept"
 			resp := doRequest(t, h, http.MethodPut, path, nil)
 			defer resp.Body.Close()
@@ -1233,9 +1251,27 @@ func TestOpenSearchHandler_CancelServiceSoftwareUpdate(t *testing.T) {
 				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
 					map[string]any{"DomainName": "my-domain"})
 				r.Body.Close()
+				// A pending update must exist for cancellation to be valid.
+				_, err := h.Backend.StartServiceSoftwareUpdate("my-domain", "")
+				require.NoError(t, err)
 			},
-			wantCode:     http.StatusOK,
-			wantContains: []string{"ServiceSoftwareOptions", "COMPLETED"},
+			wantCode: http.StatusOK,
+			// After cancelling a scheduled install the update remains available,
+			// so the domain returns to the ELIGIBLE state (never a "CANCELLED"
+			// value, which is not a real AWS status).
+			wantContains: []string{"ServiceSoftwareOptions", "ELIGIBLE"},
+		},
+		{
+			name:       "no_update_pending",
+			domainName: "no-update",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "no-update"})
+				r.Body.Close()
+			},
+			// No scheduled update → AWS-accurate ValidationException.
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:       "domain_not_found",
@@ -1543,8 +1579,7 @@ func TestOpenSearchHandler_Persistence_NewOps(t *testing.T) {
 	_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "snap-domain", EngineVersion: "OpenSearch_2.11"})
 	require.NoError(t, err)
 
-	_, err = b.AcceptInboundConnection("conn-abc")
-	require.NoError(t, err)
+	opensearch.SeedInboundConnection(b, "conn-abc")
 
 	_, err = b.AddDataSource("snap-domain", "my-ds", "desc", "S3GLUE")
 	require.NoError(t, err)
@@ -1563,11 +1598,11 @@ func TestOpenSearchHandler_Persistence_NewOps(t *testing.T) {
 	_, err = b.CreateApplication("my-app", nil, nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Verify domain persists
 	domain, err := fresh.DescribeDomain("snap-domain")

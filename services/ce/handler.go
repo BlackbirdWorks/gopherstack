@@ -12,6 +12,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -25,7 +27,7 @@ const (
 	defaultGranularity      = "MONTHLY"
 	handlerZeroAmount       = "0.0000"
 	handlerSavingsPlansType = "COMPUTE_SP"
-	handlerRegionDefault    = "us-east-1"
+	handlerRegionDefault    = config.DefaultRegion
 	handlerCoverPct         = "65.0000"
 	handlerROI              = "25.0000"
 	handlerSPUtilPct        = "85.0000"
@@ -295,6 +297,15 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	}
 }
 
+// ceRegion returns the request-scoped region from ctx, falling back to the handler default.
+func ceRegion(ctx context.Context) string {
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
+	}
+
+	return handlerRegionDefault
+}
+
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	fn, ok := h.ops[action]
 	if !ok {
@@ -468,13 +479,20 @@ type describeCostCategoryDefinitionInput struct {
 	EffectiveOn     string `json:"EffectiveOn"`
 }
 
+type costCategoryProcessingStatus struct {
+	Component string `json:"Component"`
+	Status    string `json:"Status"`
+}
+
 type costCategorySummary struct {
-	CostCategoryArn string             `json:"CostCategoryArn"`
-	Name            string             `json:"Name"`
-	RuleVersion     string             `json:"RuleVersion"`
-	DefaultValue    string             `json:"DefaultValue"`
-	EffectiveStart  string             `json:"EffectiveStart"`
-	Rules           []costCategoryRule `json:"Rules"`
+	CostCategoryArn  string                         `json:"CostCategoryArn"`
+	Name             string                         `json:"Name"`
+	RuleVersion      string                         `json:"RuleVersion"`
+	DefaultValue     string                         `json:"DefaultValue"`
+	EffectiveStart   string                         `json:"EffectiveStart"`
+	EffectiveEnd     string                         `json:"EffectiveEnd,omitempty"`
+	ProcessingStatus []costCategoryProcessingStatus `json:"ProcessingStatus,omitempty"`
+	Rules            []costCategoryRule             `json:"Rules"`
 }
 
 type describeCostCategoryDefinitionOutput struct {
@@ -506,7 +524,10 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 			RuleVersion:     cat.RuleVersion,
 			DefaultValue:    cat.DefaultValue,
 			EffectiveStart:  cat.EffectiveStart,
-			Rules:           rules,
+			ProcessingStatus: []costCategoryProcessingStatus{
+				{Component: "COST_EXPLORER", Status: "APPLIED"},
+			},
+			Rules: rules,
 		},
 	}, nil
 }
@@ -530,10 +551,11 @@ type listCostCategoryDefinitionsOutput struct {
 
 func (h *Handler) handleListCostCategoryDefinitions(
 	_ context.Context,
-	_ *listCostCategoryDefinitionsInput,
+	in *listCostCategoryDefinitionsInput,
 ) (*listCostCategoryDefinitionsOutput, error) {
-	cats := h.Backend.ListCostCategoryDefinitions()
+	cats, nextToken := h.Backend.ListCostCategoryDefinitions(in.MaxResults, in.NextToken)
 	refs := make([]costCategoryReference, 0, len(cats))
+
 	for _, cat := range cats {
 		refs = append(refs, costCategoryReference{
 			CostCategoryArn: cat.ARN,
@@ -542,7 +564,7 @@ func (h *Handler) handleListCostCategoryDefinitions(
 		})
 	}
 
-	return &listCostCategoryDefinitionsOutput{CostCategoryReferences: refs}, nil
+	return &listCostCategoryDefinitionsOutput{CostCategoryReferences: refs, NextPageToken: nextToken}, nil
 }
 
 type updateCostCategoryDefinitionInput struct {
@@ -656,10 +678,12 @@ type getAnomalyMonitorsInput struct {
 }
 
 type anomalyMonitorSummary struct {
-	MonitorArn       string `json:"MonitorArn"`
-	MonitorName      string `json:"MonitorName"`
-	MonitorType      string `json:"MonitorType"`
-	MonitorDimension string `json:"MonitorDimension,omitempty"`
+	CreationDate     *string `json:"CreationDate,omitempty"`
+	LastUpdatedDate  *string `json:"LastUpdatedDate,omitempty"`
+	MonitorArn       string  `json:"MonitorArn"`
+	MonitorName      string  `json:"MonitorName"`
+	MonitorType      string  `json:"MonitorType"`
+	MonitorDimension string  `json:"MonitorDimension,omitempty"`
 }
 
 type getAnomalyMonitorsOutput struct {
@@ -671,18 +695,31 @@ func (h *Handler) handleGetAnomalyMonitors(
 	_ context.Context,
 	in *getAnomalyMonitorsInput,
 ) (*getAnomalyMonitorsOutput, error) {
-	monitors := h.Backend.GetAnomalyMonitors(in.MonitorArnList)
+	monitors, nextToken := h.Backend.GetAnomalyMonitors(in.MonitorArnList, in.MaxResults, in.NextPageToken)
 	items := make([]anomalyMonitorSummary, 0, len(monitors))
+
 	for _, mon := range monitors {
-		items = append(items, anomalyMonitorSummary{
+		s := anomalyMonitorSummary{
 			MonitorArn:       mon.MonitorARN,
 			MonitorName:      mon.MonitorName,
 			MonitorType:      mon.MonitorType,
 			MonitorDimension: mon.MonitorDimension,
-		})
+		}
+
+		if !mon.CreationDate.IsZero() {
+			v := mon.CreationDate.Format("2006-01-02")
+			s.CreationDate = &v
+		}
+
+		if !mon.LastUpdatedDate.IsZero() {
+			v := mon.LastUpdatedDate.Format("2006-01-02")
+			s.LastUpdatedDate = &v
+		}
+
+		items = append(items, s)
 	}
 
-	return &getAnomalyMonitorsOutput{AnomalyMonitors: items}, nil
+	return &getAnomalyMonitorsOutput{AnomalyMonitors: items, NextPageToken: nextToken}, nil
 }
 
 type updateAnomalyMonitorInput struct {
@@ -798,6 +835,7 @@ type getAnomalySubscriptionsInput struct {
 type anomalySubscriptionSummary struct {
 	SubscriptionArn  string            `json:"SubscriptionArn"`
 	SubscriptionName string            `json:"SubscriptionName"`
+	AccountID        string            `json:"AccountId,omitempty"`
 	Frequency        string            `json:"Frequency"`
 	MonitorArnList   []string          `json:"MonitorArnList"`
 	Subscribers      []subscriberInput `json:"Subscribers"`
@@ -813,8 +851,11 @@ func (h *Handler) handleGetAnomalySubscriptions(
 	_ context.Context,
 	in *getAnomalySubscriptionsInput,
 ) (*getAnomalySubscriptionsOutput, error) {
-	subs := h.Backend.GetAnomalySubscriptions(in.SubscriptionArnList, in.MonitorArn)
+	subs, nextToken := h.Backend.GetAnomalySubscriptions(
+		in.SubscriptionArnList, in.MonitorArn, in.MaxResults, in.NextPageToken,
+	)
 	items := make([]anomalySubscriptionSummary, 0, len(subs))
+
 	for _, sub := range subs {
 		subscribers := make([]subscriberInput, 0, len(sub.Subscribers))
 		for _, s := range sub.Subscribers {
@@ -824,6 +865,7 @@ func (h *Handler) handleGetAnomalySubscriptions(
 		items = append(items, anomalySubscriptionSummary{
 			SubscriptionArn:  sub.SubscriptionARN,
 			SubscriptionName: sub.SubscriptionName,
+			AccountID:        sub.AccountID,
 			MonitorArnList:   sub.MonitorARNList,
 			Frequency:        sub.Frequency,
 			Threshold:        sub.Threshold,
@@ -831,7 +873,7 @@ func (h *Handler) handleGetAnomalySubscriptions(
 		})
 	}
 
-	return &getAnomalySubscriptionsOutput{AnomalySubscriptions: items}, nil
+	return &getAnomalySubscriptionsOutput{AnomalySubscriptions: items, NextPageToken: nextToken}, nil
 }
 
 type updateAnomalySubscriptionInput struct {
@@ -897,6 +939,10 @@ func (h *Handler) handleGetCostAndUsage(
 	_ context.Context,
 	in *getCostAndUsageInput,
 ) (*getCostAndUsageOutput, error) {
+	if in.Granularity == "" {
+		return nil, fmt.Errorf("%w: Granularity is required", errInvalidRequest)
+	}
+
 	start := ""
 	end := ""
 
@@ -914,9 +960,6 @@ func (h *Handler) handleGetCostAndUsage(
 	}
 
 	granularity := in.Granularity
-	if granularity == "" {
-		granularity = "DAILY"
-	}
 
 	groupBy := make([]GroupBySpec, len(in.GroupBy))
 	for i, g := range in.GroupBy {
@@ -956,6 +999,10 @@ func (h *Handler) handleGetDimensionValues(
 	_ context.Context,
 	in *getDimensionValuesInput,
 ) (*getDimensionValuesOutput, error) {
+	if in.Dimension == "" {
+		return nil, fmt.Errorf("%w: Dimension is required", errInvalidRequest)
+	}
+
 	vals := h.Backend.GetDimensionValues(in.Dimension)
 
 	if in.SearchString != "" {
@@ -1261,7 +1308,11 @@ func (h *Handler) handleGetAnomalies(
 	_ context.Context,
 	in *getAnomaliesInput,
 ) (*getAnomaliesOutput, error) {
-	anomalies := h.Backend.GetAnomalies(in.MonitorArn, in.Feedback)
+	anomalies, nextToken := h.Backend.GetAnomalies(
+		in.MonitorArn, in.Feedback,
+		in.DateInterval.StartDate, in.DateInterval.EndDate,
+		in.MaxResults, in.NextPageToken,
+	)
 	items := make([]anomalySummary, 0, len(anomalies))
 
 	for _, a := range anomalies {
@@ -1285,7 +1336,7 @@ func (h *Handler) handleGetAnomalies(
 		})
 	}
 
-	return &getAnomaliesOutput{Anomalies: items}, nil
+	return &getAnomaliesOutput{Anomalies: items, NextPageToken: nextToken}, nil
 }
 
 // --- GetApproximateUsageRecords stub ---
@@ -1675,7 +1726,7 @@ type getSavingsPlansCoverageOutput struct {
 }
 
 func (h *Handler) handleGetSavingsPlansCoverage(
-	_ context.Context,
+	ctx context.Context,
 	in *getSavingsPlansCoverageInput,
 ) (*getSavingsPlansCoverageOutput, error) {
 	start, end := defaultStartDate, defaultEndDate
@@ -1694,7 +1745,7 @@ func (h *Handler) handleGetSavingsPlansCoverage(
 		{
 			Attributes: map[string]string{
 				"SavingsPlansType": handlerSavingsPlansType,
-				"Region":           "us-east-1",
+				"Region":           ceRegion(ctx),
 			},
 			Coverage: map[string]string{
 				"OnDemandCost":              spUtil.Savings.OnDemandCostEquivalent,
@@ -1739,7 +1790,7 @@ type getSavingsPlansPurchaseRecommendationOutput struct {
 }
 
 func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
-	_ context.Context,
+	ctx context.Context,
 	in *getSavingsPlansPurchaseRecommendationInput,
 ) (*getSavingsPlansPurchaseRecommendationOutput, error) {
 	end := "2024-01-01"
@@ -1760,11 +1811,11 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 			RecommendationDetails: []map[string]any{
 				{
 					"SavingsPlansDetails": map[string]string{
-						"Region":         "us-east-1",
+						"Region":         ceRegion(ctx),
 						"InstanceFamily": "m5",
 						"OfferingId":     "synthetic-sp-offer-1",
 					},
-					"AccountId":             "000000000000",
+					"AccountId":             awsmeta.Account(ctx),
 					"UpfrontCost":           handlerZeroAmount,
 					"EstimatedROI":          handlerROI,
 					handlerCurrencyCode:     metricUnitUSD,

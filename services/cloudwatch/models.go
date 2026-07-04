@@ -60,30 +60,37 @@ type Datapoint struct {
 
 // MetricAlarm represents a CloudWatch metric alarm.
 type MetricAlarm struct {
-	CreatedAt                          time.Time   `json:"AlarmCreatedAt"`
-	StateTransitionedTimestamp         time.Time   `json:"StateTransitionedTimestamp"`
-	AlarmConfigurationUpdatedTimestamp time.Time   `json:"AlarmConfigurationUpdatedTimestamp"`
-	StateValue                         string      `json:"StateValue"`
-	Namespace                          string      `json:"Namespace"`
-	MetricName                         string      `json:"MetricName"`
-	ComparisonOperator                 string      `json:"ComparisonOperator"`
-	Statistic                          string      `json:"Statistic"`
-	ExtendedStatistic                  string      `json:"ExtendedStatistic,omitempty"`
-	TreatMissingData                   string      `json:"TreatMissingData,omitempty"`
-	AlarmName                          string      `json:"AlarmName"`
-	StateReason                        string      `json:"StateReason,omitempty"`
-	StateReasonData                    string      `json:"StateReasonData,omitempty"`
-	AlarmDescription                   string      `json:"AlarmDescription,omitempty"`
-	AlarmArn                           string      `json:"AlarmArn"`
-	AlarmActions                       []string    `json:"AlarmActions,omitempty"`
-	OKActions                          []string    `json:"OKActions,omitempty"`
-	InsufficientDataActions            []string    `json:"InsufficientDataActions,omitempty"`
-	Dimensions                         []Dimension `json:"Dimensions,omitempty"`
-	Threshold                          float64     `json:"Threshold"`
-	EvaluationPeriods                  int32       `json:"EvaluationPeriods"`
-	DatapointsToAlarm                  int32       `json:"DatapointsToAlarm,omitempty"`
-	Period                             int32       `json:"Period"`
-	ActionsEnabled                     bool        `json:"ActionsEnabled"`
+	CreatedAt                          time.Time `json:"AlarmCreatedAt"`
+	StateTransitionedTimestamp         time.Time `json:"StateTransitionedTimestamp"`
+	AlarmConfigurationUpdatedTimestamp time.Time `json:"AlarmConfigurationUpdatedTimestamp"`
+	StateValue                         string    `json:"StateValue"`
+	Namespace                          string    `json:"Namespace"`
+	MetricName                         string    `json:"MetricName"`
+	ComparisonOperator                 string    `json:"ComparisonOperator"`
+	Statistic                          string    `json:"Statistic"`
+	ExtendedStatistic                  string    `json:"ExtendedStatistic,omitempty"`
+	TreatMissingData                   string    `json:"TreatMissingData,omitempty"`
+	AlarmName                          string    `json:"AlarmName"`
+	StateReason                        string    `json:"StateReason,omitempty"`
+	StateReasonData                    string    `json:"StateReasonData,omitempty"`
+	AlarmDescription                   string    `json:"AlarmDescription,omitempty"`
+	AlarmArn                           string    `json:"AlarmArn"`
+	// ThresholdMetricID references the MetricDataQuery ID whose result is used as the
+	// dynamic threshold (anomaly band) for GreaterThanUpperThreshold and
+	// LessThanLowerOrGreaterThanUpperThreshold comparison operators.
+	ThresholdMetricID       string      `json:"ThresholdMetricId,omitempty"`
+	AlarmActions            []string    `json:"AlarmActions,omitempty"`
+	OKActions               []string    `json:"OKActions,omitempty"`
+	InsufficientDataActions []string    `json:"InsufficientDataActions,omitempty"`
+	Dimensions              []Dimension `json:"Dimensions,omitempty"`
+	// Metrics holds the MetricDataQuery list for multi-metric / metric-math alarms.
+	// When set, MetricName/Namespace/Statistic/Period/Dimensions are ignored for evaluation.
+	Metrics           []MetricDataQuery `json:"Metrics,omitempty"`
+	Threshold         float64           `json:"Threshold"`
+	EvaluationPeriods int32             `json:"EvaluationPeriods"`
+	DatapointsToAlarm int32             `json:"DatapointsToAlarm,omitempty"`
+	Period            int32             `json:"Period"`
+	ActionsEnabled    bool              `json:"ActionsEnabled"`
 }
 
 // CompositeAlarm represents a CloudWatch composite alarm that combines child alarms.
@@ -154,13 +161,34 @@ type MetricTransformation struct {
 	DefaultValue    float64 `json:"DefaultValue,omitempty"`
 }
 
+// MetricDataMessage is a diagnostic message returned by GetMetricData, either
+// at the top level of the response or attached to an individual MetricDataResult.
+// Code is a short machine-readable identifier (e.g. "ArithmeticError",
+// "Forbidden", "MaxDatapointsExceeded"); Value is the human-readable text.
+type MetricDataMessage struct {
+	Code  string `json:"Code"`
+	Value string `json:"Value"`
+}
+
 // MetricDataResult is a single result entry in a GetMetricData response.
+// StatusCode is "Complete", "PartialData", "InternalError", or "Forbidden".
+// Messages carries per-result diagnostics (e.g. arithmetic errors in metric math).
 type MetricDataResult struct {
-	Timestamps []time.Time `json:"Timestamps"`
-	ID         string      `json:"Id"`
-	Label      string      `json:"Label,omitempty"`
-	StatusCode string      `json:"StatusCode"`
-	Values     []float64   `json:"Values"`
+	Timestamps []time.Time         `json:"Timestamps"`
+	ID         string              `json:"Id"`
+	Label      string              `json:"Label,omitempty"`
+	StatusCode string              `json:"StatusCode"`
+	Values     []float64           `json:"Values"`
+	Messages   []MetricDataMessage `json:"Messages,omitempty"`
+}
+
+// GetMetricDataPage is the paginated result of a GetMetricData request.
+// NextToken is non-empty when the response was truncated to honour MaxDatapoints.
+// Messages carries top-level diagnostics (e.g. a truncation notice).
+type GetMetricDataPage struct {
+	NextToken string
+	Results   []MetricDataResult
+	Messages  []MetricDataMessage
 }
 
 // DashboardEntry represents a single CloudWatch dashboard summary entry returned by ListDashboards.

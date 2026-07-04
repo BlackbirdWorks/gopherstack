@@ -320,19 +320,15 @@ func paginateFolders(all []*storedFolder, maxResults int32, nextToken string) ([
 
 	start := 0
 	if nextToken != "" {
-		for i, f := range all {
-			if f.FolderID == nextToken {
-				start = i
-
-				break
-			}
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
 		}
 	}
 
 	end := start + int(maxResults)
 	var next string
 	if end < len(all) {
-		next = all[end].FolderID
+		next = encodePageToken(end)
 	} else {
 		end = len(all)
 	}

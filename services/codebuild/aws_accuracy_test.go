@@ -1535,3 +1535,129 @@ func TestAWSAccuracy_BuildBatchConfig(t *testing.T) {
 		})
 	}
 }
+
+// TestAWSAccuracy_StartBuildEnvVarOverride verifies that environmentVariablesOverride
+// merges with the project's env vars: same-name vars are replaced, new vars are appended.
+func TestAWSAccuracy_StartBuildEnvVarOverride(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		projectEnvs   []map[string]any
+		overrideEnvs  []map[string]any
+		wantEnvSubset []map[string]any
+		wantEnvCount  int
+	}{
+		{
+			name: "override_replaces_same_name_var",
+			projectEnvs: []map[string]any{
+				{"name": "BRANCH", "value": "main", "type": "PLAINTEXT"},
+				{"name": "ENV", "value": "staging", "type": "PLAINTEXT"},
+			},
+			overrideEnvs: []map[string]any{
+				{"name": "BRANCH", "value": "feature/x", "type": "PLAINTEXT"},
+			},
+			wantEnvCount: 2,
+			wantEnvSubset: []map[string]any{
+				{"name": "BRANCH", "value": "feature/x"},
+				{"name": "ENV", "value": "staging"},
+			},
+		},
+		{
+			name: "override_appends_new_var",
+			projectEnvs: []map[string]any{
+				{"name": "BASE_VAR", "value": "base", "type": "PLAINTEXT"},
+			},
+			overrideEnvs: []map[string]any{
+				{"name": "COMMIT_SHA", "value": "abc123", "type": "PLAINTEXT"},
+			},
+			wantEnvCount: 2,
+			wantEnvSubset: []map[string]any{
+				{"name": "BASE_VAR", "value": "base"},
+				{"name": "COMMIT_SHA", "value": "abc123"},
+			},
+		},
+		{
+			name: "no_override_preserves_project_envs",
+			projectEnvs: []map[string]any{
+				{"name": "FOO", "value": "bar", "type": "PLAINTEXT"},
+			},
+			overrideEnvs: nil,
+			wantEnvCount: 1,
+			wantEnvSubset: []map[string]any{
+				{"name": "FOO", "value": "bar"},
+			},
+		},
+		{
+			name: "override_replaces_and_appends",
+			projectEnvs: []map[string]any{
+				{"name": "VAR_A", "value": "old_a", "type": "PLAINTEXT"},
+				{"name": "VAR_B", "value": "b", "type": "PLAINTEXT"},
+			},
+			overrideEnvs: []map[string]any{
+				{"name": "VAR_A", "value": "new_a", "type": "PLAINTEXT"},
+				{"name": "VAR_C", "value": "c", "type": "PLAINTEXT"},
+			},
+			wantEnvCount: 3,
+			wantEnvSubset: []map[string]any{
+				{"name": "VAR_A", "value": "new_a"},
+				{"name": "VAR_B", "value": "b"},
+				{"name": "VAR_C", "value": "c"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			projName := "envoverride-" + tt.name
+
+			doRequest(t, h, "CreateProject", map[string]any{
+				"name":      projName,
+				"source":    map[string]any{"type": "NO_SOURCE"},
+				"artifacts": map[string]any{"type": "NO_ARTIFACTS"},
+				"environment": map[string]any{
+					"type":                 "LINUX_CONTAINER",
+					"image":                "aws/codebuild/standard:7.0",
+					"computeType":          "BUILD_GENERAL1_SMALL",
+					"environmentVariables": tt.projectEnvs,
+				},
+			})
+
+			body := map[string]any{"projectName": projName}
+			if tt.overrideEnvs != nil {
+				body["environmentVariablesOverride"] = tt.overrideEnvs
+			}
+
+			rec := doRequest(t, h, "StartBuild", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				Build struct {
+					Environment struct {
+						EnvironmentVariables []struct {
+							Name  string `json:"name"`
+							Value string `json:"value"`
+						} `json:"environmentVariables"`
+					} `json:"environment"`
+				} `json:"build"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+
+			envVars := out.Build.Environment.EnvironmentVariables
+			assert.Len(t, envVars, tt.wantEnvCount)
+
+			byName := make(map[string]string, len(envVars))
+			for _, ev := range envVars {
+				byName[ev.Name] = ev.Value
+			}
+			for _, want := range tt.wantEnvSubset {
+				name := want["name"].(string)
+				value := want["value"].(string)
+				assert.Equal(t, value, byName[name], "env var %q should have value %q", name, value)
+			}
+		})
+	}
+}

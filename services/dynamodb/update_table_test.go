@@ -66,15 +66,31 @@ func TestUpdateTable(t *testing.T) {
 				t.Helper()
 				require.NotNil(t, out.TableDescription)
 				require.NotNil(t, out.TableDescription.ProvisionedThroughput)
-				assert.EqualValues(t, 10, aws.ToInt64(out.TableDescription.ProvisionedThroughput.ReadCapacityUnits))
-				assert.EqualValues(t, 20, aws.ToInt64(out.TableDescription.ProvisionedThroughput.WriteCapacityUnits))
+				assert.EqualValues(
+					t,
+					10,
+					aws.ToInt64(out.TableDescription.ProvisionedThroughput.ReadCapacityUnits),
+				)
+				assert.EqualValues(
+					t,
+					20,
+					aws.ToInt64(out.TableDescription.ProvisionedThroughput.WriteCapacityUnits),
+				)
 
 				desc, err := db.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
 					TableName: aws.String("my-table"),
 				})
 				require.NoError(t, err)
-				assert.EqualValues(t, 10, aws.ToInt64(desc.Table.ProvisionedThroughput.ReadCapacityUnits))
-				assert.EqualValues(t, 20, aws.ToInt64(desc.Table.ProvisionedThroughput.WriteCapacityUnits))
+				assert.EqualValues(
+					t,
+					10,
+					aws.ToInt64(desc.Table.ProvisionedThroughput.ReadCapacityUnits),
+				)
+				assert.EqualValues(
+					t,
+					20,
+					aws.ToInt64(desc.Table.ProvisionedThroughput.WriteCapacityUnits),
+				)
 			},
 		},
 		{
@@ -113,7 +129,10 @@ func TestUpdateTable(t *testing.T) {
 						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
 					},
 					AttributeDefinitions: []types.AttributeDefinition{
-						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+						{
+							AttributeName: aws.String("pk"),
+							AttributeType: types.ScalarAttributeTypeS,
+						},
 					},
 					ProvisionedThroughput: &types.ProvisionedThroughput{
 						ReadCapacityUnits:  aws.Int64(5),
@@ -154,7 +173,11 @@ func TestUpdateTable(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.Len(t, desc.Table.GlobalSecondaryIndexes, 1)
-				assert.Equal(t, "sk-index", aws.ToString(desc.Table.GlobalSecondaryIndexes[0].IndexName))
+				assert.Equal(
+					t,
+					"sk-index",
+					aws.ToString(desc.Table.GlobalSecondaryIndexes[0].IndexName),
+				)
 			},
 		},
 		{
@@ -168,8 +191,14 @@ func TestUpdateTable(t *testing.T) {
 						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
 					},
 					AttributeDefinitions: []types.AttributeDefinition{
-						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-						{AttributeName: aws.String("gk"), AttributeType: types.ScalarAttributeTypeS},
+						{
+							AttributeName: aws.String("pk"),
+							AttributeType: types.ScalarAttributeTypeS,
+						},
+						{
+							AttributeName: aws.String("gk"),
+							AttributeType: types.ScalarAttributeTypeS,
+						},
 					},
 					GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
 						{
@@ -209,7 +238,11 @@ func TestUpdateTable(t *testing.T) {
 					TableName: aws.String("del-gsi-table"),
 				})
 				require.NoError(t, err)
-				assert.Empty(t, desc.Table.GlobalSecondaryIndexes, "GSI should be removed after delete")
+				assert.Empty(
+					t,
+					desc.Table.GlobalSecondaryIndexes,
+					"GSI should be removed after delete",
+				)
 			},
 		},
 		{
@@ -231,7 +264,11 @@ func TestUpdateTable(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.NotNil(t, desc.Table.TableClassSummary)
-				assert.Equal(t, types.TableClassStandardInfrequentAccess, desc.Table.TableClassSummary.TableClass)
+				assert.Equal(
+					t,
+					types.TableClassStandardInfrequentAccess,
+					desc.Table.TableClassSummary.TableClass,
+				)
 			},
 		},
 		{
@@ -246,7 +283,10 @@ func TestUpdateTable(t *testing.T) {
 						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
 					},
 					AttributeDefinitions: []types.AttributeDefinition{
-						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+						{
+							AttributeName: aws.String("pk"),
+							AttributeType: types.ScalarAttributeTypeS,
+						},
 					},
 					TableClass: types.TableClassStandardInfrequentAccess,
 					ProvisionedThroughput: &types.ProvisionedThroughput{

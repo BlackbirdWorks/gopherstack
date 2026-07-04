@@ -296,6 +296,7 @@ type tagResourceRequest struct {
 // errorResponse is the standard error response body.
 type errorResponse struct {
 	Message string `json:"message"`
+	Code    string `json:"Code,omitempty"`
 }
 
 // nodeConfiguration holds the configuration for a node.

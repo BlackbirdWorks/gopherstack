@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -336,30 +337,30 @@ type InMemoryBackend struct {
 	// lookups in ListChildren and DeleteOrganizationalUnit.
 	accountChildrenByParent map[string]map[string]bool
 	mu                      *lockmetrics.RWMutex
-	region         string
-	accountID      string
-	accountCounter int
-	statusCounter  int
+	region                  string
+	accountID               string
+	accountCounter          int
+	statusCounter           int
 }
 
 // NewInMemoryBackend creates a new in-memory Organizations backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		accountID:        accountID,
-		region:           region,
-		accounts:         make(map[string]*Account),
-		ous:              make(map[string]*OrganizationalUnit),
-		policies:         make(map[string]*Policy),
-		policyTargets:    make(map[string][]string),
-		targetPolicies:   make(map[string][]string),
-		accountParent:    make(map[string]string),
-		ouParent:         make(map[string]string),
-		tags:             make(map[string]map[string]string),
-		createStatuses:   make(map[string]*CreateAccountStatus),
-		serviceAccess:    make(map[string]time.Time),
-		delegatedAdmins:  make(map[string]map[string]*DelegatedAdmin),
-		handshakes:       make(map[string]*Handshake),
-		emailToAccountID: make(map[string]string),
+		accountID:               accountID,
+		region:                  region,
+		accounts:                make(map[string]*Account),
+		ous:                     make(map[string]*OrganizationalUnit),
+		policies:                make(map[string]*Policy),
+		policyTargets:           make(map[string][]string),
+		targetPolicies:          make(map[string][]string),
+		accountParent:           make(map[string]string),
+		ouParent:                make(map[string]string),
+		tags:                    make(map[string]map[string]string),
+		createStatuses:          make(map[string]*CreateAccountStatus),
+		serviceAccess:           make(map[string]time.Time),
+		delegatedAdmins:         make(map[string]map[string]*DelegatedAdmin),
+		handshakes:              make(map[string]*Handshake),
+		emailToAccountID:        make(map[string]string),
 		ousByParent:             make(map[string]map[string]string),
 		accountChildrenByParent: make(map[string]map[string]bool),
 		accountCounter:          managementAccountCounter,
@@ -388,27 +389,27 @@ func (b *InMemoryBackend) removeAccountChild(accountID string) {
 
 // orgARN builds an ARN for the organization.
 func (b *InMemoryBackend) orgARN(orgID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:organization/%s", b.accountID, orgID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("organization/%s", orgID))
 }
 
 // masterAccountARN builds an ARN for the management account.
 func (b *InMemoryBackend) masterAccountARN(orgID, accountID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:account/%s/%s", b.accountID, orgID, accountID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("account/%s/%s", orgID, accountID))
 }
 
 // accountARN builds an ARN for an account.
 func (b *InMemoryBackend) accountARN(orgID, accountID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:account/%s/%s", b.accountID, orgID, accountID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("account/%s/%s", orgID, accountID))
 }
 
 // rootARN builds an ARN for the root.
 func (b *InMemoryBackend) rootARN(orgID, rootID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:root/%s/%s", b.accountID, orgID, rootID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("root/%s/%s", orgID, rootID))
 }
 
 // ouARN builds an ARN for an OU.
 func (b *InMemoryBackend) ouARN(orgID, ouID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:ou/%s/%s", b.accountID, orgID, ouID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("ou/%s/%s", orgID, ouID))
 }
 
 // policyARN builds an ARN for a policy.
@@ -1562,7 +1563,7 @@ func (b *InMemoryBackend) TagResource(resourceID string, tags []Tag) error {
 	}
 
 	if !b.resourceExistsLocked(resourceID) {
-		return ErrInvalidInput
+		return ErrTargetNotFound
 	}
 
 	b.setTagsLocked(resourceID, tags)
@@ -1580,7 +1581,7 @@ func (b *InMemoryBackend) UntagResource(resourceID string, tagKeys []string) err
 	}
 
 	if !b.resourceExistsLocked(resourceID) {
-		return ErrInvalidInput
+		return ErrTargetNotFound
 	}
 
 	t := b.tags[resourceID]
@@ -1605,7 +1606,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceID string) ([]Tag, error) 
 	}
 
 	if !b.resourceExistsLocked(resourceID) {
-		return nil, ErrInvalidInput
+		return nil, ErrTargetNotFound
 	}
 
 	t := b.tags[resourceID]

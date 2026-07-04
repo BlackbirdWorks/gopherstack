@@ -225,7 +225,7 @@ func TestLambda_FunctionURL_InvokeMode(t *testing.T) {
 				FunctionName: fnName,
 			}))
 
-			cfg, err := backend.CreateFunctionURLConfig(fnName, "NONE", nil, tt.inputInvMode)
+			cfg, err := backend.CreateFunctionURLConfig(t.Context(), fnName, "NONE", nil, tt.inputInvMode)
 			require.NoError(t, err)
 			require.NotNil(t, cfg)
 			assert.Equal(t, tt.wantInvokeMode, cfg.InvokeMode)

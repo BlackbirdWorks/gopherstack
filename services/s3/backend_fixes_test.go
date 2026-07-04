@@ -535,9 +535,10 @@ func TestSuspendedVersioningDeletePreservesVersions(t *testing.T) {
 	data, _ := io.ReadAll(got.Body)
 	assert.Equal(t, "enabled-data", string(data))
 
-	// An unversioned GET now sees the delete marker → NoSuchKey.
+	// An unversioned GET now sees the delete marker → 404 with x-amz-delete-marker
+	// (ErrLatestDeleteMarker renders as NoSuchKey but carries the header).
 	_, err = backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
 		Bucket: aws.String("bkt"), Key: aws.String("k"),
 	})
-	require.ErrorIs(t, err, s3.ErrNoSuchKey)
+	require.ErrorIs(t, err, s3.ErrLatestDeleteMarker)
 }

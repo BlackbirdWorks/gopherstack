@@ -353,11 +353,11 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 			h := newTestHandler(t)
 			doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": tt.cpName})
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			h2 := newTestHandler(t)
-			require.NoError(t, h2.Restore(snap))
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
 			rec := doECSRequest(t, h2, "DescribeCapacityProviders", map[string]any{})
 			require.Equal(t, http.StatusOK, rec.Code)

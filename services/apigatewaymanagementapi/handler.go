@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -17,6 +18,22 @@ import (
 const (
 	keyConnectionID = "connectionId"
 )
+
+// identityShape matches the AWS GetConnection "identity" nested object.
+type identityShape struct {
+	SourceIP  string `json:"sourceIp"`
+	UserAgent string `json:"userAgent"`
+}
+
+// getConnectionResponse is the AWS-shaped response for GetConnection.
+// Real AWS nests sourceIp and userAgent under "identity", not as flat fields.
+// connectionId is a gopherstack extension (AWS omits it since you queried by it).
+type getConnectionResponse struct {
+	ConnectedAt  time.Time     `json:"connectedAt"`
+	Identity     identityShape `json:"identity"`
+	LastActiveAt time.Time     `json:"lastActiveAt"`
+	ConnectionID string        `json:"connectionId"`
+}
 
 const (
 	keyMessageField  = "message"
@@ -218,7 +235,14 @@ func (h *Handler) handleGetConnection(c *echo.Context, connectionID string) erro
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, conn)
+	resp := getConnectionResponse{
+		ConnectedAt:  conn.ConnectedAt,
+		Identity:     identityShape{SourceIP: conn.SourceIP, UserAgent: conn.UserAgent},
+		LastActiveAt: conn.LastActiveAt,
+		ConnectionID: conn.ConnectionID,
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteConnection(c *echo.Context, connectionID string) error {

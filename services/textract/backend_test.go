@@ -297,11 +297,11 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 				lastJobID = job.JobID
 			}
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := textract.NewInMemoryBackendSync("123456789012", "us-east-1")
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			jobs := b2.ListJobs(context.Background())
 			assert.Len(t, jobs, tt.jobCount)
@@ -319,7 +319,7 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 
 				// Snapshot isolation: adding to b2 after restore should not affect original snap.
 				_, _ = b2.StartDocumentAnalysis(context.Background(), "s3://bucket/extra.pdf")
-				snap2 := b2.Snapshot()
+				snap2 := b2.Snapshot(t.Context())
 				assert.NotEqual(t, snap, snap2)
 			}
 		})

@@ -166,7 +166,7 @@ func TestRefinement1_ExportHelpers(t *testing.T) {
 		{"ParameterGroupCount", memorydb.ParameterGroupCount(b), 4}, // 4 default parameter groups seeded
 		{"EventCount", memorydb.EventCount(b), 1},
 		{"MultiRegionClusterCount", memorydb.MultiRegionClusterCount(b), 0},
-		{"HandlerOpsLen", memorydb.HandlerOpsLen(h), 45},
+		{"HandlerOpsLen", memorydb.HandlerOpsLen(h), 46},
 	}
 
 	for _, tt := range tests {
@@ -382,11 +382,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b1.AddSubnetGroupInternal("sg-a")
 	b1.AddParameterGroupInternal("pg-a", "memorydb_redis7")
 
-	data := b1.Snapshot()
+	data := b1.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := memorydb.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, memorydb.ClusterCount(b2))
 	assert.Equal(t, 1, memorydb.SnapshotCount(b2))
@@ -403,12 +403,12 @@ func TestRefinement1_HandlerPersistence(t *testing.T) {
 	b.AddClusterInternal("h-cluster", "db.r6g.large")
 	h := memorydb.NewHandler(b)
 
-	data := h.Snapshot()
+	data := h.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	h2 := memorydb.NewHandler(b2)
-	require.NoError(t, h2.Restore(data))
+	require.NoError(t, h2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, memorydb.ClusterCount(b2))
 }
@@ -441,7 +441,7 @@ func TestRefinement1_GetSupportedOperations(t *testing.T) {
 
 	ops := h.GetSupportedOperations()
 
-	assert.Len(t, ops, 45)
+	assert.Len(t, ops, 46)
 	assert.Contains(t, ops, "DescribeSnapshots")
 	assert.Contains(t, ops, "BatchUpdateCluster")
 	assert.Contains(t, ops, "CreateMultiRegionCluster")

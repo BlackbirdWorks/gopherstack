@@ -1,6 +1,7 @@
 package iam
 
 import (
+	"encoding/xml"
 	"fmt"
 	"net/url"
 	"sort"
@@ -19,6 +20,10 @@ func (b *InMemoryBackend) CreateSAMLProvider(name, samlMetadataDocument string) 
 	defer b.mu.Unlock()
 
 	providerArn := arn.Build("iam", "", b.accountID, "saml-provider/"+name)
+
+	if err := validateSAMLMetadata(samlMetadataDocument); err != nil {
+		return nil, err
+	}
 
 	if _, exists := b.samlProviders[providerArn]; exists {
 		return nil, fmt.Errorf("%w: SAML provider %q already exists", ErrSAMLProviderAlreadyExists, name)
@@ -42,6 +47,10 @@ func (b *InMemoryBackend) UpdateSAMLProvider(providerArn, samlMetadataDocument s
 	p, exists := b.samlProviders[providerArn]
 	if !exists {
 		return nil, fmt.Errorf("%w: SAML provider %q not found", ErrSAMLProviderNotFound, providerArn)
+	}
+
+	if err := validateSAMLMetadata(samlMetadataDocument); err != nil {
+		return nil, err
 	}
 
 	p.SAMLMetadataDocument = samlMetadataDocument
@@ -134,6 +143,10 @@ func (b *InMemoryBackend) CreateOpenIDConnectProvider(
 
 	providerArn := arn.Build("iam", "", b.accountID, "oidc-provider/"+host)
 
+	if vErr := validateThumbprints(thumbprints); vErr != nil {
+		return nil, vErr
+	}
+
 	if _, exists := b.oidcProviders[providerArn]; exists {
 		return nil, fmt.Errorf("%w: OIDC provider for URL %q already exists", ErrOIDCProviderAlreadyExists, rawURL)
 	}
@@ -158,6 +171,10 @@ func (b *InMemoryBackend) UpdateOpenIDConnectProviderThumbprint(providerArn stri
 	p, exists := b.oidcProviders[providerArn]
 	if !exists {
 		return fmt.Errorf("%w: OIDC provider %q not found", ErrOIDCProviderNotFound, providerArn)
+	}
+
+	if vErr := validateThumbprints(thumbprints); vErr != nil {
+		return vErr
 	}
 
 	p.ThumbprintList = append([]string(nil), thumbprints...)
@@ -283,6 +300,35 @@ func (b *InMemoryBackend) DeleteLoginProfile(userName string) error {
 	}
 
 	delete(b.loginProfiles, userName)
+
+	return nil
+}
+
+func validateSAMLMetadata(doc string) error {
+	var v any
+	if err := xml.Unmarshal([]byte(doc), &v); err != nil {
+		return fmt.Errorf("%w: invalid XML", ErrInvalidInput)
+	}
+
+	return nil
+}
+
+const thumbprintLen = 40
+
+func validateThumbprints(thumbprints []string) error {
+	for _, t := range thumbprints {
+		if len(t) != thumbprintLen {
+			return fmt.Errorf("%w: thumbprint must be 40 characters long", ErrInvalidInput)
+		}
+		for _, c := range t {
+			isDigit := c >= '0' && c <= '9'
+			isLowerHex := c >= 'a' && c <= 'f'
+			isUpperHex := c >= 'A' && c <= 'F'
+			if !isDigit && !isLowerHex && !isUpperHex {
+				return fmt.Errorf("%w: thumbprint must be hex", ErrInvalidInput)
+			}
+		}
+	}
 
 	return nil
 }

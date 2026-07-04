@@ -195,8 +195,8 @@ func TestBatch1_CreateCloudFormationChangeSet_CapabilitiesAndTags(t *testing.T) 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusCreated {
-				assert.Contains(t, string(h.Snapshot()), `"capabilities":["`+tt.capability+`"]`)
-				assert.Contains(t, string(h.Snapshot()), `"tags":[{"key":"stage","value":"test"}]`)
+				assert.Contains(t, string(h.Snapshot(t.Context())), `"capabilities":["`+tt.capability+`"]`)
+				assert.Contains(t, string(h.Snapshot(t.Context())), `"tags":[{"key":"stage","value":"test"}]`)
 			}
 		})
 	}
@@ -231,7 +231,7 @@ func TestBatch1_ListApplicationDependencies_PersistedState(t *testing.T) {
 	require.NoError(t, b.AddApplicationDependencyInternal("nested-a", "1.0.0", tests[2]))
 
 	restored := serverlessrepo.NewInMemoryBackend(testAccountID, "us-east-1")
-	require.NoError(t, restored.Restore(b.Snapshot()))
+	require.NoError(t, restored.Restore(t.Context(), b.Snapshot(t.Context())))
 	h := serverlessrepo.NewHandler(restored)
 	rec := doServerlessRepoRequest(
 		t,

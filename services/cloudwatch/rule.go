@@ -202,3 +202,37 @@ func (p *ruleParser) parseAtom() (bool, bool) {
 
 	return false, false
 }
+
+// alarmRuleRef is a single state-function reference inside a composite AlarmRule,
+// e.g. ALARM("cpu-high") yields {Func: "ALARM", Name: "cpu-high"}.
+type alarmRuleRef struct {
+	Func string
+	Name string
+}
+
+// extractAlarmRuleRefs returns every state-function reference in a composite
+// AlarmRule in left-to-right order. It is used to compute the contributors that
+// drive a composite alarm's state.
+func extractAlarmRuleRefs(rule string) []alarmRuleRef {
+	tokens := tokenizeRule(rule)
+	var refs []alarmRuleRef
+
+	for i := 0; i < len(tokens); i++ {
+		upper := strings.ToUpper(tokens[i])
+		if upper != "ALARM" && upper != "OK" && upper != "INSUFFICIENT_DATA" {
+			continue
+		}
+		// Expect: FUNC ( NAME )
+		if i+2 >= len(tokens) || tokens[i+1] != "(" {
+			continue
+		}
+		name := strings.Trim(tokens[i+2], `"`)
+		if name == "" {
+			continue
+		}
+		refs = append(refs, alarmRuleRef{Func: upper, Name: name})
+		i += 2
+	}
+
+	return refs
+}

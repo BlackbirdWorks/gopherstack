@@ -29,6 +29,46 @@ var (
 	errInvalidRequest = errors.New("invalid request")
 )
 
+// validateQueriesConfig returns an error when QUERIES is in featureTypes but
+// no QueriesConfig is provided. Real AWS enforces this constraint.
+func validateQueriesConfig(featureTypes []string, qc *QueriesConfig) error {
+	for _, ft := range featureTypes {
+		if ft == featureTypeQueries {
+			if qc == nil || len(qc.Queries) == 0 {
+				return fmt.Errorf(
+					"%w: QueriesConfig must be provided when FeatureTypes includes QUERIES",
+					errInvalidRequest,
+				)
+			}
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func validateAnalyzeDocumentFeatureTypes(featureTypes []string) error {
+	if len(featureTypes) == 0 {
+		return fmt.Errorf("%w: FeatureTypes must contain at least one value", errInvalidRequest)
+	}
+
+	for _, ft := range featureTypes {
+		switch ft {
+		case featureTypeTables, featureTypeForms, featureTypeQueries,
+			featureTypeSignatures, featureTypeLayout:
+		default:
+			return fmt.Errorf(
+				"%w: invalid FeatureType %q (valid: TABLES, FORMS, QUERIES, SIGNATURES, LAYOUT)",
+				errInvalidRequest,
+				ft,
+			)
+		}
+	}
+
+	return nil
+}
+
 // Handler is the Echo HTTP handler for Amazon Textract operations.
 type Handler struct {
 	Backend StorageBackend
@@ -294,6 +334,14 @@ func (h *Handler) handleAnalyzeDocument(
 	ctx context.Context,
 	in *documentInput,
 ) (*analyzeDocumentResponse, error) {
+	if err := validateAnalyzeDocumentFeatureTypes(in.FeatureTypes); err != nil {
+		return nil, err
+	}
+
+	if err := validateQueriesConfig(in.FeatureTypes, in.QueriesConfig); err != nil {
+		return nil, err
+	}
+
 	uri := documentURI(in.Document.S3Object.Bucket, in.Document.S3Object.Name)
 
 	var blocks []Block
@@ -355,6 +403,14 @@ func (h *Handler) handleStartDocumentAnalysis(
 	ctx context.Context,
 	in *asyncInput,
 ) (*startJobResponse, error) {
+	if err := validateAnalyzeDocumentFeatureTypes(in.FeatureTypes); err != nil {
+		return nil, err
+	}
+
+	if err := validateQueriesConfig(in.FeatureTypes, in.QueriesConfig); err != nil {
+		return nil, err
+	}
+
 	bucket := in.DocumentLocation.S3Object.Bucket
 	key := in.DocumentLocation.S3Object.Name
 
@@ -725,10 +781,10 @@ type listAdaptersResponse struct {
 }
 
 type adapterSummary struct {
-	Tags         map[string]string `json:"Tags"`
-	AdapterID    string            `json:"AdapterId"`
-	AdapterName  string            `json:"AdapterName"`
-	CreationTime string            `json:"CreationTime"`
+	AdapterID    string   `json:"AdapterId"`
+	AdapterName  string   `json:"AdapterName"`
+	CreationTime string   `json:"CreationTime"`
+	FeatureTypes []string `json:"FeatureTypes"`
 }
 
 func (h *Handler) handleListAdapters(
@@ -743,7 +799,7 @@ func (h *Handler) handleListAdapters(
 			AdapterID:    a.AdapterID,
 			AdapterName:  a.AdapterName,
 			CreationTime: a.CreationTime.Format("2006-01-02T15:04:05Z"),
-			Tags:         a.Tags,
+			FeatureTypes: a.FeatureTypes,
 		})
 	}
 
@@ -888,10 +944,11 @@ type listAdapterVersionsResponse struct {
 }
 
 type adapterVersionSummary struct {
-	Tags           map[string]string `json:"Tags"`
-	AdapterVersion string            `json:"AdapterVersion"`
-	CreationTime   string            `json:"CreationTime"`
-	Status         string            `json:"Status"`
+	AdapterVersion string   `json:"AdapterVersion"`
+	CreationTime   string   `json:"CreationTime"`
+	Status         string   `json:"Status"`
+	StatusMessage  string   `json:"StatusMessage,omitempty"`
+	FeatureTypes   []string `json:"FeatureTypes"`
 }
 
 func (h *Handler) handleListAdapterVersions(
@@ -912,8 +969,9 @@ func (h *Handler) handleListAdapterVersions(
 		summaries = append(summaries, adapterVersionSummary{
 			AdapterVersion: av.AdapterVersion,
 			CreationTime:   av.CreationTime.Format("2006-01-02T15:04:05Z"),
+			FeatureTypes:   av.FeatureTypes,
 			Status:         av.Status,
-			Tags:           av.Tags,
+			StatusMessage:  av.StatusMessage,
 		})
 	}
 

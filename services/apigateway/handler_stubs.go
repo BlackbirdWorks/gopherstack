@@ -69,6 +69,13 @@ type documentationPartsImportView struct {
 	Warnings []string `json:"warnings"`
 }
 
+// importAPIKeysInput is the input for ImportApiKeys. The raw payload document is
+// carried in Body; Format is the query parameter (csv or json).
+type importAPIKeysInput struct {
+	Format string `json:"format"`
+	Body   []byte `json:"body"`
+}
+
 // vpcLinkActions returns real stateful action handlers for VPC Link operations.
 func (h *Handler) vpcLinkActions() map[string]actionFn {
 	return map[string]actionFn{

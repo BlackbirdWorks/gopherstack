@@ -491,6 +491,72 @@ func TestIntegration_Route53_FailoverRouting(t *testing.T) {
 	assert.Contains(t, listBody, hcID)
 }
 
+// TestIntegration_Route53_TestDNSAnswerWeighted verifies that TestDNSAnswer
+// actually resolves a weighted routing-policy record set to one of its member
+// values (rather than returning an empty answer). terraform-provider-aws
+// exercises weighted_routing_policy on aws_route53_record; this covers the
+// resolver side of that behaviour.
+func TestIntegration_Route53_TestDNSAnswerWeighted(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	zoneBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>tdaweighted-test.example.com</Name>
+  <CallerReference>tda-weighted-ref</CallerReference>
+  <HostedZoneConfig><PrivateZone>false</PrivateZone></HostedZoneConfig>
+</CreateHostedZoneRequest>`
+
+	zoneResp := route53Send(t, http.MethodPost, "/2013-04-01/hostedzone", zoneBody)
+	zoneRespBody := readBody(t, zoneResp)
+	require.Equal(t, http.StatusCreated, zoneResp.StatusCode)
+	zoneID := integExtractZoneID(t, zoneRespBody)
+
+	changeXML := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ChangeBatch>
+    <Changes>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>svc.tdaweighted-test.example.com</Name>
+          <Type>A</Type>
+          <SetIdentifier>a</SetIdentifier>
+          <Weight>100</Weight>
+          <TTL>60</TTL>
+          <ResourceRecords><ResourceRecord><Value>1.1.1.1</Value></ResourceRecord></ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>svc.tdaweighted-test.example.com</Name>
+          <Type>A</Type>
+          <SetIdentifier>b</SetIdentifier>
+          <Weight>0</Weight>
+          <TTL>60</TTL>
+          <ResourceRecords><ResourceRecord><Value>2.2.2.2</Value></ResourceRecord></ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+    </Changes>
+  </ChangeBatch>
+</ChangeResourceRecordSetsRequest>`
+
+	changeResp := route53Send(t, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", changeXML)
+	changeBody := readBody(t, changeResp)
+	require.Equal(t, http.StatusOK, changeResp.StatusCode, "body: %s", changeBody)
+
+	// The weight-0 member must never be answered; the weight-100 member wins.
+	answerPath := "/2013-04-01/testdnsanswer?hostedzoneid=" + zoneID +
+		"&recordname=svc.tdaweighted-test.example.com&recordtype=A"
+	answerResp := route53Send(t, http.MethodGet, answerPath, "")
+	answerBody := readBody(t, answerResp)
+	require.Equal(t, http.StatusOK, answerResp.StatusCode)
+	assert.Contains(t, answerBody, "1.1.1.1", "weighted TestDNSAnswer must resolve to the weight-100 record")
+	assert.NotContains(t, answerBody, "2.2.2.2", "weight-0 record must be excluded from the answer")
+	assert.Contains(t, answerBody, "<ResponseCode>NOERROR</ResponseCode>")
+}
+
 // integExtractHealthCheckID parses the health check ID from a CreateHealthCheckResponse XML body.
 func integExtractHealthCheckID(t *testing.T, body string) string {
 	t.Helper()

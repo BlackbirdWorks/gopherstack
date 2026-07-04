@@ -2,16 +2,20 @@ package redshift
 
 import (
 	"fmt"
+	"sort"
 )
 
-// ModifyCluster modifies a cluster's node type, number of nodes, or other attributes.
+// ModifyCluster modifies a cluster's attributes.
+// When applyImmediately is false, changes are stored in PendingModifiedValues
+// and returned without being applied to the live cluster.
 func (b *InMemoryBackend) ModifyCluster(
 	id string,
 	nodeType string,
 	numberOfNodes int,
-	_ string, // masterUserPassword is accepted but not stored (in-memory backend doesn't store passwords)
+	_ string, // masterUserPassword is accepted but not stored
 	encrypted bool,
 	enhancedVpcRouting bool,
+	applyImmediately bool,
 ) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
@@ -23,6 +27,26 @@ func (b *InMemoryBackend) ModifyCluster(
 	cluster, exists := b.clusters[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+
+	if !applyImmediately {
+		pending := &ClusterPendingModifiedValues{}
+		if nodeType != "" {
+			pending.NodeType = nodeType
+		}
+
+		if numberOfNodes > 0 {
+			pending.NumberOfNodes = numberOfNodes
+		}
+
+		if encrypted {
+			pending.Encrypted = encrypted
+		}
+
+		cluster.PendingModifiedValues = pending
+		cp := cloneCluster(cluster)
+
+		return &cp, nil
 	}
 
 	if nodeType != "" {
@@ -41,6 +65,7 @@ func (b *InMemoryBackend) ModifyCluster(
 		cluster.EnhancedVpcRouting = enhancedVpcRouting
 	}
 
+	cluster.PendingModifiedValues = nil
 	cp := cloneCluster(cluster)
 
 	return &cp, nil
@@ -163,9 +188,8 @@ func (b *InMemoryBackend) RotateEncryptionKey(id string) (*Cluster, error) {
 	return &cp, nil
 }
 
-// ModifyClusterIamRoles modifies the IAM roles associated with a cluster.
-// This in-memory implementation accepts the call without persisting IAM roles.
-func (b *InMemoryBackend) ModifyClusterIamRoles(id string, _, _ []string) (*Cluster, error) {
+// ModifyClusterIamRoles adds and removes IAM roles on a cluster.
+func (b *InMemoryBackend) ModifyClusterIamRoles(id string, addRoles, removeRoles []string) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -178,15 +202,36 @@ func (b *InMemoryBackend) ModifyClusterIamRoles(id string, _, _ []string) (*Clus
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 
+	// Build a set of current roles for O(1) lookup.
+	roleSet := make(map[string]struct{}, len(cluster.IamRoles))
+	for _, r := range cluster.IamRoles {
+		roleSet[r] = struct{}{}
+	}
+
+	for _, r := range addRoles {
+		roleSet[r] = struct{}{}
+	}
+
+	for _, r := range removeRoles {
+		delete(roleSet, r)
+	}
+
+	roles := make([]string, 0, len(roleSet))
+	for r := range roleSet {
+		roles = append(roles, r)
+	}
+
+	sort.Strings(roles)
+	cluster.IamRoles = roles
+
 	cp := cloneCluster(cluster)
 
 	return &cp, nil
 }
 
 // ModifyClusterMaintenance modifies the maintenance settings of a cluster.
-// This in-memory implementation accepts the call without persisting maintenance windows.
 func (b *InMemoryBackend) ModifyClusterMaintenance(
-	id, _ string,
+	id, maintenanceTrack string,
 	_ bool,
 ) (*Cluster, error) {
 	if id == "" {
@@ -199,6 +244,10 @@ func (b *InMemoryBackend) ModifyClusterMaintenance(
 	cluster, exists := b.clusters[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+
+	if maintenanceTrack != "" {
+		cluster.PreferredMaintenanceWindow = maintenanceTrack
 	}
 
 	cp := cloneCluster(cluster)

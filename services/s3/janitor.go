@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 // lifecycleConfiguration mirrors the AWS S3 XML lifecycle configuration schema
@@ -172,32 +173,27 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 // Each tick, sweepAndDrain spawns one goroutine per pending bucket so that
 // thousands of large buckets are drained in parallel rather than serially.
 //
-// A deferred recover() protects the loop from panics in sweep functions.
+// The worker primitive recovers panics from each sweep automatically.
 func (j *Janitor) Run(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Load(ctx).ErrorContext(ctx, "S3 janitor: panic recovered, loop exiting",
-				"panic", fmt.Sprintf("%v", r))
-		}
-	}()
+	g := worker.NewGroup(ctx, "s3")
+	g.Ticker("BucketCleaner", j.Interval, 0, j.sweep)
 
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	<-ctx.Done()
+	g.Stop()
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// sweepAndDrain spawns long-lived drain goroutines that must outlive
-			// the per-tick task context, so the parent ctx is passed directly.
-			j.sweepAndDrain(ctx)
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepLifecycle(taskCtx)
-			j.cleanupDefaultMultipart(taskCtx)
-			cancel()
-		}
-	}
+// sweep performs one janitor tick. sweepAndDrain spawns long-lived drain
+// goroutines that must outlive any per-tick task context, so it receives ctx
+// directly; the lifecycle and multipart passes run under a TaskTimeout-bounded
+// child context.
+func (j *Janitor) sweep(ctx context.Context) {
+	j.sweepAndDrain(ctx)
+
+	taskCtx, cancel := j.taskContext(ctx)
+	defer cancel()
+
+	j.sweepLifecycle(taskCtx)
+	j.cleanupDefaultMultipart(taskCtx)
 }
 
 // taskContext returns a child context bounded by TaskTimeout (if non-zero).
@@ -300,21 +296,40 @@ const defaultMultipartMaxAge = 24 * time.Hour
 // indefinitely. When a bucket's lifecycle DOES specify abort-incomplete with a
 // shorter window, sweepLifecycle still runs first on the same tick and will
 // remove uploads earlier; this pass is the safety net.
+//
+// Performance: expired upload IDs are collected under a read lock, then deleted
+// under a write lock. This keeps the write-lock critical section proportional to
+// the number of expired uploads rather than the total number of in-progress uploads.
 func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 	b := j.Backend
 	now := time.Now().UTC()
 	abortBefore := now.Add(-defaultMultipartMaxAge)
 
-	b.mu.Lock("S3Janitor.cleanupDefaultMultipart")
-	defer b.mu.Unlock()
+	type expiredKey struct{ bucket, uploadID string }
 
-	for _, uploads := range b.uploads {
+	b.mu.RLock("S3Janitor.cleanupDefaultMultipart.scan")
+	var expired []expiredKey
+
+	for bucketName, uploads := range b.uploads {
 		for uploadID, upload := range uploads {
 			if upload.Initiated.Before(abortBefore) {
-				delete(uploads, uploadID)
+				expired = append(expired, expiredKey{bucketName, uploadID})
 			}
 		}
 	}
+	b.mu.RUnlock()
+
+	if len(expired) == 0 {
+		return
+	}
+
+	b.mu.Lock("S3Janitor.cleanupDefaultMultipart.delete")
+	for _, e := range expired {
+		if uploads, ok := b.uploads[e.bucket]; ok {
+			delete(uploads, e.uploadID)
+		}
+	}
+	b.mu.Unlock()
 }
 
 // processBucket fully drains a pending bucket by deleting all objects in repeated
@@ -892,22 +907,43 @@ func isNoncurrentVersionLocked(ver *StoredObjectVersion) bool {
 // evictNoncurrentVersions deletes non-latest object versions (noncurrent versions)
 // from the bucket that match the prefix and were superseded before noncurrentBefore.
 // Returns the number of noncurrent versions deleted.
+//
+// Performance: object keys are collected under a fast RLock pass. Each object is
+// then processed under a brief per-iteration write lock rather than holding the bucket
+// write lock for the entire sweep. This lets concurrent readers and writers proceed
+// between objects instead of being blocked for the full duration.
 func (j *Janitor) evictNoncurrentVersions(
 	bucket *StoredBucket,
 	prefix string,
 	noncurrentBefore time.Time,
 ) int {
-	bucket.mu.Lock("S3Janitor.evictNoncurrentVersions")
-	defer bucket.mu.Unlock()
+	// Phase 1: collect candidate keys under read lock.
+	bucket.mu.RLock("S3Janitor.evictNoncurrentVersions.scan")
+	keys := make([]string, 0, len(bucket.Objects))
+
+	for key := range bucket.Objects {
+		if strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+	}
+	bucket.mu.RUnlock()
 
 	evicted := 0
 
-	for key, obj := range bucket.Objects {
-		if !strings.HasPrefix(key, prefix) {
+	// Phase 2: process one object at a time, holding bucket write lock only briefly
+	// per object so concurrent operations are not blocked for the entire sweep.
+	for _, key := range keys {
+		bucket.mu.Lock("S3Janitor.evictNoncurrentVersions.obj")
+
+		obj, ok := bucket.Objects[key]
+		if !ok {
+			// Object was deleted since the scan phase.
+			bucket.mu.Unlock()
+
 			continue
 		}
 
-		obj.mu.Lock("S3Janitor.evictNoncurrentVersions.obj")
+		obj.mu.Lock("S3Janitor.evictNoncurrentVersions.versions")
 
 		for vid, ver := range obj.Versions {
 			if ver.IsLatest || isNoncurrentVersionLocked(ver) {
@@ -920,14 +956,15 @@ func (j *Janitor) evictNoncurrentVersions(
 			}
 		}
 
-		// Remove the object entry entirely if it has no versions left.
-		if len(obj.Versions) == 0 {
-			obj.mu.Unlock()
+		isEmpty := len(obj.Versions) == 0
+		obj.mu.Unlock()
+
+		if isEmpty {
 			delete(bucket.Objects, key)
 			obj.mu.Close()
-		} else {
-			obj.mu.Unlock()
 		}
+
+		bucket.mu.Unlock()
 	}
 
 	return evicted
@@ -956,6 +993,9 @@ func (j *Janitor) abortStaleMultipartUploads(bucketName string, abortBefore time
 // applyStorageClassTransitions updates the StorageClass of current (latest) object versions
 // that match prefix+tagFilters and are older than transitionAfter duration (or past transitionDate
 // when date != ""). Only transitions that change the storage class are recorded.
+//
+// Performance: the bucket map is read under RLock (not Lock) because we only modify per-object
+// fields protected by obj.mu. This allows concurrent readers of the bucket while the sweep runs.
 func (j *Janitor) applyStorageClassTransitions(
 	bucket *StoredBucket,
 	prefix string,
@@ -966,8 +1006,8 @@ func (j *Janitor) applyStorageClassTransitions(
 	transitionAfter time.Duration,
 	transitionDate string,
 ) {
-	bucket.mu.Lock("applyStorageClassTransitions")
-	defer bucket.mu.Unlock()
+	bucket.mu.RLock("applyStorageClassTransitions")
+	defer bucket.mu.RUnlock()
 
 	for _, obj := range bucket.Objects {
 		obj.mu.Lock("applyStorageClassTransitions-obj")
@@ -1031,14 +1071,17 @@ func (j *Janitor) applyStorageClassTransitions(
 
 // applyNoncurrentStorageClassTransitions updates the StorageClass of noncurrent (non-latest)
 // object versions that are older than noncurrentAfter.
+//
+// Performance: uses RLock on the bucket because we only modify per-object version fields,
+// which are protected by obj.mu. This allows concurrent reads of the bucket during the sweep.
 func (j *Janitor) applyNoncurrentStorageClassTransitions(
 	bucket *StoredBucket,
 	prefix, ruleID, targetClass string,
 	now time.Time,
 	noncurrentAfter time.Duration,
 ) {
-	bucket.mu.Lock("applyNoncurrentStorageClassTransitions")
-	defer bucket.mu.Unlock()
+	bucket.mu.RLock("applyNoncurrentStorageClassTransitions")
+	defer bucket.mu.RUnlock()
 
 	for _, obj := range bucket.Objects {
 		obj.mu.Lock("applyNoncurrentSCT-obj")

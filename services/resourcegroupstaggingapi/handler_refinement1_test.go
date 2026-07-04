@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,11 +113,11 @@ func TestRefinement1_SnapshotRestoreRoundtrip(t *testing.T) {
 	b := newBackend(t)
 	resourcegroupstaggingapi.AddReportStateInternal(b, "SUCCEEDED", "s3://my-bucket/report.csv", "2025-06-01T00:00:00Z")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := resourcegroupstaggingapi.NewInMemoryBackend("111111111111", "ap-southeast-1")
-	err := b2.Restore(snap)
+	err := b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, testAccountID, b2.AccountID())
@@ -130,7 +131,7 @@ func TestRefinement1_SnapshotEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	require.NotNil(t, snap)
 	assert.False(t, resourcegroupstaggingapi.HasReportState(b))
@@ -140,7 +141,7 @@ func TestRefinement1_RestoreInvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	err := b.Restore([]byte("not-json"))
+	err := b.Restore(t.Context(), []byte("not-json"))
 
 	require.Error(t, err)
 }
@@ -154,10 +155,10 @@ func TestRefinement1_SnapshotClearsProvidersOnRestore(t *testing.T) {
 	})
 	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	b2 := newBackend(t)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Providers are runtime callbacks and cannot be serialized.
 	assert.Equal(t, 0, resourcegroupstaggingapi.ProviderCount(b2))
@@ -296,7 +297,7 @@ func TestRefinement1_StartReportCreationSetsS3Location(t *testing.T) {
 	assert.Equal(t, "s3://report-bucket/AwsTagPolicies/report.csv", resourcegroupstaggingapi.ReportS3Location(b))
 }
 
-func TestRefinement1_StartReportCreationSetsSucceededStatus(t *testing.T) {
+func TestRefinement1_StartReportCreationSetsRunningStatus(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
@@ -306,7 +307,8 @@ func TestRefinement1_StartReportCreationSetsSucceededStatus(t *testing.T) {
 	)
 
 	require.NoError(t, err)
-	assert.Equal(t, "SUCCEEDED", resourcegroupstaggingapi.ReportStatus(b))
+	// AWS sets RUNNING immediately; SUCCEEDED only after the job completes.
+	assert.Equal(t, "RUNNING", resourcegroupstaggingapi.ReportStatus(b))
 }
 
 func TestRefinement1_StartReportCreationTimestampFromNowFunc(t *testing.T) {
@@ -337,6 +339,11 @@ func TestRefinement1_StartReportCreationOverwritesPrevious(t *testing.T) {
 		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "first"},
 	)
 	require.NoError(t, err)
+	require.Equal(t, "RUNNING", resourcegroupstaggingapi.ReportStatus(b))
+
+	// Advance clock past running duration so the first report completes before starting second.
+	done := time.Now().Add(resourcegroupstaggingapi.ReportRunningDuration() + time.Second)
+	resourcegroupstaggingapi.SetClockFunc(b, func() time.Time { return done })
 
 	_, err = b.StartReportCreation(
 		context.Background(),
@@ -356,8 +363,7 @@ func TestRefinement1_DescribeReportCreationNoReport(t *testing.T) {
 	out := b.DescribeReportCreation(context.Background())
 
 	require.NotNil(t, out)
-	require.NotNil(t, out.Status)
-	assert.Equal(t, "NO REPORT", *out.Status)
+	assert.Nil(t, out.Status)
 	assert.Nil(t, out.S3Location)
 	assert.Nil(t, out.StartDate)
 }
@@ -366,11 +372,18 @@ func TestRefinement1_DescribeReportCreationAfterStart(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
+
+	// Start a report — it begins in RUNNING state.
 	_, err := b.StartReportCreation(
 		context.Background(),
 		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "my-bucket"},
 	)
 	require.NoError(t, err)
+	require.Equal(t, "RUNNING", resourcegroupstaggingapi.ReportStatus(b))
+
+	// Advance clock past the running duration so DescribeReportCreation transitions to SUCCEEDED.
+	done := time.Now().Add(resourcegroupstaggingapi.ReportRunningDuration() + time.Second)
+	resourcegroupstaggingapi.SetClockFunc(b, func() time.Time { return done })
 
 	out := b.DescribeReportCreation(context.Background())
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // ErrInvocationTimeout is returned when a Lambda invocation exceeds its deadline.
@@ -24,11 +24,12 @@ var ErrInvocationTimeout = errors.New("lambda invocation timed out")
 
 // pendingInvocation represents an in-flight Lambda invocation waiting for a container response.
 type pendingInvocation struct {
-	deadline  time.Time
-	createdAt time.Time // when the event was first received (used for MaximumEventAgeInSeconds)
-	requestID string
-	result    chan invocationResult
-	payload   []byte
+	deadline      time.Time
+	createdAt     time.Time // when the event was first received (used for MaximumEventAgeInSeconds)
+	requestID     string
+	clientContext string
+	result        chan invocationResult
+	payload       []byte
 }
 
 // invocationResult holds the outcome of a Lambda container invocation.
@@ -94,11 +95,13 @@ func (s *runtimeServer) start(ctx context.Context) error {
 		return fmt.Errorf("runtime server listen on :%d: %w", s.port, err)
 	}
 
+	log := logger.Load(ctx)
+
 	go func() {
 		defer close(s.done)
 
 		if serveErr := s.srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			slog.Default().ErrorContext(ctx, "lambda runtime server error", "port", s.port, "error", serveErr)
+			log.ErrorContext(ctx, "lambda runtime server error", "port", s.port, "error", serveErr)
 		}
 	}()
 
@@ -119,18 +122,25 @@ func (s *runtimeServer) stop(ctx context.Context) {
 
 // invoke enqueues a payload and blocks until the container responds or timeout is reached.
 // Returns the response payload, whether it was a function error, and any system error.
-func (s *runtimeServer) invoke(ctx context.Context, payload []byte, timeout time.Duration) ([]byte, bool, error) {
+func (s *runtimeServer) invoke(
+	ctx context.Context,
+	payload []byte,
+	clientContext string,
+	timeout time.Duration,
+) ([]byte, bool, string, error) {
+	reqID := uuid.New().String()
 	inv := &pendingInvocation{
-		requestID: uuid.New().String(),
-		payload:   payload,
-		deadline:  time.Now().Add(timeout),
-		result:    make(chan invocationResult, 1),
+		requestID:     reqID,
+		payload:       payload,
+		clientContext: clientContext,
+		deadline:      time.Now().Add(timeout),
+		result:        make(chan invocationResult, 1),
 	}
 
 	select {
 	case s.queue <- inv:
 	case <-ctx.Done():
-		return nil, false, ctx.Err()
+		return nil, false, "", ctx.Err()
 	}
 
 	timeoutTimer := time.NewTimer(timeout)
@@ -138,7 +148,7 @@ func (s *runtimeServer) invoke(ctx context.Context, payload []byte, timeout time
 
 	select {
 	case res := <-inv.result:
-		return res.payload, res.isError, nil
+		return res.payload, res.isError, reqID, nil
 	case <-timeoutTimer.C:
 		// Atomically remove the invocation from the pending map.
 		// If LoadAndDelete returns false, handleInvocationResult already claimed it
@@ -152,12 +162,12 @@ func (s *runtimeServer) invoke(ctx context.Context, payload []byte, timeout time
 					<-graceTimer.C
 				}
 
-				return res.payload, res.isError, nil
+				return res.payload, res.isError, reqID, nil
 			case <-graceTimer.C:
 			}
 		}
 
-		return nil, false, fmt.Errorf("%w after %s", ErrInvocationTimeout, timeout)
+		return nil, false, "", fmt.Errorf("%w after %s", ErrInvocationTimeout, timeout)
 	case <-ctx.Done():
 		if _, claimed := s.pending.LoadAndDelete(inv.requestID); !claimed {
 			graceTimer := time.NewTimer(containerResponseGracePeriod)
@@ -168,12 +178,12 @@ func (s *runtimeServer) invoke(ctx context.Context, payload []byte, timeout time
 					<-graceTimer.C
 				}
 
-				return res.payload, res.isError, nil
+				return res.payload, res.isError, reqID, nil
 			case <-graceTimer.C:
 			}
 		}
 
-		return nil, false, ctx.Err()
+		return nil, false, "", ctx.Err()
 	}
 }
 
@@ -193,6 +203,9 @@ func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Lambda-Runtime-Deadline-Ms", strconv.FormatInt(inv.deadline.UnixMilli(), 10))
 		w.Header().Set("Lambda-Runtime-Invoked-Function-Arn",
 			arn.Build("lambda", config.DefaultRegion, config.DefaultAccountID, "function:unknown"))
+		if inv.clientContext != "" {
+			w.Header().Set("Lambda-Runtime-Client-Context", inv.clientContext)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(inv.payload)
@@ -238,7 +251,7 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 		}
 
 		// Log but continue — partial body may still be useful.
-		slog.Default().
+		logger.Load(r.Context()).
 			WarnContext(r.Context(), "lambda: error reading invocation result body", "requestID", requestID, "error", readErr)
 	}
 
@@ -251,7 +264,7 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 
 	inv, isInv := raw.(*pendingInvocation)
 	if !isInv {
-		slog.Default().ErrorContext(r.Context(), "lambda: unexpected type in pending invocations map")
+		logger.Load(r.Context()).ErrorContext(r.Context(), "lambda: unexpected type in pending invocations map")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -288,10 +301,10 @@ func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) 
 		}
 
 		// Log but continue — partial body may still be useful.
-		slog.Default().WarnContext(r.Context(), "lambda: error reading init error body", "error", readErr)
+		logger.Load(r.Context()).WarnContext(r.Context(), "lambda: error reading init error body", "error", readErr)
 	}
 
-	slog.Default().ErrorContext(r.Context(), "lambda runtime init error", "error", string(body))
+	logger.Load(r.Context()).ErrorContext(r.Context(), "lambda runtime init error", "error", string(body))
 
 	// Deliver the init error to the first pending invocation so the caller gets an
 	// immediate error response instead of timing out.

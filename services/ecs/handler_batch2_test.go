@@ -325,7 +325,11 @@ func TestBatch2_CapacityProvider_ASGBacked_Roundtrip(t *testing.T) {
 	require.Equal(t, "asg-cp", cp["name"])
 
 	asg := cp["autoScalingGroupProvider"].(map[string]any)
-	assert.Equal(t, "arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:asg-1", asg["autoScalingGroupArn"])
+	assert.Equal(
+		t,
+		"arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:asg-1",
+		asg["autoScalingGroupArn"],
+	)
 	assert.Equal(t, "ENABLED", asg["managedTerminationProtection"])
 	assert.Equal(t, "ENABLED", asg["managedDraining"])
 
@@ -869,7 +873,11 @@ func TestBatch2_ServiceDiscovery_CloudMap_Roundtrip(t *testing.T) {
 	require.Len(t, registries, 1)
 
 	reg := registries[0].(map[string]any)
-	assert.Equal(t, "arn:aws:servicediscovery:us-east-1:000000000000:service/srv-xxxx", reg["registryArn"])
+	assert.Equal(
+		t,
+		"arn:aws:servicediscovery:us-east-1:000000000000:service/srv-xxxx",
+		reg["registryArn"],
+	)
 	assert.Equal(t, "app", reg["containerName"])
 	assert.InDelta(t, float64(8080), reg["containerPort"], 0.001)
 }
@@ -1173,8 +1181,18 @@ func TestBatch2_Attributes_FilterByName(t *testing.T) {
 	doECSRequest(t, h, "PutAttributes", map[string]any{
 		"cluster": "attr-filter-cluster",
 		"attributes": []any{
-			map[string]any{"name": "ecs.gpu", "value": "1", "targetType": "container-instance", "targetId": ciArn},
-			map[string]any{"name": "ecs.cpu", "value": "16", "targetType": "container-instance", "targetId": ciArn},
+			map[string]any{
+				"name":       "ecs.gpu",
+				"value":      "1",
+				"targetType": "container-instance",
+				"targetId":   ciArn,
+			},
+			map[string]any{
+				"name":       "ecs.cpu",
+				"value":      "16",
+				"targetType": "container-instance",
+				"targetId":   ciArn,
+			},
 		},
 	})
 
@@ -1286,9 +1304,10 @@ func TestBatch2_ECSExec_Basic(t *testing.T) {
 		"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
 	})
 	runResp := doECSRequest(t, h, "RunTask", map[string]any{
-		"cluster":        "exec-cluster",
-		"taskDefinition": "exec-task",
-		"count":          1,
+		"cluster":              "exec-cluster",
+		"taskDefinition":       "exec-task",
+		"count":                1,
+		"enableExecuteCommand": true,
 	})
 	require.Equal(t, http.StatusOK, runResp.Code)
 	var runOut map[string]any
@@ -1324,9 +1343,10 @@ func TestBatch2_ECSExec_NonInteractive(t *testing.T) {
 		"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
 	})
 	runResp := doECSRequest(t, h, "RunTask", map[string]any{
-		"cluster":        "exec2-cluster",
-		"taskDefinition": "exec2-task",
-		"count":          1,
+		"cluster":              "exec2-cluster",
+		"taskDefinition":       "exec2-task",
+		"count":                1,
+		"enableExecuteCommand": true,
 	})
 	var runOut map[string]any
 	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut))
@@ -2035,7 +2055,10 @@ func TestBatch2_Concurrent_RegisterContainerInstances(t *testing.T) {
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-			req.Header.Set("X-Amz-Target", "AmazonEC2ContainerServiceV20141113.RegisterContainerInstance")
+			req.Header.Set(
+				"X-Amz-Target",
+				"AmazonEC2ContainerServiceV20141113.RegisterContainerInstance",
+			)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 			_ = h.Handler()(c)

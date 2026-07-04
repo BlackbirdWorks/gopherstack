@@ -244,7 +244,7 @@ func TestResourcePolicyCycle(t *testing.T) {
 				require.NoError(t, err)
 			},
 			target:         "secretsmanager.PutResourcePolicy",
-			body:           `{"SecretId":"policy-secret","ResourcePolicy":"{\"Version\":\"2012-10-17\"}"}`,
+			body:           `{"SecretId":"policy-secret","ResourcePolicy":"{\"Version\":\"2012-10-17\",\"Statement\":[]}"}`,
 			expectedStatus: http.StatusOK,
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -265,7 +265,7 @@ func TestResourcePolicyCycle(t *testing.T) {
 				require.NoError(t, err)
 				_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 					SecretID:       "get-policy",
-					ResourcePolicy: `{"Version":"2012-10-17"}`,
+					ResourcePolicy: `{"Version":"2012-10-17","Statement":[]}`,
 				})
 				require.NoError(t, err)
 			},
@@ -291,7 +291,7 @@ func TestResourcePolicyCycle(t *testing.T) {
 				require.NoError(t, err)
 				_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 					SecretID:       "del-policy",
-					ResourcePolicy: `{"Version":"2012-10-17"}`,
+					ResourcePolicy: `{"Version":"2012-10-17","Statement":[]}`,
 				})
 				require.NoError(t, err)
 			},
@@ -745,7 +745,8 @@ func TestNewOpsBackend(t *testing.T) {
 
 		desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "rot-cancel"})
 		require.NoError(t, err)
-		assert.False(t, desc.RotationEnabled)
+		// Real AWS: CancelRotateSecret removes AWSPENDING but does not disable rotation.
+		assert.True(t, desc.RotationEnabled)
 	})
 
 	t.Run("CancelRotateSecret_not_found", func(t *testing.T) {
@@ -833,10 +834,11 @@ func TestNewOpsBackend(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Add us-east-2 again (should update, not duplicate).
+		// Add us-east-2 again with ForceOverwriteReplicaSecret=true (required to update).
 		out, err := b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
-			SecretID:          "rep-idem",
-			AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "us-east-2", KmsKeyID: "key-123"}},
+			SecretID:                    "rep-idem",
+			AddReplicaRegions:           []secretsmanager.ReplicaRegion{{Region: "us-east-2", KmsKeyID: "key-123"}},
+			ForceOverwriteReplicaSecret: true,
 		})
 		require.NoError(t, err)
 		assert.Len(t, out.ReplicationStatus, 1)

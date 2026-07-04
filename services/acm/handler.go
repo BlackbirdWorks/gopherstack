@@ -84,12 +84,13 @@ type certificateDetail struct {
 	// DomainValidationOptions uses a concrete slice type here to satisfy the JSON
 	// marshaller; the field name matches the AWS wire format.
 	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions"`
-	InUseBy                 []string                 `json:"InUseBy,omitempty"`
-	KeyUsage                []keyUsageDetail         `json:"KeyUsage,omitempty"`
-	ExtendedKeyUsage        []extKeyUsageDetail      `json:"ExtendedKeyUsage,omitempty"`
-	CreatedAt               int64                    `json:"CreatedAt"`
-	NotBefore               int64                    `json:"NotBefore,omitempty"`
-	NotAfter                int64                    `json:"NotAfter,omitempty"`
+	// InUseBy is always present (possibly empty) matching real AWS DescribeCertificate behavior.
+	InUseBy          []string            `json:"InUseBy"`
+	KeyUsage         []keyUsageDetail    `json:"KeyUsage,omitempty"`
+	ExtendedKeyUsage []extKeyUsageDetail `json:"ExtendedKeyUsage,omitempty"`
+	CreatedAt        int64               `json:"CreatedAt"`
+	NotBefore        int64               `json:"NotBefore,omitempty"`
+	NotAfter         int64               `json:"NotAfter,omitempty"`
 }
 
 // keyUsageDetail wraps a single AWS key usage string.
@@ -293,7 +294,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown stops the background janitor.
+// Shutdown stops the background janitor and all in-flight certificate
+// auto-validation timers so no goroutine outlives the service.
 func (h *Handler) Shutdown(ctx context.Context) {
 	if h.janitorCancel != nil {
 		h.janitorCancel()
@@ -305,6 +307,8 @@ func (h *Handler) Shutdown(ctx context.Context) {
 		case <-ctx.Done():
 		}
 	}
+
+	h.Backend.Close()
 }
 
 var (
@@ -646,7 +650,7 @@ func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any
 		RevokedAt:               certTimeUnix(cert.RevokedAt),
 		IssuedAt:                certTimeUnix(cert.IssuedAt),
 		ImportedAt:              certTimeUnix(cert.ImportedAt),
-		InUseBy:                 cert.InUseBy,
+		InUseBy:                 nonNilSlice(cert.InUseBy),
 		KeyUsage:                keyUsages,
 		ExtendedKeyUsage:        extKeyUsages,
 	}
@@ -957,6 +961,16 @@ func describeCertOptions(cert *Certificate) *certificateOptions {
 	return &certificateOptions{
 		CertificateTransparencyLoggingPreference: cert.CertificateTransparencyLoggingPref,
 	}
+}
+
+// nonNilSlice returns s if non-nil, otherwise an empty slice.
+// Used to ensure JSON marshals as [] instead of null.
+func nonNilSlice(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+
+	return s
 }
 
 // certTimeUnix returns the Unix timestamp of a [time.Time] pointer, or nil if nil.

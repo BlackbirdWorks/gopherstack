@@ -1830,7 +1830,7 @@ func TestSecretsManagerTaggedSecrets(t *testing.T) {
 	_, err = backend.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{SecretID: "no-tags"})
 	require.NoError(t, err)
 
-	infos := backend.TaggedSecrets()
+	infos := backend.TaggedSecrets(context.Background())
 	require.Len(t, infos, 1)
 	assert.NotEmpty(t, infos[0].ARN)
 	assert.Equal(t, "prod", infos[0].Tags["env"])
@@ -1873,7 +1873,7 @@ func TestSecretsManagerTagSecretByARN(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			err := b.TagSecretByARN(tt.lookupID, tt.newTags)
+			err := b.TagSecretByARN(context.Background(), tt.lookupID, tt.newTags)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1924,7 +1924,7 @@ func TestSecretsManagerUntagSecretByARN(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			err := b.UntagSecretByARN(tt.lookupID, tt.tagKeys)
+			err := b.UntagSecretByARN(context.Background(), tt.lookupID, tt.tagKeys)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -2122,9 +2122,10 @@ func TestSecretsManagerPutSecretValue_VersionStages(t *testing.T) {
 			wantStages:    []string{"AWSCURRENT"},
 		},
 		{
+			// Real AWS: caller specifies only AWSPENDING — AWSCURRENT is NOT forced.
 			name:          "awspending_added",
 			versionStages: []string{"AWSPENDING"},
-			wantStages:    []string{"AWSCURRENT", "AWSPENDING"},
+			wantStages:    []string{"AWSPENDING"},
 		},
 		{
 			name:          "duplicate_awscurrent_deduped",
@@ -2171,11 +2172,11 @@ func TestSecretsManagerPersistence_RotationEnabled(t *testing.T) {
 	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "persist-rot"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := secretsmanager.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	desc, err := b2.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "persist-rot"})
 	require.NoError(t, err)

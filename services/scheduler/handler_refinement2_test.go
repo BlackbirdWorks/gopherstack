@@ -433,18 +433,20 @@ func TestRefinement2_ValidateState_CreateSchedule(t *testing.T) {
 	}
 }
 
-// TestRefinement2_ValidateFlexibleTimeWindowMode verifies invalid mode is rejected.
+// TestRefinement2_ValidateFlexibleTimeWindowMode verifies invalid mode is rejected
+// and FLEXIBLE mode requires MaximumWindowInMinutes > 0.
 func TestRefinement2_ValidateFlexibleTimeWindowMode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		ftw     map[string]any
 		name    string
-		mode    string
 		wantErr bool
 	}{
-		{name: "off", mode: "OFF", wantErr: false},
-		{name: "flexible", mode: "FLEXIBLE", wantErr: false},
-		{name: "invalid", mode: "STRICT", wantErr: true},
+		{name: "off", ftw: map[string]any{"Mode": "OFF"}, wantErr: false},
+		{name: "flexible", ftw: map[string]any{"Mode": "FLEXIBLE", "MaximumWindowInMinutes": 15}, wantErr: false},
+		{name: "flexible_no_window", ftw: map[string]any{"Mode": "FLEXIBLE"}, wantErr: true},
+		{name: "invalid", ftw: map[string]any{"Mode": "STRICT"}, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -459,7 +461,7 @@ func TestRefinement2_ValidateFlexibleTimeWindowMode(t *testing.T) {
 					"Arn":     "arn:aws:sqs:us-east-1:0:q",
 					"RoleArn": "arn:aws:iam::0:role/r",
 				},
-				"FlexibleTimeWindow": map[string]string{"Mode": tt.mode},
+				"FlexibleTimeWindow": tt.ftw,
 			})
 			if tt.wantErr {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -601,11 +603,11 @@ func TestRefinement2_Persistence_NewFields(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	s, err := b2.GetSchedule(context.Background(), "persist-sched", "default")
 	require.NoError(t, err)

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -321,17 +321,12 @@ func (b *InMemoryBackend) ListMonitors(
 
 	rm := b.monitors[region]
 
-	names := make([]string, 0, len(rm))
+	names := collections.SortedKeys(rm)
 
-	for n := range rm {
-		names = append(names, n)
-	}
-
-	sort.Strings(names)
-
+	// Default startIdx past-the-end so an unrecognised token returns nothing.
 	startIdx := 0
-
 	if nextToken != "" {
+		startIdx = len(names)
 		for i, n := range names {
 			if n > nextToken {
 				startIdx = i
@@ -346,29 +341,28 @@ func (b *InMemoryBackend) ListMonitors(
 	}
 
 	var summaries []monitorSummary
+	var outToken string
 
-	for i := startIdx; i < len(names) && len(summaries) < maxResults; i++ {
+	for i := startIdx; i < len(names); i++ {
+		if len(summaries) == maxResults {
+			outToken = summaries[len(summaries)-1].MonitorName
+
+			break
+		}
+
 		m := rm[names[i]]
 		if state != "" && !strings.EqualFold(m.State, state) {
 			continue
 		}
 
 		period := m.AggregationPeriod
-		s := monitorSummary{
+		summaries = append(summaries, monitorSummary{
 			MonitorArn:        m.MonitorArn,
 			MonitorName:       m.MonitorName,
 			State:             m.State,
 			AggregationPeriod: &period,
 			Tags:              maps.Clone(m.Tags),
-		}
-
-		summaries = append(summaries, s)
-	}
-
-	var outToken string
-
-	if len(summaries) == maxResults && startIdx+maxResults < len(names) {
-		outToken = summaries[len(summaries)-1].MonitorName
+		})
 	}
 
 	if summaries == nil {

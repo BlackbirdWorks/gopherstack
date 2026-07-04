@@ -538,11 +538,11 @@ func TestRefinement1_SnapshotRestoreARNIndex(t *testing.T) {
 	ps := seedPolicyStore(t, b, "snap store")
 	_ = b.TagResource(ps.Arn, map[string]string{"env": "test"})
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := newRefinement1Backend()
-	err := b2.Restore(data)
+	err := b2.Restore(t.Context(), data)
 	require.NoError(t, err)
 
 	assert.GreaterOrEqual(t, verifiedpermissions.ARNIndexSize(b2), 1)
@@ -902,11 +902,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 		},
 	)
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := newRefinement1Backend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, verifiedpermissions.PolicyStoreCount(b2))
 	assert.Equal(t, 1, verifiedpermissions.PolicyCount(b2))

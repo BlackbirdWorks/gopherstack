@@ -227,14 +227,37 @@ func (b *InMemoryBackend) daemonRevisionARN(clusterName, daemonName string) stri
 	)
 }
 
-// findDaemonLocked resolves a daemon by ARN. Must be called with the lock held.
-func (b *InMemoryBackend) findDaemonLocked(daemonArn string) (*Daemon, error) {
-	d, ok := b.daemons[daemonArn]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, daemonArn)
+// parseDaemonArn extracts the cluster name and daemon name embedded in a
+// daemon ARN of the form "arn:aws:ecs:region:account:daemon/clusterName/daemonName".
+// Used so daemons can be looked up in the cluster-scoped b.daemons index (see
+// InMemoryBackend.daemons in backend.go, and purge.go's purgeDaemonsLocked,
+// which cleans up that index per-cluster) in O(1) from a bare ARN.
+func parseDaemonArn(daemonArn string) (string, string, bool) {
+	const marker = ":daemon/"
+
+	_, rest, found := strings.Cut(daemonArn, marker)
+	if !found {
+		return "", "", false
 	}
 
-	return d, nil
+	clusterName, daemonName, found := strings.Cut(rest, "/")
+	if !found || clusterName == "" || daemonName == "" {
+		return "", "", false
+	}
+
+	return clusterName, daemonName, true
+}
+
+// findDaemonLocked resolves a daemon by ARN. Must be called with the lock held.
+func (b *InMemoryBackend) findDaemonLocked(daemonArn string) (*Daemon, error) {
+	clusterName, daemonName, ok := parseDaemonArn(daemonArn)
+	if ok {
+		if d, exists := b.daemons[clusterName][daemonName]; exists {
+			return d, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, daemonArn)
 }
 
 // createDaemonRevisionLocked snapshots the daemon's current configuration into
@@ -306,7 +329,7 @@ func (b *InMemoryBackend) CreateDaemon(input CreateDaemonInput) (*Daemon, error)
 	}
 
 	daemonArn := b.daemonARN(clusterName, input.DaemonName)
-	if _, ok := b.daemons[daemonArn]; ok {
+	if _, ok := b.daemons[clusterName][input.DaemonName]; ok {
 		return nil, fmt.Errorf("%w: %s", ErrDaemonAlreadyExists, input.DaemonName)
 	}
 
@@ -333,7 +356,11 @@ func (b *InMemoryBackend) CreateDaemon(input CreateDaemonInput) (*Daemon, error)
 	d.DeploymentArn = dep.DaemonDeploymentArn
 	d.CurrentDaemonRevisionArn = rev.DaemonRevisionArn
 
-	b.daemons[daemonArn] = d
+	if b.daemons[clusterName] == nil {
+		b.daemons[clusterName] = make(map[string]*Daemon)
+	}
+
+	b.daemons[clusterName][input.DaemonName] = d
 
 	out := *d
 	out.Tags = copyTags(d.Tags)
@@ -356,7 +383,14 @@ func (b *InMemoryBackend) DeleteDaemon(daemonArn string) (*Daemon, error) {
 	out.Status = daemonStatusDeleteInProgress
 	out.UpdatedAt = time.Now()
 
-	delete(b.daemons, daemonArn)
+	clusterName, daemonName, ok := parseDaemonArn(daemonArn)
+	if ok {
+		delete(b.daemons[clusterName], daemonName)
+
+		if len(b.daemons[clusterName]) == 0 {
+			delete(b.daemons, clusterName)
+		}
+	}
 
 	return &out, nil
 }
@@ -448,16 +482,18 @@ func (b *InMemoryBackend) ListDaemons(input ListDaemonsInput) ([]Daemon, error) 
 
 	out := make([]Daemon, 0, len(b.daemons))
 
-	for _, d := range b.daemons {
-		if wantCluster != "" && d.ClusterArn != wantCluster {
-			continue
-		}
+	for _, clusterDaemons := range b.daemons {
+		for _, d := range clusterDaemons {
+			if wantCluster != "" && d.ClusterArn != wantCluster {
+				continue
+			}
 
-		if len(wantCP) > 0 && !daemonHasAnyCapacityProvider(d, wantCP) {
-			continue
-		}
+			if len(wantCP) > 0 && !daemonHasAnyCapacityProvider(d, wantCP) {
+				continue
+			}
 
-		out = append(out, *d)
+			out = append(out, *d)
+		}
 	}
 
 	return out, nil
@@ -738,3 +774,14 @@ func (b *InMemoryBackend) ListDaemonDeployments(input ListDaemonDeploymentsInput
 
 	return out, nil
 }
+
+// addServiceRevisionLocked is a compatibility hook for callers (CreateService/
+// UpdateService in backend.go, and the deployment circuit-breaker rollback in
+// deployment.go) that record a ServiceRevision snapshot whenever a service's
+// Deployments change. This backend derives ServiceRevision snapshots on demand
+// from each deployment's ServiceRevisionArn instead (see DescribeServiceRevisions
+// in backend.go and buildServiceRevision in backend_parity2.go), so no
+// additional bookkeeping is required here; svc's new deployment already carries
+// its ServiceRevisionArn by the time this is called. Must be called with the
+// write lock held.
+func (b *InMemoryBackend) addServiceRevisionLocked(_ *Service) {}

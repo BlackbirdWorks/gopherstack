@@ -382,7 +382,7 @@ func (b *InMemoryBackend) CreateClientVpnEndpointWithOptions(
 	id := "cvpn-endpoint-" + uuid.New().String()[:8]
 	ep := &ClientVpnEndpoint{
 		ClientVpnEndpointID:  id,
-		DNSName:              id + ".prod.clientvpn.us-east-1.amazonaws.com",
+		DNSName:              id + ".prod.clientvpn." + b.Region + ".amazonaws.com",
 		Status:               stateAvailable,
 		Description:          description,
 		ClientCidrBlock:      clientCidrBlock,

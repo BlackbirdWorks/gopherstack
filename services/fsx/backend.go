@@ -1,7 +1,7 @@
 package fsx
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,8 +10,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -25,9 +28,18 @@ const (
 	backupTypeUserInitiated = "USER_INITIATED"
 
 	fileSystemTypeLustre            = "LUSTRE"
+	fileSystemTypeWindows           = "WINDOWS"
+	fileSystemTypeONTAP             = "ONTAP"
+	fileSystemTypeOpenZFS           = "OPENZFS"
 	dataRepositoryLifecycleDisabled = "DISABLED"
 	lustreDeploymentTypeScratch1    = "SCRATCH_1"
 	lustreMountNameLen              = 8
+
+	// Minimum StorageCapacity (GiB) enforced by real AWS FSx per file system type.
+	minStorageCapacityLustre  = 1200
+	minStorageCapacityWindows = 32
+	minStorageCapacityONTAP   = 1024
+	minStorageCapacityOpenZFS = 64
 
 	maxResultsDefault  = 2147483647
 	maxTagKeyLen       = 128
@@ -226,11 +238,11 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "fsx", snapshot{
 		FileSystems:            b.fileSystems,
 		Backups:                b.backups,
 		Tags:                   b.tags,
@@ -244,14 +256,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		S3AccessPoints:         b.s3AccessPoints,
 		SharedVpcEnabled:       b.sharedVpcEnabled,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "fsx", data, &s); err != nil {
 		return err
 	}
 
@@ -295,6 +305,26 @@ type createLustreConfiguration struct {
 func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileSystem, error) {
 	if input.FileSystemType == "" {
 		return nil, ErrValidation
+	}
+
+	minCapByType := map[string]int32{
+		fileSystemTypeLustre:  minStorageCapacityLustre,
+		fileSystemTypeWindows: minStorageCapacityWindows,
+		fileSystemTypeONTAP:   minStorageCapacityONTAP,
+		fileSystemTypeOpenZFS: minStorageCapacityOpenZFS,
+	}
+	minCap, ok := minCapByType[input.FileSystemType]
+	if !ok {
+		return nil, fmt.Errorf("%w: unsupported FileSystemType %q", ErrValidation, input.FileSystemType)
+	}
+
+	if input.StorageCapacityGiB == 0 {
+		input.StorageCapacityGiB = minCap
+	} else if input.StorageCapacityGiB < minCap {
+		return nil, fmt.Errorf(
+			"%w: StorageCapacity %d GiB is below the minimum of %d GiB for %s",
+			ErrValidation, input.StorageCapacityGiB, minCap, input.FileSystemType,
+		)
 	}
 
 	if err := validateTags(input.Tags); err != nil {
@@ -817,6 +847,12 @@ func (b *InMemoryBackend) arnExists(resourceARN string) bool { //nolint:gocognit
 		}
 	}
 
+	for _, t := range b.dataRepositoryTasks {
+		if t.ResourceARN == resourceARN {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -842,11 +878,11 @@ func validateTags(tags []Tag) error {
 }
 
 func (b *InMemoryBackend) fsARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:file-system/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("file-system/%s", id))
 }
 
 func (b *InMemoryBackend) backupARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:backup/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("backup/%s", id))
 }
 
 func tagsSliceToMap(tags []Tag) map[string]string {
@@ -863,12 +899,7 @@ func tagsMapToSlice(m map[string]string) []Tag {
 		return nil
 	}
 
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	tags := make([]Tag, len(keys))
 	for i, k := range keys {

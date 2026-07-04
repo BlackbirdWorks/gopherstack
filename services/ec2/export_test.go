@@ -198,6 +198,15 @@ func (h *Handler) HandlerOpsLen() int {
 	return len(h.ops)
 }
 
+// AddImageForTest injects an AMI stub directly into the backend image map.
+// Used by tests to set up pagination scenarios without going through CreateImage.
+func (b *InMemoryBackend) AddImageForTest(img AMIStub) {
+	b.mu.Lock("AddImageForTest")
+	defer b.mu.Unlock()
+
+	b.images[img.ImageID] = &img
+}
+
 // ExportDispatch calls the handler's dispatch method and returns the XML response as a string.
 // Used by accuracy tests to call handlers without a full HTTP round-trip.
 func ExportDispatch(h *Handler, vals url.Values) (string, error) {

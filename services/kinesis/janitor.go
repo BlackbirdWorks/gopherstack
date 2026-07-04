@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -18,6 +19,7 @@ const (
 // periods by evicting records older than stream.RetentionPeriod hours.
 type Janitor struct {
 	Backend  *InMemoryBackend
+	cancel   context.CancelFunc
 	Interval time.Duration
 	// TaskTimeout bounds each individual janitor task. When non-zero, each task
 	// runs with a child context that expires after this duration, preventing a
@@ -40,29 +42,26 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	ctx, cancel := context.WithCancel(ctx)
+	j.cancel = cancel
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepRetention(taskCtx)
-			cancel()
-		}
-	}
+	g := worker.NewGroup(ctx, janitorServiceName)
+	g.Ticker(
+		retentionSweeperComp,
+		j.Interval,
+		j.TaskTimeout,
+		j.sweepRetention,
+	)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
-// taskContext returns a child context bounded by TaskTimeout (if non-zero).
-// The caller is responsible for calling the returned cancel function.
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
+// Stop explicitly shuts down the janitor.
+func (j *Janitor) Stop() {
+	if j.cancel != nil {
+		j.cancel()
 	}
-
-	return context.WithCancel(parent)
 }
 
 // SweepOnce executes a single retention sweep. Exposed for testing.
@@ -76,19 +75,29 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 	now := time.Now()
 	totalTrimmed := 0
 
-	j.Backend.mu.Lock("KinesisJanitor")
-
+	j.Backend.mu.RLock("KinesisJanitor")
+	var streamsToSweep []*Stream
 	for _, regionStreams := range j.Backend.streams {
 		for _, stream := range regionStreams {
-			cutoff := now.Add(-time.Duration(stream.RetentionPeriod) * time.Hour)
-
-			for _, shard := range stream.Shards {
-				totalTrimmed += shard.Records.trimBefore(cutoff)
-			}
+			streamsToSweep = append(streamsToSweep, stream)
 		}
 	}
+	j.Backend.mu.RUnlock()
 
-	j.Backend.mu.Unlock()
+	for _, stream := range streamsToSweep {
+		stream.mu.Lock("KinesisJanitor.stream")
+		if stream.Status == streamStatusDeleting {
+			stream.mu.Unlock()
+
+			continue
+		}
+		cutoff := now.Add(-time.Duration(stream.RetentionPeriod) * time.Hour)
+
+		for _, shard := range stream.Shards {
+			totalTrimmed += shard.Records.trimBefore(cutoff)
+		}
+		stream.mu.Unlock()
+	}
 
 	telemetry.RecordWorkerTask(janitorServiceName, retentionSweeperComp, "success")
 
@@ -98,5 +107,6 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 
 	telemetry.RecordWorkerItems(janitorServiceName, retentionSweeperComp, totalTrimmed)
 
-	logger.Load(ctx).InfoContext(ctx, "Kinesis janitor: expired records evicted", "count", totalTrimmed)
+	logger.Load(ctx).
+		InfoContext(ctx, "Kinesis janitor: expired records evicted", "count", totalTrimmed)
 }

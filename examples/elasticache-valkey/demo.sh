@@ -12,14 +12,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== Installing tools ==="
-apk add --no-cache aws-cli valkey-cli jq bind-tools > /dev/null 2>&1
-echo "Done."
-
-# Point DNS at Gopherstack's embedded DNS server so AWS-style
-# *.cache.amazonaws.com hostnames resolve to 127.0.0.1.
-echo "nameserver 127.0.0.1" > /etc/resolv.conf
-echo "options ndots:0" >> /etc/resolv.conf
+echo "=== Ensuring tools are installed ==="
+if ! command -v redis-cli >/dev/null 2>&1 && ! command -v valkey-cli >/dev/null 2>&1; then
+  echo "Please install redis-cli or valkey-cli to run this demo."
+  exit 1
+fi
+CLI="valkey-cli"
+if ! command -v valkey-cli >/dev/null 2>&1; then
+  CLI="redis-cli"
+fi
 
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
@@ -52,21 +53,26 @@ PORT=$(echo "$RESULT" | jq -r '.CacheClusters[0].CacheNodes[0].Endpoint.Port')
 
 echo ""
 echo "=== Resolving $HOST via embedded DNS ==="
-nslookup "$HOST" 127.0.0.1 || true
+RESOLVED=$(dig @127.0.0.1 -p 10053 +short "$HOST" | head -n1)
+if [ -z "$RESOLVED" ]; then
+  echo "Failed to resolve $HOST via embedded DNS on 127.0.0.1:10053"
+  exit 1
+fi
+echo "$HOST -> $RESOLVED"
 
 echo ""
-echo "=== Connecting to Valkey at $HOST:$PORT ==="
+echo "=== Connecting to Valkey at $RESOLVED:$PORT ==="
 
 echo "PING:"
-valkey-cli -h "$HOST" -p "$PORT" PING
+$CLI -h "$RESOLVED" -p "$PORT" PING
 
 echo ""
 echo "SET greeting \"Hello from Gopherstack!\":"
-valkey-cli -h "$HOST" -p "$PORT" SET greeting "Hello from Gopherstack!"
+$CLI -h "$RESOLVED" -p "$PORT" SET greeting "Hello from Gopherstack!"
 
 echo ""
 echo "GET greeting:"
-VALUE=$(valkey-cli -h "$HOST" -p "$PORT" GET greeting)
+VALUE=$($CLI -h "$RESOLVED" -p "$PORT" GET greeting)
 echo "$VALUE"
 test "$VALUE" = "Hello from Gopherstack!"
 

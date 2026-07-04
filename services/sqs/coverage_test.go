@@ -33,7 +33,7 @@ func TestChangeMessageVisibility_NotFound(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			err := b.ChangeMessageVisibility(&sqs.ChangeMessageVisibilityInput{
 				QueueURL:          tt.queueURL,
 				ReceiptHandle:     "fake-receipt",
@@ -61,7 +61,7 @@ func TestChangeMessageVisibility_InvalidHandle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "vis-queue")
 
 			_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "hello"})
@@ -102,7 +102,7 @@ func TestUntagQueue_NotFound(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			err := b.UntagQueue(&sqs.UntagQueueInput{
 				QueueURL: tt.queueURL,
 				TagKeys:  []string{"env"},
@@ -295,7 +295,7 @@ func TestTaggedQueues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			if tt.withTags {
 				qURL := createTestQueue(t, b, "tagged-queue")
 				require.NoError(t, b.TagQueue(&sqs.TagQueueInput{
@@ -333,7 +333,7 @@ func TestTagQueueByARN(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qARN := tt.arn
 
 			if qARN == "" {
@@ -381,7 +381,7 @@ func TestUntagQueueByARN(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qARN := tt.arn
 
 			if qARN == "" {
@@ -419,7 +419,7 @@ func TestReceiveAndDeleteMessagesLocal(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "local-ops-queue")
 
 			_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "msg"})
@@ -452,7 +452,7 @@ func TestBackendReset(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			createTestQueue(t, b, "q1")
 			createTestQueue(t, b, "q2")
 
@@ -543,7 +543,7 @@ func TestValidateBatchEntryIDsEmptyID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "batch-id-queue")
 
 			_, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{

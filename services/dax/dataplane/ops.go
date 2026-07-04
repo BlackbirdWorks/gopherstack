@@ -1,10 +1,15 @@
 package dataplane
 
 import (
+	"strings"
+	"time"
+
 	"bytes"
+	"errors"
 	"maps"
 	"sort"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
@@ -36,6 +41,7 @@ const (
 
 // itemOpParams holds the optional parameters decoded from an item operation.
 type itemOpParams struct {
+	proj           *projection
 	consistentRead bool
 	returnValues   int
 }
@@ -43,17 +49,17 @@ type itemOpParams struct {
 // readItemOptionalParams decodes the indefinite-length optional-params map sent
 // after the key for item operations, extracting the fields gopherstack acts on
 // and safely skipping the rest (including pre-parsed expression blobs).
-func readItemOptionalParams(r *Reader) (itemOpParams, error) {
+func readItemOptionalParams(r *Reader, dec *decodedExpression) (itemOpParams, error) {
 	p := itemOpParams{returnValues: rvNone}
 
 	err := forEachOptionalParam(r, func(key int) error {
-		return decodeOneItemParam(r, &p, key)
+		return decodeOneItemParam(r, &p, key, dec)
 	})
 
 	return p, err
 }
 
-func decodeOneItemParam(r *Reader, p *itemOpParams, key int) error {
+func decodeOneItemParam(r *Reader, p *itemOpParams, key int, dec *decodedExpression) error {
 	switch key {
 	case reqParamConsistentRead:
 		b, e := r.readBoolOrInt()
@@ -69,6 +75,18 @@ func decodeOneItemParam(r *Reader, p *itemOpParams, key int) error {
 		}
 
 		p.returnValues = v
+	case reqParamProjectionExpression:
+		blob, e := r.ReadBytes()
+		if e != nil {
+			return e
+		}
+		if dec != nil {
+			proj, decErr := dec.decodeProjectionBlob(blob)
+			if decErr != nil {
+				return decErr
+			}
+			p.proj = proj
+		}
 	default:
 		return r.skip()
 	}
@@ -158,16 +176,66 @@ func (r *Reader) readBoolOrInt() (bool, error) {
 
 // handleGetItem decodes a GetItem request, delegates to the backend, and writes
 // the DAX-shaped response.
+
+func (s *Server) invalidateItemCache(table string, key map[string]types.AttributeValue) {
+	if s.ttl != nil {
+		s.itemCache.Delete(s.cacheKey(table, key))
+	}
+}
+
+func (s *Server) cacheKey(table string, key map[string]types.AttributeValue) string {
+	parts := make([]string, 0, len(key))
+	for k, v := range key {
+		parts = append(parts, k+"="+formatCacheValue(v))
+	}
+
+	return table + "|" + strings.Join(parts, "|")
+}
+
+func formatCacheValue(v types.AttributeValue) string {
+	switch v := v.(type) {
+	case *types.AttributeValueMemberS:
+		return v.Value
+	case *types.AttributeValueMemberN:
+		return v.Value
+	case *types.AttributeValueMemberB:
+		return string(v.Value)
+	}
+
+	return ""
+}
+
 func (s *Server) handleGetItem(r *Reader, w *Writer) error {
-	table, key, _, err := s.readKeyedRequest(r)
+	dec := newDecodedExpression()
+	table, key, params, err := s.readKeyedRequest(r, dec)
 	if err != nil {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
-	out, err := s.backend.GetItem(ctx, &awsddb.GetItemInput{TableName: &table, Key: key})
+	ks, err := s.schemaFor(ctx, table)
+	if err != nil {
+		return err
+	}
+
+	ckey := s.cacheKey(table, key)
+	if !params.consistentRead && s.ttl != nil {
+		found, cErr := s.handleCachedGetItem(w, ckey, params.proj, ks)
+		if cErr != nil {
+			return cErr
+		}
+		if found {
+			return nil
+		}
+	}
+
+	out, err := s.backend.GetItem(ctx, &awsddb.GetItemInput{
+		TableName:      &table,
+		Key:            key,
+		ConsistentRead: aws.Bool(params.consistentRead),
+	})
 	if err != nil {
 		return s.writeBackendError(w, err)
 	}
@@ -176,27 +244,64 @@ func (s *Server) handleGetItem(r *Reader, w *Writer) error {
 		return err
 	}
 
-	ks, err := s.schemaFor(ctx, table)
-	if err != nil {
-		return err
-	}
-
 	if len(out.Item) == 0 {
 		return w.WriteNull()
+	}
+
+	// Update cache
+	if s.ttl != nil {
+		ttl, _ := s.ttl.GetDefaultTTL()
+		s.itemCache.Store(ckey, cacheEntry{item: out.Item, expiresAt: time.Now().Add(ttl)})
+	}
+
+	if params.proj != nil && params.proj.hasProjection() {
+		if wErr := w.WriteMapHeader(1); wErr != nil {
+			return wErr
+		}
+		if wErr := w.WriteInt(respParamItem); wErr != nil {
+			return wErr
+		}
+
+		return writeProjectionMap(w, projectedEntries(out.Item, params.proj.ordinals))
 	}
 
 	return s.writeItemMap(w, respParamItem, out.Item, ks)
 }
 
-// handlePutItem decodes a PutItem request (key bytes + non-key attributes) and
-// delegates to the backend.
+func (s *Server) handleCachedGetItem(w *Writer, ckey string, proj *projection, ks keySchema) (bool, error) {
+	entry, ok := s.itemCache.Load(ckey)
+	if !ok {
+		return false, nil
+	}
+	ce, _ := entry.(cacheEntry)
+	if time.Now().After(ce.expiresAt) {
+		return false, nil
+	}
+
+	if err := writeOK(w); err != nil {
+		return true, err
+	}
+	if proj != nil && proj.hasProjection() {
+		if wErr := w.WriteMapHeader(1); wErr != nil {
+			return true, wErr
+		}
+		if wErr := w.WriteInt(respParamItem); wErr != nil {
+			return true, wErr
+		}
+
+		return true, writeProjectionMap(w, projectedEntries(ce.item, proj.ordinals))
+	}
+
+	return true, s.writeItemMap(w, respParamItem, ce.item, ks)
+}
+
 func (s *Server) handlePutItem(r *Reader, w *Writer) error {
 	table, err := readTable(r)
 	if err != nil {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	ks, err := s.schemaFor(ctx, table)
@@ -216,7 +321,7 @@ func (s *Server) handlePutItem(r *Reader, w *Writer) error {
 
 	item := mergeItem(key, nonKey)
 
-	params, err := readItemOptionalParams(r)
+	params, err := readItemOptionalParams(r, nil)
 	if err != nil {
 		return err
 	}
@@ -231,6 +336,8 @@ func (s *Server) handlePutItem(r *Reader, w *Writer) error {
 		return s.writeBackendError(w, err)
 	}
 
+	s.invalidateItemCache(table, item)
+
 	if err = writeOK(w); err != nil {
 		return err
 	}
@@ -244,12 +351,12 @@ func (s *Server) handlePutItem(r *Reader, w *Writer) error {
 
 // handleDeleteItem decodes a DeleteItem request and delegates to the backend.
 func (s *Server) handleDeleteItem(r *Reader, w *Writer) error {
-	table, key, params, err := s.readKeyedRequest(r)
+	table, key, params, err := s.readKeyedRequest(r, nil)
 	if err != nil {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	in := &awsddb.DeleteItemInput{TableName: &table, Key: key}
@@ -261,6 +368,8 @@ func (s *Server) handleDeleteItem(r *Reader, w *Writer) error {
 	if err != nil {
 		return s.writeBackendError(w, err)
 	}
+
+	s.invalidateItemCache(table, key)
 
 	if err = writeOK(w); err != nil {
 		return err
@@ -280,13 +389,16 @@ func (s *Server) handleDeleteItem(r *Reader, w *Writer) error {
 
 // readKeyedRequest reads the common [table, key, optionalParams] prefix shared
 // by GetItem and DeleteItem.
-func (s *Server) readKeyedRequest(r *Reader) (string, map[string]types.AttributeValue, itemOpParams, error) {
+func (s *Server) readKeyedRequest(
+	r *Reader,
+	dec *decodedExpression,
+) (string, map[string]types.AttributeValue, itemOpParams, error) {
 	table, err := readTable(r)
 	if err != nil {
 		return "", nil, itemOpParams{}, err
 	}
 
-	ctx, cancel := requestContext()
+	ctx, cancel := s.requestContext()
 	defer cancel()
 
 	ks, err := s.schemaFor(ctx, table)
@@ -299,7 +411,7 @@ func (s *Server) readKeyedRequest(r *Reader) (string, map[string]types.Attribute
 		return "", nil, itemOpParams{}, err
 	}
 
-	params, err := readItemOptionalParams(r)
+	params, err := readItemOptionalParams(r, dec)
 	if err != nil {
 		return "", nil, itemOpParams{}, err
 	}
@@ -401,6 +513,36 @@ func (s *Server) writeNonKeyAttributes(w *Writer, item map[string]types.Attribut
 
 // writeBackendError maps a DynamoDB backend error onto a DAX error response.
 func (s *Server) writeBackendError(w *Writer, err error) error {
+	var condFailed *types.ConditionalCheckFailedException
+	if errors.As(err, &condFailed) {
+		return s.writeError(w, statusBadRequest, "ConditionalCheckFailedException", err.Error())
+	}
+
+	var resNotFound *types.ResourceNotFoundException
+	if errors.As(err, &resNotFound) {
+		return s.writeError(w, statusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	var txCanceled *types.TransactionCanceledException
+	if errors.As(err, &txCanceled) {
+		return s.writeError(w, statusBadRequest, "TransactionCanceledException", err.Error())
+	}
+
+	var txConflict *types.TransactionConflictException
+	if errors.As(err, &txConflict) {
+		return s.writeError(w, statusBadRequest, "TransactionConflictException", err.Error())
+	}
+
+	var throughputExceeded *types.ProvisionedThroughputExceededException
+	if errors.As(err, &throughputExceeded) {
+		return s.writeError(w, statusBadRequest, "ProvisionedThroughputExceededException", err.Error())
+	}
+
+	var itemSizeExceeded *types.ItemCollectionSizeLimitExceededException
+	if errors.As(err, &itemSizeExceeded) {
+		return s.writeError(w, statusBadRequest, "ItemCollectionSizeLimitExceededException", err.Error())
+	}
+
 	return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 }
 

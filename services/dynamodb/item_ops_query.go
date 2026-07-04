@@ -71,15 +71,65 @@ func (db *InMemoryDB) QueryWithContext(
 
 	idxName := aws.ToString(input.IndexName)
 
-	// For primary-table queries, pre-parse the PK value from the expression
-	// before taking the lock so we can do a targeted single-PK index copy
-	// instead of copying the entire index (which may have hundreds of thousands of entries).
+	// Pre-parse PK value before locking so we can do a targeted index copy.
 	precomputedPKValue := preParseQueryPKValue(input, idxName)
+	snapshotTable, billingMode, ttlAttr := db.snapshotTableForQuery(
+		table, idxName, precomputedPKValue,
+	)
 
-	// Snapshot table metadata and items under lock.
-	// Items are shallow-copied (pointers only): writes always replace table.Items[i] with a
-	// new map rather than mutating the old one in place, so our references remain safe.
+	keySchema, projection, err := db.extractKeySchema(
+		snapshotTable,
+		idxName,
+		aws.ToBool(input.ConsistentRead),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if verr := validateSelectConstraints(input.Select, idxName, projection); verr != nil {
+		return nil, verr
+	}
+
+	candidates, err := db.filterCandidatesForKeyCondition(
+		ctx, snapshotTable, input, projection, keySchema,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enforce throughput: charge RCU per scanned candidate.
+	region := getRegionFromContext(ctx, db)
+	consistentRead := aws.ToBool(input.ConsistentRead)
+	rcuUnits := applyConsistentReadMultiplier(rcuForCount(len(candidates)), consistentRead)
+
+	if !isOnDemandTable(billingMode) {
+		if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {
+			return nil, err
+		}
+	}
+
+	_, skDef := getPKAndSK(keySchema)
+	sortForward := input.ScanIndexForward == nil || *input.ScanIndexForward
+
+	if skDef.AttributeName != "" {
+		db.sortCandidates(candidates, skDef, snapshotTable, sortForward)
+	}
+
+	return db.processQueryResults(
+		ctx, candidates, input, keySchema, snapshotTable.KeySchema, ttlAttr,
+	), nil
+}
+
+// snapshotTableForQuery snapshots table metadata and items under lock, releasing
+// the lock before returning. Returns the snapshot Table, billing mode, and TTL attr.
+func (db *InMemoryDB) snapshotTableForQuery(
+	table *Table,
+	idxName, precomputedPKValue string,
+) (*Table, string, string) {
+	// Items are shallow-copied (pointers only): writes always replace table.Items[i]
+	// with a new map rather than mutating the old one in place.
 	table.mu.RLock("Query")
+
 	keySchemaOrig := make([]models.KeySchemaElement, len(table.KeySchema))
 	copy(keySchemaOrig, table.KeySchema)
 	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
@@ -91,22 +141,13 @@ func (db *InMemoryDB) QueryWithContext(
 	ttlAttr := table.TTLAttribute
 	billingMode := table.BillingMode
 
-	// Copy only the index entries we actually need:
-	// - GSI/LSI queries never use the primary index, so skip it entirely.
-	// - Primary-table queries with a known PK copy only that PK's entries.
-	// - Primary-table queries with an unknown PK fall back to copying the full index.
-	pkIndexCopy, pkskIndexCopy := db.snapshotIndexForQuery(
-		table, idxName, precomputedPKValue,
-	)
+	// Copy only the index entries we actually need (#57).
+	pkIndexCopy, pkskIndexCopy := db.snapshotIndexForQuery(table, idxName, precomputedPKValue)
 
-	// #57: for known-PK primary queries, copy only the referenced item pointers
-	// into an offset-keyed map, avoiding an O(n) full-slice copy.
-	// For GSI/LSI queries and unknown-PK scans, fall back to the full copy.
 	var itemsCopy []map[string]any
 	var itemsByOffset map[int]map[string]any
 
 	if idxName == "" && precomputedPKValue != "" {
-		// Collect the offsets referenced by this PK from the copied index.
 		itemsByOffset = snapshotItemsByOffset(table, pkIndexCopy, pkskIndexCopy)
 	} else {
 		itemsCopy = make([]map[string]any, len(table.Items))
@@ -115,7 +156,6 @@ func (db *InMemoryDB) QueryWithContext(
 
 	table.mu.RUnlock()
 
-	// Reconstruct snapshot table for querying
 	snapshotTable := &Table{
 		Items:                  itemsCopy,
 		itemsByOffset:          itemsByOffset,
@@ -128,45 +168,7 @@ func (db *InMemoryDB) QueryWithContext(
 		pkskIndex:              pkskIndexCopy,
 	}
 
-	keySchema, projection, err := db.extractKeySchema(snapshotTable, idxName, aws.ToBool(input.ConsistentRead))
-	if err != nil {
-		return nil, err
-	}
-
-	candidates, err := db.filterCandidatesForKeyCondition(
-		ctx,
-		snapshotTable,
-		input,
-		projection,
-		keySchema,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Enforce throughput: charge RCU per scanned candidate.
-	// Double cost for strongly-consistent reads; bypass for PAY_PER_REQUEST.
-	region := getRegionFromContext(ctx, db)
-	consistentRead := aws.ToBool(input.ConsistentRead)
-	rcuUnits := applyConsistentReadMultiplier(rcuForCount(len(candidates)), consistentRead)
-
-	if !isOnDemandTable(billingMode) {
-		if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {
-			return nil, err
-		}
-	}
-
-	_, skDef := getPKAndSK(keySchema)
-	sortForward := true
-	if input.ScanIndexForward != nil {
-		sortForward = *input.ScanIndexForward
-	}
-
-	if skDef.AttributeName != "" {
-		db.sortCandidates(candidates, skDef, snapshotTable, sortForward)
-	}
-
-	return db.processQueryResults(ctx, candidates, input, keySchema, ttlAttr), nil
+	return snapshotTable, billingMode, ttlAttr
 }
 
 func (db *InMemoryDB) extractKeySchema(
@@ -234,6 +236,16 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 		return nil, err
 	}
 
+	// Parse all condition parts once
+	parsedParts := make([]*ParsedCondition, 0, len(exprParts))
+	for _, part := range exprParts {
+		pc, err := ParseConditionStr(part)
+		if err != nil {
+			return nil, err
+		}
+		parsedParts = append(parsedParts, pc)
+	}
+
 	// Try to use index for primary table queries (not GSI/LSI)
 	if idxName == "" {
 		candidates, ok := db.tryFilterUsingAuthoritativeIndex(
@@ -244,7 +256,7 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 			pkExpr,
 			pkDef,
 			skDef,
-			exprParts,
+			parsedParts,
 			eav,
 		)
 		if ok {
@@ -252,7 +264,7 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 		}
 	}
 
-	return db.filterCandidatesScan(table, input, projection, keySchema, exprParts, eav)
+	return db.filterCandidatesScan(table, input, projection, keySchema, parsedParts, eav)
 }
 
 func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
@@ -263,7 +275,7 @@ func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
 	pkExpr string,
 	_ models.KeySchemaElement,
 	skDef models.KeySchemaElement,
-	exprParts []string,
+	exprParts []*ParsedCondition,
 	eav map[string]any,
 ) ([]map[string]any, bool) {
 	pkValue := extractPKValueFromExpression(pkExpr, eav, input.ExpressionAttributeNames)
@@ -297,7 +309,7 @@ func (db *InMemoryDB) filterUsingIndices(
 	input *dynamodb.QueryInput,
 	_ *models.Projection,
 	indices []int,
-	exprParts []string,
+	exprParts []*ParsedCondition,
 	eav map[string]any,
 ) []map[string]any {
 	candidates := make([]map[string]any, 0, len(indices))
@@ -315,7 +327,7 @@ func (db *InMemoryDB) filterUsingIndices(
 			continue
 		}
 
-		if allExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
+		if allParsedExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
 			candidates = append(candidates, item)
 		}
 	}
@@ -370,7 +382,7 @@ func (db *InMemoryDB) filterCandidatesScan(
 	input *dynamodb.QueryInput,
 	projection *models.Projection,
 	keySchema []models.KeySchemaElement,
-	exprParts []string,
+	exprParts []*ParsedCondition,
 	eav map[string]any,
 ) ([]map[string]any, error) {
 	// naive scan filtering
@@ -379,7 +391,7 @@ func (db *InMemoryDB) filterCandidatesScan(
 	idxName := aws.ToString(input.IndexName)
 
 	for _, item := range table.Items {
-		if !allExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
+		if !allParsedExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
 			continue
 		}
 
@@ -427,18 +439,20 @@ func (db *InMemoryDB) processQueryResults(
 	candidates []map[string]any,
 	input *dynamodb.QueryInput,
 	keySchema []models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
 	ttlAttr string,
 ) *dynamodb.QueryOutput {
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	exclusiveStartKey := models.FromSDKItem(input.ExclusiveStartKey)
 
-	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema)
+	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema, tableKeySchema)
 
 	items, lastEvaluatedKey, scannedCount := db.collectQueryPage(
 		ctx,
 		candidates,
 		input,
 		keySchema,
+		tableKeySchema,
 		ttlAttr,
 		startIndex,
 		eav,
@@ -470,19 +484,28 @@ func (db *InMemoryDB) processQueryResults(
 // collectQueryPage iterates candidates from startIndex, collecting items up to
 // the input's Limit or 1MB size limit. Returns the collected items, the
 // last-evaluated key for pagination, and the total number of items scanned.
+// tableKeySchema is the base table's primary key schema; when querying a
+// GSI/LSI it is used to include the table PK in LastEvaluatedKey so that
+// pagination tokens are unambiguous (matching AWS behaviour).
 func (db *InMemoryDB) collectQueryPage(
-	ctx context.Context,
+	_ context.Context,
 	candidates []map[string]any,
 	input *dynamodb.QueryInput,
 	keySchema []models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
 	ttlAttr string,
 	startIndex int,
 	eav map[string]any,
 ) ([]map[string]any, map[string]any, int) {
 	limit := int(aws.ToInt32(input.Limit))
-	proj := aws.ToString(input.ProjectionExpression)
 
-	projector, _ := ParseProjector(proj, input.ExpressionAttributeNames)
+	projector, _ := ParseProjector(
+		aws.ToString(input.ProjectionExpression),
+		input.ExpressionAttributeNames,
+	)
+
+	// Pre-parse the filter expression once to avoid per-item re-lexing overhead.
+	parsedFilter, _ := ParseConditionStr(aws.ToString(input.FilterExpression))
 
 	const maxResponseSize = 1024 * 1024 // 1MB
 	items := make([]map[string]any, 0)
@@ -495,61 +518,38 @@ func (db *InMemoryDB) collectQueryPage(
 		itemSize, _ := CalculateItemSize(item)
 
 		if totalScannedSize+itemSize > maxResponseSize && len(items) > 0 {
-			// Stop if next item exceeds 1MB (unless it's the first matching item)
 			prevItem := candidates[i-1]
 
-			return items, extractKey(prevItem, keySchema), scannedCount - 1
+			return items, extractKeyWithBase(prevItem, keySchema, tableKeySchema), scannedCount - 1
 		}
 		totalScannedSize += itemSize
 
-		if !isItemExpired(item, ttlAttr) && db.shouldIncludeInQuery(ctx, item, input, eav) {
+		if !isItemExpired(item, ttlAttr) &&
+			parsedFilter.Evaluate(item, eav, input.ExpressionAttributeNames) {
 			items = append(items, projector.Project(item))
 		}
 
 		if limit > 0 && scannedCount >= limit {
-			return items, extractKey(item, keySchema), scannedCount
+			return items, extractKeyWithBase(item, keySchema, tableKeySchema), scannedCount
 		}
 
 		if totalScannedSize >= maxResponseSize {
-			return items, extractKey(item, keySchema), scannedCount
+			return items, extractKeyWithBase(item, keySchema, tableKeySchema), scannedCount
 		}
 	}
 
 	return items, nil, scannedCount
 }
 
-func (db *InMemoryDB) shouldIncludeInQuery(
-	ctx context.Context,
-	item map[string]any,
-	input *dynamodb.QueryInput,
-	eav map[string]any,
-) bool {
-	filter := aws.ToString(input.FilterExpression)
-	if filter == "" {
-		return true
-	}
-
-	log := logger.Load(ctx)
-	log.DebugContext(ctx, "Evaluating Query FilterExpression",
-		"expression", filter,
-		"attributeNames", input.ExpressionAttributeNames,
-		"attributeValues", input.ExpressionAttributeValues)
-
-	match, err := evaluateExpression(
-		filter,
-		item,
-		eav,
-		input.ExpressionAttributeNames,
-	)
-
-	return err == nil && match
-}
-
 // allExprPartsMatch reports whether all expression parts evaluate to true for the given item.
-func allExprPartsMatch(exprParts []string, item, eav map[string]any, exprAttrNames map[string]string) bool {
+// allParsedExprPartsMatch reports whether all pre-parsed expression parts evaluate to true.
+func allParsedExprPartsMatch(
+	exprParts []*ParsedCondition,
+	item, eav map[string]any,
+	exprAttrNames map[string]string,
+) bool {
 	for _, part := range exprParts {
-		m, err := evaluateExpression(part, item, eav, exprAttrNames)
-		if err != nil || !m {
+		if !part.Evaluate(item, eav, exprAttrNames) {
 			return false
 		}
 	}

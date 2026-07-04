@@ -15,9 +15,9 @@ import (
 // of these names is rejected when BlockPublicAcls is set on the bucket's
 // Public Access Block configuration.
 var publicCannedACLs = map[string]struct{}{ //nolint:gochecknoglobals // lookup table
-	"public-read":        {},
-	"public-read-write":  {},
-	"authenticated-read": {},
+	aclPublicRead:        {},
+	aclPublicReadWrite:   {},
+	aclAuthenticatedRead: {},
 }
 
 // enforceACLPolicy checks the bucket's PublicAccessBlock and OwnershipControls

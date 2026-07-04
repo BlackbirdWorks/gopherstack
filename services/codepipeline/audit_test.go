@@ -1140,11 +1140,11 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 				_, err := b.CreatePipeline(context.Background(), samplePipeline("snap-pl"), nil)
 				require.NoError(t, err)
 
-				snap := b.Snapshot()
+				snap := b.Snapshot(t.Context())
 				require.NotNil(t, snap)
 
 				b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				require.NoError(t, b2.Restore(snap))
+				require.NoError(t, b2.Restore(t.Context(), snap))
 
 				// Snap is now parsed and owned by b2; zero it out to detect aliasing.
 				for i := range snap {
@@ -1168,10 +1168,10 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 
 				// Take snapshot of empty state.
 				b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				emptySnap := b2.Snapshot()
+				emptySnap := b2.Snapshot(t.Context())
 
 				// Restore empty snapshot onto b which has "old-pl".
-				require.NoError(t, b.Restore(emptySnap))
+				require.NoError(t, b.Restore(t.Context(), emptySnap))
 
 				assert.Equal(t, 0, b.PipelineCount())
 			},
@@ -1188,10 +1188,10 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 				exec, err := b.StartPipelineExecution(context.Background(), "exec-snap")
 				require.NoError(t, err)
 
-				snap := b.Snapshot()
+				snap := b.Snapshot(t.Context())
 
 				b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				require.NoError(t, b2.Restore(snap))
+				require.NoError(t, b2.Restore(t.Context(), snap))
 
 				execs, err := b2.ListPipelineExecutions(context.Background(), "exec-snap")
 				require.NoError(t, err)
@@ -1663,6 +1663,171 @@ func TestInMemoryBackend_DeletePipeline_ClearsExecutions(t *testing.T) {
 			t.Parallel()
 
 			tt.checkFn(t)
+		})
+	}
+}
+
+// --------------------------------------------------------------------------
+// GetPipelineState includes latestExecution in actionStates
+// --------------------------------------------------------------------------
+
+func TestHandler_GetPipelineState_LatestExecution(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		checkFn      func(t *testing.T, out map[string]any)
+		name         string
+		pipelineName string
+		wantStatus   int
+		runExec      bool
+	}{
+		{
+			name:         "latestExecution absent before any execution",
+			pipelineName: "le-no-exec",
+			runExec:      false,
+			wantStatus:   http.StatusOK,
+			checkFn: func(t *testing.T, out map[string]any) {
+				t.Helper()
+
+				stages, _ := out["stageStates"].([]any)
+				require.Len(t, stages, 1)
+
+				stage0, _ := stages[0].(map[string]any)
+				actionStates, _ := stage0["actionStates"].([]any)
+				require.Len(t, actionStates, 1)
+
+				action0, _ := actionStates[0].(map[string]any)
+				_, hasLatest := action0["latestExecution"]
+				assert.False(t, hasLatest, "latestExecution must be absent before any execution")
+			},
+		},
+		{
+			name:         "latestExecution populated after StartPipelineExecution",
+			pipelineName: "le-with-exec",
+			runExec:      true,
+			wantStatus:   http.StatusOK,
+			checkFn: func(t *testing.T, out map[string]any) {
+				t.Helper()
+
+				stages, _ := out["stageStates"].([]any)
+				require.Len(t, stages, 1)
+
+				stage0, _ := stages[0].(map[string]any)
+				actionStates, _ := stage0["actionStates"].([]any)
+				require.Len(t, actionStates, 1)
+
+				action0, _ := actionStates[0].(map[string]any)
+				latest, ok := action0["latestExecution"].(map[string]any)
+				require.True(t, ok, "latestExecution must be present after execution")
+
+				assert.NotEmpty(t, latest["actionExecutionId"], "actionExecutionId must be set")
+				assert.NotEmpty(t, latest["status"], "status must be set")
+				assert.NotZero(t, latest["startTime"], "startTime must be set")
+				assert.NotZero(t, latest["lastUpdateTime"], "lastUpdateTime must be set")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.CreatePipeline(context.Background(), samplePipeline(tt.pipelineName), nil)
+			require.NoError(t, err)
+
+			if tt.runExec {
+				_, err = b.StartPipelineExecution(context.Background(), tt.pipelineName)
+				require.NoError(t, err)
+			}
+
+			h := codepipeline.NewHandler(b)
+			rec := doRequest(t, h, "GetPipelineState", map[string]any{"name": tt.pipelineName})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkFn != nil {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				tt.checkFn(t, out)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------------
+// PollForJobs respects maxBatchSize
+// --------------------------------------------------------------------------
+
+func TestHandler_PollForJobs_MaxBatchSize(t *testing.T) {
+	t.Parallel()
+
+	makeJob := func(id string) *codepipeline.Job {
+		return &codepipeline.Job{
+			ID:     id,
+			Nonce:  "n-" + id,
+			Status: "Queued",
+			ActionTypeID: codepipeline.ActionTypeID{
+				Category: "Build",
+				Owner:    "Custom",
+				Provider: "MyBuilder",
+				Version:  "1",
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		maxBatchSize int32
+		wantCount    int
+	}{
+		{
+			name:         "maxBatchSize=1 limits to 1 job",
+			maxBatchSize: 1,
+			wantCount:    1,
+		},
+		{
+			name:         "maxBatchSize=2 limits to 2 jobs",
+			maxBatchSize: 2,
+			wantCount:    2,
+		},
+		{
+			name:         "maxBatchSize=0 defaults to at most 10",
+			maxBatchSize: 0,
+			wantCount:    3,
+		},
+		{
+			name:         "maxBatchSize exceeding count returns all",
+			maxBatchSize: 10,
+			wantCount:    3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+			b.AddJobInternal(makeJob("job-a"))
+			b.AddJobInternal(makeJob("job-b"))
+			b.AddJobInternal(makeJob("job-c"))
+
+			h := codepipeline.NewHandler(b)
+			rec := doRequest(t, h, "PollForJobs", map[string]any{
+				"actionTypeId": map[string]any{
+					"category": "Build",
+					"owner":    "Custom",
+					"provider": "MyBuilder",
+					"version":  "1",
+				},
+				"maxBatchSize": tt.maxBatchSize,
+			})
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			jobs, _ := out["jobs"].([]any)
+			assert.Len(t, jobs, tt.wantCount)
 		})
 	}
 }

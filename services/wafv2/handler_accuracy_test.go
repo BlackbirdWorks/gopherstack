@@ -765,11 +765,16 @@ func TestAccuracy_ErrorHeaderXAmznErrortype(t *testing.T) {
 func TestAccuracy_GetSampledRequestsValidation(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	backend := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
+	acl, err := wafv2.CreateWebACLSimple(backend, "test", "REGIONAL", "", "ALLOW", nil)
+	require.NoError(t, err)
+
+	h := wafv2.NewHandler(backend)
+	aclARN := backend.WebACLARN(acl.Name, acl.ID, "REGIONAL")
 
 	// MaxItems 0 — invalid.
 	recZero := doWafv2Request(t, h, "GetSampledRequests", map[string]any{
-		"WebAclArn":      "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/test/abc",
+		"WebAclArn":      aclARN,
 		"RuleMetricName": "my-rule",
 		"Scope":          "REGIONAL",
 		"MaxItems":       0,
@@ -782,7 +787,7 @@ func TestAccuracy_GetSampledRequestsValidation(t *testing.T) {
 
 	// MaxItems 501 — invalid.
 	recHigh := doWafv2Request(t, h, "GetSampledRequests", map[string]any{
-		"WebAclArn":      "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/test/abc",
+		"WebAclArn":      aclARN,
 		"RuleMetricName": "my-rule",
 		"Scope":          "REGIONAL",
 		"MaxItems":       501,
@@ -795,7 +800,7 @@ func TestAccuracy_GetSampledRequestsValidation(t *testing.T) {
 
 	// MaxItems 100 — valid.
 	recOK := doWafv2Request(t, h, "GetSampledRequests", map[string]any{
-		"WebAclArn":      "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/test/abc",
+		"WebAclArn":      aclARN,
 		"RuleMetricName": "my-rule",
 		"Scope":          "REGIONAL",
 		"MaxItems":       100,

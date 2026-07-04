@@ -1021,3 +1021,112 @@ func TestAccuracy_Gap3_ProvidedContextsValidation(t *testing.T) {
 		require.ErrorIs(t, err, sts.ErrInvalidProvidedContext)
 	})
 }
+
+// ── Assumed-role ARN: IAM path is stripped from the role name ─────────────────
+//
+// AWS drops any IAM path on the role when forming the assumed-role principal ARN:
+// a role at arn:aws:iam::ACCT:role/team/dev/MyRole yields
+// arn:aws:sts::ACCT:assumed-role/MyRole/SESSION (only the bare role name survives).
+// See https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html.
+func TestAccuracy_AssumedRoleArn_PathStripped(t *testing.T) {
+	t.Parallel()
+
+	const acct = "123456789012"
+
+	tests := []struct {
+		name        string
+		roleArn     string
+		sessionName string
+		wantArn     string
+		wantRoleID  string // expected AssumedRoleId prefix (before the ":session" suffix)
+	}{
+		{
+			name:        "no_path",
+			roleArn:     "arn:aws:iam::" + acct + ":role/MyRole",
+			sessionName: "sess",
+			wantArn:     "arn:aws:sts::" + acct + ":assumed-role/MyRole/sess",
+		},
+		{
+			name:        "single_path_segment",
+			roleArn:     "arn:aws:iam::" + acct + ":role/dev/MyRole",
+			sessionName: "sess",
+			wantArn:     "arn:aws:sts::" + acct + ":assumed-role/MyRole/sess",
+		},
+		{
+			name:        "multi_path_segments",
+			roleArn:     "arn:aws:iam::" + acct + ":role/team/dev/eu/MyRole",
+			sessionName: "sess",
+			wantArn:     "arn:aws:sts::" + acct + ":assumed-role/MyRole/sess",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sts.NewInMemoryBackend()
+			resp, err := b.AssumeRole(&sts.AssumeRoleInput{
+				RoleArn:         tt.roleArn,
+				RoleSessionName: tt.sessionName,
+			})
+			require.NoError(t, err)
+
+			got := resp.AssumeRoleResult.AssumedRoleUser.Arn
+			assert.Equal(t, tt.wantArn, got, "assumed-role ARN must strip the IAM path")
+
+			// The AssumedRoleId session suffix and the ARN session suffix must agree.
+			assert.True(t,
+				strings.HasSuffix(resp.AssumeRoleResult.AssumedRoleUser.AssumedRoleID, ":"+tt.sessionName),
+				"AssumedRoleId must end with the session name",
+			)
+
+			// GetCallerIdentity on the issued key must echo the same path-stripped ARN.
+			ci, err := b.GetCallerIdentity(
+				resp.AssumeRoleResult.Credentials.AccessKeyID,
+				resp.AssumeRoleResult.Credentials.SessionToken,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantArn, ci.GetCallerIdentityResult.Arn)
+		})
+	}
+}
+
+// TestAccuracy_AssumedRoleArn_PathStripped_WebIdentityAndSAML verifies the same
+// path-stripping rule applies to AssumeRoleWithWebIdentity and AssumeRoleWithSAML,
+// which share the assumed-role ARN construction with AssumeRole.
+func TestAccuracy_AssumedRoleArn_PathStripped_WebIdentityAndSAML(t *testing.T) {
+	t.Parallel()
+
+	const (
+		acct    = "123456789012"
+		roleArn = "arn:aws:iam::" + acct + ":role/svc/team/MyRole"
+		wantArn = "arn:aws:sts::" + acct + ":assumed-role/MyRole/sess"
+	)
+
+	t.Run("web_identity", func(t *testing.T) {
+		t.Parallel()
+
+		b := sts.NewInMemoryBackend()
+		resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
+			RoleArn:          roleArn,
+			RoleSessionName:  "sess",
+			WebIdentityToken: buildJWT(t, map[string]any{"sub": "user", "iss": "https://example.com"}),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, wantArn, resp.AssumeRoleWithWebIdentityResult.AssumedRoleUser.Arn)
+	})
+
+	t.Run("saml", func(t *testing.T) {
+		t.Parallel()
+
+		b := sts.NewInMemoryBackend()
+		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
+			RoleArn:         roleArn,
+			RoleSessionName: "sess",
+			PrincipalArn:    "arn:aws:iam::" + acct + ":saml-provider/Example",
+			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, wantArn, resp.AssumeRoleWithSAMLResult.AssumedRoleUser.Arn)
+	})
+}

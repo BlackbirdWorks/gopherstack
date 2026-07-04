@@ -128,10 +128,10 @@ func TestHandler_AnalyzeDocument(t *testing.T) {
 			wantBlocks: true,
 		},
 		{
-			name:       "empty body still returns blocks",
+			name:       "empty body rejects with 400 (FeatureTypes required)",
 			body:       map[string]any{},
-			wantStatus: http.StatusOK,
-			wantBlocks: true,
+			wantStatus: http.StatusBadRequest,
+			wantBlocks: false,
 		},
 	}
 
@@ -527,6 +527,7 @@ func TestHandler_Snapshot_Restore(t *testing.T) {
 								"Name":   "doc.pdf",
 							},
 						},
+						"FeatureTypes": []string{"TABLES"},
 					})
 				} else {
 					doTextractRequest(t, h, "StartDocumentTextDetection", map[string]any{
@@ -540,11 +541,11 @@ func TestHandler_Snapshot_Restore(t *testing.T) {
 				}
 			}
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			h2 := newTestHandler(t)
-			require.NoError(t, h2.Restore(snap))
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
 			jobs := h2.Backend.ListJobs(context.Background())
 			assert.Len(t, jobs, tt.jobCount)
@@ -994,11 +995,11 @@ func TestHandler_Snapshot_Restore_WithAdapters(t *testing.T) {
 				})
 			}
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			h2 := newTestHandler(t)
-			require.NoError(t, h2.Restore(snap))
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
 			assert.Equal(t, tt.adapterCount, textract.AdapterCount(h2.Backend.(*textract.InMemoryBackend)))
 		})

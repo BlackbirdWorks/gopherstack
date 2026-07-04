@@ -72,14 +72,14 @@ var validNodeTypes = map[string]bool{ //nolint:gochecknoglobals // package-level
 
 // defaultParameterValues are the canonical DAX 1.0 parameter defaults.
 var defaultParameterValues = map[string]string{ //nolint:gochecknoglobals // package-level lookup table
-	"query-ttl-millis":  "300000",
-	"record-ttl-millis": "300000",
+	paramQueryTTL:  "300000",
+	paramRecordTTL: "300000",
 }
 
 // defaultParameterDescriptions provides human-readable descriptions for default parameters.
 var defaultParameterDescriptions = map[string]string{ //nolint:gochecknoglobals // package-level lookup table
-	"query-ttl-millis":  "The number of milliseconds for which query results are cached.",
-	"record-ttl-millis": "The number of milliseconds for which individual item results are cached.",
+	paramQueryTTL:  "The number of milliseconds for which query results are cached.",
+	paramRecordTTL: "The number of milliseconds for which individual item results are cached.",
 }
 
 // Endpoint represents a DAX cluster endpoint.
@@ -131,6 +131,24 @@ type SubnetGroup struct {
 	Subnets         []SubnetEntry `json:"subnets"`
 }
 
+// ParameterType values distinguish individual versus per-node-type parameters.
+const (
+	ParameterTypeDefault          = "DEFAULT"
+	ParameterTypeNodeTypeSpecific = "NODE_TYPE_SPECIFIC"
+)
+
+// paramQueryTTL is the canonical DAX parameter name for query result TTL.
+const paramQueryTTL = "query-ttl-millis"
+
+// paramRecordTTL is the canonical DAX parameter name for individual item TTL.
+const paramRecordTTL = "record-ttl-millis"
+
+// defaultParameterAllowedValues are the allowed value ranges for each default parameter.
+var defaultParameterAllowedValues = map[string]string{ //nolint:gochecknoglobals // package-level lookup table
+	paramQueryTTL:  "0-2147483647",
+	paramRecordTTL: "0-2147483647",
+}
+
 // Parameter represents a DAX parameter with metadata.
 type Parameter struct {
 	ParameterName  string `json:"parameterName"`
@@ -140,6 +158,8 @@ type Parameter struct {
 	DataType       string `json:"dataType"`
 	IsModifiable   string `json:"isModifiable"`
 	ChangeType     string `json:"changeType"`
+	AllowedValues  string `json:"allowedValues,omitempty"`
+	ParameterType  string `json:"parameterType,omitempty"`
 }
 
 // ParameterNameValue is a name-value pair for parameter updates.
@@ -177,6 +197,7 @@ type Cluster struct {
 	SecurityGroupIDs              []string                   `json:"securityGroupIds"`
 	ActiveNodes                   int                        `json:"activeNodes"`
 	TotalNodes                    int                        `json:"totalNodes"`
+	NextNodeIndex                 int                        `json:"nextNodeIndex"`
 }
 
 // ParameterGroup represents a DAX parameter group.

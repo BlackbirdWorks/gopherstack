@@ -65,3 +65,10 @@ var (
 	// per-message delays).
 	ErrFIFODelayNotSupported = errors.New("InvalidParameterValue.FIFODelaySeconds")
 )
+
+// InvalidParameterError represents an InvalidParameterValue error with a dynamic message.
+type InvalidParameterError struct {
+	Message string
+}
+
+func (e *InvalidParameterError) Error() string { return e.Message }

@@ -295,9 +295,9 @@ func TestQuickSight_ParitySweep_Persistence(t *testing.T) {
 		RequestStatus:    "PENDING",
 	})
 
-	snapshot := backend.Snapshot()
+	snapshot := backend.Snapshot(t.Context())
 	restoredBackend := quicksight.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, restoredBackend.Restore(snapshot))
+	require.NoError(t, restoredBackend.Restore(t.Context(), snapshot))
 	restoredHandler := quicksight.NewHandler(restoredBackend)
 
 	rec := doRequest(t, restoredHandler, http.MethodPut, accountPath("/dashboards/dash1/versions/2"), nil)

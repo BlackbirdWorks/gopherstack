@@ -1,14 +1,17 @@
 package workmail
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for WorkMail storage operations.
 type StorageBackend interface {
 	// Organizations
-	CreateOrganization(alias string, domains []string) (*Organization, error)
+	CreateOrganization(ctx context.Context, alias string, domains []string) (*Organization, error)
 	DescribeOrganization(orgID string) (*Organization, error)
 	DeleteOrganization(orgID string, deleteDirectory bool) error
-	ListOrganizations(maxResults int32, nextToken string) ([]*OrgSummary, string, error)
+	ListOrganizations(ctx context.Context, maxResults int32, nextToken string) ([]*OrgSummary, string, error)
 
 	// Users
 	CreateUser(orgID, name, displayName, password string, role string) (*User, error)
@@ -201,6 +204,7 @@ type Organization struct {
 	DirectoryType     string
 	DefaultMailDomain string
 	ErrorMessage      string
+	Region            string
 }
 
 // OrgSummary is a summary of a WorkMail organization.
@@ -235,6 +239,7 @@ type UserSummary struct {
 	Email       string
 	DisplayName string
 	State       string
+	Role        string
 }
 
 // Group represents a WorkMail group.

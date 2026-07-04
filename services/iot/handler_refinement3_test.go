@@ -884,7 +884,7 @@ func TestRefinement3_UpdateCertificate_ValidStatus_PENDING_TRANSFER(t *testing.T
 		CertificateID: cert.CertificateID,
 		NewStatus:     "PENDING_TRANSFER",
 	})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, iot.ErrValidation, "PENDING_TRANSFER cannot be set via UpdateCertificate")
 }
 
 func TestRefinement3_UpdateCertificate_ValidStatus_PENDING_ACTIVATION(t *testing.T) {
@@ -898,7 +898,7 @@ func TestRefinement3_UpdateCertificate_ValidStatus_PENDING_ACTIVATION(t *testing
 		CertificateID: cert.CertificateID,
 		NewStatus:     "PENDING_ACTIVATION",
 	})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, iot.ErrValidation, "PENDING_ACTIVATION cannot be set via UpdateCertificate")
 }
 
 func TestRefinement3_UpdateCertificate_ValidStatus_INACTIVE(t *testing.T) {
@@ -1606,7 +1606,7 @@ func TestRefinement3_UpdateThing_ChangeThingType(t *testing.T) {
 func TestRefinement3_Certificate_StatusTransitions(t *testing.T) {
 	t.Parallel()
 
-	statuses := []string{"ACTIVE", "INACTIVE", "REVOKED", "PENDING_TRANSFER", "PENDING_ACTIVATION"}
+	statuses := []string{"ACTIVE", "INACTIVE", "REVOKED"}
 
 	for _, status := range statuses {
 		t.Run(status, func(t *testing.T) {

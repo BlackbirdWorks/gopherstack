@@ -47,6 +47,11 @@ const (
 	// MaxRootDurationSeconds is the maximum allowed lifetime for AssumeRoot (15 minutes).
 	MaxRootDurationSeconds = 900
 
+	// MaxRoleChainDurationSeconds is the AWS cap on session duration when the caller
+	// uses temporary credentials (role chaining). AWS enforces 1 hour regardless of
+	// the target role's MaxSessionDuration.
+	MaxRoleChainDurationSeconds = 3600
+
 	// DefaultWebIdentityTokenDurationSeconds is the default lifetime for GetWebIdentityToken (5 minutes).
 	DefaultWebIdentityTokenDurationSeconds = 300
 
@@ -113,11 +118,18 @@ type ProvidedContext struct {
 
 // AssumeRoleInput holds the parameters for an AssumeRole call.
 type AssumeRoleInput struct {
+	CallerSession     *SessionInfo
 	RoleArn           string
 	RoleSessionName   string
 	ExternalID        string
 	Policy            string
 	SourceIdentity    string
+	CallerAccessKeyID string
+	// CallerArn is the resolved ARN of the calling principal (e.g. an assumed-role
+	// ARN during role chaining). When set, the target role's trust policy is
+	// evaluated against it; when empty, trust-policy Principal evaluation is
+	// skipped (the emulator only enforces constraints it can positively determine).
+	CallerArn         string
 	Tags              []Tag
 	TransitiveTagKeys []string
 	PolicyArns        []string

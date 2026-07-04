@@ -1,6 +1,9 @@
 package support
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the interface for Support backend implementations.
 // All mutating methods must be safe for concurrent use.
@@ -29,8 +32,8 @@ type StorageBackend interface {
 	DescribeTrustedAdvisorCheckResult(checkID, language string) *TrustedAdvisorCheckResult
 	DescribeTrustedAdvisorCheckSummaries(checkIDs []string) []TrustedAdvisorCheckSummary
 	RefreshTrustedAdvisorCheck(checkID string) (*TrustedAdvisorCheckRefreshStatus, error)
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.

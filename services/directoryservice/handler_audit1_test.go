@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -214,6 +215,14 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 		dirs, ok := resp["DirectoryDescriptions"].([]any)
 		require.True(t, ok)
 		require.Len(t, dirs, 1)
+		backend := h.Backend.(*directoryservice.InMemoryBackend)
+		require.True(t, directoryservice.WaitForDirectoryActive(backend, dirID, time.Second))
+
+		rec = doRequest(t, h, "DescribeDirectories", map[string]any{
+			"DirectoryIds": []string{dirID},
+		})
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		dirs = resp["DirectoryDescriptions"].([]any)
 		dir := dirs[0].(map[string]any)
 		assert.Equal(t, dirID, dir["DirectoryId"])
 		assert.Equal(t, "corp.example.com", dir["Name"])
@@ -629,6 +638,70 @@ func TestDirectoryService_DeleteDirectoryRemovesSnapshots(t *testing.T) {
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
 	snaps := descResp["Snapshots"].([]any)
 	assert.Empty(t, snaps)
+}
+
+func TestRestoreFromSnapshot_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(h *directoryservice.Handler) string
+		name     string
+		wantCode int
+	}{
+		{
+			name: "valid snapshot restores directory",
+			setup: func(h *directoryservice.Handler) string {
+				createRec := doRequest(t, h, "CreateDirectory", map[string]any{
+					"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
+				})
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				dirID := createResp["DirectoryId"].(string)
+				snapRec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
+				var snapResp map[string]any
+				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
+
+				return snapResp["SnapshotId"].(string)
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "non-existent snapshot returns 400",
+			setup: func(_ *directoryservice.Handler) string {
+				return "s-0000000000"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "orphaned snapshot (directory deleted) returns 400",
+			setup: func(h *directoryservice.Handler) string {
+				createRec := doRequest(t, h, "CreateDirectory", map[string]any{
+					"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
+				})
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				dirID := createResp["DirectoryId"].(string)
+				snapRec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
+				var snapResp map[string]any
+				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
+				snapID := snapResp["SnapshotId"].(string)
+				doRequest(t, h, "DeleteDirectory", map[string]any{"DirectoryId": dirID})
+
+				return snapID
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			snapID := tt.setup(h)
+			rec := doRequest(t, h, "RestoreFromSnapshot", map[string]any{"SnapshotId": snapID})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
 // TestDirectoryService_UnknownOperation verifies that an unrecognised operation is

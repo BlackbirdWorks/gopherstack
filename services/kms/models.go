@@ -864,3 +864,24 @@ type VerifyMacOutput struct {
 	MacAlgorithm string `json:"MacAlgorithm"`
 	MacValid     bool   `json:"MacValid"`
 }
+
+// KeyLastUsageData contains information about the last successful cryptographic operation on a KMS key.
+type KeyLastUsageData struct {
+	CloudTrailEventID string  `json:"CloudTrailEventId,omitempty"`
+	KmsRequestID      string  `json:"KmsRequestId,omitempty"`
+	Operation         string  `json:"Operation,omitempty"`
+	Timestamp         float64 `json:"Timestamp,omitempty"`
+}
+
+// GetKeyLastUsageInput is the request payload for GetKeyLastUsage.
+type GetKeyLastUsageInput struct {
+	KeyID string `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
+}
+
+// GetKeyLastUsageOutput is the response payload for GetKeyLastUsage.
+type GetKeyLastUsageOutput struct {
+	KeyLastUsage      *KeyLastUsageData `json:"KeyLastUsage,omitempty"`
+	KeyID             string            `json:"KeyId,omitempty"`
+	KeyCreationDate   float64           `json:"KeyCreationDate,omitempty"`
+	TrackingStartDate float64           `json:"TrackingStartDate,omitempty"`
+}

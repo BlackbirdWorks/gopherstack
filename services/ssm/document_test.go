@@ -931,7 +931,7 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 
 				// Restore a pre-documents snapshot; defaults should be re-seeded
 				oldSnap := `{"parameters":{},"history":{},"tags":{}}`
-				require.NoError(t, b.Restore([]byte(oldSnap)))
+				require.NoError(t, b.Restore(t.Context(), []byte(oldSnap)))
 
 				out, err := b.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{})
 				require.NoError(t, err)
@@ -981,11 +981,11 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 			orig := ssm.NewInMemoryBackend()
 			tt.setup(orig)
 
-			snap := orig.Snapshot()
+			snap := orig.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			restored := ssm.NewInMemoryBackend()
-			require.NoError(t, restored.Restore(snap))
+			require.NoError(t, restored.Restore(t.Context(), snap))
 
 			tt.verify(t, restored)
 		})

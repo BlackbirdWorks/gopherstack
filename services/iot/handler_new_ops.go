@@ -163,6 +163,7 @@ func resolveProvisioningTemplateOps(path, method string) string {
 	// GET /provisioning-templates/{templateName}/versions/{versionId} → DescribeProvisioningTemplateVersion
 	case strings.HasPrefix(path, "/provisioning-templates/") &&
 		strings.Contains(path, "/versions/") &&
+		!strings.HasSuffix(path, "/versions") &&
 		method == http.MethodGet:
 		return opDescribeProvisioningTemplateVersion
 	// GET /provisioning-templates/{templateName} → DescribeProvisioningTemplate
@@ -185,7 +186,8 @@ func resolveAuthorizerOps(path, method string) string {
 		return opListAuthorizers
 	// POST /authorizer/{authorizerName}/test → TestInvokeAuthorizer (checked before
 	// the generic POST case below, which is CreateAuthorizer).
-	case strings.HasPrefix(path, "/authorizer/") && strings.HasSuffix(path, "/test") && method == http.MethodPost:
+	case strings.HasPrefix(path, "/authorizer/") &&
+		strings.HasSuffix(path, "/test") && method == http.MethodPost:
 		return opTestInvokeAuthorizer
 	case strings.HasPrefix(path, "/authorizer/") && method == http.MethodPost:
 		return opCreateAuthorizer
@@ -304,12 +306,17 @@ func resolveSecurityProfileOps(path, method string) string {
 // HTTP handler implementations
 // ---------------------------------------------------------------------------
 
+type awsErrBody struct {
+	Type    string `json:"__type"`
+	Message string `json:"message"`
+}
+
 func respondNotFound(c *echo.Context, msg string) error {
-	return c.JSON(http.StatusNotFound, map[string]string{keyError: msg})
+	return c.JSON(http.StatusNotFound, awsErrBody{"ResourceNotFoundException", msg})
 }
 
 func respondConflict(c *echo.Context, msg string) error {
-	return c.JSON(http.StatusConflict, map[string]string{keyError: msg})
+	return c.JSON(http.StatusConflict, awsErrBody{"ResourceAlreadyExistsException", msg})
 }
 
 func respondErr(c *echo.Context, err error) error {
@@ -320,7 +327,7 @@ func respondErr(c *echo.Context, err error) error {
 		return respondConflict(c, err.Error())
 	}
 
-	return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+	return c.JSON(http.StatusBadRequest, awsErrBody{"InvalidRequestException", err.Error()})
 }
 
 // --- Jobs ---

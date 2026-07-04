@@ -1,6 +1,7 @@
 package eks
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -152,6 +153,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // Reset clears all backend state.
 func (h *Handler) Reset() { h.Backend.Reset() }
+
+// Shutdown stops the backend's scheduled state-transition timers so no timer
+// goroutine outlives the service. Invoked on server shutdown via
+// service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EKS" }
@@ -951,6 +957,13 @@ func clusterToJSON(c *Cluster) map[string]any {
 		"platformVersion": c.PlatformVersion,
 		keyTags:           clusterTagsMap(c),
 	}
+	appendClusterCoreFields(c, m)
+	appendClusterOptionalInfra(c, m)
+
+	return m
+}
+
+func appendClusterCoreFields(c *Cluster, m map[string]any) {
 	if c.Endpoint != "" {
 		m["endpoint"] = c.Endpoint
 	}
@@ -972,6 +985,9 @@ func clusterToJSON(c *Cluster) map[string]any {
 	if len(c.EncryptionConfig) > 0 {
 		m["encryptionConfig"] = c.EncryptionConfig
 	}
+}
+
+func appendClusterOptionalInfra(c *Cluster, m map[string]any) {
 	if c.AccessConfig != nil {
 		m["accessConfig"] = map[string]any{
 			"authenticationMode":                      c.AccessConfig.AuthenticationMode,
@@ -991,8 +1007,12 @@ func clusterToJSON(c *Cluster) map[string]any {
 			"elasticLoadBalancing": map[string]any{keyEnabled: c.NetworkingConfig.ElasticLoadBalancing.Enabled},
 		}
 	}
-
-	return m
+	if c.CertificateAuthority != "" {
+		m["certificateAuthority"] = map[string]string{"data": c.CertificateAuthority}
+	}
+	if c.ConnectorConfig != nil {
+		m["connectorConfig"] = c.ConnectorConfig
+	}
 }
 
 func clusterNetConfigJSON(cfg *KubernetesNetworkConfig) map[string]any {
@@ -1047,7 +1067,6 @@ func clusterTagsMap(c *Cluster) map[string]string {
 }
 
 // nodegroupToJSON converts a Nodegroup to a JSON-serializable map.
-// nodegroupToJSON converts a Nodegroup to a JSON-serializable map.
 func nodegroupToJSON(ng *Nodegroup) map[string]any {
 	m := map[string]any{
 		"nodegroupName": ng.NodegroupName,
@@ -1060,6 +1079,7 @@ func nodegroupToJSON(ng *Nodegroup) map[string]any {
 			"minSize":     ng.MinSize,
 			"maxSize":     ng.MaxSize,
 		},
+		"health": map[string]any{"issues": []any{}},
 	}
 	appendNodegroupCoreFields(ng, m)
 	appendNodegroupOptionalFields(ng, m)
@@ -1650,12 +1670,22 @@ func (h *Handler) handleUpdateNodegroupConfig(
 		return h.handleError(c, err)
 	}
 
+	now := time.Now().UTC()
+	u := &Update{
+		ID:          uuid.NewString()[:8],
+		ClusterName: clusterName,
+		Status:      statusInProgress,
+		Type:        "ConfigUpdate",
+		CreatedAt:   now,
+	}
+	h.Backend.StoreUpdate(u)
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyUpdate: map[string]any{
-			"id":            uuid.NewString()[:8],
-			keyStatusField:  statusInProgress,
-			keyType:         "ConfigUpdate",
-			keyCreatedAt:    float64(time.Now().Unix()),
+			"id":            u.ID,
+			keyStatusField:  u.Status,
+			keyType:         u.Type,
+			keyCreatedAt:    float64(now.Unix()),
 			keyClusterName:  clusterName,
 			"nodegroupName": ng.NodegroupName,
 		},
@@ -1802,12 +1832,13 @@ func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName s
 }
 
 type oidcConfigJSON struct {
-	ClientID       string `json:"clientId"`
-	GroupsClaim    string `json:"groupsClaim,omitempty"`
-	GroupsPrefix   string `json:"groupsPrefix,omitempty"`
-	IssuerURL      string `json:"issuerUrl"`
-	UsernameClaim  string `json:"usernameClaim,omitempty"`
-	UsernamePrefix string `json:"usernamePrefix,omitempty"`
+	ClientID                   string `json:"clientId"`
+	GroupsClaim                string `json:"groupsClaim,omitempty"`
+	GroupsPrefix               string `json:"groupsPrefix,omitempty"`
+	IdentityProviderConfigName string `json:"identityProviderConfigName,omitempty"`
+	IssuerURL                  string `json:"issuerUrl"`
+	UsernameClaim              string `json:"usernameClaim,omitempty"`
+	UsernamePrefix             string `json:"usernamePrefix,omitempty"`
 }
 
 type associateIdentityProviderConfigBody struct {
@@ -1840,8 +1871,10 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 		params["groupsClaim"] = in.Oidc.GroupsClaim
 	}
 
-	// Use clientId as the config name (unique per cluster).
-	configName := in.Oidc.ClientID
+	configName := in.Oidc.IdentityProviderConfigName
+	if configName == "" {
+		configName = in.Oidc.ClientID
+	}
 
 	cfg, err := h.Backend.AssociateIdentityProviderConfig(clusterName, "oidc", configName, params, in.Tags)
 	if err != nil {

@@ -62,6 +62,7 @@ func TestCSCRegionIsolation(t *testing.T) {
 		"GitHubEnterpriseServer",
 		"https://east.example.com",
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastHost.HostArn, "us-east-1")
@@ -71,6 +72,7 @@ func TestCSCRegionIsolation(t *testing.T) {
 		"shared-host",
 		"GitHubEnterpriseServer",
 		"https://west.example.com",
+		nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -202,6 +204,9 @@ func TestCSCRepositoryLinkRegionIsolation(t *testing.T) {
 	westCfg, err := backend.GetSyncConfiguration(ctxWest, "east-stack", "CFN_STACK_SYNC")
 	require.NoError(t, err)
 	assert.Equal(t, westLink.RepositoryLinkID, westCfg.RepositoryLinkID)
+
+	// Must delete sync config before deleting the link (AWS ResourceInUse semantics).
+	require.NoError(t, backend.DeleteSyncConfiguration(ctxEast, "east-stack", "CFN_STACK_SYNC"))
 
 	// Deleting the east link leaves the west link intact.
 	require.NoError(t, backend.DeleteRepositoryLink(ctxEast, eastLink.RepositoryLinkID))

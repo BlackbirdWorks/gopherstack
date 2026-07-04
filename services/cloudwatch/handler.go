@@ -2,6 +2,7 @@ package cloudwatch
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -122,11 +123,16 @@ func (h *Handler) removeTags(resourceID string, keys []string) {
 	}
 }
 
-// deleteResourceTags removes the entire tag entry for a resource ARN.
+// deleteResourceTags removes the entire tag entry for a resource ARN and closes
+// the underlying Tags instance to deregister its Prometheus lockmetrics entry.
 func (h *Handler) deleteResourceTags(resourceARN string) {
 	h.tagsMu.Lock("deleteResourceTags")
-	defer h.tagsMu.Unlock()
+	t := h.tags[resourceARN]
 	delete(h.tags, resourceARN)
+	h.tagsMu.Unlock()
+	if t != nil {
+		t.Close()
+	}
 }
 
 func (h *Handler) getTags(resourceID string) map[string]string {
@@ -1007,6 +1013,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		ExtendedStatistic:       form.Get("ExtendedStatistic"),
 		TreatMissingData:        form.Get("TreatMissingData"),
 		AlarmDescription:        form.Get("AlarmDescription"),
+		ThresholdMetricID:       form.Get("ThresholdMetricId"),
 		Threshold:               threshold,
 		EvaluationPeriods:       int32(evalPeriods),
 		DatapointsToAlarm:       int32(datapointsToAlarm),
@@ -1016,6 +1023,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		OKActions:               parseMemberList(form, "OKActions."),
 		InsufficientDataActions: parseMemberList(form, "InsufficientDataActions."),
 		Dimensions:              parseDimensionsFromForm(form, "Dimensions."),
+		Metrics:                 parseMetricDataQueriesFromForm(form),
 	}
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
 		if errors.Is(err, ErrValidation) {
@@ -1048,6 +1056,7 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 		Statistic:               a.Statistic,
 		ExtendedStatistic:       a.ExtendedStatistic,
 		TreatMissingData:        a.TreatMissingData,
+		ThresholdMetricID:       a.ThresholdMetricID,
 		Threshold:               a.Threshold,
 		StateValue:              a.StateValue,
 		StateReason:             a.StateReason,
@@ -1101,12 +1110,13 @@ type metricAlarmXML struct {
 	AlarmConfigurationUpdatedTimestamp string   `xml:"AlarmConfigurationUpdatedTimestamp,omitempty"`
 	StateTransitionedTimestamp         string   `xml:"StateTransitionedTimestamp,omitempty"`
 	AlarmDescription                   string   `xml:"AlarmDescription,omitempty"`
-	Namespace                          string   `xml:"Namespace"`
-	MetricName                         string   `xml:"MetricName"`
+	Namespace                          string   `xml:"Namespace,omitempty"`
+	MetricName                         string   `xml:"MetricName,omitempty"`
 	ComparisonOperator                 string   `xml:"ComparisonOperator"`
-	Statistic                          string   `xml:"Statistic"`
+	Statistic                          string   `xml:"Statistic,omitempty"`
 	ExtendedStatistic                  string   `xml:"ExtendedStatistic,omitempty"`
 	TreatMissingData                   string   `xml:"TreatMissingData,omitempty"`
+	ThresholdMetricID                  string   `xml:"ThresholdMetricId,omitempty"`
 	AlarmArn                           string   `xml:"AlarmArn"`
 	StateValue                         string   `xml:"StateValue"`
 	AlarmName                          string   `xml:"AlarmName"`
@@ -1120,7 +1130,7 @@ type metricAlarmXML struct {
 		Value string `xml:"Value"`
 	} `xml:"Dimensions>member,omitempty"`
 	Threshold         float64 `xml:"Threshold"`
-	Period            int32   `xml:"Period"`
+	Period            int32   `xml:"Period,omitempty"`
 	EvaluationPeriods int32   `xml:"EvaluationPeriods"`
 	DatapointsToAlarm int32   `xml:"DatapointsToAlarm,omitempty"`
 	ActionsEnabled    bool    `xml:"ActionsEnabled"`
@@ -1237,38 +1247,55 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 	}
 
 	scanBy := form.Get("ScanBy")
+	nextToken := form.Get("NextToken")
+	maxDatapoints, _ := strconv.Atoi(form.Get("MaxDatapoints"))
 	queries := parseMetricDataQueriesFromForm(form)
 
-	var results []MetricDataResult
+	var pageResult GetMetricDataPage
 	var berr error
 	if bk, ok := h.Backend.(*InMemoryBackend); ok {
-		results, berr = bk.GetMetricDataWithOptions(queries, startTime, endTime, scanBy)
+		pageResult, berr = bk.GetMetricDataPaged(
+			queries, startTime, endTime, scanBy, nextToken, maxDatapoints,
+		)
 	} else {
+		var results []MetricDataResult
 		results, berr = h.Backend.GetMetricData(queries, startTime, endTime)
+		pageResult.Results = results
 	}
 	if berr != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", berr.Error())
 	}
 
+	type messageXML struct {
+		Code  string `xml:"Code"`
+		Value string `xml:"Value"`
+	}
 	type resultEntry struct {
-		XMLName    xml.Name  `xml:"member"`
-		ID         string    `xml:"Id"`
-		Label      string    `xml:"Label,omitempty"`
-		StatusCode string    `xml:"StatusCode"`
-		Timestamps []string  `xml:"Timestamps>member"`
-		Values     []float64 `xml:"Values>member"`
+		XMLName    xml.Name     `xml:"member"`
+		ID         string       `xml:"Id"`
+		Label      string       `xml:"Label,omitempty"`
+		StatusCode string       `xml:"StatusCode"`
+		Timestamps []string     `xml:"Timestamps>member"`
+		Values     []float64    `xml:"Values>member"`
+		Messages   []messageXML `xml:"Messages>member,omitempty"`
 	}
 
 	type response struct {
 		XMLName           xml.Name      `xml:"GetMetricDataResponse"`
 		Xmlns             string        `xml:"xmlns,attr"`
 		RequestID         string        `xml:"ResponseMetadata>RequestId"`
+		NextToken         string        `xml:"GetMetricDataResult>NextToken,omitempty"`
 		MetricDataResults []resultEntry `xml:"GetMetricDataResult>MetricDataResults"`
+		Messages          []messageXML  `xml:"GetMetricDataResult>Messages>member,omitempty"`
 	}
 
-	resp := response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()}
+	resp := response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		NextToken: pageResult.NextToken,
+	}
 
-	for _, r := range results {
+	for _, r := range pageResult.Results {
 		entry := resultEntry{
 			ID:         r.ID,
 			Label:      r.Label,
@@ -1278,8 +1305,15 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 		for _, ts := range r.Timestamps {
 			entry.Timestamps = append(entry.Timestamps, ts.UTC().Format(time.RFC3339))
 		}
+		for _, m := range r.Messages {
+			entry.Messages = append(entry.Messages, messageXML(m))
+		}
 
 		resp.MetricDataResults = append(resp.MetricDataResults, entry)
+	}
+
+	for _, m := range pageResult.Messages {
+		resp.Messages = append(resp.Messages, messageXML(m))
 	}
 
 	return writeXML(c, resp)
@@ -1852,7 +1886,12 @@ func (h *Handler) handleDeleteAnomalyDetector(form url.Values, c *echo.Context) 
 		)
 	}
 
-	if err := h.Backend.DeleteAnomalyDetector(namespace, metricName, stat); err != nil {
+	dimsD := parseDimensionsFromForm(form, "SingleMetricAnomalyDetector.Dimensions")
+	if len(dimsD) == 0 {
+		dimsD = parseDimensionsFromForm(form, "Dimensions")
+	}
+
+	if err := h.Backend.DeleteAnomalyDetector(namespace, metricName, stat, dimsD); err != nil {
 		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
@@ -2595,10 +2634,21 @@ func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) e
 	if bk, ok := h.Backend.(*InMemoryBackend); ok {
 		bk.mu.RLock("GetInsightRuleReport")
 		var innerErr error
-		contributors, innerErr = bk.GetInsightRuleContributors(ruleName, startTime, endTime, maxContributors, orderBy)
+		contributors, innerErr = bk.GetInsightRuleContributors(
+			ruleName,
+			startTime,
+			endTime,
+			maxContributors,
+			orderBy,
+		)
 		bk.mu.RUnlock()
 		if innerErr != nil {
-			return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", innerErr.Error())
+			return h.xmlError(
+				c,
+				http.StatusBadRequest,
+				"ResourceNotFoundException",
+				innerErr.Error(),
+			)
 		}
 	}
 
@@ -2624,9 +2674,26 @@ func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) e
 	return writeXML(c, resp)
 }
 
-func (h *Handler) handleGetMetricWidgetImage(_ url.Values, c *echo.Context) error {
-	// GetMetricWidgetImage renders a metric widget as an image. In-process
-	// simulation returns an empty stub.
+// minimalPNG1x1 is a base64-encoded 1×1 white PNG. It is retained as a last-resort
+// fallback for the (unreachable) case where widget rendering fails.
+const minimalPNG1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVQI12NgAAAAAgAB4iG8MwAAAABJRU5ErkJggg=="
+
+// renderWidgetImageBase64 renders the MetricWidget JSON into a base64-encoded PNG.
+// On any failure it falls back to the 1×1 placeholder so the response is always a
+// decodable image.
+func (h *Handler) renderWidgetImageBase64(form url.Values) string {
+	widgetJSON := form.Get("MetricWidget")
+	bk, _ := h.Backend.(*InMemoryBackend)
+
+	img, err := renderMetricWidgetPNG(bk, widgetJSON, time.Now().UTC())
+	if err != nil || len(img) == 0 {
+		return minimalPNG1x1
+	}
+
+	return base64.StdEncoding.EncodeToString(img)
+}
+
+func (h *Handler) handleGetMetricWidgetImage(form url.Values, c *echo.Context) error {
 	type response struct {
 		MetricWidgetImage string   `xml:"GetMetricWidgetImageResult>MetricWidgetImage"`
 		XMLName           xml.Name `xml:"GetMetricWidgetImageResponse"`
@@ -2634,41 +2701,152 @@ func (h *Handler) handleGetMetricWidgetImage(_ url.Values, c *echo.Context) erro
 		RequestID         string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+	return writeXML(c, response{
+		Xmlns:             cloudwatchNS,
+		RequestID:         uuid.New().String(),
+		MetricWidgetImage: h.renderWidgetImageBase64(form),
+	})
 }
 
-func (h *Handler) handleListAlarmMuteRules(_ url.Values, c *echo.Context) error {
-	// ListAlarmMuteRules lists alarm mute rules. In-process simulation returns empty list.
-	type response struct {
-		XMLName   xml.Name `xml:"ListAlarmMuteRulesResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+func (h *Handler) handleListAlarmMuteRules(form url.Values, c *echo.Context) error {
+	nextToken := form.Get("NextToken")
+	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+
+	p, err := h.Backend.ListAlarmMuteRules(nextToken, maxResults)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+	type muteRuleXML struct {
+		MuteName      string   `xml:"MuteName"`
+		Description   string   `xml:"Description,omitempty"`
+		CreationTime  string   `xml:"CreationTime"`
+		MuteStartTime string   `xml:"MuteStartTime,omitempty"`
+		AlarmNames    []string `xml:"AlarmNames>member,omitempty"`
+		MuteDuration  int32    `xml:"MuteDuration,omitempty"`
+	}
+	type listResult struct {
+		NextToken string        `xml:"NextToken,omitempty"`
+		MuteRules []muteRuleXML `xml:"MuteRules>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"ListAlarmMuteRulesResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListAlarmMuteRulesResult"`
+	}
+
+	members := make([]muteRuleXML, 0, len(p.Data))
+	for _, rule := range p.Data {
+		mr := muteRuleXML{
+			MuteName:     rule.MuteName,
+			Description:  rule.Description,
+			AlarmNames:   rule.AlarmNames,
+			MuteDuration: rule.MuteDuration,
+			CreationTime: rule.CreationTime.UTC().Format(time.RFC3339),
+		}
+		if !rule.MuteStartTime.IsZero() {
+			mr.MuteStartTime = rule.MuteStartTime.UTC().Format(time.RFC3339)
+		}
+		members = append(members, mr)
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    listResult{MuteRules: members, NextToken: p.Next},
+	})
 }
 
-func (h *Handler) handleListManagedInsightRules(_ url.Values, c *echo.Context) error {
-	// ListManagedInsightRules lists managed insight rules. In-process simulation returns empty list.
-	type response struct {
-		XMLName   xml.Name `xml:"ListManagedInsightRulesResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+func (h *Handler) handleListManagedInsightRules(form url.Values, c *echo.Context) error {
+	resourceARN := form.Get("ResourceARN")
+	nextToken := form.Get("NextToken")
+	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+
+	p, err := h.Backend.ListManagedInsightRules(resourceARN, nextToken, maxResults)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+	type managedRuleXML struct {
+		RuleName     string `xml:"RuleName"`
+		ResourceARN  string `xml:"ResourceARN,omitempty"`
+		RuleState    string `xml:"RuleState>Value,omitempty"`
+		TemplateName string `xml:"TemplateName,omitempty"`
+	}
+	type listResult struct {
+		NextToken    string           `xml:"NextToken,omitempty"`
+		ManagedRules []managedRuleXML `xml:"ManagedRules>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"ListManagedInsightRulesResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListManagedInsightRulesResult"`
+	}
+
+	members := make([]managedRuleXML, 0, len(p.Data))
+	for _, rule := range p.Data {
+		members = append(members, managedRuleXML{
+			RuleName:    rule.Name,
+			ResourceARN: rule.Arn,
+			RuleState:   rule.State,
+		})
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    listResult{ManagedRules: members, NextToken: p.Next},
+	})
 }
 
-func (h *Handler) handlePutManagedInsightRules(_ url.Values, c *echo.Context) error {
-	// PutManagedInsightRules creates or updates managed insight rules.
-	// In-process simulation is a no-op.
+func (h *Handler) handlePutManagedInsightRules(form url.Values, c *echo.Context) error {
+	type failureXML struct {
+		RuleName           string `xml:"RuleName"`
+		FailureCode        string `xml:"FailureCode"`
+		FailureDescription string `xml:"FailureDescription,omitempty"`
+	}
+	type putResult struct {
+		Failures []failureXML `xml:"Failures>member,omitempty"`
+	}
 	type response struct {
-		XMLName   xml.Name `xml:"PutManagedInsightRulesResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name  `xml:"PutManagedInsightRulesResponse"`
+		Xmlns     string    `xml:"xmlns,attr"`
+		RequestID string    `xml:"ResponseMetadata>RequestId"`
+		Result    putResult `xml:"PutManagedInsightRulesResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+	var failures []failureXML
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("ManagedRules.member.%d.", i)
+		ruleName := form.Get(prefix + "RuleName")
+		if ruleName == "" {
+			break
+		}
+		templateName := form.Get(prefix + "TemplateName")
+		resourceARN := form.Get(prefix + "ResourceARN")
+
+		if err := h.Backend.PutInsightRule(&InsightRule{
+			Name:        ruleName,
+			State:       insightRuleStateEnabled,
+			Definition:  templateName,
+			Arn:         resourceARN,
+			ManagedRule: true,
+		}); err != nil {
+			failures = append(failures, failureXML{
+				RuleName:           ruleName,
+				FailureCode:        "InternalFailure",
+				FailureDescription: err.Error(),
+			})
+		}
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    putResult{Failures: failures},
+	})
 }
 
 func (h *Handler) handleStartMetricStreams(form url.Values, c *echo.Context) error {

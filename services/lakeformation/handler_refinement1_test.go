@@ -655,7 +655,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	require.NotEmpty(t, data)
 
 	b2 := lakeformation.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, b.TagCount(), b2.TagCount())
 	assert.Equal(t, b.ResourceCount(), b2.ResourceCount())
@@ -673,7 +673,7 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 	require.NoError(t, err)
 
 	b2 := lakeformation.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 	assert.Equal(t, 0, b2.TagCount())
 	assert.Equal(t, 0, b2.ResourceCount())
 }

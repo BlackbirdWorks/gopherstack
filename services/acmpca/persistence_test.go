@@ -100,11 +100,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := acmpca.NewInMemoryBackend(testAccountID, testRegion)
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -115,7 +115,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -327,12 +327,12 @@ func TestACMPCAHandler_Persistence(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 	freshH := acmpca.NewHandler(fresh)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 
 	cas := fresh.ListCertificateAuthorities(context.Background(), "", 0).Data
 	assert.Len(t, cas, 1)
@@ -402,7 +402,7 @@ func TestInMemoryBackend_SnapshotRestore_AdditionalState(t *testing.T) {
 			require.NoError(t, err)
 
 			fresh := acmpca.NewInMemoryBackend(testAccountID, testRegion)
-			require.NoError(t, fresh.Restore(original.Snapshot()))
+			require.NoError(t, fresh.Restore(t.Context(), original.Snapshot(t.Context())))
 
 			tt.verify(t, fresh, ca.ARN, report.AuditReportID)
 		})

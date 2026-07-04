@@ -1,5 +1,7 @@
 package mq
 
+import "context"
+
 // StorageBackend defines the interface for the Amazon MQ in-memory backend.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -70,8 +72,8 @@ type StorageBackend interface {
 	Reset()
 	Region() string
 	AccountID() string
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.

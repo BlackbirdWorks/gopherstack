@@ -218,13 +218,15 @@ func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentTy
 }
 
 // StartSession creates a new retrieval session and returns the initial token.
-// pollIntervalInSeconds must be 0 (use default) or >= minPollIntervalSeconds.
-// Returns ErrNoActiveDeployment when no configuration has been published for the profile.
+// pollIntervalInSeconds must be 0 (use default) or between minPollIntervalSeconds and
+// maxPollIntervalSeconds (inclusive). Returns ErrNoActiveDeployment when no configuration
+// has been published for the profile.
 func (b *InMemoryBackend) StartSession(
 	app, env, profile string,
 	pollIntervalInSeconds int,
 ) (string, error) {
-	if pollIntervalInSeconds != 0 && pollIntervalInSeconds < minPollIntervalSeconds {
+	if pollIntervalInSeconds != 0 &&
+		(pollIntervalInSeconds < minPollIntervalSeconds || pollIntervalInSeconds > maxPollIntervalSeconds) {
 		return "", ErrInvalidPollInterval
 	}
 
@@ -292,7 +294,7 @@ func (b *InMemoryBackend) validateSession(
 	if !b.verifyTokenMAC(token, sess.TokenFamilyID) {
 		delete(b.sessions, token)
 
-		return nil, nil, ErrSessionNotFound
+		return nil, nil, ErrTokenCorrupted
 	}
 
 	key := profileKey(sess.ApplicationIdentifier, sess.EnvironmentIdentifier, sess.ConfigurationProfileIdentifier)

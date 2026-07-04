@@ -1040,6 +1040,10 @@ func TestHandlerUpdatePrimaryRegionViaHTTP(t *testing.T) {
 	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
+	// Replicate to eu-central-1 first — UpdatePrimaryRegion requires an actual replica.
+	repRec := sendKMSOp(t, h, "ReplicateKey", `{"KeyId":"`+keyID+`","ReplicaRegion":"eu-central-1"}`)
+	require.Equal(t, http.StatusOK, repRec.Code)
+
 	rec := sendKMSOp(t, h, "UpdatePrimaryRegion", `{"KeyId":"`+keyID+`","PrimaryRegion":"eu-central-1"}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -1295,11 +1299,11 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	// Create a new backend and restore into it.
 	b2 := kms.NewInMemoryBackend()
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	// Decryption must succeed on the restored backend.

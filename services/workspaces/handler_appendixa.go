@@ -19,28 +19,38 @@ func (h *Handler) buildAppendixAOps() map[string]service.JSONOpFunc {
 		"AssociateIpGroups":    service.WrapOp(h.handleAssociateIpGroups),
 		"DisassociateIpGroups": service.WrapOp(h.handleDisassociateIpGroups),
 		// Connection Aliases
-		"CreateConnectionAlias":              service.WrapOp(h.handleCreateConnectionAlias),
-		"DescribeConnectionAliases":          service.WrapOp(h.handleDescribeConnectionAliases),
-		"DeleteConnectionAlias":              service.WrapOp(h.handleDeleteConnectionAlias),
-		"AssociateConnectionAlias":           service.WrapOp(h.handleAssociateConnectionAlias),
-		"DisassociateConnectionAlias":        service.WrapOp(h.handleDisassociateConnectionAlias),
-		"DescribeConnectionAliasPermissions": service.WrapOp(h.handleDescribeConnectionAliasPermissions),
-		"UpdateConnectionAliasPermission":    service.WrapOp(h.handleUpdateConnectionAliasPermission),
+		"CreateConnectionAlias":       service.WrapOp(h.handleCreateConnectionAlias),
+		"DescribeConnectionAliases":   service.WrapOp(h.handleDescribeConnectionAliases),
+		"DeleteConnectionAlias":       service.WrapOp(h.handleDeleteConnectionAlias),
+		"AssociateConnectionAlias":    service.WrapOp(h.handleAssociateConnectionAlias),
+		"DisassociateConnectionAlias": service.WrapOp(h.handleDisassociateConnectionAlias),
+		"DescribeConnectionAliasPermissions": service.WrapOp(
+			h.handleDescribeConnectionAliasPermissions,
+		),
+		"UpdateConnectionAliasPermission": service.WrapOp(
+			h.handleUpdateConnectionAliasPermission,
+		),
 		// Bundles
 		"CreateWorkspaceBundle": service.WrapOp(h.handleCreateWorkspaceBundle),
 		"DeleteWorkspaceBundle": service.WrapOp(h.handleDeleteWorkspaceBundle),
 		"UpdateWorkspaceBundle": service.WrapOp(h.handleUpdateWorkspaceBundle),
 		// Images
-		"CopyWorkspaceImage":                 service.WrapOp(h.handleCopyWorkspaceImage),
-		"CreateWorkspaceImage":               service.WrapOp(h.handleCreateWorkspaceImage),
-		"DeleteWorkspaceImage":               service.WrapOp(h.handleDeleteWorkspaceImage),
-		"ImportWorkspaceImage":               service.WrapOp(h.handleImportWorkspaceImage),
-		"ImportCustomWorkspaceImage":         service.WrapOp(h.handleImportCustomWorkspaceImage),
-		"CreateUpdatedWorkspaceImage":        service.WrapOp(h.handleCreateUpdatedWorkspaceImage),
-		"DescribeWorkspaceImages":            service.WrapOp(h.handleDescribeWorkspaceImages),
-		"DescribeWorkspaceImagePermissions":  service.WrapOp(h.handleDescribeWorkspaceImagePermissions),
-		"UpdateWorkspaceImagePermission":     service.WrapOp(h.handleUpdateWorkspaceImagePermission),
-		"DescribeCustomWorkspaceImageImport": service.WrapOp(h.handleDescribeCustomWorkspaceImageImport),
+		"CopyWorkspaceImage":          service.WrapOp(h.handleCopyWorkspaceImage),
+		"CreateWorkspaceImage":        service.WrapOp(h.handleCreateWorkspaceImage),
+		"DeleteWorkspaceImage":        service.WrapOp(h.handleDeleteWorkspaceImage),
+		"ImportWorkspaceImage":        service.WrapOp(h.handleImportWorkspaceImage),
+		"ImportCustomWorkspaceImage":  service.WrapOp(h.handleImportCustomWorkspaceImage),
+		"CreateUpdatedWorkspaceImage": service.WrapOp(h.handleCreateUpdatedWorkspaceImage),
+		"DescribeWorkspaceImages":     service.WrapOp(h.handleDescribeWorkspaceImages),
+		"DescribeWorkspaceImagePermissions": service.WrapOp(
+			h.handleDescribeWorkspaceImagePermissions,
+		),
+		"UpdateWorkspaceImagePermission": service.WrapOp(
+			h.handleUpdateWorkspaceImagePermission,
+		),
+		"DescribeCustomWorkspaceImageImport": service.WrapOp(
+			h.handleDescribeCustomWorkspaceImageImport,
+		),
 		// Pools
 		"CreateWorkspacesPool":           service.WrapOp(h.handleCreateWorkspacesPool),
 		"DescribeWorkspacesPools":        service.WrapOp(h.handleDescribeWorkspacesPools),
@@ -71,12 +81,20 @@ func (h *Handler) buildAppendixAOps() map[string]service.JSONOpFunc {
 		"DescribeClientProperties": service.WrapOp(h.handleDescribeClientProperties),
 		"ModifyClientProperties":   service.WrapOp(h.handleModifyClientProperties),
 		// Directory modify ops
-		"ModifyCertificateBasedAuthProperties": service.WrapOp(h.handleModifyCertificateBasedAuthProperties),
-		"ModifySamlProperties":                 service.WrapOp(h.handleModifySamlProperties),
-		"ModifySelfservicePermissions":         service.WrapOp(h.handleModifySelfservicePermissions),
-		"ModifyStreamingProperties":            service.WrapOp(h.handleModifyStreamingProperties),
-		"ModifyWorkspaceAccessProperties":      service.WrapOp(h.handleModifyWorkspaceAccessProperties),
-		"ModifyWorkspaceCreationProperties":    service.WrapOp(h.handleModifyWorkspaceCreationProperties),
+		"ModifyCertificateBasedAuthProperties": service.WrapOp(
+			h.handleModifyCertificateBasedAuthProperties,
+		),
+		"ModifySamlProperties": service.WrapOp(h.handleModifySamlProperties),
+		"ModifySelfservicePermissions": service.WrapOp(
+			h.handleModifySelfservicePermissions,
+		),
+		"ModifyStreamingProperties": service.WrapOp(h.handleModifyStreamingProperties),
+		"ModifyWorkspaceAccessProperties": service.WrapOp(
+			h.handleModifyWorkspaceAccessProperties,
+		),
+		"ModifyWorkspaceCreationProperties": service.WrapOp(
+			h.handleModifyWorkspaceCreationProperties,
+		),
 		// Account Links
 		"CreateAccountLinkInvitation": service.WrapOp(h.handleCreateAccountLinkInvitation),
 		"AcceptAccountLinkInvitation": service.WrapOp(h.handleAcceptAccountLinkInvitation),
@@ -85,21 +103,25 @@ func (h *Handler) buildAppendixAOps() map[string]service.JSONOpFunc {
 		"GetAccountLink":              service.WrapOp(h.handleGetAccountLink),
 		"ListAccountLinks":            service.WrapOp(h.handleListAccountLinks),
 		// Applications
-		"AssociateWorkspaceApplication":    service.WrapOp(h.handleAssociateWorkspaceApplication),
-		"DisassociateWorkspaceApplication": service.WrapOp(h.handleDisassociateWorkspaceApplication),
-		"DeployWorkspaceApplications":      service.WrapOp(h.handleDeployWorkspaceApplications),
-		"DescribeWorkspaceAssociations":    service.WrapOp(h.handleDescribeWorkspaceAssociations),
-		"DescribeApplicationAssociations":  service.WrapOp(h.handleDescribeApplicationAssociations),
-		"DescribeApplications":             service.WrapOp(h.handleDescribeApplications),
-		"DescribeImageAssociations":        service.WrapOp(h.handleDescribeImageAssociations),
-		"DescribeBundleAssociations":       service.WrapOp(h.handleDescribeBundleAssociations),
+		"AssociateWorkspaceApplication": service.WrapOp(h.handleAssociateWorkspaceApplication),
+		"DisassociateWorkspaceApplication": service.WrapOp(
+			h.handleDisassociateWorkspaceApplication,
+		),
+		"DeployWorkspaceApplications":     service.WrapOp(h.handleDeployWorkspaceApplications),
+		"DescribeWorkspaceAssociations":   service.WrapOp(h.handleDescribeWorkspaceAssociations),
+		"DescribeApplicationAssociations": service.WrapOp(h.handleDescribeApplicationAssociations),
+		"DescribeApplications":            service.WrapOp(h.handleDescribeApplications),
+		"DescribeImageAssociations":       service.WrapOp(h.handleDescribeImageAssociations),
+		"DescribeBundleAssociations":      service.WrapOp(h.handleDescribeBundleAssociations),
 		// Workspace-level ops
 		"MigrateWorkspace":           service.WrapOp(h.handleMigrateWorkspace),
 		"RestoreWorkspace":           service.WrapOp(h.handleRestoreWorkspace),
 		"DescribeWorkspaceSnapshots": service.WrapOp(h.handleDescribeWorkspaceSnapshots),
 		"CreateStandbyWorkspaces":    service.WrapOp(h.handleCreateStandbyWorkspaces),
 		// Other
-		"ListAvailableManagementCidrRanges": service.WrapOp(h.handleListAvailableManagementCidrRanges),
+		"ListAvailableManagementCidrRanges": service.WrapOp(
+			h.handleListAvailableManagementCidrRanges,
+		),
 	}
 }
 
@@ -154,7 +176,11 @@ func (h *Handler) handleDescribeIpGroups( //nolint:revive,staticcheck // existin
 	_ context.Context,
 	req *describeIpGroupsInput,
 ) (*describeIpGroupsOutput, error) {
-	groups, nextToken, err := h.Backend.DescribeIpGroups(req.GroupIds, req.MaxResults, req.NextToken)
+	groups, nextToken, err := h.Backend.DescribeIpGroups(
+		req.GroupIds,
+		req.MaxResults,
+		req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +206,7 @@ func (h *Handler) handleDeleteIpGroup( //nolint:revive,staticcheck // existing i
 	_ context.Context,
 	req *deleteIpGroupInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.DeleteIpGroup(req.GroupId)
+	return &emptyOutput{}, h.Backend.DeleteIPGroup(req.GroupId)
 }
 
 type authorizeIpRulesInput struct { //nolint:revive,staticcheck // existing issue.
@@ -472,7 +498,11 @@ func (h *Handler) handleCreateWorkspaceBundle(
 	_ context.Context, req *createWorkspaceBundleInput,
 ) (*createWorkspaceBundleOutput, error) {
 	bun, err := h.Backend.CreateWorkspaceBundle(
-		req.BundleName, req.BundleDescription, req.ImageId, req.ComputeType.Name, tagsToMap(req.Tags),
+		req.BundleName,
+		req.BundleDescription,
+		req.ImageId,
+		req.ComputeType.Name,
+		tagsToMap(req.Tags),
 	)
 	if err != nil {
 		return nil, err
@@ -565,7 +595,12 @@ type createWorkspaceImageOutput struct {
 func (h *Handler) handleCreateWorkspaceImage(
 	_ context.Context, req *createWorkspaceImageInput,
 ) (*createWorkspaceImageOutput, error) {
-	img, err := h.Backend.CreateWorkspaceImage(req.Name, req.Description, req.WorkspaceId, tagsToMap(req.Tags))
+	img, err := h.Backend.CreateWorkspaceImage(
+		req.Name,
+		req.Description,
+		req.WorkspaceId,
+		tagsToMap(req.Tags),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -843,7 +878,11 @@ type describeWorkspacesPoolsOutput struct {
 func (h *Handler) handleDescribeWorkspacesPools(
 	_ context.Context, req *describeWorkspacesPoolsInput,
 ) (*describeWorkspacesPoolsOutput, error) {
-	pools, nextToken, err := h.Backend.DescribeWorkspacesPools(req.PoolIds, req.Limit, req.NextToken)
+	pools, nextToken, err := h.Backend.DescribeWorkspacesPools(
+		req.PoolIds,
+		req.Limit,
+		req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -860,7 +899,10 @@ type startWorkspacesPoolInput struct {
 	PoolId string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
 }
 
-func (h *Handler) handleStartWorkspacesPool(_ context.Context, req *startWorkspacesPoolInput) (*emptyOutput, error) {
+func (h *Handler) handleStartWorkspacesPool(
+	_ context.Context,
+	req *startWorkspacesPoolInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.StartWorkspacesPool(req.PoolId)
 }
 
@@ -868,7 +910,10 @@ type stopWorkspacesPoolInput struct {
 	PoolId string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
 }
 
-func (h *Handler) handleStopWorkspacesPool(_ context.Context, req *stopWorkspacesPoolInput) (*emptyOutput, error) {
+func (h *Handler) handleStopWorkspacesPool(
+	_ context.Context,
+	req *stopWorkspacesPoolInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.StopWorkspacesPool(req.PoolId)
 }
 
@@ -896,7 +941,12 @@ type updateWorkspacesPoolOutput struct {
 func (h *Handler) handleUpdateWorkspacesPool(
 	_ context.Context, req *updateWorkspacesPoolInput,
 ) (*updateWorkspacesPoolOutput, error) {
-	pool, err := h.Backend.UpdateWorkspacesPool(req.PoolId, req.Description, req.BundleId, req.DirectoryId)
+	pool, err := h.Backend.UpdateWorkspacesPool(
+		req.PoolId,
+		req.Description,
+		req.BundleId,
+		req.DirectoryId,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -934,7 +984,10 @@ func (h *Handler) handleDescribeWorkspacesPoolSessions(
 
 	items := make([]poolSessionResp, 0, len(sessions))
 	for _, s := range sessions {
-		items = append(items, poolSessionResp{SessionId: s.SessionID, PoolId: s.PoolID, UserId: s.UserID})
+		items = append(
+			items,
+			poolSessionResp{SessionId: s.SessionID, PoolId: s.PoolID, UserId: s.UserID},
+		)
 	}
 
 	return &describeWorkspacesPoolSessionsOutput{Sessions: items, NextToken: nextToken}, nil
@@ -973,7 +1026,10 @@ func (h *Handler) handleRegisterWorkspaceDirectory(
 		return nil, err
 	}
 
-	return &registerWorkspaceDirectoryOutput{DirectoryId: req.DirectoryId, State: "REGISTERED"}, nil
+	return &registerWorkspaceDirectoryOutput{
+		DirectoryId: req.DirectoryId,
+		State:       stateRegistered,
+	}, nil
 }
 
 type deregisterWorkspaceDirectoryInput struct {
@@ -995,7 +1051,10 @@ type describeAccountOutput struct {
 	DedicatedTenancyManagementCidrRange string `json:"DedicatedTenancyManagementCidrRange,omitempty"`
 }
 
-func (h *Handler) handleDescribeAccount(_ context.Context, _ *emptyOutput) (*describeAccountOutput, error) {
+func (h *Handler) handleDescribeAccount(
+	_ context.Context,
+	_ *emptyOutput,
+) (*describeAccountOutput, error) {
 	cfg := h.Backend.DescribeAccount()
 
 	return &describeAccountOutput{
@@ -1020,7 +1079,10 @@ type modifyAccountInput struct {
 	DedicatedTenancySupport             string `json:"DedicatedTenancySupport"`
 }
 
-func (h *Handler) handleModifyAccount(_ context.Context, req *modifyAccountInput) (*emptyOutput, error) {
+func (h *Handler) handleModifyAccount(
+	_ context.Context,
+	req *modifyAccountInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.ModifyAccount(
 		req.DedicatedTenancyManagementCidrRange, req.DedicatedTenancySupport,
 	)
@@ -1554,7 +1616,11 @@ type listAccountLinksOutput struct {
 func (h *Handler) handleListAccountLinks(
 	_ context.Context, req *listAccountLinksInput,
 ) (*listAccountLinksOutput, error) {
-	links, nextToken, err := h.Backend.ListAccountLinks(req.LinkStatusFilter, req.MaxResults, req.NextToken)
+	links, nextToken, err := h.Backend.ListAccountLinks(
+		req.LinkStatusFilter,
+		req.MaxResults,
+		req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1673,7 +1739,10 @@ type describeWorkspaceAssociationsOutput struct {
 func (h *Handler) handleDescribeWorkspaceAssociations(
 	_ context.Context, req *describeWorkspaceAssociationsInput,
 ) (*describeWorkspaceAssociationsOutput, error) {
-	assocs, err := h.Backend.DescribeWorkspaceAssociations(req.WorkspaceId, req.AssociatedResourceTypes)
+	assocs, err := h.Backend.DescribeWorkspaceAssociations(
+		req.WorkspaceId,
+		req.AssociatedResourceTypes,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1745,7 +1814,11 @@ type describeApplicationsOutput struct {
 func (h *Handler) handleDescribeApplications(
 	_ context.Context, req *describeApplicationsInput,
 ) (*describeApplicationsOutput, error) {
-	apps, nextToken, err := h.Backend.DescribeApplications(req.ApplicationIds, req.MaxResults, req.NextToken)
+	apps, nextToken, err := h.Backend.DescribeApplications(
+		req.ApplicationIds,
+		req.MaxResults,
+		req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1822,7 +1895,10 @@ type restoreWorkspaceInput struct {
 	WorkspaceId string `json:"WorkspaceId"` //nolint:revive,staticcheck // existing issue.
 }
 
-func (h *Handler) handleRestoreWorkspace(_ context.Context, req *restoreWorkspaceInput) (*emptyOutput, error) {
+func (h *Handler) handleRestoreWorkspace(
+	_ context.Context,
+	req *restoreWorkspaceInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.RestoreWorkspace(req.WorkspaceId)
 }
 

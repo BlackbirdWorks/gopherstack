@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -26,6 +27,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -110,17 +112,24 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
-	buckets             map[string]map[string]*StoredBucket
-	bucketIndex         map[string]string // name → region for O(1) cross-region lookup
-	tags                map[string][]types.Tag
-	uploads             map[string]map[string]*StoredMultipartUpload // bucket → uploadID → upload
-	mu                  *lockmetrics.RWMutex
-	compressor          Compressor
-	defaultRegion       string
-	compressionMinBytes int
+	buckets     map[string]map[string]*StoredBucket
+	bucketIndex map[string]string // name → region for O(1) cross-region lookup
+	tags        map[string][]types.Tag
+	uploads     map[string]map[string]*StoredMultipartUpload // bucket → uploadID → upload
+	mu          *lockmetrics.RWMutex
+	compressor  Compressor
+	// serviceCtx is the long-lived context for background work (replication).
+	// Initialised in NewInMemoryBackend so it is always non-nil; overridden by
+	// SetServiceContext when the handler wires in the real service context.
+	serviceCtx    context.Context
+	serviceCancel context.CancelFunc
+	defaultRegion string
+	// serviceCtxMu guards serviceCtx and serviceCancel.
+	serviceCtxMu sync.RWMutex
 	// replicationWg tracks all in-flight replication goroutines.
 	// DrainReplicationGoroutines blocks until they all finish.
-	replicationWg sync.WaitGroup
+	replicationWg       sync.WaitGroup
+	compressionMinBytes int
 	// skipMultipartSizeCheck disables the 5 MiB minimum part size check during
 	// CompleteMultipartUpload. This is intended for use in unit tests only.
 	skipMultipartSizeCheck bool
@@ -141,14 +150,58 @@ func (b *InMemoryBackend) DrainReplicationGoroutines() {
 	b.replicationWg.Wait()
 }
 
+// SetServiceContext wires the long-lived service context used to parent background
+// work (replication). Called from the handler's StartWorker. Cancels the previous
+// default background context before switching to the service-provided one.
+func (b *InMemoryBackend) SetServiceContext(ctx context.Context) {
+	newCtx, newCancel := context.WithCancel(ctx)
+
+	b.serviceCtxMu.Lock()
+	if b.serviceCancel != nil {
+		b.serviceCancel()
+	}
+
+	b.serviceCtx = newCtx
+	b.serviceCancel = newCancel
+	b.serviceCtxMu.Unlock()
+}
+
+// replicationContext builds the context for a replication goroutine: parented to
+// the service context (so shutdown cancels it) and carrying the request's logger,
+// but never the request's cancellation or its SSE key. serviceCtx is always
+// non-nil (initialised in NewInMemoryBackend).
+func (b *InMemoryBackend) replicationContext(reqCtx context.Context) context.Context {
+	b.serviceCtxMu.RLock()
+	base := b.serviceCtx
+	b.serviceCtxMu.RUnlock()
+
+	return logger.Save(base, logger.Load(reqCtx))
+}
+
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &InMemoryBackend{
 		buckets:       make(map[string]map[string]*StoredBucket),
 		bucketIndex:   make(map[string]string),
 		compressor:    compressor,
 		defaultRegion: defaultRegionName,
 		mu:            lockmetrics.New("s3"),
+		serviceCtx:    ctx,
+		serviceCancel: cancel,
 	}
+}
+
+// Shutdown cancels the backend's service context and waits for all in-flight
+// replication goroutines to complete. Safe to call more than once.
+func (b *InMemoryBackend) Shutdown() {
+	b.serviceCtxMu.Lock()
+	if b.serviceCancel != nil {
+		b.serviceCancel()
+	}
+	b.serviceCtxMu.Unlock()
+
+	b.replicationWg.Wait()
 }
 
 // WithCompressionMinBytes sets the minimum object size (in bytes) below which
@@ -242,6 +295,10 @@ func (b *InMemoryBackend) CreateBucket(
 		IntelligentTieringConfigs: make(map[string]string),
 		InventoryConfigs:          make(map[string]string),
 		MetricsConfigs:            make(map[string]string),
+		// S3 Express directory buckets use the naming convention {name}--{az-id}--x-s3.
+		// Detect this at creation time so ListBuckets and ListDirectoryBuckets can
+		// correctly partition general-purpose vs. directory buckets.
+		IsDirectoryBucket: strings.HasSuffix(bucketName, "--x-s3"),
 	}
 	b.bucketIndex[bucketName] = region
 
@@ -305,7 +362,7 @@ func (b *InMemoryBackend) ListBuckets(
 	buckets := make([]types.Bucket, 0, len(b.buckets))
 	for _, regionBuckets := range b.buckets {
 		for _, bucket := range regionBuckets {
-			if bucket.DeletePending {
+			if bucket.DeletePending || bucket.IsDirectoryBucket {
 				continue
 			}
 			buckets = append(buckets, types.Bucket{
@@ -328,6 +385,35 @@ func (b *InMemoryBackend) ListBuckets(
 			ID:          aws.String("placeholder-id"),
 		},
 	}, nil
+}
+
+// ListDirectoryBuckets returns all S3 Express directory buckets (name suffix
+// --x-s3) owned by the account, excluding general-purpose buckets. Matches
+// AWS behaviour where ListBuckets and ListDirectoryBuckets partition the two
+// bucket types into separate lists.
+func (b *InMemoryBackend) ListDirectoryBuckets(_ context.Context) ([]types.Bucket, error) {
+	b.mu.RLock("ListDirectoryBuckets")
+	buckets := make([]types.Bucket, 0)
+
+	for _, regionBuckets := range b.buckets {
+		for _, bucket := range regionBuckets {
+			if bucket.DeletePending || !bucket.IsDirectoryBucket {
+				continue
+			}
+
+			buckets = append(buckets, types.Bucket{
+				Name:         aws.String(bucket.Name),
+				CreationDate: aws.Time(bucket.CreationDate),
+			})
+		}
+	}
+	b.mu.RUnlock()
+
+	sort.Slice(buckets, func(i, j int) bool {
+		return *buckets[i].Name < *buckets[j].Name
+	})
+
+	return buckets, nil
 }
 
 // Regions returns all distinct regions that contain at least one active bucket.
@@ -423,6 +509,18 @@ func (b *InMemoryBackend) PutObject(
 	// Extract SSE info from context (set by putObject handler).
 	sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
 
+	// Apply default bucket encryption if no SSE is specified in the request
+	if sseFromCtx.Algorithm == "" && sseFromCtx.SSECAlgorithm == "" && bucket.EncryptionConfig != "" {
+		var config ServerSideEncryptionConfiguration
+		if xmlErr := xml.Unmarshal([]byte(bucket.EncryptionConfig), &config); xmlErr == nil && len(config.Rules) > 0 {
+			def := config.Rules[0].ApplyServerSideEncryptionByDefault
+			if def.SSEAlgorithm != "" {
+				sseFromCtx.Algorithm = def.SSEAlgorithm
+				sseFromCtx.KMSKeyID = def.KMSMasterKeyID
+			}
+		}
+	}
+
 	// Real envelope encryption: when SSE is configured, encrypt the stored
 	// (post-compression) bytes with AES-256-GCM and stash the DEK + nonce on
 	// the version so GET can decrypt. ETag stays as MD5(plaintext) so
@@ -437,32 +535,8 @@ func (b *InMemoryBackend) PutObject(
 	}
 
 	finalQuotedETag := "\"" + etag + "\""
-	newVersion := &StoredObjectVersion{
-		VersionID:          NullVersion, // default, saveObjectVersion will assign if enabled
-		Key:                key,
-		Data:               encryptedData,
-		IsCompressed:       isCompressed,
-		Size:               originalSize,
-		ETag:               finalQuotedETag,
-		LastModified:       time.Now().UTC(),
-		ContentType:        aws.ToString(input.ContentType),
-		ContentEncoding:    aws.ToString(input.ContentEncoding),
-		ContentDisposition: aws.ToString(input.ContentDisposition),
-		Metadata:           maps.Clone(input.Metadata),
-		ChecksumCRC32:      checksums.crc32,
-		ChecksumCRC32C:     checksums.crc32c,
-		ChecksumSHA1:       checksums.sha1,
-		ChecksumSHA256:     checksums.sha256,
-		ChecksumCRC64NVME:  checksums.crc64nvme,
-		ChecksumAlgorithm:  input.ChecksumAlgorithm,
-		SSEAlgorithm:       sseFromCtx.Algorithm,
-		SSEKMSKeyID:        sseFromCtx.KMSKeyID,
-		SSECAlgorithm:      sseFromCtx.SSECAlgorithm,
-		SSECKeyMD5:         sseFromCtx.SSECKeyMD5,
-		EncryptionDEK:      dek,
-		EncryptionNonce:    nonce,
-		IsLatest:           true,
-	}
+	newVersion := buildStoredObjectVersion(key, finalQuotedETag, encryptedData, isCompressed,
+		originalSize, input, checksums, sseFromCtx, dek, nonce)
 
 	newVersionID := b.saveObjectVersion(bucket, key, newVersion)
 
@@ -484,9 +558,11 @@ func (b *InMemoryBackend) PutObject(
 		"contentType", aws.ToString(input.ContentType),
 		"versionId", newVersionID)
 
-	// Async replication to configured destination buckets.
+	// Async replication to configured destination buckets, parented to the
+	// service context (cancellable on shutdown) rather than the request context.
+	repCtx := b.replicationContext(ctx)
 	b.replicationWg.Go(func() {
-		b.triggerReplication(ctx, bucketName, key, finalQuotedETag)
+		b.triggerReplication(repCtx, bucketName, key, finalQuotedETag)
 	})
 
 	return &s3.PutObjectOutput{
@@ -498,6 +574,50 @@ func (b *InMemoryBackend) PutObject(
 		ChecksumSHA256:    checksums.sha256,
 		ChecksumCRC64NVME: checksums.crc64nvme,
 	}, nil
+}
+
+func buildStoredObjectVersion(
+	key, etag string,
+	data []byte,
+	isCompressed bool,
+	size int64,
+	input *s3.PutObjectInput,
+	checksums objectChecksums,
+	sse sseInfo,
+	dek, nonce []byte,
+) *StoredObjectVersion {
+	sc := string(input.StorageClass)
+	if sc == "" {
+		sc = storageStandard
+	}
+
+	return &StoredObjectVersion{
+		VersionID:          NullVersion,
+		Key:                key,
+		Data:               data,
+		IsCompressed:       isCompressed,
+		Size:               size,
+		ETag:               etag,
+		LastModified:       time.Now().UTC(),
+		ContentType:        aws.ToString(input.ContentType),
+		ContentEncoding:    aws.ToString(input.ContentEncoding),
+		ContentDisposition: aws.ToString(input.ContentDisposition),
+		StorageClass:       sc,
+		Metadata:           maps.Clone(input.Metadata),
+		ChecksumCRC32:      checksums.crc32,
+		ChecksumCRC32C:     checksums.crc32c,
+		ChecksumSHA1:       checksums.sha1,
+		ChecksumSHA256:     checksums.sha256,
+		ChecksumCRC64NVME:  checksums.crc64nvme,
+		ChecksumAlgorithm:  input.ChecksumAlgorithm,
+		SSEAlgorithm:       sse.Algorithm,
+		SSEKMSKeyID:        sse.KMSKeyID,
+		SSECAlgorithm:      sse.SSECAlgorithm,
+		SSECKeyMD5:         sse.SSECKeyMD5,
+		EncryptionDEK:      dek,
+		EncryptionNonce:    nonce,
+		IsLatest:           true,
+	}
 }
 
 func (b *InMemoryBackend) prepareObjectData(
@@ -631,6 +751,44 @@ func (b *InMemoryBackend) GetObject(
 	obj.mu.RLock("GetObject")
 	defer obj.mu.RUnlock()
 
+	ver, err := resolveObjectVersion(obj, versionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Copy data + metadata under the lock; decryption + decompression
+	// happen outside.
+	dataToDecompress := ver.Data
+	isCompressed := ver.IsCompressed
+	size := ver.Size
+	metadata := maps.Clone(ver.Metadata)
+	versionIDStr := ver.VersionID
+
+	decrypted, skipDecompress, decErr := decryptVersionForGet(ctx, ver, dataToDecompress)
+	if decErr != nil {
+		return nil, decErr
+	}
+
+	if skipDecompress {
+		return buildGetObjectOutput(decrypted, size, ver, metadata, versionIDStr), nil
+	}
+	dataToDecompress = decrypted
+
+	data, err := b.decompressObjectData(dataToDecompress, isCompressed)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildGetObjectOutput(data, size, ver, metadata, versionIDStr), nil
+}
+
+// resolveObjectVersion selects the requested (or latest) live version of an
+// object, translating delete markers and missing versions into the proper
+// S3 errors. The caller must hold obj's read lock.
+func resolveObjectVersion(
+	obj *StoredObject,
+	versionID *string,
+) (*StoredObjectVersion, error) {
 	var ver *StoredObjectVersion
 	if versionID != nil && *versionID != "" {
 		v, ok := obj.Versions[*versionID]
@@ -642,54 +800,61 @@ func (b *InMemoryBackend) GetObject(
 		ver = findLatestVersion(obj.Versions)
 	}
 
-	if ver == nil || ver.Deleted {
+	if ver == nil {
 		return nil, ErrNoSuchKey
 	}
 
-	// Copy data + metadata under the lock; decryption + decompression
-	// happen outside.
-	dataToDecompress := ver.Data
-	isCompressed := ver.IsCompressed
-	size := ver.Size
-	metadata := maps.Clone(ver.Metadata)
-	versionIDStr := ver.VersionID
+	if ver.Deleted {
+		// GET of a delete marker: AWS returns 405 for a versioned request (with
+		// x-amz-delete-marker + Allow: DELETE) and 404 for the latest version
+		// (with x-amz-delete-marker). The handler sets the headers.
+		if versionID != nil && *versionID != "" {
+			return nil, ErrDeleteMarker
+		}
+
+		return nil, ErrLatestDeleteMarker
+	}
+
+	return ver, nil
+}
+
+// decryptVersionForGet reverses SSE envelope encryption for a GET. It returns
+// the (possibly decrypted) data and a skipDecompress flag indicating the blob
+// must be returned as-is (SSE-C version with no key supplied — the handler will
+// reject the request before the body is read).
+func decryptVersionForGet(
+	ctx context.Context,
+	ver *StoredObjectVersion,
+	data []byte,
+) ([]byte, bool, error) {
 	sseAlg := ver.SSEAlgorithm
 	sseCAlg := ver.SSECAlgorithm
-	dek := ver.EncryptionDEK
-	nonce := ver.EncryptionNonce
+	if sseAlg == "" && sseCAlg == "" {
+		return data, false, nil
+	}
 
-	// Reverse envelope encryption when the version was stored under SSE. For
-	// SSE-C the customer must re-supply the key on GET via the request — read
-	// it from context (set by getObject handler) before decrypting. If no key
-	// is supplied for an SSE-C version, skip decrypt and let the handler's
+	// For SSE-C the customer must re-supply the key on GET via the request —
+	// read it from context (set by getObject handler) before decrypting. If no
+	// key is supplied for an SSE-C version, skip decrypt and let the handler's
 	// validateSSECOnRead surface the proper 400 ErrSSECRequired.
-	if sseAlg != "" || sseCAlg != "" {
-		sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
-		if sseCAlg != "" && sseFromCtx.SSECKeyB64 == "" {
-			// Fall through with the (still-encrypted) blob; the handler will
-			// reject the request before reading the body.
-			return buildGetObjectOutput(dataToDecompress, size, ver, metadata, versionIDStr), nil
-		}
-		decrypted, decErr := decryptWithSSE(
-			dataToDecompress,
-			sseAlg,
-			sseCAlg,
-			dek,
-			nonce,
-			sseFromCtx.SSECKeyB64,
-		)
-		if decErr != nil {
-			return nil, decErr
-		}
-		dataToDecompress = decrypted
+	sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
+	if sseCAlg != "" && sseFromCtx.SSECKeyB64 == "" {
+		return data, true, nil
 	}
 
-	data, err := b.decompressObjectData(dataToDecompress, isCompressed)
-	if err != nil {
-		return nil, err
+	decrypted, decErr := decryptWithSSE(
+		data,
+		sseAlg,
+		sseCAlg,
+		ver.EncryptionDEK,
+		ver.EncryptionNonce,
+		sseFromCtx.SSECKeyB64,
+	)
+	if decErr != nil {
+		return nil, false, decErr
 	}
 
-	return buildGetObjectOutput(data, size, ver, metadata, versionIDStr), nil
+	return decrypted, false, nil
 }
 
 // decompressObjectData decompresses storedData when isCompressed is true.
@@ -721,25 +886,31 @@ func buildGetObjectOutput(
 	metadata map[string]string,
 	versionIDStr string,
 ) *s3.GetObjectOutput {
+	sc := ver.StorageClass
+	if sc == "" {
+		sc = storageStandard
+	}
+
 	return &s3.GetObjectOutput{
 		Body:                 io.NopCloser(bytes.NewReader(data)),
 		ContentLength:        aws.Int64(size),
 		ContentType:          aws.String(ver.ContentType),
-		ContentEncoding:      nilStringIfEmpty(ver.ContentEncoding),
-		ContentDisposition:   nilStringIfEmpty(ver.ContentDisposition),
+		ContentEncoding:      ptrconv.NilIfEmpty(ver.ContentEncoding),
+		ContentDisposition:   ptrconv.NilIfEmpty(ver.ContentDisposition),
 		ETag:                 aws.String(ver.ETag),
 		LastModified:         aws.Time(ver.LastModified),
 		Metadata:             metadata,
 		VersionId:            aws.String(versionIDStr),
+		StorageClass:         types.StorageClass(sc),
 		ChecksumCRC32:        ver.ChecksumCRC32,
 		ChecksumCRC32C:       ver.ChecksumCRC32C,
 		ChecksumSHA1:         ver.ChecksumSHA1,
 		ChecksumSHA256:       ver.ChecksumSHA256,
 		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
 		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
-		SSEKMSKeyId:          nilStringIfEmpty(ver.SSEKMSKeyID),
-		SSECustomerAlgorithm: nilStringIfEmpty(ver.SSECAlgorithm),
-		SSECustomerKeyMD5:    nilStringIfEmpty(ver.SSECKeyMD5),
+		SSEKMSKeyId:          ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
+		SSECustomerAlgorithm: ptrconv.NilIfEmpty(ver.SSECAlgorithm),
+		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(ver.SSECKeyMD5),
 	}
 }
 
@@ -795,9 +966,10 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrDeleteMarker
 	}
 
-	// If no version specified and latest is a delete marker, return 404.
+	// If no version specified and latest is a delete marker, return 404 with the
+	// x-amz-delete-marker header (set by the handler).
 	if ver.Deleted {
-		return nil, ErrNoSuchKey
+		return nil, ErrLatestDeleteMarker
 	}
 
 	logger.Load(ctx).DebugContext(ctx, "S3 Backend HeadObject",
@@ -813,8 +985,8 @@ func (b *InMemoryBackend) HeadObject(
 	return &s3.HeadObjectOutput{
 		ContentLength:        aws.Int64(ver.Size),
 		ContentType:          aws.String(ver.ContentType),
-		ContentEncoding:      nilStringIfEmpty(ver.ContentEncoding),
-		ContentDisposition:   nilStringIfEmpty(ver.ContentDisposition),
+		ContentEncoding:      ptrconv.NilIfEmpty(ver.ContentEncoding),
+		ContentDisposition:   ptrconv.NilIfEmpty(ver.ContentDisposition),
 		ETag:                 aws.String(ver.ETag),
 		LastModified:         aws.Time(ver.LastModified),
 		Metadata:             maps.Clone(ver.Metadata),
@@ -826,9 +998,9 @@ func (b *InMemoryBackend) HeadObject(
 		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
 		StorageClass:         types.StorageClass(sc),
 		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
-		SSEKMSKeyId:          nilStringIfEmpty(ver.SSEKMSKeyID),
-		SSECustomerAlgorithm: nilStringIfEmpty(ver.SSECAlgorithm),
-		SSECustomerKeyMD5:    nilStringIfEmpty(ver.SSECKeyMD5),
+		SSEKMSKeyId:          ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
+		SSECustomerAlgorithm: ptrconv.NilIfEmpty(ver.SSECAlgorithm),
+		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(ver.SSECKeyMD5),
 	}, nil
 }
 
@@ -868,10 +1040,13 @@ func (b *InMemoryBackend) DeleteObject(
 		b.mu.Unlock()
 	}
 
-	// Async delete-marker replication when versioning created a delete marker.
+	// Async delete-marker replication when versioning created a delete marker,
+	// parented to the service context rather than the request context.
 	if out.DeleteMarker != nil && aws.ToBool(out.DeleteMarker) {
+		repCtx := b.replicationContext(ctx)
+		key := *input.Key
 		b.replicationWg.Go(func() {
-			b.triggerDeleteMarkerReplication(ctx, bucketName, *input.Key)
+			b.triggerDeleteMarkerReplication(repCtx, bucketName, key)
 		})
 	}
 
@@ -1289,12 +1464,16 @@ func (b *InMemoryBackend) processObjectSnapshots(objectSnapshots []*StoredObject
 			checksumAlgos = []types.ChecksumAlgorithm{latest.ChecksumAlgorithm}
 		}
 
+		sc := latest.StorageClass
+		if sc == "" {
+			sc = storageStandard
+		}
 		contents = append(contents, types.Object{
 			Key:               aws.String(latest.Key),
 			LastModified:      aws.Time(latest.LastModified),
 			ETag:              aws.String(latest.ETag),
 			Size:              aws.Int64(latest.Size),
-			StorageClass:      types.ObjectStorageClassStandard,
+			StorageClass:      types.ObjectStorageClass(sc),
 			ChecksumAlgorithm: checksumAlgos,
 			Owner: &types.Owner{
 				ID:          aws.String(gopherstackName),
@@ -1832,7 +2011,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	key := *input.Key
 
 	b.mu.RLock("CreateMultipartUpload")
-	_, err := b.getBucket(bucketName)
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
 	if err != nil {
@@ -1847,6 +2026,18 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	// (set by the handler) because it carries the SSE-C raw key bytes that
 	// the SDK input struct doesn't expose.
 	sse, _ := ctx.Value(sseKey).(sseInfo)
+
+	// Apply default bucket encryption if no SSE is specified in the request
+	if sse.Algorithm == "" && sse.SSECAlgorithm == "" && bucket.EncryptionConfig != "" {
+		var config ServerSideEncryptionConfiguration
+		if xmlErr := xml.Unmarshal([]byte(bucket.EncryptionConfig), &config); xmlErr == nil && len(config.Rules) > 0 {
+			def := config.Rules[0].ApplyServerSideEncryptionByDefault
+			if def.SSEAlgorithm != "" {
+				sse.Algorithm = def.SSEAlgorithm
+				sse.KMSKeyID = def.KMSMasterKeyID
+			}
+		}
+	}
 
 	b.mu.Lock("CreateMultipartUpload")
 	if b.uploads == nil {
@@ -2536,15 +2727,6 @@ func (b *InMemoryBackend) GetBucketACL(_ context.Context, bucketName string) (st
 	}
 
 	return acl, nil
-}
-
-// nilStringIfEmpty returns nil if s is empty, otherwise returns aws.String(s).
-func nilStringIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-
-	return aws.String(s)
 }
 
 // PutBucketPolicy stores the bucket policy document.
@@ -3879,6 +4061,86 @@ func (b *InMemoryBackend) DeleteBucketMetadataTableConfiguration(
 	defer bucket.mu.Unlock()
 
 	bucket.MetadataTableConfig = ""
+
+	return nil
+}
+
+// PutBucketAbac stores the ABAC configuration XML for an S3 Tables bucket.
+func (b *InMemoryBackend) PutBucketAbac(_ context.Context, bucketName, configXML string) error {
+	b.mu.RLock("PutBucketAbac")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketAbac")
+	defer bucket.mu.Unlock()
+
+	bucket.AbacConfig = configXML
+
+	return nil
+}
+
+// GetBucketAbac returns the stored ABAC configuration XML for a bucket.
+// Returns an empty string (not an error) when no config has been set, matching
+// the AWS behaviour of returning an empty AbacConfiguration element.
+func (b *InMemoryBackend) GetBucketAbac(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketAbac")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketAbac")
+	defer bucket.mu.RUnlock()
+
+	return bucket.AbacConfig, nil
+}
+
+// UpdateBucketMetadataInventoryTableConfig stores the metadata inventory table
+// configuration XML for an S3 Tables bucket.
+func (b *InMemoryBackend) UpdateBucketMetadataInventoryTableConfig(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
+	b.mu.RLock("UpdateBucketMetadataInventoryTableConfig")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("UpdateBucketMetadataInventoryTableConfig")
+	defer bucket.mu.Unlock()
+
+	bucket.MetadataInventoryTableConfig = configXML
+
+	return nil
+}
+
+// UpdateBucketMetadataJournalTableConfig stores the metadata journal table
+// configuration XML for an S3 Tables bucket.
+func (b *InMemoryBackend) UpdateBucketMetadataJournalTableConfig(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
+	b.mu.RLock("UpdateBucketMetadataJournalTableConfig")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("UpdateBucketMetadataJournalTableConfig")
+	defer bucket.mu.Unlock()
+
+	bucket.MetadataJournalTableConfig = configXML
 
 	return nil
 }

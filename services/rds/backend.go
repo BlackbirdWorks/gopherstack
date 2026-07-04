@@ -8,9 +8,12 @@ import (
 	"maps"
 	"regexp"
 	"slices"
-	"sync"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -20,94 +23,94 @@ var dbInstanceIDRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9-]{0,62}$`)
 
 var (
 	// ErrInstanceNotFound is returned when an RDS instance does not exist.
-	ErrInstanceNotFound = errors.New("DBInstanceNotFound")
+	ErrInstanceNotFound = awserr.New("DBInstanceNotFound", awserr.ErrNotFound)
 	// ErrInstanceAlreadyExists is returned when an RDS instance already exists.
-	ErrInstanceAlreadyExists = errors.New("DBInstanceAlreadyExists")
+	ErrInstanceAlreadyExists = awserr.New("DBInstanceAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrSnapshotNotFound is returned when a snapshot does not exist.
-	ErrSnapshotNotFound = errors.New("DBSnapshotNotFound")
+	ErrSnapshotNotFound = awserr.New("DBSnapshotNotFound", awserr.ErrNotFound)
 	// ErrSnapshotAlreadyExists is returned when a snapshot already exists.
-	ErrSnapshotAlreadyExists = errors.New("DBSnapshotAlreadyExists")
+	ErrSnapshotAlreadyExists = awserr.New("DBSnapshotAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrSubnetGroupNotFound is returned when a subnet group does not exist.
-	ErrSubnetGroupNotFound = errors.New("DBSubnetGroupNotFound")
+	ErrSubnetGroupNotFound = awserr.New("DBSubnetGroupNotFound", awserr.ErrNotFound)
 	// ErrSubnetGroupAlreadyExists is returned when a subnet group already exists.
-	ErrSubnetGroupAlreadyExists = errors.New("DBSubnetGroupAlreadyExists")
+	ErrSubnetGroupAlreadyExists = awserr.New("DBSubnetGroupAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrInvalidParameter is returned for invalid input.
-	ErrInvalidParameter = errors.New("InvalidParameterValue")
+	ErrInvalidParameter = awserr.New("InvalidParameterValue", awserr.ErrInvalidParameter)
 	// ErrInvalidParameterCombination is returned when a set of otherwise-valid
 	// parameters cannot be used together (e.g. MonitoringInterval>0 without a
 	// MonitoringRoleArn). AWS returns the InvalidParameterCombination error code.
-	ErrInvalidParameterCombination = errors.New("InvalidParameterCombination")
+	ErrInvalidParameterCombination = awserr.New("InvalidParameterCombination", awserr.ErrInvalidParameter)
 	// ErrUnknownAction is returned for unrecognized RDS actions.
-	ErrUnknownAction = errors.New("InvalidAction")
+	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 	// ErrInvalidDBInstanceState is returned when an instance operation is invalid given its current state.
-	ErrInvalidDBInstanceState = errors.New("InvalidDBInstanceState")
+	ErrInvalidDBInstanceState = awserr.New("InvalidDBInstanceState", awserr.ErrConflict)
 
 	// ErrParameterGroupNotFound is returned when a DB parameter group does not exist.
-	ErrParameterGroupNotFound = errors.New("DBParameterGroupNotFound")
+	ErrParameterGroupNotFound = awserr.New("DBParameterGroupNotFound", awserr.ErrNotFound)
 	// ErrParameterGroupAlreadyExists is returned when a DB parameter group already exists.
-	ErrParameterGroupAlreadyExists = errors.New("DBParameterGroupAlreadyExists")
+	ErrParameterGroupAlreadyExists = awserr.New("DBParameterGroupAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrOptionGroupNotFound is returned when an option group does not exist.
-	ErrOptionGroupNotFound = errors.New("OptionGroupNotFound")
+	ErrOptionGroupNotFound = awserr.New("OptionGroupNotFound", awserr.ErrNotFound)
 	// ErrOptionGroupAlreadyExists is returned when an option group already exists.
-	ErrOptionGroupAlreadyExists = errors.New("OptionGroupAlreadyExists")
+	ErrOptionGroupAlreadyExists = awserr.New("OptionGroupAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrClusterNotFound is returned when a DB cluster does not exist.
-	ErrClusterNotFound = errors.New("DBClusterNotFound")
+	ErrClusterNotFound = awserr.New("DBClusterNotFound", awserr.ErrNotFound)
 	// ErrClusterAlreadyExists is returned when a DB cluster already exists.
-	ErrClusterAlreadyExists = errors.New("DBClusterAlreadyExists")
+	ErrClusterAlreadyExists = awserr.New("DBClusterAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrClusterSnapshotNotFound is returned when a DB cluster snapshot does not exist.
-	ErrClusterSnapshotNotFound = errors.New("DBClusterSnapshotNotFound")
+	ErrClusterSnapshotNotFound = awserr.New("DBClusterSnapshotNotFound", awserr.ErrNotFound)
 	// ErrClusterSnapshotAlreadyExists is returned when a DB cluster snapshot already exists.
-	ErrClusterSnapshotAlreadyExists = errors.New("DBClusterSnapshotAlreadyExists")
+	ErrClusterSnapshotAlreadyExists = awserr.New("DBClusterSnapshotAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrClusterEndpointNotFound is returned when a DB cluster endpoint does not exist.
-	ErrClusterEndpointNotFound = errors.New("DBClusterEndpointNotFound")
+	ErrClusterEndpointNotFound = awserr.New("DBClusterEndpointNotFound", awserr.ErrNotFound)
 	// ErrClusterEndpointAlreadyExists is returned when a DB cluster endpoint already exists.
-	ErrClusterEndpointAlreadyExists = errors.New("DBClusterEndpointAlreadyExists")
+	ErrClusterEndpointAlreadyExists = awserr.New("DBClusterEndpointAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrExportTaskNotFound is returned when an export task does not exist.
-	ErrExportTaskNotFound = errors.New("ExportTaskNotFound")
+	ErrExportTaskNotFound = awserr.New("ExportTaskNotFound", awserr.ErrNotFound)
 	// ErrExportTaskAlreadyExists is returned when an export task already exists.
-	ErrExportTaskAlreadyExists = errors.New("ExportTaskAlreadyExists")
+	ErrExportTaskAlreadyExists = awserr.New("ExportTaskAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrGlobalClusterNotFound is returned when a global cluster does not exist.
-	ErrGlobalClusterNotFound = errors.New("GlobalClusterNotFound")
+	ErrGlobalClusterNotFound = awserr.New("GlobalClusterNotFound", awserr.ErrNotFound)
 	// ErrGlobalClusterAlreadyExists is returned when a global cluster already exists.
-	ErrGlobalClusterAlreadyExists = errors.New("GlobalClusterAlreadyExists")
+	ErrGlobalClusterAlreadyExists = awserr.New("GlobalClusterAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrInvalidDBClusterStateFault is returned when a cluster operation is invalid given its current state.
-	ErrInvalidDBClusterStateFault = errors.New("InvalidDBClusterStateFault")
+	ErrInvalidDBClusterStateFault = awserr.New("InvalidDBClusterStateFault", awserr.ErrConflict)
 	// ErrInvalidGlobalClusterState is returned when a global cluster operation is invalid given its current state.
-	ErrInvalidGlobalClusterState = errors.New("InvalidGlobalClusterStateFault")
+	ErrInvalidGlobalClusterState = awserr.New("InvalidGlobalClusterStateFault", awserr.ErrConflict)
 	// ErrEventSubscriptionNotFound is returned when an event subscription does not exist.
-	ErrEventSubscriptionNotFound = errors.New("SubscriptionNotFound")
+	ErrEventSubscriptionNotFound = awserr.New("SubscriptionNotFound", awserr.ErrNotFound)
 	// ErrEventSubscriptionAlreadyExists is returned when an event subscription already exists.
-	ErrEventSubscriptionAlreadyExists = errors.New("SubscriptionAlreadyExist")
+	ErrEventSubscriptionAlreadyExists = awserr.New("SubscriptionAlreadyExist", awserr.ErrAlreadyExists)
 	// ErrDBSecurityGroupNotFound is returned when a DB security group does not exist.
-	ErrDBSecurityGroupNotFound = errors.New("DBSecurityGroupNotFound")
+	ErrDBSecurityGroupNotFound = awserr.New("DBSecurityGroupNotFound", awserr.ErrNotFound)
 	// ErrDBSecurityGroupAlreadyExists is returned when a DB security group already exists.
-	ErrDBSecurityGroupAlreadyExists = errors.New("DBSecurityGroupAlreadyExists")
+	ErrDBSecurityGroupAlreadyExists = awserr.New("DBSecurityGroupAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrBlueGreenDeploymentNotFound is returned when a Blue/Green Deployment does not exist.
-	ErrBlueGreenDeploymentNotFound = errors.New("BlueGreenDeploymentNotFound")
+	ErrBlueGreenDeploymentNotFound = awserr.New("BlueGreenDeploymentNotFound", awserr.ErrNotFound)
 	// ErrBlueGreenDeploymentAlreadyExists is returned when a Blue/Green Deployment already exists.
-	ErrBlueGreenDeploymentAlreadyExists = errors.New("BlueGreenDeploymentAlreadyExists")
+	ErrBlueGreenDeploymentAlreadyExists = awserr.New("BlueGreenDeploymentAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrNoServerlessV2Config is a sentinel indicating no ServerlessV2ScalingConfiguration was provided.
 	ErrNoServerlessV2Config = errors.New("noServerlessV2Config")
 
 	// ErrDBShardGroupNotFound is returned when a DB shard group does not exist.
-	ErrDBShardGroupNotFound = errors.New("DBShardGroupNotFound")
+	ErrDBShardGroupNotFound = awserr.New("DBShardGroupNotFound", awserr.ErrNotFound)
 	// ErrDBShardGroupAlreadyExists is returned when a DB shard group already exists.
-	ErrDBShardGroupAlreadyExists = errors.New("DBShardGroupAlreadyExists")
+	ErrDBShardGroupAlreadyExists = awserr.New("DBShardGroupAlreadyExists", awserr.ErrAlreadyExists)
 
 	// ErrIntegrationNotFound is returned when an integration does not exist.
-	ErrIntegrationNotFound = errors.New("IntegrationNotFound")
+	ErrIntegrationNotFound = awserr.New("IntegrationNotFound", awserr.ErrNotFound)
 	// ErrIntegrationAlreadyExists is returned when an integration already exists.
-	ErrIntegrationAlreadyExists = errors.New("IntegrationAlreadyExists")
+	ErrIntegrationAlreadyExists = awserr.New("IntegrationAlreadyExists", awserr.ErrAlreadyExists)
 
 	// ErrTenantDatabaseNotFound is returned when a tenant database does not exist.
-	ErrTenantDatabaseNotFound = errors.New("TenantDatabaseNotFound")
+	ErrTenantDatabaseNotFound = awserr.New("TenantDatabaseNotFound", awserr.ErrNotFound)
 	// ErrTenantDatabaseAlreadyExists is returned when a tenant database already exists.
-	ErrTenantDatabaseAlreadyExists = errors.New("TenantDatabaseAlreadyExists")
+	ErrTenantDatabaseAlreadyExists = awserr.New("TenantDatabaseAlreadyExists", awserr.ErrAlreadyExists)
 
 	// ErrDBClusterAutomatedBackupNotFound is returned when a cluster automated backup does not exist.
-	ErrDBClusterAutomatedBackupNotFound = errors.New("DBClusterAutomatedBackupNotFound")
+	ErrDBClusterAutomatedBackupNotFound = awserr.New("DBClusterAutomatedBackupNotFound", awserr.ErrNotFound)
 	// ErrDBInstanceAutomatedBackupNotFound is returned when an instance automated backup does not exist.
-	ErrDBInstanceAutomatedBackupNotFound = errors.New("DBInstanceAutomatedBackupNotFound")
+	ErrDBInstanceAutomatedBackupNotFound = awserr.New("DBInstanceAutomatedBackupNotFound", awserr.ErrNotFound)
 )
 
 const (
@@ -132,14 +135,22 @@ const (
 	maxEvents                          = 512
 	percentProgressComplete            = 100
 
+	// seededLogFileCount is the number of synthetic DB log files generated per instance.
+	seededLogFileCount = 3
+	// seededLogBasePID is the base process ID used in synthetic DB log lines.
+	seededLogBasePID = 1000
+
 	engineMySQL            = "mysql"
 	engineMariaDB          = "mariadb"
 	enginePostgres         = "postgres"
 	engineAuroraMySQL      = "aurora-mysql"
 	engineAuroraPostgresql = "aurora-postgresql"
 
-	currencyUSD              = "USD"
-	reservedValidFrom        = "2021-05-25T00:00:00Z"
+	currencyUSD       = "USD"
+	reservedValidFrom = "2021-05-25T00:00:00Z"
+	// defaultCACertificateID is the CA certificate identifier RDS reports as the
+	// account default until ModifyCertificates overrides it.
+	defaultCACertificateID   = "rds-ca-rsa2048-g1"
 	reservedAllUpfront       = "All Upfront"
 	clusterEndpointReadWrite = "READ_WRITE"
 	opDescribeGlobalClusters = "DescribeGlobalClusters"
@@ -203,6 +214,7 @@ type DBInstance struct {
 	EngineLifecycleSupport            string                       `json:"engineLifecycleSupport,omitempty"`
 	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	VpcSecurityGroups                 []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
+	PendingModifiedValues             *PendingModifiedValues       `json:"pendingModifiedValues,omitempty"`
 	ReadReplicaIdentifiers            []string                     `json:"readReplicaIdentifiers,omitempty"`
 	Port                              int                          `json:"port"`
 	AllocatedStorage                  int                          `json:"allocatedStorage"`
@@ -219,6 +231,17 @@ type DBInstance struct {
 	PerformanceInsightsEnabled        bool                         `json:"performanceInsightsEnabled,omitempty"`
 	StorageOptimized                  bool                         `json:"storageOptimized,omitempty"`
 	OptimizedWrites                   bool                         `json:"optimizedWrites,omitempty"`
+}
+
+// PendingModifiedValues holds deferred instance changes (ApplyImmediately=false).
+// A non-nil pointer means at least one field is pending. Nil means nothing pending.
+type PendingModifiedValues struct {
+	MultiAZChange    *bool  `json:"multiAZChange,omitempty"`
+	DBInstanceClass  string `json:"dbInstanceClass,omitempty"`
+	EngineVersion    string `json:"engineVersion,omitempty"`
+	StorageType      string `json:"storageType,omitempty"`
+	AllocatedStorage int    `json:"allocatedStorage,omitempty"`
+	Iops             int    `json:"iops,omitempty"`
 }
 
 // DBSnapshot represents an RDS database snapshot.
@@ -328,6 +351,7 @@ type DBCluster struct {
 	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
 	BacktrackWindow                 int64                             `json:"backtrackWindow,omitempty"`
 	Port                            int                               `json:"port"`
+	BackupRetentionPeriod           int                               `json:"backupRetentionPeriod"`
 	MonitoringInterval              int                               `json:"monitoringInterval,omitempty"`
 	ServerlessCapacity              int                               `json:"serverlessCapacity"`
 	MultiAZ                         bool                              `json:"multiAZ,omitempty"`
@@ -499,7 +523,10 @@ type OrderableDBInstanceOption struct {
 // DBLogFile represents a log file for a DB instance.
 type DBLogFile struct {
 	LogFileName string `json:"logFileName"`
-	Size        int64  `json:"size"`
+	// LastWritten is the epoch-millisecond timestamp at which the log file was
+	// last written, matching the RDS DescribeDBLogFilesDetails.LastWritten field.
+	LastWritten int64 `json:"lastWritten"`
+	Size        int64 `json:"size"`
 }
 
 // EventSubscription represents an RDS event notification subscription.
@@ -686,6 +713,7 @@ type DBClusterOptions struct {
 	EnabledCloudwatchLogsExports []string
 	AvailabilityZones            []string
 	BacktrackWindow              int64
+	BackupRetentionPeriod        int
 	MonitoringInterval           int
 	MultiAZ                      bool
 	StorageEncrypted             bool
@@ -734,12 +762,15 @@ type InMemoryBackend struct {
 	tenantDatabases           map[string]*TenantDatabase
 	clusterAutomatedBackups   map[string]*DBClusterAutomatedBackup
 	snapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase
-	stopCh                    chan struct{}
+	clusterReadyAt            map[string]time.Time
+	piMetrics                 map[string]map[string][]PIDataPoint
+	instanceLogFiles          map[string][]DBLogFile
+	instanceLogContent        map[string]map[string]string
 	accountID                 string
 	region                    string
+	defaultCACertificateID    string
 	events                    []Event
-	wg                        sync.WaitGroup
-	stopOnce                  sync.Once
+	reconcilerRunning         bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background reconciler.
@@ -780,13 +811,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		tenantDatabases:           make(map[string]*TenantDatabase),
 		clusterAutomatedBackups:   make(map[string]*DBClusterAutomatedBackup),
 		snapshotTenantDatabases:   make(map[string][]*DBSnapshotTenantDatabase),
-		stopCh:                    make(chan struct{}),
+		clusterReadyAt:            make(map[string]time.Time),
+		piMetrics:                 make(map[string]map[string][]PIDataPoint),
+		instanceLogFiles:          make(map[string][]DBLogFile),
+		instanceLogContent:        make(map[string]map[string]string),
 		accountID:                 accountID,
 		region:                    region,
+		defaultCACertificateID:    defaultCACertificateID,
 		mu:                        lockmetrics.New("rds"),
 	}
-
-	go b.runReconciler()
 
 	return b
 }
@@ -794,28 +827,34 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Close stops the background reconciler goroutine and waits for any in-flight
 // delayed lifecycle transitions to finish. Close is safe to call more than once.
 func (b *InMemoryBackend) Close() {
-	b.stopOnce.Do(func() {
-		close(b.stopCh)
-	})
-	b.wg.Wait()
+	// Reconciler is now ephemeral and stops on its own.
 }
 
-// runDelayed schedules fn to run after delay, unless the backend is closed
-// first. It is tracked by b.wg so Close can wait for it to finish, and it
-// respects b.stopCh so it never mutates state after shutdown.
-func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
-	b.wg.Go(func() {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
+func (b *InMemoryBackend) scheduleReconcilerLocked() {
+	if b.reconcilerRunning {
+		return
+	}
+	b.reconcilerRunning = true
+	go func() {
+		defer func() {
+			b.mu.Lock("reconcilerExit")
+			b.reconcilerRunning = false
+			b.mu.Unlock()
+		}()
+		ticker := time.NewTicker(instanceTransitionDelay / reconcilerDivisor)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			b.mu.Lock("runReconciler")
+			b.reconcileInstancesLocked()
+			if len(b.instanceReadyAt) == 0 && len(b.clusterReadyAt) == 0 {
+				b.mu.Unlock()
 
-		select {
-		case <-b.stopCh:
-			return
-		case <-timer.C:
+				return
+			}
+			b.mu.Unlock()
 		}
-
-		fn()
-	})
+	}()
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -886,30 +925,24 @@ func enginePort(engine string) int {
 func (b *InMemoryBackend) reconcileInstancesLocked() {
 	now := time.Now()
 
-	for id, inst := range b.instances {
-		readyAt, hasReadyAt := b.instanceReadyAt[id]
-		if hasReadyAt && !readyAt.IsZero() && now.After(readyAt) {
-			inst.DBInstanceStatus = instanceStatusAvailable
+	for id, readyAt := range b.instanceReadyAt {
+		if !readyAt.IsZero() && now.After(readyAt) {
+			if inst, ok := b.instances[id]; ok {
+				applyPendingModifications(inst)
+				inst.DBInstanceStatus = instanceStatusAvailable
+				b.publishInstanceEventLocked(id, "DB instance is now available")
+			}
 			delete(b.instanceReadyAt, id)
-			b.publishInstanceEventLocked(id, "DB instance is now available")
 		}
 	}
-}
 
-// runReconciler periodically transitions DB instances that have passed their
-// ready-at timestamp. It runs as a long-lived background goroutine until Close() is called.
-func (b *InMemoryBackend) runReconciler() {
-	ticker := time.NewTicker(instanceTransitionDelay / reconcilerDivisor)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-b.stopCh:
-			return
-		case <-ticker.C:
-			b.mu.Lock("runReconciler")
-			b.reconcileInstancesLocked()
-			b.mu.Unlock()
+	for id, readyAt := range b.clusterReadyAt {
+		if !readyAt.IsZero() && now.After(readyAt) {
+			if c, ok := b.clusters[id]; ok && c.Status == "rebooting" {
+				c.Status = instanceStatusAvailable
+				b.publishClusterEventLocked(id, "DB cluster is now available")
+			}
+			delete(b.clusterReadyAt, id)
 		}
 	}
 }
@@ -974,7 +1007,7 @@ func (b *InMemoryBackend) maybeRegisterAutomatedBackup(
 		DbiResourceID:         id,
 		Engine:                engine,
 		EngineVersion:         opts.EngineVersion,
-		DBInstanceArn:         fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", b.region, b.accountID, id),
+		DBInstanceArn:         arn.Build("rds", b.region, b.accountID, fmt.Sprintf("db:%s", id)),
 		Region:                b.region,
 		Status:                instanceStatusAvailable,
 		AllocatedStorage:      allocatedStorage,
@@ -1075,6 +1108,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
 	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.scheduleReconcilerLocked()
 	cp := *inst
 
 	b.mu.Unlock()
@@ -1089,7 +1123,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 // rdsARN constructs the ARN for an RDS resource.
 // The format is: arn:aws:rds:{region}:{accountID}:{resourceType}:{id}.
 func (b *InMemoryBackend) rdsARN(resourceType, id string) string {
-	return fmt.Sprintf("arn:aws:rds:%s:%s:%s:%s", b.region, b.accountID, resourceType, id)
+	return arn.Build("rds", b.region, b.accountID, fmt.Sprintf("%s:%s", resourceType, id))
 }
 
 // DeleteDBInstance removes the DB instance with the given identifier.
@@ -1233,15 +1267,122 @@ func applyDBInstanceSchedulingOpts(inst *DBInstance, opts DBInstanceOptions) {
 	}
 }
 
-// applyDBInstanceFlags applies boolean flag fields from opts to inst.
-// Fields with a corresponding *Set sentinel are applied unconditionally when the sentinel is true,
-// allowing callers to explicitly set the flag to false (e.g., disable DeletionProtection).
-func applyDBInstanceFlags(inst *DBInstance, opts DBInstanceOptions) {
-	if opts.MultiAZSet {
-		inst.MultiAZ = opts.MultiAZ
-	} else if opts.MultiAZ {
+func (b *InMemoryBackend) applyDBInstanceModifications(
+	inst *DBInstance,
+	instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+	applyImmediately bool,
+) error {
+	if applyImmediately {
+		applyDeferrableFields(inst, instanceClass, allocatedStorage, opts)
+	} else {
+		if pv := buildPendingModifiedValues(inst, instanceClass, allocatedStorage, opts); pv != nil {
+			inst.PendingModifiedValues = pv
+		}
+	}
+
+	return b.applyImmediateFields(inst, opts)
+}
+
+// applyDeferrableFields applies fields that can be deferred to a maintenance window.
+// Called only when ApplyImmediately=true — clears any previously pending values.
+func applyDeferrableFields(inst *DBInstance, instanceClass string, allocatedStorage int, opts DBInstanceOptions) {
+	inst.PendingModifiedValues = nil
+	if instanceClass != "" {
+		inst.DBInstanceClass = instanceClass
+	}
+	if allocatedStorage > 0 {
+		inst.AllocatedStorage = allocatedStorage
+	}
+	if opts.StorageType != "" {
+		inst.StorageType = opts.StorageType
+	}
+	if opts.Iops > 0 {
+		inst.Iops = opts.Iops
+	}
+	if opts.StorageThroughput > 0 {
+		inst.StorageThroughput = opts.StorageThroughput
+	}
+	if opts.EngineVersion != "" {
+		inst.EngineVersion = opts.EngineVersion
+	}
+	if opts.MultiAZSet || opts.MultiAZ {
 		inst.MultiAZ = opts.MultiAZ
 	}
+}
+
+// applyImmediateFields applies fields that always take effect right away regardless of ApplyImmediately.
+func (b *InMemoryBackend) applyImmediateFields(inst *DBInstance, opts DBInstanceOptions) error {
+	if opts.BackupRetentionPeriod >= 0 {
+		inst.BackupRetentionPeriod = opts.BackupRetentionPeriod
+	}
+	applyDBInstanceFlagsImmediate(inst, opts)
+	if err := b.applyParamGroupUpdate(inst, opts.DBParameterGroupName); err != nil {
+		return err
+	}
+	if opts.OptionGroupName != "" {
+		inst.OptionGroupName = opts.OptionGroupName
+	}
+	if opts.LicenseModel != "" {
+		inst.LicenseModel = opts.LicenseModel
+	}
+	applyDBInstanceSchedulingOpts(inst, opts)
+	applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
+	if len(opts.EnabledCloudwatchLogsExports) > 0 {
+		inst.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
+	}
+
+	return nil
+}
+
+// buildPendingModifiedValues returns a PendingModifiedValues if any deferrable field
+// differs from the instance's current value, or nil if nothing would change.
+func buildPendingModifiedValues(
+	inst *DBInstance,
+	instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+) *PendingModifiedValues {
+	pv := &PendingModifiedValues{}
+	changed := false
+
+	if instanceClass != "" && instanceClass != inst.DBInstanceClass {
+		pv.DBInstanceClass = instanceClass
+		changed = true
+	}
+	if allocatedStorage > 0 && allocatedStorage != inst.AllocatedStorage {
+		pv.AllocatedStorage = allocatedStorage
+		changed = true
+	}
+	if opts.StorageType != "" && opts.StorageType != inst.StorageType {
+		pv.StorageType = opts.StorageType
+		changed = true
+	}
+	if opts.Iops > 0 && opts.Iops != inst.Iops {
+		pv.Iops = opts.Iops
+		changed = true
+	}
+	if opts.EngineVersion != "" && opts.EngineVersion != inst.EngineVersion {
+		pv.EngineVersion = opts.EngineVersion
+		changed = true
+	}
+	if (opts.MultiAZSet || opts.MultiAZ) && opts.MultiAZ != inst.MultiAZ {
+		b := opts.MultiAZ
+		pv.MultiAZChange = &b
+		changed = true
+	}
+
+	if !changed {
+		return nil
+	}
+
+	return pv
+}
+
+// applyDBInstanceFlagsImmediate applies boolean flags that always take effect immediately.
+// It excludes MultiAZ which is deferred when ApplyImmediately=false.
+func applyDBInstanceFlagsImmediate(inst *DBInstance, opts DBInstanceOptions) {
 	if opts.IAMDatabaseAuthSet {
 		inst.IAMDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
 	} else if opts.IAMDatabaseAuthenticationEnabled {
@@ -1272,58 +1413,32 @@ func applyDBInstanceFlags(inst *DBInstance, opts DBInstanceOptions) {
 	}
 }
 
-func (b *InMemoryBackend) applyDBInstanceModifications(
-	inst *DBInstance,
-	instanceClass string,
-	allocatedStorage int,
-	opts DBInstanceOptions,
-) error {
-	if instanceClass != "" {
-		inst.DBInstanceClass = instanceClass
+// applyPendingModifications applies deferred changes stored in inst.PendingModifiedValues
+// and clears the pending values. Called by the reconciler when the instance becomes available.
+func applyPendingModifications(inst *DBInstance) {
+	pv := inst.PendingModifiedValues
+	if pv == nil {
+		return
 	}
-	if allocatedStorage > 0 {
-		inst.AllocatedStorage = allocatedStorage
+	if pv.DBInstanceClass != "" {
+		inst.DBInstanceClass = pv.DBInstanceClass
 	}
-	if opts.StorageType != "" {
-		inst.StorageType = opts.StorageType
+	if pv.AllocatedStorage > 0 {
+		inst.AllocatedStorage = pv.AllocatedStorage
 	}
-	if opts.BackupRetentionPeriod >= 0 {
-		inst.BackupRetentionPeriod = opts.BackupRetentionPeriod
+	if pv.StorageType != "" {
+		inst.StorageType = pv.StorageType
 	}
-	applyDBInstanceFlags(inst, opts)
-	if err := b.applyParamGroupUpdate(inst, opts.DBParameterGroupName); err != nil {
-		return err
+	if pv.Iops > 0 {
+		inst.Iops = pv.Iops
 	}
-
-	if opts.OptionGroupName != "" {
-		inst.OptionGroupName = opts.OptionGroupName
+	if pv.EngineVersion != "" {
+		inst.EngineVersion = pv.EngineVersion
 	}
-
-	if opts.Iops > 0 {
-		inst.Iops = opts.Iops
+	if pv.MultiAZChange != nil {
+		inst.MultiAZ = *pv.MultiAZChange
 	}
-
-	if opts.StorageThroughput > 0 {
-		inst.StorageThroughput = opts.StorageThroughput
-	}
-
-	if opts.LicenseModel != "" {
-		inst.LicenseModel = opts.LicenseModel
-	}
-
-	applyDBInstanceSchedulingOpts(inst, opts)
-
-	applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
-
-	if len(opts.EnabledCloudwatchLogsExports) > 0 {
-		inst.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
-	}
-
-	if opts.EngineVersion != "" {
-		inst.EngineVersion = opts.EngineVersion
-	}
-
-	return nil
+	inst.PendingModifiedValues = nil
 }
 
 func (b *InMemoryBackend) ModifyDBInstance(
@@ -1340,11 +1455,14 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 
-	if err := b.applyDBInstanceModifications(inst, instanceClass, allocatedStorage, opts); err != nil {
+	if err := b.applyDBInstanceModifications(
+		inst, instanceClass, allocatedStorage, opts, opts.ApplyImmediately,
+	); err != nil {
 		return nil, err
 	}
 	inst.DBInstanceStatus = instanceStatusModifying
 	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.scheduleReconcilerLocked()
 	b.publishInstanceEventLocked(id, "DB instance modification started")
 	cp := *inst
 
@@ -2136,6 +2254,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		EnabledCloudwatchLogsExports: opts.EnabledCloudwatchLogsExports,
 		AvailabilityZones:            opts.AvailabilityZones,
 		BacktrackWindow:              opts.BacktrackWindow,
+		BackupRetentionPeriod:        opts.BackupRetentionPeriod,
 		MonitoringInterval:           opts.MonitoringInterval,
 		MultiAZ:                      opts.MultiAZ,
 		StorageEncrypted:             opts.StorageEncrypted,
@@ -2531,6 +2650,7 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	}
 	inst.DBInstanceStatus = instanceStatusRebooting
 	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.scheduleReconcilerLocked()
 	b.publishInstanceEventLocked(id, "DB instance reboot initiated")
 	cp := *inst
 
@@ -2669,26 +2789,158 @@ func (b *InMemoryBackend) DescribeOrderableDBInstanceOptions(engine, engineVersi
 	return result
 }
 
-// DescribeDBLogFiles returns the log files for the given instance.
-func (b *InMemoryBackend) DescribeDBLogFiles(instanceID string) ([]DBLogFile, error) {
-	b.mu.RLock("DescribeDBLogFiles")
-	defer b.mu.RUnlock()
-	if _, exists := b.instances[instanceID]; !exists {
-		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
-	}
-
-	return []DBLogFile{}, nil
+// LogFileFilter narrows the results returned by DescribeDBLogFiles, matching the
+// RDS DescribeDBLogFiles request filters.
+type LogFileFilter struct {
+	// FilenameContains, when non-empty, keeps only log files whose name contains it.
+	FilenameContains string
+	// FileLastWritten, when > 0, keeps only files written at or after this epoch-ms time.
+	FileLastWritten int64
+	// FileSize, when > 0, keeps only files at least this many bytes.
+	FileSize int64
 }
 
-// DownloadDBLogFilePortion returns log file content for the given instance.
-func (b *InMemoryBackend) DownloadDBLogFilePortion(instanceID, _ string) (string, error) {
-	b.mu.RLock("DownloadDBLogFilePortion")
-	defer b.mu.RUnlock()
-	if _, exists := b.instances[instanceID]; !exists {
-		return "", fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
+// LogFilePortion is a chunk of a DB log file returned by DownloadDBLogFilePortion.
+type LogFilePortion struct {
+	LogFileData           string
+	Marker                string
+	AdditionalDataPending bool
+}
+
+// DescribeDBLogFiles returns the log files for the given instance, filtered by the
+// supplied LogFileFilter. The instance is seeded with a small set of realistic log
+// files on first access.
+func (b *InMemoryBackend) DescribeDBLogFiles(instanceID string, filter LogFileFilter) ([]DBLogFile, error) {
+	b.mu.Lock("DescribeDBLogFiles")
+	defer b.mu.Unlock()
+	inst, exists := b.instances[instanceID]
+	if !exists {
+		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
+	}
+	b.ensureInstanceLogsLocked(instanceID, inst.Engine)
+
+	result := make([]DBLogFile, 0, len(b.instanceLogFiles[instanceID]))
+	for _, f := range b.instanceLogFiles[instanceID] {
+		if filter.FilenameContains != "" && !strings.Contains(f.LogFileName, filter.FilenameContains) {
+			continue
+		}
+		if filter.FileLastWritten > 0 && f.LastWritten < filter.FileLastWritten {
+			continue
+		}
+		if filter.FileSize > 0 && f.Size < filter.FileSize {
+			continue
+		}
+		result = append(result, f)
 	}
 
-	return "", nil
+	return result, nil
+}
+
+// DownloadDBLogFilePortion returns a portion of the named log file for the given
+// instance, honoring the supplied marker and line count. Marker is "0" or "" for
+// the start of the file; the returned marker is the next line offset to read from.
+func (b *InMemoryBackend) DownloadDBLogFilePortion(
+	instanceID, logFileName, marker string,
+	numberOfLines int,
+) (LogFilePortion, error) {
+	b.mu.Lock("DownloadDBLogFilePortion")
+	defer b.mu.Unlock()
+	inst, exists := b.instances[instanceID]
+	if !exists {
+		return LogFilePortion{}, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
+	}
+	b.ensureInstanceLogsLocked(instanceID, inst.Engine)
+
+	content, ok := b.instanceLogContent[instanceID][logFileName]
+	if !ok {
+		return LogFilePortion{}, fmt.Errorf(
+			"%w: DBLogFileNotFoundFault: log file %s not found for instance %s",
+			ErrInvalidParameter,
+			logFileName,
+			instanceID,
+		)
+	}
+
+	lines := strings.Split(content, "\n")
+	// Drop a trailing empty element produced by a final newline.
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	start := 0
+	if marker != "" && marker != "0" {
+		if n, err := strconv.Atoi(marker); err == nil && n >= 0 {
+			start = n
+		}
+	}
+	if start > len(lines) {
+		start = len(lines)
+	}
+
+	end := len(lines)
+	if numberOfLines > 0 && start+numberOfLines < end {
+		end = start + numberOfLines
+	}
+
+	portion := strings.Join(lines[start:end], "\n")
+	if end > start {
+		portion += "\n"
+	}
+
+	return LogFilePortion{
+		LogFileData:           portion,
+		Marker:                strconv.Itoa(end),
+		AdditionalDataPending: end < len(lines),
+	}, nil
+}
+
+// ensureInstanceLogsLocked seeds a deterministic set of log files and their content
+// for an instance the first time its logs are requested. Caller must hold b.mu.
+func (b *InMemoryBackend) ensureInstanceLogsLocked(instanceID, engine string) {
+	if _, ok := b.instanceLogFiles[instanceID]; ok {
+		return
+	}
+
+	now := time.Now().UTC()
+	prefix := "error/postgresql.log"
+	switch {
+	case strings.Contains(strings.ToLower(engine), "mysql"), strings.Contains(strings.ToLower(engine), "maria"):
+		prefix = "error/mysql-error.log"
+	case strings.Contains(strings.ToLower(engine), "oracle"):
+		prefix = "trace/alert_ORCL.log"
+	case strings.Contains(strings.ToLower(engine), "sqlserver"):
+		prefix = "log/ERROR"
+	}
+
+	files := make([]DBLogFile, 0, seededLogFileCount)
+	content := make(map[string]string)
+	for i := range seededLogFileCount {
+		ts := now.Add(time.Duration(-i) * time.Hour)
+		name := prefix
+		if i > 0 {
+			name = fmt.Sprintf("%s.%d", prefix, i)
+		}
+		readyPID := seededLogBasePID + i
+		checkpointStartPID := readyPID + 1
+		checkpointDonePID := checkpointStartPID + 1
+		body := fmt.Sprintf(
+			"%s UTC [%d]: LOG:  database system is ready to accept connections on %s\n"+
+				"%s UTC [%d]: LOG:  checkpoint starting: time\n"+
+				"%s UTC [%d]: LOG:  checkpoint complete\n",
+			ts.Format("2006-01-02 15:04:05"), readyPID, instanceID,
+			ts.Add(time.Minute).Format("2006-01-02 15:04:05"), checkpointStartPID,
+			ts.Add(time.Minute+time.Minute).Format("2006-01-02 15:04:05"), checkpointDonePID,
+		)
+		files = append(files, DBLogFile{
+			LogFileName: name,
+			LastWritten: ts.UnixMilli(),
+			Size:        int64(len(body)),
+		})
+		content[name] = body
+	}
+
+	b.instanceLogFiles[instanceID] = files
+	b.instanceLogContent[instanceID] = content
 }
 
 // StartDBCluster starts a stopped DB cluster.

@@ -104,17 +104,59 @@ type scheduleTargetSageMakerPipelineParameters struct {
 	PipelineParameterList []scheduleTargetSageMakerPipelineParam `json:"PipelineParameterList,omitempty"`
 }
 
+// scheduleTargetEcsAwsvpcConfiguration mirrors EcsAwsvpcConfiguration for handler input/output.
+type scheduleTargetEcsAwsvpcConfiguration struct {
+	AssignPublicIP string   `json:"AssignPublicIp,omitempty"`
+	SecurityGroups []string `json:"SecurityGroups,omitempty"`
+	Subnets        []string `json:"Subnets,omitempty"`
+}
+
+// scheduleTargetEcsNetworkConfiguration mirrors EcsNetworkConfiguration for handler input/output.
+type scheduleTargetEcsNetworkConfiguration struct {
+	AwsvpcConfiguration *scheduleTargetEcsAwsvpcConfiguration `json:"AwsvpcConfiguration,omitempty"`
+}
+
+// scheduleTargetEcsCapacityProviderStrategyItem mirrors EcsCapacityProviderStrategyItem.
+type scheduleTargetEcsCapacityProviderStrategyItem struct {
+	CapacityProvider string `json:"CapacityProvider"`
+	Base             int    `json:"Base,omitempty"`
+	Weight           int    `json:"Weight,omitempty"`
+}
+
+// scheduleTargetEcsPlacementConstraint mirrors EcsPlacementConstraint for handler input/output.
+type scheduleTargetEcsPlacementConstraint struct {
+	Expression string `json:"Expression,omitempty"`
+	Type       string `json:"Type,omitempty"`
+}
+
+// scheduleTargetEcsPlacementStrategy mirrors EcsPlacementStrategy for handler input/output.
+type scheduleTargetEcsPlacementStrategy struct {
+	Field string `json:"Field,omitempty"`
+	Type  string `json:"Type,omitempty"`
+}
+
+// scheduleTargetEcsTag mirrors EcsTag for handler input/output.
+type scheduleTargetEcsTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
 // scheduleTargetEcsParameters mirrors EcsParameters for handler input/output.
 type scheduleTargetEcsParameters struct {
-	TaskDefinitionArn    string `json:"TaskDefinitionArn,omitempty"`
-	LaunchType           string `json:"LaunchType,omitempty"`
-	PlatformVersion      string `json:"PlatformVersion,omitempty"`
-	Group                string `json:"Group,omitempty"`
-	PropagateTags        string `json:"PropagateTags,omitempty"`
-	ReferenceID          string `json:"ReferenceId,omitempty"`
-	TaskCount            int    `json:"TaskCount,omitempty"`
-	EnableECSManagedTags bool   `json:"EnableECSManagedTags,omitempty"`
-	EnableExecuteCommand bool   `json:"EnableExecuteCommand,omitempty"`
+	NetworkConfiguration     *scheduleTargetEcsNetworkConfiguration          `json:"NetworkConfiguration,omitempty"`
+	PropagateTags            string                                          `json:"PropagateTags,omitempty"`
+	TaskDefinitionArn        string                                          `json:"TaskDefinitionArn,omitempty"`
+	LaunchType               string                                          `json:"LaunchType,omitempty"`
+	PlatformVersion          string                                          `json:"PlatformVersion,omitempty"`
+	Group                    string                                          `json:"Group,omitempty"`
+	ReferenceID              string                                          `json:"ReferenceId,omitempty"`
+	PlacementConstraints     []scheduleTargetEcsPlacementConstraint          `json:"PlacementConstraints,omitempty"`
+	PlacementStrategy        []scheduleTargetEcsPlacementStrategy            `json:"PlacementStrategy,omitempty"`
+	Tags                     []scheduleTargetEcsTag                          `json:"Tags,omitempty"`
+	CapacityProviderStrategy []scheduleTargetEcsCapacityProviderStrategyItem `json:"CapacityProviderStrategy,omitempty"`
+	TaskCount                int                                             `json:"TaskCount,omitempty"`
+	EnableECSManagedTags     bool                                            `json:"EnableECSManagedTags,omitempty"`
+	EnableExecuteCommand     bool                                            `json:"EnableExecuteCommand,omitempty"`
 }
 
 // scheduleTarget holds the ARN, IAM role, and optional custom input for a schedule target.
@@ -160,6 +202,11 @@ type Handler struct {
 	ops     map[string]service.JSONOpFunc
 	runner  *Runner
 	cancel  context.CancelFunc
+}
+
+// Runner returns the internal runner for cross-service wiring.
+func (h *Handler) Runner() *Runner {
+	return h.runner
 }
 
 // NewHandler creates a new Scheduler handler.
@@ -753,6 +800,83 @@ func sageMakerParamsFromInput(in *scheduleTargetSageMakerPipelineParameters) *Sa
 	return &SageMakerPipelineParameters{PipelineParameterList: params}
 }
 
+// ecsNetworkConfigFromInput converts handler network configuration to the backend type.
+func ecsNetworkConfigFromInput(in *scheduleTargetEcsNetworkConfiguration) *EcsNetworkConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	out := &EcsNetworkConfiguration{}
+
+	if in.AwsvpcConfiguration != nil {
+		out.AwsvpcConfiguration = &EcsAwsvpcConfiguration{
+			Subnets:        in.AwsvpcConfiguration.Subnets,
+			SecurityGroups: in.AwsvpcConfiguration.SecurityGroups,
+			AssignPublicIP: in.AwsvpcConfiguration.AssignPublicIP,
+		}
+	}
+
+	return out
+}
+
+// ecsCapacityStrategyFromInput converts handler capacity provider strategy to the backend type.
+func ecsCapacityStrategyFromInput(
+	in []scheduleTargetEcsCapacityProviderStrategyItem,
+) []EcsCapacityProviderStrategyItem {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]EcsCapacityProviderStrategyItem, len(in))
+	for i, item := range in {
+		out[i] = EcsCapacityProviderStrategyItem(item)
+	}
+
+	return out
+}
+
+// ecsPlacementConstraintsFromInput converts handler placement constraints to the backend type.
+func ecsPlacementConstraintsFromInput(in []scheduleTargetEcsPlacementConstraint) []EcsPlacementConstraint {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]EcsPlacementConstraint, len(in))
+	for i, c := range in {
+		out[i] = EcsPlacementConstraint(c)
+	}
+
+	return out
+}
+
+// ecsPlacementStrategyFromInput converts handler placement strategy to the backend type.
+func ecsPlacementStrategyFromInput(in []scheduleTargetEcsPlacementStrategy) []EcsPlacementStrategy {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]EcsPlacementStrategy, len(in))
+	for i, s := range in {
+		out[i] = EcsPlacementStrategy(s)
+	}
+
+	return out
+}
+
+// ecsTagsFromInput converts handler ECS tags to the backend type.
+func ecsTagsFromInput(in []scheduleTargetEcsTag) []EcsTag {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]EcsTag, len(in))
+	for i, t := range in {
+		out[i] = EcsTag(t)
+	}
+
+	return out
+}
+
 // ecsParamsFromInput converts handler ECS parameters to the backend type.
 func ecsParamsFromInput(in *scheduleTargetEcsParameters) *EcsParameters {
 	if in == nil {
@@ -760,15 +884,20 @@ func ecsParamsFromInput(in *scheduleTargetEcsParameters) *EcsParameters {
 	}
 
 	return &EcsParameters{
-		TaskDefinitionArn:    in.TaskDefinitionArn,
-		LaunchType:           in.LaunchType,
-		TaskCount:            in.TaskCount,
-		PlatformVersion:      in.PlatformVersion,
-		Group:                in.Group,
-		PropagateTags:        in.PropagateTags,
-		ReferenceID:          in.ReferenceID,
-		EnableECSManagedTags: in.EnableECSManagedTags,
-		EnableExecuteCommand: in.EnableExecuteCommand,
+		TaskDefinitionArn:        in.TaskDefinitionArn,
+		LaunchType:               in.LaunchType,
+		TaskCount:                in.TaskCount,
+		PlatformVersion:          in.PlatformVersion,
+		Group:                    in.Group,
+		PropagateTags:            in.PropagateTags,
+		ReferenceID:              in.ReferenceID,
+		EnableECSManagedTags:     in.EnableECSManagedTags,
+		EnableExecuteCommand:     in.EnableExecuteCommand,
+		NetworkConfiguration:     ecsNetworkConfigFromInput(in.NetworkConfiguration),
+		CapacityProviderStrategy: ecsCapacityStrategyFromInput(in.CapacityProviderStrategy),
+		PlacementConstraints:     ecsPlacementConstraintsFromInput(in.PlacementConstraints),
+		PlacementStrategy:        ecsPlacementStrategyFromInput(in.PlacementStrategy),
+		Tags:                     ecsTagsFromInput(in.Tags),
 	}
 }
 
@@ -860,6 +989,81 @@ func sageMakerParamsToOutput(s *SageMakerPipelineParameters) *scheduleTargetSage
 	return &scheduleTargetSageMakerPipelineParameters{PipelineParameterList: params}
 }
 
+// ecsNetworkConfigToOutput converts backend network configuration to the handler output type.
+func ecsNetworkConfigToOutput(in *EcsNetworkConfiguration) *scheduleTargetEcsNetworkConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	out := &scheduleTargetEcsNetworkConfiguration{}
+
+	if in.AwsvpcConfiguration != nil {
+		out.AwsvpcConfiguration = &scheduleTargetEcsAwsvpcConfiguration{
+			Subnets:        in.AwsvpcConfiguration.Subnets,
+			SecurityGroups: in.AwsvpcConfiguration.SecurityGroups,
+			AssignPublicIP: in.AwsvpcConfiguration.AssignPublicIP,
+		}
+	}
+
+	return out
+}
+
+// ecsCapacityStrategyToOutput converts backend capacity provider strategy to the handler output type.
+func ecsCapacityStrategyToOutput(in []EcsCapacityProviderStrategyItem) []scheduleTargetEcsCapacityProviderStrategyItem {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]scheduleTargetEcsCapacityProviderStrategyItem, len(in))
+	for i, item := range in {
+		out[i] = scheduleTargetEcsCapacityProviderStrategyItem(item)
+	}
+
+	return out
+}
+
+// ecsPlacementConstraintsToOutput converts backend placement constraints to the handler output type.
+func ecsPlacementConstraintsToOutput(in []EcsPlacementConstraint) []scheduleTargetEcsPlacementConstraint {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]scheduleTargetEcsPlacementConstraint, len(in))
+	for i, c := range in {
+		out[i] = scheduleTargetEcsPlacementConstraint(c)
+	}
+
+	return out
+}
+
+// ecsPlacementStrategyToOutput converts backend placement strategy to the handler output type.
+func ecsPlacementStrategyToOutput(in []EcsPlacementStrategy) []scheduleTargetEcsPlacementStrategy {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]scheduleTargetEcsPlacementStrategy, len(in))
+	for i, s := range in {
+		out[i] = scheduleTargetEcsPlacementStrategy(s)
+	}
+
+	return out
+}
+
+// ecsTagsToOutput converts backend ECS tags to the handler output type.
+func ecsTagsToOutput(in []EcsTag) []scheduleTargetEcsTag {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]scheduleTargetEcsTag, len(in))
+	for i, t := range in {
+		out[i] = scheduleTargetEcsTag(t)
+	}
+
+	return out
+}
+
 // ecsParamsToOutput converts backend ECS parameters to the handler output type.
 func ecsParamsToOutput(e *EcsParameters) *scheduleTargetEcsParameters {
 	if e == nil {
@@ -867,15 +1071,20 @@ func ecsParamsToOutput(e *EcsParameters) *scheduleTargetEcsParameters {
 	}
 
 	return &scheduleTargetEcsParameters{
-		TaskDefinitionArn:    e.TaskDefinitionArn,
-		LaunchType:           e.LaunchType,
-		TaskCount:            e.TaskCount,
-		PlatformVersion:      e.PlatformVersion,
-		Group:                e.Group,
-		PropagateTags:        e.PropagateTags,
-		ReferenceID:          e.ReferenceID,
-		EnableECSManagedTags: e.EnableECSManagedTags,
-		EnableExecuteCommand: e.EnableExecuteCommand,
+		TaskDefinitionArn:        e.TaskDefinitionArn,
+		LaunchType:               e.LaunchType,
+		TaskCount:                e.TaskCount,
+		PlatformVersion:          e.PlatformVersion,
+		Group:                    e.Group,
+		PropagateTags:            e.PropagateTags,
+		ReferenceID:              e.ReferenceID,
+		EnableECSManagedTags:     e.EnableECSManagedTags,
+		EnableExecuteCommand:     e.EnableExecuteCommand,
+		NetworkConfiguration:     ecsNetworkConfigToOutput(e.NetworkConfiguration),
+		CapacityProviderStrategy: ecsCapacityStrategyToOutput(e.CapacityProviderStrategy),
+		PlacementConstraints:     ecsPlacementConstraintsToOutput(e.PlacementConstraints),
+		PlacementStrategy:        ecsPlacementStrategyToOutput(e.PlacementStrategy),
+		Tags:                     ecsTagsToOutput(e.Tags),
 	}
 }
 
@@ -986,14 +1195,21 @@ type listSchedulesInput struct {
 	MaxResults string `json:"MaxResults"`
 }
 
+// scheduleSummaryTarget holds the target summary included in ListSchedules items.
+type scheduleSummaryTarget struct {
+	Arn     string `json:"Arn"`
+	RoleArn string `json:"RoleArn"`
+}
+
 type scheduleSummary struct {
-	Name                 string  `json:"Name"`
-	Arn                  string  `json:"Arn"`
-	GroupName            string  `json:"GroupName"`
-	ScheduleExpression   string  `json:"ScheduleExpression"`
-	State                string  `json:"State"`
-	CreationDate         float64 `json:"CreationDate"`
-	LastModificationDate float64 `json:"LastModificationDate"`
+	Target               scheduleSummaryTarget `json:"Target"`
+	Name                 string                `json:"Name"`
+	Arn                  string                `json:"Arn"`
+	GroupName            string                `json:"GroupName"`
+	ScheduleExpression   string                `json:"ScheduleExpression"`
+	State                string                `json:"State"`
+	CreationDate         float64               `json:"CreationDate"`
+	LastModificationDate float64               `json:"LastModificationDate"`
 }
 
 type listSchedulesOutput struct {
@@ -1022,6 +1238,10 @@ func (h *Handler) handleListSchedules(ctx context.Context, in *listSchedulesInpu
 			State:                s.State,
 			CreationDate:         float64(s.CreationDate.Unix()),
 			LastModificationDate: float64(s.LastModificationDate.Unix()),
+			Target: scheduleSummaryTarget{
+				Arn:     s.Target.ARN,
+				RoleArn: s.Target.RoleARN,
+			},
 		})
 	}
 

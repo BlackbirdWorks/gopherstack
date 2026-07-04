@@ -36,12 +36,31 @@ type InputLogEvent struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-// OutputLogEvent represents a single log event returned by GetLogEvents/FilterLogEvents.
+// OutputLogEvent represents a single log event returned by GetLogEvents.
 type OutputLogEvent struct {
 	Message       string `json:"message"`
 	Ptr           string `json:"ptr,omitempty"`
 	IngestionTime int64  `json:"ingestionTime"`
 	Timestamp     int64  `json:"timestamp"`
+}
+
+// FilteredLogEvent represents a single matched event returned by FilterLogEvents.
+// Unlike OutputLogEvent (used by GetLogEvents), it carries the originating log
+// stream name and a unique eventId, matching the AWS FilteredLogEvent shape.
+type FilteredLogEvent struct {
+	EventID       string `json:"eventId"`
+	LogStreamName string `json:"logStreamName"`
+	Message       string `json:"message"`
+	IngestionTime int64  `json:"ingestionTime"`
+	Timestamp     int64  `json:"timestamp"`
+}
+
+// SearchedLogStream indicates whether a log stream was searched completely by
+// FilterLogEvents. AWS deprecated populating this list (it returns empty) but the
+// field remains part of the response shape.
+type SearchedLogStream struct {
+	LogStreamName      string `json:"logStreamName"`
+	SearchedCompletely bool   `json:"searchedCompletely"`
 }
 
 // LogGroupField is a field name and estimated percentage of log events that contain the field.
@@ -55,8 +74,10 @@ type Anomaly struct {
 	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
 	AnomalyID          string `json:"anomalyId"`
 	Description        string `json:"description"`
+	SuppressedState    string `json:"suppressedState,omitempty"`
 	FirstSeen          int64  `json:"firstSeen"`
 	LastSeen           int64  `json:"lastSeen"`
+	SuppressedDate     int64  `json:"suppressedDate,omitempty"`
 	Active             bool   `json:"active"`
 }
 
@@ -138,15 +159,18 @@ type QueryInfo struct {
 
 // ExportTask represents a CloudWatch Logs export task.
 type ExportTask struct {
-	TaskName          string `json:"taskName,omitempty"`
-	TaskID            string `json:"taskId"`
-	LogGroupName      string `json:"logGroupName"`
-	Destination       string `json:"destination"`
-	DestinationPrefix string `json:"destinationPrefix,omitempty"`
-	Status            string `json:"status"`
-	From              int64  `json:"from"`
-	To                int64  `json:"to"`
-	CreationTime      int64  `json:"creationTime"`
+	TaskName            string `json:"taskName,omitempty"`
+	TaskID              string `json:"taskId"`
+	LogGroupName        string `json:"logGroupName"`
+	Destination         string `json:"destination"`
+	DestinationPrefix   string `json:"destinationPrefix,omitempty"`
+	LogStreamNamePrefix string `json:"logStreamNamePrefix,omitempty"`
+	Status              string `json:"status"`
+	StatusMessage       string `json:"statusMessage,omitempty"`
+	From                int64  `json:"from"`
+	To                  int64  `json:"to"`
+	CreationTime        int64  `json:"creationTime"`
+	CompletionTime      int64  `json:"completionTime,omitempty"`
 }
 
 // ImportTask represents a CloudWatch Logs import task (from CloudTrail Lake).

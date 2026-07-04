@@ -140,6 +140,10 @@ type adminLinkProviderForUserInput struct {
 
 type adminLinkProviderForUserOutput struct{}
 
+// handleAdminLinkProviderForUser links the external provider identity (SourceUser) to the
+// target native user (DestinationUser) and records the link in backend state. The
+// destination native user is identified by its ProviderAttributeValue (the Cognito
+// username), matching the AWS ProviderUserIdentifierType shape.
 func (h *Handler) handleAdminLinkProviderForUser(
 	_ context.Context,
 	in *adminLinkProviderForUserInput,
@@ -220,6 +224,8 @@ type adminListUserAuthEventsOutput struct {
 	AuthEvents []authEventOutputType `json:"AuthEvents,omitempty"`
 }
 
+// handleAdminListUserAuthEvents returns the tracked adaptive-auth events for a user,
+// paginated by MaxResults/NextToken.
 func (h *Handler) handleAdminListUserAuthEvents(
 	_ context.Context,
 	in *adminListUserAuthEventsInput,
@@ -383,6 +389,8 @@ type completeWebAuthnRegistrationInput struct {
 
 type completeWebAuthnRegistrationOutput struct{}
 
+// handleCompleteWebAuthnRegistration authenticates the access token and persists the
+// supplied WebAuthn credential (id + authenticator attachment) on the user's account.
 func (h *Handler) handleCompleteWebAuthnRegistration(
 	_ context.Context,
 	in *completeWebAuthnRegistrationInput,

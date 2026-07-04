@@ -42,6 +42,10 @@ func (n *noopBackend) GetResources(_ string, _ string, _ int) ([]apigateway.Reso
 	return nil, "", nil
 }
 
+func (n *noopBackend) ResourcesForRouting(_ string) ([]apigateway.Resource, uint64, error) {
+	return nil, 0, nil
+}
+
 func (n *noopBackend) GetResource(_ string, _ string) (*apigateway.Resource, error) {
 	return nil, errNoopNotImplemented
 }
@@ -324,14 +328,6 @@ func (n *noopBackend) UpdateRestAPI(_ string, _ apigateway.UpdateRestAPIInput) (
 	return nil, errNoopNotImplemented
 }
 
-func (n *noopBackend) ImportRestAPI(_ []byte) (*apigateway.RestAPI, error) {
-	return nil, errNoopNotImplemented
-}
-
-func (n *noopBackend) PutRestAPI(_ string, _ []byte, _ string) (*apigateway.RestAPI, error) {
-	return nil, errNoopNotImplemented
-}
-
 func (n *noopBackend) UpdateResource(
 	_ string,
 	_ string,
@@ -472,6 +468,10 @@ func (n *noopBackend) GetUsage(_ apigateway.GetUsageInput) (*apigateway.UsageDat
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) EnforceUsagePlan(_, _, _ string) error {
+	return nil
+}
+
 func (n *noopBackend) CreateVpcLink(_ apigateway.CreateVpcLinkInput) (*apigateway.VpcLink, error) {
 	return nil, errNoopNotImplemented
 }
@@ -538,6 +538,14 @@ func (n *noopBackend) UpdateUsage(_, _ string, _ map[string]string) (*apigateway
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) ImportRestAPI(_ apigateway.ImportRestAPIInput) (*apigateway.RestAPI, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) PutRestAPI(_ apigateway.PutRestAPIInput) (*apigateway.RestAPI, error) {
+	return nil, errNoopNotImplemented
+}
+
 // restRequest sends a REST-style request (no X-Amz-Target header) to the handler.
 func restRequest(t *testing.T, handler *apigateway.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -586,13 +594,13 @@ func TestHandlerPersistence_NoopBackend(t *testing.T) {
 			h := apigateway.NewHandler(&noopBackend{})
 
 			if tt.wantNilSnap {
-				snap := h.Snapshot()
+				snap := h.Snapshot(t.Context())
 				assert.Nil(t, snap)
 
 				return
 			}
 
-			err := h.Restore([]byte(`{"apis":{}}`))
+			err := h.Restore(t.Context(), []byte(`{"apis":{}}`))
 			require.NoError(t, err)
 		})
 	}
@@ -623,7 +631,7 @@ func TestInMemoryBackend_RestoreWithNilMaps(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			err := b.Restore([]byte(tt.snapshot))
+			err := b.Restore(t.Context(), []byte(tt.snapshot))
 			require.NoError(t, err)
 
 			// The Restore should have initialised the empty maps – calling GetResources
@@ -920,9 +928,10 @@ func TestComputePath_NonRootParent(t *testing.T) {
 	}
 }
 
-// TestParsePosition_EdgeCases covers the invalid-string and negative-value branches
-// of parsePosition by passing those values as the position parameter to GetRestAPIs and GetResources.
-func TestParsePosition_EdgeCases(t *testing.T) {
+// TestOpaquePagination_EdgeCases verifies that GetRestAPIs treats malformed/legacy
+// (numeric) position tokens as "start from the beginning" — the opaque cursor is not a
+// numeric offset — and that a real cursor round-trips to the next page.
+func TestOpaquePagination_EdgeCases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -931,19 +940,19 @@ func TestParsePosition_EdgeCases(t *testing.T) {
 		wantLen  int
 	}{
 		{
-			name:     "invalid_position_string_treated_as_zero",
+			name:     "invalid_position_string_treated_as_start",
 			position: "not-a-number",
 			wantLen:  2,
 		},
 		{
-			name:     "negative_position_treated_as_zero",
-			position: "-99",
+			name:     "legacy_numeric_position_treated_as_start",
+			position: "1",
 			wantLen:  2,
 		},
 		{
-			name:     "valid_position_paginates",
-			position: "1",
-			wantLen:  1,
+			name:     "empty_position_returns_all",
+			position: "",
+			wantLen:  2,
 		},
 	}
 
@@ -960,6 +969,37 @@ func TestParsePosition_EdgeCases(t *testing.T) {
 			assert.Len(t, apis, tt.wantLen)
 		})
 	}
+}
+
+// TestOpaquePagination_RoundTrip verifies that the opaque cursor returned by a limited
+// page resumes at the correct item on the next call and is not a numeric offset.
+func TestOpaquePagination_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+	for _, name := range []string{"api-a", "api-b", "api-c"} {
+		_, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: name})
+		require.NoError(t, err)
+	}
+
+	first, token, err := b.GetRestAPIs(1, "")
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	require.NotEmpty(t, token, "cursor must be present when more pages remain")
+	assert.NotEqual(t, "1", token, "cursor must be opaque, not a numeric offset")
+
+	// Walk the remaining pages using the opaque cursor.
+	seen := map[string]bool{first[0].ID: true}
+	for token != "" {
+		var page []apigateway.RestAPI
+		page, token, err = b.GetRestAPIs(1, token)
+		require.NoError(t, err)
+		for _, api := range page {
+			assert.False(t, seen[api.ID], "cursor must not repeat an item")
+			seen[api.ID] = true
+		}
+	}
+	assert.Len(t, seen, 3, "cursor pagination must cover every item exactly once")
 }
 
 // TestExtractResource_AdditionalBranches covers the "name" key fallback and the
@@ -1319,6 +1359,13 @@ func TestHandler_GetAndDeleteDeployment(t *testing.T) {
 			require.NoError(t, json.Unmarshal(deplRec.Body.Bytes(), &depl))
 			deplID := depl["id"].(string)
 
+			if tt.action == "DeleteDeployment" {
+				// Delete the referencing stage first so the deployment can be removed.
+				stageRec := restRequest(t, h, http.MethodDelete,
+					fmt.Sprintf("/restapis/%s/stages/prod", apiID), "")
+				require.Equal(t, http.StatusNoContent, stageRec.Code)
+			}
+
 			rec := postWithHandler(t, h, e, tt.action,
 				fmt.Sprintf(`{"restApiId":%q,"deploymentId":%q}`, apiID, deplID))
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -1414,7 +1461,7 @@ func TestHandler_RESTPath_Deployments(t *testing.T) {
 			method: http.MethodDelete,
 			setup: func(b *apigateway.InMemoryBackend) string {
 				api, _ := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "api"})
-				dep, _ := b.CreateDeployment(api.ID, "prod", "")
+				dep, _ := b.CreateDeployment(api.ID, "", "")
 
 				return fmt.Sprintf("/restapis/%s/deployments/%s", api.ID, dep.ID)
 			},

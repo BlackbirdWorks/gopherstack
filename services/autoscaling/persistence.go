@@ -1,7 +1,9 @@
 package autoscaling
 
 import (
-	"encoding/json"
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -17,7 +19,7 @@ type backendSnapshot struct {
 }
 
 // Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -33,21 +35,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		WarmPools:            b.warmPools,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "autoscaling", snap)
 }
 
 // Restore populates the backend from a JSON payload.
 //
 //nolint:gocognit // Too complex to refactor given time constraints
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "autoscaling", data, &snap); err != nil {
 		return err
 	}
 
@@ -126,20 +123,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
-	type restorer interface{ Restore([]byte) error }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+		return r.Restore(ctx, data)
 	}
 
 	return nil

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -32,6 +34,7 @@ const (
 	pathStorageLensGroup     = "/v20180820/storagelensgroup"
 
 	// Additional path constants for stub operations.
+	pathAccessGrantsInstances              = "/v20180820/accessgrantsinstances"
 	pathAccessGrantsInstanceResourcePolicy = "/v20180820/accessgrantsinstance/resourcepolicy"
 	pathAccessGrantsInstancePrefix         = "/v20180820/accessgrantsinstance/"
 	pathAccessGrantsLocationPrefix         = "/v20180820/accessgrantsinstance/location/"
@@ -232,6 +235,10 @@ func extractNewOpsOperation(path, method string) string {
 // extractAccessGrantsInstanceOp handles access grants instance and identity center operations.
 func extractAccessGrantsInstanceOp(path, method string) string {
 	switch path {
+	case pathAccessGrantsInstances:
+		if method == http.MethodGet {
+			return "ListAccessGrantsInstances"
+		}
 	case pathAccessGrantsInstance:
 		switch method {
 		case http.MethodPost:
@@ -779,6 +786,10 @@ func (h *Handler) dispatchNewOps(c *echo.Context, path, method string) error {
 // dispatchAccessGrantsInstanceOps handles access grants instance and identity center operations.
 func (h *Handler) dispatchAccessGrantsInstanceOps(c *echo.Context, path, method string) (bool, error) {
 	switch path {
+	case pathAccessGrantsInstances:
+		if method == http.MethodGet {
+			return true, h.handleListAccessGrantsInstances(c)
+		}
 	case pathAccessGrantsInstance:
 		switch method {
 		case http.MethodPost:
@@ -1500,6 +1511,45 @@ func (h *Handler) handleCreateAccessGrantsInstance(c *echo.Context) error {
 	})
 }
 
+// --- ListAccessGrantsInstances handler ---
+
+type listAccessGrantsInstancesItemXML struct {
+	AccessGrantsInstanceArn string `xml:"AccessGrantsInstanceArn"`
+	AccessGrantsInstanceID  string `xml:"AccessGrantsInstanceId"`
+	IdentityCenterArn       string `xml:"IdentityCenterArn,omitempty"`
+	CreatedAt               string `xml:"CreatedAt,omitempty"`
+}
+
+type listAccessGrantsInstancesResponseXML struct {
+	XMLName               xml.Name                           `xml:"ListAccessGrantsInstancesResult"`
+	NextToken             string                             `xml:"NextToken,omitempty"`
+	AccessGrantsInstances []listAccessGrantsInstancesItemXML `xml:"AccessGrantsInstancesList>AccessGrantsInstance"`
+}
+
+func (h *Handler) handleListAccessGrantsInstances(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
+	insts := h.Backend.ListAccessGrantsInstances(accountID)
+	items := make([]listAccessGrantsInstancesItemXML, 0, len(insts))
+	for _, inst := range insts {
+		items = append(items, listAccessGrantsInstancesItemXML{
+			AccessGrantsInstanceArn: inst.AccessGrantsInstanceArn,
+			AccessGrantsInstanceID:  inst.AccessGrantsInstanceID,
+			IdentityCenterArn:       inst.IdentityCenterArn,
+		})
+	}
+
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
+	return writeXML(c, listAccessGrantsInstancesResponseXML{
+		AccessGrantsInstances: page,
+		NextToken:             tok,
+	})
+}
+
 // --- AssociateAccessGrantsIdentityCenter handler ---
 
 type associateAccessGrantsIdentityCenterRequestXML struct {
@@ -1602,6 +1652,10 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 	var body createAccessGrantsLocationRequestXML
 	if err := decodeXML(c, &body); err != nil {
 		return c.String(http.StatusBadRequest, "invalid request body")
+	}
+
+	if body.IAMRoleArn == "" {
+		return c.String(http.StatusBadRequest, "IAMRoleArn is required")
 	}
 
 	loc := h.Backend.CreateAccessGrantsLocation(accountID, body.LocationScope, body.IAMRoleArn)
@@ -1898,16 +1952,25 @@ type listAccessPointItemXML struct {
 
 type listAccessPointsResponseXML struct {
 	XMLName      xml.Name                 `xml:"ListAccessPointsResult"`
+	NextToken    string                   `xml:"NextToken,omitempty"`
 	AccessPoints []listAccessPointItemXML `xml:"AccessPointList>AccessPoint"`
 }
 
 func (h *Handler) handleListAccessPoints(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+	bucketFilter := q.Get("bucket")
 
 	aps := h.Backend.ListAccessPoints(accountID)
 
 	items := make([]listAccessPointItemXML, 0, len(aps))
 	for _, ap := range aps {
+		if bucketFilter != "" && ap.Bucket != bucketFilter {
+			continue
+		}
+
 		item := listAccessPointItemXML{
 			Name:            ap.Name,
 			Bucket:          ap.Bucket,
@@ -1922,7 +1985,9 @@ func (h *Handler) handleListAccessPoints(c *echo.Context) error {
 		items = append(items, item)
 	}
 
-	return writeXML(c, listAccessPointsResponseXML{AccessPoints: items})
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
+	return writeXML(c, listAccessPointsResponseXML{AccessPoints: page, NextToken: tok})
 }
 
 // --- Access point policy handlers ---
@@ -2060,17 +2125,26 @@ type listJobsJobXML struct {
 }
 
 type listJobsResponseXML struct {
-	XMLName xml.Name         `xml:"ListJobsResult"`
-	Jobs    []listJobsJobXML `xml:"Jobs>member"`
+	XMLName   xml.Name         `xml:"ListJobsResult"`
+	NextToken string           `xml:"NextToken,omitempty"`
+	Jobs      []listJobsJobXML `xml:"Jobs>member"`
 }
 
 func (h *Handler) handleListJobs(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+	jobStatuses := q["jobStatuses"]
 
 	jobs := h.Backend.ListJobs(accountID)
 
 	items := make([]listJobsJobXML, 0, len(jobs))
 	for _, j := range jobs {
+		if len(jobStatuses) > 0 && !slices.Contains(jobStatuses, j.Status) {
+			continue
+		}
+
 		items = append(items, listJobsJobXML{
 			JobID:    j.JobID,
 			Status:   j.Status,
@@ -2078,7 +2152,9 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 		})
 	}
 
-	return writeXML(c, listJobsResponseXML{Jobs: items})
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
+	return writeXML(c, listJobsResponseXML{Jobs: page, NextToken: tok})
 }
 
 type updateJobPriorityRequestXML struct {
@@ -2238,11 +2314,15 @@ type listMRAPItemXML struct {
 
 type listMRAPsResponseXML struct {
 	XMLName      xml.Name          `xml:"ListMultiRegionAccessPointsResult"`
+	NextToken    string            `xml:"NextToken,omitempty"`
 	AccessPoints []listMRAPItemXML `xml:"AccessPoints>item"`
 }
 
 func (h *Handler) handleListMultiRegionAccessPoints(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	mraps := h.Backend.ListMultiRegionAccessPoints(accountID)
 
@@ -2255,7 +2335,9 @@ func (h *Handler) handleListMultiRegionAccessPoints(c *echo.Context) error {
 		})
 	}
 
-	return writeXML(c, listMRAPsResponseXML{AccessPoints: items})
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
+	return writeXML(c, listMRAPsResponseXML{AccessPoints: page, NextToken: tok})
 }
 
 type putMRAPPolicyRequestXML struct {
@@ -2315,4 +2397,30 @@ func (h *Handler) handleCreateStorageLensGroup(c *echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusCreated)
+}
+
+// s3cPaginate applies integer-offset pagination over a slice of items.
+// It reads an integer offset from nextToken and caps results at maxResults.
+func s3cPaginate[T any](items []T, nextToken string, maxResults int) ([]T, string) {
+	if len(items) == 0 {
+		return items, ""
+	}
+
+	start := 0
+	if nextToken != "" {
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx > 0 && idx < len(items) {
+			start = idx
+		}
+	}
+
+	if maxResults <= 0 {
+		return items[start:], ""
+	}
+
+	end := start + maxResults
+	if end >= len(items) {
+		return items[start:], ""
+	}
+
+	return items[start:end], strconv.Itoa(end)
 }

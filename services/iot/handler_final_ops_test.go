@@ -361,10 +361,9 @@ func TestFinalOps_ListOutgoingCertificates(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.NotContains(t, rec.Body.String(), cert.CertificateID)
 
-	require.NoError(t, b.UpdateCertificate(&iot.UpdateCertificateInput{
-		CertificateID: cert.CertificateID,
-		NewStatus:     "PENDING_TRANSFER",
-	}))
+	// PENDING_TRANSFER is set via TransferCertificate, matching real AWS
+	// behavior (UpdateCertificate rejects that status directly).
+	require.NoError(t, b.TransferCertificate(cert.CertificateID, "123456789012"))
 
 	rec = doRefRequest(t, h, http.MethodGet, "/certificates-out-going", nil, nil)
 	require.Equal(t, http.StatusOK, rec.Code)

@@ -841,12 +841,12 @@ func TestRDSBackend_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Take a snapshot of backend state.
-	data := b1.Snapshot()
+	data := b1.Snapshot(t.Context())
 	require.NotEmpty(t, data)
 
 	// Restore into b2.
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	// Verify instances.
 	instances, err := b2.DescribeDBInstances("db1")
@@ -922,6 +922,7 @@ func TestRDSBackend_ModifyDBInstance_NewFields(t *testing.T) {
 		StorageType:           "io1",
 		BackupRetentionPeriod: 14,
 		MultiAZ:               true,
+		ApplyImmediately:      true,
 	}
 
 	inst, err := b.ModifyDBInstance("mod-db", "db.r5.large", 100, opts)

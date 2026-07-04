@@ -3,9 +3,10 @@ package glacier_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/glacier"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
 // TestGlacierRegionIsolation proves that a same-named vault created in two

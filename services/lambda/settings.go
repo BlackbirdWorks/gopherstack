@@ -12,18 +12,21 @@ type Settings struct {
 	// DockerHost is the host/IP that Lambda containers use to reach the runtime API.
 	// Defaults to "172.17.0.1" (Docker bridge gateway on Linux).
 	// For Podman rootless on Linux, use the host's routable IP or "host.containers.internal".
-	DockerHost string `json:"docker_host" name:"docker-host" env:"LAMBDA_DOCKER_HOST" default:"172.17.0.1" help:"Host that Lambda containers use to reach the Runtime API."` //nolint:lll// config struct tags are intentionally verbose
+	DockerHost string `json:"docker_host"       name:"docker-host"            env:"LAMBDA_DOCKER_HOST"     default:"172.17.0.1" help:"Host that Lambda containers use to reach the Runtime API."` //nolint:lll,golines // config struct tags are intentionally verbose
 	// ContainerRuntime selects the container runtime: docker, podman, or auto.
 	// Defaults to "docker". Can be overridden via CONTAINER_RUNTIME env var.
-	ContainerRuntime string `json:"container_runtime" name:"container-runtime" env:"CONTAINER_RUNTIME" default:"docker" help:"Container runtime to use: docker, podman, or auto."` //nolint:lll// config struct tags are intentionally verbose
+	ContainerRuntime string `json:"container_runtime" name:"container-runtime"      env:"CONTAINER_RUNTIME"      default:"docker"     help:"Container runtime to use: docker, podman, or auto."` //nolint:lll,golines // config struct tags are intentionally verbose
 	// PoolSize is the max number of warm containers per function.
-	PoolSize int `json:"pool_size" name:"pool-size" env:"LAMBDA_POOL_SIZE" default:"3" help:"Max warm containers per Lambda function."` //nolint:lll// config struct tags are intentionally verbose
+	PoolSize int `json:"pool_size"         name:"pool-size"              env:"LAMBDA_POOL_SIZE"       default:"3"          help:"Max warm containers per Lambda function."` //nolint:lll,golines // config struct tags are intentionally verbose
 	// IdleTimeout is how long an idle container is kept before reaping.
-	IdleTimeout time.Duration `json:"idle_timeout" name:"idle-timeout" env:"LAMBDA_IDLE_TIMEOUT" default:"10m" help:"Idle container timeout."` //nolint:lll// config struct tags are intentionally verbose
+	IdleTimeout time.Duration `json:"idle_timeout"      name:"idle-timeout"           env:"LAMBDA_IDLE_TIMEOUT"    default:"10m"        help:"Idle container timeout."` //nolint:lll,golines // config struct tags are intentionally verbose
 	// MaxRuntimes is the maximum number of per-function runtimes kept alive simultaneously.
 	// When the limit is exceeded, the least-recently-used runtime is stopped and evicted.
 	// Defaults to defaultMaxRuntimes. Set to 0 to use the default.
-	MaxRuntimes int `json:"max_runtimes" name:"max-runtimes" env:"LAMBDA_MAX_RUNTIMES" default:"50" help:"Maximum number of simultaneous per-function Lambda runtimes."` //nolint:lll // config struct tags are intentionally verbose
+	MaxRuntimes int `json:"max_runtimes"      name:"max-runtimes"           env:"LAMBDA_MAX_RUNTIMES"    default:"50"         help:"Maximum number of simultaneous per-function Lambda runtimes."` //nolint:lll,golines // config struct tags are intentionally verbose
+	// KeepContainers determines if Lambda containers should be kept alive after execution.
+	// If true, the containers will not be stopped and removed. Useful for debugging.
+	KeepContainers bool `json:"keep_containers"   name:"lambda-keep-containers" env:"LAMBDA_KEEP_CONTAINERS" default:"false"      help:"If true, keep Lambda containers alive for debugging."` //nolint:lll,golines // config struct tags are intentionally verbose
 }
 
 const (
@@ -70,11 +73,19 @@ func DefaultSettings() Settings {
 		}
 	}
 
+	keepContainers := false
+	if k := os.Getenv("LAMBDA_KEEP_CONTAINERS"); k != "" {
+		if val, err := strconv.ParseBool(k); err == nil {
+			keepContainers = val
+		}
+	}
+
 	return Settings{
 		DockerHost:       dockerHost,
 		ContainerRuntime: containerRuntime,
 		PoolSize:         poolSize,
 		IdleTimeout:      idleTimeout,
 		MaxRuntimes:      maxRuntimes,
+		KeepContainers:   keepContainers,
 	}
 }

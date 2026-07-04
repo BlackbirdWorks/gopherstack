@@ -22,7 +22,7 @@ func TestRefinement4_AssumeRoleWithSAML_Tags(t *testing.T) {
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "base64assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 			Tags:          []sts.Tag{{Key: "aws:reserved", Value: "v"}},
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidTagKey)
@@ -35,7 +35,7 @@ func TestRefinement4_AssumeRoleWithSAML_Tags(t *testing.T) {
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 			Tags:          []sts.Tag{{Key: "k", Value: "v1"}, {Key: "K", Value: "v2"}},
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidTagKey)
@@ -48,7 +48,7 @@ func TestRefinement4_AssumeRoleWithSAML_Tags(t *testing.T) {
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 			Tags:          []sts.Tag{{Key: "team", Value: "eng"}},
 		})
 		require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestRefinement4_AssumeRoleWithSAML_PrincipalArnValidation(t *testing.T) {
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 		})
 		require.NoError(t, err)
 	})
@@ -85,7 +85,7 @@ func TestRefinement4_AssumeRoleWithSAML_PrincipalArnValidation(t *testing.T) {
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:  "arn:aws:iam::123456789012:role/NotASAMLProvider",
-			SAMLAssertion: "assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidPrincipalArn)
 	})
@@ -97,7 +97,7 @@ func TestRefinement4_AssumeRoleWithSAML_PrincipalArnValidation(t *testing.T) {
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:  "not-an-arn",
-			SAMLAssertion: "assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidPrincipalArn)
 	})
@@ -115,7 +115,7 @@ func TestRefinement4_AssumeRoleWithSAML_RoleSessionName(t *testing.T) {
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:         "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "assertion",
+			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 			RoleSessionName: "my-session",
 		})
 		require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestRefinement4_AssumeRoleWithSAML_RoleSessionName(t *testing.T) {
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:         "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "assertion",
+			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 			RoleSessionName: "bad:session",
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidSessionName)
@@ -141,7 +141,7 @@ func TestRefinement4_AssumeRoleWithSAML_RoleSessionName(t *testing.T) {
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 		})
 		require.NoError(t, err)
 		assert.NotEmpty(t, resp.AssumeRoleWithSAMLResult.Credentials.AccessKeyID)
@@ -252,11 +252,11 @@ func TestRefinement4_SnapshotRestore_PreservesCounters(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot and restore.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := sts.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	h2 := sts.NewHandler(b2)
 
@@ -311,7 +311,7 @@ func TestRefinement4_AssumeRoleWithSAML_PolicyArnsValidation(t *testing.T) {
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 			PolicyArns:    []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
 		})
 		require.NoError(t, err)
@@ -329,7 +329,7 @@ func TestRefinement4_AssumeRoleWithSAML_PolicyArnsValidation(t *testing.T) {
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 			PolicyArns:    arns,
 		})
 		require.ErrorIs(t, err, sts.ErrTooManyPolicyArns)
@@ -345,7 +345,7 @@ func TestRefinement4_AssumeRoleWithSAML_PackedPolicySizeWithArns(t *testing.T) {
 	resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 		RoleArn:       "arn:aws:iam::123456789012:role/R",
 		PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-		SAMLAssertion: "assertion",
+		SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 		PolicyArns:    []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
 	})
 	require.NoError(t, err)
@@ -361,7 +361,7 @@ func TestRefinement4_AssumeRoleWithSAML_MalformedPolicy(t *testing.T) {
 	_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 		RoleArn:       "arn:aws:iam::123456789012:role/R",
 		PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-		SAMLAssertion: "assertion",
+		SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 		Policy:        "not-json",
 	})
 	require.ErrorIs(t, err, sts.ErrMalformedPolicyDocument)

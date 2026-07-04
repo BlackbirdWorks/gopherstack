@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -22,6 +23,7 @@ const (
 	acmpcaTargetPrefix  = "ACMPrivateCA."
 	daysPerYear         = 365
 	daysPerMonth        = 30
+	hoursPerDay         = 24
 )
 
 // Handler is the Echo HTTP handler for ACM PCA operations.
@@ -277,8 +279,10 @@ type certAuthorityOutput struct {
 	CertificateAuthorityConfiguration caConfigOutput         `json:"CertificateAuthorityConfiguration"`
 	RevocationConfiguration           revocationConfigOutput `json:"RevocationConfiguration"`
 	Arn                               string                 `json:"Arn"`
+	OwnerAccount                      string                 `json:"OwnerAccount,omitempty"`
 	Type                              string                 `json:"Type"`
 	Status                            string                 `json:"Status"`
+	Serial                            string                 `json:"Serial,omitempty"`
 	CreatedAt                         int64                  `json:"CreatedAt"`
 	NotBefore                         int64                  `json:"NotBefore,omitempty"`
 	NotAfter                          int64                  `json:"NotAfter,omitempty"`
@@ -712,8 +716,14 @@ func (h *Handler) jsonIssueCert(ctx context.Context, body []byte) (any, error) {
 		days = int(input.Validity.Value) * daysPerMonth
 	case "DAYS", "":
 		days = int(input.Validity.Value)
+	case "END_DATE", "ABSOLUTE":
+		endDate := time.Unix(input.Validity.Value, 0)
+		days = int(time.Until(endDate).Hours() / hoursPerDay)
+		if days <= 0 {
+			days = 1
+		}
 	default:
-		return nil, fmt.Errorf("%w: unsupported Validity.Type %q (must be DAYS, MONTHS, or YEARS)",
+		return nil, fmt.Errorf("%w: unsupported Validity.Type %q (must be DAYS, MONTHS, YEARS, or END_DATE)",
 			ErrInvalidParameter, input.Validity.Type)
 	}
 
@@ -737,12 +747,14 @@ func (h *Handler) jsonGetCert(ctx context.Context, body []byte) (any, error) {
 	}
 
 	caChain := ""
-	if certPEM, _, chainErr := h.Backend.GetCertificateAuthorityCertificate(
+	if certPEM, chainPEM, chainErr := h.Backend.GetCertificateAuthorityCertificate(
 		ctx,
 		input.CertificateAuthorityArn,
-	); chainErr == nil &&
-		certPEM != "" {
+	); chainErr == nil && certPEM != "" {
 		caChain = certPEM
+		if chainPEM != "" {
+			caChain = certPEM + chainPEM
+		}
 	}
 
 	return &getCertificateOutput{Certificate: cert.CertBody, CertificateChain: caChain}, nil
@@ -1025,10 +1037,12 @@ func (h *Handler) writeJSONError(c *echo.Context, statusCode int, code, message 
 
 func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 	out := certAuthorityOutput{
-		Arn:       ca.ARN,
-		Type:      ca.Type,
-		Status:    ca.Status,
-		CreatedAt: ca.CreatedAt.Unix(),
+		Arn:          ca.ARN,
+		OwnerAccount: ca.OwnerAccount,
+		Type:         ca.Type,
+		Status:       ca.Status,
+		Serial:       ca.Serial,
+		CreatedAt:    ca.CreatedAt.Unix(),
 		CertificateAuthorityConfiguration: caConfigOutput{
 			Subject: caConfigSubjectOutput{
 				CommonName:         ca.CertificateAuthorityConfiguration.Subject.CommonName,

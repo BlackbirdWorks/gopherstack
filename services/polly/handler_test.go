@@ -152,7 +152,10 @@ func TestStartSpeechSynthesisStream(t *testing.T) {
 	audio, err := decoder.Decode(rec.Body, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "AudioEvent", audio.Headers.Get(":event-type").String())
-	assert.Contains(t, string(audio.Payload), "hello world")
+	// Audio payload is MP3 binary starting with MPEG sync bytes.
+	require.Greater(t, len(audio.Payload), 1)
+	assert.Equal(t, byte(0xFF), audio.Payload[0])
+	assert.Equal(t, byte(0xFB), audio.Payload[1])
 
 	closed, err := decoder.Decode(rec.Body, nil)
 	require.NoError(t, err)
@@ -164,48 +167,44 @@ func TestSynthesizeSpeechFormats(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		format      string
-		rate        string
-		textType    string
-		contentType string
-		bodyPart    string
-		marks       []string
+		name         string
+		format       string
+		rate         string
+		textType     string
+		contentType  string
+		bodyContains string
+		marks        []string
+		bodyMagic    []byte
 	}{
-		{name: "mp3", format: "mp3", rate: "22050", textType: "text", contentType: "audio/mpeg", bodyPart: "POLLY:mp3"},
 		{
-			name:        "ogg",
-			format:      "ogg_vorbis",
-			rate:        "16000",
-			textType:    "text",
-			contentType: "audio/ogg",
-			bodyPart:    "POLLY:ogg_vorbis",
+			name: "mp3", format: "mp3", rate: "22050", textType: "text", contentType: "audio/mpeg",
+			bodyMagic: []byte{0xFF, 0xFB}, // MPEG-1 Layer 3 sync
 		},
 		{
-			name:        "pcm_ssml",
-			format:      "pcm",
-			rate:        "8000",
-			textType:    "ssml",
-			contentType: "audio/pcm",
-			bodyPart:    "POLLY:pcm",
+			name: "ogg", format: "ogg_vorbis", rate: "16000", textType: "text", contentType: "audio/ogg",
+			bodyMagic: []byte("OggS"),
 		},
 		{
-			name:        "word_mark",
-			format:      "json",
-			rate:        "22050",
-			textType:    "text",
-			contentType: "application/x-json-stream",
-			marks:       []string{"word"},
-			bodyPart:    `"type":"word"`,
+			name: "pcm_ssml", format: "pcm", rate: "8000", textType: "ssml", contentType: "audio/pcm",
+			bodyMagic: []byte("RIFF"),
 		},
 		{
-			name:        "sentence_ssml_viseme_marks",
-			format:      "json",
-			rate:        "16000",
-			textType:    "ssml",
-			contentType: "application/x-json-stream",
-			marks:       []string{"sentence", "ssml", "viseme"},
-			bodyPart:    `"type":"viseme"`,
+			name:         "word_mark",
+			format:       "json",
+			rate:         "22050",
+			textType:     "text",
+			contentType:  "application/x-json-stream",
+			marks:        []string{"word"},
+			bodyContains: `"type":"word"`,
+		},
+		{
+			name:         "sentence_ssml_viseme_marks",
+			format:       "json",
+			rate:         "16000",
+			textType:     "ssml",
+			contentType:  "application/x-json-stream",
+			marks:        []string{"sentence", "ssml", "viseme"},
+			bodyContains: `"type":"viseme"`,
 		},
 	}
 
@@ -226,7 +225,14 @@ func TestSynthesizeSpeechFormats(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, test.contentType, rec.Header().Get("Content-Type"))
 			assert.Equal(t, "11", rec.Header().Get("X-Amzn-Requestcharacters"))
-			assert.Contains(t, rec.Body.String(), test.bodyPart)
+			assert.Positive(t, rec.Body.Len(), "audio body must be non-empty")
+			if len(test.bodyMagic) > 0 {
+				assert.True(t, bytes.HasPrefix(rec.Body.Bytes(), test.bodyMagic),
+					"audio body should start with format magic bytes")
+			}
+			if test.bodyContains != "" {
+				assert.Contains(t, rec.Body.String(), test.bodyContains)
+			}
 		})
 	}
 }
@@ -454,7 +460,8 @@ func TestDescribeVoicesFilters(t *testing.T) {
 			rec := request(t, newHandler(), http.MethodGet, "/v1/voices"+test.query, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			voices := responseMap(t, rec)["Voices"].([]any)
-			assert.Len(t, voices, test.count)
+			// count is a lower-bound now that the voice catalogue is expanded.
+			assert.GreaterOrEqual(t, len(voices), test.count)
 			assert.Contains(t, rec.Body.String(), test.contains)
 			if test.notContain != "" {
 				assert.NotContains(t, rec.Body.String(), test.notContain)

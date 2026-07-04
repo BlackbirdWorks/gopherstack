@@ -3,8 +3,10 @@ package dynamodb
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,7 +15,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -60,7 +64,9 @@ func (db *InMemoryDB) CreateGlobalTable(
 	regions := collectValidRegions(input.ReplicationGroup)
 
 	if len(regions) == 0 {
-		return nil, NewValidationException("ReplicationGroup must contain at least one valid region")
+		return nil, NewValidationException(
+			"ReplicationGroup must contain at least one valid region",
+		)
 	}
 
 	db.mu.Lock("CreateGlobalTable")
@@ -75,7 +81,7 @@ func (db *InMemoryDB) CreateGlobalTable(
 
 	source := db.findSourceTable(name, regions)
 
-	globalTableARN := arn.Build("dynamodb", db.defaultRegion, db.accountID, "global-table/"+name)
+	globalTableARN := arn.Build("dynamodb", regions[0], db.accountID, "global-table/"+name)
 	now := time.Now()
 
 	allReplicas := buildAllReplicas(regions)
@@ -281,6 +287,26 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 		rcu := accountMaxReadCapacityUnits
 		wcu := accountMaxWriteCapacityUnits
 
+		// Look up the actual table in that region to get real provisioned throughput.
+		db.mu.RLock("DescribeGlobalTableSettings.table")
+		regionTables := db.Tables[region]
+		var tbl *Table
+		if regionTables != nil {
+			tbl = regionTables[name]
+		}
+		db.mu.RUnlock()
+		if tbl != nil {
+			tbl.mu.RLock("DescribeGlobalTableSettings.throughput")
+			pt := tbl.ProvisionedThroughput
+			tbl.mu.RUnlock()
+			if pt.ReadCapacityUnits > 0 {
+				rcu = int64(pt.ReadCapacityUnits)
+			}
+			if pt.WriteCapacityUnits > 0 {
+				wcu = int64(pt.WriteCapacityUnits)
+			}
+		}
+
 		replicaSettings = append(replicaSettings, types.ReplicaSettingsDescription{
 			RegionName:                           &region,
 			ReplicaStatus:                        types.ReplicaStatusActive,
@@ -366,7 +392,9 @@ func (db *InMemoryDB) DisableKinesisStreamingDestination(
 
 	for i, dest := range table.KinesisDestinations {
 		if dest.StreamARN == streamARN {
-			table.KinesisDestinations = append(table.KinesisDestinations[:i], table.KinesisDestinations[i+1:]...)
+			table.KinesisDestinations = append(
+				table.KinesisDestinations[:i],
+				table.KinesisDestinations[i+1:]...)
 			found = true
 
 			break
@@ -498,7 +526,9 @@ func (db *InMemoryDB) EnableKinesisStreamingDestination(
 
 	precision := ""
 	if input.EnableKinesisStreamingConfiguration != nil {
-		precision = string(input.EnableKinesisStreamingConfiguration.ApproximateCreationDateTimePrecision)
+		precision = string(
+			input.EnableKinesisStreamingConfiguration.ApproximateCreationDateTimePrecision,
+		)
 	}
 
 	table.mu.Lock("EnableKinesisStreamingDestination")
@@ -536,8 +566,8 @@ func (db *InMemoryDB) ListGlobalTables(
 	db.mu.RLock("ListGlobalTables")
 	defer db.mu.RUnlock()
 
-	regionFilter := derefOrEmpty(input.RegionName)
-	startName := derefOrEmpty(input.ExclusiveStartGlobalTableName)
+	regionFilter := ptrconv.String(input.RegionName)
+	startName := ptrconv.String(input.ExclusiveStartGlobalTableName)
 
 	names := sortedGlobalTableNames(db.GlobalTables, startName)
 	filtered := filterGlobalTables(db.GlobalTables, names, regionFilter)
@@ -630,9 +660,14 @@ func (db *InMemoryDB) applyGlobalTableReplicaUpdate(
 ) error {
 	switch {
 	case update.Create != nil:
-		return db.applyGlobalTableReplicaCreate(name, gt, derefOrEmpty(update.Create.RegionName), source)
+		return db.applyGlobalTableReplicaCreate(
+			name,
+			gt,
+			ptrconv.String(update.Create.RegionName),
+			source,
+		)
 	case update.Delete != nil:
-		return db.applyGlobalTableReplicaDelete(name, gt, derefOrEmpty(update.Delete.RegionName))
+		return db.applyGlobalTableReplicaDelete(name, gt, ptrconv.String(update.Delete.RegionName))
 	}
 
 	return nil
@@ -735,12 +770,7 @@ func (db *InMemoryDB) buildReplicaTableLocked(name, region string, source *Table
 
 // sortedGlobalTableNames returns sorted global table names starting after startName.
 func sortedGlobalTableNames(tables map[string]*StoredGlobalTable, startName string) []string {
-	names := make([]string, 0, len(tables))
-	for name := range tables {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(tables)
 
 	if startName == "" {
 		return names
@@ -799,15 +829,6 @@ func applyGlobalTableLimit(list []types.GlobalTable, limit *int32) ([]types.Glob
 	last := *list[n-1].GlobalTableName
 
 	return list[:n], &last
-}
-
-// derefOrEmpty safely dereferences a *string, returning "" if nil.
-func derefOrEmpty(s *string) string {
-	if s == nil {
-		return ""
-	}
-
-	return *s
 }
 
 // --- GetResourcePolicy ---
@@ -895,17 +916,17 @@ func (db *InMemoryDB) DeleteResourcePolicy(
 	}, nil
 }
 
-// getTableByARN looks up a table by its ARN across all regions.
-// Returns nil if not found.
+// getTableByARN looks up a table by its ARN, restricting the search to the
+// region encoded in the ARN itself. Returns nil if not found.
 func (db *InMemoryDB) getTableByARN(resourceARN string) *Table {
+	region := db.regionFromARN(resourceARN)
+
 	db.mu.RLock("getTableByARN")
 	defer db.mu.RUnlock()
 
-	for _, regionTables := range db.Tables {
-		for _, table := range regionTables {
-			if table.TableArn == resourceARN {
-				return table
-			}
+	for _, table := range db.Tables[region] {
+		if table.TableArn == resourceARN {
+			return table
 		}
 	}
 
@@ -918,7 +939,7 @@ func (db *InMemoryDB) getTableByARN(resourceARN string) *Table {
 // If the import was started via ImportTable, the stored record is returned.
 // Otherwise, a synthetic COMPLETED response is returned for backwards compatibility.
 func (db *InMemoryDB) DescribeImport(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.DescribeImportInput,
 ) (*dynamodb.DescribeImportOutput, error) {
 	if input.ImportArn == nil || *input.ImportArn == "" {
@@ -926,60 +947,52 @@ func (db *InMemoryDB) DescribeImport(
 	}
 
 	importARN := *input.ImportArn
-	now := time.Now()
 
-	// Look up from persistent store first.
-	if imp, ok := db.lookupImport(importARN); ok {
-		tableARN := imp.TableArn
-
-		return &dynamodb.DescribeImportOutput{
-			ImportTableDescription: &types.ImportTableDescription{
-				ImportArn:    &importARN,
-				ImportStatus: types.ImportStatusCompleted,
-				TableArn:     &tableARN,
-				EndTime:      &now,
-			},
-		}, nil
+	requestRegion := getRegionFromContext(ctx, db)
+	if db.regionFromARN(importARN) != requestRegion {
+		return nil, NewImportNotFoundException("Import not found: " + importARN)
 	}
 
-	// Fallback: synthetic response for unknown ARNs.
+	imp, ok := db.lookupImport(importARN)
+	if !ok {
+		// AWS returns ImportNotFoundException for an unknown ARN, not a fake COMPLETED.
+		return nil, NewImportNotFoundException("Import not found: " + importARN)
+	}
+
 	return &dynamodb.DescribeImportOutput{
-		ImportTableDescription: &types.ImportTableDescription{
-			ImportArn:    &importARN,
-			ImportStatus: types.ImportStatusCompleted,
-			EndTime:      &now,
-		},
+		ImportTableDescription: importDescriptionFromRecord(imp),
 	}, nil
 }
 
 // --- ListContributorInsights ---
 
-// ListContributorInsights returns the set of tables whose contributor insights are enabled.
+// ListContributorInsights returns the set of tables whose contributor insights are enabled,
+// scoped to the request region.
 func (db *InMemoryDB) ListContributorInsights(
-	_ context.Context,
+	ctx context.Context,
 	_ *dynamodb.ListContributorInsightsInput,
 ) (*dynamodb.ListContributorInsightsOutput, error) {
+	region := getRegionFromContext(ctx, db)
+
 	db.mu.RLock("ListContributorInsights")
 	defer db.mu.RUnlock()
 
 	var summaries []types.ContributorInsightsSummary
 
-	for _, regionTables := range db.Tables {
-		for name, t := range regionTables {
-			t.mu.RLock("ListContributorInsights")
-			enabled := t.ContributorInsightsEnabled
-			t.mu.RUnlock()
+	for name, t := range db.Tables[region] {
+		t.mu.RLock("ListContributorInsights")
+		enabled := t.ContributorInsightsEnabled
+		t.mu.RUnlock()
 
-			if !enabled {
-				continue
-			}
-
-			tableName := name
-			summaries = append(summaries, types.ContributorInsightsSummary{
-				TableName:                 &tableName,
-				ContributorInsightsStatus: types.ContributorInsightsStatusEnabled,
-			})
+		if !enabled {
+			continue
 		}
+
+		tableName := name
+		summaries = append(summaries, types.ContributorInsightsSummary{
+			TableName:                 &tableName,
+			ContributorInsightsStatus: types.ContributorInsightsStatusEnabled,
+		})
 	}
 
 	return &dynamodb.ListContributorInsightsOutput{
@@ -1070,7 +1083,10 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 
 	replicas := make([]types.ReplicaSettingsDescription, 0, len(replicationGroup))
 	for _, region := range replicationGroup {
-		replicas = append(replicas, buildGlobalTableReplicaDesc(region, effectiveBilling, replicaSettings))
+		replicas = append(
+			replicas,
+			buildGlobalTableReplicaDesc(region, effectiveBilling, replicaSettings),
+		)
 	}
 
 	return &dynamodb.UpdateGlobalTableSettingsOutput{
@@ -1081,7 +1097,10 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 
 // applyGlobalTableSettingsMutation mutates gt with billing mode, write capacity, and
 // per-replica setting changes from input.
-func applyGlobalTableSettingsMutation(gt *StoredGlobalTable, input *dynamodb.UpdateGlobalTableSettingsInput) {
+func applyGlobalTableSettingsMutation(
+	gt *StoredGlobalTable,
+	input *dynamodb.UpdateGlobalTableSettingsInput,
+) {
 	if string(input.GlobalTableBillingMode) != "" {
 		gt.BillingMode = string(input.GlobalTableBillingMode)
 	}
@@ -1229,7 +1248,10 @@ func autoScalingSettingsFromInput(
 	}
 
 	if len(input.GlobalSecondaryIndexUpdates) > 0 {
-		s.GlobalSecondaryIndexes = make(map[string]*autoScalingThroughput, len(input.GlobalSecondaryIndexUpdates))
+		s.GlobalSecondaryIndexes = make(
+			map[string]*autoScalingThroughput,
+			len(input.GlobalSecondaryIndexUpdates),
+		)
 		for _, g := range input.GlobalSecondaryIndexUpdates {
 			if g.IndexName == nil {
 				continue
@@ -1258,7 +1280,8 @@ func throughputFromUpdate(u *types.AutoScalingSettingsUpdate) *autoScalingThroug
 	if u.AutoScalingDisabled != nil {
 		out.Disabled = *u.AutoScalingDisabled
 	}
-	if u.ScalingPolicyUpdate != nil && u.ScalingPolicyUpdate.TargetTrackingScalingPolicyConfiguration != nil {
+	if u.ScalingPolicyUpdate != nil &&
+		u.ScalingPolicyUpdate.TargetTrackingScalingPolicyConfiguration != nil {
 		out.TargetUtilizPct = u.ScalingPolicyUpdate.TargetTrackingScalingPolicyConfiguration.TargetValue
 	}
 
@@ -1312,10 +1335,12 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 
 // --- ExecuteTransaction ---
 
-// ExecuteTransaction executes a set of PartiQL statements in a single atomic transaction.
-// The in-memory backend delegates each statement to the PartiQL runner and returns
-// results in the same order. Atomicity is not guaranteed — like LocalStack's basic
-// implementation, this is a best-effort sequential execution.
+// ExecuteTransaction executes a set of PartiQL DML statements atomically.
+// Atomicity is provided via snapshot-based rollback: pre-transaction snapshots
+// of all affected tables are captured, statements are executed sequentially,
+// and all tables are restored from their snapshots if any statement fails.
+// This matches the observable contract of real AWS ExecuteTransaction for
+// single-process in-memory usage.
 func (db *InMemoryDB) ExecuteTransaction(
 	ctx context.Context,
 	input *dynamodb.ExecuteTransactionInput,
@@ -1332,55 +1357,261 @@ func (db *InMemoryDB) ExecuteTransaction(
 		)
 	}
 
+	// Collect unique table names so we can snapshot them before execution.
+	tableNames := executeTransactionTableNames(input.TransactStatements)
+
+	// Capture pre-transaction snapshots of all affected tables.
+	snapshots := db.captureExecTxnSnapshots(ctx, tableNames)
+
 	runner := &partiQLRunner{backend: db}
 	responses := make([]types.ItemResponse, len(input.TransactStatements))
+	tableRCU := make(map[string]float64)
+	tableWCU := make(map[string]float64)
+	returnCC := input.ReturnConsumedCapacity != "" &&
+		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone
 
 	for i, stmt := range input.TransactStatements {
-		stmtStr := ""
-		if stmt.Statement != nil {
-			stmtStr = *stmt.Statement
+		resp, stmtStr, execErr := executeTransactionStatement(ctx, runner, stmt)
+		if execErr != nil {
+			// Roll back all tables to their pre-transaction state.
+			db.restoreExecTxnSnapshots(ctx, tableNames, snapshots)
+
+			return nil, execErr
 		}
-
-		// Convert SDK AttributeValue parameters to wire format for the PartiQL runner.
-		wireParams := make([]map[string]any, 0, len(stmt.Parameters))
-		for _, p := range stmt.Parameters {
-			wire, ok := models.FromSDKAttributeValue(p).(map[string]any)
-			if !ok {
-				return nil, NewValidationException("invalid parameter type in TransactStatement")
-			}
-
-			wireParams = append(wireParams, wire)
-		}
-
-		out, err := runner.executeStatement(ctx, executeStatementRequest{
-			Statement:  stmtStr,
-			Parameters: wireParams,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		resp := types.ItemResponse{}
-		if len(out.Items) > 0 {
-			sdkItem, convErr := models.ToSDKItem(out.Items[0])
-			if convErr == nil {
-				resp.Item = sdkItem
-			}
-		}
-
 		responses[i] = resp
+
+		if returnCC {
+			trackTransactCC(stmtStr, tableRCU, tableWCU)
+		}
 	}
 
-	return &dynamodb.ExecuteTransactionOutput{Responses: responses}, nil
+	return &dynamodb.ExecuteTransactionOutput{
+		Responses:        responses,
+		ConsumedCapacity: buildTransactionConsumedCapacity(tableRCU, tableWCU, returnCC),
+	}, nil
+}
+
+// executeTransactionTableNames extracts sorted unique table names from transaction statements.
+func executeTransactionTableNames(stmts []types.ParameterizedStatement) []string {
+	seen := make(map[string]struct{})
+	for _, stmt := range stmts {
+		if stmt.Statement == nil {
+			continue
+		}
+		name := partiqlStmtTableName(*stmt.Statement)
+		if name != "" {
+			seen[name] = struct{}{}
+		}
+	}
+
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+// captureExecTxnSnapshots takes read-locked snapshots of the named tables.
+// Tables that don't exist yet are skipped (the statement execution will produce
+// the appropriate error).
+func (db *InMemoryDB) captureExecTxnSnapshots(
+	ctx context.Context,
+	tableNames []string,
+) map[string]tableStateSnapshot {
+	region := getRegionFromContext(ctx, db)
+	snapshots := make(map[string]tableStateSnapshot, len(tableNames))
+
+	db.mu.RLock("ExecuteTransaction.snapshot")
+	regionTables := db.Tables[region]
+	db.mu.RUnlock()
+
+	for _, name := range tableNames {
+		if regionTables == nil {
+			continue
+		}
+
+		t, ok := regionTables[name]
+		if !ok {
+			continue
+		}
+
+		t.mu.RLock("ExecuteTransaction.snapshot")
+		itemsCopy := make([]map[string]any, len(t.Items))
+		copy(itemsCopy, t.Items)
+		pkIdxCopy := make(map[string]int, len(t.pkIndex))
+		maps.Copy(pkIdxCopy, t.pkIndex)
+		pkskIdxCopy := make(map[string]map[string]int, len(t.pkskIndex))
+		for pk, skMap := range t.pkskIndex {
+			skMapCopy := make(map[string]int, len(skMap))
+			maps.Copy(skMapCopy, skMap)
+			pkskIdxCopy[pk] = skMapCopy
+		}
+		t.mu.RUnlock()
+
+		snapshots[name] = tableStateSnapshot{
+			items:     itemsCopy,
+			pkIndex:   pkIdxCopy,
+			pkskIndex: pkskIdxCopy,
+		}
+	}
+
+	return snapshots
+}
+
+// restoreExecTxnSnapshots restores all snapshotted tables to their pre-transaction
+// state. Each table is write-locked individually during its restore.
+func (db *InMemoryDB) restoreExecTxnSnapshots(
+	ctx context.Context,
+	tableNames []string,
+	snapshots map[string]tableStateSnapshot,
+) {
+	region := getRegionFromContext(ctx, db)
+
+	db.mu.RLock("ExecuteTransaction.restore")
+	regionTables := db.Tables[region]
+	db.mu.RUnlock()
+
+	for _, name := range tableNames {
+		snap, ok := snapshots[name]
+		if !ok {
+			continue
+		}
+
+		if regionTables == nil {
+			continue
+		}
+
+		t, tableOK := regionTables[name]
+		if !tableOK {
+			continue
+		}
+
+		t.mu.Lock("ExecuteTransaction.restore")
+		t.Items = snap.items
+		t.pkIndex = snap.pkIndex
+		t.pkskIndex = snap.pkskIndex
+		t.mu.Unlock()
+	}
+}
+
+// executeTransactionStatement converts one ParameterizedStatement to wire format,
+// runs it, and returns the ItemResponse plus the statement string for CC tracking.
+func executeTransactionStatement(
+	ctx context.Context,
+	runner *partiQLRunner,
+	stmt types.ParameterizedStatement,
+) (types.ItemResponse, string, error) {
+	stmtStr := ""
+	if stmt.Statement != nil {
+		stmtStr = *stmt.Statement
+	}
+
+	wireParams := make([]map[string]any, 0, len(stmt.Parameters))
+	for _, p := range stmt.Parameters {
+		wire, ok := models.FromSDKAttributeValue(p).(map[string]any)
+		if !ok {
+			return types.ItemResponse{}, "", NewValidationException(
+				"invalid parameter type in TransactStatement",
+			)
+		}
+
+		wireParams = append(wireParams, wire)
+	}
+
+	out, err := runner.executeStatement(ctx, executeStatementRequest{
+		Statement:  stmtStr,
+		Parameters: wireParams,
+	})
+	if err != nil {
+		return types.ItemResponse{}, "", err
+	}
+
+	resp := types.ItemResponse{}
+	if len(out.Items) > 0 {
+		if sdkItem, convErr := models.ToSDKItem(out.Items[0]); convErr == nil {
+			resp.Item = sdkItem
+		}
+	}
+
+	return resp, stmtStr, nil
+}
+
+// trackTransactCC updates per-table RCU/WCU counters for a single statement.
+func trackTransactCC(stmtStr string, tableRCU, tableWCU map[string]float64) {
+	tbl := partiqlStmtTableName(stmtStr)
+	if tbl == "" {
+		return
+	}
+
+	if isWriteStmt(stmtStr) {
+		tableWCU[tbl]++
+	} else {
+		tableRCU[tbl]++
+	}
+}
+
+// buildTransactionConsumedCapacity assembles the ConsumedCapacity slice from
+// per-table RCU/WCU accumulators. Returns nil when returnCC is false.
+func buildTransactionConsumedCapacity(
+	tableRCU, tableWCU map[string]float64,
+	returnCC bool,
+) []types.ConsumedCapacity {
+	if !returnCC {
+		return nil
+	}
+
+	result := make([]types.ConsumedCapacity, 0, len(tableRCU)+len(tableWCU))
+	seen := make(map[string]bool, len(tableRCU))
+
+	for tbl, rcu := range tableRCU {
+		seen[tbl] = true
+		result = append(result, types.ConsumedCapacity{
+			TableName:          aws.String(tbl),
+			ReadCapacityUnits:  aws.Float64(rcu),
+			WriteCapacityUnits: aws.Float64(tableWCU[tbl]),
+		})
+	}
+
+	for tbl, wcu := range tableWCU {
+		if seen[tbl] {
+			continue
+		}
+		result = append(result, types.ConsumedCapacity{
+			TableName:          aws.String(tbl),
+			ReadCapacityUnits:  aws.Float64(0),
+			WriteCapacityUnits: aws.Float64(wcu),
+		})
+	}
+
+	return result
+}
+
+// isWriteStmt reports whether a PartiQL statement is a write (INSERT/UPDATE/DELETE).
+func isWriteStmt(stmt string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(stmt))
+
+	return strings.HasPrefix(upper, "INSERT") ||
+		strings.HasPrefix(upper, "UPDATE") ||
+		strings.HasPrefix(upper, "DELETE")
+}
+
+// partiqlStmtTableName extracts the table name from a PartiQL statement string.
+// Returns empty string when the table name cannot be determined.
+func partiqlStmtTableName(stmt string) string {
+	return extractPartiQLTableName(strings.TrimSpace(stmt))
 }
 
 // --- ImportTable ---
 
-// ImportTable generates a synthetic import ARN, stores the import metadata, and returns COMPLETED status.
-// The in-memory backend does not perform real S3 imports, but persists the record so that
-// DescribeImport and ListImports return accurate results.
+// ImportTable creates the target table from TableCreationParameters and, when an
+// S3 backend is wired, populates it from the source objects (DYNAMODB_JSON or CSV,
+// optionally gzip-compressed). It records accurate counts so DescribeImport and
+// ListImports report real progress. ION input is reported as a FAILED import.
 func (db *InMemoryDB) ImportTable(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.ImportTableInput,
 ) (*dynamodb.ImportTableOutput, error) {
 	if input.TableCreationParameters == nil {
@@ -1391,60 +1622,174 @@ func (db *InMemoryDB) ImportTable(
 		return nil, NewValidationException("S3BucketSource.S3Bucket is required")
 	}
 
-	importARN := arn.Build("dynamodb", db.defaultRegion, db.accountID,
-		"table/import/"+uuid.New().String())
-	now := time.Now()
-
-	tableARN := ""
-	if input.TableCreationParameters.TableName != nil {
-		tableARN = arn.Build("dynamodb", db.defaultRegion, db.accountID,
-			"table/"+*input.TableCreationParameters.TableName)
+	tcp := input.TableCreationParameters
+	if aws.ToString(tcp.TableName) == "" {
+		return nil, NewValidationException("TableCreationParameters.TableName is required")
 	}
 
-	bucket := aws.ToString(input.S3BucketSource.S3Bucket)
-	inputFormat := string(input.InputFormat)
+	tableName := aws.ToString(tcp.TableName)
+	region := getRegionFromContext(ctx, db)
+	account := accountFromContext(ctx, db)
+	importARN := arn.Build("dynamodb", region, account,
+		"table/import/"+uuid.New().String())
+	tableARN := arn.Build("dynamodb", region, account, "table/"+tableName)
+	start := time.Now()
 
-	db.storeImport(storedImport{
-		ImportArn:    importARN,
-		ImportStatus: string(types.ImportStatusCompleted),
-		TableArn:     tableARN,
-		S3Bucket:     bucket,
-		InputFormat:  inputFormat,
-	})
+	// Create the target table; surface CreateTable errors (e.g. ResourceInUse).
+	if _, err := db.CreateTable(ctx, createInputFromImportParams(tcp)); err != nil {
+		return nil, err
+	}
+
+	rec := storedImport{
+		ImportArn:        importARN,
+		TableArn:         tableARN,
+		S3Bucket:         aws.ToString(input.S3BucketSource.S3Bucket),
+		S3Prefix:         aws.ToString(input.S3BucketSource.S3KeyPrefix),
+		InputFormat:      string(input.InputFormat),
+		InputCompression: string(input.InputCompressionType),
+		StartTime:        start,
+		CreatedAt:        start,
+		ImportStatus:     string(types.ImportStatusInProgress),
+	}
+
+	db.storeImport(rec)
+
+	go func(r storedImport, tName string, in *dynamodb.ImportTableInput) {
+		res, importErr := db.importFromS3(
+			context.WithoutCancel(ctx), tName, in.S3BucketSource,
+			in.InputFormat, in.InputCompressionType, in.InputFormatOptions,
+		)
+		r.EndTime = time.Now()
+		r.ImportedItemCount = res.imported
+		r.ProcessedItemCount = res.processed
+		r.ProcessedSizeBytes = res.bytes
+		r.ErrorCount = res.errors
+
+		if importErr != nil {
+			r.ImportStatus = string(types.ImportStatusFailed)
+			r.FailureCode = "InputFormatError"
+			r.FailureMessage = importErr.Error()
+		} else {
+			r.ImportStatus = string(types.ImportStatusCompleted)
+		}
+
+		db.storeImport(r)
+	}(rec, tableName, input)
 
 	return &dynamodb.ImportTableOutput{
-		ImportTableDescription: &types.ImportTableDescription{
-			ImportArn:    &importARN,
-			ImportStatus: types.ImportStatusCompleted,
-			TableArn:     &tableARN,
-			StartTime:    &now,
-			EndTime:      &now,
-		},
+		ImportTableDescription: importDescriptionFromRecord(rec),
 	}, nil
+}
+
+// createInputFromImportParams maps TableCreationParameters to a CreateTableInput.
+func createInputFromImportParams(tcp *types.TableCreationParameters) *dynamodb.CreateTableInput {
+	return &dynamodb.CreateTableInput{
+		TableName:              tcp.TableName,
+		KeySchema:              tcp.KeySchema,
+		AttributeDefinitions:   tcp.AttributeDefinitions,
+		BillingMode:            tcp.BillingMode,
+		GlobalSecondaryIndexes: tcp.GlobalSecondaryIndexes,
+		ProvisionedThroughput:  tcp.ProvisionedThroughput,
+		OnDemandThroughput:     tcp.OnDemandThroughput,
+		SSESpecification:       tcp.SSESpecification,
+	}
+}
+
+// importDescriptionFromRecord builds the SDK description from a stored import.
+func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription {
+	desc := &types.ImportTableDescription{
+		ImportArn:          aws.String(rec.ImportArn),
+		ImportStatus:       types.ImportStatus(rec.ImportStatus),
+		TableArn:           aws.String(rec.TableArn),
+		InputFormat:        types.InputFormat(rec.InputFormat),
+		ImportedItemCount:  rec.ImportedItemCount,
+		ProcessedItemCount: rec.ProcessedItemCount,
+		ProcessedSizeBytes: aws.Int64(rec.ProcessedSizeBytes),
+		ErrorCount:         rec.ErrorCount,
+		S3BucketSource: &types.S3BucketSource{
+			S3Bucket:    aws.String(rec.S3Bucket),
+			S3KeyPrefix: aws.String(rec.S3Prefix),
+		},
+	}
+	if !rec.StartTime.IsZero() {
+		desc.StartTime = aws.Time(rec.StartTime)
+	}
+	if !rec.EndTime.IsZero() {
+		desc.EndTime = aws.Time(rec.EndTime)
+	}
+	if rec.FailureCode != "" {
+		desc.FailureCode = aws.String(rec.FailureCode)
+		desc.FailureMessage = aws.String(rec.FailureMessage)
+	}
+
+	return desc
 }
 
 // --- ListImports ---
 
-// ListImports returns stored import records, sorted by ImportArn.
+// ListImports returns stored import records for the request region.
+// Supports NextToken-based pagination and PageSize per the real AWS API.
 func (db *InMemoryDB) ListImports(
-	_ context.Context,
-	_ *dynamodb.ListImportsInput,
+	ctx context.Context,
+	input *dynamodb.ListImportsInput,
 ) (*dynamodb.ListImportsOutput, error) {
+	const defaultListImportsLimit = 25
+
+	region := getRegionFromContext(ctx, db)
 	stored := db.listImportsStored()
+
+	// NextToken is the ImportArn of the last record returned previously.
+	nextToken := aws.ToString(input.NextToken)
+	pageSize := defaultListImportsLimit
+	if input.PageSize != nil && *input.PageSize > 0 {
+		pageSize = int(*input.PageSize)
+	}
+
+	tableArnFilter := aws.ToString(input.TableArn)
+
+	// Filter by region and apply cursor.
 	summaries := make([]types.ImportSummary, 0, len(stored))
+	started := nextToken == ""
 
 	for _, imp := range stored {
+		if db.regionFromARN(imp.ImportArn) != region {
+			continue
+		}
+		if tableArnFilter != "" && imp.TableArn != tableArnFilter {
+			continue
+		}
+		if !started {
+			if imp.ImportArn == nextToken {
+				started = true
+			}
+
+			continue
+		}
+
 		importARN := imp.ImportArn
 		tableARN := imp.TableArn
+		status := imp.ImportStatus
+		if status == "" {
+			status = string(types.ImportStatusCompleted)
+		}
 		summaries = append(summaries, types.ImportSummary{
 			ImportArn:    &importARN,
-			ImportStatus: types.ImportStatusCompleted,
+			ImportStatus: types.ImportStatus(status),
 			TableArn:     &tableARN,
+			InputFormat:  types.InputFormat(imp.InputFormat),
 		})
+	}
+
+	var outNextToken *string
+	if len(summaries) > pageSize {
+		tok := *summaries[pageSize-1].ImportArn
+		outNextToken = &tok
+		summaries = summaries[:pageSize]
 	}
 
 	return &dynamodb.ListImportsOutput{
 		ImportSummaryList: summaries,
+		NextToken:         outNextToken,
 	}, nil
 }
 
@@ -1473,6 +1818,8 @@ func cloneTableSchema(src *Table, name, region, accountID string) *Table {
 		Name:                      name,
 		Status:                    statusActive,
 		Items:                     make([]map[string]any, 0),
+		itemSizes:                 make([]int, 0),
+		totalItemSizeBytes:        0,
 		TableID:                   uuid.New().String(),
 		CreationDateTime:          time.Now(),
 		TableArn:                  arn.Build("dynamodb", region, accountID, "table/"+name),
@@ -1497,7 +1844,10 @@ func newTableMutex(name string) *lockmetrics.RWMutex {
 
 // buildReplicasExcluding returns a slice of ReplicaDescriptions from allReplicas
 // excluding the one for excludeRegion (so a table lists all other regions as its replicas).
-func buildReplicasExcluding(all []models.ReplicaDescription, excludeRegion string) []models.ReplicaDescription {
+func buildReplicasExcluding(
+	all []models.ReplicaDescription,
+	excludeRegion string,
+) []models.ReplicaDescription {
 	result := make([]models.ReplicaDescription, 0, len(all))
 
 	for _, r := range all {

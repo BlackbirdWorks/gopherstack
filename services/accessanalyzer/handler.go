@@ -828,6 +828,6 @@ func findingToJSON(f *Finding) map[string]any {
 func errorBody(code, message string) map[string]string {
 	return map[string]string{
 		"__type":  code,
-		"message": message, //nolint:goconst // existing issue.
+		"message": message,
 	}
 }

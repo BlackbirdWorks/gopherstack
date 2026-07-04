@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
+
+var errNoFlowLogs = errors.New("create EC2 flow log: no flow logs returned")
 
 // cfnKeyTypeAPIKey is the string used for API_KEY across AppSync and APIGW usage plan keys.
 const cfnKeyTypeAPIKey = "API_KEY"
@@ -32,7 +35,14 @@ func (rc *ResourceCreator) createPhase6Resource(
 	if id, ok, err := rc.createPhase6APIGatewayResource(logicalID, resourceType, props, params, physicalIDs); ok {
 		return id, true, err
 	}
-	if id, ok, err := rc.createPhase6APIGatewayV2Resource(logicalID, resourceType, props, params, physicalIDs); ok {
+	if id, ok, err := rc.createPhase6APIGatewayV2Resource(
+		ctx,
+		logicalID,
+		resourceType,
+		props,
+		params,
+		physicalIDs,
+	); ok {
 		return id, true, err
 	}
 	if id, ok, err := rc.createPhase6EventsResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
@@ -50,7 +60,7 @@ func (rc *ResourceCreator) createPhase6Resource(
 	if id, ok, err := rc.createPhase6ELBv2Resource(logicalID, resourceType, props, params, physicalIDs); ok {
 		return id, true, err
 	}
-	if id, ok, err := rc.createPhase6LambdaResource(logicalID, resourceType, props, params, physicalIDs); ok {
+	if id, ok, err := rc.createPhase6LambdaResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
 		return id, true, err
 	}
 
@@ -575,13 +585,14 @@ func (rc *ResourceCreator) deleteAPIGatewayGatewayResponse(physicalID string) er
 // ---- API Gateway v2 supplemental ----
 
 func (rc *ResourceCreator) createPhase6APIGatewayV2Resource(
+	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
 	case "AWS::ApiGatewayV2::DomainName":
-		id, err := rc.createAPIGatewayV2DomainName(logicalID, props, params, physicalIDs)
+		id, err := rc.createAPIGatewayV2DomainName(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
 	case "AWS::ApiGatewayV2::ApiMapping":
@@ -607,6 +618,7 @@ func (rc *ResourceCreator) deletePhase6APIGatewayV2Resource(
 }
 
 func (rc *ResourceCreator) createAPIGatewayV2DomainName(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -619,6 +631,7 @@ func (rc *ResourceCreator) createAPIGatewayV2DomainName(
 		domainName = logicalID
 	}
 	_, err := rc.backends.APIGatewayV2.Backend.CreateDomainName(
+		ctx,
 		apigatewayv2backend.CreateDomainNameInput{
 			DomainNameValue: domainName,
 		},
@@ -1325,7 +1338,7 @@ func (rc *ResourceCreator) createEC2FlowLog(
 		return "", fmt.Errorf("create EC2 flow log: %w", err)
 	}
 	if len(logs) == 0 {
-		return logicalID + "-stub", nil
+		return "", errNoFlowLogs
 	}
 
 	return logs[0].FlowLogID, nil
@@ -1444,6 +1457,7 @@ func parseELBv2CFNConditions(
 // ---- Lambda EventInvokeConfig and Url ----
 
 func (rc *ResourceCreator) createPhase6LambdaResource(
+	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1454,7 +1468,7 @@ func (rc *ResourceCreator) createPhase6LambdaResource(
 
 		return id, true, err
 	case "AWS::Lambda::Url":
-		id, err := rc.createLambdaURL(logicalID, props, params, physicalIDs)
+		id, err := rc.createLambdaURL(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
 	default:
@@ -1517,6 +1531,7 @@ func (rc *ResourceCreator) deleteLambdaEventInvokeConfig(physicalID string) erro
 }
 
 func (rc *ResourceCreator) createLambdaURL(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1546,7 +1561,7 @@ func (rc *ResourceCreator) createLambdaURL(
 			}
 		}
 	}
-	cfg, err := imb.CreateFunctionURLConfig(functionName, authType, cors, invokeMode)
+	cfg, err := imb.CreateFunctionURLConfig(ctx, functionName, authType, cors, invokeMode)
 	if err != nil {
 		return "", fmt.Errorf("create Lambda function URL %s: %w", functionName, err)
 	}

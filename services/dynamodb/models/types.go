@@ -181,12 +181,18 @@ type DeleteReplicationGroupMemberAction struct {
 	RegionName string `json:"RegionName"`
 }
 
-// ReplicaDescription contains status information about a Global Tables v2 replica.
+// ReplicaGSIOverride stores per-replica read-capacity override for one GSI.
+type ReplicaGSIOverride struct {
+	ProvisionedReadCapacity *int64 `json:"ProvisionedReadCapacity,omitempty"`
+	IndexName               string `json:"IndexName"`
+}
+
 type ReplicaDescription struct {
-	ProvisionedReadCapacityUnits *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
-	RegionName                   string `json:"RegionName,omitempty"`
-	ReplicaStatus                string `json:"ReplicaStatus,omitempty"`
-	TableClassOverride           string `json:"TableClassOverride,omitempty"`
+	ProvisionedReadCapacityUnits *int64               `json:"ProvisionedReadCapacityUnits,omitempty"`
+	RegionName                   string               `json:"RegionName,omitempty"`
+	ReplicaStatus                string               `json:"ReplicaStatus,omitempty"`
+	TableClassOverride           string               `json:"TableClassOverride,omitempty"`
+	GlobalSecondaryIndexes       []ReplicaGSIOverride `json:"GlobalSecondaryIndexes,omitempty"`
 }
 
 // GlobalSecondaryIndexUpdate describes a single GSI change.
@@ -239,14 +245,15 @@ type ListTablesOutput struct {
 // --- Item Operations ---
 
 type PutItemInput struct {
-	TableName                   string            `json:"TableName"`
-	Item                        map[string]any    `json:"Item"`
-	ConditionExpression         string            `json:"ConditionExpression,omitempty"`
-	ExpressionAttributeNames    map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues   map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ReturnValues                string            `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity      string            `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics string            `json:"ReturnItemCollectionMetrics,omitempty"`
+	TableName                           string            `json:"TableName"`
+	Item                                map[string]any    `json:"Item"`
+	ConditionExpression                 string            `json:"ConditionExpression,omitempty"`
+	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	ReturnValues                        string            `json:"ReturnValues,omitempty"`
+	ReturnConsumedCapacity              string            `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics         string            `json:"ReturnItemCollectionMetrics,omitempty"`
+	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
 }
 
 type PutItemOutput struct {
@@ -256,15 +263,16 @@ type PutItemOutput struct {
 }
 
 type UpdateItemInput struct {
-	TableName                   string            `json:"TableName"`
-	Key                         map[string]any    `json:"Key"`
-	UpdateExpression            string            `json:"UpdateExpression,omitempty"`
-	ConditionExpression         string            `json:"ConditionExpression,omitempty"`
-	ExpressionAttributeNames    map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues   map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ReturnValues                string            `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity      string            `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics string            `json:"ReturnItemCollectionMetrics,omitempty"`
+	TableName                           string            `json:"TableName"`
+	Key                                 map[string]any    `json:"Key"`
+	UpdateExpression                    string            `json:"UpdateExpression,omitempty"`
+	ConditionExpression                 string            `json:"ConditionExpression,omitempty"`
+	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	ReturnValues                        string            `json:"ReturnValues,omitempty"`
+	ReturnConsumedCapacity              string            `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics         string            `json:"ReturnItemCollectionMetrics,omitempty"`
+	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
 }
 
 type UpdateItemOutput struct {
@@ -285,14 +293,22 @@ type GetItemOutput struct {
 }
 
 type DeleteItemInput struct {
-	Key                       map[string]any    `json:"Key"`
-	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	TableName                 string            `json:"TableName"`
-	ConditionExpression       string            `json:"ConditionExpression,omitempty"`
+	Key                                 map[string]any    `json:"Key"`
+	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	TableName                           string            `json:"TableName"`
+	ConditionExpression                 string            `json:"ConditionExpression,omitempty"`
+	ReturnValues                        string            `json:"ReturnValues,omitempty"`
+	ReturnConsumedCapacity              string            `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics         string            `json:"ReturnItemCollectionMetrics,omitempty"`
+	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
 }
 
-type DeleteItemOutput struct{}
+type DeleteItemOutput struct {
+	Attributes            map[string]any         `json:"Attributes,omitempty"`
+	ConsumedCapacity      *ConsumedCapacity      `json:"ConsumedCapacity,omitempty"`
+	ItemCollectionMetrics *ItemCollectionMetrics `json:"ItemCollectionMetrics,omitempty"`
+}
 
 // --- Query & Scan ---
 
@@ -303,8 +319,12 @@ type StreamRecord struct {
 	EventID                     string         `json:"eventID"`
 	EventName                   string         `json:"eventName"`
 	SequenceNumber              string         `json:"sequenceNumber"`
+	StreamViewType              string         `json:"streamViewType,omitempty"`
+	UserIdentityPrincipalID     string         `json:"userIdentityPrincipalId,omitempty"`
+	UserIdentityType            string         `json:"userIdentityType,omitempty"`
 	ApproximateCreationDateTime int64          `json:"approximateCreationDateTime"`
 	ExpireAt                    int64          `json:"expireAt,omitempty"`
+	SizeBytes                   int64          `json:"sizeBytes,omitempty"`
 }
 
 type QueryInput struct {
@@ -452,11 +472,12 @@ type TransactWriteItem struct {
 }
 
 type ConditionCheckInput struct {
-	Key                       map[string]any    `json:"Key"`
-	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	TableName                 string            `json:"TableName"`
-	ConditionExpression       string            `json:"ConditionExpression"`
+	Key                                 map[string]any    `json:"Key"`
+	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	TableName                           string            `json:"TableName"`
+	ConditionExpression                 string            `json:"ConditionExpression"`
+	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
 }
 
 type TransactWriteItemsOutput struct {
@@ -594,10 +615,12 @@ type DeleteBackupOutput struct {
 
 // ListBackupsInput is the wire format for ListBackups.
 type ListBackupsInput struct {
-	TableName               string `json:"TableName,omitempty"`
-	ExclusiveStartBackupArn string `json:"ExclusiveStartBackupArn,omitempty"`
-	BackupType              string `json:"BackupType,omitempty"`
-	Limit                   int    `json:"Limit,omitempty"`
+	TimeRangeLowerBound     *float64 `json:"TimeRangeLowerBound,omitempty"`
+	TimeRangeUpperBound     *float64 `json:"TimeRangeUpperBound,omitempty"`
+	TableName               string   `json:"TableName,omitempty"`
+	ExclusiveStartBackupArn string   `json:"ExclusiveStartBackupArn,omitempty"`
+	BackupType              string   `json:"BackupType,omitempty"`
+	Limit                   int      `json:"Limit,omitempty"`
 }
 
 // BackupSummary contains summary information about a backup.
@@ -620,8 +643,10 @@ type ListBackupsOutput struct {
 
 // RestoreTableFromBackupInput is the wire format for RestoreTableFromBackup.
 type RestoreTableFromBackupInput struct {
-	BackupArn       string `json:"BackupArn"`
-	TargetTableName string `json:"TargetTableName"`
+	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
+	BackupArn                     string                 `json:"BackupArn"`
+	TargetTableName               string                 `json:"TargetTableName"`
+	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 }
 
 // RestoreTableFromBackupOutput is the wire format for RestoreTableFromBackup response.
@@ -631,10 +656,12 @@ type RestoreTableFromBackupOutput struct {
 
 // RestoreTableToPointInTimeInput is the wire format for RestoreTableToPointInTime.
 type RestoreTableToPointInTimeInput struct {
-	SourceTableName         string `json:"SourceTableName"`
-	TargetTableName         string `json:"TargetTableName"`
-	RestoreDateTime         string `json:"RestoreDateTime,omitempty"`
-	UseLatestRestorableTime bool   `json:"UseLatestRestorableTime,omitempty"`
+	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
+	SourceTableName               string                 `json:"SourceTableName"`
+	TargetTableName               string                 `json:"TargetTableName"`
+	RestoreDateTime               string                 `json:"RestoreDateTime,omitempty"`
+	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
+	UseLatestRestorableTime       bool                   `json:"UseLatestRestorableTime,omitempty"`
 }
 
 // RestoreTableToPointInTimeOutput is the wire format for RestoreTableToPointInTime response.

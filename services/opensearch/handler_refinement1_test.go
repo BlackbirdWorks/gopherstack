@@ -96,11 +96,11 @@ func TestRefinement1_ARNIndexRebuiltAfterRestore(t *testing.T) {
 	b.AddDomainInternal("snap-domain", "OpenSearch_2.11")
 
 	// Snapshot and restore into fresh backend.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Tag operations should work after restore (they rely on arnIndex).
 	domain, err := fresh.DescribeDomain("snap-domain")
@@ -152,10 +152,9 @@ func TestRefinement1_ExportCounts(t *testing.T) {
 	b.AddDomainInternal("d1", "")
 	b.AddDomainInternal("d2", "")
 
-	_, err := b.AcceptInboundConnection("conn-1")
-	require.NoError(t, err)
+	opensearch.SeedInboundConnection(b, "conn-1")
 
-	_, err = b.AddDataSource("d1", "ds-1", "desc", "S3GLUE")
+	_, err := b.AddDataSource("d1", "ds-1", "desc", "S3GLUE")
 	require.NoError(t, err)
 
 	_, err = b.AddDirectQueryDataSource("dq-1", "desc", "CloudWatchLogs", nil)
@@ -380,11 +379,11 @@ func TestRefinement1_TagsAfterRestore_RoundTrip(t *testing.T) {
 
 	require.NoError(t, b.AddTags(domain.ARN, map[string]string{"key": "value", "env": "prod"}))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Tags should survive round-trip
 	tags, err := fresh.ListTags(domain.ARN)

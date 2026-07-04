@@ -231,7 +231,13 @@ func TestHandlerRebootInputDevice(t *testing.T) {
 				claimTestDevice(t, h, tt.deviceID)
 			}
 
-			rec := doRequest(t, h, http.MethodPost, "/prod/inputDevices/"+tt.deviceID+"/reboot", nil)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/prod/inputDevices/"+tt.deviceID+"/reboot",
+				nil,
+			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -274,14 +280,26 @@ func TestHandlerInputDeviceTransferLifecycle(t *testing.T) {
 			deviceID := fmt.Sprintf("hd-%s", tt.action)
 			claimTestDevice(t, h, deviceID)
 
-			rec := doRequest(t, h, http.MethodPost, "/prod/inputDevices/"+deviceID+"/transfer", map[string]any{
-				"TargetCustomerId": "123456789012",
-				"TargetRegion":     "us-west-2",
-				"TransferMessage":  "please accept",
-			})
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/prod/inputDevices/"+deviceID+"/transfer",
+				map[string]any{
+					"TargetCustomerId": "123456789012",
+					"TargetRegion":     "us-west-2",
+					"TransferMessage":  "please accept",
+				},
+			)
 			assert.Equal(t, tt.wantTransferStatus, rec.Code)
 
-			rec2 := doRequest(t, h, http.MethodPost, "/prod/inputDevices/"+deviceID+"/"+tt.action, nil)
+			rec2 := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/prod/inputDevices/"+deviceID+"/"+tt.action,
+				nil,
+			)
 			assert.Equal(t, tt.wantActionStatus, rec2.Code)
 		})
 	}
@@ -291,9 +309,15 @@ func TestHandlerTransferInputDevice_NoDevice(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/prod/inputDevices/hd-notfound/transfer", map[string]any{
-		"TargetCustomerId": "123456789012",
-	})
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/prod/inputDevices/hd-notfound/transfer",
+		map[string]any{
+			"TargetCustomerId": "123456789012",
+		},
+	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
@@ -335,13 +359,25 @@ func TestHandlerListInputDeviceTransfers(t *testing.T) {
 				for i := range tt.wantCount {
 					id := fmt.Sprintf("hd-tr%d", i)
 					claimTestDevice(t, h, id)
-					doRequest(t, h, http.MethodPost, "/prod/inputDevices/"+id+"/transfer", map[string]any{
-						"TargetCustomerId": "123456789012",
-					})
+					doRequest(
+						t,
+						h,
+						http.MethodPost,
+						"/prod/inputDevices/"+id+"/transfer",
+						map[string]any{
+							"TargetCustomerId": "123456789012",
+						},
+					)
 				}
 			}
 
-			rec := doRequest(t, h, http.MethodGet, "/prod/inputDeviceTransfers?transferType="+tt.transferType, nil)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/prod/inputDeviceTransfers?transferType="+tt.transferType,
+				nil,
+			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantCount > 0 {
@@ -349,6 +385,61 @@ func TestHandlerListInputDeviceTransfers(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				transfers := resp["InputDeviceTransfers"].([]any)
 				assert.Len(t, transfers, tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestStartInputDeviceMaintenanceWindow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		deviceID   string
+		wantStatus int
+		claim      bool
+		checkFlag  bool
+	}{
+		{
+			name:       "not found returns 404",
+			deviceID:   "hd-notfound-mw",
+			claim:      false,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "found sets maintenance window active",
+			deviceID:   "hd-mw1",
+			claim:      true,
+			wantStatus: http.StatusOK,
+			checkFlag:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.claim {
+				claimTestDevice(t, h, tt.deviceID)
+			}
+
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/prod/inputDevices/"+tt.deviceID+"/startInputDeviceMaintenanceWindow",
+				nil,
+			)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkFlag {
+				rec2 := doRequest(t, h, http.MethodGet, "/prod/inputDevices/"+tt.deviceID, nil)
+				require.Equal(t, http.StatusOK, rec2.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				assert.Equal(t, true, resp["MaintenanceWindowActive"])
 			}
 		})
 	}

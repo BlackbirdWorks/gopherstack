@@ -152,10 +152,10 @@ func TestDataSync_Agent(t *testing.T) {
 			},
 		},
 		{
-			name:     "DescribeAgent unknown ARN returns 400",
+			name:     "DescribeAgent unknown ARN returns 404",
 			action:   "DescribeAgent",
 			body:     map[string]any{"AgentArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist"},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "DescribeAgent missing ARN returns 400",
@@ -164,19 +164,19 @@ func TestDataSync_Agent(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:   "UpdateAgent unknown ARN returns 400",
+			name:   "UpdateAgent unknown ARN returns 404",
 			action: "UpdateAgent",
 			body: map[string]any{
 				"AgentArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist",
 				"Name":     "new",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		{
-			name:     "DeleteAgent unknown ARN returns 400",
+			name:     "DeleteAgent unknown ARN returns 404",
 			action:   "DeleteAgent",
 			body:     map[string]any{"AgentArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist"},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "ListAgents empty returns empty list",
@@ -255,9 +255,9 @@ func TestDataSync_AgentCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 0, datasync.AgentCount(h.Backend.(*datasync.InMemoryBackend)))
 
-	// Describe deleted returns 400
+	// Describe deleted returns 404
 	rec = doRequest(t, h, "DescribeAgent", map[string]any{"AgentArn": agentArn})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestDataSync_LocationS3(t *testing.T) {
@@ -306,16 +306,16 @@ func TestDataSync_LocationS3(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "DescribeLocationS3 unknown ARN returns 400",
+			name:     "DescribeLocationS3 unknown ARN returns 404",
 			action:   "DescribeLocationS3",
 			body:     map[string]any{"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist"},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		{
-			name:     "DeleteLocation unknown ARN returns 400",
+			name:     "DeleteLocation unknown ARN returns 404",
 			action:   "DeleteLocation",
 			body:     map[string]any{"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist"},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "ListLocations empty returns empty list",
@@ -402,16 +402,16 @@ func TestDataSync_Task(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "DescribeTask unknown ARN returns 400",
+			name:     "DescribeTask unknown ARN returns 404",
 			action:   "DescribeTask",
 			body:     map[string]any{"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist"},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		{
-			name:     "DeleteTask unknown ARN returns 400",
+			name:     "DeleteTask unknown ARN returns 404",
 			action:   "DeleteTask",
 			body:     map[string]any{"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist"},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "ListTasks empty returns empty list",
@@ -509,7 +509,7 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Equal(t, "LAUNCHING", descResp["Status"])
+	assert.Equal(t, "SUCCESS", descResp["Status"])
 
 	// ListTaskExecutions
 	rec = doRequest(t, h, "ListTaskExecutions", map[string]any{"TaskArn": taskArn})
@@ -522,19 +522,24 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	rec = doRequest(t, h, "CancelTaskExecution", map[string]any{"TaskExecutionArn": execArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// List after cancel - empty
+	// List after cancel - execution persists with CANCELLED status
 	rec = doRequest(t, h, "ListTaskExecutions", map[string]any{"TaskArn": taskArn})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Empty(t, listResp["TaskExecutions"])
+	execs, ok := listResp["TaskExecutions"].([]any)
+	require.True(t, ok)
+	require.Len(t, execs, 1)
+	execEntry, ok := execs[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "CANCELLED", execEntry["Status"])
 
-	// StartTaskExecution unknown task returns 400
+	// StartTaskExecution unknown task returns 404
 	rec = doRequest(
 		t,
 		h,
 		"StartTaskExecution",
 		map[string]any{"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist"},
 	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestDataSync_Tags(t *testing.T) {
@@ -576,12 +581,12 @@ func TestDataSync_Tags(t *testing.T) {
 	tags = listResp["Tags"].([]any)
 	assert.Len(t, tags, 1)
 
-	// TagResource unknown resource returns 400
+	// TagResource unknown resource returns 404
 	rec = doRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist",
 		"Tags":        []any{map[string]any{"Key": "k", "Value": "v"}},
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestDataSync_UnknownAction(t *testing.T) {

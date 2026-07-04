@@ -103,10 +103,23 @@ func TestIntegration_CloudFront_DistributionLifecycle(t *testing.T) {
 
 	assert.True(t, found, "created distribution should appear in list")
 
+	// CloudFront requires a distribution to be disabled before it can be
+	// deleted (matching real AWS). Disable it first, then delete with the
+	// ETag returned by the update.
+	disableCfg := getOut.Distribution.DistributionConfig
+	disableCfg.Enabled = aws.Bool(false)
+
+	updOut, err := client.UpdateDistribution(ctx, &cloudfront.UpdateDistributionInput{
+		Id:                 aws.String(distID),
+		IfMatch:            getOut.ETag,
+		DistributionConfig: disableCfg,
+	})
+	require.NoError(t, err)
+
 	// DeleteDistribution
 	_, err = client.DeleteDistribution(ctx, &cloudfront.DeleteDistributionInput{
 		Id:      aws.String(distID),
-		IfMatch: getOut.ETag,
+		IfMatch: updOut.ETag,
 	})
 	require.NoError(t, err)
 
@@ -115,7 +128,12 @@ func TestIntegration_CloudFront_DistributionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, d := range listOut2.DistributionList.Items {
-		assert.NotEqual(t, distID, aws.ToString(d.Id), "deleted distribution should not appear in list")
+		assert.NotEqual(
+			t,
+			distID,
+			aws.ToString(d.Id),
+			"deleted distribution should not appear in list",
+		)
 	}
 }
 

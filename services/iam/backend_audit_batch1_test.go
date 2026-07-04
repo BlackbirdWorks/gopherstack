@@ -95,7 +95,12 @@ func TestRoleID_Format(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	r, err := b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+	r, err := b.CreateRole(
+		"MyRole",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		"",
+	)
 	require.NoError(t, err)
 
 	// Role IDs are AROA + 16 uppercase alphanumeric chars.
@@ -131,7 +136,11 @@ func TestPolicyID_Format(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	p, err := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+	p, err := b.CreatePolicy(
+		"MyPolicy",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 	require.NoError(t, err)
 
 	// Policy IDs are ANPA + 16 uppercase alphanumeric chars.
@@ -212,7 +221,7 @@ func TestCreatePolicyVersion_LimitExceededError(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("P", "/", doc)
 	require.NoError(t, err)
 
@@ -235,7 +244,7 @@ func TestCreatePolicyVersion_MonotonicVersionID(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("Mono", "/", doc)
 	require.NoError(t, err)
 
@@ -260,7 +269,7 @@ func TestCreatePolicyVersion_V1CountsTowardLimit(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("LimitTest", "/", doc)
 	require.NoError(t, err)
 
@@ -279,7 +288,7 @@ func TestSetDefaultPolicyVersion_UpdatesDefault(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc1 := `{"Version":"2012-10-17","Statement":[]}`
+	doc1 := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	doc2 := `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}`
 
 	p, err := b.CreatePolicy("DefaultTest", "/", doc1)
@@ -308,7 +317,7 @@ func TestDeletePolicyVersion_CannotDeleteDefault(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("DelDefault", "/", doc)
 	require.NoError(t, err)
 
@@ -621,7 +630,12 @@ func TestRoleARN_Format(t *testing.T) {
 	t.Parallel()
 
 	b := iam.NewInMemoryBackendWithConfig("123456789012")
-	r, err := b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+	r, err := b.CreateRole(
+		"MyRole",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		"",
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, "arn:aws:iam::123456789012:role/MyRole", r.Arn)
@@ -641,7 +655,11 @@ func TestPolicyARN_Format(t *testing.T) {
 	t.Parallel()
 
 	b := iam.NewInMemoryBackendWithConfig("123456789012")
-	p, err := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+	p, err := b.CreatePolicy(
+		"MyPolicy",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, "arn:aws:iam::123456789012:policy/MyPolicy", p.Arn)
@@ -680,7 +698,7 @@ func TestGetAccountSummary_Policies(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreatePolicy("P1", "/", doc)
 	_, _ = b.CreatePolicy("P2", "/", doc)
 
@@ -790,7 +808,7 @@ func TestDeletePolicy_FailsWhenAttachedToUser(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateUser("alice", "/", "")
 	p, err := b.CreatePolicy("P", "/", doc)
 	require.NoError(t, err)
@@ -805,7 +823,7 @@ func TestDeletePolicy_FailsWhenAttachedToRole(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("R", "/", doc, "")
 	p, err := b.CreatePolicy("P", "/", doc)
 	require.NoError(t, err)
@@ -820,7 +838,7 @@ func TestDeletePolicy_SucceedsWhenDetached(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateUser("alice", "/", "")
 	p, err := b.CreatePolicy("P", "/", doc)
 	require.NoError(t, err)
@@ -835,7 +853,7 @@ func TestDeleteUser_FailsWhenAttachedPoliciesExist(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateUser("alice", "/", "")
 	p, _ := b.CreatePolicy("P", "/", doc)
 	require.NoError(t, b.AttachUserPolicy("alice", p.Arn))
@@ -850,7 +868,7 @@ func TestDeleteUser_FailsWhenInlinePoliciesExist(t *testing.T) {
 
 	b := newBackend(t)
 	_, _ = b.CreateUser("alice", "/", "")
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	require.NoError(t, b.PutUserPolicy("alice", "MyPolicy", doc))
 
 	err := b.DeleteUser("alice")
@@ -864,7 +882,7 @@ func TestCreatePolicyVersion_MonotonicAfterRestore(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("SnapTest", "/", doc)
 	require.NoError(t, err)
 
@@ -873,9 +891,9 @@ func TestCreatePolicyVersion_MonotonicAfterRestore(t *testing.T) {
 	assert.Equal(t, "v2", v2.VersionID)
 
 	// Snapshot and restore.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := iam.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Next version must be v3, not v2.
 	v3, err := b2.CreatePolicyVersion(p.Arn, doc, false)
@@ -890,7 +908,7 @@ func TestAddRoleToInstanceProfile_OnlyOneRole(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("R1", "/", doc, "")
 	_, _ = b.CreateRole("R2", "/", doc, "")
 	_, _ = b.CreateInstanceProfile("MyProfile", "/")
@@ -906,7 +924,7 @@ func TestInstanceProfile_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 	ip, err := b.CreateInstanceProfile("MyProfile", "/")
 	require.NoError(t, err)
@@ -958,7 +976,7 @@ func TestOIDCProvider_CRUD(t *testing.T) {
 
 	b := newBackend(t)
 	clientIDs := []string{"client1"}
-	thumbprints := []string{"abc123"}
+	thumbprints := []string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"}
 
 	p, err := b.CreateOpenIDConnectProvider("https://example.com", clientIDs, thumbprints)
 	require.NoError(t, err)
@@ -1055,7 +1073,7 @@ func TestPermissionsBoundary_UserRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateUser("alice", "/", "")
 	p, _ := b.CreatePolicy("Boundary", "/", doc)
 
@@ -1072,7 +1090,7 @@ func TestPermissionsBoundary_RoleRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 	p, _ := b.CreatePolicy("Boundary", "/", doc)
 
@@ -1091,7 +1109,7 @@ func TestUpdateAssumeRolePolicy_Valid(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 
 	newDoc := `{"Version":"2012-10-17","Statement":[` +
@@ -1131,7 +1149,7 @@ func TestListEntitiesForPolicy_AllEntityTypes(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateUser("alice", "/", "")
 	_, _ = b.CreateRole("R", "/", doc, "")
 	_, _ = b.CreateGroup("G", "/")
@@ -1152,7 +1170,7 @@ func TestListEntitiesForPolicy_FilterByType(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	_, _ = b.CreateUser("alice", "/", "")
 	_, _ = b.CreateRole("R", "/", doc, "")
 	p, _ := b.CreatePolicy("P", "/", doc)

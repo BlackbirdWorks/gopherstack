@@ -1144,11 +1144,11 @@ func TestRedshiftBackend_SnapshotRestore_NewMaps(t *testing.T) {
 		AllowCancelResize: true,
 	})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Verify reserved node round-trip
 	_, err = fresh.AcceptReservedNodeExchange("rn-persist", "new-offering")

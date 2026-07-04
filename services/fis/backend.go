@@ -230,13 +230,25 @@ type InMemoryBackend struct {
 	faultStore           *chaos.FaultStore
 	safetyLever          *SafetyLever
 	mu                   *lockmetrics.RWMutex
+	svcCtx               context.Context
 	accountID            string
 	region               string
 	actionProviders      []service.FISActionProvider
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with a background service context.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose experiment goroutines
+// are parented by svcCtx so they are cancelled on server shutdown. If svcCtx is nil,
+// [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	safetyLeverARN := arn.Build("fis", region, accountID, "safety-lever/"+accountID)
 
 	return &InMemoryBackend{
@@ -250,6 +262,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("fis"),
+		svcCtx:               svcCtx,
 		safetyLever: &SafetyLever{
 			ID:    accountID,
 			Arn:   safetyLeverARN,
@@ -311,6 +324,12 @@ func (b *InMemoryBackend) SetActionProviders(providers []service.FISActionProvid
 // selectionModeRe matches valid FIS selectionMode values: ALL, COUNT(N), PERCENT(N).
 var selectionModeRe = regexp.MustCompile(`^(ALL|COUNT\(\d+\)|PERCENT\(\d{1,3}(\.\d+)?\))$`)
 
+// maxDescriptionLen is the maximum allowed length for template/experiment descriptions.
+const maxDescriptionLen = 512
+
+// maxClientTokenLen is the maximum allowed length for idempotency client tokens.
+const maxClientTokenLen = 64
+
 // validateTemplate checks that a create request meets AWS FIS requirements.
 func validateTemplate(input *createExperimentTemplateRequest) error {
 	if strings.TrimSpace(input.RoleArn) == "" {
@@ -321,11 +340,121 @@ func validateTemplate(input *createExperimentTemplateRequest) error {
 		return fmt.Errorf("%w: roleArn must be a valid IAM role ARN (arn:aws:iam::{account}:role/...)", ErrValidation)
 	}
 
+	if len(input.Description) > maxDescriptionLen {
+		return fmt.Errorf(
+			"%w: description must be at most %d characters; got %d",
+			ErrValidation, maxDescriptionLen, len(input.Description),
+		)
+	}
+
+	if len(input.ClientToken) > maxClientTokenLen {
+		return fmt.Errorf(
+			"%w: clientToken must be at most %d characters",
+			ErrValidation, maxClientTokenLen,
+		)
+	}
+
 	if len(input.StopConditions) == 0 {
 		return fmt.Errorf("%w: stopConditions is required", ErrValidation)
 	}
 
-	for name, tgt := range input.Targets {
+	if err := validateStopConditions(input.StopConditions); err != nil {
+		return err
+	}
+
+	if err := validateTargets(input.Targets); err != nil {
+		return err
+	}
+
+	if err := validateActions(input.Actions, input.Targets); err != nil {
+		return err
+	}
+
+	if len(input.Tags) > maxTagsPerResource {
+		return fmt.Errorf(
+			"%w: tags must have at most %d entries; got %d",
+			ErrValidation, maxTagsPerResource, len(input.Tags),
+		)
+	}
+
+	return nil
+}
+
+// validateUpdateTemplate checks that an update request meets AWS FIS requirements.
+func validateUpdateTemplate(input *updateExperimentTemplateRequest) error {
+	if input.RoleArn != "" && !isValidRoleArn(input.RoleArn) {
+		return fmt.Errorf("%w: roleArn must be a valid IAM role ARN (arn:aws:iam::{account}:role/...)", ErrValidation)
+	}
+
+	if len(input.Description) > maxDescriptionLen {
+		return fmt.Errorf(
+			"%w: description must be at most %d characters; got %d",
+			ErrValidation, maxDescriptionLen, len(input.Description),
+		)
+	}
+
+	if input.StopConditions != nil {
+		if len(input.StopConditions) == 0 {
+			return fmt.Errorf("%w: stopConditions must not be empty when provided", ErrValidation)
+		}
+
+		if err := validateStopConditions(input.StopConditions); err != nil {
+			return err
+		}
+	}
+
+	if input.Targets != nil {
+		if err := validateTargets(input.Targets); err != nil {
+			return err
+		}
+	}
+
+	if input.Actions != nil {
+		if err := validateActions(input.Actions, input.Targets); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateStopConditions validates the stop conditions slice.
+// Source must be "none" or a CloudWatch alarm ARN.
+func validateStopConditions(conditions []experimentTemplateStopConditionDTO) error {
+	for i, sc := range conditions {
+		src := strings.TrimSpace(sc.Source)
+		if src == "" {
+			return fmt.Errorf("%w: stopConditions[%d].source is required", ErrValidation, i)
+		}
+
+		switch {
+		case src == "none":
+			if strings.TrimSpace(sc.Value) != "" {
+				return fmt.Errorf(
+					"%w: stopConditions[%d]: value must be empty when source is \"none\"",
+					ErrValidation, i,
+				)
+			}
+		case strings.HasPrefix(src, "aws:cloudwatch:alarm"):
+			// valid CloudWatch alarm source
+		default:
+			return fmt.Errorf(
+				"%w: stopConditions[%d].source must be \"none\" or a CloudWatch alarm ARN; got %q",
+				ErrValidation, i, src,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateTargets validates the target map.
+func validateTargets(targets map[string]experimentTemplateTargetDTO) error {
+	for name, tgt := range targets {
+		if strings.TrimSpace(tgt.ResourceType) == "" {
+			return fmt.Errorf("%w: target %q: resourceType is required", ErrValidation, name)
+		}
+
 		if strings.TrimSpace(tgt.SelectionMode) == "" {
 			return fmt.Errorf("%w: target %q: selectionMode is required", ErrValidation, name)
 		}
@@ -336,24 +465,15 @@ func validateTemplate(input *createExperimentTemplateRequest) error {
 				ErrValidation, name, tgt.SelectionMode,
 			)
 		}
-	}
 
-	for name, action := range input.Actions {
-		for _, tgtName := range action.Targets {
-			if _, ok := input.Targets[tgtName]; !ok {
-				return fmt.Errorf(
-					"%w: action %q references undefined target %q",
-					ErrValidation, name, tgtName,
-				)
+		// Validate filters.
+		for j, f := range tgt.Filters {
+			if strings.TrimSpace(f.Path) == "" {
+				return fmt.Errorf("%w: target %q: filter[%d].path is required", ErrValidation, name, j)
 			}
-		}
 
-		if action.ActionID == actionIDWait {
-			if strings.TrimSpace(action.Parameters["duration"]) == "" {
-				return fmt.Errorf(
-					"%w: action %q: %s requires the duration parameter",
-					ErrValidation, name, actionIDWait,
-				)
+			if len(f.Values) == 0 {
+				return fmt.Errorf("%w: target %q: filter[%d].values must not be empty", ErrValidation, name, j)
 			}
 		}
 	}
@@ -361,9 +481,159 @@ func validateTemplate(input *createExperimentTemplateRequest) error {
 	return nil
 }
 
-// isValidRoleArn checks that the string looks like an IAM role ARN.
+// validateActions validates the action map.
+func validateActions(
+	actions map[string]experimentTemplateActionDTO,
+	targets map[string]experimentTemplateTargetDTO,
+) error {
+	for name, action := range actions {
+		if err := validateAction(name, action, actions, targets); err != nil {
+			return err
+		}
+	}
+
+	// Detect cycles in startAfter dependencies.
+	if err := detectActionCycles(actions); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateAction validates a single action's identifier, references, and parameters.
+func validateAction(
+	name string,
+	action experimentTemplateActionDTO,
+	actions map[string]experimentTemplateActionDTO,
+	targets map[string]experimentTemplateTargetDTO,
+) error {
+	if strings.TrimSpace(action.ActionID) == "" {
+		return fmt.Errorf("%w: action %q: actionId is required", ErrValidation, name)
+	}
+
+	if err := validateActionReferences(name, action, actions, targets); err != nil {
+		return err
+	}
+
+	return validateActionDuration(name, action)
+}
+
+// validateActionReferences validates an action's startAfter and target references.
+func validateActionReferences(
+	name string,
+	action experimentTemplateActionDTO,
+	actions map[string]experimentTemplateActionDTO,
+	targets map[string]experimentTemplateTargetDTO,
+) error {
+	for _, depName := range action.StartAfter {
+		if _, ok := actions[depName]; !ok {
+			return fmt.Errorf(
+				"%w: action %q: startAfter references undefined action %q",
+				ErrValidation, name, depName,
+			)
+		}
+	}
+
+	for _, tgtName := range action.Targets {
+		if _, ok := targets[tgtName]; !ok {
+			return fmt.Errorf(
+				"%w: action %q references undefined target %q",
+				ErrValidation, name, tgtName,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateActionDuration validates the duration parameter requirements for an action.
+func validateActionDuration(name string, action experimentTemplateActionDTO) error {
+	// aws:fis:wait requires duration.
+	if action.ActionID == actionIDWait && strings.TrimSpace(action.Parameters["duration"]) == "" {
+		return fmt.Errorf(
+			"%w: action %q: %s requires the duration parameter",
+			ErrValidation, name, actionIDWait,
+		)
+	}
+
+	// Validate duration parameter format when present.
+	if dur, ok := action.Parameters["duration"]; ok && dur != "" {
+		if !isValidISODuration(dur) {
+			return fmt.Errorf(
+				"%w: action %q: duration parameter %q is not a valid ISO 8601 duration",
+				ErrValidation, name, dur,
+			)
+		}
+	}
+
+	return nil
+}
+
+// detectActionCycles returns an error if the startAfter dependency graph has a cycle.
+func detectActionCycles(actions map[string]experimentTemplateActionDTO) error {
+	const (
+		unvisited = 0
+		inStack   = 1
+		done      = 2
+	)
+
+	state := make(map[string]int, len(actions))
+
+	var visit func(name string) error
+	visit = func(name string) error {
+		switch state[name] {
+		case inStack:
+			return fmt.Errorf("%w: action dependency cycle detected involving action %q", ErrValidation, name)
+		case done:
+			return nil
+		}
+
+		state[name] = inStack
+
+		for _, dep := range actions[name].StartAfter {
+			if err := visit(dep); err != nil {
+				return err
+			}
+		}
+
+		state[name] = done
+
+		return nil
+	}
+
+	for name := range actions {
+		if err := visit(name); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// iamAccountIDLen is the fixed length of an AWS account ID (12 decimal digits).
+const iamAccountIDLen = 12
+
+// isValidRoleArn checks that the string looks like an IAM role ARN with a valid 12-digit account ID.
 func isValidRoleArn(s string) bool {
-	return strings.HasPrefix(s, "arn:aws:iam::") && strings.Contains(s, ":role/")
+	const prefix = "arn:aws:iam::"
+	if !strings.HasPrefix(s, prefix) {
+		return false
+	}
+
+	rest := s[len(prefix):]
+	colon := strings.Index(rest, ":")
+
+	if colon != iamAccountIDLen {
+		return false
+	}
+
+	for _, c := range rest[:12] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+
+	return strings.HasPrefix(rest[colon:], ":role/")
 }
 
 // ----------------------------------------
@@ -451,6 +721,10 @@ func (b *InMemoryBackend) UpdateExperimentTemplate(
 	id string,
 	input *updateExperimentTemplateRequest,
 ) (*ExperimentTemplate, error) {
+	if err := validateUpdateTemplate(input); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateExperimentTemplate")
 	defer b.mu.Unlock()
 
@@ -581,10 +855,9 @@ func (b *InMemoryBackend) StartExperiment(
 	id := generateID("EXP")
 	arnStr := arn.Build("fis", region, accountID, "experiment/"+id)
 
-	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
-	// experiment goroutine is NOT cancelled when the HTTP response is sent.
-
-	expCtx, cancel := context.WithCancel(context.Background())
+	// expCtx derives from b.svcCtx — NOT the HTTP request context — so the experiment
+	// goroutine is not cancelled when the HTTP response is sent, but IS cancelled on shutdown.
+	expCtx, cancel := context.WithCancel(b.svcCtx)
 	exp := buildExperimentFromTemplate(id, arnStr, tpl, input.Tags, cancel)
 	exp.TargetAccountConfigurationsCount = tplAccountCount
 
@@ -651,8 +924,8 @@ func buildExperimentFromTemplate(
 		}
 	}
 
-	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
-	// experiment goroutine is NOT cancelled when the HTTP response is sent.
+	// expCtx derives from svcCtx — NOT the HTTP request context — so the experiment
+	// goroutine is not cancelled when the HTTP response is sent.
 	// cancel is passed in from StartExperiment and stored on the returned experiment.
 
 	now := time.Now()
@@ -735,6 +1008,9 @@ func (b *InMemoryBackend) StopExperiment(id string) (*Experiment, error) {
 		exp.cancel()
 	}
 
+	// Immediately reflect the transition to stopping in the response.
+	exp.Status = ExperimentStatus{Status: statusStopping}
+
 	snap := cloneExperiment(exp)
 	b.mu.Unlock()
 
@@ -787,9 +1063,12 @@ func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]Experiment
 	resolved := make([]ExperimentResolvedTarget, 0, len(exp.Targets))
 
 	for name, tgt := range exp.Targets {
+		arns := make([]string, len(tgt.ResourceArns))
+		copy(arns, tgt.ResourceArns)
 		resolved = append(resolved, ExperimentResolvedTarget{
 			ResourceType:         tgt.ResourceType,
 			TargetName:           name,
+			ResolvedArns:         arns,
 			TargetResourcesCount: len(tgt.ResourceArns),
 		})
 	}
@@ -821,9 +1100,7 @@ func (b *InMemoryBackend) GetSafetyLever(id string) (*SafetyLever, error) {
 	b.mu.RLock("GetSafetyLever")
 	defer b.mu.RUnlock()
 
-	resolved := b.resolveSafetyLeverID(id)
-
-	if b.safetyLever == nil || b.safetyLever.ID != resolved {
+	if b.safetyLever == nil {
 		return nil, fmt.Errorf("%w: %s", ErrSafetyLeverNotFound, id)
 	}
 
@@ -839,6 +1116,14 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 	id string,
 	input *updateSafetyLeverStateRequest,
 ) (*SafetyLever, error) {
+	status := input.UpdateSafetyLeverStateInput.Status
+	if status != statusDisengaged && status != "engaged" {
+		return nil, fmt.Errorf(
+			"%w: safetyLever status must be \"engaged\" or \"disengaged\"; got %q",
+			ErrValidation, status,
+		)
+	}
+
 	b.mu.Lock("UpdateSafetyLeverState")
 	defer b.mu.Unlock()
 
@@ -849,7 +1134,7 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 	}
 
 	b.safetyLever.State = SafetyLeverState{
-		Status: input.UpdateSafetyLeverStateInput.Status,
+		Status: status,
 		Reason: input.UpdateSafetyLeverStateInput.Reason,
 	}
 
@@ -1347,27 +1632,10 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 	b.setExperimentStatus(expID, statusRunning)
 	b.setAllActionStatuses(expID, actionStatusRunning)
 
-	// Collect chaos fault rules and other actions to execute.
-	faultRules, externalActions, maxDuration := b.prepareActions(tpl)
+	// Build fault rules and run actions respecting startAfter dependencies.
+	faultRules, maxDuration, failReason := b.executeActionsOrdered(ctx, expID, tpl)
 
-	// Apply chaos fault rules.
-	if len(faultRules) > 0 && b.getFaultStore() != nil {
-		b.getFaultStore().AppendRules(faultRules)
-	}
-
-	// Execute external service actions (EC2 stop, etc.).
-	failed := false
-
-	for _, ea := range externalActions {
-		if err := b.executeExternalAction(ctx, ea); err != nil {
-			b.markExperimentFailed(expID, err.Error())
-			failed = true
-
-			break
-		}
-	}
-
-	if failed {
+	if failReason != "" {
 		b.cleanupActions(faultRules, expID, statusFailed, actionStatusFailed)
 
 		return
@@ -1418,15 +1686,43 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 	}
 }
 
-// prepareActions returns the chaos fault rules, external actions, and the maximum duration
-// across all actions in the template.
-func (b *InMemoryBackend) prepareActions(tpl *ExperimentTemplate) ([]chaos.FaultRule, []externalAction, time.Duration) {
+// executeActionsOrdered executes template actions in startAfter dependency order.
+// Chaos fault rules are applied first, then external actions run in topological order.
+// Returns accumulated fault rules, the maximum action duration, and a non-empty failure reason on error.
+func (b *InMemoryBackend) executeActionsOrdered(
+	ctx context.Context,
+	expID string,
+	tpl *ExperimentTemplate,
+) ([]chaos.FaultRule, time.Duration, string) {
 	var faultRules []chaos.FaultRule
-	var externalActions []externalAction
 
 	var maxDuration time.Duration
 
-	for _, action := range tpl.Actions {
+	// Sort actions into topological order respecting startAfter.
+	ordered := topoSortActions(tpl.Actions)
+
+	// Track which action names have completed so downstream deps can be released.
+	completed := make(map[string]bool, len(tpl.Actions))
+
+	for _, name := range ordered {
+		action := tpl.Actions[name]
+
+		// Check context before each action.
+		select {
+		case <-ctx.Done():
+			return faultRules, maxDuration, ""
+		default:
+		}
+
+		// Wait for all startAfter dependencies.
+		for _, dep := range action.StartAfter {
+			if !completed[dep] {
+				// Dep should already be done since we process in topo order,
+				// but guard against topo sort edge cases.
+				continue
+			}
+		}
+
 		dur := parseISODuration(action.Parameters["duration"])
 		if dur > maxDuration {
 			maxDuration = dur
@@ -1435,20 +1731,104 @@ func (b *InMemoryBackend) prepareActions(tpl *ExperimentTemplate) ([]chaos.Fault
 		switch {
 		case strings.HasPrefix(action.ActionID, "aws:fis:inject-api-"):
 			faultRules = append(faultRules, buildFaultRules(action)...)
+			// Apply immediately so faults are active as soon as possible.
+			if len(faultRules) > 0 && b.getFaultStore() != nil {
+				b.getFaultStore().AppendRules(buildFaultRules(action))
+			}
 		case action.ActionID == actionIDWait:
-			// Wait action — only the duration matters; it's already captured above.
+			// Wait action — duration already captured above.
 		default:
-			externalActions = append(externalActions, externalAction{
+			ea := externalAction{
 				actionID:   action.ActionID,
 				params:     copyStringMap(action.Parameters),
 				targets:    action.Targets,
 				duration:   dur,
 				tplTargets: tpl.Targets,
-			})
+			}
+
+			b.setActionStatus(expID, name, actionStatusRunning)
+
+			if err := b.executeExternalAction(ctx, ea); err != nil {
+				b.markExperimentFailed(expID, err.Error())
+
+				return faultRules, maxDuration, err.Error()
+			}
+
+			b.setActionStatus(expID, name, actionStatusCompleted)
+		}
+
+		completed[name] = true
+	}
+
+	return faultRules, maxDuration, ""
+}
+
+// topoSortActions returns action names in a topological order respecting startAfter.
+// Actions with no dependencies come first; actions whose dependencies are all earlier come later.
+// The result is deterministic: within the same dependency level, actions are sorted by name.
+func topoSortActions(actions map[string]ExperimentTemplateAction) []string {
+	inDegree := make(map[string]int, len(actions))
+	dependents := make(map[string][]string, len(actions)) // name → names that depend on it
+
+	for name := range actions {
+		if _, ok := inDegree[name]; !ok {
+			inDegree[name] = 0
 		}
 	}
 
-	return faultRules, externalActions, maxDuration
+	for name, action := range actions {
+		for _, dep := range action.StartAfter {
+			inDegree[name]++
+			dependents[dep] = append(dependents[dep], name)
+		}
+	}
+
+	// Collect zero-in-degree nodes, sorted for determinism.
+	var queue []string
+	for name, deg := range inDegree {
+		if deg == 0 {
+			queue = append(queue, name)
+		}
+	}
+
+	slices.Sort(queue)
+
+	result := make([]string, 0, len(actions))
+
+	for len(queue) > 0 {
+		// Pop front.
+		cur := queue[0]
+		queue = queue[1:]
+		result = append(result, cur)
+
+		// Reduce in-degree for dependents.
+		next := make([]string, 0)
+
+		for _, dep := range dependents[cur] {
+			inDegree[dep]--
+			if inDegree[dep] == 0 {
+				next = append(next, dep)
+			}
+		}
+
+		slices.Sort(next)
+		queue = append(queue, next...)
+	}
+
+	return result
+}
+
+// setActionStatus atomically updates a single action's status.
+func (b *InMemoryBackend) setActionStatus(expID, actionName, status string) {
+	b.mu.Lock("setActionStatus")
+	defer b.mu.Unlock()
+
+	if exp, ok := b.experiments[expID]; ok {
+		if action, ok2 := exp.Actions[actionName]; ok2 {
+			action.Status = ExperimentActionStatus{Status: status}
+			exp.Actions[actionName] = action
+		}
+	}
 }
 
 // externalAction carries the data needed to call an external FISActionProvider.

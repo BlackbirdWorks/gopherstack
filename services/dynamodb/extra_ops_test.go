@@ -243,7 +243,10 @@ func TestDynamoDB_KinesisDestinations(t *testing.T) {
 			setup: func(t *testing.T, backend *dynamodb.InMemoryDB, _ *dynamodb.DynamoDBHandler) {
 				t.Helper()
 				createTableHelper(t, backend, "KinesisDisableTable", "pk")
-				backend.AddKinesisDestination("KinesisDisableTable", "arn:aws:kinesis:us-east-1:123:stream/my-stream")
+				backend.AddKinesisDestination(
+					"KinesisDisableTable",
+					"arn:aws:kinesis:us-east-1:123:stream/my-stream",
+				)
 			},
 			body: map[string]any{
 				"TableName": "KinesisDisableTable",
@@ -450,12 +453,13 @@ func TestDynamoDB_DescribeImport(t *testing.T) {
 		wantStatus       int
 	}{
 		{
-			name: "success",
+			// AWS returns ImportNotFoundException for an unknown ARN (not a fake COMPLETED).
+			name: "unknown_arn_not_found",
 			body: map[string]any{
 				"ImportArn": "arn:aws:dynamodb:us-east-1:123456789012:table/MyTable/import/01000000-0000-0000-0000-000000000001",
 			},
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "COMPLETED",
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: "ImportNotFoundException",
 		},
 		{
 			name:             "empty_import_arn",
@@ -645,7 +649,10 @@ func TestDynamoDB_ListGlobalTables(t *testing.T) {
 	// but the backend API may be called directly with a zero limit.
 	zeroLimit := int32(0)
 	result, cursor := dynamodb.ApplyGlobalTableLimit(
-		[]sdktypes.GlobalTable{{GlobalTableName: aws.String("A")}, {GlobalTableName: aws.String("B")}},
+		[]sdktypes.GlobalTable{
+			{GlobalTableName: aws.String("A")},
+			{GlobalTableName: aws.String("B")},
+		},
 		&zeroLimit,
 	)
 	assert.Empty(t, result)
@@ -681,7 +688,12 @@ func TestDynamoDB_ResourcePolicy(t *testing.T) {
 		backend := dynamodb.NewInMemoryDB()
 		handler := dynamodb.NewHandler(backend)
 		tableARN := getTestTableARN(t, backend, handler, "RPGetTable")
-		code, _ := invokeOp(t, handler, "GetResourcePolicy", map[string]any{"ResourceArn": tableARN})
+		code, _ := invokeOp(
+			t,
+			handler,
+			"GetResourcePolicy",
+			map[string]any{"ResourceArn": tableARN},
+		)
 		assert.Equal(t, http.StatusOK, code)
 	})
 
@@ -707,7 +719,12 @@ func TestDynamoDB_ResourcePolicy(t *testing.T) {
 		assert.Equal(t, http.StatusOK, code)
 
 		// Verify round-trip: GetResourcePolicy returns the stored policy.
-		code2, resp2 := invokeOp(t, handler, "GetResourcePolicy", map[string]any{"ResourceArn": tableARN})
+		code2, resp2 := invokeOp(
+			t,
+			handler,
+			"GetResourcePolicy",
+			map[string]any{"ResourceArn": tableARN},
+		)
 		assert.Equal(t, http.StatusOK, code2)
 		bodyBytes, _ := json.Marshal(resp2)
 		assert.Contains(t, string(bodyBytes), "2012-10-17")
@@ -718,7 +735,12 @@ func TestDynamoDB_ResourcePolicy(t *testing.T) {
 		backend := dynamodb.NewInMemoryDB()
 		handler := dynamodb.NewHandler(backend)
 		tableARN := getTestTableARN(t, backend, handler, "RPMissingPolicyTable")
-		code, resp := invokeOp(t, handler, "PutResourcePolicy", map[string]any{"ResourceArn": tableARN})
+		code, resp := invokeOp(
+			t,
+			handler,
+			"PutResourcePolicy",
+			map[string]any{"ResourceArn": tableARN},
+		)
 		assert.Equal(t, http.StatusBadRequest, code)
 		bodyBytes, _ := json.Marshal(resp)
 		assert.Contains(t, string(bodyBytes), "ValidationException")
@@ -729,7 +751,12 @@ func TestDynamoDB_ResourcePolicy(t *testing.T) {
 		backend := dynamodb.NewInMemoryDB()
 		handler := dynamodb.NewHandler(backend)
 		tableARN := getTestTableARN(t, backend, handler, "RPDeleteTable")
-		code, _ := invokeOp(t, handler, "DeleteResourcePolicy", map[string]any{"ResourceArn": tableARN})
+		code, _ := invokeOp(
+			t,
+			handler,
+			"DeleteResourcePolicy",
+			map[string]any{"ResourceArn": tableARN},
+		)
 		assert.Equal(t, http.StatusOK, code)
 	})
 
@@ -737,7 +764,12 @@ func TestDynamoDB_ResourcePolicy(t *testing.T) {
 		t.Parallel()
 		backend := dynamodb.NewInMemoryDB()
 		handler := dynamodb.NewHandler(backend)
-		code, resp := invokeOp(t, handler, "DeleteResourcePolicy", map[string]any{"ResourceArn": ""})
+		code, resp := invokeOp(
+			t,
+			handler,
+			"DeleteResourcePolicy",
+			map[string]any{"ResourceArn": ""},
+		)
 		assert.Equal(t, http.StatusBadRequest, code)
 		bodyBytes, _ := json.Marshal(resp)
 		assert.Contains(t, string(bodyBytes), "ValidationException")
@@ -761,11 +793,11 @@ func TestDynamoDB_GlobalTable_PersistenceRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 
 	// Snapshot and restore
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := dynamodb.NewInMemoryDB()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Verify global table persisted
 	freshHandler := dynamodb.NewHandler(fresh)
@@ -1060,17 +1092,23 @@ func TestDynamoDB_UpdateGlobalTable(t *testing.T) {
 			case "add_replica":
 				reqBody = map[string]any{
 					"GlobalTableName": "GTUpdateTest",
-					"ReplicaUpdates":  []map[string]any{{"Create": map[string]any{"RegionName": "eu-west-1"}}},
+					"ReplicaUpdates": []map[string]any{
+						{"Create": map[string]any{"RegionName": "eu-west-1"}},
+					},
 				}
 			case "remove_replica":
 				reqBody = map[string]any{
 					"GlobalTableName": "GTDeleteTest",
-					"ReplicaUpdates":  []map[string]any{{"Delete": map[string]any{"RegionName": "ap-southeast-1"}}},
+					"ReplicaUpdates": []map[string]any{
+						{"Delete": map[string]any{"RegionName": "ap-southeast-1"}},
+					},
 				}
 			case "not_found":
 				reqBody = map[string]any{
 					"GlobalTableName": "nonexistent",
-					"ReplicaUpdates":  []map[string]any{{"Create": map[string]any{"RegionName": "eu-west-1"}}},
+					"ReplicaUpdates": []map[string]any{
+						{"Create": map[string]any{"RegionName": "eu-west-1"}},
+					},
 				}
 			default:
 				reqBody = map[string]any{"ReplicaUpdates": []map[string]any{{}}}
@@ -1119,7 +1157,12 @@ func TestDynamoDB_DescribeTable_GlobalTableVersion(t *testing.T) {
 
 	tableDesc, _ := resp["Table"].(map[string]any)
 	require.NotNil(t, tableDesc, "Table field should be present")
-	assert.Equal(t, "2019.11.21", tableDesc["GlobalTableVersion"], "GlobalTableVersion should be set")
+	assert.Equal(
+		t,
+		"2019.11.21",
+		tableDesc["GlobalTableVersion"],
+		"GlobalTableVersion should be set",
+	)
 }
 
 // TestDynamoDB_DescribeTable_BillingMode_PayPerRequest verifies that DescribeTable
@@ -1366,7 +1409,11 @@ func TestDynamoDB_UpdateKinesisPrecision(t *testing.T) {
 	dests, ok := resp2["KinesisDataStreamDestinations"].([]any)
 	require.True(t, ok)
 	require.Len(t, dests, 1)
-	assert.Equal(t, "MICROSECOND", dests[0].(map[string]any)["ApproximateCreationDateTimePrecision"])
+	assert.Equal(
+		t,
+		"MICROSECOND",
+		dests[0].(map[string]any)["ApproximateCreationDateTimePrecision"],
+	)
 }
 
 // TestDynamoDB_UpdateKinesisDestination_NotFound verifies a 404 when stream not enabled.
@@ -1405,8 +1452,11 @@ func TestDynamoDB_UpdateGlobalTableSettings_PersistsBillingMode(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 
 	code2, _ := invokeOp(t, handler, "CreateGlobalTable", map[string]any{
-		"GlobalTableName":  "BillingGT",
-		"ReplicationGroup": []map[string]any{{"RegionName": "us-east-1"}, {"RegionName": "eu-west-1"}},
+		"GlobalTableName": "BillingGT",
+		"ReplicationGroup": []map[string]any{
+			{"RegionName": "us-east-1"},
+			{"RegionName": "eu-west-1"},
+		},
 	})
 	require.Equal(t, http.StatusOK, code2)
 
@@ -1440,7 +1490,12 @@ func TestDynamoDB_UpdateGlobalTableSettings_PersistsBillingMode(t *testing.T) {
 	for _, r := range replicas2 {
 		rm := r.(map[string]any)
 		billingSum, _ := rm["ReplicaBillingModeSummary"].(map[string]any)
-		assert.Equal(t, "PROVISIONED", billingSum["BillingMode"], "persisted billing mode should be returned")
+		assert.Equal(
+			t,
+			"PROVISIONED",
+			billingSum["BillingMode"],
+			"persisted billing mode should be returned",
+		)
 	}
 }
 
@@ -1453,8 +1508,11 @@ func TestDynamoDB_UpdateGlobalTableSettings_ReplicaTableClass(t *testing.T) {
 	handler := dynamodb.NewHandler(backend)
 
 	code, _ := invokeOp(t, handler, "CreateGlobalTable", map[string]any{
-		"GlobalTableName":  "ClassGT",
-		"ReplicationGroup": []map[string]any{{"RegionName": "us-east-1"}, {"RegionName": "ap-southeast-1"}},
+		"GlobalTableName": "ClassGT",
+		"ReplicationGroup": []map[string]any{
+			{"RegionName": "us-east-1"},
+			{"RegionName": "ap-southeast-1"},
+		},
 	})
 	require.Equal(t, http.StatusOK, code)
 
@@ -1576,7 +1634,9 @@ func buildEnableKinesisInput(
 
 	if precision != "" {
 		in.EnableKinesisStreamingConfiguration = &sdktypes.EnableKinesisStreamingConfiguration{
-			ApproximateCreationDateTimePrecision: sdktypes.ApproximateCreationDateTimePrecision(precision),
+			ApproximateCreationDateTimePrecision: sdktypes.ApproximateCreationDateTimePrecision(
+				precision,
+			),
 		}
 	}
 

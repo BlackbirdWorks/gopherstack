@@ -73,9 +73,6 @@ const (
 	keyAlgorithmEC = "EC_prime256v1"
 	// signatureAlgorithmECDSA is the signature algorithm string for ECDSA with SHA-256.
 
-	// hexBase is the numeric base used when formatting [big.Int] serial numbers as hex strings.
-	hexBase = 16
-
 	// maxDomainLength is the maximum length of a domain name per RFC 1035 / AWS ACM constraints.
 	maxDomainLength = 253
 	// maxDomainLabelLength is the maximum length of a single DNS label (component between dots).
@@ -327,6 +324,9 @@ func (b *InMemoryBackend) RequestCertificate(
 		optionsPref = transparencyLoggingEnabled
 	}
 
+	// Real AWS ACM always includes the primary domain as the first SAN entry.
+	allSANs := buildSANList(domainName, sans)
+
 	cert := &Certificate{
 		ARN:                                certARN,
 		DomainName:                         domainName,
@@ -340,7 +340,7 @@ func (b *InMemoryBackend) RequestCertificate(
 		RenewalEligibility:                 renewalEligibility,
 		ValidationMethod:                   validationMethod,
 		IdempotencyToken:                   idempotencyToken,
-		SubjectAlternativeNames:            sans,
+		SubjectAlternativeNames:            allSANs,
 		DomainValidationOptions:            dvoList,
 		CertificateBody:                    certBody,
 		PrivateKey:                         privateKey,
@@ -398,7 +398,7 @@ func (b *InMemoryBackend) checkIdempotency(
 
 	if c.DomainName != domainName || c.ValidationMethod != validationMethod ||
 		c.KeyAlgorithm != keyAlgorithm ||
-		!slices.Equal(c.SubjectAlternativeNames, sans) {
+		!slices.Equal(c.SubjectAlternativeNames, buildSANList(domainName, sans)) {
 		return nil, false, fmt.Errorf(
 			"%w: idempotency token already used with different parameters",
 			ErrInvalidParameter,
@@ -1242,7 +1242,7 @@ func generateSelfSignedCert(
 	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: keyType, Bytes: keyDER}))
 
 	meta := certMetadata{
-		serial:             serial.Text(hexBase),
+		serial:             formatSerialHex(serial),
 		subject:            subjectName.String(),
 		issuer:             subjectName.String(), // self-signed: issuer == subject
 		signatureAlgorithm: sigAlgo,
@@ -1270,7 +1270,7 @@ func extractCertMetadataFull(certPEM string) (string, certMetadata, time.Time, t
 	}
 
 	meta := certMetadata{
-		serial:             cert.SerialNumber.Text(hexBase),
+		serial:             formatSerialHex(cert.SerialNumber),
 		subject:            cert.Subject.String(),
 		issuer:             cert.Issuer.String(),
 		signatureAlgorithm: cert.SignatureAlgorithm.String(),
@@ -1345,6 +1345,35 @@ func x509ExtKeyUsageToAWS(ekus []x509.ExtKeyUsage) []string {
 	return result
 }
 
+// buildSANList returns a deduplicated list with domainName first, followed by sans.
+// Real AWS ACM always includes the primary domain as the first SubjectAlternativeName entry.
+func buildSANList(domainName string, sans []string) []string {
+	result := []string{domainName}
+	seen := map[string]bool{domainName: true}
+
+	for _, s := range sans {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+
+	return result
+}
+
+// formatSerialHex formats a certificate serial number as colon-separated hex pairs,
+// matching the AWS ACM serial number wire format (e.g. "1a:2b:3c:4d").
+func formatSerialHex(serial *big.Int) string {
+	raw := serial.Bytes()
+	pairs := make([]string, len(raw))
+
+	for i, b := range raw {
+		pairs[i] = fmt.Sprintf("%02x", b)
+	}
+
+	return strings.Join(pairs, ":")
+}
+
 // encryptPrivateKeyPEM encrypts a PEM-encoded private key with the given passphrase,
 // returning a PEM block with type "ENCRYPTED PRIVATE KEY".
 func encryptPrivateKeyPEM(privateKeyPEM string, passphrase []byte) (string, error) {
@@ -1384,6 +1413,21 @@ func (b *InMemoryBackend) Reset() {
 	b.idempotencyMap = make(map[string]map[string]certIdempotencyEntry)
 	b.accountIdempotency = make(map[string]map[string]accountIdempotencyEntry)
 	b.accountConfig = make(map[string]AccountConfig)
+}
+
+// Close stops all in-flight certificate auto-validation timers so their
+// goroutines do not outlive the backend, without otherwise clearing state. It is
+// safe to call multiple times.
+func (b *InMemoryBackend) Close() {
+	b.mu.Lock("Close")
+	defer b.mu.Unlock()
+
+	for _, regionTimers := range b.timers {
+		for _, t := range regionTimers {
+			t.Stop()
+		}
+	}
+	b.timers = make(map[string]map[string]*time.Timer)
 }
 
 // GetAccountConfiguration returns the account-level ACM configuration for the request region.

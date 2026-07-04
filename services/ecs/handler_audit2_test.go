@@ -287,9 +287,11 @@ func TestAudit2_TaskDefinition_Volumes_RoundTrip(t *testing.T) {
 		"family": "vol-rt-task",
 		"containerDefinitions": []any{
 			map[string]any{
-				"name":        "app",
-				"image":       "nginx",
-				"mountPoints": []any{map[string]any{"sourceVolume": "data", "containerPath": "/data"}},
+				"name":  "app",
+				"image": "nginx",
+				"mountPoints": []any{
+					map[string]any{"sourceVolume": "data", "containerPath": "/data"},
+				},
 			},
 		},
 		"volumes": []any{

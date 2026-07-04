@@ -37,8 +37,10 @@ var (
 
 // Attribute name and boolean-string constants shared across backend and handler.
 const (
-	attrSourceDest = "sourceDestCheck"
-	ec2BooleanTrue = "true"
+	attrSourceDest    = "sourceDestCheck"
+	ec2BooleanTrue    = "true"
+	volTypeDefaultGP2 = "gp2"
+	volTypeGP3        = "gp3"
 )
 
 // KeyPair represents an EC2 key pair.
@@ -63,6 +65,8 @@ type Volume struct {
 	State      string            `json:"state,omitempty"`
 	KmsKeyID   string            `json:"kmsKeyId,omitempty"`
 	Size       int               `json:"size,omitempty"`
+	Iops       int               `json:"iops,omitempty"`
+	Throughput int               `json:"throughput,omitempty"`
 	Encrypted  bool              `json:"encrypted,omitempty"`
 }
 
@@ -123,6 +127,7 @@ type NatGateway struct {
 	CreateTime   time.Time `json:"createTime"`
 	ID           string    `json:"id,omitempty"`
 	SubnetID     string    `json:"subnetID,omitempty"`
+	VPCID        string    `json:"vpcID,omitempty"`
 	AllocationID string    `json:"allocationID,omitempty"`
 	PublicIP     string    `json:"publicIP,omitempty"`
 	PrivateIP    string    `json:"privateIP,omitempty"`
@@ -552,7 +557,7 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, e
 	}
 
 	if volType == "" {
-		volType = "gp2"
+		volType = volTypeDefaultGP2
 	}
 
 	if size <= 0 {
@@ -910,6 +915,7 @@ func (b *InMemoryBackend) CreateRouteTable(vpcID string) (*RouteTable, error) {
 		Associations: []RouteAssociation{},
 	}
 	b.routeTables[id] = rt
+	b.indexRouteTableLocked(id, vpcID)
 
 	return rt, nil
 }
@@ -919,10 +925,12 @@ func (b *InMemoryBackend) DeleteRouteTable(id string) error {
 	b.mu.Lock("DeleteRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.routeTables[id]; !ok {
+	rt, ok := b.routeTables[id]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrRouteTableNotFound, id)
 	}
 
+	b.deindexRouteTableLocked(id, rt.VPCID)
 	delete(b.routeTables, id)
 	delete(b.tags, id)
 
@@ -1050,7 +1058,8 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	b.mu.Lock("CreateNatGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.subnets[subnetID]; !ok {
+	subnet, ok := b.subnets[subnetID]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
@@ -1063,6 +1072,7 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	ngw := &NatGateway{
 		ID:           id,
 		SubnetID:     subnetID,
+		VPCID:        subnet.VPCID,
 		AllocationID: allocationID,
 		PublicIP:     addr.PublicIP,
 		PrivateIP:    b.allocPrivateIP(),
@@ -1070,6 +1080,7 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 		CreateTime:   time.Now(),
 	}
 	b.natGateways[id] = ngw
+	b.indexNatGatewayLocked(ngw)
 
 	return ngw, nil
 }
@@ -1085,6 +1096,7 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	}
 
 	b.recycleIPLocked(ngw.PrivateIP)
+	b.deindexNatGatewayLocked(ngw)
 	delete(b.natGateways, id)
 	delete(b.tags, id)
 
@@ -1237,7 +1249,11 @@ func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 
 	for _, rule := range rules {
 		if !ruleExists(sg.EgressRules, rule) {
-			return fmt.Errorf("%w: rule not found in group %s", ErrNetworkInterfacePermissionNotFound, groupID)
+			return fmt.Errorf(
+				"%w: rule not found in group %s",
+				ErrNetworkInterfacePermissionNotFound,
+				groupID,
+			)
 		}
 	}
 
@@ -1291,6 +1307,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 	}
 	b.networkInterfaces[id] = eni
 	b.indexENILocked(id, eni)
+	b.indexENIByVPCLocked(id, eni)
 
 	return eni, nil
 }
@@ -1317,6 +1334,7 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 
 	b.recycleENIIPsLocked(eni)
 	b.deindexENILocked(id, eni)
+	b.deindexENIByVPCLocked(id, eni)
 	delete(b.networkInterfaces, id)
 	delete(b.tags, id)
 
@@ -1450,7 +1468,7 @@ func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value str
 	}
 
 	switch attr {
-	case "description":
+	case filterKeyDescription:
 		eni.Description = value
 	case attrSourceDest:
 		eni.SourceDestCheck = value == ec2BooleanTrue

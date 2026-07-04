@@ -2,12 +2,14 @@ package kafka
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -1051,6 +1053,7 @@ type describeClusterOutput struct {
 }
 
 type listClustersOutput struct {
+	NextToken       string           `json:"nextToken,omitempty"`
 	ClusterInfoList []*clusterInfoV1 `json:"clusterInfoList"`
 }
 
@@ -1085,6 +1088,7 @@ type describeClusterV2Output struct {
 }
 
 type listClustersV2Output struct {
+	NextToken       string           `json:"nextToken,omitempty"`
 	ClusterInfoList []*clusterInfoV2 `json:"clusterInfoList"`
 }
 
@@ -1143,8 +1147,10 @@ type createConfigurationInput struct {
 }
 
 type createConfigurationOutput struct {
-	Arn  string `json:"arn"`
-	Name string `json:"name"`
+	Arn            string                `json:"arn"`
+	Name           string                `json:"name"`
+	State          string                `json:"state"`
+	LatestRevision configurationRevision `json:"latestRevision"`
 }
 
 type configurationRevision struct {
@@ -1162,6 +1168,7 @@ type describeConfigurationOutput struct {
 }
 
 type listConfigurationsOutput struct {
+	NextToken      string           `json:"nextToken,omitempty"`
 	Configurations []*Configuration `json:"configurations"`
 }
 
@@ -1293,24 +1300,54 @@ func (h *Handler) handleCreateClusterV2(ctx context.Context, c *echo.Context, bo
 
 func (h *Handler) handleListClusters(ctx context.Context, c *echo.Context) error {
 	clusters := h.Backend.ListClusters(ctx)
-	out := make([]*clusterInfoV1, 0, len(clusters))
+	all := make([]*clusterInfoV1, 0, len(clusters))
 
 	for _, cl := range clusters {
-		out = append(out, toClusterInfoV1(cl))
+		all = append(all, toClusterInfoV1(cl))
 	}
 
-	return c.JSON(http.StatusOK, listClustersOutput{ClusterInfoList: out})
+	token := c.Request().URL.Query().Get("nextToken")
+	offset := decodeKafkaPageToken(token)
+
+	offset = min(offset, len(all))
+
+	page := all[offset:]
+	pageSize := kafkaPageSize(c)
+
+	var nextToken string
+
+	if len(page) > pageSize {
+		page = page[:pageSize]
+		nextToken = encodeKafkaPageToken(offset + pageSize)
+	}
+
+	return c.JSON(http.StatusOK, listClustersOutput{ClusterInfoList: page, NextToken: nextToken})
 }
 
 func (h *Handler) handleListClustersV2(ctx context.Context, c *echo.Context) error {
 	clusters := h.Backend.ListClusters(ctx)
-	out := make([]*clusterInfoV2, 0, len(clusters))
+	all := make([]*clusterInfoV2, 0, len(clusters))
 
 	for _, cl := range clusters {
-		out = append(out, toClusterInfoV2(cl))
+		all = append(all, toClusterInfoV2(cl))
 	}
 
-	return c.JSON(http.StatusOK, listClustersV2Output{ClusterInfoList: out})
+	token := c.Request().URL.Query().Get("nextToken")
+	offset := decodeKafkaPageToken(token)
+
+	offset = min(offset, len(all))
+
+	page := all[offset:]
+	pageSize := kafkaPageSize(c)
+
+	var nextToken string
+
+	if len(page) > pageSize {
+		page = page[:pageSize]
+		nextToken = encodeKafkaPageToken(offset + pageSize)
+	}
+
+	return c.JSON(http.StatusOK, listClustersV2Output{ClusterInfoList: page, NextToken: nextToken})
 }
 
 func (h *Handler) handleDescribeCluster(ctx context.Context, c *echo.Context, clusterArn string) error {
@@ -1577,15 +1614,35 @@ func (h *Handler) handleCreateConfiguration(ctx context.Context, c *echo.Context
 	}
 
 	return c.JSON(http.StatusOK, createConfigurationOutput{
-		Arn:  config.Arn,
-		Name: config.Name,
+		Arn:   config.Arn,
+		Name:  config.Name,
+		State: ClusterStateActive,
+		LatestRevision: configurationRevision{
+			Revision:    1,
+			Description: config.Description,
+		},
 	})
 }
 
 func (h *Handler) handleListConfigurations(ctx context.Context, c *echo.Context) error {
-	configs := h.Backend.ListConfigurations(ctx)
+	all := h.Backend.ListConfigurations(ctx)
 
-	return c.JSON(http.StatusOK, listConfigurationsOutput{Configurations: configs})
+	token := c.Request().URL.Query().Get("nextToken")
+	offset := decodeKafkaPageToken(token)
+
+	offset = min(offset, len(all))
+
+	page := all[offset:]
+	pageSize := kafkaPageSize(c)
+
+	var nextToken string
+
+	if len(page) > pageSize {
+		page = page[:pageSize]
+		nextToken = encodeKafkaPageToken(offset + pageSize)
+	}
+
+	return c.JSON(http.StatusOK, listConfigurationsOutput{Configurations: page, NextToken: nextToken})
 }
 
 func (h *Handler) handleDescribeConfiguration(ctx context.Context, c *echo.Context, configArn string) error {
@@ -1967,6 +2024,7 @@ func (h *Handler) handleListScramSecrets(ctx context.Context, c *echo.Context, c
 // ----------------------------------------
 
 type listReplicatorsOutput struct {
+	NextToken   string        `json:"nextToken,omitempty"`
 	Replicators []*Replicator `json:"replicators"`
 }
 
@@ -1989,9 +2047,24 @@ func (h *Handler) handleDescribeReplicator(ctx context.Context, c *echo.Context,
 }
 
 func (h *Handler) handleListReplicators(ctx context.Context, c *echo.Context) error {
-	replicators := h.Backend.ListReplicators(ctx)
+	all := h.Backend.ListReplicators(ctx)
 
-	return c.JSON(http.StatusOK, listReplicatorsOutput{Replicators: replicators})
+	token := c.Request().URL.Query().Get("nextToken")
+	offset := decodeKafkaPageToken(token)
+
+	offset = min(offset, len(all))
+
+	page := all[offset:]
+	pageSize := kafkaPageSize(c)
+
+	var nextToken string
+
+	if len(page) > pageSize {
+		page = page[:pageSize]
+		nextToken = encodeKafkaPageToken(offset + pageSize)
+	}
+
+	return c.JSON(http.StatusOK, listReplicatorsOutput{Replicators: page, NextToken: nextToken})
 }
 
 func (h *Handler) handleUpdateReplicationInfo(
@@ -2026,7 +2099,8 @@ func (h *Handler) handleUpdateReplicationInfo(
 // ----------------------------------------
 
 type listTopicsOutput struct {
-	Topics []*Topic `json:"topics"`
+	NextToken string   `json:"nextToken,omitempty"`
+	Topics    []*Topic `json:"topics"`
 }
 
 type updateTopicInput struct {
@@ -2073,12 +2147,27 @@ func (h *Handler) handleDescribeTopicPartitions(ctx context.Context, c *echo.Con
 }
 
 func (h *Handler) handleListTopics(ctx context.Context, c *echo.Context, clusterArn string) error {
-	topics, err := h.Backend.ListTopics(ctx, clusterArn)
+	all, err := h.Backend.ListTopics(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listTopicsOutput{Topics: topics})
+	token := c.Request().URL.Query().Get("nextToken")
+	offset := decodeKafkaPageToken(token)
+
+	offset = min(offset, len(all))
+
+	page := all[offset:]
+	pageSize := kafkaPageSize(c)
+
+	var nextToken string
+
+	if len(page) > pageSize {
+		page = page[:pageSize]
+		nextToken = encodeKafkaPageToken(offset + pageSize)
+	}
+
+	return c.JSON(http.StatusOK, listTopicsOutput{Topics: page, NextToken: nextToken})
 }
 
 func (h *Handler) handleUpdateTopic(ctx context.Context, c *echo.Context, resource string, body []byte) error {
@@ -2241,6 +2330,7 @@ func (h *Handler) handleListClusterOperationsV2(ctx context.Context, c *echo.Con
 // ----------------------------------------
 
 type listConfigurationRevisionsOutput struct {
+	NextToken string                   `json:"nextToken,omitempty"`
 	Revisions []*ConfigurationRevision `json:"revisions"`
 }
 
@@ -2272,12 +2362,27 @@ func (h *Handler) handleDescribeConfigurationRevision(ctx context.Context, c *ec
 }
 
 func (h *Handler) handleListConfigurationRevisions(ctx context.Context, c *echo.Context, configArn string) error {
-	revisions, err := h.Backend.ListConfigurationRevisions(ctx, configArn)
+	all, err := h.Backend.ListConfigurationRevisions(ctx, configArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listConfigurationRevisionsOutput{Revisions: revisions})
+	token := c.Request().URL.Query().Get("nextToken")
+	offset := decodeKafkaPageToken(token)
+
+	offset = min(offset, len(all))
+
+	page := all[offset:]
+	pageSize := kafkaPageSize(c)
+
+	var nextToken string
+
+	if len(page) > pageSize {
+		page = page[:pageSize]
+		nextToken = encodeKafkaPageToken(offset + pageSize)
+	}
+
+	return c.JSON(http.StatusOK, listConfigurationRevisionsOutput{Revisions: page, NextToken: nextToken})
 }
 
 func (h *Handler) handleUpdateConfiguration(ctx context.Context, c *echo.Context, configArn string, body []byte) error {
@@ -2296,7 +2401,15 @@ func (h *Handler) handleUpdateConfiguration(ctx context.Context, c *echo.Context
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, createConfigurationOutput{Arn: config.Arn, Name: config.Name})
+	return c.JSON(http.StatusOK, createConfigurationOutput{
+		Arn:   config.Arn,
+		Name:  config.Name,
+		State: ClusterStateActive,
+		LatestRevision: configurationRevision{
+			Revision:    1,
+			Description: config.Description,
+		},
+	})
 }
 
 // ----------------------------------------
@@ -2377,6 +2490,41 @@ func (h *Handler) handleRebootBroker(ctx context.Context, c *echo.Context, clust
 // Cluster update handlers
 // ----------------------------------------
 
+// requireCurrentVersion validates that the supplied currentVersion matches the
+// cluster's recorded CurrentVersion, enforcing AWS MSK's optimistic-lock guard.
+// It writes an error response and returns (false, err) when validation fails so
+// callers can do: if ok, err := h.requireCurrentVersion(...); !ok { return err }.
+func (h *Handler) requireCurrentVersion(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn, version string,
+) (bool, error) {
+	if version == "" {
+		return false, h.writeError(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"currentVersion is required",
+		)
+	}
+
+	cl, err := h.Backend.DescribeCluster(ctx, clusterArn)
+	if err != nil {
+		return false, h.writeBackendError(c, err)
+	}
+
+	if cl.CurrentVersion != version {
+		return false, h.writeError(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"The specified cluster version is not current. Current version: "+cl.CurrentVersion+".",
+		)
+	}
+
+	return true, nil
+}
+
 type updateBrokerCountInput struct {
 	CurrentVersion            string `json:"currentVersion"`
 	TargetNumberOfBrokerNodes int32  `json:"targetNumberOfBrokerNodes"`
@@ -2418,6 +2566,10 @@ func (h *Handler) handleUpdateBrokerCount(ctx context.Context, c *echo.Context, 
 		)
 	}
 
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
+	}
+
 	op, err := h.Backend.UpdateBrokerCount(ctx, clusterArn, in.TargetNumberOfBrokerNodes)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2443,6 +2595,10 @@ func (h *Handler) handleUpdateBrokerStorage(
 			"BadRequestException",
 			"invalid request body: "+err.Error(),
 		)
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	var volumeSize int32
@@ -2472,6 +2628,10 @@ func (h *Handler) handleUpdateBrokerType(ctx context.Context, c *echo.Context, c
 		)
 	}
 
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
+	}
+
 	op, err := h.Backend.UpdateBrokerType(ctx, clusterArn, in.TargetInstanceType)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2497,6 +2657,10 @@ func (h *Handler) handleUpdateClusterConfiguration(
 			"BadRequestException",
 			"invalid request body: "+err.Error(),
 		)
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	op, err := h.Backend.UpdateClusterConfiguration(ctx,
@@ -2530,6 +2694,10 @@ func (h *Handler) handleUpdateClusterKafkaVersion(
 		)
 	}
 
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
+	}
+
 	op, err := h.Backend.UpdateClusterKafkaVersion(ctx, clusterArn, in.TargetKafkaVersion)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2551,6 +2719,10 @@ func (h *Handler) handleUpdateConnectivity(ctx context.Context, c *echo.Context,
 	var in updateConnectivityInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	op, err := h.Backend.UpdateConnectivity(ctx, clusterArn, UpdateConnectivitySettings{
@@ -2578,6 +2750,10 @@ func (h *Handler) handleUpdateMonitoring(ctx context.Context, c *echo.Context, c
 	var in updateMonitoringInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	op, err := h.Backend.UpdateMonitoring(ctx, clusterArn, UpdateMonitoringSettings{
@@ -2620,6 +2796,10 @@ func (h *Handler) handleUpdateSecurity(ctx context.Context, c *echo.Context, clu
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
 	}
 
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
+	}
+
 	op, err := h.Backend.UpdateSecurity(ctx, clusterArn, UpdateSecuritySettings{
 		ClientAuthentication: in.ClientAuthentication,
 		EncryptionInfo:       in.EncryptionInfo,
@@ -2646,6 +2826,10 @@ func (h *Handler) handleUpdateStorage(ctx context.Context, c *echo.Context, clus
 	var in updateStorageInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	op, err := h.Backend.UpdateStorage(ctx, clusterArn, UpdateStorageSettings{
@@ -2676,6 +2860,55 @@ func decodeJSONBody(body []byte, v any) error {
 // ----------------------------------------
 // Error helpers
 // ----------------------------------------
+
+const defaultPageSize = 100
+
+// encodeKafkaPageToken encodes an integer offset as a base64url-encoded JSON token.
+func encodeKafkaPageToken(offset int) string {
+	data, _ := json.Marshal(struct {
+		O int `json:"o"`
+	}{O: offset})
+
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+// decodeKafkaPageToken decodes a base64url-encoded JSON token. Returns 0 on any failure.
+func decodeKafkaPageToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	data, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return 0
+	}
+
+	var t struct {
+		O int `json:"o"`
+	}
+
+	err = json.Unmarshal(data, &t)
+	if err != nil {
+		return 0
+	}
+
+	return t.O
+}
+
+// kafkaPageSize parses the maxResults query param, falling back to defaultPageSize.
+func kafkaPageSize(c *echo.Context) int {
+	raw := c.Request().URL.Query().Get("maxResults")
+	if raw == "" {
+		return defaultPageSize
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return defaultPageSize
+	}
+
+	return n
+}
 
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
 	return c.JSON(status, kafkaErrorResponse{

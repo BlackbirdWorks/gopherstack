@@ -3,7 +3,6 @@ package pipes
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -47,6 +47,8 @@ var (
 	ErrNotFound      = awserr.New("NotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
 	ErrValidation    = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	ErrConflict      = awserr.New("ConflictException", awserr.ErrConflict)
+	ErrQuota         = awserr.New("ServiceQuotaExceededException", awserr.ErrConflict)
 
 	pipeNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 )
@@ -1006,7 +1008,7 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*
 	if len(store) >= maxPipesPerAcct {
 		return nil, fmt.Errorf(
 			"%w: account has reached the maximum number of pipes (%d)",
-			ErrValidation,
+			ErrQuota,
 			maxPipesPerAcct,
 		)
 	}
@@ -1087,7 +1089,7 @@ type ListPipesResult struct {
 	Pipes     []*Pipe
 }
 
-func (b *InMemoryBackend) ListPipes(ctx context.Context, f ListPipesFilter) ListPipesResult {
+func (b *InMemoryBackend) ListPipes(ctx context.Context, f ListPipesFilter) (ListPipesResult, error) {
 	b.mu.RLock("ListPipes")
 	defer b.mu.RUnlock()
 
@@ -1099,11 +1101,16 @@ func (b *InMemoryBackend) ListPipes(ctx context.Context, f ListPipesFilter) List
 	}
 
 	names := sortedPipeNames(store)
-	startIdx := resolveStartIndex(names, f.NextToken)
+
+	startIdx, err := resolveStartIndex(names, f.NextToken)
+	if err != nil {
+		return ListPipesResult{}, err
+	}
+
 	result, lastIncluded := collectMatchingPipes(store, names, startIdx, limit, f)
 	nextToken := buildNextToken(store, names, startIdx, len(result), limit, lastIncluded, f)
 
-	return ListPipesResult{Pipes: result, NextToken: nextToken}
+	return ListPipesResult{Pipes: result, NextToken: nextToken}, nil
 }
 
 // allRunningPipes returns all RUNNING pipes across every region. Used by the
@@ -1141,13 +1148,13 @@ func sortedPipeNames(store map[string]*Pipe) []string {
 	return names
 }
 
-func resolveStartIndex(names []string, nextToken string) int {
+func resolveStartIndex(names []string, nextToken string) (int, error) {
 	if nextToken == "" {
-		return 0
+		return 0, nil
 	}
 	decoded, err := base64.StdEncoding.DecodeString(nextToken)
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("%w: invalid NextToken", ErrValidation)
 	}
 	cursor := strings.TrimSuffix(string(decoded), nextTokenSep)
 	startIdx := len(names)
@@ -1159,7 +1166,7 @@ func resolveStartIndex(names []string, nextToken string) int {
 		}
 	}
 
-	return startIdx
+	return startIdx, nil
 }
 
 func collectMatchingPipes(
@@ -1291,7 +1298,6 @@ func (b *InMemoryBackend) UpdatePipe(ctx context.Context, name string, in Update
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
-
 	applyUpdateFields(p, in)
 
 	prevDesiredState := p.DesiredState
@@ -1332,6 +1338,12 @@ func (b *InMemoryBackend) DeletePipe(ctx context.Context, name string) (*Pipe, e
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
+	if p.CurrentState == stateDeleting {
+		return nil, fmt.Errorf(
+			"%w: pipe %s is already being deleted",
+			ErrConflict, name,
+		)
+	}
 	p.CurrentState = stateDeleting
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
@@ -1355,34 +1367,73 @@ func (b *InMemoryBackend) completeDeleteTransition(region, name string) {
 	if p.CurrentState == stateDeleting {
 		delete(b.pipeARNIndexStore(region), p.ARN)
 		delete(store, name)
+		// Prune the per-pipe enrichment counter to prevent unbounded growth.
+		if cc := b.enrichmentCallCount[region]; cc != nil {
+			delete(cc, name)
+		}
 	}
 }
 
-func (b *InMemoryBackend) StartPipe(ctx context.Context, name string) (*Pipe, error) {
-	b.mu.Lock("StartPipe")
+// pipeDesiredStateOpts parameterises the common logic of StartPipe and StopPipe.
+type pipeDesiredStateOpts struct {
+	completeAfter func(region, name string)
+	lockName      string
+	blockedState  string
+	desiredState  string
+	transitState  string
+}
+
+// changePipeDesiredState is the shared body of StartPipe and StopPipe.
+func (b *InMemoryBackend) changePipeDesiredState(
+	ctx context.Context,
+	name string,
+	opts pipeDesiredStateOpts,
+) (*Pipe, error) {
+	b.mu.Lock(opts.lockName)
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 	p, ok := b.pipesStore(region)[name]
+
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
-	if p.DesiredState == stateRunning {
-		return nil, fmt.Errorf("%w: pipe %s already has desired state RUNNING", ErrValidation, name)
+
+	if p.CurrentState == opts.blockedState || p.CurrentState == stateDeleting {
+		return nil, fmt.Errorf(
+			"%w: pipe %s is in a transitional state %s",
+			ErrConflict, name, p.CurrentState,
+		)
 	}
-	p.DesiredState = stateRunning
-	// Transition through STARTING → RUNNING to simulate AWS behavior.
-	p.CurrentState = stateStarting
+
+	if p.DesiredState == opts.desiredState {
+		return nil, fmt.Errorf(
+			"%w: pipe %s already has desired state %s",
+			ErrConflict, name, opts.desiredState,
+		)
+	}
+
+	p.DesiredState = opts.desiredState
+	p.CurrentState = opts.transitState
 	p.StateReason = ""
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
 
-	// Complete the transition to RUNNING asynchronously.
 	b.runDelayed(func() {
-		b.completeStartTransition(region, name)
+		opts.completeAfter(region, name)
 	})
 
 	return cp, nil
+}
+
+func (b *InMemoryBackend) StartPipe(ctx context.Context, name string) (*Pipe, error) {
+	return b.changePipeDesiredState(ctx, name, pipeDesiredStateOpts{
+		lockName:      "StartPipe",
+		blockedState:  stateStarting,
+		desiredState:  stateRunning,
+		transitState:  stateStarting,
+		completeAfter: b.completeStartTransition,
+	})
 }
 
 // completeStartTransition moves a pipe from STARTING to RUNNING.
@@ -1400,30 +1451,13 @@ func (b *InMemoryBackend) completeStartTransition(region, name string) {
 }
 
 func (b *InMemoryBackend) StopPipe(ctx context.Context, name string) (*Pipe, error) {
-	b.mu.Lock("StopPipe")
-	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
-	p, ok := b.pipesStore(region)[name]
-	if !ok {
-		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
-	}
-	if p.DesiredState == stateStopped {
-		return nil, fmt.Errorf("%w: pipe %s already has desired state STOPPED", ErrValidation, name)
-	}
-	p.DesiredState = stateStopped
-	// Transition through STOPPING → STOPPED to simulate AWS behavior.
-	p.CurrentState = stateStopping
-	p.StateReason = ""
-	p.LastModifiedTime = time.Now()
-	cp := clonePipe(p)
-
-	// Complete the transition to STOPPED asynchronously.
-	b.runDelayed(func() {
-		b.completeStopTransition(region, name)
+	return b.changePipeDesiredState(ctx, name, pipeDesiredStateOpts{
+		lockName:      "StopPipe",
+		blockedState:  stateStopping,
+		desiredState:  stateStopped,
+		transitState:  stateStopping,
+		completeAfter: b.completeStopTransition,
 	})
-
-	return cp, nil
 }
 
 // completeStopTransition moves a pipe from STOPPING to STOPPED.
@@ -1587,7 +1621,7 @@ func validateTags(tags map[string]string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 	type snap struct {
@@ -1602,15 +1636,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:              b.region,
 		EnrichmentCallCount: b.enrichmentCallCount,
 	}
-	data, err := json.Marshal(s)
-	if err != nil {
-		return nil
-	}
 
-	return data
+	return persistence.MarshalSnapshot(ctx, "pipes", s)
 }
 
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	type snap struct {
 		Pipes               map[string]map[string]*Pipe `json:"pipes"`
 		EnrichmentCallCount map[string]map[string]int64 `json:"enrichmentCallCount,omitempty"`
@@ -1618,7 +1648,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		Region              string                      `json:"region"`
 	}
 	var s snap
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "pipes", data, &s); err != nil {
 		return err
 	}
 	b.mu.Lock("Restore")

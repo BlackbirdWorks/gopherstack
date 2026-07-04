@@ -1,8 +1,12 @@
 package redshift
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"time"
 )
 
 const (
@@ -10,8 +14,10 @@ const (
 	endpointStatusActive = "active"
 	// redshiftDefaultPort is the default Redshift cluster port.
 	redshiftDefaultPort = 5439
-	// minClusterNodes is the minimum number of nodes for a node config option stub.
+	// minClusterNodes is the minimum number of nodes for a node config option.
 	minClusterNodes = 2
+	// identityCenterTokenExpiryMinutes is the validity window for a generated IdentityCenter auth token.
+	identityCenterTokenExpiryMinutes = 15
 )
 
 // buildOpsCompleteness returns stub dispatch entries for all previously
@@ -828,23 +834,24 @@ type modifyClusterDBRevisionResponse struct {
 
 func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
-	cluster, err := h.Backend.DescribeClusters(id)
+	clusters, _, err := h.Backend.DescribeClusters(id, "", 0)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(cluster) == 0 {
+	if len(clusters) == 0 {
 		return &modifyClusterDBRevisionResponse{Xmlns: redshiftXMLNS}, nil
 	}
 
 	return &modifyClusterDBRevisionResponse{
 		Xmlns:  redshiftXMLNS,
-		Result: toXMLCluster(&cluster[0]),
+		Result: toXMLCluster(&clusters[0]),
 	}, nil
 }
 
 type nodeConfigOptionXML struct {
 	NodeType                        string  `xml:"NodeType"`
+	Mode                            string  `xml:"Mode,omitempty"`
 	NumberOfNodes                   int     `xml:"NumberOfNodes"`
 	EstimatedDiskUtilizationPercent float64 `xml:"EstimatedDiskUtilizationPercent"`
 }
@@ -853,21 +860,57 @@ type describeNodeConfigurationOptionsResponse struct {
 	XMLName xml.Name `xml:"DescribeNodeConfigurationOptionsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
+		Marker                      string                `xml:"Marker,omitempty"`
 		NodeConfigurationOptionList []nodeConfigOptionXML `xml:"NodeConfigurationOptionList>NodeConfigurationOption"`
 	} `xml:"DescribeNodeConfigurationOptionsResult"`
 }
 
-func (h *Handler) handleDescribeNodeConfigurationOptions(_ url.Values) (any, error) {
-	return &describeNodeConfigurationOptionsResponse{
-		Xmlns: redshiftXMLNS,
-		Result: struct {
-			NodeConfigurationOptionList []nodeConfigOptionXML `xml:"NodeConfigurationOptionList>NodeConfigurationOption"`
-		}{
-			NodeConfigurationOptionList: []nodeConfigOptionXML{
-				{NodeType: "ra3.xlplus", NumberOfNodes: minClusterNodes, EstimatedDiskUtilizationPercent: 0},
-			},
-		},
-	}, nil
+// handleDescribeNodeConfigurationOptions returns real node-configuration options
+// derived from the requested ActionType and (when present) the source cluster's
+// node type. AWS returns the set of valid target configurations for a
+// restore/resize/recommend operation; we compute a plausible set with realistic
+// per-node estimated disk utilization instead of a single static option.
+func (h *Handler) handleDescribeNodeConfigurationOptions(vals url.Values) (any, error) {
+	actionType := vals.Get("ActionType")
+	if actionType == "" {
+		return nil, fmt.Errorf("%w: ActionType is required", ErrInvalidParameter)
+	}
+
+	if !validNodeConfigActionType(actionType) {
+		return nil, fmt.Errorf(
+			"%w: ActionType %q is invalid (must be restore-cluster, recommend-node-config or resize-cluster)",
+			ErrInvalidParameter, actionType,
+		)
+	}
+
+	// Determine a baseline node type from the referenced cluster if available,
+	// otherwise honour an explicit NodeType filter or fall back to a default.
+	baseNodeType := nodeConfigFilterValue(vals, "NodeType")
+	if id := vals.Get("ClusterIdentifier"); id != "" && baseNodeType == "" {
+		if clusters, _, err := h.Backend.DescribeClusters(id, "", 0); err == nil && len(clusters) > 0 {
+			baseNodeType = clusters[0].NodeType
+		}
+	}
+
+	options := nodeConfigurationOptions(actionType, baseNodeType)
+
+	// Apply an optional NumberOfNodes filter.
+	if want := nodeConfigFilterInt(vals, "NumberOfNodes"); want > 0 {
+		filtered := options[:0:0]
+
+		for _, o := range options {
+			if o.NumberOfNodes == want {
+				filtered = append(filtered, o)
+			}
+		}
+
+		options = filtered
+	}
+
+	resp := &describeNodeConfigurationOptionsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.NodeConfigurationOptionList = options
+
+	return resp, nil
 }
 
 type identityCenterAuthTokenResponse struct {
@@ -879,18 +922,41 @@ type identityCenterAuthTokenResponse struct {
 	} `xml:"GetIdentityCenterAuthTokenResult"`
 }
 
-func (h *Handler) handleGetIdentityCenterAuthToken(_ url.Values) (any, error) {
+func (h *Handler) handleGetIdentityCenterAuthToken(params url.Values) (any, error) {
+	appArn := params.Get("IdentityCenterApplicationArn")
+	if appArn == "" {
+		return nil, fmt.Errorf("%w: IdentityCenterApplicationArn is required", ErrInvalidParameter)
+	}
+
+	expiry := time.Now().UTC().Add(identityCenterTokenExpiryMinutes * time.Minute)
+
+	hash := sha256.Sum256([]byte(appArn + expiry.Format(time.RFC3339)))
+	token := "ict-" + hex.EncodeToString(hash[:16])
+
 	resp := &identityCenterAuthTokenResponse{Xmlns: redshiftXMLNS}
-	resp.Result.AuthToken = "stub-auth-token"
-	resp.Result.AuthTokenExpiration = "2099-01-01T00:00:00Z"
+	resp.Result.AuthToken = token
+	resp.Result.AuthTokenExpiration = expiry.Format(time.RFC3339)
 
 	return resp, nil
 }
 
+type recommendedActionXML struct {
+	Text string `xml:"Text"`
+	Type string `xml:"Type,omitempty"`
+}
+
 type recommendationXML struct {
-	RecommendationID  string `xml:"RecommendationId"`
-	ClusterIdentifier string `xml:"ClusterIdentifier"`
-	Title             string `xml:"Title"`
+	RecommendationID   string                 `xml:"Id"`
+	ClusterIdentifier  string                 `xml:"ClusterIdentifier"`
+	NamespaceArn       string                 `xml:"NamespaceArn,omitempty"`
+	Type               string                 `xml:"Type"`
+	Title              string                 `xml:"Title"`
+	Description        string                 `xml:"Description"`
+	Observation        string                 `xml:"Observation,omitempty"`
+	ImpactRanking      string                 `xml:"ImpactRanking"`
+	RecommendationText string                 `xml:"RecommendationText"`
+	CreatedAt          string                 `xml:"CreatedAt"`
+	RecommendedActions []recommendedActionXML `xml:"RecommendedActions>RecommendedAction"`
 }
 
 type listRecommendationsResponse struct {
@@ -901,8 +967,29 @@ type listRecommendationsResponse struct {
 	} `xml:"ListRecommendationsResult"`
 }
 
-func (h *Handler) handleListRecommendations(_ url.Values) (any, error) {
-	return &listRecommendationsResponse{Xmlns: redshiftXMLNS}, nil
+// handleListRecommendations returns Amazon Redshift Advisor recommendations
+// derived from real cluster configuration. AWS returns recommendations scoped to
+// a cluster (ClusterIdentifier) or account; we inspect the matching clusters and
+// synthesize the standard Advisor findings (encryption, RA3 migration,
+// single-node HA, maintenance window) that AWS surfaces for those configurations.
+func (h *Handler) handleListRecommendations(vals url.Values) (any, error) {
+	id := vals.Get("ClusterIdentifier")
+
+	clusters, _, err := h.Backend.DescribeClusters(id, "", 0)
+	if err != nil {
+		// An explicit unknown ClusterIdentifier surfaces the not-found error.
+		return nil, err
+	}
+
+	recs := make([]recommendationXML, 0)
+	for i := range clusters {
+		recs = append(recs, deriveClusterRecommendations(&clusters[i])...)
+	}
+
+	resp := &listRecommendationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.Recommendations = recs
+
+	return resp, nil
 }
 
 type aquaConfigurationResponse struct {

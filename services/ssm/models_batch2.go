@@ -24,22 +24,28 @@ type ResourceDataSync struct {
 // AutomationExecution represents a running or completed SSM automation execution.
 type AutomationExecution struct {
 	Parameters            map[string][]string  `json:"Parameters,omitempty"`
-	StartTime             time.Time            `json:"StartTime"`
-	EndTime               *time.Time           `json:"EndTime,omitempty"`
 	AutomationExecutionID string               `json:"AutomationExecutionId"`
 	DocumentName          string               `json:"DocumentName"`
 	DocumentVersion       string               `json:"DocumentVersion"`
 	Status                string               `json:"AutomationExecutionStatus"`
-	ExecutionType         string               `json:"ExecutionType"` // "Standard" or "ChangeRequest"
+	ExecutionType         string               `json:"ExecutionType"`
 	Mode                  string               `json:"Mode,omitempty"`
+	FailureMessage        string               `json:"FailureMessage,omitempty"`
 	Steps                 []AutomationStepExec `json:"StepExecutions,omitempty"`
+	StartTime             float64              `json:"ExecutionStartTime"`
+	EndTime               float64              `json:"ExecutionEndTime,omitempty"`
+	completeAfter         float64
 }
 
 // AutomationStepExec represents a single step in an automation execution.
 type AutomationStepExec struct {
-	StepName   string `json:"StepName"`
-	Action     string `json:"Action"`
-	StepStatus string `json:"StepStatus"`
+	StepName           string  `json:"StepName"`
+	Action             string  `json:"Action"`
+	StepStatus         string  `json:"StepStatus"`
+	StepExecutionID    string  `json:"StepExecutionId,omitempty"`
+	FailureMessage     string  `json:"FailureMessage,omitempty"`
+	ExecutionStartTime float64 `json:"ExecutionStartTime,omitempty"`
+	ExecutionEndTime   float64 `json:"ExecutionEndTime,omitempty"`
 }
 
 // --- ServiceSetting ---
@@ -386,6 +392,10 @@ type PutResourcePolicyOutputFull struct {
 type LabelParameterVersionOutputFull struct {
 	InvalidLabels []string `json:"InvalidLabels"`
 	AddedLabels   []string `json:"AddedLabels"`
+	// ParameterVersion is the version of the parameter the labels were attached
+	// to. AWS returns this so callers know which version a label-without-version
+	// request resolved to.
+	ParameterVersion int64 `json:"ParameterVersion"`
 }
 
 // UnlabelParameterVersionOutputFull extends the empty stub.
@@ -399,19 +409,42 @@ type UpdateAssociationStatusOutputFull struct {
 	AssociationDescription Association `json:"AssociationDescription"`
 }
 
-// GetMaintenanceWindowExecutionOutputFull extends the empty stub.
+// GetMaintenanceWindowExecutionOutputFull is the response for GetMaintenanceWindowExecution.
 type GetMaintenanceWindowExecutionOutputFull struct {
-	WindowID          string `json:"WindowId"`
-	WindowExecutionID string `json:"WindowExecutionId"`
-	Status            string `json:"Status"`
+	StartTime         time.Time  `json:"StartTime"`
+	EndTime           *time.Time `json:"EndTime,omitempty"`
+	WindowID          string     `json:"WindowId"`
+	WindowExecutionID string     `json:"WindowExecutionId"`
+	Status            string     `json:"Status"`
+	StatusDetails     string     `json:"StatusDetails,omitempty"`
 }
 
-// GetMaintenanceWindowExecutionTaskOutputFull extends the empty stub.
+// GetMaintenanceWindowExecutionTaskOutputFull is the response for GetMaintenanceWindowExecutionTask.
 type GetMaintenanceWindowExecutionTaskOutputFull struct {
-	Status string `json:"Status"`
+	StartTime         time.Time  `json:"StartTime"`
+	EndTime           *time.Time `json:"EndTime,omitempty"`
+	WindowExecutionID string     `json:"WindowExecutionId,omitempty"`
+	TaskExecutionID   string     `json:"TaskExecutionId,omitempty"`
+	TaskARN           string     `json:"TaskArn,omitempty"`
+	TaskType          string     `json:"TaskType,omitempty"`
+	Status            string     `json:"Status"`
+	StatusDetails     string     `json:"StatusDetails,omitempty"`
+	MaxConcurrency    string     `json:"MaxConcurrency,omitempty"`
+	MaxErrors         string     `json:"MaxErrors,omitempty"`
+	Priority          int32      `json:"Priority,omitempty"`
 }
 
-// GetMaintenanceWindowExecutionTaskInvocationOutputFull extends the empty stub.
+// GetMaintenanceWindowExecutionTaskInvocationOutputFull is the response for
+// GetMaintenanceWindowExecutionTaskInvocation.
 type GetMaintenanceWindowExecutionTaskInvocationOutputFull struct {
-	Status string `json:"Status"`
+	StartTime         time.Time  `json:"StartTime"`
+	EndTime           *time.Time `json:"EndTime,omitempty"`
+	WindowExecutionID string     `json:"WindowExecutionId,omitempty"`
+	TaskExecutionID   string     `json:"TaskExecutionId,omitempty"`
+	InvocationID      string     `json:"InvocationId,omitempty"`
+	ExecutionID       string     `json:"ExecutionId,omitempty"`
+	TaskType          string     `json:"TaskType,omitempty"`
+	Status            string     `json:"Status"`
+	StatusDetails     string     `json:"StatusDetails,omitempty"`
+	WindowTargetID    string     `json:"WindowTargetId,omitempty"`
 }

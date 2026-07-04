@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // sagemakerListPaged paginates a store using index-based tokens.
@@ -51,12 +52,7 @@ func sagemakerListKeyPaged[T any](
 	nextToken string,
 	clone func(*T) *T,
 ) ([]*T, string) {
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(store)
 
 	start := 0
 	if nextToken != "" {

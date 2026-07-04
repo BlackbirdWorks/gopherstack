@@ -1,8 +1,9 @@
 package cloudwatchlogs
 
 import (
-	"encoding/json"
+	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -36,7 +37,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -68,20 +69,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:                 b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "cloudwatchlogs", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "cloudwatchlogs", data, &snap); err != nil {
 		return err
 	}
 
@@ -210,12 +206,14 @@ type handlerSnapshot struct {
 
 // Snapshot implements persistence.Persistable by serialising both the backend
 // state and the handler-owned tag data.
-func (h *Handler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 
 	var backendData []byte
 	if s, ok := h.Backend.(snapshotter); ok {
-		backendData = s.Snapshot()
+		backendData = s.Snapshot(ctx)
 	}
 
 	// Collect tags outside the backend lock.
@@ -231,24 +229,19 @@ func (h *Handler) Snapshot() []byte {
 		Tags:    tagMap,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "cloudwatchlogs", snap)
 }
 
 // Restore implements persistence.Persistable by restoring both the backend
 // state and the handler-owned tag data.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	// Attempt to decode as the combined handlerSnapshot format first.
 	var snap handlerSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "cloudwatchlogs", data, &snap); err != nil {
 		return err
 	}
 
-	if err := h.restoreBackend(snap.Backend, data); err != nil {
+	if err := h.restoreBackend(ctx, snap.Backend, data); err != nil {
 		return err
 	}
 
@@ -260,8 +253,10 @@ func (h *Handler) Restore(data []byte) error {
 // restoreBackend restores backend state from the snapshot.
 // If backendData is non-nil it came from the new combined format; otherwise the
 // caller should fall back to the raw data (legacy bare-backend format).
-func (h *Handler) restoreBackend(backendData, rawData []byte) error {
-	type restorer interface{ Restore([]byte) error }
+func (h *Handler) restoreBackend(ctx context.Context, backendData, rawData []byte) error {
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 
 	r, ok := h.Backend.(restorer)
 	if !ok {
@@ -273,7 +268,7 @@ func (h *Handler) restoreBackend(backendData, rawData []byte) error {
 		src = rawData
 	}
 
-	return r.Restore(src)
+	return r.Restore(ctx, src)
 }
 
 // restoreTags replaces the handler's tag store with the persisted tag map.

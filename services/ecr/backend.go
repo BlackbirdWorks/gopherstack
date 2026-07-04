@@ -8,10 +8,14 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -28,13 +32,20 @@ const (
 	scanStatusComplete  = "COMPLETE"
 	imageStatusActive   = "ACTIVE"
 	msgNoScanFindings   = "The scan completed successfully with no findings."
+
+	scanTypeEnhanced            = "ENHANCED"
+	replicationStatusComplete   = "COMPLETE"
+	replicationStatusInProgress = "IN_PROGRESS"
 )
 
 var (
 	// ErrRepositoryNotFound is returned when a repository does not exist.
 	ErrRepositoryNotFound = awserr.New("RepositoryNotFoundException", awserr.ErrNotFound)
 	// ErrRepositoryAlreadyExists is returned when a repository already exists.
-	ErrRepositoryAlreadyExists = awserr.New("RepositoryAlreadyExistsException", awserr.ErrAlreadyExists)
+	ErrRepositoryAlreadyExists = awserr.New(
+		"RepositoryAlreadyExistsException",
+		awserr.ErrAlreadyExists,
+	)
 	// ErrRepositoryNotEmpty is returned when deleting a non-empty repository without the force flag.
 	ErrRepositoryNotEmpty = awserr.New("RepositoryNotEmptyException", awserr.ErrConflict)
 	// ErrImageTagAlreadyExists is returned when re-tagging an image in an IMMUTABLE repository.
@@ -42,7 +53,10 @@ var (
 	// ErrInvalidRepositoryName is returned when the repository name is invalid.
 	ErrInvalidRepositoryName = errors.New("InvalidParameterException")
 	// ErrPullThroughCacheRuleNotFound is returned when a pull-through cache rule does not exist.
-	ErrPullThroughCacheRuleNotFound = awserr.New("PullThroughCacheRuleNotFoundException", awserr.ErrNotFound)
+	ErrPullThroughCacheRuleNotFound = awserr.New(
+		"PullThroughCacheRuleNotFoundException",
+		awserr.ErrNotFound,
+	)
 	// ErrPullThroughCacheRuleAlreadyExists is returned when a pull-through cache rule already exists.
 	ErrPullThroughCacheRuleAlreadyExists = awserr.New(
 		"PullThroughCacheRuleAlreadyExistsException",
@@ -51,15 +65,34 @@ var (
 	// ErrLifecyclePolicyNotFound is returned when a lifecycle policy does not exist.
 	ErrLifecyclePolicyNotFound = awserr.New("LifecyclePolicyNotFoundException", awserr.ErrNotFound)
 	// ErrRepositoryCreationTemplateNotFound is returned when a creation template does not exist.
-	ErrRepositoryCreationTemplateNotFound = awserr.New("TemplateNotFoundException", awserr.ErrNotFound)
+	ErrRepositoryCreationTemplateNotFound = awserr.New(
+		"TemplateNotFoundException",
+		awserr.ErrNotFound,
+	)
 	// ErrRepositoryCreationTemplateAlreadyExists is returned when a creation template prefix already exists.
-	ErrRepositoryCreationTemplateAlreadyExists = awserr.New("TemplateAlreadyExistsException", awserr.ErrAlreadyExists)
+	ErrRepositoryCreationTemplateAlreadyExists = awserr.New(
+		"TemplateAlreadyExistsException",
+		awserr.ErrAlreadyExists,
+	)
 	// ErrRegistryPolicyNotFound is returned when the registry policy does not exist.
 	ErrRegistryPolicyNotFound = awserr.New("RegistryPolicyNotFoundException", awserr.ErrNotFound)
 	// ErrRepositoryPolicyNotFound is returned when a repository-level IAM policy does not exist.
-	ErrRepositoryPolicyNotFound = awserr.New("RepositoryPolicyNotFoundException", awserr.ErrNotFound)
+	ErrRepositoryPolicyNotFound = awserr.New(
+		"RepositoryPolicyNotFoundException",
+		awserr.ErrNotFound,
+	)
 	// ErrImageNotFound is returned when a requested image does not exist in a repository.
 	ErrImageNotFound = awserr.New("ImageNotFoundException", awserr.ErrNotFound)
+	// ErrScanNotFoundException is returned when DescribeImageScanFindings is called
+	// on an image that has never had a scan started.
+	ErrScanNotFoundException = awserr.New("ScanNotFoundException", awserr.ErrNotFound)
+)
+
+var (
+	// ErrLayerInaccessible is returned when a layer exists but is not accessible.
+	ErrLayerInaccessible = awserr.New("LayerInaccessibleException", awserr.ErrNotFound)
+	// ErrLayersNotFound is returned when requested layers do not exist in the repository.
+	ErrLayersNotFound = awserr.New("LayersNotFoundException", awserr.ErrNotFound)
 )
 
 // Repository represents an ECR repository.
@@ -304,6 +337,101 @@ type ImageScanFindingsResult struct {
 	Status                string             `json:"status"`
 	Description           string             `json:"description"`
 	Findings              []ImageScanFinding `json:"findings,omitempty"`
+	// EnhancedFindings carries Inspector-style, package-level findings produced by
+	// ENHANCED registry scanning. It is empty for BASIC scans, which populate
+	// Findings instead — so the two scan types return genuinely different shapes.
+	EnhancedFindings []EnhancedImageScanFinding `json:"enhancedFindings,omitempty"`
+}
+
+// EnhancedImageScanFinding is an Inspector-style enhanced scan finding, returned
+// under enhancedFindings when the registry uses ENHANCED scanning. It carries
+// package-level vulnerability detail that the BASIC finding shape lacks.
+type EnhancedImageScanFinding struct {
+	PackageVulnerabilityDetails *PackageVulnerabilityDetails `json:"packageVulnerabilityDetails,omitempty"`
+	Remediation                 *Remediation                 `json:"remediation,omitempty"`
+	Description                 string                       `json:"description,omitempty"`
+	AwsAccountID                string                       `json:"awsAccountId,omitempty"`
+	FindingArn                  string                       `json:"findingArn,omitempty"`
+	Severity                    string                       `json:"severity,omitempty"`
+	Status                      string                       `json:"status,omitempty"`
+	Title                       string                       `json:"title,omitempty"`
+	Type                        string                       `json:"type,omitempty"`
+	FixAvailable                string                       `json:"fixAvailable,omitempty"`
+	Resources                   []EnhancedFindingResource    `json:"resources,omitempty"`
+	UpdatedAt                   float64                      `json:"updatedAt"`
+	LastObservedAt              float64                      `json:"lastObservedAt"`
+	FirstObservedAt             float64                      `json:"firstObservedAt"`
+	Score                       float64                      `json:"score,omitempty"`
+}
+
+// PackageVulnerabilityDetails describes the vulnerability behind an enhanced
+// finding, including CVSS scoring and the affected packages.
+type PackageVulnerabilityDetails struct {
+	VulnerabilityID        string              `json:"vulnerabilityId,omitempty"`
+	Source                 string              `json:"source,omitempty"`
+	SourceURL              string              `json:"sourceUrl,omitempty"`
+	VendorSeverity         string              `json:"vendorSeverity,omitempty"`
+	Cvss                   []CVSSScore         `json:"cvss,omitempty"`
+	ReferenceUrls          []string            `json:"referenceUrls,omitempty"`
+	RelatedVulnerabilities []string            `json:"relatedVulnerabilities,omitempty"`
+	VulnerablePackages     []VulnerablePackage `json:"vulnerablePackages,omitempty"`
+	VendorCreatedAt        float64             `json:"vendorCreatedAt"`
+}
+
+// CVSSScore is a single CVSS scoring entry for an enhanced finding.
+type CVSSScore struct {
+	ScoringVector string  `json:"scoringVector,omitempty"`
+	Source        string  `json:"source,omitempty"`
+	Version       string  `json:"version,omitempty"`
+	BaseScore     float64 `json:"baseScore,omitempty"`
+}
+
+// VulnerablePackage describes an individual affected package in an enhanced finding.
+type VulnerablePackage struct {
+	Arch            string `json:"arch,omitempty"`
+	FilePath        string `json:"filePath,omitempty"`
+	Name            string `json:"name,omitempty"`
+	PackageManager  string `json:"packageManager,omitempty"`
+	Release         string `json:"release,omitempty"`
+	SourceLayerHash string `json:"sourceLayerHash,omitempty"`
+	Version         string `json:"version,omitempty"`
+	FixedInVersion  string `json:"fixedInVersion,omitempty"`
+	Remediation     string `json:"remediation,omitempty"`
+	Epoch           int    `json:"epoch,omitempty"`
+}
+
+// Remediation carries the recommended fix for an enhanced finding.
+type Remediation struct {
+	Recommendation RemediationRecommendation `json:"recommendation"`
+}
+
+// RemediationRecommendation is the human-readable remediation guidance.
+type RemediationRecommendation struct {
+	Text string `json:"text,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
+// EnhancedFindingResource identifies the resource an enhanced finding applies to.
+type EnhancedFindingResource struct {
+	ID      string                         `json:"id,omitempty"`
+	Type    string                         `json:"type,omitempty"`
+	Details EnhancedFindingResourceDetails `json:"details"`
+}
+
+// EnhancedFindingResourceDetails wraps the resource-type-specific detail.
+type EnhancedFindingResourceDetails struct {
+	AwsEcrContainerImage AwsEcrContainerImageDetails `json:"awsEcrContainerImage"`
+}
+
+// AwsEcrContainerImageDetails describes the ECR image an enhanced finding covers.
+type AwsEcrContainerImageDetails struct {
+	Architecture   string   `json:"architecture,omitempty"`
+	ImageHash      string   `json:"imageHash,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	RegistryID     string   `json:"registryId,omitempty"`
+	RepositoryName string   `json:"repositoryName,omitempty"`
+	ImageTags      []string `json:"imageTags,omitempty"`
+	PushedAt       float64  `json:"pushedAt"`
 }
 
 // ImageScanStartResult is returned by StartImageScan.
@@ -327,9 +455,18 @@ type ImageReferrer struct {
 
 // ImageReplicationStatusResult stores image replication status.
 type ImageReplicationStatusResult struct {
-	ImageID           ImageIdentifier `json:"imageId"`
-	RepositoryName    string          `json:"repositoryName"`
-	ReplicationStatus string          `json:"replicationStatus"`
+	ImageID             ImageIdentifier               `json:"imageId"`
+	RepositoryName      string                        `json:"repositoryName"`
+	ReplicationStatuses []ImageReplicationStatusEntry `json:"replicationStatuses"`
+}
+
+// ImageReplicationStatusEntry is the replication status for a single destination.
+type ImageReplicationStatusEntry struct {
+	Region        string `json:"region,omitempty"`
+	RegistryID    string `json:"registryId,omitempty"`
+	Status        string `json:"status"`
+	FailureCode   string `json:"failureCode,omitempty"`
+	FailureReason string `json:"failureReason,omitempty"`
 }
 
 // ImageStorageClassResult stores the image status after storage class updates.
@@ -364,6 +501,11 @@ type ImageTagMutabilityExclusionFilter struct {
 	FilterType string `json:"filterType,omitempty"`
 }
 
+// layerUploadQueueEntry is a FIFO entry for O(k) TTL pruning in InitiateLayerUpload.
+type layerUploadQueueEntry struct {
+	id string
+}
+
 type layerUploadState struct {
 	CreatedAt      time.Time
 	RepositoryName string
@@ -376,11 +518,9 @@ var _ Backend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend stores ECR repository state in memory.
 type InMemoryBackend struct {
-	repos    map[string]*Repository
-	images   map[string]map[string]*Image // repoName → digest → image
-	tagIndex map[string]map[string]string // repoName → tag → digest
-	// digestTagsIndex is the inverse of tagIndex: repoName → digest → []tag.
-	// Maintained incrementally so DescribeImages avoids rebuilding it per call.
+	repoTags                    map[string]map[string]string
+	signingConfig               *SigningSettings
+	tagIndex                    map[string]map[string]string
 	digestTagsIndex             map[string]map[string][]string
 	pullThroughCacheRules       map[string]*PullThroughCacheRule
 	repositoryCreationTemplates map[string]*RepositoryCreationTemplate
@@ -388,19 +528,23 @@ type InMemoryBackend struct {
 	lifecyclePolicyPreviews     map[string]*LifecyclePolicyPreviewResult
 	uploadedLayers              map[string]map[string]int64
 	layerUploads                map[string]*layerUploadState
-	repoTags                    map[string]map[string]string
+	repoUploadIndex             map[string]map[string]struct{}
 	repositoryPolicies          map[string]string
+	images                      map[string]map[string]*Image
 	imageScanFindings           map[string]map[string]*ImageScanFindingsResult
+	repos                       map[string]*Repository
 	accountSettings             map[string]string
 	pullTimeUpdateExclusions    map[string]*PullTimeUpdateExclusion
 	mu                          *lockmetrics.RWMutex
 	registryScanningConfig      *RegistryScanningSettings
 	replicationConfig           *ReplicationConfig
+	lifecycleLastEvaluated      map[string]time.Time
 	registryPolicy              string
-	signingConfig               *SigningSettings
 	accountID                   string
 	region                      string
 	endpoint                    string
+	layerUploadQueue            []layerUploadQueueEntry
+	replicationSettleDelay      time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the given account ID and region.
@@ -416,6 +560,8 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		lifecyclePolicyPreviews:     make(map[string]*LifecyclePolicyPreviewResult),
 		uploadedLayers:              make(map[string]map[string]int64),
 		layerUploads:                make(map[string]*layerUploadState),
+		repoUploadIndex:             make(map[string]map[string]struct{}),
+		layerUploadQueue:            make([]layerUploadQueueEntry, 0),
 		repoTags:                    make(map[string]map[string]string),
 		repositoryPolicies:          make(map[string]string),
 		imageScanFindings:           make(map[string]map[string]*ImageScanFindingsResult),
@@ -423,6 +569,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		pullTimeUpdateExclusions:    make(map[string]*PullTimeUpdateExclusion),
 		registryScanningConfig:      &RegistryScanningSettings{ScanType: scanTypeBasic},
 		replicationConfig:           &ReplicationConfig{},
+		lifecycleLastEvaluated:      make(map[string]time.Time),
 		mu:                          lockmetrics.New("ecr"),
 		accountID:                   accountID,
 		region:                      region,
@@ -508,11 +655,16 @@ func (b *InMemoryBackend) CreateRepository(
 	}
 
 	repo := &Repository{
-		CreatedAt:          time.Now(),
-		EncryptionType:     encryptionType,
-		KMSKey:             kmsKey,
-		RegistryID:         b.accountID,
-		RepositoryARN:      fmt.Sprintf("arn:aws:ecr:%s:%s:repository/%s", region, b.accountID, name),
+		CreatedAt:      time.Now(),
+		EncryptionType: encryptionType,
+		KMSKey:         kmsKey,
+		RegistryID:     b.accountID,
+		RepositoryARN: arn.Build(
+			"ecr",
+			region,
+			b.accountID,
+			fmt.Sprintf("repository/%s", name),
+		),
 		RepositoryName:     name,
 		RepositoryURI:      fmt.Sprintf("%s/%s", endpoint, name),
 		ImageTagMutability: imageTagMutability,
@@ -585,11 +737,10 @@ func (b *InMemoryBackend) DeleteRepository(
 	delete(b.imageScanFindings, name)
 
 	// Clean up any in-progress layer uploads associated with this repository.
-	for uploadID, upload := range b.layerUploads {
-		if upload.RepositoryName == name {
-			delete(b.layerUploads, uploadID)
-		}
+	for uploadID := range b.repoUploadIndex[name] {
+		delete(b.layerUploads, uploadID)
 	}
+	delete(b.repoUploadIndex, name)
 
 	cp := *r
 
@@ -597,7 +748,8 @@ func (b *InMemoryBackend) DeleteRepository(
 }
 
 // BatchCheckLayerAvailability checks the availability of image layers in a repository.
-func (b *InMemoryBackend) BatchCheckLayerAvailability(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) BatchCheckLayerAvailability(
+	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	layerDigests []string,
 ) ([]LayerAvailability, []LayerFailure, error) {
@@ -633,7 +785,11 @@ func (b *InMemoryBackend) BatchCheckLayerAvailability(ctx context.Context, //nol
 
 // deleteByDigestLocked removes an image by digest, deletes all tag bindings for
 // that digest, and returns true if the image was found.
-func deleteByDigestLocked(repoImages map[string]*Image, repoTags map[string]string, digest string) bool {
+func deleteByDigestLocked(
+	repoImages map[string]*Image,
+	repoTags map[string]string,
+	digest string,
+) bool {
 	if _, ok := repoImages[digest]; !ok {
 		return false
 	}
@@ -653,26 +809,17 @@ func deleteByDigestLocked(repoImages map[string]*Image, repoTags map[string]stri
 // deleteByTagLocked removes a tag binding, clears the image's tag field if it
 // matches, and falls back to a linear scan for legacy images. Returns true if found.
 func deleteByTagLocked(repoImages map[string]*Image, repoTags map[string]string, tag string) bool {
-	if digest, ok := repoTags[tag]; ok {
-		// Remove tag binding only; keep image accessible by digest.
-		delete(repoTags, tag)
-		if img, exists := repoImages[digest]; exists {
-			img.ImageID.ImageTag = ""
-		}
-
-		return true
+	digest, ok := repoTags[tag]
+	if !ok {
+		return false
 	}
 
-	// Fallback: linear scan for images stored with pre-tagIndex tag.
-	for _, img := range repoImages {
-		if img.ImageID.ImageTag == tag {
-			img.ImageID.ImageTag = ""
-
-			return true
-		}
+	delete(repoTags, tag)
+	if img, exists := repoImages[digest]; exists {
+		img.ImageID.ImageTag = ""
 	}
 
-	return false
+	return true
 }
 
 // BatchDeleteImage deletes the specified images from a repository.
@@ -768,6 +915,26 @@ func (b *InMemoryBackend) BatchGetImage(ctx context.Context, //nolint:revive // 
 
 // buildDigestTagsLocked builds a reverse digest→[]tag map from a tag index.
 // Ranging over a nil map is safe in Go, so no nil check is needed.
+// tagMatchesAnyExclusionFilter reports whether tag is exempted from immutability
+// by any of the configured exclusion filters.
+// AWS supports filterType "WILDCARD" with patterns like "v*" or exact names.
+func tagMatchesAnyExclusionFilter(tag string, filters []ImageTagMutabilityExclusionFilter) bool {
+	for _, f := range filters {
+		switch strings.ToUpper(f.FilterType) {
+		case "WILDCARD":
+			if wildcardMatch(f.Filter, tag) {
+				return true
+			}
+		default:
+			if tag == f.Filter {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func buildDigestTagsLocked(repoTagIdx map[string]string) map[string][]string {
 	digestTags := make(map[string][]string)
 	for tag, digest := range repoTagIdx {
@@ -887,7 +1054,7 @@ func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
 			RepositoryARN:  repo.RepositoryARN,
 			RepositoryName: name,
 			ScanOnPush:     repo.ScanOnPush,
-			ScanFrequency:  scanFrequency(repo.ScanOnPush),
+			ScanFrequency:  b.repoEffectiveScanFrequency(name, repo.ScanOnPush),
 		})
 	}
 
@@ -900,7 +1067,8 @@ var ErrLayerDigestMismatch = awserr.New("InvalidLayerException", awserr.ErrInval
 // CompleteLayerUpload finalises the upload of an image layer.
 // If an upload session exists, it computes the SHA256 of accumulated bytes and verifies the digest.
 // If no session exists (direct digest path), the provided digest is trusted as-is.
-func (b *InMemoryBackend) CompleteLayerUpload(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) CompleteLayerUpload(
+	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName, uploadID string,
 	layerDigests []string,
 ) (*CompleteLayerUploadResult, error) {
@@ -934,6 +1102,9 @@ func (b *InMemoryBackend) CompleteLayerUpload(ctx context.Context, //nolint:revi
 
 		size = upload.Size
 		delete(b.layerUploads, uploadID)
+		if idx, ok2 := b.repoUploadIndex[repositoryName]; ok2 {
+			delete(idx, uploadID)
+		}
 
 	case ok && upload.RepositoryName == repositoryName:
 		if len(layerDigests) > 0 {
@@ -942,6 +1113,9 @@ func (b *InMemoryBackend) CompleteLayerUpload(ctx context.Context, //nolint:revi
 
 		size = upload.Size
 		delete(b.layerUploads, uploadID)
+		if idx, ok2 := b.repoUploadIndex[repositoryName]; ok2 {
+			delete(idx, uploadID)
+		}
 
 	case len(layerDigests) > 0:
 		// Direct digest path: no prior InitiateLayerUpload.
@@ -1003,7 +1177,7 @@ func (b *InMemoryBackend) GetDownloadURLForLayer(
 	}
 
 	if _, ok := b.uploadedLayers[repositoryName][layerDigest]; !ok {
-		return "", fmt.Errorf("%w: layer not found", ErrRepositoryNotFound)
+		return "", fmt.Errorf("%w: %s", ErrLayerInaccessible, layerDigest)
 	}
 
 	endpoint := b.endpoint
@@ -1028,16 +1202,35 @@ func (b *InMemoryBackend) InitiateLayerUpload(
 
 	now := time.Now()
 
-	// Prune abandoned uploads (initiated but never completed) so the map cannot
-	// grow without bound on a long-lived registry.
-	for id, upload := range b.layerUploads {
-		if now.Sub(upload.CreatedAt) > layerUploadTTL {
-			delete(b.layerUploads, id)
+	// Prune abandoned uploads using the FIFO queue: scan from the front and stop
+	// at the first entry that is still within TTL (or has been refreshed by a
+	// recent UploadLayerPart). Completed uploads may remain in the queue; skip
+	// them when they are no longer present in layerUploads.
+	for len(b.layerUploadQueue) > 0 {
+		entry := b.layerUploadQueue[0]
+		upload, exists := b.layerUploads[entry.id]
+		if !exists {
+			b.layerUploadQueue = b.layerUploadQueue[1:]
+
+			continue
 		}
+		if now.Sub(upload.CreatedAt) <= layerUploadTTL {
+			break
+		}
+		delete(b.layerUploads, entry.id)
+		if idx, ok := b.repoUploadIndex[upload.RepositoryName]; ok {
+			delete(idx, entry.id)
+		}
+		b.layerUploadQueue = b.layerUploadQueue[1:]
 	}
 
 	uploadID := fmt.Sprintf("upload-%d", now.UnixNano())
 	b.layerUploads[uploadID] = &layerUploadState{RepositoryName: repositoryName, CreatedAt: now}
+	if b.repoUploadIndex[repositoryName] == nil {
+		b.repoUploadIndex[repositoryName] = make(map[string]struct{})
+	}
+	b.repoUploadIndex[repositoryName][uploadID] = struct{}{}
+	b.layerUploadQueue = append(b.layerUploadQueue, layerUploadQueueEntry{id: uploadID})
 
 	return &LayerUploadInitiation{PartSize: layerUploadPartSize, UploadID: uploadID}, nil
 }
@@ -1079,7 +1272,8 @@ func (b *InMemoryBackend) UploadLayerPart(ctx context.Context, //nolint:revive /
 }
 
 // CreatePullThroughCacheRule creates a new pull-through cache rule.
-func (b *InMemoryBackend) CreatePullThroughCacheRule(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) CreatePullThroughCacheRule(
+	ctx context.Context, //nolint:revive // existing issue.
 	prefix, upstreamURL, credentialArn, upstreamRegistry, customRoleArn, upstreamRepositoryPrefix string,
 ) (*PullThroughCacheRule, error) {
 	if prefix == "" {
@@ -1136,13 +1330,17 @@ func (b *InMemoryBackend) DescribePullThroughCacheRules(
 		}
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].EcrRepositoryPrefix < out[j].EcrRepositoryPrefix })
+	sort.Slice(
+		out,
+		func(i, j int) bool { return out[i].EcrRepositoryPrefix < out[j].EcrRepositoryPrefix },
+	)
 
 	return out, nil
 }
 
 // CreateRepositoryCreationTemplate creates a new repository creation template.
-func (b *InMemoryBackend) CreateRepositoryCreationTemplate(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) CreateRepositoryCreationTemplate(
+	ctx context.Context, //nolint:revive // existing issue.
 	req *RepositoryCreationTemplate,
 ) (*RepositoryCreationTemplate, error) {
 	if req.Prefix == "" {
@@ -1244,11 +1442,13 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(
 	}
 
 	policyText := b.lifecyclePolicies[repositoryName]
+	lastEvaluated := b.lifecycleLastEvaluated[repositoryName]
 	delete(b.lifecyclePolicies, repositoryName)
+	delete(b.lifecycleLastEvaluated, repositoryName)
 
 	return &LifecyclePolicyResult{
 		LifecyclePolicyText: policyText,
-		LastEvaluatedAt:     time.Now(),
+		LastEvaluatedAt:     lastEvaluated,
 		RepositoryName:      repositoryName,
 		RegistryID:          b.accountID,
 	}, nil
@@ -1273,7 +1473,7 @@ func (b *InMemoryBackend) GetLifecyclePolicy(
 
 	return &LifecyclePolicyResult{
 		LifecyclePolicyText: policyText,
-		LastEvaluatedAt:     time.Now(),
+		LastEvaluatedAt:     b.lifecycleLastEvaluated[repositoryName],
 		RepositoryName:      repositoryName,
 		RegistryID:          b.accountID,
 	}, nil
@@ -1316,16 +1516,21 @@ func (b *InMemoryBackend) PutLifecyclePolicy(
 
 	b.lifecyclePolicies[repositoryName] = policyText
 
+	// AWS evaluates a newly applied lifecycle policy right away; matched images
+	// are expired and deleted rather than merely stored.
+	b.applyLifecyclePolicyLocked(repositoryName)
+
 	return &LifecyclePolicyResult{
 		LifecyclePolicyText: policyText,
-		LastEvaluatedAt:     time.Now(),
+		LastEvaluatedAt:     b.lifecycleLastEvaluated[repositoryName],
 		RepositoryName:      repositoryName,
 		RegistryID:          b.accountID,
 	}, nil
 }
 
 // StartLifecyclePolicyPreview starts or refreshes a lifecycle policy preview.
-func (b *InMemoryBackend) StartLifecyclePolicyPreview(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) StartLifecyclePolicyPreview(
+	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName, policyText string,
 ) (*LifecyclePolicyPreviewResult, error) {
 	b.mu.Lock("StartLifecyclePolicyPreview")
@@ -1339,7 +1544,7 @@ func (b *InMemoryBackend) StartLifecyclePolicyPreview(ctx context.Context, //nol
 		policyText = b.lifecyclePolicies[repositoryName]
 	}
 
-	expired := evaluateLifecyclePolicy(policyText, b.images[repositoryName])
+	expired := evaluateLifecyclePolicy(policyText, b.images[repositoryName], b.digestTagsIndex[repositoryName])
 
 	preview := &LifecyclePolicyPreviewResult{
 		LifecyclePolicyText: policyText,
@@ -1377,7 +1582,8 @@ func (b *InMemoryBackend) DeletePullThroughCacheRule(
 }
 
 // UpdatePullThroughCacheRule updates a pull-through cache rule by prefix.
-func (b *InMemoryBackend) UpdatePullThroughCacheRule(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) UpdatePullThroughCacheRule(
+	ctx context.Context, //nolint:revive // existing issue.
 	prefix, credentialArn, customRoleArn string,
 ) (*PullThroughCacheRule, error) {
 	b.mu.Lock("UpdatePullThroughCacheRule")
@@ -1443,6 +1649,13 @@ func (b *InMemoryBackend) AddImageInternal(repositoryName string, img Image) {
 
 	cp := img
 	b.images[repositoryName][img.ImageDigest] = &cp
+
+	if img.ImageID.ImageTag != "" {
+		if b.tagIndex[repositoryName] == nil {
+			b.tagIndex[repositoryName] = make(map[string]string)
+		}
+		b.tagIndex[repositoryName][img.ImageID.ImageTag] = img.ImageDigest
+	}
 }
 
 // SetRegistryPolicyInternal sets the registry policy directly for testing.
@@ -1533,7 +1746,8 @@ func (b *InMemoryBackend) PutRegistryPolicy(
 }
 
 // PutRegistryScanningConfiguration updates the registry scanning configuration.
-func (b *InMemoryBackend) PutRegistryScanningConfiguration(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) PutRegistryScanningConfiguration(
+	ctx context.Context, //nolint:revive // existing issue.
 	settings *RegistryScanningSettings,
 ) (*RegistryScanningSettings, error) {
 	b.mu.Lock("PutRegistryScanningConfiguration")
@@ -1677,7 +1891,8 @@ func (b *InMemoryBackend) DeleteSigningConfiguration(
 }
 
 // DescribeImageSigningStatus returns signing status for an image.
-func (b *InMemoryBackend) DescribeImageSigningStatus(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) DescribeImageSigningStatus(
+	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	imageID ImageIdentifier,
 ) (*ImageSigningStatusResult, error) {
@@ -1706,34 +1921,75 @@ func (b *InMemoryBackend) DescribeImageSigningStatus(ctx context.Context, //noli
 }
 
 // DescribeImageScanFindings returns scan findings for an image.
-func (b *InMemoryBackend) DescribeImageScanFindings(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) DescribeImageScanFindings(
+	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	imageID ImageIdentifier,
-) (*ImageScanFindingsResult, error) {
+	maxResults int,
+	nextToken string,
+) (*ImageScanFindingsResult, string, error) {
 	b.mu.RLock("DescribeImageScanFindings")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, "", fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, "", fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	findings := b.imageScanFindings[repositoryName][img.ImageDigest]
 	if findings == nil {
-		findings = &ImageScanFindingsResult{
-			FindingSeverityCounts: map[string]int32{},
-			ImageID:               img.ImageID,
-			RepositoryName:        repositoryName,
-			RegistryID:            b.accountID,
-			Status:                scanStatusComplete,
-			Description:           msgNoScanFindings,
-			CompletedAt:           time.Now(),
-		}
+		return nil, "", fmt.Errorf("%w: image scan not found for %s in %s",
+			ErrScanNotFoundException, img.ImageDigest, repositoryName)
 	}
 
 	cp := copyImageScanFindingsResult(findings)
 
-	return &cp, nil
+	if maxResults <= 0 {
+		maxResults = 100 // AWS default
+	}
+
+	// Simple pagination using the finding index as the nextToken. Pagination is
+	// applied to whichever finding list the scan type populated: BASIC scans page
+	// Findings, ENHANCED scans page EnhancedFindings.
+	var startIdx int
+	if nextToken != "" {
+		if parsed, err := strconv.Atoi(nextToken); err == nil {
+			startIdx = parsed
+		}
+	}
+
+	enhanced := len(cp.EnhancedFindings) > 0
+	total := len(cp.Findings)
+	if enhanced {
+		total = len(cp.EnhancedFindings)
+	}
+
+	if startIdx >= total {
+		cp.Findings = nil
+		cp.EnhancedFindings = nil
+
+		return &cp, "", nil
+	}
+
+	endIdx := startIdx + maxResults
+	var outNextToken string
+	if endIdx < total {
+		outNextToken = strconv.Itoa(endIdx)
+	} else {
+		endIdx = total
+	}
+
+	if enhanced {
+		cp.EnhancedFindings = cp.EnhancedFindings[startIdx:endIdx]
+	} else {
+		cp.Findings = cp.Findings[startIdx:endIdx]
+	}
+
+	return &cp, outNextToken, nil
 }
 
 // StartImageScan starts an image scan and returns the scan status.
@@ -1744,16 +2000,22 @@ func (b *InMemoryBackend) StartImageScan(ctx context.Context, //nolint:revive //
 	b.mu.Lock("StartImageScan")
 	defer b.mu.Unlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	if b.imageScanFindings[repositoryName] == nil {
 		b.imageScanFindings[repositoryName] = make(map[string]*ImageScanFindingsResult)
 	}
 
-	result := generateMockScanFindings(img.ImageDigest, repositoryName, b.accountID, img.ImageID)
+	result := generateMockScanFindings(
+		img.ImageDigest, repositoryName, b.accountID, img.ImageID, b.effectiveScanTypeLocked(),
+	)
 	b.imageScanFindings[repositoryName][img.ImageDigest] = result
 
 	return &ImageScanStartResult{
@@ -1861,7 +2123,11 @@ func (b *InMemoryBackend) ListImageReferrers(
 
 // retagImageLocked moves a tag to a new digest: if the tag already maps to a
 // different digest, it clears the old image's ImageTag field so it becomes untagged.
-func retagImageLocked(repoImages map[string]*Image, repoTags map[string]string, tag, newDigest string) {
+func retagImageLocked(
+	repoImages map[string]*Image,
+	repoTags map[string]string,
+	tag, newDigest string,
+) {
 	oldDigest, has := repoTags[tag]
 	if !has || oldDigest == newDigest {
 		return
@@ -1904,7 +2170,7 @@ func normalizeImageFields(image *Image, repositoryName, accountID string) {
 	}
 }
 
-func (b *InMemoryBackend) PutImage(
+func (b *InMemoryBackend) PutImage( //nolint:cyclop // complexity matches AWS PutImage contract
 	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	image Image,
@@ -1931,11 +2197,14 @@ func (b *InMemoryBackend) PutImage(
 	}
 	repoTags := b.tagIndex[repositoryName]
 
-	// IMMUTABLE enforcement: reject retagging to a different digest.
+	// IMMUTABLE enforcement: reject retagging to a different digest unless the tag
+	// matches an exclusion filter (which exempts specific tag patterns from immutability).
 	if repo.ImageTagMutability == mutabilityImmutable && tag != "" {
 		if existingDigest, has := repoTags[tag]; has && existingDigest != image.ImageDigest {
-			return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
-				ErrImageTagAlreadyExists, tag, repositoryName)
+			if !tagMatchesAnyExclusionFilter(tag, repo.ImageTagMutabilityExclusionFilters) {
+				return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
+					ErrImageTagAlreadyExists, tag, repositoryName)
+			}
 		}
 	}
 
@@ -1971,7 +2240,8 @@ func (b *InMemoryBackend) PutImage(
 }
 
 // PutImageScanningConfiguration updates per-repository scan-on-push config.
-func (b *InMemoryBackend) PutImageScanningConfiguration(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) PutImageScanningConfiguration(
+	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	scanOnPush bool,
 ) (*RepositoryScanningConfiguration, error) {
@@ -1988,13 +2258,14 @@ func (b *InMemoryBackend) PutImageScanningConfiguration(ctx context.Context, //n
 	return &RepositoryScanningConfiguration{
 		RepositoryARN:  repo.RepositoryARN,
 		RepositoryName: repositoryName,
-		ScanFrequency:  scanFrequency(scanOnPush),
+		ScanFrequency:  b.repoEffectiveScanFrequency(repositoryName, scanOnPush),
 		ScanOnPush:     scanOnPush,
 	}, nil
 }
 
 // PutImageTagMutability updates per-repository tag mutability.
-func (b *InMemoryBackend) PutImageTagMutability(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) PutImageTagMutability(
+	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName, imageTagMutability string,
 	exclusionFilters []ImageTagMutabilityExclusionFilter,
 ) (*Repository, error) {
@@ -2011,34 +2282,126 @@ func (b *InMemoryBackend) PutImageTagMutability(ctx context.Context, //nolint:re
 	}
 
 	repo.ImageTagMutability = imageTagMutability
-	repo.ImageTagMutabilityExclusionFilters = append([]ImageTagMutabilityExclusionFilter(nil), exclusionFilters...)
+	repo.ImageTagMutabilityExclusionFilters = append(
+		[]ImageTagMutabilityExclusionFilter(nil),
+		exclusionFilters...)
 	cp := *repo
 
 	return &cp, nil
 }
 
 // DescribeImageReplicationStatus returns the current replication status for an image.
-func (b *InMemoryBackend) DescribeImageReplicationStatus(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) DescribeImageReplicationStatus(
+	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	imageID ImageIdentifier,
 ) (*ImageReplicationStatusResult, error) {
 	b.mu.RLock("DescribeImageReplicationStatus")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
+	}
+
+	// Compute one replication status entry per destination the registry
+	// replication configuration actually targets for THIS repository. Rules whose
+	// repositoryFilters do not match the repository contribute no destinations,
+	// and a destination in the source region+account is skipped (AWS does not
+	// replicate an image onto itself). Each destination's status is derived from
+	// how long ago the image was pushed relative to the settle delay, so a
+	// freshly pushed image reports IN_PROGRESS and later COMPLETE — real
+	// per-destination state rather than a hardcoded COMPLETE.
+	dests := b.replicationDestinationsForRepoLocked(repositoryName)
+	now := time.Now()
+	statuses := make([]ImageReplicationStatusEntry, 0, len(dests))
+
+	for _, dest := range dests {
+		registryID := dest.RegistryID
+		if registryID == "" {
+			registryID = b.accountID
+		}
+
+		statuses = append(statuses, ImageReplicationStatusEntry{
+			Region:     dest.Region,
+			RegistryID: registryID,
+			Status:     b.replicationStatusForLocked(img, now),
+		})
 	}
 
 	return &ImageReplicationStatusResult{
-		ImageID:           img.ImageID,
-		RepositoryName:    repositoryName,
-		ReplicationStatus: scanStatusComplete,
+		ImageID:             img.ImageID,
+		RepositoryName:      repositoryName,
+		ReplicationStatuses: statuses,
 	}, nil
 }
 
+// replicationDestinationsForRepoLocked returns the deduplicated set of
+// replication destinations that apply to repositoryName under the current
+// registry replication configuration. Rules with repositoryFilters are only
+// honored when the repository matches, and destinations that resolve to the
+// source region+account are excluded. Must be called with a read lock held.
+func (b *InMemoryBackend) replicationDestinationsForRepoLocked(
+	repositoryName string,
+) []ReplicationDestination {
+	if b.replicationConfig == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	dests := make([]ReplicationDestination, 0)
+
+	for _, rule := range b.replicationConfig.Rules {
+		if !repoMatchesFilters(repositoryName, rule.RepositoryFilters) {
+			continue
+		}
+
+		for _, dest := range rule.Destinations {
+			registryID := dest.RegistryID
+			if registryID == "" {
+				registryID = b.accountID
+			}
+
+			// AWS rejects a destination equal to the source registry (same
+			// region AND same account); such a destination never appears in the
+			// replication status.
+			if dest.Region == b.region && registryID == b.accountID {
+				continue
+			}
+
+			key := registryID + ":" + dest.Region
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			dests = append(dests, ReplicationDestination{Region: dest.Region, RegistryID: registryID})
+		}
+	}
+
+	return dests
+}
+
+// replicationStatusForLocked derives the replication status of an image toward a
+// destination. Replication is modeled as taking replicationSettleDelay to
+// finish: an image pushed within that window reports IN_PROGRESS, otherwise
+// COMPLETE. The default settle delay of zero means replication is reported as
+// COMPLETE immediately, matching a fast/quiescent registry.
+func (b *InMemoryBackend) replicationStatusForLocked(img *Image, now time.Time) string {
+	if b.replicationSettleDelay > 0 && now.Sub(img.ImagePushedAt) < b.replicationSettleDelay {
+		return replicationStatusInProgress
+	}
+
+	return replicationStatusComplete
+}
+
 // UpdateImageStorageClass updates the storage class for an image.
-func (b *InMemoryBackend) UpdateImageStorageClass(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) UpdateImageStorageClass(
+	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	imageID ImageIdentifier,
 	target string,
@@ -2046,9 +2409,13 @@ func (b *InMemoryBackend) UpdateImageStorageClass(ctx context.Context, //nolint:
 	b.mu.Lock("UpdateImageStorageClass")
 	defer b.mu.Unlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	if target == "ARCHIVE" {
@@ -2143,7 +2510,8 @@ func (b *InMemoryBackend) ListPullTimeUpdateExclusions(
 }
 
 // UpdateRepositoryCreationTemplate updates a repository creation template.
-func (b *InMemoryBackend) UpdateRepositoryCreationTemplate(ctx context.Context, //nolint:revive // existing issue.
+func (b *InMemoryBackend) UpdateRepositoryCreationTemplate(
+	ctx context.Context, //nolint:revive // existing issue.
 	req *RepositoryCreationTemplate,
 ) (*RepositoryCreationTemplate, error) {
 	b.mu.Lock("UpdateRepositoryCreationTemplate")
@@ -2232,19 +2600,18 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) map[string]
 
 // sortedTagKeys returns the keys of the given map sorted alphabetically.
 func sortedTagKeys(tags map[string]string) []string {
-	keys := make([]string, 0, len(tags))
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 
 	return keys
 }
 
 // findImageLocked looks up an image by digest or tag.
 // tagIdx is the per-repository tag→digest index; it may be nil for older callers.
-func findImageLocked(images map[string]*Image, tagIdx map[string]string, id ImageIdentifier) (*Image, bool) {
+func findImageLocked(
+	images map[string]*Image,
+	tagIdx map[string]string,
+	id ImageIdentifier,
+) (*Image, bool) {
 	if id.ImageDigest != "" {
 		img, ok := images[id.ImageDigest]
 
@@ -2277,6 +2644,88 @@ func scanFrequency(scanOnPush bool) string {
 	}
 
 	return "MANUAL"
+}
+
+// repoEffectiveScanFrequency returns the effective scan frequency for a
+// repository. When the registry has ENHANCED scanning with a CONTINUOUS_SCAN
+// rule matching the repository, that takes precedence over the per-repo
+// ScanOnPush setting. Must be called with at least a read lock held.
+func (b *InMemoryBackend) repoEffectiveScanFrequency(
+	repositoryName string,
+	scanOnPush bool,
+) string {
+	if b.registryScanningConfig != nil && b.registryScanningConfig.ScanType == "ENHANCED" {
+		for _, rule := range b.registryScanningConfig.Rules {
+			if rule.ScanFrequency == "CONTINUOUS_SCAN" &&
+				repoMatchesFilters(repositoryName, rule.RepositoryFilters) {
+				return "CONTINUOUS_SCAN"
+			}
+		}
+	}
+
+	return scanFrequency(scanOnPush)
+}
+
+// effectiveScanTypeLocked returns the registry-wide scan type ("BASIC" or
+// "ENHANCED"), defaulting to BASIC when no registry scanning configuration is
+// set. Must be called with at least a read lock held.
+func (b *InMemoryBackend) effectiveScanTypeLocked() string {
+	if b.registryScanningConfig != nil && b.registryScanningConfig.ScanType != "" {
+		return b.registryScanningConfig.ScanType
+	}
+
+	return scanTypeBasic
+}
+
+// repoMatchesFilters returns true when repositoryName matches any filter in the
+// slice, or when the slice is empty (no filter = match-all). AWS ECR supports
+// WILDCARD (with '*' glob) and PREFIX filter types.
+func repoMatchesFilters(name string, filters []RepositoryFilter) bool {
+	if len(filters) == 0 {
+		return true
+	}
+
+	for _, f := range filters {
+		switch f.FilterType {
+		case "WILDCARD":
+			if wildcardMatch(f.Filter, name) {
+				return true
+			}
+		case "PREFIX":
+			if strings.HasPrefix(name, f.Filter) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// wildcardMatch returns true when pattern matches name using '*' as a
+// zero-or-more-characters wildcard, matching ECR registry filter semantics.
+func wildcardMatch(pattern, name string) bool {
+	for len(pattern) > 0 {
+		if pattern[0] == '*' {
+			pattern = pattern[1:]
+			if len(pattern) == 0 {
+				return true
+			}
+			for i := range len(name) + 1 {
+				if wildcardMatch(pattern, name[i:]) {
+					return true
+				}
+			}
+
+			return false
+		}
+		if len(name) == 0 || pattern[0] != name[0] {
+			return false
+		}
+		pattern = pattern[1:]
+		name = name[1:]
+	}
+
+	return len(name) == 0
 }
 
 func copyStringMap(in map[string]string) map[string]string {
@@ -2363,6 +2812,8 @@ func copyImageScanFindingsResult(in *ImageScanFindingsResult) ImageScanFindingsR
 		cp.Findings[i].Attributes = copyStringMap(finding.Attributes)
 	}
 
+	cp.EnhancedFindings = copyEnhancedFindings(in.EnhancedFindings)
+
 	return cp
 }
 
@@ -2379,6 +2830,7 @@ func (b *InMemoryBackend) Reset() {
 	b.repositoryCreationTemplates = make(map[string]*RepositoryCreationTemplate)
 	b.lifecyclePolicies = make(map[string]string)
 	b.lifecyclePolicyPreviews = make(map[string]*LifecyclePolicyPreviewResult)
+	b.lifecycleLastEvaluated = make(map[string]time.Time)
 	b.uploadedLayers = make(map[string]map[string]int64)
 	b.layerUploads = make(map[string]*layerUploadState)
 	b.repoTags = make(map[string]map[string]string)

@@ -402,19 +402,19 @@ func TestIntegration_Kinesis_UpdateShardCount(t *testing.T) {
 
 	reshardOut, err := client.UpdateShardCount(ctx, &kinesis.UpdateShardCountInput{
 		StreamName:       aws.String(streamName),
-		TargetShardCount: aws.Int32(4),
+		TargetShardCount: aws.Int32(2),
 		ScalingType:      kinesistypes.ScalingTypeUniformScaling,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), aws.ToInt32(reshardOut.CurrentShardCount))
-	assert.Equal(t, int32(4), aws.ToInt32(reshardOut.TargetShardCount))
+	assert.Equal(t, int32(2), aws.ToInt32(reshardOut.TargetShardCount))
 
 	// Verify new shard count
 	listShardsOut, err := client.ListShards(ctx, &kinesis.ListShardsInput{
 		StreamName: aws.String(streamName),
 	})
 	require.NoError(t, err)
-	assert.Len(t, listShardsOut.Shards, 4)
+	assert.Len(t, listShardsOut.Shards, 2)
 
 	_, err = client.DeleteStream(ctx, &kinesis.DeleteStreamInput{
 		StreamName: aws.String(streamName),

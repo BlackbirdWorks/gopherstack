@@ -2,7 +2,9 @@ package cloudwatchlogs_test
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -167,7 +169,12 @@ func TestCloudWatchLogsBackend_DescribeLogGroups(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			groups, next, err := b.DescribeLogGroups(context.Background(), tt.prefix, tt.token, tt.limit)
+			groups, next, err := b.DescribeLogGroups(
+				context.Background(),
+				tt.prefix,
+				tt.token,
+				tt.limit,
+			)
 			require.NoError(t, err)
 			assert.Empty(t, next)
 			assert.Len(t, groups, tt.wantCount)
@@ -202,6 +209,28 @@ func TestCloudWatchLogsBackend_DescribeLogGroups_Pagination(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, page3, 1)
 	assert.Empty(t, token3)
+}
+
+func TestCloudWatchLogsBackend_PaginationToken_Opaque(t *testing.T) {
+	t.Parallel()
+
+	// Verify that emitted nextTokens are not plain decimal integers (opaque encoding).
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	for i := range 5 {
+		_, _ = b.CreateLogGroup(context.Background(), fmt.Sprintf("/grp-%d", i), "", "")
+	}
+
+	_, token, err := b.DescribeLogGroups(context.Background(), "", "", 2)
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+
+	// Token must not be a bare integer string.
+	_, parseErr := fmt.Sscanf(token, "%d", new(int))
+	require.Error(t, parseErr, "nextToken should be opaque (not a plain integer), got %q", token)
+
+	// Token must be valid base64.
+	_, decodeErr := base64.StdEncoding.DecodeString(token)
+	assert.NoError(t, decodeErr, "nextToken should be base64-encoded, got %q", token)
 }
 
 func TestCloudWatchLogsBackend_CreateLogStream(t *testing.T) {
@@ -328,7 +357,15 @@ func TestCloudWatchLogsBackend_DescribeLogStreams(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			streams, next, err := b.DescribeLogStreams(context.Background(), tt.group, tt.prefix, "", "", false, 0)
+			streams, next, err := b.DescribeLogStreams(
+				context.Background(),
+				tt.group,
+				tt.prefix,
+				"",
+				"",
+				false,
+				0,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -436,11 +473,17 @@ func TestCloudWatchLogsBackend_GetLogEvents(t *testing.T) {
 				t.Helper()
 				_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
 				_, _ = b.CreateLogStream(context.Background(), "grp", "stream")
-				_, _ = b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "msg1", Timestamp: 1000},
-					{Message: "msg2", Timestamp: 2000},
-					{Message: "msg3", Timestamp: 3000},
-				})
+				_, _ = b.PutLogEvents(
+					context.Background(),
+					"grp",
+					"stream",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "msg1", Timestamp: 1000},
+						{Message: "msg2", Timestamp: 2000},
+						{Message: "msg3", Timestamp: 3000},
+					},
+				)
 			},
 			group:             "grp",
 			stream:            "stream",
@@ -453,10 +496,16 @@ func TestCloudWatchLogsBackend_GetLogEvents(t *testing.T) {
 				t.Helper()
 				_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
 				_, _ = b.CreateLogStream(context.Background(), "grp", "stream")
-				_, _ = b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "old", Timestamp: 100},
-					{Message: "new", Timestamp: 5000},
-				})
+				_, _ = b.PutLogEvents(
+					context.Background(),
+					"grp",
+					"stream",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "old", Timestamp: 100},
+						{Message: "new", Timestamp: 5000},
+					},
+				)
 			},
 			group:            "grp",
 			stream:           "stream",
@@ -536,11 +585,29 @@ func TestCloudWatchLogsBackend_GetLogEvents_Pagination(t *testing.T) {
 		{Message: "c", Timestamp: 3},
 	})
 
-	evts, fwd, _, err := b.GetLogEvents(context.Background(), "grp", "stream", nil, nil, 2, "", true)
+	evts, fwd, _, err := b.GetLogEvents(
+		context.Background(),
+		"grp",
+		"stream",
+		nil,
+		nil,
+		2,
+		"",
+		true,
+	)
 	require.NoError(t, err)
 	assert.Len(t, evts, 2)
 
-	evts2, _, _, err := b.GetLogEvents(context.Background(), "grp", "stream", nil, nil, 2, fwd, true)
+	evts2, _, _, err := b.GetLogEvents(
+		context.Background(),
+		"grp",
+		"stream",
+		nil,
+		nil,
+		2,
+		fwd,
+		true,
+	)
 	require.NoError(t, err)
 	assert.Len(t, evts2, 1)
 }
@@ -569,12 +636,24 @@ func TestCloudWatchLogsBackend_FilterLogEvents(t *testing.T) {
 				_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
 				_, _ = b.CreateLogStream(context.Background(), "grp", "s1")
 				_, _ = b.CreateLogStream(context.Background(), "grp", "s2")
-				_, _ = b.PutLogEvents(context.Background(), "grp", "s1", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "ERROR: something bad", Timestamp: 1000},
-				})
-				_, _ = b.PutLogEvents(context.Background(), "grp", "s2", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "INFO: all good", Timestamp: 2000},
-				})
+				_, _ = b.PutLogEvents(
+					context.Background(),
+					"grp",
+					"s1",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "ERROR: something bad", Timestamp: 1000},
+					},
+				)
+				_, _ = b.PutLogEvents(
+					context.Background(),
+					"grp",
+					"s2",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "INFO: all good", Timestamp: 2000},
+					},
+				)
 			},
 			group:            "grp",
 			pattern:          "ERROR",
@@ -588,12 +667,24 @@ func TestCloudWatchLogsBackend_FilterLogEvents(t *testing.T) {
 				_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
 				_, _ = b.CreateLogStream(context.Background(), "grp", "s1")
 				_, _ = b.CreateLogStream(context.Background(), "grp", "s2")
-				_, _ = b.PutLogEvents(context.Background(), "grp", "s1", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "from s1", Timestamp: 1000},
-				})
-				_, _ = b.PutLogEvents(context.Background(), "grp", "s2", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "from s2", Timestamp: 2000},
-				})
+				_, _ = b.PutLogEvents(
+					context.Background(),
+					"grp",
+					"s1",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "from s1", Timestamp: 1000},
+					},
+				)
+				_, _ = b.PutLogEvents(
+					context.Background(),
+					"grp",
+					"s2",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "from s2", Timestamp: 2000},
+					},
+				)
 			},
 			group:            "grp",
 			streams:          []string{"s1"},
@@ -611,10 +702,16 @@ func TestCloudWatchLogsBackend_FilterLogEvents(t *testing.T) {
 				t.Helper()
 				_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
 				_, _ = b.CreateLogStream(context.Background(), "grp", "s")
-				_, _ = b.PutLogEvents(context.Background(), "grp", "s", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "old", Timestamp: 100},
-					{Message: "new", Timestamp: 9000},
-				})
+				_, _ = b.PutLogEvents(
+					context.Background(),
+					"grp",
+					"s",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "old", Timestamp: 100},
+						{Message: "new", Timestamp: 9000},
+					},
+				)
 			},
 			group:            "grp",
 			startTime:        int64Ptr(1000),
@@ -633,15 +730,17 @@ func TestCloudWatchLogsBackend_FilterLogEvents(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			evts, _, err := b.FilterLogEvents(
+			evts, _, _, err := b.FilterLogEvents(
 				context.Background(),
-				tt.group,
-				tt.streams,
-				tt.pattern,
-				tt.startTime,
-				tt.endTime,
-				tt.limit,
-				tt.nextToken,
+				cloudwatchlogs.FilterLogEventsParams{
+					GroupName:     tt.group,
+					StreamNames:   tt.streams,
+					FilterPattern: tt.pattern,
+					StartTime:     tt.startTime,
+					EndTime:       tt.endTime,
+					Limit:         tt.limit,
+					NextToken:     tt.nextToken,
+				},
 			)
 
 			if tt.wantErr != nil {
@@ -674,14 +773,90 @@ func TestCloudWatchLogsBackend_FilterLogEvents_Pagination(t *testing.T) {
 		})
 	}
 
-	evts, token, err := b.FilterLogEvents(context.Background(), "grp", nil, "", nil, nil, 2, "")
+	evts, token, _, err := b.FilterLogEvents(
+		context.Background(), cloudwatchlogs.FilterLogEventsParams{GroupName: "grp", Limit: 2})
 	require.NoError(t, err)
 	assert.Len(t, evts, 2)
 	assert.NotEmpty(t, token)
 
-	evts2, _, err := b.FilterLogEvents(context.Background(), "grp", nil, "", nil, nil, 10, token)
+	evts2, _, _, err := b.FilterLogEvents(
+		context.Background(),
+		cloudwatchlogs.FilterLogEventsParams{GroupName: "grp", Limit: 10, NextToken: token},
+	)
 	require.NoError(t, err)
 	assert.Len(t, evts2, 3)
+}
+
+func TestCloudWatchLogsBackend_FilterLogEvents_EventShape(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
+	_, _ = b.CreateLogStream(context.Background(), "grp", "s1")
+	_, _ = b.CreateLogStream(context.Background(), "grp", "s2")
+	_, _ = b.PutLogEvents(context.Background(), "grp", "s1", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "from s1", Timestamp: 2000},
+	})
+	_, _ = b.PutLogEvents(context.Background(), "grp", "s2", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "from s2", Timestamp: 1000},
+	})
+
+	evts, _, searched, err := b.FilterLogEvents(
+		context.Background(), cloudwatchlogs.FilterLogEventsParams{GroupName: "grp"})
+	require.NoError(t, err)
+	require.Len(t, evts, 2)
+
+	// Interleaved across streams and sorted ascending by timestamp.
+	assert.Equal(t, "from s2", evts[0].Message)
+	assert.Equal(t, "s2", evts[0].LogStreamName)
+	assert.Equal(t, "from s1", evts[1].Message)
+	assert.Equal(t, "s1", evts[1].LogStreamName)
+
+	// Each event carries a non-empty, unique eventId.
+	assert.NotEmpty(t, evts[0].EventID)
+	assert.NotEmpty(t, evts[1].EventID)
+	assert.NotEqual(t, evts[0].EventID, evts[1].EventID)
+
+	// searchedLogStreams is present (AWS returns an empty list).
+	assert.NotNil(t, searched)
+	assert.Empty(t, searched)
+}
+
+func TestCloudWatchLogsBackend_FilterLogEvents_StreamNamePrefix(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
+	for _, s := range []string{"app-1", "app-2", "sys-1"} {
+		_, _ = b.CreateLogStream(context.Background(), "grp", s)
+		_, _ = b.PutLogEvents(context.Background(), "grp", s, "", []cloudwatchlogs.InputLogEvent{
+			{Message: "msg from " + s, Timestamp: 1000},
+		})
+	}
+
+	evts, _, _, err := b.FilterLogEvents(context.Background(), cloudwatchlogs.FilterLogEventsParams{
+		GroupName:           "grp",
+		LogStreamNamePrefix: "app-",
+	})
+	require.NoError(t, err)
+	require.Len(t, evts, 2)
+	for _, e := range evts {
+		assert.True(t, strings.HasPrefix(e.LogStreamName, "app-"))
+	}
+}
+
+func TestCloudWatchLogsBackend_FilterLogEvents_PrefixAndNamesMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
+
+	_, _, _, err := b.FilterLogEvents(context.Background(), cloudwatchlogs.FilterLogEventsParams{
+		GroupName:           "grp",
+		StreamNames:         []string{"s1"},
+		LogStreamNamePrefix: "s",
+	})
+	require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 }
 
 func TestCloudWatchLogsBackend_PutLogEvents_UpdatesTimestamps(t *testing.T) {
@@ -816,7 +991,13 @@ func TestCloudWatchLogsBackend_PutSubscriptionFilter(t *testing.T) {
 
 			require.NoError(t, err)
 
-			filters, _, err := b.DescribeSubscriptionFilters(context.Background(), tt.group, "", "", 0)
+			filters, _, err := b.DescribeSubscriptionFilters(
+				context.Background(),
+				tt.group,
+				"",
+				"",
+				0,
+			)
 			require.NoError(t, err)
 
 			found := false
@@ -1025,7 +1206,13 @@ func TestCloudWatchLogsBackend_DeleteSubscriptionFilter(t *testing.T) {
 
 			require.NoError(t, err)
 
-			filters, _, ferr := b.DescribeSubscriptionFilters(context.Background(), tt.group, "", "", 0)
+			filters, _, ferr := b.DescribeSubscriptionFilters(
+				context.Background(),
+				tt.group,
+				"",
+				"",
+				0,
+			)
 			require.NoError(t, ferr)
 			assert.Empty(t, filters)
 		})
@@ -1042,11 +1229,13 @@ func TestCloudWatchLogsBackend_PutLogEvents_SubscriptionDelivery(t *testing.T) {
 
 	var delivered []deliveredPayload
 
-	deliverer := cloudwatchlogs.SubscriptionDelivererFunc(func(_ context.Context, dst string, p []byte) error {
-		delivered = append(delivered, deliveredPayload{dst, p})
+	deliverer := cloudwatchlogs.SubscriptionDelivererFunc(
+		func(_ context.Context, dst string, p []byte) error {
+			delivered = append(delivered, deliveredPayload{dst, p})
 
-		return nil
-	})
+			return nil
+		},
+	)
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	b.SetSubscriptionDeliverer(deliverer)
@@ -1064,16 +1253,26 @@ func TestCloudWatchLogsBackend_PutLogEvents_SubscriptionDelivery(t *testing.T) {
 	)
 
 	now := time.Now().UnixMilli()
-	_, err := b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
-		{Message: "hello", Timestamp: now},
-	})
+	_, err := b.PutLogEvents(
+		context.Background(),
+		"grp",
+		"stream",
+		"",
+		[]cloudwatchlogs.InputLogEvent{
+			{Message: "hello", Timestamp: now},
+		},
+	)
 	require.NoError(t, err)
 
 	// Wait for the delivery goroutine to finish before asserting.
 	b.Drain()
 
 	assert.Len(t, delivered, 1)
-	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:target", delivered[0].destinationArn)
+	assert.Equal(
+		t,
+		"arn:aws:lambda:us-east-1:123456789012:function:target",
+		delivered[0].destinationArn,
+	)
 	assert.NotEmpty(t, delivered[0].payload)
 }
 
@@ -1095,29 +1294,31 @@ func TestCloudWatchLogsBackend_PutLogEvents_BoundedWorkerPool(t *testing.T) {
 	var atCap sync.Once
 	reachedCap := make(chan struct{})
 
-	deliverer := cloudwatchlogs.SubscriptionDelivererFunc(func(ctx context.Context, _ string, _ []byte) error {
-		mu.Lock()
-		inFlight++
-		if inFlight > concurrencyHigh {
-			concurrencyHigh = inFlight
-		}
-		if inFlight >= workersCap {
-			atCap.Do(func() { close(reachedCap) })
-		}
-		mu.Unlock()
+	deliverer := cloudwatchlogs.SubscriptionDelivererFunc(
+		func(ctx context.Context, _ string, _ []byte) error {
+			mu.Lock()
+			inFlight++
+			if inFlight > concurrencyHigh {
+				concurrencyHigh = inFlight
+			}
+			if inFlight >= workersCap {
+				atCap.Do(func() { close(reachedCap) })
+			}
+			mu.Unlock()
 
-		// Hold until the test signals all goroutines to proceed.
-		select {
-		case <-ready:
-		case <-ctx.Done():
-		}
+			// Hold until the test signals all goroutines to proceed.
+			select {
+			case <-ready:
+			case <-ctx.Done():
+			}
 
-		mu.Lock()
-		inFlight--
-		mu.Unlock()
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
 
-		return nil
-	})
+			return nil
+		},
+	)
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	// Limit to workersCap concurrent workers so we can verify the cap is respected.
@@ -1138,9 +1339,15 @@ func TestCloudWatchLogsBackend_PutLogEvents_BoundedWorkerPool(t *testing.T) {
 	)
 
 	for i := range numEvents {
-		_, err := b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
-			{Message: fmt.Sprintf("msg-%d", i), Timestamp: int64(i)},
-		})
+		_, err := b.PutLogEvents(
+			context.Background(),
+			"grp",
+			"stream",
+			"",
+			[]cloudwatchlogs.InputLogEvent{
+				{Message: fmt.Sprintf("msg-%d", i), Timestamp: int64(i)},
+			},
+		)
 		require.NoError(t, err)
 	}
 
@@ -1223,12 +1430,34 @@ func TestCloudWatchLogsBackend_PutLogEvents_SubscriptionDelivery_PerDeliveryTime
 
 			_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
 			_, _ = b.CreateLogStream(context.Background(), "grp", "stream")
-			_ = b.PutSubscriptionFilter(context.Background(), "grp", "slow-filter", "", slowDestination, "", "")
-			_ = b.PutSubscriptionFilter(context.Background(), "grp", "fast-filter", "", fastDestination, "", "")
+			_ = b.PutSubscriptionFilter(
+				context.Background(),
+				"grp",
+				"slow-filter",
+				"",
+				slowDestination,
+				"",
+				"",
+			)
+			_ = b.PutSubscriptionFilter(
+				context.Background(),
+				"grp",
+				"fast-filter",
+				"",
+				fastDestination,
+				"",
+				"",
+			)
 
-			_, err := b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
-				{Message: "hello", Timestamp: 1},
-			})
+			_, err := b.PutLogEvents(
+				context.Background(),
+				"grp",
+				"stream",
+				"",
+				[]cloudwatchlogs.InputLogEvent{
+					{Message: "hello", Timestamp: 1},
+				},
+			)
 			require.NoError(t, err)
 
 			b.Drain()
@@ -1252,18 +1481,20 @@ func TestCloudWatchLogsBackend_Close_CancelsInFlightDeliveries(t *testing.T) {
 	started := make(chan struct{})
 	deliveryCancelled := make(chan struct{}, 1)
 
-	deliverer := cloudwatchlogs.SubscriptionDelivererFunc(func(ctx context.Context, _ string, _ []byte) error {
-		// Signal that the delivery goroutine has started and is in progress.
-		close(started)
-		// Block until the context is cancelled.
-		<-ctx.Done()
-		select {
-		case deliveryCancelled <- struct{}{}:
-		default:
-		}
+	deliverer := cloudwatchlogs.SubscriptionDelivererFunc(
+		func(ctx context.Context, _ string, _ []byte) error {
+			// Signal that the delivery goroutine has started and is in progress.
+			close(started)
+			// Block until the context is cancelled.
+			<-ctx.Done()
+			select {
+			case deliveryCancelled <- struct{}{}:
+			default:
+			}
 
-		return ctx.Err()
-	})
+			return ctx.Err()
+		},
+	)
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	b.SetDeliveryTimeout(0) // disable timeout so Close() is the only cancellation source
@@ -1281,9 +1512,15 @@ func TestCloudWatchLogsBackend_Close_CancelsInFlightDeliveries(t *testing.T) {
 		"",
 	)
 
-	_, err := b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
-		{Message: "hello", Timestamp: 1},
-	})
+	_, err := b.PutLogEvents(
+		context.Background(),
+		"grp",
+		"stream",
+		"",
+		[]cloudwatchlogs.InputLogEvent{
+			{Message: "hello", Timestamp: 1},
+		},
+	)
 	require.NoError(t, err)
 
 	// Wait until the goroutine has started and is blocking inside the deliverer before closing.
@@ -1347,10 +1584,16 @@ func TestCloudWatchLogsBackend_StartQuery(t *testing.T) {
 				t.Helper()
 				_, _ = b.CreateLogGroup(context.Background(), "/my/group", "", "")
 				_, _ = b.CreateLogStream(context.Background(), "/my/group", "stream")
-				_, _ = b.PutLogEvents(context.Background(), "/my/group", "stream", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "hello world", Timestamp: 1000},
-					{Message: "error occurred", Timestamp: 2000},
-				})
+				_, _ = b.PutLogEvents(
+					context.Background(),
+					"/my/group",
+					"stream",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "hello world", Timestamp: 1000},
+						{Message: "error occurred", Timestamp: 2000},
+					},
+				)
 			},
 			queryString: "fields @timestamp, @message",
 			logGroups:   []string{"/my/group"},
@@ -1377,7 +1620,14 @@ func TestCloudWatchLogsBackend_StartQuery(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			info, err := b.StartQuery(context.Background(), "qid-1", tt.queryString, tt.logGroups, 0, 0)
+			info, err := b.StartQuery(
+				context.Background(),
+				"qid-1",
+				tt.queryString,
+				tt.logGroups,
+				0,
+				0,
+			)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -1386,7 +1636,7 @@ func TestCloudWatchLogsBackend_StartQuery(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, "qid-1", info.QueryID)
-			assert.Equal(t, cloudwatchlogs.QueryStatusComplete, info.Status)
+			assert.Equal(t, cloudwatchlogs.QueryStatusRunning, info.Status)
 		})
 	}
 }
@@ -1407,10 +1657,23 @@ func TestCloudWatchLogsBackend_GetQueryResults(t *testing.T) {
 				t.Helper()
 				_, _ = b.CreateLogGroup(context.Background(), "/grp", "", "")
 				_, _ = b.CreateLogStream(context.Background(), "/grp", "s")
-				_, _ = b.PutLogEvents(context.Background(), "/grp", "s", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "msg1", Timestamp: 1000},
-				})
-				_, _ = b.StartQuery(context.Background(), "qid-1", "fields @message", []string{"/grp"}, 0, 0)
+				_, _ = b.PutLogEvents(
+					context.Background(),
+					"/grp",
+					"s",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "msg1", Timestamp: 1000},
+					},
+				)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"qid-1",
+					"fields @message",
+					[]string{"/grp"},
+					0,
+					0,
+				)
 			},
 			queryID:    "qid-1",
 			wantStatus: cloudwatchlogs.QueryStatusComplete,
@@ -1446,22 +1709,83 @@ func TestCloudWatchLogsBackend_GetQueryResults(t *testing.T) {
 	}
 }
 
+func TestCloudWatchLogsBackend_QueryStats_BytesScanned(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	_, err := b.CreateLogGroup(context.Background(), "/grp", "", "")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream(context.Background(), "/grp", "s")
+	require.NoError(t, err)
+
+	msg1 := "hello world"
+	msg2 := "error occurred"
+	_, err = b.PutLogEvents(context.Background(), "/grp", "s", "", []cloudwatchlogs.InputLogEvent{
+		{Message: msg1, Timestamp: 1000},
+		{Message: msg2, Timestamp: 2000},
+	})
+	require.NoError(t, err)
+
+	_, err = b.StartQuery(context.Background(), "q1", "fields @message", []string{"/grp"}, 0, 0)
+	require.NoError(t, err)
+
+	_, stats, _, err := b.GetQueryResults("q1")
+	require.NoError(t, err)
+
+	wantBytes := float64(len(msg1) + len(msg2))
+	assert.InDelta(t, wantBytes, stats.BytesScanned, 0)
+	assert.InDelta(t, float64(2), stats.RecordsScanned, 0)
+}
+
 func TestCloudWatchLogsBackend_StopQuery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		wantErr error
-		setup   func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		setup   func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string
 		name    string
 		queryID string
 	}{
 		{
-			name: "success",
-			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+			name: "success_running_query",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
-				_, _ = b.StartQuery(context.Background(), "qid-1", "fields @message", []string{}, 0, 0)
+				_, err := b.StartQuery(
+					context.Background(),
+					"qid-running",
+					"fields @message",
+					[]string{},
+					0,
+					0,
+				)
+				require.NoError(t, err)
+				// Place the query back into Running state so StopQuery can cancel it.
+				cloudwatchlogs.SetQueryStatusInternal(
+					b,
+					"qid-running",
+					cloudwatchlogs.QueryStatusRunning,
+				)
+
+				return "qid-running"
 			},
-			queryID: "qid-1",
+		},
+		{
+			name: "already_complete_cancels",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
+				t.Helper()
+				_, err := b.StartQuery(
+					context.Background(),
+					"qid-done",
+					"fields @message",
+					[]string{},
+					0,
+					0,
+				)
+				require.NoError(t, err)
+				// Query is already Complete after synchronous execution; StopQuery
+				// still succeeds and transitions it to Cancelled (emulator behaviour).
+				return "qid-done"
+			},
 		},
 		{
 			name:    "not_found",
@@ -1475,11 +1799,12 @@ func TestCloudWatchLogsBackend_StopQuery(t *testing.T) {
 			t.Parallel()
 
 			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			qid := tt.queryID
 			if tt.setup != nil {
-				tt.setup(t, b)
+				qid = tt.setup(t, b)
 			}
 
-			err := b.StopQuery(tt.queryID)
+			err := b.StopQuery(qid)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 
@@ -1489,7 +1814,7 @@ func TestCloudWatchLogsBackend_StopQuery(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify status is now Cancelled.
-			_, _, status, getErr := b.GetQueryResults(tt.queryID)
+			_, _, status, getErr := b.GetQueryResults(qid)
 			require.NoError(t, getErr)
 			assert.Equal(t, cloudwatchlogs.QueryStatusCancelled, status)
 		})
@@ -1511,8 +1836,22 @@ func TestCloudWatchLogsBackend_DescribeQueries(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, _ = b.CreateLogGroup(context.Background(), "/grp", "", "")
-				_, _ = b.StartQuery(context.Background(), "q1", "fields @message", []string{"/grp"}, 0, 0)
-				_, _ = b.StartQuery(context.Background(), "q2", "fields @timestamp", []string{"/grp"}, 0, 0)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"q1",
+					"fields @message",
+					[]string{"/grp"},
+					0,
+					0,
+				)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"q2",
+					"fields @timestamp",
+					[]string{"/grp"},
+					0,
+					0,
+				)
 			},
 			wantLen: 2,
 		},
@@ -1522,8 +1861,22 @@ func TestCloudWatchLogsBackend_DescribeQueries(t *testing.T) {
 				t.Helper()
 				_, _ = b.CreateLogGroup(context.Background(), "/grp1", "", "")
 				_, _ = b.CreateLogGroup(context.Background(), "/grp2", "", "")
-				_, _ = b.StartQuery(context.Background(), "q1", "fields @message", []string{"/grp1"}, 0, 0)
-				_, _ = b.StartQuery(context.Background(), "q2", "fields @message", []string{"/grp2"}, 0, 0)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"q1",
+					"fields @message",
+					[]string{"/grp1"},
+					0,
+					0,
+				)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"q2",
+					"fields @message",
+					[]string{"/grp2"},
+					0,
+					0,
+				)
 			},
 			logGroupName: "/grp1",
 			wantLen:      1,
@@ -1533,7 +1886,10 @@ func TestCloudWatchLogsBackend_DescribeQueries(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, _ = b.StartQuery(context.Background(), "q1", "fields @message", []string{}, 0, 0)
+				_, _, _, _ = b.GetQueryResults("q1") // Transition to Complete
 				_, _ = b.StartQuery(context.Background(), "q2", "fields @message", []string{}, 0, 0)
+				// Move q2 back to Running so StopQuery can cancel it (AWS parity).
+				cloudwatchlogs.SetQueryStatusInternal(b, "q2", cloudwatchlogs.QueryStatusRunning)
 				_ = b.StopQuery("q2")
 			},
 			status:  "Complete",
@@ -1575,12 +1931,33 @@ func TestCloudWatchLogsBackend_QueryEviction_TTL(t *testing.T) {
 				t.Helper()
 				// Use a short TTL so the existing queries expire before the trigger query.
 				b.SetQueryTTL(time.Millisecond)
-				_, _ = b.StartQuery(context.Background(), "old-1", "fields @message", []string{}, 0, 0)
-				_, _ = b.StartQuery(context.Background(), "old-2", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"old-1",
+					"fields @message",
+					[]string{},
+					0,
+					0,
+				)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"old-2",
+					"fields @message",
+					[]string{},
+					0,
+					0,
+				)
 				// Sleep well beyond the TTL to avoid any scheduling jitter.
 				time.Sleep(20 * time.Millisecond)
 				// This new query triggers eviction; old-1 and old-2 should be removed.
-				_, _ = b.StartQuery(context.Background(), "new-1", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"new-1",
+					"fields @message",
+					[]string{},
+					0,
+					0,
+				)
 			},
 			wantLen: 1,
 		},
@@ -1640,10 +2017,31 @@ func TestCloudWatchLogsBackend_QueryEviction_MaxCap(t *testing.T) {
 				t.Helper()
 				b.SetQueryTTL(0) // disable TTL so only cap applies
 				b.SetMaxQueries(2)
-				_, _ = b.StartQuery(context.Background(), "first", "fields @message", []string{}, 0, 0)
-				_, _ = b.StartQuery(context.Background(), "second", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"first",
+					"fields @message",
+					[]string{},
+					0,
+					0,
+				)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"second",
+					"fields @message",
+					[]string{},
+					0,
+					0,
+				)
 				// This triggers eviction of the oldest ("first").
-				_, _ = b.StartQuery(context.Background(), "third", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery(
+					context.Background(),
+					"third",
+					"fields @message",
+					[]string{},
+					0,
+					0,
+				)
 			},
 			wantLen:    2,
 			wantHasID:  "third",
@@ -1736,7 +2134,14 @@ func TestCloudWatchLogsBackend_StartQuery_ParsedQueryCache(t *testing.T) {
 
 			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			for i, queryString := range tt.queryStrings {
-				_, err := b.StartQuery(context.Background(), fmt.Sprintf("q-%d", i), queryString, []string{}, 0, 0)
+				_, err := b.StartQuery(
+					context.Background(),
+					fmt.Sprintf("q-%d", i),
+					queryString,
+					[]string{},
+					0,
+					0,
+				)
 				require.NoError(t, err)
 			}
 
@@ -1922,16 +2327,54 @@ func TestCloudWatchLogsBackend_FilterPatternMatches(t *testing.T) {
 			want:    false,
 		},
 		{
-			name:    "negation_term_present",
+			// AWS: "?" optional terms are ignored when combined with required
+			// terms, so this reduces to requiring "ERROR".
+			name:    "optional_ignored_when_combined_with_required",
 			pattern: "?DEBUG ERROR",
 			message: "ERROR but not debug",
 			want:    true,
 		},
 		{
-			name:    "negation_term_excluded",
+			// Same pattern, message lacks the required "ERROR" term => no match.
+			name:    "optional_ignored_required_absent",
+			pattern: "?DEBUG ERROR",
+			message: "DEBUG only",
+			want:    false,
+		},
+		{
+			// A standalone "?" optional term is OR semantics: contains DEBUG => match.
+			name:    "optional_single_present",
 			pattern: "?DEBUG",
 			message: "DEBUG: verbose log",
+			want:    true,
+		},
+		{
+			// Multiple "?" optional terms are OR-ed: ARGUMENTS present => match.
+			name:    "optional_or_one_present",
+			pattern: "?ERROR ?ARGUMENTS",
+			message: "[420] INVALID ARGUMENTS",
+			want:    true,
+		},
+		{
+			// None of the optional terms present => no match.
+			name:    "optional_or_none_present",
+			pattern: "?ERROR ?ARGUMENTS",
+			message: "[200] OK REQUEST",
 			want:    false,
+		},
+		{
+			// "-" exclude term: ARGUMENTS present => excluded.
+			name:    "exclude_term_present",
+			pattern: "ERROR -ARGUMENTS",
+			message: "[419] MISSING ARGUMENTS that are ERROR",
+			want:    false,
+		},
+		{
+			// "-" exclude term absent, required ERROR present => match.
+			name:    "exclude_term_absent",
+			pattern: "ERROR -ARGUMENTS",
+			message: "[401] UNAUTHORIZED REQUEST ERROR",
+			want:    true,
 		},
 		{
 			name:    "quoted_exact_match",
@@ -2182,7 +2625,15 @@ func TestCloudWatchLogsBackend_DeleteLogStream(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify stream and events are gone.
-			streams, _, sErr := b.DescribeLogStreams(context.Background(), tt.group, "", "", "", false, 100)
+			streams, _, sErr := b.DescribeLogStreams(
+				context.Background(),
+				tt.group,
+				"",
+				"",
+				"",
+				false,
+				100,
+			)
 			require.NoError(t, sErr)
 			assert.Empty(t, streams)
 		})
@@ -2328,16 +2779,28 @@ func TestCloudWatchLogsBackend_DescribeImportTasks(t *testing.T) {
 		{
 			name: "no_filter_returns_all",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				cloudwatchlogs.AddImportTaskInternal(b, cloudwatchlogs.ImportTask{ImportID: "i1", CreationTime: 1})
-				cloudwatchlogs.AddImportTaskInternal(b, cloudwatchlogs.ImportTask{ImportID: "i2", CreationTime: 2})
+				cloudwatchlogs.AddImportTaskInternal(
+					b,
+					cloudwatchlogs.ImportTask{ImportID: "i1", CreationTime: 1},
+				)
+				cloudwatchlogs.AddImportTaskInternal(
+					b,
+					cloudwatchlogs.ImportTask{ImportID: "i2", CreationTime: 2},
+				)
 			},
 			wantLen: 2,
 		},
 		{
 			name: "filter_by_task_id",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				cloudwatchlogs.AddImportTaskInternal(b, cloudwatchlogs.ImportTask{ImportID: "i1", CreationTime: 1})
-				cloudwatchlogs.AddImportTaskInternal(b, cloudwatchlogs.ImportTask{ImportID: "i2", CreationTime: 2})
+				cloudwatchlogs.AddImportTaskInternal(
+					b,
+					cloudwatchlogs.ImportTask{ImportID: "i1", CreationTime: 1},
+				)
+				cloudwatchlogs.AddImportTaskInternal(
+					b,
+					cloudwatchlogs.ImportTask{ImportID: "i2", CreationTime: 2},
+				)
 			},
 			taskID:  "i1",
 			wantLen: 1,
@@ -2382,8 +2845,14 @@ func TestCloudWatchLogsBackend_DescribeDeliveries(t *testing.T) {
 		{
 			name: "returns_all",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				cloudwatchlogs.AddDeliveryInternal(b, cloudwatchlogs.Delivery{ID: "d1", CreationTime: 1})
-				cloudwatchlogs.AddDeliveryInternal(b, cloudwatchlogs.Delivery{ID: "d2", CreationTime: 2})
+				cloudwatchlogs.AddDeliveryInternal(
+					b,
+					cloudwatchlogs.Delivery{ID: "d1", CreationTime: 1},
+				)
+				cloudwatchlogs.AddDeliveryInternal(
+					b,
+					cloudwatchlogs.Delivery{ID: "d2", CreationTime: 2},
+				)
 			},
 			wantLen: 2,
 		},
@@ -2600,7 +3069,13 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 		{
 			name: "delete_existing",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				_, _ = b.CreateScheduledQuery("q1", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+				_, _ = b.CreateScheduledQuery(
+					"q1",
+					"fields @message",
+					"cron(0 * * * ? *)",
+					"",
+					"ENABLED",
+				)
 			},
 			op: "delete_first",
 		},
@@ -2613,7 +3088,13 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 		{
 			name: "update_state",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				_, _ = b.CreateScheduledQuery("q1", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+				_, _ = b.CreateScheduledQuery(
+					"q1",
+					"fields @message",
+					"cron(0 * * * ? *)",
+					"",
+					"ENABLED",
+				)
 			},
 			op:       "update_first",
 			newState: "DISABLED",
@@ -2621,7 +3102,13 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 		{
 			name: "update_invalid_state",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				_, _ = b.CreateScheduledQuery("q1", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+				_, _ = b.CreateScheduledQuery(
+					"q1",
+					"fields @message",
+					"cron(0 * * * ? *)",
+					"",
+					"ENABLED",
+				)
 			},
 			op:       "update_first",
 			newState: "INVALID",
@@ -2641,7 +3128,13 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 			var err error
 			switch tt.op {
 			case "list":
-				_, _ = b.CreateScheduledQuery("q1", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+				_, _ = b.CreateScheduledQuery(
+					"q1",
+					"fields @message",
+					"cron(0 * * * ? *)",
+					"",
+					"ENABLED",
+				)
 				var queries []cloudwatchlogs.ScheduledQuery
 				queries, _, err = b.ListScheduledQueries(50, "")
 				require.NoError(t, err)
@@ -2911,17 +3404,39 @@ func TestCloudWatchLogsBackend_MetricFilterLifecycle(t *testing.T) {
 			case "put_then_describe":
 				_, innerErr := b.CreateLogGroup(context.Background(), tt.groupName, "", "")
 				require.NoError(t, innerErr)
-				err = b.PutMetricFilter(context.Background(), tt.groupName, tt.filterName, tt.pattern, tt.transforms)
+				err = b.PutMetricFilter(
+					context.Background(),
+					tt.groupName,
+					tt.filterName,
+					tt.pattern,
+					tt.transforms,
+				)
 				require.NoError(t, err)
 				var filters []cloudwatchlogs.MetricFilter
-				filters, _, err = b.DescribeMetricFilters(context.Background(), tt.groupName, "", "", "", "", 50)
+				filters, _, err = b.DescribeMetricFilters(
+					context.Background(),
+					tt.groupName,
+					"",
+					"",
+					"",
+					"",
+					50,
+				)
 				require.NoError(t, err)
 				assert.Len(t, filters, tt.wantLen)
 
 				return
 			case "describe_prefix":
 				var filters []cloudwatchlogs.MetricFilter
-				filters, _, err = b.DescribeMetricFilters(context.Background(), "grp", "err", "", "", "", 50)
+				filters, _, err = b.DescribeMetricFilters(
+					context.Background(),
+					"grp",
+					"err",
+					"",
+					"",
+					"",
+					50,
+				)
 				require.NoError(t, err)
 				assert.Len(t, filters, tt.wantLen)
 
@@ -2929,9 +3444,21 @@ func TestCloudWatchLogsBackend_MetricFilterLifecycle(t *testing.T) {
 			case "delete":
 				err = b.DeleteMetricFilter(context.Background(), tt.groupName, tt.filterName)
 			case "put":
-				err = b.PutMetricFilter(context.Background(), tt.groupName, tt.filterName, tt.pattern, tt.transforms)
+				err = b.PutMetricFilter(
+					context.Background(),
+					tt.groupName,
+					tt.filterName,
+					tt.pattern,
+					tt.transforms,
+				)
 			case "put_no_setup":
-				err = b.PutMetricFilter(context.Background(), tt.groupName, tt.filterName, tt.pattern, tt.transforms)
+				err = b.PutMetricFilter(
+					context.Background(),
+					tt.groupName,
+					tt.filterName,
+					tt.pattern,
+					tt.transforms,
+				)
 			}
 
 			if tt.wantErr != nil {
@@ -3030,7 +3557,12 @@ func TestCloudWatchLogsBackend_QueryDefinitionLifecycle(t *testing.T) {
 		{
 			name: "describe_with_prefix",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				_, _ = b.PutQueryDefinition("prod-errors", "fields @message | filter @message like /ERROR/", "", nil)
+				_, _ = b.PutQueryDefinition(
+					"prod-errors",
+					"fields @message | filter @message like /ERROR/",
+					"",
+					nil,
+				)
 				_, _ = b.PutQueryDefinition("dev-logs", "fields @message | limit 10", "", nil)
 			},
 			op:      "describe_prefix",
@@ -3149,7 +3681,15 @@ func TestCloudWatchLogsBackend_StoredBytesTracking(t *testing.T) {
 			_, err = b.PutLogEvents(context.Background(), "g", "s", "", events)
 			require.NoError(t, err)
 
-			streams, _, err := b.DescribeLogStreams(context.Background(), "g", "", "", "", false, 10)
+			streams, _, err := b.DescribeLogStreams(
+				context.Background(),
+				"g",
+				"",
+				"",
+				"",
+				false,
+				10,
+			)
 			require.NoError(t, err)
 			require.Len(t, streams, 1)
 			assert.Equal(t, tt.wantStreamBytes, streams[0].StoredBytes)
@@ -3449,12 +3989,27 @@ func TestCloudWatchLogsBackend_GetLogRecord(t *testing.T) {
 				require.NoError(t, err)
 				_, err = b.CreateLogStream(context.Background(), "g", "s")
 				require.NoError(t, err)
-				_, err = b.PutLogEvents(context.Background(), "g", "s", "", []cloudwatchlogs.InputLogEvent{
-					{Message: "hello world", Timestamp: 1000},
-				})
+				_, err = b.PutLogEvents(
+					context.Background(),
+					"g",
+					"s",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: "hello world", Timestamp: 1000},
+					},
+				)
 				require.NoError(t, err)
 				// Get the ptr from GetLogEvents
-				evts, _, _, err := b.GetLogEvents(context.Background(), "g", "s", nil, nil, 10, "", true)
+				evts, _, _, err := b.GetLogEvents(
+					context.Background(),
+					"g",
+					"s",
+					nil,
+					nil,
+					10,
+					"",
+					true,
+				)
 				require.NoError(t, err)
 				require.Len(t, evts, 1)
 
@@ -3506,13 +4061,16 @@ func TestCloudWatchLogsBackend_ListAnomalies(t *testing.T) {
 		setup              func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string
 		name               string
 		anomalyDetectorArn string
+		wantCount          int
+		wantNextEmpty      bool
 	}{
 		{
 			name:               "empty_arn_returns_empty",
 			anomalyDetectorArn: "",
+			wantNextEmpty:      true,
 		},
 		{
-			name: "valid_detector_returns_empty",
+			name: "valid_detector_no_anomalies",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
 				arn, err := b.CreateLogAnomalyDetector(
@@ -3522,6 +4080,58 @@ func TestCloudWatchLogsBackend_ListAnomalies(t *testing.T) {
 
 				return arn
 			},
+			wantNextEmpty: true,
+		},
+		{
+			name: "returns_seeded_anomalies",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
+				t.Helper()
+				detectorArn, err := b.CreateLogAnomalyDetector(
+					[]string{"arn:aws:logs:us-east-1:123:log-group:test"}, "det", "", "", "", 0,
+				)
+				require.NoError(t, err)
+				cloudwatchlogs.AddAnomalyInternal(b, cloudwatchlogs.Anomaly{
+					AnomalyDetectorArn: detectorArn,
+					AnomalyID:          "anomaly-1",
+					Description:        "spike in errors",
+					FirstSeen:          1000,
+					LastSeen:           2000,
+					Active:             true,
+				})
+				cloudwatchlogs.AddAnomalyInternal(b, cloudwatchlogs.Anomaly{
+					AnomalyDetectorArn: detectorArn,
+					AnomalyID:          "anomaly-2",
+					Description:        "unusual pattern",
+					FirstSeen:          3000,
+					LastSeen:           4000,
+					Active:             true,
+				})
+
+				return detectorArn
+			},
+			wantCount:     2,
+			wantNextEmpty: true,
+		},
+		{
+			name: "pagination_returns_token",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
+				t.Helper()
+				detectorArn, err := b.CreateLogAnomalyDetector(
+					[]string{"arn:aws:logs:us-east-1:123:log-group:test"}, "det", "", "", "", 0,
+				)
+				require.NoError(t, err)
+				for i := range 5 {
+					cloudwatchlogs.AddAnomalyInternal(b, cloudwatchlogs.Anomaly{
+						AnomalyDetectorArn: detectorArn,
+						AnomalyID:          fmt.Sprintf("anomaly-%d", i),
+						FirstSeen:          int64(i * 1000),
+					})
+				}
+
+				return detectorArn
+			},
+			wantCount:     2,
+			wantNextEmpty: false,
 		},
 		{
 			name:               "detector_not_found",
@@ -3540,7 +4150,12 @@ func TestCloudWatchLogsBackend_ListAnomalies(t *testing.T) {
 				arn = tt.setup(t, b)
 			}
 
-			anomalies, next, err := b.ListAnomalies(arn, 10, "")
+			limit := 10
+			if tt.name == "pagination_returns_token" {
+				limit = 2
+			}
+
+			anomalies, next, err := b.ListAnomalies(arn, limit, "")
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -3549,8 +4164,12 @@ func TestCloudWatchLogsBackend_ListAnomalies(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Empty(t, anomalies)
-			assert.Empty(t, next)
+			assert.Len(t, anomalies, tt.wantCount)
+			if tt.wantNextEmpty {
+				assert.Empty(t, next)
+			} else {
+				assert.NotEmpty(t, next)
+			}
 		})
 	}
 }
@@ -3571,7 +4190,14 @@ func TestCloudWatchLogsBackend_ListLogGroupsForQuery(t *testing.T) {
 				t.Helper()
 				_, err := b.CreateLogGroup(context.Background(), "grp1", "", "")
 				require.NoError(t, err)
-				info, err := b.StartQuery(context.Background(), "qid1", "fields @message", []string{"grp1"}, 0, 0)
+				info, err := b.StartQuery(
+					context.Background(),
+					"qid1",
+					"fields @message",
+					[]string{"grp1"},
+					0,
+					0,
+				)
 				require.NoError(t, err)
 
 				return info.QueryID
@@ -3617,13 +4243,14 @@ func TestCloudWatchLogsBackend_GetScheduledQueryHistory(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantErr  error
-		setup    func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string
-		name     string
-		queryArn string
+		wantErr    error
+		setup      func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string
+		name       string
+		queryArn   string
+		wantMinLen int
 	}{
 		{
-			name: "returns_empty",
+			name: "returns_initial_run_from_create",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
 				arn, err := b.CreateScheduledQuery("q1", "fields @message", "", "", "ENABLED")
@@ -3631,6 +4258,28 @@ func TestCloudWatchLogsBackend_GetScheduledQueryHistory(t *testing.T) {
 
 				return arn
 			},
+			wantMinLen: 1,
+		},
+		{
+			name: "returns_seeded_runs",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
+				t.Helper()
+				arn, err := b.CreateScheduledQuery("q2", "fields @message", "", "", "ENABLED")
+				require.NoError(t, err)
+				cloudwatchlogs.AddScheduledQueryRunInternal(
+					b,
+					arn,
+					cloudwatchlogs.ScheduledQueryRunSummary{
+						Arn:            arn,
+						RunStatus:      "FAILED",
+						ExecutionTime:  500,
+						InvocationTime: 400,
+					},
+				)
+
+				return arn
+			},
+			wantMinLen: 2,
 		},
 		{
 			name:     "not_found",
@@ -3662,7 +4311,7 @@ func TestCloudWatchLogsBackend_GetScheduledQueryHistory(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Empty(t, summaries)
+			assert.GreaterOrEqual(t, len(summaries), tt.wantMinLen)
 			assert.Empty(t, next)
 		})
 	}
@@ -3676,27 +4325,78 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 		setup              func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string
 		name               string
 		anomalyDetectorArn string
+		anomalyID          string
+		suppressionType    string
+		checkSuppression   bool
 	}{
 		{
-			name: "success",
+			name: "success_no_suppression",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
-				arn, err := b.CreateLogAnomalyDetector(
+				detectorArn, err := b.CreateLogAnomalyDetector(
+					[]string{"arn:aws:logs:us-east-1:123:log-group:test"}, "det", "", "", "", 0,
+				)
+				require.NoError(t, err)
+				cloudwatchlogs.AddAnomalyInternal(b, cloudwatchlogs.Anomaly{
+					AnomalyDetectorArn: detectorArn,
+					AnomalyID:          "anomaly-1",
+					Active:             true,
+				})
+
+				return detectorArn
+			},
+			anomalyID:       "anomaly-1",
+			suppressionType: "NO_SUPPRESSION",
+		},
+		{
+			name: "success_limited_suppression_clears_on_no_suppression",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
+				t.Helper()
+				detectorArn, err := b.CreateLogAnomalyDetector(
+					[]string{"arn:aws:logs:us-east-1:123:log-group:test"}, "det", "", "", "", 0,
+				)
+				require.NoError(t, err)
+				cloudwatchlogs.AddAnomalyInternal(b, cloudwatchlogs.Anomaly{
+					AnomalyDetectorArn: detectorArn,
+					AnomalyID:          "anomaly-suppressed",
+					Active:             true,
+				})
+
+				return detectorArn
+			},
+			anomalyID:        "anomaly-suppressed",
+			suppressionType:  "LIMITED",
+			checkSuppression: true,
+		},
+		{
+			name: "anomaly_not_found",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
+				t.Helper()
+				detectorArn, err := b.CreateLogAnomalyDetector(
 					[]string{"arn:aws:logs:us-east-1:123:log-group:test"}, "det", "", "", "", 0,
 				)
 				require.NoError(t, err)
 
-				return arn
+				return detectorArn
 			},
+			anomalyID: "nonexistent-anomaly",
+			wantErr:   cloudwatchlogs.ErrLogAnomalyDetectorNotFound,
 		},
 		{
 			name:               "detector_not_found",
 			anomalyDetectorArn: "arn:aws:logs:us-east-1:123:log-anomaly-detector:nonexistent",
+			anomalyID:          "anomaly-1",
 			wantErr:            cloudwatchlogs.ErrLogAnomalyDetectorNotFound,
 		},
 		{
-			name:    "empty_arn",
-			wantErr: cloudwatchlogs.ErrValidation,
+			name:      "empty_arn",
+			anomalyID: "anomaly-1",
+			wantErr:   cloudwatchlogs.ErrValidation,
+		},
+		{
+			name:               "empty_anomaly_id",
+			anomalyDetectorArn: "arn:aws:logs:us-east-1:123:log-anomaly-detector:x",
+			wantErr:            cloudwatchlogs.ErrValidation,
 		},
 	}
 
@@ -3710,7 +4410,12 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 				arn = tt.setup(t, b)
 			}
 
-			err := b.UpdateAnomaly("anomaly-1", arn, "NO_SUPPRESSION")
+			suppressionType := tt.suppressionType
+			if suppressionType == "" {
+				suppressionType = "NO_SUPPRESSION"
+			}
+
+			err := b.UpdateAnomaly(tt.anomalyID, arn, suppressionType)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -3719,6 +4424,15 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+
+			if tt.checkSuppression {
+				// Verify the suppression state was persisted.
+				anomalies, _, listErr := b.ListAnomalies(arn, 10, "")
+				require.NoError(t, listErr)
+				require.Len(t, anomalies, 1)
+				assert.Equal(t, suppressionType, anomalies[0].SuppressedState)
+				assert.NotZero(t, anomalies[0].SuppressedDate)
+			}
 		})
 	}
 }
@@ -3868,7 +4582,15 @@ func TestCloudWatchLogsBackend_DescribeLogStreams_Ordering(t *testing.T) {
 			_, err = b.CreateLogStream(context.Background(), "g", "aaa")
 			require.NoError(t, err)
 
-			streams, _, err := b.DescribeLogStreams(context.Background(), "g", "", "", tt.orderBy, tt.descending, 50)
+			streams, _, err := b.DescribeLogStreams(
+				context.Background(),
+				"g",
+				"",
+				"",
+				tt.orderBy,
+				tt.descending,
+				50,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -3925,9 +4647,15 @@ func TestCloudWatchLogsBackend_DeleteLogGroup_CleansMetricFilters(t *testing.T) 
 	_, err := b.CreateLogGroup(context.Background(), "g", "", "")
 	require.NoError(t, err)
 
-	err = b.PutMetricFilter(context.Background(), "g", "f1", "", []cloudwatchlogs.MetricTransformation{
-		{MetricName: "m", MetricNamespace: "ns", MetricValue: "1"},
-	})
+	err = b.PutMetricFilter(
+		context.Background(),
+		"g",
+		"f1",
+		"",
+		[]cloudwatchlogs.MetricTransformation{
+			{MetricName: "m", MetricNamespace: "ns", MetricValue: "1"},
+		},
+	)
 	require.NoError(t, err)
 
 	err = b.DeleteLogGroup(context.Background(), "g")
@@ -4008,13 +4736,15 @@ func TestCloudWatchLogsBackend_MetricFilterEmission(t *testing.T) {
 	var mu sync.Mutex
 	var emitted []emittedMetric
 
-	emitter := cloudwatchlogs.MetricEmitterFunc(func(namespace, name string, value float64, _ string) error {
-		mu.Lock()
-		emitted = append(emitted, emittedMetric{namespace: namespace, name: name, value: value})
-		mu.Unlock()
+	emitter := cloudwatchlogs.MetricEmitterFunc(
+		func(namespace, name string, value float64, _ string) error {
+			mu.Lock()
+			emitted = append(emitted, emittedMetric{namespace: namespace, name: name, value: value})
+			mu.Unlock()
 
-		return nil
-	})
+			return nil
+		},
+	)
 
 	b := cloudwatchlogs.NewInMemoryBackend()
 	b.SetMetricEmitter(emitter)
@@ -4024,16 +4754,28 @@ func TestCloudWatchLogsBackend_MetricFilterEmission(t *testing.T) {
 	_, err = b.CreateLogStream(context.Background(), "grp", "stream")
 	require.NoError(t, err)
 
-	err = b.PutMetricFilter(context.Background(), "grp", "errors", "ERROR", []cloudwatchlogs.MetricTransformation{
-		{MetricNamespace: "MyApp", MetricName: "ErrorCount", MetricValue: "1"},
-	})
+	err = b.PutMetricFilter(
+		context.Background(),
+		"grp",
+		"errors",
+		"ERROR",
+		[]cloudwatchlogs.MetricTransformation{
+			{MetricNamespace: "MyApp", MetricName: "ErrorCount", MetricValue: "1"},
+		},
+	)
 	require.NoError(t, err)
 
 	// Two events: one matches the filter pattern, one does not.
-	_, err = b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
-		{Message: "ERROR: something went wrong", Timestamp: time.Now().UnixMilli()},
-		{Message: "INFO: all good", Timestamp: time.Now().UnixMilli()},
-	})
+	_, err = b.PutLogEvents(
+		context.Background(),
+		"grp",
+		"stream",
+		"",
+		[]cloudwatchlogs.InputLogEvent{
+			{Message: "ERROR: something went wrong", Timestamp: time.Now().UnixMilli()},
+			{Message: "INFO: all good", Timestamp: time.Now().UnixMilli()},
+		},
+	)
 	require.NoError(t, err)
 
 	mu.Lock()
@@ -4056,14 +4798,26 @@ func TestCloudWatchLogsBackend_MetricFilterEmission_NoEmitterNoPanic(t *testing.
 	_, err = b.CreateLogStream(context.Background(), "grp", "stream")
 	require.NoError(t, err)
 
-	err = b.PutMetricFilter(context.Background(), "grp", "errors", "ERROR", []cloudwatchlogs.MetricTransformation{
-		{MetricNamespace: "MyApp", MetricName: "ErrorCount", MetricValue: "1"},
-	})
+	err = b.PutMetricFilter(
+		context.Background(),
+		"grp",
+		"errors",
+		"ERROR",
+		[]cloudwatchlogs.MetricTransformation{
+			{MetricNamespace: "MyApp", MetricName: "ErrorCount", MetricValue: "1"},
+		},
+	)
 	require.NoError(t, err)
 
-	_, err = b.PutLogEvents(context.Background(), "grp", "stream", "", []cloudwatchlogs.InputLogEvent{
-		{Message: "ERROR: kaboom", Timestamp: time.Now().UnixMilli()},
-	})
+	_, err = b.PutLogEvents(
+		context.Background(),
+		"grp",
+		"stream",
+		"",
+		[]cloudwatchlogs.InputLogEvent{
+			{Message: "ERROR: kaboom", Timestamp: time.Now().UnixMilli()},
+		},
+	)
 	require.NoError(t, err)
 }
 
@@ -4112,7 +4866,12 @@ func TestCloudWatchLogsBackend_CreateLogGroup_WithClass(t *testing.T) {
 			t.Parallel()
 
 			b := cloudwatchlogs.NewInMemoryBackend()
-			g, err := b.CreateLogGroup(context.Background(), "/test/group", tt.logGroupClass, tt.kmsKeyID)
+			g, err := b.CreateLogGroup(
+				context.Background(),
+				"/test/group",
+				tt.logGroupClass,
+				tt.kmsKeyID,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -4131,9 +4890,19 @@ func TestCloudWatchLogsBackend_DescribeLogGroups_ReturnsClass(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatchlogs.NewInMemoryBackend()
-	_, err := b.CreateLogGroup(context.Background(), "/ia", cloudwatchlogs.LogGroupClassInfrequentAccess, "")
+	_, err := b.CreateLogGroup(
+		context.Background(),
+		"/ia",
+		cloudwatchlogs.LogGroupClassInfrequentAccess,
+		"",
+	)
 	require.NoError(t, err)
-	_, err = b.CreateLogGroup(context.Background(), "/std", cloudwatchlogs.LogGroupClassStandard, "")
+	_, err = b.CreateLogGroup(
+		context.Background(),
+		"/std",
+		cloudwatchlogs.LogGroupClassStandard,
+		"",
+	)
 	require.NoError(t, err)
 
 	groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 50)
@@ -4230,7 +4999,16 @@ func TestCloudWatchLogsBackend_PutLogEvents_RejectedLogEventsInfo(t *testing.T) 
 			require.NoError(t, err)
 			require.NotNil(t, result)
 
-			got, _, _, err := b.GetLogEvents(context.Background(), "g", "s", nil, nil, 1000, "", true)
+			got, _, _, err := b.GetLogEvents(
+				context.Background(),
+				"g",
+				"s",
+				nil,
+				nil,
+				1000,
+				"",
+				true,
+			)
 			require.NoError(t, err)
 			assert.Len(t, got, tt.wantAccepted)
 
@@ -4305,15 +5083,27 @@ func TestCloudWatchLogsBackend_PutLogEvents_SequenceToken(t *testing.T) {
 			require.NoError(t, err)
 
 			for i := range tt.setupEvents {
-				_, err = b.PutLogEvents(context.Background(), "g", "s", "", []cloudwatchlogs.InputLogEvent{
-					{Message: fmt.Sprintf("event-%d", i), Timestamp: now},
-				})
+				_, err = b.PutLogEvents(
+					context.Background(),
+					"g",
+					"s",
+					"",
+					[]cloudwatchlogs.InputLogEvent{
+						{Message: fmt.Sprintf("event-%d", i), Timestamp: now},
+					},
+				)
 				require.NoError(t, err)
 			}
 
-			_, err = b.PutLogEvents(context.Background(), "g", "s", tt.sequenceToken, []cloudwatchlogs.InputLogEvent{
-				{Message: "new event", Timestamp: now},
-			})
+			_, err = b.PutLogEvents(
+				context.Background(),
+				"g",
+				"s",
+				tt.sequenceToken,
+				[]cloudwatchlogs.InputLogEvent{
+					{Message: "new event", Timestamp: now},
+				},
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -4375,10 +5165,24 @@ func TestCloudWatchLogsBackend_MetricTransformation_DimensionsAndUnit(t *testing
 			_, err := b.CreateLogGroup(context.Background(), "g", "", "")
 			require.NoError(t, err)
 
-			err = b.PutMetricFilter(context.Background(), "g", "filter1", "ERROR", tt.transformations)
+			err = b.PutMetricFilter(
+				context.Background(),
+				"g",
+				"filter1",
+				"ERROR",
+				tt.transformations,
+			)
 			require.NoError(t, err)
 
-			filters, _, err := b.DescribeMetricFilters(context.Background(), "g", "", "", "", "", 50)
+			filters, _, err := b.DescribeMetricFilters(
+				context.Background(),
+				"g",
+				"",
+				"",
+				"",
+				"",
+				50,
+			)
 			require.NoError(t, err)
 			require.Len(t, filters, 1)
 			require.Len(t, filters[0].MetricTransformations, 1)
@@ -4563,7 +5367,13 @@ func TestCloudWatchLogsBackend_PutAccountPolicy_ExtendedTypes(t *testing.T) {
 			t.Parallel()
 
 			b := cloudwatchlogs.NewInMemoryBackend()
-			policy, err := b.PutAccountPolicy("p1", tt.policyType, "{}", tt.scope, tt.selectionCriteria)
+			policy, err := b.PutAccountPolicy(
+				"p1",
+				tt.policyType,
+				"{}",
+				tt.scope,
+				tt.selectionCriteria,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -4789,7 +5599,15 @@ func TestCloudWatchLogsBackend_DescribeLogStreams_OrderByValidation(t *testing.T
 			_, err := b.CreateLogGroup(context.Background(), "g", "", "")
 			require.NoError(t, err)
 
-			_, _, err = b.DescribeLogStreams(context.Background(), "g", tt.prefix, "", tt.orderBy, tt.descending, 50)
+			_, _, err = b.DescribeLogStreams(
+				context.Background(),
+				"g",
+				tt.prefix,
+				"",
+				tt.orderBy,
+				tt.descending,
+				50,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)

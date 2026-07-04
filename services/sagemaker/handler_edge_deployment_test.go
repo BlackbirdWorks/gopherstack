@@ -439,11 +439,11 @@ func TestHandler_EdgeDeploymentPlan_SnapshotRestore(t *testing.T) {
 				})
 			}
 
-			snap := h1.Backend.Snapshot()
+			snap := h1.Backend.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 			h2 := sagemaker.NewHandler(b2)
 
 			rec := doSageMakerRequest(t, h2, "ListEdgeDeploymentPlans", map[string]any{})

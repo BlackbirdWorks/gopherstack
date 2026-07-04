@@ -8,15 +8,18 @@ import (
 	"maps"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// describeConfigRulesPageSize bounds a single DescribeConfigRules page.
+const describeConfigRulesPageSize = 100
 
 const (
 	opAssociateResourceTypes              = "AssociateResourceTypes"
@@ -353,6 +356,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			http.StatusNotFound,
 			marshalError("NoSuchAggregationAuthorizationException", err.Error()),
 		)
+	case errors.Is(err, ErrResourceNotFound):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSONBlob(
 			http.StatusConflict,
@@ -369,8 +374,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 // configurationRecorderBody is the nested JSON body for a configuration recorder.
 type configurationRecorderBody struct {
-	Name    string `json:"name"`
-	RoleARN string `json:"roleARN"`
+	RecordingGroup *RecordingGroup `json:"recordingGroup,omitempty"`
+	Name           string          `json:"name"`
+	RoleARN        string          `json:"roleARN"`
 }
 
 type putConfigurationRecorderRequest struct {
@@ -386,6 +392,7 @@ func (h *Handler) handlePutConfigurationRecorder(
 	if err := h.Backend.PutConfigurationRecorder(
 		in.ConfigurationRecorder.Name,
 		in.ConfigurationRecorder.RoleARN,
+		in.ConfigurationRecorder.RecordingGroup,
 	); err != nil {
 		return nil, err
 	}
@@ -438,9 +445,11 @@ func (h *Handler) handleStopConfigurationRecorder(
 
 // deliveryChannelBody is the nested JSON body for a delivery channel.
 type deliveryChannelBody struct {
-	Name         string `json:"name"`
-	S3BucketName string `json:"s3BucketName"`
-	SnsTopicARN  string `json:"snsTopicARN"`
+	ConfigSnapshotDeliveryProperties *DeliverySnapshotProperties `json:"configSnapshotDeliveryProperties,omitempty"`
+	Name                             string                      `json:"name"`
+	S3BucketName                     string                      `json:"s3BucketName"`
+	S3KeyPrefix                      string                      `json:"s3KeyPrefix,omitempty"`
+	SnsTopicARN                      string                      `json:"snsTopicARN"`
 }
 
 type handlePutDeliveryChannelInput struct {
@@ -457,6 +466,8 @@ func (h *Handler) handlePutDeliveryChannel(
 		in.DeliveryChannel.Name,
 		in.DeliveryChannel.S3BucketName,
 		in.DeliveryChannel.SnsTopicARN,
+		in.DeliveryChannel.S3KeyPrefix,
+		in.DeliveryChannel.ConfigSnapshotDeliveryProperties,
 	); err != nil {
 		return nil, err
 	}
@@ -550,9 +561,14 @@ func (h *Handler) handleDescribeConfigRules(
 	_ context.Context,
 	in *describeConfigRulesInput,
 ) (*describeConfigRulesOutput, error) {
-	rules := h.Backend.DescribeConfigRules(in.ConfigRuleNames)
+	if err := page.ValidateToken(in.NextToken); err != nil {
+		return nil, fmt.Errorf("%w: invalid NextToken", ErrValidation)
+	}
 
-	return &describeConfigRulesOutput{ConfigRules: rules}, nil
+	all := h.Backend.DescribeConfigRules(in.ConfigRuleNames)
+	p := page.New(all, in.NextToken, describeConfigRulesPageSize, describeConfigRulesPageSize)
+
+	return &describeConfigRulesOutput{ConfigRules: p.Data, NextToken: p.Next}, nil
 }
 
 type getComplianceDetailsByConfigRuleInput struct {
@@ -561,41 +577,20 @@ type getComplianceDetailsByConfigRuleInput struct {
 	ComplianceTypes []string `json:"ComplianceTypes,omitempty"`
 }
 
-type evaluationResult struct {
-	ComplianceType        string `json:"ComplianceType"`
-	ResultRecordedTime    string `json:"ResultRecordedTime,omitempty"`
-	ConfigRuleInvokedTime string `json:"ConfigRuleInvokedTime,omitempty"`
-}
-
 type getComplianceDetailsByConfigRuleOutput struct {
-	NextToken         string             `json:"NextToken,omitempty"`
-	EvaluationResults []evaluationResult `json:"EvaluationResults"`
+	NextToken         string                     `json:"NextToken,omitempty"`
+	EvaluationResults []DetailedEvaluationResult `json:"EvaluationResults"`
 }
 
-// handleGetComplianceDetailsByConfigRule returns compliance evaluation results for a config rule.
-// After StartConfigRulesEvaluation has been called, rules are marked COMPLIANT.
+// handleGetComplianceDetailsByConfigRule returns the real per-resource compliance
+// evaluation results recorded for a config rule.
 func (h *Handler) handleGetComplianceDetailsByConfigRule(
 	_ context.Context,
 	in *getComplianceDetailsByConfigRuleInput,
 ) (*getComplianceDetailsByConfigRuleOutput, error) {
-	complianceType := h.Backend.GetConfigRuleComplianceType(in.ConfigRuleName)
-	if complianceType == "" {
-		return &getComplianceDetailsByConfigRuleOutput{
-			EvaluationResults: []evaluationResult{},
-		}, nil
-	}
+	results := h.Backend.GetComplianceDetailsByConfigRule(in.ConfigRuleName, in.ComplianceTypes)
 
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	return &getComplianceDetailsByConfigRuleOutput{
-		EvaluationResults: []evaluationResult{
-			{
-				ComplianceType:        complianceType,
-				ResultRecordedTime:    now,
-				ConfigRuleInvokedTime: now,
-			},
-		},
-	}, nil
+	return &getComplianceDetailsByConfigRuleOutput{EvaluationResults: results}, nil
 }
 
 // --- AssociateResourceTypes ---

@@ -747,7 +747,7 @@ func TestAudit_ResolverDnssecConfig_StatusValues(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				cfg := resp["ResolverDNSSECConfig"].(map[string]any)
-				assert.Equal(t, tt.wantStatus, cfg["ValidationStatus"])
+				assert.Equal(t, tt.wantStatus, cfg["Validation"])
 			}
 		})
 	}
@@ -1598,9 +1598,9 @@ func TestAudit_Backend_EndpointTimestampsRoundTrip(t *testing.T) {
 	require.NotEmpty(t, ep.CreationTime)
 	require.NotEmpty(t, ep.ModificationTime)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	ep2, err := b2.GetResolverEndpoint(context.Background(), ep.ID)
 	require.NoError(t, err)
@@ -1631,9 +1631,9 @@ func TestAudit_Backend_FirewallRuleBlockOverrideRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	rules := b2.ListFirewallRules(context.Background(), grp.ID)
 	require.Len(t, rules, 1)

@@ -1,5 +1,7 @@
 package redshift
 
+import "time"
+
 // ClusterCount returns the number of clusters in the backend.
 func ClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock("ClusterCount")
@@ -147,4 +149,60 @@ func IdcApplicationCount(b *InMemoryBackend) int {
 // HandlerOpsLen returns the number of operations registered in the handler.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)
+}
+
+// SetClusterActivationDelay sets the delay before a newly created cluster
+// transitions from "creating" to "available". Set to a positive value to
+// test the lifecycle state machine; leave at 0 for instant availability.
+func SetClusterActivationDelay(b *InMemoryBackend, d time.Duration) {
+	b.clusterActivationDelay = d
+}
+
+// SetReconcileInterval overrides the background reconciler tick interval. Must be
+// called before StartReconciler. Used by tests to advance state quickly.
+func SetReconcileInterval(b *InMemoryBackend, d time.Duration) {
+	b.reconcileMu.Lock()
+	defer b.reconcileMu.Unlock()
+
+	b.reconcileInterval = d
+}
+
+// PendingClusterTransitions returns the number of scheduled (not-yet-applied)
+// cluster lifecycle transitions currently held by the backend.
+func PendingClusterTransitions(b *InMemoryBackend) int {
+	b.mu.RLock("PendingClusterTransitions")
+	defer b.mu.RUnlock()
+
+	return len(b.clusterTransitions)
+}
+
+// ReconcilerRunning reports whether the managed reconciler goroutine is active.
+func ReconcilerRunning(b *InMemoryBackend) bool {
+	b.reconcileMu.Lock()
+	defer b.reconcileMu.Unlock()
+
+	return b.reconcileOn
+}
+
+// ServerlessIndexLen returns the number of keys tracked by a serverless sorted
+// index, selected by name ("namespace", "workgroup", "snapshot", "usagelimit",
+// "scheduledaction"). Returns -1 for an unknown selector.
+func ServerlessIndexLen(b *InMemoryBackend, which string) int {
+	b.mu.RLock("ServerlessIndexLen")
+	defer b.mu.RUnlock()
+
+	switch which {
+	case "namespace":
+		return len(b.slNamespaceIdx.keys)
+	case "workgroup":
+		return len(b.slWorkgroupIdx.keys)
+	case "snapshot":
+		return len(b.slSnapshotIdx.keys)
+	case "usagelimit":
+		return len(b.slUsageLimitIdx.keys)
+	case "scheduledaction":
+		return len(b.slScheduledActionIdx.keys)
+	default:
+		return -1
+	}
 }

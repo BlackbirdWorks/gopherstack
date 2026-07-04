@@ -87,6 +87,7 @@ var errProjectionUnsupported = errors.New(
 // expression blobs decoded together so they share one name/value namespace.
 type decodedExpression struct {
 	names  map[string]string
+	byName map[string]string // reverse map: attribute name -> placeholder
 	values map[string]types.AttributeValue
 	nextN  int
 	nextV  int
@@ -95,6 +96,7 @@ type decodedExpression struct {
 func newDecodedExpression() *decodedExpression {
 	return &decodedExpression{
 		names:  map[string]string{},
+		byName: map[string]string{},
 		values: map[string]types.AttributeValue{},
 	}
 }
@@ -104,15 +106,14 @@ func newDecodedExpression() *decodedExpression {
 // compact and avoids reserved-word collisions, mirroring how the SDK builds
 // expressions.
 func (d *decodedExpression) nameRef(name string) string {
-	for ph, n := range d.names {
-		if n == name {
-			return ph
-		}
+	if ph, ok := d.byName[name]; ok {
+		return ph
 	}
 
 	ph := fmt.Sprintf("#n%d", d.nextN)
 	d.nextN++
 	d.names[ph] = name
+	d.byName[name] = ph
 
 	return ph
 }

@@ -94,7 +94,7 @@ func TestListEventBuses(t *testing.T) {
 				_, _ = b.CreateEventBus(context.Background(), name, "")
 			}
 
-			buses, next, err := b.ListEventBuses(context.Background(), tt.prefix, "")
+			buses, next, err := b.ListEventBuses(context.Background(), tt.prefix, "", 0)
 			require.NoError(t, err)
 			assert.Empty(t, next)
 			assert.Len(t, buses, tt.wantCount)
@@ -146,7 +146,7 @@ func TestPutAndListRules(t *testing.T) {
 	assert.Equal(t, "ENABLED", rule.State)
 	assert.Contains(t, rule.Arn, "my-rule")
 
-	rules, next, err := b.ListRules(context.Background(), "default", "", "")
+	rules, next, err := b.ListRules(context.Background(), "default", "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, next)
 	assert.Len(t, rules, 1)
@@ -229,7 +229,7 @@ func TestPutAndListTargets(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, failed)
 
-	got, next, err := b.ListTargetsByRule(context.Background(), "rule-with-targets", "", "")
+	got, next, err := b.ListTargetsByRule(context.Background(), "rule-with-targets", "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, next)
 	assert.Len(t, got, 2)
@@ -254,7 +254,7 @@ func TestRemoveTargets(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, failed)
 
-	got, _, err := b.ListTargetsByRule(context.Background(), "rule-remove", "", "")
+	got, _, err := b.ListTargetsByRule(context.Background(), "rule-remove", "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
@@ -409,7 +409,7 @@ func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
 	require.NoError(t, err, "default event bus must be available after Reset")
 
 	// Default bus must appear in ListEventBuses.
-	buses, _, err := b.ListEventBuses(context.Background(), "", "")
+	buses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, buses, 1, "only the default bus should exist after Reset")
 	assert.Equal(t, "default", buses[0].Name)

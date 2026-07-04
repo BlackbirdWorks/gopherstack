@@ -936,6 +936,17 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ModelName is required", errInvalidRequest)
 	}
 
+	if req.ExecutionRoleArn == "" {
+		return nil, fmt.Errorf("%w: ExecutionRoleArn is required", errInvalidRequest)
+	}
+
+	if req.PrimaryContainer != nil && len(req.Containers) > 0 {
+		return nil, fmt.Errorf(
+			"%w: provide either PrimaryContainer or Containers, not both",
+			errInvalidRequest,
+		)
+	}
+
 	tags := fromTagObjects(req.Tags)
 
 	m, err := h.Backend.CreateModel(
@@ -1100,6 +1111,12 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 
 	if req.EndpointConfigName == "" {
 		return nil, fmt.Errorf("%w: EndpointConfigName is required", errInvalidRequest)
+	}
+
+	if len(req.ProductionVariants) == 0 {
+		return nil, fmt.Errorf(
+			"%w: At least one ProductionVariant must be specified", errInvalidRequest,
+		)
 	}
 
 	tags := fromTagObjects(req.Tags)

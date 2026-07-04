@@ -36,6 +36,9 @@ const (
 	opListInstanceProfilesForRole = "ListInstanceProfilesForRole"
 	xmlElemPolicy                 = "Policy"
 	notApplicable                 = "N/A"
+
+	minMaxSessionDuration = 3600
+	maxMaxSessionDuration = 43200
 )
 
 // Handler is the Echo HTTP handler for IAM operations.
@@ -497,13 +500,19 @@ func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 			}
 
 			if msd := vals.Get("MaxSessionDuration"); msd != "" {
-				if d, parseErr := strconv.ParseInt(msd, 10, 32); parseErr == nil {
-					if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d)); updateErr != nil {
-						return nil, fmt.Errorf("updating max session duration for role %s: %w", r.RoleName, updateErr)
-					}
-
-					r.MaxSessionDuration = int32(d)
+				d, parseErr := strconv.ParseInt(msd, 10, 32)
+				if parseErr != nil || d < minMaxSessionDuration || d > maxMaxSessionDuration {
+					return nil, fmt.Errorf(
+						"%w: MaxSessionDuration must be between %d and %d",
+						ErrValidationError, minMaxSessionDuration, maxMaxSessionDuration,
+					)
 				}
+
+				if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d)); updateErr != nil {
+					return nil, fmt.Errorf("updating max session duration for role %s: %w", r.RoleName, updateErr)
+				}
+
+				r.MaxSessionDuration = int32(d)
 			}
 
 			return &CreateRoleResponse{
@@ -1042,40 +1051,21 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 		"SimulatePrincipalPolicy": func(vals url.Values, reqID string) (any, error) {
 			actionNames := parseIndexedValues(vals, "ActionNames.member.")
 			resourceArns := parseIndexedValues(vals, "ResourceArns.member.")
+			resourcePolicyList := parseIndexedValues(vals, "ResourcePolicyList.member.")
 
 			results, err := h.Backend.SimulatePrincipalPolicy(
-				vals.Get("PolicySourceArn"), actionNames, resourceArns,
+				vals.Get("PolicySourceArn"), vals.Get("CallerArn"), vals.Get("ResourceOwner"),
+				resourcePolicyList, actionNames, resourceArns,
+				parseConditionContext(vals),
 			)
 			if err != nil {
 				return nil, err
 			}
 
-			xmlResults := make([]SimulationEvalResultXML, 0, len(results))
-			for _, r := range results {
-				entry := SimulationEvalResultXML{
-					EvalActionName:   r.ActionName,
-					EvalResourceName: r.ResourceName,
-					EvalDecision:     r.Decision,
-				}
-
-				for policyID, decision := range r.EvalDecisionDetails {
-					entry.EvalDecisionDetails = append(entry.EvalDecisionDetails,
-						EvalDecisionDetailEntry{Key: policyID, Value: decision})
-				}
-
-				if r.AllowedByPermissionsBoundary != nil {
-					entry.PermissionsBoundaryDecisionDetail = &PermBoundaryDecisionXML{
-						AllowedByPermissionsBoundary: *r.AllowedByPermissionsBoundary,
-					}
-				}
-
-				xmlResults = append(xmlResults, entry)
-			}
-
 			return &SimulatePrincipalPolicyResponse{
 				Xmlns: iamXMLNS,
 				SimulatePrincipalPolicyResult: SimulatePrincipalPolicyResult{
-					EvaluationResults: xmlResults,
+					EvaluationResults: simResultsToXML(results),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -1578,6 +1568,11 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		code = "InvalidInput"
 	case errors.Is(reqErr, ErrInvalidPassword):
 		code = "InvalidInput"
+	case errors.Is(reqErr, ErrValidationError):
+		code = "ValidationError"
+	case errors.Is(reqErr, ErrInvalidAuthenticationCode):
+		code = "InvalidAuthenticationCode"
+		statusCode = http.StatusForbidden
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
@@ -1779,6 +1774,81 @@ func parseMaxItems(s string) int {
 	return n
 }
 
+// parseConditionContext parses ContextEntries.member.N.{ContextKeyName,ContextKeyType,
+// ContextKeyValues.member.M} from IAM SimulatePolicy form values into a ConditionContext.
+// All values are stored in Extra keyed by lower-cased ContextKeyName.
+func parseConditionContext(vals url.Values) ConditionContext {
+	extra := make(map[string]string)
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("ContextEntries.member.%d.", i)
+		keyName := vals.Get(prefix + "ContextKeyName")
+
+		if keyName == "" {
+			break
+		}
+
+		// Values are a member list; join multiple values with a comma.
+		var values []string
+
+		for j := 1; ; j++ {
+			v := vals.Get(fmt.Sprintf("%sContextKeyValues.member.%d", prefix, j))
+			if v == "" {
+				break
+			}
+
+			values = append(values, v)
+		}
+
+		lower := strings.ToLower(keyName)
+		// Map well-known keys to ConditionContext fields via Extra.
+		switch lower {
+		case ctxKeySourceIP:
+			if len(values) > 0 {
+				extra[lower] = values[0]
+			}
+		default:
+			if len(values) > 0 {
+				extra[lower] = strings.Join(values, ",")
+			}
+		}
+	}
+
+	if len(extra) == 0 {
+		return ConditionContext{}
+	}
+
+	return ConditionContext{Extra: extra}
+}
+
+// simResultsToXML converts SimulationResult slice to the XML representation.
+func simResultsToXML(results []SimulationResult) []SimulationEvalResultXML {
+	xmlResults := make([]SimulationEvalResultXML, 0, len(results))
+
+	for _, r := range results {
+		entry := SimulationEvalResultXML{
+			EvalActionName:   r.ActionName,
+			EvalResourceName: r.ResourceName,
+			EvalDecision:     r.Decision,
+		}
+
+		for policyID, decision := range r.EvalDecisionDetails {
+			entry.EvalDecisionDetails = append(entry.EvalDecisionDetails,
+				EvalDecisionDetailEntry{Key: policyID, Value: decision})
+		}
+
+		if r.AllowedByPermissionsBoundary != nil {
+			entry.PermissionsBoundaryDecisionDetail = &PermBoundaryDecisionXML{
+				AllowedByPermissionsBoundary: *r.AllowedByPermissionsBoundary,
+			}
+		}
+
+		xmlResults = append(xmlResults, entry)
+	}
+
+	return xmlResults
+}
+
 // parseIndexedValues parses form values with a given prefix followed by an integer index.
 // Example: prefix "ActionNames.member." extracts "ActionNames.member.1", "ActionNames.member.2", etc.
 func parseIndexedValues(vals url.Values, prefix string) []string {
@@ -1817,6 +1887,11 @@ func toAttachedPoliciesXML(policies []AttachedPolicy) []AttachedPolicyXML {
 }
 
 func toUserDetailXML(u UserDetail) UserDetailXML {
+	groupList := u.GroupNames
+	if groupList == nil {
+		groupList = []string{}
+	}
+
 	return UserDetailXML{
 		Path:                    u.Path,
 		UserName:                u.UserName,
@@ -1825,7 +1900,7 @@ func toUserDetailXML(u UserDetail) UserDetailXML {
 		CreateDate:              isoTime(u.CreateDate),
 		UserPolicyList:          toInlinePolicyEntriesXML(u.InlinePolicies),
 		AttachedManagedPolicies: toAttachedPoliciesXML(u.AttachedPolicies),
-		GroupList:               []string{},
+		GroupList:               groupList,
 	}
 }
 

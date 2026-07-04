@@ -1,6 +1,9 @@
 package omics
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for HealthOmics storage operations.
 type StorageBackend interface {
@@ -102,6 +105,14 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*ReadSetUploadPart, string, error)
+	UploadReadSetPart(
+		sequenceStoreID, uploadID string,
+		partNumber int,
+		partSource string,
+		data []byte,
+	) (string, error)
+	GetReadSetBytes(sequenceStoreID, id string) ([]byte, error)
+	GetReferenceBytes(referenceStoreID, id string) ([]byte, error)
 
 	// RunGroup
 	CreateRunGroup(
@@ -121,7 +132,7 @@ type StorageBackend interface {
 
 	// Run
 	StartRun(
-		workflowID, roleARN, name string,
+		workflowID, roleARN, name, runBatchID string,
 		params map[string]any,
 		tags map[string]string,
 	) (*Run, error)
@@ -134,7 +145,7 @@ type StorageBackend interface {
 
 	// Workflow
 	CreateWorkflow(
-		name, description, definitionZip, engine string,
+		name, description, definitionZip, definitionURI, engine string,
 		tags map[string]string,
 	) (*Workflow, error)
 	DeleteWorkflow(id string) error
@@ -145,6 +156,7 @@ type StorageBackend interface {
 	// AnnotationStore
 	CreateAnnotationStore(
 		name, storeFormat string,
+		reference, sseConfig, storeOptions map[string]any,
 		tags map[string]string,
 	) (*AnnotationStore, error)
 	DeleteAnnotationStore(name string) (*AnnotationStore, error)
@@ -179,7 +191,7 @@ type StorageBackend interface {
 	) (*AnnotationStoreVersion, error)
 
 	// VariantStore
-	CreateVariantStore(name string, tags map[string]string) (*VariantStore, error)
+	CreateVariantStore(name string, reference map[string]any, tags map[string]string) (*VariantStore, error)
 	DeleteVariantStore(name string) (*VariantStore, error)
 	GetVariantStore(name string) (*VariantStore, error)
 	ListVariantStores(maxResults int, nextToken string) ([]*VariantStore, string, error)
@@ -248,13 +260,15 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // ReferenceStore represents an HealthOmics reference store.
 type ReferenceStore struct {
 	CreationTime time.Time         `json:"creationTime"`
+	SseConfig    map[string]any    `json:"sseConfig,omitempty"`
+	S3Access     map[string]any    `json:"s3Access,omitempty"`
 	Tags         map[string]string `json:"tags"`
 	Arn          string            `json:"arn"`
 	ID           string            `json:"id"`
@@ -306,12 +320,17 @@ type ReferenceImportJobSource struct {
 
 // SequenceStore represents an HealthOmics sequence store.
 type SequenceStore struct {
-	CreationTime time.Time         `json:"creationTime"`
-	Tags         map[string]string `json:"tags"`
-	Arn          string            `json:"arn"`
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
+	CreationTime  time.Time         `json:"creationTime"`
+	UpdateTime    time.Time         `json:"updateTime"`
+	SseConfig     map[string]any    `json:"sseConfig,omitempty"`
+	S3Access      map[string]any    `json:"s3Access,omitempty"`
+	Tags          map[string]string `json:"tags"`
+	Arn           string            `json:"arn"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	ETagAlgorithm string            `json:"eTagAlgorithm,omitempty"`
+	Status        string            `json:"status"`
 }
 
 // SequenceStoreFilter is filter criteria for listing sequence stores.
@@ -322,12 +341,15 @@ type SequenceStoreFilter struct {
 // ReadSetMetadata holds metadata for a read set.
 type ReadSetMetadata struct {
 	CreationTime    time.Time         `json:"creationTime"`
+	UpdateTime      time.Time         `json:"updateTime"`
+	Files           map[string]any    `json:"files,omitempty"`
 	Tags            map[string]string `json:"tags"`
 	Arn             string            `json:"arn"`
 	ID              string            `json:"id"`
 	SequenceStoreID string            `json:"sequenceStoreId"`
 	Name            string            `json:"name"`
 	Description     string            `json:"description"`
+	StatusMessage   string            `json:"statusMessage,omitempty"`
 	Status          string            `json:"status"`
 	SequenceType    string            `json:"sequenceType"`
 	SubjectID       string            `json:"subjectId"`
@@ -449,6 +471,7 @@ type Run struct {
 	Name         string            `json:"name"`
 	WorkflowID   string            `json:"workflowId"`
 	RoleARN      string            `json:"roleArn"`
+	RunBatchID   string            `json:"runBatchId,omitempty"`
 	Status       string            `json:"status"`
 }
 
@@ -474,6 +497,7 @@ type Workflow struct {
 	Name         string            `json:"name"`
 	Description  string            `json:"description"`
 	Engine       string            `json:"engine"`
+	Type         string            `json:"type,omitempty"`
 	Status       string            `json:"status"`
 }
 
@@ -485,6 +509,8 @@ type WorkflowVersion struct {
 	WorkflowID   string            `json:"workflowId"`
 	VersionName  string            `json:"versionName"`
 	Description  string            `json:"description"`
+	Engine       string            `json:"engine,omitempty"`
+	Type         string            `json:"type,omitempty"`
 	Status       string            `json:"status"`
 }
 
@@ -492,6 +518,9 @@ type WorkflowVersion struct {
 type AnnotationStore struct {
 	CreationTime time.Time         `json:"creationTime"`
 	UpdateTime   time.Time         `json:"updateTime"`
+	Reference    map[string]any    `json:"reference,omitempty"`
+	SseConfig    map[string]any    `json:"sseConfig,omitempty"`
+	StoreOptions map[string]any    `json:"storeOptions,omitempty"`
 	Tags         map[string]string `json:"tags"`
 	Arn          string            `json:"arn"`
 	ID           string            `json:"id"`
@@ -541,6 +570,7 @@ type AnnotationImportJob struct {
 type VariantStore struct {
 	CreationTime time.Time         `json:"creationTime"`
 	UpdateTime   time.Time         `json:"updateTime"`
+	Reference    map[string]any    `json:"reference,omitempty"`
 	Tags         map[string]string `json:"tags"`
 	Arn          string            `json:"arn"`
 	ID           string            `json:"id"`
@@ -583,6 +613,7 @@ type RunCache struct {
 	Arn             string            `json:"arn"`
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
+	Description     string            `json:"description,omitempty"`
 	CacheS3Location string            `json:"cacheS3Location"`
 	Status          string            `json:"status"`
 }

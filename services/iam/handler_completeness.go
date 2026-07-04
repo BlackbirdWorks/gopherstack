@@ -2,12 +2,16 @@ package iam
 
 import (
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"maps"
 	"net/url"
 	"time"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+func isRoleNotFound(err error) bool { return errors.Is(err, ErrRoleNotFound) }
 
 // jobStatusCompleted is the status returned by async IAM job stubs.
 const jobStatusCompleted = "COMPLETED"
@@ -163,7 +167,15 @@ func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ResyncMFADevice": func(_ url.Values, reqID string) (any, error) {
+		"ResyncMFADevice": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.ResyncMFADevice(
+				vals.Get("UserName"), vals.Get("SerialNumber"),
+				vals.Get("AuthenticationCode1"), vals.Get("AuthenticationCode2"),
+			); err != nil {
+				return nil, err
+			}
+
+			// AWS returns no body fields for ResyncMFADevice.
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "ResyncMFADeviceResponse"},
 				Xmlns:            iamXMLNS,
@@ -603,11 +615,17 @@ func (h *Handler) iamSSHSigningDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"DeleteServiceLinkedRole": func(vals url.Values, reqID string) (any, error) {
+			roleName := vals.Get("RoleName")
+			// Idempotent: ignore "not found" to match AWS async-deletion semantics.
+			if err := h.Backend.DeleteServiceLinkedRole(roleName); err != nil && !isRoleNotFound(err) {
+				return nil, err
+			}
+
 			return &deleteServiceLinkedRoleResponse{
 				XMLName: xml.Name{Local: "DeleteServiceLinkedRoleResponse"},
 				Xmlns:   iamXMLNS,
 				DeleteServiceLinkedRoleResult: deleteServiceLinkedRoleResult{
-					DeletionTaskID: "task/" + vals.Get("RoleName") + "/" + newRequestID(),
+					DeletionTaskID: "task/" + roleName + "/" + newRequestID(),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -672,7 +690,19 @@ func (h *Handler) iamOrgsDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListPoliciesGrantingServiceAccess": func(_ url.Values, reqID string) (any, error) {
+		"ListPoliciesGrantingServiceAccess": func(vals url.Values, reqID string) (any, error) {
+			// Validation-only: the mock has no policy/service access-analysis state
+			// to populate PolicyGroups, and AWS-meaningful emulation is out of
+			// scope. We perform AWS-accurate input validation of the required
+			// Arn and ServiceNamespaces parameters and return an empty result.
+			if vals.Get("Arn") == "" {
+				return nil, fmt.Errorf("%w: Arn must not be empty", ErrValidationError)
+			}
+
+			if vals.Get("ServiceNamespaces.member.1") == "" {
+				return nil, fmt.Errorf("%w: at least one ServiceNamespace is required", ErrValidationError)
+			}
+
 			return &listPoliciesGrantingServiceAccessResponse{
 				XMLName: xml.Name{Local: "ListPoliciesGrantingServiceAccessResponse"},
 				Xmlns:   iamXMLNS,
@@ -690,7 +720,15 @@ func (h *Handler) iamOrgsDispatch() map[string]iamActionFn {
 
 func (h *Handler) iamDelegationDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"GetDelegationRequest": func(_ url.Values, reqID string) (any, error) {
+		"GetDelegationRequest": func(vals url.Values, reqID string) (any, error) {
+			// Validation-only: the mock keeps no delegation-request state to
+			// return, and AWS-meaningful emulation is out of scope. We perform
+			// AWS-accurate input validation of the required DelegationRequestId
+			// parameter and return an empty success response.
+			if vals.Get("DelegationRequestId") == "" {
+				return nil, fmt.Errorf("%w: DelegationRequestId must not be empty", ErrValidationError)
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "GetDelegationRequestResponse"},
 				Xmlns:            iamXMLNS,

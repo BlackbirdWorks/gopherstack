@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -49,9 +51,52 @@ const (
 
 // Host status values.
 const (
-	HostStatusAvailable = "AVAILABLE"
-	HostStatusPending   = "PENDING"
+	HostStatusAvailable           = "AVAILABLE"
+	HostStatusPending             = "PENDING"
+	HostStatusVPCConfigDeleting   = "VPC_CONFIG_DELETING"
+	HostStatusVPCConfigFailed     = "VPC_CONFIG_FAILED"
+	HostStatusVPCConfigInProgress = "VPC_CONFIG_IN_PROGRESS"
 )
+
+// VpcConfiguration holds the VPC connectivity settings for a host.
+type VpcConfiguration struct {
+	VpcID            string   `json:"VpcId"`
+	TLSCertificate   string   `json:"TlsCertificate,omitempty"`
+	SubnetIDs        []string `json:"SubnetIds"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+}
+
+// Sync status values.
+const (
+	SyncStatusSucceeded  = "SUCCEEDED"
+	SyncStatusFailed     = "FAILED"
+	SyncStatusInProgress = "IN_PROGRESS"
+	SyncStatusQueued     = "QUEUED"
+)
+
+// SyncBlocker status values.
+const (
+	SyncBlockerStatusActive   = "ACTIVE"
+	SyncBlockerStatusResolved = "RESOLVED"
+)
+
+// SyncBlocker type values.
+const (
+	SyncBlockerTypeAutomated = "AUTOMATED"
+	SyncBlockerTypeManual    = "MANUAL"
+)
+
+// Validation limits.
+const (
+	maxConnectionNameLen   = 32
+	maxTagKeyLen           = 128
+	maxTagValueLen         = 256
+	maxTagsPerResource     = 200
+	maxProviderEndpointLen = 512
+)
+
+// connectionNameRE matches valid connection and host names: 1-32 alphanumeric, hyphen, underscore, dot.
+var connectionNameRE = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
 
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
@@ -60,6 +105,8 @@ var (
 	ErrAlreadyExists = awserr.New("InvalidInputException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrResourceInUse is returned when a resource cannot be deleted because it is referenced by another resource.
+	ErrResourceInUse = awserr.New("ResourceInUseException", awserr.ErrConflict)
 )
 
 // validProviderTypes returns the set of valid provider types for connections and hosts.
@@ -80,6 +127,22 @@ func validSyncTypes() map[string]bool {
 	}
 }
 
+// validPublishDeploymentStatus is the set of accepted values.
+func validPublishDeploymentStatus() map[string]bool {
+	return map[string]bool{
+		"ENABLED":  true,
+		"DISABLED": true,
+	}
+}
+
+// validTriggerResourceUpdateOn is the set of accepted values.
+func validTriggerResourceUpdateOn() map[string]bool {
+	return map[string]bool{
+		"ANY_CHANGE":  true,
+		"FILE_CHANGE": true,
+	}
+}
+
 // syncConfigKey returns the composite map key for a sync configuration.
 func syncConfigKey(resourceName, syncType string) string {
 	return resourceName + "/" + syncType
@@ -87,14 +150,49 @@ func syncConfigKey(resourceName, syncType string) string {
 
 // sortedTagKeys returns the keys of the tags map in sorted order for deterministic output.
 func sortedTagKeys(tags map[string]string) []string {
-	keys := make([]string, 0, len(tags))
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 
 	return keys
+}
+
+// validateConnectionName validates the connection/host name rules.
+func validateConnectionName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if len(name) > maxConnectionNameLen {
+		return fmt.Errorf("%w: name must not exceed %d characters", ErrValidation, maxConnectionNameLen)
+	}
+
+	if !connectionNameRE.MatchString(name) {
+		return fmt.Errorf("%w: name must match [a-zA-Z0-9_.\\-]+", ErrValidation)
+	}
+
+	return nil
+}
+
+// validateTags validates tag key/value lengths and total count.
+func validateTags(tags map[string]string) error {
+	if len(tags) > maxTagsPerResource {
+		return fmt.Errorf("%w: cannot have more than %d tags", ErrValidation, maxTagsPerResource)
+	}
+
+	for k, v := range tags {
+		if k == "" {
+			return fmt.Errorf("%w: tag key must not be empty", ErrValidation)
+		}
+
+		if len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key %q exceeds %d characters", ErrValidation, k, maxTagKeyLen)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value for key %q exceeds %d characters", ErrValidation, k, maxTagValueLen)
+		}
+	}
+
+	return nil
 }
 
 // Connection represents an in-memory AWS CodeStar connection.
@@ -111,12 +209,18 @@ type Connection struct {
 // Host represents an in-memory AWS CodeStar host.
 type Host struct {
 	Tags             map[string]string `json:"tags,omitempty"`
+	VpcConfiguration *VpcConfiguration `json:"vpcConfiguration,omitempty"`
 	Name             string            `json:"name"`
 	HostArn          string            `json:"hostArn"`
 	ProviderType     string            `json:"providerType"`
 	ProviderEndpoint string            `json:"providerEndpoint"`
 	Status           string            `json:"status"`
 	StatusMessage    string            `json:"statusMessage,omitempty"`
+}
+
+// repositorySyncStatusKey is the composite key for per-branch/syncType sync status.
+func repositorySyncStatusKey(repositoryLinkID, branch, syncType string) string {
+	return repositoryLinkID + "/" + branch + "/" + syncType
 }
 
 // InMemoryBackend is a thread-safe in-memory store for CodeStar Connections resources.
@@ -126,29 +230,37 @@ type Host struct {
 // are created lazily via the *Store helpers. Callers must hold b.mu while
 // accessing the inner maps.
 type InMemoryBackend struct {
-	connections        map[string]map[string]*Connection        // region → ARN → Connection
-	connectionsByName  map[string]map[string]string             // region → name → ARN
-	hosts              map[string]map[string]*Host              // region → ARN → Host
-	hostsByName        map[string]map[string]string             // region → name → ARN
-	repositoryLinks    map[string]map[string]*RepositoryLink    // region → ID → RepositoryLink
-	syncConfigurations map[string]map[string]*SyncConfiguration // region → key → SyncConfiguration
-	mu                 *lockmetrics.RWMutex
-	accountID          string
-	defaultRegion      string
+	connections            map[string]map[string]*Connection           // region → ARN → Connection
+	connectionsByName      map[string]map[string]string                // region → name → ARN
+	hosts                  map[string]map[string]*Host                 // region → ARN → Host
+	hostsByName            map[string]map[string]string                // region → name → ARN
+	repositoryLinks        map[string]map[string]*RepositoryLink       // region → ID → RepositoryLink
+	syncConfigurations     map[string]map[string]*SyncConfiguration    // region → key → SyncConfiguration
+	repositorySyncStatuses map[string]map[string]*RepositorySyncStatus // region → statusKey → status
+	resourceSyncStatuses   map[string]map[string]*ResourceSyncStatus   // region → key → status
+	syncBlockers           map[string]map[string]*SyncBlocker          // region → blockerID → blocker
+	syncBlockersByResource map[string]map[string][]string              // region → configKey → []blockerID
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	defaultRegion          string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		connections:        make(map[string]map[string]*Connection),
-		connectionsByName:  make(map[string]map[string]string),
-		hosts:              make(map[string]map[string]*Host),
-		hostsByName:        make(map[string]map[string]string),
-		repositoryLinks:    make(map[string]map[string]*RepositoryLink),
-		syncConfigurations: make(map[string]map[string]*SyncConfiguration),
-		accountID:          accountID,
-		defaultRegion:      region,
-		mu:                 lockmetrics.New("codestarconnections"),
+		connections:            make(map[string]map[string]*Connection),
+		connectionsByName:      make(map[string]map[string]string),
+		hosts:                  make(map[string]map[string]*Host),
+		hostsByName:            make(map[string]map[string]string),
+		repositoryLinks:        make(map[string]map[string]*RepositoryLink),
+		syncConfigurations:     make(map[string]map[string]*SyncConfiguration),
+		repositorySyncStatuses: make(map[string]map[string]*RepositorySyncStatus),
+		resourceSyncStatuses:   make(map[string]map[string]*ResourceSyncStatus),
+		syncBlockers:           make(map[string]map[string]*SyncBlocker),
+		syncBlockersByResource: make(map[string]map[string][]string),
+		accountID:              accountID,
+		defaultRegion:          region,
+		mu:                     lockmetrics.New("codestarconnections"),
 	}
 }
 
@@ -203,6 +315,38 @@ func (b *InMemoryBackend) syncConfigurationsStore(region string) map[string]*Syn
 	return b.syncConfigurations[region]
 }
 
+func (b *InMemoryBackend) repositorySyncStatusesStore(region string) map[string]*RepositorySyncStatus {
+	if b.repositorySyncStatuses[region] == nil {
+		b.repositorySyncStatuses[region] = make(map[string]*RepositorySyncStatus)
+	}
+
+	return b.repositorySyncStatuses[region]
+}
+
+func (b *InMemoryBackend) resourceSyncStatusesStore(region string) map[string]*ResourceSyncStatus {
+	if b.resourceSyncStatuses[region] == nil {
+		b.resourceSyncStatuses[region] = make(map[string]*ResourceSyncStatus)
+	}
+
+	return b.resourceSyncStatuses[region]
+}
+
+func (b *InMemoryBackend) syncBlockersStore(region string) map[string]*SyncBlocker {
+	if b.syncBlockers[region] == nil {
+		b.syncBlockers[region] = make(map[string]*SyncBlocker)
+	}
+
+	return b.syncBlockers[region]
+}
+
+func (b *InMemoryBackend) syncBlockersByResourceStore(region string) map[string][]string {
+	if b.syncBlockersByResource[region] == nil {
+		b.syncBlockersByResource[region] = make(map[string][]string)
+	}
+
+	return b.syncBlockersByResource[region]
+}
+
 // Reset clears all state in the backend.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
@@ -214,6 +358,10 @@ func (b *InMemoryBackend) Reset() {
 	b.hostsByName = make(map[string]map[string]string)
 	b.repositoryLinks = make(map[string]map[string]*RepositoryLink)
 	b.syncConfigurations = make(map[string]map[string]*SyncConfiguration)
+	b.repositorySyncStatuses = make(map[string]map[string]*RepositorySyncStatus)
+	b.resourceSyncStatuses = make(map[string]map[string]*ResourceSyncStatus)
+	b.syncBlockers = make(map[string]map[string]*SyncBlocker)
+	b.syncBlockersByResource = make(map[string]map[string][]string)
 }
 
 // Region returns the default region for this backend instance.
@@ -266,18 +414,48 @@ func (b *InMemoryBackend) ensureTagsLocked(region, resourceArn string) (map[stri
 	return nil, false
 }
 
+// connectionHasReferenceToHostLocked returns true if any connection in the region references hostArn.
+// Must be called with at least an RLock held.
+func (b *InMemoryBackend) connectionHasReferenceToHostLocked(region, hostArn string) bool {
+	conns := b.connections[region]
+	for _, conn := range conns {
+		if conn.HostArn == hostArn {
+			return true
+		}
+	}
+
+	return false
+}
+
+// syncConfigHasReferenceToLinkLocked returns true if any sync config references the given repositoryLinkID.
+// Must be called with at least an RLock held.
+func (b *InMemoryBackend) syncConfigHasReferenceToLinkLocked(region, repositoryLinkID string) bool {
+	cfgs := b.syncConfigurations[region]
+	for _, cfg := range cfgs {
+		if cfg.RepositoryLinkID == repositoryLinkID {
+			return true
+		}
+	}
+
+	return false
+}
+
 // CreateConnection creates a new CodeStar connection.
 func (b *InMemoryBackend) CreateConnection(
 	ctx context.Context,
 	name, providerType, hostArn string,
 	tags map[string]string,
 ) (*Connection, error) {
-	if name == "" {
-		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
+	if err := validateConnectionName(name); err != nil {
+		return nil, err
 	}
 
 	if providerType != "" && !validProviderTypes()[providerType] {
 		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -324,12 +502,12 @@ func (b *InMemoryBackend) GetConnection(ctx context.Context, connectionArn strin
 
 	conns := b.connections[region]
 	if conns == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
 	}
 
 	conn, ok := conns[connectionArn]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
 	}
 
 	cp := *conn
@@ -380,12 +558,12 @@ func (b *InMemoryBackend) DeleteConnection(ctx context.Context, connectionArn st
 
 	conns := b.connections[region]
 	if conns == nil {
-		return ErrNotFound
+		return fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
 	}
 
 	conn, ok := conns[connectionArn]
 	if !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
 	}
 
 	delete(b.connectionsByNameStore(region), conn.ConnectionName)
@@ -398,14 +576,28 @@ func (b *InMemoryBackend) DeleteConnection(ctx context.Context, connectionArn st
 func (b *InMemoryBackend) CreateHost(
 	ctx context.Context,
 	name, providerType, providerEndpoint string,
+	vpcConfig *VpcConfiguration,
 	tags map[string]string,
 ) (*Host, error) {
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	if err := validateConnectionName(name); err != nil {
+		return nil, err
+	}
+
+	if providerEndpoint == "" {
+		return nil, fmt.Errorf("%w: ProviderEndpoint is required", ErrValidation)
+	}
+
+	if len(providerEndpoint) > maxProviderEndpointLen {
+		return nil, fmt.Errorf("%w: ProviderEndpoint must not exceed %d characters",
+			ErrValidation, maxProviderEndpointLen)
 	}
 
 	if providerType != "" && !validProviderTypes()[providerType] {
 		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -429,7 +621,8 @@ func (b *InMemoryBackend) CreateHost(
 		HostArn:          hostArn,
 		ProviderType:     providerType,
 		ProviderEndpoint: providerEndpoint,
-		Status:           HostStatusAvailable,
+		Status:           HostStatusPending,
+		VpcConfiguration: vpcConfig,
 		Tags:             tagsCopy,
 	}
 	b.hostsStore(region)[hostArn] = host
@@ -451,12 +644,12 @@ func (b *InMemoryBackend) GetHost(ctx context.Context, hostArn string) (*Host, e
 
 	hs := b.hosts[region]
 	if hs == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: host not found: %s", ErrNotFound, hostArn)
 	}
 
 	host, ok := hs[hostArn]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: host not found: %s", ErrNotFound, hostArn)
 	}
 
 	cp := *host
@@ -490,7 +683,7 @@ func (b *InMemoryBackend) ListHosts(ctx context.Context) []*Host {
 	return result
 }
 
-// DeleteHost removes a host by ARN.
+// DeleteHost removes a host by ARN. Returns ErrResourceInUse if any connection references the host.
 func (b *InMemoryBackend) DeleteHost(ctx context.Context, hostArn string) error {
 	region := regionFromARN(hostArn, getRegion(ctx, b.defaultRegion))
 
@@ -499,12 +692,16 @@ func (b *InMemoryBackend) DeleteHost(ctx context.Context, hostArn string) error 
 
 	hs := b.hosts[region]
 	if hs == nil {
-		return ErrNotFound
+		return fmt.Errorf("%w: host not found: %s", ErrNotFound, hostArn)
 	}
 
 	host, ok := hs[hostArn]
 	if !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: host not found: %s", ErrNotFound, hostArn)
+	}
+
+	if b.connectionHasReferenceToHostLocked(region, hostArn) {
+		return fmt.Errorf("%w: host %q has active connections; delete them first", ErrResourceInUse, host.Name)
 	}
 
 	delete(b.hostsByNameStore(region), host.Name)
@@ -513,8 +710,16 @@ func (b *InMemoryBackend) DeleteHost(ctx context.Context, hostArn string) error 
 	return nil
 }
 
-// UpdateHost updates the provider endpoint for a host.
-func (b *InMemoryBackend) UpdateHost(ctx context.Context, hostArn, providerEndpoint string) error {
+// UpdateHost updates the provider endpoint and optional VPC configuration for a host.
+func (b *InMemoryBackend) UpdateHost(
+	ctx context.Context,
+	hostArn, providerEndpoint string,
+	vpcConfig *VpcConfiguration,
+) error {
+	if providerEndpoint != "" && len(providerEndpoint) > maxProviderEndpointLen {
+		return fmt.Errorf("%w: ProviderEndpoint must not exceed %d characters", ErrValidation, maxProviderEndpointLen)
+	}
+
 	region := regionFromARN(hostArn, getRegion(ctx, b.defaultRegion))
 
 	b.mu.Lock("UpdateHost")
@@ -522,15 +727,21 @@ func (b *InMemoryBackend) UpdateHost(ctx context.Context, hostArn, providerEndpo
 
 	hs := b.hosts[region]
 	if hs == nil {
-		return ErrNotFound
+		return fmt.Errorf("%w: host not found: %s", ErrNotFound, hostArn)
 	}
 
 	host, ok := hs[hostArn]
 	if !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: host not found: %s", ErrNotFound, hostArn)
 	}
 
-	host.ProviderEndpoint = providerEndpoint
+	if providerEndpoint != "" {
+		host.ProviderEndpoint = providerEndpoint
+	}
+
+	if vpcConfig != nil {
+		host.VpcConfiguration = vpcConfig
+	}
 
 	return nil
 }
@@ -544,7 +755,7 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceArn s
 
 	existing, ok := b.findResourceTagsLocked(region, resourceArn)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: resource not found: %s", ErrNotFound, resourceArn)
 	}
 
 	result := make(map[string]string, len(existing))
@@ -555,6 +766,10 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceArn s
 
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(ctx context.Context, resourceArn string, tags map[string]string) error {
+	if err := validateTags(tags); err != nil {
+		return err
+	}
+
 	region := regionFromARN(resourceArn, getRegion(ctx, b.defaultRegion))
 
 	b.mu.Lock("TagResource")
@@ -562,7 +777,16 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceArn string, t
 
 	existing, ok := b.ensureTagsLocked(region, resourceArn)
 	if !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: resource not found: %s", ErrNotFound, resourceArn)
+	}
+
+	// Check total count after applying new tags.
+	merged := make(map[string]string, len(existing)+len(tags))
+	maps.Copy(merged, existing)
+	maps.Copy(merged, tags)
+
+	if len(merged) > maxTagsPerResource {
+		return fmt.Errorf("%w: cannot have more than %d tags on a resource", ErrValidation, maxTagsPerResource)
 	}
 
 	maps.Copy(existing, tags)
@@ -579,7 +803,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceArn string,
 
 	existing, ok := b.findResourceTagsLocked(region, resourceArn)
 	if !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: resource not found: %s", ErrNotFound, resourceArn)
 	}
 
 	for _, k := range tagKeys {
@@ -633,15 +857,27 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 	b.mu.Lock("CreateRepositoryLink")
 	defer b.mu.Unlock()
 
-	id := uuid.NewString()
-	linkArn := arn.Build("codestar-connections", region, b.accountID, "repository-link/"+id)
-
+	// Derive provider type from the connection if it exists in the same region.
 	providerType := ""
-	if conns := b.connections[region]; conns != nil {
+	connRegion := regionFromARN(connectionArn, region)
+	if conns := b.connections[connRegion]; conns != nil {
 		if conn, ok := conns[connectionArn]; ok {
 			providerType = conn.ProviderType
 		}
 	}
+
+	// Check for duplicate: same connection + owner + repo.
+	links := b.repositoryLinks[region]
+	for _, existing := range links {
+		if existing.ConnectionArn == connectionArn &&
+			existing.OwnerID == ownerID &&
+			existing.RepositoryName == repoName {
+			return nil, fmt.Errorf("%w: repository link for %s/%s already exists", ErrAlreadyExists, ownerID, repoName)
+		}
+	}
+
+	id := uuid.NewString()
+	linkArn := arn.Build("codestar-connections", region, b.accountID, "repository-link/"+id)
 
 	link := &RepositoryLink{
 		ConnectionArn:     connectionArn,
@@ -670,12 +906,12 @@ func (b *InMemoryBackend) GetRepositoryLink(ctx context.Context, repositoryLinkI
 
 	links := b.repositoryLinks[region]
 	if links == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
 	link, ok := links[repositoryLinkID]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
 	cp := *link
@@ -683,7 +919,7 @@ func (b *InMemoryBackend) GetRepositoryLink(ctx context.Context, repositoryLinkI
 	return &cp, nil
 }
 
-// DeleteRepositoryLink removes a repository link by ID.
+// DeleteRepositoryLink removes a repository link by ID. Returns ErrResourceInUse if sync configs reference it.
 func (b *InMemoryBackend) DeleteRepositoryLink(ctx context.Context, repositoryLinkID string) error {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -692,11 +928,16 @@ func (b *InMemoryBackend) DeleteRepositoryLink(ctx context.Context, repositoryLi
 
 	links := b.repositoryLinks[region]
 	if links == nil {
-		return ErrNotFound
+		return fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
 	if _, ok := links[repositoryLinkID]; !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
+	}
+
+	if b.syncConfigHasReferenceToLinkLocked(region, repositoryLinkID) {
+		return fmt.Errorf("%w: repository link %q has active sync configurations; delete them first",
+			ErrResourceInUse, repositoryLinkID)
 	}
 
 	delete(links, repositoryLinkID)
@@ -738,22 +979,36 @@ func (b *InMemoryBackend) AddRepositoryLinkInternal(ctx context.Context, link *R
 
 // SyncConfiguration represents an in-memory AWS CodeStar Connections sync configuration.
 type SyncConfiguration struct {
-	CreatedAt        time.Time `json:"createdAt"`
-	Branch           string    `json:"branch"`
-	ConfigFile       string    `json:"configFile"`
-	RepositoryLinkID string    `json:"repositoryLinkID"`
-	ResourceName     string    `json:"resourceName"`
-	RoleArn          string    `json:"roleArn"`
-	SyncType         string    `json:"syncType"`
-	OwnerID          string    `json:"ownerID"`
-	ProviderType     string    `json:"providerType"`
-	RepositoryName   string    `json:"repositoryName"`
+	CreatedAt               time.Time `json:"createdAt"`
+	Branch                  string    `json:"branch"`
+	ConfigFile              string    `json:"configFile"`
+	RepositoryLinkID        string    `json:"repositoryLinkID"`
+	ResourceName            string    `json:"resourceName"`
+	RoleArn                 string    `json:"roleArn"`
+	SyncType                string    `json:"syncType"`
+	OwnerID                 string    `json:"ownerID"`
+	ProviderType            string    `json:"providerType"`
+	RepositoryName          string    `json:"repositoryName"`
+	PublishDeploymentStatus string    `json:"publishDeploymentStatus,omitempty"`
+	TriggerResourceUpdateOn string    `json:"triggerResourceUpdateOn,omitempty"`
 }
 
 // CreateSyncConfiguration creates a new sync configuration.
 func (b *InMemoryBackend) CreateSyncConfiguration(
 	ctx context.Context,
 	branch, configFile, repositoryLinkID, resourceName, roleArn, syncType string,
+) (*SyncConfiguration, error) {
+	return b.CreateSyncConfigurationFull(
+		ctx, branch, configFile, repositoryLinkID, resourceName, roleArn, syncType, "", "",
+	)
+}
+
+// CreateSyncConfigurationFull creates a sync configuration with optional
+// PublishDeploymentStatus and TriggerResourceUpdateOn.
+func (b *InMemoryBackend) CreateSyncConfigurationFull(
+	ctx context.Context,
+	branch, configFile, repositoryLinkID, resourceName, roleArn, syncType,
+	publishDeploymentStatus, triggerResourceUpdateOn string,
 ) (*SyncConfiguration, error) {
 	if !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
@@ -763,11 +1018,20 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 		return nil, fmt.Errorf("%w: ResourceName must not contain \"/\"", ErrValidation)
 	}
 
+	if publishDeploymentStatus != "" && !validPublishDeploymentStatus()[publishDeploymentStatus] {
+		return nil, fmt.Errorf("%w: invalid PublishDeploymentStatus %q", ErrValidation, publishDeploymentStatus)
+	}
+
+	if triggerResourceUpdateOn != "" && !validTriggerResourceUpdateOn()[triggerResourceUpdateOn] {
+		return nil, fmt.Errorf("%w: invalid TriggerResourceUpdateOn %q", ErrValidation, triggerResourceUpdateOn)
+	}
+
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("CreateSyncConfiguration")
 	defer b.mu.Unlock()
 
+	// Derive owner/provider/repo from the link if it exists.
 	ownerID := ""
 	providerType := ""
 	repoName := ""
@@ -780,20 +1044,39 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 		}
 	}
 
-	cfg := &SyncConfiguration{
-		Branch:           branch,
-		ConfigFile:       configFile,
-		RepositoryLinkID: repositoryLinkID,
-		ResourceName:     resourceName,
-		RoleArn:          roleArn,
-		SyncType:         syncType,
-		OwnerID:          ownerID,
-		ProviderType:     providerType,
-		RepositoryName:   repoName,
-		CreatedAt:        time.Now().UTC(),
+	// Check for duplicate.
+	cfgs := b.syncConfigurationsStore(region)
+	key := syncConfigKey(resourceName, syncType)
+
+	if _, exists := cfgs[key]; exists {
+		return nil, fmt.Errorf("%w: sync configuration for %q/%q already exists",
+			ErrAlreadyExists, resourceName, syncType)
 	}
 
-	b.syncConfigurationsStore(region)[syncConfigKey(resourceName, syncType)] = cfg
+	cfg := &SyncConfiguration{
+		Branch:                  branch,
+		ConfigFile:              configFile,
+		RepositoryLinkID:        repositoryLinkID,
+		ResourceName:            resourceName,
+		RoleArn:                 roleArn,
+		SyncType:                syncType,
+		OwnerID:                 ownerID,
+		ProviderType:            providerType,
+		RepositoryName:          repoName,
+		PublishDeploymentStatus: publishDeploymentStatus,
+		TriggerResourceUpdateOn: triggerResourceUpdateOn,
+		CreatedAt:               time.Now().UTC(),
+	}
+
+	cfgs[key] = cfg
+
+	// Seed an initial sync status for this resource.
+	rsStore := b.resourceSyncStatusesStore(region)
+	rsStore[key] = &ResourceSyncStatus{
+		StartedAt: time.Now().UTC(),
+		Status:    SyncStatusSucceeded,
+		Events:    []SyncEvent{},
+	}
 
 	cp := *cfg
 
@@ -812,12 +1095,12 @@ func (b *InMemoryBackend) GetSyncConfiguration(
 
 	cfgs := b.syncConfigurations[region]
 	if cfgs == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
 	}
 
 	cfg, ok := cfgs[syncConfigKey(resourceName, syncType)]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
 	}
 
 	cp := *cfg
@@ -827,6 +1110,10 @@ func (b *InMemoryBackend) GetSyncConfiguration(
 
 // DeleteSyncConfiguration removes a sync configuration.
 func (b *InMemoryBackend) DeleteSyncConfiguration(ctx context.Context, resourceName, syncType string) error {
+	if resourceName == "" {
+		return fmt.Errorf("%w: ResourceName is required", ErrValidation)
+	}
+
 	if !validSyncTypes()[syncType] {
 		return fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
 	}
@@ -838,15 +1125,30 @@ func (b *InMemoryBackend) DeleteSyncConfiguration(ctx context.Context, resourceN
 
 	cfgs := b.syncConfigurations[region]
 	if cfgs == nil {
-		return ErrNotFound
+		return fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
 	}
 
 	key := syncConfigKey(resourceName, syncType)
 	if _, ok := cfgs[key]; !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
 	}
 
 	delete(cfgs, key)
+
+	// Remove associated sync statuses and blockers.
+	if rsStore := b.resourceSyncStatuses[region]; rsStore != nil {
+		delete(rsStore, key)
+	}
+
+	if bByRes := b.syncBlockersByResource[region]; bByRes != nil {
+		for _, bid := range bByRes[key] {
+			if bStore := b.syncBlockers[region]; bStore != nil {
+				delete(bStore, bid)
+			}
+		}
+
+		delete(bByRes, key)
+	}
 
 	return nil
 }
@@ -866,10 +1168,10 @@ type RepositorySyncStatus struct {
 	Events    []SyncEvent
 }
 
-// GetRepositorySyncStatus returns a stub latest sync status for a repository link and branch.
+// GetRepositorySyncStatus returns the latest sync status for a repository link and branch.
 func (b *InMemoryBackend) GetRepositorySyncStatus(
 	ctx context.Context,
-	repositoryLinkID, _ /*branch*/, _ /*syncType*/ string,
+	repositoryLinkID, branch, syncType string,
 ) (*RepositorySyncStatus, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -878,18 +1180,50 @@ func (b *InMemoryBackend) GetRepositorySyncStatus(
 
 	links := b.repositoryLinks[region]
 	if links == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
 	if _, ok := links[repositoryLinkID]; !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
+	}
+
+	key := repositorySyncStatusKey(repositoryLinkID, branch, syncType)
+	statusStore := b.repositorySyncStatuses[region]
+
+	if statusStore != nil {
+		if s, ok := statusStore[key]; ok {
+			cp := *s
+			cp.Events = append([]SyncEvent(nil), s.Events...)
+
+			return &cp, nil
+		}
 	}
 
 	return &RepositorySyncStatus{
 		StartedAt: time.Now().UTC(),
-		Status:    "SUCCEEDED",
+		Status:    SyncStatusSucceeded,
 		Events:    []SyncEvent{},
 	}, nil
+}
+
+// SetRepositorySyncStatus stores a sync status for a repository link/branch/syncType (test helper).
+func (b *InMemoryBackend) SetRepositorySyncStatus(
+	ctx context.Context,
+	repositoryLinkID, branch, syncType, status string,
+	events []SyncEvent,
+) {
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock("SetRepositorySyncStatus")
+	defer b.mu.Unlock()
+
+	store := b.repositorySyncStatusesStore(region)
+	key := repositorySyncStatusKey(repositoryLinkID, branch, syncType)
+	store[key] = &RepositorySyncStatus{
+		StartedAt: time.Now().UTC(),
+		Status:    status,
+		Events:    events,
+	}
 }
 
 // ResourceSyncStatus holds the latest sync attempt for an AWS resource.
@@ -899,7 +1233,7 @@ type ResourceSyncStatus struct {
 	Events    []SyncEvent
 }
 
-// GetResourceSyncStatus returns a stub latest sync status for a resource.
+// GetResourceSyncStatus returns the latest sync status for a resource.
 func (b *InMemoryBackend) GetResourceSyncStatus(
 	ctx context.Context,
 	resourceName, syncType string,
@@ -911,22 +1245,52 @@ func (b *InMemoryBackend) GetResourceSyncStatus(
 
 	cfgs := b.syncConfigurations[region]
 	if cfgs == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
 	}
 
 	key := syncConfigKey(resourceName, syncType)
 	if _, ok := cfgs[key]; !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
+	}
+
+	statusStore := b.resourceSyncStatuses[region]
+	if statusStore != nil {
+		if s, ok := statusStore[key]; ok {
+			cp := *s
+			cp.Events = append([]SyncEvent(nil), s.Events...)
+
+			return &cp, nil
+		}
 	}
 
 	return &ResourceSyncStatus{
 		StartedAt: time.Now().UTC(),
-		Status:    "SUCCEEDED",
+		Status:    SyncStatusSucceeded,
 		Events:    []SyncEvent{},
 	}, nil
 }
 
-// SyncBlockerSummary is a stub summary of sync blockers for a resource.
+// SetResourceSyncStatus stores a sync status for a resource (test helper).
+func (b *InMemoryBackend) SetResourceSyncStatus(
+	ctx context.Context,
+	resourceName, syncType, status string,
+	events []SyncEvent,
+) {
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock("SetResourceSyncStatus")
+	defer b.mu.Unlock()
+
+	store := b.resourceSyncStatusesStore(region)
+	key := syncConfigKey(resourceName, syncType)
+	store[key] = &ResourceSyncStatus{
+		StartedAt: time.Now().UTC(),
+		Status:    status,
+		Events:    events,
+	}
+}
+
+// SyncBlockerSummary is a summary of sync blockers for a resource.
 type SyncBlockerSummary struct {
 	ResourceName       string
 	ParentResourceName string
@@ -935,14 +1299,18 @@ type SyncBlockerSummary struct {
 
 // SyncBlocker represents a single sync blocker entry.
 type SyncBlocker struct {
-	ID            string
-	Type          string
-	Status        string
-	CreatedAt     time.Time
-	CreatedReason string
+	ID             string
+	Type           string
+	Status         string
+	CreatedAt      time.Time
+	CreatedReason  string
+	ResolvedAt     *time.Time
+	ResolvedReason string
+	ResourceName   string
+	SyncType       string
 }
 
-// GetSyncBlockerSummary returns a stub sync blocker summary for a resource.
+// GetSyncBlockerSummary returns the sync blocker summary for a resource.
 func (b *InMemoryBackend) GetSyncBlockerSummary(
 	ctx context.Context,
 	resourceName, syncType string,
@@ -954,18 +1322,143 @@ func (b *InMemoryBackend) GetSyncBlockerSummary(
 
 	cfgs := b.syncConfigurations[region]
 	if cfgs == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
 	}
 
 	key := syncConfigKey(resourceName, syncType)
 	if _, ok := cfgs[key]; !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
 	}
 
-	return &SyncBlockerSummary{
+	summary := &SyncBlockerSummary{
 		ResourceName:   resourceName,
 		LatestBlockers: []SyncBlocker{},
-	}, nil
+	}
+
+	bByRes := b.syncBlockersByResource[region]
+	if bByRes == nil {
+		return summary, nil
+	}
+
+	blockerIDs := bByRes[key]
+	bStore := b.syncBlockers[region]
+
+	if bStore == nil {
+		return summary, nil
+	}
+
+	blockers := make([]SyncBlocker, 0, len(blockerIDs))
+
+	for _, bid := range blockerIDs {
+		if blocker, ok := bStore[bid]; ok {
+			blockers = append(blockers, *blocker)
+		}
+	}
+
+	// Sort by CreatedAt descending.
+	sort.Slice(blockers, func(i, j int) bool {
+		return blockers[i].CreatedAt.After(blockers[j].CreatedAt)
+	})
+
+	summary.LatestBlockers = blockers
+
+	return summary, nil
+}
+
+// CreateSyncBlocker creates a new sync blocker for a resource (test helper + internal use).
+func (b *InMemoryBackend) CreateSyncBlocker(
+	ctx context.Context,
+	resourceName, syncType, blockerType, createdReason string,
+) (*SyncBlocker, error) {
+	if !validSyncTypes()[syncType] {
+		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock("CreateSyncBlocker")
+	defer b.mu.Unlock()
+
+	cfgs := b.syncConfigurations[region]
+	if cfgs == nil {
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
+	}
+
+	key := syncConfigKey(resourceName, syncType)
+	if _, ok := cfgs[key]; !ok {
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
+	}
+
+	id := uuid.NewString()
+	blocker := &SyncBlocker{
+		ID:            id,
+		Type:          blockerType,
+		Status:        SyncBlockerStatusActive,
+		CreatedAt:     time.Now().UTC(),
+		CreatedReason: createdReason,
+		ResourceName:  resourceName,
+		SyncType:      syncType,
+	}
+
+	bStore := b.syncBlockersStore(region)
+	bStore[id] = blocker
+
+	bByRes := b.syncBlockersByResourceStore(region)
+	bByRes[key] = append(bByRes[key], id)
+
+	cp := *blocker
+
+	return &cp, nil
+}
+
+// UpdateSyncBlocker resolves a sync blocker by ID. If the blocker ID is not found,
+// returns an empty summary (AWS accepts resolution of unknown blockers gracefully).
+func (b *InMemoryBackend) UpdateSyncBlocker(
+	ctx context.Context,
+	id, resolvedReason string,
+) (*SyncBlockerSummary, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock("UpdateSyncBlocker")
+	defer b.mu.Unlock()
+
+	bStore := b.syncBlockers[region]
+	if bStore == nil {
+		return &SyncBlockerSummary{LatestBlockers: []SyncBlocker{}}, nil
+	}
+
+	blocker, ok := bStore[id]
+	if !ok {
+		return &SyncBlockerSummary{LatestBlockers: []SyncBlocker{}}, nil
+	}
+
+	now := time.Now().UTC()
+	blocker.Status = SyncBlockerStatusResolved
+	blocker.ResolvedReason = resolvedReason
+	blocker.ResolvedAt = &now
+
+	// Return summary for the resource that owns this blocker.
+	key := syncConfigKey(blocker.ResourceName, blocker.SyncType)
+	bByRes := b.syncBlockersByResource[region]
+
+	summary := &SyncBlockerSummary{
+		ResourceName:   blocker.ResourceName,
+		LatestBlockers: []SyncBlocker{},
+	}
+
+	if bByRes != nil {
+		for _, bid := range bByRes[key] {
+			if b2, ok2 := bStore[bid]; ok2 {
+				summary.LatestBlockers = append(summary.LatestBlockers, *b2)
+			}
+		}
+
+		sort.Slice(summary.LatestBlockers, func(i, j int) bool {
+			return summary.LatestBlockers[i].CreatedAt.After(summary.LatestBlockers[j].CreatedAt)
+		})
+	}
+
+	return summary, nil
 }
 
 // RepositorySyncDefinition is a stub definition for a repository sync.
@@ -988,11 +1481,11 @@ func (b *InMemoryBackend) ListRepositorySyncDefinitions(
 
 	links := b.repositoryLinks[region]
 	if links == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
 	if _, ok := links[repositoryLinkID]; !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
 	_ = syncType
@@ -1045,12 +1538,12 @@ func (b *InMemoryBackend) UpdateRepositoryLink(
 
 	links := b.repositoryLinks[region]
 	if links == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
 	link, ok := links[repositoryLinkID]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
 	if connectionArn != "" {
@@ -1066,26 +1559,32 @@ func (b *InMemoryBackend) UpdateRepositoryLink(
 	return &cp, nil
 }
 
-// UpdateSyncBlocker is a stub that accepts a blocker ID resolution; no real blockers stored.
-func (b *InMemoryBackend) UpdateSyncBlocker(
-	_ context.Context,
-	id, resolvedReason string,
-) (*SyncBlockerSummary, error) {
-	_ = id
-	_ = resolvedReason
-
-	return &SyncBlockerSummary{
-		LatestBlockers: []SyncBlocker{},
-	}, nil
-}
-
 // UpdateSyncConfiguration updates branch, config file, role ARN, or repository link for a sync configuration.
 func (b *InMemoryBackend) UpdateSyncConfiguration(
 	ctx context.Context,
 	resourceName, syncType, branch, configFile, repositoryLinkID, roleArn string,
 ) (*SyncConfiguration, error) {
+	return b.UpdateSyncConfigurationFull(
+		ctx, resourceName, syncType, branch, configFile, repositoryLinkID, roleArn, "", "",
+	)
+}
+
+// UpdateSyncConfigurationFull updates a sync configuration including optional publish/trigger fields.
+func (b *InMemoryBackend) UpdateSyncConfigurationFull(
+	ctx context.Context,
+	resourceName, syncType, branch, configFile, repositoryLinkID, roleArn,
+	publishDeploymentStatus, triggerResourceUpdateOn string,
+) (*SyncConfiguration, error) {
 	if syncType != "" && !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
+	if publishDeploymentStatus != "" && !validPublishDeploymentStatus()[publishDeploymentStatus] {
+		return nil, fmt.Errorf("%w: invalid PublishDeploymentStatus %q", ErrValidation, publishDeploymentStatus)
+	}
+
+	if triggerResourceUpdateOn != "" && !validTriggerResourceUpdateOn()[triggerResourceUpdateOn] {
+		return nil, fmt.Errorf("%w: invalid TriggerResourceUpdateOn %q", ErrValidation, triggerResourceUpdateOn)
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -1095,14 +1594,14 @@ func (b *InMemoryBackend) UpdateSyncConfiguration(
 
 	cfgs := b.syncConfigurations[region]
 	if cfgs == nil {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
 	}
 
 	key := syncConfigKey(resourceName, syncType)
 	cfg, ok := cfgs[key]
 
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
 	}
 
 	if branch != "" {
@@ -1119,6 +1618,14 @@ func (b *InMemoryBackend) UpdateSyncConfiguration(
 
 	if roleArn != "" {
 		cfg.RoleArn = roleArn
+	}
+
+	if publishDeploymentStatus != "" {
+		cfg.PublishDeploymentStatus = publishDeploymentStatus
+	}
+
+	if triggerResourceUpdateOn != "" {
+		cfg.TriggerResourceUpdateOn = triggerResourceUpdateOn
 	}
 
 	cp := *cfg

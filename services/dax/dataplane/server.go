@@ -5,10 +5,11 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	awsddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -60,6 +61,15 @@ var (
 // emptyAttributeListID is the reserved attribute-list id for an empty list.
 const emptyAttributeListID = 1
 
+// attrListMaxCap bounds the attribute-list dictionary (attrToID/idToAttr) so a
+// buggy or adversarial client cannot grow it without limit. Legitimate
+// workloads register only a handful of distinct attribute-name sets (one per
+// table projection), so this ceiling is never reached in practice. Eviction is
+// not safe here because a client may reference any previously-assigned id, so
+// once the cap is hit the server stops allocating new ids and degrades to the
+// empty-list id rather than corrupting live mappings.
+const attrListMaxCap = 65536
+
 // Backend is the subset of the DynamoDB storage backend that the DAX data plane
 // delegates to. The gopherstack *dynamodb.InMemoryDB satisfies this interface,
 // so DAX item operations pass through to the real DynamoDB emulation.
@@ -77,36 +87,50 @@ type Backend interface {
 	DescribeTable(context.Context, *awsddb.DescribeTableInput) (*awsddb.DescribeTableOutput, error)
 }
 
+// TTLLookup provides TTL configuration for the item and query caches.
+type TTLLookup interface {
+	GetDefaultTTL() (recordTTL time.Duration, queryTTL time.Duration)
+}
+
+type cacheEntry struct {
+	item      map[string]types.AttributeValue
+	expiresAt time.Time
+}
+
 // Server is a DAX data-plane TCP listener. It accepts DAX client connections,
 // performs the protocol handshake, and serves item operations by delegating to
 // a DynamoDB Backend.
 type Server struct {
-	backend  Backend
-	logger   *slog.Logger
-	ln       net.Listener
-	conns    map[net.Conn]struct{}
-	schemas  map[string]keySchema // table -> key schema cache
-	attrToID map[string]int64     // joined attr names -> id
-	idToAttr map[int64][]string   // id -> attr names
-	schemaMu sync.RWMutex
-	mu       sync.Mutex
-	attrMu   sync.Mutex
-	nextID   int64
-	closed   bool
+	backend Backend
+	ttl     TTLLookup
+	// baseCtx is the data-plane lifecycle context, tagged worker=dax-dataplane.
+	// The data plane is a raw TCP server with no per-request context, so its
+	// goroutines log via logger.Load(baseCtx) rather than an embedded *slog.Logger.
+	baseCtx   context.Context //nolint:containedctx // lifecycle ctx for the data-plane accept/serve goroutines.
+	ln        net.Listener
+	conns     map[net.Conn]struct{}
+	attrToID  map[string]int64 // joined attr names -> id
+	idToAttr  map[int64][]string
+	itemCache sync.Map // key -> cacheEntry
+	mu        sync.Mutex
+	attrMu    sync.Mutex
+	nextID    int64
+	closed    bool
 }
 
 // NewServer creates a DAX data-plane server backed by the given DynamoDB
-// backend.
-func NewServer(backend Backend, logger *slog.Logger) *Server {
-	if logger == nil {
-		logger = slog.Default()
+// backend. ctx is the process lifecycle context; the server tags it
+// worker=dax-dataplane so all data-plane records are attributable.
+func NewServer(ctx context.Context, backend Backend, ttl TTLLookup) *Server {
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	return &Server{
 		backend:  backend,
-		logger:   logger,
+		ttl:      ttl,
+		baseCtx:  logger.WithWorker(ctx, "dax", "dataplane"),
 		conns:    make(map[net.Conn]struct{}),
-		schemas:  make(map[string]keySchema),
 		attrToID: make(map[string]int64),
 		idToAttr: make(map[int64][]string),
 		nextID:   emptyAttributeListID + 1,
@@ -131,7 +155,7 @@ func (s *Server) Addr() net.Addr {
 func (s *Server) Listen(addr string) error {
 	var lc net.ListenConfig
 
-	ln, err := lc.Listen(context.Background(), "tcp", addr)
+	ln, err := lc.Listen(s.baseCtx, "tcp", addr)
 	if err != nil {
 		return err
 	}
@@ -164,7 +188,7 @@ func (s *Server) acceptLoop(ln net.Listener) {
 				return
 			}
 
-			s.logger.Debug("dax dataplane accept error", "error", err)
+			logger.Load(s.baseCtx).DebugContext(s.baseCtx, "dax dataplane accept error", "error", err)
 
 			return
 		}
@@ -229,7 +253,7 @@ func (s *Server) serveConn(conn net.Conn) {
 
 	if err := s.readHandshake(r); err != nil {
 		if !errors.Is(err, io.EOF) {
-			s.logger.Debug("dax dataplane handshake failed", "error", err)
+			logger.Load(s.baseCtx).DebugContext(s.baseCtx, "dax dataplane handshake failed", "error", err)
 		}
 
 		return
@@ -238,7 +262,7 @@ func (s *Server) serveConn(conn net.Conn) {
 	for {
 		if err := s.serveRequest(r, w); err != nil {
 			if !errors.Is(err, io.EOF) {
-				s.logger.Debug("dax dataplane request error", "error", err)
+				logger.Load(s.baseCtx).DebugContext(s.baseCtx, "dax dataplane request error", "error", err)
 			}
 
 			return
@@ -426,31 +450,15 @@ func (s *Server) dispatchItem(r *Reader, w *Writer, method int) (bool, error) {
 	}
 }
 
-// schemaFor resolves and caches a table's key schema via the DynamoDB backend.
+// schemaFor resolves a table's key schema via the DynamoDB backend.
+// Always fetches live to reflect table drop/recreate without stale cache entries.
 func (s *Server) schemaFor(ctx context.Context, table string) (keySchema, error) {
-	s.schemaMu.RLock()
-	ks, ok := s.schemas[table]
-	s.schemaMu.RUnlock()
-
-	if ok {
-		return ks, nil
-	}
-
 	out, err := s.backend.DescribeTable(ctx, &awsddb.DescribeTableInput{TableName: &table})
 	if err != nil {
 		return nil, err
 	}
 
-	ks, err = buildKeySchema(out)
-	if err != nil {
-		return nil, err
-	}
-
-	s.schemaMu.Lock()
-	s.schemas[table] = ks
-	s.schemaMu.Unlock()
-
-	return ks, nil
+	return buildKeySchema(out)
 }
 
 func buildKeySchema(out *awsddb.DescribeTableOutput) (keySchema, error) {
@@ -515,6 +523,6 @@ func (ks keySchema) keyNames() map[string]struct{} {
 }
 
 // requestContext bounds backend calls so a stuck op cannot wedge a connection.
-func requestContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), requestTimeoutSeconds*time.Second)
+func (s *Server) requestContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(s.baseCtx, requestTimeoutSeconds*time.Second)
 }

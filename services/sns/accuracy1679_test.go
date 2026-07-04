@@ -1541,6 +1541,60 @@ func TestNotificationEnvelopeFields(t *testing.T) {
 	}
 }
 
+// TestNotificationURLsReflectRegion verifies that the SigningCertURL and
+// UnsubscribeURL embedded in HTTP notifications derive their region from the
+// topic ARN rather than a hardcoded us-east-1 (parity §C).
+func TestNotificationURLsReflectRegion(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		region string
+	}{
+		{name: "us-west-2", region: "us-west-2"},
+		{name: "eu-central-1", region: "eu-central-1"},
+		{name: "ap-southeast-1", region: "ap-southeast-1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			received := make(chan string, 1)
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				received <- string(body)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer ts.Close()
+
+			b := sns.NewInMemoryBackendWithContext(t.Context(), "000000000000", tc.region)
+			tp, err := b.CreateTopic("region-topic", nil)
+			require.NoError(t, err)
+			require.Contains(t, tp.TopicArn, ":"+tc.region+":",
+				"topic ARN should carry the backend region")
+
+			_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+			require.NoError(t, err)
+
+			_, err = b.Publish(tp.TopicArn, "region-test", "", "", nil)
+			require.NoError(t, err)
+
+			select {
+			case raw := <-received:
+				env := parseNotificationEnvelope(t, raw)
+				assert.Contains(t, env.SigningCertURL, "sns."+tc.region+".amazonaws.com",
+					"SigningCertURL must reflect the request region")
+				assert.Contains(t, env.UnsubscribeURL, "sns."+tc.region+".amazonaws.com",
+					"UnsubscribeURL must reflect the request region")
+				assert.NotContains(t, env.UnsubscribeURL, "us-east-1")
+			case <-time.After(2 * time.Second):
+				t.Fatal("HTTP delivery did not arrive")
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Subscription DeliveryPolicy attribute (Issue: per-subscription delivery)
 // ---------------------------------------------------------------------------

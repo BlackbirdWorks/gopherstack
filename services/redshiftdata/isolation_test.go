@@ -26,14 +26,14 @@ func TestRedshiftDataStatementRegionIsolation(t *testing.T) {
 
 	// Create a statement in us-east-1.
 	eastStmt, err := backend.ExecuteStatement(
-		ctxEast, "SELECT 1", "cluster-a", "", "east-db", "", "", "", false, "",
+		ctxEast, "SELECT 1", "cluster-a", "", "east-db", "", "", "", false, "", nil,
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, eastStmt.ID)
 
 	// Create a statement with the same SQL in us-west-2.
 	westStmt, err := backend.ExecuteStatement(
-		ctxWest, "SELECT 1", "cluster-b", "", "west-db", "", "", "", false, "",
+		ctxWest, "SELECT 1", "cluster-b", "", "west-db", "", "", "", false, "", nil,
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, westStmt.ID)

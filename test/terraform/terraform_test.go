@@ -110,6 +110,7 @@ import (
 	ramsvc_types "github.com/aws/aws-sdk-go-v2/service/ram/types"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	rdsdatasvc "github.com/aws/aws-sdk-go-v2/service/rdsdata"
+	rdsdatatypes "github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	redshiftdatasvc "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -329,6 +330,8 @@ provider "aws" {
     rekognition     = %[1]q
     rolesanywhere   = %[1]q
     transcribe      = %[1]q
+    cleanrooms      = %[1]q
+    networkmonitor  = %[1]q
     vpclattice      = %[1]q
     wafv2           = %[1]q
   }
@@ -471,6 +474,8 @@ provider "aws" {
     rekognition     = %[1]q
     rolesanywhere   = %[1]q
     transcribe      = %[1]q
+    cleanrooms      = %[1]q
+    networkmonitor  = %[1]q
     vpclattice      = %[1]q
     wafv2           = %[1]q
   }
@@ -2231,6 +2236,11 @@ func TestTerraform_OpenSearch(t *testing.T) {
 				require.NoError(t, err, "DescribeDomain should succeed after terraform apply")
 				require.NotNil(t, out.DomainStatus)
 				assert.Equal(t, vars["DomainName"].(string), aws.ToString(out.DomainStatus.DomainName))
+				// The terraform-provider-aws create waiter settles when the domain
+				// reports Created && !Processing with DomainProcessingStatus Active.
+				assert.True(t, aws.ToBool(out.DomainStatus.Created), "domain should report Created")
+				assert.False(t, aws.ToBool(out.DomainStatus.Processing), "settled domain must not be Processing")
+				assert.Equal(t, "Active", string(out.DomainStatus.DomainProcessingStatus))
 			},
 		},
 	}
@@ -2945,6 +2955,74 @@ func TestTerraform_APIGateway_DataPlane(t *testing.T) {
 
 				assert.Equal(t, http.StatusOK, resp.StatusCode,
 					"data-plane request to /restapis/%s/prod/_user_request_/items should return 200", apiID)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_APIGateway_RequestValidation provisions a REST API whose GET method
+// declares a required querystring parameter and a request validator, then confirms the
+// data plane rejects a request missing the parameter with HTTP 400 and accepts one that
+// includes it with HTTP 200. Mirrors terraform-provider-aws's
+// aws_api_gateway_request_validator acceptance coverage, extended to runtime behavior.
+func TestTerraform_APIGateway_RequestValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "required_query_param",
+			fixture: "apigateway/request_validation",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"APIName": "tf-apigw-rv-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				apiClient := createAPIGatewayClient(t)
+				apis, err := apiClient.GetRestApis(ctx, &apigwsvc.GetRestApisInput{})
+				require.NoError(t, err)
+
+				var apiID string
+				for _, api := range apis.Items {
+					if aws.ToString(api.Name) == vars["APIName"].(string) {
+						apiID = aws.ToString(api.Id)
+
+						break
+					}
+				}
+				require.NotEmpty(t, apiID, "REST API %q should be present", vars["APIName"].(string))
+
+				base := endpoint + "/restapis/" + apiID + "/prod/_user_request_/items"
+
+				// Missing required query parameter → 400.
+				missReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base, nil)
+				require.NoError(t, err)
+				missResp, err := http.DefaultClient.Do(missReq)
+				require.NoError(t, err)
+				defer missResp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, missResp.StatusCode,
+					"request missing required query param must be rejected with 400")
+
+				// Required query parameter present → 200.
+				okReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"?q=hello", nil)
+				require.NoError(t, err)
+				okResp, err := http.DefaultClient.Do(okReq)
+				require.NoError(t, err)
+				defer okResp.Body.Close()
+				assert.Equal(t, http.StatusOK, okResp.StatusCode,
+					"request with required query param must be accepted with 200")
 			},
 		},
 	}
@@ -5966,6 +6044,65 @@ func TestTerraform_RDSData(t *testing.T) {
 				})
 				require.NoError(t, err, "ExecuteStatement should succeed after terraform apply")
 				assert.NotNil(t, out)
+			},
+		},
+		{
+			// engine_roundtrip provisions an Aurora cluster, then drives the
+			// full Data API data path against it: create a table, insert rows,
+			// and read them back asserting the real returned values. The
+			// terraform harness destroys the cluster on cleanup, so this
+			// exercises create-engine -> add-data -> query -> destroy.
+			name:       "engine_roundtrip",
+			fixture:    "rdsdata/success",
+			providerFn: rdsdataProviderBlock,
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"ClusterIdentifier": "tf-rdsdata-rt-" + uuid.NewString()[:8],
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				clusterID := vars["ClusterIdentifier"].(string)
+				resourceARN := "arn:aws:rds:us-east-1:000000000000:cluster:" + clusterID
+				secretARN := "arn:aws:secretsmanager:us-east-1:000000000000:secret:rdsdata-rt"
+
+				client := createRDSDataClient(t)
+
+				exec := func(sql string, includeMeta bool) *rdsdatasvc.ExecuteStatementOutput {
+					out, err := client.ExecuteStatement(ctx, &rdsdatasvc.ExecuteStatementInput{
+						ResourceArn:           aws.String(resourceARN),
+						SecretArn:             aws.String(secretARN),
+						Sql:                   aws.String(sql),
+						IncludeResultMetadata: includeMeta,
+					})
+					require.NoError(t, err, "ExecuteStatement(%q) should succeed", sql)
+
+					return out
+				}
+
+				// Create the engine schema and add data.
+				exec("CREATE TABLE tf_items (id INTEGER, name TEXT)", false)
+				exec("INSERT INTO tf_items (id, name) VALUES (1, 'gopher')", false)
+				exec("INSERT INTO tf_items (id, name) VALUES (2, 'stack')", false)
+
+				// Query it back and assert the real round-tripped values.
+				out := exec("SELECT id, name FROM tf_items ORDER BY id", true)
+				require.Len(t, out.Records, 2, "both inserted rows should be returned")
+				require.Len(t, out.ColumnMetadata, 2, "two columns should be described")
+
+				id1, ok := out.Records[0][0].(*rdsdatatypes.FieldMemberLongValue)
+				require.True(t, ok, "id column should be a long value")
+				assert.Equal(t, int64(1), id1.Value)
+
+				name1, ok := out.Records[0][1].(*rdsdatatypes.FieldMemberStringValue)
+				require.True(t, ok, "name column should be a string value")
+				assert.Equal(t, "gopher", name1.Value)
+
+				name2, ok := out.Records[1][1].(*rdsdatatypes.FieldMemberStringValue)
+				require.True(t, ok, "name column should be a string value")
+				assert.Equal(t, "stack", name2.Value)
 			},
 		},
 	}

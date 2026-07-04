@@ -39,6 +39,29 @@ const (
 	softwareUpdateCompleted = "COMPLETED"
 )
 
+// DomainProcessingStatus enum values, matching the AWS OpenSearch SDK
+// DomainProcessingStatusType. These describe the transient lifecycle phase a
+// domain is in while a create/update/upgrade/delete is being applied.
+const (
+	dpsCreating                = "Creating"
+	dpsModifying               = "Modifying"
+	dpsUpgrading               = "UpgradingEngineVersion"
+	dpsUpdatingServiceSoftware = "UpdatingServiceSoftware"
+	dpsDeleting                = "Deleting"
+)
+
+// statusDeleting is the transient DELETING state shared across sub-resources
+// (connections, VPC endpoints, serverless collections) while a delete is in
+// its processing window before the resource is finally removed.
+const statusDeleting = "DELETING"
+
+// Service software update status values, matching the AWS
+// ServiceSoftwareUpdateStatus enum.
+const (
+	sswStatusPendingUpdate = "PENDING_UPDATE"
+	sswStatusEligible      = "ELIGIBLE"
+)
+
 // Repeated string literal constants.
 const (
 	statusDeleted                  = "DELETED"
@@ -77,10 +100,13 @@ const (
 // Default engine version applied when CreateDomain receives an empty EngineVersion.
 const defaultEngineVersion = "OpenSearch_2.11"
 
+const defaultShardsPerNode = 5
+
 // InboundConnection represents an OpenSearch inbound cross-cluster connection.
 type InboundConnection struct {
-	ConnectionID string `json:"connectionId"`
-	Status       string `json:"status"`
+	StatusUntil  time.Time `json:"statusUntil,omitzero"`
+	ConnectionID string    `json:"connectionId"`
+	Status       string    `json:"status"`
 }
 
 // DataSource represents a data source attached to an OpenSearch domain.
@@ -146,15 +172,17 @@ type AppDataSource struct {
 
 // OutboundConnection represents a cross-cluster outbound connection.
 type OutboundConnection struct {
-	ConnectionID     string         `json:"ConnectionId"`
-	ConnectionAlias  string         `json:"ConnectionAlias"`
+	StatusUntil      time.Time      `json:"statusUntil,omitzero"`
 	LocalDomainInfo  map[string]any `json:"LocalDomainInfo"`
 	RemoteDomainInfo map[string]any `json:"RemoteDomainInfo"`
+	ConnectionID     string         `json:"ConnectionId"`
+	ConnectionAlias  string         `json:"ConnectionAlias"`
 	Status           string         `json:"status"`
 }
 
 // VpcEndpoint represents a VPC endpoint for an OpenSearch domain.
 type VpcEndpoint struct {
+	StatusUntil      time.Time      `json:"statusUntil,omitzero"`
 	VpcOptions       map[string]any `json:"VpcOptions"`
 	VpcEndpointID    string         `json:"VpcEndpointId"`
 	VpcEndpointOwner string         `json:"VpcEndpointOwner"`
@@ -236,13 +264,17 @@ type DomainMaintenance struct {
 	UpdatedAt     float64 `json:"UpdatedAt"`
 }
 
-// DomainIndex represents an OpenSearch index.
+// DomainIndex represents an OpenSearch index, including its stored documents.
 type DomainIndex struct {
-	Mappings    map[string]any `json:"Mappings,omitempty"`
-	Settings    map[string]any `json:"Settings,omitempty"`
-	Aliases     map[string]any `json:"Aliases,omitempty"`
-	IndexName   string         `json:"IndexName"`
-	IndexStatus string         `json:"IndexStatus"`
+	Mappings map[string]any `json:"Mappings,omitempty"`
+	Settings map[string]any `json:"Settings,omitempty"`
+	Aliases  map[string]any `json:"Aliases,omitempty"`
+	// Documents holds the real per-index document store keyed by document ID.
+	Documents   map[string]map[string]any `json:"Documents,omitempty"`
+	IndexName   string                    `json:"IndexName"`
+	IndexStatus string                    `json:"IndexStatus"`
+	// DocumentCount is the number of documents currently stored in the index.
+	DocumentCount int `json:"DocumentCount"`
 }
 
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.
@@ -395,9 +427,9 @@ type LogPublishingOption struct {
 
 // Domain represents an OpenSearch domain.
 type Domain struct {
-	EBSOptions                  *EBSOptions                     `json:"ebsOptions,omitempty"`
+	ProcessingUntil             time.Time                       `json:"processingUntil,omitzero"`
+	Tags                        *tags.Tags                      `json:"tags,omitempty"`
 	SnapshotOptions             *SnapshotOptions                `json:"snapshotOptions,omitempty"`
-	EncryptionAtRestOptions     *EncryptionAtRestOptions        `json:"encryptionAtRestOptions,omitempty"`
 	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions    `json:"nodeToNodeEncryptionOptions,omitempty"`
 	DomainEndpointOptions       *DomainEndpointOptions          `json:"domainEndpointOptions,omitempty"`
 	AdvancedSecurityOptions     *AdvancedSecurityOptions        `json:"advancedSecurityOptions,omitempty"`
@@ -407,15 +439,20 @@ type Domain struct {
 	IamIdentityCenterOptions    *IamIdentityCenterOptions       `json:"iamIdentityCenterOptions,omitempty"`
 	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions    `json:"enableSoftwareUpdateOptions,omitempty"`
 	LogPublishingOptions        map[string]*LogPublishingOption `json:"logPublishingOptions,omitempty"`
-	Tags                        *tags.Tags                      `json:"tags,omitempty"`
-	AccessPolicies              string                          `json:"accessPolicies,omitempty"`
+	EBSOptions                  *EBSOptions                     `json:"ebsOptions,omitempty"`
+	EncryptionAtRestOptions     *EncryptionAtRestOptions        `json:"encryptionAtRestOptions,omitempty"`
+	ServiceSoftware             *ServiceSoftwareOptions         `json:"serviceSoftware,omitempty"`
 	Name                        string                          `json:"name"`
 	ARN                         string                          `json:"arn"`
 	EngineVersion               string                          `json:"engineVersion"`
 	Endpoint                    string                          `json:"endpoint"`
 	Status                      string                          `json:"status"`
 	LastChangeID                string                          `json:"lastChangeID,omitempty"`
+	ProcessingStatus            string                          `json:"processingStatus,omitempty"`
+	AccessPolicies              string                          `json:"accessPolicies,omitempty"`
 	ClusterConfig               ClusterConfig                   `json:"clusterConfig"`
+	Created                     bool                            `json:"created,omitempty"`
+	Deleted                     bool                            `json:"deleted,omitempty"`
 }
 
 // CreateDomainInput holds all options for creating a new OpenSearch domain.
@@ -475,13 +512,9 @@ type DryRunStatus struct {
 
 // InMemoryBackend is the in-memory store for OpenSearch domains.
 type InMemoryBackend struct {
-	dnsRegistrar        DNSRegistrar
-	packageAssociations map[string]map[string]bool
-	// domainPackages is the reverse index of packageAssociations: domain name →
-	// set of package IDs associated with it. Kept consistent with
-	// packageAssociations on every associate/dissociate so ListPackagesForDomain
-	// and DeleteDomain do not have to scan every package's association set.
-	domainPackages         map[string]map[string]bool
+	dnsRegistrar           DNSRegistrar
+	dryRuns                map[string]*DryRunStatus
+	reservedInstances      map[string]*ReservedInstance
 	arnIndex               map[string]string
 	inboundConnections     map[string]*InboundConnection
 	outboundConnections    map[string]*OutboundConnection
@@ -491,32 +524,35 @@ type InMemoryBackend struct {
 	vpcAuthorizations      map[string][]AuthorizedPrincipal
 	vpcEndpoints           map[string]*VpcEndpoint
 	applications           map[string]*Application
+	applicationNames       map[string]string
 	packages               map[string]*Package
 	scheduledActions       map[string][]*ScheduledAction
-	reservedInstances      map[string]*ReservedInstance
+	packageAssociations    map[string]map[string]bool
 	domainMaintenances     map[string][]*DomainMaintenance
 	domainIndexes          map[string]map[string]*DomainIndex
-	upgradeHistory         map[string][]*UpgradeHistory // key: upgradeHistoryKey(domainName)
-	autoTunes              map[string]*AutoTuneConfig   // key: autoTuneKey(domainName)
-	dryRuns                map[string]*DryRunStatus     // key: domainName
-	defaultAppSettings     map[string][]AppSetting      // key: applicationType
-	// OpenSearch Serverless state.
-	slCollections        map[string]*ServerlessCollection
-	slAccessPolicies     map[string]*ServerlessAccessPolicy
-	slSecurityConfigs    map[string]*ServerlessSecurityConfig
-	slEncryptionPolicies map[string]*ServerlessEncryptionPolicy
-	slNetworkPolicies    map[string]*ServerlessNetworkPolicy
-	mu                   *lockmetrics.RWMutex
-	accountID            string
-	region               string
-	appIDCounter         int
-	connCounter          int
-	vpcEndpointCounter   int
-	packageCounter       int
-	maintenanceCounter   int
-	reservedCounter      int
-	slCollCounter        int
-	slSecConfigCounter   int
+	upgradeHistory         map[string][]*UpgradeHistory
+	domainPackages         map[string]map[string]bool
+	autoTunes              map[string]*AutoTuneConfig
+	slNetworkPolicies      map[string]*ServerlessNetworkPolicy
+	slCollections          map[string]*ServerlessCollection
+	slAccessPolicies       map[string]*ServerlessAccessPolicy
+	slSecurityConfigs      map[string]*ServerlessSecurityConfig
+	slEncryptionPolicies   map[string]*ServerlessEncryptionPolicy
+	defaultAppSettings     map[string][]AppSetting
+	mu                     *lockmetrics.RWMutex
+	now                    func() time.Time
+	accountID              string
+	region                 string
+	processingDelay        time.Duration
+	appIDCounter           int
+	connCounter            int
+	vpcEndpointCounter     int
+	packageCounter         int
+	maintenanceCounter     int
+	reservedCounter        int
+	slCollCounter          int
+	slSecConfigCounter     int
+	docCounter             int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -533,6 +569,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		vpcAuthorizations:      make(map[string][]AuthorizedPrincipal),
 		vpcEndpoints:           make(map[string]*VpcEndpoint),
 		applications:           make(map[string]*Application),
+		applicationNames:       make(map[string]string),
 		packages:               make(map[string]*Package),
 		scheduledActions:       make(map[string][]*ScheduledAction),
 		reservedInstances:      make(map[string]*ReservedInstance),
@@ -568,6 +605,9 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 
 	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
+
+	// Finalise any domains whose deleting window has elapsed so the name frees up.
+	b.purgeExpiredDomainsLocked()
 
 	if _, exists := b.domains[input.Name]; exists {
 		return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, input.Name)
@@ -615,6 +655,9 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 		d.Tags.Merge(input.Tags)
 	}
 
+	d.Created = true
+	b.beginProcessing(d, dpsCreating)
+
 	b.domains[input.Name] = d
 	b.arnIndex[domainARN] = input.Name
 
@@ -628,48 +671,42 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 }
 
 // DeleteDomain removes a domain by name and cleans up all associated resources.
+//
+// When processingDelay is 0 the domain (and all its scoped resources) is removed
+// immediately and the returned status reports Deleted:true / Deleting. When a
+// delay is configured the domain enters a real, observable Deleting window: it
+// remains describable with Deleted:true until the window elapses, after which it
+// is cascaded away lazily on the next write.
 func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	b.mu.Lock("DeleteDomain")
 	defer b.mu.Unlock()
+
+	b.purgeExpiredDomainsLocked()
 
 	d, exists := b.domains[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
 
+	d.Deleted = true
+	b.beginProcessing(d, dpsDeleting)
 	cp := *d
-	delete(b.domains, name)
-	delete(b.arnIndex, d.ARN)
-	d.Tags.Close()
 
-	// Cascade-clean all domain-scoped resources.
-	delete(b.domainDataSources, name)
-	delete(b.vpcAuthorizations, name)
-
-	for pkgID := range b.domainPackages[name] {
-		if domains, ok := b.packageAssociations[pkgID]; ok {
-			delete(domains, name)
-			if len(domains) == 0 {
-				delete(b.packageAssociations, pkgID)
-			}
-		}
-	}
-	delete(b.domainPackages, name)
-
-	if b.dnsRegistrar != nil {
-		b.dnsRegistrar.Deregister(cp.Endpoint)
+	if b.processingDelay == 0 {
+		b.removeDomainLocked(name)
 	}
 
 	return &cp, nil
 }
 
-// DescribeDomain returns details about a domain.
+// DescribeDomain returns details about a domain. A domain whose deleting window
+// has elapsed is reported as not found.
 func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 	b.mu.RLock("DescribeDomain")
 	defer b.mu.RUnlock()
 
 	d, exists := b.domains[name]
-	if !exists {
+	if !exists || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
 
@@ -678,13 +715,19 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 	return &cp, nil
 }
 
-// ListDomainNames returns the names of all domains in sorted order.
+// ListDomainNames returns the names of all live domains in sorted order.
 func (b *InMemoryBackend) ListDomainNames() []string {
 	b.mu.RLock("ListDomainNames")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
 	names := make([]string, 0, len(b.domains))
-	for name := range b.domains {
+
+	for name, d := range b.domains {
+		if deleteWindowElapsed(d, now) {
+			continue
+		}
+
 		names = append(names, name)
 	}
 
@@ -758,14 +801,10 @@ func (b *InMemoryBackend) AcceptInboundConnection(connectionID string) (*Inbound
 
 	conn, exists := b.inboundConnections[connectionID]
 	if !exists {
-		conn = &InboundConnection{
-			ConnectionID: connectionID,
-			Status:       connectionStatusActive,
-		}
-		b.inboundConnections[connectionID] = conn
-	} else {
-		conn.Status = connectionStatusActive
+		return nil, fmt.Errorf("%w: connection %s not found", ErrConnectionNotFound, connectionID)
 	}
+
+	conn.Status = connectionStatusActive
 
 	cp := *conn
 
@@ -933,6 +972,10 @@ func (b *InMemoryBackend) AssociatePackages(
 	results := make([]DomainPackageDetails, 0, len(packageIDs))
 
 	for _, pkgID := range packageIDs {
+		if _, exists := b.packages[pkgID]; !exists {
+			return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, pkgID)
+		}
+
 		b.addPackageAssociation(pkgID, domainName)
 		results = append(results, DomainPackageDetails{
 			PackageID:  pkgID,
@@ -985,17 +1028,30 @@ func (b *InMemoryBackend) CancelDomainConfigChange(
 		return nil, false, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("CancelDomainConfigChange")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CancelDomainConfigChange")
+	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	d, exists := b.domains[domainName]
+	if !exists {
 		return nil, false, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	return []string{}, dryRun, nil
+	var cancelledChangeIDs []string
+
+	if d.LastChangeID != "" {
+		cancelledChangeIDs = append(cancelledChangeIDs, d.LastChangeID)
+		d.LastChangeID = ""
+	}
+
+	return cancelledChangeIDs, dryRun, nil
 }
 
 // CancelServiceSoftwareUpdate cancels a pending service software update.
+//
+// AWS only permits cancellation while an update is actually scheduled
+// (UpdateStatus == PENDING_UPDATE). When nothing is scheduled it rejects the
+// request, so this mutates the stored software-update state and returns a
+// ValidationException in that case rather than a canned success envelope.
 func (b *InMemoryBackend) CancelServiceSoftwareUpdate(
 	domainName string,
 ) (*ServiceSoftwareOptions, error) {
@@ -1003,21 +1059,39 @@ func (b *InMemoryBackend) CancelServiceSoftwareUpdate(
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("CancelServiceSoftwareUpdate")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CancelServiceSoftwareUpdate")
+	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	d, exists := b.domains[domainName]
+	if !exists || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	return &ServiceSoftwareOptions{
-		CurrentVersion:  defaultEngineVersion,
-		NewVersion:      "",
-		UpdateAvailable: false,
-		Cancellable:     false,
-		UpdateStatus:    softwareUpdateCompleted,
-		Description:     "There is no software update available for this domain.",
-	}, nil
+	if d.ServiceSoftware == nil || d.ServiceSoftware.UpdateStatus != sswStatusPendingUpdate {
+		return nil, fmt.Errorf(
+			"%w: domain %s has no service software update in a cancellable (PENDING_UPDATE) state",
+			ErrValidation,
+			domainName,
+		)
+	}
+
+	// The scheduled install is cancelled, but the newer version remains
+	// available, so the domain returns to the ELIGIBLE state.
+	d.ServiceSoftware.UpdateStatus = sswStatusEligible
+	d.ServiceSoftware.Cancellable = false
+	d.ServiceSoftware.UpdateAvailable = true
+	d.ServiceSoftware.NewVersion = defaultEngineVersion
+	d.ServiceSoftware.Description = "Cancellation complete. A new version is available to install."
+
+	// Clear the software-update processing window opened by StartServiceSoftwareUpdate.
+	if d.ProcessingStatus == dpsUpdatingServiceSoftware {
+		d.ProcessingStatus = ""
+		d.ProcessingUntil = time.Time{}
+	}
+
+	cp := *d.ServiceSoftware
+
+	return &cp, nil
 }
 
 // CreateApplication creates an OpenSearch UI application.
@@ -1033,14 +1107,12 @@ func (b *InMemoryBackend) CreateApplication(
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
-	for _, app := range b.applications {
-		if app.Name == name {
-			return nil, fmt.Errorf(
-				"%w: application %s already exists",
-				ErrApplicationAlreadyExists,
-				name,
-			)
-		}
+	if _, exists := b.applicationNames[name]; exists {
+		return nil, fmt.Errorf(
+			"%w: application %s already exists",
+			ErrApplicationAlreadyExists,
+			name,
+		)
 	}
 
 	b.appIDCounter++
@@ -1063,6 +1135,7 @@ func (b *InMemoryBackend) CreateApplication(
 		DataSources: dataSources,
 	}
 	b.applications[id] = app
+	b.applicationNames[name] = id
 
 	cp := *app
 	cp.AppConfigs = make([]AppConfig, len(app.AppConfigs))
@@ -1093,6 +1166,7 @@ func (b *InMemoryBackend) Reset() {
 	b.vpcAuthorizations = make(map[string][]AuthorizedPrincipal)
 	b.vpcEndpoints = make(map[string]*VpcEndpoint)
 	b.applications = make(map[string]*Application)
+	b.applicationNames = make(map[string]string)
 	b.packages = make(map[string]*Package)
 	b.scheduledActions = make(map[string][]*ScheduledAction)
 	b.reservedInstances = make(map[string]*ReservedInstance)
@@ -1115,6 +1189,7 @@ func (b *InMemoryBackend) Reset() {
 	b.reservedCounter = 0
 	b.slCollCounter = 0
 	b.slSecConfigCounter = 0
+	b.docCounter = 0
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -1158,13 +1233,20 @@ func (b *InMemoryBackend) CreateOutboundConnection(
 	return &cp, nil
 }
 
-// DescribeOutboundConnections returns all outbound connections.
+// DescribeOutboundConnections returns all outbound connections, excluding any
+// whose deleting window has elapsed.
 func (b *InMemoryBackend) DescribeOutboundConnections() []*OutboundConnection {
 	b.mu.RLock("DescribeOutboundConnections")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
 	out := make([]*OutboundConnection, 0, len(b.outboundConnections))
+
 	for _, c := range b.outboundConnections {
+		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
+			continue
+		}
+
 		cp := *c
 		out = append(out, &cp)
 	}
@@ -1172,12 +1254,16 @@ func (b *InMemoryBackend) DescribeOutboundConnections() []*OutboundConnection {
 	return out
 }
 
-// DeleteOutboundConnection removes an outbound connection by ID.
+// DeleteOutboundConnection removes an outbound connection by ID. With a
+// processing delay configured the connection first enters an observable DELETING
+// window before it is finally removed.
 func (b *InMemoryBackend) DeleteOutboundConnection(
 	connectionID string,
 ) (*OutboundConnection, error) {
 	b.mu.Lock("DeleteOutboundConnection")
 	defer b.mu.Unlock()
+
+	b.purgeExpiredOutboundLocked()
 
 	conn, exists := b.outboundConnections[connectionID]
 	if !exists {
@@ -1188,11 +1274,30 @@ func (b *InMemoryBackend) DeleteOutboundConnection(
 		)
 	}
 
+	if b.processingDelay == 0 {
+		cp := *conn
+		cp.Status = statusDeleting
+		delete(b.outboundConnections, connectionID)
+
+		return &cp, nil
+	}
+
+	conn.Status = statusDeleting
+	conn.StatusUntil = b.clock().Add(b.processingDelay)
 	cp := *conn
-	cp.Status = statusDeleted
-	delete(b.outboundConnections, connectionID)
 
 	return &cp, nil
+}
+
+// purgeExpiredOutboundLocked removes outbound connections past their deleting
+// window. The caller must hold the write lock.
+func (b *InMemoryBackend) purgeExpiredOutboundLocked() {
+	now := b.clock()
+	for id, c := range b.outboundConnections {
+		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
+			delete(b.outboundConnections, id)
+		}
+	}
 }
 
 // RejectInboundConnection sets an inbound connection status to REJECTED.
@@ -1215,32 +1320,59 @@ func (b *InMemoryBackend) RejectInboundConnection(connectionID string) (*Inbound
 	return &cp, nil
 }
 
-// DeleteInboundConnection removes an inbound connection by ID.
+// DeleteInboundConnection removes an inbound connection by ID. With a processing
+// delay configured the connection first enters an observable DELETING window.
 func (b *InMemoryBackend) DeleteInboundConnection(connectionID string) (*InboundConnection, error) {
 	b.mu.Lock("DeleteInboundConnection")
 	defer b.mu.Unlock()
 
+	b.purgeExpiredInboundLocked()
+
 	conn, exists := b.inboundConnections[connectionID]
 	if !exists {
-		conn = &InboundConnection{ConnectionID: connectionID, Status: statusDeleted}
-
-		return conn, nil
+		return &InboundConnection{ConnectionID: connectionID, Status: statusDeleting}, nil
 	}
 
+	if b.processingDelay == 0 {
+		cp := *conn
+		cp.Status = statusDeleting
+		delete(b.inboundConnections, connectionID)
+
+		return &cp, nil
+	}
+
+	conn.Status = statusDeleting
+	conn.StatusUntil = b.clock().Add(b.processingDelay)
 	cp := *conn
-	cp.Status = statusDeleted
-	delete(b.inboundConnections, connectionID)
 
 	return &cp, nil
 }
 
-// DescribeInboundConnections returns all inbound connections.
+// purgeExpiredInboundLocked removes inbound connections past their deleting
+// window. The caller must hold the write lock.
+func (b *InMemoryBackend) purgeExpiredInboundLocked() {
+	now := b.clock()
+	for id, c := range b.inboundConnections {
+		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
+			delete(b.inboundConnections, id)
+		}
+	}
+}
+
+// DescribeInboundConnections returns all inbound connections, excluding any
+// whose deleting window has elapsed.
 func (b *InMemoryBackend) DescribeInboundConnections() []*InboundConnection {
 	b.mu.RLock("DescribeInboundConnections")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
 	out := make([]*InboundConnection, 0, len(b.inboundConnections))
+
 	for _, c := range b.inboundConnections {
+		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
+			continue
+		}
+
 		cp := *c
 		out = append(out, &cp)
 	}
@@ -1279,12 +1411,14 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(ids []string) ([]*VpcEndpoint, []
 	b.mu.RLock("DescribeVpcEndpoints")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
+
 	var endpoints []*VpcEndpoint
 	var errs []map[string]any
 
 	for _, id := range ids {
 		ep, exists := b.vpcEndpoints[id]
-		if !exists {
+		if !exists || statusWindowElapsed(ep.Status, ep.StatusUntil, now) {
 			errs = append(errs, map[string]any{
 				"VpcEndpointId": id,
 				"ErrorCode":     "EndpointNotFound",
@@ -1328,30 +1462,60 @@ func (b *InMemoryBackend) UpdateVpcEndpoint(
 	return &cp, nil
 }
 
-// DeleteVpcEndpoint removes a VPC endpoint by ID.
+// DeleteVpcEndpoint removes a VPC endpoint by ID. With a processing delay
+// configured the endpoint first enters an observable DELETING window before it
+// is finally removed.
 func (b *InMemoryBackend) DeleteVpcEndpoint(id string) (*VpcEndpoint, error) {
 	b.mu.Lock("DeleteVpcEndpoint")
 	defer b.mu.Unlock()
+
+	b.purgeExpiredVpcEndpointsLocked()
 
 	ep, exists := b.vpcEndpoints[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: VPC endpoint %s not found", ErrConnectionNotFound, id)
 	}
 
+	if b.processingDelay == 0 {
+		cp := *ep
+		cp.Status = statusDeleting
+		delete(b.vpcEndpoints, id)
+
+		return &cp, nil
+	}
+
+	ep.Status = statusDeleting
+	ep.StatusUntil = b.clock().Add(b.processingDelay)
 	cp := *ep
-	cp.Status = statusDeleted
-	delete(b.vpcEndpoints, id)
 
 	return &cp, nil
 }
 
-// ListVpcEndpoints returns all VPC endpoints.
+// purgeExpiredVpcEndpointsLocked removes VPC endpoints past their deleting
+// window. The caller must hold the write lock.
+func (b *InMemoryBackend) purgeExpiredVpcEndpointsLocked() {
+	now := b.clock()
+	for id, ep := range b.vpcEndpoints {
+		if statusWindowElapsed(ep.Status, ep.StatusUntil, now) {
+			delete(b.vpcEndpoints, id)
+		}
+	}
+}
+
+// ListVpcEndpoints returns all VPC endpoints, excluding any whose deleting
+// window has elapsed.
 func (b *InMemoryBackend) ListVpcEndpoints() []*VpcEndpoint {
 	b.mu.RLock("ListVpcEndpoints")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
 	out := make([]*VpcEndpoint, 0, len(b.vpcEndpoints))
+
 	for _, ep := range b.vpcEndpoints {
+		if statusWindowElapsed(ep.Status, ep.StatusUntil, now) {
+			continue
+		}
+
 		cp := *ep
 		out = append(out, &cp)
 	}
@@ -1359,14 +1523,18 @@ func (b *InMemoryBackend) ListVpcEndpoints() []*VpcEndpoint {
 	return out
 }
 
-// ListVpcEndpointsForDomain returns VPC endpoints associated with a domain ARN.
+// ListVpcEndpointsForDomain returns VPC endpoints associated with a domain ARN,
+// excluding any whose deleting window has elapsed.
 func (b *InMemoryBackend) ListVpcEndpointsForDomain(domainArn string) []*VpcEndpoint {
 	b.mu.RLock("ListVpcEndpointsForDomain")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
+
 	var out []*VpcEndpoint
+
 	for _, ep := range b.vpcEndpoints {
-		if ep.DomainArn == domainArn {
+		if ep.DomainArn == domainArn && !statusWindowElapsed(ep.Status, ep.StatusUntil, now) {
 			cp := *ep
 			out = append(out, &cp)
 		}
@@ -1922,6 +2090,11 @@ func (b *InMemoryBackend) StartDomainMaintenance(
 		UpdatedAt:     now,
 	}
 	b.domainMaintenances[domainName] = append(b.domainMaintenances[domainName], m)
+	// Trim to the cap, keeping the most recent entries.
+	if len(b.domainMaintenances[domainName]) > maxMaintenancesPerDomain {
+		records := b.domainMaintenances[domainName]
+		b.domainMaintenances[domainName] = records[len(records)-maxMaintenancesPerDomain:]
+	}
 
 	cp := *m
 
@@ -1984,11 +2157,13 @@ func (b *InMemoryBackend) CreateIndex(
 	}
 
 	idx := &DomainIndex{
-		IndexName:   indexName,
-		IndexStatus: pkgStateActive,
-		Mappings:    mappings,
-		Settings:    settings,
-		Aliases:     aliases,
+		IndexName:     indexName,
+		IndexStatus:   pkgStateActive,
+		Mappings:      mappings,
+		Settings:      settings,
+		Aliases:       aliases,
+		Documents:     make(map[string]map[string]any),
+		DocumentCount: 0,
 	}
 	b.domainIndexes[domainName][indexName] = idx
 
@@ -2166,10 +2341,12 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	if _, exists := b.applications[id]; !exists {
+	app, exists := b.applications[id]
+	if !exists {
 		return fmt.Errorf("%w: application %s not found", ErrApplicationNotFound, id)
 	}
 
+	delete(b.applicationNames, app.Name)
 	delete(b.applications, id)
 
 	return nil
@@ -2181,14 +2358,14 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 func (b *InMemoryBackend) StartServiceSoftwareUpdate(
 	domainName, scheduleAt string,
 ) (*ServiceSoftwareOptions, error) {
-	b.mu.RLock("StartServiceSoftwareUpdate")
-	defer b.mu.RUnlock()
+	b.mu.Lock("StartServiceSoftwareUpdate")
+	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	d, exists := b.domains[domainName]
+	if !exists || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	status := "PENDING_UPDATE"
 	desc := "A new service software version is ready to install."
 
 	switch scheduleAt {
@@ -2198,14 +2375,22 @@ func (b *InMemoryBackend) StartServiceSoftwareUpdate(
 		desc = "Service software update scheduled for the requested time."
 	}
 
-	return &ServiceSoftwareOptions{
+	// Record real, mutable software-update state so a subsequent
+	// CancelServiceSoftwareUpdate has something concrete to act on.
+	opts := &ServiceSoftwareOptions{
 		CurrentVersion:  defaultEngineVersion,
 		NewVersion:      defaultEngineVersion,
 		UpdateAvailable: true,
 		Cancellable:     true,
-		UpdateStatus:    status,
+		UpdateStatus:    sswStatusPendingUpdate,
 		Description:     desc,
-	}, nil
+	}
+	d.ServiceSoftware = opts
+	b.beginProcessing(d, dpsUpdatingServiceSoftware)
+
+	cp := *opts
+
+	return &cp, nil
 }
 
 // DescribeDomains returns a list of domains. If names is empty, all domains are returned.
@@ -2214,9 +2399,15 @@ func (b *InMemoryBackend) DescribeDomains(names []string) ([]*Domain, error) {
 	b.mu.RLock("DescribeDomains")
 	defer b.mu.RUnlock()
 
+	now := b.clock()
+
 	if len(names) == 0 {
 		out := make([]*Domain, 0, len(b.domains))
 		for _, d := range b.domains {
+			if deleteWindowElapsed(d, now) {
+				continue
+			}
+
 			cp := *d
 			out = append(out, &cp)
 		}
@@ -2228,7 +2419,7 @@ func (b *InMemoryBackend) DescribeDomains(names []string) ([]*Domain, error) {
 
 	for _, name := range names {
 		d, exists := b.domains[name]
-		if !exists {
+		if !exists || deleteWindowElapsed(d, now) {
 			continue
 		}
 
@@ -2318,7 +2509,7 @@ func (b *InMemoryBackend) UpdateDomainConfig(
 	defer b.mu.Unlock()
 
 	d, exists := b.domains[name]
-	if !exists {
+	if !exists || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
 
@@ -2330,6 +2521,7 @@ func (b *InMemoryBackend) UpdateDomainConfig(
 
 	changeID := fmt.Sprintf("change-%s-%d", name, time.Now().UnixNano())
 	d.LastChangeID = changeID
+	b.beginProcessing(d, dpsModifying)
 
 	cp := *d
 
@@ -2380,7 +2572,7 @@ func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, er
 		instanceCount = 1
 	}
 
-	totalShards := instanceCount * 5 //nolint:mnd // 5 shards per node is a common default
+	totalShards := instanceCount * defaultShardsPerNode
 
 	warmNodes := 0
 	if d.ClusterConfig.WarmEnabled {
@@ -2388,6 +2580,11 @@ func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, er
 	}
 
 	dedicatedMaster := d.ClusterConfig.DedicatedMasterEnabled
+
+	docCount := 0
+	for _, idx := range b.domainIndexes[domainName] {
+		docCount += idx.DocumentCount
+	}
 
 	return map[string]any{
 		"DomainState":                 domainStatusActive,
@@ -2398,6 +2595,7 @@ func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, er
 		"WarmNodeCount":               warmNodes,
 		"DedicatedMaster":             dedicatedMaster,
 		"ActiveAvailabilityZoneCount": 1,
+		"DocumentCount":               docCount,
 	}, nil
 }
 

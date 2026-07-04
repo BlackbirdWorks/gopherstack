@@ -1,6 +1,9 @@
 package dax
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for DAX storage operations.
 type StorageBackend interface {
@@ -55,10 +58,12 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*Event, string, error)
 
+	GetDefaultTTL() (recordTTL time.Duration, queryTTL time.Duration)
+
 	// Reset / persistence.
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

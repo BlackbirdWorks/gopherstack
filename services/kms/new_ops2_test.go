@@ -779,11 +779,11 @@ func TestCustomKeyStorePersistence(t *testing.T) {
 		CustomKeyStoreID: out.CustomKeyStoreID,
 	}))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := kms.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	desc, err := b2.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreID: out.CustomKeyStoreID,
@@ -1128,15 +1128,25 @@ func TestKMSBackendNewMaintenanceOps(t *testing.T) {
 
 				key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{MultiRegion: true})
 				require.NoError(t, err)
+				primaryID := key.KeyMetadata.KeyID
+
+				// Replicate to eu-west-1 first — UpdatePrimaryRegion requires an actual replica.
+				_, err = b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
+					KeyID:         primaryID,
+					ReplicaRegion: "eu-west-1",
+				})
+				require.NoError(t, err)
 
 				err = b.UpdatePrimaryRegion(context.Background(), &kms.UpdatePrimaryRegionInput{
-					KeyID:         key.KeyMetadata.KeyID,
+					KeyID:         primaryID,
 					PrimaryRegion: "eu-west-1",
 				})
 				require.NoError(t, err)
 
+				// After promotion, replicate from the NEW primary (the eu-west-1 key promoted to primary)
+				// OR replicate from the old primary which is now a replica — both keys are still multi-region.
 				replica, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
-					KeyID:         key.KeyMetadata.KeyID,
+					KeyID:         primaryID,
 					ReplicaRegion: "us-west-2",
 				})
 				require.NoError(t, err)

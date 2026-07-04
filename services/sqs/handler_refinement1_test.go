@@ -42,7 +42,9 @@ func TestRefinement1_StorageBackendInterface(t *testing.T) {
 func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
-	h := sqs.NewHandler(sqs.NewInMemoryBackend())
+	bk := sqs.NewInMemoryBackend()
+	t.Cleanup(bk.Close)
+	h := sqs.NewHandler(bk)
 	assert.Len(t, h.GetSupportedOperations(), 23)
 }
 
@@ -50,7 +52,9 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 func TestRefinement1_SDKOpsSorted(t *testing.T) {
 	t.Parallel()
 
-	h := sqs.NewHandler(sqs.NewInMemoryBackend())
+	bk := sqs.NewInMemoryBackend()
+	t.Cleanup(bk.Close)
+	h := sqs.NewHandler(bk)
 	ops := h.GetSupportedOperations()
 
 	require.NotEmpty(t, ops)

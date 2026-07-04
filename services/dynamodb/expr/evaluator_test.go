@@ -326,9 +326,12 @@ func TestEvaluator_Mutate_Errors(t *testing.T) {
 			wantErr: expr.ErrExpectedListForIndex,
 		},
 		{
+			// A negative list index is not a valid document path; SET must error.
+			// (A non-negative out-of-range index appends instead — see
+			// TestEvaluator_Mutate_ListIndexOutOfRange.)
 			name:    "IndexOutOfRange",
 			item:    []any{},
-			path:    []expr.PathElement{{Name: "foo", Type: expr.ElementIndex, Index: 0}},
+			path:    []expr.PathElement{{Name: "foo", Type: expr.ElementIndex, Index: -1}},
 			wantErr: expr.ErrIndexOutOfRange,
 		},
 	}
@@ -338,6 +341,85 @@ func TestEvaluator_Mutate_Errors(t *testing.T) {
 			t.Parallel()
 			_, err := eval.Mutate(tt.item, tt.path, "val", false)
 			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+// TestEvaluator_Mutate_ListIndexOutOfRange verifies AWS DynamoDB out-of-range
+// list-index semantics for SET and REMOVE update actions:
+//   - SET at index >= len appends to the end of the list (no NULL padding, no
+//     error). See AWS docs: "If you add an element to a list at an index that
+//     is beyond the current end of the list, the element is appended to the end
+//     of the list."
+//   - REMOVE at an out-of-range index is a silent no-op.
+func TestEvaluator_Mutate_ListIndexOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		item     any
+		value    any
+		name     string
+		wantList []any
+		index    int
+		isRemove bool
+	}{
+		{
+			name:     "SET beyond end appends to wrapped list",
+			item:     map[string]any{"L": []any{map[string]any{"N": "1"}}},
+			index:    5,
+			value:    map[string]any{"N": "2"},
+			isRemove: false,
+			wantList: []any{map[string]any{"N": "1"}, map[string]any{"N": "2"}},
+		},
+		{
+			name:     "SET at exact end appends",
+			item:     map[string]any{"L": []any{map[string]any{"S": "a"}}},
+			index:    1,
+			value:    map[string]any{"S": "b"},
+			isRemove: false,
+			wantList: []any{map[string]any{"S": "a"}, map[string]any{"S": "b"}},
+		},
+		{
+			name:     "SET into empty list appends",
+			item:     map[string]any{"L": []any{}},
+			index:    3,
+			value:    map[string]any{"S": "x"},
+			isRemove: false,
+			wantList: []any{map[string]any{"S": "x"}},
+		},
+		{
+			name:     "REMOVE out of range is a no-op",
+			item:     map[string]any{"L": []any{map[string]any{"N": "1"}}},
+			index:    7,
+			value:    nil,
+			isRemove: true,
+			wantList: []any{map[string]any{"N": "1"}},
+		},
+		{
+			name: "REMOVE in range deletes and shifts",
+			item: map[string]any{
+				"L": []any{map[string]any{"N": "1"}, map[string]any{"N": "2"}},
+			},
+			index:    0,
+			value:    nil,
+			isRemove: true,
+			wantList: []any{map[string]any{"N": "2"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			eval := &expr.Evaluator{}
+			path := []expr.PathElement{{Name: "foo", Type: expr.ElementIndex, Index: tt.index}}
+
+			got, err := eval.Mutate(tt.item, path, tt.value, tt.isRemove)
+			require.NoError(t, err)
+
+			gotMap, ok := got.(map[string]any)
+			require.True(t, ok, "expected wrapped list result, got %T", got)
+			assert.Equal(t, tt.wantList, gotMap["L"])
 		})
 	}
 }
@@ -1171,7 +1253,9 @@ func TestEvaluator_ApplyDelete_SS_NS(t *testing.T) {
 				Actions: []expr.UpdateAction{{
 					Type: expr.TokenDELETE,
 					Items: []expr.UpdateItem{{
-						Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "s", Type: expr.ElementKey}}},
+						Path: &expr.PathExpr{
+							Elements: []expr.PathElement{{Name: "s", Type: expr.ElementKey}},
+						},
 						Value: &expr.ValuePlaceholder{Name: ":v"},
 					}},
 				}},

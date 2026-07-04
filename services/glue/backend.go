@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"maps"
 	mrand "math/rand/v2"
-	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -382,19 +383,39 @@ type InMemoryBackend struct {
 	columnStatTaskRuns        map[string]*ColumnStatisticsTaskRun       // key: runID
 	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
 	integrations              map[string]*Integration                   // key: integrationName
+	integrationResourceProps  map[string]*IntegrationResourceProperty   // key: resourceARN
+	integrationTableProps     map[string]*IntegrationTableProperties    // key: "resourceARN|tableName"
 	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
 	catalogImports            map[string]*CatalogImportStatus           // key: catalogID or accountID
 	schemaVersionMetadata     map[string]map[string]string              // key: schemaVersionID → key → value
 	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
 
-	// lifecycle reconciler
+	// lifecycle reconciler timers
 	jobRunReadyAt  map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
 	jobRunDoneAt   map[string]map[string]time.Time // jobName → runID → doneAt for RUNNING→SUCCEEDED
 	crawlerReadyAt map[string]time.Time            // crawlerName → readyAt for RUNNING→READY
-	stopCh         chan struct{}
-	accountID      string
-	region         string
+
+	// connection-type registry (custom types registered via RegisterConnectionType).
+	customConnectionTypes map[string]*ConnectionTypeInfo
+
+	// reconcileStop signals the managed reconciler goroutine to exit. See the
+	// non-pointer reconciler bookkeeping fields at the end of the struct.
+	reconcileStop chan struct{}
+
+	accountID string
+	region    string
+
+	// Managed reconciler lifecycle bookkeeping. The reconciler is started by the
+	// service framework via StartWorker (BackgroundWorker) and stopped by Shutdown
+	// (Shutdowner), replacing the previous unmanaged goroutine that leaked because
+	// nothing ever called Close. reconcileMu guards this bookkeeping; b.mu continues
+	// to guard resource state. These pointer-free fields are placed last to keep the
+	// GC pointer-scan region minimal (govet fieldalignment).
+	reconcileWG       sync.WaitGroup
+	reconcileMu       sync.Mutex
+	reconcileInterval time.Duration
+	reconcileOn       bool
 }
 
 // NewInMemoryBackend creates a new in-memory Glue backend.
@@ -441,6 +462,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		columnStatTaskRuns:        make(map[string]*ColumnStatisticsTaskRun),
 		materializedViewRuns:      make(map[string]*MaterializedViewRefreshRun),
 		integrations:              make(map[string]*Integration),
+		integrationResourceProps:  make(map[string]*IntegrationResourceProperty),
+		integrationTableProps:     make(map[string]*IntegrationTableProperties),
 		mlTaskRuns:                make(map[string]*MLTaskRun),
 		catalogImports:            make(map[string]*CatalogImportStatus),
 		schemaVersionMetadata:     make(map[string]map[string]string),
@@ -450,38 +473,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		jobRunReadyAt:             make(map[string]map[string]time.Time),
 		jobRunDoneAt:              make(map[string]map[string]time.Time),
 		crawlerReadyAt:            make(map[string]time.Time),
-		stopCh:                    make(chan struct{}),
+		customConnectionTypes:     make(map[string]*ConnectionTypeInfo),
 	}
-
-	go b.runReconciler()
 
 	return b
-}
-
-// Close stops the background reconciler goroutine.
-func (b *InMemoryBackend) Close() {
-	select {
-	case <-b.stopCh:
-	default:
-		close(b.stopCh)
-	}
-}
-
-// runReconciler periodically transitions Glue job runs and crawlers.
-func (b *InMemoryBackend) runReconciler() {
-	ticker := time.NewTicker(jobTransitionDelay / reconcilerTickDivisor)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-b.stopCh:
-			return
-		case <-ticker.C:
-			b.mu.Lock("glueReconciler")
-			b.reconcileLocked()
-			b.mu.Unlock()
-		}
-	}
 }
 
 // advanceJobRunState applies STARTING→RUNNING and RUNNING→SUCCEEDED transitions for a
@@ -508,10 +503,11 @@ func advanceJobRunState(run *JobRun, readyMap, doneMap map[string]time.Time, now
 	}
 }
 
-// reconcileLocked applies pending lifecycle transitions. Must be called with b.mu held.
-func (b *InMemoryBackend) reconcileLocked() {
-	now := time.Now()
-
+// reconcileLocked applies pending lifecycle transitions as of now. Must be called
+// with b.mu held. Taking now as a parameter (rather than reading the clock again)
+// keeps the due-scan and the application consistent and makes advancement
+// deterministically testable.
+func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 	// Job run transitions: STARTING→RUNNING, RUNNING→SUCCEEDED.
 	for jobName, runs := range b.jobRuns {
 		readyMap := b.jobRunReadyAt[jobName]
@@ -540,6 +536,46 @@ func (b *InMemoryBackend) reconcileLocked() {
 
 			delete(b.crawlerReadyAt, name)
 		}
+	}
+
+	b.pruneOrphanJobRunTimersLocked()
+}
+
+// pruneOrphanJobRunTimersLocked removes job-run timing entries whose job or run no
+// longer exists. Without this, a stale due timer would make pendingDueLocked report
+// work forever, so the reconciler would take the global write lock every tick — the
+// exact hot-loop the performance fix is meant to avoid. Must be called with b.mu held.
+func (b *InMemoryBackend) pruneOrphanJobRunTimersLocked() {
+	for jobName, timers := range b.jobRunReadyAt {
+		b.pruneJobTimerMapLocked(jobName, timers, b.jobRunReadyAt)
+	}
+
+	for jobName, timers := range b.jobRunDoneAt {
+		b.pruneJobTimerMapLocked(jobName, timers, b.jobRunDoneAt)
+	}
+}
+
+// pruneJobTimerMapLocked drops entries in a single job's timer sub-map for runs that
+// no longer exist, and drops the whole sub-map when the job or all its timers are
+// gone. Must be called with b.mu held.
+func (b *InMemoryBackend) pruneJobTimerMapLocked(
+	jobName string,
+	timers map[string]time.Time,
+	parent map[string]map[string]time.Time,
+) {
+	live := make(map[string]struct{}, len(b.jobRuns[jobName]))
+	for _, run := range b.jobRuns[jobName] {
+		live[run.ID] = struct{}{}
+	}
+
+	for runID := range timers {
+		if _, ok := live[runID]; !ok {
+			delete(timers, runID)
+		}
+	}
+
+	if len(timers) == 0 {
+		delete(parent, jobName)
 	}
 }
 
@@ -621,10 +657,25 @@ func (b *InMemoryBackend) Reset() {
 	b.columnStatTaskRuns = make(map[string]*ColumnStatisticsTaskRun)
 	b.materializedViewRuns = make(map[string]*MaterializedViewRefreshRun)
 	b.integrations = make(map[string]*Integration)
+	b.integrationResourceProps = make(map[string]*IntegrationResourceProperty)
+	b.integrationTableProps = make(map[string]*IntegrationTableProperties)
 	b.mlTaskRuns = make(map[string]*MLTaskRun)
 	b.catalogImports = make(map[string]*CatalogImportStatus)
 	b.schemaVersionMetadata = make(map[string]map[string]string)
+
+	b.resetLifecycleStateLocked()
+}
+
+// resetLifecycleStateLocked clears identity-center config, the connection-type
+// registry, and pending lifecycle transition timers. Clearing the timers ensures a
+// reset never resurrects a crawler/job-run state change scheduled against now-deleted
+// resources. Must be called with b.mu held.
+func (b *InMemoryBackend) resetLifecycleStateLocked() {
 	b.glueIdentityCenterConfig = nil
+	b.customConnectionTypes = make(map[string]*ConnectionTypeInfo)
+	b.jobRunReadyAt = make(map[string]map[string]time.Time)
+	b.jobRunDoneAt = make(map[string]map[string]time.Time)
+	b.crawlerReadyAt = make(map[string]time.Time)
 }
 
 // Region returns the backend region.
@@ -741,12 +792,7 @@ func tableVersionKey(dbName, tableName, versionID string) string {
 
 // sortedKeys returns the keys of a map in sorted order.
 func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }
@@ -1035,6 +1081,8 @@ func (b *InMemoryBackend) CreateCrawler(
 
 // GetCrawler retrieves a Glue crawler by name.
 func (b *InMemoryBackend) GetCrawler(name string) (*Crawler, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetCrawler")
 	defer b.mu.RUnlock()
 
@@ -1048,6 +1096,8 @@ func (b *InMemoryBackend) GetCrawler(name string) (*Crawler, error) {
 
 // GetCrawlers returns all Glue crawlers sorted by name.
 func (b *InMemoryBackend) GetCrawlers() []*Crawler {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetCrawlers")
 	defer b.mu.RUnlock()
 
@@ -1978,6 +2028,8 @@ func (b *InMemoryBackend) StartJobRun(
 
 // GetJobRun retrieves a specific job run by job name and run ID.
 func (b *InMemoryBackend) GetJobRun(jobName, runID string) (*JobRun, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetJobRun")
 	defer b.mu.RUnlock()
 
@@ -1995,6 +2047,8 @@ func (b *InMemoryBackend) GetJobRun(jobName, runID string) (*JobRun, error) {
 
 // GetJobRuns returns all runs for a job.
 func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetJobRuns")
 	defer b.mu.RUnlock()
 

@@ -604,7 +604,7 @@ func TestElasticsearchBackend_DNSRegistrar(t *testing.T) {
 			b.SetDNSRegistrar(registrar)
 
 			domain, err := b.CreateDomain(
-				context.Background(), tt.domainName, "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+				context.Background(), elasticsearch.CreateDomainInput{Name: tt.domainName},
 			)
 			require.NoError(t, err)
 
@@ -765,14 +765,8 @@ func TestElasticsearchHandler_ListTags_UnknownARN(t *testing.T) {
 	resp := doRequest(t, h, http.MethodGet, "/2015-01-01/tags?arn="+unknownARN, nil)
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-
-	tagList, ok := out["TagList"].([]any)
-	require.True(t, ok)
-	assert.Empty(t, tagList)
+	// AWS returns 404 for unknown domain ARN (not 200 with empty list).
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 func TestElasticsearchHandler_RouteNotFound(t *testing.T) {

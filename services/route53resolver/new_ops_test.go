@@ -746,7 +746,7 @@ func TestNewOpsPersistenceRoundTrip(t *testing.T) {
 			},
 			verify: func(t *testing.T, h2 *route53resolver.Handler, snap []byte) {
 				t.Helper()
-				require.NoError(t, h2.Restore(snap))
+				require.NoError(t, h2.Restore(t.Context(), snap))
 				// Create a new group to verify the backend is functional after restore.
 				rec := doRequest(t, h2, "CreateFirewallRuleGroup", map[string]any{"Name": "post-restore-grp"})
 				assert.Equal(t, http.StatusOK, rec.Code)
@@ -761,7 +761,7 @@ func TestNewOpsPersistenceRoundTrip(t *testing.T) {
 			},
 			verify: func(t *testing.T, h2 *route53resolver.Handler, snap []byte) {
 				t.Helper()
-				require.NoError(t, h2.Restore(snap))
+				require.NoError(t, h2.Restore(t.Context(), snap))
 				// Verify domain list can be listed/accessed after restore.
 				rec := doRequest(t, h2, "CreateFirewallDomainList", map[string]any{"Name": "post-restore-dl"})
 				assert.Equal(t, http.StatusOK, rec.Code)
@@ -780,7 +780,7 @@ func TestNewOpsPersistenceRoundTrip(t *testing.T) {
 			},
 			verify: func(t *testing.T, h2 *route53resolver.Handler, snap []byte) {
 				t.Helper()
-				require.NoError(t, h2.Restore(snap))
+				require.NoError(t, h2.Restore(t.Context(), snap))
 				rec := doRequest(t, h2, "CreateOutpostResolver", map[string]any{
 					"Name":                  "post-restore-op",
 					"OutpostArn":            "arn:aws:outposts:us-east-1:000000000000:outpost/op-pr",
@@ -798,7 +798,7 @@ func TestNewOpsPersistenceRoundTrip(t *testing.T) {
 			h := newTestHandler(t)
 			tt.setup(t, h)
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotEmpty(t, snap)
 
 			h2 := route53resolver.NewHandler(route53resolver.NewInMemoryBackend("000000000000", "us-east-1"))

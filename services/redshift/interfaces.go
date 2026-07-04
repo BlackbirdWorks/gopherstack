@@ -1,17 +1,20 @@
 package redshift
 
+import "context"
+
 // StorageBackend defines the interface for Redshift backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Cluster operations
 	CreateCluster(id, nodeType, dbName, masterUser string) (*Cluster, error)
 	DeleteCluster(id string) (*Cluster, error)
-	DescribeClusters(id string) ([]Cluster, error)
+	DescribeClusters(id, marker string, maxRecords int) ([]Cluster, string, error)
 	ModifyCluster(
 		id, nodeType string,
 		numberOfNodes int,
 		masterUserPassword string,
 		encrypted, enhancedVpcRouting bool,
+		applyImmediately bool,
 	) (*Cluster, error)
 	RebootCluster(id string) (*Cluster, error)
 	PauseCluster(id string) (*Cluster, error)
@@ -61,7 +64,7 @@ type StorageBackend interface {
 	// Snapshot operations
 	CreateClusterSnapshot(snapshotID, clusterID string) (*Snapshot, error)
 	DeleteClusterSnapshot(snapshotID string) (*Snapshot, error)
-	DescribeClusterSnapshots(snapshotID, clusterID string) ([]Snapshot, error)
+	DescribeClusterSnapshots(snapshotID, clusterID, snapshotType string) ([]Snapshot, error)
 	CopyClusterSnapshot(sourceSnapshotID, destinationSnapshotID string) (*Snapshot, error)
 	RestoreFromClusterSnapshot(clusterID, snapshotID string) (*Cluster, error)
 	AuthorizeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error)
@@ -242,9 +245,15 @@ type StorageBackend interface {
 	Reset()
 	Region() string
 	AccountID() string
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 	SetDNSRegistrar(dns DNSRegistrar)
+
+	// StartReconciler starts the managed background reconciler that advances
+	// cluster lifecycle state (creating→available, deleting→gone).
+	StartReconciler(ctx context.Context)
+	// StopReconciler stops the reconciler and waits for its goroutine to exit.
+	StopReconciler()
 }
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.

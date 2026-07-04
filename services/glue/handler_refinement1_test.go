@@ -516,11 +516,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddBlueprintInternal(&glue.Blueprint{Name: "bp1"})
 	b.AddDevEndpointInternal(&glue.DevEndpoint{EndpointName: "ep1", Status: "READY"})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := glue.NewInMemoryBackend("000000000000", "us-east-1")
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, glue.DatabaseCount(b2))
@@ -534,11 +534,11 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := glue.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b2.Restore(snap)
+	err := b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, glue.DatabaseCount(b2))
@@ -748,13 +748,13 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	_, err := backend.CreateDatabase(glue.DatabaseInput{Name: "db1"}, nil)
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	backend2 := glue.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := glue.NewHandler(backend2)
 
-	err = h2.Restore(snap)
+	err = h2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, glue.DatabaseCount(backend2))

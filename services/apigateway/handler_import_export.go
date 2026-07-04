@@ -75,9 +75,12 @@ func decodeRestAPISpecPayload(b []byte) ([]byte, restAPISpecEnvelope) {
 func (h *Handler) restAPISpecActions() map[string]actionFn {
 	return map[string]actionFn{
 		opImportRestAPI: func(b []byte) (int, any, error) {
-			specBody, _ := decodeRestAPISpecPayload(b)
+			specBody, env := decodeRestAPISpecPayload(b)
 
-			api, err := h.Backend.ImportRestAPI(specBody)
+			api, err := h.Backend.ImportRestAPI(ImportRestAPIInput{
+				Body:           specBody,
+				FailOnWarnings: env.FailOnWarnings,
+			})
 			if err != nil {
 				return 0, nil, err
 			}
@@ -87,7 +90,12 @@ func (h *Handler) restAPISpecActions() map[string]actionFn {
 		opPutRestAPI: func(b []byte) (int, any, error) {
 			specBody, env := decodeRestAPISpecPayload(b)
 
-			api, err := h.Backend.PutRestAPI(env.RestAPIID, specBody, env.Mode)
+			api, err := h.Backend.PutRestAPI(PutRestAPIInput{
+				RestAPIID:      env.RestAPIID,
+				Mode:           env.Mode,
+				Body:           specBody,
+				FailOnWarnings: env.FailOnWarnings,
+			})
 			if err != nil {
 				return 0, nil, err
 			}

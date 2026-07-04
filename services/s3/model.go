@@ -28,6 +28,7 @@ type ListBucketResult struct {
 	Delimiter      string            `xml:"Delimiter,omitempty"`
 	Marker         string            `xml:"Marker,omitempty"`
 	NextMarker     string            `xml:"NextMarker,omitempty"`
+	EncodingType   string            `xml:"EncodingType,omitempty"`
 	Contents       []ObjectXML       `xml:"Contents"`
 	CommonPrefixes []CommonPrefixXML `xml:"CommonPrefixes,omitempty"`
 	MaxKeys        int               `xml:"MaxKeys"`
@@ -160,6 +161,23 @@ type ErrorResponse struct {
 	RequestID string   `xml:"RequestId"`
 }
 
+// InvalidRangeError is the XML body S3 returns with a 416 response when a Range
+// request is syntactically valid but cannot be satisfied (the first byte
+// position is at or beyond the object size). It mirrors the real AWS payload,
+// which carries the actual object size and the rejected range so clients can
+// recover without an extra HeadObject round-trip.
+type InvalidRangeError struct {
+	XMLName        xml.Name `xml:"Error"`
+	Code           string   `xml:"Code"`
+	Message        string   `xml:"Message"`
+	Resource       string   `xml:"Resource"`
+	RequestID      string   `xml:"RequestId"`
+	RangeRequested string   `xml:"RangeRequested"`
+	// ActualObjectSize is last so its 8-byte int sits after the pointer-bearing
+	// string fields, keeping the GC pointer-scan region contiguous.
+	ActualObjectSize int64 `xml:"ActualObjectSize"`
+}
+
 // LocationConstraintResponse is the XML response body for GetBucketLocation.
 type LocationConstraintResponse struct {
 	XMLName xml.Name `xml:"LocationConstraint"`
@@ -176,6 +194,7 @@ type ListVersionsResult struct {
 	NextKeyMarker       string             `xml:"NextKeyMarker,omitempty"`
 	NextVersionIDMarker string             `xml:"NextVersionIdMarker,omitempty"`
 	Delimiter           string             `xml:"Delimiter,omitempty"`
+	EncodingType        string             `xml:"EncodingType,omitempty"`
 	CommonPrefixes      []CommonPrefixXML  `xml:"CommonPrefixes"`
 	Versions            []ObjectVersionXML `xml:"Version"`
 	DeleteMarkers       []DeleteMarkerXML  `xml:"DeleteMarker"`
@@ -287,11 +306,15 @@ type Grant struct {
 	Permission string  `xml:"Permission"`
 }
 
-// Grantee identifies who is being granted permissions.
+// Grantee identifies who is being granted permissions. A CanonicalUser grantee
+// carries ID/DisplayName; a Group grantee (AllUsers / AuthenticatedUsers /
+// LogDelivery) carries URI instead.
 type Grantee struct {
-	XmlnsXsi string `xml:"xmlns:xsi,attr"`
-	XsiType  string `xml:"xsi:type,attr"`
-	ID       string `xml:"ID"`
+	XmlnsXsi    string `xml:"xmlns:xsi,attr"`
+	XsiType     string `xml:"xsi:type,attr"`
+	ID          string `xml:"ID,omitempty"`
+	DisplayName string `xml:"DisplayName,omitempty"`
+	URI         string `xml:"URI,omitempty"`
 }
 
 // ListMultipartUploadsResult is the XML response for ListMultipartUploads.
@@ -307,6 +330,7 @@ type ListMultipartUploadsResult struct {
 	UploadIDMarker     string            `xml:"UploadIdMarker,omitempty"`
 	NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
 	NextUploadIDMarker string            `xml:"NextUploadIdMarker,omitempty"`
+	EncodingType       string            `xml:"EncodingType,omitempty"`
 	Uploads            []MultipartUpload `xml:"Upload"`
 	CommonPrefixes     []CommonPrefixXML `xml:"CommonPrefixes,omitempty"`
 	MaxUploads         int               `xml:"MaxUploads"`

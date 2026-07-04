@@ -4601,11 +4601,11 @@ func TestSNS_PersistenceWithNewFields(t *testing.T) {
 	ep, err := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "device-token-123", nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := sns.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify SMS sandbox numbers are preserved.
 	nums, _, err := b2.ListSMSSandboxPhoneNumbers("", 0)

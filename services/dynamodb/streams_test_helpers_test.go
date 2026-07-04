@@ -26,7 +26,15 @@ func makeCreateTableInput(name, pk string) *dynamodb.CreateTableInput {
 		AttributeDefinitions: attrDefs,
 	}
 
-	return models.ToSDKCreateTableInput(&input)
+	sdkInput := models.ToSDKCreateTableInput(&input)
+	rc := int64(5)
+	wc := int64(5)
+	sdkInput.ProvisionedThroughput = &types.ProvisionedThroughput{
+		ReadCapacityUnits:  &rc,
+		WriteCapacityUnits: &wc,
+	}
+
+	return sdkInput
 }
 
 // makePutItem creates a PutItemInput with a single string partition key attribute.

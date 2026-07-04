@@ -30,7 +30,7 @@ import (
 func newB1Backend(t *testing.T) *eks.InMemoryBackend {
 	t.Helper()
 
-	return eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	return eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 }
 
 func newB1Handler(t *testing.T) (*eks.Handler, *eks.InMemoryBackend) {
@@ -845,7 +845,7 @@ func TestBatch1_FargateProfile_Status_ACTIVE_On_Create(t *testing.T) {
 		"arn:aws:iam::123:role/fargate",
 		[]eks.FargateProfileSelector{{Namespace: "default"}}, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "ACTIVE", fp.Status)
+	assert.Equal(t, "CREATING", fp.Status)
 }
 
 func TestBatch1_FargateProfile_Status_DELETING_On_Delete(t *testing.T) {
@@ -871,7 +871,7 @@ func TestBatch1_Addon_Status_ACTIVE_On_Create(t *testing.T) {
 
 	addon, err := b.CreateAddon("addon-status-cluster", "vpc-cni", "", "", "", "", nil)
 	require.NoError(t, err)
-	assert.Equal(t, "ACTIVE", addon.Status)
+	assert.Equal(t, "CREATING", addon.Status)
 }
 
 func TestBatch1_Addon_Status_DELETING_On_Delete(t *testing.T) {
@@ -1531,7 +1531,45 @@ func TestBatch1_DescribeUpdate_Status_Successful(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "desc-upd-cluster")
 
-	upd, err := b.DescribeUpdate("desc-upd-cluster", "fake-update-id")
+	created, err := b.UpdateClusterVersion("desc-upd-cluster", "1.30")
 	require.NoError(t, err)
-	assert.Equal(t, "Successful", upd.Status)
+
+	upd, err := b.DescribeUpdate("desc-upd-cluster", created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "InProgress", upd.Status)
+}
+
+func TestBatch1_DescribeUpdate_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newB1Backend(t)
+	mustCreateClusterNoVpc(t, b, "desc-upd-404")
+
+	_, err := b.DescribeUpdate("desc-upd-404", "nonexistent-update-id")
+	require.Error(t, err)
+	require.ErrorIs(t, err, eks.ErrNotFound)
+}
+
+func TestBatch1_ListUpdates_ReturnsStoredIDs(t *testing.T) {
+	t.Parallel()
+
+	b := newB1Backend(t)
+	mustCreateClusterNoVpc(t, b, "list-upd-cluster")
+	mustCreateNodegroup(t, b, "list-upd-cluster")
+
+	ids, err := b.ListUpdates("list-upd-cluster")
+	require.NoError(t, err)
+	assert.Empty(t, ids, "no updates yet")
+
+	u1, err := b.UpdateClusterVersion("list-upd-cluster", "1.30")
+	require.NoError(t, err)
+
+	u2, err := b.UpdateNodegroupVersion("list-upd-cluster", "ng1", "1.30")
+	require.NoError(t, err)
+
+	ids, err = b.ListUpdates("list-upd-cluster")
+	require.NoError(t, err)
+	assert.Len(t, ids, 2)
+	assert.Contains(t, ids, u1.ID)
+	assert.Contains(t, ids, u2.ID)
 }

@@ -1,6 +1,8 @@
 package polly
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
@@ -31,6 +34,7 @@ const (
 	textTypeText         = "text"
 	textTypeSSML         = "ssml"
 	genderFemale         = "Female"
+	genderMale           = "Male"
 	taskStatusScheduled  = "scheduled"
 	taskStatusProgress   = "inProgress"
 	taskStatusCompleted  = "completed"
@@ -46,6 +50,17 @@ const (
 	maxTagCount       = 50
 	maxTagKeyLen      = 128
 	maxTagValueLen    = 256
+
+	// Speech-mark synthetic timing: roughly 80ms per character.
+	msPerCharacter = 80
+
+	// WAV/PCM container constants.
+	defaultWAVSampleRate = 22050
+	wavBitsPerByte       = 8
+	wavHeaderMinusRIFF   = 36 // total header bytes minus the 8-byte RIFF chunk descriptor
+	wavHeaderSize        = 44 // full RIFF/WAV header length
+	wavPCMChunkSize      = 16 // PCM fmt subchunk size
+	wavSilentDataLen     = 4  // two silent 16-bit samples
 )
 
 var (
@@ -224,12 +239,11 @@ func (b *InMemoryBackend) DeleteLexicon(name string) error {
 // ListLexicons lists lexicons ordered by name.
 func (b *InMemoryBackend) ListLexicons() []*Lexicon {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	out := make([]*Lexicon, 0, len(b.lexicons))
 	for _, lexicon := range b.lexicons {
 		out = append(out, cloneLexicon(lexicon))
 	}
+	b.mu.RUnlock()
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
@@ -286,7 +300,7 @@ func (b *InMemoryBackend) SynthesizeSpeech(options SynthesisOptions) (*Synthesiz
 		}, nil
 	}
 
-	data := fmt.Appendf(nil, "POLLY:%s:%s:%s:%s", normal.OutputFormat, normal.SampleRate, normal.VoiceID, normal.Text)
+	data := syntheticAudioBytes(normal)
 
 	return &SynthesizedSpeech{
 		Data:              data,
@@ -359,11 +373,7 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	keys := make([]string, 0, len(b.tasks))
-	for key := range b.tasks {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.tasks)
 
 	offset, err := parseToken(token, len(keys))
 	if err != nil {
@@ -381,7 +391,7 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 			out = append(out, cloneTask(task))
 		}
 		if len(out) == maxResults {
-			return out, strconv.Itoa(offset + len(out)), nil
+			return out, encodeToken(offset + len(out)), nil
 		}
 	}
 
@@ -437,11 +447,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) ([]Tag, error)
 		return nil, fmt.Errorf("%w: resource %q not found", ErrResourceNotFound, resourceArn)
 	}
 
-	keys := make([]string, 0, len(current))
-	for key := range current {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(current)
 
 	out := make([]Tag, 0, len(keys))
 	for _, key := range keys {
@@ -689,22 +695,224 @@ func taskExtension(format string) string {
 	return format
 }
 
+// speechMarkItem is a timed speech mark entry used when building speech mark output.
+type speechMarkItem struct {
+	line string
+	time int
+}
+
+// buildSentenceMarks returns one speechMarkItem per sentence in text, splitting
+// on '.', '!' and '?' delimiters. Text with no sentence-ending punctuation is
+// treated as a single sentence, matching AWS Polly behaviour.
+func buildSentenceMarks(text string) []speechMarkItem {
+	if text == "" {
+		return nil
+	}
+	var out []speechMarkItem
+	start := 0
+	for i := range len(text) {
+		ch := text[i]
+		if ch != '.' && ch != '!' && ch != '?' {
+			continue
+		}
+		end := i + 1
+		if sentence := strings.TrimSpace(text[start:end]); sentence != "" {
+			t := start * msPerCharacter
+			out = append(out, speechMarkItem{
+				time: t,
+				line: fmt.Sprintf(`{"time":%d,"type":"sentence","start":%d,"end":%d,"value":%q}`,
+					t, start, end, sentence),
+			})
+		}
+		start = end
+		for start < len(text) && (text[start] == ' ' || text[start] == '\n' ||
+			text[start] == '\r' || text[start] == '\t') {
+			start++
+		}
+	}
+	if sentence := strings.TrimSpace(text[start:]); sentence != "" {
+		t := start * msPerCharacter
+		out = append(out, speechMarkItem{
+			time: t,
+			line: fmt.Sprintf(`{"time":%d,"type":"sentence","start":%d,"end":%d,"value":%q}`,
+				t, start, len(text), sentence),
+		})
+	}
+
+	return out
+}
+
 func speechMarks(options SynthesisOptions) []byte {
-	lines := make([]string, 0, len(options.SpeechMarkTypes))
-	for _, mark := range options.SpeechMarkTypes {
-		lines = append(lines, fmt.Sprintf(`{"time":0,"type":"%s","start":0,"end":%d,"value":%q}`,
-			mark, len(options.Text), options.Text))
+	var marks []speechMarkItem
+
+	for _, typ := range options.SpeechMarkTypes {
+		switch typ {
+		case "sentence":
+			marks = append(marks, buildSentenceMarks(options.Text)...)
+		case textTypeSSML:
+			marks = append(marks, speechMarkItem{
+				time: 0,
+				line: fmt.Sprintf(`{"time":0,"type":"ssml","start":0,"end":%d,"value":"<speak>"}`, len(options.Text)),
+			})
+		}
+	}
+
+	needWord := slices.Contains(options.SpeechMarkTypes, "word")
+	needViseme := slices.Contains(options.SpeechMarkTypes, "viseme")
+	if needWord || needViseme {
+		offset := 0
+		for word := range strings.FieldsSeq(options.Text) {
+			start := strings.Index(options.Text[offset:], word) + offset
+			end := start + len(word)
+			timeMs := start * msPerCharacter
+			if needWord {
+				marks = append(marks, speechMarkItem{
+					time: timeMs,
+					line: fmt.Sprintf(`{"time":%d,"type":"word","start":%d,"end":%d,"value":%q}`,
+						timeMs, start, end, word),
+				})
+			}
+			if needViseme {
+				marks = append(marks, speechMarkItem{
+					time: timeMs,
+					line: fmt.Sprintf(`{"time":%d,"type":"viseme","value":%q}`, timeMs, wordFirstViseme(word)),
+				})
+			}
+			offset = end
+		}
+	}
+
+	// Stable sort by time so sentence marks precede word marks at equal time positions.
+	sort.SliceStable(marks, func(i, j int) bool { return marks[i].time < marks[j].time })
+
+	lines := make([]string, 0, len(marks))
+	for _, m := range marks {
+		lines = append(lines, m.line)
+	}
+
+	if len(lines) == 0 {
+		for _, typ := range options.SpeechMarkTypes {
+			lines = append(lines, fmt.Sprintf(`{"time":0,"type":"%s","start":0,"end":%d,"value":%q}`,
+				typ, len(options.Text), options.Text))
+		}
 	}
 
 	return []byte(strings.Join(lines, "\n") + "\n")
+}
+
+// syntheticAudioBytes returns minimal but format-correct audio bytes for the given output format.
+// PCM → RIFF/WAV container with one silent frame.
+// MP3 → minimal MPEG-1 Layer 3 sync frame header.
+// OGG → OGG capture pattern + minimal Vorbis identification.
+func syntheticAudioBytes(opts SynthesisOptions) []byte {
+	switch opts.OutputFormat {
+	case outputFormatPCM:
+		return minimalWAV(opts.SampleRate)
+	case outputFormatMP3:
+		return minimalMP3Frame()
+	case outputFormatOGG:
+		return minimalOGG()
+	default:
+		return minimalWAV(opts.SampleRate)
+	}
+}
+
+// minimalWAV returns a 46-byte RIFF/WAV file with two silent PCM samples.
+func minimalWAV(sampleRateStr string) []byte {
+	sampleRate := uint32(defaultWAVSampleRate)
+	switch sampleRateStr {
+	case "8000":
+		sampleRate = 8000
+	case "16000":
+		sampleRate = 16000
+	case "24000":
+		sampleRate = 24000
+	case "44100":
+		sampleRate = 44100
+	case "48000":
+		sampleRate = 48000
+	}
+	const numChannels = uint16(1)
+	const bitsPerSample = uint16(wavPCMChunkSize)
+	const dataLen = uint32(wavSilentDataLen) // 2 silent 16-bit samples
+	byteRate := sampleRate * uint32(numChannels) * uint32(bitsPerSample) / wavBitsPerByte
+	blockAlign := numChannels * bitsPerSample / wavBitsPerByte
+	fileSize := wavHeaderMinusRIFF + dataLen
+
+	buf := make([]byte, 0, wavHeaderSize+dataLen)
+	buf = append(buf, 'R', 'I', 'F', 'F')
+	buf = binary.LittleEndian.AppendUint32(buf, fileSize)
+	buf = append(buf, 'W', 'A', 'V', 'E')
+	buf = append(buf, 'f', 'm', 't', ' ')
+	buf = binary.LittleEndian.AppendUint32(buf, wavPCMChunkSize) // PCM chunk size
+	buf = binary.LittleEndian.AppendUint16(buf, 1)               // PCM format
+	buf = binary.LittleEndian.AppendUint16(buf, numChannels)
+	buf = binary.LittleEndian.AppendUint32(buf, sampleRate)
+	buf = binary.LittleEndian.AppendUint32(buf, byteRate)
+	buf = binary.LittleEndian.AppendUint16(buf, blockAlign)
+	buf = binary.LittleEndian.AppendUint16(buf, bitsPerSample)
+	buf = append(buf, 'd', 'a', 't', 'a')
+	buf = binary.LittleEndian.AppendUint32(buf, dataLen)
+	buf = append(buf, 0, 0, 0, 0) // two silent 16-bit samples
+
+	return buf
+}
+
+// minimalMP3Frame returns a minimal valid MPEG-1 Layer 3 frame header (silent frame).
+// Frame sync: 0xFFE0 | layer(01) | bitrate(1001=128k) | samplerate(00=44100) | padding(0) | stereo(00).
+func minimalMP3Frame() []byte {
+	minimalMP3FrameBytes := []byte{
+		0xFF, 0xFB, 0x90, 0x00, // sync + MPEG1 Layer3 128kbps 44100Hz stereo no-padding
+		// 417 bytes of silence (128kbps frame at 44100 is 417 bytes)
+	}
+	const mp3FrameTotalLen = 417 // 128kbps frame at 44100Hz: 4-byte header + 413 bytes silence
+	frame := make([]byte, mp3FrameTotalLen)
+	copy(frame, minimalMP3FrameBytes)
+
+	return frame
+}
+
+// minimalOGG returns the OGG capture pattern + minimal Vorbis identification page.
+func minimalOGG() []byte {
+	// OGG page header magic: "OggS" capture pattern
+	return []byte{
+		'O', 'g', 'g', 'S', // capture pattern
+		0x00,                   // version
+		0x02,                   // header type: beginning of stream
+		0, 0, 0, 0, 0, 0, 0, 0, // granule position
+		1, 0, 0, 0, // serial number
+		0, 0, 0, 0, // page sequence
+		0, 0, 0, 0, // checksum placeholder
+		1,    // number of segments
+		0x1E, // segment table: 30-byte vorbis id header
+		// Vorbis identification header (minimal)
+		0x01,                         // packet type: identification
+		'v', 'o', 'r', 'b', 'i', 's', // codec id
+		0, 0, 0, 0, // version
+		0x01,                   // channels
+		0x44, 0xAC, 0x00, 0x00, // sample rate 44100
+		0, 0, 0, 0, // max bitrate
+		0, 0, 0, 0, // nominal bitrate
+		0, 0, 0, 0, // min bitrate
+		0x01, // blocksize
+	}
+}
+
+// encodeToken returns an opaque base64 cursor for pagination.
+func encodeToken(n int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(n)))
 }
 
 func parseToken(token string, total int) (int, error) {
 	if token == "" {
 		return 0, nil
 	}
+	raw := token
+	if decoded, err := base64.StdEncoding.DecodeString(token); err == nil {
+		raw = string(decoded)
+	}
 	var offset int
-	if _, err := fmt.Sscanf(token, "%d", &offset); err != nil || offset < 0 || offset > total {
+	if _, err := fmt.Sscanf(raw, "%d", &offset); err != nil || offset < 0 || offset > total {
 		return 0, fmt.Errorf("%w: invalid NextToken", ErrValidation)
 	}
 
@@ -719,34 +927,671 @@ func validOutputFormats() []string {
 	return []string{outputFormatMP3, outputFormatOGG, outputFormatPCM, outputFormatJSON}
 }
 
-func validTextTypes() []string { return []string{textTypeText, "ssml"} }
+func validTextTypes() []string { return []string{textTypeText, textTypeSSML} }
 
-func validSpeechMarkTypes() []string { return []string{"sentence", "ssml", "viseme", "word"} }
+func validSpeechMarkTypes() []string { return []string{"sentence", textTypeSSML, "viseme", "word"} }
 
 func validTaskStatuses() []string {
 	return []string{taskStatusScheduled, taskStatusProgress, taskStatusCompleted, taskStatusFailed}
 }
 
+// wordFirstViseme returns an approximate AWS Polly viseme for the first character of word.
+// AWS Polly visemes: p b m → "p", f v → "f", t d → "t", s z → "s",
+// k g c q x → "k", n → "n", l → "l", r → "r", vowels → "@", etc.
+func wordFirstViseme(word string) string {
+	if word == "" {
+		return "sil"
+	}
+
+	ch := word[0]
+	if ch >= 'A' && ch <= 'Z' {
+		ch += 32
+	}
+
+	if v := wordFirstVisemeVowelOrSibilant(ch); v != "" {
+		return v
+	}
+
+	return wordFirstVisemeConsonant(ch)
+}
+
+func wordFirstVisemeVowelOrSibilant(ch byte) string {
+	switch ch {
+	case 'a', 'e', 'i', 'o', 'u', 'h':
+		return "@"
+	case 'p', 'b', 'm':
+		return "p"
+	case 'f', 'v':
+		return "f"
+	case 't', 'd':
+		return "t"
+	case 's', 'z':
+		return "s"
+	case 'j':
+		return "S"
+	}
+
+	return ""
+}
+
+func wordFirstVisemeConsonant(ch byte) string {
+	switch ch {
+	case 'k', 'g', 'c', 'q', 'x':
+		return "k"
+	case 'n':
+		return "n"
+	case 'l':
+		return "l"
+	case 'r':
+		return "r"
+	case 'w', 'y':
+		return "u"
+	}
+
+	return "p"
+}
+
+// Language name constants used in the built-in voice catalogue.
+const (
+	langAustrEnglish    = "Australian English"
+	langBelgDutch       = "Belgian Dutch"
+	langBelgFrench      = "Belgian French"
+	langBrazPortuguese  = "Brazilian Portuguese"
+	langBritEnglish     = "British English"
+	langCanadFrench     = "Canadian French"
+	langCastilSpanish   = "Castilian Spanish"
+	langChinaMandarin   = "Chinese Mandarin"
+	langDanish          = "Danish"
+	langDutch           = "Dutch"
+	langEuropPortuguese = "European Portuguese"
+	langFrench          = "French"
+	langGerman          = "German"
+	langIndianEnglish   = "Indian English"
+	langIrEnglish       = "Irish English"
+	langItalian         = "Italian"
+	langJapanese        = "Japanese"
+	langKorean          = "Korean"
+	langMexSpanish      = "Mexican Spanish"
+	langNorwegian       = "Norwegian"
+	langNZEnglish       = "New Zealand English"
+	langPolish          = "Polish"
+	langRussian         = "Russian"
+	langSwedish         = "Swedish"
+	langTurkish         = "Turkish"
+	langUSEnglish       = "US English"
+	langUSSpanish       = "US Spanish"
+	langZAEnglish       = "South African English"
+)
+
+// Language code constants used in the built-in voice catalogue.
+const (
+	lcAustrEnglish    = "en-AU"
+	lcBelgDutch       = "nl-BE"
+	lcBelgFrench      = "fr-BE"
+	lcBrazPortuguese  = "pt-BR"
+	lcBritEnglish     = "en-GB"
+	lcCanadFrench     = "fr-CA"
+	lcCastilSpanish   = "es-ES"
+	lcCatalan         = "ca-ES"
+	lcChinaMandarin   = "cmn-CN"
+	lcDanish          = "da-DK"
+	lcDutch           = "nl-NL"
+	lcEuropPortuguese = "pt-PT"
+	lcFinnish         = "fi-FI"
+	lcFrench          = "fr-FR"
+	lcGerman          = "de-DE"
+	lcAustrGerman     = "de-AT"
+	lcHindi           = "hi-IN"
+	lcIcelandic       = "is-IS"
+	lcIndianEnglish   = "en-IN"
+	lcIrEnglish       = "en-IE"
+	lcItalian         = "it-IT"
+	lcJapanese        = "ja-JP"
+	lcKorean          = "ko-KR"
+	lcMexSpanish      = "es-MX"
+	lcNorwegian       = "nb-NO"
+	lcNZEnglish       = "en-NZ"
+	lcPolish          = "pl-PL"
+	lcRomanian        = "ro-RO"
+	lcRussian         = "ru-RU"
+	lcSwedish         = "sv-SE"
+	lcTurkish         = "tr-TR"
+	lcUSSpanish       = "es-US"
+	lcWelsh           = "cy-GB"
+	lcZAEnglish       = "en-ZA"
+)
+
+const builtInVoicesCap = 90
+
 func builtInVoices() []Voice {
+	voices := make([]Voice, 0, builtInVoicesCap)
+	voices = append(voices, builtInVoicesEnglishUS()...)
+	voices = append(voices, builtInVoicesEnglishGlobal()...)
+	voices = append(voices, builtInVoicesGermanic()...)
+	voices = append(voices, builtInVoicesFrenchPortuguese()...)
+	voices = append(voices, builtInVoicesSpanishItalian()...)
+	voices = append(voices, builtInVoicesOther()...)
+
+	return voices
+}
+
+func builtInVoicesEnglishUS() []Voice {
+	std := defaultEngine
+	neu := engineNeural
+	lng := engineLongForm
+	gen := engineGenerative
+
 	return []Voice{
 		{
-			ID: "Joanna", Name: "Joanna", Gender: genderFemale, LanguageCode: "en-US",
-			LanguageName:     "US English",
-			SupportedEngines: []string{defaultEngine, engineNeural, engineLongForm, engineGenerative},
+			ID: "Ivy", Name: "Ivy", Gender: genderFemale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{std, neu},
 		},
 		{
-			ID: "Matthew", Name: "Matthew", Gender: "Male", LanguageCode: "en-US",
-			LanguageName:     "US English",
-			SupportedEngines: []string{defaultEngine, engineNeural, engineLongForm, engineGenerative},
+			ID: "Joanna", Name: "Joanna", Gender: genderFemale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{std, neu, lng, gen},
 		},
 		{
-			ID: "Aditi", Name: "Aditi", Gender: genderFemale, LanguageCode: "en-IN",
-			LanguageName: "Indian English", AdditionalLanguageCodes: []string{"hi-IN"},
-			SupportedEngines: []string{defaultEngine},
+			ID: "Kendra", Name: "Kendra", Gender: genderFemale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{std, neu},
 		},
 		{
-			ID: "Amy", Name: "Amy", Gender: genderFemale, LanguageCode: "en-GB",
-			LanguageName: "British English", SupportedEngines: []string{defaultEngine, engineNeural},
+			ID: "Kimberly", Name: "Kimberly", Gender: genderFemale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Salli", Name: "Salli", Gender: genderFemale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Ruth", Name: "Ruth", Gender: genderFemale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{lng, gen},
+		},
+		{
+			ID: "Joey", Name: "Joey", Gender: genderMale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Justin", Name: "Justin", Gender: genderMale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Kevin", Name: "Kevin", Gender: genderMale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{neu},
+		},
+		{
+			ID: "Matthew", Name: "Matthew", Gender: genderMale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{std, neu, lng, gen},
+		},
+		{
+			ID: "Stephen", Name: "Stephen", Gender: genderMale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{lng, gen},
+		},
+	}
+}
+
+func builtInVoicesEnglishGlobal() []Voice {
+	std := defaultEngine
+	neu := engineNeural
+	gen := engineGenerative
+
+	return []Voice{
+		// English (AU)
+		{
+			ID: "Nicole", Name: "Nicole", Gender: genderFemale,
+			LanguageCode: lcAustrEnglish, LanguageName: langAustrEnglish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Olivia", Name: "Olivia", Gender: genderFemale,
+			LanguageCode: lcAustrEnglish, LanguageName: langAustrEnglish,
+			SupportedEngines: []string{neu},
+		},
+		{
+			ID: "Russell", Name: "Russell", Gender: genderMale,
+			LanguageCode: lcAustrEnglish, LanguageName: langAustrEnglish,
+			SupportedEngines: []string{std},
+		},
+		// English (GB)
+		{
+			ID: "Amy", Name: "Amy", Gender: genderFemale,
+			LanguageCode: lcBritEnglish, LanguageName: langBritEnglish,
+			SupportedEngines: []string{std, neu, gen},
+		},
+		{
+			ID: "Emma", Name: "Emma", Gender: genderFemale,
+			LanguageCode: lcBritEnglish, LanguageName: langBritEnglish,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Brian", Name: "Brian", Gender: genderMale,
+			LanguageCode: lcBritEnglish, LanguageName: langBritEnglish,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Arthur", Name: "Arthur", Gender: genderMale,
+			LanguageCode: lcBritEnglish, LanguageName: langBritEnglish,
+			SupportedEngines: []string{neu},
+		},
+		// English (IN)
+		{
+			ID: "Aditi", Name: "Aditi", Gender: genderFemale,
+			LanguageCode: lcIndianEnglish, LanguageName: langIndianEnglish,
+			AdditionalLanguageCodes: []string{lcHindi},
+			SupportedEngines:        []string{std},
+		},
+		{
+			ID: "Kajal", Name: "Kajal", Gender: genderFemale,
+			LanguageCode: lcIndianEnglish, LanguageName: langIndianEnglish,
+			AdditionalLanguageCodes: []string{lcHindi},
+			SupportedEngines:        []string{neu},
+		},
+		{
+			ID: "Raveena", Name: "Raveena", Gender: genderFemale,
+			LanguageCode: lcIndianEnglish, LanguageName: langIndianEnglish,
+			SupportedEngines: []string{std},
+		},
+		// English (IE)
+		{
+			ID: "Niamh", Name: "Niamh", Gender: genderFemale,
+			LanguageCode: lcIrEnglish, LanguageName: langIrEnglish,
+			SupportedEngines: []string{neu},
+		},
+		// English (NZ)
+		{
+			ID: "Aria", Name: "Aria", Gender: genderFemale,
+			LanguageCode: lcNZEnglish, LanguageName: langNZEnglish,
+			SupportedEngines: []string{neu},
+		},
+		// English (ZA)
+		{
+			ID: "Ayanda", Name: "Ayanda", Gender: genderFemale,
+			LanguageCode: lcZAEnglish, LanguageName: langZAEnglish,
+			SupportedEngines: []string{neu},
+		},
+		// Welsh
+		{
+			ID: "Gwyneth", Name: "Gwyneth", Gender: genderFemale,
+			LanguageCode: lcWelsh, LanguageName: "Welsh",
+			SupportedEngines: []string{std},
+		},
+	}
+}
+
+func builtInVoicesGermanic() []Voice {
+	std := defaultEngine
+	neu := engineNeural
+
+	return []Voice{
+		// Danish
+		{
+			ID: "Naja", Name: "Naja", Gender: genderFemale,
+			LanguageCode: lcDanish, LanguageName: langDanish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Mads", Name: "Mads", Gender: genderMale,
+			LanguageCode: lcDanish, LanguageName: langDanish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Sofie", Name: "Sofie", Gender: genderFemale,
+			LanguageCode: lcDanish, LanguageName: langDanish,
+			SupportedEngines: []string{neu},
+		},
+		// Dutch (NL)
+		{
+			ID: "Lotte", Name: "Lotte", Gender: genderFemale,
+			LanguageCode: lcDutch, LanguageName: langDutch,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Ruben", Name: "Ruben", Gender: genderMale,
+			LanguageCode: lcDutch, LanguageName: langDutch,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Laura", Name: "Laura", Gender: genderFemale,
+			LanguageCode: lcDutch, LanguageName: langDutch,
+			SupportedEngines: []string{neu},
+		},
+		// Dutch (BE)
+		{
+			ID: "Lisa", Name: "Lisa", Gender: genderFemale,
+			LanguageCode: lcBelgDutch, LanguageName: langBelgDutch,
+			SupportedEngines: []string{neu},
+		},
+		// Finnish
+		{
+			ID: "Suvi", Name: "Suvi", Gender: genderFemale,
+			LanguageCode: lcFinnish, LanguageName: "Finnish",
+			SupportedEngines: []string{neu},
+		},
+		// German (AT)
+		{
+			ID: "Hannah", Name: "Hannah", Gender: genderFemale,
+			LanguageCode: lcAustrGerman, LanguageName: "Austrian German",
+			SupportedEngines: []string{neu},
+		},
+		// German (DE)
+		{
+			ID: "Marlene", Name: "Marlene", Gender: genderFemale,
+			LanguageCode: lcGerman, LanguageName: langGerman,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Vicki", Name: "Vicki", Gender: genderFemale,
+			LanguageCode: lcGerman, LanguageName: langGerman,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Hans", Name: "Hans", Gender: genderMale,
+			LanguageCode: lcGerman, LanguageName: langGerman,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Daniel", Name: "Daniel", Gender: genderMale,
+			LanguageCode: lcGerman, LanguageName: langGerman,
+			SupportedEngines: []string{neu},
+		},
+		// Icelandic
+		{
+			ID: "Dora", Name: "Dóra", Gender: genderFemale,
+			LanguageCode: lcIcelandic, LanguageName: "Icelandic",
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Karl", Name: "Karl", Gender: genderMale,
+			LanguageCode: lcIcelandic, LanguageName: "Icelandic",
+			SupportedEngines: []string{std},
+		},
+		// Norwegian
+		{
+			ID: "Liv", Name: "Liv", Gender: genderFemale,
+			LanguageCode: lcNorwegian, LanguageName: langNorwegian,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Ida", Name: "Ida", Gender: genderFemale,
+			LanguageCode: lcNorwegian, LanguageName: langNorwegian,
+			SupportedEngines: []string{neu},
+		},
+		// Swedish
+		{
+			ID: "Astrid", Name: "Astrid", Gender: genderFemale,
+			LanguageCode: lcSwedish, LanguageName: langSwedish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Elin", Name: "Elin", Gender: genderFemale,
+			LanguageCode: lcSwedish, LanguageName: langSwedish,
+			SupportedEngines: []string{neu},
+		},
+	}
+}
+
+func builtInVoicesFrenchPortuguese() []Voice {
+	std := defaultEngine
+	neu := engineNeural
+
+	return []Voice{
+		// French (BE)
+		{
+			ID: "Isabelle", Name: "Isabelle", Gender: genderFemale,
+			LanguageCode: lcBelgFrench, LanguageName: langBelgFrench,
+			SupportedEngines: []string{neu},
+		},
+		// French (CA)
+		{
+			ID: "Chantal", Name: "Chantal", Gender: genderFemale,
+			LanguageCode: lcCanadFrench, LanguageName: langCanadFrench,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Gabrielle", Name: "Gabrielle", Gender: genderFemale,
+			LanguageCode: lcCanadFrench, LanguageName: langCanadFrench,
+			SupportedEngines: []string{neu},
+		},
+		{
+			ID: "Liam", Name: "Liam", Gender: genderMale,
+			LanguageCode: lcCanadFrench, LanguageName: langCanadFrench,
+			SupportedEngines: []string{neu},
+		},
+		// French (FR)
+		{
+			ID: "Celine", Name: "Céline", Gender: genderFemale,
+			LanguageCode: lcFrench, LanguageName: langFrench,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Lea", Name: "Léa", Gender: genderFemale,
+			LanguageCode: lcFrench, LanguageName: langFrench,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Mathieu", Name: "Mathieu", Gender: genderMale,
+			LanguageCode: lcFrench, LanguageName: langFrench,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Remi", Name: "Rémi", Gender: genderMale,
+			LanguageCode: lcFrench, LanguageName: langFrench,
+			SupportedEngines: []string{neu},
+		},
+		// Portuguese (BR)
+		{
+			ID: "Camila", Name: "Camila", Gender: genderFemale,
+			LanguageCode: lcBrazPortuguese, LanguageName: langBrazPortuguese,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Vitoria", Name: "Vitória", Gender: genderFemale,
+			LanguageCode: lcBrazPortuguese, LanguageName: langBrazPortuguese,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Ricardo", Name: "Ricardo", Gender: genderMale,
+			LanguageCode: lcBrazPortuguese, LanguageName: langBrazPortuguese,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Thiago", Name: "Thiago", Gender: genderMale,
+			LanguageCode: lcBrazPortuguese, LanguageName: langBrazPortuguese,
+			SupportedEngines: []string{neu},
+		},
+		// Portuguese (PT)
+		{
+			ID: "Ines", Name: "Inês", Gender: genderFemale,
+			LanguageCode: lcEuropPortuguese, LanguageName: langEuropPortuguese,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Cristiano", Name: "Cristiano", Gender: genderMale,
+			LanguageCode: lcEuropPortuguese, LanguageName: langEuropPortuguese,
+			SupportedEngines: []string{std},
+		},
+		// Romanian
+		{
+			ID: "Carmen", Name: "Carmen", Gender: genderFemale,
+			LanguageCode: lcRomanian, LanguageName: "Romanian",
+			SupportedEngines: []string{std},
+		},
+	}
+}
+
+func builtInVoicesSpanishItalian() []Voice {
+	std := defaultEngine
+	neu := engineNeural
+
+	return []Voice{
+		// Italian
+		{
+			ID: "Carla", Name: "Carla", Gender: genderFemale,
+			LanguageCode: lcItalian, LanguageName: langItalian,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Bianca", Name: "Bianca", Gender: genderFemale,
+			LanguageCode: lcItalian, LanguageName: langItalian,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Giorgio", Name: "Giorgio", Gender: genderMale,
+			LanguageCode: lcItalian, LanguageName: langItalian,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Adriano", Name: "Adriano", Gender: genderMale,
+			LanguageCode: lcItalian, LanguageName: langItalian,
+			SupportedEngines: []string{neu},
+		},
+		// Spanish (ES)
+		{
+			ID: "Conchita", Name: "Conchita", Gender: genderFemale,
+			LanguageCode: lcCastilSpanish, LanguageName: langCastilSpanish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Lucia", Name: "Lucia", Gender: genderFemale,
+			LanguageCode: lcCastilSpanish, LanguageName: langCastilSpanish,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Enrique", Name: "Enrique", Gender: genderMale,
+			LanguageCode: lcCastilSpanish, LanguageName: langCastilSpanish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Sergio", Name: "Sergio", Gender: genderMale,
+			LanguageCode: lcCastilSpanish, LanguageName: langCastilSpanish,
+			SupportedEngines: []string{neu},
+		},
+		// Spanish (MX)
+		{
+			ID: "Mia", Name: "Mia", Gender: genderFemale,
+			LanguageCode: lcMexSpanish, LanguageName: langMexSpanish,
+			SupportedEngines: []string{std, neu},
+		},
+		// Spanish (US)
+		{
+			ID: "Lupe", Name: "Lupe", Gender: genderFemale,
+			LanguageCode: lcUSSpanish, LanguageName: langUSSpanish,
+			SupportedEngines: []string{std, neu},
+		},
+		{
+			ID: "Penelope", Name: "Penélope", Gender: genderFemale,
+			LanguageCode: lcUSSpanish, LanguageName: langUSSpanish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Miguel", Name: "Miguel", Gender: genderMale,
+			LanguageCode: lcUSSpanish, LanguageName: langUSSpanish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Pedro", Name: "Pedro", Gender: genderMale,
+			LanguageCode: lcUSSpanish, LanguageName: langUSSpanish,
+			SupportedEngines: []string{neu},
+		},
+	}
+}
+
+func builtInVoicesOther() []Voice {
+	std := defaultEngine
+	neu := engineNeural
+
+	return []Voice{
+		// Catalan
+		{
+			ID: "Arlet", Name: "Arlet", Gender: genderFemale,
+			LanguageCode: lcCatalan, LanguageName: "Catalan",
+			SupportedEngines: []string{neu},
+		},
+		// Chinese Mandarin
+		{
+			ID: "Zhiyu", Name: "Zhiyu", Gender: genderFemale,
+			LanguageCode: lcChinaMandarin, LanguageName: langChinaMandarin,
+			SupportedEngines: []string{std, neu},
+		},
+		// Japanese
+		{
+			ID: "Mizuki", Name: "Mizuki", Gender: genderFemale,
+			LanguageCode: lcJapanese, LanguageName: langJapanese,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Kazuha", Name: "Kazuha", Gender: genderFemale,
+			LanguageCode: lcJapanese, LanguageName: langJapanese,
+			SupportedEngines: []string{neu},
+		},
+		{
+			ID: "Takumi", Name: "Takumi", Gender: genderMale,
+			LanguageCode: lcJapanese, LanguageName: langJapanese,
+			SupportedEngines: []string{std, neu},
+		},
+		// Korean
+		{
+			ID: "Seoyeon", Name: "Seoyeon", Gender: genderFemale,
+			LanguageCode: lcKorean, LanguageName: langKorean,
+			SupportedEngines: []string{std, neu},
+		},
+		// Polish
+		{
+			ID: "Ewa", Name: "Ewa", Gender: genderFemale,
+			LanguageCode: lcPolish, LanguageName: langPolish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Maja", Name: "Maja", Gender: genderFemale,
+			LanguageCode: lcPolish, LanguageName: langPolish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Ola", Name: "Ola", Gender: genderFemale,
+			LanguageCode: lcPolish, LanguageName: langPolish,
+			SupportedEngines: []string{neu},
+		},
+		{
+			ID: "Jacek", Name: "Jacek", Gender: genderMale,
+			LanguageCode: lcPolish, LanguageName: langPolish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Jan", Name: "Jan", Gender: genderMale,
+			LanguageCode: lcPolish, LanguageName: langPolish,
+			SupportedEngines: []string{std},
+		},
+		// Russian
+		{
+			ID: "Tatyana", Name: "Tatyana", Gender: genderFemale,
+			LanguageCode: lcRussian, LanguageName: langRussian,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Maxim", Name: "Maxim", Gender: genderMale,
+			LanguageCode: lcRussian, LanguageName: langRussian,
+			SupportedEngines: []string{std},
+		},
+		// Turkish
+		{
+			ID: "Filiz", Name: "Filiz", Gender: genderFemale,
+			LanguageCode: lcTurkish, LanguageName: langTurkish,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Burcu", Name: "Burcu", Gender: genderFemale,
+			LanguageCode: lcTurkish, LanguageName: langTurkish,
+			SupportedEngines: []string{neu},
 		},
 	}
 }

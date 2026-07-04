@@ -1130,11 +1130,11 @@ func TestHandler_NewOps_PersistenceRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	// Snapshot and restore.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler()
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify the config template can still be deleted (meaning it was restored).
 	rec3 := postEBForm(

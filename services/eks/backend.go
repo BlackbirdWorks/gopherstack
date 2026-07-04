@@ -1,18 +1,20 @@
 package eks
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"hash/fnv"
 	"maps"
-	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -27,6 +29,12 @@ const clusterTransitionDelay = 100 * time.Millisecond
 
 // nodegroupTransitionDelay is the async delay before a CREATING nodegroup reaches ACTIVE.
 const nodegroupTransitionDelay = 100 * time.Millisecond
+
+// fargateProfileTransitionDelay is the async delay before a CREATING Fargate profile reaches ACTIVE.
+const fargateProfileTransitionDelay = 100 * time.Millisecond
+
+// addonTransitionDelay is the async delay before a CREATING addon reaches ACTIVE.
+const addonTransitionDelay = 100 * time.Millisecond
 
 var (
 	// ErrNotFound is returned when an EKS resource is not found.
@@ -94,6 +102,15 @@ type ClusterLogEntry struct {
 	Enabled bool     `json:"enabled"`
 }
 
+// ConnectorConfig holds metadata for externally-registered clusters.
+type ConnectorConfig struct {
+	ActivationCode   string `json:"activationCode,omitempty"`
+	ActivationExpiry string `json:"activationExpiry,omitempty"`
+	ActivationID     string `json:"activationId,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	RoleARN          string `json:"roleArn,omitempty"`
+}
+
 // Cluster represents an EKS cluster.
 //
 // The Tags field is backend-owned. Callers must treat the returned pointer as
@@ -107,20 +124,20 @@ type Cluster struct {
 	ComputeConfig           *ComputeConfig           `json:"computeConfig,omitempty"`
 	StorageConfig           *StorageConfig           `json:"storageConfig,omitempty"`
 	NetworkingConfig        *NetworkingConfig        `json:"networkingConfig,omitempty"`
-	// EncryptionConfig holds the current cluster encryption config, kept in sync
-	// with b.encryptionConfigs. Populated by AssociateEncryptionConfig.
-	EncryptionConfig []EncryptionConfig `json:"encryptionConfig,omitempty"`
-	Name             string             `json:"name"`
-	ARN              string             `json:"arn"`
-	Endpoint         string             `json:"endpoint,omitempty"`
-	OIDCIssuer       string             `json:"oidcIssuer,omitempty"`
-	Version          string             `json:"version"`
-	Status           string             `json:"status"`
-	RoleARN          string             `json:"roleArn,omitempty"`
-	AccountID        string             `json:"accountId"`
-	Region           string             `json:"region"`
-	PlatformVersion  string             `json:"platformVersion,omitempty"`
-	ClusterLogging   []ClusterLogEntry  `json:"clusterLogging,omitempty"`
+	ConnectorConfig         *ConnectorConfig         `json:"connectorConfig,omitempty"`
+	ARN                     string                   `json:"arn"`
+	Name                    string                   `json:"name"`
+	Endpoint                string                   `json:"endpoint,omitempty"`
+	OIDCIssuer              string                   `json:"oidcIssuer,omitempty"`
+	Version                 string                   `json:"version"`
+	Status                  string                   `json:"status"`
+	RoleARN                 string                   `json:"roleArn,omitempty"`
+	AccountID               string                   `json:"accountId"`
+	Region                  string                   `json:"region"`
+	PlatformVersion         string                   `json:"platformVersion,omitempty"`
+	CertificateAuthority    string                   `json:"certificateAuthority,omitempty"`
+	ClusterLogging          []ClusterLogEntry        `json:"clusterLogging,omitempty"`
+	EncryptionConfig        []EncryptionConfig       `json:"encryptionConfig,omitempty"`
 }
 
 // NodegroupTaint represents a Kubernetes taint applied to managed nodes.
@@ -204,13 +221,15 @@ type InMemoryBackend struct {
 	podIdentityAssociations map[string]map[string]*PodIdentityAssociation
 	capabilities            map[string]*Capability
 	subscriptions           map[string]*AnywhereSubscription
+	updates                 map[string]map[string]*Update // clusterName -> updateID -> update
 	mu                      *lockmetrics.RWMutex
+	work                    *worker.Group
 	accountID               string
 	region                  string
 }
 
 // NewInMemoryBackend creates a new in-memory EKS backend.
-func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		clusters:                make(map[string]*Cluster),
 		nodegroups:              make(map[string]map[string]*Nodegroup),
@@ -223,14 +242,20 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		podIdentityAssociations: make(map[string]map[string]*PodIdentityAssociation),
 		capabilities:            make(map[string]*Capability),
 		subscriptions:           make(map[string]*AnywhereSubscription),
+		updates:                 make(map[string]map[string]*Update),
 		accountID:               accountID,
 		region:                  region,
 		mu:                      lockmetrics.New("eks"),
+		work:                    worker.NewGroup(ctx, "eks"),
 	}
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// Close stops all scheduled state-transition timers so none outlives the
+// backend. It is safe to call multiple times.
+func (b *InMemoryBackend) Close() { b.work.Stop() }
 
 // Reset clears all state, returning the backend to a fresh empty state.
 // closeClusterTagsLocked closes tag objects for clusters and nodegroups.
@@ -330,6 +355,7 @@ func (b *InMemoryBackend) Reset() {
 	b.podIdentityAssociations = make(map[string]map[string]*PodIdentityAssociation)
 	b.capabilities = make(map[string]*Capability)
 	b.subscriptions = make(map[string]*AnywhereSubscription)
+	b.updates = make(map[string]map[string]*Update)
 }
 
 // ClusterOptionalConfig groups optional cluster configuration for CreateCluster.
@@ -425,6 +451,7 @@ func (b *InMemoryBackend) CreateCluster( //nolint:funlen // existing issue.
 		ComputeConfig:           computeCfg,
 		StorageConfig:           storageCfg,
 		NetworkingConfig:        networkingCfg,
+		CertificateAuthority:    stableID(name + "/ca"),
 	}
 	b.clusters[name] = c
 	b.nodegroups[name] = make(map[string]*Nodegroup)
@@ -437,7 +464,7 @@ func (b *InMemoryBackend) CreateCluster( //nolint:funlen // existing issue.
 	b.podIdentityAssociations[name] = make(map[string]*PodIdentityAssociation)
 
 	// Schedule async transition CREATING -> ACTIVE.
-	time.AfterFunc(clusterTransitionDelay, func() {
+	b.work.After("ClusterTransition", clusterTransitionDelay, func() {
 		b.mu.Lock("CreateCluster-async")
 		defer b.mu.Unlock()
 
@@ -485,12 +512,7 @@ func (b *InMemoryBackend) ListClusters() []string {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.clusters))
-	for name := range b.clusters {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.clusters)
 
 	return names
 }
@@ -681,7 +703,7 @@ func (b *InMemoryBackend) CreateNodegroup( //nolint:funlen // existing issue.
 	b.nodegroups[clusterName][nodegroupName] = ng
 
 	// Schedule async transition CREATING -> ACTIVE.
-	time.AfterFunc(nodegroupTransitionDelay, func() {
+	b.work.After("NodegroupTransition", nodegroupTransitionDelay, func() {
 		b.mu.Lock("CreateNodegroup-async")
 		defer b.mu.Unlock()
 
@@ -723,12 +745,7 @@ func (b *InMemoryBackend) ListNodegroups(clusterName string) ([]string, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	names := make([]string, 0, len(b.nodegroups[clusterName]))
-	for name := range b.nodegroups[clusterName] {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.nodegroups[clusterName])
 
 	return names, nil
 }

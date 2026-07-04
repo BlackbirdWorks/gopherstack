@@ -85,7 +85,10 @@ func (db *InMemoryDB) getTable(ctx context.Context, name string) (*Table, error)
 // repeated global-lock acquisitions on every PartiQL SELECT / UPDATE / DELETE.
 // The cache is keyed by "partiql:ks:<tableName>" and is automatically invalidated
 // when the entry expires, ensuring schema changes (e.g. recreation) are picked up.
-func (db *InMemoryDB) getKeySchemaForPartiQL(ctx context.Context, tableName string) ([]models.KeySchemaElement, error) {
+func (db *InMemoryDB) getKeySchemaForPartiQL(
+	ctx context.Context,
+	tableName string,
+) ([]models.KeySchemaElement, error) {
 	cacheKey := "partiql:ks:" + tableName
 
 	if v, ok := db.exprCache.Get(cacheKey); ok {
@@ -218,6 +221,27 @@ func extractKey(item map[string]any, schema []models.KeySchemaElement) map[strin
 	return key
 }
 
+// extractKeyWithBase builds a LastEvaluatedKey for index (GSI/LSI) queries.
+// AWS DynamoDB requires the response to contain both the index key attributes
+// AND the base-table primary key so that pagination tokens are unambiguous even
+// when multiple items share the same index sort-key value.
+func extractKeyWithBase(
+	item map[string]any,
+	indexSchema []models.KeySchemaElement,
+	tableSchema []models.KeySchemaElement,
+) map[string]any {
+	key := extractKey(item, indexSchema)
+	for _, k := range tableSchema {
+		if _, exists := key[k.AttributeName]; !exists {
+			if val, ok := item[k.AttributeName]; ok {
+				key[k.AttributeName] = val
+			}
+		}
+	}
+
+	return key
+}
+
 // compareAttributeValues compares two DynamoDB attribute values without reflection.
 // Values are always map[string]any with a single type key (e.g. {"S": "foo"}).
 func compareAttributeValues(v1, v2 any) bool {
@@ -225,35 +249,148 @@ func compareAttributeValues(v1, v2 any) bool {
 	m2, ok2 := v2.(map[string]any)
 
 	if !ok1 || !ok2 {
-		// Fallback for bare Go primitives (shouldn't occur in normal operation).
 		return fmt.Sprintf("%v", v1) == fmt.Sprintf("%v", v2)
 	}
 
-	for typeKey, val1 := range m1 {
-		val2, exists := m2[typeKey]
+	if len(m1) != len(m2) {
+		return false
+	}
+
+	for typeKey, leftVal := range m1 {
+		rightVal, exists := m2[typeKey]
 		if !exists {
 			return false
 		}
 
-		s1, isStr1 := val1.(string)
-		s2, isStr2 := val2.(string)
-
-		if isStr1 && isStr2 {
-			return s1 == s2
+		if !compareTypedField(typeKey, leftVal, rightVal) {
+			return false
 		}
-
-		// Binary attribute (B type) — use bytes.Equal for correct comparison.
-		b1, isByte1 := val1.([]byte)
-		b2, isByte2 := val2.([]byte)
-		if isByte1 && isByte2 {
-			return bytes.Equal(b1, b2)
-		}
-
-		// Nested map (e.g. M, L types) — fall back to string representation.
-		return fmt.Sprintf("%v", val1) == fmt.Sprintf("%v", val2)
 	}
 
-	return len(m2) == 0
+	return true
+}
+
+// compareTypedField compares one DynamoDB-typed attribute field (M/L/SS/NS/BS or
+// a scalar S/N/B/BOOL). Container types fall back to scalar comparison when the
+// expected Go shape does not match, matching the original behaviour.
+func compareTypedField(typeKey string, leftVal, rightVal any) bool {
+	switch typeKey {
+	case "M":
+		return compareMapField(leftVal, rightVal)
+	case "L":
+		return compareListField(leftVal, rightVal)
+	case "SS", "NS":
+		return compareStringSetField(leftVal, rightVal)
+	case "BS":
+		return compareByteSetField(leftVal, rightVal)
+	default:
+		return compareScalarField(leftVal, rightVal)
+	}
+}
+
+func compareMapField(leftVal, rightVal any) bool {
+	m1, ok1 := leftVal.(map[string]any)
+	m2, ok2 := rightVal.(map[string]any)
+	if !ok1 || !ok2 {
+		return compareScalarField(leftVal, rightVal)
+	}
+
+	if len(m1) != len(m2) {
+		return false
+	}
+
+	for k, child1 := range m1 {
+		child2, ok := m2[k]
+		if !ok || !compareAttributeValues(child1, child2) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func compareListField(leftVal, rightVal any) bool {
+	l1, ok1 := leftVal.([]any)
+	l2, ok2 := rightVal.([]any)
+	if !ok1 || !ok2 {
+		return compareScalarField(leftVal, rightVal)
+	}
+
+	if len(l1) != len(l2) {
+		return false
+	}
+
+	for i := range l1 {
+		if !compareAttributeValues(l1[i], l2[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func compareStringSetField(leftVal, rightVal any) bool {
+	s1, ok1 := leftVal.([]string)
+	s2, ok2 := rightVal.([]string)
+	if !ok1 || !ok2 {
+		return compareScalarField(leftVal, rightVal)
+	}
+
+	if len(s1) != len(s2) {
+		return false
+	}
+
+	for i := range s1 {
+		if s1[i] != s2[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func compareByteSetField(leftVal, rightVal any) bool {
+	b1, ok1 := leftVal.([][]byte)
+	b2, ok2 := rightVal.([][]byte)
+	if !ok1 || !ok2 {
+		return compareScalarField(leftVal, rightVal)
+	}
+
+	if len(b1) != len(b2) {
+		return false
+	}
+
+	for i := range b1 {
+		if !bytes.Equal(b1[i], b2[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// compareScalarField handles S/N (string), B ([]byte) and BOOL, with a
+// stringified fallback for anything else.
+func compareScalarField(leftVal, rightVal any) bool {
+	if s1, okL := leftVal.(string); okL {
+		if s2, okR := rightVal.(string); okR {
+			return s1 == s2
+		}
+	}
+
+	if b1, okL := leftVal.([]byte); okL {
+		if b2, okR := rightVal.([]byte); okR {
+			return bytes.Equal(b1, b2)
+		}
+	}
+
+	if bl1, okL := leftVal.(bool); okL {
+		if bl2, okR := rightVal.(bool); okR {
+			return bl1 == bl2
+		}
+	}
+
+	return fmt.Sprintf("%v", leftVal) == fmt.Sprintf("%v", rightVal)
 }
 
 func applyGSIProjection(
@@ -429,7 +566,10 @@ func (db *InMemoryDB) snapshotIndexForQuery(
 
 // snapshotSinglePKIndex copies only the entries for pkValue from the primary index.
 // Must be called with the table read-lock held.
-func snapshotSinglePKIndex(table *Table, pkValue string) (map[string]int, map[string]map[string]int) {
+func snapshotSinglePKIndex(
+	table *Table,
+	pkValue string,
+) (map[string]int, map[string]map[string]int) {
 	if table.pkskIndex != nil {
 		return snapshotPKSKEntry(table.pkskIndex, pkValue)
 	}
@@ -458,7 +598,10 @@ func snapshotPKSKEntry(
 }
 
 // snapshotPKEntry copies a single partition key entry from a pk-only index.
-func snapshotPKEntry(pkIndex map[string]int, pkValue string) (map[string]int, map[string]map[string]int) {
+func snapshotPKEntry(
+	pkIndex map[string]int,
+	pkValue string,
+) (map[string]int, map[string]map[string]int) {
 	idx, ok := pkIndex[pkValue]
 	if !ok {
 		return make(map[string]int), nil // empty — no matching PK
@@ -535,29 +678,59 @@ func findExclusiveStartIndex(
 	candidates []map[string]any,
 	exclusiveStartKey map[string]any,
 	keySchema []models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
 ) int {
 	if exclusiveStartKey == nil {
 		return 0
 	}
 
 	pkDef, skDef := getPKAndSK(keySchema)
+	tablePKDef, tableSKDef := getPKAndSK(tableKeySchema)
 
 	for i, item := range candidates {
-		matches := compareAttributeValues(
-			item[pkDef.AttributeName],
-			exclusiveStartKey[pkDef.AttributeName],
-		)
-		if matches && skDef.AttributeName != "" {
-			matches = compareAttributeValues(
-				item[skDef.AttributeName],
-				exclusiveStartKey[skDef.AttributeName],
-			)
-		}
-
-		if matches {
+		if itemMatchesStartKeyMap(item, exclusiveStartKey, pkDef, skDef, tablePKDef, tableSKDef) {
 			return i + 1
 		}
 	}
 
 	return 0
+}
+
+// itemMatchesStartKeyMap reports whether item matches the ExclusiveStartKey for the given
+// index and base-table key schemas. Base-table keys are used for disambiguation when
+// index sort keys repeat (GSI/LSI pagination).
+func itemMatchesStartKeyMap(
+	item, startKey map[string]any,
+	pkDef, skDef models.KeySchemaElement,
+	tablePKDef, tableSKDef models.KeySchemaElement,
+) bool {
+	if !compareAttributeValues(item[pkDef.AttributeName], startKey[pkDef.AttributeName]) {
+		return false
+	}
+
+	if skDef.AttributeName != "" &&
+		!compareAttributeValues(item[skDef.AttributeName], startKey[skDef.AttributeName]) {
+		return false
+	}
+
+	// Disambiguate using the base-table PK when the ExclusiveStartKey includes it.
+	if tablePKDef.AttributeName == "" || tablePKDef.AttributeName == pkDef.AttributeName {
+		return true
+	}
+
+	if tblPKVal, ok := startKey[tablePKDef.AttributeName]; ok {
+		if !compareAttributeValues(item[tablePKDef.AttributeName], tblPKVal) {
+			return false
+		}
+	}
+
+	if tableSKDef.AttributeName == "" || tableSKDef.AttributeName == skDef.AttributeName {
+		return true
+	}
+
+	if tblSKVal, ok := startKey[tableSKDef.AttributeName]; ok {
+		return compareAttributeValues(item[tableSKDef.AttributeName], tblSKVal)
+	}
+
+	return true
 }

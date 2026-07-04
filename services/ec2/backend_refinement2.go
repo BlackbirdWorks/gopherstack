@@ -218,7 +218,7 @@ func (b *InMemoryBackend) DeregisterImage(imageID string) error {
 // ---- VPC / Subnet attribute mutations ----
 
 // ModifyVpcAttribute enables or disables DNS support or DNS hostnames for a VPC.
-func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, _ bool) error {
+func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, value bool) error {
 	if vpcID == "" {
 		return fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
 	}
@@ -226,15 +226,18 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, _ bool) er
 	b.mu.Lock("ModifyVpcAttribute")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	vpc, ok := b.vpcs[vpcID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
-	// accepted attributes; mock silently accepts both
 	switch attribute {
 	case attrEnableDNSSupport, attrEnableDNSHostnames:
-		// stored in VPC attribute map – currently no field; AWS just accepts and
-		// the setting takes effect; mock records acceptance as a no-op.
+		if vpc.Attributes == nil {
+			vpc.Attributes = make(map[string]bool)
+		}
+		vpc.Attributes[attribute] = value
+
 		return nil
 	default:
 		return fmt.Errorf("%w: unknown VPC attribute %q", ErrInvalidParameter, attribute)

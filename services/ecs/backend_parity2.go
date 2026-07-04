@@ -14,6 +14,8 @@ const (
 	containerHealthStatusUnknown     = "UNKNOWN"
 	containerHealthStatusHealthy     = "HEALTHY"
 	deploymentRolloutStateInProgress = "IN_PROGRESS"
+	deploymentRolloutStateCompleted  = "COMPLETED"
+	deploymentRolloutStateFailed     = "FAILED"
 )
 
 // ---- Container runtime status ----
@@ -54,7 +56,10 @@ type Container struct {
 
 // buildContainerArn constructs a container ARN from a task ARN.
 func buildContainerArn(taskArn string) string {
-	return "arn:aws:ecs:" + strings.TrimPrefix(taskArn, "arn:aws:ecs:") + "/container/" + uuid.NewString()
+	return "arn:aws:ecs:" + strings.TrimPrefix(
+		taskArn,
+		"arn:aws:ecs:",
+	) + "/container/" + uuid.NewString()
 }
 
 // buildNetworkBindingsForContainer converts a container definition's port mappings
@@ -489,4 +494,37 @@ func mostLoadedInstance(eligible []string, clusterTasks map[string]*Task) string
 // float64UnixNow returns the current Unix timestamp as float64 (seconds).
 func float64UnixNow() float64 {
 	return float64(time.Now().Unix())
+}
+
+// mergeConstraints combines task-definition constraints with run-time override
+// constraints, deduplicating by (type, expression) pair. The task-definition
+// constraints take precedence (appear first).
+func mergeConstraints(tdConstraints, inputConstraints []PlacementConstraint) []PlacementConstraint {
+	if len(inputConstraints) == 0 {
+		return tdConstraints
+	}
+
+	if len(tdConstraints) == 0 {
+		return inputConstraints
+	}
+
+	seen := make(map[string]struct{}, len(tdConstraints))
+	// Pre-size to the task-definition constraints; append grows for any extra
+	// input constraints (avoids a flagged len+len capacity expression).
+	merged := make([]PlacementConstraint, 0, len(tdConstraints))
+
+	for _, c := range tdConstraints {
+		key := strings.ToLower(c.Type) + "|" + c.Expression
+		seen[key] = struct{}{}
+		merged = append(merged, c)
+	}
+
+	for _, c := range inputConstraints {
+		key := strings.ToLower(c.Type) + "|" + c.Expression
+		if _, dup := seen[key]; !dup {
+			merged = append(merged, c)
+		}
+	}
+
+	return merged
 }

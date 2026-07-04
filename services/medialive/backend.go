@@ -1,7 +1,7 @@
 package medialive
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -12,13 +12,16 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
 	defaultMaxResults = 20
 
 	stateIdle     = "IDLE"
+	stateStarting = "STARTING"
 	stateRunning  = "RUNNING"
+	stateStopping = "STOPPING"
 	stateDeleted  = "DELETED"
 	stateDeleting = "DELETING"
 
@@ -205,6 +208,7 @@ type storedInputDevice struct {
 	// DeviceSettingsSyncState and DeviceUpdateStatus: SYNCED/SYNCING, UP_TO_DATE/etc.
 	DeviceSettingsSyncState string `json:"deviceSettingsSyncState"`
 	DeviceUpdateStatus      string `json:"deviceUpdateStatus"`
+	MaintenanceWindowActive bool   `json:"maintenanceWindowActive"`
 }
 
 func (d *storedInputDevice) toDevice() *InputDevice {
@@ -222,6 +226,7 @@ func (d *storedInputDevice) toDevice() *InputDevice {
 		ConnectionState:         d.ConnectionState,
 		DeviceSettingsSyncState: d.DeviceSettingsSyncState,
 		DeviceUpdateStatus:      d.DeviceUpdateStatus,
+		MaintenanceWindowActive: d.MaintenanceWindowActive,
 	}
 }
 
@@ -710,54 +715,56 @@ type snapshot struct {
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	cwAlarmTemplates       map[string]*storedCloudWatchAlarmTemplate
-	ebRuleTemplateGroups   map[string]*storedEventBridgeRuleTemplateGroup
-	inputs                 map[string]*storedInput
-	inputSecurityGroups    map[string]*storedInputSecurityGroup
-	inputDevices           map[string]*storedInputDevice
-	multiplexes            map[string]*storedMultiplex
-	clusters               map[string]*storedCluster
-	tags                   map[string]map[string]string
-	signalMaps             map[string]*storedSignalMap
-	ebRuleTemplates        map[string]*storedEventBridgeRuleTemplate
-	channels               map[string]*storedChannel
-	mu                     *lockmetrics.RWMutex
-	cwAlarmTemplateGroups  map[string]*storedCloudWatchAlarmTemplateGroup
-	reservations           map[string]*storedReservation
-	scheduleActions        map[string][]*storedScheduleAction
-	networks               map[string]*storedNetwork
-	sdiSources             map[string]*storedSdiSource
-	channelPlacementGroups map[string]*storedChannelPlacementGroup
-	accountKmsKeyID        string
-	accountID              string
-	region                 string
-	offerings              []*Offering
+	cwAlarmTemplates         map[string]*storedCloudWatchAlarmTemplate
+	ebRuleTemplateGroups     map[string]*storedEventBridgeRuleTemplateGroup
+	inputs                   map[string]*storedInput
+	inputSecurityGroups      map[string]*storedInputSecurityGroup
+	inputDevices             map[string]*storedInputDevice
+	pendingTransferDeviceIDs map[string]struct{}
+	multiplexes              map[string]*storedMultiplex
+	clusters                 map[string]*storedCluster
+	tags                     map[string]map[string]string
+	signalMaps               map[string]*storedSignalMap
+	ebRuleTemplates          map[string]*storedEventBridgeRuleTemplate
+	channels                 map[string]*storedChannel
+	mu                       *lockmetrics.RWMutex
+	cwAlarmTemplateGroups    map[string]*storedCloudWatchAlarmTemplateGroup
+	reservations             map[string]*storedReservation
+	scheduleActions          map[string][]*storedScheduleAction
+	networks                 map[string]*storedNetwork
+	sdiSources               map[string]*storedSdiSource
+	channelPlacementGroups   map[string]*storedChannelPlacementGroup
+	accountKmsKeyID          string
+	accountID                string
+	region                   string
+	offerings                []*Offering
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:                     lockmetrics.New("medialive"),
-		channels:               make(map[string]*storedChannel),
-		inputs:                 make(map[string]*storedInput),
-		inputSecurityGroups:    make(map[string]*storedInputSecurityGroup),
-		inputDevices:           make(map[string]*storedInputDevice),
-		multiplexes:            make(map[string]*storedMultiplex),
-		clusters:               make(map[string]*storedCluster),
-		tags:                   make(map[string]map[string]string),
-		signalMaps:             make(map[string]*storedSignalMap),
-		cwAlarmTemplateGroups:  make(map[string]*storedCloudWatchAlarmTemplateGroup),
-		cwAlarmTemplates:       make(map[string]*storedCloudWatchAlarmTemplate),
-		ebRuleTemplateGroups:   make(map[string]*storedEventBridgeRuleTemplateGroup),
-		ebRuleTemplates:        make(map[string]*storedEventBridgeRuleTemplate),
-		reservations:           make(map[string]*storedReservation),
-		scheduleActions:        make(map[string][]*storedScheduleAction),
-		networks:               make(map[string]*storedNetwork),
-		sdiSources:             make(map[string]*storedSdiSource),
-		channelPlacementGroups: make(map[string]*storedChannelPlacementGroup),
-		offerings:              seedOfferings(region),
-		accountID:              accountID,
-		region:                 region,
+		mu:                       lockmetrics.New("medialive"),
+		channels:                 make(map[string]*storedChannel),
+		inputs:                   make(map[string]*storedInput),
+		inputSecurityGroups:      make(map[string]*storedInputSecurityGroup),
+		inputDevices:             make(map[string]*storedInputDevice),
+		pendingTransferDeviceIDs: make(map[string]struct{}),
+		multiplexes:              make(map[string]*storedMultiplex),
+		clusters:                 make(map[string]*storedCluster),
+		tags:                     make(map[string]map[string]string),
+		signalMaps:               make(map[string]*storedSignalMap),
+		cwAlarmTemplateGroups:    make(map[string]*storedCloudWatchAlarmTemplateGroup),
+		cwAlarmTemplates:         make(map[string]*storedCloudWatchAlarmTemplate),
+		ebRuleTemplateGroups:     make(map[string]*storedEventBridgeRuleTemplateGroup),
+		ebRuleTemplates:          make(map[string]*storedEventBridgeRuleTemplate),
+		reservations:             make(map[string]*storedReservation),
+		scheduleActions:          make(map[string][]*storedScheduleAction),
+		networks:                 make(map[string]*storedNetwork),
+		sdiSources:               make(map[string]*storedSdiSource),
+		channelPlacementGroups:   make(map[string]*storedChannelPlacementGroup),
+		offerings:                seedOfferings(region),
+		accountID:                accountID,
+		region:                   region,
 	}
 }
 
@@ -831,6 +838,7 @@ func (b *InMemoryBackend) Reset() {
 	b.inputs = make(map[string]*storedInput)
 	b.inputSecurityGroups = make(map[string]*storedInputSecurityGroup)
 	b.inputDevices = make(map[string]*storedInputDevice)
+	b.pendingTransferDeviceIDs = make(map[string]struct{})
 	b.multiplexes = make(map[string]*storedMultiplex)
 	b.clusters = make(map[string]*storedCluster)
 	b.tags = make(map[string]map[string]string)
@@ -848,7 +856,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes current state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -875,15 +883,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:                 b.region,
 	}
 
-	data, _ := json.Marshal(s)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "medialive", s)
 }
 
 // Restore deserializes state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "medialive", data, &s); err != nil {
 		return err
 	}
 
@@ -898,13 +904,38 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	} else {
 		b.inputDevices = make(map[string]*storedInputDevice)
 	}
+	b.rebuildPendingTransferIndex()
 	b.multiplexes = s.Multiplexes
+	b.tags = s.Tags
+	b.restoreOptionalMaps(&s)
+	b.restoreParity(&s)
+	b.accountKmsKeyID = s.AccountKmsKeyID
+	b.accountID = s.AccountID
+	b.region = s.Region
+
+	return nil
+}
+
+// rebuildPendingTransferIndex rebuilds the pendingTransferDeviceIDs set from
+// the current inputDevices map. Call after any bulk restore of inputDevices.
+func (b *InMemoryBackend) rebuildPendingTransferIndex() {
+	b.pendingTransferDeviceIDs = make(map[string]struct{})
+
+	for id, d := range b.inputDevices {
+		if d.PendingTransfer != nil {
+			b.pendingTransferDeviceIDs[id] = struct{}{}
+		}
+	}
+}
+
+// restoreOptionalMaps assigns each optional snapshot map to the backend,
+// defaulting to an empty map when the snapshot field is nil (forward compat).
+func (b *InMemoryBackend) restoreOptionalMaps(s *snapshot) {
 	if s.Clusters != nil {
 		b.clusters = s.Clusters
 	} else {
 		b.clusters = make(map[string]*storedCluster)
 	}
-	b.tags = s.Tags
 	if s.SignalMaps != nil {
 		b.signalMaps = s.SignalMaps
 	} else {
@@ -920,15 +951,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	} else {
 		b.cwAlarmTemplates = make(map[string]*storedCloudWatchAlarmTemplate)
 	}
-	if s.EBRuleTemplateGroups != nil {
-		b.ebRuleTemplateGroups = s.EBRuleTemplateGroups
-	} else {
-		b.ebRuleTemplateGroups = make(map[string]*storedEventBridgeRuleTemplateGroup)
-	}
 	if s.EBRuleTemplates != nil {
 		b.ebRuleTemplates = s.EBRuleTemplates
 	} else {
 		b.ebRuleTemplates = make(map[string]*storedEventBridgeRuleTemplate)
+	}
+	if s.EBRuleTemplateGroups != nil {
+		b.ebRuleTemplateGroups = s.EBRuleTemplateGroups
+	} else {
+		b.ebRuleTemplateGroups = make(map[string]*storedEventBridgeRuleTemplateGroup)
 	}
 	if s.Reservations != nil {
 		b.reservations = s.Reservations
@@ -940,12 +971,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	} else {
 		b.scheduleActions = make(map[string][]*storedScheduleAction)
 	}
-	b.restoreParity(&s)
-	b.accountKmsKeyID = s.AccountKmsKeyID
-	b.accountID = s.AccountID
-	b.region = s.Region
-
-	return nil
 }
 
 // restoreParity restores the parity resource maps, defaulting nil maps to empty.
@@ -1138,7 +1163,9 @@ func (b *InMemoryBackend) ListChannels(
 	return summaries, pg.Next, nil
 }
 
-// StartChannel transitions a channel to RUNNING.
+// StartChannel transitions a channel toward RUNNING.
+// The stored state advances immediately to RUNNING (deterministic emulation), but
+// the API response carries STARTING to match the real AWS intermediate-state contract.
 func (b *InMemoryBackend) StartChannel(channelID string) (*Channel, error) {
 	b.mu.Lock("StartChannel")
 	defer b.mu.Unlock()
@@ -1154,10 +1181,15 @@ func (b *InMemoryBackend) StartChannel(channelID string) (*Channel, error) {
 
 	ch.State = stateRunning
 
-	return ch.toChannel(), nil
+	result := ch.toChannel()
+	result.State = stateStarting
+
+	return result, nil
 }
 
-// StopChannel transitions a channel to IDLE.
+// StopChannel transitions a channel toward IDLE.
+// The stored state advances immediately to IDLE (deterministic emulation), but
+// the API response carries STOPPING to match the real AWS intermediate-state contract.
 func (b *InMemoryBackend) StopChannel(channelID string) (*Channel, error) {
 	b.mu.Lock("StopChannel")
 	defer b.mu.Unlock()
@@ -1173,7 +1205,10 @@ func (b *InMemoryBackend) StopChannel(channelID string) (*Channel, error) {
 
 	ch.State = stateIdle
 
-	return ch.toChannel(), nil
+	result := ch.toChannel()
+	result.State = stateStopping
+
+	return result, nil
 }
 
 // --- Input operations ---
@@ -1548,7 +1583,8 @@ func (b *InMemoryBackend) ListMultiplexes(
 	return summaries, pg.Next, nil
 }
 
-// StartMultiplex transitions a Multiplex to RUNNING.
+// StartMultiplex transitions a Multiplex toward RUNNING.
+// Stored state advances immediately; response carries STARTING per AWS contract.
 func (b *InMemoryBackend) StartMultiplex(multiplexID string) (*Multiplex, error) {
 	b.mu.Lock("StartMultiplex")
 	defer b.mu.Unlock()
@@ -1564,10 +1600,14 @@ func (b *InMemoryBackend) StartMultiplex(multiplexID string) (*Multiplex, error)
 
 	m.State = stateRunning
 
-	return m.toMultiplex(), nil
+	result := m.toMultiplex()
+	result.State = stateStarting
+
+	return result, nil
 }
 
-// StopMultiplex transitions a Multiplex to IDLE.
+// StopMultiplex transitions a Multiplex toward IDLE.
+// Stored state advances immediately; response carries STOPPING per AWS contract.
 func (b *InMemoryBackend) StopMultiplex(multiplexID string) (*Multiplex, error) {
 	b.mu.Lock("StopMultiplex")
 	defer b.mu.Unlock()
@@ -1583,7 +1623,10 @@ func (b *InMemoryBackend) StopMultiplex(multiplexID string) (*Multiplex, error) 
 
 	m.State = stateIdle
 
-	return m.toMultiplex(), nil
+	result := m.toMultiplex()
+	result.State = stateStopping
+
+	return result, nil
 }
 
 // --- MultiplexProgram operations ---
@@ -1868,6 +1911,7 @@ func (b *InMemoryBackend) TransferInputDevice(
 		TargetRegion:     targetRegion,
 		Message:          message,
 	}
+	b.pendingTransferDeviceIDs[deviceID] = struct{}{}
 
 	return nil
 }
@@ -1887,6 +1931,7 @@ func (b *InMemoryBackend) AcceptInputDeviceTransfer(deviceID string) error {
 	}
 
 	d.PendingTransfer = nil
+	delete(b.pendingTransferDeviceIDs, deviceID)
 
 	return nil
 }
@@ -1906,6 +1951,7 @@ func (b *InMemoryBackend) CancelInputDeviceTransfer(deviceID string) error {
 	}
 
 	d.PendingTransfer = nil
+	delete(b.pendingTransferDeviceIDs, deviceID)
 
 	return nil
 }
@@ -1925,6 +1971,7 @@ func (b *InMemoryBackend) RejectInputDeviceTransfer(deviceID string) error {
 	}
 
 	d.PendingTransfer = nil
+	delete(b.pendingTransferDeviceIDs, deviceID)
 
 	return nil
 }
@@ -1948,9 +1995,9 @@ func (b *InMemoryBackend) ListInputDeviceTransfers(
 	b.mu.RLock("ListInputDeviceTransfers")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedInputDevice, 0, len(b.inputDevices))
-	for _, d := range b.inputDevices {
-		if d.PendingTransfer != nil {
+	all := make([]*storedInputDevice, 0, len(b.pendingTransferDeviceIDs))
+	for deviceID := range b.pendingTransferDeviceIDs {
+		if d, ok := b.inputDevices[deviceID]; ok {
 			all = append(all, d)
 		}
 	}
@@ -2253,7 +2300,7 @@ func (b *InMemoryBackend) CreateNodeRegistrationScript(clusterID string) (string
 	return "#!/bin/bash\n# Node registration script for cluster " + clusterID + "\n", nil
 }
 
-// ListClusterAlerts returns alerts for a Cluster (always empty in emulation).
+// ListClusterAlerts returns alerts for a Cluster.
 func (b *InMemoryBackend) ListClusterAlerts(
 	clusterID string,
 	_ int,
@@ -2262,11 +2309,26 @@ func (b *InMemoryBackend) ListClusterAlerts(
 	b.mu.RLock("ListClusterAlerts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterID]; !ok {
+	cl, ok := b.clusters[clusterID]
+	if !ok {
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
-	return []map[string]any{}, "", nil
+	var alerts []map[string]any
+	if cl.State != clusterStateActive {
+		alerts = []map[string]any{
+			{
+				"AlertCode":    "CLUSTER_NOT_READY",
+				"AlertMessage": "Cluster is not in ACTIVE state",
+				"SetTime":      "1970-01-01T00:00:00Z",
+				"ClearedTime":  nil,
+			},
+		}
+	} else {
+		alerts = []map[string]any{}
+	}
+
+	return alerts, "", nil
 }
 
 // --- Signal Map operations ---
@@ -3681,7 +3743,9 @@ func (b *InMemoryBackend) DescribeAccountConfiguration() (*AccountConfiguration,
 }
 
 // UpdateAccountConfiguration updates the account-wide configuration.
-func (b *InMemoryBackend) UpdateAccountConfiguration(kmsKeyID string) (*AccountConfiguration, error) {
+func (b *InMemoryBackend) UpdateAccountConfiguration(
+	kmsKeyID string,
+) (*AccountConfiguration, error) {
 	b.mu.Lock("UpdateAccountConfiguration")
 	defer b.mu.Unlock()
 
@@ -3833,14 +3897,17 @@ func (b *InMemoryBackend) StopInputDevice(deviceID string) error {
 	return nil
 }
 
-// StartInputDeviceMaintenanceWindow opens a maintenance window (existence check only).
+// StartInputDeviceMaintenanceWindow opens a maintenance window for the device.
 func (b *InMemoryBackend) StartInputDeviceMaintenanceWindow(deviceID string) error {
-	b.mu.RLock("StartInputDeviceMaintenanceWindow")
-	defer b.mu.RUnlock()
+	b.mu.Lock("StartInputDeviceMaintenanceWindow")
+	defer b.mu.Unlock()
 
-	if _, ok := b.inputDevices[deviceID]; !ok {
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
+
+	d.MaintenanceWindowActive = true
 
 	return nil
 }

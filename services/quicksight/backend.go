@@ -1,19 +1,38 @@
 package quicksight
 
 import (
-	"encoding/json"
+	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
+
+// encodePageToken encodes an integer offset as an opaque base64 token.
+func encodePageToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// decodePageToken decodes an opaque base64 page token back to an integer offset.
+func decodePageToken(tok string) (int, error) {
+	b, err := base64.StdEncoding.DecodeString(tok)
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(string(b))
+}
 
 const (
 	errResourceNotFound  = "ResourceNotFoundException"
@@ -664,7 +683,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -720,15 +739,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		SelfUpgradeRequests: b.selfUpgradeRequests,
 	}
 
-	data, _ := json.Marshal(s)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "quicksight", s)
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s state
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "quicksight", data, &s); err != nil {
 		return fmt.Errorf("quicksight: restore: %w", err)
 	}
 
@@ -1029,7 +1046,7 @@ func dashboardSnapshotJobKey(accountID, dashboardID, jobID string) string {
 // ---- ARN builder ----
 
 func (b *InMemoryBackend) buildARN(resourceType, resourceID string) string {
-	return fmt.Sprintf("arn:aws:quicksight:%s:%s:%s/%s", b.region, b.accountID, resourceType, resourceID)
+	return arn.Build("quicksight", b.region, b.accountID, fmt.Sprintf("%s/%s", resourceType, resourceID))
 }
 
 // ---- Namespaces ----
@@ -1053,7 +1070,7 @@ func (b *InMemoryBackend) CreateNamespace(accountID, namespace, capacityRegion s
 
 	ns := &storedNamespace{
 		Name:           namespace,
-		Arn:            fmt.Sprintf("arn:aws:quicksight:%s:%s:namespace/%s", b.region, accountID, namespace),
+		Arn:            arn.Build("quicksight", b.region, accountID, fmt.Sprintf("namespace/%s", namespace)),
 		CapacityRegion: capacityRegion,
 		Status:         statusCreationSuccessful,
 		IdentityStore:  identityStoreQuickSight,
@@ -1119,21 +1136,20 @@ func paginateNamespaces(all []*storedNamespace, maxResults int32, nextToken stri
 		maxResults = defaultMaxResults
 	}
 
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
 	start := 0
 	if nextToken != "" {
-		for i, ns := range all {
-			if ns.Name == nextToken {
-				start = i
-
-				break
-			}
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
 		}
 	}
 
 	end := start + int(maxResults)
+
 	var next string
 	if end < len(all) {
-		next = all[end].Name
+		next = encodePageToken(end)
 	} else {
 		end = len(all)
 	}
@@ -1167,7 +1183,7 @@ func (b *InMemoryBackend) CreateGroup(accountID, namespace, groupName, descripti
 
 	g := &storedGroup{
 		GroupName:   groupName,
-		Arn:         fmt.Sprintf("arn:aws:quicksight:%s:%s:group/%s/%s", b.region, accountID, namespace, groupName),
+		Arn:         arn.Build("quicksight", b.region, accountID, fmt.Sprintf("group/%s/%s", namespace, groupName)),
 		Description: description,
 		Namespace:   namespace,
 		PrincipalID: uuid.New().String(),
@@ -1326,7 +1342,7 @@ func (b *InMemoryBackend) CreateGroupMembership(
 
 	return &GroupMember{
 		MemberName: memberName,
-		Arn:        fmt.Sprintf("arn:aws:quicksight:%s:%s:user/%s/%s", b.region, accountID, namespace, memberName),
+		Arn:        arn.Build("quicksight", b.region, accountID, fmt.Sprintf("user/%s/%s", namespace, memberName)),
 	}, nil
 }
 
@@ -1342,7 +1358,7 @@ func (b *InMemoryBackend) DescribeGroupMembership(
 
 	return &GroupMember{
 		MemberName: memberName,
-		Arn:        fmt.Sprintf("arn:aws:quicksight:%s:%s:user/%s/%s", b.region, accountID, namespace, memberName),
+		Arn:        arn.Build("quicksight", b.region, accountID, fmt.Sprintf("user/%s/%s", namespace, memberName)),
 	}, nil
 }
 
@@ -1409,7 +1425,7 @@ func (b *InMemoryBackend) ListGroupMemberships(
 	for _, m := range members[start:end] {
 		result = append(result, &GroupMember{
 			MemberName: m,
-			Arn:        fmt.Sprintf("arn:aws:quicksight:%s:%s:user/%s/%s", b.region, accountID, namespace, m),
+			Arn:        arn.Build("quicksight", b.region, accountID, fmt.Sprintf("user/%s/%s", namespace, m)),
 		})
 	}
 
@@ -1446,7 +1462,7 @@ func (b *InMemoryBackend) RegisterUser(
 
 	u := &storedUser{
 		UserName:     userName,
-		Arn:          fmt.Sprintf("arn:aws:quicksight:%s:%s:user/%s/%s", b.region, accountID, namespace, userName),
+		Arn:          arn.Build("quicksight", b.region, accountID, fmt.Sprintf("user/%s/%s", namespace, userName)),
 		Email:        email,
 		Role:         role,
 		IdentityType: identityType,
@@ -1623,7 +1639,7 @@ func (b *InMemoryBackend) CreateDataSource(
 		CreatedTime:     now,
 		LastUpdatedTime: now,
 		DataSourceID:    dataSourceID,
-		Arn:             fmt.Sprintf("arn:aws:quicksight:%s:%s:datasource/%s", b.region, accountID, dataSourceID),
+		Arn:             arn.Build("quicksight", b.region, accountID, fmt.Sprintf("datasource/%s", dataSourceID)),
 		Name:            name,
 		Type:            dsType,
 		Status:          statusCreationSuccessful,
@@ -1850,7 +1866,7 @@ func (b *InMemoryBackend) CreateDataSet(
 		CreatedTime:      now,
 		LastUpdatedTime:  now,
 		DataSetID:        dataSetID,
-		Arn:              fmt.Sprintf("arn:aws:quicksight:%s:%s:dataset/%s", b.region, accountID, dataSetID),
+		Arn:              arn.Build("quicksight", b.region, accountID, fmt.Sprintf("dataset/%s", dataSetID)),
 		Name:             name,
 		ImportMode:       importMode,
 		RefreshSchedules: make(map[string]*storedRefreshSchedule),
@@ -2183,7 +2199,7 @@ func (b *InMemoryBackend) CreateDashboard(
 		CreatedTime:            now,
 		LastUpdatedTime:        now,
 		DashboardID:            dashboardID,
-		Arn:                    fmt.Sprintf("arn:aws:quicksight:%s:%s:dashboard/%s", b.region, accountID, dashboardID),
+		Arn:                    arn.Build("quicksight", b.region, accountID, fmt.Sprintf("dashboard/%s", dashboardID)),
 		Name:                   name,
 		Status:                 statusCreated,
 		VersionNumber:          1,
@@ -2303,8 +2319,8 @@ func (b *InMemoryBackend) ListDashboards(
 
 func (b *InMemoryBackend) ListDashboardVersions(
 	accountID, dashboardID string,
-	_ int32,
-	_ string,
+	maxResults int32,
+	nextToken string,
 ) ([]*DashboardVersion, string, error) {
 	b.mu.RLock("ListDashboardVersions")
 	defer b.mu.RUnlock()
@@ -2314,17 +2330,38 @@ func (b *InMemoryBackend) ListDashboardVersions(
 		return nil, "", ErrDashboardNotFound
 	}
 
-	versions := make([]*DashboardVersion, 0, d.VersionNumber)
-	for i := int64(1); i <= d.VersionNumber; i++ {
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
+		}
+	}
+
+	total := int(d.VersionNumber)
+	end := start + int(maxResults)
+
+	var next string
+	if end < total {
+		next = encodePageToken(end)
+	} else {
+		end = total
+	}
+
+	versions := make([]*DashboardVersion, 0, end-start)
+	for i := start + 1; i <= end; i++ {
 		versions = append(versions, &DashboardVersion{
 			CreatedTime:   d.CreatedTime,
 			Arn:           fmt.Sprintf("%s/version/%d", d.Arn, i),
 			Status:        statusCreated,
-			VersionNumber: i,
+			VersionNumber: int64(i),
 		})
 	}
 
-	return versions, "", nil
+	return versions, next, nil
 }
 
 // SearchDashboards searches dashboards by name (filter Name ==
@@ -2486,7 +2523,7 @@ func (b *InMemoryBackend) CreateAnalysis(
 		CreatedTime:     now,
 		LastUpdatedTime: now,
 		AnalysisID:      analysisID,
-		Arn:             fmt.Sprintf("arn:aws:quicksight:%s:%s:analysis/%s", b.region, accountID, analysisID),
+		Arn:             arn.Build("quicksight", b.region, accountID, fmt.Sprintf("analysis/%s", analysisID)),
 		Name:            name,
 		Status:          statusCreationSuccessful,
 		Definition:      definition,

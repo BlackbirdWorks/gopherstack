@@ -31,7 +31,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *elasticache.InMemoryBackend, id string) {
 				t.Helper()
 
-				p, err := b.DescribeClusters(context.Background(), id, "", 0)
+				p, err := b.DescribeClusters(context.Background(), id, "", 0, false)
 				clusters := p.Data
 				require.NoError(t, err)
 				require.Len(t, clusters, 1)
@@ -54,14 +54,14 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			original := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1")
+			original := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1", nil)
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
-			fresh := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			fresh := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1", nil)
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -71,7 +71,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	b := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1", nil)
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }

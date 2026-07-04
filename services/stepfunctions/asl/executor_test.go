@@ -362,6 +362,41 @@ func TestExecutor_ChoiceState(t *testing.T) {
 			input:      `{"count": 2}`,
 			wantOutput: "low",
 		},
+		// StringMatches (wildcard glob comparator)
+		{
+			name: "string_matches_wildcard",
+			def: `{
+				"StartAt": "Check",
+				"States": {
+					"Check": {
+						"Type": "Choice",
+						"Choices": [{"Variable": "$.file", "StringMatches": "log-*.txt", "Next": "Match"}],
+						"Default": "NoMatch"
+					},
+					"Match": {"Type": "Pass", "End": true, "Result": "match"},
+					"NoMatch": {"Type": "Pass", "End": true, "Result": "nomatch"}
+				}
+			}`,
+			input:      `{"file": "log-20190101.txt"}`,
+			wantOutput: "match",
+		},
+		{
+			name: "string_matches_wildcard_default",
+			def: `{
+				"StartAt": "Check",
+				"States": {
+					"Check": {
+						"Type": "Choice",
+						"Choices": [{"Variable": "$.file", "StringMatches": "log-*.txt", "Next": "Match"}],
+						"Default": "NoMatch"
+					},
+					"Match": {"Type": "Pass", "End": true, "Result": "match"},
+					"NoMatch": {"Type": "Pass", "End": true, "Result": "nomatch"}
+				}
+			}`,
+			input:      `{"file": "log-20190101.log"}`,
+			wantOutput: "nomatch",
+		},
 		// And condition
 		{
 			name: "and_condition_both_true",

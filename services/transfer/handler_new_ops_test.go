@@ -603,7 +603,7 @@ func TestHandler_DeleteCertificate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := transfer.NewInMemoryBackend(testAccountID, testRegion)
+			b := transfer.NewInMemoryBackend(t.Context(), testAccountID, testRegion)
 			h := transfer.NewHandler(b)
 			certID := tt.setup(b)
 

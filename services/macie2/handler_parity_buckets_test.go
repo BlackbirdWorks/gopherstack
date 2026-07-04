@@ -609,10 +609,10 @@ func TestParityBuckets_SnapshotRestore(t *testing.T) {
 	seedBucket(t, b, "snap-bucket-1", "us-east-1", "NOT_PUBLIC", "AES256", 10, 1000)
 	seedBucket(t, b, "snap-bucket-2", "us-west-2", "PUBLIC", "aws:kms", 5, 500)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	b2 := newBucketBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	h2 := macie2.NewHandler(b2)
 	buckets := describeBuckets(t, h2, nil)

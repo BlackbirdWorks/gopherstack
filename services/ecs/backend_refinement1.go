@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -72,7 +73,9 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 // ---- UpdateCapacityProvider ----
 
 // UpdateCapacityProvider updates tags or status of a capacity provider.
-func (b *InMemoryBackend) UpdateCapacityProvider(input UpdateCapacityProviderInput) (*CapacityProvider, error) {
+func (b *InMemoryBackend) UpdateCapacityProvider(
+	input UpdateCapacityProviderInput,
+) (*CapacityProvider, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
@@ -106,7 +109,9 @@ func (b *InMemoryBackend) UpdateCapacityProvider(input UpdateCapacityProviderInp
 // ---- ListTaskDefinitionFamilies ----
 
 // ListTaskDefinitionFamilies returns distinct task definition family names.
-func (b *InMemoryBackend) ListTaskDefinitionFamilies(familyPrefix, status string) ([]string, error) {
+func (b *InMemoryBackend) ListTaskDefinitionFamilies(
+	familyPrefix, status string,
+) ([]string, error) {
 	b.mu.RLock("ListTaskDefinitionFamilies")
 	defer b.mu.RUnlock()
 
@@ -150,7 +155,10 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 	}
 
 	if len(input.ContainerInstances) == 0 {
-		return nil, fmt.Errorf("%w: at least one container instance is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: at least one container instance is required",
+			ErrInvalidParameter,
+		)
 	}
 
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
@@ -166,13 +174,18 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 		return nil, err
 	}
 
-	clusterArn := fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName)
+	clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
 
 	tasks := make([]Task, 0, len(input.ContainerInstances))
 
 	for _, ciArn := range input.ContainerInstances {
 		taskID := uuid.New().String()
-		taskArn := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", b.region, b.accountID, clusterName, taskID)
+		taskArn := arn.Build(
+			"ecs",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("task/%s/%s", clusterName, taskID),
+		)
 		now := time.Now()
 
 		t := &Task{
@@ -356,7 +369,9 @@ var errServiceDeploymentAlreadyStopped = awserr.New(
 )
 
 // StopServiceDeployment stops an in-progress service deployment.
-func (b *InMemoryBackend) StopServiceDeployment(serviceDeploymentArn string) (*ServiceDeployment, error) {
+func (b *InMemoryBackend) StopServiceDeployment(
+	serviceDeploymentArn string,
+) (*ServiceDeployment, error) {
 	if serviceDeploymentArn == "" {
 		return nil, fmt.Errorf("%w: serviceDeploymentArn is required", ErrInvalidParameter)
 	}

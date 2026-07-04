@@ -688,10 +688,10 @@ func TestParityFindings_SnapshotRestore(t *testing.T) {
 	arn1 := paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "snap-f1")
 	arn2 := paritySeedFinding(t, b, "NETWORK_REACHABILITY", "CRITICAL", "ACTIVE", "snap-f2")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	b2 := newParityBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	h2 := inspector2.NewHandler(b2)
 	findings := parityListFindings(t, h2, map[string]any{})

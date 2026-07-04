@@ -1,10 +1,13 @@
 package waf
 
+import "context"
+
 // StorageBackend is the interface for WAF Classic storage operations.
 type StorageBackend interface {
 	// Change tokens
 	GetChangeToken() string
 	GetChangeTokenStatus(token string) string
+	MarkChangeTokenUsed(token string)
 
 	// WebACL
 	CreateWebACL(
@@ -121,8 +124,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

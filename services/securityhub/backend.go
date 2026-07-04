@@ -1,14 +1,17 @@
 package securityhub
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -243,6 +246,7 @@ type InMemoryBackend struct {
 	recommendedPoliciesV2  map[string]*RecommendedPolicyV2
 	findingAggregators     map[string]*FindingAggregator
 	controlOverrides       map[string]*StandardsControl
+	controlAssocOverrides  map[string]map[string]*StandardsControlAssociation // [standardsArn][securityControlID]
 	ticketsV2              map[string]*TicketV2
 	connectorsV2           map[string]*ConnectorV2
 	standardsSubscriptions map[string]*StandardsSubscription
@@ -276,6 +280,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		insights:               make(map[string]*Insight),
 		standardsSubscriptions: make(map[string]*StandardsSubscription),
 		controlOverrides:       make(map[string]*StandardsControl),
+		controlAssocOverrides:  make(map[string]map[string]*StandardsControlAssociation),
 		actionTargets:          make(map[string]*ActionTarget),
 		productSubscriptions:   make(map[string]string),
 		controlParams:          make(map[string]map[string]any),
@@ -303,30 +308,30 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Region() string    { return b.region }
 
 func (b *InMemoryBackend) hubARN() string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:hub/default", b.region, b.accountID)
+	return arn.Build("securityhub", b.region, b.accountID, "hub/default")
 }
 
 func (b *InMemoryBackend) subscriptionARN(seq int) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:subscription/%d", b.region, b.accountID, seq)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("subscription/%d", seq))
 }
 
 // unused: keep compiler happy
 var _ = (*InMemoryBackend).subscriptionARN
 
 func (b *InMemoryBackend) insightARN(seq int) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:insight/%s/%d", b.region, b.accountID, b.accountID, seq)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("insight/%s/%d", b.accountID, seq))
 }
 
 func (b *InMemoryBackend) actionTargetARN(id string) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:action/custom/%s", b.region, b.accountID, id)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("action/custom/%s", id))
 }
 
 func (b *InMemoryBackend) automationRuleARN(seq int) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:automation-rule/%d", b.region, b.accountID, seq)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("automation-rule/%d", seq))
 }
 
 func (b *InMemoryBackend) securityControlARN(id string) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s::security-control/%s", b.region, id)
+	return arn.Build("securityhub", b.region, "", fmt.Sprintf("security-control/%s", id))
 }
 
 func (b *InMemoryBackend) Reset() {
@@ -341,6 +346,7 @@ func (b *InMemoryBackend) Reset() {
 	b.standardsSubscriptions = make(map[string]*StandardsSubscription)
 	b.standardsSeq = 0
 	b.controlOverrides = make(map[string]*StandardsControl)
+	b.controlAssocOverrides = make(map[string]map[string]*StandardsControlAssociation)
 	b.actionTargets = make(map[string]*ActionTarget)
 	b.actionTargetSeq = 0
 	b.productSubscriptions = make(map[string]string)
@@ -421,7 +427,7 @@ type snapshot struct {
 	HubV2Enabled          bool                            `json:"hubV2Enabled"`
 }
 
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -469,14 +475,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		RecommendedPoliciesV2: b.recommendedPoliciesV2,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "securityhub", snap)
 }
 
-func (b *InMemoryBackend) Restore(data []byte) error { //nolint:funlen // existing issue.
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error { //nolint:funlen // existing issue.
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "securityhub", data, &snap); err != nil {
 		return err
 	}
 
@@ -813,11 +817,28 @@ func matchesFindingFilters(finding, filters map[string]any) bool {
 	}
 
 	fArn, _ := finding["ProductArn"].(string)
+	if !matchesStringFilter(fArn, filters["ProductArn"]) {
+		return false
+	}
 
-	return matchesStringFilter(fArn, filters["ProductArn"])
+	// Additional string field filters
+	for _, fieldKey := range []string{
+		"AwsAccountId", "GeneratorId", "Title", "Description", //nolint:goconst // keyDescription lives in handler.go
+		"RecordState", "WorkflowStatus", "SeverityLabel", "ComplianceStatus",
+		"Type", "ResourceType", "ResourceId",
+	} {
+		fVal, _ := finding[fieldKey].(string)
+		if !matchesStringFilter(fVal, filters[fieldKey]) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // matchesStringFilter checks a single string field value against a SecurityHub filter value.
+//
+//nolint:gocognit,cyclop // 6 comparison types; cannot reduce without artificial splitting
 func matchesStringFilter(fieldVal string, filterVal any) bool {
 	items, ok := filterVal.([]any)
 	if !ok {
@@ -833,12 +854,31 @@ func matchesStringFilter(fieldVal string, filterVal any) bool {
 		val, _ := m["Value"].(string)
 		comp, _ := m["Comparison"].(string)
 
-		if comp == "NOT_EQUALS" {
+		switch comp {
+		case "NOT_EQUALS":
 			if fieldVal == val {
 				return false
 			}
-		} else if fieldVal != val {
-			return false
+		case "PREFIX":
+			if !strings.HasPrefix(fieldVal, val) {
+				return false
+			}
+		case "PREFIX_NOT_EQUALS":
+			if strings.HasPrefix(fieldVal, val) {
+				return false
+			}
+		case "CONTAINS":
+			if !strings.Contains(fieldVal, val) {
+				return false
+			}
+		case "NOT_CONTAINS":
+			if strings.Contains(fieldVal, val) {
+				return false
+			}
+		default: // EQUALS
+			if fieldVal != val {
+				return false
+			}
 		}
 	}
 
@@ -1087,7 +1127,7 @@ func (b *InMemoryBackend) BatchEnableStandards(requests []map[string]any) ([]*St
 		}
 
 		b.standardsSeq++
-		subArn := fmt.Sprintf("arn:aws:securityhub:%s:%s:subscription/%d", b.region, b.accountID, b.standardsSeq)
+		subArn := arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("subscription/%d", b.standardsSeq))
 
 		sub := &StandardsSubscription{
 			StandardsSubscriptionArn: subArn,
@@ -1140,7 +1180,7 @@ func (b *InMemoryBackend) BatchDisableStandards(
 			continue
 		}
 
-		sub.StandardsStatus = "INCOMPLETE"
+		sub.StandardsStatus = "DELETING"
 		subscriptions = append(subscriptions, sub)
 		delete(b.standardsSubscriptions, arn)
 	}
@@ -1361,6 +1401,13 @@ func (b *InMemoryBackend) BatchGetStandardsControlAssociations(
 			AssociationStatus: statusEnabled,
 			UpdatedAt:         time.Now().UTC().Format(time.RFC3339),
 		}
+
+		if stdMap, hasStd := b.controlAssocOverrides[stdArn]; hasStd {
+			if override, hasOverride := stdMap[secCtlID]; hasOverride {
+				assoc = override
+			}
+		}
+
 		associations = append(associations, assoc)
 	}
 
@@ -1384,6 +1431,25 @@ func (b *InMemoryBackend) BatchUpdateStandardsControlAssociations(updates []map[
 	for _, u := range updates {
 		if _, hasCtl := u[keySecurityControlID]; !hasCtl {
 			unprocessed = append(unprocessed, u)
+
+			continue
+		}
+
+		status, _ := u["AssociationStatus"].(string)
+		reason, _ := u["UpdatedReason"].(string)
+		secCtlID, _ := u[keySecurityControlID].(string)
+		stdArn, _ := u[keyStandardsArn].(string)
+
+		if _, ok := b.controlAssocOverrides[stdArn]; !ok {
+			b.controlAssocOverrides[stdArn] = make(map[string]*StandardsControlAssociation)
+		}
+
+		b.controlAssocOverrides[stdArn][secCtlID] = &StandardsControlAssociation{
+			SecurityControlID: secCtlID,
+			StandardsArn:      stdArn,
+			AssociationStatus: status,
+			UpdatedReason:     reason,
+			UpdatedAt:         time.Now().UTC().Format(time.RFC3339),
 		}
 	}
 
@@ -1545,11 +1611,11 @@ func (b *InMemoryBackend) EnableImportFindingsForProduct(productArn string) (str
 	// Check if already enabled
 	for subArn, pArn := range b.productSubscriptions {
 		if pArn == productArn {
-			return subArn, nil
+			return subArn, ErrAlreadyExists
 		}
 	}
 
-	subArn := fmt.Sprintf("arn:aws:securityhub:%s:%s:product-subscription/%s", b.region, b.accountID, productArn)
+	subArn := arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("product-subscription/%s", productArn))
 	b.productSubscriptions[subArn] = productArn
 
 	return subArn, nil
@@ -1916,6 +1982,7 @@ func (b *InMemoryBackend) BatchDeleteAutomationRules(automationRulesArns []strin
 	return deleted, unprocessed
 }
 
+//nolint:gocognit // 7 optional update fields; cannot reduce without artificial splitting
 func (b *InMemoryBackend) BatchUpdateAutomationRules(updates []map[string]any) ([]string, []map[string]any) {
 	b.mu.Lock("BatchUpdateAutomationRules")
 	defer b.mu.Unlock()
@@ -1926,8 +1993,8 @@ func (b *InMemoryBackend) BatchUpdateAutomationRules(updates []map[string]any) (
 	for _, u := range updates {
 		arn, _ := u[keyRuleArn].(string)
 
-		rule, ok := b.automationRules[arn]
-		if !ok {
+		rule, exists := b.automationRules[arn]
+		if !exists {
 			unprocessed = append(unprocessed, map[string]any{
 				keyRuleArn:      arn,
 				keyErrorCode:    errCodeInvalidInput,
@@ -1955,6 +2022,22 @@ func (b *InMemoryBackend) BatchUpdateAutomationRules(updates []map[string]any) (
 
 		if terminal, hasTerminal := u["IsTerminal"].(bool); hasTerminal {
 			rule.IsTerminal = terminal
+		}
+
+		if criteria, hasCriteria := u["Criteria"].(map[string]any); hasCriteria {
+			rule.Criteria = criteria
+		}
+
+		if rawActions, hasActions := u["Actions"].([]any); hasActions {
+			actionMaps := make([]map[string]any, 0, len(rawActions))
+
+			for _, a := range rawActions {
+				if m, isMap := a.(map[string]any); isMap {
+					actionMaps = append(actionMaps, m)
+				}
+			}
+
+			rule.Actions = actionMaps
 		}
 
 		rule.UpdatedAt = time.Now().UTC().Format(time.RFC3339)

@@ -345,11 +345,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddConnectionInternal("client-1")
 	require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("42"), 1))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotdataplane.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, iotdataplane.ShadowCount(b2))
 	assert.Equal(t, 1, iotdataplane.ConnectionCount(b2))
@@ -366,11 +366,11 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotdataplane.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 0, iotdataplane.ShadowCount(b2))
 	assert.Equal(t, 0, iotdataplane.ConnectionCount(b2))
@@ -384,11 +384,11 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	b.AddShadowInternal("thing1", "", []byte(`{"k":"v"}`))
 	h := iotdataplane.NewHandler(b)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, iotdataplane.ShadowCount(b))
 }
 
@@ -519,14 +519,14 @@ func TestRefinement1_MaxShadowsPerThing_CapEnforced(t *testing.T) {
 
 	// Fill to cap.
 	for i := range iotdataplane.MaxShadowsPerThing {
-		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("shadow-%d", i), []byte(`{}`))
+		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("shadow-%d", i), []byte(`{"state":{"desired":{"x":1}}}`))
 		require.NoError(t, err)
 	}
 
 	assert.Equal(t, iotdataplane.MaxShadowsPerThing, iotdataplane.ShadowCount(b))
 
 	// One more new shadow for the same thing must fail.
-	_, err := b.UpdateThingShadow("thing1", "overflow-shadow", []byte(`{}`))
+	_, err := b.UpdateThingShadow("thing1", "overflow-shadow", []byte(`{"state":{"desired":{"x":1}}}`))
 	require.ErrorIs(t, err, iotdataplane.ErrValidation)
 }
 
@@ -550,11 +550,11 @@ func TestRefinement1_MaxShadowsPerThing_CapPerThing(t *testing.T) {
 
 	// Fill thing1 to cap.
 	for i := range iotdataplane.MaxShadowsPerThing {
-		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("s-%d", i), []byte(`{}`))
+		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("s-%d", i), []byte(`{"state":{"desired":{"x":1}}}`))
 		require.NoError(t, err)
 	}
 
 	// thing2 must still accept new shadows.
-	_, err := b.UpdateThingShadow("thing2", "new-shadow", []byte(`{}`))
+	_, err := b.UpdateThingShadow("thing2", "new-shadow", []byte(`{"state":{"desired":{"x":1}}}`))
 	require.NoError(t, err)
 }

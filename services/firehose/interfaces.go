@@ -9,9 +9,10 @@ type StorageBackend interface {
 	DeleteDeliveryStream(ctx context.Context, name string) error
 	DescribeDeliveryStream(ctx context.Context, name string) (*DeliveryStream, error)
 	ListDeliveryStreams(ctx context.Context) []string
+	ListDeliveryStreamsByType(ctx context.Context, streamType string) []string
 	PutRecord(ctx context.Context, streamName string, data []byte) error
 	PutRecordBatch(ctx context.Context, streamName string, records [][]byte) (int, error)
-	UpdateDestination(ctx context.Context, streamName, currentVersionID string, dest *S3DestinationDescription) error
+	UpdateDestination(ctx context.Context, streamName, currentVersionID string, input UpdateDestinationInput) error
 	ListTagsForDeliveryStream(ctx context.Context, name string) (map[string]string, error)
 	TagDeliveryStream(ctx context.Context, name string, kv map[string]string) error
 	UntagDeliveryStream(ctx context.Context, name string, keys []string) error
@@ -21,7 +22,7 @@ type StorageBackend interface {
 	Region() string
 	RunFlusher(ctx context.Context)
 	FlushAll(ctx context.Context)
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 	AddStreamInternal(s *DeliveryStream)
 }

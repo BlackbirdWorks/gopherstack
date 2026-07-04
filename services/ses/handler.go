@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,8 +31,11 @@ const (
 
 // Handler is the Echo HTTP handler for SES operations.
 type Handler struct {
-	Backend StorageBackend
-	janitor *Janitor
+	Backend       StorageBackend
+	janitor       *Janitor
+	janitorCancel context.CancelFunc
+	janitorDone   chan struct{}
+	janitorMu     sync.Mutex
 }
 
 // NewHandler creates a new SES handler with the given backend and logger.
@@ -62,10 +66,47 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 // StartWorker starts the background janitor if configured.
 func (h *Handler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
-		go h.janitor.Run(ctx)
+		h.janitorMu.Lock()
+		if h.janitorDone != nil {
+			h.janitorMu.Unlock()
+
+			return nil
+		}
+
+		runCtx, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		h.janitorCancel = cancel
+		h.janitorDone = done
+		h.janitorMu.Unlock()
+
+		go func() {
+			defer close(done)
+			h.janitor.Run(runCtx)
+		}()
 	}
 
 	return nil
+}
+
+// Shutdown stops the janitor worker and waits for it to exit.
+func (h *Handler) Shutdown(ctx context.Context) {
+	h.janitorMu.Lock()
+	cancel := h.janitorCancel
+	done := h.janitorDone
+	h.janitorCancel = nil
+	h.janitorDone = nil
+	h.janitorMu.Unlock()
+
+	if cancel == nil || done == nil {
+		return
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 // Reset clears all in-memory state. Used by the POST /_gopherstack/reset endpoint.
@@ -77,6 +118,11 @@ func (h *Handler) Reset() {
 func (h *Handler) Name() string {
 	return "SES"
 }
+
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // GetSupportedOperations returns the list of supported SES operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -716,6 +762,7 @@ func (h *Handler) handleSendTemplatedEmail(vals url.Values, reqID string) (any, 
 		Bcc:                  parseSESMemberList(vals, "Destination.BccAddresses"),
 		ReplyTo:              parseSESMemberList(vals, "ReplyToAddresses"),
 		TemplateName:         vals.Get("Template"),
+		TemplateData:         vals.Get("TemplateData"),
 		ConfigurationSetName: vals.Get("ConfigurationSetName"),
 		Tags:                 parseSESTags(vals, "Tags"),
 		ReturnPath:           vals.Get("ReturnPath"),
@@ -2281,6 +2328,7 @@ func (h *Handler) handleSendBounce(vals url.Values, reqID string) (any, error) {
 func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (any, error) {
 	source := vals.Get("Source")
 	template := vals.Get("Template")
+	defaultTemplateData := vals.Get("DefaultTemplateData")
 
 	// Collect per-destination data.
 	var destinations []BulkEmailDestination
@@ -2310,7 +2358,7 @@ func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (a
 			ErrInvalidParameter, len(destinations), maxBulkDestinations)
 	}
 
-	msgIDs, err := h.Backend.SendBulkTemplatedEmail(source, template, destinations)
+	msgIDs, err := h.Backend.SendBulkTemplatedEmail(source, template, defaultTemplateData, destinations)
 	if err != nil {
 		return nil, err
 	}

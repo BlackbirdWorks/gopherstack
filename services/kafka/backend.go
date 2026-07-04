@@ -130,6 +130,8 @@ const (
 	defaultReplicationFactor = 3
 	// defaultPartitionCount is used in AddTopicInternal.
 	defaultPartitionCount = 1
+	// maxClustersPerRegion caps the number of clusters per region to prevent unbounded growth.
+	maxClustersPerRegion = 500
 )
 
 // ProvisionedThroughput holds EBS provisioned throughput config.
@@ -357,6 +359,7 @@ type Cluster struct {
 	CreationTime         string                 `json:"creationTime,omitempty"`
 	BrokerNodeGroupInfo  BrokerNodeGroupInfo    `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes  int32                  `json:"numberOfBrokerNodes"`
+	pollCount            int                    // tracks CREATING→ACTIVE progression; not serialized
 }
 
 // Configuration represents an MSK configuration.
@@ -378,6 +381,7 @@ type Configuration struct {
 // backend's default region).
 type InMemoryBackend struct {
 	clusters          map[string]map[string]*Cluster          // region → clusterArn → cluster
+	clusterNames      map[string]map[string]string            // region → clusterName → clusterArn (O(1) uniqueness)
 	configurations    map[string]map[string]*Configuration    // region → configArn → configuration
 	scramSecrets      map[string]map[string][]string          // region → clusterArn → []secretArn
 	replicators       map[string]map[string]*Replicator       // region → replicatorArn → replicator
@@ -394,6 +398,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		clusters:          make(map[string]map[string]*Cluster),
+		clusterNames:      make(map[string]map[string]string),
 		configurations:    make(map[string]map[string]*Configuration),
 		scramSecrets:      make(map[string]map[string][]string),
 		replicators:       make(map[string]map[string]*Replicator),
@@ -422,6 +427,15 @@ func (b *InMemoryBackend) clustersStore(region string) map[string]*Cluster {
 	}
 
 	return b.clusters[region]
+}
+
+// clusterNamesStore returns the name→ARN index for region, lazily creating it.
+func (b *InMemoryBackend) clusterNamesStore(region string) map[string]string {
+	if b.clusterNames[region] == nil {
+		b.clusterNames[region] = make(map[string]string)
+	}
+
+	return b.clusterNames[region]
 }
 
 // configurationsStore returns the configuration map for region, lazily creating it.
@@ -493,6 +507,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.clusters = make(map[string]map[string]*Cluster)
+	b.clusterNames = make(map[string]map[string]string)
 	b.configurations = make(map[string]map[string]*Configuration)
 	b.scramSecrets = make(map[string]map[string][]string)
 	b.replicators = make(map[string]map[string]*Replicator)
@@ -572,15 +587,27 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
 	}
 
+	if numBrokers < 1 {
+		return nil, fmt.Errorf("numberOfBrokerNodes must be at least 1: %w", ErrValidation)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
+	names := b.clusterNamesStore(region)
+	if _, ok := names[name]; ok {
+		return nil, ErrAlreadyExists
+	}
+
 	clusters := b.clustersStore(region)
-	for _, c := range clusters {
-		if c.ClusterName == name {
-			return nil, ErrAlreadyExists
+	if len(clusters) >= maxClustersPerRegion {
+		for evictArn, evicted := range clusters {
+			delete(clusters, evictArn)
+			delete(names, evicted.ClusterName)
+
+			break
 		}
 	}
 
@@ -608,11 +635,12 @@ func (b *InMemoryBackend) CreateCluster(
 		NumberOfBrokerNodes:  numBrokers,
 		BrokerNodeGroupInfo:  safeInfo,
 		ClientAuthentication: cloneClientAuth(clientAuth),
-		State:                ClusterStateActive,
+		State:                ClusterStateCreating,
 		CurrentVersion:       DefaultClusterVersion,
 		Tags:                 nonNilTagsCopy(tags),
 	}
 	clusters[clusterArn] = cluster
+	names[name] = clusterArn
 
 	return cloneCluster(cluster), nil
 }
@@ -633,10 +661,18 @@ func (b *InMemoryBackend) CreateServerlessCluster(
 	b.mu.Lock("CreateServerlessCluster")
 	defer b.mu.Unlock()
 
+	names := b.clusterNamesStore(region)
+	if _, ok := names[name]; ok {
+		return nil, ErrAlreadyExists
+	}
+
 	clusters := b.clustersStore(region)
-	for _, c := range clusters {
-		if c.ClusterName == name {
-			return nil, ErrAlreadyExists
+	if len(clusters) >= maxClustersPerRegion {
+		for evictArn, evicted := range clusters {
+			delete(clusters, evictArn)
+			delete(names, evicted.ClusterName)
+
+			break
 		}
 	}
 
@@ -645,26 +681,34 @@ func (b *InMemoryBackend) CreateServerlessCluster(
 		ClusterArn:     clusterArn,
 		ClusterName:    name,
 		ClusterType:    ClusterTypeServerless,
-		State:          ClusterStateActive,
+		State:          ClusterStateCreating,
 		CurrentVersion: DefaultClusterVersion,
 		Tags:           nonNilTagsCopy(tags),
 		Serverless:     cloneServerless(serverless),
 	}
 	clusters[clusterArn] = cluster
+	names[name] = clusterArn
 
 	return cloneCluster(cluster), nil
 }
 
-// DescribeCluster retrieves a cluster by ARN.
+// DescribeCluster retrieves a cluster by ARN, advancing CREATING→ACTIVE on first poll.
 func (b *InMemoryBackend) DescribeCluster(ctx context.Context, clusterArn string) (*Cluster, error) {
 	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
 
-	b.mu.RLock("DescribeCluster")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeCluster")
+	defer b.mu.Unlock()
 
 	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if c.State == ClusterStateCreating {
+		c.pollCount++
+		if c.pollCount >= 1 {
+			c.State = ClusterStateActive
+		}
 	}
 
 	return cloneCluster(c), nil
@@ -705,11 +749,13 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, clusterArn string) 
 	defer b.mu.Unlock()
 
 	clusters := b.clustersStore(region)
-	if _, ok := clusters[clusterArn]; !ok {
+	existing, ok := clusters[clusterArn]
+	if !ok {
 		return ErrNotFound
 	}
 
 	delete(clusters, clusterArn)
+	delete(b.clusterNamesStore(region), existing.ClusterName)
 	delete(b.scramSecretsStore(region), clusterArn)
 	delete(b.clusterPoliciesStore(region), clusterArn)
 
@@ -2140,6 +2186,7 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 		Tags:                make(map[string]string),
 	}
 	b.clustersStore(b.region)[clusterArn] = cluster
+	b.clusterNamesStore(b.region)[name] = clusterArn
 
 	return cloneCluster(cluster)
 }

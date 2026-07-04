@@ -161,14 +161,14 @@ func TestDescribeClusters_DeepCopy(t *testing.T) {
 	_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin")
 	require.NoError(t, err)
 
-	clusters, err := b.DescribeClusters("")
+	clusters, _, err := b.DescribeClusters("", "", 0)
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 
 	// Modifying the returned slice should not affect the backend
 	clusters[0].ClusterIdentifier = "mutated"
 
-	clusters2, err := b.DescribeClusters("")
+	clusters2, _, err := b.DescribeClusters("", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "c1", clusters2[0].ClusterIdentifier, "backend should not be mutated by caller")
 }
@@ -317,11 +317,11 @@ func TestPersistence_RoundTrip(t *testing.T) {
 	)
 	b1.AddActiveResizeInternal("p-cluster", &redshift.ResizeProgress{Status: "IN_PROGRESS", AllowCancelResize: true})
 
-	data := b1.Snapshot()
+	data := b1.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := redshift.NewInMemoryBackend("", "")
-	err = b2.Restore(data)
+	err = b2.Restore(t.Context(), data)
 	require.NoError(t, err)
 
 	assert.Equal(t, "123456789012", b2.AccountID())

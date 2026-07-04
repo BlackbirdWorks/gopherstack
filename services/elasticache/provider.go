@@ -1,9 +1,13 @@
 package elasticache
 
 import (
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"errors"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+var ErrNilContext = errors.New("nil context")
 
 // EngineConfig is the interface for accessing the ElastiCache engine mode configuration (embedded, stub, or docker).
 type EngineConfig interface {
@@ -20,20 +24,21 @@ func (p *Provider) Name() string { return "ElastiCache" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
-	engineMode := EngineEmbedded
-	accountID := config.DefaultAccountID
-	region := config.DefaultRegion
-
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
+	if ctx == nil {
+		return nil, ErrNilContext
 	}
+	engineMode := EngineEmbedded
+	accountID, region := service.AccountRegionOrDefault(ctx)
+
 	if ec, ok := ctx.Config.(EngineConfig); ok {
 		engineMode = ec.GetElastiCacheEngine()
 	}
 
-	backend := NewInMemoryBackend(engineMode, accountID, region)
+	var allocator *portalloc.Allocator
+	if ctx.PortAlloc != nil {
+		allocator = ctx.PortAlloc
+	}
+	backend := NewInMemoryBackend(engineMode, accountID, region, allocator)
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.Region = region

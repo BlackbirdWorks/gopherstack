@@ -53,6 +53,7 @@ func TestLambda_PushInvocationLog_NonBlocking(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 
 			if tt.cwlDelay > 0 {
 				bk.SetCWLogsBackend(&slowCWLBackend{delay: tt.cwlDelay})

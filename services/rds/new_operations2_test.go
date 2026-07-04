@@ -1066,11 +1066,11 @@ func TestRDSBackend_Persistence_NewOps(t *testing.T) {
 	_, err = b.CreateBlueGreenDeployment("my-bgd", "arn:aws:rds:us-east-1:000000000000:db:my-db")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("", "")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify cluster role persisted.
 	err = b2.AddRoleToDBCluster("pg-cluster", "arn:aws:iam::000000000000:role/MyRole")

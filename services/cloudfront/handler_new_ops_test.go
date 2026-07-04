@@ -340,13 +340,13 @@ func TestNewOps_TrustStore_Persistence(t *testing.T) {
 		`<Items><Tag><Key>env</Key><Value>prod</Value></Tag></Items></Tags>`
 	cfOK(t, h, http.MethodPost, prefix+"tagging?Resource="+arn, tagBody)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	if len(snap) == 0 {
 		t.Fatal("expected non-empty snapshot")
 	}
 
 	restored := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
-	if err := restored.Restore(snap); err != nil {
+	if err := restored.Restore(t.Context(), snap); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}
 	h2 := cloudfront.NewHandler(restored)

@@ -899,7 +899,7 @@ func TestAudit1_GroupingStatusOnUngroup(t *testing.T) {
 	assert.Equal(t, "arn:aws:s3:::nonmember", result.Failed[0].ResourceArn)
 	assert.Equal(t, "RESOURCE_NOT_FOUND", result.Failed[0].ErrorCode)
 
-	statuses, err := b.ListGroupingStatuses(context.Background(), "status-group")
+	statuses, _, err := b.ListGroupingStatuses(context.Background(), "status-group", "", 0)
 	require.NoError(t, err)
 
 	var successCount, failCount int

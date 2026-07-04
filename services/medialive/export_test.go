@@ -106,3 +106,13 @@ func SdiSourceCount(b *InMemoryBackend) int {
 
 	return len(b.sdiSources)
 }
+
+// ForceClusterState sets the state of a cluster directly, for testing purposes.
+func ForceClusterState(b *InMemoryBackend, clusterID, state string) {
+	b.mu.Lock("ForceClusterState")
+	defer b.mu.Unlock()
+
+	if c, ok := b.clusters[clusterID]; ok {
+		c.State = state
+	}
+}

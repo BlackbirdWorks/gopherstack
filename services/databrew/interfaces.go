@@ -59,7 +59,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*Job, error)
 	DescribeJob(ctx context.Context, name string) (*Job, error)
-	ListJobs(ctx context.Context, maxResults int, nextToken string) ([]*Job, string)
+	ListJobs(ctx context.Context, maxResults int, nextToken, datasetName, projectName string) ([]*Job, string)
 	UpdateJob(
 		ctx context.Context,
 		name, roleArn string,

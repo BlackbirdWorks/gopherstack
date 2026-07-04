@@ -351,7 +351,7 @@ func TestHandler_TagOperations(t *testing.T) {
 		{
 			name:       "tag_resource",
 			op:         "tag",
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "untag_resource",

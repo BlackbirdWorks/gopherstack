@@ -27,7 +27,8 @@ const (
 )
 
 const (
-	endpointCachePeriodMinutes = 60
+	// endpointCachePeriodMinutes matches the real AWS DescribeEndpoints response.
+	endpointCachePeriodMinutes = 1440
 	// defaultTimestreamMaxResults is the default page size when MaxResults is not specified.
 	defaultTimestreamMaxResults = 100
 )
@@ -60,6 +61,8 @@ const (
 	maxMagneticRetentionDays = 73000
 	// maxDimensionsPerRecord is the maximum number of dimensions allowed per record per the AWS API.
 	maxDimensionsPerRecord = 128
+	// minDatabaseNameLength is the minimum length for a Timestream database name per the AWS API.
+	minDatabaseNameLength = 3
 )
 
 // resourceNameRE is the allowed character set for Timestream database and table names per the
@@ -87,9 +90,16 @@ func isValidTimeUnit(v string) bool {
 }
 
 // validateDatabaseName validates a Timestream database name against AWS length and format
-// constraints. The name must be non-empty, at most 64 characters, and contain only
-// alphanumeric characters, hyphens, underscores, or dots.
+// constraints. The name must be 3–64 characters and contain only alphanumeric characters,
+// hyphens, underscores, or dots.
 func validateDatabaseName(name string) error {
+	if len(name) < minDatabaseNameLength {
+		return fmt.Errorf(
+			"%w: DatabaseName %q must be at least %d characters long",
+			errInvalidRequest, name, minDatabaseNameLength,
+		)
+	}
+
 	if len(name) > maxDatabaseNameLen {
 		return fmt.Errorf(
 			"%w: DatabaseName %q must be at most %d characters long",
@@ -231,6 +241,13 @@ func validateSchemaPartitionKeys(sc *schemaInput) error {
 // validateRecord validates an individual WriteRecords record against AWS constraints.
 // Validation runs on the merged record (after CommonAttributes is applied).
 func validateRecord(r recordInput, idx int) error {
+	if r.MeasureName == "" {
+		return fmt.Errorf(
+			"%w: record[%d] is missing required field MeasureName",
+			errInvalidRequest, idx,
+		)
+	}
+
 	if r.MeasureValueType != "" && !isValidMeasureValueType(r.MeasureValueType) {
 		return fmt.Errorf(
 			"%w: record[%d] has invalid MeasureValueType %q; valid: DOUBLE, BIGINT, BOOLEAN, VARCHAR, TIMESTAMP, MULTI",
@@ -252,6 +269,38 @@ func validateRecord(r recordInput, idx int) error {
 			"%w: record[%d] has %d dimensions; maximum allowed is %d",
 			errInvalidRequest, idx, len(r.Dimensions), maxDimensionsPerRecord,
 		)
+	}
+
+	for di, d := range r.Dimensions {
+		if d.Name == "" {
+			return fmt.Errorf(
+				"%w: record[%d] dimension[%d] has empty Name",
+				errInvalidRequest, idx, di,
+			)
+		}
+
+		if d.Value == "" {
+			return fmt.Errorf(
+				"%w: record[%d] dimension[%d] has empty Value",
+				errInvalidRequest, idx, di,
+			)
+		}
+	}
+
+	if r.MeasureValueType == "MULTI" {
+		if len(r.MeasureValues) == 0 {
+			return fmt.Errorf(
+				"%w: record[%d] with MeasureValueType MULTI must have non-empty MeasureValues",
+				errInvalidRequest, idx,
+			)
+		}
+
+		if r.MeasureValue != "" {
+			return fmt.Errorf(
+				"%w: record[%d] with MeasureValueType MULTI must not set MeasureValue",
+				errInvalidRequest, idx,
+			)
+		}
 	}
 
 	return nil
@@ -1475,6 +1524,10 @@ func (h *Handler) handleCreateBatchLoadTask(
 ) (*createBatchLoadTaskOutput, error) {
 	if in.TargetDatabaseName == "" || in.TargetTableName == "" {
 		return nil, fmt.Errorf("%w: TargetDatabaseName and TargetTableName are required", errInvalidRequest)
+	}
+
+	if in.DataSourceConfiguration == nil {
+		return nil, fmt.Errorf("%w: DataSourceConfiguration is required", errInvalidRequest)
 	}
 
 	var dataSourceCfg *DataSourceConfiguration

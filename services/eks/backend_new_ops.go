@@ -333,7 +333,7 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 		ClusterName: clusterName,
 		Name:        name,
 		Type:        configType,
-		Status:      statusActive,
+		Status:      statusCreating,
 		OIDC:        params,
 		CreatedAt:   time.Now().UTC(),
 		Tags:        t,
@@ -428,13 +428,23 @@ func (b *InMemoryBackend) CreateAddon(
 			Issues: []map[string]string{},
 		},
 		ServiceAccountRoleARN: serviceAccountRoleARN,
-		Status:                statusActive,
+		Status:                statusCreating,
 		CreatedAt:             time.Now().UTC(),
 		Tags:                  t,
 		Configuration:         configuration,
 		ResolveConflicts:      resolveConflicts,
 	}
 	b.addons[clusterName][addonName] = addon
+
+	b.work.After("AddonTransition", addonTransitionDelay, func() {
+		b.mu.Lock("CreateAddon-async")
+		defer b.mu.Unlock()
+
+		if a, ok := b.addons[clusterName][addonName]; ok && a.Status == statusCreating {
+			a.Status = statusActive
+		}
+	})
+
 	cp := *addon
 
 	return &cp, nil
@@ -541,13 +551,23 @@ func (b *InMemoryBackend) CreateFargateProfile(
 		FargateProfileName:  profileName,
 		ARN:                 profileARN,
 		PodExecutionRoleARN: podExecutionRoleARN,
-		Status:              statusActive,
+		Status:              statusCreating,
 		Selectors:           sels,
 		Subnets:             cloneStrings(subnets),
 		CreatedAt:           time.Now().UTC(),
 		Tags:                t,
 	}
 	b.fargateProfiles[clusterName][profileName] = profile
+
+	b.work.After("FargateProfileTransition", fargateProfileTransitionDelay, func() {
+		b.mu.Lock("CreateFargateProfile-async")
+		defer b.mu.Unlock()
+
+		if fp, ok := b.fargateProfiles[clusterName][profileName]; ok && fp.Status == statusCreating {
+			fp.Status = statusActive
+		}
+	})
+
 	cp := *profile
 	cp.Selectors = make([]FargateProfileSelector, len(profile.Selectors))
 	copy(cp.Selectors, profile.Selectors)

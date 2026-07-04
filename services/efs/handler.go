@@ -750,8 +750,11 @@ func fsToResponse(fs *FileSystem) map[string]any {
 		keyTags:                tagsToEntries(fs.Tags.Clone()),
 		"CreationTime":         float64(fs.CreationTime.Unix()),
 		"SizeInBytes": map[string]any{
-			"Value":     0,
-			"Timestamp": float64(fs.CreationTime.Unix()),
+			"Value":           0,
+			"ValueInIA":       0,
+			"ValueInStandard": 0,
+			"ValueInArchive":  0,
+			"Timestamp":       float64(fs.CreationTime.Unix()),
 		},
 		"FileSystemProtection": map[string]any{
 			"ReplicationOverwriteProtection": fs.ReplicationOverwriteProtection,
@@ -846,6 +849,36 @@ func describeListResponse[T any](
 }
 
 func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID string) error {
+	// AccessPointId is a mutually exclusive filter: resolve it to the file system
+	// the access point belongs to, then list mount targets for that file system.
+	if apID := c.Request().URL.Query().Get("AccessPointId"); apID != "" {
+		ctx := h.contextWithRegion(c)
+		aps, _, err := h.Backend.DescribeAccessPoints(ctx, "", apID, "", 1)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+		if len(aps) == 0 {
+			return h.handleError(c, ErrAccessPointNotFound)
+		}
+		fsID := aps[0].FileSystemID
+		marker := c.Request().URL.Query().Get("Marker")
+		maxItems := queryInt(c, "MaxItems", defaultMaxItems)
+		results, nextMarker, err := h.Backend.DescribeMountTargets(ctx, fsID, "", marker, maxItems)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+		items := make([]map[string]any, 0, len(results))
+		for _, mt := range results {
+			items = append(items, mtToResponse(mt))
+		}
+		resp := map[string]any{"MountTargets": items}
+		if nextMarker != "" {
+			resp["NextMarker"] = nextMarker
+		}
+
+		return c.JSON(http.StatusOK, resp)
+	}
+
 	return describeListResponse(
 		c, h,
 		h.Backend.DescribeMountTargets, mtToResponse,
@@ -864,6 +897,7 @@ func (h *Handler) handleDeleteMountTarget(c *echo.Context, mountTargetID string)
 func mtToResponse(mt *MountTarget) map[string]any {
 	resp := map[string]any{
 		"MountTargetId":        mt.MountTargetID,
+		"MountTargetArn":       mt.MountTargetArn,
 		keyFileSystemID:        mt.FileSystemID,
 		"SubnetId":             mt.SubnetID,
 		keyLifeCycleState:      mt.LifeCycleState,
@@ -1093,6 +1127,7 @@ func rcToResponse(rc *ReplicationConfiguration) map[string]any {
 		"OriginalSourceFileSystemArn": rc.OriginalSourceFileSystemARN,
 		"SourceFileSystemArn":         rc.SourceFileSystemARN,
 		"SourceFileSystemId":          rc.SourceFileSystemID,
+		"SourceFileSystemOwnerId":     rc.SourceFileSystemOwnerID,
 		"SourceFileSystemRegion":      rc.SourceFileSystemRegion,
 		"CreationTime":                rc.CreationTime,
 		"Destinations":                rc.Destinations,

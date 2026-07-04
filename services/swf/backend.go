@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -35,6 +36,8 @@ var (
 	ErrTooManyTags = awserr.New("TooManyTagsFault", awserr.ErrInvalidParameter)
 	// ErrOperationNotPermitted is returned for disallowed operations.
 	ErrOperationNotPermitted = awserr.New("OperationNotPermittedFault", awserr.ErrConflict)
+	// ErrWorkflowAlreadyStarted is returned when a workflow is already open.
+	ErrWorkflowAlreadyStarted = awserr.New("WorkflowExecutionAlreadyStartedFault", awserr.ErrAlreadyExists)
 )
 
 const (
@@ -52,6 +55,7 @@ const (
 	statusContinuedAsNew = "CONTINUED_AS_NEW"
 
 	defaultAccountID = "123456789012"
+	defaultRegion    = "us-east-1"
 	maxTags          = 50
 	maxTagKeyLen     = 128
 	maxTagValueLen   = 256
@@ -189,6 +193,7 @@ type Domain struct {
 	Name                                   string `json:"name"`
 	Description                            string `json:"description"`
 	Status                                 string `json:"status"` // REGISTERED or DEPRECATED
+	Arn                                    string `json:"arn,omitempty"`
 	WorkflowExecutionRetentionPeriodInDays string `json:"workflowExecutionRetentionPeriodInDays"`
 }
 
@@ -389,7 +394,7 @@ func (b *InMemoryBackend) AccountID() string { return defaultAccountID }
 
 // domainARN constructs the SWF ARN for a domain.
 func domainARN(region, account, name string) string {
-	return fmt.Sprintf("arn:aws:swf:%s:%s:/domain/%s", region, account, name)
+	return arn.Build("swf", region, account, fmt.Sprintf("/domain/%s", name))
 }
 
 // validateChildPolicy returns an error if policy is not a valid SWF child policy.
@@ -532,6 +537,7 @@ func (b *InMemoryBackend) RegisterDomain(name, description, retention string) er
 		Name:                                   name,
 		Description:                            description,
 		Status:                                 statusRegistered,
+		Arn:                                    domainARN(defaultRegion, defaultAccountID, name),
 		WorkflowExecutionRetentionPeriodInDays: retention,
 	}
 
@@ -599,7 +605,7 @@ func (b *InMemoryBackend) UndeprecateDomain(name string) error {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 	if d.Status == statusRegistered {
-		return fmt.Errorf("%w: domain %s is not deprecated", ErrValidation, name)
+		return fmt.Errorf("%w: %s", ErrAlreadyExists, name)
 	}
 	d.Status = statusRegistered
 
@@ -722,30 +728,9 @@ func (b *InMemoryBackend) UndeprecateWorkflowType(domain, name, version string) 
 		return fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
 	}
 	if wt.Status == statusRegistered {
-		return fmt.Errorf("%w: workflow type %s/%s is not deprecated", ErrValidation, name, version)
+		return fmt.Errorf("%w: workflow type %s/%s", ErrTypeAlreadyExists, name, version)
 	}
 	wt.Status = statusRegistered
-
-	return nil
-}
-
-// DeleteWorkflowType removes a deprecated workflow type.
-func (b *InMemoryBackend) DeleteWorkflowType(domain, name, version string) error {
-	b.mu.Lock("DeleteWorkflowType")
-	defer b.mu.Unlock()
-
-	key := domain + ":" + name + ":" + version
-	wt, ok := b.workflows[key]
-	if !ok {
-		return fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
-	}
-	if wt.Status != statusDeprecated {
-		return fmt.Errorf(
-			"%w: workflow type %s/%s must be deprecated before deletion",
-			ErrTypeDeprecated, name, version,
-		)
-	}
-	delete(b.workflows, key)
 
 	return nil
 }
@@ -869,30 +854,9 @@ func (b *InMemoryBackend) UndeprecateActivityType(domain, name, version string) 
 		return fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
 	}
 	if at.Status == statusRegistered {
-		return fmt.Errorf("%w: activity type %s/%s is not deprecated", ErrValidation, name, version)
+		return fmt.Errorf("%w: activity type %s/%s", ErrTypeAlreadyExists, name, version)
 	}
 	at.Status = statusRegistered
-
-	return nil
-}
-
-// DeleteActivityType removes a deprecated activity type.
-func (b *InMemoryBackend) DeleteActivityType(domain, name, version string) error {
-	b.mu.Lock("DeleteActivityType")
-	defer b.mu.Unlock()
-
-	key := domain + ":" + name + ":" + version
-	at, ok := b.activities[key]
-	if !ok {
-		return fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
-	}
-	if at.Status != statusDeprecated {
-		return fmt.Errorf(
-			"%w: activity type %s/%s must be deprecated before deletion",
-			ErrTypeDeprecated, name, version,
-		)
-	}
-	delete(b.activities, key)
 
 	return nil
 }
@@ -1113,6 +1077,11 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 
 	key := input.Domain + ":" + input.WorkflowID
 
+	// Reject if there is already an open (RUNNING) execution for this workflowId.
+	if existing, exists := b.executions[key]; exists && existing.Status == statusRunning {
+		return nil, fmt.Errorf("%w: %s", ErrWorkflowAlreadyStarted, input.WorkflowID)
+	}
+
 	if _, exists := b.executions[key]; !exists {
 		b.executionOrder = append(b.executionOrder, key)
 		if len(b.executionOrder) >= maxWorkflowExecutions {
@@ -1180,7 +1149,7 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(
 		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
 	if exec.Status != statusRunning {
-		return fmt.Errorf("%w: execution %s/%s is not running", ErrValidation, domain, workflowID)
+		return fmt.Errorf("%w: execution %s/%s is not open", ErrNotFound, domain, workflowID)
 	}
 	if runID != "" && exec.RunID != runID {
 		return fmt.Errorf(
@@ -1680,6 +1649,8 @@ func (b *InMemoryBackend) RespondDecisionTaskCompleted(
 
 // processDecisionLocked applies a single decision to an execution.
 // Caller must hold the write lock.
+//
+//nolint:cyclop,funlen // 12 SWF decision types; cannot reduce without artificial splitting
 func (b *InMemoryBackend) processDecisionLocked(domain, workflowID string, exec *WorkflowExecution, d Decision) {
 	now := float64(time.Now().UnixMilli()) / milliDivisor
 
@@ -1759,6 +1730,42 @@ func (b *InMemoryBackend) processDecisionLocked(domain, workflowID string, exec 
 			WorkflowID:       workflowID,
 			RunID:            exec.RunID,
 			ScheduledEventID: scheduledEventID,
+		})
+
+	case "RequestCancelActivityTask":
+		b.appendHistoryEventLocked(domain, workflowID, "ActivityTaskCancelRequested", map[string]any{
+			eventAttrKey("ActivityTaskCancelRequested"): map[string]any{},
+		})
+
+	case "StartTimer":
+		b.appendHistoryEventLocked(domain, workflowID, "TimerStarted", map[string]any{
+			eventAttrKey("TimerStarted"): map[string]any{},
+		})
+
+	case "CancelTimer":
+		b.appendHistoryEventLocked(domain, workflowID, "TimerCanceled", map[string]any{
+			eventAttrKey("TimerCanceled"): map[string]any{},
+		})
+
+	case "RecordMarker":
+		b.appendHistoryEventLocked(domain, workflowID, "MarkerRecorded", map[string]any{
+			eventAttrKey("MarkerRecorded"): map[string]any{},
+		})
+
+	case "StartChildWorkflowExecution":
+		b.appendHistoryEventLocked(domain, workflowID, "StartChildWorkflowExecutionInitiated", map[string]any{
+			eventAttrKey("StartChildWorkflowExecutionInitiated"): map[string]any{},
+		})
+
+	case "SignalExternalWorkflowExecution":
+		b.appendHistoryEventLocked(domain, workflowID, "SignalExternalWorkflowExecutionInitiated", map[string]any{
+			eventAttrKey("SignalExternalWorkflowExecutionInitiated"): map[string]any{},
+		})
+
+	case "RequestCancelExternalWorkflowExecution":
+		evType := "RequestCancelExternalWorkflowExecutionInitiated"
+		b.appendHistoryEventLocked(domain, workflowID, evType, map[string]any{
+			eventAttrKey(evType): map[string]any{},
 		})
 	}
 }

@@ -263,19 +263,15 @@ func (b *InMemoryBackend) ListThemes(
 
 	start := 0
 	if nextToken != "" {
-		for i, t := range all {
-			if t.ThemeID == nextToken {
-				start = i
-
-				break
-			}
+		if off, err := decodePageToken(nextToken); err == nil {
+			start = off
 		}
 	}
 
 	end := start + int(maxResults)
 	var next string
 	if end < len(all) {
-		next = all[end].ThemeID
+		next = encodePageToken(end)
 	} else {
 		end = len(all)
 	}

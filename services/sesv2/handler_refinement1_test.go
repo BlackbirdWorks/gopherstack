@@ -98,11 +98,11 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 	_, err := backend.CreateContactList("my-list", "desc")
 	require.NoError(t, err)
 
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	backend2 := sesv2.NewInMemoryBackend()
-	require.NoError(t, backend2.Restore(snap))
+	require.NoError(t, backend2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, sesv2.ContactListCount(backend2))
 }
@@ -146,8 +146,8 @@ func TestRefinement1_BatchGetMetricData(t *testing.T) {
 
 			for i, r := range results {
 				assert.Equal(t, tt.queries[i].ID, r.ID)
-				assert.Empty(t, r.Timestamps)
-				assert.Empty(t, r.Values)
+				assert.NotEmpty(t, r.Timestamps, "BatchGetMetricData should return synthetic data")
+				assert.NotEmpty(t, r.Values, "BatchGetMetricData should return synthetic data")
 			}
 		})
 	}
@@ -801,11 +801,11 @@ func TestRefinement1_SnapshotRestoreRoundTrip(t *testing.T) {
 
 	backend.AddExportJobInternal("snap-job", "CREATED")
 
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	backend2 := sesv2.NewInMemoryBackend()
-	require.NoError(t, backend2.Restore(snap))
+	require.NoError(t, backend2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, sesv2.IdentityCount(backend2))
 	assert.Equal(t, 1, sesv2.ContactListCount(backend2))
@@ -1099,14 +1099,17 @@ func TestSESv2Backend_SendEmailCap(t *testing.T) {
 
 	b := sesv2.NewInMemoryBackend()
 
+	_, err := b.CreateEmailIdentity("a@example.com", "", nil)
+	require.NoError(t, err)
+
 	// Send beyond 2x the cap so the amortized compaction path runs at least
 	// once. After compaction the slice length must stay between
 	// maxRetainedEmails and 2*maxRetainedEmails.
 	total := sesv2.EmailCompactionHighWater + 5
 	for i := range total {
-		_, err := b.SendEmail("a@example.com", []string{"b@example.com"},
+		_, sendErr := b.SendEmail("a@example.com", []string{"b@example.com"},
 			"s", "h", "t")
-		require.NoError(t, err, "iteration %d", i)
+		require.NoError(t, sendErr, "iteration %d", i)
 	}
 
 	got := sesv2.EmailCount(b)

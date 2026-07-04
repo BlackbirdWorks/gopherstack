@@ -1,6 +1,7 @@
 package apigatewayv2
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
@@ -11,10 +12,28 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-func applyDomainNameDefaults(in []DomainNameConfiguration, domain string) []DomainNameConfiguration {
+// defaultRegion is used for ARNs and execute-api endpoints when the request
+// context carries no region (e.g. an unsigned request).
+const defaultRegion = "us-east-1"
+
+// regionFromCtx returns the request-scoped region from the ctxbag, falling back
+// to the service default so endpoints/ARNs are always well-formed.
+func regionFromCtx(ctx context.Context) string {
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
+func applyDomainNameDefaults(
+	in []DomainNameConfiguration,
+	domain, region string,
+) []DomainNameConfiguration {
 	configs := make([]DomainNameConfiguration, len(in))
 	copy(configs, in)
 
@@ -32,7 +51,7 @@ func applyDomainNameDefaults(in []DomainNameConfiguration, domain string) []Doma
 		}
 
 		if configs[i].APIGatewayDomainName == "" {
-			configs[i].APIGatewayDomainName = domain + ".execute-api.us-east-1.amazonaws.com"
+			configs[i].APIGatewayDomainName = domain + ".execute-api." + region + ".amazonaws.com"
 		}
 
 		if configs[i].HostedZoneID == "" {
@@ -48,10 +67,71 @@ const (
 	apiIDLength = 10
 
 	authorizerTypeJWT     = "JWT"
+	authorizerTypeRequest = "REQUEST"
 	authorizationTypeNone = "NONE"
-	protocolTypeHTTP      = "HTTP"
-	integrationTypeHTTP   = "HTTP"
+	// authorizationTypeCustom is the route AuthorizationType for a Lambda
+	// (REQUEST-type) authorizer.
+	authorizationTypeCustom = "CUSTOM"
+	// authorizationTypeAWSIAM is the route AuthorizationType requiring SigV4.
+	authorizationTypeAWSIAM = "AWS_IAM"
+	protocolTypeHTTP        = "HTTP"
+	integrationTypeHTTP     = "HTTP"
+
+	integrationTimeoutMin = int32(50)
+	integrationTimeoutMax = int32(29000)
 )
+
+// validRouteAuthorizationType reports whether t is a valid route AuthorizationType
+// for API Gateway v2 (the AWS-modeled enum: NONE, AWS_IAM, JWT, CUSTOM).
+func validRouteAuthorizationType(t string) bool {
+	switch t {
+	case authorizationTypeNone, authorizationTypeAWSIAM, authorizerTypeJWT, authorizationTypeCustom:
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidHTTPRouteKeyMethod reports whether method is accepted in an HTTP API route key.
+func isValidHTTPRouteKeyMethod(method string) bool {
+	switch method {
+	case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "ANY":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateHTTPRouteKey returns ErrBadRequest if key is invalid for an HTTP API.
+// Valid forms: "$default" or "METHOD /path" (e.g. "GET /items").
+func validateHTTPRouteKey(key string) error {
+	if key == "$default" {
+		return nil
+	}
+
+	const maxParts = 2
+	parts := strings.SplitN(key, " ", maxParts)
+	if len(parts) != maxParts || !isValidHTTPRouteKeyMethod(parts[0]) || !strings.HasPrefix(parts[1], "/") {
+		return fmt.Errorf(
+			"%w: routeKey must be $default or start with a valid HTTP method and a forward slash, e.g. GET /items",
+			ErrBadRequest,
+		)
+	}
+
+	return nil
+}
+
+// validateTimeoutInMillis returns ErrBadRequest if ms is outside [50, 29000].
+func validateTimeoutInMillis(ms int32) error {
+	if ms < integrationTimeoutMin || ms > integrationTimeoutMax {
+		return fmt.Errorf(
+			"%w: timeoutInMillis must be between %d and %d",
+			ErrBadRequest, integrationTimeoutMin, integrationTimeoutMax,
+		)
+	}
+
+	return nil
+}
 
 var (
 	// ErrAPINotFound is returned when a requested API does not exist.
@@ -94,10 +174,16 @@ var (
 	ErrRoutingRuleNotFound = errors.New("NotFoundException")
 )
 
+const (
+	// IntegrationTypeAWSProxy is the AWS_PROXY integration type.
+	IntegrationTypeAWSProxy = "AWS_PROXY"
+	// integrationTypeHTTPProxy ("HTTP_PROXY") is declared in http_proxy.go.
+)
+
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
 type StorageBackend interface {
 	// APIs
-	CreateAPI(input CreateAPIInput) (*API, error)
+	CreateAPI(ctx context.Context, input CreateAPIInput) (*API, error)
 	GetAPI(apiID string) (*API, error)
 	GetAPIs() ([]API, error)
 	DeleteAPI(apiID string) error
@@ -138,7 +224,7 @@ type StorageBackend interface {
 	UpdateAuthorizer(apiID, authorizerID string, input UpdateAuthorizerInput) (*Authorizer, error)
 
 	// Domain Names
-	CreateDomainName(input CreateDomainNameInput) (*DomainName, error)
+	CreateDomainName(ctx context.Context, input CreateDomainNameInput) (*DomainName, error)
 
 	// API Mappings
 	CreateAPIMapping(domainName string, input CreateAPIMappingInput) (*APIMapping, error)
@@ -178,7 +264,11 @@ type StorageBackend interface {
 	DeleteVpcLink(vpcLinkID string) error
 
 	// Routing rules
-	CreateRoutingRule(domainName string, input CreateRoutingRuleInput) (*RoutingRule, error)
+	CreateRoutingRule(
+		ctx context.Context,
+		domainName string,
+		input CreateRoutingRuleInput,
+	) (*RoutingRule, error)
 	GetRoutingRule(domainName, routingRuleID string) (*RoutingRule, error)
 	ListRoutingRules(domainName string) ([]RoutingRule, error)
 	PutRoutingRule(domainName, routingRuleID string, input PutRoutingRuleInput) (*RoutingRule, error)
@@ -395,7 +485,7 @@ func randomID() string {
 // --- APIs ---
 
 // CreateAPI creates a new HTTP API.
-func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
+func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (*API, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrBadRequest)
 	}
@@ -403,7 +493,7 @@ func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
 	b.mu.Lock("CreateAPI")
 	defer b.mu.Unlock()
 
-	validProtocols := map[string]bool{protocolTypeHTTP: true, "WEBSOCKET": true}
+	validProtocols := map[string]bool{protocolTypeHTTP: true, protocolTypeWebSocket: true}
 	if !validProtocols[input.ProtocolType] {
 		return nil, fmt.Errorf("%w: protocolType must be HTTP or WEBSOCKET", ErrBadRequest)
 	}
@@ -411,10 +501,20 @@ func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
 	// Apply AWS-realistic default RouteSelectionExpression when not provided.
 	rse := input.RouteSelectionExpression
 	if rse == "" {
-		if input.ProtocolType == "WEBSOCKET" {
+		if input.ProtocolType == protocolTypeWebSocket {
 			rse = "$request.body.action"
 		} else {
 			rse = "${request.method} ${request.path}"
+		}
+	}
+
+	// Apply AWS-realistic default APIKeySelectionExpression when not provided.
+	keySelExpr := input.APIKeySelectionExpression
+	if keySelExpr == "" {
+		if input.ProtocolType == protocolTypeWebSocket {
+			keySelExpr = "$context.authorizer.usageIdentifierKey"
+		} else {
+			keySelExpr = "$request.header.x-api-key"
 		}
 	}
 
@@ -427,9 +527,9 @@ func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
 		RouteSelectionExpression:  rse,
 		Version:                   input.Version,
 		Tags:                      copyTags(input.Tags),
-		APIEndpoint:               "https://" + id + ".execute-api.us-east-1.amazonaws.com",
+		APIEndpoint:               "https://" + id + ".execute-api." + regionFromCtx(ctx) + ".amazonaws.com",
 		CreatedDate:               isoTime{time.Now()},
-		APIKeySelectionExpression: input.APIKeySelectionExpression,
+		APIKeySelectionExpression: keySelExpr,
 		DisableSchemaValidation:   input.DisableSchemaValidation,
 		DisableExecuteAPIEndpoint: input.DisableExecuteAPIEndpoint,
 	}
@@ -732,6 +832,12 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		return nil, fmt.Errorf("%w: routeKey is required", ErrBadRequest)
 	}
 
+	if d.api.ProtocolType == protocolTypeHTTP {
+		if err := validateHTTPRouteKey(input.RouteKey); err != nil {
+			return nil, err
+		}
+	}
+
 	for _, existing := range d.routes {
 		if existing.RouteKey == input.RouteKey {
 			return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
@@ -743,8 +849,19 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		authType = authorizationTypeNone
 	}
 
-	if authType == authorizerTypeJWT && input.AuthorizerID == "" {
-		return nil, fmt.Errorf("%w: authorizerId is required for JWT authorization", ErrBadRequest)
+	if !validRouteAuthorizationType(authType) {
+		return nil, fmt.Errorf(
+			"%w: authorizationType must be one of NONE, AWS_IAM, JWT, CUSTOM", ErrBadRequest,
+		)
+	}
+
+	if (authType == authorizerTypeJWT || authType == authorizationTypeCustom) && input.AuthorizerID == "" {
+		return nil, fmt.Errorf("%w: authorizerId is required for %s authorization", ErrBadRequest, authType)
+	}
+
+	authScopes := input.AuthorizationScopes
+	if authScopes == nil {
+		authScopes = []string{}
 	}
 
 	id := randomID()
@@ -759,9 +876,12 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		ModelSelectionExpression: input.ModelSelectionExpression,
 		RequestModels:            input.RequestModels,
 		RequestParameters:        input.RequestParameters,
+		AuthorizationScopes:      authScopes,
+		APIKeyRequired:           input.APIKeyRequired,
 	}
 
 	d.routes[id] = route
+	b.autoDeployLocked(d)
 
 	cp := *route
 
@@ -826,6 +946,50 @@ func (b *InMemoryBackend) DeleteRoute(apiID, routeID string) error {
 
 	delete(d.routes, routeID)
 	delete(d.routeResponses, routeID)
+	b.autoDeployLocked(d)
+
+	return nil
+}
+
+// setRouteKey validates newKey for protocolType and ensures it is not a duplicate
+// among routes (excluding the route being updated), then sets r.RouteKey.
+func setRouteKey(r *Route, routes map[string]*Route, routeID, newKey, protocolType string) error {
+	if protocolType == protocolTypeHTTP {
+		if err := validateHTTPRouteKey(newKey); err != nil {
+			return err
+		}
+	}
+
+	for id, existing := range routes {
+		if id != routeID && existing.RouteKey == newKey {
+			return fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, newKey)
+		}
+	}
+
+	r.RouteKey = newKey
+
+	return nil
+}
+
+// applyRouteAuthUpdate applies AuthorizationType/AuthorizerID changes from a
+// route update, validating the authorization type against the AWS enum.
+func applyRouteAuthUpdate(r *Route, input UpdateRouteInput) error {
+	if input.AuthorizationType != "" {
+		if !validRouteAuthorizationType(input.AuthorizationType) {
+			return fmt.Errorf(
+				"%w: authorizationType must be one of NONE, AWS_IAM, JWT, CUSTOM", ErrBadRequest,
+			)
+		}
+
+		r.AuthorizationType = input.AuthorizationType
+		if input.AuthorizationType == authorizationTypeNone {
+			r.AuthorizerID = ""
+		}
+	}
+
+	if input.AuthorizerID != "" {
+		r.AuthorizerID = input.AuthorizerID
+	}
 
 	return nil
 }
@@ -846,28 +1010,17 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 	}
 
 	if input.RouteKey != "" {
-		// Check for duplicate route key (excluding the current route).
-		for id, existing := range d.routes {
-			if id != routeID && existing.RouteKey == input.RouteKey {
-				return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
-			}
+		if err := setRouteKey(r, d.routes, routeID, input.RouteKey, d.api.ProtocolType); err != nil {
+			return nil, err
 		}
-		r.RouteKey = input.RouteKey
 	}
 
 	if input.Target != "" {
 		r.Target = input.Target
 	}
 
-	if input.AuthorizationType != "" {
-		r.AuthorizationType = input.AuthorizationType
-		if input.AuthorizationType == authorizationTypeNone {
-			r.AuthorizerID = ""
-		}
-	}
-
-	if input.AuthorizerID != "" {
-		r.AuthorizerID = input.AuthorizerID
+	if err := applyRouteAuthUpdate(r, input); err != nil {
+		return nil, err
 	}
 
 	if input.OperationName != "" {
@@ -885,6 +1038,16 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 	if input.RequestParameters != nil {
 		r.RequestParameters = input.RequestParameters
 	}
+
+	if input.AuthorizationScopes != nil {
+		r.AuthorizationScopes = input.AuthorizationScopes
+	}
+
+	if input.APIKeyRequired != nil {
+		r.APIKeyRequired = *input.APIKeyRequired
+	}
+
+	b.autoDeployLocked(d)
 
 	cp := *r
 
@@ -904,11 +1067,11 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	}
 
 	validTypes := map[string]bool{
-		"AWS":               true,
-		integrationTypeHTTP: true,
-		"MOCK":              true,
-		"AWS_PROXY":         true,
-		"HTTP_PROXY":        true,
+		"AWS":                    true,
+		integrationTypeHTTP:      true,
+		"MOCK":                   true,
+		IntegrationTypeAWSProxy:  true,
+		integrationTypeHTTPProxy: true,
 	}
 	if !validTypes[input.IntegrationType] {
 		return nil, fmt.Errorf(
@@ -919,18 +1082,20 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 
 	// Apply AWS-realistic defaults.
 	payloadFmtVer := input.PayloadFormatVersion
-	if payloadFmtVer == "" && input.IntegrationType == "AWS_PROXY" {
+	if payloadFmtVer == "" && input.IntegrationType == IntegrationTypeAWSProxy {
 		payloadFmtVer = "1.0"
 	}
 
 	passthroughBehavior := input.PassthroughBehavior
-	if passthroughBehavior == "" && input.IntegrationType == "HTTP_PROXY" {
+	if passthroughBehavior == "" && input.IntegrationType == integrationTypeHTTPProxy {
 		passthroughBehavior = "WHEN_NO_MATCH"
 	}
 
 	timeoutMs := input.TimeoutInMillis
 	if timeoutMs == 0 {
-		timeoutMs = 29000
+		timeoutMs = integrationTimeoutMax
+	} else if err := validateTimeoutInMillis(timeoutMs); err != nil {
+		return nil, err
 	}
 
 	id := randomID()
@@ -953,6 +1118,7 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	}
 
 	d.integrations[id] = integration
+	b.autoDeployLocked(d)
 
 	cp := *integration
 
@@ -1017,6 +1183,7 @@ func (b *InMemoryBackend) DeleteIntegration(apiID, integrationID string) error {
 
 	delete(d.integrations, integrationID)
 	delete(d.integrationResponses, integrationID)
+	b.autoDeployLocked(d)
 
 	return nil
 }
@@ -1095,7 +1262,14 @@ func (b *InMemoryBackend) UpdateIntegration(
 		return nil, ErrIntegrationNotFound
 	}
 
+	if input.TimeoutInMillis != 0 {
+		if err := validateTimeoutInMillis(input.TimeoutInMillis); err != nil {
+			return nil, err
+		}
+	}
+
 	applyIntegrationUpdate(i, input)
+	b.autoDeployLocked(d)
 
 	cp := *i
 
@@ -1138,6 +1312,33 @@ func (b *InMemoryBackend) CreateDeployment(apiID string, input CreateDeploymentI
 	cp := *deployment
 
 	return &cp, nil
+}
+
+// autoDeployLocked triggers an automatic deployment for every stage of the API
+// that has AutoDeploy enabled. Real API Gateway v2 creates a fresh deployment
+// and repoints the stage at it whenever a route, integration, or other routing
+// configuration changes on an auto-deploy-enabled stage. The caller must hold
+// b.mu.Lock.
+func (b *InMemoryBackend) autoDeployLocked(d *apiData) {
+	now := isoTime{time.Now()}
+
+	for _, s := range d.stages {
+		if !s.AutoDeploy {
+			continue
+		}
+
+		id := randomID()
+		d.deployments[id] = &Deployment{
+			DeploymentID:     id,
+			APIID:            d.api.APIID,
+			Description:      "Automatic deployment triggered by changes to the Api configuration",
+			DeploymentStatus: "DEPLOYED",
+			AutoDeployed:     true,
+			CreatedDate:      now,
+		}
+		s.DeploymentID = id
+		s.LastUpdatedDate = now
+	}
 }
 
 // GetDeployment retrieves a deployment by ID.
@@ -1383,7 +1584,10 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 // --- Domain Names ---
 
 // CreateDomainName creates a new custom domain name.
-func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*DomainName, error) {
+func (b *InMemoryBackend) CreateDomainName(
+	ctx context.Context,
+	input CreateDomainNameInput,
+) (*DomainName, error) {
 	if input.DomainNameValue == "" {
 		return nil, fmt.Errorf("%w: domainName is required", ErrBadRequest)
 	}
@@ -1397,7 +1601,8 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 
 	domainNameConfigs := []DomainNameConfiguration{}
 	if len(input.DomainNameConfigurations) > 0 {
-		domainNameConfigs = applyDomainNameDefaults(input.DomainNameConfigurations, input.DomainNameValue)
+		domainNameConfigs = applyDomainNameDefaults(
+			input.DomainNameConfigurations, input.DomainNameValue, regionFromCtx(ctx))
 	}
 
 	dn := &DomainName{
@@ -1440,6 +1645,18 @@ func (b *InMemoryBackend) CreateAPIMapping(domainName string, input CreateAPIMap
 
 	if _, stageExists := d.stages[input.Stage]; !stageExists {
 		return nil, ErrStageNotFound
+	}
+
+	// AWS allows only one mapping per (domain, apiMappingKey). The empty key is
+	// the domain's default (base-path) mapping and is itself unique. Reject a
+	// duplicate key with a ConflictException, matching real API Gateway v2.
+	for _, existing := range b.apiMappings[domainName] {
+		if existing.APIMappingKey == input.APIMappingKey {
+			return nil, fmt.Errorf(
+				"%w: an api mapping already exists for the mapping key %q on domain %q",
+				ErrAlreadyExists, input.APIMappingKey, domainName,
+			)
+		}
 	}
 
 	id := randomID()
@@ -1810,7 +2027,11 @@ func (b *InMemoryBackend) DeleteVpcLink(vpcLinkID string) error {
 // --- Routing Rules ---
 
 // CreateRoutingRule creates a routing rule under a domain name.
-func (b *InMemoryBackend) CreateRoutingRule(domainName string, input CreateRoutingRuleInput) (*RoutingRule, error) {
+func (b *InMemoryBackend) CreateRoutingRule(
+	ctx context.Context,
+	domainName string,
+	input CreateRoutingRuleInput,
+) (*RoutingRule, error) {
 	b.mu.Lock("CreateRoutingRule")
 	defer b.mu.Unlock()
 
@@ -1822,12 +2043,13 @@ func (b *InMemoryBackend) CreateRoutingRule(domainName string, input CreateRouti
 	}
 	id := randomID()
 	rule := &RoutingRule{
-		RoutingRuleID:  id,
-		RoutingRuleARN: "arn:aws:apigateway:us-east-1::/domainnames/" + domainName + "/routingrules/" + id,
-		DomainName:     domainName,
-		Priority:       input.Priority,
-		Actions:        input.Actions,
-		Conditions:     input.Conditions,
+		RoutingRuleID: id,
+		RoutingRuleARN: "arn:aws:apigateway:" + regionFromCtx(ctx) +
+			"::/domainnames/" + domainName + "/routingrules/" + id,
+		DomainName: domainName,
+		Priority:   input.Priority,
+		Actions:    input.Actions,
+		Conditions: input.Conditions,
 	}
 	b.routingRules[domainName][id] = rule
 
@@ -2951,6 +3173,9 @@ func (b *InMemoryBackend) DeletePortalProduct(portalProductID string) error {
 	delete(b.portalProducts, portalProductID)
 	delete(b.productPages, portalProductID)
 	delete(b.productREPages, portalProductID)
+	// Clean up the sharing policy entry so deleting a product does not leak its
+	// policy document (AWS removes the associated sharing policy on delete).
+	delete(b.portalProductSharingPolicies, portalProductID)
 
 	return nil
 }
@@ -3158,8 +3383,13 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 			op["summary"] = route.OperationName
 		}
 
-		if route.AuthorizationType != "" && route.AuthorizationType != authorizationTypeNone {
-			op["security"] = []any{map[string]any{route.AuthorizationType: []any{}}}
+		if secName := exportRouteSecurityName(d, route); secName != "" {
+			scopes := route.AuthorizationScopes
+			if scopes == nil {
+				scopes = []string{}
+			}
+
+			op["security"] = []any{map[string]any{secName: scopes}}
 		}
 
 		pathItem[method] = op
@@ -3180,7 +3410,92 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 		"paths":   paths,
 	}
 
+	if schemes := exportSecuritySchemes(d); len(schemes) > 0 {
+		spec["components"] = map[string]any{"securitySchemes": schemes}
+	}
+
 	return spec, nil
+}
+
+// exportRouteSecurityName returns the OpenAPI security-scheme name that a route
+// references, or "" when the route requires no authorization. JWT/CUSTOM routes
+// reference their authorizer by name; AWS_IAM references the "sigv4" scheme.
+func exportRouteSecurityName(d *apiData, route *Route) string {
+	switch route.AuthorizationType {
+	case authorizationTypeAWSIAM:
+		return "sigv4"
+	case authorizerTypeJWT, authorizationTypeCustom:
+		if a, ok := d.authorizers[route.AuthorizerID]; ok {
+			return a.Name
+		}
+
+		return route.AuthorizationType
+	default:
+		return ""
+	}
+}
+
+// exportSecuritySchemes builds the components.securitySchemes block from the
+// API's authorizers and any AWS_IAM routes, mirroring the AWS OpenAPI export
+// (JWT authorizers carry the x-amazon-apigateway-authorizer extension).
+// openAPIKeyType is the OpenAPI/JSON "type" discriminator key used in exported
+// security schemes.
+const openAPIKeyType = "type"
+
+func exportSecuritySchemes(d *apiData) map[string]any {
+	schemes := map[string]any{}
+
+	for _, a := range d.authorizers {
+		if a.AuthorizerType != authorizerTypeJWT {
+			continue
+		}
+
+		schemes[a.Name] = jwtSecurityScheme(a)
+	}
+
+	// Emit a sigv4 scheme when any route uses AWS_IAM authorization.
+	for _, route := range d.routes {
+		if route.AuthorizationType == authorizationTypeAWSIAM {
+			schemes["sigv4"] = map[string]any{
+				openAPIKeyType:                 "apiKey",
+				"name":                         "Authorization",
+				"in":                           "header",
+				"x-amazon-apigateway-authtype": "awsSigv4",
+			}
+
+			break
+		}
+	}
+
+	return schemes
+}
+
+// jwtSecurityScheme builds the OpenAPI securityScheme entry for a JWT authorizer,
+// including the AWS x-amazon-apigateway-authorizer extension.
+func jwtSecurityScheme(a *Authorizer) map[string]any {
+	ext := map[string]any{
+		openAPIKeyType:   "jwt",
+		"identitySource": strings.Join(a.IdentitySource, ","),
+	}
+
+	if a.JwtConfiguration != nil {
+		jwtCfg := map[string]any{}
+		if a.JwtConfiguration.Issuer != "" {
+			jwtCfg["issuer"] = a.JwtConfiguration.Issuer
+		}
+
+		if len(a.JwtConfiguration.Audience) > 0 {
+			jwtCfg["audience"] = a.JwtConfiguration.Audience
+		}
+
+		ext["jwtConfiguration"] = jwtCfg
+	}
+
+	return map[string]any{
+		openAPIKeyType:                   "oauth2",
+		"flows":                          map[string]any{},
+		"x-amazon-apigateway-authorizer": ext,
+	}
 }
 
 // DeleteRouteRequestParameter removes a specific request parameter from a route.

@@ -3,6 +3,7 @@ package s3control
 import (
 	"encoding/xml"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -233,12 +234,16 @@ type listAccessGrantItemXML struct {
 
 type listAccessGrantsResponseXML struct {
 	XMLName      xml.Name                 `xml:"ListAccessGrantsResult"`
+	NextToken    string                   `xml:"NextToken,omitempty"`
 	AccessGrants []listAccessGrantItemXML `xml:"AccessGrantsList>AccessGrant"`
 }
 
 func (h *Handler) handleListAccessGrants(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
-	locationScope := c.Request().URL.Query().Get("locationscope")
+	q := c.Request().URL.Query()
+	locationScope := q.Get("locationscope")
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	grants := h.Backend.ListAccessGrants(accountID, locationScope)
 	items := make([]listAccessGrantItemXML, 0, len(grants))
@@ -250,11 +255,16 @@ func (h *Handler) handleListAccessGrants(c *echo.Context) error {
 		})
 	}
 
-	return writeXML(c, listAccessGrantsResponseXML{AccessGrants: items})
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
+	return writeXML(c, listAccessGrantsResponseXML{AccessGrants: page, NextToken: tok})
 }
 
 func (h *Handler) handleListCallerAccessGrants(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	grants := h.Backend.ListCallerAccessGrants(accountID)
 	items := make([]listAccessGrantItemXML, 0, len(grants))
@@ -265,10 +275,13 @@ func (h *Handler) handleListCallerAccessGrants(c *echo.Context) error {
 		})
 	}
 
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
 	return writeXML(c, struct {
 		XMLName      xml.Name                 `xml:"ListCallerAccessGrantsResult"`
+		NextToken    string                   `xml:"NextToken,omitempty"`
 		AccessGrants []listAccessGrantItemXML `xml:"AccessGrantsList>AccessGrant"`
-	}{AccessGrants: items})
+	}{AccessGrants: page, NextToken: tok})
 }
 
 type getAccessGrantsLocationResponseXML struct {
@@ -341,6 +354,9 @@ type listAccessGrantsLocationItemXML struct {
 
 func (h *Handler) handleListAccessGrantsLocations(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	locs := h.Backend.ListAccessGrantsLocations(accountID)
 	items := make([]listAccessGrantsLocationItemXML, 0, len(locs))
@@ -351,10 +367,13 @@ func (h *Handler) handleListAccessGrantsLocations(c *echo.Context) error {
 		})
 	}
 
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
 	return writeXML(c, struct {
 		XMLName   xml.Name                          `xml:"ListAccessGrantsLocationsResult"`
+		NextToken string                            `xml:"NextToken,omitempty"`
 		Locations []listAccessGrantsLocationItemXML `xml:"AccessGrantsLocationsList>AccessGrantsLocation"`
-	}{Locations: items})
+	}{Locations: page, NextToken: tok})
 }
 
 func (h *Handler) handleGetDataAccess(c *echo.Context) error {
@@ -441,6 +460,9 @@ func (h *Handler) handleDeleteAccessPointScope(c *echo.Context) error {
 
 func (h *Handler) handleListAccessPointsForDirectoryBuckets(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	aps := h.Backend.ListAccessPointsForDirectoryBuckets(accountID)
 	type apItem struct {
@@ -456,10 +478,13 @@ func (h *Handler) handleListAccessPointsForDirectoryBuckets(c *echo.Context) err
 		)
 	}
 
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
 	return writeXML(c, struct {
 		XMLName      xml.Name `xml:"ListAccessPointsForDirectoryBucketsResult"`
+		NextToken    string   `xml:"NextToken,omitempty"`
 		AccessPoints []apItem `xml:"AccessPointList>AccessPoint"`
-	}{AccessPoints: items})
+	}{AccessPoints: page, NextToken: tok})
 }
 
 // ---- Object Lambda Access Points ----
@@ -496,6 +521,9 @@ func (h *Handler) handleDeleteAccessPointForObjectLambda(c *echo.Context) error 
 
 func (h *Handler) handleListAccessPointsForObjectLambda(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	aps := h.Backend.ListAccessPointsForObjectLambda(accountID)
 	type olAPItem struct {
@@ -510,10 +538,13 @@ func (h *Handler) handleListAccessPointsForObjectLambda(c *echo.Context) error {
 		)
 	}
 
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
 	return writeXML(c, struct {
 		XMLName                     xml.Name   `xml:"ListAccessPointsForObjectLambdaResult"`
+		NextToken                   string     `xml:"NextToken,omitempty"`
 		ObjectLambdaAccessPointList []olAPItem `xml:"ObjectLambdaAccessPointList>ObjectLambdaAccessPoint"`
-	}{ObjectLambdaAccessPointList: items})
+	}{ObjectLambdaAccessPointList: page, NextToken: tok})
 }
 
 func (h *Handler) handleGetAccessPointPolicyForObjectLambda(c *echo.Context) error {
@@ -889,6 +920,9 @@ type listRegionalBucketItemXML struct {
 
 func (h *Handler) handleListRegionalBuckets(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	buckets := h.Backend.ListRegionalBuckets(accountID)
 	items := make([]listRegionalBucketItemXML, 0, len(buckets))
@@ -896,10 +930,13 @@ func (h *Handler) handleListRegionalBuckets(c *echo.Context) error {
 		items = append(items, listRegionalBucketItemXML{Bucket: b.Name, BucketArn: b.BucketArn})
 	}
 
+	page, tok := s3cPaginate(items, nextToken, maxResults)
+
 	return writeXML(c, struct {
-		XMLName xml.Name                    `xml:"ListRegionalBucketsResult"`
-		Buckets []listRegionalBucketItemXML `xml:"RegionalBucketList>RegionalBucket"`
-	}{Buckets: items})
+		XMLName   xml.Name                    `xml:"ListRegionalBucketsResult"`
+		NextToken string                      `xml:"NextToken,omitempty"`
+		Buckets   []listRegionalBucketItemXML `xml:"RegionalBucketList>RegionalBucket"`
+	}{Buckets: page, NextToken: tok})
 }
 
 // ---- MRAP ----

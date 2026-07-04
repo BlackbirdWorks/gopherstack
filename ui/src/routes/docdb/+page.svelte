@@ -58,9 +58,9 @@ Copy,
 
 type TabName = 'clusters' | 'instances' | 'snapshots' | 'parametergroups' | 'globalclusters' | 'eventsubscriptions';
 
-let _client: ReturnType<typeof getDocDBClient> | undefined;
+let cachedClient: ReturnType<typeof getDocDBClient> | undefined;
 function client() {
-	return (_client ??= getDocDBClient());
+	return (cachedClient ??= getDocDBClient());
 }
 
 let loading = $state(false);

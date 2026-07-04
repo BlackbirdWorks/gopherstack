@@ -1,10 +1,13 @@
 package apigatewayv2_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
@@ -38,7 +41,7 @@ func TestInMemoryBackend_CreateGetAPI(t *testing.T) {
 
 			b := apigatewayv2.NewInMemoryBackend()
 
-			api, err := b.CreateAPI(tt.input)
+			api, err := b.CreateAPI(context.Background(), tt.input)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantName, api.Name)
 			assert.Equal(t, tt.wantProt, api.ProtocolType)
@@ -90,7 +93,7 @@ func TestInMemoryBackend_GetAPIs(t *testing.T) {
 			b := apigatewayv2.NewInMemoryBackend()
 
 			for _, n := range tt.apiNames {
-				_, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: n, ProtocolType: "HTTP"})
+				_, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: n, ProtocolType: "HTTP"})
 				require.NoError(t, err)
 			}
 
@@ -129,7 +132,10 @@ func TestInMemoryBackend_DeleteAPI(t *testing.T) {
 
 			apiID := tt.apiID
 			if tt.createAPI {
-				api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+				api, err := b.CreateAPI(
+					context.Background(),
+					apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"},
+				)
 				require.NoError(t, err)
 				apiID = api.APIID
 			}
@@ -181,7 +187,10 @@ func TestInMemoryBackend_UpdateAPI(t *testing.T) {
 
 			apiID := "nonexistent"
 			if tt.apiExists {
-				api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "original", ProtocolType: "HTTP"})
+				api, err := b.CreateAPI(
+					context.Background(),
+					apigatewayv2.CreateAPIInput{Name: "original", ProtocolType: "HTTP"},
+				)
 				require.NoError(t, err)
 				apiID = api.APIID
 			}
@@ -225,7 +234,10 @@ func TestInMemoryBackend_Stages(t *testing.T) {
 
 			b := apigatewayv2.NewInMemoryBackend()
 
-			api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+			api, err := b.CreateAPI(
+				context.Background(),
+				apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"},
+			)
 			require.NoError(t, err)
 
 			if tt.wantErr == nil {
@@ -267,7 +279,10 @@ func TestInMemoryBackend_Routes(t *testing.T) {
 
 			b := apigatewayv2.NewInMemoryBackend()
 
-			api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+			api, err := b.CreateAPI(
+				context.Background(),
+				apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"},
+			)
 			require.NoError(t, err)
 
 			route, err := b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: tt.routeKey})
@@ -315,7 +330,10 @@ func TestInMemoryBackend_Integrations(t *testing.T) {
 
 			b := apigatewayv2.NewInMemoryBackend()
 
-			api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+			api, err := b.CreateAPI(
+				context.Background(),
+				apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"},
+			)
 			require.NoError(t, err)
 
 			integration, err := b.CreateIntegration(api.APIID, apigatewayv2.CreateIntegrationInput{
@@ -365,7 +383,10 @@ func TestInMemoryBackend_Deployments(t *testing.T) {
 
 			b := apigatewayv2.NewInMemoryBackend()
 
-			api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+			api, err := b.CreateAPI(
+				context.Background(),
+				apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"},
+			)
 			require.NoError(t, err)
 
 			deployment, err := b.CreateDeployment(api.APIID, apigatewayv2.CreateDeploymentInput{Description: tt.desc})
@@ -420,7 +441,10 @@ func TestInMemoryBackend_Authorizers(t *testing.T) {
 
 			b := apigatewayv2.NewInMemoryBackend()
 
-			api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+			api, err := b.CreateAPI(
+				context.Background(),
+				apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"},
+			)
 			require.NoError(t, err)
 
 			authorizer, err := b.CreateAuthorizer(api.APIID, apigatewayv2.CreateAuthorizerInput{
@@ -461,17 +485,17 @@ func TestInMemoryBackend_Persistence(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test-api", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test-api", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	_, err = b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := apigatewayv2.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	got, err := b2.GetAPI(api.APIID)
 	require.NoError(t, err)
@@ -498,7 +522,7 @@ func TestInMemoryBackend_UpdateStage_AllFields(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	_, err = b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "dev"})
@@ -522,7 +546,7 @@ func TestInMemoryBackend_UpdateRoute_AllFields(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	route, err := b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: "GET /test"})
@@ -545,7 +569,7 @@ func TestInMemoryBackend_UpdateIntegration_AllFields(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	integration, err := b.CreateIntegration(api.APIID, apigatewayv2.CreateIntegrationInput{
@@ -574,7 +598,7 @@ func TestInMemoryBackend_UpdateAuthorizer_AllFields(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	auth, err := b.CreateAuthorizer(api.APIID, apigatewayv2.CreateAuthorizerInput{
@@ -606,7 +630,7 @@ func TestInMemoryBackend_UpdateAPI_AllFields(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	updated, err := b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{
@@ -679,7 +703,7 @@ func TestInMemoryBackend_JWTAuthorizer_StoresConfig(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	jwtCfg := &apigatewayv2.JwtConfiguration{
@@ -724,7 +748,7 @@ func TestInMemoryBackend_RouteSettings(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	stage, err := b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
@@ -763,7 +787,7 @@ func TestInMemoryBackend_StageAccessLogSettings(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	_, err = b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
@@ -800,7 +824,7 @@ func TestInMemoryBackend_DomainNames(t *testing.T) {
 	b := apigatewayv2.NewInMemoryBackend()
 
 	// CreateDomainName.
-	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
 		DomainNameValue: "api.example.com",
 		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
 			{CertificateArn: "arn:aws:acm:us-east-1:123:certificate/abc", EndpointType: "REGIONAL"},
@@ -844,13 +868,16 @@ func TestInMemoryBackend_APIMappings(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	_, err = b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
 	require.NoError(t, err)
 
-	_, err = b.CreateDomainName(apigatewayv2.CreateDomainNameInput{DomainNameValue: "api.example.com"})
+	_, err = b.CreateDomainName(
+		context.Background(),
+		apigatewayv2.CreateDomainNameInput{DomainNameValue: "api.example.com"},
+	)
 	require.NoError(t, err)
 
 	// CreateAPIMapping.
@@ -937,7 +964,7 @@ func TestInMemoryBackend_Model_Schema(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
 	require.NoError(t, err)
 
 	schema := `{"type":"object","properties":{"id":{"type":"string"}}}`
@@ -961,7 +988,7 @@ func TestInMemoryBackend_WebSocket_RouteSelectionExpression(t *testing.T) {
 	b := apigatewayv2.NewInMemoryBackend()
 
 	// WEBSOCKET api stores RouteSelectionExpression.
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
 		Name:                     "ws-api",
 		ProtocolType:             "WEBSOCKET",
 		RouteSelectionExpression: "$request.body.action",
@@ -987,7 +1014,7 @@ func TestInMemoryBackend_ExportAPI(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
 		Name:         "export-test",
 		ProtocolType: "HTTP",
 		Description:  "Test API",
@@ -1030,7 +1057,7 @@ func TestDomainNameConfiguration_SecurityPolicy_Defaults(t *testing.T) {
 	t.Parallel()
 
 	b := apigatewayv2.NewInMemoryBackend()
-	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
 		DomainNameValue: "tls.example.com",
 		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
 			{
@@ -1053,7 +1080,7 @@ func TestDomainNameConfiguration_CustomSecurityPolicy(t *testing.T) {
 	t.Parallel()
 
 	b := apigatewayv2.NewInMemoryBackend()
-	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
 		DomainNameValue: "custom-tls.example.com",
 		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
 			{
@@ -1072,7 +1099,7 @@ func TestDomainNameConfiguration_ApiGatewayDomainName_Contains_DomainName(t *tes
 	t.Parallel()
 
 	b := apigatewayv2.NewInMemoryBackend()
-	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
 		DomainNameValue: "api.mycompany.com",
 		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
 			{CertificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/abc", EndpointType: "REGIONAL"},
@@ -1088,7 +1115,7 @@ func TestDomainNameConfiguration_CustomApiGatewayDomainName_Preserved(t *testing
 
 	b := apigatewayv2.NewInMemoryBackend()
 	customDomain := "d-abc123.execute-api.us-east-1.amazonaws.com"
-	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
 		DomainNameValue: "custom.example.com",
 		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
 			{
@@ -1103,4 +1130,220 @@ func TestDomainNameConfiguration_CustomApiGatewayDomainName_Preserved(t *testing
 	require.Len(t, dn.DomainNameConfigurations, 1)
 	assert.Equal(t, customDomain, dn.DomainNameConfigurations[0].APIGatewayDomainName)
 	assert.Equal(t, "Z1HUB23UULQXV", dn.DomainNameConfigurations[0].HostedZoneID)
+}
+
+func TestCreateAPIEndpointAndARNsUseCtxbagRegion(t *testing.T) {
+	t.Parallel()
+
+	ctx := awsmeta.Set(context.Background(), &awsmeta.Metadata{
+		Account:   "555566667777",
+		Region:    "ap-southeast-2",
+		Partition: "aws",
+	})
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(ctx, apigatewayv2.CreateAPIInput{Name: "regional", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+	assert.Contains(t, api.APIEndpoint, ".execute-api.ap-southeast-2.amazonaws.com")
+
+	_, err = b.CreateDomainName(ctx, apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "api.example.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{{
+			EndpointType: "REGIONAL",
+		}},
+	})
+	require.NoError(t, err)
+
+	rule, err := b.CreateRoutingRule(ctx, "api.example.com", apigatewayv2.CreateRoutingRuleInput{Priority: 1})
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:apigateway:ap-southeast-2::/domainnames/api.example.com/routingrules/"+rule.RoutingRuleID,
+		rule.RoutingRuleARN)
+}
+
+func TestCreateAPIEndpointFallsBackToDefaultRegion(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "x", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+	assert.Contains(t, api.APIEndpoint, ".execute-api.us-east-1.amazonaws.com")
+}
+
+func TestInMemoryBackend_CreateRoute_HTTPRouteKeyValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		routeKey string
+		wantErr  bool
+	}{
+		{name: "valid_get", routeKey: "GET /items", wantErr: false},
+		{name: "valid_post", routeKey: "POST /orders", wantErr: false},
+		{name: "valid_put", routeKey: "PUT /items/123", wantErr: false},
+		{name: "valid_delete", routeKey: "DELETE /items/123", wantErr: false},
+		{name: "valid_patch", routeKey: "PATCH /items/123", wantErr: false},
+		{name: "valid_head", routeKey: "HEAD /items", wantErr: false},
+		{name: "valid_options", routeKey: "OPTIONS /items", wantErr: false},
+		{name: "valid_any", routeKey: "ANY /items", wantErr: false},
+		{name: "valid_default", routeKey: "$default", wantErr: false},
+		{name: "lowercase_method", routeKey: "get /items", wantErr: true},
+		{name: "invalid_method", routeKey: "CONNECT /items", wantErr: true},
+		{name: "missing_path", routeKey: "GET", wantErr: true},
+		{name: "path_no_slash", routeKey: "GET items", wantErr: true},
+		{name: "just_path", routeKey: "/items", wantErr: true},
+		{name: "empty_path", routeKey: "GET ", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+				Name:         "http-api",
+				ProtocolType: "HTTP",
+			})
+			require.NoError(t, err)
+
+			_, err = b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: tt.routeKey})
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_WebSocketRouteKey_NoFormatValidation(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name:                     "ws-api",
+		ProtocolType:             "WEBSOCKET",
+		RouteSelectionExpression: "$request.body.action",
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		routeKey string
+	}{
+		{name: "connect", routeKey: "$connect"},
+		{name: "disconnect", routeKey: "$disconnect"},
+		{name: "message", routeKey: "$message"},
+		{name: "default", routeKey: "$default"},
+		{name: "custom", routeKey: "chat"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, routeErr := b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: tt.routeKey})
+			require.NoError(t, routeErr)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateIntegration_TimeoutValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		timeoutMs   int32
+		wantErr     bool
+		wantTimeout int32
+	}{
+		{name: "zero_defaults_to_29000", timeoutMs: 0, wantErr: false, wantTimeout: 29000},
+		{name: "min_boundary_50", timeoutMs: 50, wantErr: false, wantTimeout: 50},
+		{name: "max_boundary_29000", timeoutMs: 29000, wantErr: false, wantTimeout: 29000},
+		{name: "mid_range_5000", timeoutMs: 5000, wantErr: false, wantTimeout: 5000},
+		{name: "too_low_49", timeoutMs: 49, wantErr: true},
+		{name: "too_low_1", timeoutMs: 1, wantErr: true},
+		{name: "too_high_29001", timeoutMs: 29001, wantErr: true},
+		{name: "too_high_60000", timeoutMs: 60000, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+				Name:         "api",
+				ProtocolType: "HTTP",
+			})
+			require.NoError(t, err)
+
+			intg, err := b.CreateIntegration(api.APIID, apigatewayv2.CreateIntegrationInput{
+				IntegrationType: "HTTP_PROXY",
+				IntegrationURI:  "https://example.com",
+				TimeoutInMillis: tt.timeoutMs,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantTimeout, intg.TimeoutInMillis)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_UpdateIntegration_TimeoutValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		timeoutMs int32
+		wantErr   bool
+	}{
+		{name: "valid_50", timeoutMs: 50, wantErr: false},
+		{name: "valid_29000", timeoutMs: 29000, wantErr: false},
+		{name: "valid_1000", timeoutMs: 1000, wantErr: false},
+		{name: "zero_skips_update", timeoutMs: 0, wantErr: false},
+		{name: "too_low_49", timeoutMs: 49, wantErr: true},
+		{name: "too_high_29001", timeoutMs: 29001, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+				Name:         "api",
+				ProtocolType: "HTTP",
+			})
+			require.NoError(t, err)
+
+			intg, err := b.CreateIntegration(api.APIID, apigatewayv2.CreateIntegrationInput{
+				IntegrationType: "HTTP_PROXY",
+				IntegrationURI:  "https://example.com",
+			})
+			require.NoError(t, err)
+
+			_, err = b.UpdateIntegration(api.APIID, intg.IntegrationID, apigatewayv2.UpdateIntegrationInput{
+				TimeoutInMillis: tt.timeoutMs,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

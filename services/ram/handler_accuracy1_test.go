@@ -988,11 +988,11 @@ func TestRAM_Accuracy_Snapshot_PreservesBuiltInFields(t *testing.T) {
 
 	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := ram.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Check a built-in permission is still accessible and has correct fields.
 	permARN := "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet"
@@ -1466,15 +1466,33 @@ func TestRAM_Accuracy_PromotePermissionCreatedFromPolicy(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name: "promote existing customer permission",
+			name: "promote CREATED_FROM_POLICY permission succeeds",
 			setup: func(t *testing.T, h *ram.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreatePermission("promote-perm", "ec2:Subnet", `{}`, nil)
-				require.NoError(t, err)
+
+				b := h.Backend.(*ram.InMemoryBackend)
+				p := ram.NewTestPermission(
+					"arn:aws:ram:us-east-1:000000000000:permission/from-policy",
+					"from-policy-perm",
+					"ec2:Subnet",
+				)
+				p.PermissionType = "CREATED_FROM_POLICY"
+				ram.AddPermissionInternal(b, p)
 
 				return p.ARN
 			},
 			wantStatus: http.StatusOK,
+		},
+		{
+			name: "promote CUSTOMER_MANAGED permission returns error",
+			setup: func(t *testing.T, h *ram.Handler) string {
+				t.Helper()
+				p, err := h.Backend.CreatePermission("customer-perm", "ec2:Subnet", `{}`, nil)
+				require.NoError(t, err)
+
+				return p.ARN
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "promote nonexistent permission returns error",

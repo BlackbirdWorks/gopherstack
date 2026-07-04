@@ -7,9 +7,11 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -29,7 +31,7 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
-	ErrNotFound = awserr.New("ClientException", awserr.ErrNotFound)
+	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ClientException", awserr.ErrAlreadyExists)
 	// ErrUnknownAction is returned when an unknown action is requested.
@@ -57,10 +59,10 @@ const (
 	defaultEnvironmentTierName = "WebServer"
 	// defaultEnvironmentTierType is the AWS default standard tier type.
 	defaultEnvironmentTierType = "Standard"
-	// resourceCreatedAt is the fixed creation timestamp returned for all resources.
-	resourceCreatedAt = "2026-01-01T00:00:00Z"
 	// eventSeverityInfo is the severity level for informational events.
 	eventSeverityInfo = "INFO"
+	// maxEventsPerRegion caps the events slice to prevent unbounded growth.
+	maxEventsPerRegion = 1000
 )
 
 // Application represents an Elastic Beanstalk application.
@@ -70,6 +72,7 @@ type Application struct {
 	ApplicationARN               string            `json:"applicationArn"`
 	Description                  string            `json:"description,omitempty"`
 	DateCreated                  string            `json:"dateCreated,omitempty"`
+	DateUpdated                  string            `json:"dateUpdated,omitempty"`
 	ResourceLifecycleServiceRole string            `json:"resourceLifecycleServiceRole,omitempty"`
 }
 
@@ -100,6 +103,7 @@ type Environment struct {
 	Subnets           string            `json:"subnets,omitempty"`
 	InstanceProfile   string            `json:"instanceProfile,omitempty"`
 	DateCreated       string            `json:"dateCreated,omitempty"`
+	DateUpdated       string            `json:"dateUpdated,omitempty"`
 	Region            string            `json:"region"`
 	OptionSettings    []OptionSetting   `json:"optionSettings,omitempty"`
 }
@@ -113,6 +117,7 @@ type ApplicationVersion struct {
 	ApplicationVersionARN  string                  `json:"applicationVersionArn"`
 	Description            string                  `json:"description,omitempty"`
 	DateCreated            string                  `json:"dateCreated,omitempty"`
+	DateUpdated            string                  `json:"dateUpdated,omitempty"`
 	Status                 string                  `json:"status"`
 	S3Bucket               string                  `json:"s3Bucket,omitempty"`
 	S3Key                  string                  `json:"s3Key,omitempty"`
@@ -140,6 +145,8 @@ type ConfigurationTemplate struct {
 	ApplicationName   string            `json:"applicationName"`
 	TemplateName      string            `json:"templateName"`
 	Description       string            `json:"description,omitempty"`
+	DateCreated       string            `json:"dateCreated,omitempty"`
+	DateUpdated       string            `json:"dateUpdated,omitempty"`
 	SolutionStackName string            `json:"solutionStackName,omitempty"`
 }
 
@@ -182,6 +189,8 @@ type InMemoryBackend struct {
 	appARNIndex          map[string]map[string]string                  // region → ARN → app name
 	envARNIndex          map[string]map[string]string                  // region → ARN → envKey
 	verARNIndex          map[string]map[string]string                  // region → ARN → appVersionKey
+	envNameIndex         map[string]map[string]string                  // region → envName → envKey
+	cnamIndex            map[string]map[string]bool                    // region → CNAME → bool
 	events               map[string][]*EventRecord                     // region → events
 	envCounters          map[string]int                                // region → counter
 	mu                   *lockmetrics.RWMutex
@@ -195,6 +204,11 @@ func copyTags(tags map[string]string) map[string]string {
 	maps.Copy(out, tags)
 
 	return out
+}
+
+// nowISO8601 returns the current UTC time as an ISO 8601 string.
+func nowISO8601() string {
+	return time.Now().UTC().Format("2006-01-02T15:04:05Z")
 }
 
 // cloneApplication returns a deep copy of the given Application (including Tags).
@@ -244,12 +258,12 @@ func clonePlatformVersion(pv *PlatformVersion) *PlatformVersion {
 
 // configTemplateKey returns the map key for a configuration template.
 func configTemplateKey(appName, templateName string) string {
-	return appName + ":" + templateName
+	return appName + "\x00" + templateName
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		applications:         make(map[string]map[string]*Application),
 		environments:         make(map[string]map[string]*Environment),
 		appVersions:          make(map[string]map[string]*ApplicationVersion),
@@ -259,11 +273,54 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		appARNIndex:          make(map[string]map[string]string),
 		envARNIndex:          make(map[string]map[string]string),
 		verARNIndex:          make(map[string]map[string]string),
+		envNameIndex:         make(map[string]map[string]string),
+		cnamIndex:            make(map[string]map[string]bool),
 		events:               make(map[string][]*EventRecord),
 		envCounters:          make(map[string]int),
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("elasticbeanstalk"),
+	}
+	b.initRegion(region)
+
+	return b
+}
+
+// initRegion pre-initializes all per-region sub-maps so that XxxStore helpers
+// never write under an RLock (which would cause a data race with parallel readers).
+func (b *InMemoryBackend) initRegion(region string) {
+	if b.applications[region] == nil {
+		b.applications[region] = make(map[string]*Application)
+	}
+	if b.environments[region] == nil {
+		b.environments[region] = make(map[string]*Environment)
+	}
+	if b.appVersions[region] == nil {
+		b.appVersions[region] = make(map[string]*ApplicationVersion)
+	}
+	if b.configTemplates[region] == nil {
+		b.configTemplates[region] = make(map[string]*ConfigurationTemplate)
+	}
+	if b.platformVersions[region] == nil {
+		b.platformVersions[region] = make(map[string]*PlatformVersion)
+	}
+	if b.managedActionHistory[region] == nil {
+		b.managedActionHistory[region] = make(map[string][]*ManagedActionHistory)
+	}
+	if b.appARNIndex[region] == nil {
+		b.appARNIndex[region] = make(map[string]string)
+	}
+	if b.envARNIndex[region] == nil {
+		b.envARNIndex[region] = make(map[string]string)
+	}
+	if b.verARNIndex[region] == nil {
+		b.verARNIndex[region] = make(map[string]string)
+	}
+	if b.envNameIndex[region] == nil {
+		b.envNameIndex[region] = make(map[string]string)
+	}
+	if b.cnamIndex[region] == nil {
+		b.cnamIndex[region] = make(map[string]bool)
 	}
 }
 
@@ -286,6 +343,22 @@ func (b *InMemoryBackend) environmentsStore(region string) map[string]*Environme
 	}
 
 	return b.environments[region]
+}
+
+func (b *InMemoryBackend) envNameIndexStore(region string) map[string]string {
+	if b.envNameIndex[region] == nil {
+		b.envNameIndex[region] = make(map[string]string)
+	}
+
+	return b.envNameIndex[region]
+}
+
+func (b *InMemoryBackend) cnameIndexStore(region string) map[string]bool {
+	if b.cnamIndex[region] == nil {
+		b.cnamIndex[region] = make(map[string]bool)
+	}
+
+	return b.cnamIndex[region]
 }
 
 func (b *InMemoryBackend) appVersionsStore(region string) map[string]*ApplicationVersion {
@@ -381,7 +454,8 @@ func (b *InMemoryBackend) CreateApplication(
 		ApplicationName: name,
 		ApplicationARN:  appARN,
 		Description:     description,
-		DateCreated:     resourceCreatedAt,
+		DateCreated:     nowISO8601(),
+		DateUpdated:     nowISO8601(),
 		Tags:            copyTags(tags),
 	}
 	b.applicationsStore(region)[name] = app
@@ -481,6 +555,8 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string) er
 	for key, env := range b.environmentsStore(region) {
 		if env.ApplicationName == name {
 			delete(b.envARNIndexStore(region), env.EnvironmentARN)
+			delete(b.envNameIndexStore(region), env.EnvironmentName)
+			delete(b.cnameIndexStore(region), env.CNAME)
 			delete(b.environmentsStore(region), key)
 		}
 	}
@@ -617,12 +693,15 @@ func (b *InMemoryBackend) CreateEnvironment(
 		Subnets:           params.Subnets,
 		InstanceProfile:   params.InstanceProfile,
 		CustomAMI:         params.CustomAMI,
-		DateCreated:       resourceCreatedAt,
+		DateCreated:       nowISO8601(),
+		DateUpdated:       nowISO8601(),
 		Region:            region,
 		Tags:              copyTags(tags),
 	}
 	b.environmentsStore(region)[key] = env
 	b.envARNIndexStore(region)[envARN] = key
+	b.envNameIndexStore(region)[envName] = key
+	b.cnameIndexStore(region)[cname] = true
 
 	b.appendEvent(region, appName, envName, "Successfully launched environment: "+envName+".", eventSeverityInfo)
 
@@ -749,6 +828,8 @@ func (b *InMemoryBackend) UpdateEnvironmentWithParams(
 		params.OptionsToRemove,
 	)
 
+	env.DateUpdated = nowISO8601()
+
 	b.appendEvent(region, appName, envName, "Environment update completed successfully.", eventSeverityInfo)
 
 	return cloneEnvironment(env), nil
@@ -798,6 +879,8 @@ func (b *InMemoryBackend) TerminateEnvironment(ctx context.Context, appName, env
 	env.Status = "Terminated"
 	out := cloneEnvironment(env)
 	delete(b.envARNIndexStore(region), env.EnvironmentARN)
+	delete(b.envNameIndexStore(region), env.EnvironmentName)
+	delete(b.cnameIndexStore(region), env.CNAME)
 	delete(b.environmentsStore(region), key)
 
 	b.appendEvent(region, appName, envName, "terminateEnvironment completed successfully.", eventSeverityInfo)
@@ -855,11 +938,15 @@ func (b *InMemoryBackend) CloneEnvironment(
 		TemplateName:      src.TemplateName,
 		VersionLabel:      src.VersionLabel,
 		OperationsRole:    src.OperationsRole,
+		DateCreated:       nowISO8601(),
+		DateUpdated:       nowISO8601(),
 		Region:            region,
 		Tags:              copyTags(src.Tags),
 	}
 	b.environmentsStore(region)[destKey] = env
 	b.envARNIndexStore(region)[envARN] = destKey
+	b.envNameIndexStore(region)[newEnvName] = destKey
+	b.cnameIndexStore(region)[cname] = true
 
 	return cloneEnvironment(env), nil
 }
@@ -936,7 +1023,8 @@ func (b *InMemoryBackend) CreateApplicationVersionWithParams(
 		VersionLabel:           versionLabel,
 		ApplicationVersionARN:  vARN,
 		Description:            params.Description,
-		DateCreated:            resourceCreatedAt,
+		DateCreated:            nowISO8601(),
+		DateUpdated:            nowISO8601(),
 		Status:                 status,
 		Process:                params.Process,
 		S3Bucket:               params.S3Bucket,
@@ -1008,13 +1096,7 @@ func (b *InMemoryBackend) DeleteApplicationVersion(ctx context.Context, appName,
 
 // sortedTagKeys returns the keys of a tags map in sorted order.
 func sortedTagKeys(tags map[string]string) []string {
-	keys := make([]string, 0, len(tags))
-
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 
 	return keys
 }
@@ -1123,7 +1205,10 @@ func (b *InMemoryBackend) Reset() {
 	b.appARNIndex = make(map[string]map[string]string)
 	b.envARNIndex = make(map[string]map[string]string)
 	b.verARNIndex = make(map[string]map[string]string)
+	b.envNameIndex = make(map[string]map[string]string)
+	b.cnamIndex = make(map[string]map[string]bool)
 	b.envCounters = make(map[string]int)
+	b.initRegion(b.region)
 }
 
 // --- New operations ---
@@ -1210,15 +1295,19 @@ func (b *InMemoryBackend) AssociateEnvironmentOperationsRole(
 
 	region := getRegion(ctx, b.region)
 
-	for _, env := range b.environmentsStore(region) {
-		if env.EnvironmentName == envName {
-			env.OperationsRole = role
-
-			return nil
-		}
+	key, ok := b.envNameIndexStore(region)[envName]
+	if !ok {
+		return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
 	}
 
-	return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+	env, ok := b.environmentsStore(region)[key]
+	if !ok {
+		return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+	}
+
+	env.OperationsRole = role
+
+	return nil
 }
 
 // CheckDNSAvailability checks whether the specified CNAME prefix is available.
@@ -1230,10 +1319,12 @@ func (b *InMemoryBackend) CheckDNSAvailability(ctx context.Context, cnamePrefix 
 	region := getRegion(ctx, b.region)
 	fqcname := cnamePrefix + "." + region + ".elasticbeanstalk.com"
 
-	for _, env := range b.environmentsStore(region) {
-		if env.EnvironmentName == cnamePrefix || env.CNAME == fqcname {
-			return false, fqcname
-		}
+	if b.cnameIndexStore(region)[fqcname] {
+		return false, fqcname
+	}
+
+	if _, ok := b.envNameIndexStore(region)[cnamePrefix]; ok {
+		return false, fqcname
 	}
 
 	return true, fqcname
@@ -1287,6 +1378,8 @@ func (b *InMemoryBackend) CreateConfigurationTemplate(
 		ApplicationName:   appName,
 		TemplateName:      templateName,
 		Description:       description,
+		DateCreated:       nowISO8601(),
+		DateUpdated:       nowISO8601(),
 		SolutionStackName: solutionStack,
 		Tags:              copyTags(tags),
 	}
@@ -1414,19 +1507,23 @@ func (b *InMemoryBackend) DescribePlatformVersion(ctx context.Context, platformA
 }
 
 // DescribeEnvironmentHealth returns the health and status of an environment by name.
-func (b *InMemoryBackend) DescribeEnvironmentHealth(ctx context.Context, envName string) (string, string) {
+func (b *InMemoryBackend) DescribeEnvironmentHealth(ctx context.Context, envName string) (string, string, error) {
 	b.mu.RLock("DescribeEnvironmentHealth")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	for _, env := range b.environmentsStore(region) {
-		if env.EnvironmentName == envName {
-			return env.Health, env.Status
-		}
+	key, ok := b.envNameIndexStore(region)[envName]
+	if !ok {
+		return "", "", fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
 	}
 
-	return "Grey", "Terminated"
+	env, ok := b.environmentsStore(region)[key]
+	if !ok {
+		return "", "", fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+	}
+
+	return env.Health, env.Status, nil
 }
 
 // DisassociateEnvironmentOperationsRole removes the operations role from an environment.
@@ -1436,15 +1533,19 @@ func (b *InMemoryBackend) DisassociateEnvironmentOperationsRole(ctx context.Cont
 
 	region := getRegion(ctx, b.region)
 
-	for _, env := range b.environmentsStore(region) {
-		if env.EnvironmentName == envName {
-			env.OperationsRole = ""
-
-			return nil
-		}
+	key, ok := b.envNameIndexStore(region)[envName]
+	if !ok {
+		return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
 	}
 
-	return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+	env, ok := b.environmentsStore(region)[key]
+	if !ok {
+		return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+	}
+
+	env.OperationsRole = ""
+
+	return nil
 }
 
 // ListPlatformVersions returns all stored platform versions sorted by ARN.
@@ -1544,13 +1645,17 @@ func (b *InMemoryBackend) UpdateConfigurationTemplate(
 // appendEvent appends an event record to the backend's event log.
 // Caller must hold at least a write lock.
 func (b *InMemoryBackend) appendEvent(region, appName, envName, message, severity string) {
-	b.events[region] = append(b.eventsSlice(region), &EventRecord{
+	events := append(b.eventsSlice(region), &EventRecord{
 		ApplicationName: appName,
 		EnvironmentName: envName,
-		EventDate:       resourceCreatedAt,
+		EventDate:       nowISO8601(),
 		Message:         message,
 		Severity:        severity,
 	})
+	if len(events) > maxEventsPerRegion {
+		events = events[len(events)-maxEventsPerRegion:]
+	}
+	b.events[region] = events
 }
 
 // DescribeEvents returns event records filtered by optional application and environment name.
@@ -1582,14 +1687,14 @@ func (b *InMemoryBackend) DescribeEvents(ctx context.Context, appName, envName s
 
 // --- Key helpers ---
 
-// envKey returns the map key for an environment (applicationName + ":" + environmentName).
+// envKey returns the map key for an environment.
 func envKey(appName, envName string) string {
-	return appName + ":" + envName
+	return appName + "\x00" + envName
 }
 
 // appVersionKey returns the map key for an application version.
 func appVersionKey(appName, versionLabel string) string {
-	return appName + ":" + versionLabel
+	return appName + "\x00" + versionLabel
 }
 
 // --- Seed helpers (used in tests via export_test.go) ---
@@ -1607,6 +1712,10 @@ func (b *InMemoryBackend) addEnvironmentInternal(region string, env *Environment
 	key := envKey(env.ApplicationName, env.EnvironmentName)
 	b.environmentsStore(region)[key] = cloneEnvironment(env)
 	b.envARNIndexStore(region)[env.EnvironmentARN] = key
+	b.envNameIndexStore(region)[env.EnvironmentName] = key
+	if env.CNAME != "" {
+		b.cnameIndexStore(region)[env.CNAME] = true
+	}
 }
 
 // addAppVersionInternal seeds an application version directly into the backend, bypassing validation.

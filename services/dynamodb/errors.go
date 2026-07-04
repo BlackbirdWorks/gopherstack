@@ -25,8 +25,12 @@ var (
 )
 
 type Error struct {
-	Type                string               `json:"__type"`
-	Message             string               `json:"message"`
+	Type    string `json:"__type"`
+	Message string `json:"message"`
+	// Item carries the existing item on a ConditionalCheckFailedException when the
+	// request set ReturnValuesOnConditionCheckFailure=ALL_OLD. AWS returns it so
+	// optimistic-locking clients can inspect the current item without a re-read.
+	Item                any                  `json:"Item,omitempty"`
 	CancellationReasons []CancellationReason `json:"CancellationReasons,omitempty"`
 }
 
@@ -47,6 +51,17 @@ func NewConditionalCheckFailedException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException",
 		Message: msg,
+	}
+}
+
+// NewConditionalCheckFailedExceptionWithItem returns a ConditionalCheckFailedException
+// that also carries the existing item (already in DynamoDB wire/SDK attribute form).
+// Pass a nil item to omit it.
+func NewConditionalCheckFailedExceptionWithItem(msg string, item any) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException",
+		Message: msg,
+		Item:    item,
 	}
 }
 
@@ -106,13 +121,6 @@ func NewRequestLimitExceeded(msg string) *Error {
 	}
 }
 
-func NewTransactionConflictException(msg string) *Error {
-	return &Error{
-		Type:    "com.amazonaws.dynamodb.v20120810#TransactionConflictException",
-		Message: msg,
-	}
-}
-
 func NewReplicatedWriteConflictException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#ReplicatedWriteConflictException",
@@ -168,6 +176,32 @@ func NewShardIteratorCreationException(msg string) *Error {
 func NewBackupInUseException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#BackupInUseException",
+		Message: msg,
+	}
+}
+
+// NewImportNotFoundException indicates the requested import ARN does not exist.
+func NewImportNotFoundException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ImportNotFoundException",
+		Message: msg,
+	}
+}
+
+// NewExportNotFoundException indicates the requested export ARN does not exist.
+func NewExportNotFoundException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ExportNotFoundException",
+		Message: msg,
+	}
+}
+
+// NewDuplicateItemException is returned by PartiQL INSERT when an item with the
+// same primary key already exists. AWS DynamoDB raises this instead of silently
+// overwriting (unlike PutItem which overwrites by default).
+func NewDuplicateItemException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#DuplicateItemException",
 		Message: msg,
 	}
 }

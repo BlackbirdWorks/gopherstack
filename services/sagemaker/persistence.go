@@ -1,9 +1,11 @@
 package sagemaker
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // persistedCluster is a serialisable version of Cluster that includes Nodes.
@@ -172,7 +174,7 @@ func snapshotHubContents(b *InMemoryBackend) map[string]map[string]*HubContent {
 }
 
 // Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -240,7 +242,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("sagemaker: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "sagemaker: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -249,7 +251,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {
@@ -262,7 +264,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.restoreFields(&snap)
+	b.restoreFields(ctx, &snap)
 	b.resetLifecycleContext() // cancel pending goroutines, create fresh context
 	b.rebuildARNIndexes()
 
@@ -326,14 +328,15 @@ func restoreHubContents(snap *backendSnapshot) map[string]map[hubContentKey]*Hub
 	return result
 }
 
-func restoreClusters(snap *backendSnapshot) map[string]map[string]*Cluster {
+func restoreClusters(ctx context.Context, snap *backendSnapshot) map[string]map[string]*Cluster {
 	result := make(map[string]map[string]*Cluster, len(snap.Clusters))
 	for region, regionClusters := range snap.Clusters {
 		result[region] = make(map[string]*Cluster, len(regionClusters))
 		for k, pc := range regionClusters {
 			t, err := time.Parse("2006-01-02T15:04:05Z07:00", pc.CreationTime)
 			if err != nil {
-				slog.Default().Warn("sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
+				logger.Load(ctx).WarnContext(ctx,
+					"sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
 			}
 			c := &Cluster{
 				ClusterArn:     pc.ClusterArn,
@@ -356,7 +359,7 @@ func restoreClusters(snap *backendSnapshot) map[string]map[string]*Cluster {
 	return result
 }
 
-func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
+func (b *InMemoryBackend) restoreFields(ctx context.Context, snap *backendSnapshot) {
 	b.models = snap.Models
 	b.endpointConfigs = snap.EndpointConfigs
 	b.endpoints = snap.Endpoints
@@ -389,7 +392,7 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.region = snap.Region
 	b.userProfiles = restoreUserProfiles(snap)
 	b.apps = restoreApps(snap)
-	b.clusters = restoreClusters(snap)
+	b.clusters = restoreClusters(ctx, snap)
 	b.hubContents = restoreHubContents(snap)
 	b.dataQualityJobDefs = snap.DataQualityJobDefs
 	b.modelBiasJobDefs = snap.ModelBiasJobDefs
@@ -702,11 +705,11 @@ func fixNilTagMapsNewResources(snap *backendSnapshot) {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
-	return h.Backend.Snapshot()
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.Backend.Snapshot(ctx)
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
-	return h.Backend.Restore(data)
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
 }

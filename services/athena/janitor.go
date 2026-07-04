@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -18,11 +19,23 @@ const (
 
 // isTerminalExecution reports whether the given query execution state is terminal.
 func isTerminalExecution(state string) bool {
-	return state == stateSucceeded || state == "FAILED" || state == "CANCELLED"
+	return state == stateSucceeded || state == stateFailed || state == stateCancelled
 }
 
-// Janitor is the Athena background worker that evicts completed query executions
-// after a configurable TTL to prevent unbounded growth of in-memory state.
+// isTerminalSession reports whether a session state is terminal (eligible for
+// eviction once stale).
+func isTerminalSession(state string) bool {
+	return state == sessionStateTerminated || state == sessionStateFailed
+}
+
+// isTerminalCalculation reports whether a calculation state is terminal.
+func isTerminalCalculation(state string) bool {
+	return state == calcStateCompleted || state == calcStateFailed || state == calcStateCanceled
+}
+
+// Janitor is the Athena background worker that evicts completed query executions,
+// their cached result sets, and stale sessions/calculations after a configurable
+// TTL to prevent unbounded growth of in-memory state.
 type Janitor struct {
 	Backend      *InMemoryBackend
 	Interval     time.Duration
@@ -53,57 +66,31 @@ func NewJanitor(backend *InMemoryBackend, interval, executionTTL time.Duration) 
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, athenaWorkerServiceName)
+	g.Ticker(
+		executionSweeperComponent,
+		j.Interval,
+		j.TaskTimeout,
+		j.sweep,
+	)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepCompletedExecutions(taskCtx)
-			cancel()
-		}
-	}
-}
-
-// taskContext returns a child context bounded by TaskTimeout (if non-zero).
-// The caller is responsible for calling the returned cancel function.
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
-	}
-
-	return context.WithCancel(parent)
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.
 func (j *Janitor) SweepOnce(ctx context.Context) {
-	j.sweepCompletedExecutions(ctx)
+	j.sweep(ctx)
 }
 
-// sweepCompletedExecutions removes query executions in terminal states whose
-// CompletionDateTime is older than ExecutionTTL.
-func (j *Janitor) sweepCompletedExecutions(ctx context.Context) {
+// sweep evicts stale terminal executions (and their result sets), sessions, and
+// calculations.
+func (j *Janitor) sweep(ctx context.Context) {
 	cutoff := float64(time.Now().Add(-j.ExecutionTTL).UnixMilli()) / millisToSeconds
 
-	j.Backend.mu.Lock("AthenaJanitor")
-
-	var swept []string
-
-	for id, qe := range j.Backend.queryExecutions {
-		if isTerminalExecution(qe.Status.State) &&
-			qe.Status.CompletionDateTime > 0 &&
-			qe.Status.CompletionDateTime < cutoff {
-			swept = append(swept, id)
-			delete(j.Backend.queryExecutions, id)
-		}
-	}
-
-	j.Backend.mu.Unlock()
-
-	count := len(swept)
+	count := j.sweepExecutions(cutoff)
+	count += j.sweepSessions(cutoff)
+	count += j.sweepCalculations(cutoff)
 
 	telemetry.RecordWorkerTask(athenaWorkerServiceName, executionSweeperComponent, "success")
 
@@ -113,5 +100,147 @@ func (j *Janitor) sweepCompletedExecutions(ctx context.Context) {
 
 	telemetry.RecordWorkerItems(athenaWorkerServiceName, executionSweeperComponent, count)
 
-	logger.Load(ctx).InfoContext(ctx, "Athena janitor: completed query executions evicted", "count", count)
+	logger.Load(ctx).InfoContext(ctx, "Athena janitor: stale resources evicted", "count", count)
+}
+
+// sweepExecutions removes query executions in terminal states whose completion
+// time predates cutoff, along with their cached result sets. It collects
+// candidates under a read lock, then deletes under the write lock, re-verifying
+// each candidate to avoid racing a concurrent revival — this narrows the write
+// lock to the deletion phase rather than holding it across the whole scan.
+func (j *Janitor) sweepExecutions(cutoff float64) int {
+	b := j.Backend
+
+	b.mu.RLock("AthenaJanitor-collectExecutions")
+
+	candidates := make([]string, 0)
+
+	for id, qe := range b.queryExecutions {
+		if isEvictable(qe.Status.State, qe.Status.CompletionDateTime, cutoff, isTerminalExecution) {
+			candidates = append(candidates, id)
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if len(candidates) == 0 {
+		return 0
+	}
+
+	swept := 0
+
+	b.mu.Lock("AthenaJanitor-deleteExecutions")
+
+	for _, id := range candidates {
+		qe, ok := b.queryExecutions[id]
+		if !ok || !isEvictable(qe.Status.State, qe.Status.CompletionDateTime, cutoff, isTerminalExecution) {
+			continue
+		}
+
+		delete(b.queryExecutions, id)
+		delete(b.queryResults, id)
+
+		swept++
+	}
+
+	b.mu.Unlock()
+
+	return swept
+}
+
+// sweepSessions removes terminal sessions whose end time predates cutoff.
+func (j *Janitor) sweepSessions(cutoff float64) int {
+	b := j.Backend
+
+	b.mu.RLock("AthenaJanitor-collectSessions")
+
+	candidates := make([]string, 0)
+
+	for id, s := range b.sessions {
+		if isEvictable(s.Status.State, sessionEndTime(s), cutoff, isTerminalSession) {
+			candidates = append(candidates, id)
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if len(candidates) == 0 {
+		return 0
+	}
+
+	swept := 0
+
+	b.mu.Lock("AthenaJanitor-deleteSessions")
+
+	for _, id := range candidates {
+		s, ok := b.sessions[id]
+		if !ok || !isEvictable(s.Status.State, sessionEndTime(s), cutoff, isTerminalSession) {
+			continue
+		}
+
+		delete(b.sessions, id)
+
+		swept++
+	}
+
+	b.mu.Unlock()
+
+	return swept
+}
+
+// sweepCalculations removes terminal calculations whose completion time predates
+// cutoff.
+func (j *Janitor) sweepCalculations(cutoff float64) int {
+	b := j.Backend
+
+	b.mu.RLock("AthenaJanitor-collectCalculations")
+
+	candidates := make([]string, 0)
+
+	for id, c := range b.calculations {
+		if isEvictable(c.Status.State, c.Status.CompletionDateTime, cutoff, isTerminalCalculation) {
+			candidates = append(candidates, id)
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if len(candidates) == 0 {
+		return 0
+	}
+
+	swept := 0
+
+	b.mu.Lock("AthenaJanitor-deleteCalculations")
+
+	for _, id := range candidates {
+		c, ok := b.calculations[id]
+		if !ok || !isEvictable(c.Status.State, c.Status.CompletionDateTime, cutoff, isTerminalCalculation) {
+			continue
+		}
+
+		delete(b.calculations, id)
+
+		swept++
+	}
+
+	b.mu.Unlock()
+
+	return swept
+}
+
+// isEvictable reports whether a resource in the given state, with the given
+// completion timestamp, is terminal and older than cutoff.
+func isEvictable(state string, completion, cutoff float64, terminal func(string) bool) bool {
+	return terminal(state) && completion > 0 && completion < cutoff
+}
+
+// sessionEndTime returns the timestamp used to age a session for eviction,
+// preferring EndDateTime and falling back to LastModifiedDateTime.
+func sessionEndTime(s *Session) float64 {
+	if s.Status.EndDateTime > 0 {
+		return s.Status.EndDateTime
+	}
+
+	return s.Status.LastModifiedDateTime
 }

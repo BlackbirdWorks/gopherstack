@@ -12,12 +12,12 @@ import (
 	"math"
 	"net/http"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -87,6 +87,13 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// StopWorker stops the background worker if one is configured.
+func (h *Handler) StopWorker() {
+	if h.janitor != nil {
+		h.janitor.Stop()
+	}
 }
 
 // defaultRegion returns the region the handler should fall back to when a
@@ -1061,8 +1068,10 @@ func errorDetails(err error) (string, string, int) {
 		return "InvalidArgumentException",
 			"Invalid argument.",
 			http.StatusBadRequest
+	case errors.Is(err, ErrShardCountScaling):
+		return errTypeValidation, err.Error(), http.StatusBadRequest
 	case errors.Is(err, ErrValidation):
-		return "ValidationException", err.Error(), http.StatusBadRequest
+		return errTypeValidation, err.Error(), http.StatusBadRequest
 	case errors.Is(err, ErrShardIteratorExpired):
 		return "ExpiredIteratorException",
 			"The shard iterator has expired.",
@@ -1186,11 +1195,7 @@ func (h *Handler) handleListTagsForStream(
 
 	tagsMap := h.getTags(getRegion(ctx, h.defaultRegion()), req.StreamName)
 
-	keys := make([]string, 0, len(tagsMap))
-	for k := range tagsMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tagsMap)
 
 	startIdx := 0
 	if req.ExclusiveStartTagKey != "" {

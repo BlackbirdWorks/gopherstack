@@ -19,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 type objectCommonDetails struct {
@@ -28,6 +29,7 @@ type objectCommonDetails struct {
 	ContentLength     *int64
 	LastModified      *time.Time
 	VersionID         *string
+	StorageClass      string
 	ChecksumCRC32     *string
 	ChecksumCRC32C    *string
 	ChecksumSHA1      *string
@@ -167,6 +169,12 @@ func (h *S3Handler) headObject(
 		return
 	}
 
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, key, actionGetObject); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	newCtx, ok := h.attachSSEInfoToCtx(ctx, w, r)
 	if !ok {
 		return
@@ -187,6 +195,14 @@ func (h *S3Handler) headObject(
 	})
 	var nsb *types.NoSuchBucket
 	var nsk *types.NoSuchKey
+	if errors.Is(err, ErrLatestDeleteMarker) {
+		// HEAD of a key whose latest version is a delete marker: 404 + header.
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		w.WriteHeader(http.StatusNotFound)
+
+		return
+	}
+
 	if errors.As(err, &nsb) || errors.As(err, &nsk) ||
 		errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
 		w.WriteHeader(http.StatusNotFound)
@@ -196,6 +212,7 @@ func (h *S3Handler) headObject(
 
 	if errors.Is(err, ErrDeleteMarker) {
 		w.Header().Set("X-Amz-Delete-Marker", "true")
+		w.Header().Set("Allow", "DELETE")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 
 		return
@@ -241,6 +258,7 @@ func (h *S3Handler) writeHeadObjectResponse(
 		ContentLength:     out.ContentLength,
 		LastModified:      out.LastModified,
 		VersionID:         out.VersionId,
+		StorageClass:      string(out.StorageClass),
 		ChecksumCRC32:     out.ChecksumCRC32,
 		ChecksumCRC32C:    out.ChecksumCRC32C,
 		ChecksumSHA1:      out.ChecksumSHA1,
@@ -295,6 +313,23 @@ func (h *S3Handler) putObject(
 	h.setOperation(ctx, "PutObject")
 
 	if err := validateExpectedBucketOwner(r); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, key, actionPutObject); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	// Strip aws-chunked / STREAMING-* framing so the stored payload (and its
+	// ETag) is the real object bytes, not the chunk-signature envelope.
+	r = maybeDecodeChunkedBody(r)
+
+	// Reject invalid tag sets (>10 tags, over-long key/value) before writing.
+	if err := validateTaggingHeader(r.Header.Get("X-Amz-Tagging")); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -403,8 +438,9 @@ func buildPutObjectInput(
 		Body:               body,
 		Metadata:           userMeta,
 		ContentType:        aws.String(r.Header.Get("Content-Type")),
-		ContentEncoding:    nilStringIfEmpty(r.Header.Get("Content-Encoding")),
-		ContentDisposition: nilStringIfEmpty(r.Header.Get("Content-Disposition")),
+		ContentEncoding:    ptrconv.NilIfEmpty(r.Header.Get("Content-Encoding")),
+		ContentDisposition: ptrconv.NilIfEmpty(r.Header.Get("Content-Disposition")),
+		StorageClass:       types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 		ChecksumAlgorithm:  types.ChecksumAlgorithm(algo),
 		ChecksumCRC32:      crc32p,
 		ChecksumCRC32C:     crc32cp,
@@ -481,6 +517,23 @@ func (h *S3Handler) copyObject(
 		return
 	}
 
+	// AWS rejects copying an object onto itself unless some attribute changes.
+	if srcB, srcK, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source")); ok &&
+		srcB == destBucket && srcK == destKey && !copyChangesAttributes(r) {
+		WriteError(ctx, w, r, ErrCopySelfNoChange)
+
+		return
+	}
+
+	// Reject invalid replacement tag sets before copying.
+	if tagging, replace := buildCopyTagging(r); replace {
+		if err := validateTaggingHeader(tagging); err != nil {
+			WriteError(ctx, w, r, err)
+
+			return
+		}
+	}
+
 	srcVer, err := h.copySourceData(ctx, r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -505,27 +558,14 @@ func (h *S3Handler) copyObject(
 		"taggingDirective", r.Header.Get("X-Amz-Tagging-Directive"))
 
 	putInput := &s3.PutObjectInput{
-		Bucket:      aws.String(destBucket),
-		Key:         aws.String(destKey),
-		Body:        srcVer.Body,
-		Metadata:    userMeta,
-		ContentType: contentType,
+		Bucket:       aws.String(destBucket),
+		Key:          aws.String(destKey),
+		Body:         srcVer.Body,
+		Metadata:     userMeta,
+		ContentType:  contentType,
+		StorageClass: types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 	}
-
-	if taggingReplace {
-		putInput.Tagging = aws.String(tagging)
-	} else {
-		// COPY directive (default): preserve source tags on destination.
-		srcBucket, srcKey, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
-		if ok {
-			if tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
-				Bucket: aws.String(srcBucket),
-				Key:    aws.String(srcKey),
-			}); tagErr == nil && len(tagOut.TagSet) > 0 {
-				putInput.Tagging = aws.String(tagSetToQueryString(tagOut.TagSet))
-			}
-		}
-	}
+	h.resolveCopyTagging(ctx, r, putInput, tagging, taggingReplace)
 
 	destVer, err := h.Backend.PutObject(ctx, putInput)
 	if err != nil {
@@ -534,6 +574,48 @@ func (h *S3Handler) copyObject(
 		return
 	}
 
+	h.writeCopyResponse(ctx, w, destBucket, destKey, srcVer, destVer)
+}
+
+// resolveCopyTagging sets the destination tagging on putInput. When the request
+// uses the REPLACE directive the supplied tagging is applied; otherwise (COPY
+// directive, the default) the source object's tags are preserved.
+func (h *S3Handler) resolveCopyTagging(
+	ctx context.Context,
+	r *http.Request,
+	putInput *s3.PutObjectInput,
+	tagging string,
+	taggingReplace bool,
+) {
+	if taggingReplace {
+		putInput.Tagging = aws.String(tagging)
+
+		return
+	}
+
+	srcBucket, srcKey, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
+	if !ok {
+		return
+	}
+
+	tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+		Bucket: aws.String(srcBucket),
+		Key:    aws.String(srcKey),
+	})
+	if tagErr == nil && len(tagOut.TagSet) > 0 {
+		putInput.Tagging = aws.String(tagSetToQueryString(tagOut.TagSet))
+	}
+}
+
+// writeCopyResponse emits version headers, dispatches the copy notification, and
+// renders the CopyObjectResult body for a successful CopyObject.
+func (h *S3Handler) writeCopyResponse(
+	ctx context.Context,
+	w http.ResponseWriter,
+	destBucket, destKey string,
+	srcVer *s3.GetObjectOutput,
+	destVer *s3.PutObjectOutput,
+) {
 	if destVer.VersionId != nil && *destVer.VersionId != NullVersion {
 		w.Header().Set("X-Amz-Version-Id", *destVer.VersionId)
 	}
@@ -579,6 +661,12 @@ func (h *S3Handler) getObject(
 		return
 	}
 
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, key, actionGetObject); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	// Propagate SSE-C key on the request through to the backend so envelope-
 	// encrypted versions can be decrypted. Errors here are surfaced before we
 	// touch any state.
@@ -610,14 +698,8 @@ func (h *S3Handler) getObject(
 		Key:       aws.String(key),
 		VersionId: vid,
 	})
-	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
 	if err != nil {
-		WriteError(ctx, w, r, err)
+		h.writeGetObjectError(ctx, w, r, err)
 
 		return
 	}
@@ -660,6 +742,22 @@ func (h *S3Handler) getObject(
 	h.dispatchAccessLog(ctx, r, bucketName, "REST.GET.OBJECT", key, http.StatusOK, written)
 }
 
+// writeGetObjectError renders the correct error response for a failed GetObject.
+// A delete-marker error carries the x-amz-delete-marker header (and Allow: DELETE
+// for a version-targeted request); all other errors defer to WriteError.
+func (h *S3Handler) writeGetObjectError(
+	ctx context.Context, w http.ResponseWriter, r *http.Request, err error,
+) {
+	if errors.Is(err, ErrDeleteMarker) || errors.Is(err, ErrLatestDeleteMarker) {
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		if errors.Is(err, ErrDeleteMarker) {
+			w.Header().Set("Allow", "DELETE")
+		}
+	}
+
+	WriteError(ctx, w, r, err)
+}
+
 // setGetObjectResponseHeaders writes all response headers for GetObject.
 func (h *S3Handler) setGetObjectResponseHeaders(
 	ctx context.Context,
@@ -688,6 +786,28 @@ func (h *S3Handler) setGetObjectResponseHeaders(
 
 // serveObjectBody handles range requests and writes the object body.
 // Returns true if the response was fully handled (range served or error written).
+// ifRangeMatches reports whether a Range request should be served given the
+// If-Range header. With no If-Range the range always applies. An ETag-form
+// If-Range matches when it equals the current ETag; an HTTP-date form matches
+// when the object was not modified after that date. A non-match means the caller
+// should return the full object.
+func ifRangeMatches(r *http.Request, etag string, lastModified time.Time) bool {
+	ifRange := r.Header.Get("If-Range")
+	if ifRange == "" {
+		return true
+	}
+
+	if strings.HasPrefix(ifRange, "\"") || strings.HasPrefix(ifRange, "W/") {
+		return strings.Trim(ifRange, "\"") == strings.Trim(etag, "\"")
+	}
+
+	if t, err := http.ParseTime(ifRange); err == nil {
+		return !lastModified.After(t)
+	}
+
+	return false
+}
+
 func (h *S3Handler) serveObjectBody(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -699,6 +819,12 @@ func (h *S3Handler) serveObjectBody(
 		return false
 	}
 
+	// Honor If-Range: when it no longer matches the current ETag/Last-Modified,
+	// AWS ignores the Range and returns the full 200 representation.
+	if !ifRangeMatches(r, aws.ToString(ver.ETag), aws.ToTime(ver.LastModified)) {
+		return false
+	}
+
 	data, readErr := io.ReadAll(ver.Body)
 	if readErr != nil {
 		WriteError(ctx, w, r, readErr)
@@ -706,7 +832,7 @@ func (h *S3Handler) serveObjectBody(
 		return true
 	}
 
-	if h.serveRange(ctx, w, data, rangeHeader) {
+	if h.serveRange(ctx, w, r, data, rangeHeader) {
 		return true
 	}
 
@@ -726,6 +852,7 @@ func buildGetObjectDetails(ver *s3.GetObjectOutput) objectCommonDetails {
 		ContentLength:     ver.ContentLength,
 		LastModified:      ver.LastModified,
 		VersionID:         ver.VersionId,
+		StorageClass:      string(ver.StorageClass),
 		ChecksumCRC32:     ver.ChecksumCRC32,
 		ChecksumCRC32C:    ver.ChecksumCRC32C,
 		ChecksumSHA1:      ver.ChecksumSHA1,
@@ -775,6 +902,12 @@ func (h *S3Handler) deleteObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "DeleteObject")
+
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, key, actionDeleteObject); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
 
 	// AWS S3 supports If-Match on DeleteObject for ETag-conditional deletes.
 	// We only honour it when no version is targeted: per-version deletes are
@@ -958,6 +1091,12 @@ func (h *S3Handler) putObjectTagging(
 			Key:   aws.String(t.Key),
 			Value: aws.String(t.Value),
 		})
+	}
+
+	if err := validateObjectTags(tags); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
 	}
 
 	versionID := r.URL.Query().Get("versionId")
@@ -1165,9 +1304,13 @@ func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDeta
 		w.Header().Set("X-Amz-Version-Id", *out.VersionID)
 	}
 
-	// AWS always advertises byte-range support and STANDARD storage class.
+	// Advertise byte-range support and the object's actual storage class.
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("X-Amz-Storage-Class", storageStandard)
+	sc := out.StorageClass
+	if sc == "" {
+		sc = storageStandard
+	}
+	w.Header().Set("X-Amz-Storage-Class", sc)
 
 	h.setChecksumHeaders(w, out)
 }
@@ -1344,23 +1487,41 @@ func (h *S3Handler) getStoredChecksum(out objectCommonDetails) (string, string) 
 	}
 }
 
+// rangeResult classifies the outcome of parsing a Range header, so the caller
+// can reproduce S3's three distinct behaviors:
+//   - rangeOK: a satisfiable range -> 206 Partial Content.
+//   - rangeIgnore: a malformed/unparseable range (e.g. unknown unit, or
+//     last-byte-pos < first-byte-pos) -> S3 ignores it and returns the full
+//     object with 200 OK.
+//   - rangeUnsatisfiable: a syntactically valid range whose first-byte-pos is
+//     at or beyond the object size -> 416 with an InvalidRange XML body.
+type rangeResult int
+
+const (
+	rangeIgnore rangeResult = iota
+	rangeOK
+	rangeUnsatisfiable
+)
+
 func (h *S3Handler) serveRange(
 	ctx context.Context,
 	w http.ResponseWriter,
+	r *http.Request,
 	data []byte,
 	rangeHeader string,
 ) bool {
 	total := int64(len(data))
-	start, end, ok := parseRange(rangeHeader, total)
+	start, end, result := parseRange(rangeHeader, total)
 
-	if !ok {
-		if !strings.HasPrefix(rangeHeader, "bytes=") {
-			return false
-		}
-
-		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+	switch result {
+	case rangeIgnore:
+		// Malformed range: fall through to a normal full-object response (200).
+		return false
+	case rangeUnsatisfiable:
+		h.writeInvalidRange(ctx, w, r, rangeHeader, total)
 
 		return true
+	case rangeOK:
 	}
 
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
@@ -1375,55 +1536,109 @@ func (h *S3Handler) serveRange(
 	return true
 }
 
-// parseRange parses a "bytes=X-Y" Range header and returns clamped [start, end] indices.
-func parseRange(header string, size int64) (int64, int64, bool) {
+// writeInvalidRange emits S3's 416 response for an unsatisfiable Range request:
+// a Content-Range header advertising the actual size and an InvalidRange XML
+// body carrying the rejected range and object size.
+func (h *S3Handler) writeInvalidRange(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	rangeHeader string,
+	size int64,
+) {
+	// Drop the full-object Content-Length set earlier by setCommonHeaders so the
+	// XML error body's length is advertised correctly instead.
+	w.Header().Del("Content-Length")
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
+	httputils.WriteS3ErrorResponse(ctx, w, r, InvalidRangeError{
+		Code:             "InvalidRange",
+		Message:          "The requested range is not satisfiable",
+		RangeRequested:   rangeHeader,
+		ActualObjectSize: size,
+		Resource:         r.URL.Path,
+	}, http.StatusRequestedRangeNotSatisfiable)
+}
+
+// parseRange parses a "bytes=X-Y" Range header and returns clamped [start, end]
+// indices together with a rangeResult classifying how S3 should respond.
+func parseRange(header string, size int64) (int64, int64, rangeResult) {
 	if !strings.HasPrefix(header, "bytes=") {
-		return 0, 0, false
+		return 0, 0, rangeIgnore
 	}
 
 	const rangeSpecMaxParts = 2
+	// S3 honors only the first range when several are supplied.
 	spec := strings.TrimSpace(strings.SplitN(header[len("bytes="):], ",", rangeSpecMaxParts)[0])
 	startStr, endStr, found := strings.Cut(spec, "-")
 	if !found {
-		return 0, 0, false
+		return 0, 0, rangeIgnore
 	}
 
-	var start, end int64
-	switch {
-	case startStr == "":
-		n, err := strconv.ParseInt(endStr, 10, 64)
-		if err != nil || n <= 0 {
-			return 0, 0, false
-		}
-		start = max(size-n, 0)
-		end = size - 1
-	case endStr == "":
-		var err error
-		start, err = strconv.ParseInt(startStr, 10, 64)
-		if err != nil {
-			return 0, 0, false
-		}
-		end = size - 1
-	default:
-		var err error
-		start, err = strconv.ParseInt(startStr, 10, 64)
-		if err != nil {
-			return 0, 0, false
-		}
-		end, err = strconv.ParseInt(endStr, 10, 64)
-		if err != nil {
-			return 0, 0, false
-		}
+	// bytes=-0 is a syntactically valid suffix range that selects zero bytes;
+	// RFC 9110 §14.1.2 requires 416.
+	if startStr == "" && endStr == "0" {
+		return 0, 0, rangeUnsatisfiable
 	}
 
-	if start > end || start >= size {
-		return 0, 0, false
+	start, end, ok := computeRangeBounds(startStr, endStr, size)
+	if !ok {
+		return 0, 0, rangeIgnore
 	}
+
+	// A first-byte-pos at or beyond the object size is unsatisfiable: S3 returns
+	// 416 InvalidRange. A suffix range ("-N") always resolves to a satisfiable
+	// window (clamped to the object), so it is never unsatisfiable here.
+	if start >= size {
+		return 0, 0, rangeUnsatisfiable
+	}
+
+	// last-byte-pos < first-byte-pos is malformed; S3 ignores it (full object).
+	if start > end {
+		return 0, 0, rangeIgnore
+	}
+
 	if end >= size {
 		end = size - 1
 	}
 
-	return start, end, true
+	return start, end, rangeOK
+}
+
+// computeRangeBounds resolves the raw first/last byte positions from the two
+// halves of a "X-Y" range spec. The bool is false when the spec is malformed.
+func computeRangeBounds(startStr, endStr string, size int64) (int64, int64, bool) {
+	switch {
+	case startStr == "":
+		n, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || n < 0 {
+			return 0, 0, false
+		}
+		// bytes=-0 is unsatisfiable per RFC 9110 §14.1.2 (no bytes selected).
+		if n == 0 {
+			return 0, 0, false
+		}
+
+		return max(size-n, 0), size - 1, true
+	case endStr == "":
+		start, err := strconv.ParseInt(startStr, 10, 64)
+		if err != nil || start < 0 {
+			return 0, 0, false
+		}
+
+		return start, size - 1, true
+	default:
+		start, err := strconv.ParseInt(startStr, 10, 64)
+		if err != nil || start < 0 {
+			return 0, 0, false
+		}
+
+		end, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || end < 0 {
+			return 0, 0, false
+		}
+
+		return start, end, true
+	}
 }
 
 // checkConditionalHeaders evaluates HTTP conditional request headers per AWS/HTTP spec.

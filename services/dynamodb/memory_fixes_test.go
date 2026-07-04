@@ -209,7 +209,10 @@ func TestExpressionCacheTTL_SweepRemovesExpiredEntries(t *testing.T) {
 func TestExpressionCacheTTL_SweepMixedInSameCache(t *testing.T) {
 	t.Parallel()
 
-	cache := dynamodb.NewExpressionCacheWithTTL(200, time.Hour) // TTL irrelevant; overridden by PutAt
+	cache := dynamodb.NewExpressionCacheWithTTL(
+		200,
+		time.Hour,
+	) // TTL irrelevant; overridden by PutAt
 
 	past := time.Now().Add(-time.Minute) // clearly expired
 	future := time.Now().Add(time.Hour)  // clearly fresh
@@ -328,7 +331,12 @@ func TestSweepTxnPending_FreshTokensNotRemoved(t *testing.T) {
 	require.NoError(t, err)
 
 	// After completion, txnPending should be 0.
-	assert.Equal(t, 0, db.TxnPendingCount(), "pending count should be 0 after transaction completes")
+	assert.Equal(
+		t,
+		0,
+		db.TxnPendingCount(),
+		"pending count should be 0 after transaction completes",
+	)
 
 	// Sweep should be a no-op.
 	janitor := dynamodb.NewJanitor(db, dynamodb.Settings{})

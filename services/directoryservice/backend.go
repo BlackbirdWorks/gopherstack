@@ -2,15 +2,18 @@ package directoryservice
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -52,6 +55,12 @@ var (
 	ErrAliasAlreadyExists = awserr.New(errEntityAlreadyExistsException, awserr.ErrAlreadyExists)
 	// ErrInvalidParameter is returned on invalid input.
 	ErrInvalidParameter = awserr.New(errClientException, awserr.ErrInvalidParameter)
+	// ErrDirectoryLimitExceeded is returned when the directory limit for the region is reached.
+	ErrDirectoryLimitExceeded = awserr.New("DirectoryLimitExceededException", awserr.ErrConflict)
+	// ErrSnapshotLimitExceeded is returned when the manual snapshot limit for a directory is reached.
+	ErrSnapshotLimitExceeded = awserr.New("SnapshotLimitExceededException", awserr.ErrConflict)
+	// ErrUnsupportedOperation is returned when an operation is not supported by the directory type.
+	ErrUnsupportedOperation = awserr.New("UnsupportedOperationException", awserr.ErrConflict)
 )
 
 // storedVpcSettings holds VPC settings for serialization.
@@ -183,9 +192,28 @@ func newRegionState() *regionState {
 
 // regionSnapshot is the serializable per-region backend state.
 type regionSnapshot struct {
-	Directories map[string]*storedDirectory `json:"directories"`
-	Snapshots   map[string]*storedSnapshot  `json:"snapshots"`
-	Aliases     map[string]string           `json:"aliases"` // alias → directoryID
+	Directories           map[string]*storedDirectory            `json:"directories"`
+	Snapshots             map[string]*storedSnapshot             `json:"snapshots"`
+	Aliases               map[string]string                      `json:"aliases"`
+	IPRoutes              map[string][]storedIpRoute             `json:"ipRoutes,omitempty"`
+	Regions               map[string]*storedRegion               `json:"regions,omitempty"`
+	SchemaExtensions      map[string]*storedSchemaExtension      `json:"schemaExtensions,omitempty"`
+	ConditionalForwarders map[string]*storedConditionalForwarder `json:"conditionalForwarders,omitempty"`
+	LogSubscriptions      map[string]*storedLogSubscription      `json:"logSubscriptions,omitempty"`
+	EventTopics           map[string]*storedEventTopic           `json:"eventTopics,omitempty"`
+	DomainControllers     map[string]*storedDomainController     `json:"domainControllers,omitempty"`
+	Trusts                map[string]*storedTrust                `json:"trusts,omitempty"`
+	SharedDirectories     map[string]*storedSharedDirectory      `json:"sharedDirectories,omitempty"`
+	Certificates          map[string]*storedCertificate          `json:"certificates,omitempty"`
+	LDAPSSettings         map[string]*storedLDAPSSetting         `json:"ldapsSettings,omitempty"`
+	ClientAuthSettings    map[string]*storedClientAuthSetting    `json:"clientAuthSettings,omitempty"`
+	RadiusSettings        map[string]*storedRadiusSettings       `json:"radiusSettings,omitempty"`
+	DirDataAccess         map[string]bool                        `json:"dirDataAccess,omitempty"`
+	CAEnrollment          map[string]bool                        `json:"caEnrollment,omitempty"`
+	ADAssessments         map[string]*storedADAssessment         `json:"adAssessments,omitempty"`
+	DirSettings           map[string][]*storedDirectorySetting   `json:"dirSettings,omitempty"`
+	UpdateInfoEntries     map[string][]*storedUpdateInfo         `json:"updateInfoEntries,omitempty"`
+	HybridADUpdates       map[string]*storedHybridADUpdate       `json:"hybridADUpdates,omitempty"`
 }
 
 // backendSnapshot is the serializable backend state, nested by region.
@@ -239,6 +267,47 @@ func (b *InMemoryBackend) defaultAccessURL(alias string) string {
 	return fmt.Sprintf("%s.awsapps.com", alias)
 }
 
+// encodePageToken encodes an integer offset as an opaque base64 token.
+func encodePageToken(offset int) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// decodePageToken decodes a token produced by encodePageToken.
+func decodePageToken(tok string) (int, error) {
+	b, err := base64.StdEncoding.DecodeString(tok)
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(string(b))
+}
+
+// directoryLifecycleDelay is the time between each stage transition on directory creation.
+const directoryLifecycleDelay = 50 * time.Millisecond
+
+// restoreLifecycleDelay is the delay before a restoring directory returns to Active.
+const restoreLifecycleDelay = 100 * time.Millisecond
+
+// transitionDirectoryToActive runs the Requested → Creating → Active lifecycle.
+// Must be called as a goroutine after the directory has been stored.
+func (b *InMemoryBackend) transitionDirectoryToActive(region, dirID string) {
+	time.Sleep(directoryLifecycleDelay)
+
+	b.mu.Lock("transitionDirectoryToActive:creating")
+	if d, ok := b.state(region).directories[dirID]; ok && d.Stage == string(DirectoryStageRequested) {
+		d.Stage = string(DirectoryStageCreating)
+	}
+	b.mu.Unlock()
+
+	time.Sleep(directoryLifecycleDelay)
+
+	b.mu.Lock("transitionDirectoryToActive:active")
+	if d, ok := b.state(region).directories[dirID]; ok && d.Stage == string(DirectoryStageCreating) {
+		d.Stage = string(DirectoryStageActive)
+	}
+	b.mu.Unlock()
+}
+
 func (b *InMemoryBackend) newStoredDirectory(
 	name, shortName, description string,
 	dirType DirectoryType,
@@ -259,7 +328,7 @@ func (b *InMemoryBackend) newStoredDirectory(
 		Alias:       alias,
 		AccessURL:   b.defaultAccessURL(alias),
 		DirType:     string(dirType),
-		Stage:       string(DirectoryStageActive),
+		Stage:       string(DirectoryStageRequested),
 		Size:        string(size),
 		Edition:     string(edition),
 		Tags:        tagsToMap(tags),
@@ -290,13 +359,38 @@ func (b *InMemoryBackend) CreateDirectory(
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
+	if size != DirectorySizeSmall && size != DirectorySizeLarge && size != "" {
+		return nil, ErrInvalidParameter
+	}
 
 	st := b.state(region)
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeSimpleAD, size, "", vpcSettings, tags)
+
+	var count int32
+	for _, d := range st.directories {
+		if DirectoryType(d.DirType) == DirectoryTypeSimpleAD {
+			count++
+		}
+	}
+	if count >= defaultSimpleADLimit {
+		return nil, ErrDirectoryLimitExceeded
+	}
+
+	d := b.newStoredDirectory(
+		name,
+		shortName,
+		description,
+		DirectoryTypeSimpleAD,
+		size,
+		"",
+		vpcSettings,
+		tags,
+	)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID
 
 	cp := d.toDirectory()
+
+	go b.transitionDirectoryToActive(region, d.DirectoryID)
 
 	return &cp, nil
 }
@@ -315,18 +409,44 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
+	if edition != DirectoryEditionEnterprise && edition != DirectoryEditionStandard &&
+		edition != "" {
+		return nil, ErrInvalidParameter
+	}
 
 	st := b.state(region)
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, vpcSettings, tags)
+
+	var count int32
+	for _, d := range st.directories {
+		if DirectoryType(d.DirType) == DirectoryTypeMicrosoftAD {
+			count++
+		}
+	}
+	if count >= defaultMicrosoftADLimit {
+		return nil, ErrDirectoryLimitExceeded
+	}
+
+	d := b.newStoredDirectory(
+		name,
+		shortName,
+		description,
+		DirectoryTypeMicrosoftAD,
+		"",
+		edition,
+		vpcSettings,
+		tags,
+	)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID
 
 	cp := d.toDirectory()
 
+	go b.transitionDirectoryToActive(region, d.DirectoryID)
+
 	return &cp, nil
 }
 
-// DeleteDirectory deletes a directory.
+// DeleteDirectory deletes a directory and all associated resources.
 func (b *InMemoryBackend) DeleteDirectory(ctx context.Context, directoryID string) error {
 	region := getRegion(ctx, b.region)
 
@@ -342,15 +462,97 @@ func (b *InMemoryBackend) DeleteDirectory(ctx context.Context, directoryID strin
 
 	delete(st.aliases, d.Alias)
 	delete(st.directories, directoryID)
+	cascadeDeleteDirectory(st, directoryID)
 
-	// Delete associated snapshots.
+	return nil
+}
+
+// cascadeDeleteDirectory removes all resources that belong to directoryID from st.
+// Must be called with the backend lock held.
+func cascadeDeleteDirectory(st *regionState, directoryID string) {
 	for id, snap := range st.snapshots {
 		if snap.DirectoryID == directoryID {
 			delete(st.snapshots, id)
 		}
 	}
 
-	return nil
+	delete(st.ipRoutes, directoryID)
+	delete(st.radiusSettings, directoryID)
+	delete(st.dirDataAccess, directoryID)
+	delete(st.caEnrollment, directoryID)
+	delete(st.dirSettings, directoryID)
+	delete(st.updateInfoEntries, directoryID)
+
+	deleteMappedByDir(
+		st.regions,
+		directoryID,
+		func(r *storedRegion) string { return r.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.schemaExtensions,
+		directoryID,
+		func(e *storedSchemaExtension) string { return e.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.conditionalForwarders,
+		directoryID,
+		func(f *storedConditionalForwarder) string { return f.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.logSubscriptions,
+		directoryID,
+		func(s *storedLogSubscription) string { return s.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.eventTopics,
+		directoryID,
+		func(t *storedEventTopic) string { return t.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.domainControllers,
+		directoryID,
+		func(d *storedDomainController) string { return d.DirectoryID },
+	)
+	deleteMappedByDir(st.trusts, directoryID, func(t *storedTrust) string { return t.DirectoryID })
+	deleteMappedByDir(
+		st.sharedDirectories,
+		directoryID,
+		func(s *storedSharedDirectory) string { return s.OwnerDirectoryID },
+	)
+	deleteMappedByDir(
+		st.certificates,
+		directoryID,
+		func(c *storedCertificate) string { return c.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.ldapsSettings,
+		directoryID,
+		func(l *storedLDAPSSetting) string { return l.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.clientAuthSettings,
+		directoryID,
+		func(a *storedClientAuthSetting) string { return a.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.adAssessments,
+		directoryID,
+		func(a *storedADAssessment) string { return a.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.hybridADUpdates,
+		directoryID,
+		func(h *storedHybridADUpdate) string { return h.DirectoryID },
+	)
+}
+
+// deleteMappedByDir deletes all entries from m where getDir(v) == directoryID.
+func deleteMappedByDir[V any](m map[string]*V, directoryID string, getDir func(*V) string) {
+	for key, v := range m {
+		if getDir(v) == directoryID {
+			delete(m, key)
+		}
+	}
 }
 
 // DescribeDirectories returns directories, optionally filtered by IDs.
@@ -387,12 +589,8 @@ func (b *InMemoryBackend) DescribeDirectories(
 
 	start := 0
 	if nextToken != "" {
-		for i, id := range ids {
-			if id == nextToken {
-				start = i
-
-				break
-			}
+		if n, err := decodePageToken(nextToken); err == nil && n > 0 {
+			start = n
 		}
 	}
 
@@ -412,7 +610,7 @@ func (b *InMemoryBackend) DescribeDirectories(
 
 	var outToken string
 	if end < len(ids) {
-		outToken = ids[end]
+		outToken = encodePageToken(end)
 	}
 
 	return result, outToken, nil
@@ -512,7 +710,10 @@ func (b *InMemoryBackend) GetDirectoryLimits(ctx context.Context) *DirectoryLimi
 }
 
 // CreateSnapshot creates a manual snapshot for a directory.
-func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, directoryID, name string) (*Snapshot, error) {
+func (b *InMemoryBackend) CreateSnapshot(
+	ctx context.Context,
+	directoryID, name string,
+) (*Snapshot, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateSnapshot")
@@ -522,6 +723,16 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, directoryID, name 
 
 	if _, ok := st.directories[directoryID]; !ok {
 		return nil, ErrDirectoryNotFound
+	}
+
+	var count int32
+	for _, s := range st.snapshots {
+		if s.DirectoryID == directoryID && s.SnapType == string(SnapshotTypeManual) {
+			count++
+		}
+	}
+	if count >= defaultSnapshotLimit {
+		return nil, ErrSnapshotLimitExceeded
 	}
 
 	id := b.newSnapshotID()
@@ -595,12 +806,8 @@ func (b *InMemoryBackend) DescribeSnapshots(
 
 	start := 0
 	if nextToken != "" {
-		for i, id := range ids {
-			if id == nextToken {
-				start = i
-
-				break
-			}
+		if n, err := decodePageToken(nextToken); err == nil && n > 0 {
+			start = n
 		}
 	}
 
@@ -620,14 +827,17 @@ func (b *InMemoryBackend) DescribeSnapshots(
 
 	var outToken string
 	if end < len(ids) {
-		outToken = ids[end]
+		outToken = encodePageToken(end)
 	}
 
 	return result, outToken, nil
 }
 
 // GetSnapshotLimits returns snapshot limits for a directory.
-func (b *InMemoryBackend) GetSnapshotLimits(ctx context.Context, directoryID string) (*SnapshotLimits, error) {
+func (b *InMemoryBackend) GetSnapshotLimits(
+	ctx context.Context,
+	directoryID string,
+) (*SnapshotLimits, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("GetSnapshotLimits")
@@ -657,18 +867,42 @@ func (b *InMemoryBackend) GetSnapshotLimits(ctx context.Context, directoryID str
 func (b *InMemoryBackend) RestoreFromSnapshot(ctx context.Context, snapshotID string) error {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("RestoreFromSnapshot")
-	defer b.mu.RUnlock()
+	b.mu.Lock("RestoreFromSnapshot")
+	defer b.mu.Unlock()
 
-	if _, ok := b.state(region).snapshots[snapshotID]; !ok {
+	snap, ok := b.state(region).snapshots[snapshotID]
+	if !ok {
 		return ErrSnapshotNotFound
 	}
+
+	dir, ok := b.state(region).directories[snap.DirectoryID]
+	if !ok {
+		return ErrDirectoryNotFound
+	}
+
+	dir.Stage = string(DirectoryStageRestoring)
+
+	dirID := dir.DirectoryID
+
+	go func(region, id string) {
+		time.Sleep(restoreLifecycleDelay)
+
+		b.mu.Lock("RestoreFromSnapshot:active")
+		if d, exists := b.state(region).directories[id]; exists && d.Stage == string(DirectoryStageRestoring) {
+			d.Stage = string(DirectoryStageActive)
+		}
+		b.mu.Unlock()
+	}(region, dirID)
 
 	return nil
 }
 
 // AddTagsToResource adds or updates tags on a directory.
-func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, resourceID string, tags []Tag) error {
+func (b *InMemoryBackend) AddTagsToResource(
+	ctx context.Context,
+	resourceID string,
+	tags []Tag,
+) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("AddTagsToResource")
@@ -691,7 +925,11 @@ func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, resourceID stri
 }
 
 // RemoveTagsFromResource removes tags from a directory.
-func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, resourceID string, tagKeys []string) error {
+func (b *InMemoryBackend) RemoveTagsFromResource(
+	ctx context.Context,
+	resourceID string,
+	tagKeys []string,
+) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("RemoveTagsFromResource")
@@ -709,12 +947,12 @@ func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, resourceID
 	return nil
 }
 
-// ListTagsForResource returns tags for a directory.
+// ListTagsForResource returns tags for a directory with pagination.
 func (b *InMemoryBackend) ListTagsForResource(
 	ctx context.Context,
 	resourceID string,
-	_ int32,
-	_ string,
+	limit int32,
+	nextToken string,
 ) ([]Tag, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -726,13 +964,33 @@ func (b *InMemoryBackend) ListTagsForResource(
 		return nil, "", ErrDirectoryNotFound
 	}
 
-	tags := make([]Tag, 0, len(d.Tags))
+	all := make([]Tag, 0, len(d.Tags))
 	for k, v := range d.Tags {
-		tags = append(tags, Tag{Key: k, Value: v})
+		all = append(all, Tag{Key: k, Value: v})
 	}
-	sort.Slice(tags, func(i, j int) bool { return tags[i].Key < tags[j].Key })
+	sort.Slice(all, func(i, j int) bool { return all[i].Key < all[j].Key })
 
-	return tags, "", nil
+	start := 0
+	if nextToken != "" {
+		if n, err := decodePageToken(nextToken); err == nil && n > 0 {
+			start = n
+		}
+	}
+
+	pageSize := int(limit)
+	if pageSize <= 0 || pageSize > 1000 {
+		pageSize = 1000
+	}
+
+	end := min(start+pageSize, len(all))
+	result := all[start:end]
+
+	var outToken string
+	if end < len(all) {
+		outToken = encodePageToken(end)
+	}
+
+	return result, outToken, nil
 }
 
 // AccountID returns the account ID.
@@ -757,9 +1015,28 @@ func (b *InMemoryBackend) BackendSnapshot() []byte {
 	regions := make(map[string]regionSnapshot, len(b.states))
 	for region, st := range b.states {
 		regions[region] = regionSnapshot{
-			Directories: st.directories,
-			Snapshots:   st.snapshots,
-			Aliases:     st.aliases,
+			Directories:           st.directories,
+			Snapshots:             st.snapshots,
+			Aliases:               st.aliases,
+			IPRoutes:              st.ipRoutes,
+			Regions:               st.regions,
+			SchemaExtensions:      st.schemaExtensions,
+			ConditionalForwarders: st.conditionalForwarders,
+			LogSubscriptions:      st.logSubscriptions,
+			EventTopics:           st.eventTopics,
+			DomainControllers:     st.domainControllers,
+			Trusts:                st.trusts,
+			SharedDirectories:     st.sharedDirectories,
+			Certificates:          st.certificates,
+			LDAPSSettings:         st.ldapsSettings,
+			ClientAuthSettings:    st.clientAuthSettings,
+			RadiusSettings:        st.radiusSettings,
+			DirDataAccess:         st.dirDataAccess,
+			CAEnrollment:          st.caEnrollment,
+			ADAssessments:         st.adAssessments,
+			DirSettings:           st.dirSettings,
+			UpdateInfoEntries:     st.updateInfoEntries,
+			HybridADUpdates:       st.hybridADUpdates,
 		}
 	}
 
@@ -768,28 +1045,93 @@ func (b *InMemoryBackend) BackendSnapshot() []byte {
 	return data
 }
 
+// restoreRegionState copies non-nil fields from rs into st.
+// Complexity is inherent: one branch per region-state field (22 fields, no logic).
+//
+//nolint:gocognit,cyclop // flat nil-guard per field; no real branching logic
+func restoreRegionState(st *regionState, rs regionSnapshot) {
+	if rs.Directories != nil {
+		st.directories = rs.Directories
+	}
+	if rs.Snapshots != nil {
+		st.snapshots = rs.Snapshots
+	}
+	if rs.Aliases != nil {
+		st.aliases = rs.Aliases
+	}
+	if rs.IPRoutes != nil {
+		st.ipRoutes = rs.IPRoutes
+	}
+	if rs.Regions != nil {
+		st.regions = rs.Regions
+	}
+	if rs.SchemaExtensions != nil {
+		st.schemaExtensions = rs.SchemaExtensions
+	}
+	if rs.ConditionalForwarders != nil {
+		st.conditionalForwarders = rs.ConditionalForwarders
+	}
+	if rs.LogSubscriptions != nil {
+		st.logSubscriptions = rs.LogSubscriptions
+	}
+	if rs.EventTopics != nil {
+		st.eventTopics = rs.EventTopics
+	}
+	if rs.DomainControllers != nil {
+		st.domainControllers = rs.DomainControllers
+	}
+	if rs.Trusts != nil {
+		st.trusts = rs.Trusts
+	}
+	if rs.SharedDirectories != nil {
+		st.sharedDirectories = rs.SharedDirectories
+	}
+	if rs.Certificates != nil {
+		st.certificates = rs.Certificates
+	}
+	if rs.LDAPSSettings != nil {
+		st.ldapsSettings = rs.LDAPSSettings
+	}
+	if rs.ClientAuthSettings != nil {
+		st.clientAuthSettings = rs.ClientAuthSettings
+	}
+	if rs.RadiusSettings != nil {
+		st.radiusSettings = rs.RadiusSettings
+	}
+	if rs.DirDataAccess != nil {
+		st.dirDataAccess = rs.DirDataAccess
+	}
+	if rs.CAEnrollment != nil {
+		st.caEnrollment = rs.CAEnrollment
+	}
+	if rs.ADAssessments != nil {
+		st.adAssessments = rs.ADAssessments
+	}
+	if rs.DirSettings != nil {
+		st.dirSettings = rs.DirSettings
+	}
+	if rs.UpdateInfoEntries != nil {
+		st.updateInfoEntries = rs.UpdateInfoEntries
+	}
+	if rs.HybridADUpdates != nil {
+		st.hybridADUpdates = rs.HybridADUpdates
+	}
+}
+
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "directoryservice", data, &snap); err != nil {
 		return err
 	}
 
 	b.states = make(map[string]*regionState)
 	for region, rs := range snap.Regions {
 		st := newRegionState()
-		if rs.Directories != nil {
-			st.directories = rs.Directories
-		}
-		if rs.Snapshots != nil {
-			st.snapshots = rs.Snapshots
-		}
-		if rs.Aliases != nil {
-			st.aliases = rs.Aliases
-		}
+		restoreRegionState(st, rs)
 		b.states[region] = st
 	}
 

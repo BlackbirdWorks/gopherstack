@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -41,6 +43,27 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // Reset clears all backend state. Used for test isolation.
 func (h *Handler) Reset() { h.Backend.Reset() }
+
+// StartWorker implements service.BackgroundWorker. It starts the managed lifecycle
+// reconciler using the framework-provided background context, so no
+// context.Background() is introduced.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	h.Backend.StartReconciler(ctx)
+
+	return nil
+}
+
+// Shutdown implements service.Shutdowner. It stops the reconciler and waits for its
+// goroutine to exit, guaranteeing a clean, leak-free shutdown.
+func (h *Handler) Shutdown(_ context.Context) {
+	h.Backend.StopReconciler()
+}
+
+// Ensure Handler satisfies the optional background-lifecycle interfaces.
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return glueServiceName }
@@ -688,6 +711,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusBadRequest, errorResponse("CrawlerRunningException", err.Error()))
 	case errors.Is(err, ErrCrawlerNotRunning):
 		return c.JSON(http.StatusBadRequest, errorResponse("CrawlerNotRunningException", err.Error()))
+	case errors.Is(err, ErrConnectionTypeBuiltIn):
+		return c.JSON(http.StatusBadRequest, errorResponse("AccessDeniedException", err.Error()))
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, errorResponse("EntityNotFoundException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):
@@ -703,6 +728,24 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
+}
+
+// paginateSlice applies NextToken-based pagination to a sorted slice.
+// It returns the page and the next token (empty string when no more pages).
+func paginateSlice[T any](items []T, nextToken string, limit int) ([]T, string) {
+	start := 0
+	if nextToken != "" {
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx > 0 && idx < len(items) {
+			start = idx
+		}
+	}
+
+	end := start + limit
+	if end >= len(items) {
+		return items[start:], ""
+	}
+
+	return items[start:end], strconv.Itoa(end)
 }
 
 // --- Database handlers ---
@@ -739,16 +782,34 @@ func (h *Handler) handleGetDatabase(_ context.Context, in *getDatabaseInput) (*g
 	return &getDatabaseOutput{Database: db}, nil
 }
 
-type getDatabasesInput struct{}
+// maxGetDatabasesResults is the AWS-enforced upper bound for GetDatabases MaxResults.
+const maxGetDatabasesResults = 100
+
+type getDatabasesInput struct {
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
 
 type getDatabasesOutput struct {
+	NextToken    string      `json:"NextToken,omitempty"`
 	DatabaseList []*Database `json:"DatabaseList"`
 }
 
-func (h *Handler) handleGetDatabases(_ context.Context, _ *getDatabasesInput) (*getDatabasesOutput, error) {
+func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (*getDatabasesOutput, error) {
+	if in.MaxResults != nil && (*in.MaxResults < 1 || *in.MaxResults > maxGetDatabasesResults) {
+		return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxGetDatabasesResults)
+	}
+
 	dbs := h.Backend.GetDatabases()
 
-	return &getDatabasesOutput{DatabaseList: dbs}, nil
+	limit := maxGetDatabasesResults
+	if in.MaxResults != nil {
+		limit = int(*in.MaxResults)
+	}
+
+	page, next := paginateSlice(dbs, in.NextToken, limit)
+
+	return &getDatabasesOutput{DatabaseList: page, NextToken: next}, nil
 }
 
 type updateDatabaseInput struct {
@@ -809,21 +870,57 @@ func (h *Handler) handleGetTable(_ context.Context, in *getTableInput) (*getTabl
 	return &getTableOutput{Table: t}, nil
 }
 
+// maxGetTablesResults is the AWS-enforced upper bound for GetTables MaxResults.
+const maxGetTablesResults = 100
+
 type getTablesInput struct {
 	DatabaseName string `json:"DatabaseName"`
+	Expression   string `json:"Expression,omitempty"`
+	MaxResults   *int32 `json:"MaxResults,omitempty"`
+	NextToken    string `json:"NextToken,omitempty"`
 }
 
 type getTablesOutput struct {
+	NextToken string   `json:"NextToken,omitempty"`
 	TableList []*Table `json:"TableList"`
 }
 
 func (h *Handler) handleGetTables(_ context.Context, in *getTablesInput) (*getTablesOutput, error) {
+	if in.MaxResults != nil && (*in.MaxResults < 1 || *in.MaxResults > maxGetTablesResults) {
+		return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxGetTablesResults)
+	}
+
 	tables, err := h.Backend.GetTables(in.DatabaseName)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getTablesOutput{TableList: tables}, nil
+	if in.Expression != "" {
+		var re *regexp.Regexp
+
+		re, err = tableNameRegexp(in.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid Expression: %w", ErrValidation, err)
+		}
+
+		filtered := tables[:0]
+		for _, tbl := range tables {
+			if re.MatchString(tbl.Name) {
+				filtered = append(filtered, tbl)
+			}
+		}
+
+		tables = filtered
+	}
+
+	limit := maxGetTablesResults
+	if in.MaxResults != nil {
+		limit = int(*in.MaxResults)
+	}
+
+	page, next := paginateSlice(tables, in.NextToken, limit)
+
+	return &getTablesOutput{TableList: page, NextToken: next}, nil
 }
 
 type updateTableInput struct {

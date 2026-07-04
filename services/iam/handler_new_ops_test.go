@@ -72,17 +72,25 @@ func TestCreatePolicyVersion_Backend(t *testing.T) {
 		{
 			name: "create_version_success",
 			setup: func(b *iam.InMemoryBackend) string {
-				p, _ := b.CreatePolicy("ReadOnly", "/", `{"Version":"2012-10-17"}`)
+				p, _ := b.CreatePolicy(
+					"ReadOnly",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 
 				return p.Arn
 			},
-			policyDoc:     `{"Version":"2012-10-17","Statement":[]}`,
+			policyDoc:     `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			wantVersionID: "v2",
 		},
 		{
 			name: "create_version_set_as_default",
 			setup: func(b *iam.InMemoryBackend) string {
-				p, _ := b.CreatePolicy("WritePolicy", "/", `{"Version":"2012-10-17"}`)
+				p, _ := b.CreatePolicy(
+					"WritePolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 
 				return p.Arn
 			},
@@ -95,7 +103,7 @@ func TestCreatePolicyVersion_Backend(t *testing.T) {
 			setup: func(_ *iam.InMemoryBackend) string {
 				return "arn:aws:iam::000000000000:policy/NonExistent"
 			},
-			policyDoc: `{"Version":"2012-10-17"}`,
+			policyDoc: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			wantErr:   true,
 		},
 		{
@@ -541,11 +549,15 @@ func TestIAMHandler_NewOpsDispatch(t *testing.T) {
 			name:   "CreatePolicyVersion_success",
 			action: "CreatePolicyVersion",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreatePolicy("ReadOnly", "/", `{"Version":"2012-10-17"}`)
+				_, _ = b.CreatePolicy(
+					"ReadOnly",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			params: map[string]string{
 				"PolicyArn":      "arn:aws:iam::000000000000:policy/ReadOnly",
-				"PolicyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+				"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 				"SetAsDefault":   "false",
 			},
 			wantCode:    http.StatusOK,
@@ -556,7 +568,7 @@ func TestIAMHandler_NewOpsDispatch(t *testing.T) {
 			action: "CreatePolicyVersion",
 			params: map[string]string{
 				"PolicyArn":      "arn:aws:iam::000000000000:policy/Ghost",
-				"PolicyDocument": `{"Version":"2012-10-17"}`,
+				"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			},
 			wantCode: http.StatusBadRequest,
 		},
@@ -754,11 +766,15 @@ func TestIAMHandler_ListPolicyVersions(t *testing.T) {
 			e := echo.New()
 			h, b := newTestHandler(t)
 			if tt.setupData {
-				pol, setupErr := b.CreatePolicy("VersionListPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+				pol, setupErr := b.CreatePolicy(
+					"VersionListPolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				require.NoError(t, setupErr)
 				_, setupErr = b.CreatePolicyVersion(
 					pol.Arn,
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Deny"}]}`,
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}`,
 					true,
 				)
 				require.NoError(t, setupErr)
@@ -787,11 +803,19 @@ func TestNewOps_PersistenceRoundTrip(t *testing.T) {
 	// Seed data for all new ops.
 	require.NoError(t, b.CreateAccountAlias("test-alias"))
 
-	pol, err := b.CreatePolicy("VersionedPolicy", "/", `{"Version":"2012-10-17"}`)
+	pol, err := b.CreatePolicy(
+		"VersionedPolicy",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 	require.NoError(t, err)
 	policyArn := pol.Arn
 
-	_, err = b.CreatePolicyVersion(policyArn, `{"Version":"2012-10-17","Statement":[]}`, true)
+	_, err = b.CreatePolicyVersion(
+		policyArn,
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		true,
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateUser("svc-user", "/", "")
@@ -807,14 +831,18 @@ func TestNewOps_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, b.AcceptDelegationRequest(req.DelegationID))
 
 	// Snapshot and restore.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iam.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Creating another version should work as there's already 1 extra version.
-	pv, err := b2.CreatePolicyVersion(policyArn, `{"Version":"2012-10-17","Statement":[{"Effect":"Deny"}]}`, false)
+	pv, err := b2.CreatePolicyVersion(
+		policyArn,
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}`,
+		false,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "v3", pv.VersionID)
 }

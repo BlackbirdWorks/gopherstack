@@ -14,7 +14,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -57,6 +59,9 @@ const (
 
 	// AWS permission set name length limit.
 	maxPermissionSetNameLen = 32
+
+	// maxStatusEntries caps each status map to prevent unbounded growth.
+	maxStatusEntries = 1000
 
 	// CustomerManagedPolicyReference limits.
 	maxCMPRNameLen = 128
@@ -480,6 +485,10 @@ func (b *InMemoryBackend) ListInstances() []*Instance {
 		list = append(list, &cp)
 	}
 
+	slices.SortFunc(list, func(a, b *Instance) int {
+		return strings.Compare(a.InstanceArn, b.InstanceArn)
+	})
+
 	return list
 }
 
@@ -585,7 +594,7 @@ func (b *InMemoryBackend) CreatePermissionSet(
 
 	instanceID := instanceARNToID(instanceArn)
 	id := uuid.NewString()[:uuidShortLen]
-	psArn := fmt.Sprintf("arn:aws:sso:::permissionSet/%s/%s", instanceID, id)
+	psArn := arn.Build("sso", "", "", fmt.Sprintf("permissionSet/%s/%s", instanceID, id))
 
 	if sessionDuration == "" {
 		sessionDuration = defaultSessionDuration
@@ -691,6 +700,28 @@ func (b *InMemoryBackend) UpdatePermissionSet(
 	return nil
 }
 
+// pruneOldestStatus removes the oldest entry from m when it has reached maxStatusEntries.
+// Must be called with b.mu held for writing.
+func pruneOldestStatus(m map[string]*ProvisioningStatus) {
+	if len(m) < maxStatusEntries {
+		return
+	}
+
+	var oldestKey string
+	var oldestTime time.Time
+
+	for k, v := range m {
+		if oldestKey == "" || v.CreatedDate.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = v.CreatedDate
+		}
+	}
+
+	if oldestKey != "" {
+		delete(m, oldestKey)
+	}
+}
+
 // CreateAccountAssignment assigns a permission set to a principal in an account.
 func (b *InMemoryBackend) CreateAccountAssignment(
 	instanceArn, permissionSetArn, accountID, principalID, principalType string,
@@ -724,6 +755,7 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 	b.assignments[key] = append(b.assignments[key], assignment)
 
 	requestID := uuid.NewString()
+	pruneOldestStatus(b.creationStatuses)
 	b.creationStatuses[requestID] = &ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
@@ -833,6 +865,7 @@ func (b *InMemoryBackend) DeleteAccountAssignment(
 	delete(b.assignmentCreationIDs, idempotencyKey)
 
 	requestID := uuid.NewString()
+	pruneOldestStatus(b.deletionStatuses)
 	b.deletionStatuses[requestID] = &ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
@@ -1072,6 +1105,7 @@ func (b *InMemoryBackend) ProvisionPermissionSet(
 	}
 
 	requestID := uuid.NewString()
+	pruneOldestStatus(b.provisioningStatuses)
 	b.provisioningStatuses[requestID] = &ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
@@ -1551,7 +1585,7 @@ func (b *InMemoryBackend) AddPermissionSetInternal(instanceArn, name string) *Pe
 
 	instanceID := instanceARNToID(instanceArn)
 	id := uuid.NewString()[:uuidShortLen]
-	psArn := fmt.Sprintf("arn:aws:sso:::permissionSet/%s/%s", instanceID, id)
+	psArn := arn.Build("sso", "", "", fmt.Sprintf("permissionSet/%s/%s", instanceID, id))
 	ps := &PermissionSet{
 		PermissionSetArn: psArn,
 		InstanceArn:      instanceArn,
@@ -1572,7 +1606,7 @@ func (b *InMemoryBackend) AddApplicationInternal(instanceArn, name string) *Appl
 
 	id := uuid.NewString()[:uuidShortLen]
 	instanceID := instanceARNToID(instanceArn)
-	appArn := fmt.Sprintf("arn:aws:sso::%s:application/%s/apl-%s", b.accountID, instanceID, id)
+	appArn := arn.Build("sso", "", b.accountID, fmt.Sprintf("application/%s/apl-%s", instanceID, id))
 	app := &Application{
 		ApplicationArn:         appArn,
 		ApplicationProviderArn: appProviderCustom,
@@ -1682,7 +1716,7 @@ func (b *InMemoryBackend) CreateApplication(
 
 	id := uuid.NewString()[:uuidShortLen]
 	instanceID := instanceARNToID(instanceArn)
-	appArn := fmt.Sprintf("arn:aws:sso::%s:application/%s/apl-%s", b.accountID, instanceID, id)
+	appArn := arn.Build("sso", "", b.accountID, fmt.Sprintf("application/%s/apl-%s", instanceID, id))
 	app := &Application{
 		ApplicationArn:         appArn,
 		ApplicationProviderArn: applicationProviderArn,
@@ -2375,9 +2409,9 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(
 
 	id := uuid.NewString()[:uuidShortLen]
 	instanceID := instanceARNToID(instanceArn)
-	arn := fmt.Sprintf("arn:aws:sso::%s:trustedTokenIssuer/%s/tti-%s", b.accountID, instanceID, id)
+	arnStr := arn.Build("sso", "", b.accountID, fmt.Sprintf("trustedTokenIssuer/%s/tti-%s", instanceID, id))
 	ti := &TrustedTokenIssuer{
-		TrustedTokenIssuerArn:           arn,
+		TrustedTokenIssuerArn:           arnStr,
 		InstanceArn:                     instanceArn,
 		Name:                            name,
 		TrustedTokenIssuerType:          issuerType,
@@ -2387,7 +2421,7 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(
 	if tags != nil {
 		maps.Copy(ti.Tags, tags)
 	}
-	b.trustedTokenIssuers[arn] = ti
+	b.trustedTokenIssuers[arnStr] = ti
 
 	return copyTrustedTokenIssuer(ti), nil
 }
@@ -2668,11 +2702,7 @@ func (b *InMemoryBackend) ListPermissionSetsProvisionedToAccount(instanceArn, ac
 			}
 		}
 	}
-	result := make([]string, 0, len(seen))
-	for psArn := range seen {
-		result = append(result, psArn)
-	}
-	sort.Strings(result)
+	result := collections.SortedKeys(seen)
 
 	return result
 }
@@ -2745,11 +2775,7 @@ func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(
 		seen[a.AccountID] = struct{}{}
 	}
 
-	result := make([]string, 0, len(seen))
-	for accountID := range seen {
-		result = append(result, accountID)
-	}
-	sort.Strings(result)
+	result := collections.SortedKeys(seen)
 
 	return result, nil
 }

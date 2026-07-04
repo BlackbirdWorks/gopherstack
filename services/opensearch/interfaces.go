@@ -1,5 +1,7 @@
 package opensearch
 
+import "context"
+
 // StorageBackend defines the interface for OpenSearch backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -111,6 +113,14 @@ type StorageBackend interface {
 	GetIndex(domainName, indexName string) (*DomainIndex, error)
 	UpdateIndex(domainName, indexName string, mappings, settings map[string]any) (*DomainIndex, error)
 
+	// Document operations (real per-index document storage + bounded search)
+	IndexDocument(domainName, indexName, docID string, doc map[string]any) (string, bool, error)
+	GetDocument(domainName, indexName, docID string) (map[string]any, error)
+	DeleteDocument(domainName, indexName, docID string) error
+	CountDocuments(domainName, indexName string) (int, error)
+	DomainDocumentCount(domainName string) int
+	SearchIndex(domainName, indexName string, query map[string]any, size int) (*SearchResult, error)
+
 	// Upgrade operations
 	UpgradeDomain(domainName, upgradeName string) error
 	GetUpgradeHistory(domainName string) ([]*UpgradeHistory, error)
@@ -129,6 +139,9 @@ type StorageBackend interface {
 
 	// Engine-type filtered list
 	ListDomainNamesByEngine(engineType string) []string
+
+	// ListDomainEntriesFiltered returns name+engine version under a single lock.
+	ListDomainEntriesFiltered(engineType string) []DomainEntry
 
 	// Serverless collection operations
 	CreateServerlessCollection(
@@ -178,8 +191,8 @@ type StorageBackend interface {
 	Reset()
 	Region() string
 	AccountID() string
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.

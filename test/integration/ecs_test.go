@@ -815,6 +815,8 @@ func TestIntegration_ECS_ExecuteCommand(t *testing.T) {
 		Cluster:        aws.String(clusterName),
 		TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
 		Count:          aws.Int32(1),
+		// ECS Exec must be opted in at launch or ExecuteCommand is rejected (AWS behavior).
+		EnableExecuteCommand: true,
 	})
 	require.NoError(t, err)
 	require.Len(t, runOut.Tasks, 1)

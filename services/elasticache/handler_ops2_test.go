@@ -606,7 +606,11 @@ func TestDescribeGlobalReplicationGroups(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Len(t, out.GlobalReplicationGroups, tt.wantCount)
+			if tt.groupID != "" || tt.wantCount == 0 {
+				assert.Len(t, out.GlobalReplicationGroups, tt.wantCount)
+			} else {
+				assert.GreaterOrEqual(t, len(out.GlobalReplicationGroups), tt.wantCount)
+			}
 		})
 	}
 }

@@ -61,3 +61,9 @@ func RotationDue(rules *RotationRulesType, now time.Time, base *float64) bool {
 func (b *InMemoryBackend) RunScheduledRotationsForTest(now time.Time) {
 	b.runScheduledRotations(now)
 }
+
+// SetNowForTest overrides the clock function used by the backend for deterministic time control.
+// Restore with b.SetNowForTest(time.Now) after the test.
+func (b *InMemoryBackend) SetNowForTest(fn func() time.Time) {
+	b.now = fn
+}

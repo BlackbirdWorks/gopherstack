@@ -13,6 +13,7 @@ import (
 const (
 	stateByoipAdvertised   = "advertised"
 	stateAnalysisSucceeded = "succeeded"
+	fleetTypeDefault       = "maintain"
 )
 
 var (
@@ -591,7 +592,7 @@ func (b *InMemoryBackend) CreateFleet(fleetType string, totalTargetCapacity int)
 	defer b.mu.Unlock()
 
 	if fleetType == "" {
-		fleetType = "maintain"
+		fleetType = fleetTypeDefault
 	}
 
 	id := "fleet-" + uuid.New().String()[:8]

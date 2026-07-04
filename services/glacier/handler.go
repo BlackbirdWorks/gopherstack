@@ -3,6 +3,7 @@ package glacier
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,7 +12,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -131,17 +131,15 @@ const (
 // Handler is the HTTP handler for the Glacier REST API.
 type Handler struct {
 	Backend       StorageBackend
-	archiveData   map[string][]byte
 	AccountID     string
 	DefaultRegion string
-	archiveMu     sync.RWMutex
 }
 
 // NewHandler creates a new Glacier handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend:     backend,
-		archiveData: make(map[string][]byte),
+		Backend:       backend,
+		DefaultRegion: "us-east-1",
 	}
 }
 
@@ -741,6 +739,19 @@ func (h *Handler) handleDeleteVault(c *echo.Context, vaultName string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+func encodeMarker(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
+}
+
+func decodeMarker(s string) string {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return s
+	}
+
+	return string(b)
+}
+
 func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 	resolved := h.resolveAccountID(accountID)
 	vaults := h.Backend.ListVaults(resolved, h.DefaultRegion)
@@ -752,6 +763,9 @@ func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 
 	// Support `marker` pagination: start listing after this vault name.
 	marker := c.QueryParam("marker")
+	if marker != "" {
+		marker = decodeMarker(marker)
+	}
 
 	if marker != "" {
 		start := 0
@@ -763,7 +777,7 @@ func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 		if start < len(items) {
 			items = items[start+1:]
 		} else {
-			items = nil
+			items = items[:0]
 		}
 	}
 
@@ -789,7 +803,7 @@ func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 		}
 
 		if n < len(items) {
-			last := items[n-1].VaultName
+			last := encodeMarker(items[n-1].VaultName)
 			nextMarker = &last
 			items = items[:n]
 		}
@@ -852,25 +866,16 @@ func (h *Handler) handleUploadArchive(c *echo.Context, vaultName string, body []
 		}
 	}
 
-	size := int64(len(body))
+	checksum := computed
+	if clientChecksum != "" {
+		checksum = clientChecksum
+	}
 
 	a, err := h.Backend.UploadArchive(
-		h.AccountID,
-		h.DefaultRegion,
-		vaultName,
-		description,
-		computed,
-		size,
+		h.AccountID, h.DefaultRegion, vaultName, description, checksum, int64(len(body)), body,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
-	}
-
-	// Store archive bytes so ArchiveRetrieval job output can return them.
-	if len(body) > 0 {
-		h.archiveMu.Lock()
-		h.archiveData[a.ArchiveID] = body
-		h.archiveMu.Unlock()
 	}
 
 	location := "/" + h.AccountID + "/vaults/" + vaultName + "/archives/" + a.ArchiveID
@@ -988,11 +993,6 @@ func (h *Handler) handleDeleteArchive(c *echo.Context, vaultName, archiveID stri
 		return h.writeBackendError(c, err)
 	}
 
-	// Remove stored bytes so they don't accumulate in memory.
-	h.archiveMu.Lock()
-	delete(h.archiveData, archiveID)
-	h.archiveMu.Unlock()
-
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -1085,11 +1085,16 @@ func (h *Handler) handleListJobs(c *echo.Context, vaultName string) error {
 }
 
 // paginateJobList applies marker+limit pagination to a slice of job responses.
-func paginateJobList(
+func paginateJobList( //nolint:dupl // three typed paginate funcs share identical structure
 	c *echo.Context,
 	items []describeJobResponse,
 ) ([]describeJobResponse, *string, error) {
-	if marker := c.QueryParam("marker"); marker != "" {
+	marker := c.QueryParam("marker")
+	if marker != "" {
+		marker = decodeMarker(marker)
+	}
+
+	if marker != "" {
 		start := 0
 
 		for start < len(items) && items[start].JobID != marker {
@@ -1099,7 +1104,7 @@ func paginateJobList(
 		if start < len(items) {
 			items = items[start+1:]
 		} else {
-			items = nil
+			items = items[:0]
 		}
 	}
 
@@ -1122,7 +1127,7 @@ func paginateJobList(
 		return items, nil, nil
 	}
 
-	last := items[n-1].JobID
+	last := encodeMarker(items[n-1].JobID)
 
 	return items[:n], &last, nil
 }
@@ -1159,10 +1164,10 @@ func (h *Handler) handleInventoryJobOutput(c *echo.Context, j *Job, vaultName st
 	}
 
 	if j.InventoryFormat != "" && j.InventoryFormat != defaultInventoryFormat {
-		return h.writeInventoryCSV(c, j, archives)
+		return h.writeInventoryCSV(c, j, vaultName, archives)
 	}
 
-	return h.writeInventoryJSON(c, j, archives)
+	return h.writeInventoryJSON(c, j, vaultName, archives)
 }
 
 type inventoryArchiveItem struct {
@@ -1173,7 +1178,7 @@ type inventoryArchiveItem struct {
 	Size               int64  `json:"Size"`
 }
 
-func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archive) error {
+func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, vaultName string, archives []*Archive) error {
 	items := make([]inventoryArchiveItem, 0, len(archives))
 
 	for _, a := range archives {
@@ -1200,6 +1205,11 @@ func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archiv
 		)
 	}
 
+	// Populate InventorySizeInBytes on the job so DescribeJob returns it.
+	if j.InventorySizeInBytes == 0 {
+		h.Backend.SetJobInventorySize(h.AccountID, h.DefaultRegion, vaultName, j.JobID, int64(len(payload)))
+	}
+
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().
 		Header().
@@ -1208,7 +1218,7 @@ func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archiv
 	return h.serveWithRange(c, payload)
 }
 
-func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive) error {
+func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, vaultName string, archives []*Archive) error {
 	var buf bytes.Buffer
 
 	buf.WriteString("ArchiveId,ArchiveDescription,CreationDate,Size,SHA256TreeHash\n")
@@ -1217,9 +1227,7 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive
 		fmt.Fprintf(
 			&buf,
 			"%s,%s,%s,%d,%s\n",
-			csvField(
-				a.ArchiveID,
-			),
+			csvField(a.ArchiveID),
 			csvField(a.Description),
 			csvField(a.CreationDate),
 			a.Size,
@@ -1229,39 +1237,66 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive
 
 	payload := buf.Bytes()
 
+	// Populate InventorySizeInBytes on the job so DescribeJob returns it.
+	if j.InventorySizeInBytes == 0 {
+		h.Backend.SetJobInventorySize(h.AccountID, h.DefaultRegion, vaultName, j.JobID, int64(len(payload)))
+	}
+
 	c.Response().Header().Set("Content-Type", "text/csv")
 	c.Response().
 		Header().
 		Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(payload)-1, len(payload)))
 
-	_ = j // suppress unused warning
-
 	return h.serveWithRange(c, payload)
 }
 
 // handleArchiveJobOutput streams stored archive bytes with Range support.
+// If the job was initiated with a RetrievalByteRange, only that byte slice is served.
 func (h *Handler) handleArchiveJobOutput(c *echo.Context, j *Job) error {
 	c.Response().Header().Set("Content-Type", "application/octet-stream")
 
-	h.archiveMu.RLock()
-	data, hasData := h.archiveData[j.ArchiveID]
-	h.archiveMu.RUnlock()
+	data, hasData := h.Backend.GetArchiveData(j.ArchiveID)
 
 	if !hasData {
-		// Archive data not stored (uploaded before handler restart). Return empty stub.
-		if j.ArchiveSizeInBytes > 0 {
-			c.Response().Header().Set(
-				"Content-Range",
-				fmt.Sprintf("bytes 0-%d/%d", j.ArchiveSizeInBytes-1, j.ArchiveSizeInBytes),
-			)
-		}
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "Archive not found")
+	}
 
-		return c.NoContent(http.StatusOK)
+	// Honour RetrievalByteRange set at job initiation time (e.g. "0-1048575").
+	if j.RetrievalByteRange != "" {
+		data = sliceRetrievalRange(data, j.RetrievalByteRange)
 	}
 
 	c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(data)-1, len(data)))
 
 	return h.serveWithRange(c, data)
+}
+
+// sliceRetrievalRange slices data to the byte range specified in rangeStr ("START-END").
+// Returns data unchanged if rangeStr is malformed or out of bounds.
+func sliceRetrievalRange(data []byte, rangeStr string) []byte {
+	dash := strings.IndexByte(rangeStr, '-')
+	if dash <= 0 || dash == len(rangeStr)-1 {
+		return data
+	}
+
+	start, err1 := strconv.ParseInt(rangeStr[:dash], 10, 64)
+	end, err2 := strconv.ParseInt(rangeStr[dash+1:], 10, 64)
+
+	if err1 != nil || err2 != nil || start < 0 || end < start {
+		return data
+	}
+
+	total := int64(len(data))
+
+	if start >= total {
+		return data[:0]
+	}
+
+	if end >= total {
+		end = total - 1
+	}
+
+	return data[start : end+1]
 }
 
 // serveWithRange serves payload with optional HTTP Range support.
@@ -1830,11 +1865,16 @@ func (h *Handler) handleListMultipartUploads(c *echo.Context, vaultName string) 
 }
 
 // paginateUploadList applies marker+limit pagination to a multipart-upload slice.
-func paginateUploadList(
+func paginateUploadList( //nolint:dupl // three typed paginate funcs share identical structure
 	c *echo.Context,
 	items []MultipartUpload,
 ) ([]MultipartUpload, *string, error) {
-	if marker := c.QueryParam("marker"); marker != "" {
+	marker := c.QueryParam("marker")
+	if marker != "" {
+		marker = decodeMarker(marker)
+	}
+
+	if marker != "" {
 		start := 0
 
 		for start < len(items) && items[start].MultipartUploadID != marker {
@@ -1844,7 +1884,7 @@ func paginateUploadList(
 		if start < len(items) {
 			items = items[start+1:]
 		} else {
-			items = nil
+			items = items[:0]
 		}
 	}
 
@@ -1867,7 +1907,7 @@ func paginateUploadList(
 		return items, nil, nil
 	}
 
-	last := items[n-1].MultipartUploadID
+	last := encodeMarker(items[n-1].MultipartUploadID)
 
 	return items[:n], &last, nil
 }
@@ -1897,7 +1937,9 @@ func (h *Handler) handleListParts(c *echo.Context, vaultName, uploadID string) e
 
 // paginatePartList applies marker+limit pagination to a parts slice.
 // Marker is compared to RangeInBytes of each part.
-func paginatePartList(c *echo.Context, parts []MultipartPart) ([]MultipartPart, *string, error) {
+func paginatePartList(
+	c *echo.Context, parts []MultipartPart,
+) ([]MultipartPart, *string, error) {
 	if marker := c.QueryParam("marker"); marker != "" {
 		start := 0
 
@@ -1908,7 +1950,7 @@ func paginatePartList(c *echo.Context, parts []MultipartPart) ([]MultipartPart, 
 		if start < len(parts) {
 			parts = parts[start+1:]
 		} else {
-			parts = nil
+			parts = parts[:0]
 		}
 	}
 
@@ -2029,7 +2071,9 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrUploadNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, ErrVaultNotEmpty):
-		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
+		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
+	case errors.Is(err, ErrResourceInUse):
+		return h.writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
 	case errors.Is(err, ErrLockConflict):
 		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, ErrLockAlreadyLocked):
@@ -2055,8 +2099,4 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 // Reset clears all backend state and the handler-level archive data store.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
-
-	h.archiveMu.Lock()
-	h.archiveData = make(map[string][]byte)
-	h.archiveMu.Unlock()
 }

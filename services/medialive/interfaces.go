@@ -1,5 +1,7 @@
 package medialive
 
+import "context"
+
 // StorageBackend is the interface for MediaLive storage operations.
 type StorageBackend interface {
 	// Channels
@@ -87,7 +89,10 @@ type StorageBackend interface {
 	) ([]*InputDeviceTransfer, string, error)
 
 	// Clusters
-	CreateCluster(name, clusterType, instanceRoleArn string, tags map[string]string) (*Cluster, error)
+	CreateCluster(
+		name, clusterType, instanceRoleArn string,
+		tags map[string]string,
+	) (*Cluster, error)
 	DescribeCluster(clusterID string) (*Cluster, error)
 	UpdateCluster(clusterID, name string) (*Cluster, error)
 	DeleteCluster(clusterID string) (*Cluster, error)
@@ -101,7 +106,11 @@ type StorageBackend interface {
 	DeleteNode(clusterID, nodeID string) (*Node, error)
 	ListNodes(clusterID string, maxResults int, nextToken string) ([]*NodeSummary, string, error)
 	CreateNodeRegistrationScript(clusterID string) (string, error)
-	ListClusterAlerts(clusterID string, maxResults int, nextToken string) ([]map[string]any, string, error)
+	ListClusterAlerts(
+		clusterID string,
+		maxResults int,
+		nextToken string,
+	) ([]map[string]any, string, error)
 
 	// SignalMaps
 	CreateSignalMap(
@@ -296,8 +305,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // IPPool is a CIDR pool for a Network.
@@ -434,6 +443,7 @@ type InputDevice struct {
 	ConnectionState         string
 	DeviceSettingsSyncState string
 	DeviceUpdateStatus      string
+	MaintenanceWindowActive bool
 }
 
 // InputDeviceTransfer represents a pending input device transfer.

@@ -1,7 +1,7 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,12 +11,19 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
 	statusEnabled  = "ENABLED"
 	statusDisabled = "DISABLED"
+
+	resourceTypeEC2        = "EC2"
+	resourceTypeECR        = "ECR"
+	resourceTypeLambda     = "LAMBDA"
+	resourceTypeLambdaCode = "LAMBDA_CODE"
 
 	ec2ScanModeEC2SSMAgentBased = "EC2_SSM_AGENT_BASED"
 	ecrRescanDurationLifetime   = "LIFETIME"
@@ -157,25 +164,26 @@ type AccountStatusResponse struct {
 
 // InMemoryBackend is the in-memory implementation of Inspector2.
 type InMemoryBackend struct {
-	mu        *lockmetrics.RWMutex
-	filters   map[string]*Filter
-	findings  map[string]*storedFinding
-	tags      map[string]map[string]string
-	ax        *appendixAState
-	config    Configuration
-	accountID string
-	region    string
-	enabled   bool
+	mu           *lockmetrics.RWMutex
+	filters      map[string]*Filter
+	findings     map[string]*storedFinding
+	tags         map[string]map[string]string
+	ax           *appendixAState
+	enabledTypes map[string]bool
+	config       Configuration
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:       lockmetrics.New("inspector2"),
-		filters:  make(map[string]*Filter),
-		findings: make(map[string]*storedFinding),
-		tags:     make(map[string]map[string]string),
-		ax:       newAppendixAState(),
+		mu:           lockmetrics.New("inspector2"),
+		filters:      make(map[string]*Filter),
+		findings:     make(map[string]*storedFinding),
+		tags:         make(map[string]map[string]string),
+		ax:           newAppendixAState(),
+		enabledTypes: make(map[string]bool),
 		config: Configuration{
 			Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
 			EcrRescanDuration: ecrRescanDurationLifetime,
@@ -191,52 +199,89 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 // Region returns the backend region.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// knownResourceTypes returns the full set of Inspector2 resource types, used
+// when Enable/Disable is called with an empty list.
+func knownResourceTypes() []string {
+	return []string{resourceTypeEC2, resourceTypeECR, resourceTypeLambda, resourceTypeLambdaCode}
+}
+
 // Enable enables Inspector2 scanning for the given resource types.
+// If resourceTypes is empty, all known resource types are enabled.
 func (b *InMemoryBackend) Enable(resourceTypes []string) error {
 	b.mu.Lock("Enable")
 	defer b.mu.Unlock()
 
-	b.enabled = true
-	_ = resourceTypes
+	if len(resourceTypes) == 0 {
+		resourceTypes = knownResourceTypes()
+	}
+
+	for _, rt := range resourceTypes {
+		b.enabledTypes[rt] = true
+	}
 
 	return nil
 }
 
 // Disable disables Inspector2 scanning for the given resource types.
+// If resourceTypes is empty, all known resource types are disabled.
 func (b *InMemoryBackend) Disable(resourceTypes []string) error {
 	b.mu.Lock("Disable")
 	defer b.mu.Unlock()
 
-	b.enabled = false
-	_ = resourceTypes
+	if len(resourceTypes) == 0 {
+		resourceTypes = knownResourceTypes()
+	}
+
+	for _, rt := range resourceTypes {
+		b.enabledTypes[rt] = false
+	}
 
 	return nil
 }
 
-// IsEnabled returns whether Inspector2 is enabled.
+// IsEnabled returns whether Inspector2 is enabled for any resource type.
 func (b *InMemoryBackend) IsEnabled() bool {
 	b.mu.RLock("IsEnabled")
 	defer b.mu.RUnlock()
 
-	return b.enabled
+	for _, v := range b.enabledTypes {
+		if v {
+			return true
+		}
+	}
+
+	return false
 }
 
-// GetStatus returns account status information.
+// GetStatus returns account status information with per-resource-type detail.
 func (b *InMemoryBackend) GetStatus() *AccountStatusResponse {
 	b.mu.RLock("GetStatus")
 	defer b.mu.RUnlock()
 
-	status := statusDisabled
-	if b.enabled {
-		status = statusEnabled
+	typeStatus := func(rt string) string {
+		if b.enabledTypes[rt] {
+			return statusEnabled
+		}
+
+		return statusDisabled
+	}
+
+	overall := statusDisabled
+
+	for _, v := range b.enabledTypes {
+		if v {
+			overall = statusEnabled
+
+			break
+		}
 	}
 
 	return &AccountStatusResponse{
 		AccountID:    b.accountID,
-		Status:       status,
-		Ec2Status:    status,
-		EcrStatus:    status,
-		LambdaStatus: status,
+		Status:       overall,
+		Ec2Status:    typeStatus(resourceTypeEC2),
+		EcrStatus:    typeStatus(resourceTypeECR),
+		LambdaStatus: typeStatus(resourceTypeLambda),
 	}
 }
 
@@ -361,12 +406,7 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 		arnSet[a] = true
 	}
 
-	sortedARNs := make([]string, 0, len(b.filters))
-	for a := range b.filters {
-		sortedARNs = append(sortedARNs, a)
-	}
-
-	sort.Strings(sortedARNs)
+	sortedARNs := collections.SortedKeys(b.filters)
 
 	var result []*Filter
 
@@ -812,50 +852,51 @@ func (b *InMemoryBackend) Reset() {
 	b.filters = make(map[string]*Filter)
 	b.findings = make(map[string]*storedFinding)
 	b.tags = make(map[string]map[string]string)
+	b.ax = newAppendixAState()
+	b.enabledTypes = make(map[string]bool)
 	b.config = Configuration{
 		Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
 		EcrRescanDuration: ecrRescanDurationLifetime,
 	}
-	b.enabled = false
 }
 
 type backendSnapshot struct {
-	Filters   map[string]*Filter           `json:"filters"`
-	Findings  map[string]*storedFinding    `json:"findings"`
-	Tags      map[string]map[string]string `json:"tags"`
-	Config    Configuration                `json:"config"`
-	AccountID string                       `json:"accountId"`
-	Region    string                       `json:"region"`
-	Enabled   bool                         `json:"enabled"`
+	Filters      map[string]*Filter           `json:"filters"`
+	Findings     map[string]*storedFinding    `json:"findings"`
+	Tags         map[string]map[string]string `json:"tags"`
+	Appendix     *appendixAState              `json:"appendix"`
+	EnabledTypes map[string]bool              `json:"enabledTypes"`
+	Config       Configuration                `json:"config"`
+	AccountID    string                       `json:"accountId"`
+	Region       string                       `json:"region"`
 }
 
 // Snapshot serializes the backend state.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Filters:   b.filters,
-		Findings:  b.findings,
-		Tags:      b.tags,
-		Config:    b.config,
-		Enabled:   b.enabled,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Filters:      b.filters,
+		Findings:     b.findings,
+		Tags:         b.tags,
+		Appendix:     b.ax,
+		Config:       b.config,
+		EnabledTypes: b.enabledTypes,
+		AccountID:    b.accountID,
+		Region:       b.region,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "inspector2", snap)
 }
 
 // Restore deserializes the backend state.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "inspector2", data, &snap); err != nil {
 		return fmt.Errorf("inspector2: restore: %w", err)
 	}
 
@@ -863,12 +904,20 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.findings = snap.Findings
 	b.tags = snap.Tags
 	b.config = snap.Config
-	b.enabled = snap.Enabled
+	b.enabledTypes = snap.EnabledTypes
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	if b.enabledTypes == nil {
+		b.enabledTypes = make(map[string]bool)
+	}
+
 	if b.findings == nil {
 		b.findings = make(map[string]*storedFinding)
+	}
+
+	if snap.Appendix != nil {
+		b.ax = snap.Appendix
 	}
 
 	return nil

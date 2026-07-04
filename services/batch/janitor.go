@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -56,36 +57,23 @@ func NewJanitor(backend *InMemoryBackend, interval, inactiveJobDefTTL, completed
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, batchWorkerServiceName)
+	g.Ticker(
+		inactiveJobDefSweeperComponent,
+		j.Interval,
+		j.TaskTimeout,
+		j.SweepOnce,
+	)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepInactiveJobDefinitions(taskCtx)
-			j.sweepCompletedJobs(taskCtx)
-			cancel()
-		}
-	}
-}
-
-// taskContext returns a child context bounded by TaskTimeout (if non-zero).
-// The caller is responsible for calling the returned cancel function.
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
-	}
-
-	return context.WithCancel(parent)
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepInactiveJobDefinitions(ctx)
 	j.sweepCompletedJobs(ctx)
+	j.advanceJobs(ctx)
 }
 
 // sweepInactiveJobDefinitions removes job definitions that have been in INACTIVE
@@ -94,27 +82,40 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 	cutoff := time.Now().Add(-j.InactiveJobDefTTL)
 
-	j.Backend.mu.Lock("BatchJanitor")
+	type evictKey struct {
+		region, name string
+	}
+	var toEvict []evictKey
 
-	var swept []string
-
-	// Job definitions are nested by region; sweep each region independently so
-	// expired INACTIVE definitions and orphaned revision counters are cleaned up
-	// per region.
+	j.Backend.mu.RLock("BatchJanitorInactiveDefs")
 	for region, defs := range j.Backend.jobDefinitions {
 		for arnKey, jd := range defs {
 			if jd.Status == jobDefStatusInactive && jd.DeregisteredAt != nil && jd.DeregisteredAt.Before(cutoff) {
-				swept = append(swept, arnKey)
-				delete(defs, arnKey)
+				toEvict = append(toEvict, evictKey{region, arnKey})
 			}
 		}
+	}
+	j.Backend.mu.RUnlock()
 
-		// Remove revision counters for names that no longer have any definition
-		// (ACTIVE or INACTIVE) in this region. This prevents the jobDefRevisions
-		// map from growing without bound as job definition names cycle through
-		// their lifetimes. Build a set of surviving names first for O(n+m).
+	if len(toEvict) == 0 {
+		return
+	}
+
+	j.Backend.mu.Lock("BatchJanitorInactiveDefsDel")
+	for _, k := range toEvict {
+		if defs, ok := j.Backend.jobDefinitions[k.region]; ok {
+			delete(defs, k.name)
+		}
+	}
+
+	regionsSet := make(map[string]struct{})
+	for _, k := range toEvict {
+		regionsSet[k.region] = struct{}{}
+	}
+
+	for region := range regionsSet {
+		defs := j.Backend.jobDefinitions[region]
 		surviving := make(map[string]struct{}, len(defs))
-
 		for _, jd := range defs {
 			surviving[jd.JobDefinitionName] = struct{}{}
 		}
@@ -126,19 +127,12 @@ func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 			}
 		}
 	}
-
 	j.Backend.mu.Unlock()
 
-	count := len(swept)
+	count := len(toEvict)
 
 	telemetry.RecordWorkerTask(batchWorkerServiceName, inactiveJobDefSweeperComponent, "success")
-
-	if count == 0 {
-		return
-	}
-
 	telemetry.RecordWorkerItems(batchWorkerServiceName, inactiveJobDefSweeperComponent, count)
-
 	logger.Load(ctx).InfoContext(ctx, "Batch janitor: INACTIVE job definitions evicted", "count", count)
 }
 
@@ -148,11 +142,12 @@ func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
 	cutoffMs := time.Now().Add(-j.CompletedJobTTL).UnixMilli()
 
-	j.Backend.mu.Lock("BatchJanitorCompletedJobs")
+	type evictKey struct {
+		region, id, arn string
+	}
+	var toEvict []evictKey
 
-	var swept []string
-
-	// Jobs are nested by region; sweep completed/failed jobs in every region.
+	j.Backend.mu.RLock("BatchJanitorCompletedJobs")
 	for region, jobs := range j.Backend.jobs {
 		for id, job := range jobs {
 			if !isTerminalJobStatus(job.Status) {
@@ -164,29 +159,114 @@ func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
 			}
 
 			if *job.StoppedAt < cutoffMs {
-				swept = append(swept, id)
-				delete(jobs, id)
+				toEvict = append(toEvict, evictKey{region, id, job.JobARN})
+			}
+		}
+	}
+	j.Backend.mu.RUnlock()
 
-				if jobsByARN := j.Backend.jobsByARN[region]; jobsByARN != nil {
-					delete(jobsByARN, job.JobARN)
+	if len(toEvict) == 0 {
+		return
+	}
+
+	j.Backend.mu.Lock("BatchJanitorCompletedJobsDel")
+	for _, k := range toEvict {
+		if jobs, ok := j.Backend.jobs[k.region]; ok {
+			delete(jobs, k.id)
+		}
+		if jobsByARN, ok := j.Backend.jobsByARN[k.region]; ok {
+			delete(jobsByARN, k.arn)
+		}
+	}
+	j.Backend.mu.Unlock()
+
+	count := len(toEvict)
+
+	telemetry.RecordWorkerTask(batchWorkerServiceName, completedJobSweeperComponent, "success")
+	telemetry.RecordWorkerItems(batchWorkerServiceName, completedJobSweeperComponent, count)
+	logger.Load(ctx).InfoContext(ctx, "Batch janitor: completed jobs evicted", "count", count)
+}
+
+type advanceKey struct {
+	region, id, newStatus string
+}
+
+func (j *Janitor) getJobsToAdvance() ([]advanceKey, []advanceKey) {
+	var toAdvance []advanceKey
+	var toAdvanceSvc []advanceKey
+
+	j.Backend.mu.RLock("BatchJanitorAdvanceJobsLock")
+	defer j.Backend.mu.RUnlock()
+
+	for region, jobsMap := range j.Backend.jobs {
+		for id, job := range jobsMap {
+			switch job.Status {
+			case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
+				toAdvance = append(toAdvance, advanceKey{region, id, jobStatusRunning})
+			case jobStatusRunning:
+				if job.StoppedAt == nil {
+					toAdvance = append(toAdvance, advanceKey{region, id, jobStatusSucceeded})
 				}
 			}
 		}
 	}
 
-	j.Backend.mu.Unlock()
+	for region, serviceJobsMap := range j.Backend.serviceJobs {
+		for id, job := range serviceJobsMap {
+			switch job.Status {
+			case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
+				toAdvanceSvc = append(toAdvanceSvc, advanceKey{region, id, jobStatusRunning})
+			case jobStatusRunning:
+				if job.StoppedAt == nil {
+					toAdvanceSvc = append(toAdvanceSvc, advanceKey{region, id, jobStatusSucceeded})
+				}
+			}
+		}
+	}
 
-	count := len(swept)
+	return toAdvance, toAdvanceSvc
+}
 
-	telemetry.RecordWorkerTask(batchWorkerServiceName, completedJobSweeperComponent, "success")
+func (j *Janitor) advanceJobs(_ context.Context) {
+	now := time.Now().UnixMilli()
 
-	if count == 0 {
+	toAdvance, toAdvanceSvc := j.getJobsToAdvance()
+	if len(toAdvance) == 0 && len(toAdvanceSvc) == 0 {
 		return
 	}
 
-	telemetry.RecordWorkerItems(batchWorkerServiceName, completedJobSweeperComponent, count)
+	j.Backend.mu.Lock("BatchJanitorAdvanceJobs")
+	j.applyAdvanceRegularJobs(toAdvance, now)
+	j.applyAdvanceServiceJobs(toAdvanceSvc, now)
+	j.Backend.mu.Unlock()
+}
 
-	logger.Load(ctx).InfoContext(ctx, "Batch janitor: completed jobs evicted", "count", count)
+func (j *Janitor) applyAdvanceRegularJobs(toAdvance []advanceKey, now int64) {
+	for _, k := range toAdvance {
+		if job, ok := j.Backend.jobs[k.region][k.id]; ok {
+			job.Status = k.newStatus
+			switch k.newStatus {
+			case jobStatusRunning:
+				job.StartedAt = &now
+			case jobStatusSucceeded:
+				job.StoppedAt = &now
+			}
+		}
+	}
+}
+
+func (j *Janitor) applyAdvanceServiceJobs(toAdvanceSvc []advanceKey, now int64) {
+	for _, k := range toAdvanceSvc {
+		if job, ok := j.Backend.serviceJobs[k.region][k.id]; ok {
+			job.Status = k.newStatus
+			switch k.newStatus {
+			case jobStatusRunning:
+				job.StartedAt = &now
+			case jobStatusSucceeded:
+				job.StoppedAt = &now
+			}
+		}
+	}
 }
 
 // isTerminalJobStatus reports whether the given job status is terminal.

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"maps"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 type storedApplication struct {
@@ -83,11 +85,11 @@ func (d *storedDirectoryConfig) toDirectoryConfig() *DirectoryConfig {
 }
 
 func (b *InMemoryBackend) applicationARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:application/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("application/%s", name))
 }
 
 func (b *InMemoryBackend) directoryConfigARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:directory-config/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("directory-config/%s", name))
 }
 
 func entitlementKey(name, stackName string) string { return name + "\x00" + stackName }

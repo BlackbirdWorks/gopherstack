@@ -56,6 +56,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
@@ -1881,7 +1882,7 @@ func run(ctx context.Context, cli CLI) error {
 					"panic", fmt.Sprintf("%v", r))
 			}
 		}()
-		startPurgeWorker(janitorCtx, log, cli.globalConfig, services)
+		startPurgeWorker(janitorCtx, cli.globalConfig, services)
 	}()
 
 	inMemMux.Handle("/", e)
@@ -2057,6 +2058,7 @@ func buildEchoServer(
 	e.Use(logger.APIConsoleMiddleware())
 	e.Use(telemetry.MemoryStatsMiddleware)
 	e.Pre(logger.EchoMiddleware(log))
+	e.Pre(awsMetaMiddleware(cli.Region, cli.AccountID))
 
 	// Optional, opt-in SigV4 signature validation. Off by default so existing
 	// clients (which sign with dummy creds) are not rejected.
@@ -2612,7 +2614,13 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	wireSSMKMS(byName["SSM"], byName["KMS"])
 
 	// Wire API Gateway → Lambda proxy integration.
-	wireAPIGatewayLambda(byName["APIGateway"], byName["Lambda"])
+	wireAPIGatewayLambda(byName["APIGateway"], byName["APIGatewayV2"], byName["Lambda"])
+
+	// Wire API Gateway → Cognito for JWT signature verification.
+	wireAPIGatewayCognito(byName["APIGateway"], byName["APIGatewayV2"], byName["CognitoIDP"])
+
+	// Wire API Gateway V2 -> API Gateway Management API for WebSocket connections.
+	wireAPIGatewayManagementAPI(byName["APIGatewayV2"], byName["APIGatewayManagementAPI"])
 
 	// Wire Kinesis → Lambda event source mapping poller.
 	wireKinesisLambda(byName["Kinesis"], byName["Lambda"])
@@ -2623,14 +2631,21 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire DynamoDB Streams → Lambda event source mapping poller.
 	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
 
-	// Wire CloudWatch alarm actions → SNS and Lambda backends.
+	// Wire Lambda async DeadLetterConfig / DestinationConfig delivery to SQS/SNS/Lambda.
+	wireLambdaAsyncDestinations(byName["Lambda"], byName["SQS"], byName["SNS"])
+
+	// Wire CloudWatch alarm actions → SNS, Lambda, EC2, and Auto Scaling backends.
 	wireCloudWatchAlarmActions(byName["CloudWatch"], byName["SNS"], byName["Lambda"])
+	wireCloudWatchInfraActions(
+		byName["CloudWatch"], byName["EC2"], byName["Autoscaling"],
+	)
 
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
 	// Wire CloudWatch Logs subscription filter delivery to Lambda, Kinesis, and Firehose.
 	wireCWLogsSubscriptionFilters(
+		appCtx.JanitorCtx,
 		byName["CloudWatchLogs"],
 		byName["Lambda"],
 		byName["Kinesis"],
@@ -2691,6 +2706,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
 
+	// Wire DynamoDB → S3 so ImportTable reads source objects and
+	// ExportTableToPointInTime writes real export data.
+	wireDynamoDBS3(byName["DynamoDB"], byName["S3"])
+
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
@@ -2713,6 +2732,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["SQS"],
 		byName["SNS"],
 		byName["StepFunctions"],
+		byName["EventBridge"],
+		byName["Kinesis"],
+		byName["SageMaker"],
+		byName["ECS"],
 	)
 
 	// Wire Pipes runner → SQS (source), Lambda, and StepFunctions (targets).
@@ -2962,10 +2985,13 @@ func getMostRecentServiceProviders() []service.Provider {
 // It dynamically reads the TTL from the global configuration, allowing runtime updates.
 func startPurgeWorker(
 	ctx context.Context,
-	log *slog.Logger,
 	gcfg *config.GlobalConfig,
 	svcs []service.Registerable,
 ) {
+	// Tag this background routine so its records are attributable (worker=purge-worker).
+	ctx = logger.WithWorker(ctx, "purge", "worker")
+	log := logger.Load(ctx)
+
 	const (
 		purgeTimeout  = 30 * time.Second
 		checkInterval = 10 * time.Second
@@ -3050,8 +3076,12 @@ func startBackgroundWorkers(ctx context.Context, services []service.Registerable
 
 	for _, svc := range services {
 		if worker, ok := svc.(service.BackgroundWorker); ok {
-			if workerErr := worker.StartWorker(ctx); workerErr != nil {
-				log.ErrorContext(ctx, "failed to start background worker", "error", workerErr)
+			// Tag the worker's context so every record it emits is attributable
+			// (service=<name> worker=<name>-worker). Workers that run finer-grained
+			// jobs may further refine this with logger.WithWorker at their entry.
+			wctx := logger.WithWorker(ctx, svc.Name(), "worker")
+			if workerErr := worker.StartWorker(wctx); workerErr != nil {
+				log.ErrorContext(wctx, "failed to start background worker", "error", workerErr)
 			}
 		}
 	}
@@ -3336,15 +3366,51 @@ func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 
 // wireAPIGatewayLambda connects the API Gateway handler to the Lambda backend
 // for AWS_PROXY integrations.
-func wireAPIGatewayLambda(apigwReg, lambdaReg service.Registerable) {
-	apigwH, ok := apigwReg.(*apigwbackend.Handler)
+func wireAPIGatewayLambda(apigwReg, apigwv2Reg, lambdaReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+	lambdaBk, ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
 	if !ok {
 		return
 	}
 
-	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
-		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
-			apigwH.SetLambdaInvoker(lambdaBk)
+	if apigwH, ok2 := apigwReg.(*apigwbackend.Handler); ok2 {
+		apigwH.SetLambdaInvoker(lambdaBk)
+	}
+	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
+		apigwv2H.SetLambdaInvoker(lambdaBk)
+	}
+}
+
+// wireAPIGatewayCognito wires the Cognito JWKS provider into both API Gateway handlers
+// so that Cognito JWT authorizers verify token signatures rather than skipping them.
+func wireAPIGatewayCognito(apigwReg, apigwv2Reg, cognitoReg service.Registerable) {
+	cognitoH, ok := cognitoReg.(*cognitoidpbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cognitoBk := cognitoH.Backend
+
+	if apigwH, ok2 := apigwReg.(*apigwbackend.Handler); ok2 {
+		apigwH.SetJWKSProvider(cognitoBk)
+	}
+
+	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
+		apigwv2H.SetJWKSProvider(cognitoBk)
+	}
+}
+
+// wireAPIGatewayManagementAPI connects the API Gateway V2 handler to the API Gateway Management API backend
+// for WebSocket connection management.
+func wireAPIGatewayManagementAPI(apigwv2Reg, mngtReg service.Registerable) {
+	if apigwv2H, ok := apigwv2Reg.(*apigwv2backend.Handler); ok {
+		if mngtH, mngtOk := mngtReg.(*apigwmgmtbackend.Handler); mngtOk {
+			if mngtBk, bkOk := mngtH.Backend.(*apigwmgmtbackend.InMemoryBackend); bkOk {
+				apigwv2H.SetManagementAPIBackend(mngtBk)
+			}
 		}
 	}
 }
@@ -3516,6 +3582,91 @@ func wireSQSLambda(sqsReg, lambdaReg service.Registerable) {
 	}
 }
 
+// wireLambdaAsyncDestinations connects the Lambda backend to the SQS, SNS, and
+// Lambda backends so that async-invocation DeadLetterConfig and DestinationConfig
+// (OnSuccess/OnFailure) outcomes are actually delivered to their target ARNs.
+func wireLambdaAsyncDestinations(lambdaReg, sqsReg, snsReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	adapter := &lambdaAsyncDeliveryAdapter{lambda: lambdaBk}
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		if sqsBk, bk2Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend); bk2Ok {
+			adapter.sqs = sqsBk
+		}
+	}
+
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		if snsBk, bk2Ok := snsH.Backend.(*snsbackend.InMemoryBackend); bk2Ok {
+			adapter.sns = snsBk
+		}
+	}
+
+	lambdaBk.SetAsyncDestinationDelivery(adapter)
+}
+
+// lambdaAsyncDeliveryAdapter routes an async-invocation outcome to its target ARN,
+// dispatching by the ARN's service (SQS queue, SNS topic, or Lambda function).
+type lambdaAsyncDeliveryAdapter struct {
+	sqs    *sqsbackend.InMemoryBackend
+	sns    *snsbackend.InMemoryBackend
+	lambda *lambdabackend.InMemoryBackend
+}
+
+func (a *lambdaAsyncDeliveryAdapter) DeliverToTarget(
+	ctx context.Context,
+	targetARN string,
+	payload []byte,
+	attributes map[string]string,
+) error {
+	switch {
+	case strings.HasPrefix(targetARN, "arn:aws:sqs:"):
+		if a.sqs == nil {
+			return nil
+		}
+
+		attrs := make(map[string]sqsbackend.MessageAttributeValue, len(attributes))
+		for k, v := range attributes {
+			attrs[k] = sqsbackend.MessageAttributeValue{DataType: "String", StringValue: v}
+		}
+
+		_, err := a.sqs.SendMessage(&sqsbackend.SendMessageInput{
+			QueueURL:          arnToSQSQueueURL(targetARN),
+			MessageBody:       string(payload),
+			MessageAttributes: attrs,
+		})
+
+		return err
+	case strings.HasPrefix(targetARN, "arn:aws:sns:"):
+		if a.sns == nil {
+			return nil
+		}
+
+		_, err := a.sns.Publish(targetARN, string(payload), "", "", nil)
+
+		return err
+	case strings.HasPrefix(targetARN, "arn:aws:lambda:"):
+		if a.lambda == nil {
+			return nil
+		}
+
+		fnName := targetARN[strings.LastIndex(targetARN, ":")+1:]
+		_, _, err := a.lambda.InvokeFunction(ctx, fnName, lambdabackend.InvocationTypeEvent, payload)
+
+		return err
+	default:
+		return nil
+	}
+}
+
 // sqsReaderAdapter adapts the SQS InMemoryBackend to the lambda.SQSReader interface.
 type sqsReaderAdapter struct {
 	backend *sqsbackend.InMemoryBackend
@@ -3534,12 +3685,27 @@ func (a *sqsReaderAdapter) ReceiveMessagesLocal(
 
 	result := make([]*lambdabackend.SQSMessage, len(msgs))
 	for i, m := range msgs {
+		var msgAttrs map[string]lambdabackend.SQSMessageAttribute
+		if len(m.MessageAttributes) > 0 {
+			msgAttrs = make(map[string]lambdabackend.SQSMessageAttribute, len(m.MessageAttributes))
+			for k, v := range m.MessageAttributes {
+				msgAttrs[k] = lambdabackend.SQSMessageAttribute{
+					DataType:    v.DataType,
+					StringValue: v.StringValue,
+					BinaryValue: v.BinaryValue,
+				}
+			}
+		}
+
 		result[i] = &lambdabackend.SQSMessage{
-			MessageID:     m.MessageID,
-			ReceiptHandle: m.ReceiptHandle,
-			Body:          m.Body,
-			Attributes:    m.Attributes,
-			MD5OfBody:     m.MD5OfBody,
+			MessageID:              m.MessageID,
+			ReceiptHandle:          m.ReceiptHandle,
+			Body:                   m.Body,
+			Attributes:             m.Attributes,
+			MessageAttributes:      msgAttrs,
+			MD5OfBody:              m.MD5OfBody,
+			MD5OfMessageAttributes: m.MD5OfMessageAttributes,
+			SentTimestampMillis:    m.SentTimestamp,
 		}
 	}
 
@@ -3767,6 +3933,67 @@ func wireCloudWatchAlarmActions(cwReg, snsReg, lambdaReg service.Registerable) {
 	}
 }
 
+// wireCloudWatchInfraActions connects the CloudWatch backend to the EC2 and Auto
+// Scaling backends so that arn:aws:automate EC2 alarm actions and scaling-policy
+// alarm actions actually mutate instance state / trigger scaling.
+func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
+	cwH, ok := cwReg.(*cwbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cwBk, ok := cwH.Backend.(*cwbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if ec2H, okEC2 := ec2Reg.(*ec2backend.Handler); okEC2 {
+		if ec2Bk, isEC2 := ec2H.Backend.(*ec2backend.InMemoryBackend); isEC2 {
+			cwBk.SetEC2Actioner(&cwEC2ActionerAdapter{backend: ec2Bk})
+		}
+	}
+
+	if asgH, okASG := asgReg.(*autoscalingbackend.Handler); okASG {
+		if asgBk, isASG := asgH.Backend.(*autoscalingbackend.InMemoryBackend); isASG {
+			cwBk.SetAutoScalingExecutor(&cwAutoScalingAdapter{backend: asgBk})
+		}
+	}
+}
+
+// cwEC2ActionerAdapter adapts the EC2 backend to the cloudwatch.EC2InstanceActioner interface.
+type cwEC2ActionerAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *cwEC2ActionerAdapter) StopInstances(ids []string) error {
+	_, err := a.backend.StopInstances(ids)
+
+	return err
+}
+
+func (a *cwEC2ActionerAdapter) TerminateInstances(ids []string) error {
+	_, err := a.backend.TerminateInstances(ids)
+
+	return err
+}
+
+func (a *cwEC2ActionerAdapter) RebootInstances(ids []string) error {
+	return a.backend.RebootInstances(ids)
+}
+
+// cwAutoScalingAdapter adapts the Auto Scaling backend to the
+// cloudwatch.AutoScalingPolicyExecutor interface.
+type cwAutoScalingAdapter struct {
+	backend *autoscalingbackend.InMemoryBackend
+}
+
+func (a *cwAutoScalingAdapter) ExecuteScalingPolicy(asgName, policyName string) error {
+	return a.backend.ExecutePolicy(autoscalingbackend.ExecutePolicyInput{
+		AutoScalingGroupName: asgName,
+		PolicyName:           policyName,
+	})
+}
+
 // cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.
 type cwSNSPublisherAdapter struct {
 	backend *snsbackend.InMemoryBackend
@@ -3847,6 +4074,7 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 // wireCWLogsSubscriptionFilters wires the CloudWatch Logs subscription filter delivery
 // to Lambda, Kinesis, and Firehose backends.
 func wireCWLogsSubscriptionFilters(
+	ctx context.Context,
 	cwlogsReg, lambdaReg, kinesisReg, firehoseReg service.Registerable,
 ) {
 	cwlogsH, ok := cwlogsReg.(*cwlogsbackend.Handler)
@@ -3877,8 +4105,8 @@ func wireCWLogsSubscriptionFilters(
 		if fhBk, fhBkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); fhBkOk {
 			d.firehose = fhBk
 		} else {
-			slog.Default().
-				Warn("cwlogs: firehose backend is not *InMemoryBackend; subscription delivery to firehose disabled")
+			logger.Load(ctx).
+				WarnContext(ctx, "cwlogs: firehose backend is not *InMemoryBackend; subscription delivery to firehose disabled")
 		}
 	}
 
@@ -4244,23 +4472,23 @@ func registerTaggingService(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	provider resourcegroupstaggingapibackend.ResourceProvider,
 	arnService string,
-	tagger func(string, map[string]string) error,
-	untagger func(string, []string) error,
+	tagger func(context.Context, string, map[string]string) error,
+	untagger func(context.Context, string, []string) error,
 ) {
 	bk.RegisterProvider(provider)
-	bk.RegisterARNTagger(func(_ context.Context, arn string, newTags map[string]string) (bool, error) {
+	bk.RegisterARNTagger(func(ctx context.Context, arn string, newTags map[string]string) (bool, error) {
 		if !arnServiceIs(arn, arnService) {
 			return false, nil
 		}
 
-		return true, tagger(arn, newTags)
+		return true, tagger(ctx, arn, newTags)
 	})
-	bk.RegisterARNUntagger(func(_ context.Context, arn string, keys []string) (bool, error) {
+	bk.RegisterARNUntagger(func(ctx context.Context, arn string, keys []string) (bool, error) {
 		if !arnServiceIs(arn, arnService) {
 			return false, nil
 		}
 
-		return true, untagger(arn, keys)
+		return true, untagger(ctx, arn, keys)
 	})
 }
 
@@ -4321,27 +4549,68 @@ func wireTaggingDDB(
 			return out
 		},
 		"dynamodb",
-		func(arn string, newTags map[string]string) error {
+		func(ctx context.Context, arn string, newTags map[string]string) error {
 			sdkTags := make([]ddbsdktypes.Tag, 0, len(newTags))
 			for k, v := range newTags {
 				tagKey, tagValue := k, v
 				sdkTags = append(sdkTags, ddbsdktypes.Tag{Key: &tagKey, Value: &tagValue})
 			}
 
-			_, err := ddbBk.TagResource(context.Background(), &dynamodb.TagResourceInput{
+			_, err := ddbBk.TagResource(ctx, &dynamodb.TagResourceInput{
 				ResourceArn: aws.String(arn),
 				Tags:        sdkTags,
 			})
 
 			return err
 		},
-		func(arn string, keys []string) error {
-			_, err := ddbBk.UntagResource(context.Background(), &dynamodb.UntagResourceInput{
+		func(ctx context.Context, arn string, keys []string) error {
+			_, err := ddbBk.UntagResource(ctx, &dynamodb.UntagResourceInput{
 				ResourceArn: aws.String(arn),
 				TagKeys:     keys,
 			})
 
 			return err
+		},
+	)
+}
+
+// taggedARNEntry holds an ARN and its tag map for cross-service tagging helpers.
+type taggedARNEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// wireTaggingARNResources registers a tagging service whose resources are described by
+// a slice of taggedARNEntry values. arnService is passed to arnServiceIs (e.g. "sqs");
+// resourceType is set on each TaggedResource (e.g. "sqs:queue").
+func wireTaggingARNResources(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	arnService, resourceType string,
+	listFn func() []taggedARNEntry,
+	tagFn func(string, map[string]string) error,
+	untagFn func(string, []string) error,
+) {
+	registerTaggingService(
+		bk,
+		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			items := listFn()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+			for _, item := range items {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  item.ARN,
+					ResourceType: resourceType,
+					Tags:         item.Tags,
+				})
+			}
+
+			return out
+		},
+		arnService,
+		func(_ context.Context, arn string, newTags map[string]string) error {
+			return tagFn(arn, newTags)
+		},
+		func(_ context.Context, arn string, keys []string) error {
+			return untagFn(arn, keys)
 		},
 	)
 }
@@ -4360,22 +4629,16 @@ func wireTaggingSQS(
 		return
 	}
 
-	registerTaggingService(
-		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+	wireTaggingARNResources(bk, "sqs", "sqs:queue",
+		func() []taggedARNEntry {
 			queues := sqsBk.TaggedQueues()
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(queues))
+			out := make([]taggedARNEntry, 0, len(queues))
 			for _, q := range queues {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN:  q.ARN,
-					ResourceType: "sqs:queue",
-					Tags:         q.Tags,
-				})
+				out = append(out, taggedARNEntry{ARN: q.ARN, Tags: q.Tags})
 			}
 
 			return out
 		},
-		"sqs",
 		sqsBk.TagQueueByARN,
 		sqsBk.UntagQueueByARN,
 	)
@@ -4395,22 +4658,16 @@ func wireTaggingSNS(
 		return
 	}
 
-	registerTaggingService(
-		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+	wireTaggingARNResources(bk, "sns", "sns:topic",
+		func() []taggedARNEntry {
 			topics := snsBk.TaggedTopics()
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(topics))
+			out := make([]taggedARNEntry, 0, len(topics))
 			for _, t := range topics {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN:  t.ARN,
-					ResourceType: "sns:topic",
-					Tags:         t.Tags,
-				})
+				out = append(out, taggedARNEntry{ARN: t.ARN, Tags: t.Tags})
 			}
 
 			return out
 		},
-		"sns",
 		snsBk.TagTopicByARN,
 		snsBk.UntagTopicByARN,
 	)
@@ -4427,8 +4684,8 @@ func wireTaggingLambda(
 
 	registerTaggingService(
 		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			fns := lambdaH.TaggedFunctions()
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			fns := lambdaH.TaggedFunctions(ctx)
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(fns))
 			for _, f := range fns {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
@@ -4457,8 +4714,8 @@ func wireTaggingKMS(
 
 	registerTaggingService(
 		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			keys := kmsH.TaggedKeys()
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			keys := kmsH.TaggedKeys(ctx)
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(keys))
 			for _, k := range keys {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
@@ -4489,8 +4746,8 @@ func wireTaggingSM(bk resourcegroupstaggingapibackend.StorageBackend, smReg serv
 
 	registerTaggingService(
 		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			secrets := smBk.TaggedSecrets()
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			secrets := smBk.TaggedSecrets(ctx)
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(secrets))
 			for _, s := range secrets {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
@@ -5099,6 +5356,30 @@ func wireFirehoseDelivery(firehoseReg, s3Reg, lambdaReg service.Registerable) {
 	}
 }
 
+// wireDynamoDBS3 connects the DynamoDB backend to the S3 backend so that
+// ImportTable can read source objects and ExportTableToPointInTime can write
+// export data to S3.
+func wireDynamoDBS3(ddbReg, s3Reg service.Registerable) {
+	ddbH, ok := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if ddbBk, ddbBkOk := ddbH.Backend.(*ddbbackend.InMemoryDB); ddbBkOk {
+		ddbBk.SetS3Backend(s3Bk)
+	}
+}
+
 // extractServiceName finds the service name for a given Echo context by checking
 // which service's route matcher matches the request.
 func extractServiceName(c *echo.Context, services []service.Registerable) string {
@@ -5119,8 +5400,8 @@ func setupPersistence(
 	restore bool,
 ) {
 	type persistable interface {
-		Snapshot() []byte
-		Restore([]byte) error
+		Snapshot(ctx context.Context) []byte
+		Restore(context.Context, []byte) error
 	}
 
 	for _, svc := range services {
@@ -5150,7 +5431,7 @@ func initPersistenceManager(ctx context.Context, cli *CLI) (*persistence.Manager
 		log.InfoContext(ctx, "Persistence enabled", "data_dir", cli.resolvedDataDir())
 	}
 
-	return persistence.NewManager(store), nil
+	return persistence.NewManager(ctx, store), nil
 }
 
 // loadDemoData loads demo data into the services.
@@ -5450,6 +5731,44 @@ func panicRecoveryMiddleware() echo.MiddlewareFunc {
 	}
 }
 
+// awsMetaMiddleware populates the per-request AWS metadata ctxbag (account,
+// region, partition, request ID) and threads the same fields onto the context
+// logger so every record emitted via logger.Load(ctx) is tagged uniformly.
+// Backends read identity through awsmeta.Region(ctx)/awsmeta.Account(ctx)
+// rather than re-deriving it from the raw request, giving every service a
+// single, consistent source of request-scoped metadata and logging.
+func awsMetaMiddleware(defaultRegion, defaultAccount string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			req := c.Request()
+			meta := awsmeta.FromRequest(req, defaultRegion)
+
+			// FromRequest defaults the account to awsmeta.DefaultAccount; honor
+			// the operator-configured account when no per-request override was
+			// supplied via the X-Amz-Account-Id header.
+			if meta.Account == awsmeta.DefaultAccount && defaultAccount != "" {
+				meta.Account = defaultAccount
+			}
+
+			// The request-id is set on the response (not the request) by
+			// RequestIDMiddleware; carry it through so logs and metadata agree.
+			if meta.RequestID == "" {
+				meta.RequestID = c.Response().Header().Get("X-Amz-Request-Id")
+			}
+
+			ctx := awsmeta.Set(req.Context(), meta)
+			ctx = logger.AddAttrs(ctx,
+				slog.String("region", meta.Region),
+				slog.String("account", meta.Account),
+				slog.String("request_id", meta.RequestID),
+			)
+			c.SetRequest(req.WithContext(ctx))
+
+			return next(c)
+		}
+	}
+}
+
 // recoveredPanicError wraps a non-error panic value recovered by panicRecoveryMiddleware.
 type recoveredPanicError struct {
 	val any
@@ -5550,35 +5869,79 @@ func wireDynamoDBStreams(ddbReg, streamsReg service.Registerable) {
 
 // wireSchedulerRunner configures the Scheduler runner with Lambda, SQS, SNS, and StepFunctions
 // target invokers so that schedule expressions actually fire their targets.
-func wireSchedulerRunner(schedReg, lambdaReg, sqsReg, snsReg, sfnReg service.Registerable) {
+func wireSchedulerRunner(
+	schedReg, lambdaReg, sqsReg, snsReg, sfnReg, ebReg, kinesisReg, sagemakerReg, ecsReg service.Registerable,
+) {
 	schedH, ok := schedReg.(*schedulerbackend.Handler)
 	if !ok {
 		return
 	}
 
 	runner := schedH.GetRunner()
+	wireSchedulerMessaging(runner, lambdaReg, sqsReg, snsReg)
+	wireSchedulerWorkflow(runner, sfnReg, ebReg, kinesisReg)
+	wireSchedulerCompute(runner, sagemakerReg, ecsReg)
+}
 
-	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
-		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+func wireSchedulerMessaging(
+	runner *schedulerbackend.Runner,
+	lambdaReg, sqsReg, snsReg service.Registerable,
+) {
+	if lambdaH, ok := lambdaReg.(*lambdabackend.Handler); ok {
+		if lambdaBk, ok2 := lambdaH.Backend.(*lambdabackend.InMemoryBackend); ok2 {
 			runner.SetLambdaInvoker(&schedulerLambdaAdapter{backend: lambdaBk})
 		}
 	}
 
-	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
-		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
+	if sqsH, ok := sqsReg.(*sqsbackend.Handler); ok {
+		if sqsBk, ok2 := sqsH.Backend.(*sqsbackend.InMemoryBackend); ok2 {
 			runner.SetSQSSender(&sqsSenderAdapter{backend: sqsBk})
 		}
 	}
 
-	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
-		if snsBk, bkOk := snsH.Backend.(*snsbackend.InMemoryBackend); bkOk {
+	if snsH, ok := snsReg.(*snsbackend.Handler); ok {
+		if snsBk, ok2 := snsH.Backend.(*snsbackend.InMemoryBackend); ok2 {
 			runner.SetSNSPublisher(&snsPublisherAdapter{backend: snsBk})
 		}
 	}
+}
 
-	if sfnH, sfnOk := sfnReg.(*sfnbackend.Handler); sfnOk {
-		if sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend); bkOk {
+func wireSchedulerWorkflow(
+	runner *schedulerbackend.Runner,
+	sfnReg, ebReg, kinesisReg service.Registerable,
+) {
+	if sfnH, ok := sfnReg.(*sfnbackend.Handler); ok {
+		if sfnBk, ok2 := sfnH.Backend.(*sfnbackend.InMemoryBackend); ok2 {
 			runner.SetStepFunctionsStarter(&sfnStarterAdapter{backend: sfnBk})
+		}
+	}
+
+	if ebH, ok := ebReg.(*ebbackend.Handler); ok {
+		if ebBk, ok2 := ebH.Backend.(*ebbackend.InMemoryBackend); ok2 {
+			runner.SetEventBusPutter(&schedEventBusAdapter{backend: ebBk})
+		}
+	}
+
+	if kinesisH, ok := kinesisReg.(*kinesisbackend.Handler); ok {
+		if kinesisBk, ok2 := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); ok2 {
+			runner.SetKinesisRecordPutter(&schedKinesisAdapter{backend: kinesisBk})
+		}
+	}
+}
+
+func wireSchedulerCompute(
+	runner *schedulerbackend.Runner,
+	sagemakerReg, ecsReg service.Registerable,
+) {
+	if sagemakerH, ok := sagemakerReg.(*sagemakerbackend.Handler); ok {
+		if sagemakerBk := sagemakerH.Backend; sagemakerBk != nil {
+			runner.SetSageMakerPipelineStarter(&schedSageMakerAdapter{backend: sagemakerBk})
+		}
+	}
+
+	if ecsH, ok := ecsReg.(*ecsbackend.Handler); ok {
+		if ecsBk, ok2 := ecsH.Backend.(*ecsbackend.InMemoryBackend); ok2 {
+			runner.SetECSTaskRunner(&schedECSAdapter{backend: ecsBk})
 		}
 	}
 }

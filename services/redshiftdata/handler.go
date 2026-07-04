@@ -243,15 +243,16 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 
 func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		SQL               string `json:"Sql"`
-		ClusterIdentifier string `json:"ClusterIdentifier"`
-		WorkgroupName     string `json:"WorkgroupName"`
-		Database          string `json:"Database"`
-		DBUser            string `json:"DbUser"`
-		SecretArn         string `json:"SecretArn"`
-		StatementName     string `json:"StatementName"`
-		ResultFormat      string `json:"ResultFormat"`
-		WithEvent         bool   `json:"WithEvent"`
+		SQL               string         `json:"Sql"`
+		ClusterIdentifier string         `json:"ClusterIdentifier"`
+		WorkgroupName     string         `json:"WorkgroupName"`
+		Database          string         `json:"Database"`
+		DBUser            string         `json:"DbUser"`
+		SecretArn         string         `json:"SecretArn"`
+		StatementName     string         `json:"StatementName"`
+		ResultFormat      string         `json:"ResultFormat"`
+		Parameters        []SQLParameter `json:"Parameters"`
+		WithEvent         bool           `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -262,7 +263,7 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		ctx,
 		req.SQL, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
-		req.WithEvent, req.ResultFormat,
+		req.WithEvent, req.ResultFormat, req.Parameters,
 	)
 	if err != nil {
 		return nil, err
@@ -462,6 +463,10 @@ func (h *Handler) handleListStatements(ctx context.Context, body []byte) ([]byte
 		)
 	}
 
+	if err := ValidateListStatementsStatus(req.Status); err != nil {
+		return nil, err
+	}
+
 	stmts, nextToken, err := h.Backend.ListStatements(ctx, ListStatementsFilter{
 		ClusterIdentifier: req.ClusterIdentifier,
 		WorkgroupName:     req.WorkgroupName,
@@ -528,10 +533,14 @@ func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return json.Marshal(map[string]any{
-		"Databases":  buildDemoDatabases(),
-		keyNextToken: "",
-	})
+	if req.MaxResults > maxListDatabasesResults {
+		return nil, fmt.Errorf("%w: MaxResults must be ≤ %d", ErrValidation, maxListDatabasesResults)
+	}
+
+	page, next := paginateStrings(buildDemoDatabases(), req.NextToken, req.MaxResults, defaultListDatabasesResults)
+	resp := map[string]any{"Databases": page, keyNextToken: next}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, error) {
@@ -550,10 +559,23 @@ func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return json.Marshal(map[string]any{
-		"Schemas":    buildDemoSchemas(),
-		keyNextToken: "",
-	})
+	if req.MaxResults > maxListSchemasResults {
+		return nil, fmt.Errorf("%w: MaxResults must be ≤ %d", ErrValidation, maxListSchemasResults)
+	}
+
+	schemas := buildDemoSchemas()
+	if req.SchemaPattern != "" {
+		schemas = filterByPattern(schemas, req.SchemaPattern)
+	}
+
+	page, next := paginateStrings(schemas, req.NextToken, req.MaxResults, defaultListSchemasResults)
+	resp := map[string]any{"Schemas": page}
+
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, error) {
@@ -574,10 +596,49 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return json.Marshal(map[string]any{
-		"Tables":     buildDemoTables(),
-		keyNextToken: "",
-	})
+	if req.MaxResults > maxListTablesResults {
+		return nil, fmt.Errorf("%w: MaxResults must be ≤ %d", ErrValidation, maxListTablesResults)
+	}
+
+	tables := filterDemoTables(buildDemoTables(), req.TableType, req.SchemaPattern, req.TablePattern)
+	page, next := paginateMaps(tables, req.NextToken, req.MaxResults, defaultListTablesResults)
+	resp := map[string]any{"Tables": page}
+
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return json.Marshal(resp)
+}
+
+// filterDemoTables applies TableType, SchemaPattern, and TablePattern filters to the demo table list.
+func filterDemoTables(tables []map[string]any, tableType, schemaPattern, tablePattern string) []map[string]any {
+	if tableType != "" {
+		tables = filterMapsByField(tables, keyType, func(v string) bool { return v == tableType })
+	}
+
+	if schemaPattern != "" {
+		tables = filterMapsByField(tables, keySchema, func(v string) bool { return matchSQLLike(v, schemaPattern) })
+	}
+
+	if tablePattern != "" {
+		tables = filterMapsByField(tables, keyName, func(v string) bool { return matchSQLLike(v, tablePattern) })
+	}
+
+	return tables
+}
+
+// filterMapsByField returns entries where the string value at field satisfies match.
+func filterMapsByField(all []map[string]any, field string, match func(string) bool) []map[string]any {
+	out := make([]map[string]any, 0, len(all))
+
+	for _, m := range all {
+		if v, ok := m[field].(string); ok && match(v) {
+			out = append(out, m)
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, error) {
@@ -642,6 +703,107 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 			keyTypeField:    "InternalServerException",
 			keyMessageField: err.Error(),
 		})
+	}
+}
+
+// paginateStrings applies cursor-based pagination to a sorted string slice.
+// Returns the page and the next-page token (empty when no more pages).
+func paginateStrings(all []string, token string, maxResults, defaultMax int) ([]string, string) {
+	start := 0
+
+	if token != "" {
+		for i, s := range all {
+			if s == token {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+
+	page := all[start:]
+	limit := maxResults
+
+	if limit <= 0 {
+		limit = defaultMax
+	}
+
+	if len(page) <= limit {
+		return page, ""
+	}
+
+	return page[:limit], page[limit]
+}
+
+// paginateMaps applies cursor-based pagination to a slice of maps keyed by "name".
+// Returns the page and the next-page token (empty when no more pages).
+func paginateMaps(all []map[string]any, token string, maxResults, defaultMax int) ([]map[string]any, string) {
+	start := 0
+
+	if token != "" {
+		for i, m := range all {
+			if nv, ok := m[keyName].(string); ok && nv == token {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+
+	page := all[start:]
+	limit := maxResults
+
+	if limit <= 0 {
+		limit = defaultMax
+	}
+
+	if len(page) <= limit {
+		return page, ""
+	}
+
+	nextName, _ := page[limit][keyName].(string)
+
+	return page[:limit], nextName
+}
+
+// filterByPattern returns strings that match the SQL LIKE pattern.
+// % matches any sequence of characters, _ matches any single character.
+func filterByPattern(all []string, pattern string) []string {
+	out := make([]string, 0, len(all))
+
+	for _, s := range all {
+		if matchSQLLike(s, pattern) {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// matchSQLLike implements basic SQL LIKE pattern matching where % matches any
+// sequence of characters and _ matches any single character.
+func matchSQLLike(s, pattern string) bool {
+	if pattern == "" {
+		return s == ""
+	}
+
+	if pattern == "%" {
+		return true
+	}
+
+	switch pattern[0] {
+	case '%':
+		for i := range len(s) + 1 {
+			if matchSQLLike(s[i:], pattern[1:]) {
+				return true
+			}
+		}
+
+		return false
+	case '_':
+		return len(s) > 0 && matchSQLLike(s[1:], pattern[1:])
+	default:
+		return len(s) > 0 && s[0] == pattern[0] && matchSQLLike(s[1:], pattern[1:])
 	}
 }
 

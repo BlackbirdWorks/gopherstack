@@ -2,6 +2,7 @@ package iotanalytics
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -11,17 +12,25 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 const (
 	statusActive          = "ACTIVE"
 	errCodeInvalidRequest = "InvalidRequestException"
 	maxRetentionDays      = 2147483647
+	// defaultRegion is used when the request context carries no region (e.g.
+	// an unsigned request); ARNs must still be well-formed.
+	defaultRegion = config.DefaultRegion
 )
 
 // StorageBackend is the interface for the IoT Analytics backend.
 type StorageBackend interface {
 	CreateChannel(
+		ctx context.Context,
 		name string,
 		tags map[string]string,
 		storage *ChannelStorage,
@@ -33,6 +42,7 @@ type StorageBackend interface {
 	ListChannels() []*Channel
 
 	CreateDatastore(
+		ctx context.Context,
 		name string,
 		tags map[string]string,
 		storage *DatastoreStorage,
@@ -52,6 +62,7 @@ type StorageBackend interface {
 	ListDatastores() []*Datastore
 
 	CreateDataset(
+		ctx context.Context,
 		name string,
 		tags map[string]string,
 		actions []DatasetAction,
@@ -72,7 +83,12 @@ type StorageBackend interface {
 	DeleteDataset(name string) error
 	ListDatasets() []*Dataset
 
-	CreatePipeline(name string, tags map[string]string, activities []PipelineActivity) (*Pipeline, error)
+	CreatePipeline(
+		ctx context.Context,
+		name string,
+		tags map[string]string,
+		activities []PipelineActivity,
+	) (*Pipeline, error)
 	DescribePipeline(name string) (*Pipeline, error)
 	UpdatePipeline(name string, activities []PipelineActivity) error
 	DeletePipeline(name string) error
@@ -241,11 +257,22 @@ type InMemoryBackend struct {
 	datasets        map[string]*Dataset
 	pipelines       map[string]*Pipeline
 	tags            map[string]map[string]string
+	svcCtx          context.Context
 	mu              sync.RWMutex
 }
 
-// NewInMemoryBackend creates a new in-memory IoT Analytics backend.
+// NewInMemoryBackend creates a new in-memory IoT Analytics backend with a background service context.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background())
+}
+
+// NewInMemoryBackendWithContext creates a new in-memory IoT Analytics backend whose
+// background goroutines are bounded by svcCtx. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		channels:        make(map[string]*Channel),
 		datastores:      make(map[string]*Datastore),
@@ -254,6 +281,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		tags:            make(map[string]map[string]string),
 		channelMessages: make(map[string][][]byte),
 		datasetContents: make(map[string][]*DatasetContent),
+		svcCtx:          svcCtx,
 	}
 }
 
@@ -272,24 +300,23 @@ func (b *InMemoryBackend) Reset() {
 	b.loggingOptions = nil
 }
 
-// channelARN returns the ARN for an IoT Analytics channel.
-func channelARN(name string) string {
-	return "arn:aws:iotanalytics:us-east-1:000000000000:channel/" + name
+// arnIdentity resolves the region and account for ARN construction from the
+// request ctxbag, falling back to the service default region when none is set.
+func arnIdentity(ctx context.Context) (string, string) {
+	region := awsmeta.Region(ctx)
+	if region == "" {
+		region = defaultRegion
+	}
+
+	return region, awsmeta.Account(ctx)
 }
 
-// datastoreARN returns the ARN for an IoT Analytics datastore.
-func datastoreARN(name string) string {
-	return "arn:aws:iotanalytics:us-east-1:000000000000:datastore/" + name
-}
+// resourceARN builds an IoT Analytics ARN for the given resource type and name
+// using the request-scoped region and account from the ctxbag.
+func resourceARN(ctx context.Context, resourceType, name string) string {
+	region, account := arnIdentity(ctx)
 
-// datasetARN returns the ARN for an IoT Analytics dataset.
-func datasetARN(name string) string {
-	return "arn:aws:iotanalytics:us-east-1:000000000000:dataset/" + name
-}
-
-// pipelineARN returns the ARN for an IoT Analytics pipeline.
-func pipelineARN(name string) string {
-	return "arn:aws:iotanalytics:us-east-1:000000000000:pipeline/" + name
+	return arn.Build("iotanalytics", region, account, fmt.Sprintf("%s/%s", resourceType, name))
 }
 
 // sortedKeys returns the keys of map m in sorted order.
@@ -589,6 +616,7 @@ func reprocessingSummariesSorted(reprocessings map[string]*PipelineReprocessing)
 			ID:           rp.ID,
 			Status:       rp.Status,
 			CreationTime: rp.CreationTime,
+			StartTime:    rp.StartTime,
 			EndTime:      rp.EndTime,
 		})
 	}
@@ -602,6 +630,7 @@ func reprocessingSummariesSorted(reprocessings map[string]*PipelineReprocessing)
 
 // CreateChannel creates a new IoT Analytics channel.
 func (b *InMemoryBackend) CreateChannel(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 	storage *ChannelStorage,
@@ -623,7 +652,7 @@ func (b *InMemoryBackend) CreateChannel(
 	}
 
 	now := epochSeconds(time.Now())
-	arn := channelARN(name)
+	arn := resourceARN(ctx, "channel", name)
 	c := &Channel{
 		Name:            name,
 		ARN:             arn,
@@ -716,13 +745,14 @@ func (b *InMemoryBackend) ListChannels() []*Channel {
 
 // AddChannelInternal seeds a channel by name (test helper).
 func (b *InMemoryBackend) AddChannelInternal(name string) *Channel {
-	c, _ := b.CreateChannel(name, nil, nil, nil)
+	c, _ := b.CreateChannel(b.svcCtx, name, nil, nil, nil)
 
 	return c
 }
 
 // CreateDatastore creates a new IoT Analytics datastore.
 func (b *InMemoryBackend) CreateDatastore(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 	storage *DatastoreStorage,
@@ -746,7 +776,7 @@ func (b *InMemoryBackend) CreateDatastore(
 	}
 
 	now := epochSeconds(time.Now())
-	arn := datastoreARN(name)
+	arn := resourceARN(ctx, "datastore", name)
 	d := &Datastore{
 		Name:                    name,
 		ARN:                     arn,
@@ -854,13 +884,14 @@ func (b *InMemoryBackend) ListDatastores() []*Datastore {
 
 // AddDatastoreInternal seeds a datastore by name (test helper).
 func (b *InMemoryBackend) AddDatastoreInternal(name string) *Datastore {
-	d, _ := b.CreateDatastore(name, nil, nil, nil, nil, nil)
+	d, _ := b.CreateDatastore(b.svcCtx, name, nil, nil, nil, nil, nil)
 
 	return d
 }
 
 // CreateDataset creates a new IoT Analytics dataset.
 func (b *InMemoryBackend) CreateDataset(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 	actions []DatasetAction,
@@ -881,7 +912,7 @@ func (b *InMemoryBackend) CreateDataset(
 	}
 
 	now := epochSeconds(time.Now())
-	arn := datasetARN(name)
+	arn := resourceARN(ctx, "dataset", name)
 	d := &Dataset{
 		Name:                    name,
 		ARN:                     arn,
@@ -992,13 +1023,14 @@ func (b *InMemoryBackend) ListDatasets() []*Dataset {
 
 // AddDatasetInternal seeds a dataset by name (test helper).
 func (b *InMemoryBackend) AddDatasetInternal(name string) *Dataset {
-	d, _ := b.CreateDataset(name, nil, nil, nil, nil, nil, nil)
+	d, _ := b.CreateDataset(b.svcCtx, name, nil, nil, nil, nil, nil, nil)
 
 	return d
 }
 
 // CreatePipeline creates a new IoT Analytics pipeline.
 func (b *InMemoryBackend) CreatePipeline(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 	activities []PipelineActivity,
@@ -1015,7 +1047,7 @@ func (b *InMemoryBackend) CreatePipeline(
 	}
 
 	now := epochSeconds(time.Now())
-	arn := pipelineARN(name)
+	arn := resourceARN(ctx, "pipeline", name)
 	p := &Pipeline{
 		Name:          name,
 		ARN:           arn,
@@ -1098,7 +1130,7 @@ func (b *InMemoryBackend) ListPipelines() []*Pipeline {
 
 // AddPipelineInternal seeds a pipeline by name (test helper).
 func (b *InMemoryBackend) AddPipelineInternal(name string) *Pipeline {
-	p, _ := b.CreatePipeline(name, nil, nil)
+	p, _ := b.CreatePipeline(b.svcCtx, name, nil, nil)
 
 	return p
 }
@@ -1106,34 +1138,37 @@ func (b *InMemoryBackend) AddPipelineInternal(name string) *Pipeline {
 // resolveARNResource checks whether a resource ARN corresponds to an existing resource.
 // Returns true if the resource exists.
 func (b *InMemoryBackend) resolveARNResource(arn string) bool {
-	const (
-		channelPrefix   = "arn:aws:iotanalytics:us-east-1:000000000000:channel/"
-		datastorePrefix = "arn:aws:iotanalytics:us-east-1:000000000000:datastore/"
-		datasetPrefix   = "arn:aws:iotanalytics:us-east-1:000000000000:dataset/"
-		pipelinePrefix  = "arn:aws:iotanalytics:us-east-1:000000000000:pipeline/"
-	)
+	// ARN format: arn:aws:iotanalytics:<region>:<account>:<resourceType>/<name>
+	// Parse without assuming a specific region or account.
+	const arnSplitParts = 6
+	parts := strings.SplitN(arn, ":", arnSplitParts)
+	if len(parts) != arnSplitParts || parts[0] != "arn" || parts[1] != "aws" || parts[2] != "iotanalytics" {
+		return false
+	}
 
-	switch {
-	case strings.HasPrefix(arn, channelPrefix):
-		name := strings.TrimPrefix(arn, channelPrefix)
+	resource := parts[5]
+	resourceType, name, found := strings.Cut(resource, "/")
+	if !found {
+		return false
+	}
+
+	switch resourceType {
+	case "channel":
 		_, ok := b.channels[name]
 
 		return ok
 
-	case strings.HasPrefix(arn, datastorePrefix):
-		name := strings.TrimPrefix(arn, datastorePrefix)
+	case "datastore":
 		_, ok := b.datastores[name]
 
 		return ok
 
-	case strings.HasPrefix(arn, datasetPrefix):
-		name := strings.TrimPrefix(arn, datasetPrefix)
+	case "dataset":
 		_, ok := b.datasets[name]
 
 		return ok
 
-	case strings.HasPrefix(arn, pipelinePrefix):
-		name := strings.TrimPrefix(arn, pipelinePrefix)
+	case "pipeline":
 		_, ok := b.pipelines[name]
 
 		return ok

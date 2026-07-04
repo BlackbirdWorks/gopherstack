@@ -258,7 +258,7 @@ func TestIntegration_ServiceDiscovery_UpdateService(t *testing.T) {
 	})
 	updateBody := servicediscoveryReadBody(t, updateResp)
 	assert.Equal(t, http.StatusOK, updateResp.StatusCode, "body: %s", updateBody)
-	assert.Contains(t, updateBody, "Service")
+	assert.Contains(t, updateBody, "OperationId")
 
 	// Verify the description was updated.
 	getResp := servicediscoveryRequest(t, "GetService", map[string]any{"Id": svcID})

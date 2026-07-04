@@ -352,6 +352,7 @@ func (rc *ResourceCreator) createLambdaVersion(
 // ---- EventBridge EventBus ----
 
 func (rc *ResourceCreator) createEventBus(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -365,7 +366,7 @@ func (rc *ResourceCreator) createEventBus(
 		name = logicalID
 	}
 
-	bus, err := rc.backends.EventBridge.Backend.CreateEventBus(context.Background(), name, "")
+	bus, err := rc.backends.EventBridge.Backend.CreateEventBus(ctx, name, "")
 	if err != nil {
 		return "", fmt.Errorf("create EventBridge event bus %s: %w", name, err)
 	}
@@ -373,7 +374,7 @@ func (rc *ResourceCreator) createEventBus(
 	return bus.Arn, nil
 }
 
-func (rc *ResourceCreator) deleteEventBus(arn string) error {
+func (rc *ResourceCreator) deleteEventBus(ctx context.Context, arn string) error {
 	if rc.backends.EventBridge == nil {
 		return nil
 	}
@@ -381,7 +382,7 @@ func (rc *ResourceCreator) deleteEventBus(arn string) error {
 	parts := strings.Split(arn, "/")
 	name := parts[len(parts)-1]
 
-	return rc.backends.EventBridge.Backend.DeleteEventBus(context.Background(), name)
+	return rc.backends.EventBridge.Backend.DeleteEventBus(ctx, name)
 }
 
 // ---- API Gateway sub-resources ----
@@ -702,6 +703,7 @@ func (rc *ResourceCreator) createEC2Route(
 // ---- Kinesis ----
 
 func (rc *ResourceCreator) createKinesisStream(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -738,7 +740,7 @@ func (rc *ResourceCreator) createKinesisStream(
 		return "", fmt.Errorf("create Kinesis stream %s (got %d): %w", name, shardCount, ErrShardCountOutOfRange)
 	}
 
-	if err := rc.backends.Kinesis.Backend.CreateStream(context.Background(), &kinesisbackend.CreateStreamInput{
+	if err := rc.backends.Kinesis.Backend.CreateStream(ctx, &kinesisbackend.CreateStreamInput{
 		StreamName: name,
 		ShardCount: shardCount,
 	}); err != nil {
@@ -746,7 +748,7 @@ func (rc *ResourceCreator) createKinesisStream(
 	}
 
 	out, err := rc.backends.Kinesis.Backend.DescribeStream(
-		context.Background(),
+		ctx,
 		&kinesisbackend.DescribeStreamInput{StreamName: name},
 	)
 	if err != nil {
@@ -757,7 +759,7 @@ func (rc *ResourceCreator) createKinesisStream(
 	return out.StreamARN, nil
 }
 
-func (rc *ResourceCreator) deleteKinesisStream(arn string) error {
+func (rc *ResourceCreator) deleteKinesisStream(ctx context.Context, arn string) error {
 	if rc.backends.Kinesis == nil {
 		return nil
 	}
@@ -765,7 +767,7 @@ func (rc *ResourceCreator) deleteKinesisStream(arn string) error {
 	name := streamNameFromARN(arn)
 
 	return rc.backends.Kinesis.Backend.DeleteStream(
-		context.Background(),
+		ctx,
 		&kinesisbackend.DeleteStreamInput{StreamName: name},
 	)
 }
@@ -922,6 +924,7 @@ func (rc *ResourceCreator) createRoute53RecordSet(
 // ---- ElastiCache ----
 
 func (rc *ResourceCreator) createElastiCacheCacheCluster(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -945,7 +948,7 @@ func (rc *ResourceCreator) createElastiCacheCacheCluster(
 		nodeType = "cache.t3.micro"
 	}
 
-	cluster, err := rc.backends.ElastiCache.Backend.CreateCluster(context.Background(), clusterID, engine, nodeType, 0)
+	cluster, err := rc.backends.ElastiCache.Backend.CreateCluster(ctx, clusterID, engine, nodeType, 0)
 	if err != nil {
 		return "", fmt.Errorf("create ElastiCache cluster %s: %w", clusterID, err)
 	}
@@ -953,12 +956,12 @@ func (rc *ResourceCreator) createElastiCacheCacheCluster(
 	return cluster.ClusterID, nil
 }
 
-func (rc *ResourceCreator) deleteElastiCacheCacheCluster(_ context.Context, id string) error {
+func (rc *ResourceCreator) deleteElastiCacheCacheCluster(ctx context.Context, id string) error {
 	if rc.backends.ElastiCache == nil {
 		return nil
 	}
 
-	return rc.backends.ElastiCache.Backend.DeleteCluster(context.Background(), id)
+	return rc.backends.ElastiCache.Backend.DeleteCluster(ctx, id)
 }
 
 // ---- SNS Subscription ----
@@ -1057,6 +1060,7 @@ func (rc *ResourceCreator) deleteS3BucketPolicy(ctx context.Context, bucket stri
 // ---- Scheduler ----
 
 func (rc *ResourceCreator) createSchedulerSchedule(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1083,7 +1087,7 @@ func (rc *ResourceCreator) createSchedulerSchedule(
 	}
 
 	sched, err := rc.backends.Scheduler.Backend.CreateSchedule(
-		context.Background(),
+		ctx,
 		name,
 		"",
 		scheduleExpression,
@@ -1100,14 +1104,14 @@ func (rc *ResourceCreator) createSchedulerSchedule(
 	return sched.ARN, nil
 }
 
-func (rc *ResourceCreator) deleteSchedulerSchedule(arn string) error {
+func (rc *ResourceCreator) deleteSchedulerSchedule(ctx context.Context, arn string) error {
 	if rc.backends.Scheduler == nil {
 		return nil
 	}
 
 	name := resourceNameFromARN(arn)
 
-	return rc.backends.Scheduler.Backend.DeleteSchedule(context.Background(), name, "")
+	return rc.backends.Scheduler.Backend.DeleteSchedule(ctx, name, "")
 }
 
 // ---- helpers ----

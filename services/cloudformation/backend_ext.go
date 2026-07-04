@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 const (
@@ -50,6 +53,7 @@ func (b *InMemoryBackend) DetectStackDrift(nameOrID string) (string, error) {
 		DriftedStackResourceCount: driftedCount,
 		Timestamp:                 time.Now(),
 	}
+	b.driftByStackID[stack.StackID] = append(b.driftByStackID[stack.StackID], detectionID)
 
 	return detectionID, nil
 }
@@ -96,15 +100,46 @@ func (b *InMemoryBackend) DetectStackResourceDrift(nameOrID, logicalID string) (
 		DriftedStackResourceCount: driftedCount,
 		Timestamp:                 time.Now(),
 	}
+	b.driftByStackID[stack.StackID] = append(b.driftByStackID[stack.StackID], detectionID)
 
 	return detectionID, nil
 }
 
-// compareStackResources compares deployed resources against the current template.
-// Returns a map of logicalID → drift status (IN_SYNC, MODIFIED, DELETED).
+// RecordResourceMutation records an out-of-band change to a deployed resource's
+// live configuration. This models a resource whose actual state was modified
+// outside CloudFormation (for example a direct call to the underlying service).
+// After this call, DetectStackDrift reports the resource as MODIFIED with the
+// precise property differences between the template (expected) and the recorded
+// live state (actual).
+func (b *InMemoryBackend) RecordResourceMutation(
+	nameOrID, logicalID string,
+	liveProps map[string]any,
+) error {
+	b.mu.Lock("RecordResourceMutation")
+	defer b.mu.Unlock()
+
+	stack, ok := b.resolveStack(nameOrID)
+	if !ok {
+		return ErrStackNotFound
+	}
+	res, exists := b.resources[stack.StackID][logicalID]
+	if !exists {
+		return ErrResourceNotFound
+	}
+	res.Properties = deepCopyProps(liveProps)
+
+	return nil
+}
+
+// compareStackResources compares each resource's live (recorded) backend state
+// against the properties declared in the stack template, detecting out-of-band
+// mutations (MODIFIED) and resources removed from the template (DELETED). It
+// populates per-resource drift detail (property-level differences plus the
+// expected/actual property JSON) and returns a map of logicalID → drift status.
 // Must be called with b.mu held.
 func (b *InMemoryBackend) compareStackResources(stack *Stack) map[string]string {
 	statuses := make(map[string]string)
+	details := make(map[string]StackResourceDrift)
 
 	deployedResources := b.resources[stack.StackID]
 	if len(deployedResources) == 0 {
@@ -113,7 +148,6 @@ func (b *InMemoryBackend) compareStackResources(stack *Stack) map[string]string 
 
 	tmpl, err := ParseTemplate(stack.TemplateBody)
 	if err != nil {
-		// If template can't be parsed, mark all as in-sync (best effort)
 		for logicalID := range deployedResources {
 			statuses[logicalID] = driftStatusInSync
 		}
@@ -121,40 +155,80 @@ func (b *InMemoryBackend) compareStackResources(stack *Stack) map[string]string 
 		return statuses
 	}
 
-	// Resources in deployed state but absent from template → DELETED
-	for logicalID := range deployedResources {
-		if _, inTemplate := tmpl.Resources[logicalID]; !inTemplate {
+	for logicalID, deployedRes := range deployedResources {
+		tmplRes, inTemplate := tmpl.Resources[logicalID]
+		if !inTemplate {
 			statuses[logicalID] = driftStatusDeleted
-		}
-	}
+			details[logicalID] = driftDetailFor(stack, deployedRes, nil, driftStatusDeleted, nil)
 
-	// Resources in template: compare stored properties
-	for logicalID, tmplRes := range tmpl.Resources {
-		deployedRes, deployed := deployedResources[logicalID]
-		if !deployed {
-			// In template but not deployed (shouldn't normally happen post-create)
 			continue
 		}
 
-		if propertiesDiffer(deployedRes.Properties, tmplRes.Properties) {
-			statuses[logicalID] = driftStatusModified
-		} else {
-			statuses[logicalID] = driftStatusInSync
+		// Expected = template properties; Actual = live recorded properties.
+		expected := tmplRes.Properties
+		actual := deployedRes.Properties
+		diffs := computePropertyDifferences(expected, actual)
+
+		status := driftStatusInSync
+		if len(diffs) > 0 {
+			status = driftStatusModified
 		}
+		statuses[logicalID] = status
+		details[logicalID] = driftDetailFor(stack, deployedRes, expected, status, diffs)
 	}
+
+	if b.resourceDriftDetail[stack.StackID] == nil {
+		b.resourceDriftDetail[stack.StackID] = make(map[string]StackResourceDrift)
+	}
+	maps.Copy(b.resourceDriftDetail[stack.StackID], details)
 
 	return statuses
 }
 
-// propertiesDiffer reports whether two property maps differ using JSON serialization.
-func propertiesDiffer(a, b map[string]any) bool {
-	aBytes, err1 := json.Marshal(a)
-	bBytes, err2 := json.Marshal(b)
-	if err1 != nil || err2 != nil {
-		return false
+// driftDetailFor assembles the StackResourceDrift record for a resource,
+// including the property-level differences and the expected/actual property JSON.
+func driftDetailFor(
+	stack *Stack,
+	deployedRes *StackResource,
+	expected map[string]any,
+	status string,
+	diffs []PropertyDifference,
+) StackResourceDrift {
+	d := StackResourceDrift{
+		StackID:                  stack.StackID,
+		LogicalResourceID:        deployedRes.LogicalID,
+		PhysicalResourceID:       deployedRes.PhysicalID,
+		ResourceType:             deployedRes.Type,
+		StackResourceDriftStatus: status,
+		Timestamp:                time.Now(),
+		PropertyDifferences:      diffs,
+	}
+	if expected != nil {
+		d.ExpectedProperties = toJSONString(expected)
+	}
+	if status != driftStatusDeleted {
+		d.ActualProperties = toJSONString(deployedRes.Properties)
 	}
 
-	return string(aBytes) != string(bBytes)
+	return d
+}
+
+// deepCopyProps returns a JSON round-trip deep copy of a property map so a
+// recorded live state cannot alias the template properties.
+func deepCopyProps(props map[string]any) map[string]any {
+	if props == nil {
+		return nil
+	}
+	data, err := json.Marshal(props)
+	if err != nil {
+		return props
+	}
+	var out map[string]any
+	if uerr := json.Unmarshal(data, &out); uerr != nil {
+		return props
+	}
+
+	return out
 }
 
 // DescribeStackDriftDetectionStatus returns the status of a drift detection operation.
@@ -250,12 +324,7 @@ func (b *InMemoryBackend) GetTemplateSummary(templateBody, stackName string) (*T
 		typesSet[res.Type] = struct{}{}
 	}
 
-	resourceTypes := make([]string, 0, len(typesSet))
-	for t := range typesSet {
-		resourceTypes = append(resourceTypes, t)
-	}
-
-	sort.Strings(resourceTypes)
+	resourceTypes := collections.SortedKeys(typesSet)
 
 	return &TemplateSummary{
 		Description:   tmpl.Description,

@@ -2,11 +2,11 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -38,29 +38,11 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, cwlWorkerService)
+	g.Ticker(retentionSweeperName, j.Interval, j.TaskTimeout, j.sweepRetention)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepRetention(taskCtx)
-			cancel()
-		}
-	}
-}
-
-// taskContext returns a child context bounded by TaskTimeout (if non-zero).
-// The caller is responsible for calling the returned cancel function.
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
-	}
-
-	return context.WithCancel(parent)
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single retention sweep. Primarily intended for tests.
@@ -73,6 +55,10 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 // trimming events whose timestamp predates the retention cutoff.
 // Stream metadata (FirstEventTimestamp, LastEventTimestamp, LastIngestionTime)
 // is updated to reflect the remaining events.
+//
+// The sweep is split into two phases per group: a read-lock phase that builds
+// the eviction plan (CPU-intensive filtering), then a write-lock phase that
+// applies only the computed results — minimising write-lock hold time.
 func (j *Janitor) sweepRetention(ctx context.Context) {
 	evicted := 0
 	now := time.Now()
@@ -83,8 +69,15 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 		default:
 		}
 
+		// Phase 1: build eviction plan under read lock (no mutations).
+		plan := j.buildEvictionPlan(target.region, target.groupName, target.cutoffMs)
+		if len(plan) == 0 {
+			continue
+		}
+
+		// Phase 2: apply the plan under write lock (minimal critical section).
 		j.Backend.mu.Lock("JanitorSweepRetention")
-		evicted += j.sweepGroupStreams(target.region, target.groupName, target.cutoffMs)
+		evicted += j.applyEvictionPlan(target.region, target.groupName, plan)
 		j.Backend.mu.Unlock()
 	}
 
@@ -110,23 +103,9 @@ func (j *Janitor) retentionTargets(now time.Time) []retentionTarget {
 	j.Backend.mu.RLock("JanitorRetentionTargets")
 	defer j.Backend.mu.RUnlock()
 
-	regions := make([]string, 0, len(j.Backend.groups))
-	for region := range j.Backend.groups {
-		regions = append(regions, region)
-	}
-	slices.Sort(regions)
-
 	var targets []retentionTarget
-	for _, region := range regions {
-		regionGroups := j.Backend.groups[region]
-		groupNames := make([]string, 0, len(regionGroups))
-		for groupName := range regionGroups {
-			groupNames = append(groupNames, groupName)
-		}
-		slices.Sort(groupNames)
-
-		for _, groupName := range groupNames {
-			group := regionGroups[groupName]
+	for region, regionGroups := range j.Backend.groups {
+		for groupName, group := range regionGroups {
 			days := j.Backend.settings.MaxRetentionDays
 			if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
 				days = int(*group.RetentionInDays)
@@ -147,47 +126,78 @@ func (j *Janitor) retentionTargets(now time.Time) []retentionTarget {
 	return targets
 }
 
-// sweepGroupStreams evicts events older than cutoffMs for all streams in groupName.
-// Returns the number of evicted events. Must be called with the backend write lock held.
-func (j *Janitor) sweepGroupStreams(region, groupName string, cutoffMs int64) int {
+// streamEvictionPlan holds the pre-computed result of filtering one stream's events.
+type streamEvictionPlan struct {
+	streamName   string
+	kept         []*OutputLogEvent
+	evictedBytes int64
+	evictedCount int
+}
+
+// buildEvictionPlan scans all streams in groupName under a READ lock and returns
+// a plan of which streams need updating and what the new event slice should be.
+// Streams with no evictions are omitted from the plan.
+func (j *Janitor) buildEvictionPlan(region, groupName string, cutoffMs int64) []streamEvictionPlan {
+	j.Backend.mu.RLock("JanitorBuildEvictionPlan")
+	defer j.Backend.mu.RUnlock()
+
+	groupEventsMap := j.Backend.events[region][groupName]
+	if len(groupEventsMap) == 0 {
+		return nil
+	}
+
+	var plan []streamEvictionPlan
+	for streamName, evts := range groupEventsMap {
+		kept := make([]*OutputLogEvent, 0, len(evts))
+		var evictedBytes int64
+		var evictedCount int
+		for _, ev := range evts {
+			if ev.Timestamp >= cutoffMs {
+				kept = append(kept, ev)
+			} else {
+				evictedCount++
+				evictedBytes += int64(len(ev.Message))
+			}
+		}
+		if evictedCount == 0 {
+			continue
+		}
+		plan = append(plan, streamEvictionPlan{
+			streamName:   streamName,
+			kept:         kept,
+			evictedBytes: evictedBytes,
+			evictedCount: evictedCount,
+		})
+	}
+
+	return plan
+}
+
+// applyEvictionPlan applies a pre-computed eviction plan under a WRITE lock.
+// Returns the total number of evicted events.
+// Must be called with the backend write lock held.
+func (j *Janitor) applyEvictionPlan(region, groupName string, plan []streamEvictionPlan) int {
 	evicted := 0
 
 	regionEvents := j.Backend.events[region]
 	regionStreams := j.Backend.streams[region]
 	regionGroups := j.Backend.groups[region]
 
-	for streamName, evts := range regionEvents[groupName] {
-		kept := make([]*OutputLogEvent, 0, len(evts))
-		evictedBytes := int64(0)
-		for _, ev := range evts {
-			if ev.Timestamp >= cutoffMs {
-				kept = append(kept, ev)
-			} else {
-				evicted++
-				evictedBytes += int64(len(ev.Message))
-			}
-		}
+	for _, entry := range plan {
+		regionEvents[groupName][entry.streamName] = entry.kept
+		evicted += entry.evictedCount
 
-		if len(kept) == len(evts) {
-			continue
-		}
-
-		regionEvents[groupName][streamName] = kept
-
-		if evictedBytes > 0 {
-			stream := regionStreams[groupName][streamName]
-			if stream != nil {
-				stream.StoredBytes -= evictedBytes
+		if entry.evictedBytes > 0 {
+			if stream := regionStreams[groupName][entry.streamName]; stream != nil {
+				stream.StoredBytes -= entry.evictedBytes
 			}
 			if g := regionGroups[groupName]; g != nil {
-				g.StoredBytes -= evictedBytes
+				g.StoredBytes -= entry.evictedBytes
 			}
 		}
 
-		// Update stream metadata to reflect the events that remain.
-		stream := regionStreams[groupName][streamName]
-		if stream != nil {
-			updateStreamTimestamps(stream, kept)
+		if stream := regionStreams[groupName][entry.streamName]; stream != nil {
+			updateStreamTimestamps(stream, entry.kept)
 		}
 	}
 

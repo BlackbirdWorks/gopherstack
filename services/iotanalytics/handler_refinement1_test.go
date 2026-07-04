@@ -2,6 +2,7 @@ package iotanalytics_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -280,7 +281,7 @@ func TestRefinement1_SortedListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	ch, err := b.CreateChannel("tagged_ch", map[string]string{
+	ch, err := b.CreateChannel(context.Background(), "tagged_ch", map[string]string{
 		"zzz": "last",
 		"aaa": "first",
 		"mmm": "middle",
@@ -368,7 +369,7 @@ func TestRefinement1_DeepCopy_Channel(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	_, err := b.CreateChannel("immutable_ch", map[string]string{"key": "original"}, nil, nil)
+	_, err := b.CreateChannel(context.Background(), "immutable_ch", map[string]string{"key": "original"}, nil, nil)
 	require.NoError(t, err)
 
 	ch, err := b.DescribeChannel("immutable_ch")
@@ -388,7 +389,7 @@ func TestRefinement1_DeepCopy_Pipeline(t *testing.T) {
 	t.Parallel()
 
 	b := iotanalytics.NewInMemoryBackend()
-	_, err := b.CreatePipeline("immutable_pipe", map[string]string{"env": "prod"}, nil)
+	_, err := b.CreatePipeline(context.Background(), "immutable_pipe", map[string]string{"env": "prod"}, nil)
 	require.NoError(t, err)
 
 	p, err := b.DescribePipeline("immutable_pipe")
@@ -413,12 +414,12 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddDatasetInternal("saved_set")
 	b.AddPipelineInternal("saved_pipe")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 	require.NotEmpty(t, snap)
 
 	b2 := iotanalytics.NewInMemoryBackend()
-	err := b2.Restore(snap)
+	err := b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, iotanalytics.ChannelCount(b2))
@@ -446,7 +447,7 @@ func TestRefinement1_NonNilReprocessingSummaries(t *testing.T) {
 			t.Parallel()
 
 			b := iotanalytics.NewInMemoryBackend()
-			p, err := b.CreatePipeline(tt.pipelineName, nil, nil)
+			p, err := b.CreatePipeline(context.Background(), tt.pipelineName, nil, nil)
 			require.NoError(t, err)
 			require.NotNil(t, p.Reprocessings)
 			assert.Empty(t, p.Reprocessings)
@@ -543,7 +544,7 @@ func TestRefinement1_ErrAlreadyExists_BackendDirect(t *testing.T) {
 		{
 			name: "channel",
 			create: func(b *iotanalytics.InMemoryBackend) error {
-				_, err := b.CreateChannel("dup", nil, nil, nil)
+				_, err := b.CreateChannel(context.Background(), "dup", nil, nil, nil)
 
 				return err
 			},
@@ -551,7 +552,7 @@ func TestRefinement1_ErrAlreadyExists_BackendDirect(t *testing.T) {
 		{
 			name: "datastore",
 			create: func(b *iotanalytics.InMemoryBackend) error {
-				_, err := b.CreateDatastore("dup", nil, nil, nil, nil, nil)
+				_, err := b.CreateDatastore(context.Background(), "dup", nil, nil, nil, nil, nil)
 
 				return err
 			},
@@ -559,7 +560,7 @@ func TestRefinement1_ErrAlreadyExists_BackendDirect(t *testing.T) {
 		{
 			name: "dataset",
 			create: func(b *iotanalytics.InMemoryBackend) error {
-				_, err := b.CreateDataset("dup", nil, nil, nil, nil, nil, nil)
+				_, err := b.CreateDataset(context.Background(), "dup", nil, nil, nil, nil, nil, nil)
 
 				return err
 			},
@@ -567,7 +568,7 @@ func TestRefinement1_ErrAlreadyExists_BackendDirect(t *testing.T) {
 		{
 			name: "pipeline",
 			create: func(b *iotanalytics.InMemoryBackend) error {
-				_, err := b.CreatePipeline("dup", nil, nil)
+				_, err := b.CreatePipeline(context.Background(), "dup", nil, nil)
 
 				return err
 			},

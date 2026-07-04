@@ -48,7 +48,7 @@ func TestNeptuneClusterRegionIsolation(t *testing.T) {
 	assert.Equal(t, westVersion, westCluster.EngineVersion)
 
 	// 3. us-east-1 sees only its own cluster with its own ARN and version.
-	eastList, err := backend.DescribeDBClusters(ctxEast, "")
+	eastList, err := backend.DescribeDBClusters(ctxEast, "", DBClusterFilters{})
 	require.NoError(t, err)
 	require.Len(t, eastList, 1)
 	assert.Equal(t, "graph1", eastList[0].DBClusterIdentifier)
@@ -56,7 +56,7 @@ func TestNeptuneClusterRegionIsolation(t *testing.T) {
 	assert.Contains(t, eastList[0].DBClusterArn, "us-east-1")
 
 	// 4. us-west-2 sees only its own cluster with its own ARN and version.
-	westList, err := backend.DescribeDBClusters(ctxWest, "")
+	westList, err := backend.DescribeDBClusters(ctxWest, "", DBClusterFilters{})
 	require.NoError(t, err)
 	require.Len(t, westList, 1)
 	assert.Equal(t, "graph1", westList[0].DBClusterIdentifier)
@@ -64,13 +64,13 @@ func TestNeptuneClusterRegionIsolation(t *testing.T) {
 	assert.Contains(t, westList[0].DBClusterArn, "us-west-2")
 
 	// 5. Delete in us-east-1; us-west-2 still has its cluster.
-	_, err = backend.DeleteDBCluster(ctxEast, "graph1")
+	_, err = backend.DeleteDBCluster(ctxEast, "graph1", DBClusterDeleteOptions{SkipFinalSnapshot: true})
 	require.NoError(t, err)
 
-	_, err = backend.DescribeDBClusters(ctxEast, "graph1")
+	_, err = backend.DescribeDBClusters(ctxEast, "graph1", DBClusterFilters{})
 	require.ErrorIs(t, err, ErrClusterNotFound)
 
-	westAfter, err := backend.DescribeDBClusters(ctxWest, "graph1")
+	westAfter, err := backend.DescribeDBClusters(ctxWest, "graph1", DBClusterFilters{})
 	require.NoError(t, err)
 	require.Len(t, westAfter, 1)
 	assert.Contains(t, westAfter[0].DBClusterArn, "us-west-2")
@@ -95,12 +95,12 @@ func TestNeptuneInstanceAndTagRegionIsolation(t *testing.T) {
 	}
 
 	// Each region sees exactly one instance.
-	eastInsts, err := backend.DescribeDBInstances(ctxEast, "")
+	eastInsts, err := backend.DescribeDBInstances(ctxEast, "", "")
 	require.NoError(t, err)
 	require.Len(t, eastInsts, 1)
 	assert.Contains(t, eastInsts[0].DBInstanceArn, "us-east-1")
 
-	westInsts, err := backend.DescribeDBInstances(ctxWest, "")
+	westInsts, err := backend.DescribeDBInstances(ctxWest, "", "")
 	require.NoError(t, err)
 	require.Len(t, westInsts, 1)
 	assert.Contains(t, westInsts[0].DBInstanceArn, "us-west-2")

@@ -1,5 +1,7 @@
 package glue
 
+import "context"
+
 // StorageBackend defines the interface for all Glue backend operations.
 // InMemoryBackend implements this interface; alternative backends (e.g. test
 // doubles) can implement it too, keeping the Handler backend-agnostic.
@@ -10,6 +12,22 @@ type StorageBackend interface {
 	AccountID() string
 	// Reset clears all backend state, returning it to the initial empty state.
 	Reset()
+
+	// Managed reconciler lifecycle. StartReconciler is invoked by the service
+	// framework's BackgroundWorker hook; StopReconciler by its Shutdowner hook.
+	StartReconciler(ctx context.Context)
+	StopReconciler()
+
+	// Connection-type registry operations.
+	RegisterConnectionType(name, description string) (*ConnectionTypeInfo, error)
+	DeleteConnectionType(name string) error
+	ListConnectionTypes() []*ConnectionTypeInfo
+	DescribeConnectionType(name string) (*ConnectionTypeInfo, error)
+
+	// Connector entity metadata/data operations.
+	DescribeEntity(connectionName, entityName string) ([]EntityField, error)
+	GetEntityRecords(connectionName, entityName string, limit int, nextToken string) ([]map[string]any, string, error)
+	ListEntities(connectionName string) ([]EntityDescriptor, error)
 
 	// Database operations.
 	CreateDatabase(input DatabaseInput, tags map[string]string) (*Database, error)
@@ -218,7 +236,10 @@ type StorageBackend interface {
 	DeleteUserDefinedFunction(dbName, name string) error
 
 	// SecurityConfiguration operations.
-	CreateSecurityConfiguration(name string, enc EncryptionConfiguration) (*SecurityConfiguration, error)
+	CreateSecurityConfiguration(
+		name string,
+		enc EncryptionConfiguration,
+	) (*SecurityConfiguration, error)
 	GetSecurityConfiguration(name string) (*SecurityConfiguration, error)
 	DeleteSecurityConfiguration(name string) error
 	ListSecurityConfigurations() []*SecurityConfiguration
@@ -237,15 +258,26 @@ type StorageBackend interface {
 	CancelStatement(sessionID string, statementID int32) error
 
 	// TableOptimizer operations.
-	CreateTableOptimizer(catalogID, dbName, tableName, optimizerType string, config TableOptimizerConfiguration) error
+	CreateTableOptimizer(
+		catalogID, dbName, tableName, optimizerType string,
+		config TableOptimizerConfiguration,
+	) error
 	GetTableOptimizer(dbName, tableName, optimizerType string) (*TableOptimizer, error)
-	UpdateTableOptimizer(dbName, tableName, optimizerType string, config TableOptimizerConfiguration) error
+	UpdateTableOptimizer(
+		dbName, tableName, optimizerType string,
+		config TableOptimizerConfiguration,
+	) error
 	DeleteTableOptimizer(dbName, tableName, optimizerType string) error
-	BatchGetTableOptimizer(entries []BatchGetTableOptimizerEntry) ([]*TableOptimizer, []BatchGetTableOptimizerError)
+	BatchGetTableOptimizer(
+		entries []BatchGetTableOptimizerEntry,
+	) ([]*TableOptimizer, []BatchGetTableOptimizerError)
 
 	// Column statistics operations.
 	UpdateColumnStatisticsForTable(dbName, tableName string, stats []*ColumnStatistics) error
-	GetColumnStatisticsForTable(dbName, tableName string, columnNames []string) ([]*ColumnStatistics, error)
+	GetColumnStatisticsForTable(
+		dbName, tableName string,
+		columnNames []string,
+	) ([]*ColumnStatistics, error)
 	DeleteColumnStatisticsForTable(dbName, tableName, columnName string) error
 	UpdateColumnStatisticsForPartition(
 		dbName, tableName string,
@@ -257,7 +289,11 @@ type StorageBackend interface {
 		partitionValues []string,
 		columnNames []string,
 	) ([]*ColumnStatistics, error)
-	DeleteColumnStatisticsForPartition(dbName, tableName string, partitionValues []string, columnName string) error
+	DeleteColumnStatisticsForPartition(
+		dbName, tableName string,
+		partitionValues []string,
+		columnName string,
+	) error
 
 	// Resource policy operations.
 	PutResourcePolicy(policy, resourceARN string) (string, error)
@@ -316,7 +352,10 @@ type StorageBackend interface {
 	UpdateUsageProfile(name, description string) (*UsageProfile, error)
 
 	// CustomEntityType individual CRUD.
-	CreateCustomEntityType(name, regexString string, contextWords []string) (*CustomEntityType, error)
+	CreateCustomEntityType(
+		name, regexString string,
+		contextWords []string,
+	) (*CustomEntityType, error)
 	GetCustomEntityType(name string) (*CustomEntityType, error)
 	DeleteCustomEntityType(name string) error
 	ListCustomEntityTypes() []*CustomEntityType
@@ -342,7 +381,9 @@ type StorageBackend interface {
 	ListColumnStatisticsTaskRuns() []*ColumnStatisticsTaskRun
 
 	// MaterializedView refresh operations.
-	StartMaterializedViewRefreshTaskRun(dbName, tableName string) (*MaterializedViewRefreshRun, error)
+	StartMaterializedViewRefreshTaskRun(
+		dbName, tableName string,
+	) (*MaterializedViewRefreshRun, error)
 	StopMaterializedViewRefreshTaskRun(taskRunID string) error
 	GetMaterializedViewRefreshTaskRun(taskRunID string) (*MaterializedViewRefreshRun, error)
 	ListMaterializedViewRefreshTaskRuns() []*MaterializedViewRefreshRun
@@ -352,6 +393,18 @@ type StorageBackend interface {
 	DeleteIntegration(name string) error
 	ListIntegrations() []*Integration
 	ModifyIntegration(name string) error
+	CreateIntegrationResourceProperty(
+		resourceArn string,
+		sourceProps, targetProps map[string]string,
+	) (*IntegrationResourceProperty, error)
+	GetIntegrationResourceProperty(resourceArn string) (*IntegrationResourceProperty, error)
+	CreateIntegrationTableProperties(
+		resourceArn, tableName string,
+		sourceConfig, targetConfig map[string]any,
+	) error
+	GetIntegrationTableProperties(
+		resourceArn, tableName string,
+	) (*IntegrationTableProperties, error)
 
 	// GlueIdentityCenter operations.
 	CreateGlueIdentityCenterConfiguration(instanceARN string) error
@@ -368,9 +421,10 @@ type StorageBackend interface {
 	GetMLTaskRuns(transformID string) ([]*MLTaskRun, error)
 	CancelMLTaskRun(transformID, taskRunID string) error
 
-	// DataQuality listing operations.
+	// DataQuality listing and model operations.
 	ListDataQualityEvaluationRuns() []*DataQualityEvaluationRun
 	ListDataQualityResults() []*DataQualityResult
+	GetDataQualityModelResult(profileID string) (string, error)
 
 	// CatalogImport operations.
 	ImportCatalogToGlue(catalogID string) error
@@ -392,13 +446,20 @@ type StorageBackend interface {
 
 	// Workflow resume.
 	ResumeWorkflowRun(workflowName, runID string) (string, []string, error)
+
+	// Schema version deletion (single version, by number).
+	DeleteSchemaVersion(registryName, schemaName string, versionNumber int64) error
+
+	// Integration resource/table property deletion.
+	DeleteIntegrationResourceProperty(resourceArn string) error
+	DeleteIntegrationTableProperties(resourceArn, tableName string) error
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement
 // to support persistence via Snapshot/Restore.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // compile-time assertion that InMemoryBackend implements StorageBackend.

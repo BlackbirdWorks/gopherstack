@@ -13,9 +13,12 @@ import (
 )
 
 // newWiredPair returns an SNS backend and SQS backend connected via the event emitter.
-func newWiredPair() (*snsbackend.InMemoryBackend, *sqs.InMemoryBackend) {
+func newWiredPair(t *testing.T) (*snsbackend.InMemoryBackend, *sqs.InMemoryBackend) {
+	t.Helper()
+
 	snsBk := snsbackend.NewInMemoryBackend()
 	sqsBk := sqs.NewInMemoryBackend()
+	t.Cleanup(sqsBk.Close)
 
 	emitter := events.NewInMemoryEmitter[*events.SNSPublishedEvent]()
 	snsBk.SetPublishEmitter(emitter)
@@ -100,7 +103,7 @@ func TestSNSToSQSDelivery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			snsBk, sqsBk := newWiredPair()
+			snsBk, sqsBk := newWiredPair(t)
 
 			topic, err := snsBk.CreateTopic(tt.topicName, nil)
 			require.NoError(t, err)
@@ -189,7 +192,7 @@ func TestSNSToSQSRawMessageDelivery(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			snsBk, sqsBk := newWiredPair()
+			snsBk, sqsBk := newWiredPair(t)
 
 			topic, err := snsBk.CreateTopic("raw-topic", nil)
 			require.NoError(t, err)
@@ -261,7 +264,7 @@ func TestSNSToSQSDLQ(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			snsBk, sqsBk := newWiredPair()
+			snsBk, sqsBk := newWiredPair(t)
 
 			topic, err := snsBk.CreateTopic("dlq-topic", nil)
 			require.NoError(t, err)

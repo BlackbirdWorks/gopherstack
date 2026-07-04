@@ -44,8 +44,8 @@ func regionFromARN(resourceARN, defaultRegion string) string {
 var (
 	ErrClusterNotFound                    = awserr.New("DBClusterNotFoundFault", awserr.ErrNotFound)
 	ErrClusterAlreadyExists               = awserr.New("DBClusterAlreadyExistsFault", awserr.ErrAlreadyExists)
-	ErrInstanceNotFound                   = awserr.New("DBInstanceNotFound", awserr.ErrNotFound)
-	ErrInstanceAlreadyExists              = awserr.New("DBInstanceAlreadyExists", awserr.ErrAlreadyExists)
+	ErrInstanceNotFound                   = awserr.New("DBInstanceNotFoundFault", awserr.ErrNotFound)
+	ErrInstanceAlreadyExists              = awserr.New("DBInstanceAlreadyExistsFault", awserr.ErrAlreadyExists)
 	ErrSubnetGroupNotFound                = awserr.New("DBSubnetGroupNotFoundFault", awserr.ErrNotFound)
 	ErrSubnetGroupAlreadyExists           = awserr.New("DBSubnetGroupAlreadyExistsFault", awserr.ErrAlreadyExists)
 	ErrSubnetGroupInUse                   = awserr.New("InvalidDBSubnetGroupStateFault", awserr.ErrInvalidParameter)
@@ -100,12 +100,26 @@ const (
 
 	maxPromotionTier         = 15
 	maxBackupRetentionPeriod = 35
+
+	docDBEngineDescription = "Amazon DocumentDB"
 )
 
 var validDocDBVersions = map[string]bool{ //nolint:gochecknoglobals // compile-time constant set
 	docDBEngineVersion36: true,
 	defaultEngineVersion: true,
 	docDBEngineVersion5:  true,
+}
+
+// defaultParamGroupName returns the default parameter group name for a given engine version.
+func defaultParamGroupName(engineVersion string) string {
+	switch engineVersion {
+	case docDBEngineVersion36:
+		return "default.docdb3.6"
+	case docDBEngineVersion5:
+		return "default.docdb5.0"
+	default:
+		return "default.docdb4.0"
+	}
 }
 
 // validateEngineVersion returns an error if engineVersion is non-empty and not a valid DocDB version.
@@ -240,6 +254,7 @@ type Tag struct {
 
 type DBClusterParameterGroup struct {
 	Tags                        map[string]string `json:"tags"`
+	Parameters                  map[string]string `json:"parameters"`
 	DBClusterParameterGroupName string            `json:"dbClusterParameterGroupName"`
 	DBParameterGroupFamily      string            `json:"dbParameterGroupFamily"`
 	Description                 string            `json:"description"`
@@ -541,7 +556,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		engineVersion = defaultEngineVersion
 	}
 	if paramGroupName == "" {
-		paramGroupName = "default.docdb4.0"
+		paramGroupName = defaultParamGroupName(engineVersion)
 	}
 	if port <= 0 {
 		port = defaultDocDBPort
@@ -671,10 +686,17 @@ func (b *InMemoryBackend) DeleteDBCluster(
 			return nil, fmt.Errorf("%w: cluster %s still has instances, delete them first", ErrInvalidClusterState, id)
 		}
 	}
+	if opts == nil || (!opts.SkipFinalSnapshot && opts.FinalDBClusterSnapshotIdentifier == "") {
+		return nil, fmt.Errorf(
+			"%w: specify SkipFinalSnapshot=true or provide FinalDBClusterSnapshotIdentifier",
+			ErrInvalidParameter,
+		)
+	}
+
 	cp := copyCluster(c)
 
 	// Create a final snapshot if requested.
-	if opts != nil && !opts.SkipFinalSnapshot && opts.FinalDBClusterSnapshotIdentifier != "" {
+	if !opts.SkipFinalSnapshot && opts.FinalDBClusterSnapshotIdentifier != "" {
 		snapID := opts.FinalDBClusterSnapshotIdentifier
 		snapshots := b.clusterSnapshotsStore(region)
 		if _, snapExists := snapshots[snapID]; snapExists {
@@ -745,7 +767,18 @@ func (b *InMemoryBackend) ModifyDBCluster(
 		c.PreferredMaintenanceWindow = preferredMaintenanceWindow
 	}
 	if opts != nil {
+		if opts.MasterUserPassword != "" {
+			if err := validateMasterUserPassword(opts.MasterUserPassword); err != nil {
+				return nil, err
+			}
+		}
+
 		applyModifyDBClusterOpts(c, opts)
+		if opts.NewDBClusterIdentifier != "" {
+			clusters := b.clustersStore(region)
+			delete(clusters, id)
+			clusters[opts.NewDBClusterIdentifier] = c
+		}
 	}
 
 	return copyCluster(c), nil
@@ -755,6 +788,9 @@ func (b *InMemoryBackend) ModifyDBCluster(
 func applyModifyDBClusterOpts(c *DBCluster, opts *ModifyDBClusterOptions) {
 	if opts.EngineVersion != "" {
 		c.EngineVersion = opts.EngineVersion
+	}
+	if opts.NewDBClusterIdentifier != "" {
+		c.DBClusterIdentifier = opts.NewDBClusterIdentifier
 	}
 	if opts.Port > 0 {
 		c.Port = opts.Port
@@ -793,11 +829,13 @@ func applyModifyDBClusterOpts(c *DBCluster, opts *ModifyDBClusterOptions) {
 
 // ModifyDBClusterOptions holds optional extra parameters for ModifyDBCluster.
 type ModifyDBClusterOptions struct {
-	EngineVersion       string
-	VpcSecurityGroupIDs []string
-	EnableLogsTypes     []string
-	DisableLogsTypes    []string
-	Port                int
+	EngineVersion          string
+	MasterUserPassword     string
+	NewDBClusterIdentifier string
+	VpcSecurityGroupIDs    []string
+	EnableLogsTypes        []string
+	DisableLogsTypes       []string
+	Port                   int
 }
 
 func (b *InMemoryBackend) StopDBCluster(ctx context.Context, id string) (*DBCluster, error) {
@@ -1106,7 +1144,7 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 		DBSubnetGroupName:        name,
 		DBSubnetGroupDescription: description,
 		VpcID:                    vpcID,
-		Status:                   "Complete",
+		Status:                   "complete",
 		SubnetIDs:                ids,
 		DBSubnetGroupArn:         sgArn,
 		Tags:                     copyTags(tags),
@@ -1204,6 +1242,7 @@ func (b *InMemoryBackend) CreateDBClusterParameterGroup(
 		Description:                 description,
 		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(region, name),
 		Tags:                        copyTags(tags),
+		Parameters:                  make(map[string]string),
 	}
 	pgStore[name] = pg
 	pgArn := b.clusterParameterGroupARN(region, name)
@@ -1212,6 +1251,7 @@ func (b *InMemoryBackend) CreateDBClusterParameterGroup(
 	}
 	cp := *pg
 	cp.Tags = copyTags(pg.Tags)
+	cp.Parameters = maps.Clone(pg.Parameters)
 
 	return &cp, nil
 }
@@ -1274,6 +1314,7 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(ctx context.Context, nam
 func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 	ctx context.Context,
 	name string,
+	parameters map[string]string,
 ) (*DBClusterParameterGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBClusterParameterGroup")
@@ -1282,8 +1323,16 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 	}
+
+	if pg.Parameters == nil {
+		pg.Parameters = make(map[string]string)
+	}
+
+	maps.Copy(pg.Parameters, parameters)
+
 	cp := *pg
 	cp.Tags = copyTags(pg.Tags)
+	cp.Parameters = maps.Clone(pg.Parameters)
 
 	return &cp, nil
 }
@@ -1543,10 +1592,12 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 		DBParameterGroupFamily:      src.DBParameterGroupFamily,
 		Description:                 desc,
 		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(region, targetName),
+		Parameters:                  maps.Clone(src.Parameters),
 	}
 	pgStore[targetName] = pg
 	cp := *pg
 	cp.Tags = copyTags(pg.Tags)
+	cp.Parameters = maps.Clone(pg.Parameters)
 
 	return &cp, nil
 }
@@ -1732,10 +1783,12 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(
 	if groupName == "" {
 		return nil, fmt.Errorf("%w: DBClusterParameterGroupName is required", ErrInvalidParameter)
 	}
-	if _, exists := b.clusterParameterGroupsStore(region)[groupName]; !exists {
+	pg, exists := b.clusterParameterGroupsStore(region)[groupName]
+	if !exists {
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, groupName)
 	}
-	params := []DBClusterParameter{
+
+	defaults := []DBClusterParameter{
 		{
 			ParameterName:  "tls",
 			ParameterValue: paramEnabled,
@@ -1754,6 +1807,18 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(
 			DataType:       paramTypeStr,
 			IsModifiable:   true,
 		},
+	}
+
+	params := make([]DBClusterParameter, 0, len(defaults))
+	for _, p := range defaults {
+		if pg.Parameters != nil {
+			if v, ok := pg.Parameters[p.ParameterName]; ok {
+				p.ParameterValue = v
+				p.Source = "user"
+			}
+		}
+
+		params = append(params, p)
 	}
 
 	return params, nil
@@ -2206,7 +2271,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		subnetGroupName = src.DBSubnetGroupName
 	}
 	if paramGroupName == "" {
-		paramGroupName = "default.docdb4.0"
+		paramGroupName = defaultParamGroupName(engineVersion)
 	}
 	clusterArn := b.clusterARN(region, clusterID)
 	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", clusterID, region)
@@ -2288,8 +2353,9 @@ type DBEngineVersion struct {
 // DescribeDBEngineVersions returns available engine versions, optionally filtered.
 func (b *InMemoryBackend) DescribeDBEngineVersions(_ context.Context, engine, engineVersion string) []DBEngineVersion {
 	all := []DBEngineVersion{
-		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBEngineDescription: "Amazon DocumentDB"},
-		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBEngineDescription: "Amazon DocumentDB"},
+		{Engine: docDBEngine, EngineVersion: docDBEngineVersion36, DBEngineDescription: docDBEngineDescription},
+		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBEngineDescription: docDBEngineDescription},
+		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBEngineDescription: docDBEngineDescription},
 	}
 	result := make([]DBEngineVersion, 0, len(all))
 	for _, v := range all {

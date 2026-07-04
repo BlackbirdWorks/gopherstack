@@ -16,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/semaphore"
 )
 
 // ErrExecutionFailed is returned when a Fail state is reached.
@@ -161,6 +163,13 @@ type HistoryRecorder interface {
 	RecordTaskFailed(executionARN, stateName, errCode, cause string)
 }
 
+// MapRunNotifier receives callbacks when Map state runs start and end.
+// Implement this to track Map state execution in a backend.
+type MapRunNotifier interface {
+	OnMapRunStart(executionARN, stateName string, maxConcurrency, itemCount int) string
+	OnMapRunEnd(mapRunARN, status string, succeeded, failed, total int)
+}
+
 // ExecutionResult holds the final output and status of a state machine execution.
 type ExecutionResult struct {
 	Output any
@@ -248,25 +257,26 @@ func (c *jsonPathCache) store(path string, parts []string) {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	s3            S3Reader
-	callback      TaskTokenCallbackInvoker
-	sqs           SQSIntegration
-	sns           SNSIntegration
-	dynamodb      DynamoDBIntegration
-	ecs           ECSIntegration
-	glue          GlueIntegration
-	eventbridge   EventBridgeIntegration
-	history       HistoryRecorder
-	lambda        LambdaInvoker
-	activity      ActivityInvoker
-	mapItemValue  any
-	execSem       chan struct{}
-	jsonPathCache *jsonPathCache
-	sm            *StateMachine
-	execMeta      executionMeta
-	branchName    string
-	mapItemIdx    int
-	inMapItem     bool
+	s3             S3Reader
+	callback       TaskTokenCallbackInvoker
+	sqs            SQSIntegration
+	sns            SNSIntegration
+	dynamodb       DynamoDBIntegration
+	ecs            ECSIntegration
+	glue           GlueIntegration
+	eventbridge    EventBridgeIntegration
+	history        HistoryRecorder
+	mapRunNotifier MapRunNotifier
+	lambda         LambdaInvoker
+	activity       ActivityInvoker
+	mapItemValue   any
+	execSem        *semaphore.Weighted
+	jsonPathCache  *jsonPathCache
+	sm             *StateMachine
+	execMeta       executionMeta
+	branchName     string
+	mapItemIdx     int
+	inMapItem      bool
 }
 
 // executionMeta is the subset of context object data that ASL exposes via `$$`.
@@ -302,7 +312,7 @@ func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder
 		sm:            sm,
 		lambda:        lambda,
 		history:       history,
-		execSem:       make(chan struct{}, maxConcurrentSubExecutors),
+		execSem:       semaphore.NewWeighted(maxConcurrentSubExecutors),
 		jsonPathCache: newJSONPathCache(maxJSONPathCacheEntries),
 	}
 }
@@ -310,25 +320,26 @@ func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder
 // newSubExecutor creates a sub-executor sharing this executor's semaphore and integrations.
 func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 	return &Executor{
-		sm:            sm,
-		lambda:        e.lambda,
-		sqs:           e.sqs,
-		sns:           e.sns,
-		dynamodb:      e.dynamodb,
-		ecs:           e.ecs,
-		glue:          e.glue,
-		eventbridge:   e.eventbridge,
-		history:       e.history,
-		activity:      e.activity,
-		callback:      e.callback,
-		s3:            e.s3,
-		execSem:       e.execSem,
-		jsonPathCache: e.jsonPathCache,
-		execMeta:      e.execMeta,
-		branchName:    e.branchName,
-		inMapItem:     e.inMapItem,
-		mapItemIdx:    e.mapItemIdx,
-		mapItemValue:  e.mapItemValue,
+		sm:             sm,
+		lambda:         e.lambda,
+		sqs:            e.sqs,
+		sns:            e.sns,
+		dynamodb:       e.dynamodb,
+		ecs:            e.ecs,
+		glue:           e.glue,
+		eventbridge:    e.eventbridge,
+		history:        e.history,
+		activity:       e.activity,
+		callback:       e.callback,
+		s3:             e.s3,
+		execSem:        e.execSem,
+		jsonPathCache:  e.jsonPathCache,
+		execMeta:       e.execMeta,
+		branchName:     e.branchName,
+		mapRunNotifier: e.mapRunNotifier,
+		inMapItem:      e.inMapItem,
+		mapItemIdx:     e.mapItemIdx,
+		mapItemValue:   e.mapItemValue,
 	}
 }
 
@@ -430,6 +441,11 @@ func (e *Executor) SetGlueIntegration(glue GlueIntegration) { e.glue = glue }
 
 // SetEventBridgeIntegration configures the EventBridge integration for Task states.
 func (e *Executor) SetEventBridgeIntegration(eb EventBridgeIntegration) { e.eventbridge = eb }
+
+// SetMapRunNotifier configures the MapRun notifier for Map states.
+func (e *Executor) SetMapRunNotifier(n MapRunNotifier) {
+	e.mapRunNotifier = n
+}
 
 // Execute runs the state machine with the given input JSON and returns the result.
 func (e *Executor) Execute(
@@ -579,7 +595,7 @@ func (e *Executor) executeState(
 	case "Parallel":
 		return e.executeParallel(ctx, executionARN, state, input)
 	case "Map":
-		return e.executeMap(ctx, executionARN, state, input)
+		return e.executeMap(ctx, executionARN, stateName, state, input)
 	default:
 		return "", nil, fmt.Errorf(
 			"%w: %q in state %q",
@@ -1436,12 +1452,10 @@ func (e *Executor) runParallelBranch(
 	errs []error,
 	idx int,
 ) {
-	select {
-	case e.execSem <- struct{}{}:
-	case <-ctx.Done():
+	if err := e.execSem.Acquire(ctx, 1); err != nil {
 		return
 	}
-	defer func() { <-e.execSem }()
+	defer e.execSem.Release(1)
 
 	branchSM := &StateMachine{StartAt: branch.StartAt, States: branch.States}
 	exec := e.newBranchExecutor(branchSM, fmt.Sprintf("Branch-%d", idx))
@@ -1467,6 +1481,7 @@ const maxMapConcurrencyLimit = 40
 func (e *Executor) executeMap(
 	ctx context.Context,
 	executionARN string,
+	stateName string,
 	state *State,
 	input any,
 ) (string, any, error) {
@@ -1493,18 +1508,68 @@ func (e *Executor) executeMap(
 		batchResults := make([]any, len(batched))
 		batchErrs := make([]error, len(batched))
 		concurrency := resolveMapConcurrency(state.MaxConcurrency, len(batched))
+
+		var batchMapRunARN string
+		if e.mapRunNotifier != nil {
+			batchMapRunARN = e.mapRunNotifier.OnMapRunStart(
+				executionARN,
+				stateName,
+				state.MaxConcurrency,
+				len(batched),
+			)
+		}
+
 		e.runMapTasks(ctx, executionARN, iterator, batched, batchResults, batchErrs, concurrency)
 
-		return e.finalizeMap(ctx, batchResults, batchErrs, state.Next)
+		batchNext, batchOut, batchErr := e.finalizeMap(ctx, batchResults, batchErrs, state.Next)
+
+		if e.mapRunNotifier != nil && batchMapRunARN != "" {
+			batchSucceeded, batchFailed := countMapResults(batchErrs)
+			batchStatus := "SUCCEEDED"
+			if batchErr != nil {
+				batchStatus = "FAILED"
+			}
+			e.mapRunNotifier.OnMapRunEnd(
+				batchMapRunARN,
+				batchStatus,
+				batchSucceeded,
+				batchFailed,
+				len(batched),
+			)
+		}
+
+		return batchNext, batchOut, batchErr
 	}
 
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
 
 	concurrency := resolveMapConcurrency(state.MaxConcurrency, len(items))
+
+	var mapRunARN string
+	if e.mapRunNotifier != nil {
+		mapRunARN = e.mapRunNotifier.OnMapRunStart(
+			executionARN,
+			stateName,
+			state.MaxConcurrency,
+			len(items),
+		)
+	}
+
 	e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
 
-	return e.finalizeMap(ctx, results, errs, state.Next)
+	next, out, finalErr := e.finalizeMap(ctx, results, errs, state.Next)
+
+	if e.mapRunNotifier != nil && mapRunARN != "" {
+		succeeded, failed := countMapResults(errs)
+		status := "SUCCEEDED"
+		if finalErr != nil {
+			status = "FAILED"
+		}
+		e.mapRunNotifier.OnMapRunEnd(mapRunARN, status, succeeded, failed, len(items))
+	}
+
+	return next, out, finalErr
 }
 
 // batchItems groups items into batches according to ItemBatcher configuration.
@@ -1785,7 +1850,7 @@ func (e *Executor) runMapTasks(
 	errs []error,
 	concurrency int,
 ) {
-	sem := make(chan struct{}, concurrency)
+	sem := semaphore.NewWeighted(int64(concurrency))
 	var wg sync.WaitGroup
 
 	for i, item := range items {
@@ -1807,16 +1872,14 @@ func (e *Executor) spawnMapTask(
 	item any,
 	results []any,
 	errs []error,
-	sem chan struct{},
+	sem *semaphore.Weighted,
 	wg *sync.WaitGroup,
 ) {
 	wg.Go(func() {
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
+		if err := sem.Acquire(ctx, 1); err != nil {
 			return
 		}
-		defer func() { <-sem }()
+		defer sem.Release(1)
 
 		e.runMapItem(ctx, executionARN, iterator, idx, item, results, errs)
 	})
@@ -2148,9 +2211,68 @@ func matchStringLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 		return ok && s <= *rule.StringLessThanEquals, true
 	case rule.StringGreaterThanEquals != nil:
 		return ok && s >= *rule.StringGreaterThanEquals, true
+	case rule.StringMatches != nil:
+		return ok && stringMatchesPattern(s, *rule.StringMatches), true
 	}
 
 	return false, false
+}
+
+// stringMatchesPattern implements the AWS Step Functions StringMatches glob
+// comparator. The wildcard '*' matches zero or more characters. A backslash
+// escapes the next character, so "\\*" matches a literal asterisk and "\\\\"
+// matches a literal backslash. The match is anchored at both ends.
+func stringMatchesPattern(s, pattern string) bool {
+	return globMatch(s, pattern)
+}
+
+// globMatch performs anchored wildcard matching with backslash escaping using a
+// two-pointer algorithm with backtracking. This is linear in practice and avoids
+// catastrophic backtracking on patterns with many wildcards.
+func globMatch(s, pattern string) bool {
+	si, pi := 0, 0
+	starPi, starSi := -1, 0
+
+	for si < len(s) {
+		switch {
+		case pi < len(pattern) && pattern[pi] == '\\' && pi+1 < len(pattern):
+			// Escaped literal: the character after the backslash must match exactly.
+			if s[si] == pattern[pi+1] {
+				si++
+				pi += 2
+
+				continue
+			}
+		case pi < len(pattern) && pattern[pi] == '*':
+			// Record the wildcard position so we can backtrack and consume more of s.
+			starPi = pi
+			starSi = si
+			pi++
+
+			continue
+		case pi < len(pattern) && pattern[pi] == s[si]:
+			si++
+			pi++
+
+			continue
+		}
+
+		// Mismatch: backtrack to the last '*', expanding what it consumes by one.
+		if starPi == -1 {
+			return false
+		}
+
+		pi = starPi + 1
+		starSi++
+		si = starSi
+	}
+
+	// Consume any trailing wildcards in the pattern.
+	for pi < len(pattern) && pattern[pi] == '*' {
+		pi++
+	}
+
+	return pi == len(pattern)
 }
 
 // matchStringPathCondition checks path-based string comparison conditions.
@@ -2614,6 +2736,20 @@ func resolveItems(itemsPath string, input any) ([]any, error) {
 	}
 
 	return arr, nil
+}
+
+// countMapResults counts succeeded and failed items from the error slice.
+func countMapResults(errs []error) (int, int) {
+	succeeded, failed := 0, 0
+	for _, err := range errs {
+		if err != nil {
+			failed++
+		} else {
+			succeeded++
+		}
+	}
+
+	return succeeded, failed
 }
 
 // marshalInput marshals a value to JSON string for sub-execution input.

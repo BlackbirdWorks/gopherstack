@@ -912,11 +912,11 @@ func TestRefinement2_ConnectionPersistence(t *testing.T) {
 				ConnectionProperties: tt.connProps,
 			})
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := glue.NewInMemoryBackend(testAccountID, testRegion)
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 			assert.Equal(t, 1, glue.ConnectionCount(b2))
 
 			conn, err := b2.GetConnection("persist-conn")

@@ -3,6 +3,7 @@ package sesv2
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -70,6 +71,18 @@ type EmailIdentity struct {
 	DkimSigningEnabled   bool              `json:"dkimSigningEnabled"`
 }
 
+// ArchivingOptions captures the archiving configuration of a configuration set.
+type ArchivingOptions struct {
+	ArchiveARN string `json:"archiveArn,omitempty"`
+}
+
+// VdmOptions captures the VDM (Virtual Deliverability Manager) configuration of a
+// configuration set.
+type VdmOptions struct {
+	DashboardOptions map[string]any `json:"dashboardOptions,omitempty"`
+	GuardianOptions  map[string]any `json:"guardianOptions,omitempty"`
+}
+
 // ConfigurationSet represents a SES v2 configuration set.
 type ConfigurationSet struct {
 	CreatedAt                    time.Time         `json:"createdAt"`
@@ -79,6 +92,8 @@ type ConfigurationSet struct {
 	TrackingHTTPSPolicy          string            `json:"trackingHttpsPolicy,omitempty"`
 	DeliveryTLSPolicy            string            `json:"deliveryTlsPolicy,omitempty"`
 	DeliverySendingPoolName      string            `json:"deliverySendingPoolName,omitempty"`
+	ArchivingOptions             *ArchivingOptions `json:"archivingOptions,omitempty"`
+	VdmOptions                   *VdmOptions       `json:"vdmOptions,omitempty"`
 	SuppressionReasons           []string          `json:"suppressionReasons,omitempty"`
 	SendingEnabled               bool              `json:"sendingEnabled"`
 	ReputationMetricsEnabled     bool              `json:"reputationMetricsEnabled"`
@@ -145,6 +160,23 @@ type DedicatedIPPool struct {
 	ScalingMode string `json:"scalingMode"`
 }
 
+// DedicatedIP represents a single dedicated IP address and its pool/warmup state.
+type DedicatedIP struct {
+	IP               string `json:"ip"`
+	PoolName         string `json:"poolName,omitempty"`
+	WarmupStatus     string `json:"warmupStatus"`
+	WarmupPercentage int    `json:"warmupPercentage"`
+}
+
+// ReputationEntity represents a SES v2 reputation entity (e.g. a configuration set
+// or email identity tracked for reputation purposes).
+type ReputationEntity struct {
+	EntityRef             string `json:"entityRef"`
+	EntityType            string `json:"entityType,omitempty"`
+	CustomerManagedStatus string `json:"customerManagedStatus,omitempty"`
+	ReputationPolicy      string `json:"reputationPolicy,omitempty"`
+}
+
 // DeliverabilityTestReport represents a deliverability test report.
 type DeliverabilityTestReport struct {
 	CreateDate               time.Time `json:"createDate"`
@@ -198,12 +230,19 @@ type InMemoryBackend struct {
 	contacts                    map[string]map[string]*Contact
 	customVerificationTemplates map[string]*CustomVerificationEmailTemplate
 	dedicatedIPPools            map[string]*DedicatedIPPool
+	dedicatedIPs                map[string]*DedicatedIP
+	reputationEntities          map[string]*ReputationEntity
 	deliverabilityTestReports   map[string]*DeliverabilityTestReport
 	emailTemplates              map[string]*EmailTemplate
 	exportJobs                  map[string]*ExportJob
 	importJobs                  map[string]*ImportJob
 	suppressedDestinations      map[string]*SuppressedDestination
 	emailIdentityPolicies       map[string]map[string]string
+	resourceTags                map[string]map[string]string
+	multiRegionEndpoints        map[string]map[string]any
+	tenants                     map[string]map[string]any
+	tenantResources             map[string][]string
+	resourceTenants             map[string][]string
 	accountDetails              *AccountDetails
 	mu                          *lockmetrics.RWMutex
 	region                      string
@@ -221,12 +260,19 @@ func NewInMemoryBackend() *InMemoryBackend {
 		contacts:                    make(map[string]map[string]*Contact),
 		customVerificationTemplates: make(map[string]*CustomVerificationEmailTemplate),
 		dedicatedIPPools:            make(map[string]*DedicatedIPPool),
+		dedicatedIPs:                make(map[string]*DedicatedIP),
+		reputationEntities:          make(map[string]*ReputationEntity),
 		deliverabilityTestReports:   make(map[string]*DeliverabilityTestReport),
 		emailTemplates:              make(map[string]*EmailTemplate),
 		exportJobs:                  make(map[string]*ExportJob),
 		emailIdentityPolicies:       make(map[string]map[string]string),
 		importJobs:                  make(map[string]*ImportJob),
 		suppressedDestinations:      make(map[string]*SuppressedDestination),
+		resourceTags:                make(map[string]map[string]string),
+		multiRegionEndpoints:        make(map[string]map[string]any),
+		tenants:                     make(map[string]map[string]any),
+		tenantResources:             make(map[string][]string),
+		resourceTenants:             make(map[string][]string),
 		mu:                          lockmetrics.New("sesv2"),
 		region:                      config.DefaultRegion,
 		accountID:                   config.DefaultAccountID,
@@ -264,12 +310,19 @@ func (b *InMemoryBackend) Reset() {
 	b.contacts = make(map[string]map[string]*Contact)
 	b.customVerificationTemplates = make(map[string]*CustomVerificationEmailTemplate)
 	b.dedicatedIPPools = make(map[string]*DedicatedIPPool)
+	b.dedicatedIPs = make(map[string]*DedicatedIP)
+	b.reputationEntities = make(map[string]*ReputationEntity)
 	b.deliverabilityTestReports = make(map[string]*DeliverabilityTestReport)
 	b.emailTemplates = make(map[string]*EmailTemplate)
 	b.exportJobs = make(map[string]*ExportJob)
 	b.importJobs = make(map[string]*ImportJob)
 	b.suppressedDestinations = make(map[string]*SuppressedDestination)
 	b.emailIdentityPolicies = make(map[string]map[string]string)
+	b.resourceTags = make(map[string]map[string]string)
+	b.multiRegionEndpoints = make(map[string]map[string]any)
+	b.tenants = make(map[string]map[string]any)
+	b.tenantResources = make(map[string][]string)
+	b.resourceTenants = make(map[string][]string)
 	b.accountDetails = nil
 	b.emails = nil
 }
@@ -361,13 +414,14 @@ func (b *InMemoryBackend) ListEmailIdentities(
 	pageSize int,
 ) page.Page[*EmailIdentity] {
 	b.mu.RLock("ListEmailIdentities")
-	defer b.mu.RUnlock()
 
 	out := make([]*EmailIdentity, 0, len(b.identities))
 	for _, ei := range b.identities {
 		cp := *ei
 		out = append(out, &cp)
 	}
+
+	b.mu.RUnlock()
 
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Identity < out[j].Identity
@@ -489,6 +543,11 @@ func (b *InMemoryBackend) SendEmail(
 	}
 
 	b.mu.Lock("SendEmail")
+	if err := b.checkFromIdentityLocked(from); err != nil {
+		b.mu.Unlock()
+
+		return "", err
+	}
 	b.emails = append(b.emails, email)
 	// Compact only when the slice has grown to twice the cap so trimming is
 	// amortized O(1) per send rather than O(maxRetainedEmails) on every send
@@ -505,6 +564,23 @@ func (b *InMemoryBackend) SendEmail(
 	b.mu.Unlock()
 
 	return msgID, nil
+}
+
+// checkFromIdentityLocked verifies the from address against registered identities.
+// It checks exact email match first, then the domain portion as a fallback.
+// Must be called with b.mu held for writing or reading.
+func (b *InMemoryBackend) checkFromIdentityLocked(from string) error {
+	if id, ok := b.identities[from]; ok && id.VerifiedForSending {
+		return nil
+	}
+	if at := strings.LastIndex(from, "@"); at >= 0 {
+		domain := from[at+1:]
+		if id, ok := b.identities[domain]; ok && id.VerifiedForSending {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: identity not verified for sending: %s", ErrInvalidInput, from)
 }
 
 // ListEmails returns a copy of all captured emails.
@@ -524,12 +600,14 @@ const sesv2DefaultMaxItems = 100
 func (b *InMemoryBackend) BatchGetMetricData(
 	queries []MetricDataQuery,
 ) ([]MetricDataResult, error) {
+	now := time.Now().UTC().Truncate(time.Hour)
 	results := make([]MetricDataResult, 0, len(queries))
+
 	for _, q := range queries {
 		results = append(results, MetricDataResult{
 			ID:         q.ID,
-			Timestamps: []time.Time{},
-			Values:     []float64{},
+			Timestamps: []time.Time{now},
+			Values:     []float64{0},
 		})
 	}
 
@@ -691,6 +769,10 @@ func (b *InMemoryBackend) CreateDedicatedIPPool(
 		return nil, fmt.Errorf("%w: PoolName is required", ErrInvalidInput)
 	}
 
+	if scalingMode == "" {
+		scalingMode = scalingModeStandard
+	}
+
 	if scalingMode != scalingModeStandard && scalingMode != scalingModeManaged {
 		return nil, fmt.Errorf(
 			"%w: ScalingMode must be %s or %s, got %s",
@@ -838,4 +920,39 @@ func (b *InMemoryBackend) AddExportJobInternal(jobID, status string) *ExportJob 
 	b.exportJobs[jobID] = job
 
 	return job
+}
+
+func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	if b.resourceTags[arn] == nil {
+		b.resourceTags[arn] = make(map[string]string)
+	}
+
+	maps.Copy(b.resourceTags[arn], tags)
+
+	return nil
+}
+
+func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	m := b.resourceTags[arn]
+	for _, k := range tagKeys {
+		delete(m, k)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]string, len(b.resourceTags[arn]))
+	maps.Copy(out, b.resourceTags[arn])
+
+	return out, nil
 }

@@ -529,7 +529,7 @@ func TestListJobs(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateJob(context.Background(), "j2", "RECIPE", "ds", "", "r", "", nil, nil)
 	require.NoError(t, err)
-	list, _ := b.ListJobs(context.Background(), 100, "")
+	list, _ := b.ListJobs(context.Background(), 100, "", "", "")
 	assert.Len(t, list, 2)
 }
 
@@ -681,6 +681,6 @@ func TestReset(t *testing.T) {
 	assert.Empty(t, rList)
 	pList, _ := b.ListProjects(context.Background(), 100, "")
 	assert.Empty(t, pList)
-	jList, _ := b.ListJobs(context.Background(), 100, "")
+	jList, _ := b.ListJobs(context.Background(), 100, "", "", "")
 	assert.Empty(t, jList)
 }

@@ -44,3 +44,27 @@ func ThreatIntelSetCount(b *InMemoryBackend, detectorID string) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// MemberCount returns the number of stored members for a detector.
+func MemberCount(b *InMemoryBackend, detectorID string) int {
+	b.mu.RLock("MemberCount")
+	defer b.mu.RUnlock()
+
+	return len(b.members[detectorID])
+}
+
+// PublishingDestinationCount returns the number of stored publishing destinations.
+func PublishingDestinationCount(b *InMemoryBackend, detectorID string) int {
+	b.mu.RLock("PublishingDestinationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.publishingDestinations[detectorID])
+}
+
+// ThreatEntitySetCount returns the number of stored threat entity sets for a detector.
+func ThreatEntitySetCount(b *InMemoryBackend, detectorID string) int {
+	b.mu.RLock("ThreatEntitySetCount")
+	defer b.mu.RUnlock()
+
+	return len(b.threatEntitySets[detectorID])
+}

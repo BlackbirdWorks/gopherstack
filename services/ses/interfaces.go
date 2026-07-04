@@ -1,6 +1,10 @@
 package ses
 
-import "github.com/blackbirdworks/gopherstack/pkgs/page"
+import (
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
 
 // StorageBackend defines the persistence contract for the SES service.
 type StorageBackend interface {
@@ -79,14 +83,17 @@ type StorageBackend interface {
 	GetAccountSendingEnabled() bool
 	// Send ops
 	SendBounce(originalMsgID string) (string, error)
-	SendBulkTemplatedEmail(source, templateName string, destinations []BulkEmailDestination) ([]string, error)
+	SendBulkTemplatedEmail(
+		source, templateName, defaultTemplateData string,
+		destinations []BulkEmailDestination,
+	) ([]string, error)
 	SendCustomVerificationEmail(email, templateName string) (string, error)
 	TestRenderTemplate(templateName, templateData string) (string, error)
 	Region() string
 	AccountID() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Compile-time check that InMemoryBackend implements StorageBackend.

@@ -1,6 +1,9 @@
 package apigatewaymanagementapi
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the operations supported by the API Gateway
 // Management API in-memory backend.
@@ -11,8 +14,8 @@ type StorageBackend interface {
 	GetConnection(connectionID string) (*Connection, error)
 	// DeleteConnection deletes the specified WebSocket connection.
 	DeleteConnection(connectionID string) error
-	// CreateConnection creates a new simulated WebSocket connection for testing.
-	CreateConnection(connectionID, sourceIP, userAgent string) (*Connection, error)
+	// CreateConnection creates a new simulated WebSocket connection.
+	CreateConnection(connectionID, sourceIP, userAgent string, downstream chan []byte) (*Connection, error)
 	// ListConnections returns all active WebSocket connections.
 	ListConnections() []Connection
 	// FilterConnections returns connections whose ID, IP, or user-agent contain query.
@@ -32,9 +35,9 @@ type StorageBackend interface {
 	// Stats returns cumulative counters and active state.
 	Stats() Stats
 	// Snapshot serialises backend state to JSON for persistence.
-	Snapshot() []byte
+	Snapshot(ctx context.Context) []byte
 	// Restore loads backend state from a JSON snapshot.
-	Restore(data []byte) error
+	Restore(ctx context.Context, data []byte) error
 	// Reset clears all in-memory state for test isolation.
 	Reset()
 }

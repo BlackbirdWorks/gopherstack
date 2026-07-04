@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 
@@ -17,6 +19,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+)
+
+// PII detection patterns, compiled once at package init rather than per request.
+var (
+	piiEmailRe = regexp.MustCompile(`[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}`)
+	piiSSNRe   = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
 )
 
 const (
@@ -376,14 +384,21 @@ func (h *Handler) describeJob(spec jobSpec) operation {
 }
 
 func (h *Handler) listJobs(spec jobSpec) operation {
-	return func(_ map[string]any) (map[string]any, error) {
+	return func(input map[string]any) (map[string]any, error) {
 		jobs := h.Backend.ListJobs(spec.jobType)
 		items := make([]map[string]any, 0, len(jobs))
 		for _, job := range jobs {
 			items = append(items, jobMap(job))
 		}
 
-		return map[string]any{spec.listField: items}, nil
+		tok, maxResults := paginationParams(input)
+		page, nextTok := comprehendPaginate(items, tok, maxResults)
+		out := map[string]any{spec.listField: page}
+		if nextTok != "" {
+			out["NextToken"] = nextTok
+		}
+
+		return out, nil
 	}
 }
 
@@ -437,14 +452,21 @@ func (h *Handler) describeResource(spec resourceSpec) operation {
 }
 
 func (h *Handler) listResources(spec resourceSpec) operation {
-	return func(_ map[string]any) (map[string]any, error) {
+	return func(input map[string]any) (map[string]any, error) {
 		resources := h.Backend.ListResources(spec.resourceType)
 		items := make([]map[string]any, 0, len(resources))
 		for _, resource := range resources {
 			items = append(items, resourceMap(resource, spec))
 		}
 
-		return map[string]any{spec.listField: items}, nil
+		tok, maxResults := paginationParams(input)
+		page, nextTok := comprehendPaginate(items, tok, maxResults)
+		out := map[string]any{spec.listField: page}
+		if nextTok != "" {
+			out["NextToken"] = nextTok
+		}
+
+		return out, nil
 	}
 }
 
@@ -502,7 +524,14 @@ func (h *Handler) listIterations(input map[string]any) (map[string]any, error) {
 		items = append(items, iterationMap(iteration))
 	}
 
-	return map[string]any{"FlywheelIterationPropertiesList": items}, nil
+	tok, maxResults := paginationParams(input)
+	page, nextTok := comprehendPaginate(items, tok, maxResults)
+	out := map[string]any{"FlywheelIterationPropertiesList": page}
+	if nextTok != "" {
+		out["NextToken"] = nextTok
+	}
+
+	return out, nil
 }
 
 func iterationMap(iteration *FlywheelIteration) map[string]any {
@@ -549,27 +578,150 @@ func inputTags(input map[string]any) []Tag {
 	return tags
 }
 
+func positiveWordList() []string {
+	return []string{
+		"great", "love", "excellent", "wonderful", "amazing", "good", "happy", "best",
+		"fantastic", "awesome", "beautiful", "perfect", "superb", "outstanding", "brilliant",
+		"delightful", "pleased", "enjoy", "liked", "satisfied",
+	}
+}
+
+func negativeWordList() []string {
+	return []string{
+		"bad", "hate", "terrible", "awful", "horrible", "worst", "angry", "sad",
+		"disappointing", "poor", "dreadful", "disgusting", "upset", "frustrating",
+		"dislike", "failed", "useless", "broken", "wrong", "awful",
+	}
+}
+
+const (
+	sentimentMixedScore   = 0.45
+	sentimentBaseScore    = 0.92
+	sentimentMinScore     = 0.01
+	sentimentNeutralScore = 0.06
+	sentimentMaxScore     = 0.99
+	sentimentMixedMin     = 0.05
+)
+
+func countSentimentWords(wordSet map[string]bool, lower string, words []string) int {
+	count := 0
+	for _, w := range words {
+		if wordSet[w] || strings.Contains(lower, w) {
+			count++
+		}
+	}
+
+	return count
+}
+
+func sentimentResult(posCount, negCount int) (string, float64, float64, float64, float64) {
+	switch {
+	case posCount > 0 && negCount > 0:
+		return "MIXED", sentimentMixedScore, sentimentMixedScore, sentimentMixedMin, sentimentMixedMin
+	case posCount > 0:
+		ps := min(sentimentBaseScore+float64(posCount)*sentimentMinScore, sentimentMaxScore)
+
+		return "POSITIVE", ps, sentimentMinScore, sentimentNeutralScore, sentimentMinScore
+	case negCount > 0:
+		ns := min(sentimentBaseScore+float64(negCount)*sentimentMinScore, sentimentMaxScore)
+
+		return "NEGATIVE", sentimentMinScore, ns, sentimentNeutralScore, sentimentMinScore
+	default:
+		return "NEUTRAL", lowSentimentScore, lowSentimentScore, neutralSentimentScore, lowSentimentScore
+	}
+}
+
 func (h *Handler) detectSentiment(input map[string]any) (map[string]any, error) {
 	text, err := documentText(input)
 	if err != nil {
 		return nil, err
 	}
-	sentiment := "NEUTRAL"
 	lower := strings.ToLower(text)
-	switch {
-	case strings.Contains(lower, "great") || strings.Contains(lower, "love") || strings.Contains(lower, "excellent"):
-		sentiment = "POSITIVE"
-	case strings.Contains(lower, "bad") || strings.Contains(lower, "hate") || strings.Contains(lower, "terrible"):
-		sentiment = "NEGATIVE"
+	words := strings.Fields(lower)
+	wordSet := make(map[string]bool, len(words))
+	for _, w := range words {
+		wordSet[strings.Trim(w, ".,!?;:")] = true
 	}
+
+	posCount := countSentimentWords(wordSet, lower, positiveWordList())
+	negCount := countSentimentWords(wordSet, lower, negativeWordList())
+	sentiment, posScore, negScore, neuScore, mixScore := sentimentResult(posCount, negCount)
 
 	return map[string]any{
 		"Sentiment": sentiment,
 		"SentimentScore": map[string]float64{
-			"Positive": lowSentimentScore, "Negative": lowSentimentScore,
-			"Neutral": neutralSentimentScore, "Mixed": lowSentimentScore,
+			"Positive": posScore, "Negative": negScore,
+			"Neutral": neuScore, "Mixed": mixScore,
 		},
 	}, nil
+}
+
+func orgSuffixList() []string {
+	return []string{
+		" inc", " inc.", " corp", " corp.", " ltd", " ltd.", " llc", " co.", " company",
+		" university", " institute", " foundation", " association", " corporation",
+		" group", " holdings", " technologies", " solutions",
+	}
+}
+
+func locSuffixList() []string {
+	return []string{
+		" street", " avenue", " road", " drive", " boulevard", " lane", " way",
+		" city", " town", " village", " county", " state", " country", " nation",
+		" river", " lake", " mountain", " park",
+	}
+}
+
+func locPrefixList() []string {
+	return []string{
+		"mount ", "lake ", "north ", "south ", "east ", "west ", "new ",
+	}
+}
+
+func quantityWordList() []string {
+	return []string{
+		"thousand", "million", "billion", "percent", "kg", "lb", "km", "mile",
+	}
+}
+
+func dateWordList() []string {
+	return []string{
+		"january", "february", "march", "april", "may", "june", "july", "august",
+		"september", "october", "november", "december", "monday", "tuesday",
+		"wednesday", "thursday", "friday", "saturday", "sunday", "yesterday",
+		"tomorrow", "today",
+	}
+}
+
+func entityType(word, textLower string) string {
+	wl := strings.ToLower(word)
+	for _, sfx := range orgSuffixList() {
+		if strings.HasSuffix(textLower, wl+sfx) || strings.Contains(textLower, wl+sfx+" ") {
+			return "ORGANIZATION"
+		}
+	}
+	for _, sfx := range locSuffixList() {
+		if strings.HasSuffix(wl, strings.TrimSpace(sfx)) {
+			return "LOCATION"
+		}
+	}
+	for _, pfx := range locPrefixList() {
+		if strings.HasPrefix(wl, strings.TrimSpace(pfx)) {
+			return "LOCATION"
+		}
+	}
+	for _, q := range quantityWordList() {
+		if strings.Contains(wl, q) {
+			return "QUANTITY"
+		}
+	}
+	for _, d := range dateWordList() {
+		if strings.EqualFold(word, d) {
+			return "DATE"
+		}
+	}
+
+	return "PERSON"
 }
 
 func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
@@ -577,12 +729,19 @@ func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	textLower := strings.ToLower(text)
 	entities := make([]map[string]any, 0)
 	for word := range strings.FieldsSeq(text) {
-		cleaned := strings.Trim(word, ".,!?")
-		if cleaned != "" && unicode.IsUpper(rune(cleaned[0])) {
-			entities = append(entities, matchResult(text, cleaned, "PERSON"))
+		cleaned := strings.Trim(word, ".,!?;:")
+		if cleaned == "" {
+			continue
 		}
+		r, _ := utf8.DecodeRuneInString(cleaned)
+		if !unicode.IsUpper(r) {
+			continue
+		}
+		kind := entityType(cleaned, textLower)
+		entities = append(entities, matchResult(text, cleaned, kind))
 	}
 
 	return map[string]any{"Entities": entities}, nil
@@ -610,8 +769,8 @@ func (h *Handler) detectPIIEntities(input map[string]any) (map[string]any, error
 		expression *regexp.Regexp
 		kind       string
 	}{
-		{regexp.MustCompile(`[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}`), "EMAIL"},
-		{regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`), "SSN"},
+		{piiEmailRe, "EMAIL"},
+		{piiSSNRe, "SSN"},
 	}
 	entities := make([]map[string]any, 0)
 	for _, pattern := range patterns {
@@ -629,25 +788,103 @@ func (h *Handler) detectSyntax(input map[string]any) (map[string]any, error) {
 		return nil, err
 	}
 	tokens := make([]map[string]any, 0)
+	searchFrom := 0
 	for index, token := range strings.Fields(text) {
+		idx := strings.Index(text[searchFrom:], token)
+		if idx < 0 {
+			continue
+		}
+		begin := searchFrom + idx
+		end := begin + len(token)
 		tokens = append(tokens, map[string]any{
-			"TokenId": index + 1, fieldText: token, fieldBeginOffset: strings.Index(text, token),
-			fieldEndOffset: strings.Index(text, token) + len(token),
+			"TokenId": index + 1, fieldText: token, fieldBeginOffset: begin, fieldEndOffset: end,
 			"PartOfSpeech": map[string]any{"Tag": "NOUN", fieldScore: defaultScore},
 		})
+		searchFrom = end
 	}
 
 	return map[string]any{"SyntaxTokens": tokens}, nil
 }
 
 func (h *Handler) detectDominantLanguage(input map[string]any) (map[string]any, error) {
-	if _, err := documentText(input); err != nil {
+	text, err := documentText(input)
+	if err != nil {
 		return nil, err
 	}
 
+	lang := dominantLanguage(text)
+
 	return map[string]any{
-		"Languages": []map[string]any{{fieldLanguageCode: defaultLanguageCode, fieldScore: defaultScore}},
+		"Languages": []map[string]any{{fieldLanguageCode: lang, fieldScore: defaultScore}},
 	}, nil
+}
+
+const asciiMaxChar = 127
+
+type scriptCounts struct {
+	cjk, cyrillic, arabic, devanagari, hebrew, latin, nonASCII int
+}
+
+func isCJK(r rune) bool {
+	return (r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified Ideographs
+		(r >= 0x3040 && r <= 0x30FF) || // Hiragana/Katakana
+		(r >= 0xAC00 && r <= 0xD7AF) // Hangul
+}
+
+func isLatinLetter(r rune) bool {
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
+}
+
+func classifyRune(r rune, c *scriptCounts) {
+	switch {
+	case isCJK(r):
+		c.cjk++
+	case r >= 0x0400 && r <= 0x04FF: // Cyrillic
+		c.cyrillic++
+	case r >= 0x0600 && r <= 0x06FF: // Arabic
+		c.arabic++
+	case r >= 0x0590 && r <= 0x05FF: // Hebrew
+		c.hebrew++
+	case r >= 0x0900 && r <= 0x097F: // Devanagari
+		c.devanagari++
+	case isLatinLetter(r):
+		c.latin++
+	case r > asciiMaxChar:
+		c.nonASCII++
+	}
+}
+
+func countScripts(text string) scriptCounts {
+	var c scriptCounts
+	for _, r := range text {
+		classifyRune(r, &c)
+	}
+
+	return c
+}
+
+func dominantLanguage(text string) string {
+	c := countScripts(text)
+	total := c.cjk + c.cyrillic + c.arabic + c.devanagari + c.hebrew + c.nonASCII
+	if total == 0 {
+		return "en"
+	}
+	switch {
+	case c.cjk*2 > total:
+		return "zh"
+	case c.cyrillic*2 > total:
+		return "ru"
+	case c.arabic*2 > total:
+		return "ar"
+	case c.devanagari*2 > total:
+		return "hi"
+	case c.hebrew*2 > total:
+		return "he"
+	case c.nonASCII > c.latin:
+		return "fr"
+	default:
+		return "en"
+	}
 }
 
 func (h *Handler) detectToxicContent(input map[string]any) (map[string]any, error) {
@@ -740,22 +977,20 @@ func (h *Handler) containsPIIEntities(input map[string]any) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
-	hasPii := false
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}`), // EMAIL
-		regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),          // SSN
+	patterns := []struct {
+		expression *regexp.Regexp
+		kind       string
+	}{
+		{piiEmailRe, "EMAIL"},
+		{piiSSNRe, "SSN"},
 	}
-	for _, pattern := range patterns {
-		if pattern.MatchString(text) {
-			hasPii = true
-
-			break
-		}
-	}
-
+	seen := make(map[string]bool)
 	labels := []map[string]any{}
-	if hasPii {
-		labels = append(labels, map[string]any{fieldName: "PII", fieldScore: defaultScore})
+	for _, pattern := range patterns {
+		if pattern.expression.MatchString(text) && !seen[pattern.kind] {
+			seen[pattern.kind] = true
+			labels = append(labels, map[string]any{fieldName: pattern.kind, fieldScore: defaultScore})
+		}
 	}
 
 	return map[string]any{
@@ -865,7 +1100,7 @@ func (h *Handler) importModel(input map[string]any) (map[string]any, error) {
 	}, nil
 }
 
-func (h *Handler) listDocumentClassifierSummaries(_ map[string]any) (map[string]any, error) {
+func (h *Handler) listDocumentClassifierSummaries(input map[string]any) (map[string]any, error) {
 	resources := h.Backend.ListResources(resourceTypeDocClassifier)
 	items := make([]map[string]any, 0, len(resources))
 	for _, resource := range resources {
@@ -878,12 +1113,17 @@ func (h *Handler) listDocumentClassifierSummaries(_ map[string]any) (map[string]
 		})
 	}
 
-	return map[string]any{
-		"DocumentClassifierSummariesList": items,
-	}, nil
+	tok, maxResults := paginationParams(input)
+	page, nextTok := comprehendPaginate(items, tok, maxResults)
+	out := map[string]any{"DocumentClassifierSummariesList": page}
+	if nextTok != "" {
+		out["NextToken"] = nextTok
+	}
+
+	return out, nil
 }
 
-func (h *Handler) listEntityRecognizerSummaries(_ map[string]any) (map[string]any, error) {
+func (h *Handler) listEntityRecognizerSummaries(input map[string]any) (map[string]any, error) {
 	resources := h.Backend.ListResources(resourceTypeEntityRecognizer)
 	items := make([]map[string]any, 0, len(resources))
 	for _, resource := range resources {
@@ -896,9 +1136,14 @@ func (h *Handler) listEntityRecognizerSummaries(_ map[string]any) (map[string]an
 		})
 	}
 
-	return map[string]any{
-		"EntityRecognizerSummariesList": items,
-	}, nil
+	tok, maxResults := paginationParams(input)
+	page, nextTok := comprehendPaginate(items, tok, maxResults)
+	out := map[string]any{"EntityRecognizerSummariesList": page}
+	if nextTok != "" {
+		out["NextToken"] = nextTok
+	}
+
+	return out, nil
 }
 
 func (h *Handler) stopTrainingDocumentClassifier(input map[string]any) (map[string]any, error) {
@@ -914,4 +1159,45 @@ func (h *Handler) stopTrainingEntityRecognizer(input map[string]any) (map[string
 	)
 
 	return map[string]any{}, err
+}
+
+// comprehendPaginate slices items using an integer-offset NextToken and returns
+// the page and the token for the following page (empty when exhausted).
+// maxResults ≤ 0 means no limit.
+func comprehendPaginate[T any](items []T, nextToken string, maxResults int) ([]T, string) {
+	if len(items) == 0 {
+		return items, ""
+	}
+
+	start := 0
+	if nextToken != "" {
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx > 0 && idx < len(items) {
+			start = idx
+		}
+	}
+
+	if maxResults <= 0 {
+		return items[start:], ""
+	}
+
+	end := start + maxResults
+	if end >= len(items) {
+		return items[start:], ""
+	}
+
+	return items[start:end], strconv.Itoa(end)
+}
+
+// paginationParams extracts NextToken and MaxResults from the JSON body input.
+func paginationParams(input map[string]any) (string, int) {
+	tok, _ := input["NextToken"].(string)
+	maxResults := 0
+	switch v := input["MaxResults"].(type) {
+	case float64:
+		maxResults = int(v)
+	case int:
+		maxResults = v
+	}
+
+	return tok, maxResults
 }

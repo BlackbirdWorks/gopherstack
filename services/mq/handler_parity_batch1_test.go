@@ -32,7 +32,7 @@ func createBatch1Broker(t *testing.T, h *mq.Handler, name, engineType string) st
 		"brokerName": name,
 		"engineType": engineType,
 	})
-	require.Equal(t, http.StatusOK, rec.Code, "CreateBroker %s: %s", name, rec.Body.String())
+	require.Equal(t, http.StatusAccepted, rec.Code, "CreateBroker %s: %s", name, rec.Body.String())
 
 	return parseAccuracyMQ(t, rec)["brokerId"].(string)
 }
@@ -72,7 +72,7 @@ func TestBatch1_EncryptionOptions_KMSKey_RoundTrip(t *testing.T) {
 			"useAwsOwnedKey": false,
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -94,7 +94,7 @@ func TestBatch1_EncryptionOptions_UseAwsOwnedKey_RoundTrip(t *testing.T) {
 			"useAwsOwnedKey": true,
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -156,11 +156,11 @@ func TestBatch1_EncryptionOptions_Snapshot_Restore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestBatch1_Logs_CreateBroker_GeneralLogGroup_Present(t *testing.T) {
 			"audit":   false,
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -206,7 +206,7 @@ func TestBatch1_Logs_CreateBroker_AuditLogGroup_ContainsBrokerID(t *testing.T) {
 			"audit":   true,
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -230,7 +230,7 @@ func TestBatch1_Logs_LogGroupName_Format(t *testing.T) {
 			"audit":   true,
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -295,9 +295,9 @@ func TestBatch1_Logs_Snapshot_Restore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
@@ -318,7 +318,7 @@ func TestBatch1_AuthStrategy_Simple_CreateBroker(t *testing.T) {
 		"engineType":             mq.EngineTypeActiveMQ,
 		"authenticationStrategy": "SIMPLE",
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -341,7 +341,7 @@ func TestBatch1_AuthStrategy_LDAP_CreateBroker(t *testing.T) {
 			"userSearchMatching": "(uid={0})",
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -357,7 +357,7 @@ func TestBatch1_AuthStrategy_UpdateBroker_ChangesStrategy(t *testing.T) {
 		"engineType":             mq.EngineTypeActiveMQ,
 		"authenticationStrategy": "SIMPLE",
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
@@ -420,7 +420,7 @@ func TestBatch1_LDAP_CreateBroker_Hosts_RoundTrip(t *testing.T) {
 			"userSearchMatching": "(uid={0})",
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -451,7 +451,7 @@ func TestBatch1_LDAP_ServiceAccountPassword_Not_Exposed(t *testing.T) {
 			"serviceAccountPassword": "super-secret-password",
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -488,7 +488,7 @@ func TestBatch1_LDAP_Backend_ServiceAccountPassword_Not_In_JSON(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	assert.NotContains(t, string(snap), "topsecret",
 		"serviceAccountPassword must not appear in JSON snapshot")
 	assert.NotContains(t, string(snap), "serviceAccountPassword")
@@ -561,7 +561,7 @@ func TestBatch1_MaintenanceWindow_CreateBroker_RoundTrip(t *testing.T) {
 			"timeZone":  "UTC",
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -659,9 +659,9 @@ func TestBatch1_MaintenanceWindow_Snapshot_Restore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
@@ -679,7 +679,7 @@ func TestBatch1_DataReplicationMode_NONE_CreateBroker(t *testing.T) {
 		"brokerName": "drm-none-broker",
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -757,9 +757,9 @@ func TestBatch1_DataReplicationMode_Snapshot_Restore(t *testing.T) {
 		&mq.UpdateBrokerOptions{DataReplicationMode: "CRDR"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
@@ -782,7 +782,7 @@ func TestBatch1_ConfigAssoc_CreateBroker_WithConfiguration(t *testing.T) {
 			"revision": 1,
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -907,7 +907,7 @@ func TestBatch1_UpdateBroker_PartialUpdate_PreservesOtherFields(t *testing.T) {
 			"timeZone":  "UTC",
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
@@ -1027,7 +1027,7 @@ func TestBatch1_DescribeUser_DoesNotReturn_Password(t *testing.T) {
 		"/v1/brokers/"+brokerID+"/users/secuser", map[string]any{
 			"password": "SecurePassword1!",
 		})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	descRec := doAccuracyMQ(t, h, http.MethodGet,
 		"/v1/brokers/"+brokerID+"/users/secuser", nil)
@@ -1050,7 +1050,7 @@ func TestBatch1_ListUsers_DoesNotReturn_Passwords(t *testing.T) {
 			"/v1/brokers/"+brokerID+"/users/"+name, map[string]any{
 				"password": "Password123!",
 			})
-		require.Equal(t, http.StatusCreated, rec.Code)
+		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
 	listRec := doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users", nil)
@@ -1075,7 +1075,7 @@ func TestBatch1_DescribeBroker_Password_Not_In_Users(t *testing.T) {
 			},
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -1145,11 +1145,11 @@ func TestBatch1_CreatorRequestID_SameID_ReturnsSameBroker(t *testing.T) {
 	}
 
 	rec1 := doAccuracyMQ(t, h, http.MethodPost, "/v1/brokers", body)
-	require.Equal(t, http.StatusOK, rec1.Code)
+	require.Equal(t, http.StatusAccepted, rec1.Code)
 	id1 := parseAccuracyMQ(t, rec1)["brokerId"].(string)
 
 	rec2 := doAccuracyMQ(t, h, http.MethodPost, "/v1/brokers", body)
-	require.Equal(t, http.StatusOK, rec2.Code)
+	require.Equal(t, http.StatusAccepted, rec2.Code)
 	id2 := parseAccuracyMQ(t, rec2)["brokerId"].(string)
 
 	assert.Equal(t, id1, id2, "same CreatorRequestId must return same broker ID")
@@ -1165,7 +1165,7 @@ func TestBatch1_CreatorRequestID_DifferentID_CreatesDifferentBroker(t *testing.T
 		"engineType":       mq.EngineTypeActiveMQ,
 		"creatorRequestId": "req-aaa",
 	})
-	require.Equal(t, http.StatusOK, rec1.Code)
+	require.Equal(t, http.StatusAccepted, rec1.Code)
 	id1 := parseAccuracyMQ(t, rec1)["brokerId"].(string)
 
 	rec2 := doAccuracyMQ(t, h, http.MethodPost, "/v1/brokers", map[string]any{
@@ -1173,7 +1173,7 @@ func TestBatch1_CreatorRequestID_DifferentID_CreatesDifferentBroker(t *testing.T
 		"engineType":       mq.EngineTypeActiveMQ,
 		"creatorRequestId": "req-bbb",
 	})
-	require.Equal(t, http.StatusOK, rec2.Code)
+	require.Equal(t, http.StatusAccepted, rec2.Code)
 	id2 := parseAccuracyMQ(t, rec2)["brokerId"].(string)
 
 	assert.NotEqual(t, id1, id2)
@@ -1324,7 +1324,7 @@ func TestBatch1_StorageType_ActiveMQ_Accepts_EBS(t *testing.T) {
 		"engineType":  mq.EngineTypeActiveMQ,
 		"storageType": mq.StorageTypeEBS,
 	})
-	require.Equal(t, http.StatusOK, rec.Code, "ActiveMQ with EBS must succeed: %s", rec.Body.String())
+	require.Equal(t, http.StatusAccepted, rec.Code, "ActiveMQ with EBS must succeed: %s", rec.Body.String())
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -1362,7 +1362,7 @@ func TestBatch1_CreateBroker_WithSecurityGroups_RoundTrip(t *testing.T) {
 		"engineType":     mq.EngineTypeActiveMQ,
 		"securityGroups": []string{"sg-aabbccdd", "sg-11223344"},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)
@@ -1381,7 +1381,7 @@ func TestBatch1_CreateBroker_WithSubnetIDs_RoundTrip(t *testing.T) {
 		"engineType": mq.EngineTypeActiveMQ,
 		"subnetIds":  []string{"subnet-11111111", "subnet-22222222"},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 	out := describeBatch1Broker(t, h, brokerID)

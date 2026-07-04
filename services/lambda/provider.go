@@ -1,9 +1,6 @@
 package lambda
 
 import (
-	"log/slog"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -18,13 +15,7 @@ func (p *Provider) Name() string { return "Lambda" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
-	var accountID, region string
-
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
-	}
+	accountID, region := service.AccountRegion(ctx)
 
 	settings := DefaultSettings()
 
@@ -35,7 +26,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var runtime container.Runtime
 
 	rt, err := container.NewRuntime(container.Config{
-		Logger:      slog.Default(),
+		Logger:      ctx.Logger,
 		PoolSize:    settings.PoolSize,
 		IdleTimeout: settings.IdleTimeout,
 		Runtime:     container.RuntimeName(settings.ContainerRuntime),
@@ -46,7 +37,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		runtime = rt
 	}
 
-	backend := NewInMemoryBackend(
+	backend := NewInMemoryBackendWithContext(
+		ctx.JanitorCtx,
 		runtime,
 		ctx.PortAlloc,
 		settings,

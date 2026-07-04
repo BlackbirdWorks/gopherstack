@@ -19,7 +19,7 @@ const (
 func newTestBackend(t *testing.T) *transfer.InMemoryBackend {
 	t.Helper()
 
-	return transfer.NewInMemoryBackend(testAccountID, testRegion)
+	return transfer.NewInMemoryBackend(t.Context(), testAccountID, testRegion)
 }
 
 func TestInMemoryBackend_CreateServer(t *testing.T) {

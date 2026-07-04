@@ -60,11 +60,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -75,7 +75,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -91,12 +91,12 @@ func TestSecretsManagerHandler_Persistence(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	freshH := secretsmanager.NewHandler(fresh)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 
 	out, err := fresh.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "snap-secret"})
 	require.NoError(t, err)

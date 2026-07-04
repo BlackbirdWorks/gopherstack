@@ -529,7 +529,7 @@ func TestBatch1_Backend_ModifyDBCluster_IamAuth_SetAndUnset(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify enabled
-	clusters, err := b.DescribeDBClusters(context.Background(), "iam-mod-unit")
+	clusters, err := b.DescribeDBClusters(context.Background(), "iam-mod-unit", neptune.DBClusterFilters{})
 	require.NoError(t, err)
 	assert.True(t, clusters[0].EnableIAMDatabaseAuthentication)
 
@@ -539,7 +539,7 @@ func TestBatch1_Backend_ModifyDBCluster_IamAuth_SetAndUnset(t *testing.T) {
 		IamAuthSet:                      true,
 	})
 	require.NoError(t, err)
-	clusters, err = b.DescribeDBClusters(context.Background(), "iam-mod-unit")
+	clusters, err = b.DescribeDBClusters(context.Background(), "iam-mod-unit", neptune.DBClusterFilters{})
 	require.NoError(t, err)
 	assert.False(t, clusters[0].EnableIAMDatabaseAuthentication)
 }
@@ -559,7 +559,7 @@ func TestBatch1_Backend_ModifyDBCluster_IamAuth_NotSet_NoChange(t *testing.T) {
 		IamAuthSet:                      false,
 	})
 	require.NoError(t, err)
-	clusters, err := b.DescribeDBClusters(context.Background(), "iam-nochange")
+	clusters, err := b.DescribeDBClusters(context.Background(), "iam-nochange", neptune.DBClusterFilters{})
 	require.NoError(t, err)
 	assert.True(t, clusters[0].EnableIAMDatabaseAuthentication)
 }
@@ -673,14 +673,14 @@ func TestBatch1_Persistence_ServerlessV2(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
-	clusters, err := b2.DescribeDBClusters(context.Background(), "sv2-persist")
+	clusters, err := b2.DescribeDBClusters(context.Background(), "sv2-persist", neptune.DBClusterFilters{})
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 	c := clusters[0]

@@ -28,7 +28,7 @@ func TestPersistence_FileStore_RoundTrip_SQS(t *testing.T) {
 	require.NotEmpty(t, out.QueueURL)
 
 	// Snapshot and save.
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 	require.NoError(t, store.Save("sqs", "snapshot", snap))
 
@@ -37,7 +37,7 @@ func TestPersistence_FileStore_RoundTrip_SQS(t *testing.T) {
 	require.NoError(t, err)
 
 	fresh := sqs.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(data))
+	require.NoError(t, fresh.Restore(t.Context(), data))
 
 	// Verify queue exists in fresh backend.
 	listOut, err := fresh.ListQueues(&sqs.ListQueuesInput{})
@@ -63,7 +63,7 @@ func TestPersistence_FileStore_RoundTrip_SSM(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot and save.
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 	require.NoError(t, store.Save("ssm", "snapshot", snap))
 
@@ -72,7 +72,7 @@ func TestPersistence_FileStore_RoundTrip_SSM(t *testing.T) {
 	require.NoError(t, err)
 
 	fresh := ssm.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(data))
+	require.NoError(t, fresh.Restore(t.Context(), data))
 
 	// Verify parameter exists in fresh backend.
 	getOut, err := fresh.GetParameter(context.Background(), &ssm.GetParameterInput{
@@ -89,7 +89,7 @@ func TestPersistence_Manager_SaveRestore(t *testing.T) {
 	store, err := persistence.NewFileStore(dir)
 	require.NoError(t, err)
 
-	manager := persistence.NewManager(store)
+	manager := persistence.NewManager(t.Context(), store)
 	ctx := t.Context()
 
 	// Set up SQS backend with a queue.
@@ -114,7 +114,7 @@ func TestPersistence_Manager_SaveRestore(t *testing.T) {
 	freshSQS := sqs.NewInMemoryBackend()
 	freshSSM := ssm.NewInMemoryBackend()
 
-	manager2 := persistence.NewManager(store)
+	manager2 := persistence.NewManager(t.Context(), store)
 	manager2.Register("SQS", freshSQS)
 	manager2.Register("SSM", freshSSM)
 	manager2.RestoreAll(ctx)

@@ -242,11 +242,11 @@ func TestAudit1_AccessLog_SnapshotRestore(t *testing.T) {
 		"LoadBalancerAttributes.AccessLog.EmitInterval":         {"60"},
 	})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := elb.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	attrs, err := b2.DescribeLoadBalancerAttributes(context.Background(), "al-snap-lb")
 	require.NoError(t, err)
@@ -475,9 +475,9 @@ func TestAudit1_CrossZoneLoadBalancing_SnapshotRestore(t *testing.T) {
 		"LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled": {"true"},
 	})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := elb.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	attrs, err := b2.DescribeLoadBalancerAttributes(context.Background(), "czlb-snap-lb")
 	require.NoError(t, err)
@@ -2566,11 +2566,11 @@ func TestAudit1_Persistence_FullState(t *testing.T) {
 		"Tags.member.1.Value":        {"test"},
 	})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := elb.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify LB exists.
 	lbs, err := b2.DescribeLoadBalancers(context.Background(), []string{"full-snap-lb"})

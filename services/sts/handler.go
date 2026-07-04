@@ -84,6 +84,8 @@ func (h *Handler) Name() string {
 }
 
 // GetSupportedOperations returns the list of supported STS operations.
+// Note: GetWebIdentityToken is an internal gopherstack operation and is NOT a real
+// AWS STS API action; it is intentionally omitted from this list.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AssumeRole",
@@ -96,7 +98,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetDelegatedAccessToken",
 		"GetFederationToken",
 		"GetSessionToken",
-		"GetWebIdentityToken",
 	}
 }
 
@@ -290,6 +291,19 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 		})
 	}
 
+	// Extract caller identity to support role-chaining duration cap and transitive tag propagation.
+	callerKey := extractAccessKeyFromAuth(r)
+	input.CallerAccessKeyID = callerKey
+	if callerKey != "" {
+		secToken := r.Header.Get("X-Amz-Security-Token")
+		input.CallerSession = h.Backend.LookupSession(callerKey, secToken)
+		if input.CallerSession != nil {
+			// The caller is itself an assumed-role session (role chaining); its
+			// ARN is the principal evaluated against the target role's trust policy.
+			input.CallerArn = input.CallerSession.AssumedRoleArn
+		}
+	}
+
 	return h.Backend.AssumeRole(input)
 }
 
@@ -345,7 +359,9 @@ func (h *Handler) dispatchGetFederationToken(r *http.Request) (*GetFederationTok
 }
 
 // dispatchAssumeRoleWithWebIdentity handles the AssumeRoleWithWebIdentity action.
-func (h *Handler) dispatchAssumeRoleWithWebIdentity(r *http.Request) (*AssumeRoleWithWebIdentityResponse, error) {
+func (h *Handler) dispatchAssumeRoleWithWebIdentity(
+	r *http.Request,
+) (*AssumeRoleWithWebIdentityResponse, error) {
 	input := &AssumeRoleWithWebIdentityInput{
 		RoleArn:          r.FormValue("RoleArn"),
 		RoleSessionName:  r.FormValue("RoleSessionName"),
@@ -443,7 +459,9 @@ func (h *Handler) dispatchAssumeRoot(r *http.Request) (*AssumeRootResponse, erro
 }
 
 // dispatchGetDelegatedAccessToken handles the GetDelegatedAccessToken action.
-func (h *Handler) dispatchGetDelegatedAccessToken(r *http.Request) (*GetDelegatedAccessTokenResponse, error) {
+func (h *Handler) dispatchGetDelegatedAccessToken(
+	r *http.Request,
+) (*GetDelegatedAccessTokenResponse, error) {
 	input := &GetDelegatedAccessTokenInput{
 		TradeInToken: r.FormValue("TradeInToken"),
 	}
@@ -462,7 +480,9 @@ func (h *Handler) dispatchGetDelegatedAccessToken(r *http.Request) (*GetDelegate
 }
 
 // dispatchGetWebIdentityToken handles the GetWebIdentityToken action.
-func (h *Handler) dispatchGetWebIdentityToken(r *http.Request) (*GetWebIdentityTokenResponse, error) {
+func (h *Handler) dispatchGetWebIdentityToken(
+	r *http.Request,
+) (*GetWebIdentityTokenResponse, error) {
 	input := &GetWebIdentityTokenInput{
 		SigningAlgorithm: r.FormValue("SigningAlgorithm"),
 		Tags:             parseSessionTags(r),
@@ -540,11 +560,21 @@ func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoRe
 	}
 
 	// Malformed key format — ValidationError per AWS.
-	return nil, fmt.Errorf("%w: AccessKeyId %q does not match expected format", ErrEmptyAccessKeyID, accessKeyID)
+	return nil, fmt.Errorf(
+		"%w: AccessKeyId %q does not match expected format",
+		ErrEmptyAccessKeyID,
+		accessKeyID,
+	)
 }
 
 // dispatchDecodeAuthorizationMessage handles the DecodeAuthorizationMessage action.
-func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAuthorizationMessageResponse, error) {
+// Messages issued by IssueEncodedAuthorizationMessage on this backend are verified and
+// their plaintext returned. As an emulator we also accept any other valid base64 blob
+// (real clients pass encoded messages this server never issued) and return its decoded
+// bytes, so the operation stays usable; only a non-base64 or empty input is rejected.
+func (h *Handler) dispatchDecodeAuthorizationMessage(
+	r *http.Request,
+) (*DecodeAuthorizationMessageResponse, error) {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.cntDecodeAuthorizationMsg.Add(1)
 	}
@@ -555,19 +585,23 @@ func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAu
 		return nil, ErrMissingEncodedMessage
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	decoded, err := h.Backend.VerifyEncodedAuthorizationMessage(encoded)
 	if err != nil {
-		// Try URL-safe base64 as fallback
-		decoded, err = base64.URLEncoding.DecodeString(encoded)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrInvalidAuthorizationMessage, err)
+		// Not a self-issued message; fall back to a plain base64 decode.
+		raw, derr := base64.StdEncoding.DecodeString(encoded)
+		if derr != nil {
+			if raw, derr = base64.URLEncoding.DecodeString(encoded); derr != nil {
+				return nil, err
+			}
 		}
+
+		decoded = string(raw)
 	}
 
 	return &DecodeAuthorizationMessageResponse{
 		Xmlns: STSNamespace,
 		DecodeAuthorizationMessageResult: DecodeAuthorizationMessageResult{
-			DecodedMessage: string(decoded),
+			DecodedMessage: decoded,
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
@@ -602,9 +636,9 @@ func mapErrorToCode(reqErr error) (string, int) {
 		return "MalformedPolicyDocument", http.StatusBadRequest
 	case errors.Is(reqErr, ErrPackedPolicyTooLarge):
 		return "PackedPolicyTooLarge", http.StatusBadRequest
-	case errors.Is(reqErr, ErrExpiredToken):
+	case errors.Is(reqErr, ErrExpiredToken), errors.Is(reqErr, ErrSessionExpired):
 		return "ExpiredTokenException", http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidIdentityToken):
+	case errors.Is(reqErr, ErrInvalidIdentityToken), errors.Is(reqErr, ErrInvalidSAMLAssertion):
 		return "InvalidIdentityToken", http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidAuthorizationMessage):
 		return "InvalidAuthorizationMessageException", http.StatusBadRequest

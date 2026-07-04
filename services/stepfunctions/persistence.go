@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -27,7 +28,7 @@ type handlerSnapshot struct {
 // It implements persistence.Persistable.
 // Any execution still RUNNING at snapshot time is promoted to TIMED_OUT so that
 // Restore() never encounters non-terminal executions without a running goroutine.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -51,23 +52,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:        b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		b.logger.Warn("persistence: snapshot marshal failed", "service", "stepfunctions", "error", err)
-
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "stepfunctions", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
 // Service integrations (Lambda, SQS, SNS, DynamoDB) are not restored — they are re-wired by the CLI.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "stepfunctions", data, &snap); err != nil {
 		return err
 	}
 
@@ -109,8 +103,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	b.smExecutions = make(map[string][]string)
+	b.smExecsByStatus = make(map[string]map[string][]string)
+
 	for execARN, exec := range b.executions {
-		b.smExecutions[exec.StateMachineArn] = append(b.smExecutions[exec.StateMachineArn], execARN)
+		smARN := exec.StateMachineArn
+		b.smExecutions[smARN] = append(b.smExecutions[smARN], execARN)
+
+		if b.smExecsByStatus[smARN] == nil {
+			b.smExecsByStatus[smARN] = make(map[string][]string)
+		}
+
+		b.smExecsByStatus[smARN][exec.Status] = append(b.smExecsByStatus[smARN][exec.Status], execARN)
 	}
 
 	// Rebuild activity name index and create empty queues (pending tasks are not persisted).
@@ -141,12 +144,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 // Snapshot implements persistence.Persistable.
 // It serialises both the backend state and the handler's tag map.
-func (h *Handler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 
 	var backendBytes json.RawMessage
 	if s, ok := h.Backend.(snapshotter); ok {
-		backendBytes = s.Snapshot()
+		backendBytes = s.Snapshot(ctx)
 	}
 
 	h.tagsMu.RLock("Handler.Snapshot")
@@ -171,9 +176,9 @@ func (h *Handler) Snapshot() []byte {
 
 // Restore implements persistence.Persistable.
 // It restores both the backend state and the handler's tag map.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	var snap handlerSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "stepfunctions", data, &snap); err != nil {
 		return err
 	}
 
@@ -184,9 +189,11 @@ func (h *Handler) Restore(data []byte) error {
 		backendData = data
 	}
 
-	type restorer interface{ Restore([]byte) error }
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 	if r, ok := h.Backend.(restorer); ok {
-		if err := r.Restore(backendData); err != nil {
+		if err := r.Restore(ctx, backendData); err != nil {
 			return err
 		}
 	}

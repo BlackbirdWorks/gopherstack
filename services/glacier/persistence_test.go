@@ -35,7 +35,7 @@ func TestGlacier_PersistenceSnapshotRestore(t *testing.T) {
 					return
 				}
 
-				_, _ = b.UploadArchive("123", "us-east-1", "my-vault", "desc", "hash", 1024)
+				_, _ = b.UploadArchive("123", "us-east-1", "my-vault", "desc", "hash", 1024, []byte("data"))
 			},
 			verify: func(t *testing.T, b *glacier.InMemoryBackend) {
 				t.Helper()
@@ -55,11 +55,11 @@ func TestGlacier_PersistenceSnapshotRestore(t *testing.T) {
 			b := glacier.NewInMemoryBackend()
 			tt.setup(b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := glacier.NewInMemoryBackend()
-			err := b2.Restore(snap)
+			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			tt.verify(t, b2)

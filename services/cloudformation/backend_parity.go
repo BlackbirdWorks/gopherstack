@@ -154,8 +154,19 @@ func (b *InMemoryBackend) DescribeStackResourceDrifts(nameOrID string) ([]StackR
 	}
 
 	resMap := b.resources[stack.StackID]
+	detailMap := b.resourceDriftDetail[stack.StackID]
 	drifts := make([]StackResourceDrift, 0, len(resMap))
 	for _, res := range resMap {
+		// Prefer the full drift detail captured by DetectStackDrift, which
+		// carries property-level differences and expected/actual state.
+		if detailMap != nil {
+			if d, ok2 := detailMap[res.LogicalID]; ok2 {
+				drifts = append(drifts, d)
+
+				continue
+			}
+		}
+
 		status := driftStatusInSync
 		if len(perResourceStatuses) > 0 {
 			if s, ok2 := perResourceStatuses[res.LogicalID]; ok2 {

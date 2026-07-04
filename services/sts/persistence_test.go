@@ -88,10 +88,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := sts.NewInMemoryBackendWithConfig("000000000000")
 			accessKeyID := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 
 			fresh := sts.NewInMemoryBackendWithConfig("000000000000")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, accessKeyID)
 		})
@@ -102,7 +102,7 @@ func TestInMemoryBackend_Restore_NilData(t *testing.T) {
 	t.Parallel()
 
 	b := sts.NewInMemoryBackend()
-	require.NoError(t, b.Restore(nil))
+	require.NoError(t, b.Restore(t.Context(), nil))
 	assert.Equal(t, 0, b.SessionCount())
 }
 
@@ -113,12 +113,12 @@ func TestSTSHandler_Persistence(t *testing.T) {
 	h := sts.NewHandler(backend)
 
 	// Verify round-trip with no sessions.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := sts.NewInMemoryBackendWithConfig("000000000000")
 	freshH := sts.NewHandler(fresh)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 }
 
 func TestSTSHandler_Routing(t *testing.T) {

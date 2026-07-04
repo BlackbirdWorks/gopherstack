@@ -1367,7 +1367,7 @@ func (h *Handler) handleGetSensitiveDataOccurrences(findingID string) (any, int,
 }
 
 func (h *Handler) handleGetSensitiveDataOccurrencesAvailability(findingID string) (any, int, error) {
-	status, err := h.Backend.GetSensitiveDataOccurrencesAvailability(findingID)
+	status, reasons, err := h.Backend.GetSensitiveDataOccurrencesAvailability(findingID)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return nil, http.StatusNotFound, err
@@ -1376,7 +1376,12 @@ func (h *Handler) handleGetSensitiveDataOccurrencesAvailability(findingID string
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]string{"code": status}, http.StatusOK, nil
+	resp := map[string]any{"code": status}
+	if len(reasons) > 0 {
+		resp["reasons"] = reasons
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetSensitivityInspectionTemplate(templateID string) (any, int, error) {
