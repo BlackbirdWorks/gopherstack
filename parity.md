@@ -1727,3 +1727,47 @@ Confirmed already-correct:
   sweep; EventBridge event log capped at `maxEventLogSize`=1000 (drop-oldest);
   Route53 tags evicted on hosted-zone/health-check delete; Elasticsearch
   `AssociatePackage` returns `ConflictException` on duplicate.
+
+---
+
+# No-stub parity sweep — COMPLETE (2026-07-04)
+
+**Scope:** 35 orchestrated rounds (2 Sonnet agents/round, disjoint packages) drove every
+routed SDK operation across all 154 services to real emulation: real backend state,
+AWS-accurate wire shapes/error codes, persistence wiring, table-driven tests.
+
+**Clusters completed:** CloudFront (7 families incl. StreamingDistribution/TrustStore/
+DistributionTenant/ConnectionGroup+Function/AnycastIP/CDP/list-filters), CloudTrail
+(central registry-chokepoint management-event capture -> real LookupEvents), CloudFormation
+DescribeType real schema catalog, CognitoIDP (devices/WebAuthn/auth events), s3tables, IoT
+(indexing/search, registration tasks, Device Defender mitigation, encryption/authorizers/misc
+— 501-stub file retired), QuickSight (~15 families, canned appendix table retired), SageMaker
+(~335 ops -> 0, stub file retired), EC2 (~397 registerStubOps ops -> 0, scaffolding deleted:
+IPAM complete, ClientVPN/Site-to-Site VPN, TrafficMirror, TGW multicast/metering/peripherals/
+policy-tables, CapacityReservation fleets/blocks/manager, VerifiedAccess+policies, FPGA,
+LocalGateway+VIFs, RouteServer, VPC config/encryption-control, scheduled instances, COIP/IP
+pools, VM import/export/bundle, Mac hosts, SQL HA, secondary networks, instance-attrs, host
+reservations, declarative policies, network performance, and final singles), plus ECS Daemon,
+apigateway OpenAPI import, iotwireless, and a census fix round (glue 18, backup 5, ssm patch
+inventory, awsconfig SELECT evaluator).
+
+**Systemic fixes:** registerStubOpsIfAbsent (stubs can never shadow real handlers —
+un-shadowed 36 real EC2 handlers), stubResponse XMLName root-element fix (~376 responses),
+QuickSight epoch-seconds timestamps, dozens of errCodeLookup entries (404s were surfacing
+as 500).
+
+**Verification:** 14 SDK-driven integration tests (test/integration/*_parity_test.go) caught
+8 wire-format bugs unit tests missed; full-repo sweep 184 packages 0 FAIL; every round gated
+on build+vet+race+golangci-lint.
+
+Merged with the parallel pipeline's 128 commits (glue/athena/redshift/ecr/elasticache/
+cloudwatchlogs/awsconfig/apigatewayv2/sts/route53) via union merge, no work lost, no stub
+reintroduced.
+
+**Remaining** (non-blocking, documented category-(c) borderlines — AWS-API-gap
+simplifications, not stubs): glue GetDataQualityModel (no public create-model API), iotwireless
+testWirelessDevice fixed-PASS after real existence check, redshift
+DescribeReservedNodeExchangeStatus hardcoded active status, awsconfig conformance-pack
+compliance rollups empty, s3 backend_memory.go:385 placeholder-id literal, emr backend.go:2667
+fake-password literal. Deferred by design: multi-account/region isolation, EC2 IMDSv2/
+packet-path emulation (structural, pre-documented in §N/§L).
