@@ -979,6 +979,11 @@ type Backend interface {
 
 	// ---- batch4: ClientVpnEndpoint ----
 	CreateClientVpnEndpoint(clientCidrBlock, description string, dnsServers []string) (*ClientVpnEndpoint, error)
+	CreateClientVpnEndpointWithOptions(
+		clientCidrBlock, description string,
+		dnsServers []string,
+		opts ClientVpnEndpointOptions,
+	) (*ClientVpnEndpoint, error)
 	DeleteClientVpnEndpoint(id string) error
 	DescribeClientVpnEndpoints(ids []string) []*ClientVpnEndpoint
 	AssociateClientVpnTargetNetwork(endpointID, subnetID string) (string, error)
@@ -991,9 +996,17 @@ type Backend interface {
 	RevokeClientVpnIngress(endpointID, cidr string) error
 	DescribeClientVpnAuthorizationRules(endpointID string) ([]ClientVpnAuthRule, error)
 	ModifyClientVpnEndpoint(endpointID, description string, dnsServers []string) error
+	ModifyClientVpnEndpointWithOptions(
+		endpointID, description string,
+		dnsServers []string,
+		opts ClientVpnEndpointOptions,
+	) error
 	ApplySecurityGroupsToClientVpnTargetNetwork(endpointID string, sgIDs []string) error
 	DescribeClientVpnConnections(endpointID string) ([]string, error)
 	TerminateClientVpnConnections(endpointID string) error
+	ExportClientVpnClientConfiguration(endpointID string) (string, error)
+	ExportClientVpnClientCertificateRevocationList(endpointID string) (string, error)
+	ImportClientVpnClientCertificateRevocationList(endpointID, crl string) error
 
 	// ---- batch4: TGW Peering ----
 	CreateTransitGatewayPeeringAttachment(

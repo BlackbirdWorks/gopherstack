@@ -321,8 +321,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["EnableTransitGatewayRouteTablePropagation"] = h.handleStubEnableTransitGatewayRouteTablePropagation
 	ops["EnableVpcClassicLink"] = h.handleStubEnableVpcClassicLink
 	ops["EnableVpcClassicLinkDnsSupport"] = h.handleStubEnableVpcClassicLinkDNSSupport
-	ops["ExportClientVpnClientCertificateRevocationList"] = h.handleStubExportClientVpnClientCertificateRevocationList
-	ops["ExportClientVpnClientConfiguration"] = h.handleStubExportClientVpnClientConfiguration
+	// ExportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
+	// ExportClientVpnClientConfiguration — moved to handler_batch4.go
 	ops["ExportTransitGatewayRoutes"] = h.handleStubExportTransitGatewayRoutes
 	ops["ExportVerifiedAccessInstanceClientConfiguration"] = h.handleStubExportVerifiedAccessInstanceClientConfiguration
 	ops["GetActiveVpnTunnelStatus"] = h.handleStubGetActiveVpnTunnelStatus
@@ -377,7 +377,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetVpnConnectionDeviceSampleConfiguration"] = h.handleStubGetVpnConnectionDeviceSampleConfiguration
 	ops["GetVpnConnectionDeviceTypes"] = h.handleStubGetVpnConnectionDeviceTypes
 	ops["GetVpnTunnelReplacementStatus"] = h.handleStubGetVpnTunnelReplacementStatus
-	ops["ImportClientVpnClientCertificateRevocationList"] = h.handleStubImportClientVpnClientCertificateRevocationList
+	// ImportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
 	ops["ImportInstance"] = h.handleStubImportInstance
 	ops["ImportVolume"] = h.handleStubImportVolume
 	ops["ModifyAvailabilityZoneGroup"] = h.handleStubModifyAvailabilityZoneGroup
@@ -786,8 +786,8 @@ func stubSupportedOperations() []string {
 		"EnableTransitGatewayRouteTablePropagation",
 		"EnableVpcClassicLink",
 		"EnableVpcClassicLinkDnsSupport",
-		"ExportClientVpnClientCertificateRevocationList",
-		"ExportClientVpnClientConfiguration",
+		// ExportClientVpnClientCertificateRevocationList — moved to batch4SupportedOperations
+		// ExportClientVpnClientConfiguration — moved to batch4SupportedOperations
 		"ExportTransitGatewayRoutes",
 		"ExportVerifiedAccessInstanceClientConfiguration",
 		"GetActiveVpnTunnelStatus",
@@ -842,7 +842,7 @@ func stubSupportedOperations() []string {
 		"GetVpnConnectionDeviceSampleConfiguration",
 		"GetVpnConnectionDeviceTypes",
 		"GetVpnTunnelReplacementStatus",
-		"ImportClientVpnClientCertificateRevocationList",
+		// ImportClientVpnClientCertificateRevocationList — moved to batch4SupportedOperations
 		"ImportInstance",
 		"ImportVolume",
 		"ModifyAvailabilityZoneGroup",
@@ -3233,28 +3233,6 @@ func (h *Handler) handleStubEnableVpcClassicLinkDNSSupport(
 	}, nil
 }
 
-func (h *Handler) handleStubExportClientVpnClientCertificateRevocationList(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ExportClientVpnClientCertificateRevocationListResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubExportClientVpnClientConfiguration(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ExportClientVpnClientConfigurationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubExportTransitGatewayRoutes(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ExportTransitGatewayRoutesResponse"},
@@ -3690,17 +3668,6 @@ func (h *Handler) handleStubGetVpnConnectionDeviceTypes(_ url.Values, reqID stri
 func (h *Handler) handleStubGetVpnTunnelReplacementStatus(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetVpnTunnelReplacementStatusResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubImportClientVpnClientCertificateRevocationList(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ImportClientVpnClientCertificateRevocationListResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

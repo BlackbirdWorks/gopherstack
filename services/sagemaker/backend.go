@@ -76,6 +76,18 @@ var (
 	ErrModelPackageNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
 	// ErrValidation is returned for invalid input parameters.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrArtifactNotFound is returned when a lineage artifact does not exist.
+	ErrArtifactNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrArtifactAlreadyExists is returned when a lineage artifact already exists.
+	ErrArtifactAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrContextNotFound is returned when a lineage context does not exist.
+	ErrContextNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrContextAlreadyExists is returned when a lineage context already exists.
+	ErrContextAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrLineageGroupNotFound is returned when a lineage group does not exist.
+	ErrLineageGroupNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrLineageGroupPolicyNotFound is returned when a lineage group has no resource policy attached.
+	ErrLineageGroupPolicyNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 )
 
 // ImageConfig specifies where SageMaker should pull the container image from.
@@ -303,15 +315,16 @@ type ActionSource struct {
 
 // Action represents a SageMaker ML lineage action.
 type Action struct {
-	CreationTime time.Time         `json:"CreationTime"`
-	Tags         map[string]string `json:"Tags,omitempty"`
-	Properties   map[string]string `json:"Properties,omitempty"`
-	Source       ActionSource      `json:"Source"`
-	ActionName   string            `json:"ActionName"`
-	ActionArn    string            `json:"ActionArn"`
-	ActionType   string            `json:"ActionType"`
-	Description  string            `json:"Description,omitempty"`
-	Status       string            `json:"Status,omitempty"`
+	CreationTime     time.Time         `json:"CreationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	Properties       map[string]string `json:"Properties,omitempty"`
+	Source           ActionSource      `json:"Source"`
+	ActionName       string            `json:"ActionName"`
+	ActionArn        string            `json:"ActionArn"`
+	ActionType       string            `json:"ActionType"`
+	Description      string            `json:"Description,omitempty"`
+	Status           string            `json:"Status,omitempty"`
 }
 
 // cloneAction returns a deep copy of a.
@@ -446,6 +459,8 @@ type InMemoryBackend struct {
 	associations                 map[string]map[string]*Association
 	trialComponentAssociations   map[string]map[string]*TrialComponentAssociation
 	actions                      map[string]map[string]*Action
+	artifacts                    map[string]map[string]*Artifact // region -> ArtifactArn -> Artifact
+	contexts                     map[string]map[string]*Context  // region -> ContextName -> Context
 	algorithms                   map[string]map[string]*Algorithm
 	clusters                     map[string]map[string]*Cluster
 	modelPackages                map[string]map[string]*ModelPackage
@@ -482,6 +497,7 @@ type InMemoryBackend struct {
 	notebookARNIndex             map[string]map[string]string // region → ARN → notebook instance name
 	hpTuningJobARNIndex          map[string]map[string]string // region → ARN → HP tuning job name
 	actionARNIndex               map[string]map[string]string // region → ARN → action name
+	contextARNIndex              map[string]map[string]string // region → ARN → context name
 	algorithmARNIndex            map[string]map[string]string // region → ARN → algorithm name
 	clusterARNIndex              map[string]map[string]string // region → ARN → cluster name
 	modelPackageARNIndex         map[string]map[string]string // region → ARN → model package ARN
@@ -546,6 +562,8 @@ func NewInMemoryBackendWithContext(
 		associations:                 make(map[string]map[string]*Association),
 		trialComponentAssociations:   make(map[string]map[string]*TrialComponentAssociation),
 		actions:                      make(map[string]map[string]*Action),
+		artifacts:                    make(map[string]map[string]*Artifact),
+		contexts:                     make(map[string]map[string]*Context),
 		algorithms:                   make(map[string]map[string]*Algorithm),
 		clusters:                     make(map[string]map[string]*Cluster),
 		modelPackages:                make(map[string]map[string]*ModelPackage),
@@ -582,6 +600,7 @@ func NewInMemoryBackendWithContext(
 		notebookARNIndex:             make(map[string]map[string]string),
 		hpTuningJobARNIndex:          make(map[string]map[string]string),
 		actionARNIndex:               make(map[string]map[string]string),
+		contextARNIndex:              make(map[string]map[string]string),
 		algorithmARNIndex:            make(map[string]map[string]string),
 		clusterARNIndex:              make(map[string]map[string]string),
 		modelPackageARNIndex:         make(map[string]map[string]string),
@@ -1150,6 +1169,8 @@ func (b *InMemoryBackend) Reset() {
 	b.associations = make(map[string]map[string]*Association)
 	b.trialComponentAssociations = make(map[string]map[string]*TrialComponentAssociation)
 	b.actions = make(map[string]map[string]*Action)
+	b.artifacts = make(map[string]map[string]*Artifact)
+	b.contexts = make(map[string]map[string]*Context)
 	b.algorithms = make(map[string]map[string]*Algorithm)
 	b.clusters = make(map[string]map[string]*Cluster)
 	b.modelPackages = make(map[string]map[string]*ModelPackage)
@@ -1186,6 +1207,7 @@ func (b *InMemoryBackend) Reset() {
 	b.notebookARNIndex = make(map[string]map[string]string)
 	b.hpTuningJobARNIndex = make(map[string]map[string]string)
 	b.actionARNIndex = make(map[string]map[string]string)
+	b.contextARNIndex = make(map[string]map[string]string)
 	b.algorithmARNIndex = make(map[string]map[string]string)
 	b.clusterARNIndex = make(map[string]map[string]string)
 	b.modelPackageARNIndex = make(map[string]map[string]string)
@@ -1894,12 +1916,14 @@ func (b *InMemoryBackend) AddActionInternal(ctx context.Context, name, actionTyp
 
 	region := getRegion(ctx, b.region)
 	actionARN := arn.Build("sagemaker", region, b.accountID, "action/"+name)
+	now := time.Now()
 	a := &Action{
-		ActionName:   name,
-		ActionArn:    actionARN,
-		ActionType:   actionType,
-		CreationTime: time.Now(),
-		Tags:         make(map[string]string),
+		ActionName:       name,
+		ActionArn:        actionARN,
+		ActionType:       actionType,
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             make(map[string]string),
 	}
 	b.actionsStore(region)[name] = a
 	b.actionARNIndexStore(region)[actionARN] = name
@@ -2161,17 +2185,19 @@ func (b *InMemoryBackend) CreateAction(
 	}
 
 	actionARN := arn.Build("sagemaker", region, b.accountID, "action/"+name)
+	now := time.Now()
 
 	a := &Action{
-		ActionName:   name,
-		ActionArn:    actionARN,
-		ActionType:   actionType,
-		Description:  description,
-		Status:       status,
-		Source:       source,
-		Properties:   maps.Clone(properties),
-		Tags:         mergeTags(nil, tags),
-		CreationTime: time.Now(),
+		ActionName:       name,
+		ActionArn:        actionARN,
+		ActionType:       actionType,
+		Description:      description,
+		Status:           status,
+		Source:           source,
+		Properties:       maps.Clone(properties),
+		Tags:             mergeTags(nil, tags),
+		CreationTime:     now,
+		LastModifiedTime: now,
 	}
 	actionsStore[name] = a
 	b.actionARNIndexStore(region)[actionARN] = name

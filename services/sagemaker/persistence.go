@@ -30,6 +30,8 @@ type backendSnapshot struct {
 	Associations               map[string]map[string]*Association               `json:"associations"`
 	TrialComponentAssociations map[string]map[string]*TrialComponentAssociation `json:"trialComponentAssociations"`
 	Actions                    map[string]map[string]*Action                    `json:"actions"`
+	Artifacts                  map[string]map[string]*Artifact                  `json:"artifacts"`
+	Contexts                   map[string]map[string]*Context                   `json:"contexts"`
 	Algorithms                 map[string]map[string]*Algorithm                 `json:"algorithms"`
 	Clusters                   map[string]map[string]*persistedCluster          `json:"clusters"`
 	ModelPackages              map[string]map[string]*ModelPackage              `json:"modelPackages"`
@@ -114,6 +116,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Associations:               b.associations,
 		TrialComponentAssociations: b.trialComponentAssociations,
 		Actions:                    b.actions,
+		Artifacts:                  b.artifacts,
+		Contexts:                   b.contexts,
 		Algorithms:                 b.algorithms,
 		Clusters:                   clusters,
 		ModelPackages:              b.modelPackages,
@@ -241,6 +245,8 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.associations = snap.Associations
 	b.trialComponentAssociations = snap.TrialComponentAssociations
 	b.actions = snap.Actions
+	b.artifacts = snap.Artifacts
+	b.contexts = snap.Contexts
 	b.algorithms = snap.Algorithms
 	b.modelPackages = snap.ModelPackages
 	b.domains = snap.Domains
@@ -300,6 +306,7 @@ func (b *InMemoryBackend) rebuildARNIndexes() {
 		func(_ string, ec *EndpointConfig) string { return ec.EndpointConfigARN },
 	)
 	b.actionARNIndex = buildARNIndex(b.actions, func(_ string, a *Action) string { return a.ActionArn })
+	b.contextARNIndex = buildARNIndex(b.contexts, func(_ string, c *Context) string { return c.ContextArn })
 	b.algorithmARNIndex = buildARNIndex(b.algorithms, func(_ string, al *Algorithm) string { return al.AlgorithmArn })
 	b.clusterARNIndex = buildARNIndex(b.clusters, func(_ string, c *Cluster) string { return c.ClusterArn })
 	b.modelPackageARNIndex = buildARNIndex(b.modelPackages, func(name string, _ *ModelPackage) string { return name })
@@ -331,6 +338,16 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	ensureJobMaps(snap)
 	ensureConfigMaps(snap)
 	ensureMetadataMaps(snap)
+	ensureLineageMaps(snap)
+}
+
+func ensureLineageMaps(snap *backendSnapshot) {
+	if snap.Artifacts == nil {
+		snap.Artifacts = make(map[string]map[string]*Artifact)
+	}
+	if snap.Contexts == nil {
+		snap.Contexts = make(map[string]map[string]*Context)
+	}
 }
 
 func ensureCoreResourceMaps(snap *backendSnapshot) {
@@ -435,6 +452,8 @@ func fixNilTagMapsCoreResources(snap *backendSnapshot) {
 	fixNestedTagsSage(snap.Models, func(m *Model) { m.Tags = ensureSageTagMap(m.Tags) })
 	fixNestedTagsSage(snap.EndpointConfigs, func(ec *EndpointConfig) { ec.Tags = ensureSageTagMap(ec.Tags) })
 	fixNestedTagsSage(snap.Actions, func(a *Action) { a.Tags = ensureSageTagMap(a.Tags) })
+	fixNestedTagsSage(snap.Artifacts, func(ar *Artifact) { ar.Tags = ensureSageTagMap(ar.Tags) })
+	fixNestedTagsSage(snap.Contexts, func(c *Context) { c.Tags = ensureSageTagMap(c.Tags) })
 	fixNestedTagsSage(snap.Algorithms, func(al *Algorithm) { al.Tags = ensureSageTagMap(al.Tags) })
 	fixNestedTagsSage(snap.ModelPackages, func(mp *ModelPackage) { mp.Tags = ensureSageTagMap(mp.Tags) })
 }

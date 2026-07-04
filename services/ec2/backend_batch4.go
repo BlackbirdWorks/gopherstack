@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -42,25 +43,36 @@ type PrefixListEntry struct {
 
 // ClientVpnTargetNetwork represents an associated target network for a Client VPN endpoint.
 type ClientVpnTargetNetwork struct {
-	AssociationID       string `json:"associationId,omitempty"`
-	SubnetID            string `json:"subnetId,omitempty"`
-	VPCID               string `json:"vpcId,omitempty"`
-	ClientVpnEndpointID string `json:"clientVpnEndpointId,omitempty"`
-	Status              string `json:"status,omitempty"`
+	AssociationID       string   `json:"associationId,omitempty"`
+	SubnetID            string   `json:"subnetId,omitempty"`
+	VPCID               string   `json:"vpcId,omitempty"`
+	ClientVpnEndpointID string   `json:"clientVpnEndpointId,omitempty"`
+	Status              string   `json:"status,omitempty"`
+	SecurityGroups      []string `json:"securityGroups,omitempty"`
 }
 
 // ClientVpnEndpoint represents an EC2 Client VPN endpoint.
 type ClientVpnEndpoint struct {
-	ClientVpnEndpointID string                    `json:"clientVpnEndpointId,omitempty"`
-	DNSName             string                    `json:"dnsName,omitempty"`
-	Status              string                    `json:"status,omitempty"`
-	Description         string                    `json:"description,omitempty"`
-	ClientCidrBlock     string                    `json:"clientCidrBlock,omitempty"`
-	DNSServers          []string                  `json:"dnsServers,omitempty"`
-	VpnProtocol         string                    `json:"vpnProtocol,omitempty"`
-	TargetNetworks      []*ClientVpnTargetNetwork `json:"targetNetworks,omitempty"`
-	Routes              []ClientVpnRoute          `json:"routes,omitempty"`
-	AuthRules           []ClientVpnAuthRule       `json:"authRules,omitempty"`
+	ServerCertificateArn      string                    `json:"serverCertificateArn,omitempty"`
+	DNSName                   string                    `json:"dnsName,omitempty"`
+	Status                    string                    `json:"status,omitempty"`
+	Description               string                    `json:"description,omitempty"`
+	ClientCidrBlock           string                    `json:"clientCidrBlock,omitempty"`
+	ClientVpnEndpointID       string                    `json:"clientVpnEndpointId,omitempty"`
+	VpnProtocol               string                    `json:"vpnProtocol,omitempty"`
+	TransportProtocol         string                    `json:"transportProtocol,omitempty"`
+	VPCID                     string                    `json:"vpcId,omitempty"`
+	CertificateRevocationList string                    `json:"certificateRevocationList,omitempty"`
+	CreationTime              string                    `json:"creationTime,omitempty"`
+	SelfServicePortalURL      string                    `json:"selfServicePortalUrl,omitempty"`
+	DNSServers                []string                  `json:"dnsServers,omitempty"`
+	SecurityGroupIDs          []string                  `json:"securityGroupIds,omitempty"`
+	TargetNetworks            []*ClientVpnTargetNetwork `json:"targetNetworks,omitempty"`
+	Routes                    []ClientVpnRoute          `json:"routes,omitempty"`
+	AuthRules                 []ClientVpnAuthRule       `json:"authRules,omitempty"`
+	SessionTimeoutHours       int32                     `json:"sessionTimeoutHours,omitempty"`
+	VpnPort                   int32                     `json:"vpnPort,omitempty"`
+	SplitTunnel               bool                      `json:"splitTunnel,omitempty"`
 }
 
 // ClientVpnRoute holds a single route for a Client VPN endpoint.
@@ -68,6 +80,12 @@ type ClientVpnRoute struct {
 	DestinationCidr string `json:"destinationCidr,omitempty"`
 	Status          string `json:"status,omitempty"`
 	Description     string `json:"description,omitempty"`
+	// Origin indicates how the route was added: "add-route" for routes created
+	// via CreateClientVpnRoute, "associate" for routes auto-added when a target
+	// network is associated.
+	Origin string `json:"origin,omitempty"`
+	// TargetSubnet is the ID of the subnet through which traffic is routed.
+	TargetSubnet string `json:"targetSubnet,omitempty"`
 }
 
 // ClientVpnAuthRule holds a single authorization rule for a Client VPN endpoint.
@@ -75,6 +93,26 @@ type ClientVpnAuthRule struct {
 	Cidr        string `json:"cidr,omitempty"`
 	Status      string `json:"status,omitempty"`
 	Description string `json:"description,omitempty"`
+	// GroupID is the Active Directory group ID the rule grants access to, if any.
+	GroupID string `json:"groupId,omitempty"`
+	// AccessAll indicates the rule grants access to all clients (true when
+	// GroupID is empty).
+	AccessAll bool `json:"accessAll,omitempty"`
+}
+
+// ClientVpnConnection represents an active client connection to a Client VPN
+// endpoint. No API in this backend creates connections (a real client would
+// need to actually establish an OpenVPN session), so DescribeClientVpnConnections
+// always returns an empty set — that is the correct AWS shape when no clients
+// are connected.
+type ClientVpnConnection struct {
+	ConnectionID              string `json:"connectionId,omitempty"`
+	ClientVpnEndpointID       string `json:"clientVpnEndpointId,omitempty"`
+	Username                  string `json:"username,omitempty"`
+	ClientIP                  string `json:"clientIp,omitempty"`
+	CommonName                string `json:"commonName,omitempty"`
+	ConnectionEstablishedTime string `json:"connectionEstablishedTime,omitempty"`
+	Status                    string `json:"status,omitempty"`
 }
 
 // TransitGatewayConnect represents a TGW connect attachment.
@@ -289,10 +327,34 @@ func (b *InMemoryBackend) RestoreManagedPrefixListVersion(id string, version int
 
 // ---- ClientVpnEndpoint ----
 
+// ClientVpnEndpointOptions holds the optional advanced Client VPN endpoint
+// fields available via CreateClientVpnEndpointWithOptions and
+// ModifyClientVpnEndpointWithOptions.
+type ClientVpnEndpointOptions struct {
+	SplitTunnel          *bool
+	ServerCertificateArn string
+	TransportProtocol    string
+	VpcID                string
+	SelfServicePortalURL string
+	SecurityGroupIDs     []string
+	VpnPort              int32
+	SessionTimeoutHours  int32
+}
+
 // CreateClientVpnEndpoint creates a new Client VPN endpoint.
 func (b *InMemoryBackend) CreateClientVpnEndpoint(
 	clientCidrBlock, description string,
 	dnsServers []string,
+) (*ClientVpnEndpoint, error) {
+	return b.CreateClientVpnEndpointWithOptions(clientCidrBlock, description, dnsServers, ClientVpnEndpointOptions{})
+}
+
+// CreateClientVpnEndpointWithOptions creates a new Client VPN endpoint with
+// the full set of AWS-accepted advanced options.
+func (b *InMemoryBackend) CreateClientVpnEndpointWithOptions(
+	clientCidrBlock, description string,
+	dnsServers []string,
+	opts ClientVpnEndpointOptions,
 ) (*ClientVpnEndpoint, error) {
 	if clientCidrBlock == "" {
 		return nil, fmt.Errorf("%w: ClientCidrBlock is required", ErrInvalidParameter)
@@ -301,15 +363,39 @@ func (b *InMemoryBackend) CreateClientVpnEndpoint(
 	b.mu.Lock("CreateClientVpnEndpoint")
 	defer b.mu.Unlock()
 
+	transportProtocol := opts.TransportProtocol
+	if transportProtocol == "" {
+		transportProtocol = "udp"
+	}
+
+	vpnPort := opts.VpnPort
+	if vpnPort == 0 {
+		vpnPort = 443
+	}
+
+	sessionTimeoutHours := opts.SessionTimeoutHours
+	if sessionTimeoutHours == 0 {
+		sessionTimeoutHours = 24
+	}
+
 	id := "cvpn-endpoint-" + uuid.New().String()[:8]
 	ep := &ClientVpnEndpoint{
-		ClientVpnEndpointID: id,
-		DNSName:             id + ".prod.clientvpn.us-east-1.amazonaws.com",
-		Status:              stateAvailable,
-		Description:         description,
-		ClientCidrBlock:     clientCidrBlock,
-		DNSServers:          dnsServers,
-		VpnProtocol:         "openvpn",
+		ClientVpnEndpointID:  id,
+		DNSName:              id + ".prod.clientvpn.us-east-1.amazonaws.com",
+		Status:               stateAvailable,
+		Description:          description,
+		ClientCidrBlock:      clientCidrBlock,
+		DNSServers:           dnsServers,
+		VpnProtocol:          "openvpn",
+		TransportProtocol:    transportProtocol,
+		VPCID:                opts.VpcID,
+		VpnPort:              vpnPort,
+		SplitTunnel:          opts.SplitTunnel != nil && *opts.SplitTunnel,
+		SecurityGroupIDs:     opts.SecurityGroupIDs,
+		ServerCertificateArn: opts.ServerCertificateArn,
+		SessionTimeoutHours:  sessionTimeoutHours,
+		SelfServicePortalURL: opts.SelfServicePortalURL,
+		CreationTime:         time.Now().UTC().Format(time.RFC3339),
 	}
 	b.clientVpnEndpoints[id] = ep
 
@@ -385,6 +471,13 @@ func (b *InMemoryBackend) AssociateClientVpnTargetNetwork(
 		SubnetID:            subnetID,
 		ClientVpnEndpointID: endpointID,
 		Status:              stateAssociated,
+		SecurityGroups:      ep.SecurityGroupIDs,
+	}
+	if subnet, subnetFound := b.subnets[subnetID]; subnetFound {
+		tn.VPCID = subnet.VPCID
+		if ep.VPCID == "" {
+			ep.VPCID = subnet.VPCID
+		}
 	}
 	ep.TargetNetworks = append(ep.TargetNetworks, tn)
 
@@ -472,6 +565,7 @@ func (b *InMemoryBackend) CreateClientVpnRoute(
 		DestinationCidr: destinationCidr,
 		Status:          stateActive,
 		Description:     description,
+		Origin:          "add-route",
 	})
 
 	return nil
@@ -542,6 +636,7 @@ func (b *InMemoryBackend) AuthorizeClientVpnIngress(
 		Cidr:        cidr,
 		Status:      stateActive,
 		Description: description,
+		AccessAll:   true, // no ActiveDirectory group id plumbed through this signature
 	})
 
 	return nil
@@ -599,6 +694,16 @@ func (b *InMemoryBackend) ModifyClientVpnEndpoint(
 	endpointID, description string,
 	dnsServers []string,
 ) error {
+	return b.ModifyClientVpnEndpointWithOptions(endpointID, description, dnsServers, ClientVpnEndpointOptions{})
+}
+
+// ModifyClientVpnEndpointWithOptions modifies a Client VPN endpoint,
+// including the advanced fields AWS accepts on ModifyClientVpnEndpoint.
+func (b *InMemoryBackend) ModifyClientVpnEndpointWithOptions(
+	endpointID, description string,
+	dnsServers []string,
+	opts ClientVpnEndpointOptions,
+) error {
 	if endpointID == "" {
 		return fmt.Errorf("%w: ClientVpnEndpointId is required", ErrInvalidParameter)
 	}
@@ -616,21 +721,49 @@ func (b *InMemoryBackend) ModifyClientVpnEndpoint(
 	if len(dnsServers) > 0 {
 		ep.DNSServers = dnsServers
 	}
+	if opts.ServerCertificateArn != "" {
+		ep.ServerCertificateArn = opts.ServerCertificateArn
+	}
+	if opts.VpcID != "" {
+		ep.VPCID = opts.VpcID
+	}
+	if opts.VpnPort != 0 {
+		ep.VpnPort = opts.VpnPort
+	}
+	if opts.SessionTimeoutHours != 0 {
+		ep.SessionTimeoutHours = opts.SessionTimeoutHours
+	}
+	if opts.SelfServicePortalURL != "" {
+		ep.SelfServicePortalURL = opts.SelfServicePortalURL
+	}
+	if len(opts.SecurityGroupIDs) > 0 {
+		ep.SecurityGroupIDs = opts.SecurityGroupIDs
+	}
+	if opts.SplitTunnel != nil {
+		ep.SplitTunnel = *opts.SplitTunnel
+	}
 
 	return nil
 }
 
-// ApplySecurityGroupsToClientVpnTargetNetwork applies SGs to a Client VPN target network (no-op in mock).
-func (b *InMemoryBackend) ApplySecurityGroupsToClientVpnTargetNetwork(endpointID string, _ []string) error {
+// ApplySecurityGroupsToClientVpnTargetNetwork applies security groups to all
+// target networks associated with a Client VPN endpoint's VPC.
+func (b *InMemoryBackend) ApplySecurityGroupsToClientVpnTargetNetwork(endpointID string, sgIDs []string) error {
 	if endpointID == "" {
 		return fmt.Errorf("%w: ClientVpnEndpointId is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("ApplySecurityGroupsToClientVpnTargetNetwork")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ApplySecurityGroupsToClientVpnTargetNetwork")
+	defer b.mu.Unlock()
 
-	if _, ok := b.clientVpnEndpoints[endpointID]; !ok {
+	ep, ok := b.clientVpnEndpoints[endpointID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
+	}
+
+	ep.SecurityGroupIDs = sgIDs
+	for _, tn := range ep.TargetNetworks {
+		tn.SecurityGroups = sgIDs
 	}
 
 	return nil
@@ -664,6 +797,75 @@ func (b *InMemoryBackend) TerminateClientVpnConnections(endpointID string) error
 	if _, ok := b.clientVpnEndpoints[endpointID]; !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
+
+	return nil
+}
+
+// ExportClientVpnClientConfiguration returns an OpenVPN client configuration
+// file for the given Client VPN endpoint.
+func (b *InMemoryBackend) ExportClientVpnClientConfiguration(endpointID string) (string, error) {
+	if endpointID == "" {
+		return "", fmt.Errorf("%w: ClientVpnEndpointId is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("ExportClientVpnClientConfiguration")
+	defer b.mu.RUnlock()
+
+	ep, ok := b.clientVpnEndpoints[endpointID]
+	if !ok {
+		return "", fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
+	}
+
+	config := fmt.Sprintf(
+		"client\ndev tun\nproto %s\nremote %s %d\nremote-random-hostname\n"+
+			"resolv-retry infinite\nnobind\nremote-cert-tls server\ncipher AES-256-GCM\n"+
+			"verb 3\n<ca>\n</ca>\nreneg-sec 0\n",
+		ep.TransportProtocol, ep.DNSName, ep.VpnPort,
+	)
+
+	return config, nil
+}
+
+// ExportClientVpnClientCertificateRevocationList returns the certificate
+// revocation list currently configured on the Client VPN endpoint.
+func (b *InMemoryBackend) ExportClientVpnClientCertificateRevocationList(endpointID string) (string, error) {
+	if endpointID == "" {
+		return "", fmt.Errorf("%w: ClientVpnEndpointId is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("ExportClientVpnClientCertificateRevocationList")
+	defer b.mu.RUnlock()
+
+	ep, ok := b.clientVpnEndpoints[endpointID]
+	if !ok {
+		return "", fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
+	}
+
+	if ep.CertificateRevocationList != "" {
+		return ep.CertificateRevocationList, nil
+	}
+
+	// AWS always returns a well-formed (possibly empty) CRL PEM block, even
+	// when no client certificates have been revoked.
+	return "-----BEGIN X509 CRL-----\n-----END X509 CRL-----\n", nil
+}
+
+// ImportClientVpnClientCertificateRevocationList uploads a certificate
+// revocation list to the Client VPN endpoint.
+func (b *InMemoryBackend) ImportClientVpnClientCertificateRevocationList(endpointID, crl string) error {
+	if endpointID == "" || crl == "" {
+		return fmt.Errorf("%w: ClientVpnEndpointId and CertificateRevocationList are required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ImportClientVpnClientCertificateRevocationList")
+	defer b.mu.Unlock()
+
+	ep, ok := b.clientVpnEndpoints[endpointID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
+	}
+
+	ep.CertificateRevocationList = crl
 
 	return nil
 }

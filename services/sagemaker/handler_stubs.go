@@ -10,13 +10,11 @@ import (
 // Stub ARN / key constants used across stub responses.
 const (
 	keyAppImageConfigArn               = "AppImageConfigArn"
-	keyArtifactArn                     = "ArtifactArn"
 	keyAutoMLJobArn                    = "AutoMLJobArn"
 	keyClusterSchedulerConfigArn       = "ClusterSchedulerConfigArn"
 	keyCodeRepositoryArn               = "CodeRepositoryArn"
 	keyCompilationJobArn               = "CompilationJobArn"
 	keyComputeQuotaArn                 = "ComputeQuotaArn"
-	keyContextArn                      = "ContextArn"
 	keyJobDefinitionArn                = "JobDefinitionArn"
 	keyJobDefinitionName               = "JobDefinitionName"
 	keyDomainArn                       = "DomainArn"
@@ -32,7 +30,6 @@ const (
 	keyInferenceComponentArn           = "InferenceComponentArn"
 	keyInferenceExperimentArn          = "InferenceExperimentArn"
 	keyLabelingJobArn                  = "LabelingJobArn"
-	keyLineageGroupArn                 = "LineageGroupArn"
 	keyModelCardArn                    = "ModelCardArn"
 	keyModelCardExportJobArn           = "ModelCardExportJobArn"
 	keyModelPackageArn                 = "ModelPackageArn"
@@ -56,7 +53,6 @@ const (
 	keyWorkteamArn                     = "WorkteamArn"
 	keyAuthorizedURL                   = "AuthorizedUrl"
 	keyGenericArn                      = "Arn"
-	keyActionArn                       = "ActionArn"
 	keyAppArn                          = "AppArn"
 	keyFeatureGroupStatus              = "FeatureGroupStatus"
 	keyMonitoringScheduleName          = "MonitoringScheduleName"
@@ -85,12 +81,8 @@ const (
 )
 
 // stubOpsSupported returns the list of stub-implemented operations.
-//
-//nolint:funlen
 func stubOpsSupported() []string {
 	return []string{
-		"CreateArtifact",
-		"CreateContext",
 		"CreateEdgeDeploymentPlan",
 		"CreateEdgeDeploymentStage",
 		"CreateHub",
@@ -103,11 +95,7 @@ func stubOpsSupported() []string {
 		"CreatePresignedDomainUrl",
 		"CreatePresignedMlflowAppUrl",
 		"CreatePresignedMlflowTrackingServerUrl",
-		"DeleteAction",
 		"DeleteAlgorithm",
-		"DeleteArtifact",
-		"DeleteAssociation",
-		"DeleteContext",
 		"DeleteEdgeDeploymentPlan",
 		"DeleteEdgeDeploymentStage",
 		"DeleteHub",
@@ -117,16 +105,12 @@ func stubOpsSupported() []string {
 		"DeleteModelPackageGroupPolicy",
 		"DeleteProcessingJob",
 		"DeleteWorkforce",
-		"DescribeAction",
 		"DescribeAlgorithm",
-		"DescribeArtifact",
-		"DescribeContext",
 		"DescribeEdgeDeploymentPlan",
 		"DescribeFeatureMetadata",
 		"DescribeHub",
 		"DescribeHubContent",
 		"DescribeLabelingJob",
-		"DescribeLineageGroup",
 		"DescribeMlflowApp",
 		"DescribeModelCardExportJob",
 		"DescribePipelineDefinitionForExecution",
@@ -138,19 +122,14 @@ func stubOpsSupported() []string {
 		"EnableSagemakerServicecatalogPortfolio",
 		"ExtendTrainingPlan",
 		"GetDeviceFleetReport",
-		"GetLineageGroupPolicy",
 		"GetModelPackageGroupPolicy",
 		"GetSagemakerServicecatalogPortfolioStatus",
 		"GetScalingConfigurationRecommendation",
 		"GetSearchSuggestions",
 		"ImportHubContent",
-		"ListActions",
 		"ListAlgorithms",
 		"ListAliases",
-		"ListArtifacts",
-		"ListAssociations",
 		"ListCandidatesForAutoMLJob",
-		"ListContexts",
 		"ListDataQualityJobDefinitions",
 		"ListEdgeDeploymentPlans",
 		"ListHubContentVersions",
@@ -158,7 +137,6 @@ func stubOpsSupported() []string {
 		"ListHubs",
 		"ListLabelingJobs",
 		"ListLabelingJobsForWorkteam",
-		"ListLineageGroups",
 		"ListMlflowApps",
 		"ListModelBiasJobDefinitions",
 		"ListModelExplainabilityJobDefinitions",
@@ -178,7 +156,6 @@ func stubOpsSupported() []string {
 		"ListUltraServersByReservedCapacity",
 		"ListWorkforces",
 		"PutModelPackageGroupPolicy",
-		"QueryLineage",
 		"RenderUiTemplate",
 		"Search",
 		"SearchTrainingPlanOfferings",
@@ -187,9 +164,6 @@ func stubOpsSupported() []string {
 		"StartSession",
 		"StopEdgeDeploymentStage",
 		"StopLabelingJob",
-		"UpdateAction",
-		"UpdateArtifact",
-		"UpdateContext",
 		"UpdateDevices",
 		"UpdateFeatureMetadata",
 		"UpdateHub",
@@ -221,12 +195,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	case "CreateApp":
 		return mustMarshal(m{keyAppArn: ""}), true
-
-	case "CreateArtifact":
-		return mustMarshal(m{keyArtifactArn: ""}), true
-
-	case "CreateContext":
-		return mustMarshal(m{keyContextArn: ""}), true
 
 	case "CreateDomain":
 		return mustMarshal(m{keyDomainArn: "", "Url": ""}), true
@@ -282,12 +250,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// Delete / stop / misc — return empty object
 	// -----------------------------------------------------------------------
-	case "DeleteAction",
-		"DeleteAlgorithm",
+	case "DeleteAlgorithm",
 		"DeleteApp",
-		"DeleteArtifact",
-		"DeleteAssociation",
-		"DeleteContext",
 		"DeleteDomain",
 		"DeleteEdgeDeploymentPlan",
 		"DeleteEdgeDeploymentStage",
@@ -322,11 +286,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// Describe ops
 	// -----------------------------------------------------------------------
-	case "DescribeAction":
-		return mustMarshal(m{
-			"ActionName": "", keyActionArn: "", "ActionType": "", keyStatus: statusCompleted,
-		}), true
-
 	case "DescribeAlgorithm":
 		return mustMarshal(m{
 			"AlgorithmName": "", "AlgorithmArn": "", "AlgorithmStatus": statusCompleted,
@@ -336,12 +295,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(m{
 			keyAppArn: "", "AppType": "", "AppName": "", keyStatus: statusInService,
 		}), true
-
-	case "DescribeArtifact":
-		return mustMarshal(m{keyArtifactArn: "", "ArtifactType": ""}), true
-
-	case "DescribeContext":
-		return mustMarshal(m{keyContextArn: "", "ContextType": ""}), true
 
 	case "DescribeDomain":
 		return mustMarshal(m{keyDomainArn: "", keyDomainID: "", keyStatus: statusInService}), true
@@ -386,9 +339,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(m{
 			keyLabelingJobArn: "", "LabelingJobName": "", "LabelingJobStatus": statusCompleted,
 		}), true
-
-	case "DescribeLineageGroup":
-		return mustMarshal(m{keyLineageGroupArn: "", "LineageGroupName": ""}), true
 
 	case "DescribeMlflowApp":
 		return mustMarshal(m{keyGenericArn: "", keyStatus: statusInService}), true
@@ -437,9 +387,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "GetDeviceFleetReport":
 		return mustMarshal(m{keyDeviceFleetName: "", "DeviceFleetArn": ""}), true
 
-	case "GetLineageGroupPolicy":
-		return mustMarshal(m{keyLineageGroupArn: "", "ResourcePolicy": ""}), true
-
 	case "GetModelPackageGroupPolicy":
 		return mustMarshal(m{"ResourcePolicy": ""}), true
 
@@ -455,9 +402,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// List ops — all return an empty array under a domain-appropriate key
 	// -----------------------------------------------------------------------
-	case "ListActions":
-		return mustMarshal(m{"ActionSummaries": []any{}}), true
-
 	case "ListAlgorithms":
 		return mustMarshal(m{"AlgorithmSummaryList": []any{}}), true
 
@@ -467,17 +411,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListApps", "ListMlflowApps":
 		return mustMarshal(m{"Apps": []any{}}), true
 
-	case "ListArtifacts":
-		return mustMarshal(m{"ArtifactSummaries": []any{}}), true
-
-	case "ListAssociations":
-		return mustMarshal(m{"AssociationSummaries": []any{}}), true
-
 	case "ListCandidatesForAutoMLJob":
 		return mustMarshal(m{"Candidates": []any{}}), true
-
-	case "ListContexts":
-		return mustMarshal(m{"ContextSummaries": []any{}}), true
 
 	case "ListDataQualityJobDefinitions",
 		"ListModelBiasJobDefinitions",
@@ -505,9 +440,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListLabelingJobs", "ListLabelingJobsForWorkteam":
 		return mustMarshal(m{"LabelingJobSummaryList": []any{}}), true
-
-	case "ListLineageGroups":
-		return mustMarshal(m{"LineageGroupSummaries": []any{}}), true
 
 	case "ListModelMetadata":
 		return mustMarshal(m{"ModelMetadataSummaries": []any{}}), true
@@ -563,9 +495,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// Action / query / pipeline ops
 	// -----------------------------------------------------------------------
-	case "QueryLineage":
-		return mustMarshal(m{"Vertices": []any{}, "Edges": []any{}}), true
-
 	case "Search":
 		return mustMarshal(m{"Results": []any{}}), true
 
@@ -581,15 +510,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// Update ops
 	// -----------------------------------------------------------------------
-	case "UpdateAction":
-		return mustMarshal(m{keyActionArn: ""}), true
-
-	case "UpdateArtifact":
-		return mustMarshal(m{keyArtifactArn: ""}), true
-
-	case "UpdateContext":
-		return mustMarshal(m{keyContextArn: ""}), true
-
 	case "UpdateDomain":
 		return mustMarshal(m{keyDomainArn: ""}), true
 

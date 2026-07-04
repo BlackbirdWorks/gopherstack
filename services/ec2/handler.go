@@ -1211,6 +1211,7 @@ var errCodeLookup = []struct {
 	{ErrByoipCidrNotFound, "InvalidByoipCidr.NotFound"},
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
 	{ErrCIDRConflict, "InvalidVpc.Conflict"},
+	{ErrClientVpnEndpointNotFound, "InvalidClientVpnEndpointId.NotFound"},
 	{ErrInvalidParameter, "InvalidParameterValue"},
 }
 

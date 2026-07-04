@@ -991,8 +991,13 @@ func TestBatch4Accuracy_ClientVPN_DisassociateWrongIDReturnsError(t *testing.T) 
 }
 
 // TestBatch4Accuracy_ClientVPN_RoutesXMLElementName verifies that
-// DescribeClientVpnRoutes uses clientVpnRouteSet not routes
-// (was wrong per parity.md §R).
+// DescribeClientVpnRoutes wraps the route list in <routes>, matching the real
+// aws-sdk-go-v2 wire format (see DescribeClientVpnRoutesOutput's
+// "routes" case in deserializers.go). A prior version of this test asserted
+// the opposite (<clientVpnRouteSet>), which was itself the bug parity.md
+// flagged under "EC2 — sub-resource ops (ClientVPN...)" ("ClientVPN routes
+// use `routes` not `clientVpnRouteSet`") — this corrects the assertion to
+// match the documented, SDK-verified fix rather than the bug.
 func TestBatch4Accuracy_ClientVPN_RoutesXMLElementName(t *testing.T) {
 	t.Parallel()
 
@@ -1011,10 +1016,10 @@ func TestBatch4Accuracy_ClientVPN_RoutesXMLElementName(t *testing.T) {
 		"ClientVpnEndpointId": {ep.ClientVpnEndpointID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resp, "<clientVpnRouteSet>",
-		"routes must be wrapped in <clientVpnRouteSet> not <routes>")
-	assert.NotContains(t, resp, "<routes>",
-		"must NOT use old <routes> element name")
+	assert.Contains(t, resp, "<routes>",
+		"routes must be wrapped in <routes> per the real aws-sdk-go-v2 wire format")
+	assert.NotContains(t, resp, "<clientVpnRouteSet>",
+		"must NOT use the incorrect <clientVpnRouteSet> element name")
 }
 
 // TestBatch4Accuracy_ClientVPN_FullRouteCycle tests create/describe/delete routes.

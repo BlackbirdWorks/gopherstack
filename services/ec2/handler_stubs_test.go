@@ -285,8 +285,8 @@ func TestStubOperations(t *testing.T) {
 		"EnableRouteServerPropagation",
 		"EnableTransitGatewayRouteTablePropagation",
 		"EnableVpcClassicLink",
-		"ExportClientVpnClientCertificateRevocationList",
-		"ExportClientVpnClientConfiguration",
+		// "ExportClientVpnClientCertificateRevocationList", — moved to batch4 (requires ClientVpnEndpointId)
+		// "ExportClientVpnClientConfiguration", — moved to batch4 (requires ClientVpnEndpointId)
 		"ExportTransitGatewayRoutes",
 		"ExportVerifiedAccessInstanceClientConfiguration",
 		"GetActiveVpnTunnelStatus",
@@ -340,7 +340,7 @@ func TestStubOperations(t *testing.T) {
 		"GetVpnConnectionDeviceSampleConfiguration",
 		"GetVpnConnectionDeviceTypes",
 		"GetVpnTunnelReplacementStatus",
-		"ImportClientVpnClientCertificateRevocationList",
+		// "ImportClientVpnClientCertificateRevocationList", — moved to batch4 (requires ClientVpnEndpointId)
 		"ImportInstance",
 		"ImportVolume",
 		"ModifyAvailabilityZoneGroup",

@@ -196,20 +196,21 @@ func (h *Handler) GetSupportedOperations() []string {
 	accuracy3 := accuracy3OpsSupported()
 	accuracy4 := accuracy4OpsSupported()
 	cluster := clusterOpsSupported()
+	lineage := lineageOpsSupported()
 
-	combined := make(
-		[]string,
-		0,
-		len(core)+len(batch2)+len(batch3)+len(accuracy3)+len(accuracy4)+len(cluster)+len(stubOpsSupported()),
-	)
+	stubs := stubOpsSupported()
+	total := len(core) + len(batch2) + len(batch3) + len(accuracy3)
+	total += len(accuracy4) + len(cluster) + len(lineage) + len(stubs)
+	combined := make([]string, 0, total)
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
 	combined = append(combined, batch3...)
 	combined = append(combined, accuracy3...)
 	combined = append(combined, accuracy4...)
 	combined = append(combined, cluster...)
+	combined = append(combined, lineage...)
 
-	return append(combined, stubOpsSupported()...)
+	return append(combined, stubs...)
 }
 
 // batch2OpsSupported returns the 50 real stateful operations implemented in batch 2.
@@ -404,6 +405,10 @@ func (h *Handler) dispatchCoreOps(
 
 func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([]byte, error) {
 	if r, ok, err := h.dispatchLineageAndBatchOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchLineageOps(ctx, op, body); ok {
 		return r, err
 	}
 
