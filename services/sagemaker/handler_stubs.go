@@ -90,7 +90,6 @@ const (
 func stubOpsSupported() []string {
 	return []string{
 		"CreateArtifact",
-		"CreateCluster",
 		"CreateContext",
 		"CreateEdgeDeploymentPlan",
 		"CreateEdgeDeploymentStage",
@@ -108,7 +107,6 @@ func stubOpsSupported() []string {
 		"DeleteAlgorithm",
 		"DeleteArtifact",
 		"DeleteAssociation",
-		"DeleteCluster",
 		"DeleteContext",
 		"DeleteEdgeDeploymentPlan",
 		"DeleteEdgeDeploymentStage",
@@ -122,9 +120,6 @@ func stubOpsSupported() []string {
 		"DescribeAction",
 		"DescribeAlgorithm",
 		"DescribeArtifact",
-		"DescribeCluster",
-		"DescribeClusterEvent",
-		"DescribeClusterNode",
 		"DescribeContext",
 		"DescribeEdgeDeploymentPlan",
 		"DescribeFeatureMetadata",
@@ -138,7 +133,6 @@ func stubOpsSupported() []string {
 		"DescribeReservedCapacity",
 		"DescribeSubscribedWorkteam",
 		"DescribeTrainingPlanExtensionHistory",
-		"DetachClusterNodeVolume",
 		"DisableSagemakerServicecatalogPortfolio",
 		"DisassociateTrialComponent",
 		"EnableSagemakerServicecatalogPortfolio",
@@ -156,9 +150,6 @@ func stubOpsSupported() []string {
 		"ListArtifacts",
 		"ListAssociations",
 		"ListCandidatesForAutoMLJob",
-		"ListClusterEvents",
-		"ListClusterNodes",
-		"ListClusters",
 		"ListContexts",
 		"ListDataQualityJobDefinitions",
 		"ListEdgeDeploymentPlans",
@@ -198,8 +189,6 @@ func stubOpsSupported() []string {
 		"StopLabelingJob",
 		"UpdateAction",
 		"UpdateArtifact",
-		"UpdateCluster",
-		"UpdateClusterSoftware",
 		"UpdateContext",
 		"UpdateDevices",
 		"UpdateFeatureMetadata",
@@ -235,9 +224,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "CreateArtifact":
 		return mustMarshal(m{keyArtifactArn: ""}), true
-
-	case "CreateCluster":
-		return mustMarshal(m{keyClusterArn: ""}), true
 
 	case "CreateContext":
 		return mustMarshal(m{keyContextArn: ""}), true
@@ -301,7 +287,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteApp",
 		"DeleteArtifact",
 		"DeleteAssociation",
-		"DeleteCluster",
 		"DeleteContext",
 		"DeleteDomain",
 		"DeleteEdgeDeploymentPlan",
@@ -319,7 +304,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteTrial",
 		"DeleteTrialComponent",
 		"DeleteUserProfile",
-		"DetachClusterNodeVolume",
 		"DisableSagemakerServicecatalogPortfolio",
 		"DisassociateTrialComponent",
 		"EnableSagemakerServicecatalogPortfolio",
@@ -331,7 +315,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"StartSession",
 		"StopEdgeDeploymentStage",
 		"StopLabelingJob",
-		"UpdateClusterSoftware",
 		"UpdateDevices",
 		"UpdateFeatureMetadata":
 		return mustMarshal(m{}), true
@@ -356,17 +339,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "DescribeArtifact":
 		return mustMarshal(m{keyArtifactArn: "", "ArtifactType": ""}), true
-
-	case "DescribeCluster":
-		return mustMarshal(m{
-			keyClusterArn: "", "ClusterStatus": statusInService, "InstanceGroups": []any{},
-		}), true
-
-	case "DescribeClusterEvent":
-		return mustMarshal(m{"EventId": "", "Message": "", "Timestamp": 0}), true
-
-	case "DescribeClusterNode":
-		return mustMarshal(m{"NodeDetails": m{}}), true
 
 	case "DescribeContext":
 		return mustMarshal(m{keyContextArn: "", "ContextType": ""}), true
@@ -504,15 +476,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListCandidatesForAutoMLJob":
 		return mustMarshal(m{"Candidates": []any{}}), true
 
-	case "ListClusterEvents":
-		return mustMarshal(m{"ClusterEvents": []any{}}), true
-
-	case "ListClusterNodes":
-		return mustMarshal(m{"ClusterNodeSummaries": []any{}}), true
-
-	case "ListClusters":
-		return mustMarshal(m{"ClusterSummaries": []any{}}), true
-
 	case "ListContexts":
 		return mustMarshal(m{"ContextSummaries": []any{}}), true
 
@@ -623,9 +586,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateArtifact":
 		return mustMarshal(m{keyArtifactArn: ""}), true
-
-	case "UpdateCluster":
-		return mustMarshal(m{keyClusterArn: ""}), true
 
 	case "UpdateContext":
 		return mustMarshal(m{keyContextArn: ""}), true

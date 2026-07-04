@@ -70,6 +70,8 @@ var (
 	ErrAlgorithmAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrClusterNotFound is returned when a cluster does not exist.
 	ErrClusterNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrClusterAlreadyExists is returned when a cluster with the same name already exists.
+	ErrClusterAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrModelPackageNotFound is returned when a model package does not exist.
 	ErrModelPackageNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
 	// ErrValidation is returned for invalid input parameters.
@@ -364,6 +366,10 @@ func cloneCluster(c *Cluster) *Cluster {
 		cp.Nodes[k] = &nodeCopy
 	}
 
+	cp.InstanceGroups = make([]ClusterInstanceGroup, len(c.InstanceGroups))
+	copy(cp.InstanceGroups, c.InstanceGroups)
+	cp.Tags = maps.Clone(c.Tags)
+
 	return &cp
 }
 
@@ -375,19 +381,33 @@ type ClusterNodeVolume struct {
 
 // ClusterNode represents a node in a SageMaker cluster.
 type ClusterNode struct {
-	NodeID       string              `json:"NodeId"`
-	InstanceType string              `json:"InstanceType,omitempty"`
-	NodeStatus   string              `json:"NodeStatus"`
-	Volumes      []ClusterNodeVolume `json:"Volumes,omitempty"`
+	NodeID            string              `json:"NodeId"`
+	InstanceType      string              `json:"InstanceType,omitempty"`
+	NodeStatus        string              `json:"NodeStatus"`
+	InstanceGroupName string              `json:"InstanceGroupName,omitempty"`
+	Volumes           []ClusterNodeVolume `json:"Volumes,omitempty"`
+}
+
+// ClusterInstanceGroup represents an instance group specification/details for a
+// SageMaker HyperPod cluster (a merged view of the AWS
+// ClusterInstanceGroupSpecification and ClusterInstanceGroupDetails shapes).
+type ClusterInstanceGroup struct {
+	InstanceGroupName string `json:"InstanceGroupName"`
+	InstanceType      string `json:"InstanceType,omitempty"`
+	ExecutionRole     string `json:"ExecutionRole,omitempty"`
+	InstanceCount     int32  `json:"InstanceCount,omitempty"`
 }
 
 // Cluster represents a SageMaker HyperPod cluster.
 type Cluster struct {
-	CreationTime  time.Time               `json:"CreationTime"`
-	Nodes         map[string]*ClusterNode `json:"-"`
-	ClusterArn    string                  `json:"ClusterArn"`
-	ClusterName   string                  `json:"ClusterName"`
-	ClusterStatus string                  `json:"ClusterStatus"`
+	CreationTime   time.Time               `json:"CreationTime"`
+	Nodes          map[string]*ClusterNode `json:"-"`
+	Tags           map[string]string       `json:"Tags,omitempty"`
+	ClusterArn     string                  `json:"ClusterArn"`
+	ClusterName    string                  `json:"ClusterName"`
+	ClusterStatus  string                  `json:"ClusterStatus"`
+	NodeRecovery   string                  `json:"NodeRecovery,omitempty"`
+	InstanceGroups []ClusterInstanceGroup  `json:"InstanceGroups,omitempty"`
 }
 
 // ModelPackage represents a SageMaker model package.
@@ -1618,6 +1638,17 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *m
 		return &b.hpTuningJobsStore(region)[name].Tags
 	}
 
+	if tags := b.findTagMapIndexedExtraLocked(resourceARN, region); tags != nil {
+		return tags
+	}
+
+	return b.findTagMapStatefulLocked(resourceARN, region)
+}
+
+// findTagMapIndexedExtraLocked handles the remaining ARN-indexed resource
+// kinds (processing jobs, transform jobs, clusters). Separated from
+// findTagMapLocked to keep it within cyclomatic-complexity limits.
+func (b *InMemoryBackend) findTagMapIndexedExtraLocked(resourceARN string, region string) *map[string]string {
 	if name, ok := b.processingJobARNIndexStore(region)[resourceARN]; ok {
 		if pj, found := b.processingJobsStore(region)[name]; found {
 			return &pj.Tags
@@ -1630,7 +1661,13 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *m
 		}
 	}
 
-	return b.findTagMapStatefulLocked(resourceARN, region)
+	if name, ok := b.clusterARNIndexStore(region)[resourceARN]; ok {
+		if c, found := b.clustersStore(region)[name]; found {
+			return &c.Tags
+		}
+	}
+
+	return nil
 }
 
 // findTagMapStatefulLocked handles tag lookups for stateful resources (domains,

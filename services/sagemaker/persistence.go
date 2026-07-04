@@ -8,11 +8,14 @@ import (
 
 // persistedCluster is a serialisable version of Cluster that includes Nodes.
 type persistedCluster struct {
-	CreationTime  string                  `json:"CreationTime"`
-	Nodes         map[string]*ClusterNode `json:"Nodes"`
-	ClusterArn    string                  `json:"ClusterArn"`
-	ClusterName   string                  `json:"ClusterName"`
-	ClusterStatus string                  `json:"ClusterStatus"`
+	CreationTime   string                  `json:"CreationTime"`
+	Nodes          map[string]*ClusterNode `json:"Nodes"`
+	Tags           map[string]string       `json:"Tags,omitempty"`
+	ClusterArn     string                  `json:"ClusterArn"`
+	ClusterName    string                  `json:"ClusterName"`
+	ClusterStatus  string                  `json:"ClusterStatus"`
+	NodeRecovery   string                  `json:"NodeRecovery,omitempty"`
+	InstanceGroups []ClusterInstanceGroup  `json:"InstanceGroups,omitempty"`
 }
 
 // backendSnapshot holds the serialisable state of InMemoryBackend.
@@ -62,11 +65,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		clusters[region] = make(map[string]*persistedCluster, len(regionClusters))
 		for k, c := range regionClusters {
 			pc := &persistedCluster{
-				CreationTime:  c.CreationTime.Format("2006-01-02T15:04:05Z07:00"),
-				ClusterArn:    c.ClusterArn,
-				ClusterName:   c.ClusterName,
-				ClusterStatus: c.ClusterStatus,
-				Nodes:         make(map[string]*ClusterNode, len(c.Nodes)),
+				CreationTime:   c.CreationTime.Format("2006-01-02T15:04:05Z07:00"),
+				ClusterArn:     c.ClusterArn,
+				ClusterName:    c.ClusterName,
+				ClusterStatus:  c.ClusterStatus,
+				NodeRecovery:   c.NodeRecovery,
+				Tags:           c.Tags,
+				InstanceGroups: c.InstanceGroups,
+				Nodes:          make(map[string]*ClusterNode, len(c.Nodes)),
 			}
 			for nk, nv := range c.Nodes {
 				nodeCopy := *nv
@@ -205,11 +211,14 @@ func restoreClusters(snap *backendSnapshot) map[string]map[string]*Cluster {
 				slog.Default().Warn("sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
 			}
 			c := &Cluster{
-				ClusterArn:    pc.ClusterArn,
-				ClusterName:   pc.ClusterName,
-				ClusterStatus: pc.ClusterStatus,
-				CreationTime:  t,
-				Nodes:         make(map[string]*ClusterNode, len(pc.Nodes)),
+				ClusterArn:     pc.ClusterArn,
+				ClusterName:    pc.ClusterName,
+				ClusterStatus:  pc.ClusterStatus,
+				NodeRecovery:   pc.NodeRecovery,
+				Tags:           ensureSageTagMap(pc.Tags),
+				InstanceGroups: pc.InstanceGroups,
+				CreationTime:   t,
+				Nodes:          make(map[string]*ClusterNode, len(pc.Nodes)),
 			}
 			for nk, nv := range pc.Nodes {
 				nodeCopy := *nv

@@ -54,8 +54,12 @@ type backendSnapshot struct {
 	VpnGateways                        map[string]*VpnGateway                          `json:"vpnGateways,omitempty"`
 	CustomerGateways                   map[string]*CustomerGateway                     `json:"customerGateways"`
 	Ipams                              map[string]*Ipam                                `json:"ipams,omitempty"`
+	IpamScopes                         map[string]*IpamScope                           `json:"ipamScopes,omitempty"`
 	IpamPools                          map[string]*IpamPool                            `json:"ipamPools,omitempty"`
+	IpamPoolCidrs                      map[string][]*IpamPoolCidr                      `json:"ipamPoolCidrs,omitempty"`
 	IpamPoolAllocations                map[string]*IpamPoolAllocation                  `json:"ipamPoolAllocations"`
+	IpamResourceDiscoveries            map[string]*IpamResourceDiscovery               `json:"ipamResourceDiscoveries"`
+	IpamResourceDiscoveryAssocs        map[string]*IpamResourceDiscoveryAssociation    `json:"ipamResourceDiscoveryAssocs"`
 	CarrierGateways                    map[string]*CarrierGateway                      `json:"carrierGateways"`
 	Fleets                             map[string]*Fleet                               `json:"fleets,omitempty"`
 	NetworkInsightsPaths               map[string]*NetworkInsightsPath                 `json:"networkInsightsPaths"`
@@ -180,8 +184,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		VpnGateways:                        b.vpnGateways,
 		CustomerGateways:                   b.customerGateways,
 		Ipams:                              b.ipams,
+		IpamScopes:                         b.ipamScopes,
 		IpamPools:                          b.ipamPools,
+		IpamPoolCidrs:                      b.ipamPoolCidrs,
 		IpamPoolAllocations:                b.ipamPoolAllocations,
+		IpamResourceDiscoveries:            b.ipamResourceDiscoveries,
+		IpamResourceDiscoveryAssocs:        b.ipamResourceDiscoveryAssocs,
 		CarrierGateways:                    b.carrierGateways,
 		Fleets:                             b.fleets,
 		NetworkInsightsPaths:               b.networkInsightsPaths,
@@ -657,8 +665,12 @@ func (b *InMemoryBackend) restoreExtendedFields(snap *backendSnapshot) {
 	b.vpnGateways = snap.VpnGateways
 	b.customerGateways = snap.CustomerGateways
 	b.ipams = snap.Ipams
+	b.ipamScopes = snap.IpamScopes
 	b.ipamPools = snap.IpamPools
+	b.ipamPoolCidrs = snap.IpamPoolCidrs
 	b.ipamPoolAllocations = snap.IpamPoolAllocations
+	b.ipamResourceDiscoveries = snap.IpamResourceDiscoveries
+	b.ipamResourceDiscoveryAssocs = snap.IpamResourceDiscoveryAssocs
 	b.carrierGateways = snap.CarrierGateways
 	b.fleets = snap.Fleets
 	b.networkInsightsPaths = snap.NetworkInsightsPaths
@@ -810,8 +822,12 @@ func (s *backendSnapshot) initAppendixMaps() {
 	initMapIfNil(&s.VpnGateways)
 	initMapIfNil(&s.CustomerGateways)
 	initMapIfNil(&s.Ipams)
+	initMapIfNil(&s.IpamScopes)
 	initMapIfNil(&s.IpamPools)
+	initMapIfNil(&s.IpamPoolCidrs)
 	initMapIfNil(&s.IpamPoolAllocations)
+	initMapIfNil(&s.IpamResourceDiscoveries)
+	initMapIfNil(&s.IpamResourceDiscoveryAssocs)
 	initMapIfNil(&s.CarrierGateways)
 	initMapIfNil(&s.Fleets)
 	initMapIfNil(&s.NetworkInsightsPaths)

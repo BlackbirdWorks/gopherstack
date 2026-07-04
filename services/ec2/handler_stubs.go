@@ -68,7 +68,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateIpamPrefixListResolver"] = h.handleStubCreateIpamPrefixListResolver
 	ops["CreateIpamPrefixListResolverTarget"] = h.handleStubCreateIpamPrefixListResolverTarget
 	ops["CreateIpamResourceDiscovery"] = h.handleStubCreateIpamResourceDiscovery
-	ops["CreateIpamScope"] = h.handleStubCreateIpamScope
+	// ops["CreateIpamScope"] — moved to advancedNetworkingSupportedOperations
 	ops["CreateLocalGatewayRoute"] = h.handleStubCreateLocalGatewayRoute
 	ops["CreateLocalGatewayRouteTable"] = h.handleStubCreateLocalGatewayRouteTable
 	ops["CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] = h.handleStubCreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation //nolint:lll // existing issue.
@@ -130,7 +130,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteIpamPrefixListResolver"] = h.handleStubDeleteIpamPrefixListResolver
 	ops["DeleteIpamPrefixListResolverTarget"] = h.handleStubDeleteIpamPrefixListResolverTarget
 	ops["DeleteIpamResourceDiscovery"] = h.handleStubDeleteIpamResourceDiscovery
-	ops["DeleteIpamScope"] = h.handleStubDeleteIpamScope
+	// ops["DeleteIpamScope"] — moved to advancedNetworkingSupportedOperations
 	ops["DeleteLocalGatewayRoute"] = h.handleStubDeleteLocalGatewayRoute
 	ops["DeleteLocalGatewayRouteTable"] = h.handleStubDeleteLocalGatewayRouteTable
 	ops["DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] = h.handleStubDeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation //nolint:lll // existing issue.
@@ -175,7 +175,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteVpnGateway"] = h.handleStubDeleteVpnGateway
 	ops["DeprovisionByoipCidr"] = h.handleStubDeprovisionByoipCidr
 	ops["DeprovisionIpamByoasn"] = h.handleStubDeprovisionIpamByoasn
-	ops["DeprovisionIpamPoolCidr"] = h.handleStubDeprovisionIpamPoolCidr
+	// ops["DeprovisionIpamPoolCidr"] — moved to advancedNetworkingSupportedOperations
 	ops["DeregisterTransitGatewayMulticastGroupMembers"] = h.handleStubDeregisterTransitGatewayMulticastGroupMembers
 	ops["DeregisterTransitGatewayMulticastGroupSources"] = h.handleStubDeregisterTransitGatewayMulticastGroupSources
 	ops["DescribeAwsNetworkPerformanceMetricSubscriptions"] = h.handleStubDescribeAwsNetworkPerformanceMetricSubscriptions
@@ -222,9 +222,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeIpamPools"] = h.handleStubDescribeIpamPools
 	ops["DescribeIpamPrefixListResolverTargets"] = h.handleStubDescribeIpamPrefixListResolverTargets
 	ops["DescribeIpamPrefixListResolvers"] = h.handleStubDescribeIpamPrefixListResolvers
-	ops["DescribeIpamResourceDiscoveries"] = h.handleStubDescribeIpamResourceDiscoveries
-	ops["DescribeIpamResourceDiscoveryAssociations"] = h.handleStubDescribeIpamResourceDiscoveryAssociations
-	ops["DescribeIpamScopes"] = h.handleStubDescribeIpamScopes
+	// ops["DescribeIpamResourceDiscoveries"] — moved to advancedNetworkingSupportedOperations
+	// ops["DescribeIpamResourceDiscoveryAssociations"] — moved to advancedNetworkingSupportedOperations
+	// ops["DescribeIpamScopes"] — moved to advancedNetworkingSupportedOperations
 	ops["DescribeIpams"] = h.handleStubDescribeIpams
 	ops["DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations"] = h.handleStubDescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations //nolint:lll // existing issue.
 	ops["DescribeLocalGatewayRouteTableVpcAssociations"] = h.handleStubDescribeLocalGatewayRouteTableVpcAssociations
@@ -341,13 +341,13 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetImageAncestry"] = h.handleStubGetImageAncestry
 	ops["GetInstanceTpmEkPub"] = h.handleStubGetInstanceTpmEkPub
 	ops["GetInstanceUefiData"] = h.handleStubGetInstanceUefiData
-	ops["GetIpamAddressHistory"] = h.handleStubGetIpamAddressHistory
-	ops["GetIpamDiscoveredAccounts"] = h.handleStubGetIpamDiscoveredAccounts
-	ops["GetIpamDiscoveredPublicAddresses"] = h.handleStubGetIpamDiscoveredPublicAddresses
-	ops["GetIpamDiscoveredResourceCidrs"] = h.handleStubGetIpamDiscoveredResourceCidrs
+	// ops["GetIpamAddressHistory"] — moved to advancedNetworkingSupportedOperations
+	// ops["GetIpamDiscoveredAccounts"] — moved to advancedNetworkingSupportedOperations
+	// ops["GetIpamDiscoveredPublicAddresses"] — moved to advancedNetworkingSupportedOperations
+	// ops["GetIpamDiscoveredResourceCidrs"] — moved to advancedNetworkingSupportedOperations
 	ops["GetIpamPolicyAllocationRules"] = h.handleStubGetIpamPolicyAllocationRules
 	ops["GetIpamPolicyOrganizationTargets"] = h.handleStubGetIpamPolicyOrganizationTargets
-	ops["GetIpamPoolAllocations"] = h.handleStubGetIpamPoolAllocations
+	// ops["GetIpamPoolAllocations"] — moved to advancedNetworkingSupportedOperations
 	ops["GetIpamPoolCidrs"] = h.handleStubGetIpamPoolCidrs
 	ops["GetIpamPrefixListResolverRules"] = h.handleStubGetIpamPrefixListResolverRules
 	ops["GetIpamPrefixListResolverVersionEntries"] = h.handleStubGetIpamPrefixListResolverVersionEntries
@@ -392,14 +392,14 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyInstanceMaintenanceOptions"] = h.handleStubModifyInstanceMaintenanceOptions
 	ops["ModifyInstanceNetworkPerformanceOptions"] = h.handleStubModifyInstanceNetworkPerformanceOptions
 	ops["ModifyInstancePlacement"] = h.handleStubModifyInstancePlacement
-	ops["ModifyIpam"] = h.handleStubModifyIpam
+	// ops["ModifyIpam"] — moved to advancedNetworkingSupportedOperations
 	ops["ModifyIpamPolicyAllocationRules"] = h.handleStubModifyIpamPolicyAllocationRules
-	ops["ModifyIpamPool"] = h.handleStubModifyIpamPool
+	// ops["ModifyIpamPool"] — moved to advancedNetworkingSupportedOperations
 	ops["ModifyIpamPrefixListResolver"] = h.handleStubModifyIpamPrefixListResolver
 	ops["ModifyIpamPrefixListResolverTarget"] = h.handleStubModifyIpamPrefixListResolverTarget
 	ops["ModifyIpamResourceCidr"] = h.handleStubModifyIpamResourceCidr
 	ops["ModifyIpamResourceDiscovery"] = h.handleStubModifyIpamResourceDiscovery
-	ops["ModifyIpamScope"] = h.handleStubModifyIpamScope
+	// ops["ModifyIpamScope"] — moved to advancedNetworkingSupportedOperations
 	ops["ModifyLocalGatewayRoute"] = h.handleStubModifyLocalGatewayRoute
 	// ModifyManagedPrefixList — moved to handler_batch4.go
 	ops["ModifyPrivateDnsNameOptions"] = h.handleStubModifyPrivateDNSNameOptions
@@ -431,7 +431,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["MoveCapacityReservationInstances"] = h.handleStubMoveCapacityReservationInstances
 	ops["ProvisionByoipCidr"] = h.handleStubProvisionByoipCidr
 	ops["ProvisionIpamByoasn"] = h.handleStubProvisionIpamByoasn
-	ops["ProvisionIpamPoolCidr"] = h.handleStubProvisionIpamPoolCidr
+	// ops["ProvisionIpamPoolCidr"] — moved to advancedNetworkingSupportedOperations
 	ops["PurchaseCapacityBlock"] = h.handleStubPurchaseCapacityBlock
 	ops["PurchaseCapacityBlockExtension"] = h.handleStubPurchaseCapacityBlockExtension
 	ops["PurchaseHostReservation"] = h.handleStubPurchaseHostReservation
@@ -535,7 +535,7 @@ func stubSupportedOperations() []string {
 		"CreateIpamPrefixListResolver",
 		"CreateIpamPrefixListResolverTarget",
 		"CreateIpamResourceDiscovery",
-		"CreateIpamScope",
+		// "CreateIpamScope", — moved to advancedNetworkingSupportedOperations
 		"CreateLocalGatewayRoute",
 		"CreateLocalGatewayRouteTable",
 		"CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
@@ -597,7 +597,7 @@ func stubSupportedOperations() []string {
 		"DeleteIpamPrefixListResolver",
 		"DeleteIpamPrefixListResolverTarget",
 		"DeleteIpamResourceDiscovery",
-		"DeleteIpamScope",
+		// "DeleteIpamScope", — moved to advancedNetworkingSupportedOperations
 		"DeleteLocalGatewayRoute",
 		"DeleteLocalGatewayRouteTable",
 		"DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
@@ -642,7 +642,7 @@ func stubSupportedOperations() []string {
 		// "DeleteVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DeprovisionByoipCidr",
 		"DeprovisionIpamByoasn",
-		"DeprovisionIpamPoolCidr",
+		// "DeprovisionIpamPoolCidr", — moved to advancedNetworkingSupportedOperations
 		"DeregisterTransitGatewayMulticastGroupMembers",
 		"DeregisterTransitGatewayMulticastGroupSources",
 		"DescribeAwsNetworkPerformanceMetricSubscriptions",
@@ -689,9 +689,9 @@ func stubSupportedOperations() []string {
 		// "DescribeIpamPools", — moved to advancedNetworkingSupportedOperations
 		"DescribeIpamPrefixListResolverTargets",
 		"DescribeIpamPrefixListResolvers",
-		"DescribeIpamResourceDiscoveries",
-		"DescribeIpamResourceDiscoveryAssociations",
-		"DescribeIpamScopes",
+		// "DescribeIpamResourceDiscoveries", — moved to advancedNetworkingSupportedOperations
+		// "DescribeIpamResourceDiscoveryAssociations", — moved to advancedNetworkingSupportedOperations
+		// "DescribeIpamScopes", — moved to advancedNetworkingSupportedOperations
 		// "DescribeIpams", — moved to advancedNetworkingSupportedOperations
 		"DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations",
 		"DescribeLocalGatewayRouteTableVpcAssociations",
@@ -806,13 +806,13 @@ func stubSupportedOperations() []string {
 		"GetImageAncestry",
 		"GetInstanceTpmEkPub",
 		"GetInstanceUefiData",
-		"GetIpamAddressHistory",
-		"GetIpamDiscoveredAccounts",
-		"GetIpamDiscoveredPublicAddresses",
-		"GetIpamDiscoveredResourceCidrs",
+		// "GetIpamAddressHistory", — moved to advancedNetworkingSupportedOperations
+		// "GetIpamDiscoveredAccounts", — moved to advancedNetworkingSupportedOperations
+		// "GetIpamDiscoveredPublicAddresses", — moved to advancedNetworkingSupportedOperations
+		// "GetIpamDiscoveredResourceCidrs", — moved to advancedNetworkingSupportedOperations
 		"GetIpamPolicyAllocationRules",
 		"GetIpamPolicyOrganizationTargets",
-		"GetIpamPoolAllocations",
+		// "GetIpamPoolAllocations", — moved to advancedNetworkingSupportedOperations
 		// "GetIpamPoolCidrs", — moved to advancedNetworkingSupportedOperations
 		"GetIpamPrefixListResolverRules",
 		"GetIpamPrefixListResolverVersionEntries",
@@ -857,14 +857,14 @@ func stubSupportedOperations() []string {
 		"ModifyInstanceMaintenanceOptions",
 		"ModifyInstanceNetworkPerformanceOptions",
 		"ModifyInstancePlacement",
-		"ModifyIpam",
+		// "ModifyIpam", — moved to advancedNetworkingSupportedOperations
 		"ModifyIpamPolicyAllocationRules",
-		"ModifyIpamPool",
+		// "ModifyIpamPool", — moved to advancedNetworkingSupportedOperations
 		"ModifyIpamPrefixListResolver",
 		"ModifyIpamPrefixListResolverTarget",
 		"ModifyIpamResourceCidr",
 		"ModifyIpamResourceDiscovery",
-		"ModifyIpamScope",
+		// "ModifyIpamScope", — moved to advancedNetworkingSupportedOperations
 		"ModifyLocalGatewayRoute",
 		// "ModifyManagedPrefixList", — moved to batch4SupportedOperations
 		"ModifyPrivateDnsNameOptions",
@@ -896,7 +896,7 @@ func stubSupportedOperations() []string {
 		"MoveCapacityReservationInstances",
 		"ProvisionByoipCidr",
 		"ProvisionIpamByoasn",
-		"ProvisionIpamPoolCidr",
+		// "ProvisionIpamPoolCidr", — moved to advancedNetworkingSupportedOperations
 		"PurchaseCapacityBlock",
 		"PurchaseCapacityBlockExtension",
 		"PurchaseHostReservation",
@@ -1341,14 +1341,6 @@ func (h *Handler) handleStubCreateIpamResourceDiscovery(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubCreateIpamScope(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateIpamScopeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteResponse"},
@@ -1778,14 +1770,6 @@ func (h *Handler) handleStubDeleteIpamResourceDiscovery(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteIpamScope(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteIpamScopeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteResponse"},
@@ -2086,14 +2070,6 @@ func (h *Handler) handleStubDeprovisionByoipCidr(_ url.Values, reqID string) (an
 func (h *Handler) handleStubDeprovisionIpamByoasn(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeprovisionIpamByoasnResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeprovisionIpamPoolCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeprovisionIpamPoolCidrResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2457,36 +2433,6 @@ func (h *Handler) handleStubDescribeIpamPrefixListResolvers(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeIpamPrefixListResolversResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeIpamResourceDiscoveries(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeIpamResourceDiscoveriesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeIpamResourceDiscoveryAssociations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeIpamResourceDiscoveryAssociationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeIpamScopes(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeIpamScopesResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3471,44 +3417,6 @@ func (h *Handler) handleStubGetInstanceUefiData(_ url.Values, reqID string) (any
 	}, nil
 }
 
-func (h *Handler) handleStubGetIpamAddressHistory(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetIpamAddressHistoryResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetIpamDiscoveredAccounts(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetIpamDiscoveredAccountsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetIpamDiscoveredPublicAddresses(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetIpamDiscoveredPublicAddressesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetIpamDiscoveredResourceCidrs(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetIpamDiscoveredResourceCidrsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetIpamPolicyAllocationRules(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetIpamPolicyAllocationRulesResponse"},
@@ -3523,14 +3431,6 @@ func (h *Handler) handleStubGetIpamPolicyOrganizationTargets(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetIpamPolicyOrganizationTargetsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetIpamPoolAllocations(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetIpamPoolAllocationsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3922,28 +3822,12 @@ func (h *Handler) handleStubModifyInstancePlacement(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubModifyIpam(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyIpamResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyIpamPolicyAllocationRules(
 	_ url.Values,
 	reqID string,
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyIpamPolicyAllocationRulesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyIpamPool(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyIpamPoolResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3979,14 +3863,6 @@ func (h *Handler) handleStubModifyIpamResourceCidr(_ url.Values, reqID string) (
 func (h *Handler) handleStubModifyIpamResourceDiscovery(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyIpamResourceDiscoveryResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyIpamScope(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyIpamScopeResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4252,14 +4128,6 @@ func (h *Handler) handleStubProvisionByoipCidr(_ url.Values, reqID string) (any,
 func (h *Handler) handleStubProvisionIpamByoasn(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ProvisionIpamByoasnResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubProvisionIpamPoolCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ProvisionIpamPoolCidrResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

@@ -670,32 +670,67 @@ type Backend interface {
 
 	// ---- IPAM ----
 
-	// CreateIpam creates a new IPAM instance.
-	CreateIpam() (*Ipam, error)
+	// CreateIpam creates a new IPAM instance, along with its default scopes and resource discovery.
+	CreateIpam(opts ...IpamOptions) (*Ipam, error)
 
 	// DescribeIpams returns IPAM instances, optionally filtered by IDs.
 	DescribeIpams(ids []string) []*Ipam
 
+	// ModifyIpam updates an IPAM's description, operating regions, or tier.
+	ModifyIpam(id string, opts IpamOptions) (*Ipam, error)
+
 	// DeleteIpam removes an IPAM instance.
 	DeleteIpam(id string) error
 
+	// CreateIpamScope creates an additional (non-default) private IPAM scope.
+	CreateIpamScope(ipamID, description string) (*IpamScope, error)
+
+	// DescribeIpamScopes returns IPAM scopes, optionally filtered by IDs.
+	DescribeIpamScopes(ids []string) []*IpamScope
+
+	// ModifyIpamScope updates an IPAM scope's description.
+	ModifyIpamScope(id, description string) (*IpamScope, error)
+
+	// DeleteIpamScope removes a non-default IPAM scope.
+	DeleteIpamScope(id string) error
+
 	// CreateIpamPool creates a new IPAM pool.
-	CreateIpamPool(ipamID, addressFamily, locale, cidr string) (*IpamPool, error)
+	CreateIpamPool(ipamID, addressFamily, locale, cidr string, opts ...IpamPoolOptions) (*IpamPool, error)
 
 	// DescribeIpamPools returns IPAM pools, optionally filtered by IDs.
 	DescribeIpamPools(ids []string) []*IpamPool
 
+	// ModifyIpamPool updates mutable attributes of an IPAM pool.
+	ModifyIpamPool(id string, opts IpamPoolOptions) (*IpamPool, error)
+
 	// DeleteIpamPool removes an IPAM pool.
 	DeleteIpamPool(id string) error
 
-	// AllocateIpamPoolCidr allocates a CIDR from an IPAM pool.
-	AllocateIpamPoolCidr(poolID, cidr string, netmaskLength int) (*IpamPoolAllocation, error)
+	// ProvisionIpamPoolCidr adds a CIDR range to an IPAM pool's provisioned space.
+	ProvisionIpamPoolCidr(poolID, cidr string) (*IpamPoolCidr, error)
 
-	// GetIpamPoolCidrs returns allocations for an IPAM pool.
-	GetIpamPoolCidrs(poolID string) []*IpamPoolAllocation
+	// DeprovisionIpamPoolCidr removes a provisioned CIDR range from an IPAM pool.
+	DeprovisionIpamPoolCidr(poolID, cidr string) (*IpamPoolCidr, error)
+
+	// GetIpamPoolCidrs returns the CIDR ranges provisioned to an IPAM pool.
+	GetIpamPoolCidrs(poolID string) []*IpamPoolCidr
+
+	// AllocateIpamPoolCidr allocates a CIDR from an IPAM pool.
+	AllocateIpamPoolCidr(
+		poolID, cidr string, netmaskLength int, opts ...IpamAllocationOptions,
+	) (*IpamPoolAllocation, error)
+
+	// GetIpamPoolAllocations returns allocations for an IPAM pool, optionally filtered to one ID.
+	GetIpamPoolAllocations(poolID, allocationID string) ([]*IpamPoolAllocation, error)
 
 	// ReleaseIpamPoolAllocation releases an IPAM pool allocation.
 	ReleaseIpamPoolAllocation(poolID, allocationID string) error
+
+	// DescribeIpamResourceDiscoveries returns IPAM resource discoveries, optionally filtered by IDs.
+	DescribeIpamResourceDiscoveries(ids []string) []*IpamResourceDiscovery
+
+	// DescribeIpamResourceDiscoveryAssociations returns IPAM resource discovery associations.
+	DescribeIpamResourceDiscoveryAssociations(ids []string) []*IpamResourceDiscoveryAssociation
 
 	// ---- spot fleet ----
 

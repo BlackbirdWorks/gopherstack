@@ -237,8 +237,12 @@ type InMemoryBackend struct {
 	vpnConnections                 map[string]*VpnConnection
 	vpcEndpointServiceConfigs      map[string]*VpcEndpointServiceConfig
 	ipams                          map[string]*Ipam
+	ipamScopes                     map[string]*IpamScope
 	ipamPools                      map[string]*IpamPool
+	ipamPoolCidrs                  map[string][]*IpamPoolCidr
 	ipamPoolAllocations            map[string]*IpamPoolAllocation
+	ipamResourceDiscoveries        map[string]*IpamResourceDiscovery
+	ipamResourceDiscoveryAssocs    map[string]*IpamResourceDiscoveryAssociation
 	spotFleets                     map[string]*SpotFleetRequest
 	spotFleetHistory               map[string][]SpotFleetHistoryRecord
 	// batch1 additions
@@ -372,8 +376,12 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 		vpnConnections:                 make(map[string]*VpnConnection),
 		vpcEndpointServiceConfigs:      make(map[string]*VpcEndpointServiceConfig),
 		ipams:                          make(map[string]*Ipam),
+		ipamScopes:                     make(map[string]*IpamScope),
 		ipamPools:                      make(map[string]*IpamPool),
+		ipamPoolCidrs:                  make(map[string][]*IpamPoolCidr),
 		ipamPoolAllocations:            make(map[string]*IpamPoolAllocation),
+		ipamResourceDiscoveries:        make(map[string]*IpamResourceDiscovery),
+		ipamResourceDiscoveryAssocs:    make(map[string]*IpamResourceDiscoveryAssociation),
 		spotFleets:                     make(map[string]*SpotFleetRequest),
 		spotFleetHistory:               make(map[string][]SpotFleetHistoryRecord),
 		volumeModifications:            make(map[string]*VolumeModification),
@@ -405,27 +413,34 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 		tgwConnects:                    make(map[string]*TransitGatewayConnect),
 		tgwConnectPeers:                make(map[string]*TransitGatewayConnectPeer),
 		tgwPrefixListRefs:              make(map[string]*TransitGatewayPrefixListReference),
-		verifiedAccessEndpoints:        make(map[string]*VerifiedAccessEndpoint),
-		verifiedAccessGroups:           make(map[string]*VerifiedAccessGroup),
-		verifiedAccessInstances:        make(map[string]*VerifiedAccessInstance),
-		verifiedAccessTrustProviders:   make(map[string]*VerifiedAccessTrustProvider),
-		instanceConnectEndpoints:       make(map[string]*InstanceConnectEndpoint),
-		instanceEventWindows:           make(map[string]*InstanceEventWindow),
-		imageImportTasks:               make(map[string]*ImageImportTask),
-		snapshotImportTasks:            make(map[string]*SnapshotImportTask),
-		recycleBinImages:               make(map[string]*RecycleBinImage),
-		recycleBinSnapshots:            make(map[string]*Snapshot),
-		recycleBinVolumes:              make(map[string]*RecycleBinVolume),
-		fastLaunchImages:               make(map[string]bool),
-		fastSnapshotRestores:           make(map[string]bool),
-		vpnConnectionRoutes:            make(map[string]*VpnConnectionRoute),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),
 	}
 	initBatch5Maps(b)
+	initBatch6Maps(b)
 
 	return b
+}
+
+// initBatch6Maps initialises the verified-access, import-task, recycle-bin,
+// fast-launch and VPN-route maps (split out to keep newInMemoryBackendMaps
+// under the funlen limit).
+func initBatch6Maps(b *InMemoryBackend) {
+	b.verifiedAccessEndpoints = make(map[string]*VerifiedAccessEndpoint)
+	b.verifiedAccessGroups = make(map[string]*VerifiedAccessGroup)
+	b.verifiedAccessInstances = make(map[string]*VerifiedAccessInstance)
+	b.verifiedAccessTrustProviders = make(map[string]*VerifiedAccessTrustProvider)
+	b.instanceConnectEndpoints = make(map[string]*InstanceConnectEndpoint)
+	b.instanceEventWindows = make(map[string]*InstanceEventWindow)
+	b.imageImportTasks = make(map[string]*ImageImportTask)
+	b.snapshotImportTasks = make(map[string]*SnapshotImportTask)
+	b.recycleBinImages = make(map[string]*RecycleBinImage)
+	b.recycleBinSnapshots = make(map[string]*Snapshot)
+	b.recycleBinVolumes = make(map[string]*RecycleBinVolume)
+	b.fastLaunchImages = make(map[string]bool)
+	b.fastSnapshotRestores = make(map[string]bool)
+	b.vpnConnectionRoutes = make(map[string]*VpnConnectionRoute)
 }
 
 func initBatch5Maps(b *InMemoryBackend) {
