@@ -42,5 +42,10 @@
       "WebFetch(domain:pkg.go.dev)",
       "mcp__playwright__browser_run_code_unsafe"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "gopls",
+    "terraform",
+    "playwright"
+  ]
 }
