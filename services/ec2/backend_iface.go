@@ -1911,4 +1911,44 @@ type Backend interface {
 		localGatewayID string, localBgpAsn int32, localBgpAsnExtended int64, tags map[string]string,
 	) (*LocalGatewayVirtualInterfaceGroup, error)
 	DeleteLocalGatewayVirtualInterfaceGroup(id string) (*LocalGatewayVirtualInterfaceGroup, error)
+
+	// ---- Final EC2 parity sweep (gopherstack-5o9) ----
+
+	ModifyVerifiedAccessGroup(id, instanceID, description string) (*VerifiedAccessGroup, error)
+	ModifyVerifiedAccessInstance(id, description string) (*VerifiedAccessInstance, error)
+	ModifyVerifiedAccessTrustProvider(id, description string) (*VerifiedAccessTrustProvider, error)
+
+	EnableTransitGatewayRouteTablePropagation(
+		routeTableID, attachmentID string,
+	) (*TransitGatewayRouteTablePropagation, error)
+	DisableTransitGatewayRouteTablePropagation(
+		routeTableID, attachmentID string,
+	) (*TransitGatewayRouteTablePropagation, error)
+	DescribeTransitGatewayAttachments(ids []string) []*TransitGatewayAttachmentSummary
+
+	CreateInterruptibleCapacityReservationAllocation(
+		sourceCapacityReservationID string, instanceCount int32,
+	) (*InterruptibleCapacityReservationAllocation, error)
+	UpdateInterruptibleCapacityReservationAllocation(
+		sourceCapacityReservationID string, targetInstanceCount int32,
+	) (*InterruptibleCapacityReservationAllocation, error)
+	GetCapacityReservationUsage(id string) (*CapacityReservationUsage, error)
+	DescribeCapacityReservationTopology(ids []string) []*CapacityReservationTopologyEntry
+
+	DescribeMovingAddresses(publicIPs []string) []*MovingAddressStatus
+	MoveAddressToVpc(publicIP string) (*Address, error)
+	RejectVpcEndpointConnections(serviceID string, vpcEndpointIDs []string) ([]string, error)
+	UnassignPrivateNatGatewayAddress(natGatewayID string, privateIPs []string) (*NatGateway, error)
+
+	CancelImageLaunchPermission(imageID string) error
+	DescribeImageReferences(imageIDs []string) []*ImageReferenceEntry
+	GetImageAncestry(imageID string) ([]*ImageAncestryEntry, error)
+	GetFlowLogsIntegrationTemplate(flowLogID, s3DestinationArn string) (string, error)
+
+	GetSpotPlacementScores(
+		instanceTypes, regionNames []string, singleAZ bool,
+	) ([]*SpotPlacementScoreEntry, error)
+	SendDiagnosticInterrupt(instanceID string) error
+	EnableReachabilityAnalyzerOrganizationSharing() bool
+	DescribeElasticGpus(ids []string) []*ElasticGpuStub
 }

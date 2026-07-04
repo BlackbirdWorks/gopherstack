@@ -62,11 +62,9 @@ type TransitGatewayRouteTableAnnouncement struct {
 	State                                  string    `json:"state,omitempty"`
 }
 
-// TransitGatewayRouteTablePropagation represents an attachment enabled to
-// propagate routes into a TGW route table. No API in this batch enables
-// propagation (EnableTransitGatewayRouteTablePropagation remains unimplemented),
-// so GetTransitGatewayRouteTablePropagations always returns an empty,
-// correctly-shaped list once the parent route table is confirmed to exist.
+// TransitGatewayRouteTablePropagation represents an attachment enabled (via
+// EnableTransitGatewayRouteTablePropagation, in backend_parity_final.go) to
+// propagate routes into a TGW route table.
 type TransitGatewayRouteTablePropagation struct {
 	ResourceID                             string `json:"resourceID,omitempty"`
 	ResourceType                           string `json:"resourceType,omitempty"`
@@ -76,8 +74,7 @@ type TransitGatewayRouteTablePropagation struct {
 }
 
 // TransitGatewayAttachmentPropagation represents a route table an attachment
-// propagates routes into. See TransitGatewayRouteTablePropagation for why
-// this is always empty in the current backend.
+// propagates routes into.
 type TransitGatewayAttachmentPropagation struct {
 	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableID,omitempty"`
 	State                      string `json:"state,omitempty"`
@@ -422,8 +419,9 @@ func (b *InMemoryBackend) GetTransitGatewayRouteTableAssociations(
 }
 
 // GetTransitGatewayRouteTablePropagations validates the route table exists
-// and returns its propagations. See TransitGatewayRouteTablePropagation for
-// why this is always empty in the current backend.
+// and returns its propagations, sourced from the same state
+// EnableTransitGatewayRouteTablePropagation and
+// DisableTransitGatewayRouteTablePropagation maintain.
 func (b *InMemoryBackend) GetTransitGatewayRouteTablePropagations(
 	routeTableID string,
 ) ([]*TransitGatewayRouteTablePropagation, error) {
@@ -438,7 +436,17 @@ func (b *InMemoryBackend) GetTransitGatewayRouteTablePropagations(
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
-	return []*TransitGatewayRouteTablePropagation{}, nil
+	out := make([]*TransitGatewayRouteTablePropagation, 0, len(b.tgwRTPropagations[routeTableID]))
+	for _, prop := range b.tgwRTPropagations[routeTableID] {
+		cp := *prop
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].TransitGatewayAttachmentID < out[j].TransitGatewayAttachmentID
+	})
+
+	return out, nil
 }
 
 // transitGatewayAttachmentExistsLocked reports whether an attachment ID
@@ -461,8 +469,9 @@ func (b *InMemoryBackend) transitGatewayAttachmentExistsLocked(id string) bool {
 }
 
 // GetTransitGatewayAttachmentPropagations validates the attachment exists and
-// returns its propagations. See TransitGatewayAttachmentPropagation for why
-// this is always empty in the current backend.
+// returns its propagations, sourced from the same state
+// EnableTransitGatewayRouteTablePropagation and
+// DisableTransitGatewayRouteTablePropagation maintain.
 func (b *InMemoryBackend) GetTransitGatewayAttachmentPropagations(
 	attachmentID string,
 ) ([]*TransitGatewayAttachmentPropagation, error) {
@@ -477,7 +486,22 @@ func (b *InMemoryBackend) GetTransitGatewayAttachmentPropagations(
 		return nil, fmt.Errorf("%w: %s", ErrTGWAttachmentNotFound, attachmentID)
 	}
 
-	return []*TransitGatewayAttachmentPropagation{}, nil
+	out := make([]*TransitGatewayAttachmentPropagation, 0)
+
+	for routeTableID, inner := range b.tgwRTPropagations {
+		if prop, ok := inner[attachmentID]; ok {
+			out = append(out, &TransitGatewayAttachmentPropagation{
+				TransitGatewayRouteTableID: routeTableID,
+				State:                      prop.State,
+			})
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].TransitGatewayRouteTableID < out[j].TransitGatewayRouteTableID
+	})
+
+	return out, nil
 }
 
 // matchesTGWRouteFilters reports whether route r matches all supplied

@@ -435,24 +435,29 @@ type InMemoryBackend struct {
 	hostReservations                map[string]*HostReservation
 	declarativePoliciesReports      map[string]*DeclarativePoliciesReport
 	networkPerformanceSubscriptions map[string]*NetworkPerformanceSubscription
-	mu                              *lockmetrics.RWMutex
-	lifecycleStop                   chan struct{}
-	eniIDByAttachment               map[string]string
-	eniIDsByInstance                map[string]map[string]struct{}
-	instanceIDsByVPC                map[string]map[string]struct{}
-	snapshotBlockPublicAccess       string
-	ebsDefaultKmsKeyID              string
-	imageBlockPublicAccess          string
-	defaultCreditSpec               string
-	Region                          string `json:"region,omitempty"`
-	AccountID                       string `json:"accountID,omitempty"`
-	freePrivateIPs                  []string
-	nextPrivateIPIndex              int
-	nextElasticIPIndex              int
-	ebsEncryptionByDefault          bool
-	serialConsoleAccess             bool
-	lifecycleOnce                   sync.Once
-	lifecycleStopOnce               sync.Once
+	// gopherstack-5o9 final EC2 parity sweep additions
+	tgwRTPropagations              map[string]map[string]*TransitGatewayRouteTablePropagation
+	interruptibleCRAllocations     map[string]*InterruptibleCapacityReservationAllocation
+	movingAddresses                map[string]*MovingAddressStatus
+	mu                             *lockmetrics.RWMutex
+	lifecycleStop                  chan struct{}
+	eniIDByAttachment              map[string]string
+	eniIDsByInstance               map[string]map[string]struct{}
+	instanceIDsByVPC               map[string]map[string]struct{}
+	snapshotBlockPublicAccess      string
+	ebsDefaultKmsKeyID             string
+	imageBlockPublicAccess         string
+	defaultCreditSpec              string
+	Region                         string `json:"region,omitempty"`
+	AccountID                      string `json:"accountID,omitempty"`
+	freePrivateIPs                 []string
+	nextPrivateIPIndex             int
+	nextElasticIPIndex             int
+	ebsEncryptionByDefault         bool
+	serialConsoleAccess            bool
+	reachabilityAnalyzerOrgSharing bool
+	lifecycleOnce                  sync.Once
+	lifecycleStopOnce              sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -525,6 +530,7 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initVerifiedAccessExtMaps(b)
 	initFpgaImageMaps(b)
 	initParitySweep2Maps(b)
+	initParityFinalMaps(b)
 	b.resetIpamDiscoveryMapsLocked()
 	b.resetIpamPolicyMapsLocked()
 	b.resetScheduledInstanceMapsLocked()

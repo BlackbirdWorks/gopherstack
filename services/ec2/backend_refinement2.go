@@ -162,19 +162,7 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 	b.mu.Lock("CopyImage")
 	defer b.mu.Unlock()
 
-	var src *AMIStub
-	if existing, ok := b.images[sourceImageID]; ok {
-		src = existing
-	} else {
-		for _, a := range stubAMIs {
-			if a.ImageID == sourceImageID {
-				src = &a
-
-				break
-			}
-		}
-	}
-
+	src := b.lookupImageLocked(sourceImageID)
 	if src == nil {
 		return nil, fmt.Errorf("%w: source AMI %s not found", ErrInvalidParameter, sourceImageID)
 	}
@@ -194,6 +182,7 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 		Architecture:   src.Architecture,
 		Platform:       src.Platform,
 		RootDeviceName: src.RootDeviceName,
+		SourceImageID:  src.ImageID,
 	}
 	b.images[newImage.ImageID] = newImage
 	b.imageUsageReports[newImage.ImageID] = &ImageUsageReport{

@@ -144,6 +144,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, declarativePoliciesSupportedOperations()...)
 	extOps = append(extOps, networkPerformanceSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
+	extOps = append(extOps, parityFinalSupportedOperations()...)
 
 	return append([]string{
 		"RunInstances",
@@ -428,7 +429,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerHostReservationOps(h, ops)
 	registerDeclarativePoliciesOps(h, ops)
 	registerNetworkPerformanceOps(h, ops)
-	registerStubOpsIfAbsent(h, ops)
+	registerParityFinalOps(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
 	registerIpamDiscoveryOps(h, ops)
@@ -437,26 +438,6 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerSpotFleetOps(h, ops)
 
 	return ops
-}
-
-// registerStubOpsIfAbsent registers the stub EC2 operation handlers, but only
-// for op names that do not already have a real handler registered in ops.
-//
-// Previously registerStubOps assigned directly into the shared ops map and
-// ran after every real registerBatch*/register*Ops call, so a stub silently
-// overwrote any real handler sharing the same action name. Routing stub
-// registration through a scratch map and merging only the missing keys makes
-// stub registration order-independent: a stub can never shadow a real
-// handler, regardless of registration order.
-func registerStubOpsIfAbsent(h *Handler, ops map[string]ec2ActionFn) {
-	stubs := make(map[string]ec2ActionFn)
-	registerStubOps(h, stubs)
-
-	for name, fn := range stubs {
-		if _, exists := ops[name]; !exists {
-			ops[name] = fn
-		}
-	}
 }
 
 func (h *Handler) buildCoreOps() map[string]ec2ActionFn {
@@ -1330,6 +1311,11 @@ var errCodeLookup = []struct {
 	{ErrSecondarySubnetNotFound, "InvalidSecondarySubnetID.NotFound"},
 	{ErrSecondaryNetworkHasSubnets, "DependencyViolation"},
 	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
+	{ErrCapacityReservationFull, "CapacityReservationFull"},
+	{ErrFlowLogNotFound, "InvalidFlowLogId.NotFound"},
+	{ErrTGWPropagationNotFound, "InvalidTransitGatewayRouteTablePropagation.NotFound"},
+	{ErrInterruptibleAllocationNotFound, "InvalidCapacityReservationId.NotFound"},
+	{ErrPublicIPNotFound, "InvalidAddress.NotFound"},
 	{ErrInvalidParameter, errCodeInvalidParameterValue},
 }
 

@@ -1284,18 +1284,23 @@ func (h *Handler) handleDisassociateRouteTable(vals url.Values, reqID string) (a
 }
 
 func toNatGatewayItem(ngw *NatGateway) natGatewayItem {
+	items := make([]natGatewayAddressItem, 0, 1+len(ngw.SecondaryPrivateIPs))
+	items = append(items, natGatewayAddressItem{
+		AllocationID: ngw.AllocationID,
+		PublicIP:     ngw.PublicIP,
+		PrivateIP:    ngw.PrivateIP,
+	})
+
+	for _, ip := range ngw.SecondaryPrivateIPs {
+		items = append(items, natGatewayAddressItem{PrivateIP: ip})
+	}
+
 	return natGatewayItem{
-		NatGatewayID: ngw.ID,
-		SubnetID:     ngw.SubnetID,
-		State:        ngw.State,
-		CreateTime:   ngw.CreateTime.Format("2006-01-02T15:04:05.000Z"),
-		NatGatewayAddresses: natGatewayAddressSet{Items: []natGatewayAddressItem{
-			{
-				AllocationID: ngw.AllocationID,
-				PublicIP:     ngw.PublicIP,
-				PrivateIP:    ngw.PrivateIP,
-			},
-		}},
+		NatGatewayID:        ngw.ID,
+		SubnetID:            ngw.SubnetID,
+		State:               ngw.State,
+		CreateTime:          ngw.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		NatGatewayAddresses: natGatewayAddressSet{Items: items},
 	}
 }
 

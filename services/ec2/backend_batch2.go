@@ -578,18 +578,23 @@ func (b *InMemoryBackend) AssociateNatGatewayAddress(natGatewayID, _ string) err
 	return nil
 }
 
-// AssignPrivateNatGatewayAddress assigns a private IP to a NAT gateway.
+// AssignPrivateNatGatewayAddress assigns a new secondary private IP to a NAT
+// gateway, appending it to the gateway's real address state. See
+// UnassignPrivateNatGatewayAddress (backend_parity_final.go) for the inverse.
 func (b *InMemoryBackend) AssignPrivateNatGatewayAddress(natGatewayID string) error {
 	if natGatewayID == "" {
 		return fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("AssignPrivateNatGatewayAddress")
-	defer b.mu.RUnlock()
+	b.mu.Lock("AssignPrivateNatGatewayAddress")
+	defer b.mu.Unlock()
 
-	if _, ok := b.natGateways[natGatewayID]; !ok {
+	ngw, ok := b.natGateways[natGatewayID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, natGatewayID)
 	}
+
+	ngw.SecondaryPrivateIPs = append(ngw.SecondaryPrivateIPs, b.allocPrivateIP())
 
 	return nil
 }

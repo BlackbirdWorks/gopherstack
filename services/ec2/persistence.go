@@ -38,6 +38,12 @@ type snapClassicLinkInstance = ClassicLinkInstance
 // snapIpamVerifyToken is a type alias used in backendSnapshot to keep line lengths manageable.
 type snapIpamVerifyToken = IpamExternalResourceVerificationToken
 
+// snapTGWRTProp is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapTGWRTProp = TransitGatewayRouteTablePropagation
+
+// snapInterruptibleCRAlloc is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapInterruptibleCRAlloc = InterruptibleCapacityReservationAllocation
+
 type backendSnapshot struct {
 	SnapshotAttributes             map[string]map[string]string                    `json:"snapshotAttributes"`
 	ImageDeprecated                map[string]string                               `json:"imageDeprecated"`
@@ -105,47 +111,55 @@ type backendSnapshot struct {
 	TgwPolicyTableAssociations map[string]*TransitGatewayPolicyTableAssociation `json:"tgwPTAssocs,omitempty"`
 	TgwRouteTableAnnouncements map[string]*TransitGatewayRouteTableAnnouncement `json:"tgwRTAnn,omitempty"`
 
-	ReservedInstancesModifications     map[string]*ReservedInstancesModification      `json:"rim"`
-	ReservedInstancesListings          map[string]*ReservedInstancesListing           `json:"reservedInstancesListings"`
-	VpcCidrAssociations                map[string]*VpcCidrBlockAssociation            `json:"vpcCidrAssociations"`
-	VpnConnections                     map[string]*VpnConnection                      `json:"vpnConnections"`
-	VpcEndpointServiceConfigs          map[string]*VpcEndpointServiceConfig           `json:"vpcEndpointServiceConfigs"`
-	SpotFleets                         map[string]*SpotFleetRequest                   `json:"spotFleets,omitempty"`
-	SpotFleetHistory                   map[string][]SpotFleetHistoryRecord            `json:"spotFleetHistory"`
-	VolumeModifications                map[string]*VolumeModification                 `json:"volumeModifications"`
-	SnapshotTiers                      map[string]string                              `json:"snapshotTiers,omitempty"`
-	NetworkInterfaces                  map[string]*NetworkInterface                   `json:"networkInterfaces"`
-	RouteTables                        map[string]*RouteTable                         `json:"routeTables,omitempty"`
-	TrafficMirrorFilters               map[string]*TrafficMirrorFilter                `json:"trafficMirrorFilters"`
-	VpcPeeringOptions                  map[string]*PeeringConnectionOptions           `json:"vpcPeeringOptions"`
-	SubnetCIDRAssociations             map[string][]*SubnetCIDRAssociation            `json:"subnetCIDRAssociations"`
-	AddressAttributes                  map[string]*AddressAttribute                   `json:"addressAttributes"`
-	InstanceMonitoring                 map[string]string                              `json:"instanceMonitoring"`
-	InstanceCreditSpecs                map[string]string                              `json:"instanceCreditSpecs"`
-	InstanceIMDSOptions                map[string]*IMDSOptions                        `json:"instanceIMDSOptions"`
-	InstanceMetadataDefaults           *InstanceMetadataDefaults                      `json:"instanceMetadataDefaults"`
-	InstanceEventNotifAttrs            *InstanceEventNotificationAttributes           `json:"instanceEventNotifAttrs"`
-	NiPermissions                      map[string]*NetworkInterfacePermission         `json:"niPermissions,omitempty"`
-	NiIPv6Addresses                    map[string][]string                            `json:"niIPv6Addresses"`
-	IDFormatSettings                   map[string]bool                                `json:"idFormatSettings"`
-	EndpointConnectionNotifs           map[string]*VpcEndpointConnectionNotification  `json:"endpointConnectionNotifs"`
-	VpcEndpointServicePermissions      map[string][]string                            `json:"vpcEpSvcPerms"`
-	SnapshotLocks                      map[string]*SnapshotLock                       `json:"snapshotLocks,omitempty"`
-	ReplaceRootVolumeTasks             map[string]*ReplaceRootVolumeTask              `json:"replaceRootVolumeTasks"`
-	SubnetCIDRReservations             map[string][]*SubnetCIDRReservation            `json:"subnetCIDRReservations"`
-	ImageDisabled                      map[string]bool                                `json:"imageDisabled,omitempty"`
-	SgVpcAssociations                  map[string]map[string]string                   `json:"sgVpcAssociations"`
-	ImageDeregistrationProtection      map[string]bool                                `json:"imageDeregProtect"`
-	ImageAttributes                    map[string]map[string]string                   `json:"imageAttributes"`
-	VgwRoutePropagation                map[string]bool                                `json:"vgwRoutePropagation"`
-	ClientVpnEndpoints                 map[string]*ClientVpnEndpoint                  `json:"clientVpnEndpoints"`
-	TgwConnects                        map[string]*TransitGatewayConnect              `json:"tgwConnects,omitempty"`
-	TgwConnectPeers                    map[string]*TransitGatewayConnectPeer          `json:"tgwConnectPeers"`
-	TgwPrefixListRefs                  map[string]*TransitGatewayPrefixListReference  `json:"tgwPrefixListRefs"`
-	VerifiedAccessEndpoints            map[string]*VerifiedAccessEndpoint             `json:"verifiedAccessEndpoints"`
-	VerifiedAccessGroups               map[string]*VerifiedAccessGroup                `json:"verifiedAccessGroups"`
-	VerifiedAccessInstances            map[string]*VerifiedAccessInstance             `json:"verifiedAccessInstances"`
-	VerifiedAccessTrustProviders       map[string]*VerifiedAccessTrustProvider        `json:"vatps"`
+	ReservedInstancesModifications map[string]*ReservedInstancesModification     `json:"rim"`
+	ReservedInstancesListings      map[string]*ReservedInstancesListing          `json:"reservedInstancesListings"`
+	VpcCidrAssociations            map[string]*VpcCidrBlockAssociation           `json:"vpcCidrAssociations"`
+	VpnConnections                 map[string]*VpnConnection                     `json:"vpnConnections"`
+	VpcEndpointServiceConfigs      map[string]*VpcEndpointServiceConfig          `json:"vpcEndpointServiceConfigs"`
+	SpotFleets                     map[string]*SpotFleetRequest                  `json:"spotFleets,omitempty"`
+	SpotFleetHistory               map[string][]SpotFleetHistoryRecord           `json:"spotFleetHistory"`
+	VolumeModifications            map[string]*VolumeModification                `json:"volumeModifications"`
+	SnapshotTiers                  map[string]string                             `json:"snapshotTiers,omitempty"`
+	NetworkInterfaces              map[string]*NetworkInterface                  `json:"networkInterfaces"`
+	RouteTables                    map[string]*RouteTable                        `json:"routeTables,omitempty"`
+	TrafficMirrorFilters           map[string]*TrafficMirrorFilter               `json:"trafficMirrorFilters"`
+	VpcPeeringOptions              map[string]*PeeringConnectionOptions          `json:"vpcPeeringOptions"`
+	SubnetCIDRAssociations         map[string][]*SubnetCIDRAssociation           `json:"subnetCIDRAssociations"`
+	AddressAttributes              map[string]*AddressAttribute                  `json:"addressAttributes"`
+	InstanceMonitoring             map[string]string                             `json:"instanceMonitoring"`
+	InstanceCreditSpecs            map[string]string                             `json:"instanceCreditSpecs"`
+	InstanceIMDSOptions            map[string]*IMDSOptions                       `json:"instanceIMDSOptions"`
+	InstanceMetadataDefaults       *InstanceMetadataDefaults                     `json:"instanceMetadataDefaults"`
+	InstanceEventNotifAttrs        *InstanceEventNotificationAttributes          `json:"instanceEventNotifAttrs"`
+	NiPermissions                  map[string]*NetworkInterfacePermission        `json:"niPermissions,omitempty"`
+	NiIPv6Addresses                map[string][]string                           `json:"niIPv6Addresses"`
+	IDFormatSettings               map[string]bool                               `json:"idFormatSettings"`
+	EndpointConnectionNotifs       map[string]*VpcEndpointConnectionNotification `json:"endpointConnectionNotifs"`
+	VpcEndpointServicePermissions  map[string][]string                           `json:"vpcEpSvcPerms"`
+	SnapshotLocks                  map[string]*SnapshotLock                      `json:"snapshotLocks,omitempty"`
+	ReplaceRootVolumeTasks         map[string]*ReplaceRootVolumeTask             `json:"replaceRootVolumeTasks"`
+	SubnetCIDRReservations         map[string][]*SubnetCIDRReservation           `json:"subnetCIDRReservations"`
+	ImageDisabled                  map[string]bool                               `json:"imageDisabled,omitempty"`
+	SgVpcAssociations              map[string]map[string]string                  `json:"sgVpcAssociations"`
+	ImageDeregistrationProtection  map[string]bool                               `json:"imageDeregProtect"`
+	ImageAttributes                map[string]map[string]string                  `json:"imageAttributes"`
+	VgwRoutePropagation            map[string]bool                               `json:"vgwRoutePropagation"`
+	ClientVpnEndpoints             map[string]*ClientVpnEndpoint                 `json:"clientVpnEndpoints"`
+	TgwConnects                    map[string]*TransitGatewayConnect             `json:"tgwConnects,omitempty"`
+	TgwConnectPeers                map[string]*TransitGatewayConnectPeer         `json:"tgwConnectPeers"`
+	TgwPrefixListRefs              map[string]*TransitGatewayPrefixListReference `json:"tgwPrefixListRefs"`
+	VerifiedAccessEndpoints        map[string]*VerifiedAccessEndpoint            `json:"verifiedAccessEndpoints"`
+	VerifiedAccessGroups           map[string]*VerifiedAccessGroup               `json:"verifiedAccessGroups"`
+	VerifiedAccessInstances        map[string]*VerifiedAccessInstance            `json:"verifiedAccessInstances"`
+	VerifiedAccessTrustProviders   map[string]*VerifiedAccessTrustProvider       `json:"vatps"`
+
+	// gopherstack-5o9 final EC2 parity sweep additions (kept in their own
+	// alignment block so their longer field names don't widen gofmt's column
+	// alignment for the rest of this struct).
+	TgwRTPropagations          map[string]map[string]*snapTGWRTProp `json:"tgwRTPropagations,omitempty"`
+	InterruptibleCRAllocations map[string]*snapInterruptibleCRAlloc `json:"interruptibleCRAllocations,omitempty"`
+	MovingAddresses            map[string]*MovingAddressStatus      `json:"movingAddresses,omitempty"`
+
 	InstanceConnectEndpoints           map[string]*InstanceConnectEndpoint            `json:"instanceConnectEndpoints"`
 	InstanceEventWindows               map[string]*InstanceEventWindow                `json:"instanceEventWindows"`
 	ImageImportTasks                   map[string]*ImageImportTask                    `json:"imageImportTasks"`
@@ -257,6 +271,8 @@ type backendSnapshot struct {
 	NextElasticIPIndex     int      `json:"nextElasticIPIndex"`
 	EbsEncryptionByDefault bool     `json:"ebsEncryptionByDefault"`
 	SerialConsoleAccess    bool     `json:"serialConsoleAccess"`
+	// gopherstack-5o9 final EC2 parity sweep addition.
+	ReachabilityAnalyzerOrgSharing bool `json:"reachabilityAnalyzerOrgSharing,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -462,6 +478,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		HostReservations:                   b.hostReservations,
 		DeclarativePoliciesReports:         b.declarativePoliciesReports,
 		NetworkPerformanceSubscriptions:    b.networkPerformanceSubscriptions,
+		TgwRTPropagations:                  b.tgwRTPropagations,
+		InterruptibleCRAllocations:         b.interruptibleCRAllocations,
+		MovingAddresses:                    b.movingAddresses,
+		ReachabilityAnalyzerOrgSharing:     b.reachabilityAnalyzerOrgSharing,
 	}
 
 	data, err := json.Marshal(snap)
@@ -854,8 +874,36 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.restoreCapacityFamilyFields(&snap)
 	b.restoreNewFamilyFields(&snap)
 	b.restoreParitySweep2Fields(&snap)
+	b.restoreParityFinalFields(&snap)
 
 	return nil
+}
+
+// restoreParityFinalFields copies the final EC2 parity sweep
+// (gopherstack-5o9) state — TGW route table propagations, interruptible
+// Capacity Reservation allocations, moving-address status, and the
+// Reachability Analyzer organization-sharing flag — from snap into b. Must be
+// called with b.mu held for writing.
+func (b *InMemoryBackend) restoreParityFinalFields(snap *backendSnapshot) {
+	if snap.TgwRTPropagations != nil {
+		b.tgwRTPropagations = snap.TgwRTPropagations
+	} else {
+		b.tgwRTPropagations = make(map[string]map[string]*TransitGatewayRouteTablePropagation)
+	}
+
+	if snap.InterruptibleCRAllocations != nil {
+		b.interruptibleCRAllocations = snap.InterruptibleCRAllocations
+	} else {
+		b.interruptibleCRAllocations = make(map[string]*InterruptibleCapacityReservationAllocation)
+	}
+
+	if snap.MovingAddresses != nil {
+		b.movingAddresses = snap.MovingAddresses
+	} else {
+		b.movingAddresses = make(map[string]*MovingAddressStatus)
+	}
+
+	b.reachabilityAnalyzerOrgSharing = snap.ReachabilityAnalyzerOrgSharing
 }
 
 // restoreParitySweep2Fields copies the VPC Encryption Control, VPN Concentrator,

@@ -2,7 +2,6 @@ package ec2
 
 import (
 	"encoding/xml"
-	"net/url"
 )
 
 // stubResponse is a minimal success response for stub EC2 operations. XMLName deliberately
@@ -16,480 +15,6 @@ type stubResponse struct {
 	Return    bool   `xml:"return"`
 }
 
-// registerStubOps is a large op-name-to-handler assignment table (mostly comments
-// documenting where each op moved to a real handler, interspersed with the few
-// remaining genuine stubs). Its shape incidentally overlaps with other large
-// registration tables in this package (e.g. registerTGWPeripheralsOps), which are
-// unrelated in content; the two are not duplicated logic.
-//
-//nolint:dupl // large op-registration/comment table, incidental structural overlap
-func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
-	// ops["AllocateIpamPoolCidr"] — real handler in handler_advanced_networking.go, covered there
-	// ApplySecurityGroupsToClientVpnTargetNetwork — moved to handler_batch4.go
-	// AssociateCapacityReservationBillingOwner — moved to handler_capacity_family.go
-	// AssociateClientVpnTargetNetwork — moved to handler_batch4.go
-	// AssociateEnclaveCertificateIamRole — moved to trunkEnclaveSupportedOperations
-	// AssociateIamInstanceProfile — moved to handler_ec2core.go
-	// AssociateInstanceEventWindow — moved to instanceAttrSupportedOperations
-	// ops["AssociateIpamByoasn"] — moved to ipamDiscoverySupportedOperations
-	// ops["AssociateIpamResourceDiscovery"] — moved to ipamDiscoverySupportedOperations
-	// AssociateRouteServer — real handler in handler_route_server.go, covered there
-	// AssociateTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
-	// AssociateTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
-	// AssociateTransitGatewayRouteTable — moved to handler_ec2core.go
-	// AssociateTrunkInterface — moved to trunkEnclaveSupportedOperations
-	// AssociateVpcCidrBlock — moved to handler_ec2core.go
-	// AttachClassicLinkVpc — moved to handler_vpc_config.go
-	// AttachVerifiedAccessTrustProvider — moved to handler_batch4.go
-	// AttachVpnGateway — moved to advancedNetworkingSupportedOperations
-	// AuthorizeClientVpnIngress — moved to handler_batch4.go
-	// BundleInstance — moved to vmImportExportSupportedOperations
-	// CancelBundleTask — moved to vmImportExportSupportedOperations
-	// CancelCapacityReservationFleets — moved to handler_capacity_family.go
-	// CancelConversionTask — moved to vmImportExportSupportedOperations
-	// CancelDeclarativePoliciesReport — real handler in handler_declarative_policies.go, covered there
-	// CancelExportTask — moved to vmImportExportSupportedOperations
-	ops["CancelImageLaunchPermission"] = h.handleStubCancelImageLaunchPermission
-	// CancelImportTask — moved to vmImportExportSupportedOperations
-	// CancelReservedInstancesListing — real handler in handler_batch5.go, covered there
-	// CancelSpotFleetRequests — spot fleet handler in handler_spot_fleet.go, covered there
-	// ConfirmProductInstance — moved to imageOpsSupportedOperations()
-	// CopyFpgaImage — moved to handler_fpga_image.go
-	// CreateCapacityManagerDataExport — moved to handler_capacity_family.go
-	// CreateCapacityReservationBySplitting — moved to handler_capacity_family.go
-	// CreateCapacityReservationFleet — moved to handler_capacity_family.go
-	// CreateCarrierGateway — real handler in handler_batch5.go, covered there
-	// CreateClientVpnEndpoint — moved to handler_batch4.go
-	// CreateClientVpnRoute — moved to handler_batch4.go
-	// CreateCoipCidr — moved to ipPoolSupportedOperations()
-	// CreateCoipPool — moved to ipPoolSupportedOperations()
-	// CreateCustomerGateway — moved to advancedNetworkingSupportedOperations
-	// CreateDelegateMacVolumeOwnershipTask — moved to macHostSupportedOperations
-	// CreateEgressOnlyInternetGateway — moved to handler_ec2core.go
-	// CreateFleet — real handler in handler_batch5.go, covered there
-	// CreateFpgaImage — moved to handler_fpga_image.go
-	// CreateImageUsageReport — moved to imageOpsSupportedOperations()
-	// CreateInstanceExportTask — moved to vmImportExportSupportedOperations
-	ops["CreateInterruptibleCapacityReservationAllocation"] = h.handleStubCreateInterruptibleCapacityReservationAllocation
-	// ops["CreateIpam"] — real handler in handler_advanced_networking.go, covered there
-	// ops["CreateIpamExternalResourceVerificationToken"] — moved to ipamDiscoverySupportedOperations
-	// ops["CreateIpamPolicy"] — moved to ipamPolicySupportedOperations
-	// ops["CreateIpamPool"] — real handler in handler_advanced_networking.go, covered there
-	// ops["CreateIpamPrefixListResolver"] — moved to ipamDiscoverySupportedOperations
-	// ops["CreateIpamPrefixListResolverTarget"] — moved to ipamDiscoverySupportedOperations
-	// ops["CreateIpamResourceDiscovery"] — moved to ipamDiscoverySupportedOperations
-	// ops["CreateIpamScope"] — moved to advancedNetworkingSupportedOperations
-	// CreateLocalGatewayRoute — real handler in handler_local_gateway.go
-	// CreateLocalGatewayRouteTable — real handler in handler_local_gateway.go
-	// CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation — real handler in handler_local_gateway.go
-	// CreateLocalGatewayRouteTableVpcAssociation — real handler in handler_local_gateway.go
-	// CreateLocalGatewayVirtualInterface — real handler in handler_local_gateway.go, covered there
-	// CreateLocalGatewayVirtualInterfaceGroup — real handler in handler_local_gateway.go, covered there
-	// CreateMacSystemIntegrityProtectionModificationTask — moved to macHostSupportedOperations
-	// CreateManagedPrefixList — moved to handler_batch4.go
-	// CreateNetworkInsightsAccessScope — real handler in handler_batch5.go, covered there
-	// CreateNetworkInsightsPath — real handler in handler_batch5.go, covered there
-	// CreateReservedInstancesListing — real handler in handler_batch5.go, covered there
-	// CreateRestoreImageTask — moved to imageOpsSupportedOperations()
-	// CreateRouteServer — real handler in handler_route_server.go, covered there
-	// CreateRouteServerEndpoint — real handler in handler_route_server.go, covered there
-	// CreateRouteServerPeer — real handler in handler_route_server.go, covered there
-	// CreateSecondaryNetwork — moved to secondaryNetSupportedOperations
-	// CreateSecondarySubnet — moved to secondaryNetSupportedOperations
-	// CreateStoreImageTask — moved to imageOpsSupportedOperations()
-	// CreateTrafficMirrorFilter — moved to handler_batch5.go
-	// CreateTrafficMirrorFilterRule — moved to handler_batch5.go
-	// CreateTrafficMirrorSession — moved to handler_batch5.go
-	// CreateTrafficMirrorTarget — moved to handler_batch5.go
-	// CreateTransitGatewayConnect — moved to handler_batch4.go
-	// CreateTransitGatewayConnectPeer — moved to handler_batch4.go
-	// CreateTransitGatewayMeteringPolicy — moved to handler_tgw_multicast.go
-	// CreateTransitGatewayMeteringPolicyEntry — moved to handler_tgw_multicast.go
-	// CreateTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
-	// CreateTransitGatewayPeeringAttachment — moved to handler_batch4.go
-	// CreateTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
-	// CreateTransitGatewayPrefixListReference — moved to handler_batch4.go
-	// CreateTransitGatewayRoute — moved to handler_ec2core.go
-	// CreateTransitGatewayRouteTable — moved to handler_ec2core.go
-	// CreateTransitGatewayRouteTableAnnouncement — moved to handler_tgw_peripherals.go
-	// CreateVerifiedAccessEndpoint — moved to handler_batch4.go
-	// CreateVerifiedAccessGroup — moved to handler_batch4.go
-	// CreateVerifiedAccessInstance — moved to handler_batch4.go
-	// CreateVerifiedAccessTrustProvider — moved to handler_batch4.go
-	// CreateVpcBlockPublicAccessExclusion — moved to handler_vpc_config.go
-	// CreateVpcEncryptionControl — real handler in handler_vpc_encryption_control.go, covered there
-	// CreateVpcEndpointServiceConfiguration — real handler in handler_advanced_networking.go, covered there
-	// CreateVpnConcentrator — real handler in handler_vpn_concentrator.go, covered there
-	// CreateVpnConnection — moved to advancedNetworkingSupportedOperations
-	// CreateVpnGateway — moved to advancedNetworkingSupportedOperations
-	// DeleteCapacityManagerDataExport — moved to handler_capacity_family.go
-	// DeleteCarrierGateway — real handler in handler_batch5.go, covered there
-	// DeleteClientVpnEndpoint — moved to handler_batch4.go
-	// DeleteClientVpnRoute — moved to handler_batch4.go
-	// DeleteCoipCidr — moved to ipPoolSupportedOperations()
-	// DeleteCoipPool — moved to ipPoolSupportedOperations()
-	// DeleteCustomerGateway — moved to advancedNetworkingSupportedOperations
-	// DeleteEgressOnlyInternetGateway — moved to handler_ec2core.go
-	// DeleteFleets — real handler in handler_batch5.go, covered there
-	// DeleteFpgaImage — moved to handler_fpga_image.go
-	// DeleteImageUsageReport — moved to imageOpsSupportedOperations()
-	// ops["DeleteIpam"] — real handler in handler_advanced_networking.go, covered there
-	// ops["DeleteIpamExternalResourceVerificationToken"] — moved to ipamDiscoverySupportedOperations
-	// ops["DeleteIpamPolicy"] — moved to ipamPolicySupportedOperations
-	// ops["DeleteIpamPool"] — real handler in handler_advanced_networking.go, covered there
-	// ops["DeleteIpamPrefixListResolver"] — moved to ipamDiscoverySupportedOperations
-	// ops["DeleteIpamPrefixListResolverTarget"] — moved to ipamDiscoverySupportedOperations
-	// ops["DeleteIpamResourceDiscovery"] — moved to ipamDiscoverySupportedOperations
-	// ops["DeleteIpamScope"] — moved to advancedNetworkingSupportedOperations
-	// DeleteLocalGatewayRoute — real handler in handler_local_gateway.go
-	// DeleteLocalGatewayRouteTable — real handler in handler_local_gateway.go
-	// DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation — real handler in handler_local_gateway.go
-	// DeleteLocalGatewayRouteTableVpcAssociation — real handler in handler_local_gateway.go
-	// DeleteLocalGatewayVirtualInterface — real handler in handler_local_gateway.go, covered there
-	// DeleteLocalGatewayVirtualInterfaceGroup — real handler in handler_local_gateway.go, covered there
-	// DeleteManagedPrefixList — moved to handler_batch4.go
-	// DeleteNetworkInsightsAccessScope — real handler in handler_batch5.go, covered there
-	// DeleteNetworkInsightsAccessScopeAnalysis — real handler in handler_batch5.go, covered there
-	// DeleteNetworkInsightsAnalysis — real handler in handler_batch5.go, covered there
-	// DeleteNetworkInsightsPath — real handler in handler_batch5.go, covered there
-	// DeleteQueuedReservedInstances — real handler in handler_batch5.go, covered there
-	// DeleteRouteServer — real handler in handler_route_server.go, covered there
-	// DeleteRouteServerEndpoint — real handler in handler_route_server.go, covered there
-	// DeleteRouteServerPeer — real handler in handler_route_server.go, covered there
-	// DeleteSecondaryNetwork — moved to secondaryNetSupportedOperations
-	// DeleteSecondarySubnet — moved to secondaryNetSupportedOperations
-	// DeleteTrafficMirrorFilter — moved to handler_batch5.go
-	// DeleteTrafficMirrorFilterRule — moved to handler_batch5.go
-	// DeleteTrafficMirrorSession — moved to handler_batch5.go
-	// DeleteTrafficMirrorTarget — moved to handler_batch5.go
-	// DeleteTransitGatewayConnect — moved to handler_batch4.go
-	// DeleteTransitGatewayConnectPeer — moved to handler_batch4.go
-	// DeleteTransitGatewayMeteringPolicy — moved to handler_tgw_multicast.go
-	// DeleteTransitGatewayMeteringPolicyEntry — moved to handler_tgw_multicast.go
-	// DeleteTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
-	// DeleteTransitGatewayPeeringAttachment — moved to handler_batch4.go
-	// DeleteTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
-	// DeleteTransitGatewayPrefixListReference — moved to handler_batch4.go
-	// DeleteTransitGatewayRoute — moved to handler_ec2core.go
-	// DeleteTransitGatewayRouteTable — moved to handler_ec2core.go
-	// DeleteTransitGatewayRouteTableAnnouncement — moved to handler_tgw_peripherals.go
-	// DeleteVerifiedAccessEndpoint — moved to handler_batch4.go
-	// DeleteVerifiedAccessGroup — moved to handler_batch4.go
-	// DeleteVerifiedAccessInstance — moved to handler_batch4.go
-	// DeleteVerifiedAccessTrustProvider — moved to handler_batch4.go
-	// DeleteVpcBlockPublicAccessExclusion — moved to handler_vpc_config.go
-	// DeleteVpcEncryptionControl — real handler in handler_vpc_encryption_control.go, covered there
-	// DeleteVpcEndpointServiceConfigurations — real handler in handler_advanced_networking.go, covered there
-	// DeleteVpnConcentrator — real handler in handler_vpn_concentrator.go, covered there
-	// DeleteVpnConnection — moved to advancedNetworkingSupportedOperations
-	// DeleteVpnGateway — moved to advancedNetworkingSupportedOperations
-	// DeprovisionByoipCidr — real handler in handler_batch5.go, covered there
-	// ops["DeprovisionIpamByoasn"] — moved to ipamDiscoverySupportedOperations
-	// ops["DeprovisionIpamPoolCidr"] — moved to advancedNetworkingSupportedOperations
-	// DeregisterTransitGatewayMulticastGroupMembers — moved to handler_tgw_multicast.go
-	// DeregisterTransitGatewayMulticastGroupSources — moved to handler_tgw_multicast.go
-	// DescribeAwsNetworkPerformanceMetricSubscriptions — real handler in handler_network_performance.go, covered there
-	// DescribeBundleTasks — moved to vmImportExportSupportedOperations
-	// DescribeCapacityBlockExtensionHistory — moved to handler_capacity_family.go
-	// DescribeCapacityBlockExtensionOfferings — moved to handler_capacity_family.go
-	// DescribeCapacityBlockOfferings — moved to handler_capacity_family.go
-	// DescribeCapacityBlockStatus — moved to handler_capacity_family.go
-	// DescribeCapacityBlocks — moved to handler_capacity_family.go
-	// DescribeCapacityManagerDataExports — moved to handler_capacity_family.go
-	// DescribeCapacityReservationBillingRequests — moved to handler_capacity_family.go
-	// DescribeCapacityReservationFleets — moved to handler_capacity_family.go
-	ops["DescribeCapacityReservationTopology"] = h.handleStubDescribeCapacityReservationTopology
-	// DescribeCarrierGateways — real handler in handler_batch5.go, covered there
-	// DescribeClassicLinkInstances — moved to handler_vpc_config.go
-	// DescribeClientVpnAuthorizationRules — moved to handler_batch4.go
-	// DescribeClientVpnConnections — moved to handler_batch4.go
-	// DescribeClientVpnEndpoints — moved to handler_batch4.go
-	// DescribeClientVpnRoutes — moved to handler_batch4.go
-	// DescribeClientVpnTargetNetworks — moved to handler_batch4.go
-	// DescribeCoipPools — moved to ipPoolSupportedOperations()
-	// DescribeConversionTasks — moved to vmImportExportSupportedOperations
-	// DescribeCustomerGateways — moved to advancedNetworkingSupportedOperations
-	// DescribeDeclarativePoliciesReports — real handler in handler_declarative_policies.go, covered there
-	// DescribeEgressOnlyInternetGateways — moved to handler_ec2core.go
-	ops["DescribeElasticGpus"] = h.handleStubDescribeElasticGpus
-	// DescribeExportImageTasks — moved to batch3SupportedOperations
-	// DescribeExportTasks — moved to vmImportExportSupportedOperations
-	// DescribeFleetHistory — real handler in handler_batch5.go, covered there
-	// DescribeFleetInstances — real handler in handler_batch5.go, covered there
-	// DescribeFleets — real handler in handler_batch5.go, covered there
-	// DescribeFpgaImageAttribute — moved to handler_fpga_image.go
-	// DescribeFpgaImages — moved to handler_fpga_image.go
-	// DescribeHostReservationOfferings — real handler in handler_host_reservations.go, covered there
-	// DescribeHostReservations — real handler in handler_host_reservations.go, covered there
-	// DescribeIamInstanceProfileAssociations — moved to handler_ec2core.go
-	ops["DescribeImageReferences"] = h.handleStubDescribeImageReferences
-	// DescribeImageUsageReportEntries — moved to imageOpsSupportedOperations()
-	// DescribeInstanceSqlHaHistoryStates — moved to sqlHaSupportedOperations
-	// DescribeInstanceSqlHaStates — moved to sqlHaSupportedOperations
-	// ops["DescribeIpamByoasn"] — moved to ipamDiscoverySupportedOperations
-	// ops["DescribeIpamExternalResourceVerificationTokens"] — moved to ipamDiscoverySupportedOperations
-	// ops["DescribeIpamPolicies"] — moved to ipamPolicySupportedOperations
-	// ops["DescribeIpamPools"] — real handler in handler_advanced_networking.go, covered there
-	// ops["DescribeIpamPrefixListResolverTargets"] — moved to ipamDiscoverySupportedOperations
-	// ops["DescribeIpamPrefixListResolvers"] — moved to ipamDiscoverySupportedOperations
-	// ops["DescribeIpamResourceDiscoveries"] — moved to advancedNetworkingSupportedOperations
-	// ops["DescribeIpamResourceDiscoveryAssociations"] — moved to advancedNetworkingSupportedOperations
-	// ops["DescribeIpamScopes"] — moved to advancedNetworkingSupportedOperations
-	// ops["DescribeIpams"] — real handler in handler_advanced_networking.go, covered there
-	// DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations — real handler in handler_local_gateway.go
-	// DescribeLocalGatewayRouteTableVpcAssociations — real handler in handler_local_gateway.go
-	// DescribeLocalGatewayRouteTables — real handler in handler_local_gateway.go
-	// DescribeLocalGatewayVirtualInterfaceGroups — real handler in handler_local_gateway.go
-	// DescribeLocalGatewayVirtualInterfaces — real handler in handler_local_gateway.go
-	// DescribeLocalGateways — real handler in handler_local_gateway.go
-	// DescribeMacHosts — moved to macHostSupportedOperations
-	// DescribeMacModificationTasks — moved to macHostSupportedOperations
-	// DescribeManagedPrefixLists — moved to handler_batch4.go
-	ops["DescribeMovingAddresses"] = h.handleStubDescribeMovingAddresses
-	// DescribeNetworkInsightsAccessScopeAnalyses — real handler in handler_batch5.go, covered there
-	// DescribeNetworkInsightsAccessScopes — real handler in handler_batch5.go, covered there
-	// DescribeNetworkInsightsAnalyses — real handler in handler_batch5.go, covered there
-	// DescribeNetworkInsightsPaths — real handler in handler_batch5.go, covered there
-	// DescribeOutpostLags — moved to secondaryNetSupportedOperations
-	// DescribeReservedInstances — real handler in handler_batch5.go, covered there
-	// DescribeReservedInstancesListings — real handler in handler_batch5.go, covered there
-	// DescribeReservedInstancesModifications — real handler in handler_batch5.go, covered there
-	// DescribeReservedInstancesOfferings — real handler in handler_batch5.go, covered there
-	// DescribeRouteServerEndpoints — real handler in handler_route_server.go, covered there
-	// DescribeRouteServerPeers — real handler in handler_route_server.go, covered there
-	// DescribeRouteServers — real handler in handler_route_server.go, covered there
-	// DescribeScheduledInstanceAvailability — moved to scheduledInstanceSupportedOperations()
-	// DescribeScheduledInstances — moved to scheduledInstanceSupportedOperations()
-	// DescribeSecondaryInterfaces — moved to secondaryNetSupportedOperations
-	// DescribeSecondaryNetworks — moved to secondaryNetSupportedOperations
-	// DescribeSecondarySubnets — moved to secondaryNetSupportedOperations
-	// DescribeServiceLinkVirtualInterfaces — moved to secondaryNetSupportedOperations
-	// DescribeSpotFleetInstances — spot fleet handler in handler_spot_fleet.go, covered there
-	// DescribeSpotFleetRequestHistory — spot fleet handler in handler_spot_fleet.go, covered there
-	// DescribeSpotFleetRequests — spot fleet handler in handler_spot_fleet.go, covered there
-	// DescribeStoreImageTasks — moved to imageOpsSupportedOperations()
-	// DescribeTrafficMirrorFilterRules — moved to handler_batch5.go
-	// DescribeTrafficMirrorFilters — moved to handler_batch5.go
-	// DescribeTrafficMirrorSessions — moved to handler_batch5.go
-	// DescribeTrafficMirrorTargets — moved to handler_batch5.go
-	ops["DescribeTransitGatewayAttachments"] = h.handleStubDescribeTransitGatewayAttachments
-	// DescribeTransitGatewayConnectPeers — moved to handler_batch4.go
-	// DescribeTransitGatewayConnects — moved to handler_batch4.go
-	// DescribeTransitGatewayMeteringPolicies — moved to handler_tgw_multicast.go
-	// DescribeTransitGatewayMulticastDomains — moved to handler_tgw_multicast.go
-	// DescribeTransitGatewayPeeringAttachments — moved to handler_batch4.go
-	// DescribeTransitGatewayPolicyTables — moved to handler_tgw_peripherals.go
-	// DescribeTransitGatewayRouteTableAnnouncements — moved to handler_tgw_peripherals.go
-	// DescribeTransitGatewayRouteTables — moved to handler_ec2core.go
-	// DescribeTrunkInterfaceAssociations — moved to trunkEnclaveSupportedOperations
-	// DescribeVerifiedAccessEndpoints — moved to handler_batch4.go
-	// DescribeVerifiedAccessGroups — moved to handler_batch4.go
-	// DescribeVerifiedAccessInstanceLoggingConfigurations — moved to handler_verifiedaccess_ext.go
-	// DescribeVerifiedAccessInstances — moved to handler_batch4.go
-	// DescribeVerifiedAccessTrustProviders — moved to handler_batch4.go
-	// DescribeVpcBlockPublicAccessExclusions — moved to handler_vpc_config.go
-	// DescribeVpcBlockPublicAccessOptions — moved to handler_vpc_config.go
-	// DescribeVpcClassicLink — moved to handler_vpc_config.go
-	// DescribeVpcClassicLinkDnsSupport — moved to handler_vpc_config.go
-	// DescribeVpcEncryptionControls — real handler in handler_vpc_encryption_control.go, covered there
-	// DescribeVpcEndpointServiceConfigurations — real handler in handler_advanced_networking.go, covered there
-	// DescribeVpnConcentrators — real handler in handler_vpn_concentrator.go, covered there
-	// DescribeVpnConnections — moved to advancedNetworkingSupportedOperations
-	// DescribeVpnGateways — moved to advancedNetworkingSupportedOperations
-	// DetachClassicLinkVpc — moved to handler_vpc_config.go
-	// DetachVerifiedAccessTrustProvider — moved to handler_batch4.go
-	// DisableAllowedImagesSettings — moved to imageOpsSupportedOperations()
-	// DisableAwsNetworkPerformanceMetricSubscription — real handler in handler_network_performance.go, covered there
-	// DisableCapacityManager — moved to handler_capacity_family.go
-	// DisableInstanceSqlHaStandbyDetections — moved to sqlHaSupportedOperations
-	// ops["DisableIpamOrganizationAdminAccount"] — moved to ipamPolicySupportedOperations
-	// ops["DisableIpamPolicy"] — moved to ipamPolicySupportedOperations
-	// DisableRouteServerPropagation — real handler in handler_route_server.go, covered there
-	ops["DisableTransitGatewayRouteTablePropagation"] = h.handleStubDisableTransitGatewayRouteTablePropagation
-	// DisableVpcClassicLink — moved to handler_vpc_config.go
-	// DisableVpcClassicLinkDnsSupport — moved to handler_vpc_config.go
-	// DisassociateCapacityReservationBillingOwner — moved to handler_capacity_family.go
-	// DisassociateClientVpnTargetNetwork — moved to handler_batch4.go
-	// DisassociateEnclaveCertificateIamRole — moved to trunkEnclaveSupportedOperations
-	// DisassociateIamInstanceProfile — moved to handler_ec2core.go
-	// DisassociateInstanceEventWindow — moved to instanceAttrSupportedOperations
-	// ops["DisassociateIpamByoasn"] — moved to ipamDiscoverySupportedOperations
-	// ops["DisassociateIpamResourceDiscovery"] — moved to ipamDiscoverySupportedOperations
-	// DisassociateRouteServer — real handler in handler_route_server.go, covered there
-	// DisassociateTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
-	// DisassociateTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
-	// DisassociateTransitGatewayRouteTable — moved to handler_ec2core.go
-	// DisassociateTrunkInterface — moved to trunkEnclaveSupportedOperations
-	// EnableAllowedImagesSettings — moved to imageOpsSupportedOperations()
-	// EnableAwsNetworkPerformanceMetricSubscription — real handler in handler_network_performance.go, covered there
-	// EnableCapacityManager — moved to handler_capacity_family.go
-	// EnableInstanceSqlHaStandbyDetections — moved to sqlHaSupportedOperations
-	// ops["EnableIpamOrganizationAdminAccount"] — moved to ipamPolicySupportedOperations
-	// ops["EnableIpamPolicy"] — moved to ipamPolicySupportedOperations
-	ops["EnableReachabilityAnalyzerOrganizationSharing"] = h.handleStubEnableReachabilityAnalyzerOrganizationSharing
-	// EnableRouteServerPropagation — real handler in handler_route_server.go, covered there
-	ops["EnableTransitGatewayRouteTablePropagation"] = h.handleStubEnableTransitGatewayRouteTablePropagation
-	// EnableVpcClassicLink — moved to handler_vpc_config.go
-	// EnableVpcClassicLinkDnsSupport — moved to handler_vpc_config.go
-	// ExportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
-	// ExportClientVpnClientConfiguration — moved to handler_batch4.go
-	// ExportTransitGatewayRoutes — moved to handler_tgw_peripherals.go
-	// ExportVerifiedAccessInstanceClientConfiguration — moved to handler_verifiedaccess_ext.go
-	// GetActiveVpnTunnelStatus — real handler in handler_vpn_concentrator.go, covered there
-	// GetAllowedImagesSettings — moved to imageOpsSupportedOperations()
-	// GetAssociatedEnclaveCertificateIamRoles — moved to trunkEnclaveSupportedOperations
-	// GetAwsNetworkPerformanceData — real handler in handler_network_performance.go, covered there
-	// GetCapacityManagerAttributes — moved to handler_capacity_family.go
-	// GetCapacityManagerMetricData — moved to handler_capacity_family.go
-	// GetCapacityManagerMetricDimensions — moved to handler_capacity_family.go
-	ops["GetCapacityReservationUsage"] = h.handleStubGetCapacityReservationUsage
-	// GetCoipPoolUsage — moved to ipPoolSupportedOperations()
-	// GetDeclarativePoliciesReportSummary — real handler in handler_declarative_policies.go, covered there
-	// ops["GetEnabledIpamPolicy"] — moved to ipamPolicySupportedOperations
-	ops["GetFlowLogsIntegrationTemplate"] = h.handleStubGetFlowLogsIntegrationTemplate
-	// GetHostReservationPurchasePreview — real handler in handler_host_reservations.go, covered there
-	ops["GetImageAncestry"] = h.handleStubGetImageAncestry
-	// GetInstanceTpmEkPub — moved to instanceAttrSupportedOperations
-	// GetInstanceUefiData — moved to instanceAttrSupportedOperations
-	// ops["GetIpamAddressHistory"] — moved to advancedNetworkingSupportedOperations
-	// ops["GetIpamDiscoveredAccounts"] — moved to advancedNetworkingSupportedOperations
-	// ops["GetIpamDiscoveredPublicAddresses"] — moved to advancedNetworkingSupportedOperations
-	// ops["GetIpamDiscoveredResourceCidrs"] — moved to advancedNetworkingSupportedOperations
-	// ops["GetIpamPolicyAllocationRules"] — moved to ipamPolicySupportedOperations
-	// ops["GetIpamPolicyOrganizationTargets"] — moved to ipamPolicySupportedOperations
-	// ops["GetIpamPoolAllocations"] — moved to advancedNetworkingSupportedOperations
-	// ops["GetIpamPoolCidrs"] — real handler in handler_advanced_networking.go, covered there
-	// ops["GetIpamPrefixListResolverRules"] — moved to ipamDiscoverySupportedOperations
-	// ops["GetIpamPrefixListResolverVersionEntries"] — moved to ipamDiscoverySupportedOperations
-	// ops["GetIpamPrefixListResolverVersions"] — moved to ipamDiscoverySupportedOperations
-	// ops["GetIpamResourceCidrs"] — moved to ipamDiscoverySupportedOperations
-	// GetManagedPrefixListAssociations — moved to handler_batch4.go
-	// GetManagedPrefixListEntries — moved to handler_batch4.go
-	// GetNetworkInsightsAccessScopeAnalysisFindings — real handler in handler_batch5.go, covered there
-	// GetNetworkInsightsAccessScopeContent — real handler in handler_batch5.go, covered there
-	// GetReservedInstancesExchangeQuote — real handler in handler_batch5.go, covered there
-	// GetRouteServerAssociations — real handler in handler_route_server.go, covered there
-	// GetRouteServerPropagations — real handler in handler_route_server.go, covered there
-	// GetRouteServerRoutingDatabase — real handler in handler_route_server.go, covered there
-	ops["GetSpotPlacementScores"] = h.handleStubGetSpotPlacementScores
-	// GetTransitGatewayAttachmentPropagations — moved to handler_tgw_peripherals.go
-	// GetTransitGatewayMeteringPolicyEntries — moved to handler_tgw_peripherals.go
-	// GetTransitGatewayMulticastDomainAssociations — moved to handler_tgw_multicast.go
-	// GetTransitGatewayPolicyTableAssociations — moved to handler_tgw_peripherals.go
-	// GetTransitGatewayPolicyTableEntries — moved to handler_tgw_peripherals.go
-	// GetTransitGatewayPrefixListReferences — moved to handler_batch4.go
-	// GetTransitGatewayRouteTableAssociations — moved to handler_tgw_peripherals.go
-	// GetTransitGatewayRouteTablePropagations — moved to handler_tgw_peripherals.go
-	// GetVerifiedAccessEndpointPolicy — moved to handler_verifiedaccess_ext.go
-	// GetVerifiedAccessEndpointTargets — moved to handler_verifiedaccess_ext.go
-	// GetVerifiedAccessGroupPolicy — moved to handler_verifiedaccess_ext.go
-	// GetVpcResourcesBlockingEncryptionEnforcement — real handler in handler_vpc_encryption_control.go, covered there
-	// GetVpnConnectionDeviceSampleConfiguration — moved to advancedNetworkingSupportedOperations
-	// GetVpnConnectionDeviceTypes — moved to advancedNetworkingSupportedOperations
-	// GetVpnTunnelReplacementStatus — moved to advancedNetworkingSupportedOperations
-	// ImportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
-	// ImportInstance — moved to vmImportExportSupportedOperations
-	// ImportVolume — moved to vmImportExportSupportedOperations
-	// ModifyAvailabilityZoneGroup — moved to instanceAttrSupportedOperations
-	// ModifyCapacityReservationFleet — moved to handler_capacity_family.go
-	// ModifyClientVpnEndpoint — moved to handler_batch4.go
-	// ModifyFleet — real handler in handler_batch5.go, covered there
-	// ModifyFpgaImageAttribute — moved to handler_fpga_image.go
-	// ModifyHosts — moved to instanceAttrSupportedOperations
-	// ModifyInstanceCapacityReservationAttributes — moved to instanceAttrSupportedOperations
-	// ModifyInstanceCpuOptions — moved to instanceAttrSupportedOperations
-	// ModifyInstanceEventStartTime — moved to instanceAttrSupportedOperations
-	// ModifyInstanceMaintenanceOptions — moved to instanceAttrSupportedOperations
-	// ModifyInstanceNetworkPerformanceOptions — moved to instanceAttrSupportedOperations
-	// ModifyInstancePlacement — moved to instanceAttrSupportedOperations
-	// ops["ModifyIpam"] — moved to advancedNetworkingSupportedOperations
-	// ops["ModifyIpamPolicyAllocationRules"] — moved to ipamPolicySupportedOperations
-	// ops["ModifyIpamPool"] — moved to advancedNetworkingSupportedOperations
-	// ops["ModifyIpamPrefixListResolver"] — moved to ipamDiscoverySupportedOperations
-	// ops["ModifyIpamPrefixListResolverTarget"] — moved to ipamDiscoverySupportedOperations
-	// ops["ModifyIpamResourceCidr"] — moved to ipamDiscoverySupportedOperations
-	// ops["ModifyIpamResourceDiscovery"] — moved to ipamDiscoverySupportedOperations
-	// ops["ModifyIpamScope"] — moved to advancedNetworkingSupportedOperations
-	// ModifyLocalGatewayRoute — real handler in handler_local_gateway.go
-	// ModifyManagedPrefixList — moved to handler_batch4.go
-	// ModifyPrivateDnsNameOptions — moved to instanceAttrSupportedOperations
-	// ModifyPublicIpDnsNameOptions — moved to instanceAttrSupportedOperations
-	// ModifyReservedInstances — real handler in handler_batch5.go, covered there
-	// ModifyRouteServer — real handler in handler_route_server.go, covered there
-	// ModifySpotFleetRequest — spot fleet handler in handler_spot_fleet.go, covered there
-	// ModifyTrafficMirrorFilterNetworkServices — moved to handler_batch5.go
-	// ModifyTrafficMirrorFilterRule — moved to handler_batch5.go
-	// ModifyTrafficMirrorSession — moved to handler_batch5.go
-	// ModifyTransitGatewayMeteringPolicy — moved to handler_tgw_peripherals.go
-	// ModifyTransitGatewayPrefixListReference — moved to handler_tgw_peripherals.go
-	// ModifyTransitGatewayVpcAttachment — moved to handler_tgw_peripherals.go
-	// ModifyVerifiedAccessEndpoint — moved to handler_batch4.go
-	// ModifyVerifiedAccessEndpointPolicy — moved to handler_verifiedaccess_ext.go
-	ops["ModifyVerifiedAccessGroup"] = h.handleStubModifyVerifiedAccessGroup
-	// ModifyVerifiedAccessGroupPolicy — moved to handler_verifiedaccess_ext.go
-	ops["ModifyVerifiedAccessInstance"] = h.handleStubModifyVerifiedAccessInstance
-	// ModifyVerifiedAccessInstanceLoggingConfiguration — moved to handler_verifiedaccess_ext.go
-	ops["ModifyVerifiedAccessTrustProvider"] = h.handleStubModifyVerifiedAccessTrustProvider
-	// ModifyVpcBlockPublicAccessExclusion — moved to handler_vpc_config.go
-	// ModifyVpcBlockPublicAccessOptions — moved to handler_vpc_config.go
-	// ModifyVpcEncryptionControl — real handler in handler_vpc_encryption_control.go, covered there
-	// ModifyVpnConnectionOptions — moved to advancedNetworkingSupportedOperations
-	// ModifyVpnTunnelCertificate — moved to advancedNetworkingSupportedOperations
-	// ModifyVpnTunnelOptions — moved to advancedNetworkingSupportedOperations
-	ops["MoveAddressToVpc"] = h.handleStubMoveAddressToVpc
-	// ops["MoveByoipCidrToIpam"] — moved to ipamPolicySupportedOperations
-	// MoveCapacityReservationInstances — moved to handler_capacity_family.go
-	// ProvisionByoipCidr — real handler in handler_batch5.go, covered there
-	// ops["ProvisionIpamByoasn"] — moved to ipamDiscoverySupportedOperations
-	// ops["ProvisionIpamPoolCidr"] — moved to advancedNetworkingSupportedOperations
-	// PurchaseCapacityBlock — moved to handler_capacity_family.go
-	// PurchaseCapacityBlockExtension — moved to handler_capacity_family.go
-	// PurchaseHostReservation — real handler in handler_host_reservations.go, covered there
-	// PurchaseReservedInstancesOffering — real handler in handler_batch5.go, covered there
-	// PurchaseScheduledInstances — moved to scheduledInstanceSupportedOperations()
-	// RegisterTransitGatewayMulticastGroupMembers — moved to handler_tgw_multicast.go
-	// RegisterTransitGatewayMulticastGroupSources — moved to handler_tgw_multicast.go
-	// RejectCapacityReservationBillingOwnership — moved to handler_capacity_family.go
-	// RejectTransitGatewayMulticastDomainAssociations — moved to handler_tgw_peripherals.go
-	// RejectTransitGatewayPeeringAttachment — moved to handler_tgw_peripherals.go
-	// RejectTransitGatewayVpcAttachment — moved to handler_tgw_peripherals.go
-	ops["RejectVpcEndpointConnections"] = h.handleStubRejectVpcEndpointConnections
-	// RejectVpcPeeringConnection — real handler in handler_advanced_networking.go, covered there
-	// ReleaseHosts — real handler in handler_host_reservations.go, covered there
-	// ops["ReleaseIpamPoolAllocation"] — real handler in handler_advanced_networking.go, covered there
-	// ReplaceIamInstanceProfileAssociation — moved to handler_ec2core.go
-	// ReplaceImageCriteriaInAllowedImagesSettings — moved to imageOpsSupportedOperations()
-	// ReplaceRouteTableAssociation — moved to handler_ec2core.go
-	// ReplaceTransitGatewayRoute — moved to handler_ec2core.go
-	// ReplaceVpnTunnel — real handler in handler_vpn_concentrator.go, covered there
-	// RequestSpotFleet — spot fleet handler in handler_spot_fleet.go, covered there
-	// ResetFpgaImageAttribute — moved to handler_fpga_image.go
-	// RestoreManagedPrefixListVersion — moved to handler_batch4.go
-	// RevokeClientVpnIngress — moved to handler_batch4.go
-	// RunScheduledInstances — moved to scheduledInstanceSupportedOperations()
-	// SearchLocalGatewayRoutes — real handler in handler_local_gateway.go
-	// SearchTransitGatewayMulticastGroups — moved to handler_tgw_multicast.go
-	// SearchTransitGatewayRoutes — moved to handler_tgw_peripherals.go
-	ops["SendDiagnosticInterrupt"] = h.handleStubSendDiagnosticInterrupt
-	// StartDeclarativePoliciesReport — real handler in handler_declarative_policies.go, covered there
-	// StartNetworkInsightsAccessScopeAnalysis — real handler in handler_batch5.go, covered there
-	// StartNetworkInsightsAnalysis — real handler in handler_batch5.go, covered there
-	// StartVpcEndpointServicePrivateDnsVerification — moved to handler_advanced_networking.go
-	// TerminateClientVpnConnections — moved to handler_batch4.go
-	ops["UnassignPrivateNatGatewayAddress"] = h.handleStubUnassignPrivateNatGatewayAddress
-	// UpdateCapacityManagerOrganizationsAccess — moved to handler_capacity_family.go
-	ops["UpdateInterruptibleCapacityReservationAllocation"] = h.handleStubUpdateInterruptibleCapacityReservationAllocation
-	// WithdrawByoipCidr — real handler in handler_batch5.go, covered there
-	// CreatePublicIpv4Pool — moved to ipPoolSupportedOperations()
-	// DeletePublicIpv4Pool — moved to ipPoolSupportedOperations()
-	// DeprovisionPublicIpv4PoolCidr — moved to ipPoolSupportedOperations()
-	// DescribeIpv6Pools — moved to ipPoolSupportedOperations()
-	// DescribePublicIpv4Pools — moved to ipPoolSupportedOperations()
-	// GetAssociatedIpv6PoolCidrs — moved to ipPoolSupportedOperations()
-	// ProvisionPublicIpv4PoolCidr — moved to ipPoolSupportedOperations()
-}
-
-//nolint:funlen
 func stubSupportedOperations() []string {
 	return []string{
 		// "AllocateIpamPoolCidr", — moved to advancedNetworkingSupportedOperations
@@ -517,7 +42,7 @@ func stubSupportedOperations() []string {
 		// "CancelConversionTask", — moved to vmImportExportSupportedOperations
 		// "CancelDeclarativePoliciesReport", — real handler in handler_declarative_policies.go, covered there
 		// "CancelExportTask", — moved to vmImportExportSupportedOperations
-		"CancelImageLaunchPermission",
+		// "CancelImageLaunchPermission", — moved to parityFinalSupportedOperations
 		// "CancelImportTask", — moved to vmImportExportSupportedOperations
 		"CancelReservedInstancesListing",
 		// "ConfirmProductInstance", — moved to imageOpsSupportedOperations()
@@ -537,7 +62,7 @@ func stubSupportedOperations() []string {
 		// "CreateFpgaImage", — moved to handler_fpga_image.go
 		// "CreateImageUsageReport", — moved to imageOpsSupportedOperations()
 		// "CreateInstanceExportTask", — moved to vmImportExportSupportedOperations
-		"CreateInterruptibleCapacityReservationAllocation",
+		// "CreateInterruptibleCapacityReservationAllocation", — moved to parityFinalSupportedOperations
 		// "CreateIpam", — moved to advancedNetworkingSupportedOperations
 		// "CreateIpamExternalResourceVerificationToken", — moved to ipamDiscoverySupportedOperations
 		// "CreateIpamPolicy", — moved to ipamPolicySupportedOperations
@@ -665,7 +190,7 @@ func stubSupportedOperations() []string {
 		"DescribeCapacityManagerDataExports",
 		"DescribeCapacityReservationBillingRequests",
 		"DescribeCapacityReservationFleets",
-		"DescribeCapacityReservationTopology",
+		// "DescribeCapacityReservationTopology", — moved to parityFinalSupportedOperations
 		"DescribeCarrierGateways",
 		// "DescribeClassicLinkInstances", — moved to vpcConfigSupportedOperations
 		// "DescribeClientVpnAuthorizationRules", — moved to batch4SupportedOperations
@@ -678,7 +203,7 @@ func stubSupportedOperations() []string {
 		// "DescribeCustomerGateways", — moved to advancedNetworkingSupportedOperations
 		// "DescribeDeclarativePoliciesReports", — real handler in handler_declarative_policies.go, covered there
 		// DescribeEgressOnlyInternetGateways — moved to ec2CoreSupportedOperations
-		"DescribeElasticGpus",
+		// "DescribeElasticGpus", — moved to parityFinalSupportedOperations
 		// "DescribeExportImageTasks", — moved to batch3SupportedOperations
 		// "DescribeExportTasks", — moved to vmImportExportSupportedOperations
 		"DescribeFleetHistory",
@@ -689,7 +214,7 @@ func stubSupportedOperations() []string {
 		// "DescribeHostReservationOfferings", — real handler in handler_host_reservations.go, covered there
 		// "DescribeHostReservations", — real handler in handler_host_reservations.go, covered there
 		// DescribeIamInstanceProfileAssociations — moved to ec2CoreSupportedOperations
-		"DescribeImageReferences",
+		// "DescribeImageReferences", — moved to parityFinalSupportedOperations
 		// "DescribeImageUsageReportEntries", — moved to imageOpsSupportedOperations()
 		// "DescribeInstanceSqlHaHistoryStates", — moved to sqlHaSupportedOperations
 		// "DescribeInstanceSqlHaStates", — moved to sqlHaSupportedOperations
@@ -712,7 +237,7 @@ func stubSupportedOperations() []string {
 		// "DescribeMacHosts", — moved to macHostSupportedOperations
 		// "DescribeMacModificationTasks", — moved to macHostSupportedOperations
 		// "DescribeManagedPrefixLists", — moved to batch4SupportedOperations
-		"DescribeMovingAddresses",
+		// "DescribeMovingAddresses", — moved to parityFinalSupportedOperations
 		"DescribeNetworkInsightsAccessScopeAnalyses",
 		"DescribeNetworkInsightsAccessScopes",
 		"DescribeNetworkInsightsAnalyses",
@@ -736,7 +261,7 @@ func stubSupportedOperations() []string {
 		"DescribeTrafficMirrorFilters",
 		"DescribeTrafficMirrorSessions",
 		"DescribeTrafficMirrorTargets",
-		"DescribeTransitGatewayAttachments",
+		// "DescribeTransitGatewayAttachments", — moved to parityFinalSupportedOperations
 		// "DescribeTransitGatewayConnectPeers", — moved to batch4SupportedOperations
 		// "DescribeTransitGatewayConnects", — moved to batch4SupportedOperations
 		// "DescribeTransitGatewayMeteringPolicies", — moved to handler_tgw_multicast.go
@@ -770,7 +295,7 @@ func stubSupportedOperations() []string {
 		// "DisableIpamOrganizationAdminAccount", — moved to ipamPolicySupportedOperations
 		// "DisableIpamPolicy", — moved to ipamPolicySupportedOperations
 		"DisableRouteServerPropagation",
-		"DisableTransitGatewayRouteTablePropagation",
+		// "DisableTransitGatewayRouteTablePropagation", — moved to parityFinalSupportedOperations
 		// "DisableVpcClassicLink", — moved to vpcConfigSupportedOperations
 		// "DisableVpcClassicLinkDnsSupport", — moved to vpcConfigSupportedOperations
 		"DisassociateCapacityReservationBillingOwner",
@@ -791,9 +316,9 @@ func stubSupportedOperations() []string {
 		// "EnableInstanceSqlHaStandbyDetections", — moved to sqlHaSupportedOperations
 		// "EnableIpamOrganizationAdminAccount", — moved to ipamPolicySupportedOperations
 		// "EnableIpamPolicy", — moved to ipamPolicySupportedOperations
-		"EnableReachabilityAnalyzerOrganizationSharing",
+		// "EnableReachabilityAnalyzerOrganizationSharing", — moved to parityFinalSupportedOperations
 		"EnableRouteServerPropagation",
-		"EnableTransitGatewayRouteTablePropagation",
+		// "EnableTransitGatewayRouteTablePropagation", — moved to parityFinalSupportedOperations
 		// "EnableVpcClassicLink", — moved to vpcConfigSupportedOperations
 		// "EnableVpcClassicLinkDnsSupport", — moved to vpcConfigSupportedOperations
 		// ExportClientVpnClientCertificateRevocationList — moved to batch4SupportedOperations
@@ -807,13 +332,13 @@ func stubSupportedOperations() []string {
 		"GetCapacityManagerAttributes",
 		"GetCapacityManagerMetricData",
 		"GetCapacityManagerMetricDimensions",
-		"GetCapacityReservationUsage",
+		// "GetCapacityReservationUsage", — moved to parityFinalSupportedOperations
 		// "GetCoipPoolUsage", — moved to ipPoolSupportedOperations()
 		// "GetDeclarativePoliciesReportSummary", — real handler in handler_declarative_policies.go, covered there
 		// "GetEnabledIpamPolicy", — moved to ipamPolicySupportedOperations
-		"GetFlowLogsIntegrationTemplate",
+		// "GetFlowLogsIntegrationTemplate", — moved to parityFinalSupportedOperations
 		// "GetHostReservationPurchasePreview", — real handler in handler_host_reservations.go, covered there
-		"GetImageAncestry",
+		// "GetImageAncestry", — moved to parityFinalSupportedOperations
 		// "GetInstanceTpmEkPub", — moved to instanceAttrSupportedOperations
 		// "GetInstanceUefiData", — moved to instanceAttrSupportedOperations
 		// "GetIpamAddressHistory", — moved to advancedNetworkingSupportedOperations
@@ -836,7 +361,7 @@ func stubSupportedOperations() []string {
 		"GetRouteServerAssociations",
 		"GetRouteServerPropagations",
 		"GetRouteServerRoutingDatabase",
-		"GetSpotPlacementScores",
+		// "GetSpotPlacementScores", — moved to parityFinalSupportedOperations
 		// "GetTransitGatewayAttachmentPropagations", — moved to tgwPeripheralsSupportedOperations
 		// "GetTransitGatewayMeteringPolicyEntries", — moved to tgwPeripheralsSupportedOperations
 		// "GetTransitGatewayMulticastDomainAssociations", — moved to handler_tgw_multicast.go
@@ -889,11 +414,11 @@ func stubSupportedOperations() []string {
 		// "ModifyTransitGatewayVpcAttachment", — moved to tgwPeripheralsSupportedOperations
 		// "ModifyVerifiedAccessEndpoint", — moved to batch4SupportedOperations
 		// "ModifyVerifiedAccessEndpointPolicy", — moved to handler_verifiedaccess_ext.go
-		"ModifyVerifiedAccessGroup",
+		// "ModifyVerifiedAccessGroup", — moved to parityFinalSupportedOperations
 		// "ModifyVerifiedAccessGroupPolicy", — moved to handler_verifiedaccess_ext.go
-		"ModifyVerifiedAccessInstance",
+		// "ModifyVerifiedAccessInstance", — moved to parityFinalSupportedOperations
 		// "ModifyVerifiedAccessInstanceLoggingConfiguration", — moved to handler_verifiedaccess_ext.go
-		"ModifyVerifiedAccessTrustProvider",
+		// "ModifyVerifiedAccessTrustProvider", — moved to parityFinalSupportedOperations
 		// "ModifyVpcBlockPublicAccessExclusion", — moved to vpcConfigSupportedOperations
 		// "ModifyVpcBlockPublicAccessOptions", — moved to vpcConfigSupportedOperations
 		// "ModifyVpcEncryptionControl", — real handler in handler_vpc_encryption_control.go, covered there
@@ -901,7 +426,7 @@ func stubSupportedOperations() []string {
 		// "ModifyVpnConnectionOptions", — moved to advancedNetworkingSupportedOperations
 		// "ModifyVpnTunnelCertificate", — moved to advancedNetworkingSupportedOperations
 		// "ModifyVpnTunnelOptions", — moved to advancedNetworkingSupportedOperations
-		"MoveAddressToVpc",
+		// "MoveAddressToVpc", — moved to parityFinalSupportedOperations
 		// "MoveByoipCidrToIpam", — moved to ipamPolicySupportedOperations
 		"MoveCapacityReservationInstances",
 		"ProvisionByoipCidr",
@@ -918,7 +443,7 @@ func stubSupportedOperations() []string {
 		// "RejectTransitGatewayMulticastDomainAssociations", — moved to tgwPeripheralsSupportedOperations
 		// "RejectTransitGatewayPeeringAttachment", — moved to tgwPeripheralsSupportedOperations
 		// "RejectTransitGatewayVpcAttachment", — moved to tgwPeripheralsSupportedOperations
-		"RejectVpcEndpointConnections",
+		// "RejectVpcEndpointConnections", — moved to parityFinalSupportedOperations
 		// "RejectVpcPeeringConnection", — moved to advancedNetworkingSupportedOperations
 		// "ReleaseHosts", — real handler in handler_host_reservations.go, covered there
 		// "ReleaseIpamPoolAllocation", — moved to advancedNetworkingSupportedOperations
@@ -934,15 +459,15 @@ func stubSupportedOperations() []string {
 		// "SearchLocalGatewayRoutes", — moved to localGatewaySupportedOperations
 		// "SearchTransitGatewayMulticastGroups", — moved to handler_tgw_multicast.go
 		// "SearchTransitGatewayRoutes", — moved to tgwPeripheralsSupportedOperations
-		"SendDiagnosticInterrupt",
+		// "SendDiagnosticInterrupt", — moved to parityFinalSupportedOperations
 		// "StartDeclarativePoliciesReport", — real handler in handler_declarative_policies.go, covered there
 		"StartNetworkInsightsAccessScopeAnalysis",
 		"StartNetworkInsightsAnalysis",
 		// "StartVpcEndpointServicePrivateDnsVerification", — moved to advancedNetworkingSupportedOperations
 		// "TerminateClientVpnConnections", — moved to batch4SupportedOperations
-		"UnassignPrivateNatGatewayAddress",
+		// "UnassignPrivateNatGatewayAddress", — moved to parityFinalSupportedOperations
 		"UpdateCapacityManagerOrganizationsAccess",
-		"UpdateInterruptibleCapacityReservationAllocation",
+		// "UpdateInterruptibleCapacityReservationAllocation", — moved to parityFinalSupportedOperations
 		"WithdrawByoipCidr",
 		// "CreatePublicIpv4Pool", — moved to ipPoolSupportedOperations()
 		// "DeletePublicIpv4Pool", — moved to ipPoolSupportedOperations()
@@ -953,211 +478,3 @@ func stubSupportedOperations() []string {
 		// "ProvisionPublicIpv4PoolCidr", — moved to ipPoolSupportedOperations()
 	}
 }
-
-func (h *Handler) handleStubCancelImageLaunchPermission(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CancelImageLaunchPermissionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateInterruptibleCapacityReservationAllocation(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateInterruptibleCapacityReservationAllocationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCapacityReservationTopology(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCapacityReservationTopologyResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeElasticGpus(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeElasticGpusResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeImageReferences(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeImageReferencesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeMovingAddresses(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeMovingAddressesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeTransitGatewayAttachments(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTransitGatewayAttachmentsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableTransitGatewayRouteTablePropagationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubEnableReachabilityAnalyzerOrganizationSharing(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableReachabilityAnalyzerOrganizationSharingResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubEnableTransitGatewayRouteTablePropagation(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableTransitGatewayRouteTablePropagationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetCapacityReservationUsage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetCapacityReservationUsageResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetFlowLogsIntegrationTemplate(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetFlowLogsIntegrationTemplateResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetImageAncestry(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetImageAncestryResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetSpotPlacementScores(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetSpotPlacementScoresResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyVerifiedAccessGroup(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVerifiedAccessGroupResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyVerifiedAccessInstance(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVerifiedAccessInstanceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyVerifiedAccessTrustProvider(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVerifiedAccessTrustProviderResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubMoveAddressToVpc(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "MoveAddressToVpcResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRejectVpcEndpointConnections(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RejectVpcEndpointConnectionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubSendDiagnosticInterrupt(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "SendDiagnosticInterruptResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubUnassignPrivateNatGatewayAddress(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "UnassignPrivateNatGatewayAddressResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubUpdateInterruptibleCapacityReservationAllocation(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "UpdateInterruptibleCapacityReservationAllocationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-// ---- Additional IPv4/IPv6 stub handlers (SDK naming uses Ipv4/Ipv6) ----

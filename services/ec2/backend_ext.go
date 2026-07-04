@@ -127,6 +127,10 @@ type NatGateway struct {
 	PublicIP     string    `json:"publicIP,omitempty"`
 	PrivateIP    string    `json:"privateIP,omitempty"`
 	State        string    `json:"state,omitempty"`
+	// SecondaryPrivateIPs holds additional private IPs assigned via
+	// AssignPrivateNatGatewayAddress and removed via
+	// UnassignPrivateNatGatewayAddress.
+	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
 }
 
 // NetworkInterface represents an EC2 Network Interface (ENI).
@@ -180,6 +184,9 @@ type AMIStub struct {
 	Platform       string `json:"platform,omitempty"`
 	RootDeviceName string `json:"rootDeviceName,omitempty"`
 	State          string `json:"state,omitempty"`
+	// SourceImageID is the parent AMI this image was copied from via
+	// CopyImage, or empty for root images. Used by GetImageAncestry.
+	SourceImageID string `json:"sourceImageID,omitempty"`
 }
 
 //nolint:gochecknoglobals // package-level stub data for describe operations

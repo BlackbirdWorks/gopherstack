@@ -254,6 +254,7 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.resetInstanceAttrMapsLocked()
 	b.resetSQLHaMapsLocked()
 	initParitySweep2Maps(b)
+	initParityFinalMaps(b)
 }
 
 // resetBatch4MapsLocked re-initialises all batch4 resource maps.
