@@ -71,7 +71,6 @@ require (
 	github.com/labstack/echo/v5 v5.2.1
 	github.com/miekg/dns v1.1.72
 	github.com/mochi-mqtt/server/v2 v2.7.9
-	github.com/playwright-community/playwright-go v0.5700.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/stretchr/testify v1.11.1
@@ -210,6 +209,7 @@ require github.com/aws/aws-sdk-go-v2/service/omics v1.45.0
 require github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.45.6
 
 require (
+	github.com/mxschmitt/playwright-go v0.6100.0
 	go.uber.org/goleak v1.3.0
 	modernc.org/sqlite v1.53.0
 )
