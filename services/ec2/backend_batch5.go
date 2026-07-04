@@ -3,6 +3,7 @@ package ec2
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"slices"
 	"sort"
 
@@ -39,35 +40,57 @@ type TrafficMirrorFilter struct {
 	EgressFilterRules     []*TrafficMirrorFilterRule `json:"egressFilterRules,omitempty"`
 }
 
+// TrafficMirrorPortRange holds a source or destination port range assigned
+// to a traffic mirror filter rule.
+type TrafficMirrorPortRange struct {
+	FromPort int `json:"fromPort,omitempty"`
+	ToPort   int `json:"toPort,omitempty"`
+}
+
+// TrafficMirrorPortRangePair carries the optional source and destination
+// port ranges supplied when creating a traffic mirror filter rule.
+type TrafficMirrorPortRangePair struct {
+	Source      *TrafficMirrorPortRange
+	Destination *TrafficMirrorPortRange
+}
+
 // TrafficMirrorFilterRule holds a single traffic mirror filter rule.
 type TrafficMirrorFilterRule struct {
-	TrafficMirrorFilterRuleID string `json:"trafficMirrorFilterRuleId,omitempty"`
-	TrafficMirrorFilterID     string `json:"trafficMirrorFilterId,omitempty"`
-	RuleAction                string `json:"ruleAction,omitempty"`
-	TrafficDirection          string `json:"trafficDirection,omitempty"`
-	DestinationCidrBlock      string `json:"destinationCidrBlock,omitempty"`
-	SourceCidrBlock           string `json:"sourceCidrBlock,omitempty"`
-	Description               string `json:"description,omitempty"`
-	RuleNumber                int    `json:"ruleNumber,omitempty"`
-	Protocol                  int    `json:"protocol,omitempty"`
+	DestinationPortRange      *TrafficMirrorPortRange `json:"destinationPortRange,omitempty"`
+	SourcePortRange           *TrafficMirrorPortRange `json:"sourcePortRange,omitempty"`
+	TrafficMirrorFilterRuleID string                  `json:"trafficMirrorFilterRuleId,omitempty"`
+	TrafficMirrorFilterID     string                  `json:"trafficMirrorFilterId,omitempty"`
+	RuleAction                string                  `json:"ruleAction,omitempty"`
+	TrafficDirection          string                  `json:"trafficDirection,omitempty"`
+	DestinationCidrBlock      string                  `json:"destinationCidrBlock,omitempty"`
+	SourceCidrBlock           string                  `json:"sourceCidrBlock,omitempty"`
+	Description               string                  `json:"description,omitempty"`
+	RuleNumber                int                     `json:"ruleNumber,omitempty"`
+	Protocol                  int                     `json:"protocol,omitempty"`
 }
 
 // TrafficMirrorSession holds a traffic mirror session.
 type TrafficMirrorSession struct {
 	TrafficMirrorSessionID string `json:"trafficMirrorSessionId,omitempty"`
 	NetworkInterfaceID     string `json:"networkInterfaceId,omitempty"`
+	OwnerID                string `json:"ownerId,omitempty"`
 	TrafficMirrorTargetID  string `json:"trafficMirrorTargetId,omitempty"`
 	TrafficMirrorFilterID  string `json:"trafficMirrorFilterId,omitempty"`
 	Description            string `json:"description,omitempty"`
 	SessionNumber          int    `json:"sessionNumber,omitempty"`
+	PacketLength           int    `json:"packetLength,omitempty"`
+	VirtualNetworkID       int    `json:"virtualNetworkId,omitempty"`
 }
 
 // TrafficMirrorTarget holds a traffic mirror target.
 type TrafficMirrorTarget struct {
-	TrafficMirrorTargetID  string `json:"trafficMirrorTargetId,omitempty"`
-	NetworkInterfaceID     string `json:"networkInterfaceId,omitempty"`
-	NetworkLoadBalancerArn string `json:"networkLoadBalancerArn,omitempty"`
-	Description            string `json:"description,omitempty"`
+	TrafficMirrorTargetID         string `json:"trafficMirrorTargetId,omitempty"`
+	NetworkInterfaceID            string `json:"networkInterfaceId,omitempty"`
+	NetworkLoadBalancerArn        string `json:"networkLoadBalancerArn,omitempty"`
+	GatewayLoadBalancerEndpointID string `json:"gatewayLoadBalancerEndpointId,omitempty"`
+	OwnerID                       string `json:"ownerId,omitempty"`
+	Type                          string `json:"type,omitempty"`
+	Description                   string `json:"description,omitempty"`
 }
 
 // ---- EC2 Fleet ----
@@ -260,6 +283,7 @@ func (b *InMemoryBackend) ModifyTrafficMirrorFilterNetworkServices(id string, ad
 func (b *InMemoryBackend) CreateTrafficMirrorFilterRule(
 	filterID, direction, action, srcCIDR, dstCIDR, description string,
 	ruleNumber, protocol int,
+	ports ...TrafficMirrorPortRangePair,
 ) (*TrafficMirrorFilterRule, error) {
 	b.mu.Lock("CreateTrafficMirrorFilterRule")
 	defer b.mu.Unlock()
@@ -280,6 +304,11 @@ func (b *InMemoryBackend) CreateTrafficMirrorFilterRule(
 		SourceCidrBlock:           srcCIDR,
 		DestinationCidrBlock:      dstCIDR,
 		Description:               description,
+	}
+
+	if len(ports) > 0 {
+		rule.SourcePortRange = ports[0].Source
+		rule.DestinationPortRange = ports[0].Destination
 	}
 
 	if direction == "egress" {
@@ -372,24 +401,45 @@ func (b *InMemoryBackend) ModifyTrafficMirrorFilterRule(id, action, description 
 func (b *InMemoryBackend) CreateTrafficMirrorSession(
 	networkInterfaceID, targetID, filterID, description string,
 	sessionNumber int,
+	packetLength ...int,
 ) (*TrafficMirrorSession, error) {
 	b.mu.Lock("CreateTrafficMirrorSession")
 	defer b.mu.Unlock()
+
+	pl := 0
+	if len(packetLength) > 0 {
+		pl = packetLength[0]
+	}
 
 	id := "tms-" + uuid.New().String()[:8]
 	s := &TrafficMirrorSession{
 		TrafficMirrorSessionID: id,
 		NetworkInterfaceID:     networkInterfaceID,
+		OwnerID:                b.AccountID,
 		TrafficMirrorTargetID:  targetID,
 		TrafficMirrorFilterID:  filterID,
 		SessionNumber:          sessionNumber,
 		Description:            description,
+		PacketLength:           pl,
+		VirtualNetworkID:       trafficMirrorSessionVNI(id),
 	}
 	b.trafficMirrorSessions[id] = s
 
 	cp := *s
 
 	return &cp, nil
+}
+
+// maxTrafficMirrorVNI is the highest valid VXLAN virtual network identifier.
+const maxTrafficMirrorVNI = 16777215
+
+// trafficMirrorSessionVNI derives a deterministic pseudo-random VXLAN
+// virtual network identifier (1-maxTrafficMirrorVNI) from the session ID.
+func trafficMirrorSessionVNI(id string) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(id))
+
+	return int(h.Sum32()%maxTrafficMirrorVNI) + 1
 }
 
 func (b *InMemoryBackend) DeleteTrafficMirrorSession(id string) error {
@@ -453,22 +503,50 @@ func (b *InMemoryBackend) ModifyTrafficMirrorSession(id, targetID, filterID, des
 
 func (b *InMemoryBackend) CreateTrafficMirrorTarget(
 	networkInterfaceID, networkLoadBalancerArn, description string,
+	gatewayLoadBalancerEndpointID ...string,
 ) (*TrafficMirrorTarget, error) {
 	b.mu.Lock("CreateTrafficMirrorTarget")
 	defer b.mu.Unlock()
 
+	glbEndpointID := ""
+	if len(gatewayLoadBalancerEndpointID) > 0 {
+		glbEndpointID = gatewayLoadBalancerEndpointID[0]
+	}
+
 	id := "tmt-" + uuid.New().String()[:8]
 	t := &TrafficMirrorTarget{
-		TrafficMirrorTargetID:  id,
-		NetworkInterfaceID:     networkInterfaceID,
-		NetworkLoadBalancerArn: networkLoadBalancerArn,
-		Description:            description,
+		TrafficMirrorTargetID:         id,
+		NetworkInterfaceID:            networkInterfaceID,
+		NetworkLoadBalancerArn:        networkLoadBalancerArn,
+		GatewayLoadBalancerEndpointID: glbEndpointID,
+		OwnerID:                       b.AccountID,
+		Type: trafficMirrorTargetType(
+			networkInterfaceID,
+			networkLoadBalancerArn,
+			glbEndpointID,
+		),
+		Description: description,
 	}
 	b.trafficMirrorTargets[id] = t
 
 	cp := *t
 
 	return &cp, nil
+}
+
+// trafficMirrorTargetType derives the Traffic Mirror target type from
+// whichever destination identifier was supplied.
+func trafficMirrorTargetType(networkInterfaceID, networkLoadBalancerArn, gatewayLoadBalancerEndpointID string) string {
+	switch {
+	case networkInterfaceID != "":
+		return "network-interface"
+	case networkLoadBalancerArn != "":
+		return "network-load-balancer"
+	case gatewayLoadBalancerEndpointID != "":
+		return "gateway-load-balancer-endpoint"
+	default:
+		return ""
+	}
 }
 
 func (b *InMemoryBackend) DeleteTrafficMirrorTarget(id string) error {

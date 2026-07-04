@@ -197,10 +197,11 @@ func (h *Handler) GetSupportedOperations() []string {
 	accuracy4 := accuracy4OpsSupported()
 	cluster := clusterOpsSupported()
 	lineage := lineageOpsSupported()
+	hub := hubOpsSupported()
 
 	stubs := stubOpsSupported()
 	total := len(core) + len(batch2) + len(batch3) + len(accuracy3)
-	total += len(accuracy4) + len(cluster) + len(lineage) + len(stubs)
+	total += len(accuracy4) + len(cluster) + len(lineage) + len(hub) + len(stubs)
 	combined := make([]string, 0, total)
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
@@ -209,6 +210,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	combined = append(combined, accuracy4...)
 	combined = append(combined, cluster...)
 	combined = append(combined, lineage...)
+	combined = append(combined, hub...)
 
 	return append(combined, stubs...)
 }
@@ -449,6 +451,10 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 	}
 
 	if r, ok, err := h.dispatchClusterOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchHubOps(ctx, op, body); ok {
 		return r, err
 	}
 

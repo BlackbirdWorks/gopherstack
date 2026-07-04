@@ -85,9 +85,6 @@ func stubOpsSupported() []string {
 	return []string{
 		"CreateEdgeDeploymentPlan",
 		"CreateEdgeDeploymentStage",
-		"CreateHub",
-		"CreateHubContentPresignedUrls",
-		"CreateHubContentReference",
 		"CreateLabelingJob",
 		"CreateMlflowApp",
 		"CreateModelCardExportJob",
@@ -98,9 +95,6 @@ func stubOpsSupported() []string {
 		"DeleteAlgorithm",
 		"DeleteEdgeDeploymentPlan",
 		"DeleteEdgeDeploymentStage",
-		"DeleteHub",
-		"DeleteHubContent",
-		"DeleteHubContentReference",
 		"DeleteMlflowApp",
 		"DeleteModelPackageGroupPolicy",
 		"DeleteProcessingJob",
@@ -108,8 +102,6 @@ func stubOpsSupported() []string {
 		"DescribeAlgorithm",
 		"DescribeEdgeDeploymentPlan",
 		"DescribeFeatureMetadata",
-		"DescribeHub",
-		"DescribeHubContent",
 		"DescribeLabelingJob",
 		"DescribeMlflowApp",
 		"DescribeModelCardExportJob",
@@ -126,15 +118,11 @@ func stubOpsSupported() []string {
 		"GetSagemakerServicecatalogPortfolioStatus",
 		"GetScalingConfigurationRecommendation",
 		"GetSearchSuggestions",
-		"ImportHubContent",
 		"ListAlgorithms",
 		"ListAliases",
 		"ListCandidatesForAutoMLJob",
 		"ListDataQualityJobDefinitions",
 		"ListEdgeDeploymentPlans",
-		"ListHubContentVersions",
-		"ListHubContents",
-		"ListHubs",
 		"ListLabelingJobs",
 		"ListLabelingJobsForWorkteam",
 		"ListMlflowApps",
@@ -166,7 +154,6 @@ func stubOpsSupported() []string {
 		"StopLabelingJob",
 		"UpdateDevices",
 		"UpdateFeatureMetadata",
-		"UpdateHub",
 		"UpdateHubContent",
 		"UpdateHubContentReference",
 		"UpdateImage",
@@ -211,15 +198,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateFeatureGroup":
 		return mustMarshal(m{keyFeatureGroupArn: ""}), true
 
-	case "CreateHub":
-		return mustMarshal(m{keyHubArn: ""}), true
-
-	case "CreateHubContentPresignedUrls":
-		return mustMarshal(m{keyAuthorizedURL: ""}), true
-
-	case "CreateHubContentReference":
-		return mustMarshal(m{keyHubArn: "", keyHubContentArn: ""}), true
-
 	case "CreateLabelingJob":
 		return mustMarshal(m{keyLabelingJobArn: ""}), true
 
@@ -257,9 +235,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteEdgeDeploymentStage",
 		"DeleteExperiment",
 		"DeleteFeatureGroup",
-		"DeleteHub",
-		"DeleteHubContent",
-		"DeleteHubContentReference",
 		"DeleteMlflowApp",
 		"DeleteModelPackageGroupPolicy",
 		"DeletePipeline",
@@ -272,7 +247,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DisassociateTrialComponent",
 		"EnableSagemakerServicecatalogPortfolio",
 		"ExtendTrainingPlan",
-		"ImportHubContent",
 		"PutModelPackageGroupPolicy",
 		"RenderUiTemplate",
 		"StartEdgeDeploymentStage",
@@ -325,14 +299,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "DescribeFeatureMetadata":
 		return mustMarshal(m{
 			keyFeatureGroupArn: "", keyFeatureGroupName: "", "FeatureName": "", "FeatureType": "",
-		}), true
-
-	case "DescribeHub":
-		return mustMarshal(m{keyHubArn: "", "HubName": "", "HubStatus": statusInService}), true
-
-	case "DescribeHubContent":
-		return mustMarshal(m{
-			keyHubContentArn: "", "HubContentName": "", "HubContentStatus": "Available",
 		}), true
 
 	case "DescribeLabelingJob":
@@ -432,12 +398,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListFeatureGroups":
 		return mustMarshal(m{"FeatureGroupSummaries": []any{}}), true
 
-	case "ListHubContentVersions", "ListHubContents":
-		return mustMarshal(m{"HubContentSummaries": []any{}}), true
-
-	case "ListHubs":
-		return mustMarshal(m{"HubSummaries": []any{}}), true
-
 	case "ListLabelingJobs", "ListLabelingJobsForWorkteam":
 		return mustMarshal(m{"LabelingJobSummaryList": []any{}}), true
 
@@ -512,9 +472,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	case "UpdateDomain":
 		return mustMarshal(m{keyDomainArn: ""}), true
-
-	case "UpdateHub":
-		return mustMarshal(m{keyHubArn: ""}), true
 
 	case "UpdateHubContent", "UpdateHubContentReference":
 		return mustMarshal(m{keyHubArn: "", keyHubContentArn: ""}), true

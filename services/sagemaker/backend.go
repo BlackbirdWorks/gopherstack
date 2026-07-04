@@ -525,6 +525,8 @@ type InMemoryBackend struct {
 	inferenceComponents          map[string]map[string]*InferenceComponent
 	clusterSchedulerConfigs      map[string]map[string]*ClusterSchedulerConfig
 	computeQuotas                map[string]map[string]*ComputeQuota
+	hubs                         map[string]map[string]*Hub
+	hubContents                  map[string]map[hubContentKey]*HubContent
 	lifecycleParent              context.Context
 	lifecycleCtx                 context.Context
 	lifecycleCancel              context.CancelFunc
@@ -628,6 +630,8 @@ func NewInMemoryBackendWithContext(
 		inferenceComponents:          make(map[string]map[string]*InferenceComponent),
 		clusterSchedulerConfigs:      make(map[string]map[string]*ClusterSchedulerConfig),
 		computeQuotas:                make(map[string]map[string]*ComputeQuota),
+		hubs:                         make(map[string]map[string]*Hub),
+		hubContents:                  make(map[string]map[hubContentKey]*HubContent),
 		accountID:                    accountID,
 		region:                       region,
 		mu:                           lockmetrics.New("sagemaker"),
@@ -1235,6 +1239,8 @@ func (b *InMemoryBackend) Reset() {
 	b.inferenceComponents = make(map[string]map[string]*InferenceComponent)
 	b.clusterSchedulerConfigs = make(map[string]map[string]*ClusterSchedulerConfig)
 	b.computeQuotas = make(map[string]map[string]*ComputeQuota)
+	b.hubs = make(map[string]map[string]*Hub)
+	b.hubContents = make(map[string]map[hubContentKey]*HubContent)
 	// Cancel pending goroutines and start fresh lifecycle context.
 	b.resetLifecycleContext()
 }

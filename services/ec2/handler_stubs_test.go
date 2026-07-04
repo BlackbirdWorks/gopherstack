@@ -78,10 +78,10 @@ func TestStubOperations(t *testing.T) {
 		"CreateSecondaryNetwork",
 		"CreateSecondarySubnet",
 		"CreateStoreImageTask",
-		"CreateTrafficMirrorFilter",
-		"CreateTrafficMirrorFilterRule",
-		"CreateTrafficMirrorSession",
-		"CreateTrafficMirrorTarget",
+		// "CreateTrafficMirrorFilter", — real handler in handler_batch5.go, covered there
+		// "CreateTrafficMirrorFilterRule", — real handler now requires an existing filter ID
+		// "CreateTrafficMirrorSession", — real handler in handler_batch5.go, covered there
+		// "CreateTrafficMirrorTarget", — real handler in handler_batch5.go, covered there
 		// "CreateTransitGatewayConnect", — moved to batch4
 		// "CreateTransitGatewayConnectPeer", — moved to batch4
 		"CreateTransitGatewayMeteringPolicy",
@@ -131,10 +131,10 @@ func TestStubOperations(t *testing.T) {
 		"DeleteRouteServerPeer",
 		"DeleteSecondaryNetwork",
 		"DeleteSecondarySubnet",
-		"DeleteTrafficMirrorFilter",
-		"DeleteTrafficMirrorFilterRule",
-		"DeleteTrafficMirrorSession",
-		"DeleteTrafficMirrorTarget",
+		// "DeleteTrafficMirrorFilter", — real handler now requires an existing filter ID
+		// "DeleteTrafficMirrorFilterRule", — real handler now requires an existing rule ID
+		// "DeleteTrafficMirrorSession", — real handler now requires an existing session ID
+		// "DeleteTrafficMirrorTarget", — real handler now requires an existing target ID
 		// "DeleteTransitGatewayConnect", — moved to batch4
 		// "DeleteTransitGatewayConnectPeer", — moved to batch4
 		"DeleteTransitGatewayMeteringPolicy",
@@ -230,10 +230,10 @@ func TestStubOperations(t *testing.T) {
 		"DescribeServiceLinkVirtualInterfaces",
 		"DescribeSpotFleetRequests",
 		"DescribeStoreImageTasks",
-		"DescribeTrafficMirrorFilterRules",
-		"DescribeTrafficMirrorFilters",
-		"DescribeTrafficMirrorSessions",
-		"DescribeTrafficMirrorTargets",
+		// "DescribeTrafficMirrorFilterRules", — real handler now requires an existing filter ID
+		// "DescribeTrafficMirrorFilters", — real handler in handler_batch5.go, covered there
+		// "DescribeTrafficMirrorSessions", — real handler in handler_batch5.go, covered there
+		// "DescribeTrafficMirrorTargets", — real handler in handler_batch5.go, covered there
 		"DescribeTransitGatewayAttachments",
 		// "DescribeTransitGatewayConnectPeers", — moved to batch4
 		// "DescribeTransitGatewayConnects", — moved to batch4
@@ -363,9 +363,9 @@ func TestStubOperations(t *testing.T) {
 		// "ModifyManagedPrefixList", — moved to batch4
 		"ModifyReservedInstances",
 		"ModifyRouteServer",
-		"ModifyTrafficMirrorFilterNetworkServices",
-		"ModifyTrafficMirrorFilterRule",
-		"ModifyTrafficMirrorSession",
+		// "ModifyTrafficMirrorFilterNetworkServices", — real handler now requires an existing filter ID
+		// "ModifyTrafficMirrorFilterRule", — real handler now requires an existing rule ID
+		// "ModifyTrafficMirrorSession", — real handler now requires an existing session ID
 		"ModifyTransitGatewayMeteringPolicy",
 		"ModifyTransitGatewayPrefixListReference",
 		"ModifyTransitGatewayVpcAttachment",

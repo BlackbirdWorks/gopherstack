@@ -1212,6 +1212,10 @@ var errCodeLookup = []struct {
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
 	{ErrCIDRConflict, "InvalidVpc.Conflict"},
 	{ErrClientVpnEndpointNotFound, "InvalidClientVpnEndpointId.NotFound"},
+	{ErrTrafficMirrorFilterNotFound, "InvalidTrafficMirrorFilterId.NotFound"},
+	{ErrTrafficMirrorFilterRuleNotFound, "InvalidTrafficMirrorFilterRuleId.NotFound"},
+	{ErrTrafficMirrorSessionNotFound, "InvalidTrafficMirrorSessionId.NotFound"},
+	{ErrTrafficMirrorTargetNotFound, "InvalidTrafficMirrorTargetId.NotFound"},
 	{ErrInvalidParameter, "InvalidParameterValue"},
 }
 

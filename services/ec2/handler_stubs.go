@@ -87,10 +87,10 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateSecondaryNetwork"] = h.handleStubCreateSecondaryNetwork
 	ops["CreateSecondarySubnet"] = h.handleStubCreateSecondarySubnet
 	ops["CreateStoreImageTask"] = h.handleStubCreateStoreImageTask
-	ops["CreateTrafficMirrorFilter"] = h.handleStubCreateTrafficMirrorFilter
-	ops["CreateTrafficMirrorFilterRule"] = h.handleStubCreateTrafficMirrorFilterRule
-	ops["CreateTrafficMirrorSession"] = h.handleStubCreateTrafficMirrorSession
-	ops["CreateTrafficMirrorTarget"] = h.handleStubCreateTrafficMirrorTarget
+	// CreateTrafficMirrorFilter — moved to handler_batch5.go
+	// CreateTrafficMirrorFilterRule — moved to handler_batch5.go
+	// CreateTrafficMirrorSession — moved to handler_batch5.go
+	// CreateTrafficMirrorTarget — moved to handler_batch5.go
 	// CreateTransitGatewayConnect — moved to handler_batch4.go
 	// CreateTransitGatewayConnectPeer — moved to handler_batch4.go
 	ops["CreateTransitGatewayMeteringPolicy"] = h.handleStubCreateTransitGatewayMeteringPolicy
@@ -148,10 +148,10 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteRouteServerPeer"] = h.handleStubDeleteRouteServerPeer
 	ops["DeleteSecondaryNetwork"] = h.handleStubDeleteSecondaryNetwork
 	ops["DeleteSecondarySubnet"] = h.handleStubDeleteSecondarySubnet
-	ops["DeleteTrafficMirrorFilter"] = h.handleStubDeleteTrafficMirrorFilter
-	ops["DeleteTrafficMirrorFilterRule"] = h.handleStubDeleteTrafficMirrorFilterRule
-	ops["DeleteTrafficMirrorSession"] = h.handleStubDeleteTrafficMirrorSession
-	ops["DeleteTrafficMirrorTarget"] = h.handleStubDeleteTrafficMirrorTarget
+	// DeleteTrafficMirrorFilter — moved to handler_batch5.go
+	// DeleteTrafficMirrorFilterRule — moved to handler_batch5.go
+	// DeleteTrafficMirrorSession — moved to handler_batch5.go
+	// DeleteTrafficMirrorTarget — moved to handler_batch5.go
 	// DeleteTransitGatewayConnect — moved to handler_batch4.go
 	// DeleteTransitGatewayConnectPeer — moved to handler_batch4.go
 	ops["DeleteTransitGatewayMeteringPolicy"] = h.handleStubDeleteTransitGatewayMeteringPolicy
@@ -258,10 +258,10 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeSpotFleetRequestHistory"] = h.handleStubDescribeSpotFleetRequestHistory
 	ops["DescribeSpotFleetRequests"] = h.handleStubDescribeSpotFleetRequests
 	ops["DescribeStoreImageTasks"] = h.handleStubDescribeStoreImageTasks
-	ops["DescribeTrafficMirrorFilterRules"] = h.handleStubDescribeTrafficMirrorFilterRules
-	ops["DescribeTrafficMirrorFilters"] = h.handleStubDescribeTrafficMirrorFilters
-	ops["DescribeTrafficMirrorSessions"] = h.handleStubDescribeTrafficMirrorSessions
-	ops["DescribeTrafficMirrorTargets"] = h.handleStubDescribeTrafficMirrorTargets
+	// DescribeTrafficMirrorFilterRules — moved to handler_batch5.go
+	// DescribeTrafficMirrorFilters — moved to handler_batch5.go
+	// DescribeTrafficMirrorSessions — moved to handler_batch5.go
+	// DescribeTrafficMirrorTargets — moved to handler_batch5.go
 	ops["DescribeTransitGatewayAttachments"] = h.handleStubDescribeTransitGatewayAttachments
 	// DescribeTransitGatewayConnectPeers — moved to handler_batch4.go
 	// DescribeTransitGatewayConnects — moved to handler_batch4.go
@@ -407,9 +407,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyReservedInstances"] = h.handleStubModifyReservedInstances
 	ops["ModifyRouteServer"] = h.handleStubModifyRouteServer
 	ops["ModifySpotFleetRequest"] = h.handleStubModifySpotFleetRequest
-	ops["ModifyTrafficMirrorFilterNetworkServices"] = h.handleStubModifyTrafficMirrorFilterNetworkServices
-	ops["ModifyTrafficMirrorFilterRule"] = h.handleStubModifyTrafficMirrorFilterRule
-	ops["ModifyTrafficMirrorSession"] = h.handleStubModifyTrafficMirrorSession
+	// ModifyTrafficMirrorFilterNetworkServices — moved to handler_batch5.go
+	// ModifyTrafficMirrorFilterRule — moved to handler_batch5.go
+	// ModifyTrafficMirrorSession — moved to handler_batch5.go
 	ops["ModifyTransitGatewayMeteringPolicy"] = h.handleStubModifyTransitGatewayMeteringPolicy
 	ops["ModifyTransitGatewayPrefixListReference"] = h.handleStubModifyTransitGatewayPrefixListReference
 	ops["ModifyTransitGatewayVpcAttachment"] = h.handleStubModifyTransitGatewayVpcAttachment
@@ -1500,38 +1500,6 @@ func (h *Handler) handleStubCreateStoreImageTask(_ url.Values, reqID string) (an
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTrafficMirrorFilter(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTrafficMirrorFilterResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateTrafficMirrorFilterRule(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTrafficMirrorFilterRuleResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateTrafficMirrorSession(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTrafficMirrorSessionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateTrafficMirrorTarget(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTrafficMirrorTargetResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateTransitGatewayMeteringPolicy(
 	_ url.Values,
 	reqID string,
@@ -1913,38 +1881,6 @@ func (h *Handler) handleStubDeleteSecondaryNetwork(_ url.Values, reqID string) (
 func (h *Handler) handleStubDeleteSecondarySubnet(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteSecondarySubnetResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTrafficMirrorFilter(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorFilterResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTrafficMirrorFilterRule(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorFilterRuleResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTrafficMirrorSession(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorSessionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTrafficMirrorTarget(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorTargetResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2733,41 +2669,6 @@ func (h *Handler) handleStubDescribeSpotFleetRequests(_ url.Values, reqID string
 func (h *Handler) handleStubDescribeStoreImageTasks(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeStoreImageTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeTrafficMirrorFilterRules(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTrafficMirrorFilterRulesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeTrafficMirrorFilters(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTrafficMirrorFiltersResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeTrafficMirrorSessions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTrafficMirrorSessionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeTrafficMirrorTargets(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTrafficMirrorTargetsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3878,33 +3779,6 @@ func (h *Handler) handleStubModifyRouteServer(_ url.Values, reqID string) (any, 
 func (h *Handler) handleStubModifySpotFleetRequest(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifySpotFleetRequestResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyTrafficMirrorFilterNetworkServices(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTrafficMirrorFilterNetworkServicesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyTrafficMirrorFilterRule(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTrafficMirrorFilterRuleResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyTrafficMirrorSession(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTrafficMirrorSessionResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

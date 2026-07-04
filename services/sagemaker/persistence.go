@@ -52,8 +52,11 @@ type backendSnapshot struct {
 	TransformJobs            map[string]map[string]*TransformJob                    `json:"transformJobs"`
 	FeatureRecords           map[string]map[string]*FeatureRecord                   `json:"featureRecords"`
 	FeatureMetadata          map[string]map[string]*FeatureMetadata                 `json:"featureMetadata"`
-	AccountID                string                                                 `json:"accountID"`
-	Region                   string                                                 `json:"region"`
+	Hubs                     map[string]map[string]*Hub                             `json:"hubs"`
+	// HubContents is stored as region → "hubName|contentType|contentName|contentVersion" → HubContent.
+	HubContents map[string]map[string]*HubContent `json:"hubContents"`
+	AccountID   string                            `json:"accountID"`
+	Region      string                            `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -106,6 +109,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}
 	}
 
+	// Convert hubContents: map[string]map[hubContentKey]*HubContent
+	// → map[string]map[string]*HubContent (inner key = "hubName|contentType|contentName|contentVersion")
+	hubContents := make(map[string]map[string]*HubContent, len(b.hubContents))
+	for region, regionContents := range b.hubContents {
+		hubContents[region] = make(map[string]*HubContent, len(regionContents))
+		for k, v := range regionContents {
+			cp := *v
+			hubContents[region][hubContentKeyString(k)] = &cp
+		}
+	}
+
 	snap := backendSnapshot{
 		Models:                     b.models,
 		EndpointConfigs:            b.endpointConfigs,
@@ -136,6 +150,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		TransformJobs:              b.transformJobs,
 		FeatureRecords:             b.featureRecords,
 		FeatureMetadata:            b.featureMetadata,
+		Hubs:                       b.hubs,
+		HubContents:                hubContents,
 		AccountID:                  b.accountID,
 		Region:                     b.region,
 	}
@@ -205,6 +221,29 @@ func restoreApps(snap *backendSnapshot) map[string]map[appKey]*App {
 	return result
 }
 
+// hubContentKeyString serialises a hubContentKey to a single delimited string
+// for use as a JSON map key.
+func hubContentKeyString(k hubContentKey) string {
+	return k.HubName + "|" + k.HubContentType + "|" + k.HubContentName + "|" + k.HubContentVersion
+}
+
+func restoreHubContents(snap *backendSnapshot) map[string]map[hubContentKey]*HubContent {
+	result := make(map[string]map[hubContentKey]*HubContent, len(snap.HubContents))
+	for region, regionContents := range snap.HubContents {
+		result[region] = make(map[hubContentKey]*HubContent, len(regionContents))
+		for _, v := range regionContents {
+			key := hubContentKey{
+				HubName: v.HubName, HubContentType: v.HubContentType,
+				HubContentName: v.HubContentName, HubContentVersion: v.HubContentVersion,
+			}
+			cp := *v
+			result[region][key] = &cp
+		}
+	}
+
+	return result
+}
+
 func restoreClusters(snap *backendSnapshot) map[string]map[string]*Cluster {
 	result := make(map[string]map[string]*Cluster, len(snap.Clusters))
 	for region, regionClusters := range snap.Clusters {
@@ -262,11 +301,13 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.transformJobs = snap.TransformJobs
 	b.featureRecords = snap.FeatureRecords
 	b.featureMetadata = snap.FeatureMetadata
+	b.hubs = snap.Hubs
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.userProfiles = restoreUserProfiles(snap)
 	b.apps = restoreApps(snap)
 	b.clusters = restoreClusters(snap)
+	b.hubContents = restoreHubContents(snap)
 }
 
 func buildARNIndex[V any](src map[string]map[string]V, arnFn func(string, V) string) map[string]map[string]string {
@@ -339,6 +380,17 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	ensureConfigMaps(snap)
 	ensureMetadataMaps(snap)
 	ensureLineageMaps(snap)
+	ensureHubMaps(snap)
+}
+
+func ensureHubMaps(snap *backendSnapshot) {
+	if snap.Hubs == nil {
+		snap.Hubs = make(map[string]map[string]*Hub)
+	}
+
+	if snap.HubContents == nil {
+		snap.HubContents = make(map[string]map[string]*HubContent)
+	}
 }
 
 func ensureLineageMaps(snap *backendSnapshot) {
@@ -463,6 +515,8 @@ func fixNilTagMapsNewResources(snap *backendSnapshot) {
 	fixNestedTagsSage(snap.TrainingJobs, func(tj *TrainingJob) { tj.Tags = ensureSageTagMap(tj.Tags) })
 	fixNestedTagsSage(snap.Notebooks, func(nb *NotebookInstance) { nb.Tags = ensureSageTagMap(nb.Tags) })
 	fixNestedTagsSage(snap.HPTuningJobs, func(j *HyperParameterTuningJob) { j.Tags = ensureSageTagMap(j.Tags) })
+	fixNestedTagsSage(snap.Hubs, func(h *Hub) { h.Tags = ensureSageTagMap(h.Tags) })
+	fixNestedTagsSage(snap.HubContents, func(hc *HubContent) { hc.Tags = ensureSageTagMap(hc.Tags) })
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

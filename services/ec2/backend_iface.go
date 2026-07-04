@@ -1059,6 +1059,7 @@ type Backend interface {
 	CreateTrafficMirrorFilterRule(
 		filterID, direction, action, srcCIDR, dstCIDR, description string,
 		ruleNumber, protocol int,
+		ports ...TrafficMirrorPortRangePair,
 	) (*TrafficMirrorFilterRule, error)
 	DeleteTrafficMirrorFilterRule(id string) error
 	DescribeTrafficMirrorFilterRules(filterID string) ([]*TrafficMirrorFilterRule, error)
@@ -1066,12 +1067,14 @@ type Backend interface {
 	CreateTrafficMirrorSession(
 		networkInterfaceID, targetID, filterID, description string,
 		sessionNumber int,
+		packetLength ...int,
 	) (*TrafficMirrorSession, error)
 	DeleteTrafficMirrorSession(id string) error
 	DescribeTrafficMirrorSessions(ids []string) []*TrafficMirrorSession
 	ModifyTrafficMirrorSession(id, targetID, filterID, description string) error
 	CreateTrafficMirrorTarget(
 		networkInterfaceID, networkLoadBalancerArn, description string,
+		gatewayLoadBalancerEndpointID ...string,
 	) (*TrafficMirrorTarget, error)
 	DeleteTrafficMirrorTarget(id string) error
 	DescribeTrafficMirrorTargets(ids []string) []*TrafficMirrorTarget
