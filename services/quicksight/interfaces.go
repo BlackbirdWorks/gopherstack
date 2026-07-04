@@ -512,6 +512,10 @@ type StorageBackend interface {
 	) (*DashboardSnapshotJob, error)
 	DescribeDashboardSnapshotJob(accountID, dashboardID, jobID string) (*DashboardSnapshotJob, error)
 	DescribeDashboardSnapshotJobResult(accountID, dashboardID, jobID string) (*DashboardSnapshotJob, error)
+	StartDashboardSnapshotJobSchedule(accountID, dashboardID, scheduleID string) error
+
+	// Predict QA results
+	PredictQAResults(accountID, queryText string) (*QAResult, error)
 
 	// DataSet refresh schedules
 	CreateRefreshSchedule(
@@ -1023,6 +1027,19 @@ type DashboardSnapshotJob struct {
 	DashboardID     string
 	Status          string
 	S3URI           string
+}
+
+// QAResult represents a single Predict QA result: either a generated
+// natural-language answer referencing a real Topic in the account, or an
+// explicit "no answer" result when no topic matches the query text.
+type QAResult struct {
+	AnswerID     string
+	AnswerStatus string
+	QuestionID   string
+	QuestionText string
+	TopicID      string
+	TopicName    string
+	ResultType   string
 }
 
 // RefreshSchedule represents a QuickSight dataset SPICE refresh schedule.

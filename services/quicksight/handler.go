@@ -1389,7 +1389,10 @@ func classifyRequest(method, path string) (string, string) { //nolint:gocognit,g
 			return opGetIdentityContext, seg(segs, segAccountID)
 		}
 	case pathSegQA:
-		if n > nSegsAccountResID && seg(segs, segResID) == pathSegPredict && method == http.MethodPost {
+		// POST /accounts/{id}/qa/predict (n == nSegsAccountResID: accounts,
+		// {id}, qa, predict). The previous "n > nSegsAccountResID" guard made
+		// this real 4-segment path unreachable.
+		if n >= nSegsAccountResID && seg(segs, segResID) == pathSegPredict && method == http.MethodPost {
 			return opPredictQAResults, seg(segs, segAccountID)
 		}
 	case pathSegAppTokenGrant:

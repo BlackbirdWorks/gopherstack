@@ -48,7 +48,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// CancelReservedInstancesListing — real handler in handler_batch5.go, covered there
 	ops["CancelSpotFleetRequests"] = h.handleStubCancelSpotFleetRequests
 	ops["ConfirmProductInstance"] = h.handleStubConfirmProductInstance
-	ops["CopyFpgaImage"] = h.handleStubCopyFpgaImage
+	// CopyFpgaImage — moved to handler_fpga_image.go
 	// CreateCapacityManagerDataExport — moved to handler_capacity_family.go
 	// CreateCapacityReservationBySplitting — moved to handler_capacity_family.go
 	// CreateCapacityReservationFleet — moved to handler_capacity_family.go
@@ -61,7 +61,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateDelegateMacVolumeOwnershipTask"] = h.handleStubCreateDelegateMacVolumeOwnershipTask
 	// CreateEgressOnlyInternetGateway — moved to handler_ec2core.go
 	// CreateFleet — real handler in handler_batch5.go, covered there
-	ops["CreateFpgaImage"] = h.handleStubCreateFpgaImage
+	// CreateFpgaImage — moved to handler_fpga_image.go
 	ops["CreateImageUsageReport"] = h.handleStubCreateImageUsageReport
 	ops["CreateInstanceExportTask"] = h.handleStubCreateInstanceExportTask
 	ops["CreateInterruptibleCapacityReservationAllocation"] = h.handleStubCreateInterruptibleCapacityReservationAllocation
@@ -125,7 +125,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DeleteCustomerGateway — moved to advancedNetworkingSupportedOperations
 	// DeleteEgressOnlyInternetGateway — moved to handler_ec2core.go
 	// DeleteFleets — real handler in handler_batch5.go, covered there
-	ops["DeleteFpgaImage"] = h.handleStubDeleteFpgaImage
+	// DeleteFpgaImage — moved to handler_fpga_image.go
 	ops["DeleteImageUsageReport"] = h.handleStubDeleteImageUsageReport
 	// ops["DeleteIpam"] — real handler in handler_advanced_networking.go, covered there
 	// ops["DeleteIpamExternalResourceVerificationToken"] — moved to ipamDiscoverySupportedOperations
@@ -211,8 +211,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DescribeFleetHistory — real handler in handler_batch5.go, covered there
 	// DescribeFleetInstances — real handler in handler_batch5.go, covered there
 	// DescribeFleets — real handler in handler_batch5.go, covered there
-	ops["DescribeFpgaImageAttribute"] = h.handleStubDescribeFpgaImageAttribute
-	ops["DescribeFpgaImages"] = h.handleStubDescribeFpgaImages
+	// DescribeFpgaImageAttribute — moved to handler_fpga_image.go
+	// DescribeFpgaImages — moved to handler_fpga_image.go
 	ops["DescribeHostReservationOfferings"] = h.handleStubDescribeHostReservationOfferings
 	ops["DescribeHostReservations"] = h.handleStubDescribeHostReservations
 	// DescribeIamInstanceProfileAssociations — moved to handler_ec2core.go
@@ -278,7 +278,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeTrunkInterfaceAssociations"] = h.handleStubDescribeTrunkInterfaceAssociations
 	// DescribeVerifiedAccessEndpoints — moved to handler_batch4.go
 	// DescribeVerifiedAccessGroups — moved to handler_batch4.go
-	ops["DescribeVerifiedAccessInstanceLoggingConfigurations"] = h.handleStubDescribeVerifiedAccessInstanceLoggingConfigurations //nolint:lll // existing issue.
+	// DescribeVerifiedAccessInstanceLoggingConfigurations — moved to handler_verifiedaccess_ext.go
 	// DescribeVerifiedAccessInstances — moved to handler_batch4.go
 	// DescribeVerifiedAccessTrustProviders — moved to handler_batch4.go
 	// DescribeVpcBlockPublicAccessExclusions — moved to handler_vpc_config.go
@@ -328,7 +328,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ExportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
 	// ExportClientVpnClientConfiguration — moved to handler_batch4.go
 	// ExportTransitGatewayRoutes — moved to handler_tgw_peripherals.go
-	ops["ExportVerifiedAccessInstanceClientConfiguration"] = h.handleStubExportVerifiedAccessInstanceClientConfiguration
+	// ExportVerifiedAccessInstanceClientConfiguration — moved to handler_verifiedaccess_ext.go
 	ops["GetActiveVpnTunnelStatus"] = h.handleStubGetActiveVpnTunnelStatus
 	ops["GetAllowedImagesSettings"] = h.handleStubGetAllowedImagesSettings
 	ops["GetAssociatedEnclaveCertificateIamRoles"] = h.handleStubGetAssociatedEnclaveCertificateIamRoles
@@ -374,9 +374,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// GetTransitGatewayPrefixListReferences — moved to handler_batch4.go
 	// GetTransitGatewayRouteTableAssociations — moved to handler_tgw_peripherals.go
 	// GetTransitGatewayRouteTablePropagations — moved to handler_tgw_peripherals.go
-	ops["GetVerifiedAccessEndpointPolicy"] = h.handleStubGetVerifiedAccessEndpointPolicy
-	ops["GetVerifiedAccessEndpointTargets"] = h.handleStubGetVerifiedAccessEndpointTargets
-	ops["GetVerifiedAccessGroupPolicy"] = h.handleStubGetVerifiedAccessGroupPolicy
+	// GetVerifiedAccessEndpointPolicy — moved to handler_verifiedaccess_ext.go
+	// GetVerifiedAccessEndpointTargets — moved to handler_verifiedaccess_ext.go
+	// GetVerifiedAccessGroupPolicy — moved to handler_verifiedaccess_ext.go
 	ops["GetVpcResourcesBlockingEncryptionEnforcement"] = h.handleStubGetVpcResourcesBlockingEncryptionEnforcement
 	// GetVpnConnectionDeviceSampleConfiguration — moved to advancedNetworkingSupportedOperations
 	// GetVpnConnectionDeviceTypes — moved to advancedNetworkingSupportedOperations
@@ -388,7 +388,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ModifyCapacityReservationFleet — moved to handler_capacity_family.go
 	// ModifyClientVpnEndpoint — moved to handler_batch4.go
 	// ModifyFleet — real handler in handler_batch5.go, covered there
-	ops["ModifyFpgaImageAttribute"] = h.handleStubModifyFpgaImageAttribute
+	// ModifyFpgaImageAttribute — moved to handler_fpga_image.go
 	ops["ModifyHosts"] = h.handleStubModifyHosts
 	ops["ModifyInstanceCapacityReservationAttributes"] = h.handleStubModifyInstanceCapacityReservationAttributes
 	ops["ModifyInstanceCpuOptions"] = h.handleStubModifyInstanceCPUOptions
@@ -418,11 +418,11 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ModifyTransitGatewayPrefixListReference — moved to handler_tgw_peripherals.go
 	// ModifyTransitGatewayVpcAttachment — moved to handler_tgw_peripherals.go
 	// ModifyVerifiedAccessEndpoint — moved to handler_batch4.go
-	ops["ModifyVerifiedAccessEndpointPolicy"] = h.handleStubModifyVerifiedAccessEndpointPolicy
+	// ModifyVerifiedAccessEndpointPolicy — moved to handler_verifiedaccess_ext.go
 	ops["ModifyVerifiedAccessGroup"] = h.handleStubModifyVerifiedAccessGroup
-	ops["ModifyVerifiedAccessGroupPolicy"] = h.handleStubModifyVerifiedAccessGroupPolicy
+	// ModifyVerifiedAccessGroupPolicy — moved to handler_verifiedaccess_ext.go
 	ops["ModifyVerifiedAccessInstance"] = h.handleStubModifyVerifiedAccessInstance
-	ops["ModifyVerifiedAccessInstanceLoggingConfiguration"] = h.handleStubModifyVerifiedAccessInstanceLoggingConfiguration
+	// ModifyVerifiedAccessInstanceLoggingConfiguration — moved to handler_verifiedaccess_ext.go
 	ops["ModifyVerifiedAccessTrustProvider"] = h.handleStubModifyVerifiedAccessTrustProvider
 	// ModifyVpcBlockPublicAccessExclusion — moved to handler_vpc_config.go
 	// ModifyVpcBlockPublicAccessOptions — moved to handler_vpc_config.go
@@ -457,7 +457,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ReplaceTransitGatewayRoute — moved to handler_ec2core.go
 	ops["ReplaceVpnTunnel"] = h.handleStubReplaceVpnTunnel
 	ops["RequestSpotFleet"] = h.handleStubRequestSpotFleet
-	ops["ResetFpgaImageAttribute"] = h.handleStubResetFpgaImageAttribute
+	// ResetFpgaImageAttribute — moved to handler_fpga_image.go
 	// RestoreManagedPrefixListVersion — moved to handler_batch4.go
 	// RevokeClientVpnIngress — moved to handler_batch4.go
 	ops["RunScheduledInstances"] = h.handleStubRunScheduledInstances
@@ -515,7 +515,7 @@ func stubSupportedOperations() []string {
 		"CancelImportTask",
 		"CancelReservedInstancesListing",
 		"ConfirmProductInstance",
-		"CopyFpgaImage",
+		// "CopyFpgaImage", — moved to handler_fpga_image.go
 		"CreateCapacityManagerDataExport",
 		"CreateCapacityReservationBySplitting",
 		"CreateCapacityReservationFleet",
@@ -528,7 +528,7 @@ func stubSupportedOperations() []string {
 		"CreateDelegateMacVolumeOwnershipTask",
 		// CreateEgressOnlyInternetGateway — moved to ec2CoreSupportedOperations
 		"CreateFleet",
-		"CreateFpgaImage",
+		// "CreateFpgaImage", — moved to handler_fpga_image.go
 		"CreateImageUsageReport",
 		"CreateInstanceExportTask",
 		"CreateInterruptibleCapacityReservationAllocation",
@@ -592,7 +592,7 @@ func stubSupportedOperations() []string {
 		// "DeleteCustomerGateway", — moved to advancedNetworkingSupportedOperations
 		// DeleteEgressOnlyInternetGateway — moved to ec2CoreSupportedOperations
 		"DeleteFleets",
-		"DeleteFpgaImage",
+		// "DeleteFpgaImage", — moved to handler_fpga_image.go
 		"DeleteImageUsageReport",
 		// "DeleteIpam", — moved to advancedNetworkingSupportedOperations
 		// "DeleteIpamExternalResourceVerificationToken", — moved to ipamDiscoverySupportedOperations
@@ -678,8 +678,8 @@ func stubSupportedOperations() []string {
 		"DescribeFleetHistory",
 		"DescribeFleetInstances",
 		"DescribeFleets",
-		"DescribeFpgaImageAttribute",
-		"DescribeFpgaImages",
+		// "DescribeFpgaImageAttribute", — moved to handler_fpga_image.go
+		// "DescribeFpgaImages", — moved to handler_fpga_image.go
 		"DescribeHostReservationOfferings",
 		"DescribeHostReservations",
 		// DescribeIamInstanceProfileAssociations — moved to ec2CoreSupportedOperations
@@ -742,7 +742,7 @@ func stubSupportedOperations() []string {
 		"DescribeTrunkInterfaceAssociations",
 		// "DescribeVerifiedAccessEndpoints", — moved to batch4SupportedOperations
 		// "DescribeVerifiedAccessGroups", — moved to batch4SupportedOperations
-		"DescribeVerifiedAccessInstanceLoggingConfigurations",
+		// "DescribeVerifiedAccessInstanceLoggingConfigurations", — moved to handler_verifiedaccess_ext.go
 		// "DescribeVerifiedAccessInstances", — moved to batch4SupportedOperations
 		// "DescribeVerifiedAccessTrustProviders", — moved to batch4SupportedOperations
 		// "DescribeVpcBlockPublicAccessExclusions", — moved to vpcConfigSupportedOperations
@@ -793,7 +793,7 @@ func stubSupportedOperations() []string {
 		// ExportClientVpnClientCertificateRevocationList — moved to batch4SupportedOperations
 		// ExportClientVpnClientConfiguration — moved to batch4SupportedOperations
 		// "ExportTransitGatewayRoutes", — moved to tgwPeripheralsSupportedOperations
-		"ExportVerifiedAccessInstanceClientConfiguration",
+		// "ExportVerifiedAccessInstanceClientConfiguration", — moved to handler_verifiedaccess_ext.go
 		"GetActiveVpnTunnelStatus",
 		"GetAllowedImagesSettings",
 		"GetAssociatedEnclaveCertificateIamRoles",
@@ -839,9 +839,9 @@ func stubSupportedOperations() []string {
 		// "GetTransitGatewayPrefixListReferences", — moved to batch4SupportedOperations
 		// "GetTransitGatewayRouteTableAssociations", — moved to tgwPeripheralsSupportedOperations
 		// "GetTransitGatewayRouteTablePropagations", — moved to tgwPeripheralsSupportedOperations
-		"GetVerifiedAccessEndpointPolicy",
-		"GetVerifiedAccessEndpointTargets",
-		"GetVerifiedAccessGroupPolicy",
+		// "GetVerifiedAccessEndpointPolicy", — moved to handler_verifiedaccess_ext.go
+		// "GetVerifiedAccessEndpointTargets", — moved to handler_verifiedaccess_ext.go
+		// "GetVerifiedAccessGroupPolicy", — moved to handler_verifiedaccess_ext.go
 		"GetVpcResourcesBlockingEncryptionEnforcement",
 		// "GetVpnConnectionDeviceSampleConfiguration", — moved to advancedNetworkingSupportedOperations
 		// "GetVpnConnectionDeviceTypes", — moved to advancedNetworkingSupportedOperations
@@ -853,7 +853,7 @@ func stubSupportedOperations() []string {
 		"ModifyCapacityReservationFleet",
 		// "ModifyClientVpnEndpoint", — moved to batch4SupportedOperations
 		"ModifyFleet",
-		"ModifyFpgaImageAttribute",
+		// "ModifyFpgaImageAttribute", — moved to handler_fpga_image.go
 		"ModifyHosts",
 		"ModifyInstanceCapacityReservationAttributes",
 		"ModifyInstanceCpuOptions",
@@ -882,11 +882,11 @@ func stubSupportedOperations() []string {
 		// "ModifyTransitGatewayPrefixListReference", — moved to tgwPeripheralsSupportedOperations
 		// "ModifyTransitGatewayVpcAttachment", — moved to tgwPeripheralsSupportedOperations
 		// "ModifyVerifiedAccessEndpoint", — moved to batch4SupportedOperations
-		"ModifyVerifiedAccessEndpointPolicy",
+		// "ModifyVerifiedAccessEndpointPolicy", — moved to handler_verifiedaccess_ext.go
 		"ModifyVerifiedAccessGroup",
-		"ModifyVerifiedAccessGroupPolicy",
+		// "ModifyVerifiedAccessGroupPolicy", — moved to handler_verifiedaccess_ext.go
 		"ModifyVerifiedAccessInstance",
-		"ModifyVerifiedAccessInstanceLoggingConfiguration",
+		// "ModifyVerifiedAccessInstanceLoggingConfiguration", — moved to handler_verifiedaccess_ext.go
 		"ModifyVerifiedAccessTrustProvider",
 		// "ModifyVpcBlockPublicAccessExclusion", — moved to vpcConfigSupportedOperations
 		// "ModifyVpcBlockPublicAccessOptions", — moved to vpcConfigSupportedOperations
@@ -921,7 +921,7 @@ func stubSupportedOperations() []string {
 		// ReplaceRouteTableAssociation — moved to ec2CoreSupportedOperations
 		// ReplaceTransitGatewayRoute — moved to ec2CoreSupportedOperations
 		"ReplaceVpnTunnel",
-		"ResetFpgaImageAttribute",
+		// "ResetFpgaImageAttribute", — moved to handler_fpga_image.go
 		// "RestoreManagedPrefixListVersion", — moved to batch4SupportedOperations
 		// "RevokeClientVpnIngress", — moved to batch4SupportedOperations
 		"RunScheduledInstances",
@@ -1050,14 +1050,6 @@ func (h *Handler) handleStubConfirmProductInstance(_ url.Values, reqID string) (
 	}, nil
 }
 
-func (h *Handler) handleStubCopyFpgaImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CopyFpgaImageResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateCoipCidr(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateCoipCidrResponse"},
@@ -1080,14 +1072,6 @@ func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateDelegateMacVolumeOwnershipTaskResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateFpgaImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateFpgaImageResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1223,14 +1207,6 @@ func (h *Handler) handleStubDeleteCoipCidr(_ url.Values, reqID string) (any, err
 func (h *Handler) handleStubDeleteCoipPool(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteCoipPoolResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteFpgaImage(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteFpgaImageResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1385,22 +1361,6 @@ func (h *Handler) handleStubDescribeExportImageTasks(_ url.Values, reqID string)
 func (h *Handler) handleStubDescribeExportTasks(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeExportTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeFpgaImageAttributeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeFpgaImages(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeFpgaImagesResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1606,17 +1566,6 @@ func (h *Handler) handleStubDescribeTrunkInterfaceAssociations(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVerifiedAccessInstanceLoggingConfigurations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVerifiedAccessInstanceLoggingConfigurationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeVpcEncryptionControls(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcEncryptionControlsResponse"},
@@ -1767,17 +1716,6 @@ func (h *Handler) handleStubEnableTransitGatewayRouteTablePropagation(
 	}, nil
 }
 
-func (h *Handler) handleStubExportVerifiedAccessInstanceClientConfiguration(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ExportVerifiedAccessInstanceClientConfigurationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetActiveVpnTunnelStatus(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetActiveVpnTunnelStatusResponse"},
@@ -1894,36 +1832,6 @@ func (h *Handler) handleStubGetSpotPlacementScores(_ url.Values, reqID string) (
 	}, nil
 }
 
-func (h *Handler) handleStubGetVerifiedAccessEndpointPolicy(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetVerifiedAccessEndpointPolicyResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetVerifiedAccessEndpointTargets(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetVerifiedAccessEndpointTargetsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetVerifiedAccessGroupPolicy(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetVerifiedAccessGroupPolicyResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetVpcResourcesBlockingEncryptionEnforcement(
 	_ url.Values,
 	reqID string,
@@ -1954,14 +1862,6 @@ func (h *Handler) handleStubImportVolume(_ url.Values, reqID string) (any, error
 func (h *Handler) handleStubModifyAvailabilityZoneGroup(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyAvailabilityZoneGroupResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyFpgaImageAttributeResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2056,17 +1956,6 @@ func (h *Handler) handleStubModifySpotFleetRequest(_ url.Values, reqID string) (
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVerifiedAccessEndpointPolicy(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVerifiedAccessEndpointPolicyResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyVerifiedAccessGroup(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVerifiedAccessGroupResponse"},
@@ -2075,31 +1964,9 @@ func (h *Handler) handleStubModifyVerifiedAccessGroup(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVerifiedAccessGroupPolicy(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVerifiedAccessGroupPolicyResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyVerifiedAccessInstance(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVerifiedAccessInstanceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyVerifiedAccessInstanceLoggingConfiguration(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVerifiedAccessInstanceLoggingConfigurationResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2194,14 +2061,6 @@ func (h *Handler) handleStubReplaceVpnTunnel(_ url.Values, reqID string) (any, e
 func (h *Handler) handleStubRequestSpotFleet(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RequestSpotFleetResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubResetFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ResetFpgaImageAttributeResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

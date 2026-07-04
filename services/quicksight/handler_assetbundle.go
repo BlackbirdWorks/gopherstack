@@ -30,7 +30,8 @@ func isAssetBundleOp(op string) bool {
 	switch op {
 	case opStartAssetBundleExportJob, opDescribeAssetBundleExportJob, opListAssetBundleExportJobs,
 		opStartAssetBundleImportJob, opDescribeAssetBundleImportJob, opListAssetBundleImportJobs,
-		opStartDashboardSnapshotJob, opDescribeDashboardSnapshotJob, opDescribeDashboardSnapshotJobResult:
+		opStartDashboardSnapshotJob, opDescribeDashboardSnapshotJob, opDescribeDashboardSnapshotJobResult,
+		opStartDashboardSnapshotJobSchedule:
 		return true
 	}
 
@@ -64,6 +65,8 @@ func (h *Handler) dispatchDashboardSnapshot(c *echo.Context, op string) error {
 		return h.handleDescribeDashboardSnapshotJob(c)
 	case opDescribeDashboardSnapshotJobResult:
 		return h.handleDescribeDashboardSnapshotJobResult(c)
+	case opStartDashboardSnapshotJobSchedule:
+		return h.handleStartDashboardSnapshotJobSchedule(c)
 	}
 
 	return writeError(
@@ -271,6 +274,27 @@ func (h *Handler) handleStartDashboardSnapshotJob(c *echo.Context) error {
 		keySnapshotJobID: job.JobID,
 		keyRequestID:     reqIDPlaceholder,
 		keyStatus:        http.StatusOK,
+	})
+}
+
+// handleStartDashboardSnapshotJobSchedule starts an on-demand execution of a
+// dashboard's snapshot job schedule. Real
+// StartDashboardSnapshotJobScheduleOutput has no data fields beyond
+// RequestId/Status; it must not echo back the DashboardId or any other
+// fabricated field.
+func (h *Handler) handleStartDashboardSnapshotJobSchedule(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
+	scheduleID := seg(segs, segSubResID)
+
+	if err := h.Backend.StartDashboardSnapshotJobSchedule(accountID, dashboardID, scheduleID); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 

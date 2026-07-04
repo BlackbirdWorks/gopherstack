@@ -380,24 +380,30 @@ type InMemoryBackend struct {
 	capacityReservationBillingRequests map[string]*CapacityReservationBillingRequest
 	capacityManagerDataExports         map[string]*CapacityManagerDataExport
 	capacityManagerState               *CapacityManagerState
-	mu                                 *lockmetrics.RWMutex
-	lifecycleStop                      chan struct{}
-	eniIDByAttachment                  map[string]string
-	eniIDsByInstance                   map[string]map[string]struct{}
-	instanceIDsByVPC                   map[string]map[string]struct{}
-	snapshotBlockPublicAccess          string
-	ebsDefaultKmsKeyID                 string
-	imageBlockPublicAccess             string
-	defaultCreditSpec                  string
-	Region                             string `json:"region,omitempty"`
-	AccountID                          string `json:"accountID,omitempty"`
-	freePrivateIPs                     []string
-	nextPrivateIPIndex                 int
-	nextElasticIPIndex                 int
-	ebsEncryptionByDefault             bool
-	serialConsoleAccess                bool
-	lifecycleOnce                      sync.Once
-	lifecycleStopOnce                  sync.Once
+	// VerifiedAccess policy / logging additions
+	verifiedAccessEndpointPolicies       map[string]*VerifiedAccessPolicy
+	verifiedAccessGroupPolicies          map[string]*VerifiedAccessPolicy
+	verifiedAccessInstanceLoggingConfigs map[string]*VerifiedAccessInstanceLoggingConfig
+	// FPGA image additions
+	fpgaImages                map[string]*FpgaImage
+	mu                        *lockmetrics.RWMutex
+	lifecycleStop             chan struct{}
+	eniIDByAttachment         map[string]string
+	eniIDsByInstance          map[string]map[string]struct{}
+	instanceIDsByVPC          map[string]map[string]struct{}
+	snapshotBlockPublicAccess string
+	ebsDefaultKmsKeyID        string
+	imageBlockPublicAccess    string
+	defaultCreditSpec         string
+	Region                    string `json:"region,omitempty"`
+	AccountID                 string `json:"accountID,omitempty"`
+	freePrivateIPs            []string
+	nextPrivateIPIndex        int
+	nextElasticIPIndex        int
+	ebsEncryptionByDefault    bool
+	serialConsoleAccess       bool
+	lifecycleOnce             sync.Once
+	lifecycleStopOnce         sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -455,41 +461,11 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 		ipamPoolAllocations:            make(map[string]*IpamPoolAllocation),
 		ipamResourceDiscoveries:        make(map[string]*IpamResourceDiscovery),
 		ipamResourceDiscoveryAssocs:    make(map[string]*IpamResourceDiscoveryAssociation),
-		spotFleets:                     make(map[string]*SpotFleetRequest),
-		spotFleetHistory:               make(map[string][]SpotFleetHistoryRecord),
-		volumeModifications:            make(map[string]*VolumeModification),
-		snapshotTiers:                  make(map[string]string),
-		snapshotAttributes:             make(map[string]map[string]string),
-		sgVpcAssociations:              make(map[string]map[string]string),
-		vpcTenancy:                     make(map[string]string),
-		vpcPeeringOptions:              make(map[string]*PeeringConnectionOptions),
-		subnetCIDRAssociations:         make(map[string][]*SubnetCIDRAssociation),
-		addressAttributes:              make(map[string]*AddressAttribute),
-		instanceMonitoring:             make(map[string]string),
-		instanceCreditSpecs:            make(map[string]string),
-		instanceIMDSOptions:            make(map[string]*IMDSOptions),
-		niPermissions:                  make(map[string]*NetworkInterfacePermission),
-		niIPv6Addresses:                make(map[string][]string),
-		idFormatSettings:               make(map[string]bool),
-		endpointConnectionNotifs:       make(map[string]*VpcEndpointConnectionNotification),
-		vpcEndpointServicePermissions:  make(map[string][]string),
-		snapshotLocks:                  make(map[string]*SnapshotLock),
-		replaceRootVolumeTasks:         make(map[string]*ReplaceRootVolumeTask),
-		subnetCIDRReservations:         make(map[string][]*SubnetCIDRReservation),
-		imageDisabled:                  make(map[string]bool),
-		imageDeprecated:                make(map[string]string),
-		imageDeregistrationProtection:  make(map[string]bool),
-		imageAttributes:                make(map[string]map[string]string),
-		vgwRoutePropagation:            make(map[string]bool),
-		managedPrefixLists:             make(map[string]*ManagedPrefixList),
-		clientVpnEndpoints:             make(map[string]*ClientVpnEndpoint),
-		tgwConnects:                    make(map[string]*TransitGatewayConnect),
-		tgwConnectPeers:                make(map[string]*TransitGatewayConnectPeer),
-		tgwPrefixListRefs:              make(map[string]*TransitGatewayPrefixListReference),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),
 	}
+	initCoreExtraMaps(b)
 	initBatch5Maps(b)
 	initBatch6Maps(b)
 	initRouteServerMaps(b)
@@ -497,10 +473,63 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initTGWMulticastMaps(b)
 	initVpcConfigMaps(b)
 	initCapacityFamilyMaps(b)
+	initVerifiedAccessExtMaps(b)
+	initFpgaImageMaps(b)
 	b.resetIpamDiscoveryMapsLocked()
 	b.resetIpamPolicyMapsLocked()
 
 	return b
+}
+
+// initVerifiedAccessExtMaps initialises the VerifiedAccess policy/logging
+// state maps (split out to keep newInMemoryBackendMaps under the funlen
+// limit).
+func initVerifiedAccessExtMaps(b *InMemoryBackend) {
+	b.verifiedAccessEndpointPolicies = make(map[string]*VerifiedAccessPolicy)
+	b.verifiedAccessGroupPolicies = make(map[string]*VerifiedAccessPolicy)
+	b.verifiedAccessInstanceLoggingConfigs = make(map[string]*VerifiedAccessInstanceLoggingConfig)
+}
+
+// initFpgaImageMaps initialises the FPGA image state map (split out to keep
+// newInMemoryBackendMaps under the funlen limit).
+func initFpgaImageMaps(b *InMemoryBackend) {
+	b.fpgaImages = make(map[string]*FpgaImage)
+}
+
+// initCoreExtraMaps initialises spot fleet, snapshot, IMDS, and batch4 state
+// maps (split out to keep newInMemoryBackendMaps under the funlen limit).
+func initCoreExtraMaps(b *InMemoryBackend) {
+	b.spotFleets = make(map[string]*SpotFleetRequest)
+	b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
+	b.volumeModifications = make(map[string]*VolumeModification)
+	b.snapshotTiers = make(map[string]string)
+	b.snapshotAttributes = make(map[string]map[string]string)
+	b.sgVpcAssociations = make(map[string]map[string]string)
+	b.vpcTenancy = make(map[string]string)
+	b.vpcPeeringOptions = make(map[string]*PeeringConnectionOptions)
+	b.subnetCIDRAssociations = make(map[string][]*SubnetCIDRAssociation)
+	b.addressAttributes = make(map[string]*AddressAttribute)
+	b.instanceMonitoring = make(map[string]string)
+	b.instanceCreditSpecs = make(map[string]string)
+	b.instanceIMDSOptions = make(map[string]*IMDSOptions)
+	b.niPermissions = make(map[string]*NetworkInterfacePermission)
+	b.niIPv6Addresses = make(map[string][]string)
+	b.idFormatSettings = make(map[string]bool)
+	b.endpointConnectionNotifs = make(map[string]*VpcEndpointConnectionNotification)
+	b.vpcEndpointServicePermissions = make(map[string][]string)
+	b.snapshotLocks = make(map[string]*SnapshotLock)
+	b.replaceRootVolumeTasks = make(map[string]*ReplaceRootVolumeTask)
+	b.subnetCIDRReservations = make(map[string][]*SubnetCIDRReservation)
+	b.imageDisabled = make(map[string]bool)
+	b.imageDeprecated = make(map[string]string)
+	b.imageDeregistrationProtection = make(map[string]bool)
+	b.imageAttributes = make(map[string]map[string]string)
+	b.vgwRoutePropagation = make(map[string]bool)
+	b.managedPrefixLists = make(map[string]*ManagedPrefixList)
+	b.clientVpnEndpoints = make(map[string]*ClientVpnEndpoint)
+	b.tgwConnects = make(map[string]*TransitGatewayConnect)
+	b.tgwConnectPeers = make(map[string]*TransitGatewayConnectPeer)
+	b.tgwPrefixListRefs = make(map[string]*TransitGatewayPrefixListReference)
 }
 
 // initCapacityFamilyMaps initialises the Capacity Reservation Fleet, Capacity

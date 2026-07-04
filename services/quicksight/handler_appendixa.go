@@ -13,14 +13,18 @@ type appendixHandlerFn func(resID, subID string) map[string]any
 // legacy type-specific helpers (namespace/group/user/datasource/dataset/dashboard/analysis/tag).
 // Account/config-cluster operations are real (backed by InMemoryBackend) and are
 // routed to dispatchAccountConfig here, ahead of the canned appendixOps table.
-// GetIdentityContext is likewise real but (unlike the canned ops) needs the
-// request body, so it is special-cased here too, ahead of the canned table.
+// GetIdentityContext and PredictQAResults are likewise real but (unlike the
+// canned ops) need the request body, so they are special-cased here too,
+// ahead of the canned table.
 func (h *Handler) dispatchNew(c *echo.Context, op string) error {
 	if isAccountConfigOp(op) {
 		return h.dispatchAccountConfig(c, op)
 	}
 	if op == opGetIdentityContext {
 		return h.handleGetIdentityContext(c)
+	}
+	if op == opPredictQAResults {
+		return h.handlePredictQAResults(c)
 	}
 
 	segs := pathSegsFromCtx(c)
@@ -44,9 +48,6 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		return extra
 	}
 	simple := func() map[string]any { return reqID(map[string]any{}) }
-	withID := func(key string) appendixHandlerFn {
-		return func(resID, _ string) map[string]any { return reqID(map[string]any{key: resID}) }
-	}
 	noContent := func(_, _ string) map[string]any { return simple() }
 
 	return map[string]appendixHandlerFn{
@@ -111,11 +112,10 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// UpdateDashboardPermissions, UpdateDashboardPublishedVersion, and
 		// UpdateDashboardLinks are real (backed by InMemoryBackend) and routed via
 		// dispatchDashboard in handler.go, not through this canned table.
-		// StartDashboardSnapshotJob, DescribeDashboardSnapshotJob, and
-		// DescribeDashboardSnapshotJobResult are real (backed by InMemoryBackend) and
-		// routed via dispatchDashboardSnapshot in handler_assetbundle.go, not through
-		// this canned table.
-		opStartDashboardSnapshotJobSchedule: withID("DashboardId"),
+		// StartDashboardSnapshotJob, StartDashboardSnapshotJobSchedule,
+		// DescribeDashboardSnapshotJob, and DescribeDashboardSnapshotJobResult are
+		// real (backed by InMemoryBackend) and routed via dispatchDashboardSnapshot
+		// in handler_assetbundle.go, not through this canned table.
 		// GetDashboardEmbedUrl is real (backed by InMemoryBackend) and routed via
 		// dispatchEmbedURL in handler_embedurl.go, not through this canned table.
 		// DescribeDashboardsQAConfiguration and UpdateDashboardsQAConfiguration are
@@ -242,6 +242,12 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// handler_account.go, not through this canned table.
 
 		// ---- App Token Grant ----
+		// UpdateApplicationWithTokenExchangeGrant is a genuinely void-result op:
+		// its real output (UpdateApplicationWithTokenExchangeGrantOutput) carries
+		// only the RequestId/Status envelope, and the SDK defines no corresponding
+		// Describe/Get op to make the grant observable — there is no state for
+		// this backend to track beyond acknowledging the request, so the canned
+		// envelope-only response below is the correct (not fabricated) shape.
 		opUpdateAppTokenGrant: noContent,
 
 		// ---- Identity Context ----
@@ -250,7 +256,9 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// dispatchNew, not through this canned table.
 
 		// ---- Predict QA ----
-		opPredictQAResults: noContent,
+		// PredictQAResults is real (grounds its answer in the account's actual
+		// Topics, backed by InMemoryBackend) and routed via dispatchNew's
+		// op==opPredictQAResults special-case, not through this canned table.
 
 		// ---- Embed URLs ----
 		// GenerateEmbedUrlForAnonymousUser, GenerateEmbedUrlForRegisteredUser,
@@ -1106,6 +1114,53 @@ func (h *Handler) handleGetIdentityContext(c *echo.Context) error {
 		"Context":    token,
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- Predict QA ----
+
+// qaResultToMap converts a QAResult into its PredictQAResultsOutput wire
+// representation. Real AWS nests the generated-answer fields under a
+// GeneratedAnswer object; the DASHBOARD_VISUAL result type (not produced by
+// this emulator, since it cannot render a visual for a natural-language
+// query) is intentionally not modeled here.
+func qaResultToMap(r *QAResult) map[string]any {
+	m := map[string]any{"ResultType": r.ResultType}
+
+	if r.ResultType == qaResultTypeGeneratedAnswer {
+		m["GeneratedAnswer"] = map[string]any{
+			"AnswerId":     r.AnswerID,
+			"AnswerStatus": r.AnswerStatus,
+			"QuestionId":   r.QuestionID,
+			"QuestionText": r.QuestionText,
+			"TopicId":      r.TopicID,
+			"TopicName":    r.TopicName,
+		}
+	}
+
+	return m
+}
+
+// handlePredictQAResults answers a natural-language query, grounding the
+// answer in the account's real Topics rather than fabricating a response.
+func (h *Handler) handlePredictQAResults(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	result, err := h.Backend.PredictQAResults(accountID, strField(body, "QueryText"))
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"PrimaryResult": qaResultToMap(result),
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
 	})
 }
 

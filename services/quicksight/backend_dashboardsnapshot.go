@@ -114,3 +114,26 @@ func (b *InMemoryBackend) DescribeDashboardSnapshotJobResult(
 
 	return job.toDashboardSnapshotJob(), nil
 }
+
+// StartDashboardSnapshotJobSchedule starts an immediate, on-demand execution
+// of a dashboard's existing snapshot job schedule. Real
+// StartDashboardSnapshotJobScheduleOutput carries no data fields beyond the
+// RequestId/Status envelope; the caller polls DescribeDashboardSnapshotJob
+// separately for results. This emulator does not model schedule definitions
+// themselves (there is no corresponding Create/Describe API for them in the
+// SDK), so it validates what real state it can: that the target dashboard
+// exists and a non-empty ScheduleId was supplied.
+func (b *InMemoryBackend) StartDashboardSnapshotJobSchedule(accountID, dashboardID, scheduleID string) error {
+	if scheduleID == "" {
+		return ErrValidation
+	}
+
+	b.mu.RLock("StartDashboardSnapshotJobSchedule")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.dashboards[dashboardKey(accountID, dashboardID)]; !ok {
+		return ErrDashboardNotFound
+	}
+
+	return nil
+}

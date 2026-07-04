@@ -92,26 +92,53 @@ type getPartnerAccountResponse struct {
 }
 
 type getPositionResponse struct {
-	SolverType     string    `json:"SolverType"`
-	SolverVersion  string    `json:"SolverVersion"`
-	SolverProvider string    `json:"SolverProvider"`
-	Timestamp      string    `json:"Timestamp"`
+	Accuracy       *float64  `json:"Accuracy,omitempty"`
+	SolverType     string    `json:"SolverType,omitempty"`
+	SolverVersion  string    `json:"SolverVersion,omitempty"`
+	SolverProvider string    `json:"SolverProvider,omitempty"`
+	Timestamp      string    `json:"Timestamp,omitempty"`
 	Position       []float64 `json:"Position"`
 }
 
 type getPositionConfigurationResponse struct {
-	Destination string `json:"Destination"`
-	SolverType  string `json:"SolverType"`
+	Solvers     map[string]any `json:"Solvers,omitempty"`
+	Destination string         `json:"Destination,omitempty"`
 }
 
 type getPositionEstimateResponse struct {
 	GeoJSONPayload []byte `json:"GeoJsonPayload"`
 }
 
-type getResourceEventConfigurationResponse struct {
-	Identifier     string `json:"Identifier"`
-	IdentifierType string `json:"IdentifierType"`
-	PartnerType    string `json:"PartnerType"`
+// eventConfigDocResponse mirrors AWS's five event-type configuration fields,
+// shared verbatim by GetEventConfigurationByResourceTypes and
+// GetResourceEventConfiguration (neither of which includes an identifier).
+type eventConfigDocResponse struct {
+	ConnectionStatus        map[string]any `json:"ConnectionStatus,omitempty"`
+	DeviceRegistrationState map[string]any `json:"DeviceRegistrationState,omitempty"`
+	Join                    map[string]any `json:"Join,omitempty"`
+	MessageDeliveryStatus   map[string]any `json:"MessageDeliveryStatus,omitempty"`
+	Proximity               map[string]any `json:"Proximity,omitempty"`
+}
+
+func eventConfigDocResponseFrom(doc *EventConfigDoc) eventConfigDocResponse {
+	if doc == nil {
+		return eventConfigDocResponse{}
+	}
+
+	return eventConfigDocResponse{
+		ConnectionStatus:        doc.ConnectionStatus,
+		DeviceRegistrationState: doc.DeviceRegistrationState,
+		Join:                    doc.Join,
+		MessageDeliveryStatus:   doc.MessageDeliveryStatus,
+		Proximity:               doc.Proximity,
+	}
+}
+
+type eventConfigurationItemResponse struct {
+	Events         eventConfigDocResponse `json:"Events"`
+	Identifier     string                 `json:"Identifier"`
+	IdentifierType string                 `json:"IdentifierType"`
+	PartnerType    string                 `json:"PartnerType,omitempty"`
 }
 
 type getResourceLogLevelResponse struct {
@@ -143,8 +170,8 @@ type getWirelessDeviceImportTaskResponse struct {
 }
 
 type getWirelessDeviceStatisticsResponse struct {
-	WirelessDeviceID     string `json:"WirelessDeviceId"`
-	LastUplinkReceivedAt string `json:"LastUplinkReceivedAt"`
+	WirelessDeviceID     string `json:"WirelessDeviceId,omitempty"`
+	LastUplinkReceivedAt string `json:"LastUplinkReceivedAt,omitempty"`
 }
 
 type getWirelessGatewayCertificateResponse struct {
@@ -155,9 +182,9 @@ type getWirelessGatewayCertificateResponse struct {
 type getWirelessGatewayFirmwareInformationResponse struct{}
 
 type getWirelessGatewayStatisticsResponse struct {
-	WirelessGatewayID    string `json:"WirelessGatewayId"`
-	LastUplinkReceivedAt string `json:"LastUplinkReceivedAt"`
-	ConnectionStatus     string `json:"ConnectionStatus"`
+	WirelessGatewayID    string `json:"WirelessGatewayId,omitempty"`
+	LastUplinkReceivedAt string `json:"LastUplinkReceivedAt,omitempty"`
+	ConnectionStatus     string `json:"ConnectionStatus,omitempty"`
 }
 
 type getWirelessGatewayTaskResponse struct {
@@ -174,18 +201,33 @@ type getWirelessGatewayTaskDefinitionResponse struct {
 	AutoCreateTasks bool   `json:"AutoCreateTasks"`
 }
 
-type getEventConfigurationByResourceTypesResponse struct{}
-
 type getLogLevelsByResourceTypesResponse struct {
 	DefaultLogLevel           string     `json:"DefaultLogLevel"`
 	WirelessGatewayLogOptions []struct{} `json:"WirelessGatewayLogOptions"`
 	WirelessDeviceLogOptions  []struct{} `json:"WirelessDeviceLogOptions"`
 }
 
-type getMetricConfigurationResponse struct{}
+type summaryMetricConfigurationResponse struct {
+	Status string `json:"Status,omitempty"`
+}
+
+type getMetricConfigurationResponse struct {
+	SummaryMetric summaryMetricConfigurationResponse `json:"SummaryMetric"`
+}
+
+// summaryMetricQueryResultResponse mirrors one entry of GetMetrics's
+// SummaryMetricQueryResults: a per-query echo of the QueryId with a status,
+// since this emulator does not ingest telemetry to aggregate real metric
+// values.
+type summaryMetricQueryResultResponse struct {
+	QueryID     string    `json:"QueryId,omitempty"`
+	QueryStatus string    `json:"QueryStatus,omitempty"`
+	MetricName  string    `json:"MetricName,omitempty"`
+	Values      []float64 `json:"Values,omitempty"`
+}
 
 type getMetricsResponse struct {
-	SummaryMetricQueryResults []struct{} `json:"SummaryMetricQueryResults"`
+	SummaryMetricQueryResults []summaryMetricQueryResultResponse `json:"SummaryMetricQueryResults"`
 }
 
 type multicastGroupEntry struct {
@@ -217,19 +259,50 @@ type listPartnerAccountsResponse struct {
 	Sidewalk  []sidewalkAccountInfo `json:"Sidewalk"`
 }
 
+type positionConfigurationItemResponse struct {
+	Solvers            map[string]any `json:"Solvers,omitempty"`
+	ResourceIdentifier string         `json:"ResourceIdentifier,omitempty"`
+	ResourceType       string         `json:"ResourceType,omitempty"`
+	Destination        string         `json:"Destination,omitempty"`
+}
+
+func positionConfigurationItemResponseFrom(e *PositionConfigEntry) positionConfigurationItemResponse {
+	return positionConfigurationItemResponse{
+		ResourceIdentifier: e.ResourceIdentifier,
+		ResourceType:       e.ResourceType,
+		Destination:        e.Destination,
+		Solvers:            e.Solvers,
+	}
+}
+
 type listPositionConfigurationsResponse struct {
-	NextToken                 string     `json:"NextToken"`
-	PositionConfigurationList []struct{} `json:"PositionConfigurationList"`
+	NextToken                 string                              `json:"NextToken"`
+	PositionConfigurationList []positionConfigurationItemResponse `json:"PositionConfigurationList"`
+}
+
+type downlinkQueueMessageResponse struct {
+	MessageID    string `json:"MessageId,omitempty"`
+	ReceivedAt   string `json:"ReceivedAt,omitempty"`
+	TransmitMode int32  `json:"TransmitMode"`
 }
 
 type listQueuedMessagesResponse struct {
-	NextToken                 string     `json:"NextToken"`
-	DownlinkQueueMessagesList []struct{} `json:"DownlinkQueueMessagesList"`
+	NextToken                 string                         `json:"NextToken"`
+	DownlinkQueueMessagesList []downlinkQueueMessageResponse `json:"DownlinkQueueMessagesList"`
+}
+
+func eventConfigurationItemResponseFrom(e *ResourceEventConfigEntry) eventConfigurationItemResponse {
+	return eventConfigurationItemResponse{
+		Identifier:     e.Identifier,
+		IdentifierType: e.IdentifierType,
+		PartnerType:    e.PartnerType,
+		Events:         eventConfigDocResponseFrom(&e.Config),
+	}
 }
 
 type listEventConfigurationsResponse struct {
-	NextToken               string     `json:"NextToken"`
-	EventConfigurationsList []struct{} `json:"EventConfigurationsList"`
+	NextToken               string                           `json:"NextToken"`
+	EventConfigurationsList []eventConfigurationItemResponse `json:"EventConfigurationsList"`
 }
 
 type listWirelessDeviceImportTasksResponse struct {
@@ -240,6 +313,7 @@ type listWirelessDeviceImportTasksResponse struct {
 type listDevicesForWirelessDeviceImportTaskResponse struct {
 	NextToken                  string     `json:"NextToken"`
 	DestinationName            string     `json:"DestinationName"`
+	Positioning                string     `json:"Positioning,omitempty"`
 	ImportedWirelessDeviceList []struct{} `json:"ImportedWirelessDeviceList"`
 }
 

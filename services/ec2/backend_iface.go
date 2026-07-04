@@ -1403,6 +1403,32 @@ type Backend interface {
 	DescribeVerifiedAccessTrustProviders(ids []string) []*VerifiedAccessTrustProvider
 	AttachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
 	DetachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
+	GetVerifiedAccessEndpointPolicy(id string) (*VerifiedAccessPolicy, error)
+	ModifyVerifiedAccessEndpointPolicy(
+		id string,
+		policyEnabled bool,
+		policyDocument string,
+	) (*VerifiedAccessPolicy, error)
+	GetVerifiedAccessGroupPolicy(id string) (*VerifiedAccessPolicy, error)
+	ModifyVerifiedAccessGroupPolicy(id string, policyEnabled bool, policyDocument string) (*VerifiedAccessPolicy, error)
+	DescribeVerifiedAccessInstanceLoggingConfigurations(ids []string) []*VerifiedAccessInstanceLoggingConfig
+	ModifyVerifiedAccessInstanceLoggingConfiguration(
+		instanceID string,
+		accessLogs VerifiedAccessLogOptions,
+	) (*VerifiedAccessInstanceLoggingConfig, error)
+	GetVerifiedAccessEndpointTargets(id string) ([]*VerifiedAccessEndpointTarget, error)
+	ExportVerifiedAccessInstanceClientConfiguration(
+		instanceID string,
+	) (*VerifiedAccessInstanceClientConfiguration, error)
+
+	// ---- FPGA image (AFI) ----
+	CreateFpgaImage(name, description string) (*FpgaImage, error)
+	CopyFpgaImage(sourceFpgaImageID, sourceRegion, name, description string) (*FpgaImage, error)
+	DeleteFpgaImage(id string) error
+	DescribeFpgaImages(ids []string) []*FpgaImage
+	DescribeFpgaImageAttribute(id, attribute string) (*FpgaImageAttribute, error)
+	ModifyFpgaImageAttribute(id string, mod FpgaImageAttributeModification) (*FpgaImage, error)
+	ResetFpgaImageAttribute(id, attribute string) error
 
 	// ---- batch5: TrafficMirror ----
 	CreateTrafficMirrorFilter(description string) (*TrafficMirrorFilter, error)

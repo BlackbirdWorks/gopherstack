@@ -1008,11 +1008,14 @@ func TestQuickSight_DashboardExtras(t *testing.T) { //nolint:paralleltest // exi
 			wantKey:    "EmbedUrl",
 		},
 		{
+			// Real StartDashboardSnapshotJobScheduleOutput carries no data
+			// fields beyond RequestId/Status; it must not echo back a
+			// fabricated DashboardId.
 			name:       "start dashboard snapshot job schedule",
 			method:     http.MethodPost,
 			path:       accountPath("/dashboards/dash1/schedules/sched1"),
 			wantStatus: http.StatusOK,
-			wantKey:    "DashboardId",
+			wantKey:    "RequestId",
 		},
 	}
 

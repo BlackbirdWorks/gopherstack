@@ -117,6 +117,10 @@ type backendSnapshot struct {
 	GatewayTaskDefs            map[string]*GatewayTaskDefinition          `json:"gatewayTaskDefs,omitempty"`
 	Positions                  map[string]map[string]any                  `json:"positions,omitempty"`
 	QueuedMessages             map[string][]QueuedMessage                 `json:"queuedMessages,omitempty"`
+	PositionConfigs            map[string]*PositionConfigEntry            `json:"positionConfigs,omitempty"`
+	ResourceEventConfigs       map[string]*ResourceEventConfigEntry       `json:"resourceEventConfigs,omitempty"`
+	EventConfigDefault         *EventConfigDoc                            `json:"eventConfigDefault,omitempty"`
+	MetricConfigStatus         string                                     `json:"metricConfigStatus,omitempty"`
 	Devices                    []deviceRecord                             `json:"devices,omitempty"`
 	Gateways                   []gatewayRecord                            `json:"gateways,omitempty"`
 	ServiceProfiles            []serviceProfileRecord                     `json:"serviceProfiles,omitempty"`
@@ -162,6 +166,15 @@ func (b *InMemoryBackend) buildSnapshotLocked() backendSnapshot {
 		LogLevels:                  make(map[string]string, len(b.logLevels)),
 		ResourceLogLevels:          make(map[string]string, len(b.resourceLogLevels)),
 		ImportTasks:                make(map[string]*WirelessDeviceImportTask, len(b.importTasks)),
+		SingleImportTasks:          make(map[string]*SingleWirelessDeviceImportTask, len(b.singleImportTasks)),
+		GatewayTasks:               make(map[string]*GatewayTask, len(b.gatewayTasks)),
+		GatewayTaskDefs:            make(map[string]*GatewayTaskDefinition, len(b.gatewayTaskDefs)),
+		Positions:                  make(map[string]map[string]any, len(b.positions)),
+		QueuedMessages:             make(map[string][]QueuedMessage, len(b.queuedMessages)),
+		PositionConfigs:            make(map[string]*PositionConfigEntry, len(b.positionConfigs)),
+		ResourceEventConfigs:       make(map[string]*ResourceEventConfigEntry, len(b.resourceEventConfigs)),
+		EventConfigDefault:         b.eventConfigDefault,
+		MetricConfigStatus:         b.metricConfigStatus,
 	}
 
 	b.snapshotResourceRecordsLocked(&snap)
@@ -245,6 +258,43 @@ func (b *InMemoryBackend) snapshotMapsLocked(snap *backendSnapshot) {
 		cp := *task
 		snap.ImportTasks[id] = &cp
 	}
+
+	for arn, task := range b.singleImportTasks {
+		cp := *task
+		snap.SingleImportTasks[arn] = &cp
+	}
+
+	for id, task := range b.gatewayTasks {
+		cp := *task
+		snap.GatewayTasks[id] = &cp
+	}
+
+	for id, def := range b.gatewayTaskDefs {
+		cp := *def
+		snap.GatewayTaskDefs[id] = &cp
+	}
+
+	for id, pos := range b.positions {
+		posCopy := make(map[string]any, len(pos))
+		maps.Copy(posCopy, pos)
+		snap.Positions[id] = posCopy
+	}
+
+	for id, msgs := range b.queuedMessages {
+		msgsCopy := make([]QueuedMessage, len(msgs))
+		copy(msgsCopy, msgs)
+		snap.QueuedMessages[id] = msgsCopy
+	}
+
+	for id, cfg := range b.positionConfigs {
+		cp := *cfg
+		snap.PositionConfigs[id] = &cp
+	}
+
+	for id, cfg := range b.resourceEventConfigs {
+		cp := *cfg
+		snap.ResourceEventConfigs[id] = &cp
+	}
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -263,6 +313,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.restoreMapsLocked(&snap)
 	b.restoreCoreResourcesLocked(&snap)
 	b.restoreNewOpsResourcesLocked(&snap)
+	b.restoreOperationalStateLocked(&snap)
 
 	return nil
 }
@@ -291,7 +342,15 @@ func (b *InMemoryBackend) restoreMapsLocked(snap *backendSnapshot) {
 	b.logLevels = make(map[string]string, len(snap.LogLevels))
 	b.resourceLogLevels = make(map[string]string, len(snap.ResourceLogLevels))
 	b.importTasks = make(map[string]*WirelessDeviceImportTask, len(snap.ImportTasks))
-	b.singleImportTasks = make(map[string]*SingleWirelessDeviceImportTask)
+	b.singleImportTasks = make(map[string]*SingleWirelessDeviceImportTask, len(snap.SingleImportTasks))
+	b.gatewayTasks = make(map[string]*GatewayTask, len(snap.GatewayTasks))
+	b.gatewayTaskDefs = make(map[string]*GatewayTaskDefinition, len(snap.GatewayTaskDefs))
+	b.positions = make(map[string]map[string]any, len(snap.Positions))
+	b.queuedMessages = make(map[string][]QueuedMessage, len(snap.QueuedMessages))
+	b.positionConfigs = make(map[string]*PositionConfigEntry, len(snap.PositionConfigs))
+	b.resourceEventConfigs = make(map[string]*ResourceEventConfigEntry, len(snap.ResourceEventConfigs))
+	b.eventConfigDefault = snap.EventConfigDefault
+	b.metricConfigStatus = snap.MetricConfigStatus
 }
 
 // restoreCoreResourcesLocked restores devices, gateways, service profiles, destinations, and tags.
@@ -398,4 +457,67 @@ func (b *InMemoryBackend) restoreNewOpsResourcesLocked(snap *backendSnapshot) {
 	maps.Copy(b.wirelessGatewayThings, snap.WirelessGatewayThings)
 	maps.Copy(b.logLevels, snap.LogLevels)
 	maps.Copy(b.resourceLogLevels, snap.ResourceLogLevels)
+}
+
+// restoreOperationalStateLocked restores gateway tasks/definitions, single
+// import tasks, positions, queued messages, position configurations, and
+// event configurations.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) restoreOperationalStateLocked(snap *backendSnapshot) {
+	for arn, task := range snap.SingleImportTasks {
+		if task == nil {
+			continue
+		}
+
+		cp := *task
+		b.singleImportTasks[arn] = &cp
+	}
+
+	for id, task := range snap.GatewayTasks {
+		if task == nil {
+			continue
+		}
+
+		cp := *task
+		b.gatewayTasks[id] = &cp
+	}
+
+	for id, def := range snap.GatewayTaskDefs {
+		if def == nil {
+			continue
+		}
+
+		cp := *def
+		b.gatewayTaskDefs[id] = &cp
+	}
+
+	for id, pos := range snap.Positions {
+		posCopy := make(map[string]any, len(pos))
+		maps.Copy(posCopy, pos)
+		b.positions[id] = posCopy
+	}
+
+	for id, msgs := range snap.QueuedMessages {
+		msgsCopy := make([]QueuedMessage, len(msgs))
+		copy(msgsCopy, msgs)
+		b.queuedMessages[id] = msgsCopy
+	}
+
+	for id, cfg := range snap.PositionConfigs {
+		if cfg == nil {
+			continue
+		}
+
+		cp := *cfg
+		b.positionConfigs[id] = &cp
+	}
+
+	for id, cfg := range snap.ResourceEventConfigs {
+		if cfg == nil {
+			continue
+		}
+
+		cp := *cfg
+		b.resourceEventConfigs[id] = &cp
+	}
 }

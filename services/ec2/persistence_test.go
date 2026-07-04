@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,6 +46,75 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				sgs := b.DescribeSecurityGroups(nil)
 				// Default security groups may exist from initDefaults; just verify restore worked
 				assert.NotNil(t, sgs)
+			},
+		},
+		{
+			name: "verified_access_policy_and_fpga_image_round_trip",
+			setup: func(b *ec2.InMemoryBackend) string {
+				inst, err := b.CreateVerifiedAccessInstance("persist test")
+				if err != nil {
+					return ""
+				}
+				grp, err := b.CreateVerifiedAccessGroup(inst.VerifiedAccessInstanceID, "persist group")
+				if err != nil {
+					return ""
+				}
+				ep, err := b.CreateVerifiedAccessEndpoint(grp.VerifiedAccessGroupID, "load-balancer", "persist ep")
+				if err != nil {
+					return ""
+				}
+				_, modEpErr := b.ModifyVerifiedAccessEndpointPolicy(
+					ep.VerifiedAccessEndpointID,
+					true,
+					"doc",
+				)
+				if modEpErr != nil {
+					return ""
+				}
+
+				_, modGrpErr := b.ModifyVerifiedAccessGroupPolicy(grp.VerifiedAccessGroupID, true, "doc")
+				if modGrpErr != nil {
+					return ""
+				}
+
+				_, modLogErr := b.ModifyVerifiedAccessInstanceLoggingConfiguration(
+					inst.VerifiedAccessInstanceID,
+					ec2.VerifiedAccessLogOptions{LogVersion: "ocsf-1.0.0-rc.2"},
+				)
+				if modLogErr != nil {
+					return ""
+				}
+
+				img, err := b.CreateFpgaImage("persist-afi", "persist description")
+				if err != nil {
+					return ""
+				}
+
+				return ep.VerifiedAccessEndpointID + "|" + grp.VerifiedAccessGroupID + "|" +
+					inst.VerifiedAccessInstanceID + "|" + img.FpgaImageID
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend, id string) {
+				t.Helper()
+
+				parts := strings.Split(id, "|")
+				require.Len(t, parts, 4)
+				epID, grpID, instID, afiID := parts[0], parts[1], parts[2], parts[3]
+
+				pol, err := b.GetVerifiedAccessEndpointPolicy(epID)
+				require.NoError(t, err)
+				assert.True(t, pol.PolicyEnabled)
+
+				grpPol, err := b.GetVerifiedAccessGroupPolicy(grpID)
+				require.NoError(t, err)
+				assert.True(t, grpPol.PolicyEnabled)
+
+				cfgs := b.DescribeVerifiedAccessInstanceLoggingConfigurations([]string{instID})
+				require.Len(t, cfgs, 1)
+				assert.Equal(t, "ocsf-1.0.0-rc.2", cfgs[0].AccessLogs.LogVersion)
+
+				imgs := b.DescribeFpgaImages([]string{afiID})
+				require.Len(t, imgs, 1)
+				assert.Equal(t, "persist-afi", imgs[0].Name)
 			},
 		},
 	}

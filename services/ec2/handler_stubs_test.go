@@ -38,7 +38,7 @@ func TestStubOperations(t *testing.T) {
 		"CancelImportTask",
 		// "CancelReservedInstancesListing", — real handler in handler_batch5.go, covered there
 		"ConfirmProductInstance",
-		"CopyFpgaImage",
+		// "CopyFpgaImage", — moved to handler_fpga_image.go
 		// "CreateCapacityManagerDataExport", — moved to handler_capacity_family.go
 		// "CreateCapacityReservationBySplitting", — moved to handler_capacity_family.go
 		// "CreateCapacityReservationFleet", — moved to handler_capacity_family.go
@@ -49,7 +49,7 @@ func TestStubOperations(t *testing.T) {
 		"CreateCoipPool",
 		"CreateDelegateMacVolumeOwnershipTask",
 		// "CreateFleet", — real handler in handler_batch5.go, covered there
-		"CreateFpgaImage",
+		// "CreateFpgaImage", — moved to handler_fpga_image.go
 		"CreateImageUsageReport",
 		"CreateInstanceExportTask",
 		"CreateInterruptibleCapacityReservationAllocation",
@@ -101,7 +101,7 @@ func TestStubOperations(t *testing.T) {
 		"DeleteCoipCidr",
 		"DeleteCoipPool",
 		// "DeleteFleets", — real handler in handler_batch5.go, covered there
-		"DeleteFpgaImage",
+		// "DeleteFpgaImage", — moved to handler_fpga_image.go
 		"DeleteImageUsageReport",
 		// "DeleteIpamExternalResourceVerificationToken", — moved to ipamDiscoverySupportedOperations
 		// "DeleteIpamPolicy", — moved to ipamPolicySupportedOperations (requires params)
@@ -172,8 +172,8 @@ func TestStubOperations(t *testing.T) {
 		// "DescribeFleetHistory", — real handler in handler_batch5.go, covered there
 		// "DescribeFleetInstances", — real handler in handler_batch5.go, covered there
 		// "DescribeFleets", — real handler in handler_batch5.go, covered there
-		"DescribeFpgaImageAttribute",
-		"DescribeFpgaImages",
+		// "DescribeFpgaImageAttribute", — moved to handler_fpga_image.go
+		// "DescribeFpgaImages", — moved to handler_fpga_image.go
 		"DescribeHostReservationOfferings",
 		"DescribeHostReservations",
 		"DescribeImageReferences",
@@ -227,7 +227,7 @@ func TestStubOperations(t *testing.T) {
 		"DescribeTrunkInterfaceAssociations",
 		// "DescribeVerifiedAccessEndpoints", — moved to batch4
 		// "DescribeVerifiedAccessGroups", — moved to batch4
-		"DescribeVerifiedAccessInstanceLoggingConfigurations",
+		// "DescribeVerifiedAccessInstanceLoggingConfigurations", — moved to handler_verifiedaccess_ext.go
 		// "DescribeVerifiedAccessInstances", — moved to batch4
 		// "DescribeVerifiedAccessTrustProviders", — moved to batch4
 		"DescribeVpcEncryptionControls",
@@ -264,7 +264,7 @@ func TestStubOperations(t *testing.T) {
 		// "ExportClientVpnClientCertificateRevocationList", — moved to batch4 (requires ClientVpnEndpointId)
 		// "ExportClientVpnClientConfiguration", — moved to batch4 (requires ClientVpnEndpointId)
 		// "ExportTransitGatewayRoutes", — moved to handler_tgw_peripherals.go
-		"ExportVerifiedAccessInstanceClientConfiguration",
+		// "ExportVerifiedAccessInstanceClientConfiguration", — moved to handler_verifiedaccess_ext.go
 		"GetActiveVpnTunnelStatus",
 		"GetAllowedImagesSettings",
 		"GetAssociatedEnclaveCertificateIamRoles",
@@ -309,9 +309,9 @@ func TestStubOperations(t *testing.T) {
 		// "GetTransitGatewayPrefixListReferences", — moved to batch4
 		// "GetTransitGatewayRouteTableAssociations", — moved to handler_tgw_peripherals.go
 		// "GetTransitGatewayRouteTablePropagations", — moved to handler_tgw_peripherals.go
-		"GetVerifiedAccessEndpointPolicy",
-		"GetVerifiedAccessEndpointTargets",
-		"GetVerifiedAccessGroupPolicy",
+		// "GetVerifiedAccessEndpointPolicy", — moved to handler_verifiedaccess_ext.go
+		// "GetVerifiedAccessEndpointTargets", — moved to handler_verifiedaccess_ext.go
+		// "GetVerifiedAccessGroupPolicy", — moved to handler_verifiedaccess_ext.go
 		"GetVpcResourcesBlockingEncryptionEnforcement",
 		// "GetVpnConnectionDeviceSampleConfiguration", — moved to advancedNetworkingSupportedOperations
 		// "GetVpnConnectionDeviceTypes", — moved to advancedNetworkingSupportedOperations
@@ -323,7 +323,7 @@ func TestStubOperations(t *testing.T) {
 		// "ModifyCapacityReservationFleet", — moved to handler_capacity_family.go
 		// "ModifyClientVpnEndpoint", — moved to batch4
 		// "ModifyFleet", — real handler in handler_batch5.go, covered there
-		"ModifyFpgaImageAttribute",
+		// "ModifyFpgaImageAttribute", — moved to handler_fpga_image.go
 		"ModifyHosts",
 		"ModifyInstanceCapacityReservationAttributes",
 		"ModifyInstanceEventStartTime",
@@ -345,11 +345,11 @@ func TestStubOperations(t *testing.T) {
 		// "ModifyTransitGatewayPrefixListReference", — moved to handler_tgw_peripherals.go
 		// "ModifyTransitGatewayVpcAttachment", — moved to handler_tgw_peripherals.go
 		// "ModifyVerifiedAccessEndpoint", — moved to batch4
-		"ModifyVerifiedAccessEndpointPolicy",
+		// "ModifyVerifiedAccessEndpointPolicy", — moved to handler_verifiedaccess_ext.go
 		"ModifyVerifiedAccessGroup",
-		"ModifyVerifiedAccessGroupPolicy",
+		// "ModifyVerifiedAccessGroupPolicy", — moved to handler_verifiedaccess_ext.go
 		"ModifyVerifiedAccessInstance",
-		"ModifyVerifiedAccessInstanceLoggingConfiguration",
+		// "ModifyVerifiedAccessInstanceLoggingConfiguration", — moved to handler_verifiedaccess_ext.go
 		"ModifyVerifiedAccessTrustProvider",
 		"ModifyVpcEncryptionControl",
 		// "ModifyVpnConnectionOptions", — moved to advancedNetworkingSupportedOperations
@@ -375,7 +375,7 @@ func TestStubOperations(t *testing.T) {
 		"ReleaseHosts",
 		"ReplaceImageCriteriaInAllowedImagesSettings",
 		"ReplaceVpnTunnel",
-		"ResetFpgaImageAttribute",
+		// "ResetFpgaImageAttribute", — moved to handler_fpga_image.go
 		// "RestoreManagedPrefixListVersion", — moved to batch4
 		// "RevokeClientVpnIngress", — moved to batch4
 		"RunScheduledInstances",

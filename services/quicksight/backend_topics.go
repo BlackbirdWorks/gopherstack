@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -13,6 +15,14 @@ const (
 	// filterTopicName is the SearchTopics filter Name for matching on a topic's
 	// display name (the "TOPIC_NAME" filter attribute per the QuickSight API).
 	filterTopicName = "TOPIC_NAME"
+
+	// QAResultType values (see types.QAResultType in aws-sdk-go-v2).
+	qaResultTypeGeneratedAnswer = "GENERATED_ANSWER"
+	qaResultTypeNoAnswer        = "NO_ANSWER"
+
+	// GeneratedAnswerStatus value used for topic-grounded answers (see
+	// types.GeneratedAnswerStatus in aws-sdk-go-v2).
+	generatedAnswerStatusRetrieved = "ANSWER_RETRIEVED"
 )
 
 // storedTopicRefreshSchedule is the persisted representation of one QuickSight
@@ -316,6 +326,40 @@ func (b *InMemoryBackend) SearchTopics(
 	}
 
 	return result, next, nil
+}
+
+// PredictQAResults answers a natural-language query against the account's
+// registered Topics. This emulator cannot run real Q&A/NLP inference, but it
+// grounds its answer in real backend state: if any Topic's Name appears in
+// the query text, it returns a GENERATED_ANSWER result referencing that real
+// Topic (its actual TopicId/Name), rather than fabricating a plausible-looking
+// answer out of nothing. Otherwise it returns the explicit NO_ANSWER result
+// type, which is itself a valid QAResultType per the AWS API (not an error).
+func (b *InMemoryBackend) PredictQAResults(accountID, queryText string) (*QAResult, error) {
+	if queryText == "" {
+		return nil, ErrValidation
+	}
+
+	b.mu.RLock("PredictQAResults")
+	defer b.mu.RUnlock()
+
+	lowerQuery := strings.ToLower(queryText)
+
+	for _, t := range b.allTopicsLocked(accountID) {
+		if t.Name != "" && strings.Contains(lowerQuery, strings.ToLower(t.Name)) {
+			return &QAResult{
+				ResultType:   qaResultTypeGeneratedAnswer,
+				AnswerID:     uuid.New().String(),
+				AnswerStatus: generatedAnswerStatusRetrieved,
+				QuestionID:   uuid.New().String(),
+				QuestionText: queryText,
+				TopicID:      t.TopicID,
+				TopicName:    t.Name,
+			}, nil
+		}
+	}
+
+	return &QAResult{ResultType: qaResultTypeNoAnswer}, nil
 }
 
 // ---- Topic permissions ----

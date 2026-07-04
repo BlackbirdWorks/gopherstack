@@ -714,15 +714,31 @@ func TestHandlerOps_EventConfigurations(t *testing.T) {
 
 	h := newTestHandlerHTTP()
 
-	// Get event config by resource types
+	// Get event config by resource types (never set): correct empty shape.
 	rec := doIoTWRequest(t, h, http.MethodGet, "/event-configurations-resource-types", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
+	var defaultResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defaultResp))
+	assert.NotContains(t, defaultResp, "DeviceRegistrationState")
+
 	// Update event config by resource types
-	rec = doIoTWRequest(t, h, http.MethodPost, "/event-configurations-resource-types", `{}`)
+	rec = doIoTWRequest(t, h, http.MethodPost, "/event-configurations-resource-types",
+		`{"DeviceRegistrationState":{"Sidewalk":{"AmazonIdEventTopic":"Enabled"}}}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
-	// List event configurations
+	// Get event config by resource types must now reflect the update, not a
+	// fabricated always-empty response.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/event-configurations-resource-types", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defaultResp))
+	drs, ok := defaultResp["DeviceRegistrationState"].(map[string]any)
+	require.True(t, ok)
+	sidewalk, ok := drs["Sidewalk"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Enabled", sidewalk["AmazonIdEventTopic"])
+
+	// List event configurations (none set yet)
 	rec = doIoTWRequest(t, h, http.MethodGet, "/event-configurations", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -732,13 +748,44 @@ func TestHandlerOps_EventConfigurations(t *testing.T) {
 	require.True(t, ok)
 	assert.Empty(t, configs)
 
-	// Get resource event configuration
+	// Get resource event configuration (never set): correct empty shape.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/event-configurations/some-resource", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	assert.NotContains(t, getResp, "Join")
+
 	// Update resource event configuration
-	rec = doIoTWRequest(t, h, http.MethodPatch, "/event-configurations/some-resource", `{}`)
+	rec = doIoTWRequest(t, h, http.MethodPatch,
+		"/event-configurations/some-resource?identifierType=WirelessDeviceId",
+		`{"Join":{"LoRaWAN":{"DevEuiEventTopic":"Enabled"}}}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Get resource event configuration must now reflect the stored config.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/event-configurations/some-resource", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	join, ok := getResp["Join"].(map[string]any)
+	require.True(t, ok)
+	loRaWAN, ok := join["LoRaWAN"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Enabled", loRaWAN["DevEuiEventTopic"])
+
+	// List event configurations must now reflect the stored resource config.
+	rec = doIoTWRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/event-configurations?resourceType=WirelessDevice",
+		"",
+	)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	configs, ok = listResp["EventConfigurationsList"].([]any)
+	require.True(t, ok)
+	require.Len(t, configs, 1)
+	assert.Equal(t, "some-resource", configs[0].(map[string]any)["Identifier"])
 }
 
 // ============================================================
@@ -787,12 +834,22 @@ func TestHandlerOps_PartnerAccounts(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	sidewalkList, ok := listResp["Sidewalk"].([]any)
 	require.True(t, ok)
-	require.Len(t, sidewalkList, 1, "list must reflect the associated account, not a hardcoded empty list")
+	require.Len(
+		t,
+		sidewalkList,
+		1,
+		"list must reflect the associated account, not a hardcoded empty list",
+	)
 	assert.Equal(t, "partner-123", sidewalkList[0].(map[string]any)["AmazonId"])
 
-	// Update partner account (no-op)
+	// Update partner account for a linked account succeeds.
 	rec = doIoTWRequest(t, h, http.MethodPatch, "/partner-accounts/partner-123", `{}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Update partner account for an account that was never linked must be a
+	// real 404, not a fabricated success.
+	rec = doIoTWRequest(t, h, http.MethodPatch, "/partner-accounts/never-linked", `{}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// Disassociate partner account
 	rec = doIoTWRequest(t, h, http.MethodDelete, "/partner-accounts/partner-123", "")
@@ -855,9 +912,32 @@ func TestHandlerOps_GatewayTaskLifecycle(t *testing.T) {
 	rec = doIoTWRequest(t, h, http.MethodDelete, "/wireless-gateways/"+gwID+"/tasks", "")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
+	// Get task after deletion must be a real 404, not a fabricated PENDING
+	// placeholder.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways/"+gwID+"/tasks", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	var notFoundResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notFoundResp))
+	msg, _ := notFoundResp["Message"].(string)
+	assert.Contains(t, msg, "ResourceNotFoundException")
+	assert.NotContains(t, notFoundResp, "Status", "a stub response would fabricate a Status field")
+
 	// Delete task definition
 	rec = doIoTWRequest(t, h, http.MethodDelete, "/wireless-gateway-task-definitions/"+defID, "")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+// TestHandlerOps_GetWirelessGatewayTask_NeverCreated verifies that a gateway
+// which never had a task returns a real 404 rather than a fabricated PENDING
+// task, for a gateway ID that was never associated with any task at all.
+func TestHandlerOps_GetWirelessGatewayTask_NeverCreated(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways/never-had-a-task/tasks", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ============================================================
@@ -869,7 +949,7 @@ func TestHandlerOps_Position(t *testing.T) {
 
 	h := newTestHandlerHTTP()
 
-	// Get position (empty)
+	// Get position (empty): no data ever submitted for this resource.
 	rec := doIoTWRequest(t, h, http.MethodGet, "/positions/resource-123", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -878,27 +958,85 @@ func TestHandlerOps_Position(t *testing.T) {
 	pos, ok := getResp["Position"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, pos)
+	assert.NotContains(
+		t,
+		getResp,
+		"Accuracy",
+		"Accuracy must be absent when no position data exists",
+	)
 
 	// Update position
 	rec = doIoTWRequest(t, h, http.MethodPut, "/positions/resource-123",
 		`{"Position":[47.6,-122.3,100.0]}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
-	// Get position configuration (empty struct)
+	// Get position must now reflect the real, previously-submitted
+	// coordinates, not a fabricated empty response.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/positions/resource-123", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	pos, ok = getResp["Position"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{47.6, -122.3, 100.0}, pos)
+	assert.InDelta(t, 0.0, getResp["Accuracy"], 0.0001,
+		"Accuracy 0.0 signals position data is available, per AWS docs")
+
+	// Get position configuration (never set): correct empty shape.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/position-configurations/resource-123", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Put position configuration
-	rec = doIoTWRequest(t, h, http.MethodPut, "/position-configurations/resource-123", `{}`)
+	var getCfgResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfgResp))
+	assert.NotContains(t, getCfgResp, "Destination")
+
+	// Put position configuration with a real ResourceType and Destination.
+	rec = doIoTWRequest(t, h, http.MethodPut,
+		"/position-configurations/resource-123?resourceType=WirelessDevice",
+		`{"Destination":"my-position-dest","Solvers":{"SemtechGnss":{"Status":"Enabled"}}}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
-	// List position configurations
-	rec = doIoTWRequest(t, h, http.MethodGet, "/position-configurations", "")
+	// Get position configuration must now reflect the stored destination.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/position-configurations/resource-123", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfgResp))
+	assert.Equal(t, "my-position-dest", getCfgResp["Destination"])
+	solvers, ok := getCfgResp["Solvers"].(map[string]any)
+	require.True(t, ok)
+	semtech, ok := solvers["SemtechGnss"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Semtech", semtech["Provider"])
+	assert.Equal(t, "GNSS", semtech["Type"])
+	assert.Equal(t, "Enabled", semtech["Status"])
+
+	// List position configurations, filtered by the matching resource type,
+	// must reflect the stored entry rather than a hardcoded empty list.
+	rec = doIoTWRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/position-configurations?resourceType=WirelessDevice",
+		"",
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	configs, ok := listResp["PositionConfigurationList"].([]any)
+	require.True(t, ok)
+	require.Len(t, configs, 1)
+	assert.Equal(t, "resource-123", configs[0].(map[string]any)["ResourceIdentifier"])
+
+	// Filtering by a non-matching resource type must exclude the entry.
+	rec = doIoTWRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/position-configurations?resourceType=WirelessGateway",
+		"",
+	)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	configs, ok = listResp["PositionConfigurationList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, configs)
 }
@@ -936,9 +1074,37 @@ func TestHandlerOps_QueuedMessages(t *testing.T) {
 	require.True(t, ok)
 	assert.Empty(t, msgs)
 
+	// Send data to the device: this must enqueue a real downlink message,
+	// not just return a message ID that vanishes into the void.
+	rec = doIoTWRequest(t, h, http.MethodPost, "/wireless-devices/"+devID+"/data",
+		`{"PayloadData":"aGVsbG8="}`)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var sendResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sendResp))
+	sentMessageID, _ := sendResp["MessageId"].(string)
+	require.NotEmpty(t, sentMessageID)
+
+	// List queued messages must now reflect the sent message.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+devID+"/data", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	msgs, ok = listResp["DownlinkQueueMessagesList"].([]any)
+	require.True(t, ok)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, sentMessageID, msgs[0].(map[string]any)["MessageId"])
+
 	// Delete queued messages
 	rec = doIoTWRequest(t, h, http.MethodDelete, "/wireless-devices/"+devID+"/data", "")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// After deletion, the queue must be empty again.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+devID+"/data", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	msgs, ok = listResp["DownlinkQueueMessagesList"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, msgs)
 }
 
 // ============================================================
@@ -950,8 +1116,79 @@ func TestHandlerOps_GetMetricConfiguration(t *testing.T) {
 
 	h := newTestHandlerHTTP()
 
+	// Defaults to Enabled per AWS's documented default, not a bare "{}".
 	rec := doIoTWRequest(t, h, http.MethodGet, "/metric-configuration", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	summaryMetric, ok := getResp["SummaryMetric"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Enabled", summaryMetric["Status"])
+
+	// Update must persist, not silently no-op.
+	rec = doIoTWRequest(t, h, http.MethodPut, "/metric-configuration",
+		`{"SummaryMetric":{"Status":"Disabled"}}`)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	rec = doIoTWRequest(t, h, http.MethodGet, "/metric-configuration", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	summaryMetric, ok = getResp["SummaryMetric"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Disabled", summaryMetric["Status"])
+}
+
+// TestHandlerOps_GetMetrics_MapsQueriesToResults verifies that each requested
+// query produces a corresponding result entry, rather than a
+// query-count-independent hardcoded empty list.
+func TestHandlerOps_GetMetrics_MapsQueriesToResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	body := `{"SummaryMetricQueries":[` +
+		`{"QueryId":"q1","MetricName":"ConnectionCount"},` +
+		`{"QueryId":"q2","MetricName":"UplinkCount"}]}`
+	rec := doIoTWRequest(t, h, http.MethodPost, "/metrics", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	results, ok := resp["SummaryMetricQueryResults"].([]any)
+	require.True(t, ok)
+	require.Len(t, results, 2)
+	assert.Equal(t, "q1", results[0].(map[string]any)["QueryId"])
+	assert.Equal(t, "Succeeded", results[0].(map[string]any)["QueryStatus"])
+	assert.Equal(t, "q2", results[1].(map[string]any)["QueryId"])
+}
+
+// TestHandlerOps_ListDevicesForWirelessDeviceImportTask verifies that
+// supplying a real task ID reflects the task's DestinationName, and an
+// unknown ID returns a real 404.
+func TestHandlerOps_ListDevicesForWirelessDeviceImportTask(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodPost, "/wireless_device_import_task",
+		`{"DestinationName":"dest-import"}`)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	id, _ := createResp["Id"].(string)
+	require.NotEmpty(t, id)
+
+	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless_device_import_task?id="+id, "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	assert.Equal(t, "dest-import", listResp["DestinationName"])
+
+	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless_device_import_task?id=does-not-exist", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestHandlerOps_GetServiceEndpoint(t *testing.T) {

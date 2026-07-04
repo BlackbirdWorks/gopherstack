@@ -195,14 +195,24 @@ type backendSnapshot struct {
 	CapacityManagerState               *CapacityManagerState                          `json:"cmState,omitempty"`
 	IpamPolicies                       map[string]*IpamPolicy                         `json:"ipamPolicies,omitempty"`
 	IpamPolicyEnabledTargets           map[string]string                              `json:"ipamPolicyEnabled,omitempty"`
-	IpamOrgAdminAccountID              string                                         `json:"ipamOrgAdminAcct,omitempty"`
-	Region                             string                                         `json:"region,omitempty"`
-	AccountID                          string                                         `json:"accountID,omitempty"`
-	FreePrivateIPs                     []string                                       `json:"freePrivateIPs"`
-	NextPrivateIPIndex                 int                                            `json:"nextPrivateIPIndex"`
-	NextElasticIPIndex                 int                                            `json:"nextElasticIPIndex"`
-	EbsEncryptionByDefault             bool                                           `json:"ebsEncryptionByDefault"`
-	SerialConsoleAccess                bool                                           `json:"serialConsoleAccess"`
+	VerifiedAccessEndpointPolicies     map[string]*VerifiedAccessPolicy               `json:"vaEndpointPolicies,omitempty"`
+	VerifiedAccessGroupPolicies        map[string]*VerifiedAccessPolicy               `json:"vaGroupPolicies,omitempty"`
+	FpgaImages                         map[string]*FpgaImage                          `json:"fpgaImages,omitempty"`
+
+	// VerifiedAccessInstanceLoggingCfgs is kept in its own gofmt alignment
+	// group (but still ahead of the string/slice/scalar fields below, to
+	// preserve optimal field ordering): its long type name would otherwise
+	// widen the tag column for the much larger field block above.
+	VerifiedAccessInstanceLoggingCfgs map[string]*VerifiedAccessInstanceLoggingConfig `json:"vaLoggingCfgs,omitempty"`
+
+	IpamOrgAdminAccountID  string   `json:"ipamOrgAdminAcct,omitempty"`
+	Region                 string   `json:"region,omitempty"`
+	AccountID              string   `json:"accountID,omitempty"`
+	FreePrivateIPs         []string `json:"freePrivateIPs"`
+	NextPrivateIPIndex     int      `json:"nextPrivateIPIndex"`
+	NextElasticIPIndex     int      `json:"nextElasticIPIndex"`
+	EbsEncryptionByDefault bool     `json:"ebsEncryptionByDefault"`
+	SerialConsoleAccess    bool     `json:"serialConsoleAccess"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -373,6 +383,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		IpamPolicies:                       b.ipamPolicies,
 		IpamPolicyEnabledTargets:           b.ipamPolicyEnabledTargets,
 		IpamOrgAdminAccountID:              b.ipamOrgAdminAccountID,
+		VerifiedAccessEndpointPolicies:     b.verifiedAccessEndpointPolicies,
+		VerifiedAccessGroupPolicies:        b.verifiedAccessGroupPolicies,
+		VerifiedAccessInstanceLoggingCfgs:  b.verifiedAccessInstanceLoggingConfigs,
+		FpgaImages:                         b.fpgaImages,
 	}
 
 	data, err := json.Marshal(snap)
@@ -631,6 +645,26 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.verifiedAccessTrustProviders = snap.VerifiedAccessTrustProviders
 	} else {
 		b.verifiedAccessTrustProviders = make(map[string]*VerifiedAccessTrustProvider)
+	}
+	if snap.VerifiedAccessEndpointPolicies != nil {
+		b.verifiedAccessEndpointPolicies = snap.VerifiedAccessEndpointPolicies
+	} else {
+		b.verifiedAccessEndpointPolicies = make(map[string]*VerifiedAccessPolicy)
+	}
+	if snap.VerifiedAccessGroupPolicies != nil {
+		b.verifiedAccessGroupPolicies = snap.VerifiedAccessGroupPolicies
+	} else {
+		b.verifiedAccessGroupPolicies = make(map[string]*VerifiedAccessPolicy)
+	}
+	if snap.VerifiedAccessInstanceLoggingCfgs != nil {
+		b.verifiedAccessInstanceLoggingConfigs = snap.VerifiedAccessInstanceLoggingCfgs
+	} else {
+		b.verifiedAccessInstanceLoggingConfigs = make(map[string]*VerifiedAccessInstanceLoggingConfig)
+	}
+	if snap.FpgaImages != nil {
+		b.fpgaImages = snap.FpgaImages
+	} else {
+		b.fpgaImages = make(map[string]*FpgaImage)
 	}
 	if snap.InstanceConnectEndpoints != nil {
 		b.instanceConnectEndpoints = snap.InstanceConnectEndpoints

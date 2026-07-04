@@ -127,6 +127,8 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, tgwMulticastSupportedOperations()...)
 	extOps = append(extOps, tgwPeripheralsSupportedOperations()...)
 	extOps = append(extOps, vpcConfigSupportedOperations()...)
+	extOps = append(extOps, verifiedAccessExtSupportedOperations()...)
+	extOps = append(extOps, fpgaImageSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
@@ -396,6 +398,8 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerTGWPeripheralsOps(h, ops)
 	registerVpcConfigOps(h, ops)
 	registerCapacityFamilyOps(h, ops)
+	registerVerifiedAccessExtOps(h, ops)
+	registerFpgaImageOps(h, ops)
 	registerStubOpsIfAbsent(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
@@ -1271,6 +1275,11 @@ var errCodeLookup = []struct {
 	{ErrTGWMeteringPolicyNotFound, "InvalidTransitGatewayMeteringPolicyId.NotFound"},
 	{ErrTGWAttachmentNotFound, "InvalidTransitGatewayAttachmentID.NotFound"},
 	{ErrTGWPrefixListRefNotFound, "InvalidTransitGatewayPrefixListReferenceId.NotFound"},
+	{ErrVerifiedAccessEndpointNotFound, "InvalidVerifiedAccessEndpointId.NotFound"},
+	{ErrVerifiedAccessGroupNotFound, "InvalidVerifiedAccessGroupId.NotFound"},
+	{ErrVerifiedAccessInstanceNotFound, "InvalidVerifiedAccessInstanceId.NotFound"},
+	{ErrVerifiedAccessTrustProviderNF, "InvalidVerifiedAccessTrustProviderId.NotFound"},
+	{ErrFpgaImageNotFound, "InvalidFpgaImageID.NotFound"},
 	{ErrInvalidParameter, errCodeInvalidParameterValue},
 }
 
