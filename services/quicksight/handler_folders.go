@@ -364,8 +364,8 @@ func (h *Handler) folderToMap(accountID string, f *Folder) map[string]any {
 		keyFolderID:        f.FolderID,
 		keyName:            f.Name,
 		keyFolderType:      f.FolderType,
-		keyCreatedTime:     f.CreatedTime.Format(timeFormat),
-		keyLastUpdatedTime: f.LastUpdatedTime.Format(timeFormat),
+		keyCreatedTime:     f.CreatedTime.Unix(),
+		keyLastUpdatedTime: f.LastUpdatedTime.Unix(),
 		"FolderPath":       h.folderPath(accountID, f),
 	}
 

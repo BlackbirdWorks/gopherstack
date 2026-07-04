@@ -32,7 +32,7 @@ func (h *Handler) dispatchNew(c *echo.Context, op string) error {
 
 // buildAppendixOps returns the full op→handler map for all Appendix-A operations.
 // It contains no branches, so cyclomatic complexity is 1.
-func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existing issue.
+func buildAppendixOps() map[string]appendixHandlerFn {
 	reqID := func(extra map[string]any) map[string]any {
 		extra[keyRequestID] = reqIDPlaceholder
 
@@ -45,23 +45,7 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 	withList := func(key string) appendixHandlerFn {
 		return func(_, _ string) map[string]any { return reqID(map[string]any{key: []any{}}) }
 	}
-	withNested := func(outerKey, innerKey string) appendixHandlerFn {
-		return func(resID, _ string) map[string]any {
-			return reqID(map[string]any{outerKey: map[string]any{innerKey: resID}})
-		}
-	}
-	withIDAndPerms := func(key string) appendixHandlerFn {
-		return func(resID, _ string) map[string]any {
-			return reqID(map[string]any{key: resID, "Permissions": []any{}})
-		}
-	}
-	withSubID := func(key string) appendixHandlerFn {
-		return func(_, subID string) map[string]any { return reqID(map[string]any{key: subID}) }
-	}
 	noContent := func(_, _ string) map[string]any { return simple() }
-	embedURL := func(_, _ string) map[string]any {
-		return reqID(map[string]any{"EmbedUrl": "https://embed.example.com"})
-	}
 
 	return map[string]appendixHandlerFn{
 		// ---- Folders ----
@@ -69,7 +53,9 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		// SearchFolders, folder memberships, and folder permissions are real
 		// (backed by InMemoryBackend) and routed via dispatchFolder in
 		// handler_folders.go, not through this canned table.
-		opListFoldersForResource: withList("Folders"),
+		// ListFoldersForResource is real (backed by InMemoryBackend) and routed via
+		// dispatchTopicFamily -> handleListFoldersForResource, not through this
+		// canned table.
 
 		// ---- Templates ----
 		// CreateTemplate, DescribeTemplate, DescribeTemplateDefinition, UpdateTemplate,
@@ -104,114 +90,68 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		// in handler_iampolicyassignments.go, not through this canned table.
 
 		// ---- Custom Permissions ----
-		opCreateCustomPermissions: func(_, _ string) map[string]any {
-			return reqID(map[string]any{
-				keyArn: "arn:aws:quicksight:us-east-1:000000000000:custom-permissions/new",
-			})
-		},
-		opDescribeCustomPermissions: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"CustomPermissions": map[string]any{keyArn: "arn"}})
-		},
-		opUpdateCustomPermissions: func(resID, _ string) map[string]any {
-			return reqID(map[string]any{
-				keyArn: "arn:aws:quicksight:us-east-1:000000000000:custom-permissions/" + resID,
-			})
-		},
-		opDeleteCustomPermissions: noContent,
-		opListCustomPermissions:   withList("CustomPermissionsList"),
+		// CreateCustomPermissions, DescribeCustomPermissions, UpdateCustomPermissions,
+		// DeleteCustomPermissions, and ListCustomPermissions are real (backed by
+		// InMemoryBackend) and routed via dispatchCustomPerm in
+		// handler_custompermissions.go, not through this canned table.
 
-		// ---- Role Memberships ----
-		opCreateRoleMembership: noContent,
-		opDeleteRoleMembership: noContent,
-		opListRoleMemberships:  withList("MembersList"),
-		opGetRoleCustomPermission: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"CustomPermissionsName": "perm"})
-		},
-		opUpdateRoleCustomPermission: noContent,
-		opDeleteRoleCustomPermission: noContent,
-
-		// ---- User Custom Permission ----
-		opUpdateUserCustomPermission: noContent,
-		opDeleteUserCustomPermission: noContent,
+		// ---- Role Memberships / Role & User Custom Permission ----
+		// CreateRoleMembership, DeleteRoleMembership, ListRoleMemberships,
+		// DescribeRoleCustomPermission, UpdateRoleCustomPermission,
+		// DeleteRoleCustomPermission, UpdateUserCustomPermission, and
+		// DeleteUserCustomPermission are real (backed by InMemoryBackend) and routed
+		// via dispatchCustomPerm in handler_custompermissions.go, not through this
+		// canned table.
 
 		// ---- Dashboard Extras ----
-		opDescribeDashboardDefinition:     withID("DashboardId"),
-		opDescribeDashboardPerms:          withIDAndPerms("DashboardId"),
-		opUpdateDashboardPerms:            withIDAndPerms("DashboardId"),
+		// DescribeDashboardDefinition, DescribeDashboardPermissions, and
+		// UpdateDashboardPermissions are real (backed by InMemoryBackend) and routed
+		// via dispatchDashboard in handler.go, not through this canned table.
 		opUpdateDashboardPublishedVersion: withID("DashboardId"),
 		opUpdateDashboardLinks:            withID("DashboardId"),
-		opStartDashboardSnapshotJob: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"SnapshotJobId": "snap1"})
-		},
-		opDescribeDashboardSnapshotJob: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"SnapshotJob": map[string]any{}})
-		},
-		opDescribeDashboardSnapshotJobResult: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"JobResult": map[string]any{}})
-		},
+		// StartDashboardSnapshotJob, DescribeDashboardSnapshotJob, and
+		// DescribeDashboardSnapshotJobResult are real (backed by InMemoryBackend) and
+		// routed via dispatchDashboardSnapshot in handler_assetbundle.go, not through
+		// this canned table.
 		opStartDashboardSnapshotJobSchedule: withID("DashboardId"),
-		opGetDashboardEmbedUrl:              embedURL,
+		// GetDashboardEmbedUrl is real (backed by InMemoryBackend) and routed via
+		// dispatchEmbedURL in handler_embedurl.go, not through this canned table.
 		// DescribeDashboardsQAConfiguration and UpdateDashboardsQAConfiguration are
 		// real (backed by InMemoryBackend) and routed via dispatchAccountConfig in
 		// handler_account.go, not through this canned table.
 
 		// ---- Analysis Extras ----
-		opDescribeAnalysisDefinition: withID("AnalysisId"),
-		opDescribeAnalysisPerms:      withIDAndPerms("AnalysisId"),
-		opUpdateAnalysisPerms:        withIDAndPerms("AnalysisId"),
+		// DescribeAnalysisDefinition, DescribeAnalysisPermissions, and
+		// UpdateAnalysisPermissions are real (backed by InMemoryBackend) and routed
+		// via dispatchAnalysis in handler.go, not through this canned table.
 
 		// ---- Data Set Extras ----
-		opDescribeDataSetPerms: withIDAndPerms("DataSetId"),
-		opUpdateDataSetPerms:   withIDAndPerms("DataSetId"),
-		opCreateRefreshSchedule: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"ScheduleId": "sched1"})
-		},
-		opDescribeRefreshSchedule: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"RefreshSchedule": map[string]any{}})
-		},
-		opUpdateRefreshSchedule:       withSubID("ScheduleId"),
-		opDeleteRefreshSchedule:       noContent,
-		opListRefreshSchedules:        withList("RefreshSchedules"),
-		opPutDataSetRefreshProperties: noContent,
-		opDescribeDataSetRefreshProps: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"DataSetRefreshProperties": map[string]any{}})
-		},
-		opDeleteDataSetRefreshProps: noContent,
+		// DescribeDataSetPermissions and UpdateDataSetPermissions are real (backed by
+		// InMemoryBackend) and routed via dispatchDataSet in handler.go, not through
+		// this canned table.
+		// CreateRefreshSchedule, DescribeRefreshSchedule, UpdateRefreshSchedule,
+		// DeleteRefreshSchedule, ListRefreshSchedules, PutDataSetRefreshProperties,
+		// DescribeDataSetRefreshProperties, and DeleteDataSetRefreshProperties are
+		// real (backed by InMemoryBackend) and routed via dispatchRefreshSchedule in
+		// handler_refreshschedule.go, not through this canned table.
 
 		// ---- Data Source Extras ----
-		opDescribeDataSourcePerms: withIDAndPerms("DataSourceId"),
-		opUpdateDataSourcePerms:   withIDAndPerms("DataSourceId"),
+		// DescribeDataSourcePermissions and UpdateDataSourcePermissions are real
+		// (backed by InMemoryBackend) and routed via dispatchDataSource in
+		// handler.go, not through this canned table.
 
 		// ---- Brands ----
-		opCreateBrand:   withID("BrandId"),
-		opDescribeBrand: withNested("Brand", "BrandId"),
-		opUpdateBrand:   withID("BrandId"),
-		opDeleteBrand:   withID("BrandId"),
-		opListBrands:    withList("Brands"),
-		opDescribeBrandAssignment: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"BrandAssignment": map[string]any{}})
-		},
-		opUpdateBrandAssignment: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"BrandAssignment": map[string]any{}})
-		},
-		opDeleteBrandAssignment: noContent,
-		opDescribeBrandPublishedVer: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"BrandDefinition": map[string]any{}})
-		},
-		opUpdateBrandPublishedVer: noContent,
+		// CreateBrand, DescribeBrand, UpdateBrand, DeleteBrand, ListBrands,
+		// DescribeBrandAssignment, UpdateBrandAssignment, DeleteBrandAssignment,
+		// DescribeBrandPublishedVersion, and UpdateBrandPublishedVersion are real
+		// (backed by InMemoryBackend) and routed via dispatchBrand in
+		// handler_brands.go, not through this canned table.
 
 		// ---- OAuth Client Apps ----
-		opCreateOAuthClientApp: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"OAuthClientApplication": map[string]any{}}) //nolint:goconst // existing issue.
-		},
-		opDescribeOAuthClientApp: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"OAuthClientApplication": map[string]any{}})
-		},
-		opUpdateOAuthClientApp: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"OAuthClientApplication": map[string]any{}})
-		},
-		opDeleteOAuthClientApp: noContent,
-		opListOAuthClientApps:  withList("OAuthClientApplications"),
+		// CreateOAuthClientApplication, DescribeOAuthClientApplication,
+		// UpdateOAuthClientApplication, DeleteOAuthClientApplication, and
+		// ListOAuthClientApplications are real (backed by InMemoryBackend) and routed
+		// via dispatchOAuth in handler_oauth.go, not through this canned table.
 
 		// ---- Action Connectors ----
 		opCreateActionConnector:        noContent,
@@ -224,17 +164,17 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opUpdateActionConnectorPerms:   noContent,
 
 		// ---- Identity Propagation ----
-		opListIdentityPropagationConfigs:  noContent,
-		opUpdateIdentityPropagationConfig: noContent,
-		opDeleteIdentityPropagationConfig: noContent,
+		// ListIdentityPropagationConfigs, UpdateIdentityPropagationConfig, and
+		// DeleteIdentityPropagationConfig are real (backed by InMemoryBackend) and
+		// routed via dispatchIdentityProp in handler_identitypropagation.go, not
+		// through this canned table.
 
 		// ---- Asset Bundle ----
-		opStartAssetBundleExportJob:    noContent,
-		opDescribeAssetBundleExportJob: noContent,
-		opListAssetBundleExportJobs:    noContent,
-		opStartAssetBundleImportJob:    noContent,
-		opDescribeAssetBundleImportJob: noContent,
-		opListAssetBundleImportJobs:    noContent,
+		// StartAssetBundleExportJob, DescribeAssetBundleExportJob,
+		// ListAssetBundleExportJobs, StartAssetBundleImportJob,
+		// DescribeAssetBundleImportJob, and ListAssetBundleImportJobs are real
+		// (backed by InMemoryBackend) and routed via dispatchAssetBundle in
+		// handler_assetbundle.go, not through this canned table.
 
 		// ---- Automation ----
 		opStartAutomationJob:    noContent,
@@ -247,9 +187,10 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		// handler_account.go, not through this canned table.
 
 		// ---- Account Custom Permission ----
-		opDescribeAccountCustomPerm: noContent,
-		opUpdateAccountCustomPerm:   noContent,
-		opDeleteAccountCustomPerm:   noContent,
+		// DescribeAccountCustomPermission, UpdateAccountCustomPermission, and
+		// DeleteAccountCustomPermission are real (backed by InMemoryBackend) and
+		// routed via dispatchTopicFamily -> dispatchAccountCustomPerm, not through
+		// this canned table.
 
 		// ---- Account Settings ----
 		// DescribeAccountSettings and UpdateAccountSettings are real (backed by
@@ -310,16 +251,15 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opPredictQAResults: noContent,
 
 		// ---- Embed URLs ----
-		opGenerateEmbedForAnonUser:        embedURL,
-		opGenerateEmbedForRegUser:         embedURL,
-		opGenerateEmbedForRegUserIdentity: embedURL,
-		opGetSessionEmbedUrl:              embedURL,
+		// GenerateEmbedUrlForAnonymousUser, GenerateEmbedUrlForRegisteredUser,
+		// GenerateEmbedUrlForRegisteredUserWithIdentity, GetDashboardEmbedUrl, and
+		// GetSessionEmbedUrl are real (backed by InMemoryBackend) and routed via
+		// dispatchEmbedURL in handler_embedurl.go, not through this canned table.
 
 		// ---- Search ----
-		opSearchAnalyses:    withList("AnalysisSummaryList"),
-		opSearchDashboards:  withList("DashboardSummaryList"),
-		opSearchDataSets:    withList("DataSetSummaries"),
-		opSearchDataSources: withList("DataSources"),
+		// SearchAnalyses, SearchDashboards, SearchDataSets, and SearchDataSources are
+		// real (backed by InMemoryBackend) and routed via dispatchTopicFamily ->
+		// dispatchResourceSearch, not through this canned table.
 
 		// ---- Flows ----
 		opListFlows:          noContent,
@@ -1108,4 +1048,280 @@ func classifyEmbedURLPaths(method string, segs []string, n int) (string, string)
 	}
 
 	return opUnknown, ""
+}
+
+// ---- Search{Analyses,Dashboards,DataSets,DataSources} ----
+
+// isResourceSearchOp reports whether op is one of the Search{Analyses,
+// Dashboards,DataSets,DataSources} operations (SearchFolders and SearchTopics
+// are handled separately, by dispatchFolder and the canned table respectively).
+func isResourceSearchOp(op string) bool {
+	switch op {
+	case opSearchAnalyses, opSearchDashboards, opSearchDataSets, opSearchDataSources:
+		return true
+	}
+
+	return false
+}
+
+func (h *Handler) dispatchResourceSearch(c *echo.Context, op string) error {
+	switch op {
+	case opSearchAnalyses:
+		return h.handleSearchAnalyses(c)
+	case opSearchDashboards:
+		return h.handleSearchDashboards(c)
+	case opSearchDataSets:
+		return h.handleSearchDataSets(c)
+	case opSearchDataSources:
+		return h.handleSearchDataSources(c)
+	}
+
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		"operation not implemented: "+op,
+	)
+}
+
+func (h *Handler) handleSearchAnalyses(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	analyses, next, err := h.Backend.SearchAnalyses(
+		accountID, folderFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(analyses))
+	for _, a := range analyses {
+		items = append(items, analysisToMap(a))
+	}
+
+	resp := map[string]any{
+		keyAnalysisSummaryList: items,
+		keyRequestID:           reqIDPlaceholder,
+		keyStatus:              http.StatusOK,
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
+}
+
+func (h *Handler) handleSearchDashboards(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	dashboards, next, err := h.Backend.SearchDashboards(
+		accountID, folderFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(dashboards))
+	for _, d := range dashboards {
+		items = append(items, dashboardToMap(d))
+	}
+
+	resp := map[string]any{
+		keyDashboardSummaryList: items,
+		keyRequestID:            reqIDPlaceholder,
+		keyStatus:               http.StatusOK,
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
+}
+
+func (h *Handler) handleSearchDataSets(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	dataSets, next, err := h.Backend.SearchDataSets(
+		accountID, folderFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(dataSets))
+	for _, ds := range dataSets {
+		items = append(items, dataSetToMap(ds))
+	}
+
+	resp := map[string]any{
+		keyDataSetSummaries: items,
+		keyRequestID:        reqIDPlaceholder,
+		keyStatus:           http.StatusOK,
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
+}
+
+func (h *Handler) handleSearchDataSources(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	dataSources, next, err := h.Backend.SearchDataSources(
+		accountID, folderFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(dataSources))
+	for _, ds := range dataSources {
+		items = append(items, dataSourceToMap(ds))
+	}
+
+	resp := map[string]any{
+		keyDataSources: items,
+		keyRequestID:   reqIDPlaceholder,
+		keyStatus:      http.StatusOK,
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
+}
+
+// ---- ListFoldersForResource ----
+
+func (h *Handler) handleListFoldersForResource(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	resourceArn := seg(segs, segResID)
+
+	folderArns, next, err := h.Backend.ListFoldersForResource(
+		accountID, resourceArn, maxResultsParam(c), nextTokenParam(c),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	resp := map[string]any{
+		"Folders":    folderArns,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
+}
+
+// ---- Account Custom Permission ----
+
+// isAccountCustomPermOp reports whether op is one of the account-level
+// Describe/Update/DeleteAccountCustomPermission operations (applying a named
+// custom permissions profile to an entire account), as distinct from
+// isCustomPermOp's CustomPermissions-profile CRUD family.
+func isAccountCustomPermOp(op string) bool {
+	switch op {
+	case opDescribeAccountCustomPerm, opUpdateAccountCustomPerm, opDeleteAccountCustomPerm:
+		return true
+	}
+
+	return false
+}
+
+func (h *Handler) dispatchAccountCustomPerm(c *echo.Context, op string) error {
+	switch op {
+	case opDescribeAccountCustomPerm:
+		return h.handleDescribeAccountCustomPerm(c)
+	case opUpdateAccountCustomPerm:
+		return h.handleUpdateAccountCustomPerm(c)
+	case opDeleteAccountCustomPerm:
+		return h.handleDeleteAccountCustomPerm(c)
+	}
+
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		"operation not implemented: "+op,
+	)
+}
+
+func (h *Handler) handleDescribeAccountCustomPerm(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	name, err := h.Backend.DescribeAccountCustomPermission(accountID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"CustomPermissionsName": name,
+		keyRequestID:            reqIDPlaceholder,
+		keyStatus:               http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateAccountCustomPerm(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	if updateErr := h.Backend.UpdateAccountCustomPermission(
+		accountID, strField(body, "CustomPermissionsName"),
+	); updateErr != nil {
+		return httpErr(c, updateErr)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+func (h *Handler) handleDeleteAccountCustomPerm(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	if err := h.Backend.DeleteAccountCustomPermission(accountID); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
 }

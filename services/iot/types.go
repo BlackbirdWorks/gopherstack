@@ -571,19 +571,23 @@ type RegisterThingOutput struct {
 }
 
 // ThingRegistrationTask represents a bulk thing provisioning task.
+//
+// CreationDate/LastModifiedDate are epoch-seconds (float64), matching the real AWS IoT JSON
+// wire shape and the convention used elsewhere in this package (see backend_batch2.go /
+// backend_batch3.go), not RFC3339 strings.
 type ThingRegistrationTask struct {
-	CreationDate       time.Time `json:"creationDate"`
-	LastModifiedDate   time.Time `json:"lastModifiedDate"`
-	TaskID             string    `json:"taskId"`
-	Status             string    `json:"status"`
-	Message            string    `json:"message,omitempty"`
-	TemplateBody       string    `json:"templateBody,omitempty"`
-	InputFileBucket    string    `json:"inputFileBucket,omitempty"`
-	InputFileKey       string    `json:"inputFileKey,omitempty"`
-	RoleArn            string    `json:"roleArn,omitempty"`
-	SuccessCount       int32     `json:"successCount"`
-	FailureCount       int32     `json:"failureCount"`
-	PercentageProgress int32     `json:"percentageProgress"`
+	TaskID             string  `json:"taskId"`
+	Status             string  `json:"status"`
+	Message            string  `json:"message,omitempty"`
+	TemplateBody       string  `json:"templateBody,omitempty"`
+	InputFileBucket    string  `json:"inputFileBucket,omitempty"`
+	InputFileKey       string  `json:"inputFileKey,omitempty"`
+	RoleArn            string  `json:"roleArn,omitempty"`
+	CreationDate       float64 `json:"creationDate"`
+	LastModifiedDate   float64 `json:"lastModifiedDate"`
+	SuccessCount       int32   `json:"successCount"`
+	FailureCount       int32   `json:"failureCount"`
+	PercentageProgress int32   `json:"percentageProgress"`
 }
 
 // StartThingRegistrationTaskInput is the input for StartThingRegistrationTask.

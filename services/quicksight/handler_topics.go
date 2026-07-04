@@ -232,8 +232,8 @@ func (h *Handler) handleListTopics(c *echo.Context) error {
 			keyArn:             t.Arn,
 			keyTopicID:         t.TopicID,
 			keyName:            t.Name,
-			keyCreatedTime:     t.CreatedTime.Format(timeFormat),
-			keyLastUpdatedTime: t.LastUpdatedTime.Format(timeFormat),
+			keyCreatedTime:     t.CreatedTime.Unix(),
+			keyLastUpdatedTime: t.LastUpdatedTime.Unix(),
 		})
 	}
 
@@ -608,8 +608,8 @@ func topicToMap(t *Topic) map[string]any {
 		keyDescription:     t.Description,
 		keyUserExpVersion:  t.UserExperienceVersion,
 		keyDataSets:        t.DataSets,
-		keyCreatedTime:     t.CreatedTime.Format(timeFormat),
-		keyLastUpdatedTime: t.LastUpdatedTime.Format(timeFormat),
+		keyCreatedTime:     t.CreatedTime.Unix(),
+		keyLastUpdatedTime: t.LastUpdatedTime.Unix(),
 	}
 }
 

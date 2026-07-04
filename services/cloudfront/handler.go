@@ -967,6 +967,12 @@ func parseCFStreamingTrustVPCPath(method, suffix, resourceParam string) (string,
 		return op, id
 	}
 
+	// The real SDK sends ListTrustStores as POST /trust-stores (plural resource, POST method),
+	// distinct from the singular /trust-store resource used by the other trust store operations.
+	if suffix == "trust-stores" && method == http.MethodPost {
+		return opListTrustStores, ""
+	}
+
 	if op, id := parseCFResourcePath(method, suffix, "trust-store",
 		opCreateTrustStore, opListTrustStores, opGetTrustStore, opUpdateTrustStore, opDeleteTrustStore,
 		"", ""); op != "" {
@@ -1004,7 +1010,7 @@ func parseCFStreamingDistributionPath(method, suffix, resourceParam string) (str
 	return parseCFResourcePath(method, suffix, streamingDistributionResource,
 		"", opListStreamingDistributions,
 		opGetStreamingDistribution, opUpdateStreamingDistribution, opDeleteStreamingDistribution,
-		opGetStreamingDistributionConfig, "")
+		opGetStreamingDistributionConfig, opUpdateStreamingDistribution)
 }
 
 // parseCFConnectionPath routes connection function, group, and continuous deployment policy paths.
@@ -1242,6 +1248,13 @@ func parseCFCreateOps(method, suffix, _ string) (string, string) {
 
 // parseCFDistributionTenantOps handles distribution-tenant CRUD operations.
 func parseCFDistributionTenantOps(method, suffix string) (string, string) {
+	// The real SDK sends ListDistributionTenants as POST /distribution-tenants (plural
+	// resource, POST method), distinct from the singular /distribution-tenant resource used
+	// by Create/Get/Update/Delete.
+	if suffix == "distribution-tenants" && method == http.MethodPost {
+		return opListDistributionTenants, ""
+	}
+
 	if suffix == "distribution-tenant" {
 		switch method {
 		case http.MethodPost:

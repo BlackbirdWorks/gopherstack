@@ -264,6 +264,47 @@ func (b *InMemoryBackend) DeleteAccountCustomization(accountID, namespace string
 	return nil
 }
 
+// ---- Account Custom Permission ----
+
+// DescribeAccountCustomPermission returns the name of the custom permissions
+// profile applied to accountID, if any.
+func (b *InMemoryBackend) DescribeAccountCustomPermission(accountID string) (string, error) {
+	b.mu.RLock("DescribeAccountCustomPermission")
+	defer b.mu.RUnlock()
+
+	name, ok := b.accountCustomPermissions[accountID]
+	if !ok {
+		return "", ErrAccountCustomPermissionNotFound
+	}
+
+	return name, nil
+}
+
+// UpdateAccountCustomPermission applies (creating or replacing) a custom
+// permissions profile to accountID.
+func (b *InMemoryBackend) UpdateAccountCustomPermission(accountID, customPermissionsName string) error {
+	b.mu.Lock("UpdateAccountCustomPermission")
+	defer b.mu.Unlock()
+
+	b.accountCustomPermissions[accountID] = customPermissionsName
+
+	return nil
+}
+
+// DeleteAccountCustomPermission removes accountID's applied custom
+// permissions profile.
+func (b *InMemoryBackend) DeleteAccountCustomPermission(accountID string) error {
+	b.mu.Lock("DeleteAccountCustomPermission")
+	defer b.mu.Unlock()
+
+	if _, ok := b.accountCustomPermissions[accountID]; !ok {
+		return ErrAccountCustomPermissionNotFound
+	}
+	delete(b.accountCustomPermissions, accountID)
+
+	return nil
+}
+
 // ---- IP Restriction ----
 
 // storedIPRestriction is the persisted representation of a QuickSight

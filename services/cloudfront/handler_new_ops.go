@@ -26,6 +26,39 @@ type trustStoreConfigXML struct {
 	CertificateAuthorityCertificatesBundle trustStoreCertificateBundleXML `xml:"CertificateAuthorityCertificatesBundle"`
 }
 
+// createTrustStoreRequestXML models the real CreateTrustStore wire request. The real SDK
+// (aws-sdk-go-v2/service/cloudfront) sends a root element <CreateTrustStoreRequest> containing
+// <CaCertificatesBundleSource><CaCertificatesBundleS3Location><Bucket>/<Key>/... and <Name> as
+// direct children (see serializers.go: awsRestxml_serializeOpDocumentCreateTrustStoreInput /
+// awsRestxml_serializeDocumentCaCertificatesBundleSource). The XMLName field is intentionally
+// omitted so Unmarshal does not reject the request based on the root element's name.
+type createTrustStoreRequestXML struct {
+	Name                       string `xml:"Name"`
+	CaCertificatesBundleSource struct {
+		S3Location struct {
+			Bucket string `xml:"Bucket"`
+			Key    string `xml:"Key"`
+		} `xml:"CaCertificatesBundleS3Location"`
+	} `xml:"CaCertificatesBundleSource"`
+	// CertificateAuthorityCertificatesBundle is not part of the real CreateTrustStore request
+	// shape, but is accepted here too for backward compatibility with callers that send it.
+	CertificateAuthorityCertificatesBundle trustStoreCertificateBundleXML `xml:"CertificateAuthorityCertificatesBundle"`
+	Comment                                string                         `xml:"Comment"`
+}
+
+// bundle resolves the CA certificate bundle from whichever shape was populated, preferring the
+// real SDK's CaCertificatesBundleSource>CaCertificatesBundleS3Location shape.
+func (req createTrustStoreRequestXML) bundle() TrustStoreCertificateBundle {
+	if req.CaCertificatesBundleSource.S3Location.Bucket != "" || req.CaCertificatesBundleSource.S3Location.Key != "" {
+		return TrustStoreCertificateBundle{
+			S3Bucket: req.CaCertificatesBundleSource.S3Location.Bucket,
+			S3Key:    req.CaCertificatesBundleSource.S3Location.Key,
+		}
+	}
+
+	return trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle)
+}
+
 func trustStoreBundleFromXML(x trustStoreCertificateBundleXML) TrustStoreCertificateBundle {
 	return TrustStoreCertificateBundle(x)
 }
@@ -50,13 +83,13 @@ func (h *Handler) handleCreateTrustStore(c *echo.Context) error {
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
-	var req trustStoreConfigXML
+	var req createTrustStoreRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CreateTrustStoreRequest XML"))
+		}
 	}
-	ts, createErr := h.Backend.CreateTrustStore(
-		req.Name, req.Comment, trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle),
-	)
+	ts, createErr := h.Backend.CreateTrustStore(req.Name, req.Comment, req.bundle())
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -76,7 +109,6 @@ func (h *Handler) handleGetTrustStore(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, trustStoreXML(cfNS, ts))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListTrustStores(c *echo.Context) error {
 	items := h.Backend.ListTrustStores()
 
@@ -86,18 +118,28 @@ func (h *Handler) handleListTrustStores(c *echo.Context) error {
 		ARN     string   `xml:"ARN"`
 		Name    string   `xml:"Name"`
 	}
+	// The real deserializer (awsRestxml_deserializeDocumentTrustStoreList) expects each
+	// TrustStoreSummary directly as a child of TrustStoreList, with no <Items> wrapper.
 	type tsList struct {
 		XMLName  xml.Name    `xml:"TrustStoreList"`
-		XMLNS    string      `xml:"xmlns,attr"`
-		Items    []tsSummary `xml:"Items>TrustStoreSummary"`
+		Items    []tsSummary `xml:"TrustStoreSummary"`
 		Quantity int         `xml:"Quantity"`
+	}
+	// ListTrustStoresOutput has no httpPayload member (it carries both TrustStoreList and
+	// NextMarker), so the real deserializer
+	// (awsRestxml_deserializeOpDocumentListTrustStoresOutput) reads TrustStoreList as a CHILD
+	// of the response root, not as the root itself.
+	type tsListResult struct {
+		XMLName        xml.Name `xml:"ListTrustStoresResult"`
+		XMLNS          string   `xml:"xmlns,attr"`
+		TrustStoreList tsList   `xml:"TrustStoreList"`
 	}
 	summaries := make([]tsSummary, 0, len(items))
 	for _, ts := range items {
 		summaries = append(summaries, tsSummary{ID: ts.ID, ARN: ts.ARN, Name: ts.Name})
 	}
-	list := tsList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
-	out, xmlErr := xml.Marshal(list)
+	result := tsListResult{XMLNS: cfNS, TrustStoreList: tsList{Quantity: len(summaries), Items: summaries}}
+	out, xmlErr := xml.Marshal(result)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
 	}
@@ -937,7 +979,6 @@ func (h *Handler) handleGetAnycastIPList(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, anycastIPListXML(cfNS, list))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 	items := h.Backend.ListAnycastIPLists()
 

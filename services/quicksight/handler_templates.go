@@ -230,8 +230,8 @@ func (h *Handler) handleListTemplates(c *echo.Context) error {
 			keyArn:                 t.Arn,
 			keyTemplateID:          t.TemplateID,
 			keyName:                t.Name,
-			keyCreatedTime:         t.CreatedTime.Format(timeFormat),
-			keyLastUpdatedTime:     t.LastUpdatedTime.Format(timeFormat),
+			keyCreatedTime:         t.CreatedTime.Unix(),
+			keyLastUpdatedTime:     t.LastUpdatedTime.Unix(),
 			keyLatestVersionNumber: t.Version.VersionNumber,
 		})
 	}
@@ -452,8 +452,8 @@ func templateToMap(t *Template) map[string]any {
 		keyArn:             t.Arn,
 		keyTemplateID:      t.TemplateID,
 		keyName:            t.Name,
-		keyCreatedTime:     t.CreatedTime.Format(timeFormat),
-		keyLastUpdatedTime: t.LastUpdatedTime.Format(timeFormat),
+		keyCreatedTime:     t.CreatedTime.Unix(),
+		keyLastUpdatedTime: t.LastUpdatedTime.Unix(),
 		keyVersion:         templateVersionToMap(t.Version),
 	}
 }
@@ -463,7 +463,7 @@ func templateVersionToMap(v *TemplateVersion) map[string]any {
 		keyVersionNumber: v.VersionNumber,
 		keyStatus:        v.Status,
 		keyArn:           v.Arn,
-		keyCreatedTime:   v.CreatedTime.Format(timeFormat),
+		keyCreatedTime:   v.CreatedTime.Unix(),
 	}
 	if v.SourceEntityArn != "" {
 		m[keySourceEntityArn] = v.SourceEntityArn

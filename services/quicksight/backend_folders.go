@@ -19,10 +19,44 @@ const (
 
 	filterParentFolderArn = "PARENT_FOLDER_ARN"
 	filterFolderName      = "FOLDER_NAME"
+	filterDashboardName   = "DASHBOARD_NAME"
+	filterAnalysisName    = "ANALYSIS_NAME"
+	filterDataSetName     = "DATASET_NAME"
+	filterDataSourceName  = "DATASOURCE_NAME"
 
 	filterOperatorStringEquals = "StringEquals"
 	filterOperatorStringLike   = "StringLike"
 )
+
+// matchesNameFilter reports whether name matches a single SearchFilter whose
+// Name is nameFilterKey (e.g. "DASHBOARD_NAME"). Filters with any other Name
+// are ownership-related (QUICKSIGHT_OWNER, DIRECT_QUICKSIGHT_OWNER, etc.) that
+// this in-memory backend doesn't track principals for, so they pass through,
+// mirroring folderMatchesFilter's permissive default for unknown filter names.
+func matchesNameFilter(name string, filter SearchFilter, nameFilterKey string) bool {
+	if filter.Name != nameFilterKey {
+		return true
+	}
+
+	switch filter.Operator {
+	case filterOperatorStringLike:
+		return strings.Contains(name, filter.Value)
+	default: // StringEquals and unset operators default to equality.
+		return name == filter.Value
+	}
+}
+
+// matchesAllNameFilters reports whether name satisfies every filter in
+// filters (AND semantics), evaluated via matchesNameFilter.
+func matchesAllNameFilters(name string, filters []SearchFilter, nameFilterKey string) bool {
+	for _, filter := range filters {
+		if !matchesNameFilter(name, filter, nameFilterKey) {
+			return false
+		}
+	}
+
+	return true
+}
 
 // storedFolder is the persisted representation of a QuickSight folder.
 type storedFolder struct {
@@ -537,4 +571,97 @@ func (b *InMemoryBackend) DescribeFolderResolvedPermissions(
 	}
 
 	return result, nil
+}
+
+// ---- Folders-for-resource ----
+
+// arnFieldCount is the number of colon-delimited fields in a QuickSight
+// resource ARN, e.g. "arn:aws:quicksight:us-east-1:123456789012:dashboard/abc".
+const arnFieldCount = 6
+
+// resourceArnToMember parses a QuickSight resource ARN into the account ID
+// and the folder-member type/ID used to key folder memberships.
+func resourceArnToMember(arn string) (string, string, string, bool) {
+	parts := strings.SplitN(arn, ":", arnFieldCount)
+	if len(parts) != arnFieldCount {
+		return "", "", "", false
+	}
+
+	accountID := parts[4]
+
+	resType, resID, found := strings.Cut(parts[5], "/")
+	if !found {
+		return "", "", "", false
+	}
+
+	var memberType string
+	switch resType {
+	case "dashboard":
+		memberType = folderMemberTypeDashboard
+	case "analysis":
+		memberType = folderMemberTypeAnalysis
+	case "dataset":
+		memberType = folderMemberTypeDataSet
+	default:
+		return "", "", "", false
+	}
+
+	return accountID, memberType, resID, true
+}
+
+// ListFoldersForResource lists the ARNs of all folders that resourceArn is a
+// member of.
+func (b *InMemoryBackend) ListFoldersForResource(
+	accountID, resourceArn string,
+	maxResults int32,
+	nextToken string,
+) ([]string, string, error) {
+	b.mu.RLock("ListFoldersForResource")
+	defer b.mu.RUnlock()
+
+	arnAccountID, memberType, memberID, ok := resourceArnToMember(resourceArn)
+	if !ok || arnAccountID != accountID {
+		return nil, "", nil
+	}
+
+	var folderIDs []string
+	prefix := accountID + "/"
+	for k, m := range b.folderMembers {
+		if strings.HasPrefix(k, prefix) && m.MemberType == memberType && m.MemberID == memberID {
+			folderIDs = append(folderIDs, m.FolderID)
+		}
+	}
+	sort.Strings(folderIDs)
+
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, id := range folderIDs {
+			if id == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := start + int(maxResults)
+	var next string
+	if end < len(folderIDs) {
+		next = folderIDs[end]
+	} else {
+		end = len(folderIDs)
+	}
+
+	result := make([]string, 0, end-start)
+	for _, id := range folderIDs[start:end] {
+		if f, exists := b.folders[folderKey(accountID, id)]; exists {
+			result = append(result, f.Arn)
+		}
+	}
+
+	return result, next, nil
 }

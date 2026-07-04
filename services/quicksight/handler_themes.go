@@ -189,8 +189,8 @@ func (h *Handler) handleListThemes(c *echo.Context) error {
 			keyThemeID:             t.ThemeID,
 			keyName:                t.Name,
 			keyThemeType:           t.Type,
-			keyCreatedTime:         t.CreatedTime.Format(timeFormat),
-			keyLastUpdatedTime:     t.LastUpdatedTime.Format(timeFormat),
+			keyCreatedTime:         t.CreatedTime.Unix(),
+			keyLastUpdatedTime:     t.LastUpdatedTime.Unix(),
 			keyLatestVersionNumber: t.Version.VersionNumber,
 		})
 	}
@@ -407,8 +407,8 @@ func themeToMap(t *Theme) map[string]any {
 		keyThemeID:         t.ThemeID,
 		keyName:            t.Name,
 		keyThemeType:       t.Type,
-		keyCreatedTime:     t.CreatedTime.Format(timeFormat),
-		keyLastUpdatedTime: t.LastUpdatedTime.Format(timeFormat),
+		keyCreatedTime:     t.CreatedTime.Unix(),
+		keyLastUpdatedTime: t.LastUpdatedTime.Unix(),
 		keyVersion:         themeVersionToMap(t.Version),
 	}
 }
@@ -418,7 +418,7 @@ func themeVersionToMap(v *ThemeVersion) map[string]any {
 		keyVersionNumber: v.VersionNumber,
 		keyStatus:        v.Status,
 		keyArn:           v.Arn,
-		keyCreatedTime:   v.CreatedTime.Format(timeFormat),
+		keyCreatedTime:   v.CreatedTime.Unix(),
 	}
 	if v.BaseThemeID != "" {
 		m[keyBaseThemeID] = v.BaseThemeID

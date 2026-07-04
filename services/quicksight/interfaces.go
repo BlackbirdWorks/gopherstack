@@ -38,18 +38,48 @@ type StorageBackend interface {
 	ListUserGroups(accountID, namespace, userName string, maxResults int32, nextToken string) ([]*Group, string, error)
 
 	// DataSources
-	CreateDataSource(accountID, dataSourceID, name, dsType string, tags map[string]string) (*DataSource, error)
+	CreateDataSource(
+		accountID, dataSourceID, name, dsType string,
+		permissions []ResourcePermission,
+		tags map[string]string,
+	) (*DataSource, error)
 	DescribeDataSource(accountID, dataSourceID string) (*DataSource, error)
 	UpdateDataSource(accountID, dataSourceID, name string) (*DataSource, error)
 	DeleteDataSource(accountID, dataSourceID string) error
 	ListDataSources(accountID string, maxResults int32, nextToken string) ([]*DataSource, string, error)
+	SearchDataSources(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*DataSource, string, error)
+	DescribeDataSourcePermissions(accountID, dataSourceID string) (*DataSource, []ResourcePermission, error)
+	UpdateDataSourcePermissions(
+		accountID, dataSourceID string,
+		grant, revoke []ResourcePermission,
+	) (*DataSource, []ResourcePermission, error)
 
 	// DataSets
-	CreateDataSet(accountID, dataSetID, name, importMode string, tags map[string]string) (*DataSet, error)
+	CreateDataSet(
+		accountID, dataSetID, name, importMode string,
+		permissions []ResourcePermission,
+		tags map[string]string,
+	) (*DataSet, error)
 	DescribeDataSet(accountID, dataSetID string) (*DataSet, error)
 	UpdateDataSet(accountID, dataSetID, name, importMode string) (*DataSet, error)
 	DeleteDataSet(accountID, dataSetID string) error
 	ListDataSets(accountID string, maxResults int32, nextToken string) ([]*DataSet, string, error)
+	SearchDataSets(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*DataSet, string, error)
+	DescribeDataSetPermissions(accountID, dataSetID string) (*DataSet, []ResourcePermission, error)
+	UpdateDataSetPermissions(
+		accountID, dataSetID string,
+		grant, revoke []ResourcePermission,
+	) (*DataSet, []ResourcePermission, error)
 
 	// Ingestions
 	CreateIngestion(accountID, dataSetID, ingestionID string) (*Ingestion, error)
@@ -58,9 +88,14 @@ type StorageBackend interface {
 	ListIngestions(accountID, dataSetID string, maxResults int32, nextToken string) ([]*Ingestion, string, error)
 
 	// Dashboards
-	CreateDashboard(accountID, dashboardID, name string, tags map[string]string) (*Dashboard, error)
+	CreateDashboard(
+		accountID, dashboardID, name string,
+		definition map[string]any,
+		permissions []ResourcePermission,
+		tags map[string]string,
+	) (*Dashboard, error)
 	DescribeDashboard(accountID, dashboardID string) (*Dashboard, error)
-	UpdateDashboard(accountID, dashboardID, name string) (*Dashboard, error)
+	UpdateDashboard(accountID, dashboardID, name string, definition map[string]any) (*Dashboard, error)
 	DeleteDashboard(accountID, dashboardID string) error
 	ListDashboards(accountID string, maxResults int32, nextToken string) ([]*Dashboard, string, error)
 	ListDashboardVersions(
@@ -68,14 +103,41 @@ type StorageBackend interface {
 		maxResults int32,
 		nextToken string,
 	) ([]*DashboardVersion, string, error)
+	SearchDashboards(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Dashboard, string, error)
+	DescribeDashboardPermissions(accountID, dashboardID string) (*Dashboard, []ResourcePermission, error)
+	UpdateDashboardPermissions(
+		accountID, dashboardID string,
+		grant, revoke []ResourcePermission,
+	) (*Dashboard, []ResourcePermission, error)
 
 	// Analyses
-	CreateAnalysis(accountID, analysisID, name string, tags map[string]string) (*Analysis, error)
+	CreateAnalysis(
+		accountID, analysisID, name string,
+		definition map[string]any,
+		permissions []ResourcePermission,
+		tags map[string]string,
+	) (*Analysis, error)
 	DescribeAnalysis(accountID, analysisID string) (*Analysis, error)
-	UpdateAnalysis(accountID, analysisID, name string) (*Analysis, error)
+	UpdateAnalysis(accountID, analysisID, name string, definition map[string]any) (*Analysis, error)
 	DeleteAnalysis(accountID, analysisID string, forceDeleteWithoutRecovery bool) error
 	ListAnalyses(accountID string, maxResults int32, nextToken string) ([]*Analysis, string, error)
 	RestoreAnalysis(accountID, analysisID string) (*Analysis, error)
+	SearchAnalyses(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Analysis, string, error)
+	DescribeAnalysisPermissions(accountID, analysisID string) (*Analysis, []ResourcePermission, error)
+	UpdateAnalysisPermissions(
+		accountID, analysisID string,
+		grant, revoke []ResourcePermission,
+	) (*Analysis, []ResourcePermission, error)
 
 	// Tags
 	TagResource(resourceARN string, tags map[string]string) error
@@ -115,6 +177,13 @@ type StorageBackend interface {
 		grant, revoke []ResourcePermission,
 	) ([]ResourcePermission, error)
 	DescribeFolderResolvedPermissions(accountID, folderID string) ([]ResourcePermission, error)
+
+	// Folders-for-resource
+	ListFoldersForResource(
+		accountID, resourceArn string,
+		maxResults int32,
+		nextToken string,
+	) ([]string, string, error)
 
 	// Templates
 	CreateTemplate(
@@ -301,6 +370,11 @@ type StorageBackend interface {
 	) (*AccountCustomization, error)
 	DeleteAccountCustomization(accountID, namespace string) error
 
+	// Account custom permission
+	DescribeAccountCustomPermission(accountID string) (string, error)
+	UpdateAccountCustomPermission(accountID, customPermissionsName string) error
+	DeleteAccountCustomPermission(accountID string) error
+
 	// IP restriction
 	DescribeIPRestriction(accountID string) (*IPRestriction, error)
 	UpdateIPRestriction(
@@ -337,6 +411,137 @@ type StorageBackend interface {
 	// Dashboards Q&A configuration
 	DescribeDashboardsQAConfiguration(accountID string) (string, error)
 	UpdateDashboardsQAConfiguration(accountID, status string) (string, error)
+
+	// Brands
+	CreateBrand(accountID, brandID string, definition map[string]any) (*Brand, error)
+	DescribeBrand(accountID, brandID, versionID string) (*Brand, error)
+	UpdateBrand(accountID, brandID string, definition map[string]any) (*Brand, error)
+	DeleteBrand(accountID, brandID string) error
+	ListBrands(accountID string, maxResults int32, nextToken string) ([]*Brand, string, error)
+	DescribeBrandPublishedVersion(accountID, brandID string) (*Brand, error)
+	UpdateBrandPublishedVersion(accountID, brandID, versionID string) error
+	DescribeBrandAssignment(accountID string) (string, error)
+	UpdateBrandAssignment(accountID, brandArn string) (string, error)
+	DeleteBrandAssignment(accountID string) error
+
+	// Custom permissions
+	CreateCustomPermissions(
+		accountID, name string,
+		capabilities map[string]any,
+		tags map[string]string,
+	) (*CustomPermissions, error)
+	DescribeCustomPermissions(accountID, name string) (*CustomPermissions, error)
+	UpdateCustomPermissions(accountID, name string, capabilities map[string]any) (*CustomPermissions, error)
+	DeleteCustomPermissions(accountID, name string) error
+	ListCustomPermissions(accountID string, maxResults int32, nextToken string) ([]*CustomPermissions, string, error)
+
+	// Role custom permission
+	UpdateRoleCustomPermission(accountID, namespace, role, customPermissionsName string) error
+	DescribeRoleCustomPermission(accountID, namespace, role string) (string, error)
+	DeleteRoleCustomPermission(accountID, namespace, role string) error
+
+	// Role memberships
+	CreateRoleMembership(accountID, namespace, role, memberName string) error
+	DeleteRoleMembership(accountID, namespace, role, memberName string) error
+	ListRoleMemberships(
+		accountID, namespace, role string,
+		maxResults int32,
+		nextToken string,
+	) ([]string, string, error)
+
+	// User custom permission
+	UpdateUserCustomPermission(accountID, namespace, userName, customPermissionsName string) error
+	DeleteUserCustomPermission(accountID, namespace, userName string) error
+
+	// OAuth client applications
+	CreateOAuthClientApplication(
+		accountID, clientID, name string,
+		fields map[string]any,
+	) (*OAuthClientApplication, error)
+	DescribeOAuthClientApplication(accountID, clientID string) (*OAuthClientApplication, error)
+	UpdateOAuthClientApplication(
+		accountID, clientID, name string,
+		fields map[string]any,
+	) (*OAuthClientApplication, error)
+	DeleteOAuthClientApplication(accountID, clientID string) (*OAuthClientApplication, error)
+	ListOAuthClientApplications(
+		accountID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*OAuthClientApplication, string, error)
+
+	// Identity propagation configuration
+	UpdateIdentityPropagationConfig(accountID, service string, authorizedTargets []string) error
+	DeleteIdentityPropagationConfig(accountID, service string) error
+	ListIdentityPropagationConfigs(accountID string) ([]*IdentityPropagationConfig, error)
+
+	// Asset bundle export jobs
+	StartAssetBundleExportJob(
+		accountID, jobID, exportFormat string,
+		resourceArns []string,
+		includeAllDependencies bool,
+	) (*AssetBundleExportJob, error)
+	DescribeAssetBundleExportJob(accountID, jobID string) (*AssetBundleExportJob, error)
+	ListAssetBundleExportJobs(
+		accountID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*AssetBundleExportJob, string, error)
+
+	// Asset bundle import jobs
+	StartAssetBundleImportJob(accountID, jobID, failureAction string) (*AssetBundleImportJob, error)
+	DescribeAssetBundleImportJob(accountID, jobID string) (*AssetBundleImportJob, error)
+	ListAssetBundleImportJobs(
+		accountID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*AssetBundleImportJob, string, error)
+
+	// Dashboard snapshot jobs
+	StartDashboardSnapshotJob(
+		accountID, dashboardID, jobID string,
+		snapshotConfiguration map[string]any,
+	) (*DashboardSnapshotJob, error)
+	DescribeDashboardSnapshotJob(accountID, dashboardID, jobID string) (*DashboardSnapshotJob, error)
+	DescribeDashboardSnapshotJobResult(accountID, dashboardID, jobID string) (*DashboardSnapshotJob, error)
+
+	// DataSet refresh schedules
+	CreateRefreshSchedule(
+		accountID, datasetID, scheduleID, refreshType, startAfterDateTime string,
+		scheduleFrequency map[string]any,
+	) (*RefreshSchedule, error)
+	DescribeRefreshSchedule(accountID, datasetID, scheduleID string) (*RefreshSchedule, error)
+	UpdateRefreshSchedule(
+		accountID, datasetID, scheduleID, refreshType, startAfterDateTime string,
+		scheduleFrequency map[string]any,
+	) (*RefreshSchedule, error)
+	DeleteRefreshSchedule(accountID, datasetID, scheduleID string) error
+	ListRefreshSchedules(accountID, datasetID string) ([]*RefreshSchedule, error)
+
+	// DataSet refresh properties
+	PutDataSetRefreshProperties(
+		accountID, datasetID string,
+		refreshConfiguration, failureConfiguration map[string]any,
+	) (*DataSetRefreshProperties, error)
+	DescribeDataSetRefreshProperties(accountID, datasetID string) (*DataSetRefreshProperties, error)
+	DeleteDataSetRefreshProperties(accountID, datasetID string) error
+
+	// Embed URLs
+	GenerateEmbedURLForAnonymousUser(
+		accountID, namespace string,
+		authorizedResourceArns []string,
+		experienceConfiguration map[string]any,
+	) (embedURL, anonymousUserArn string, err error)
+	GenerateEmbedURLForRegisteredUser(
+		accountID, userArn string,
+		experienceConfiguration map[string]any,
+	) (string, error)
+	GenerateEmbedURLForRegisteredUserWithIdentity(
+		accountID string,
+		experienceConfiguration map[string]any,
+	) (string, error)
+	GetDashboardEmbedURL(accountID, dashboardID, identityType string) (string, error)
+	GetSessionEmbedURL(accountID, entryPoint string) (string, error)
 
 	AccountID() string
 	Region() string
@@ -390,6 +595,7 @@ type DataSource struct {
 	Name            string
 	Type            string
 	Status          string
+	Permissions     []ResourcePermission
 }
 
 // DataSet represents a QuickSight dataset.
@@ -401,6 +607,7 @@ type DataSet struct {
 	Arn             string
 	Name            string
 	ImportMode      string
+	Permissions     []ResourcePermission
 }
 
 // Ingestion represents a QuickSight ingestion.
@@ -418,10 +625,12 @@ type Ingestion struct {
 type Dashboard struct {
 	CreatedTime     time.Time
 	LastUpdatedTime time.Time
+	Definition      map[string]any
 	DashboardID     string
 	Arn             string
 	Name            string
 	Status          string
+	Permissions     []ResourcePermission
 	VersionNumber   int64
 }
 
@@ -442,6 +651,8 @@ type Analysis struct {
 	Arn             string
 	Name            string
 	Status          string
+	Definition      map[string]any
+	Permissions     []ResourcePermission
 }
 
 // ResourcePermission represents a QuickSight principal + allowed actions grant.
@@ -463,6 +674,11 @@ type FolderSearchFilter struct {
 	Name     string
 	Value    string
 }
+
+// SearchFilter is a generic Name/Operator/Value search filter, shared by the
+// Search{Analyses,Dashboards,DataSets,DataSources} operations. It has the same
+// shape as [FolderSearchFilter] (SearchFolders' filter type).
+type SearchFilter = FolderSearchFilter
 
 // Folder represents a QuickSight folder.
 // CreatedTime first: non-pointer prefix reduces GC pointer bytes.
@@ -656,6 +872,97 @@ type RegisteredCustomerManagedKey struct {
 type DefaultQBusinessApplication struct {
 	ApplicationID string
 	Namespace     string
+}
+
+// Brand represents a QuickSight brand, a versioned set of visual identity
+// customizations (logo, theme, name) applied to the console/embedded experiences.
+type Brand struct {
+	CreatedTime        time.Time
+	LastUpdatedTime    time.Time
+	Definition         map[string]any
+	BrandID            string
+	Arn                string
+	Status             string
+	CurrentVersionID   string
+	CurrentVersionStat string
+	PublishedVersionID string
+}
+
+// CustomPermissions represents a named, reusable set of QuickSight capability
+// overrides that can be attached to roles or users.
+type CustomPermissions struct {
+	Capabilities map[string]any
+	Name         string
+	Arn          string
+}
+
+// OAuthClientApplication represents a QuickSight OAuth 2.0 client application used
+// to connect to a data source's identity provider.
+type OAuthClientApplication struct {
+	CreatedTime     time.Time
+	LastUpdatedTime time.Time
+	Extra           map[string]any
+	ClientID        string
+	Arn             string
+	Name            string
+	Status          string
+}
+
+// IdentityPropagationConfig represents the authorized targets for one downstream
+// Amazon Web Services service that QuickSight can propagate an end user's identity to.
+type IdentityPropagationConfig struct {
+	Service           string
+	AuthorizedTargets []string
+}
+
+// AssetBundleExportJob represents an asynchronous asset-bundle export job.
+type AssetBundleExportJob struct {
+	CreatedTime            time.Time
+	JobID                  string
+	Arn                    string
+	Status                 string
+	ExportFormat           string
+	DownloadURL            string
+	ResourceArns           []string
+	IncludeAllDependencies bool
+}
+
+// AssetBundleImportJob represents an asynchronous asset-bundle import job.
+type AssetBundleImportJob struct {
+	CreatedTime   time.Time
+	JobID         string
+	Arn           string
+	Status        string
+	FailureAction string
+}
+
+// DashboardSnapshotJob represents an asynchronous dashboard snapshot ("export to
+// PDF/CSV/Excel") job.
+type DashboardSnapshotJob struct {
+	CreatedTime     time.Time
+	LastUpdatedTime time.Time
+	SnapshotConfig  map[string]any
+	JobID           string
+	Arn             string
+	DashboardID     string
+	Status          string
+	S3URI           string
+}
+
+// RefreshSchedule represents a QuickSight dataset SPICE refresh schedule.
+type RefreshSchedule struct {
+	ScheduleFrequency  map[string]any
+	ScheduleID         string
+	Arn                string
+	RefreshType        string
+	StartAfterDateTime string
+}
+
+// DataSetRefreshProperties represents a QuickSight dataset's SPICE refresh
+// configuration (incremental refresh window, failure notifications, etc.).
+type DataSetRefreshProperties struct {
+	RefreshConfiguration map[string]any
+	FailureConfiguration map[string]any
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

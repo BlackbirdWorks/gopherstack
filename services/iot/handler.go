@@ -48,7 +48,12 @@ const (
 	pathPolicies         = "/policies"
 	pathRuleDestinations = "/rule-destinations"
 	pathIndices          = "/indices"
-	pathThings           = "/things"
+	// pathIndexingConfig is the real AWS IoT REST path for Get/UpdateIndexingConfiguration
+	// (GET/POST /indexing/config). It is distinct from pathIndices ("/indices"), which is
+	// where the fleet-indexing search/aggregation surface (e.g. SearchIndex at
+	// /indices/search) lives.
+	pathIndexingConfig = "/indexing/config"
+	pathThings         = "/things"
 )
 
 const (
@@ -491,7 +496,11 @@ func matchNewIoTPath(path string) bool {
 		path == "/thing-groups" ||
 		strings.HasPrefix(path, "/thing-types/") ||
 		path == "/thing-types" ||
-		strings.HasPrefix(path, "/certificates/") ||
+		matchNewIoTCertAndIndexPath(path)
+}
+
+func matchNewIoTCertAndIndexPath(path string) bool {
+	return strings.HasPrefix(path, "/certificates/") ||
 		path == "/certificates" ||
 		path == "/certificate/register" ||
 		path == "/certificate/register-no-ca" ||
@@ -500,7 +509,8 @@ func matchNewIoTPath(path string) bool {
 		strings.HasPrefix(path, "/certificate-providers/") ||
 		path == "/certificate-providers" ||
 		path == pathIndices ||
-		strings.HasPrefix(path, pathIndices+"/")
+		strings.HasPrefix(path, pathIndices+"/") ||
+		path == pathIndexingConfig
 }
 
 // MatchPriority returns the routing priority for the IoT handler.
@@ -587,7 +597,7 @@ func resolveOperation(path, method string) string {
 	case path == "/endpoint" && method == http.MethodGet:
 
 		return opDescribeEndpoint
-	case path == pathIndices || strings.HasPrefix(path, pathIndices+"/"):
+	case path == pathIndices || strings.HasPrefix(path, pathIndices+"/") || path == pathIndexingConfig:
 
 		return resolveIndexOps(path, method)
 	}

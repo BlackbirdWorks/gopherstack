@@ -109,7 +109,7 @@ func (b *InMemoryBackend) StartThingRegistrationTask(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	now := time.Now()
+	now := float64(time.Now().Unix())
 	task := &ThingRegistrationTask{
 		TaskID:           uuid.NewString(),
 		Status:           registrationTaskInProgress,
@@ -137,7 +137,7 @@ func (b *InMemoryBackend) StopThingRegistrationTask(taskID string) error {
 	}
 
 	task.Status = registrationTaskCancelled
-	task.LastModifiedDate = time.Now()
+	task.LastModifiedDate = float64(time.Now().Unix())
 
 	return nil
 }

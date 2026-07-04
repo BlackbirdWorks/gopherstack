@@ -15,9 +15,11 @@ import (
 // ---------------------------------------------------------------------------
 
 func (h *Handler) distributionTenantXML(t *DistributionTenant) string {
+	// The real SDK deserializer (awsRestxml_deserializeDocumentDomainResultList) expects each
+	// Domains entry wrapped in <member>, not <Item>.
 	var domainsXML strings.Builder
 	for _, d := range t.Domains {
-		fmt.Fprintf(&domainsXML, `<Item><Domain>%s</Domain><Status>Active</Status></Item>`, d)
+		fmt.Fprintf(&domainsXML, `<member><Domain>%s</Domain><Status>Active</Status></member>`, d)
 	}
 
 	webACLArn := h.Backend.TenantWebACLArn(t.ID)
@@ -48,7 +50,7 @@ type createDistributionTenantXML struct {
 	DistributionID string   `xml:"DistributionId"`
 	Name           string   `xml:"Name"`
 	Domain         string   `xml:"Domain"`
-	Domains        []string `xml:"Domains>Item>Domain"`
+	Domains        []string `xml:"Domains>member>Domain"`
 	Tags           []tagXML `xml:"Tags>Tag"`
 }
 
@@ -57,7 +59,7 @@ type updateDistributionTenantXML struct {
 	XMLName           xml.Name `xml:"UpdateDistributionTenantRequest"`
 	Domain            string   `xml:"Domain"`
 	ConnectionGroupID string   `xml:"ConnectionGroupId"`
-	Domains           []string `xml:"Domains>Item>Domain"`
+	Domains           []string `xml:"Domains>member>Domain"`
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +187,7 @@ func (h *Handler) handleDeleteDistributionTenant(c *echo.Context, id string) err
 
 // tenantSummaryXML is the list-view representation of a DistributionTenant.
 type tenantSummaryXML struct {
-	XMLName           xml.Name `xml:"DistributionTenant"`
+	XMLName           xml.Name `xml:"DistributionTenantSummary"`
 	ID                string   `xml:"Id"`
 	ARN               string   `xml:"Arn"`
 	DistributionID    string   `xml:"DistributionId"`
@@ -196,15 +198,28 @@ type tenantSummaryXML struct {
 	Enabled           bool     `xml:"Enabled"`
 }
 
+// tenantListXML models the real ListDistributionTenants response shape (see
+// awsRestxml_deserializeDocumentDistributionTenantList): each DistributionTenantSummary is a
+// direct child of DistributionTenantList, with no extra <Items> wrapper.
 type tenantListXML struct {
 	XMLName  xml.Name           `xml:"DistributionTenantList"`
-	XMLNS    string             `xml:"xmlns,attr"`
-	Items    []tenantSummaryXML `xml:"Items>DistributionTenant"`
+	Items    []tenantSummaryXML `xml:"DistributionTenantSummary"`
 	MaxItems int                `xml:"MaxItems"`
 	Quantity int                `xml:"Quantity"`
 }
 
-func tenantsToSummaryList(tenants []*DistributionTenant) tenantListXML {
+// tenantListResultXML wraps tenantListXML in a response root. Neither ListDistributionTenants
+// nor ListDistributionTenantsByCustomization has an httpPayload member (both also carry
+// NextMarker), so the real deserializers
+// (awsRestxml_deserializeOpDocumentListDistributionTenants{,ByCustomization}Output) read
+// DistributionTenantList as a CHILD of the response root, not as the root itself.
+type tenantListResultXML struct {
+	XMLName                xml.Name      `xml:"ListDistributionTenantsResult"`
+	XMLNS                  string        `xml:"xmlns,attr"`
+	DistributionTenantList tenantListXML `xml:"DistributionTenantList"`
+}
+
+func tenantsToSummaryList(tenants []*DistributionTenant) tenantListResultXML {
 	summaries := make([]tenantSummaryXML, 0, len(tenants))
 	for _, t := range tenants {
 		summaries = append(summaries, tenantSummaryXML{
@@ -219,7 +234,12 @@ func tenantsToSummaryList(tenants []*DistributionTenant) tenantListXML {
 		})
 	}
 
-	return tenantListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	return tenantListResultXML{
+		XMLNS: cfNS,
+		DistributionTenantList: tenantListXML{
+			MaxItems: maxItems, Quantity: len(summaries), Items: summaries,
+		},
+	}
 }
 
 func (h *Handler) handleListDistributionTenants(c *echo.Context) error {

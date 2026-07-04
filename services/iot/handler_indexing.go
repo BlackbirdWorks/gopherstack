@@ -24,13 +24,17 @@ func resolveIndexOps(path, method string) string {
 
 // resolveIndexConfigOps handles the configuration/discovery surface: listing
 // and describing indices, and getting/updating the indexing configuration.
+//
+// The real AWS IoT SDK sends Get/UpdateIndexingConfiguration to GET/POST
+// /indexing/config (not /indices/config); /indices/config is also accepted for
+// backward compatibility with older callers of this emulator.
 func resolveIndexConfigOps(path, method string) string {
 	switch {
 	case path == pathIndices && method == http.MethodGet:
 		return opListIndices
-	case path == pathIndices+"/config" && method == http.MethodGet:
+	case (path == pathIndexingConfig || path == pathIndices+"/config") && method == http.MethodGet:
 		return opGetIndexingConfiguration
-	case path == pathIndices+"/config" && method == http.MethodPost:
+	case (path == pathIndexingConfig || path == pathIndices+"/config") && method == http.MethodPost:
 		return opUpdateIndexingConfiguration
 	case strings.HasPrefix(path, pathIndices+"/") && method == http.MethodGet:
 		return opDescribeIndex

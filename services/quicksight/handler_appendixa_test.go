@@ -714,6 +714,12 @@ func TestQuickSight_CustomPermissions(t *testing.T) { //nolint:paralleltest // e
 func TestQuickSight_RoleMemberships(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
+	// A custom permissions profile must exist before it can be assigned to a role.
+	setupRec := doRequest(t, h, http.MethodPost, accountPath("/custom-permissions"), map[string]any{
+		"CustomPermissionsName": "cp1",
+	})
+	require.Equal(t, http.StatusOK, setupRec.Code)
+
 	tests := []struct {
 		body       any
 		name       string
@@ -736,18 +742,18 @@ func TestQuickSight_RoleMemberships(t *testing.T) { //nolint:paralleltest // exi
 			wantKey:    "MembersList",
 		},
 		{
-			name:       "describe role custom permission",
-			method:     http.MethodGet,
-			path:       nsPath("/roles/ADMIN/custom-permission"),
-			wantStatus: http.StatusOK,
-			wantKey:    "CustomPermissionsName",
-		},
-		{
 			name:       "update role custom permission",
 			method:     http.MethodPut,
 			path:       nsPath("/roles/ADMIN/custom-permission"),
 			body:       map[string]any{"CustomPermissionsName": "cp1"},
 			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "describe role custom permission",
+			method:     http.MethodGet,
+			path:       nsPath("/roles/ADMIN/custom-permission"),
+			wantStatus: http.StatusOK,
+			wantKey:    "CustomPermissionsName",
 		},
 		{
 			name:       "delete role custom permission",
@@ -823,10 +829,12 @@ func TestQuickSight_DataSetExtras(t *testing.T) { //nolint:paralleltest // exist
 			wantKey:    "DataSetRefreshProperties",
 		},
 		{
-			name:       "create refresh schedule",
-			method:     http.MethodPost,
-			path:       accountPath("/data-sets/ds1/refresh-schedules"),
-			body:       map[string]any{"Schedule": map[string]any{"ScheduleId": "sched1"}},
+			name:   "create refresh schedule",
+			method: http.MethodPost,
+			path:   accountPath("/data-sets/ds1/refresh-schedules"),
+			body: map[string]any{
+				"Schedule": map[string]any{"ScheduleId": "sched1", "RefreshType": "FULL_REFRESH"},
+			},
 			wantStatus: http.StatusOK,
 			wantKey:    "ScheduleId",
 		},
@@ -845,10 +853,12 @@ func TestQuickSight_DataSetExtras(t *testing.T) { //nolint:paralleltest // exist
 			wantKey:    "RefreshSchedules",
 		},
 		{
-			name:       "update refresh schedule",
-			method:     http.MethodPut,
-			path:       accountPath("/data-sets/ds1/refresh-schedules"),
-			body:       map[string]any{"Schedule": map[string]any{"ScheduleId": "sched1"}},
+			name:   "update refresh schedule",
+			method: http.MethodPut,
+			path:   accountPath("/data-sets/ds1/refresh-schedules"),
+			body: map[string]any{
+				"Schedule": map[string]any{"ScheduleId": "sched1", "RefreshType": "INCREMENTAL_REFRESH"},
+			},
 			wantStatus: http.StatusOK,
 			wantKey:    "ScheduleId",
 		},
@@ -981,19 +991,19 @@ func TestQuickSight_DashboardExtras(t *testing.T) { //nolint:paralleltest // exi
 			method:     http.MethodGet,
 			path:       accountPath("/dashboards/dash1/snapshot-jobs/snap1"),
 			wantStatus: http.StatusOK,
-			wantKey:    "SnapshotJob",
+			wantKey:    "JobStatus",
 		},
 		{
 			name:       "describe dashboard snapshot job result",
 			method:     http.MethodGet,
 			path:       accountPath("/dashboards/dash1/snapshot-jobs/snap1/result"),
 			wantStatus: http.StatusOK,
-			wantKey:    "JobResult",
+			wantKey:    "Result",
 		},
 		{
 			name:       "get dashboard embed url",
 			method:     http.MethodGet,
-			path:       accountPath("/dashboards/dash1/embed-url"),
+			path:       accountPath("/dashboards/dash1/embed-url") + "?creds-type=QUICKSIGHT",
 			wantStatus: http.StatusOK,
 			wantKey:    "EmbedUrl",
 		},
@@ -1034,24 +1044,24 @@ func TestQuickSight_Brands(t *testing.T) { //nolint:paralleltest // existing iss
 			name:       "create brand",
 			method:     http.MethodPost,
 			path:       accountPath("/brands/brand1"),
-			body:       map[string]any{"BrandName": "MyBrand"},
+			body:       map[string]any{"BrandDefinition": map[string]any{"BrandName": "MyBrand"}},
 			wantStatus: http.StatusOK,
-			wantKey:    "BrandId",
+			wantKey:    "BrandDetail",
 		},
 		{
 			name:       "describe brand",
 			method:     http.MethodGet,
 			path:       accountPath("/brands/brand1"),
 			wantStatus: http.StatusOK,
-			wantKey:    "Brand",
+			wantKey:    "BrandDetail",
 		},
 		{
 			name:       "update brand",
 			method:     http.MethodPut,
 			path:       accountPath("/brands/brand1"),
-			body:       map[string]any{"BrandName": "RenamedBrand"},
+			body:       map[string]any{"BrandDefinition": map[string]any{"BrandName": "RenamedBrand"}},
 			wantStatus: http.StatusOK,
-			wantKey:    "BrandId",
+			wantKey:    "BrandDetail",
 		},
 		{
 			name:       "list brands",
@@ -1066,14 +1076,22 @@ func TestQuickSight_Brands(t *testing.T) { //nolint:paralleltest // existing iss
 			path:       accountPath("/brandassignments"),
 			body:       map[string]any{"BrandArn": "arn:aws:quicksight:us-east-1:000000000000:brand/brand1"},
 			wantStatus: http.StatusOK,
-			wantKey:    "BrandAssignment",
+			wantKey:    "BrandArn",
 		},
 		{
 			name:       "describe brand assignment",
 			method:     http.MethodGet,
 			path:       accountPath("/brandassignments"),
 			wantStatus: http.StatusOK,
-			wantKey:    "BrandAssignment",
+			wantKey:    "BrandArn",
+		},
+		{
+			name:       "update brand published version",
+			method:     http.MethodPut,
+			path:       accountPath("/brands/brand1/publishedversion"),
+			body:       map[string]any{"VersionId": "2"},
+			wantStatus: http.StatusOK,
+			wantKey:    "VersionId",
 		},
 		{
 			name:       "describe brand published version",
@@ -1093,7 +1111,6 @@ func TestQuickSight_Brands(t *testing.T) { //nolint:paralleltest // existing iss
 			method:     http.MethodDelete,
 			path:       accountPath("/brands/brand1"),
 			wantStatus: http.StatusOK,
-			wantKey:    "BrandId",
 		},
 	}
 
@@ -1125,9 +1142,9 @@ func TestQuickSight_OAuthClientApps(t *testing.T) { //nolint:paralleltest // exi
 			name:       "create oauth app",
 			method:     http.MethodPost,
 			path:       accountPath("/oauth-client-applications"),
-			body:       map[string]any{"ApplicationId": "app1", "ApplicationName": "App1"},
+			body:       map[string]any{"OAuthClientApplicationId": "app1", "Name": "App1"},
 			wantStatus: http.StatusOK,
-			wantKey:    "OAuthClientApplication",
+			wantKey:    "OAuthClientApplicationId",
 		},
 		{
 			name:       "describe oauth app",
@@ -1140,9 +1157,9 @@ func TestQuickSight_OAuthClientApps(t *testing.T) { //nolint:paralleltest // exi
 			name:       "update oauth app",
 			method:     http.MethodPut,
 			path:       accountPath("/oauth-client-applications/app1"),
-			body:       map[string]any{"ApplicationName": "App1Renamed"},
+			body:       map[string]any{"Name": "App1Renamed"},
 			wantStatus: http.StatusOK,
-			wantKey:    "OAuthClientApplication",
+			wantKey:    "OAuthClientApplicationId",
 		},
 		{
 			name:       "list oauth apps",
@@ -1384,6 +1401,13 @@ func TestQuickSight_AccountSubscription(t *testing.T) { //nolint:paralleltest //
 func TestQuickSight_EmbedURLs(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
+	// GenerateEmbedUrlForRegisteredUser requires an existing registered user.
+	setupRec := doRequest(t, h, http.MethodPost, nsPath("/users"), map[string]any{
+		"UserName": "embeduser1", "Email": "embeduser1@example.com",
+		"IdentityType": "QUICKSIGHT", "UserRole": "READER",
+	})
+	require.Equal(t, http.StatusOK, setupRec.Code)
+
 	tests := []struct {
 		body       any
 		name       string
@@ -1393,18 +1417,25 @@ func TestQuickSight_EmbedURLs(t *testing.T) { //nolint:paralleltest // existing 
 		wantStatus int
 	}{
 		{
-			name:       "generate embed url for anonymous user",
-			method:     http.MethodPost,
-			path:       accountPath("/embed-url/anonymous-user"),
-			body:       map[string]any{},
+			name:   "generate embed url for anonymous user",
+			method: http.MethodPost,
+			path:   accountPath("/embed-url/anonymous-user"),
+			body: map[string]any{
+				"AuthorizedResourceArns": []string{"arn:aws:quicksight:us-east-1:000000000000:dashboard/dash1"},
+				"ExperienceConfiguration": map[string]any{
+					"Dashboard": map[string]any{"InitialDashboardId": "dash1"},
+				},
+			},
 			wantStatus: http.StatusOK,
 			wantKey:    "EmbedUrl",
 		},
 		{
-			name:       "generate embed url for registered user",
-			method:     http.MethodPost,
-			path:       accountPath("/embed-url/registered-user"),
-			body:       map[string]any{},
+			name:   "generate embed url for registered user",
+			method: http.MethodPost,
+			path:   accountPath("/embed-url/registered-user"),
+			body: map[string]any{
+				"UserArn": "arn:aws:quicksight:us-east-1:000000000000:user/default/embeduser1",
+			},
 			wantStatus: http.StatusOK,
 			wantKey:    "EmbedUrl",
 		},
@@ -1498,6 +1529,16 @@ func TestQuickSight_Search(t *testing.T) { //nolint:paralleltest // existing iss
 // ---- User custom permission tests ---- //nolint:godot // existing issue.
 func TestQuickSight_UserCustomPermission(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
+
+	setupRec := doRequest(t, h, http.MethodPost, nsPath("/users"), map[string]any{
+		"UserName": "user1", "Email": "user1@example.com", "IdentityType": "QUICKSIGHT", "UserRole": "READER",
+	})
+	require.Equal(t, http.StatusOK, setupRec.Code)
+
+	setupRec = doRequest(t, h, http.MethodPost, accountPath("/custom-permissions"), map[string]any{
+		"CustomPermissionsName": "cp1",
+	})
+	require.Equal(t, http.StatusOK, setupRec.Code)
 
 	tests := []struct {
 		body       any

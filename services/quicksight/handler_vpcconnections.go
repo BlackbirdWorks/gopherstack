@@ -196,7 +196,7 @@ func vpcConnectionToMap(v *VPCConnection) map[string]any {
 		keyRoleArn:            v.RoleArn,
 		keyStatus:             v.Status,
 		keyAvailabilityStatus: v.AvailabilityStatus,
-		keyCreatedTime:        v.CreatedTime.Format(timeFormat),
-		keyLastUpdatedTime:    v.LastUpdatedTime.Format(timeFormat),
+		keyCreatedTime:        v.CreatedTime.Unix(),
+		keyLastUpdatedTime:    v.LastUpdatedTime.Unix(),
 	}
 }
