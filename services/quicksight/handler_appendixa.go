@@ -13,9 +13,14 @@ type appendixHandlerFn func(resID, subID string) map[string]any
 // legacy type-specific helpers (namespace/group/user/datasource/dataset/dashboard/analysis/tag).
 // Account/config-cluster operations are real (backed by InMemoryBackend) and are
 // routed to dispatchAccountConfig here, ahead of the canned appendixOps table.
+// GetIdentityContext is likewise real but (unlike the canned ops) needs the
+// request body, so it is special-cased here too, ahead of the canned table.
 func (h *Handler) dispatchNew(c *echo.Context, op string) error {
 	if isAccountConfigOp(op) {
 		return h.dispatchAccountConfig(c, op)
+	}
+	if op == opGetIdentityContext {
+		return h.handleGetIdentityContext(c)
 	}
 
 	segs := pathSegsFromCtx(c)
@@ -41,9 +46,6 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 	simple := func() map[string]any { return reqID(map[string]any{}) }
 	withID := func(key string) appendixHandlerFn {
 		return func(resID, _ string) map[string]any { return reqID(map[string]any{key: resID}) }
-	}
-	withList := func(key string) appendixHandlerFn {
-		return func(_, _ string) map[string]any { return reqID(map[string]any{key: []any{}}) }
 	}
 	noContent := func(_, _ string) map[string]any { return simple() }
 
@@ -73,8 +75,9 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// CreateTopic, DescribeTopic, UpdateTopic, DeleteTopic, ListTopics, topic
 		// permissions, topic refresh/refresh-schedules, and reviewed answers are
 		// real (backed by InMemoryBackend) and routed via dispatchTopic in
-		// handler_topics.go, not through this canned table.
-		opSearchTopics: withList("TopicsSummaries"),
+		// handler_topics.go, not through this canned table. SearchTopics is real
+		// (backed by InMemoryBackend) and routed via dispatchResourceSearch below,
+		// not through this canned table.
 
 		// ---- VPC Connections ----
 		// CreateVPCConnection, DescribeVPCConnection, UpdateVPCConnection,
@@ -104,11 +107,10 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// canned table.
 
 		// ---- Dashboard Extras ----
-		// DescribeDashboardDefinition, DescribeDashboardPermissions, and
-		// UpdateDashboardPermissions are real (backed by InMemoryBackend) and routed
-		// via dispatchDashboard in handler.go, not through this canned table.
-		opUpdateDashboardPublishedVersion: withID("DashboardId"),
-		opUpdateDashboardLinks:            withID("DashboardId"),
+		// DescribeDashboardDefinition, DescribeDashboardPermissions,
+		// UpdateDashboardPermissions, UpdateDashboardPublishedVersion, and
+		// UpdateDashboardLinks are real (backed by InMemoryBackend) and routed via
+		// dispatchDashboard in handler.go, not through this canned table.
 		// StartDashboardSnapshotJob, DescribeDashboardSnapshotJob, and
 		// DescribeDashboardSnapshotJobResult are real (backed by InMemoryBackend) and
 		// routed via dispatchDashboardSnapshot in handler_assetbundle.go, not through
@@ -243,9 +245,9 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		opUpdateAppTokenGrant: noContent,
 
 		// ---- Identity Context ----
-		opGetIdentityContext: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"IdentityContextDomains": []any{}})
-		},
+		// GetIdentityContext is real (mints an opaque identity-context token) and
+		// routed via dispatchNew's op==opGetIdentityContext special-case in
+		// dispatchNew, not through this canned table.
 
 		// ---- Predict QA ----
 		opPredictQAResults: noContent,
@@ -257,9 +259,10 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// dispatchEmbedURL in handler_embedurl.go, not through this canned table.
 
 		// ---- Search ----
-		// SearchAnalyses, SearchDashboards, SearchDataSets, and SearchDataSources are
-		// real (backed by InMemoryBackend) and routed via dispatchTopicFamily ->
-		// dispatchResourceSearch, not through this canned table.
+		// SearchAnalyses, SearchDashboards, SearchDataSets, SearchDataSources, and
+		// SearchTopics are real (backed by InMemoryBackend) and routed via
+		// dispatchTopicFamily -> dispatchResourceSearch, not through this canned
+		// table.
 
 		// ---- Flows ----
 		// ListFlows, SearchFlows, GetFlowMetadata, GetFlowPermissions, and
@@ -267,10 +270,10 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// dispatchFlow in handler_flow.go, not through this canned table.
 
 		// ---- Namespace Self-Upgrade ----
-		opDescribeSelfUpgradeConfig: noContent,
-		opUpdateSelfUpgradeConfig:   noContent,
-		opListSelfUpgrades:          noContent,
-		opUpdateSelfUpgrade:         noContent,
+		// DescribeSelfUpgradeConfiguration, UpdateSelfUpgradeConfiguration,
+		// ListSelfUpgrades, and UpdateSelfUpgrade are real (backed by
+		// InMemoryBackend) and routed via dispatchSelfUpgrade in
+		// handler_selfupgrade.go, not through this canned table.
 	}
 }
 
@@ -1060,14 +1063,60 @@ func classifyEmbedURLPaths(method string, segs []string, n int) (string, string)
 	return opUnknown, ""
 }
 
-// ---- Search{Analyses,Dashboards,DataSets,DataSources} ----
+// ---- Identity Context ----
+
+// identityFromUserIdentifier extracts the (kind, value) pair from a
+// UserIdentifier request field, a smithy union serialized as exactly one of
+// {"Email":..}, {"UserArn":..}, {"UserName":..}. Returns ("", "") if none of
+// those keys are present.
+func identityFromUserIdentifier(m map[string]any) (string, string) {
+	for _, kind := range []string{identityKindEmail, identityKindUserArn, identityKindUserName} {
+		if v, ok := m[kind].(string); ok && v != "" {
+			return kind, v
+		}
+	}
+
+	return "", ""
+}
+
+// handleGetIdentityContext mints an identity-context token for a QuickSight
+// user. Real GetIdentityContextOutput returns the token under Context (an
+// STS-style identity token to pass as AssumeRole's ContextAssertion), not a
+// fabricated field.
+func (h *Handler) handleGetIdentityContext(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	userIdentifier, _ := body["UserIdentifier"].(map[string]any)
+	kind, value := identityFromUserIdentifier(userIdentifier)
+
+	token, err := h.Backend.GenerateIdentityContext(
+		accountID, strField(body, "Namespace"), kind, value, strField(body, "ContextRegion"),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Context":    token,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- Search{Analyses,Dashboards,DataSets,DataSources,Topics} ----
 
 // isResourceSearchOp reports whether op is one of the Search{Analyses,
-// Dashboards,DataSets,DataSources} operations (SearchFolders and SearchTopics
-// are handled separately, by dispatchFolder and the canned table respectively).
+// Dashboards,DataSets,DataSources,Topics} operations (SearchFolders is handled
+// separately, by dispatchFolder).
 func isResourceSearchOp(op string) bool {
 	switch op {
-	case opSearchAnalyses, opSearchDashboards, opSearchDataSets, opSearchDataSources:
+	case opSearchAnalyses, opSearchDashboards, opSearchDataSets, opSearchDataSources, opSearchTopics:
 		return true
 	}
 
@@ -1084,6 +1133,8 @@ func (h *Handler) dispatchResourceSearch(c *echo.Context, op string) error {
 		return h.handleSearchDataSets(c)
 	case opSearchDataSources:
 		return h.handleSearchDataSources(c)
+	case opSearchTopics:
+		return h.handleSearchTopics(c)
 	}
 
 	return writeError(
@@ -1218,6 +1269,42 @@ func (h *Handler) handleSearchDataSources(c *echo.Context) error {
 		keyDataSources: items,
 		keyRequestID:   reqIDPlaceholder,
 		keyStatus:      http.StatusOK,
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
+}
+
+// handleSearchTopics searches the account's topics. Real SearchTopicsOutput
+// returns the matches under TopicSummaryList (distinct from ListTopics'
+// TopicsSummaries key).
+func (h *Handler) handleSearchTopics(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	topics, next, err := h.Backend.SearchTopics(
+		accountID, folderFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(topics))
+	for _, t := range topics {
+		items = append(items, topicSummaryToMap(t))
+	}
+
+	resp := map[string]any{
+		"TopicSummaryList": items,
+		keyRequestID:       reqIDPlaceholder,
+		keyStatus:          http.StatusOK,
 	}
 	if next != "" {
 		resp[keyNextToken] = next

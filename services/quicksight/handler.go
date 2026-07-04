@@ -353,6 +353,7 @@ const (
 	keyDashboard            = "Dashboard"
 	keyDashboardSummaryList = "DashboardSummaryList"
 	keyDashboardID          = "DashboardId"
+	keyDashboardArn         = "DashboardArn"
 	keyAnalysis             = "Analysis"
 	keyAnalysisSummaryList  = "AnalysisSummaryList"
 	keyAnalysisID           = "AnalysisId"
@@ -862,7 +863,8 @@ func isDashboardOp(op string) bool {
 	switch op {
 	case opCreateDashboard, opDescribeDashboard, opUpdateDashboard, opDeleteDashboard,
 		opListDashboards, opListDashboardVersions,
-		opDescribeDashboardDefinition, opDescribeDashboardPerms, opUpdateDashboardPerms:
+		opDescribeDashboardDefinition, opDescribeDashboardPerms, opUpdateDashboardPerms,
+		opUpdateDashboardPublishedVersion, opUpdateDashboardLinks:
 		return true
 	}
 
@@ -943,11 +945,12 @@ func isTopicFamilyOp(op string) bool {
 }
 
 // isFinalStubOp reports whether op is one of the Action Connector, Automation
-// Job, or Flow operations — the last Appendix-A canned-stub families to gain
-// real backend implementations. Grouped behind one predicate/dispatch pair
-// purely to keep isTopicFamilyOp/dispatchTopicFamily's complexity in budget.
+// Job, Flow, or namespace Self-Upgrade operations — the last Appendix-A
+// canned-stub families to gain real backend implementations. Grouped behind
+// one predicate/dispatch pair purely to keep isTopicFamilyOp/
+// dispatchTopicFamily's complexity in budget.
 func isFinalStubOp(op string) bool {
-	return isActionConnectorOp(op) || isAutomationJobOp(op) || isFlowOp(op)
+	return isActionConnectorOp(op) || isAutomationJobOp(op) || isFlowOp(op) || isSelfUpgradeOp(op)
 }
 
 func (h *Handler) dispatchFinalStub(c *echo.Context, op string) error {
@@ -958,6 +961,8 @@ func (h *Handler) dispatchFinalStub(c *echo.Context, op string) error {
 		return h.dispatchAutomationJob(c, op)
 	case isFlowOp(op):
 		return h.dispatchFlow(c, op)
+	case isSelfUpgradeOp(op):
+		return h.dispatchSelfUpgrade(c, op)
 	}
 
 	return writeError(
@@ -1166,6 +1171,10 @@ func (h *Handler) dispatchDashboard(c *echo.Context, op string) error {
 		return h.handleDescribeDashboardPermissions(c)
 	case opUpdateDashboardPerms:
 		return h.handleUpdateDashboardPermissions(c)
+	case opUpdateDashboardPublishedVersion:
+		return h.handleUpdateDashboardPublishedVersion(c)
+	case opUpdateDashboardLinks:
+		return h.handleUpdateDashboardLinks(c)
 	}
 
 	return writeError(
@@ -3160,11 +3169,11 @@ func (h *Handler) handleDescribeDashboardPermissions(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyDashboardID: dashboardID,
-		"DashboardArn": d.Arn,
-		keyPermissions: permissionsToMaps(perms),
-		keyRequestID:   reqIDPlaceholder,
-		keyStatus:      http.StatusOK,
+		keyDashboardID:  dashboardID,
+		keyDashboardArn: d.Arn,
+		keyPermissions:  permissionsToMaps(perms),
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
 	})
 }
 
@@ -3189,11 +3198,61 @@ func (h *Handler) handleUpdateDashboardPermissions(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyDashboardID: dashboardID,
-		"DashboardArn": d.Arn,
-		keyPermissions: permissionsToMaps(perms),
-		keyRequestID:   reqIDPlaceholder,
-		keyStatus:      http.StatusOK,
+		keyDashboardID:  dashboardID,
+		keyDashboardArn: d.Arn,
+		keyPermissions:  permissionsToMaps(perms),
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+	})
+}
+
+// handleUpdateDashboardPublishedVersion flips which stored version of a
+// dashboard is published. The version number is a path segment (.../versions/
+// {VersionNumber}), not a body field.
+func (h *Handler) handleUpdateDashboardPublishedVersion(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
+	versionNumber, _ := strconv.ParseInt(seg(segs, segSubResID), 10, 64)
+
+	d, err := h.Backend.UpdateDashboardPublishedVersion(accountID, dashboardID, versionNumber)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDashboardArn: d.Arn,
+		keyDashboardID:  d.DashboardID,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateDashboardLinks(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	d, err := h.Backend.UpdateDashboardLinks(accountID, dashboardID, stringsFromBody(body, "LinkEntities"))
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	linkEntities := d.LinkEntities
+	if linkEntities == nil {
+		linkEntities = []string{}
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDashboardArn: d.Arn,
+		"LinkEntities":  linkEntities,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
 	})
 }
 

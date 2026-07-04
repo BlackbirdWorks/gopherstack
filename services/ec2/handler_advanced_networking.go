@@ -730,12 +730,16 @@ type releaseIpamPoolAllocationResponse struct {
 }
 
 type ipamResourceDiscoveryItem struct {
-	IpamResourceDiscoveryID  string `xml:"ipamResourceDiscoveryId"`
-	OwnerID                  string `xml:"ownerId,omitempty"`
-	IpamResourceDiscoveryARN string `xml:"ipamResourceDiscoveryArn"`
-	State                    string `xml:"state"`
-	Description              string `xml:"description,omitempty"`
-	IsDefault                bool   `xml:"isDefault"`
+	IpamResourceDiscoveryID     string `xml:"ipamResourceDiscoveryId"`
+	OwnerID                     string `xml:"ownerId,omitempty"`
+	IpamResourceDiscoveryARN    string `xml:"ipamResourceDiscoveryArn"`
+	IpamResourceDiscoveryRegion string `xml:"ipamResourceDiscoveryRegion,omitempty"`
+	State                       string `xml:"state"`
+	Description                 string `xml:"description,omitempty"`
+	OperatingRegionSet          struct {
+		Items []ipamOperatingRegionItem `xml:"item"`
+	} `xml:"operatingRegionSet"`
+	IsDefault bool `xml:"isDefault"`
 }
 
 type describeIpamResourceDiscoveriesResponse struct {
@@ -748,13 +752,33 @@ type describeIpamResourceDiscoveriesResponse struct {
 }
 
 type ipamResourceDiscoveryAssociationItem struct {
-	IpamResourceDiscoveryAssociationID string `xml:"ipamResourceDiscoveryAssociationId"`
-	IpamID                             string `xml:"ipamId"`
-	IpamRegion                         string `xml:"ipamRegion,omitempty"`
-	IpamResourceDiscoveryID            string `xml:"ipamResourceDiscoveryId"`
-	ResourceDiscoveryStatus            string `xml:"resourceDiscoveryStatus,omitempty"`
-	State                              string `xml:"state"`
-	IsDefault                          bool   `xml:"isDefault"`
+	IpamResourceDiscoveryAssociationID  string `xml:"ipamResourceDiscoveryAssociationId"`
+	IpamResourceDiscoveryAssociationARN string `xml:"ipamResourceDiscoveryAssociationArn,omitempty"`
+	IpamID                              string `xml:"ipamId"`
+	IpamARN                             string `xml:"ipamArn,omitempty"`
+	IpamRegion                          string `xml:"ipamRegion,omitempty"`
+	IpamResourceDiscoveryID             string `xml:"ipamResourceDiscoveryId"`
+	OwnerID                             string `xml:"ownerId,omitempty"`
+	ResourceDiscoveryStatus             string `xml:"resourceDiscoveryStatus,omitempty"`
+	State                               string `xml:"state"`
+	IsDefault                           bool   `xml:"isDefault"`
+}
+
+// toIpamResourceDiscoveryAssociationItem builds the full wire representation of a resource
+// discovery association. Shared by the Associate/Disassociate/Describe handlers.
+func toIpamResourceDiscoveryAssociationItem(a *IpamResourceDiscoveryAssociation) ipamResourceDiscoveryAssociationItem {
+	return ipamResourceDiscoveryAssociationItem{
+		IpamResourceDiscoveryAssociationID:  a.IpamResourceDiscoveryAssociationID,
+		IpamResourceDiscoveryAssociationARN: a.IpamResourceDiscoveryAssociationARN,
+		IpamID:                              a.IpamID,
+		IpamARN:                             a.IpamARN,
+		IpamRegion:                          a.IpamRegion,
+		IpamResourceDiscoveryID:             a.IpamResourceDiscoveryID,
+		OwnerID:                             a.OwnerID,
+		IsDefault:                           a.IsDefault,
+		ResourceDiscoveryStatus:             a.ResourceDiscoveryStatus,
+		State:                               a.State,
+	}
 }
 
 type describeIpamResourceDiscoveryAssociationsResponse struct {
@@ -1567,14 +1591,9 @@ func (h *Handler) handleDescribeIpamResourceDiscoveries(vals url.Values, reqID s
 	resp := &describeIpamResourceDiscoveriesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, d := range discoveries {
-		resp.IpamResourceDiscoverySet.Items = append(resp.IpamResourceDiscoverySet.Items, ipamResourceDiscoveryItem{
-			IpamResourceDiscoveryID:  d.IpamResourceDiscoveryID,
-			OwnerID:                  d.OwnerID,
-			IpamResourceDiscoveryARN: d.IpamResourceDiscoveryARN,
-			State:                    d.State,
-			IsDefault:                d.IsDefault,
-			Description:              d.Description,
-		})
+		resp.IpamResourceDiscoverySet.Items = append(
+			resp.IpamResourceDiscoverySet.Items, toIpamResourceDiscoveryItem(d),
+		)
 	}
 
 	return resp, nil
@@ -1591,16 +1610,7 @@ func (h *Handler) handleDescribeIpamResourceDiscoveryAssociations(
 
 	for _, a := range assocs {
 		resp.IpamResourceDiscoveryAssociationSet.Items = append(
-			resp.IpamResourceDiscoveryAssociationSet.Items,
-			ipamResourceDiscoveryAssociationItem{
-				IpamResourceDiscoveryAssociationID: a.IpamResourceDiscoveryAssociationID,
-				IpamID:                             a.IpamID,
-				IpamRegion:                         a.IpamRegion,
-				IpamResourceDiscoveryID:            a.IpamResourceDiscoveryID,
-				IsDefault:                          a.IsDefault,
-				ResourceDiscoveryStatus:            a.ResourceDiscoveryStatus,
-				State:                              a.State,
-			},
+			resp.IpamResourceDiscoveryAssociationSet.Items, toIpamResourceDiscoveryAssociationItem(a),
 		)
 	}
 

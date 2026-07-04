@@ -9,6 +9,10 @@ import (
 
 const (
 	defaultTopicRefreshType = "FULL_REFRESH"
+
+	// filterTopicName is the SearchTopics filter Name for matching on a topic's
+	// display name (the "TOPIC_NAME" filter attribute per the QuickSight API).
+	filterTopicName = "TOPIC_NAME"
 )
 
 // storedTopicRefreshSchedule is the persisted representation of one QuickSight
@@ -252,6 +256,62 @@ func (b *InMemoryBackend) ListTopics(
 
 	result := make([]*Topic, 0, end-start)
 	for _, t := range all[start:end] {
+		result = append(result, t.toTopic())
+	}
+
+	return result, next, nil
+}
+
+// SearchTopics searches topics by name (filter Name == filterTopicName); any
+// other filter Name (QUICKSIGHT_USER, QUICKSIGHT_VIEWER_OR_OWNER, etc.) is an
+// ownership-related filter that this in-memory backend doesn't track
+// principals for and is treated as a pass-through match, mirroring
+// SearchDashboards/SearchAnalyses.
+//
+//nolint:dupl // search functions share structure but operate on different stored types
+func (b *InMemoryBackend) SearchTopics(
+	accountID string,
+	filters []SearchFilter,
+	maxResults int32,
+	nextToken string,
+) ([]*Topic, string, error) {
+	b.mu.RLock("SearchTopics")
+	defer b.mu.RUnlock()
+
+	prefix := accountID + "/"
+	var filtered []*storedTopic
+	for k, t := range b.topics {
+		if strings.HasPrefix(k, prefix) && matchesAllNameFilters(t.Name, filters, filterTopicName) {
+			filtered = append(filtered, t)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].TopicID < filtered[j].TopicID })
+
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, t := range filtered {
+			if t.TopicID == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := start + int(maxResults)
+	var next string
+	if end < len(filtered) {
+		next = filtered[end].TopicID
+	} else {
+		end = len(filtered)
+	}
+
+	result := make([]*Topic, 0, end-start)
+	for _, t := range filtered[start:end] {
 		result = append(result, t.toTopic())
 	}
 

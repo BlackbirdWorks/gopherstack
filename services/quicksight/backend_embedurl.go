@@ -15,6 +15,13 @@ const (
 		"?code=%s&identityprovider=quicksight&isauthcode=true&sessionExpirationTimestamp=%d"
 
 	userArnNamespaceAndName = 2
+
+	// UserIdentifier union member names, as serialized by the real SDK
+	// (a smithy union: exactly one of {"Email":..}, {"UserArn":..},
+	// {"UserName":..} is present in the request body).
+	identityKindEmail    = "Email"
+	identityKindUserArn  = "UserArn"
+	identityKindUserName = "UserName"
 )
 
 // generateEmbedURL builds a signed-looking, single-use embed URL derived from the
@@ -137,6 +144,43 @@ func (b *InMemoryBackend) GetSessionEmbedURL(_, entryPoint string) (string, erro
 	}
 
 	return b.generateEmbedURL(hint), nil
+}
+
+// GenerateIdentityContext mints an opaque identity-context token for the given
+// user identity, for use as the ContextAssertion parameter of an STS AssumeRole
+// call. Like the embed-URL family, GetIdentityContext is stateless: nothing is
+// persisted, a fresh token is minted on every call, mirroring generateEmbedURL's
+// signed-looking, single-use token pattern.
+func (b *InMemoryBackend) GenerateIdentityContext(
+	accountID, namespace, userIdentifierKind, userIdentifierValue, contextRegion string,
+) (string, error) {
+	if userIdentifierValue == "" {
+		return "", ErrValidation
+	}
+	if (userIdentifierKind == identityKindEmail || userIdentifierKind == identityKindUserName) && namespace == "" {
+		return "", ErrValidation
+	}
+
+	b.mu.RLock("GenerateIdentityContext")
+	defer b.mu.RUnlock()
+
+	if namespace != "" {
+		if _, ok := b.namespaces[nsKey(accountID, namespace)]; !ok {
+			return "", ErrNamespaceNotFound
+		}
+	}
+
+	region := contextRegion
+	if region == "" {
+		region = b.region
+	}
+
+	token := fmt.Sprintf(
+		"quicksight-identity-context.%s.%s.%s.%s",
+		accountID, region, userIdentifierKind+":"+userIdentifierValue, uuid.New().String(),
+	)
+
+	return token, nil
 }
 
 // parseUserArn extracts the namespace and user name from a QuickSight user ARN of

@@ -976,7 +976,7 @@ func TestQuickSight_DashboardExtras(t *testing.T) { //nolint:paralleltest // exi
 			path:       accountPath("/dashboards/dash1/linked-entities"),
 			body:       map[string]any{"LinkEntities": []any{}},
 			wantStatus: http.StatusOK,
-			wantKey:    "DashboardId",
+			wantKey:    "DashboardArn",
 		},
 		{
 			name:       "start dashboard snapshot job",
@@ -1329,12 +1329,16 @@ func TestQuickSight_AccountSettings(t *testing.T) { //nolint:paralleltest // exi
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "get identity context",
-			method:     http.MethodPost,
-			path:       accountPath("/identity-context"),
-			body:       map[string]any{},
+			name:   "get identity context",
+			method: http.MethodPost,
+			path:   accountPath("/identity-context"),
+			body: map[string]any{
+				"UserIdentifier": map[string]any{
+					"UserArn": "arn:aws:quicksight:us-east-1:000000000000:user/default/u1",
+				},
+			},
 			wantStatus: http.StatusOK,
-			wantKey:    "IdentityContextDomains",
+			wantKey:    "Context",
 		},
 		{
 			name:       "delete account customization",
@@ -1511,6 +1515,14 @@ func TestQuickSight_Search(t *testing.T) { //nolint:paralleltest // existing iss
 			body:       map[string]any{"Filters": []any{}},
 			wantStatus: http.StatusOK,
 			wantKey:    "DataSources",
+		},
+		{
+			name:       "search topics",
+			method:     http.MethodPost,
+			path:       accountPath("/search/topics"),
+			body:       map[string]any{"Filters": []any{}},
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicSummaryList",
 		},
 	}
 

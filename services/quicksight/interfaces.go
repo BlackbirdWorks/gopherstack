@@ -109,6 +109,8 @@ type StorageBackend interface {
 		maxResults int32,
 		nextToken string,
 	) ([]*Dashboard, string, error)
+	UpdateDashboardPublishedVersion(accountID, dashboardID string, versionNumber int64) (*Dashboard, error)
+	UpdateDashboardLinks(accountID, dashboardID string, linkEntities []string) (*Dashboard, error)
 	DescribeDashboardPermissions(accountID, dashboardID string) (*Dashboard, []ResourcePermission, error)
 	UpdateDashboardPermissions(
 		accountID, dashboardID string,
@@ -271,6 +273,12 @@ type StorageBackend interface {
 	) (*Topic, error)
 	DeleteTopic(accountID, topicID string) error
 	ListTopics(accountID string, maxResults int32, nextToken string) ([]*Topic, string, error)
+	SearchTopics(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Topic, string, error)
 
 	// Topic permissions
 	DescribeTopicPermissions(accountID, topicID string) (*Topic, []ResourcePermission, error)
@@ -543,6 +551,11 @@ type StorageBackend interface {
 	GetDashboardEmbedURL(accountID, dashboardID, identityType string) (string, error)
 	GetSessionEmbedURL(accountID, entryPoint string) (string, error)
 
+	// Identity context
+	GenerateIdentityContext(
+		accountID, namespace, userIdentifierKind, userIdentifierValue, contextRegion string,
+	) (string, error)
+
 	// Action connectors
 	CreateActionConnector(
 		accountID, actionConnectorID, name, connectorType, description, vpcConnectionArn string,
@@ -593,6 +606,16 @@ type StorageBackend interface {
 		accountID, flowID string,
 		grant, revoke []ResourcePermission,
 	) (*Flow, []ResourcePermission, error)
+
+	// Namespace self-upgrade
+	DescribeSelfUpgradeConfiguration(accountID, namespace string) (string, error)
+	UpdateSelfUpgradeConfiguration(accountID, namespace, status string) (string, error)
+	ListSelfUpgrades(
+		accountID, namespace string,
+		maxResults int32,
+		nextToken string,
+	) ([]*SelfUpgradeRequestDetail, string, error)
+	UpdateSelfUpgrade(accountID, namespace, action, upgradeRequestID string) (*SelfUpgradeRequestDetail, error)
 
 	AccountID() string
 	Region() string
@@ -674,15 +697,17 @@ type Ingestion struct {
 // Dashboard represents a QuickSight dashboard.
 // CreatedTime first: non-pointer prefix reduces GC pointer bytes.
 type Dashboard struct {
-	CreatedTime     time.Time
-	LastUpdatedTime time.Time
-	Definition      map[string]any
-	DashboardID     string
-	Arn             string
-	Name            string
-	Status          string
-	Permissions     []ResourcePermission
-	VersionNumber   int64
+	CreatedTime            time.Time
+	LastUpdatedTime        time.Time
+	Definition             map[string]any
+	DashboardID            string
+	Arn                    string
+	Name                   string
+	Status                 string
+	Permissions            []ResourcePermission
+	LinkEntities           []string
+	VersionNumber          int64
+	PublishedVersionNumber int64
 }
 
 // DashboardVersion represents a version of a QuickSight dashboard.
@@ -1066,6 +1091,19 @@ type Flow struct {
 	Permissions     []ResourcePermission
 	RunCount        int32
 	UserCount       int32
+}
+
+// SelfUpgradeRequestDetail represents one namespace self-upgrade request (a
+// user's request to be upgraded to a different UserRole).
+type SelfUpgradeRequestDetail struct {
+	LastUpdateFailureReason string
+	OriginalRole            string
+	RequestNote             string
+	RequestStatus           string
+	RequestedRole           string
+	UpgradeRequestID        string
+	CreationTime            int64
+	LastUpdateAttemptTime   int64
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

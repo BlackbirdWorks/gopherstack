@@ -20,8 +20,8 @@ func TestStubOperations(t *testing.T) {
 		// "AssociateClientVpnTargetNetwork", — moved to batch4
 		"AssociateEnclaveCertificateIamRole",
 		"AssociateInstanceEventWindow",
-		"AssociateIpamByoasn",
-		"AssociateIpamResourceDiscovery",
+		// "AssociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
+		// "AssociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		// "AssociateRouteServer", — real handler in handler_route_server.go, covered there
 		// "AssociateTransitGatewayMulticastDomain", — real handler in handler_tgw_multicast.go, covered there
 		"AssociateTransitGatewayPolicyTable",
@@ -54,11 +54,11 @@ func TestStubOperations(t *testing.T) {
 		"CreateInstanceExportTask",
 		"CreateInterruptibleCapacityReservationAllocation",
 		"CreateIpam",
-		"CreateIpamExternalResourceVerificationToken",
+		// "CreateIpamExternalResourceVerificationToken", — moved to ipamDiscoverySupportedOperations
 		"CreateIpamPolicy",
-		"CreateIpamPrefixListResolver",
-		"CreateIpamPrefixListResolverTarget",
-		"CreateIpamResourceDiscovery",
+		// "CreateIpamPrefixListResolver", — moved to ipamDiscoverySupportedOperations
+		// "CreateIpamPrefixListResolverTarget", — moved to ipamDiscoverySupportedOperations
+		// "CreateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		"CreateLocalGatewayVirtualInterface",
 		"CreateLocalGatewayVirtualInterfaceGroup",
 		"CreateMacSystemIntegrityProtectionModificationTask",
@@ -103,11 +103,11 @@ func TestStubOperations(t *testing.T) {
 		// "DeleteFleets", — real handler in handler_batch5.go, covered there
 		"DeleteFpgaImage",
 		"DeleteImageUsageReport",
-		"DeleteIpamExternalResourceVerificationToken",
+		// "DeleteIpamExternalResourceVerificationToken", — moved to ipamDiscoverySupportedOperations
 		"DeleteIpamPolicy",
-		"DeleteIpamPrefixListResolver",
-		"DeleteIpamPrefixListResolverTarget",
-		"DeleteIpamResourceDiscovery",
+		// "DeleteIpamPrefixListResolver", — moved to ipamDiscoverySupportedOperations
+		// "DeleteIpamPrefixListResolverTarget", — moved to ipamDiscoverySupportedOperations
+		// "DeleteIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		"DeleteLocalGatewayVirtualInterface",
 		"DeleteLocalGatewayVirtualInterfaceGroup",
 		// "DeleteManagedPrefixList", — moved to batch4
@@ -142,7 +142,7 @@ func TestStubOperations(t *testing.T) {
 		"DeleteVpcEndpointServiceConfigurations",
 		"DeleteVpnConcentrator",
 		// "DeprovisionByoipCidr", — real handler in handler_batch5.go, covered there
-		"DeprovisionIpamByoasn",
+		// "DeprovisionIpamByoasn", — moved to ipamDiscoverySupportedOperations
 		// "DeregisterTransitGatewayMulticastGroupMembers", — real handler in handler_tgw_multicast.go, covered there
 		// "DeregisterTransitGatewayMulticastGroupSources", — real handler in handler_tgw_multicast.go, covered there
 		"DescribeAwsNetworkPerformanceMetricSubscriptions",
@@ -178,12 +178,12 @@ func TestStubOperations(t *testing.T) {
 		"DescribeHostReservations",
 		"DescribeImageReferences",
 		"DescribeImageUsageReportEntries",
-		"DescribeIpamByoasn",
-		"DescribeIpamExternalResourceVerificationTokens",
+		// "DescribeIpamByoasn", — moved to ipamDiscoverySupportedOperations
+		// "DescribeIpamExternalResourceVerificationTokens", — moved to ipamDiscoverySupportedOperations
 		"DescribeIpamPolicies",
 		"DescribeIpamPools",
-		"DescribeIpamPrefixListResolverTargets",
-		"DescribeIpamPrefixListResolvers",
+		// "DescribeIpamPrefixListResolverTargets", — moved to ipamDiscoverySupportedOperations
+		// "DescribeIpamPrefixListResolvers", — moved to ipamDiscoverySupportedOperations
 		"DescribeIpamResourceDiscoveries",
 		"DescribeIpamResourceDiscoveryAssociations",
 		"DescribeIpamScopes",
@@ -247,8 +247,8 @@ func TestStubOperations(t *testing.T) {
 		// "DisassociateClientVpnTargetNetwork", — moved to batch4
 		"DisassociateEnclaveCertificateIamRole",
 		"DisassociateInstanceEventWindow",
-		"DisassociateIpamByoasn",
-		"DisassociateIpamResourceDiscovery",
+		// "DisassociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
+		// "DisassociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		// "DisassociateRouteServer", — real handler in handler_route_server.go, covered there
 		// "DisassociateTransitGatewayMulticastDomain", — real handler in handler_tgw_multicast.go, covered there
 		"DisassociateTransitGatewayPolicyTable",
@@ -288,10 +288,10 @@ func TestStubOperations(t *testing.T) {
 		"GetIpamPolicyAllocationRules",
 		"GetIpamPolicyOrganizationTargets",
 		"GetIpamPoolCidrs",
-		"GetIpamPrefixListResolverRules",
-		"GetIpamPrefixListResolverVersionEntries",
-		"GetIpamPrefixListResolverVersions",
-		"GetIpamResourceCidrs",
+		// "GetIpamPrefixListResolverRules", — moved to ipamDiscoverySupportedOperations
+		// "GetIpamPrefixListResolverVersionEntries", — moved to ipamDiscoverySupportedOperations
+		// "GetIpamPrefixListResolverVersions", — moved to ipamDiscoverySupportedOperations
+		// "GetIpamResourceCidrs", — moved to ipamDiscoverySupportedOperations
 		// "GetManagedPrefixListAssociations", — moved to batch4
 		// "GetManagedPrefixListEntries", — moved to batch4
 		// "GetNetworkInsightsAccessScopeAnalysisFindings", — real handler in handler_batch5.go, covered there
@@ -331,10 +331,10 @@ func TestStubOperations(t *testing.T) {
 		"ModifyInstanceNetworkPerformanceOptions",
 		"ModifyInstancePlacement",
 		"ModifyIpamPolicyAllocationRules",
-		"ModifyIpamPrefixListResolver",
-		"ModifyIpamPrefixListResolverTarget",
-		"ModifyIpamResourceCidr",
-		"ModifyIpamResourceDiscovery",
+		// "ModifyIpamPrefixListResolver", — moved to ipamDiscoverySupportedOperations
+		// "ModifyIpamPrefixListResolverTarget", — moved to ipamDiscoverySupportedOperations
+		// "ModifyIpamResourceCidr", — moved to ipamDiscoverySupportedOperations
+		// "ModifyIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		// "ModifyManagedPrefixList", — moved to batch4
 		// "ModifyReservedInstances", — real handler in handler_batch5.go, covered there
 		// "ModifyRouteServer", — real handler in handler_route_server.go, covered there
@@ -359,7 +359,7 @@ func TestStubOperations(t *testing.T) {
 		"MoveByoipCidrToIpam",
 		// "MoveCapacityReservationInstances", — moved to handler_capacity_family.go
 		// "ProvisionByoipCidr", — real handler in handler_batch5.go, covered there
-		"ProvisionIpamByoasn",
+		// "ProvisionIpamByoasn", — moved to ipamDiscoverySupportedOperations
 		// "PurchaseCapacityBlock", — moved to handler_capacity_family.go
 		// "PurchaseCapacityBlockExtension", — moved to handler_capacity_family.go
 		"PurchaseHostReservation",

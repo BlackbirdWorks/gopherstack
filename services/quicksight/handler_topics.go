@@ -613,6 +613,18 @@ func topicToMap(t *Topic) map[string]any {
 	}
 }
 
+// topicSummaryToMap builds a real TopicSummary entry (Arn, Name, TopicId,
+// UserExperienceVersion only — unlike the full Topic map returned by
+// DescribeTopic, TopicSummary carries no Description/DataSets/timestamps).
+func topicSummaryToMap(t *Topic) map[string]any {
+	return map[string]any{
+		keyArn:            t.Arn,
+		keyName:           t.Name,
+		keyTopicID:        t.TopicID,
+		keyUserExpVersion: t.UserExperienceVersion,
+	}
+}
+
 func topicRefreshScheduleToMap(s *TopicRefreshSchedule) map[string]any {
 	m := map[string]any{
 		"ScheduleId":   s.DatasetID,

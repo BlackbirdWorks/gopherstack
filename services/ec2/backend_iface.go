@@ -845,6 +845,96 @@ type Backend interface {
 	// DescribeIpamResourceDiscoveryAssociations returns IPAM resource discovery associations.
 	DescribeIpamResourceDiscoveryAssociations(ids []string) []*IpamResourceDiscoveryAssociation
 
+	// CreateIpamResourceDiscovery creates a standalone (non-default) IPAM resource discovery.
+	CreateIpamResourceDiscovery(description string, operatingRegions []string) (*IpamResourceDiscovery, error)
+
+	// DeleteIpamResourceDiscovery removes a non-default IPAM resource discovery.
+	DeleteIpamResourceDiscovery(id string) (*IpamResourceDiscovery, error)
+
+	// AssociateIpamResourceDiscovery associates a resource discovery with an IPAM.
+	AssociateIpamResourceDiscovery(ipamID, discoveryID string) (*IpamResourceDiscoveryAssociation, error)
+
+	// DisassociateIpamResourceDiscovery removes a resource discovery association from an IPAM.
+	DisassociateIpamResourceDiscovery(assocID string) (*IpamResourceDiscoveryAssociation, error)
+
+	// ModifyIpamResourceDiscovery updates a resource discovery's description/operating regions.
+	ModifyIpamResourceDiscovery(
+		id, description string, addOperatingRegions, removeOperatingRegions []string,
+	) (*IpamResourceDiscovery, error)
+
+	// GetIpamResourceCidrs returns resource CIDRs monitored by IPAM in a given scope.
+	GetIpamResourceCidrs(scopeID, poolID, resourceID, resourceOwner, resourceType string) ([]*IpamResourceCidr, error)
+
+	// ModifyIpamResourceCidr moves/updates a monitored resource CIDR.
+	ModifyIpamResourceCidr(
+		currentScopeID, resourceCidr, resourceID, resourceRegion string, monitored bool, destScopeID string,
+	) (*IpamResourceCidr, error)
+
+	// ProvisionIpamByoasn provisions a public ASN for use with an IPAM's BYOIP CIDRs.
+	ProvisionIpamByoasn(ipamID, asn string) (*IpamByoasn, error)
+
+	// DeprovisionIpamByoasn releases a previously-provisioned BYOASN.
+	DeprovisionIpamByoasn(ipamID, asn string) (*IpamByoasn, error)
+
+	// DescribeIpamByoasn returns all provisioned BYOASNs.
+	DescribeIpamByoasn() []*IpamByoasn
+
+	// AssociateIpamByoasn associates a provisioned BYOASN with a BYOIP CIDR.
+	AssociateIpamByoasn(asn, cidr string) (*IpamAsnAssociation, error)
+
+	// DisassociateIpamByoasn removes the association between a BYOASN and a BYOIP CIDR.
+	DisassociateIpamByoasn(asn, cidr string) (*IpamAsnAssociation, error)
+
+	// CreateIpamExternalResourceVerificationToken creates an external resource verification token.
+	CreateIpamExternalResourceVerificationToken(ipamID string) (*IpamExternalResourceVerificationToken, error)
+
+	// DeleteIpamExternalResourceVerificationToken removes a verification token.
+	DeleteIpamExternalResourceVerificationToken(id string) (*IpamExternalResourceVerificationToken, error)
+
+	// DescribeIpamExternalResourceVerificationTokens returns verification tokens.
+	DescribeIpamExternalResourceVerificationTokens(ids []string) []*IpamExternalResourceVerificationToken
+
+	// CreateIpamPrefixListResolver creates a new IPAM prefix list resolver.
+	CreateIpamPrefixListResolver(
+		ipamID, addressFamily, description string, rules []IpamPrefixListResolverRule,
+	) (*IpamPrefixListResolver, error)
+
+	// DeleteIpamPrefixListResolver removes a prefix list resolver.
+	DeleteIpamPrefixListResolver(id string) (*IpamPrefixListResolver, error)
+
+	// DescribeIpamPrefixListResolvers returns prefix list resolvers.
+	DescribeIpamPrefixListResolvers(ids []string) []*IpamPrefixListResolver
+
+	// ModifyIpamPrefixListResolver updates a resolver's description and/or rules.
+	ModifyIpamPrefixListResolver(
+		id, description string, rules []IpamPrefixListResolverRule, rulesProvided bool,
+	) (*IpamPrefixListResolver, error)
+
+	// GetIpamPrefixListResolverRules returns a resolver's current CIDR selection rules.
+	GetIpamPrefixListResolverRules(resolverID string) ([]IpamPrefixListResolverRule, error)
+
+	// GetIpamPrefixListResolverVersions returns a resolver's recorded version numbers.
+	GetIpamPrefixListResolverVersions(resolverID string) ([]int64, error)
+
+	// GetIpamPrefixListResolverVersionEntries returns the CIDR entries of a resolver version.
+	GetIpamPrefixListResolverVersionEntries(resolverID string, version int64) ([]string, error)
+
+	// CreateIpamPrefixListResolverTarget associates a managed prefix list with a resolver.
+	CreateIpamPrefixListResolverTarget(
+		resolverID, prefixListID, prefixListRegion string, trackLatestVersion bool, desiredVersion *int64,
+	) (*IpamPrefixListResolverTarget, error)
+
+	// DeleteIpamPrefixListResolverTarget removes a resolver target.
+	DeleteIpamPrefixListResolverTarget(id string) (*IpamPrefixListResolverTarget, error)
+
+	// DescribeIpamPrefixListResolverTargets returns resolver targets.
+	DescribeIpamPrefixListResolverTargets(resolverID string, ids []string) []*IpamPrefixListResolverTarget
+
+	// ModifyIpamPrefixListResolverTarget updates a target's desired version/tracking flag.
+	ModifyIpamPrefixListResolverTarget(
+		id string, desiredVersion *int64, trackLatestVersion *bool,
+	) (*IpamPrefixListResolverTarget, error)
+
 	// ---- spot fleet ----
 
 	// RequestSpotFleet creates a new Spot Fleet request and fulfills it.

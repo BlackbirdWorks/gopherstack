@@ -268,6 +268,13 @@ type InMemoryBackend struct {
 	ipamPoolAllocations            map[string]*IpamPoolAllocation
 	ipamResourceDiscoveries        map[string]*IpamResourceDiscovery
 	ipamResourceDiscoveryAssocs    map[string]*IpamResourceDiscoveryAssociation
+	ipamByoasns                    map[string]*IpamByoasn
+	ipamAsnAssociations            map[string]*IpamAsnAssociation
+	ipamVerificationTokens         map[string]*IpamExternalResourceVerificationToken
+	ipamResourceCidrs              map[string]*IpamResourceCidr
+	ipamPrefixListResolvers        map[string]*IpamPrefixListResolver
+	ipamPrefixListResolverVersions map[string][]int64
+	ipamPrefixListResolverTargets  map[string]*IpamPrefixListResolverTarget
 	spotFleets                     map[string]*SpotFleetRequest
 	spotFleetHistory               map[string][]SpotFleetHistoryRecord
 	// batch1 additions
@@ -481,6 +488,7 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initTGWMulticastMaps(b)
 	initVpcConfigMaps(b)
 	initCapacityFamilyMaps(b)
+	b.resetIpamDiscoveryMapsLocked()
 
 	return b
 }

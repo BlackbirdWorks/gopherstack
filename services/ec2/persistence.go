@@ -35,6 +35,9 @@ type snapTGWMcastGroupEntry = TransitGatewayMulticastGroupEntry
 // snapClassicLinkInstance is a type alias used in backendSnapshot to keep line lengths manageable.
 type snapClassicLinkInstance = ClassicLinkInstance
 
+// snapIpamVerifyToken is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapIpamVerifyToken = IpamExternalResourceVerificationToken
+
 type backendSnapshot struct {
 	SnapshotAttributes                 map[string]map[string]string                    `json:"snapshotAttributes"`
 	ImageDeprecated                    map[string]string                               `json:"imageDeprecated"`
@@ -78,6 +81,13 @@ type backendSnapshot struct {
 	IpamPoolAllocations                map[string]*IpamPoolAllocation                  `json:"ipamPoolAllocations"`
 	IpamResourceDiscoveries            map[string]*IpamResourceDiscovery               `json:"ipamResourceDiscoveries"`
 	IpamResourceDiscoveryAssocs        map[string]*IpamResourceDiscoveryAssociation    `json:"ipamResourceDiscoveryAssocs"`
+	IpamByoasns                        map[string]*IpamByoasn                          `json:"ipamByoasns,omitempty"`
+	IpamAsnAssociations                map[string]*IpamAsnAssociation                  `json:"ipamAsnAssocs,omitempty"`
+	IpamVerificationTokens             map[string]*snapIpamVerifyToken                 `json:"ipamVerifyTokens,omitempty"`
+	IpamResourceCidrs                  map[string]*IpamResourceCidr                    `json:"ipamResourceCidrs,omitempty"`
+	IpamPrefixListResolvers            map[string]*IpamPrefixListResolver              `json:"ipamPLResolvers,omitempty"`
+	IpamPrefixListResolverVersions     map[string][]int64                              `json:"ipamPLRVersions,omitempty"`
+	IpamPrefixListResolverTargets      map[string]*IpamPrefixListResolverTarget        `json:"ipamPLRTargets,omitempty"`
 	CarrierGateways                    map[string]*CarrierGateway                      `json:"carrierGateways"`
 	Fleets                             map[string]*Fleet                               `json:"fleets,omitempty"`
 	NetworkInsightsPaths               map[string]*NetworkInsightsPath                 `json:"networkInsightsPaths"`
@@ -235,6 +245,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		IpamPoolAllocations:                b.ipamPoolAllocations,
 		IpamResourceDiscoveries:            b.ipamResourceDiscoveries,
 		IpamResourceDiscoveryAssocs:        b.ipamResourceDiscoveryAssocs,
+		IpamByoasns:                        b.ipamByoasns,
+		IpamAsnAssociations:                b.ipamAsnAssociations,
+		IpamVerificationTokens:             b.ipamVerificationTokens,
+		IpamResourceCidrs:                  b.ipamResourceCidrs,
+		IpamPrefixListResolvers:            b.ipamPrefixListResolvers,
+		IpamPrefixListResolverVersions:     b.ipamPrefixListResolverVersions,
+		IpamPrefixListResolverTargets:      b.ipamPrefixListResolverTargets,
 		CarrierGateways:                    b.carrierGateways,
 		Fleets:                             b.fleets,
 		NetworkInsightsPaths:               b.networkInsightsPaths,
@@ -930,6 +947,13 @@ func (b *InMemoryBackend) restoreExtendedFields(snap *backendSnapshot) {
 	b.ipamPoolAllocations = snap.IpamPoolAllocations
 	b.ipamResourceDiscoveries = snap.IpamResourceDiscoveries
 	b.ipamResourceDiscoveryAssocs = snap.IpamResourceDiscoveryAssocs
+	b.ipamByoasns = snap.IpamByoasns
+	b.ipamAsnAssociations = snap.IpamAsnAssociations
+	b.ipamVerificationTokens = snap.IpamVerificationTokens
+	b.ipamResourceCidrs = snap.IpamResourceCidrs
+	b.ipamPrefixListResolvers = snap.IpamPrefixListResolvers
+	b.ipamPrefixListResolverVersions = snap.IpamPrefixListResolverVersions
+	b.ipamPrefixListResolverTargets = snap.IpamPrefixListResolverTargets
 	b.carrierGateways = snap.CarrierGateways
 	b.fleets = snap.Fleets
 	b.networkInsightsPaths = snap.NetworkInsightsPaths
@@ -1087,6 +1111,13 @@ func (s *backendSnapshot) initAppendixMaps() {
 	initMapIfNil(&s.IpamPoolAllocations)
 	initMapIfNil(&s.IpamResourceDiscoveries)
 	initMapIfNil(&s.IpamResourceDiscoveryAssocs)
+	initMapIfNil(&s.IpamByoasns)
+	initMapIfNil(&s.IpamAsnAssociations)
+	initMapIfNil(&s.IpamVerificationTokens)
+	initMapIfNil(&s.IpamResourceCidrs)
+	initMapIfNil(&s.IpamPrefixListResolvers)
+	initMapIfNil(&s.IpamPrefixListResolverVersions)
+	initMapIfNil(&s.IpamPrefixListResolverTargets)
 	initMapIfNil(&s.CarrierGateways)
 	initMapIfNil(&s.Fleets)
 	initMapIfNil(&s.NetworkInsightsPaths)

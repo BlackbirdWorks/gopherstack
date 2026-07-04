@@ -193,6 +193,10 @@ var (
 	ErrAutomationJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrFlowNotFound is returned when a flow does not exist.
 	ErrFlowNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrDashboardVersionNotFound is returned when a dashboard version does not exist.
+	ErrDashboardVersionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrSelfUpgradeRequestNotFound is returned when a self-upgrade request does not exist.
+	ErrSelfUpgradeRequestNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )
 
 type storedNamespace struct {
@@ -324,28 +328,32 @@ func (i *storedIngestion) toIngestion() *Ingestion {
 }
 
 type storedDashboard struct {
-	CreatedTime     time.Time            `json:"createdTime"`
-	LastUpdatedTime time.Time            `json:"lastUpdatedTime"`
-	Definition      map[string]any       `json:"definition,omitempty"`
-	DashboardID     string               `json:"dashboardId"`
-	Arn             string               `json:"arn"`
-	Name            string               `json:"name"`
-	Status          string               `json:"status"`
-	Permissions     []ResourcePermission `json:"permissions,omitempty"`
-	VersionNumber   int64                `json:"versionNumber"`
+	CreatedTime            time.Time            `json:"createdTime"`
+	LastUpdatedTime        time.Time            `json:"lastUpdatedTime"`
+	Definition             map[string]any       `json:"definition,omitempty"`
+	DashboardID            string               `json:"dashboardId"`
+	Arn                    string               `json:"arn"`
+	Name                   string               `json:"name"`
+	Status                 string               `json:"status"`
+	Permissions            []ResourcePermission `json:"permissions,omitempty"`
+	LinkEntities           []string             `json:"linkEntities,omitempty"`
+	VersionNumber          int64                `json:"versionNumber"`
+	PublishedVersionNumber int64                `json:"publishedVersionNumber"`
 }
 
 func (d *storedDashboard) toDashboard() *Dashboard {
 	return &Dashboard{
-		CreatedTime:     d.CreatedTime,
-		LastUpdatedTime: d.LastUpdatedTime,
-		DashboardID:     d.DashboardID,
-		Arn:             d.Arn,
-		Name:            d.Name,
-		Status:          d.Status,
-		VersionNumber:   d.VersionNumber,
-		Definition:      d.Definition,
-		Permissions:     clonePermissions(d.Permissions),
+		CreatedTime:            d.CreatedTime,
+		LastUpdatedTime:        d.LastUpdatedTime,
+		DashboardID:            d.DashboardID,
+		Arn:                    d.Arn,
+		Name:                   d.Name,
+		Status:                 d.Status,
+		VersionNumber:          d.VersionNumber,
+		PublishedVersionNumber: d.PublishedVersionNumber,
+		Definition:             d.Definition,
+		Permissions:            clonePermissions(d.Permissions),
+		LinkEntities:           append([]string(nil), d.LinkEntities...),
 	}
 }
 
@@ -455,6 +463,9 @@ type state struct {
 	AutomationJobs   map[string]*storedAutomationJob   `json:"automationJobs"`
 	Flows            map[string]*storedFlow            `json:"flows"`
 	SPICECapacity    map[string]string                 `json:"spiceCapacity"`
+
+	SelfUpgradeConfig   map[string]string                    `json:"selfUpgradeConfig"`
+	SelfUpgradeRequests map[string]*storedSelfUpgradeRequest `json:"selfUpgradeRequests"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -506,6 +517,9 @@ type InMemoryBackend struct {
 	automationJobs   map[string]*storedAutomationJob
 	flows            map[string]*storedFlow
 	spiceCapacity    map[string]string
+
+	selfUpgradeConfig   map[string]string
+	selfUpgradeRequests map[string]*storedSelfUpgradeRequest
 
 	accountID string
 	region    string
@@ -561,6 +575,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		automationJobs:   make(map[string]*storedAutomationJob),
 		flows:            make(map[string]*storedFlow),
 		spiceCapacity:    make(map[string]string),
+
+		selfUpgradeConfig:   make(map[string]string),
+		selfUpgradeRequests: make(map[string]*storedSelfUpgradeRequest),
 	}
 	b.mu = lockmetrics.New("quicksight")
 
@@ -634,6 +651,9 @@ func (b *InMemoryBackend) Reset() {
 	b.flows = make(map[string]*storedFlow)
 	b.spiceCapacity = make(map[string]string)
 
+	b.selfUpgradeConfig = make(map[string]string)
+	b.selfUpgradeRequests = make(map[string]*storedSelfUpgradeRequest)
+
 	b.namespaces[nsKey(b.accountID, defaultNamespace)] = &storedNamespace{
 		Name:           defaultNamespace,
 		Arn:            b.buildARN("namespace", defaultNamespace),
@@ -695,6 +715,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AutomationJobs:   b.automationJobs,
 		Flows:            b.flows,
 		SPICECapacity:    b.spiceCapacity,
+
+		SelfUpgradeConfig:   b.selfUpgradeConfig,
+		SelfUpgradeRequests: b.selfUpgradeRequests,
 	}
 
 	data, _ := json.Marshal(s)
@@ -780,8 +803,8 @@ func (b *InMemoryBackend) ensureLegacyResourceMaps() {
 
 // ensureFinalStubMaps re-initializes any maps introduced by the final
 // canned-stub batch (action connectors, automation jobs, flows, SPICE
-// capacity) left nil after Restore (e.g. snapshots taken before those maps
-// existed).
+// capacity) or the parity-sweep batch (self-upgrade config/requests) left nil
+// after Restore (e.g. snapshots taken before those maps existed).
 func (b *InMemoryBackend) ensureFinalStubMaps() {
 	if b.actionConnectors == nil {
 		b.actionConnectors = make(map[string]*storedActionConnector)
@@ -794,6 +817,12 @@ func (b *InMemoryBackend) ensureFinalStubMaps() {
 	}
 	if b.spiceCapacity == nil {
 		b.spiceCapacity = make(map[string]string)
+	}
+	if b.selfUpgradeConfig == nil {
+		b.selfUpgradeConfig = make(map[string]string)
+	}
+	if b.selfUpgradeRequests == nil {
+		b.selfUpgradeRequests = make(map[string]*storedSelfUpgradeRequest)
 	}
 }
 
@@ -863,6 +892,8 @@ func (b *InMemoryBackend) restoreFinalStubFields(s state) {
 	b.automationJobs = s.AutomationJobs
 	b.flows = s.Flows
 	b.spiceCapacity = s.SPICECapacity
+	b.selfUpgradeConfig = s.SelfUpgradeConfig
+	b.selfUpgradeRequests = s.SelfUpgradeRequests
 }
 
 // ensureAppendixBatchMaps re-initializes any maps introduced by the final
@@ -2149,15 +2180,16 @@ func (b *InMemoryBackend) CreateDashboard(
 
 	now := time.Now().UTC()
 	d := &storedDashboard{
-		CreatedTime:     now,
-		LastUpdatedTime: now,
-		DashboardID:     dashboardID,
-		Arn:             fmt.Sprintf("arn:aws:quicksight:%s:%s:dashboard/%s", b.region, accountID, dashboardID),
-		Name:            name,
-		Status:          statusCreated,
-		VersionNumber:   1,
-		Definition:      definition,
-		Permissions:     clonePermissions(permissions),
+		CreatedTime:            now,
+		LastUpdatedTime:        now,
+		DashboardID:            dashboardID,
+		Arn:                    fmt.Sprintf("arn:aws:quicksight:%s:%s:dashboard/%s", b.region, accountID, dashboardID),
+		Name:                   name,
+		Status:                 statusCreated,
+		VersionNumber:          1,
+		PublishedVersionNumber: 1,
+		Definition:             definition,
+		Permissions:            clonePermissions(permissions),
 	}
 	b.dashboards[key] = d
 
@@ -2348,6 +2380,51 @@ func (b *InMemoryBackend) SearchDashboards(
 	}
 
 	return result, next, nil
+}
+
+// UpdateDashboardPublishedVersion flips which stored version of a dashboard is
+// the published one. versionNumber must name a version that actually exists
+// (i.e. be in [1, VersionNumber], matching the versions ListDashboardVersions
+// synthesizes), else ErrDashboardVersionNotFound.
+func (b *InMemoryBackend) UpdateDashboardPublishedVersion(
+	accountID, dashboardID string,
+	versionNumber int64,
+) (*Dashboard, error) {
+	b.mu.Lock("UpdateDashboardPublishedVersion")
+	defer b.mu.Unlock()
+
+	d, ok := b.dashboards[dashboardKey(accountID, dashboardID)]
+	if !ok {
+		return nil, ErrDashboardNotFound
+	}
+
+	if versionNumber < 1 || versionNumber > d.VersionNumber {
+		return nil, ErrDashboardVersionNotFound
+	}
+
+	d.PublishedVersionNumber = versionNumber
+	d.LastUpdatedTime = time.Now().UTC()
+
+	return d.toDashboard(), nil
+}
+
+// UpdateDashboardLinks replaces the set of analysis ARNs linked to a dashboard.
+func (b *InMemoryBackend) UpdateDashboardLinks(
+	accountID, dashboardID string,
+	linkEntities []string,
+) (*Dashboard, error) {
+	b.mu.Lock("UpdateDashboardLinks")
+	defer b.mu.Unlock()
+
+	d, ok := b.dashboards[dashboardKey(accountID, dashboardID)]
+	if !ok {
+		return nil, ErrDashboardNotFound
+	}
+
+	d.LinkEntities = linkEntities
+	d.LastUpdatedTime = time.Now().UTC()
+
+	return d.toDashboard(), nil
 }
 
 // ---- Dashboard permissions ----

@@ -315,12 +315,14 @@ type IpamAllocationOptions struct {
 // IpamResourceDiscovery represents an IPAM resource discovery, which scans a set of operating
 // regions for resources whose CIDRs should be tracked by an IPAM.
 type IpamResourceDiscovery struct {
-	IpamResourceDiscoveryID  string `json:"ipamResourceDiscoveryId,omitempty"`
-	IpamResourceDiscoveryARN string `json:"ipamResourceDiscoveryArn,omitempty"`
-	OwnerID                  string `json:"ownerId,omitempty"`
-	State                    string `json:"state,omitempty"`
-	Description              string `json:"description,omitempty"`
-	IsDefault                bool   `json:"isDefault,omitempty"`
+	IpamResourceDiscoveryID  string   `json:"ipamResourceDiscoveryId,omitempty"`
+	IpamResourceDiscoveryARN string   `json:"ipamResourceDiscoveryArn,omitempty"`
+	OwnerID                  string   `json:"ownerId,omitempty"`
+	Region                   string   `json:"ipamResourceDiscoveryRegion,omitempty"`
+	State                    string   `json:"state,omitempty"`
+	Description              string   `json:"description,omitempty"`
+	OperatingRegions         []string `json:"operatingRegions,omitempty"`
+	IsDefault                bool     `json:"isDefault,omitempty"`
 }
 
 // IpamResourceDiscoveryAssociation represents the association between an IPAM and a resource
@@ -332,6 +334,7 @@ type IpamResourceDiscoveryAssociation struct {
 	IpamARN                             string `json:"ipamArn,omitempty"`
 	IpamRegion                          string `json:"ipamRegion,omitempty"`
 	IpamResourceDiscoveryID             string `json:"ipamResourceDiscoveryId,omitempty"`
+	OwnerID                             string `json:"ownerId,omitempty"`
 	ResourceDiscoveryStatus             string `json:"resourceDiscoveryStatus,omitempty"`
 	State                               string `json:"state,omitempty"`
 	IsDefault                           bool   `json:"isDefault,omitempty"`
@@ -1248,6 +1251,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	discovery := &IpamResourceDiscovery{
 		IpamResourceDiscoveryID: "ipam-res-disco-" + uuid.New().String()[:8],
 		OwnerID:                 b.AccountID,
+		Region:                  b.Region,
 		IsDefault:               true,
 		State:                   ipamStateCreateComplete,
 	}
@@ -1258,8 +1262,10 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	assoc := &IpamResourceDiscoveryAssociation{
 		IpamResourceDiscoveryAssociationID: "ipam-res-disco-assoc-" + uuid.New().String()[:8],
 		IpamID:                             ipamID,
+		IpamARN:                            "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID,
 		IpamRegion:                         b.Region,
 		IpamResourceDiscoveryID:            discovery.IpamResourceDiscoveryID,
+		OwnerID:                            b.AccountID,
 		IsDefault:                          true,
 		ResourceDiscoveryStatus:            ipamResourceDiscoveryAssocStatus,
 		State:                              ipamStateCreateComplete,
@@ -1834,6 +1840,7 @@ func (b *InMemoryBackend) AllocateIpamPoolCidr(
 	}
 
 	b.ipamPoolAllocations[alloc.IpamPoolAllocationID] = alloc
+	b.recordIpamResourceCidrLocked(pool, alloc)
 
 	cp := *alloc
 
@@ -1894,6 +1901,7 @@ func (b *InMemoryBackend) ReleaseIpamPoolAllocation(poolID, allocationID string)
 		return fmt.Errorf("%w: %s", ErrIpamAllocationNotFound, allocationID)
 	}
 
+	b.forgetIpamResourceCidrLocked(alloc)
 	delete(b.ipamPoolAllocations, allocationID)
 
 	return nil
@@ -1919,6 +1927,7 @@ func (b *InMemoryBackend) DescribeIpamResourceDiscoveries(ids []string) []*IpamR
 		}
 
 		cp := *d
+		cp.OperatingRegions = append([]string(nil), d.OperatingRegions...)
 		out = append(out, &cp)
 	}
 
