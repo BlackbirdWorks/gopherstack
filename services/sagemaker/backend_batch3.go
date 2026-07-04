@@ -58,6 +58,9 @@ var (
 	ErrTrainingPlanNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 )
 
+// ErrMlflowAppNotFound is returned when an MLflow App does not exist.
+var ErrMlflowAppNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+
 // ---------------------------------------------------------------------------
 // JobDefinition — shared struct for Data Quality / Model Bias / Quality / Explainability
 // ---------------------------------------------------------------------------
@@ -1487,6 +1490,200 @@ func (b *InMemoryBackend) StopMlflowTrackingServer(ctx context.Context, name str
 	return nil
 }
 
+// CreatePresignedMlflowTrackingServerURL returns a one-time presigned URL for
+// accessing the MLflow UI of an existing tracking server.
+func (b *InMemoryBackend) CreatePresignedMlflowTrackingServerURL(ctx context.Context, name string) (string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("CreatePresignedMlflowTrackingServerURL")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.mlflowTrackingServersStore(region)[name]; !ok {
+		return "", fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
+	}
+
+	return "https://" + name + ".mlflow-tracking-server.sagemaker." + region +
+		".amazonaws.com/auth?authToken=" + generateID(), nil
+}
+
+// ---------------------------------------------------------------------------
+// MlflowApp
+// ---------------------------------------------------------------------------
+
+// MlflowApp represents a SageMaker MLflow App.
+type MlflowApp struct {
+	CreationTime          time.Time         `json:"CreationTime"`
+	LastModifiedTime      time.Time         `json:"LastModifiedTime"`
+	Tags                  map[string]string `json:"Tags,omitempty"`
+	Name                  string            `json:"Name"`
+	Arn                   string            `json:"Arn"`
+	Status                string            `json:"Status"`
+	ArtifactStoreURI      string            `json:"ArtifactStoreUri,omitempty"`
+	RoleArn               string            `json:"RoleArn,omitempty"`
+	MlflowVersion         string            `json:"MlflowVersion,omitempty"`
+	AccountDefaultStatus  string            `json:"AccountDefaultStatus,omitempty"`
+	ModelRegistrationMode string            `json:"ModelRegistrationMode,omitempty"`
+	DefaultDomainIDList   []string          `json:"DefaultDomainIdList,omitempty"`
+}
+
+func cloneMlflowApp(m *MlflowApp) *MlflowApp {
+	cp := *m
+	cp.Tags = maps.Clone(m.Tags)
+	cp.DefaultDomainIDList = append([]string(nil), m.DefaultDomainIDList...)
+
+	return &cp
+}
+
+// CreateMlflowAppOptions holds the fields accepted by CreateMlflowApp.
+type CreateMlflowAppOptions struct {
+	Tags                  map[string]string
+	Name                  string
+	ArtifactStoreURI      string
+	RoleArn               string
+	AccountDefaultStatus  string
+	ModelRegistrationMode string
+	DefaultDomainIDList   []string
+}
+
+// CreateMlflowApp creates an MLflow App. Stores by ARN; Name is used only to build the ARN.
+func (b *InMemoryBackend) CreateMlflowApp(ctx context.Context, opts CreateMlflowAppOptions) (*MlflowApp, error) {
+	if opts.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("CreateMlflowApp")
+	defer b.mu.Unlock()
+
+	appARN := arn.Build("sagemaker", region, b.accountID, "mlflow-app/"+opts.Name)
+
+	store := b.mlflowAppsStore(region)
+	if _, ok := store[appARN]; ok {
+		return nil, sagemakerDupErr("MLflow App", opts.Name)
+	}
+
+	now := time.Now()
+	m := &MlflowApp{
+		Name:                  opts.Name,
+		Arn:                   appARN,
+		Status:                statusCreated,
+		ArtifactStoreURI:      opts.ArtifactStoreURI,
+		RoleArn:               opts.RoleArn,
+		AccountDefaultStatus:  opts.AccountDefaultStatus,
+		ModelRegistrationMode: opts.ModelRegistrationMode,
+		DefaultDomainIDList:   opts.DefaultDomainIDList,
+		Tags:                  mergeTags(nil, opts.Tags),
+		CreationTime:          now,
+		LastModifiedTime:      now,
+	}
+	store[appARN] = m
+
+	return cloneMlflowApp(m), nil
+}
+
+// DescribeMlflowApp returns an MLflow App by ARN.
+func (b *InMemoryBackend) DescribeMlflowApp(ctx context.Context, arnStr string) (*MlflowApp, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("DescribeMlflowApp")
+	defer b.mu.RUnlock()
+
+	m, ok := b.mlflowAppsStore(region)[arnStr]
+	if !ok {
+		return nil, fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, arnStr)
+	}
+
+	return cloneMlflowApp(m), nil
+}
+
+// DeleteMlflowApp removes an MLflow App by ARN.
+func (b *InMemoryBackend) DeleteMlflowApp(ctx context.Context, arnStr string) error {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("DeleteMlflowApp")
+	defer b.mu.Unlock()
+
+	store := b.mlflowAppsStore(region)
+
+	if _, ok := store[arnStr]; !ok {
+		return fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, arnStr)
+	}
+
+	delete(store, arnStr)
+
+	return nil
+}
+
+// UpdateMlflowAppOptions holds the mutable fields accepted by UpdateMlflowApp.
+type UpdateMlflowAppOptions struct {
+	Arn                   string
+	ArtifactStoreURI      string
+	AccountDefaultStatus  string
+	ModelRegistrationMode string
+	DefaultDomainIDList   []string
+}
+
+// UpdateMlflowApp updates an MLflow App's mutable fields.
+func (b *InMemoryBackend) UpdateMlflowApp(ctx context.Context, opts UpdateMlflowAppOptions) (*MlflowApp, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("UpdateMlflowApp")
+	defer b.mu.Unlock()
+
+	m, ok := b.mlflowAppsStore(region)[opts.Arn]
+	if !ok {
+		return nil, fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, opts.Arn)
+	}
+
+	if opts.ArtifactStoreURI != "" {
+		m.ArtifactStoreURI = opts.ArtifactStoreURI
+	}
+
+	if opts.AccountDefaultStatus != "" {
+		m.AccountDefaultStatus = opts.AccountDefaultStatus
+	}
+
+	if opts.ModelRegistrationMode != "" {
+		m.ModelRegistrationMode = opts.ModelRegistrationMode
+	}
+
+	if opts.DefaultDomainIDList != nil {
+		m.DefaultDomainIDList = opts.DefaultDomainIDList
+	}
+
+	m.LastModifiedTime = time.Now()
+
+	return cloneMlflowApp(m), nil
+}
+
+// ListMlflowApps returns a page of MLflow Apps.
+func (b *InMemoryBackend) ListMlflowApps(ctx context.Context, nextToken string) ([]*MlflowApp, string) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListMlflowApps")
+	defer b.mu.RUnlock()
+
+	return sagemakerListKeyPaged(b.mlflowAppsStore(region), nextToken, cloneMlflowApp)
+}
+
+// CreatePresignedMlflowAppURL returns a one-time presigned URL for accessing
+// the MLflow UI of an existing MLflow App.
+func (b *InMemoryBackend) CreatePresignedMlflowAppURL(ctx context.Context, arnStr string) (string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("CreatePresignedMlflowAppURL")
+	defer b.mu.RUnlock()
+
+	m, ok := b.mlflowAppsStore(region)[arnStr]
+	if !ok {
+		return "", fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, arnStr)
+	}
+
+	return "https://" + m.Name + ".mlflow-app.sagemaker." + region +
+		".amazonaws.com/auth?authToken=" + generateID(), nil
+}
+
 // ---------------------------------------------------------------------------
 // ModelCard
 // ---------------------------------------------------------------------------
@@ -1812,51 +2009,70 @@ func (b *InMemoryBackend) DeleteStudioLifecycleConfig(ctx context.Context, name 
 
 // PartnerApp represents a SageMaker partner app.
 type PartnerApp struct {
-	CreationTime time.Time         `json:"CreationTime"`
-	Tags         map[string]string `json:"Tags,omitempty"`
-	Name         string            `json:"Name"`
-	Arn          string            `json:"Arn"`
-	Status       string            `json:"Status"`
-	Type         string            `json:"Type,omitempty"`
+	CreationTime      time.Time         `json:"CreationTime"`
+	LastModifiedTime  time.Time         `json:"LastModifiedTime"`
+	Tags              map[string]string `json:"Tags,omitempty"`
+	Name              string            `json:"Name"`
+	Arn               string            `json:"Arn"`
+	Status            string            `json:"Status"`
+	Type              string            `json:"Type,omitempty"`
+	ExecutionRoleArn  string            `json:"ExecutionRoleArn,omitempty"`
+	AuthType          string            `json:"AuthType,omitempty"`
+	Tier              string            `json:"Tier,omitempty"`
+	ApplicationConfig json.RawMessage   `json:"ApplicationConfig,omitempty"`
 }
 
 func clonePartnerApp(p *PartnerApp) *PartnerApp {
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
+	cp.ApplicationConfig = append(json.RawMessage(nil), p.ApplicationConfig...)
 
 	return &cp
 }
 
+// CreatePartnerAppOptions holds the fields accepted by CreatePartnerApp.
+type CreatePartnerAppOptions struct {
+	Tags              map[string]string
+	Name              string
+	Type              string
+	ExecutionRoleArn  string
+	AuthType          string
+	Tier              string
+	ApplicationConfig json.RawMessage
+}
+
 // CreatePartnerApp creates a partner app. Stores by ARN; returns both name and ARN.
-func (b *InMemoryBackend) CreatePartnerApp(
-	ctx context.Context,
-	name, appType string,
-	tags map[string]string,
-) (*PartnerApp, error) {
+func (b *InMemoryBackend) CreatePartnerApp(ctx context.Context, opts CreatePartnerAppOptions) (*PartnerApp, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreatePartnerApp")
 	defer b.mu.Unlock()
 
-	if name == "" {
+	if opts.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
-	appARN := arn.Build("sagemaker", region, b.accountID, "partner-app/"+name)
+	appARN := arn.Build("sagemaker", region, b.accountID, "partner-app/"+opts.Name)
 
 	store := b.partnerAppsStore(region)
 
 	if _, ok := store[appARN]; ok {
-		return nil, fmt.Errorf("%w: partner app %q already exists", ErrValidation, name)
+		return nil, fmt.Errorf("%w: partner app %q already exists", ErrValidation, opts.Name)
 	}
 
+	now := time.Now()
 	p := &PartnerApp{
-		Name:         name,
-		Arn:          appARN,
-		Status:       "Available",
-		Type:         appType,
-		Tags:         mergeTags(nil, tags),
-		CreationTime: time.Now(),
+		Name:              opts.Name,
+		Arn:               appARN,
+		Status:            "Available",
+		Type:              opts.Type,
+		ExecutionRoleArn:  opts.ExecutionRoleArn,
+		AuthType:          opts.AuthType,
+		Tier:              opts.Tier,
+		ApplicationConfig: opts.ApplicationConfig,
+		Tags:              mergeTags(nil, opts.Tags),
+		CreationTime:      now,
+		LastModifiedTime:  now,
 	}
 	store[appARN] = p
 
@@ -1894,6 +2110,65 @@ func (b *InMemoryBackend) DeletePartnerApp(ctx context.Context, arnStr string) e
 	delete(store, arnStr)
 
 	return nil
+}
+
+// UpdatePartnerAppOptions holds the mutable fields accepted by UpdatePartnerApp.
+type UpdatePartnerAppOptions struct {
+	Arn               string
+	Tier              string
+	ApplicationConfig json.RawMessage
+}
+
+// UpdatePartnerApp updates a partner app's mutable fields.
+func (b *InMemoryBackend) UpdatePartnerApp(ctx context.Context, opts UpdatePartnerAppOptions) (*PartnerApp, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("UpdatePartnerApp")
+	defer b.mu.Unlock()
+
+	p, ok := b.partnerAppsStore(region)[opts.Arn]
+	if !ok {
+		return nil, fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, opts.Arn)
+	}
+
+	if opts.Tier != "" {
+		p.Tier = opts.Tier
+	}
+
+	if opts.ApplicationConfig != nil {
+		p.ApplicationConfig = opts.ApplicationConfig
+	}
+
+	p.LastModifiedTime = time.Now()
+
+	return clonePartnerApp(p), nil
+}
+
+// ListPartnerApps returns a page of partner apps.
+func (b *InMemoryBackend) ListPartnerApps(ctx context.Context, nextToken string) ([]*PartnerApp, string) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListPartnerApps")
+	defer b.mu.RUnlock()
+
+	return sagemakerListKeyPaged(b.partnerAppsStore(region), nextToken, clonePartnerApp)
+}
+
+// CreatePartnerAppPresignedURL returns a one-time presigned URL for accessing
+// an existing partner app.
+func (b *InMemoryBackend) CreatePartnerAppPresignedURL(ctx context.Context, arnStr string) (string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("CreatePartnerAppPresignedURL")
+	defer b.mu.RUnlock()
+
+	p, ok := b.partnerAppsStore(region)[arnStr]
+	if !ok {
+		return "", fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
+	}
+
+	return "https://" + p.Name + ".partner-app.sagemaker." + region +
+		".amazonaws.com/auth?authToken=" + generateID(), nil
 }
 
 // ---------------------------------------------------------------------------

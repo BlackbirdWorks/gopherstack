@@ -23,6 +23,15 @@ type snapLGWVifGroupAssoc = LocalGatewayRouteTableVirtualInterfaceGroupAssociati
 // snapLGWVpcAssoc is a type alias used in backendSnapshot to keep line lengths manageable.
 type snapLGWVpcAssoc = LocalGatewayRouteTableVpcAssociation
 
+// snapTGWMeterPolicy is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapTGWMeterPolicy = TransitGatewayMeteringPolicy
+
+// snapTGWMeterPolicyEntry is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapTGWMeterPolicyEntry = TransitGatewayMeteringPolicyEntry
+
+// snapTGWMcastGroupEntry is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapTGWMcastGroupEntry = TransitGatewayMulticastGroupEntry
+
 type backendSnapshot struct {
 	SnapshotAttributes                 map[string]map[string]string                    `json:"snapshotAttributes"`
 	ImageDeprecated                    map[string]string                               `json:"imageDeprecated"`
@@ -148,6 +157,10 @@ type backendSnapshot struct {
 	LocalGatewayRoutes                 map[string]*LocalGatewayRoute                   `json:"lgwRoutes,omitempty"`
 	LocalGatewayRouteTableVpcAssocs    map[string]*snapLGWVpcAssoc                     `json:"lgwRtVpcAssocs,omitempty"`
 	LocalGatewayRTVifGroupAssocs       map[string]*snapLGWVifGroupAssoc                `json:"lgwVifGroupAssocs,omitempty"`
+	TgwMulticastDomains                map[string]*TransitGatewayMulticastDomain       `json:"tgwMcastDomains,omitempty"`
+	TgwMulticastGroupEntries           map[string]*snapTGWMcastGroupEntry              `json:"tgwMcastGroupEnt,omitempty"`
+	TgwMeteringPolicies                map[string]*snapTGWMeterPolicy                  `json:"tgwMeterPolicies,omitempty"`
+	TgwMeteringPolicyEntries           map[string]*snapTGWMeterPolicyEntry             `json:"tgwMeterPolicyEnt,omitempty"`
 	Region                             string                                          `json:"region,omitempty"`
 	AccountID                          string                                          `json:"accountID,omitempty"`
 	FreePrivateIPs                     []string                                        `json:"freePrivateIPs"`
@@ -297,6 +310,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		LocalGatewayRoutes:                 b.localGatewayRoutes,
 		LocalGatewayRouteTableVpcAssocs:    b.localGatewayRouteTableVpcAssociations,
 		LocalGatewayRTVifGroupAssocs:       b.localGatewayRouteTableVifGroupAssociations,
+		TgwMulticastDomains:                b.tgwMulticastDomains,
+		TgwMulticastGroupEntries:           b.tgwMulticastGroupEntries,
+		TgwMeteringPolicies:                b.tgwMeteringPolicies,
+		TgwMeteringPolicyEntries:           b.tgwMeteringPolicyEntries,
 	}
 
 	data, err := json.Marshal(snap)
@@ -649,8 +666,38 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 	b.restoreRouteServerFields(&snap)
 	b.restoreLocalGatewayFields(&snap)
+	b.restoreTGWMulticastFields(&snap)
 
 	return nil
+}
+
+// restoreTGWMulticastFields copies the transit gateway multicast domain and
+// metering policy state maps from snap into b. Split out to keep Restore's
+// growth in check. Must be called with b.mu held.
+func (b *InMemoryBackend) restoreTGWMulticastFields(snap *backendSnapshot) {
+	if snap.TgwMulticastDomains != nil {
+		b.tgwMulticastDomains = snap.TgwMulticastDomains
+	} else {
+		b.tgwMulticastDomains = make(map[string]*TransitGatewayMulticastDomain)
+	}
+
+	if snap.TgwMulticastGroupEntries != nil {
+		b.tgwMulticastGroupEntries = snap.TgwMulticastGroupEntries
+	} else {
+		b.tgwMulticastGroupEntries = make(map[string]*TransitGatewayMulticastGroupEntry)
+	}
+
+	if snap.TgwMeteringPolicies != nil {
+		b.tgwMeteringPolicies = snap.TgwMeteringPolicies
+	} else {
+		b.tgwMeteringPolicies = make(map[string]*TransitGatewayMeteringPolicy)
+	}
+
+	if snap.TgwMeteringPolicyEntries != nil {
+		b.tgwMeteringPolicyEntries = snap.TgwMeteringPolicyEntries
+	} else {
+		b.tgwMeteringPolicyEntries = make(map[string]*TransitGatewayMeteringPolicyEntry)
+	}
 }
 
 // restoreRouteServerFields copies the Route Server state maps from snap into

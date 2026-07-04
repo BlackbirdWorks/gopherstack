@@ -789,7 +789,7 @@ func (h *Handler) handleListInferenceExperiments(ctx context.Context, body []byt
 	items := make([]map[string]any, 0, len(exps))
 	for _, e := range exps {
 		entry := map[string]any{
-			"Name":              e.Name,
+			keyGenericName:      e.Name,
 			"Arn":               e.Arn,
 			keyStatus:           e.Status,
 			keyCreationTime:     epochSeconds(e.CreationTime),

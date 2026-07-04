@@ -607,6 +607,89 @@ type Backend interface {
 	// DisassociateTransitGatewayRouteTable removes an association between a TGW attachment and route table.
 	DisassociateTransitGatewayRouteTable(routeTableID, attachmentID string) error
 
+	// ---- Transit Gateway Multicast Domains ----
+
+	// CreateTransitGatewayMulticastDomain creates a new multicast domain on a transit gateway.
+	CreateTransitGatewayMulticastDomain(
+		tgwID, autoAcceptSharedAssociations, igmpv2Support, staticSourcesSupport string,
+	) (*TransitGatewayMulticastDomain, error)
+
+	// DescribeTransitGatewayMulticastDomains returns multicast domains, optionally filtered by ID.
+	DescribeTransitGatewayMulticastDomains(ids []string) []*TransitGatewayMulticastDomain
+
+	// DeleteTransitGatewayMulticastDomain removes a multicast domain.
+	DeleteTransitGatewayMulticastDomain(id string) error
+
+	// AssociateTransitGatewayMulticastDomain associates subnets with a multicast domain.
+	AssociateTransitGatewayMulticastDomain(
+		domainID, attachmentID string,
+		subnetIDs []string,
+	) ([]*TransitGatewayMulticastDomainAssociation, error)
+
+	// DisassociateTransitGatewayMulticastDomain removes subnet associations from a multicast domain.
+	DisassociateTransitGatewayMulticastDomain(
+		domainID, attachmentID string,
+		subnetIDs []string,
+	) ([]*TransitGatewayMulticastDomainAssociation, error)
+
+	// GetTransitGatewayMulticastDomainAssociations returns the subnet associations for a multicast domain.
+	GetTransitGatewayMulticastDomainAssociations(
+		domainID string,
+	) []*TransitGatewayMulticastDomainAssociation
+
+	// RegisterTransitGatewayMulticastGroupMembers registers network interfaces as multicast group members.
+	RegisterTransitGatewayMulticastGroupMembers(
+		domainID, groupIP string,
+		eniIDs []string,
+	) (*TransitGatewayMulticastGroupMembership, error)
+
+	// DeregisterTransitGatewayMulticastGroupMembers removes network interfaces as multicast group members.
+	DeregisterTransitGatewayMulticastGroupMembers(
+		domainID, groupIP string,
+		eniIDs []string,
+	) (*TransitGatewayMulticastGroupMembership, error)
+
+	// RegisterTransitGatewayMulticastGroupSources registers network interfaces as multicast group sources.
+	RegisterTransitGatewayMulticastGroupSources(
+		domainID, groupIP string,
+		eniIDs []string,
+	) (*TransitGatewayMulticastGroupMembership, error)
+
+	// DeregisterTransitGatewayMulticastGroupSources removes network interfaces as multicast group sources.
+	DeregisterTransitGatewayMulticastGroupSources(
+		domainID, groupIP string,
+		eniIDs []string,
+	) (*TransitGatewayMulticastGroupMembership, error)
+
+	// SearchTransitGatewayMulticastGroups returns the multicast group entries for a domain.
+	SearchTransitGatewayMulticastGroups(domainID string) []*TransitGatewayMulticastGroupEntry
+
+	// ---- Transit Gateway Metering Policies ----
+
+	// CreateTransitGatewayMeteringPolicy creates a new metering policy on a transit gateway.
+	CreateTransitGatewayMeteringPolicy(
+		tgwID string,
+		middleboxAttachmentIDs []string,
+	) (*TransitGatewayMeteringPolicy, error)
+
+	// DescribeTransitGatewayMeteringPolicies returns metering policies, optionally filtered by ID.
+	DescribeTransitGatewayMeteringPolicies(ids []string) []*TransitGatewayMeteringPolicy
+
+	// DeleteTransitGatewayMeteringPolicy removes a metering policy.
+	DeleteTransitGatewayMeteringPolicy(id string) error
+
+	// CreateTransitGatewayMeteringPolicyEntry adds a rule to a metering policy.
+	CreateTransitGatewayMeteringPolicyEntry(
+		policyID string,
+		entry *TransitGatewayMeteringPolicyEntry,
+	) (*TransitGatewayMeteringPolicyEntry, error)
+
+	// DeleteTransitGatewayMeteringPolicyEntry removes a rule from a metering policy.
+	DeleteTransitGatewayMeteringPolicyEntry(
+		policyID string,
+		ruleNumber int,
+	) (*TransitGatewayMeteringPolicyEntry, error)
+
 	// ---- VPN Gateways ----
 
 	// CreateVpnGateway creates a new virtual private gateway.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"strconv"
@@ -336,20 +337,49 @@ func cloneAction(a *Action) *Action {
 	return &cp
 }
 
+// AlgorithmStatusItem represents the status of a single algorithm image scan
+// or validation check.
+type AlgorithmStatusItem struct {
+	Name          string `json:"Name"`
+	Status        string `json:"Status"`
+	FailureReason string `json:"FailureReason,omitempty"`
+}
+
+// AlgorithmStatusDetails represents the detailed status of an algorithm.
+type AlgorithmStatusDetails struct {
+	ImageScanStatuses  []AlgorithmStatusItem `json:"ImageScanStatuses"`
+	ValidationStatuses []AlgorithmStatusItem `json:"ValidationStatuses"`
+}
+
 // Algorithm represents a SageMaker algorithm specification.
 type Algorithm struct {
-	CreationTime         time.Time         `json:"CreationTime"`
-	Tags                 map[string]string `json:"Tags,omitempty"`
-	AlgorithmName        string            `json:"AlgorithmName"`
-	AlgorithmArn         string            `json:"AlgorithmArn"`
-	AlgorithmDescription string            `json:"AlgorithmDescription,omitempty"`
-	AlgorithmStatus      string            `json:"AlgorithmStatus"`
+	CreationTime            time.Time              `json:"CreationTime"`
+	Tags                    map[string]string      `json:"Tags,omitempty"`
+	AlgorithmName           string                 `json:"AlgorithmName"`
+	AlgorithmArn            string                 `json:"AlgorithmArn"`
+	AlgorithmDescription    string                 `json:"AlgorithmDescription,omitempty"`
+	AlgorithmStatus         string                 `json:"AlgorithmStatus"`
+	ProductID               string                 `json:"ProductId,omitempty"`
+	AlgorithmStatusDetails  AlgorithmStatusDetails `json:"AlgorithmStatusDetails"`
+	TrainingSpecification   json.RawMessage        `json:"TrainingSpecification,omitempty"`
+	InferenceSpecification  json.RawMessage        `json:"InferenceSpecification,omitempty"`
+	ValidationSpecification json.RawMessage        `json:"ValidationSpecification,omitempty"`
+	CertifyForMarketplace   bool                   `json:"CertifyForMarketplace,omitempty"`
 }
 
 // cloneAlgorithm returns a deep copy of al.
 func cloneAlgorithm(al *Algorithm) *Algorithm {
 	cp := *al
 	cp.Tags = maps.Clone(al.Tags)
+	cp.TrainingSpecification = append(json.RawMessage(nil), al.TrainingSpecification...)
+	cp.InferenceSpecification = append(json.RawMessage(nil), al.InferenceSpecification...)
+	cp.ValidationSpecification = append(json.RawMessage(nil), al.ValidationSpecification...)
+	cp.AlgorithmStatusDetails.ImageScanStatuses = append(
+		[]AlgorithmStatusItem(nil), al.AlgorithmStatusDetails.ImageScanStatuses...,
+	)
+	cp.AlgorithmStatusDetails.ValidationStatuses = append(
+		[]AlgorithmStatusItem(nil), al.AlgorithmStatusDetails.ValidationStatuses...,
+	)
 
 	return &cp
 }
@@ -492,6 +522,7 @@ type InMemoryBackend struct {
 	appImageConfigs              map[string]map[string]*AppImageConfig
 	inferenceExperiments         map[string]map[string]*InferenceExperiment
 	mlflowTrackingServers        map[string]map[string]*MlflowTrackingServer
+	mlflowApps                   map[string]map[string]*MlflowApp
 	modelCards                   map[string]map[string]*ModelCard
 	optimizationJobs             map[string]map[string]*OptimizationJob
 	studioLifecycleConfigs       map[string]map[string]*StudioLifecycleConfig
@@ -602,6 +633,7 @@ func NewInMemoryBackendWithContext(
 		appImageConfigs:              make(map[string]map[string]*AppImageConfig),
 		inferenceExperiments:         make(map[string]map[string]*InferenceExperiment),
 		mlflowTrackingServers:        make(map[string]map[string]*MlflowTrackingServer),
+		mlflowApps:                   make(map[string]map[string]*MlflowApp),
 		modelCards:                   make(map[string]map[string]*ModelCard),
 		optimizationJobs:             make(map[string]map[string]*OptimizationJob),
 		studioLifecycleConfigs:       make(map[string]map[string]*StudioLifecycleConfig),
@@ -902,6 +934,13 @@ func (b *InMemoryBackend) mlflowTrackingServersStore(r string) map[string]*Mlflo
 	}
 
 	return b.mlflowTrackingServers[r]
+}
+func (b *InMemoryBackend) mlflowAppsStore(r string) map[string]*MlflowApp {
+	if b.mlflowApps[r] == nil {
+		b.mlflowApps[r] = make(map[string]*MlflowApp)
+	}
+
+	return b.mlflowApps[r]
 }
 func (b *InMemoryBackend) modelCardsStore(r string) map[string]*ModelCard {
 	if b.modelCards[r] == nil {
@@ -1230,6 +1269,7 @@ func (b *InMemoryBackend) Reset() {
 	b.appImageConfigs = make(map[string]map[string]*AppImageConfig)
 	b.inferenceExperiments = make(map[string]map[string]*InferenceExperiment)
 	b.mlflowTrackingServers = make(map[string]map[string]*MlflowTrackingServer)
+	b.mlflowApps = make(map[string]map[string]*MlflowApp)
 	b.modelCards = make(map[string]map[string]*ModelCard)
 	b.optimizationJobs = make(map[string]map[string]*OptimizationJob)
 	b.studioLifecycleConfigs = make(map[string]map[string]*StudioLifecycleConfig)
@@ -2243,40 +2283,102 @@ func (b *InMemoryBackend) CreateAction(
 	return cloneAction(a), nil
 }
 
+// CreateAlgorithmOptions holds the optional fields accepted by CreateAlgorithm.
+type CreateAlgorithmOptions struct {
+	Tags                    map[string]string
+	AlgorithmName           string
+	AlgorithmDescription    string
+	TrainingSpecification   json.RawMessage
+	InferenceSpecification  json.RawMessage
+	ValidationSpecification json.RawMessage
+	CertifyForMarketplace   bool
+}
+
 // CreateAlgorithm creates a SageMaker algorithm specification.
-func (b *InMemoryBackend) CreateAlgorithm(
-	ctx context.Context,
-	name, description string,
-	tags map[string]string,
-) (*Algorithm, error) {
+func (b *InMemoryBackend) CreateAlgorithm(ctx context.Context, opts CreateAlgorithmOptions) (*Algorithm, error) {
 	b.mu.Lock("CreateAlgorithm")
 	defer b.mu.Unlock()
 
-	if name == "" {
+	if opts.AlgorithmName == "" {
 		return nil, fmt.Errorf("%w: AlgorithmName is required", ErrValidation)
 	}
 
 	region := getRegion(ctx, b.region)
 	algoStore := b.algorithmsStore(region)
 
-	if _, ok := algoStore[name]; ok {
-		return nil, fmt.Errorf("%w: algorithm %q already exists", ErrAlgorithmAlreadyExists, name)
+	if _, ok := algoStore[opts.AlgorithmName]; ok {
+		return nil, fmt.Errorf("%w: algorithm %q already exists", ErrAlgorithmAlreadyExists, opts.AlgorithmName)
 	}
 
-	algorithmARN := arn.Build("sagemaker", region, b.accountID, "algorithm/"+name)
+	algorithmARN := arn.Build("sagemaker", region, b.accountID, "algorithm/"+opts.AlgorithmName)
+
+	statusDetails := AlgorithmStatusDetails{
+		ImageScanStatuses:  []AlgorithmStatusItem{},
+		ValidationStatuses: []AlgorithmStatusItem{},
+	}
 
 	al := &Algorithm{
-		AlgorithmName:        name,
-		AlgorithmArn:         algorithmARN,
-		AlgorithmDescription: description,
-		AlgorithmStatus:      algorithmStatusCompleted,
-		Tags:                 mergeTags(nil, tags),
-		CreationTime:         time.Now(),
+		AlgorithmName:           opts.AlgorithmName,
+		AlgorithmArn:            algorithmARN,
+		AlgorithmDescription:    opts.AlgorithmDescription,
+		AlgorithmStatus:         algorithmStatusCompleted,
+		AlgorithmStatusDetails:  statusDetails,
+		TrainingSpecification:   opts.TrainingSpecification,
+		InferenceSpecification:  opts.InferenceSpecification,
+		ValidationSpecification: opts.ValidationSpecification,
+		CertifyForMarketplace:   opts.CertifyForMarketplace,
+		Tags:                    mergeTags(nil, opts.Tags),
+		CreationTime:            time.Now(),
 	}
-	algoStore[name] = al
-	b.algorithmARNIndexStore(region)[algorithmARN] = name
+	algoStore[opts.AlgorithmName] = al
+	b.algorithmARNIndexStore(region)[algorithmARN] = opts.AlgorithmName
 
 	return cloneAlgorithm(al), nil
+}
+
+// DescribeAlgorithm returns an algorithm by name.
+func (b *InMemoryBackend) DescribeAlgorithm(ctx context.Context, name string) (*Algorithm, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("DescribeAlgorithm")
+	defer b.mu.RUnlock()
+
+	al, ok := b.algorithmsStore(region)[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: algorithm %q not found", ErrAlgorithmNotFound, name)
+	}
+
+	return cloneAlgorithm(al), nil
+}
+
+// DeleteAlgorithm removes an algorithm by name.
+func (b *InMemoryBackend) DeleteAlgorithm(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("DeleteAlgorithm")
+	defer b.mu.Unlock()
+
+	store := b.algorithmsStore(region)
+
+	al, ok := store[name]
+	if !ok {
+		return fmt.Errorf("%w: algorithm %q not found", ErrAlgorithmNotFound, name)
+	}
+
+	delete(store, name)
+	delete(b.algorithmARNIndexStore(region), al.AlgorithmArn)
+
+	return nil
+}
+
+// ListAlgorithms returns a page of algorithms, ordered by name.
+func (b *InMemoryBackend) ListAlgorithms(ctx context.Context, nextToken string) ([]*Algorithm, string) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListAlgorithms")
+	defer b.mu.RUnlock()
+
+	return sagemakerListKeyPaged(b.algorithmsStore(region), nextToken, cloneAlgorithm)
 }
 
 // AddModelPackageInternal adds a model package directly for testing.

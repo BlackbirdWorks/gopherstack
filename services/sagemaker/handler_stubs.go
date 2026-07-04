@@ -54,6 +54,7 @@ const (
 	keyWorkforceArn                    = "WorkforceArn"
 	keyAuthorizedURL                   = "AuthorizedUrl"
 	keyGenericArn                      = "Arn"
+	keyGenericName                     = "Name"
 	keyAppArn                          = "AppArn"
 	keyFeatureGroupStatus              = "FeatureGroupStatus"
 	keyMonitoringScheduleName          = "MonitoringScheduleName"
@@ -83,19 +84,11 @@ const (
 // stubOpsSupported returns the list of stub-implemented operations.
 func stubOpsSupported() []string {
 	return []string{
-		"CreateMlflowApp",
 		"CreateModelCardExportJob",
-		"CreatePartnerAppPresignedUrl",
 		"CreatePresignedDomainUrl",
-		"CreatePresignedMlflowAppUrl",
-		"CreatePresignedMlflowTrackingServerUrl",
-		"DeleteAlgorithm",
-		"DeleteMlflowApp",
 		"DeleteModelPackageGroupPolicy",
 		"DeleteProcessingJob",
-		"DescribeAlgorithm",
 		"DescribeFeatureMetadata",
-		"DescribeMlflowApp",
 		"DescribeModelCardExportJob",
 		"DescribePipelineDefinitionForExecution",
 		"DescribeReservedCapacity",
@@ -108,12 +101,9 @@ func stubOpsSupported() []string {
 		"GetSagemakerServicecatalogPortfolioStatus",
 		"GetScalingConfigurationRecommendation",
 		"GetSearchSuggestions",
-		"ListAlgorithms",
 		"ListAliases",
 		"ListCandidatesForAutoMLJob",
-		"ListMlflowApps",
 		"ListModelMetadata",
-		"ListPartnerApps",
 		// ListPipelineParametersForExecution — real implementation in handler_accuracy2.go
 		"ListPipelineVersions",
 		"ListResourceCatalogs",
@@ -132,8 +122,6 @@ func stubOpsSupported() []string {
 		"UpdateImage",
 		"UpdateImageVersion",
 		"UpdateInferenceExperiment",
-		"UpdateMlflowApp",
-		"UpdatePartnerApp",
 		"UpdatePipelineExecution",
 		"UpdatePipelineVersion",
 		"UpdateProject",
@@ -163,16 +151,10 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateFeatureGroup":
 		return mustMarshal(m{keyFeatureGroupArn: ""}), true
 
-	case "CreateMlflowApp":
-		return mustMarshal(m{keyGenericArn: ""}), true
-
 	case "CreateModelCardExportJob":
 		return mustMarshal(m{keyModelCardExportJobArn: ""}), true
 
-	case "CreatePartnerAppPresignedUrl",
-		"CreatePresignedDomainUrl",
-		"CreatePresignedMlflowAppUrl",
-		"CreatePresignedMlflowTrackingServerUrl":
+	case "CreatePresignedDomainUrl":
 		return mustMarshal(m{keyAuthorizedURL: ""}), true
 
 	case "CreatePipeline":
@@ -190,12 +172,10 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// Delete / stop / misc — return empty object
 	// -----------------------------------------------------------------------
-	case "DeleteAlgorithm",
-		"DeleteApp",
+	case "DeleteApp",
 		"DeleteDomain",
 		"DeleteExperiment",
 		"DeleteFeatureGroup",
-		"DeleteMlflowApp",
 		"DeleteModelPackageGroupPolicy",
 		"DeletePipeline",
 		"DeleteProcessingJob",
@@ -215,11 +195,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// Describe ops
 	// -----------------------------------------------------------------------
-	case "DescribeAlgorithm":
-		return mustMarshal(m{
-			"AlgorithmName": "", "AlgorithmArn": "", "AlgorithmStatus": statusCompleted,
-		}), true
-
 	case "DescribeApp":
 		return mustMarshal(m{
 			keyAppArn: "", "AppType": "", "AppName": "", keyStatus: statusInService,
@@ -245,9 +220,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(m{
 			keyFeatureGroupArn: "", keyFeatureGroupName: "", "FeatureName": "", "FeatureType": "",
 		}), true
-
-	case "DescribeMlflowApp":
-		return mustMarshal(m{keyGenericArn: "", keyStatus: statusInService}), true
 
 	case "DescribeModelCardExportJob":
 		return mustMarshal(m{
@@ -302,13 +274,10 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// List ops — all return an empty array under a domain-appropriate key
 	// -----------------------------------------------------------------------
-	case "ListAlgorithms":
-		return mustMarshal(m{"AlgorithmSummaryList": []any{}}), true
-
 	case "ListAliases":
 		return mustMarshal(m{"SageMakerImageVersionAliases": []any{}}), true
 
-	case "ListApps", "ListMlflowApps":
+	case "ListApps":
 		return mustMarshal(m{"Apps": []any{}}), true
 
 	case "ListCandidatesForAutoMLJob":
@@ -325,9 +294,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListModelMetadata":
 		return mustMarshal(m{"ModelMetadataSummaries": []any{}}), true
-
-	case "ListPartnerApps":
-		return mustMarshal(m{"Summaries": []any{}}), true
 
 	case "ListPipelineExecutions":
 		return mustMarshal(m{"PipelineExecutionSummaries": []any{}}), true
@@ -382,9 +348,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateInferenceExperiment":
 		return mustMarshal(m{keyInferenceExperimentArn: ""}), true
-
-	case "UpdateMlflowApp", "UpdatePartnerApp":
-		return mustMarshal(m{keyGenericArn: ""}), true
 
 	case "UpdatePipeline", "UpdatePipelineVersion":
 		return mustMarshal(m{keyPipelineArn: ""}), true

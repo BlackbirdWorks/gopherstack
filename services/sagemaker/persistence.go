@@ -66,12 +66,15 @@ type backendSnapshot struct {
 	// MonitoringAlertHistory is stored as region → history entries (across all schedules/alerts).
 	MonitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry `json:"monitoringAlertHistory"`
 	// MonitoringExecutions is stored as region → "scheduleName|processingJobArn" → MonitoringExecution.
-	MonitoringExecutions map[string]map[string]*MonitoringExecution `json:"monitoringExecutions"`
-	Workteams            map[string]map[string]*Workteam            `json:"workteams"`
-	Workforces           map[string]map[string]*Workforce           `json:"workforces"`
-	LabelingJobs         map[string]map[string]*LabelingJob         `json:"labelingJobs"`
-	AccountID            string                                     `json:"accountID"`
-	Region               string                                     `json:"region"`
+	MonitoringExecutions  map[string]map[string]*MonitoringExecution  `json:"monitoringExecutions"`
+	Workteams             map[string]map[string]*Workteam             `json:"workteams"`
+	Workforces            map[string]map[string]*Workforce            `json:"workforces"`
+	LabelingJobs          map[string]map[string]*LabelingJob          `json:"labelingJobs"`
+	MlflowTrackingServers map[string]map[string]*MlflowTrackingServer `json:"mlflowTrackingServers"`
+	MlflowApps            map[string]map[string]*MlflowApp            `json:"mlflowApps"`
+	PartnerApps           map[string]map[string]*PartnerApp           `json:"partnerApps"`
+	AccountID             string                                      `json:"accountID"`
+	Region                string                                      `json:"region"`
 }
 
 // snapshotClusters converts map[string]map[string]*Cluster →
@@ -206,6 +209,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Workteams:                  b.workteams,
 		Workforces:                 b.workforces,
 		LabelingJobs:               b.labelingJobs,
+		MlflowTrackingServers:      b.mlflowTrackingServers,
+		MlflowApps:                 b.mlflowApps,
+		PartnerApps:                b.partnerApps,
 		AccountID:                  b.accountID,
 		Region:                     b.region,
 	}
@@ -373,6 +379,9 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.workteams = snap.Workteams
 	b.workforces = snap.Workforces
 	b.labelingJobs = snap.LabelingJobs
+	b.mlflowTrackingServers = snap.MlflowTrackingServers
+	b.mlflowApps = snap.MlflowApps
+	b.partnerApps = snap.PartnerApps
 }
 
 func buildARNIndex[V any](src map[string]map[string]V, arnFn func(string, V) string) map[string]map[string]string {
@@ -482,6 +491,15 @@ func ensureMonitorMaps(snap *backendSnapshot) {
 	if snap.LabelingJobs == nil {
 		snap.LabelingJobs = make(map[string]map[string]*LabelingJob)
 	}
+	if snap.MlflowTrackingServers == nil {
+		snap.MlflowTrackingServers = make(map[string]map[string]*MlflowTrackingServer)
+	}
+	if snap.MlflowApps == nil {
+		snap.MlflowApps = make(map[string]map[string]*MlflowApp)
+	}
+	if snap.PartnerApps == nil {
+		snap.PartnerApps = make(map[string]map[string]*PartnerApp)
+	}
 }
 
 func ensureHubMaps(snap *backendSnapshot) {
@@ -588,6 +606,12 @@ func fixNilTagMapsCoreResources(snap *backendSnapshot) {
 	fixNestedTagsSage(snap.Artifacts, func(ar *Artifact) { ar.Tags = ensureSageTagMap(ar.Tags) })
 	fixNestedTagsSage(snap.Contexts, func(c *Context) { c.Tags = ensureSageTagMap(c.Tags) })
 	fixNestedTagsSage(snap.Algorithms, func(al *Algorithm) { al.Tags = ensureSageTagMap(al.Tags) })
+	fixNestedTagsSage(
+		snap.MlflowTrackingServers,
+		func(s *MlflowTrackingServer) { s.Tags = ensureSageTagMap(s.Tags) },
+	)
+	fixNestedTagsSage(snap.MlflowApps, func(m *MlflowApp) { m.Tags = ensureSageTagMap(m.Tags) })
+	fixNestedTagsSage(snap.PartnerApps, func(p *PartnerApp) { p.Tags = ensureSageTagMap(p.Tags) })
 	fixNestedTagsSage(snap.ModelPackages, func(mp *ModelPackage) { mp.Tags = ensureSageTagMap(mp.Tags) })
 }
 

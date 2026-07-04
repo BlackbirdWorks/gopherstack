@@ -206,6 +206,7 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
 	b.resetAdvancedNetworkingMapsLocked()
 	b.resetBatch4MapsLocked()
+	initTGWMulticastMaps(b)
 }
 
 // resetBatch4MapsLocked re-initialises all batch4 resource maps.

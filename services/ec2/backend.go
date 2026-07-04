@@ -324,24 +324,29 @@ type InMemoryBackend struct {
 	localGatewayRoutes                         map[string]*LocalGatewayRoute
 	localGatewayRouteTableVpcAssociations      map[string]*LocalGatewayRouteTableVpcAssociation
 	localGatewayRouteTableVifGroupAssociations map[string]*LocalGatewayRouteTableVirtualInterfaceGroupAssociation
-	mu                                         *lockmetrics.RWMutex
-	lifecycleStop                              chan struct{}
-	eniIDByAttachment                          map[string]string
-	eniIDsByInstance                           map[string]map[string]struct{}
-	instanceIDsByVPC                           map[string]map[string]struct{}
-	snapshotBlockPublicAccess                  string
-	ebsDefaultKmsKeyID                         string
-	imageBlockPublicAccess                     string
-	defaultCreditSpec                          string
-	Region                                     string `json:"region,omitempty"`
-	AccountID                                  string `json:"accountID,omitempty"`
-	freePrivateIPs                             []string
-	nextPrivateIPIndex                         int
-	nextElasticIPIndex                         int
-	ebsEncryptionByDefault                     bool
-	serialConsoleAccess                        bool
-	lifecycleOnce                              sync.Once
-	lifecycleStopOnce                          sync.Once
+	// transit gateway multicast domain / metering policy additions
+	tgwMulticastDomains       map[string]*TransitGatewayMulticastDomain
+	tgwMulticastGroupEntries  map[string]*TransitGatewayMulticastGroupEntry
+	tgwMeteringPolicies       map[string]*TransitGatewayMeteringPolicy
+	tgwMeteringPolicyEntries  map[string]*TransitGatewayMeteringPolicyEntry
+	mu                        *lockmetrics.RWMutex
+	lifecycleStop             chan struct{}
+	eniIDByAttachment         map[string]string
+	eniIDsByInstance          map[string]map[string]struct{}
+	instanceIDsByVPC          map[string]map[string]struct{}
+	snapshotBlockPublicAccess string
+	ebsDefaultKmsKeyID        string
+	imageBlockPublicAccess    string
+	defaultCreditSpec         string
+	Region                    string `json:"region,omitempty"`
+	AccountID                 string `json:"accountID,omitempty"`
+	freePrivateIPs            []string
+	nextPrivateIPIndex        int
+	nextElasticIPIndex        int
+	ebsEncryptionByDefault    bool
+	serialConsoleAccess       bool
+	lifecycleOnce             sync.Once
+	lifecycleStopOnce         sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -435,8 +440,19 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initBatch6Maps(b)
 	initRouteServerMaps(b)
 	initLocalGatewayMaps(b)
+	initTGWMulticastMaps(b)
 
 	return b
+}
+
+// initTGWMulticastMaps initialises the transit gateway multicast domain and
+// metering policy state maps (split out to keep newInMemoryBackendMaps under
+// the funlen limit).
+func initTGWMulticastMaps(b *InMemoryBackend) {
+	b.tgwMulticastDomains = make(map[string]*TransitGatewayMulticastDomain)
+	b.tgwMulticastGroupEntries = make(map[string]*TransitGatewayMulticastGroupEntry)
+	b.tgwMeteringPolicies = make(map[string]*TransitGatewayMeteringPolicy)
+	b.tgwMeteringPolicyEntries = make(map[string]*TransitGatewayMeteringPolicyEntry)
 }
 
 // initLocalGatewayMaps initialises the Local Gateway state maps (split out to keep

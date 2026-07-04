@@ -70,6 +70,14 @@ func batch3SupportedOperations() []string {
 		"DeleteMlflowTrackingServer",
 		"StartMlflowTrackingServer",
 		"StopMlflowTrackingServer",
+		"CreatePresignedMlflowTrackingServerUrl",
+		// MlflowApp
+		"CreateMlflowApp",
+		"DescribeMlflowApp",
+		"DeleteMlflowApp",
+		"UpdateMlflowApp",
+		"ListMlflowApps",
+		"CreatePresignedMlflowAppUrl",
 		// ModelCard
 		"CreateModelCard",
 		"DescribeModelCard",
@@ -88,6 +96,9 @@ func batch3SupportedOperations() []string {
 		"CreatePartnerApp",
 		"DescribePartnerApp",
 		"DeletePartnerApp",
+		"UpdatePartnerApp",
+		"ListPartnerApps",
+		"CreatePartnerAppPresignedUrl",
 		// TrainingPlan
 		"CreateTrainingPlan",
 		"DescribeTrainingPlan",
@@ -276,6 +287,34 @@ func (h *Handler) dispatchBatch3Ops(
 		return nil, true, h.handleStartMlflowTrackingServer(ctx, body)
 	case "StopMlflowTrackingServer":
 		return nil, true, h.handleStopMlflowTrackingServer(ctx, body)
+	case "CreatePresignedMlflowTrackingServerUrl":
+		r, err := h.handleCreatePresignedMlflowTrackingServerURL(ctx, body)
+
+		return r, true, err
+
+	// MlflowApp
+	case "CreateMlflowApp":
+		r, err := h.handleCreateMlflowApp(ctx, body)
+
+		return r, true, err
+	case "DescribeMlflowApp":
+		r, err := h.handleDescribeMlflowApp(ctx, body)
+
+		return r, true, err
+	case "DeleteMlflowApp":
+		return nil, true, h.handleDeleteMlflowApp(ctx, body)
+	case "UpdateMlflowApp":
+		r, err := h.handleUpdateMlflowApp(ctx, body)
+
+		return r, true, err
+	case "ListMlflowApps":
+		r, err := h.handleListMlflowApps(ctx, body)
+
+		return r, true, err
+	case "CreatePresignedMlflowAppUrl":
+		r, err := h.handleCreatePresignedMlflowAppURL(ctx, body)
+
+		return r, true, err
 
 	// ModelCard
 	case "CreateModelCard":
@@ -329,7 +368,21 @@ func (h *Handler) dispatchBatch3Ops(
 
 		return r, true, err
 	case "DeletePartnerApp":
-		return nil, true, h.handleDeletePartnerApp(ctx, body)
+		r, err := h.handleDeletePartnerApp(ctx, body)
+
+		return r, true, err
+	case "UpdatePartnerApp":
+		r, err := h.handleUpdatePartnerApp(ctx, body)
+
+		return r, true, err
+	case "ListPartnerApps":
+		r, err := h.handleListPartnerApps(ctx, body)
+
+		return r, true, err
+	case "CreatePartnerAppPresignedUrl":
+		r, err := h.handleCreatePartnerAppPresignedURL(ctx, body)
+
+		return r, true, err
 
 	// TrainingPlan
 	case "CreateTrainingPlan":
@@ -1565,6 +1618,207 @@ func (h *Handler) handleStopMlflowTrackingServer(ctx context.Context, body []byt
 	return h.Backend.StopMlflowTrackingServer(ctx, req.TrackingServerName)
 }
 
+func (h *Handler) handleCreatePresignedMlflowTrackingServerURL(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		TrackingServerName string `json:"TrackingServerName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.TrackingServerName == "" {
+		return nil, fmt.Errorf("%w: TrackingServerName is required", errInvalidRequest)
+	}
+
+	url, err := h.Backend.CreatePresignedMlflowTrackingServerURL(ctx, req.TrackingServerName)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyAuthorizedURL: url})
+}
+
+// ---------------------------------------------------------------------------
+// MlflowApp handlers
+// ---------------------------------------------------------------------------
+
+func (h *Handler) handleCreateMlflowApp(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Tags                  map[string]string `json:"Tags"`
+		Name                  string            `json:"Name"`
+		ArtifactStoreURI      string            `json:"ArtifactStoreUri"`
+		RoleArn               string            `json:"RoleArn"`
+		AccountDefaultStatus  string            `json:"AccountDefaultStatus,omitempty"`
+		ModelRegistrationMode string            `json:"ModelRegistrationMode,omitempty"`
+		DefaultDomainIDList   []string          `json:"DefaultDomainIdList,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.CreateMlflowApp(ctx, CreateMlflowAppOptions{
+		Name:                  req.Name,
+		ArtifactStoreURI:      req.ArtifactStoreURI,
+		RoleArn:               req.RoleArn,
+		AccountDefaultStatus:  req.AccountDefaultStatus,
+		ModelRegistrationMode: req.ModelRegistrationMode,
+		DefaultDomainIDList:   req.DefaultDomainIDList,
+		Tags:                  req.Tags,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{keyGenericArn: result.Arn})
+}
+
+// describeMlflowAppResponse is the response body for DescribeMlflowApp.
+type describeMlflowAppResponse struct {
+	Arn                   string   `json:"Arn"`
+	Name                  string   `json:"Name"`
+	Status                string   `json:"Status"`
+	ArtifactStoreURI      string   `json:"ArtifactStoreUri,omitempty"`
+	RoleArn               string   `json:"RoleArn,omitempty"`
+	MlflowVersion         string   `json:"MlflowVersion,omitempty"`
+	AccountDefaultStatus  string   `json:"AccountDefaultStatus,omitempty"`
+	ModelRegistrationMode string   `json:"ModelRegistrationMode,omitempty"`
+	DefaultDomainIDList   []string `json:"DefaultDomainIdList,omitempty"`
+	CreationTime          float64  `json:"CreationTime"`
+	LastModifiedTime      float64  `json:"LastModifiedTime"`
+}
+
+func (h *Handler) handleDescribeMlflowApp(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Arn string `json:"Arn"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.DescribeMlflowApp(ctx, req.Arn)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(describeMlflowAppResponse{
+		Arn:                   result.Arn,
+		Name:                  result.Name,
+		Status:                result.Status,
+		ArtifactStoreURI:      result.ArtifactStoreURI,
+		RoleArn:               result.RoleArn,
+		MlflowVersion:         result.MlflowVersion,
+		AccountDefaultStatus:  result.AccountDefaultStatus,
+		ModelRegistrationMode: result.ModelRegistrationMode,
+		DefaultDomainIDList:   result.DefaultDomainIDList,
+		CreationTime:          epochSeconds(result.CreationTime),
+		LastModifiedTime:      epochSeconds(result.LastModifiedTime),
+	})
+}
+
+func (h *Handler) handleDeleteMlflowApp(ctx context.Context, body []byte) error {
+	var req struct {
+		Arn string `json:"Arn"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Arn == "" {
+		return fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	return h.Backend.DeleteMlflowApp(ctx, req.Arn)
+}
+
+func (h *Handler) handleUpdateMlflowApp(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Arn                   string   `json:"Arn"`
+		ArtifactStoreURI      string   `json:"ArtifactStoreUri,omitempty"`
+		AccountDefaultStatus  string   `json:"AccountDefaultStatus,omitempty"`
+		ModelRegistrationMode string   `json:"ModelRegistrationMode,omitempty"`
+		DefaultDomainIDList   []string `json:"DefaultDomainIdList,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.UpdateMlflowApp(ctx, UpdateMlflowAppOptions{
+		Arn:                   req.Arn,
+		ArtifactStoreURI:      req.ArtifactStoreURI,
+		AccountDefaultStatus:  req.AccountDefaultStatus,
+		ModelRegistrationMode: req.ModelRegistrationMode,
+		DefaultDomainIDList:   req.DefaultDomainIDList,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{keyGenericArn: result.Arn})
+}
+
+func (h *Handler) handleListMlflowApps(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		NextToken string `json:"NextToken"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	apps, nextToken := h.Backend.ListMlflowApps(ctx, req.NextToken)
+
+	items := make([]map[string]any, 0, len(apps))
+	for _, a := range apps {
+		items = append(items, map[string]any{
+			keyGenericArn:       a.Arn,
+			keyGenericName:      a.Name,
+			keyStatus:           a.Status,
+			keyCreationTime:     epochSeconds(a.CreationTime),
+			keyLastModifiedTime: epochSeconds(a.LastModifiedTime),
+		})
+	}
+
+	return listResp("Summaries", items, nextToken)
+}
+
+func (h *Handler) handleCreatePresignedMlflowAppURL(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Arn string `json:"Arn"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	url, err := h.Backend.CreatePresignedMlflowAppURL(ctx, req.Arn)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyAuthorizedURL: url})
+}
+
 // ---------------------------------------------------------------------------
 // ModelCard handlers
 // ---------------------------------------------------------------------------
@@ -1803,9 +2057,13 @@ func (h *Handler) handleDeleteStudioLifecycleConfig(ctx context.Context, body []
 
 func (h *Handler) handleCreatePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags map[string]string `json:"Tags"`
-		Name string            `json:"Name"`
-		Type string            `json:"Type"`
+		Tags              map[string]string `json:"Tags"`
+		Name              string            `json:"Name"`
+		Type              string            `json:"Type"`
+		ExecutionRoleArn  string            `json:"ExecutionRoleArn,omitempty"`
+		AuthType          string            `json:"AuthType,omitempty"`
+		Tier              string            `json:"Tier,omitempty"`
+		ApplicationConfig json.RawMessage   `json:"ApplicationConfig,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1816,12 +2074,34 @@ func (h *Handler) handleCreatePartnerApp(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreatePartnerApp(ctx, req.Name, req.Type, req.Tags)
+	result, err := h.Backend.CreatePartnerApp(ctx, CreatePartnerAppOptions{
+		Name:              req.Name,
+		Type:              req.Type,
+		ExecutionRoleArn:  req.ExecutionRoleArn,
+		AuthType:          req.AuthType,
+		Tier:              req.Tier,
+		ApplicationConfig: req.ApplicationConfig,
+		Tags:              req.Tags,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{keyGenericArn: result.Arn})
+}
+
+// describePartnerAppResponse is the response body for DescribePartnerApp.
+type describePartnerAppResponse struct {
+	Arn               string          `json:"Arn"`
+	Name              string          `json:"Name"`
+	Status            string          `json:"Status"`
+	Type              string          `json:"Type,omitempty"`
+	ExecutionRoleArn  string          `json:"ExecutionRoleArn,omitempty"`
+	AuthType          string          `json:"AuthType,omitempty"`
+	Tier              string          `json:"Tier,omitempty"`
+	ApplicationConfig json.RawMessage `json:"ApplicationConfig,omitempty"`
+	CreationTime      float64         `json:"CreationTime"`
+	LastModifiedTime  float64         `json:"LastModifiedTime"`
 }
 
 func (h *Handler) handleDescribePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
@@ -1842,23 +2122,111 @@ func (h *Handler) handleDescribePartnerApp(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(describePartnerAppResponse{
+		Arn:               result.Arn,
+		Name:              result.Name,
+		Status:            result.Status,
+		Type:              result.Type,
+		ExecutionRoleArn:  result.ExecutionRoleArn,
+		AuthType:          result.AuthType,
+		Tier:              result.Tier,
+		ApplicationConfig: result.ApplicationConfig,
+		CreationTime:      epochSeconds(result.CreationTime),
+		LastModifiedTime:  epochSeconds(result.LastModifiedTime),
+	})
 }
 
-func (h *Handler) handleDeletePartnerApp(ctx context.Context, body []byte) error {
+func (h *Handler) handleDeletePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Arn string `json:"Arn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.Arn == "" {
-		return fmt.Errorf("%w: Arn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeletePartnerApp(ctx, req.Arn)
+	if err := h.Backend.DeletePartnerApp(ctx, req.Arn); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyGenericArn: req.Arn})
+}
+
+func (h *Handler) handleUpdatePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Arn               string          `json:"Arn"`
+		Tier              string          `json:"Tier,omitempty"`
+		ApplicationConfig json.RawMessage `json:"ApplicationConfig,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.UpdatePartnerApp(ctx, UpdatePartnerAppOptions{
+		Arn:               req.Arn,
+		Tier:              req.Tier,
+		ApplicationConfig: req.ApplicationConfig,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{keyGenericArn: result.Arn})
+}
+
+func (h *Handler) handleListPartnerApps(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		NextToken string `json:"NextToken"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	apps, nextToken := h.Backend.ListPartnerApps(ctx, req.NextToken)
+
+	items := make([]map[string]any, 0, len(apps))
+	for _, p := range apps {
+		items = append(items, map[string]any{
+			keyGenericArn:   p.Arn,
+			keyGenericName:  p.Name,
+			keyStatus:       p.Status,
+			"Type":          p.Type,
+			keyCreationTime: epochSeconds(p.CreationTime),
+		})
+	}
+
+	return listResp("Summaries", items, nextToken)
+}
+
+func (h *Handler) handleCreatePartnerAppPresignedURL(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Arn string `json:"Arn"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	url, err := h.Backend.CreatePartnerAppPresignedURL(ctx, req.Arn)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyURL: url})
 }
 
 // ---------------------------------------------------------------------------
