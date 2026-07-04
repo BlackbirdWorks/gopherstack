@@ -164,6 +164,7 @@ const (
 
 	pathBackupVaults        = "/backup-vaults"
 	pathBackupPlans         = "/backup/plans"
+	pathBackupTemplate      = "/backup/template"
 	pathBackupJobs          = "/backup-jobs"
 	pathCopyJobs            = "/copy-jobs"
 	pathTags                = "/tags/"
@@ -406,6 +407,7 @@ func matchesBackupPath(path string) bool {
 	prefixes := []string{
 		pathBackupVaults + "/",
 		pathBackupPlans + "/",
+		pathBackupTemplate + "/",
 		pathBackupJobs + "/",
 		pathCopyJobs + "/",
 		pathTags + "arn:aws:backup:",
@@ -464,6 +466,9 @@ func parseBackupPath(
 	case strings.HasPrefix(path, pathBackupVaults):
 
 		return parseVaultRoute(method, strings.TrimPrefix(path, pathBackupVaults))
+	case strings.HasPrefix(path, pathBackupTemplate):
+
+		return parseTemplateRoute(method, strings.TrimPrefix(path, pathBackupTemplate))
 	case strings.HasPrefix(path, pathBackupPlans):
 
 		return parsePlanRoute(method, strings.TrimPrefix(path, pathBackupPlans))
@@ -832,6 +837,10 @@ func parsePlanSelectionRoute(method, planID, rest string) backupRoute {
 		return backupRoute{operation: opListBackupPlanVersions, resource: planID}
 	}
 
+	if rest == "toTemplate" && method == http.MethodGet {
+		return backupRoute{operation: opExportBackupPlanTemplate, resource: planID}
+	}
+
 	if rest == "selections" {
 		switch method {
 		case http.MethodPut:
@@ -858,6 +867,27 @@ func parsePlanSelectionRoute(method, planID, rest string) backupRoute {
 					resource:  planID + "|" + selID,
 				}
 			}
+		}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// parseTemplateRoute routes backup plan template paths under /backup/template.
+func parseTemplateRoute(method, suffix string) backupRoute {
+	suffix = strings.TrimPrefix(suffix, "/")
+
+	if suffix == "json/toPlan" && method == http.MethodPost {
+		return backupRoute{operation: opGetBackupPlanFromJSON}
+	}
+
+	if suffix == "plans" && method == http.MethodGet {
+		return backupRoute{operation: opListBackupPlanTemplates}
+	}
+
+	if rest, ok := strings.CutPrefix(suffix, "plans/"); ok {
+		if id, cut := strings.CutSuffix(rest, "/toPlan"); cut && method == http.MethodGet {
+			return backupRoute{operation: opGetBackupPlanFromTemplate, resource: id}
 		}
 	}
 
@@ -4085,6 +4115,85 @@ func (h *Handler) dispatchStubLegalHoldOps(
 	return false, nil
 }
 
+// builtinBackupPlanTemplate is one of the backup plan templates AWS Backup
+// ships out of the box (surfaced by ListBackupPlanTemplates / GetBackupPlanFromTemplate).
+type builtinBackupPlanTemplate struct {
+	ID    string
+	Name  string
+	Rules []Rule
+}
+
+const (
+	// builtinTemplateDefaultVault is the target vault name used by the
+	// built-in backup plan templates, matching the AWS console default.
+	builtinTemplateDefaultVault = "Default"
+
+	builtinTemplateRetentionDays35  = 35
+	builtinTemplateRetentionDays90  = 90
+	builtinTemplateRetentionDays365 = 365
+	builtinTemplateColdStorageDays  = 30
+)
+
+// builtinBackupPlanTemplates mirrors the built-in backup plan templates AWS
+// Backup provides (the same ones shown under "Backup plan templates" in the console).
+func builtinBackupPlanTemplates() []builtinBackupPlanTemplate {
+	return []builtinBackupPlanTemplate{
+		{
+			ID:   "1n5nA02m8Z",
+			Name: "Daily-35day-Retention",
+			Rules: []Rule{
+				{
+					RuleName:           "DailyRule",
+					TargetVaultName:    builtinTemplateDefaultVault,
+					ScheduleExpression: "cron(0 5 ? * * *)",
+					Lifecycle:          &Lifecycle{DeleteAfterDays: builtinTemplateRetentionDays35},
+				},
+			},
+		},
+		{
+			ID:   "2m6oB13n9A",
+			Name: "Daily-Weekly-Monthly-1yr-Retention",
+			Rules: []Rule{
+				{
+					RuleName:           "DailyRule",
+					TargetVaultName:    builtinTemplateDefaultVault,
+					ScheduleExpression: "cron(0 5 ? * * *)",
+					Lifecycle:          &Lifecycle{DeleteAfterDays: builtinTemplateRetentionDays35},
+				},
+				{
+					RuleName:           "WeeklyRule",
+					TargetVaultName:    builtinTemplateDefaultVault,
+					ScheduleExpression: "cron(0 5 ? * 1 *)",
+					Lifecycle: &Lifecycle{
+						MoveToColdStorageAfterDays: builtinTemplateColdStorageDays,
+						DeleteAfterDays:            builtinTemplateRetentionDays90,
+					},
+				},
+				{
+					RuleName:           "MonthlyRule",
+					TargetVaultName:    builtinTemplateDefaultVault,
+					ScheduleExpression: "cron(0 5 1 * ? *)",
+					Lifecycle: &Lifecycle{
+						MoveToColdStorageAfterDays: builtinTemplateColdStorageDays,
+						DeleteAfterDays:            builtinTemplateRetentionDays365,
+					},
+				},
+			},
+		},
+	}
+}
+
+// lookupBuiltinBackupPlanTemplate finds a built-in backup plan template by its ID.
+func lookupBuiltinBackupPlanTemplate(id string) (builtinBackupPlanTemplate, bool) {
+	for _, t := range builtinBackupPlanTemplates() {
+		if t.ID == id {
+			return t, true
+		}
+	}
+
+	return builtinBackupPlanTemplate{}, false
+}
+
 // dispatchStubPlanTemplatesAndTiering handles plan template, job, and tiering stub responses.
 func (h *Handler) dispatchStubPlanTemplatesAndTiering(
 	c *echo.Context,
@@ -4103,34 +4212,11 @@ func (h *Handler) dispatchStubPlanTemplateOps(
 	route backupRoute,
 	body []byte,
 ) (bool, error) {
+	if ok, err := h.dispatchPlanTemplateCatalogOps(c, route, body); ok {
+		return true, err
+	}
+
 	switch route.operation {
-	case opExportBackupPlanTemplate:
-		tmpl, err := h.Backend.ExportBackupPlanTemplate(route.resource)
-		if err != nil {
-			tmpl = "{}"
-		}
-
-		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanTemplateJson": tmpl})
-	case opGetBackupPlanFromJSON:
-		var reqBody struct {
-			BackupPlanTemplateJSON string `json:"BackupPlanTemplateJson"`
-		}
-		_ = json.Unmarshal(body, &reqBody)
-
-		return true, c.JSON(http.StatusOK, map[string]any{
-			"BackupPlan": map[string]any{keyBackupPlanName: "imported-plan", "Rules": []any{}},
-		})
-	case opGetBackupPlanFromTemplate:
-
-		return true, c.JSON(http.StatusOK, map[string]any{
-			"BackupPlanDocument": map[string]any{
-				keyBackupPlanName: "template-plan",
-				"Rules":           []any{},
-			},
-		})
-	case opListBackupPlanTemplates:
-
-		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanTemplatesList": []any{}})
 	case opListBackupPlanVersions:
 		versions, err := h.Backend.ListBackupPlanVersions(route.resource)
 		if err != nil {
@@ -4174,6 +4260,78 @@ func (h *Handler) dispatchStubPlanTemplateOps(
 			keyCopyJobID:    job.CopyJobID,
 			keyCreationDate: epochSeconds(job.CreationDate),
 		})
+	}
+
+	return false, nil
+}
+
+// dispatchPlanTemplateCatalogOps handles the backup-plan-template family of
+// operations (export/import/list/resolve), split out of
+// dispatchStubPlanTemplateOps to keep cyclomatic complexity in check.
+func (h *Handler) dispatchPlanTemplateCatalogOps(
+	c *echo.Context,
+	route backupRoute,
+	body []byte,
+) (bool, error) {
+	switch route.operation {
+	case opExportBackupPlanTemplate:
+		tmpl, err := h.Backend.ExportBackupPlanTemplate(route.resource)
+		if err != nil {
+			tmpl = "{}"
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanTemplateJson": tmpl})
+	case opGetBackupPlanFromJSON:
+		var reqBody struct {
+			BackupPlanTemplateJSON string `json:"BackupPlanTemplateJson"`
+		}
+		if err := json.Unmarshal(body, &reqBody); err != nil {
+			return true, c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		}
+
+		var doc backupPlanBodyDoc
+		if err := json.Unmarshal([]byte(reqBody.BackupPlanTemplateJSON), &doc); err != nil {
+			return true, c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid BackupPlanTemplateJson"),
+			)
+		}
+
+		planDoc := map[string]any{
+			keyBackupPlanName: doc.BackupPlanName,
+			keyRules:          doc.Rules,
+		}
+		if len(doc.AdvancedBackupSettings) > 0 {
+			planDoc["AdvancedBackupSettings"] = doc.AdvancedBackupSettings
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlan": planDoc})
+	case opGetBackupPlanFromTemplate:
+		tmpl, ok := lookupBuiltinBackupPlanTemplate(route.resource)
+		if !ok {
+			return true, c.JSON(
+				http.StatusNotFound,
+				errResp("ResourceNotFoundException", "Backup plan template with ID "+route.resource+" not found"),
+			)
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"BackupPlanDocument": map[string]any{
+				keyBackupPlanName: tmpl.Name,
+				keyRules:          rulesToJSON(tmpl.Rules),
+			},
+		})
+	case opListBackupPlanTemplates:
+		templates := builtinBackupPlanTemplates()
+		items := make([]map[string]any, 0, len(templates))
+		for _, t := range templates {
+			items = append(items, map[string]any{
+				"BackupPlanTemplateId":   t.ID,
+				"BackupPlanTemplateName": t.Name,
+			})
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanTemplatesList": items})
 	}
 
 	return false, nil
@@ -4227,14 +4385,14 @@ func (h *Handler) dispatchStubTieringOps(
 	case opGetTieringConfiguration:
 		tc, err := h.Backend.GetTieringConfiguration(route.resource)
 		if err != nil {
-			return true, c.JSON(http.StatusOK, map[string]any{
-				keyBackupVaultName: route.resource, keyTieringConfigurations: []any{},
-			})
+			return true, c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{
-			keyBackupVaultName:       tc.BackupVaultName,
-			keyTieringConfigurations: []any{},
+			"TieringConfiguration": map[string]any{
+				keyBackupVaultName: tc.BackupVaultName,
+				keyBackupVaultArn:  tc.BackupVaultArn,
+			},
 		})
 	case opListTieringConfigurations:
 		tcs := h.Backend.ListTieringConfigurations()

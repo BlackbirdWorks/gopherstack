@@ -49,6 +49,7 @@ type SecurityGroupRuleDetail struct {
 	GroupID             string `json:"groupID,omitempty"`
 	Protocol            string `json:"protocol,omitempty"`
 	CIDRIPv4            string `json:"cidrIpv4,omitempty"`
+	Description         string `json:"description,omitempty"`
 	FromPort            int    `json:"fromPort,omitempty"`
 	ToPort              int    `json:"toPort,omitempty"`
 	IsEgress            bool   `json:"isEgress,omitempty"`
@@ -469,6 +470,7 @@ func (b *InMemoryBackend) DescribeSecurityGroupRules(
 			GroupID:             groupID,
 			Protocol:            r.Protocol,
 			CIDRIPv4:            r.IPRange,
+			Description:         r.Description,
 			FromPort:            r.FromPort,
 			ToPort:              r.ToPort,
 			IsEgress:            false,
@@ -481,6 +483,7 @@ func (b *InMemoryBackend) DescribeSecurityGroupRules(
 			GroupID:             groupID,
 			Protocol:            r.Protocol,
 			CIDRIPv4:            r.IPRange,
+			Description:         r.Description,
 			FromPort:            r.FromPort,
 			ToPort:              r.ToPort,
 			IsEgress:            true,

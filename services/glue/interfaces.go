@@ -61,6 +61,8 @@ type StorageBackend interface {
 	GetJobs() []*Job
 	UpdateJob(name string, input Job) error
 	DeleteJob(name string) error
+	UpdateJobFromSourceControl(jobName string, details SourceControlDetails) error
+	UpdateSourceControlFromJob(jobName string, details SourceControlDetails) error
 
 	// Tag operations.
 	TagResource(resourceARN string, tags map[string]string) error
@@ -139,6 +141,7 @@ type StorageBackend interface {
 	UpdateCrawlerSchedule(name, scheduleExpression string) error
 	StartCrawlerSchedule(name string) error
 	StopCrawlerSchedule(name string) error
+	ListCrawls(crawlerName string) ([]*CrawlHistoryEntry, error)
 
 	// Data quality ruleset operations.
 	CreateDataQualityRuleset(
@@ -299,6 +302,7 @@ type StorageBackend interface {
 	PutResourcePolicy(policy, resourceARN string) (string, error)
 	GetResourcePolicy(resourceARN string) (string, string, error)
 	DeleteResourcePolicy(resourceARN, policyHash string) error
+	ListResourcePolicies() []*resourcePolicyEntry
 
 	// MLTransform operations.
 	CreateMLTransform(
@@ -374,6 +378,8 @@ type StorageBackend interface {
 	GetColumnStatisticsTaskSettings(dbName, tableName string) (*ColumnStatisticsTaskSettings, error)
 	UpdateColumnStatisticsTaskSettings(dbName, tableName, roleArn string) error
 	DeleteColumnStatisticsTaskSettings(dbName, tableName string) error
+	StartColumnStatisticsTaskRunSchedule(dbName, tableName string) error
+	StopColumnStatisticsTaskRunSchedule(dbName, tableName string) error
 	StartColumnStatisticsTaskRun(dbName, tableName string) (*ColumnStatisticsTaskRun, error)
 	StopColumnStatisticsTaskRun(runID string) error
 	GetColumnStatisticsTaskRun(runID string) (*ColumnStatisticsTaskRun, error)
@@ -398,6 +404,11 @@ type StorageBackend interface {
 		sourceProps, targetProps map[string]string,
 	) (*IntegrationResourceProperty, error)
 	GetIntegrationResourceProperty(resourceArn string) (*IntegrationResourceProperty, error)
+	UpdateIntegrationResourceProperty(
+		resourceArn string,
+		sourceProps, targetProps map[string]string,
+	) (*IntegrationResourceProperty, error)
+	ListIntegrationResourceProperties() []*IntegrationResourceProperty
 	CreateIntegrationTableProperties(
 		resourceArn, tableName string,
 		sourceConfig, targetConfig map[string]any,
@@ -405,6 +416,10 @@ type StorageBackend interface {
 	GetIntegrationTableProperties(
 		resourceArn, tableName string,
 	) (*IntegrationTableProperties, error)
+	UpdateIntegrationTableProperties(
+		resourceArn, tableName string,
+		sourceConfig, targetConfig map[string]any,
+	) error
 
 	// GlueIdentityCenter operations.
 	CreateGlueIdentityCenterConfiguration(instanceARN string) error
@@ -424,7 +439,8 @@ type StorageBackend interface {
 	// DataQuality listing and model operations.
 	ListDataQualityEvaluationRuns() []*DataQualityEvaluationRun
 	ListDataQualityResults() []*DataQualityResult
-	GetDataQualityModelResult(profileID string) (string, error)
+	PutDataQualityStatisticAnnotation(profileID, statisticID, inclusion string)
+	ListDataQualityStatisticAnnotations(profileID, statisticID string) []*StatisticAnnotation
 
 	// CatalogImport operations.
 	ImportCatalogToGlue(catalogID string) error

@@ -37,13 +37,22 @@ func validateSecurityGroupRules(existing, incoming []SecurityGroupRule) error {
 
 		// A rule duplicated within the same request is also rejected by AWS.
 		for j := range incoming[:i] {
-			if incoming[j] == rule {
+			if ruleKey(incoming[j]) == ruleKey(rule) {
 				return fmt.Errorf("%w: the specified rule already exists", ErrDuplicatePermission)
 			}
 		}
 	}
 
 	return nil
+}
+
+// ruleKey returns the identity-comparable form of a rule: a copy with
+// Description cleared. Description is metadata (see SecurityGroupRule) and
+// must not affect authorize/revoke/duplicate-detection equality checks.
+func ruleKey(r SecurityGroupRule) SecurityGroupRule {
+	r.Description = ""
+
+	return r
 }
 
 // validateSecurityGroupRule validates a single rule's protocol, ports and CIDR.
@@ -117,5 +126,9 @@ func validateRulePorts(rule SecurityGroupRule, portBased bool) error {
 
 // ruleExists reports whether target is already present in rules.
 func ruleExists(rules []SecurityGroupRule, target SecurityGroupRule) bool {
-	return slices.Contains(rules, target)
+	key := ruleKey(target)
+
+	return slices.ContainsFunc(rules, func(r SecurityGroupRule) bool {
+		return ruleKey(r) == key
+	})
 }

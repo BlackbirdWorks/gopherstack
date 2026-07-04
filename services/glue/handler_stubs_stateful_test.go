@@ -1476,7 +1476,9 @@ func TestCancelStatement_Validation(t *testing.T) {
 	}
 }
 
-// TestGetDataQualityModelResult_Validation verifies ProfileId is required.
+// TestGetDataQualityModelResult_Validation verifies ProfileId and StatisticId
+// are both required, matching the real GetDataQualityModelResult API where
+// StatisticId (unlike in GetDataQualityModel) is mandatory.
 func TestGetDataQualityModelResult_Validation(t *testing.T) {
 	t.Parallel()
 
@@ -1487,8 +1489,13 @@ func TestGetDataQualityModelResult_Validation(t *testing.T) {
 	}{
 		{name: "missing_profile_id_returns_400", input: map[string]any{}, wantCode: http.StatusBadRequest},
 		{
-			name:     "with_profile_id_returns_200",
+			name:     "missing_statistic_id_returns_400",
 			input:    map[string]any{"ProfileId": "profile-123"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "with_profile_id_and_statistic_id_returns_200",
+			input:    map[string]any{"ProfileId": "profile-123", "StatisticId": "statistic-456"},
 			wantCode: http.StatusOK,
 		},
 	}

@@ -1105,20 +1105,18 @@ func (b *InMemoryBackend) DescribeAssociation(
 	return nil, ErrAssociationNotFound
 }
 
-// DescribeAvailablePatches returns patches from the available patches catalog.
+// DescribeAvailablePatches returns patches from the available patches catalog,
+// lazily seeding it with the built-in catalogue (defaultPatchCatalog) on the
+// region's first access rather than leaving it permanently empty.
 func (b *InMemoryBackend) DescribeAvailablePatches(
 	ctx context.Context,
 	_ *DescribeAvailablePatchesInput,
 ) (*DescribeAvailablePatchesOutput, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("DescribeAvailablePatches")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeAvailablePatches")
+	defer b.mu.Unlock()
 
-	patches := b.availablePatches[region]
-	if patches == nil {
-		patches = []Patch{}
-	}
-
+	patches := b.availablePatchesFor(region)
 	result := make([]Patch, len(patches))
 	copy(result, patches)
 
@@ -1167,6 +1165,12 @@ func (b *InMemoryBackend) DescribeInstancePatches(
 }
 
 // DescribeInstanceProperties returns properties for managed instances.
+// DescribeInstanceProperties returns properties for managed instances. Any
+// explicitly-stored InstanceProperty (from an earlier UpdateInstanceInformation-
+// style write) wins; every other registered managed instance (i.e. every
+// activation, mirroring DescribeInstanceInformation) is reported too, so the
+// response reflects real registered instances rather than a permanently-empty
+// map.
 func (b *InMemoryBackend) DescribeInstanceProperties(
 	ctx context.Context,
 	_ *DescribeInstancePropertiesInput,
@@ -1176,9 +1180,29 @@ func (b *InMemoryBackend) DescribeInstanceProperties(
 	defer b.mu.RUnlock()
 
 	store := b.instanceProperties[region]
-	props := make([]InstanceProperty, 0, len(store))
+	props := make([]InstanceProperty, 0, len(store)+len(b.activationsStore(region)))
+	seen := make(map[string]struct{}, len(store))
+
 	for _, p := range store {
 		props = append(props, *p)
+		seen[p.InstanceID] = struct{}{}
+	}
+
+	for _, act := range b.activationsStore(region) {
+		if _, ok := seen[act.ActivationID]; ok {
+			continue
+		}
+
+		props = append(props, InstanceProperty{
+			InstanceID:      act.ActivationID,
+			Name:            act.DefaultInstanceName,
+			PlatformType:    platformTypeLinux,
+			PlatformName:    "Amazon Linux",
+			PlatformVersion: "2",
+			PingStatus:      "Online",
+			AgentVersion:    defaultAgentVersionSSM,
+			ActivationID:    act.ActivationID,
+		})
 	}
 
 	return &DescribeInstancePropertiesOutput{InstanceProperties: props}, nil

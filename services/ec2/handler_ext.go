@@ -1656,11 +1656,14 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 				break
 			}
 
+			description := vals.Get(fmt.Sprintf("IpPermissions.%d.IpRanges.%d.Description", i, j))
+
 			rules = append(rules, SecurityGroupRule{
-				Protocol: proto,
-				FromPort: fromPort,
-				ToPort:   toPort,
-				IPRange:  cidr,
+				Protocol:    proto,
+				FromPort:    fromPort,
+				ToPort:      toPort,
+				IPRange:     cidr,
+				Description: description,
 			})
 		}
 
@@ -1672,12 +1675,15 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 			}
 
 			ownerID := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.UserId", i, j))
+			description := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.Description", i, j))
+
 			rules = append(rules, SecurityGroupRule{
 				Protocol:           proto,
 				FromPort:           fromPort,
 				ToPort:             toPort,
 				SourceGroupID:      srcGroupID,
 				SourceGroupOwnerID: ownerID,
+				Description:        description,
 			})
 		}
 	}

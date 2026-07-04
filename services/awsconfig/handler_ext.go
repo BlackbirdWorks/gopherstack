@@ -690,15 +690,19 @@ func (h *Handler) handleGetComplianceSummaryByConfigRule(
 }
 
 // GetComplianceSummaryByResourceType request/response types and handler.
+type getComplianceSummaryByResourceTypeInput struct {
+	ResourceTypes []string `json:"ResourceTypes"`
+}
+
 type getComplianceSummaryByResourceTypeOutput struct {
-	ComplianceSummariesByResourceType []any `json:"ComplianceSummariesByResourceType"`
+	ComplianceSummariesByResourceType []ComplianceSummaryByResourceType `json:"ComplianceSummariesByResourceType"`
 }
 
 func (h *Handler) handleGetComplianceSummaryByResourceType(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getComplianceSummaryByResourceTypeInput,
 ) (*getComplianceSummaryByResourceTypeOutput, error) {
 	return &getComplianceSummaryByResourceTypeOutput{
-		ComplianceSummariesByResourceType: h.Backend.GetComplianceSummaryByResourceType(),
+		ComplianceSummariesByResourceType: h.Backend.GetComplianceSummaryByResourceType(in.ResourceTypes),
 	}, nil
 }
 
@@ -1248,28 +1252,36 @@ func (h *Handler) handlePutStoredQuery(
 }
 
 // SelectAggregateResourceConfig request/response types and handler.
+type selectAggregateResourceConfigInput struct {
+	Expression string `json:"Expression"`
+}
+
 type selectAggregateResourceConfigOutput struct {
-	Results []any `json:"Results"`
+	Results []string `json:"Results"`
 }
 
 func (h *Handler) handleSelectAggregateResourceConfig(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *selectAggregateResourceConfigInput,
 ) (*selectAggregateResourceConfigOutput, error) {
 	return &selectAggregateResourceConfigOutput{
-		Results: h.Backend.SelectAggregateResourceConfig(),
+		Results: h.Backend.SelectAggregateResourceConfig(in.Expression),
 	}, nil
 }
 
 // SelectResourceConfig request/response types and handler.
+type selectResourceConfigInput struct {
+	Expression string `json:"Expression"`
+}
+
 type selectResourceConfigOutput struct {
-	Results []any `json:"Results"`
+	Results []string `json:"Results"`
 }
 
 func (h *Handler) handleSelectResourceConfig(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *selectResourceConfigInput,
 ) (*selectResourceConfigOutput, error) {
 	return &selectResourceConfigOutput{
-		Results: h.Backend.SelectResourceConfig(),
+		Results: h.Backend.SelectResourceConfig(in.Expression),
 	}, nil
 }
 

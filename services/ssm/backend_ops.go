@@ -1005,8 +1005,9 @@ func (b *InMemoryBackend) DescribePatchProperties(
 	return &DescribePatchPropertiesOutput{Properties: props}, nil
 }
 
-// DescribeEffectivePatchesForPatchBaseline returns an empty patch list.
-// The in-memory backend does not maintain patch catalogue data.
+// DescribeEffectivePatchesForPatchBaseline returns the effective patch set for
+// a baseline, derived from its approved/rejected patches plus the region's
+// available-patches catalogue (see effectivePatchesForBaseline).
 // Returns an empty list when BaselineID is empty (stub compat).
 func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 	ctx context.Context,
@@ -1039,7 +1040,8 @@ func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 // effectivePatchesForBaseline derives the effective patch set for a baseline
 // from its explicitly-approved patches plus the region's available-patch
 // catalogue (matched on OS/product), backing the response with real stored
-// state instead of an empty list. Must be called with b.mu held.
+// state instead of an empty list (once the catalogue has been seeded — see
+// availablePatchesFor). Must be called with b.mu held.
 func (b *InMemoryBackend) effectivePatchesForBaseline(
 	region string,
 	baseline PatchBaseline,
@@ -1058,7 +1060,7 @@ func (b *InMemoryBackend) effectivePatchesForBaseline(
 		approved[id] = struct{}{}
 		p := id
 		effective = append(effective, EffectivePatch{
-			Patch: &Patch{Name: p, Classification: "SecurityUpdates"},
+			Patch: &Patch{Name: p, Classification: patchClassificationSecurityUpdates},
 			PatchStatus: &PatchStatus{
 				DeploymentStatus: "EXPLICIT_APPROVED",
 				ComplianceLevel:  level,
@@ -1154,7 +1156,7 @@ func (b *InMemoryBackend) GetDeployablePatchSnapshotForInstance(
 
 	// Resolve the instance's effective baseline: prefer its recorded patch
 	// state, else the AWS default baseline for its OS (Windows fallback).
-	product := "AmazonLinux2"
+	product := patchProductAmazonLinux2
 	baselineID := defaultBaselineID("AMAZON_LINUX_2")
 
 	if st, ok := b.instancePatchStatesStore(region)[input.InstanceID]; ok && st != nil {

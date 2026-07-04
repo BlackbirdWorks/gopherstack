@@ -188,11 +188,17 @@ type InstanceStateChange struct {
 
 // SecurityGroupRule represents an inbound or outbound rule.
 // Either IPRange or SourceGroupID is set; both can be empty for protocol-only rules.
+//
+// Description is metadata only: it does not participate in a rule's identity
+// for authorize/revoke/duplicate-detection purposes (see ruleKey), matching
+// AWS's UpdateSecurityGroupRuleDescriptions* semantics of changing a rule's
+// description without it becoming a "different" rule.
 type SecurityGroupRule struct {
 	Protocol           string `json:"protocol,omitempty"`
 	IPRange            string `json:"ipRange,omitempty"`
 	SourceGroupID      string `json:"sourceGroupId,omitempty"`
 	SourceGroupOwnerID string `json:"sourceGroupOwnerId,omitempty"`
+	Description        string `json:"description,omitempty"`
 	FromPort           int    `json:"fromPort,omitempty"`
 	ToPort             int    `json:"toPort,omitempty"`
 }

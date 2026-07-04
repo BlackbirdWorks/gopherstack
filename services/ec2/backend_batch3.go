@@ -954,7 +954,7 @@ func (b *InMemoryBackend) ResetEbsDefaultKmsKeyID() {
 // UpdateSecurityGroupRuleDescriptionsIngress updates descriptions of ingress rules.
 func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsIngress(
 	groupID string,
-	_ []SecurityGroupRule,
+	updates []SecurityGroupRule,
 ) error {
 	if groupID == "" {
 		return fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
@@ -963,9 +963,12 @@ func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsIngress(
 	b.mu.Lock("UpdateSecurityGroupRuleDescriptionsIngress")
 	defer b.mu.Unlock()
 
-	if _, ok := b.securityGroups[groupID]; !ok {
+	sg, ok := b.securityGroups[groupID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
+
+	applyRuleDescriptions(sg.IngressRules, updates)
 
 	return nil
 }
@@ -973,7 +976,7 @@ func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsIngress(
 // UpdateSecurityGroupRuleDescriptionsEgress updates descriptions of egress rules.
 func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsEgress(
 	groupID string,
-	_ []SecurityGroupRule,
+	updates []SecurityGroupRule,
 ) error {
 	if groupID == "" {
 		return fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
@@ -982,11 +985,29 @@ func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsEgress(
 	b.mu.Lock("UpdateSecurityGroupRuleDescriptionsEgress")
 	defer b.mu.Unlock()
 
-	if _, ok := b.securityGroups[groupID]; !ok {
+	sg, ok := b.securityGroups[groupID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
 
+	applyRuleDescriptions(sg.EgressRules, updates)
+
 	return nil
+}
+
+// applyRuleDescriptions sets Description on each stored rule whose identity
+// (protocol/ports/CIDR/source-group — see ruleKey) matches an incoming
+// update, ignoring the incoming rule's own Description for matching purposes.
+func applyRuleDescriptions(stored []SecurityGroupRule, updates []SecurityGroupRule) {
+	for i := range stored {
+		key := ruleKey(stored[i])
+
+		for _, u := range updates {
+			if ruleKey(u) == key {
+				stored[i].Description = u.Description
+			}
+		}
+	}
 }
 
 // ---- Volume recycle bin ----

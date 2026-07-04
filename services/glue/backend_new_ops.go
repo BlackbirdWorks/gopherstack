@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // ---------------------------------------------------------------------------
@@ -485,13 +486,15 @@ type TableOptimizerConfiguration struct {
 	Enabled bool   `json:"Enabled"`
 }
 
-// TableOptimizerRun holds a single run record for a table optimizer.
+// TableOptimizerRun holds a single run record for a table optimizer. The Glue
+// Iceberg table-optimizer sub-API serializes this nested document with
+// lowerCamelCase keys, unlike the rest of the Glue JSON protocol.
 type TableOptimizerRun struct {
-	Metrics   any     `json:"Metrics,omitempty"`
-	EventType string  `json:"EventType,omitempty"`
-	Error     string  `json:"Error,omitempty"`
-	StartedAt float64 `json:"StartedAt,omitempty"`
-	EndedAt   float64 `json:"EndedAt,omitempty"`
+	Metrics   any     `json:"metrics,omitempty"`
+	EventType string  `json:"eventType,omitempty"`
+	Error     string  `json:"error,omitempty"`
+	StartedAt float64 `json:"startTimestamp,omitempty"`
+	EndedAt   float64 `json:"endTimestamp,omitempty"`
 }
 
 // TableOptimizer represents a single table optimizer resource.
@@ -510,10 +513,17 @@ func (b *InMemoryBackend) tableOptimizerKey(dbName, tableName, optimizerType str
 
 func cloneTableOptimizer(to *TableOptimizer) *TableOptimizer {
 	cp := *to
+	if to.LastRun != nil {
+		lastRun := *to.LastRun
+		cp.LastRun = &lastRun
+	}
 
 	return &cp
 }
 
+// CreateTableOptimizer registers a table optimizer and, mirroring the automatic
+// compaction run AWS kicks off shortly after an optimizer is enabled, seeds an
+// initial completed run so ListTableOptimizerRuns has real history to return.
 func (b *InMemoryBackend) CreateTableOptimizer(
 	catalogID, dbName, tableName, optimizerType string,
 	config TableOptimizerConfiguration,
@@ -531,12 +541,19 @@ func (b *InMemoryBackend) CreateTableOptimizer(
 			ErrAlreadyExists,
 		)
 	}
+
+	now := float64(time.Now().Unix())
 	b.tableOptimizers[key] = &TableOptimizer{
 		CatalogID:     catalogID,
 		DatabaseName:  dbName,
 		TableName:     tableName,
 		Type:          optimizerType,
 		Configuration: config,
+		LastRun: &TableOptimizerRun{
+			EventType: "completed",
+			StartedAt: now,
+			EndedAt:   now,
+		},
 	}
 
 	return nil
@@ -820,14 +837,46 @@ func (b *InMemoryBackend) PutResourcePolicy(policy, resourceARN string) (string,
 		key = globalPolicyKey
 	}
 	hash := uuid.NewString()[:8]
-	b.resourcePolicies[key] = &resourcePolicyEntry{Policy: policy, Hash: hash}
+	now := float64(time.Now().Unix())
+
+	createTime := now
+	if existing, ok := b.resourcePolicies[key]; ok {
+		createTime = existing.CreateTime
+	}
+
+	b.resourcePolicies[key] = &resourcePolicyEntry{
+		Policy:     policy,
+		Hash:       hash,
+		CreateTime: createTime,
+		UpdateTime: now,
+	}
 
 	return hash, nil
 }
 
 type resourcePolicyEntry struct {
-	Policy string `json:"Policy"`
-	Hash   string `json:"Hash"`
+	Policy     string  `json:"Policy"`
+	Hash       string  `json:"Hash"`
+	CreateTime float64 `json:"CreateTime,omitempty"`
+	UpdateTime float64 `json:"UpdateTime,omitempty"`
+}
+
+// ListResourcePolicies returns every stored resource policy (per-resource ARN
+// policies plus the account-level policy, if set), sorted by key for a
+// deterministic response.
+func (b *InMemoryBackend) ListResourcePolicies() []*resourcePolicyEntry {
+	b.mu.RLock("ListResourcePolicies")
+	defer b.mu.RUnlock()
+
+	keys := collections.SortedKeys(b.resourcePolicies)
+	out := make([]*resourcePolicyEntry, 0, len(keys))
+
+	for _, k := range keys {
+		cp := *b.resourcePolicies[k]
+		out = append(out, &cp)
+	}
+
+	return out
 }
 
 func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (string, string, error) {

@@ -9,7 +9,7 @@ import (
 
 // ---- Registration ----
 
-//nolint:funlen // large registration table
+//nolint:funlen,dupl // large registration table; dupl is unavoidable across batches
 func registerBatch3Ops(h *Handler, ops map[string]ec2ActionFn) {
 	// Capacity Reservation
 	ops["CreateCapacityReservation"] = h.handleCreateCapacityReservation
@@ -71,7 +71,6 @@ func registerBatch3Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyVpnConnection"] = h.handleModifyVpnConnection
 	ops["CreateVpnConnectionRoute"] = h.handleCreateVpnConnectionRoute
 	ops["DeleteVpnConnectionRoute"] = h.handleDeleteVpnConnectionRoute
-	ops["DetachVpnGateway"] = h.handleDetachVpnGatewayB3
 	// Transit gateway
 	ops["ModifyTransitGateway"] = h.handleModifyTransitGateway
 }
@@ -697,6 +696,12 @@ func (h *Handler) handleDescribeSpotDatafeedSubscription(_ url.Values, reqID str
 	return resp, nil
 }
 
+type registerImageResponse struct {
+	XMLName   xml.Name `xml:"RegisterImageResponse"`
+	RequestID string   `xml:"requestId"`
+	ImageID   string   `xml:"imageId"`
+}
+
 func (h *Handler) handleRegisterImage(vals url.Values, reqID string) (any, error) {
 	name := vals.Get("Name")
 	description := vals.Get("Description")
@@ -707,10 +712,9 @@ func (h *Handler) handleRegisterImage(vals url.Values, reqID string) (any, error
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RegisterImageResponse"},
+	return &registerImageResponse{
 		RequestID: reqID,
-		Return:    img != nil,
+		ImageID:   img.ImageID,
 	}, nil
 }
 
@@ -1108,7 +1112,9 @@ func (h *Handler) handleUpdateSGRuleDescriptionsIngress(
 	reqID string,
 ) (any, error) {
 	groupID := vals.Get("GroupId")
-	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsIngress(groupID, nil); err != nil {
+	rules := parseIPPermissions(vals)
+
+	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsIngress(groupID, rules); err != nil {
 		return nil, err
 	}
 
@@ -1121,7 +1127,9 @@ func (h *Handler) handleUpdateSGRuleDescriptionsIngress(
 
 func (h *Handler) handleUpdateSGRuleDescriptionsEgress(vals url.Values, reqID string) (any, error) {
 	groupID := vals.Get("GroupId")
-	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsEgress(groupID, nil); err != nil {
+	rules := parseIPPermissions(vals)
+
+	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsEgress(groupID, rules); err != nil {
 		return nil, err
 	}
 
@@ -1237,12 +1245,6 @@ func (h *Handler) handleDeleteVpnConnectionRoute(vals url.Values, reqID string) 
 		RequestID: reqID,
 		Return:    true,
 	}, nil
-}
-
-// handleDetachVpnGateway is implemented in handler_advanced_networking.go.
-// This wrapper ensures it stays registered when batch3 overrides stubs.
-func (h *Handler) handleDetachVpnGatewayB3(vals url.Values, _ string) (any, error) {
-	return h.handleDetachVpnGateway(vals, "")
 }
 
 func (h *Handler) handleModifyTransitGateway(vals url.Values, reqID string) (any, error) {

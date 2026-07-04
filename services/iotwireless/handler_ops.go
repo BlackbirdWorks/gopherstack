@@ -366,19 +366,34 @@ func (h *Handler) getWirelessGatewayCertificate(c *echo.Context, id string) erro
 }
 
 func (h *Handler) getWirelessGatewayStatistics(c *echo.Context, id string) error {
-	return writeJSON(c, http.StatusOK, getWirelessGatewayStatisticsResponse{
-		WirelessGatewayID: id,
-		ConnectionStatus:  "Connected",
-	})
+	gw, err := h.Backend.GetWirelessGateway(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	resp := getWirelessGatewayStatisticsResponse{
+		WirelessGatewayID: gw.ID,
+		ConnectionStatus:  gw.ConnectionStatus,
+	}
+	if gw.LastUplinkReceivedAt != nil {
+		resp.LastUplinkReceivedAt = gw.LastUplinkReceivedAt.UTC().Format(time.RFC3339)
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
-func (h *Handler) getWirelessGatewayFirmwareInformation(c *echo.Context, _ string) error {
+func (h *Handler) getWirelessGatewayFirmwareInformation(c *echo.Context, id string) error {
+	gw, err := h.Backend.GetWirelessGateway(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"LoRaWAN": map[string]any{
 			"CurrentVersion": map[string]any{
-				"PackageVersion": "1.0.0",
-				"Model":          "GW-001",
-				"Station":        "LNS",
+				"PackageVersion": gw.FirmwareVersion,
+				"Model":          gw.FirmwareModel,
+				"Station":        gw.FirmwareStation,
 			},
 		},
 	})
@@ -454,12 +469,24 @@ func (h *Handler) sendDataToWirelessDevice(c *echo.Context, wirelessDeviceID str
 }
 
 func (h *Handler) getWirelessDeviceStatistics(c *echo.Context, id string) error {
-	return writeJSON(c, http.StatusOK, getWirelessDeviceStatisticsResponse{
-		WirelessDeviceID: id,
-	})
+	dev, err := h.Backend.GetWirelessDevice(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	resp := getWirelessDeviceStatisticsResponse{WirelessDeviceID: dev.ID}
+	if dev.LastUplinkReceivedAt != nil {
+		resp.LastUplinkReceivedAt = dev.LastUplinkReceivedAt.UTC().Format(time.RFC3339)
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
-func (h *Handler) testWirelessDevice(c *echo.Context, _ string) error {
+func (h *Handler) testWirelessDevice(c *echo.Context, id string) error {
+	if _, err := h.Backend.GetWirelessDevice(h.AccountID, h.DefaultRegion, id); err != nil {
+		return handleError(c, err)
+	}
+
 	return writeJSON(c, http.StatusOK, testWirelessDeviceResponse{
 		Result: "PASS",
 	})

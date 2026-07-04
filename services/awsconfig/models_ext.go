@@ -58,6 +58,12 @@ type ComplianceSummary struct {
 	ComplianceSummary ComplianceSummaryDetail `json:"ComplianceSummary"`
 }
 
+// ComplianceSummaryByResourceType holds a compliance summary for one resource type.
+type ComplianceSummaryByResourceType struct {
+	ResourceType      string                  `json:"ResourceType"`
+	ComplianceSummary ComplianceSummaryDetail `json:"ComplianceSummary"`
+}
+
 // EvaluationResult holds an evaluation result for a config rule.
 type EvaluationResult struct {
 	ConfigRuleName string `json:"ConfigRuleName"`

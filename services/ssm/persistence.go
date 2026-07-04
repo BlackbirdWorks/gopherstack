@@ -43,6 +43,10 @@ type backendSnapshot struct {
 	AssociationExecutions      map[string]map[string][]AssociationExecution       `json:"association_executions"`
 	AssociationExecTargets     map[string]map[string][]AssociationExecutionTarget `json:"association_exec_targets"`
 	InventoryDeletions         map[string][]InventoryDeletion                     `json:"inventory_deletions"`
+	InstancePatchStates        map[string]map[string]*InstancePatchState          `json:"instance_patch_states"`
+	InstancePatches            map[string]map[string][]PatchComplianceData        `json:"instance_patches"`
+	InstanceProperties         map[string]map[string]*InstanceProperty            `json:"instance_properties"`
+	AvailablePatches           map[string][]Patch                                 `json:"available_patches"`
 }
 
 // initSnapshotDefaults initializes nil maps in the snapshot for core fields.
@@ -178,8 +182,34 @@ func initSnapshotNewFields(snap *backendSnapshot) { //nolint:gocognit,cyclop // 
 		snap.AssociationExecTargets = make(map[string]map[string][]AssociationExecutionTarget)
 	}
 
+	initSnapshotPatchOpsFields(snap)
+}
+
+// initSnapshotPatchOpsFields initializes nil maps for inventory-deletion
+// records and the patch-operation state (available-patches catalogue,
+// instance patch states/compliance data, instance properties) written by
+// SendCommand's AWS-RunPatchBaseline handling and
+// DescribeAvailablePatches/DescribeInstanceProperties. Split out of
+// initSnapshotNewFields to keep it under the function-length limit.
+func initSnapshotPatchOpsFields(snap *backendSnapshot) {
 	if snap.InventoryDeletions == nil {
 		snap.InventoryDeletions = make(map[string][]InventoryDeletion)
+	}
+
+	if snap.InstancePatchStates == nil {
+		snap.InstancePatchStates = make(map[string]map[string]*InstancePatchState)
+	}
+
+	if snap.InstancePatches == nil {
+		snap.InstancePatches = make(map[string]map[string][]PatchComplianceData)
+	}
+
+	if snap.InstanceProperties == nil {
+		snap.InstanceProperties = make(map[string]map[string]*InstanceProperty)
+	}
+
+	if snap.AvailablePatches == nil {
+		snap.AvailablePatches = make(map[string][]Patch)
 	}
 }
 
@@ -222,6 +252,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AssociationExecutions:      b.associationExecutions,
 		AssociationExecTargets:     b.associationExecTargets,
 		InventoryDeletions:         b.inventoryDeletions,
+		InstancePatchStates:        b.instancePatchStates,
+		InstancePatches:            b.instancePatches,
+		InstanceProperties:         b.instanceProperties,
+		AvailablePatches:           b.availablePatches,
 	}
 
 	data, err := json.Marshal(snap)
@@ -287,6 +321,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.associationExecutions = snap.AssociationExecutions
 	b.associationExecTargets = snap.AssociationExecTargets
 	b.inventoryDeletions = snap.InventoryDeletions
+	b.restorePatchOpsFields(&snap)
 
 	// Re-seed built-in documents if they are absent from the snapshot
 	// (e.g. snapshots taken before document support was added).
@@ -301,6 +336,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return nil
+}
+
+// restorePatchOpsFields assigns the patch-operation state (available-patches
+// catalogue, instance patch states/compliance data, instance properties) from
+// a snapshot. Split out of Restore to keep it under the function-length limit.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) restorePatchOpsFields(snap *backendSnapshot) {
+	b.instancePatchStates = snap.InstancePatchStates
+	b.instancePatches = snap.InstancePatches
+	b.instanceProperties = snap.InstanceProperties
+	b.availablePatches = snap.AvailablePatches
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

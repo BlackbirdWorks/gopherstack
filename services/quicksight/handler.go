@@ -470,22 +470,18 @@ func newReqID() string { return uuid.NewString() }
 type Handler struct {
 	Backend     StorageBackend
 	appendixOps map[string]appendixHandlerFn
-	statefulOps map[string]echo.HandlerFunc
 	accountID   string
 	region      string
 }
 
 // NewHandler creates a new QuickSight handler.
 func NewHandler(b StorageBackend) *Handler {
-	h := &Handler{
+	return &Handler{
 		Backend:     b,
 		appendixOps: buildAppendixOps(),
 		accountID:   b.AccountID(),
 		region:      b.Region(),
 	}
-	h.statefulOps = h.buildStatefulAppendixOps()
-
-	return h
 }
 
 // Name returns the service name.

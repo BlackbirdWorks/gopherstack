@@ -2,6 +2,7 @@ package awsconfig
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -725,8 +726,90 @@ func (b *InMemoryBackend) DescribeAggregateComplianceByConfigRules() []any {
 	return out
 }
 
-// GetComplianceSummaryByResourceType returns an empty summary (intentionally minimal stub).
-func (b *InMemoryBackend) GetComplianceSummaryByResourceType() []any { return []any{} }
+// GetComplianceSummaryByResourceType returns compliant/non-compliant resource
+// counts grouped by resource type, derived from the same per-(rule, resource)
+// evaluation state (b.ruleResourceEvals) that rolls up into b.ruleEvaluations
+// for DescribeAggregateComplianceByConfigRules. A resource counts as
+// NON_COMPLIANT if any rule evaluated it as such, else COMPLIANT. When
+// resourceTypes is non-empty, only those types are included.
+func (b *InMemoryBackend) GetComplianceSummaryByResourceType(
+	resourceTypes []string,
+) []ComplianceSummaryByResourceType {
+	b.mu.RLock("GetComplianceSummaryByResourceType")
+	defer b.mu.RUnlock()
+
+	nonCompliant := resourceComplianceByType(b.ruleResourceEvals, resourceTypes)
+
+	resourceTypesSeen := make([]string, 0, len(nonCompliant))
+	for rt := range nonCompliant {
+		resourceTypesSeen = append(resourceTypesSeen, rt)
+	}
+
+	sort.Strings(resourceTypesSeen)
+
+	out := make([]ComplianceSummaryByResourceType, 0, len(resourceTypesSeen))
+	for _, rt := range resourceTypesSeen {
+		out = append(out, summarizeResourceType(rt, nonCompliant[rt]))
+	}
+
+	return out
+}
+
+// resourceComplianceByType walks per-(rule, resource) evaluations and, for
+// every resource matching the optional resourceTypes filter, records whether
+// any rule found it NON_COMPLIANT (true) or only COMPLIANT/other (false).
+func resourceComplianceByType(
+	ruleResourceEvals map[string]map[string]*StoredEvaluation,
+	resourceTypes []string,
+) map[string]map[string]bool {
+	filter := make(map[string]struct{}, len(resourceTypes))
+	for _, rt := range resourceTypes {
+		filter[rt] = struct{}{}
+	}
+
+	nonCompliant := make(map[string]map[string]bool)
+
+	for _, evals := range ruleResourceEvals {
+		for _, e := range evals {
+			if len(filter) > 0 {
+				if _, ok := filter[e.ResourceType]; !ok {
+					continue
+				}
+			}
+
+			if nonCompliant[e.ResourceType] == nil {
+				nonCompliant[e.ResourceType] = make(map[string]bool)
+			}
+
+			nonCompliant[e.ResourceType][e.ResourceID] =
+				nonCompliant[e.ResourceType][e.ResourceID] || e.ComplianceType == complianceNonCompliant
+		}
+	}
+
+	return nonCompliant
+}
+
+// summarizeResourceType counts compliant/non-compliant resources for one
+// resource type into the wire-shaped summary.
+func summarizeResourceType(resourceType string, resources map[string]bool) ComplianceSummaryByResourceType {
+	var compliantCount, nonCompliantCount int32
+
+	for _, isNonCompliant := range resources {
+		if isNonCompliant {
+			nonCompliantCount++
+		} else {
+			compliantCount++
+		}
+	}
+
+	return ComplianceSummaryByResourceType{
+		ResourceType: resourceType,
+		ComplianceSummary: ComplianceSummaryDetail{
+			CompliantResourceCount:    ResourceCount{CappedCount: compliantCount},
+			NonCompliantResourceCount: ResourceCount{CappedCount: nonCompliantCount},
+		},
+	}
+}
 
 // GetConformancePackComplianceDetails returns an empty list (intentionally minimal stub).
 func (b *InMemoryBackend) GetConformancePackComplianceDetails() []any { return []any{} }
@@ -737,8 +820,39 @@ func (b *InMemoryBackend) GetConformancePackComplianceSummary() []any { return [
 // DescribeComplianceByResource returns an empty list (intentionally minimal stub).
 func (b *InMemoryBackend) DescribeComplianceByResource() []any { return []any{} }
 
-// SelectResourceConfig returns an empty result (intentionally minimal stub).
-func (b *InMemoryBackend) SelectResourceConfig() []any { return []any{} }
+// resourceConfigItemsLocked returns every discovered resource configuration
+// item across all resource types. Caller must hold at least a read lock.
+func (b *InMemoryBackend) resourceConfigItemsLocked() []*ResourceConfigItem {
+	items := make([]*ResourceConfigItem, 0, len(b.resourceConfigs))
+	for _, byID := range b.resourceConfigs {
+		for _, item := range byID {
+			items = append(items, item)
+		}
+	}
 
-// SelectAggregateResourceConfig returns an empty result (intentionally minimal stub).
-func (b *InMemoryBackend) SelectAggregateResourceConfig() []any { return []any{} }
+	return items
+}
+
+// SelectResourceConfig evaluates a minimal SQL-like "SELECT fields WHERE
+// key = value / LIKE pattern" query (see select_query.go) against the
+// account's discovered resource configurations, instead of ignoring the
+// query entirely.
+func (b *InMemoryBackend) SelectResourceConfig(expression string) []string {
+	b.mu.RLock("SelectResourceConfig")
+	defer b.mu.RUnlock()
+
+	return evaluateSelectQuery(b.resourceConfigItemsLocked(), expression)
+}
+
+// SelectAggregateResourceConfig evaluates the same query language as
+// SelectResourceConfig. This emulator does not model multi-account
+// aggregation separately from the account's own resource-config state, so
+// (mirroring DescribeAggregateComplianceByConfigRules, which reuses the
+// account's rule evaluations for its aggregate view) it reuses
+// resourceConfigItemsLocked rather than returning an empty result.
+func (b *InMemoryBackend) SelectAggregateResourceConfig(expression string) []string {
+	b.mu.RLock("SelectAggregateResourceConfig")
+	defer b.mu.RUnlock()
+
+	return evaluateSelectQuery(b.resourceConfigItemsLocked(), expression)
+}

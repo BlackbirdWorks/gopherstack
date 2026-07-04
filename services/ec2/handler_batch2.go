@@ -8,7 +8,6 @@ import (
 
 // ---- Registration ----
 
-//nolint:funlen,dupl // large registration table; dupl is unavoidable across batches
 func registerBatch2Ops(h *Handler, ops map[string]ec2ActionFn) {
 	// VPC endpoint connection notifications
 	ops["CreateVpcEndpointConnectionNotification"] = h.handleCreateVpcEndpointConnectionNotification
@@ -21,7 +20,6 @@ func registerBatch2Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeVpcEndpointServicePermissions"] = h.handleDescribeVpcEndpointServicePermissions
 	ops["ModifyVpcEndpointServicePermissions"] = h.handleModifyVpcEndpointServicePermissions
 	ops["ModifyVpcEndpoint"] = h.handleModifyVpcEndpoint
-	ops["ModifyVpcEndpointServiceConfiguration"] = h.handleModifyVpcEndpointServiceConfigurationB2
 	// EBS
 	ops["EnableEbsEncryptionByDefault"] = h.handleEnableEbsEncryptionByDefault
 	ops["DisableEbsEncryptionByDefault"] = h.handleDisableEbsEncryptionByDefault
@@ -581,23 +579,6 @@ func (h *Handler) handleModifyVpcEndpoint(vals url.Values, reqID string) (any, e
 
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcEndpointResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-// handleModifyVpcEndpointServiceConfigurationB2 wraps the advanced networking impl.
-func (h *Handler) handleModifyVpcEndpointServiceConfigurationB2(
-	vals url.Values,
-	reqID string,
-) (any, error) {
-	serviceID := vals.Get("ServiceId")
-	if err := h.Backend.ModifyVpcEndpointServiceConfiguration(serviceID, false); err != nil {
-		return nil, err
-	}
-
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpcEndpointServiceConfigurationResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

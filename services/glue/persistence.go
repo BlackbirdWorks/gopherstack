@@ -49,6 +49,8 @@ type backendSnapshot struct {
 	ColumnStatTaskRuns        map[string]*ColumnStatisticsTaskRun       `json:"columnStatTaskRuns"`
 	MaterializedViewRuns      map[string]*MaterializedViewRefreshRun    `json:"materializedViewRuns"`
 	Integrations              map[string]*Integration                   `json:"integrations"`
+	CrawlHistory              map[string][]*CrawlHistoryEntry           `json:"crawlHistory"`
+	DQStatisticAnnotations    map[string]*StatisticAnnotation           `json:"dqStatisticAnnotations"`
 	GlueIdentityCenterConfig  *IdentityCenterConfig                     `json:"glueIdentityCenterConfig,omitempty"`
 }
 
@@ -137,6 +139,8 @@ func addExtendedSnapshotState(snap *backendSnapshot, b *InMemoryBackend) {
 	snap.ColumnStatTaskRuns = b.columnStatTaskRuns
 	snap.MaterializedViewRuns = b.materializedViewRuns
 	snap.Integrations = b.integrations
+	snap.CrawlHistory = b.crawlHistory
+	snap.DQStatisticAnnotations = b.dqStatisticAnnotations
 	snap.GlueIdentityCenterConfig = b.glueIdentityCenterConfig
 }
 
@@ -303,6 +307,12 @@ func initSnapshotTaskDefaults(snap *backendSnapshot) {
 	if snap.Integrations == nil {
 		snap.Integrations = make(map[string]*Integration)
 	}
+	if snap.CrawlHistory == nil {
+		snap.CrawlHistory = make(map[string][]*CrawlHistoryEntry)
+	}
+	if snap.DQStatisticAnnotations == nil {
+		snap.DQStatisticAnnotations = make(map[string]*StatisticAnnotation)
+	}
 }
 
 // restoreFromSnapshot copies snapshot data into the backend (caller holds lock).
@@ -383,6 +393,8 @@ func (b *InMemoryBackend) restoreExtendedSnapshotState(snap backendSnapshot) {
 	b.columnStatTaskRuns = snap.ColumnStatTaskRuns
 	b.materializedViewRuns = snap.MaterializedViewRuns
 	b.integrations = snap.Integrations
+	b.crawlHistory = snap.CrawlHistory
+	b.dqStatisticAnnotations = snap.DQStatisticAnnotations
 	b.glueIdentityCenterConfig = snap.GlueIdentityCenterConfig
 }
 

@@ -1264,12 +1264,15 @@ func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 	return nil
 }
 
-// removeRule removes matching SecurityGroupRule entries from a slice.
+// removeRule removes matching SecurityGroupRule entries from a slice. Matching
+// ignores Description (see ruleKey): revoking a rule doesn't require quoting
+// back whatever description it may have been given.
 func removeRule(rules []SecurityGroupRule, target SecurityGroupRule) []SecurityGroupRule {
+	key := ruleKey(target)
 	out := rules[:0]
 
 	for _, r := range rules {
-		if r != target {
+		if ruleKey(r) != key {
 			out = append(out, r)
 		}
 	}

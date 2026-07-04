@@ -2008,7 +2008,12 @@ func (b *InMemoryBackend) SendCommand(
 	b.mu.Lock("SendCommand")
 	defer b.mu.Unlock()
 
-	if _, exists := b.documentsStore(region)[input.DocumentName]; !exists {
+	// AWS-RunPatchBaseline is one of AWS's ~150 built-in Systems Manager
+	// documents that exist account-wide without needing to be created first;
+	// only it (of the ones this emulator can act on) is recognised implicitly
+	// here rather than requiring pre-registration like customer documents.
+	_, exists := b.documentsStore(region)[input.DocumentName]
+	if !exists && input.DocumentName != docRunPatchBaseline {
 		return nil, ErrDocumentNotFound
 	}
 
@@ -2045,6 +2050,12 @@ func (b *InMemoryBackend) SendCommand(
 	b.commandsStore(region)[cmdID] = cmd
 
 	stdout, stderr, finalStatus := renderCommandOutput(input.DocumentName, input.Parameters)
+
+	if input.DocumentName == docRunPatchBaseline {
+		for _, instanceID := range input.InstanceIDs {
+			b.applyPatchBaselineOperation(region, instanceID, input.Parameters)
+		}
+	}
 
 	invocations := make([]CommandInvocation, 0, len(input.InstanceIDs))
 	for _, instanceID := range input.InstanceIDs {

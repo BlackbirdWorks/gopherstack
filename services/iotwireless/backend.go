@@ -36,6 +36,16 @@ var (
 	ErrValidation = errors.New("ValidationException: invalid request parameters")
 )
 
+// Default gateway connectivity/firmware state recorded at CreateWirelessGateway
+// time, returned by GetWirelessGatewayStatistics / GetWirelessGatewayFirmwareInformation
+// once a gateway is found to exist.
+const (
+	defaultGatewayConnectionStatus = "Connected"
+	defaultGatewayFirmwareVersion  = "1.0.0"
+	defaultGatewayFirmwareModel    = "GW-001"
+	defaultGatewayFirmwareStation  = "LNS"
+)
+
 // StorageBackend is the interface for the IoT Wireless backend.
 type StorageBackend interface {
 	Reset()
@@ -499,12 +509,16 @@ func (b *InMemoryBackend) CreateWirelessGateway(
 	arn := wirelessGatewayARN(region, accountID, id)
 
 	gw := &WirelessGateway{
-		ID:          id,
-		ARN:         arn,
-		Name:        name,
-		Description: description,
-		Tags:        newTagsCopy(tags),
-		CreatedAt:   time.Now(),
+		ID:               id,
+		ARN:              arn,
+		Name:             name,
+		Description:      description,
+		Tags:             newTagsCopy(tags),
+		CreatedAt:        time.Now(),
+		ConnectionStatus: defaultGatewayConnectionStatus,
+		FirmwareVersion:  defaultGatewayFirmwareVersion,
+		FirmwareModel:    defaultGatewayFirmwareModel,
+		FirmwareStation:  defaultGatewayFirmwareStation,
 	}
 
 	key := resourceKey{AccountID: accountID, Region: region, ID: id}

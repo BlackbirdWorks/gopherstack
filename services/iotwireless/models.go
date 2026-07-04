@@ -4,24 +4,30 @@ import "time"
 
 // WirelessDevice represents a LoRaWAN or Sidewalk wireless device.
 type WirelessDevice struct {
-	CreatedAt       time.Time         `json:"createdAt"`
-	Tags            map[string]string `json:"tags,omitempty"`
-	Name            string            `json:"name"`
-	ID              string            `json:"id"`
-	ARN             string            `json:"arn"`
-	Description     string            `json:"description,omitempty"`
-	Type            string            `json:"type"`
-	DestinationName string            `json:"destinationName,omitempty"`
+	CreatedAt            time.Time         `json:"createdAt"`
+	LastUplinkReceivedAt *time.Time        `json:"lastUplinkReceivedAt,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	Name                 string            `json:"name"`
+	ID                   string            `json:"id"`
+	ARN                  string            `json:"arn"`
+	Description          string            `json:"description,omitempty"`
+	Type                 string            `json:"type"`
+	DestinationName      string            `json:"destinationName,omitempty"`
 }
 
 // WirelessGateway represents a LoRaWAN gateway.
 type WirelessGateway struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	Name        string            `json:"name"`
-	ID          string            `json:"id"`
-	ARN         string            `json:"arn"`
-	Description string            `json:"description,omitempty"`
+	CreatedAt            time.Time         `json:"createdAt"`
+	LastUplinkReceivedAt *time.Time        `json:"lastUplinkReceivedAt,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	Name                 string            `json:"name"`
+	ID                   string            `json:"id"`
+	ARN                  string            `json:"arn"`
+	Description          string            `json:"description,omitempty"`
+	ConnectionStatus     string            `json:"connectionStatus,omitempty"`
+	FirmwareVersion      string            `json:"firmwareVersion,omitempty"`
+	FirmwareModel        string            `json:"firmwareModel,omitempty"`
+	FirmwareStation      string            `json:"firmwareStation,omitempty"`
 }
 
 // ServiceProfile contains settings for a LoRaWAN service profile.

@@ -1480,7 +1480,7 @@ func (b *InMemoryBackend) ListNodes(
 		nodes = append(nodes, NodeInfo{
 			InstanceID:       act.ActivationID,
 			PlatformType:     platformTypeLinux,
-			AgentVersion:     "3.0.0",
+			AgentVersion:     defaultAgentVersionSSM,
 			RegistrationDate: time.Unix(int64(act.CreatedDate), 0).UTC(),
 		})
 	}
@@ -1590,7 +1590,7 @@ func (b *InMemoryBackend) DescribeInstanceInformation(
 		list = append(list, InstanceInformation{
 			InstanceID:       act.ActivationID,
 			PingStatus:       "Online",
-			AgentVersion:     "3.0.0",
+			AgentVersion:     defaultAgentVersionSSM,
 			PlatformType:     platformTypeLinux,
 			RegistrationDate: time.Unix(int64(act.CreatedDate), 0).UTC(),
 		})

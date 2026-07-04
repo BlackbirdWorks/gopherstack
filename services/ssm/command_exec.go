@@ -9,6 +9,7 @@ import (
 const (
 	docRunShellScript      = "AWS-RunShellScript"
 	docRunPowerShellScript = "AWS-RunPowerShellScript"
+	docRunPatchBaseline    = "AWS-RunPatchBaseline"
 )
 
 // renderCommandOutput produces plausible StandardOutputContent /

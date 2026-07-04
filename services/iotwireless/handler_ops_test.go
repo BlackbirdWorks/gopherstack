@@ -483,6 +483,16 @@ func TestHandlerOps_GetWirelessGatewayStatistics(t *testing.T) {
 	var statsResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &statsResp))
 	assert.Equal(t, "Connected", statsResp["ConnectionStatus"])
+	assert.Equal(t, gwID, statsResp["WirelessGatewayId"])
+}
+
+func TestHandlerOps_GetWirelessGatewayStatistics_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways/does-not-exist/statistics", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ============================================================
@@ -579,8 +589,29 @@ func TestHandlerOps_GetWirelessDeviceStatistics(t *testing.T) {
 
 	h := newTestHandlerHTTP()
 
-	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/some-id/statistics", "")
+	createResp := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices",
+		`{"Name":"dev1","Type":"LoRaWAN"}`)
+	require.Equal(t, http.StatusCreated, createResp.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	devID := created["Id"].(string)
+
+	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+devID+"/statistics", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var stats map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stats))
+	assert.Equal(t, devID, stats["WirelessDeviceId"])
+}
+
+func TestHandlerOps_GetWirelessDeviceStatistics_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/does-not-exist/statistics", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestHandlerOps_SendDataToWirelessDevice(t *testing.T) {
@@ -602,12 +633,29 @@ func TestHandlerOps_TestWirelessDevice(t *testing.T) {
 
 	h := newTestHandlerHTTP()
 
-	rec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices/some-id/test", `{}`)
+	createResp := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices",
+		`{"Name":"dev1","Type":"LoRaWAN"}`)
+	require.Equal(t, http.StatusCreated, createResp.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	devID := created["Id"].(string)
+
+	rec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices/"+devID+"/test", `{}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "PASS", resp["Result"])
+}
+
+func TestHandlerOps_TestWirelessDevice_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices/does-not-exist/test", `{}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ============================================================
@@ -1224,8 +1272,32 @@ func TestHandlerOps_GetWirelessGatewayFirmwareInformation(t *testing.T) {
 
 	h := newTestHandlerHTTP()
 
-	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways/gw-id/firmware-information", "")
+	createResp := doIoTWRequest(t, h, http.MethodPost, "/wireless-gateways", `{"Name":"gw1"}`)
+	require.Equal(t, http.StatusCreated, createResp.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	gwID := created["Id"].(string)
+
+	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways/"+gwID+"/firmware-information", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var info map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &info))
+	loRaWAN, ok := info["LoRaWAN"].(map[string]any)
+	require.True(t, ok)
+	currentVersion, ok := loRaWAN["CurrentVersion"].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, currentVersion["PackageVersion"])
+}
+
+func TestHandlerOps_GetWirelessGatewayFirmwareInformation_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways/does-not-exist/firmware-information", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestHandlerOps_NotFoundErrors verifies that not-found errors return 404.

@@ -1158,10 +1158,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return err
 		}
 
-		if handled, err := h.dispatchStubOp(c, op); handled {
-			return err
-		}
-
 		return c.JSON(
 			http.StatusBadRequest,
 			map[string]string{keyError: "unknown operation: " + op},
