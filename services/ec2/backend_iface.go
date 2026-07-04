@@ -607,6 +607,110 @@ type Backend interface {
 	// DisassociateTransitGatewayRouteTable removes an association between a TGW attachment and route table.
 	DisassociateTransitGatewayRouteTable(routeTableID, attachmentID string) error
 
+	// GetTransitGatewayRouteTableAssociations returns the attachment associations for a TGW route table.
+	GetTransitGatewayRouteTableAssociations(
+		routeTableID string,
+	) ([]*TransitGatewayRouteTableAssociation, error)
+
+	// GetTransitGatewayRouteTablePropagations returns the propagations for a TGW route table.
+	GetTransitGatewayRouteTablePropagations(
+		routeTableID string,
+	) ([]*TransitGatewayRouteTablePropagation, error)
+
+	// GetTransitGatewayAttachmentPropagations returns the route tables an attachment propagates into.
+	GetTransitGatewayAttachmentPropagations(
+		attachmentID string,
+	) ([]*TransitGatewayAttachmentPropagation, error)
+
+	// SearchTransitGatewayRoutes returns the routes in a TGW route table matching the given filters.
+	SearchTransitGatewayRoutes(
+		routeTableID string,
+		filters map[string][]string,
+	) ([]*TransitGatewayRoute, error)
+
+	// ExportTransitGatewayRoutes exports the routes in a TGW route table to S3, returning the S3 URL.
+	ExportTransitGatewayRoutes(routeTableID, s3Bucket string) (string, error)
+
+	// ModifyTransitGatewayVpcAttachment adds and/or removes subnets from a TGW VPC attachment.
+	ModifyTransitGatewayVpcAttachment(
+		attachmentID string,
+		addSubnetIDs, removeSubnetIDs []string,
+	) (*TransitGatewayVpcAttachment, error)
+
+	// RejectTransitGatewayVpcAttachment rejects a pending TGW VPC attachment.
+	RejectTransitGatewayVpcAttachment(attachmentID string) (*TransitGatewayVpcAttachment, error)
+
+	// RejectTransitGatewayPeeringAttachment rejects a pending TGW peering attachment.
+	RejectTransitGatewayPeeringAttachment(
+		attachmentID string,
+	) (*TransitGatewayPeeringAttachment, error)
+
+	// RejectTransitGatewayMulticastDomainAssociations rejects a request to associate
+	// subnets with a transit gateway multicast domain.
+	RejectTransitGatewayMulticastDomainAssociations(
+		domainID, attachmentID string,
+		subnetIDs []string,
+	) ([]*TransitGatewayMulticastDomainAssociation, error)
+
+	// ModifyTransitGatewayMeteringPolicy adds and/or removes middlebox attachment IDs
+	// from a TGW metering policy.
+	ModifyTransitGatewayMeteringPolicy(
+		policyID string,
+		addAttachmentIDs, removeAttachmentIDs []string,
+	) (*TransitGatewayMeteringPolicy, error)
+
+	// GetTransitGatewayMeteringPolicyEntries returns the entries for a TGW metering policy.
+	GetTransitGatewayMeteringPolicyEntries(
+		policyID string,
+	) ([]*TransitGatewayMeteringPolicyEntry, error)
+
+	// ---- Transit Gateway Policy Tables ----
+
+	// CreateTransitGatewayPolicyTable creates a new policy table on a transit gateway.
+	CreateTransitGatewayPolicyTable(tgwID string) (*TransitGatewayPolicyTable, error)
+
+	// DescribeTransitGatewayPolicyTables returns policy tables, optionally filtered by ID.
+	DescribeTransitGatewayPolicyTables(ids []string) []*TransitGatewayPolicyTable
+
+	// DeleteTransitGatewayPolicyTable removes a policy table.
+	DeleteTransitGatewayPolicyTable(id string) error
+
+	// AssociateTransitGatewayPolicyTable associates a TGW attachment with a policy table.
+	AssociateTransitGatewayPolicyTable(
+		policyTableID, attachmentID string,
+	) (*TransitGatewayPolicyTableAssociation, error)
+
+	// DisassociateTransitGatewayPolicyTable removes an association between a TGW
+	// attachment and a policy table.
+	DisassociateTransitGatewayPolicyTable(
+		policyTableID, attachmentID string,
+	) (*TransitGatewayPolicyTableAssociation, error)
+
+	// GetTransitGatewayPolicyTableAssociations returns the attachment associations for a policy table.
+	GetTransitGatewayPolicyTableAssociations(
+		policyTableID string,
+	) []*TransitGatewayPolicyTableAssociation
+
+	// GetTransitGatewayPolicyTableEntries validates a policy table exists (entries are
+	// always empty; see the type doc comment on TransitGatewayPolicyTableEntry usage
+	// in the handler layer).
+	GetTransitGatewayPolicyTableEntries(policyTableID string) error
+
+	// ---- Transit Gateway Route Table Announcements ----
+
+	// CreateTransitGatewayRouteTableAnnouncement announces a TGW route table across a
+	// peering attachment.
+	CreateTransitGatewayRouteTableAnnouncement(
+		routeTableID, peeringAttachmentID string,
+	) (*TransitGatewayRouteTableAnnouncement, error)
+
+	// DescribeTransitGatewayRouteTableAnnouncements returns route table announcements,
+	// optionally filtered by ID.
+	DescribeTransitGatewayRouteTableAnnouncements(ids []string) []*TransitGatewayRouteTableAnnouncement
+
+	// DeleteTransitGatewayRouteTableAnnouncement removes a route table announcement.
+	DeleteTransitGatewayRouteTableAnnouncement(id string) error
+
 	// ---- Transit Gateway Multicast Domains ----
 
 	// CreateTransitGatewayMulticastDomain creates a new multicast domain on a transit gateway.
@@ -1278,6 +1382,10 @@ type Backend interface {
 	) (*TransitGatewayPrefixListReference, error)
 	DeleteTransitGatewayPrefixListReference(routeTableID, prefixListID string) error
 	GetTransitGatewayPrefixListReferences(routeTableID string) ([]*TransitGatewayPrefixListReference, error)
+	ModifyTransitGatewayPrefixListReference(
+		routeTableID, prefixListID, attachmentID string,
+		blackhole bool,
+	) (*TransitGatewayPrefixListReference, error)
 
 	// ---- batch4: VerifiedAccess ----
 	CreateVerifiedAccessEndpoint(groupID, endpointType, description string) (*VerifiedAccessEndpoint, error)

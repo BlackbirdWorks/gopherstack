@@ -5,6 +5,7 @@ package iotwireless
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -143,9 +144,16 @@ func (h *Handler) disassociateWirelessDeviceFromMulticastGroup(
 	return nil
 }
 
-func (h *Handler) getMulticastGroupSession(c *echo.Context, _ string) error {
+func (h *Handler) getMulticastGroupSession(c *echo.Context, id string) error {
+	startedAt, err := h.Backend.GetMulticastGroupSession(id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
 	return writeJSON(c, http.StatusOK, getMulticastGroupSessionResponse{
-		LoRaWAN: map[string]any{},
+		LoRaWAN: map[string]any{
+			"SessionStartTime": startedAt.Format(time.RFC3339),
+		},
 	})
 }
 
@@ -566,22 +574,26 @@ func (h *Handler) updateResourceEventConfiguration(c *echo.Context, _ string) er
 func (h *Handler) getPartnerAccount(c *echo.Context, partnerAccountID string) error {
 	arn, err := h.Backend.GetPartnerAccount(partnerAccountID)
 	if err != nil {
-		// Return empty response rather than 404 for compatibility.
-		return writeJSON(c, http.StatusOK, getPartnerAccountResponse{})
+		// GetPartnerAccount reports link status rather than 404ing on an
+		// unlinked account — matching AWS's use of it as a link-status check.
+		return writeJSON(c, http.StatusOK, getPartnerAccountResponse{AccountLinked: false})
 	}
 
 	return writeJSON(c, http.StatusOK, getPartnerAccountResponse{
-		Arn:       arn,
-		AccountID: partnerAccountID,
+		AccountLinked: true,
+		Sidewalk:      &sidewalkAccountInfo{AmazonID: partnerAccountID, Arn: arn},
 	})
 }
 
 func (h *Handler) listPartnerAccounts(c *echo.Context) error {
-	_ = h.Backend.ListPartnerAccounts()
+	accounts := h.Backend.ListPartnerAccounts()
 
-	return writeJSON(c, http.StatusOK, listPartnerAccountsResponse{
-		Sidewalk: []struct{}{},
-	})
+	sidewalk := make([]sidewalkAccountInfo, 0, len(accounts))
+	for id, arn := range accounts {
+		sidewalk = append(sidewalk, sidewalkAccountInfo{AmazonID: id, Arn: arn})
+	}
+
+	return writeJSON(c, http.StatusOK, listPartnerAccountsResponse{Sidewalk: sidewalk})
 }
 
 func (h *Handler) disassociateAwsAccountFromPartnerAccount(
@@ -779,10 +791,34 @@ func (h *Handler) getMetricConfiguration(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, getMetricConfigurationResponse{})
 }
 
+// getServiceEndpoint returns the CUPS or LNS endpoint for the requested
+// serviceType and the handler's configured region. AWS defaults to CUPS when
+// serviceType is omitted.
 func (h *Handler) getServiceEndpoint(c *echo.Context) error {
+	serviceType := c.QueryParam("serviceType")
+	if serviceType == "" {
+		serviceType = stubServiceType
+	}
+
+	region := h.DefaultRegion
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	var host string
+
+	switch serviceType {
+	case "CUPS":
+		host = "cups.lorawan." + region + ".amazonaws.com"
+	case "LNS":
+		host = "lns.lorawan." + region + ".amazonaws.com"
+	default:
+		return writeError(c, http.StatusBadRequest, "ValidationException: invalid serviceType "+serviceType)
+	}
+
 	return writeJSON(c, http.StatusOK, getServiceEndpointResponse{
-		ServiceType:     stubServiceType,
-		ServiceEndpoint: stubServiceEndpoint,
+		ServiceType:     serviceType,
+		ServiceEndpoint: "https://" + host,
 		ServerTrust:     "",
 	})
 }

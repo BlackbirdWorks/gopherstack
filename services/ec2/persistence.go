@@ -39,162 +39,170 @@ type snapClassicLinkInstance = ClassicLinkInstance
 type snapIpamVerifyToken = IpamExternalResourceVerificationToken
 
 type backendSnapshot struct {
-	SnapshotAttributes                 map[string]map[string]string                    `json:"snapshotAttributes"`
-	ImageDeprecated                    map[string]string                               `json:"imageDeprecated"`
-	VPCs                               map[string]*VPC                                 `json:"vpcs,omitempty"`
-	NatGateways                        map[string]*NatGateway                          `json:"natGateways,omitempty"`
-	KeyPairs                           map[string]*KeyPair                             `json:"keyPairs,omitempty"`
-	Volumes                            map[string]*Volume                              `json:"volumes,omitempty"`
-	Addresses                          map[string]*Address                             `json:"addresses,omitempty"`
-	InternetGateways                   map[string]*InternetGateway                     `json:"internetGateways"`
-	SecurityGroups                     map[string]*SecurityGroup                       `json:"securityGroups"`
-	Instances                          map[string]*Instance                            `json:"instances,omitempty"`
-	Subnets                            map[string]*Subnet                              `json:"subnets,omitempty"`
-	SpotRequests                       map[string]*SpotInstanceRequest                 `json:"spotRequests,omitempty"`
-	PlacementGroups                    map[string]*PlacementGroup                      `json:"placementGroups"`
-	Images                             map[string]*AMIStub                             `json:"images,omitempty"`
-	ImageUsageReports                  map[string]*ImageUsageReport                    `json:"imageUsageReports"`
-	LaunchTemplates                    map[string]*LaunchTemplate                      `json:"launchTemplates"`
-	VpcEndpoints                       map[string]*VpcEndpoint                         `json:"vpcEndpoints,omitempty"`
-	Snapshots                          map[string]*Snapshot                            `json:"snapshots,omitempty"`
-	NetworkACLs                        map[string]*StoredNetworkACL                    `json:"networkACLs,omitempty"`
-	TransitGateways                    map[string]*TransitGateway                      `json:"transitGateways"`
-	FlowLogs                           map[string]*FlowLog                             `json:"flowLogs,omitempty"`
-	DhcpOptionSets                     map[string]*DhcpOptions                         `json:"dhcpOptionSets"`
-	Tags                               map[string]map[string]string                    `json:"tags,omitempty"`
-	AddressTransfers                   map[string]*AddressTransfer                     `json:"addressTransfers"`
-	CapacityReservations               map[string]*CapacityReservation                 `json:"capacityReservations"`
-	ReservedInstancesExchanges         map[string]*snapRIExchange                      `json:"reservedInstancesExchanges"`
-	TGWMulticastDomainAssociations     map[string]*snapTGWMcastAssoc                   `json:"tgwMcastDomainAssoc"`
-	TGWPeeringAttachments              map[string]*snapTGWPeeringAtt                   `json:"tgwPeeringAttachments"`
-	TGWVpcAttachments                  map[string]*snapTGWVpcAtt                       `json:"tgwVpcAttachments"`
-	VpcEndpointConnections             map[string]*VpcEndpointConnection               `json:"vpcEndpointConnections"`
-	VpcPeeringConnections              map[string]*VpcPeeringConnection                `json:"vpcPeeringConnections"`
-	ByoipCidrs                         map[string]*ByoipCidr                           `json:"byoipCidrs,omitempty"`
-	DedicatedHosts                     map[string]*Host                                `json:"dedicatedHosts"`
-	VpnGateways                        map[string]*VpnGateway                          `json:"vpnGateways,omitempty"`
-	CustomerGateways                   map[string]*CustomerGateway                     `json:"customerGateways"`
-	Ipams                              map[string]*Ipam                                `json:"ipams,omitempty"`
-	IpamScopes                         map[string]*IpamScope                           `json:"ipamScopes,omitempty"`
-	IpamPools                          map[string]*IpamPool                            `json:"ipamPools,omitempty"`
-	IpamPoolCidrs                      map[string][]*IpamPoolCidr                      `json:"ipamPoolCidrs,omitempty"`
-	IpamPoolAllocations                map[string]*IpamPoolAllocation                  `json:"ipamPoolAllocations"`
-	IpamResourceDiscoveries            map[string]*IpamResourceDiscovery               `json:"ipamResourceDiscoveries"`
-	IpamResourceDiscoveryAssocs        map[string]*IpamResourceDiscoveryAssociation    `json:"ipamResourceDiscoveryAssocs"`
-	IpamByoasns                        map[string]*IpamByoasn                          `json:"ipamByoasns,omitempty"`
-	IpamAsnAssociations                map[string]*IpamAsnAssociation                  `json:"ipamAsnAssocs,omitempty"`
-	IpamVerificationTokens             map[string]*snapIpamVerifyToken                 `json:"ipamVerifyTokens,omitempty"`
-	IpamResourceCidrs                  map[string]*IpamResourceCidr                    `json:"ipamResourceCidrs,omitempty"`
-	IpamPrefixListResolvers            map[string]*IpamPrefixListResolver              `json:"ipamPLResolvers,omitempty"`
-	IpamPrefixListResolverVersions     map[string][]int64                              `json:"ipamPLRVersions,omitempty"`
-	IpamPrefixListResolverTargets      map[string]*IpamPrefixListResolverTarget        `json:"ipamPLRTargets,omitempty"`
-	CarrierGateways                    map[string]*CarrierGateway                      `json:"carrierGateways"`
-	Fleets                             map[string]*Fleet                               `json:"fleets,omitempty"`
-	NetworkInsightsPaths               map[string]*NetworkInsightsPath                 `json:"networkInsightsPaths"`
-	ManagedPrefixLists                 map[string]*ManagedPrefixList                   `json:"managedPrefixLists"`
-	EgressOnlyIGWs                     map[string]*EgressOnlyInternetGateway           `json:"egressOnlyIGWs"`
-	IamAssociations                    map[string]*IamInstanceProfileAssociation       `json:"iamAssociations"`
-	TgwRouteTables                     map[string]*TransitGatewayRouteTable            `json:"tgwRouteTables"`
-	TgwRoutes                          map[string]*TransitGatewayRoute                 `json:"tgwRoutes,omitempty"`
-	TgwRTAssociations                  map[string]*TransitGatewayRouteTableAssociation `json:"tgwRTAssociations"`
-	ReservedInstancesModifications     map[string]*ReservedInstancesModification       `json:"rim"`
-	ReservedInstancesListings          map[string]*ReservedInstancesListing            `json:"reservedInstancesListings"`
-	VpcCidrAssociations                map[string]*VpcCidrBlockAssociation             `json:"vpcCidrAssociations"`
-	VpnConnections                     map[string]*VpnConnection                       `json:"vpnConnections"`
-	VpcEndpointServiceConfigs          map[string]*VpcEndpointServiceConfig            `json:"vpcEndpointServiceConfigs"`
-	SpotFleets                         map[string]*SpotFleetRequest                    `json:"spotFleets,omitempty"`
-	SpotFleetHistory                   map[string][]SpotFleetHistoryRecord             `json:"spotFleetHistory"`
-	VolumeModifications                map[string]*VolumeModification                  `json:"volumeModifications"`
-	SnapshotTiers                      map[string]string                               `json:"snapshotTiers,omitempty"`
-	NetworkInterfaces                  map[string]*NetworkInterface                    `json:"networkInterfaces"`
-	RouteTables                        map[string]*RouteTable                          `json:"routeTables,omitempty"`
-	TrafficMirrorFilters               map[string]*TrafficMirrorFilter                 `json:"trafficMirrorFilters"`
-	VpcPeeringOptions                  map[string]*PeeringConnectionOptions            `json:"vpcPeeringOptions"`
-	SubnetCIDRAssociations             map[string][]*SubnetCIDRAssociation             `json:"subnetCIDRAssociations"`
-	AddressAttributes                  map[string]*AddressAttribute                    `json:"addressAttributes"`
-	InstanceMonitoring                 map[string]string                               `json:"instanceMonitoring"`
-	InstanceCreditSpecs                map[string]string                               `json:"instanceCreditSpecs"`
-	InstanceIMDSOptions                map[string]*IMDSOptions                         `json:"instanceIMDSOptions"`
-	InstanceMetadataDefaults           *InstanceMetadataDefaults                       `json:"instanceMetadataDefaults"`
-	InstanceEventNotifAttrs            *InstanceEventNotificationAttributes            `json:"instanceEventNotifAttrs"`
-	NiPermissions                      map[string]*NetworkInterfacePermission          `json:"niPermissions,omitempty"`
-	NiIPv6Addresses                    map[string][]string                             `json:"niIPv6Addresses"`
-	IDFormatSettings                   map[string]bool                                 `json:"idFormatSettings"`
-	EndpointConnectionNotifs           map[string]*VpcEndpointConnectionNotification   `json:"endpointConnectionNotifs"`
-	VpcEndpointServicePermissions      map[string][]string                             `json:"vpcEpSvcPerms"`
-	SnapshotLocks                      map[string]*SnapshotLock                        `json:"snapshotLocks,omitempty"`
-	ReplaceRootVolumeTasks             map[string]*ReplaceRootVolumeTask               `json:"replaceRootVolumeTasks"`
-	SubnetCIDRReservations             map[string][]*SubnetCIDRReservation             `json:"subnetCIDRReservations"`
-	ImageDisabled                      map[string]bool                                 `json:"imageDisabled,omitempty"`
-	SgVpcAssociations                  map[string]map[string]string                    `json:"sgVpcAssociations"`
-	ImageDeregistrationProtection      map[string]bool                                 `json:"imageDeregProtect"`
-	ImageAttributes                    map[string]map[string]string                    `json:"imageAttributes"`
-	VgwRoutePropagation                map[string]bool                                 `json:"vgwRoutePropagation"`
-	ClientVpnEndpoints                 map[string]*ClientVpnEndpoint                   `json:"clientVpnEndpoints"`
-	TgwConnects                        map[string]*TransitGatewayConnect               `json:"tgwConnects,omitempty"`
-	TgwConnectPeers                    map[string]*TransitGatewayConnectPeer           `json:"tgwConnectPeers"`
-	TgwPrefixListRefs                  map[string]*TransitGatewayPrefixListReference   `json:"tgwPrefixListRefs"`
-	VerifiedAccessEndpoints            map[string]*VerifiedAccessEndpoint              `json:"verifiedAccessEndpoints"`
-	VerifiedAccessGroups               map[string]*VerifiedAccessGroup                 `json:"verifiedAccessGroups"`
-	VerifiedAccessInstances            map[string]*VerifiedAccessInstance              `json:"verifiedAccessInstances"`
-	VerifiedAccessTrustProviders       map[string]*VerifiedAccessTrustProvider         `json:"vatps"`
-	InstanceConnectEndpoints           map[string]*InstanceConnectEndpoint             `json:"instanceConnectEndpoints"`
-	InstanceEventWindows               map[string]*InstanceEventWindow                 `json:"instanceEventWindows"`
-	ImageImportTasks                   map[string]*ImageImportTask                     `json:"imageImportTasks"`
-	SnapshotImportTasks                map[string]*SnapshotImportTask                  `json:"snapshotImportTasks"`
-	RecycleBinImages                   map[string]*RecycleBinImage                     `json:"recycleBinImages"`
-	RecycleBinSnapshots                map[string]*Snapshot                            `json:"recycleBinSnapshots"`
-	RecycleBinVolumes                  map[string]*RecycleBinVolume                    `json:"recycleBinVolumes"`
-	FastLaunchImages                   map[string]bool                                 `json:"fastLaunchImages"`
-	FastSnapshotRestores               map[string]bool                                 `json:"fastSnapshotRestores"`
-	VpnConnectionRoutes                map[string]*VpnConnectionRoute                  `json:"vpnConnectionRoutes"`
-	SpotDatafeed                       *SpotDatafeed                                   `json:"spotDatafeed,omitempty"`
-	VpcTenancy                         map[string]string                               `json:"vpcTenancy,omitempty"`
-	TrafficMirrorFilterRules           map[string]*TrafficMirrorFilterRule             `json:"trafficMirrorFilterRules"`
-	TrafficMirrorSessions              map[string]*TrafficMirrorSession                `json:"trafficMirrorSessions"`
-	TrafficMirrorTargets               map[string]*TrafficMirrorTarget                 `json:"trafficMirrorTargets"`
-	NetworkInsightsAnalyses            map[string]*NetworkInsightsAnalysis             `json:"networkInsightsAnalyses"`
-	NetworkInsightsAccessScopes        map[string]*NetworkInsightsAccessScope          `json:"networkInsightsAccessScopes"`
-	NetworkInsightsAccessScopeAnalyses map[string]*NetworkInsightsAccessScopeAnalysis  `json:"niasa"`
-	ReservedInstances                  map[string]*ReservedInstance                    `json:"reservedInstances"`
-	ReservedInstancesOfferings         map[string]*ReservedInstancesOffering           `json:"reservedInstancesOfferings"`
-	RouteServers                       map[string]*RouteServer                         `json:"routeServers,omitempty"`
-	RouteServerEndpoints               map[string]*RouteServerEndpoint                 `json:"rsEndpoints,omitempty"`
-	RouteServerPeers                   map[string]*RouteServerPeer                     `json:"routeServerPeers,omitempty"`
-	RouteServerAssociations            map[string]*RouteServerAssociation              `json:"rsAssociations,omitempty"`
-	RouteServerPropagations            map[string]*RouteServerPropagation              `json:"rsPropagations,omitempty"`
-	LocalGateways                      map[string]*LocalGateway                        `json:"localGateways,omitempty"`
-	LocalGatewayVirtualInterfaces      map[string]*LocalGatewayVirtualInterface        `json:"lgwVifs,omitempty"`
-	LocalGatewayVirtualInterfaceGroups map[string]*LocalGatewayVirtualInterfaceGroup   `json:"lgwVifGroups,omitempty"`
-	LocalGatewayRouteTables            map[string]*LocalGatewayRouteTable              `json:"lgwRouteTables,omitempty"`
-	LocalGatewayRoutes                 map[string]*LocalGatewayRoute                   `json:"lgwRoutes,omitempty"`
-	LocalGatewayRouteTableVpcAssocs    map[string]*snapLGWVpcAssoc                     `json:"lgwRtVpcAssocs,omitempty"`
-	LocalGatewayRTVifGroupAssocs       map[string]*snapLGWVifGroupAssoc                `json:"lgwVifGroupAssocs,omitempty"`
-	TgwMulticastDomains                map[string]*TransitGatewayMulticastDomain       `json:"tgwMcastDomains,omitempty"`
-	TgwMulticastGroupEntries           map[string]*snapTGWMcastGroupEntry              `json:"tgwMcastGroupEnt,omitempty"`
-	TgwMeteringPolicies                map[string]*snapTGWMeterPolicy                  `json:"tgwMeterPolicies,omitempty"`
-	TgwMeteringPolicyEntries           map[string]*snapTGWMeterPolicyEntry             `json:"tgwMeterPolicyEnt,omitempty"`
-	ClassicLinkInstances               map[string]*snapClassicLinkInstance             `json:"classicLinkInst,omitempty"`
-	VpcBlockPublicAccessOptions        *VpcBlockPublicAccessOptions                    `json:"vpcBpaOptions,omitempty"`
-	VpcBlockPublicAccessExclusions     map[string]*VpcBlockPublicAccessExclusion       `json:"vpcBpaExclusions,omitempty"`
-	CapacityReservationFleets          map[string]*CapacityReservationFleet            `json:"crFleets,omitempty"`
-	CapacityBlockOfferings             map[string]*CapacityBlockOffering               `json:"cbOfferings,omitempty"`
-	CapacityBlockExtensionOfferings    map[string]*CapacityBlockExtensionOffering      `json:"cbExtOfferings,omitempty"`
-	CapacityBlocks                     map[string]*CapacityBlock                       `json:"capacityBlocks,omitempty"`
-	CapacityBlockExtensions            map[string]*CapacityBlockExtension              `json:"cbExtensions,omitempty"`
-	CapacityReservationBillingReqs     map[string]*CapacityReservationBillingRequest   `json:"crBillingRequests,omitempty"`
-	CapacityManagerDataExports         map[string]*CapacityManagerDataExport           `json:"cmDataExports,omitempty"`
-	CapacityManagerState               *CapacityManagerState                           `json:"cmState,omitempty"`
-	IpamPolicies                       map[string]*IpamPolicy                          `json:"ipamPolicies,omitempty"`
-	IpamPolicyEnabledTargets           map[string]string                               `json:"ipamPolicyEnabled,omitempty"`
-	IpamOrgAdminAccountID              string                                          `json:"ipamOrgAdminAcct,omitempty"`
-	Region                             string                                          `json:"region,omitempty"`
-	AccountID                          string                                          `json:"accountID,omitempty"`
-	FreePrivateIPs                     []string                                        `json:"freePrivateIPs"`
-	NextPrivateIPIndex                 int                                             `json:"nextPrivateIPIndex"`
-	NextElasticIPIndex                 int                                             `json:"nextElasticIPIndex"`
-	EbsEncryptionByDefault             bool                                            `json:"ebsEncryptionByDefault"`
-	SerialConsoleAccess                bool                                            `json:"serialConsoleAccess"`
+	SnapshotAttributes             map[string]map[string]string                    `json:"snapshotAttributes"`
+	ImageDeprecated                map[string]string                               `json:"imageDeprecated"`
+	VPCs                           map[string]*VPC                                 `json:"vpcs,omitempty"`
+	NatGateways                    map[string]*NatGateway                          `json:"natGateways,omitempty"`
+	KeyPairs                       map[string]*KeyPair                             `json:"keyPairs,omitempty"`
+	Volumes                        map[string]*Volume                              `json:"volumes,omitempty"`
+	Addresses                      map[string]*Address                             `json:"addresses,omitempty"`
+	InternetGateways               map[string]*InternetGateway                     `json:"internetGateways"`
+	SecurityGroups                 map[string]*SecurityGroup                       `json:"securityGroups"`
+	Instances                      map[string]*Instance                            `json:"instances,omitempty"`
+	Subnets                        map[string]*Subnet                              `json:"subnets,omitempty"`
+	SpotRequests                   map[string]*SpotInstanceRequest                 `json:"spotRequests,omitempty"`
+	PlacementGroups                map[string]*PlacementGroup                      `json:"placementGroups"`
+	Images                         map[string]*AMIStub                             `json:"images,omitempty"`
+	ImageUsageReports              map[string]*ImageUsageReport                    `json:"imageUsageReports"`
+	LaunchTemplates                map[string]*LaunchTemplate                      `json:"launchTemplates"`
+	VpcEndpoints                   map[string]*VpcEndpoint                         `json:"vpcEndpoints,omitempty"`
+	Snapshots                      map[string]*Snapshot                            `json:"snapshots,omitempty"`
+	NetworkACLs                    map[string]*StoredNetworkACL                    `json:"networkACLs,omitempty"`
+	TransitGateways                map[string]*TransitGateway                      `json:"transitGateways"`
+	FlowLogs                       map[string]*FlowLog                             `json:"flowLogs,omitempty"`
+	DhcpOptionSets                 map[string]*DhcpOptions                         `json:"dhcpOptionSets"`
+	Tags                           map[string]map[string]string                    `json:"tags,omitempty"`
+	AddressTransfers               map[string]*AddressTransfer                     `json:"addressTransfers"`
+	CapacityReservations           map[string]*CapacityReservation                 `json:"capacityReservations"`
+	ReservedInstancesExchanges     map[string]*snapRIExchange                      `json:"reservedInstancesExchanges"`
+	TGWMulticastDomainAssociations map[string]*snapTGWMcastAssoc                   `json:"tgwMcastDomainAssoc"`
+	TGWPeeringAttachments          map[string]*snapTGWPeeringAtt                   `json:"tgwPeeringAttachments"`
+	TGWVpcAttachments              map[string]*snapTGWVpcAtt                       `json:"tgwVpcAttachments"`
+	VpcEndpointConnections         map[string]*VpcEndpointConnection               `json:"vpcEndpointConnections"`
+	VpcPeeringConnections          map[string]*VpcPeeringConnection                `json:"vpcPeeringConnections"`
+	ByoipCidrs                     map[string]*ByoipCidr                           `json:"byoipCidrs,omitempty"`
+	DedicatedHosts                 map[string]*Host                                `json:"dedicatedHosts"`
+	VpnGateways                    map[string]*VpnGateway                          `json:"vpnGateways,omitempty"`
+	CustomerGateways               map[string]*CustomerGateway                     `json:"customerGateways"`
+	Ipams                          map[string]*Ipam                                `json:"ipams,omitempty"`
+	IpamScopes                     map[string]*IpamScope                           `json:"ipamScopes,omitempty"`
+	IpamPools                      map[string]*IpamPool                            `json:"ipamPools,omitempty"`
+	IpamPoolCidrs                  map[string][]*IpamPoolCidr                      `json:"ipamPoolCidrs,omitempty"`
+	IpamPoolAllocations            map[string]*IpamPoolAllocation                  `json:"ipamPoolAllocations"`
+	IpamResourceDiscoveries        map[string]*IpamResourceDiscovery               `json:"ipamResourceDiscoveries"`
+	IpamResourceDiscoveryAssocs    map[string]*IpamResourceDiscoveryAssociation    `json:"ipamResourceDiscoveryAssocs"`
+	IpamByoasns                    map[string]*IpamByoasn                          `json:"ipamByoasns,omitempty"`
+	IpamAsnAssociations            map[string]*IpamAsnAssociation                  `json:"ipamAsnAssocs,omitempty"`
+	IpamVerificationTokens         map[string]*snapIpamVerifyToken                 `json:"ipamVerifyTokens,omitempty"`
+	IpamResourceCidrs              map[string]*IpamResourceCidr                    `json:"ipamResourceCidrs,omitempty"`
+	IpamPrefixListResolvers        map[string]*IpamPrefixListResolver              `json:"ipamPLResolvers,omitempty"`
+	IpamPrefixListResolverVersions map[string][]int64                              `json:"ipamPLRVersions,omitempty"`
+	IpamPrefixListResolverTargets  map[string]*IpamPrefixListResolverTarget        `json:"ipamPLRTargets,omitempty"`
+	CarrierGateways                map[string]*CarrierGateway                      `json:"carrierGateways"`
+	Fleets                         map[string]*Fleet                               `json:"fleets,omitempty"`
+	NetworkInsightsPaths           map[string]*NetworkInsightsPath                 `json:"networkInsightsPaths"`
+	ManagedPrefixLists             map[string]*ManagedPrefixList                   `json:"managedPrefixLists"`
+	EgressOnlyIGWs                 map[string]*EgressOnlyInternetGateway           `json:"egressOnlyIGWs"`
+	IamAssociations                map[string]*IamInstanceProfileAssociation       `json:"iamAssociations"`
+	TgwRouteTables                 map[string]*TransitGatewayRouteTable            `json:"tgwRouteTables"`
+	TgwRoutes                      map[string]*TransitGatewayRoute                 `json:"tgwRoutes,omitempty"`
+	TgwRTAssociations              map[string]*TransitGatewayRouteTableAssociation `json:"tgwRTAssociations"`
+
+	// TGW policy tables and route table announcements are kept in their own
+	// gofmt alignment group: their long type names would otherwise widen the
+	// tag column for the much larger field block above.
+	TgwPolicyTables            map[string]*TransitGatewayPolicyTable            `json:"tgwPolicyTables,omitempty"`
+	TgwPolicyTableAssociations map[string]*TransitGatewayPolicyTableAssociation `json:"tgwPTAssocs,omitempty"`
+	TgwRouteTableAnnouncements map[string]*TransitGatewayRouteTableAnnouncement `json:"tgwRTAnn,omitempty"`
+
+	ReservedInstancesModifications     map[string]*ReservedInstancesModification      `json:"rim"`
+	ReservedInstancesListings          map[string]*ReservedInstancesListing           `json:"reservedInstancesListings"`
+	VpcCidrAssociations                map[string]*VpcCidrBlockAssociation            `json:"vpcCidrAssociations"`
+	VpnConnections                     map[string]*VpnConnection                      `json:"vpnConnections"`
+	VpcEndpointServiceConfigs          map[string]*VpcEndpointServiceConfig           `json:"vpcEndpointServiceConfigs"`
+	SpotFleets                         map[string]*SpotFleetRequest                   `json:"spotFleets,omitempty"`
+	SpotFleetHistory                   map[string][]SpotFleetHistoryRecord            `json:"spotFleetHistory"`
+	VolumeModifications                map[string]*VolumeModification                 `json:"volumeModifications"`
+	SnapshotTiers                      map[string]string                              `json:"snapshotTiers,omitempty"`
+	NetworkInterfaces                  map[string]*NetworkInterface                   `json:"networkInterfaces"`
+	RouteTables                        map[string]*RouteTable                         `json:"routeTables,omitempty"`
+	TrafficMirrorFilters               map[string]*TrafficMirrorFilter                `json:"trafficMirrorFilters"`
+	VpcPeeringOptions                  map[string]*PeeringConnectionOptions           `json:"vpcPeeringOptions"`
+	SubnetCIDRAssociations             map[string][]*SubnetCIDRAssociation            `json:"subnetCIDRAssociations"`
+	AddressAttributes                  map[string]*AddressAttribute                   `json:"addressAttributes"`
+	InstanceMonitoring                 map[string]string                              `json:"instanceMonitoring"`
+	InstanceCreditSpecs                map[string]string                              `json:"instanceCreditSpecs"`
+	InstanceIMDSOptions                map[string]*IMDSOptions                        `json:"instanceIMDSOptions"`
+	InstanceMetadataDefaults           *InstanceMetadataDefaults                      `json:"instanceMetadataDefaults"`
+	InstanceEventNotifAttrs            *InstanceEventNotificationAttributes           `json:"instanceEventNotifAttrs"`
+	NiPermissions                      map[string]*NetworkInterfacePermission         `json:"niPermissions,omitempty"`
+	NiIPv6Addresses                    map[string][]string                            `json:"niIPv6Addresses"`
+	IDFormatSettings                   map[string]bool                                `json:"idFormatSettings"`
+	EndpointConnectionNotifs           map[string]*VpcEndpointConnectionNotification  `json:"endpointConnectionNotifs"`
+	VpcEndpointServicePermissions      map[string][]string                            `json:"vpcEpSvcPerms"`
+	SnapshotLocks                      map[string]*SnapshotLock                       `json:"snapshotLocks,omitempty"`
+	ReplaceRootVolumeTasks             map[string]*ReplaceRootVolumeTask              `json:"replaceRootVolumeTasks"`
+	SubnetCIDRReservations             map[string][]*SubnetCIDRReservation            `json:"subnetCIDRReservations"`
+	ImageDisabled                      map[string]bool                                `json:"imageDisabled,omitempty"`
+	SgVpcAssociations                  map[string]map[string]string                   `json:"sgVpcAssociations"`
+	ImageDeregistrationProtection      map[string]bool                                `json:"imageDeregProtect"`
+	ImageAttributes                    map[string]map[string]string                   `json:"imageAttributes"`
+	VgwRoutePropagation                map[string]bool                                `json:"vgwRoutePropagation"`
+	ClientVpnEndpoints                 map[string]*ClientVpnEndpoint                  `json:"clientVpnEndpoints"`
+	TgwConnects                        map[string]*TransitGatewayConnect              `json:"tgwConnects,omitempty"`
+	TgwConnectPeers                    map[string]*TransitGatewayConnectPeer          `json:"tgwConnectPeers"`
+	TgwPrefixListRefs                  map[string]*TransitGatewayPrefixListReference  `json:"tgwPrefixListRefs"`
+	VerifiedAccessEndpoints            map[string]*VerifiedAccessEndpoint             `json:"verifiedAccessEndpoints"`
+	VerifiedAccessGroups               map[string]*VerifiedAccessGroup                `json:"verifiedAccessGroups"`
+	VerifiedAccessInstances            map[string]*VerifiedAccessInstance             `json:"verifiedAccessInstances"`
+	VerifiedAccessTrustProviders       map[string]*VerifiedAccessTrustProvider        `json:"vatps"`
+	InstanceConnectEndpoints           map[string]*InstanceConnectEndpoint            `json:"instanceConnectEndpoints"`
+	InstanceEventWindows               map[string]*InstanceEventWindow                `json:"instanceEventWindows"`
+	ImageImportTasks                   map[string]*ImageImportTask                    `json:"imageImportTasks"`
+	SnapshotImportTasks                map[string]*SnapshotImportTask                 `json:"snapshotImportTasks"`
+	RecycleBinImages                   map[string]*RecycleBinImage                    `json:"recycleBinImages"`
+	RecycleBinSnapshots                map[string]*Snapshot                           `json:"recycleBinSnapshots"`
+	RecycleBinVolumes                  map[string]*RecycleBinVolume                   `json:"recycleBinVolumes"`
+	FastLaunchImages                   map[string]bool                                `json:"fastLaunchImages"`
+	FastSnapshotRestores               map[string]bool                                `json:"fastSnapshotRestores"`
+	VpnConnectionRoutes                map[string]*VpnConnectionRoute                 `json:"vpnConnectionRoutes"`
+	SpotDatafeed                       *SpotDatafeed                                  `json:"spotDatafeed,omitempty"`
+	VpcTenancy                         map[string]string                              `json:"vpcTenancy,omitempty"`
+	TrafficMirrorFilterRules           map[string]*TrafficMirrorFilterRule            `json:"trafficMirrorFilterRules"`
+	TrafficMirrorSessions              map[string]*TrafficMirrorSession               `json:"trafficMirrorSessions"`
+	TrafficMirrorTargets               map[string]*TrafficMirrorTarget                `json:"trafficMirrorTargets"`
+	NetworkInsightsAnalyses            map[string]*NetworkInsightsAnalysis            `json:"networkInsightsAnalyses"`
+	NetworkInsightsAccessScopes        map[string]*NetworkInsightsAccessScope         `json:"networkInsightsAccessScopes"`
+	NetworkInsightsAccessScopeAnalyses map[string]*NetworkInsightsAccessScopeAnalysis `json:"niasa"`
+	ReservedInstances                  map[string]*ReservedInstance                   `json:"reservedInstances"`
+	ReservedInstancesOfferings         map[string]*ReservedInstancesOffering          `json:"reservedInstancesOfferings"`
+	RouteServers                       map[string]*RouteServer                        `json:"routeServers,omitempty"`
+	RouteServerEndpoints               map[string]*RouteServerEndpoint                `json:"rsEndpoints,omitempty"`
+	RouteServerPeers                   map[string]*RouteServerPeer                    `json:"routeServerPeers,omitempty"`
+	RouteServerAssociations            map[string]*RouteServerAssociation             `json:"rsAssociations,omitempty"`
+	RouteServerPropagations            map[string]*RouteServerPropagation             `json:"rsPropagations,omitempty"`
+	LocalGateways                      map[string]*LocalGateway                       `json:"localGateways,omitempty"`
+	LocalGatewayVirtualInterfaces      map[string]*LocalGatewayVirtualInterface       `json:"lgwVifs,omitempty"`
+	LocalGatewayVirtualInterfaceGroups map[string]*LocalGatewayVirtualInterfaceGroup  `json:"lgwVifGroups,omitempty"`
+	LocalGatewayRouteTables            map[string]*LocalGatewayRouteTable             `json:"lgwRouteTables,omitempty"`
+	LocalGatewayRoutes                 map[string]*LocalGatewayRoute                  `json:"lgwRoutes,omitempty"`
+	LocalGatewayRouteTableVpcAssocs    map[string]*snapLGWVpcAssoc                    `json:"lgwRtVpcAssocs,omitempty"`
+	LocalGatewayRTVifGroupAssocs       map[string]*snapLGWVifGroupAssoc               `json:"lgwVifGroupAssocs,omitempty"`
+	TgwMulticastDomains                map[string]*TransitGatewayMulticastDomain      `json:"tgwMcastDomains,omitempty"`
+	TgwMulticastGroupEntries           map[string]*snapTGWMcastGroupEntry             `json:"tgwMcastGroupEnt,omitempty"`
+	TgwMeteringPolicies                map[string]*snapTGWMeterPolicy                 `json:"tgwMeterPolicies,omitempty"`
+	TgwMeteringPolicyEntries           map[string]*snapTGWMeterPolicyEntry            `json:"tgwMeterPolicyEnt,omitempty"`
+	ClassicLinkInstances               map[string]*snapClassicLinkInstance            `json:"classicLinkInst,omitempty"`
+	VpcBlockPublicAccessOptions        *VpcBlockPublicAccessOptions                   `json:"vpcBpaOptions,omitempty"`
+	VpcBlockPublicAccessExclusions     map[string]*VpcBlockPublicAccessExclusion      `json:"vpcBpaExclusions,omitempty"`
+	CapacityReservationFleets          map[string]*CapacityReservationFleet           `json:"crFleets,omitempty"`
+	CapacityBlockOfferings             map[string]*CapacityBlockOffering              `json:"cbOfferings,omitempty"`
+	CapacityBlockExtensionOfferings    map[string]*CapacityBlockExtensionOffering     `json:"cbExtOfferings,omitempty"`
+	CapacityBlocks                     map[string]*CapacityBlock                      `json:"capacityBlocks,omitempty"`
+	CapacityBlockExtensions            map[string]*CapacityBlockExtension             `json:"cbExtensions,omitempty"`
+	CapacityReservationBillingReqs     map[string]*CapacityReservationBillingRequest  `json:"crBillingRequests,omitempty"`
+	CapacityManagerDataExports         map[string]*CapacityManagerDataExport          `json:"cmDataExports,omitempty"`
+	CapacityManagerState               *CapacityManagerState                          `json:"cmState,omitempty"`
+	IpamPolicies                       map[string]*IpamPolicy                         `json:"ipamPolicies,omitempty"`
+	IpamPolicyEnabledTargets           map[string]string                              `json:"ipamPolicyEnabled,omitempty"`
+	IpamOrgAdminAccountID              string                                         `json:"ipamOrgAdminAcct,omitempty"`
+	Region                             string                                         `json:"region,omitempty"`
+	AccountID                          string                                         `json:"accountID,omitempty"`
+	FreePrivateIPs                     []string                                       `json:"freePrivateIPs"`
+	NextPrivateIPIndex                 int                                            `json:"nextPrivateIPIndex"`
+	NextElasticIPIndex                 int                                            `json:"nextElasticIPIndex"`
+	EbsEncryptionByDefault             bool                                           `json:"ebsEncryptionByDefault"`
+	SerialConsoleAccess                bool                                           `json:"serialConsoleAccess"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -271,6 +279,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		TgwRouteTables:                     b.tgwRouteTables,
 		TgwRoutes:                          b.tgwRoutes,
 		TgwRTAssociations:                  b.tgwRTAssociations,
+		TgwPolicyTables:                    b.tgwPolicyTables,
+		TgwPolicyTableAssociations:         b.tgwPolicyTableAssociations,
+		TgwRouteTableAnnouncements:         b.tgwRouteTableAnnouncements,
 		VpcCidrAssociations:                b.vpcCidrAssociations,
 		VpnConnections:                     b.vpnConnections,
 		VpcEndpointServiceConfigs:          b.vpcEndpointServiceConfigs,
@@ -418,6 +429,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.tgwRTAssociations = snap.TgwRTAssociations
 	} else {
 		b.tgwRTAssociations = make(map[string]*TransitGatewayRouteTableAssociation)
+	}
+	if snap.TgwPolicyTables != nil {
+		b.tgwPolicyTables = snap.TgwPolicyTables
+	} else {
+		b.tgwPolicyTables = make(map[string]*TransitGatewayPolicyTable)
+	}
+	if snap.TgwPolicyTableAssociations != nil {
+		b.tgwPolicyTableAssociations = snap.TgwPolicyTableAssociations
+	} else {
+		b.tgwPolicyTableAssociations = make(map[string]*TransitGatewayPolicyTableAssociation)
+	}
+	if snap.TgwRouteTableAnnouncements != nil {
+		b.tgwRouteTableAnnouncements = snap.TgwRouteTableAnnouncements
+	} else {
+		b.tgwRouteTableAnnouncements = make(map[string]*TransitGatewayRouteTableAnnouncement)
 	}
 	if snap.VpcCidrAssociations != nil {
 		b.vpcCidrAssociations = snap.VpcCidrAssociations
@@ -1106,6 +1132,10 @@ func (s *backendSnapshot) initNewOpsMaps() {
 	if s.DedicatedHosts == nil {
 		s.DedicatedHosts = make(map[string]*Host)
 	}
+
+	initMapIfNil(&s.TgwPolicyTables)
+	initMapIfNil(&s.TgwPolicyTableAssociations)
+	initMapIfNil(&s.TgwRouteTableAnnouncements)
 
 	s.initAppendixMaps()
 }

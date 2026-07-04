@@ -26,23 +26,30 @@ const (
 )
 
 const (
-	keyRestAPIID            = "restApiId"
-	keyResourceArn          = "resourceArn"
-	keyAPIKeyID             = "apiKeyId"
-	keyDomainName           = "domainName"
-	keyBasePath             = "basePath"
-	keyUsagePlanID          = "usagePlanId"
-	keyResourceID           = "resourceId"
-	keyDeploymentID         = "deploymentId"
-	keyStageName            = "stageName"
-	keyAuthorizerID         = "authorizerId"
-	keyRequestValidatorID   = "requestValidatorId"
-	keyModelName            = "modelName"
-	keyDocPartID            = "docPartId"
-	keyDocumentationVersion = "documentationVersion"
-	keyResponseType         = "responseType"
-	keyHTTPMethod           = "httpMethod"
-	keyStatusCode           = "statusCode"
+	keyRestAPIID                      = "restApiId"
+	keyResourceArn                    = "resourceArn"
+	keyAPIKeyID                       = "apiKeyId"
+	keyDomainName                     = "domainName"
+	keyBasePath                       = "basePath"
+	keyUsagePlanID                    = "usagePlanId"
+	keyResourceID                     = "resourceId"
+	keyDeploymentID                   = "deploymentId"
+	keyStageName                      = "stageName"
+	keyAuthorizerID                   = "authorizerId"
+	keyRequestValidatorID             = "requestValidatorId"
+	keyModelName                      = "modelName"
+	keyDocPartID                      = "docPartId"
+	keyDocumentationVersion           = "documentationVersion"
+	keyResponseType                   = "responseType"
+	keyHTTPMethod                     = "httpMethod"
+	keyStatusCode                     = "statusCode"
+	keyVpcLinkID                      = "vpcLinkId"
+	keyClientCertificateID            = "clientCertificateId"
+	keySdkTypeID                      = "id"
+	keyExportType                     = "exportType"
+	keySdkType                        = "sdkType"
+	keyDomainNameAccessAssociationArn = "domainNameAccessAssociationArn"
+	keyKeyID                          = "keyId"
 	// keyItem is the response collection key used by AWS API Gateway list
 	// operations. The AWS Go SDK v2 deserializer expects the singular "item"
 	// for every list response (it is the wire name in the smithy model).
@@ -174,30 +181,40 @@ const (
 
 // path segment constants used in REST route matching.
 const (
-	apiGWUnknownOp             = "Unknown"
-	apiGWSegResources          = "resources"
-	apiGWSegDeployment         = "deployments"
-	apiGWSegStages             = "stages"
-	apiGWSegMethods            = "methods"
-	apiGWSegInteg              = "integration"
-	apiGWSegResponses          = "responses"
-	apiGWSegAuthorizers        = "authorizers"
-	apiGWSegValidators         = "requestvalidators"
-	apiGWSegAPIKeys            = "apikeys"
-	apiGWSegDomainNames        = "domainnames"
-	apiGWSegBasePathMappings   = "basepathmappings"
-	apiGWSegAccessAssociations = "accessassociations"
-	apiGWSegDocumentation      = "documentation"
-	apiGWSegDocParts           = "parts"
-	apiGWSegDocVersions        = "versions"
-	apiGWSegModels             = "models"
-	apiGWSegUsagePlans         = "usageplans"
-	apiGWSegUsagePlanKeys      = "keys"
-	apiGWSegGatewayResponses   = "gatewayresponses"
-	apiGWSegClientCerts        = "clientcertificates"
+	apiGWUnknownOp                             = "Unknown"
+	apiGWSegResources                          = "resources"
+	apiGWSegDeployment                         = "deployments"
+	apiGWSegStages                             = "stages"
+	apiGWSegMethods                            = "methods"
+	apiGWSegInteg                              = "integration"
+	apiGWSegResponses                          = "responses"
+	apiGWSegAuthorizers                        = "authorizers"
+	apiGWSegValidators                         = "requestvalidators"
+	apiGWSegAPIKeys                            = "apikeys"
+	apiGWSegDomainNames                        = "domainnames"
+	apiGWSegBasePathMappings                   = "basepathmappings"
+	apiGWSegDocumentation                      = "documentation"
+	apiGWSegDocParts                           = "parts"
+	apiGWSegDocVersions                        = "versions"
+	apiGWSegModels                             = "models"
+	apiGWSegUsagePlans                         = "usageplans"
+	apiGWSegUsagePlanKeys                      = "keys"
+	apiGWSegGatewayResponses                   = "gatewayresponses"
+	apiGWSegClientCerts                        = "clientcertificates"
+	apiGWSegVpcLinks                           = "vpclinks"
+	apiGWSegSdkTypes                           = "sdktypes"
+	apiGWSegExports                            = "exports"
+	apiGWSegSdks                               = "sdks"
+	apiGWSegDomainNameAccessAssociations       = "domainnameaccessassociations"
+	apiGWSegRejectDomainNameAccessAssociations = "rejectdomainnameaccessassociations"
+	apiGWSegUsage                              = "usage"
 
 	// apiGWMinTagPathSegs is the minimum number of path segments for a /tags/{arn} path.
 	apiGWMinTagPathSegs = 2
+
+	// pathDepth5 is declared above; pathDepth6 covers paths like
+	// /restapis/{id}/stages/{name}/exports/{type}.
+	pathDepth6 = 6
 )
 
 type createRestAPIInput = CreateRestAPIInput
@@ -806,12 +823,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		path := c.Request().URL.Path
 
-		if strings.HasPrefix(path, "/restapis") ||
-			strings.HasPrefix(path, "/apikeys") ||
-			strings.HasPrefix(path, "/domainnames") ||
-			strings.HasPrefix(path, "/usageplans") ||
-			(path == "/account" || strings.HasPrefix(path, "/account/")) ||
-			strings.HasPrefix(path, "/"+apiGWSegClientCerts) {
+		if isAPIGWTopLevelRESTPath(path) {
 			return true
 		}
 
@@ -823,6 +835,31 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return false
 	}
+}
+
+// isAPIGWTopLevelRESTPath reports whether path matches one of the top-level
+// REST resource collections API Gateway's control-plane API exposes. Shared by
+// RouteMatcher and Handler so the two stay in sync.
+func isAPIGWTopLevelRESTPath(path string) bool {
+	prefixes := []string{
+		"/restapis",
+		"/apikeys",
+		"/domainnames",
+		"/usageplans",
+		"/" + apiGWSegClientCerts,
+		"/" + apiGWSegVpcLinks,
+		"/" + apiGWSegSdkTypes,
+		"/" + apiGWSegDomainNameAccessAssociations,
+		"/" + apiGWSegRejectDomainNameAccessAssociations,
+	}
+
+	for _, p := range prefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+
+	return path == "/account" || strings.HasPrefix(path, "/account/")
 }
 
 // MatchPriority returns the routing priority for the API Gateway handler.
@@ -886,13 +923,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		path := c.Request().URL.Path
 		tagsAfter, isTagsPath := strings.CutPrefix(path, "/tags/")
 		isAPIGWTagPath := isTagsPath && strings.Contains(tagsAfter, ":apigateway:")
-		isRESTPath := strings.HasPrefix(path, "/restapis") ||
-			strings.HasPrefix(path, "/apikeys") ||
-			strings.HasPrefix(path, "/domainnames") ||
-			strings.HasPrefix(path, "/usageplans") ||
-			(path == "/account" || strings.HasPrefix(path, "/account/")) ||
-			strings.HasPrefix(path, "/"+apiGWSegClientCerts) ||
-			isAPIGWTagPath
+		isRESTPath := isAPIGWTopLevelRESTPath(path) || isAPIGWTagPath
 
 		if isRESTPath && !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "APIGateway.") {
 			return h.handleRESTAPI(c)
@@ -958,12 +989,14 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		return c.String(http.StatusNotFound, "not found")
 	}
 
-	// ImportRestApi and PutRestApi carry an opaque OpenAPI/Swagger document as
-	// their raw request body (Content-Type: application/octet-stream), not a
-	// JSON object of named parameters. Merging query parameters into it the
-	// way other operations do would corrupt YAML or otherwise non-JSON-object
-	// bodies, so build a small envelope instead and skip the generic merge below.
-	if action == opImportRestAPI || action == opPutRestAPI {
+	// ImportRestApi, PutRestApi, ImportApiKeys, and ImportDocumentationParts all
+	// carry an opaque raw document as their request body (Content-Type:
+	// application/octet-stream — an OpenAPI/Swagger spec, a CSV file, or a JSON
+	// documentation-parts payload), not a JSON object of named parameters.
+	// Merging query parameters into it the way other operations do would corrupt
+	// non-JSON-object bodies, so build a small envelope instead and skip the
+	// generic merge below.
+	if isRawBodyAPIGWAction(action) {
 		return h.dispatchRestAPISpec(c, action, pathParams, query)
 	}
 
@@ -1096,7 +1129,7 @@ func parseAPIGWRESTPath(method, path string, query url.Values) (string, map[stri
 	case "restapis":
 		return parseAPIGWRestAPIsPath(method, segs, n, query)
 	case apiGWSegAPIKeys:
-		return parseAPIGWAPIKeysPath(method, segs, n)
+		return parseAPIGWAPIKeysPath(method, segs, n, query)
 	case apiGWSegDomainNames:
 		return parseAPIGWDomainNamesPath(method, segs, n)
 	case apiGWSegUsagePlans:
@@ -1107,9 +1140,84 @@ func parseAPIGWRESTPath(method, path string, query url.Values) (string, map[stri
 		return parseAPIGWTagsPath(method, segs, n)
 	case apiGWSegClientCerts:
 		return parseAPIGWClientCertificatesPath(method, segs, n)
+	case apiGWSegVpcLinks:
+		return parseAPIGWVpcLinksPath(method, segs, n)
+	case apiGWSegSdkTypes:
+		return parseAPIGWSdkTypesPath(method, segs, n)
+	case apiGWSegDomainNameAccessAssociations:
+		return parseAPIGWDomainNameAccessAssociationsPath(method, segs, n)
+	case apiGWSegRejectDomainNameAccessAssociations:
+		if n == pathDepth1 && method == http.MethodPost {
+			return opRejectDomainNameAccessAssociation, nil, true
+		}
 	}
 
 	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWVpcLinksPath handles /vpclinks/... paths.
+func parseAPIGWVpcLinksPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	switch n {
+	case pathDepth1:
+		switch method {
+		case http.MethodGet:
+			return opGetVpcLinks, nil, true
+		case http.MethodPost:
+			return opCreateVpcLink, nil, true
+		}
+	case pathDepth2:
+		params := map[string]string{keyVpcLinkID: segs[1]}
+		switch method {
+		case http.MethodGet:
+			return opGetVpcLink, params, true
+		case http.MethodPatch:
+			return opUpdateVpcLink, params, true
+		case http.MethodDelete:
+			return opDeleteVpcLink, params, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWSdkTypesPath handles /sdktypes/... paths.
+func parseAPIGWSdkTypesPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	switch n {
+	case pathDepth1:
+		if method == http.MethodGet {
+			return opGetSdkTypes, nil, true
+		}
+	case pathDepth2:
+		if method == http.MethodGet {
+			return opGetSdkType, map[string]string{keySdkTypeID: segs[1]}, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWDomainNameAccessAssociationsPath handles /domainnameaccessassociations/... paths.
+// The association ARN (when present) may itself contain "/" once URL-decoded,
+// so remaining segments are rejoined to reconstruct it, mirroring /tags/{arn}.
+func parseAPIGWDomainNameAccessAssociationsPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	if n == pathDepth1 {
+		switch method {
+		case http.MethodGet:
+			return opGetDomainNameAccessAssociations, nil, true
+		case http.MethodPost:
+			return opCreateDomainNameAccessAssociation, nil, true
+		}
+
+		return apiGWUnknownOp, nil, false
+	}
+
+	if method != http.MethodDelete {
+		return apiGWUnknownOp, nil, false
+	}
+
+	arn := strings.Join(segs[1:], "/")
+
+	return opDeleteDomainNameAccessAssociation, map[string]string{keyDomainNameAccessAssociationArn: arn}, true
 }
 
 // parseAPIGWAccountPath handles /account paths.
@@ -1137,10 +1245,13 @@ func parseAPIGWClientCertificatesPath(method string, segs []string, n int) (stri
 		return opGenerateClientCertificate, nil, true
 	// GET /clientcertificates/{id} → GetClientCertificate
 	case n == pathDepth2 && method == http.MethodGet:
-		return opGetClientCertificate, map[string]string{"clientCertificateId": segs[1]}, true
+		return opGetClientCertificate, map[string]string{keyClientCertificateID: segs[1]}, true
 	// DELETE /clientcertificates/{id} → DeleteClientCertificate
 	case n == pathDepth2 && method == http.MethodDelete:
-		return opDeleteClientCertificate, map[string]string{"clientCertificateId": segs[1]}, true
+		return opDeleteClientCertificate, map[string]string{keyClientCertificateID: segs[1]}, true
+	// PATCH /clientcertificates/{id} → UpdateClientCertificate
+	case n == pathDepth2 && method == http.MethodPatch:
+		return opUpdateClientCertificate, map[string]string{keyClientCertificateID: segs[1]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1170,12 +1281,14 @@ func parseAPIGWTagsPath(method string, segs []string, n int) (string, map[string
 }
 
 // parseAPIGWAPIKeysPath handles /apikeys/... paths.
-func parseAPIGWAPIKeysPath(method string, segs []string, n int) (string, map[string]string, bool) {
+func parseAPIGWAPIKeysPath(method string, segs []string, n int, query url.Values) (string, map[string]string, bool) {
 	switch {
 	// GET /apikeys → GetApiKeys
 	case n == 1 && method == http.MethodGet:
 		return opGetAPIKeys, nil, true
-	// POST /apikeys → CreateAPIKey
+	// POST /apikeys?mode=import → ImportApiKeys. POST /apikeys (no mode) → CreateAPIKey.
+	case n == 1 && method == http.MethodPost && query.Get("mode") == "import":
+		return opImportAPIKeys, nil, true
 	case n == 1 && method == http.MethodPost:
 		return opCreateAPIKey, nil, true
 	// GET /apikeys/{id} → GetApiKey
@@ -1227,17 +1340,12 @@ func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map
 
 // parseAPIGWDomainNamesDepth3 handles /domainnames/{name}/{sub} paths.
 func parseAPIGWDomainNamesDepth3(method string, segs []string) (string, map[string]string, bool) {
-	switch segs[2] {
-	case apiGWSegBasePathMappings:
+	if segs[2] == apiGWSegBasePathMappings {
 		switch method {
 		case http.MethodGet:
 			return opGetBasePathMappings, map[string]string{keyDomainName: segs[1]}, true
 		case http.MethodPost:
 			return opCreateBasePathMapping, map[string]string{keyDomainName: segs[1]}, true
-		}
-	case apiGWSegAccessAssociations:
-		if method == http.MethodPost {
-			return opCreateDomainNameAccessAssociation, map[string]string{keyDomainName: segs[1]}, true
 		}
 	}
 
@@ -1284,6 +1392,8 @@ func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[
 		return parseAPIGWUsagePlansDepth3(method, segs)
 	case pathDepth4:
 		return parseAPIGWUsagePlansDepth4(method, segs)
+	case pathDepth5:
+		return parseAPIGWUsagePlansDepth5(method, segs)
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1294,7 +1404,7 @@ func parseAPIGWUsagePlansDepth3(method string, segs []string) (string, map[strin
 	planParam := map[string]string{keyUsagePlanID: segs[1]}
 
 	switch segs[2] {
-	case "usage":
+	case apiGWSegUsage:
 		if method == http.MethodGet {
 			return opGetUsage, planParam, true
 		}
@@ -1316,13 +1426,28 @@ func parseAPIGWUsagePlansDepth4(method string, segs []string) (string, map[strin
 		return apiGWUnknownOp, nil, false
 	}
 
-	params := map[string]string{keyUsagePlanID: segs[1], "keyId": segs[3]}
+	params := map[string]string{keyUsagePlanID: segs[1], keyKeyID: segs[3]}
 
 	switch method {
 	case http.MethodGet:
 		return opGetUsagePlanKey, params, true
 	case http.MethodDelete:
 		return opDeleteUsagePlanKey, params, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWUsagePlansDepth5 handles /usageplans/{id}/keys/{keyId}/usage paths.
+func parseAPIGWUsagePlansDepth5(method string, segs []string) (string, map[string]string, bool) {
+	if segs[2] != apiGWSegUsagePlanKeys || segs[4] != apiGWSegUsage {
+		return apiGWUnknownOp, nil, false
+	}
+
+	if method == http.MethodPatch {
+		params := map[string]string{keyUsagePlanID: segs[1], keyKeyID: segs[3]}
+
+		return opUpdateUsage, params, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1559,6 +1684,8 @@ func parseAPIGWRestAPIsDepth4ModelGW(method string, segs []string, apiID string)
 			return opGetGatewayResponse, params, true
 		case http.MethodPut:
 			return opPutGatewayResponse, params, true
+		case http.MethodPatch:
+			return opUpdateGatewayResponse, params, true
 		case http.MethodDelete:
 			return opDeleteGatewayResponse, params, true
 		}
@@ -1580,6 +1707,8 @@ func parseAPIGWRestAPIsDocDepth4(method string, segs []string, apiID string) (st
 			return opCreateDocumentationPart, apiParam, true
 		case http.MethodGet:
 			return opGetDocumentationParts, apiParam, true
+		case http.MethodPut:
+			return opImportDocumentationParts, apiParam, true
 		}
 	case apiGWSegDocVersions:
 		switch method {
@@ -1632,6 +1761,20 @@ func parseAPIGWRestAPIsStageDeep(method string, segs []string, n int, apiID stri
 
 	if n == 6 && segs[4] == "cache" && segs[5] == "authorizers" && method == http.MethodDelete {
 		return opFlushStageAuthorizersCache, stageParams, true
+	}
+
+	// GET /restapis/{id}/stages/{name}/exports/{exportType} → GetExport
+	if n == pathDepth6 && segs[4] == apiGWSegExports && method == http.MethodGet {
+		stageParams[keyExportType] = segs[5]
+
+		return opGetExport, stageParams, true
+	}
+
+	// GET /restapis/{id}/stages/{name}/sdks/{sdkType} → GetSdk
+	if n == pathDepth6 && segs[4] == apiGWSegSdks && method == http.MethodGet {
+		stageParams[keySdkType] = segs[5]
+
+		return opGetSdk, stageParams, true
 	}
 
 	return apiGWUnknownOp, nil, false

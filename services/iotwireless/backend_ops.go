@@ -23,6 +23,10 @@ var (
 	ErrGatewayTaskDefNotFound = errors.New(
 		"ResourceNotFoundException: Wireless gateway task definition not found",
 	)
+	// ErrMulticastGroupSessionNotFound is returned when a multicast group has no active session.
+	ErrMulticastGroupSessionNotFound = errors.New(
+		"ResourceNotFoundException: Multicast group session not found",
+	)
 )
 
 // GatewayTask represents a wireless gateway task.
@@ -113,14 +117,31 @@ func (b *InMemoryBackend) DisassociateWirelessDeviceFromMulticastGroup(
 	return nil
 }
 
-// StartMulticastGroupSession marks a multicast group session as active.
+// StartMulticastGroupSession marks a multicast group session as active,
+// recording its start time so GetMulticastGroupSession can report it back.
 func (b *InMemoryBackend) StartMulticastGroupSession(multicastGroupID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.multicastGroupSessions[multicastGroupID] = true
+	b.multicastGroupSessionStart[multicastGroupID] = time.Now().UTC()
 
 	return nil
+}
+
+// GetMulticastGroupSession returns the start time of a multicast group's active
+// session. Returns ErrMulticastGroupSessionNotFound if no session has been
+// started (or it has since been cancelled), matching real AWS's
+// ResourceNotFoundException for a group with no active session.
+func (b *InMemoryBackend) GetMulticastGroupSession(multicastGroupID string) (time.Time, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.multicastGroupSessions[multicastGroupID] {
+		return time.Time{}, ErrMulticastGroupSessionNotFound
+	}
+
+	return b.multicastGroupSessionStart[multicastGroupID], nil
 }
 
 // --- WirelessGateway extended operations ---

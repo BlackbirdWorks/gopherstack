@@ -29,7 +29,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ops["AssociateIpamResourceDiscovery"] — moved to ipamDiscoverySupportedOperations
 	// AssociateRouteServer — real handler in handler_route_server.go, covered there
 	// AssociateTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
-	ops["AssociateTransitGatewayPolicyTable"] = h.handleStubAssociateTransitGatewayPolicyTable
+	// AssociateTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
 	// AssociateTransitGatewayRouteTable — moved to handler_ec2core.go
 	ops["AssociateTrunkInterface"] = h.handleStubAssociateTrunkInterface
 	// AssociateVpcCidrBlock — moved to handler_ec2core.go
@@ -101,11 +101,11 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// CreateTransitGatewayMeteringPolicyEntry — moved to handler_tgw_multicast.go
 	// CreateTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
 	// CreateTransitGatewayPeeringAttachment — moved to handler_batch4.go
-	ops["CreateTransitGatewayPolicyTable"] = h.handleStubCreateTransitGatewayPolicyTable
+	// CreateTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
 	// CreateTransitGatewayPrefixListReference — moved to handler_batch4.go
 	// CreateTransitGatewayRoute — moved to handler_ec2core.go
 	// CreateTransitGatewayRouteTable — moved to handler_ec2core.go
-	ops["CreateTransitGatewayRouteTableAnnouncement"] = h.handleStubCreateTransitGatewayRouteTableAnnouncement
+	// CreateTransitGatewayRouteTableAnnouncement — moved to handler_tgw_peripherals.go
 	// CreateVerifiedAccessEndpoint — moved to handler_batch4.go
 	// CreateVerifiedAccessGroup — moved to handler_batch4.go
 	// CreateVerifiedAccessInstance — moved to handler_batch4.go
@@ -162,11 +162,11 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DeleteTransitGatewayMeteringPolicyEntry — moved to handler_tgw_multicast.go
 	// DeleteTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
 	// DeleteTransitGatewayPeeringAttachment — moved to handler_batch4.go
-	ops["DeleteTransitGatewayPolicyTable"] = h.handleStubDeleteTransitGatewayPolicyTable
+	// DeleteTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
 	// DeleteTransitGatewayPrefixListReference — moved to handler_batch4.go
 	// DeleteTransitGatewayRoute — moved to handler_ec2core.go
 	// DeleteTransitGatewayRouteTable — moved to handler_ec2core.go
-	ops["DeleteTransitGatewayRouteTableAnnouncement"] = h.handleStubDeleteTransitGatewayRouteTableAnnouncement
+	// DeleteTransitGatewayRouteTableAnnouncement — moved to handler_tgw_peripherals.go
 	// DeleteVerifiedAccessEndpoint — moved to handler_batch4.go
 	// DeleteVerifiedAccessGroup — moved to handler_batch4.go
 	// DeleteVerifiedAccessInstance — moved to handler_batch4.go
@@ -272,8 +272,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DescribeTransitGatewayMeteringPolicies — moved to handler_tgw_multicast.go
 	// DescribeTransitGatewayMulticastDomains — moved to handler_tgw_multicast.go
 	// DescribeTransitGatewayPeeringAttachments — moved to handler_batch4.go
-	ops["DescribeTransitGatewayPolicyTables"] = h.handleStubDescribeTransitGatewayPolicyTables
-	ops["DescribeTransitGatewayRouteTableAnnouncements"] = h.handleStubDescribeTransitGatewayRouteTableAnnouncements
+	// DescribeTransitGatewayPolicyTables — moved to handler_tgw_peripherals.go
+	// DescribeTransitGatewayRouteTableAnnouncements — moved to handler_tgw_peripherals.go
 	// DescribeTransitGatewayRouteTables — moved to handler_ec2core.go
 	ops["DescribeTrunkInterfaceAssociations"] = h.handleStubDescribeTrunkInterfaceAssociations
 	// DescribeVerifiedAccessEndpoints — moved to handler_batch4.go
@@ -311,7 +311,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ops["DisassociateIpamResourceDiscovery"] — moved to ipamDiscoverySupportedOperations
 	// DisassociateRouteServer — real handler in handler_route_server.go, covered there
 	// DisassociateTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
-	ops["DisassociateTransitGatewayPolicyTable"] = h.handleStubDisassociateTransitGatewayPolicyTable
+	// DisassociateTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
 	// DisassociateTransitGatewayRouteTable — moved to handler_ec2core.go
 	ops["DisassociateTrunkInterface"] = h.handleStubDisassociateTrunkInterface
 	ops["EnableAllowedImagesSettings"] = h.handleStubEnableAllowedImagesSettings
@@ -327,7 +327,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// EnableVpcClassicLinkDnsSupport — moved to handler_vpc_config.go
 	// ExportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
 	// ExportClientVpnClientConfiguration — moved to handler_batch4.go
-	ops["ExportTransitGatewayRoutes"] = h.handleStubExportTransitGatewayRoutes
+	// ExportTransitGatewayRoutes — moved to handler_tgw_peripherals.go
 	ops["ExportVerifiedAccessInstanceClientConfiguration"] = h.handleStubExportVerifiedAccessInstanceClientConfiguration
 	ops["GetActiveVpnTunnelStatus"] = h.handleStubGetActiveVpnTunnelStatus
 	ops["GetAllowedImagesSettings"] = h.handleStubGetAllowedImagesSettings
@@ -366,14 +366,14 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// GetRouteServerPropagations — real handler in handler_route_server.go, covered there
 	// GetRouteServerRoutingDatabase — real handler in handler_route_server.go, covered there
 	ops["GetSpotPlacementScores"] = h.handleStubGetSpotPlacementScores
-	ops["GetTransitGatewayAttachmentPropagations"] = h.handleStubGetTransitGatewayAttachmentPropagations
-	ops["GetTransitGatewayMeteringPolicyEntries"] = h.handleStubGetTransitGatewayMeteringPolicyEntries
+	// GetTransitGatewayAttachmentPropagations — moved to handler_tgw_peripherals.go
+	// GetTransitGatewayMeteringPolicyEntries — moved to handler_tgw_peripherals.go
 	// GetTransitGatewayMulticastDomainAssociations — moved to handler_tgw_multicast.go
-	ops["GetTransitGatewayPolicyTableAssociations"] = h.handleStubGetTransitGatewayPolicyTableAssociations
-	ops["GetTransitGatewayPolicyTableEntries"] = h.handleStubGetTransitGatewayPolicyTableEntries
+	// GetTransitGatewayPolicyTableAssociations — moved to handler_tgw_peripherals.go
+	// GetTransitGatewayPolicyTableEntries — moved to handler_tgw_peripherals.go
 	// GetTransitGatewayPrefixListReferences — moved to handler_batch4.go
-	ops["GetTransitGatewayRouteTableAssociations"] = h.handleStubGetTransitGatewayRouteTableAssociations
-	ops["GetTransitGatewayRouteTablePropagations"] = h.handleStubGetTransitGatewayRouteTablePropagations
+	// GetTransitGatewayRouteTableAssociations — moved to handler_tgw_peripherals.go
+	// GetTransitGatewayRouteTablePropagations — moved to handler_tgw_peripherals.go
 	ops["GetVerifiedAccessEndpointPolicy"] = h.handleStubGetVerifiedAccessEndpointPolicy
 	ops["GetVerifiedAccessEndpointTargets"] = h.handleStubGetVerifiedAccessEndpointTargets
 	ops["GetVerifiedAccessGroupPolicy"] = h.handleStubGetVerifiedAccessGroupPolicy
@@ -414,9 +414,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ModifyTrafficMirrorFilterNetworkServices — moved to handler_batch5.go
 	// ModifyTrafficMirrorFilterRule — moved to handler_batch5.go
 	// ModifyTrafficMirrorSession — moved to handler_batch5.go
-	ops["ModifyTransitGatewayMeteringPolicy"] = h.handleStubModifyTransitGatewayMeteringPolicy
-	ops["ModifyTransitGatewayPrefixListReference"] = h.handleStubModifyTransitGatewayPrefixListReference
-	ops["ModifyTransitGatewayVpcAttachment"] = h.handleStubModifyTransitGatewayVpcAttachment
+	// ModifyTransitGatewayMeteringPolicy — moved to handler_tgw_peripherals.go
+	// ModifyTransitGatewayPrefixListReference — moved to handler_tgw_peripherals.go
+	// ModifyTransitGatewayVpcAttachment — moved to handler_tgw_peripherals.go
 	// ModifyVerifiedAccessEndpoint — moved to handler_batch4.go
 	ops["ModifyVerifiedAccessEndpointPolicy"] = h.handleStubModifyVerifiedAccessEndpointPolicy
 	ops["ModifyVerifiedAccessGroup"] = h.handleStubModifyVerifiedAccessGroup
@@ -444,9 +444,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// RegisterTransitGatewayMulticastGroupMembers — moved to handler_tgw_multicast.go
 	// RegisterTransitGatewayMulticastGroupSources — moved to handler_tgw_multicast.go
 	// RejectCapacityReservationBillingOwnership — moved to handler_capacity_family.go
-	ops["RejectTransitGatewayMulticastDomainAssociations"] = h.handleStubRejectTransitGatewayMulticastDomainAssociations
-	ops["RejectTransitGatewayPeeringAttachment"] = h.handleStubRejectTransitGatewayPeeringAttachment
-	ops["RejectTransitGatewayVpcAttachment"] = h.handleStubRejectTransitGatewayVpcAttachment
+	// RejectTransitGatewayMulticastDomainAssociations — moved to handler_tgw_peripherals.go
+	// RejectTransitGatewayPeeringAttachment — moved to handler_tgw_peripherals.go
+	// RejectTransitGatewayVpcAttachment — moved to handler_tgw_peripherals.go
 	ops["RejectVpcEndpointConnections"] = h.handleStubRejectVpcEndpointConnections
 	ops["RejectVpcPeeringConnection"] = h.handleStubRejectVpcPeeringConnection
 	ops["ReleaseHosts"] = h.handleStubReleaseHosts
@@ -463,7 +463,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["RunScheduledInstances"] = h.handleStubRunScheduledInstances
 	// SearchLocalGatewayRoutes — real handler in handler_local_gateway.go
 	// SearchTransitGatewayMulticastGroups — moved to handler_tgw_multicast.go
-	ops["SearchTransitGatewayRoutes"] = h.handleStubSearchTransitGatewayRoutes
+	// SearchTransitGatewayRoutes — moved to handler_tgw_peripherals.go
 	ops["SendDiagnosticInterrupt"] = h.handleStubSendDiagnosticInterrupt
 	ops["StartDeclarativePoliciesReport"] = h.handleStubStartDeclarativePoliciesReport
 	// StartNetworkInsightsAccessScopeAnalysis — real handler in handler_batch5.go, covered there
@@ -497,7 +497,7 @@ func stubSupportedOperations() []string {
 		// "AssociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		"AssociateRouteServer",
 		// "AssociateTransitGatewayMulticastDomain", — moved to handler_tgw_multicast.go
-		"AssociateTransitGatewayPolicyTable",
+		// "AssociateTransitGatewayPolicyTable", — moved to tgwPeripheralsSupportedOperations
 		// AssociateTransitGatewayRouteTable — moved to ec2CoreSupportedOperations
 		"AssociateTrunkInterface",
 		// AssociateVpcCidrBlock — moved to ec2CoreSupportedOperations
@@ -568,11 +568,11 @@ func stubSupportedOperations() []string {
 		// "CreateTransitGatewayMeteringPolicyEntry", — moved to handler_tgw_multicast.go
 		// "CreateTransitGatewayMulticastDomain", — moved to handler_tgw_multicast.go
 		// "CreateTransitGatewayPeeringAttachment", — moved to batch4SupportedOperations
-		"CreateTransitGatewayPolicyTable",
+		// "CreateTransitGatewayPolicyTable", — moved to tgwPeripheralsSupportedOperations
 		// "CreateTransitGatewayPrefixListReference", — moved to batch4SupportedOperations
 		// CreateTransitGatewayRoute — moved to ec2CoreSupportedOperations
 		// CreateTransitGatewayRouteTable — moved to ec2CoreSupportedOperations
-		"CreateTransitGatewayRouteTableAnnouncement",
+		// "CreateTransitGatewayRouteTableAnnouncement", — moved to tgwPeripheralsSupportedOperations
 		// "CreateVerifiedAccessEndpoint", — moved to batch4SupportedOperations
 		// "CreateVerifiedAccessGroup", — moved to batch4SupportedOperations
 		// "CreateVerifiedAccessInstance", — moved to batch4SupportedOperations
@@ -629,11 +629,11 @@ func stubSupportedOperations() []string {
 		// "DeleteTransitGatewayMeteringPolicyEntry", — moved to handler_tgw_multicast.go
 		// "DeleteTransitGatewayMulticastDomain", — moved to handler_tgw_multicast.go
 		// "DeleteTransitGatewayPeeringAttachment", — moved to batch4SupportedOperations
-		"DeleteTransitGatewayPolicyTable",
+		// "DeleteTransitGatewayPolicyTable", — moved to tgwPeripheralsSupportedOperations
 		// "DeleteTransitGatewayPrefixListReference", — moved to batch4SupportedOperations
 		// DeleteTransitGatewayRoute — moved to ec2CoreSupportedOperations
 		// DeleteTransitGatewayRouteTable — moved to ec2CoreSupportedOperations
-		"DeleteTransitGatewayRouteTableAnnouncement",
+		// "DeleteTransitGatewayRouteTableAnnouncement", — moved to tgwPeripheralsSupportedOperations
 		// "DeleteVerifiedAccessEndpoint", — moved to batch4SupportedOperations
 		// "DeleteVerifiedAccessGroup", — moved to batch4SupportedOperations
 		// "DeleteVerifiedAccessInstance", — moved to batch4SupportedOperations
@@ -736,8 +736,8 @@ func stubSupportedOperations() []string {
 		// "DescribeTransitGatewayMeteringPolicies", — moved to handler_tgw_multicast.go
 		// "DescribeTransitGatewayMulticastDomains", — moved to handler_tgw_multicast.go
 		// "DescribeTransitGatewayPeeringAttachments", — moved to batch4SupportedOperations
-		"DescribeTransitGatewayPolicyTables",
-		"DescribeTransitGatewayRouteTableAnnouncements",
+		// "DescribeTransitGatewayPolicyTables", — moved to tgwPeripheralsSupportedOperations
+		// "DescribeTransitGatewayRouteTableAnnouncements", — moved to tgwPeripheralsSupportedOperations
 		// DescribeTransitGatewayRouteTables — moved to ec2CoreSupportedOperations
 		"DescribeTrunkInterfaceAssociations",
 		// "DescribeVerifiedAccessEndpoints", — moved to batch4SupportedOperations
@@ -776,7 +776,7 @@ func stubSupportedOperations() []string {
 		// "DisassociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		"DisassociateRouteServer",
 		// "DisassociateTransitGatewayMulticastDomain", — moved to handler_tgw_multicast.go
-		"DisassociateTransitGatewayPolicyTable",
+		// "DisassociateTransitGatewayPolicyTable", — moved to tgwPeripheralsSupportedOperations
 		// DisassociateTransitGatewayRouteTable — moved to ec2CoreSupportedOperations
 		"DisassociateTrunkInterface",
 		"EnableAllowedImagesSettings",
@@ -792,7 +792,7 @@ func stubSupportedOperations() []string {
 		// "EnableVpcClassicLinkDnsSupport", — moved to vpcConfigSupportedOperations
 		// ExportClientVpnClientCertificateRevocationList — moved to batch4SupportedOperations
 		// ExportClientVpnClientConfiguration — moved to batch4SupportedOperations
-		"ExportTransitGatewayRoutes",
+		// "ExportTransitGatewayRoutes", — moved to tgwPeripheralsSupportedOperations
 		"ExportVerifiedAccessInstanceClientConfiguration",
 		"GetActiveVpnTunnelStatus",
 		"GetAllowedImagesSettings",
@@ -831,14 +831,14 @@ func stubSupportedOperations() []string {
 		"GetRouteServerPropagations",
 		"GetRouteServerRoutingDatabase",
 		"GetSpotPlacementScores",
-		"GetTransitGatewayAttachmentPropagations",
-		"GetTransitGatewayMeteringPolicyEntries",
+		// "GetTransitGatewayAttachmentPropagations", — moved to tgwPeripheralsSupportedOperations
+		// "GetTransitGatewayMeteringPolicyEntries", — moved to tgwPeripheralsSupportedOperations
 		// "GetTransitGatewayMulticastDomainAssociations", — moved to handler_tgw_multicast.go
-		"GetTransitGatewayPolicyTableAssociations",
-		"GetTransitGatewayPolicyTableEntries",
+		// "GetTransitGatewayPolicyTableAssociations", — moved to tgwPeripheralsSupportedOperations
+		// "GetTransitGatewayPolicyTableEntries", — moved to tgwPeripheralsSupportedOperations
 		// "GetTransitGatewayPrefixListReferences", — moved to batch4SupportedOperations
-		"GetTransitGatewayRouteTableAssociations",
-		"GetTransitGatewayRouteTablePropagations",
+		// "GetTransitGatewayRouteTableAssociations", — moved to tgwPeripheralsSupportedOperations
+		// "GetTransitGatewayRouteTablePropagations", — moved to tgwPeripheralsSupportedOperations
 		"GetVerifiedAccessEndpointPolicy",
 		"GetVerifiedAccessEndpointTargets",
 		"GetVerifiedAccessGroupPolicy",
@@ -878,9 +878,9 @@ func stubSupportedOperations() []string {
 		"ModifyTrafficMirrorFilterNetworkServices",
 		"ModifyTrafficMirrorFilterRule",
 		"ModifyTrafficMirrorSession",
-		"ModifyTransitGatewayMeteringPolicy",
-		"ModifyTransitGatewayPrefixListReference",
-		"ModifyTransitGatewayVpcAttachment",
+		// "ModifyTransitGatewayMeteringPolicy", — moved to tgwPeripheralsSupportedOperations
+		// "ModifyTransitGatewayPrefixListReference", — moved to tgwPeripheralsSupportedOperations
+		// "ModifyTransitGatewayVpcAttachment", — moved to tgwPeripheralsSupportedOperations
 		// "ModifyVerifiedAccessEndpoint", — moved to batch4SupportedOperations
 		"ModifyVerifiedAccessEndpointPolicy",
 		"ModifyVerifiedAccessGroup",
@@ -909,9 +909,9 @@ func stubSupportedOperations() []string {
 		// "RegisterTransitGatewayMulticastGroupMembers", — moved to handler_tgw_multicast.go
 		// "RegisterTransitGatewayMulticastGroupSources", — moved to handler_tgw_multicast.go
 		"RejectCapacityReservationBillingOwnership",
-		"RejectTransitGatewayMulticastDomainAssociations",
-		"RejectTransitGatewayPeeringAttachment",
-		"RejectTransitGatewayVpcAttachment",
+		// "RejectTransitGatewayMulticastDomainAssociations", — moved to tgwPeripheralsSupportedOperations
+		// "RejectTransitGatewayPeeringAttachment", — moved to tgwPeripheralsSupportedOperations
+		// "RejectTransitGatewayVpcAttachment", — moved to tgwPeripheralsSupportedOperations
 		"RejectVpcEndpointConnections",
 		// "RejectVpcPeeringConnection", — moved to advancedNetworkingSupportedOperations
 		"ReleaseHosts",
@@ -927,7 +927,7 @@ func stubSupportedOperations() []string {
 		"RunScheduledInstances",
 		// "SearchLocalGatewayRoutes", — moved to localGatewaySupportedOperations
 		// "SearchTransitGatewayMulticastGroups", — moved to handler_tgw_multicast.go
-		"SearchTransitGatewayRoutes",
+		// "SearchTransitGatewayRoutes", — moved to tgwPeripheralsSupportedOperations
 		"SendDiagnosticInterrupt",
 		"StartDeclarativePoliciesReport",
 		"StartNetworkInsightsAccessScopeAnalysis",
@@ -962,17 +962,6 @@ func (h *Handler) handleStubAssociateEnclaveCertificateIamRole(
 func (h *Handler) handleStubAssociateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateInstanceEventWindowResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubAssociateTransitGatewayPolicyTable(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateTransitGatewayPolicyTableResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1196,28 +1185,6 @@ func (h *Handler) handleStubCreateStoreImageTask(_ url.Values, reqID string) (an
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayPolicyTable(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTransitGatewayPolicyTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateTransitGatewayRouteTableAnnouncement(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTransitGatewayRouteTableAnnouncementResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVpcEncryptionControlResponse"},
@@ -1310,28 +1277,6 @@ func (h *Handler) handleStubDeleteSecondaryNetwork(_ url.Values, reqID string) (
 func (h *Handler) handleStubDeleteSecondarySubnet(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteSecondarySubnetResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTransitGatewayPolicyTable(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayPolicyTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTransitGatewayRouteTableAnnouncement(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteTableAnnouncementResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1650,28 +1595,6 @@ func (h *Handler) handleStubDescribeTransitGatewayAttachments(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayPolicyTables(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTransitGatewayPolicyTablesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeTransitGatewayRouteTableAnnouncements(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTransitGatewayRouteTableAnnouncementsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeTrunkInterfaceAssociations(
 	_ url.Values,
 	reqID string,
@@ -1784,17 +1707,6 @@ func (h *Handler) handleStubDisassociateInstanceEventWindow(
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateTransitGatewayPolicyTable(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateTransitGatewayPolicyTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDisassociateTrunkInterface(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateTrunkInterfaceResponse"},
@@ -1850,14 +1762,6 @@ func (h *Handler) handleStubEnableTransitGatewayRouteTablePropagation(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableTransitGatewayRouteTablePropagationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubExportTransitGatewayRoutes(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ExportTransitGatewayRoutesResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1985,72 +1889,6 @@ func (h *Handler) handleStubGetInstanceUefiData(_ url.Values, reqID string) (any
 func (h *Handler) handleStubGetSpotPlacementScores(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetSpotPlacementScoresResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetTransitGatewayAttachmentPropagations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetTransitGatewayAttachmentPropagationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetTransitGatewayMeteringPolicyEntries(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetTransitGatewayMeteringPolicyEntriesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetTransitGatewayPolicyTableAssociations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetTransitGatewayPolicyTableAssociationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetTransitGatewayPolicyTableEntries(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetTransitGatewayPolicyTableEntriesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetTransitGatewayRouteTableAssociations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetTransitGatewayRouteTableAssociationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetTransitGatewayRouteTablePropagations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetTransitGatewayRouteTablePropagationsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2218,39 +2056,6 @@ func (h *Handler) handleStubModifySpotFleetRequest(_ url.Values, reqID string) (
 	}, nil
 }
 
-func (h *Handler) handleStubModifyTransitGatewayMeteringPolicy(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTransitGatewayMeteringPolicyResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyTransitGatewayPrefixListReference(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTransitGatewayPrefixListReferenceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyTransitGatewayVpcAttachment(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTransitGatewayVpcAttachmentResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyVerifiedAccessEndpointPolicy(
 	_ url.Values,
 	reqID string,
@@ -2343,39 +2148,6 @@ func (h *Handler) handleStubPurchaseScheduledInstances(_ url.Values, reqID strin
 	}, nil
 }
 
-func (h *Handler) handleStubRejectTransitGatewayMulticastDomainAssociations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RejectTransitGatewayMulticastDomainAssociationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRejectTransitGatewayPeeringAttachment(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RejectTransitGatewayPeeringAttachmentResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRejectTransitGatewayVpcAttachment(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RejectTransitGatewayVpcAttachmentResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubRejectVpcEndpointConnections(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RejectVpcEndpointConnectionsResponse"},
@@ -2438,14 +2210,6 @@ func (h *Handler) handleStubResetFpgaImageAttribute(_ url.Values, reqID string) 
 func (h *Handler) handleStubRunScheduledInstances(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RunScheduledInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubSearchTransitGatewayRoutes(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "SearchTransitGatewayRoutesResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

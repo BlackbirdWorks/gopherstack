@@ -152,6 +152,9 @@ type StorageBackend interface {
 	CreateDomainNameAccessAssociation(
 		input CreateDomainNameAccessAssociationInput,
 	) (*DomainNameAccessAssociation, error)
+	GetDomainNameAccessAssociations(resourceOwner string) ([]DomainNameAccessAssociation, error)
+	DeleteDomainNameAccessAssociation(arn string) error
+	RejectDomainNameAccessAssociation(arn, domainNameARN string) error
 
 	// Models (per-API)
 	CreateModel(input CreateModelInput) (*Model, error)
@@ -229,6 +232,23 @@ type StorageBackend interface {
 
 	// OpenAPI export.
 	GetExport(restAPIID, stageName, exportType string) (map[string]any, error)
+
+	// SDK generation.
+	GetSdkTypes() []SdkType
+	GetSdkType(id string) (*SdkType, error)
+	GetSdk(restAPIID, stageName, sdkType string) (*SdkExport, error)
+
+	// API key / documentation part bulk import.
+	ImportAPIKeys(body []byte, format string, failOnWarnings bool) ([]string, []string, error)
+	ImportDocumentationParts(
+		restAPIID string,
+		body []byte,
+		mode string,
+		failOnWarnings bool,
+	) ([]string, []string, error)
+
+	// Usage update.
+	UpdateUsage(usagePlanID, keyID string, dateValues map[string]string) (*UsageData, error)
 }
 
 const apiIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -351,6 +371,7 @@ type InMemoryBackend struct {
 	gatewayResponses             map[string]*GatewayResponse         // key: restAPIID + "#" + responseType
 	clientCertificates           map[string]*ClientCertificate       // key: clientCertificateID
 	vpcLinks                     map[string]*VpcLink
+	usageOverrides               map[string]map[string]int64 // usagePlanID → keyID → remaining quota, set via UpdateUsage
 	mu                           *lockmetrics.RWMutex
 }
 
@@ -375,6 +396,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		gatewayResponses:             make(map[string]*GatewayResponse),
 		clientCertificates:           make(map[string]*ClientCertificate),
 		vpcLinks:                     make(map[string]*VpcLink),
+		usageOverrides:               make(map[string]map[string]int64),
 		mu:                           lockmetrics.New("apigateway"),
 	}
 }
@@ -1446,6 +1468,7 @@ func (b *InMemoryBackend) Reset() {
 	b.vpcLinks = make(map[string]*VpcLink)
 	b.clientCertificates = make(map[string]*ClientCertificate)
 	b.gatewayResponses = make(map[string]*GatewayResponse)
+	b.usageOverrides = make(map[string]map[string]int64)
 }
 
 // CreateAPIKey creates a new API key with an optional auto-generated value.
@@ -1680,6 +1703,71 @@ func (b *InMemoryBackend) CreateDomainNameAccessAssociation(
 	cp := *assoc
 
 	return &cp, nil
+}
+
+// resourceOwnerSelf and resourceOwnerOther are the two valid values of the
+// resourceOwner query parameter accepted by GetDomainNameAccessAssociations.
+const (
+	resourceOwnerSelf  = "SELF"
+	resourceOwnerOther = "OTHER_ACCOUNTS"
+)
+
+// GetDomainNameAccessAssociations lists domain name access associations owned by
+// this account. resourceOwner selects SELF (default) or OTHER_ACCOUNTS; since this
+// backend only ever creates associations under the caller's own account,
+// OTHER_ACCOUNTS always returns an empty list.
+func (b *InMemoryBackend) GetDomainNameAccessAssociations(resourceOwner string) ([]DomainNameAccessAssociation, error) {
+	b.mu.RLock("GetDomainNameAccessAssociations")
+	defer b.mu.RUnlock()
+
+	if resourceOwner == resourceOwnerOther {
+		return []DomainNameAccessAssociation{}, nil
+	}
+
+	result := make([]DomainNameAccessAssociation, 0, len(b.domainNameAccessAssociations))
+	for _, assoc := range b.domainNameAccessAssociations {
+		result = append(result, *assoc)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].DomainNameAccessAssociationARN < result[j].DomainNameAccessAssociationARN
+	})
+
+	return result, nil
+}
+
+// DeleteDomainNameAccessAssociation removes a domain name access association by ARN.
+func (b *InMemoryBackend) DeleteDomainNameAccessAssociation(arn string) error {
+	b.mu.Lock("DeleteDomainNameAccessAssociation")
+	defer b.mu.Unlock()
+
+	if _, ok := b.domainNameAccessAssociations[arn]; !ok {
+		return fmt.Errorf("%w: domain name access association %s not found", ErrNotFound, arn)
+	}
+
+	delete(b.domainNameAccessAssociations, arn)
+
+	return nil
+}
+
+// RejectDomainNameAccessAssociation rejects (removes) a domain name access
+// association, validating that it belongs to the given domain name ARN.
+func (b *InMemoryBackend) RejectDomainNameAccessAssociation(arn, domainNameARN string) error {
+	b.mu.Lock("RejectDomainNameAccessAssociation")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.domainNameAccessAssociations[arn]
+	if !ok {
+		return fmt.Errorf("%w: domain name access association %s not found", ErrNotFound, arn)
+	}
+
+	if domainNameARN != "" && assoc.DomainNameARN != domainNameARN {
+		return fmt.Errorf("%w: domainNameArn does not match association %s", ErrInvalidParameter, arn)
+	}
+
+	delete(b.domainNameAccessAssociations, arn)
+
+	return nil
 }
 
 // CreateModel creates a data model for a REST API.
@@ -3205,7 +3293,10 @@ func (b *InMemoryBackend) DeleteClientCertificate(id string) error {
 	return nil
 }
 
-// GetUsage returns mock usage data for a usage plan.
+// GetUsage returns usage data for a usage plan. Real per-key request/quota
+// consumption isn't tracked by this emulator (no live traffic metering), so
+// Items is empty except for any keys whose remaining quota was explicitly set
+// via UpdateUsage, which are reported back as a single [0, remaining] entry.
 func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
 	b.mu.RLock("GetUsage")
 	defer b.mu.RUnlock()
@@ -3214,11 +3305,17 @@ func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
 		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
 	}
 
+	items := map[string][]any{}
+
+	for keyID, remaining := range b.usageOverrides[input.UsagePlanID] {
+		items[keyID] = []any{[]int64{0, remaining}}
+	}
+
 	return &UsageData{
 		UsagePlanID: input.UsagePlanID,
 		StartDate:   input.StartDate,
 		EndDate:     input.EndDate,
-		Items:       map[string][]any{},
+		Items:       items,
 	}, nil
 }
 

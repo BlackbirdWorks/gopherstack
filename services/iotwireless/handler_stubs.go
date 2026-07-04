@@ -14,20 +14,10 @@ import (
 
 // --- Shared stub constants ---
 
-const (
-	stubArn              = "arn:aws:iotwireless:us-east-1:123456789012:Resource/stub"
-	stubImportTaskArn    = "arn:aws:iotwireless:us-east-1:123456789012:ImportTask/stub"
-	stubImportTaskID     = "stub-import-task-id"
-	stubMulticastArn     = "arn:aws:iotwireless:us-east-1:123456789012:MulticastGroup/stub"
-	stubMulticastGroupID = "stub-multicast-group-id"
-	stubNetworkAnalArn   = "arn:aws:iotwireless:us-east-1:123456789012:NetworkAnalyzerConfiguration/stub"
-	stubGatewayTaskDefID = "stub-task-def-id"
-	stubMessageID        = "stub-message-id"
-	stubCertID           = "stub-cert-id"
-	stubWirelessDeviceID = "stub-wireless-device-id"
-	stubServiceEndpoint  = "https://cups.lorawan.us-east-1.amazonaws.com"
-	stubServiceType      = "CUPS"
-)
+// stubServiceType is the default ServiceType (CUPS) GetServiceEndpoint returns
+// when the request omits the serviceType query parameter, matching AWS's
+// documented default.
+const stubServiceType = "CUPS"
 
 // maxStubBodyBytes caps stub request body reads to prevent unbounded memory
 // usage on attacker-controlled inputs. IoT Wireless API payloads are far below
@@ -91,9 +81,14 @@ type getNetworkAnalyzerConfigurationResponse struct {
 	WirelessGateways []string `json:"WirelessGateways"`
 }
 
+type sidewalkAccountInfo struct {
+	AmazonID string `json:"AmazonId,omitempty"`
+	Arn      string `json:"Arn,omitempty"`
+}
+
 type getPartnerAccountResponse struct {
-	Arn       string `json:"Arn"`
-	AccountID string `json:"AccountId"`
+	Sidewalk      *sidewalkAccountInfo `json:"Sidewalk,omitempty"`
+	AccountLinked bool                 `json:"AccountLinked"`
 }
 
 type getPositionResponse struct {
@@ -218,8 +213,8 @@ type listNetworkAnalyzerConfigurationsResponse struct {
 }
 
 type listPartnerAccountsResponse struct {
-	NextToken string     `json:"NextToken"`
-	Sidewalk  []struct{} `json:"Sidewalk"`
+	NextToken string                `json:"NextToken"`
+	Sidewalk  []sidewalkAccountInfo `json:"Sidewalk"`
 }
 
 type listPositionConfigurationsResponse struct {

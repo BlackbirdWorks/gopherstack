@@ -168,15 +168,24 @@ type Deployment struct {
 	PlatformVersion    string   `json:"platformVersion,omitempty"`
 	RolloutState       string   `json:"rolloutState,omitempty"`
 	RolloutStateReason string   `json:"rolloutStateReason,omitempty"`
+	ServiceRevisionArn string   `json:"serviceRevisionArn,omitempty"`
 	DesiredCount       int      `json:"desiredCount"`
 	PendingCount       int      `json:"pendingCount"`
 	RunningCount       int      `json:"runningCount"`
 	FailedTasks        int      `json:"failedTasks"`
 }
 
+// serviceRevisionArnFor derives the ARN of the service revision captured by a
+// deployment from the owning service's ARN, following the
+// arn:aws:ecs:region:account:service-revision/cluster/service/id scheme.
+func serviceRevisionArnFor(svc *Service, revisionID string) string {
+	return strings.Replace(svc.ServiceArn, ":service/", ":service-revision/", 1) + "/" + revisionID
+}
+
 // newPrimaryDeployment builds the initial PRIMARY deployment for a newly created service.
 func newPrimaryDeployment(svc *Service) Deployment {
 	now := float64UnixNow()
+	revisionID := uuid.NewString()
 
 	return Deployment{
 		ID:                 "ecs-svc/" + uuid.NewString(),
@@ -186,6 +195,7 @@ func newPrimaryDeployment(svc *Service) Deployment {
 		PlatformVersion:    platformVersionLatest,
 		RolloutState:       deploymentRolloutStateInProgress,
 		RolloutStateReason: "ECS deployment ecs-svc created.",
+		ServiceRevisionArn: serviceRevisionArnFor(svc, revisionID),
 		DesiredCount:       svc.DesiredCount,
 		CreatedAt:          &now,
 		UpdatedAt:          &now,
@@ -196,6 +206,7 @@ func newPrimaryDeployment(svc *Service) Deployment {
 // The previous PRIMARY deployment is expected to be demoted to ACTIVE separately.
 func newActiveDeployment(svc *Service) Deployment {
 	now := float64UnixNow()
+	revisionID := uuid.NewString()
 
 	return Deployment{
 		ID:                 "ecs-svc/" + uuid.NewString(),
@@ -205,9 +216,48 @@ func newActiveDeployment(svc *Service) Deployment {
 		PlatformVersion:    platformVersionLatest,
 		RolloutState:       deploymentRolloutStateInProgress,
 		RolloutStateReason: "ECS deployment ecs-svc created.",
+		ServiceRevisionArn: serviceRevisionArnFor(svc, revisionID),
 		DesiredCount:       svc.DesiredCount,
 		CreatedAt:          &now,
 		UpdatedAt:          &now,
+	}
+}
+
+// ---- ServiceRevision (DescribeServiceRevisions) ----
+
+// ServiceRevision describes the workload configuration captured by a single
+// deployment of an ECS service, as returned by DescribeServiceRevisions.
+type ServiceRevision struct {
+	CreatedAt                   *float64                       `json:"createdAt,omitempty"`
+	NetworkConfiguration        *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
+	ServiceConnectConfiguration *ServiceConnectConfiguration   `json:"serviceConnectConfiguration,omitempty"`
+	ClusterArn                  string                         `json:"clusterArn,omitempty"`
+	LaunchType                  string                         `json:"launchType,omitempty"`
+	PlatformVersion             string                         `json:"platformVersion,omitempty"`
+	ServiceArn                  string                         `json:"serviceArn,omitempty"`
+	ServiceRevisionArn          string                         `json:"serviceRevisionArn,omitempty"`
+	TaskDefinition              string                         `json:"taskDefinition,omitempty"`
+	CapacityProviderStrategy    []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
+	LoadBalancers               []LoadBalancer                 `json:"loadBalancers,omitempty"`
+	ServiceRegistries           []ServiceRegistry              `json:"serviceRegistries,omitempty"`
+}
+
+// buildServiceRevision projects a service's current configuration and a specific
+// deployment record into the ServiceRevision shape returned by DescribeServiceRevisions.
+func buildServiceRevision(svc *Service, d Deployment) ServiceRevision {
+	return ServiceRevision{
+		CapacityProviderStrategy:    svc.CapacityProviderStrategy,
+		ClusterArn:                  svc.ClusterArn,
+		CreatedAt:                   d.CreatedAt,
+		LaunchType:                  d.LaunchType,
+		LoadBalancers:               svc.LoadBalancers,
+		NetworkConfiguration:        svc.NetworkConfiguration,
+		PlatformVersion:             d.PlatformVersion,
+		ServiceArn:                  svc.ServiceArn,
+		ServiceConnectConfiguration: svc.ServiceConnectConfiguration,
+		ServiceRegistries:           svc.ServiceRegistries,
+		ServiceRevisionArn:          d.ServiceRevisionArn,
+		TaskDefinition:              d.TaskDefinition,
 	}
 }
 

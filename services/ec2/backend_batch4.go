@@ -137,6 +137,7 @@ type TransitGatewayPrefixListReference struct {
 	PrefixListID               string `json:"prefixListId,omitempty"`
 	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableId,omitempty"`
 	State                      string `json:"state,omitempty"`
+	TransitGatewayAttachmentID string `json:"transitGatewayAttachmentId,omitempty"`
 	Blackhole                  bool   `json:"blackhole,omitempty"`
 }
 
@@ -1161,6 +1162,39 @@ func (b *InMemoryBackend) GetTransitGatewayPrefixListReferences(
 	sort.Slice(out, func(i, j int) bool { return out[i].PrefixListID < out[j].PrefixListID })
 
 	return out, nil
+}
+
+// ModifyTransitGatewayPrefixListReference updates the blackhole flag and/or
+// target attachment of an existing TGW prefix list reference.
+func (b *InMemoryBackend) ModifyTransitGatewayPrefixListReference(
+	routeTableID, prefixListID, attachmentID string,
+	blackhole bool,
+) (*TransitGatewayPrefixListReference, error) {
+	if routeTableID == "" || prefixListID == "" {
+		return nil, fmt.Errorf(
+			"%w: TransitGatewayRouteTableId and PrefixListId are required",
+			ErrInvalidParameter,
+		)
+	}
+
+	b.mu.Lock("ModifyTransitGatewayPrefixListReference")
+	defer b.mu.Unlock()
+
+	key := routeTableID + "/" + prefixListID
+
+	ref, ok := b.tgwPrefixListRefs[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s/%s", ErrTGWPrefixListRefNotFound, routeTableID, prefixListID)
+	}
+
+	ref.Blackhole = blackhole
+	if attachmentID != "" {
+		ref.TransitGatewayAttachmentID = attachmentID
+	}
+
+	cp := *ref
+
+	return &cp, nil
 }
 
 // ---- VerifiedAccess ----

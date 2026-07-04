@@ -411,11 +411,36 @@ type describeTransitGatewayConnectPeersResponse struct {
 	} `xml:"transitGatewayConnectPeers"`
 }
 
+type tgwPrefixListRefAttachmentItem struct {
+	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId,omitempty"`
+}
+
 type tgwPrefixListRefItem struct {
-	PrefixListID               string `xml:"prefixListId"`
-	TransitGatewayRouteTableID string `xml:"transitGatewayRouteTableId"`
-	State                      string `xml:"state"`
-	Blackhole                  bool   `xml:"blackhole"`
+	TransitGatewayAttachment   *tgwPrefixListRefAttachmentItem `xml:"transitGatewayAttachment,omitempty"`
+	PrefixListID               string                          `xml:"prefixListId"`
+	TransitGatewayRouteTableID string                          `xml:"transitGatewayRouteTableId"`
+	State                      string                          `xml:"state"`
+	Blackhole                  bool                            `xml:"blackhole"`
+}
+
+// tgwPrefixListRefToItem converts a backend TGW prefix list reference into its
+// XML wire item, nesting the attachment ID under transitGatewayAttachment as
+// AWS does, when one is set.
+func tgwPrefixListRefToItem(ref *TransitGatewayPrefixListReference) tgwPrefixListRefItem {
+	item := tgwPrefixListRefItem{
+		PrefixListID:               ref.PrefixListID,
+		TransitGatewayRouteTableID: ref.TransitGatewayRouteTableID,
+		State:                      ref.State,
+		Blackhole:                  ref.Blackhole,
+	}
+
+	if ref.TransitGatewayAttachmentID != "" {
+		item.TransitGatewayAttachment = &tgwPrefixListRefAttachmentItem{
+			TransitGatewayAttachmentID: ref.TransitGatewayAttachmentID,
+		}
+	}
+
+	return item
 }
 
 type createTransitGatewayPrefixListReferenceResponse struct {
@@ -1184,13 +1209,8 @@ func (h *Handler) handleCreateTransitGatewayPrefixListReference(
 	}
 
 	return &createTransitGatewayPrefixListReferenceResponse{
-		RequestID: reqID,
-		TransitGatewayPrefixListReference: tgwPrefixListRefItem{
-			PrefixListID:               ref.PrefixListID,
-			TransitGatewayRouteTableID: ref.TransitGatewayRouteTableID,
-			State:                      ref.State,
-			Blackhole:                  ref.Blackhole,
-		},
+		RequestID:                         reqID,
+		TransitGatewayPrefixListReference: tgwPrefixListRefToItem(ref),
 	}, nil
 }
 
@@ -1225,12 +1245,7 @@ func (h *Handler) handleGetTransitGatewayPrefixListReferences(
 	for _, ref := range refs {
 		resp.TransitGatewayPrefixListReferenceSet.Items = append(
 			resp.TransitGatewayPrefixListReferenceSet.Items,
-			tgwPrefixListRefItem{
-				PrefixListID:               ref.PrefixListID,
-				TransitGatewayRouteTableID: ref.TransitGatewayRouteTableID,
-				State:                      ref.State,
-				Blackhole:                  ref.Blackhole,
-			},
+			tgwPrefixListRefToItem(ref),
 		)
 	}
 

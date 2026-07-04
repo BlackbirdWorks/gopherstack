@@ -977,6 +977,62 @@ func (b *InMemoryBackend) DescribeServices(cluster string, serviceNames []string
 	return out, failures, nil
 }
 
+// DescribeServiceRevisions returns the service revisions captured by past and
+// current deployments across all clusters that match the given ARNs.
+// Unknown ARNs are reported as failures, matching AWS behaviour for batch describes.
+func (b *InMemoryBackend) DescribeServiceRevisions(arns []string) ([]ServiceRevision, []Failure) {
+	b.mu.RLock("DescribeServiceRevisions")
+	defer b.mu.RUnlock()
+
+	byArn := make(map[string]ServiceRevision)
+
+	for _, svcs := range b.services {
+		for _, svc := range svcs {
+			for _, d := range svc.Deployments {
+				if d.ServiceRevisionArn == "" {
+					continue
+				}
+
+				byArn[d.ServiceRevisionArn] = buildServiceRevision(svc, d)
+			}
+		}
+	}
+
+	out := make([]ServiceRevision, 0, len(arns))
+	failures := make([]Failure, 0)
+
+	for _, arn := range arns {
+		rev, ok := byArn[arn]
+		if !ok {
+			failures = append(failures, Failure{
+				Arn:    arn,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("service revision %s not found", arn),
+			})
+
+			continue
+		}
+
+		out = append(out, rev)
+	}
+
+	return out, failures
+}
+
+// DiscoverPollEndpoint returns the ECS agent poll, Service Connect, and telemetry
+// endpoints for the configured region. Real ECS agents use this to discover which
+// regional endpoint to poll for task state updates.
+func (b *InMemoryBackend) DiscoverPollEndpoint() (string, string, string) {
+	b.mu.RLock("DiscoverPollEndpoint")
+	defer b.mu.RUnlock()
+
+	base := fmt.Sprintf("ecs-a-1.%s.amazonaws.com", b.region)
+
+	return fmt.Sprintf("https://%s/", base),
+		fmt.Sprintf("https://ecs-a-1.svc.%s.amazonaws.com/", b.region),
+		fmt.Sprintf("https://ecs-t-1.%s.amazonaws.com/", b.region)
+}
+
 // serviceKey extracts service name from an ARN or returns name as-is.
 func serviceKey(serviceRef string) string {
 	for i := len(serviceRef) - 1; i >= 0; i-- {

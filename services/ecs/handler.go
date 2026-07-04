@@ -317,7 +317,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"ListDaemons":                  service.WrapOp(h.handleListDaemons),
 		"RegisterDaemonTaskDefinition": service.WrapOp(h.handleRegisterDaemonTaskDefinition),
 		"UpdateDaemon":                 service.WrapOp(h.handleUpdateDaemon),
-		// Service revisions stub
+		// Service revisions
 		"DescribeServiceRevisions": service.WrapOp(h.handleDescribeServiceRevisions),
 		// Internal agent endpoints
 		"DiscoverPollEndpoint":         service.WrapOp(h.handleDiscoverPollEndpoint),
@@ -1311,10 +1311,32 @@ func toServiceView(s Service) serviceView {
 	}
 
 	for _, d := range s.Deployments {
-		v.Deployments = append(v.Deployments, deploymentView(d))
+		v.Deployments = append(v.Deployments, toDeploymentView(d))
 	}
 
 	return v
+}
+
+// toDeploymentView maps a backend Deployment onto the wire view. ServiceRevisionArn
+// is tracked internally (for DescribeServiceRevisions) but is not part of the real
+// AWS Deployment wire shape embedded in DescribeServices/DescribeService responses,
+// so it is intentionally omitted here.
+func toDeploymentView(d Deployment) deploymentView {
+	return deploymentView{
+		CreatedAt:          d.CreatedAt,
+		UpdatedAt:          d.UpdatedAt,
+		ID:                 d.ID,
+		Status:             d.Status,
+		TaskDefinition:     d.TaskDefinition,
+		LaunchType:         d.LaunchType,
+		PlatformVersion:    d.PlatformVersion,
+		RolloutState:       d.RolloutState,
+		RolloutStateReason: d.RolloutStateReason,
+		DesiredCount:       d.DesiredCount,
+		PendingCount:       d.PendingCount,
+		RunningCount:       d.RunningCount,
+		FailedTasks:        d.FailedTasks,
+	}
 }
 
 type taskAttachmentDetailView struct {

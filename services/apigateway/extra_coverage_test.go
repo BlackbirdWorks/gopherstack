@@ -500,6 +500,44 @@ func (n *noopBackend) GetExport(_ string, _ string, _ string) (map[string]any, e
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) GetDomainNameAccessAssociations(
+	_ string,
+) ([]apigateway.DomainNameAccessAssociation, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) DeleteDomainNameAccessAssociation(_ string) error {
+	return errNoopNotImplemented
+}
+
+func (n *noopBackend) RejectDomainNameAccessAssociation(_, _ string) error {
+	return errNoopNotImplemented
+}
+
+func (n *noopBackend) GetSdkTypes() []apigateway.SdkType { return nil }
+
+func (n *noopBackend) GetSdkType(_ string) (*apigateway.SdkType, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetSdk(_, _, _ string) (*apigateway.SdkExport, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) ImportAPIKeys(_ []byte, _ string, _ bool) ([]string, []string, error) {
+	return nil, nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) ImportDocumentationParts(
+	_ string, _ []byte, _ string, _ bool,
+) ([]string, []string, error) {
+	return nil, nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateUsage(_, _ string, _ map[string]string) (*apigateway.UsageData, error) {
+	return nil, errNoopNotImplemented
+}
+
 // restRequest sends a REST-style request (no X-Amz-Target header) to the handler.
 func restRequest(t *testing.T, handler *apigateway.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()

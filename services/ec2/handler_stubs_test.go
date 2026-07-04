@@ -13,7 +13,7 @@ import (
 func TestStubOperations(t *testing.T) {
 	t.Parallel()
 
-	// All 599 stub operation names registered in handler_stubs.go.
+	// Stub operation names still registered in handler_stubs.go.
 	stubOps := []string{
 		// "ApplySecurityGroupsToClientVpnTargetNetwork", — moved to batch4
 		// "AssociateCapacityReservationBillingOwner", — moved to handler_capacity_family.go
@@ -24,7 +24,7 @@ func TestStubOperations(t *testing.T) {
 		// "AssociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		// "AssociateRouteServer", — real handler in handler_route_server.go, covered there
 		// "AssociateTransitGatewayMulticastDomain", — real handler in handler_tgw_multicast.go, covered there
-		"AssociateTransitGatewayPolicyTable",
+		// "AssociateTransitGatewayPolicyTable", — moved to handler_tgw_peripherals.go
 		"AssociateTrunkInterface",
 		// "AttachVerifiedAccessTrustProvider", — moved to batch4
 		// "AuthorizeClientVpnIngress", — moved to batch4
@@ -83,9 +83,9 @@ func TestStubOperations(t *testing.T) {
 		// "CreateTransitGatewayMeteringPolicyEntry", — real handler in handler_tgw_multicast.go, covered there
 		// "CreateTransitGatewayMulticastDomain", — real handler in handler_tgw_multicast.go, covered there
 		// "CreateTransitGatewayPeeringAttachment", — moved to batch4
-		"CreateTransitGatewayPolicyTable",
+		// "CreateTransitGatewayPolicyTable", — moved to handler_tgw_peripherals.go
 		// "CreateTransitGatewayPrefixListReference", — moved to batch4
-		"CreateTransitGatewayRouteTableAnnouncement",
+		// "CreateTransitGatewayRouteTableAnnouncement", — moved to handler_tgw_peripherals.go
 		// "CreateVerifiedAccessEndpoint", — moved to batch4
 		// "CreateVerifiedAccessGroup", — moved to batch4
 		// "CreateVerifiedAccessInstance", — moved to batch4
@@ -131,9 +131,9 @@ func TestStubOperations(t *testing.T) {
 		// "DeleteTransitGatewayMeteringPolicyEntry", — real handler in handler_tgw_multicast.go, covered there
 		// "DeleteTransitGatewayMulticastDomain", — real handler in handler_tgw_multicast.go, covered there
 		// "DeleteTransitGatewayPeeringAttachment", — moved to batch4
-		"DeleteTransitGatewayPolicyTable",
+		// "DeleteTransitGatewayPolicyTable", — moved to handler_tgw_peripherals.go
 		// "DeleteTransitGatewayPrefixListReference", — moved to batch4
-		"DeleteTransitGatewayRouteTableAnnouncement",
+		// "DeleteTransitGatewayRouteTableAnnouncement", — moved to handler_tgw_peripherals.go
 		// "DeleteVerifiedAccessEndpoint", — moved to batch4
 		// "DeleteVerifiedAccessGroup", — moved to batch4
 		// "DeleteVerifiedAccessInstance", — moved to batch4
@@ -222,8 +222,8 @@ func TestStubOperations(t *testing.T) {
 		// "DescribeTransitGatewayMeteringPolicies", — real handler in handler_tgw_multicast.go, covered there
 		// "DescribeTransitGatewayMulticastDomains", — real handler in handler_tgw_multicast.go, covered there
 		// "DescribeTransitGatewayPeeringAttachments", — moved to batch4
-		"DescribeTransitGatewayPolicyTables",
-		"DescribeTransitGatewayRouteTableAnnouncements",
+		// "DescribeTransitGatewayPolicyTables", — moved to handler_tgw_peripherals.go
+		// "DescribeTransitGatewayRouteTableAnnouncements", — moved to handler_tgw_peripherals.go
 		"DescribeTrunkInterfaceAssociations",
 		// "DescribeVerifiedAccessEndpoints", — moved to batch4
 		// "DescribeVerifiedAccessGroups", — moved to batch4
@@ -251,7 +251,7 @@ func TestStubOperations(t *testing.T) {
 		// "DisassociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		// "DisassociateRouteServer", — real handler in handler_route_server.go, covered there
 		// "DisassociateTransitGatewayMulticastDomain", — real handler in handler_tgw_multicast.go, covered there
-		"DisassociateTransitGatewayPolicyTable",
+		// "DisassociateTransitGatewayPolicyTable", — moved to handler_tgw_peripherals.go
 		"DisassociateTrunkInterface",
 		"EnableAllowedImagesSettings",
 		"EnableAwsNetworkPerformanceMetricSubscription",
@@ -263,7 +263,7 @@ func TestStubOperations(t *testing.T) {
 		"EnableTransitGatewayRouteTablePropagation",
 		// "ExportClientVpnClientCertificateRevocationList", — moved to batch4 (requires ClientVpnEndpointId)
 		// "ExportClientVpnClientConfiguration", — moved to batch4 (requires ClientVpnEndpointId)
-		"ExportTransitGatewayRoutes",
+		// "ExportTransitGatewayRoutes", — moved to handler_tgw_peripherals.go
 		"ExportVerifiedAccessInstanceClientConfiguration",
 		"GetActiveVpnTunnelStatus",
 		"GetAllowedImagesSettings",
@@ -301,14 +301,14 @@ func TestStubOperations(t *testing.T) {
 		// "GetRouteServerPropagations", — real handler in handler_route_server.go, covered there
 		// "GetRouteServerRoutingDatabase", — real handler in handler_route_server.go, covered there
 		"GetSpotPlacementScores",
-		"GetTransitGatewayAttachmentPropagations",
-		"GetTransitGatewayMeteringPolicyEntries",
+		// "GetTransitGatewayAttachmentPropagations", — moved to handler_tgw_peripherals.go
+		// "GetTransitGatewayMeteringPolicyEntries", — moved to handler_tgw_peripherals.go
 		// "GetTransitGatewayMulticastDomainAssociations", — real handler in handler_tgw_multicast.go, covered there
-		"GetTransitGatewayPolicyTableAssociations",
-		"GetTransitGatewayPolicyTableEntries",
+		// "GetTransitGatewayPolicyTableAssociations", — moved to handler_tgw_peripherals.go
+		// "GetTransitGatewayPolicyTableEntries", — moved to handler_tgw_peripherals.go
 		// "GetTransitGatewayPrefixListReferences", — moved to batch4
-		"GetTransitGatewayRouteTableAssociations",
-		"GetTransitGatewayRouteTablePropagations",
+		// "GetTransitGatewayRouteTableAssociations", — moved to handler_tgw_peripherals.go
+		// "GetTransitGatewayRouteTablePropagations", — moved to handler_tgw_peripherals.go
 		"GetVerifiedAccessEndpointPolicy",
 		"GetVerifiedAccessEndpointTargets",
 		"GetVerifiedAccessGroupPolicy",
@@ -341,9 +341,9 @@ func TestStubOperations(t *testing.T) {
 		// "ModifyTrafficMirrorFilterNetworkServices", — real handler now requires an existing filter ID
 		// "ModifyTrafficMirrorFilterRule", — real handler now requires an existing rule ID
 		// "ModifyTrafficMirrorSession", — real handler now requires an existing session ID
-		"ModifyTransitGatewayMeteringPolicy",
-		"ModifyTransitGatewayPrefixListReference",
-		"ModifyTransitGatewayVpcAttachment",
+		// "ModifyTransitGatewayMeteringPolicy", — moved to handler_tgw_peripherals.go
+		// "ModifyTransitGatewayPrefixListReference", — moved to handler_tgw_peripherals.go
+		// "ModifyTransitGatewayVpcAttachment", — moved to handler_tgw_peripherals.go
 		// "ModifyVerifiedAccessEndpoint", — moved to batch4
 		"ModifyVerifiedAccessEndpointPolicy",
 		"ModifyVerifiedAccessGroup",
@@ -368,9 +368,9 @@ func TestStubOperations(t *testing.T) {
 		// "RegisterTransitGatewayMulticastGroupMembers", — real handler in handler_tgw_multicast.go, covered there
 		// "RegisterTransitGatewayMulticastGroupSources", — real handler in handler_tgw_multicast.go, covered there
 		// "RejectCapacityReservationBillingOwnership", — moved to handler_capacity_family.go
-		"RejectTransitGatewayMulticastDomainAssociations",
-		"RejectTransitGatewayPeeringAttachment",
-		"RejectTransitGatewayVpcAttachment",
+		// "RejectTransitGatewayMulticastDomainAssociations", — moved to handler_tgw_peripherals.go
+		// "RejectTransitGatewayPeeringAttachment", — moved to handler_tgw_peripherals.go
+		// "RejectTransitGatewayVpcAttachment", — moved to handler_tgw_peripherals.go
 		"RejectVpcEndpointConnections",
 		"ReleaseHosts",
 		"ReplaceImageCriteriaInAllowedImagesSettings",
@@ -380,7 +380,7 @@ func TestStubOperations(t *testing.T) {
 		// "RevokeClientVpnIngress", — moved to batch4
 		"RunScheduledInstances",
 		// "SearchTransitGatewayMulticastGroups", — real handler in handler_tgw_multicast.go, covered there
-		"SearchTransitGatewayRoutes",
+		// "SearchTransitGatewayRoutes", — moved to handler_tgw_peripherals.go
 		"SendDiagnosticInterrupt",
 		"StartDeclarativePoliciesReport",
 		// "StartNetworkInsightsAccessScopeAnalysis", — real handler in handler_batch5.go, covered there

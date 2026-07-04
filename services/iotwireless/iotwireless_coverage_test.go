@@ -38,14 +38,19 @@ func TestIoTW_MulticastGroups(t *testing.T) {
 		`{"Name":"updated-mg"}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
-	// GetMulticastGroupSession.
+	// GetMulticastGroupSession before one has been started must 404, matching
+	// real AWS's ResourceNotFoundException for a group with no active session.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/multicast-groups/"+mgID+"/session", "")
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// StartMulticastGroupSession.
 	rec = doIoTWRequest(t, h, http.MethodPut, "/multicast-groups/"+mgID+"/session",
 		`{"LoRaWAN":{"DlDr":5,"DlFreq":923300000,"SessionStartTime":"2024-01-01T00:00:00Z","SessionTimeout":60}}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// GetMulticastGroupSession now that a session is active.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/multicast-groups/"+mgID+"/session", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// SendDataToMulticastGroup.
 	rec = doIoTWRequest(t, h, http.MethodPost, "/multicast-groups/"+mgID+"/data",

@@ -210,6 +210,7 @@ func tgwVpcAttachmentToItem(att *TransitGatewayVpcAttachment) tgwVpcAttachmentIt
 		TransitGatewayID:           att.TransitGatewayID,
 		VpcID:                      att.VpcID,
 		State:                      att.State,
+		SubnetIDs:                  att.SubnetIDs,
 	}
 }
 

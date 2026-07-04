@@ -1,14 +1,15 @@
 package apigateway
 
-// handler_import_export.go wires ImportRestApi and PutRestApi into the
-// action dispatch table, and bridges between the two ways these operations
-// can reach the handler:
+// handler_import_export.go wires ImportRestApi, PutRestApi, ImportApiKeys, and
+// ImportDocumentationParts into the action dispatch table, and bridges between
+// the two ways these raw-body operations can reach the handler:
 //
 //   - Real REST invocations (via handleRESTAPI / dispatchRestAPISpec) wrap
-//     the raw OpenAPI/Swagger document (base64-encoded) together with the
+//     the raw document (base64-encoded) — an OpenAPI/Swagger spec, a CSV file
+//     of API keys, or a documentation-parts JSON payload — together with the
 //     mode/restApiId/other query parameters in a small JSON envelope, since
 //     merging query parameters directly into the document the way other
-//     operations do would corrupt YAML or otherwise non-JSON-object bodies.
+//     operations do would corrupt non-JSON-object bodies.
 //   - Direct action dispatch (e.g. the JSON-protocol convenience path used by
 //     this package's own tests) passes the document itself as the entire
 //     payload, optionally with "restApiId"/"mode" as extra sibling fields.
@@ -23,6 +24,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
+
+// isRawBodyAPIGWAction reports whether action carries an opaque raw-bytes
+// request body that must not be JSON-merged with path/query parameters.
+func isRawBodyAPIGWAction(action string) bool {
+	switch action {
+	case opImportRestAPI, opPutRestAPI, opImportAPIKeys, opImportDocumentationParts:
+		return true
+	}
+
+	return false
+}
 
 // restAPISpecEnvelope is the JSON envelope built by dispatchRestAPISpec for
 // real REST-style ImportRestApi/PutRestApi invocations.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"maps"
+	"time"
 )
 
 // Snapshottable is an optional interface that a StorageBackend may implement to
@@ -98,31 +99,32 @@ type networkAnalyzerConfigRecord struct {
 
 // backendSnapshot is the serialisable form of InMemoryBackend state.
 type backendSnapshot struct {
-	ResourceTags           map[string]map[string]string               `json:"resourceTags,omitempty"`
-	PartnerAccounts        map[string]string                          `json:"partnerAccounts,omitempty"`
-	FuotaTaskMulticast     map[string]string                          `json:"fuotaTaskMulticast,omitempty"`
-	FuotaTaskDevices       map[string]string                          `json:"fuotaTaskDevices,omitempty"`
-	MulticastGroupDevices  map[string]string                          `json:"multicastGroupDevices,omitempty"`
-	MulticastGroupSessions map[string]bool                            `json:"multicastGroupSessions,omitempty"`
-	WirelessDeviceThings   map[string]string                          `json:"wirelessDeviceThings,omitempty"`
-	WirelessGatewayCerts   map[string]string                          `json:"wirelessGatewayCerts,omitempty"`
-	WirelessGatewayThings  map[string]string                          `json:"wirelessGatewayThings,omitempty"`
-	LogLevels              map[string]string                          `json:"logLevels,omitempty"`
-	ResourceLogLevels      map[string]string                          `json:"resourceLogLevels,omitempty"`
-	ImportTasks            map[string]*WirelessDeviceImportTask       `json:"importTasks,omitempty"`
-	SingleImportTasks      map[string]*SingleWirelessDeviceImportTask `json:"singleImportTasks,omitempty"`
-	GatewayTasks           map[string]*GatewayTask                    `json:"gatewayTasks,omitempty"`
-	GatewayTaskDefs        map[string]*GatewayTaskDefinition          `json:"gatewayTaskDefs,omitempty"`
-	Positions              map[string]map[string]any                  `json:"positions,omitempty"`
-	QueuedMessages         map[string][]QueuedMessage                 `json:"queuedMessages,omitempty"`
-	Devices                []deviceRecord                             `json:"devices,omitempty"`
-	Gateways               []gatewayRecord                            `json:"gateways,omitempty"`
-	ServiceProfiles        []serviceProfileRecord                     `json:"serviceProfiles,omitempty"`
-	Destinations           []destinationRecord                        `json:"destinations,omitempty"`
-	DeviceProfiles         []deviceProfileRecord                      `json:"deviceProfiles,omitempty"`
-	FuotaTasks             []fuotaTaskRecord                          `json:"fuotaTasks,omitempty"`
-	MulticastGroups        []multicastGroupRecord                     `json:"multicastGroups,omitempty"`
-	NetworkAnalyzerConfigs []networkAnalyzerConfigRecord              `json:"networkAnalyzerConfigs,omitempty"`
+	ResourceTags               map[string]map[string]string               `json:"resourceTags,omitempty"`
+	PartnerAccounts            map[string]string                          `json:"partnerAccounts,omitempty"`
+	FuotaTaskMulticast         map[string]string                          `json:"fuotaTaskMulticast,omitempty"`
+	FuotaTaskDevices           map[string]string                          `json:"fuotaTaskDevices,omitempty"`
+	MulticastGroupDevices      map[string]string                          `json:"multicastGroupDevices,omitempty"`
+	MulticastGroupSessions     map[string]bool                            `json:"multicastGroupSessions,omitempty"`
+	MulticastGroupSessionStart map[string]time.Time                       `json:"multicastGroupSessionStart,omitempty"`
+	WirelessDeviceThings       map[string]string                          `json:"wirelessDeviceThings,omitempty"`
+	WirelessGatewayCerts       map[string]string                          `json:"wirelessGatewayCerts,omitempty"`
+	WirelessGatewayThings      map[string]string                          `json:"wirelessGatewayThings,omitempty"`
+	LogLevels                  map[string]string                          `json:"logLevels,omitempty"`
+	ResourceLogLevels          map[string]string                          `json:"resourceLogLevels,omitempty"`
+	ImportTasks                map[string]*WirelessDeviceImportTask       `json:"importTasks,omitempty"`
+	SingleImportTasks          map[string]*SingleWirelessDeviceImportTask `json:"singleImportTasks,omitempty"`
+	GatewayTasks               map[string]*GatewayTask                    `json:"gatewayTasks,omitempty"`
+	GatewayTaskDefs            map[string]*GatewayTaskDefinition          `json:"gatewayTaskDefs,omitempty"`
+	Positions                  map[string]map[string]any                  `json:"positions,omitempty"`
+	QueuedMessages             map[string][]QueuedMessage                 `json:"queuedMessages,omitempty"`
+	Devices                    []deviceRecord                             `json:"devices,omitempty"`
+	Gateways                   []gatewayRecord                            `json:"gateways,omitempty"`
+	ServiceProfiles            []serviceProfileRecord                     `json:"serviceProfiles,omitempty"`
+	Destinations               []destinationRecord                        `json:"destinations,omitempty"`
+	DeviceProfiles             []deviceProfileRecord                      `json:"deviceProfiles,omitempty"`
+	FuotaTasks                 []fuotaTaskRecord                          `json:"fuotaTasks,omitempty"`
+	MulticastGroups            []multicastGroupRecord                     `json:"multicastGroups,omitempty"`
+	NetworkAnalyzerConfigs     []networkAnalyzerConfigRecord              `json:"networkAnalyzerConfigs,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -147,18 +149,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 // Must be called with b.mu held for reading.
 func (b *InMemoryBackend) buildSnapshotLocked() backendSnapshot {
 	snap := backendSnapshot{
-		ResourceTags:           make(map[string]map[string]string, len(b.resourceTags)),
-		PartnerAccounts:        make(map[string]string, len(b.partnerAccounts)),
-		FuotaTaskMulticast:     make(map[string]string, len(b.fuotaTaskMulticast)),
-		FuotaTaskDevices:       make(map[string]string, len(b.fuotaTaskDevices)),
-		MulticastGroupDevices:  make(map[string]string, len(b.multicastGroupDevices)),
-		MulticastGroupSessions: make(map[string]bool, len(b.multicastGroupSessions)),
-		WirelessDeviceThings:   make(map[string]string, len(b.wirelessDeviceThings)),
-		WirelessGatewayCerts:   make(map[string]string, len(b.wirelessGatewayCerts)),
-		WirelessGatewayThings:  make(map[string]string, len(b.wirelessGatewayThings)),
-		LogLevels:              make(map[string]string, len(b.logLevels)),
-		ResourceLogLevels:      make(map[string]string, len(b.resourceLogLevels)),
-		ImportTasks:            make(map[string]*WirelessDeviceImportTask, len(b.importTasks)),
+		ResourceTags:               make(map[string]map[string]string, len(b.resourceTags)),
+		PartnerAccounts:            make(map[string]string, len(b.partnerAccounts)),
+		FuotaTaskMulticast:         make(map[string]string, len(b.fuotaTaskMulticast)),
+		FuotaTaskDevices:           make(map[string]string, len(b.fuotaTaskDevices)),
+		MulticastGroupDevices:      make(map[string]string, len(b.multicastGroupDevices)),
+		MulticastGroupSessions:     make(map[string]bool, len(b.multicastGroupSessions)),
+		MulticastGroupSessionStart: make(map[string]time.Time, len(b.multicastGroupSessionStart)),
+		WirelessDeviceThings:       make(map[string]string, len(b.wirelessDeviceThings)),
+		WirelessGatewayCerts:       make(map[string]string, len(b.wirelessGatewayCerts)),
+		WirelessGatewayThings:      make(map[string]string, len(b.wirelessGatewayThings)),
+		LogLevels:                  make(map[string]string, len(b.logLevels)),
+		ResourceLogLevels:          make(map[string]string, len(b.resourceLogLevels)),
+		ImportTasks:                make(map[string]*WirelessDeviceImportTask, len(b.importTasks)),
 	}
 
 	b.snapshotResourceRecordsLocked(&snap)
@@ -231,6 +234,7 @@ func (b *InMemoryBackend) snapshotMapsLocked(snap *backendSnapshot) {
 	maps.Copy(snap.FuotaTaskDevices, b.fuotaTaskDevices)
 	maps.Copy(snap.MulticastGroupDevices, b.multicastGroupDevices)
 	maps.Copy(snap.MulticastGroupSessions, b.multicastGroupSessions)
+	maps.Copy(snap.MulticastGroupSessionStart, b.multicastGroupSessionStart)
 	maps.Copy(snap.WirelessDeviceThings, b.wirelessDeviceThings)
 	maps.Copy(snap.WirelessGatewayCerts, b.wirelessGatewayCerts)
 	maps.Copy(snap.WirelessGatewayThings, b.wirelessGatewayThings)
@@ -280,6 +284,7 @@ func (b *InMemoryBackend) restoreMapsLocked(snap *backendSnapshot) {
 	b.fuotaTaskDevices = make(map[string]string, len(snap.FuotaTaskDevices))
 	b.multicastGroupDevices = make(map[string]string, len(snap.MulticastGroupDevices))
 	b.multicastGroupSessions = make(map[string]bool, len(snap.MulticastGroupSessions))
+	b.multicastGroupSessionStart = make(map[string]time.Time, len(snap.MulticastGroupSessionStart))
 	b.wirelessDeviceThings = make(map[string]string, len(snap.WirelessDeviceThings))
 	b.wirelessGatewayCerts = make(map[string]string, len(snap.WirelessGatewayCerts))
 	b.wirelessGatewayThings = make(map[string]string, len(snap.WirelessGatewayThings))
@@ -387,6 +392,7 @@ func (b *InMemoryBackend) restoreNewOpsResourcesLocked(snap *backendSnapshot) {
 	maps.Copy(b.fuotaTaskDevices, snap.FuotaTaskDevices)
 	maps.Copy(b.multicastGroupDevices, snap.MulticastGroupDevices)
 	maps.Copy(b.multicastGroupSessions, snap.MulticastGroupSessions)
+	maps.Copy(b.multicastGroupSessionStart, snap.MulticastGroupSessionStart)
 	maps.Copy(b.wirelessDeviceThings, snap.WirelessDeviceThings)
 	maps.Copy(b.wirelessGatewayCerts, snap.WirelessGatewayCerts)
 	maps.Copy(b.wirelessGatewayThings, snap.WirelessGatewayThings)

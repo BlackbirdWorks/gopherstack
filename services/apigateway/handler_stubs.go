@@ -1,8 +1,10 @@
 package apigateway
 
-// handler_stubs.go provides stub action handlers for API Gateway SDK operations
-// not yet fully implemented.  Each stub returns a minimal valid response so the
-// operation is visible in GetSupportedOperations and the SDK completeness test passes.
+// handler_stubs.go wires the previously-stubbed API Gateway operations
+// (VPC Links, GetExport/UpdateClientCertificate/UpdateGatewayResponse, domain
+// name access associations, SDK generation, API key/documentation-part bulk
+// import, and usage updates) into the action dispatch table, backed by real
+// state in backend.go / backend_destub.go.
 
 import (
 	"encoding/json"
@@ -39,38 +41,30 @@ const (
 	opUpdateVpcLink                     = "UpdateVpcLink"
 )
 
-// domainNameAccessAssociationStub is a minimal domain name access association.
-type domainNameAccessAssociationStub struct {
-	DomainNameAccessAssociationArn string `json:"domainNameAccessAssociationArn"`
-	DomainNameArn                  string `json:"domainNameArn"`
-	AccessAssociationSourceType    string `json:"accessAssociationSourceType"`
-	Status                         string `json:"status,omitempty"`
+// domainNameAccessAssociationsView is the response for GetDomainNameAccessAssociations.
+type domainNameAccessAssociationsView struct {
+	Items []DomainNameAccessAssociation `json:"item"`
 }
 
-// domainNameAccessAssociationsStub is a list of access associations.
-type domainNameAccessAssociationsStub struct {
-	Items []domainNameAccessAssociationStub `json:"item"`
-}
-
-// sdkTypeStub is a minimal SDK type.
-type sdkTypeStub struct {
+// sdkTypeView is the response for GetSdkType, and one entry of GetSdkTypes.
+type sdkTypeView struct {
 	ID           string `json:"id"`
 	FriendlyName string `json:"friendlyName,omitempty"`
 }
 
-// sdkTypesStub is a minimal list of SDK types.
-type sdkTypesStub struct {
-	Items []sdkTypeStub `json:"item"`
+// sdkTypesView is the response for GetSdkTypes.
+type sdkTypesView struct {
+	Items []sdkTypeView `json:"item"`
 }
 
-// apiKeysImportStub is the response for ImportApiKeys.
-type apiKeysImportStub struct {
+// apiKeysImportView is the response for ImportApiKeys.
+type apiKeysImportView struct {
 	IDs      []string `json:"ids"`
 	Warnings []string `json:"warnings"`
 }
 
-// documentationPartsImportStub is the response for ImportDocumentationParts.
-type documentationPartsImportStub struct {
+// documentationPartsImportView is the response for ImportDocumentationParts.
+type documentationPartsImportView struct {
 	IDs      []string `json:"ids"`
 	Warnings []string `json:"warnings"`
 }
@@ -186,54 +180,180 @@ func (h *Handler) exportAndCertActions() map[string]actionFn {
 	}
 }
 
-// stubActions returns the actionFn map for stub operations.
+// domainNameAccessAssociationActions returns real stateful handlers for the
+// Get/Delete/Reject domain name access association operations. Create is
+// handled separately in backend.go's newResourceActions (it was already real).
+func (h *Handler) domainNameAccessAssociationActions() map[string]actionFn {
+	return map[string]actionFn{
+		opGetDomainNameAccessAssociations: func(b []byte) (int, any, error) {
+			var input struct {
+				ResourceOwner string `json:"resourceOwner,omitempty"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			assocs, err := h.Backend.GetDomainNameAccessAssociations(input.ResourceOwner)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, &domainNameAccessAssociationsView{Items: assocs}, nil
+		},
+		opDeleteDomainNameAccessAssociation: func(b []byte) (int, any, error) {
+			var input struct {
+				Arn string `json:"domainNameAccessAssociationArn"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			if err := h.Backend.DeleteDomainNameAccessAssociation(input.Arn); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, nil, nil
+		},
+		opRejectDomainNameAccessAssociation: func(b []byte) (int, any, error) {
+			var input struct {
+				Arn           string `json:"domainNameAccessAssociationArn"`
+				DomainNameArn string `json:"domainNameArn"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			if err := h.Backend.RejectDomainNameAccessAssociation(input.Arn, input.DomainNameArn); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, nil, nil
+		},
+	}
+}
+
+// sdkActions returns real handlers for the SDK generation operations, backed
+// by the fixed SDK type catalog and a real per-API/stage generated package.
+func (h *Handler) sdkActions() map[string]actionFn {
+	return map[string]actionFn{
+		opGetSdk: func(b []byte) (int, any, error) {
+			var input struct {
+				RestAPIID string `json:"restApiId"`
+				StageName string `json:"stageName"`
+				SdkType   string `json:"sdkType"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			sdk, err := h.Backend.GetSdk(input.RestAPIID, input.StageName, input.SdkType)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{
+				"contentType":        sdk.ContentType,
+				"contentDisposition": sdk.ContentDisposition,
+				"body":               sdk.Body,
+			}, nil
+		},
+		opGetSdkType: func(b []byte) (int, any, error) {
+			var input struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			t, err := h.Backend.GetSdkType(input.ID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, &sdkTypeView{ID: t.ID, FriendlyName: t.FriendlyName}, nil
+		},
+		opGetSdkTypes: func(_ []byte) (int, any, error) {
+			types := h.Backend.GetSdkTypes()
+			items := make([]sdkTypeView, 0, len(types))
+
+			for _, t := range types {
+				items = append(items, sdkTypeView(t))
+			}
+
+			return http.StatusOK, &sdkTypesView{Items: items}, nil
+		},
+	}
+}
+
+// importActions returns real handlers for the bulk-import operations.
+func (h *Handler) importActions() map[string]actionFn {
+	return map[string]actionFn{
+		opImportAPIKeys: func(b []byte) (int, any, error) {
+			specBody, env := decodeRestAPISpecPayload(b)
+
+			ids, warnings, err := h.Backend.ImportAPIKeys(specBody, env.Parameters["format"], env.FailOnWarnings)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, &apiKeysImportView{IDs: ids, Warnings: warnings}, nil
+		},
+		opImportDocumentationParts: func(b []byte) (int, any, error) {
+			specBody, env := decodeRestAPISpecPayload(b)
+
+			ids, warnings, err := h.Backend.ImportDocumentationParts(
+				env.RestAPIID,
+				specBody,
+				env.Mode,
+				env.FailOnWarnings,
+			)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, &documentationPartsImportView{IDs: ids, Warnings: warnings}, nil
+		},
+	}
+}
+
+// usageActions returns the real handler for UpdateUsage.
+func (h *Handler) usageActions() map[string]actionFn {
+	return map[string]actionFn{
+		opUpdateUsage: func(b []byte) (int, any, error) {
+			var raw map[string]string
+			if err := json.Unmarshal(b, &raw); err != nil {
+				return 0, nil, err
+			}
+
+			usagePlanID := raw[keyUsagePlanID]
+			keyID := raw[keyKeyID]
+			delete(raw, keyUsagePlanID)
+			delete(raw, keyKeyID)
+
+			usage, err := h.Backend.UpdateUsage(usagePlanID, keyID, raw)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, usage, nil
+		},
+	}
+}
+
+// stubActions returns the actionFn map for the previously-stubbed operations.
 func (h *Handler) stubActions() map[string]actionFn {
 	actions := make(map[string]actionFn)
 
 	maps.Copy(actions, h.vpcLinkActions())
 	maps.Copy(actions, h.exportAndCertActions())
+	maps.Copy(actions, h.domainNameAccessAssociationActions())
+	maps.Copy(actions, h.sdkActions())
+	maps.Copy(actions, h.importActions())
+	maps.Copy(actions, h.usageActions())
 
-	// Domain name access associations
-	actions[opDeleteDomainNameAccessAssociation] = func(_ []byte) (int, any, error) {
-		return http.StatusAccepted, nil, nil
-	}
-	actions[opGetDomainNameAccessAssociations] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, &domainNameAccessAssociationsStub{Items: []domainNameAccessAssociationStub{}}, nil
-	}
-	actions[opRejectDomainNameAccessAssociation] = func(_ []byte) (int, any, error) {
-		return http.StatusAccepted, nil, nil
-	}
-
-	// SDK operations
-	actions[opGetSdk] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, map[string]any{"contentType": "application/zip", "body": ""}, nil
-	}
-	actions[opGetSdkType] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, &sdkTypeStub{ID: "javascript", FriendlyName: "JavaScript"}, nil
-	}
-	actions[opGetSdkTypes] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, &sdkTypesStub{Items: []sdkTypeStub{
-			{ID: "javascript", FriendlyName: "JavaScript"},
-			{ID: "android", FriendlyName: "Android"},
-			{ID: "swift", FriendlyName: "Swift (iOS)"},
-		}}, nil
-	}
-
-	// Import operations
-	actions[opImportAPIKeys] = func(_ []byte) (int, any, error) {
-		return http.StatusCreated, &apiKeysImportStub{IDs: []string{}, Warnings: []string{}}, nil
-	}
-	actions[opImportDocumentationParts] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, &documentationPartsImportStub{IDs: []string{}, Warnings: []string{}}, nil
-	}
 	// ImportRestApi and PutRestApi are real, stateful operations implemented
 	// in import_export.go / handler_import_export.go, wired in via
 	// restAPISpecActions() in dispatchTable.
-
-	// Usage update
-	actions[opUpdateUsage] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, map[string]any{"usagePlanId": "", "items": map[string]any{}}, nil
-	}
 
 	return actions
 }

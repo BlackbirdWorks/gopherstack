@@ -256,6 +256,9 @@ type InMemoryBackend struct {
 	tgwRouteTables                 map[string]*TransitGatewayRouteTable
 	tgwRoutes                      map[string]*TransitGatewayRoute
 	tgwRTAssociations              map[string]*TransitGatewayRouteTableAssociation
+	tgwPolicyTables                map[string]*TransitGatewayPolicyTable
+	tgwPolicyTableAssociations     map[string]*TransitGatewayPolicyTableAssociation
+	tgwRouteTableAnnouncements     map[string]*TransitGatewayRouteTableAnnouncement
 	vpcCidrAssociations            map[string]*VpcCidrBlockAssociation
 	vpnGateways                    map[string]*VpnGateway
 	customerGateways               map[string]*CustomerGateway
@@ -437,6 +440,9 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 		tgwRouteTables:                 make(map[string]*TransitGatewayRouteTable),
 		tgwRoutes:                      make(map[string]*TransitGatewayRoute),
 		tgwRTAssociations:              make(map[string]*TransitGatewayRouteTableAssociation),
+		tgwPolicyTables:                make(map[string]*TransitGatewayPolicyTable),
+		tgwPolicyTableAssociations:     make(map[string]*TransitGatewayPolicyTableAssociation),
+		tgwRouteTableAnnouncements:     make(map[string]*TransitGatewayRouteTableAnnouncement),
 		vpcCidrAssociations:            make(map[string]*VpcCidrBlockAssociation),
 		vpnGateways:                    make(map[string]*VpnGateway),
 		customerGateways:               make(map[string]*CustomerGateway),

@@ -120,6 +120,7 @@ type StorageBackend interface {
 	DisassociateMulticastGroupFromFuotaTask(fuotaTaskID string) error
 	DisassociateWirelessDeviceFromMulticastGroup(multicastGroupID string) error
 	StartMulticastGroupSession(multicastGroupID string) error
+	GetMulticastGroupSession(multicastGroupID string) (time.Time, error)
 
 	DisassociateWirelessGatewayFromCertificate(accountID, region, gatewayID string) error
 	DisassociateWirelessGatewayFromThing(accountID, region, gatewayID string) error
@@ -179,62 +180,64 @@ type resourceKey struct {
 
 // InMemoryBackend is the in-memory backend for IoT Wireless.
 type InMemoryBackend struct {
-	devices                map[resourceKey]*WirelessDevice
-	gateways               map[resourceKey]*WirelessGateway
-	serviceProfiles        map[resourceKey]*ServiceProfile
-	destinations           map[resourceKey]*Destination
-	deviceProfiles         map[resourceKey]*DeviceProfile
-	fuotaTasks             map[resourceKey]*FuotaTask
-	multicastGroups        map[resourceKey]*MulticastGroup
-	networkAnalyzerConfigs map[resourceKey]*NetworkAnalyzerConfig
-	resourceTags           map[string]map[string]string
-	partnerAccounts        map[string]string                          // partnerAccountID -> arn
-	fuotaTaskMulticast     map[string]string                          // fuotaTaskID -> multicastGroupID
-	fuotaTaskDevices       map[string]string                          // fuotaTaskID -> wirelessDeviceID
-	multicastGroupDevices  map[string]string                          // multicastGroupID -> wirelessDeviceID
-	multicastGroupSessions map[string]bool                            // multicastGroupIDs with active sessions
-	wirelessDeviceThings   map[string]string                          // wirelessDeviceID -> thingArn
-	wirelessGatewayCerts   map[string]string                          // gatewayID -> iotCertificateID
-	wirelessGatewayThings  map[string]string                          // gatewayID -> thingArn
-	logLevels              map[string]string                          // "default" -> logLevel
-	resourceLogLevels      map[string]string                          // resourceID -> logLevel
-	gatewayTasks           map[string]*GatewayTask                    // gatewayID -> task
-	gatewayTaskDefs        map[string]*GatewayTaskDefinition          // taskDefID -> definition
-	positions              map[string]map[string]any                  // resourceID -> position data
-	queuedMessages         map[string][]QueuedMessage                 // wirelessDeviceID -> messages
-	importTasks            map[string]*WirelessDeviceImportTask       // id -> task
-	singleImportTasks      map[string]*SingleWirelessDeviceImportTask // arn -> task
-	mu                     sync.RWMutex
+	devices                    map[resourceKey]*WirelessDevice
+	gateways                   map[resourceKey]*WirelessGateway
+	serviceProfiles            map[resourceKey]*ServiceProfile
+	destinations               map[resourceKey]*Destination
+	deviceProfiles             map[resourceKey]*DeviceProfile
+	fuotaTasks                 map[resourceKey]*FuotaTask
+	multicastGroups            map[resourceKey]*MulticastGroup
+	networkAnalyzerConfigs     map[resourceKey]*NetworkAnalyzerConfig
+	resourceTags               map[string]map[string]string
+	partnerAccounts            map[string]string                          // partnerAccountID -> arn
+	fuotaTaskMulticast         map[string]string                          // fuotaTaskID -> multicastGroupID
+	fuotaTaskDevices           map[string]string                          // fuotaTaskID -> wirelessDeviceID
+	multicastGroupDevices      map[string]string                          // multicastGroupID -> wirelessDeviceID
+	multicastGroupSessions     map[string]bool                            // multicastGroupIDs with active sessions
+	multicastGroupSessionStart map[string]time.Time                       // multicastGroupID -> session start time
+	wirelessDeviceThings       map[string]string                          // wirelessDeviceID -> thingArn
+	wirelessGatewayCerts       map[string]string                          // gatewayID -> iotCertificateID
+	wirelessGatewayThings      map[string]string                          // gatewayID -> thingArn
+	logLevels                  map[string]string                          // "default" -> logLevel
+	resourceLogLevels          map[string]string                          // resourceID -> logLevel
+	gatewayTasks               map[string]*GatewayTask                    // gatewayID -> task
+	gatewayTaskDefs            map[string]*GatewayTaskDefinition          // taskDefID -> definition
+	positions                  map[string]map[string]any                  // resourceID -> position data
+	queuedMessages             map[string][]QueuedMessage                 // wirelessDeviceID -> messages
+	importTasks                map[string]*WirelessDeviceImportTask       // id -> task
+	singleImportTasks          map[string]*SingleWirelessDeviceImportTask // arn -> task
+	mu                         sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory IoT Wireless backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		devices:                make(map[resourceKey]*WirelessDevice),
-		gateways:               make(map[resourceKey]*WirelessGateway),
-		serviceProfiles:        make(map[resourceKey]*ServiceProfile),
-		destinations:           make(map[resourceKey]*Destination),
-		deviceProfiles:         make(map[resourceKey]*DeviceProfile),
-		fuotaTasks:             make(map[resourceKey]*FuotaTask),
-		multicastGroups:        make(map[resourceKey]*MulticastGroup),
-		networkAnalyzerConfigs: make(map[resourceKey]*NetworkAnalyzerConfig),
-		resourceTags:           make(map[string]map[string]string),
-		partnerAccounts:        make(map[string]string),
-		fuotaTaskMulticast:     make(map[string]string),
-		fuotaTaskDevices:       make(map[string]string),
-		multicastGroupDevices:  make(map[string]string),
-		multicastGroupSessions: make(map[string]bool),
-		wirelessDeviceThings:   make(map[string]string),
-		wirelessGatewayCerts:   make(map[string]string),
-		wirelessGatewayThings:  make(map[string]string),
-		logLevels:              make(map[string]string),
-		resourceLogLevels:      make(map[string]string),
-		gatewayTasks:           make(map[string]*GatewayTask),
-		gatewayTaskDefs:        make(map[string]*GatewayTaskDefinition),
-		positions:              make(map[string]map[string]any),
-		queuedMessages:         make(map[string][]QueuedMessage),
-		importTasks:            make(map[string]*WirelessDeviceImportTask),
-		singleImportTasks:      make(map[string]*SingleWirelessDeviceImportTask),
+		devices:                    make(map[resourceKey]*WirelessDevice),
+		gateways:                   make(map[resourceKey]*WirelessGateway),
+		serviceProfiles:            make(map[resourceKey]*ServiceProfile),
+		destinations:               make(map[resourceKey]*Destination),
+		deviceProfiles:             make(map[resourceKey]*DeviceProfile),
+		fuotaTasks:                 make(map[resourceKey]*FuotaTask),
+		multicastGroups:            make(map[resourceKey]*MulticastGroup),
+		networkAnalyzerConfigs:     make(map[resourceKey]*NetworkAnalyzerConfig),
+		resourceTags:               make(map[string]map[string]string),
+		partnerAccounts:            make(map[string]string),
+		fuotaTaskMulticast:         make(map[string]string),
+		fuotaTaskDevices:           make(map[string]string),
+		multicastGroupDevices:      make(map[string]string),
+		multicastGroupSessions:     make(map[string]bool),
+		multicastGroupSessionStart: make(map[string]time.Time),
+		wirelessDeviceThings:       make(map[string]string),
+		wirelessGatewayCerts:       make(map[string]string),
+		wirelessGatewayThings:      make(map[string]string),
+		logLevels:                  make(map[string]string),
+		resourceLogLevels:          make(map[string]string),
+		gatewayTasks:               make(map[string]*GatewayTask),
+		gatewayTaskDefs:            make(map[string]*GatewayTaskDefinition),
+		positions:                  make(map[string]map[string]any),
+		queuedMessages:             make(map[string][]QueuedMessage),
+		importTasks:                make(map[string]*WirelessDeviceImportTask),
+		singleImportTasks:          make(map[string]*SingleWirelessDeviceImportTask),
 	}
 }
 
@@ -289,6 +292,7 @@ func (b *InMemoryBackend) Reset() {
 	b.fuotaTaskDevices = make(map[string]string)
 	b.multicastGroupDevices = make(map[string]string)
 	b.multicastGroupSessions = make(map[string]bool)
+	b.multicastGroupSessionStart = make(map[string]time.Time)
 	b.wirelessDeviceThings = make(map[string]string)
 	b.wirelessGatewayCerts = make(map[string]string)
 	b.wirelessGatewayThings = make(map[string]string)
@@ -1338,6 +1342,7 @@ func (b *InMemoryBackend) CancelMulticastGroupSession(multicastGroupID string) e
 	defer b.mu.Unlock()
 
 	delete(b.multicastGroupSessions, multicastGroupID)
+	delete(b.multicastGroupSessionStart, multicastGroupID)
 
 	return nil
 }

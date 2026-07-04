@@ -158,4 +158,18 @@ type Backend interface {
 	DescribeDaemonTaskDefinition(familyOrArn string) (*DaemonTaskDefinition, error)
 	DeleteDaemonTaskDefinition(familyOrArn string) (*DaemonTaskDefinition, error)
 	ListDaemonTaskDefinitions(input ListDaemonTaskDefinitionsInput) ([]DaemonTaskDefinition, error)
+
+	// Service revisions
+
+	DescribeServiceRevisions(arns []string) ([]ServiceRevision, []Failure)
+
+	// Agent discovery
+
+	DiscoverPollEndpoint() (endpoint, serviceConnectEndpoint, telemetryEndpoint string)
+
+	// Agent state-change submissions
+
+	SubmitTaskStateChange(input SubmitTaskStateChangeInput) error
+	SubmitContainerStateChange(input SubmitContainerStateChangeInput) error
+	SubmitAttachmentStateChanges(cluster string, attachments []AttachmentStateChange) error
 }

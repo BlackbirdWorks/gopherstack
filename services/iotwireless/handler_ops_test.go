@@ -85,7 +85,16 @@ func TestHandlerOps_MulticastGroupSession(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
 	id := createResp["Id"].(string)
 
-	// Get session (should return empty LoRaWAN)
+	// Getting the session before one has been started must 404, matching real
+	// AWS's ResourceNotFoundException for a group with no active session.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/multicast-groups/"+id+"/session", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	// Start session
+	rec = doIoTWRequest(t, h, http.MethodPut, "/multicast-groups/"+id+"/session", `{}`)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Now the session should be visible with a real LoRaWAN payload.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/multicast-groups/"+id+"/session", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -93,10 +102,6 @@ func TestHandlerOps_MulticastGroupSession(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sessionResp))
 	_, hasLoRaWAN := sessionResp["LoRaWAN"]
 	assert.True(t, hasLoRaWAN)
-
-	// Start session
-	rec = doIoTWRequest(t, h, http.MethodPut, "/multicast-groups/"+id+"/session", `{}`)
-	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
 func TestHandlerOps_ListMulticastGroupsByFuotaTask(t *testing.T) {
@@ -759,11 +764,31 @@ func TestHandlerOps_PartnerAccounts(t *testing.T) {
 
 	var getResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-	assert.Equal(t, "partner-123", getResp["AccountId"])
+	assert.Equal(t, true, getResp["AccountLinked"])
+	sidewalk, ok := getResp["Sidewalk"].(map[string]any)
+	require.True(t, ok, "AccountLinked accounts must include Sidewalk info")
+	assert.Equal(t, "partner-123", sidewalk["AmazonId"])
+	assert.NotEmpty(t, sidewalk["Arn"])
+
+	// Get an account that was never associated: AccountLinked must be false,
+	// not a fabricated success.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/partner-accounts/never-linked", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var unlinkedResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &unlinkedResp))
+	assert.Equal(t, false, unlinkedResp["AccountLinked"])
 
 	// List partner accounts
 	rec = doIoTWRequest(t, h, http.MethodGet, "/partner-accounts", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	sidewalkList, ok := listResp["Sidewalk"].([]any)
+	require.True(t, ok)
+	require.Len(t, sidewalkList, 1, "list must reflect the associated account, not a hardcoded empty list")
+	assert.Equal(t, "partner-123", sidewalkList[0].(map[string]any)["AmazonId"])
 
 	// Update partner account (no-op)
 	rec = doIoTWRequest(t, h, http.MethodPatch, "/partner-accounts/partner-123", `{}`)
@@ -934,13 +959,27 @@ func TestHandlerOps_GetServiceEndpoint(t *testing.T) {
 
 	h := newTestHandlerHTTP()
 
+	// Default (no serviceType query param) must be CUPS.
 	rec := doIoTWRequest(t, h, http.MethodGet, "/service-endpoint", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "CUPS", resp["ServiceType"])
-	assert.NotEmpty(t, resp["ServiceEndpoint"])
+	assert.Equal(t, "https://cups.lorawan.us-east-1.amazonaws.com", resp["ServiceEndpoint"])
+
+	// LNS must return a distinct, correctly-shaped endpoint, not the CUPS one.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/service-endpoint?serviceType=LNS", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var lnsResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lnsResp))
+	assert.Equal(t, "LNS", lnsResp["ServiceType"])
+	assert.Equal(t, "https://lns.lorawan.us-east-1.amazonaws.com", lnsResp["ServiceEndpoint"])
+
+	// An invalid serviceType must be rejected, not silently accepted.
+	rec = doIoTWRequest(t, h, http.MethodGet, "/service-endpoint?serviceType=BOGUS", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandlerOps_GetWirelessGatewayFirmwareInformation(t *testing.T) {

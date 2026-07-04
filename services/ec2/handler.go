@@ -125,6 +125,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, batch4SupportedOperations()...)
 	extOps = append(extOps, localGatewaySupportedOperations()...)
 	extOps = append(extOps, tgwMulticastSupportedOperations()...)
+	extOps = append(extOps, tgwPeripheralsSupportedOperations()...)
 	extOps = append(extOps, vpcConfigSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
@@ -392,6 +393,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerRouteServerOps(h, ops)
 	registerLocalGatewayOps(h, ops)
 	registerTGWMulticastOps(h, ops)
+	registerTGWPeripheralsOps(h, ops)
 	registerVpcConfigOps(h, ops)
 	registerCapacityFamilyOps(h, ops)
 	registerStubOpsIfAbsent(h, ops)
@@ -1262,6 +1264,13 @@ var errCodeLookup = []struct {
 	{ErrVpcBlockPublicAccessExclusionNotFound, "InvalidVpcBlockPublicAccessExclusionId.NotFound"},
 	{ErrIpamPolicyNotFound, "InvalidIpamPolicyId.NotFound"},
 	{ErrIpamOrgAdminAccountNotFound, errCodeInvalidParameterValue},
+	{ErrTGWPolicyTableNotFound, "InvalidTransitGatewayPolicyTableId.NotFound"},
+	{ErrTGWRouteTableAnnouncementNotFound, "InvalidTransitGatewayRouteTableAnnouncementId.NotFound"},
+	{ErrTransitGatewayNotFound, "InvalidTransitGatewayID.NotFound"},
+	{ErrTGWRouteTableNotFound, "InvalidTransitGatewayRouteTableId.NotFound"},
+	{ErrTGWMeteringPolicyNotFound, "InvalidTransitGatewayMeteringPolicyId.NotFound"},
+	{ErrTGWAttachmentNotFound, "InvalidTransitGatewayAttachmentID.NotFound"},
+	{ErrTGWPrefixListRefNotFound, "InvalidTransitGatewayPrefixListReferenceId.NotFound"},
 	{ErrInvalidParameter, errCodeInvalidParameterValue},
 }
 

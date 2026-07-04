@@ -89,6 +89,9 @@ type TransitGatewayVpcAttachment struct {
 	TransitGatewayID           string    `json:"transitGatewayID,omitempty"`
 	VpcID                      string    `json:"vpcID,omitempty"`
 	State                      string    `json:"state,omitempty"`
+	// SubnetIDs is the set of subnet IDs the attachment uses, managed via
+	// ModifyTransitGatewayVpcAttachment's AddSubnetIds/RemoveSubnetIds.
+	SubnetIDs []string `json:"subnetIDs,omitempty"`
 }
 
 // VpcEndpointConnection represents a VPC endpoint connection to a service.
@@ -207,6 +210,9 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.tgwRouteTables = make(map[string]*TransitGatewayRouteTable)
 	b.tgwRoutes = make(map[string]*TransitGatewayRoute)
 	b.tgwRTAssociations = make(map[string]*TransitGatewayRouteTableAssociation)
+	b.tgwPolicyTables = make(map[string]*TransitGatewayPolicyTable)
+	b.tgwPolicyTableAssociations = make(map[string]*TransitGatewayPolicyTableAssociation)
+	b.tgwRouteTableAnnouncements = make(map[string]*TransitGatewayRouteTableAnnouncement)
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
 	b.resetAdvancedNetworkingMapsLocked()
 	b.resetIpamDiscoveryMapsLocked()
