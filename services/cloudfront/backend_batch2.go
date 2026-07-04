@@ -33,6 +33,13 @@ const (
 	maxTagCount    = 50
 )
 
+// dnsStatusPassed and dnsStatusFailed are the two outcomes of the syntactic domain-validation
+// check dnsCheckStatus performs, standing in for real DNS/ACM validation in this emulator.
+const (
+	dnsStatusPassed = "PASSED"
+	dnsStatusFailed = "FAILED"
+)
+
 // validateCFTags enforces CloudFront tag constraints: key 1-128 chars, value 0-256 chars,
 // no "aws:" prefix on keys, max 50 tags total.
 func validateCFTags(tags map[string]string) error {
@@ -483,7 +490,7 @@ func (b *InMemoryBackend) VerifyDNSConfiguration(identifier string) ([]DNSConfig
 	defer b.mu.RUnlock()
 
 	if identifier == "" {
-		return []DNSConfiguration{{Domain: "", Status: "PASSED"}}, nil
+		return []DNSConfiguration{{Domain: "", Status: dnsStatusPassed}}, nil
 	}
 
 	var domains []string
@@ -508,10 +515,10 @@ func (b *InMemoryBackend) VerifyDNSConfiguration(identifier string) ([]DNSConfig
 // resolution in this emulator.
 func dnsCheckStatus(domain string) string {
 	if domain == "" || strings.ContainsAny(domain, " \t") || !strings.Contains(domain, ".") {
-		return "FAILED"
+		return dnsStatusFailed
 	}
 
-	return "PASSED"
+	return dnsStatusPassed
 }
 
 // DisassociateDistributionTenantWebACL clears the web ACL association for a distribution tenant.

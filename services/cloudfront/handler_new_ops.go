@@ -907,11 +907,23 @@ func (h *Handler) handleTestConnectionFunction(c *echo.Context, id string) error
 // ---------------------------------------------------------------------------
 
 func anycastIPListXML(ns string, list *AnycastIPList) string {
+	var ips strings.Builder
+	for _, ip := range list.AnycastIPs {
+		fmt.Fprintf(&ips, `<IpAddress>%s</IpAddress>`, ip)
+	}
+
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<AnycastIpList xmlns="%s">`+
 		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Status>%s</Status><IpCount>%d</IpCount>`+
+		`<AnycastIps>%s</AnycastIps>`+
 		`</AnycastIpList>`,
-		ns, list.ID, list.ARN, list.Name, list.Status, list.IPCount)
+		ns, list.ID, list.ARN, list.Name, list.Status, list.IPCount, ips.String())
+}
+
+// anycastIPListPreconditionFailedXML is the shared If-Match error body for anycast IP list
+// update/delete operations.
+func anycastIPListPreconditionFailedXML() string {
+	return cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current anycast IP list ETag")
 }
 
 func (h *Handler) handleGetAnycastIPList(c *echo.Context, id string) error {
@@ -919,6 +931,8 @@ func (h *Handler) handleGetAnycastIPList(c *echo.Context, id string) error {
 	if err != nil {
 		return h.handleError(c, err)
 	}
+
+	c.Response().Header().Set("ETag", list.ETag)
 
 	return xmlResp(c, http.StatusOK, anycastIPListXML(cfNS, list))
 }
@@ -953,6 +967,15 @@ func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateAnycastIPList(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetAnycastIPList(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, anycastIPListPreconditionFailedXML())
+	}
+
 	var req struct {
 		XMLName xml.Name `xml:"AnycastIpListConfig"`
 		IPCount int32    `xml:"IpCount"`
@@ -966,10 +989,21 @@ func (h *Handler) handleUpdateAnycastIPList(c *echo.Context, id string) error {
 		return h.handleError(c, updateErr)
 	}
 
+	c.Response().Header().Set("ETag", list.ETag)
+
 	return xmlResp(c, http.StatusOK, anycastIPListXML(cfNS, list))
 }
 
 func (h *Handler) handleDeleteAnycastIPList(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetAnycastIPList(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, anycastIPListPreconditionFailedXML())
+	}
+
 	if err := h.Backend.DeleteAnycastIPList(id); err != nil {
 		return h.handleError(c, err)
 	}

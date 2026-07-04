@@ -716,7 +716,7 @@ func (h *Handler) handleDeleteTableBucketEncryption(ctx context.Context, r *http
 
 	bucketARN := segs[1]
 
-	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+	if err := h.Backend.DeleteTableBucketEncryption(bucketARN); err != nil {
 		return nil, err
 	}
 
@@ -738,17 +738,22 @@ func (h *Handler) handleGetTableBucketMetricsConfiguration(
 
 	bucketARN := segs[1]
 
-	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+	configID, enabled, err := h.Backend.GetTableBucketMetricsConfiguration(bucketARN)
+	if err != nil {
 		return nil, err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table bucket metrics configuration", keyArn, bucketARN)
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		keyTableBucketARN: bucketARN,
-		keyConfiguration:  map[string]any{},
-	})
+	}
+	if enabled {
+		resp["id"] = configID
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleDeleteTableBucketMetricsConfiguration(
@@ -763,7 +768,7 @@ func (h *Handler) handleDeleteTableBucketMetricsConfiguration(
 
 	bucketARN := segs[1]
 
-	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+	if err := h.Backend.DeleteTableBucketMetricsConfiguration(bucketARN); err != nil {
 		return nil, err
 	}
 

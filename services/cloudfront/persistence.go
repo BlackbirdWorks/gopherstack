@@ -41,6 +41,10 @@ type backendSnapshot struct {
 	DistributionTenants map[string]*DistributionTenant `json:"distributionTenants,omitempty"`
 	TenantInvalidations map[string][]*Invalidation     `json:"tenantInvalidations,omitempty"`
 
+	MonitoringSubscriptions map[string]*MonitoringSubscription    `json:"monitoringSubscriptions,omitempty"`
+	ResourcePolicies        map[string]*resourcePolicyEntry       `json:"resourcePolicies,omitempty"`
+	ManagedCertificates     map[string]*ManagedCertificateDetails `json:"managedCertificates,omitempty"`
+
 	AccountID string `json:"accountId"`
 	Region    string `json:"region"`
 }
@@ -78,6 +82,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		DistributionTenantWebACLs:        b.distributionTenantWebACLs,
 		DistributionTenants:              b.distributionTenants,
 		TenantInvalidations:              b.tenantInvalidations,
+		MonitoringSubscriptions:          b.monitoringSubscriptions,
+		ResourcePolicies:                 b.resourcePolicies,
+		ManagedCertificates:              b.managedCertificates,
 		AccountID:                        b.accountID,
 		Region:                           b.region,
 	}
@@ -119,6 +126,8 @@ type backendIndexes struct {
 	keyValueStoreByName               map[string]string
 	distributionTenantARNs            map[string]string
 	distributionTenantsByDomain       map[string]string
+	anycastIPListARNs                 map[string]string
+	anycastIPListByName               map[string]string
 }
 
 // rebuildDistributionIndexes derives the ARN and CallerReference indexes for distributions
@@ -274,6 +283,13 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 		connectionFunctionARNIndex[fn.ARN] = id
 	}
 
+	anycastIPListARNIndex := make(map[string]string, len(snap.AnycastIPLists))
+	anycastIPListByNameIndex := make(map[string]string, len(snap.AnycastIPLists))
+	for id, ail := range snap.AnycastIPLists {
+		anycastIPListARNIndex[ail.ARN] = id
+		anycastIPListByNameIndex[ail.Name] = id
+	}
+
 	idx.distributionARNs = arnIndex
 	idx.distributionCallerRefs = callerRefIndex
 	idx.streamingDistributionARNs = sdARNIndex
@@ -287,6 +303,8 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 	idx.connectionGroupByName = connectionGroupByNameIndex
 	idx.connectionGroupByRoutingEndpoint = connectionGroupByRoutingEndpointIndex
 	idx.connectionFunctionARNs = connectionFunctionARNIndex
+	idx.anycastIPListARNs = anycastIPListARNIndex
+	idx.anycastIPListByName = anycastIPListByNameIndex
 
 	return idx
 }
@@ -343,6 +361,9 @@ func (b *InMemoryBackend) restoreCollections(snap *backendSnapshot) {
 	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
 	b.distributionTenants = snap.DistributionTenants
 	b.tenantInvalidations = snap.TenantInvalidations
+	b.monitoringSubscriptions = snap.MonitoringSubscriptions
+	b.resourcePolicies = snap.ResourcePolicies
+	b.managedCertificates = snap.ManagedCertificates
 }
 
 // restoreIndexes assigns the derived lookup indexes onto the backend. Must be called with the
@@ -371,6 +392,8 @@ func (b *InMemoryBackend) restoreIndexes(idx *backendIndexes) {
 	b.connectionGroupByName = idx.connectionGroupByName
 	b.connectionGroupByRoutingEndpoint = idx.connectionGroupByRoutingEndpoint
 	b.connectionFunctionARNs = idx.connectionFunctionARNs
+	b.anycastIPListARNs = idx.anycastIPListARNs
+	b.anycastIPListByName = idx.anycastIPListByName
 }
 
 // ensureNonNil initialises any nil maps in a snapshot to empty maps so that
@@ -379,6 +402,7 @@ func ensureNonNil(snap *backendSnapshot) {
 	ensureNonNilBaseEntities(snap)
 	ensureNonNilPolicies(snap)
 	ensureNonNilNewResources(snap)
+	ensureNonNilTenantExtras(snap)
 }
 
 func ensureNonNilBaseEntities(snap *backendSnapshot) {
@@ -432,6 +456,22 @@ func ensureNonNilBaseEntities(snap *backendSnapshot) {
 
 	if snap.TenantInvalidations == nil {
 		snap.TenantInvalidations = make(map[string][]*Invalidation)
+	}
+}
+
+// ensureNonNilTenantExtras initialises the per-distribution-tenant and per-distribution maps
+// added alongside AnycastIPList/ContinuousDeploymentPolicy/GetManagedCertificateDetails parity work.
+func ensureNonNilTenantExtras(snap *backendSnapshot) {
+	if snap.MonitoringSubscriptions == nil {
+		snap.MonitoringSubscriptions = make(map[string]*MonitoringSubscription)
+	}
+
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]*resourcePolicyEntry)
+	}
+
+	if snap.ManagedCertificates == nil {
+		snap.ManagedCertificates = make(map[string]*ManagedCertificateDetails)
 	}
 }
 

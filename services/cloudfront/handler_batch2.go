@@ -472,13 +472,30 @@ func (h *Handler) handleVerifyDNSConfiguration(c *echo.Context) error {
 // GetManagedCertificateDetails handler
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleGetManagedCertificateDetails(c *echo.Context, _ string) error {
+func (h *Handler) handleGetManagedCertificateDetails(c *echo.Context, tenantID string) error {
+	details, err := h.Backend.GetManagedCertificateDetails(tenantID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	var tokens strings.Builder
+	for _, tok := range details.ValidationTokenDetails {
+		fmt.Fprintf(
+			&tokens,
+			`<ValidationTokenDetail><Domain>%s</Domain><RedirectFrom>%s</RedirectFrom>`+
+				`<RedirectTo>%s</RedirectTo></ValidationTokenDetail>`,
+			tok.Domain, tok.RedirectFrom, tok.RedirectTo,
+		)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ManagedCertificateDetails xmlns="%s">`+
-		`<ValidationTokens/>`+
-		`<Status>SUCCESS</Status>`+
+		`<CertificateArn>%s</CertificateArn>`+
+		`<CertificateStatus>%s</CertificateStatus>`+
+		`<ValidationTokenHost>%s</ValidationTokenHost>`+
+		`<ValidationTokenDetails>%s</ValidationTokenDetails>`+
 		`</ManagedCertificateDetails>`,
-		cfNS)
+		cfNS, details.CertificateARN, details.CertificateStatus, details.ValidationTokenHost, tokens.String())
 
 	return xmlResp(c, http.StatusOK, resp)
 }

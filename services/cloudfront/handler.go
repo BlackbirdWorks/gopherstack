@@ -2224,7 +2224,8 @@ func (h *Handler) dispatchStubsConnectionGroupAndCDP(
 	return errNotDispatched
 }
 
-// dispatchStubsResourcePolicyAndMisc handles distribution list, invalidation, and managed certificate stubs.
+// dispatchStubsResourcePolicyAndMisc handles distribution list, invalidation, and
+// managed-certificate-details routes (the latter now backed by real state, not a stub).
 func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStubHelpers, operation string) error {
 	if err := h.dispatchStubsDistributionListBy(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
@@ -2286,7 +2287,8 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 	return errNotDispatched
 }
 
-// dispatchStubsTenantAndCerts handles tenant invalidation and managed certificate stubs.
+// dispatchStubsTenantAndCerts handles tenant invalidation routes and
+// GetManagedCertificateDetails (now backed by real per-tenant state, not a stub).
 func (h *Handler) dispatchStubsTenantAndCerts(c *echo.Context, _ cfStubHelpers, operation string) error {
 	path := c.Request().URL.Path
 
@@ -2370,6 +2372,10 @@ func notFoundCodeExtended(err error) (string, bool) {
 		return "NoSuchStreamingDistribution", true
 	case errors.Is(err, ErrTrustStoreNotFound):
 		return "NoSuchTrustStore", true
+	case errors.Is(err, ErrResourcePolicyNotFound):
+		return "NoSuchResourcePolicy", true
+	case errors.Is(err, ErrMonitoringSubscriptionNotFound):
+		return "NoSuchMonitoringSubscription", true
 	}
 
 	return "", false
@@ -2641,6 +2647,7 @@ type copyDistributionRequestXML struct {
 type anycastIPListRequestXML struct {
 	XMLName xml.Name `xml:"AnycastIPListRequest"`
 	Name    string   `xml:"Name"`
+	Tags    []tagXML `xml:"Tags>Items>Tag"`
 	IPCount int32    `xml:"IPCount"`
 }
 
@@ -2814,10 +2821,68 @@ type updateConnectionGroupRequestXML struct {
 	AnycastIPListID string   `xml:"AnycastIpListId"`
 }
 
+type continuousDeploymentSessionStickinessConfigXML struct {
+	IdleTTL    int32 `xml:"IdleTTL"`
+	MaximumTTL int32 `xml:"MaximumTTL"`
+}
+
+type continuousDeploymentSingleWeightConfigXML struct {
+	SessionStickinessConfig *continuousDeploymentSessionStickinessConfigXML `xml:"SessionStickinessConfig"`
+	Weight                  float64                                         `xml:"Weight"`
+}
+
+type continuousDeploymentSingleHeaderConfigXML struct {
+	Header string `xml:"Header"`
+	Value  string `xml:"Value"`
+}
+
+type continuousDeploymentTrafficConfigXML struct {
+	SingleWeightConfig *continuousDeploymentSingleWeightConfigXML `xml:"SingleWeightConfig"`
+	SingleHeaderConfig *continuousDeploymentSingleHeaderConfigXML `xml:"SingleHeaderConfig"`
+	Type               string                                     `xml:"Type"`
+}
+
 type continuousDeploymentPolicyConfigXML struct {
-	XMLName                xml.Name `xml:"ContinuousDeploymentPolicyConfig"`
-	StagingDistributionDNS string   `xml:"StagingDistributionDnsNames>DnsName,omitempty"`
-	Enabled                bool     `xml:"Enabled"`
+	XMLName                     xml.Name                              `xml:"ContinuousDeploymentPolicyConfig"`
+	TrafficConfig               *continuousDeploymentTrafficConfigXML `xml:"TrafficConfig"`
+	StagingDistributionDNS      string                                `xml:"StagingDistributionDnsNames>DnsName,omitempty"`
+	StagingDistributionDNSNames []string                              `xml:"StagingDistributionDnsNames>Items>DnsName"`
+	Enabled                     bool                                  `xml:"Enabled"`
+}
+
+// dnsNames returns the effective list of staging distribution DNS names from a parsed
+// ContinuousDeploymentPolicyConfig request, preferring the real AWS Items>DnsName list shape
+// and falling back to the legacy bare DnsName element for backward compatibility.
+func (req continuousDeploymentPolicyConfigXML) dnsNames() []string {
+	if len(req.StagingDistributionDNSNames) > 0 {
+		return req.StagingDistributionDNSNames
+	}
+
+	return dnsNamesFromSingle(req.StagingDistributionDNS)
+}
+
+// trafficConfig converts a parsed TrafficConfig XML element into the backend model, returning
+// the zero value if the request did not include one.
+func (req continuousDeploymentPolicyConfigXML) trafficConfig() ContinuousDeploymentTrafficConfig {
+	if req.TrafficConfig == nil {
+		return ContinuousDeploymentTrafficConfig{}
+	}
+
+	out := ContinuousDeploymentTrafficConfig{Type: req.TrafficConfig.Type}
+	if swc := req.TrafficConfig.SingleWeightConfig; swc != nil {
+		out.SingleWeightConfig = &ContinuousDeploymentSingleWeightConfig{Weight: swc.Weight}
+		if ssc := swc.SessionStickinessConfig; ssc != nil {
+			out.SingleWeightConfig.SessionStickinessConfig = &ContinuousDeploymentSessionStickinessConfig{
+				IdleTTL:    ssc.IdleTTL,
+				MaximumTTL: ssc.MaximumTTL,
+			}
+		}
+	}
+	if shc := req.TrafficConfig.SingleHeaderConfig; shc != nil {
+		out.SingleHeaderConfig = &ContinuousDeploymentSingleHeaderConfig{Header: shc.Header, Value: shc.Value}
+	}
+
+	return out
 }
 
 func (h *Handler) handleAssociateAlias(c *echo.Context, distributionID string) error {
@@ -2923,9 +2988,19 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 		}
 	}
 
-	list, createErr := h.Backend.CreateAnycastIPList(req.Name, req.IPCount)
+	tags := make(map[string]string, len(req.Tags))
+	for _, tag := range req.Tags {
+		tags[tag.Key] = tag.Value
+	}
+
+	list, createErr := h.Backend.CreateAnycastIPList(req.Name, req.IPCount, tags)
 	if createErr != nil {
 		return h.handleError(c, createErr)
+	}
+
+	var ips strings.Builder
+	for _, ip := range list.AnycastIPs {
+		fmt.Fprintf(&ips, `<IpAddress>%s</IpAddress>`, ip)
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -2935,10 +3010,12 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 		`<Name>%s</Name>`+
 		`<Status>%s</Status>`+
 		`<IPCount>%d</IPCount>`+
+		`<AnycastIps>%s</AnycastIps>`+
 		`</AnycastIPList>`,
-		cfNS, list.ID, list.ARN, list.Name, list.Status, list.IPCount)
+		cfNS, list.ID, list.ARN, list.Name, list.Status, list.IPCount, ips.String())
 
 	c.Response().Header().Set("Location", cfPathPrefix+"anycast-ip-list/"+list.ID)
+	c.Response().Header().Set("ETag", list.ETag)
 
 	return xmlResp(c, http.StatusCreated, resp)
 }
@@ -3073,7 +3150,9 @@ func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error 
 		}
 	}
 
-	policy, createErr := h.Backend.CreateContinuousDeploymentPolicy(req.Enabled, req.StagingDistributionDNS)
+	policy, createErr := h.Backend.CreateContinuousDeploymentPolicyWithConfig(
+		req.Enabled, req.dnsNames(), req.trafficConfig(),
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -3086,14 +3165,25 @@ func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error 
 }
 
 func continuousDeploymentPolicyXML(ns string, policy *ContinuousDeploymentPolicy) string {
+	var dnsNames strings.Builder
+	for _, dns := range policy.StagingDistributionDNSNames {
+		fmt.Fprintf(&dnsNames, `<DnsName>%s</DnsName>`, dns)
+	}
+
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ContinuousDeploymentPolicy xmlns="%s">`+
 		`<Id>%s</Id>`+
+		`<ARN>%s</ARN>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
 		`<ContinuousDeploymentPolicyConfig>`+
+		`<StagingDistributionDnsNames><Quantity>%d</Quantity><Items>%s</Items></StagingDistributionDnsNames>`+
 		`<Enabled>%v</Enabled>`+
+		`<TrafficConfig><Type>%s</Type></TrafficConfig>`+
 		`</ContinuousDeploymentPolicyConfig>`+
 		`</ContinuousDeploymentPolicy>`,
-		ns, policy.ID, policy.Enabled)
+		ns, policy.ID, policy.ARN, policy.LastModifiedTime,
+		len(policy.StagingDistributionDNSNames), dnsNames.String(),
+		policy.Enabled, policy.TrafficConfig.Type)
 }
 
 func (h *Handler) handleGetContinuousDeploymentPolicy(c *echo.Context, id string) error {
@@ -3108,6 +3198,17 @@ func (h *Handler) handleGetContinuousDeploymentPolicy(c *echo.Context, id string
 }
 
 func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetContinuousDeploymentPolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, cfErrorXML(
+			"PreconditionFailed", "If-Match ETag did not match the current continuous deployment policy ETag",
+		))
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -3121,7 +3222,9 @@ func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id str
 		}
 	}
 
-	policy, updateErr := h.Backend.UpdateContinuousDeploymentPolicy(id, req.Enabled, req.StagingDistributionDNS)
+	policy, updateErr := h.Backend.UpdateContinuousDeploymentPolicyWithConfig(
+		id, req.Enabled, req.dnsNames(), req.trafficConfig(),
+	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -3132,6 +3235,17 @@ func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id str
 }
 
 func (h *Handler) handleDeleteContinuousDeploymentPolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetContinuousDeploymentPolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, cfErrorXML(
+			"PreconditionFailed", "If-Match ETag did not match the current continuous deployment policy ETag",
+		))
+	}
+
 	if err := h.Backend.DeleteContinuousDeploymentPolicy(id); err != nil {
 		return h.handleError(c, err)
 	}

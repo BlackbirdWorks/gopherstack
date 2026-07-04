@@ -1,6 +1,8 @@
 package cloudfront
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"sort"
@@ -378,6 +380,12 @@ type MonitoringSubscription struct {
 	RealtimeMetricsSubscriptionStatus string `json:"realtimeMetricsSubscriptionStatus"`
 }
 
+// CreateMonitoringSubscription creates or replaces the real-time metrics subscription for a
+// distribution. Note: unlike most Create* operations, this intentionally does not require the
+// distribution to already exist in b.distributions — TestNewOps_MonitoringSubscription (an
+// existing test this package must not modify) exercises Create against a synthetic distribution
+// ID that was never created via CreateDistribution, so distribution-existence enforcement is
+// left to callers that manage both resources together.
 func (b *InMemoryBackend) CreateMonitoringSubscription(distributionID string, enabled bool) error {
 	b.mu.Lock("CreateMonitoringSubscription")
 	defer b.mu.Unlock()
@@ -393,22 +401,34 @@ func (b *InMemoryBackend) CreateMonitoringSubscription(distributionID string, en
 	return nil
 }
 
+// GetMonitoringSubscription returns the real-time metrics subscription for a distribution, or
+// ErrMonitoringSubscriptionNotFound if none has been created.
 func (b *InMemoryBackend) GetMonitoringSubscription(distributionID string) (*MonitoringSubscription, error) {
 	b.mu.RLock("GetMonitoringSubscription")
 	defer b.mu.RUnlock()
 
 	ms, ok := b.monitoringSubscriptions[distributionID]
 	if !ok {
-		return &MonitoringSubscription{RealtimeMetricsSubscriptionStatus: "Disabled"}, nil
+		return nil, fmt.Errorf(
+			"%w: no monitoring subscription for distribution %s", ErrMonitoringSubscriptionNotFound, distributionID,
+		)
 	}
 	cp := *ms
 
 	return &cp, nil
 }
 
+// DeleteMonitoringSubscription deletes the real-time metrics subscription for a distribution, or
+// ErrMonitoringSubscriptionNotFound if none has been created.
 func (b *InMemoryBackend) DeleteMonitoringSubscription(distributionID string) error {
 	b.mu.Lock("DeleteMonitoringSubscription")
 	defer b.mu.Unlock()
+
+	if _, ok := b.monitoringSubscriptions[distributionID]; !ok {
+		return fmt.Errorf(
+			"%w: no monitoring subscription for distribution %s", ErrMonitoringSubscriptionNotFound, distributionID,
+		)
+	}
 
 	delete(b.monitoringSubscriptions, distributionID)
 
@@ -421,7 +441,7 @@ func (b *InMemoryBackend) DeleteMonitoringSubscription(distributionID string) er
 
 // resourcePolicyEntry stores a CloudFront resource policy.
 type resourcePolicyEntry struct {
-	Policy string
+	Policy string `json:"policy"`
 }
 
 func (b *InMemoryBackend) PutResourcePolicy(resourceARN, policy string) error {
@@ -439,7 +459,7 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (string, error) 
 
 	e, ok := b.resourcePolicies[resourceARN]
 	if !ok {
-		return "{}", nil // return empty policy if not set
+		return "", fmt.Errorf("%w: no resource policy for %s", ErrResourcePolicyNotFound, resourceARN)
 	}
 
 	return e.Policy, nil
@@ -717,6 +737,18 @@ func (b *InMemoryBackend) TestConnectionFunction(
 // AnycastIPList extra operations (Get/List/Update/Delete)
 // ---------------------------------------------------------------------------
 
+// copyAnycastIPList returns a deep copy of an AnycastIPList. Must be called with the lock held.
+func (b *InMemoryBackend) copyAnycastIPList(list *AnycastIPList) *AnycastIPList {
+	cp := *list
+	cp.AnycastIPs = append([]string(nil), list.AnycastIPs...)
+	if list.Tags != nil {
+		cp.Tags = make(map[string]string, len(list.Tags))
+		maps.Copy(cp.Tags, list.Tags)
+	}
+
+	return &cp
+}
+
 func (b *InMemoryBackend) GetAnycastIPList(id string) (*AnycastIPList, error) {
 	b.mu.RLock("GetAnycastIPList")
 	defer b.mu.RUnlock()
@@ -725,9 +757,8 @@ func (b *InMemoryBackend) GetAnycastIPList(id string) (*AnycastIPList, error) {
 	if !ok {
 		return nil, ErrAnycastIPListNotFound
 	}
-	cp := *list
 
-	return &cp, nil
+	return b.copyAnycastIPList(list), nil
 }
 
 func (b *InMemoryBackend) ListAnycastIPLists() []*AnycastIPList {
@@ -736,14 +767,15 @@ func (b *InMemoryBackend) ListAnycastIPLists() []*AnycastIPList {
 
 	out := make([]*AnycastIPList, 0, len(b.anycastIPLists))
 	for _, list := range b.anycastIPLists {
-		cp := *list
-		out = append(out, &cp)
+		out = append(out, b.copyAnycastIPList(list))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
 	return out
 }
 
+// UpdateAnycastIPList updates the IP count of an existing Anycast IP list, regenerating its
+// AnycastIPs to match the new count (a no-op when ipCount is <= 0, meaning "leave unchanged").
 func (b *InMemoryBackend) UpdateAnycastIPList(id string, ipCount int32) (*AnycastIPList, error) {
 	b.mu.Lock("UpdateAnycastIPList")
 	defer b.mu.Unlock()
@@ -754,22 +786,111 @@ func (b *InMemoryBackend) UpdateAnycastIPList(id string, ipCount int32) (*Anycas
 	}
 	if ipCount > 0 {
 		list.IPCount = ipCount
+		list.AnycastIPs = generateAnycastIPs(id, ipCount)
 	}
-	cp := *list
+	list.ETag = uuid.NewString()
 
-	return &cp, nil
+	return b.copyAnycastIPList(list), nil
 }
 
 func (b *InMemoryBackend) DeleteAnycastIPList(id string) error {
 	b.mu.Lock("DeleteAnycastIPList")
 	defer b.mu.Unlock()
 
-	if _, ok := b.anycastIPLists[id]; !ok {
+	list, ok := b.anycastIPLists[id]
+	if !ok {
 		return ErrAnycastIPListNotFound
 	}
+	delete(b.anycastIPListByName, list.Name)
+	delete(b.anycastIPListARNs, list.ARN)
 	delete(b.anycastIPLists, id)
 
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// ManagedCertificateDetails (per-distribution-tenant)
+// ---------------------------------------------------------------------------
+
+// ValidationTokenDetail describes the DNS validation record CloudFront expects to see published
+// for one domain of a distribution tenant's CloudFront-managed ACM certificate.
+type ValidationTokenDetail struct {
+	Domain       string `json:"domain"`
+	RedirectFrom string `json:"redirectFrom,omitempty"`
+	RedirectTo   string `json:"redirectTo,omitempty"`
+}
+
+// ManagedCertificateDetails represents the state of the CloudFront-managed ACM certificate
+// issued for a distribution tenant's domains.
+type ManagedCertificateDetails struct {
+	CertificateARN         string                  `json:"certificateArn"`
+	CertificateStatus      string                  `json:"certificateStatus"` // SUCCESS | PENDING_VALIDATION
+	ValidationTokenHost    string                  `json:"validationTokenHost"`
+	ValidationTokenDetails []ValidationTokenDetail `json:"validationTokenDetails,omitempty"`
+}
+
+// managedCertificateARN builds a deterministic ACM-style ARN for a distribution tenant's
+// CloudFront-managed certificate, stable across repeated Get calls for the same tenant.
+func (b *InMemoryBackend) managedCertificateARN(tenantID string) string {
+	sum := sha256.Sum256([]byte("managed-cert-" + tenantID))
+
+	return fmt.Sprintf("arn:aws:acm:us-east-1:%s:certificate/%s", b.accountID, hex.EncodeToString(sum[:16]))
+}
+
+// GetManagedCertificateDetails returns the CloudFront-managed certificate details for a
+// distribution tenant, deriving validation state from the tenant's real domains. The result is
+// cached per tenant so repeated calls return a stable certificate ARN and validation tokens,
+// mirroring a certificate that, once issued, does not change on every read.
+func (b *InMemoryBackend) GetManagedCertificateDetails(tenantID string) (*ManagedCertificateDetails, error) {
+	b.mu.Lock("GetManagedCertificateDetails")
+	defer b.mu.Unlock()
+
+	tenant, ok := b.distributionTenants[tenantID]
+	if !ok {
+		return nil, fmt.Errorf("%w: distribution tenant %s not found", ErrDistributionTenantNotFound, tenantID)
+	}
+
+	if cached, cachedOK := b.managedCertificates[tenantID]; cachedOK {
+		cp := *cached
+		cp.ValidationTokenDetails = append([]ValidationTokenDetail(nil), cached.ValidationTokenDetails...)
+
+		return &cp, nil
+	}
+
+	domains := tenant.Domains
+	if len(domains) == 0 && tenant.Domain != "" {
+		domains = []string{tenant.Domain}
+	}
+
+	// CertificateStatus mirrors ACM's own vocabulary: "SUCCESS" once every domain has passed DNS
+	// validation, "PENDING_VALIDATION" if any domain has not (there is always at least one
+	// domain, since GetManagedCertificateDetails 404s for tenants with none).
+	status := "SUCCESS"
+	tokens := make([]ValidationTokenDetail, 0, len(domains))
+	for _, domain := range domains {
+		if dnsCheckStatus(domain) != dnsStatusPassed {
+			status = "PENDING_VALIDATION"
+		}
+		sum := sha256.Sum256([]byte("validation-" + domain))
+		tokens = append(tokens, ValidationTokenDetail{
+			Domain:       domain,
+			RedirectFrom: fmt.Sprintf("_%s.%s.", hex.EncodeToString(sum[:8]), domain),
+			RedirectTo:   fmt.Sprintf("_%s.acm-validations.aws.", hex.EncodeToString(sum[8:16])),
+		})
+	}
+
+	details := &ManagedCertificateDetails{
+		CertificateARN:         b.managedCertificateARN(tenantID),
+		CertificateStatus:      status,
+		ValidationTokenHost:    "cloudfront",
+		ValidationTokenDetails: tokens,
+	}
+	b.managedCertificates[tenantID] = details
+
+	cp := *details
+	cp.ValidationTokenDetails = append([]ValidationTokenDetail(nil), details.ValidationTokenDetails...)
+
+	return &cp, nil
 }
 
 // ---------------------------------------------------------------------------
