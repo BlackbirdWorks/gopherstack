@@ -228,6 +228,8 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.resetAllowedImagesSettingsLocked()
 	b.resetImageTasksLocked()
 	b.resetUsageReportMapsLocked()
+	b.resetVMImportExportMapsLocked()
+	b.resetTrunkEnclaveMapsLocked()
 	b.instanceProductCodes = make(map[string][]string)
 }
 

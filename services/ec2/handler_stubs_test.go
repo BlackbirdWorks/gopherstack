@@ -18,24 +18,24 @@ func TestStubOperations(t *testing.T) {
 		// "ApplySecurityGroupsToClientVpnTargetNetwork", — moved to batch4
 		// "AssociateCapacityReservationBillingOwner", — moved to handler_capacity_family.go
 		// "AssociateClientVpnTargetNetwork", — moved to batch4
-		"AssociateEnclaveCertificateIamRole",
+		// "AssociateEnclaveCertificateIamRole", — moved to trunkEnclaveSupportedOperations
 		"AssociateInstanceEventWindow",
 		// "AssociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
 		// "AssociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		// "AssociateRouteServer", — real handler in handler_route_server.go, covered there
 		// "AssociateTransitGatewayMulticastDomain", — real handler in handler_tgw_multicast.go, covered there
 		// "AssociateTransitGatewayPolicyTable", — moved to handler_tgw_peripherals.go
-		"AssociateTrunkInterface",
+		// "AssociateTrunkInterface", — moved to trunkEnclaveSupportedOperations
 		// "AttachVerifiedAccessTrustProvider", — moved to batch4
 		// "AuthorizeClientVpnIngress", — moved to batch4
-		"BundleInstance",
-		"CancelBundleTask",
+		// "BundleInstance", — moved to vmImportExportSupportedOperations
+		// "CancelBundleTask", — moved to vmImportExportSupportedOperations
 		// "CancelCapacityReservationFleets", — moved to handler_capacity_family.go
-		"CancelConversionTask",
+		// "CancelConversionTask", — moved to vmImportExportSupportedOperations
 		"CancelDeclarativePoliciesReport",
-		"CancelExportTask",
+		// "CancelExportTask", — moved to vmImportExportSupportedOperations
 		"CancelImageLaunchPermission",
-		"CancelImportTask",
+		// "CancelImportTask", — moved to vmImportExportSupportedOperations
 		// "CancelReservedInstancesListing", — real handler in handler_batch5.go, covered there
 		// "ConfirmProductInstance", — moved to imageOpsSupportedOperations()
 		// "CopyFpgaImage", — moved to handler_fpga_image.go
@@ -51,7 +51,7 @@ func TestStubOperations(t *testing.T) {
 		// "CreateFleet", — real handler in handler_batch5.go, covered there
 		// "CreateFpgaImage", — moved to handler_fpga_image.go
 		// "CreateImageUsageReport", — moved to imageOpsSupportedOperations()
-		"CreateInstanceExportTask",
+		// "CreateInstanceExportTask", — moved to vmImportExportSupportedOperations
 		"CreateInterruptibleCapacityReservationAllocation",
 		"CreateIpam",
 		// "CreateIpamExternalResourceVerificationToken", — moved to ipamDiscoverySupportedOperations
@@ -146,7 +146,7 @@ func TestStubOperations(t *testing.T) {
 		// "DeregisterTransitGatewayMulticastGroupMembers", — real handler in handler_tgw_multicast.go, covered there
 		// "DeregisterTransitGatewayMulticastGroupSources", — real handler in handler_tgw_multicast.go, covered there
 		"DescribeAwsNetworkPerformanceMetricSubscriptions",
-		"DescribeBundleTasks",
+		// "DescribeBundleTasks", — moved to vmImportExportSupportedOperations
 		// "DescribeCapacityBlockExtensionHistory", — moved to handler_capacity_family.go
 		// "DescribeCapacityBlockExtensionOfferings", — moved to handler_capacity_family.go
 		// "DescribeCapacityBlockOfferings", — moved to handler_capacity_family.go
@@ -163,12 +163,12 @@ func TestStubOperations(t *testing.T) {
 		// "DescribeClientVpnRoutes", — moved to batch4
 		// "DescribeClientVpnTargetNetworks", — moved to batch4
 		// "DescribeCoipPools", — moved to ipPoolSupportedOperations()
-		"DescribeConversionTasks",
+		// "DescribeConversionTasks", — moved to vmImportExportSupportedOperations
 		// "DescribeCustomerGateways", — moved to advancedNetworkingSupportedOperations
 		"DescribeDeclarativePoliciesReports",
 		"DescribeElasticGpus",
-		"DescribeExportImageTasks",
-		"DescribeExportTasks",
+		// "DescribeExportImageTasks", — moved to batch3SupportedOperations
+		// "DescribeExportTasks", — moved to vmImportExportSupportedOperations
 		// "DescribeFleetHistory", — real handler in handler_batch5.go, covered there
 		// "DescribeFleetInstances", — real handler in handler_batch5.go, covered there
 		// "DescribeFleets", — real handler in handler_batch5.go, covered there
@@ -224,7 +224,7 @@ func TestStubOperations(t *testing.T) {
 		// "DescribeTransitGatewayPeeringAttachments", — moved to batch4
 		// "DescribeTransitGatewayPolicyTables", — moved to handler_tgw_peripherals.go
 		// "DescribeTransitGatewayRouteTableAnnouncements", — moved to handler_tgw_peripherals.go
-		"DescribeTrunkInterfaceAssociations",
+		// "DescribeTrunkInterfaceAssociations", — moved to trunkEnclaveSupportedOperations
 		// "DescribeVerifiedAccessEndpoints", — moved to batch4
 		// "DescribeVerifiedAccessGroups", — moved to batch4
 		// "DescribeVerifiedAccessInstanceLoggingConfigurations", — moved to handler_verifiedaccess_ext.go
@@ -245,14 +245,14 @@ func TestStubOperations(t *testing.T) {
 		"DisableTransitGatewayRouteTablePropagation",
 		// "DisassociateCapacityReservationBillingOwner", — moved to handler_capacity_family.go
 		// "DisassociateClientVpnTargetNetwork", — moved to batch4
-		"DisassociateEnclaveCertificateIamRole",
+		// "DisassociateEnclaveCertificateIamRole", — moved to trunkEnclaveSupportedOperations
 		"DisassociateInstanceEventWindow",
 		// "DisassociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
 		// "DisassociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		// "DisassociateRouteServer", — real handler in handler_route_server.go, covered there
 		// "DisassociateTransitGatewayMulticastDomain", — real handler in handler_tgw_multicast.go, covered there
 		// "DisassociateTransitGatewayPolicyTable", — moved to handler_tgw_peripherals.go
-		"DisassociateTrunkInterface",
+		// "DisassociateTrunkInterface", — moved to trunkEnclaveSupportedOperations
 		// "EnableAllowedImagesSettings", — moved to imageOpsSupportedOperations()
 		"EnableAwsNetworkPerformanceMetricSubscription",
 		// "EnableCapacityManager", — moved to handler_capacity_family.go
@@ -267,7 +267,7 @@ func TestStubOperations(t *testing.T) {
 		// "ExportVerifiedAccessInstanceClientConfiguration", — moved to handler_verifiedaccess_ext.go
 		"GetActiveVpnTunnelStatus",
 		// "GetAllowedImagesSettings", — moved to imageOpsSupportedOperations()
-		"GetAssociatedEnclaveCertificateIamRoles",
+		// "GetAssociatedEnclaveCertificateIamRoles", — moved to trunkEnclaveSupportedOperations
 		"GetAwsNetworkPerformanceData",
 		// "GetCapacityManagerAttributes", — moved to handler_capacity_family.go
 		// "GetCapacityManagerMetricData", — moved to handler_capacity_family.go
@@ -317,8 +317,8 @@ func TestStubOperations(t *testing.T) {
 		// "GetVpnConnectionDeviceTypes", — moved to advancedNetworkingSupportedOperations
 		// "GetVpnTunnelReplacementStatus", — moved to advancedNetworkingSupportedOperations
 		// "ImportClientVpnClientCertificateRevocationList", — moved to batch4 (requires ClientVpnEndpointId)
-		"ImportInstance",
-		"ImportVolume",
+		// "ImportInstance", — moved to vmImportExportSupportedOperations
+		// "ImportVolume", — moved to vmImportExportSupportedOperations
 		"ModifyAvailabilityZoneGroup",
 		// "ModifyCapacityReservationFleet", — moved to handler_capacity_family.go
 		// "ModifyClientVpnEndpoint", — moved to batch4

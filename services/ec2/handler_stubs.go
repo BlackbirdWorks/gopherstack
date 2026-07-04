@@ -22,7 +22,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ApplySecurityGroupsToClientVpnTargetNetwork — moved to handler_batch4.go
 	// AssociateCapacityReservationBillingOwner — moved to handler_capacity_family.go
 	// AssociateClientVpnTargetNetwork — moved to handler_batch4.go
-	ops["AssociateEnclaveCertificateIamRole"] = h.handleStubAssociateEnclaveCertificateIamRole
+	// AssociateEnclaveCertificateIamRole — moved to trunkEnclaveSupportedOperations
 	// AssociateIamInstanceProfile — moved to handler_ec2core.go
 	ops["AssociateInstanceEventWindow"] = h.handleStubAssociateInstanceEventWindow
 	// ops["AssociateIpamByoasn"] — moved to ipamDiscoverySupportedOperations
@@ -31,20 +31,20 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// AssociateTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
 	// AssociateTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
 	// AssociateTransitGatewayRouteTable — moved to handler_ec2core.go
-	ops["AssociateTrunkInterface"] = h.handleStubAssociateTrunkInterface
+	// AssociateTrunkInterface — moved to trunkEnclaveSupportedOperations
 	// AssociateVpcCidrBlock — moved to handler_ec2core.go
 	// AttachClassicLinkVpc — moved to handler_vpc_config.go
 	// AttachVerifiedAccessTrustProvider — moved to handler_batch4.go
 	// AttachVpnGateway — moved to advancedNetworkingSupportedOperations
 	// AuthorizeClientVpnIngress — moved to handler_batch4.go
-	ops["BundleInstance"] = h.handleStubBundleInstance
-	ops["CancelBundleTask"] = h.handleStubCancelBundleTask
+	// BundleInstance — moved to vmImportExportSupportedOperations
+	// CancelBundleTask — moved to vmImportExportSupportedOperations
 	// CancelCapacityReservationFleets — moved to handler_capacity_family.go
-	ops["CancelConversionTask"] = h.handleStubCancelConversionTask
+	// CancelConversionTask — moved to vmImportExportSupportedOperations
 	ops["CancelDeclarativePoliciesReport"] = h.handleStubCancelDeclarativePoliciesReport
-	ops["CancelExportTask"] = h.handleStubCancelExportTask
+	// CancelExportTask — moved to vmImportExportSupportedOperations
 	ops["CancelImageLaunchPermission"] = h.handleStubCancelImageLaunchPermission
-	ops["CancelImportTask"] = h.handleStubCancelImportTask
+	// CancelImportTask — moved to vmImportExportSupportedOperations
 	// CancelReservedInstancesListing — real handler in handler_batch5.go, covered there
 	// CancelSpotFleetRequests — spot fleet handler in handler_spot_fleet.go, covered there
 	// ConfirmProductInstance — moved to imageOpsSupportedOperations()
@@ -63,7 +63,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// CreateFleet — real handler in handler_batch5.go, covered there
 	// CreateFpgaImage — moved to handler_fpga_image.go
 	// CreateImageUsageReport — moved to imageOpsSupportedOperations()
-	ops["CreateInstanceExportTask"] = h.handleStubCreateInstanceExportTask
+	// CreateInstanceExportTask — moved to vmImportExportSupportedOperations
 	ops["CreateInterruptibleCapacityReservationAllocation"] = h.handleStubCreateInterruptibleCapacityReservationAllocation
 	// ops["CreateIpam"] — real handler in handler_advanced_networking.go, covered there
 	// ops["CreateIpamExternalResourceVerificationToken"] — moved to ipamDiscoverySupportedOperations
@@ -183,7 +183,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DeregisterTransitGatewayMulticastGroupMembers — moved to handler_tgw_multicast.go
 	// DeregisterTransitGatewayMulticastGroupSources — moved to handler_tgw_multicast.go
 	ops["DescribeAwsNetworkPerformanceMetricSubscriptions"] = h.handleStubDescribeAwsNetworkPerformanceMetricSubscriptions
-	ops["DescribeBundleTasks"] = h.handleStubDescribeBundleTasks
+	// DescribeBundleTasks — moved to vmImportExportSupportedOperations
 	// DescribeCapacityBlockExtensionHistory — moved to handler_capacity_family.go
 	// DescribeCapacityBlockExtensionOfferings — moved to handler_capacity_family.go
 	// DescribeCapacityBlockOfferings — moved to handler_capacity_family.go
@@ -201,13 +201,13 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DescribeClientVpnRoutes — moved to handler_batch4.go
 	// DescribeClientVpnTargetNetworks — moved to handler_batch4.go
 	// DescribeCoipPools — moved to ipPoolSupportedOperations()
-	ops["DescribeConversionTasks"] = h.handleStubDescribeConversionTasks
+	// DescribeConversionTasks — moved to vmImportExportSupportedOperations
 	// DescribeCustomerGateways — moved to advancedNetworkingSupportedOperations
 	ops["DescribeDeclarativePoliciesReports"] = h.handleStubDescribeDeclarativePoliciesReports
 	// DescribeEgressOnlyInternetGateways — moved to handler_ec2core.go
 	ops["DescribeElasticGpus"] = h.handleStubDescribeElasticGpus
-	ops["DescribeExportImageTasks"] = h.handleStubDescribeExportImageTasks
-	ops["DescribeExportTasks"] = h.handleStubDescribeExportTasks
+	// DescribeExportImageTasks — moved to batch3SupportedOperations
+	// DescribeExportTasks — moved to vmImportExportSupportedOperations
 	// DescribeFleetHistory — real handler in handler_batch5.go, covered there
 	// DescribeFleetInstances — real handler in handler_batch5.go, covered there
 	// DescribeFleets — real handler in handler_batch5.go, covered there
@@ -275,7 +275,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DescribeTransitGatewayPolicyTables — moved to handler_tgw_peripherals.go
 	// DescribeTransitGatewayRouteTableAnnouncements — moved to handler_tgw_peripherals.go
 	// DescribeTransitGatewayRouteTables — moved to handler_ec2core.go
-	ops["DescribeTrunkInterfaceAssociations"] = h.handleStubDescribeTrunkInterfaceAssociations
+	// DescribeTrunkInterfaceAssociations — moved to trunkEnclaveSupportedOperations
 	// DescribeVerifiedAccessEndpoints — moved to handler_batch4.go
 	// DescribeVerifiedAccessGroups — moved to handler_batch4.go
 	// DescribeVerifiedAccessInstanceLoggingConfigurations — moved to handler_verifiedaccess_ext.go
@@ -304,7 +304,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DisableVpcClassicLinkDnsSupport — moved to handler_vpc_config.go
 	// DisassociateCapacityReservationBillingOwner — moved to handler_capacity_family.go
 	// DisassociateClientVpnTargetNetwork — moved to handler_batch4.go
-	ops["DisassociateEnclaveCertificateIamRole"] = h.handleStubDisassociateEnclaveCertificateIamRole
+	// DisassociateEnclaveCertificateIamRole — moved to trunkEnclaveSupportedOperations
 	// DisassociateIamInstanceProfile — moved to handler_ec2core.go
 	ops["DisassociateInstanceEventWindow"] = h.handleStubDisassociateInstanceEventWindow
 	// ops["DisassociateIpamByoasn"] — moved to ipamDiscoverySupportedOperations
@@ -313,7 +313,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DisassociateTransitGatewayMulticastDomain — moved to handler_tgw_multicast.go
 	// DisassociateTransitGatewayPolicyTable — moved to handler_tgw_peripherals.go
 	// DisassociateTransitGatewayRouteTable — moved to handler_ec2core.go
-	ops["DisassociateTrunkInterface"] = h.handleStubDisassociateTrunkInterface
+	// DisassociateTrunkInterface — moved to trunkEnclaveSupportedOperations
 	// EnableAllowedImagesSettings — moved to imageOpsSupportedOperations()
 	ops["EnableAwsNetworkPerformanceMetricSubscription"] = h.handleStubEnableAwsNetworkPerformanceMetricSubscription
 	// EnableCapacityManager — moved to handler_capacity_family.go
@@ -331,7 +331,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ExportVerifiedAccessInstanceClientConfiguration — moved to handler_verifiedaccess_ext.go
 	ops["GetActiveVpnTunnelStatus"] = h.handleStubGetActiveVpnTunnelStatus
 	// GetAllowedImagesSettings — moved to imageOpsSupportedOperations()
-	ops["GetAssociatedEnclaveCertificateIamRoles"] = h.handleStubGetAssociatedEnclaveCertificateIamRoles
+	// GetAssociatedEnclaveCertificateIamRoles — moved to trunkEnclaveSupportedOperations
 	ops["GetAwsNetworkPerformanceData"] = h.handleStubGetAwsNetworkPerformanceData
 	// GetCapacityManagerAttributes — moved to handler_capacity_family.go
 	// GetCapacityManagerMetricData — moved to handler_capacity_family.go
@@ -382,8 +382,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// GetVpnConnectionDeviceTypes — moved to advancedNetworkingSupportedOperations
 	// GetVpnTunnelReplacementStatus — moved to advancedNetworkingSupportedOperations
 	// ImportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
-	ops["ImportInstance"] = h.handleStubImportInstance
-	ops["ImportVolume"] = h.handleStubImportVolume
+	// ImportInstance — moved to vmImportExportSupportedOperations
+	// ImportVolume — moved to vmImportExportSupportedOperations
 	ops["ModifyAvailabilityZoneGroup"] = h.handleStubModifyAvailabilityZoneGroup
 	// ModifyCapacityReservationFleet — moved to handler_capacity_family.go
 	// ModifyClientVpnEndpoint — moved to handler_batch4.go
@@ -490,7 +490,7 @@ func stubSupportedOperations() []string {
 		// "ApplySecurityGroupsToClientVpnTargetNetwork", — moved to batch4SupportedOperations
 		"AssociateCapacityReservationBillingOwner",
 		// "AssociateClientVpnTargetNetwork", — moved to batch4SupportedOperations
-		"AssociateEnclaveCertificateIamRole",
+		// "AssociateEnclaveCertificateIamRole", — moved to trunkEnclaveSupportedOperations
 		// AssociateIamInstanceProfile — now in ec2CoreSupportedOperations
 		"AssociateInstanceEventWindow",
 		// "AssociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
@@ -499,20 +499,20 @@ func stubSupportedOperations() []string {
 		// "AssociateTransitGatewayMulticastDomain", — moved to handler_tgw_multicast.go
 		// "AssociateTransitGatewayPolicyTable", — moved to tgwPeripheralsSupportedOperations
 		// AssociateTransitGatewayRouteTable — moved to ec2CoreSupportedOperations
-		"AssociateTrunkInterface",
+		// "AssociateTrunkInterface", — moved to trunkEnclaveSupportedOperations
 		// AssociateVpcCidrBlock — moved to ec2CoreSupportedOperations
 		// "AttachClassicLinkVpc", — moved to vpcConfigSupportedOperations
 		// "AttachVerifiedAccessTrustProvider", — moved to batch4SupportedOperations
 		// "AttachVpnGateway", — moved to advancedNetworkingSupportedOperations
 		// "AuthorizeClientVpnIngress", — moved to batch4SupportedOperations
-		"BundleInstance",
-		"CancelBundleTask",
+		// "BundleInstance", — moved to vmImportExportSupportedOperations
+		// "CancelBundleTask", — moved to vmImportExportSupportedOperations
 		"CancelCapacityReservationFleets",
-		"CancelConversionTask",
+		// "CancelConversionTask", — moved to vmImportExportSupportedOperations
 		"CancelDeclarativePoliciesReport",
-		"CancelExportTask",
+		// "CancelExportTask", — moved to vmImportExportSupportedOperations
 		"CancelImageLaunchPermission",
-		"CancelImportTask",
+		// "CancelImportTask", — moved to vmImportExportSupportedOperations
 		"CancelReservedInstancesListing",
 		// "ConfirmProductInstance", — moved to imageOpsSupportedOperations()
 		// "CopyFpgaImage", — moved to handler_fpga_image.go
@@ -530,7 +530,7 @@ func stubSupportedOperations() []string {
 		"CreateFleet",
 		// "CreateFpgaImage", — moved to handler_fpga_image.go
 		// "CreateImageUsageReport", — moved to imageOpsSupportedOperations()
-		"CreateInstanceExportTask",
+		// "CreateInstanceExportTask", — moved to vmImportExportSupportedOperations
 		"CreateInterruptibleCapacityReservationAllocation",
 		// "CreateIpam", — moved to advancedNetworkingSupportedOperations
 		// "CreateIpamExternalResourceVerificationToken", — moved to ipamDiscoverySupportedOperations
@@ -650,7 +650,7 @@ func stubSupportedOperations() []string {
 		// "DeregisterTransitGatewayMulticastGroupMembers", — moved to handler_tgw_multicast.go
 		// "DeregisterTransitGatewayMulticastGroupSources", — moved to handler_tgw_multicast.go
 		"DescribeAwsNetworkPerformanceMetricSubscriptions",
-		"DescribeBundleTasks",
+		// "DescribeBundleTasks", — moved to vmImportExportSupportedOperations
 		"DescribeCapacityBlockExtensionHistory",
 		"DescribeCapacityBlockExtensionOfferings",
 		"DescribeCapacityBlockOfferings",
@@ -668,13 +668,13 @@ func stubSupportedOperations() []string {
 		// "DescribeClientVpnRoutes", — moved to batch4SupportedOperations
 		// "DescribeClientVpnTargetNetworks", — moved to batch4SupportedOperations
 		// "DescribeCoipPools", — moved to ipPoolSupportedOperations()
-		"DescribeConversionTasks",
+		// "DescribeConversionTasks", — moved to vmImportExportSupportedOperations
 		// "DescribeCustomerGateways", — moved to advancedNetworkingSupportedOperations
 		"DescribeDeclarativePoliciesReports",
 		// DescribeEgressOnlyInternetGateways — moved to ec2CoreSupportedOperations
 		"DescribeElasticGpus",
-		"DescribeExportImageTasks",
-		"DescribeExportTasks",
+		// "DescribeExportImageTasks", — moved to batch3SupportedOperations
+		// "DescribeExportTasks", — moved to vmImportExportSupportedOperations
 		"DescribeFleetHistory",
 		"DescribeFleetInstances",
 		"DescribeFleets",
@@ -739,7 +739,7 @@ func stubSupportedOperations() []string {
 		// "DescribeTransitGatewayPolicyTables", — moved to tgwPeripheralsSupportedOperations
 		// "DescribeTransitGatewayRouteTableAnnouncements", — moved to tgwPeripheralsSupportedOperations
 		// DescribeTransitGatewayRouteTables — moved to ec2CoreSupportedOperations
-		"DescribeTrunkInterfaceAssociations",
+		// "DescribeTrunkInterfaceAssociations", — moved to trunkEnclaveSupportedOperations
 		// "DescribeVerifiedAccessEndpoints", — moved to batch4SupportedOperations
 		// "DescribeVerifiedAccessGroups", — moved to batch4SupportedOperations
 		// "DescribeVerifiedAccessInstanceLoggingConfigurations", — moved to handler_verifiedaccess_ext.go
@@ -769,7 +769,7 @@ func stubSupportedOperations() []string {
 		// "DisableVpcClassicLinkDnsSupport", — moved to vpcConfigSupportedOperations
 		"DisassociateCapacityReservationBillingOwner",
 		// "DisassociateClientVpnTargetNetwork", — moved to batch4SupportedOperations
-		"DisassociateEnclaveCertificateIamRole",
+		// "DisassociateEnclaveCertificateIamRole", — moved to trunkEnclaveSupportedOperations
 		// DisassociateIamInstanceProfile — moved to ec2CoreSupportedOperations
 		"DisassociateInstanceEventWindow",
 		// "DisassociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
@@ -778,7 +778,7 @@ func stubSupportedOperations() []string {
 		// "DisassociateTransitGatewayMulticastDomain", — moved to handler_tgw_multicast.go
 		// "DisassociateTransitGatewayPolicyTable", — moved to tgwPeripheralsSupportedOperations
 		// DisassociateTransitGatewayRouteTable — moved to ec2CoreSupportedOperations
-		"DisassociateTrunkInterface",
+		// "DisassociateTrunkInterface", — moved to trunkEnclaveSupportedOperations
 		// "EnableAllowedImagesSettings", — moved to imageOpsSupportedOperations()
 		"EnableAwsNetworkPerformanceMetricSubscription",
 		"EnableCapacityManager",
@@ -796,7 +796,7 @@ func stubSupportedOperations() []string {
 		// "ExportVerifiedAccessInstanceClientConfiguration", — moved to handler_verifiedaccess_ext.go
 		"GetActiveVpnTunnelStatus",
 		// "GetAllowedImagesSettings", — moved to imageOpsSupportedOperations()
-		"GetAssociatedEnclaveCertificateIamRoles",
+		// "GetAssociatedEnclaveCertificateIamRoles", — moved to trunkEnclaveSupportedOperations
 		"GetAwsNetworkPerformanceData",
 		"GetCapacityManagerAttributes",
 		"GetCapacityManagerMetricData",
@@ -847,8 +847,8 @@ func stubSupportedOperations() []string {
 		// "GetVpnConnectionDeviceTypes", — moved to advancedNetworkingSupportedOperations
 		// "GetVpnTunnelReplacementStatus", — moved to advancedNetworkingSupportedOperations
 		// ImportClientVpnClientCertificateRevocationList — moved to batch4SupportedOperations
-		"ImportInstance",
-		"ImportVolume",
+		// "ImportInstance", — moved to vmImportExportSupportedOperations
+		// "ImportVolume", — moved to vmImportExportSupportedOperations
 		"ModifyAvailabilityZoneGroup",
 		"ModifyCapacityReservationFleet",
 		// "ModifyClientVpnEndpoint", — moved to batch4SupportedOperations
@@ -948,52 +948,9 @@ func stubSupportedOperations() []string {
 	}
 }
 
-func (h *Handler) handleStubAssociateEnclaveCertificateIamRole(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateEnclaveCertificateIamRoleResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubAssociateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateInstanceEventWindowResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubAssociateTrunkInterface(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateTrunkInterfaceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubBundleInstance(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "BundleInstanceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCancelBundleTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CancelBundleTaskResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCancelConversionTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CancelConversionTaskResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1010,25 +967,9 @@ func (h *Handler) handleStubCancelDeclarativePoliciesReport(
 	}, nil
 }
 
-func (h *Handler) handleStubCancelExportTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CancelExportTaskResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCancelImageLaunchPermission(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CancelImageLaunchPermissionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCancelImportTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CancelImportTaskResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1040,14 +981,6 @@ func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateDelegateMacVolumeOwnershipTaskResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateInstanceExportTask(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateInstanceExportTaskResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1194,28 +1127,12 @@ func (h *Handler) handleStubDescribeAwsNetworkPerformanceMetricSubscriptions(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeBundleTasks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeBundleTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeCapacityReservationTopology(
 	_ url.Values,
 	reqID string,
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeCapacityReservationTopologyResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeConversionTasks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeConversionTasksResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1235,22 +1152,6 @@ func (h *Handler) handleStubDescribeDeclarativePoliciesReports(
 func (h *Handler) handleStubDescribeElasticGpus(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeElasticGpusResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeExportImageTasks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeExportImageTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeExportTasks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeExportTasksResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1380,17 +1281,6 @@ func (h *Handler) handleStubDescribeTransitGatewayAttachments(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTrunkInterfaceAssociations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTrunkInterfaceAssociationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeVpcEncryptionControls(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcEncryptionControlsResponse"},
@@ -1440,31 +1330,12 @@ func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateEnclaveCertificateIamRole(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateEnclaveCertificateIamRoleResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDisassociateInstanceEventWindow(
 	_ url.Values,
 	reqID string,
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateInstanceEventWindowResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisassociateTrunkInterface(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateTrunkInterfaceResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1517,17 +1388,6 @@ func (h *Handler) handleStubEnableTransitGatewayRouteTablePropagation(
 func (h *Handler) handleStubGetActiveVpnTunnelStatus(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetActiveVpnTunnelStatusResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetAssociatedEnclaveCertificateIamRoles(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetAssociatedEnclaveCertificateIamRolesResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1620,22 +1480,6 @@ func (h *Handler) handleStubGetVpcResourcesBlockingEncryptionEnforcement(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetVpcResourcesBlockingEncryptionEnforcementResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubImportInstance(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ImportInstanceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubImportVolume(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ImportVolumeResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

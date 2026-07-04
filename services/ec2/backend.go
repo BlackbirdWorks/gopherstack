@@ -394,6 +394,14 @@ type InMemoryBackend struct {
 	coipCidrs map[string]*CoipCidr
 	ipv4Pools map[string]*Ipv4Pool
 	ipv6Pools map[string]*Ipv6Pool
+	// VM Import/Export, Bundle, and Conversion Task additions
+	bundleTasks      map[string]*BundleTask
+	conversionTasks  map[string]*ConversionTask
+	exportTasks      map[string]*ExportTask
+	exportImageTasks map[string]*ExportImageTaskRec
+	// Trunk Interface / Enclave Certificate IAM Role additions
+	trunkInterfaceAssociations map[string]*TrunkInterfaceAssociation
+	enclaveCertIamRoles        map[string][]*EnclaveCertIamRoleAssociation
 	// Allowed Images Settings / Store-Restore Image Task / Image Usage Report additions
 	allowedImagesSettings     *AllowedImagesSettings
 	storeImageTasks           map[string]*StoreImageTask
@@ -496,6 +504,8 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	b.resetAllowedImagesSettingsLocked()
 	b.resetImageTasksLocked()
 	b.resetUsageReportMapsLocked()
+	b.resetVMImportExportMapsLocked()
+	b.resetTrunkEnclaveMapsLocked()
 	b.instanceProductCodes = make(map[string][]string)
 
 	return b

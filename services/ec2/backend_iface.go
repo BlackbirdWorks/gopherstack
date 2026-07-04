@@ -1285,7 +1285,8 @@ type Backend interface {
 	RegisterImage(name, description, architecture string) (*AMIStub, error)
 	ImportImage(description, architecture, platform string) (*ImageImportTask, error)
 	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
-	ExportImage(imageID, description string) (string, error)
+	ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string) (*ExportImageTaskRec, error)
+	DescribeExportImageTasks(ids []string) []*ExportImageTaskRec
 	ListImagesInRecycleBin(imageIDs []string) []*RecycleBinImage
 	RestoreImageFromRecycleBin(imageID string) error
 	ListSnapshotsInRecycleBin(snapshotIDs []string) []*Snapshot
@@ -1744,4 +1745,45 @@ type Backend interface {
 	// ---- Product codes ----
 
 	ConfirmProductInstance(instanceID, productCode string) (bool, error)
+
+	// ---- Bundle tasks ----
+
+	BundleInstance(instanceID, s3Bucket, s3Prefix string) (*BundleTask, error)
+	CancelBundleTask(bundleID string) (*BundleTask, error)
+	DescribeBundleTasks(ids []string) []*BundleTask
+
+	// ---- Conversion tasks (ImportInstance / ImportVolume) ----
+
+	ImportInstance(
+		description, platform, availabilityZone, diskFormat string, diskBytes, volumeSize int64,
+	) (*ConversionTask, error)
+	ImportVolume(description, availabilityZone, diskFormat string, diskBytes, volumeSize int64) (*ConversionTask, error)
+	DescribeConversionTasks(ids []string) []*ConversionTask
+	CancelConversionTask(conversionTaskID string) (*ConversionTask, error)
+
+	// ---- Instance export tasks ----
+
+	CreateInstanceExportTask(
+		instanceID, description, targetEnvironment, diskImageFormat, containerFormat, s3Bucket, s3Prefix string,
+	) (*ExportTask, error)
+	CancelExportTask(exportTaskID string) error
+	DescribeExportTasks(ids []string) []*ExportTask
+
+	// ---- CancelImportTask (ImportImage / ImportSnapshot) ----
+
+	CancelImportTask(importTaskID string) (previousState, newState string, err error)
+
+	// ---- Trunk Interface associations ----
+
+	AssociateTrunkInterface(
+		branchInterfaceID, trunkInterfaceID string, vlanID, greKey int32, tags map[string]string,
+	) (*TrunkInterfaceAssociation, error)
+	DisassociateTrunkInterface(associationID string) error
+	DescribeTrunkInterfaceAssociations(ids []string) []*TrunkInterfaceAssociation
+
+	// ---- Enclave Certificate IAM Role associations ----
+
+	AssociateEnclaveCertificateIamRole(certificateArn, roleArn string) (*EnclaveCertIamRoleAssociation, error)
+	DisassociateEnclaveCertificateIamRole(certificateArn, roleArn string) error
+	GetAssociatedEnclaveCertificateIamRoles(certificateArn string) ([]*EnclaveCertIamRoleAssociation, error)
 }

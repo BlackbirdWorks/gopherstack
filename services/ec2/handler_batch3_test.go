@@ -166,9 +166,16 @@ func TestBatch3_ImportExportImage(t *testing.T) { //nolint:paralleltest // exist
 	})
 
 	t.Run("export image creates task", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		taskID, err := b.ExportImage("ami-test", "test export")
+		task, err := b.ExportImage("ami-test", "test export", "vmdk", "my-export-bucket", "exports/", "")
 		require.NoError(t, err)
-		assert.NotEmpty(t, taskID)
+		assert.NotEmpty(t, task.ExportImageTaskID)
+		assert.Equal(t, "active", task.Status)
+	})
+
+	t.Run("describe export image tasks settle", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		tasks := b.DescribeExportImageTasks(nil)
+		require.Len(t, tasks, 1)
+		assert.Equal(t, "completed", tasks[0].Status)
 	})
 }
 

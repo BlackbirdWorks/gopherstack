@@ -21,7 +21,6 @@ const (
 	stateRestoring         = "restoring"
 	statePending           = "pending"
 	stateTaskCompleted     = "completed"
-	stateTaskInProgress    = "InProgress"
 	stateEnabledFastLaunch = "enabled"
 	magicSplitLen          = 2
 )
@@ -457,16 +456,56 @@ func (b *InMemoryBackend) DescribeImportImageTasks(taskIDs []string) []*ImageImp
 	return out
 }
 
-// ExportImage creates an export task for an AMI.
-func (b *InMemoryBackend) ExportImage(imageID string, _ string) (string, error) {
+// ExportImage creates an export task for an AMI, storing task state so it can later be
+// retrieved (and settled to "completed") via DescribeExportImageTasks. If imageID matches a
+// registered AMI, its architecture is folded into the task description when the caller did
+// not supply one.
+func (b *InMemoryBackend) ExportImage(
+	imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string,
+) (*ExportImageTaskRec, error) {
 	if imageID == "" {
-		return "", fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("ExportImage")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ExportImage")
+	defer b.mu.Unlock()
 
-	return "export-ami-" + uuid.New().String()[:8], nil
+	if description == "" {
+		if img, ok := b.images[imageID]; ok {
+			description = img.Description
+		}
+	}
+
+	if diskImageFormat == "" {
+		diskImageFormat = defaultExportImageFormat
+	}
+
+	if s3Bucket == "" {
+		s3Bucket = "export-images-" + b.AccountID
+	}
+
+	if roleName == "" {
+		roleName = "vmimport"
+	}
+
+	id := "export-ami-" + uuid.New().String()[:8]
+	task := &ExportImageTaskRec{
+		ExportImageTaskID: id,
+		Description:       description,
+		ImageID:           imageID,
+		DiskImageFormat:   diskImageFormat,
+		Progress:          taskZeroProgress,
+		Status:            vmTaskStateActive,
+		StatusMessage:     vmTaskStateActive,
+		S3Bucket:          s3Bucket,
+		S3Prefix:          s3Prefix,
+		RoleName:          roleName,
+	}
+	b.exportImageTasks[id] = task
+
+	cp := *task
+
+	return &cp, nil
 }
 
 // ListImagesInRecycleBin returns soft-deleted AMIs.

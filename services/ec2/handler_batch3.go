@@ -9,7 +9,7 @@ import (
 
 // ---- Registration ----
 
-//nolint:funlen,dupl // large registration table; dupl is unavoidable across batches
+//nolint:funlen // large registration table
 func registerBatch3Ops(h *Handler, ops map[string]ec2ActionFn) {
 	// Capacity Reservation
 	ops["CreateCapacityReservation"] = h.handleCreateCapacityReservation
@@ -35,6 +35,7 @@ func registerBatch3Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ImportImage"] = h.handleImportImage
 	ops["DescribeImportImageTasks"] = h.handleDescribeImportImageTasks
 	ops["ExportImage"] = h.handleExportImage
+	ops["DescribeExportImageTasks"] = h.handleDescribeExportImageTasks
 	ops["ListImagesInRecycleBin"] = h.handleListImagesInRecycleBin
 	ops["RestoreImageFromRecycleBin"] = h.handleRestoreImageFromRecycleBin
 	// Snapshot recycle
@@ -96,6 +97,7 @@ func batch3SupportedOperations() []string {
 		"ImportImage",
 		"DescribeImportImageTasks",
 		"ExportImage",
+		"DescribeExportImageTasks",
 		"ListImagesInRecycleBin",
 		"RestoreImageFromRecycleBin",
 		"ListSnapshotsInRecycleBin",
@@ -222,11 +224,53 @@ type describeImportImageTasksResponse struct {
 	} `xml:"importImageTaskSet"`
 }
 
+type exportTaskS3LocationItem struct {
+	S3Bucket string `xml:"s3Bucket,omitempty"`
+	S3Prefix string `xml:"s3Prefix,omitempty"`
+}
+
 type exportImageResponse struct {
-	XMLName      xml.Name `xml:"ExportImageResponse"`
-	RequestID    string   `xml:"requestId"`
-	ExportTaskID string   `xml:"exportTaskId"`
-	Status       string   `xml:"status"`
+	XMLName           xml.Name                 `xml:"ExportImageResponse"`
+	RequestID         string                   `xml:"requestId"`
+	Description       string                   `xml:"description,omitempty"`
+	DiskImageFormat   string                   `xml:"diskImageFormat,omitempty"`
+	ExportImageTaskID string                   `xml:"exportImageTaskId,omitempty"`
+	ImageID           string                   `xml:"imageId,omitempty"`
+	Progress          string                   `xml:"progress,omitempty"`
+	S3ExportLocation  exportTaskS3LocationItem `xml:"s3ExportLocation"`
+	Status            string                   `xml:"status,omitempty"`
+	StatusMessage     string                   `xml:"statusMessage,omitempty"`
+	RoleName          string                   `xml:"roleName,omitempty"`
+}
+
+type exportImageTaskItem struct {
+	Description       string                   `xml:"description,omitempty"`
+	ExportImageTaskID string                   `xml:"exportImageTaskId,omitempty"`
+	ImageID           string                   `xml:"imageId,omitempty"`
+	Progress          string                   `xml:"progress,omitempty"`
+	S3ExportLocation  exportTaskS3LocationItem `xml:"s3ExportLocation"`
+	Status            string                   `xml:"status,omitempty"`
+	StatusMessage     string                   `xml:"statusMessage,omitempty"`
+}
+
+func toExportImageTaskItem(t *ExportImageTaskRec) exportImageTaskItem {
+	return exportImageTaskItem{
+		Description:       t.Description,
+		ExportImageTaskID: t.ExportImageTaskID,
+		ImageID:           t.ImageID,
+		Progress:          t.Progress,
+		S3ExportLocation:  exportTaskS3LocationItem{S3Bucket: t.S3Bucket, S3Prefix: t.S3Prefix},
+		Status:            t.Status,
+		StatusMessage:     t.StatusMessage,
+	}
+}
+
+type describeExportImageTasksResponse struct {
+	XMLName            xml.Name `xml:"DescribeExportImageTasksResponse"`
+	RequestID          string   `xml:"requestId"`
+	ExportImageTaskSet struct {
+		Items []exportImageTaskItem `xml:"item"`
+	} `xml:"exportImageTaskSet"`
 }
 
 type recycleBinImageItem struct {
@@ -698,17 +742,40 @@ func (h *Handler) handleDescribeImportImageTasks(vals url.Values, reqID string) 
 func (h *Handler) handleExportImage(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	description := vals.Get("Description")
+	diskImageFormat := vals.Get("DiskImageFormat")
+	s3Bucket := vals.Get("S3ExportLocation.S3Bucket")
+	s3Prefix := vals.Get("S3ExportLocation.S3Prefix")
+	roleName := vals.Get("RoleName")
 
-	taskID, err := h.Backend.ExportImage(imageID, description)
+	task, err := h.Backend.ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName)
 	if err != nil {
 		return nil, err
 	}
 
 	return &exportImageResponse{
-		RequestID:    reqID,
-		ExportTaskID: taskID,
-		Status:       stateTaskInProgress,
+		RequestID:         reqID,
+		Description:       task.Description,
+		DiskImageFormat:   task.DiskImageFormat,
+		ExportImageTaskID: task.ExportImageTaskID,
+		ImageID:           task.ImageID,
+		Progress:          task.Progress,
+		S3ExportLocation:  exportTaskS3LocationItem{S3Bucket: task.S3Bucket, S3Prefix: task.S3Prefix},
+		Status:            task.Status,
+		StatusMessage:     task.StatusMessage,
+		RoleName:          task.RoleName,
 	}, nil
+}
+
+func (h *Handler) handleDescribeExportImageTasks(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "ExportImageTaskId")
+	tasks := h.Backend.DescribeExportImageTasks(ids)
+
+	resp := &describeExportImageTasksResponse{RequestID: reqID}
+	for _, t := range tasks {
+		resp.ExportImageTaskSet.Items = append(resp.ExportImageTaskSet.Items, toExportImageTaskItem(t))
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleListImagesInRecycleBin(vals url.Values, reqID string) (any, error) {

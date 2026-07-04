@@ -220,6 +220,15 @@ type backendSnapshot struct {
 	UsageReportEntries        map[string][]*UsageReportEntry `json:"usageReportEntries,omitempty"`
 	InstanceProductCodes      map[string][]string            `json:"instanceProductCodes,omitempty"`
 
+	// VM Import/Export, Bundle, Conversion Task, Trunk Interface, and Enclave Certificate
+	// IAM Role fields.
+	BundleTasks                map[string]*BundleTask                      `json:"bundleTasks,omitempty"`
+	ConversionTasks            map[string]*ConversionTask                  `json:"conversionTasks,omitempty"`
+	ExportTasks                map[string]*ExportTask                      `json:"exportTasks,omitempty"`
+	ExportImageTasks           map[string]*ExportImageTaskRec              `json:"exportImageTasks,omitempty"`
+	TrunkInterfaceAssociations map[string]*TrunkInterfaceAssociation       `json:"trunkInterfaceAssociations,omitempty"`
+	EnclaveCertIamRoles        map[string][]*EnclaveCertIamRoleAssociation `json:"enclaveCertIamRoles,omitempty"`
+
 	IpamOrgAdminAccountID  string   `json:"ipamOrgAdminAcct,omitempty"`
 	Region                 string   `json:"region,omitempty"`
 	AccountID              string   `json:"accountID,omitempty"`
@@ -413,6 +422,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		UsageReports:                       b.usageReports,
 		UsageReportEntries:                 b.usageReportEntries,
 		InstanceProductCodes:               b.instanceProductCodes,
+		BundleTasks:                        b.bundleTasks,
+		ConversionTasks:                    b.conversionTasks,
+		ExportTasks:                        b.exportTasks,
+		ExportImageTasks:                   b.exportImageTasks,
+		TrunkInterfaceAssociations:         b.trunkInterfaceAssociations,
+		EnclaveCertIamRoles:                b.enclaveCertIamRoles,
 	}
 
 	data, err := json.Marshal(snap)
@@ -1078,6 +1093,12 @@ func (b *InMemoryBackend) restoreImageAndPoolFields(snap *backendSnapshot) {
 	b.usageReports = snap.UsageReports
 	b.usageReportEntries = snap.UsageReportEntries
 	b.instanceProductCodes = snap.InstanceProductCodes
+	b.bundleTasks = snap.BundleTasks
+	b.conversionTasks = snap.ConversionTasks
+	b.exportTasks = snap.ExportTasks
+	b.exportImageTasks = snap.ExportImageTasks
+	b.trunkInterfaceAssociations = snap.TrunkInterfaceAssociations
+	b.enclaveCertIamRoles = snap.EnclaveCertIamRoles
 }
 
 // initMissingMaps ensures all map fields in the snapshot are non-nil.
@@ -1257,6 +1278,12 @@ func (s *backendSnapshot) initImageAndPoolMaps() {
 	initMapIfNil(&s.UsageReports)
 	initMapIfNil(&s.UsageReportEntries)
 	initMapIfNil(&s.InstanceProductCodes)
+	initMapIfNil(&s.BundleTasks)
+	initMapIfNil(&s.ConversionTasks)
+	initMapIfNil(&s.ExportTasks)
+	initMapIfNil(&s.ExportImageTasks)
+	initMapIfNil(&s.TrunkInterfaceAssociations)
+	initMapIfNil(&s.EnclaveCertIamRoles)
 
 	if s.AllowedImagesSettings == nil {
 		s.AllowedImagesSettings = &AllowedImagesSettings{

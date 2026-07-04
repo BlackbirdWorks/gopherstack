@@ -131,6 +131,8 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, fpgaImageSupportedOperations()...)
 	extOps = append(extOps, scheduledInstanceSupportedOperations()...)
 	extOps = append(extOps, ipPoolSupportedOperations()...)
+	extOps = append(extOps, vmImportExportSupportedOperations()...)
+	extOps = append(extOps, trunkEnclaveSupportedOperations()...)
 	extOps = append(extOps, imageOpsSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
@@ -405,6 +407,8 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerFpgaImageOps(h, ops)
 	registerScheduledInstanceOps(h, ops)
 	registerIPPoolOps(h, ops)
+	registerVMImportExportOps(h, ops)
+	registerTrunkEnclaveOps(h, ops)
 	registerImageOpsHandlers(h, ops)
 	registerStubOpsIfAbsent(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
@@ -1295,6 +1299,14 @@ var errCodeLookup = []struct {
 	{ErrIpv6PoolNotFound, errCodeInvalidParameterValue},
 	{ErrImageNotFound, "InvalidAMIID.NotFound"},
 	{ErrUsageReportNotFound, errCodeInvalidParameterValue},
+	{ErrBundleTaskNotFound, "InvalidBundleID.NotFound"},
+	{ErrConversionTaskNotFound, "InvalidConversionTaskId.NotFound"},
+	{ErrExportTaskNotFound, "InvalidExportTaskID.NotFound"},
+	{ErrImportTaskNotFound, errCodeInvalidParameterValue},
+	{ErrTaskNotCancellable, "IncorrectState"},
+	{ErrTrunkAssociationNotFound, "InvalidAssociationID.NotFound"},
+	{ErrEnclaveCertRoleAssociationNotFound, errCodeInvalidParameterValue},
+	{ErrTooManyEnclaveCertRoles, "LimitExceeded"},
 	{ErrInvalidParameter, errCodeInvalidParameterValue},
 }
 
