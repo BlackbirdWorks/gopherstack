@@ -797,7 +797,7 @@ func TestChangeSet_CreateExecuteDelete(t *testing.T) {
 		t.Context(),
 		"cs-base",
 		"my-cs",
-		simpleTemplate,
+		modifiedTemplate,
 		"test changeset",
 		nil,
 	)
@@ -867,7 +867,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	// Create instances.
 	accounts := []string{"111111111111", "222222222222"}
 	regions := []string{"us-east-1", "us-west-2"}
-	_, err = b.CreateStackInstances("my-ss", accounts, regions)
+	_, err = b.CreateStackInstances(t.Context(), "my-ss", accounts, regions)
 	require.NoError(t, err)
 
 	instances, err := b.ListStackInstances("my-ss", "")
@@ -885,7 +885,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	assert.Equal(t, "ACTIVE", updated.Status)
 
 	// Delete instances.
-	_, err = b.DeleteStackInstances("my-ss", accounts, regions)
+	_, err = b.DeleteStackInstances(t.Context(), "my-ss", accounts, regions)
 	require.NoError(t, err)
 
 	remaining, err := b.ListStackInstances("my-ss", "")

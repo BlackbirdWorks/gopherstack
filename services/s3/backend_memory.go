@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -507,6 +508,18 @@ func (b *InMemoryBackend) PutObject(
 
 	// Extract SSE info from context (set by putObject handler).
 	sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
+
+	// Apply default bucket encryption if no SSE is specified in the request
+	if sseFromCtx.Algorithm == "" && sseFromCtx.SSECAlgorithm == "" && bucket.EncryptionConfig != "" {
+		var config ServerSideEncryptionConfiguration
+		if xmlErr := xml.Unmarshal([]byte(bucket.EncryptionConfig), &config); xmlErr == nil && len(config.Rules) > 0 {
+			def := config.Rules[0].ApplyServerSideEncryptionByDefault
+			if def.SSEAlgorithm != "" {
+				sseFromCtx.Algorithm = def.SSEAlgorithm
+				sseFromCtx.KMSKeyID = def.KMSMasterKeyID
+			}
+		}
+	}
 
 	// Real envelope encryption: when SSE is configured, encrypt the stored
 	// (post-compression) bytes with AES-256-GCM and stash the DEK + nonce on
@@ -1998,7 +2011,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	key := *input.Key
 
 	b.mu.RLock("CreateMultipartUpload")
-	_, err := b.getBucket(bucketName)
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
 	if err != nil {
@@ -2013,6 +2026,18 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	// (set by the handler) because it carries the SSE-C raw key bytes that
 	// the SDK input struct doesn't expose.
 	sse, _ := ctx.Value(sseKey).(sseInfo)
+
+	// Apply default bucket encryption if no SSE is specified in the request
+	if sse.Algorithm == "" && sse.SSECAlgorithm == "" && bucket.EncryptionConfig != "" {
+		var config ServerSideEncryptionConfiguration
+		if xmlErr := xml.Unmarshal([]byte(bucket.EncryptionConfig), &config); xmlErr == nil && len(config.Rules) > 0 {
+			def := config.Rules[0].ApplyServerSideEncryptionByDefault
+			if def.SSEAlgorithm != "" {
+				sse.Algorithm = def.SSEAlgorithm
+				sse.KMSKeyID = def.KMSMasterKeyID
+			}
+		}
+	}
 
 	b.mu.Lock("CreateMultipartUpload")
 	if b.uploads == nil {

@@ -125,12 +125,16 @@ func resolveTagOps(path, method string) string {
 	return unknownOperation
 }
 
+const pathAuditConfiguration = "/audit/configuration"
+
 func resolveAuditConfigOps(path, method string) string {
 	switch {
-	case path == "/audit/configuration" && method == http.MethodGet:
+	case path == pathAuditConfiguration && method == http.MethodGet:
 		return opDescribeAccountAuditConfiguration
-	case path == "/audit/configuration" && method == http.MethodPatch:
+	case path == pathAuditConfiguration && method == http.MethodPatch:
 		return opUpdateAccountAuditConfiguration
+	case path == pathAuditConfiguration && method == http.MethodDelete:
+		return opDeleteAccountAuditConfiguration
 	case path == "/audit/tasks" && method == http.MethodGet:
 		return opListAuditTasks
 	case path == "/audit/tasks" && method == http.MethodPost:
@@ -641,6 +645,14 @@ func (h *Handler) handleUpdateAccountAuditConfiguration(c *echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
+func (h *Handler) handleDeleteAccountAuditConfiguration(c *echo.Context) error {
+	if err := h.Backend.DeleteAccountAuditConfiguration(); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
 func (h *Handler) handleStartOnDemandAuditTask(c *echo.Context) error {
 	var req struct {
 		TargetCheckNames []string `json:"targetCheckNames"`
@@ -651,7 +663,7 @@ func (h *Handler) handleStartOnDemandAuditTask(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"taskId": taskID})
+	return c.JSON(http.StatusOK, map[string]any{keyTaskID: taskID})
 }
 
 func (h *Handler) handleDescribeAuditTask(c *echo.Context) error {
@@ -670,13 +682,13 @@ func (h *Handler) handleListAuditTasks(c *echo.Context) error {
 	summaries := make([]map[string]any, len(tasks))
 	for i, t := range tasks {
 		summaries[i] = map[string]any{
-			"taskId":     t.TaskID,
-			"taskStatus": t.TaskStatus,
-			"taskType":   t.TaskType,
+			keyTaskID:     t.TaskID,
+			keyTaskStatus: t.TaskStatus,
+			"taskType":    t.TaskType,
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"tasks": summaries})
+	return c.JSON(http.StatusOK, map[string]any{keyTasksField: summaries})
 }
 
 // --- Misc ---

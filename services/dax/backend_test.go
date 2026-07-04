@@ -749,7 +749,7 @@ func TestTagResource(t *testing.T) {
 		{
 			name: "tag subnet group ARN",
 			setup: func(b *dax.InMemoryBackend) string {
-				_, _ = b.CreateSubnetGroup("my-sg", "", []string{"subnet-1"})
+				_, _ = b.CreateSubnetGroup("my-sg", "", []string{"subnet-11111111"})
 
 				return "arn:aws:dax:us-east-1:123456789012:subnetgroup/my-sg"
 			},
@@ -1207,12 +1207,12 @@ func TestCreateSubnetGroup(t *testing.T) {
 			name:      "success",
 			sgName:    "my-sg",
 			desc:      "test subnet group",
-			subnetIDs: []string{"subnet-1", "subnet-2"},
+			subnetIDs: []string{"subnet-11111111", "subnet-22222222"},
 			check: func(t *testing.T, sg *dax.SubnetGroup) {
 				t.Helper()
 				assert.Equal(t, "my-sg", sg.SubnetGroupName)
 				assert.Len(t, sg.Subnets, 2)
-				assert.Equal(t, "subnet-1", sg.Subnets[0].SubnetID)
+				assert.Equal(t, "subnet-11111111", sg.Subnets[0].SubnetID)
 				assert.Equal(t, "us-east-1a", sg.Subnets[0].AvailabilityZone)
 			},
 		},
@@ -1248,9 +1248,9 @@ func TestCreateSubnetGroup(t *testing.T) {
 func TestCreateSubnetGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateSubnetGroup("sg", "", []string{"subnet-1"})
+	_, err := b.CreateSubnetGroup("sg", "", []string{"subnet-11111111"})
 	require.NoError(t, err)
-	_, err = b.CreateSubnetGroup("sg", "", []string{"subnet-1"})
+	_, err = b.CreateSubnetGroup("sg", "", []string{"subnet-11111111"})
 	require.Error(t, err)
 }
 
@@ -1267,7 +1267,7 @@ func TestUpdateSubnetGroup(t *testing.T) {
 		{
 			name: "update description",
 			setup: func(b *dax.InMemoryBackend) {
-				_, _ = b.CreateSubnetGroup("upd-sg", "old desc", []string{"subnet-1"})
+				_, _ = b.CreateSubnetGroup("upd-sg", "old desc", []string{"subnet-11111111"})
 			},
 			input: dax.UpdateSubnetGroupInput{SubnetGroupName: "upd-sg", Description: "new desc"},
 			check: func(t *testing.T, sg *dax.SubnetGroup) {
@@ -1278,13 +1278,16 @@ func TestUpdateSubnetGroup(t *testing.T) {
 		{
 			name: "update subnets",
 			setup: func(b *dax.InMemoryBackend) {
-				_, _ = b.CreateSubnetGroup("sub-sg", "", []string{"subnet-1"})
+				_, _ = b.CreateSubnetGroup("sub-sg", "", []string{"subnet-11111111"})
 			},
-			input: dax.UpdateSubnetGroupInput{SubnetGroupName: "sub-sg", SubnetIDs: []string{"subnet-2", "subnet-3"}},
+			input: dax.UpdateSubnetGroupInput{
+				SubnetGroupName: "sub-sg",
+				SubnetIDs:       []string{"subnet-22222222", "subnet-33333333"},
+			},
 			check: func(t *testing.T, sg *dax.SubnetGroup) {
 				t.Helper()
 				assert.Len(t, sg.Subnets, 2)
-				assert.Equal(t, "subnet-2", sg.Subnets[0].SubnetID)
+				assert.Equal(t, "subnet-22222222", sg.Subnets[0].SubnetID)
 			},
 		},
 		{
@@ -1330,7 +1333,7 @@ func TestDeleteSubnetGroup(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *dax.InMemoryBackend) {
-				_, _ = b.CreateSubnetGroup("sg-del", "", []string{"subnet-1"})
+				_, _ = b.CreateSubnetGroup("sg-del", "", []string{"subnet-11111111"})
 			},
 			sgName: "sg-del",
 		},
@@ -1385,7 +1388,7 @@ func TestDescribeSubnetGroups(t *testing.T) {
 		{
 			name: "with custom group",
 			setup: func(b *dax.InMemoryBackend) {
-				_, _ = b.CreateSubnetGroup("custom", "", []string{"subnet-1"})
+				_, _ = b.CreateSubnetGroup("custom", "", []string{"subnet-11111111"})
 			},
 			wantCount: 2,
 		},

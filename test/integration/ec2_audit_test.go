@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -9,6 +10,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// stopAuditInstance stops the instance and waits for the stopped state.
+// ModifyInstancePlacement and ModifyInstanceCpuOptions require the instance to
+// be stopped, matching real AWS (IncorrectInstanceState otherwise).
+func stopAuditInstance(t *testing.T, client *ec2sdk.Client, instanceID string) {
+	t.Helper()
+
+	ctx := t.Context()
+
+	_, err := client.StopInstances(ctx, &ec2sdk.StopInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	require.NoError(t, err)
+
+	waiter := ec2sdk.NewInstanceStoppedWaiter(client, func(o *ec2sdk.InstanceStoppedWaiterOptions) {
+		o.MinDelay = 100 * time.Millisecond
+	})
+	require.NoError(t, waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 10*time.Second))
+}
 
 // runAuditInstance launches a single instance for the audit tests and registers
 // a cleanup that terminates it.
@@ -49,6 +71,7 @@ func TestIntegration_EC2Audit_ModifyInstanceCpuOptions(t *testing.T) {
 	ctx := t.Context()
 
 	instanceID := runAuditInstance(t, client)
+	stopAuditInstance(t, client, instanceID)
 
 	_, err := client.ModifyInstanceCpuOptions(ctx, &ec2sdk.ModifyInstanceCpuOptionsInput{
 		InstanceId:     aws.String(instanceID),
@@ -81,6 +104,7 @@ func TestIntegration_EC2Audit_ModifyInstancePlacement(t *testing.T) {
 	ctx := t.Context()
 
 	instanceID := runAuditInstance(t, client)
+	stopAuditInstance(t, client, instanceID)
 
 	_, err := client.ModifyInstancePlacement(ctx, &ec2sdk.ModifyInstancePlacementInput{
 		InstanceId: aws.String(instanceID),

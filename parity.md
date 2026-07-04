@@ -3,6 +3,49 @@
 **Goal: 100% real AWS emulation (match and exceed LocalStack's open tier), starting with
 DynamoDB and the most-used LocalStack-core services.**
 
+---
+
+## 🟢 SWEEP PROGRESS (branch `parity-sweep-2`, PR #2381) — updated 2026-07-03
+
+Deep-dive parity implemented, tested (table-driven + `-race`), lint-clean, and **merged to
+`parity-sweep-2`** (full CI green) for the following **24 services**. Each replaced stubs/
+partial emulation with real AWS behavior across the four axes (parity / perf / leaks / UI):
+
+- **Core popular + DynamoDB tier (19):** s3 (SigV4 + data-plane access control + aws-chunked),
+  lambda (invoke validation / async DLQ+destinations / ESM filters / Function-URL auth /
+  lifecycle), eventbridge (real API-destination HTTP delivery + input-transformer),
+  kinesis (2×/0.5× reshard caps + UI), iam (condition set-qualifiers + PrincipalTag/RequestTag),
+  firehose (all-destination transform + format conversion + failure routing),
+  ec2 (Restore secondary-index rebuild + DeleteVpc perf + user-data/gp3 validation),
+  cloudformation (change-set completeness + live-state drift + StackSets + Fn::ForEach),
+  opensearch (lifecycle processing windows + real doc/search engine), apigateway v1
+  (request/param validation + usage-plan quota/throttle + opaque pagination),
+  ssm (RunCommand output + automation execution + session leak),
+  route53 (weighted/latency/geo/multivalue/failover DNS resolution + health checks),
+  cloudwatch (GetMetricData pagination + extended statistics + EC2/ASG alarm actions + real
+  widget PNG), cloudwatchlogs (Logs Insights engine + JSON filter patterns + real S3 export),
+  ecs (deployment circuit-breaker rollback + task lifecycle states + Reconciler leak),
+  sts (trust-policy validation + web-identity/SAML token validation),
+  elasticache (observable lifecycle states + error envelope + reachable endpoint),
+  ecr (real lifecycle-policy image expiry + distinct ENHANCED scan findings),
+  apigatewayv2 (x-amzn-ErrorType headers + REQUEST/IAM authorizers + mapping conflict).
+- **Extended tier (5):** redshift (managed cluster reconciler — goroutine-leak fix + real
+  Advisor recs), cloudfront (key-group/public-key/FLE referential integrity + config-search
+  index), athena (real DDL/DML SQL engine + opaque pagination + queryResults leak),
+  glue (managed reconciler leak fix + real DescribeEntity/GetEntityRecords),
+  awsconfig (real rule evaluation + per-resource compliance + config history).
+- **Done + pushed, not yet merged:** cloudtrail (`parity/cloudtrail` — Lake query engine +
+  events ring-buffer leak cap; verified green, awaiting merge).
+
+Method: worktree-isolated subagents, one service each, 2 at a time, merged into
+`parity-sweep-2` after local build/vet/`-race`/lint verification. 8 CI/serialization/race
+fixes applied forward (incl. a real route53 concurrency data race + ssm/ecr epoch-`Date`
+serialization class). **Remaining:** most other extended-tier services are already largely
+complete (grep-verify before dispatching — this doc over-counts done work); the genuine
+remaining gaps are the leak/perf/query-engine items in the still-unmerged extended sections.
+
+---
+
 This document is the live punch-list for the **DynamoDB family** (`dynamodb`,
 `dynamodbstreams`, `dax`) plus the **popular services** (S3, Lambda, SQS, SNS, IAM, STS,
 KMS, Secrets Manager, SSM, CloudFormation, CloudWatch, CloudWatch Logs, EventBridge,
@@ -539,7 +582,7 @@ The highest-impact non-lifecycle gaps per service (full lists in the deep dives 
 
 - [ ] **S3** — enforce bucket policy/ACL/PAB and bucket default encryption on the data plane;
   add SigV4 header-auth + `aws-chunked` body decode; multi-range GET; Object Lock GOVERNANCE bypass.
-- [ ] **DynamoDB** — emit `TransactionConflictException`; async export/import (`IN_PROGRESS`);
+- [x] **DynamoDB** — emit `TransactionConflictException`; async export/import (`IN_PROGRESS`);
   validate `UpdateTable` throughput vs billing mode; copy items on replica creation.
 - [ ] **Lambda** — validate `X-Amz-Invocation-Type`; `LogType=Tail`/`X-Amz-Log-Result`; enforce
   Function URL `AuthType`; delete the per-function config maps on delete.
@@ -805,18 +848,14 @@ and (2) **there is no SigV4 header-auth or `aws-chunked` body decoding**. Detail
 ## Messaging & streaming
 
 ### sqs (deep dive)
-- **Parity — DLQ/redrive:** `applyRedrivePolicy` never checks that source and DLQ share a type — AWS rejects a
-  FIFO source pointing at a standard DLQ (and vice-versa) with `InvalidParameterValue`; here any same-region
-  queue is accepted, and a missing/cross-region DLQ silently no-ops (`backend.go:377-404`). Over-`maxReceiveCount`
-  messages are only routed to the DLQ lazily on a receive/janitor pick (`backend.go:1683-1692`), so a never-polled
-  queue keeps them on the source.
-- **Parity — system attributes:** `MD5OfMessageSystemAttributes` is never computed/returned on SendMessage(Batch)
-  even when `MessageSystemAttributes` (AWSTraceHeader) is supplied (`backend.go:1151-1156`).
+- **Parity — DLQ/redrive:** Over-`maxReceiveCount` messages are only routed to the DLQ lazily on a
+  receive/janitor pick (`backend.go:1683-1692`), so a never-polled queue keeps them on the source.
 - **Performance:** `computeMD5OfMessageAttributes` re-sorts+re-encodes the attribute set on subset-receive
   (`handler.go:788-801`; full-set path now memoizes — low residual).
 - **Leaks / UI:** none material (activity-gated prune; move-task panel, tags, redrive present).
-- _Recently closed:_ send-time MD5 memoization; activity-gated prune; in-flight caps (120k/20k); FIFO per-group
-  300 TPS; RedriveAllowPolicy validation.
+- _Recently closed:_ RedrivePolicy cross-queue strict type and existence validation; MD5OfMessageSystemAttributes
+  emission on SendMessage(Batch); send-time MD5 memoization; activity-gated prune; in-flight caps (120k/20k);
+  FIFO per-group 300 TPS; RedriveAllowPolicy validation.
 
 ### sns (deep dive)
 - **Parity — delivery retry/backoff:** HTTP/HTTPS, Lambda, and Firehose deliveries are fire-once — any network
@@ -914,39 +953,28 @@ and (2) **there is no SigV4 header-auth or `aws-chunked` body decoding**. Detail
   O(1) opaque pagination tokens.
 
 ### sts (deep dive)
-- **Parity — AssumeRole:** when a `RoleLookup` is wired but the role ARN is unknown, `roleDerivedMaxDuration`
-  returns the default max with no error, so **AssumeRole succeeds for a non-existent role** instead of
-  `NoSuchEntity` (`backend.go:590-593`). No call validates that the role's trust policy permits the caller/
+- **Parity — AssumeRole:** No call validates that the role's trust policy permits the caller/
   federated principal (only `ExternalId` is checked, and only when a lookup exists);
   `AssumeRoleWithSAML`/`WithWebIdentity` skip trust evaluation entirely (`backend.go:1026-1051`).
-- **Parity — SAML/web-identity:** `validateSAMLAssertion` checks base64 only, not well-formed SAML XML or
-  audience/issuer (`backend.go:1153-1164`); the web-identity JWT is parsed for claims but never validated for
+- **Parity — SAML/web-identity:** the web-identity JWT is parsed for claims but never validated for
   `exp`/signature/`aud`, so expired/forged tokens are accepted (`backend.go:1041-1051,1550`).
-  `DecodeAuthorizationMessage` falls back to decoding any base64 blob after the self-issued HMAC check fails,
-  so non-STS messages still decode (`handler.go:583-594`).
 - **Performance / Leaks:** none remaining (ticker eviction + lazy expiry-delete).
 - **UI:** counters-only plus a `GetAccessKeyInfo` validator; no interactive forms for AssumeRole /
   AssumeRoleWithSAML / WithWebIdentity / AssumeRoot / GetSessionToken / GetFederationToken (`+page.svelte:357-372`).
 - _Recently closed:_ ASIA-key GetCallerIdentity InvalidClientTokenId/ExpiredToken; session-token-mismatch 400;
-  role-chaining 1h cap; backend self-issued auth-message HMAC verification.
+  role-chaining 1h cap; backend self-issued auth-message HMAC verification; AssumeRole NoSuchEntity for non-existent role; SAML XML well-formedness validation; DecodeAuthorizationMessage fallback decode disabled.
 
 ### kms (deep dive)
-- **Parity — key policies:** `PutKeyPolicy` stores the policy verbatim with no JSON parse/validation
-  (`backend.go:2789`; `handler.go:609-628`), so `MalformedPolicyDocumentException` (invalid JSON, missing
-  Version/Statement, unresolvable principal) is never produced — the only check is `PolicyName == "default"`.
-  This is the **sole remaining op-level divergence**: crypto, encryption-context AAD binding, grants +
+- **Parity:** crypto, encryption-context AAD binding, grants +
   constraints, asymmetric Sign/Verify/GetPublicKey, HMAC, multi-region keys, rotation (auto + on-demand +
   history), and custom key stores are all real and at parity (`crypto.go:166-558,704-730`;
   `backend.go:1809-1933,2232-2544`).
 - **Performance / Leaks:** none remaining (`lastUsage` purged on janitor finalization, `janitor.go:238`).
 - **UI:** `DescribeCustomKeyStores` and `GetKeyLastUsage` have no console surface.
 - _Recently closed:_ real crypto + AAD context binding; grant constraint enforcement; rotation history; MRK
-  config; lastUsage purge; O(1) `clearResolutionCache`; full sign/verify/grant/import UI.
+  config; lastUsage purge; O(1) `clearResolutionCache`; full sign/verify/grant/import UI; PutKeyPolicy MalformedPolicyDocumentException and JSON validation.
 
 ### secretsmanager (deep dive)
-- **Parity — resource policies:** `PutResourcePolicy` stores the policy verbatim (`backend.go:2170`) without the
-  JSON/Version/Statement validation `ValidateResourcePolicy` already performs (`backend.go:2704-2732`), so a
-  malformed policy never yields `MalformedPolicyDocumentException`; `BlockPublicPolicy` is unenforced.
 - **Parity — idempotency/pagination:** reusing a `ClientRequestToken` with *different* content does not raise
   `ResourceExistsException` — `PutSecretValue` silently creates a new version (`backend.go:535-563`).
   `ListSecrets`/`ListSecretVersionIds`/`BatchGetSecretValue` tokens are plain `strconv.Itoa` offsets
@@ -958,7 +986,7 @@ and (2) **there is no SigV4 header-auth or `aws-chunked` body decoding**. Detail
 - **UI:** no coverage for PutSecretValue, resource-policy ops, BatchGetSecretValue, GetRandomPassword,
   StopReplicationToReplica.
 - _Recently closed:_ `ValidateResourcePolicy` JSON/Version/Statement checks; same-token same-content idempotency;
-  `X-Amzn-Errortype` header on errors.
+  `X-Amzn-Errortype` header on errors; `PutResourcePolicy` JSON/Version/Statement validation and `BlockPublicPolicy` enforcement.
 
 ## Orchestration & APIs
 
@@ -1665,3 +1693,81 @@ mapped to HTTP 400 instead of 404._
   unboundedly (`backend.go:1168-1180`); **no janitor exists** — `deployments` map never evicted (`backend.go:894`).
 - **UI:** GetDeploymentTarget/BatchGetDeploymentTargets absent.
 - _Recently closed:_ ListDeploymentInstances + BatchGetDeploymentInstances UI.
+
+---
+
+# Legacy pass-based findings (historical, pre-catalog-restructure -- preserved from local branch)
+
+_The sections below predate the per-service "deep dive" catalog restructuring above and are
+kept here as a historical record so no prior audit findings are lost; where a finding
+duplicates or is superseded by the catalog entry above, the catalog entry is authoritative._
+
+No stubs, no `//nolint`, no regressions: every previously-green test still
+passes alongside the new table-driven suites.
+
+---
+
+# §B / §D re-verification — status (pass-9, 2026-07-03)
+
+Looped 2-agent audit (disjoint services) re-read every §B accuracy and §D leak
+finding from the 2026-06-10 audit against current code. **All 15 were already
+closed by earlier passes; the §B/§D lists are stale.** No code changed.
+Confirmed already-correct:
+
+- **§B** — STS `GetCallerIdentity` maps `ErrUnknownAccessKeyID` → 400
+  `InvalidClientTokenId` (handler.go:611); DynamoDB rejects `ConsistentRead` on
+  GSI/LSI, `BatchGetItem` duplicate keys (`validateNoDuplicateBatchKeys`), and
+  the 20-GSI ceiling on `UpdateTable` add-path (`validateGSICount`); S3
+  `CompleteMultipartUpload` rejects empty parts (`ErrEmptyParts`→`InvalidRequest`);
+  Kinesis `GetRecords` counts data bytes only, `ListStreamConsumers` boundary is
+  correct (finding's `<=`→`<` was backwards), `CreateStream` enforces `streamNameRe`;
+  Bedrock routes `ErrValidation`→400 (no spurious 500 path), `modelUnits` capped at
+  `maxProvisionedModelUnits`=1000; Account `ListRegions` honors maxResults/nextToken.
+- **§D** — ECR `layerUploads` prune via `layerUploadTTL` (24h) + DeleteRepository
+  sweep; EventBridge event log capped at `maxEventLogSize`=1000 (drop-oldest);
+  Route53 tags evicted on hosted-zone/health-check delete; Elasticsearch
+  `AssociatePackage` returns `ConflictException` on duplicate.
+
+---
+
+# No-stub parity sweep — COMPLETE (2026-07-04)
+
+**Scope:** 35 orchestrated rounds (2 Sonnet agents/round, disjoint packages) drove every
+routed SDK operation across all 154 services to real emulation: real backend state,
+AWS-accurate wire shapes/error codes, persistence wiring, table-driven tests.
+
+**Clusters completed:** CloudFront (7 families incl. StreamingDistribution/TrustStore/
+DistributionTenant/ConnectionGroup+Function/AnycastIP/CDP/list-filters), CloudTrail
+(central registry-chokepoint management-event capture -> real LookupEvents), CloudFormation
+DescribeType real schema catalog, CognitoIDP (devices/WebAuthn/auth events), s3tables, IoT
+(indexing/search, registration tasks, Device Defender mitigation, encryption/authorizers/misc
+— 501-stub file retired), QuickSight (~15 families, canned appendix table retired), SageMaker
+(~335 ops -> 0, stub file retired), EC2 (~397 registerStubOps ops -> 0, scaffolding deleted:
+IPAM complete, ClientVPN/Site-to-Site VPN, TrafficMirror, TGW multicast/metering/peripherals/
+policy-tables, CapacityReservation fleets/blocks/manager, VerifiedAccess+policies, FPGA,
+LocalGateway+VIFs, RouteServer, VPC config/encryption-control, scheduled instances, COIP/IP
+pools, VM import/export/bundle, Mac hosts, SQL HA, secondary networks, instance-attrs, host
+reservations, declarative policies, network performance, and final singles), plus ECS Daemon,
+apigateway OpenAPI import, iotwireless, and a census fix round (glue 18, backup 5, ssm patch
+inventory, awsconfig SELECT evaluator).
+
+**Systemic fixes:** registerStubOpsIfAbsent (stubs can never shadow real handlers —
+un-shadowed 36 real EC2 handlers), stubResponse XMLName root-element fix (~376 responses),
+QuickSight epoch-seconds timestamps, dozens of errCodeLookup entries (404s were surfacing
+as 500).
+
+**Verification:** 14 SDK-driven integration tests (test/integration/*_parity_test.go) caught
+8 wire-format bugs unit tests missed; full-repo sweep 184 packages 0 FAIL; every round gated
+on build+vet+race+golangci-lint.
+
+Merged with the parallel pipeline's 128 commits (glue/athena/redshift/ecr/elasticache/
+cloudwatchlogs/awsconfig/apigatewayv2/sts/route53) via union merge, no work lost, no stub
+reintroduced.
+
+**Remaining** (non-blocking, documented category-(c) borderlines — AWS-API-gap
+simplifications, not stubs): glue GetDataQualityModel (no public create-model API), iotwireless
+testWirelessDevice fixed-PASS after real existence check, redshift
+DescribeReservedNodeExchangeStatus hardcoded active status, awsconfig conformance-pack
+compliance rollups empty, s3 backend_memory.go:385 placeholder-id literal, emr backend.go:2667
+fake-password literal. Deferred by design: multi-account/region isolation, EC2 IMDSv2/
+packet-path emulation (structural, pre-documented in §N/§L).

@@ -95,6 +95,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"BatchReplaceClusterNodes",
 		"CreateAction",
 		"CreateAlgorithm",
+		"DescribeAlgorithm",
+		"DeleteAlgorithm",
+		"ListAlgorithms",
 		opCreateApp,
 		opCreateDomain,
 		"CreateEndpoint",
@@ -161,7 +164,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListPipelineExecutionSteps",
 		opListPipelineParametersForExec,
 		opListPipelines,
+		"ListPipelineVersions",
+		"DescribePipelineDefinitionForExecution",
+		"UpdatePipelineVersion",
+		"UpdatePipelineExecution",
 		"ListProcessingJobs",
+		"DeleteProcessingJob",
 		opListTrials,
 		opListUserProfiles,
 		"ListTags",
@@ -195,19 +203,41 @@ func (h *Handler) GetSupportedOperations() []string {
 	batch3 := batch3SupportedOperations()
 	accuracy3 := accuracy3OpsSupported()
 	accuracy4 := accuracy4OpsSupported()
+	edgeDeployment := edgeDeploymentOpsSupported()
+	cluster := clusterOpsSupported()
+	lineage := lineageOpsSupported()
+	hub := hubOpsSupported()
+	labeling := labelingOpsSupported()
+	trainingPlanExt := trainingPlanExtOpsSupported()
+	automlSearchExt := automlSearchExtOpsSupported()
+	modelCardExport := modelCardExportOpsSupported()
+	miscDestub := miscDestubOpsSupported()
+	featureMetadata := featureMetadataOpsSupported()
+	presignedSession := presignedSessionOpsSupported()
 
-	combined := make(
-		[]string,
-		0,
-		len(core)+len(batch2)+len(batch3)+len(accuracy3)+len(accuracy4)+len(stubOpsSupported()),
-	)
+	total := len(core) + len(batch2) + len(batch3) + len(accuracy3)
+	total += len(accuracy4) + len(edgeDeployment) + len(cluster) + len(lineage) + len(hub)
+	total += len(labeling) + len(trainingPlanExt) + len(automlSearchExt) + len(modelCardExport)
+	total += len(miscDestub) + len(featureMetadata) + len(presignedSession)
+	combined := make([]string, 0, total)
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
 	combined = append(combined, batch3...)
 	combined = append(combined, accuracy3...)
 	combined = append(combined, accuracy4...)
+	combined = append(combined, edgeDeployment...)
+	combined = append(combined, cluster...)
+	combined = append(combined, lineage...)
+	combined = append(combined, hub...)
+	combined = append(combined, labeling...)
+	combined = append(combined, trainingPlanExt...)
+	combined = append(combined, automlSearchExt...)
+	combined = append(combined, modelCardExport...)
+	combined = append(combined, miscDestub...)
+	combined = append(combined, featureMetadata...)
+	combined = append(combined, presignedSession...)
 
-	return append(combined, stubOpsSupported()...)
+	return combined
 }
 
 // batch2OpsSupported returns the 50 real stateful operations implemented in batch 2.
@@ -223,6 +253,9 @@ func batch2OpsSupported() []string {
 		"DescribeModelPackageGroup",
 		"DeleteModelPackageGroup",
 		"ListModelPackageGroups",
+		"GetModelPackageGroupPolicy",
+		"PutModelPackageGroupPolicy",
+		"DeleteModelPackageGroupPolicy",
 		// AutoMLJob
 		"CreateAutoMLJob",
 		"CreateAutoMLJobV2",
@@ -251,11 +284,13 @@ func batch2OpsSupported() []string {
 		"DescribeImage",
 		"DeleteImage",
 		"ListImages",
+		"UpdateImage",
 		// ImageVersion
 		"CreateImageVersion",
 		"DescribeImageVersion",
 		"DeleteImageVersion",
 		"ListImageVersions",
+		"UpdateImageVersion",
 		// CompilationJob
 		"CreateCompilationJob",
 		"DescribeCompilationJob",
@@ -275,6 +310,7 @@ func batch2OpsSupported() []string {
 		"DescribeWorkteam",
 		"DeleteWorkteam",
 		"ListWorkteams",
+		"UpdateWorkteam",
 	}
 }
 
@@ -405,6 +441,10 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 		return r, err
 	}
 
+	if r, ok, err := h.dispatchLineageOps(ctx, op, body); ok {
+		return r, err
+	}
+
 	if r, ok, err := h.dispatchEndpointOps(ctx, op, body); ok {
 		return r, err
 	}
@@ -437,15 +477,55 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 		return r, err
 	}
 
-	if r, ok, err := h.dispatchAccuracy4Ops(ctx, op, body); ok {
+	if r, ok, err := h.dispatchAccuracy4AndEdgeOps(ctx, op, body); ok {
 		return r, err
 	}
 
-	if r, ok, err := h.dispatchStubOps(ctx, op, body); ok {
+	if r, ok, err := h.dispatchClusterOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchHubAndLabelingOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchFamilyExtAndStubOps(ctx, op, body); ok {
 		return r, err
 	}
 
 	return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
+}
+
+// dispatchFamilyExtAndStubOps groups the Training Plan / Reserved Capacity,
+// AutoML candidates / Search, ModelCard export job, and remaining
+// miscellaneous de-stubbed operation dispatch tables so dispatchNewOps only
+// needs a single branch for all of them.
+func (h *Handler) dispatchFamilyExtAndStubOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
+	if r, ok, err := h.dispatchTrainingPlanExtOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchAutoMLSearchExtOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchModelCardExportOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchMiscDestubOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchFeatureMetadataOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchPresignedSessionOps(ctx, op, body)
 }
 
 func (h *Handler) dispatchLineageAndBatchOps(
@@ -490,6 +570,16 @@ func (h *Handler) dispatchLineageAndBatchOps(
 		return r, true, err
 	case "CreateAlgorithm":
 		r, err := h.handleCreateAlgorithm(ctx, body)
+
+		return r, true, err
+	case "DescribeAlgorithm":
+		r, err := h.handleDescribeAlgorithm(ctx, body)
+
+		return r, true, err
+	case "DeleteAlgorithm":
+		return nil, true, h.handleDeleteAlgorithm(ctx, body)
+	case "ListAlgorithms":
+		r, err := h.handleListAlgorithms(ctx, body)
 
 		return r, true, err
 	}
@@ -613,6 +703,8 @@ func (h *Handler) dispatchProcessingOps(
 		return r, true, err
 	case "StopProcessingJob":
 		return nil, true, h.handleStopProcessingJob(ctx, body)
+	case "DeleteProcessingJob":
+		return nil, true, h.handleDeleteProcessingJob(ctx, body)
 	case "ListProcessingJobs":
 		r, err := h.handleListProcessingJobs(ctx, body)
 
@@ -1673,9 +1765,13 @@ func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, 
 
 // createAlgorithmRequest is the request body for CreateAlgorithm.
 type createAlgorithmRequest struct {
-	AlgorithmName        string      `json:"AlgorithmName"`
-	AlgorithmDescription string      `json:"AlgorithmDescription,omitempty"`
-	Tags                 []tagObject `json:"Tags"`
+	TrainingSpecification   json.RawMessage `json:"TrainingSpecification,omitempty"`
+	InferenceSpecification  json.RawMessage `json:"InferenceSpecification,omitempty"`
+	ValidationSpecification json.RawMessage `json:"ValidationSpecification,omitempty"`
+	AlgorithmName           string          `json:"AlgorithmName"`
+	AlgorithmDescription    string          `json:"AlgorithmDescription,omitempty"`
+	Tags                    []tagObject     `json:"Tags"`
+	CertifyForMarketplace   bool            `json:"CertifyForMarketplace,omitempty"`
 }
 
 func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byte, error) {
@@ -1690,7 +1786,15 @@ func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byt
 
 	tags := fromTagObjects(req.Tags)
 
-	al, err := h.Backend.CreateAlgorithm(ctx, req.AlgorithmName, req.AlgorithmDescription, tags)
+	al, err := h.Backend.CreateAlgorithm(ctx, CreateAlgorithmOptions{
+		AlgorithmName:           req.AlgorithmName,
+		AlgorithmDescription:    req.AlgorithmDescription,
+		TrainingSpecification:   req.TrainingSpecification,
+		InferenceSpecification:  req.InferenceSpecification,
+		ValidationSpecification: req.ValidationSpecification,
+		CertifyForMarketplace:   req.CertifyForMarketplace,
+		Tags:                    tags,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1706,4 +1810,97 @@ func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byt
 	)
 
 	return json.Marshal(map[string]string{"AlgorithmArn": al.AlgorithmArn})
+}
+
+// describeAlgorithmResponse is the response body for DescribeAlgorithm.
+type describeAlgorithmResponse struct {
+	AlgorithmArn            string                 `json:"AlgorithmArn"`
+	AlgorithmName           string                 `json:"AlgorithmName"`
+	AlgorithmStatus         string                 `json:"AlgorithmStatus"`
+	AlgorithmDescription    string                 `json:"AlgorithmDescription,omitempty"`
+	ProductID               string                 `json:"ProductId,omitempty"`
+	AlgorithmStatusDetails  AlgorithmStatusDetails `json:"AlgorithmStatusDetails"`
+	TrainingSpecification   json.RawMessage        `json:"TrainingSpecification,omitempty"`
+	InferenceSpecification  json.RawMessage        `json:"InferenceSpecification,omitempty"`
+	ValidationSpecification json.RawMessage        `json:"ValidationSpecification,omitempty"`
+	CreationTime            float64                `json:"CreationTime"`
+	CertifyForMarketplace   bool                   `json:"CertifyForMarketplace,omitempty"`
+}
+
+func (h *Handler) handleDescribeAlgorithm(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		AlgorithmName string `json:"AlgorithmName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.AlgorithmName == "" {
+		return nil, fmt.Errorf("%w: AlgorithmName is required", errInvalidRequest)
+	}
+
+	al, err := h.Backend.DescribeAlgorithm(ctx, req.AlgorithmName)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(describeAlgorithmResponse{
+		AlgorithmArn:            al.AlgorithmArn,
+		AlgorithmName:           al.AlgorithmName,
+		AlgorithmStatus:         al.AlgorithmStatus,
+		AlgorithmStatusDetails:  al.AlgorithmStatusDetails,
+		AlgorithmDescription:    al.AlgorithmDescription,
+		ProductID:               al.ProductID,
+		CreationTime:            epochSeconds(al.CreationTime),
+		CertifyForMarketplace:   al.CertifyForMarketplace,
+		TrainingSpecification:   al.TrainingSpecification,
+		InferenceSpecification:  al.InferenceSpecification,
+		ValidationSpecification: al.ValidationSpecification,
+	})
+}
+
+func (h *Handler) handleDeleteAlgorithm(ctx context.Context, body []byte) error {
+	var req struct {
+		AlgorithmName string `json:"AlgorithmName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.AlgorithmName == "" {
+		return fmt.Errorf("%w: AlgorithmName is required", errInvalidRequest)
+	}
+
+	return h.Backend.DeleteAlgorithm(ctx, req.AlgorithmName)
+}
+
+func (h *Handler) handleListAlgorithms(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		NextToken string `json:"NextToken"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	algorithms, nextToken := h.Backend.ListAlgorithms(ctx, req.NextToken)
+
+	items := make([]map[string]any, 0, len(algorithms))
+	for _, al := range algorithms {
+		entry := map[string]any{
+			"AlgorithmArn":    al.AlgorithmArn,
+			"AlgorithmName":   al.AlgorithmName,
+			"AlgorithmStatus": al.AlgorithmStatus,
+			keyCreationTime:   epochSeconds(al.CreationTime),
+		}
+		if al.AlgorithmDescription != "" {
+			entry["AlgorithmDescription"] = al.AlgorithmDescription
+		}
+
+		items = append(items, entry)
+	}
+
+	return listResp("AlgorithmSummaryList", items, nextToken)
 }

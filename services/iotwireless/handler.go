@@ -1724,7 +1724,9 @@ func isNotFound(err error) bool {
 		errors.Is(err, ErrNetworkAnalyzerConfigNotFound) ||
 		errors.Is(err, ErrImportTaskNotFound) ||
 		errors.Is(err, ErrGatewayTaskDefNotFound) ||
-		errors.Is(err, ErrGatewayTaskNotFound)
+		errors.Is(err, ErrGatewayTaskNotFound) ||
+		errors.Is(err, ErrPartnerAccountNotFound) ||
+		errors.Is(err, ErrMulticastGroupSessionNotFound)
 }
 
 // handleError writes an appropriate HTTP error response for a backend error.

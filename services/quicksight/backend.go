@@ -37,6 +37,7 @@ func decodePageToken(tok string) (int, error) {
 const (
 	errResourceNotFound  = "ResourceNotFoundException"
 	errConflictException = "ConflictException"
+	errResourceExists    = "ResourceExistsException"
 	errValidation        = "InvalidParameterValueException"
 
 	defaultNamespace         = "default"
@@ -90,10 +91,131 @@ var (
 	ErrAnalysisNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrAnalysisAlreadyExists is returned when an analysis already exists.
 	ErrAnalysisAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	// ErrFolderNotFound is returned when a folder does not exist.
+	ErrFolderNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrFolderAlreadyExists is returned when a folder already exists.
+	ErrFolderAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrFolderMemberNotFound is returned when a folder membership does not exist.
+	ErrFolderMemberNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTemplateNotFound is returned when a template (or template version) does not exist.
+	ErrTemplateNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTemplateAlreadyExists is returned when a template already exists.
+	ErrTemplateAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrTemplateAliasNotFound is returned when a template alias does not exist.
+	ErrTemplateAliasNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTemplateAliasAlreadyExists is returned when a template alias already exists.
+	ErrTemplateAliasAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrThemeNotFound is returned when a theme (or theme version) does not exist.
+	ErrThemeNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrThemeAlreadyExists is returned when a theme already exists.
+	ErrThemeAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrThemeAliasNotFound is returned when a theme alias does not exist.
+	ErrThemeAliasNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrThemeAliasAlreadyExists is returned when a theme alias already exists.
+	ErrThemeAliasAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrTopicNotFound is returned when a topic does not exist.
+	ErrTopicNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTopicAlreadyExists is returned when a topic already exists.
+	ErrTopicAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrTopicRefreshScheduleNotFound is returned when a topic refresh schedule does not exist.
+	ErrTopicRefreshScheduleNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTopicRefreshScheduleAlreadyExists is returned when a topic refresh schedule already exists.
+	ErrTopicRefreshScheduleAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrVPCConnectionNotFound is returned when a VPC connection does not exist.
+	ErrVPCConnectionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrVPCConnectionAlreadyExists is returned when a VPC connection already exists.
+	ErrVPCConnectionAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrIAMPolicyAssignmentNotFound is returned when an IAM policy assignment does not exist.
+	ErrIAMPolicyAssignmentNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrIAMPolicyAssignmentAlreadyExists is returned when an IAM policy assignment already exists.
+	ErrIAMPolicyAssignmentAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrAccountSubscriptionNotFound is returned when an account has no QuickSight subscription.
+	ErrAccountSubscriptionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrAccountSubscriptionAlreadyExists is returned when an account is already subscribed.
+	ErrAccountSubscriptionAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrAccountCustomizationNotFound is returned when an account (or namespace) customization
+	// does not exist.
+	ErrAccountCustomizationNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrAccountCustomizationAlreadyExists is returned when an account (or namespace)
+	// customization already exists.
+	ErrAccountCustomizationAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrAccountCustomPermissionNotFound is returned when an account has no custom
+	// permissions profile applied.
+	ErrAccountCustomPermissionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrDefaultQBusinessApplicationNotFound is returned when no default Q Business
+	// application is configured for an account.
+	ErrDefaultQBusinessApplicationNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrBrandNotFound is returned when a brand does not exist.
+	ErrBrandNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrBrandAlreadyExists is returned when a brand already exists.
+	ErrBrandAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrBrandVersionNotFound is returned when a brand version does not exist.
+	ErrBrandVersionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrBrandInUse is returned when a brand cannot be deleted because it is assigned.
+	ErrBrandInUse = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	// ErrCustomPermissionsNotFound is returned when a custom permissions profile does
+	// not exist.
+	ErrCustomPermissionsNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrCustomPermissionsAlreadyExists is returned when a custom permissions profile
+	// already exists.
+	ErrCustomPermissionsAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrCustomPermissionsInUse is returned when a custom permissions profile cannot
+	// be deleted because it is assigned to a role or user.
+	ErrCustomPermissionsInUse = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	// ErrRoleCustomPermissionNotFound is returned when a role has no custom
+	// permissions assigned.
+	ErrRoleCustomPermissionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrRoleMembershipAlreadyExists is returned when a group is already a member of
+	// a role.
+	ErrRoleMembershipAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrRoleMembershipNotFound is returned when a group is not a member of a role.
+	ErrRoleMembershipNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrUserCustomPermissionNotFound is returned when a user has no custom
+	// permissions assigned.
+	ErrUserCustomPermissionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrOAuthClientAppNotFound is returned when an OAuth client application does not
+	// exist.
+	ErrOAuthClientAppNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrOAuthClientAppAlreadyExists is returned when an OAuth client application
+	// already exists.
+	ErrOAuthClientAppAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrIdentityPropagationConfigNotFound is returned when an identity propagation
+	// configuration does not exist for the given service.
+	ErrIdentityPropagationConfigNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrAssetBundleExportJobNotFound is returned when an asset bundle export job does
+	// not exist.
+	ErrAssetBundleExportJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrAssetBundleImportJobNotFound is returned when an asset bundle import job does
+	// not exist.
+	ErrAssetBundleImportJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrDashboardSnapshotJobNotFound is returned when a dashboard snapshot job does
+	// not exist.
+	ErrDashboardSnapshotJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrRefreshScheduleNotFound is returned when a dataset refresh schedule does not
+	// exist.
+	ErrRefreshScheduleNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrRefreshScheduleAlreadyExists is returned when a dataset refresh schedule
+	// already exists.
+	ErrRefreshScheduleAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrDataSetRefreshPropertiesNotFound is returned when a dataset has no refresh
+	// properties configured.
+	ErrDataSetRefreshPropertiesNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 	// ErrUnknownOperation is returned when the requested operation is not implemented.
 	ErrUnknownOperation = errors.New("unknown operation")
+	// ErrActionConnectorNotFound is returned when an action connector does not exist.
+	ErrActionConnectorNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrActionConnectorAlreadyExists is returned when an action connector already exists.
+	ErrActionConnectorAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrAutomationJobNotFound is returned when an automation job does not exist.
+	ErrAutomationJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrFlowNotFound is returned when a flow does not exist.
+	ErrFlowNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrDashboardVersionNotFound is returned when a dashboard version does not exist.
+	ErrDashboardVersionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrSelfUpgradeRequestNotFound is returned when a self-upgrade request does not exist.
+	ErrSelfUpgradeRequestNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )
 
 type storedNamespace struct {
@@ -159,13 +281,14 @@ func (u *storedUser) toUser() *User {
 }
 
 type storedDataSource struct {
-	CreatedTime     time.Time `json:"createdTime"`
-	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
-	DataSourceID    string    `json:"dataSourceId"`
-	Arn             string    `json:"arn"`
-	Name            string    `json:"name"`
-	Type            string    `json:"type"`
-	Status          string    `json:"status"`
+	CreatedTime     time.Time            `json:"createdTime"`
+	LastUpdatedTime time.Time            `json:"lastUpdatedTime"`
+	DataSourceID    string               `json:"dataSourceId"`
+	Arn             string               `json:"arn"`
+	Name            string               `json:"name"`
+	Type            string               `json:"type"`
+	Status          string               `json:"status"`
+	Permissions     []ResourcePermission `json:"permissions,omitempty"`
 }
 
 func (d *storedDataSource) toDataSource() *DataSource {
@@ -177,16 +300,20 @@ func (d *storedDataSource) toDataSource() *DataSource {
 		Name:            d.Name,
 		Type:            d.Type,
 		Status:          d.Status,
+		Permissions:     clonePermissions(d.Permissions),
 	}
 }
 
 type storedDataSet struct {
-	CreatedTime     time.Time `json:"createdTime"`
-	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
-	DataSetID       string    `json:"dataSetId"`
-	Arn             string    `json:"arn"`
-	Name            string    `json:"name"`
-	ImportMode      string    `json:"importMode"`
+	CreatedTime       time.Time                         `json:"createdTime"`
+	LastUpdatedTime   time.Time                         `json:"lastUpdatedTime"`
+	RefreshSchedules  map[string]*storedRefreshSchedule `json:"refreshSchedules,omitempty"`
+	RefreshProperties *storedDataSetRefreshProperties   `json:"refreshProperties,omitempty"`
+	DataSetID         string                            `json:"dataSetId"`
+	Arn               string                            `json:"arn"`
+	Name              string                            `json:"name"`
+	ImportMode        string                            `json:"importMode"`
+	Permissions       []ResourcePermission              `json:"permissions,omitempty"`
 }
 
 func (d *storedDataSet) toDataSet() *DataSet {
@@ -197,6 +324,7 @@ func (d *storedDataSet) toDataSet() *DataSet {
 		Arn:             d.Arn,
 		Name:            d.Name,
 		ImportMode:      d.ImportMode,
+		Permissions:     clonePermissions(d.Permissions),
 	}
 }
 
@@ -219,34 +347,78 @@ func (i *storedIngestion) toIngestion() *Ingestion {
 }
 
 type storedDashboard struct {
-	CreatedTime     time.Time `json:"createdTime"`
-	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
-	DashboardID     string    `json:"dashboardId"`
-	Arn             string    `json:"arn"`
-	Name            string    `json:"name"`
-	Status          string    `json:"status"`
-	VersionNumber   int64     `json:"versionNumber"`
+	CreatedTime            time.Time            `json:"createdTime"`
+	LastUpdatedTime        time.Time            `json:"lastUpdatedTime"`
+	Definition             map[string]any       `json:"definition,omitempty"`
+	DashboardID            string               `json:"dashboardId"`
+	Arn                    string               `json:"arn"`
+	Name                   string               `json:"name"`
+	Status                 string               `json:"status"`
+	Permissions            []ResourcePermission `json:"permissions,omitempty"`
+	LinkEntities           []string             `json:"linkEntities,omitempty"`
+	VersionNumber          int64                `json:"versionNumber"`
+	PublishedVersionNumber int64                `json:"publishedVersionNumber"`
 }
 
 func (d *storedDashboard) toDashboard() *Dashboard {
 	return &Dashboard{
-		CreatedTime:     d.CreatedTime,
-		LastUpdatedTime: d.LastUpdatedTime,
-		DashboardID:     d.DashboardID,
-		Arn:             d.Arn,
-		Name:            d.Name,
-		Status:          d.Status,
-		VersionNumber:   d.VersionNumber,
+		CreatedTime:            d.CreatedTime,
+		LastUpdatedTime:        d.LastUpdatedTime,
+		DashboardID:            d.DashboardID,
+		Arn:                    d.Arn,
+		Name:                   d.Name,
+		Status:                 d.Status,
+		VersionNumber:          d.VersionNumber,
+		PublishedVersionNumber: d.PublishedVersionNumber,
+		Definition:             d.Definition,
+		Permissions:            clonePermissions(d.Permissions),
+		LinkEntities:           append([]string(nil), d.LinkEntities...),
+	}
+}
+
+// storedRefreshSchedule is the persisted representation of one dataset SPICE
+// refresh schedule, keyed by ScheduleId.
+type storedRefreshSchedule struct {
+	ScheduleFrequency  map[string]any `json:"scheduleFrequency,omitempty"`
+	ScheduleID         string         `json:"scheduleId"`
+	Arn                string         `json:"arn"`
+	RefreshType        string         `json:"refreshType"`
+	StartAfterDateTime string         `json:"startAfterDateTime,omitempty"`
+}
+
+func (s *storedRefreshSchedule) toRefreshSchedule() *RefreshSchedule {
+	return &RefreshSchedule{
+		ScheduleID:         s.ScheduleID,
+		Arn:                s.Arn,
+		RefreshType:        s.RefreshType,
+		StartAfterDateTime: s.StartAfterDateTime,
+		ScheduleFrequency:  s.ScheduleFrequency,
+	}
+}
+
+// storedDataSetRefreshProperties is the persisted representation of a dataset's
+// SPICE refresh configuration.
+type storedDataSetRefreshProperties struct {
+	RefreshConfiguration map[string]any `json:"refreshConfiguration,omitempty"`
+	FailureConfiguration map[string]any `json:"failureConfiguration,omitempty"`
+}
+
+func (p *storedDataSetRefreshProperties) toDataSetRefreshProperties() *DataSetRefreshProperties {
+	return &DataSetRefreshProperties{
+		RefreshConfiguration: p.RefreshConfiguration,
+		FailureConfiguration: p.FailureConfiguration,
 	}
 }
 
 type storedAnalysis struct {
-	CreatedTime     time.Time `json:"createdTime"`
-	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
-	AnalysisID      string    `json:"analysisId"`
-	Arn             string    `json:"arn"`
-	Name            string    `json:"name"`
-	Status          string    `json:"status"`
+	CreatedTime     time.Time            `json:"createdTime"`
+	LastUpdatedTime time.Time            `json:"lastUpdatedTime"`
+	Definition      map[string]any       `json:"definition,omitempty"`
+	AnalysisID      string               `json:"analysisId"`
+	Arn             string               `json:"arn"`
+	Name            string               `json:"name"`
+	Status          string               `json:"status"`
+	Permissions     []ResourcePermission `json:"permissions,omitempty"`
 }
 
 func (a *storedAnalysis) toAnalysis() *Analysis {
@@ -257,71 +429,174 @@ func (a *storedAnalysis) toAnalysis() *Analysis {
 		Arn:             a.Arn,
 		Name:            a.Name,
 		Status:          a.Status,
+		Definition:      a.Definition,
+		Permissions:     clonePermissions(a.Permissions),
 	}
 }
 
 // state is the serializable snapshot of the backend.
 type state struct {
-	Namespaces     map[string]*storedNamespace     `json:"namespaces"`
-	Groups         map[string]*storedGroup         `json:"groups"`
-	GroupMembers   map[string]bool                 `json:"groupMembers"`
-	Users          map[string]*storedUser          `json:"users"`
-	DataSources    map[string]*storedDataSource    `json:"dataSources"`
-	DataSets       map[string]*storedDataSet       `json:"dataSets"`
-	Ingestions     map[string]*storedIngestion     `json:"ingestions"`
-	Dashboards     map[string]*storedDashboard     `json:"dashboards"`
-	Analyses       map[string]*storedAnalysis      `json:"analyses"`
-	Folders        map[string]*storedFolder        `json:"folders"`
-	Templates      map[string]*storedTemplate      `json:"templates"`
-	Themes         map[string]*storedTheme         `json:"themes"`
-	VPCConnections map[string]*storedVPCConnection `json:"vpcConnections"`
-	Brands         map[string]*storedBrand         `json:"brands"`
-	Tags           map[string]map[string]string    `json:"tags"`
+	Namespaces           map[string]*storedNamespace           `json:"namespaces"`
+	Groups               map[string]*storedGroup               `json:"groups"`
+	GroupMembers         map[string]bool                       `json:"groupMembers"`
+	Users                map[string]*storedUser                `json:"users"`
+	DataSources          map[string]*storedDataSource          `json:"dataSources"`
+	DataSets             map[string]*storedDataSet             `json:"dataSets"`
+	Ingestions           map[string]*storedIngestion           `json:"ingestions"`
+	Dashboards           map[string]*storedDashboard           `json:"dashboards"`
+	Analyses             map[string]*storedAnalysis            `json:"analyses"`
+	Tags                 map[string]map[string]string          `json:"tags"`
+	Folders              map[string]*storedFolder              `json:"folders"`
+	FolderMembers        map[string]*storedFolderMember        `json:"folderMembers"`
+	Templates            map[string]*storedTemplate            `json:"templates"`
+	Themes               map[string]*storedTheme               `json:"themes"`
+	Topics               map[string]*storedTopic               `json:"topics"`
+	VPCConnections       map[string]*storedVPCConnection       `json:"vpcConnections"`
+	IAMPolicyAssignments map[string]*storedIAMPolicyAssignment `json:"iamPolicyAssignments"`
+
+	AccountSettings          map[string]*storedAccountSettings             `json:"accountSettings"`
+	AccountSubscriptions     map[string]*storedAccountSubscription         `json:"accountSubscriptions"`
+	AccountCustomizations    map[string]*storedAccountCustomization        `json:"accountCustomizations"`
+	AccountCustomPermissions map[string]string                             `json:"accountCustomPermissions"`
+	IPRestrictions           map[string]*storedIPRestriction               `json:"ipRestrictions"`
+	PublicSharing            map[string]bool                               `json:"publicSharing"`
+	KeyRegistrations         map[string][]storedRegisteredKey              `json:"keyRegistrations"`
+	DefaultQBusinessApps     map[string]*storedDefaultQBusinessApplication `json:"defaultQBusinessApps"`
+	QPersonalization         map[string]string                             `json:"qPersonalization"`
+	QSearchConfig            map[string]string                             `json:"qSearchConfig"`
+	DashboardsQAConfig       map[string]string                             `json:"dashboardsQAConfig"`
+
+	Brands                     map[string]*storedBrand                     `json:"brands"`
+	BrandAssignments           map[string]string                           `json:"brandAssignments"`
+	CustomPermissions          map[string]*storedCustomPermissions         `json:"customPermissions"`
+	RoleCustomPermissions      map[string]string                           `json:"roleCustomPermissions"`
+	RoleMemberships            map[string]bool                             `json:"roleMemberships"`
+	UserCustomPermissions      map[string]string                           `json:"userCustomPermissions"`
+	OAuthClientApps            map[string]*storedOAuthApp                  `json:"oauthClientApps"`
+	IdentityPropagationConfigs map[string]*storedIdentityPropagationConfig `json:"identityPropagationConfigs"`
+	AssetBundleExportJobs      map[string]*storedAssetBundleExportJob      `json:"assetBundleExportJobs"`
+	AssetBundleImportJobs      map[string]*storedAssetBundleImportJob      `json:"assetBundleImportJobs"`
+	DashboardSnapshotJobs      map[string]*storedDashboardSnapshotJob      `json:"dashboardSnapshotJobs"`
+
+	ActionConnectors map[string]*storedActionConnector `json:"actionConnectors"`
+	AutomationJobs   map[string]*storedAutomationJob   `json:"automationJobs"`
+	Flows            map[string]*storedFlow            `json:"flows"`
+	SPICECapacity    map[string]string                 `json:"spiceCapacity"`
+
+	SelfUpgradeConfig   map[string]string                    `json:"selfUpgradeConfig"`
+	SelfUpgradeRequests map[string]*storedSelfUpgradeRequest `json:"selfUpgradeRequests"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu           *lockmetrics.RWMutex
-	namespaces   map[string]*storedNamespace
-	groups       map[string]*storedGroup
-	groupMembers map[string]bool
-	users        map[string]*storedUser
-	dataSources  map[string]*storedDataSource
-	dataSets     map[string]*storedDataSet
-	ingestions   map[string]*storedIngestion
-	dashboards   map[string]*storedDashboard
-	analyses     map[string]*storedAnalysis
-	folders      map[string]*storedFolder
-	templates    map[string]*storedTemplate
-	themes       map[string]*storedTheme
-	// vpcConnections and brands round out the stateful Appendix-A families.
-	vpcConnections map[string]*storedVPCConnection
-	brands         map[string]*storedBrand
-	tags           map[string]map[string]string
-	accountID      string
-	region         string
+	mu                   *lockmetrics.RWMutex
+	namespaces           map[string]*storedNamespace
+	groups               map[string]*storedGroup
+	groupMembers         map[string]bool
+	users                map[string]*storedUser
+	dataSources          map[string]*storedDataSource
+	dataSets             map[string]*storedDataSet
+	ingestions           map[string]*storedIngestion
+	dashboards           map[string]*storedDashboard
+	analyses             map[string]*storedAnalysis
+	tags                 map[string]map[string]string
+	folders              map[string]*storedFolder
+	folderMembers        map[string]*storedFolderMember
+	templates            map[string]*storedTemplate
+	themes               map[string]*storedTheme
+	topics               map[string]*storedTopic
+	vpcConnections       map[string]*storedVPCConnection
+	iamPolicyAssignments map[string]*storedIAMPolicyAssignment
+
+	accountSettings          map[string]*storedAccountSettings
+	accountSubscriptions     map[string]*storedAccountSubscription
+	accountCustomizations    map[string]*storedAccountCustomization
+	accountCustomPermissions map[string]string
+	ipRestrictions           map[string]*storedIPRestriction
+	publicSharing            map[string]bool
+	keyRegistrations         map[string][]storedRegisteredKey
+	defaultQBusinessApps     map[string]*storedDefaultQBusinessApplication
+	qPersonalization         map[string]string
+	qSearchConfig            map[string]string
+	dashboardsQAConfig       map[string]string
+
+	brands                     map[string]*storedBrand
+	brandAssignments           map[string]string
+	customPermissions          map[string]*storedCustomPermissions
+	roleCustomPermissions      map[string]string
+	roleMemberships            map[string]bool
+	userCustomPermissions      map[string]string
+	oauthClientApps            map[string]*storedOAuthApp
+	identityPropagationConfigs map[string]*storedIdentityPropagationConfig
+	assetBundleExportJobs      map[string]*storedAssetBundleExportJob
+	assetBundleImportJobs      map[string]*storedAssetBundleImportJob
+	dashboardSnapshotJobs      map[string]*storedDashboardSnapshotJob
+
+	actionConnectors map[string]*storedActionConnector
+	automationJobs   map[string]*storedAutomationJob
+	flows            map[string]*storedFlow
+	spiceCapacity    map[string]string
+
+	selfUpgradeConfig   map[string]string
+	selfUpgradeRequests map[string]*storedSelfUpgradeRequest
+
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID:      accountID,
-		region:         region,
-		namespaces:     make(map[string]*storedNamespace),
-		groups:         make(map[string]*storedGroup),
-		groupMembers:   make(map[string]bool),
-		users:          make(map[string]*storedUser),
-		dataSources:    make(map[string]*storedDataSource),
-		dataSets:       make(map[string]*storedDataSet),
-		ingestions:     make(map[string]*storedIngestion),
-		dashboards:     make(map[string]*storedDashboard),
-		analyses:       make(map[string]*storedAnalysis),
-		folders:        make(map[string]*storedFolder),
-		templates:      make(map[string]*storedTemplate),
-		themes:         make(map[string]*storedTheme),
-		vpcConnections: make(map[string]*storedVPCConnection),
-		brands:         make(map[string]*storedBrand),
-		tags:           make(map[string]map[string]string),
+		accountID:            accountID,
+		region:               region,
+		namespaces:           make(map[string]*storedNamespace),
+		groups:               make(map[string]*storedGroup),
+		groupMembers:         make(map[string]bool),
+		users:                make(map[string]*storedUser),
+		dataSources:          make(map[string]*storedDataSource),
+		dataSets:             make(map[string]*storedDataSet),
+		ingestions:           make(map[string]*storedIngestion),
+		dashboards:           make(map[string]*storedDashboard),
+		analyses:             make(map[string]*storedAnalysis),
+		tags:                 make(map[string]map[string]string),
+		folders:              make(map[string]*storedFolder),
+		folderMembers:        make(map[string]*storedFolderMember),
+		templates:            make(map[string]*storedTemplate),
+		themes:               make(map[string]*storedTheme),
+		topics:               make(map[string]*storedTopic),
+		vpcConnections:       make(map[string]*storedVPCConnection),
+		iamPolicyAssignments: make(map[string]*storedIAMPolicyAssignment),
+
+		accountSettings:       make(map[string]*storedAccountSettings),
+		accountSubscriptions:  make(map[string]*storedAccountSubscription),
+		accountCustomizations: make(map[string]*storedAccountCustomization),
+		ipRestrictions:        make(map[string]*storedIPRestriction),
+		publicSharing:         make(map[string]bool),
+		keyRegistrations:      make(map[string][]storedRegisteredKey),
+		defaultQBusinessApps:  make(map[string]*storedDefaultQBusinessApplication),
+		qPersonalization:      make(map[string]string),
+		qSearchConfig:         make(map[string]string),
+		dashboardsQAConfig:    make(map[string]string),
+
+		brands:                     make(map[string]*storedBrand),
+		brandAssignments:           make(map[string]string),
+		customPermissions:          make(map[string]*storedCustomPermissions),
+		roleCustomPermissions:      make(map[string]string),
+		roleMemberships:            make(map[string]bool),
+		userCustomPermissions:      make(map[string]string),
+		oauthClientApps:            make(map[string]*storedOAuthApp),
+		identityPropagationConfigs: make(map[string]*storedIdentityPropagationConfig),
+		assetBundleExportJobs:      make(map[string]*storedAssetBundleExportJob),
+		assetBundleImportJobs:      make(map[string]*storedAssetBundleImportJob),
+		dashboardSnapshotJobs:      make(map[string]*storedDashboardSnapshotJob),
+
+		actionConnectors: make(map[string]*storedActionConnector),
+		automationJobs:   make(map[string]*storedAutomationJob),
+		flows:            make(map[string]*storedFlow),
+		spiceCapacity:    make(map[string]string),
+
+		selfUpgradeConfig:   make(map[string]string),
+		selfUpgradeRequests: make(map[string]*storedSelfUpgradeRequest),
 	}
 	b.mu = lockmetrics.New("quicksight")
 
@@ -357,12 +632,46 @@ func (b *InMemoryBackend) Reset() {
 	b.ingestions = make(map[string]*storedIngestion)
 	b.dashboards = make(map[string]*storedDashboard)
 	b.analyses = make(map[string]*storedAnalysis)
+	b.tags = make(map[string]map[string]string)
 	b.folders = make(map[string]*storedFolder)
+	b.folderMembers = make(map[string]*storedFolderMember)
 	b.templates = make(map[string]*storedTemplate)
 	b.themes = make(map[string]*storedTheme)
+	b.topics = make(map[string]*storedTopic)
 	b.vpcConnections = make(map[string]*storedVPCConnection)
+	b.iamPolicyAssignments = make(map[string]*storedIAMPolicyAssignment)
+
+	b.accountSettings = make(map[string]*storedAccountSettings)
+	b.accountSubscriptions = make(map[string]*storedAccountSubscription)
+	b.accountCustomizations = make(map[string]*storedAccountCustomization)
+	b.accountCustomPermissions = make(map[string]string)
+	b.ipRestrictions = make(map[string]*storedIPRestriction)
+	b.publicSharing = make(map[string]bool)
+	b.keyRegistrations = make(map[string][]storedRegisteredKey)
+	b.defaultQBusinessApps = make(map[string]*storedDefaultQBusinessApplication)
+	b.qPersonalization = make(map[string]string)
+	b.qSearchConfig = make(map[string]string)
+	b.dashboardsQAConfig = make(map[string]string)
+
 	b.brands = make(map[string]*storedBrand)
-	b.tags = make(map[string]map[string]string)
+	b.brandAssignments = make(map[string]string)
+	b.customPermissions = make(map[string]*storedCustomPermissions)
+	b.roleCustomPermissions = make(map[string]string)
+	b.roleMemberships = make(map[string]bool)
+	b.userCustomPermissions = make(map[string]string)
+	b.oauthClientApps = make(map[string]*storedOAuthApp)
+	b.identityPropagationConfigs = make(map[string]*storedIdentityPropagationConfig)
+	b.assetBundleExportJobs = make(map[string]*storedAssetBundleExportJob)
+	b.assetBundleImportJobs = make(map[string]*storedAssetBundleImportJob)
+	b.dashboardSnapshotJobs = make(map[string]*storedDashboardSnapshotJob)
+
+	b.actionConnectors = make(map[string]*storedActionConnector)
+	b.automationJobs = make(map[string]*storedAutomationJob)
+	b.flows = make(map[string]*storedFlow)
+	b.spiceCapacity = make(map[string]string)
+
+	b.selfUpgradeConfig = make(map[string]string)
+	b.selfUpgradeRequests = make(map[string]*storedSelfUpgradeRequest)
 
 	b.namespaces[nsKey(b.accountID, defaultNamespace)] = &storedNamespace{
 		Name:           defaultNamespace,
@@ -379,21 +688,55 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	s := state{
-		Namespaces:     b.namespaces,
-		Groups:         b.groups,
-		GroupMembers:   b.groupMembers,
-		Users:          b.users,
-		DataSources:    b.dataSources,
-		DataSets:       b.dataSets,
-		Ingestions:     b.ingestions,
-		Dashboards:     b.dashboards,
-		Analyses:       b.analyses,
-		Folders:        b.folders,
-		Templates:      b.templates,
-		Themes:         b.themes,
-		VPCConnections: b.vpcConnections,
-		Brands:         b.brands,
-		Tags:           b.tags,
+		Namespaces:           b.namespaces,
+		Groups:               b.groups,
+		GroupMembers:         b.groupMembers,
+		Users:                b.users,
+		DataSources:          b.dataSources,
+		DataSets:             b.dataSets,
+		Ingestions:           b.ingestions,
+		Dashboards:           b.dashboards,
+		Analyses:             b.analyses,
+		Tags:                 b.tags,
+		Folders:              b.folders,
+		FolderMembers:        b.folderMembers,
+		Templates:            b.templates,
+		Themes:               b.themes,
+		Topics:               b.topics,
+		VPCConnections:       b.vpcConnections,
+		IAMPolicyAssignments: b.iamPolicyAssignments,
+
+		AccountSettings:          b.accountSettings,
+		AccountSubscriptions:     b.accountSubscriptions,
+		AccountCustomizations:    b.accountCustomizations,
+		AccountCustomPermissions: b.accountCustomPermissions,
+		IPRestrictions:           b.ipRestrictions,
+		PublicSharing:            b.publicSharing,
+		KeyRegistrations:         b.keyRegistrations,
+		DefaultQBusinessApps:     b.defaultQBusinessApps,
+		QPersonalization:         b.qPersonalization,
+		QSearchConfig:            b.qSearchConfig,
+		DashboardsQAConfig:       b.dashboardsQAConfig,
+
+		Brands:                     b.brands,
+		BrandAssignments:           b.brandAssignments,
+		CustomPermissions:          b.customPermissions,
+		RoleCustomPermissions:      b.roleCustomPermissions,
+		RoleMemberships:            b.roleMemberships,
+		UserCustomPermissions:      b.userCustomPermissions,
+		OAuthClientApps:            b.oauthClientApps,
+		IdentityPropagationConfigs: b.identityPropagationConfigs,
+		AssetBundleExportJobs:      b.assetBundleExportJobs,
+		AssetBundleImportJobs:      b.assetBundleImportJobs,
+		DashboardSnapshotJobs:      b.dashboardSnapshotJobs,
+
+		ActionConnectors: b.actionConnectors,
+		AutomationJobs:   b.automationJobs,
+		Flows:            b.flows,
+		SPICECapacity:    b.spiceCapacity,
+
+		SelfUpgradeConfig:   b.selfUpgradeConfig,
+		SelfUpgradeRequests: b.selfUpgradeRequests,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "quicksight", s)
@@ -418,23 +761,45 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.ingestions = s.Ingestions
 	b.dashboards = s.Dashboards
 	b.analyses = s.Analyses
+	b.tags = s.Tags
 	b.folders = s.Folders
+	b.folderMembers = s.FolderMembers
 	b.templates = s.Templates
 	b.themes = s.Themes
+	b.topics = s.Topics
 	b.vpcConnections = s.VPCConnections
-	b.brands = s.Brands
-	b.tags = s.Tags
+	b.iamPolicyAssignments = s.IAMPolicyAssignments
 
-	b.ensureAppendixMaps()
+	b.accountSettings = s.AccountSettings
+	b.accountSubscriptions = s.AccountSubscriptions
+	b.accountCustomizations = s.AccountCustomizations
+	b.accountCustomPermissions = s.AccountCustomPermissions
+	b.ipRestrictions = s.IPRestrictions
+	b.publicSharing = s.PublicSharing
+	b.keyRegistrations = s.KeyRegistrations
+	b.defaultQBusinessApps = s.DefaultQBusinessApps
+	b.qPersonalization = s.QPersonalization
+	b.qSearchConfig = s.QSearchConfig
+	b.dashboardsQAConfig = s.DashboardsQAConfig
+
+	b.restoreAppendixBatchFields(s)
+	b.restoreFinalStubFields(s)
+	b.ensureLegacyResourceMaps()
+	b.ensureAccountConfigMaps()
+	b.ensureFinalStubMaps()
 
 	return nil
 }
 
-// ensureAppendixMaps initializes any Appendix-A maps that were nil in a restored
-// snapshot (e.g. snapshots taken before these families were added).
-func (b *InMemoryBackend) ensureAppendixMaps() {
+// ensureLegacyResourceMaps re-initializes any pre-Appendix-A resource maps
+// left nil after Restore (e.g. snapshots taken before those maps existed).
+// Split out of Restore purely to keep Restore's statement count in budget.
+func (b *InMemoryBackend) ensureLegacyResourceMaps() {
 	if b.folders == nil {
 		b.folders = make(map[string]*storedFolder)
+	}
+	if b.folderMembers == nil {
+		b.folderMembers = make(map[string]*storedFolderMember)
 	}
 	if b.templates == nil {
 		b.templates = make(map[string]*storedTemplate)
@@ -442,11 +807,149 @@ func (b *InMemoryBackend) ensureAppendixMaps() {
 	if b.themes == nil {
 		b.themes = make(map[string]*storedTheme)
 	}
+	if b.topics == nil {
+		b.topics = make(map[string]*storedTopic)
+	}
 	if b.vpcConnections == nil {
 		b.vpcConnections = make(map[string]*storedVPCConnection)
 	}
+	if b.iamPolicyAssignments == nil {
+		b.iamPolicyAssignments = make(map[string]*storedIAMPolicyAssignment)
+	}
+}
+
+// ensureFinalStubMaps re-initializes any maps introduced by the final
+// canned-stub batch (action connectors, automation jobs, flows, SPICE
+// capacity) or the parity-sweep batch (self-upgrade config/requests) left nil
+// after Restore (e.g. snapshots taken before those maps existed).
+func (b *InMemoryBackend) ensureFinalStubMaps() {
+	if b.actionConnectors == nil {
+		b.actionConnectors = make(map[string]*storedActionConnector)
+	}
+	if b.automationJobs == nil {
+		b.automationJobs = make(map[string]*storedAutomationJob)
+	}
+	if b.flows == nil {
+		b.flows = make(map[string]*storedFlow)
+	}
+	if b.spiceCapacity == nil {
+		b.spiceCapacity = make(map[string]string)
+	}
+	if b.selfUpgradeConfig == nil {
+		b.selfUpgradeConfig = make(map[string]string)
+	}
+	if b.selfUpgradeRequests == nil {
+		b.selfUpgradeRequests = make(map[string]*storedSelfUpgradeRequest)
+	}
+}
+
+// ensureAccountConfigMaps re-initializes any account/config-cluster maps left nil
+// after Restore (e.g. snapshots taken before those maps existed).
+func (b *InMemoryBackend) ensureAccountConfigMaps() {
+	if b.accountSettings == nil {
+		b.accountSettings = make(map[string]*storedAccountSettings)
+	}
+	if b.accountSubscriptions == nil {
+		b.accountSubscriptions = make(map[string]*storedAccountSubscription)
+	}
+	if b.accountCustomizations == nil {
+		b.accountCustomizations = make(map[string]*storedAccountCustomization)
+	}
+	if b.accountCustomPermissions == nil {
+		b.accountCustomPermissions = make(map[string]string)
+	}
+	if b.ipRestrictions == nil {
+		b.ipRestrictions = make(map[string]*storedIPRestriction)
+	}
+	if b.publicSharing == nil {
+		b.publicSharing = make(map[string]bool)
+	}
+	if b.keyRegistrations == nil {
+		b.keyRegistrations = make(map[string][]storedRegisteredKey)
+	}
+	if b.defaultQBusinessApps == nil {
+		b.defaultQBusinessApps = make(map[string]*storedDefaultQBusinessApplication)
+	}
+	if b.qPersonalization == nil {
+		b.qPersonalization = make(map[string]string)
+	}
+	if b.qSearchConfig == nil {
+		b.qSearchConfig = make(map[string]string)
+	}
+	if b.dashboardsQAConfig == nil {
+		b.dashboardsQAConfig = make(map[string]string)
+	}
+	b.ensureAppendixBatchMaps()
+}
+
+// restoreAppendixBatchFields copies the final Appendix-A batch's fields
+// (brands, custom permissions, OAuth apps, identity propagation, asset
+// bundle/snapshot jobs, refresh schedules) from a deserialized snapshot onto b.
+// Split out of Restore purely to keep Restore's statement count in budget.
+func (b *InMemoryBackend) restoreAppendixBatchFields(s state) {
+	b.brands = s.Brands
+	b.brandAssignments = s.BrandAssignments
+	b.customPermissions = s.CustomPermissions
+	b.roleCustomPermissions = s.RoleCustomPermissions
+	b.roleMemberships = s.RoleMemberships
+	b.userCustomPermissions = s.UserCustomPermissions
+	b.oauthClientApps = s.OAuthClientApps
+	b.identityPropagationConfigs = s.IdentityPropagationConfigs
+	b.assetBundleExportJobs = s.AssetBundleExportJobs
+	b.assetBundleImportJobs = s.AssetBundleImportJobs
+	b.dashboardSnapshotJobs = s.DashboardSnapshotJobs
+}
+
+// restoreFinalStubFields copies the final canned-stub batch's fields (action
+// connectors, automation jobs, flows, SPICE capacity) from a deserialized
+// snapshot onto b. Split out of Restore purely to keep Restore's statement
+// count in budget.
+func (b *InMemoryBackend) restoreFinalStubFields(s state) {
+	b.actionConnectors = s.ActionConnectors
+	b.automationJobs = s.AutomationJobs
+	b.flows = s.Flows
+	b.spiceCapacity = s.SPICECapacity
+	b.selfUpgradeConfig = s.SelfUpgradeConfig
+	b.selfUpgradeRequests = s.SelfUpgradeRequests
+}
+
+// ensureAppendixBatchMaps re-initializes any maps introduced by the final
+// Appendix-A batch (brands, custom permissions, OAuth apps, identity
+// propagation, asset bundle/snapshot jobs, refresh schedules) left nil after
+// Restore (e.g. snapshots taken before those maps existed).
+func (b *InMemoryBackend) ensureAppendixBatchMaps() {
 	if b.brands == nil {
 		b.brands = make(map[string]*storedBrand)
+	}
+	if b.brandAssignments == nil {
+		b.brandAssignments = make(map[string]string)
+	}
+	if b.customPermissions == nil {
+		b.customPermissions = make(map[string]*storedCustomPermissions)
+	}
+	if b.roleCustomPermissions == nil {
+		b.roleCustomPermissions = make(map[string]string)
+	}
+	if b.roleMemberships == nil {
+		b.roleMemberships = make(map[string]bool)
+	}
+	if b.userCustomPermissions == nil {
+		b.userCustomPermissions = make(map[string]string)
+	}
+	if b.oauthClientApps == nil {
+		b.oauthClientApps = make(map[string]*storedOAuthApp)
+	}
+	if b.identityPropagationConfigs == nil {
+		b.identityPropagationConfigs = make(map[string]*storedIdentityPropagationConfig)
+	}
+	if b.assetBundleExportJobs == nil {
+		b.assetBundleExportJobs = make(map[string]*storedAssetBundleExportJob)
+	}
+	if b.assetBundleImportJobs == nil {
+		b.assetBundleImportJobs = make(map[string]*storedAssetBundleImportJob)
+	}
+	if b.dashboardSnapshotJobs == nil {
+		b.dashboardSnapshotJobs = make(map[string]*storedDashboardSnapshotJob)
 	}
 }
 
@@ -486,6 +989,58 @@ func dashboardKey(accountID, dashboardID string) string {
 
 func analysisKey(accountID, analysisID string) string {
 	return accountID + "/" + analysisID
+}
+
+func folderKey(accountID, folderID string) string {
+	return accountID + "/" + folderID
+}
+
+func folderMemberKey(accountID, folderID, memberType, memberID string) string {
+	return accountID + "/" + folderID + "/" + memberType + "/" + memberID
+}
+
+func templateKey(accountID, templateID string) string {
+	return accountID + "/" + templateID
+}
+
+func themeKey(accountID, themeID string) string {
+	return accountID + "/" + themeID
+}
+
+func brandKey(accountID, brandID string) string {
+	return accountID + "/" + brandID
+}
+
+func customPermissionsKey(accountID, name string) string {
+	return accountID + "/" + name
+}
+
+func roleCustomPermissionKey(accountID, namespace, role string) string {
+	return accountID + "/" + namespace + "/" + role
+}
+
+func roleMembershipKey(accountID, namespace, role, memberName string) string {
+	return accountID + "/" + namespace + "/" + role + "/" + memberName
+}
+
+func userCustomPermissionKey(accountID, namespace, userName string) string {
+	return accountID + "/" + namespace + "/" + userName
+}
+
+func oauthAppKey(accountID, clientID string) string {
+	return accountID + "/" + clientID
+}
+
+func identityPropagationKey(accountID, service string) string {
+	return accountID + "/" + service
+}
+
+func assetBundleJobKey(accountID, jobID string) string {
+	return accountID + "/" + jobID
+}
+
+func dashboardSnapshotJobKey(accountID, dashboardID, jobID string) string {
+	return accountID + "/" + dashboardID + "/" + jobID
 }
 
 // ---- ARN builder ----
@@ -1064,6 +1619,7 @@ func (b *InMemoryBackend) ListUserGroups(
 
 func (b *InMemoryBackend) CreateDataSource(
 	accountID, dataSourceID, name, dsType string,
+	permissions []ResourcePermission,
 	tags map[string]string,
 ) (*DataSource, error) {
 	if dataSourceID == "" || name == "" {
@@ -1087,6 +1643,7 @@ func (b *InMemoryBackend) CreateDataSource(
 		Name:            name,
 		Type:            dsType,
 		Status:          statusCreationSuccessful,
+		Permissions:     clonePermissions(permissions),
 	}
 	b.dataSources[key] = ds
 
@@ -1192,10 +1749,100 @@ func (b *InMemoryBackend) ListDataSources(
 	return result, next, nil
 }
 
+// SearchDataSources searches data sources by name (filter Name ==
+// filterDataSourceName); any other filter Name is an ownership-related filter
+// that this in-memory backend doesn't track and is treated as a pass-through
+// match, mirroring folderMatchesFilter's permissive default.
+//
+//nolint:dupl // search functions share structure but operate on different stored types
+func (b *InMemoryBackend) SearchDataSources(
+	accountID string,
+	filters []SearchFilter,
+	maxResults int32,
+	nextToken string,
+) ([]*DataSource, string, error) {
+	b.mu.RLock("SearchDataSources")
+	defer b.mu.RUnlock()
+
+	prefix := accountID + "/"
+	var filtered []*storedDataSource
+	for k, ds := range b.dataSources {
+		if strings.HasPrefix(k, prefix) && matchesAllNameFilters(ds.Name, filters, filterDataSourceName) {
+			filtered = append(filtered, ds)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].DataSourceID < filtered[j].DataSourceID })
+
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, ds := range filtered {
+			if ds.DataSourceID == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := start + int(maxResults)
+	var next string
+	if end < len(filtered) {
+		next = filtered[end].DataSourceID
+	} else {
+		end = len(filtered)
+	}
+
+	result := make([]*DataSource, 0, end-start)
+	for _, ds := range filtered[start:end] {
+		result = append(result, ds.toDataSource())
+	}
+
+	return result, next, nil
+}
+
+// ---- DataSource permissions ----
+
+func (b *InMemoryBackend) DescribeDataSourcePermissions(
+	accountID, dataSourceID string,
+) (*DataSource, []ResourcePermission, error) {
+	b.mu.RLock("DescribeDataSourcePermissions")
+	defer b.mu.RUnlock()
+
+	ds, ok := b.dataSources[dataSourceKey(accountID, dataSourceID)]
+	if !ok {
+		return nil, nil, ErrDataSourceNotFound
+	}
+
+	return ds.toDataSource(), clonePermissions(ds.Permissions), nil
+}
+
+func (b *InMemoryBackend) UpdateDataSourcePermissions(
+	accountID, dataSourceID string,
+	grant, revoke []ResourcePermission,
+) (*DataSource, []ResourcePermission, error) {
+	b.mu.Lock("UpdateDataSourcePermissions")
+	defer b.mu.Unlock()
+
+	ds, ok := b.dataSources[dataSourceKey(accountID, dataSourceID)]
+	if !ok {
+		return nil, nil, ErrDataSourceNotFound
+	}
+
+	ds.Permissions = applyGrantRevoke(ds.Permissions, grant, revoke)
+	ds.LastUpdatedTime = time.Now().UTC()
+
+	return ds.toDataSource(), clonePermissions(ds.Permissions), nil
+}
+
 // ---- DataSets ----
 
 func (b *InMemoryBackend) CreateDataSet(
 	accountID, dataSetID, name, importMode string,
+	permissions []ResourcePermission,
 	tags map[string]string,
 ) (*DataSet, error) {
 	if dataSetID == "" || name == "" {
@@ -1216,12 +1863,14 @@ func (b *InMemoryBackend) CreateDataSet(
 
 	now := time.Now().UTC()
 	ds := &storedDataSet{
-		CreatedTime:     now,
-		LastUpdatedTime: now,
-		DataSetID:       dataSetID,
-		Arn:             arn.Build("quicksight", b.region, accountID, fmt.Sprintf("dataset/%s", dataSetID)),
-		Name:            name,
-		ImportMode:      importMode,
+		CreatedTime:      now,
+		LastUpdatedTime:  now,
+		DataSetID:        dataSetID,
+		Arn:              arn.Build("quicksight", b.region, accountID, fmt.Sprintf("dataset/%s", dataSetID)),
+		Name:             name,
+		ImportMode:       importMode,
+		RefreshSchedules: make(map[string]*storedRefreshSchedule),
+		Permissions:      clonePermissions(permissions),
 	}
 	b.dataSets[key] = ds
 
@@ -1327,6 +1976,94 @@ func (b *InMemoryBackend) ListDataSets(
 	}
 
 	return result, next, nil
+}
+
+// SearchDataSets searches data sets by name (filter Name == filterDataSetName);
+// any other filter Name is an ownership-related filter that this in-memory
+// backend doesn't track and is treated as a pass-through match.
+//
+//nolint:dupl // search functions share structure but operate on different stored types
+func (b *InMemoryBackend) SearchDataSets(
+	accountID string,
+	filters []SearchFilter,
+	maxResults int32,
+	nextToken string,
+) ([]*DataSet, string, error) {
+	b.mu.RLock("SearchDataSets")
+	defer b.mu.RUnlock()
+
+	prefix := accountID + "/"
+	var filtered []*storedDataSet
+	for k, ds := range b.dataSets {
+		if strings.HasPrefix(k, prefix) && matchesAllNameFilters(ds.Name, filters, filterDataSetName) {
+			filtered = append(filtered, ds)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].DataSetID < filtered[j].DataSetID })
+
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, ds := range filtered {
+			if ds.DataSetID == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := start + int(maxResults)
+	var next string
+	if end < len(filtered) {
+		next = filtered[end].DataSetID
+	} else {
+		end = len(filtered)
+	}
+
+	result := make([]*DataSet, 0, end-start)
+	for _, ds := range filtered[start:end] {
+		result = append(result, ds.toDataSet())
+	}
+
+	return result, next, nil
+}
+
+// ---- DataSet permissions ----
+
+func (b *InMemoryBackend) DescribeDataSetPermissions(
+	accountID, dataSetID string,
+) (*DataSet, []ResourcePermission, error) {
+	b.mu.RLock("DescribeDataSetPermissions")
+	defer b.mu.RUnlock()
+
+	ds, ok := b.dataSets[dataSetKey(accountID, dataSetID)]
+	if !ok {
+		return nil, nil, ErrDataSetNotFound
+	}
+
+	return ds.toDataSet(), clonePermissions(ds.Permissions), nil
+}
+
+func (b *InMemoryBackend) UpdateDataSetPermissions(
+	accountID, dataSetID string,
+	grant, revoke []ResourcePermission,
+) (*DataSet, []ResourcePermission, error) {
+	b.mu.Lock("UpdateDataSetPermissions")
+	defer b.mu.Unlock()
+
+	ds, ok := b.dataSets[dataSetKey(accountID, dataSetID)]
+	if !ok {
+		return nil, nil, ErrDataSetNotFound
+	}
+
+	ds.Permissions = applyGrantRevoke(ds.Permissions, grant, revoke)
+	ds.LastUpdatedTime = time.Now().UTC()
+
+	return ds.toDataSet(), clonePermissions(ds.Permissions), nil
 }
 
 // ---- Ingestions ----
@@ -1441,6 +2178,8 @@ func (b *InMemoryBackend) ListIngestions(
 
 func (b *InMemoryBackend) CreateDashboard(
 	accountID, dashboardID, name string,
+	definition map[string]any,
+	permissions []ResourcePermission,
 	tags map[string]string,
 ) (*Dashboard, error) {
 	if dashboardID == "" || name == "" {
@@ -1457,13 +2196,16 @@ func (b *InMemoryBackend) CreateDashboard(
 
 	now := time.Now().UTC()
 	d := &storedDashboard{
-		CreatedTime:     now,
-		LastUpdatedTime: now,
-		DashboardID:     dashboardID,
-		Arn:             arn.Build("quicksight", b.region, accountID, fmt.Sprintf("dashboard/%s", dashboardID)),
-		Name:            name,
-		Status:          statusCreated,
-		VersionNumber:   1,
+		CreatedTime:            now,
+		LastUpdatedTime:        now,
+		DashboardID:            dashboardID,
+		Arn:                    arn.Build("quicksight", b.region, accountID, fmt.Sprintf("dashboard/%s", dashboardID)),
+		Name:                   name,
+		Status:                 statusCreated,
+		VersionNumber:          1,
+		PublishedVersionNumber: 1,
+		Definition:             definition,
+		Permissions:            clonePermissions(permissions),
 	}
 	b.dashboards[key] = d
 
@@ -1486,7 +2228,10 @@ func (b *InMemoryBackend) DescribeDashboard(accountID, dashboardID string) (*Das
 	return d.toDashboard(), nil
 }
 
-func (b *InMemoryBackend) UpdateDashboard(accountID, dashboardID, name string) (*Dashboard, error) {
+func (b *InMemoryBackend) UpdateDashboard(
+	accountID, dashboardID, name string,
+	definition map[string]any,
+) (*Dashboard, error) {
 	b.mu.Lock("UpdateDashboard")
 	defer b.mu.Unlock()
 
@@ -1498,6 +2243,9 @@ func (b *InMemoryBackend) UpdateDashboard(accountID, dashboardID, name string) (
 
 	if name != "" {
 		d.Name = name
+	}
+	if definition != nil {
+		d.Definition = definition
 	}
 	d.LastUpdatedTime = time.Now().UTC()
 	d.VersionNumber++
@@ -1616,10 +2364,146 @@ func (b *InMemoryBackend) ListDashboardVersions(
 	return versions, next, nil
 }
 
+// SearchDashboards searches dashboards by name (filter Name ==
+// filterDashboardName); any other filter Name is an ownership-related filter
+// that this in-memory backend doesn't track and is treated as a pass-through
+// match.
+//
+//nolint:dupl // search functions share structure but operate on different stored types
+func (b *InMemoryBackend) SearchDashboards(
+	accountID string,
+	filters []SearchFilter,
+	maxResults int32,
+	nextToken string,
+) ([]*Dashboard, string, error) {
+	b.mu.RLock("SearchDashboards")
+	defer b.mu.RUnlock()
+
+	prefix := accountID + "/"
+	var filtered []*storedDashboard
+	for k, d := range b.dashboards {
+		if strings.HasPrefix(k, prefix) && matchesAllNameFilters(d.Name, filters, filterDashboardName) {
+			filtered = append(filtered, d)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].DashboardID < filtered[j].DashboardID })
+
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, d := range filtered {
+			if d.DashboardID == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := start + int(maxResults)
+	var next string
+	if end < len(filtered) {
+		next = filtered[end].DashboardID
+	} else {
+		end = len(filtered)
+	}
+
+	result := make([]*Dashboard, 0, end-start)
+	for _, d := range filtered[start:end] {
+		result = append(result, d.toDashboard())
+	}
+
+	return result, next, nil
+}
+
+// UpdateDashboardPublishedVersion flips which stored version of a dashboard is
+// the published one. versionNumber must name a version that actually exists
+// (i.e. be in [1, VersionNumber], matching the versions ListDashboardVersions
+// synthesizes), else ErrDashboardVersionNotFound.
+func (b *InMemoryBackend) UpdateDashboardPublishedVersion(
+	accountID, dashboardID string,
+	versionNumber int64,
+) (*Dashboard, error) {
+	b.mu.Lock("UpdateDashboardPublishedVersion")
+	defer b.mu.Unlock()
+
+	d, ok := b.dashboards[dashboardKey(accountID, dashboardID)]
+	if !ok {
+		return nil, ErrDashboardNotFound
+	}
+
+	if versionNumber < 1 || versionNumber > d.VersionNumber {
+		return nil, ErrDashboardVersionNotFound
+	}
+
+	d.PublishedVersionNumber = versionNumber
+	d.LastUpdatedTime = time.Now().UTC()
+
+	return d.toDashboard(), nil
+}
+
+// UpdateDashboardLinks replaces the set of analysis ARNs linked to a dashboard.
+func (b *InMemoryBackend) UpdateDashboardLinks(
+	accountID, dashboardID string,
+	linkEntities []string,
+) (*Dashboard, error) {
+	b.mu.Lock("UpdateDashboardLinks")
+	defer b.mu.Unlock()
+
+	d, ok := b.dashboards[dashboardKey(accountID, dashboardID)]
+	if !ok {
+		return nil, ErrDashboardNotFound
+	}
+
+	d.LinkEntities = linkEntities
+	d.LastUpdatedTime = time.Now().UTC()
+
+	return d.toDashboard(), nil
+}
+
+// ---- Dashboard permissions ----
+
+func (b *InMemoryBackend) DescribeDashboardPermissions(
+	accountID, dashboardID string,
+) (*Dashboard, []ResourcePermission, error) {
+	b.mu.RLock("DescribeDashboardPermissions")
+	defer b.mu.RUnlock()
+
+	d, ok := b.dashboards[dashboardKey(accountID, dashboardID)]
+	if !ok {
+		return nil, nil, ErrDashboardNotFound
+	}
+
+	return d.toDashboard(), clonePermissions(d.Permissions), nil
+}
+
+func (b *InMemoryBackend) UpdateDashboardPermissions(
+	accountID, dashboardID string,
+	grant, revoke []ResourcePermission,
+) (*Dashboard, []ResourcePermission, error) {
+	b.mu.Lock("UpdateDashboardPermissions")
+	defer b.mu.Unlock()
+
+	d, ok := b.dashboards[dashboardKey(accountID, dashboardID)]
+	if !ok {
+		return nil, nil, ErrDashboardNotFound
+	}
+
+	d.Permissions = applyGrantRevoke(d.Permissions, grant, revoke)
+	d.LastUpdatedTime = time.Now().UTC()
+
+	return d.toDashboard(), clonePermissions(d.Permissions), nil
+}
+
 // ---- Analyses ----
 
 func (b *InMemoryBackend) CreateAnalysis(
 	accountID, analysisID, name string,
+	definition map[string]any,
+	permissions []ResourcePermission,
 	tags map[string]string,
 ) (*Analysis, error) {
 	if analysisID == "" || name == "" {
@@ -1642,6 +2526,8 @@ func (b *InMemoryBackend) CreateAnalysis(
 		Arn:             arn.Build("quicksight", b.region, accountID, fmt.Sprintf("analysis/%s", analysisID)),
 		Name:            name,
 		Status:          statusCreationSuccessful,
+		Definition:      definition,
+		Permissions:     clonePermissions(permissions),
 	}
 	b.analyses[key] = a
 
@@ -1664,7 +2550,10 @@ func (b *InMemoryBackend) DescribeAnalysis(accountID, analysisID string) (*Analy
 	return a.toAnalysis(), nil
 }
 
-func (b *InMemoryBackend) UpdateAnalysis(accountID, analysisID, name string) (*Analysis, error) {
+func (b *InMemoryBackend) UpdateAnalysis(
+	accountID, analysisID, name string,
+	definition map[string]any,
+) (*Analysis, error) {
 	b.mu.Lock("UpdateAnalysis")
 	defer b.mu.Unlock()
 
@@ -1676,6 +2565,9 @@ func (b *InMemoryBackend) UpdateAnalysis(accountID, analysisID, name string) (*A
 
 	if name != "" {
 		a.Name = name
+	}
+	if definition != nil {
+		a.Definition = definition
 	}
 	a.LastUpdatedTime = time.Now().UTC()
 	a.Status = statusUpdateSuccessful
@@ -1765,6 +2657,94 @@ func (b *InMemoryBackend) RestoreAnalysis(accountID, analysisID string) (*Analys
 	a.LastUpdatedTime = time.Now().UTC()
 
 	return a.toAnalysis(), nil
+}
+
+// SearchAnalyses searches analyses by name (filter Name == filterAnalysisName);
+// any other filter Name is an ownership-related filter that this in-memory
+// backend doesn't track and is treated as a pass-through match.
+//
+//nolint:dupl // search functions share structure but operate on different stored types
+func (b *InMemoryBackend) SearchAnalyses(
+	accountID string,
+	filters []SearchFilter,
+	maxResults int32,
+	nextToken string,
+) ([]*Analysis, string, error) {
+	b.mu.RLock("SearchAnalyses")
+	defer b.mu.RUnlock()
+
+	prefix := accountID + "/"
+	var filtered []*storedAnalysis
+	for k, a := range b.analyses {
+		if strings.HasPrefix(k, prefix) && matchesAllNameFilters(a.Name, filters, filterAnalysisName) {
+			filtered = append(filtered, a)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].AnalysisID < filtered[j].AnalysisID })
+
+	if maxResults <= 0 || maxResults > defaultMaxResults {
+		maxResults = defaultMaxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, a := range filtered {
+			if a.AnalysisID == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := start + int(maxResults)
+	var next string
+	if end < len(filtered) {
+		next = filtered[end].AnalysisID
+	} else {
+		end = len(filtered)
+	}
+
+	result := make([]*Analysis, 0, end-start)
+	for _, a := range filtered[start:end] {
+		result = append(result, a.toAnalysis())
+	}
+
+	return result, next, nil
+}
+
+// ---- Analysis permissions ----
+
+func (b *InMemoryBackend) DescribeAnalysisPermissions(
+	accountID, analysisID string,
+) (*Analysis, []ResourcePermission, error) {
+	b.mu.RLock("DescribeAnalysisPermissions")
+	defer b.mu.RUnlock()
+
+	a, ok := b.analyses[analysisKey(accountID, analysisID)]
+	if !ok {
+		return nil, nil, ErrAnalysisNotFound
+	}
+
+	return a.toAnalysis(), clonePermissions(a.Permissions), nil
+}
+
+func (b *InMemoryBackend) UpdateAnalysisPermissions(
+	accountID, analysisID string,
+	grant, revoke []ResourcePermission,
+) (*Analysis, []ResourcePermission, error) {
+	b.mu.Lock("UpdateAnalysisPermissions")
+	defer b.mu.Unlock()
+
+	a, ok := b.analyses[analysisKey(accountID, analysisID)]
+	if !ok {
+		return nil, nil, ErrAnalysisNotFound
+	}
+
+	a.Permissions = applyGrantRevoke(a.Permissions, grant, revoke)
+	a.LastUpdatedTime = time.Now().UTC()
+
+	return a.toAnalysis(), clonePermissions(a.Permissions), nil
 }
 
 // ---- Tags ----

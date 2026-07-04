@@ -2631,8 +2631,14 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire DynamoDB Streams → Lambda event source mapping poller.
 	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
 
-	// Wire CloudWatch alarm actions → SNS and Lambda backends.
+	// Wire Lambda async DeadLetterConfig / DestinationConfig delivery to SQS/SNS/Lambda.
+	wireLambdaAsyncDestinations(byName["Lambda"], byName["SQS"], byName["SNS"])
+
+	// Wire CloudWatch alarm actions → SNS, Lambda, EC2, and Auto Scaling backends.
 	wireCloudWatchAlarmActions(byName["CloudWatch"], byName["SNS"], byName["Lambda"])
+	wireCloudWatchInfraActions(
+		byName["CloudWatch"], byName["EC2"], byName["Autoscaling"],
+	)
 
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
@@ -2726,6 +2732,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["SQS"],
 		byName["SNS"],
 		byName["StepFunctions"],
+		byName["EventBridge"],
+		byName["Kinesis"],
+		byName["SageMaker"],
+		byName["ECS"],
 	)
 
 	// Wire Pipes runner → SQS (source), Lambda, and StepFunctions (targets).
@@ -3572,6 +3582,91 @@ func wireSQSLambda(sqsReg, lambdaReg service.Registerable) {
 	}
 }
 
+// wireLambdaAsyncDestinations connects the Lambda backend to the SQS, SNS, and
+// Lambda backends so that async-invocation DeadLetterConfig and DestinationConfig
+// (OnSuccess/OnFailure) outcomes are actually delivered to their target ARNs.
+func wireLambdaAsyncDestinations(lambdaReg, sqsReg, snsReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	adapter := &lambdaAsyncDeliveryAdapter{lambda: lambdaBk}
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		if sqsBk, bk2Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend); bk2Ok {
+			adapter.sqs = sqsBk
+		}
+	}
+
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		if snsBk, bk2Ok := snsH.Backend.(*snsbackend.InMemoryBackend); bk2Ok {
+			adapter.sns = snsBk
+		}
+	}
+
+	lambdaBk.SetAsyncDestinationDelivery(adapter)
+}
+
+// lambdaAsyncDeliveryAdapter routes an async-invocation outcome to its target ARN,
+// dispatching by the ARN's service (SQS queue, SNS topic, or Lambda function).
+type lambdaAsyncDeliveryAdapter struct {
+	sqs    *sqsbackend.InMemoryBackend
+	sns    *snsbackend.InMemoryBackend
+	lambda *lambdabackend.InMemoryBackend
+}
+
+func (a *lambdaAsyncDeliveryAdapter) DeliverToTarget(
+	ctx context.Context,
+	targetARN string,
+	payload []byte,
+	attributes map[string]string,
+) error {
+	switch {
+	case strings.HasPrefix(targetARN, "arn:aws:sqs:"):
+		if a.sqs == nil {
+			return nil
+		}
+
+		attrs := make(map[string]sqsbackend.MessageAttributeValue, len(attributes))
+		for k, v := range attributes {
+			attrs[k] = sqsbackend.MessageAttributeValue{DataType: "String", StringValue: v}
+		}
+
+		_, err := a.sqs.SendMessage(&sqsbackend.SendMessageInput{
+			QueueURL:          arnToSQSQueueURL(targetARN),
+			MessageBody:       string(payload),
+			MessageAttributes: attrs,
+		})
+
+		return err
+	case strings.HasPrefix(targetARN, "arn:aws:sns:"):
+		if a.sns == nil {
+			return nil
+		}
+
+		_, err := a.sns.Publish(targetARN, string(payload), "", "", nil)
+
+		return err
+	case strings.HasPrefix(targetARN, "arn:aws:lambda:"):
+		if a.lambda == nil {
+			return nil
+		}
+
+		fnName := targetARN[strings.LastIndex(targetARN, ":")+1:]
+		_, _, err := a.lambda.InvokeFunction(ctx, fnName, lambdabackend.InvocationTypeEvent, payload)
+
+		return err
+	default:
+		return nil
+	}
+}
+
 // sqsReaderAdapter adapts the SQS InMemoryBackend to the lambda.SQSReader interface.
 type sqsReaderAdapter struct {
 	backend *sqsbackend.InMemoryBackend
@@ -3590,12 +3685,27 @@ func (a *sqsReaderAdapter) ReceiveMessagesLocal(
 
 	result := make([]*lambdabackend.SQSMessage, len(msgs))
 	for i, m := range msgs {
+		var msgAttrs map[string]lambdabackend.SQSMessageAttribute
+		if len(m.MessageAttributes) > 0 {
+			msgAttrs = make(map[string]lambdabackend.SQSMessageAttribute, len(m.MessageAttributes))
+			for k, v := range m.MessageAttributes {
+				msgAttrs[k] = lambdabackend.SQSMessageAttribute{
+					DataType:    v.DataType,
+					StringValue: v.StringValue,
+					BinaryValue: v.BinaryValue,
+				}
+			}
+		}
+
 		result[i] = &lambdabackend.SQSMessage{
-			MessageID:     m.MessageID,
-			ReceiptHandle: m.ReceiptHandle,
-			Body:          m.Body,
-			Attributes:    m.Attributes,
-			MD5OfBody:     m.MD5OfBody,
+			MessageID:              m.MessageID,
+			ReceiptHandle:          m.ReceiptHandle,
+			Body:                   m.Body,
+			Attributes:             m.Attributes,
+			MessageAttributes:      msgAttrs,
+			MD5OfBody:              m.MD5OfBody,
+			MD5OfMessageAttributes: m.MD5OfMessageAttributes,
+			SentTimestampMillis:    m.SentTimestamp,
 		}
 	}
 
@@ -3821,6 +3931,67 @@ func wireCloudWatchAlarmActions(cwReg, snsReg, lambdaReg service.Registerable) {
 			cwBk.SetLambdaInvoker(&cwLambdaInvokerAdapter{backend: lambdaBk})
 		}
 	}
+}
+
+// wireCloudWatchInfraActions connects the CloudWatch backend to the EC2 and Auto
+// Scaling backends so that arn:aws:automate EC2 alarm actions and scaling-policy
+// alarm actions actually mutate instance state / trigger scaling.
+func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
+	cwH, ok := cwReg.(*cwbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cwBk, ok := cwH.Backend.(*cwbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if ec2H, okEC2 := ec2Reg.(*ec2backend.Handler); okEC2 {
+		if ec2Bk, isEC2 := ec2H.Backend.(*ec2backend.InMemoryBackend); isEC2 {
+			cwBk.SetEC2Actioner(&cwEC2ActionerAdapter{backend: ec2Bk})
+		}
+	}
+
+	if asgH, okASG := asgReg.(*autoscalingbackend.Handler); okASG {
+		if asgBk, isASG := asgH.Backend.(*autoscalingbackend.InMemoryBackend); isASG {
+			cwBk.SetAutoScalingExecutor(&cwAutoScalingAdapter{backend: asgBk})
+		}
+	}
+}
+
+// cwEC2ActionerAdapter adapts the EC2 backend to the cloudwatch.EC2InstanceActioner interface.
+type cwEC2ActionerAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *cwEC2ActionerAdapter) StopInstances(ids []string) error {
+	_, err := a.backend.StopInstances(ids)
+
+	return err
+}
+
+func (a *cwEC2ActionerAdapter) TerminateInstances(ids []string) error {
+	_, err := a.backend.TerminateInstances(ids)
+
+	return err
+}
+
+func (a *cwEC2ActionerAdapter) RebootInstances(ids []string) error {
+	return a.backend.RebootInstances(ids)
+}
+
+// cwAutoScalingAdapter adapts the Auto Scaling backend to the
+// cloudwatch.AutoScalingPolicyExecutor interface.
+type cwAutoScalingAdapter struct {
+	backend *autoscalingbackend.InMemoryBackend
+}
+
+func (a *cwAutoScalingAdapter) ExecuteScalingPolicy(asgName, policyName string) error {
+	return a.backend.ExecutePolicy(autoscalingbackend.ExecutePolicyInput{
+		AutoScalingGroupName: asgName,
+		PolicyName:           policyName,
+	})
 }
 
 // cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.
@@ -4810,6 +4981,14 @@ func setupRegistry(
 		registry.SetLatencyMs(latencyMs)
 	}
 
+	// Wire the live CloudTrail backend (if registered) as the registry's global
+	// management-event recorder. This makes every mutating call to every
+	// registered service show up in CloudTrail LookupEvents, without any
+	// per-service integration code.
+	if ctRecorder := findCloudTrailRecorder(services); ctRecorder != nil {
+		registry.SetCloudTrailRecorder(ctRecorder)
+	}
+
 	// Chaos middleware runs outside the telemetry wrapper (as a global middleware).
 	// It extracts service/region/operation directly from the HTTP request headers so
 	// it does not depend on context values that are only set by the telemetry wrapper.
@@ -4844,6 +5023,19 @@ func setupRegistry(
 	e.Use(router.RouteHandler())
 
 	return registry, nil
+}
+
+// findCloudTrailRecorder locates the live CloudTrail backend from the service
+// list, so the registry can wire it as its global management-event recorder
+// instead of constructing a second, disconnected CloudTrail backend.
+func findCloudTrailRecorder(services []service.Registerable) service.CloudTrailRecorder {
+	for _, svc := range services {
+		if rec, ok := svc.(service.CloudTrailRecorder); ok {
+			return rec
+		}
+	}
+
+	return nil
 }
 
 // findIAMBackend locates the IAM EnforcementBackend from the service list.
@@ -5677,35 +5869,79 @@ func wireDynamoDBStreams(ddbReg, streamsReg service.Registerable) {
 
 // wireSchedulerRunner configures the Scheduler runner with Lambda, SQS, SNS, and StepFunctions
 // target invokers so that schedule expressions actually fire their targets.
-func wireSchedulerRunner(schedReg, lambdaReg, sqsReg, snsReg, sfnReg service.Registerable) {
+func wireSchedulerRunner(
+	schedReg, lambdaReg, sqsReg, snsReg, sfnReg, ebReg, kinesisReg, sagemakerReg, ecsReg service.Registerable,
+) {
 	schedH, ok := schedReg.(*schedulerbackend.Handler)
 	if !ok {
 		return
 	}
 
 	runner := schedH.GetRunner()
+	wireSchedulerMessaging(runner, lambdaReg, sqsReg, snsReg)
+	wireSchedulerWorkflow(runner, sfnReg, ebReg, kinesisReg)
+	wireSchedulerCompute(runner, sagemakerReg, ecsReg)
+}
 
-	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
-		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+func wireSchedulerMessaging(
+	runner *schedulerbackend.Runner,
+	lambdaReg, sqsReg, snsReg service.Registerable,
+) {
+	if lambdaH, ok := lambdaReg.(*lambdabackend.Handler); ok {
+		if lambdaBk, ok2 := lambdaH.Backend.(*lambdabackend.InMemoryBackend); ok2 {
 			runner.SetLambdaInvoker(&schedulerLambdaAdapter{backend: lambdaBk})
 		}
 	}
 
-	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
-		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
+	if sqsH, ok := sqsReg.(*sqsbackend.Handler); ok {
+		if sqsBk, ok2 := sqsH.Backend.(*sqsbackend.InMemoryBackend); ok2 {
 			runner.SetSQSSender(&sqsSenderAdapter{backend: sqsBk})
 		}
 	}
 
-	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
-		if snsBk, bkOk := snsH.Backend.(*snsbackend.InMemoryBackend); bkOk {
+	if snsH, ok := snsReg.(*snsbackend.Handler); ok {
+		if snsBk, ok2 := snsH.Backend.(*snsbackend.InMemoryBackend); ok2 {
 			runner.SetSNSPublisher(&snsPublisherAdapter{backend: snsBk})
 		}
 	}
+}
 
-	if sfnH, sfnOk := sfnReg.(*sfnbackend.Handler); sfnOk {
-		if sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend); bkOk {
+func wireSchedulerWorkflow(
+	runner *schedulerbackend.Runner,
+	sfnReg, ebReg, kinesisReg service.Registerable,
+) {
+	if sfnH, ok := sfnReg.(*sfnbackend.Handler); ok {
+		if sfnBk, ok2 := sfnH.Backend.(*sfnbackend.InMemoryBackend); ok2 {
 			runner.SetStepFunctionsStarter(&sfnStarterAdapter{backend: sfnBk})
+		}
+	}
+
+	if ebH, ok := ebReg.(*ebbackend.Handler); ok {
+		if ebBk, ok2 := ebH.Backend.(*ebbackend.InMemoryBackend); ok2 {
+			runner.SetEventBusPutter(&schedEventBusAdapter{backend: ebBk})
+		}
+	}
+
+	if kinesisH, ok := kinesisReg.(*kinesisbackend.Handler); ok {
+		if kinesisBk, ok2 := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); ok2 {
+			runner.SetKinesisRecordPutter(&schedKinesisAdapter{backend: kinesisBk})
+		}
+	}
+}
+
+func wireSchedulerCompute(
+	runner *schedulerbackend.Runner,
+	sagemakerReg, ecsReg service.Registerable,
+) {
+	if sagemakerH, ok := sagemakerReg.(*sagemakerbackend.Handler); ok {
+		if sagemakerBk := sagemakerH.Backend; sagemakerBk != nil {
+			runner.SetSageMakerPipelineStarter(&schedSageMakerAdapter{backend: sagemakerBk})
+		}
+	}
+
+	if ecsH, ok := ecsReg.(*ecsbackend.Handler); ok {
+		if ecsBk, ok2 := ecsH.Backend.(*ecsbackend.InMemoryBackend); ok2 {
+			runner.SetECSTaskRunner(&schedECSAdapter{backend: ecsBk})
 		}
 	}
 }

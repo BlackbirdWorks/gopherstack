@@ -1,12 +1,13 @@
 package ec2
 
 import (
-	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -18,6 +19,19 @@ const (
 	// gp3 defaults per AWS documentation.
 	gp3DefaultIOPS       = 3000
 	gp3DefaultThroughput = 125
+
+	// gp3 provisioning bounds and coupling ratios per AWS documentation.
+	// IOPS must be 3 000–16 000; throughput 125–1 000 MiB/s.
+	gp3MinIOPS       = 3000
+	gp3MaxIOPS       = 16000
+	gp3MinThroughput = 125
+	gp3MaxThroughput = 1000
+	// gp3MaxIOPSPerGiB caps provisioned IOPS above the free 3 000 baseline at
+	// 500 IOPS per GiB of volume size.
+	gp3MaxIOPSPerGiB = 500
+	// gp3IOPSPerThroughput encodes the max throughput-to-IOPS ratio of 0.25
+	// MiB/s per provisioned IOPS (i.e. throughput * 4 must not exceed IOPS).
+	gp3IOPSPerThroughput = 4
 )
 
 // ---- XML response types for extended operations ----
@@ -677,13 +691,9 @@ func parseImagesPagination(vals url.Values) (int, int, error) {
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		decoded, decErr := base64.StdEncoding.DecodeString(tok)
-		if decErr != nil {
-			return 0, 0, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
-		}
-		n, parseErr := strconv.Atoi(string(decoded))
-		if parseErr != nil || n < 0 {
-			return 0, 0, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return 0, 0, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
 		}
 		offset = n
 	}
@@ -750,9 +760,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 
 	var nextToken string
 	if len(filtered) > maxResults {
-		nextToken = base64.StdEncoding.EncodeToString(
-			[]byte(strconv.Itoa(offset + maxResults)),
-		)
+		nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
 		filtered = filtered[:maxResults]
 	}
 
@@ -909,7 +917,7 @@ func parsePositiveInt(s, field string) (int, error) {
 // based on volume type and size. Returns 0 for types without an IOPS concept.
 func defaultIOPSForType(volType string, size int) int {
 	switch volType {
-	case "gp3":
+	case volTypeGP3:
 		return gp3DefaultIOPS
 	case volTypeDefaultGP2:
 		effectiveSize := size
@@ -951,11 +959,56 @@ func parseVolumePerf(iopsStr, throughputStr, volType string, size int) (int, int
 		iops = defaultIOPSForType(effectiveVolType, size)
 	}
 
-	if throughput == 0 && effectiveVolType == "gp3" {
+	if throughput == 0 && effectiveVolType == volTypeGP3 {
 		throughput = gp3DefaultThroughput
 	}
 
+	if effectiveVolType == volTypeGP3 {
+		if verr := validateGP3Coupling(iops, throughput, size); verr != nil {
+			return 0, 0, verr
+		}
+	}
+
 	return iops, throughput, nil
+}
+
+// validateGP3Coupling enforces the AWS gp3 iops/throughput coupling rules on a
+// volume create: IOPS in [3000,16000], throughput in [125,1000] MiB/s, IOPS
+// above the free 3000 baseline capped at 500 IOPS/GiB, and throughput capped at
+// 0.25 MiB/s per provisioned IOPS. size <= 0 (unspecified) skips the size-ratio
+// check because CreateVolume applies a default size downstream.
+func validateGP3Coupling(iops, throughput, size int) error {
+	if iops < gp3MinIOPS || iops > gp3MaxIOPS {
+		return fmt.Errorf(
+			"%w: Iops must be between %d and %d for gp3 volumes",
+			ErrInvalidParameter, gp3MinIOPS, gp3MaxIOPS,
+		)
+	}
+
+	if throughput < gp3MinThroughput || throughput > gp3MaxThroughput {
+		return fmt.Errorf(
+			"%w: Throughput must be between %d and %d MiB/s for gp3 volumes",
+			ErrInvalidParameter, gp3MinThroughput, gp3MaxThroughput,
+		)
+	}
+
+	// IOPS above the free 3000 baseline may not exceed 500 IOPS per GiB.
+	if size > 0 && iops > gp3MinIOPS && iops > size*gp3MaxIOPSPerGiB {
+		return fmt.Errorf(
+			"%w: Iops of %d exceeds the maximum ratio of %d IOPS per GiB for a %d GiB gp3 volume",
+			ErrInvalidParameter, iops, gp3MaxIOPSPerGiB, size,
+		)
+	}
+
+	// Throughput may not exceed 0.25 MiB/s per provisioned IOPS.
+	if throughput*gp3IOPSPerThroughput > iops {
+		return fmt.Errorf(
+			"%w: Throughput of %d MiB/s exceeds the maximum ratio of 0.25 MiB/s per provisioned IOPS (Iops=%d)",
+			ErrInvalidParameter, throughput, iops,
+		)
+	}
+
+	return nil
 }
 
 func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error) {
@@ -1480,18 +1533,23 @@ func (h *Handler) handleDisassociateRouteTable(vals url.Values, reqID string) (a
 }
 
 func toNatGatewayItem(ngw *NatGateway) natGatewayItem {
+	items := make([]natGatewayAddressItem, 0, 1+len(ngw.SecondaryPrivateIPs))
+	items = append(items, natGatewayAddressItem{
+		AllocationID: ngw.AllocationID,
+		PublicIP:     ngw.PublicIP,
+		PrivateIP:    ngw.PrivateIP,
+	})
+
+	for _, ip := range ngw.SecondaryPrivateIPs {
+		items = append(items, natGatewayAddressItem{PrivateIP: ip})
+	}
+
 	return natGatewayItem{
-		NatGatewayID: ngw.ID,
-		SubnetID:     ngw.SubnetID,
-		State:        ngw.State,
-		CreateTime:   ngw.CreateTime.Format("2006-01-02T15:04:05.000Z"),
-		NatGatewayAddresses: natGatewayAddressSet{Items: []natGatewayAddressItem{
-			{
-				AllocationID: ngw.AllocationID,
-				PublicIP:     ngw.PublicIP,
-				PrivateIP:    ngw.PrivateIP,
-			},
-		}},
+		NatGatewayID:        ngw.ID,
+		SubnetID:            ngw.SubnetID,
+		State:               ngw.State,
+		CreateTime:          ngw.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		NatGatewayAddresses: natGatewayAddressSet{Items: items},
 	}
 }
 
@@ -1598,11 +1656,14 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 				break
 			}
 
+			description := vals.Get(fmt.Sprintf("IpPermissions.%d.IpRanges.%d.Description", i, j))
+
 			rules = append(rules, SecurityGroupRule{
-				Protocol: proto,
-				FromPort: fromPort,
-				ToPort:   toPort,
-				IPRange:  cidr,
+				Protocol:    proto,
+				FromPort:    fromPort,
+				ToPort:      toPort,
+				IPRange:     cidr,
+				Description: description,
 			})
 		}
 
@@ -1614,12 +1675,15 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 			}
 
 			ownerID := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.UserId", i, j))
+			description := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.Description", i, j))
+
 			rules = append(rules, SecurityGroupRule{
 				Protocol:           proto,
 				FromPort:           fromPort,
 				ToPort:             toPort,
 				SourceGroupID:      srcGroupID,
 				SourceGroupOwnerID: ownerID,
+				Description:        description,
 			})
 		}
 	}
@@ -2023,12 +2087,13 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 	// AWS uses different value wrappers per attribute type.
 	attrName, attrValue := parseModifyInstanceAttributeValue(vals)
 
+	// AWS rejects a ModifyInstanceAttribute call that does not identify a
+	// recognised attribute to change, rather than silently succeeding.
 	if attrName == "" {
-		return &modifyInstanceAttributeResponse{
-			Xmlns:     ec2XMLNS,
-			RequestID: reqID,
-			Return:    true,
-		}, nil
+		return nil, fmt.Errorf(
+			"%w: the request must contain exactly one modifiable attribute",
+			ErrMissingParameter,
+		)
 	}
 
 	// Enforce stopped-state requirement for certain attributes at the handler level.

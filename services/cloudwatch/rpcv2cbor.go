@@ -671,22 +671,28 @@ func (h *Handler) cborGetMetricData(input cbor.Map, c *echo.Context) error {
 	startTime := cborTime(input, "StartTime")
 	endTime := cborTime(input, "EndTime")
 	scanBy := cborStr(input, "ScanBy")
+	nextToken := cborStr(input, "NextToken")
+	maxDatapoints := int(cborInt32(input, "MaxDatapoints"))
 	queries := parseMetricDataQueries(input)
 
-	var results []MetricDataResult
+	var pageResult GetMetricDataPage
 	var err error
 	if bk, ok := h.Backend.(*InMemoryBackend); ok {
-		results, err = bk.GetMetricDataWithOptions(queries, startTime, endTime, scanBy)
+		pageResult, err = bk.GetMetricDataPaged(
+			queries, startTime, endTime, scanBy, nextToken, maxDatapoints,
+		)
 	} else {
+		var results []MetricDataResult
 		results, err = h.Backend.GetMetricData(queries, startTime, endTime)
+		pageResult.Results = results
 	}
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	resultList := make(cbor.List, 0, len(results))
+	resultList := make(cbor.List, 0, len(pageResult.Results))
 
-	for _, r := range results {
+	for _, r := range pageResult.Results {
 		tsList := make(cbor.List, 0, len(r.Timestamps))
 		for _, ts := range r.Timestamps {
 			tsList = append(tsList, cborFromTime(ts))
@@ -697,18 +703,44 @@ func (h *Handler) cborGetMetricData(input cbor.Map, c *echo.Context) error {
 			valList = append(valList, cbor.Float64(v))
 		}
 
-		resultList = append(resultList, cbor.Map{
+		entry := cbor.Map{
 			"Id":         cbor.String(r.ID),
 			"Label":      cbor.String(r.Label),
 			"StatusCode": cbor.String(r.StatusCode),
 			"Timestamps": tsList,
 			"Values":     valList,
+		}
+		if len(r.Messages) > 0 {
+			entry["Messages"] = cborMetricDataMessages(r.Messages)
+		}
+
+		resultList = append(resultList, entry)
+	}
+
+	resp := cbor.Map{
+		"MetricDataResults": resultList,
+	}
+	if pageResult.NextToken != "" {
+		resp["NextToken"] = cbor.String(pageResult.NextToken)
+	}
+	if len(pageResult.Messages) > 0 {
+		resp["Messages"] = cborMetricDataMessages(pageResult.Messages)
+	}
+
+	return writeCBOR(c, resp)
+}
+
+// cborMetricDataMessages encodes a slice of MetricDataMessage into a CBOR list.
+func cborMetricDataMessages(msgs []MetricDataMessage) cbor.List {
+	list := make(cbor.List, 0, len(msgs))
+	for _, m := range msgs {
+		list = append(list, cbor.Map{
+			"Code":  cbor.String(m.Code),
+			"Value": cbor.String(m.Value),
 		})
 	}
 
-	return writeCBOR(c, cbor.Map{
-		"MetricDataResults": resultList,
-	})
+	return list
 }
 
 func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
@@ -2017,13 +2049,17 @@ func (h *Handler) cborTestMetricFilter(_ cbor.Map, c *echo.Context) error {
 	})
 }
 
-// cborGetMetricWidgetImage returns a minimal placeholder PNG, mirroring the form handler.
-func (h *Handler) cborGetMetricWidgetImage(_ cbor.Map, c *echo.Context) error {
-	// The CBOR MetricWidgetImage member is a blob, so emit the raw PNG bytes
-	// rather than the base64 text used by the XML/form response.
-	img, err := base64.StdEncoding.DecodeString(minimalPNG1x1)
-	if err != nil {
-		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+// cborGetMetricWidgetImage renders the requested MetricWidget into a real PNG plot.
+// The CBOR MetricWidgetImage member is a blob, so the raw PNG bytes are emitted
+// rather than the base64 text used by the XML/form response.
+func (h *Handler) cborGetMetricWidgetImage(input cbor.Map, c *echo.Context) error {
+	widgetJSON := cborStr(input, "MetricWidget")
+	bk, _ := h.Backend.(*InMemoryBackend)
+
+	img, err := renderMetricWidgetPNG(bk, widgetJSON, time.Now().UTC())
+	if err != nil || len(img) == 0 {
+		// Fall back to the minimal placeholder so callers always get a valid PNG.
+		img, _ = base64.StdEncoding.DecodeString(minimalPNG1x1)
 	}
 
 	return writeCBOR(c, cbor.Map{

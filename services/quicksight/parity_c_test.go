@@ -146,15 +146,17 @@ func TestPaginationTokensAreOpaque(t *testing.T) {
 }
 
 // TestCreateTopicReturnsNonEmptyID verifies CreateTopic (POST /accounts/{id}/topics) returns
-// a non-empty TopicId. AWS CreateTopic takes TopicId in the request body; our handler
-// generates a UUID since the ID does not appear in the URL path.
+// a non-empty TopicId. AWS CreateTopic requires both TopicId and Name in the request body.
 func TestCreateTopicReturnsNonEmptyID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
 	h := quicksight.NewHandler(b)
 
-	rec := doRequest(t, h, http.MethodPost, accountPath("/topics"), nil)
+	rec := doRequest(t, h, http.MethodPost, accountPath("/topics"), map[string]any{
+		"TopicId": "topic1",
+		"Name":    "Topic1",
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := parseBody(t, rec)
@@ -169,8 +171,10 @@ func TestEmbedURLsAreUnique(t *testing.T) {
 	b := newTestBackend(t)
 	h := quicksight.NewHandler(b)
 
+	doRequest(t, h, http.MethodPost, accountPath("/dashboards/d1"), map[string]any{"Name": "Dash"})
+
 	embedPaths := []string{
-		accountPath("/dashboards/d1/embed-url"),
+		accountPath("/dashboards/d1/embed-url") + "?creds-type=QUICKSIGHT",
 		"/accounts/000000000000/session-embed-url",
 	}
 
@@ -198,10 +202,12 @@ func TestSnapshotJobIDIsUnique(t *testing.T) {
 	b := newTestBackend(t)
 	h := quicksight.NewHandler(b)
 
+	doRequest(t, h, http.MethodPost, accountPath("/dashboards/d1"), map[string]any{"Name": "Dash"})
+
 	path := accountPath("/dashboards/d1/snapshot-jobs")
 
-	rec1 := doRequest(t, h, http.MethodPost, path, map[string]any{})
-	rec2 := doRequest(t, h, http.MethodPost, path, map[string]any{})
+	rec1 := doRequest(t, h, http.MethodPost, path, map[string]any{"SnapshotJobId": "job1"})
+	rec2 := doRequest(t, h, http.MethodPost, path, map[string]any{"SnapshotJobId": "job2"})
 	require.Equal(t, http.StatusOK, rec1.Code)
 	require.Equal(t, http.StatusOK, rec2.Code)
 

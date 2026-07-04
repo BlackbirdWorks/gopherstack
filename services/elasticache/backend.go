@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -170,8 +172,12 @@ type Cluster struct {
 	ReplicationGroupID         string
 	KmsKeyID                   string
 	TransitEncryptionMode      string
+	ConnectAddress             string
+	PendingStatus              string
+	AvailableAt                time.Time
 	Members                    []CacheNodeMember
 	Port                       int
+	AllocatedPort              int
 	NumCacheNodes              int
 	TransitEncryptionEnabled   bool
 	AtRestEncryptionEnabled    bool
@@ -181,11 +187,13 @@ type Cluster struct {
 type ReplicationGroup struct {
 	CreatedAt                  time.Time                `json:"createdAt"`
 	AuthTokenLastModifiedDate  *time.Time               `json:"authTokenLastModifiedDate,omitempty"`
+	AvailableAt                time.Time                `json:"availableAt,omitzero"`
 	PendingModifiedValues      *RGPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
 	Tags                       *tags.Tags               `json:"tags,omitempty"`
 	ReplicationGroupID         string                   `json:"replicationGroupID"`
 	Description                string                   `json:"description"`
 	Status                     string                   `json:"status"`
+	PendingStatus              string                   `json:"pendingStatus,omitempty"`
 	ARN                        string                   `json:"arn"`
 	Engine                     string                   `json:"engine,omitempty"`
 	CacheParameterGroupName    string                   `json:"cacheParameterGroupName,omitempty"`
@@ -235,11 +243,13 @@ type CacheSubnetGroup struct {
 // CacheSnapshot represents an ElastiCache snapshot.
 type CacheSnapshot struct {
 	CreatedAt          time.Time  `json:"createdAt"`
+	AvailableAt        time.Time  `json:"availableAt,omitzero"`
 	Tags               *tags.Tags `json:"tags,omitempty"`
 	SnapshotName       string     `json:"snapshotName"`
 	CacheClusterID     string     `json:"cacheClusterId"`
 	ReplicationGroupID string     `json:"replicationGroupId"`
 	Status             string     `json:"status"`
+	PendingStatus      string     `json:"pendingStatus,omitempty"`
 	ARN                string     `json:"arn"`
 	Engine             string     `json:"engine"`
 	EngineVersion      string     `json:"engineVersion"`
@@ -529,6 +539,14 @@ type DNSRegistrar interface {
 	Deregister(hostname string)
 }
 
+// dnsRecordRegistrar is an optional capability: a registrar that can bind a
+// hostname to a specific record value (e.g. an A record to the real bound IP of
+// the embedded redis). The concrete embedded DNS server implements this, so the
+// published synthetic endpoint resolves to a genuinely connectable address.
+type dnsRecordRegistrar interface {
+	RegisterRecord(hostname, recordType string, values []string)
+}
+
 // builtinParameterGroupFamilies returns the well-known default parameter group families.
 func builtinParameterGroupFamilies() []struct{ family, name string } {
 	return []struct{ family, name string }{
@@ -551,8 +569,8 @@ func builtinParameterGroupFamilies() []struct{ family, name string } {
 // are global/partition-scoped (like AWS) and therefore are NOT region-nested.
 type InMemoryBackend struct {
 	dnsRegistrar              DNSRegistrar
-	users                     map[string]map[string]*User
-	serverlessCacheSnapshots  map[string]map[string]*ServerlessCacheSnapshot
+	serverlessCaches          map[string]map[string]*ServerlessCache
+	userGroups                map[string]map[string]*UserGroup
 	parameterGroups           map[string]map[string]*CacheParameterGroup
 	globalReplicationGroups   map[string]*GlobalReplicationGroup
 	snapshots                 map[string]map[string]*CacheSnapshot
@@ -560,17 +578,19 @@ type InMemoryBackend struct {
 	cacheSecurityGroupIngress map[string]map[string][]EC2SecurityGroupMembership
 	clusters                  map[string]map[string]*Cluster
 	replicationGroups         map[string]map[string]*ReplicationGroup
-	serverlessCaches          map[string]map[string]*ServerlessCache
-	subnetGroups              map[string]map[string]*CacheSubnetGroup
-	userGroups                map[string]map[string]*UserGroup
 	reservedCacheNodes        map[string]map[string]*ReservedCacheNode
+	serverlessCacheSnapshots  map[string]map[string]*ServerlessCacheSnapshot
+	subnetGroups              map[string]map[string]*CacheSubnetGroup
+	users                     map[string]map[string]*User
 	events                    *eventRing
 	mu                        *lockmetrics.RWMutex
 	allocator                 *portalloc.Allocator
+	clock                     func() time.Time
 	region                    string
 	engineMode                string
 	accountID                 string
 	updateActions             []*UpdateAction
+	lifecycleDelay            time.Duration
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
@@ -823,11 +843,80 @@ func defaultEngineVersion(engine string) string {
 	}
 }
 
-// createClusterLocked creates a cluster assuming b.mu is already held.
-func (b *InMemoryBackend) createClusterLocked(
+// clusterEngine holds the started data-plane engine (embedded redis or a
+// pass-through port) for a cluster, produced outside the backend lock.
+type clusterEngine struct {
+	mini          *miniredis.Miniredis
+	connectAddr   string
+	port          int
+	allocatedPort int
+}
+
+// startClusterEngine starts the data-plane engine for a cluster WITHOUT holding
+// b.mu. Listener startup (miniredis.StartAddr) is the slow part and must not
+// serialise every other backend op behind it. b.engineMode/b.allocator are set
+// once at construction and never mutated, so they are safe to read lock-free.
+func (b *InMemoryBackend) startClusterEngine(port int) (*clusterEngine, error) {
+	if b.engineMode != EngineEmbedded {
+		p := port
+		if p <= 0 {
+			p = 6379
+		}
+
+		return &clusterEngine{port: p}, nil
+	}
+
+	mr := miniredis.NewMiniRedis()
+
+	eng := &clusterEngine{mini: mr}
+	if b.allocator != nil {
+		allocatedPort, err := b.allocator.Acquire("elasticache")
+		if err != nil {
+			return nil, fmt.Errorf("allocate miniredis port: %w", err)
+		}
+		if startErr := mr.StartAddr(fmt.Sprintf("0.0.0.0:%d", allocatedPort)); startErr != nil {
+			_ = b.allocator.Release(allocatedPort)
+
+			return nil, fmt.Errorf("start miniredis on port %d: %w", allocatedPort, startErr)
+		}
+		eng.allocatedPort = allocatedPort
+	} else if err := mr.Start(); err != nil {
+		return nil, fmt.Errorf("start miniredis: %w", err)
+	}
+
+	addr := mr.Server().Addr()
+	eng.port = addr.Port
+	host := addr.IP.String()
+	if addr.IP.IsUnspecified() {
+		// 0.0.0.0 is a bind wildcard, not a connectable target; publish loopback.
+		host = "127.0.0.1"
+	}
+	eng.connectAddr = net.JoinHostPort(host, strconv.Itoa(addr.Port))
+
+	return eng, nil
+}
+
+// releaseEngine discards an engine that was started but never inserted (lost a
+// create race). Safe to call with a nil or pass-through engine.
+func (b *InMemoryBackend) releaseEngine(eng *clusterEngine) {
+	if eng == nil {
+		return
+	}
+	if eng.mini != nil {
+		eng.mini.Close()
+	}
+	if b.allocator != nil && eng.allocatedPort > 0 {
+		_ = b.allocator.Release(eng.allocatedPort)
+	}
+}
+
+// insertClusterLocked builds and stores a cluster from an already-started
+// engine. Must hold b.mu.
+func (b *InMemoryBackend) insertClusterLocked(
 	region, id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string,
-	numCacheNodes, port int,
-) (*Cluster, error) {
+	numCacheNodes int,
+	eng *clusterEngine,
+) *Cluster {
 	if engine == "" {
 		engine = engineRedis
 	}
@@ -852,56 +941,69 @@ func (b *InMemoryBackend) createClusterLocked(
 		CacheParameterGroupName:    paramGroupName,
 		PreferredMaintenanceWindow: maintenanceWindow,
 		SnapshotWindow:             snapshotWindow,
+		mini:                       eng.mini,
+		Port:                       eng.port,
+		AllocatedPort:              eng.allocatedPort,
+		ConnectAddress:             eng.connectAddr,
 	}
-
-	switch b.engineMode {
-	case EngineEmbedded:
-		mr := miniredis.NewMiniRedis()
-		if b.allocator != nil {
-			allocatedPort, err := b.allocator.Acquire("elasticache")
-			if err != nil {
-				return nil, fmt.Errorf("allocate miniredis port: %w", err)
-			}
-			if startErr := mr.StartAddr(fmt.Sprintf("0.0.0.0:%d", allocatedPort)); startErr != nil {
-				return nil, fmt.Errorf("start miniredis on port %d: %w", allocatedPort, startErr)
-			}
-		} else {
-			if err := mr.Start(); err != nil {
-				return nil, fmt.Errorf("start miniredis: %w", err)
-			}
-		}
-		c.mini = mr
-		c.Port = mr.Server().Addr().Port
-	default:
-		if port > 0 {
-			c.Port = port
-		} else {
-			c.Port = 6379
-		}
-	}
+	b.markCreatingLocked(&c.PendingStatus, &c.AvailableAt)
 
 	c.Endpoint = gopherDNS.SyntheticHostname(id, randomSuffix(), region, "cache")
-	if b.dnsRegistrar != nil {
-		b.dnsRegistrar.Register(c.Endpoint)
-	}
+	b.registerClusterDNSLocked(c)
 
 	b.clustersStore(region)[id] = c
 	b.appendEventLocked(id, "cache-cluster", "cluster created")
 
-	return c, nil
+	return c
+}
+
+// registerClusterDNSLocked registers the cluster's synthetic endpoint hostname
+// and, when the registrar supports it, binds an A record to the real bound IP so
+// the published endpoint is genuinely reachable. Must hold b.mu.
+func (b *InMemoryBackend) registerClusterDNSLocked(c *Cluster) {
+	if b.dnsRegistrar == nil || c.Endpoint == "" {
+		return
+	}
+	b.dnsRegistrar.Register(c.Endpoint)
+
+	if c.ConnectAddress == "" {
+		return
+	}
+	if host, _, err := net.SplitHostPort(c.ConnectAddress); err == nil && host != "" {
+		if rr, ok := b.dnsRegistrar.(dnsRecordRegistrar); ok {
+			rr.RegisterRecord(c.Endpoint, "A", []string{host})
+		}
+	}
 }
 
 // CreateCluster creates a new cache cluster.
 func (b *InMemoryBackend) CreateCluster(ctx context.Context, id, engine, nodeType string, port int) (*Cluster, error) {
-	b.mu.Lock("CreateCluster")
-	defer b.mu.Unlock()
-
 	region := getRegion(ctx, b.region)
-	if _, exists := b.clustersStore(region)[id]; exists {
+
+	b.mu.Lock("CreateCluster.reserve")
+	b.pruneRegionLocked(region)
+	_, exists := b.clustersStore(region)[id]
+	b.mu.Unlock()
+	if exists {
 		return nil, ErrClusterAlreadyExists
 	}
 
-	return b.createClusterLocked(region, id, engine, nodeType, "", "", "", 1, port)
+	eng, err := b.startClusterEngine(port)
+	if err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CreateCluster.insert")
+	defer b.mu.Unlock()
+	if _, dup := b.clustersStore(region)[id]; dup {
+		b.releaseEngine(eng)
+
+		return nil, ErrClusterAlreadyExists
+	}
+
+	c := b.insertClusterLocked(region, id, engine, nodeType, "", "", "", 1, eng)
+
+	return b.clusterView(c), nil
 }
 
 // CreateClusterWithOptions creates a new cache cluster with optional parameter group and scheduling windows.
@@ -910,36 +1012,48 @@ func (b *InMemoryBackend) CreateClusterWithOptions(
 	id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string,
 	numCacheNodes, port int,
 ) (*Cluster, error) {
-	b.mu.Lock("CreateClusterWithOptions")
-	defer b.mu.Unlock()
-
 	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("CreateClusterWithOptions.reserve")
+	b.pruneRegionLocked(region)
 	if _, exists := b.clustersStore(region)[id]; exists {
+		b.mu.Unlock()
+
 		return nil, ErrClusterAlreadyExists
 	}
-
 	if paramGroupName != "" {
 		pg, ok := b.parameterGroupsStore(region)[paramGroupName]
 		if !ok {
+			b.mu.Unlock()
+
 			return nil, ErrParameterGroupNotFound
 		}
-
 		if err := validateParamGroupFamily(engine, pg.Family); err != nil {
+			b.mu.Unlock()
+
 			return nil, err
 		}
 	}
+	b.mu.Unlock()
 
-	return b.createClusterLocked(
-		region,
-		id,
-		engine,
-		nodeType,
-		paramGroupName,
-		maintenanceWindow,
-		snapshotWindow,
-		numCacheNodes,
-		port,
+	eng, err := b.startClusterEngine(port)
+	if err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CreateClusterWithOptions.insert")
+	defer b.mu.Unlock()
+	if _, exists := b.clustersStore(region)[id]; exists {
+		b.releaseEngine(eng)
+
+		return nil, ErrClusterAlreadyExists
+	}
+
+	c := b.insertClusterLocked(
+		region, id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow, numCacheNodes, eng,
 	)
+
+	return b.clusterView(c), nil
 }
 
 // DeleteCluster stops and removes a cluster.
@@ -948,20 +1062,25 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, id string) error {
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+	b.pruneRegionLocked(region)
 	store := b.clustersStore(region)
 	c, exists := store[id]
-	if !exists {
+	if !exists || isReaped(b.now(), c.PendingStatus, c.AvailableAt) {
 		return ErrClusterNotFound
 	}
 
-	if b.dnsRegistrar != nil && c.Endpoint != "" {
-		b.dnsRegistrar.Deregister(c.Endpoint)
+	// With a lifecycle delay, dwell in "deleting" so waiters can observe it; the
+	// engine stays live and the entry is reaped by the next write op once the
+	// deadline passes. Without a delay (default), delete synchronously.
+	if d := b.pendingUntil(); !d.IsZero() {
+		c.PendingStatus = statusDeleting
+		c.AvailableAt = d
+		b.appendEventLocked(id, "cache-cluster", "cluster deleting")
+
+		return nil
 	}
 
-	if c.mini != nil {
-		c.mini.Close()
-	}
-	c.Tags.Close()
+	b.releaseClusterLocked(c)
 	delete(store, id)
 	b.appendEventLocked(id, "cache-cluster", "cluster deleted")
 
@@ -988,8 +1107,10 @@ func (b *InMemoryBackend) DescribeClusters(
 		filter = func(c Cluster) bool { return c.ReplicationGroupID == "" }
 	}
 
-	return describePaged(b.clustersStore(region), id, ErrClusterNotFound, filter,
+	p, err := describePaged(b.clustersStore(region), id, ErrClusterNotFound, filter,
 		func(c Cluster) string { return c.ClusterID }, marker, maxRecords)
+
+	return b.finalizeClusterPage(id, p, err)
 }
 
 // tagEntry holds the tags pointer and the metric name used to initialise tags when nil.
@@ -1181,6 +1302,7 @@ func (b *InMemoryBackend) createReplicationGroupLocked(
 		PreferredMaintenanceWindow: maintenanceWindow,
 		SnapshotWindow:             snapshotWindow,
 	}
+	b.markCreatingLocked(&rg.PendingStatus, &rg.AvailableAt)
 	b.replicationGroupsStore(region)[id] = rg
 	b.appendEventLocked(id, "replication-group", "replication group created")
 
@@ -1196,11 +1318,12 @@ func (b *InMemoryBackend) CreateReplicationGroup(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+	b.pruneRegionLocked(region)
 	if _, exists := b.replicationGroupsStore(region)[id]; exists {
 		return nil, ErrReplicationGroupAlreadyExists
 	}
 
-	return b.createReplicationGroupLocked(region, id, description, "", "", ""), nil
+	return b.replicationGroupView(b.createReplicationGroupLocked(region, id, description, "", "", "")), nil
 }
 
 // CreateReplicationGroupWithOptions creates a replication group with optional parameter group and scheduling windows.
@@ -1222,14 +1345,14 @@ func (b *InMemoryBackend) CreateReplicationGroupWithOptions(
 		}
 	}
 
-	return b.createReplicationGroupLocked(
+	return b.replicationGroupView(b.createReplicationGroupLocked(
 		region,
 		id,
 		description,
 		paramGroupName,
 		maintenanceWindow,
 		snapshotWindow,
-	), nil
+	)), nil
 }
 
 // DeleteReplicationGroup removes a replication group.
@@ -1238,11 +1361,21 @@ func (b *InMemoryBackend) DeleteReplicationGroup(ctx context.Context, id string)
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+	b.pruneRegionLocked(region)
 	store := b.replicationGroupsStore(region)
 	rg, exists := store[id]
-	if !exists {
+	if !exists || isReaped(b.now(), rg.PendingStatus, rg.AvailableAt) {
 		return ErrReplicationGroupNotFound
 	}
+
+	if d := b.pendingUntil(); !d.IsZero() {
+		rg.PendingStatus = statusDeleting
+		rg.AvailableAt = d
+		b.appendEventLocked(id, "replication-group", "replication group deleting")
+
+		return nil
+	}
+
 	rg.Tags.Close()
 	delete(store, id)
 	b.appendEventLocked(id, "replication-group", "replication group deleted")
@@ -1261,8 +1394,10 @@ func (b *InMemoryBackend) DescribeReplicationGroups(
 
 	region := getRegion(ctx, b.region)
 
-	return describePaged(b.replicationGroupsStore(region), id, ErrReplicationGroupNotFound, nil,
+	p, err := describePaged(b.replicationGroupsStore(region), id, ErrReplicationGroupNotFound, nil,
 		func(rg ReplicationGroup) string { return rg.ReplicationGroupID }, marker, maxRecords)
+
+	return b.finalizeReplicationGroupPage(id, p, err)
 }
 
 // randomSuffix generates a short random hex string for synthetic hostnames.
@@ -1277,10 +1412,15 @@ func randomSuffix() string {
 func (b *InMemoryBackend) ListAll() []Cluster {
 	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
+	now := b.now()
 	var out []Cluster
 	for _, regionClusters := range b.clusters {
 		for _, c := range regionClusters {
+			if isReaped(now, c.PendingStatus, c.AvailableAt) {
+				continue
+			}
 			cp := *c
+			cp.Status = overlayStatus(now, c.Status, c.PendingStatus, c.AvailableAt)
 			out = append(out, cp)
 		}
 	}
@@ -1330,11 +1470,10 @@ func (b *InMemoryBackend) ModifyCluster(
 		c.SnapshotWindow = snapshotWindow
 	}
 
+	b.markTransitionLocked(&c.PendingStatus, &c.AvailableAt, statusModifying)
 	b.appendEventLocked(id, "cache-cluster", "cluster modified")
 
-	cp := *c
-
-	return &cp, nil
+	return b.clusterView(c), nil
 }
 
 // ModifyReplicationGroup modifies an existing replication group.
@@ -1391,11 +1530,10 @@ func (b *InMemoryBackend) ModifyReplicationGroup(
 		rg.SnapshotWindow = snapshotWindow
 	}
 
+	b.markTransitionLocked(&rg.PendingStatus, &rg.AvailableAt, statusModifying)
 	b.appendEventLocked(id, "replication-group", "replication group modified")
 
-	cp := *rg
-
-	return &cp, nil
+	return b.replicationGroupView(rg), nil
 }
 
 // FailoverReplicationGroup simulates a failover for the given replication group.
@@ -1410,11 +1548,10 @@ func (b *InMemoryBackend) FailoverReplicationGroup(ctx context.Context, id, _ st
 	}
 
 	rg.Status = statusAvailable
+	b.markTransitionLocked(&rg.PendingStatus, &rg.AvailableAt, statusFailingOver)
 	b.appendEventLocked(id, "replication-group", "failover completed")
 
-	cp := *rg
-
-	return &cp, nil
+	return b.replicationGroupView(rg), nil
 }
 
 // CreateParameterGroup creates a new cache parameter group.
@@ -1688,6 +1825,7 @@ func (b *InMemoryBackend) CreateSnapshot(
 		CreatedAt:          time.Now(),
 		Tags:               tags.New("elasticache.snapshot." + snapshotName + ".tags"),
 	}
+	b.markCreatingLocked(&snap.PendingStatus, &snap.AvailableAt)
 
 	if clusterID != "" {
 		c, ok := b.clustersStore(region)[clusterID]
@@ -1720,7 +1858,10 @@ func (b *InMemoryBackend) CreateSnapshot(
 	}
 	b.appendEventLocked(sourceID, "cache-cluster", "snapshot "+snapshotName+" created")
 
-	return snap, nil
+	cp := *snap
+	cp.Status = overlayStatus(b.now(), snap.Status, snap.PendingStatus, snap.AvailableAt)
+
+	return &cp, nil
 }
 
 // DeleteSnapshot removes a snapshot and returns the deleted snapshot.
@@ -1729,10 +1870,21 @@ func (b *InMemoryBackend) DeleteSnapshot(ctx context.Context, snapshotName strin
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+	b.pruneRegionLocked(region)
 	store := b.snapshotsStore(region)
 	snap, exists := store[snapshotName]
-	if !exists {
+	if !exists || isReaped(b.now(), snap.PendingStatus, snap.AvailableAt) {
 		return nil, ErrSnapshotNotFound
+	}
+
+	if d := b.pendingUntil(); !d.IsZero() {
+		snap.PendingStatus = statusDeleting
+		snap.AvailableAt = d
+		b.appendEventLocked(snapshotName, "cache-snapshot", "snapshot deleting")
+		cp := *snap
+		cp.Status = statusDeleting
+
+		return &cp, nil
 	}
 
 	cp := *snap
@@ -1765,12 +1917,14 @@ func (b *InMemoryBackend) DescribeSnapshots(
 		wantSource = snapshotSourceManual
 	}
 
-	return describePaged(b.snapshotsStore(region), snapshotName, ErrSnapshotNotFound, func(s CacheSnapshot) bool {
+	p, err := describePaged(b.snapshotsStore(region), snapshotName, ErrSnapshotNotFound, func(s CacheSnapshot) bool {
 		return (clusterID == "" || s.CacheClusterID == clusterID) &&
 			(replicationGroupID == "" || s.ReplicationGroupID == replicationGroupID) &&
 			(wantSource == "" || s.SnapshotSource == wantSource)
 	},
 		func(s CacheSnapshot) string { return s.SnapshotName }, marker, maxRecords)
+
+	return b.finalizeSnapshotPage(snapshotName, p, err)
 }
 
 // CopySnapshot copies an existing snapshot to a new name.
@@ -1850,9 +2004,7 @@ func (b *InMemoryBackend) Reset() {
 
 	for _, regionClusters := range b.clusters {
 		for _, c := range regionClusters {
-			if c.mini != nil {
-				c.mini.Close()
-			}
+			b.releaseClusterLocked(c)
 		}
 	}
 

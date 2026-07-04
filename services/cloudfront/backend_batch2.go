@@ -23,10 +23,21 @@ var ErrDistributionTenantNotFound = awserr.New("NoSuchDistributionTenant", awser
 // ErrInvalidTagging is returned when tag key/value constraints are violated.
 var ErrInvalidTagging = awserr.New("InvalidTagging", awserr.ErrInvalidParameter)
 
+// ErrDomainConflict is returned when a domain is already associated with another
+// distribution tenant or distribution.
+var ErrDomainConflict = awserr.New("DomainConflictException", awserr.ErrConflict)
+
 const (
 	maxTagKeyLen   = 128
 	maxTagValueLen = 256
 	maxTagCount    = 50
+)
+
+// dnsStatusPassed and dnsStatusFailed are the two outcomes of the syntactic domain-validation
+// check dnsCheckStatus performs, standing in for real DNS/ACM validation in this emulator.
+const (
+	dnsStatusPassed = "PASSED"
+	dnsStatusFailed = "FAILED"
 )
 
 // validateCFTags enforces CloudFront tag constraints: key 1-128 chars, value 0-256 chars,
@@ -59,24 +70,114 @@ func validateCFTags(tags map[string]string) error {
 
 // DistributionTenant represents a CloudFront distribution tenant.
 type DistributionTenant struct {
-	Customizations   map[string]any    `json:"Customizations,omitempty"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	ID               string            `json:"Id"`
-	DistributionID   string            `json:"DistributionId"`
-	Domain           string            `json:"Domain"`
-	Status           string            `json:"Status"`
-	CreationTime     string            `json:"CreationTime,omitempty"`
-	LastModifiedTime string            `json:"LastModifiedTime,omitempty"`
-	ETag             string            `json:"-"`
+	Customizations    map[string]any    `json:"Customizations,omitempty"`
+	Parameters        map[string]string `json:"Parameters,omitempty"`
+	Tags              map[string]string `json:"Tags,omitempty"`
+	Name              string            `json:"Name,omitempty"`
+	ARN               string            `json:"Arn"`
+	DistributionID    string            `json:"DistributionId"`
+	ID                string            `json:"Id"`
+	Domain            string            `json:"Domain"`
+	ConnectionGroupID string            `json:"ConnectionGroupId,omitempty"`
+	Status            string            `json:"Status"`
+	CreationTime      string            `json:"CreationTime,omitempty"`
+	LastModifiedTime  string            `json:"LastModifiedTime,omitempty"`
+	ETag              string            `json:"-"`
+	Domains           []string          `json:"Domains,omitempty"`
+	Enabled           bool              `json:"Enabled"`
+}
+
+// DomainConflict describes an existing resource that already claims a domain.
+type DomainConflict struct {
+	Domain       string
+	ResourceType string // "DISTRIBUTION" | "DISTRIBUTION_TENANT"
+	ResourceID   string
+	AccountID    string
+}
+
+// DNSConfiguration reports the DNS verification status for a single domain.
+type DNSConfiguration struct {
+	Domain string
+	Status string // "PASSED" | "FAILED"
+	Reason string
+}
+
+// DomainAssociationResult is returned by UpdateDomainAssociation.
+type DomainAssociationResult struct {
+	Domain               string
+	DistributionID       string
+	DistributionTenantID string
+}
+
+// distributionTenantARN returns the ARN for a distribution tenant ID.
+func (b *InMemoryBackend) distributionTenantARN(id string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:distribution-tenant/%s", b.accountID, id)
+}
+
+// normalizeDomains dedupes and drops empty domain strings while preserving order.
+func normalizeDomains(domain string, extra []string) []string {
+	seen := make(map[string]bool, len(extra)+1)
+	out := make([]string, 0, len(extra)+1)
+
+	add := func(d string) {
+		if d == "" || seen[d] {
+			return
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+
+	add(domain)
+	for _, d := range extra {
+		add(d)
+	}
+
+	return out
 }
 
 // ---------------------------------------------------------------------------
 // DistributionTenant backend methods
 // ---------------------------------------------------------------------------
 
+// findDomainConflicts returns every existing distribution tenant or distribution that already
+// claims domain, excluding the tenant identified by excludeTenantID (used when re-checking a
+// tenant's own domains during an update). Must be called with the lock held.
+func (b *InMemoryBackend) findDomainConflicts(domain, excludeTenantID string) []DomainConflict {
+	var conflicts []DomainConflict
+
+	if tid, ok := b.distributionTenantsByDomain[domain]; ok && tid != excludeTenantID {
+		conflicts = append(conflicts, DomainConflict{
+			Domain:       domain,
+			ResourceType: "DISTRIBUTION_TENANT",
+			ResourceID:   tid,
+			AccountID:    b.accountID,
+		})
+	}
+
+	distIDs := make([]string, 0, len(b.distributionAliases))
+	for distID := range b.distributionAliases {
+		distIDs = append(distIDs, distID)
+	}
+	sort.Strings(distIDs)
+
+	for _, distID := range distIDs {
+		if slices.Contains(b.distributionAliases[distID], domain) {
+			conflicts = append(conflicts, DomainConflict{
+				Domain:       domain,
+				ResourceType: "DISTRIBUTION",
+				ResourceID:   distID,
+				AccountID:    b.accountID,
+			})
+		}
+	}
+
+	return conflicts
+}
+
 // CreateDistributionTenant creates a new distribution tenant.
 func (b *InMemoryBackend) CreateDistributionTenant(
-	distributionID, domain string,
+	distributionID, name string,
+	domains []string,
 	tags map[string]string,
 ) (*DistributionTenant, error) {
 	b.mu.Lock("CreateDistributionTenant")
@@ -86,21 +187,31 @@ func (b *InMemoryBackend) CreateDistributionTenant(
 		return nil, fmt.Errorf("%w: DistributionId must not be empty", ErrValidation)
 	}
 
-	if domain == "" {
+	domains = normalizeDomains("", domains)
+	if len(domains) == 0 {
 		return nil, fmt.Errorf("%w: Domain must not be empty", ErrValidation)
 	}
 
-	if _, exists := b.distributionTenantsByDomain[domain]; exists {
-		return nil, fmt.Errorf("%w: distribution tenant with domain %q already exists", ErrAlreadyExists, domain)
+	for _, d := range domains {
+		if conflicts := b.findDomainConflicts(d, ""); len(conflicts) > 0 {
+			return nil, fmt.Errorf(
+				"%w: domain %q is already associated with %s %s",
+				ErrDomainConflict, d, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
+			)
+		}
 	}
 
 	id := uuid.NewString()[:12]
 	now := time.Now().UTC().Format(time.RFC3339)
 	t := &DistributionTenant{
 		ID:               id,
+		ARN:              b.distributionTenantARN(id),
 		DistributionID:   distributionID,
-		Domain:           domain,
-		Status:           "Enabled",
+		Name:             name,
+		Domain:           domains[0],
+		Domains:          domains,
+		Enabled:          true,
+		Status:           statusDeployed,
 		CreationTime:     now,
 		LastModifiedTime: now,
 		ETag:             uuid.NewString(),
@@ -110,7 +221,10 @@ func (b *InMemoryBackend) CreateDistributionTenant(
 		t.Tags = make(map[string]string)
 	}
 	b.distributionTenants[id] = t
-	b.distributionTenantsByDomain[domain] = id
+	b.distributionTenantARNs[t.ARN] = id
+	for _, d := range domains {
+		b.distributionTenantsByDomain[d] = id
+	}
 	cp := b.copyTenant(t)
 
 	return cp, nil
@@ -146,10 +260,22 @@ func (b *InMemoryBackend) GetDistributionTenantByDomain(domain string) (*Distrib
 	return b.copyTenant(t), nil
 }
 
-// UpdateDistributionTenant updates a distribution tenant's customizations.
+// DistributionTenantUpdate carries the mutable fields accepted by UpdateDistributionTenant.
+// A zero-value field is left unchanged; Domains and Enabled require an explicit non-empty /
+// non-nil value to take effect.
+type DistributionTenantUpdate struct {
+	Customizations    map[string]any
+	Enabled           *bool
+	ConnectionGroupID string
+	Domains           []string
+}
+
+// UpdateDistributionTenant updates a distribution tenant's domains, connection group,
+// enabled state, and/or customizations. Domain changes are validated against
+// findDomainConflicts before being applied.
 func (b *InMemoryBackend) UpdateDistributionTenant(
 	id string,
-	customizations map[string]any,
+	upd DistributionTenantUpdate,
 ) (*DistributionTenant, error) {
 	b.mu.Lock("UpdateDistributionTenant")
 	defer b.mu.Unlock()
@@ -159,9 +285,39 @@ func (b *InMemoryBackend) UpdateDistributionTenant(
 		return nil, fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, id)
 	}
 
-	if customizations != nil {
-		t.Customizations = customizations
+	if len(upd.Domains) > 0 {
+		domains := normalizeDomains("", upd.Domains)
+		for _, d := range domains {
+			if conflicts := b.findDomainConflicts(d, id); len(conflicts) > 0 {
+				return nil, fmt.Errorf(
+					"%w: domain %q is already associated with %s %s",
+					ErrDomainConflict, d, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
+				)
+			}
+		}
+
+		for _, d := range t.Domains {
+			delete(b.distributionTenantsByDomain, d)
+		}
+		for _, d := range domains {
+			b.distributionTenantsByDomain[d] = id
+		}
+		t.Domains = domains
+		t.Domain = domains[0]
 	}
+
+	if upd.ConnectionGroupID != "" {
+		t.ConnectionGroupID = upd.ConnectionGroupID
+	}
+
+	if upd.Enabled != nil {
+		t.Enabled = *upd.Enabled
+	}
+
+	if upd.Customizations != nil {
+		t.Customizations = upd.Customizations
+	}
+
 	t.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	t.ETag = uuid.NewString()
 
@@ -178,9 +334,15 @@ func (b *InMemoryBackend) DeleteDistributionTenant(id string) error {
 		return fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, id)
 	}
 
+	for _, d := range t.Domains {
+		delete(b.distributionTenantsByDomain, d)
+	}
 	delete(b.distributionTenantsByDomain, t.Domain)
+	delete(b.distributionTenantARNs, t.ARN)
+	delete(b.distributionTenantWebACLs, id)
 	delete(b.distributionTenants, id)
 	delete(b.tenantInvalidations, id)
+	delete(b.tenantInvalidationReadyAt, id)
 
 	return nil
 }
@@ -197,6 +359,166 @@ func (b *InMemoryBackend) ListDistributionTenants() []*DistributionTenant {
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
 	return out
+}
+
+// TenantWebACLArn returns the WAF web ACL ARN currently associated with a distribution tenant,
+// or "" if none is associated.
+func (b *InMemoryBackend) TenantWebACLArn(tenantID string) string {
+	b.mu.RLock("TenantWebACLArn")
+	defer b.mu.RUnlock()
+
+	return b.distributionTenantWebACLs[tenantID]
+}
+
+// ListDistributionTenantsByCustomization returns distribution tenants filtered by an associated
+// WAF web ACL ARN. When webACLArn is empty, all tenants are returned (same as
+// ListDistributionTenants), since no customization filter was supplied.
+func (b *InMemoryBackend) ListDistributionTenantsByCustomization(webACLArn string) []*DistributionTenant {
+	b.mu.RLock("ListDistributionTenantsByCustomization")
+	defer b.mu.RUnlock()
+
+	out := make([]*DistributionTenant, 0, len(b.distributionTenants))
+	for _, t := range b.distributionTenants {
+		if webACLArn != "" && b.distributionTenantWebACLs[t.ID] != webACLArn {
+			continue
+		}
+		out = append(out, b.copyTenant(t))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+
+	return out
+}
+
+// ListDomainConflicts returns every existing distribution tenant or distribution that already
+// claims domain.
+func (b *InMemoryBackend) ListDomainConflicts(domain string) []DomainConflict {
+	b.mu.RLock("ListDomainConflicts")
+	defer b.mu.RUnlock()
+
+	return b.findDomainConflicts(domain, "")
+}
+
+// UpdateDomainAssociation moves a domain's association to the given target distribution tenant
+// or distribution. Exactly one of targetTenantID / targetDistID must be set. The domain is
+// removed from its previous owner (if any) and attached to the target; a conflict with a
+// *different* existing owner returns ErrDomainConflict.
+func (b *InMemoryBackend) UpdateDomainAssociation(
+	domain, targetTenantID, targetDistID string,
+) (*DomainAssociationResult, error) {
+	b.mu.Lock("UpdateDomainAssociation")
+	defer b.mu.Unlock()
+
+	if domain == "" {
+		return nil, fmt.Errorf("%w: Domain must not be empty", ErrValidation)
+	}
+
+	if (targetTenantID == "") == (targetDistID == "") {
+		return nil, fmt.Errorf("%w: exactly one of DistributionTenantId or DistributionId must be set", ErrValidation)
+	}
+
+	if targetTenantID != "" {
+		return b.updateDomainAssociationToTenant(domain, targetTenantID)
+	}
+
+	return b.updateDomainAssociationToDistribution(domain, targetDistID)
+}
+
+// updateDomainAssociationToTenant reassigns domain to targetTenantID. Must be called with the
+// lock held.
+func (b *InMemoryBackend) updateDomainAssociationToTenant(
+	domain, targetTenantID string,
+) (*DomainAssociationResult, error) {
+	target, ok := b.distributionTenants[targetTenantID]
+	if !ok {
+		return nil, fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, targetTenantID)
+	}
+
+	if conflicts := b.findDomainConflicts(domain, targetTenantID); len(conflicts) > 0 {
+		return nil, fmt.Errorf(
+			"%w: domain %q is already associated with %s %s",
+			ErrDomainConflict, domain, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
+		)
+	}
+
+	target.Domains = normalizeDomains(domain, target.Domains)
+	if target.Domain == "" {
+		target.Domain = domain
+	}
+	target.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	target.ETag = uuid.NewString()
+	b.distributionTenantsByDomain[domain] = targetTenantID
+
+	return &DomainAssociationResult{Domain: domain, DistributionTenantID: targetTenantID}, nil
+}
+
+// updateDomainAssociationToDistribution reassigns domain to targetDistID's alias list. Must be
+// called with the lock held.
+func (b *InMemoryBackend) updateDomainAssociationToDistribution(
+	domain, targetDistID string,
+) (*DomainAssociationResult, error) {
+	d, ok := b.distributions[targetDistID]
+	if !ok {
+		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, targetDistID)
+	}
+
+	if conflicts := b.findDomainConflicts(domain, ""); len(conflicts) > 0 {
+		for _, c := range conflicts {
+			if c.ResourceType != "DISTRIBUTION" || c.ResourceID != targetDistID {
+				return nil, fmt.Errorf(
+					"%w: domain %q is already associated with %s %s",
+					ErrDomainConflict, domain, strings.ToLower(c.ResourceType), c.ResourceID,
+				)
+			}
+		}
+	}
+
+	if !slices.Contains(b.distributionAliases[targetDistID], domain) {
+		b.distributionAliases[targetDistID] = append(b.distributionAliases[targetDistID], domain)
+	}
+	d.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	d.ETag = uuid.NewString()
+
+	return &DomainAssociationResult{Domain: domain, DistributionID: targetDistID}, nil
+}
+
+// VerifyDNSConfiguration checks the DNS status of every domain associated with identifier, which
+// may be a distribution tenant ID or a distribution ID. A domain is reported PASSED when it is
+// syntactically well-formed (contains a dot and no whitespace) and FAILED otherwise. When
+// identifier is empty, a single generic PASSED entry is returned.
+func (b *InMemoryBackend) VerifyDNSConfiguration(identifier string) ([]DNSConfiguration, error) {
+	b.mu.RLock("VerifyDNSConfiguration")
+	defer b.mu.RUnlock()
+
+	if identifier == "" {
+		return []DNSConfiguration{{Domain: "", Status: dnsStatusPassed}}, nil
+	}
+
+	var domains []string
+	switch {
+	case b.distributionTenants[identifier] != nil:
+		domains = b.distributionTenants[identifier].Domains
+	case b.distributions[identifier] != nil:
+		domains = b.distributionAliases[identifier]
+	default:
+		return nil, fmt.Errorf("%w: identifier %s not found", ErrDistributionTenantNotFound, identifier)
+	}
+
+	out := make([]DNSConfiguration, 0, len(domains))
+	for _, d := range domains {
+		out = append(out, DNSConfiguration{Domain: d, Status: dnsCheckStatus(d)})
+	}
+
+	return out, nil
+}
+
+// dnsCheckStatus performs a syntactic sanity check on a domain, standing in for real DNS
+// resolution in this emulator.
+func dnsCheckStatus(domain string) string {
+	if domain == "" || strings.ContainsAny(domain, " \t") || !strings.Contains(domain, ".") {
+		return dnsStatusFailed
+	}
+
+	return dnsStatusPassed
 }
 
 // DisassociateDistributionTenantWebACL clears the web ACL association for a distribution tenant.
@@ -313,22 +635,9 @@ func (b *InMemoryBackend) UpdateDistributionWithStagingConfig(primaryID, staging
 	primary.RawConfig = rawCopy
 	primary.ETag = uuid.NewString()
 	primary.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	b.reindexDistributionConfig(primaryID, rawCopy)
 
 	return b.copyDistribution(primary), nil
-}
-
-// distributionsByConfigSearch scans all distributions and returns those whose raw config contains searchStr.
-// Must be called with the read lock held.
-func (b *InMemoryBackend) distributionsByConfigSearch(searchStr string) []*Distribution {
-	var out []*Distribution
-	for _, d := range b.distributions {
-		if strings.Contains(string(d.RawConfig), searchStr) {
-			cp := *d
-			out = append(out, &cp)
-		}
-	}
-
-	return out
 }
 
 // ListDistributionsByKeyGroup returns distributions that reference a key group.
@@ -418,6 +727,8 @@ func (b *InMemoryBackend) UpdateKeyValueStore(id, comment string) (*KeyValueStor
 		kvs.Comment = comment
 	}
 	kvs.ETag = uuid.NewString()
+	kvs.Status = kvsStatusReady
+	kvs.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := *kvs
 
 	return &cp, nil
@@ -432,107 +743,15 @@ func (b *InMemoryBackend) copyTenant(t *DistributionTenant) *DistributionTenant 
 		maps.Copy(cp.Tags, t.Tags)
 	}
 
+	if t.Domains != nil {
+		cp.Domains = make([]string, len(t.Domains))
+		copy(cp.Domains, t.Domains)
+	}
+
+	if t.Parameters != nil {
+		cp.Parameters = make(map[string]string, len(t.Parameters))
+		maps.Copy(cp.Parameters, t.Parameters)
+	}
+
 	return &cp
-}
-
-// ---------------------------------------------------------------------------
-// ManagedCertificate types and methods
-// ---------------------------------------------------------------------------
-
-// ManagedCertificateValidationToken holds per-domain validation state.
-type ManagedCertificateValidationToken struct {
-	Domain           string `json:"domain"`
-	ValidationStatus string `json:"validationStatus"` // "PENDING_VALIDATION" or "SUCCESS"
-}
-
-// ManagedCertificate holds certificate state for a distribution tenant.
-type ManagedCertificate struct {
-	TenantID         string                               `json:"tenantId"`
-	Status           string                               `json:"status"` // "PENDING_VALIDATION" or "SUCCESS"
-	ValidationTokens []*ManagedCertificateValidationToken `json:"validationTokens,omitempty"`
-}
-
-// GetManagedCertificateDetails returns managed certificate details for a distribution tenant.
-// Returns a synthetic SUCCESS cert if no explicit record is found (in-memory default).
-func (b *InMemoryBackend) GetManagedCertificateDetails(tenantID string) (*ManagedCertificate, error) {
-	b.mu.RLock("GetManagedCertificateDetails")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.distributionTenants[tenantID]; !ok {
-		return nil, ErrDistributionTenantNotFound
-	}
-
-	if cert, ok := b.managedCertificates[tenantID]; ok {
-		cp := *cert
-		cp.ValidationTokens = make([]*ManagedCertificateValidationToken, len(cert.ValidationTokens))
-		for i, vt := range cert.ValidationTokens {
-			vtCp := *vt
-			cp.ValidationTokens[i] = &vtCp
-		}
-
-		return &cp, nil
-	}
-
-	// Default synthetic cert: auto-provisioned SUCCESS for the tenant's domain.
-	tenant := b.distributionTenants[tenantID]
-	domain := tenant.Domain
-	if domain == "" {
-		domain = tenantID + ".example.com"
-	}
-
-	return &ManagedCertificate{
-		TenantID: tenantID,
-		Status:   "SUCCESS",
-		ValidationTokens: []*ManagedCertificateValidationToken{
-			{Domain: domain, ValidationStatus: "SUCCESS"},
-		},
-	}, nil
-}
-
-// ---------------------------------------------------------------------------
-// ListDomainConflicts backend method
-// ---------------------------------------------------------------------------
-
-// DomainConflict represents a domain that conflicts across distributions or tenants.
-type DomainConflict struct {
-	Domain         string
-	DistributionID string
-	AccountID      string
-}
-
-// ListDomainConflicts returns domains that conflict for a given domain query.
-// Checks existing distribution aliases and tenant domains for the given domain pattern.
-func (b *InMemoryBackend) ListDomainConflicts(domain string) []*DomainConflict {
-	b.mu.RLock("ListDomainConflicts")
-	defer b.mu.RUnlock()
-
-	if domain == "" {
-		return nil
-	}
-
-	var out []*DomainConflict
-
-	for distID, aliases := range b.distributionAliases {
-		for _, alias := range aliases {
-			if alias == domain {
-				out = append(out, &DomainConflict{
-					Domain:         domain,
-					DistributionID: distID,
-					AccountID:      b.accountID,
-				})
-			}
-		}
-	}
-
-	for _, tenant := range b.distributionTenants {
-		if tenant.Domain == domain {
-			out = append(out, &DomainConflict{
-				Domain:         domain,
-				DistributionID: tenant.DistributionID,
-				AccountID:      b.accountID,
-			})
-		}
-	}
-
-	return out
 }

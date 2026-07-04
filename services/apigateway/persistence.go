@@ -30,6 +30,7 @@ type backendSnapshot struct {
 	GatewayResponses             map[string]*GatewayResponse             `json:"gatewayResponses,omitempty"`
 	ClientCertificates           map[string]*ClientCertificate           `json:"clientCertificates,omitempty"`
 	VpcLinks                     map[string]*VpcLink                     `json:"vpcLinks,omitempty"`
+	UsageOverrides               map[string]map[string]int64             `json:"usageOverrides,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -50,6 +51,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		GatewayResponses:             b.gatewayResponses,
 		ClientCertificates:           b.clientCertificates,
 		VpcLinks:                     b.vpcLinks,
+		UsageOverrides:               b.usageOverrides,
 	}
 
 	for id, d := range b.apis {
@@ -186,6 +188,12 @@ func (b *InMemoryBackend) restoreMaps(snap backendSnapshot) {
 		b.account = &Account{}
 	}
 
+	b.restoreMapsExt(snap)
+}
+
+// restoreMapsExt restores the remaining flat map fields, split out from
+// restoreMaps to keep cognitive complexity down.
+func (b *InMemoryBackend) restoreMapsExt(snap backendSnapshot) {
 	if snap.GatewayResponses != nil {
 		b.gatewayResponses = snap.GatewayResponses
 	} else {
@@ -202,6 +210,12 @@ func (b *InMemoryBackend) restoreMaps(snap backendSnapshot) {
 		b.vpcLinks = snap.VpcLinks
 	} else {
 		b.vpcLinks = make(map[string]*VpcLink)
+	}
+
+	if snap.UsageOverrides != nil {
+		b.usageOverrides = snap.UsageOverrides
+	} else {
+		b.usageOverrides = make(map[string]map[string]int64)
 	}
 }
 

@@ -171,6 +171,7 @@ func (b *InMemoryBackend) spawnFleetInstancesLocked(
 		b.instances[id] = inst
 		b.indexInstanceLocked(inst)
 		b.indexENILocked(eniID, b.networkInterfaces[eniID])
+		b.indexENIByVPCLocked(eniID, b.networkInterfaces[eniID])
 
 		fleet.InstanceIDs = append(fleet.InstanceIDs, id)
 		fulfilled += weightedCap
@@ -443,6 +444,7 @@ func (b *InMemoryBackend) scaleFleetUpLocked(
 		b.instances[id] = inst
 		b.indexInstanceLocked(inst)
 		b.indexENILocked(eniID, b.networkInterfaces[eniID])
+		b.indexENIByVPCLocked(eniID, b.networkInterfaces[eniID])
 
 		fleet.InstanceIDs = append(fleet.InstanceIDs, id)
 		fleet.FulfilledCapacity += weightedCap

@@ -1,6 +1,7 @@
 package cloudfront
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -213,6 +214,9 @@ const (
 	// Path segment constants used in parseCFPath.
 	sfxDistribution   = "distribution"
 	sfxResourcePolicy = "resource-policy"
+
+	// resourceParamWithTags is the Resource query-param value marking the *WithTags create variant.
+	resourceParamWithTags = "WithTags"
 )
 
 // Handler is the Echo HTTP handler for AWS CloudFront operations (REST-XML protocol).
@@ -484,7 +488,7 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		return op, id
 	}
 
-	if op, id := parseCFEncryptionKeyPath(method, suffix); op != "" {
+	if op, id := parseCFEncryptionKeyPath(method, suffix, resourceParam); op != "" {
 		return op, id
 	}
 
@@ -534,7 +538,7 @@ func parseCFDistributionCorePath(method, suffix, resourceParam string) (string, 
 // parseCFDistributionRoot handles the distribution collection and simple CRUD operations.
 func parseCFDistributionRoot(method, suffix, resourceParam string) (string, string) {
 	switch {
-	case suffix == sfxDistribution && method == http.MethodPost && resourceParam != "WithTags":
+	case suffix == sfxDistribution && method == http.MethodPost && resourceParam != resourceParamWithTags:
 		return opCreateDistribution, ""
 	case suffix == sfxDistribution && method == http.MethodGet:
 		return opListDistributions, ""
@@ -792,7 +796,7 @@ func parseCFFunctionPath(method, suffix string) (string, string) {
 
 // parseCFEncryptionKeyPath routes field-level encryption, key group, key value store, public key,
 // realtime log config, streaming distribution, trust store, vpc origin, and anycast paths.
-func parseCFEncryptionKeyPath(method, suffix string) (string, string) {
+func parseCFEncryptionKeyPath(method, suffix, resourceParam string) (string, string) {
 	if op, id := parseCFFieldLevelEncryptionPath(method, suffix); op != "" {
 		return op, id
 	}
@@ -801,7 +805,7 @@ func parseCFEncryptionKeyPath(method, suffix string) (string, string) {
 		return op, id
 	}
 
-	return parseCFStreamingTrustVPCPath(method, suffix)
+	return parseCFStreamingTrustVPCPath(method, suffix, resourceParam)
 }
 
 // parseCFFieldLevelEncryptionPath routes field-level encryption and profile paths.
@@ -959,12 +963,15 @@ func parseCFPublicKeyRealtimePath(method, suffix string) (string, string) {
 }
 
 // parseCFStreamingTrustVPCPath routes streaming distribution, trust store, vpc origin, and anycast paths.
-func parseCFStreamingTrustVPCPath(method, suffix string) (string, string) {
-	if op, id := parseCFResourcePath(method, suffix, "streaming-distribution",
-		opCreateStreamingDistribution, opListStreamingDistributions,
-		opGetStreamingDistribution, opUpdateStreamingDistribution, opDeleteStreamingDistribution,
-		opGetStreamingDistributionConfig, ""); op != "" {
+func parseCFStreamingTrustVPCPath(method, suffix, resourceParam string) (string, string) {
+	if op, id := parseCFStreamingDistributionPath(method, suffix, resourceParam); op != "" {
 		return op, id
+	}
+
+	// The real SDK sends ListTrustStores as POST /trust-stores (plural resource, POST method),
+	// distinct from the singular /trust-store resource used by the other trust store operations.
+	if suffix == "trust-stores" && method == http.MethodPost {
+		return opListTrustStores, ""
 	}
 
 	if op, id := parseCFResourcePath(method, suffix, "trust-store",
@@ -986,6 +993,25 @@ func parseCFStreamingTrustVPCPath(method, suffix string) (string, string) {
 	}
 
 	return "", ""
+}
+
+// parseCFStreamingDistributionPath routes streaming distribution paths, including the
+// CreateStreamingDistributionWithTags variant (POST .../streaming-distribution?Resource=WithTags).
+func parseCFStreamingDistributionPath(method, suffix, resourceParam string) (string, string) {
+	const streamingDistributionResource = "streaming-distribution"
+
+	if suffix == streamingDistributionResource && method == http.MethodPost {
+		if resourceParam == resourceParamWithTags {
+			return opCreateStreamingDistributionWithTags, ""
+		}
+
+		return opCreateStreamingDistribution, ""
+	}
+
+	return parseCFResourcePath(method, suffix, streamingDistributionResource,
+		"", opListStreamingDistributions,
+		opGetStreamingDistribution, opUpdateStreamingDistribution, opDeleteStreamingDistribution,
+		opGetStreamingDistributionConfig, opUpdateStreamingDistribution)
 }
 
 // parseCFConnectionPath routes connection function, group, and continuous deployment policy paths.
@@ -1131,8 +1157,8 @@ func parseCFDistributionsByPath(method, suffix string) (string, string) {
 		return opListDistributionsByConnectionMode, ""
 	case suffix == "distribution-tenants/by-customization":
 		return opListDistributionTenantsByCustom, ""
-	case strings.HasPrefix(suffix, "trust-store/") && strings.Contains(suffix, "/by-trust-store/"):
-		return opListDistributionsByTrustStore, ""
+	case strings.HasPrefix(suffix, "distributions/by-trust-store-id/"):
+		return opListDistributionsByTrustStore, strings.TrimPrefix(suffix, "distributions/by-trust-store-id/")
 	}
 
 	return "", ""
@@ -1194,7 +1220,7 @@ func parseCFTaggingOps(method, suffix, resourceParam string) (string, string) {
 		}
 	}
 
-	if suffix == sfxDistribution && method == http.MethodPost && resourceParam == "WithTags" {
+	if suffix == sfxDistribution && method == http.MethodPost && resourceParam == resourceParamWithTags {
 		return opCreateDistributionWithTags, ""
 	}
 
@@ -1223,6 +1249,13 @@ func parseCFCreateOps(method, suffix, _ string) (string, string) {
 
 // parseCFDistributionTenantOps handles distribution-tenant CRUD operations.
 func parseCFDistributionTenantOps(method, suffix string) (string, string) {
+	// The real SDK sends ListDistributionTenants as POST /distribution-tenants (plural
+	// resource, POST method), distinct from the singular /distribution-tenant resource used
+	// by Create/Get/Update/Delete.
+	if suffix == "distribution-tenants" && method == http.MethodPost {
+		return opListDistributionTenants, ""
+	}
+
 	if suffix == "distribution-tenant" {
 		switch method {
 		case http.MethodPost:
@@ -1357,7 +1390,7 @@ func parseCFMiscPathSimple(method, suffix string) string {
 		}
 	}
 
-	if strings.HasPrefix(suffix, "trust-store/") && strings.Contains(suffix, "/by-trust-store/") {
+	if strings.HasPrefix(suffix, "distributions/by-trust-store-id/") {
 		return opListDistributionsByTrustStore
 	}
 
@@ -1614,6 +1647,10 @@ func (h *Handler) dispatchCreateExtended(c *echo.Context, operation string) erro
 		return h.handleCreateKeyValueStore(c)
 	case opCreateVpcOrigin:
 		return h.handleCreateVpcOrigin(c)
+	case opCreateStreamingDistribution:
+		return h.handleCreateStreamingDistribution(c)
+	case opCreateStreamingDistributionWithTags:
+		return h.handleCreateStreamingDistributionWithTags(c)
 	default:
 
 		return errNotDispatched
@@ -1747,7 +1784,7 @@ func (h *Handler) dispatchFieldLevelEncryptionOps(
 	case opGetFieldLevelEncryption:
 		return h.handleGetFieldLevelEncryption(c, resource)
 	case opGetFieldLevelEncryptionConfig:
-		return h.handleGetFieldLevelEncryption(c, resource)
+		return h.handleGetFieldLevelEncryptionConfig(c, resource)
 	case opUpdateFieldLevelEncryptionConfig:
 		return h.handleUpdateFieldLevelEncryption(c, resource)
 	case opDeleteFieldLevelEncryptionConfig:
@@ -1755,7 +1792,7 @@ func (h *Handler) dispatchFieldLevelEncryptionOps(
 	case opGetFieldLevelEncryptionProfile:
 		return h.handleGetFieldLevelEncryptionProfile(c, resource)
 	case opGetFieldLevelEncryptionProfileConfig:
-		return h.handleGetFieldLevelEncryptionProfile(c, resource)
+		return h.handleGetFieldLevelEncryptionProfileConfig(c, resource)
 	case opUpdateFieldLevelEncryptionProfile:
 		return h.handleUpdateFieldLevelEncryptionProfile(c, resource)
 	case opDeleteFieldLevelEncryptionProfile:
@@ -1765,13 +1802,35 @@ func (h *Handler) dispatchFieldLevelEncryptionOps(
 	return errNotDispatched
 }
 
-// dispatchGetOrMutateExtOps handles public key, key group, log config, key value store, and VPC origin operations.
+// dispatchGetOrMutateExtOps handles public key, key group, log config, key value store, VPC origin,
+// and streaming distribution operations.
 func (h *Handler) dispatchGetOrMutateExtOps(c *echo.Context, operation, resource string) error {
 	if err := h.dispatchPublicKeyAndGroupOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchLogStoreVPCOps(c, operation, resource)
+	if err := h.dispatchLogStoreVPCOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchStreamingDistributionOps(c, operation, resource)
+}
+
+// dispatchStreamingDistributionOps handles get, update, and delete operations for streaming distributions.
+func (h *Handler) dispatchStreamingDistributionOps(c *echo.Context, operation, resource string) error {
+	switch operation {
+	case opGetStreamingDistribution:
+		return h.handleGetStreamingDistribution(c, resource)
+	case opGetStreamingDistributionConfig:
+		return h.handleGetStreamingDistributionConfig(c, resource)
+	case opUpdateStreamingDistribution:
+		return h.handleUpdateStreamingDistribution(c, resource)
+	case opDeleteStreamingDistribution:
+		return h.handleDeleteStreamingDistribution(c, resource)
+	default:
+
+		return errNotDispatched
+	}
 }
 
 // dispatchPublicKeyAndGroupOps handles public key and key group operations.
@@ -1780,7 +1839,7 @@ func (h *Handler) dispatchPublicKeyAndGroupOps(c *echo.Context, operation, resou
 	case opGetPublicKey:
 		return h.handleGetPublicKey(c, resource)
 	case opGetPublicKeyConfig:
-		return h.handleGetPublicKey(c, resource)
+		return h.handleGetPublicKeyConfig(c, resource)
 	case opUpdatePublicKey:
 		return h.handleUpdatePublicKey(c, resource)
 	case opDeletePublicKey:
@@ -1788,7 +1847,7 @@ func (h *Handler) dispatchPublicKeyAndGroupOps(c *echo.Context, operation, resou
 	case opGetKeyGroup:
 		return h.handleGetKeyGroup(c, resource)
 	case opGetKeyGroupConfig:
-		return h.handleGetKeyGroup(c, resource)
+		return h.handleGetKeyGroupConfig(c, resource)
 	case opUpdateKeyGroup:
 		return h.handleUpdateKeyGroup(c, resource)
 	case opDeleteKeyGroup:
@@ -1910,6 +1969,8 @@ func (h *Handler) dispatchListExtended(c *echo.Context, operation string) error 
 		return h.handleListVpcOrigins(c)
 	case opListContinuousDeploymentPolicies:
 		return h.handleListContinuousDeploymentPolicies(c)
+	case opListStreamingDistributions:
+		return h.handleListStreamingDistributions(c)
 	default:
 
 		return errNotDispatched
@@ -1950,66 +2011,34 @@ func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) erro
 	}
 }
 
-// cfStubXMLList returns an empty CloudFront list XML response for stub operations.
-func cfStubXMLList(ns, listTag string) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<%s xmlns="%s"><Items/><MaxItems>0</MaxItems><Quantity>0</Quantity><IsTruncated>false</IsTruncated></%s>`,
-		listTag, ns, listTag)
-}
-
-// cfStubHelpers holds helper closures for generating CloudFront stub responses.
-type cfStubHelpers struct {
-	noContent func() error
-	emptyList func(tag string) error
-	created   func(tag, id string) error
-	getStub   func(tag, id string) error
-	xmlResp   func(body string) error
-}
-
-// dispatchStubs handles all stub CloudFront operations with minimal valid responses.
-//
-
+// dispatchStubs is the dispatch table for CloudFront operations that don't have a
+// dedicated route match earlier in the handler chain. Despite the legacy name, every
+// operation handled here is backed by real InMemoryBackend state — there are no
+// remaining hardcoded/empty stub responses. Unknown operations fall through to a
+// real NoSuchOperation error at the end of the chain.
 func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
-	helpers := cfStubHelpers{
-		noContent: func() error { return c.NoContent(http.StatusNoContent) },
-		emptyList: func(tag string) error { return xmlResp(c, http.StatusOK, cfStubXMLList(cfNS, tag)) },
-		created: func(tag, id string) error {
-			return xmlResp(c, http.StatusCreated, fmt.Sprintf(
-				`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
-				tag, cfNS, id, tag,
-			))
-		},
-		getStub: func(tag, id string) error {
-			return xmlResp(c, http.StatusOK, fmt.Sprintf(
-				`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
-				tag, cfNS, id, tag,
-			))
-		},
-		xmlResp: func(body string) error { return xmlResp(c, http.StatusOK, body) },
-	}
-
-	if err := h.dispatchStubsDistributions(c, helpers, operation); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchStubsDistributions(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	if err := h.dispatchStubsTrustAndMisc(c, helpers, operation); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchStubsTrustAndMisc(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsConnectionAndPolicy(c, helpers, operation)
+	return h.dispatchStubsConnectionAndPolicy(c, operation)
 }
 
-// dispatchStubsDistributions handles distribution tenant and monitoring stub responses.
-func (h *Handler) dispatchStubsDistributions(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	if err := h.dispatchStubsDistributionTenant(c, hlp, operation); !errors.Is(err, errNotDispatched) {
+// dispatchStubsDistributions handles distribution tenant and monitoring responses.
+func (h *Handler) dispatchStubsDistributions(c *echo.Context, operation string) error {
+	if err := h.dispatchStubsDistributionTenant(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsMonitoringAndStreaming(c, hlp, operation)
+	return h.dispatchStubsMonitoringAndStreaming(c, operation)
 }
 
-// dispatchStubsDistributionTenant handles distribution tenant and web ACL stubs.
-func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, _ cfStubHelpers, operation string) error {
+// dispatchStubsDistributionTenant handles distribution tenant and web ACL operations.
+func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 
 	switch operation {
@@ -2025,12 +2054,14 @@ func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, _ cfStubHelpe
 		return h.handleGetDistributionTenant(c, extractResourceID(path, "distribution-tenant/"))
 	case opGetDistributionTenantByDomain:
 		return h.handleGetDistributionTenantByDomain(c)
-	case opListDistributionTenants, opListDistributionTenantsByCustom:
+	case opListDistributionTenants:
 		return h.handleListDistributionTenants(c)
+	case opListDistributionTenantsByCustom:
+		return h.handleListDistributionTenantsByCustomization(c)
 	case opUpdateDistributionWithStagingConfig:
 		return h.handleUpdateDistributionWithStagingConfig(c, extractResourceID(path, "distribution/"))
 	case opUpdateDomainAssociation:
-		return h.handleUpdateDomainAssociation(c, extractResourceID(path, "distribution/"))
+		return h.handleUpdateDomainAssociation(c)
 	case opVerifyDNSConfiguration:
 		return h.handleVerifyDNSConfiguration(c)
 	}
@@ -2038,8 +2069,8 @@ func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, _ cfStubHelpe
 	return errNotDispatched
 }
 
-// dispatchStubsMonitoringAndStreaming handles monitoring subscription and streaming distribution stubs.
-func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, _ cfStubHelpers, operation string) error {
+// dispatchStubsMonitoringAndStreaming handles monitoring subscription and web ACL disassociation stubs.
+func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, operation string) error {
 	switch operation {
 	case opCreateMonitoringSubscription:
 		distID := extractMonitoringDistID(c.Request().URL.Path)
@@ -2067,44 +2098,22 @@ func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, _ cfStubH
 		)
 
 		return h.handleDisassociateDistributionTenantWebACL(c, tenantID)
-	case opCreateStreamingDistribution:
-		return h.handleCreateStreamingDistribution(c)
-	case opCreateStreamingDistributionWithTags:
-		return h.handleCreateStreamingDistributionWithTags(c)
-	case opGetStreamingDistribution:
-		sdID := extractStreamingDistID(c.Request().URL.Path)
-
-		return h.handleGetStreamingDistribution(c, sdID)
-	case opGetStreamingDistributionConfig:
-		sdID := extractStreamingDistID(c.Request().URL.Path)
-
-		return h.handleGetStreamingDistributionConfig(c, sdID)
-	case opUpdateStreamingDistribution:
-		sdID := extractStreamingDistID(c.Request().URL.Path)
-
-		return h.handleUpdateStreamingDistribution(c, sdID)
-	case opDeleteStreamingDistribution:
-		sdID := extractStreamingDistID(c.Request().URL.Path)
-
-		return h.handleDeleteStreamingDistribution(c, sdID)
-	case opListStreamingDistributions:
-		return h.handleListStreamingDistributions(c)
 	}
 
 	return errNotDispatched
 }
 
 // dispatchStubsTrustAndMisc handles trust store, anycast, and connection function stubs.
-func (h *Handler) dispatchStubsTrustAndMisc(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	if err := h.dispatchStubsTrustAnycast(c, hlp, operation); !errors.Is(err, errNotDispatched) {
+func (h *Handler) dispatchStubsTrustAndMisc(c *echo.Context, operation string) error {
+	if err := h.dispatchStubsTrustAnycast(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsConnectionFunction(c, hlp, operation)
+	return h.dispatchStubsConnectionFunction(c, operation)
 }
 
 // dispatchStubsTrustAnycast handles trust store and anycast IP list stubs.
-func (h *Handler) dispatchStubsTrustAnycast(c *echo.Context, _ cfStubHelpers, operation string) error {
+func (h *Handler) dispatchStubsTrustAnycast(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 	switch operation {
 	case opCreateTrustStore:
@@ -2131,7 +2140,7 @@ func (h *Handler) dispatchStubsTrustAnycast(c *echo.Context, _ cfStubHelpers, op
 }
 
 // dispatchStubsConnectionFunction handles connection function and connection group stubs.
-func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, _ cfStubHelpers, operation string) error {
+func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 	switch operation {
 	case opDescribeConnectionFunction:
@@ -2153,7 +2162,7 @@ func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, _ cfStubHelpe
 	case opGetConnectionGroupByRoutingEndpoint:
 		return h.handleGetConnectionGroupByRoutingEndpoint(
 			c,
-			extractResourceID(path, "connection-group-by-routing-endpoint/"),
+			c.Request().URL.Query().Get("RoutingEndpoint"),
 		)
 	}
 
@@ -2161,18 +2170,17 @@ func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, _ cfStubHelpe
 }
 
 // dispatchStubsConnectionAndPolicy handles connection group, continuous deployment, resource policy, and misc stubs.
-func (h *Handler) dispatchStubsConnectionAndPolicy(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	if err := h.dispatchStubsConnectionGroupAndCDP(c, hlp, operation); !errors.Is(err, errNotDispatched) {
+func (h *Handler) dispatchStubsConnectionAndPolicy(c *echo.Context, operation string) error {
+	if err := h.dispatchStubsConnectionGroupAndCDP(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsResourcePolicyAndMisc(c, hlp, operation)
+	return h.dispatchStubsResourcePolicyAndMisc(c, operation)
 }
 
 // dispatchStubsConnectionGroupAndCDP handles connection group and continuous deployment policy stubs.
 func (h *Handler) dispatchStubsConnectionGroupAndCDP(
 	c *echo.Context,
-	_ cfStubHelpers,
 	operation string,
 ) error {
 	path := c.Request().URL.Path
@@ -2199,13 +2207,14 @@ func (h *Handler) dispatchStubsConnectionGroupAndCDP(
 	return errNotDispatched
 }
 
-// dispatchStubsResourcePolicyAndMisc handles distribution list, invalidation, and managed certificate stubs.
-func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStubHelpers, operation string) error {
+// dispatchStubsResourcePolicyAndMisc handles distribution list, invalidation, and
+// managed-certificate-details routes (the latter now backed by real state, not a stub).
+func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, operation string) error {
 	if err := h.dispatchStubsDistributionListBy(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsTenantAndCerts(c, hlp, operation)
+	return h.dispatchStubsTenantAndCerts(c, operation)
 }
 
 // dispatchStubsDistributionListBy handles the ListDistributionsBy-* operations.
@@ -2230,7 +2239,7 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 	case opListDistributionsByRealtimeLogConfig:
 		return h.handleListDistributionsByRealtimeLogConfig(
 			c,
-			extractResourceID(path, "distributionsByRealtimeLogConfig/"),
+			c.Request().URL.Query().Get("RealtimeLogConfigArn"),
 		)
 	case opListDistributionsByKeyGroup:
 		return h.handleListDistributionsByKeyGroup(c, extractResourceID(path, "distributions/by-key-group/"))
@@ -2249,7 +2258,7 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 	case opListDistributionsByConnectionMode:
 		return h.handleListDistributionsByConnectionMode(c, c.Request().URL.Query().Get("ConnectionMode"))
 	case opListDistributionsByTrustStore:
-		return h.handleListDistributionsByTrustStore(c, extractResourceID(path, "trust-store/"))
+		return h.handleListDistributionsByTrustStore(c, extractResourceID(path, "distributions/by-trust-store-id/"))
 	case opListDistributionsByOwnedResource:
 		return h.handleListDistributionsByOwnedResource(c, c.Request().URL.Query().Get("ResourceArn"))
 	case opListConflictingAliases:
@@ -2261,8 +2270,9 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 	return errNotDispatched
 }
 
-// dispatchStubsTenantAndCerts handles tenant invalidation and managed certificate stubs.
-func (h *Handler) dispatchStubsTenantAndCerts(c *echo.Context, _ cfStubHelpers, operation string) error {
+// dispatchStubsTenantAndCerts handles tenant invalidation routes and
+// GetManagedCertificateDetails (now backed by real per-tenant state, not a stub).
+func (h *Handler) dispatchStubsTenantAndCerts(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 
 	switch operation {
@@ -2341,6 +2351,14 @@ func notFoundCodeExtended(err error) (string, bool) {
 		return "NoSuchVpcOrigin", true
 	case errors.Is(err, ErrDistributionTenantNotFound):
 		return "NoSuchDistributionTenant", true
+	case errors.Is(err, ErrStreamingDistributionNotFound):
+		return "NoSuchStreamingDistribution", true
+	case errors.Is(err, ErrTrustStoreNotFound):
+		return "NoSuchTrustStore", true
+	case errors.Is(err, ErrResourcePolicyNotFound):
+		return "NoSuchResourcePolicy", true
+	case errors.Is(err, ErrMonitoringSubscriptionNotFound):
+		return "NoSuchMonitoringSubscription", true
 	}
 
 	return "", false
@@ -2354,10 +2372,20 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrDistributionNotDisabled):
 		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionNotDisabled", err.Error()))
+	case errors.Is(err, ErrPublicKeyInUse):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("PublicKeyInUse", err.Error()))
+	case errors.Is(err, ErrFLEProfileInUse):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("FieldLevelEncryptionProfileInUse", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionAlreadyExists", err.Error()))
+	case errors.Is(err, ErrConnectionGroupAlreadyExists):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("EntityAlreadyExists", err.Error()))
 	case errors.Is(err, ErrInvalidTagging):
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidTagging", err.Error()))
+	case errors.Is(err, ErrStreamingDistributionNotDisabled):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("StreamingDistributionNotDisabled", err.Error()))
+	case errors.Is(err, ErrDomainConflict):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("DomainConflictException", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", err.Error()))
 	default:
@@ -2640,6 +2668,7 @@ type copyDistributionRequestXML struct {
 type anycastIPListRequestXML struct {
 	XMLName xml.Name `xml:"AnycastIPListRequest"`
 	Name    string   `xml:"Name"`
+	Tags    []tagXML `xml:"Tags>Items>Tag"`
 	IPCount int32    `xml:"IPCount"`
 }
 
@@ -2749,22 +2778,132 @@ func cachePolicyResponseXML(p *CachePolicy) string {
 	)
 }
 
-type connectionFunctionRequestXML struct {
-	XMLName xml.Name `xml:"CreateConnectionFunctionRequest"`
-	Name    string   `xml:"Name"`
-	Comment string   `xml:"Comment"`
+// connectionFunctionConfigXML models the nested ConnectionFunctionConfig element carried by
+// Create/UpdateConnectionFunctionRequest bodies (Comment + Runtime).
+type connectionFunctionConfigXML struct {
+	Comment string `xml:"Comment"`
+	Runtime string `xml:"Runtime"`
 }
 
+// connectionFunctionRequestXML models a CreateConnectionFunctionRequest body. Comment is kept as
+// both a top-level convenience field (for backward compatibility with earlier callers) and
+// inside the nested, AWS-accurate ConnectionFunctionConfig element; the top-level value wins
+// when both are present.
+type connectionFunctionRequestXML struct {
+	XMLName                  xml.Name                    `xml:"CreateConnectionFunctionRequest"`
+	ConnectionFunctionConfig connectionFunctionConfigXML `xml:"ConnectionFunctionConfig"`
+	Name                     string                      `xml:"Name"`
+	Comment                  string                      `xml:"Comment"`
+	// ConnectionFunctionCode is base64-encoded on the wire (matching real CloudFront); see
+	// decodeConnectionFunctionCode.
+	ConnectionFunctionCode string `xml:"ConnectionFunctionCode"`
+}
+
+// updateConnectionFunctionRequestXML models an UpdateConnectionFunctionRequest body.
+type updateConnectionFunctionRequestXML struct {
+	XMLName                  xml.Name                    `xml:"UpdateConnectionFunctionRequest"`
+	ConnectionFunctionConfig connectionFunctionConfigXML `xml:"ConnectionFunctionConfig"`
+	ConnectionFunctionCode   string                      `xml:"ConnectionFunctionCode"`
+}
+
+// decodeConnectionFunctionCode decodes a base64-encoded ConnectionFunctionCode payload, matching
+// the real CloudFront wire format. If the payload is not valid base64 (e.g. a test sends raw
+// text), it is used verbatim so the mock stays lenient.
+func decodeConnectionFunctionCode(s string) []byte {
+	if s == "" {
+		return nil
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return decoded
+	}
+
+	return []byte(s)
+}
+
+// connectionGroupRequestXML models a CreateConnectionGroupRequest body. Comment is a
+// gopherstack-only convenience field kept for backward compatibility; it is not part of the
+// real AWS ConnectionGroup shape.
 type connectionGroupRequestXML struct {
-	XMLName xml.Name `xml:"CreateConnectionGroupRequest"`
-	Name    string   `xml:"Name"`
-	Comment string   `xml:"Comment"`
+	XMLName         xml.Name `xml:"CreateConnectionGroupRequest"`
+	Name            string   `xml:"Name"`
+	Comment         string   `xml:"Comment"`
+	AnycastIPListID string   `xml:"AnycastIpListId"`
+	Enabled         *bool    `xml:"Enabled"`
+	Ipv6Enabled     *bool    `xml:"Ipv6Enabled"`
+	Tags            []tagXML `xml:"Tags>Items>Tag"`
+}
+
+// updateConnectionGroupRequestXML models an UpdateConnectionGroupRequest body.
+type updateConnectionGroupRequestXML struct {
+	Enabled         *bool    `xml:"Enabled"`
+	Ipv6Enabled     *bool    `xml:"Ipv6Enabled"`
+	XMLName         xml.Name `xml:"UpdateConnectionGroupRequest"`
+	Comment         string   `xml:"Comment"`
+	AnycastIPListID string   `xml:"AnycastIpListId"`
+}
+
+type continuousDeploymentSessionStickinessConfigXML struct {
+	IdleTTL    int32 `xml:"IdleTTL"`
+	MaximumTTL int32 `xml:"MaximumTTL"`
+}
+
+type continuousDeploymentSingleWeightConfigXML struct {
+	SessionStickinessConfig *continuousDeploymentSessionStickinessConfigXML `xml:"SessionStickinessConfig"`
+	Weight                  float64                                         `xml:"Weight"`
+}
+
+type continuousDeploymentSingleHeaderConfigXML struct {
+	Header string `xml:"Header"`
+	Value  string `xml:"Value"`
+}
+
+type continuousDeploymentTrafficConfigXML struct {
+	SingleWeightConfig *continuousDeploymentSingleWeightConfigXML `xml:"SingleWeightConfig"`
+	SingleHeaderConfig *continuousDeploymentSingleHeaderConfigXML `xml:"SingleHeaderConfig"`
+	Type               string                                     `xml:"Type"`
 }
 
 type continuousDeploymentPolicyConfigXML struct {
-	XMLName                xml.Name `xml:"ContinuousDeploymentPolicyConfig"`
-	StagingDistributionDNS string   `xml:"StagingDistributionDnsNames>DnsName,omitempty"`
-	Enabled                bool     `xml:"Enabled"`
+	XMLName                     xml.Name                              `xml:"ContinuousDeploymentPolicyConfig"`
+	TrafficConfig               *continuousDeploymentTrafficConfigXML `xml:"TrafficConfig"`
+	StagingDistributionDNS      string                                `xml:"StagingDistributionDnsNames>DnsName,omitempty"`
+	StagingDistributionDNSNames []string                              `xml:"StagingDistributionDnsNames>Items>DnsName"`
+	Enabled                     bool                                  `xml:"Enabled"`
+}
+
+// dnsNames returns the effective list of staging distribution DNS names from a parsed
+// ContinuousDeploymentPolicyConfig request, preferring the real AWS Items>DnsName list shape
+// and falling back to the legacy bare DnsName element for backward compatibility.
+func (req continuousDeploymentPolicyConfigXML) dnsNames() []string {
+	if len(req.StagingDistributionDNSNames) > 0 {
+		return req.StagingDistributionDNSNames
+	}
+
+	return dnsNamesFromSingle(req.StagingDistributionDNS)
+}
+
+// trafficConfig converts a parsed TrafficConfig XML element into the backend model, returning
+// the zero value if the request did not include one.
+func (req continuousDeploymentPolicyConfigXML) trafficConfig() ContinuousDeploymentTrafficConfig {
+	if req.TrafficConfig == nil {
+		return ContinuousDeploymentTrafficConfig{}
+	}
+
+	out := ContinuousDeploymentTrafficConfig{Type: req.TrafficConfig.Type}
+	if swc := req.TrafficConfig.SingleWeightConfig; swc != nil {
+		out.SingleWeightConfig = &ContinuousDeploymentSingleWeightConfig{Weight: swc.Weight}
+		if ssc := swc.SessionStickinessConfig; ssc != nil {
+			out.SingleWeightConfig.SessionStickinessConfig = &ContinuousDeploymentSessionStickinessConfig{
+				IdleTTL:    ssc.IdleTTL,
+				MaximumTTL: ssc.MaximumTTL,
+			}
+		}
+	}
+	if shc := req.TrafficConfig.SingleHeaderConfig; shc != nil {
+		out.SingleHeaderConfig = &ContinuousDeploymentSingleHeaderConfig{Header: shc.Header, Value: shc.Value}
+	}
+
+	return out
 }
 
 func (h *Handler) handleAssociateAlias(c *echo.Context, distributionID string) error {
@@ -2870,9 +3009,19 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 		}
 	}
 
-	list, createErr := h.Backend.CreateAnycastIPList(req.Name, req.IPCount)
+	tags := make(map[string]string, len(req.Tags))
+	for _, tag := range req.Tags {
+		tags[tag.Key] = tag.Value
+	}
+
+	list, createErr := h.Backend.CreateAnycastIPList(req.Name, req.IPCount, tags)
 	if createErr != nil {
 		return h.handleError(c, createErr)
+	}
+
+	var ips strings.Builder
+	for _, ip := range list.AnycastIPs {
+		fmt.Fprintf(&ips, `<IpAddress>%s</IpAddress>`, ip)
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -2882,10 +3031,12 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 		`<Name>%s</Name>`+
 		`<Status>%s</Status>`+
 		`<IPCount>%d</IPCount>`+
+		`<AnycastIps>%s</AnycastIps>`+
 		`</AnycastIPList>`,
-		cfNS, list.ID, list.ARN, list.Name, list.Status, list.IPCount)
+		cfNS, list.ID, list.ARN, list.Name, list.Status, list.IPCount, ips.String())
 
 	c.Response().Header().Set("Location", cfPathPrefix+"anycast-ip-list/"+list.ID)
+	c.Response().Header().Set("ETag", list.ETag)
 
 	return xmlResp(c, http.StatusCreated, resp)
 }
@@ -2943,14 +3094,23 @@ func (h *Handler) handleCreateConnectionFunction(c *echo.Context) error {
 		}
 	}
 
-	fn, createErr := h.Backend.CreateConnectionFunction(req.Name, req.Comment)
+	comment := req.Comment
+	if comment == "" {
+		comment = req.ConnectionFunctionConfig.Comment
+	}
+
+	code := decodeConnectionFunctionCode(req.ConnectionFunctionCode)
+	fn, createErr := h.Backend.CreateConnectionFunctionWithCode(
+		req.Name, comment, req.ConnectionFunctionConfig.Runtime, code, nil,
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
 	c.Response().Header().Set("Location", cfPathPrefix+"connection-function/"+fn.ID)
+	c.Response().Header().Set("ETag", fn.ETag)
 
-	return xmlResp(c, http.StatusCreated, connectionFunctionXML(fn))
+	return xmlResp(c, http.StatusCreated, connectionFunctionSummaryXML(fn))
 }
 
 func (h *Handler) handleCreateConnectionGroup(c *echo.Context) error {
@@ -2970,23 +3130,31 @@ func (h *Handler) handleCreateConnectionGroup(c *echo.Context) error {
 		}
 	}
 
-	group, createErr := h.Backend.CreateConnectionGroup(req.Name, req.Comment)
+	ipv6Enabled := true
+	if req.Ipv6Enabled != nil {
+		ipv6Enabled = *req.Ipv6Enabled
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	tags := make(map[string]string, len(req.Tags))
+	for _, tag := range req.Tags {
+		tags[tag.Key] = tag.Value
+	}
+
+	group, createErr := h.Backend.CreateConnectionGroupWithConfig(
+		req.Name, req.Comment, req.AnycastIPListID, ipv6Enabled, enabled, tags,
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ConnectionGroup xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<ARN>%s</ARN>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</ConnectionGroup>`,
-		cfNS, group.ID, group.ARN, group.Name, group.Comment)
-
 	c.Response().Header().Set("Location", cfPathPrefix+"connection-group/"+group.ID)
+	c.Response().Header().Set("ETag", group.ETag)
 
-	return xmlResp(c, http.StatusCreated, resp)
+	return xmlResp(c, http.StatusCreated, connectionGroupXML(group))
 }
 
 func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error {
@@ -3003,7 +3171,9 @@ func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error 
 		}
 	}
 
-	policy, createErr := h.Backend.CreateContinuousDeploymentPolicy(req.Enabled, req.StagingDistributionDNS)
+	policy, createErr := h.Backend.CreateContinuousDeploymentPolicyWithConfig(
+		req.Enabled, req.dnsNames(), req.trafficConfig(),
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -3016,25 +3186,25 @@ func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error 
 }
 
 func continuousDeploymentPolicyXML(ns string, policy *ContinuousDeploymentPolicy) string {
-	stagingDNS := ""
-	if policy.StagingDistributionDNS != "" {
-		stagingDNS = fmt.Sprintf(
-			`<StagingDistributionDnsNames>`+
-				`<Quantity>1</Quantity><Items><DnsName>%s</DnsName></Items>`+
-				`</StagingDistributionDnsNames>`,
-			policy.StagingDistributionDNS,
-		)
+	var dnsNames strings.Builder
+	for _, dns := range policy.StagingDistributionDNSNames {
+		fmt.Fprintf(&dnsNames, `<DnsName>%s</DnsName>`, dns)
 	}
 
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ContinuousDeploymentPolicy xmlns="%s">`+
 		`<Id>%s</Id>`+
+		`<ARN>%s</ARN>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
 		`<ContinuousDeploymentPolicyConfig>`+
+		`<StagingDistributionDnsNames><Quantity>%d</Quantity><Items>%s</Items></StagingDistributionDnsNames>`+
 		`<Enabled>%v</Enabled>`+
-		`%s`+
+		`<TrafficConfig><Type>%s</Type></TrafficConfig>`+
 		`</ContinuousDeploymentPolicyConfig>`+
 		`</ContinuousDeploymentPolicy>`,
-		ns, policy.ID, policy.Enabled, stagingDNS)
+		ns, policy.ID, policy.ARN, policy.LastModifiedTime,
+		len(policy.StagingDistributionDNSNames), dnsNames.String(),
+		policy.Enabled, policy.TrafficConfig.Type)
 }
 
 func (h *Handler) handleGetContinuousDeploymentPolicy(c *echo.Context, id string) error {
@@ -3054,10 +3224,10 @@ func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id str
 		return h.handleError(c, getErr)
 	}
 
-	ifMatch := c.Request().Header.Get("If-Match")
-	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current ContinuousDeploymentPolicy ETag"))
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, cfErrorXML(
+			"PreconditionFailed", "If-Match ETag did not match the current continuous deployment policy ETag",
+		))
 	}
 
 	body, err := readBody(c)
@@ -3073,7 +3243,9 @@ func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id str
 		}
 	}
 
-	policy, updateErr := h.Backend.UpdateContinuousDeploymentPolicy(id, req.Enabled, req.StagingDistributionDNS)
+	policy, updateErr := h.Backend.UpdateContinuousDeploymentPolicyWithConfig(
+		id, req.Enabled, req.dnsNames(), req.trafficConfig(),
+	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -3089,10 +3261,10 @@ func (h *Handler) handleDeleteContinuousDeploymentPolicy(c *echo.Context, id str
 		return h.handleError(c, getErr)
 	}
 
-	ifMatch := c.Request().Header.Get("If-Match")
-	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current ContinuousDeploymentPolicy ETag"))
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, cfErrorXML(
+			"PreconditionFailed", "If-Match ETag did not match the current continuous deployment policy ETag",
+		))
 	}
 
 	if err := h.Backend.DeleteContinuousDeploymentPolicy(id); err != nil {
@@ -4773,15 +4945,69 @@ func orpResponseXML(p *OriginRequestPolicy) string {
 
 // --- Field Level Encryption handlers ---
 
+// fleConfigRequestXML parses a FieldLevelEncryptionConfig request body.
+type fleConfigRequestXML struct {
+	XMLName          xml.Name `xml:"FieldLevelEncryptionConfig"`
+	CallerReference  string   `xml:"CallerReference"`
+	Comment          string   `xml:"Comment"`
+	QueryArgProfiles []struct {
+		QueryArg  string `xml:"QueryArg"`
+		ProfileID string `xml:"ProfileId"`
+	} `xml:"QueryArgProfileConfig>QueryArgProfiles>Items>QueryArgProfile"`
+	ForwardWhenQueryArgProfileIsUnknown bool `xml:"QueryArgProfileConfig>ForwardWhenQueryArgProfileIsUnknown"`
+}
+
+// toBackend converts the parsed request into backend query-arg profiles.
+func (r fleConfigRequestXML) toBackend() []FLEQueryArgProfile {
+	if len(r.QueryArgProfiles) == 0 {
+		return nil
+	}
+
+	out := make([]FLEQueryArgProfile, 0, len(r.QueryArgProfiles))
+	for _, p := range r.QueryArgProfiles {
+		out = append(out, FLEQueryArgProfile{QueryArg: p.QueryArg, ProfileID: p.ProfileID})
+	}
+
+	return out
+}
+
+// fleConfigInnerXML renders the inner fields of a FieldLevelEncryptionConfig
+// element (without the enclosing element itself), so it can be reused for both
+// the wrapped and config-only responses.
+func fleConfigInnerXML(fle *FieldLevelEncryption) string {
+	var items strings.Builder
+	for _, p := range fle.QueryArgProfiles {
+		items.WriteString(`<QueryArgProfile><QueryArg>`)
+		items.WriteString(xmlEscape(p.QueryArg))
+		items.WriteString(`</QueryArg><ProfileId>`)
+		items.WriteString(xmlEscape(p.ProfileID))
+		items.WriteString(`</ProfileId></QueryArgProfile>`)
+	}
+
+	return fmt.Sprintf(`<CallerReference>%s</CallerReference>`+
+		`<Comment>%s</Comment>`+
+		`<QueryArgProfileConfig>`+
+		`<ForwardWhenQueryArgProfileIsUnknown>%t</ForwardWhenQueryArgProfileIsUnknown>`+
+		`<QueryArgProfiles><Quantity>%d</Quantity><Items>%s</Items></QueryArgProfiles>`+
+		`</QueryArgProfileConfig>`,
+		xmlEscape(fle.Name), xmlEscape(fle.Comment),
+		fle.ForwardWhenQueryArgProfileIsUnknown, len(fle.QueryArgProfiles), items.String())
+}
+
 func fleResponseXML(fle *FieldLevelEncryption) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<FieldLevelEncryption xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<FieldLevelEncryptionConfig>`+
-		`<Comment>%s</Comment>`+
-		`</FieldLevelEncryptionConfig>`+
+		`<FieldLevelEncryption xmlns="%s"><Id>%s</Id>`+
+		`<FieldLevelEncryptionConfig>%s</FieldLevelEncryptionConfig>`+
 		`</FieldLevelEncryption>`,
-		cfNS, fle.ID, fle.Comment)
+		cfNS, fle.ID, fleConfigInnerXML(fle))
+}
+
+// fleConfigResponseXML renders the config-only response (root =
+// FieldLevelEncryptionConfig) returned by GetFieldLevelEncryptionConfig.
+func fleConfigResponseXML(fle *FieldLevelEncryption) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<FieldLevelEncryptionConfig xmlns="%s">%s</FieldLevelEncryptionConfig>`,
+		cfNS, fleConfigInnerXML(fle))
 }
 
 func (h *Handler) handleCreateFieldLevelEncryption(c *echo.Context) error {
@@ -4790,21 +5016,17 @@ func (h *Handler) handleCreateFieldLevelEncryption(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
-	var req struct {
-		Comment string `xml:"Comment"`
-		Name    string `xml:"QueryArgProfileConfig>QueryArgProfiles>Items>QueryArgProfile>Profile"`
-	}
-
+	var req fleConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
 
-	name := req.Name
+	name := req.CallerReference
 	if name == "" {
 		name = generateID()
 	}
 
-	fle, createErr := h.Backend.CreateFieldLevelEncryption(name, req.Comment)
+	fle, createErr := h.Backend.CreateFieldLevelEncryption(name, req.Comment, req.toBackend())
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -4866,11 +5088,7 @@ func (h *Handler) handleUpdateFieldLevelEncryption(c *echo.Context, id string) e
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
-	var req struct {
-		Comment string `xml:"Comment"`
-		Name    string `xml:"QueryArgProfileConfig>QueryArgProfiles>Items>QueryArgProfile>Profile"`
-	}
-
+	var req fleConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
@@ -4880,12 +5098,12 @@ func (h *Handler) handleUpdateFieldLevelEncryption(c *echo.Context, id string) e
 		return h.handleError(c, getErr)
 	}
 
-	name := req.Name
+	name := req.CallerReference
 	if name == "" {
 		name = current.Name
 	}
 
-	fle, updateErr := h.Backend.UpdateFieldLevelEncryption(id, name, req.Comment)
+	fle, updateErr := h.Backend.UpdateFieldLevelEncryption(id, name, req.Comment, req.toBackend())
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -4916,16 +5134,79 @@ func (h *Handler) handleDeleteFieldLevelEncryption(c *echo.Context, id string) e
 
 // --- Field Level Encryption Profile handlers ---
 
+// fleProfileConfigRequestXML parses a FieldLevelEncryptionProfileConfig body.
+type fleProfileConfigRequestXML struct {
+	XMLName            xml.Name `xml:"FieldLevelEncryptionProfileConfig"`
+	Name               string   `xml:"Name"`
+	CallerReference    string   `xml:"CallerReference"`
+	Comment            string   `xml:"Comment"`
+	EncryptionEntities []struct {
+		PublicKeyID   string   `xml:"PublicKeyId"`
+		ProviderID    string   `xml:"ProviderId"`
+		FieldPatterns []string `xml:"FieldPatterns>Items>FieldPattern"`
+	} `xml:"EncryptionEntities>Items>EncryptionEntity"`
+}
+
+// toBackend converts the parsed request into backend encryption entities.
+func (r fleProfileConfigRequestXML) toBackend() []EncryptionEntity {
+	if len(r.EncryptionEntities) == 0 {
+		return nil
+	}
+
+	out := make([]EncryptionEntity, 0, len(r.EncryptionEntities))
+	for _, e := range r.EncryptionEntities {
+		out = append(out, EncryptionEntity{
+			PublicKeyID:   e.PublicKeyID,
+			ProviderID:    e.ProviderID,
+			FieldPatterns: append([]string(nil), e.FieldPatterns...),
+		})
+	}
+
+	return out
+}
+
+// fleProfileConfigInnerXML renders the inner fields of a
+// FieldLevelEncryptionProfileConfig element.
+func fleProfileConfigInnerXML(p *FieldLevelEncryptionProfile) string {
+	var entities strings.Builder
+	for _, e := range p.EncryptionEntities {
+		var patterns strings.Builder
+		for _, fp := range e.FieldPatterns {
+			patterns.WriteString(`<FieldPattern>`)
+			patterns.WriteString(xmlEscape(fp))
+			patterns.WriteString(`</FieldPattern>`)
+		}
+
+		fmt.Fprintf(&entities, `<EncryptionEntity>`+
+			`<PublicKeyId>%s</PublicKeyId>`+
+			`<ProviderId>%s</ProviderId>`+
+			`<FieldPatterns><Quantity>%d</Quantity><Items>%s</Items></FieldPatterns>`+
+			`</EncryptionEntity>`,
+			xmlEscape(e.PublicKeyID), xmlEscape(e.ProviderID),
+			len(e.FieldPatterns), patterns.String())
+	}
+
+	return fmt.Sprintf(`<Name>%s</Name>`+
+		`<Comment>%s</Comment>`+
+		`<EncryptionEntities><Quantity>%d</Quantity><Items>%s</Items></EncryptionEntities>`,
+		xmlEscape(p.Name), xmlEscape(p.Comment),
+		len(p.EncryptionEntities), entities.String())
+}
+
 func fleProfileResponseXML(p *FieldLevelEncryptionProfile) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<FieldLevelEncryptionProfile xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<FieldLevelEncryptionProfileConfig>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</FieldLevelEncryptionProfileConfig>`+
+		`<FieldLevelEncryptionProfile xmlns="%s"><Id>%s</Id>`+
+		`<FieldLevelEncryptionProfileConfig>%s</FieldLevelEncryptionProfileConfig>`+
 		`</FieldLevelEncryptionProfile>`,
-		cfNS, p.ID, p.Name, p.Comment)
+		cfNS, p.ID, fleProfileConfigInnerXML(p))
+}
+
+// fleProfileConfigResponseXML renders the config-only response (root =
+// FieldLevelEncryptionProfileConfig) for GetFieldLevelEncryptionProfileConfig.
+func fleProfileConfigResponseXML(p *FieldLevelEncryptionProfile) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<FieldLevelEncryptionProfileConfig xmlns="%s">%s</FieldLevelEncryptionProfileConfig>`,
+		cfNS, fleProfileConfigInnerXML(p))
 }
 
 func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error {
@@ -4934,11 +5215,7 @@ func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
-	var req struct {
-		Name    string `xml:"Name"`
-		Comment string `xml:"Comment"`
-	}
-
+	var req fleProfileConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
@@ -4947,7 +5224,7 @@ func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error
 		req.Name = generateID()
 	}
 
-	p, createErr := h.Backend.CreateFieldLevelEncryptionProfile(req.Name, req.Comment)
+	p, createErr := h.Backend.CreateFieldLevelEncryptionProfile(req.Name, req.Comment, req.toBackend())
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -5011,11 +5288,7 @@ func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id st
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
-	var req struct {
-		Name    string `xml:"Name"`
-		Comment string `xml:"Comment"`
-	}
-
+	var req fleProfileConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
@@ -5030,7 +5303,7 @@ func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id st
 		name = current.Name
 	}
 
-	p, updateErr := h.Backend.UpdateFieldLevelEncryptionProfile(id, name, req.Comment)
+	p, updateErr := h.Backend.UpdateFieldLevelEncryptionProfile(id, name, req.Comment, req.toBackend())
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -5501,8 +5774,11 @@ func kvsResponseXML(kvs *KeyValueStore) string {
 		`<ARN>%s</ARN>`+
 		`<Name>%s</Name>`+
 		`<Comment>%s</Comment>`+
+		`<Status>%s</Status>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
 		`</KeyValueStore>`,
-		cfNS, kvs.ID, kvs.ARN, kvs.Name, kvs.Comment)
+		cfNS, kvs.ID, kvs.ARN, xmlEscape(kvs.Name), xmlEscape(kvs.Comment),
+		kvs.Status, kvs.LastModifiedTime)
 }
 
 type keyValueStoreRequestXML struct {
@@ -5548,16 +5824,17 @@ func (h *Handler) handleGetKeyValueStore(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, kvsResponseXML(kvs))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 	items := h.Backend.ListKeyValueStores()
 
 	type kvsSummaryXML struct {
-		XMLName xml.Name `xml:"KeyValueStore"`
-		ID      string   `xml:"Id"`
-		ARN     string   `xml:"ARN"`
-		Name    string   `xml:"Name"`
-		Comment string   `xml:"Comment"`
+		XMLName          xml.Name `xml:"KeyValueStore"`
+		ID               string   `xml:"Id"`
+		ARN              string   `xml:"ARN"`
+		Name             string   `xml:"Name"`
+		Comment          string   `xml:"Comment"`
+		Status           string   `xml:"Status"`
+		LastModifiedTime string   `xml:"LastModifiedTime"`
 	}
 
 	type kvsListXML struct {
@@ -5571,7 +5848,14 @@ func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 
 	summaries := make([]kvsSummaryXML, 0, len(items))
 	for _, kvs := range items {
-		summaries = append(summaries, kvsSummaryXML{ID: kvs.ID, ARN: kvs.ARN, Name: kvs.Name, Comment: kvs.Comment})
+		summaries = append(summaries, kvsSummaryXML{
+			ID:               kvs.ID,
+			ARN:              kvs.ARN,
+			Name:             kvs.Name,
+			Comment:          kvs.Comment,
+			Status:           kvs.Status,
+			LastModifiedTime: kvs.LastModifiedTime,
+		})
 	}
 
 	list := kvsListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
@@ -5749,16 +6033,6 @@ func extractMonitoringDistID(path string) string {
 	suffix := strings.TrimPrefix(path, cfPathPrefix+"distribution/")
 
 	return strings.TrimSuffix(suffix, "/monitoring-subscription")
-}
-
-// extractStreamingDistID extracts streaming distribution ID from its path.
-func extractStreamingDistID(path string) string {
-	suffix := strings.TrimPrefix(path, cfPathPrefix+"streaming-distribution/")
-	if id, _, found := strings.Cut(suffix, "/"); found {
-		return id
-	}
-
-	return suffix
 }
 
 // extractResourceID extracts the resource ID from a CloudFront API path.

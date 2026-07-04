@@ -156,32 +156,37 @@ type Backend interface {
 		expiresInMinutes *int,
 	) ([]TaskProtection, []Failure, error)
 
-	// Daemon operations
+	// Daemons
 
 	CreateDaemon(input CreateDaemonInput) (*Daemon, error)
-	DeleteDaemon(clusterName, daemonName string) (*Daemon, error)
-	DescribeDaemon(clusterName, daemonName string) (*Daemon, error)
-	ListDaemons(clusterName string) ([]Daemon, error)
+	DeleteDaemon(daemonArn string) (*Daemon, error)
+	DescribeDaemon(daemonArn string) (*Daemon, error)
 	UpdateDaemon(input UpdateDaemonInput) (*Daemon, error)
-	RegisterDaemonTaskDefinition(
-		input RegisterDaemonTaskDefinitionInput,
-	) (*DaemonTaskDefinition, error)
-	DeleteDaemonTaskDefinition(daemonTaskDefinitionArn string) error
-	DescribeDaemonTaskDefinition(daemonName string) (*DaemonTaskDefinition, error)
-	ListDaemonTaskDefinitions(daemonName string) ([]DaemonTaskDefinition, error)
-	DescribeDaemonDeployments(daemonArn string, deploymentIDs []string) ([]DaemonDeployment, error)
-	ListDaemonDeployments(clusterName, daemonName string) ([]string, error)
-	DescribeDaemonRevisions(daemonName string, revisionNums []int) ([]DaemonRevision, error)
+	ListDaemons(input ListDaemonsInput) ([]Daemon, error)
+	DescribeDaemonDeployments(arns []string) ([]DaemonDeployment, []Failure, error)
+	ListDaemonDeployments(input ListDaemonDeploymentsInput) ([]DaemonDeployment, error)
+	DescribeDaemonRevisions(arns []string) ([]DaemonRevision, []Failure, error)
+
+	// Daemon task definitions
+
+	RegisterDaemonTaskDefinition(input RegisterDaemonTaskDefinitionInput) (*DaemonTaskDefinition, error)
+	DescribeDaemonTaskDefinition(familyOrArn string) (*DaemonTaskDefinition, error)
+	DeleteDaemonTaskDefinition(familyOrArn string) (*DaemonTaskDefinition, error)
+	ListDaemonTaskDefinitions(input ListDaemonTaskDefinitionsInput) ([]DaemonTaskDefinition, error)
 
 	// Service revisions
 
-	DescribeServiceRevisions(serviceRevisionArns []string) ([]ServiceRevision, []Failure, error)
+	DescribeServiceRevisions(arns []string) ([]ServiceRevision, []Failure)
 
-	// Submit state changes (container agent protocol)
+	// Agent discovery
+
+	DiscoverPollEndpoint() (endpoint, serviceConnectEndpoint, telemetryEndpoint string)
+
+	// Agent state-change submissions
 
 	SubmitTaskStateChange(input SubmitTaskStateChangeInput) error
 	SubmitContainerStateChange(input SubmitContainerStateChangeInput) error
-	SubmitAttachmentStateChanges(clusterRef string, changes []AttachmentStateChange) error
+	SubmitAttachmentStateChanges(cluster string, attachments []AttachmentStateChange) error
 
 	// Region metadata
 

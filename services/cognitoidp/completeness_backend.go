@@ -1,11 +1,15 @@
 package cognitoidp
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // ---------------------------------------------------------------------------
@@ -76,6 +80,62 @@ type UserImportJob struct {
 	JobName    string    `json:"jobName,omitempty"`
 	UserPoolID string    `json:"userPoolID,omitempty"`
 	Status     string    `json:"status,omitempty"` // Created | Pending | InProgress | Stopping ...
+}
+
+// Device tracking status values (DeviceRememberedStatusType).
+const (
+	DeviceStatusRemembered    = "remembered"
+	DeviceStatusNotRemembered = "not_remembered"
+)
+
+// Device represents a tracked/remembered device for a user, keyed by DeviceKey.
+type Device struct {
+	CreatedAt           time.Time         `json:"createdAt"`
+	LastModifiedAt      time.Time         `json:"lastModifiedAt"`
+	LastAuthenticatedAt time.Time         `json:"lastAuthenticatedAt"`
+	Attributes          map[string]string `json:"attributes,omitempty"`
+	DeviceKey           string            `json:"deviceKey,omitempty"`
+	Status              string            `json:"status,omitempty"`
+}
+
+// WebAuthnCredential represents a registered passkey/WebAuthn credential for a user.
+type WebAuthnCredential struct {
+	CreatedAt               time.Time `json:"createdAt"`
+	CredentialID            string    `json:"credentialID,omitempty"`
+	FriendlyName            string    `json:"friendlyName,omitempty"`
+	RelyingPartyID          string    `json:"relyingPartyID,omitempty"`
+	AuthenticatorAttachment string    `json:"authenticatorAttachment,omitempty"`
+}
+
+// AuthEvent represents an adaptive-authentication (risk) sign-in event for a
+// user, and its feedback state once reviewed via [Admin]UpdateAuthEventFeedback.
+type AuthEvent struct {
+	CreatedAt     time.Time `json:"createdAt"`
+	FeedbackDate  time.Time `json:"feedbackDate"`
+	EventID       string    `json:"eventID,omitempty"`
+	EventType     string    `json:"eventType,omitempty"`
+	EventResponse string    `json:"eventResponse,omitempty"`
+	FeedbackValue string    `json:"feedbackValue,omitempty"`
+}
+
+// MFAOptionType is the legacy per-user MFA delivery option
+// (SetUserSettings/AdminSetUserSettings), e.g. {DeliveryMedium: "SMS", AttributeName: "phone_number"}.
+type MFAOptionType struct {
+	DeliveryMedium string `json:"deliveryMedium,omitempty"`
+	AttributeName  string `json:"attributeName,omitempty"`
+}
+
+// ProviderLink records a federated identity linked to a user via AdminLinkProviderForUser.
+type ProviderLink struct {
+	ProviderName           string `json:"providerName,omitempty"`
+	ProviderAttributeName  string `json:"providerAttributeName,omitempty"`
+	ProviderAttributeValue string `json:"providerAttributeValue,omitempty"`
+}
+
+// userStateKey builds the composite key used by the per-user device, WebAuthn
+// credential, and auth-event stores.
+func userStateKey(userPoolID, username string) string {
+	return userPoolID + ":" + username
 }
 
 // ---------------------------------------------------------------------------
@@ -880,4 +940,707 @@ func (b *InMemoryBackend) DeleteUserPoolClientSecret(userPoolID, clientID string
 	client.ClientSecret = ""
 
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Device tracking
+// ---------------------------------------------------------------------------
+
+// paginateDevicesLocked returns a page of devices for the given store key,
+// sorted by DeviceKey for stable pagination. Caller must hold b.mu.
+func (b *InMemoryBackend) paginateDevicesLocked(key string, limit int, nextToken string) ([]*Device, string) {
+	devices := b.devices[key]
+	all := make([]*Device, 0, len(devices))
+
+	for _, d := range devices {
+		cp := *d
+		cp.Attributes = maps.Clone(d.Attributes)
+		all = append(all, &cp)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].DeviceKey < all[j].DeviceKey })
+
+	startIdx := 0
+
+	if nextToken != "" {
+		for i, d := range all {
+			if d.DeviceKey == nextToken {
+				startIdx = i
+
+				break
+			}
+		}
+	}
+
+	all = all[startIdx:]
+
+	if limit <= 0 || limit > len(all) {
+		return all, ""
+	}
+
+	page := all[:limit]
+	newToken := ""
+
+	if limit < len(all) {
+		newToken = all[limit].DeviceKey
+	}
+
+	return page, newToken
+}
+
+// ConfirmDevice registers a new device for the authenticated user, or
+// refreshes last-authenticated/attributes if the device is already known. If
+// deviceKey is empty, a new one is generated: AWS normally derives DeviceKey
+// client-side from SRP device-verifier material handed out during
+// authentication, but this emulator does not mint device metadata during
+// InitiateAuth, so it provisions a key here so ListDevices/GetDevice can
+// enumerate the device afterward. Returns the confirmed device key and
+// whether user confirmation is necessary (always false: this emulator does
+// not model the adaptive-auth device-confirmation workflow).
+func (b *InMemoryBackend) ConfirmDevice(accessToken, deviceKey, deviceName string) (string, bool, error) {
+	b.mu.Lock("ConfirmDevice")
+	defer b.mu.Unlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return "", false, err
+	}
+
+	if deviceKey == "" {
+		deviceKey = b.region + "_" + uuid.New().String()
+	}
+
+	key := userStateKey(user.UserPoolID, user.Username)
+	if b.devices[key] == nil {
+		b.devices[key] = make(map[string]*Device)
+	}
+
+	now := time.Now()
+
+	if existing, ok := b.devices[key][deviceKey]; ok {
+		existing.LastAuthenticatedAt = now
+		existing.LastModifiedAt = now
+
+		if deviceName != "" {
+			if existing.Attributes == nil {
+				existing.Attributes = map[string]string{}
+			}
+
+			existing.Attributes["device_name"] = deviceName
+		}
+
+		return deviceKey, false, nil
+	}
+
+	attrs := map[string]string{}
+	if deviceName != "" {
+		attrs["device_name"] = deviceName
+	}
+
+	b.devices[key][deviceKey] = &Device{
+		DeviceKey:           deviceKey,
+		CreatedAt:           now,
+		LastModifiedAt:      now,
+		LastAuthenticatedAt: now,
+		Attributes:          attrs,
+		Status:              DeviceStatusNotRemembered,
+	}
+
+	return deviceKey, false, nil
+}
+
+// AdminGetDevice returns a single tracked device for a user (admin operation).
+func (b *InMemoryBackend) AdminGetDevice(userPoolID, username, deviceKey string) (*Device, error) {
+	b.mu.RLock("AdminGetDevice")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	dev, ok := b.devices[userStateKey(userPoolID, username)][deviceKey]
+	if !ok {
+		return nil, fmt.Errorf("%w: device %q not found", ErrDeviceNotFound, deviceKey)
+	}
+
+	cp := *dev
+	cp.Attributes = maps.Clone(dev.Attributes)
+
+	return &cp, nil
+}
+
+// GetDevice returns a single tracked device for the authenticated user.
+func (b *InMemoryBackend) GetDevice(accessToken, deviceKey string) (*Device, error) {
+	b.mu.RLock("GetDevice")
+	defer b.mu.RUnlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	dev, ok := b.devices[userStateKey(user.UserPoolID, user.Username)][deviceKey]
+	if !ok {
+		return nil, fmt.Errorf("%w: device %q not found", ErrDeviceNotFound, deviceKey)
+	}
+
+	cp := *dev
+	cp.Attributes = maps.Clone(dev.Attributes)
+
+	return &cp, nil
+}
+
+// AdminListDevices returns a page of tracked devices for a user (admin operation).
+func (b *InMemoryBackend) AdminListDevices(
+	userPoolID, username string,
+	limit int,
+	nextToken string,
+) ([]*Device, string, error) {
+	b.mu.RLock("AdminListDevices")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return nil, "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	devices, token := b.paginateDevicesLocked(userStateKey(userPoolID, username), limit, nextToken)
+
+	return devices, token, nil
+}
+
+// ListDevices returns a page of tracked devices for the authenticated user.
+func (b *InMemoryBackend) ListDevices(accessToken string, limit int, nextToken string) ([]*Device, string, error) {
+	b.mu.RLock("ListDevices")
+	defer b.mu.RUnlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	devices, token := b.paginateDevicesLocked(userStateKey(user.UserPoolID, user.Username), limit, nextToken)
+
+	return devices, token, nil
+}
+
+// validDeviceStatus reports whether status is a recognized DeviceRememberedStatusType value.
+func validDeviceStatus(status string) bool {
+	return status == DeviceStatusRemembered || status == DeviceStatusNotRemembered
+}
+
+// AdminUpdateDeviceStatus updates a tracked device's remembered status (admin operation).
+func (b *InMemoryBackend) AdminUpdateDeviceStatus(userPoolID, username, deviceKey, status string) error {
+	b.mu.Lock("AdminUpdateDeviceStatus")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	if !validDeviceStatus(status) {
+		return fmt.Errorf("%w: DeviceRememberedStatus must be %q or %q",
+			ErrInvalidParameter, DeviceStatusRemembered, DeviceStatusNotRemembered)
+	}
+
+	dev, ok := b.devices[userStateKey(userPoolID, username)][deviceKey]
+	if !ok {
+		return fmt.Errorf("%w: device %q not found", ErrDeviceNotFound, deviceKey)
+	}
+
+	dev.Status = status
+	dev.LastModifiedAt = time.Now()
+
+	return nil
+}
+
+// UpdateDeviceStatus updates a tracked device's remembered status for the authenticated user.
+func (b *InMemoryBackend) UpdateDeviceStatus(accessToken, deviceKey, status string) error {
+	b.mu.Lock("UpdateDeviceStatus")
+	defer b.mu.Unlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return err
+	}
+
+	if !validDeviceStatus(status) {
+		return fmt.Errorf("%w: DeviceRememberedStatus must be %q or %q",
+			ErrInvalidParameter, DeviceStatusRemembered, DeviceStatusNotRemembered)
+	}
+
+	dev, ok := b.devices[userStateKey(user.UserPoolID, user.Username)][deviceKey]
+	if !ok {
+		return fmt.Errorf("%w: device %q not found", ErrDeviceNotFound, deviceKey)
+	}
+
+	dev.Status = status
+	dev.LastModifiedAt = time.Now()
+
+	return nil
+}
+
+// ForgetDevice deletes a tracked device for the authenticated user.
+func (b *InMemoryBackend) ForgetDevice(accessToken, deviceKey string) error {
+	b.mu.Lock("ForgetDevice")
+	defer b.mu.Unlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return err
+	}
+
+	key := userStateKey(user.UserPoolID, user.Username)
+	if _, ok := b.devices[key][deviceKey]; !ok {
+		return fmt.Errorf("%w: device %q not found", ErrDeviceNotFound, deviceKey)
+	}
+
+	delete(b.devices[key], deviceKey)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// WebAuthn / passkeys
+// ---------------------------------------------------------------------------
+
+const (
+	webauthnChallengeLen   = 32
+	webauthnUserHandleLen  = 16
+	webauthnTimeoutMillis  = 60000
+	webauthnRelyingPartyID = "localhost"
+)
+
+// StartWebAuthnRegistration returns real WebAuthn CredentialCreationOptions
+// (rp, user, challenge, pubKeyCredParams) for the authenticated user to pass
+// to the browser's navigator.credentials.create().
+func (b *InMemoryBackend) StartWebAuthnRegistration(accessToken string) (map[string]any, error) {
+	b.mu.RLock("StartWebAuthnRegistration")
+	defer b.mu.RUnlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	rpName := user.UserPoolID
+	if pool, ok := b.pools[user.UserPoolID]; ok && pool.Name != "" {
+		rpName = pool.Name
+	}
+
+	challenge := make([]byte, webauthnChallengeLen)
+	if _, randErr := rand.Read(challenge); randErr != nil {
+		return nil, fmt.Errorf("generating webauthn challenge: %w", randErr)
+	}
+
+	userHandle := make([]byte, webauthnUserHandleLen)
+	if _, randErr := rand.Read(userHandle); randErr != nil {
+		return nil, fmt.Errorf("generating webauthn user handle: %w", randErr)
+	}
+
+	enc := base64.RawURLEncoding
+
+	const jsonKeyName = "name"
+
+	return map[string]any{
+		"rp": map[string]any{
+			"id":        webauthnRelyingPartyID,
+			jsonKeyName: rpName,
+		},
+		"user": map[string]any{
+			"id":          enc.EncodeToString(userHandle),
+			jsonKeyName:   user.Username,
+			"displayName": user.Username,
+		},
+		"challenge": enc.EncodeToString(challenge),
+		"pubKeyCredParams": []map[string]any{
+			{"type": "public-key", "alg": -7},
+			{"type": "public-key", "alg": -257},
+		},
+		"timeout":     webauthnTimeoutMillis,
+		"attestation": "none",
+		"authenticatorSelection": map[string]any{
+			"userVerification": "preferred",
+		},
+	}, nil
+}
+
+// CompleteWebAuthnRegistration stores a WebAuthn credential for the authenticated user.
+func (b *InMemoryBackend) CompleteWebAuthnRegistration(
+	accessToken, credentialID, authenticatorAttachment string,
+) (*WebAuthnCredential, error) {
+	b.mu.Lock("CompleteWebAuthnRegistration")
+	defer b.mu.Unlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	if credentialID == "" {
+		return nil, fmt.Errorf("%w: Credential.id is required", ErrInvalidParameter)
+	}
+
+	key := userStateKey(user.UserPoolID, user.Username)
+	if b.webauthnCredentials[key] == nil {
+		b.webauthnCredentials[key] = make(map[string]*WebAuthnCredential)
+	}
+
+	cred := &WebAuthnCredential{
+		CredentialID:            credentialID,
+		FriendlyName:            fmt.Sprintf("Passkey %d", len(b.webauthnCredentials[key])+1),
+		RelyingPartyID:          webauthnRelyingPartyID,
+		AuthenticatorAttachment: authenticatorAttachment,
+		CreatedAt:               time.Now(),
+	}
+	b.webauthnCredentials[key][credentialID] = cred
+
+	cp := *cred
+
+	return &cp, nil
+}
+
+// ListWebAuthnCredentials returns a page of WebAuthn credentials for the authenticated user.
+func (b *InMemoryBackend) ListWebAuthnCredentials(
+	accessToken string,
+	limit int,
+	nextToken string,
+) ([]*WebAuthnCredential, string, error) {
+	b.mu.RLock("ListWebAuthnCredentials")
+	defer b.mu.RUnlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	creds := b.webauthnCredentials[userStateKey(user.UserPoolID, user.Username)]
+	all := make([]*WebAuthnCredential, 0, len(creds))
+
+	for _, c := range creds {
+		cp := *c
+		all = append(all, &cp)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].CredentialID < all[j].CredentialID })
+
+	startIdx := 0
+
+	if nextToken != "" {
+		for i, c := range all {
+			if c.CredentialID == nextToken {
+				startIdx = i
+
+				break
+			}
+		}
+	}
+
+	all = all[startIdx:]
+
+	if limit <= 0 || limit > len(all) {
+		return all, "", nil
+	}
+
+	page := all[:limit]
+	newToken := ""
+
+	if limit < len(all) {
+		newToken = all[limit].CredentialID
+	}
+
+	return page, newToken, nil
+}
+
+// DeleteWebAuthnCredential removes a WebAuthn credential for the authenticated user.
+func (b *InMemoryBackend) DeleteWebAuthnCredential(accessToken, credentialID string) error {
+	b.mu.Lock("DeleteWebAuthnCredential")
+	defer b.mu.Unlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return err
+	}
+
+	key := userStateKey(user.UserPoolID, user.Username)
+	if _, ok := b.webauthnCredentials[key][credentialID]; !ok {
+		return fmt.Errorf("%w: credential %q not found", ErrWebAuthnCredentialNotFound, credentialID)
+	}
+
+	delete(b.webauthnCredentials[key], credentialID)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Auth event feedback
+// ---------------------------------------------------------------------------
+
+// Auth event feedback values (FeedbackValueType).
+const (
+	AuthEventFeedbackValid   = "Valid"
+	AuthEventFeedbackInvalid = "Invalid"
+)
+
+func validAuthEventFeedbackValue(v string) bool {
+	return v == AuthEventFeedbackValid || v == AuthEventFeedbackInvalid
+}
+
+// paginateAuthEventsLocked returns a page of auth events for the given store
+// key, newest first. Caller must hold b.mu.
+func (b *InMemoryBackend) paginateAuthEventsLocked(key string, limit int, nextToken string) ([]*AuthEvent, string) {
+	events := b.authEvents[key]
+	all := make([]*AuthEvent, 0, len(events))
+
+	for _, e := range events {
+		cp := *e
+		all = append(all, &cp)
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CreatedAt.Equal(all[j].CreatedAt) {
+			return all[i].EventID < all[j].EventID
+		}
+
+		return all[i].CreatedAt.After(all[j].CreatedAt)
+	})
+
+	startIdx := 0
+
+	if nextToken != "" {
+		for i, e := range all {
+			if e.EventID == nextToken {
+				startIdx = i
+
+				break
+			}
+		}
+	}
+
+	all = all[startIdx:]
+
+	if limit <= 0 || limit > len(all) {
+		return all, ""
+	}
+
+	page := all[:limit]
+	newToken := ""
+
+	if limit < len(all) {
+		newToken = all[limit].EventID
+	}
+
+	return page, newToken
+}
+
+// AdminListUserAuthEvents returns stored adaptive-authentication events for a
+// user (admin operation). This emulator does not hook sign-in flows
+// (InitiateAuth/AdminInitiateAuth) to synthesize risk events, so the store is
+// real but starts empty per user; it returns a real, validated, paginated
+// empty result rather than a hardcoded one (pool/user existence and
+// NextToken semantics are honored).
+func (b *InMemoryBackend) AdminListUserAuthEvents(
+	userPoolID, username string,
+	limit int,
+	nextToken string,
+) ([]*AuthEvent, string, error) {
+	b.mu.RLock("AdminListUserAuthEvents")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return nil, "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	events, token := b.paginateAuthEventsLocked(userStateKey(userPoolID, username), limit, nextToken)
+
+	return events, token, nil
+}
+
+// updateAuthEventFeedbackLocked validates and applies feedback to a stored
+// auth event. Caller must hold b.mu (write lock).
+func (b *InMemoryBackend) updateAuthEventFeedbackLocked(userPoolID, username, eventID, feedbackValue string) error {
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	if !validAuthEventFeedbackValue(feedbackValue) {
+		return fmt.Errorf("%w: FeedbackValue must be %q or %q",
+			ErrInvalidParameter, AuthEventFeedbackValid, AuthEventFeedbackInvalid)
+	}
+
+	ev, ok := b.authEvents[userStateKey(userPoolID, username)][eventID]
+	if !ok {
+		return fmt.Errorf("%w: auth event %q not found", ErrAuthEventNotFound, eventID)
+	}
+
+	ev.FeedbackValue = feedbackValue
+	ev.FeedbackDate = time.Now()
+
+	return nil
+}
+
+// AdminUpdateAuthEventFeedback records feedback on a stored auth event (admin operation).
+func (b *InMemoryBackend) AdminUpdateAuthEventFeedback(userPoolID, username, eventID, feedbackValue string) error {
+	b.mu.Lock("AdminUpdateAuthEventFeedback")
+	defer b.mu.Unlock()
+
+	return b.updateAuthEventFeedbackLocked(userPoolID, username, eventID, feedbackValue)
+}
+
+// UpdateAuthEventFeedback records feedback on a stored auth event using an
+// unauthenticated FeedbackToken flow (matches AWS: this op takes
+// UserPoolId/Username directly rather than an AccessToken).
+func (b *InMemoryBackend) UpdateAuthEventFeedback(userPoolID, username, eventID, feedbackValue string) error {
+	b.mu.Lock("UpdateAuthEventFeedback")
+	defer b.mu.Unlock()
+
+	return b.updateAuthEventFeedbackLocked(userPoolID, username, eventID, feedbackValue)
+}
+
+// ---------------------------------------------------------------------------
+// User settings (legacy MFAOptions) and provider linking
+// ---------------------------------------------------------------------------
+
+// AdminSetUserSettings persists legacy MFAOptions onto a user (admin operation).
+func (b *InMemoryBackend) AdminSetUserSettings(userPoolID, username string, mfaOptions []MFAOptionType) error {
+	b.mu.Lock("AdminSetUserSettings")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	user, ok := b.users[userPoolID][username]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	user.MFAOptions = mfaOptions
+
+	return nil
+}
+
+// SetUserSettings persists legacy MFAOptions onto the authenticated user.
+func (b *InMemoryBackend) SetUserSettings(accessToken string, mfaOptions []MFAOptionType) error {
+	b.mu.Lock("SetUserSettings")
+	defer b.mu.Unlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return err
+	}
+
+	user.MFAOptions = mfaOptions
+
+	return nil
+}
+
+// AdminLinkProviderForUser links a federated identity (SourceUser) to an
+// existing Cognito user (DestinationUser) in the given pool.
+func (b *InMemoryBackend) AdminLinkProviderForUser(
+	userPoolID, destinationUsername string,
+	sourceProviderName, sourceAttrName, sourceAttrValue string,
+) error {
+	b.mu.Lock("AdminLinkProviderForUser")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if destinationUsername == "" {
+		return fmt.Errorf("%w: DestinationUser.ProviderAttributeValue is required", ErrInvalidParameter)
+	}
+
+	user, ok := b.users[userPoolID][destinationUsername]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, destinationUsername)
+	}
+
+	if sourceProviderName == "" || sourceAttrName == "" || sourceAttrValue == "" {
+		return fmt.Errorf(
+			"%w: SourceUser must include ProviderName, ProviderAttributeName, and ProviderAttributeValue",
+			ErrInvalidParameter)
+	}
+
+	user.LinkedProviders = append(user.LinkedProviders, ProviderLink{
+		ProviderName:           sourceProviderName,
+		ProviderAttributeName:  sourceAttrName,
+		ProviderAttributeValue: sourceAttrValue,
+	})
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// User auth factors
+// ---------------------------------------------------------------------------
+
+// Auth factor values (AuthFactorType) recognized by GetUserAuthFactors.
+const (
+	authFactorPassword = "PASSWORD"
+	authFactorSMSOTP   = "SMS_OTP"
+	authFactorWebAuthn = "WEB_AUTHN"
+)
+
+// GetUserAuthFactors returns the authenticated user and the sign-in factors
+// currently configured for their account, derived from stored MFA/WebAuthn state.
+func (b *InMemoryBackend) GetUserAuthFactors(accessToken string) (*User, []string, error) {
+	b.mu.RLock("GetUserAuthFactors")
+	defer b.mu.RUnlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	factorSet := map[string]struct{}{}
+
+	if user.PasswordHash != "" {
+		factorSet[authFactorPassword] = struct{}{}
+	}
+
+	if slices.Contains(user.UserMFASettingList, "SMS_MFA") {
+		factorSet[authFactorSMSOTP] = struct{}{}
+	}
+
+	for _, opt := range user.MFAOptions {
+		if opt.DeliveryMedium == "SMS" {
+			factorSet[authFactorSMSOTP] = struct{}{}
+		}
+	}
+
+	if len(b.webauthnCredentials[userStateKey(user.UserPoolID, user.Username)]) > 0 {
+		factorSet[authFactorWebAuthn] = struct{}{}
+	}
+
+	factors := make([]string, 0, len(factorSet))
+	for f := range factorSet {
+		factors = append(factors, f)
+	}
+
+	sort.Strings(factors)
+
+	cp := *user
+
+	return &cp, factors, nil
 }

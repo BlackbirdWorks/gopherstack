@@ -18,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -25,6 +26,10 @@ const (
 	ec2APIVersion = "2016-11-15"
 	ec2XMLNS      = "http://ec2.amazonaws.com/doc/2016-11-15/"
 	unknownOp     = "Unknown"
+	// errCodeInvalidParameterValue is the EC2 "InvalidParameterValue" API error code, shared by
+	// several sentinel error mappings below.
+	errCodeInvalidParameterValue = "InvalidParameterValue"
+	ec2PaginationSalt            = "ec2-opaque-pagination-v1"
 )
 
 // Handler is the Echo HTTP handler for EC2 operations.
@@ -113,13 +118,36 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, refinement3SupportedOperations()...)
 	extOps = append(extOps, networking1SupportedOperations()...)
 	extOps = append(extOps, advancedNetworkingSupportedOperations()...)
+	extOps = append(extOps, ipamDiscoverySupportedOperations()...)
+	extOps = append(extOps, ipamPolicySupportedOperations()...)
 	extOps = append(extOps, ec2CoreSupportedOperations()...)
 	extOps = append(extOps, spotFleetSupportedOperations()...)
 	extOps = append(extOps, batch1SupportedOperations()...)
 	extOps = append(extOps, batch2SupportedOperations()...)
 	extOps = append(extOps, batch3SupportedOperations()...)
 	extOps = append(extOps, batch4SupportedOperations()...)
+	extOps = append(extOps, localGatewaySupportedOperations()...)
+	extOps = append(extOps, tgwMulticastSupportedOperations()...)
+	extOps = append(extOps, tgwPeripheralsSupportedOperations()...)
+	extOps = append(extOps, vpcConfigSupportedOperations()...)
+	extOps = append(extOps, verifiedAccessExtSupportedOperations()...)
+	extOps = append(extOps, fpgaImageSupportedOperations()...)
+	extOps = append(extOps, scheduledInstanceSupportedOperations()...)
+	extOps = append(extOps, ipPoolSupportedOperations()...)
+	extOps = append(extOps, vmImportExportSupportedOperations()...)
+	extOps = append(extOps, trunkEnclaveSupportedOperations()...)
+	extOps = append(extOps, imageOpsSupportedOperations()...)
+	extOps = append(extOps, macHostSupportedOperations()...)
+	extOps = append(extOps, secondaryNetSupportedOperations()...)
+	extOps = append(extOps, instanceAttrSupportedOperations()...)
+	extOps = append(extOps, sqlHaSupportedOperations()...)
+	extOps = append(extOps, vpcEncryptionControlSupportedOperations()...)
+	extOps = append(extOps, vpnConcentratorSupportedOperations()...)
+	extOps = append(extOps, hostReservationSupportedOperations()...)
+	extOps = append(extOps, declarativePoliciesSupportedOperations()...)
+	extOps = append(extOps, networkPerformanceSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
+	extOps = append(extOps, parityFinalSupportedOperations()...)
 
 	return append([]string{
 		"RunInstances",
@@ -320,7 +348,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 				c,
 				reqID,
 				http.StatusBadRequest,
-				"InvalidParameterValue",
+				errCodeInvalidParameterValue,
 				"failed to parse request body",
 			)
 		}
@@ -383,12 +411,38 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerBatch3Ops(h, ops)
 	registerBatch4Ops(h, ops)
 	registerBatch5Ops(h, ops)
-	registerStubOps(h, ops)
-	// registerAuditOps overrides stub entries with real implementations for
-	// instance-modify and event-window-association operations.
-	registerAuditOps(h, ops)
+	registerRouteServerOps(h, ops)
+	registerLocalGatewayOps(h, ops)
+	registerTGWMulticastOps(h, ops)
+	registerTGWPeripheralsOps(h, ops)
+	registerVpcConfigOps(h, ops)
+	registerCapacityFamilyOps(h, ops)
+	registerVerifiedAccessExtOps(h, ops)
+	registerFpgaImageOps(h, ops)
+	registerScheduledInstanceOps(h, ops)
+	registerIPPoolOps(h, ops)
+	registerVMImportExportOps(h, ops)
+	registerTrunkEnclaveOps(h, ops)
+	registerImageOpsHandlers(h, ops)
+	registerMacHostOps(h, ops)
+	registerSecondaryNetOps(h, ops)
+	// registerInstanceAttrOps supplies the real implementations for the instance-modify
+	// and event-window-association operations that origin/parity-sweep-2's now-removed
+	// handler_audit.go duplicated (ModifyInstancePlacement, ModifyInstanceCpuOptions,
+	// ModifyInstanceMaintenanceOptions, ModifyInstanceNetworkPerformanceOptions,
+	// AssociateInstanceEventWindow) plus several more; see handler_instance_attrs.go.
+	registerInstanceAttrOps(h, ops)
+	registerSQLHaOps(h, ops)
+	registerVpcEncryptionControlOps(h, ops)
+	registerVpnConcentratorOps(h, ops)
+	registerHostReservationOps(h, ops)
+	registerDeclarativePoliciesOps(h, ops)
+	registerNetworkPerformanceOps(h, ops)
+	registerParityFinalOps(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
+	registerIpamDiscoveryOps(h, ops)
+	registerIpamPolicyOps(h, ops)
 	// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
 	registerSpotFleetOps(h, ops)
 
@@ -500,12 +554,75 @@ func (h *Handler) dispatch(action string, vals url.Values, reqID string) (any, e
 
 // ---- action handlers ----
 
+// maxUserDataBytes is the AWS limit on decoded EC2 user data (16 KiB).
+const maxUserDataBytes = 16384
+
+// validateUserData enforces the AWS EC2 contract for the UserData parameter:
+// it must be valid standard base64 and, once decoded, must not exceed the
+// 16 KiB limit. An empty value is accepted (user data is optional). Malformed
+// base64 yields InvalidUserData.Malformed; an over-limit payload yields
+// InvalidParameterValue, matching AWS error codes.
+func validateUserData(userData string) error {
+	if userData == "" {
+		return nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(userData)
+	if err != nil {
+		return fmt.Errorf(
+			"%w: user data must be a valid base64-encoded string",
+			ErrInvalidUserData,
+		)
+	}
+
+	if len(decoded) > maxUserDataBytes {
+		return fmt.Errorf(
+			"%w: User data is limited to %d bytes",
+			ErrInvalidParameter,
+			maxUserDataBytes,
+		)
+	}
+
+	return nil
+}
+
+// applyInstanceLaunchSettings persists the base64 user data and applies the key
+// name and security groups to each freshly launched instance.
+func (h *Handler) applyInstanceLaunchSettings(
+	instances []*Instance,
+	userData, keyName string,
+	sgIDs []string,
+) error {
+	for _, inst := range instances {
+		if userData != "" {
+			// Store as-is; DescribeInstanceAttribute returns the raw (base64) form.
+			if err := h.Backend.SetInstanceAttribute(inst.ID, attrUserData, userData); err != nil {
+				return err
+			}
+		}
+
+		if keyName != "" {
+			inst.KeyName = keyName
+		}
+
+		if len(sgIDs) > 0 {
+			inst.SecurityGroups = sgIDs
+		}
+	}
+
+	return nil
+}
+
 func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	instanceType := vals.Get("InstanceType")
 	subnetID := vals.Get("SubnetId")
 	userData := vals.Get("UserData")
 	keyName := vals.Get("KeyName")
+
+	if err := validateUserData(userData); err != nil {
+		return nil, err
+	}
 
 	minCount, maxCount, err := parseRunInstancesCounts(vals)
 	if err != nil {
@@ -524,21 +641,8 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	for _, inst := range instances {
-		if userData != "" {
-			// Store as-is; DescribeInstanceAttribute returns the raw (base64) form.
-			if attrErr := h.Backend.SetInstanceAttribute(inst.ID, attrUserData, userData); attrErr != nil {
-				return nil, attrErr
-			}
-		}
-
-		if keyName != "" {
-			inst.KeyName = keyName
-		}
-
-		if len(sgIDs) > 0 {
-			inst.SecurityGroups = sgIDs
-		}
+	if err = h.applyInstanceLaunchSettings(instances, userData, keyName, sgIDs); err != nil {
+		return nil, err
 	}
 
 	if cb, c := h.computeBackend(); c != nil {
@@ -607,13 +711,9 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		decoded, decErr := base64.StdEncoding.DecodeString(tok)
-		if decErr != nil {
-			return nil, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
-		}
-		n, parseErr := strconv.Atoi(string(decoded))
-		if parseErr != nil || n < 0 {
-			return nil, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return nil, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
 		}
 		offset = n
 	}
@@ -628,9 +728,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		instances = instances[offset:]
 
 		if len(instances) > maxResults {
-			nextToken = base64.StdEncoding.EncodeToString(
-				[]byte(strconv.Itoa(offset + maxResults)),
-			)
+			nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
 			instances = instances[:maxResults]
 		}
 	}
@@ -1047,9 +1145,9 @@ func parseInstanceTypesPagination(vals url.Values) (int, int, error) {
 	offset := 0
 
 	if tok := vals.Get("NextToken"); tok != "" {
-		n, perr := strconv.Atoi(tok)
-		if perr != nil || n < 0 {
-			return 0, 0, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidParameter, tok)
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return 0, 0, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidPaginationToken, tok)
 		}
 
 		offset = n
@@ -1070,14 +1168,14 @@ func paginateInstanceTypes(items []string, offset, maxResults int) ([]string, st
 		end = offset + maxResults
 	}
 
-	page := items[offset:end]
+	pageResult := items[offset:end]
 
 	var token string
 	if end < len(items) {
-		token = strconv.Itoa(end)
+		token = page.EncodeHMACToken(end, ec2PaginationSalt)
 	}
 
-	return page, token
+	return pageResult, token
 }
 
 // validDescribeTagsFilters is the set of filter names accepted by DescribeTags.
@@ -1280,7 +1378,65 @@ var errCodeLookup = []struct {
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
 	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
 	{ErrCIDRConflict, "InvalidVpc.Conflict"},
-	{ErrInvalidParameter, "InvalidParameterValue"},
+	{ErrClientVpnEndpointNotFound, "InvalidClientVpnEndpointId.NotFound"},
+	{ErrTrafficMirrorFilterNotFound, "InvalidTrafficMirrorFilterId.NotFound"},
+	{ErrTrafficMirrorFilterRuleNotFound, "InvalidTrafficMirrorFilterRuleId.NotFound"},
+	{ErrTrafficMirrorSessionNotFound, "InvalidTrafficMirrorSessionId.NotFound"},
+	{ErrTrafficMirrorTargetNotFound, "InvalidTrafficMirrorTargetId.NotFound"},
+	{ErrVpnConnectionNotFound, "InvalidVpnConnectionID.NotFound"},
+	{ErrVpnGatewayNotFound, "InvalidVpnGatewayID.NotFound"},
+	{ErrCustomerGatewayNotFound, "InvalidCustomerGatewayID.NotFound"},
+	{ErrVpnTunnelNotFound, errCodeInvalidParameterValue},
+	{ErrVpcEndpointServiceNotFound, "InvalidVpcEndpointService.NotFound"},
+	{ErrDependencyViolation, "DependencyViolation"},
+	{ErrVpcClassicLinkDisabled, "VpcClassicLinkDisabled"},
+	{ErrClassicLinkInstanceNotFound, "InvalidInstanceID.NotFound"},
+	{ErrVpcBlockPublicAccessExclusionNotFound, "InvalidVpcBlockPublicAccessExclusionId.NotFound"},
+	{ErrIpamPolicyNotFound, "InvalidIpamPolicyId.NotFound"},
+	{ErrIpamOrgAdminAccountNotFound, errCodeInvalidParameterValue},
+	{ErrTGWPolicyTableNotFound, "InvalidTransitGatewayPolicyTableId.NotFound"},
+	{ErrTGWRouteTableAnnouncementNotFound, "InvalidTransitGatewayRouteTableAnnouncementId.NotFound"},
+	{ErrTransitGatewayNotFound, "InvalidTransitGatewayID.NotFound"},
+	{ErrTGWRouteTableNotFound, "InvalidTransitGatewayRouteTableId.NotFound"},
+	{ErrTGWMeteringPolicyNotFound, "InvalidTransitGatewayMeteringPolicyId.NotFound"},
+	{ErrTGWAttachmentNotFound, "InvalidTransitGatewayAttachmentID.NotFound"},
+	{ErrTGWPrefixListRefNotFound, "InvalidTransitGatewayPrefixListReferenceId.NotFound"},
+	{ErrVerifiedAccessEndpointNotFound, "InvalidVerifiedAccessEndpointId.NotFound"},
+	{ErrVerifiedAccessGroupNotFound, "InvalidVerifiedAccessGroupId.NotFound"},
+	{ErrVerifiedAccessInstanceNotFound, "InvalidVerifiedAccessInstanceId.NotFound"},
+	{ErrVerifiedAccessTrustProviderNF, "InvalidVerifiedAccessTrustProviderId.NotFound"},
+	{ErrFpgaImageNotFound, "InvalidFpgaImageID.NotFound"},
+	{ErrScheduledInstanceNotFound, "InvalidScheduledInstance.NotFound"},
+	{ErrScheduledInstancePurchaseToken, errCodeInvalidParameterValue},
+	{ErrCoipPoolNotFound, "InvalidPoolID.NotFound"},
+	{ErrCoipCidrNotFound, errCodeInvalidParameterValue},
+	{ErrIpv4PoolNotFound, "InvalidPublicIpv4Pool.NotFound"},
+	{ErrIpv4PoolCidrNotFound, errCodeInvalidParameterValue},
+	{ErrIpv6PoolNotFound, errCodeInvalidParameterValue},
+	{ErrImageNotFound, "InvalidAMIID.NotFound"},
+	{ErrUsageReportNotFound, errCodeInvalidParameterValue},
+	{ErrBundleTaskNotFound, "InvalidBundleID.NotFound"},
+	{ErrConversionTaskNotFound, "InvalidConversionTaskId.NotFound"},
+	{ErrExportTaskNotFound, "InvalidExportTaskID.NotFound"},
+	{ErrImportTaskNotFound, errCodeInvalidParameterValue},
+	{ErrTaskNotCancellable, "IncorrectState"},
+	{ErrTrunkAssociationNotFound, "InvalidAssociationID.NotFound"},
+	{ErrEnclaveCertRoleAssociationNotFound, errCodeInvalidParameterValue},
+	{ErrTooManyEnclaveCertRoles, "LimitExceeded"},
+	{ErrMacInstanceRequired, errCodeInvalidParameterValue},
+	{ErrSecondaryNetworkNotFound, "InvalidSecondaryNetworkID.NotFound"},
+	{ErrSecondarySubnetNotFound, "InvalidSecondarySubnetID.NotFound"},
+	{ErrSecondaryNetworkHasSubnets, "DependencyViolation"},
+	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
+	{ErrCapacityReservationFull, "CapacityReservationFull"},
+	{ErrFlowLogNotFound, "InvalidFlowLogId.NotFound"},
+	{ErrTGWPropagationNotFound, "InvalidTransitGatewayRouteTablePropagation.NotFound"},
+	{ErrInterruptibleAllocationNotFound, "InvalidCapacityReservationId.NotFound"},
+	{ErrPublicIPNotFound, "InvalidAddress.NotFound"},
+	{ErrInvalidParameter, errCodeInvalidParameterValue},
+	{ErrInvalidUserData, "InvalidUserData.Malformed"},
+	{ErrMissingParameter, "MissingParameter"},
+	{ErrInvalidPaginationToken, "InvalidPaginationToken"},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.
@@ -1557,8 +1713,8 @@ type instancePlacementItem struct {
 }
 
 type instanceCPUOptionsItem struct {
-	CoreCount      int `xml:"coreCount"`
-	ThreadsPerCore int `xml:"threadsPerCore"`
+	CoreCount      int32 `xml:"coreCount"`
+	ThreadsPerCore int32 `xml:"threadsPerCore"`
 }
 
 type instanceMaintenanceOptionsItem struct {

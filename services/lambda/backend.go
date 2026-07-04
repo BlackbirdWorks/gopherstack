@@ -14,6 +14,7 @@ import (
 	mrand "math/rand/v2"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,6 +32,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -149,8 +151,8 @@ type StorageBackend interface {
 // Backends implement this to support ?Qualifier= on Invoke (alias or version qualifier).
 type QualifierInvoker interface {
 	InvokeFunctionWithQualifier(
-		ctx context.Context, name, qualifier string, invocationType InvocationType, payload []byte,
-	) ([]byte, int, error)
+		ctx context.Context, name, qualifier, clientContext, logType string, invocationType InvocationType, payload []byte,
+	) ([]byte, string, string, int, error)
 }
 
 // QualifierResolver is an optional extension of StorageBackend that resolves a
@@ -245,12 +247,44 @@ type InMemoryBackend struct {
 	portAlloc                *portalloc.Allocator
 	runtimes                 map[string]*functionRuntime
 	activeConcurrencies      map[string]int
+	asyncDelivery            AsyncDestinationDelivery
 	accountID                string
 	region                   string
+	sigV4Secret              string
 	settings                 Settings
 	asyncWG                  sync.WaitGroup
+	activationDelay          time.Duration
+	pcActivationDelay        time.Duration
 	cscIDCounter             int
 	shutdownOnce             sync.Once
+}
+
+// SetActivationDelay configures how long a newly created function stays in the
+// Pending state before transitioning to Active. Zero (the default) creates
+// functions directly in Active, matching the near-instant activation of ZIP
+// functions; a positive delay reproduces the Pending→Active window AWS exhibits
+// for VPC and container functions.
+func (b *InMemoryBackend) SetActivationDelay(d time.Duration) {
+	b.mu.Lock("SetActivationDelay")
+	defer b.mu.Unlock()
+	b.activationDelay = d
+}
+
+// SetProvisionedConcurrencyDelay configures how long a provisioned concurrency
+// config stays IN_PROGRESS before transitioning to READY. Zero (the default)
+// reports READY immediately.
+func (b *InMemoryBackend) SetProvisionedConcurrencyDelay(d time.Duration) {
+	b.mu.Lock("SetProvisionedConcurrencyDelay")
+	defer b.mu.Unlock()
+	b.pcActivationDelay = d
+}
+
+// SetSigV4Secret sets the shared secret used to verify SigV4 signatures on
+// AWS_IAM Function URL invocations. When empty the default "test" secret is used.
+func (b *InMemoryBackend) SetSigV4Secret(secret string) {
+	b.mu.Lock("SetSigV4Secret")
+	defer b.mu.Unlock()
+	b.sigV4Secret = secret
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend with a background service context.
@@ -877,14 +911,17 @@ type lambdaURLRequestContext struct {
 
 // lambdaURLEvent is a simplified Lambda Function URL (HTTP API v2) event.
 type lambdaURLEvent struct {
-	Headers         map[string]string       `json:"headers"`
-	RawPath         string                  `json:"rawPath"`
-	RawQueryString  string                  `json:"rawQueryString"`
-	Body            string                  `json:"body,omitempty"`
-	Version         string                  `json:"version"`
-	RouteKey        string                  `json:"routeKey"`
-	RequestContext  lambdaURLRequestContext `json:"requestContext"`
-	IsBase64Encoded bool                    `json:"isBase64Encoded"`
+	Headers               map[string]string       `json:"headers"`
+	QueryStringParameters map[string]string       `json:"queryStringParameters,omitempty"`
+	PathParameters        map[string]string       `json:"pathParameters,omitempty"`
+	RawPath               string                  `json:"rawPath"`
+	RawQueryString        string                  `json:"rawQueryString"`
+	Body                  string                  `json:"body,omitempty"`
+	Version               string                  `json:"version"`
+	RouteKey              string                  `json:"routeKey"`
+	Cookies               []string                `json:"cookies,omitempty"`
+	RequestContext        lambdaURLRequestContext `json:"requestContext"`
+	IsBase64Encoded       bool                    `json:"isBase64Encoded"`
 }
 
 // lambdaURLResponse is a simplified Lambda Function URL response.
@@ -896,8 +933,36 @@ type lambdaURLResponse struct {
 }
 
 // buildFunctionURLHandler builds an [http.HandlerFunc] that invokes the Lambda function.
+// It enforces the configured AuthType (AWS_IAM verifies SigV4, returning 403 on a bad
+// or missing signature) and applies CORS: OPTIONS preflight requests are answered
+// directly with the configured CORS headers, and those headers are echoed on real
+// responses.
 func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := b.lookupFunctionURLConfig(functionName)
+
+		cors := functionURLCors(cfg)
+
+		// Answer CORS preflight requests without invoking the function.
+		if r.Method == http.MethodOptions && cors != nil {
+			applyCORSHeaders(w, r, cors, true)
+			w.WriteHeader(http.StatusOK)
+
+			return
+		}
+
+		if authErr := b.enforceFunctionURLAuth(cfg, r); authErr != nil {
+			if cors != nil {
+				applyCORSHeaders(w, r, cors, false)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"Message":"Forbidden"}`))
+
+			return
+		}
+
 		payload, buildErr := b.buildURLEventPayload(r)
 		if buildErr != nil {
 			http.Error(w, buildErr.Error(), http.StatusInternalServerError)
@@ -917,8 +982,113 @@ func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.Hand
 			return
 		}
 
+		if cors != nil {
+			applyCORSHeaders(w, r, cors, false)
+		}
+
 		writeFunctionURLResponse(w, result)
 	}
+}
+
+// lookupFunctionURLConfig returns a copy-free reference to the function's URL config.
+func (b *InMemoryBackend) lookupFunctionURLConfig(functionName string) *FunctionURLConfig {
+	b.mu.RLock("lookupFunctionURLConfig")
+	defer b.mu.RUnlock()
+
+	return b.functionURLConfigs[functionName]
+}
+
+// functionURLCors returns the CORS config when present.
+func functionURLCors(cfg *FunctionURLConfig) *FunctionURLCors {
+	if cfg == nil {
+		return nil
+	}
+
+	return cfg.Cors
+}
+
+// enforceFunctionURLAuth verifies the request against the URL's AuthType. For
+// AWS_IAM it requires a valid SigV4 signature; NONE (or an unset config) is open.
+func (b *InMemoryBackend) enforceFunctionURLAuth(cfg *FunctionURLConfig, r *http.Request) error {
+	if cfg == nil || cfg.AuthType != functionURLAuthAWSIAM {
+		return nil
+	}
+
+	b.mu.RLock("functionURLSecret")
+	secret := b.sigV4Secret
+	b.mu.RUnlock()
+
+	if !strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256") {
+		return ErrFunctionURLForbidden
+	}
+
+	if sErr := httputils.NewSigV4Validator(secret).Verify(r); sErr != nil {
+		return ErrFunctionURLForbidden
+	}
+
+	return nil
+}
+
+// functionURLAuthAWSIAM is the AuthType requiring SigV4 verification.
+const functionURLAuthAWSIAM = "AWS_IAM"
+
+// ErrFunctionURLForbidden is returned when an AWS_IAM function URL request is
+// missing or has an invalid SigV4 signature.
+var ErrFunctionURLForbidden = errors.New("Forbidden")
+
+// applyCORSHeaders writes the CORS response headers for a function URL request.
+// When preflight is true the full preflight header set (methods, headers, max-age)
+// is emitted; otherwise only the origin/credentials/expose-headers subset applies.
+func applyCORSHeaders(w http.ResponseWriter, r *http.Request, cors *FunctionURLCors, preflight bool) {
+	origin := r.Header.Get("Origin")
+	h := w.Header()
+
+	h.Set("Access-Control-Allow-Origin", corsAllowOrigin(cors.AllowOrigins, origin))
+
+	if cors.AllowCredentials {
+		h.Set("Access-Control-Allow-Credentials", "true")
+	}
+
+	if len(cors.ExposeHeaders) > 0 {
+		h.Set("Access-Control-Expose-Headers", strings.Join(cors.ExposeHeaders, ","))
+	}
+
+	if !preflight {
+		return
+	}
+
+	if len(cors.AllowMethods) > 0 {
+		h.Set("Access-Control-Allow-Methods", strings.Join(cors.AllowMethods, ","))
+	}
+
+	if len(cors.AllowHeaders) > 0 {
+		h.Set("Access-Control-Allow-Headers", strings.Join(cors.AllowHeaders, ","))
+	}
+
+	if cors.MaxAge > 0 {
+		h.Set("Access-Control-Max-Age", strconv.Itoa(cors.MaxAge))
+	}
+}
+
+// corsAllowOrigin resolves the Access-Control-Allow-Origin value. A wildcard or
+// an empty allow-list echoes "*"; otherwise the request origin is echoed when it
+// is in the allow-list, falling back to the first configured origin.
+func corsAllowOrigin(allowed []string, origin string) string {
+	if len(allowed) == 0 {
+		return "*"
+	}
+
+	for _, a := range allowed {
+		if a == "*" {
+			return "*"
+		}
+
+		if a == origin {
+			return origin
+		}
+	}
+
+	return allowed[0]
 }
 
 // maxFunctionURLBodyBytes caps the request body for Lambda Function URL invokes.
@@ -941,15 +1111,23 @@ func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) 
 
 	headers := make(map[string]string, len(r.Header))
 	for k, vs := range r.Header {
+		// AWS omits the Cookie header from `headers` and surfaces it via `cookies`.
+		if strings.EqualFold(k, "Cookie") {
+			continue
+		}
+
 		headers[strings.ToLower(k)] = strings.Join(vs, ",")
 	}
 
 	event := lambdaURLEvent{
-		Version:        "2.0",
-		RouteKey:       "$default",
-		RawPath:        r.URL.Path,
-		RawQueryString: r.URL.RawQuery,
-		Headers:        headers,
+		Version:               "2.0",
+		RouteKey:              "$default",
+		RawPath:               r.URL.Path,
+		RawQueryString:        r.URL.RawQuery,
+		Headers:               headers,
+		Cookies:               requestCookies(r),
+		QueryStringParameters: flattenQuery(r.URL.Query()),
+		PathParameters:        map[string]string{},
 		RequestContext: lambdaURLRequestContext{
 			HTTP: lambdaURLHTTPContext{
 				Method:   r.Method,
@@ -978,6 +1156,37 @@ func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) 
 	}
 
 	return json.Marshal(event)
+}
+
+// requestCookies extracts the request cookies as "name=value" strings, matching
+// the `cookies` array AWS Lambda Function URLs place in the event payload.
+func requestCookies(r *http.Request) []string {
+	cookies := r.Cookies()
+	if len(cookies) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(cookies))
+	for _, ck := range cookies {
+		out = append(out, ck.Name+"="+ck.Value)
+	}
+
+	return out
+}
+
+// flattenQuery collapses a url.Values into the single-value map AWS uses for
+// queryStringParameters. Repeated keys are comma-joined, as AWS does.
+func flattenQuery(values url.Values) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(values))
+	for k, vs := range values {
+		out[k] = strings.Join(vs, ",")
+	}
+
+	return out
 }
 
 // writeFunctionURLResponse writes the Lambda function URL response to the HTTP response writer.
@@ -1066,16 +1275,40 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 		)
 	}
 
+	if err := validateEphemeralStorage(fn); err != nil {
+		return err
+	}
+
+	applyFunctionCreateDefaults(fn)
+
+	// AWS Lambda always sets Version to "$LATEST" for the live (mutable) code.
+	// Published versions have numbered versions (1, 2, …) in separate records.
+	fn.Version = versionLatest
+
+	// Reproduce AWS's Pending→Active creation window when an activation delay is
+	// configured. With no delay (the default) the function is created directly
+	// Active, matching the near-instant activation of ZIP functions.
+	if b.activationDelay > 0 {
+		fn.State = FunctionStatePending
+		fn.StateReason = "The function is being created."
+		fn.StateReasonCode = "Creating"
+		b.scheduleFunctionActive(fn.FunctionName, b.activationDelay)
+	}
+
+	b.functions[fn.FunctionName] = fn
+
+	return nil
+}
+
+// applyFunctionCreateDefaults fills in the AWS default values for optional
+// function fields left unset by the caller.
+func applyFunctionCreateDefaults(fn *FunctionConfiguration) {
 	if fn.Tags == nil {
 		fn.Tags = make(map[string]string)
 	}
 
 	if len(fn.Architectures) == 0 {
 		fn.Architectures = []string{"x86_64"}
-	}
-
-	if err := validateEphemeralStorage(fn); err != nil {
-		return err
 	}
 
 	if fn.TracingConfig == nil {
@@ -1090,20 +1323,39 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 	}
 
 	if fn.PackageType == "" {
+		fn.PackageType = "Zip"
 		if fn.ImageURI != "" {
 			fn.PackageType = "Image"
-		} else {
-			fn.PackageType = "Zip"
 		}
 	}
+}
 
-	// AWS Lambda always sets Version to "$LATEST" for the live (mutable) code.
-	// Published versions have numbered versions (1, 2, …) in separate records.
-	fn.Version = versionLatest
+// scheduleFunctionActive transitions a Pending function to Active after the delay.
+func (b *InMemoryBackend) scheduleFunctionActive(name string, delay time.Duration) {
+	b.asyncWG.Go(func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
 
-	b.functions[fn.FunctionName] = fn
+		select {
+		case <-timer.C:
+		case <-b.shutdown:
+			return
+		case <-b.ctx.Done():
+			return
+		}
 
-	return nil
+		b.mu.Lock("scheduleFunctionActive")
+		defer b.mu.Unlock()
+
+		fn, ok := b.functions[name]
+		if !ok || fn.State != FunctionStatePending {
+			return
+		}
+
+		fn.State = FunctionStateActive
+		fn.StateReason = ""
+		fn.StateReasonCode = ""
+	})
 }
 
 // GetFunction retrieves a Lambda function configuration by name.
@@ -1852,7 +2104,9 @@ func (b *InMemoryBackend) InvokeFunction(
 	invocationType InvocationType,
 	payload []byte,
 ) ([]byte, int, error) {
-	return b.InvokeFunctionWithQualifier(ctx, name, "", invocationType, payload)
+	result, _, _, statusCode, err := b.InvokeFunctionWithQualifier(ctx, name, "", "", "", invocationType, payload)
+
+	return result, statusCode, err
 }
 
 // asyncInvocationEnqueueTimeout is the maximum time a background goroutine will wait
@@ -1893,23 +2147,23 @@ func (b *InMemoryBackend) checkRecursiveLoop(ctx context.Context, functionName s
 // InvokeFunctionWithQualifier invokes a Lambda function using an optional qualifier.
 func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	ctx context.Context,
-	name, qualifier string,
+	name, qualifier, clientContext, logType string,
 	invocationType InvocationType,
 	payload []byte,
-) ([]byte, int, error) {
+) ([]byte, string, string, int, error) {
 	fn, err := b.resolveQualifier(name, qualifier)
 	if err != nil {
-		return nil, http.StatusNotFound, err
+		return nil, "", "", http.StatusNotFound, err
 	}
 
 	if invocationType == InvocationTypeDryRun {
-		return nil, http.StatusNoContent, nil
+		return nil, "", "", http.StatusNoContent, nil
 	}
 
 	// Enforce RecursiveLoop=Deny: reject self-invocations when the function name
 	// is already in the current invocation chain.
 	if loopErr := b.checkRecursiveLoop(ctx, fn.FunctionName); loopErr != nil {
-		return nil, http.StatusBadRequest, loopErr
+		return nil, "", "", http.StatusBadRequest, loopErr
 	}
 
 	// Propagate the invocation chain to nested Lambda calls.
@@ -1918,7 +2172,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// Check FIS fault injection state for this function.
 	fisPayload, fisStatus, fisErr := b.applyFISFaultToInvocation(ctx, fn.FunctionName)
 	if fisPayload != nil || fisErr != nil {
-		return fisPayload, fisStatus, fisErr
+		return fisPayload, "", "", fisStatus, fisErr
 	}
 
 	// Enforce reserved concurrency limits for all invocation types.
@@ -1926,7 +2180,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// for both synchronous (RequestResponse) and asynchronous (Event) invocations.
 	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName)
 	if concErr != nil {
-		return nil, http.StatusTooManyRequests, concErr
+		return nil, "", "", http.StatusTooManyRequests, concErr
 	}
 
 	// For synchronous invocations, release the concurrency slot when this function returns.
@@ -1943,7 +2197,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 			b.releaseConcurrencySlot(fn.FunctionName)
 		}
 
-		return nil, http.StatusInternalServerError, srvErr
+		return nil, "", "", http.StatusInternalServerError, srvErr
 	}
 
 	timeout := time.Duration(fn.Timeout) * time.Second
@@ -1952,37 +2206,88 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	}
 
 	if invocationType == InvocationTypeEvent {
-		inv := &pendingInvocation{
-			requestID: uuid.New().String(),
-			payload:   payload,
-			deadline:  time.Now().Add(timeout),
-			createdAt: time.Now(),
-			result:    make(chan invocationResult, 1),
-		}
+		b.invokeEvent(ctx, fn, srv, payload, clientContext, timeout, trackConcurrency)
 
-		b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
-
-		return nil, http.StatusAccepted, nil
+		return nil, "", "", http.StatusAccepted, nil
 	}
 
-	result, isError, invokeErr := srv.invoke(ctx, payload, timeout)
+	return b.invokeSync(ctx, fn, srv, payload, clientContext, logType, timeout)
+}
+
+// classifyFunctionError maps an invocation outcome to the AWS X-Amz-Function-Error
+// header value. A runtime that reports via the /error endpoint (isError) is an
+// Unhandled error; a normal /response whose payload merely has the Lambda error
+// shape is a Handled error; anything else is not a function error.
+func classifyFunctionError(isError bool, result []byte) string {
+	if isError {
+		return "Unhandled"
+	}
+
+	if isLambdaFunctionErrorPayload(result) {
+		return "Handled"
+	}
+
+	return ""
+}
+
+func (b *InMemoryBackend) invokeSync(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	srv *runtimeServer,
+	payload []byte,
+	clientContext, logType string,
+	timeout time.Duration,
+) ([]byte, string, string, int, error) {
+	result, isError, reqID, invokeErr := srv.invoke(ctx, payload, clientContext, timeout)
 	if invokeErr != nil {
-		// On invocation timeout the container process is likely hung or dead.
-		// Reset the runtime so the next invocation gets a fresh container instead
-		// of perpetually timing out.
 		if errors.Is(invokeErr, ErrInvocationTimeout) {
 			b.cleanupTimedOutRuntime(fn.FunctionName)
 		}
 
-		return nil, http.StatusInternalServerError, invokeErr
+		return nil, "", "", http.StatusInternalServerError, invokeErr
 	}
 
-	// Per Lambda convention, function-level errors (isError=true) still return HTTP 200.
-	_ = isError
+	functionError := classifyFunctionError(isError, result)
 
 	b.dispatchInvocationLog(context.WithoutCancel(ctx), fn.FunctionName, payload, result)
 
-	return result, http.StatusOK, nil
+	var logResult string
+	if logType == LogTypeTail {
+		logResult = base64.StdEncoding.EncodeToString([]byte(buildTailLog(reqID)))
+	}
+
+	return result, logResult, functionError, http.StatusOK, nil
+}
+
+// buildTailLog produces the base64-worthy CloudWatch-style log tail returned in
+// the X-Amz-Log-Result header when LogType=Tail is requested.
+func buildTailLog(reqID string) string {
+	return fmt.Sprintf(
+		"START RequestId: %s Version: $LATEST\nEND RequestId: %s\n"+
+			"REPORT RequestId: %s\tDuration: 1.00 ms\tBilled Duration: 1 ms\tMemory Size: 128 MB\tMax Memory Used: 64 MB\n",
+		reqID, reqID, reqID,
+	)
+}
+
+func (b *InMemoryBackend) invokeEvent(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	srv *runtimeServer,
+	payload []byte,
+	clientContext string,
+	timeout time.Duration,
+	trackConcurrency bool,
+) {
+	inv := &pendingInvocation{
+		requestID:     uuid.New().String(),
+		payload:       payload,
+		clientContext: clientContext,
+		deadline:      time.Now().Add(timeout),
+		createdAt:     time.Now(),
+		result:        make(chan invocationResult, 1),
+	}
+
+	b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
 }
 
 // enqueueAsyncInvocation places inv into the runtime queue and then waits for the
@@ -2117,6 +2422,17 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 		}
 
 		if !result.isError || attempt == maxRetries {
+			outcome := asyncOutcome{
+				functionName:    functionName,
+				requestID:       inv.requestID,
+				requestPayload:  inv.payload,
+				responsePayload: result.payload,
+				functionError:   classifyFunctionError(result.isError, result.payload),
+				invokeCount:     attempt + 1,
+				statusCode:      result.statusCode,
+				success:         !result.isError,
+			}
+
 			if !result.isError {
 				b.dispatchInvocationLog(
 					b.ctx,
@@ -2128,6 +2444,8 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 				log.Warn("lambda: async invocation failed after retries",
 					"function", functionName, "attempts", attempt+1)
 			}
+
+			b.dispatchAsyncOutcome(context.WithoutCancel(b.ctx), outcome)
 
 			return
 		}
@@ -3744,12 +4062,66 @@ func (b *InMemoryBackend) PutProvisionedConcurrencyConfig(
 		),
 		LastModified:                             time.Now().UTC().Format(time.RFC3339),
 		RequestedProvisionedConcurrentExecutions: requested,
-		Status:                                   "READY",
+		Status:                                   provisionedConcurrencyReady,
+	}
+
+	// When a warm-up delay is configured, provisioned concurrency starts
+	// IN_PROGRESS with zero available capacity and transitions to READY after the
+	// delay, mirroring AWS's real pre-warming window. With no delay (the default)
+	// it reports READY immediately.
+	if b.pcActivationDelay > 0 {
+		cfg.Status = provisionedConcurrencyInProgress
+		cfg.AvailableProvisionedConcurrentExecutions = 0
+		b.scheduleProvisionedConcurrencyReady(name, qualifier, b.pcActivationDelay)
 	}
 
 	b.provisionedConcurrencies[name][qualifier] = cfg
 
 	return cfg, nil
+}
+
+const (
+	provisionedConcurrencyReady      = "READY"
+	provisionedConcurrencyInProgress = "IN_PROGRESS"
+)
+
+// scheduleProvisionedConcurrencyReady transitions a provisioned concurrency config
+// from IN_PROGRESS to READY after the given delay.
+func (b *InMemoryBackend) scheduleProvisionedConcurrencyReady(name, qualifier string, delay time.Duration) {
+	b.asyncWG.Go(func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+		case <-b.shutdown:
+			return
+		case <-b.ctx.Done():
+			return
+		}
+
+		b.mu.Lock("provisionedConcurrencyReady")
+		defer b.mu.Unlock()
+
+		qualifiers, ok := b.provisionedConcurrencies[name]
+		if !ok {
+			return
+		}
+
+		cfg, ok := qualifiers[qualifier]
+		if !ok {
+			return
+		}
+
+		// Copy-on-write: replace the map entry with a new config so any caller
+		// holding the previous pointer (returned live by Get) never observes a
+		// concurrent field write.
+		updated := *cfg
+		updated.Status = provisionedConcurrencyReady
+		updated.AvailableProvisionedConcurrentExecutions = updated.RequestedProvisionedConcurrentExecutions
+		updated.LastModified = time.Now().UTC().Format(time.RFC3339)
+		qualifiers[qualifier] = &updated
+	})
 }
 
 // GetProvisionedConcurrencyConfig returns the provisioned concurrency configuration for a function qualifier.
@@ -3958,6 +4330,11 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
 	delete(b.activeConcurrencies, name)
 	delete(b.provisionedConcurrencies, name)
 	delete(b.fisFaults, name)
+	delete(b.permissions, name)
+	delete(b.fnCodeSigningConfigs, name)
+	delete(b.runtimeManagementConfigs, name)
+	delete(b.functionRecursionConfigs, name)
+	delete(b.functionScalingConfigs, name)
 	for id, m := range b.eventSourceMappings {
 		if strings.HasSuffix(m.FunctionARN, ":function:"+name) {
 			if ids, ok := b.esmByFunctionARN[m.FunctionARN]; ok {

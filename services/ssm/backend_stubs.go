@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,7 +26,11 @@ type DeleteActivationOutput struct{}
 type DeleteAssociationOutput struct{}
 
 // DeleteInventoryOutput is the response for DeleteInventory.
-type DeleteInventoryOutput struct{}
+type DeleteInventoryOutput struct {
+	DeletionSummary *InventoryDeletionSummary `json:"DeletionSummary,omitempty"`
+	DeletionID      string                    `json:"DeletionId,omitempty"`
+	TypeName        string                    `json:"TypeName,omitempty"`
+}
 
 // DeleteOpsItemOutput is the response for DeleteOpsItem.
 type DeleteOpsItemOutput struct{}
@@ -981,7 +986,19 @@ func (b *InMemoryBackend) DeleteAssociation(
 
 	delete(associations, input.AssociationID)
 
+	// Evict the association's execution records and their per-execution targets
+	// so deleted associations do not leak execution state.
+	if execs := b.associationExecutionsStore(region); execs != nil {
+		for _, e := range execs[input.AssociationID] {
+			delete(b.associationExecTargetsStore(region), e.ExecutionID)
+		}
+
+		delete(execs, input.AssociationID)
+	}
+
 	cleanupEmptyInnerMap(b.associations, region)
+	cleanupEmptyInnerMap(b.associationExecutions, region)
+	cleanupEmptyInnerMap(b.associationExecTargets, region)
 
 	return &DeleteAssociationOutput{}, nil
 }
@@ -1088,20 +1105,18 @@ func (b *InMemoryBackend) DescribeAssociation(
 	return nil, ErrAssociationNotFound
 }
 
-// DescribeAvailablePatches returns patches from the available patches catalog.
+// DescribeAvailablePatches returns patches from the available patches catalog,
+// lazily seeding it with the built-in catalogue (defaultPatchCatalog) on the
+// region's first access rather than leaving it permanently empty.
 func (b *InMemoryBackend) DescribeAvailablePatches(
 	ctx context.Context,
 	_ *DescribeAvailablePatchesInput,
 ) (*DescribeAvailablePatchesOutput, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("DescribeAvailablePatches")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeAvailablePatches")
+	defer b.mu.Unlock()
 
-	patches := b.availablePatches[region]
-	if patches == nil {
-		patches = []Patch{}
-	}
-
+	patches := b.availablePatchesFor(region)
 	result := make([]Patch, len(patches))
 	copy(result, patches)
 
@@ -1150,6 +1165,12 @@ func (b *InMemoryBackend) DescribeInstancePatches(
 }
 
 // DescribeInstanceProperties returns properties for managed instances.
+// DescribeInstanceProperties returns properties for managed instances. Any
+// explicitly-stored InstanceProperty (from an earlier UpdateInstanceInformation-
+// style write) wins; every other registered managed instance (i.e. every
+// activation, mirroring DescribeInstanceInformation) is reported too, so the
+// response reflects real registered instances rather than a permanently-empty
+// map.
 func (b *InMemoryBackend) DescribeInstanceProperties(
 	ctx context.Context,
 	_ *DescribeInstancePropertiesInput,
@@ -1159,9 +1180,29 @@ func (b *InMemoryBackend) DescribeInstanceProperties(
 	defer b.mu.RUnlock()
 
 	store := b.instanceProperties[region]
-	props := make([]InstanceProperty, 0, len(store))
+	props := make([]InstanceProperty, 0, len(store)+len(b.activationsStore(region)))
+	seen := make(map[string]struct{}, len(store))
+
 	for _, p := range store {
 		props = append(props, *p)
+		seen[p.InstanceID] = struct{}{}
+	}
+
+	for _, act := range b.activationsStore(region) {
+		if _, ok := seen[act.ActivationID]; ok {
+			continue
+		}
+
+		props = append(props, InstanceProperty{
+			InstanceID:      act.ActivationID,
+			Name:            act.DefaultInstanceName,
+			PlatformType:    platformTypeLinux,
+			PlatformName:    "Amazon Linux",
+			PlatformVersion: "2",
+			PingStatus:      "Online",
+			AgentVersion:    defaultAgentVersionSSM,
+			ActivationID:    act.ActivationID,
+		})
 	}
 
 	return &DescribeInstancePropertiesOutput{InstanceProperties: props}, nil
@@ -1665,7 +1706,48 @@ func (b *InMemoryBackend) TerminateSession(
 	sess.EndDate = UnixTimeFloat(timeNow())
 	sessions[input.SessionID] = sess
 
+	// Bound retained terminated (history) sessions so the store cannot grow
+	// without limit under repeated Start/Terminate cycles.
+	b.evictExcessTerminatedSessionsLocked(region)
+
 	return &TerminateSessionOutput{SessionID: input.SessionID}, nil
+}
+
+// evictExcessTerminatedSessionsLocked removes the oldest terminated sessions
+// once their count in the region exceeds maxTerminatedSessionsPerRegion.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) evictExcessTerminatedSessionsLocked(region string) {
+	sessions := b.sessionsStore(region)
+
+	terminated := make([]Session, 0, len(sessions))
+	for _, s := range sessions {
+		if s.Status == sessionStatusTerminated {
+			terminated = append(terminated, s)
+		}
+	}
+
+	if len(terminated) <= maxTerminatedSessionsPerRegion {
+		return
+	}
+
+	// Oldest first by EndDate (tie-broken by SessionID for determinism).
+	slices.SortFunc(terminated, func(a, c Session) int {
+		if a.EndDate != c.EndDate {
+			if a.EndDate < c.EndDate {
+				return -1
+			}
+
+			return 1
+		}
+
+		return strings.Compare(a.SessionID, c.SessionID)
+	})
+
+	for _, s := range terminated[:len(terminated)-maxTerminatedSessionsPerRegion] {
+		delete(sessions, s.SessionID)
+	}
+
+	cleanupEmptyInnerMap(b.sessions, region)
 }
 
 // UpdateAssociation updates an existing association.

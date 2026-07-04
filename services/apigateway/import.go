@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
@@ -112,22 +114,33 @@ type openAPIIntegrationResponse struct {
 	ContentHandling    string            `json:"contentHandling"`
 }
 
-// parseOpenAPI decodes the import body. A non-JSON or structurally invalid
-// document yields a BadRequestException, matching AWS.
+// parseOpenAPI decodes the import body. AWS accepts the API definition as
+// either JSON or YAML; since JSON is a syntactic subset of YAML, both forms
+// are decoded via a single YAML pass and then normalized to the openAPIDoc
+// shape via JSON so struct tags apply uniformly to either input format. A
+// non-JSON/YAML or structurally invalid document yields a BadRequestException,
+// matching AWS.
 func parseOpenAPI(body []byte) (*openAPIDoc, error) {
 	trimmed := strings.TrimSpace(string(body))
 	if trimmed == "" {
 		return nil, fmt.Errorf("%w: import body is empty", ErrInvalidParameter)
 	}
-	if trimmed[0] != '{' && trimmed[0] != '[' {
-		// AWS accepts YAML too, but the SDK/JSON path is the canonical one and
-		// the only one exercised here; reject non-JSON with the AWS error code.
-		return nil, fmt.Errorf("%w: unable to parse OpenAPI document (expected JSON)", ErrInvalidParameter)
+
+	var raw map[string]any
+	if yamlErr := yaml.Unmarshal(body, &raw); yamlErr != nil {
+		return nil, fmt.Errorf(
+			"%w: unable to parse OpenAPI document (expected JSON or YAML): %w", ErrInvalidParameter, yamlErr,
+		)
+	}
+
+	normalized, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid OpenAPI document: %w", ErrInvalidParameter, err)
 	}
 
 	var doc openAPIDoc
-	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("%w: invalid OpenAPI document: %w", ErrInvalidParameter, err)
+	if jsonErr := json.Unmarshal(normalized, &doc); jsonErr != nil {
+		return nil, fmt.Errorf("%w: invalid OpenAPI document: %w", ErrInvalidParameter, jsonErr)
 	}
 	if doc.Swagger == "" && doc.OpenAPI == "" {
 		return nil, fmt.Errorf("%w: document is not a valid Swagger 2.0 or OpenAPI 3.0 spec", ErrInvalidParameter)
@@ -241,7 +254,14 @@ func (b *InMemoryBackend) PutRestAPI(input PutRestAPIInput) (*RestAPI, error) {
 		}
 		data.resources = map[string]*Resource{rootID: root}
 		data.models = make(map[string]*Model)
+	}
+	// The API's name/description are updated from the document's info object
+	// regardless of mode — "merge" vs "overwrite" governs how the resource/method
+	// tree is applied, not whether the top-level RestApi metadata is refreshed.
+	if doc.Info.Title != "" {
 		data.api.Name = doc.Info.Title
+	}
+	if doc.Info.Description != "" {
 		data.api.Description = doc.Info.Description
 	}
 	if doc.APIKeySourceExt != "" {
@@ -335,6 +355,7 @@ func ensureResourcePath(data *apiData, path string) *Resource {
 				ResourceMethods: make(map[string]*Method),
 			}
 			data.resources[child.ID] = child
+			data.resourceVersion++
 		}
 		current = child
 	}

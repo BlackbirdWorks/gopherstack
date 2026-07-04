@@ -469,10 +469,9 @@ type GetResourcePolicyOutput struct {
 
 // PutResourcePolicyInput is the request payload for PutResourcePolicy.
 type PutResourcePolicyInput struct {
-	// SecretId is the name or ARN of the secret.
-	SecretID string `json:"SecretId"`
-	// ResourcePolicy is the resource-based policy document.
-	ResourcePolicy string `json:"ResourcePolicy"`
+	BlockPublicPolicy *bool  `json:"BlockPublicPolicy,omitempty"`
+	SecretID          string `json:"SecretId"`
+	ResourcePolicy    string `json:"ResourcePolicy"`
 }
 
 // PutResourcePolicyOutput is the response payload for PutResourcePolicy.

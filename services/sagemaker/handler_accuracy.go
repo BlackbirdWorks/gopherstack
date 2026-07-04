@@ -610,6 +610,26 @@ func (h *Handler) handleStopProcessingJob(ctx context.Context, body []byte) erro
 	return nil
 }
 
+func (h *Handler) handleDeleteProcessingJob(ctx context.Context, body []byte) error {
+	var req struct {
+		ProcessingJobName string `json:"ProcessingJobName"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if req.ProcessingJobName == "" {
+		return fmt.Errorf("%w: ProcessingJobName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteProcessingJob(ctx, req.ProcessingJobName); err != nil {
+		return err
+	}
+
+	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted processing job", "name", req.ProcessingJobName)
+
+	return nil
+}
+
 type processingJobSummary struct {
 	ProcessingJobName   string  `json:"ProcessingJobName"`
 	ProcessingJobArn    string  `json:"ProcessingJobArn"`

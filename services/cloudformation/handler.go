@@ -40,6 +40,11 @@ const (
 )
 
 const (
+	resTypeEC2SecurityGroup = "AWS::EC2::SecurityGroup"
+	resTypeCloudWatchAlarm  = "AWS::CloudWatch::Alarm"
+)
+
+const (
 	resTypeRoute53HostedZone = "AWS::Route53::HostedZone"
 	resTypeRoute53RecordSet  = "AWS::Route53::RecordSet"
 	resTypeELBv2LB           = "AWS::ElasticLoadBalancingV2::LoadBalancer"
@@ -316,27 +321,7 @@ func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, "CFNRegistryException", "TypeName is required")
 	}
 
-	primaryProp := typeSchemaFor(typeName)
-
-	// Build a minimal CloudFormation registry schema JSON using structured data.
-	// The Terraform provider uses primaryIdentifier to construct resource IDs.
-	type cfnSchema struct {
-		Properties           map[string]struct{} `json:"properties"`
-		TypeName             string              `json:"typeName"`
-		Description          string              `json:"description"`
-		PrimaryIdentifier    []string            `json:"primaryIdentifier"`
-		AdditionalProperties bool                `json:"additionalProperties"`
-	}
-
-	schemaObj := cfnSchema{
-		TypeName:             typeName,
-		Description:          "Stub schema for " + typeName,
-		PrimaryIdentifier:    []string{"/properties/" + primaryProp},
-		Properties:           map[string]struct{}{primaryProp: {}},
-		AdditionalProperties: true,
-	}
-
-	schemaBytes, err := json.Marshal(schemaObj)
+	schemaJSON, err := describeTypeSchemaJSON(typeName)
 	if err != nil {
 		return h.xmlError(c, "InternalFailure", "failed to marshal schema: "+err.Error())
 	}
@@ -351,6 +336,7 @@ func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
 		Type             string `xml:"Type"`
 		TypeName         string `xml:"TypeName"`
 		Visibility       string `xml:"Visibility"`
+		ProvisioningType string `xml:"ProvisioningType"`
 		IsActivated      bool   `xml:"IsActivated"`
 		IsDefaultVersion bool   `xml:"IsDefaultVersion"`
 	}
@@ -369,12 +355,64 @@ func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
 			DefaultVersionID: "00000001",
 			IsActivated:      true,
 			IsDefaultVersion: true,
-			Schema:           string(schemaBytes),
+			Schema:           schemaJSON,
 			Type:             typeKindResource,
 			TypeName:         typeName,
 			Visibility:       typeVisibilityPublic,
+			ProvisioningType: provisioningTypeFullyMutable,
 		},
 	})
+}
+
+// describeTypeSchemaJSON returns the CloudFormation Resource Provider Schema JSON
+// document for typeName. If typeName is present in the modeled resource type
+// catalog (resourceTypeSchemaCatalog), that realistic schema is returned verbatim
+// (re-marshaled through a generic map to guarantee it is valid JSON). Otherwise a
+// minimal but valid fallback schema is generated using only the primary
+// identifier property name, so unmodeled/unknown types still get a usable
+// response instead of an error.
+func describeTypeSchemaJSON(typeName string) (string, error) {
+	if raw, ok := resourceTypeSchema(typeName); ok {
+		// Round-trip through a generic map to normalize formatting and to fail
+		// loudly (via the error return) if a catalog entry is ever malformed.
+		var generic map[string]any
+		if err := json.Unmarshal([]byte(raw), &generic); err != nil {
+			return "", err
+		}
+
+		normalized, err := json.Marshal(generic)
+		if err != nil {
+			return "", err
+		}
+
+		return string(normalized), nil
+	}
+
+	// Fallback: minimal schema for types not in the modeled catalog.
+	primaryProp := typeSchemaFor(typeName)
+
+	type cfnSchema struct {
+		Properties           map[string]struct{} `json:"properties"`
+		TypeName             string              `json:"typeName"`
+		Description          string              `json:"description"`
+		PrimaryIdentifier    []string            `json:"primaryIdentifier"`
+		AdditionalProperties bool                `json:"additionalProperties"`
+	}
+
+	schemaObj := cfnSchema{
+		TypeName:             typeName,
+		Description:          "Schema for " + typeName,
+		PrimaryIdentifier:    []string{"/properties/" + primaryProp},
+		Properties:           map[string]struct{}{primaryProp: {}},
+		AdditionalProperties: true,
+	}
+
+	schemaBytes, err := json.Marshal(schemaObj)
+	if err != nil {
+		return "", err
+	}
+
+	return string(schemaBytes), nil
 }
 
 func (h *Handler) dispatchStackOps(action string, form url.Values, c *echo.Context) (bool, error) {

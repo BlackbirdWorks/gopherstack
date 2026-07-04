@@ -189,6 +189,7 @@ const (
 	exportStatusRunning   = "RUNNING"
 	exportStatusCompleted = "COMPLETED"
 	exportStatusCancelled = "CANCELLED"
+	exportStatusFailed    = "FAILED"
 )
 
 // SubscriptionDeliverer delivers encoded log event payloads to a subscription filter destination.
@@ -459,6 +460,7 @@ type InMemoryBackend struct {
 	transformers           map[string]Transformer
 	integrations           map[string]CWLIntegration
 	deletionProtected      map[string]bool
+	exportSink             ExportSink
 	cancel                 context.CancelFunc
 	region                 string
 	accountID              string
@@ -1867,6 +1869,10 @@ func encodeSubscriptionPayload(payload subscriptionPayload) ([]byte, error) {
 //     terms, the "?" terms are ignored entirely; we honour that rule, so optional
 //     terms only take effect when there are no required and no exclude terms.
 type compiledFilterPattern struct {
+	// custom, when non-nil, fully determines matching (used for JSON "{...}"
+	// selector patterns and space-delimited "[...]" metric-filter patterns);
+	// the term slices below are then unused.
+	custom   func(message string) bool
 	required []compiledTerm // AND: all must match
 	optional []compiledTerm // OR: any matches (only used when required+exclude empty)
 	exclude  []compiledTerm // NONE may match
@@ -1928,6 +1934,15 @@ func compileTerm(t string) compiledTerm {
 // compileFilterPattern parses pattern into a compiledFilterPattern for efficient reuse.
 // An empty pattern always matches all messages.
 func compileFilterPattern(pattern string) *compiledFilterPattern {
+	if trimmed := strings.TrimSpace(pattern); trimmed != "" {
+		switch trimmed[0] {
+		case '{':
+			return &compiledFilterPattern{custom: compileJSONFilterPattern(trimmed)}
+		case '[':
+			return &compiledFilterPattern{custom: compileSpaceFilterPattern(trimmed)}
+		}
+	}
+
 	rawTerms := parseFilterPatternTerms(pattern)
 	cp := &compiledFilterPattern{}
 
@@ -1948,6 +1963,10 @@ func compileFilterPattern(pattern string) *compiledFilterPattern {
 // matches reports whether the message satisfies the pattern, following AWS
 // unstructured filter-pattern semantics.
 func (p *compiledFilterPattern) matches(message string) bool {
+	if p.custom != nil {
+		return p.custom(message)
+	}
+
 	// Exclude terms: the message must not contain any of them.
 	for _, ct := range p.exclude {
 		if ct.match(message) {
@@ -2258,27 +2277,71 @@ func (b *InMemoryBackend) collectQueryEvents(
 	var recordsScanned, bytesScanned float64
 
 	groupEvents := b.eventsStore(region)
+	streams := b.streamsStore(region)
 	for _, groupName := range logGroupNames {
 		streamMap, exists := groupEvents[groupName]
 		if !exists {
 			continue
 		}
-		for _, evts := range streamMap {
-			for _, ev := range evts {
-				recordsScanned++
-				bytesScanned += float64(len(ev.Message))
-				if startTime > 0 && ev.Timestamp < startTime {
-					continue
-				}
-				if endTime > 0 && ev.Timestamp > endTime {
-					continue
-				}
-				eventsOut = append(eventsOut, ev)
+		for streamName, evts := range streamMap {
+			// Narrow the scan by log stream: a stream whose [first,last] event
+			// window does not overlap the query's [startTime,endTime] range holds
+			// no matching records, so skip it entirely instead of scanning every
+			// event. This bounds the scan to streams that can contribute results.
+			if streamOutsideWindow(streams[groupName][streamName], startTime, endTime) {
+				continue
 			}
+			matched, records, bytes := scanStreamEvents(evts, startTime, endTime)
+			eventsOut = append(eventsOut, matched...)
+			recordsScanned += records
+			bytesScanned += bytes
 		}
 	}
 
 	return eventsOut, recordsScanned, bytesScanned
+}
+
+// scanStreamEvents returns the events in one stream that fall within
+// [startTime,endTime], along with the records and bytes scanned. A zero bound is
+// treated as unbounded on that side.
+func scanStreamEvents(
+	evts []*OutputLogEvent, startTime, endTime int64,
+) ([]*OutputLogEvent, float64, float64) {
+	out := make([]*OutputLogEvent, 0, len(evts))
+	var records, bytes float64
+
+	for _, ev := range evts {
+		records++
+		bytes += float64(len(ev.Message))
+		if startTime > 0 && ev.Timestamp < startTime {
+			continue
+		}
+		if endTime > 0 && ev.Timestamp > endTime {
+			continue
+		}
+		out = append(out, ev)
+	}
+
+	return out, records, bytes
+}
+
+// streamOutsideWindow reports whether a stream's event-time range is entirely
+// outside the query window [startTime,endTime]. A zero bound means unbounded on
+// that side. Streams with unknown ranges (nil timestamps) are never skipped.
+func streamOutsideWindow(stream *LogStream, startTime, endTime int64) bool {
+	if stream == nil || stream.FirstEventTimestamp == nil || stream.LastEventTimestamp == nil {
+		return false
+	}
+
+	if startTime > 0 && *stream.LastEventTimestamp < startTime {
+		return true
+	}
+
+	if endTime > 0 && *stream.FirstEventTimestamp > endTime {
+		return true
+	}
+
+	return false
 }
 
 // StartQuery stores a new insights query and executes it immediately against in-memory events.
@@ -2674,9 +2737,12 @@ func (b *InMemoryBackend) CreateDelivery(
 }
 
 // CreateExportTask creates an export task to export log data to S3.
-// Returns the task ID.
+// Returns the task ID. When an S3 export sink is configured (see SetExportSink),
+// the matching log events are written to the destination bucket as gzipped
+// objects using the AWS key layout and the task completes synchronously;
+// otherwise the task starts PENDING and advances by janitor age.
 func (b *InMemoryBackend) CreateExportTask(
-	taskName, logGroupName, _, destination, destinationPrefix string,
+	taskName, logGroupName, logStreamNamePrefix, destination, destinationPrefix string,
 	from, to int64,
 ) (string, error) {
 	if logGroupName == "" {
@@ -2691,30 +2757,61 @@ func (b *InMemoryBackend) CreateExportTask(
 		return "", fmt.Errorf("%w: from (%d) must be less than to (%d)", ErrValidation, from, to)
 	}
 
-	taskID := uuid.New().String()
-
 	task := &ExportTask{
-		TaskID:            taskID,
-		TaskName:          taskName,
-		LogGroupName:      logGroupName,
-		Destination:       destination,
-		DestinationPrefix: destinationPrefix,
-		From:              from,
-		To:                to,
-		Status:            exportStatusPending,
-		CreationTime:      time.Now().UnixMilli(),
+		TaskID:              uuid.New().String(),
+		TaskName:            taskName,
+		LogGroupName:        logGroupName,
+		LogStreamNamePrefix: logStreamNamePrefix,
+		Destination:         destination,
+		DestinationPrefix:   destinationPrefix,
+		StatusMessage:       "",
+		From:                from,
+		To:                  to,
+		Status:              exportStatusPending,
+		CreationTime:        time.Now().UnixMilli(),
+		CompletionTime:      0,
 	}
 
 	b.mu.Lock("CreateExportTask")
-	defer b.mu.Unlock()
-
 	if len(b.exportTasks) >= maxExportTasks {
+		b.mu.Unlock()
+
 		return "", fmt.Errorf("%w: export task limit exceeded", ErrValidation)
 	}
 
-	b.exportTasks[taskID] = task
+	b.exportTasks[task.TaskID] = task
+	sink := b.exportSink
+	b.mu.Unlock()
 
-	return taskID, nil
+	if sink != nil {
+		b.finishExport(task)
+	}
+
+	return task.TaskID, nil
+}
+
+// finishExport materialises the export to S3 and records the terminal status.
+func (b *InMemoryBackend) finishExport(task *ExportTask) {
+	count, err := b.runExport(b.ctx, task)
+
+	b.mu.Lock("finishExport")
+	defer b.mu.Unlock()
+
+	stored, ok := b.exportTasks[task.TaskID]
+	if !ok {
+		return
+	}
+
+	stored.CompletionTime = time.Now().UnixMilli()
+	if err != nil {
+		stored.Status = exportStatusFailed
+		stored.StatusMessage = err.Error()
+
+		return
+	}
+
+	stored.Status = exportStatusCompleted
+	stored.StatusMessage = fmt.Sprintf("Completed successfully. Exported %d log events.", count)
 }
 
 // CreateImportTask creates an import task from a CloudTrail Lake event data store.
@@ -3131,7 +3228,7 @@ func (b *InMemoryBackend) ListLogAnomalyDetectors(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3235,7 +3332,7 @@ func (b *InMemoryBackend) ListScheduledQueries(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3359,7 +3456,7 @@ func (b *InMemoryBackend) DescribeAccountPolicies(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3485,7 +3582,7 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}
@@ -3656,7 +3753,7 @@ func (b *InMemoryBackend) DescribeQueryDefinitions(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = encodeNextToken(end)
 	} else {
 		end = len(all)
 	}

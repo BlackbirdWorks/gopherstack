@@ -2,6 +2,7 @@ package cloudwatch
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -1246,38 +1247,55 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 	}
 
 	scanBy := form.Get("ScanBy")
+	nextToken := form.Get("NextToken")
+	maxDatapoints, _ := strconv.Atoi(form.Get("MaxDatapoints"))
 	queries := parseMetricDataQueriesFromForm(form)
 
-	var results []MetricDataResult
+	var pageResult GetMetricDataPage
 	var berr error
 	if bk, ok := h.Backend.(*InMemoryBackend); ok {
-		results, berr = bk.GetMetricDataWithOptions(queries, startTime, endTime, scanBy)
+		pageResult, berr = bk.GetMetricDataPaged(
+			queries, startTime, endTime, scanBy, nextToken, maxDatapoints,
+		)
 	} else {
+		var results []MetricDataResult
 		results, berr = h.Backend.GetMetricData(queries, startTime, endTime)
+		pageResult.Results = results
 	}
 	if berr != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", berr.Error())
 	}
 
+	type messageXML struct {
+		Code  string `xml:"Code"`
+		Value string `xml:"Value"`
+	}
 	type resultEntry struct {
-		XMLName    xml.Name  `xml:"member"`
-		ID         string    `xml:"Id"`
-		Label      string    `xml:"Label,omitempty"`
-		StatusCode string    `xml:"StatusCode"`
-		Timestamps []string  `xml:"Timestamps>member"`
-		Values     []float64 `xml:"Values>member"`
+		XMLName    xml.Name     `xml:"member"`
+		ID         string       `xml:"Id"`
+		Label      string       `xml:"Label,omitempty"`
+		StatusCode string       `xml:"StatusCode"`
+		Timestamps []string     `xml:"Timestamps>member"`
+		Values     []float64    `xml:"Values>member"`
+		Messages   []messageXML `xml:"Messages>member,omitempty"`
 	}
 
 	type response struct {
 		XMLName           xml.Name      `xml:"GetMetricDataResponse"`
 		Xmlns             string        `xml:"xmlns,attr"`
 		RequestID         string        `xml:"ResponseMetadata>RequestId"`
+		NextToken         string        `xml:"GetMetricDataResult>NextToken,omitempty"`
 		MetricDataResults []resultEntry `xml:"GetMetricDataResult>MetricDataResults"`
+		Messages          []messageXML  `xml:"GetMetricDataResult>Messages>member,omitempty"`
 	}
 
-	resp := response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()}
+	resp := response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		NextToken: pageResult.NextToken,
+	}
 
-	for _, r := range results {
+	for _, r := range pageResult.Results {
 		entry := resultEntry{
 			ID:         r.ID,
 			Label:      r.Label,
@@ -1287,8 +1305,15 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 		for _, ts := range r.Timestamps {
 			entry.Timestamps = append(entry.Timestamps, ts.UTC().Format(time.RFC3339))
 		}
+		for _, m := range r.Messages {
+			entry.Messages = append(entry.Messages, messageXML(m))
+		}
 
 		resp.MetricDataResults = append(resp.MetricDataResults, entry)
+	}
+
+	for _, m := range pageResult.Messages {
+		resp.Messages = append(resp.Messages, messageXML(m))
 	}
 
 	return writeXML(c, resp)
@@ -2649,12 +2674,26 @@ func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) e
 	return writeXML(c, resp)
 }
 
-// minimalPNG1x1 is a base64-encoded 1×1 white PNG used as a placeholder for
-// GetMetricWidgetImage. AWS returns a real rendered graph; the emulator returns
-// a valid but minimal PNG so callers that decode the image don't fail.
+// minimalPNG1x1 is a base64-encoded 1×1 white PNG. It is retained as a last-resort
+// fallback for the (unreachable) case where widget rendering fails.
 const minimalPNG1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVQI12NgAAAAAgAB4iG8MwAAAABJRU5ErkJggg=="
 
-func (h *Handler) handleGetMetricWidgetImage(_ url.Values, c *echo.Context) error {
+// renderWidgetImageBase64 renders the MetricWidget JSON into a base64-encoded PNG.
+// On any failure it falls back to the 1×1 placeholder so the response is always a
+// decodable image.
+func (h *Handler) renderWidgetImageBase64(form url.Values) string {
+	widgetJSON := form.Get("MetricWidget")
+	bk, _ := h.Backend.(*InMemoryBackend)
+
+	img, err := renderMetricWidgetPNG(bk, widgetJSON, time.Now().UTC())
+	if err != nil || len(img) == 0 {
+		return minimalPNG1x1
+	}
+
+	return base64.StdEncoding.EncodeToString(img)
+}
+
+func (h *Handler) handleGetMetricWidgetImage(form url.Values, c *echo.Context) error {
 	type response struct {
 		MetricWidgetImage string   `xml:"GetMetricWidgetImageResult>MetricWidgetImage"`
 		XMLName           xml.Name `xml:"GetMetricWidgetImageResponse"`
@@ -2665,7 +2704,7 @@ func (h *Handler) handleGetMetricWidgetImage(_ url.Values, c *echo.Context) erro
 	return writeXML(c, response{
 		Xmlns:             cloudwatchNS,
 		RequestID:         uuid.New().String(),
-		MetricWidgetImage: minimalPNG1x1,
+		MetricWidgetImage: h.renderWidgetImageBase64(form),
 	})
 }
 

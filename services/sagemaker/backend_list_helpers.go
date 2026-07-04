@@ -113,3 +113,44 @@ func sagemakerCreate[T any](
 func sagemakerDupErr(kind, name string) error {
 	return fmt.Errorf("%w: %s %q already exists", ErrValidation, kind, name)
 }
+
+// compareTimes returns -1, 0 or 1 depending on whether a is before, equal to,
+// or after b. It is used to build strict weak orderings for sort.Slice-style
+// comparators that need to support both ascending and descending order.
+func compareTimes(a, b time.Time) int {
+	switch {
+	case a.Before(b):
+		return -1
+	case a.After(b):
+		return 1
+	default:
+		return 0
+	}
+}
+
+// paginateSlice applies index-based-token pagination to an already-sorted
+// slice, capping the page size at maxResults (if positive) or
+// sagemakerDefaultPageSize.
+func paginateSlice[T any](list []T, nextToken string, maxResults int32) ([]T, string) {
+	pageSize := sagemakerDefaultPageSize
+	if maxResults > 0 && int(maxResults) < pageSize {
+		pageSize = int(maxResults)
+	}
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []T{}, ""
+	}
+
+	end := startIdx + pageSize
+
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}

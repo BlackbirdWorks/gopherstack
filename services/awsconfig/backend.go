@@ -40,6 +40,8 @@ var (
 	ErrNoDeliveryChannel = awserr.New("NoAvailableDeliveryChannelException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when a required field is missing or invalid.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrResourceNotFound is returned when a referenced resource evaluation does not exist.
+	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )
 
 // RecordingGroup holds the resource recording configuration for a recorder.
@@ -207,11 +209,18 @@ type ResourceKey struct {
 
 // InMemoryBackend is the in-memory store for AWS Config resources.
 type InMemoryBackend struct {
-	recorders              map[string]*ConfigurationRecorder
-	channels               map[string]*DeliveryChannel
-	aggregationAuths       map[string]*AggregationAuthorization
-	configRules            map[string]*ConfigRule
-	ruleEvaluations        map[string]string // rule name → compliance type after evaluation
+	recorders        map[string]*ConfigurationRecorder
+	channels         map[string]*DeliveryChannel
+	aggregationAuths map[string]*AggregationAuthorization
+	configRules      map[string]*ConfigRule
+	ruleEvaluations  map[string]string // rule name → rolled-up compliance type after evaluation
+	// ruleResourceEvals holds per-(rule, resource) evaluation results so compliance
+	// detail APIs can report real per-resource COMPLIANT/NON_COMPLIANT outcomes.
+	ruleResourceEvals map[string]map[string]*StoredEvaluation // rule name → resourceKey → evaluation
+	// resourceHistory retains an ordered configuration history per resource (oldest first).
+	resourceHistory map[string][]ResourceConfigItem // resourceKey → history
+	// resourceEvaluations records StartResourceEvaluation runs keyed by evaluation id.
+	resourceEvaluations    map[string]*ResourceEvaluation
 	aggregators            map[string]*ConfigurationAggregator
 	conformancePacks       map[string]*ConformancePack
 	orgConfigRules         map[string]*OrganizationConfigRule
@@ -230,6 +239,8 @@ type InMemoryBackend struct {
 	ruleCounter            int
 	conformancePackCounter int
 	aggregatorCounter      int
+	resourceEvalCounter    int
+	captureCounter         int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -245,6 +256,9 @@ func NewInMemoryBackendWithMeta(accountID, region string) *InMemoryBackend {
 		aggregationAuths:      make(map[string]*AggregationAuthorization),
 		configRules:           make(map[string]*ConfigRule),
 		ruleEvaluations:       make(map[string]string),
+		ruleResourceEvals:     make(map[string]map[string]*StoredEvaluation),
+		resourceHistory:       make(map[string][]ResourceConfigItem),
+		resourceEvaluations:   make(map[string]*ResourceEvaluation),
 		aggregators:           make(map[string]*ConfigurationAggregator),
 		conformancePacks:      make(map[string]*ConformancePack),
 		orgConfigRules:        make(map[string]*OrganizationConfigRule),
@@ -531,6 +545,11 @@ func (b *InMemoryBackend) Reset() {
 	b.aggregationAuths = make(map[string]*AggregationAuthorization)
 	b.configRules = make(map[string]*ConfigRule)
 	b.ruleEvaluations = make(map[string]string)
+	b.ruleResourceEvals = make(map[string]map[string]*StoredEvaluation)
+	b.resourceHistory = make(map[string][]ResourceConfigItem)
+	b.resourceEvaluations = make(map[string]*ResourceEvaluation)
+	b.resourceEvalCounter = 0
+	b.captureCounter = 0
 	b.ruleCounter = 0
 	b.aggregators = make(map[string]*ConfigurationAggregator)
 	b.conformancePacks = make(map[string]*ConformancePack)
@@ -720,6 +739,7 @@ func (b *InMemoryBackend) DeleteConfigRule(name string) error {
 
 	delete(b.configRules, name)
 	delete(b.ruleEvaluations, name)
+	delete(b.ruleResourceEvals, name)
 
 	return nil
 }

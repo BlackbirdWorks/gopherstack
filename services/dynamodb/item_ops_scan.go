@@ -104,9 +104,13 @@ func (db *InMemoryDB) ScanWithContext(
 		AttributeDefinitions:   attrDefs,
 	}
 
-	pkDef, skDef, err := db.getScanKeySchema(snapshotTable, input)
+	pkDef, skDef, projection, err := db.getScanKeySchema(snapshotTable, input)
 	if err != nil {
 		return nil, err
+	}
+
+	if verr := validateSelectConstraints(input.Select, aws.ToString(input.IndexName), projection); verr != nil {
+		return nil, verr
 	}
 
 	// Process scan outside the lock; pass the table's own key schema separately
@@ -176,19 +180,24 @@ func (db *InMemoryDB) buildScanOutput(
 func (db *InMemoryDB) getScanKeySchema(
 	table *Table,
 	input *dynamodb.ScanInput,
-) (models.KeySchemaElement, models.KeySchemaElement, error) {
+) (models.KeySchemaElement, models.KeySchemaElement, *models.Projection, error) {
 	indexName := aws.ToString(input.IndexName)
 	if indexName == "" {
 		pk, sk := getPKAndSK(table.KeySchema)
 
-		return pk, sk, nil
+		return pk, sk, nil, nil
 	}
 
 	for _, gsi := range table.GlobalSecondaryIndexes {
 		if gsi.IndexName == indexName {
+			if aws.ToBool(input.ConsistentRead) {
+				return models.KeySchemaElement{}, models.KeySchemaElement{}, nil, NewValidationException(
+					"Consistent reads are not supported on global secondary indexes",
+				)
+			}
 			pk, sk := getPKAndSK(gsi.KeySchema)
 
-			return pk, sk, nil
+			return pk, sk, &gsi.Projection, nil
 		}
 	}
 
@@ -196,11 +205,11 @@ func (db *InMemoryDB) getScanKeySchema(
 		if lsi.IndexName == indexName {
 			pk, sk := getPKAndSK(lsi.KeySchema)
 
-			return pk, sk, nil
+			return pk, sk, &lsi.Projection, nil
 		}
 	}
 
-	return models.KeySchemaElement{}, models.KeySchemaElement{}, NewResourceNotFoundException(
+	return models.KeySchemaElement{}, models.KeySchemaElement{}, nil, NewResourceNotFoundException(
 		fmt.Sprintf("Index: %s not found", indexName),
 	)
 }

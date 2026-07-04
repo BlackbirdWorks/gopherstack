@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -39,6 +40,9 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 var (
 	// ErrKeyNotFound is returned when the specified key does not exist.
 	ErrKeyNotFound = errors.New("NotFoundException")
+
+	// ErrMalformedPolicyDocument is returned when the provided policy is invalid.
+	ErrMalformedPolicyDocument = errors.New("MalformedPolicyDocumentException")
 	// ErrAliasNotFound is returned when the specified alias does not exist.
 	ErrAliasNotFound = errors.New("NotFoundException")
 	// ErrAliasAlreadyExists is returned when an alias with the given name already exists.
@@ -2784,6 +2788,17 @@ func (b *InMemoryBackend) PutKeyPolicy(ctx context.Context, input *PutKeyPolicyI
 
 	if _, ok := b.keysStore(region)[keyID]; !ok {
 		return ErrKeyNotFound
+	}
+
+	var policyDoc struct {
+		Statement any    `json:"Statement"`
+		Version   string `json:"Version"`
+	}
+	if uerr := json.Unmarshal([]byte(input.Policy), &policyDoc); uerr != nil {
+		return ErrMalformedPolicyDocument
+	}
+	if policyDoc.Version == "" || policyDoc.Statement == nil {
+		return ErrMalformedPolicyDocument
 	}
 
 	b.policiesStore(region)[keyID] = input.Policy

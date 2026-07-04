@@ -9,7 +9,13 @@ import (
 // ---- Registration ----
 
 func registerBatch4Ops(h *Handler, ops map[string]ec2ActionFn) {
-	// ManagedPrefixList
+	registerManagedPrefixListOps(h, ops)
+	registerClientVpnOps(h, ops)
+	registerTGWPeeringConnectOps(h, ops)
+	registerVerifiedAccessOps(h, ops)
+}
+
+func registerManagedPrefixListOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateManagedPrefixList"] = h.handleCreateManagedPrefixList
 	ops["DeleteManagedPrefixList"] = h.handleDeleteManagedPrefixList
 	ops["DescribeManagedPrefixLists"] = h.handleDescribeManagedPrefixLists
@@ -17,7 +23,9 @@ func registerBatch4Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetManagedPrefixListAssociations"] = h.handleGetManagedPrefixListAssociations
 	ops["ModifyManagedPrefixList"] = h.handleModifyManagedPrefixList
 	ops["RestoreManagedPrefixListVersion"] = h.handleRestoreManagedPrefixListVersion
-	// ClientVPN
+}
+
+func registerClientVpnOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateClientVpnEndpoint"] = h.handleCreateClientVpnEndpoint
 	ops["DeleteClientVpnEndpoint"] = h.handleDeleteClientVpnEndpoint
 	ops["DescribeClientVpnEndpoints"] = h.handleDescribeClientVpnEndpoints
@@ -28,13 +36,18 @@ func registerBatch4Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeClientVpnRoutes"] = h.handleDescribeClientVpnRoutes
 	ops["AuthorizeClientVpnIngress"] = h.handleAuthorizeClientVpnIngress
 	ops["DescribeClientVpnAuthorizationRules"] = h.handleDescribeClientVpnAuthorizationRules
-	// ClientVPN extra
 	ops["TerminateClientVpnConnections"] = h.handleTerminateClientVpnConnections
 	ops["DescribeClientVpnConnections"] = h.handleDescribeClientVpnConnections
 	ops["ApplySecurityGroupsToClientVpnTargetNetwork"] = h.handleApplySecurityGroupsToClientVpnTargetNetwork
 	ops["RevokeClientVpnIngress"] = h.handleRevokeClientVpnIngress
 	ops["ModifyClientVpnEndpoint"] = h.handleModifyClientVpnEndpoint
 	ops["DisassociateClientVpnTargetNetwork"] = h.handleDisassociateClientVpnTargetNetwork
+	ops["ExportClientVpnClientConfiguration"] = h.handleExportClientVpnClientConfiguration
+	ops["ExportClientVpnClientCertificateRevocationList"] = h.handleExportClientVpnClientCertificateRevocationList
+	ops["ImportClientVpnClientCertificateRevocationList"] = h.handleImportClientVpnClientCertificateRevocationList
+}
+
+func registerTGWPeeringConnectOps(h *Handler, ops map[string]ec2ActionFn) {
 	// TGW Peering
 	ops["CreateTransitGatewayPeeringAttachment"] = h.handleCreateTransitGatewayPeeringAttachment
 	ops["DeleteTransitGatewayPeeringAttachment"] = h.handleDeleteTransitGatewayPeeringAttachment
@@ -50,7 +63,9 @@ func registerBatch4Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateTransitGatewayPrefixListReference"] = h.handleCreateTransitGatewayPrefixListReference
 	ops["DeleteTransitGatewayPrefixListReference"] = h.handleDeleteTransitGatewayPrefixListReference
 	ops["GetTransitGatewayPrefixListReferences"] = h.handleGetTransitGatewayPrefixListReferences
-	// VerifiedAccess
+}
+
+func registerVerifiedAccessOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateVerifiedAccessEndpoint"] = h.handleCreateVerifiedAccessEndpoint
 	ops["DeleteVerifiedAccessEndpoint"] = h.handleDeleteVerifiedAccessEndpoint
 	ops["DescribeVerifiedAccessEndpoints"] = h.handleDescribeVerifiedAccessEndpoints
@@ -96,6 +111,9 @@ func batch4SupportedOperations() []string {
 		"RevokeClientVpnIngress",
 		"ModifyClientVpnEndpoint",
 		"DisassociateClientVpnTargetNetwork",
+		"ExportClientVpnClientConfiguration",
+		"ExportClientVpnClientCertificateRevocationList",
+		"ImportClientVpnClientCertificateRevocationList",
 		// TGW Peering
 		"CreateTransitGatewayPeeringAttachment",
 		"DeleteTransitGatewayPeeringAttachment",
@@ -178,12 +196,35 @@ type getManagedPrefixListAssociationsResponse struct {
 	} `xml:"associationSet"`
 }
 
+// clientVpnEndpointStatusItem mirrors AWS's ClientVpnEndpointStatus shape
+// (a nested <status><code>...</code></status>, not a flat string).
+type clientVpnEndpointStatusItem struct {
+	Code string `xml:"code"`
+}
+
+// stringItemSet renders a flat list of strings as repeated <item> elements,
+// e.g. <dnsServer><item>..</item></dnsServer>.
+type stringItemSet struct {
+	Items []string `xml:"item"`
+}
+
 type clientVpnEndpointItem struct {
-	ClientVpnEndpointID string `xml:"clientVpnEndpointId"`
-	DNSName             string `xml:"dnsName"`
-	Status              string `xml:"status"`
-	Description         string `xml:"description,omitempty"`
-	ClientCidrBlock     string `xml:"clientCidrBlock"`
+	VpcID                string                      `xml:"vpcId,omitempty"`
+	SelfServicePortalURL string                      `xml:"selfServicePortalUrl,omitempty"`
+	Status               clientVpnEndpointStatusItem `xml:"status"`
+	Description          string                      `xml:"description,omitempty"`
+	ClientCidrBlock      string                      `xml:"clientCidrBlock,omitempty"`
+	DNSName              string                      `xml:"dnsName,omitempty"`
+	VpnProtocol          string                      `xml:"vpnProtocol,omitempty"`
+	ClientVpnEndpointID  string                      `xml:"clientVpnEndpointId"`
+	TransportProtocol    string                      `xml:"transportProtocol,omitempty"`
+	CreationTime         string                      `xml:"creationTime,omitempty"`
+	ServerCertificateArn string                      `xml:"serverCertificateArn,omitempty"`
+	DNSServers           stringItemSet               `xml:"dnsServer"`
+	SecurityGroupIDSet   stringItemSet               `xml:"securityGroupIdSet"`
+	VpnPort              int32                       `xml:"vpnPort,omitempty"`
+	SessionTimeoutHours  int32                       `xml:"sessionTimeoutHours,omitempty"`
+	SplitTunnel          bool                        `xml:"splitTunnel,omitempty"`
 }
 
 type createClientVpnEndpointResponse struct {
@@ -192,19 +233,24 @@ type createClientVpnEndpointResponse struct {
 	ClientVpnEndpoint clientVpnEndpointItem `xml:"clientVpnEndpoint"`
 }
 
+// describeClientVpnEndpointsResponse wraps the endpoint list directly under
+// <clientVpnEndpoint>, matching the real aws-sdk-go-v2 EndpointSet shape
+// (there is no <clientVpnEndpointSet> wrapper in the real wire format).
 type describeClientVpnEndpointsResponse struct {
 	XMLName              xml.Name `xml:"DescribeClientVpnEndpointsResponse"`
 	RequestID            string   `xml:"requestId"`
 	ClientVpnEndpointSet struct {
 		Items []clientVpnEndpointItem `xml:"item"`
-	} `xml:"clientVpnEndpointSet"`
+	} `xml:"clientVpnEndpoint"`
 }
 
 type clientVpnTargetNetworkItem struct {
-	AssociationID       string `xml:"associationId"`
-	SubnetID            string `xml:"subnetId"`
-	ClientVpnEndpointID string `xml:"clientVpnEndpointId"`
-	Status              string `xml:"status"`
+	AssociationID       string        `xml:"associationId"`
+	SubnetID            string        `xml:"subnetId"`
+	ClientVpnEndpointID string        `xml:"clientVpnEndpointId"`
+	Status              string        `xml:"status"`
+	VpcID               string        `xml:"vpcId,omitempty"`
+	SecurityGroups      stringItemSet `xml:"securityGroups"`
 }
 
 type describeClientVpnTargetNetworksResponse struct {
@@ -216,39 +262,97 @@ type describeClientVpnTargetNetworksResponse struct {
 }
 
 type clientVpnRouteItem struct {
-	DestinationCidr string `xml:"destinationCidrBlock"`
+	DestinationCidr string `xml:"destinationCidr"`
 	Status          string `xml:"status"`
 	Description     string `xml:"description,omitempty"`
+	Origin          string `xml:"origin,omitempty"`
+	TargetSubnet    string `xml:"targetSubnet,omitempty"`
 }
 
+// describeClientVpnRoutesResponse wraps routes under <routes>, matching the
+// real aws-sdk-go-v2 wire format (this repo previously used the wrong
+// <clientVpnRouteSet> wrapper name — see parity.md "EC2 sub-resource ops").
 type describeClientVpnRoutesResponse struct {
 	XMLName   xml.Name `xml:"DescribeClientVpnRoutesResponse"`
 	RequestID string   `xml:"requestId"`
 	Routes    struct {
 		Items []clientVpnRouteItem `xml:"item"`
-	} `xml:"clientVpnRouteSet"`
+	} `xml:"routes"`
 }
 
 type clientVpnAuthRuleItem struct {
-	Cidr        string `xml:"cidr"`
+	Cidr        string `xml:"destinationCidr"`
 	Status      string `xml:"status"`
 	Description string `xml:"description,omitempty"`
+	GroupID     string `xml:"groupId,omitempty"`
+	AccessAll   bool   `xml:"accessAll,omitempty"`
 }
 
+// describeClientVpnAuthorizationRulesResponse wraps rules under
+// <authorizationRule> (singular), matching the real aws-sdk-go-v2
+// AuthorizationRuleSet shape.
 type describeClientVpnAuthorizationRulesResponse struct {
 	XMLName            xml.Name `xml:"DescribeClientVpnAuthorizationRulesResponse"`
 	RequestID          string   `xml:"requestId"`
 	AuthorizationRules struct {
 		Items []clientVpnAuthRuleItem `xml:"item"`
-	} `xml:"authorizationRules"`
+	} `xml:"authorizationRule"`
+}
+
+// clientVpnConnectionItem mirrors AWS's ClientVpnConnection shape. No API in
+// this backend creates connections, so DescribeClientVpnConnections always
+// returns an empty <connections> set — the correct AWS shape for a Client
+// VPN endpoint with no active clients.
+type clientVpnConnectionItem struct {
+	ConnectionID              string `xml:"connectionId"`
+	ClientVpnEndpointID       string `xml:"clientVpnEndpointId"`
+	Username                  string `xml:"username,omitempty"`
+	ClientIP                  string `xml:"clientIp,omitempty"`
+	CommonName                string `xml:"commonName,omitempty"`
+	ConnectionEstablishedTime string `xml:"connectionEstablishedTime,omitempty"`
+	Status                    string `xml:"status,omitempty"`
 }
 
 type describeClientVpnConnectionsResponse struct {
 	XMLName     xml.Name `xml:"DescribeClientVpnConnectionsResponse"`
 	RequestID   string   `xml:"requestId"`
 	Connections struct {
-		Items []struct{} `xml:"item"`
+		Items []clientVpnConnectionItem `xml:"item"`
 	} `xml:"connections"`
+}
+
+// terminateConnectionStatusItem mirrors AWS's TerminateConnectionStatus shape.
+type terminateConnectionStatusItem struct {
+	ConnectionID   string `xml:"connectionId"`
+	PreviousStatus string `xml:"previousStatus,omitempty"`
+	CurrentStatus  string `xml:"currentStatus,omitempty"`
+}
+
+// terminateClientVpnConnectionsResponse matches the real
+// TerminateClientVpnConnectionsOutput shape: it has no top-level "return"
+// field, only the endpoint/username echoed back plus the (always empty, since
+// no connections exist) list of per-connection termination statuses.
+type terminateClientVpnConnectionsResponse struct {
+	XMLName             xml.Name `xml:"TerminateClientVpnConnectionsResponse"`
+	RequestID           string   `xml:"requestId"`
+	ClientVpnEndpointID string   `xml:"clientVpnEndpointId"`
+	Username            string   `xml:"username,omitempty"`
+	ConnectionStatuses  struct {
+		Items []terminateConnectionStatusItem `xml:"item"`
+	} `xml:"connectionStatuses"`
+}
+
+type exportClientVpnClientConfigurationResponse struct {
+	XMLName             xml.Name `xml:"ExportClientVpnClientConfigurationResponse"`
+	RequestID           string   `xml:"requestId"`
+	ClientConfiguration string   `xml:"clientConfiguration"`
+}
+
+type exportClientVpnClientCertificateRevocationListResponse struct {
+	XMLName                   xml.Name                    `xml:"ExportClientVpnClientCertificateRevocationListResponse"`
+	RequestID                 string                      `xml:"requestId"`
+	CertificateRevocationList string                      `xml:"certificateRevocationList"`
+	Status                    clientVpnEndpointStatusItem `xml:"status"`
 }
 
 type createTransitGatewayPeeringAttachmentResponse struct {
@@ -307,11 +411,36 @@ type describeTransitGatewayConnectPeersResponse struct {
 	} `xml:"transitGatewayConnectPeers"`
 }
 
+type tgwPrefixListRefAttachmentItem struct {
+	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId,omitempty"`
+}
+
 type tgwPrefixListRefItem struct {
-	PrefixListID               string `xml:"prefixListId"`
-	TransitGatewayRouteTableID string `xml:"transitGatewayRouteTableId"`
-	State                      string `xml:"state"`
-	Blackhole                  bool   `xml:"blackhole"`
+	TransitGatewayAttachment   *tgwPrefixListRefAttachmentItem `xml:"transitGatewayAttachment,omitempty"`
+	PrefixListID               string                          `xml:"prefixListId"`
+	TransitGatewayRouteTableID string                          `xml:"transitGatewayRouteTableId"`
+	State                      string                          `xml:"state"`
+	Blackhole                  bool                            `xml:"blackhole"`
+}
+
+// tgwPrefixListRefToItem converts a backend TGW prefix list reference into its
+// XML wire item, nesting the attachment ID under transitGatewayAttachment as
+// AWS does, when one is set.
+func tgwPrefixListRefToItem(ref *TransitGatewayPrefixListReference) tgwPrefixListRefItem {
+	item := tgwPrefixListRefItem{
+		PrefixListID:               ref.PrefixListID,
+		TransitGatewayRouteTableID: ref.TransitGatewayRouteTableID,
+		State:                      ref.State,
+		Blackhole:                  ref.Blackhole,
+	}
+
+	if ref.TransitGatewayAttachmentID != "" {
+		item.TransitGatewayAttachment = &tgwPrefixListRefAttachmentItem{
+			TransitGatewayAttachmentID: ref.TransitGatewayAttachmentID,
+		}
+	}
+
+	return item
 }
 
 type createTransitGatewayPrefixListReferenceResponse struct {
@@ -542,12 +671,45 @@ func (h *Handler) handleRestoreManagedPrefixListVersion(vals url.Values, reqID s
 
 func toClientVpnEndpointItem(ep *ClientVpnEndpoint) clientVpnEndpointItem {
 	return clientVpnEndpointItem{
-		ClientVpnEndpointID: ep.ClientVpnEndpointID,
-		DNSName:             ep.DNSName,
-		Status:              ep.Status,
-		Description:         ep.Description,
-		ClientCidrBlock:     ep.ClientCidrBlock,
+		ClientVpnEndpointID:  ep.ClientVpnEndpointID,
+		DNSName:              ep.DNSName,
+		Status:               clientVpnEndpointStatusItem{Code: ep.Status},
+		Description:          ep.Description,
+		ClientCidrBlock:      ep.ClientCidrBlock,
+		DNSServers:           stringItemSet{Items: ep.DNSServers},
+		VpnProtocol:          ep.VpnProtocol,
+		TransportProtocol:    ep.TransportProtocol,
+		VpcID:                ep.VPCID,
+		VpnPort:              ep.VpnPort,
+		SplitTunnel:          ep.SplitTunnel,
+		SecurityGroupIDSet:   stringItemSet{Items: ep.SecurityGroupIDs},
+		ServerCertificateArn: ep.ServerCertificateArn,
+		SessionTimeoutHours:  ep.SessionTimeoutHours,
+		SelfServicePortalURL: ep.SelfServicePortalURL,
+		CreationTime:         ep.CreationTime,
 	}
+}
+
+// parseClientVpnEndpointOptions extracts the optional advanced Client VPN
+// endpoint fields shared by CreateClientVpnEndpoint and ModifyClientVpnEndpoint.
+func parseClientVpnEndpointOptions(vals url.Values) ClientVpnEndpointOptions {
+	opts := ClientVpnEndpointOptions{
+		ServerCertificateArn: vals.Get("ServerCertificateArn"),
+		TransportProtocol:    vals.Get("TransportProtocol"),
+		VpcID:                vals.Get("VpcId"),
+		SecurityGroupIDs:     parseMemberList(vals, "SecurityGroupId"),
+		SelfServicePortalURL: vals.Get("SelfServicePortal"),
+	}
+
+	opts.VpnPort = parseInt32Value(vals.Get("VpnPort"))
+	opts.SessionTimeoutHours = parseInt32Value(vals.Get("SessionTimeoutHours"))
+
+	if v := vals.Get("SplitTunnel"); v != "" {
+		splitTunnel := v == ec2BooleanTrue
+		opts.SplitTunnel = &splitTunnel
+	}
+
+	return opts
 }
 
 func (h *Handler) handleCreateClientVpnEndpoint(vals url.Values, reqID string) (any, error) {
@@ -555,7 +717,9 @@ func (h *Handler) handleCreateClientVpnEndpoint(vals url.Values, reqID string) (
 	description := vals.Get("Description")
 	dnsServers := parseMemberList(vals, "DnsServers")
 
-	ep, err := h.Backend.CreateClientVpnEndpoint(cidr, description, dnsServers)
+	ep, err := h.Backend.CreateClientVpnEndpointWithOptions(
+		cidr, description, dnsServers, parseClientVpnEndpointOptions(vals),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -591,13 +755,15 @@ func (h *Handler) handleDescribeClientVpnEndpoints(vals url.Values, reqID string
 	return resp, nil
 }
 
+// associateClientVpnTargetNetworkResponse mirrors the real
+// AssociateClientVpnTargetNetworkOutput shape: associationId and status are
+// direct children of the response root, not nested under an
+// "associationStatus" wrapper.
 type associateClientVpnTargetNetworkResponse struct {
-	XMLName     xml.Name `xml:"AssociateClientVpnTargetNetworkResponse"`
-	RequestID   string   `xml:"requestId"`
-	AssocStatus struct {
-		AssociationID string `xml:"associationId"`
-		Status        string `xml:"status"`
-	} `xml:"associationStatus"`
+	XMLName       xml.Name `xml:"AssociateClientVpnTargetNetworkResponse"`
+	RequestID     string   `xml:"requestId"`
+	AssociationID string   `xml:"associationId"`
+	Status        string   `xml:"status"`
 }
 
 func (h *Handler) handleAssociateClientVpnTargetNetwork(vals url.Values, reqID string) (any, error) {
@@ -608,11 +774,11 @@ func (h *Handler) handleAssociateClientVpnTargetNetwork(vals url.Values, reqID s
 		return nil, err
 	}
 
-	resp := &associateClientVpnTargetNetworkResponse{RequestID: reqID}
-	resp.AssocStatus.AssociationID = assocID
-	resp.AssocStatus.Status = "associating"
-
-	return resp, nil
+	return &associateClientVpnTargetNetworkResponse{
+		RequestID:     reqID,
+		AssociationID: assocID,
+		Status:        "associating",
+	}, nil
 }
 
 func (h *Handler) handleDisassociateClientVpnTargetNetwork(vals url.Values, reqID string) (any, error) {
@@ -645,6 +811,8 @@ func (h *Handler) handleDescribeClientVpnTargetNetworks(vals url.Values, reqID s
 				SubnetID:            tn.SubnetID,
 				ClientVpnEndpointID: tn.ClientVpnEndpointID,
 				Status:              tn.Status,
+				VpcID:               tn.VPCID,
+				SecurityGroups:      stringItemSet{Items: tn.SecurityGroups},
 			},
 		)
 	}
@@ -698,10 +866,10 @@ func (h *Handler) handleDescribeClientVpnRoutes(vals url.Values, reqID string) (
 
 func (h *Handler) handleAuthorizeClientVpnIngress(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
-	cidr := vals.Get("AuthorizeAllGroups")
-	if cidr == "" {
-		cidr = vals.Get("TargetNetworkCidr")
-	}
+	// TargetNetworkCidr is the real AWS request field for the destination CIDR.
+	// AuthorizeAllGroups is an unrelated boolean flag — a previous version of
+	// this handler incorrectly read it as if it held the CIDR value.
+	cidr := vals.Get("TargetNetworkCidr")
 	description := vals.Get("Description")
 	if err := h.Backend.AuthorizeClientVpnIngress(endpointID, cidr, description); err != nil {
 		return nil, err
@@ -750,7 +918,9 @@ func (h *Handler) handleModifyClientVpnEndpoint(vals url.Values, reqID string) (
 	endpointID := vals.Get("ClientVpnEndpointId")
 	description := vals.Get("Description")
 	dnsServers := parseMemberList(vals, "DnsServers")
-	if err := h.Backend.ModifyClientVpnEndpoint(endpointID, description, dnsServers); err != nil {
+	if err := h.Backend.ModifyClientVpnEndpointWithOptions(
+		endpointID, description, dnsServers, parseClientVpnEndpointOptions(vals),
+	); err != nil {
 		return nil, err
 	}
 
@@ -794,8 +964,58 @@ func (h *Handler) handleTerminateClientVpnConnections(vals url.Values, reqID str
 		return nil, err
 	}
 
+	// No connections ever exist in this backend (nothing establishes a real
+	// OpenVPN session), so ConnectionStatuses is always empty — the correct
+	// AWS shape for terminating connections on an endpoint with no clients.
+	return &terminateClientVpnConnectionsResponse{
+		RequestID:           reqID,
+		ClientVpnEndpointID: endpointID,
+		Username:            vals.Get("Username"),
+	}, nil
+}
+
+func (h *Handler) handleExportClientVpnClientConfiguration(vals url.Values, reqID string) (any, error) {
+	endpointID := vals.Get("ClientVpnEndpointId")
+	config, err := h.Backend.ExportClientVpnClientConfiguration(endpointID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &exportClientVpnClientConfigurationResponse{
+		RequestID:           reqID,
+		ClientConfiguration: config,
+	}, nil
+}
+
+func (h *Handler) handleExportClientVpnClientCertificateRevocationList(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	endpointID := vals.Get("ClientVpnEndpointId")
+	crl, err := h.Backend.ExportClientVpnClientCertificateRevocationList(endpointID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &exportClientVpnClientCertificateRevocationListResponse{
+		RequestID:                 reqID,
+		CertificateRevocationList: crl,
+		Status:                    clientVpnEndpointStatusItem{Code: stateActive},
+	}, nil
+}
+
+func (h *Handler) handleImportClientVpnClientCertificateRevocationList(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	endpointID := vals.Get("ClientVpnEndpointId")
+	crl := vals.Get("CertificateRevocationList")
+	if err := h.Backend.ImportClientVpnClientCertificateRevocationList(endpointID, crl); err != nil {
+		return nil, err
+	}
+
 	return &stubResponse{
-		XMLName:   xml.Name{Local: "TerminateClientVpnConnectionsResponse"},
+		XMLName:   xml.Name{Local: "ImportClientVpnClientCertificateRevocationListResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -989,13 +1209,8 @@ func (h *Handler) handleCreateTransitGatewayPrefixListReference(
 	}
 
 	return &createTransitGatewayPrefixListReferenceResponse{
-		RequestID: reqID,
-		TransitGatewayPrefixListReference: tgwPrefixListRefItem{
-			PrefixListID:               ref.PrefixListID,
-			TransitGatewayRouteTableID: ref.TransitGatewayRouteTableID,
-			State:                      ref.State,
-			Blackhole:                  ref.Blackhole,
-		},
+		RequestID:                         reqID,
+		TransitGatewayPrefixListReference: tgwPrefixListRefToItem(ref),
 	}, nil
 }
 
@@ -1030,12 +1245,7 @@ func (h *Handler) handleGetTransitGatewayPrefixListReferences(
 	for _, ref := range refs {
 		resp.TransitGatewayPrefixListReferenceSet.Items = append(
 			resp.TransitGatewayPrefixListReferenceSet.Items,
-			tgwPrefixListRefItem{
-				PrefixListID:               ref.PrefixListID,
-				TransitGatewayRouteTableID: ref.TransitGatewayRouteTableID,
-				State:                      ref.State,
-				Blackhole:                  ref.Blackhole,
-			},
+			tgwPrefixListRefToItem(ref),
 		)
 	}
 
@@ -1317,4 +1527,20 @@ func parseIntValue(s string, v *int) {
 	if v != nil {
 		*v = n
 	}
+}
+
+// parseInt32Value parses s directly into an int32 (via ParseInt with a 32-bit
+// size, so there is no separate overflow-prone truncation step), returning 0
+// for empty/unparseable/out-of-range input (best-effort, mirrors parseIntValue).
+func parseInt32Value(s string) int32 {
+	if s == "" {
+		return 0
+	}
+
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return 0
+	}
+
+	return int32(n)
 }

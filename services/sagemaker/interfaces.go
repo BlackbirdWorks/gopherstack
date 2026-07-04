@@ -84,7 +84,7 @@ type StorageBackend interface {
 		properties map[string]string,
 		tags map[string]string,
 	) (*Action, error)
-	CreateAlgorithm(ctx context.Context, name, description string, tags map[string]string) (*Algorithm, error)
+	CreateAlgorithm(ctx context.Context, opts CreateAlgorithmOptions) (*Algorithm, error)
 
 	CreateEndpoint(ctx context.Context, name, endpointConfigName string, tags map[string]string) (*Endpoint, error)
 	DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error)

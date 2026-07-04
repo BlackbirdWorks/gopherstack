@@ -58,6 +58,8 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*Event, string, error)
 
+	GetDefaultTTL() (recordTTL time.Duration, queryTTL time.Duration)
+
 	// Reset / persistence.
 	Reset()
 	Snapshot(ctx context.Context) []byte

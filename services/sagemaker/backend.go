@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"strconv"
@@ -70,10 +71,24 @@ var (
 	ErrAlgorithmAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrClusterNotFound is returned when a cluster does not exist.
 	ErrClusterNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrClusterAlreadyExists is returned when a cluster with the same name already exists.
+	ErrClusterAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrModelPackageNotFound is returned when a model package does not exist.
 	ErrModelPackageNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
 	// ErrValidation is returned for invalid input parameters.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrArtifactNotFound is returned when a lineage artifact does not exist.
+	ErrArtifactNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrArtifactAlreadyExists is returned when a lineage artifact already exists.
+	ErrArtifactAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrContextNotFound is returned when a lineage context does not exist.
+	ErrContextNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrContextAlreadyExists is returned when a lineage context already exists.
+	ErrContextAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrLineageGroupNotFound is returned when a lineage group does not exist.
+	ErrLineageGroupNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrLineageGroupPolicyNotFound is returned when a lineage group has no resource policy attached.
+	ErrLineageGroupPolicyNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 )
 
 // ImageConfig specifies where SageMaker should pull the container image from.
@@ -301,15 +316,16 @@ type ActionSource struct {
 
 // Action represents a SageMaker ML lineage action.
 type Action struct {
-	CreationTime time.Time         `json:"CreationTime"`
-	Tags         map[string]string `json:"Tags,omitempty"`
-	Properties   map[string]string `json:"Properties,omitempty"`
-	Source       ActionSource      `json:"Source"`
-	ActionName   string            `json:"ActionName"`
-	ActionArn    string            `json:"ActionArn"`
-	ActionType   string            `json:"ActionType"`
-	Description  string            `json:"Description,omitempty"`
-	Status       string            `json:"Status,omitempty"`
+	CreationTime     time.Time         `json:"CreationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	Properties       map[string]string `json:"Properties,omitempty"`
+	Source           ActionSource      `json:"Source"`
+	ActionName       string            `json:"ActionName"`
+	ActionArn        string            `json:"ActionArn"`
+	ActionType       string            `json:"ActionType"`
+	Description      string            `json:"Description,omitempty"`
+	Status           string            `json:"Status,omitempty"`
 }
 
 // cloneAction returns a deep copy of a.
@@ -321,20 +337,49 @@ func cloneAction(a *Action) *Action {
 	return &cp
 }
 
+// AlgorithmStatusItem represents the status of a single algorithm image scan
+// or validation check.
+type AlgorithmStatusItem struct {
+	Name          string `json:"Name"`
+	Status        string `json:"Status"`
+	FailureReason string `json:"FailureReason,omitempty"`
+}
+
+// AlgorithmStatusDetails represents the detailed status of an algorithm.
+type AlgorithmStatusDetails struct {
+	ImageScanStatuses  []AlgorithmStatusItem `json:"ImageScanStatuses"`
+	ValidationStatuses []AlgorithmStatusItem `json:"ValidationStatuses"`
+}
+
 // Algorithm represents a SageMaker algorithm specification.
 type Algorithm struct {
-	CreationTime         time.Time         `json:"CreationTime"`
-	Tags                 map[string]string `json:"Tags,omitempty"`
-	AlgorithmName        string            `json:"AlgorithmName"`
-	AlgorithmArn         string            `json:"AlgorithmArn"`
-	AlgorithmDescription string            `json:"AlgorithmDescription,omitempty"`
-	AlgorithmStatus      string            `json:"AlgorithmStatus"`
+	CreationTime            time.Time              `json:"CreationTime"`
+	Tags                    map[string]string      `json:"Tags,omitempty"`
+	AlgorithmName           string                 `json:"AlgorithmName"`
+	AlgorithmArn            string                 `json:"AlgorithmArn"`
+	AlgorithmDescription    string                 `json:"AlgorithmDescription,omitempty"`
+	AlgorithmStatus         string                 `json:"AlgorithmStatus"`
+	ProductID               string                 `json:"ProductId,omitempty"`
+	AlgorithmStatusDetails  AlgorithmStatusDetails `json:"AlgorithmStatusDetails"`
+	TrainingSpecification   json.RawMessage        `json:"TrainingSpecification,omitempty"`
+	InferenceSpecification  json.RawMessage        `json:"InferenceSpecification,omitempty"`
+	ValidationSpecification json.RawMessage        `json:"ValidationSpecification,omitempty"`
+	CertifyForMarketplace   bool                   `json:"CertifyForMarketplace,omitempty"`
 }
 
 // cloneAlgorithm returns a deep copy of al.
 func cloneAlgorithm(al *Algorithm) *Algorithm {
 	cp := *al
 	cp.Tags = maps.Clone(al.Tags)
+	cp.TrainingSpecification = append(json.RawMessage(nil), al.TrainingSpecification...)
+	cp.InferenceSpecification = append(json.RawMessage(nil), al.InferenceSpecification...)
+	cp.ValidationSpecification = append(json.RawMessage(nil), al.ValidationSpecification...)
+	cp.AlgorithmStatusDetails.ImageScanStatuses = append(
+		[]AlgorithmStatusItem(nil), al.AlgorithmStatusDetails.ImageScanStatuses...,
+	)
+	cp.AlgorithmStatusDetails.ValidationStatuses = append(
+		[]AlgorithmStatusItem(nil), al.AlgorithmStatusDetails.ValidationStatuses...,
+	)
 
 	return &cp
 }
@@ -364,6 +409,10 @@ func cloneCluster(c *Cluster) *Cluster {
 		cp.Nodes[k] = &nodeCopy
 	}
 
+	cp.InstanceGroups = make([]ClusterInstanceGroup, len(c.InstanceGroups))
+	copy(cp.InstanceGroups, c.InstanceGroups)
+	cp.Tags = maps.Clone(c.Tags)
+
 	return &cp
 }
 
@@ -375,19 +424,33 @@ type ClusterNodeVolume struct {
 
 // ClusterNode represents a node in a SageMaker cluster.
 type ClusterNode struct {
-	NodeID       string              `json:"NodeId"`
-	InstanceType string              `json:"InstanceType,omitempty"`
-	NodeStatus   string              `json:"NodeStatus"`
-	Volumes      []ClusterNodeVolume `json:"Volumes,omitempty"`
+	NodeID            string              `json:"NodeId"`
+	InstanceType      string              `json:"InstanceType,omitempty"`
+	NodeStatus        string              `json:"NodeStatus"`
+	InstanceGroupName string              `json:"InstanceGroupName,omitempty"`
+	Volumes           []ClusterNodeVolume `json:"Volumes,omitempty"`
+}
+
+// ClusterInstanceGroup represents an instance group specification/details for a
+// SageMaker HyperPod cluster (a merged view of the AWS
+// ClusterInstanceGroupSpecification and ClusterInstanceGroupDetails shapes).
+type ClusterInstanceGroup struct {
+	InstanceGroupName string `json:"InstanceGroupName"`
+	InstanceType      string `json:"InstanceType,omitempty"`
+	ExecutionRole     string `json:"ExecutionRole,omitempty"`
+	InstanceCount     int32  `json:"InstanceCount,omitempty"`
 }
 
 // Cluster represents a SageMaker HyperPod cluster.
 type Cluster struct {
-	CreationTime  time.Time               `json:"CreationTime"`
-	Nodes         map[string]*ClusterNode `json:"-"`
-	ClusterArn    string                  `json:"ClusterArn"`
-	ClusterName   string                  `json:"ClusterName"`
-	ClusterStatus string                  `json:"ClusterStatus"`
+	CreationTime   time.Time               `json:"CreationTime"`
+	Nodes          map[string]*ClusterNode `json:"-"`
+	Tags           map[string]string       `json:"Tags,omitempty"`
+	ClusterArn     string                  `json:"ClusterArn"`
+	ClusterName    string                  `json:"ClusterName"`
+	ClusterStatus  string                  `json:"ClusterStatus"`
+	NodeRecovery   string                  `json:"NodeRecovery,omitempty"`
+	InstanceGroups []ClusterInstanceGroup  `json:"InstanceGroups,omitempty"`
 }
 
 // ModelPackage represents a SageMaker model package.
@@ -417,44 +480,59 @@ func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 // are created lazily via the *Store helpers. Callers must hold b.mu while
 // accessing the inner maps.
 type InMemoryBackend struct {
-	models                       map[string]map[string]*Model
-	endpointConfigs              map[string]map[string]*EndpointConfig
-	endpoints                    map[string]map[string]*Endpoint
-	trainingJobs                 map[string]map[string]*TrainingJob
-	notebooks                    map[string]map[string]*NotebookInstance
-	hpTuningJobs                 map[string]map[string]*HyperParameterTuningJob
-	associations                 map[string]map[string]*Association
-	trialComponentAssociations   map[string]map[string]*TrialComponentAssociation
-	actions                      map[string]map[string]*Action
-	algorithms                   map[string]map[string]*Algorithm
-	clusters                     map[string]map[string]*Cluster
-	modelPackages                map[string]map[string]*ModelPackage
-	modelPackageGroups           map[string]map[string]*ModelPackageGroup
-	autoMLJobs                   map[string]map[string]*AutoMLJob
-	codeRepositories             map[string]map[string]*CodeRepository
-	projects                     map[string]map[string]*Project
-	spaces                       map[string]map[string]*Space
-	smImages                     map[string]map[string]*SMImage
-	imageVersions                map[string]map[string]map[int]*ImageVersion // region → imageName → version → ImageVersion
-	imageVersionCounts           map[string]map[string]int                   // region → imageName → latest version number
-	compilationJobs              map[string]map[string]*CompilationJob
-	monitoringSchedules          map[string]map[string]*MonitoringSchedule
-	workteams                    map[string]map[string]*Workteam
-	dataQualityJobDefs           map[string]map[string]*JobDefinition
-	modelBiasJobDefs             map[string]map[string]*JobDefinition
-	modelQualityJobDefs          map[string]map[string]*JobDefinition
-	modelExplainJobDefs          map[string]map[string]*JobDefinition
-	humanTaskUis                 map[string]map[string]*HumanTaskUI
-	workforces                   map[string]map[string]*Workforce
-	flowDefinitions              map[string]map[string]*FlowDefinition
-	appImageConfigs              map[string]map[string]*AppImageConfig
-	inferenceExperiments         map[string]map[string]*InferenceExperiment
-	mlflowTrackingServers        map[string]map[string]*MlflowTrackingServer
-	modelCards                   map[string]map[string]*ModelCard
-	optimizationJobs             map[string]map[string]*OptimizationJob
-	studioLifecycleConfigs       map[string]map[string]*StudioLifecycleConfig
-	partnerApps                  map[string]map[string]*PartnerApp
-	trainingPlans                map[string]map[string]*TrainingPlan
+	models                     map[string]map[string]*Model
+	endpointConfigs            map[string]map[string]*EndpointConfig
+	endpoints                  map[string]map[string]*Endpoint
+	trainingJobs               map[string]map[string]*TrainingJob
+	notebooks                  map[string]map[string]*NotebookInstance
+	hpTuningJobs               map[string]map[string]*HyperParameterTuningJob
+	associations               map[string]map[string]*Association
+	trialComponentAssociations map[string]map[string]*TrialComponentAssociation
+	actions                    map[string]map[string]*Action
+	artifacts                  map[string]map[string]*Artifact // region -> ArtifactArn -> Artifact
+	contexts                   map[string]map[string]*Context  // region -> ContextName -> Context
+	algorithms                 map[string]map[string]*Algorithm
+	clusters                   map[string]map[string]*Cluster
+	modelPackages              map[string]map[string]*ModelPackage
+	modelPackageGroups         map[string]map[string]*ModelPackageGroup
+	autoMLJobs                 map[string]map[string]*AutoMLJob
+	codeRepositories           map[string]map[string]*CodeRepository
+	projects                   map[string]map[string]*Project
+	spaces                     map[string]map[string]*Space
+	smImages                   map[string]map[string]*SMImage
+	imageVersions              map[string]map[string]map[int]*ImageVersion // region → imageName → version → ImageVersion
+	imageVersionCounts         map[string]map[string]int                   // region → imageName → latest version number
+	compilationJobs            map[string]map[string]*CompilationJob
+	monitoringSchedules        map[string]map[string]*MonitoringSchedule
+	workteams                  map[string]map[string]*Workteam
+	labelingJobs               map[string]map[string]*LabelingJob
+	dataQualityJobDefs         map[string]map[string]*JobDefinition
+	modelBiasJobDefs           map[string]map[string]*JobDefinition
+	modelQualityJobDefs        map[string]map[string]*JobDefinition
+	modelExplainJobDefs        map[string]map[string]*JobDefinition
+	// monitoringAlerts is region -> scheduleName -> alertName -> alert.
+	monitoringAlerts map[string]map[string]map[string]*MonitoringAlert
+	// monitoringAlertHistory is region -> history entries.
+	monitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry
+	// monitoringExecutions is region -> "scheduleName|processingJobArn" -> execution.
+	monitoringExecutions   map[string]map[string]*MonitoringExecution
+	humanTaskUis           map[string]map[string]*HumanTaskUI
+	workforces             map[string]map[string]*Workforce
+	flowDefinitions        map[string]map[string]*FlowDefinition
+	appImageConfigs        map[string]map[string]*AppImageConfig
+	inferenceExperiments   map[string]map[string]*InferenceExperiment
+	mlflowTrackingServers  map[string]map[string]*MlflowTrackingServer
+	mlflowApps             map[string]map[string]*MlflowApp
+	modelCards             map[string]map[string]*ModelCard
+	optimizationJobs       map[string]map[string]*OptimizationJob
+	studioLifecycleConfigs map[string]map[string]*StudioLifecycleConfig
+	partnerApps            map[string]map[string]*PartnerApp
+	trainingPlans          map[string]map[string]*TrainingPlan
+	reservedCapacities     map[string]map[string]*ReservedCapacity
+	// trainingPlanExtensionOfferings is region -> extensionOfferingID -> pending extension offer.
+	trainingPlanExtensionOfferings map[string]map[string]*pendingTrainingPlanExtension
+	// modelCardExportJobs is region -> ModelCardExportJobArn -> job.
+	modelCardExportJobs          map[string]map[string]*ModelCardExportJob
 	modelARNIndex                map[string]map[string]string // region → ARN → model name
 	endpointConfigARNIndex       map[string]map[string]string // region → ARN → endpoint config name
 	endpointARNIndex             map[string]map[string]string // region → ARN → endpoint name
@@ -462,6 +540,7 @@ type InMemoryBackend struct {
 	notebookARNIndex             map[string]map[string]string // region → ARN → notebook instance name
 	hpTuningJobARNIndex          map[string]map[string]string // region → ARN → HP tuning job name
 	actionARNIndex               map[string]map[string]string // region → ARN → action name
+	contextARNIndex              map[string]map[string]string // region → ARN → context name
 	algorithmARNIndex            map[string]map[string]string // region → ARN → algorithm name
 	clusterARNIndex              map[string]map[string]string // region → ARN → cluster name
 	modelPackageARNIndex         map[string]map[string]string // region → ARN → model package ARN
@@ -483,19 +562,28 @@ type InMemoryBackend struct {
 	processingJobs               map[string]map[string]*ProcessingJob
 	transformJobs                map[string]map[string]*TransformJob
 	edgePackagingJobs            map[string]map[string]*EdgePackagingJob
+	edgeDeploymentPlans          map[string]map[string]*EdgeDeploymentPlan
 	inferenceRecommendationsJobs map[string]map[string]*InferenceRecommendationsJob
 	deviceFleets                 map[string]map[string]*DeviceFleet
 	devices                      map[string]map[deviceKey]*Device
 	inferenceComponents          map[string]map[string]*InferenceComponent
 	clusterSchedulerConfigs      map[string]map[string]*ClusterSchedulerConfig
 	computeQuotas                map[string]map[string]*ComputeQuota
-	lifecycleParent              context.Context
-	lifecycleCtx                 context.Context
-	lifecycleCancel              context.CancelFunc
-	mu                           *lockmetrics.RWMutex
-	accountID                    string
-	region                       string
-	wg                           sync.WaitGroup
+	hubs                         map[string]map[string]*Hub
+	hubContents                  map[string]map[hubContentKey]*HubContent
+	// pipelineVersions is region -> pipelineName -> versions, ordered oldest-first.
+	pipelineVersions map[string]map[string][]*PipelineVersion
+	// servicecatalogPortfolioEnabled is region -> whether the SageMaker
+	// Service Catalog portfolio has been enabled via
+	// EnableSagemakerServicecatalogPortfolio. Absent/false means Disabled.
+	servicecatalogPortfolioEnabled map[string]bool
+	lifecycleParent                context.Context
+	lifecycleCtx                   context.Context
+	lifecycleCancel                context.CancelFunc
+	mu                             *lockmetrics.RWMutex
+	accountID                      string
+	region                         string
+	wg                             sync.WaitGroup
 }
 
 // NewInMemoryBackend creates a new in-memory SageMaker backend.
@@ -526,6 +614,8 @@ func NewInMemoryBackendWithContext(
 		associations:                 make(map[string]map[string]*Association),
 		trialComponentAssociations:   make(map[string]map[string]*TrialComponentAssociation),
 		actions:                      make(map[string]map[string]*Action),
+		artifacts:                    make(map[string]map[string]*Artifact),
+		contexts:                     make(map[string]map[string]*Context),
 		algorithms:                   make(map[string]map[string]*Algorithm),
 		clusters:                     make(map[string]map[string]*Cluster),
 		modelPackages:                make(map[string]map[string]*ModelPackage),
@@ -540,16 +630,21 @@ func NewInMemoryBackendWithContext(
 		compilationJobs:              make(map[string]map[string]*CompilationJob),
 		monitoringSchedules:          make(map[string]map[string]*MonitoringSchedule),
 		workteams:                    make(map[string]map[string]*Workteam),
+		labelingJobs:                 make(map[string]map[string]*LabelingJob),
 		dataQualityJobDefs:           make(map[string]map[string]*JobDefinition),
 		modelBiasJobDefs:             make(map[string]map[string]*JobDefinition),
 		modelQualityJobDefs:          make(map[string]map[string]*JobDefinition),
 		modelExplainJobDefs:          make(map[string]map[string]*JobDefinition),
+		monitoringAlerts:             make(map[string]map[string]map[string]*MonitoringAlert),
+		monitoringAlertHistory:       make(map[string][]*MonitoringAlertHistoryEntry),
+		monitoringExecutions:         make(map[string]map[string]*MonitoringExecution),
 		humanTaskUis:                 make(map[string]map[string]*HumanTaskUI),
 		workforces:                   make(map[string]map[string]*Workforce),
 		flowDefinitions:              make(map[string]map[string]*FlowDefinition),
 		appImageConfigs:              make(map[string]map[string]*AppImageConfig),
 		inferenceExperiments:         make(map[string]map[string]*InferenceExperiment),
 		mlflowTrackingServers:        make(map[string]map[string]*MlflowTrackingServer),
+		mlflowApps:                   make(map[string]map[string]*MlflowApp),
 		modelCards:                   make(map[string]map[string]*ModelCard),
 		optimizationJobs:             make(map[string]map[string]*OptimizationJob),
 		studioLifecycleConfigs:       make(map[string]map[string]*StudioLifecycleConfig),
@@ -562,6 +657,7 @@ func NewInMemoryBackendWithContext(
 		notebookARNIndex:             make(map[string]map[string]string),
 		hpTuningJobARNIndex:          make(map[string]map[string]string),
 		actionARNIndex:               make(map[string]map[string]string),
+		contextARNIndex:              make(map[string]map[string]string),
 		algorithmARNIndex:            make(map[string]map[string]string),
 		clusterARNIndex:              make(map[string]map[string]string),
 		modelPackageARNIndex:         make(map[string]map[string]string),
@@ -583,16 +679,20 @@ func NewInMemoryBackendWithContext(
 		processingJobs:               make(map[string]map[string]*ProcessingJob),
 		transformJobs:                make(map[string]map[string]*TransformJob),
 		edgePackagingJobs:            make(map[string]map[string]*EdgePackagingJob),
+		edgeDeploymentPlans:          make(map[string]map[string]*EdgeDeploymentPlan),
 		inferenceRecommendationsJobs: make(map[string]map[string]*InferenceRecommendationsJob),
 		deviceFleets:                 make(map[string]map[string]*DeviceFleet),
 		devices:                      make(map[string]map[deviceKey]*Device),
 		inferenceComponents:          make(map[string]map[string]*InferenceComponent),
 		clusterSchedulerConfigs:      make(map[string]map[string]*ClusterSchedulerConfig),
 		computeQuotas:                make(map[string]map[string]*ComputeQuota),
+		hubs:                         make(map[string]map[string]*Hub),
+		hubContents:                  make(map[string]map[hubContentKey]*HubContent),
 		accountID:                    accountID,
 		region:                       region,
 		mu:                           lockmetrics.New("sagemaker"),
 	}
+	b.initTrainingPlanExtMaps()
 	b.resetLifecycleContext()
 
 	return b
@@ -798,6 +898,13 @@ func (b *InMemoryBackend) modelExplainJobDefsStore(r string) map[string]*JobDefi
 
 	return b.modelExplainJobDefs[r]
 }
+func (b *InMemoryBackend) monitoringExecutionsStore(r string) map[string]*MonitoringExecution {
+	if b.monitoringExecutions[r] == nil {
+		b.monitoringExecutions[r] = make(map[string]*MonitoringExecution)
+	}
+
+	return b.monitoringExecutions[r]
+}
 func (b *InMemoryBackend) humanTaskUisStore(r string) map[string]*HumanTaskUI {
 	if b.humanTaskUis[r] == nil {
 		b.humanTaskUis[r] = make(map[string]*HumanTaskUI)
@@ -840,6 +947,13 @@ func (b *InMemoryBackend) mlflowTrackingServersStore(r string) map[string]*Mlflo
 
 	return b.mlflowTrackingServers[r]
 }
+func (b *InMemoryBackend) mlflowAppsStore(r string) map[string]*MlflowApp {
+	if b.mlflowApps[r] == nil {
+		b.mlflowApps[r] = make(map[string]*MlflowApp)
+	}
+
+	return b.mlflowApps[r]
+}
 func (b *InMemoryBackend) modelCardsStore(r string) map[string]*ModelCard {
 	if b.modelCards[r] == nil {
 		b.modelCards[r] = make(map[string]*ModelCard)
@@ -874,6 +988,41 @@ func (b *InMemoryBackend) trainingPlansStore(r string) map[string]*TrainingPlan 
 	}
 
 	return b.trainingPlans[r]
+}
+func (b *InMemoryBackend) reservedCapacitiesStore(r string) map[string]*ReservedCapacity {
+	if b.reservedCapacities[r] == nil {
+		b.reservedCapacities[r] = make(map[string]*ReservedCapacity)
+	}
+
+	return b.reservedCapacities[r]
+}
+func (b *InMemoryBackend) trainingPlanExtensionOfferingsStore(r string) map[string]*pendingTrainingPlanExtension {
+	if b.trainingPlanExtensionOfferings[r] == nil {
+		b.trainingPlanExtensionOfferings[r] = make(map[string]*pendingTrainingPlanExtension)
+	}
+
+	return b.trainingPlanExtensionOfferings[r]
+}
+func (b *InMemoryBackend) modelCardExportJobsStore(r string) map[string]*ModelCardExportJob {
+	if b.modelCardExportJobs[r] == nil {
+		b.modelCardExportJobs[r] = make(map[string]*ModelCardExportJob)
+	}
+
+	return b.modelCardExportJobs[r]
+}
+
+// initTrainingPlanExtMaps (re)initialises the Training Plan / Reserved
+// Capacity and ModelCard export job top-level maps. Shared by the
+// constructor and Reset to keep both call sites short.
+// initTrainingPlanExtMaps initialises the Training Plan / Reserved Capacity /
+// ModelCard export job maps, plus the ModelPackageGroup policy / Servicecatalog
+// portfolio / Pipeline version state introduced in a later de-stubbing round.
+func (b *InMemoryBackend) initTrainingPlanExtMaps() {
+	b.reservedCapacities = make(map[string]map[string]*ReservedCapacity)
+	b.trainingPlanExtensionOfferings = make(map[string]map[string]*pendingTrainingPlanExtension)
+	b.modelCardExportJobs = make(map[string]map[string]*ModelCardExportJob)
+	b.pipelineVersions = make(map[string]map[string][]*PipelineVersion)
+	b.servicecatalogPortfolioEnabled = make(map[string]bool)
 }
 func (b *InMemoryBackend) modelARNIndexStore(r string) map[string]string {
 	if b.modelARNIndex[r] == nil {
@@ -1071,6 +1220,13 @@ func (b *InMemoryBackend) edgePackagingJobsStore(r string) map[string]*EdgePacka
 
 	return b.edgePackagingJobs[r]
 }
+func (b *InMemoryBackend) edgeDeploymentPlansStore(r string) map[string]*EdgeDeploymentPlan {
+	if b.edgeDeploymentPlans[r] == nil {
+		b.edgeDeploymentPlans[r] = make(map[string]*EdgeDeploymentPlan)
+	}
+
+	return b.edgeDeploymentPlans[r]
+}
 func (b *InMemoryBackend) inferenceRecommendationsJobsStore(r string) map[string]*InferenceRecommendationsJob {
 	if b.inferenceRecommendationsJobs[r] == nil {
 		b.inferenceRecommendationsJobs[r] = make(map[string]*InferenceRecommendationsJob)
@@ -1130,6 +1286,8 @@ func (b *InMemoryBackend) Reset() {
 	b.associations = make(map[string]map[string]*Association)
 	b.trialComponentAssociations = make(map[string]map[string]*TrialComponentAssociation)
 	b.actions = make(map[string]map[string]*Action)
+	b.artifacts = make(map[string]map[string]*Artifact)
+	b.contexts = make(map[string]map[string]*Context)
 	b.algorithms = make(map[string]map[string]*Algorithm)
 	b.clusters = make(map[string]map[string]*Cluster)
 	b.modelPackages = make(map[string]map[string]*ModelPackage)
@@ -1144,21 +1302,27 @@ func (b *InMemoryBackend) Reset() {
 	b.compilationJobs = make(map[string]map[string]*CompilationJob)
 	b.monitoringSchedules = make(map[string]map[string]*MonitoringSchedule)
 	b.workteams = make(map[string]map[string]*Workteam)
+	b.labelingJobs = make(map[string]map[string]*LabelingJob)
 	b.dataQualityJobDefs = make(map[string]map[string]*JobDefinition)
 	b.modelBiasJobDefs = make(map[string]map[string]*JobDefinition)
 	b.modelQualityJobDefs = make(map[string]map[string]*JobDefinition)
 	b.modelExplainJobDefs = make(map[string]map[string]*JobDefinition)
+	b.monitoringAlerts = make(map[string]map[string]map[string]*MonitoringAlert)
+	b.monitoringAlertHistory = make(map[string][]*MonitoringAlertHistoryEntry)
+	b.monitoringExecutions = make(map[string]map[string]*MonitoringExecution)
 	b.humanTaskUis = make(map[string]map[string]*HumanTaskUI)
 	b.workforces = make(map[string]map[string]*Workforce)
 	b.flowDefinitions = make(map[string]map[string]*FlowDefinition)
 	b.appImageConfigs = make(map[string]map[string]*AppImageConfig)
 	b.inferenceExperiments = make(map[string]map[string]*InferenceExperiment)
 	b.mlflowTrackingServers = make(map[string]map[string]*MlflowTrackingServer)
+	b.mlflowApps = make(map[string]map[string]*MlflowApp)
 	b.modelCards = make(map[string]map[string]*ModelCard)
 	b.optimizationJobs = make(map[string]map[string]*OptimizationJob)
 	b.studioLifecycleConfigs = make(map[string]map[string]*StudioLifecycleConfig)
 	b.partnerApps = make(map[string]map[string]*PartnerApp)
 	b.trainingPlans = make(map[string]map[string]*TrainingPlan)
+	b.initTrainingPlanExtMaps()
 	b.modelARNIndex = make(map[string]map[string]string)
 	b.endpointConfigARNIndex = make(map[string]map[string]string)
 	b.endpointARNIndex = make(map[string]map[string]string)
@@ -1166,6 +1330,7 @@ func (b *InMemoryBackend) Reset() {
 	b.notebookARNIndex = make(map[string]map[string]string)
 	b.hpTuningJobARNIndex = make(map[string]map[string]string)
 	b.actionARNIndex = make(map[string]map[string]string)
+	b.contextARNIndex = make(map[string]map[string]string)
 	b.algorithmARNIndex = make(map[string]map[string]string)
 	b.clusterARNIndex = make(map[string]map[string]string)
 	b.modelPackageARNIndex = make(map[string]map[string]string)
@@ -1187,12 +1352,15 @@ func (b *InMemoryBackend) Reset() {
 	b.processingJobs = make(map[string]map[string]*ProcessingJob)
 	b.transformJobs = make(map[string]map[string]*TransformJob)
 	b.edgePackagingJobs = make(map[string]map[string]*EdgePackagingJob)
+	b.edgeDeploymentPlans = make(map[string]map[string]*EdgeDeploymentPlan)
 	b.inferenceRecommendationsJobs = make(map[string]map[string]*InferenceRecommendationsJob)
 	b.deviceFleets = make(map[string]map[string]*DeviceFleet)
 	b.devices = make(map[string]map[deviceKey]*Device)
 	b.inferenceComponents = make(map[string]map[string]*InferenceComponent)
 	b.clusterSchedulerConfigs = make(map[string]map[string]*ClusterSchedulerConfig)
 	b.computeQuotas = make(map[string]map[string]*ComputeQuota)
+	b.hubs = make(map[string]map[string]*Hub)
+	b.hubContents = make(map[string]map[hubContentKey]*HubContent)
 	// Cancel pending goroutines and start fresh lifecycle context.
 	b.resetLifecycleContext()
 }
@@ -1618,6 +1786,17 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *m
 		return &b.hpTuningJobsStore(region)[name].Tags
 	}
 
+	if tags := b.findTagMapIndexedExtraLocked(resourceARN, region); tags != nil {
+		return tags
+	}
+
+	return b.findTagMapStatefulLocked(resourceARN, region)
+}
+
+// findTagMapIndexedExtraLocked handles the remaining ARN-indexed resource
+// kinds (processing jobs, transform jobs, clusters). Separated from
+// findTagMapLocked to keep it within cyclomatic-complexity limits.
+func (b *InMemoryBackend) findTagMapIndexedExtraLocked(resourceARN string, region string) *map[string]string {
 	if name, ok := b.processingJobARNIndexStore(region)[resourceARN]; ok {
 		if pj, found := b.processingJobsStore(region)[name]; found {
 			return &pj.Tags
@@ -1630,7 +1809,13 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *m
 		}
 	}
 
-	return b.findTagMapStatefulLocked(resourceARN, region)
+	if name, ok := b.clusterARNIndexStore(region)[resourceARN]; ok {
+		if c, found := b.clustersStore(region)[name]; found {
+			return &c.Tags
+		}
+	}
+
+	return nil
 }
 
 // findTagMapStatefulLocked handles tag lookups for stateful resources (domains,
@@ -1857,12 +2042,14 @@ func (b *InMemoryBackend) AddActionInternal(ctx context.Context, name, actionTyp
 
 	region := getRegion(ctx, b.region)
 	actionARN := arn.Build("sagemaker", region, b.accountID, "action/"+name)
+	now := time.Now()
 	a := &Action{
-		ActionName:   name,
-		ActionArn:    actionARN,
-		ActionType:   actionType,
-		CreationTime: time.Now(),
-		Tags:         make(map[string]string),
+		ActionName:       name,
+		ActionArn:        actionARN,
+		ActionType:       actionType,
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             make(map[string]string),
 	}
 	b.actionsStore(region)[name] = a
 	b.actionARNIndexStore(region)[actionARN] = name
@@ -2124,17 +2311,19 @@ func (b *InMemoryBackend) CreateAction(
 	}
 
 	actionARN := arn.Build("sagemaker", region, b.accountID, "action/"+name)
+	now := time.Now()
 
 	a := &Action{
-		ActionName:   name,
-		ActionArn:    actionARN,
-		ActionType:   actionType,
-		Description:  description,
-		Status:       status,
-		Source:       source,
-		Properties:   maps.Clone(properties),
-		Tags:         mergeTags(nil, tags),
-		CreationTime: time.Now(),
+		ActionName:       name,
+		ActionArn:        actionARN,
+		ActionType:       actionType,
+		Description:      description,
+		Status:           status,
+		Source:           source,
+		Properties:       maps.Clone(properties),
+		Tags:             mergeTags(nil, tags),
+		CreationTime:     now,
+		LastModifiedTime: now,
 	}
 	actionsStore[name] = a
 	b.actionARNIndexStore(region)[actionARN] = name
@@ -2142,40 +2331,102 @@ func (b *InMemoryBackend) CreateAction(
 	return cloneAction(a), nil
 }
 
+// CreateAlgorithmOptions holds the optional fields accepted by CreateAlgorithm.
+type CreateAlgorithmOptions struct {
+	Tags                    map[string]string
+	AlgorithmName           string
+	AlgorithmDescription    string
+	TrainingSpecification   json.RawMessage
+	InferenceSpecification  json.RawMessage
+	ValidationSpecification json.RawMessage
+	CertifyForMarketplace   bool
+}
+
 // CreateAlgorithm creates a SageMaker algorithm specification.
-func (b *InMemoryBackend) CreateAlgorithm(
-	ctx context.Context,
-	name, description string,
-	tags map[string]string,
-) (*Algorithm, error) {
+func (b *InMemoryBackend) CreateAlgorithm(ctx context.Context, opts CreateAlgorithmOptions) (*Algorithm, error) {
 	b.mu.Lock("CreateAlgorithm")
 	defer b.mu.Unlock()
 
-	if name == "" {
+	if opts.AlgorithmName == "" {
 		return nil, fmt.Errorf("%w: AlgorithmName is required", ErrValidation)
 	}
 
 	region := getRegion(ctx, b.region)
 	algoStore := b.algorithmsStore(region)
 
-	if _, ok := algoStore[name]; ok {
-		return nil, fmt.Errorf("%w: algorithm %q already exists", ErrAlgorithmAlreadyExists, name)
+	if _, ok := algoStore[opts.AlgorithmName]; ok {
+		return nil, fmt.Errorf("%w: algorithm %q already exists", ErrAlgorithmAlreadyExists, opts.AlgorithmName)
 	}
 
-	algorithmARN := arn.Build("sagemaker", region, b.accountID, "algorithm/"+name)
+	algorithmARN := arn.Build("sagemaker", region, b.accountID, "algorithm/"+opts.AlgorithmName)
+
+	statusDetails := AlgorithmStatusDetails{
+		ImageScanStatuses:  []AlgorithmStatusItem{},
+		ValidationStatuses: []AlgorithmStatusItem{},
+	}
 
 	al := &Algorithm{
-		AlgorithmName:        name,
-		AlgorithmArn:         algorithmARN,
-		AlgorithmDescription: description,
-		AlgorithmStatus:      algorithmStatusCompleted,
-		Tags:                 mergeTags(nil, tags),
-		CreationTime:         time.Now(),
+		AlgorithmName:           opts.AlgorithmName,
+		AlgorithmArn:            algorithmARN,
+		AlgorithmDescription:    opts.AlgorithmDescription,
+		AlgorithmStatus:         algorithmStatusCompleted,
+		AlgorithmStatusDetails:  statusDetails,
+		TrainingSpecification:   opts.TrainingSpecification,
+		InferenceSpecification:  opts.InferenceSpecification,
+		ValidationSpecification: opts.ValidationSpecification,
+		CertifyForMarketplace:   opts.CertifyForMarketplace,
+		Tags:                    mergeTags(nil, opts.Tags),
+		CreationTime:            time.Now(),
 	}
-	algoStore[name] = al
-	b.algorithmARNIndexStore(region)[algorithmARN] = name
+	algoStore[opts.AlgorithmName] = al
+	b.algorithmARNIndexStore(region)[algorithmARN] = opts.AlgorithmName
 
 	return cloneAlgorithm(al), nil
+}
+
+// DescribeAlgorithm returns an algorithm by name.
+func (b *InMemoryBackend) DescribeAlgorithm(ctx context.Context, name string) (*Algorithm, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("DescribeAlgorithm")
+	defer b.mu.RUnlock()
+
+	al, ok := b.algorithmsStore(region)[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: algorithm %q not found", ErrAlgorithmNotFound, name)
+	}
+
+	return cloneAlgorithm(al), nil
+}
+
+// DeleteAlgorithm removes an algorithm by name.
+func (b *InMemoryBackend) DeleteAlgorithm(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("DeleteAlgorithm")
+	defer b.mu.Unlock()
+
+	store := b.algorithmsStore(region)
+
+	al, ok := store[name]
+	if !ok {
+		return fmt.Errorf("%w: algorithm %q not found", ErrAlgorithmNotFound, name)
+	}
+
+	delete(store, name)
+	delete(b.algorithmARNIndexStore(region), al.AlgorithmArn)
+
+	return nil
+}
+
+// ListAlgorithms returns a page of algorithms, ordered by name.
+func (b *InMemoryBackend) ListAlgorithms(ctx context.Context, nextToken string) ([]*Algorithm, string) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListAlgorithms")
+	defer b.mu.RUnlock()
+
+	return sagemakerListKeyPaged(b.algorithmsStore(region), nextToken, cloneAlgorithm)
 }
 
 // AddModelPackageInternal adds a model package directly for testing.

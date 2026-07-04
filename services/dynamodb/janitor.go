@@ -300,7 +300,7 @@ func (j *Janitor) sweepTableTTL(
 			// Copy the item once; the stream record and replication entry each
 			// need their own copy so they can be mutated independently.
 			itemCopy := deepCopyItem(item)
-			table.appendStreamRecord(streamEventRemove, itemCopy, nil)
+			table.appendStreamRecord(streamEventRemove, itemCopy, nil, "dynamodb.amazonaws.com", "Service")
 			batchEvicted++
 
 			if gtName != "" {
@@ -642,6 +642,7 @@ func (j *Janitor) sweepStreamRecords(ctx context.Context) {
 		// Allocate a fresh slice so the GC can reclaim the old backing array immediately
 		// (unlike [:0] which retains the backing array).
 		if len(t.StreamRecords) > 0 && tombstones*2 >= len(t.StreamRecords) {
+			t.streamTrimSeq = t.streamSeq + 1
 			t.StreamRecords = make([]models.StreamRecord, 0, maxStreamRecords)
 			t.StreamHead = 0
 		}

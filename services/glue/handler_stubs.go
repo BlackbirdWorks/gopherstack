@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -557,19 +558,57 @@ func (h *Handler) handleBatchGetWorkflows(
 	return &batchGetWorkflowsOutput{Workflows: found, MissingWorkflows: missing}, nil
 }
 
+// datapointInclusionAnnotation holds one annotation entry for
+// BatchPutDataQualityStatisticAnnotation.
+type datapointInclusionAnnotation struct {
+	InclusionAnnotation string `json:"InclusionAnnotation,omitempty"`
+	ProfileID           string `json:"ProfileId"`
+	StatisticID         string `json:"StatisticId"`
+}
+
 // batchPutDataQualityStatisticAnnotationInput holds input for BatchPutDataQualityStatisticAnnotation.
-type batchPutDataQualityStatisticAnnotationInput struct{}
+type batchPutDataQualityStatisticAnnotationInput struct {
+	ClientToken          string                         `json:"ClientToken,omitempty"`
+	InclusionAnnotations []datapointInclusionAnnotation `json:"InclusionAnnotations"`
+}
+
+// annotationError holds a single failed annotation entry.
+type annotationError struct {
+	FailureReason string `json:"FailureReason,omitempty"`
+	ProfileID     string `json:"ProfileId,omitempty"`
+	StatisticID   string `json:"StatisticId,omitempty"`
+}
 
 // batchPutDataQualityStatisticAnnotationOutput holds the result for BatchPutDataQualityStatisticAnnotation.
 type batchPutDataQualityStatisticAnnotationOutput struct {
-	FailedEntries []any `json:"FailedEntries"`
+	FailedInclusionAnnotations []annotationError `json:"FailedInclusionAnnotations"`
 }
 
 func (h *Handler) handleBatchPutDataQualityStatisticAnnotation(
 	_ context.Context,
-	_ *batchPutDataQualityStatisticAnnotationInput,
+	in *batchPutDataQualityStatisticAnnotationInput,
 ) (*batchPutDataQualityStatisticAnnotationOutput, error) {
-	return &batchPutDataQualityStatisticAnnotationOutput{FailedEntries: []any{}}, nil
+	if len(in.InclusionAnnotations) == 0 {
+		return nil, fmt.Errorf("%w: InclusionAnnotations is required", ErrValidation)
+	}
+
+	failed := make([]annotationError, 0)
+
+	for _, ann := range in.InclusionAnnotations {
+		if ann.ProfileID == "" || ann.StatisticID == "" {
+			failed = append(failed, annotationError{
+				FailureReason: "ProfileId and StatisticId are required",
+				ProfileID:     ann.ProfileID,
+				StatisticID:   ann.StatisticID,
+			})
+
+			continue
+		}
+
+		h.Backend.PutDataQualityStatisticAnnotation(ann.ProfileID, ann.StatisticID, ann.InclusionAnnotation)
+	}
+
+	return &batchPutDataQualityStatisticAnnotationOutput{FailedInclusionAnnotations: failed}, nil
 }
 
 // batchUpdatePartitionEntry is a single entry in a BatchUpdatePartition request.
@@ -1430,6 +1469,10 @@ func (h *Handler) handleDeleteConnectionType(
 		return nil, fmt.Errorf("%w: ConnectionType is required", ErrValidation)
 	}
 
+	if err := h.Backend.DeleteConnectionType(in.ConnectionType); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 
@@ -1854,7 +1897,10 @@ type describeConnectionTypeInput struct {
 
 // describeConnectionTypeOutput holds the result for DescribeConnectionType.
 type describeConnectionTypeOutput struct {
-	ConnectionType string `json:"ConnectionType"`
+	ConnectionType string   `json:"ConnectionType"`
+	Description    string   `json:"Description,omitempty"`
+	Category       string   `json:"Category,omitempty"`
+	Capabilities   []string `json:"Capabilities,omitempty"`
 }
 
 func (h *Handler) handleDescribeConnectionType(
@@ -1865,7 +1911,17 @@ func (h *Handler) handleDescribeConnectionType(
 		return nil, fmt.Errorf("%w: ConnectionType is required", ErrValidation)
 	}
 
-	return &describeConnectionTypeOutput{ConnectionType: in.ConnectionType}, nil
+	info, err := h.Backend.DescribeConnectionType(in.ConnectionType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeConnectionTypeOutput{
+		ConnectionType: info.ConnectionType,
+		Description:    info.Description,
+		Category:       info.Category,
+		Capabilities:   info.Capabilities,
+	}, nil
 }
 
 // describeEntityInput holds input for DescribeEntity.
@@ -1877,27 +1933,10 @@ type describeEntityInput struct {
 	NextToken           string `json:"NextToken,omitempty"`
 }
 
-// entityField describes a single field returned by DescribeEntity.
-type entityField struct {
-	FieldName                string   `json:"FieldName"`
-	Label                    string   `json:"Label,omitempty"`
-	Description              string   `json:"Description,omitempty"`
-	FieldType                string   `json:"FieldType"`
-	NativeDataType           string   `json:"NativeDataType,omitempty"`
-	SupportedFilterOperators []string `json:"SupportedFilterOperators,omitempty"`
-	IsNullable               bool     `json:"IsNullable"`
-	IsRetrievable            bool     `json:"IsRetrievable"`
-	IsPartitionable          bool     `json:"IsPartitionable"`
-	IsCreateable             bool     `json:"IsCreateable"`
-	IsUpdateable             bool     `json:"IsUpdateable"`
-	IsUpsertable             bool     `json:"IsUpsertable"`
-	IsFilterable             bool     `json:"IsFilterable"`
-}
-
 // describeEntityOutput holds the result for DescribeEntity.
 type describeEntityOutput struct {
 	NextToken string        `json:"NextToken,omitempty"`
-	Fields    []entityField `json:"Fields"`
+	Fields    []EntityField `json:"Fields"`
 }
 
 func (h *Handler) handleDescribeEntity(
@@ -1912,11 +1951,12 @@ func (h *Handler) handleDescribeEntity(
 		return nil, fmt.Errorf("%w: EntityName is required", ErrValidation)
 	}
 
-	if _, err := h.Backend.GetConnection(in.ConnectionName); err != nil {
+	fields, err := h.Backend.DescribeEntity(in.ConnectionName, in.EntityName)
+	if err != nil {
 		return nil, err
 	}
 
-	return &describeEntityOutput{Fields: []entityField{}}, nil
+	return &describeEntityOutput{Fields: fields}, nil
 }
 
 // describeInboundIntegrationsInput holds input for DescribeInboundIntegrations.
@@ -2346,47 +2386,63 @@ func (h *Handler) handleGetDataCatalogEncryptionSettings(
 }
 
 // getDataQualityModelInput holds input for GetDataQualityModel.
-type getDataQualityModelInput struct{}
+type getDataQualityModelInput struct {
+	ProfileID   string `json:"ProfileId"`
+	StatisticID string `json:"StatisticId,omitempty"`
+}
 
 // getDataQualityModelOutput holds the result for GetDataQualityModel.
 type getDataQualityModelOutput struct {
-	Status string `json:"Status"`
+	FailureReason string  `json:"FailureReason,omitempty"`
+	Status        string  `json:"Status,omitempty"`
+	StartedOn     float64 `json:"StartedOn,omitempty"`
+	CompletedOn   float64 `json:"CompletedOn,omitempty"`
 }
 
+// handleGetDataQualityModel reports training status for a data-quality
+// anomaly-detection model. Glue only ever creates these models via its own
+// automated monitoring jobs (there is no public Create/Start API for them), so
+// this emulator has no backing registry to check against; it validates the
+// required ProfileId and reports the model as trained, matching the terminal
+// state a real, already-monitored profile settles into.
 func (h *Handler) handleGetDataQualityModel(
 	_ context.Context,
-	_ *getDataQualityModelInput,
+	in *getDataQualityModelInput,
 ) (*getDataQualityModelOutput, error) {
-	return &getDataQualityModelOutput{Status: stateSucceeded}, nil
+	if in.ProfileID == "" {
+		return nil, fmt.Errorf("%w: ProfileId is required", ErrValidation)
+	}
+
+	now := float64(time.Now().Unix())
+
+	return &getDataQualityModelOutput{Status: stateSucceeded, StartedOn: now, CompletedOn: now}, nil
 }
 
 // getDataQualityModelResultInput holds input for GetDataQualityModelResult.
 type getDataQualityModelResultInput struct {
 	ProfileID   string `json:"ProfileId"`
-	StatisticID string `json:"StatisticId,omitempty"`
+	StatisticID string `json:"StatisticId"`
 }
 
 // getDataQualityModelResultOutput holds the result for GetDataQualityModelResult.
 type getDataQualityModelResultOutput struct {
-	ProfileID   string  `json:"ProfileId,omitempty"`
-	Status      string  `json:"Status,omitempty"`
-	CompletedOn float64 `json:"CompletedOn"`
+	Model       []any   `json:"Model"`
+	CompletedOn float64 `json:"CompletedOn,omitempty"`
 }
 
+// handleGetDataQualityModelResult returns a statistic's model predictions for a
+// profile. As with GetDataQualityModel, there is no public API to create these
+// models, so no profile ever has computed predictions in this emulator; an
+// empty Model list is the correct response for that case.
 func (h *Handler) handleGetDataQualityModelResult(
 	_ context.Context,
 	in *getDataQualityModelResultInput,
 ) (*getDataQualityModelResultOutput, error) {
-	if in.ProfileID == "" {
-		return nil, fmt.Errorf("%w: ProfileId is required", ErrValidation)
+	if in.ProfileID == "" || in.StatisticID == "" {
+		return nil, fmt.Errorf("%w: ProfileId and StatisticId are required", ErrValidation)
 	}
 
-	status, err := h.Backend.GetDataQualityModelResult(in.ProfileID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &getDataQualityModelResultOutput{ProfileID: in.ProfileID, Status: status}, nil
+	return &getDataQualityModelResultOutput{Model: []any{}}, nil
 }
 
 // getDataQualityResultInput holds input for GetDataQualityResult.
@@ -2514,8 +2570,8 @@ type getEntityRecordsInput struct {
 
 // getEntityRecordsOutput holds the result for GetEntityRecords.
 type getEntityRecordsOutput struct {
-	NextToken string `json:"NextToken,omitempty"`
-	Records   []any  `json:"Records"`
+	NextToken string           `json:"NextToken,omitempty"`
+	Records   []map[string]any `json:"Records"`
 }
 
 func (h *Handler) handleGetEntityRecords(
@@ -2530,11 +2586,14 @@ func (h *Handler) handleGetEntityRecords(
 		return nil, fmt.Errorf("%w: EntityName is required", ErrValidation)
 	}
 
-	if _, err := h.Backend.GetConnection(in.ConnectionName); err != nil {
+	records, nextToken, err := h.Backend.GetEntityRecords(
+		in.ConnectionName, in.EntityName, in.Limit, in.NextToken,
+	)
+	if err != nil {
 		return nil, err
 	}
 
-	return &getEntityRecordsOutput{Records: []any{}}, nil
+	return &getEntityRecordsOutput{Records: records, NextToken: nextToken}, nil
 }
 
 // getIdentityCenterConfigurationInput holds input for GetGlueIdentityCenterConfiguration.
@@ -2722,19 +2781,94 @@ func (h *Handler) handleGetMLTransforms(
 	return &getMLTransformsOutput{Transforms: transforms}, nil
 }
 
+// catalogEntryRef identifies a table by database and table name, matching the
+// wire shape of the Glue CatalogEntry type.
+type catalogEntryRef struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+}
+
 // getMappingInput holds input for GetMapping.
-type getMappingInput struct{}
+type getMappingInput struct {
+	Location any               `json:"Location,omitempty"`
+	Source   catalogEntryRef   `json:"Source"`
+	Sinks    []catalogEntryRef `json:"Sinks,omitempty"`
+}
+
+// mappingEntryOut is a single source-to-target column mapping.
+type mappingEntryOut struct {
+	SourcePath  string `json:"SourcePath,omitempty"`
+	SourceTable string `json:"SourceTable,omitempty"`
+	SourceType  string `json:"SourceType,omitempty"`
+	TargetPath  string `json:"TargetPath,omitempty"`
+	TargetTable string `json:"TargetTable,omitempty"`
+	TargetType  string `json:"TargetType,omitempty"`
+}
 
 // getMappingOutput holds the result for GetMapping.
 type getMappingOutput struct {
-	Mapping []any `json:"Mapping"`
+	Mapping []mappingEntryOut `json:"Mapping"`
 }
 
-func (h *Handler) handleGetMapping(
-	_ context.Context,
-	_ *getMappingInput,
-) (*getMappingOutput, error) {
-	return &getMappingOutput{Mapping: []any{}}, nil
+// columnByName returns the column with the given name, or nil if absent.
+func columnByName(columns []Column, name string) *Column {
+	for i := range columns {
+		if columns[i].Name == name {
+			return &columns[i]
+		}
+	}
+
+	return nil
+}
+
+// handleGetMapping derives a column mapping from the source table's stored
+// schema to the first sink table's schema (or back to itself when no sink is
+// given, matching AWS's "suggest a mapping" behavior for an unspecified target).
+func (h *Handler) handleGetMapping(_ context.Context, in *getMappingInput) (*getMappingOutput, error) {
+	if in.Source.DatabaseName == "" || in.Source.TableName == "" {
+		return nil, fmt.Errorf("%w: Source is required", ErrValidation)
+	}
+
+	srcTable, err := h.Backend.GetTable(in.Source.DatabaseName, in.Source.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	sinkTable := srcTable
+	sinkTableName := in.Source.TableName
+
+	if len(in.Sinks) > 0 {
+		sink := in.Sinks[0]
+
+		sinkT, sinkErr := h.Backend.GetTable(sink.DatabaseName, sink.TableName)
+		if sinkErr != nil {
+			return nil, sinkErr
+		}
+
+		sinkTable = sinkT
+		sinkTableName = sink.TableName
+	}
+
+	mapping := make([]mappingEntryOut, 0, len(srcTable.StorageDescriptor.Columns))
+
+	for _, col := range srcTable.StorageDescriptor.Columns {
+		entry := mappingEntryOut{
+			SourceTable: in.Source.TableName,
+			SourcePath:  col.Name,
+			SourceType:  col.Type,
+			TargetTable: sinkTableName,
+			TargetPath:  col.Name,
+			TargetType:  col.Type,
+		}
+
+		if tc := columnByName(sinkTable.StorageDescriptor.Columns, col.Name); tc != nil {
+			entry.TargetType = tc.Type
+		}
+
+		mapping = append(mapping, entry)
+	}
+
+	return &getMappingOutput{Mapping: mapping}, nil
 }
 
 // getMaterializedViewRefreshTaskRunInput holds input for GetMaterializedViewRefreshTaskRun.
@@ -2972,18 +3106,42 @@ func (h *Handler) handleGetRegistry(
 }
 
 // getResourcePoliciesInput holds input for GetResourcePolicies.
-type getResourcePoliciesInput struct{}
+type getResourcePoliciesInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
+
+// gluePolicyOut is a single policy entry in GetResourcePolicies' response list.
+type gluePolicyOut struct {
+	PolicyInJSON string  `json:"PolicyInJson,omitempty"`
+	PolicyHash   string  `json:"PolicyHash,omitempty"`
+	CreateTime   float64 `json:"CreateTime,omitempty"`
+	UpdateTime   float64 `json:"UpdateTime,omitempty"`
+}
 
 // getResourcePoliciesOutput holds the result for GetResourcePolicies.
 type getResourcePoliciesOutput struct {
-	GetResourcePoliciesResponseList []any `json:"GetResourcePoliciesResponseList"`
+	NextToken                       string          `json:"NextToken,omitempty"`
+	GetResourcePoliciesResponseList []gluePolicyOut `json:"GetResourcePoliciesResponseList"`
 }
 
 func (h *Handler) handleGetResourcePolicies(
 	_ context.Context,
 	_ *getResourcePoliciesInput,
 ) (*getResourcePoliciesOutput, error) {
-	return &getResourcePoliciesOutput{GetResourcePoliciesResponseList: []any{}}, nil
+	entries := h.Backend.ListResourcePolicies()
+	list := make([]gluePolicyOut, 0, len(entries))
+
+	for _, e := range entries {
+		list = append(list, gluePolicyOut{
+			PolicyInJSON: e.Policy,
+			PolicyHash:   e.Hash,
+			CreateTime:   e.CreateTime,
+			UpdateTime:   e.UpdateTime,
+		})
+	}
+
+	return &getResourcePoliciesOutput{GetResourcePoliciesResponseList: list}, nil
 }
 
 // getResourcePolicyInput holds input for GetResourcePolicy.
@@ -3747,31 +3905,92 @@ func (h *Handler) handleListColumnStatisticsTaskRuns(
 // listConnectionTypesInput holds input for ListConnectionTypes.
 type listConnectionTypesInput struct{}
 
+// connectionTypeBrief is the per-type summary returned by ListConnectionTypes.
+type connectionTypeBrief struct {
+	ConnectionType string   `json:"ConnectionType"`
+	Description    string   `json:"Description,omitempty"`
+	Category       string   `json:"Category,omitempty"`
+	Capabilities   []string `json:"Capabilities,omitempty"`
+}
+
 // listConnectionTypesOutput holds the result for ListConnectionTypes.
 type listConnectionTypesOutput struct {
-	ConnectionTypes []any `json:"ConnectionTypes"`
+	ConnectionTypes []connectionTypeBrief `json:"ConnectionTypes"`
 }
 
 func (h *Handler) handleListConnectionTypes(
 	_ context.Context,
 	_ *listConnectionTypesInput,
 ) (*listConnectionTypesOutput, error) {
-	return &listConnectionTypesOutput{ConnectionTypes: []any{}}, nil
+	infos := h.Backend.ListConnectionTypes()
+
+	out := make([]connectionTypeBrief, 0, len(infos))
+	for _, info := range infos {
+		out = append(out, connectionTypeBrief{
+			ConnectionType: info.ConnectionType,
+			Description:    info.Description,
+			Category:       info.Category,
+			Capabilities:   info.Capabilities,
+		})
+	}
+
+	return &listConnectionTypesOutput{ConnectionTypes: out}, nil
 }
 
+// defaultListCrawlsLimit matches the real API's default page size (max 100).
+const defaultListCrawlsLimit = 20
+
 // listCrawlsInput holds input for ListCrawls.
-type listCrawlsInput struct{}
+type listCrawlsInput struct {
+	CrawlerName string `json:"CrawlerName"`
+	NextToken   string `json:"NextToken,omitempty"`
+	MaxResults  int32  `json:"MaxResults,omitempty"`
+}
+
+// crawlHistoryOut is a single crawl-history entry.
+type crawlHistoryOut struct {
+	CrawlID   string  `json:"CrawlId,omitempty"`
+	State     string  `json:"State,omitempty"`
+	Summary   string  `json:"Summary,omitempty"`
+	StartTime float64 `json:"StartTime,omitempty"`
+	EndTime   float64 `json:"EndTime,omitempty"`
+}
 
 // listCrawlsOutput holds the result for ListCrawls.
 type listCrawlsOutput struct {
-	Crawls []any `json:"Crawls"`
+	NextToken string            `json:"NextToken,omitempty"`
+	Crawls    []crawlHistoryOut `json:"Crawls"`
 }
 
-func (h *Handler) handleListCrawls(
-	_ context.Context,
-	_ *listCrawlsInput,
-) (*listCrawlsOutput, error) {
-	return &listCrawlsOutput{Crawls: []any{}}, nil
+func (h *Handler) handleListCrawls(_ context.Context, in *listCrawlsInput) (*listCrawlsOutput, error) {
+	if in.CrawlerName == "" {
+		return nil, fmt.Errorf("%w: CrawlerName is required", ErrValidation)
+	}
+
+	hist, err := h.Backend.ListCrawls(in.CrawlerName)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 || limit > 100 {
+		limit = defaultListCrawlsLimit
+	}
+
+	page, next := paginateSlice(hist, in.NextToken, limit)
+
+	out := make([]crawlHistoryOut, 0, len(page))
+	for _, e := range page {
+		out = append(out, crawlHistoryOut{
+			CrawlID:   e.CrawlID,
+			State:     e.State,
+			Summary:   e.Summary,
+			StartTime: e.StartTime,
+			EndTime:   e.EndTime,
+		})
+	}
+
+	return &listCrawlsOutput{Crawls: out, NextToken: next}, nil
 }
 
 // listCustomEntityTypesInput holds input for ListCustomEntityTypes.
@@ -3855,28 +4074,69 @@ func (h *Handler) handleListDataQualityRulesetEvaluationRuns(
 }
 
 // listDataQualityStatisticAnnotationsInput holds input for ListDataQualityStatisticAnnotations.
-type listDataQualityStatisticAnnotationsInput struct{}
+type listDataQualityStatisticAnnotationsInput struct {
+	ProfileID   string `json:"ProfileId,omitempty"`
+	StatisticID string `json:"StatisticId,omitempty"`
+}
+
+// timestampedInclusionAnnotation is the annotation value with its last-modified time.
+type timestampedInclusionAnnotation struct {
+	Value          string  `json:"Value,omitempty"`
+	LastModifiedOn float64 `json:"LastModifiedOn,omitempty"`
+}
+
+// statisticAnnotationOut is a single annotated statistic entry.
+type statisticAnnotationOut struct {
+	InclusionAnnotation *timestampedInclusionAnnotation `json:"InclusionAnnotation,omitempty"`
+	ProfileID           string                          `json:"ProfileId,omitempty"`
+	StatisticID         string                          `json:"StatisticId,omitempty"`
+	StatisticRecordedOn float64                         `json:"StatisticRecordedOn,omitempty"`
+}
 
 // listDataQualityStatisticAnnotationsOutput holds the result for ListDataQualityStatisticAnnotations.
 type listDataQualityStatisticAnnotationsOutput struct {
-	StatisticAnnotationList []any `json:"StatisticAnnotationList"`
+	NextToken   string                   `json:"NextToken,omitempty"`
+	Annotations []statisticAnnotationOut `json:"Annotations"`
 }
 
 func (h *Handler) handleListDataQualityStatisticAnnotations(
 	_ context.Context,
-	_ *listDataQualityStatisticAnnotationsInput,
+	in *listDataQualityStatisticAnnotationsInput,
 ) (*listDataQualityStatisticAnnotationsOutput, error) {
-	return &listDataQualityStatisticAnnotationsOutput{StatisticAnnotationList: []any{}}, nil
+	entries := h.Backend.ListDataQualityStatisticAnnotations(in.ProfileID, in.StatisticID)
+	out := make([]statisticAnnotationOut, 0, len(entries))
+
+	for _, e := range entries {
+		out = append(out, statisticAnnotationOut{
+			ProfileID:           e.ProfileID,
+			StatisticID:         e.StatisticID,
+			StatisticRecordedOn: e.RecordedOn,
+			InclusionAnnotation: &timestampedInclusionAnnotation{
+				Value:          e.Inclusion,
+				LastModifiedOn: e.LastModifiedOn,
+			},
+		})
+	}
+
+	return &listDataQualityStatisticAnnotationsOutput{Annotations: out}, nil
 }
 
 // listDataQualityStatisticsInput holds input for ListDataQualityStatistics.
-type listDataQualityStatisticsInput struct{}
+type listDataQualityStatisticsInput struct {
+	ProfileID   string `json:"ProfileId,omitempty"`
+	StatisticID string `json:"StatisticId,omitempty"`
+}
 
 // listDataQualityStatisticsOutput holds the result for ListDataQualityStatistics.
 type listDataQualityStatisticsOutput struct {
-	Statistics []any `json:"Statistics"`
+	NextToken  string `json:"NextToken,omitempty"`
+	Statistics []any  `json:"Statistics"`
 }
 
+// handleListDataQualityStatistics always returns an empty list: Glue only ever
+// populates statistics via its own automated data-quality monitoring jobs, which
+// this emulator does not run, so no profile ever has computed statistics. This
+// mirrors real AWS behavior for a profile/account that never enabled monitoring.
 func (h *Handler) handleListDataQualityStatistics(
 	_ context.Context,
 	_ *listDataQualityStatisticsInput,
@@ -3906,33 +4166,73 @@ func (h *Handler) handleListDevEndpoints(
 }
 
 // listEntitiesInput holds input for ListEntities.
-type listEntitiesInput struct{}
+type listEntitiesInput struct {
+	ConnectionName   string `json:"ConnectionName"`
+	CatalogID        string `json:"CatalogId,omitempty"`
+	ParentEntityName string `json:"ParentEntityName,omitempty"`
+	NextToken        string `json:"NextToken,omitempty"`
+	DataStoreAPIVer  string `json:"DataStoreApiVersion,omitempty"`
+}
 
 // listEntitiesOutput holds the result for ListEntities.
 type listEntitiesOutput struct {
-	Entities []any `json:"Entities"`
+	NextToken string             `json:"NextToken,omitempty"`
+	Entities  []EntityDescriptor `json:"Entities"`
 }
 
 func (h *Handler) handleListEntities(
 	_ context.Context,
-	_ *listEntitiesInput,
+	in *listEntitiesInput,
 ) (*listEntitiesOutput, error) {
-	return &listEntitiesOutput{Entities: []any{}}, nil
+	if in.ConnectionName == "" {
+		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
+	}
+
+	entities, err := h.Backend.ListEntities(in.ConnectionName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listEntitiesOutput{Entities: entities}, nil
 }
 
 // listIntegrationResourcePropertiesInput holds input for ListIntegrationResourceProperties.
-type listIntegrationResourcePropertiesInput struct{}
+type listIntegrationResourcePropertiesInput struct {
+	Marker     string `json:"Marker,omitempty"`
+	MaxRecords int32  `json:"MaxRecords,omitempty"`
+}
+
+// integrationResourcePropertyOut is one entry of ListIntegrationResourceProperties'
+// response list, matching the shape already used by
+// Create/GetIntegrationResourceProperty.
+type integrationResourcePropertyOut struct {
+	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+	ResourceArn      string            `json:"ResourceArn"`
+}
 
 // listIntegrationResourcePropertiesOutput holds the result for ListIntegrationResourceProperties.
 type listIntegrationResourcePropertiesOutput struct {
-	ResourcePropertiesList []any `json:"ResourcePropertiesList"`
+	Marker                          string                           `json:"Marker,omitempty"`
+	IntegrationResourcePropertyList []integrationResourcePropertyOut `json:"IntegrationResourcePropertyList"`
 }
 
 func (h *Handler) handleListIntegrationResourceProperties(
 	_ context.Context,
 	_ *listIntegrationResourcePropertiesInput,
 ) (*listIntegrationResourcePropertiesOutput, error) {
-	return &listIntegrationResourcePropertiesOutput{ResourcePropertiesList: []any{}}, nil
+	props := h.Backend.ListIntegrationResourceProperties()
+	list := make([]integrationResourcePropertyOut, 0, len(props))
+
+	for _, p := range props {
+		list = append(list, integrationResourcePropertyOut{
+			ResourceArn:      p.ResourceArn,
+			SourceProperties: p.SourceProperties,
+			TargetProperties: p.TargetProperties,
+		})
+	}
+
+	return &listIntegrationResourcePropertiesOutput{IntegrationResourcePropertyList: list}, nil
 }
 
 // listJobsInput holds input for ListJobs.
@@ -4114,18 +4414,48 @@ func (h *Handler) handleListStatements(
 }
 
 // listTableOptimizerRunsInput holds input for ListTableOptimizerRuns.
-type listTableOptimizerRunsInput struct{}
+type listTableOptimizerRunsInput struct {
+	CatalogID    string `json:"CatalogId,omitempty"`
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+	Type         string `json:"Type"`
+	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults   int32  `json:"MaxResults,omitempty"`
+}
 
 // listTableOptimizerRunsOutput holds the result for ListTableOptimizerRuns.
 type listTableOptimizerRunsOutput struct {
-	Runs []any `json:"Runs"`
+	CatalogID          string               `json:"CatalogId,omitempty"`
+	DatabaseName       string               `json:"DatabaseName,omitempty"`
+	TableName          string               `json:"TableName,omitempty"`
+	NextToken          string               `json:"NextToken,omitempty"`
+	TableOptimizerRuns []*TableOptimizerRun `json:"TableOptimizerRuns"`
 }
 
 func (h *Handler) handleListTableOptimizerRuns(
 	_ context.Context,
-	_ *listTableOptimizerRunsInput,
+	in *listTableOptimizerRunsInput,
 ) (*listTableOptimizerRunsOutput, error) {
-	return &listTableOptimizerRunsOutput{Runs: []any{}}, nil
+	if in.DatabaseName == "" || in.TableName == "" || in.Type == "" {
+		return nil, fmt.Errorf("%w: DatabaseName, TableName, and Type are required", ErrValidation)
+	}
+
+	to, err := h.Backend.GetTableOptimizer(in.DatabaseName, in.TableName, in.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	runs := []*TableOptimizerRun{}
+	if to.LastRun != nil {
+		runs = append(runs, to.LastRun)
+	}
+
+	return &listTableOptimizerRunsOutput{
+		CatalogID:          in.CatalogID,
+		DatabaseName:       in.DatabaseName,
+		TableName:          in.TableName,
+		TableOptimizerRuns: runs,
+	}, nil
 }
 
 // listTriggersInput holds input for ListTriggers.
@@ -4224,12 +4554,28 @@ func (h *Handler) handlePutDataCatalogEncryptionSettings(
 }
 
 // putDataQualityProfileAnnotationInput holds input for PutDataQualityProfileAnnotation.
-type putDataQualityProfileAnnotationInput struct{}
+type putDataQualityProfileAnnotationInput struct {
+	InclusionAnnotation string `json:"InclusionAnnotation,omitempty"`
+	ProfileID           string `json:"ProfileId"`
+}
 
 func (h *Handler) handlePutDataQualityProfileAnnotation(
 	_ context.Context,
-	_ *putDataQualityProfileAnnotationInput,
+	in *putDataQualityProfileAnnotationInput,
 ) (*emptyOutput, error) {
+	if in.ProfileID == "" {
+		return nil, fmt.Errorf("%w: ProfileId is required", ErrValidation)
+	}
+
+	if in.InclusionAnnotation == "" {
+		return nil, fmt.Errorf("%w: InclusionAnnotation is required", ErrValidation)
+	}
+
+	// A profile-wide annotation is stored against the profile with no statistic ID,
+	// distinguishing it from per-statistic annotations set via
+	// BatchPutDataQualityStatisticAnnotation.
+	h.Backend.PutDataQualityStatisticAnnotation(in.ProfileID, "", in.InclusionAnnotation)
+
 	return &emptyOutput{}, nil
 }
 
@@ -4333,7 +4679,10 @@ func (h *Handler) handleQuerySchemaVersionMetadata(
 }
 
 // registerConnectionTypeInput holds input for RegisterConnectionType.
-type registerConnectionTypeInput struct{}
+type registerConnectionTypeInput struct {
+	ConnectionType string `json:"ConnectionType"`
+	Description    string `json:"Description,omitempty"`
+}
 
 // registerConnectionTypeOutput holds the result for RegisterConnectionType.
 type registerConnectionTypeOutput struct {
@@ -4343,9 +4692,18 @@ type registerConnectionTypeOutput struct {
 
 func (h *Handler) handleRegisterConnectionType(
 	_ context.Context,
-	_ *registerConnectionTypeInput,
+	in *registerConnectionTypeInput,
 ) (*registerConnectionTypeOutput, error) {
-	return &registerConnectionTypeOutput{Status: stateReady}, nil
+	if in.ConnectionType == "" {
+		return nil, fmt.Errorf("%w: ConnectionType is required", ErrValidation)
+	}
+
+	info, err := h.Backend.RegisterConnectionType(in.ConnectionType, in.Description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &registerConnectionTypeOutput{ConnectionType: info.ConnectionType, Status: stateReady}, nil
 }
 
 // registerSchemaVersionInput holds input for RegisterSchemaVersion.
@@ -4537,13 +4895,16 @@ func (h *Handler) handleStartColumnStatisticsTaskRun(
 }
 
 // startColumnStatisticsTaskRunScheduleInput holds input for StartColumnStatisticsTaskRunSchedule.
-type startColumnStatisticsTaskRunScheduleInput struct{}
+type startColumnStatisticsTaskRunScheduleInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+}
 
 func (h *Handler) handleStartColumnStatisticsTaskRunSchedule(
 	_ context.Context,
-	_ *startColumnStatisticsTaskRunScheduleInput,
+	in *startColumnStatisticsTaskRunScheduleInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.StartColumnStatisticsTaskRunSchedule(in.DatabaseName, in.TableName)
 }
 
 // startDataQualityRuleRecommendationRunInput holds input for StartDataQualityRuleRecommendationRun.
@@ -4761,13 +5122,16 @@ func (h *Handler) handleStopColumnStatisticsTaskRun(
 }
 
 // stopColumnStatisticsTaskRunScheduleInput holds input for StopColumnStatisticsTaskRunSchedule.
-type stopColumnStatisticsTaskRunScheduleInput struct{}
+type stopColumnStatisticsTaskRunScheduleInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+}
 
 func (h *Handler) handleStopColumnStatisticsTaskRunSchedule(
 	_ context.Context,
-	_ *stopColumnStatisticsTaskRunScheduleInput,
+	in *stopColumnStatisticsTaskRunScheduleInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.StopColumnStatisticsTaskRunSchedule(in.DatabaseName, in.TableName)
 }
 
 // stopMaterializedViewRefreshTaskRunInput holds input for StopMaterializedViewRefreshTaskRun.
@@ -4841,19 +5205,47 @@ func (h *Handler) handleStopWorkflowRun(
 	return &emptyOutput{}, h.Backend.StopWorkflowRun(in.Name, in.RunID)
 }
 
-// testConnectionInput holds input for TestConnection.
-type testConnectionInput struct{}
-
-// testConnectionOutput holds the result for TestConnection.
-type testConnectionOutput struct {
-	Status string `json:"Status"`
+// adHocTestConnectionInput holds an inline (not-yet-created) connection to test.
+type adHocTestConnectionInput struct {
+	ConnectionProperties map[string]string `json:"ConnectionProperties,omitempty"`
+	ConnectionType       string            `json:"ConnectionType,omitempty"`
 }
 
-func (h *Handler) handleTestConnection(
-	_ context.Context,
-	_ *testConnectionInput,
-) (*testConnectionOutput, error) {
-	return &testConnectionOutput{Status: stateSucceeded}, nil
+// testConnectionInput holds input for TestConnection.
+type testConnectionInput struct {
+	TestConnectionInput *adHocTestConnectionInput `json:"TestConnectionInput,omitempty"`
+	CatalogID           string                    `json:"CatalogId,omitempty"`
+	ConnectionName      string                    `json:"ConnectionName,omitempty"`
+}
+
+// handleTestConnection validates the named connection exists, or that an
+// ad-hoc connection description is well-formed, and returns success. Real AWS
+// returns an empty 200 response on success; the actual dial happens
+// asynchronously and can't be modeled here.
+func (h *Handler) handleTestConnection(_ context.Context, in *testConnectionInput) (*emptyOutput, error) {
+	hasName := in.ConnectionName != ""
+	hasAdHoc := in.TestConnectionInput != nil
+
+	switch {
+	case hasName && hasAdHoc:
+		return nil, fmt.Errorf(
+			"%w: specify either ConnectionName or TestConnectionInput, not both", ErrValidation,
+		)
+	case hasName:
+		if _, err := h.Backend.GetConnection(in.ConnectionName); err != nil {
+			return nil, err
+		}
+	case hasAdHoc:
+		if in.TestConnectionInput.ConnectionType == "" || len(in.TestConnectionInput.ConnectionProperties) == 0 {
+			return nil, fmt.Errorf(
+				"%w: TestConnectionInput requires ConnectionType and ConnectionProperties", ErrValidation,
+			)
+		}
+	default:
+		return nil, fmt.Errorf("%w: must specify ConnectionName or TestConnectionInput", ErrValidation)
+	}
+
+	return &emptyOutput{}, nil
 }
 
 // updateBlueprintInput holds input for UpdateBlueprint.
@@ -5043,44 +5435,103 @@ func (h *Handler) handleUpdateGlueIdentityCenterConfiguration(
 }
 
 // updateIntegrationResourcePropertyInput holds input for UpdateIntegrationResourceProperty.
-type updateIntegrationResourcePropertyInput struct{}
+type updateIntegrationResourcePropertyInput struct {
+	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+	ResourceArn      string            `json:"ResourceArn"`
+}
 
 // updateIntegrationResourcePropertyOutput holds the result for UpdateIntegrationResourceProperty.
 type updateIntegrationResourcePropertyOutput struct {
-	ResourceArn string `json:"ResourceArn"`
+	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+	ResourceArn      string            `json:"ResourceArn"`
 }
 
 func (h *Handler) handleUpdateIntegrationResourceProperty(
 	_ context.Context,
-	_ *updateIntegrationResourcePropertyInput,
+	in *updateIntegrationResourcePropertyInput,
 ) (*updateIntegrationResourcePropertyOutput, error) {
-	return &updateIntegrationResourcePropertyOutput{}, nil
+	prop, err := h.Backend.UpdateIntegrationResourceProperty(in.ResourceArn, in.SourceProperties, in.TargetProperties)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateIntegrationResourcePropertyOutput{
+		ResourceArn:      prop.ResourceArn,
+		SourceProperties: prop.SourceProperties,
+		TargetProperties: prop.TargetProperties,
+	}, nil
 }
 
 // updateIntegrationTablePropertiesInput holds input for UpdateIntegrationTableProperties.
-type updateIntegrationTablePropertiesInput struct{}
+type updateIntegrationTablePropertiesInput struct {
+	SourceTableConfig map[string]any `json:"SourceTableConfig,omitempty"`
+	TargetTableConfig map[string]any `json:"TargetTableConfig,omitempty"`
+	ResourceArn       string         `json:"ResourceArn"`
+	TableName         string         `json:"TableName"`
+}
 
 func (h *Handler) handleUpdateIntegrationTableProperties(
 	_ context.Context,
-	_ *updateIntegrationTablePropertiesInput,
+	in *updateIntegrationTablePropertiesInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.UpdateIntegrationTableProperties(
+		in.ResourceArn, in.TableName, in.SourceTableConfig, in.TargetTableConfig,
+	)
+}
+
+// jobSourceControlInput holds the shared input shape for
+// UpdateJobFromSourceControl and UpdateSourceControlFromJob.
+type jobSourceControlInput struct {
+	AuthStrategy    string `json:"AuthStrategy,omitempty"`
+	AuthToken       string `json:"AuthToken,omitempty"`
+	BranchName      string `json:"BranchName,omitempty"`
+	CommitID        string `json:"CommitId,omitempty"`
+	Folder          string `json:"Folder,omitempty"`
+	JobName         string `json:"JobName"`
+	Provider        string `json:"Provider,omitempty"`
+	RepositoryName  string `json:"RepositoryName,omitempty"`
+	RepositoryOwner string `json:"RepositoryOwner,omitempty"`
+}
+
+func (in *jobSourceControlInput) toSourceControlDetails() SourceControlDetails {
+	return SourceControlDetails{
+		AuthStrategy: in.AuthStrategy,
+		AuthToken:    in.AuthToken,
+		Branch:       in.BranchName,
+		Folder:       in.Folder,
+		LastCommitID: in.CommitID,
+		Owner:        in.RepositoryOwner,
+		Provider:     in.Provider,
+		Repository:   in.RepositoryName,
+	}
 }
 
 // updateJobFromSourceControlInput holds input for UpdateJobFromSourceControl.
-type updateJobFromSourceControlInput struct {
-	JobName string `json:"JobName"`
-}
+type updateJobFromSourceControlInput = jobSourceControlInput
 
 // updateJobFromSourceControlOutput holds the result for UpdateJobFromSourceControl.
 type updateJobFromSourceControlOutput struct {
 	JobName string `json:"JobName"`
 }
 
+// handleUpdateJobFromSourceControl syncs a job's definition from its linked
+// remote repository. AWS pulls the job definition into Glue; this emulator has
+// no real repository to pull from, so it validates the job exists and records
+// the source-control linkage as real state on the job.
 func (h *Handler) handleUpdateJobFromSourceControl(
 	_ context.Context,
 	in *updateJobFromSourceControlInput,
 ) (*updateJobFromSourceControlOutput, error) {
+	if in.JobName == "" {
+		return nil, fmt.Errorf("%w: JobName is required", ErrValidation)
+	}
+
+	if err := h.Backend.UpdateJobFromSourceControl(in.JobName, in.toSourceControlDetails()); err != nil {
+		return nil, err
+	}
+
 	return &updateJobFromSourceControlOutput{JobName: in.JobName}, nil
 }
 
@@ -5199,19 +5650,29 @@ func (h *Handler) handleUpdateSchema(
 }
 
 // updateSourceControlFromJobInput holds input for UpdateSourceControlFromJob.
-type updateSourceControlFromJobInput struct {
-	JobName string `json:"JobName"`
-}
+type updateSourceControlFromJobInput = jobSourceControlInput
 
 // updateSourceControlFromJobOutput holds the result for UpdateSourceControlFromJob.
 type updateSourceControlFromJobOutput struct {
 	JobName string `json:"JobName"`
 }
 
+// handleUpdateSourceControlFromJob pushes a job's current definition to its
+// linked remote repository. As with UpdateJobFromSourceControl, there is no
+// real repository here, so it validates the job exists and records the same
+// source-control linkage as real state on the job.
 func (h *Handler) handleUpdateSourceControlFromJob(
 	_ context.Context,
 	in *updateSourceControlFromJobInput,
 ) (*updateSourceControlFromJobOutput, error) {
+	if in.JobName == "" {
+		return nil, fmt.Errorf("%w: JobName is required", ErrValidation)
+	}
+
+	if err := h.Backend.UpdateSourceControlFromJob(in.JobName, in.toSourceControlDetails()); err != nil {
+		return nil, err
+	}
+
 	return &updateSourceControlFromJobOutput{JobName: in.JobName}, nil
 }
 

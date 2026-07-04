@@ -1,11 +1,11 @@
 package ecs
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +22,9 @@ const (
 	statusInactive          = "INACTIVE"
 	statusProvisioning      = "PROVISIONING"
 	statusPending           = "PENDING"
+	statusDeactivating      = "DEACTIVATING"
+	statusStopping          = "STOPPING"
+	statusDeprovisioning    = "DEPROVISIONING"
 	launchTypeFargate       = "FARGATE"
 	defaultCluster          = "default"
 	deploymentStatusPrimary = "PRIMARY"
@@ -293,43 +296,68 @@ type svcRef struct {
 }
 
 // InMemoryBackend stores ECS state in memory.
+//
+// Field ordering is optimised for pointer-byte alignment (govet fieldalignment);
+// keep new fields grouped with their kind rather than by logical concern.
 type InMemoryBackend struct {
 	runner                 TaskRunner
-	clusters               map[string]*Cluster
-	taskDefinitions        map[string][]*TaskDefinition
-	taskDefByArn           map[string]*TaskDefinition // ARN → TaskDefinition cache
+	serviceDeployments     map[string]*ServiceDeployment
+	taskSets               map[string]map[string]*TaskSet
+	taskDefByArn           map[string]*TaskDefinition
 	services               map[string]map[string]*Service
 	tasks                  map[string]map[string]*Task
 	containerInstances     map[string]map[string]*ContainerInstance
-	taskSets               map[string]map[string]*TaskSet
-	taskProtections        map[string]*TaskProtection // taskArn → TaskProtection
+	clusters               map[string]*Cluster
+	taskProtections        map[string]*TaskProtection
 	capacityProviders      map[string]*CapacityProvider
 	accountSettings        map[string]*AccountSetting
-	attributes             map[string]map[string]*Attribute // clusterName → attributeKey → Attribute
-	serviceDeployments     map[string]*ServiceDeployment
+	taskDefinitions        map[string][]*TaskDefinition
+	attributes             map[string]map[string]*Attribute
+	mu                     *lockmetrics.RWMutex
+	resourceTags           map[string][]Tag
+	tasksByInstance        map[string]map[string]map[string]bool
+	serviceIndex           map[svcRef]bool
 	expressGatewayServices map[string]*ExpressGatewayService
-	resourceTags           map[string][]Tag // resourceArn → tags
-	// tasksByInstance is a reverse index: clusterName → containerInstanceArn → set of taskArns.
-	// It allows enrichContainerInstance to look up tasks in O(k) instead of O(n).
-	tasksByInstance map[string]map[string]map[string]bool
-	// serviceIndex is a flat map of all service keys for single-pass iteration in
-	// getServicesForReconciler, avoiding the double nested-map loop + counting pass.
-	serviceIndex map[svcRef]bool
-	// daemons: clusterName → daemonName → *Daemon
-	daemons map[string]map[string]*Daemon
-	// daemonTaskDefs: daemonArn → []*DaemonTaskDefinition (ordered by revision)
+	daemonRevisions        map[string]*DaemonRevision
+	daemonDeployments      map[string]*DaemonDeployment
+	daemons                map[string]map[string]*Daemon // clusterName → daemonName → Daemon
+	daemonTaskDefinitions  map[string][]*DaemonTaskDefinition
+	daemonTaskDefByArn     map[string]*DaemonTaskDefinition
+	// daemonTaskDefs exists only for structural compatibility with purge.go's
+	// per-cluster daemon cleanup (purgeDaemonsLocked). Real daemon task
+	// definitions are registered independently by family, like ordinary task
+	// definitions — not owned by a single daemon — matching the real
+	// RegisterDaemonTaskDefinition/DescribeDaemonTaskDefinition API (see
+	// daemonTaskDefinitions/daemonTaskDefByArn and backend_daemon.go), so this
+	// map is intentionally never populated.
 	daemonTaskDefs map[string][]*DaemonTaskDefinition
-	// daemonDeployments: deploymentID → *DaemonDeployment
-	daemonDeployments map[string]*DaemonDeployment
-	// daemonRevisions: daemonArn → []*DaemonRevision (ordered by revision)
-	daemonRevisions map[string][]*DaemonRevision
-	// serviceRevisions: serviceArn → []*ServiceRevision (ordered by revision)
-	serviceRevisions map[string][]*ServiceRevision
-	// serviceRevisionsByArn: revisionArn → *ServiceRevision (fast lookup)
+	// lifecycle tracks tasks transitioning through observable intermediate states
+	// (RUNNING→DEACTIVATING→STOPPING→DEPROVISIONING→STOPPED on stop,
+	// PROVISIONING→PENDING→RUNNING on start), keyed by task ARN. Entries exist
+	// only while stopDelay/startDelay > 0; the default fast path finalizes inline.
+	lifecycle map[string]*taskLifecycle
+	// serviceRevisions and serviceRevisionsByArn exist only for structural
+	// compatibility with purge.go's per-service cleanup. This backend derives
+	// ServiceRevision snapshots on demand from each Service's Deployments (see
+	// DescribeServiceRevisions below and buildServiceRevision in
+	// backend_parity2.go) instead of persisting them separately, so these maps
+	// are intentionally never populated.
+	serviceRevisions      map[string][]*ServiceRevision
 	serviceRevisionsByArn map[string]*ServiceRevision
-	mu                    *lockmetrics.RWMutex
-	accountID             string
 	region                string
+	accountID             string
+	// clusterDeleteHooks are invoked (outside the backend lock) with each cluster
+	// key removed by DeleteCluster or Purge, so external components such as the
+	// Reconciler can release per-cluster resources and avoid unbounded growth.
+	clusterDeleteHooks []func(clusterName string)
+	// stopDelay is the per-phase delay applied to the task stop lifecycle. Zero
+	// (the default) finalizes to STOPPED immediately; positive makes the task pass
+	// through DEACTIVATING/STOPPING/DEPROVISIONING so SDK waiters observe them.
+	stopDelay time.Duration
+	// startDelay is the per-phase delay applied to the no-runner task start
+	// lifecycle (PROVISIONING→PENDING→RUNNING). Zero finalizes immediately.
+	startDelay time.Duration
+	hooksMu    sync.Mutex
 }
 
 // TaskRunner is the interface for launching container tasks.
@@ -358,16 +386,19 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 		resourceTags:           make(map[string][]Tag),
 		tasksByInstance:        make(map[string]map[string]map[string]bool),
 		serviceIndex:           make(map[svcRef]bool),
-		daemons:                make(map[string]map[string]*Daemon),
-		daemonTaskDefs:         make(map[string][]*DaemonTaskDefinition),
-		daemonDeployments:      make(map[string]*DaemonDeployment),
-		daemonRevisions:        make(map[string][]*DaemonRevision),
-		serviceRevisions:       make(map[string][]*ServiceRevision),
-		serviceRevisionsByArn:  make(map[string]*ServiceRevision),
+		lifecycle:              make(map[string]*taskLifecycle),
 		mu:                     lockmetrics.New("ecs"),
 		accountID:              accountID,
 		region:                 region,
 		runner:                 runner,
+		daemons:                make(map[string]map[string]*Daemon),
+		daemonTaskDefinitions:  make(map[string][]*DaemonTaskDefinition),
+		daemonTaskDefByArn:     make(map[string]*DaemonTaskDefinition),
+		daemonDeployments:      make(map[string]*DaemonDeployment),
+		daemonRevisions:        make(map[string]*DaemonRevision),
+		daemonTaskDefs:         make(map[string][]*DaemonTaskDefinition),
+		serviceRevisions:       make(map[string][]*ServiceRevision),
+		serviceRevisionsByArn:  make(map[string]*ServiceRevision),
 	}
 }
 
@@ -393,49 +424,54 @@ func (b *InMemoryBackend) Reset() {
 	b.tasksByInstance = make(map[string]map[string]map[string]bool)
 	b.serviceIndex = make(map[svcRef]bool)
 	b.daemons = make(map[string]map[string]*Daemon)
-	b.daemonTaskDefs = make(map[string][]*DaemonTaskDefinition)
+	b.daemonTaskDefinitions = make(map[string][]*DaemonTaskDefinition)
+	b.daemonTaskDefByArn = make(map[string]*DaemonTaskDefinition)
 	b.daemonDeployments = make(map[string]*DaemonDeployment)
-	b.daemonRevisions = make(map[string][]*DaemonRevision)
+	b.daemonRevisions = make(map[string]*DaemonRevision)
+	b.daemonTaskDefs = make(map[string][]*DaemonTaskDefinition)
 	b.serviceRevisions = make(map[string][]*ServiceRevision)
 	b.serviceRevisionsByArn = make(map[string]*ServiceRevision)
+	b.lifecycle = make(map[string]*taskLifecycle)
 }
 
-// Purge removes all ECS resources created before the given cutoff time.
-func (b *InMemoryBackend) Purge(_ context.Context, cutoff time.Time) {
-	b.mu.Lock("Purge")
-	defer b.mu.Unlock()
-
-	for name, c := range b.clusters {
-		if c.CreatedAt.Before(cutoff) {
-			for svcName := range b.services[name] {
-				delete(b.serviceIndex, svcRef{cluster: name, name: svcName})
-			}
-			delete(b.clusters, name)
-			delete(b.services, name)
-			delete(b.tasks, name)
-			delete(b.containerInstances, name)
-			delete(b.taskSets, name)
-			delete(b.attributes, name)
-		}
+// RegisterClusterDeleteHook registers a callback invoked (outside the backend
+// lock) with the key of each cluster removed by DeleteCluster or Purge. It lets
+// external components — such as the Reconciler's per-cluster launch semaphores —
+// release cluster-scoped resources and avoid unbounded growth.
+func (b *InMemoryBackend) RegisterClusterDeleteHook(fn func(clusterName string)) {
+	if fn == nil {
+		return
 	}
 
-	for family, revs := range b.taskDefinitions {
-		kept := make([]*TaskDefinition, 0, len(revs))
+	b.hooksMu.Lock()
+	defer b.hooksMu.Unlock()
 
-		for _, td := range revs {
-			if td.RegisteredAt.Before(cutoff) {
-				delete(b.taskDefByArn, td.TaskDefinitionArn)
-			} else {
-				kept = append(kept, td)
-			}
-		}
+	b.clusterDeleteHooks = append(b.clusterDeleteHooks, fn)
+}
 
-		if len(kept) == 0 {
-			delete(b.taskDefinitions, family)
-		} else {
-			b.taskDefinitions[family] = kept
+// fireClusterDeleteHooks invokes every registered cluster-delete hook for each
+// removed cluster key. Must be called without the backend lock held (hooks may
+// take their own locks).
+func (b *InMemoryBackend) fireClusterDeleteHooks(clusterNames ...string) {
+	if len(clusterNames) == 0 {
+		return
+	}
+
+	b.hooksMu.Lock()
+	hooks := make([]func(string), len(b.clusterDeleteHooks))
+	copy(hooks, b.clusterDeleteHooks)
+	b.hooksMu.Unlock()
+
+	for _, name := range clusterNames {
+		for _, h := range hooks {
+			h(name)
 		}
 	}
+}
+
+// GetRegion returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) GetRegion() string {
+	return b.region
 }
 
 // resolveCluster returns the cluster ARN/name to use, defaulting to "default".
@@ -588,15 +624,18 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		}
 	}
 
-	// Clean up task protections for all tasks in this cluster to avoid memory leaks.
+	// Clean up per-task state for all tasks in this cluster to avoid memory leaks.
 	for taskArn := range b.tasks[key] {
 		delete(b.taskProtections, taskArn)
+		delete(b.lifecycle, taskArn)
 	}
 
 	delete(b.clusters, key)
 	delete(b.services, key)
 	delete(b.tasks, key)
 	delete(b.containerInstances, key)
+	delete(b.attributes, key)
+	delete(b.tasksByInstance, key)
 
 	cp := *c
 
@@ -607,6 +646,9 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	for _, task := range tasksToStop {
 		_ = b.runner.StopTask(task)
 	}
+
+	// Notify hooks (e.g. reconciler semaphore eviction) after releasing the lock.
+	b.fireClusterDeleteHooks(key)
 
 	return &cp, nil
 }
@@ -1015,6 +1057,62 @@ func (b *InMemoryBackend) DescribeServices(
 	return out, failures, nil
 }
 
+// DescribeServiceRevisions returns the service revisions captured by past and
+// current deployments across all clusters that match the given ARNs.
+// Unknown ARNs are reported as failures, matching AWS behaviour for batch describes.
+func (b *InMemoryBackend) DescribeServiceRevisions(arns []string) ([]ServiceRevision, []Failure) {
+	b.mu.RLock("DescribeServiceRevisions")
+	defer b.mu.RUnlock()
+
+	byArn := make(map[string]ServiceRevision)
+
+	for _, svcs := range b.services {
+		for _, svc := range svcs {
+			for _, d := range svc.Deployments {
+				if d.ServiceRevisionArn == "" {
+					continue
+				}
+
+				byArn[d.ServiceRevisionArn] = buildServiceRevision(svc, d)
+			}
+		}
+	}
+
+	out := make([]ServiceRevision, 0, len(arns))
+	failures := make([]Failure, 0)
+
+	for _, arn := range arns {
+		rev, ok := byArn[arn]
+		if !ok {
+			failures = append(failures, Failure{
+				Arn:    arn,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("service revision %s not found", arn),
+			})
+
+			continue
+		}
+
+		out = append(out, rev)
+	}
+
+	return out, failures
+}
+
+// DiscoverPollEndpoint returns the ECS agent poll, Service Connect, and telemetry
+// endpoints for the configured region. Real ECS agents use this to discover which
+// regional endpoint to poll for task state updates.
+func (b *InMemoryBackend) DiscoverPollEndpoint() (string, string, string) {
+	b.mu.RLock("DiscoverPollEndpoint")
+	defer b.mu.RUnlock()
+
+	base := fmt.Sprintf("ecs-a-1.%s.amazonaws.com", b.region)
+
+	return fmt.Sprintf("https://%s/", base),
+		fmt.Sprintf("https://ecs-a-1.svc.%s.amazonaws.com/", b.region),
+		fmt.Sprintf("https://ecs-t-1.%s.amazonaws.com/", b.region)
+}
+
 // serviceKey extracts service name from an ARN or returns name as-is.
 func serviceKey(serviceRef string) string {
 	for i := len(serviceRef) - 1; i >= 0; i-- {
@@ -1304,6 +1402,10 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 		clusterName := clusterKey(clusterFromTaskARN(w.task.TaskArn))
 
 		if b.runner == nil {
+			if b.maybeRegisterStartLifecycle(w.task, clusterName) {
+				continue
+			}
+
 			b.applyNoRunnerTransition(w.task, clusterName)
 
 			continue
@@ -1326,6 +1428,23 @@ func (b *InMemoryBackend) applyPendingTransition(task *Task) {
 	if task.LastStatus == statusProvisioning {
 		task.LastStatus = statusPending
 	}
+}
+
+// maybeRegisterStartLifecycle enrolls a no-runner task in the observable start
+// pipeline when a start delay is configured, returning true if it did. When it
+// returns false the caller applies the immediate transition instead. Must be
+// called without any lock held.
+func (b *InMemoryBackend) maybeRegisterStartLifecycle(task *Task, clusterName string) bool {
+	b.mu.Lock("RunTask-registerStartLifecycle")
+	defer b.mu.Unlock()
+
+	if b.startDelay <= 0 || task.LastStatus != statusProvisioning {
+		return false
+	}
+
+	b.registerStartLifecycleLocked(task, clusterName)
+
+	return true
 }
 
 // applyNoRunnerTransition transitions a PROVISIONING task through PENDING to RUNNING
@@ -1388,6 +1507,11 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 	if c := b.clusters[clusterName]; c != nil {
 		c.PendingTasksCount--
 	}
+
+	// A failed launch for a service task counts against the deployment circuit
+	// breaker, which may trip the deployment to FAILED and (if enabled) roll the
+	// service back to its last stable task definition.
+	b.recordServiceTaskFailureLocked(clusterName, task)
 }
 
 // createTaskEntriesLocked creates task entries in PROVISIONING state.
@@ -1537,13 +1661,12 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 
 	now := time.Now()
 	prevStatus := task.LastStatus
-	task.LastStatus = statusStopped
 	task.DesiredStatus = statusStopped
-	task.StoppedAt = &now
 	task.StoppedReason = reason
-	syncContainerStatuses(task, nil)
 
-	// Update cached cluster counters.
+	// Decrement the cached cluster counters once, as the task leaves its active
+	// state. This is done up front for both the fast and delayed paths so the
+	// counters stay correct regardless of when the task finally reaches STOPPED.
 	if c := b.clusters[clusterName]; c != nil {
 		switch prevStatus {
 		case statusRunning:
@@ -1552,6 +1675,31 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 			c.PendingTasksCount--
 		}
 	}
+
+	// Delayed path: leave the task in DEACTIVATING and let the lifecycle stepper
+	// advance it through STOPPING/DEPROVISIONING/STOPPED so SDK waiters observe
+	// the intermediate states. Only used when a stop delay is configured and the
+	// task is actually in an active state.
+	if b.stopDelay > 0 && isStoppableStatus(prevStatus) {
+		task.LastStatus = statusDeactivating
+		b.lifecycle[taskArn] = &taskLifecycle{
+			clusterName: clusterName,
+			kind:        lifecycleKindStop,
+			phase:       statusDeactivating,
+			nextAt:      now.Add(b.stopDelay),
+			reason:      reason,
+		}
+
+		cp := *task
+		b.mu.Unlock()
+
+		return &cp, nil
+	}
+
+	// Fast path: transition straight to STOPPED.
+	task.LastStatus = statusStopped
+	task.StoppedAt = &now
+	syncContainerStatuses(task, nil)
 
 	instanceArn := task.ContainerInstanceArn
 	cp := *task
@@ -1571,6 +1719,18 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 	b.mu.Unlock()
 
 	return &cp, nil
+}
+
+// isStoppableStatus reports whether a task in the given state has an active
+// lifecycle that can be observably wound down (as opposed to one that is already
+// stopped or mid-transition).
+func isStoppableStatus(status string) bool {
+	switch status {
+	case statusRunning, statusPending, statusProvisioning:
+		return true
+	default:
+		return false
+	}
 }
 
 // ListTasksInput holds optional filters for ListTasks.

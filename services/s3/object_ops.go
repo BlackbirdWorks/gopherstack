@@ -169,6 +169,12 @@ func (h *S3Handler) headObject(
 		return
 	}
 
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, key, actionGetObject); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	newCtx, ok := h.attachSSEInfoToCtx(ctx, w, r)
 	if !ok {
 		return
@@ -311,6 +317,16 @@ func (h *S3Handler) putObject(
 
 		return
 	}
+
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, key, actionPutObject); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	// Strip aws-chunked / STREAMING-* framing so the stored payload (and its
+	// ETag) is the real object bytes, not the chunk-signature envelope.
+	r = maybeDecodeChunkedBody(r)
 
 	// Reject invalid tag sets (>10 tags, over-long key/value) before writing.
 	if err := validateTaggingHeader(r.Header.Get("X-Amz-Tagging")); err != nil {
@@ -645,6 +661,12 @@ func (h *S3Handler) getObject(
 		return
 	}
 
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, key, actionGetObject); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	// Propagate SSE-C key on the request through to the backend so envelope-
 	// encrypted versions can be decrypted. Errors here are surfaced before we
 	// touch any state.
@@ -676,20 +698,8 @@ func (h *S3Handler) getObject(
 		Key:       aws.String(key),
 		VersionId: vid,
 	})
-	if errors.Is(err, ErrDeleteMarker) || errors.Is(err, ErrLatestDeleteMarker) {
-		// GET of a delete marker: 405 (versioned) or 404 (latest), both carrying
-		// x-amz-delete-marker. WriteError renders the correct code/status.
-		w.Header().Set("X-Amz-Delete-Marker", "true")
-		if errors.Is(err, ErrDeleteMarker) {
-			w.Header().Set("Allow", "DELETE")
-		}
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
 	if err != nil {
-		WriteError(ctx, w, r, err)
+		h.writeGetObjectError(ctx, w, r, err)
 
 		return
 	}
@@ -730,6 +740,22 @@ func (h *S3Handler) getObject(
 	}
 
 	h.dispatchAccessLog(ctx, r, bucketName, "REST.GET.OBJECT", key, http.StatusOK, written)
+}
+
+// writeGetObjectError renders the correct error response for a failed GetObject.
+// A delete-marker error carries the x-amz-delete-marker header (and Allow: DELETE
+// for a version-targeted request); all other errors defer to WriteError.
+func (h *S3Handler) writeGetObjectError(
+	ctx context.Context, w http.ResponseWriter, r *http.Request, err error,
+) {
+	if errors.Is(err, ErrDeleteMarker) || errors.Is(err, ErrLatestDeleteMarker) {
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		if errors.Is(err, ErrDeleteMarker) {
+			w.Header().Set("Allow", "DELETE")
+		}
+	}
+
+	WriteError(ctx, w, r, err)
 }
 
 // setGetObjectResponseHeaders writes all response headers for GetObject.
@@ -876,6 +902,12 @@ func (h *S3Handler) deleteObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "DeleteObject")
+
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, key, actionDeleteObject); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
 
 	// AWS S3 supports If-Match on DeleteObject for ETag-conditional deletes.
 	// We only honour it when no version is targeted: per-version deletes are

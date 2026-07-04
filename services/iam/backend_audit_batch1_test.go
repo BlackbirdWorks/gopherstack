@@ -976,7 +976,7 @@ func TestOIDCProvider_CRUD(t *testing.T) {
 
 	b := newBackend(t)
 	clientIDs := []string{"client1"}
-	thumbprints := []string{"abc123"}
+	thumbprints := []string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"}
 
 	p, err := b.CreateOpenIDConnectProvider("https://example.com", clientIDs, thumbprints)
 	require.NoError(t, err)

@@ -1,7 +1,5 @@
 package iot
 
-import "github.com/labstack/echo/v5"
-
 // Stub operation name constants — all ops are now implemented.
 const (
 	opCancelCertificateTransfer             = "CancelCertificateTransfer"
@@ -214,13 +212,8 @@ const (
 )
 
 // allStubOps returns remaining stub operation names.
-// All ops previously listed here are now implemented — in dispatchBatch3Ops (batch3 ops)
-// or dispatchRemainingOps (new ops 2). This returns empty so GetSupportedOperations
-// uses only the explicit core list in handler.go.
+// All ops previously listed here are now implemented for real — in
+// dispatchBatch3Ops (batch3 ops) and the batch4/device-defender/final-ops/
+// indexing dispatchers wired into dispatchNewOp. This returns empty so
+// GetSupportedOperations uses only the explicit core list in handler.go.
 func allStubOps() []string { return nil }
-
-// dispatchStubOp is kept for the dispatch chain but all previously-stubbed ops are now
-// handled by dispatchBatch3Ops (via dispatchRemainingOps). This is a no-op.
-func (h *Handler) dispatchStubOp(_ *echo.Context, _ string) (bool, error) {
-	return false, nil
-}

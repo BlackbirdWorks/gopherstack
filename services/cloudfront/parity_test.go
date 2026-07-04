@@ -403,11 +403,15 @@ func TestParity_ContinuousDeploymentPolicyXMLIncludesStagingDNS(t *testing.T) {
 				"/2020-05-31/continuous-deployment-policy/"+policy.ID, nil)
 			require.Equal(t, http.StatusOK, rec.Code, tc.name)
 
+			// StagingDistributionDnsNames is a required element of ContinuousDeploymentPolicyConfig
+			// in the real API (it always carries a Quantity, 0 or more DNS names), so the wrapper
+			// element is always present; only its contents vary.
+			assert.Contains(t, rec.Body.String(), "<StagingDistributionDnsNames>", tc.name)
 			if tc.wantInXML {
-				assert.Contains(t, rec.Body.String(), "<StagingDistributionDnsNames>", tc.name)
 				assert.Contains(t, rec.Body.String(), tc.stagingDNS, tc.name)
+				assert.Contains(t, rec.Body.String(), "<Quantity>1</Quantity>", tc.name)
 			} else {
-				assert.NotContains(t, rec.Body.String(), "<StagingDistributionDnsNames>", tc.name)
+				assert.Contains(t, rec.Body.String(), "<Quantity>0</Quantity>", tc.name)
 			}
 		})
 	}
@@ -458,7 +462,7 @@ func TestParity_PersistenceBatch2RoundTrip(t *testing.T) {
 		{
 			name: "trust_store_survives_restore",
 			setup: func(b *cloudfront.InMemoryBackend) {
-				_, err := b.CreateTrustStore("my-store", "comment")
+				_, err := b.CreateTrustStore("my-store", "comment", cloudfront.TrustStoreCertificateBundle{})
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudfront.InMemoryBackend) {
@@ -471,7 +475,9 @@ func TestParity_PersistenceBatch2RoundTrip(t *testing.T) {
 		{
 			name: "streaming_distribution_survives_restore",
 			setup: func(b *cloudfront.InMemoryBackend) {
-				_, err := b.CreateStreamingDistribution([]byte(`<StreamingDistributionConfig/>`))
+				_, err := b.CreateStreamingDistribution(
+					cloudfront.StreamingDistributionConfig{}, []byte(`<StreamingDistributionConfig/>`),
+				)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudfront.InMemoryBackend) {
@@ -501,7 +507,7 @@ func TestParity_PersistenceBatch2RoundTrip(t *testing.T) {
 			setup: func(b *cloudfront.InMemoryBackend) {
 				d, err := b.CreateDistribution("ref-ten", "test", true, nil)
 				require.NoError(t, err)
-				_, err = b.CreateDistributionTenant(d.ID, "tenant.example.com", nil)
+				_, err = b.CreateDistributionTenant(d.ID, "parity-tenant", []string{"tenant.example.com"}, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudfront.InMemoryBackend) {

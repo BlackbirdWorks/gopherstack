@@ -3,8 +3,10 @@ package iotwireless
 // handler_ops.go — real handler implementations for IoT Wireless operations.
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -143,9 +145,16 @@ func (h *Handler) disassociateWirelessDeviceFromMulticastGroup(
 	return nil
 }
 
-func (h *Handler) getMulticastGroupSession(c *echo.Context, _ string) error {
+func (h *Handler) getMulticastGroupSession(c *echo.Context, id string) error {
+	startedAt, err := h.Backend.GetMulticastGroupSession(id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
 	return writeJSON(c, http.StatusOK, getMulticastGroupSessionResponse{
-		LoRaWAN: map[string]any{},
+		LoRaWAN: map[string]any{
+			"SessionStartTime": startedAt.Format(time.RFC3339),
+		},
 	})
 }
 
@@ -356,19 +365,35 @@ func (h *Handler) getWirelessGatewayCertificate(c *echo.Context, id string) erro
 	})
 }
 
-func (h *Handler) getWirelessGatewayStatistics(c *echo.Context, _ string) error {
-	return writeJSON(c, http.StatusOK, getWirelessGatewayStatisticsResponse{
-		ConnectionStatus: "Connected",
-	})
+func (h *Handler) getWirelessGatewayStatistics(c *echo.Context, id string) error {
+	gw, err := h.Backend.GetWirelessGateway(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	resp := getWirelessGatewayStatisticsResponse{
+		WirelessGatewayID: gw.ID,
+		ConnectionStatus:  gw.ConnectionStatus,
+	}
+	if gw.LastUplinkReceivedAt != nil {
+		resp.LastUplinkReceivedAt = gw.LastUplinkReceivedAt.UTC().Format(time.RFC3339)
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
-func (h *Handler) getWirelessGatewayFirmwareInformation(c *echo.Context, _ string) error {
+func (h *Handler) getWirelessGatewayFirmwareInformation(c *echo.Context, id string) error {
+	gw, err := h.Backend.GetWirelessGateway(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"LoRaWAN": map[string]any{
 			"CurrentVersion": map[string]any{
-				"PackageVersion": "1.0.0",
-				"Model":          "GW-001",
-				"Station":        "LNS",
+				"PackageVersion": gw.FirmwareVersion,
+				"Model":          gw.FirmwareModel,
+				"Station":        gw.FirmwareStation,
 			},
 		},
 	})
@@ -420,25 +445,48 @@ func (h *Handler) disassociateWirelessDeviceFromThing(c *echo.Context, id string
 	return nil
 }
 
-func (h *Handler) sendDataToWirelessDevice(c *echo.Context, id string) error {
+func (h *Handler) sendDataToWirelessDevice(c *echo.Context, wirelessDeviceID string) error {
 	var req struct {
 		PayloadData string `json:"PayloadData"`
 	}
+
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
-	msgID := uuid.NewString()
-	_ = h.Backend.EnqueueDownlinkMessage(id, msgID, req.PayloadData)
+
+	messageID := uuid.NewString()
+
+	// Real cross-op state: queue the downlink message so a subsequent
+	// ListQueuedMessages reflects it, instead of silently discarding it.
+	h.Backend.EnqueueMessage(wirelessDeviceID, QueuedMessage{
+		MessageID:     messageID,
+		PayloadBase64: req.PayloadData,
+		ReceivedAt:    time.Now(),
+	})
 
 	return writeJSON(c, http.StatusCreated, sendDataToWirelessDeviceResponse{
-		MessageID: msgID,
+		MessageID: messageID,
 	})
 }
 
-func (h *Handler) getWirelessDeviceStatistics(c *echo.Context, _ string) error {
-	return writeJSON(c, http.StatusOK, getWirelessDeviceStatisticsResponse{})
+func (h *Handler) getWirelessDeviceStatistics(c *echo.Context, id string) error {
+	dev, err := h.Backend.GetWirelessDevice(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	resp := getWirelessDeviceStatisticsResponse{WirelessDeviceID: dev.ID}
+	if dev.LastUplinkReceivedAt != nil {
+		resp.LastUplinkReceivedAt = dev.LastUplinkReceivedAt.UTC().Format(time.RFC3339)
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
-func (h *Handler) testWirelessDevice(c *echo.Context, _ string) error {
+func (h *Handler) testWirelessDevice(c *echo.Context, id string) error {
+	if _, err := h.Backend.GetWirelessDevice(h.AccountID, h.DefaultRegion, id); err != nil {
+		return handleError(c, err)
+	}
+
 	return writeJSON(c, http.StatusOK, testWirelessDeviceResponse{
 		Result: "PASS",
 	})
@@ -550,50 +598,62 @@ func (h *Handler) resetResourceLogLevel(c *echo.Context, id string) error {
 }
 
 // ============================================================
-// Group 8 — Event configuration operations (stateless stubs)
+// Group 8 — Event configuration operations (real backend state)
 // ============================================================
 
-func (h *Handler) getEventConfigurationByResourceTypes(c *echo.Context) error {
-	cfg := h.Backend.GetEventConfigByResourceTypes()
+// eventConfigDocFromBody unmarshals an EventConfigDoc from a raw JSON request
+// body, ignoring malformed input (matching the package's existing convention
+// of treating unparsed bodies as empty).
+func eventConfigDocFromBody(body []byte) *EventConfigDoc {
+	var doc EventConfigDoc
 
-	return writeJSON(c, http.StatusOK, cfg)
+	_ = json.Unmarshal(body, &doc)
+
+	return &doc
+}
+
+func (h *Handler) getEventConfigurationByResourceTypes(c *echo.Context) error {
+	doc := h.Backend.GetEventConfigurationByResourceTypes()
+
+	return writeJSON(c, http.StatusOK, eventConfigDocResponseFrom(doc))
 }
 
 func (h *Handler) updateEventConfigurationByResourceTypes(c *echo.Context) error {
-	var req map[string]any
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
-	if req == nil {
-		req = map[string]any{}
-	}
-	_ = h.Backend.UpdateEventConfigByResourceTypes(req)
+	h.Backend.UpdateEventConfigurationByResourceTypes(eventConfigDocFromBody(body))
 
 	return stubNoContent(c)
 }
 
 func (h *Handler) listEventConfigurations(c *echo.Context) error {
-	cfgs := h.Backend.ListResourceEventConfigs()
+	resourceType := c.QueryParam("resourceType")
+	entries := h.Backend.ListEventConfigurations(resourceType)
+
+	items := make([]eventConfigurationItemResponse, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, eventConfigurationItemResponseFrom(e))
+	}
 
 	return writeJSON(c, http.StatusOK, listEventConfigurationsResponse{
-		EventConfigurationsList: cfgs,
+		EventConfigurationsList: items,
 	})
 }
 
-func (h *Handler) getResourceEventConfiguration(c *echo.Context, resourceID string) error {
-	cfg := h.Backend.GetResourceEventConfig(resourceID)
+func (h *Handler) getResourceEventConfiguration(c *echo.Context, identifier string) error {
+	entry, ok := h.Backend.GetResourceEventConfiguration(identifier)
+	if !ok {
+		return writeJSON(c, http.StatusOK, eventConfigDocResponse{})
+	}
 
-	return writeJSON(c, http.StatusOK, cfg)
+	return writeJSON(c, http.StatusOK, eventConfigDocResponseFrom(&entry.Config))
 }
 
-func (h *Handler) updateResourceEventConfiguration(c *echo.Context, resourceID string) error {
-	var req map[string]any
+func (h *Handler) updateResourceEventConfiguration(c *echo.Context, identifier string) error {
+	identifierType := c.QueryParam("identifierType")
+	partnerType := c.QueryParam("partnerType")
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
-	if req == nil {
-		req = map[string]any{}
-	}
-	req["Identifier"] = resourceID
-	_ = h.Backend.UpdateResourceEventConfig(resourceID, req)
+
+	h.Backend.UpdateResourceEventConfiguration(identifier, identifierType, partnerType, eventConfigDocFromBody(body))
 
 	return stubNoContent(c)
 }
@@ -605,22 +665,26 @@ func (h *Handler) updateResourceEventConfiguration(c *echo.Context, resourceID s
 func (h *Handler) getPartnerAccount(c *echo.Context, partnerAccountID string) error {
 	arn, err := h.Backend.GetPartnerAccount(partnerAccountID)
 	if err != nil {
-		// Return empty response rather than 404 for compatibility.
-		return writeJSON(c, http.StatusOK, getPartnerAccountResponse{})
+		// GetPartnerAccount reports link status rather than 404ing on an
+		// unlinked account — matching AWS's use of it as a link-status check.
+		return writeJSON(c, http.StatusOK, getPartnerAccountResponse{AccountLinked: false})
 	}
 
 	return writeJSON(c, http.StatusOK, getPartnerAccountResponse{
-		Arn:       arn,
-		AccountID: partnerAccountID,
+		AccountLinked: true,
+		Sidewalk:      &sidewalkAccountInfo{AmazonID: partnerAccountID, Arn: arn},
 	})
 }
 
 func (h *Handler) listPartnerAccounts(c *echo.Context) error {
-	_ = h.Backend.ListPartnerAccounts()
+	accounts := h.Backend.ListPartnerAccounts()
 
-	return writeJSON(c, http.StatusOK, listPartnerAccountsResponse{
-		Sidewalk: []struct{}{},
-	})
+	sidewalk := make([]sidewalkAccountInfo, 0, len(accounts))
+	for id, arn := range accounts {
+		sidewalk = append(sidewalk, sidewalkAccountInfo{AmazonID: id, Arn: arn})
+	}
+
+	return writeJSON(c, http.StatusOK, listPartnerAccountsResponse{Sidewalk: sidewalk})
 }
 
 func (h *Handler) disassociateAwsAccountFromPartnerAccount(
@@ -633,7 +697,11 @@ func (h *Handler) disassociateAwsAccountFromPartnerAccount(
 	return stubNoContent(c)
 }
 
-func (h *Handler) updatePartnerAccount(c *echo.Context, _ string) error {
+func (h *Handler) updatePartnerAccount(c *echo.Context, partnerAccountID string) error {
+	if _, err := h.Backend.GetPartnerAccount(partnerAccountID); err != nil {
+		return handleError(c, err)
+	}
+
 	return stubNoContent(c)
 }
 
@@ -664,11 +732,7 @@ func (h *Handler) createWirelessGatewayTask(c *echo.Context, gatewayID string) e
 func (h *Handler) getWirelessGatewayTask(c *echo.Context, gatewayID string) error {
 	task, err := h.Backend.GetWirelessGatewayTask(gatewayID)
 	if err != nil {
-		// Return stub response if not found, for API compatibility.
-		return writeJSON(c, http.StatusOK, getWirelessGatewayTaskResponse{
-			WirelessGatewayID: gatewayID,
-			Status:            "PENDING",
-		})
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, getWirelessGatewayTaskResponse{
@@ -761,11 +825,44 @@ func (h *Handler) deleteWirelessGatewayTaskDefinition(c *echo.Context, id string
 // Group 11 — Position operations
 // ============================================================
 
+// positionCoords extracts a []float64 from a stored position map's
+// "Position" key (a []any of JSON numbers, since the map is populated by
+// generic json.Unmarshal).
+func positionCoords(pos map[string]any) []float64 {
+	raw, ok := pos["Position"].([]any)
+	if !ok {
+		return nil
+	}
+
+	coords := make([]float64, 0, len(raw))
+
+	for _, v := range raw {
+		if f, isFloat := v.(float64); isFloat {
+			coords = append(coords, f)
+		}
+	}
+
+	return coords
+}
+
 func (h *Handler) getPosition(c *echo.Context, id string) error {
-	_ = h.Backend.GetPosition(id)
+	pos := h.Backend.GetPosition(id)
+
+	coords := positionCoords(pos)
+	if coords == nil {
+		// No position data has ever been submitted for this resource: return
+		// the correct "no data available" shape (empty Position, no Accuracy).
+		return writeJSON(c, http.StatusOK, getPositionResponse{Position: []float64{}})
+	}
+
+	// A value of 0.0 indicates that position data is available (see
+	// GetPositionOutput.Accuracy doc); this is a manual override so no solver
+	// metadata is reported.
+	accuracy := 0.0
 
 	return writeJSON(c, http.StatusOK, getPositionResponse{
-		Position: []float64{},
+		Position: coords,
+		Accuracy: &accuracy,
 	})
 }
 
@@ -779,29 +876,47 @@ func (h *Handler) updatePosition(c *echo.Context, id string) error {
 	return stubNoContent(c)
 }
 
-func (h *Handler) getPositionConfiguration(c *echo.Context, resourceID string) error {
-	cfg := h.Backend.GetPositionConfig(resourceID)
+func (h *Handler) getPositionConfiguration(c *echo.Context, id string) error {
+	entry, ok := h.Backend.GetPositionConfiguration(id)
+	if !ok {
+		return writeJSON(c, http.StatusOK, getPositionConfigurationResponse{})
+	}
 
-	return writeJSON(c, http.StatusOK, cfg)
+	return writeJSON(c, http.StatusOK, getPositionConfigurationResponse{
+		Destination: entry.Destination,
+		Solvers:     entry.Solvers,
+	})
 }
 
-func (h *Handler) putPositionConfiguration(c *echo.Context, resourceID string) error {
-	var req map[string]any
+func (h *Handler) putPositionConfiguration(c *echo.Context, id string) error {
+	resourceType := c.QueryParam("resourceType")
+
+	var req struct {
+		Solvers     map[string]any `json:"Solvers"`
+		Destination string         `json:"Destination"`
+	}
+
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
-	if req == nil {
-		req = map[string]any{}
+
+	if err := h.Backend.PutPositionConfiguration(id, resourceType, req.Destination, req.Solvers); err != nil {
+		return handleError(c, err)
 	}
-	_ = h.Backend.PutPositionConfig(resourceID, req)
 
 	return stubNoContent(c)
 }
 
 func (h *Handler) listPositionConfigurations(c *echo.Context) error {
-	configs := h.Backend.ListPositionConfigs()
+	resourceType := c.QueryParam("resourceType")
+	entries := h.Backend.ListPositionConfigurations(resourceType)
+
+	items := make([]positionConfigurationItemResponse, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, positionConfigurationItemResponseFrom(e))
+	}
 
 	return writeJSON(c, http.StatusOK, listPositionConfigurationsResponse{
-		PositionConfigurationList: configs,
+		PositionConfigurationList: items,
 	})
 }
 
@@ -811,16 +926,18 @@ func (h *Handler) listPositionConfigurations(c *echo.Context) error {
 
 func (h *Handler) listQueuedMessages(c *echo.Context, wirelessDeviceID string) error {
 	msgs := h.Backend.ListQueuedMessages(wirelessDeviceID)
-	entries := make([]map[string]any, 0, len(msgs))
+
+	items := make([]downlinkQueueMessageResponse, 0, len(msgs))
 	for _, m := range msgs {
-		entries = append(entries, map[string]any{
-			"MessageId":   m.MessageID,
-			"PayloadData": m.PayloadBase64,
+		items = append(items, downlinkQueueMessageResponse{
+			MessageID:    m.MessageID,
+			ReceivedAt:   m.ReceivedAt.UTC().Format(time.RFC3339),
+			TransmitMode: m.TransmitMode,
 		})
 	}
 
 	return writeJSON(c, http.StatusOK, listQueuedMessagesResponse{
-		DownlinkQueueMessagesList: entries,
+		DownlinkQueueMessagesList: items,
 	})
 }
 
@@ -839,45 +956,61 @@ func (h *Handler) deleteQueuedMessages(c *echo.Context, wirelessDeviceID string)
 // ============================================================
 
 func (h *Handler) getMetricConfiguration(c *echo.Context) error {
-	cfg := h.Backend.GetMetricConfiguration()
-	if len(cfg) == 0 {
-		cfg = map[string]any{"SummaryMetric": map[string]any{"Status": "Disable"}}
-	}
+	status := h.Backend.GetMetricConfigurationStatus()
 
-	return writeJSON(c, http.StatusOK, cfg)
+	return writeJSON(c, http.StatusOK, getMetricConfigurationResponse{
+		SummaryMetric: summaryMetricConfigurationResponse{Status: status},
+	})
 }
 
-//nolint:unparam // error is always nil; method signature required by handler dispatch pattern
 func (h *Handler) updateMetricConfiguration(c *echo.Context) error {
-	var req map[string]any
+	var req struct {
+		SummaryMetric struct {
+			Status string `json:"Status"`
+		} `json:"SummaryMetric"`
+	}
+
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
-	if req == nil {
-		req = map[string]any{}
+
+	if err := h.Backend.UpdateMetricConfigurationStatus(req.SummaryMetric.Status); err != nil {
+		return handleError(c, err)
 	}
-	_ = h.Backend.UpdateMetricConfiguration(req)
+
 	c.Response().WriteHeader(http.StatusNoContent)
 
 	return nil
 }
 
+// getServiceEndpoint returns the CUPS or LNS endpoint for the requested
+// serviceType and the handler's configured region. AWS defaults to CUPS when
+// serviceType is omitted.
 func (h *Handler) getServiceEndpoint(c *echo.Context) error {
-	serviceType := c.QueryParam("ServiceType")
+	serviceType := c.QueryParam("serviceType")
 	if serviceType == "" {
-		serviceType = "CUPS"
+		serviceType = stubServiceType
 	}
 
-	var endpoint string
+	region := h.DefaultRegion
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	var host string
+
 	switch serviceType {
+	case "CUPS":
+		host = "cups.lorawan." + region + ".amazonaws.com"
 	case "LNS":
-		endpoint = "https://lns.lorawan." + h.DefaultRegion + ".amazonaws.com"
+		host = "lns.lorawan." + region + ".amazonaws.com"
 	default:
-		endpoint = "https://cups.lorawan." + h.DefaultRegion + ".amazonaws.com"
+		return writeError(c, http.StatusBadRequest, "ValidationException: invalid serviceType "+serviceType)
 	}
 
 	return writeJSON(c, http.StatusOK, getServiceEndpointResponse{
 		ServiceType:     serviceType,
-		ServiceEndpoint: endpoint,
+		ServiceEndpoint: "https://" + host,
+		ServerTrust:     "",
 	})
 }
 
@@ -994,7 +1127,24 @@ func (h *Handler) listWirelessDeviceImportTasks(c *echo.Context) error {
 }
 
 func (h *Handler) listDevicesForWirelessDeviceImportTask(c *echo.Context) error {
+	id := c.QueryParam("id")
+	if id == "" {
+		// The Id query parameter is required by AWS, but clients that omit it
+		// still get a well-formed (empty) list rather than a validation error,
+		// matching this package's existing lenient-parsing convention.
+		return writeJSON(c, http.StatusOK, listDevicesForWirelessDeviceImportTaskResponse{
+			ImportedWirelessDeviceList: []struct{}{},
+		})
+	}
+
+	task, err := h.Backend.GetWirelessDeviceImportTask(id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
 	return writeJSON(c, http.StatusOK, listDevicesForWirelessDeviceImportTaskResponse{
+		DestinationName:            task.DestinationName,
+		Positioning:                "Disabled",
 		ImportedWirelessDeviceList: []struct{}{},
 	})
 }
@@ -1013,18 +1163,87 @@ func (h *Handler) sendDataToMulticastGroup(c *echo.Context, _ string) error {
 // Group 17 — Metric, position, misc stateless operations
 // ============================================================
 
+// getMetrics maps each requested SummaryMetricQuery to a corresponding
+// result entry (QueryId echoed, status Succeeded with no aggregated values),
+// since this emulator does not ingest telemetry to compute real metric
+// values. This mirrors AWS's per-query response shape rather than fabricating
+// a query-count-independent empty list.
 func (h *Handler) getMetrics(c *echo.Context) error {
+	var req struct {
+		SummaryMetricQueries []struct {
+			QueryID    string `json:"QueryId"`
+			MetricName string `json:"MetricName"`
+		} `json:"SummaryMetricQueries"`
+	}
+
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+
+	results := make([]summaryMetricQueryResultResponse, 0, len(req.SummaryMetricQueries))
+	for _, q := range req.SummaryMetricQueries {
+		results = append(results, summaryMetricQueryResultResponse{
+			QueryID:     q.QueryID,
+			QueryStatus: "Succeeded",
+			MetricName:  q.MetricName,
+			Values:      []float64{},
+		})
+	}
+
 	return writeJSON(c, http.StatusOK, getMetricsResponse{
-		SummaryMetricQueryResults: []struct{}{},
+		SummaryMetricQueryResults: results,
 	})
 }
 
+// getPositionEstimate computes a position estimate from the submitted
+// Wi-Fi/cellular/GNSS/IP measurement data. This emulator cannot perform real
+// satellite/RF geolocation solving, so it returns a structurally correct
+// GeoJSON payload (matching AWS's wire shape) rather than a null/empty body.
 func (h *Handler) getPositionEstimate(c *echo.Context) error {
-	return writeJSON(c, http.StatusOK, getPositionEstimateResponse{})
+	geoJSON := geoJSONPointPayload([]float64{0, 0}, map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	})
+
+	return writeJSON(c, http.StatusOK, getPositionEstimateResponse{GeoJSONPayload: geoJSON})
 }
 
+// getResourcePosition echoes back the raw GeoJSON payload most recently
+// submitted via UpdateResourcePosition for this resource.
 func (h *Handler) getResourcePosition(c *echo.Context, id string) error {
-	_ = h.Backend.GetPosition(id)
+	pos := h.Backend.GetPosition(id)
 
-	return writeJSON(c, http.StatusOK, getResourcePositionResponse{})
+	raw, ok := pos["GeoJsonPayload"].(string)
+	if !ok || raw == "" {
+		return writeJSON(c, http.StatusOK, getResourcePositionResponse{})
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return writeJSON(c, http.StatusOK, getResourcePositionResponse{})
+	}
+
+	return writeJSON(c, http.StatusOK, getResourcePositionResponse{GeoJSONPayload: decoded})
+}
+
+// geoJSONPointPayload builds a GeoJSON Point Feature payload for the given
+// coordinates, matching the wire shape AWS returns for GeoJsonPayload fields.
+func geoJSONPointPayload(coords []float64, properties map[string]any) []byte {
+	if properties == nil {
+		properties = map[string]any{}
+	}
+
+	payload := map[string]any{
+		"type": "Feature",
+		"geometry": map[string]any{
+			"type":        "Point",
+			"coordinates": coords,
+		},
+		"properties": properties,
+	}
+
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return []byte("{}")
+	}
+
+	return b
 }

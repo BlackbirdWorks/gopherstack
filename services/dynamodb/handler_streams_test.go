@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 	"github.com/labstack/echo/v5"
@@ -110,11 +109,33 @@ func TestHandler_StreamsDispatch(t *testing.T) {
 	t.Run("GetRecords returns INSERT record", func(t *testing.T) {
 		t.Parallel()
 
-		handler, _ := newStreamEnabledHandler(t)
-		// Use current timestamp so the 3-part iterator (tableName:startSeq:timestamp) is valid.
-		iter := fmt.Sprintf("StreamHandlerTable:0:%d", time.Now().Unix())
-		w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"`+iter+`"}`)
+		handler, arn := newStreamEnabledHandler(t)
 
+		// First, DescribeStream to get the Shard ID
+		wDesc := doStreamsRequest(t, handler, "DescribeStream", `{"StreamArn":"`+arn+`"}`)
+		assert.Equal(t, http.StatusOK, wDesc.Code)
+		var descResp struct {
+			StreamDescription struct {
+				Shards []struct {
+					ShardID string `json:"ShardId"`
+				} `json:"Shards"`
+			} `json:"StreamDescription"`
+		}
+		require.NoError(t, json.Unmarshal(wDesc.Body.Bytes(), &descResp))
+		require.NotEmpty(t, descResp.StreamDescription.Shards)
+		shardID := descResp.StreamDescription.Shards[0].ShardID
+
+		// Then, GetShardIterator to get the iterator token
+		iterReq := fmt.Sprintf(`{"StreamArn":"%s","ShardId":"%s","ShardIteratorType":"TRIM_HORIZON"}`, arn, shardID)
+		wIter := doStreamsRequest(t, handler, "GetShardIterator", iterReq)
+		assert.Equal(t, http.StatusOK, wIter.Code)
+		var iterResp struct {
+			ShardIterator string `json:"ShardIterator"`
+		}
+		require.NoError(t, json.Unmarshal(wIter.Body.Bytes(), &iterResp))
+		require.NotEmpty(t, iterResp.ShardIterator)
+
+		w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"`+iterResp.ShardIterator+`"}`)
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "Records")
 		assert.Contains(t, w.Body.String(), "INSERT")

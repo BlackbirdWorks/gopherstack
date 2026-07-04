@@ -40,6 +40,7 @@ const (
 	attrSourceDest    = "sourceDestCheck"
 	ec2BooleanTrue    = "true"
 	volTypeDefaultGP2 = "gp2"
+	volTypeGP3        = "gp3"
 )
 
 // KeyPair represents an EC2 key pair.
@@ -126,25 +127,31 @@ type NatGateway struct {
 	CreateTime   time.Time `json:"createTime"`
 	ID           string    `json:"id,omitempty"`
 	SubnetID     string    `json:"subnetID,omitempty"`
+	VPCID        string    `json:"vpcID,omitempty"`
 	AllocationID string    `json:"allocationID,omitempty"`
 	PublicIP     string    `json:"publicIP,omitempty"`
 	PrivateIP    string    `json:"privateIP,omitempty"`
 	State        string    `json:"state,omitempty"`
+	// SecondaryPrivateIPs holds additional private IPs assigned via
+	// AssignPrivateNatGatewayAddress and removed via
+	// UnassignPrivateNatGatewayAddress.
+	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
 }
 
 // NetworkInterface represents an EC2 Network Interface (ENI).
 type NetworkInterface struct {
-	ID                  string   `json:"id,omitempty"`
-	SubnetID            string   `json:"subnetID,omitempty"`
-	VPCID               string   `json:"vpcID,omitempty"`
-	PrivateIP           string   `json:"privateIP,omitempty"`
-	Description         string   `json:"description,omitempty"`
-	InstanceID          string   `json:"instanceID,omitempty"`
-	AttachmentID        string   `json:"attachmentID,omitempty"`
-	Status              string   `json:"status,omitempty"`
-	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
-	DeviceIndex         int      `json:"deviceIndex,omitempty"`
-	SourceDestCheck     bool     `json:"sourceDestCheck,omitempty"`
+	ID                    string   `json:"id,omitempty"`
+	SubnetID              string   `json:"subnetID,omitempty"`
+	VPCID                 string   `json:"vpcID,omitempty"`
+	PrivateIP             string   `json:"privateIP,omitempty"`
+	Description           string   `json:"description,omitempty"`
+	InstanceID            string   `json:"instanceID,omitempty"`
+	AttachmentID          string   `json:"attachmentID,omitempty"`
+	Status                string   `json:"status,omitempty"`
+	PublicDNSHostnameType string   `json:"publicDnsHostnameType,omitempty"`
+	SecondaryPrivateIPs   []string `json:"secondaryPrivateIPs,omitempty"`
+	DeviceIndex           int      `json:"deviceIndex,omitempty"`
+	SourceDestCheck       bool     `json:"sourceDestCheck,omitempty"`
 }
 
 // SpotLaunchSpecification holds launch parameters for a spot instance request.
@@ -182,6 +189,9 @@ type AMIStub struct {
 	Platform       string `json:"platform,omitempty"`
 	RootDeviceName string `json:"rootDeviceName,omitempty"`
 	State          string `json:"state,omitempty"`
+	// SourceImageID is the parent AMI this image was copied from via
+	// CopyImage, or empty for root images. Used by GetImageAncestry.
+	SourceImageID string `json:"sourceImageID,omitempty"`
 }
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
@@ -1048,7 +1058,8 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	b.mu.Lock("CreateNatGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.subnets[subnetID]; !ok {
+	subnet, ok := b.subnets[subnetID]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
@@ -1061,6 +1072,7 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	ngw := &NatGateway{
 		ID:           id,
 		SubnetID:     subnetID,
+		VPCID:        subnet.VPCID,
 		AllocationID: allocationID,
 		PublicIP:     addr.PublicIP,
 		PrivateIP:    b.allocPrivateIP(),
@@ -1068,6 +1080,7 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 		CreateTime:   time.Now(),
 	}
 	b.natGateways[id] = ngw
+	b.indexNatGatewayLocked(ngw)
 
 	return ngw, nil
 }
@@ -1083,6 +1096,7 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	}
 
 	b.recycleIPLocked(ngw.PrivateIP)
+	b.deindexNatGatewayLocked(ngw)
 	delete(b.natGateways, id)
 	delete(b.tags, id)
 
@@ -1250,12 +1264,15 @@ func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 	return nil
 }
 
-// removeRule removes matching SecurityGroupRule entries from a slice.
+// removeRule removes matching SecurityGroupRule entries from a slice. Matching
+// ignores Description (see ruleKey): revoking a rule doesn't require quoting
+// back whatever description it may have been given.
 func removeRule(rules []SecurityGroupRule, target SecurityGroupRule) []SecurityGroupRule {
+	key := ruleKey(target)
 	out := rules[:0]
 
 	for _, r := range rules {
-		if r != target {
+		if ruleKey(r) != key {
 			out = append(out, r)
 		}
 	}
@@ -1293,6 +1310,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 	}
 	b.networkInterfaces[id] = eni
 	b.indexENILocked(id, eni)
+	b.indexENIByVPCLocked(id, eni)
 
 	return eni, nil
 }
@@ -1319,6 +1337,7 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 
 	b.recycleENIIPsLocked(eni)
 	b.deindexENILocked(id, eni)
+	b.deindexENIByVPCLocked(id, eni)
 	delete(b.networkInterfaces, id)
 	delete(b.tags, id)
 

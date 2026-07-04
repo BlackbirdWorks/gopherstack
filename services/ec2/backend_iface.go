@@ -610,6 +610,193 @@ type Backend interface {
 	// DisassociateTransitGatewayRouteTable removes an association between a TGW attachment and route table.
 	DisassociateTransitGatewayRouteTable(routeTableID, attachmentID string) error
 
+	// GetTransitGatewayRouteTableAssociations returns the attachment associations for a TGW route table.
+	GetTransitGatewayRouteTableAssociations(
+		routeTableID string,
+	) ([]*TransitGatewayRouteTableAssociation, error)
+
+	// GetTransitGatewayRouteTablePropagations returns the propagations for a TGW route table.
+	GetTransitGatewayRouteTablePropagations(
+		routeTableID string,
+	) ([]*TransitGatewayRouteTablePropagation, error)
+
+	// GetTransitGatewayAttachmentPropagations returns the route tables an attachment propagates into.
+	GetTransitGatewayAttachmentPropagations(
+		attachmentID string,
+	) ([]*TransitGatewayAttachmentPropagation, error)
+
+	// SearchTransitGatewayRoutes returns the routes in a TGW route table matching the given filters.
+	SearchTransitGatewayRoutes(
+		routeTableID string,
+		filters map[string][]string,
+	) ([]*TransitGatewayRoute, error)
+
+	// ExportTransitGatewayRoutes exports the routes in a TGW route table to S3, returning the S3 URL.
+	ExportTransitGatewayRoutes(routeTableID, s3Bucket string) (string, error)
+
+	// ModifyTransitGatewayVpcAttachment adds and/or removes subnets from a TGW VPC attachment.
+	ModifyTransitGatewayVpcAttachment(
+		attachmentID string,
+		addSubnetIDs, removeSubnetIDs []string,
+	) (*TransitGatewayVpcAttachment, error)
+
+	// RejectTransitGatewayVpcAttachment rejects a pending TGW VPC attachment.
+	RejectTransitGatewayVpcAttachment(attachmentID string) (*TransitGatewayVpcAttachment, error)
+
+	// RejectTransitGatewayPeeringAttachment rejects a pending TGW peering attachment.
+	RejectTransitGatewayPeeringAttachment(
+		attachmentID string,
+	) (*TransitGatewayPeeringAttachment, error)
+
+	// RejectTransitGatewayMulticastDomainAssociations rejects a request to associate
+	// subnets with a transit gateway multicast domain.
+	RejectTransitGatewayMulticastDomainAssociations(
+		domainID, attachmentID string,
+		subnetIDs []string,
+	) ([]*TransitGatewayMulticastDomainAssociation, error)
+
+	// ModifyTransitGatewayMeteringPolicy adds and/or removes middlebox attachment IDs
+	// from a TGW metering policy.
+	ModifyTransitGatewayMeteringPolicy(
+		policyID string,
+		addAttachmentIDs, removeAttachmentIDs []string,
+	) (*TransitGatewayMeteringPolicy, error)
+
+	// GetTransitGatewayMeteringPolicyEntries returns the entries for a TGW metering policy.
+	GetTransitGatewayMeteringPolicyEntries(
+		policyID string,
+	) ([]*TransitGatewayMeteringPolicyEntry, error)
+
+	// ---- Transit Gateway Policy Tables ----
+
+	// CreateTransitGatewayPolicyTable creates a new policy table on a transit gateway.
+	CreateTransitGatewayPolicyTable(tgwID string) (*TransitGatewayPolicyTable, error)
+
+	// DescribeTransitGatewayPolicyTables returns policy tables, optionally filtered by ID.
+	DescribeTransitGatewayPolicyTables(ids []string) []*TransitGatewayPolicyTable
+
+	// DeleteTransitGatewayPolicyTable removes a policy table.
+	DeleteTransitGatewayPolicyTable(id string) error
+
+	// AssociateTransitGatewayPolicyTable associates a TGW attachment with a policy table.
+	AssociateTransitGatewayPolicyTable(
+		policyTableID, attachmentID string,
+	) (*TransitGatewayPolicyTableAssociation, error)
+
+	// DisassociateTransitGatewayPolicyTable removes an association between a TGW
+	// attachment and a policy table.
+	DisassociateTransitGatewayPolicyTable(
+		policyTableID, attachmentID string,
+	) (*TransitGatewayPolicyTableAssociation, error)
+
+	// GetTransitGatewayPolicyTableAssociations returns the attachment associations for a policy table.
+	GetTransitGatewayPolicyTableAssociations(
+		policyTableID string,
+	) []*TransitGatewayPolicyTableAssociation
+
+	// GetTransitGatewayPolicyTableEntries validates a policy table exists (entries are
+	// always empty; see the type doc comment on TransitGatewayPolicyTableEntry usage
+	// in the handler layer).
+	GetTransitGatewayPolicyTableEntries(policyTableID string) error
+
+	// ---- Transit Gateway Route Table Announcements ----
+
+	// CreateTransitGatewayRouteTableAnnouncement announces a TGW route table across a
+	// peering attachment.
+	CreateTransitGatewayRouteTableAnnouncement(
+		routeTableID, peeringAttachmentID string,
+	) (*TransitGatewayRouteTableAnnouncement, error)
+
+	// DescribeTransitGatewayRouteTableAnnouncements returns route table announcements,
+	// optionally filtered by ID.
+	DescribeTransitGatewayRouteTableAnnouncements(ids []string) []*TransitGatewayRouteTableAnnouncement
+
+	// DeleteTransitGatewayRouteTableAnnouncement removes a route table announcement.
+	DeleteTransitGatewayRouteTableAnnouncement(id string) error
+
+	// ---- Transit Gateway Multicast Domains ----
+
+	// CreateTransitGatewayMulticastDomain creates a new multicast domain on a transit gateway.
+	CreateTransitGatewayMulticastDomain(
+		tgwID, autoAcceptSharedAssociations, igmpv2Support, staticSourcesSupport string,
+	) (*TransitGatewayMulticastDomain, error)
+
+	// DescribeTransitGatewayMulticastDomains returns multicast domains, optionally filtered by ID.
+	DescribeTransitGatewayMulticastDomains(ids []string) []*TransitGatewayMulticastDomain
+
+	// DeleteTransitGatewayMulticastDomain removes a multicast domain.
+	DeleteTransitGatewayMulticastDomain(id string) error
+
+	// AssociateTransitGatewayMulticastDomain associates subnets with a multicast domain.
+	AssociateTransitGatewayMulticastDomain(
+		domainID, attachmentID string,
+		subnetIDs []string,
+	) ([]*TransitGatewayMulticastDomainAssociation, error)
+
+	// DisassociateTransitGatewayMulticastDomain removes subnet associations from a multicast domain.
+	DisassociateTransitGatewayMulticastDomain(
+		domainID, attachmentID string,
+		subnetIDs []string,
+	) ([]*TransitGatewayMulticastDomainAssociation, error)
+
+	// GetTransitGatewayMulticastDomainAssociations returns the subnet associations for a multicast domain.
+	GetTransitGatewayMulticastDomainAssociations(
+		domainID string,
+	) []*TransitGatewayMulticastDomainAssociation
+
+	// RegisterTransitGatewayMulticastGroupMembers registers network interfaces as multicast group members.
+	RegisterTransitGatewayMulticastGroupMembers(
+		domainID, groupIP string,
+		eniIDs []string,
+	) (*TransitGatewayMulticastGroupMembership, error)
+
+	// DeregisterTransitGatewayMulticastGroupMembers removes network interfaces as multicast group members.
+	DeregisterTransitGatewayMulticastGroupMembers(
+		domainID, groupIP string,
+		eniIDs []string,
+	) (*TransitGatewayMulticastGroupMembership, error)
+
+	// RegisterTransitGatewayMulticastGroupSources registers network interfaces as multicast group sources.
+	RegisterTransitGatewayMulticastGroupSources(
+		domainID, groupIP string,
+		eniIDs []string,
+	) (*TransitGatewayMulticastGroupMembership, error)
+
+	// DeregisterTransitGatewayMulticastGroupSources removes network interfaces as multicast group sources.
+	DeregisterTransitGatewayMulticastGroupSources(
+		domainID, groupIP string,
+		eniIDs []string,
+	) (*TransitGatewayMulticastGroupMembership, error)
+
+	// SearchTransitGatewayMulticastGroups returns the multicast group entries for a domain.
+	SearchTransitGatewayMulticastGroups(domainID string) []*TransitGatewayMulticastGroupEntry
+
+	// ---- Transit Gateway Metering Policies ----
+
+	// CreateTransitGatewayMeteringPolicy creates a new metering policy on a transit gateway.
+	CreateTransitGatewayMeteringPolicy(
+		tgwID string,
+		middleboxAttachmentIDs []string,
+	) (*TransitGatewayMeteringPolicy, error)
+
+	// DescribeTransitGatewayMeteringPolicies returns metering policies, optionally filtered by ID.
+	DescribeTransitGatewayMeteringPolicies(ids []string) []*TransitGatewayMeteringPolicy
+
+	// DeleteTransitGatewayMeteringPolicy removes a metering policy.
+	DeleteTransitGatewayMeteringPolicy(id string) error
+
+	// CreateTransitGatewayMeteringPolicyEntry adds a rule to a metering policy.
+	CreateTransitGatewayMeteringPolicyEntry(
+		policyID string,
+		entry *TransitGatewayMeteringPolicyEntry,
+	) (*TransitGatewayMeteringPolicyEntry, error)
+
+	// DeleteTransitGatewayMeteringPolicyEntry removes a rule from a metering policy.
+	DeleteTransitGatewayMeteringPolicyEntry(
+		policyID string,
+		ruleNumber int,
+	) (*TransitGatewayMeteringPolicyEntry, error)
+
 	// ---- VPN Gateways ----
 
 	// CreateVpnGateway creates a new virtual private gateway.
@@ -649,6 +836,36 @@ type Backend interface {
 	// DeleteVpnConnection removes a VPN connection.
 	DeleteVpnConnection(id string) error
 
+	// GetVpnConnectionRoutes returns the static routes registered against a VPN connection.
+	GetVpnConnectionRoutes(vpnConnectionID string) []*VpnConnectionRoute
+
+	// ModifyVpnConnectionOptions updates the negotiated local/remote IPv4 CIDRs and the
+	// static-routes-only flag of a VPN connection.
+	ModifyVpnConnectionOptions(
+		vpnConnectionID, localIPv4CIDR, remoteIPv4CIDR string, staticRoutesOnly *bool,
+	) (*VpnConnection, error)
+
+	// ModifyVpnTunnelOptions updates the configuration of a single tunnel of a VPN connection.
+	ModifyVpnTunnelOptions(
+		vpnConnectionID, outsideIPAddress string, opts VpnTunnelOptionsModify,
+	) (*VpnConnection, error)
+
+	// ModifyVpnTunnelCertificate provisions a certificate-based authentication certificate for
+	// a single tunnel of a VPN connection.
+	ModifyVpnTunnelCertificate(vpnConnectionID, outsideIPAddress string) (*VpnConnection, error)
+
+	// GetVpnConnectionDeviceTypes returns the static catalog of supported customer gateway
+	// device types.
+	GetVpnConnectionDeviceTypes() []VpnConnectionDeviceType
+
+	// GetVpnConnectionDeviceSampleConfiguration generates a sample vendor configuration for a
+	// VPN connection's tunnels.
+	GetVpnConnectionDeviceSampleConfiguration(vpnConnectionID, deviceTypeID, ikeVersion string) (string, error)
+
+	// GetVpnTunnelReplacementStatus reports pending AWS-initiated tunnel endpoint maintenance
+	// for a single tunnel of a VPN connection.
+	GetVpnTunnelReplacementStatus(vpnConnectionID, outsideIPAddress string) (*VpnTunnelReplacementStatus, error)
+
 	// ---- VPC Peering extras ----
 
 	// RejectVpcPeeringConnection rejects a pending VPC peering connection.
@@ -673,32 +890,199 @@ type Backend interface {
 
 	// ---- IPAM ----
 
-	// CreateIpam creates a new IPAM instance.
-	CreateIpam() (*Ipam, error)
+	// CreateIpam creates a new IPAM instance, along with its default scopes and resource discovery.
+	CreateIpam(opts ...IpamOptions) (*Ipam, error)
 
 	// DescribeIpams returns IPAM instances, optionally filtered by IDs.
 	DescribeIpams(ids []string) []*Ipam
 
+	// ModifyIpam updates an IPAM's description, operating regions, or tier.
+	ModifyIpam(id string, opts IpamOptions) (*Ipam, error)
+
 	// DeleteIpam removes an IPAM instance.
 	DeleteIpam(id string) error
 
+	// CreateIpamScope creates an additional (non-default) private IPAM scope.
+	CreateIpamScope(ipamID, description string) (*IpamScope, error)
+
+	// DescribeIpamScopes returns IPAM scopes, optionally filtered by IDs.
+	DescribeIpamScopes(ids []string) []*IpamScope
+
+	// ModifyIpamScope updates an IPAM scope's description.
+	ModifyIpamScope(id, description string) (*IpamScope, error)
+
+	// DeleteIpamScope removes a non-default IPAM scope.
+	DeleteIpamScope(id string) error
+
 	// CreateIpamPool creates a new IPAM pool.
-	CreateIpamPool(ipamID, addressFamily, locale, cidr string) (*IpamPool, error)
+	CreateIpamPool(ipamID, addressFamily, locale, cidr string, opts ...IpamPoolOptions) (*IpamPool, error)
 
 	// DescribeIpamPools returns IPAM pools, optionally filtered by IDs.
 	DescribeIpamPools(ids []string) []*IpamPool
 
+	// ModifyIpamPool updates mutable attributes of an IPAM pool.
+	ModifyIpamPool(id string, opts IpamPoolOptions) (*IpamPool, error)
+
 	// DeleteIpamPool removes an IPAM pool.
 	DeleteIpamPool(id string) error
 
-	// AllocateIpamPoolCidr allocates a CIDR from an IPAM pool.
-	AllocateIpamPoolCidr(poolID, cidr string, netmaskLength int) (*IpamPoolAllocation, error)
+	// ProvisionIpamPoolCidr adds a CIDR range to an IPAM pool's provisioned space.
+	ProvisionIpamPoolCidr(poolID, cidr string) (*IpamPoolCidr, error)
 
-	// GetIpamPoolCidrs returns allocations for an IPAM pool.
-	GetIpamPoolCidrs(poolID string) []*IpamPoolAllocation
+	// DeprovisionIpamPoolCidr removes a provisioned CIDR range from an IPAM pool.
+	DeprovisionIpamPoolCidr(poolID, cidr string) (*IpamPoolCidr, error)
+
+	// GetIpamPoolCidrs returns the CIDR ranges provisioned to an IPAM pool.
+	GetIpamPoolCidrs(poolID string) []*IpamPoolCidr
+
+	// AllocateIpamPoolCidr allocates a CIDR from an IPAM pool.
+	AllocateIpamPoolCidr(
+		poolID, cidr string, netmaskLength int, opts ...IpamAllocationOptions,
+	) (*IpamPoolAllocation, error)
+
+	// GetIpamPoolAllocations returns allocations for an IPAM pool, optionally filtered to one ID.
+	GetIpamPoolAllocations(poolID, allocationID string) ([]*IpamPoolAllocation, error)
 
 	// ReleaseIpamPoolAllocation releases an IPAM pool allocation.
 	ReleaseIpamPoolAllocation(poolID, allocationID string) error
+
+	// DescribeIpamResourceDiscoveries returns IPAM resource discoveries, optionally filtered by IDs.
+	DescribeIpamResourceDiscoveries(ids []string) []*IpamResourceDiscovery
+
+	// DescribeIpamResourceDiscoveryAssociations returns IPAM resource discovery associations.
+	DescribeIpamResourceDiscoveryAssociations(ids []string) []*IpamResourceDiscoveryAssociation
+
+	// CreateIpamResourceDiscovery creates a standalone (non-default) IPAM resource discovery.
+	CreateIpamResourceDiscovery(description string, operatingRegions []string) (*IpamResourceDiscovery, error)
+
+	// DeleteIpamResourceDiscovery removes a non-default IPAM resource discovery.
+	DeleteIpamResourceDiscovery(id string) (*IpamResourceDiscovery, error)
+
+	// AssociateIpamResourceDiscovery associates a resource discovery with an IPAM.
+	AssociateIpamResourceDiscovery(ipamID, discoveryID string) (*IpamResourceDiscoveryAssociation, error)
+
+	// DisassociateIpamResourceDiscovery removes a resource discovery association from an IPAM.
+	DisassociateIpamResourceDiscovery(assocID string) (*IpamResourceDiscoveryAssociation, error)
+
+	// ModifyIpamResourceDiscovery updates a resource discovery's description/operating regions.
+	ModifyIpamResourceDiscovery(
+		id, description string, addOperatingRegions, removeOperatingRegions []string,
+	) (*IpamResourceDiscovery, error)
+
+	// GetIpamResourceCidrs returns resource CIDRs monitored by IPAM in a given scope.
+	GetIpamResourceCidrs(scopeID, poolID, resourceID, resourceOwner, resourceType string) ([]*IpamResourceCidr, error)
+
+	// ModifyIpamResourceCidr moves/updates a monitored resource CIDR.
+	ModifyIpamResourceCidr(
+		currentScopeID, resourceCidr, resourceID, resourceRegion string, monitored bool, destScopeID string,
+	) (*IpamResourceCidr, error)
+
+	// ProvisionIpamByoasn provisions a public ASN for use with an IPAM's BYOIP CIDRs.
+	ProvisionIpamByoasn(ipamID, asn string) (*IpamByoasn, error)
+
+	// DeprovisionIpamByoasn releases a previously-provisioned BYOASN.
+	DeprovisionIpamByoasn(ipamID, asn string) (*IpamByoasn, error)
+
+	// DescribeIpamByoasn returns all provisioned BYOASNs.
+	DescribeIpamByoasn() []*IpamByoasn
+
+	// AssociateIpamByoasn associates a provisioned BYOASN with a BYOIP CIDR.
+	AssociateIpamByoasn(asn, cidr string) (*IpamAsnAssociation, error)
+
+	// DisassociateIpamByoasn removes the association between a BYOASN and a BYOIP CIDR.
+	DisassociateIpamByoasn(asn, cidr string) (*IpamAsnAssociation, error)
+
+	// CreateIpamExternalResourceVerificationToken creates an external resource verification token.
+	CreateIpamExternalResourceVerificationToken(ipamID string) (*IpamExternalResourceVerificationToken, error)
+
+	// DeleteIpamExternalResourceVerificationToken removes a verification token.
+	DeleteIpamExternalResourceVerificationToken(id string) (*IpamExternalResourceVerificationToken, error)
+
+	// DescribeIpamExternalResourceVerificationTokens returns verification tokens.
+	DescribeIpamExternalResourceVerificationTokens(ids []string) []*IpamExternalResourceVerificationToken
+
+	// CreateIpamPrefixListResolver creates a new IPAM prefix list resolver.
+	CreateIpamPrefixListResolver(
+		ipamID, addressFamily, description string, rules []IpamPrefixListResolverRule,
+	) (*IpamPrefixListResolver, error)
+
+	// DeleteIpamPrefixListResolver removes a prefix list resolver.
+	DeleteIpamPrefixListResolver(id string) (*IpamPrefixListResolver, error)
+
+	// DescribeIpamPrefixListResolvers returns prefix list resolvers.
+	DescribeIpamPrefixListResolvers(ids []string) []*IpamPrefixListResolver
+
+	// ModifyIpamPrefixListResolver updates a resolver's description and/or rules.
+	ModifyIpamPrefixListResolver(
+		id, description string, rules []IpamPrefixListResolverRule, rulesProvided bool,
+	) (*IpamPrefixListResolver, error)
+
+	// GetIpamPrefixListResolverRules returns a resolver's current CIDR selection rules.
+	GetIpamPrefixListResolverRules(resolverID string) ([]IpamPrefixListResolverRule, error)
+
+	// GetIpamPrefixListResolverVersions returns a resolver's recorded version numbers.
+	GetIpamPrefixListResolverVersions(resolverID string) ([]int64, error)
+
+	// GetIpamPrefixListResolverVersionEntries returns the CIDR entries of a resolver version.
+	GetIpamPrefixListResolverVersionEntries(resolverID string, version int64) ([]string, error)
+
+	// CreateIpamPrefixListResolverTarget associates a managed prefix list with a resolver.
+	CreateIpamPrefixListResolverTarget(
+		resolverID, prefixListID, prefixListRegion string, trackLatestVersion bool, desiredVersion *int64,
+	) (*IpamPrefixListResolverTarget, error)
+
+	// DeleteIpamPrefixListResolverTarget removes a resolver target.
+	DeleteIpamPrefixListResolverTarget(id string) (*IpamPrefixListResolverTarget, error)
+
+	// DescribeIpamPrefixListResolverTargets returns resolver targets.
+	DescribeIpamPrefixListResolverTargets(resolverID string, ids []string) []*IpamPrefixListResolverTarget
+
+	// ModifyIpamPrefixListResolverTarget updates a target's desired version/tracking flag.
+	ModifyIpamPrefixListResolverTarget(
+		id string, desiredVersion *int64, trackLatestVersion *bool,
+	) (*IpamPrefixListResolverTarget, error)
+
+	// CreateIpamPolicy creates a new IPAM policy under the given IPAM.
+	CreateIpamPolicy(ipamID string) (*IpamPolicy, error)
+
+	// DeleteIpamPolicy removes an IPAM policy.
+	DeleteIpamPolicy(id string) (*IpamPolicy, error)
+
+	// DescribeIpamPolicies returns IPAM policies, optionally filtered by IDs.
+	DescribeIpamPolicies(ids []string) []*IpamPolicy
+
+	// EnableIpamPolicy enables an IPAM policy for the current account or an Organizations target.
+	EnableIpamPolicy(id, orgTargetID string) error
+
+	// DisableIpamPolicy disables an IPAM policy for the current account or an Organizations target.
+	DisableIpamPolicy(id, orgTargetID string) error
+
+	// GetEnabledIpamPolicy returns the IPAM policy enabled for the current account, if any.
+	GetEnabledIpamPolicy() (policyID string, enabled bool, managedBy string)
+
+	// GetIpamPolicyOrganizationTargets returns the Organizations targets an IPAM policy is
+	// enabled for.
+	GetIpamPolicyOrganizationTargets(id string) ([]string, error)
+
+	// GetIpamPolicyAllocationRules returns an IPAM policy's allocation rule documents.
+	GetIpamPolicyAllocationRules(id, locale, resourceType string) ([]*IpamPolicyDocument, error)
+
+	// ModifyIpamPolicyAllocationRules replaces an IPAM policy's allocation rules for a
+	// (locale, resourceType) pair.
+	ModifyIpamPolicyAllocationRules(
+		id, locale, resourceType string, rules []IpamPolicyAllocationRule,
+	) (*IpamPolicyDocument, error)
+
+	// EnableIpamOrganizationAdminAccount enables an Organizations member account as the IPAM
+	// delegated administrator account.
+	EnableIpamOrganizationAdminAccount(accountID string) error
+
+	// DisableIpamOrganizationAdminAccount disables the IPAM Organizations delegated
+	// administrator account.
+	DisableIpamOrganizationAdminAccount(accountID string) error
+
+	// MoveByoipCidrToIpam associates an existing BYOIP CIDR with an IPAM pool.
+	MoveByoipCidrToIpam(cidr, poolID, poolOwner string) (*ByoipCidr, error)
 
 	// ---- spot fleet ----
 
@@ -785,19 +1169,6 @@ type Backend interface {
 		httpTokens, httpEndpoint, instanceMetadataTags string,
 		hopLimit int,
 	) error
-	ModifyInstancePlacement(instanceID string, placement InstancePlacement) (*Instance, error)
-	ModifyInstanceCPUOptions(
-		instanceID string,
-		opts InstanceCPUOptions,
-	) (*Instance, error)
-	ModifyInstanceMaintenanceOptions(
-		instanceID string,
-		opts InstanceMaintenanceOptions,
-	) (*Instance, error)
-	ModifyInstanceNetworkPerformanceOptions(
-		instanceID string,
-		opts InstanceNetworkPerformanceOptions,
-	) (*Instance, error)
 	DescribeInstanceCreditSpecifications(ids []string) []InstanceCreditSpec
 	ModifyInstanceCreditSpecification(instanceID, cpuCredits string) error
 	DescribeInstanceTopology(ids []string) []InstanceTopologyItem
@@ -911,17 +1282,14 @@ type Backend interface {
 	DeleteInstanceEventWindow(id string) error
 	DescribeInstanceEventWindows(ids []string) []*InstanceEventWindow
 	ModifyInstanceEventWindow(id, name, cronExpression string) error
-	AssociateInstanceEventWindow(
-		id string,
-		instanceIDs, instanceTags, dedicatedHostIDs []string,
-	) (*InstanceEventWindow, error)
 	CreateSpotDatafeedSubscription(bucket, prefix string) (*SpotDatafeed, error)
 	DeleteSpotDatafeedSubscription()
 	DescribeSpotDatafeedSubscription() *SpotDatafeed
 	RegisterImage(name, description, architecture string) (*AMIStub, error)
 	ImportImage(description, architecture, platform string) (*ImageImportTask, error)
 	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
-	ExportImage(imageID, description string) (string, error)
+	ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string) (*ExportImageTaskRec, error)
+	DescribeExportImageTasks(ids []string) []*ExportImageTaskRec
 	ListImagesInRecycleBin(imageIDs []string) []*RecycleBinImage
 	RestoreImageFromRecycleBin(imageID string) error
 	ListSnapshotsInRecycleBin(snapshotIDs []string) []*Snapshot
@@ -964,6 +1332,11 @@ type Backend interface {
 
 	// ---- batch4: ClientVpnEndpoint ----
 	CreateClientVpnEndpoint(clientCidrBlock, description string, dnsServers []string) (*ClientVpnEndpoint, error)
+	CreateClientVpnEndpointWithOptions(
+		clientCidrBlock, description string,
+		dnsServers []string,
+		opts ClientVpnEndpointOptions,
+	) (*ClientVpnEndpoint, error)
 	DeleteClientVpnEndpoint(id string) error
 	DescribeClientVpnEndpoints(ids []string) []*ClientVpnEndpoint
 	AssociateClientVpnTargetNetwork(endpointID, subnetID string) (string, error)
@@ -976,9 +1349,17 @@ type Backend interface {
 	RevokeClientVpnIngress(endpointID, cidr string) error
 	DescribeClientVpnAuthorizationRules(endpointID string) ([]ClientVpnAuthRule, error)
 	ModifyClientVpnEndpoint(endpointID, description string, dnsServers []string) error
+	ModifyClientVpnEndpointWithOptions(
+		endpointID, description string,
+		dnsServers []string,
+		opts ClientVpnEndpointOptions,
+	) error
 	ApplySecurityGroupsToClientVpnTargetNetwork(endpointID string, sgIDs []string) error
 	DescribeClientVpnConnections(endpointID string) ([]string, error)
 	TerminateClientVpnConnections(endpointID string) error
+	ExportClientVpnClientConfiguration(endpointID string) (string, error)
+	ExportClientVpnClientCertificateRevocationList(endpointID string) (string, error)
+	ImportClientVpnClientCertificateRevocationList(endpointID, crl string) error
 
 	// ---- batch4: TGW Peering ----
 	CreateTransitGatewayPeeringAttachment(
@@ -1005,6 +1386,10 @@ type Backend interface {
 	) (*TransitGatewayPrefixListReference, error)
 	DeleteTransitGatewayPrefixListReference(routeTableID, prefixListID string) error
 	GetTransitGatewayPrefixListReferences(routeTableID string) ([]*TransitGatewayPrefixListReference, error)
+	ModifyTransitGatewayPrefixListReference(
+		routeTableID, prefixListID, attachmentID string,
+		blackhole bool,
+	) (*TransitGatewayPrefixListReference, error)
 
 	// ---- batch4: VerifiedAccess ----
 	CreateVerifiedAccessEndpoint(groupID, endpointType, description string) (*VerifiedAccessEndpoint, error)
@@ -1022,6 +1407,32 @@ type Backend interface {
 	DescribeVerifiedAccessTrustProviders(ids []string) []*VerifiedAccessTrustProvider
 	AttachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
 	DetachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
+	GetVerifiedAccessEndpointPolicy(id string) (*VerifiedAccessPolicy, error)
+	ModifyVerifiedAccessEndpointPolicy(
+		id string,
+		policyEnabled bool,
+		policyDocument string,
+	) (*VerifiedAccessPolicy, error)
+	GetVerifiedAccessGroupPolicy(id string) (*VerifiedAccessPolicy, error)
+	ModifyVerifiedAccessGroupPolicy(id string, policyEnabled bool, policyDocument string) (*VerifiedAccessPolicy, error)
+	DescribeVerifiedAccessInstanceLoggingConfigurations(ids []string) []*VerifiedAccessInstanceLoggingConfig
+	ModifyVerifiedAccessInstanceLoggingConfiguration(
+		instanceID string,
+		accessLogs VerifiedAccessLogOptions,
+	) (*VerifiedAccessInstanceLoggingConfig, error)
+	GetVerifiedAccessEndpointTargets(id string) ([]*VerifiedAccessEndpointTarget, error)
+	ExportVerifiedAccessInstanceClientConfiguration(
+		instanceID string,
+	) (*VerifiedAccessInstanceClientConfiguration, error)
+
+	// ---- FPGA image (AFI) ----
+	CreateFpgaImage(name, description string) (*FpgaImage, error)
+	CopyFpgaImage(sourceFpgaImageID, sourceRegion, name, description string) (*FpgaImage, error)
+	DeleteFpgaImage(id string) error
+	DescribeFpgaImages(ids []string) []*FpgaImage
+	DescribeFpgaImageAttribute(id, attribute string) (*FpgaImageAttribute, error)
+	ModifyFpgaImageAttribute(id string, mod FpgaImageAttributeModification) (*FpgaImage, error)
+	ResetFpgaImageAttribute(id, attribute string) error
 
 	// ---- batch5: TrafficMirror ----
 	CreateTrafficMirrorFilter(description string) (*TrafficMirrorFilter, error)
@@ -1031,6 +1442,7 @@ type Backend interface {
 	CreateTrafficMirrorFilterRule(
 		filterID, direction, action, srcCIDR, dstCIDR, description string,
 		ruleNumber, protocol int,
+		ports ...TrafficMirrorPortRangePair,
 	) (*TrafficMirrorFilterRule, error)
 	DeleteTrafficMirrorFilterRule(id string) error
 	DescribeTrafficMirrorFilterRules(filterID string) ([]*TrafficMirrorFilterRule, error)
@@ -1038,12 +1450,14 @@ type Backend interface {
 	CreateTrafficMirrorSession(
 		networkInterfaceID, targetID, filterID, description string,
 		sessionNumber int,
+		packetLength ...int,
 	) (*TrafficMirrorSession, error)
 	DeleteTrafficMirrorSession(id string) error
 	DescribeTrafficMirrorSessions(ids []string) []*TrafficMirrorSession
 	ModifyTrafficMirrorSession(id, targetID, filterID, description string) error
 	CreateTrafficMirrorTarget(
 		networkInterfaceID, networkLoadBalancerArn, description string,
+		gatewayLoadBalancerEndpointID ...string,
 	) (*TrafficMirrorTarget, error)
 	DeleteTrafficMirrorTarget(id string) error
 	DescribeTrafficMirrorTargets(ids []string) []*TrafficMirrorTarget
@@ -1095,4 +1509,449 @@ type Backend interface {
 		targetCount int,
 	) (*ReservedInstancesModification, error)
 	DeleteQueuedReservedInstances(ids []string)
+
+	// ---- Route Server ----
+	CreateRouteServer(
+		amazonSideAsn int64,
+		persistRoutesState string,
+		persistRoutesDuration int64,
+		snsNotificationsEnabled bool,
+	) (*RouteServer, error)
+	DescribeRouteServers(ids []string) []*RouteServer
+	DeleteRouteServer(id string) (*RouteServer, error)
+	ModifyRouteServer(
+		id string,
+		persistRoutesState string,
+		persistRoutesDuration int64,
+		snsNotificationsEnabled bool,
+	) (*RouteServer, error)
+	CreateRouteServerEndpoint(routeServerID, subnetID string) (*RouteServerEndpoint, error)
+	DescribeRouteServerEndpoints(ids []string) []*RouteServerEndpoint
+	DeleteRouteServerEndpoint(id string) (*RouteServerEndpoint, error)
+	CreateRouteServerPeer(
+		endpointID, peerAddress string,
+		bgpPeerAsn int64,
+		livenessDetection string,
+	) (*RouteServerPeer, error)
+	DescribeRouteServerPeers(ids []string) []*RouteServerPeer
+	DeleteRouteServerPeer(id string) (*RouteServerPeer, error)
+	AssociateRouteServer(routeServerID, vpcID string) (*RouteServerAssociation, error)
+	DisassociateRouteServer(routeServerID, vpcID string) (*RouteServerAssociation, error)
+	GetRouteServerAssociations(routeServerID string) []*RouteServerAssociation
+	EnableRouteServerPropagation(routeServerID, routeTableID string) (*RouteServerPropagation, error)
+	DisableRouteServerPropagation(routeServerID, routeTableID string) (*RouteServerPropagation, error)
+	GetRouteServerPropagations(routeServerID string) []*RouteServerPropagation
+	GetRouteServerRoutingDatabase(routeServerID string) ([]*RouteServerRoute, error)
+
+	// ---- Local Gateways ----
+	// Local gateways, virtual interfaces, and virtual interface groups are
+	// Outpost-provisioned and have no Create API; the Seed* methods populate
+	// them so Describe calls return realistic data.
+
+	SeedLocalGateway(lg LocalGateway) (*LocalGateway, error)
+	SeedLocalGatewayVirtualInterface(
+		vif LocalGatewayVirtualInterface,
+	) (*LocalGatewayVirtualInterface, error)
+	SeedLocalGatewayVirtualInterfaceGroup(
+		group LocalGatewayVirtualInterfaceGroup,
+	) (*LocalGatewayVirtualInterfaceGroup, error)
+	DescribeLocalGateways(ids []string) []*LocalGateway
+	DescribeLocalGatewayVirtualInterfaces(ids []string) []*LocalGatewayVirtualInterface
+	DescribeLocalGatewayVirtualInterfaceGroups(ids []string) []*LocalGatewayVirtualInterfaceGroup
+
+	// ---- Local Gateway Route Tables ----
+
+	CreateLocalGatewayRouteTable(localGatewayID, mode string) (*LocalGatewayRouteTable, error)
+	DescribeLocalGatewayRouteTables(ids []string) []*LocalGatewayRouteTable
+	DeleteLocalGatewayRouteTable(id string) error
+
+	// ---- Local Gateway Routes ----
+
+	CreateLocalGatewayRoute(
+		routeTableID, destinationCIDR, destinationPrefixListID, vifGroupID, eniID string,
+	) (*LocalGatewayRoute, error)
+	DeleteLocalGatewayRoute(
+		routeTableID, destinationCIDR, destinationPrefixListID string,
+	) (*LocalGatewayRoute, error)
+	ModifyLocalGatewayRoute(
+		routeTableID, destinationCIDR, destinationPrefixListID, vifGroupID, eniID string,
+	) (*LocalGatewayRoute, error)
+	SearchLocalGatewayRoutes(routeTableID string, states []string) ([]*LocalGatewayRoute, error)
+
+	// ---- Local Gateway Route Table VPC Associations ----
+
+	CreateLocalGatewayRouteTableVpcAssociation(
+		routeTableID, vpcID string,
+	) (*LocalGatewayRouteTableVpcAssociation, error)
+	DeleteLocalGatewayRouteTableVpcAssociation(id string) (*LocalGatewayRouteTableVpcAssociation, error)
+	DescribeLocalGatewayRouteTableVpcAssociations(ids []string) []*LocalGatewayRouteTableVpcAssociation
+
+	// ---- Local Gateway Route Table Virtual Interface Group Associations ----
+
+	CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation(
+		routeTableID, vifGroupID string,
+	) (*LocalGatewayRouteTableVirtualInterfaceGroupAssociation, error)
+	DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation(
+		id string,
+	) (*LocalGatewayRouteTableVirtualInterfaceGroupAssociation, error)
+	DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations(
+		ids []string,
+	) []*LocalGatewayRouteTableVirtualInterfaceGroupAssociation
+
+	// ---- VPC ClassicLink ----
+
+	AttachClassicLinkVpc(instanceID, vpcID string, groups []string) error
+	DetachClassicLinkVpc(instanceID, vpcID string) error
+	DescribeClassicLinkInstances(instanceIDs []string) []*ClassicLinkInstance
+	EnableVpcClassicLink(vpcID string) error
+	DisableVpcClassicLink(vpcID string) error
+	DescribeVpcClassicLink(vpcIDs []string) ([]*VPC, error)
+	EnableVpcClassicLinkDNSSupport(vpcID string) error
+	DisableVpcClassicLinkDNSSupport(vpcID string) error
+	DescribeVpcClassicLinkDNSSupport(vpcIDs []string) ([]*VPC, error)
+
+	// ---- VPC Block Public Access ----
+
+	DescribeVpcBlockPublicAccessOptions() *VpcBlockPublicAccessOptions
+	ModifyVpcBlockPublicAccessOptions(blockMode string) (*VpcBlockPublicAccessOptions, error)
+	CreateVpcBlockPublicAccessExclusion(
+		vpcID, subnetID, mode string,
+		tags map[string]string,
+	) (*VpcBlockPublicAccessExclusion, error)
+	ModifyVpcBlockPublicAccessExclusion(exclusionID, mode string) (*VpcBlockPublicAccessExclusion, error)
+	DeleteVpcBlockPublicAccessExclusion(exclusionID string) (*VpcBlockPublicAccessExclusion, error)
+	DescribeVpcBlockPublicAccessExclusions(ids []string) []*VpcBlockPublicAccessExclusion
+
+	// ---- VPC Endpoint Service Configuration extras ----
+
+	StartVpcEndpointServicePrivateDNSVerification(serviceID string) error
+
+	// ---- Capacity Reservation Fleet / Capacity Block / Capacity Manager ----
+
+	CreateCapacityReservationFleet(
+		specs []CapacityReservationFleetInstanceSpec,
+		totalTargetCapacity int32,
+		allocationStrategy, instanceMatchCriteria, tenancy string,
+		endDate *time.Time,
+		tags map[string]string,
+	) (*CapacityReservationFleet, error)
+	DescribeCapacityReservationFleets(ids []string, filters map[string][]string) []*CapacityReservationFleet
+	ModifyCapacityReservationFleet(
+		fleetID string,
+		totalTargetCapacity *int32,
+		endDate *time.Time,
+		removeEndDate bool,
+	) error
+	CancelCapacityReservationFleets(
+		fleetIDs []string,
+	) ([]CapacityReservationFleetCancellation, []FailedCapacityReservationFleetCancellation)
+
+	DescribeCapacityBlockOfferings(
+		instanceType string,
+		durationHours, instanceCount int32,
+	) ([]*CapacityBlockOffering, error)
+	PurchaseCapacityBlock(
+		offeringID, instancePlatform string,
+		tags map[string]string,
+	) (*CapacityBlock, *CapacityReservation, error)
+	DescribeCapacityBlockExtensionOfferings(
+		reservationID string,
+		durationHours int32,
+	) ([]*CapacityBlockExtensionOffering, error)
+	PurchaseCapacityBlockExtension(extensionOfferingID, reservationID string) (*CapacityBlockExtension, error)
+	DescribeCapacityBlocks(ids []string, filters map[string][]string) []*CapacityBlock
+	DescribeCapacityBlockStatus(ids []string, filters map[string][]string) []*CapacityBlockStatus
+	DescribeCapacityBlockExtensionHistory(
+		reservationIDs []string,
+		filters map[string][]string,
+	) []*CapacityBlockExtension
+
+	CreateCapacityReservationBySplitting(
+		sourceID string,
+		instanceCount int,
+		tags map[string]string,
+	) (*CapacityReservation, *CapacityReservation, error)
+	MoveCapacityReservationInstances(
+		sourceID, destinationID string,
+		instanceCount int,
+	) (*CapacityReservation, *CapacityReservation, error)
+
+	AssociateCapacityReservationBillingOwner(reservationID, billingOwnerID string) error
+	DisassociateCapacityReservationBillingOwner(reservationID, billingOwnerID string) error
+	RejectCapacityReservationBillingOwnership(reservationID string) error
+	DescribeCapacityReservationBillingRequests(
+		ids []string,
+		filters map[string][]string,
+	) []*CapacityReservationBillingRequest
+
+	EnableCapacityManager(organizationsAccess bool) (string, bool)
+	DisableCapacityManager() (string, bool)
+	UpdateCapacityManagerOrganizationsAccess(organizationsAccess bool) (string, bool)
+	GetCapacityManagerAttributes() *CapacityManagerAttributes
+	GetCapacityManagerMetricData() []MetricDataResult
+	GetCapacityManagerMetricDimensions() []CapacityManagerDimension
+	CreateCapacityManagerDataExport(
+		outputFormat, s3BucketName, s3BucketPrefix, schedule string,
+		tags map[string]string,
+	) (*CapacityManagerDataExport, error)
+	DescribeCapacityManagerDataExports(ids []string) []*CapacityManagerDataExport
+	DeleteCapacityManagerDataExport(id string) (string, error)
+
+	// ---- Scheduled Instances ----
+
+	DescribeScheduledInstanceAvailability(
+		filters map[string][]string,
+		minSlotDurationHours, maxSlotDurationHours int32,
+	) []ScheduledInstanceAvailability
+	PurchaseScheduledInstances(requests []ScheduledInstancePurchaseRequest) ([]*ScheduledInstance, error)
+	DescribeScheduledInstances(ids []string) []*ScheduledInstance
+	RunScheduledInstances(scheduledInstanceID, imageID, keyName string, instanceCount int32) ([]string, error)
+
+	// ---- COIP pools ----
+
+	CreateCoipPool(localGatewayRouteTableID string, tags map[string]string) (*CoipPool, error)
+	DeleteCoipPool(poolID string) (*CoipPool, error)
+	DescribeCoipPools(ids []string) []*CoipPool
+	CreateCoipCidr(poolID, cidr string) (*CoipCidr, error)
+	DeleteCoipCidr(poolID, cidr string) (*CoipCidr, error)
+	GetCoipPoolUsage(poolID string) (*CoipPool, error)
+
+	// ---- Public IPv4 / IPv6 pools ----
+
+	CreatePublicIpv4Pool(networkBorderGroup string, tags map[string]string) *Ipv4Pool
+	DeletePublicIpv4Pool(poolID string) error
+	DescribePublicIpv4Pools(ids []string) []*Ipv4Pool
+	ProvisionPublicIpv4PoolCidr(poolID string, netmaskLength int32) (*Ipv4PoolRange, error)
+	DeprovisionPublicIpv4PoolCidr(poolID, cidr string) error
+	DescribeIpv6Pools(ids []string) []*Ipv6Pool
+	GetAssociatedIpv6PoolCidrs(poolID string) ([]Ipv6CidrAssociation, error)
+
+	// ---- Allowed Images Settings ----
+
+	EnableAllowedImagesSettings(state string) (string, error)
+	DisableAllowedImagesSettings() string
+	GetAllowedImagesSettings() *AllowedImagesSettings
+	ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) bool
+
+	// ---- Store / Restore Image Tasks ----
+
+	CreateStoreImageTask(imageID, bucket string) (*StoreImageTask, error)
+	DescribeStoreImageTasks(imageIDs []string) []*StoreImageTask
+	CreateRestoreImageTask(bucket, objectKey, name string) (*AMIStub, error)
+
+	// ---- Image Usage Reports ----
+
+	CreateImageUsageReport(imageID string, resourceTypes, accountIDs []string) (*UsageReport, error)
+	DeleteImageUsageReport(reportID string) error
+	DescribeImageUsageReportEntries(reportIDs, imageIDs []string) []*UsageReportEntry
+
+	// ---- Product codes ----
+
+	ConfirmProductInstance(instanceID, productCode string) (bool, error)
+
+	// ---- Bundle tasks ----
+
+	BundleInstance(instanceID, s3Bucket, s3Prefix string) (*BundleTask, error)
+	CancelBundleTask(bundleID string) (*BundleTask, error)
+	DescribeBundleTasks(ids []string) []*BundleTask
+
+	// ---- Conversion tasks (ImportInstance / ImportVolume) ----
+
+	ImportInstance(
+		description, platform, availabilityZone, diskFormat string, diskBytes, volumeSize int64,
+	) (*ConversionTask, error)
+	ImportVolume(description, availabilityZone, diskFormat string, diskBytes, volumeSize int64) (*ConversionTask, error)
+	DescribeConversionTasks(ids []string) []*ConversionTask
+	CancelConversionTask(conversionTaskID string) (*ConversionTask, error)
+
+	// ---- Instance export tasks ----
+
+	CreateInstanceExportTask(
+		instanceID, description, targetEnvironment, diskImageFormat, containerFormat, s3Bucket, s3Prefix string,
+	) (*ExportTask, error)
+	CancelExportTask(exportTaskID string) error
+	DescribeExportTasks(ids []string) []*ExportTask
+
+	// ---- CancelImportTask (ImportImage / ImportSnapshot) ----
+
+	CancelImportTask(importTaskID string) (previousState, newState string, err error)
+
+	// ---- Trunk Interface associations ----
+
+	AssociateTrunkInterface(
+		branchInterfaceID, trunkInterfaceID string, vlanID, greKey int32, tags map[string]string,
+	) (*TrunkInterfaceAssociation, error)
+	DisassociateTrunkInterface(associationID string) error
+	DescribeTrunkInterfaceAssociations(ids []string) []*TrunkInterfaceAssociation
+
+	// ---- Enclave Certificate IAM Role associations ----
+
+	AssociateEnclaveCertificateIamRole(certificateArn, roleArn string) (*EnclaveCertIamRoleAssociation, error)
+	DisassociateEnclaveCertificateIamRole(certificateArn, roleArn string) error
+	GetAssociatedEnclaveCertificateIamRoles(certificateArn string) ([]*EnclaveCertIamRoleAssociation, error)
+
+	// ---- Mac Hosts / Mac modification tasks ----
+
+	DescribeMacHosts(ids []string) []*MacHost
+	CreateMacSystemIntegrityProtectionModificationTask(
+		instanceID, status string, config *MacSIPConfig, tags map[string]string,
+	) (*MacModificationTask, error)
+	CreateDelegateMacVolumeOwnershipTask(
+		instanceID, macCredentials string, tags map[string]string,
+	) (*MacModificationTask, error)
+	DescribeMacModificationTasks(ids []string) []*MacModificationTask
+
+	// ---- Secondary Networks / Secondary Subnets / Secondary Interfaces ----
+
+	CreateSecondaryNetwork(ipv4CidrBlock, networkType string, tags map[string]string) (*SecondaryNetwork, error)
+	DeleteSecondaryNetwork(id string) (*SecondaryNetwork, error)
+	DescribeSecondaryNetworks(ids []string) []*SecondaryNetwork
+	CreateSecondarySubnet(
+		ipv4CidrBlock, secondaryNetworkID, availabilityZone, availabilityZoneID string, tags map[string]string,
+	) (*SecondarySubnet, error)
+	DeleteSecondarySubnet(id string) (*SecondarySubnet, error)
+	DescribeSecondarySubnets(ids []string) []*SecondarySubnet
+	SeedSecondaryInterface(si SecondaryInterface) (*SecondaryInterface, error)
+	DescribeSecondaryInterfaces(ids []string) []*SecondaryInterface
+	SeedServiceLinkVirtualInterface(vif ServiceLinkVirtualInterface) (*ServiceLinkVirtualInterface, error)
+	DescribeServiceLinkVirtualInterfaces(ids []string) []*ServiceLinkVirtualInterface
+	SeedOutpostLag(lag OutpostLag) (*OutpostLag, error)
+	DescribeOutpostLags(ids []string) []*OutpostLag
+
+	// ---- Instance-attribute misc cluster ----
+
+	ModifyAvailabilityZoneGroup(groupName, optInStatus string) (bool, error)
+	ModifyHosts(
+		hostIDs []string, autoPlacement, hostMaintenance, hostRecovery, instanceFamily, instanceType string,
+	) ([]string, []HostModifyFailure, error)
+	ModifyInstanceCapacityReservationAttributes(
+		instanceID, preference, targetID, targetArn string,
+	) (*Instance, error)
+	ModifyInstanceCPUOptions(
+		instanceID string, coreCount, threadsPerCore *int32, nestedVirtualization string,
+	) (*Instance, error)
+	ModifyInstanceEventStartTime(
+		instanceID, instanceEventID string, notBefore time.Time,
+	) (*InstanceStatusEventRec, error)
+	ModifyInstanceMaintenanceOptions(instanceID, autoRecovery, rebootMigration string) (*Instance, error)
+	ModifyInstanceNetworkPerformanceOptions(instanceID, bandwidthWeighting string) (*Instance, error)
+	ModifyInstancePlacement(in ModifyInstancePlacementInput) (bool, error)
+	ModifyPrivateDNSNameOptions(
+		instanceID, hostnameType string, enableARecord, enableAAAARecord *bool,
+	) (bool, error)
+	ModifyPublicIPDNSNameOptions(networkInterfaceID, hostnameType string) (bool, error)
+	AssociateInstanceEventWindow(windowID string, instanceIDs, dedicatedHostIDs []string) (*InstanceEventWindow, error)
+	DisassociateInstanceEventWindow(
+		windowID string, instanceIDs, dedicatedHostIDs []string,
+	) (*InstanceEventWindow, error)
+	GetInstanceTpmEkPub(instanceID, keyFormat, keyType string) (string, error)
+	GetInstanceUefiData(instanceID string) (string, error)
+
+	// ---- SQL Server High Availability standby detection ----
+
+	EnableInstanceSQLHaStandbyDetections(
+		instanceIDs []string, sqlServerCredentials string,
+	) ([]*RegisteredSQLHaInstance, error)
+	DisableInstanceSQLHaStandbyDetections(instanceIDs []string) ([]*RegisteredSQLHaInstance, error)
+	DescribeInstanceSQLHaStates(ids []string) []*RegisteredSQLHaInstance
+	DescribeInstanceSQLHaHistoryStates(ids []string, startTime, endTime time.Time) []*RegisteredSQLHaInstance
+
+	// ---- VPC Encryption Control ----
+
+	CreateVpcEncryptionControl(vpcID string, tags map[string]string) (*VpcEncryptionControl, error)
+	DeleteVpcEncryptionControl(id string) (*VpcEncryptionControl, error)
+	DescribeVpcEncryptionControls(ids, vpcIDs []string) []*VpcEncryptionControl
+	ModifyVpcEncryptionControl(
+		id, mode string, exclusions VpcEncryptionControlExclusionModify,
+	) (*VpcEncryptionControl, error)
+	GetVpcResourcesBlockingEncryptionEnforcement(vpcID string) ([]*VpcEncryptionNonCompliantResource, error)
+
+	// ---- VPN Concentrator + tunnel extras ----
+
+	CreateVpnConcentrator(vpnType, transitGatewayID string, tags map[string]string) (*VpnConcentrator, error)
+	DeleteVpnConcentrator(id string) (*VpnConcentrator, error)
+	DescribeVpnConcentrators(ids []string) []*VpnConcentrator
+	GetActiveVpnTunnelStatus(vpnConnectionID, outsideIPAddress string) (*ActiveVpnTunnelStatus, error)
+	ReplaceVpnTunnel(vpnConnectionID, outsideIPAddress string) (bool, error)
+
+	// ---- Host Reservations ----
+
+	DescribeHostReservationOfferings(offeringID string, minDuration, maxDuration int32) []HostOffering
+	GetHostReservationPurchasePreview(
+		hostIDs []string, offeringID string,
+	) (*HostReservationPurchasePreview, error)
+	PurchaseHostReservation(
+		hostIDs []string, offeringID string, tags map[string]string,
+	) (*HostReservationPurchasePreview, error)
+	DescribeHostReservations(ids []string) []*HostReservation
+	ReleaseHosts(hostIDs []string) (successful []string, unsuccessful []HostReleaseResult)
+
+	// ---- Declarative Policies ----
+
+	StartDeclarativePoliciesReport(
+		s3Bucket, targetID, s3Prefix string, tags map[string]string,
+	) (*DeclarativePoliciesReport, error)
+	CancelDeclarativePoliciesReport(reportID string) (bool, error)
+	DescribeDeclarativePoliciesReports(ids []string) []*DeclarativePoliciesReport
+	GetDeclarativePoliciesReportSummary(reportID string) (*DeclarativePoliciesReportSummary, error)
+
+	// ---- AWS Network Performance ----
+
+	EnableAwsNetworkPerformanceMetricSubscription(source, destination, metric, statistic string) (bool, error)
+	DisableAwsNetworkPerformanceMetricSubscription(source, destination, metric, statistic string) (bool, error)
+	DescribeAwsNetworkPerformanceMetricSubscriptions() []*NetworkPerformanceSubscription
+	GetAwsNetworkPerformanceData(
+		queries []NetworkPerformanceDataQuery, startTime, endTime time.Time,
+	) ([]*NetworkPerformanceDataResponse, error)
+
+	// ---- Local Gateway Virtual Interfaces / Virtual Interface Groups (Create/Delete API) ----
+
+	CreateLocalGatewayVirtualInterface(
+		p LocalGatewayVirtualInterfaceParams,
+	) (*LocalGatewayVirtualInterface, error)
+	DeleteLocalGatewayVirtualInterface(id string) (*LocalGatewayVirtualInterface, error)
+	CreateLocalGatewayVirtualInterfaceGroup(
+		localGatewayID string, localBgpAsn int32, localBgpAsnExtended int64, tags map[string]string,
+	) (*LocalGatewayVirtualInterfaceGroup, error)
+	DeleteLocalGatewayVirtualInterfaceGroup(id string) (*LocalGatewayVirtualInterfaceGroup, error)
+
+	// ---- Final EC2 parity sweep (gopherstack-5o9) ----
+
+	ModifyVerifiedAccessGroup(id, instanceID, description string) (*VerifiedAccessGroup, error)
+	ModifyVerifiedAccessInstance(id, description string) (*VerifiedAccessInstance, error)
+	ModifyVerifiedAccessTrustProvider(id, description string) (*VerifiedAccessTrustProvider, error)
+
+	EnableTransitGatewayRouteTablePropagation(
+		routeTableID, attachmentID string,
+	) (*TransitGatewayRouteTablePropagation, error)
+	DisableTransitGatewayRouteTablePropagation(
+		routeTableID, attachmentID string,
+	) (*TransitGatewayRouteTablePropagation, error)
+	DescribeTransitGatewayAttachments(ids []string) []*TransitGatewayAttachmentSummary
+
+	CreateInterruptibleCapacityReservationAllocation(
+		sourceCapacityReservationID string, instanceCount int32,
+	) (*InterruptibleCapacityReservationAllocation, error)
+	UpdateInterruptibleCapacityReservationAllocation(
+		sourceCapacityReservationID string, targetInstanceCount int32,
+	) (*InterruptibleCapacityReservationAllocation, error)
+	GetCapacityReservationUsage(id string) (*CapacityReservationUsage, error)
+	DescribeCapacityReservationTopology(ids []string) []*CapacityReservationTopologyEntry
+
+	DescribeMovingAddresses(publicIPs []string) []*MovingAddressStatus
+	MoveAddressToVpc(publicIP string) (*Address, error)
+	RejectVpcEndpointConnections(serviceID string, vpcEndpointIDs []string) ([]string, error)
+	UnassignPrivateNatGatewayAddress(natGatewayID string, privateIPs []string) (*NatGateway, error)
+
+	CancelImageLaunchPermission(imageID string) error
+	DescribeImageReferences(imageIDs []string) []*ImageReferenceEntry
+	GetImageAncestry(imageID string) ([]*ImageAncestryEntry, error)
+	GetFlowLogsIntegrationTemplate(flowLogID, s3DestinationArn string) (string, error)
+
+	GetSpotPlacementScores(
+		instanceTypes, regionNames []string, singleAZ bool,
+	) ([]*SpotPlacementScoreEntry, error)
+	SendDiagnosticInterrupt(instanceID string) error
+	EnableReachabilityAnalyzerOrganizationSharing() bool
+	DescribeElasticGpus(ids []string) []*ElasticGpuStub
 }

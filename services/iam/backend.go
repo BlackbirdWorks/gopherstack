@@ -59,6 +59,10 @@ var (
 	ErrOIDCProviderNotFound = errors.New("NoSuchEntity: OIDC provider")
 	// ErrOIDCProviderAlreadyExists is returned when creating an OIDC provider that already exists.
 	ErrOIDCProviderAlreadyExists = errors.New("EntityAlreadyExists")
+	// ErrInvalidAuthenticationCode is returned when MFA code is invalid.
+	ErrInvalidAuthenticationCode = errors.New("InvalidAuthenticationCode")
+	// ErrInvalidInput is returned when an input parameter is invalid.
+	ErrInvalidInput = errors.New("InvalidInput")
 	// ErrLoginProfileNotFound is returned when a requested login profile does not exist.
 	ErrLoginProfileNotFound = errors.New("NoSuchEntity: login profile")
 	// ErrLoginProfileAlreadyExists is returned when creating a login profile that already exists.
@@ -154,8 +158,8 @@ type StorageBackend interface {
 	// Reporting and simulation
 	GetAccountAuthorizationDetails() AccountAuthorizationDetails
 	SimulatePrincipalPolicy(
-		principalArn string,
-		actionNames, resourceArns []string,
+		principalArn, callerArn, resourceOwner string,
+		resourcePolicyList, actionNames, resourceArns []string,
 		ctx ConditionContext,
 	) ([]SimulationResult, error)
 	GetCredentialReport() string
@@ -323,7 +327,7 @@ type StorageBackend interface {
 
 	// Simulation
 	SimulateCustomPolicy(
-		policyInputList, actionNames, resourceArns []string,
+		policyInputList, permissionsBoundaryPolicyInputList, actionNames, resourceArns []string,
 		ctx ConditionContext,
 	) ([]SimulationResult, error)
 
@@ -356,6 +360,7 @@ type InMemoryBackend struct {
 	policyByARN           map[string]string
 	roleByARN             map[string]string
 	accessKeys            map[string]AccessKey
+	userAccessKeys        map[string][]string // username -> list of access key IDs
 	instanceProfiles      map[string]InstanceProfile
 	samlProviders         map[string]SAMLProvider
 	groupMembers          map[string][]string
@@ -412,6 +417,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		policyByARN:           make(map[string]string),
 		groups:                make(map[string]Group),
 		accessKeys:            make(map[string]AccessKey),
+		userAccessKeys:        make(map[string][]string),
 		instanceProfiles:      make(map[string]InstanceProfile),
 		samlProviders:         make(map[string]SAMLProvider),
 		oidcProviders:         make(map[string]OIDCProvider),
@@ -633,11 +639,10 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 	}
 
 	// Clean up access keys belonging to the user.
-	for id, ak := range b.accessKeys {
-		if ak.UserName == userName {
-			delete(b.accessKeys, id)
-		}
+	for _, id := range b.userAccessKeys[userName] {
+		delete(b.accessKeys, id)
 	}
+	delete(b.userAccessKeys, userName)
 
 	// Clean up login profile.
 	delete(b.loginProfiles, userName)
@@ -706,7 +711,7 @@ func (b *InMemoryBackend) CreateRole(
 		)
 	}
 
-	if err := validateTrustPolicyPrincipal(assumeRolePolicyDocument); err != nil {
+	if err := b.validateTrustPolicyPrincipal(assumeRolePolicyDocument); err != nil {
 		return nil, err
 	}
 
@@ -902,6 +907,8 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 	delete(b.policyByARN, policyArn)
 	delete(b.policyAttachments, policyArn)
 	delete(b.policyVersions, policyArn)
+	delete(b.policyVersionCounters, policyArn)
+	delete(b.deletedV1Policies, policyArn)
 	b.sortedPolicyNames = deleteSorted(b.sortedPolicyNames, policyName)
 
 	return nil
@@ -1223,12 +1230,8 @@ func (b *InMemoryBackend) CreateAccessKey(userName string) (*AccessKey, error) {
 
 	// AWS allows at most 2 access keys per user.
 	const maxAccessKeysPerUser = 2
-	var existingCount int
-	for _, ak := range b.accessKeys {
-		if ak.UserName == userName {
-			existingCount++
-		}
-	}
+	existingKeys := b.userAccessKeys[userName]
+	existingCount := len(existingKeys)
 
 	if existingCount >= maxAccessKeysPerUser {
 		return nil, fmt.Errorf(
@@ -1250,6 +1253,7 @@ func (b *InMemoryBackend) CreateAccessKey(userName string) (*AccessKey, error) {
 		CreateDate:      time.Now().UTC(),
 	}
 	b.accessKeys[ak.AccessKeyID] = ak
+	b.userAccessKeys[userName] = append(b.userAccessKeys[userName], ak.AccessKeyID)
 
 	return &ak, nil
 }
@@ -1271,6 +1275,15 @@ func (b *InMemoryBackend) DeleteAccessKey(userName, accessKeyID string) error {
 
 	delete(b.accessKeys, accessKeyID)
 
+	keys := b.userAccessKeys[userName]
+	for i, id := range keys {
+		if id == accessKeyID {
+			b.userAccessKeys[userName] = append(keys[:i], keys[i+1:]...)
+
+			break
+		}
+	}
+
 	return nil
 }
 
@@ -1290,9 +1303,10 @@ func (b *InMemoryBackend) ListAccessKeys(
 		)
 	}
 
-	keys := make([]AccessKey, 0, len(b.accessKeys))
-	for _, ak := range b.accessKeys {
-		if ak.UserName == userName {
+	userKeys := b.userAccessKeys[userName]
+	keys := make([]AccessKey, 0, len(userKeys))
+	for _, id := range userKeys {
+		if ak, ok := b.accessKeys[id]; ok {
 			keys = append(keys, ak)
 		}
 	}
@@ -2089,7 +2103,7 @@ func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string
 		)
 	}
 
-	if err := validateTrustPolicyPrincipal(policyDocument); err != nil {
+	if err := b.validateTrustPolicyPrincipal(policyDocument); err != nil {
 		return err
 	}
 
@@ -2282,7 +2296,8 @@ func inlineEntries(m map[string]string) []InlinePolicyEntry {
 // Permission boundaries are enforced: effective permissions = identity policies ∩ boundary.
 // An allow is only returned if both the identity policies allow AND the boundary allows.
 func (b *InMemoryBackend) SimulatePrincipalPolicy(
-	principalArn string, actionNames, resourceArns []string, ctx ConditionContext,
+	principalArn, callerArn, resourceOwner string,
+	resourcePolicyList, actionNames, resourceArns []string, ctx ConditionContext,
 ) ([]SimulationResult, error) {
 	b.mu.RLock("SimulatePrincipalPolicy")
 	defer b.mu.RUnlock()
@@ -2308,47 +2323,125 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 
 	results := make([]SimulationResult, 0, len(actionNames)*len(resourceArns))
 
+	principalAccount := parseAccountFromArn(principalArn)
+	resourceAccount := resourceOwner
+	if resourceAccount == "" {
+		if callerArn != "" {
+			resourceAccount = parseAccountFromArn(callerArn)
+		} else {
+			resourceAccount = principalAccount
+		}
+	}
+
+	isCrossAccount := resourceAccount != principalAccount && resourceAccount != "" && principalAccount != ""
+
 	for _, action := range actionNames {
 		for _, resource := range resourceArns {
-			evalResult := EvaluatePolicies(docs, action, resource, ctx)
-
-			// Per-policy detail map.
-			detail := make(map[string]string, len(namedPolicies))
-			for _, np := range namedPolicies {
-				r := EvaluatePolicies([]string{np.Doc}, action, resource, ctx)
-				detail[np.SourceID] = evalDecisionStr(r)
-			}
-
-			// Boundary enforcement.
-			var allowedByBoundary *bool
-
-			if hasBoundary {
-				boundaryResult := EvaluatePolicies(
-					[]string{boundaryDoc},
-					action,
-					resource,
-					ctx,
-				)
-				allowed := boundaryResult == EvalAllow
-
-				allowedByBoundary = &allowed
-
-				if evalResult == EvalAllow && !allowed {
-					evalResult = EvalImplicitDeny
-				}
-			}
-
-			results = append(results, SimulationResult{
-				ActionName:                   action,
-				ResourceName:                 resource,
-				Decision:                     evalDecisionStr(evalResult),
-				EvalDecisionDetails:          detail,
-				AllowedByPermissionsBoundary: allowedByBoundary,
-			})
+			results = append(results, b.evaluateSingleSimulation(
+				action, resource, docs, resourcePolicyList,
+				ctx, hasBoundary, boundaryDoc, namedPolicies, isCrossAccount,
+			))
 		}
 	}
 
 	return results, nil
+}
+
+func (b *InMemoryBackend) evaluateSingleSimulation(
+	action, resource string,
+	docs, resourcePolicyList []string,
+	ctx ConditionContext,
+	hasBoundary bool, boundaryDoc string,
+	namedPolicies []namedPolicyDoc,
+	isCrossAccount bool,
+) SimulationResult {
+	// Identity Policies evaluation
+	idResult := EvaluatePolicies(docs, action, resource, ctx)
+
+	// Resource Policies evaluation
+	var resDocs []string
+	resDocs = append(resDocs, resourcePolicyList...)
+
+	// Auto-inject role trust policy for sts:AssumeRole
+	if action == "sts:AssumeRole" {
+		if r, errGet := b.GetRoleByArn(resource); errGet == nil && r.AssumeRolePolicyDocument != "" {
+			resDocs = append(resDocs, r.AssumeRolePolicyDocument)
+		}
+	}
+
+	resResult := EvalImplicitDeny
+	if len(resDocs) > 0 {
+		resResult = EvaluatePolicies(resDocs, action, resource, ctx)
+	}
+
+	// Combine logic (Intra-account vs Cross-account)
+	evalResult := combineSimulationResults(idResult, resResult, isCrossAccount)
+
+	// Per-policy detail map.
+	detail := make(map[string]string, len(namedPolicies))
+	for _, np := range namedPolicies {
+		r := EvaluatePolicies([]string{np.Doc}, action, resource, ctx)
+		detail[np.SourceID] = evalDecisionStr(r)
+	}
+
+	// Boundary enforcement.
+	var allowedByBoundary *bool
+
+	if hasBoundary {
+		boundaryResult := EvaluatePolicies(
+			[]string{boundaryDoc},
+			action,
+			resource,
+			ctx,
+		)
+		allowed := boundaryResult == EvalAllow
+
+		allowedByBoundary = &allowed
+
+		if evalResult == EvalAllow && !allowed {
+			evalResult = EvalImplicitDeny
+		}
+	}
+
+	return SimulationResult{
+		ActionName:                   action,
+		ResourceName:                 resource,
+		Decision:                     evalDecisionStr(evalResult),
+		EvalDecisionDetails:          detail,
+		AllowedByPermissionsBoundary: allowedByBoundary,
+	}
+}
+
+func combineSimulationResults(idResult, resResult EvaluationResult, isCrossAccount bool) EvaluationResult {
+	if idResult == EvalExplicitDeny || resResult == EvalExplicitDeny {
+		return EvalExplicitDeny
+	}
+
+	if isCrossAccount {
+		if idResult == EvalAllow && resResult == EvalAllow {
+			return EvalAllow
+		}
+
+		return EvalImplicitDeny
+	}
+
+	if idResult == EvalAllow || resResult == EvalAllow {
+		return EvalAllow
+	}
+
+	return EvalImplicitDeny
+}
+
+func parseAccountFromArn(arnStr string) string {
+	const minArnParts = 5
+	const arnAccountIndex = 4
+
+	parts := strings.Split(arnStr, ":")
+	if len(parts) >= minArnParts {
+		return parts[arnAccountIndex]
+	}
+
+	return ""
 }
 
 // evalDecisionStr converts an EvalResult to the AWS-compatible decision string.
@@ -2491,6 +2584,7 @@ func (b *InMemoryBackend) Reset() {
 	b.policyAttachments = make(map[string]policyAttachmentRefs)
 	b.groups = make(map[string]Group)
 	b.accessKeys = make(map[string]AccessKey)
+	b.userAccessKeys = make(map[string][]string)
 	b.instanceProfiles = make(map[string]InstanceProfile)
 	b.samlProviders = make(map[string]SAMLProvider)
 	b.oidcProviders = make(map[string]OIDCProvider)
@@ -2505,6 +2599,7 @@ func (b *InMemoryBackend) Reset() {
 	b.accountAliases = nil
 	b.policyVersions = make(map[string][]StoredPolicyVersion)
 	b.policyVersionCounters = make(map[string]int)
+	b.deletedV1Policies = make(map[string]bool)
 	b.serviceSpecificCreds = make(map[string]ServiceSpecificCredential)
 	b.virtualMFADevices = make(map[string]VirtualMFADevice)
 	b.signingCertificates = make(map[string]SigningCertificate)

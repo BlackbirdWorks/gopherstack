@@ -40,10 +40,11 @@ type DQRuleRecommendationRun struct {
 
 // ColumnStatisticsTaskSettings represents column statistics task settings.
 type ColumnStatisticsTaskSettings struct {
-	DatabaseName   string   `json:"DatabaseName"`
-	TableName      string   `json:"TableName"`
-	RoleArn        string   `json:"RoleArn,omitempty"`
-	ColumnNameList []string `json:"ColumnNameList,omitempty"`
+	Schedule       CrawlerSchedule `json:"Schedule,omitzero"`
+	DatabaseName   string          `json:"DatabaseName"`
+	TableName      string          `json:"TableName"`
+	RoleArn        string          `json:"RoleArn,omitempty"`
+	ColumnNameList []string        `json:"ColumnNameList,omitempty"`
 }
 
 // ColumnStatisticsTaskRun represents a column statistics task run.
@@ -518,6 +519,52 @@ func (b *InMemoryBackend) DeleteColumnStatisticsTaskSettings(dbName, tableName s
 	return nil
 }
 
+// StartColumnStatisticsTaskRunSchedule enables the run schedule for a table's
+// column statistics task settings. The settings must already exist (created via
+// CreateColumnStatisticsTaskSettings), matching AWS's requirement that a
+// schedule can only be attached to existing task settings.
+func (b *InMemoryBackend) StartColumnStatisticsTaskRunSchedule(dbName, tableName string) error {
+	if dbName == "" || tableName == "" {
+		return fmt.Errorf("%w: DatabaseName and TableName are required", ErrValidation)
+	}
+
+	b.mu.Lock("StartColumnStatisticsTaskRunSchedule")
+	defer b.mu.Unlock()
+
+	s, ok := b.columnStatTaskSettings[columnStatTaskKey(dbName, tableName)]
+	if !ok {
+		return fmt.Errorf(
+			"column statistics task settings not found for %s.%s: %w", dbName, tableName, ErrNotFound,
+		)
+	}
+
+	s.Schedule.State = stateScheduled
+
+	return nil
+}
+
+// StopColumnStatisticsTaskRunSchedule disables the run schedule for a table's
+// column statistics task settings.
+func (b *InMemoryBackend) StopColumnStatisticsTaskRunSchedule(dbName, tableName string) error {
+	if dbName == "" || tableName == "" {
+		return fmt.Errorf("%w: DatabaseName and TableName are required", ErrValidation)
+	}
+
+	b.mu.Lock("StopColumnStatisticsTaskRunSchedule")
+	defer b.mu.Unlock()
+
+	s, ok := b.columnStatTaskSettings[columnStatTaskKey(dbName, tableName)]
+	if !ok {
+		return fmt.Errorf(
+			"column statistics task settings not found for %s.%s: %w", dbName, tableName, ErrNotFound,
+		)
+	}
+
+	s.Schedule.State = stateNotScheduled
+
+	return nil
+}
+
 // StartColumnStatisticsTaskRun starts a column statistics task run.
 func (b *InMemoryBackend) StartColumnStatisticsTaskRun(dbName, tableName string) (*ColumnStatisticsTaskRun, error) {
 	b.mu.Lock("StartColumnStatisticsTaskRun")
@@ -827,6 +874,50 @@ func (b *InMemoryBackend) GetIntegrationResourceProperty(resourceArn string) (*I
 	return prop, nil
 }
 
+// UpdateIntegrationResourceProperty updates a previously created resource property.
+func (b *InMemoryBackend) UpdateIntegrationResourceProperty(
+	resourceArn string,
+	sourceProps, targetProps map[string]string,
+) (*IntegrationResourceProperty, error) {
+	if resourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateIntegrationResourceProperty")
+	defer b.mu.Unlock()
+
+	prop, ok := b.integrationResourceProps[resourceArn]
+	if !ok {
+		return nil, fmt.Errorf("resource property for %q not found: %w", resourceArn, ErrNotFound)
+	}
+
+	if sourceProps != nil {
+		prop.SourceProperties = sourceProps
+	}
+
+	if targetProps != nil {
+		prop.TargetProperties = targetProps
+	}
+
+	return prop, nil
+}
+
+// ListIntegrationResourceProperties returns all stored integration resource
+// properties, sorted by resource ARN for a deterministic response.
+func (b *InMemoryBackend) ListIntegrationResourceProperties() []*IntegrationResourceProperty {
+	b.mu.RLock("ListIntegrationResourceProperties")
+	defer b.mu.RUnlock()
+
+	keys := collections.SortedKeys(b.integrationResourceProps)
+	out := make([]*IntegrationResourceProperty, 0, len(keys))
+
+	for _, k := range keys {
+		out = append(out, b.integrationResourceProps[k])
+	}
+
+	return out
+}
+
 // --- IntegrationTableProperties ---
 
 // IntegrationTableProperties stores table-level properties for a Zero-ETL integration.
@@ -881,14 +972,99 @@ func (b *InMemoryBackend) GetIntegrationTableProperties(
 	return prop, nil
 }
 
-// --- DataQualityModel (stateless) ---
+// UpdateIntegrationTableProperties updates a previously created table property.
+func (b *InMemoryBackend) UpdateIntegrationTableProperties(
+	resourceArn, tableName string,
+	sourceConfig, targetConfig map[string]any,
+) error {
+	if resourceArn == "" || tableName == "" {
+		return fmt.Errorf("%w: ResourceArn and TableName are required", ErrValidation)
+	}
 
-// GetDataQualityModel returns a data quality model result (stateless stub).
-func (b *InMemoryBackend) GetDataQualityModel(_ string) (string, error) {
-	return "READY", nil
+	b.mu.Lock("UpdateIntegrationTableProperties")
+	defer b.mu.Unlock()
+
+	key := resourceArn + "|" + tableName
+
+	prop, ok := b.integrationTableProps[key]
+	if !ok {
+		return fmt.Errorf("table property for %q/%q not found: %w", resourceArn, tableName, ErrNotFound)
+	}
+
+	if sourceConfig != nil {
+		prop.SourceTableConfig = sourceConfig
+	}
+
+	if targetConfig != nil {
+		prop.TargetTableConfig = targetConfig
+	}
+
+	return nil
 }
 
-// GetDataQualityModelResult returns model result data (stateless stub).
-func (b *InMemoryBackend) GetDataQualityModelResult(_ string) (string, error) {
-	return "READY", nil
+// --- Data quality statistic annotations ---
+
+// StatisticAnnotation records an inclusion annotation applied via
+// PutDataQualityProfileAnnotation (profile-wide, StatisticID == "") or
+// BatchPutDataQualityStatisticAnnotation (per-statistic).
+type StatisticAnnotation struct {
+	ProfileID      string  `json:"ProfileId"`
+	StatisticID    string  `json:"StatisticId,omitempty"`
+	Inclusion      string  `json:"Inclusion,omitempty"`
+	RecordedOn     float64 `json:"RecordedOn,omitempty"`
+	LastModifiedOn float64 `json:"LastModifiedOn,omitempty"`
+}
+
+func dqAnnotationKey(profileID, statisticID string) string {
+	return profileID + "|" + statisticID
+}
+
+// PutDataQualityStatisticAnnotation stores (or overwrites) the inclusion
+// annotation for a profile/statistic pair.
+func (b *InMemoryBackend) PutDataQualityStatisticAnnotation(profileID, statisticID, inclusion string) {
+	b.mu.Lock("PutDataQualityStatisticAnnotation")
+	defer b.mu.Unlock()
+
+	now := float64(time.Now().Unix())
+	key := dqAnnotationKey(profileID, statisticID)
+
+	recordedOn := now
+	if existing, ok := b.dqStatisticAnnotations[key]; ok {
+		recordedOn = existing.RecordedOn
+	}
+
+	b.dqStatisticAnnotations[key] = &StatisticAnnotation{
+		ProfileID:      profileID,
+		StatisticID:    statisticID,
+		Inclusion:      inclusion,
+		RecordedOn:     recordedOn,
+		LastModifiedOn: now,
+	}
+}
+
+// ListDataQualityStatisticAnnotations returns stored annotations, optionally
+// filtered by profile ID and/or statistic ID, sorted by key for a deterministic
+// response.
+func (b *InMemoryBackend) ListDataQualityStatisticAnnotations(profileID, statisticID string) []*StatisticAnnotation {
+	b.mu.RLock("ListDataQualityStatisticAnnotations")
+	defer b.mu.RUnlock()
+
+	keys := collections.SortedKeys(b.dqStatisticAnnotations)
+	out := make([]*StatisticAnnotation, 0, len(keys))
+
+	for _, k := range keys {
+		e := b.dqStatisticAnnotations[k]
+		if profileID != "" && e.ProfileID != profileID {
+			continue
+		}
+
+		if statisticID != "" && e.StatisticID != statisticID {
+			continue
+		}
+
+		cp := *e
+		out = append(out, &cp)
+	}
+
+	return out
 }

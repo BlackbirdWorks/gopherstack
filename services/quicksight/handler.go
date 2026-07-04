@@ -335,6 +335,7 @@ const (
 	// JSON response keys.
 	keyRequestID            = "RequestId"
 	keyStatus               = "Status"
+	keyUpdateStatus         = "UpdateStatus"
 	keyNextToken            = "NextToken"
 	keyGroup                = "Group"
 	keyGroupList            = "GroupList"
@@ -353,6 +354,7 @@ const (
 	keyDashboard            = "Dashboard"
 	keyDashboardSummaryList = "DashboardSummaryList"
 	keyDashboardID          = "DashboardId"
+	keyDashboardArn         = "DashboardArn"
 	keyAnalysis             = "Analysis"
 	keyAnalysisSummaryList  = "AnalysisSummaryList"
 	keyAnalysisID           = "AnalysisId"
@@ -365,6 +367,9 @@ const (
 	keyIdentityStore        = "IdentityStore"
 	keyNamespace            = "Namespace"
 	keyMemberName           = "MemberName"
+
+	// request ID placeholder.
+	reqIDPlaceholder = "request-id"
 
 	// path segment names.
 	pathSegAccounts       = "accounts"
@@ -449,12 +454,13 @@ const (
 	pathSegRefresh              = "refresh"
 	pathSegResult               = "result"
 
-	// time format.
-	timeFormat = "2006-01-02T15:04:05Z"
-
 	// error codes.
 	errInvalidParam = "InvalidParameterValueException"
 	errInvalidBody  = "invalid request body"
+
+	// queryValueTrue is the string form of a "true" boolean query parameter
+	// (forceDeleteWithoutRecovery, includeInputPayload, includeOutputPayload, ...).
+	queryValueTrue = "true"
 )
 
 // newReqID returns a unique AWS-style request ID for each response.
@@ -464,22 +470,18 @@ func newReqID() string { return uuid.NewString() }
 type Handler struct {
 	Backend     StorageBackend
 	appendixOps map[string]appendixHandlerFn
-	statefulOps map[string]echo.HandlerFunc
 	accountID   string
 	region      string
 }
 
 // NewHandler creates a new QuickSight handler.
 func NewHandler(b StorageBackend) *Handler {
-	h := &Handler{
+	return &Handler{
 		Backend:     b,
 		appendixOps: buildAppendixOps(),
 		accountID:   b.AccountID(),
 		region:      b.Region(),
 	}
-	h.statefulOps = h.buildStatefulAppendixOps()
-
-	return h
 }
 
 // Name returns the service name.
@@ -842,7 +844,8 @@ func isUserOp(op string) bool {
 
 func isDataSourceOp(op string) bool {
 	switch op {
-	case opCreateDataSource, opDescribeDataSource, opUpdateDataSource, opDeleteDataSource, opListDataSources:
+	case opCreateDataSource, opDescribeDataSource, opUpdateDataSource, opDeleteDataSource, opListDataSources,
+		opDescribeDataSourcePerms, opUpdateDataSourcePerms:
 		return true
 	}
 
@@ -852,7 +855,8 @@ func isDataSourceOp(op string) bool {
 func isDataSetOp(op string) bool {
 	switch op {
 	case opCreateDataSet, opDescribeDataSet, opUpdateDataSet, opDeleteDataSet, opListDataSets,
-		opCreateIngestion, opDescribeIngestion, opCancelIngestion, opListIngestions:
+		opCreateIngestion, opDescribeIngestion, opCancelIngestion, opListIngestions,
+		opDescribeDataSetPerms, opUpdateDataSetPerms:
 		return true
 	}
 
@@ -862,7 +866,9 @@ func isDataSetOp(op string) bool {
 func isDashboardOp(op string) bool {
 	switch op {
 	case opCreateDashboard, opDescribeDashboard, opUpdateDashboard, opDeleteDashboard,
-		opListDashboards, opListDashboardVersions:
+		opListDashboards, opListDashboardVersions,
+		opDescribeDashboardDefinition, opDescribeDashboardPerms, opUpdateDashboardPerms,
+		opUpdateDashboardPublishedVersion, opUpdateDashboardLinks:
 		return true
 	}
 
@@ -872,7 +878,8 @@ func isDashboardOp(op string) bool {
 func isAnalysisOp(op string) bool {
 	switch op {
 	case opCreateAnalysis, opDescribeAnalysis, opUpdateAnalysis, opDeleteAnalysis,
-		opListAnalyses, opRestoreAnalysis:
+		opListAnalyses, opRestoreAnalysis,
+		opDescribeAnalysisDefinition, opDescribeAnalysisPerms, opUpdateAnalysisPerms:
 		return true
 	}
 
@@ -907,6 +914,14 @@ func (h *Handler) dispatch(c *echo.Context) error {
 		return h.dispatchAnalysis(c, op)
 	case isTagOp(op):
 		return h.dispatchTag(c, op)
+	case isFolderOp(op):
+		return h.dispatchFolder(c, op)
+	case isTemplateOp(op):
+		return h.dispatchTemplate(c, op)
+	case isThemeOp(op):
+		return h.dispatchTheme(c, op)
+	case isTopicFamilyOp(op):
+		return h.dispatchTopicFamily(c, op)
 	case op != opUnknown:
 		return h.dispatchNew(c, op)
 	default:
@@ -917,6 +932,89 @@ func (h *Handler) dispatch(c *echo.Context) error {
 			fmt.Sprintf("operation %q not implemented", op),
 		)
 	}
+}
+
+// isTopicFamilyOp reports whether op is one of the Topic, VPC Connection, IAM
+// Policy Assignment, Brand, Custom Permissions/Role/User-permission, OAuth app,
+// Identity Propagation, Asset Bundle/Dashboard Snapshot job, DataSet Refresh
+// Schedule/Properties, or Embed URL operations. These otherwise-unrelated
+// families are grouped behind a single dispatch() case (routed on to
+// dispatchTopicFamily) purely to keep dispatch's cyclomatic complexity in budget.
+func isTopicFamilyOp(op string) bool {
+	return isTopicOp(op) || isVPCConnectionOp(op) || isIAMPolicyAssignmentOp(op) ||
+		isBrandOp(op) || isCustomPermOp(op) || isOAuthOp(op) || isIdentityPropOp(op) ||
+		isAssetBundleOp(op) || isRefreshScheduleOp(op) || isEmbedURLOp(op) ||
+		isResourceSearchOp(op) || op == opListFoldersForResource || isAccountCustomPermOp(op) ||
+		isFinalStubOp(op)
+}
+
+// isFinalStubOp reports whether op is one of the Action Connector, Automation
+// Job, Flow, or namespace Self-Upgrade operations — the last Appendix-A
+// canned-stub families to gain real backend implementations. Grouped behind
+// one predicate/dispatch pair purely to keep isTopicFamilyOp/
+// dispatchTopicFamily's complexity in budget.
+func isFinalStubOp(op string) bool {
+	return isActionConnectorOp(op) || isAutomationJobOp(op) || isFlowOp(op) || isSelfUpgradeOp(op)
+}
+
+func (h *Handler) dispatchFinalStub(c *echo.Context, op string) error {
+	switch {
+	case isActionConnectorOp(op):
+		return h.dispatchActionConnector(c, op)
+	case isAutomationJobOp(op):
+		return h.dispatchAutomationJob(c, op)
+	case isFlowOp(op):
+		return h.dispatchFlow(c, op)
+	case isSelfUpgradeOp(op):
+		return h.dispatchSelfUpgrade(c, op)
+	}
+
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
+}
+
+func (h *Handler) dispatchTopicFamily(c *echo.Context, op string) error {
+	switch {
+	case isTopicOp(op):
+		return h.dispatchTopic(c, op)
+	case isVPCConnectionOp(op):
+		return h.dispatchVPCConnection(c, op)
+	case isIAMPolicyAssignmentOp(op):
+		return h.dispatchIAMPolicyAssignment(c, op)
+	case isBrandOp(op):
+		return h.dispatchBrand(c, op)
+	case isCustomPermOp(op):
+		return h.dispatchCustomPerm(c, op)
+	case isOAuthOp(op):
+		return h.dispatchOAuth(c, op)
+	case isIdentityPropOp(op):
+		return h.dispatchIdentityProp(c, op)
+	case isAssetBundleOp(op):
+		return h.dispatchAssetBundle(c, op)
+	case isRefreshScheduleOp(op):
+		return h.dispatchRefreshSchedule(c, op)
+	case isEmbedURLOp(op):
+		return h.dispatchEmbedURL(c, op)
+	case isResourceSearchOp(op):
+		return h.dispatchResourceSearch(c, op)
+	case op == opListFoldersForResource:
+		return h.handleListFoldersForResource(c)
+	case isAccountCustomPermOp(op):
+		return h.dispatchAccountCustomPerm(c, op)
+	case isFinalStubOp(op):
+		return h.dispatchFinalStub(c, op)
+	}
+
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
 }
 
 func (h *Handler) dispatchNamespace(c *echo.Context, op string) error {
@@ -1009,6 +1107,10 @@ func (h *Handler) dispatchDataSource(c *echo.Context, op string) error {
 		return h.handleDeleteDataSource(c)
 	case opListDataSources:
 		return h.handleListDataSources(c)
+	case opDescribeDataSourcePerms:
+		return h.handleDescribeDataSourcePermissions(c)
+	case opUpdateDataSourcePerms:
+		return h.handleUpdateDataSourcePermissions(c)
 	}
 
 	return writeError(
@@ -1039,6 +1141,10 @@ func (h *Handler) dispatchDataSet(c *echo.Context, op string) error {
 		return h.handleCancelIngestion(c)
 	case opListIngestions:
 		return h.handleListIngestions(c)
+	case opDescribeDataSetPerms:
+		return h.handleDescribeDataSetPermissions(c)
+	case opUpdateDataSetPerms:
+		return h.handleUpdateDataSetPermissions(c)
 	}
 
 	return writeError(
@@ -1063,6 +1169,16 @@ func (h *Handler) dispatchDashboard(c *echo.Context, op string) error {
 		return h.handleListDashboards(c)
 	case opListDashboardVersions:
 		return h.handleListDashboardVersions(c)
+	case opDescribeDashboardDefinition:
+		return h.handleDescribeDashboardDefinition(c)
+	case opDescribeDashboardPerms:
+		return h.handleDescribeDashboardPermissions(c)
+	case opUpdateDashboardPerms:
+		return h.handleUpdateDashboardPermissions(c)
+	case opUpdateDashboardPublishedVersion:
+		return h.handleUpdateDashboardPublishedVersion(c)
+	case opUpdateDashboardLinks:
+		return h.handleUpdateDashboardLinks(c)
 	}
 
 	return writeError(
@@ -1087,6 +1203,12 @@ func (h *Handler) dispatchAnalysis(c *echo.Context, op string) error {
 		return h.handleListAnalyses(c)
 	case opRestoreAnalysis:
 		return h.handleRestoreAnalysis(c)
+	case opDescribeAnalysisDefinition:
+		return h.handleDescribeAnalysisDefinition(c)
+	case opDescribeAnalysisPerms:
+		return h.handleDescribeAnalysisPermissions(c)
+	case opUpdateAnalysisPerms:
+		return h.handleUpdateAnalysisPermissions(c)
 	}
 
 	return writeError(
@@ -1271,7 +1393,10 @@ func classifyRequest(method, path string) (string, string) { //nolint:gocognit,g
 			return opGetIdentityContext, seg(segs, segAccountID)
 		}
 	case pathSegQA:
-		if n > nSegsAccountResID && seg(segs, segResID) == pathSegPredict && method == http.MethodPost {
+		// POST /accounts/{id}/qa/predict (n == nSegsAccountResID: accounts,
+		// {id}, qa, predict). The previous "n > nSegsAccountResID" guard made
+		// this real 4-segment path unreachable.
+		if n >= nSegsAccountResID && seg(segs, segResID) == pathSegPredict && method == http.MethodPost {
 			return opPredictQAResults, seg(segs, segAccountID)
 		}
 	case pathSegAppTokenGrant:
@@ -2429,6 +2554,7 @@ func (h *Handler) handleCreateDataSource(c *echo.Context) error {
 		strField(body, "DataSourceId"),
 		strField(body, "Name"),
 		strField(body, "Type"),
+		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
 	)
 	if err != nil {
@@ -2529,13 +2655,60 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 func dataSourceToMap(ds *DataSource) map[string]any {
 	return map[string]any{
 		keyArn:             ds.Arn,
-		keyCreatedTime:     ds.CreatedTime.Format(timeFormat),
+		keyCreatedTime:     ds.CreatedTime.Unix(),
 		keyDataSourceID:    ds.DataSourceID,
-		keyLastUpdatedTime: ds.LastUpdatedTime.Format(timeFormat),
+		keyLastUpdatedTime: ds.LastUpdatedTime.Unix(),
 		keyName:            ds.Name,
 		keyStatus:          ds.Status,
 		"Type":             ds.Type,
 	}
+}
+
+func (h *Handler) handleDescribeDataSourcePermissions(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dataSourceID := seg(segs, segResID)
+
+	ds, perms, err := h.Backend.DescribeDataSourcePermissions(accountID, dataSourceID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDataSourceID: dataSourceID,
+		"DataSourceArn": ds.Arn,
+		keyPermissions:  permissionsToMaps(perms),
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateDataSourcePermissions(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dataSourceID := seg(segs, segResID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	ds, _, err := h.Backend.UpdateDataSourcePermissions(
+		accountID,
+		dataSourceID,
+		permissionsField(body, "GrantPermissions"),
+		permissionsField(body, "RevokePermissions"),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDataSourceID: dataSourceID,
+		"DataSourceArn": ds.Arn,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+	})
 }
 
 // ---- DataSet handlers ----
@@ -2554,6 +2727,7 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 		strField(body, "DataSetId"),
 		strField(body, "Name"),
 		strField(body, "ImportMode"),
+		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
 	)
 	if err != nil {
@@ -2654,12 +2828,59 @@ func (h *Handler) handleListDataSets(c *echo.Context) error {
 func dataSetToMap(ds *DataSet) map[string]any {
 	return map[string]any{
 		keyArn:             ds.Arn,
-		keyCreatedTime:     ds.CreatedTime.Format(timeFormat),
+		keyCreatedTime:     ds.CreatedTime.Unix(),
 		keyDataSetID:       ds.DataSetID,
 		"ImportMode":       ds.ImportMode,
-		keyLastUpdatedTime: ds.LastUpdatedTime.Format(timeFormat),
+		keyLastUpdatedTime: ds.LastUpdatedTime.Unix(),
 		keyName:            ds.Name,
 	}
+}
+
+func (h *Handler) handleDescribeDataSetPermissions(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dataSetID := seg(segs, segResID)
+
+	ds, perms, err := h.Backend.DescribeDataSetPermissions(accountID, dataSetID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDataSetID:   dataSetID,
+		"DataSetArn":   ds.Arn,
+		keyPermissions: permissionsToMaps(perms),
+		keyRequestID:   reqIDPlaceholder,
+		keyStatus:      http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateDataSetPermissions(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dataSetID := seg(segs, segResID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	ds, _, err := h.Backend.UpdateDataSetPermissions(
+		accountID,
+		dataSetID,
+		permissionsField(body, "GrantPermissions"),
+		permissionsField(body, "RevokePermissions"),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDataSetID: dataSetID,
+		"DataSetArn": ds.Arn,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
 }
 
 // ---- Ingestion handlers ----
@@ -2698,7 +2919,7 @@ func (h *Handler) handleDescribeIngestion(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyIngestion: map[string]any{
 			keyArn:             ing.Arn,
-			keyCreatedTime:     ing.CreatedTime.Format(timeFormat),
+			keyCreatedTime:     ing.CreatedTime.Unix(),
 			keyIngestionID:     ing.IngestionID,
 			keyIngestionStatus: ing.IngestionStatus,
 		},
@@ -2737,7 +2958,7 @@ func (h *Handler) handleListIngestions(c *echo.Context) error {
 	for _, ing := range ingestions {
 		items = append(items, map[string]any{
 			keyArn:             ing.Arn,
-			keyCreatedTime:     ing.CreatedTime.Format(timeFormat),
+			keyCreatedTime:     ing.CreatedTime.Unix(),
 			keyIngestionID:     ing.IngestionID,
 			keyIngestionStatus: ing.IngestionStatus,
 		})
@@ -2772,7 +2993,14 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 		name = dashboardID
 	}
 
-	d, err := h.Backend.CreateDashboard(accountID, dashboardID, name, tagsFromBody(body))
+	d, err := h.Backend.CreateDashboard(
+		accountID,
+		dashboardID,
+		name,
+		mapField(body, keyDefinition),
+		permissionsField(body, keyPermissions),
+		tagsFromBody(body),
+	)
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -2814,7 +3042,7 @@ func (h *Handler) handleUpdateDashboard(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	d, err := h.Backend.UpdateDashboard(accountID, dashboardID, strField(body, "Name"))
+	d, err := h.Backend.UpdateDashboard(accountID, dashboardID, strField(body, "Name"), mapField(body, keyDefinition))
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -2888,7 +3116,7 @@ func (h *Handler) handleListDashboardVersions(c *echo.Context) error {
 	for _, v := range versions {
 		items = append(items, map[string]any{
 			keyArn:          v.Arn,
-			keyCreatedTime:  v.CreatedTime.Format(timeFormat),
+			keyCreatedTime:  v.CreatedTime.Unix(),
 			keyStatus:       v.Status,
 			"VersionNumber": v.VersionNumber,
 		})
@@ -2909,12 +3137,130 @@ func (h *Handler) handleListDashboardVersions(c *echo.Context) error {
 func dashboardToMap(d *Dashboard) map[string]any {
 	return map[string]any{
 		keyArn:                   d.Arn,
-		keyCreatedTime:           d.CreatedTime.Format(timeFormat),
+		keyCreatedTime:           d.CreatedTime.Unix(),
 		keyDashboardID:           d.DashboardID,
-		keyLastUpdatedTime:       d.LastUpdatedTime.Format(timeFormat),
+		keyLastUpdatedTime:       d.LastUpdatedTime.Unix(),
 		keyName:                  d.Name,
 		"PublishedVersionNumber": d.VersionNumber,
 	}
+}
+
+func (h *Handler) handleDescribeDashboardDefinition(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
+
+	d, err := h.Backend.DescribeDashboard(accountID, dashboardID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyName:           d.Name,
+		keyDashboardID:    d.DashboardID,
+		keyResourceStatus: d.Status,
+		keyDefinition:     d.Definition,
+		keyRequestID:      reqIDPlaceholder,
+		keyStatus:         http.StatusOK,
+	})
+}
+
+func (h *Handler) handleDescribeDashboardPermissions(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
+
+	d, perms, err := h.Backend.DescribeDashboardPermissions(accountID, dashboardID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDashboardID:  dashboardID,
+		keyDashboardArn: d.Arn,
+		keyPermissions:  permissionsToMaps(perms),
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateDashboardPermissions(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	d, perms, err := h.Backend.UpdateDashboardPermissions(
+		accountID,
+		dashboardID,
+		permissionsField(body, "GrantPermissions"),
+		permissionsField(body, "RevokePermissions"),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDashboardID:  dashboardID,
+		keyDashboardArn: d.Arn,
+		keyPermissions:  permissionsToMaps(perms),
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+	})
+}
+
+// handleUpdateDashboardPublishedVersion flips which stored version of a
+// dashboard is published. The version number is a path segment (.../versions/
+// {VersionNumber}), not a body field.
+func (h *Handler) handleUpdateDashboardPublishedVersion(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
+	versionNumber, _ := strconv.ParseInt(seg(segs, segSubResID), 10, 64)
+
+	d, err := h.Backend.UpdateDashboardPublishedVersion(accountID, dashboardID, versionNumber)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDashboardArn: d.Arn,
+		keyDashboardID:  d.DashboardID,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateDashboardLinks(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	d, err := h.Backend.UpdateDashboardLinks(accountID, dashboardID, stringsFromBody(body, "LinkEntities"))
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	linkEntities := d.LinkEntities
+	if linkEntities == nil {
+		linkEntities = []string{}
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDashboardArn: d.Arn,
+		"LinkEntities":  linkEntities,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+	})
 }
 
 // ---- Analysis handlers ----
@@ -2934,7 +3280,14 @@ func (h *Handler) handleCreateAnalysis(c *echo.Context) error {
 		name = analysisID
 	}
 
-	a, err := h.Backend.CreateAnalysis(accountID, analysisID, name, tagsFromBody(body))
+	a, err := h.Backend.CreateAnalysis(
+		accountID,
+		analysisID,
+		name,
+		mapField(body, keyDefinition),
+		permissionsField(body, keyPermissions),
+		tagsFromBody(body),
+	)
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -2975,17 +3328,17 @@ func (h *Handler) handleUpdateAnalysis(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	a, err := h.Backend.UpdateAnalysis(accountID, analysisID, strField(body, "Name"))
+	a, err := h.Backend.UpdateAnalysis(accountID, analysisID, strField(body, "Name"), mapField(body, keyDefinition))
 	if err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyAnalysisID:  a.AnalysisID,
-		keyArn:         a.Arn,
-		keyRequestID:   newReqID(),
-		keyStatus:      http.StatusOK,
-		"UpdateStatus": a.Status,
+		keyAnalysisID:   a.AnalysisID,
+		keyArn:          a.Arn,
+		keyRequestID:    newReqID(),
+		keyStatus:       http.StatusOK,
+		keyUpdateStatus: a.Status,
 	})
 }
 
@@ -2994,7 +3347,7 @@ func (h *Handler) handleDeleteAnalysis(c *echo.Context) error {
 	accountID := seg(segs, segAccountID)
 	analysisID := seg(segs, segResID)
 
-	force := c.Request().URL.Query().Get("forceDeleteWithoutRecovery") == "true"
+	force := c.Request().URL.Query().Get("forceDeleteWithoutRecovery") == queryValueTrue
 
 	if err := h.Backend.DeleteAnalysis(accountID, analysisID, force); err != nil {
 		return httpErr(c, err)
@@ -3056,11 +3409,79 @@ func analysisToMap(a *Analysis) map[string]any {
 	return map[string]any{
 		keyAnalysisID:      a.AnalysisID,
 		keyArn:             a.Arn,
-		keyCreatedTime:     a.CreatedTime.Format(timeFormat),
-		keyLastUpdatedTime: a.LastUpdatedTime.Format(timeFormat),
+		keyCreatedTime:     a.CreatedTime.Unix(),
+		keyLastUpdatedTime: a.LastUpdatedTime.Unix(),
 		keyName:            a.Name,
 		keyStatus:          a.Status,
 	}
+}
+
+func (h *Handler) handleDescribeAnalysisDefinition(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	analysisID := seg(segs, segResID)
+
+	a, err := h.Backend.DescribeAnalysis(accountID, analysisID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyName:           a.Name,
+		keyAnalysisID:     a.AnalysisID,
+		keyResourceStatus: a.Status,
+		keyDefinition:     a.Definition,
+		keyRequestID:      reqIDPlaceholder,
+		keyStatus:         http.StatusOK,
+	})
+}
+
+func (h *Handler) handleDescribeAnalysisPermissions(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	analysisID := seg(segs, segResID)
+
+	a, perms, err := h.Backend.DescribeAnalysisPermissions(accountID, analysisID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyAnalysisID:  analysisID,
+		"AnalysisArn":  a.Arn,
+		keyPermissions: permissionsToMaps(perms),
+		keyRequestID:   reqIDPlaceholder,
+		keyStatus:      http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateAnalysisPermissions(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	analysisID := seg(segs, segResID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	a, perms, err := h.Backend.UpdateAnalysisPermissions(
+		accountID,
+		analysisID,
+		permissionsField(body, "GrantPermissions"),
+		permissionsField(body, "RevokePermissions"),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyAnalysisID:  analysisID,
+		"AnalysisArn":  a.Arn,
+		keyPermissions: permissionsToMaps(perms),
+		keyRequestID:   reqIDPlaceholder,
+		keyStatus:      http.StatusOK,
+	})
 }
 
 // ---- Tag handlers ----

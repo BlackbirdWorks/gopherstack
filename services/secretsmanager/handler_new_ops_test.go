@@ -244,7 +244,7 @@ func TestResourcePolicyCycle(t *testing.T) {
 				require.NoError(t, err)
 			},
 			target:         "secretsmanager.PutResourcePolicy",
-			body:           `{"SecretId":"policy-secret","ResourcePolicy":"{\"Version\":\"2012-10-17\"}"}`,
+			body:           `{"SecretId":"policy-secret","ResourcePolicy":"{\"Version\":\"2012-10-17\",\"Statement\":[]}"}`,
 			expectedStatus: http.StatusOK,
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -265,7 +265,7 @@ func TestResourcePolicyCycle(t *testing.T) {
 				require.NoError(t, err)
 				_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 					SecretID:       "get-policy",
-					ResourcePolicy: `{"Version":"2012-10-17"}`,
+					ResourcePolicy: `{"Version":"2012-10-17","Statement":[]}`,
 				})
 				require.NoError(t, err)
 			},
@@ -291,7 +291,7 @@ func TestResourcePolicyCycle(t *testing.T) {
 				require.NoError(t, err)
 				_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 					SecretID:       "del-policy",
-					ResourcePolicy: `{"Version":"2012-10-17"}`,
+					ResourcePolicy: `{"Version":"2012-10-17","Statement":[]}`,
 				})
 				require.NoError(t, err)
 			},

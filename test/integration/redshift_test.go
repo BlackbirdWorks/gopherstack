@@ -92,3 +92,39 @@ func TestIntegration_Redshift_DeleteCluster(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 	assert.Contains(t, body, "DeleteClusterResponse")
 }
+
+func TestIntegration_Redshift_DescribeNodeConfigurationOptions(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	resp := redshiftPost(t, url.Values{
+		"Action":     {"DescribeNodeConfigurationOptions"},
+		"ActionType": {"recommend-node-config"},
+	})
+	body := redshiftReadBody(t, resp)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	assert.Contains(t, body, "DescribeNodeConfigurationOptionsResponse")
+	assert.Contains(t, body, "NodeConfigurationOption")
+}
+
+func TestIntegration_Redshift_ListRecommendations(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	redshiftPost(t, url.Values{
+		"Action":            {"CreateCluster"},
+		"ClusterIdentifier": {"rec-integ-cluster"},
+		"NodeType":          {"dc2.large"},
+	})
+
+	resp := redshiftPost(t, url.Values{
+		"Action":            {"ListRecommendations"},
+		"ClusterIdentifier": {"rec-integ-cluster"},
+	})
+	body := redshiftReadBody(t, resp)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	assert.Contains(t, body, "ListRecommendationsResponse")
+	assert.Contains(t, body, "rec-integ-cluster")
+}

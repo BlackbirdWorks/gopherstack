@@ -118,6 +118,20 @@ type LambdaInvoker interface {
 	) ([]byte, int, error)
 }
 
+// EC2InstanceActioner executes EC2 alarm actions (arn:aws:automate:<region>:ec2:*)
+// against the instances named by the alarm's InstanceId dimension.
+type EC2InstanceActioner interface {
+	StopInstances(instanceIDs []string) error
+	TerminateInstances(instanceIDs []string) error
+	RebootInstances(instanceIDs []string) error
+}
+
+// AutoScalingPolicyExecutor executes an Auto Scaling scaling-policy alarm action
+// (arn:aws:autoscaling:...:scalingPolicy:...).
+type AutoScalingPolicyExecutor interface {
+	ExecuteScalingPolicy(autoScalingGroupName, policyName string) error
+}
+
 // StorageBackend is the interface for the CloudWatch in-memory store.
 type StorageBackend interface {
 	PutMetricData(namespace string, data []MetricDatum) ([]UnprocessedMetricDatum, error)
@@ -229,6 +243,8 @@ type InMemoryBackend struct {
 	metricFilters    map[string]*MetricFilter
 	snsPublisher     SNSPublisher
 	lambdaInvoker    LambdaInvoker
+	ec2Actioner      EC2InstanceActioner
+	asgExecutor      AutoScalingPolicyExecutor
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string
@@ -376,6 +392,22 @@ func (b *InMemoryBackend) SetLambdaInvoker(inv LambdaInvoker) {
 	b.lambdaInvoker = inv
 }
 
+// SetEC2Actioner registers an EC2 actioner used to execute arn:aws:automate EC2
+// alarm actions (stop/terminate/reboot/recover).
+func (b *InMemoryBackend) SetEC2Actioner(a EC2InstanceActioner) {
+	b.mu.Lock("SetEC2Actioner")
+	defer b.mu.Unlock()
+	b.ec2Actioner = a
+}
+
+// SetAutoScalingExecutor registers an Auto Scaling executor used to run
+// scaling-policy alarm actions.
+func (b *InMemoryBackend) SetAutoScalingExecutor(e AutoScalingPolicyExecutor) {
+	b.mu.Lock("SetAutoScalingExecutor")
+	defer b.mu.Unlock()
+	b.asgExecutor = e
+}
+
 // storeDatum validates and stores a single MetricDatum into the namespace map.
 // Returns a non-nil *UnprocessedMetricDatum when the datum cannot be stored.
 // Caller must hold b.mu (write lock).
@@ -460,6 +492,7 @@ func (b *InMemoryBackend) PutMetricData(
 
 	for _, d := range data {
 		d.Namespace = namespace
+
 		if u := b.storeDatum(namespace, d); u != nil {
 			unprocessed = append(unprocessed, *u)
 		}
@@ -824,7 +857,7 @@ func (b *InMemoryBackend) GetMetricStatistics(
 		if len(extendedStatistics) > 0 {
 			raw := rawBuckets[idx]
 			sort.Float64s(raw)
-			dp.ExtendedStatistics = computePercentiles(raw, extendedStatistics)
+			dp.ExtendedStatistics = computeExtendedStats(raw, extendedStatistics)
 		}
 
 		datapoints = append(datapoints, dp)
@@ -929,6 +962,18 @@ func (b *InMemoryBackend) GetMetricDataWithOptions(
 	b.mu.RLock("GetMetricData")
 	defer b.mu.RUnlock()
 
+	return b.resolveMetricDataQueries(queries, startTime, endTime, scanBy), nil
+}
+
+// resolveMetricDataQueries resolves every query into a MetricDataResult, preserving
+// query order and honouring ReturnData / ScanBy. Per-result diagnostic Messages and
+// the PartialData status are attached where metric math produced NaN/Inf.
+// Caller must hold b.mu (at least a read lock).
+func (b *InMemoryBackend) resolveMetricDataQueries(
+	queries []MetricDataQuery,
+	startTime, endTime time.Time,
+	scanBy string,
+) []MetricDataResult {
 	resolved := make(map[string]MetricDataResult, len(queries))
 	// Preserve original query order for the returned slice.
 	ordered := make([]string, 0, len(queries))
@@ -958,7 +1003,9 @@ func (b *InMemoryBackend) GetMetricDataWithOptions(
 		if !ok {
 			continue
 		}
-		resolved[id] = evalExpression(q, resolved)
+		r := evalExpression(q, resolved)
+		annotateArithmeticMessages(&r)
+		resolved[id] = r
 	}
 
 	descending := strings.EqualFold(scanBy, "TimestampDescending")
@@ -982,7 +1029,7 @@ func (b *InMemoryBackend) GetMetricDataWithOptions(
 		results = append(results, r)
 	}
 
-	return results, nil
+	return results
 }
 
 // reverseMetricDataResult reverses the timestamp and value slices in-place.
@@ -1583,6 +1630,7 @@ func (b *InMemoryBackend) SetAlarmState(
 	var alarmDesc string
 	var alarmActions, okActions, insuffActions []string
 	var actionsEnabled bool
+	var instanceIDs []string
 
 	if hasMetric {
 		oldState = metricAlarm.StateValue
@@ -1592,6 +1640,7 @@ func (b *InMemoryBackend) SetAlarmState(
 		okActions = metricAlarm.OKActions
 		insuffActions = metricAlarm.InsufficientDataActions
 		actionsEnabled = metricAlarm.ActionsEnabled
+		instanceIDs = instanceIDsFromDimensions(metricAlarm.Dimensions)
 
 		metricAlarm.StateValue = stateValue
 		metricAlarm.StateReason = stateReason
@@ -1626,8 +1675,13 @@ func (b *InMemoryBackend) SetAlarmState(
 	// re-evaluate composite alarms that may reference this alarm, collecting any transitions
 	compositeTransitions := b.reevaluateCompositeAlarms()
 
-	snsPub := b.snsPublisher
-	lambdaInv := b.lambdaInvoker
+	deps := alarmActionDeps{
+		snsPub:      b.snsPublisher,
+		lambdaInv:   b.lambdaInvoker,
+		ec2:         b.ec2Actioner,
+		asg:         b.asgExecutor,
+		instanceIDs: instanceIDs,
+	}
 	b.mu.Unlock()
 
 	if actionsEnabled && stateValue != oldState {
@@ -1649,19 +1703,55 @@ func (b *InMemoryBackend) SetAlarmState(
 			stateValue,
 			stateReason,
 		)
-		b.executeActions(ctx, actions, alarmName, payload, snsPub, lambdaInv)
+		b.executeActions(ctx, actions, alarmName, payload, deps)
 	}
 
-	// fire actions for any composite alarms that changed state
-	for _, tr := range compositeTransitions {
+	b.fireCompositeTransitions(ctx, compositeTransitions, deps)
+
+	return nil
+}
+
+// fireCompositeTransitions fires the actions for composite alarms that changed
+// state. Composite alarms have no metric dimensions, so EC2 instance IDs are not
+// carried over — only the SNS/Lambda collaborators are reused.
+func (b *InMemoryBackend) fireCompositeTransitions(
+	ctx context.Context,
+	transitions []compositeAlarmTransition,
+	deps alarmActionDeps,
+) {
+	compositeDeps := alarmActionDeps{snsPub: deps.snsPub, lambdaInv: deps.lambdaInv}
+	for _, tr := range transitions {
 		payload := b.buildAlarmActionPayload(
 			tr.alarmName, tr.alarmDesc, tr.alarmArn,
 			tr.oldState, tr.newState, tr.reason,
 		)
-		b.executeActions(ctx, tr.actions, tr.alarmName, payload, snsPub, lambdaInv)
+		b.executeActions(ctx, tr.actions, tr.alarmName, payload, compositeDeps)
+	}
+}
+
+// alarmActionDeps carries the collaborators needed to fire alarm actions plus the
+// instance IDs (from the alarm's InstanceId dimension) that EC2 automate actions
+// target.
+type alarmActionDeps struct {
+	snsPub      SNSPublisher
+	lambdaInv   LambdaInvoker
+	ec2         EC2InstanceActioner
+	asg         AutoScalingPolicyExecutor
+	instanceIDs []string
+}
+
+// instanceIDsFromDimensions extracts EC2 instance IDs from an alarm's dimensions.
+// CloudWatch fires arn:aws:automate EC2 actions against the instance named by the
+// alarm's "InstanceId" dimension.
+func instanceIDsFromDimensions(dims []Dimension) []string {
+	var ids []string
+	for _, d := range dims {
+		if d.Name == "InstanceId" && d.Value != "" {
+			ids = append(ids, d.Value)
+		}
 	}
 
-	return nil
+	return ids
 }
 
 // EnableAlarmActions enables action execution for the given alarms.
@@ -1753,16 +1843,16 @@ func (b *InMemoryBackend) buildAlarmActionPayload(
 	return bs
 }
 
-// executeActions delivers the alarm action notifications to SNS topics and Lambda functions.
-// Delivery errors are logged as warnings but do not prevent other actions from running.
-// Each fired action is recorded as an Action history entry on the alarm.
+// executeActions delivers the alarm action notifications to SNS topics, Lambda
+// functions, EC2 instances (arn:aws:automate), and Auto Scaling scaling policies.
+// Delivery errors are logged as warnings but do not prevent other actions from
+// running. Each fired action is recorded as an Action history entry on the alarm.
 func (b *InMemoryBackend) executeActions(
 	ctx context.Context,
 	actions []string,
 	alarmName string,
 	payload []byte,
-	snsPub SNSPublisher,
-	lambdaInv LambdaInvoker,
+	deps alarmActionDeps,
 ) {
 	log := logger.Load(ctx)
 
@@ -1772,8 +1862,8 @@ func (b *InMemoryBackend) executeActions(
 		switch {
 		case strings.HasPrefix(action, "arn:aws:sns:"):
 			actionResult = "SNS"
-			if snsPub != nil {
-				if err := snsPub.PublishToTopic(action, string(payload)); err != nil {
+			if deps.snsPub != nil {
+				if err := deps.snsPub.PublishToTopic(action, string(payload)); err != nil {
 					log.WarnContext(ctx, "cloudwatch: alarm SNS action delivery failed",
 						"topic_arn", action, "error", err)
 					actionResult = "SNS (failed)"
@@ -1781,21 +1871,17 @@ func (b *InMemoryBackend) executeActions(
 			}
 		case strings.HasPrefix(action, "arn:aws:lambda:"):
 			actionResult = "Lambda"
-			if lambdaInv != nil {
-				if _, _, err := lambdaInv.InvokeFunction(ctx, action, "Event", payload); err != nil {
+			if deps.lambdaInv != nil {
+				if _, _, err := deps.lambdaInv.InvokeFunction(ctx, action, "Event", payload); err != nil {
 					log.WarnContext(ctx, "cloudwatch: alarm Lambda action delivery failed",
 						"function_arn", action, "error", err)
 					actionResult = "Lambda (failed)"
 				}
 			}
 		case strings.HasPrefix(action, "arn:aws:automate:"):
-			log.WarnContext(ctx, "cloudwatch: EC2 automate alarm action not executed in emulator",
-				"action", action)
-			actionResult = "EC2 automate (not executed)"
+			actionResult = b.executeEC2Action(ctx, action, deps)
 		case strings.HasPrefix(action, "arn:aws:autoscaling:"):
-			log.WarnContext(ctx, "cloudwatch: AutoScaling alarm action not executed in emulator",
-				"action", action)
-			actionResult = "AutoScaling (not executed)"
+			actionResult = b.executeAutoScalingAction(ctx, action, deps)
 		default:
 			log.WarnContext(ctx, "cloudwatch: unrecognised alarm action skipped",
 				"action", action)
@@ -1809,6 +1895,128 @@ func (b *InMemoryBackend) executeActions(
 			b.mu.Unlock()
 		}
 	}
+}
+
+// executeEC2Action performs an arn:aws:automate:<region>:ec2:<verb> alarm action
+// against the instances named by the alarm's InstanceId dimension. It returns a
+// short human-readable result string recorded in alarm history.
+func (b *InMemoryBackend) executeEC2Action(
+	ctx context.Context,
+	action string,
+	deps alarmActionDeps,
+) string {
+	log := logger.Load(ctx)
+
+	verb, ok := parseEC2AutomateVerb(action)
+	if !ok {
+		log.WarnContext(ctx, "cloudwatch: unrecognised EC2 automate action", "action", action)
+
+		return "EC2 automate (invalid ARN)"
+	}
+
+	if deps.ec2 == nil {
+		return "EC2 " + verb + " (no EC2 backend wired)"
+	}
+
+	if len(deps.instanceIDs) == 0 {
+		return "EC2 " + verb + " (no InstanceId dimension)"
+	}
+
+	var err error
+	switch verb {
+	case "stop":
+		err = deps.ec2.StopInstances(deps.instanceIDs)
+	case "terminate":
+		err = deps.ec2.TerminateInstances(deps.instanceIDs)
+	case "reboot":
+		err = deps.ec2.RebootInstances(deps.instanceIDs)
+	case "recover":
+		// Recover keeps the instance running on new underlying hardware; there is
+		// no observable state change to emulate, so it is a validated no-op.
+		return "EC2 recover"
+	default:
+		return "EC2 automate (unsupported verb)"
+	}
+
+	if err != nil {
+		log.WarnContext(ctx, "cloudwatch: EC2 alarm action failed",
+			"action", action, "error", err)
+
+		return "EC2 " + verb + " (failed)"
+	}
+
+	return "EC2 " + verb
+}
+
+// executeAutoScalingAction performs an Auto Scaling scaling-policy alarm action.
+// The scaling-policy ARN encodes both the Auto Scaling group name and the policy
+// name, which are parsed and passed to the executor.
+func (b *InMemoryBackend) executeAutoScalingAction(
+	ctx context.Context,
+	action string,
+	deps alarmActionDeps,
+) string {
+	log := logger.Load(ctx)
+
+	asgName, policyName, ok := parseScalingPolicyARN(action)
+	if !ok {
+		log.WarnContext(ctx, "cloudwatch: unrecognised scaling-policy ARN", "action", action)
+
+		return "AutoScaling (invalid ARN)"
+	}
+
+	if deps.asg == nil {
+		return "AutoScaling (no AutoScaling backend wired)"
+	}
+
+	if err := deps.asg.ExecuteScalingPolicy(asgName, policyName); err != nil {
+		log.WarnContext(ctx, "cloudwatch: AutoScaling alarm action failed",
+			"action", action, "error", err)
+
+		return "AutoScaling (failed)"
+	}
+
+	return "AutoScaling policy executed"
+}
+
+// parseEC2AutomateVerb extracts the action verb from an
+// arn:aws:automate:<region>:ec2:<verb> ARN.
+func parseEC2AutomateVerb(action string) (string, bool) {
+	parts := strings.Split(action, ":")
+	// arn:aws:automate:<region>:ec2:<verb> → 6 colon-separated parts.
+	const automateParts = 6
+	if len(parts) != automateParts || parts[4] != "ec2" {
+		return "", false
+	}
+
+	switch parts[5] {
+	case "stop", "terminate", "reboot", "recover":
+		return parts[5], true
+	}
+
+	return "", false
+}
+
+// parseScalingPolicyARN extracts the Auto Scaling group name and policy name from a
+// scaling-policy ARN of the form
+// arn:aws:autoscaling:<region>:<account>:scalingPolicy:<uuid>:autoScalingGroupName/<asg>:policyName/<name>.
+func parseScalingPolicyARN(action string) (string, string, bool) {
+	var asgName, policyName string
+
+	for seg := range strings.SplitSeq(action, ":") {
+		switch {
+		case strings.HasPrefix(seg, "autoScalingGroupName/"):
+			asgName = strings.TrimPrefix(seg, "autoScalingGroupName/")
+		case strings.HasPrefix(seg, "policyName/"):
+			policyName = strings.TrimPrefix(seg, "policyName/")
+		}
+	}
+
+	if asgName == "" || policyName == "" {
+		return "", "", false
+	}
+
+	return asgName, policyName, true
 }
 
 // compositeAlarmTransition records a composite alarm state change and the actions to fire.
@@ -2453,25 +2661,83 @@ func (b *InMemoryBackend) PutMetricStreamInternal(stream *MetricStream) {
 }
 
 // DescribeAlarmContributors returns a page of contributors for the specified alarm.
-// The in-memory implementation always returns an empty list since no real metric analysis is performed.
+//
+// For a composite alarm, the contributors are the referenced child alarms whose
+// state currently satisfies their state-function condition (e.g. a child named in
+// ALARM(...) that is itself in ALARM) — i.e. the alarms actually driving the
+// composite alarm's state. Each contributor is keyed by [childAlarmName, state]
+// with Sum=1. For a metric alarm, AWS returns no contributors, so the result is an
+// empty (but successful) page.
 func (b *InMemoryBackend) DescribeAlarmContributors(
 	alarmName, nextToken string,
 ) (page.Page[AlarmContributor], error) {
 	b.mu.RLock("DescribeAlarmContributors")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.alarms[alarmName]; !ok {
-		if _, ok2 := b.compositeAlarms[alarmName]; !ok2 {
-			return page.Page[AlarmContributor]{}, fmt.Errorf("%w: %s", ErrAlarmNotFound, alarmName)
-		}
+	if _, ok := b.alarms[alarmName]; ok {
+		// Metric alarms have no contributors in AWS.
+		return page.New(
+			[]AlarmContributor{},
+			nextToken,
+			0,
+			cwDefaultDescribeAlarmContributorsLimit,
+		), nil
 	}
 
+	ca, ok := b.compositeAlarms[alarmName]
+	if !ok {
+		return page.Page[AlarmContributor]{}, fmt.Errorf("%w: %s", ErrAlarmNotFound, alarmName)
+	}
+
+	contributors := b.compositeContributorsLocked(ca)
+
 	return page.New(
-		[]AlarmContributor{},
+		contributors,
 		nextToken,
 		0,
 		cwDefaultDescribeAlarmContributorsLimit,
 	), nil
+}
+
+// compositeContributorsLocked computes the child alarms currently satisfying their
+// state-function condition in a composite alarm's rule. Caller must hold b.mu.
+func (b *InMemoryBackend) compositeContributorsLocked(ca *CompositeAlarm) []AlarmContributor {
+	refs := extractAlarmRuleRefs(ca.AlarmRule)
+
+	resolve := func(name string) string {
+		if a, ok := b.alarms[name]; ok {
+			return a.StateValue
+		}
+		if child, ok := b.compositeAlarms[name]; ok {
+			return child.StateValue
+		}
+
+		return alarmStateInsufficientData
+	}
+
+	seen := make(map[string]bool, len(refs))
+	contributors := make([]AlarmContributor, 0, len(refs))
+
+	for _, ref := range refs {
+		if seen[ref.Name] {
+			continue
+		}
+
+		state := resolve(ref.Name)
+		// A child alarm contributes only when its actual state matches the state
+		// its state-function tests for (that is the condition currently firing).
+		if state != ref.Func {
+			continue
+		}
+
+		seen[ref.Name] = true
+		contributors = append(contributors, AlarmContributor{
+			Keys: []string{ref.Name, state},
+			Sum:  1,
+		})
+	}
+
+	return contributors
 }
 
 // GetAlarmARNs returns the ARNs for the given alarm names (metric + composite).

@@ -61,4 +61,13 @@ var (
 
 	// ErrDuplicateProvider is returned when an identity provider with the same name already exists.
 	ErrDuplicateProvider = awserr.New("DuplicateProviderException", awserr.ErrAlreadyExists)
+
+	// ErrDeviceNotFound is returned when a tracked device does not exist for a user.
+	ErrDeviceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+
+	// ErrWebAuthnCredentialNotFound is returned when a WebAuthn/passkey credential does not exist.
+	ErrWebAuthnCredentialNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+
+	// ErrAuthEventNotFound is returned when an adaptive-authentication event does not exist.
+	ErrAuthEventNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )

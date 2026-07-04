@@ -194,20 +194,33 @@ func (h *Handler) dispatchAccuracy4Ops(
 
 func (h *Handler) handleCreateDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags            map[string]string `json:"Tags"`
-		DeviceFleetName string            `json:"DeviceFleetName"`
-		Description     string            `json:"Description"`
-		RoleArn         string            `json:"RoleArn"`
+		Tags         map[string]string `json:"Tags"`
+		OutputConfig *struct {
+			S3OutputLocation string `json:"S3OutputLocation"`
+			KmsKeyID         string `json:"KmsKeyId"`
+		} `json:"OutputConfig"`
+		DeviceFleetName string `json:"DeviceFleetName"`
+		Description     string `json:"Description"`
+		RoleArn         string `json:"RoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
+	var outputConfig *DeviceFleetOutputConfig
+	if req.OutputConfig != nil {
+		outputConfig = &DeviceFleetOutputConfig{
+			S3OutputLocation: req.OutputConfig.S3OutputLocation,
+			KmsKeyID:         req.OutputConfig.KmsKeyID,
+		}
+	}
+
 	if _, err := h.Backend.CreateDeviceFleet(ctx, CreateDeviceFleetOptions{
 		DeviceFleetName: req.DeviceFleetName,
 		Description:     req.Description,
 		RoleArn:         req.RoleArn,
+		OutputConfig:    outputConfig,
 		Tags:            req.Tags,
 	}); err != nil {
 		return nil, err
@@ -377,8 +390,8 @@ func (h *Handler) handleListDevices(ctx context.Context, body []byte) ([]byte, e
 	items := make([]map[string]any, 0, len(devices))
 	for _, d := range devices {
 		items = append(items, map[string]any{
-			"DeviceName":       d.DeviceName,
-			"DeviceFleetName":  d.DeviceFleetName,
+			keyDeviceName:      d.DeviceName,
+			keyDeviceFleetName: d.DeviceFleetName,
 			"DeviceArn":        d.DeviceArn,
 			"RegistrationTime": d.RegistrationTime,
 		})

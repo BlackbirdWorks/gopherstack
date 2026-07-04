@@ -515,20 +515,47 @@ func (b *InMemoryBackend) ListAuditSuppressions() []*AuditSuppression {
 
 // AuditFinding represents an AWS IoT audit finding.
 type AuditFinding struct {
-	NonCompliantResource map[string]any `json:"nonCompliantResource,omitempty"`
-	FindingID            string         `json:"findingId"`
-	TaskID               string         `json:"taskId,omitempty"`
-	CheckName            string         `json:"checkName"`
-	Severity             string         `json:"severity"`
-	FindingTime          float64        `json:"findingTime,omitempty"`
+	NonCompliantResource map[string]any   `json:"nonCompliantResource,omitempty"`
+	FindingID            string           `json:"findingId"`
+	TaskID               string           `json:"taskId,omitempty"`
+	CheckName            string           `json:"checkName"`
+	Severity             string           `json:"severity"`
+	RelatedResources     []map[string]any `json:"relatedResources,omitempty"`
+	FindingTime          float64          `json:"findingTime,omitempty"`
 }
 
 func cloneAuditFinding(f *AuditFinding) *AuditFinding {
 	cp := *f
 	cp.NonCompliantResource = make(map[string]any, len(f.NonCompliantResource))
 	maps.Copy(cp.NonCompliantResource, f.NonCompliantResource)
+	cp.RelatedResources = make([]map[string]any, len(f.RelatedResources))
+	copy(cp.RelatedResources, f.RelatedResources)
 
 	return &cp
+}
+
+// SeedAuditFinding injects an audit finding into the backend so that
+// DescribeAuditFinding, ListAuditFindings, and ListRelatedResourcesForAuditFinding
+// return realistic data. AWS IoT populates audit findings internally when an audit
+// task runs; this is the additive hook gopherstack exposes so callers (and tests)
+// can populate findings deterministically instead of always seeing an empty set.
+// It returns the stored finding, generating a FindingID when none is supplied.
+func (b *InMemoryBackend) SeedAuditFinding(f *AuditFinding) *AuditFinding {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	stored := cloneAuditFinding(f)
+	if stored.FindingID == "" {
+		stored.FindingID = uuid.NewString()
+	}
+
+	if stored.FindingTime == 0 {
+		stored.FindingTime = float64(time.Now().Unix())
+	}
+
+	b.auditFindings[stored.FindingID] = stored
+
+	return cloneAuditFinding(stored)
 }
 
 func (b *InMemoryBackend) DescribeAuditFinding(findingID string) (*AuditFinding, error) {
@@ -554,6 +581,23 @@ func (b *InMemoryBackend) ListAuditFindings() []*AuditFinding {
 	}
 
 	return out
+}
+
+// ListRelatedResourcesForAuditFinding returns the resources related to a stored
+// audit finding (e.g. certificates, policies) identified when the audit ran.
+func (b *InMemoryBackend) ListRelatedResourcesForAuditFinding(findingID string) ([]map[string]any, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	f, ok := b.auditFindings[findingID]
+	if !ok {
+		return nil, fmt.Errorf("audit finding %q not found: %w", findingID, ErrResourceNotFound)
+	}
+
+	out := make([]map[string]any, len(f.RelatedResources))
+	copy(out, f.RelatedResources)
+
+	return out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -732,7 +776,7 @@ func (b *InMemoryBackend) TransferCertificate(certID, targetAccount string) erro
 	if !ok {
 		return fmt.Errorf("certificate %q not found: %w", certID, ErrCertificateNotFound)
 	}
-	cert.Status = certStatusPendingXfer
+	cert.Status = certStatusPendingTransfer
 	cert.LastModifiedAt = time.Now()
 	b.certificateTransfers[certID] = targetAccount
 

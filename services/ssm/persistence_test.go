@@ -51,6 +51,39 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				assert.Empty(t, params)
 			},
 		},
+		{
+			name: "patch_operation_state_survives_round_trip",
+			setup: func(b *ssm.InMemoryBackend) string {
+				_, err := b.SendCommand(context.TODO(), &ssm.SendCommandInput{
+					DocumentName: "AWS-RunPatchBaseline",
+					InstanceIDs:  []string{"i-persist"},
+					Parameters:   map[string][]string{"Operation": {"Scan"}},
+				})
+				if err != nil {
+					return ""
+				}
+
+				return "i-persist"
+			},
+			verify: func(t *testing.T, b *ssm.InMemoryBackend, id string) {
+				t.Helper()
+
+				states, err := b.DescribeInstancePatchStates(
+					context.TODO(),
+					&ssm.DescribeInstancePatchStatesInput{InstanceIDs: []string{id}},
+				)
+				require.NoError(t, err)
+				require.Len(t, states.InstancePatchStates, 1)
+				assert.Equal(t, id, states.InstancePatchStates[0].InstanceID)
+
+				patches, err := b.DescribeAvailablePatches(
+					context.TODO(),
+					&ssm.DescribeAvailablePatchesInput{},
+				)
+				require.NoError(t, err)
+				assert.NotEmpty(t, patches.Patches, "the seeded available-patches catalog must survive restore")
+			},
+		},
 	}
 
 	for _, tt := range tests {

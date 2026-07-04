@@ -270,7 +270,7 @@ func TestFilters_DescribeImages(t *testing.T) {
 
 	h := newHandler()
 
-	// Seed two AMIs via RegisterImage (response is boolean-only; use DescribeImages to retrieve IDs).
+	// Seed two AMIs via RegisterImage.
 	postForm(t, h, "Action=RegisterImage&Version=2016-11-15&Name=filter-ami&Architecture=x86_64")
 	postForm(t, h, "Action=RegisterImage&Version=2016-11-15&Name=other-ami&Architecture=arm64")
 

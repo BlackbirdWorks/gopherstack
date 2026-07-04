@@ -52,6 +52,16 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListModelPackageGroups(ctx, body)
 
 		return r, true, err
+	case "GetModelPackageGroupPolicy":
+		r, err := h.handleGetModelPackageGroupPolicy(ctx, body)
+
+		return r, true, err
+	case "PutModelPackageGroupPolicy":
+		r, err := h.handlePutModelPackageGroupPolicy(ctx, body)
+
+		return r, true, err
+	case "DeleteModelPackageGroupPolicy":
+		return nil, true, h.handleDeleteModelPackageGroupPolicy(ctx, body)
 
 	// AutoMLJob
 	case "CreateAutoMLJob", "CreateAutoMLJobV2":
@@ -136,6 +146,10 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListImages(ctx, body)
 
 		return r, true, err
+	case "UpdateImage":
+		r, err := h.handleUpdateImage(ctx, body)
+
+		return r, true, err
 
 	// ImageVersion
 	case "CreateImageVersion":
@@ -150,6 +164,10 @@ func (h *Handler) dispatchBatch2Ops(
 		return nil, true, h.handleDeleteImageVersion(ctx, body)
 	case "ListImageVersions":
 		r, err := h.handleListImageVersions(ctx, body)
+
+		return r, true, err
+	case "UpdateImageVersion":
+		r, err := h.handleUpdateImageVersion(ctx, body)
 
 		return r, true, err
 
@@ -205,9 +223,15 @@ func (h *Handler) dispatchBatch2Ops(
 
 		return r, true, err
 	case "DeleteWorkteam":
-		return nil, true, h.handleDeleteWorkteam(ctx, body)
+		r, err := h.handleDeleteWorkteam(ctx, body)
+
+		return r, true, err
 	case "ListWorkteams":
 		r, err := h.handleListWorkteams(ctx, body)
+
+		return r, true, err
+	case "UpdateWorkteam":
+		r, err := h.handleUpdateWorkteam(ctx, body)
 
 		return r, true, err
 	}
@@ -401,6 +425,69 @@ func (h *Handler) handleListModelPackageGroups(ctx context.Context, body []byte)
 		"ModelPackageGroupSummaryList": summaries,
 		keyNextToken:                   next,
 	})
+}
+
+func (h *Handler) handleGetModelPackageGroupPolicy(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ModelPackageGroupName string `json:"ModelPackageGroupName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ModelPackageGroupName == "" {
+		return nil, fmt.Errorf("%w: ModelPackageGroupName is required", errInvalidRequest)
+	}
+
+	policy, err := h.Backend.GetModelPackageGroupPolicy(ctx, req.ModelPackageGroupName)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{"ResourcePolicy": policy})
+}
+
+func (h *Handler) handlePutModelPackageGroupPolicy(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ModelPackageGroupName string `json:"ModelPackageGroupName"`
+		ResourcePolicy        string `json:"ResourcePolicy"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ModelPackageGroupName == "" {
+		return nil, fmt.Errorf("%w: ModelPackageGroupName is required", errInvalidRequest)
+	}
+
+	if req.ResourcePolicy == "" {
+		return nil, fmt.Errorf("%w: ResourcePolicy is required", errInvalidRequest)
+	}
+
+	g, err := h.Backend.PutModelPackageGroupPolicy(ctx, req.ModelPackageGroupName, req.ResourcePolicy)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyModelPackageGroupArn: g.ModelPackageGroupArn})
+}
+
+func (h *Handler) handleDeleteModelPackageGroupPolicy(ctx context.Context, body []byte) error {
+	var req struct {
+		ModelPackageGroupName string `json:"ModelPackageGroupName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ModelPackageGroupName == "" {
+		return fmt.Errorf("%w: ModelPackageGroupName is required", errInvalidRequest)
+	}
+
+	return h.Backend.DeleteModelPackageGroupPolicy(ctx, req.ModelPackageGroupName)
 }
 
 // ---------------------------------------------------------------------------
@@ -913,6 +1000,36 @@ func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, er
 	})
 }
 
+func (h *Handler) handleUpdateImage(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ImageName        string   `json:"ImageName"`
+		Description      *string  `json:"Description"`
+		DisplayName      *string  `json:"DisplayName"`
+		RoleArn          *string  `json:"RoleArn"`
+		DeleteProperties []string `json:"DeleteProperties"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ImageName == "" {
+		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.UpdateImage(ctx, req.ImageName, UpdateImageOptions{
+		Description:      req.Description,
+		DisplayName:      req.DisplayName,
+		RoleArn:          req.RoleArn,
+		DeleteProperties: req.DeleteProperties,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{keyImageArn: result.ImageArn})
+}
+
 // ---------------------------------------------------------------------------
 // ImageVersion handlers
 // ---------------------------------------------------------------------------
@@ -1008,6 +1125,47 @@ func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]b
 		"ImageVersions": summaries,
 		keyNextToken:    next,
 	})
+}
+
+func (h *Handler) handleUpdateImageVersion(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Horovod         *bool    `json:"Horovod"`
+		ImageName       string   `json:"ImageName"`
+		JobType         string   `json:"JobType"`
+		MLFramework     string   `json:"MLFramework"`
+		Processor       string   `json:"Processor"`
+		ProgrammingLang string   `json:"ProgrammingLang"`
+		ReleaseNotes    string   `json:"ReleaseNotes"`
+		VendorGuidance  string   `json:"VendorGuidance"`
+		AliasesToAdd    []string `json:"AliasesToAdd"`
+		AliasesToDelete []string `json:"AliasesToDelete"`
+		Version         int      `json:"Version"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ImageName == "" {
+		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.UpdateImageVersion(ctx, req.ImageName, req.Version, UpdateImageVersionOptions{
+		Horovod:         req.Horovod,
+		JobType:         req.JobType,
+		MLFramework:     req.MLFramework,
+		Processor:       req.Processor,
+		ProgrammingLang: req.ProgrammingLang,
+		ReleaseNotes:    req.ReleaseNotes,
+		VendorGuidance:  req.VendorGuidance,
+		AliasesToAdd:    req.AliasesToAdd,
+		AliasesToDelete: req.AliasesToDelete,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{keyImageVersionArn: result.ImageVersionArn})
 }
 
 // ---------------------------------------------------------------------------
@@ -1277,11 +1435,40 @@ func (h *Handler) handleListMonitoringSchedules(ctx context.Context, body []byte
 // Workteam handlers
 // ---------------------------------------------------------------------------
 
+// workteamResponseMap builds the AWS wire representation of a Workteam,
+// converting timestamps to epoch seconds as required by the aws-json-1.1 protocol.
+func workteamResponseMap(w *Workteam) map[string]any {
+	resp := map[string]any{
+		"WorkteamName":    w.WorkteamName,
+		"WorkteamArn":     w.WorkteamArn,
+		"Description":     w.Description,
+		"CreateDate":      epochSeconds(w.CreateDate),
+		"LastUpdatedDate": epochSeconds(w.LastUpdatedDate),
+	}
+
+	if w.WorkforceArn != "" {
+		resp[keyWorkforceArn] = w.WorkforceArn
+	}
+
+	if w.SubDomain != "" {
+		resp["SubDomain"] = w.SubDomain
+	}
+
+	resp["MemberDefinitions"] = w.MemberDefinitions
+	if w.MemberDefinitions == nil {
+		resp["MemberDefinitions"] = []MemberDefinition{}
+	}
+
+	return resp
+}
+
 func (h *Handler) handleCreateWorkteam(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags         map[string]string `json:"Tags"`
-		WorkteamName string            `json:"WorkteamName"`
-		Description  string            `json:"Description"`
+		Tags              []tagObject        `json:"Tags"`
+		WorkteamName      string             `json:"WorkteamName"`
+		Description       string             `json:"Description"`
+		WorkforceName     string             `json:"WorkforceName"`
+		MemberDefinitions []MemberDefinition `json:"MemberDefinitions"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1292,7 +1479,13 @@ func (h *Handler) handleCreateWorkteam(ctx context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: WorkteamName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateWorkteam(ctx, req.WorkteamName, req.Description, req.Tags)
+	result, err := h.Backend.CreateWorkteam(ctx, CreateWorkteamOptions{
+		Name:              req.WorkteamName,
+		Description:       req.Description,
+		WorkforceName:     req.WorkforceName,
+		MemberDefinitions: req.MemberDefinitions,
+		Tags:              fromTagObjects(req.Tags),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1318,23 +1511,54 @@ func (h *Handler) handleDescribeWorkteam(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Workteam": result})
+	return json.Marshal(map[string]any{"Workteam": workteamResponseMap(result)})
 }
 
-func (h *Handler) handleDeleteWorkteam(ctx context.Context, body []byte) error {
+func (h *Handler) handleUpdateWorkteam(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		WorkteamName      string             `json:"WorkteamName"`
+		Description       string             `json:"Description"`
+		MemberDefinitions []MemberDefinition `json:"MemberDefinitions"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.WorkteamName == "" {
+		return nil, fmt.Errorf("%w: WorkteamName is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.UpdateWorkteam(ctx, UpdateWorkteamOptions{
+		Name:              req.WorkteamName,
+		Description:       req.Description,
+		MemberDefinitions: req.MemberDefinitions,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{"Workteam": workteamResponseMap(result)})
+}
+
+func (h *Handler) handleDeleteWorkteam(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		WorkteamName string `json:"WorkteamName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.WorkteamName == "" {
-		return fmt.Errorf("%w: WorkteamName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: WorkteamName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteWorkteam(ctx, req.WorkteamName)
+	if err := h.Backend.DeleteWorkteam(ctx, req.WorkteamName); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{"Success": true})
 }
 
 func (h *Handler) handleListWorkteams(ctx context.Context, body []byte) ([]byte, error) {
@@ -1350,13 +1574,7 @@ func (h *Handler) handleListWorkteams(ctx context.Context, body []byte) ([]byte,
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, w := range items {
-		summaries = append(summaries, map[string]any{
-			"WorkteamName":      w.WorkteamName,
-			"WorkteamArn":       w.WorkteamArn,
-			"Description":       w.Description,
-			keyCreationTime:     w.CreationTime,
-			keyLastModifiedTime: w.LastModifiedTime,
-		})
+		summaries = append(summaries, workteamResponseMap(w))
 	}
 
 	return json.Marshal(map[string]any{

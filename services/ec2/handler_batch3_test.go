@@ -150,6 +150,35 @@ func TestBatch3_RegisterImage(t *testing.T) { //nolint:paralleltest // existing 
 		require.Error(t, err)
 	})
 }
+
+// TestBatch3_HTTP_RegisterImage verifies RegisterImage's response includes the
+// real ImageId instead of a boolean-only Return field.
+func TestBatch3_HTTP_RegisterImage(t *testing.T) { //nolint:paralleltest // existing issue.
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+
+	out, err := ec2.ExportDispatch(h, url.Values{
+		"Action":       []string{"RegisterImage"},
+		"Name":         []string{"wire-shape-ami"},
+		"Architecture": []string{"x86_64"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "<imageId>ami-")
+
+	var registered *ec2.AMIStub
+
+	for _, img := range b.DescribeImages() {
+		if img.Name == "wire-shape-ami" {
+			img := img
+			registered = &img
+
+			break
+		}
+	}
+
+	require.NotNil(t, registered, "registered image must be discoverable via DescribeImages")
+	assert.Contains(t, out, registered.ImageID)
+}
 func TestBatch3_ImportExportImage(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
@@ -166,9 +195,16 @@ func TestBatch3_ImportExportImage(t *testing.T) { //nolint:paralleltest // exist
 	})
 
 	t.Run("export image creates task", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		taskID, err := b.ExportImage("ami-test", "test export")
+		task, err := b.ExportImage("ami-test", "test export", "vmdk", "my-export-bucket", "exports/", "")
 		require.NoError(t, err)
-		assert.NotEmpty(t, taskID)
+		assert.NotEmpty(t, task.ExportImageTaskID)
+		assert.Equal(t, "active", task.Status)
+	})
+
+	t.Run("describe export image tasks settle", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		tasks := b.DescribeExportImageTasks(nil)
+		require.Len(t, tasks, 1)
+		assert.Equal(t, "completed", tasks[0].Status)
 	})
 }
 
@@ -344,6 +380,114 @@ func TestBatch3_UpdateSGRuleDescriptions(t *testing.T) { //nolint:paralleltest /
 	t.Run("unknown SG returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.UpdateSecurityGroupRuleDescriptionsIngress("sg-missing", nil))
 	})
+
+	t.Run("sets description on matching ingress rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		sg2, err := b.CreateSecurityGroup("desc-sg", "test", "vpc-default")
+		require.NoError(t, err)
+		require.NoError(t, b.AuthorizeSecurityGroupIngress(sg2.ID, []ec2.SecurityGroupRule{
+			{Protocol: "tcp", FromPort: 443, ToPort: 443, IPRange: "10.0.0.0/16"},
+		}))
+
+		err = b.UpdateSecurityGroupRuleDescriptionsIngress(sg2.ID, []ec2.SecurityGroupRule{
+			{Protocol: "tcp", FromPort: 443, ToPort: 443, IPRange: "10.0.0.0/16", Description: "HTTPS from VPC"},
+		})
+		require.NoError(t, err)
+
+		rules, err := b.DescribeSecurityGroupRules(sg2.ID)
+		require.NoError(t, err)
+		rule := findSGRule(t, rules, false, 443)
+		assert.Equal(t, "HTTPS from VPC", rule.Description)
+	})
+
+	t.Run("sets description on matching egress rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		sg3, err := b.CreateSecurityGroup("desc-sg-egress", "test", "vpc-default")
+		require.NoError(t, err)
+		require.NoError(t, b.AuthorizeSecurityGroupEgress(sg3.ID, []ec2.SecurityGroupRule{
+			{Protocol: "tcp", FromPort: 8080, ToPort: 8080, IPRange: "0.0.0.0/0"},
+		}))
+
+		err = b.UpdateSecurityGroupRuleDescriptionsEgress(sg3.ID, []ec2.SecurityGroupRule{
+			{Protocol: "tcp", FromPort: 8080, ToPort: 8080, IPRange: "0.0.0.0/0", Description: "outbound app traffic"},
+		})
+		require.NoError(t, err)
+
+		rules, err := b.DescribeSecurityGroupRules(sg3.ID)
+		require.NoError(t, err)
+		rule := findSGRule(t, rules, true, 8080)
+		assert.Equal(t, "outbound app traffic", rule.Description)
+	})
+
+	t.Run("does not affect rule identity for revoke", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		sg4, err := b.CreateSecurityGroup("desc-sg-revoke", "test", "vpc-default")
+		require.NoError(t, err)
+
+		rule := ec2.SecurityGroupRule{Protocol: "tcp", FromPort: 22, ToPort: 22, IPRange: "1.2.3.4/32"}
+		require.NoError(t, b.AuthorizeSecurityGroupIngress(sg4.ID, []ec2.SecurityGroupRule{rule}))
+		require.NoError(t, b.UpdateSecurityGroupRuleDescriptionsIngress(sg4.ID, []ec2.SecurityGroupRule{
+			{Protocol: "tcp", FromPort: 22, ToPort: 22, IPRange: "1.2.3.4/32", Description: "ssh"},
+		}))
+
+		// Revoking without the description must still find and remove the rule.
+		require.NoError(t, b.RevokeSecurityGroupIngress(sg4.ID, []ec2.SecurityGroupRule{rule}))
+
+		rules, err := b.DescribeSecurityGroupRules(sg4.ID)
+		require.NoError(t, err)
+
+		for _, r := range rules {
+			assert.NotEqual(t, 22, r.FromPort, "revoked ingress rule must be gone: %+v", r)
+		}
+	})
+}
+
+// findSGRule locates the rule matching direction (isEgress) and fromPort in a
+// DescribeSecurityGroupRules result, failing the test if none is found.
+func findSGRule(
+	t *testing.T,
+	rules []*ec2.SecurityGroupRuleDetail,
+	isEgress bool,
+	fromPort int,
+) *ec2.SecurityGroupRuleDetail {
+	t.Helper()
+
+	for _, r := range rules {
+		if r.IsEgress == isEgress && r.FromPort == fromPort {
+			return r
+		}
+	}
+
+	t.Fatalf("no rule found with isEgress=%v fromPort=%d in %+v", isEgress, fromPort, rules)
+
+	return nil
+}
+
+// TestBatch3_HTTP_UpdateSGRuleDescriptions verifies the HTTP handler parses the
+// request's rule-description fields instead of passing nil (which used to make
+// the operation a silent no-op).
+func TestBatch3_HTTP_UpdateSGRuleDescriptions(t *testing.T) { //nolint:paralleltest // existing issue.
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+
+	sg, err := b.CreateSecurityGroup("http-desc-sg", "test", "vpc-default")
+	require.NoError(t, err)
+	require.NoError(t, b.AuthorizeSecurityGroupIngress(sg.ID, []ec2.SecurityGroupRule{
+		{Protocol: "tcp", FromPort: 22, ToPort: 22, IPRange: "1.2.3.4/32"},
+	}))
+
+	_, err = ec2.ExportDispatch(h, url.Values{
+		"Action":                                 []string{"UpdateSecurityGroupRuleDescriptionsIngress"},
+		"GroupId":                                []string{sg.ID},
+		"IpPermissions.1.IpProtocol":             []string{"tcp"},
+		"IpPermissions.1.FromPort":               []string{"22"},
+		"IpPermissions.1.ToPort":                 []string{"22"},
+		"IpPermissions.1.IpRanges.1.CidrIp":      []string{"1.2.3.4/32"},
+		"IpPermissions.1.IpRanges.1.Description": []string{"ssh from office"},
+	})
+	require.NoError(t, err)
+
+	rules, err := b.DescribeSecurityGroupRules(sg.ID)
+	require.NoError(t, err)
+	rule := findSGRule(t, rules, false, 22)
+	assert.Equal(t, "ssh from office", rule.Description)
 }
 
 // ---- HTTP dispatch tests ---- //nolint:godot // existing issue.

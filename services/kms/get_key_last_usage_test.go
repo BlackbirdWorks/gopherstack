@@ -23,11 +23,11 @@ func TestGetKeyLastUsage(t *testing.T) {
 		return b, out.KeyMetadata.KeyID
 	}
 
-	tests := []struct { //nolint:govet // readability: name first
-		name          string
-		wantOperation string
+	tests := []struct {
 		keyID         func(keyID string) string
 		setup         func(t *testing.T, b *kms.InMemoryBackend, keyID string)
+		name          string
+		wantOperation string
 		wantErr       bool
 		wantNoUsage   bool
 	}{

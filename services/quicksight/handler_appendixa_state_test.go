@@ -304,14 +304,14 @@ func TestQuickSight_BrandRoundTrip(t *testing.T) { //nolint:paralleltest // shar
 			path:         accountPath("/brands/rtb1"),
 			body:         map[string]any{"BrandName": "RT Brand"},
 			wantStatus:   http.StatusOK,
-			wantContains: "BrandId",
+			wantContains: "BrandDetail",
 		},
 		{
 			name:         "describe reflects created brand",
 			method:       http.MethodGet,
 			path:         accountPath("/brands/rtb1"),
 			wantStatus:   http.StatusOK,
-			wantContains: "Brand",
+			wantContains: "BrandDetail",
 		},
 		{
 			name:         "list brands includes brand",
@@ -325,7 +325,7 @@ func TestQuickSight_BrandRoundTrip(t *testing.T) { //nolint:paralleltest // shar
 			method:       http.MethodDelete,
 			path:         accountPath("/brands/rtb1"),
 			wantStatus:   http.StatusOK,
-			wantContains: "BrandId",
+			wantContains: "RequestId",
 		},
 		{
 			name:         "describe after delete returns not found",

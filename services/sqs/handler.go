@@ -464,10 +464,11 @@ type jsonListQueuesResp struct {
 }
 
 type jsonSendMessageResp struct {
-	MessageID              string `json:"MessageId"`
-	MD5OfMessageBody       string `json:"MD5OfMessageBody"`
-	MD5OfMessageAttributes string `json:"MD5OfMessageAttributes,omitempty"`
-	SequenceNumber         string `json:"SequenceNumber,omitempty"`
+	MessageID                    string `json:"MessageId"`
+	MD5OfMessageBody             string `json:"MD5OfMessageBody"`
+	MD5OfMessageAttributes       string `json:"MD5OfMessageAttributes,omitempty"`
+	MD5OfMessageSystemAttributes string `json:"MD5OfMessageSystemAttributes,omitempty"`
+	SequenceNumber               string `json:"SequenceNumber,omitempty"`
 }
 
 type jsonReceivedMessage struct {
@@ -489,11 +490,12 @@ type jsonGetQueueAttributesResp struct {
 }
 
 type jsonBatchSuccess struct {
-	ID                     string `json:"Id"`
-	MessageID              string `json:"MessageId,omitempty"`
-	MD5OfMessageBody       string `json:"MD5OfMessageBody,omitempty"`
-	MD5OfMessageAttributes string `json:"MD5OfMessageAttributes,omitempty"`
-	SequenceNumber         string `json:"SequenceNumber,omitempty"`
+	ID                           string `json:"Id"`
+	MessageID                    string `json:"MessageId,omitempty"`
+	MD5OfMessageBody             string `json:"MD5OfMessageBody,omitempty"`
+	MD5OfMessageAttributes       string `json:"MD5OfMessageAttributes,omitempty"`
+	MD5OfMessageSystemAttributes string `json:"MD5OfMessageSystemAttributes,omitempty"`
+	SequenceNumber               string `json:"SequenceNumber,omitempty"`
 }
 
 type jsonBatchFailure struct {
@@ -717,10 +719,11 @@ func (h *Handler) handleSendMessage(
 	}
 
 	return jsonSendMessageResp{
-		MessageID:              out.MessageID,
-		MD5OfMessageBody:       out.MD5OfBody,
-		MD5OfMessageAttributes: out.MD5OfMessageAttributes,
-		SequenceNumber:         out.SequenceNumber,
+		MessageID:                    out.MessageID,
+		MD5OfMessageBody:             out.MD5OfBody,
+		MD5OfMessageAttributes:       out.MD5OfMessageAttributes,
+		MD5OfMessageSystemAttributes: out.MD5OfMessageSystemAttributes,
+		SequenceNumber:               out.SequenceNumber,
 	}, nil
 }
 
@@ -798,7 +801,7 @@ func (h *Handler) handleReceiveMessage(
 		case len(returnedAttrs) == len(msg.MessageAttributes):
 			md5Attrs = msg.MD5OfMessageAttributes
 		default:
-			md5Attrs = computeMD5OfMessageAttributes(returnedAttrs)
+			md5Attrs = computeMD5OfSubset(msg, returnedAttrs)
 		}
 
 		msgs = append(msgs, jsonReceivedMessage{
@@ -897,11 +900,12 @@ func (h *Handler) handleSendMessageBatch(
 
 	for _, s := range out.Successful {
 		result.Successful = append(result.Successful, jsonBatchSuccess{
-			ID:                     s.ID,
-			MessageID:              s.MessageID,
-			MD5OfMessageBody:       s.MD5OfBody,
-			MD5OfMessageAttributes: s.MD5OfMessageAttributes,
-			SequenceNumber:         s.SequenceNumber,
+			ID:                           s.ID,
+			MessageID:                    s.MessageID,
+			MD5OfMessageBody:             s.MD5OfBody,
+			MD5OfMessageAttributes:       s.MD5OfMessageAttributes,
+			MD5OfMessageSystemAttributes: s.MD5OfMessageSystemAttributes,
+			SequenceNumber:               s.SequenceNumber,
 		})
 	}
 
@@ -1110,6 +1114,11 @@ const errTypeInvalidParameterValue = "com.amazonaws.sqs#InvalidParameterValue"
 // invalidParameterValueMessage returns the AWS error message for parameter-validation
 // sentinel errors, or ("", false) if the error is not a parameter error.
 func invalidParameterValueMessage(err error) (string, bool) {
+	var ipe *InvalidParameterError
+	if errors.As(err, &ipe) {
+		return ipe.Message, true
+	}
+
 	switch {
 	case errors.Is(err, ErrInvalidWaitTime):
 		return "Value for parameter WaitTimeSeconds is invalid. Reason: Must be between 0 and 20, if provided.", true

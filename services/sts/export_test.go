@@ -2,6 +2,55 @@ package sts
 
 import "time"
 
+// Test-only exports for the unexported trust-policy and token-validation helpers,
+// so the corresponding table tests can live in the external sts_test package.
+
+// Trust-policy action strings exposed for tests.
+const (
+	ActionAssumeRole          = actionAssumeRole
+	ActionAssumeRoleWithSAML  = actionAssumeRoleWithSAML
+	ActionAssumeRoleWithWebID = actionAssumeRoleWithWebID
+)
+
+// TrustEvalForTest mirrors the unexported trustEval evaluation context.
+type TrustEvalForTest struct {
+	ConditionCtx map[string]string
+	Action       string
+	CallerArn    string
+	FederatedArn string
+	ExternalID   string
+}
+
+// EvaluateAssumeRoleTrust exposes evaluateAssumeRoleTrust for tests.
+func EvaluateAssumeRoleTrust(policyJSON string, ev TrustEvalForTest) error {
+	return evaluateAssumeRoleTrust(policyJSON, trustEval{
+		action:       ev.Action,
+		callerArn:    ev.CallerArn,
+		federatedArn: ev.FederatedArn,
+		externalID:   ev.ExternalID,
+		conditionCtx: ev.ConditionCtx,
+	})
+}
+
+// WildcardMatch exposes wildcardMatch for tests.
+func WildcardMatch(pattern, s string) bool { return wildcardMatch(pattern, s) }
+
+// ValidateWebIdentityToken exposes validateWebIdentityToken for tests.
+func ValidateWebIdentityToken(token string) error { return validateWebIdentityToken(token) }
+
+// ValidateSAMLTemporalConditions exposes validateSAMLTemporalConditions for tests.
+func ValidateSAMLTemporalConditions(assertion string) error {
+	return validateSAMLTemporalConditions(assertion)
+}
+
+// ParseSAMLTime exposes parseSAMLTime for tests.
+func ParseSAMLTime(value string) (time.Time, error) { return parseSAMLTime(value) }
+
+// JWTTimeClaim exposes jwtTimeClaim for tests.
+func JWTTimeClaim(claims map[string]any, key string) (time.Time, bool, error) {
+	return jwtTimeClaim(claims, key)
+}
+
 // DefaultJanitorInterval exposes the package default janitor interval for testing.
 const DefaultJanitorInterval = defaultSTSJanitorInterval
 

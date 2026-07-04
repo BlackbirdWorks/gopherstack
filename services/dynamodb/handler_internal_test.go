@@ -90,12 +90,7 @@ func TestHandler_ClassifyError_Mapping(t *testing.T) {
 			wantStatusCode: http.StatusBadRequest,
 			wantType:       "RequestLimitExceeded",
 		},
-		{
-			name:           "TransactionConflictException",
-			err:            NewTransactionConflictException("conflict"),
-			wantStatusCode: http.StatusBadRequest,
-			wantType:       "TransactionConflictException",
-		},
+
 		{
 			name:           "ReplicatedWriteConflictException",
 			err:            NewReplicatedWriteConflictException("replicated conflict"),

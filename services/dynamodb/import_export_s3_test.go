@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -96,6 +97,37 @@ func importCreationParams(name string) *ddbtypes.TableCreationParameters {
 	}
 }
 
+func waitForImport(t *testing.T, db *dynamodb.InMemoryDB, arn string) *sdk.DescribeImportOutput {
+	t.Helper()
+
+	for range 50 {
+		out, err := db.DescribeImport(t.Context(), &sdk.DescribeImportInput{ImportArn: aws.String(arn)})
+		require.NoError(t, err)
+		if out.ImportTableDescription.ImportStatus != ddbtypes.ImportStatusInProgress {
+			return out
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("import %s did not complete", arn)
+
+	return nil
+}
+
+func waitForExport(t *testing.T, h *dynamodb.DynamoDBHandler, arn string) {
+	t.Helper()
+
+	for range 50 {
+		code, res := invokeOp(t, h, "DescribeExport", map[string]any{"ExportArn": arn})
+		require.Equal(t, 200, code)
+		desc := res["ExportDescription"].(map[string]any)
+		if desc["ExportStatus"] != "IN_PROGRESS" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("export %s did not complete", arn)
+}
+
 // TestImportTable_FromS3_DynamoDBJSON verifies ImportTable creates the table and
 // ingests gzipped DynamoDB-JSON objects, reporting accurate counts.
 func TestImportTable_FromS3_DynamoDBJSON(t *testing.T) {
@@ -119,9 +151,12 @@ func TestImportTable_FromS3_DynamoDBJSON(t *testing.T) {
 		TableCreationParameters: importCreationParams("ImportedJSON"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, ddbtypes.ImportStatusCompleted, out.ImportTableDescription.ImportStatus)
-	assert.Equal(t, int64(2), out.ImportTableDescription.ImportedItemCount)
-	assert.Equal(t, int64(2), out.ImportTableDescription.ProcessedItemCount)
+
+	importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
+
+	assert.Equal(t, ddbtypes.ImportStatusCompleted, importDesc.ImportTableDescription.ImportStatus)
+	assert.Equal(t, int64(2), importDesc.ImportTableDescription.ImportedItemCount)
+	assert.Equal(t, int64(2), importDesc.ImportTableDescription.ProcessedItemCount)
 
 	got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
 		TableName: aws.String("ImportedJSON"),
@@ -153,7 +188,9 @@ func TestImportTable_FromS3_CSV(t *testing.T) {
 		TableCreationParameters: importCreationParams("ImportedCSV"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int64(2), out.ImportTableDescription.ImportedItemCount)
+	importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
+	assert.Equal(t, ddbtypes.ImportStatusCompleted, importDesc.ImportTableDescription.ImportStatus)
+	assert.Equal(t, int64(2), importDesc.ImportTableDescription.ImportedItemCount)
 
 	got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
 		TableName: aws.String("ImportedCSV"),
@@ -184,8 +221,9 @@ func TestImportTable_ION_Unsupported(t *testing.T) {
 		TableCreationParameters: importCreationParams("ImportedION"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, ddbtypes.ImportStatusFailed, out.ImportTableDescription.ImportStatus)
-	assert.NotEmpty(t, aws.ToString(out.ImportTableDescription.FailureCode))
+	importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
+	assert.Equal(t, ddbtypes.ImportStatusFailed, importDesc.ImportTableDescription.ImportStatus)
+	assert.NotEmpty(t, aws.ToString(importDesc.ImportTableDescription.FailureCode))
 }
 
 // TestExportImport_RoundTrip exports a populated table to S3 and re-imports it.
@@ -212,12 +250,13 @@ func TestExportImport_RoundTrip(t *testing.T) {
 	require.True(t, ok)
 
 	// Export to S3 via the handler.
-	code, _ := invokeOp(t, h, "ExportTableToPointInTime", map[string]any{
+	code, res := invokeOp(t, h, "ExportTableToPointInTime", map[string]any{
 		"TableArn": tbl.TableArn,
 		"S3Bucket": "exb",
 		"S3Prefix": "out",
 	})
 	require.Equal(t, 200, code)
+	waitForExport(t, h, res["ExportDescription"].(map[string]any)["ExportArn"].(string))
 
 	// Re-import the exported data into a new table from the data/ prefix.
 	var dataPrefix string
@@ -239,5 +278,6 @@ func TestExportImport_RoundTrip(t *testing.T) {
 		TableCreationParameters: importCreationParams("RoundTripTbl"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int64(3), out.ImportTableDescription.ImportedItemCount)
+	importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
+	assert.Equal(t, int64(3), importDesc.ImportTableDescription.ImportedItemCount)
 }

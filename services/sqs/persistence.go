@@ -166,7 +166,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// do this after the second pass because a queue's RedrivePolicy can target
 	// any other queue regardless of restore iteration order.
 	for _, q := range b.queues {
-		applyRedrivePolicy(q, q.Attributes, b)
+		_ = applyRedrivePolicy(q, q.Attributes, b)
 	}
 
 	b.accountID = snap.AccountID

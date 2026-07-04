@@ -1034,6 +1034,32 @@ func (b *InMemoryBackend) StopProcessingJob(ctx context.Context, name string) er
 	return nil
 }
 
+// DeleteProcessingJob removes a processing job's record. Only terminal
+// (non-InProgress, non-Stopping) jobs may be deleted.
+func (b *InMemoryBackend) DeleteProcessingJob(ctx context.Context, name string) error {
+	b.mu.Lock("DeleteProcessingJob")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	pj, ok := b.processingJobsStore(region)[name]
+	if !ok {
+		return fmt.Errorf("%w: processing job %q not found", ErrProcessingJobNotFound, name)
+	}
+
+	if pj.ProcessingJobStatus == trainingJobStatusInProgress || pj.ProcessingJobStatus == notebookStatusStopping {
+		return fmt.Errorf(
+			"%w: processing job %q cannot be deleted while status is %q",
+			ErrValidation, name, pj.ProcessingJobStatus,
+		)
+	}
+
+	delete(b.processingJobsStore(region), name)
+	delete(b.processingJobARNIndexStore(region), pj.ProcessingJobArn)
+
+	return nil
+}
+
 // ListProcessingJobs returns processing jobs sorted by name.
 func (b *InMemoryBackend) ListProcessingJobs(
 	ctx context.Context,

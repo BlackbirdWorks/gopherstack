@@ -94,6 +94,10 @@ func (h *S3Handler) uploadPart(
 
 	h.setOperation(ctx, "UploadPart")
 
+	// Strip aws-chunked / STREAMING-* framing so part content and ETag match
+	// the real bytes, not the chunk-signature envelope.
+	r = maybeDecodeChunkedBody(r)
+
 	if md5Header := r.Header.Get("Content-MD5"); md5Header != "" {
 		ctx = context.WithValue(ctx, md5Key, md5Header)
 	}

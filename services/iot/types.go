@@ -292,6 +292,12 @@ type TopicRuleDestination struct {
 	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
 	ARN               string                        `json:"arn"`
 	Status            string                        `json:"status"`
+	// ConfirmationToken is the token that must be presented to
+	// ConfirmTopicRuleDestination to transition an HTTP destination from
+	// IN_PROGRESS to ENABLED. AWS delivers this out-of-band (via a
+	// confirmation request sent to the destination URL), so it is never
+	// serialized back to callers.
+	ConfirmationToken string `json:"-"`
 }
 
 // HTTPURLDestinationProperties holds properties for an HTTP URL destination.
@@ -440,4 +446,222 @@ type EnableTopicRuleInput struct {
 type ReplaceTopicRuleInput struct {
 	TopicRulePayload *TopicRulePayload
 	RuleName         string
+}
+
+// IndexingField describes a custom field included in a fleet index.
+type IndexingField struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// IndexingFilter restricts which named shadows are indexed.
+type IndexingFilter struct {
+	NamedShadowNames []string `json:"namedShadowNames,omitempty"`
+}
+
+// ThingIndexingConfiguration controls fleet indexing for Things.
+type ThingIndexingConfiguration struct {
+	Filter                        *IndexingFilter `json:"filter,omitempty"`
+	ThingIndexingMode             string          `json:"thingIndexingMode"`
+	ThingConnectivityIndexingMode string          `json:"thingConnectivityIndexingMode,omitempty"`
+	NamedShadowIndexingMode       string          `json:"namedShadowIndexingMode,omitempty"`
+	CustomFields                  []IndexingField `json:"customFields,omitempty"`
+}
+
+// ThingGroupIndexingConfiguration controls fleet indexing for Thing Groups.
+type ThingGroupIndexingConfiguration struct {
+	ThingGroupIndexingMode string          `json:"thingGroupIndexingMode"`
+	CustomFields           []IndexingField `json:"customFields,omitempty"`
+}
+
+// UpdateIndexingConfigurationInput is the input for UpdateIndexingConfiguration.
+type UpdateIndexingConfigurationInput struct {
+	ThingIndexingConfiguration      *ThingIndexingConfiguration
+	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration
+}
+
+// GetIndexingConfigurationOutput is the output for GetIndexingConfiguration.
+type GetIndexingConfigurationOutput struct {
+	ThingIndexingConfiguration      *ThingIndexingConfiguration
+	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration
+}
+
+// IndexDescription describes a fleet index (returned by DescribeIndex).
+type IndexDescription struct {
+	IndexName   string
+	IndexStatus string
+	Schema      string
+}
+
+// SearchIndexInput is the input for SearchIndex.
+type SearchIndexInput struct {
+	IndexName   string
+	QueryString string
+	NextToken   string
+	MaxResults  int32
+}
+
+// SearchIndexThingResult is a Thing document returned by SearchIndex.
+type SearchIndexThingResult struct {
+	Attributes      map[string]string `json:"attributes"`
+	ThingName       string            `json:"thingName"`
+	ThingID         string            `json:"thingId"`
+	ThingTypeName   string            `json:"thingTypeName,omitempty"`
+	ThingGroupNames []string          `json:"thingGroupNames,omitempty"`
+}
+
+// SearchIndexThingGroupResult is a ThingGroup document returned by SearchIndex.
+type SearchIndexThingGroupResult struct {
+	Attributes      map[string]string `json:"attributes"`
+	ThingGroupName  string            `json:"thingGroupName"`
+	ThingGroupID    string            `json:"thingGroupId"`
+	ParentGroupName string            `json:"parentGroupName,omitempty"`
+}
+
+// SearchIndexOutput is the output for SearchIndex.
+type SearchIndexOutput struct {
+	NextToken   string
+	Things      []*SearchIndexThingResult
+	ThingGroups []*SearchIndexThingGroupResult
+}
+
+// AggregationInput carries the inputs shared by GetCardinality, GetStatistics,
+// GetPercentiles and GetBucketsAggregation.
+type AggregationInput struct {
+	IndexName        string
+	QueryString      string
+	AggregationField string
+}
+
+// Statistics is the output for GetStatistics.
+type Statistics struct {
+	Count        int64
+	Average      float64
+	Sum          float64
+	Minimum      float64
+	Maximum      float64
+	Variance     float64
+	StdDeviation float64
+}
+
+// PercentilesInput is the input for GetPercentiles.
+type PercentilesInput struct {
+	AggregationInput
+	Percents []float64
+}
+
+// PercentileValue is a single (percent, value) pair returned by GetPercentiles.
+type PercentileValue struct {
+	Percent float64
+	Value   float64
+}
+
+// BucketsAggregationInput is the input for GetBucketsAggregation.
+type BucketsAggregationInput struct {
+	AggregationInput
+	MaxBuckets int32
+}
+
+// Bucket is a single term bucket with its match count, returned by GetBucketsAggregation.
+type Bucket struct {
+	KeyValue string
+	Count    int64
+}
+
+// -----------------------------------------------------------
+// Batch 4: RegisterThing / bulk thing registration / thing type
+// and thing group updates / ListThingPrincipalsV2 / ManagedJobTemplate
+// -----------------------------------------------------------
+
+// RegisterThingInput is the input for RegisterThing.
+type RegisterThingInput struct {
+	Parameters   map[string]string `json:"parameters"`
+	TemplateBody string            `json:"templateBody"`
+}
+
+// RegisterThingOutput is the output for RegisterThing.
+type RegisterThingOutput struct {
+	ResourceArns   map[string]string `json:"resourceArns"`
+	CertificatePem string            `json:"certificatePem"`
+}
+
+// ThingRegistrationTask represents a bulk thing provisioning task.
+//
+// CreationDate/LastModifiedDate are epoch-seconds (float64), matching the real AWS IoT JSON
+// wire shape and the convention used elsewhere in this package (see backend_batch2.go /
+// backend_batch3.go), not RFC3339 strings.
+type ThingRegistrationTask struct {
+	TaskID             string  `json:"taskId"`
+	Status             string  `json:"status"`
+	Message            string  `json:"message,omitempty"`
+	TemplateBody       string  `json:"templateBody,omitempty"`
+	InputFileBucket    string  `json:"inputFileBucket,omitempty"`
+	InputFileKey       string  `json:"inputFileKey,omitempty"`
+	RoleArn            string  `json:"roleArn,omitempty"`
+	CreationDate       float64 `json:"creationDate"`
+	LastModifiedDate   float64 `json:"lastModifiedDate"`
+	SuccessCount       int32   `json:"successCount"`
+	FailureCount       int32   `json:"failureCount"`
+	PercentageProgress int32   `json:"percentageProgress"`
+}
+
+// StartThingRegistrationTaskInput is the input for StartThingRegistrationTask.
+type StartThingRegistrationTaskInput struct {
+	TemplateBody    string `json:"templateBody"`
+	InputFileBucket string `json:"inputFileBucket"`
+	InputFileKey    string `json:"inputFileKey"`
+	RoleArn         string `json:"roleArn"`
+}
+
+// UpdateThingTypeInput is the input for UpdateThingType.
+type UpdateThingTypeInput struct {
+	ThingTypeName        string
+	Description          string
+	SearchableAttributes []string
+}
+
+// UpdateThingGroupsForThingInput is the input for UpdateThingGroupsForThing.
+type UpdateThingGroupsForThingInput struct {
+	ThingName             string   `json:"thingName"`
+	ThingGroupsToAdd      []string `json:"thingGroupsToAdd"`
+	ThingGroupsToRemove   []string `json:"thingGroupsToRemove"`
+	OverrideDynamicGroups bool     `json:"overrideDynamicGroups"`
+}
+
+// ThingPrincipalObject represents a principal and its relation type to a thing,
+// as returned by ListThingPrincipalsV2.
+type ThingPrincipalObject struct {
+	Principal          string `json:"principal"`
+	ThingPrincipalType string `json:"thingPrincipalType"`
+}
+
+// ManagedJobTemplateParameter describes one substitutable field in a managed
+// job template document.
+type ManagedJobTemplateParameter struct {
+	Key         string `json:"key"`
+	Description string `json:"description,omitempty"`
+	Regex       string `json:"regex,omitempty"`
+	Example     string `json:"example,omitempty"`
+	Optional    bool   `json:"optional"`
+}
+
+// ManagedJobTemplate represents an AWS-managed job template.
+type ManagedJobTemplate struct {
+	TemplateName       string                        `json:"templateName"`
+	TemplateArn        string                        `json:"templateArn"`
+	TemplateVersion    string                        `json:"templateVersion"`
+	Description        string                        `json:"description,omitempty"`
+	Document           string                        `json:"document"`
+	Environments       []string                      `json:"environments,omitempty"`
+	DocumentParameters []ManagedJobTemplateParameter `json:"documentParameters,omitempty"`
+}
+
+// ManagedJobTemplateSummary is the summary form of a ManagedJobTemplate
+// returned by ListManagedJobTemplates.
+type ManagedJobTemplateSummary struct {
+	TemplateName    string   `json:"templateName"`
+	TemplateArn     string   `json:"templateArn"`
+	TemplateVersion string   `json:"templateVersion"`
+	Description     string   `json:"description,omitempty"`
+	Environments    []string `json:"environments,omitempty"`
 }

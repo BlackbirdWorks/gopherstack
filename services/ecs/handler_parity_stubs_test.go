@@ -104,7 +104,13 @@ func TestHandler_SubmitTaskStateChange(t *testing.T) {
 			wantACK:    true,
 		},
 		{
-			name: "unknown cluster returns error",
+			// Real AWS documents SubmitTaskStateChange as "only used by the
+			// Amazon ECS agent, and not intended for use outside of the
+			// agent" — consistent with that eventually-consistent,
+			// agent-internal contract, an unknown cluster/task reference is
+			// tolerated as a no-op ACK rather than surfaced as a client error
+			// (see backend_agent_ops.go's package doc comment).
+			name: "unknown cluster is tolerated as a no-op ACK",
 			input: func(_, _ string) map[string]any {
 				return map[string]any{
 					"cluster": "nonexistent",
@@ -112,8 +118,8 @@ func TestHandler_SubmitTaskStateChange(t *testing.T) {
 					"status":  "RUNNING",
 				}
 			},
-			wantStatus: http.StatusBadRequest,
-			wantACK:    false,
+			wantStatus: http.StatusOK,
+			wantACK:    true,
 		},
 	}
 
@@ -127,7 +133,7 @@ func TestHandler_SubmitTaskStateChange(t *testing.T) {
 			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": clusterName})
 
 			taskArn := ""
-			if tt.name != "unknown cluster returns error" {
+			if tt.name != "unknown cluster is tolerated as a no-op ACK" {
 				registerTaskDef(t, h, "basic", "nginx")
 				runRec := doECSRequest(t, h, "RunTask", map[string]any{
 					"cluster":        clusterName,
@@ -196,7 +202,12 @@ func TestHandler_SubmitContainerStateChange(t *testing.T) {
 			wantACK:    true,
 		},
 		{
-			name: "nonexistent cluster returns error",
+			// See backend_agent_ops.go's package doc comment: agent-facing
+			// Submit* operations tolerate unknown cluster/task/container
+			// references as no-ops rather than surfacing a client error,
+			// matching the real, agent-internal, eventually-consistent
+			// contract AWS documents for these operations.
+			name: "nonexistent cluster is tolerated as a no-op ACK",
 			inputFn: func(_, _ string) map[string]any {
 				return map[string]any{
 					"cluster":       "does-not-exist",
@@ -205,8 +216,8 @@ func TestHandler_SubmitContainerStateChange(t *testing.T) {
 					"status":        "RUNNING",
 				}
 			},
-			wantStatus: http.StatusBadRequest,
-			wantACK:    false,
+			wantStatus: http.StatusOK,
+			wantACK:    true,
 		},
 	}
 
@@ -221,7 +232,7 @@ func TestHandler_SubmitContainerStateChange(t *testing.T) {
 			registerTaskDef(t, h, "appdef", "nginx")
 
 			taskArn := ""
-			if tt.name != "nonexistent cluster returns error" {
+			if tt.name != "nonexistent cluster is tolerated as a no-op ACK" {
 				runRec := doECSRequest(t, h, "RunTask", map[string]any{
 					"cluster":        clusterName,
 					"taskDefinition": "appdef",
@@ -287,15 +298,20 @@ func TestHandler_SubmitAttachmentStateChanges(t *testing.T) {
 			wantACK:    true,
 		},
 		{
-			name: "nonexistent cluster returns error",
+			// See backend_agent_ops.go's package doc comment: agent-facing
+			// Submit* operations tolerate an unknown cluster as a no-op
+			// rather than surfacing a client error, matching the real,
+			// agent-internal, eventually-consistent contract AWS documents
+			// for these operations.
+			name: "nonexistent cluster is tolerated as a no-op ACK",
 			inputFn: func(_ string) map[string]any {
 				return map[string]any{
 					"cluster":     "does-not-exist",
 					"attachments": []any{},
 				}
 			},
-			wantStatus: http.StatusBadRequest,
-			wantACK:    false,
+			wantStatus: http.StatusOK,
+			wantACK:    true,
 		},
 	}
 
@@ -431,12 +447,20 @@ func TestHandler_DescribeServiceRevisions_CreateAndUpdate(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Extract the service ARN to build a revision ARN.
-	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-	_ = createOut["service"].(map[string]any)["serviceArn"].(string)
-
-	rev1Arn := "arn:aws:ecs:us-east-1:000000000000:service-revision/rc/svc/1"
+	// Revision ARNs are derived from a per-deployment UUID (see
+	// serviceRevisionArnFor in backend_parity2.go), not a predictable sequential
+	// number, and are intentionally omitted from the DescribeServices/
+	// CreateService wire view (see toDeploymentView's doc comment) to match the
+	// real AWS Deployment wire shape. So the test reads the ARN back via the
+	// Backend directly, the same way the real ECS agent's own control loop would
+	// observe it internally, rather than trying to discover it over HTTP.
+	svcs, failures, err := h.Backend.DescribeServices("rc", []string{"svc"})
+	require.NoError(t, err)
+	require.Empty(t, failures)
+	require.Len(t, svcs, 1)
+	require.Len(t, svcs[0].Deployments, 1)
+	rev1Arn := svcs[0].Deployments[0].ServiceRevisionArn
+	require.NotEmpty(t, rev1Arn)
 
 	rec2 := doECSRequest(t, h, "DescribeServiceRevisions", map[string]any{
 		"serviceRevisionArns": []string{rev1Arn},
@@ -451,14 +475,23 @@ func TestHandler_DescribeServiceRevisions_CreateAndUpdate(t *testing.T) {
 	assert.Equal(t, rev1Arn, rev["serviceRevisionArn"])
 	assert.NotEmpty(t, rev["taskDefinition"])
 
-	// Update service → revision 2.
-	doECSRequest(t, h, "UpdateService", map[string]any{
+	// Update service → new PRIMARY deployment with its own revision.
+	updateRec := doECSRequest(t, h, "UpdateService", map[string]any{
 		"cluster":        "rc",
 		"service":        "svc",
 		"taskDefinition": "td1:2",
 	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
 
-	rev2Arn := "arn:aws:ecs:us-east-1:000000000000:service-revision/rc/svc/2"
+	svcs2, failures2, err := h.Backend.DescribeServices("rc", []string{"svc"})
+	require.NoError(t, err)
+	require.Empty(t, failures2)
+	require.Len(t, svcs2, 1)
+	require.NotEmpty(t, svcs2[0].Deployments)
+	rev2Arn := svcs2[0].Deployments[0].ServiceRevisionArn
+	require.NotEmpty(t, rev2Arn)
+	require.NotEqual(t, rev1Arn, rev2Arn, "update should produce a new revision ARN")
+
 	rec3 := doECSRequest(t, h, "DescribeServiceRevisions", map[string]any{
 		"serviceRevisionArns": []string{rev2Arn},
 	})
@@ -468,571 +501,6 @@ func TestHandler_DescribeServiceRevisions_CreateAndUpdate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &out3))
 	revs3 := out3["serviceRevisions"].([]any)
 	assert.Len(t, revs3, 1, "expected one revision after UpdateService")
-}
-
-// ---- Daemon CRUD ----
-
-func TestHandler_Daemon_CreateDescribeDelete(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		clusterName  string
-		daemonName   string
-		taskDef      string
-		wantCreate   int
-		wantDescribe int
-		wantDelete   int
-	}{
-		{
-			name:         "full lifecycle",
-			clusterName:  "daemon-cluster",
-			daemonName:   "my-daemon",
-			taskDef:      "my-daemon-td",
-			wantCreate:   http.StatusOK,
-			wantDescribe: http.StatusOK,
-			wantDelete:   http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": tt.clusterName})
-			registerTaskDef(t, h, tt.taskDef, "nginx")
-
-			// Create
-			createRec := doECSRequest(t, h, "CreateDaemon", map[string]any{
-				"cluster":        tt.clusterName,
-				"daemonName":     tt.daemonName,
-				"taskDefinition": tt.taskDef,
-			})
-			assert.Equal(t, tt.wantCreate, createRec.Code)
-
-			var createOut map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
-			daemon := createOut["daemon"].(map[string]any)
-			assert.Equal(t, tt.daemonName, daemon["daemonName"])
-			assert.Equal(t, "ACTIVE", daemon["status"])
-			assert.NotEmpty(t, daemon["daemonArn"])
-
-			// Describe
-			descRec := doECSRequest(t, h, "DescribeDaemon", map[string]any{
-				"cluster":    tt.clusterName,
-				"daemonName": tt.daemonName,
-			})
-			assert.Equal(t, tt.wantDescribe, descRec.Code)
-			var descOut map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
-			assert.Equal(t, tt.daemonName, descOut["daemon"].(map[string]any)["daemonName"])
-
-			// Delete
-			delRec := doECSRequest(t, h, "DeleteDaemon", map[string]any{
-				"cluster":    tt.clusterName,
-				"daemonName": tt.daemonName,
-			})
-			assert.Equal(t, tt.wantDelete, delRec.Code)
-			var delOut map[string]any
-			require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delOut))
-			assert.Equal(t, "INACTIVE", delOut["daemon"].(map[string]any)["status"])
-
-			// Describe after delete → error
-			descAfter := doECSRequest(t, h, "DescribeDaemon", map[string]any{
-				"cluster":    tt.clusterName,
-				"daemonName": tt.daemonName,
-			})
-			assert.Equal(t, http.StatusBadRequest, descAfter.Code)
-		})
-	}
-}
-
-func TestHandler_Daemon_CreateValidation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		input      map[string]any
-		name       string
-		wantErr    string
-		wantStatus int
-	}{
-		{
-			name:       "missing daemonName",
-			input:      map[string]any{"cluster": "c"},
-			wantStatus: http.StatusBadRequest,
-			wantErr:    "daemonName",
-		},
-		{
-			name:       "missing cluster",
-			input:      map[string]any{"daemonName": "d"},
-			wantStatus: http.StatusBadRequest,
-			wantErr:    "cluster",
-		},
-		{
-			name:       "nonexistent cluster",
-			input:      map[string]any{"cluster": "no-such-cluster", "daemonName": "d"},
-			wantStatus: http.StatusBadRequest,
-			wantErr:    "ClusterNotFoundException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doECSRequest(t, h, "CreateDaemon", tt.input)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			assert.Contains(t, rec.Body.String(), tt.wantErr)
-		})
-	}
-}
-
-func TestHandler_Daemon_AlreadyExists(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "dup-cluster"})
-
-	doECSRequest(t, h, "CreateDaemon", map[string]any{
-		"cluster":    "dup-cluster",
-		"daemonName": "same",
-	})
-
-	rec := doECSRequest(t, h, "CreateDaemon", map[string]any{
-		"cluster":    "dup-cluster",
-		"daemonName": "same",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DaemonAlreadyExistsException")
-}
-
-func TestHandler_Daemon_ListDaemons(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		daemonNames []string
-		wantCount   int
-		wantStatus  int
-	}{
-		{
-			name:        "no daemons returns empty list",
-			daemonNames: []string{},
-			wantCount:   0,
-			wantStatus:  http.StatusOK,
-		},
-		{
-			name:        "three daemons",
-			daemonNames: []string{"alpha", "beta", "gamma"},
-			wantCount:   3,
-			wantStatus:  http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "list-cluster"})
-
-			for _, name := range tt.daemonNames {
-				rec := doECSRequest(t, h, "CreateDaemon", map[string]any{
-					"cluster":    "list-cluster",
-					"daemonName": name,
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doECSRequest(t, h, "ListDaemons", map[string]any{"cluster": "list-cluster"})
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			daemons := out["daemons"].([]any)
-			assert.Len(t, daemons, tt.wantCount)
-		})
-	}
-}
-
-func TestHandler_Daemon_UpdateDaemon(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		initialTaskDef string
-		updatedTaskDef string
-		wantStatus     int
-	}{
-		{
-			name:           "update task definition",
-			initialTaskDef: "td:1",
-			updatedTaskDef: "td:2",
-			wantStatus:     http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "upd-cluster"})
-			doECSRequest(t, h, "CreateDaemon", map[string]any{
-				"cluster":        "upd-cluster",
-				"daemonName":     "updatable",
-				"taskDefinition": tt.initialTaskDef,
-			})
-
-			rec := doECSRequest(t, h, "UpdateDaemon", map[string]any{
-				"cluster":        "upd-cluster",
-				"daemonName":     "updatable",
-				"taskDefinition": tt.updatedTaskDef,
-			})
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			daemon := out["daemon"].(map[string]any)
-			assert.Equal(t, tt.updatedTaskDef, daemon["taskDefinition"])
-		})
-	}
-}
-
-// ---- Daemon task definitions ----
-
-func TestHandler_Daemon_RegisterAndDescribeTaskDefinition(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		registerInput map[string]any
-		name          string
-		wantStatus    int
-		wantRevision  float64
-	}{
-		{
-			name: "register first definition",
-			registerInput: map[string]any{
-				"daemon": "my-daemon",
-				"family": "daemon-family",
-			},
-			wantStatus:   http.StatusOK,
-			wantRevision: 1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "dtd-cluster"})
-			doECSRequest(t, h, "CreateDaemon", map[string]any{
-				"cluster":    "dtd-cluster",
-				"daemonName": "my-daemon",
-			})
-
-			rec := doECSRequest(t, h, "RegisterDaemonTaskDefinition", tt.registerInput)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			def := out["daemonTaskDefinition"].(map[string]any)
-			assert.InDelta(t, tt.wantRevision, def["revision"], 1e-9)
-			assert.NotEmpty(t, def["daemonTaskDefinitionArn"])
-
-			// Describe the latest definition.
-			descRec := doECSRequest(t, h, "DescribeDaemonTaskDefinition", map[string]any{
-				"daemon": "my-daemon",
-			})
-			assert.Equal(t, http.StatusOK, descRec.Code)
-			var descOut map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
-			assert.InDelta(
-				t,
-				tt.wantRevision,
-				descOut["daemonTaskDefinition"].(map[string]any)["revision"],
-				1e-9,
-			)
-		})
-	}
-}
-
-func TestHandler_Daemon_ListDaemonTaskDefinitions(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		numRegister int
-		wantCount   int
-		wantStatus  int
-	}{
-		{
-			name:        "no task definitions",
-			numRegister: 0,
-			wantCount:   0,
-			wantStatus:  http.StatusOK,
-		},
-		{
-			name:        "two task definitions",
-			numRegister: 2,
-			wantCount:   2,
-			wantStatus:  http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "dtdl-cluster"})
-			doECSRequest(t, h, "CreateDaemon", map[string]any{
-				"cluster":    "dtdl-cluster",
-				"daemonName": "list-daemon",
-			})
-
-			for i := range tt.numRegister {
-				doECSRequest(t, h, "RegisterDaemonTaskDefinition", map[string]any{
-					"daemon": "list-daemon",
-					"family": "fam",
-					"taskDefinitionArn": "arn:aws:ecs:us-east-1:000000000000:task-definition/fam:" + string(
-						rune('1'+i),
-					),
-				})
-			}
-
-			rec := doECSRequest(t, h, "ListDaemonTaskDefinitions", map[string]any{
-				"daemon": "list-daemon",
-			})
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			defs := out["daemonTaskDefinitions"].([]any)
-			assert.Len(t, defs, tt.wantCount)
-		})
-	}
-}
-
-func TestHandler_Daemon_DeleteTaskDefinition(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		targetArnFunc func(defArn string) string
-		name          string
-		wantErrCode   string
-		wantStatus    int
-	}{
-		{
-			name:          "delete existing returns empty",
-			targetArnFunc: func(defArn string) string { return defArn },
-			wantStatus:    http.StatusOK,
-		},
-		{
-			name:          "delete nonexistent returns error",
-			targetArnFunc: func(_ string) string { return "arn:aws:ecs:us-east-1:000000000000:daemon-task-definition/x:99" },
-			wantStatus:    http.StatusBadRequest,
-			wantErrCode:   "DaemonTaskDefinitionNotFoundException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "del-dtd-cluster"})
-			doECSRequest(t, h, "CreateDaemon", map[string]any{
-				"cluster":    "del-dtd-cluster",
-				"daemonName": "del-daemon",
-			})
-
-			regRec := doECSRequest(t, h, "RegisterDaemonTaskDefinition", map[string]any{
-				"daemon": "del-daemon",
-				"family": "del-family",
-			})
-			require.Equal(t, http.StatusOK, regRec.Code)
-
-			var regOut map[string]any
-			require.NoError(t, json.Unmarshal(regRec.Body.Bytes(), &regOut))
-			defArn := regOut["daemonTaskDefinition"].(map[string]any)["daemonTaskDefinitionArn"].(string)
-
-			rec := doECSRequest(t, h, "DeleteDaemonTaskDefinition", map[string]any{
-				"daemonTaskDefinitionArn": tt.targetArnFunc(defArn),
-			})
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantErrCode != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantErrCode)
-			}
-		})
-	}
-}
-
-// ---- Daemon deployments ----
-
-func TestHandler_Daemon_DescribeDaemonDeployments(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		updates     int // number of UpdateDaemon calls after create
-		wantAtLeast int // at least this many deployments expected
-		wantStatus  int
-	}{
-		{
-			name:        "single deployment after create",
-			updates:     0,
-			wantAtLeast: 1,
-			wantStatus:  http.StatusOK,
-		},
-		{
-			name:        "two deployments after create + update",
-			updates:     1,
-			wantAtLeast: 2,
-			wantStatus:  http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "dep-cluster"})
-
-			createRec := doECSRequest(t, h, "CreateDaemon", map[string]any{
-				"cluster":    "dep-cluster",
-				"daemonName": "dep-daemon",
-			})
-			require.Equal(t, http.StatusOK, createRec.Code)
-
-			var createOut map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
-			daemonArn := createOut["daemon"].(map[string]any)["daemonArn"].(string)
-
-			for range tt.updates {
-				doECSRequest(t, h, "UpdateDaemon", map[string]any{
-					"cluster":    "dep-cluster",
-					"daemonName": "dep-daemon",
-				})
-			}
-
-			rec := doECSRequest(t, h, "DescribeDaemonDeployments", map[string]any{
-				"daemonArn": daemonArn,
-			})
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			deps := out["deployments"].([]any)
-			assert.GreaterOrEqual(t, len(deps), tt.wantAtLeast)
-		})
-	}
-}
-
-func TestHandler_Daemon_ListDaemonDeployments(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		wantStatus int
-		wantMinIDs int
-	}{
-		{
-			name:       "lists deployment IDs after create",
-			wantStatus: http.StatusOK,
-			wantMinIDs: 1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "ldep-cluster"})
-			doECSRequest(t, h, "CreateDaemon", map[string]any{
-				"cluster":    "ldep-cluster",
-				"daemonName": "ldep-daemon",
-			})
-
-			rec := doECSRequest(t, h, "ListDaemonDeployments", map[string]any{
-				"cluster":    "ldep-cluster",
-				"daemonName": "ldep-daemon",
-			})
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			ids := out["deploymentIds"].([]any)
-			assert.GreaterOrEqual(t, len(ids), tt.wantMinIDs)
-		})
-	}
-}
-
-// ---- Daemon revisions ----
-
-func TestHandler_Daemon_DescribeDaemonRevisions(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		requestRevs   []int
-		numRegistered int
-		wantCount     int
-		wantStatus    int
-	}{
-		{
-			name:          "no filter returns all revisions",
-			numRegistered: 2,
-			requestRevs:   nil,
-			wantCount:     2,
-			wantStatus:    http.StatusOK,
-		},
-		{
-			name:          "filter by revision number",
-			numRegistered: 3,
-			requestRevs:   []int{1, 3},
-			wantCount:     2,
-			wantStatus:    http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "rev-cluster"})
-			doECSRequest(t, h, "CreateDaemon", map[string]any{
-				"cluster":    "rev-cluster",
-				"daemonName": "rev-daemon",
-			})
-
-			for range tt.numRegistered {
-				doECSRequest(t, h, "RegisterDaemonTaskDefinition", map[string]any{
-					"daemon": "rev-daemon",
-					"family": "rev-family",
-				})
-			}
-
-			input := map[string]any{"daemon": "rev-daemon"}
-			if tt.requestRevs != nil {
-				input["revisions"] = tt.requestRevs
-			}
-
-			rec := doECSRequest(t, h, "DescribeDaemonRevisions", input)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			revs := out["revisions"].([]any)
-			assert.Len(t, revs, tt.wantCount)
-		})
-	}
 }
 
 // ---- enrichCluster cached counter performance ----

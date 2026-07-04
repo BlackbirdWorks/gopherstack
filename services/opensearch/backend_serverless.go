@@ -20,16 +20,17 @@ const (
 
 // ServerlessCollection represents an OpenSearch Serverless collection.
 type ServerlessCollection struct {
+	StatusUntil        time.Time         `json:"statusUntil,omitzero"`
 	Tags               map[string]string `json:"tags,omitempty"`
-	Arn                string            `json:"arn"`
-	CollectionEndpoint string            `json:"collectionEndpoint,omitempty"`
+	KmsKeyArn          string            `json:"kmsKeyArn,omitempty"`
 	DashboardEndpoint  string            `json:"dashboardEndpoint,omitempty"`
 	Description        string            `json:"description,omitempty"`
 	ID                 string            `json:"id"`
-	KmsKeyArn          string            `json:"kmsKeyArn,omitempty"`
+	CollectionEndpoint string            `json:"collectionEndpoint,omitempty"`
 	Name               string            `json:"name"`
 	Status             string            `json:"status"`
 	Type               string            `json:"type"`
+	Arn                string            `json:"arn"`
 	CreatedDate        float64           `json:"createdDate"`
 	LastModifiedDate   float64           `json:"lastModifiedDate"`
 }
@@ -148,11 +149,46 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 		Tags:               tagMap,
 	}
 
+	// Real CREATING → ACTIVE transition. With no configured delay this settles
+	// immediately (preserving the historical fast behaviour); with a delay the
+	// collection is observably CREATING until the window elapses.
+	if b.processingDelay > 0 {
+		coll.Status = slCollectionStatusCreating
+		coll.StatusUntil = b.clock().Add(b.processingDelay)
+	}
+
 	b.slCollections[serverlessCollectionKey(name)] = coll
 
 	cp := *coll
+	resolveCollectionStatus(&cp, b.clock())
 
 	return &cp, nil
+}
+
+// resolveCollectionStatus settles a collection copy's transient CREATING status
+// to ACTIVE once its window has elapsed. It never mutates stored state.
+func resolveCollectionStatus(c *ServerlessCollection, now time.Time) {
+	if c.Status == slCollectionStatusCreating && !c.StatusUntil.IsZero() &&
+		!now.Before(c.StatusUntil) {
+		c.Status = slCollectionStatusActive
+	}
+}
+
+// collectionDeleteElapsed reports whether a DELETING collection has passed its
+// window and should be treated as removed.
+func collectionDeleteElapsed(c *ServerlessCollection, now time.Time) bool {
+	return c.Status == statusDeleting && !c.StatusUntil.IsZero() && !now.Before(c.StatusUntil)
+}
+
+// purgeExpiredCollectionsLocked removes collections past their deleting window.
+// The caller must hold the write lock.
+func (b *InMemoryBackend) purgeExpiredCollectionsLocked() {
+	now := b.clock()
+	for key, c := range b.slCollections {
+		if collectionDeleteElapsed(c, now) {
+			delete(b.slCollections, key)
+		}
+	}
 }
 
 // BatchGetServerlessCollections returns a list of collections by IDs or names.
@@ -170,11 +206,18 @@ func (b *InMemoryBackend) BatchGetServerlessCollections(ids, names []string) []*
 		nameSet[n] = true
 	}
 
+	now := b.clock()
+
 	var out []*ServerlessCollection
 
 	for _, c := range b.slCollections {
+		if collectionDeleteElapsed(c, now) {
+			continue
+		}
+
 		if len(idSet) == 0 && len(nameSet) == 0 {
 			cp := *c
+			resolveCollectionStatus(&cp, now)
 			out = append(out, &cp)
 
 			continue
@@ -182,6 +225,7 @@ func (b *InMemoryBackend) BatchGetServerlessCollections(ids, names []string) []*
 
 		if idSet[c.ID] || nameSet[c.Name] {
 			cp := *c
+			resolveCollectionStatus(&cp, now)
 			out = append(out, &cp)
 		}
 	}
@@ -189,19 +233,35 @@ func (b *InMemoryBackend) BatchGetServerlessCollections(ids, names []string) []*
 	return out
 }
 
-// DeleteServerlessCollection removes a collection by ID.
+// DeleteServerlessCollection removes a collection by ID. With a processing delay
+// configured the collection first enters an observable DELETING window before it
+// is finally removed.
 func (b *InMemoryBackend) DeleteServerlessCollection(id string) (*ServerlessCollection, error) {
 	b.mu.Lock("DeleteServerlessCollection")
 	defer b.mu.Unlock()
 
+	b.purgeExpiredCollectionsLocked()
+
+	now := b.clock()
+
 	for key, c := range b.slCollections {
-		if c.ID == id {
+		if c.ID != id || collectionDeleteElapsed(c, now) {
+			continue
+		}
+
+		if b.processingDelay == 0 {
 			cp := *c
 			cp.Status = statusDeleted
 			delete(b.slCollections, key)
 
 			return &cp, nil
 		}
+
+		c.Status = statusDeleting
+		c.StatusUntil = now.Add(b.processingDelay)
+		cp := *c
+
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: serverless collection %s not found", ErrDomainNotFound, id)

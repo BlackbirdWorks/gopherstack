@@ -300,10 +300,6 @@ func resolveBatch3Op(path, method string) string {
 		return op
 	}
 
-	if op := resolveRemainingOps(path, method); op != unknownOperation {
-		return op
-	}
-
 	return resolveBatch3MiscOps(path, method)
 }
 
@@ -964,7 +960,7 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 // dispatchBatch3Ops dispatches batch-3 operations.
 // ---------------------------------------------------------------------------
 
-//nolint:funlen,gocyclo,cyclop,dupl // mechanical routing switch
+//nolint:funlen,gocyclo,cyclop // mechanical routing switch
 func (h *Handler) dispatchBatch3Ops(c *echo.Context, op string) (bool, error) {
 	switch op {
 	// OTA Updates
@@ -1131,5 +1127,5 @@ func (h *Handler) dispatchBatch3Ops(c *echo.Context, op string) (bool, error) {
 		return true, h.handleListCommandExecutions(c)
 	}
 
-	return h.dispatchRemainingOps(c, op)
+	return false, nil
 }

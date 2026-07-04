@@ -40,6 +40,9 @@ var (
 	// ErrDeleteConflict is returned when a resource cannot be deleted due to dependencies.
 	ErrDeleteConflict = errors.New("delete conflict")
 
+	// ErrIndexNotFound is returned when a fleet index does not exist.
+	ErrIndexNotFound = errors.New("index not found")
+
 	// ErrVersionsLimitExceeded is returned when a policy already has the maximum allowed versions.
 	ErrVersionsLimitExceeded = errors.New("versions limit exceeded")
 
@@ -55,69 +58,80 @@ type RuleDispatcher interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	dispatcher             RuleDispatcher
-	things                 map[string]*Thing
-	policies               map[string]*Policy
-	rules                  map[string]*TopicRule
-	certificateTransfers   map[string]string
-	thingBillingGroups     map[string]string
-	thingThingGroups       map[string][]string
-	packageVersionSboms    map[string]*SbomDocument
-	jobTargets             map[string][]string
-	policyTargets          map[string][]string
-	securityProfileTargets map[string][]string
-	thingPrincipals        map[string][]string
-	auditMitigationTasks   map[string]string
-	auditTasks             map[string]string
-	thingTypes             map[string]*ThingType
-	thingGroups            map[string]*ThingGroup
-	thingGroupMembers      map[string][]string // thingGroupName -> []thingName
-	certificates           map[string]*Certificate
-	policyVersions         map[string][]*PolicyVersion // policyName -> []versions
-	topicRuleDestinations  map[string]*TopicRuleDestination
-	certificateProviders   map[string]*CertificateProvider
-	// New stateful resources (batch 1).
-	jobs                 map[string]*Job
-	jobExecutions        map[string]*JobExecution // key: jobID|thingName
-	jobTemplates         map[string]*JobTemplate
-	roleAliases          map[string]*RoleAlias
-	domainConfigs        map[string]*DomainConfiguration
-	provTemplates        map[string]*ProvisioningTemplate
-	provTemplateVersions map[string][]*ProvisioningTemplateVersion // templateName -> versions
-	authorizers          map[string]*Authorizer
-	billingGroups        map[string]*BillingGroup
-	scheduledAudits      map[string]*ScheduledAudit
-	mitigationActions    map[string]*MitigationAction
-	securityProfiles     map[string]*SecurityProfile
-	// Batch 2 resources.
-	caCertificates     map[string]*CACertificate
-	streams            map[string]*IoTStream
-	fleetMetrics       map[string]*FleetMetric
-	customMetrics      map[string]*CustomMetric
-	dimensions         map[string]*Dimension
-	resourceTags       map[string]map[string]string // resourceARN -> tags
-	auditConfiguration *AccountAuditConfiguration
-	auditTaskObjects   map[string]*AuditTask
-	// Batch 3 resources.
-	otaUpdates          map[string]*OTAUpdate
-	iotPackages         map[string]*IoTPackage
-	packageVersions2    map[string]map[string]*IoTPackageVersion // packageName -> versionName -> version
-	packageConfig       *PackageConfiguration
-	auditSuppressions   map[string]*AuditSuppression
-	auditFindings       map[string]*AuditFinding
-	v2LoggingOptions    *V2LoggingOptions
-	v2LoggingLevels     map[string]*V2LoggingLevel
-	loggingOptions      *LoggingOptions
-	eventConfigurations *EventConfigurations
-	commands            map[string]*IoTCommand
-	commandExecutions   map[string]*IoTCommandExecution
-	shadows             map[shadowKey]*ThingShadow // thing+name → shadow
-	registrationCode    string
-	defaultAuthorizer   string
-	accountID           string
-	region              string
-	mqttPort            int
-	mu                  sync.RWMutex
+	dispatcher                 RuleDispatcher
+	shadows                    map[shadowKey]*ThingShadow // thing+name → shadow
+	customMetrics              map[string]*CustomMetric
+	resourceTags               map[string]map[string]string
+	rules                      map[string]*TopicRule
+	certificateTransfers       map[string]string
+	thingBillingGroups         map[string]string
+	thingThingGroups           map[string][]string
+	packageVersionSboms        map[string]*SbomDocument
+	jobTargets                 map[string][]string
+	fleetMetrics               map[string]*FleetMetric
+	securityProfileTargets     map[string][]string
+	thingPrincipals            map[string][]string
+	auditMitigationTasks       map[string]string
+	auditTasks                 map[string]string
+	thingTypes                 map[string]*ThingType
+	thingGroups                map[string]*ThingGroup
+	thingGroupMembers          map[string][]string
+	certificates               map[string]*Certificate
+	policyVersions             map[string][]*PolicyVersion
+	topicRuleDestinations      map[string]*TopicRuleDestination
+	certificateProviders       map[string]*CertificateProvider
+	jobs                       map[string]*Job
+	jobExecutions              map[string]*JobExecution
+	jobTemplates               map[string]*JobTemplate
+	roleAliases                map[string]*RoleAlias
+	domainConfigs              map[string]*DomainConfiguration
+	dimensions                 map[string]*Dimension
+	provTemplateVersions       map[string][]*ProvisioningTemplateVersion
+	authorizers                map[string]*Authorizer
+	billingGroups              map[string]*BillingGroup
+	scheduledAudits            map[string]*ScheduledAudit
+	mitigationActions          map[string]*MitigationAction
+	securityProfiles           map[string]*SecurityProfile
+	caCertificates             map[string]*CACertificate
+	streams                    map[string]*IoTStream
+	policyTargets              map[string][]string
+	policies                   map[string]*Policy
+	provTemplates              map[string]*ProvisioningTemplate
+	things                     map[string]*Thing
+	auditConfiguration         *AccountAuditConfiguration
+	auditTaskObjects           map[string]*AuditTask
+	otaUpdates                 map[string]*OTAUpdate
+	iotPackages                map[string]*IoTPackage
+	packageVersions2           map[string]map[string]*IoTPackageVersion
+	packageConfig              *PackageConfiguration
+	auditSuppressions          map[string]*AuditSuppression
+	auditFindings              map[string]*AuditFinding
+	v2LoggingOptions           *V2LoggingOptions
+	v2LoggingLevels            map[string]*V2LoggingLevel
+	loggingOptions             *LoggingOptions
+	eventConfigurations        *EventConfigurations
+	commands                   map[string]*IoTCommand
+	commandExecutions          map[string]*IoTCommandExecution
+	thingIndexingConfig        *ThingIndexingConfiguration
+	thingGroupIndexingConfig   *ThingGroupIndexingConfiguration
+	registrationTasks          map[string]*ThingRegistrationTask
+	auditMitigationTaskObjects map[string]*AuditMitigationTask
+	auditMitigationExecutions  map[string][]*AuditMitigationActionExecution
+	detectMitigationTasks      map[string]*DetectMitigationTask
+	detectMitigationExecutions map[string][]*DetectMitigationActionExecution
+	activeViolations           map[string]*ActiveViolation
+	accountEncryptionConfig    *AccountEncryptionConfiguration
+	sbomValidationResults      map[string][]*SbomValidationResult
+	metricValues               map[string][]*MetricDatapoint
+	thingConnectivity          map[string]*ThingConnectivityData
+	behaviorTrainingSummaries  map[string][]*BehaviorModelTrainingSummary
+	registrationCode           string
+	defaultAuthorizer          string
+	accountID                  string
+	region                     string
+	violationEvents            []*ViolationEvent
+	mqttPort                   int
+	mu                         sync.RWMutex
 }
 
 // Compile-time assertion that InMemoryBackend implements StorageBackend.
@@ -177,9 +191,22 @@ func NewInMemoryBackend() *InMemoryBackend {
 		shadows:                make(map[shadowKey]*ThingShadow),
 		commands:               make(map[string]*IoTCommand),
 		commandExecutions:      make(map[string]*IoTCommandExecution),
-		accountID:              "000000000000",
-		region:                 "us-east-1",
-		mqttPort:               mqttDefaultPort,
+		registrationTasks:      make(map[string]*ThingRegistrationTask),
+
+		auditMitigationTaskObjects: make(map[string]*AuditMitigationTask),
+		auditMitigationExecutions:  make(map[string][]*AuditMitigationActionExecution),
+		detectMitigationTasks:      make(map[string]*DetectMitigationTask),
+		detectMitigationExecutions: make(map[string][]*DetectMitigationActionExecution),
+		activeViolations:           make(map[string]*ActiveViolation),
+
+		sbomValidationResults:     make(map[string][]*SbomValidationResult),
+		metricValues:              make(map[string][]*MetricDatapoint),
+		thingConnectivity:         make(map[string]*ThingConnectivityData),
+		behaviorTrainingSummaries: make(map[string][]*BehaviorModelTrainingSummary),
+
+		accountID: "000000000000",
+		region:    "us-east-1",
+		mqttPort:  mqttDefaultPort,
 	}
 }
 
@@ -253,9 +280,35 @@ func (b *InMemoryBackend) Reset() {
 	b.resourceTags = make(map[string]map[string]string)
 	b.auditTaskObjects = make(map[string]*AuditTask)
 	b.resetBatch3()
+	b.registrationTasks = make(map[string]*ThingRegistrationTask)
 	b.registrationCode = ""
 	b.defaultAuthorizer = ""
 	b.auditConfiguration = nil
+	b.thingIndexingConfig = nil
+	b.thingGroupIndexingConfig = nil
+	b.resetDeviceDefender()
+	b.resetFinalOps()
+}
+
+// resetFinalOps clears final-stub-batch backend state (called from Reset,
+// lock held).
+func (b *InMemoryBackend) resetFinalOps() {
+	b.accountEncryptionConfig = nil
+	b.sbomValidationResults = make(map[string][]*SbomValidationResult)
+	b.metricValues = make(map[string][]*MetricDatapoint)
+	b.thingConnectivity = make(map[string]*ThingConnectivityData)
+	b.behaviorTrainingSummaries = make(map[string][]*BehaviorModelTrainingSummary)
+}
+
+// resetDeviceDefender clears all Device Defender backend state (audit + detect
+// mitigation-action tasks and violations). Called from Reset, lock held.
+func (b *InMemoryBackend) resetDeviceDefender() {
+	b.auditMitigationTaskObjects = make(map[string]*AuditMitigationTask)
+	b.auditMitigationExecutions = make(map[string][]*AuditMitigationActionExecution)
+	b.detectMitigationTasks = make(map[string]*DetectMitigationTask)
+	b.detectMitigationExecutions = make(map[string][]*DetectMitigationActionExecution)
+	b.activeViolations = make(map[string]*ActiveViolation)
+	b.violationEvents = nil
 }
 
 // SetRuleDispatcher wires the SQS/Lambda action dispatcher.
@@ -584,8 +637,20 @@ func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyO
 	}, nil
 }
 
-// AttachPrincipalPolicy attaches a policy to a principal (stub, no-op).
-func (b *InMemoryBackend) AttachPrincipalPolicy(_ *AttachPrincipalPolicyInput) error {
+// AttachPrincipalPolicy attaches a policy to a principal. The attachment is
+// recorded in the same policyTargets index used by AttachPolicy/DetachPolicy
+// so that ListPrincipalPolicies, ListPolicyPrincipals, and
+// DetachPrincipalPolicy observe it.
+func (b *InMemoryBackend) AttachPrincipalPolicy(input *AttachPrincipalPolicyInput) error {
+	if input.PolicyName == "" || input.Principal == "" {
+		return nil
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.policyTargets[input.PolicyName] = append(b.policyTargets[input.PolicyName], input.Principal)
+
 	return nil
 }
 
@@ -660,11 +725,14 @@ func (b *InMemoryBackend) AssociateSbomWithPackageVersion(
 	key := packageVersionKey(input.PackageName, input.VersionName)
 	b.packageVersionSboms[key] = input.Sbom
 
+	result := computeSbomValidationResult(input.Sbom)
+	b.sbomValidationResults[key] = []*SbomValidationResult{result}
+
 	return &AssociateSbomWithPackageVersionOutput{
 		PackageName:          input.PackageName,
 		VersionName:          input.VersionName,
 		Sbom:                 input.Sbom,
-		SbomValidationStatus: "IN_PROGRESS",
+		SbomValidationStatus: result.ValidationResult,
 	}, nil
 }
 
@@ -719,11 +787,19 @@ func (b *InMemoryBackend) AttachThingPrincipal(input *AttachThingPrincipalInput)
 }
 
 // CancelAuditMitigationActionsTask cancels an audit mitigation actions task.
+// Unknown task IDs still succeed (matching the legacy behavior of this
+// operation) but, when the task is known, its rich AuditMitigationTask record
+// (as returned by DescribeAuditMitigationActionsTask) is transitioned to
+// CANCELED with an end time, keeping the two representations consistent.
 func (b *InMemoryBackend) CancelAuditMitigationActionsTask(input *CancelAuditMitigationActionsTaskInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.auditMitigationTasks[input.TaskID] = "CANCELED"
+	b.auditMitigationTasks[input.TaskID] = string(JobStatusCanceled)
+	if t, ok := b.auditMitigationTaskObjects[input.TaskID]; ok {
+		t.TaskStatus = string(JobStatusCanceled)
+		t.EndTime = float64(time.Now().Unix())
+	}
 
 	return nil
 }
@@ -1007,6 +1083,12 @@ var ErrTopicRuleDestinationNotFound = errors.New("topic rule destination not fou
 // ErrPolicyVersionNotFound is returned when a PolicyVersion does not exist.
 var ErrPolicyVersionNotFound = errors.New("policy version not found")
 
+// ErrRegistrationTaskNotFound is returned when a bulk thing registration task does not exist.
+var ErrRegistrationTaskNotFound = errors.New("thing registration task not found")
+
+// ErrManagedJobTemplateNotFound is returned when a managed job template does not exist.
+var ErrManagedJobTemplateNotFound = errors.New("managed job template not found")
+
 // fakePEM is a minimal fake PEM certificate returned by CreateCertificateFromCsr and RegisterCertificate.
 const fakePEM = `-----BEGIN CERTIFICATE-----
 MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
@@ -1023,6 +1105,9 @@ const certStatusActive = "ACTIVE"
 
 // certStatusInactive is the AWS IoT certificate INACTIVE status value.
 const certStatusInactive = "INACTIVE"
+
+// certStatusPendingTransfer is the AWS IoT certificate PENDING_TRANSFER status value.
+const certStatusPendingTransfer = "PENDING_TRANSFER"
 
 // certStatusRevoked is the AWS IoT certificate REVOKED status value.
 const certStatusRevoked = "REVOKED"
@@ -1413,7 +1498,8 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 // isValidCertStatus reports whether s is a legal AWS IoT certificate status.
 func isValidCertStatus(s string) bool {
 	switch s {
-	case certStatusActive, certStatusInactive, certStatusRevoked, certStatusPendingXfer, certStatusPendingActivation:
+	case certStatusActive, certStatusInactive, certStatusRevoked,
+		certStatusPendingTransfer, certStatusPendingActivation:
 		return true
 	}
 
@@ -1423,7 +1509,7 @@ func isValidCertStatus(s string) bool {
 // UpdateCertificate updates the status of a certificate.
 func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error {
 	switch input.NewStatus {
-	case certStatusPendingXfer, certStatusPendingActivation:
+	case certStatusPendingTransfer, certStatusPendingActivation:
 		return fmt.Errorf("%w: status %q cannot be set via UpdateCertificate", ErrValidation, input.NewStatus)
 	}
 
@@ -1667,14 +1753,19 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 		fmt.Sprintf("ruledestination/http/%s", uuid.NewString()))
 
 	dest := &TopicRuleDestination{
-		ARN:    arn,
-		Status: "ENABLED",
+		ARN: arn,
 	}
 
 	if input.DestinationConfiguration != nil && input.DestinationConfiguration.HTTPURLConfiguration != nil {
 		dest.HTTPURLProperties = &HTTPURLDestinationProperties{
 			ConfirmationURL: input.DestinationConfiguration.HTTPURLConfiguration.ConfirmationURL,
 		}
+		// HTTP destinations require confirmation before they can be used,
+		// matching AWS's real IN_PROGRESS -> ENABLED lifecycle.
+		dest.Status = statusInProgress
+		dest.ConfirmationToken = randomHex(certIDHexLen)
+	} else {
+		dest.Status = statusEnabled
 	}
 
 	b.topicRuleDestinations[arn] = dest

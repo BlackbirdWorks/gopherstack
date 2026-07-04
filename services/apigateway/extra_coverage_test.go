@@ -42,6 +42,10 @@ func (n *noopBackend) GetResources(_ string, _ string, _ int) ([]apigateway.Reso
 	return nil, "", nil
 }
 
+func (n *noopBackend) ResourcesForRouting(_ string) ([]apigateway.Resource, uint64, error) {
+	return nil, 0, nil
+}
+
 func (n *noopBackend) GetResource(_ string, _ string) (*apigateway.Resource, error) {
 	return nil, errNoopNotImplemented
 }
@@ -173,14 +177,6 @@ func (n *noopBackend) UpdateRequestValidator(
 func (n *noopBackend) DeleteRequestValidator(_ string, _ string) error { return nil }
 
 func (n *noopBackend) CreateAPIKey(_ apigateway.CreateAPIKeyInput) (*apigateway.APIKey, error) {
-	return nil, errNoopNotImplemented
-}
-
-func (n *noopBackend) ImportAPIKeys(_ string, _ []byte) ([]string, []string, error) {
-	return nil, nil, errNoopNotImplemented
-}
-
-func (n *noopBackend) GetDomainNameAccessAssociations() ([]apigateway.DomainNameAccessAssociation, error) {
 	return nil, errNoopNotImplemented
 }
 
@@ -472,6 +468,10 @@ func (n *noopBackend) GetUsage(_ apigateway.GetUsageInput) (*apigateway.UsageDat
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) EnforceUsagePlan(_, _, _ string) error {
+	return nil
+}
+
 func (n *noopBackend) CreateVpcLink(_ apigateway.CreateVpcLinkInput) (*apigateway.VpcLink, error) {
 	return nil, errNoopNotImplemented
 }
@@ -497,6 +497,44 @@ func (n *noopBackend) UpdateClientCertificate(
 }
 
 func (n *noopBackend) GetExport(_ string, _ string, _ string) (map[string]any, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetDomainNameAccessAssociations(
+	_ string,
+) ([]apigateway.DomainNameAccessAssociation, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) DeleteDomainNameAccessAssociation(_ string) error {
+	return errNoopNotImplemented
+}
+
+func (n *noopBackend) RejectDomainNameAccessAssociation(_, _ string) error {
+	return errNoopNotImplemented
+}
+
+func (n *noopBackend) GetSdkTypes() []apigateway.SdkType { return nil }
+
+func (n *noopBackend) GetSdkType(_ string) (*apigateway.SdkType, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetSdk(_, _, _ string) (*apigateway.SdkExport, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) ImportAPIKeys(_ []byte, _ string, _ bool) ([]string, []string, error) {
+	return nil, nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) ImportDocumentationParts(
+	_ string, _ []byte, _ string, _ bool,
+) ([]string, []string, error) {
+	return nil, nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateUsage(_, _ string, _ map[string]string) (*apigateway.UsageData, error) {
 	return nil, errNoopNotImplemented
 }
 
@@ -890,9 +928,10 @@ func TestComputePath_NonRootParent(t *testing.T) {
 	}
 }
 
-// TestParsePosition_EdgeCases covers the invalid-string and negative-value branches
-// of parsePosition by passing those values as the position parameter to GetRestAPIs and GetResources.
-func TestParsePosition_EdgeCases(t *testing.T) {
+// TestOpaquePagination_EdgeCases verifies that GetRestAPIs treats malformed/legacy
+// (numeric) position tokens as "start from the beginning" — the opaque cursor is not a
+// numeric offset — and that a real cursor round-trips to the next page.
+func TestOpaquePagination_EdgeCases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -901,19 +940,19 @@ func TestParsePosition_EdgeCases(t *testing.T) {
 		wantLen  int
 	}{
 		{
-			name:     "invalid_position_string_treated_as_zero",
+			name:     "invalid_position_string_treated_as_start",
 			position: "not-a-number",
 			wantLen:  2,
 		},
 		{
-			name:     "negative_position_treated_as_zero",
-			position: "-99",
+			name:     "legacy_numeric_position_treated_as_start",
+			position: "1",
 			wantLen:  2,
 		},
 		{
-			name:     "valid_position_paginates",
-			position: "1",
-			wantLen:  1,
+			name:     "empty_position_returns_all",
+			position: "",
+			wantLen:  2,
 		},
 	}
 
@@ -930,6 +969,37 @@ func TestParsePosition_EdgeCases(t *testing.T) {
 			assert.Len(t, apis, tt.wantLen)
 		})
 	}
+}
+
+// TestOpaquePagination_RoundTrip verifies that the opaque cursor returned by a limited
+// page resumes at the correct item on the next call and is not a numeric offset.
+func TestOpaquePagination_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+	for _, name := range []string{"api-a", "api-b", "api-c"} {
+		_, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: name})
+		require.NoError(t, err)
+	}
+
+	first, token, err := b.GetRestAPIs(1, "")
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	require.NotEmpty(t, token, "cursor must be present when more pages remain")
+	assert.NotEqual(t, "1", token, "cursor must be opaque, not a numeric offset")
+
+	// Walk the remaining pages using the opaque cursor.
+	seen := map[string]bool{first[0].ID: true}
+	for token != "" {
+		var page []apigateway.RestAPI
+		page, token, err = b.GetRestAPIs(1, token)
+		require.NoError(t, err)
+		for _, api := range page {
+			assert.False(t, seen[api.ID], "cursor must not repeat an item")
+			seen[api.ID] = true
+		}
+	}
+	assert.Len(t, seen, 3, "cursor pagination must cover every item exactly once")
 }
 
 // TestExtractResource_AdditionalBranches covers the "name" key fallback and the

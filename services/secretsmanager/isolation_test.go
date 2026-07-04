@@ -81,14 +81,14 @@ func TestSecretsManagerResourcePolicyRegionIsolation(t *testing.T) {
 
 	_, err = backend.PutResourcePolicy(ctxEast, &PutResourcePolicyInput{
 		SecretID:       "p",
-		ResourcePolicy: `{"east":true}`,
+		ResourcePolicy: `{"Version":"2012-10-17","Statement":[]}`,
 	})
 	require.NoError(t, err)
 
 	// us-east-1 has the policy; us-west-2 does not.
 	eastPol, err := backend.GetResourcePolicy(ctxEast, &GetResourcePolicyInput{SecretID: "p"})
 	require.NoError(t, err)
-	assert.Equal(t, `{"east":true}`, eastPol.ResourcePolicy)
+	assert.JSONEq(t, `{"Version":"2012-10-17","Statement":[]}`, eastPol.ResourcePolicy)
 
 	westPol, err := backend.GetResourcePolicy(ctxWest, &GetResourcePolicyInput{SecretID: "p"})
 	require.NoError(t, err)

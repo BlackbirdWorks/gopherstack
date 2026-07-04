@@ -1,6 +1,12 @@
 package awsconfig
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
 
 const (
 	orgRuleStatusCreateSuccessful = "CREATE_SUCCESSFUL"
@@ -315,7 +321,7 @@ func (b *InMemoryBackend) DescribeComplianceByConfigRule(names []string) []Compl
 	for _, name := range names {
 		ct := b.ruleEvaluations[name]
 		if ct == "" {
-			ct = "NOT_APPLICABLE"
+			ct = complianceNotApplicable
 		}
 
 		out = append(out, ComplianceByConfigRule{
@@ -365,24 +371,35 @@ func (b *InMemoryBackend) GetComplianceSummaryByConfigRule() []ComplianceSummary
 	}}
 }
 
-// PutEvaluations stores evaluation results from an AWS Lambda function for a config rule.
+// PutEvaluations stores evaluation results from an AWS Lambda function for a
+// config rule. Each result is retained per-(rule, resource) so the compliance
+// detail APIs can return real per-resource outcomes.
 func (b *InMemoryBackend) PutEvaluations(results []EvaluationResult) error {
 	b.mu.Lock("PutEvaluations")
 	defer b.mu.Unlock()
 
+	now := float64(time.Now().Unix())
+
 	for _, r := range results {
-		b.ruleEvaluations[r.ConfigRuleName] = r.ComplianceType
+		b.recordEvaluationLocked(r.ConfigRuleName, r.ResourceType, r.ResourceID, r.ComplianceType, r.Annotation, now)
 	}
 
 	return nil
 }
 
-// PutExternalEvaluation stores a single external evaluation result.
+// PutExternalEvaluation stores a single external evaluation result per-resource.
 func (b *InMemoryBackend) PutExternalEvaluation(result EvaluationResult) error {
 	b.mu.Lock("PutExternalEvaluation")
 	defer b.mu.Unlock()
 
-	b.ruleEvaluations[result.ConfigRuleName] = result.ComplianceType
+	b.recordEvaluationLocked(
+		result.ConfigRuleName,
+		result.ResourceType,
+		result.ResourceID,
+		result.ComplianceType,
+		result.Annotation,
+		float64(time.Now().Unix()),
+	)
 
 	return nil
 }
@@ -540,7 +557,9 @@ func (b *InMemoryBackend) DescribeOrganizationConformancePackStatuses(
 
 // --- Group 9: ResourceConfig operations ---
 
-// PutResourceConfig stores configuration for a resource.
+// PutResourceConfig stores configuration for a resource. The latest state is kept
+// for discovery, and a configuration-history entry is appended whenever the
+// configuration actually changes (mirroring AWS Config which records on change).
 func (b *InMemoryBackend) PutResourceConfig(resourceType, resourceID, configuration string) error {
 	b.mu.Lock("PutResourceConfig")
 	defer b.mu.Unlock()
@@ -549,31 +568,67 @@ func (b *InMemoryBackend) PutResourceConfig(resourceType, resourceID, configurat
 		b.resourceConfigs[resourceType] = make(map[string]*ResourceConfigItem)
 	}
 
-	b.resourceConfigs[resourceType][resourceID] = &ResourceConfigItem{
-		ResourceType:  resourceType,
-		ResourceID:    resourceID,
-		Configuration: configuration,
+	b.captureCounter++
+
+	item := ResourceConfigItem{
+		ResourceType:                 resourceType,
+		ResourceID:                   resourceID,
+		Configuration:                configuration,
+		ConfigurationItemCaptureTime: float64(time.Now().Unix()),
+	}
+
+	b.resourceConfigs[resourceType][resourceID] = &item
+
+	key := resourceEvalKey(resourceType, resourceID)
+
+	hist := b.resourceHistory[key]
+	if len(hist) == 0 || hist[len(hist)-1].Configuration != configuration {
+		b.resourceHistory[key] = append(hist, item)
 	}
 
 	return nil
 }
 
-// GetResourceConfigHistory returns configuration history for a resource.
+// resourceHistoryLocked returns the configuration history for a resource ordered
+// most-recent first. The caller must hold at least a read lock.
+func (b *InMemoryBackend) resourceHistoryLocked(resourceType, resourceID string) []ResourceConfigItem {
+	hist := b.resourceHistory[resourceEvalKey(resourceType, resourceID)]
+	if len(hist) == 0 {
+		return []ResourceConfigItem{}
+	}
+
+	out := make([]ResourceConfigItem, len(hist))
+	for i, item := range hist {
+		out[len(hist)-1-i] = item
+	}
+
+	return out
+}
+
+// GetResourceConfigHistory returns the full configuration history for a resource,
+// most-recent first.
 func (b *InMemoryBackend) GetResourceConfigHistory(resourceType, resourceID string) []ResourceConfigItem {
 	b.mu.RLock("GetResourceConfigHistory")
 	defer b.mu.RUnlock()
 
-	byType := b.resourceConfigs[resourceType]
-	if byType == nil {
-		return []ResourceConfigItem{}
-	}
+	return b.resourceHistoryLocked(resourceType, resourceID)
+}
 
-	item, ok := byType[resourceID]
-	if !ok {
-		return []ResourceConfigItem{}
-	}
+// GetResourceConfigHistoryPage returns a page of a resource's configuration
+// history (most-recent first) along with an opaque continuation token.
+func (b *InMemoryBackend) GetResourceConfigHistoryPage(
+	resourceType, resourceID string,
+	limit int,
+	token string,
+) ([]ResourceConfigItem, string) {
+	b.mu.RLock("GetResourceConfigHistoryPage")
+	defer b.mu.RUnlock()
 
-	return []ResourceConfigItem{*item}
+	const defaultLimit = 100
+
+	p := page.New(b.resourceHistoryLocked(resourceType, resourceID), token, limit, defaultLimit)
+
+	return p.Data, p.Next
 }
 
 // ListDiscoveredResources returns all discovered resources of the given type.
@@ -671,8 +726,90 @@ func (b *InMemoryBackend) DescribeAggregateComplianceByConfigRules() []any {
 	return out
 }
 
-// GetComplianceSummaryByResourceType returns an empty summary (intentionally minimal stub).
-func (b *InMemoryBackend) GetComplianceSummaryByResourceType() []any { return []any{} }
+// GetComplianceSummaryByResourceType returns compliant/non-compliant resource
+// counts grouped by resource type, derived from the same per-(rule, resource)
+// evaluation state (b.ruleResourceEvals) that rolls up into b.ruleEvaluations
+// for DescribeAggregateComplianceByConfigRules. A resource counts as
+// NON_COMPLIANT if any rule evaluated it as such, else COMPLIANT. When
+// resourceTypes is non-empty, only those types are included.
+func (b *InMemoryBackend) GetComplianceSummaryByResourceType(
+	resourceTypes []string,
+) []ComplianceSummaryByResourceType {
+	b.mu.RLock("GetComplianceSummaryByResourceType")
+	defer b.mu.RUnlock()
+
+	nonCompliant := resourceComplianceByType(b.ruleResourceEvals, resourceTypes)
+
+	resourceTypesSeen := make([]string, 0, len(nonCompliant))
+	for rt := range nonCompliant {
+		resourceTypesSeen = append(resourceTypesSeen, rt)
+	}
+
+	sort.Strings(resourceTypesSeen)
+
+	out := make([]ComplianceSummaryByResourceType, 0, len(resourceTypesSeen))
+	for _, rt := range resourceTypesSeen {
+		out = append(out, summarizeResourceType(rt, nonCompliant[rt]))
+	}
+
+	return out
+}
+
+// resourceComplianceByType walks per-(rule, resource) evaluations and, for
+// every resource matching the optional resourceTypes filter, records whether
+// any rule found it NON_COMPLIANT (true) or only COMPLIANT/other (false).
+func resourceComplianceByType(
+	ruleResourceEvals map[string]map[string]*StoredEvaluation,
+	resourceTypes []string,
+) map[string]map[string]bool {
+	filter := make(map[string]struct{}, len(resourceTypes))
+	for _, rt := range resourceTypes {
+		filter[rt] = struct{}{}
+	}
+
+	nonCompliant := make(map[string]map[string]bool)
+
+	for _, evals := range ruleResourceEvals {
+		for _, e := range evals {
+			if len(filter) > 0 {
+				if _, ok := filter[e.ResourceType]; !ok {
+					continue
+				}
+			}
+
+			if nonCompliant[e.ResourceType] == nil {
+				nonCompliant[e.ResourceType] = make(map[string]bool)
+			}
+
+			nonCompliant[e.ResourceType][e.ResourceID] =
+				nonCompliant[e.ResourceType][e.ResourceID] || e.ComplianceType == complianceNonCompliant
+		}
+	}
+
+	return nonCompliant
+}
+
+// summarizeResourceType counts compliant/non-compliant resources for one
+// resource type into the wire-shaped summary.
+func summarizeResourceType(resourceType string, resources map[string]bool) ComplianceSummaryByResourceType {
+	var compliantCount, nonCompliantCount int32
+
+	for _, isNonCompliant := range resources {
+		if isNonCompliant {
+			nonCompliantCount++
+		} else {
+			compliantCount++
+		}
+	}
+
+	return ComplianceSummaryByResourceType{
+		ResourceType: resourceType,
+		ComplianceSummary: ComplianceSummaryDetail{
+			CompliantResourceCount:    ResourceCount{CappedCount: compliantCount},
+			NonCompliantResourceCount: ResourceCount{CappedCount: nonCompliantCount},
+		},
+	}
+}
 
 // GetConformancePackComplianceDetails returns an empty list (intentionally minimal stub).
 func (b *InMemoryBackend) GetConformancePackComplianceDetails() []any { return []any{} }
@@ -683,8 +820,39 @@ func (b *InMemoryBackend) GetConformancePackComplianceSummary() []any { return [
 // DescribeComplianceByResource returns an empty list (intentionally minimal stub).
 func (b *InMemoryBackend) DescribeComplianceByResource() []any { return []any{} }
 
-// SelectResourceConfig returns an empty result (intentionally minimal stub).
-func (b *InMemoryBackend) SelectResourceConfig() []any { return []any{} }
+// resourceConfigItemsLocked returns every discovered resource configuration
+// item across all resource types. Caller must hold at least a read lock.
+func (b *InMemoryBackend) resourceConfigItemsLocked() []*ResourceConfigItem {
+	items := make([]*ResourceConfigItem, 0, len(b.resourceConfigs))
+	for _, byID := range b.resourceConfigs {
+		for _, item := range byID {
+			items = append(items, item)
+		}
+	}
 
-// SelectAggregateResourceConfig returns an empty result (intentionally minimal stub).
-func (b *InMemoryBackend) SelectAggregateResourceConfig() []any { return []any{} }
+	return items
+}
+
+// SelectResourceConfig evaluates a minimal SQL-like "SELECT fields WHERE
+// key = value / LIKE pattern" query (see select_query.go) against the
+// account's discovered resource configurations, instead of ignoring the
+// query entirely.
+func (b *InMemoryBackend) SelectResourceConfig(expression string) []string {
+	b.mu.RLock("SelectResourceConfig")
+	defer b.mu.RUnlock()
+
+	return evaluateSelectQuery(b.resourceConfigItemsLocked(), expression)
+}
+
+// SelectAggregateResourceConfig evaluates the same query language as
+// SelectResourceConfig. This emulator does not model multi-account
+// aggregation separately from the account's own resource-config state, so
+// (mirroring DescribeAggregateComplianceByConfigRules, which reuses the
+// account's rule evaluations for its aggregate view) it reuses
+// resourceConfigItemsLocked rather than returning an empty result.
+func (b *InMemoryBackend) SelectAggregateResourceConfig(expression string) []string {
+	b.mu.RLock("SelectAggregateResourceConfig")
+	defer b.mu.RUnlock()
+
+	return evaluateSelectQuery(b.resourceConfigItemsLocked(), expression)
+}

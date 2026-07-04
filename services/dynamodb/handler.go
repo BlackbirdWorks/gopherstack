@@ -1163,10 +1163,11 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 }
 
 type exportTableToPointInTimeInput struct {
-	TableArn     string `json:"TableArn"`
-	S3Bucket     string `json:"S3Bucket"`
-	S3Prefix     string `json:"S3Prefix,omitempty"`
-	ExportFormat string `json:"ExportFormat,omitempty"`
+	TableArn     string  `json:"TableArn"`
+	S3Bucket     string  `json:"S3Bucket"`
+	S3Prefix     string  `json:"S3Prefix,omitempty"`
+	ExportFormat string  `json:"ExportFormat,omitempty"`
+	ExportTime   float64 `json:"ExportTime,omitempty"`
 }
 
 type exportDescriptionFields struct {
@@ -1243,13 +1244,15 @@ func (h *DynamoDBHandler) exportTableToPointInTime(ctx context.Context, body []b
 		ExportFormat: exportFmt,
 		ExportType:   "FULL_EXPORT",
 		StartTime:    float64(now.Unix()),
+		ExportTime:   req.ExportTime,
 	}
 
-	// Persist as IN_PROGRESS (AWS initial response), then complete synchronously.
+	// Persist as IN_PROGRESS (AWS initial response), then complete asynchronously.
 	// Real AWS takes minutes; the emulator finishes in microseconds.
 	if b, ok := h.Backend.(*InMemoryDB); ok {
 		b.storeExport(desc)
-		b.completeExportSync(ctx, exportARN, &req)
+		reqCopy := req
+		go b.completeExportSync(context.WithoutCancel(ctx), exportARN, &reqCopy)
 	}
 
 	return &exportTableToPointInTimeOutput{ExportDescription: desc}, nil

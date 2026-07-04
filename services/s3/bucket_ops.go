@@ -569,6 +569,13 @@ func (h *S3Handler) listObjects(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "ListObjects")
+
+	if err := h.authorizeObjectAccess(ctx, r, bucketName, "", actionListBucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
@@ -954,12 +961,12 @@ func mapListVersionsOutput(
 // for PutBucketAcl.
 var validCannedACLs = map[string]struct{}{ //nolint:gochecknoglobals // package-level lookup table
 	aclPrivate:                  {},
-	"public-read":               {},
-	"public-read-write":         {},
-	"authenticated-read":        {},
+	aclPublicRead:               {},
+	aclPublicReadWrite:          {},
+	aclAuthenticatedRead:        {},
 	"bucket-owner-read":         {},
 	"bucket-owner-full-control": {},
-	"log-delivery-write":        {},
+	aclLogDeliveryWrite:         {},
 }
 
 func (h *S3Handler) putBucketACL(
@@ -1004,7 +1011,7 @@ func (h *S3Handler) getBucketACL(
 ) {
 	h.setOperation(ctx, "GetBucketAcl")
 
-	_, err := h.Backend.GetBucketACL(ctx, bucketName)
+	canned, err := h.Backend.GetBucketACL(ctx, bucketName)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -1018,16 +1025,7 @@ func (h *S3Handler) getBucketACL(
 			DisplayName: gopherstackName,
 		},
 		ACL: AccessControlList{
-			Grants: []Grant{
-				{
-					Grantee: Grantee{
-						XmlnsXsi: "http://www.w3.org/2001/XMLSchema-instance",
-						XsiType:  "CanonicalUser",
-						ID:       gopherstackName,
-					},
-					Permission: "FULL_CONTROL",
-				},
-			},
+			Grants: cannedACLGrants(canned, gopherstackName, gopherstackName),
 		},
 	}
 

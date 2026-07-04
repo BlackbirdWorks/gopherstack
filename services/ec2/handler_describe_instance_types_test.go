@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // TestDescribeInstanceTypes_Pagination verifies that DescribeInstanceTypes
@@ -39,7 +41,7 @@ func TestDescribeInstanceTypes_Pagination(t *testing.T) {
 			name: "next_token_resumes_from_offset",
 			body: "Action=DescribeInstanceTypes&Version=2016-11-15" +
 				"&InstanceType.1=t2.micro&InstanceType.2=t3.small&InstanceType.3=m5.large" +
-				"&MaxResults=5&NextToken=2",
+				"&MaxResults=5&NextToken=" + page.EncodeHMACToken(2, "ec2-opaque-pagination-v1"),
 			wantCode:     http.StatusOK,
 			wantContains: []string{"m5.large"},
 			wantNotIn:    []string{"t2.micro", "t3.small"},

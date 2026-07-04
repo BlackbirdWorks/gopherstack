@@ -319,8 +319,12 @@ type StreamRecord struct {
 	EventID                     string         `json:"eventID"`
 	EventName                   string         `json:"eventName"`
 	SequenceNumber              string         `json:"sequenceNumber"`
+	StreamViewType              string         `json:"streamViewType,omitempty"`
+	UserIdentityPrincipalID     string         `json:"userIdentityPrincipalId,omitempty"`
+	UserIdentityType            string         `json:"userIdentityType,omitempty"`
 	ApproximateCreationDateTime int64          `json:"approximateCreationDateTime"`
 	ExpireAt                    int64          `json:"expireAt,omitempty"`
+	SizeBytes                   int64          `json:"sizeBytes,omitempty"`
 }
 
 type QueryInput struct {

@@ -1217,14 +1217,14 @@ func TestRuntimeServer_Invoke(t *testing.T) {
 			isErrCh := make(chan bool, 1)
 
 			go func() {
-				result, isErr, invokeErr := srv.Invoke(ctx, tt.payload, 5*time.Second)
+				invokeResult, isError, _, invokeErr := srv.Invoke(ctx, tt.payload, "", 5*time.Second)
 				if invokeErr != nil {
 					errCh <- invokeErr
 
 					return
 				}
-				resultCh <- result
-				isErrCh <- isErr
+				resultCh <- invokeResult
+				isErrCh <- isError
 			}()
 
 			requestID := simulateContainerNext(t, tt.port)
@@ -1342,7 +1342,7 @@ func TestRuntimeServer_InvokeStop(t *testing.T) {
 				errCh := make(chan error, 1)
 
 				go func() {
-					_, _, err := srv.Invoke(ctx, []byte(`{}`), tt.timeout)
+					_, _, _, err := srv.Invoke(ctx, []byte(`{}`), "", tt.timeout)
 					errCh <- err
 				}()
 
@@ -1356,7 +1356,7 @@ func TestRuntimeServer_InvokeStop(t *testing.T) {
 					require.FailNow(t, "expected context cancellation error")
 				}
 			} else {
-				_, _, err := srv.Invoke(t.Context(), []byte(`{}`), tt.timeout)
+				_, _, _, err := srv.Invoke(t.Context(), []byte(`{}`), "", tt.timeout)
 				require.Error(t, err)
 				if tt.wantErrContains != "" {
 					assert.Contains(t, err.Error(), tt.wantErrContains)
@@ -1422,7 +1422,12 @@ func newTestRuntimeServer(t *testing.T, port int) testRuntimeServerIface {
 
 // testRuntimeServerIface wraps the runtimeServer for white-box testing.
 type testRuntimeServerIface interface {
-	Invoke(ctx context.Context, payload []byte, timeout time.Duration) ([]byte, bool, error)
+	Invoke(
+		ctx context.Context,
+		payload []byte,
+		clientContext string,
+		timeout time.Duration,
+	) ([]byte, bool, string, error)
 	Stop(ctx context.Context)
 }
 
@@ -1440,8 +1445,13 @@ func newPublicRuntimeServer(t *testing.T, port int) *publicRuntimeServer {
 	return &publicRuntimeServer{inner: srv}
 }
 
-func (p *publicRuntimeServer) Invoke(ctx context.Context, payload []byte, timeout time.Duration) ([]byte, bool, error) {
-	return p.inner.Invoke(ctx, payload, timeout)
+func (p *publicRuntimeServer) Invoke(
+	ctx context.Context,
+	payload []byte,
+	clientContext string,
+	timeout time.Duration,
+) ([]byte, bool, string, error) {
+	return p.inner.Invoke(ctx, payload, clientContext, timeout)
 }
 
 func (p *publicRuntimeServer) Stop(ctx context.Context) {
@@ -2945,7 +2955,7 @@ func TestRuntimeServer_InvokeTimeoutRace(t *testing.T) {
 			errCh := make(chan error, 1)
 
 			go func() {
-				result, _, invokeErr := srv.Invoke(ctx, []byte(`{}`), tt.invokeTimeout)
+				result, _, _, invokeErr := srv.Invoke(ctx, []byte(`{}`), "", tt.invokeTimeout)
 				if invokeErr != nil {
 					errCh <- invokeErr
 

@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -652,7 +653,20 @@ func (b *InMemoryBackend) ExportBackupPlanTemplate(planID string) (string, error
 		return "", fmt.Errorf("%w: %s", errBackupPlanNotFoundB1, name)
 	}
 
-	return fmt.Sprintf(`{"BackupPlanName":"%s","Rules":[]}`, plan.BackupPlanName), nil
+	doc := backupPlanBodyDoc{
+		BackupPlanName: plan.BackupPlanName,
+		Rules:          rulesToJSON(plan.Rules),
+	}
+	if len(plan.AdvancedBackupSettings) > 0 {
+		doc.AdvancedBackupSettings = advancedSettingsToJSON(plan.AdvancedBackupSettings)
+	}
+
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+
+	return string(out), nil
 }
 
 // ---- Tiering configurations ----

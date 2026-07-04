@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -34,6 +35,7 @@ func registerBatch3Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ImportImage"] = h.handleImportImage
 	ops["DescribeImportImageTasks"] = h.handleDescribeImportImageTasks
 	ops["ExportImage"] = h.handleExportImage
+	ops["DescribeExportImageTasks"] = h.handleDescribeExportImageTasks
 	ops["ListImagesInRecycleBin"] = h.handleListImagesInRecycleBin
 	ops["RestoreImageFromRecycleBin"] = h.handleRestoreImageFromRecycleBin
 	// Snapshot recycle
@@ -69,7 +71,6 @@ func registerBatch3Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyVpnConnection"] = h.handleModifyVpnConnection
 	ops["CreateVpnConnectionRoute"] = h.handleCreateVpnConnectionRoute
 	ops["DeleteVpnConnectionRoute"] = h.handleDeleteVpnConnectionRoute
-	ops["DetachVpnGateway"] = h.handleDetachVpnGatewayB3
 	// Transit gateway
 	ops["ModifyTransitGateway"] = h.handleModifyTransitGateway
 }
@@ -95,6 +96,7 @@ func batch3SupportedOperations() []string {
 		"ImportImage",
 		"DescribeImportImageTasks",
 		"ExportImage",
+		"DescribeExportImageTasks",
 		"ListImagesInRecycleBin",
 		"RestoreImageFromRecycleBin",
 		"ListSnapshotsInRecycleBin",
@@ -160,29 +162,22 @@ type describeInstanceConnectEndpointsResponse struct {
 }
 
 type instanceEventWindowAssociationTargetItem struct {
-	InstanceIDSet struct {
-		Items []string `xml:"item"`
-	} `xml:"instanceIdSet"`
-	TagSet struct {
-		Items []string `xml:"item"`
-	} `xml:"tagSet"`
-	DedicatedHostIDSet struct {
-		Items []string `xml:"item"`
-	} `xml:"dedicatedHostIdSet"`
+	InstanceIDs      []string `xml:"instanceIdSet>item,omitempty"`
+	DedicatedHostIDs []string `xml:"dedicatedHostIdSet>item,omitempty"`
 }
 
 type instanceEventWindowItem struct {
-	AssociationTarget     *instanceEventWindowAssociationTargetItem `xml:"associationTarget,omitempty"`
-	InstanceEventWindowID string                                    `xml:"instanceEventWindowId"`
-	Name                  string                                    `xml:"name"`
-	CronExpression        string                                    `xml:"cronExpression,omitempty"`
-	State                 string                                    `xml:"state"`
+	InstanceEventWindowID string                                   `xml:"instanceEventWindowId"`
+	Name                  string                                   `xml:"name"`
+	CronExpression        string                                   `xml:"cronExpression,omitempty"`
+	State                 string                                   `xml:"state"`
+	AssociationTarget     instanceEventWindowAssociationTargetItem `xml:"associationTarget"`
 }
 
 type createInstanceEventWindowResponse struct {
-	InstanceEventWindow instanceEventWindowItem `xml:"instanceEventWindow"`
 	XMLName             xml.Name                `xml:"CreateInstanceEventWindowResponse"`
 	RequestID           string                  `xml:"requestId"`
+	InstanceEventWindow instanceEventWindowItem `xml:"instanceEventWindow"`
 }
 
 type describeInstanceEventWindowsResponse struct {
@@ -234,11 +229,53 @@ type describeImportImageTasksResponse struct {
 	} `xml:"importImageTaskSet"`
 }
 
+type exportTaskS3LocationItem struct {
+	S3Bucket string `xml:"s3Bucket,omitempty"`
+	S3Prefix string `xml:"s3Prefix,omitempty"`
+}
+
 type exportImageResponse struct {
-	XMLName      xml.Name `xml:"ExportImageResponse"`
-	RequestID    string   `xml:"requestId"`
-	ExportTaskID string   `xml:"exportTaskId"`
-	Status       string   `xml:"status"`
+	XMLName           xml.Name                 `xml:"ExportImageResponse"`
+	RequestID         string                   `xml:"requestId"`
+	Description       string                   `xml:"description,omitempty"`
+	DiskImageFormat   string                   `xml:"diskImageFormat,omitempty"`
+	ExportImageTaskID string                   `xml:"exportImageTaskId,omitempty"`
+	ImageID           string                   `xml:"imageId,omitempty"`
+	Progress          string                   `xml:"progress,omitempty"`
+	S3ExportLocation  exportTaskS3LocationItem `xml:"s3ExportLocation"`
+	Status            string                   `xml:"status,omitempty"`
+	StatusMessage     string                   `xml:"statusMessage,omitempty"`
+	RoleName          string                   `xml:"roleName,omitempty"`
+}
+
+type exportImageTaskItem struct {
+	Description       string                   `xml:"description,omitempty"`
+	ExportImageTaskID string                   `xml:"exportImageTaskId,omitempty"`
+	ImageID           string                   `xml:"imageId,omitempty"`
+	Progress          string                   `xml:"progress,omitempty"`
+	S3ExportLocation  exportTaskS3LocationItem `xml:"s3ExportLocation"`
+	Status            string                   `xml:"status,omitempty"`
+	StatusMessage     string                   `xml:"statusMessage,omitempty"`
+}
+
+func toExportImageTaskItem(t *ExportImageTaskRec) exportImageTaskItem {
+	return exportImageTaskItem{
+		Description:       t.Description,
+		ExportImageTaskID: t.ExportImageTaskID,
+		ImageID:           t.ImageID,
+		Progress:          t.Progress,
+		S3ExportLocation:  exportTaskS3LocationItem{S3Bucket: t.S3Bucket, S3Prefix: t.S3Prefix},
+		Status:            t.Status,
+		StatusMessage:     t.StatusMessage,
+	}
+}
+
+type describeExportImageTasksResponse struct {
+	XMLName            xml.Name `xml:"DescribeExportImageTasksResponse"`
+	RequestID          string   `xml:"requestId"`
+	ExportImageTaskSet struct {
+		Items []exportImageTaskItem `xml:"item"`
+	} `xml:"exportImageTaskSet"`
 }
 
 type recycleBinImageItem struct {
@@ -390,12 +427,6 @@ type groupsForCapacityReservationResponse struct {
 			GroupARN string `xml:"groupArn"`
 		} `xml:"item"`
 	} `xml:"capacityReservationGroupSet"`
-}
-
-type vpnConnectionRouteItem struct {
-	VpnConnectionID string `xml:"vpnConnectionId"`
-	DestinationCIDR string `xml:"destinationCidrBlock"`
-	State           string `xml:"state"`
 }
 
 // ---- Handler implementations ----
@@ -552,22 +583,16 @@ func (h *Handler) handleModifyInstanceConnectEndpoint(vals url.Values, reqID str
 }
 
 func toInstanceEventWindowItem(ew *InstanceEventWindow) instanceEventWindowItem {
-	item := instanceEventWindowItem{
+	return instanceEventWindowItem{
 		InstanceEventWindowID: ew.InstanceEventWindowID,
 		Name:                  ew.Name,
 		CronExpression:        ew.CronExpression,
 		State:                 ew.State,
+		AssociationTarget: instanceEventWindowAssociationTargetItem{
+			InstanceIDs:      ew.InstanceIDs,
+			DedicatedHostIDs: ew.DedicatedHostIDs,
+		},
 	}
-
-	if at := ew.AssociationTarget; at != nil {
-		target := &instanceEventWindowAssociationTargetItem{}
-		target.InstanceIDSet.Items = at.InstanceIDs
-		target.TagSet.Items = at.InstanceTags
-		target.DedicatedHostIDSet.Items = at.DedicatedHostIDs
-		item.AssociationTarget = target
-	}
-
-	return item
 }
 
 func (h *Handler) handleCreateInstanceEventWindow(vals url.Values, reqID string) (any, error) {
@@ -671,6 +696,12 @@ func (h *Handler) handleDescribeSpotDatafeedSubscription(_ url.Values, reqID str
 	return resp, nil
 }
 
+type registerImageResponse struct {
+	XMLName   xml.Name `xml:"RegisterImageResponse"`
+	RequestID string   `xml:"requestId"`
+	ImageID   string   `xml:"imageId"`
+}
+
 func (h *Handler) handleRegisterImage(vals url.Values, reqID string) (any, error) {
 	name := vals.Get("Name")
 	description := vals.Get("Description")
@@ -681,10 +712,9 @@ func (h *Handler) handleRegisterImage(vals url.Values, reqID string) (any, error
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RegisterImageResponse"},
+	return &registerImageResponse{
 		RequestID: reqID,
-		Return:    img != nil,
+		ImageID:   img.ImageID,
 	}, nil
 }
 
@@ -726,17 +756,40 @@ func (h *Handler) handleDescribeImportImageTasks(vals url.Values, reqID string) 
 func (h *Handler) handleExportImage(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	description := vals.Get("Description")
+	diskImageFormat := vals.Get("DiskImageFormat")
+	s3Bucket := vals.Get("S3ExportLocation.S3Bucket")
+	s3Prefix := vals.Get("S3ExportLocation.S3Prefix")
+	roleName := vals.Get("RoleName")
 
-	taskID, err := h.Backend.ExportImage(imageID, description)
+	task, err := h.Backend.ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName)
 	if err != nil {
 		return nil, err
 	}
 
 	return &exportImageResponse{
-		RequestID:    reqID,
-		ExportTaskID: taskID,
-		Status:       stateTaskInProgress,
+		RequestID:         reqID,
+		Description:       task.Description,
+		DiskImageFormat:   task.DiskImageFormat,
+		ExportImageTaskID: task.ExportImageTaskID,
+		ImageID:           task.ImageID,
+		Progress:          task.Progress,
+		S3ExportLocation:  exportTaskS3LocationItem{S3Bucket: task.S3Bucket, S3Prefix: task.S3Prefix},
+		Status:            task.Status,
+		StatusMessage:     task.StatusMessage,
+		RoleName:          task.RoleName,
 	}, nil
+}
+
+func (h *Handler) handleDescribeExportImageTasks(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "ExportImageTaskId")
+	tasks := h.Backend.DescribeExportImageTasks(ids)
+
+	resp := &describeExportImageTasksResponse{RequestID: reqID}
+	for _, t := range tasks {
+		resp.ExportImageTaskSet.Items = append(resp.ExportImageTaskSet.Items, toExportImageTaskItem(t))
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleListImagesInRecycleBin(vals url.Values, reqID string) (any, error) {
@@ -1059,7 +1112,9 @@ func (h *Handler) handleUpdateSGRuleDescriptionsIngress(
 	reqID string,
 ) (any, error) {
 	groupID := vals.Get("GroupId")
-	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsIngress(groupID, nil); err != nil {
+	rules := parseIPPermissions(vals)
+
+	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsIngress(groupID, rules); err != nil {
 		return nil, err
 	}
 
@@ -1072,7 +1127,9 @@ func (h *Handler) handleUpdateSGRuleDescriptionsIngress(
 
 func (h *Handler) handleUpdateSGRuleDescriptionsEgress(vals url.Values, reqID string) (any, error) {
 	groupID := vals.Get("GroupId")
-	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsEgress(groupID, nil); err != nil {
+	rules := parseIPPermissions(vals)
+
+	if err := h.Backend.UpdateSecurityGroupRuleDescriptionsEgress(groupID, rules); err != nil {
 		return nil, err
 	}
 
@@ -1149,26 +1206,30 @@ func (h *Handler) handleModifyVpnConnection(vals url.Values, reqID string) (any,
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpnConnectionResponse"},
-		RequestID: reqID,
-		Return:    true,
+	conns := h.Backend.DescribeVpnConnections([]string{vpnID})
+	if len(conns) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnID)
+	}
+
+	return &modifyVpnConnectionResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conns[0]),
 	}, nil
 }
 
-func (h *Handler) handleCreateVpnConnectionRoute(vals url.Values, _ string) (any, error) {
+func (h *Handler) handleCreateVpnConnectionRoute(vals url.Values, reqID string) (any, error) {
 	vpnID := vals.Get("VpnConnectionId")
 	destCIDR := vals.Get("DestinationCidrBlock")
 
-	route, err := h.Backend.CreateVpnConnectionRoute(vpnID, destCIDR)
-	if err != nil {
+	if _, err := h.Backend.CreateVpnConnectionRoute(vpnID, destCIDR); err != nil {
 		return nil, err
 	}
 
-	return &vpnConnectionRouteItem{
-		VpnConnectionID: route.VpnConnectionID,
-		DestinationCIDR: route.DestinationCIDR,
-		State:           route.State,
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpnConnectionRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
 	}, nil
 }
 
@@ -1184,12 +1245,6 @@ func (h *Handler) handleDeleteVpnConnectionRoute(vals url.Values, reqID string) 
 		RequestID: reqID,
 		Return:    true,
 	}, nil
-}
-
-// handleDetachVpnGateway is implemented in handler_advanced_networking.go.
-// This wrapper ensures it stays registered when batch3 overrides stubs.
-func (h *Handler) handleDetachVpnGatewayB3(vals url.Values, _ string) (any, error) {
-	return h.handleDetachVpnGateway(vals, "")
 }
 
 func (h *Handler) handleModifyTransitGateway(vals url.Values, reqID string) (any, error) {

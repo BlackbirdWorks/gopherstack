@@ -20,8 +20,11 @@ var (
 )
 
 const (
+	automationStatusPending    = "Pending"
 	automationStatusInProgress = "InProgress"
 	automationStatusStopped    = "Stopped"
+	automationStatusSuccess    = "Success"
+	automationStatusFailed     = "Failed"
 	calendarStateOpen          = "OPEN"
 	policyIDPrefix             = "pol-"
 	previewIDPrefix            = "ep-"
@@ -608,16 +611,28 @@ func (b *InMemoryBackend) StartAutomationExecution(
 		mode = "Auto"
 	}
 
+	now := time.Now().UTC()
 	exec := &AutomationExecution{
 		AutomationExecutionID: execID,
 		DocumentName:          input.DocumentName,
 		DocumentVersion:       input.DocumentVersion,
 		Parameters:            input.Parameters,
 		Status:                automationStatusInProgress,
-		StartTime:             time.Now().UTC(),
+		StartTime:             UnixTimeFloat(now),
 		ExecutionType:         "Standard",
 		Mode:                  mode,
+		Steps:                 b.buildAutomationSteps(region, input.DocumentName),
 	}
+
+	// Complete synchronously unless an exec delay is configured, in which case
+	// the execution stays InProgress and is lazily completed by reads once the
+	// delay elapses — making the InProgress window observable to waiters.
+	if b.automationExecDelaySecs <= 0 {
+		completeAutomationLocked(exec, now)
+	} else {
+		exec.completeAfter = UnixTimeFloat(now) + b.automationExecDelaySecs
+	}
+
 	if b.automationExecutions[region] == nil {
 		b.automationExecutions[region] = make(map[string]*AutomationExecution)
 	}
@@ -632,8 +647,8 @@ func (b *InMemoryBackend) GetAutomationExecution(
 	input *GetAutomationExecutionInput,
 ) (*GetAutomationExecutionOutputFull, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("GetAutomationExecution")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetAutomationExecution")
+	defer b.mu.Unlock()
 
 	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
 	if !exists {
@@ -643,6 +658,8 @@ func (b *InMemoryBackend) GetAutomationExecution(
 			input.AutomationExecutionID,
 		)
 	}
+
+	materializeAutomationLocked(exec, time.Now().UTC())
 
 	cp := *exec
 
@@ -655,17 +672,19 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 	_ *DescribeAutomationExecutionsInput,
 ) (*DescribeAutomationExecutionsOutputFull, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("DescribeAutomationExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeAutomationExecutions")
+	defer b.mu.Unlock()
 
+	now := time.Now().UTC()
 	execs := b.automationExecutionsStore(region)
 	list := make([]AutomationExecution, 0, len(execs))
 	for _, exec := range execs {
+		materializeAutomationLocked(exec, now)
 		list = append(list, *exec)
 	}
 
 	sort.Slice(list, func(i, k int) bool {
-		return list[i].StartTime.Before(list[k].StartTime)
+		return list[i].StartTime < list[k].StartTime
 	})
 
 	return &DescribeAutomationExecutionsOutputFull{AutomationExecutionMetadataList: list}, nil
@@ -682,8 +701,7 @@ func (b *InMemoryBackend) StopAutomationExecution(
 
 	if exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]; exists {
 		exec.Status = automationStatusStopped
-		now := time.Now().UTC()
-		exec.EndTime = &now
+		exec.EndTime = UnixTimeFloat(time.Now().UTC())
 	}
 
 	return &StopAutomationExecutionOutput{}, nil
@@ -722,8 +740,8 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 	input *DescribeAutomationStepExecutionsInput,
 ) (*DescribeAutomationStepExecutionsOutputFull, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("DescribeAutomationStepExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeAutomationStepExecutions")
+	defer b.mu.Unlock()
 
 	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
 	if !exists {
@@ -732,7 +750,14 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 		}, nil
 	}
 
-	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: exec.Steps}, nil
+	materializeAutomationLocked(exec, time.Now().UTC())
+
+	steps := exec.Steps
+	if steps == nil {
+		steps = []AutomationStepExec{}
+	}
+
+	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: steps}, nil
 }
 
 // StartChangeRequestExecution creates a change request automation execution.
@@ -745,12 +770,15 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 	defer b.mu.Unlock()
 
 	execID := "auto-cr-" + uuid.NewString()
+	// Change requests remain InProgress pending approval (SendAutomationSignal),
+	// mirroring AWS — but their steps are populated up front.
 	exec := &AutomationExecution{
 		AutomationExecutionID: execID,
 		DocumentName:          input.DocumentName,
 		Status:                automationStatusInProgress,
-		StartTime:             time.Now().UTC(),
+		StartTime:             UnixTimeFloat(time.Now().UTC()),
 		ExecutionType:         "ChangeRequest",
+		Steps:                 b.buildAutomationSteps(region, input.DocumentName),
 	}
 	if b.automationExecutions[region] == nil {
 		b.automationExecutions[region] = make(map[string]*AutomationExecution)
@@ -941,6 +969,8 @@ func (b *InMemoryBackend) StartAssociationsOnce(
 		if assoc, exists := associations[assocID]; exists {
 			assoc.LastUpdateAssociationDate = float64(now.Unix())
 			associations[assocID] = assoc
+			// A one-time run produces a fresh, stable execution record.
+			b.recordAssociationExecutionLocked(region, assoc)
 		}
 	}
 
@@ -966,14 +996,94 @@ func (b *InMemoryBackend) ListAssociationVersions(
 	}, nil
 }
 
-// DescribeAssociationExecutions returns execution history for an association.
+const assocExecIDPrefix = "aexec-"
+
+// assocExecStatus returns the effective status of an association's executions.
+func assocExecStatus(assoc Association) string {
+	if assoc.Overview != nil && assoc.Overview.Status != "" {
+		return assoc.Overview.Status
+	}
+
+	return commandStatusSuccess
+}
+
+// buildAssocExecTargets derives the per-resource execution targets for an
+// association execution from the association's InstanceId and Targets.
+func buildAssocExecTargets(
+	assoc Association,
+	execID, status string,
+) []AssociationExecutionTarget {
+	targets := make([]AssociationExecutionTarget, 0)
+	if assoc.InstanceID != "" {
+		targets = append(targets, AssociationExecutionTarget{
+			AssociationID: assoc.AssociationID,
+			ExecutionID:   execID,
+			ResourceID:    assoc.InstanceID,
+			ResourceType:  "ManagedInstance",
+			Status:        status,
+		})
+	}
+
+	for _, t := range assoc.Targets {
+		for _, v := range t.Values {
+			targets = append(targets, AssociationExecutionTarget{
+				AssociationID: assoc.AssociationID,
+				ExecutionID:   execID,
+				ResourceID:    v,
+				ResourceType:  "ManagedInstance",
+				Status:        status,
+			})
+		}
+	}
+
+	return targets
+}
+
+// recordAssociationExecutionLocked appends a new stable execution record (and
+// its target set) for the association and returns the new execution ID. Records
+// are stored newest-first. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) recordAssociationExecutionLocked(
+	region string,
+	assoc Association,
+) string {
+	execID := assocExecIDPrefix + uuid.NewString()
+	status := assocExecStatus(assoc)
+
+	exec := AssociationExecution{
+		AssociationID: assoc.AssociationID,
+		ExecutionID:   execID,
+		Status:        status,
+		ExecutionDate: time.Now().UTC(),
+	}
+
+	if b.associationExecutions[region] == nil {
+		b.associationExecutions[region] = make(map[string][]AssociationExecution)
+	}
+	execStore := b.associationExecutionsStore(region)
+	execStore[assoc.AssociationID] = append(
+		[]AssociationExecution{exec},
+		execStore[assoc.AssociationID]...,
+	)
+
+	if b.associationExecTargets[region] == nil {
+		b.associationExecTargets[region] = make(map[string][]AssociationExecutionTarget)
+	}
+	b.associationExecTargetsStore(region)[execID] = buildAssocExecTargets(assoc, execID, status)
+
+	return execID
+}
+
+// DescribeAssociationExecutions returns the stored execution history for an
+// association. Records are stable across calls (unlike a freshly minted UUID
+// per request). When the association has no recorded executions yet, one is
+// created lazily so a valid association is never reported as never-run.
 func (b *InMemoryBackend) DescribeAssociationExecutions(
 	ctx context.Context,
 	input *DescribeAssociationExecutionsInput,
 ) (*DescribeAssociationExecutionsOutputFull, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("DescribeAssociationExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeAssociationExecutions")
+	defer b.mu.Unlock()
 
 	assoc, exists := b.associationsStore(region)[input.AssociationID]
 	if !exists {
@@ -982,32 +1092,30 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(
 		}, nil
 	}
 
-	status := commandStatusSuccess
-	if assoc.Overview != nil {
-		status = assoc.Overview.Status
+	execs := b.associationExecutionsStore(region)[input.AssociationID]
+	if len(execs) == 0 {
+		b.recordAssociationExecutionLocked(region, assoc)
+		execs = b.associationExecutionsStore(region)[input.AssociationID]
 	}
 
-	exec := AssociationExecution{
-		AssociationID: assoc.AssociationID,
-		ExecutionID:   uuid.NewString(),
-		Status:        status,
-		ExecutionDate: time.Unix(int64(assoc.LastUpdateAssociationDate), 0).UTC(),
-	}
+	out := make([]AssociationExecution, len(execs))
+	copy(out, execs)
 
 	return &DescribeAssociationExecutionsOutputFull{
-		AssociationExecutions: []AssociationExecution{exec},
+		AssociationExecutions: out,
 	}, nil
 }
 
-// DescribeAssociationExecutionTargets returns targets for an association execution.
-// Looks up the association by ID and derives execution targets from its registered targets.
+// DescribeAssociationExecutionTargets returns the stored targets for a specific
+// association execution. When no ExecutionId is supplied the latest execution
+// is used; both the execution and its targets are stable across calls.
 func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
 	ctx context.Context,
 	input *DescribeAssociationExecutionTargetsInput,
 ) (*DescribeAssociationExecutionTargetsOutputFull, error) {
 	region := getRegion(ctx)
-	b.mu.RLock("DescribeAssociationExecutionTargets")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeAssociationExecutionTargets")
+	defer b.mu.Unlock()
 
 	if input.AssociationID == "" {
 		return &DescribeAssociationExecutionTargetsOutputFull{
@@ -1024,39 +1132,30 @@ func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
 
 	execID := input.ExecutionID
 	if execID == "" {
-		execID = uuid.NewString()
-	}
-
-	// Build targets from the association's InstanceID and explicit Targets list.
-	targets := make([]AssociationExecutionTarget, 0)
-	if assoc.InstanceID != "" {
-		targets = append(targets, AssociationExecutionTarget{
-			AssociationID: assoc.AssociationID,
-			ExecutionID:   execID,
-			ResourceID:    assoc.InstanceID,
-			ResourceType:  "ManagedInstance",
-			Status:        commandStatusSuccess,
-		})
-	}
-
-	for _, t := range assoc.Targets {
-		for _, v := range t.Values {
-			targets = append(targets, AssociationExecutionTarget{
-				AssociationID: assoc.AssociationID,
-				ExecutionID:   execID,
-				ResourceID:    v,
-				ResourceType:  "ManagedInstance",
-				Status:        commandStatusSuccess,
-			})
+		execs := b.associationExecutionsStore(region)[input.AssociationID]
+		if len(execs) == 0 {
+			execID = b.recordAssociationExecutionLocked(region, assoc)
+		} else {
+			execID = execs[0].ExecutionID
 		}
 	}
 
-	if len(targets) == 0 {
-		targets = []AssociationExecutionTarget{}
+	targets := b.associationExecTargetsStore(region)[execID]
+	if targets == nil {
+		// A caller-supplied ExecutionId we have not seen: materialise and store
+		// a stable target set for it derived from the association.
+		targets = buildAssocExecTargets(assoc, execID, assocExecStatus(assoc))
+		if b.associationExecTargets[region] == nil {
+			b.associationExecTargets[region] = make(map[string][]AssociationExecutionTarget)
+		}
+		b.associationExecTargetsStore(region)[execID] = targets
 	}
 
+	out := make([]AssociationExecutionTarget, len(targets))
+	copy(out, targets)
+
 	return &DescribeAssociationExecutionTargetsOutputFull{
-		AssociationExecutionTargets: targets,
+		AssociationExecutionTargets: out,
 	}, nil
 }
 
@@ -1381,7 +1480,7 @@ func (b *InMemoryBackend) ListNodes(
 		nodes = append(nodes, NodeInfo{
 			InstanceID:       act.ActivationID,
 			PlatformType:     platformTypeLinux,
-			AgentVersion:     "3.0.0",
+			AgentVersion:     defaultAgentVersionSSM,
 			RegistrationDate: time.Unix(int64(act.CreatedDate), 0).UTC(),
 		})
 	}
@@ -1491,7 +1590,7 @@ func (b *InMemoryBackend) DescribeInstanceInformation(
 		list = append(list, InstanceInformation{
 			InstanceID:       act.ActivationID,
 			PingStatus:       "Online",
-			AgentVersion:     "3.0.0",
+			AgentVersion:     defaultAgentVersionSSM,
 			PlatformType:     platformTypeLinux,
 			RegistrationDate: time.Unix(int64(act.CreatedDate), 0).UTC(),
 		})

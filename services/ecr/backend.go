@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,10 @@ const (
 	scanStatusComplete  = "COMPLETE"
 	imageStatusActive   = "ACTIVE"
 	msgNoScanFindings   = "The scan completed successfully with no findings."
+
+	scanTypeEnhanced            = "ENHANCED"
+	replicationStatusComplete   = "COMPLETE"
+	replicationStatusInProgress = "IN_PROGRESS"
 )
 
 var (
@@ -332,6 +337,101 @@ type ImageScanFindingsResult struct {
 	Status                string             `json:"status"`
 	Description           string             `json:"description"`
 	Findings              []ImageScanFinding `json:"findings,omitempty"`
+	// EnhancedFindings carries Inspector-style, package-level findings produced by
+	// ENHANCED registry scanning. It is empty for BASIC scans, which populate
+	// Findings instead — so the two scan types return genuinely different shapes.
+	EnhancedFindings []EnhancedImageScanFinding `json:"enhancedFindings,omitempty"`
+}
+
+// EnhancedImageScanFinding is an Inspector-style enhanced scan finding, returned
+// under enhancedFindings when the registry uses ENHANCED scanning. It carries
+// package-level vulnerability detail that the BASIC finding shape lacks.
+type EnhancedImageScanFinding struct {
+	PackageVulnerabilityDetails *PackageVulnerabilityDetails `json:"packageVulnerabilityDetails,omitempty"`
+	Remediation                 *Remediation                 `json:"remediation,omitempty"`
+	Description                 string                       `json:"description,omitempty"`
+	AwsAccountID                string                       `json:"awsAccountId,omitempty"`
+	FindingArn                  string                       `json:"findingArn,omitempty"`
+	Severity                    string                       `json:"severity,omitempty"`
+	Status                      string                       `json:"status,omitempty"`
+	Title                       string                       `json:"title,omitempty"`
+	Type                        string                       `json:"type,omitempty"`
+	FixAvailable                string                       `json:"fixAvailable,omitempty"`
+	Resources                   []EnhancedFindingResource    `json:"resources,omitempty"`
+	UpdatedAt                   float64                      `json:"updatedAt"`
+	LastObservedAt              float64                      `json:"lastObservedAt"`
+	FirstObservedAt             float64                      `json:"firstObservedAt"`
+	Score                       float64                      `json:"score,omitempty"`
+}
+
+// PackageVulnerabilityDetails describes the vulnerability behind an enhanced
+// finding, including CVSS scoring and the affected packages.
+type PackageVulnerabilityDetails struct {
+	VulnerabilityID        string              `json:"vulnerabilityId,omitempty"`
+	Source                 string              `json:"source,omitempty"`
+	SourceURL              string              `json:"sourceUrl,omitempty"`
+	VendorSeverity         string              `json:"vendorSeverity,omitempty"`
+	Cvss                   []CVSSScore         `json:"cvss,omitempty"`
+	ReferenceUrls          []string            `json:"referenceUrls,omitempty"`
+	RelatedVulnerabilities []string            `json:"relatedVulnerabilities,omitempty"`
+	VulnerablePackages     []VulnerablePackage `json:"vulnerablePackages,omitempty"`
+	VendorCreatedAt        float64             `json:"vendorCreatedAt"`
+}
+
+// CVSSScore is a single CVSS scoring entry for an enhanced finding.
+type CVSSScore struct {
+	ScoringVector string  `json:"scoringVector,omitempty"`
+	Source        string  `json:"source,omitempty"`
+	Version       string  `json:"version,omitempty"`
+	BaseScore     float64 `json:"baseScore,omitempty"`
+}
+
+// VulnerablePackage describes an individual affected package in an enhanced finding.
+type VulnerablePackage struct {
+	Arch            string `json:"arch,omitempty"`
+	FilePath        string `json:"filePath,omitempty"`
+	Name            string `json:"name,omitempty"`
+	PackageManager  string `json:"packageManager,omitempty"`
+	Release         string `json:"release,omitempty"`
+	SourceLayerHash string `json:"sourceLayerHash,omitempty"`
+	Version         string `json:"version,omitempty"`
+	FixedInVersion  string `json:"fixedInVersion,omitempty"`
+	Remediation     string `json:"remediation,omitempty"`
+	Epoch           int    `json:"epoch,omitempty"`
+}
+
+// Remediation carries the recommended fix for an enhanced finding.
+type Remediation struct {
+	Recommendation RemediationRecommendation `json:"recommendation"`
+}
+
+// RemediationRecommendation is the human-readable remediation guidance.
+type RemediationRecommendation struct {
+	Text string `json:"text,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
+// EnhancedFindingResource identifies the resource an enhanced finding applies to.
+type EnhancedFindingResource struct {
+	ID      string                         `json:"id,omitempty"`
+	Type    string                         `json:"type,omitempty"`
+	Details EnhancedFindingResourceDetails `json:"details"`
+}
+
+// EnhancedFindingResourceDetails wraps the resource-type-specific detail.
+type EnhancedFindingResourceDetails struct {
+	AwsEcrContainerImage AwsEcrContainerImageDetails `json:"awsEcrContainerImage"`
+}
+
+// AwsEcrContainerImageDetails describes the ECR image an enhanced finding covers.
+type AwsEcrContainerImageDetails struct {
+	Architecture   string   `json:"architecture,omitempty"`
+	ImageHash      string   `json:"imageHash,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	RegistryID     string   `json:"registryId,omitempty"`
+	RepositoryName string   `json:"repositoryName,omitempty"`
+	ImageTags      []string `json:"imageTags,omitempty"`
+	PushedAt       float64  `json:"pushedAt"`
 }
 
 // ImageScanStartResult is returned by StartImageScan.
@@ -438,11 +538,13 @@ type InMemoryBackend struct {
 	mu                          *lockmetrics.RWMutex
 	registryScanningConfig      *RegistryScanningSettings
 	replicationConfig           *ReplicationConfig
+	lifecycleLastEvaluated      map[string]time.Time
 	registryPolicy              string
 	accountID                   string
 	region                      string
 	endpoint                    string
 	layerUploadQueue            []layerUploadQueueEntry
+	replicationSettleDelay      time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the given account ID and region.
@@ -467,6 +569,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		pullTimeUpdateExclusions:    make(map[string]*PullTimeUpdateExclusion),
 		registryScanningConfig:      &RegistryScanningSettings{ScanType: scanTypeBasic},
 		replicationConfig:           &ReplicationConfig{},
+		lifecycleLastEvaluated:      make(map[string]time.Time),
 		mu:                          lockmetrics.New("ecr"),
 		accountID:                   accountID,
 		region:                      region,
@@ -1339,11 +1442,13 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(
 	}
 
 	policyText := b.lifecyclePolicies[repositoryName]
+	lastEvaluated := b.lifecycleLastEvaluated[repositoryName]
 	delete(b.lifecyclePolicies, repositoryName)
+	delete(b.lifecycleLastEvaluated, repositoryName)
 
 	return &LifecyclePolicyResult{
 		LifecyclePolicyText: policyText,
-		LastEvaluatedAt:     time.Now(),
+		LastEvaluatedAt:     lastEvaluated,
 		RepositoryName:      repositoryName,
 		RegistryID:          b.accountID,
 	}, nil
@@ -1368,7 +1473,7 @@ func (b *InMemoryBackend) GetLifecyclePolicy(
 
 	return &LifecyclePolicyResult{
 		LifecyclePolicyText: policyText,
-		LastEvaluatedAt:     time.Now(),
+		LastEvaluatedAt:     b.lifecycleLastEvaluated[repositoryName],
 		RepositoryName:      repositoryName,
 		RegistryID:          b.accountID,
 	}, nil
@@ -1411,9 +1516,13 @@ func (b *InMemoryBackend) PutLifecyclePolicy(
 
 	b.lifecyclePolicies[repositoryName] = policyText
 
+	// AWS evaluates a newly applied lifecycle policy right away; matched images
+	// are expired and deleted rather than merely stored.
+	b.applyLifecyclePolicyLocked(repositoryName)
+
 	return &LifecyclePolicyResult{
 		LifecyclePolicyText: policyText,
-		LastEvaluatedAt:     time.Now(),
+		LastEvaluatedAt:     b.lifecycleLastEvaluated[repositoryName],
 		RepositoryName:      repositoryName,
 		RegistryID:          b.accountID,
 	}, nil
@@ -1816,24 +1925,71 @@ func (b *InMemoryBackend) DescribeImageScanFindings(
 	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	imageID ImageIdentifier,
-) (*ImageScanFindingsResult, error) {
+	maxResults int,
+	nextToken string,
+) (*ImageScanFindingsResult, string, error) {
 	b.mu.RLock("DescribeImageScanFindings")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, "", fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, "", fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	findings := b.imageScanFindings[repositoryName][img.ImageDigest]
 	if findings == nil {
-		return nil, fmt.Errorf("%w: image scan not found for %s in %s",
+		return nil, "", fmt.Errorf("%w: image scan not found for %s in %s",
 			ErrScanNotFoundException, img.ImageDigest, repositoryName)
 	}
 
 	cp := copyImageScanFindingsResult(findings)
 
-	return &cp, nil
+	if maxResults <= 0 {
+		maxResults = 100 // AWS default
+	}
+
+	// Simple pagination using the finding index as the nextToken. Pagination is
+	// applied to whichever finding list the scan type populated: BASIC scans page
+	// Findings, ENHANCED scans page EnhancedFindings.
+	var startIdx int
+	if nextToken != "" {
+		if parsed, err := strconv.Atoi(nextToken); err == nil {
+			startIdx = parsed
+		}
+	}
+
+	enhanced := len(cp.EnhancedFindings) > 0
+	total := len(cp.Findings)
+	if enhanced {
+		total = len(cp.EnhancedFindings)
+	}
+
+	if startIdx >= total {
+		cp.Findings = nil
+		cp.EnhancedFindings = nil
+
+		return &cp, "", nil
+	}
+
+	endIdx := startIdx + maxResults
+	var outNextToken string
+	if endIdx < total {
+		outNextToken = strconv.Itoa(endIdx)
+	} else {
+		endIdx = total
+	}
+
+	if enhanced {
+		cp.EnhancedFindings = cp.EnhancedFindings[startIdx:endIdx]
+	} else {
+		cp.Findings = cp.Findings[startIdx:endIdx]
+	}
+
+	return &cp, outNextToken, nil
 }
 
 // StartImageScan starts an image scan and returns the scan status.
@@ -1844,16 +2000,22 @@ func (b *InMemoryBackend) StartImageScan(ctx context.Context, //nolint:revive //
 	b.mu.Lock("StartImageScan")
 	defer b.mu.Unlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	if b.imageScanFindings[repositoryName] == nil {
 		b.imageScanFindings[repositoryName] = make(map[string]*ImageScanFindingsResult)
 	}
 
-	result := generateMockScanFindings(img.ImageDigest, repositoryName, b.accountID, img.ImageID)
+	result := generateMockScanFindings(
+		img.ImageDigest, repositoryName, b.accountID, img.ImageID, b.effectiveScanTypeLocked(),
+	)
 	b.imageScanFindings[repositoryName][img.ImageDigest] = result
 
 	return &ImageScanStartResult{
@@ -2146,25 +2308,29 @@ func (b *InMemoryBackend) DescribeImageReplicationStatus(
 		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
-	// Compute one replication status entry per destination configured in the
-	// registry replication configuration. If no replication configuration is
-	// set, the list is empty (AWS-accurate).
-	statuses := []ImageReplicationStatusEntry{}
-	if b.replicationConfig != nil {
-		for _, rule := range b.replicationConfig.Rules {
-			for _, dest := range rule.Destinations {
-				registryID := dest.RegistryID
-				if registryID == "" {
-					registryID = b.accountID
-				}
+	// Compute one replication status entry per destination the registry
+	// replication configuration actually targets for THIS repository. Rules whose
+	// repositoryFilters do not match the repository contribute no destinations,
+	// and a destination in the source region+account is skipped (AWS does not
+	// replicate an image onto itself). Each destination's status is derived from
+	// how long ago the image was pushed relative to the settle delay, so a
+	// freshly pushed image reports IN_PROGRESS and later COMPLETE — real
+	// per-destination state rather than a hardcoded COMPLETE.
+	dests := b.replicationDestinationsForRepoLocked(repositoryName)
+	now := time.Now()
+	statuses := make([]ImageReplicationStatusEntry, 0, len(dests))
 
-				statuses = append(statuses, ImageReplicationStatusEntry{
-					Region:     dest.Region,
-					RegistryID: registryID,
-					Status:     scanStatusComplete,
-				})
-			}
+	for _, dest := range dests {
+		registryID := dest.RegistryID
+		if registryID == "" {
+			registryID = b.accountID
 		}
+
+		statuses = append(statuses, ImageReplicationStatusEntry{
+			Region:     dest.Region,
+			RegistryID: registryID,
+			Status:     b.replicationStatusForLocked(img, now),
+		})
 	}
 
 	return &ImageReplicationStatusResult{
@@ -2172,6 +2338,65 @@ func (b *InMemoryBackend) DescribeImageReplicationStatus(
 		RepositoryName:      repositoryName,
 		ReplicationStatuses: statuses,
 	}, nil
+}
+
+// replicationDestinationsForRepoLocked returns the deduplicated set of
+// replication destinations that apply to repositoryName under the current
+// registry replication configuration. Rules with repositoryFilters are only
+// honored when the repository matches, and destinations that resolve to the
+// source region+account are excluded. Must be called with a read lock held.
+func (b *InMemoryBackend) replicationDestinationsForRepoLocked(
+	repositoryName string,
+) []ReplicationDestination {
+	if b.replicationConfig == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	dests := make([]ReplicationDestination, 0)
+
+	for _, rule := range b.replicationConfig.Rules {
+		if !repoMatchesFilters(repositoryName, rule.RepositoryFilters) {
+			continue
+		}
+
+		for _, dest := range rule.Destinations {
+			registryID := dest.RegistryID
+			if registryID == "" {
+				registryID = b.accountID
+			}
+
+			// AWS rejects a destination equal to the source registry (same
+			// region AND same account); such a destination never appears in the
+			// replication status.
+			if dest.Region == b.region && registryID == b.accountID {
+				continue
+			}
+
+			key := registryID + ":" + dest.Region
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			dests = append(dests, ReplicationDestination{Region: dest.Region, RegistryID: registryID})
+		}
+	}
+
+	return dests
+}
+
+// replicationStatusForLocked derives the replication status of an image toward a
+// destination. Replication is modeled as taking replicationSettleDelay to
+// finish: an image pushed within that window reports IN_PROGRESS, otherwise
+// COMPLETE. The default settle delay of zero means replication is reported as
+// COMPLETE immediately, matching a fast/quiescent registry.
+func (b *InMemoryBackend) replicationStatusForLocked(img *Image, now time.Time) string {
+	if b.replicationSettleDelay > 0 && now.Sub(img.ImagePushedAt) < b.replicationSettleDelay {
+		return replicationStatusInProgress
+	}
+
+	return replicationStatusComplete
 }
 
 // UpdateImageStorageClass updates the storage class for an image.
@@ -2184,9 +2409,13 @@ func (b *InMemoryBackend) UpdateImageStorageClass(
 	b.mu.Lock("UpdateImageStorageClass")
 	defer b.mu.Unlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
 	if !ok {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	if target == "ARCHIVE" {
@@ -2437,6 +2666,17 @@ func (b *InMemoryBackend) repoEffectiveScanFrequency(
 	return scanFrequency(scanOnPush)
 }
 
+// effectiveScanTypeLocked returns the registry-wide scan type ("BASIC" or
+// "ENHANCED"), defaulting to BASIC when no registry scanning configuration is
+// set. Must be called with at least a read lock held.
+func (b *InMemoryBackend) effectiveScanTypeLocked() string {
+	if b.registryScanningConfig != nil && b.registryScanningConfig.ScanType != "" {
+		return b.registryScanningConfig.ScanType
+	}
+
+	return scanTypeBasic
+}
+
 // repoMatchesFilters returns true when repositoryName matches any filter in the
 // slice, or when the slice is empty (no filter = match-all). AWS ECR supports
 // WILDCARD (with '*' glob) and PREFIX filter types.
@@ -2572,6 +2812,8 @@ func copyImageScanFindingsResult(in *ImageScanFindingsResult) ImageScanFindingsR
 		cp.Findings[i].Attributes = copyStringMap(finding.Attributes)
 	}
 
+	cp.EnhancedFindings = copyEnhancedFindings(in.EnhancedFindings)
+
 	return cp
 }
 
@@ -2588,6 +2830,7 @@ func (b *InMemoryBackend) Reset() {
 	b.repositoryCreationTemplates = make(map[string]*RepositoryCreationTemplate)
 	b.lifecyclePolicies = make(map[string]string)
 	b.lifecyclePolicyPreviews = make(map[string]*LifecyclePolicyPreviewResult)
+	b.lifecycleLastEvaluated = make(map[string]time.Time)
 	b.uploadedLayers = make(map[string]map[string]int64)
 	b.layerUploads = make(map[string]*layerUploadState)
 	b.repoTags = make(map[string]map[string]string)

@@ -2464,9 +2464,39 @@ func TestKMSBackendPutKeyPolicyNotFound(t *testing.T) {
 	b := kms.NewInMemoryBackend()
 	err := b.PutKeyPolicy(context.Background(), &kms.PutKeyPolicyInput{
 		KeyID:  "non-existent",
-		Policy: `{"Version":"2012-10-17"}`,
+		Policy: `{"Version":"2012-10-17", "Statement":[]}`,
 	})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
+}
+
+// TestKMSBackendPutKeyPolicyValidation verifies PutKeyPolicy validates the policy JSON.
+func TestKMSBackendPutKeyPolicyValidation(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		policy string
+	}{
+		{"invalid json", `{"Version": "2012-10-17", "State`},
+		{"missing version", `{"Statement": []}`},
+		{"missing statement", `{"Version": "2012-10-17"}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotErr := b.PutKeyPolicy(context.Background(), &kms.PutKeyPolicyInput{
+				KeyID:  key.KeyMetadata.KeyID,
+				Policy: tc.policy,
+			})
+			require.ErrorIs(t, gotErr, kms.ErrMalformedPolicyDocument)
+		})
+	}
 }
 
 // TestKMSBackendReEncryptShortBlob verifies ReEncrypt fails with ciphertext too short.

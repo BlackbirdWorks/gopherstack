@@ -26,6 +26,10 @@ type backendSnapshot struct {
 	ServiceDeployments     map[string]*ServiceDeployment            `json:"serviceDeployments"`
 	ExpressGatewayServices map[string]*ExpressGatewayService        `json:"expressGatewayServices"`
 	TaskProtections        map[string]*TaskProtection               `json:"taskProtections"`
+	Daemons                map[string]*Daemon                       `json:"daemons"`
+	DaemonTaskDefinitions  map[string][]*DaemonTaskDefinition       `json:"daemonTaskDefinitions"`
+	DaemonDeployments      map[string]*DaemonDeployment             `json:"daemonDeployments"`
+	DaemonRevisions        map[string]*DaemonRevision               `json:"daemonRevisions"`
 }
 
 func snapshotClusters(src map[string]*Cluster) map[string]*Cluster {
@@ -158,6 +162,78 @@ func snapshotExpressGatewayServices(
 	return dst
 }
 
+// snapshotDaemons flattens the cluster-nested in-memory daemon index (see
+// InMemoryBackend.daemons in backend.go, keyed by clusterName then daemonName)
+// into the flat ARN-keyed shape persisted on disk, preserving the existing
+// "daemons" snapshot field shape. restoreDaemons performs the inverse.
+func snapshotDaemons(src map[string]map[string]*Daemon) map[string]*Daemon {
+	dst := make(map[string]*Daemon)
+	for _, clusterDaemons := range src {
+		for _, v := range clusterDaemons {
+			cp := *v
+			cp.Tags = copyTags(v.Tags)
+			dst[cp.DaemonArn] = &cp
+		}
+	}
+
+	return dst
+}
+
+// restoreDaemons re-nests a flat ARN-keyed daemon snapshot (see snapshotDaemons)
+// back into the clusterName -> daemonName -> Daemon index used at runtime.
+func restoreDaemons(src map[string]*Daemon) map[string]map[string]*Daemon {
+	dst := make(map[string]map[string]*Daemon)
+
+	for arn, d := range src {
+		clusterName, daemonName, ok := parseDaemonArn(arn)
+		if !ok {
+			continue
+		}
+
+		if dst[clusterName] == nil {
+			dst[clusterName] = make(map[string]*Daemon)
+		}
+
+		dst[clusterName][daemonName] = d
+	}
+
+	return dst
+}
+
+func snapshotDaemonTaskDefinitions(src map[string][]*DaemonTaskDefinition) map[string][]*DaemonTaskDefinition {
+	dst := make(map[string][]*DaemonTaskDefinition, len(src))
+	for family, revs := range src {
+		revsCp := make([]*DaemonTaskDefinition, len(revs))
+		for i, td := range revs {
+			cp := *td
+			revsCp[i] = &cp
+		}
+		dst[family] = revsCp
+	}
+
+	return dst
+}
+
+func snapshotDaemonDeployments(src map[string]*DaemonDeployment) map[string]*DaemonDeployment {
+	dst := make(map[string]*DaemonDeployment, len(src))
+	for k, v := range src {
+		cp := *v
+		dst[k] = &cp
+	}
+
+	return dst
+}
+
+func snapshotDaemonRevisions(src map[string]*DaemonRevision) map[string]*DaemonRevision {
+	dst := make(map[string]*DaemonRevision, len(src))
+	for k, v := range src {
+		cp := *v
+		dst[k] = &cp
+	}
+
+	return dst
+}
+
 // Snapshot serialises the backend state to JSON.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
@@ -188,6 +264,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ServiceDeployments:     serviceDeployments,
 		ExpressGatewayServices: snapshotExpressGatewayServices(b.expressGatewayServices),
 		TaskProtections:        snapshotTaskProtections(b.taskProtections),
+		Daemons:                snapshotDaemons(b.daemons),
+		DaemonTaskDefinitions:  snapshotDaemonTaskDefinitions(b.daemonTaskDefinitions),
+		DaemonDeployments:      snapshotDaemonDeployments(b.daemonDeployments),
+		DaemonRevisions:        snapshotDaemonRevisions(b.daemonRevisions),
 	}
 
 	return persistence.MarshalSnapshot(ctx, "ecs", snap)
@@ -243,6 +323,29 @@ func initSnapshotDefaults(snap *backendSnapshot) {
 	if snap.TaskProtections == nil {
 		snap.TaskProtections = make(map[string]*TaskProtection)
 	}
+
+	initDaemonSnapshotDefaults(snap)
+}
+
+// initDaemonSnapshotDefaults ensures the daemon-related maps in the snapshot
+// are non-nil. Split out from initSnapshotDefaults to keep cyclomatic
+// complexity within limits.
+func initDaemonSnapshotDefaults(snap *backendSnapshot) {
+	if snap.Daemons == nil {
+		snap.Daemons = make(map[string]*Daemon)
+	}
+
+	if snap.DaemonTaskDefinitions == nil {
+		snap.DaemonTaskDefinitions = make(map[string][]*DaemonTaskDefinition)
+	}
+
+	if snap.DaemonDeployments == nil {
+		snap.DaemonDeployments = make(map[string]*DaemonDeployment)
+	}
+
+	if snap.DaemonRevisions == nil {
+		snap.DaemonRevisions = make(map[string]*DaemonRevision)
+	}
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -269,12 +372,24 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.serviceDeployments = snap.ServiceDeployments
 	b.expressGatewayServices = snap.ExpressGatewayServices
 	b.taskProtections = snap.TaskProtections
+	b.daemons = restoreDaemons(snap.Daemons)
+	b.daemonTaskDefinitions = snap.DaemonTaskDefinitions
+	b.daemonDeployments = snap.DaemonDeployments
+	b.daemonRevisions = snap.DaemonRevisions
 
 	// Rebuild the ARN→TaskDefinition cache from restored task definitions.
 	b.taskDefByArn = make(map[string]*TaskDefinition)
 	for _, revs := range b.taskDefinitions {
 		for _, td := range revs {
 			b.taskDefByArn[td.TaskDefinitionArn] = td
+		}
+	}
+
+	// Rebuild the ARN→DaemonTaskDefinition cache from restored daemon task definitions.
+	b.daemonTaskDefByArn = make(map[string]*DaemonTaskDefinition)
+	for _, revs := range b.daemonTaskDefinitions {
+		for _, td := range revs {
+			b.daemonTaskDefByArn[td.DaemonTaskDefinitionArn] = td
 		}
 	}
 

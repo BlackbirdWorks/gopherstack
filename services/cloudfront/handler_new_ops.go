@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -12,18 +13,69 @@ import (
 // TrustStore handlers
 // ---------------------------------------------------------------------------
 
+type trustStoreCertificateBundleXML struct {
+	S3Bucket                string `xml:"S3Bucket"`
+	S3Key                   string `xml:"S3Key"`
+	InlineCertificateBundle string `xml:"InlineCertificateBundle"`
+}
+
 type trustStoreConfigXML struct {
-	XMLName xml.Name `xml:"TrustStoreConfig"`
-	Name    string   `xml:"Name"`
-	Comment string   `xml:"Comment"`
+	XMLName                                xml.Name                       `xml:"TrustStoreConfig"`
+	Name                                   string                         `xml:"Name"`
+	Comment                                string                         `xml:"Comment"`
+	CertificateAuthorityCertificatesBundle trustStoreCertificateBundleXML `xml:"CertificateAuthorityCertificatesBundle"`
+}
+
+// createTrustStoreRequestXML models the real CreateTrustStore wire request. The real SDK
+// (aws-sdk-go-v2/service/cloudfront) sends a root element <CreateTrustStoreRequest> containing
+// <CaCertificatesBundleSource><CaCertificatesBundleS3Location><Bucket>/<Key>/... and <Name> as
+// direct children (see serializers.go: awsRestxml_serializeOpDocumentCreateTrustStoreInput /
+// awsRestxml_serializeDocumentCaCertificatesBundleSource). The XMLName field is intentionally
+// omitted so Unmarshal does not reject the request based on the root element's name.
+type createTrustStoreRequestXML struct {
+	Name                       string `xml:"Name"`
+	CaCertificatesBundleSource struct {
+		S3Location struct {
+			Bucket string `xml:"Bucket"`
+			Key    string `xml:"Key"`
+		} `xml:"CaCertificatesBundleS3Location"`
+	} `xml:"CaCertificatesBundleSource"`
+	// CertificateAuthorityCertificatesBundle is not part of the real CreateTrustStore request
+	// shape, but is accepted here too for backward compatibility with callers that send it.
+	CertificateAuthorityCertificatesBundle trustStoreCertificateBundleXML `xml:"CertificateAuthorityCertificatesBundle"`
+	Comment                                string                         `xml:"Comment"`
+}
+
+// bundle resolves the CA certificate bundle from whichever shape was populated, preferring the
+// real SDK's CaCertificatesBundleSource>CaCertificatesBundleS3Location shape.
+func (req createTrustStoreRequestXML) bundle() TrustStoreCertificateBundle {
+	if req.CaCertificatesBundleSource.S3Location.Bucket != "" || req.CaCertificatesBundleSource.S3Location.Key != "" {
+		return TrustStoreCertificateBundle{
+			S3Bucket: req.CaCertificatesBundleSource.S3Location.Bucket,
+			S3Key:    req.CaCertificatesBundleSource.S3Location.Key,
+		}
+	}
+
+	return trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle)
+}
+
+func trustStoreBundleFromXML(x trustStoreCertificateBundleXML) TrustStoreCertificateBundle {
+	return TrustStoreCertificateBundle(x)
 }
 
 func trustStoreXML(ns string, ts *TrustStore) string {
+	bundle := ts.CertificateAuthorityCertificatesBundle
+
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<TrustStore xmlns="%s">`+
-		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name>`+
+		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Comment>%s</Comment><Status>%s</Status>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
+		`<CertificateAuthorityCertificatesBundle>`+
+		`<S3Bucket>%s</S3Bucket><S3Key>%s</S3Key><InlineCertificateBundle>%s</InlineCertificateBundle>`+
+		`</CertificateAuthorityCertificatesBundle>`+
 		`</TrustStore>`,
-		ns, ts.ID, ts.ARN, ts.Name)
+		ns, ts.ID, ts.ARN, ts.Name, ts.Comment, ts.Status, ts.LastModifiedTime,
+		bundle.S3Bucket, bundle.S3Key, bundle.InlineCertificateBundle)
 }
 
 func (h *Handler) handleCreateTrustStore(c *echo.Context) error {
@@ -31,11 +83,13 @@ func (h *Handler) handleCreateTrustStore(c *echo.Context) error {
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
-	var req trustStoreConfigXML
+	var req createTrustStoreRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CreateTrustStoreRequest XML"))
+		}
 	}
-	ts, createErr := h.Backend.CreateTrustStore(req.Name, req.Comment)
+	ts, createErr := h.Backend.CreateTrustStore(req.Name, req.Comment, req.bundle())
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -55,7 +109,6 @@ func (h *Handler) handleGetTrustStore(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, trustStoreXML(cfNS, ts))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListTrustStores(c *echo.Context) error {
 	items := h.Backend.ListTrustStores()
 
@@ -65,18 +118,28 @@ func (h *Handler) handleListTrustStores(c *echo.Context) error {
 		ARN     string   `xml:"ARN"`
 		Name    string   `xml:"Name"`
 	}
+	// The real deserializer (awsRestxml_deserializeDocumentTrustStoreList) expects each
+	// TrustStoreSummary directly as a child of TrustStoreList, with no <Items> wrapper.
 	type tsList struct {
 		XMLName  xml.Name    `xml:"TrustStoreList"`
-		XMLNS    string      `xml:"xmlns,attr"`
-		Items    []tsSummary `xml:"Items>TrustStoreSummary"`
+		Items    []tsSummary `xml:"TrustStoreSummary"`
 		Quantity int         `xml:"Quantity"`
+	}
+	// ListTrustStoresOutput has no httpPayload member (it carries both TrustStoreList and
+	// NextMarker), so the real deserializer
+	// (awsRestxml_deserializeOpDocumentListTrustStoresOutput) reads TrustStoreList as a CHILD
+	// of the response root, not as the root itself.
+	type tsListResult struct {
+		XMLName        xml.Name `xml:"ListTrustStoresResult"`
+		XMLNS          string   `xml:"xmlns,attr"`
+		TrustStoreList tsList   `xml:"TrustStoreList"`
 	}
 	summaries := make([]tsSummary, 0, len(items))
 	for _, ts := range items {
 		summaries = append(summaries, tsSummary{ID: ts.ID, ARN: ts.ARN, Name: ts.Name})
 	}
-	list := tsList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
-	out, xmlErr := xml.Marshal(list)
+	result := tsListResult{XMLNS: cfNS, TrustStoreList: tsList{Quantity: len(summaries), Items: summaries}}
+	out, xmlErr := xml.Marshal(result)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
 	}
@@ -85,6 +148,19 @@ func (h *Handler) handleListTrustStores(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateTrustStore(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetTrustStore(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current trust store ETag"),
+		)
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -93,7 +169,9 @@ func (h *Handler) handleUpdateTrustStore(c *echo.Context, id string) error {
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
-	ts, updateErr := h.Backend.UpdateTrustStore(id, req.Comment)
+	ts, updateErr := h.Backend.UpdateTrustStore(
+		id, req.Name, req.Comment, trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle),
+	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -103,6 +181,19 @@ func (h *Handler) handleUpdateTrustStore(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleDeleteTrustStore(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetTrustStore(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current trust store ETag"),
+		)
+	}
+
 	if err := h.Backend.DeleteTrustStore(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -114,13 +205,74 @@ func (h *Handler) handleDeleteTrustStore(c *echo.Context, id string) error {
 // StreamingDistribution handlers
 // ---------------------------------------------------------------------------
 
-func streamingDistributionXML(ns string, sd *StreamingDistribution) string {
+// streamingDistributionS3OriginXML models the S3Origin element of an incoming
+// StreamingDistributionConfig.
+type streamingDistributionS3OriginXML struct {
+	DomainName           string `xml:"DomainName"`
+	OriginAccessIdentity string `xml:"OriginAccessIdentity"`
+}
+
+// streamingDistributionTrustedSignersXML models the TrustedSigners element of an incoming
+// StreamingDistributionConfig.
+type streamingDistributionTrustedSignersXML struct {
+	Items   []string `xml:"Items>AwsAccountNumber"`
+	Enabled bool     `xml:"Enabled"`
+}
+
+// streamingDistributionConfigXML models an incoming StreamingDistributionConfig request body.
+type streamingDistributionConfigXML struct {
+	XMLName         xml.Name                         `xml:"StreamingDistributionConfig"`
+	CallerReference string                           `xml:"CallerReference"`
+	Comment         string                           `xml:"Comment"`
+	PriceClass      string                           `xml:"PriceClass"`
+	S3Origin        streamingDistributionS3OriginXML `xml:"S3Origin"`
+	Aliases         struct {
+		Items []string `xml:"Items>CNAME"`
+	} `xml:"Aliases"`
+	TrustedSigners streamingDistributionTrustedSignersXML `xml:"TrustedSigners"`
+	Enabled        bool                                   `xml:"Enabled"`
+}
+
+// streamingDistributionConfigWithTagsXML models an incoming StreamingDistributionConfigWithTags body.
+type streamingDistributionConfigWithTagsXML struct {
+	XMLName                     xml.Name                       `xml:"StreamingDistributionConfigWithTags"`
+	Tags                        []tagXML                       `xml:"Tags>Tag"`
+	StreamingDistributionConfig streamingDistributionConfigXML `xml:"StreamingDistributionConfig"`
+}
+
+// streamingConfigFromXML converts a parsed streamingDistributionConfigXML into the backend's
+// StreamingDistributionConfig representation.
+func streamingConfigFromXML(x streamingDistributionConfigXML) StreamingDistributionConfig {
+	return StreamingDistributionConfig{
+		CallerReference: x.CallerReference,
+		Comment:         x.Comment,
+		PriceClass:      x.PriceClass,
+		S3Origin: StreamingDistributionS3Origin{
+			DomainName:           x.S3Origin.DomainName,
+			OriginAccessIdentity: x.S3Origin.OriginAccessIdentity,
+		},
+		Aliases: x.Aliases.Items,
+		TrustedSigners: StreamingDistributionTrustedSigners{
+			Enabled: x.TrustedSigners.Enabled,
+			Items:   x.TrustedSigners.Items,
+		},
+		Enabled: x.Enabled,
+	}
+}
+
+// streamingDistributionXML builds the full StreamingDistribution XML response, embedding the
+// raw StreamingDistributionConfig the caller last submitted (matching the Distribution pattern).
+func streamingDistributionXML(sd *StreamingDistribution) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<StreamingDistribution xmlns="%s">`+
-		`<Id>%s</Id><ARN>%s</ARN>`+
-		`<DomainName>%s</DomainName><Status>%s</Status>`+
+		`<Id>%s</Id>`+
+		`<ARN>%s</ARN>`+
+		`<Status>%s</Status>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
+		`<DomainName>%s</DomainName>`+
+		`%s`+
 		`</StreamingDistribution>`,
-		ns, sd.ID, sd.ARN, sd.DomainName, sd.Status)
+		cfNS, sd.ID, sd.ARN, sd.Status, sd.LastModifiedTime, sd.DomainName, string(sd.RawConfig))
 }
 
 func (h *Handler) handleCreateStreamingDistribution(c *echo.Context) error {
@@ -128,19 +280,65 @@ func (h *Handler) handleCreateStreamingDistribution(c *echo.Context) error {
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
-	sd, createErr := h.Backend.CreateStreamingDistribution(body)
+
+	var cfg streamingDistributionConfigXML
+	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid StreamingDistributionConfig XML"))
+	}
+
+	sd, createErr := h.Backend.CreateStreamingDistribution(streamingConfigFromXML(cfg), body)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
-	c.Response().Header().Set("ETag", sd.ETag)
-	c.Response().Header().Set("Location", cfPathPrefix+"streaming-distribution/"+sd.ID)
 
-	return xmlResp(c, http.StatusCreated, streamingDistributionXML(cfNS, sd))
+	c.Response().Header().Set("Location", cfPathPrefix+"streaming-distribution/"+sd.ID)
+	c.Response().Header().Set("ETag", sd.ETag)
+
+	return xmlResp(c, http.StatusCreated, streamingDistributionXML(sd))
 }
 
 func (h *Handler) handleCreateStreamingDistributionWithTags(c *echo.Context) error {
-	// Tags are accepted but not stored separately in this implementation.
-	return h.handleCreateStreamingDistribution(c)
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req streamingDistributionConfigWithTagsXML
+	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("MalformedXML", "invalid StreamingDistributionConfigWithTags XML"),
+		)
+	}
+
+	rawConfig, marshalErr := xml.Marshal(req.StreamingDistributionConfig)
+	if marshalErr != nil {
+		rawConfig = body
+	}
+
+	sd, createErr := h.Backend.CreateStreamingDistribution(
+		streamingConfigFromXML(req.StreamingDistributionConfig),
+		rawConfig,
+	)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	if len(req.Tags) > 0 {
+		tags := make(map[string]string, len(req.Tags))
+		for _, tag := range req.Tags {
+			tags[tag.Key] = tag.Value
+		}
+		if tagErr := h.Backend.TagResource(sd.ARN, tags); tagErr != nil {
+			return h.handleError(c, tagErr)
+		}
+	}
+
+	c.Response().Header().Set("Location", cfPathPrefix+"streaming-distribution/"+sd.ID)
+	c.Response().Header().Set("ETag", sd.ETag)
+
+	return xmlResp(c, http.StatusCreated, streamingDistributionXML(sd))
 }
 
 func (h *Handler) handleGetStreamingDistribution(c *echo.Context, id string) error {
@@ -150,7 +348,7 @@ func (h *Handler) handleGetStreamingDistribution(c *echo.Context, id string) err
 	}
 	c.Response().Header().Set("ETag", sd.ETag)
 
-	return xmlResp(c, http.StatusOK, streamingDistributionXML(cfNS, sd))
+	return xmlResp(c, http.StatusOK, streamingDistributionXML(sd))
 }
 
 func (h *Handler) handleGetStreamingDistributionConfig(c *echo.Context, id string) error {
@@ -167,30 +365,69 @@ func (h *Handler) handleGetStreamingDistributionConfig(c *echo.Context, id strin
 	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(config))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+// streamingDistributionSummaryXML models one entry in a ListStreamingDistributions response.
+type streamingDistributionSummaryXML struct {
+	XMLName  xml.Name `xml:"StreamingDistributionSummary"`
+	S3Origin struct {
+		DomainName           string `xml:"DomainName"`
+		OriginAccessIdentity string `xml:"OriginAccessIdentity"`
+	} `xml:"S3Origin"`
+	ID               string `xml:"Id"`
+	ARN              string `xml:"ARN"`
+	Status           string `xml:"Status"`
+	LastModifiedTime string `xml:"LastModifiedTime"`
+	DomainName       string `xml:"DomainName"`
+	Comment          string `xml:"Comment"`
+	PriceClass       string `xml:"PriceClass"`
+	Aliases          struct {
+		Items    []string `xml:"Items>CNAME"`
+		Quantity int      `xml:"Quantity"`
+	} `xml:"Aliases"`
+	TrustedSigners struct {
+		Items    []string `xml:"Items>AwsAccountNumber"`
+		Quantity int      `xml:"Quantity"`
+		Enabled  bool     `xml:"Enabled"`
+	} `xml:"TrustedSigners"`
+	Enabled bool `xml:"Enabled"`
+}
+
+// streamingDistributionSummary builds a list summary entry from a stored StreamingDistribution.
+func streamingDistributionSummary(sd *StreamingDistribution) streamingDistributionSummaryXML {
+	s := streamingDistributionSummaryXML{
+		ID:               sd.ID,
+		ARN:              sd.ARN,
+		Status:           sd.Status,
+		LastModifiedTime: sd.LastModifiedTime,
+		DomainName:       sd.DomainName,
+		Comment:          sd.Config.Comment,
+		PriceClass:       sd.Config.PriceClass,
+		Enabled:          sd.Config.Enabled,
+	}
+	s.S3Origin.DomainName = sd.Config.S3Origin.DomainName
+	s.S3Origin.OriginAccessIdentity = sd.Config.S3Origin.OriginAccessIdentity
+	s.Aliases.Quantity = len(sd.Config.Aliases)
+	s.Aliases.Items = sd.Config.Aliases
+	s.TrustedSigners.Enabled = sd.Config.TrustedSigners.Enabled
+	s.TrustedSigners.Quantity = len(sd.Config.TrustedSigners.Items)
+	s.TrustedSigners.Items = sd.Config.TrustedSigners.Items
+
+	return s
+}
+
 func (h *Handler) handleListStreamingDistributions(c *echo.Context) error {
 	items := h.Backend.ListStreamingDistributions()
 
-	type sdSummary struct {
-		XMLName    xml.Name `xml:"StreamingDistributionSummary"`
-		ID         string   `xml:"Id"`
-		ARN        string   `xml:"ARN"`
-		DomainName string   `xml:"DomainName"`
-		Status     string   `xml:"Status"`
-	}
 	type sdList struct {
-		XMLName     xml.Name    `xml:"StreamingDistributionList"`
-		XMLNS       string      `xml:"xmlns,attr"`
-		Items       []sdSummary `xml:"Items>StreamingDistributionSummary"`
-		MaxItems    int         `xml:"MaxItems"`
-		Quantity    int         `xml:"Quantity"`
-		IsTruncated bool        `xml:"IsTruncated"`
+		XMLName     xml.Name                          `xml:"StreamingDistributionList"`
+		XMLNS       string                            `xml:"xmlns,attr"`
+		Items       []streamingDistributionSummaryXML `xml:"Items>StreamingDistributionSummary"`
+		MaxItems    int                               `xml:"MaxItems"`
+		Quantity    int                               `xml:"Quantity"`
+		IsTruncated bool                              `xml:"IsTruncated"`
 	}
-	summaries := make([]sdSummary, 0, len(items))
+	summaries := make([]streamingDistributionSummaryXML, 0, len(items))
 	for _, sd := range items {
-		summaries = append(summaries, sdSummary{
-			ID: sd.ID, ARN: sd.ARN, DomainName: sd.DomainName, Status: sd.Status,
-		})
+		summaries = append(summaries, streamingDistributionSummary(sd))
 	}
 	list := sdList{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
 	out, xmlErr := xml.Marshal(list)
@@ -206,16 +443,51 @@ func (h *Handler) handleUpdateStreamingDistribution(c *echo.Context, id string) 
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
-	sd, updateErr := h.Backend.UpdateStreamingDistribution(id, body)
+
+	var cfg streamingDistributionConfigXML
+	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid StreamingDistributionConfig XML"))
+	}
+
+	current, getErr := h.Backend.GetStreamingDistribution(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current streaming distribution config ETag",
+			),
+		)
+	}
+
+	sd, updateErr := h.Backend.UpdateStreamingDistribution(id, streamingConfigFromXML(cfg), body)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
 	c.Response().Header().Set("ETag", sd.ETag)
 
-	return xmlResp(c, http.StatusOK, streamingDistributionXML(cfNS, sd))
+	return xmlResp(c, http.StatusOK, streamingDistributionXML(sd))
 }
 
 func (h *Handler) handleDeleteStreamingDistribution(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetStreamingDistribution(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current streaming distribution ETag"),
+		)
+	}
+
 	if err := h.Backend.DeleteStreamingDistribution(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -329,12 +601,26 @@ func (h *Handler) handleDeleteResourcePolicy(c *echo.Context) error {
 // ConnectionGroup extra handlers (Get/List/Update/Delete)
 // ---------------------------------------------------------------------------
 
-func connectionGroupXML(ns string, cg *ConnectionGroup) string {
+// connectionGroupPreconditionFailedXML is the shared If-Match error body for connection group
+// mutations, mirroring the trust store / streaming distribution PreconditionFailed pattern.
+func connectionGroupPreconditionFailedXML() string {
+	return cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current connection group ETag")
+}
+
+func connectionGroupXML(cg *ConnectionGroup) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ConnectionGroup xmlns="%s">`+
-		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Comment>%s</Comment>`+
+		`<Id>%s</Id><Name>%s</Name><ARN>%s</ARN><Comment>%s</Comment>`+
+		`<CreatedTime>%s</CreatedTime><LastModifiedTime>%s</LastModifiedTime>`+
+		`<Status>%s</Status><Enabled>%v</Enabled><Ipv6Enabled>%v</Ipv6Enabled>`+
+		`<IsDefault>%v</IsDefault><RoutingEndpoint>%s</RoutingEndpoint>`+
+		`<AnycastIpListId>%s</AnycastIpListId>`+
 		`</ConnectionGroup>`,
-		ns, cg.ID, cg.ARN, cg.Name, cg.Comment)
+		cfNS, cg.ID, cg.Name, cg.ARN, cg.Comment,
+		cg.CreatedTime, cg.LastModifiedTime,
+		cg.Status, cg.Enabled, cg.IPv6Enabled,
+		cg.IsDefault, cg.RoutingEndpoint,
+		cg.AnycastIPListID)
 }
 
 func (h *Handler) handleGetConnectionGroup(c *echo.Context, id string) error {
@@ -342,8 +628,9 @@ func (h *Handler) handleGetConnectionGroup(c *echo.Context, id string) error {
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	c.Response().Header().Set("ETag", cg.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionGroupXML(cfNS, cg))
+	return xmlResp(c, http.StatusOK, connectionGroupXML(cg))
 }
 
 func (h *Handler) handleGetConnectionGroupByRoutingEndpoint(c *echo.Context, endpoint string) error {
@@ -351,19 +638,22 @@ func (h *Handler) handleGetConnectionGroupByRoutingEndpoint(c *echo.Context, end
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	c.Response().Header().Set("ETag", cg.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionGroupXML(cfNS, cg))
+	return xmlResp(c, http.StatusOK, connectionGroupXML(cg))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 	items := h.Backend.ListConnectionGroups()
 
 	type cgSummary struct {
-		XMLName xml.Name `xml:"ConnectionGroupSummary"`
-		ID      string   `xml:"Id"`
-		ARN     string   `xml:"ARN"`
-		Name    string   `xml:"Name"`
+		XMLName         xml.Name `xml:"ConnectionGroupSummary"`
+		ID              string   `xml:"Id"`
+		Name            string   `xml:"Name"`
+		ARN             string   `xml:"ARN"`
+		ETag            string   `xml:"ETag"`
+		RoutingEndpoint string   `xml:"RoutingEndpoint"`
+		Status          string   `xml:"Status"`
 	}
 	type cgList struct {
 		XMLName  xml.Name    `xml:"ConnectionGroupList"`
@@ -373,7 +663,10 @@ func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 	}
 	summaries := make([]cgSummary, 0, len(items))
 	for _, cg := range items {
-		summaries = append(summaries, cgSummary{ID: cg.ID, ARN: cg.ARN, Name: cg.Name})
+		summaries = append(summaries, cgSummary{
+			ID: cg.ID, Name: cg.Name, ARN: cg.ARN, ETag: cg.ETag,
+			RoutingEndpoint: cg.RoutingEndpoint, Status: cg.Status,
+		})
 	}
 	list := cgList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
 	out, xmlErr := xml.Marshal(list)
@@ -385,23 +678,54 @@ func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateConnectionGroup(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetConnectionGroup(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionGroupPreconditionFailedXML())
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
-	var req connectionGroupRequestXML
+	var req updateConnectionGroupRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateConnectionGroupRequest XML"),
+			)
+		}
 	}
-	cg, updateErr := h.Backend.UpdateConnectionGroup(id, req.Comment)
+
+	var anycastIPListID *string
+	if req.AnycastIPListID != "" {
+		anycastIPListID = &req.AnycastIPListID
+	}
+
+	cg, updateErr := h.Backend.UpdateConnectionGroup(id, req.Comment, anycastIPListID, req.Ipv6Enabled, req.Enabled)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
+	c.Response().Header().Set("ETag", cg.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionGroupXML(cfNS, cg))
+	return xmlResp(c, http.StatusOK, connectionGroupXML(cg))
 }
 
 func (h *Handler) handleDeleteConnectionGroup(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetConnectionGroup(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionGroupPreconditionFailedXML())
+	}
+
 	if err := h.Backend.DeleteConnectionGroup(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -413,34 +737,67 @@ func (h *Handler) handleDeleteConnectionGroup(c *echo.Context, id string) error 
 // ConnectionFunction extra handlers (Get/Describe/List/Update/Delete/Publish/Test)
 // ---------------------------------------------------------------------------
 
-func connectionFunctionXML(fn *ConnectionFunction) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ConnectionFunction xmlns="%s">`+
-		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Comment>%s</Comment>`+
-		`</ConnectionFunction>`,
-		cfNS, fn.ID, fn.ARN, fn.Name, fn.Comment)
+// connectionFunctionPreconditionFailedXML is the shared If-Match error body for connection
+// function mutations.
+func connectionFunctionPreconditionFailedXML() string {
+	return cfErrorXML(
+		"PreconditionFailed",
+		"If-Match ETag did not match the current connection function ETag",
+	)
 }
 
+// connectionFunctionSummaryXML builds the ConnectionFunctionSummary XML representation used by
+// DescribeConnectionFunction, Publish, and List responses.
+func connectionFunctionSummaryXML(fn *ConnectionFunction) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<ConnectionFunctionSummary xmlns="%s">`+
+		`<Id>%s</Id><ConnectionFunctionArn>%s</ConnectionFunctionArn><Name>%s</Name>`+
+		`<ConnectionFunctionConfig><Comment>%s</Comment><Runtime>%s</Runtime></ConnectionFunctionConfig>`+
+		`<Stage>%s</Stage><Status>%s</Status>`+
+		`<CreatedTime>%s</CreatedTime><LastModifiedTime>%s</LastModifiedTime>`+
+		`</ConnectionFunctionSummary>`,
+		cfNS, fn.ID, fn.ARN, fn.Name, fn.Comment, fn.Runtime, fn.Stage, fn.Status,
+		fn.CreatedTime, fn.LastModifiedTime)
+}
+
+// handleGetConnectionFunction returns the connection function's code and content type, mirroring
+// GetConnectionFunctionOutput (ConnectionFunctionCode + ContentType), unlike
+// DescribeConnectionFunction which returns metadata only.
 func (h *Handler) handleGetConnectionFunction(c *echo.Context, id string) error {
 	fn, err := h.Backend.GetConnectionFunction(id)
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	c.Response().Header().Set("ETag", fn.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionFunctionXML(fn))
+	return c.Blob(http.StatusOK, "application/octet-stream", fn.FunctionCode)
 }
 
 func (h *Handler) handleDescribeConnectionFunction(c *echo.Context, id string) error {
-	return h.handleGetConnectionFunction(c, id)
+	fn, err := h.Backend.GetConnectionFunction(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+	c.Response().Header().Set("ETag", fn.ETag)
+
+	return xmlResp(c, http.StatusOK, connectionFunctionSummaryXML(fn))
 }
 
 func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 	items := h.Backend.ListConnectionFunctions()
 
+	type cfnConfig struct {
+		Comment string `xml:"Comment"`
+		Runtime string `xml:"Runtime"`
+	}
 	type cfnSummary struct {
-		XMLName xml.Name `xml:"ConnectionFunctionSummary"`
-		ARN     string   `xml:"ARN"`
-		Name    string   `xml:"Name"`
+		XMLName xml.Name  `xml:"ConnectionFunctionSummary"`
+		ID      string    `xml:"Id"`
+		ARN     string    `xml:"ConnectionFunctionArn"`
+		Name    string    `xml:"Name"`
+		Config  cfnConfig `xml:"ConnectionFunctionConfig"`
+		Stage   string    `xml:"Stage"`
+		Status  string    `xml:"Status"`
 	}
 	type cfnList struct {
 		XMLName  xml.Name     `xml:"ConnectionFunctionList"`
@@ -450,7 +807,10 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 	}
 	summaries := make([]cfnSummary, 0, len(items))
 	for _, fn := range items {
-		summaries = append(summaries, cfnSummary{ARN: fn.ARN, Name: fn.Name})
+		summaries = append(summaries, cfnSummary{
+			ID: fn.ID, ARN: fn.ARN, Name: fn.Name, Stage: fn.Stage, Status: fn.Status,
+			Config: cfnConfig{Comment: fn.Comment, Runtime: fn.Runtime},
+		})
 	}
 	list := cfnList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
 	out, xmlErr := xml.Marshal(list)
@@ -462,26 +822,52 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateConnectionFunction(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetConnectionFunction(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionFunctionPreconditionFailedXML())
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
-	var req struct {
-		XMLName xml.Name `xml:"ConnectionFunctionConfig"`
-		Comment string   `xml:"Comment"`
-	}
+	var req updateConnectionFunctionRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateConnectionFunctionRequest XML"),
+			)
+		}
 	}
-	fn, updateErr := h.Backend.UpdateConnectionFunction(id, req.Comment)
+
+	fn, updateErr := h.Backend.UpdateConnectionFunction(
+		id, req.ConnectionFunctionConfig.Comment, req.ConnectionFunctionConfig.Runtime,
+		decodeConnectionFunctionCode(req.ConnectionFunctionCode),
+	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
+	c.Response().Header().Set("ETag", fn.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionFunctionXML(fn))
+	return xmlResp(c, http.StatusOK, connectionFunctionSummaryXML(fn))
 }
 
 func (h *Handler) handleDeleteConnectionFunction(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetConnectionFunction(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionFunctionPreconditionFailedXML())
+	}
+
 	if err := h.Backend.DeleteConnectionFunction(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -490,25 +876,71 @@ func (h *Handler) handleDeleteConnectionFunction(c *echo.Context, id string) err
 }
 
 func (h *Handler) handlePublishConnectionFunction(c *echo.Context, id string) error {
-	fn, err := h.Backend.GetConnectionFunction(id)
+	current, getErr := h.Backend.GetConnectionFunction(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionFunctionPreconditionFailedXML())
+	}
+
+	fn, err := h.Backend.PublishConnectionFunction(id)
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	c.Response().Header().Set("ETag", fn.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionFunctionXML(fn))
+	return xmlResp(c, http.StatusOK, connectionFunctionSummaryXML(fn))
+}
+
+// testConnectionFunctionRequestXML models the TestConnectionFunction request body: the
+// base64-encoded connection object to run the function against.
+type testConnectionFunctionRequestXML struct {
+	XMLName          xml.Name `xml:"TestConnectionFunctionRequest"`
+	ConnectionObject string   `xml:"ConnectionObject"`
 }
 
 func (h *Handler) handleTestConnectionFunction(c *echo.Context, id string) error {
-	if _, err := h.Backend.GetConnectionFunction(id); err != nil {
-		return h.handleError(c, err)
+	current, getErr := h.Backend.GetConnectionFunction(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionFunctionPreconditionFailedXML())
+	}
+
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+	var req testConnectionFunctionRequestXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	result, testErr := h.Backend.TestConnectionFunction(id, decodeConnectionFunctionCode(req.ConnectionObject))
+	if testErr != nil {
+		return h.handleError(c, testErr)
+	}
+
+	var logsXML strings.Builder
+	for _, l := range result.ExecutionLogs {
+		fmt.Fprintf(&logsXML, "<member>%s</member>", l)
 	}
 
 	return xmlResp(c, http.StatusOK, fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
 			`<TestResult xmlns="%s">`+
-			`<FunctionExecutionLogs><member>Test passed</member></FunctionExecutionLogs>`+
+			`<ConnectionFunctionSummary><Id>%s</Id><Name>%s</Name><Stage>%s</Stage></ConnectionFunctionSummary>`+
+			`<ConnectionFunctionExecutionLogs>%s</ConnectionFunctionExecutionLogs>`+
+			`<ConnectionFunctionErrorMessage></ConnectionFunctionErrorMessage>`+
+			`<ConnectionFunctionOutput>%s</ConnectionFunctionOutput>`+
+			`<ComputeUtilization>%s</ComputeUtilization>`+
 			`</TestResult>`,
-		cfNS,
+		cfNS, current.ID, current.Name, current.Stage,
+		logsXML.String(), result.FunctionOutput, result.ComputeUtilization,
 	))
 }
 
@@ -517,11 +949,23 @@ func (h *Handler) handleTestConnectionFunction(c *echo.Context, id string) error
 // ---------------------------------------------------------------------------
 
 func anycastIPListXML(ns string, list *AnycastIPList) string {
+	var ips strings.Builder
+	for _, ip := range list.AnycastIPs {
+		fmt.Fprintf(&ips, `<IpAddress>%s</IpAddress>`, ip)
+	}
+
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<AnycastIpList xmlns="%s">`+
 		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Status>%s</Status><IpCount>%d</IpCount>`+
+		`<AnycastIps>%s</AnycastIps>`+
 		`</AnycastIpList>`,
-		ns, list.ID, list.ARN, list.Name, list.Status, list.IPCount)
+		ns, list.ID, list.ARN, list.Name, list.Status, list.IPCount, ips.String())
+}
+
+// anycastIPListPreconditionFailedXML is the shared If-Match error body for anycast IP list
+// update/delete operations.
+func anycastIPListPreconditionFailedXML() string {
+	return cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current anycast IP list ETag")
 }
 
 func (h *Handler) handleGetAnycastIPList(c *echo.Context, id string) error {
@@ -530,10 +974,11 @@ func (h *Handler) handleGetAnycastIPList(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
+	c.Response().Header().Set("ETag", list.ETag)
+
 	return xmlResp(c, http.StatusOK, anycastIPListXML(cfNS, list))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 	items := h.Backend.ListAnycastIPLists()
 
@@ -563,6 +1008,15 @@ func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateAnycastIPList(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetAnycastIPList(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, anycastIPListPreconditionFailedXML())
+	}
+
 	var req struct {
 		XMLName xml.Name `xml:"AnycastIpListConfig"`
 		IPCount int32    `xml:"IpCount"`
@@ -576,10 +1030,21 @@ func (h *Handler) handleUpdateAnycastIPList(c *echo.Context, id string) error {
 		return h.handleError(c, updateErr)
 	}
 
+	c.Response().Header().Set("ETag", list.ETag)
+
 	return xmlResp(c, http.StatusOK, anycastIPListXML(cfNS, list))
 }
 
 func (h *Handler) handleDeleteAnycastIPList(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetAnycastIPList(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, anycastIPListPreconditionFailedXML())
+	}
+
 	if err := h.Backend.DeleteAnycastIPList(id); err != nil {
 		return h.handleError(c, err)
 	}

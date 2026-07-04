@@ -525,7 +525,7 @@ func TestStackSetOperationList(t *testing.T) {
 	_, err := b.CreateStackSet("op-list-ss", "desc", simpleTemplate)
 	require.NoError(t, err)
 
-	_, err = b.CreateStackInstances("op-list-ss", []string{"111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances(t.Context(), "op-list-ss", []string{"111"}, []string{"us-east-1"})
 	require.NoError(t, err)
 
 	p, err := b.ListStackSetOperations("op-list-ss", "")

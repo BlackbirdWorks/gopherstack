@@ -278,6 +278,7 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 			GroupID:             r.GroupID,
 			Protocol:            r.Protocol,
 			CIDRIPv4:            r.CIDRIPv4,
+			Description:         r.Description,
 			FromPort:            r.FromPort,
 			ToPort:              r.ToPort,
 			IsEgress:            r.IsEgress,
@@ -430,6 +431,7 @@ type sgRuleDetailItem struct {
 	GroupID             string `xml:"groupId"`
 	Protocol            string `xml:"ipProtocol"`
 	CIDRIPv4            string `xml:"cidrIpv4,omitempty"`
+	Description         string `xml:"description,omitempty"`
 	FromPort            int    `xml:"fromPort"`
 	ToPort              int    `xml:"toPort"`
 	IsEgress            bool   `xml:"isEgress"`

@@ -484,6 +484,10 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	switch {
 	case errors.Is(reqErr, ErrSecretNotFound), errors.Is(reqErr, ErrVersionNotFound):
 		errorType = errResourceNotFoundException
+	case errors.Is(reqErr, ErrMalformedPolicyDocument):
+		errorType = "MalformedPolicyDocumentException"
+	case errors.Is(reqErr, ErrPublicPolicyException):
+		errorType = "PublicPolicyException"
 	case errors.Is(reqErr, ErrSecretAlreadyExists):
 		errorType = "ResourceExistsException"
 	case errors.Is(reqErr, ErrSecretDeleted):

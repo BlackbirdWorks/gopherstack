@@ -1,6 +1,7 @@
 package cloudtrail
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -63,14 +65,35 @@ type LookupAttribute struct {
 
 // Event represents a recorded management or data event.
 type Event struct {
-	EventTime   time.Time       `json:"EventTime"`
-	EventID     string          `json:"EventId"`
-	EventName   string          `json:"EventName"`
-	EventSource string          `json:"EventSource"`
-	Username    string          `json:"Username,omitempty"`
-	ReadOnly    string          `json:"ReadOnly,omitempty"`
-	AccessKeyID string          `json:"AccessKeyId,omitempty"`
-	Resources   []EventResource `json:"Resources,omitempty"`
+	EventTime   time.Time `json:"EventTime"`
+	EventID     string    `json:"EventId"`
+	EventName   string    `json:"EventName"`
+	EventSource string    `json:"EventSource"`
+	Username    string    `json:"Username,omitempty"`
+	ReadOnly    string    `json:"ReadOnly,omitempty"`
+	AccessKeyID string    `json:"AccessKeyId,omitempty"`
+	// CloudTrailEvent is the full JSON-encoded event record (eventVersion,
+	// userIdentity, eventTime, eventSource, eventName, awsRegion, requestID,
+	// eventID, readOnly, eventType, managementEvent, eventCategory, ...),
+	// matching the shape AWS embeds as a JSON string in LookupEvents results.
+	CloudTrailEvent string          `json:"CloudTrailEvent,omitempty"`
+	Resources       []EventResource `json:"Resources,omitempty"`
+}
+
+// MarshalJSON renders Event in the AWS JSON-protocol wire format. LookupEvents
+// is a JSON-protocol operation whose EventTime shape is a unixTimestamp, so
+// the SDK deserializer requires a JSON number of seconds since the epoch
+// (see pkgs/awstime) rather than encoding/json's default RFC3339 string.
+func (e Event) MarshalJSON() ([]byte, error) {
+	type alias Event
+
+	return json.Marshal(struct {
+		alias
+		EventTime float64 `json:"EventTime"`
+	}{
+		alias:     alias(e),
+		EventTime: awstime.Epoch(e.EventTime),
+	})
 }
 
 // EventResource represents a resource associated with a CloudTrail event.

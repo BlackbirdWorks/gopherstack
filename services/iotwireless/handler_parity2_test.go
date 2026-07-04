@@ -88,16 +88,19 @@ func TestParity2_ResourceEventConfiguration(t *testing.T) {
 		name       string
 		resourceID string
 		body       string
+		wantField  string
 	}{
 		{
 			name:       "device_event_config",
 			resourceID: "device-aaa",
 			body:       `{"DeviceRegistrationState":{"Sidewalk":{"AmazonIdEventTopic":"Enabled"}}}`,
+			wantField:  "DeviceRegistrationState",
 		},
 		{
 			name:       "gateway_event_config",
 			resourceID: "gateway-bbb",
 			body:       `{"ConnectionStatus":{"LoRaWAN":{}}}`,
+			wantField:  "ConnectionStatus",
 		},
 	}
 
@@ -117,10 +120,13 @@ func TestParity2_ResourceEventConfiguration(t *testing.T) {
 				"/event-configurations/"+tt.resourceID, "")
 			require.Equal(t, http.StatusOK, rec.Code)
 
+			// AWS's GetResourceEventConfiguration response has no Identifier
+			// field (it echoes only the event-type configuration); confirm the
+			// stored per-resource event config round-trips instead.
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, tt.resourceID, resp["Identifier"],
-				"Identifier must be set to resourceID on update")
+			_, ok := resp[tt.wantField]
+			assert.True(t, ok, "persisted event config field %q must be returned", tt.wantField)
 		})
 	}
 }
@@ -172,14 +178,14 @@ func TestParity2_PositionConfiguration(t *testing.T) {
 		{
 			name:       "gnss_solver",
 			resourceID: "loc-aaa",
-			body:       `{"SolverType":"GNSS","Destination":"dest-1"}`,
-			wantKey:    "SolverType",
+			body:       `{"Destination":"dest-1","Solvers":{"SemtechGnss":{"Status":"Enabled"}}}`,
+			wantKey:    "Solvers",
 		},
 		{
 			name:       "combined_solver",
 			resourceID: "loc-bbb",
-			body:       `{"SolverType":"GNSS_WIFI","Destination":"dest-2"}`,
-			wantKey:    "SolverType",
+			body:       `{"Destination":"dest-2","Solvers":{"SemtechGnss":{"Status":"Enabled"}}}`,
+			wantKey:    "Solvers",
 		},
 	}
 
@@ -334,13 +340,13 @@ func TestParity2_GetServiceEndpoint(t *testing.T) {
 	}{
 		{
 			name:            "cups",
-			queryParam:      "?ServiceType=CUPS",
+			queryParam:      "?serviceType=CUPS",
 			wantServiceType: "CUPS",
 			wantSubstr:      "cups.lorawan",
 		},
 		{
 			name:            "lns",
-			queryParam:      "?ServiceType=LNS",
+			queryParam:      "?serviceType=LNS",
 			wantServiceType: "LNS",
 			wantSubstr:      "lns.lorawan",
 		},

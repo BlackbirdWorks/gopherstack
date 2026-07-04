@@ -24,10 +24,11 @@ type Entry struct {
 // Registry manages the ordered registration of services and applies
 // observability wrapping and other middleware at registration time.
 type Registry struct {
-	lookup      map[string]*Entry
-	services    []*Entry
-	middlewares []Middleware
-	latencyMs   int
+	lookup             map[string]*Entry
+	cloudTrailRecorder CloudTrailRecorder
+	services           []*Entry
+	middlewares        []Middleware
+	latencyMs          int
 }
 
 // NewRegistry creates a new service registry.
@@ -51,6 +52,18 @@ func (r *Registry) SetLatencyMs(ms int) {
 // are applied to all services registered AFTER the middleware is added.
 func (r *Registry) Use(mw Middleware) {
 	r.middlewares = append(r.middlewares, mw)
+}
+
+// SetCloudTrailRecorder configures the registry to capture a CloudTrail
+// management event for every mutating request that reaches a registered
+// service's handler. This is the single chokepoint through which every
+// service's requests flow, so calling this once wires global CloudTrail
+// capture without touching any individual service. Must be called before
+// Register for services that should be captured (typically once, before the
+// registration loop, since the recorder itself is usually one of the
+// services being registered).
+func (r *Registry) SetCloudTrailRecorder(rec CloudTrailRecorder) {
+	r.cloudTrailRecorder = rec
 }
 
 // Register adds a service to the registry with optional per-service middleware.
@@ -91,11 +104,19 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 		h = mw(h)
 	}
 
-	// Scope the request logger to this service as the outermost wrapper so it
-	// runs first and every downstream record carries service=<name>. This
-	// derives a child logger on the per-request context (slog.With never
-	// mutates the shared base logger), giving strict req -> service scoping
-	// without any service handler having to opt in.
+	// CloudTrail capture wraps next so it observes the final request/response
+	// state after every other layer has run, mirroring how the telemetry
+	// wrapper's ExtractOperation/ExtractResource calls work.
+	if r.cloudTrailRecorder != nil {
+		h = wrapCloudTrailCapture(r.cloudTrailRecorder, svc, h)
+	}
+
+	// Scope the request logger to this service as the true outermost wrapper
+	// (applied last) so it runs first and every downstream record --
+	// including CloudTrail capture's own logging -- carries service=<name>.
+	// This derives a child logger on the per-request context (slog.With
+	// never mutates the shared base logger), giving strict req -> service
+	// scoping without any service handler having to opt in.
 	h = withServiceLogger(name, h)
 
 	entry := &Entry{

@@ -31,9 +31,21 @@ const presignedAlgorithm = "AWS4-HMAC-SHA256"
 const minPresignCredentialParts = 5
 
 // isPresignedRequest returns true when the request carries AWS presigned URL
-// query parameters (i.e. X-Amz-Signature is present in the query string).
+// query parameters: SigV4 uses X-Amz-Signature; the legacy SigV2 query form
+// uses AWSAccessKeyId + Signature + Expires.
 func isPresignedRequest(r *http.Request) bool {
-	return r.URL.Query().Has("X-Amz-Signature")
+	q := r.URL.Query()
+
+	return q.Has("X-Amz-Signature") || isSigV2QueryPresign(r)
+}
+
+// isSigV2QueryPresign reports whether the request is a legacy SigV2 query-string
+// presign (AWSAccessKeyId + Signature + Expires), which predates SigV4's
+// X-Amz-* parameter set.
+func isSigV2QueryPresign(r *http.Request) bool {
+	q := r.URL.Query()
+
+	return q.Has("AWSAccessKeyId") && q.Has("Signature") && q.Has("Expires")
 }
 
 // validatePresignedRequest checks whether a presigned URL request is
@@ -47,6 +59,13 @@ func (h *S3Handler) validatePresignedRequest(
 ) bool {
 	q := r.URL.Query()
 
+	// Legacy SigV2 query presigns (AWSAccessKeyId/Signature/Expires) use a
+	// different parameter set and an absolute-epoch expiry; validate them
+	// separately before the SigV4 checks below.
+	if isSigV2QueryPresign(r) {
+		return h.validateSigV2QueryPresign(ctx, w, r)
+	}
+
 	// Verify all required query parameters are present and non-empty.
 	algorithm := q.Get("X-Amz-Algorithm")
 	credential := q.Get("X-Amz-Credential")
@@ -55,9 +74,7 @@ func (h *S3Handler) validatePresignedRequest(
 	signedHeaders := q.Get("X-Amz-SignedHeaders")
 	signature := q.Get("X-Amz-Signature")
 
-	if algorithm == "" || credential == "" || dateStr == "" || expiresStr == "" ||
-		signedHeaders == "" ||
-		signature == "" {
+	if !presignRequiredParamsPresent(algorithm, credential, dateStr, expiresStr, signedHeaders, signature) {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code: errAuthQueryParams,
 			Message: "Query-string authentication requires the X-Amz-Algorithm, X-Amz-Credential, " +
@@ -127,6 +144,64 @@ func (h *S3Handler) validatePresignedRequest(
 			Code: errAccessDenied,
 			Message: "The request signature we calculated does not match the signature you " +
 				"provided. Check your key and signing method.",
+		}, http.StatusForbidden)
+
+		return false
+	}
+
+	return true
+}
+
+// presignRequiredParamsPresent reports whether every mandatory SigV4 query-auth
+// parameter is present and non-empty.
+func presignRequiredParamsPresent(
+	algorithm, credential, dateStr, expiresStr, signedHeaders, signature string,
+) bool {
+	return algorithm != "" && credential != "" && dateStr != "" &&
+		expiresStr != "" && signedHeaders != "" && signature != ""
+}
+
+// validateSigV2QueryPresign validates a legacy SigV2 query-string presigned
+// request. SigV2 presigns carry an absolute Unix-epoch Expires value (not a
+// relative duration like SigV4) plus AWSAccessKeyId and Signature. We validate
+// structure and expiry; the HMAC-SHA1 signature itself is not recomputed (the
+// SDKs in this stack all use SigV4), matching the opt-in posture of SigV4
+// verification.
+func (h *S3Handler) validateSigV2QueryPresign(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) bool {
+	q := r.URL.Query()
+
+	akid := q.Get("AWSAccessKeyId")
+	signature := q.Get("Signature")
+	expiresStr := q.Get("Expires")
+
+	if akid == "" || signature == "" || expiresStr == "" {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code: errAuthQueryParams,
+			Message: "Query-string authentication requires the AWSAccessKeyId, Expires, and " +
+				"Signature parameters.",
+		}, http.StatusBadRequest)
+
+		return false
+	}
+
+	expiresEpoch, err := strconv.ParseInt(expiresStr, 10, 64)
+	if err != nil || expiresEpoch <= 0 {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    errAuthQueryParams,
+			Message: "Expires must be a positive integer representing seconds since the epoch.",
+		}, http.StatusBadRequest)
+
+		return false
+	}
+
+	if time.Now().UTC().Unix() > expiresEpoch {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    errAccessDenied,
+			Message: "Request has expired.",
 		}, http.StatusForbidden)
 
 		return false

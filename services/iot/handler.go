@@ -48,6 +48,13 @@ const (
 	// URL path prefix constants.
 	pathPolicies         = "/policies"
 	pathRuleDestinations = "/rule-destinations"
+	pathIndices          = "/indices"
+	// pathIndexingConfig is the real AWS IoT REST path for Get/UpdateIndexingConfiguration
+	// (GET/POST /indexing/config). It is distinct from pathIndices ("/indices"), which is
+	// where the fleet-indexing search/aggregation surface (e.g. SearchIndex at
+	// /indices/search) lives.
+	pathIndexingConfig = "/indexing/config"
+	pathThings         = "/things"
 )
 
 const (
@@ -163,7 +170,7 @@ func (h *Handler) Name() string { return "IoT" }
 //
 //nolint:funlen // mechanical list of all supported op names
 func (h *Handler) GetSupportedOperations() []string {
-	const coreOpCount = 65
+	const coreOpCount = 85
 	core := make([]string, 0, coreOpCount)
 	core = append(
 		core,
@@ -371,6 +378,61 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDescribeDefaultAuthorizer,
 		opListJobExecutionsForJob,
 		opListJobExecutionsForThing,
+		// Fleet indexing / search / aggregation
+		opUpdateIndexingConfiguration,
+		opGetIndexingConfiguration,
+		opListIndices,
+		opDescribeIndex,
+		opSearchIndex,
+		opGetCardinality,
+		opGetPercentiles,
+		opGetStatistics,
+		opGetBucketsAggregation,
+		// Batch 4: RegisterThing / bulk thing registration tasks
+		opRegisterThing,
+		opStartThingRegistrationTask,
+		opStopThingRegistrationTask,
+		opListThingRegistrationTasks,
+		opDescribeThingRegistrationTask,
+		opListThingRegistrationTaskReports,
+		// Batch 4: ThingType/ThingGroup updates, typed principals, managed job templates
+		opUpdateThingType,
+		opUpdateThingGroupsForThing,
+		opListThingPrincipalsV2,
+		opDescribeManagedJobTemplate,
+		opListManagedJobTemplates,
+		// Device Defender: audit + detect mitigation-action tasks, violations.
+		opStartAuditMitigationActionsTask,
+		opDescribeAuditMitigationActionsTask,
+		opListAuditMitigationActionsTasks,
+		opListAuditMitigationActionsExecutions,
+		opStartDetectMitigationActionsTask,
+		opDescribeDetectMitigationActionsTask,
+		opListDetectMitigationActionsTasks,
+		opListDetectMitigationActionsExecutions,
+		opCancelDetectMitigationActionsTask,
+		opListActiveViolations,
+		opListViolationEvents,
+		opPutVerificationStateOnViolation,
+		opListRelatedResourcesForAuditFinding,
+		opDeleteAccountAuditConfiguration,
+		// Final stub batch: implemented against real backend state (see
+		// handler_final_ops.go / dispatchFinalOps).
+		opDescribeEncryptionConfiguration,
+		opUpdateEncryptionConfiguration,
+		opTestAuthorization,
+		opTestInvokeAuthorizer,
+		opDetachPrincipalPolicy,
+		opConfirmTopicRuleDestination,
+		opDeleteCommandExecution,
+		opGetBehaviorModelTrainingSummaries,
+		opListOutgoingCertificates,
+		opDisassociateSbomFromPackageVersion,
+		opListSbomValidationResults,
+		opListMetricValues,
+		opGetThingConnectivityData,
+		opDescribeProvisioningTemplateVersion,
+		opValidateSecurityProfileBehaviors,
 	)
 
 	// Batch 3 ops (previously in allStubOps).
@@ -394,35 +456,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateDynamicThingGroup, opDeleteDynamicThingGroup, opUpdateDynamicThingGroup,
 		opCreateCommand, opGetCommand, opUpdateCommand, opDeleteCommand, opListCommands,
 		opGetCommandExecution, opListCommandExecutions,
-	)
-
-	// New ops 2 — all formerly-stubbed ops now implemented in dispatchRemainingOps.
-	core = append(core,
-		opCancelDetectMitigationActionsTask, opStartDetectMitigationActionsTask,
-		opDescribeDetectMitigationActionsTask, opListDetectMitigationActionsTasks,
-		opListDetectMitigationActionsExecutions,
-		opStartAuditMitigationActionsTask, opDescribeAuditMitigationActionsTask,
-		opListAuditMitigationActionsTasks, opListAuditMitigationActionsExecutions,
-		opListActiveViolations, opListViolationEvents, opPutVerificationStateOnViolation,
-		opGetBehaviorModelTrainingSummaries, opValidateSecurityProfileBehaviors,
-		opGetIndexingConfiguration, opUpdateIndexingConfiguration,
-		opListIndices, opDescribeIndex, opSearchIndex,
-		opGetCardinality, opGetStatistics, opGetPercentiles, opGetBucketsAggregation,
-		opListMetricValues,
-		opListOutgoingCertificates,
-		opDescribeEncryptionConfiguration, opUpdateEncryptionConfiguration,
-		opTestAuthorization, opTestInvokeAuthorizer,
-		opDetachPrincipalPolicy,
-		opConfirmTopicRuleDestination,
-		opGetThingConnectivityData, opListThingPrincipalsV2,
-		opUpdateThingGroupsForThing, opRegisterThing,
-		opStartThingRegistrationTask, opListThingRegistrationTasks,
-		opListThingRegistrationTaskReports, opStopThingRegistrationTask, opDescribeThingRegistrationTask,
-		opListManagedJobTemplates, opDescribeManagedJobTemplate,
-		opDeleteAccountAuditConfiguration, opListRelatedResourcesForAuditFinding,
-		opDisassociateSbomFromPackageVersion, opListSbomValidationResults,
-		opUpdateThingType, opDeleteCommandExecution,
-		opDescribeProvisioningTemplateVersion,
 	)
 
 	return append(core, allStubOps()...)
@@ -452,12 +485,21 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 // matchIoTPath reports whether path belongs to the IoT control-plane.
 func matchIoTPath(path string) bool {
-	return matchCoreIoTPath(path) || matchNewIoTPath(path)
+	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) || matchFinalOpsPath(path)
+}
+
+// matchBatch4Path reports whether path belongs to the batch-4 routes (bulk
+// thing registration tasks and managed job templates).
+func matchBatch4Path(path string) bool {
+	return path == pathThingRegistrationTasks ||
+		strings.HasPrefix(path, pathThingRegistrationTasks+"/") ||
+		path == pathManagedJobTemplates ||
+		strings.HasPrefix(path, pathManagedJobTemplates+"/")
 }
 
 func matchCoreIoTPath(path string) bool {
 	return strings.HasPrefix(path, "/things/") ||
-		path == "/things" ||
+		path == pathThings ||
 		strings.HasPrefix(path, "/api/things/shadow/") ||
 		strings.HasPrefix(path, "/rules/") ||
 		path == "/rules" ||
@@ -469,7 +511,17 @@ func matchCoreIoTPath(path string) bool {
 		strings.HasPrefix(path, "/packages/") ||
 		strings.HasPrefix(path, "/jobs/") ||
 		strings.HasPrefix(path, "/security-profiles/") ||
-		strings.HasPrefix(path, "/audit/")
+		strings.HasPrefix(path, "/audit/") ||
+		matchDeviceDefenderPath(path)
+}
+
+// matchDeviceDefenderPath reports whether path belongs to the Device Defender
+// detect mitigation-action or violation routes.
+func matchDeviceDefenderPath(path string) bool {
+	return strings.HasPrefix(path, "/detect/") ||
+		path == "/active-violations" ||
+		path == "/violation-events" ||
+		strings.HasPrefix(path, "/violations/")
 }
 
 func matchNewIoTPath(path string) bool {
@@ -478,14 +530,21 @@ func matchNewIoTPath(path string) bool {
 		path == "/thing-groups" ||
 		strings.HasPrefix(path, "/thing-types/") ||
 		path == "/thing-types" ||
-		strings.HasPrefix(path, "/certificates/") ||
+		matchNewIoTCertAndIndexPath(path)
+}
+
+func matchNewIoTCertAndIndexPath(path string) bool {
+	return strings.HasPrefix(path, "/certificates/") ||
 		path == "/certificates" ||
 		path == "/certificate/register" ||
 		path == "/certificate/register-no-ca" ||
 		strings.HasPrefix(path, pathRuleDestinations+"/") ||
 		path == pathRuleDestinations ||
 		strings.HasPrefix(path, "/certificate-providers/") ||
-		path == "/certificate-providers"
+		path == "/certificate-providers" ||
+		path == pathIndices ||
+		strings.HasPrefix(path, pathIndices+"/") ||
+		path == pathIndexingConfig
 }
 
 // MatchPriority returns the routing priority for the IoT handler.
@@ -543,10 +602,10 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-//nolint:cyclop // mechanical path-based routing switch
+//nolint:cyclop,gocyclo // mechanical path-based routing switch
 func resolveOperation(path, method string) string {
 	switch {
-	case path == "/things" && method == http.MethodGet:
+	case path == pathThings && method == http.MethodGet:
 
 		return opListThings
 	// /things/register must be checked before generic /things/{name} routing.
@@ -584,6 +643,9 @@ func resolveOperation(path, method string) string {
 	case path == "/endpoint" && method == http.MethodGet:
 
 		return opDescribeEndpoint
+	case path == pathIndices || strings.HasPrefix(path, pathIndices+"/") || path == pathIndexingConfig:
+
+		return resolveIndexOps(path, method)
 	}
 
 	// Policy version ops must be checked before generic policy ops (version paths share /policies/ prefix).
@@ -604,6 +666,18 @@ func resolveOperation(path, method string) string {
 	}
 
 	if op := resolveJobAndAuditOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveBatch4Ops(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveDeviceDefenderOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveFinalOps(path, method); op != unknownOperation {
 		return op
 	}
 
@@ -939,6 +1013,16 @@ func resolveGroupAndPackageOps(path, method string) string {
 		method == http.MethodPut:
 
 		return opAssociateSbomWithPackageVersion
+	case strings.HasPrefix(path, "/packages/") &&
+		strings.HasSuffix(path, "/sbom") &&
+		method == http.MethodDelete:
+
+		return opDisassociateSbomFromPackageVersion
+	case strings.HasPrefix(path, "/packages/") &&
+		strings.HasSuffix(path, "/sbom-validation-results") &&
+		method == http.MethodGet:
+
+		return opListSbomValidationResults
 	}
 
 	return unknownOperation
@@ -985,8 +1069,9 @@ func shadowOperation(method string) string {
 }
 
 func thingOperation(path, method string) string {
-	// GET /things/{thingName}/principals/v2 → ListThingPrincipalsV2 (must check before /principals)
-	if method == http.MethodGet && strings.HasSuffix(path, "/principals/v2") {
+	// GET /things/{thingName}/principals-v2 → ListThingPrincipalsV2
+	// (must be checked before the "/principals" suffix below.)
+	if method == http.MethodGet && strings.HasSuffix(path, "/principals-v2") {
 		return opListThingPrincipalsV2
 	}
 
@@ -1003,6 +1088,11 @@ func thingOperation(path, method string) string {
 	// PUT /things/{thingName}/principals → AttachThingPrincipal
 	if method == http.MethodPut && strings.HasSuffix(path, "/principals") {
 		return opAttachThingPrincipal
+	}
+
+	// POST /things/{thingName}/connectivity-data → GetThingConnectivityData
+	if method == http.MethodPost && strings.HasSuffix(path, "/connectivity-data") {
+		return opGetThingConnectivityData
 	}
 
 	switch method {
@@ -1065,10 +1155,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		if handled, err := h.dispatchNewOp(c, op); handled {
-			return err
-		}
-
-		if handled, err := h.dispatchStubOp(c, op); handled {
 			return err
 		}
 
@@ -1182,6 +1268,10 @@ func (h *Handler) dispatchPolicyOps(c *echo.Context, op string) (bool, error) {
 }
 
 func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
+	if handled, err := h.dispatchIndexOps(c, op); handled {
+		return true, err
+	}
+
 	if handled, err := h.dispatchMiscNewOps(c, op); handled {
 		return true, err
 	}
@@ -1218,7 +1308,19 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 		return true, err
 	}
 
-	return h.dispatchBatch3Ops(c, op)
+	if handled, err := h.dispatchBatch3Ops(c, op); handled {
+		return true, err
+	}
+
+	if handled, err := h.dispatchBatch4Ops(c, op); handled {
+		return true, err
+	}
+
+	if handled, err := h.dispatchDeviceDefenderOps(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchFinalOps(c, op)
 }
 
 func (h *Handler) dispatchMiscNewOps(c *echo.Context, op string) (bool, error) {
@@ -1612,6 +1714,8 @@ func (h *Handler) dispatchBatch2Ops(c *echo.Context, op string) (bool, error) {
 		return true, h.handleDescribeAccountAuditConfiguration(c)
 	case opUpdateAccountAuditConfiguration:
 		return true, h.handleUpdateAccountAuditConfiguration(c)
+	case opDeleteAccountAuditConfiguration:
+		return true, h.handleDeleteAccountAuditConfiguration(c)
 	case opStartOnDemandAuditTask:
 		return true, h.handleStartOnDemandAuditTask(c)
 	case opDescribeAuditTask:
@@ -1676,6 +1780,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, ErrCertificateProviderNotFound),
 		errors.Is(err, ErrTopicRuleDestinationNotFound),
 		errors.Is(err, ErrPolicyVersionNotFound),
+		errors.Is(err, ErrRegistrationTaskNotFound),
+		errors.Is(err, ErrManagedJobTemplateNotFound),
+		errors.Is(err, ErrIndexNotFound),
 		errors.Is(err, ErrShadowNotFound):
 
 		return c.JSON(http.StatusNotFound, awsErr{"ResourceNotFoundException", err.Error()})

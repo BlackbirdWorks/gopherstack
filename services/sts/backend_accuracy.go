@@ -254,7 +254,7 @@ func validateJWTNotExpired(token string) error {
 		return nil
 	}
 
-	exp, ok := claims["exp"]
+	exp, ok := claims[jwtClaimExp]
 	if !ok {
 		return nil
 	}

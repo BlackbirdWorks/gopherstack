@@ -211,6 +211,7 @@ type StorageBackend interface {
 	// Batch 2: Audit configuration.
 	UpdateAccountAuditConfiguration(roleARN string, checks map[string]*AuditCheckConfig) error
 	DescribeAccountAuditConfiguration() *AccountAuditConfiguration
+	DeleteAccountAuditConfiguration() error
 
 	// Batch 2: Audit task.
 	StartOnDemandAuditTask(checks []string) (string, error)
@@ -285,6 +286,7 @@ type StorageBackend interface {
 	// Batch 3: Audit findings.
 	DescribeAuditFinding(findingID string) (*AuditFinding, error)
 	ListAuditFindings() []*AuditFinding
+	ListRelatedResourcesForAuditFinding(findingID string) ([]map[string]any, error)
 
 	// Batch 3: V2 logging.
 	GetV2LoggingOptions() *V2LoggingOptions
@@ -331,12 +333,113 @@ type StorageBackend interface {
 	ListCommands() []*IoTCommand
 	GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error)
 	ListCommandExecutions(commandID string) []*IoTCommandExecution
-	DeleteCommandExecution(commandID, executionID string) error
 
-	// New ops 2: additional state operations.
-	UpdateThingType(thingTypeName, description string) error
-	UpdateThingGroupsForThing(thingName string, toAdd, toRemove []string) error
+	// Fleet indexing: configuration.
+	GetIndexingConfiguration() *GetIndexingConfigurationOutput
+	UpdateIndexingConfiguration(input *UpdateIndexingConfigurationInput) error
+
+	// Fleet indexing: indices.
+	ListIndices() []string
+	DescribeIndex(indexName string) (*IndexDescription, error)
+
+	// Fleet indexing: search and aggregations.
+	SearchIndex(input *SearchIndexInput) (*SearchIndexOutput, error)
+	GetCardinality(input *AggregationInput) (int64, error)
+	GetStatistics(input *AggregationInput) (*Statistics, error)
+	GetPercentiles(input *PercentilesInput) ([]PercentileValue, error)
+	GetBucketsAggregation(input *BucketsAggregationInput) ([]Bucket, error)
+
+	// Batch 4: RegisterThing.
+	RegisterThing(input *RegisterThingInput) (*RegisterThingOutput, error)
+
+	// Batch 4: bulk thing registration tasks.
+	StartThingRegistrationTask(input *StartThingRegistrationTaskInput) (*ThingRegistrationTask, error)
+	StopThingRegistrationTask(taskID string) error
+	DescribeThingRegistrationTask(taskID string) (*ThingRegistrationTask, error)
+	ListThingRegistrationTasks(status string) []*ThingRegistrationTask
+	ListThingRegistrationTaskReports(taskID, reportType string) ([]string, error)
+
+	// Batch 4: ThingType/ThingGroup updates.
+	UpdateThingType(input *UpdateThingTypeInput) error
+	UpdateThingGroupsForThing(input *UpdateThingGroupsForThingInput) error
+
+	// Batch 4: typed thing-principal listing.
+	ListThingPrincipalsV2(thingName string) ([]*ThingPrincipalObject, error)
+
+	// Batch 4: managed job templates.
+	DescribeManagedJobTemplate(templateName, templateVersion string) (*ManagedJobTemplate, error)
+	ListManagedJobTemplates(templateName string) []*ManagedJobTemplateSummary
+
+	// Device Defender: audit mitigation-action tasks.
+	StartAuditMitigationActionsTask(
+		input *StartAuditMitigationActionsTaskInput,
+	) (*AuditMitigationTask, error)
+	DescribeAuditMitigationActionsTask(taskID string) (*AuditMitigationTask, error)
+	ListAuditMitigationActionsTasks(auditTaskID, taskStatus string) []*AuditMitigationTask
+	ListAuditMitigationActionsExecutions(taskID, findingID, actionStatus string) []*AuditMitigationActionExecution
+
+	// Device Defender: detect mitigation-action tasks.
+	StartDetectMitigationActionsTask(
+		input *StartDetectMitigationActionsTaskInput,
+	) (*DetectMitigationTask, error)
+	DescribeDetectMitigationActionsTask(taskID string) (*DetectMitigationTask, error)
+	ListDetectMitigationActionsTasks(startTime, endTime float64) []*DetectMitigationTask
+	ListDetectMitigationActionsExecutions(taskID, violationID, thingName string) []*DetectMitigationActionExecution
+	CancelDetectMitigationActionsTask(taskID string) error
+
+	// Device Defender: violations.
+	ListActiveViolations(thingName, securityProfileName, verificationState string) []*ActiveViolation
+	ListViolationEvents(
+		thingName, securityProfileName, verificationState string,
+		startTime, endTime float64,
+	) []*ViolationEvent
+	PutVerificationStateOnViolation(violationID, verificationState, description string) error
+	SeedActiveViolation(input *SeedActiveViolationInput) (*ActiveViolation, error)
+
+	// Final stub batch: encryption configuration.
+	DescribeEncryptionConfiguration() *AccountEncryptionConfiguration
+	UpdateEncryptionConfiguration(input *UpdateEncryptionConfigurationInput) error
+
+	// Final stub batch: authorization testing.
+	TestAuthorization(input *TestAuthorizationInput) ([]*AuthResult, error)
+	TestInvokeAuthorizer(authorizerName string, input *TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error)
+
+	// Final stub batch: principal-policy detachment.
+	DetachPrincipalPolicy(policyName, principal string) error
+
+	// Final stub batch: topic rule destination confirmation.
+	ConfirmTopicRuleDestination(token string) error
+
+	// Final stub batch: command executions.
+	DeleteCommandExecution(executionID, targetARN string) error
+
+	// Final stub batch: Device Defender ML behavior model training.
+	GetBehaviorModelTrainingSummaries(
+		securityProfileName string, maxResults int32, nextToken string,
+	) ([]*BehaviorModelTrainingSummary, string, error)
+
+	// Final stub batch: outgoing certificate transfers.
+	ListOutgoingCertificates() []*OutgoingCertificate
+
+	// Final stub batch: SBOM validation.
 	DisassociateSbomFromPackageVersion(packageName, versionName string) error
+	ListSbomValidationResults(
+		packageName, versionName string, maxResults int32, nextToken string,
+	) ([]*SbomValidationResult, string, error)
+
+	// Final stub batch: security profile metric values.
+	ListMetricValues(
+		thingName, metricName string, startTime, endTime float64, maxResults int32, nextToken string,
+	) ([]*MetricDatapoint, string, error)
+
+	// Final stub batch: thing connectivity.
+	GetThingConnectivityData(thingName string) (*ThingConnectivityData, error)
+
+	// Final stub batch: provisioning template versions.
+	DescribeProvisioningTemplateVersion(name string, versionID int32) (*ProvisioningTemplateVersion, error)
+
+	// Final stub batch: security profile behavior validation.
+	ValidateSecurityProfileBehaviors(behaviors []SecurityProfileBehavior) (bool, []string)
 
 	// Device Shadow operations.
 	GetThingShadow(thingName, shadowName string) (*ThingShadow, error)

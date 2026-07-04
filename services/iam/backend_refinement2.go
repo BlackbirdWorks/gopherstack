@@ -277,8 +277,9 @@ func (b *InMemoryBackend) credUserRow(u User, mfaLinks map[string]string) string
 	}
 
 	var userKeys []AccessKey
-	for _, ak := range b.accessKeys {
-		if ak.UserName == u.UserName {
+	userKeysList := b.userAccessKeys[u.UserName]
+	for _, id := range userKeysList {
+		if ak, ok := b.accessKeys[id]; ok {
 			userKeys = append(userKeys, ak)
 		}
 	}

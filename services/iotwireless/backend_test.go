@@ -1,6 +1,7 @@
 package iotwireless_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -112,7 +113,15 @@ func TestInMemoryBackend_ListWirelessDevices(t *testing.T) {
 			bk := iotwireless.NewInMemoryBackend()
 
 			for _, name := range tt.deviceNames {
-				_, err := bk.CreateWirelessDevice(testAccountID, testRegion, name, "LoRaWAN", "", "", nil)
+				_, err := bk.CreateWirelessDevice(
+					testAccountID,
+					testRegion,
+					name,
+					"LoRaWAN",
+					"",
+					"",
+					nil,
+				)
 				require.NoError(t, err)
 			}
 
@@ -447,7 +456,12 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 
 			bk := iotwireless.NewInMemoryBackend()
 
-			sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp-tag-test", tt.setupTags)
+			sp, err := bk.CreateServiceProfile(
+				testAccountID,
+				testRegion,
+				"sp-tag-test",
+				tt.setupTags,
+			)
 			require.NoError(t, err)
 
 			if tt.addTags != nil {
@@ -475,7 +489,9 @@ func TestInMemoryBackend_ListTagsForResource_UnknownARN(t *testing.T) {
 
 	bk := iotwireless.NewInMemoryBackend()
 
-	tags, err := bk.ListTagsForResource("arn:aws:iotwireless:us-east-1:000000000000:ServiceProfile/unknown")
+	tags, err := bk.ListTagsForResource(
+		"arn:aws:iotwireless:us-east-1:000000000000:ServiceProfile/unknown",
+	)
 	require.NoError(t, err)
 	assert.Empty(t, tags)
 }
@@ -509,7 +525,12 @@ func TestInMemoryBackend_UntagResource_CleansEmptyMap(t *testing.T) {
 
 			bk := iotwireless.NewInMemoryBackend()
 
-			sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp-cleanup", tt.setupTags)
+			sp, err := bk.CreateServiceProfile(
+				testAccountID,
+				testRegion,
+				"sp-cleanup",
+				tt.setupTags,
+			)
 			require.NoError(t, err)
 
 			err = bk.UntagResource(sp.ARN, tt.removeTags)
@@ -557,27 +578,53 @@ func TestInMemoryBackend_GetReturnsIsolatedCopy(t *testing.T) {
 
 				got, err := bk.GetWirelessDevice(testAccountID, testRegion, d.ID)
 				require.NoError(t, err)
-				assert.NotContains(t, got.Tags, "injected", "mutation of returned pointer must not affect backend")
+				assert.NotContains(
+					t,
+					got.Tags,
+					"injected",
+					"mutation of returned pointer must not affect backend",
+				)
 
 			case "wireless_gateway":
-				gw, err := bk.CreateWirelessGateway(testAccountID, testRegion, "gw", "", map[string]string{"k": "v"})
+				gw, err := bk.CreateWirelessGateway(
+					testAccountID,
+					testRegion,
+					"gw",
+					"",
+					map[string]string{"k": "v"},
+				)
 				require.NoError(t, err)
 
 				gw.Tags["injected"] = "yes"
 
 				got, err := bk.GetWirelessGateway(testAccountID, testRegion, gw.ID)
 				require.NoError(t, err)
-				assert.NotContains(t, got.Tags, "injected", "mutation of returned pointer must not affect backend")
+				assert.NotContains(
+					t,
+					got.Tags,
+					"injected",
+					"mutation of returned pointer must not affect backend",
+				)
 
 			case "service_profile":
-				sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp", map[string]string{"k": "v"})
+				sp, err := bk.CreateServiceProfile(
+					testAccountID,
+					testRegion,
+					"sp",
+					map[string]string{"k": "v"},
+				)
 				require.NoError(t, err)
 
 				sp.Tags["injected"] = "yes"
 
 				got, err := bk.GetServiceProfile(testAccountID, testRegion, sp.ID)
 				require.NoError(t, err)
-				assert.NotContains(t, got.Tags, "injected", "mutation of returned pointer must not affect backend")
+				assert.NotContains(
+					t,
+					got.Tags,
+					"injected",
+					"mutation of returned pointer must not affect backend",
+				)
 
 			case "destination":
 				dest, err := bk.CreateDestination(
@@ -596,7 +643,12 @@ func TestInMemoryBackend_GetReturnsIsolatedCopy(t *testing.T) {
 
 				got, err := bk.GetDestination(testAccountID, testRegion, dest.Name)
 				require.NoError(t, err)
-				assert.NotContains(t, got.Tags, "injected", "mutation of returned pointer must not affect backend")
+				assert.NotContains(
+					t,
+					got.Tags,
+					"injected",
+					"mutation of returned pointer must not affect backend",
+				)
 			}
 		})
 	}
@@ -628,7 +680,12 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp-snap", map[string]string{"role": "iot"})
+	sp, err := bk.CreateServiceProfile(
+		testAccountID,
+		testRegion,
+		"sp-snap",
+		map[string]string{"role": "iot"},
+	)
 	require.NoError(t, err)
 
 	dest, err := bk.CreateDestination(
@@ -673,6 +730,89 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 	tags, err := bk2.ListTagsForResource(dev.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, "test", tags["env"])
+}
+
+// TestInMemoryBackend_PersistenceSnapshotRestore_OperationalState verifies
+// that gateway tasks/definitions, positions, queued messages, position
+// configurations, and event configurations all survive a snapshot/restore
+// round trip. These were previously declared in backendSnapshot but never
+// actually populated or restored.
+func TestInMemoryBackend_PersistenceSnapshotRestore_OperationalState(t *testing.T) {
+	t.Parallel()
+
+	bk := iotwireless.NewInMemoryBackend()
+
+	def, err := bk.CreateWirelessGatewayTaskDefinition("123456789012", "us-east-1", "taskdef-snap", true)
+	require.NoError(t, err)
+
+	task, err := bk.CreateWirelessGatewayTask("gw-snap", def.ID)
+	require.NoError(t, err)
+
+	require.NoError(
+		t,
+		bk.UpdatePosition("resource-snap", map[string]any{"Position": []any{1.0, 2.0}}),
+	)
+
+	bk.EnqueueMessage(
+		"dev-snap",
+		iotwireless.QueuedMessage{MessageID: "msg-1", PayloadBase64: "aGk="},
+	)
+
+	require.NoError(t, bk.PutPositionConfiguration(
+		"resource-snap",
+		"WirelessDevice",
+		"dest-snap",
+		map[string]any{"SemtechGnss": map[string]any{"Status": "Enabled"}},
+	))
+
+	bk.UpdateResourceEventConfiguration(
+		"resource-snap",
+		"WirelessDeviceId",
+		"",
+		&iotwireless.EventConfigDoc{
+			Join: map[string]any{"LoRaWAN": map[string]any{"DevEuiEventTopic": "Enabled"}},
+		},
+	)
+
+	bk.UpdateEventConfigurationByResourceTypes(&iotwireless.EventConfigDoc{
+		Proximity: map[string]any{"WirelessDeviceEventTopic": "Enabled"},
+	})
+
+	require.NoError(t, bk.UpdateMetricConfigurationStatus("Disabled"))
+
+	snap := bk.Snapshot(context.Background())
+	require.NotNil(t, snap)
+
+	bk2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, bk2.Restore(context.Background(), snap))
+
+	gotTask, err := bk2.GetWirelessGatewayTask(task.WirelessGatewayID)
+	require.NoError(t, err)
+	assert.Equal(t, def.ID, gotTask.TaskDefID)
+
+	gotDef, err := bk2.GetWirelessGatewayTaskDefinition(def.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "taskdef-snap", gotDef.Name)
+
+	pos := bk2.GetPosition("resource-snap")
+	require.Equal(t, []any{1.0, 2.0}, pos["Position"])
+
+	msgs := bk2.ListQueuedMessages("dev-snap")
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "msg-1", msgs[0].MessageID)
+
+	cfg, ok := bk2.GetPositionConfiguration("resource-snap")
+	require.True(t, ok)
+	assert.Equal(t, "dest-snap", cfg.Destination)
+
+	evtCfg, ok := bk2.GetResourceEventConfiguration("resource-snap")
+	require.True(t, ok)
+	assert.Equal(t, "WirelessDeviceId", evtCfg.IdentifierType)
+
+	defaultCfg := bk2.GetEventConfigurationByResourceTypes()
+	assert.NotNil(t, defaultCfg.Proximity)
+
+	assert.Equal(t, "Disabled", bk2.GetMetricConfigurationStatus())
 }
 
 func TestCreateWirelessGatewayTaskDefinition_ARNUsesRegionAndAccount(t *testing.T) {

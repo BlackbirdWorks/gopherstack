@@ -23,26 +23,11 @@ func TestCompleteness_StubOperations(t *testing.T) {
 	// Ops still returning HTTP 200 with arbitrary/empty inputs (no pool validation required).
 	// Ops with real stateful backends (requiring valid UserPoolId) are tested in completeness_impl_test.go.
 	stubs := []string{
-		"AdminListDevices",
-		"AdminSetUserSettings",
-		"AdminUpdateAuthEventFeedback",
-		"AdminUpdateDeviceStatus",
-		"ConfirmDevice",
-		"DeleteWebAuthnCredential",
 		"DescribeUserPoolDomain",
-		"ForgetDevice",
 		"GetCSVHeader",
-		"GetDevice",
-		"GetUserAuthFactors",
-		"ListDevices",
 		"ListTagsForResource",
-		"ListWebAuthnCredentials",
-		"SetUserSettings",
-		"StartWebAuthnRegistration",
 		"TagResource",
 		"UntagResource",
-		"UpdateAuthEventFeedback",
-		"UpdateDeviceStatus",
 	}
 
 	tests := make([]struct {

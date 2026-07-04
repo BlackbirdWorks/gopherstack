@@ -158,6 +158,16 @@ func ParseTemplate(body string) (*Template, error) {
 		return nil, ErrEmptyTemplate
 	}
 
+	// Expand AWS Language Extensions (Fn::ForEach) before typed unmarshalling,
+	// since ForEach keys are arrays that don't fit the TemplateResource shape.
+	if strings.Contains(body, forEachPrefix) {
+		expanded, err := expandLanguageExtensions(body)
+		if err != nil {
+			return nil, err
+		}
+		body = expanded
+	}
+
 	var tmpl Template
 
 	if strings.HasPrefix(body, "{") {
@@ -173,6 +183,163 @@ func ParseTemplate(body string) (*Template, error) {
 	}
 
 	return &tmpl, nil
+}
+
+const forEachPrefix = "Fn::ForEach::"
+
+// ErrForEach is returned when an Fn::ForEach block is malformed.
+var ErrForEach = errors.New("invalid Fn::ForEach")
+
+// expandLanguageExtensions parses a template into a generic document, expands any
+// Fn::ForEach loops in the Resources section, and re-serialises it to JSON. This
+// implements the CloudFormation Languages Extensions transform for iterated
+// resource generation.
+func expandLanguageExtensions(body string) (string, error) {
+	doc, err := parseGenericTemplate(body)
+	if err != nil {
+		return "", err
+	}
+
+	resources, ok := doc["Resources"].(map[string]any)
+	if !ok {
+		return body, nil
+	}
+
+	expanded, err := expandForEachMap(resources)
+	if err != nil {
+		return "", err
+	}
+	doc["Resources"] = expanded
+
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialise expanded template: %w", err)
+	}
+
+	return string(out), nil
+}
+
+// parseGenericTemplate decodes a JSON or YAML template into a generic map.
+func parseGenericTemplate(body string) (map[string]any, error) {
+	var doc map[string]any
+	if strings.HasPrefix(strings.TrimSpace(body), "{") {
+		if err := json.Unmarshal([]byte(body), &doc); err != nil {
+			return nil, fmt.Errorf("failed to parse JSON template: %w", err)
+		}
+
+		return doc, nil
+	}
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML template: %w", err)
+	}
+
+	return doc, nil
+}
+
+// expandForEachMap walks a resources map, expanding every Fn::ForEach entry into
+// concrete resources and preserving non-loop entries. Nested loops are expanded
+// recursively.
+func expandForEachMap(resources map[string]any) (map[string]any, error) {
+	out := make(map[string]any, len(resources))
+	for _, key := range collections.SortedKeys(resources) {
+		val := resources[key]
+		if strings.HasPrefix(key, forEachPrefix) {
+			if err := expandForEachEntry(val, out); err != nil {
+				return nil, err
+			}
+
+			continue
+		}
+		out[key] = val
+	}
+
+	return out, nil
+}
+
+// expandForEachEntry expands a single Fn::ForEach block. The value must be a
+// 3-element array: [identifier, collection, outputTemplate]. For each item in
+// the collection, every entry of the output template is emitted with ${identifier}
+// substituted by the item value (in both the logical-ID key and the body).
+func expandForEachEntry(val any, out map[string]any) error {
+	parts, ok := val.([]any)
+	if !ok || len(parts) != 3 {
+		return fmt.Errorf("%w: expected [identifier, collection, template]", ErrForEach)
+	}
+
+	identifier, ok := parts[0].(string)
+	if !ok {
+		return fmt.Errorf("%w: identifier must be a string", ErrForEach)
+	}
+
+	collection := forEachCollection(parts[1])
+	outputTemplate, ok := parts[2].(map[string]any)
+	if !ok {
+		return fmt.Errorf("%w: output template must be a map", ErrForEach)
+	}
+
+	// The output template may itself contain nested Fn::ForEach loops.
+	outputTemplate, err := expandForEachMap(outputTemplate)
+	if err != nil {
+		return err
+	}
+
+	placeholder := "${" + identifier + "}"
+	for _, item := range collection {
+		for tmplKey, tmplBody := range outputTemplate {
+			resKey := strings.ReplaceAll(tmplKey, placeholder, item)
+			out[resKey] = substituteForEach(tmplBody, placeholder, item)
+		}
+	}
+
+	return nil
+}
+
+// forEachCollection normalises a ForEach collection value (a list literal or a
+// comma-delimited string) into a slice of string items.
+func forEachCollection(v any) []string {
+	switch c := v.(type) {
+	case []any:
+		items := make([]string, 0, len(c))
+		for _, e := range c {
+			items = append(items, fmt.Sprintf("%v", e))
+		}
+
+		return items
+	case string:
+		if c == "" {
+			return nil
+		}
+
+		return strings.Split(c, ",")
+	}
+
+	return nil
+}
+
+// substituteForEach recursively replaces the ${identifier} placeholder with the
+// loop item value throughout a value tree (map keys, strings, and nested lists).
+func substituteForEach(v any, placeholder, item string) any {
+	switch val := v.(type) {
+	case string:
+		return strings.ReplaceAll(val, placeholder, item)
+	case map[string]any:
+		out := make(map[string]any, len(val))
+		for k, child := range val {
+			newKey := strings.ReplaceAll(k, placeholder, item)
+			out[newKey] = substituteForEach(child, placeholder, item)
+		}
+
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, child := range val {
+			out[i] = substituteForEach(child, placeholder, item)
+		}
+
+		return out
+	}
+
+	return v
 }
 
 // ResolveParameters merges template defaults with provided overrides.
@@ -1037,18 +1204,25 @@ func getLambdaFunctionAttribute(physID, attrName, accountID, region string) stri
 }
 
 func getSNSTopicAttribute(physID, attrName string) string {
-	if attrName == "TopicArn" {
+	// For SNS topics the physical ID is the topic ARN
+	// (arn:aws:sns:<region>:<account>:<topicName>).
+	switch attrName {
+	case "TopicArn", attrNameArn:
+		return physID
+	case "TopicName":
+		if idx := strings.LastIndex(physID, ":"); idx >= 0 {
+			return physID[idx+1:]
+		}
+
 		return physID
 	}
 
 	return physID
 }
 
-func getIAMRoleAttribute(physID, attrName string) string {
-	if attrName == attrNameArn || attrName == "RoleId" {
-		return physID
-	}
-
+func getIAMRoleAttribute(physID, _ string) string {
+	// For IAM roles the physical ID is the role ARN
+	// (arn:aws:iam::<account>:role/<roleName>); Arn resolves to it directly.
 	return physID
 }
 

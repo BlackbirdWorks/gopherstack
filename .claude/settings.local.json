@@ -45,5 +45,10 @@
       "Bash(bd list *)",
       "Bash(bd show *)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "gopls",
+    "terraform",
+    "playwright"
+  ]
 }

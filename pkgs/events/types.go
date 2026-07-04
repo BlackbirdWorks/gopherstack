@@ -108,6 +108,7 @@ type SNSSubscriptionSnapshot struct {
 	Endpoint           string
 	FilterPolicy       string
 	RedrivePolicy      string
+	DeliveryPolicy     string
 	RawMessageDelivery bool
 }
 

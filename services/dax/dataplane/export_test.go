@@ -169,7 +169,7 @@ type AttrListServer struct {
 // NewAttrListServerForTest builds a server wrapper whose attribute-list id
 // allocations can be inspected by tests.
 func NewAttrListServerForTest() *AttrListServer {
-	return &AttrListServer{s: NewServer(context.TODO(), nil)}
+	return &AttrListServer{s: NewServer(context.TODO(), nil, nil)}
 }
 
 // WriteAttributeProjection emits an attribute-projection payload via the wrapped

@@ -160,7 +160,7 @@ func TestCreateSubnetGroupRequiresSubnet(t *testing.T) {
 		{name: "nil subnets rejected", subnetIDs: nil, wantErr: true},
 		{name: "empty subnets rejected", subnetIDs: []string{}, wantErr: true},
 		{name: "one subnet accepted", subnetIDs: []string{"subnet-abc12345"}, wantErr: false},
-		{name: "multiple subnets accepted", subnetIDs: []string{"subnet-aaa", "subnet-bbb"}, wantErr: false},
+		{name: "multiple subnets accepted", subnetIDs: []string{"subnet-aaaaaaaa", "subnet-bbbbbbbb"}, wantErr: false},
 	}
 
 	for _, tt := range tests {
@@ -244,7 +244,7 @@ func TestCreateSubnetGroupNameValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend()
-			_, err := b.CreateSubnetGroup(tt.sgName, "", []string{"subnet-1"})
+			_, err := b.CreateSubnetGroup(tt.sgName, "", []string{"subnet-11111111"})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -341,7 +341,7 @@ func TestDescribeSubnetGroupsPagination(t *testing.T) {
 	// Create additional groups beyond the default.
 	for i := range 5 {
 		name := []byte{'a' + byte(i)}
-		_, err := b.CreateSubnetGroup(string(name)+"-sg", "", []string{"subnet-1"})
+		_, err := b.CreateSubnetGroup(string(name)+"-sg", "", []string{"subnet-11111111"})
 		require.NoError(t, err)
 	}
 

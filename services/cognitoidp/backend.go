@@ -131,19 +131,10 @@ type User struct {
 	PreferredMfaSetting  string            `json:"preferredMfaSetting,omitempty"`
 	TOTPSecret           string            `json:"totpSecret,omitempty"`
 	UserMFASettingList   []string          `json:"userMFASettingList,omitempty"`
-	// LinkedIdentities holds external (federated) provider identities linked to this
-	// user via AdminLinkProviderForUser.
-	LinkedIdentities []LinkedIdentity `json:"linkedIdentities,omitempty"`
-	Enabled          bool             `json:"enabled,omitempty"`
-	TOTPVerified     bool             `json:"totpVerified,omitempty"`
-}
-
-// LinkedIdentity is an external provider identity linked to a native Cognito user via
-// AdminLinkProviderForUser.
-type LinkedIdentity struct {
-	ProviderName           string `json:"providerName,omitempty"`
-	ProviderAttributeName  string `json:"providerAttributeName,omitempty"`
-	ProviderAttributeValue string `json:"providerAttributeValue,omitempty"`
+	MFAOptions           []MFAOptionType   `json:"mfaOptions,omitempty"`
+	LinkedProviders      []ProviderLink    `json:"linkedProviders,omitempty"`
+	Enabled              bool              `json:"enabled,omitempty"`
+	TOTPVerified         bool              `json:"totpVerified,omitempty"`
 }
 
 // Group represents a Cognito User Pool group.
@@ -209,9 +200,15 @@ type InMemoryBackend struct {
 	attrVerificationCodes map[string]*attrVerificationEntry
 	// typedRiskConfigurations maps poolID+":"+clientID → typed risk configuration
 	typedRiskConfigurations map[string]*TypedRiskConfiguration
-	accountID               string
-	region                  string
-	endpoint                string
+	// devices maps poolID+":"+username → deviceKey → *Device (device tracking / "remember this device").
+	devices map[string]map[string]*Device
+	// webauthnCredentials maps poolID+":"+username → credentialID → *WebAuthnCredential.
+	webauthnCredentials map[string]map[string]*WebAuthnCredential
+	// authEvents maps poolID+":"+username → eventID → *AuthEvent (adaptive-auth event feedback tracking).
+	authEvents map[string]map[string]*AuthEvent
+	accountID  string
+	region     string
+	endpoint   string
 }
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
@@ -286,6 +283,9 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		poolMfaConfigs:          make(map[string]*UserPoolMfaFullConfig),
 		attrVerificationCodes:   make(map[string]*attrVerificationEntry),
 		typedRiskConfigurations: make(map[string]*TypedRiskConfiguration),
+		devices:                 make(map[string]map[string]*Device),
+		webauthnCredentials:     make(map[string]map[string]*WebAuthnCredential),
+		authEvents:              make(map[string]map[string]*AuthEvent),
 		accountID:               accountID,
 		region:                  region,
 		endpoint:                endpoint,
@@ -1239,6 +1239,10 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	b.mu.Lock("InitiateAuthRefreshToken")
 	defer b.mu.Unlock()
 
+	if refreshToken == "" {
+		return nil, fmt.Errorf("%w: Missing required parameter REFRESH_TOKEN", ErrInvalidParameter)
+	}
+
 	entry, ok := b.refreshTokens[refreshToken]
 	if !ok {
 		return nil, fmt.Errorf("%w: refresh token not found or expired", ErrNotAuthorized)
@@ -1258,12 +1262,8 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
 	}
 
-	poolUsers, ok := b.users[entry.PoolID]
-	if !ok {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
-	}
-
-	user, ok := poolUsers[entry.Username]
+	// A missing pool entry yields a nil map, whose lookup safely reports !ok.
+	user, ok := b.users[entry.PoolID][entry.Username]
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
@@ -1723,44 +1723,28 @@ func (b *InMemoryBackend) AdminEnableUser(userPoolID, username string) error {
 	return nil
 }
 
-// AdminLinkProviderForUser links an external (federated) provider identity (sourceUser) to
-// an existing native Cognito user (destinationUser). The link is recorded on the
-// destination user's LinkedIdentities so it survives in backend state. Duplicate links for
-// the same provider/value are ignored.
-func (b *InMemoryBackend) AdminLinkProviderForUser(
-	userPoolID, destinationUsername string,
-	source LinkedIdentity,
-) error {
-	b.mu.Lock("AdminLinkProviderForUser")
+// AdminForgetDevice removes a tracked device for a user. A device that is on
+// record (registered via ConfirmDevice) is really deleted. A missing
+// deviceKey is treated as a no-op rather than ResourceNotFoundException:
+// pre-existing callers invoke this operation without ever having confirmed a
+// device, and historically received success once the user was found; this
+// keeps that contract while making the operation state-aware for devices
+// that do exist.
+func (b *InMemoryBackend) AdminForgetDevice(userPoolID, username, deviceKey string) error {
+	b.mu.Lock("AdminForgetDevice")
 	defer b.mu.Unlock()
 
 	if _, ok := b.pools[userPoolID]; !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if destinationUsername == "" {
-		return fmt.Errorf("%w: DestinationUser is required", ErrInvalidParameter)
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	if source.ProviderName == "" {
-		return fmt.Errorf("%w: SourceUser ProviderName is required", ErrInvalidParameter)
+	if key := userStateKey(userPoolID, username); b.devices[key] != nil {
+		delete(b.devices[key], deviceKey)
 	}
-
-	user, ok := b.users[userPoolID][destinationUsername]
-	if !ok {
-		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, destinationUsername)
-	}
-
-	for _, existing := range user.LinkedIdentities {
-		if existing.ProviderName == source.ProviderName &&
-			existing.ProviderAttributeName == source.ProviderAttributeName &&
-			existing.ProviderAttributeValue == source.ProviderAttributeValue {
-			return nil
-		}
-	}
-
-	user.LinkedIdentities = append(user.LinkedIdentities, source)
-	user.UpdatedAt = time.Now().UTC()
 
 	return nil
 }
@@ -1784,46 +1768,6 @@ func (b *InMemoryBackend) ValidateAccessToken(accessToken string) error {
 // the AWS-accurate error shape.
 func (b *InMemoryBackend) ValidatePoolUser(userPoolID, username string) error {
 	b.mu.RLock("ValidatePoolUser")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.pools[userPoolID]; !ok {
-		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
-	}
-
-	if _, ok := b.users[userPoolID][username]; !ok {
-		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
-	}
-
-	return nil
-}
-
-// AdminGetDevice validates the pool, user and device key, then reports that the device
-// is not tracked. Cognito devices are only ever created through the device-tracking
-// flow (ConfirmDevice), which this mock does not persist, so any lookup resolves to a
-// ResourceNotFoundException — matching AWS behaviour for an unknown device key.
-func (b *InMemoryBackend) AdminGetDevice(userPoolID, username, deviceKey string) error {
-	b.mu.RLock("AdminGetDevice")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.pools[userPoolID]; !ok {
-		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
-	}
-
-	if _, ok := b.users[userPoolID][username]; !ok {
-		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
-	}
-
-	if deviceKey == "" {
-		return fmt.Errorf("%w: DeviceKey is required", ErrInvalidParameter)
-	}
-
-	return fmt.Errorf("%w: device %q not found", ErrUserPoolNotFound, deviceKey)
-}
-
-// AdminForgetDevice forgets a device for a user. Since this mock does not track devices,
-// it validates the user exists and returns success.
-func (b *InMemoryBackend) AdminForgetDevice(userPoolID, username string) error {
-	b.mu.RLock("AdminForgetDevice")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.pools[userPoolID]; !ok {
@@ -2001,6 +1945,9 @@ func (b *InMemoryBackend) Reset() {
 	b.managedLoginBrandings = make(map[string]map[string]*ManagedLoginBranding)
 	b.terms = make(map[string]*Terms)
 	b.userImportJobs = make(map[string]map[string]*UserImportJob)
+	b.devices = make(map[string]map[string]*Device)
+	b.webauthnCredentials = make(map[string]map[string]*WebAuthnCredential)
+	b.authEvents = make(map[string]map[string]*AuthEvent)
 }
 
 // UpdateUserPool updates mutable properties of an existing user pool.

@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,6 +46,75 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				sgs := b.DescribeSecurityGroups(nil)
 				// Default security groups may exist from initDefaults; just verify restore worked
 				assert.NotNil(t, sgs)
+			},
+		},
+		{
+			name: "verified_access_policy_and_fpga_image_round_trip",
+			setup: func(b *ec2.InMemoryBackend) string {
+				inst, err := b.CreateVerifiedAccessInstance("persist test")
+				if err != nil {
+					return ""
+				}
+				grp, err := b.CreateVerifiedAccessGroup(inst.VerifiedAccessInstanceID, "persist group")
+				if err != nil {
+					return ""
+				}
+				ep, err := b.CreateVerifiedAccessEndpoint(grp.VerifiedAccessGroupID, "load-balancer", "persist ep")
+				if err != nil {
+					return ""
+				}
+				_, modEpErr := b.ModifyVerifiedAccessEndpointPolicy(
+					ep.VerifiedAccessEndpointID,
+					true,
+					"doc",
+				)
+				if modEpErr != nil {
+					return ""
+				}
+
+				_, modGrpErr := b.ModifyVerifiedAccessGroupPolicy(grp.VerifiedAccessGroupID, true, "doc")
+				if modGrpErr != nil {
+					return ""
+				}
+
+				_, modLogErr := b.ModifyVerifiedAccessInstanceLoggingConfiguration(
+					inst.VerifiedAccessInstanceID,
+					ec2.VerifiedAccessLogOptions{LogVersion: "ocsf-1.0.0-rc.2"},
+				)
+				if modLogErr != nil {
+					return ""
+				}
+
+				img, err := b.CreateFpgaImage("persist-afi", "persist description")
+				if err != nil {
+					return ""
+				}
+
+				return ep.VerifiedAccessEndpointID + "|" + grp.VerifiedAccessGroupID + "|" +
+					inst.VerifiedAccessInstanceID + "|" + img.FpgaImageID
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend, id string) {
+				t.Helper()
+
+				parts := strings.Split(id, "|")
+				require.Len(t, parts, 4)
+				epID, grpID, instID, afiID := parts[0], parts[1], parts[2], parts[3]
+
+				pol, err := b.GetVerifiedAccessEndpointPolicy(epID)
+				require.NoError(t, err)
+				assert.True(t, pol.PolicyEnabled)
+
+				grpPol, err := b.GetVerifiedAccessGroupPolicy(grpID)
+				require.NoError(t, err)
+				assert.True(t, grpPol.PolicyEnabled)
+
+				cfgs := b.DescribeVerifiedAccessInstanceLoggingConfigurations([]string{instID})
+				require.Len(t, cfgs, 1)
+				assert.Equal(t, "ocsf-1.0.0-rc.2", cfgs[0].AccessLogs.LogVersion)
+
+				imgs := b.DescribeFpgaImages([]string{afiID})
+				require.Len(t, imgs, 1)
+				assert.Equal(t, "persist-afi", imgs[0].Name)
 			},
 		},
 	}
@@ -223,6 +293,112 @@ func TestPersistenceExtended(t *testing.T) {
 				t.Helper()
 				pls := b.DescribeManagedPrefixLists(nil)
 				assert.NotEmpty(t, pls)
+			},
+		},
+		{
+			name: "route_server_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				_, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				servers := b.DescribeRouteServers(nil)
+				assert.NotEmpty(t, servers)
+			},
+		},
+		{
+			name: "route_server_endpoint_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				rs, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+				_, err = b.CreateRouteServerEndpoint(rs.RouteServerID, "subnet-default")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				endpoints := b.DescribeRouteServerEndpoints(nil)
+				assert.NotEmpty(t, endpoints)
+			},
+		},
+		{
+			name: "route_server_peer_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				rs, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+				ep, err := b.CreateRouteServerEndpoint(rs.RouteServerID, "subnet-default")
+				require.NoError(t, err)
+				_, err = b.CreateRouteServerPeer(ep.RouteServerEndpointID, "10.0.0.5", 65001, "bfd")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				peers := b.DescribeRouteServerPeers(nil)
+				assert.NotEmpty(t, peers)
+			},
+		},
+		{
+			name: "route_server_association_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				rs, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+				_, err = b.AssociateRouteServer(rs.RouteServerID, "vpc-default")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				servers := b.DescribeRouteServers(nil)
+				require.NotEmpty(t, servers)
+				assocs := b.GetRouteServerAssociations(servers[0].RouteServerID)
+				assert.NotEmpty(t, assocs)
+			},
+		},
+		{
+			name: "route_server_propagation_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				rs, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+				rt, err := b.CreateRouteTable("vpc-default")
+				require.NoError(t, err)
+				_, err = b.EnableRouteServerPropagation(rs.RouteServerID, rt.ID)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				servers := b.DescribeRouteServers(nil)
+				require.NotEmpty(t, servers)
+				props := b.GetRouteServerPropagations(servers[0].RouteServerID)
+				assert.NotEmpty(t, props)
+			},
+		},
+		{
+			name: "vpn_connection_tunnels_and_routes_persist",
+			setup: func(b *ec2.InMemoryBackend) {
+				cgw, err := b.CreateCustomerGateway("ipsec.1", "1.2.3.4", "65000")
+				require.NoError(t, err)
+
+				vgw, err := b.CreateVpnGateway("ipsec.1")
+				require.NoError(t, err)
+
+				conn, err := b.CreateVpnConnection("ipsec.1", cgw.CustomerGatewayID, vgw.VpnGatewayID)
+				require.NoError(t, err)
+
+				_, err = b.CreateVpnConnectionRoute(conn.VpnConnectionID, "192.168.50.0/24")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+
+				conns := b.DescribeVpnConnections(nil)
+				require.Len(t, conns, 1)
+				require.Len(t, conns[0].Options.TunnelOptions, 2)
+				assert.NotEmpty(t, conns[0].Options.TunnelOptions[0].OutsideIPAddress)
+				assert.NotEmpty(t, conns[0].Options.TunnelOptions[0].PreSharedKey)
+				require.Len(t, conns[0].VgwTelemetry, 2)
+
+				routes := b.GetVpnConnectionRoutes(conns[0].VpnConnectionID)
+				require.Len(t, routes, 1)
+				assert.Equal(t, "192.168.50.0/24", routes[0].DestinationCIDR)
 			},
 		},
 	}

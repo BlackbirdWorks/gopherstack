@@ -43,14 +43,18 @@ type AddressTransfer struct {
 
 // CapacityReservation represents an EC2 Capacity Reservation.
 type CapacityReservation struct {
-	CreateTime             time.Time `json:"createTime"`
-	CapacityReservationID  string    `json:"capacityReservationID,omitempty"`
-	InstanceType           string    `json:"instanceType,omitempty"`
-	AvailabilityZone       string    `json:"availabilityZone,omitempty"`
-	OwnedBy                string    `json:"ownedBy,omitempty"`
-	State                  string    `json:"state,omitempty"`
-	AvailableInstanceCount int       `json:"availableInstanceCount,omitempty"`
-	TotalInstanceCount     int       `json:"totalInstanceCount,omitempty"`
+	CreateTime            time.Time `json:"createTime"`
+	CapacityReservationID string    `json:"capacityReservationID,omitempty"`
+	InstanceType          string    `json:"instanceType,omitempty"`
+	AvailabilityZone      string    `json:"availabilityZone,omitempty"`
+	OwnedBy               string    `json:"ownedBy,omitempty"`
+	State                 string    `json:"state,omitempty"`
+	// InstancePlatform is the OS platform reserved (e.g. "Linux/UNIX"). Populated
+	// for Capacity Block purchases; empty for plain CreateCapacityReservation
+	// calls that predate this field.
+	InstancePlatform       string `json:"instancePlatform,omitempty"`
+	AvailableInstanceCount int    `json:"availableInstanceCount,omitempty"`
+	TotalInstanceCount     int    `json:"totalInstanceCount,omitempty"`
 }
 
 // ReservedInstancesExchange represents a completed reserved instances exchange.
@@ -85,6 +89,9 @@ type TransitGatewayVpcAttachment struct {
 	TransitGatewayID           string    `json:"transitGatewayID,omitempty"`
 	VpcID                      string    `json:"vpcID,omitempty"`
 	State                      string    `json:"state,omitempty"`
+	// SubnetIDs is the set of subnet IDs the attachment uses, managed via
+	// ModifyTransitGatewayVpcAttachment's AddSubnetIds/RemoveSubnetIds.
+	SubnetIDs []string `json:"subnetIDs,omitempty"`
 }
 
 // VpcEndpointConnection represents a VPC endpoint connection to a service.
@@ -111,6 +118,13 @@ type ByoipCidr struct {
 	StatusMessage string `json:"statusMessage,omitempty"`
 }
 
+// hostSettingOff/hostSettingOn are the AWS enum values shared by Host's
+// AutoPlacement, HostRecovery, and HostMaintenance fields.
+const (
+	hostSettingOff = "off"
+	hostSettingOn  = "on"
+)
+
 // Host represents a Dedicated Host.
 type Host struct {
 	HostID           string    `json:"hostID,omitempty"`
@@ -119,6 +133,17 @@ type Host struct {
 	State            string    `json:"state,omitempty"`
 	AllocationTime   time.Time `json:"allocationTime"`
 	OwnedBy          string    `json:"ownedBy,omitempty"`
+
+	// AutoPlacement, HostRecovery, and HostMaintenance mirror the ModifyHosts
+	// input fields of the same name (values are AWS enums: "on"/"off").
+	AutoPlacement   string `json:"autoPlacement,omitempty"`
+	HostRecovery    string `json:"hostRecovery,omitempty"`
+	HostMaintenance string `json:"hostMaintenance,omitempty"`
+
+	// InstanceFamily is set instead of InstanceType via ModifyHosts when the
+	// host is reconfigured to support an entire instance family rather than a
+	// single instance type.
+	InstanceFamily string `json:"instanceFamily,omitempty"`
 }
 
 // ---- Reset ----
@@ -149,9 +174,7 @@ func (b *InMemoryBackend) Reset() {
 	b.launchTemplates = make(map[string]*LaunchTemplate)
 	b.vpcEndpoints = make(map[string]*VpcEndpoint)
 	b.tags = make(map[string]map[string]string)
-	b.instanceIDsByVPC = make(map[string]map[string]struct{})
-	b.eniIDsByInstance = make(map[string]map[string]struct{})
-	b.eniIDByAttachment = make(map[string]string)
+	initSecondaryIndexMaps(b)
 	b.freePrivateIPs = nil
 	b.nextPrivateIPIndex = 0
 	b.nextElasticIPIndex = 0
@@ -172,12 +195,14 @@ func (b *InMemoryBackend) Reset() {
 		AvailabilityZone: b.Region + "a",
 		IsDefault:        true,
 	}
+	b.indexSubnetLocked("subnet-default", vpcDefaultName)
 	b.securityGroups["sg-default"] = &SecurityGroup{
 		ID:          "sg-default",
 		Name:        "default",
 		Description: "default VPC security group",
 		VPCID:       vpcDefaultName,
 	}
+	b.indexSGLocked("sg-default", vpcDefaultName)
 }
 
 // resetNewOpsMapsLocked re-initialises all "new operations" resource maps introduced
@@ -203,9 +228,33 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.tgwRouteTables = make(map[string]*TransitGatewayRouteTable)
 	b.tgwRoutes = make(map[string]*TransitGatewayRoute)
 	b.tgwRTAssociations = make(map[string]*TransitGatewayRouteTableAssociation)
+	b.tgwPolicyTables = make(map[string]*TransitGatewayPolicyTable)
+	b.tgwPolicyTableAssociations = make(map[string]*TransitGatewayPolicyTableAssociation)
+	b.tgwRouteTableAnnouncements = make(map[string]*TransitGatewayRouteTableAnnouncement)
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
 	b.resetAdvancedNetworkingMapsLocked()
+	b.resetIpamDiscoveryMapsLocked()
+	b.resetIpamPolicyMapsLocked()
 	b.resetBatch4MapsLocked()
+	initTGWMulticastMaps(b)
+	initVpcConfigMaps(b)
+	initCapacityFamilyMaps(b)
+	initVerifiedAccessExtMaps(b)
+	initFpgaImageMaps(b)
+	b.resetScheduledInstanceMapsLocked()
+	b.resetIPPoolMapsLocked()
+	b.resetAllowedImagesSettingsLocked()
+	b.resetImageTasksLocked()
+	b.resetUsageReportMapsLocked()
+	b.resetVMImportExportMapsLocked()
+	b.resetTrunkEnclaveMapsLocked()
+	b.instanceProductCodes = make(map[string][]string)
+	b.resetMacHostMapsLocked()
+	b.resetSecondaryNetworkMapsLocked()
+	b.resetInstanceAttrMapsLocked()
+	b.resetSQLHaMapsLocked()
+	initParitySweep2Maps(b)
+	initParityFinalMaps(b)
 }
 
 // resetBatch4MapsLocked re-initialises all batch4 resource maps.
@@ -735,6 +784,9 @@ func (b *InMemoryBackend) AllocateHosts(
 			State:            stateAvailable,
 			AllocationTime:   time.Now(),
 			OwnedBy:          b.AccountID,
+			AutoPlacement:    hostSettingOff,
+			HostRecovery:     hostSettingOff,
+			HostMaintenance:  hostSettingOn,
 		}
 
 		b.dedicatedHosts[host.HostID] = host

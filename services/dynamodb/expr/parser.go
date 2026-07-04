@@ -118,7 +118,9 @@ func (p *Parser) parseExpression(precedence int) (Node, error) {
 		TokenContains,
 		TokenAttributeType,
 		TokenIfNotExists,
-		TokenListAppend:
+		TokenListAppend,
+		TokenAND, TokenOR, TokenBETWEEN, TokenIN,
+		TokenSET, TokenREMOVE, TokenADD, TokenDELETE:
 		left, err = p.parseOperand()
 	default:
 		return nil, fmt.Errorf("%w %v at start of expression", ErrUnexpectedToken, p.curToken)
@@ -175,7 +177,9 @@ func (p *Parser) parseOperand() (Node, error) {
 		return p.parseFunctionExpr()
 	case TokenValue:
 		return &ValuePlaceholder{Name: p.curToken.Literal}, nil
-	case TokenIdentifier:
+	case TokenIdentifier,
+		TokenAND, TokenOR, TokenBETWEEN, TokenIN,
+		TokenSET, TokenREMOVE, TokenADD, TokenDELETE:
 		return p.parsePathExpr()
 	default:
 		return nil, fmt.Errorf("%w %v", ErrUnexpectedOperand, p.curToken)
@@ -207,12 +211,27 @@ func (p *Parser) parsePathExpr() (Node, error) {
 }
 
 func (p *Parser) parseDotSegment(expr *PathExpr) error {
-	if !p.expectPeek(TokenIdentifier) {
+	if !p.peekTokenIsIdentifierLike() {
 		return ErrExpectedIdentifierDot
 	}
+	p.nextToken()
 	expr.Elements = append(expr.Elements, PathElement{Type: ElementKey, Name: p.curToken.Literal})
 
 	return nil
+}
+
+func (p *Parser) peekTokenIsIdentifierLike() bool {
+	switch p.peekToken.Type {
+	case TokenIdentifier,
+		TokenAND, TokenOR, TokenNOT, TokenBETWEEN, TokenIN,
+		TokenSET, TokenREMOVE, TokenADD, TokenDELETE,
+		TokenSize, TokenAttributeExists, TokenAttributeNotExists,
+		TokenBeginsWith, TokenContains, TokenAttributeType,
+		TokenIfNotExists, TokenListAppend:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *Parser) parseBracketSegment(expr *PathExpr) error {

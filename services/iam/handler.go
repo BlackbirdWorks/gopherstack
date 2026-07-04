@@ -1051,9 +1051,11 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 		"SimulatePrincipalPolicy": func(vals url.Values, reqID string) (any, error) {
 			actionNames := parseIndexedValues(vals, "ActionNames.member.")
 			resourceArns := parseIndexedValues(vals, "ResourceArns.member.")
+			resourcePolicyList := parseIndexedValues(vals, "ResourcePolicyList.member.")
 
 			results, err := h.Backend.SimulatePrincipalPolicy(
-				vals.Get("PolicySourceArn"), actionNames, resourceArns,
+				vals.Get("PolicySourceArn"), vals.Get("CallerArn"), vals.Get("ResourceOwner"),
+				resourcePolicyList, actionNames, resourceArns,
 				parseConditionContext(vals),
 			)
 			if err != nil {
@@ -1568,6 +1570,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		code = "InvalidInput"
 	case errors.Is(reqErr, ErrValidationError):
 		code = "ValidationError"
+	case errors.Is(reqErr, ErrInvalidAuthenticationCode):
+		code = "InvalidAuthenticationCode"
+		statusCode = http.StatusForbidden
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError

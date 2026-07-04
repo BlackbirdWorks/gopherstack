@@ -1649,27 +1649,32 @@ func (db *InMemoryDB) ImportTable(
 		InputCompression: string(input.InputCompressionType),
 		StartTime:        start,
 		CreatedAt:        start,
-	}
-
-	res, importErr := db.importFromS3(
-		ctx, tableName, input.S3BucketSource,
-		input.InputFormat, input.InputCompressionType, input.InputFormatOptions,
-	)
-	rec.EndTime = time.Now()
-	rec.ImportedItemCount = res.imported
-	rec.ProcessedItemCount = res.processed
-	rec.ProcessedSizeBytes = res.bytes
-	rec.ErrorCount = res.errors
-
-	if importErr != nil {
-		rec.ImportStatus = string(types.ImportStatusFailed)
-		rec.FailureCode = "InputFormatError"
-		rec.FailureMessage = importErr.Error()
-	} else {
-		rec.ImportStatus = string(types.ImportStatusCompleted)
+		ImportStatus:     string(types.ImportStatusInProgress),
 	}
 
 	db.storeImport(rec)
+
+	go func(r storedImport, tName string, in *dynamodb.ImportTableInput) {
+		res, importErr := db.importFromS3(
+			context.WithoutCancel(ctx), tName, in.S3BucketSource,
+			in.InputFormat, in.InputCompressionType, in.InputFormatOptions,
+		)
+		r.EndTime = time.Now()
+		r.ImportedItemCount = res.imported
+		r.ProcessedItemCount = res.processed
+		r.ProcessedSizeBytes = res.bytes
+		r.ErrorCount = res.errors
+
+		if importErr != nil {
+			r.ImportStatus = string(types.ImportStatusFailed)
+			r.FailureCode = "InputFormatError"
+			r.FailureMessage = importErr.Error()
+		} else {
+			r.ImportStatus = string(types.ImportStatusCompleted)
+		}
+
+		db.storeImport(r)
+	}(rec, tableName, input)
 
 	return &dynamodb.ImportTableOutput{
 		ImportTableDescription: importDescriptionFromRecord(rec),
@@ -1736,9 +1741,11 @@ func (db *InMemoryDB) ListImports(
 	// NextToken is the ImportArn of the last record returned previously.
 	nextToken := aws.ToString(input.NextToken)
 	pageSize := defaultListImportsLimit
-	if input.PageSize != nil && *input.PageSize > 0 && int(*input.PageSize) < defaultListImportsLimit {
+	if input.PageSize != nil && *input.PageSize > 0 {
 		pageSize = int(*input.PageSize)
 	}
+
+	tableArnFilter := aws.ToString(input.TableArn)
 
 	// Filter by region and apply cursor.
 	summaries := make([]types.ImportSummary, 0, len(stored))
@@ -1746,6 +1753,9 @@ func (db *InMemoryDB) ListImports(
 
 	for _, imp := range stored {
 		if db.regionFromARN(imp.ImportArn) != region {
+			continue
+		}
+		if tableArnFilter != "" && imp.TableArn != tableArnFilter {
 			continue
 		}
 		if !started {
@@ -1808,6 +1818,8 @@ func cloneTableSchema(src *Table, name, region, accountID string) *Table {
 		Name:                      name,
 		Status:                    statusActive,
 		Items:                     make([]map[string]any, 0),
+		itemSizes:                 make([]int, 0),
+		totalItemSizeBytes:        0,
 		TableID:                   uuid.New().String(),
 		CreationDateTime:          time.Now(),
 		TableArn:                  arn.Build("dynamodb", region, accountID, "table/"+name),

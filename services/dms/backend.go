@@ -1582,6 +1582,7 @@ func (b *InMemoryBackend) CreateFleetAdvisorCollector(
 	}
 	store[collectorName] = col
 	b.fleetAdvisorCollectorsByIDStore(region)[collectorID] = col
+
 	// Seed two discovered databases per collector to emulate Fleet Advisor discovery.
 	dbStore := b.fleetAdvisorDatabasesStore(region)
 	for _, seed := range []struct{ name, engine, ip string }{
@@ -1597,6 +1598,7 @@ func (b *InMemoryBackend) CreateFleetAdvisorCollector(
 			CollectorReferencedID: collectorID,
 		}
 	}
+
 	cp := *col
 
 	return &cp, nil

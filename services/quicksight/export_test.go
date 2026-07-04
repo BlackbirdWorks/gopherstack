@@ -100,3 +100,20 @@ func BrandCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// SeedFlow inserts f directly into b's backend state, bypassing the (real)
+// AWS API. QuickSight has no CreateFlow operation — flows are authored via
+// the console/Quick Suite — so this is the only way tests can populate
+// fixtures for ListFlows/SearchFlows/GetFlowMetadata/permissions.
+func SeedFlow(b *InMemoryBackend, accountID string, f *Flow) {
+	b.seedFlow(accountID, f)
+}
+
+// SeedSelfUpgradeRequest inserts r directly into b's backend state, bypassing
+// the (real) AWS API. QuickSight has no CreateSelfUpgradeRequest operation —
+// requests are created by end users self-requesting a role upgrade through the
+// console — so this is the only way tests can populate fixtures for
+// ListSelfUpgrades/UpdateSelfUpgrade.
+func SeedSelfUpgradeRequest(b *InMemoryBackend, accountID, namespace string, r *SelfUpgradeRequestDetail) {
+	b.seedSelfUpgradeRequest(accountID, namespace, r)
+}

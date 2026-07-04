@@ -86,13 +86,13 @@ func TestDescribeInstances_NextTokenOpaque(t *testing.T) {
 					break
 				}
 
-				// Token must be valid base64, not a raw integer.
-				decoded, decErr := base64.StdEncoding.DecodeString(tok)
-				require.NoError(t, decErr, "NextToken must be valid base64, got %q", tok)
+				// Token must be valid base64url, not a raw integer.
+				decoded, decErr := base64.URLEncoding.DecodeString(tok)
+				require.NoError(t, decErr, "NextToken must be valid base64url")
 
-				// Decoded value must be a numeric offset, not exposed directly.
+				// Decoded value must be a numeric offset + HMAC signature, not exposed directly.
 				require.NotEqual(t, tok, string(decoded),
-					"NextToken must be opaque (base64-encoded), not raw integer")
+					"NextToken must be opaque (base64url-encoded), not raw integer")
 
 				nextToken = tok
 			}

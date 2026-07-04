@@ -79,10 +79,11 @@ type acceptTransitGatewayPeeringAttachmentResponse struct {
 }
 
 type tgwVpcAttachmentItem struct {
-	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId"`
-	TransitGatewayID           string `xml:"transitGatewayId,omitempty"`
-	VpcID                      string `xml:"vpcId,omitempty"`
-	State                      string `xml:"state"`
+	TransitGatewayAttachmentID string   `xml:"transitGatewayAttachmentId"`
+	TransitGatewayID           string   `xml:"transitGatewayId,omitempty"`
+	VpcID                      string   `xml:"vpcId,omitempty"`
+	State                      string   `xml:"state"`
+	SubnetIDs                  []string `xml:"subnetIds>item,omitempty"`
 }
 
 type acceptTransitGatewayVpcAttachmentResponse struct {

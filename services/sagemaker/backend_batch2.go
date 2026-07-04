@@ -67,6 +67,9 @@ type ModelPackageGroup struct {
 	ModelPackageGroupArn         string            `json:"ModelPackageGroupArn"`
 	ModelPackageGroupDescription string            `json:"ModelPackageGroupDescription,omitempty"`
 	ModelPackageGroupStatus      string            `json:"ModelPackageGroupStatus"`
+	// ResourcePolicy is the resource policy JSON document attached via
+	// PutModelPackageGroupPolicy, if any.
+	ResourcePolicy string `json:"ResourcePolicy,omitempty"`
 }
 
 func cloneModelPackageGroup(g *ModelPackageGroup) *ModelPackageGroup {
@@ -158,6 +161,76 @@ func (b *InMemoryBackend) ListModelPackageGroups(ctx context.Context, nextToken 
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(b.modelPackageGroupsStore(region), nextToken, cloneModelPackageGroup)
+}
+
+// ErrModelPackageGroupPolicyNotFound is returned when a model package group
+// has no resource policy attached.
+var ErrModelPackageGroupPolicyNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+
+// GetModelPackageGroupPolicy returns the resource policy attached to a model
+// package group.
+func (b *InMemoryBackend) GetModelPackageGroupPolicy(ctx context.Context, name string) (string, error) {
+	b.mu.RLock("GetModelPackageGroupPolicy")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+
+	g, ok := b.modelPackageGroupsStore(region)[name]
+	if !ok {
+		return "", fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
+	}
+
+	if g.ResourcePolicy == "" {
+		return "", fmt.Errorf(
+			"%w: model package group %q has no resource policy attached",
+			ErrModelPackageGroupPolicyNotFound, name,
+		)
+	}
+
+	return g.ResourcePolicy, nil
+}
+
+// PutModelPackageGroupPolicy attaches (or replaces) the resource policy for a
+// model package group.
+func (b *InMemoryBackend) PutModelPackageGroupPolicy(
+	ctx context.Context,
+	name, policy string,
+) (*ModelPackageGroup, error) {
+	b.mu.Lock("PutModelPackageGroupPolicy")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	g, ok := b.modelPackageGroupsStore(region)[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
+	}
+
+	if policy == "" {
+		return nil, fmt.Errorf("%w: ResourcePolicy is required", ErrValidation)
+	}
+
+	g.ResourcePolicy = policy
+
+	return cloneModelPackageGroup(g), nil
+}
+
+// DeleteModelPackageGroupPolicy removes the resource policy from a model
+// package group.
+func (b *InMemoryBackend) DeleteModelPackageGroupPolicy(ctx context.Context, name string) error {
+	b.mu.Lock("DeleteModelPackageGroupPolicy")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	g, ok := b.modelPackageGroupsStore(region)[name]
+	if !ok {
+		return fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
+	}
+
+	g.ResourcePolicy = ""
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -831,6 +904,7 @@ type SMImage struct {
 	ImageArn         string            `json:"ImageArn"`
 	ImageStatus      string            `json:"ImageStatus"`
 	Description      string            `json:"Description,omitempty"`
+	DisplayName      string            `json:"DisplayName,omitempty"`
 	RoleArn          string            `json:"RoleArn,omitempty"`
 }
 
@@ -893,6 +967,61 @@ func (b *InMemoryBackend) DescribeImage(ctx context.Context, name string) (*SMIm
 	return cloneSMImage(img), nil
 }
 
+// UpdateImageOptions bundles the mutable fields accepted by UpdateImage.
+// Nil pointer fields are left unchanged.
+type UpdateImageOptions struct {
+	Description      *string
+	DisplayName      *string
+	RoleArn          *string
+	DeleteProperties []string
+}
+
+// UpdateImage updates a SageMaker image's mutable metadata (Description,
+// DisplayName, RoleArn), optionally clearing Description/DisplayName first
+// via DeleteProperties.
+func (b *InMemoryBackend) UpdateImage(
+	ctx context.Context,
+	name string,
+	opts UpdateImageOptions,
+) (*SMImage, error) {
+	b.mu.Lock("UpdateImage")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	img, ok := b.smImagesStore(region)[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, name)
+	}
+
+	for _, prop := range opts.DeleteProperties {
+		switch prop {
+		case "Description":
+			img.Description = ""
+		case "DisplayName":
+			img.DisplayName = ""
+		default:
+			return nil, fmt.Errorf("%w: DeleteProperties value %q is not supported", ErrValidation, prop)
+		}
+	}
+
+	if opts.Description != nil {
+		img.Description = *opts.Description
+	}
+
+	if opts.DisplayName != nil {
+		img.DisplayName = *opts.DisplayName
+	}
+
+	if opts.RoleArn != nil {
+		img.RoleArn = *opts.RoleArn
+	}
+
+	img.LastModifiedTime = time.Now()
+
+	return cloneSMImage(img), nil
+}
+
 // DeleteImage removes a SageMaker image by name.
 func (b *InMemoryBackend) DeleteImage(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteImage")
@@ -933,14 +1062,23 @@ func (b *InMemoryBackend) ListImages(ctx context.Context, nextToken string) ([]*
 type ImageVersion struct {
 	CreationTime       time.Time `json:"CreationTime"`
 	LastModifiedTime   time.Time `json:"LastModifiedTime"`
+	JobType            string    `json:"JobType,omitempty"`
 	ImageArn           string    `json:"ImageArn"`
 	ImageVersionArn    string    `json:"ImageVersionArn"`
 	ImageVersionStatus string    `json:"ImageVersionStatus"`
+	MLFramework        string    `json:"MLFramework,omitempty"`
+	Processor          string    `json:"Processor,omitempty"`
+	ProgrammingLang    string    `json:"ProgrammingLang,omitempty"`
+	ReleaseNotes       string    `json:"ReleaseNotes,omitempty"`
+	VendorGuidance     string    `json:"VendorGuidance,omitempty"`
+	Aliases            []string  `json:"Aliases,omitempty"`
 	Version            int       `json:"Version"`
+	Horovod            bool      `json:"Horovod,omitempty"`
 }
 
 func cloneImageVersion(v *ImageVersion) *ImageVersion {
 	cp := *v
+	cp.Aliases = append([]string(nil), v.Aliases...)
 
 	return &cp
 }
@@ -1008,6 +1146,111 @@ func (b *InMemoryBackend) DescribeImageVersion(
 	}
 
 	return cloneImageVersion(iv), nil
+}
+
+// UpdateImageVersionOptions bundles the mutable fields accepted by
+// UpdateImageVersion. Nil/empty fields are left unchanged.
+type UpdateImageVersionOptions struct {
+	Horovod         *bool
+	JobType         string
+	MLFramework     string
+	Processor       string
+	ProgrammingLang string
+	ReleaseNotes    string
+	VendorGuidance  string
+	AliasesToAdd    []string
+	AliasesToDelete []string
+}
+
+// UpdateImageVersion updates a SageMaker image version's mutable metadata.
+func (b *InMemoryBackend) UpdateImageVersion(
+	ctx context.Context,
+	imageName string,
+	version int,
+	opts UpdateImageVersionOptions,
+) (*ImageVersion, error) {
+	b.mu.Lock("UpdateImageVersion")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	versions, ok := b.imageVersionsStore(region)[imageName]
+	if !ok {
+		return nil, fmt.Errorf("%w: no versions found for image %q", ErrImageVersionNotFound, imageName)
+	}
+
+	if version <= 0 {
+		version = b.imageVersionCountsStore(region)[imageName]
+	}
+
+	iv, ok := versions[version]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: version %d not found for image %q", ErrImageVersionNotFound, version, imageName,
+		)
+	}
+
+	applyImageVersionUpdate(iv, opts)
+	iv.LastModifiedTime = time.Now()
+
+	return cloneImageVersion(iv), nil
+}
+
+// applyImageVersionUpdate mutates iv in place per opts. Split out from
+// UpdateImageVersion to keep that method's cyclomatic complexity low.
+func applyImageVersionUpdate(iv *ImageVersion, opts UpdateImageVersionOptions) {
+	if opts.Horovod != nil {
+		iv.Horovod = *opts.Horovod
+	}
+
+	if opts.JobType != "" {
+		iv.JobType = opts.JobType
+	}
+
+	if opts.MLFramework != "" {
+		iv.MLFramework = opts.MLFramework
+	}
+
+	if opts.Processor != "" {
+		iv.Processor = opts.Processor
+	}
+
+	if opts.ProgrammingLang != "" {
+		iv.ProgrammingLang = opts.ProgrammingLang
+	}
+
+	if opts.ReleaseNotes != "" {
+		iv.ReleaseNotes = opts.ReleaseNotes
+	}
+
+	if opts.VendorGuidance != "" {
+		iv.VendorGuidance = opts.VendorGuidance
+	}
+
+	iv.Aliases = applyAliasChanges(iv.Aliases, opts.AliasesToAdd, opts.AliasesToDelete)
+}
+
+// applyAliasChanges returns aliases with additions appended (de-duplicated)
+// and deletions removed.
+func applyAliasChanges(aliases, toAdd, toDelete []string) []string {
+	del := make(map[string]bool, len(toDelete))
+	for _, a := range toDelete {
+		del[a] = true
+	}
+
+	seen := make(map[string]bool, len(aliases)+len(toAdd))
+	out := make([]string, 0, len(aliases)+len(toAdd))
+
+	for _, a := range append(append([]string(nil), aliases...), toAdd...) {
+		if del[a] || seen[a] {
+			continue
+		}
+
+		seen[a] = true
+		out = append(out, a)
+	}
+
+	return out
 }
 
 // DeleteImageVersion removes an image version.
@@ -1443,54 +1686,130 @@ func (b *InMemoryBackend) ListMonitoringSchedules(
 // Workteam
 // ---------------------------------------------------------------------------
 
+// CognitoMemberDefinition identifies an Amazon Cognito user group.
+type CognitoMemberDefinition struct {
+	UserPool  string `json:"UserPool"`
+	UserGroup string `json:"UserGroup"`
+	ClientID  string `json:"ClientId"`
+}
+
+// OidcMemberDefinition identifies a list of OIDC IdP user groups.
+type OidcMemberDefinition struct {
+	Groups []string `json:"Groups,omitempty"`
+}
+
+// MemberDefinition identifies workers that make up a work team, using either
+// an Amazon Cognito user group or an OIDC IdP user group.
+type MemberDefinition struct {
+	CognitoMemberDefinition *CognitoMemberDefinition `json:"CognitoMemberDefinition,omitempty"`
+	OidcMemberDefinition    *OidcMemberDefinition    `json:"OidcMemberDefinition,omitempty"`
+}
+
 // Workteam represents a SageMaker Ground Truth workteam.
 type Workteam struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	WorkteamName     string            `json:"WorkteamName"`
-	WorkteamArn      string            `json:"WorkteamArn"`
-	Description      string            `json:"Description,omitempty"`
+	CreateDate        time.Time          `json:"CreateDate"`
+	LastUpdatedDate   time.Time          `json:"LastUpdatedDate"`
+	Tags              map[string]string  `json:"-"`
+	WorkteamName      string             `json:"WorkteamName"`
+	WorkteamArn       string             `json:"WorkteamArn"`
+	WorkforceArn      string             `json:"WorkforceArn,omitempty"`
+	Description       string             `json:"Description,omitempty"`
+	SubDomain         string             `json:"SubDomain,omitempty"`
+	MemberDefinitions []MemberDefinition `json:"MemberDefinitions,omitempty"`
 }
 
 func cloneWorkteam(w *Workteam) *Workteam {
 	cp := *w
 	cp.Tags = maps.Clone(w.Tags)
+	cp.MemberDefinitions = append([]MemberDefinition(nil), w.MemberDefinitions...)
 
 	return &cp
 }
 
+// CreateWorkteamOptions holds the parameters for creating a workteam.
+type CreateWorkteamOptions struct {
+	Tags              map[string]string
+	Name              string
+	Description       string
+	WorkforceName     string
+	MemberDefinitions []MemberDefinition
+}
+
 // CreateWorkteam creates a workteam.
-func (b *InMemoryBackend) CreateWorkteam(
-	ctx context.Context,
-	name, description string,
-	tags map[string]string,
-) (*Workteam, error) {
+func (b *InMemoryBackend) CreateWorkteam(ctx context.Context, opts CreateWorkteamOptions) (*Workteam, error) {
 	b.mu.Lock("CreateWorkteam")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	if name == "" {
+	if opts.Name == "" {
 		return nil, fmt.Errorf("%w: WorkteamName is required", ErrValidation)
 	}
 
-	if _, ok := b.workteamsStore(region)[name]; ok {
-		return nil, fmt.Errorf("%w: workteam %q already exists", ErrValidation, name)
+	if _, ok := b.workteamsStore(region)[opts.Name]; ok {
+		return nil, fmt.Errorf("%w: workteam %q already exists", ErrValidation, opts.Name)
 	}
 
-	workteamARN := arn.Build("sagemaker", region, b.accountID, "workteam/"+name)
+	var workforceARN string
+
+	if opts.WorkforceName != "" {
+		wf, ok := b.workforcesStore(region)[opts.WorkforceName]
+		if !ok {
+			return nil, fmt.Errorf(
+				"%w: workforce %q not found", ErrWorkforceNotFound, opts.WorkforceName,
+			)
+		}
+
+		workforceARN = wf.WorkforceArn
+	}
+
+	workteamARN := arn.Build("sagemaker", region, b.accountID, "workteam/"+opts.Name)
 	now := time.Now()
 
 	w := &Workteam{
-		WorkteamName:     name,
-		WorkteamArn:      workteamARN,
-		Description:      description,
-		Tags:             mergeTags(nil, tags),
-		CreationTime:     now,
-		LastModifiedTime: now,
+		WorkteamName:      opts.Name,
+		WorkteamArn:       workteamARN,
+		WorkforceArn:      workforceARN,
+		Description:       opts.Description,
+		MemberDefinitions: append([]MemberDefinition(nil), opts.MemberDefinitions...),
+		SubDomain:         "https://" + generateID() + ".labeling.sagemaker.aws",
+		Tags:              mergeTags(nil, opts.Tags),
+		CreateDate:        now,
+		LastUpdatedDate:   now,
 	}
-	b.workteamsStore(region)[name] = w
+	b.workteamsStore(region)[opts.Name] = w
+
+	return cloneWorkteam(w), nil
+}
+
+// UpdateWorkteamOptions holds the parameters for updating a workteam.
+type UpdateWorkteamOptions struct {
+	Name              string
+	Description       string
+	MemberDefinitions []MemberDefinition
+}
+
+// UpdateWorkteam updates a workteam's description and/or member definitions.
+func (b *InMemoryBackend) UpdateWorkteam(ctx context.Context, opts UpdateWorkteamOptions) (*Workteam, error) {
+	b.mu.Lock("UpdateWorkteam")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	w, ok := b.workteamsStore(region)[opts.Name]
+	if !ok {
+		return nil, fmt.Errorf("%w: workteam %q not found", ErrWorkteamNotFound, opts.Name)
+	}
+
+	if opts.Description != "" {
+		w.Description = opts.Description
+	}
+
+	if opts.MemberDefinitions != nil {
+		w.MemberDefinitions = append([]MemberDefinition(nil), opts.MemberDefinitions...)
+	}
+
+	w.LastUpdatedDate = time.Now()
 
 	return cloneWorkteam(w), nil
 }

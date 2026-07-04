@@ -1,0 +1,297 @@
+package redshift_test
+
+import (
+	"context"
+	"fmt"
+	"runtime"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/redshift"
+)
+
+// waitForGoroutineCount polls until the goroutine count drops to at most target
+// or the deadline passes, running GC each iteration to reap finished goroutines.
+func waitForGoroutineCount(target int, timeout time.Duration) int {
+	deadline := time.Now().Add(timeout)
+	for {
+		runtime.GC()
+
+		n := runtime.NumGoroutine()
+		if n <= target || time.Now().After(deadline) {
+			return n
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// waitFor polls cond until it returns true or the deadline elapses.
+func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	return cond()
+}
+
+// describeCount returns the number of clusters, driving the lazy read-time state
+// machine (DescribeClusters advances due transitions).
+func describeCount(t *testing.T, b *redshift.InMemoryBackend) int {
+	t.Helper()
+
+	clusters, _, err := b.DescribeClusters("", "", 0)
+	require.NoError(t, err)
+
+	return len(clusters)
+}
+
+func clusterStatus(t *testing.T, b *redshift.InMemoryBackend, id string) (string, bool) {
+	t.Helper()
+
+	clusters, _, err := b.DescribeClusters(id, "", 0)
+	if err != nil {
+		return "", false
+	}
+
+	require.Len(t, clusters, 1)
+
+	return clusters[0].Status, true
+}
+
+// TestReconciler_LazyReadAdvancesState verifies that cluster states advance on
+// read even when the background reconciler is NOT running (no goroutine).
+func TestReconciler_LazyReadAdvancesState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus string
+		delay      time.Duration
+	}{
+		{name: "instant available with zero delay", wantStatus: "available", delay: 0},
+		{name: "creating then available", wantStatus: "available", delay: 20 * time.Millisecond},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			redshift.SetClusterActivationDelay(b, tc.delay)
+
+			_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin")
+			require.NoError(t, err)
+
+			if tc.delay > 0 {
+				status, ok := clusterStatus(t, b, "c1")
+				require.True(t, ok)
+				assert.Equal(t, "creating", status)
+			}
+
+			ok := waitFor(t, time.Second, func() bool {
+				s, found := clusterStatus(t, b, "c1")
+
+				return found && s == tc.wantStatus
+			})
+			require.True(t, ok, "cluster did not reach %s", tc.wantStatus)
+			assert.False(t, redshift.ReconcilerRunning(b), "no reconciler goroutine should be running")
+		})
+	}
+}
+
+// TestReconciler_BackgroundAdvancesState verifies the managed reconciler advances
+// creating→available and deleting→removed without any explicit read.
+func TestReconciler_BackgroundAdvancesState(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	redshift.SetClusterActivationDelay(b, 10*time.Millisecond)
+	redshift.SetReconcileInterval(b, 3*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	b.StartReconciler(ctx)
+	t.Cleanup(b.StopReconciler)
+
+	_, err := b.CreateCluster("bg", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	// Reconciler flips to available.
+	require.True(t, waitFor(t, time.Second, func() bool {
+		s, ok := clusterStatus(t, b, "bg")
+
+		return ok && s == "available"
+	}), "reconciler did not advance to available")
+
+	// Async delete: enters deleting, then the reconciler removes it.
+	_, err = b.DeleteCluster("bg")
+	require.NoError(t, err)
+
+	require.True(t, waitFor(t, time.Second, func() bool {
+		return redshift.ClusterCount(b) == 0
+	}), "reconciler did not remove deleted cluster")
+}
+
+// TestReconciler_DeleteCancelsPendingCreate ensures deleting a still-creating
+// cluster supersedes the pending create transition and removes it cleanly.
+func TestReconciler_DeleteCancelsPendingCreate(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	redshift.SetClusterActivationDelay(b, 50*time.Millisecond)
+
+	_, err := b.CreateCluster("pending", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+	assert.Equal(t, 1, redshift.PendingClusterTransitions(b))
+
+	// Delete while still creating schedules an async removal.
+	deleted, err := b.DeleteCluster("pending")
+	require.NoError(t, err)
+	assert.Equal(t, "deleting", deleted.Status)
+
+	require.True(t, waitFor(t, time.Second, func() bool {
+		return describeCount(t, b) == 0
+	}), "cluster not removed after async delete")
+	assert.Equal(t, 0, redshift.PendingClusterTransitions(b),
+		"no dangling transitions should remain")
+}
+
+// TestReconciler_ResetClearsTransitions verifies Reset cancels pending
+// transitions and clears state without leaking work.
+func TestReconciler_ResetClearsTransitions(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	redshift.SetClusterActivationDelay(b, time.Hour) // never fires on its own
+
+	for i := range 20 {
+		_, err := b.CreateCluster(fmt.Sprintf("c%02d", i), "dc2.large", "dev", "admin")
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 20, redshift.PendingClusterTransitions(b))
+
+	b.Reset()
+
+	assert.Equal(t, 0, redshift.ClusterCount(b))
+	assert.Equal(t, 0, redshift.PendingClusterTransitions(b))
+}
+
+// TestReconciler_NoGoroutineLeak creates and deletes many clusters under a
+// running reconciler, then asserts a clean, leak-free shutdown: after Stop the
+// goroutine count returns to the pre-start baseline.
+func TestReconciler_NoGoroutineLeak(t *testing.T) {
+	t.Parallel()
+
+	const numClusters = 40
+
+	base := runtime.NumGoroutine()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	redshift.SetClusterActivationDelay(b, 5*time.Millisecond)
+	redshift.SetReconcileInterval(b, 2*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	b.StartReconciler(ctx)
+	require.True(t, redshift.ReconcilerRunning(b))
+
+	for i := range numClusters {
+		_, err := b.CreateCluster(fmt.Sprintf("leak%03d", i), "dc2.large", "dev", "admin")
+		require.NoError(t, err)
+	}
+
+	// Wait for all to become available.
+	require.True(t, waitFor(t, 3*time.Second, func() bool {
+		clusters, _, err := b.DescribeClusters("", "", 0)
+		if err != nil {
+			return false
+		}
+
+		if len(clusters) != numClusters {
+			return false
+		}
+
+		for i := range clusters {
+			if clusters[i].Status != "available" {
+				return false
+			}
+		}
+
+		return true
+	}), "not all clusters became available")
+
+	// Delete all; reconciler removes them asynchronously.
+	for i := range numClusters {
+		_, err := b.DeleteCluster(fmt.Sprintf("leak%03d", i))
+		require.NoError(t, err)
+	}
+
+	require.True(t, waitFor(t, 3*time.Second, func() bool {
+		return redshift.ClusterCount(b) == 0
+	}), "clusters not fully removed")
+
+	b.Reset()
+	b.StopReconciler()
+	cancel()
+
+	assert.False(t, redshift.ReconcilerRunning(b))
+
+	// StopReconciler joins the goroutine via its WaitGroup, so after it returns
+	// the reconciler goroutine has exited. Confirm the process goroutine count
+	// returns to (at most) the pre-start baseline — no leak.
+	if got := waitForGoroutineCount(base, 2*time.Second); got > base {
+		t.Fatalf("goroutine leak: goroutines=%d baseline=%d", got, base)
+	}
+}
+
+// TestReconciler_StartStopIdempotent verifies double start/stop is safe.
+func TestReconciler_StartStopIdempotent(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	redshift.SetReconcileInterval(b, 5*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	b.StartReconciler(ctx)
+	b.StartReconciler(ctx) // second start is a no-op
+	assert.True(t, redshift.ReconcilerRunning(b))
+
+	b.StopReconciler()
+	b.StopReconciler() // second stop is a no-op
+	assert.False(t, redshift.ReconcilerRunning(b))
+}
+
+// TestReconciler_ContextCancelStops verifies cancelling the context stops the
+// reconciler goroutine (framework-driven shutdown path).
+func TestReconciler_ContextCancelStops(t *testing.T) {
+	t.Parallel()
+
+	base := runtime.NumGoroutine()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	redshift.SetReconcileInterval(b, 5*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	b.StartReconciler(ctx)
+
+	cancel()
+	b.StopReconciler()
+
+	if got := waitForGoroutineCount(base, time.Second); got > base {
+		t.Fatalf("goroutine survived context cancel: goroutines=%d baseline=%d", got, base)
+	}
+}

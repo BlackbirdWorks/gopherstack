@@ -136,3 +136,50 @@ func (b *InMemoryBackend) TagDigest(repositoryName, tag string) string {
 
 	return ""
 }
+
+// RepoImageCount returns the number of images stored for a single repository.
+func (b *InMemoryBackend) RepoImageCount(repositoryName string) int {
+	b.mu.RLock("RepoImageCount")
+	defer b.mu.RUnlock()
+
+	return len(b.images[repositoryName])
+}
+
+// HasImageDigest reports whether an image with the given digest exists in the repo.
+func (b *InMemoryBackend) HasImageDigest(repositoryName, digest string) bool {
+	b.mu.RLock("HasImageDigest")
+	defer b.mu.RUnlock()
+
+	_, ok := b.images[repositoryName][digest]
+
+	return ok
+}
+
+// LifecycleLastEvaluatedForTest returns the recorded lifecycle evaluation time
+// for a repository, or the zero time if none.
+func (b *InMemoryBackend) LifecycleLastEvaluatedForTest(repositoryName string) time.Time {
+	b.mu.RLock("LifecycleLastEvaluatedForTest")
+	defer b.mu.RUnlock()
+
+	return b.lifecycleLastEvaluated[repositoryName]
+}
+
+// SetReplicationSettleDelayForTest sets how long replication is modeled to take.
+// A freshly pushed image reports IN_PROGRESS until this delay elapses.
+func (b *InMemoryBackend) SetReplicationSettleDelayForTest(d time.Duration) {
+	b.mu.Lock("SetReplicationSettleDelayForTest")
+	defer b.mu.Unlock()
+
+	b.replicationSettleDelay = d
+}
+
+// AgeImageForTest backdates an image's ImagePushedAt by d so age-based lifecycle
+// expiry and replication settling can be exercised without real elapsed time.
+func (b *InMemoryBackend) AgeImageForTest(repositoryName, digest string, d time.Duration) {
+	b.mu.Lock("AgeImageForTest")
+	defer b.mu.Unlock()
+
+	if img, ok := b.images[repositoryName][digest]; ok {
+		img.ImagePushedAt = img.ImagePushedAt.Add(-d)
+	}
+}

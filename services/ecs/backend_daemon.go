@@ -2,785 +2,786 @@ package ecs
 
 import (
 	"fmt"
-	"sort"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
-var (
-	// ErrDaemonNotFound is returned when a daemon does not exist.
-	ErrDaemonNotFound = awserr.New("DaemonNotFoundException", awserr.ErrNotFound)
-	// ErrDaemonAlreadyExists is returned when a daemon with the same name exists.
-	ErrDaemonAlreadyExists = awserr.New("DaemonAlreadyExistsException", awserr.ErrAlreadyExists)
-	// ErrDaemonTaskDefinitionNotFound is returned when a daemon task definition does not exist.
-	ErrDaemonTaskDefinitionNotFound = awserr.New(
-		"DaemonTaskDefinitionNotFoundException",
-		awserr.ErrNotFound,
-	)
-	// ErrServiceRevisionNotFound is returned when a service revision does not exist.
-	ErrServiceRevisionNotFound = awserr.New("ServiceRevisionNotFoundException", awserr.ErrNotFound)
+// Daemon status values (types.DaemonStatus only models these two).
+const (
+	daemonStatusActive           = "ACTIVE"
+	daemonStatusDeleteInProgress = "DELETE_IN_PROGRESS"
 )
 
-// Daemon represents an ECS daemon — a task definition that runs one task per
-// container instance in a cluster (similar to a Kubernetes DaemonSet).
+// DaemonTaskDefinition status values (types.DaemonTaskDefinitionStatus).
+const (
+	daemonTaskDefStatusActive           = "ACTIVE"
+	daemonTaskDefStatusDeleteInProgress = "DELETE_IN_PROGRESS"
+	daemonTaskDefStatusDeleted          = "DELETED"
+)
+
+// DaemonDeployment status values (types.DaemonDeploymentStatus).
+const (
+	daemonDeploymentStatusSuccessful = "SUCCESSFUL"
+)
+
+// maxDaemonTaskDefinitionRevisions caps the number of retained revisions per
+// daemon task definition family, mirroring the ordinary task definition cap.
+const maxDaemonTaskDefinitionRevisions = 100
+
+var (
+	// ErrDaemonNotFound is returned when a daemon does not exist. This mirrors
+	// types.DaemonNotFoundException in aws-sdk-go-v2/service/ecs.
+	ErrDaemonNotFound = awserr.New("DaemonNotFoundException", awserr.ErrNotFound)
+	// ErrDaemonNotActive is returned when attempting to update a daemon that is
+	// not ACTIVE. This mirrors types.DaemonNotActiveException.
+	ErrDaemonNotActive = awserr.New("DaemonNotActiveException", awserr.ErrConflict)
+	// ErrDaemonTaskDefinitionNotFound is returned when a daemon task definition
+	// does not exist. Amazon ECS does not model a dedicated NotFound exception
+	// shape for daemon task definitions; it uses the generic ClientException
+	// (mirrors real DescribeTaskDefinition / DeregisterTaskDefinition behavior).
+	ErrDaemonTaskDefinitionNotFound = awserr.New("ClientException", awserr.ErrNotFound)
+	// ErrDaemonAlreadyExists is returned when a daemon with the same name
+	// already exists in the cluster. Amazon ECS does not model a dedicated
+	// AlreadyExists exception for daemons; it uses the generic ResourceInUseException.
+	ErrDaemonAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+)
+
+// DaemonAlarmConfiguration configures CloudWatch alarm-based rollback for a
+// daemon deployment.
+type DaemonAlarmConfiguration struct {
+	AlarmNames []string `json:"alarmNames,omitempty"`
+	Enable     bool     `json:"enable,omitempty"`
+}
+
+// DaemonDeploymentConfiguration controls how a daemon rolls out updates.
+type DaemonDeploymentConfiguration struct {
+	Alarms            *DaemonAlarmConfiguration `json:"alarms,omitempty"`
+	BakeTimeInMinutes int                       `json:"bakeTimeInMinutes,omitempty"`
+	DrainPercent      float64                   `json:"drainPercent,omitempty"`
+}
+
+// Daemon represents an Amazon ECS Managed Daemon.
 type Daemon struct {
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-	DaemonArn      string    `json:"daemonArn"`
-	DaemonName     string    `json:"daemonName"`
-	ClusterArn     string    `json:"clusterArn"`
-	TaskDefinition string    `json:"taskDefinition,omitempty"`
-	Status         string    `json:"status"`
-}
-
-// DaemonTaskDefinition represents a task definition registered for a daemon.
-type DaemonTaskDefinition struct {
-	RegisteredAt            time.Time `json:"registeredAt"`
-	DaemonTaskDefinitionArn string    `json:"daemonTaskDefinitionArn"`
-	DaemonArn               string    `json:"daemonArn"`
-	Family                  string    `json:"family"`
-	TaskDefinitionArn       string    `json:"taskDefinitionArn,omitempty"`
-	Status                  string    `json:"status"`
-	Revision                int       `json:"revision"`
-}
-
-// DaemonDeployment represents a daemon deployment event.
-type DaemonDeployment struct {
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	ID           string    `json:"id"`
-	DaemonArn    string    `json:"daemonArn"`
-	Status       string    `json:"status"`
-	FailedTasks  int       `json:"failedTasks"`
-	PendingTasks int       `json:"pendingTasks"`
-	RunningTasks int       `json:"runningTasks"`
-}
-
-// DaemonRevision is a point-in-time snapshot of a daemon's task definition.
-type DaemonRevision struct {
-	CreatedAt         time.Time `json:"createdAt"`
-	DaemonRevisionArn string    `json:"daemonRevisionArn"`
-	DaemonArn         string    `json:"daemonArn"`
-	TaskDefinitionArn string    `json:"taskDefinitionArn"`
-	Revision          int       `json:"revision"`
-}
-
-// ServiceRevision is a point-in-time snapshot of a service's configuration.
-// Created when a service is created or updated, enabling rollback and audit.
-type ServiceRevision struct {
 	CreatedAt                time.Time                      `json:"createdAt"`
-	NetworkConfiguration     *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
-	DeploymentConfiguration  *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
-	ServiceRevisionArn       string                         `json:"serviceRevisionArn"`
-	ServiceArn               string                         `json:"serviceArn"`
+	UpdatedAt                time.Time                      `json:"updatedAt"`
+	DeploymentConfiguration  *DaemonDeploymentConfiguration `json:"deploymentConfiguration,omitempty"`
+	DeploymentArn            string                         `json:"deploymentArn,omitempty"`
 	ClusterArn               string                         `json:"clusterArn"`
-	TaskDefinition           string                         `json:"taskDefinition"`
-	LaunchType               string                         `json:"launchType,omitempty"`
-	PlatformVersion          string                         `json:"platformVersion,omitempty"`
-	PlatformFamily           string                         `json:"platformFamily,omitempty"`
-	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
-	LoadBalancers            []LoadBalancer                 `json:"loadBalancers,omitempty"`
-	ServiceRegistries        []ServiceRegistry              `json:"serviceRegistries,omitempty"`
+	DaemonTaskDefinitionArn  string                         `json:"daemonTaskDefinitionArn"`
+	DaemonName               string                         `json:"daemonName"`
+	CurrentDaemonRevisionArn string                         `json:"currentDaemonRevisionArn,omitempty"`
+	Status                   string                         `json:"status"`
+	DaemonArn                string                         `json:"daemonArn"`
+	PropagateTags            string                         `json:"propagateTags,omitempty"`
+	CapacityProviderArns     []string                       `json:"capacityProviderArns,omitempty"`
+	Tags                     []Tag                          `json:"tags,omitempty"`
+	EnableECSManagedTags     bool                           `json:"enableECSManagedTags,omitempty"`
+	EnableExecuteCommand     bool                           `json:"enableExecuteCommand,omitempty"`
 }
 
-// AttachmentStateChange represents a single attachment status update from the container agent.
-type AttachmentStateChange struct {
-	AttachmentArn string `json:"attachmentArn"`
-	Status        string `json:"status"`
+// DaemonContainerDefinition is a container definition within a daemon task definition.
+type DaemonContainerDefinition struct {
+	HealthCheck            *HealthCheck           `json:"healthCheck,omitempty"`
+	LogConfiguration       *LogConfiguration      `json:"logConfiguration,omitempty"`
+	RepositoryCredentials  *RepositoryCredentials `json:"repositoryCredentials,omitempty"`
+	FirelensConfiguration  *FirelensConfiguration `json:"firelensConfiguration,omitempty"`
+	Name                   string                 `json:"name"`
+	Image                  string                 `json:"image"`
+	WorkingDirectory       string                 `json:"workingDirectory,omitempty"`
+	User                   string                 `json:"user,omitempty"`
+	Command                []string               `json:"command,omitempty"`
+	EntryPoint             []string               `json:"entryPoint,omitempty"`
+	Environment            []KeyValuePair         `json:"environment,omitempty"`
+	EnvironmentFiles       []EnvironmentFile      `json:"environmentFiles,omitempty"`
+	Secrets                []SecretReference      `json:"secrets,omitempty"`
+	MountPoints            []MountPoint           `json:"mountPoints,omitempty"`
+	DependsOn              []ContainerDependency  `json:"dependsOn,omitempty"`
+	CPU                    int                    `json:"cpu,omitempty"`
+	Memory                 int                    `json:"memory,omitempty"`
+	MemoryReservation      int                    `json:"memoryReservation,omitempty"`
+	StartTimeout           int                    `json:"startTimeout,omitempty"`
+	StopTimeout            int                    `json:"stopTimeout,omitempty"`
+	Essential              bool                   `json:"essential"`
+	Interactive            bool                   `json:"interactive,omitempty"`
+	PseudoTerminal         bool                   `json:"pseudoTerminal,omitempty"`
+	Privileged             bool                   `json:"privileged,omitempty"`
+	ReadonlyRootFilesystem bool                   `json:"readonlyRootFilesystem,omitempty"`
 }
 
-// CreateDaemonInput holds parameters for CreateDaemon.
+// DaemonVolume is a data volume definition for a daemon task.
+type DaemonVolume struct {
+	Host *HostVolumeProperties `json:"host,omitempty"`
+	Name string                `json:"name"`
+}
+
+// DaemonTaskDefinition is a template describing the containers that form a daemon.
+type DaemonTaskDefinition struct {
+	RegisteredAt            time.Time                   `json:"registeredAt"`
+	DeleteRequestedAt       *time.Time                  `json:"deleteRequestedAt,omitempty"`
+	DaemonTaskDefinitionArn string                      `json:"daemonTaskDefinitionArn"`
+	Family                  string                      `json:"family"`
+	CPU                     string                      `json:"cpu,omitempty"`
+	Memory                  string                      `json:"memory,omitempty"`
+	ExecutionRoleArn        string                      `json:"executionRoleArn,omitempty"`
+	TaskRoleArn             string                      `json:"taskRoleArn,omitempty"`
+	RegisteredBy            string                      `json:"registeredBy,omitempty"`
+	Status                  string                      `json:"status"`
+	ContainerDefinitions    []DaemonContainerDefinition `json:"containerDefinitions"`
+	Volumes                 []DaemonVolume              `json:"volumes,omitempty"`
+	Revision                int                         `json:"revision"`
+}
+
+// DaemonDeployment represents the progressive rollout of a daemon change.
+type DaemonDeployment struct {
+	CreatedAt               time.Time                      `json:"createdAt"`
+	StartedAt               *time.Time                     `json:"startedAt,omitempty"`
+	FinishedAt              *time.Time                     `json:"finishedAt,omitempty"`
+	DeploymentConfiguration *DaemonDeploymentConfiguration `json:"deploymentConfiguration,omitempty"`
+	DaemonDeploymentArn     string                         `json:"daemonDeploymentArn"`
+	DaemonArn               string                         `json:"daemonArn"`
+	ClusterArn              string                         `json:"clusterArn"`
+	Status                  string                         `json:"status"`
+	StatusReason            string                         `json:"statusReason,omitempty"`
+	TargetDaemonRevisionArn string                         `json:"targetDaemonRevisionArn,omitempty"`
+}
+
+// DaemonRevision is a snapshot of a daemon's configuration at deployment time.
+type DaemonRevision struct {
+	CreatedAt               time.Time `json:"createdAt"`
+	ClusterArn              string    `json:"clusterArn,omitempty"`
+	DaemonArn               string    `json:"daemonArn"`
+	DaemonRevisionArn       string    `json:"daemonRevisionArn"`
+	DaemonTaskDefinitionArn string    `json:"daemonTaskDefinitionArn"`
+	PropagateTags           string    `json:"propagateTags,omitempty"`
+	EnableECSManagedTags    bool      `json:"enableECSManagedTags"`
+	EnableExecuteCommand    bool      `json:"enableExecuteCommand"`
+}
+
+// CreateDaemonInput holds input for CreateDaemon.
 type CreateDaemonInput struct {
-	ClusterName    string
-	DaemonName     string
-	TaskDefinition string
+	DeploymentConfiguration *DaemonDeploymentConfiguration
+	DaemonName              string
+	ClusterArn              string
+	DaemonTaskDefinitionArn string
+	PropagateTags           string
+	CapacityProviderArns    []string
+	Tags                    []Tag
+	EnableECSManagedTags    bool
+	EnableExecuteCommand    bool
 }
 
-// UpdateDaemonInput holds parameters for UpdateDaemon.
+// UpdateDaemonInput holds input for UpdateDaemon.
 type UpdateDaemonInput struct {
-	ClusterName    string
-	DaemonName     string
-	TaskDefinition string
+	DeploymentConfiguration *DaemonDeploymentConfiguration
+	DaemonArn               string
+	DaemonTaskDefinitionArn string
+	PropagateTags           string
+	CapacityProviderArns    []string
+	EnableECSManagedTags    bool
+	EnableExecuteCommand    bool
 }
 
-// RegisterDaemonTaskDefinitionInput holds parameters for RegisterDaemonTaskDefinition.
+// RegisterDaemonTaskDefinitionInput holds input for RegisterDaemonTaskDefinition.
 type RegisterDaemonTaskDefinitionInput struct {
-	DaemonName        string
-	Family            string
-	TaskDefinitionArn string
+	Family               string
+	CPU                  string
+	Memory               string
+	ExecutionRoleArn     string
+	TaskRoleArn          string
+	ContainerDefinitions []DaemonContainerDefinition
+	Volumes              []DaemonVolume
+	Tags                 []Tag
 }
 
-// SubmitTaskStateChangeInput holds parameters from the container agent.
-type SubmitTaskStateChangeInput struct {
-	PullStartedAt      *time.Time
-	PullStoppedAt      *time.Time
-	ExecutionStoppedAt *time.Time
-	Cluster            string
-	Task               string
-	Status             string
-	Reason             string
+// daemonARN builds the ARN for a daemon within a cluster.
+func (b *InMemoryBackend) daemonARN(clusterName, daemonName string) string {
+	return fmt.Sprintf("arn:aws:ecs:%s:%s:daemon/%s/%s", b.region, b.accountID, clusterName, daemonName)
 }
 
-// SubmitContainerStateChangeInput holds parameters from the container agent.
-type SubmitContainerStateChangeInput struct {
-	ExitCode      *int
-	Cluster       string
-	Task          string
-	ContainerName string
-	RuntimeID     string
-	Status        string
-	Reason        string
+// daemonTaskDefinitionARN builds the ARN for a daemon task definition revision.
+func (b *InMemoryBackend) daemonTaskDefinitionARN(family string, revision int) string {
+	return fmt.Sprintf(
+		"arn:aws:ecs:%s:%s:daemon-task-definition/%s:%d", b.region, b.accountID, family, revision,
+	)
 }
 
-// GetRegion returns the AWS region this backend is configured for.
-func (b *InMemoryBackend) GetRegion() string {
-	return b.region
+// daemonDeploymentARN builds the ARN for a daemon deployment.
+func (b *InMemoryBackend) daemonDeploymentARN(clusterName, daemonName string) string {
+	return fmt.Sprintf(
+		"arn:aws:ecs:%s:%s:daemon-deployment/%s/%s/%s",
+		b.region, b.accountID, clusterName, daemonName, uuid.NewString(),
+	)
 }
 
-// ---- Daemon CRUD ----
+// daemonRevisionARN builds the ARN for a daemon revision.
+func (b *InMemoryBackend) daemonRevisionARN(clusterName, daemonName string) string {
+	return fmt.Sprintf(
+		"arn:aws:ecs:%s:%s:daemon-revision/%s/%s/%s",
+		b.region, b.accountID, clusterName, daemonName, uuid.NewString(),
+	)
+}
 
-// CreateDaemon creates a new ECS daemon in the given cluster.
+// parseDaemonArn extracts the cluster name and daemon name embedded in a
+// daemon ARN of the form "arn:aws:ecs:region:account:daemon/clusterName/daemonName".
+// Used so daemons can be looked up in the cluster-scoped b.daemons index (see
+// InMemoryBackend.daemons in backend.go, and purge.go's purgeDaemonsLocked,
+// which cleans up that index per-cluster) in O(1) from a bare ARN.
+func parseDaemonArn(daemonArn string) (string, string, bool) {
+	const marker = ":daemon/"
+
+	_, rest, found := strings.Cut(daemonArn, marker)
+	if !found {
+		return "", "", false
+	}
+
+	clusterName, daemonName, found := strings.Cut(rest, "/")
+	if !found || clusterName == "" || daemonName == "" {
+		return "", "", false
+	}
+
+	return clusterName, daemonName, true
+}
+
+// findDaemonLocked resolves a daemon by ARN. Must be called with the lock held.
+func (b *InMemoryBackend) findDaemonLocked(daemonArn string) (*Daemon, error) {
+	clusterName, daemonName, ok := parseDaemonArn(daemonArn)
+	if ok {
+		if d, exists := b.daemons[clusterName][daemonName]; exists {
+			return d, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, daemonArn)
+}
+
+// createDaemonRevisionLocked snapshots the daemon's current configuration into
+// a new DaemonRevision and returns it. Must be called with the lock held.
+func (b *InMemoryBackend) createDaemonRevisionLocked(clusterName string, d *Daemon) *DaemonRevision {
+	rev := &DaemonRevision{
+		CreatedAt:               time.Now(),
+		ClusterArn:              d.ClusterArn,
+		DaemonArn:               d.DaemonArn,
+		DaemonRevisionArn:       b.daemonRevisionARN(clusterName, d.DaemonName),
+		DaemonTaskDefinitionArn: d.DaemonTaskDefinitionArn,
+		PropagateTags:           d.PropagateTags,
+		EnableECSManagedTags:    d.EnableECSManagedTags,
+		EnableExecuteCommand:    d.EnableExecuteCommand,
+	}
+
+	b.daemonRevisions[rev.DaemonRevisionArn] = rev
+
+	return rev
+}
+
+// createDaemonDeploymentLocked creates a new daemon deployment record targeting
+// the given daemon revision. Since this emulator has no real container-instance
+// draining infrastructure, deployments complete synchronously as SUCCESSFUL.
+// Must be called with the lock held.
+func (b *InMemoryBackend) createDaemonDeploymentLocked(
+	clusterName string, d *Daemon, rev *DaemonRevision,
+) *DaemonDeployment {
+	now := time.Now()
+
+	dep := &DaemonDeployment{
+		CreatedAt:               now,
+		StartedAt:               &now,
+		FinishedAt:              &now,
+		DaemonDeploymentArn:     b.daemonDeploymentARN(clusterName, d.DaemonName),
+		DaemonArn:               d.DaemonArn,
+		ClusterArn:              d.ClusterArn,
+		Status:                  daemonDeploymentStatusSuccessful,
+		TargetDaemonRevisionArn: rev.DaemonRevisionArn,
+		DeploymentConfiguration: d.DeploymentConfiguration,
+	}
+
+	b.daemonDeployments[dep.DaemonDeploymentArn] = dep
+
+	return dep
+}
+
+// CreateDaemon creates a new daemon and its initial deployment.
 func (b *InMemoryBackend) CreateDaemon(input CreateDaemonInput) (*Daemon, error) {
 	if input.DaemonName == "" {
 		return nil, fmt.Errorf("%w: daemonName is required", ErrInvalidParameter)
 	}
-	if input.ClusterName == "" {
-		return nil, fmt.Errorf("%w: cluster is required", ErrInvalidParameter)
+
+	if input.DaemonTaskDefinitionArn == "" {
+		return nil, fmt.Errorf("%w: daemonTaskDefinitionArn is required", ErrInvalidParameter)
 	}
 
-	clusterName := clusterKey(b.resolveCluster(input.ClusterName))
+	if len(input.CapacityProviderArns) == 0 {
+		return nil, fmt.Errorf("%w: capacityProviderArns is required", ErrInvalidParameter)
+	}
+
+	clusterName := clusterKey(b.resolveCluster(input.ClusterArn))
 
 	b.mu.Lock("CreateDaemon")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.ClusterName)
+	if _, err := b.findDaemonTaskDefinitionLocked(input.DaemonTaskDefinitionArn); err != nil {
+		return nil, err
 	}
+
+	daemonArn := b.daemonARN(clusterName, input.DaemonName)
+	if _, ok := b.daemons[clusterName][input.DaemonName]; ok {
+		return nil, fmt.Errorf("%w: %s", ErrDaemonAlreadyExists, input.DaemonName)
+	}
+
+	now := time.Now()
+
+	d := &Daemon{
+		CreatedAt:               now,
+		UpdatedAt:               now,
+		DaemonArn:               daemonArn,
+		DaemonName:              input.DaemonName,
+		ClusterArn:              fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
+		DaemonTaskDefinitionArn: input.DaemonTaskDefinitionArn,
+		Status:                  daemonStatusActive,
+		CapacityProviderArns:    input.CapacityProviderArns,
+		DeploymentConfiguration: input.DeploymentConfiguration,
+		PropagateTags:           input.PropagateTags,
+		EnableECSManagedTags:    input.EnableECSManagedTags,
+		EnableExecuteCommand:    input.EnableExecuteCommand,
+		Tags:                    copyTags(input.Tags),
+	}
+
+	rev := b.createDaemonRevisionLocked(clusterName, d)
+	dep := b.createDaemonDeploymentLocked(clusterName, d, rev)
+	d.DeploymentArn = dep.DaemonDeploymentArn
+	d.CurrentDaemonRevisionArn = rev.DaemonRevisionArn
 
 	if b.daemons[clusterName] == nil {
 		b.daemons[clusterName] = make(map[string]*Daemon)
 	}
 
-	if _, exists := b.daemons[clusterName][input.DaemonName]; exists {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonAlreadyExists, input.DaemonName)
-	}
-
-	clusterArn := b.clusters[clusterName].ClusterArn
-	daemonArn := arn.Build(
-		"ecs",
-		b.region,
-		b.accountID,
-		fmt.Sprintf("daemon/%s/%s", clusterName, input.DaemonName),
-	)
-	now := time.Now()
-
-	d := &Daemon{
-		DaemonArn:      daemonArn,
-		DaemonName:     input.DaemonName,
-		ClusterArn:     clusterArn,
-		TaskDefinition: input.TaskDefinition,
-		Status:         statusActive,
-		CreatedAt:      now,
-		UpdatedAt:      now,
-	}
-
 	b.daemons[clusterName][input.DaemonName] = d
 
-	// Create initial deployment for the new daemon.
-	dep := b.newDaemonDeploymentLocked(daemonArn, clusterName)
-	b.daemonDeployments[dep.ID] = dep
+	out := *d
+	out.Tags = copyTags(d.Tags)
 
-	cp := *d
-
-	return &cp, nil
+	return &out, nil
 }
 
-// DeleteDaemon removes a daemon from the cluster.
-func (b *InMemoryBackend) DeleteDaemon(clusterName, daemonName string) (*Daemon, error) {
-	key := clusterKey(b.resolveCluster(clusterName))
-
+// DeleteDaemon deletes a daemon. The returned snapshot reflects the
+// DELETE_IN_PROGRESS transitional status returned synchronously by real AWS.
+func (b *InMemoryBackend) DeleteDaemon(daemonArn string) (*Daemon, error) {
 	b.mu.Lock("DeleteDaemon")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[key]; !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
+	d, err := b.findDaemonLocked(daemonArn)
+	if err != nil {
+		return nil, err
 	}
 
-	d, ok := b.daemons[key][daemonName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, daemonName)
+	out := *d
+	out.Status = daemonStatusDeleteInProgress
+	out.UpdatedAt = time.Now()
+
+	clusterName, daemonName, ok := parseDaemonArn(daemonArn)
+	if ok {
+		delete(b.daemons[clusterName], daemonName)
+
+		if len(b.daemons[clusterName]) == 0 {
+			delete(b.daemons, clusterName)
+		}
 	}
 
-	delete(b.daemons[key], daemonName)
-	delete(b.daemonTaskDefs, d.DaemonArn)
-	delete(b.daemonRevisions, d.DaemonArn)
-
-	cp := *d
-	cp.Status = statusInactive
-
-	return &cp, nil
+	return &out, nil
 }
 
-// DescribeDaemon returns a single daemon by name.
-func (b *InMemoryBackend) DescribeDaemon(clusterName, daemonName string) (*Daemon, error) {
-	key := clusterKey(b.resolveCluster(clusterName))
-
+// DescribeDaemon returns the full detail of a daemon.
+func (b *InMemoryBackend) DescribeDaemon(daemonArn string) (*Daemon, error) {
 	b.mu.RLock("DescribeDaemon")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[key]; !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
+	d, err := b.findDaemonLocked(daemonArn)
+	if err != nil {
+		return nil, err
 	}
 
-	d, ok := b.daemons[key][daemonName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, daemonName)
-	}
+	out := *d
+	out.Tags = copyTags(d.Tags)
 
-	cp := *d
-
-	return &cp, nil
+	return &out, nil
 }
 
-// ListDaemons returns all daemons in the cluster.
-func (b *InMemoryBackend) ListDaemons(clusterName string) ([]Daemon, error) {
-	key := clusterKey(b.resolveCluster(clusterName))
-
-	b.mu.RLock("ListDaemons")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.clusters[key]; !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
-	}
-
-	out := make([]Daemon, 0, len(b.daemons[key]))
-	for _, d := range b.daemons[key] {
-		out = append(out, *d)
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].DaemonName < out[j].DaemonName
-	})
-
-	return out, nil
-}
-
-// UpdateDaemon updates a daemon's task definition.
+// UpdateDaemon updates a daemon's configuration and triggers a new deployment.
 func (b *InMemoryBackend) UpdateDaemon(input UpdateDaemonInput) (*Daemon, error) {
-	if input.DaemonName == "" {
-		return nil, fmt.Errorf("%w: daemonName is required", ErrInvalidParameter)
+	if input.DaemonTaskDefinitionArn == "" {
+		return nil, fmt.Errorf("%w: daemonTaskDefinitionArn is required", ErrInvalidParameter)
 	}
 
-	key := clusterKey(b.resolveCluster(input.ClusterName))
+	if len(input.CapacityProviderArns) == 0 {
+		return nil, fmt.Errorf("%w: capacityProviderArns is required", ErrInvalidParameter)
+	}
 
 	b.mu.Lock("UpdateDaemon")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[key]; !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.ClusterName)
+	d, err := b.findDaemonLocked(input.DaemonArn)
+	if err != nil {
+		return nil, err
 	}
 
-	d, ok := b.daemons[key][input.DaemonName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, input.DaemonName)
+	if d.Status != daemonStatusActive {
+		return nil, fmt.Errorf("%w: %s", ErrDaemonNotActive, input.DaemonArn)
 	}
 
-	d.TaskDefinition = input.TaskDefinition
+	if _, tdErr := b.findDaemonTaskDefinitionLocked(input.DaemonTaskDefinitionArn); tdErr != nil {
+		return nil, tdErr
+	}
+
+	d.DaemonTaskDefinitionArn = input.DaemonTaskDefinitionArn
+	d.CapacityProviderArns = input.CapacityProviderArns
+	d.DeploymentConfiguration = input.DeploymentConfiguration
+	d.PropagateTags = input.PropagateTags
+	d.EnableECSManagedTags = input.EnableECSManagedTags
+	d.EnableExecuteCommand = input.EnableExecuteCommand
 	d.UpdatedAt = time.Now()
 
-	// Create a new deployment for the update.
-	dep := b.newDaemonDeploymentLocked(d.DaemonArn, key)
-	b.daemonDeployments[dep.ID] = dep
+	clusterName := clusterKey(b.resolveCluster(d.ClusterArn))
+	rev := b.createDaemonRevisionLocked(clusterName, d)
+	dep := b.createDaemonDeploymentLocked(clusterName, d, rev)
+	d.DeploymentArn = dep.DaemonDeploymentArn
+	d.CurrentDaemonRevisionArn = rev.DaemonRevisionArn
 
-	cp := *d
+	out := *d
+	out.Tags = copyTags(d.Tags)
 
-	return &cp, nil
+	return &out, nil
 }
 
-// ---- Daemon task definitions ----
+// ListDaemonsInput holds optional filters for ListDaemons.
+type ListDaemonsInput struct {
+	ClusterArn           string
+	CapacityProviderArns []string
+}
 
-// RegisterDaemonTaskDefinition registers a task definition for a daemon.
+// ListDaemons returns daemons, optionally filtered by cluster or capacity provider.
+func (b *InMemoryBackend) ListDaemons(input ListDaemonsInput) ([]Daemon, error) {
+	b.mu.RLock("ListDaemons")
+	defer b.mu.RUnlock()
+
+	wantCluster := ""
+	if input.ClusterArn != "" {
+		wantCluster = fmt.Sprintf(
+			"arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterKey(input.ClusterArn),
+		)
+	}
+
+	wantCP := make(map[string]bool, len(input.CapacityProviderArns))
+	for _, cp := range input.CapacityProviderArns {
+		wantCP[cp] = true
+	}
+
+	out := make([]Daemon, 0, len(b.daemons))
+
+	for _, clusterDaemons := range b.daemons {
+		for _, d := range clusterDaemons {
+			if wantCluster != "" && d.ClusterArn != wantCluster {
+				continue
+			}
+
+			if len(wantCP) > 0 && !daemonHasAnyCapacityProvider(d, wantCP) {
+				continue
+			}
+
+			out = append(out, *d)
+		}
+	}
+
+	return out, nil
+}
+
+// daemonHasAnyCapacityProvider reports whether d is associated with at least
+// one of the capacity providers in want.
+func daemonHasAnyCapacityProvider(d *Daemon, want map[string]bool) bool {
+	for _, cp := range d.CapacityProviderArns {
+		if want[cp] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// findDaemonTaskDefinitionLocked resolves a daemon task definition by family
+// (latest ACTIVE revision), "family:revision", or full ARN. Must be called
+// with the lock held.
+func (b *InMemoryBackend) findDaemonTaskDefinitionLocked(familyOrArn string) (*DaemonTaskDefinition, error) {
+	if revs, ok := b.daemonTaskDefinitions[familyOrArn]; ok {
+		for i := range slices.Backward(revs) {
+			if revs[i].Status == daemonTaskDefStatusActive {
+				cp := *revs[i]
+
+				return &cp, nil
+			}
+		}
+	}
+
+	if td, ok := b.daemonTaskDefByArn[familyOrArn]; ok {
+		cp := *td
+
+		return &cp, nil
+	}
+
+	if idx := strings.LastIndex(familyOrArn, ":"); idx > 0 {
+		family := familyOrArn[:idx]
+
+		revNum, err := strconv.Atoi(familyOrArn[idx+1:])
+		if err == nil {
+			for _, td := range b.daemonTaskDefinitions[family] {
+				if td.Revision == revNum {
+					cp := *td
+
+					return &cp, nil
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrDaemonTaskDefinitionNotFound, familyOrArn)
+}
+
+// RegisterDaemonTaskDefinition registers a new daemon task definition revision.
 func (b *InMemoryBackend) RegisterDaemonTaskDefinition(
 	input RegisterDaemonTaskDefinitionInput,
 ) (*DaemonTaskDefinition, error) {
-	if input.DaemonName == "" {
-		return nil, fmt.Errorf("%w: daemon is required", ErrInvalidParameter)
+	if input.Family == "" {
+		return nil, fmt.Errorf("%w: family is required", ErrInvalidParameter)
+	}
+
+	if len(input.ContainerDefinitions) == 0 {
+		return nil, fmt.Errorf("%w: containerDefinitions is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("RegisterDaemonTaskDefinition")
 	defer b.mu.Unlock()
 
-	daemonArn := b.resolveDaemonArnLocked(input.DaemonName)
-	if daemonArn == "" {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, input.DaemonName)
-	}
+	revisions := b.daemonTaskDefinitions[input.Family]
 
-	revisions := b.daemonTaskDefs[daemonArn]
 	revision := 1
 	if len(revisions) > 0 {
 		revision = revisions[len(revisions)-1].Revision + 1
 	}
 
-	family := input.Family
-	if family == "" {
-		family = input.DaemonName
-	}
-
-	defArn := fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:daemon-task-definition/%s:%d",
-		b.region, b.accountID, family, revision,
-	)
-
-	def := &DaemonTaskDefinition{
+	td := &DaemonTaskDefinition{
 		RegisteredAt:            time.Now(),
-		DaemonTaskDefinitionArn: defArn,
-		DaemonArn:               daemonArn,
-		Family:                  family,
-		TaskDefinitionArn:       input.TaskDefinitionArn,
-		Status:                  statusActive,
+		DaemonTaskDefinitionArn: b.daemonTaskDefinitionARN(input.Family, revision),
+		Family:                  input.Family,
+		CPU:                     input.CPU,
+		Memory:                  input.Memory,
+		ExecutionRoleArn:        input.ExecutionRoleArn,
+		TaskRoleArn:             input.TaskRoleArn,
+		Status:                  daemonTaskDefStatusActive,
+		ContainerDefinitions:    input.ContainerDefinitions,
+		Volumes:                 input.Volumes,
 		Revision:                revision,
 	}
 
-	b.daemonTaskDefs[daemonArn] = append(revisions, def)
+	revisions = append(revisions, td)
 
-	// Record the revision snapshot.
-	rev := &DaemonRevision{
-		CreatedAt: def.RegisteredAt,
-		DaemonRevisionArn: fmt.Sprintf(
-			"arn:aws:ecs:%s:%s:daemon-revision/%s/%d",
-			b.region,
-			b.accountID,
-			input.DaemonName,
-			revision,
-		),
-		DaemonArn:         daemonArn,
-		TaskDefinitionArn: input.TaskDefinitionArn,
-		Revision:          revision,
+	if len(revisions) > maxDaemonTaskDefinitionRevisions {
+		excess := len(revisions) - maxDaemonTaskDefinitionRevisions
+
+		for _, evicted := range revisions[:excess] {
+			delete(b.daemonTaskDefByArn, evicted.DaemonTaskDefinitionArn)
+		}
+
+		revisions = revisions[excess:]
 	}
-	b.daemonRevisions[daemonArn] = append(b.daemonRevisions[daemonArn], rev)
 
-	cp := *def
+	b.daemonTaskDefinitions[input.Family] = revisions
+	b.daemonTaskDefByArn[td.DaemonTaskDefinitionArn] = td
+
+	if len(input.Tags) > 0 {
+		copied := make([]Tag, len(input.Tags))
+		copy(copied, input.Tags)
+		b.resourceTags[resourceTagKey(td.DaemonTaskDefinitionArn)] = copied
+	}
+
+	cp := *td
 
 	return &cp, nil
 }
 
-// DescribeDaemonTaskDefinition returns the latest task definition for a daemon.
-func (b *InMemoryBackend) DescribeDaemonTaskDefinition(
-	daemonName string,
-) (*DaemonTaskDefinition, error) {
+// DescribeDaemonTaskDefinition returns a daemon task definition by family, ARN, or family:revision.
+func (b *InMemoryBackend) DescribeDaemonTaskDefinition(familyOrArn string) (*DaemonTaskDefinition, error) {
 	b.mu.RLock("DescribeDaemonTaskDefinition")
 	defer b.mu.RUnlock()
 
-	daemonArn := b.resolveDaemonArnLocked(daemonName)
-	if daemonArn == "" {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, daemonName)
-	}
-
-	revisions := b.daemonTaskDefs[daemonArn]
-	if len(revisions) == 0 {
-		return nil, fmt.Errorf(
-			"%w: no task definition registered for daemon %s",
-			ErrDaemonTaskDefinitionNotFound,
-			daemonName,
-		)
-	}
-
-	cp := *revisions[len(revisions)-1]
-
-	return &cp, nil
+	return b.findDaemonTaskDefinitionLocked(familyOrArn)
 }
 
-// ListDaemonTaskDefinitions returns all registered task definitions for a daemon.
+// DeleteDaemonTaskDefinition marks a daemon task definition revision as DELETED.
+func (b *InMemoryBackend) DeleteDaemonTaskDefinition(familyOrArn string) (*DaemonTaskDefinition, error) {
+	b.mu.Lock("DeleteDaemonTaskDefinition")
+	defer b.mu.Unlock()
+
+	td, err := b.findDaemonTaskDefinitionLocked(familyOrArn)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, revs := range b.daemonTaskDefinitions {
+		for _, r := range revs {
+			if r.DaemonTaskDefinitionArn == td.DaemonTaskDefinitionArn {
+				now := time.Now()
+				r.Status = daemonTaskDefStatusDeleted
+				r.DeleteRequestedAt = &now
+				cp := *r
+
+				return &cp, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrDaemonTaskDefinitionNotFound, familyOrArn)
+}
+
+// ListDaemonTaskDefinitionsInput holds optional filters for ListDaemonTaskDefinitions.
+type ListDaemonTaskDefinitionsInput struct {
+	Family       string
+	FamilyPrefix string
+	Status       string // "", "ACTIVE" (default), "DELETE_IN_PROGRESS", or "ALL"
+}
+
+// ListDaemonTaskDefinitions returns daemon task definition summaries, newest first per family.
 func (b *InMemoryBackend) ListDaemonTaskDefinitions(
-	daemonName string,
+	input ListDaemonTaskDefinitionsInput,
 ) ([]DaemonTaskDefinition, error) {
 	b.mu.RLock("ListDaemonTaskDefinitions")
 	defer b.mu.RUnlock()
 
-	daemonArn := b.resolveDaemonArnLocked(daemonName)
-	if daemonArn == "" {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, daemonName)
+	wantStatus := strings.ToUpper(input.Status)
+	if wantStatus == "" {
+		wantStatus = daemonTaskDefStatusActive
 	}
 
-	revisions := b.daemonTaskDefs[daemonArn]
-	out := make([]DaemonTaskDefinition, 0, len(revisions))
-	for _, r := range revisions {
-		out = append(out, *r)
+	out := make([]DaemonTaskDefinition, 0, len(b.daemonTaskDefinitions))
+
+	for family, revs := range b.daemonTaskDefinitions {
+		if input.Family != "" && family != input.Family {
+			continue
+		}
+
+		if input.FamilyPrefix != "" && !strings.HasPrefix(family, input.FamilyPrefix) {
+			continue
+		}
+
+		for _, td := range revs {
+			if wantStatus != "ALL" && td.Status != wantStatus {
+				continue
+			}
+
+			out = append(out, *td)
+		}
 	}
 
 	return out, nil
 }
 
-// DeleteDaemonTaskDefinition deregisters a daemon task definition by ARN.
-func (b *InMemoryBackend) DeleteDaemonTaskDefinition(daemonTaskDefinitionArn string) error {
-	b.mu.Lock("DeleteDaemonTaskDefinition")
-	defer b.mu.Unlock()
-
-	for daemonArn, revisions := range b.daemonTaskDefs {
-		kept := revisions[:0]
-		found := false
-		for _, r := range revisions {
-			if r.DaemonTaskDefinitionArn == daemonTaskDefinitionArn {
-				found = true
-			} else {
-				kept = append(kept, r)
-			}
-		}
-		if found {
-			if len(kept) == 0 {
-				delete(b.daemonTaskDefs, daemonArn)
-			} else {
-				b.daemonTaskDefs[daemonArn] = kept
-			}
-
-			return nil
-		}
-	}
-
-	return fmt.Errorf("%w: %s", ErrDaemonTaskDefinitionNotFound, daemonTaskDefinitionArn)
-}
-
-// ---- Daemon deployments ----
-
-// DescribeDaemonDeployments returns deployments for a daemon, optionally filtered by IDs.
-func (b *InMemoryBackend) DescribeDaemonDeployments(
-	daemonArn string,
-	deploymentIDs []string,
-) ([]DaemonDeployment, error) {
+// DescribeDaemonDeployments returns daemon deployments for the given ARNs,
+// reporting a Failure for each ARN that does not exist.
+func (b *InMemoryBackend) DescribeDaemonDeployments(arns []string) ([]DaemonDeployment, []Failure, error) {
 	b.mu.RLock("DescribeDaemonDeployments")
 	defer b.mu.RUnlock()
 
-	var out []DaemonDeployment
+	out := make([]DaemonDeployment, 0, len(arns))
+	failures := make([]Failure, 0, len(arns))
 
-	if len(deploymentIDs) > 0 {
-		for _, id := range deploymentIDs {
-			dep, ok := b.daemonDeployments[id]
-			if ok && dep.DaemonArn == daemonArn {
-				out = append(out, *dep)
-			}
-		}
-	} else {
-		for _, dep := range b.daemonDeployments {
-			if dep.DaemonArn == daemonArn {
-				out = append(out, *dep)
-			}
-		}
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].CreatedAt.After(out[j].CreatedAt)
-	})
-
-	return out, nil
-}
-
-// ListDaemonDeployments returns deployment IDs for a daemon in a cluster.
-func (b *InMemoryBackend) ListDaemonDeployments(clusterName, daemonName string) ([]string, error) {
-	key := clusterKey(b.resolveCluster(clusterName))
-
-	b.mu.RLock("ListDaemonDeployments")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.clusters[key]; !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
-	}
-
-	d, ok := b.daemons[key][daemonName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, daemonName)
-	}
-
-	var ids []string
-	for id, dep := range b.daemonDeployments {
-		if dep.DaemonArn == d.DaemonArn {
-			ids = append(ids, id)
-		}
-	}
-
-	sort.Strings(ids)
-
-	return ids, nil
-}
-
-// DescribeDaemonRevisions returns revision snapshots for a daemon.
-func (b *InMemoryBackend) DescribeDaemonRevisions(
-	daemonName string,
-	revisionNums []int,
-) ([]DaemonRevision, error) {
-	b.mu.RLock("DescribeDaemonRevisions")
-	defer b.mu.RUnlock()
-
-	daemonArn := b.resolveDaemonArnLocked(daemonName)
-	if daemonArn == "" {
-		return nil, fmt.Errorf("%w: %s", ErrDaemonNotFound, daemonName)
-	}
-
-	all := b.daemonRevisions[daemonArn]
-
-	if len(revisionNums) == 0 {
-		out := make([]DaemonRevision, 0, len(all))
-		for _, r := range all {
-			out = append(out, *r)
-		}
-
-		return out, nil
-	}
-
-	set := make(map[int]bool, len(revisionNums))
-	for _, n := range revisionNums {
-		set[n] = true
-	}
-
-	var out []DaemonRevision
-	for _, r := range all {
-		if set[r.Revision] {
-			out = append(out, *r)
-		}
-	}
-
-	return out, nil
-}
-
-// ---- Service revisions ----
-
-// DescribeServiceRevisions returns service revisions by their ARNs.
-func (b *InMemoryBackend) DescribeServiceRevisions(
-	serviceRevisionArns []string,
-) ([]ServiceRevision, []Failure, error) {
-	b.mu.RLock("DescribeServiceRevisions")
-	defer b.mu.RUnlock()
-
-	out := make([]ServiceRevision, 0, len(serviceRevisionArns))
-	failures := make([]Failure, 0)
-
-	for _, revArn := range serviceRevisionArns {
-		rev, ok := b.serviceRevisionsByArn[revArn]
+	for _, arn := range arns {
+		dep, ok := b.daemonDeployments[arn]
 		if !ok {
 			failures = append(failures, Failure{
-				Arn:    revArn,
+				Arn:    arn,
 				Reason: statusMissing,
-				Detail: fmt.Sprintf("service revision %s not found", revArn),
+				Detail: fmt.Sprintf("daemon deployment %s not found", arn),
 			})
 
 			continue
 		}
+
+		out = append(out, *dep)
+	}
+
+	return out, failures, nil
+}
+
+// DescribeDaemonRevisions returns daemon revisions for the given ARNs,
+// reporting a Failure for each ARN that does not exist.
+func (b *InMemoryBackend) DescribeDaemonRevisions(arns []string) ([]DaemonRevision, []Failure, error) {
+	b.mu.RLock("DescribeDaemonRevisions")
+	defer b.mu.RUnlock()
+
+	out := make([]DaemonRevision, 0, len(arns))
+	failures := make([]Failure, 0, len(arns))
+
+	for _, arn := range arns {
+		rev, ok := b.daemonRevisions[arn]
+		if !ok {
+			failures = append(failures, Failure{
+				Arn:    arn,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("daemon revision %s not found", arn),
+			})
+
+			continue
+		}
+
 		out = append(out, *rev)
 	}
 
 	return out, failures, nil
 }
 
-// addServiceRevisionLocked records a new service revision snapshot.
-// Must be called with write lock held.
-func (b *InMemoryBackend) addServiceRevisionLocked(svc *Service) {
-	revisions := b.serviceRevisions[svc.ServiceArn]
-	revisionNum := len(revisions) + 1
-
-	// Extract cluster name from cluster ARN for the revision ARN.
-	clusterName := clusterKey(svc.ClusterArn)
-
-	revArn := fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:service-revision/%s/%s/%d",
-		b.region, b.accountID, clusterName, svc.ServiceName, revisionNum,
-	)
-
-	rev := &ServiceRevision{
-		CreatedAt:                time.Now(),
-		ServiceRevisionArn:       revArn,
-		ServiceArn:               svc.ServiceArn,
-		ClusterArn:               svc.ClusterArn,
-		TaskDefinition:           svc.TaskDefinition,
-		LaunchType:               svc.LaunchType,
-		NetworkConfiguration:     svc.NetworkConfiguration,
-		DeploymentConfiguration:  svc.DeploymentConfiguration,
-		CapacityProviderStrategy: svc.CapacityProviderStrategy,
-		LoadBalancers:            svc.LoadBalancers,
-		ServiceRegistries:        svc.ServiceRegistries,
-	}
-
-	b.serviceRevisions[svc.ServiceArn] = append(revisions, rev)
-	b.serviceRevisionsByArn[revArn] = rev
+// ListDaemonDeploymentsInput holds filters for ListDaemonDeployments.
+type ListDaemonDeploymentsInput struct {
+	DaemonArn string
+	Status    []string
 }
 
-// ---- Submit state changes ----
+// ListDaemonDeployments returns deployment summaries for a daemon, optionally
+// filtered by status.
+func (b *InMemoryBackend) ListDaemonDeployments(input ListDaemonDeploymentsInput) ([]DaemonDeployment, error) {
+	b.mu.RLock("ListDaemonDeployments")
+	defer b.mu.RUnlock()
 
-// SubmitTaskStateChange processes a task state change from the container agent.
-// Validates that the cluster and task exist, then updates the task status.
-func (b *InMemoryBackend) SubmitTaskStateChange(input SubmitTaskStateChangeInput) error {
-	clusterName := clusterKey(b.resolveCluster(input.Cluster))
-
-	b.mu.Lock("SubmitTaskStateChange")
-	defer b.mu.Unlock()
-
-	if _, ok := b.clusters[clusterName]; !ok {
-		return fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
+	wantStatus := make(map[string]bool, len(input.Status))
+	for _, s := range input.Status {
+		wantStatus[strings.ToUpper(s)] = true
 	}
 
-	task, ok := b.tasks[clusterName][input.Task]
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrTaskNotFound, input.Task)
-	}
+	out := make([]DaemonDeployment, 0, len(b.daemonDeployments))
 
-	if input.Status != "" {
-		task.LastStatus = strings.ToUpper(input.Status)
-		if input.Status == statusStopped {
-			now := time.Now()
-			task.DesiredStatus = statusStopped
-			task.StoppedAt = &now
-			if input.Reason != "" {
-				task.StoppedReason = input.Reason
-			}
-		}
-	}
-
-	if input.PullStartedAt != nil {
-		task.ConnectivityAt = input.PullStartedAt
-	}
-
-	return nil
-}
-
-// SubmitContainerStateChange processes a container state change from the container agent.
-// Validates cluster and task exist, then updates the matching container's status.
-func (b *InMemoryBackend) SubmitContainerStateChange(input SubmitContainerStateChangeInput) error {
-	clusterName := clusterKey(b.resolveCluster(input.Cluster))
-
-	b.mu.Lock("SubmitContainerStateChange")
-	defer b.mu.Unlock()
-
-	if _, ok := b.clusters[clusterName]; !ok {
-		return fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
-	}
-
-	task, ok := b.tasks[clusterName][input.Task]
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrTaskNotFound, input.Task)
-	}
-
-	for i := range task.Containers {
-		if task.Containers[i].Name == input.ContainerName {
-			if input.Status != "" {
-				task.Containers[i].LastStatus = strings.ToUpper(input.Status)
-			}
-			if input.RuntimeID != "" {
-				task.Containers[i].RuntimeID = input.RuntimeID
-			}
-			if input.ExitCode != nil {
-				task.Containers[i].ExitCode = input.ExitCode
-			}
-			if input.Reason != "" {
-				task.Containers[i].Reason = input.Reason
-			}
-
-			return nil
-		}
-	}
-
-	return nil
-}
-
-// SubmitAttachmentStateChanges processes attachment state changes from the container agent.
-// Validates the cluster exists, then updates matching task attachment statuses.
-func (b *InMemoryBackend) SubmitAttachmentStateChanges(
-	clusterRef string,
-	changes []AttachmentStateChange,
-) error {
-	clusterName := clusterKey(b.resolveCluster(clusterRef))
-
-	b.mu.Lock("SubmitAttachmentStateChanges")
-	defer b.mu.Unlock()
-
-	if _, ok := b.clusters[clusterName]; !ok {
-		return fmt.Errorf("%w: %s", ErrClusterNotFound, clusterRef)
-	}
-
-	if len(changes) == 0 {
-		return nil
-	}
-
-	// Build a lookup from attachmentArn → new status.
-	changeMap := make(map[string]string, len(changes))
-	for _, ch := range changes {
-		changeMap[ch.AttachmentArn] = ch.Status
-	}
-
-	// Scan all tasks in the cluster and update matching attachments.
-	for _, task := range b.tasks[clusterName] {
-		for i := range task.Attachments {
-			if newStatus, ok := changeMap[task.Attachments[i].ID]; ok {
-				task.Attachments[i].Status = newStatus
-			}
-		}
-	}
-
-	return nil
-}
-
-// ---- Helpers ----
-
-// resolveDaemonArnLocked finds the ARN of a daemon by name or ARN across all clusters.
-// Must be called with at least an RLock held.
-func (b *InMemoryBackend) resolveDaemonArnLocked(nameOrArn string) string {
-	if strings.HasPrefix(nameOrArn, "arn:") {
-		// Verify the ARN exists.
-		for _, clusterDaemons := range b.daemons {
-			for _, d := range clusterDaemons {
-				if d.DaemonArn == nameOrArn {
-					return nameOrArn
-				}
-			}
+	for _, dep := range b.daemonDeployments {
+		if dep.DaemonArn != input.DaemonArn {
+			continue
 		}
 
-		return ""
-	}
-
-	// Search by name.
-	for _, clusterDaemons := range b.daemons {
-		if d, ok := clusterDaemons[nameOrArn]; ok {
-			return d.DaemonArn
+		if len(wantStatus) > 0 && !wantStatus[dep.Status] {
+			continue
 		}
+
+		out = append(out, *dep)
 	}
 
-	return ""
+	return out, nil
 }
 
-// newDaemonDeploymentLocked creates a new daemon deployment record.
-// Must be called with write lock held.
-func (b *InMemoryBackend) newDaemonDeploymentLocked(
-	daemonArn, clusterName string,
-) *DaemonDeployment {
-	now := time.Now()
-	id := fmt.Sprintf("daemon-deploy-%s-%d", clusterName, now.UnixNano())
-
-	// Count running tasks for this daemon across the cluster.
-	running := 0
-	for _, t := range b.tasks[clusterName] {
-		if t.Group == "daemon:"+daemonName(daemonArn) && t.LastStatus == statusRunning {
-			running++
-		}
-	}
-
-	return &DaemonDeployment{
-		ID:           id,
-		DaemonArn:    daemonArn,
-		Status:       statusActive,
-		RunningTasks: running,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-}
-
-// daemonName extracts the daemon name from a daemon ARN.
-// ARN format: arn:aws:ecs:{region}:{account}:daemon/{clusterName}/{daemonName}.
-func daemonName(daemonArn string) string {
-	// Find last slash.
-	idx := strings.LastIndex(daemonArn, "/")
-	if idx < 0 {
-		return daemonArn
-	}
-
-	return daemonArn[idx+1:]
-}
+// addServiceRevisionLocked is a compatibility hook for callers (CreateService/
+// UpdateService in backend.go, and the deployment circuit-breaker rollback in
+// deployment.go) that record a ServiceRevision snapshot whenever a service's
+// Deployments change. This backend derives ServiceRevision snapshots on demand
+// from each deployment's ServiceRevisionArn instead (see DescribeServiceRevisions
+// in backend.go and buildServiceRevision in backend_parity2.go), so no
+// additional bookkeeping is required here; svc's new deployment already carries
+// its ServiceRevisionArn by the time this is called. Must be called with the
+// write lock held.
+func (b *InMemoryBackend) addServiceRevisionLocked(_ *Service) {}

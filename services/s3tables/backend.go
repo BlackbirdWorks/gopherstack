@@ -56,7 +56,11 @@ type TableBucket struct {
 	OwnerAccountID           string         `json:"ownerAccountID"`
 	Policy                   string         `json:"policy"`
 	StorageClass             string         `json:"storageClass"`
-	MetricsEnabled           bool           `json:"metricsEnabled"`
+	// MetricsConfigurationID is the unique identifier AWS assigns to a table
+	// bucket's metrics configuration once PutTableBucketMetricsConfiguration
+	// has been called. It is cleared by DeleteTableBucketMetricsConfiguration.
+	MetricsConfigurationID string `json:"metricsConfigurationID,omitempty"`
+	MetricsEnabled         bool   `json:"metricsEnabled"`
 }
 
 // Namespace represents an S3 Tables namespace.
@@ -526,7 +530,8 @@ func (b *InMemoryBackend) PutTableBucketEncryption(bucketARN string, config map[
 	return nil
 }
 
-// DeleteTableBucketEncryption clears encryption config for a bucket.
+// DeleteTableBucketEncryption clears the encryption configuration for a bucket,
+// reverting GetTableBucketEncryption to the AWS default (no configuration set).
 func (b *InMemoryBackend) DeleteTableBucketEncryption(bucketARN string) error {
 	b.muBuckets.Lock("DeleteTableBucketEncryption")
 	defer b.muBuckets.Unlock()
@@ -541,7 +546,8 @@ func (b *InMemoryBackend) DeleteTableBucketEncryption(bucketARN string) error {
 	return nil
 }
 
-// PutTableBucketMetricsConfiguration enables metrics for a bucket.
+// PutTableBucketMetricsConfiguration enables metrics for a bucket, assigning it
+// a unique metrics configuration ID.
 func (b *InMemoryBackend) PutTableBucketMetricsConfiguration(bucketARN string) error {
 	b.muBuckets.Lock("PutTableBucketMetricsConfiguration")
 	defer b.muBuckets.Unlock()
@@ -552,6 +558,39 @@ func (b *InMemoryBackend) PutTableBucketMetricsConfiguration(bucketARN string) e
 	}
 
 	tb.MetricsEnabled = true
+	tb.MetricsConfigurationID = uuid.NewString()
+
+	return nil
+}
+
+// GetTableBucketMetricsConfiguration returns the metrics configuration ID for a
+// bucket. The second return value is false when no metrics configuration has
+// ever been put for the bucket.
+func (b *InMemoryBackend) GetTableBucketMetricsConfiguration(bucketARN string) (string, bool, error) {
+	b.muBuckets.RLock("GetTableBucketMetricsConfiguration")
+	defer b.muBuckets.RUnlock()
+
+	tb, ok := b.tableBuckets[bucketARN]
+	if !ok {
+		return "", false, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
+	}
+
+	return tb.MetricsConfigurationID, tb.MetricsEnabled, nil
+}
+
+// DeleteTableBucketMetricsConfiguration clears the metrics configuration for a
+// bucket, reverting GetTableBucketMetricsConfiguration to the unconfigured state.
+func (b *InMemoryBackend) DeleteTableBucketMetricsConfiguration(bucketARN string) error {
+	b.muBuckets.Lock("DeleteTableBucketMetricsConfiguration")
+	defer b.muBuckets.Unlock()
+
+	tb, ok := b.tableBuckets[bucketARN]
+	if !ok {
+		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
+	}
+
+	tb.MetricsEnabled = false
+	tb.MetricsConfigurationID = ""
 
 	return nil
 }

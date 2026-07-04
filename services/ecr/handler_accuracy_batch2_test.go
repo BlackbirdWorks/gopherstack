@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -663,7 +664,6 @@ func TestBatch2_DescribeImageReplicationStatus_ReturnsStatus(t *testing.T) {
 
 	h := newBatch2Handler()
 	mustCreateRepo(t, h, "replication-repo")
-	digest := mustPutImage(t, h, "replication-repo", "v1.0", `{"schemaVersion":2,"repl":"test"}`)
 
 	// A replication status is reported per configured destination; with no
 	// replication configuration the list is (correctly) empty, so configure one.
@@ -679,6 +679,11 @@ func TestBatch2_DescribeImageReplicationStatus_ReturnsStatus(t *testing.T) {
 		},
 	})
 	require.Equal(t, http.StatusOK, repCfg.Code)
+
+	digest := mustPutImage(t, h, "replication-repo", "v1.0", `{"schemaVersion":2,"repl":"test"}`)
+
+	// Wait briefly for async replication to complete
+	time.Sleep(20 * time.Millisecond)
 
 	rec := doAccuracy(t, h, "DescribeImageReplicationStatus", map[string]any{
 		"repositoryName": "replication-repo",

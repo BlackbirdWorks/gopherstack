@@ -1,9 +1,12 @@
 package iotwireless
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +27,10 @@ var (
 	// ErrGatewayTaskDefNotFound is returned when a wireless gateway task definition does not exist.
 	ErrGatewayTaskDefNotFound = errors.New(
 		"ResourceNotFoundException: Wireless gateway task definition not found",
+	)
+	// ErrMulticastGroupSessionNotFound is returned when a multicast group has no active session.
+	ErrMulticastGroupSessionNotFound = errors.New(
+		"ResourceNotFoundException: Multicast group session not found",
 	)
 )
 
@@ -115,14 +122,31 @@ func (b *InMemoryBackend) DisassociateWirelessDeviceFromMulticastGroup(
 	return nil
 }
 
-// StartMulticastGroupSession marks a multicast group session as active.
+// StartMulticastGroupSession marks a multicast group session as active,
+// recording its start time so GetMulticastGroupSession can report it back.
 func (b *InMemoryBackend) StartMulticastGroupSession(multicastGroupID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.multicastGroupSessions[multicastGroupID] = true
+	b.multicastGroupSessionStart[multicastGroupID] = time.Now().UTC()
 
 	return nil
+}
+
+// GetMulticastGroupSession returns the start time of a multicast group's active
+// session. Returns ErrMulticastGroupSessionNotFound if no session has been
+// started (or it has since been cancelled), matching real AWS's
+// ResourceNotFoundException for a group with no active session.
+func (b *InMemoryBackend) GetMulticastGroupSession(multicastGroupID string) (time.Time, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.multicastGroupSessions[multicastGroupID] {
+		return time.Time{}, ErrMulticastGroupSessionNotFound
+	}
+
+	return b.multicastGroupSessionStart[multicastGroupID], nil
 }
 
 // --- WirelessGateway extended operations ---
@@ -513,10 +537,22 @@ func (b *InMemoryBackend) DeleteQueuedMessages(wirelessDeviceID string) error {
 	return nil
 }
 
+// EnqueueMessage appends a downlink message to a wireless device's message
+// queue, so that a subsequent ListQueuedMessages reflects messages sent via
+// SendDataToWirelessDevice.
+func (b *InMemoryBackend) EnqueueMessage(wirelessDeviceID string, msg QueuedMessage) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.queuedMessages[wirelessDeviceID] = append(b.queuedMessages[wirelessDeviceID], msg)
+}
+
 // QueuedMessage represents a downlink message queued for a wireless device.
 type QueuedMessage struct {
+	ReceivedAt    time.Time
 	MessageID     string
 	PayloadBase64 string
+	TransmitMode  int32
 }
 
 // wirelessDeviceImportTaskARN generates an ARN for a wireless device import task.
@@ -650,150 +686,199 @@ func (b *InMemoryBackend) ListWirelessDeviceImportTasks() []*WirelessDeviceImpor
 	return result
 }
 
+// --- Position configuration operations ---
+
+// annotateSemtechGnssSolver returns a copy of solvers with the constant
+// Provider/Type fields ("Semtech"/"GNSS") injected into the SemtechGnss
+// sub-object, matching AWS's behaviour of always reporting these values since
+// Semtech GNSS is currently the only supported position solver.
+func annotateSemtechGnssSolver(solvers map[string]any) map[string]any {
+	if solvers == nil {
+		return nil
+	}
+
+	out := make(map[string]any, len(solvers))
+	maps.Copy(out, solvers)
+
+	if sg, ok := out["SemtechGnss"].(map[string]any); ok {
+		const injectedSolverFields = 2 // Provider + Type
+
+		sgCopy := make(map[string]any, len(sg)+injectedSolverFields)
+		maps.Copy(sgCopy, sg)
+		sgCopy["Provider"] = "Semtech"
+		sgCopy["Type"] = "GNSS"
+		out["SemtechGnss"] = sgCopy
+	}
+
+	return out
+}
+
+// PutPositionConfiguration stores the position solver configuration for a
+// resource.
+func (b *InMemoryBackend) PutPositionConfiguration(
+	resourceID, resourceType, destination string, solvers map[string]any,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.positionConfigs[resourceID] = &PositionConfigEntry{
+		ResourceIdentifier: resourceID,
+		ResourceType:       resourceType,
+		Destination:        destination,
+		Solvers:            annotateSemtechGnssSolver(solvers),
+	}
+
+	return nil
+}
+
+// GetPositionConfiguration returns the stored position configuration for a
+// resource, if any.
+func (b *InMemoryBackend) GetPositionConfiguration(resourceID string) (*PositionConfigEntry, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	e, ok := b.positionConfigs[resourceID]
+	if !ok {
+		return nil, false
+	}
+
+	cp := *e
+
+	return &cp, true
+}
+
+// ListPositionConfigurations returns all stored position configurations,
+// optionally filtered by resource type.
+func (b *InMemoryBackend) ListPositionConfigurations(resourceType string) []*PositionConfigEntry {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*PositionConfigEntry, 0, len(b.positionConfigs))
+
+	for _, e := range b.positionConfigs {
+		if resourceType != "" && e.ResourceType != resourceType {
+			continue
+		}
+
+		cp := *e
+		result = append(result, &cp)
+	}
+
+	slices.SortFunc(result, func(a, b *PositionConfigEntry) int {
+		return cmp.Compare(a.ResourceIdentifier, b.ResourceIdentifier)
+	})
+
+	return result
+}
+
+// --- Event configuration operations ---
+
+// GetEventConfigurationByResourceTypes returns the account-wide default event
+// configuration. Returns an empty (zero-value) document if never configured.
+func (b *InMemoryBackend) GetEventConfigurationByResourceTypes() *EventConfigDoc {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if b.eventConfigDefault == nil {
+		return &EventConfigDoc{}
+	}
+
+	cp := *b.eventConfigDefault
+
+	return &cp
+}
+
+// UpdateEventConfigurationByResourceTypes replaces the account-wide default
+// event configuration.
+func (b *InMemoryBackend) UpdateEventConfigurationByResourceTypes(doc *EventConfigDoc) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := *doc
+	b.eventConfigDefault = &cp
+}
+
+// GetResourceEventConfiguration returns the stored event configuration for a
+// specific resource identifier, if any.
+func (b *InMemoryBackend) GetResourceEventConfiguration(identifier string) (*ResourceEventConfigEntry, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	e, ok := b.resourceEventConfigs[identifier]
+	if !ok {
+		return nil, false
+	}
+
+	cp := *e
+
+	return &cp, true
+}
+
+// UpdateResourceEventConfiguration stores the event configuration for a
+// specific resource identifier.
+func (b *InMemoryBackend) UpdateResourceEventConfiguration(
+	identifier, identifierType, partnerType string, doc *EventConfigDoc,
+) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.resourceEventConfigs[identifier] = &ResourceEventConfigEntry{
+		Identifier:     identifier,
+		IdentifierType: identifierType,
+		PartnerType:    partnerType,
+		Config:         *doc,
+	}
+}
+
+// ListEventConfigurations returns all stored per-resource event
+// configurations, optionally filtered by resource type (matched as a prefix
+// against the stored IdentifierType, e.g. "WirelessDevice" matches
+// "WirelessDeviceId").
+func (b *InMemoryBackend) ListEventConfigurations(resourceType string) []*ResourceEventConfigEntry {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*ResourceEventConfigEntry, 0, len(b.resourceEventConfigs))
+
+	for _, e := range b.resourceEventConfigs {
+		if resourceType != "" && !strings.HasPrefix(e.IdentifierType, resourceType) {
+			continue
+		}
+
+		cp := *e
+		result = append(result, &cp)
+	}
+
+	slices.SortFunc(result, func(a, b *ResourceEventConfigEntry) int {
+		return cmp.Compare(a.Identifier, b.Identifier)
+	})
+
+	return result
+}
+
 // --- Metric configuration operations ---
 
-func (b *InMemoryBackend) GetMetricConfiguration() map[string]any {
+// GetMetricConfigurationStatus returns the account's summary metric
+// aggregation status. Defaults to "Enabled" (AWS's documented default) when
+// never explicitly configured.
+func (b *InMemoryBackend) GetMetricConfigurationStatus() string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make(map[string]any, len(b.metricConfig))
-	maps.Copy(result, b.metricConfig)
-
-	return result
-}
-
-func (b *InMemoryBackend) UpdateMetricConfiguration(config map[string]any) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.metricConfig = make(map[string]any, len(config))
-	maps.Copy(b.metricConfig, config)
-
-	return nil
-}
-
-// --- Event configuration by resource type ---
-
-func (b *InMemoryBackend) GetEventConfigByResourceTypes() map[string]any {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	result := make(map[string]any, len(b.eventConfigByType))
-	maps.Copy(result, b.eventConfigByType)
-
-	return result
-}
-
-func (b *InMemoryBackend) UpdateEventConfigByResourceTypes(config map[string]any) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.eventConfigByType = make(map[string]any, len(config))
-	maps.Copy(b.eventConfigByType, config)
-
-	return nil
-}
-
-// --- Per-resource event configuration ---
-
-func (b *InMemoryBackend) ListResourceEventConfigs() []map[string]any {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	result := make([]map[string]any, 0, len(b.resourceEventConfigs))
-
-	for _, cfg := range b.resourceEventConfigs {
-		cp := make(map[string]any, len(cfg))
-		maps.Copy(cp, cfg)
-		result = append(result, cp)
+	if b.metricConfigStatus == "" {
+		return "Enabled"
 	}
 
-	return result
+	return b.metricConfigStatus
 }
 
-func (b *InMemoryBackend) GetResourceEventConfig(resourceID string) map[string]any {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	cfg, ok := b.resourceEventConfigs[resourceID]
-	if !ok {
-		return map[string]any{}
-	}
-
-	result := make(map[string]any, len(cfg))
-	maps.Copy(result, cfg)
-
-	return result
-}
-
-func (b *InMemoryBackend) UpdateResourceEventConfig(resourceID string, config map[string]any) error {
+// UpdateMetricConfigurationStatus sets the account's summary metric
+// aggregation status.
+func (b *InMemoryBackend) UpdateMetricConfigurationStatus(status string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cp := make(map[string]any, len(config))
-	maps.Copy(cp, config)
-	b.resourceEventConfigs[resourceID] = cp
-
-	return nil
-}
-
-// --- Position configuration ---
-
-func (b *InMemoryBackend) GetPositionConfig(resourceID string) map[string]any {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	cfg, ok := b.positionConfigs[resourceID]
-	if !ok {
-		return map[string]any{}
-	}
-
-	result := make(map[string]any, len(cfg))
-	maps.Copy(result, cfg)
-
-	return result
-}
-
-func (b *InMemoryBackend) PutPositionConfig(resourceID string, config map[string]any) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	cp := make(map[string]any, len(config))
-	maps.Copy(cp, config)
-	b.positionConfigs[resourceID] = cp
-
-	return nil
-}
-
-func (b *InMemoryBackend) ListPositionConfigs() []map[string]any {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	result := make([]map[string]any, 0, len(b.positionConfigs))
-
-	for id, cfg := range b.positionConfigs {
-		cp := make(map[string]any, len(cfg)+1)
-		maps.Copy(cp, cfg)
-		cp["ResourceIdentifier"] = id
-		result = append(result, cp)
-	}
-
-	return result
-}
-
-// --- Downlink message queue ---
-
-func (b *InMemoryBackend) EnqueueDownlinkMessage(wirelessDeviceID, messageID, payloadBase64 string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.queuedMessages[wirelessDeviceID] = append(
-		b.queuedMessages[wirelessDeviceID],
-		QueuedMessage{
-			MessageID:     messageID,
-			PayloadBase64: payloadBase64,
-		},
-	)
+	b.metricConfigStatus = status
 
 	return nil
 }

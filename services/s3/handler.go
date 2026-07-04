@@ -354,6 +354,14 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
+		// Validate the Authorization header (SigV4/SigV2) for non-presigned
+		// requests. Structure/expiry are always checked; the cryptographic
+		// signature is only recomputed when a PresignSecret is configured.
+		if !isPresignedRequest(requestWithCtx) &&
+			!h.verifyHeaderAuth(ctx, sw, requestWithCtx) {
+			return nil
+		}
+
 		bucketName, key, ok := h.resolveBucketAndKey(ctx, sw, requestWithCtx)
 
 		if !ok {

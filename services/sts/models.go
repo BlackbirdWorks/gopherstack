@@ -125,6 +125,11 @@ type AssumeRoleInput struct {
 	Policy            string
 	SourceIdentity    string
 	CallerAccessKeyID string
+	// CallerArn is the resolved ARN of the calling principal (e.g. an assumed-role
+	// ARN during role chaining). When set, the target role's trust policy is
+	// evaluated against it; when empty, trust-policy Principal evaluation is
+	// skipped (the emulator only enforces constraints it can positively determine).
+	CallerArn         string
 	Tags              []Tag
 	TransitiveTagKeys []string
 	PolicyArns        []string

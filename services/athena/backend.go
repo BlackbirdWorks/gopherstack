@@ -33,17 +33,50 @@ const (
 	workGroupStateDisabled = "DISABLED"
 
 	columnTypeString = "string"
+
+	tableTypeExternal = "EXTERNAL_TABLE"
+)
+
+// AWS Athena models a small, fixed set of API exceptions. The gopherstack
+// sentinels below each map to one of these codes; handleError translates the
+// sentinel into the __type field the SDK deserializes. See
+// aws-sdk-go/service/athena/errors.go for the authoritative list.
+const (
+	errTypeInternalServer      = "InternalServerException"
+	errTypeInvalidRequestExc   = "InvalidRequestException"
+	errTypeMetadataExc         = "MetadataException"
+	errTypeResourceNotFoundExc = "ResourceNotFoundException"
+	errTypeSessionExistsExc    = "SessionAlreadyExistsException"
+	errTypeTooManyRequestsExc  = "TooManyRequestsException"
 )
 
 var (
-	// ErrNotFound is returned when a requested resource does not exist.
-	ErrNotFound = errors.New("InvalidRequestException")
-	// ErrAlreadyExists is returned when a resource already exists.
-	ErrAlreadyExists = errors.New("InvalidRequestException")
-	// ErrProtected is returned when an operation is not allowed on a protected resource.
-	ErrProtected = errors.New("InvalidRequestException")
-	// ErrValidation is returned when input fails validation.
-	ErrValidation = errors.New("InvalidRequestException")
+	// ErrNotFound is returned when a requested resource that AWS reports via
+	// InvalidRequestException does not exist (workgroups, named queries, data
+	// catalogs, query executions, notebooks, capacity reservations). AWS Athena
+	// returns InvalidRequestException — not a dedicated NotFound code — for these.
+	ErrNotFound = errors.New(errTypeInvalidRequestExc)
+	// ErrAlreadyExists is returned when a resource already exists. AWS Athena
+	// reports duplicate workgroups/catalogs/notebooks as InvalidRequestException.
+	ErrAlreadyExists = errors.New(errTypeInvalidRequestExc)
+	// ErrProtected is returned when an operation is not allowed on a protected
+	// resource (e.g. deleting the primary workgroup). AWS returns
+	// InvalidRequestException for these.
+	ErrProtected = errors.New(errTypeInvalidRequestExc)
+	// ErrValidation is returned when input fails validation
+	// (InvalidRequestException).
+	ErrValidation = errors.New(errTypeInvalidRequestExc)
+	// ErrResourceNotFound is returned for resources AWS reports with the
+	// dedicated ResourceNotFoundException code: sessions, calculation
+	// executions, and prepared statements.
+	ErrResourceNotFound = errors.New(errTypeResourceNotFoundExc)
+	// ErrMetadata is returned when a metadata lookup against the (emulated Glue)
+	// catalog fails — missing databases and tables — which AWS surfaces as
+	// MetadataException.
+	ErrMetadata = errors.New(errTypeMetadataExc)
+	// ErrSessionExists is returned when a session with the same identity already
+	// exists (SessionAlreadyExistsException).
+	ErrSessionExists = errors.New(errTypeSessionExistsExc)
 )
 
 // validDataCatalogTypes is the set of accepted DataCatalog type values.
@@ -169,11 +202,26 @@ type QueryExecutionContext struct {
 
 // QueryExecutionStatus holds the status of a query execution.
 type QueryExecutionStatus struct {
-	State              string  `json:"State"`
-	StateChangeReason  string  `json:"StateChangeReason,omitempty"`
-	SubmissionDateTime float64 `json:"SubmissionDateTime,omitempty"`
-	CompletionDateTime float64 `json:"CompletionDateTime,omitempty"`
+	AthenaError        *QueryExecutionError `json:"AthenaError,omitempty"`
+	State              string               `json:"State"`
+	StateChangeReason  string               `json:"StateChangeReason,omitempty"`
+	SubmissionDateTime float64              `json:"SubmissionDateTime,omitempty"`
+	CompletionDateTime float64              `json:"CompletionDateTime,omitempty"`
 }
+
+// QueryExecutionError describes why a query execution reached the FAILED state,
+// mirroring the AthenaError shape AWS returns inside QueryExecutionStatus (the
+// JSON field is still "AthenaError").
+type QueryExecutionError struct {
+	ErrorMessage  string `json:"ErrorMessage,omitempty"`
+	ErrorCategory int32  `json:"ErrorCategory,omitempty"`
+	ErrorType     int32  `json:"ErrorType,omitempty"`
+	Retryable     bool   `json:"Retryable,omitempty"`
+}
+
+// athenaErrorCategoryUser is the AthenaError.ErrorCategory value AWS uses for
+// failures caused by the submitted query (as opposed to platform errors).
+const athenaErrorCategoryUser = 2
 
 // QueryExecutionStatistics holds statistics for a query execution.
 type QueryExecutionStatistics struct {
@@ -499,7 +547,7 @@ func (b *InMemoryBackend) seedDefaultMetadata() {
 	b.tables[awsDataCatalog+"/"+database] = map[string]*TableMetadata{
 		"sample_table": {
 			Name:      "sample_table",
-			TableType: "EXTERNAL_TABLE",
+			TableType: tableTypeExternal,
 			Columns: []Column{
 				{Name: "id", Type: "bigint"},
 				{Name: "value", Type: columnTypeString},
@@ -1162,14 +1210,46 @@ func (b *InMemoryBackend) StartQueryExecution(
 	b.queryExecutions[id] = qe
 	b.mu.Unlock()
 
-	// Execute SQL outside the write-lock: executeSQL acquires its own RLock.
-	result := b.executeSQL(query, ctx)
+	// Execute the statement outside the write-lock. executeStatement acquires
+	// its own locks: an RLock for SELECT projection and a write-lock for DDL/DML
+	// catalog mutations. It returns the (possibly nil) result set plus an outcome
+	// describing catalog effects or a failure reason.
+	result, outcome := b.executeStatement(query, ctx)
 
 	b.mu.Lock("StartQueryExecution-storeResult")
-	b.queryResults[id] = result
+	b.finalizeExecution(id, result, outcome)
 	b.mu.Unlock()
 
 	return id, nil
+}
+
+// finalizeExecution stores the result of a query execution and, when the
+// statement failed, transitions the execution to FAILED with an AWS-shaped
+// AthenaError. Failed queries carry no result set. Callers must hold b.mu.
+func (b *InMemoryBackend) finalizeExecution(id string, result *sqlResult, outcome statementOutcome) {
+	qe, ok := b.queryExecutions[id]
+	if !ok {
+		// Evicted between dispatch and finalize; nothing to store.
+		return
+	}
+
+	if outcome.failed {
+		now := float64(time.Now().UnixMilli()) / millisToSeconds
+		qe.Status.State = stateFailed
+		qe.Status.StateChangeReason = outcome.reason
+		qe.Status.CompletionDateTime = now
+		qe.Status.AthenaError = &QueryExecutionError{
+			ErrorCategory: athenaErrorCategoryUser,
+			ErrorType:     outcome.errorType,
+			ErrorMessage:  outcome.reason,
+		}
+
+		delete(b.queryResults, id)
+
+		return
+	}
+
+	b.queryResults[id] = result
 }
 
 // inferStatementType returns the Athena StatementType for a query string.
@@ -1404,7 +1484,7 @@ func (b *InMemoryBackend) GetPreparedStatement(name, workGroup string) (*Prepare
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: prepared statement %q not found in workgroup %q",
-			ErrNotFound,
+			ErrResourceNotFound,
 			name,
 			workGroup,
 		)
@@ -1506,7 +1586,7 @@ func (b *InMemoryBackend) DeletePreparedStatement(name, workGroup string) error 
 	if _, ok := b.preparedStatements[key]; !ok {
 		return fmt.Errorf(
 			"%w: prepared statement %q not found in workgroup %q",
-			ErrNotFound,
+			ErrResourceNotFound,
 			name,
 			workGroup,
 		)

@@ -21,7 +21,6 @@ const (
 	stateRestoring         = "restoring"
 	statePending           = "pending"
 	stateTaskCompleted     = "completed"
-	stateTaskInProgress    = "InProgress"
 	stateEnabledFastLaunch = "enabled"
 	magicSplitLen          = 2
 )
@@ -40,18 +39,14 @@ type InstanceConnectEndpoint struct {
 
 // InstanceEventWindow represents a scheduled maintenance window for instances.
 type InstanceEventWindow struct {
-	AssociationTarget     *InstanceEventWindowAssociationTarget `json:"associationTarget,omitempty"`
-	InstanceEventWindowID string                                `json:"instanceEventWindowId,omitempty"`
-	Name                  string                                `json:"name,omitempty"`
-	CronExpression        string                                `json:"cronExpression,omitempty"`
-	State                 string                                `json:"state,omitempty"`
-}
+	InstanceEventWindowID string `json:"instanceEventWindowId,omitempty"`
+	Name                  string `json:"name,omitempty"`
+	CronExpression        string `json:"cronExpression,omitempty"`
+	State                 string `json:"state,omitempty"`
 
-// InstanceEventWindowAssociationTarget records the targets associated with an
-// instance event window.
-type InstanceEventWindowAssociationTarget struct {
+	// InstanceIDs and DedicatedHostIDs hold the association targets added via
+	// AssociateInstanceEventWindow and removed via DisassociateInstanceEventWindow.
 	InstanceIDs      []string `json:"instanceIds,omitempty"`
-	InstanceTags     []string `json:"instanceTags,omitempty"`
 	DedicatedHostIDs []string `json:"dedicatedHostIds,omitempty"`
 }
 
@@ -360,65 +355,6 @@ func (b *InMemoryBackend) ModifyInstanceEventWindow(id, name, cronExpression str
 	return nil
 }
 
-// AssociateInstanceEventWindow associates instances, instance tags and/or
-// dedicated hosts with an existing event window. The association is recorded
-// on the event window so DescribeInstanceEventWindows reflects it.
-func (b *InMemoryBackend) AssociateInstanceEventWindow(
-	id string,
-	instanceIDs, instanceTags, dedicatedHostIDs []string,
-) (*InstanceEventWindow, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%w: InstanceEventWindowId is required", ErrInvalidParameter)
-	}
-
-	b.mu.Lock("AssociateInstanceEventWindow")
-	defer b.mu.Unlock()
-
-	ew, ok := b.instanceEventWindows[id]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrInstanceEventWindowNotFound, id)
-	}
-
-	if ew.AssociationTarget == nil {
-		ew.AssociationTarget = &InstanceEventWindowAssociationTarget{}
-	}
-	ew.AssociationTarget.InstanceIDs = appendUnique(
-		ew.AssociationTarget.InstanceIDs, instanceIDs,
-	)
-	ew.AssociationTarget.InstanceTags = appendUnique(
-		ew.AssociationTarget.InstanceTags, instanceTags,
-	)
-	ew.AssociationTarget.DedicatedHostIDs = appendUnique(
-		ew.AssociationTarget.DedicatedHostIDs, dedicatedHostIDs,
-	)
-
-	cp := *ew
-	if ew.AssociationTarget != nil {
-		at := *ew.AssociationTarget
-		cp.AssociationTarget = &at
-	}
-
-	return &cp, nil
-}
-
-// appendUnique appends values from add to base, skipping empty strings and
-// duplicates already present in base.
-func appendUnique(base, add []string) []string {
-	seen := make(map[string]bool, len(base))
-	for _, v := range base {
-		seen[v] = true
-	}
-	for _, v := range add {
-		if v == "" || seen[v] {
-			continue
-		}
-		seen[v] = true
-		base = append(base, v)
-	}
-
-	return base
-}
-
 // ---- Spot Datafeed ----
 
 // CreateSpotDatafeedSubscription creates the account-level spot data feed.
@@ -525,16 +461,56 @@ func (b *InMemoryBackend) DescribeImportImageTasks(taskIDs []string) []*ImageImp
 	return out
 }
 
-// ExportImage creates an export task for an AMI.
-func (b *InMemoryBackend) ExportImage(imageID string, _ string) (string, error) {
+// ExportImage creates an export task for an AMI, storing task state so it can later be
+// retrieved (and settled to "completed") via DescribeExportImageTasks. If imageID matches a
+// registered AMI, its architecture is folded into the task description when the caller did
+// not supply one.
+func (b *InMemoryBackend) ExportImage(
+	imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string,
+) (*ExportImageTaskRec, error) {
 	if imageID == "" {
-		return "", fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("ExportImage")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ExportImage")
+	defer b.mu.Unlock()
 
-	return "export-ami-" + uuid.New().String()[:8], nil
+	if description == "" {
+		if img, ok := b.images[imageID]; ok {
+			description = img.Description
+		}
+	}
+
+	if diskImageFormat == "" {
+		diskImageFormat = defaultExportImageFormat
+	}
+
+	if s3Bucket == "" {
+		s3Bucket = "export-images-" + b.AccountID
+	}
+
+	if roleName == "" {
+		roleName = "vmimport"
+	}
+
+	id := "export-ami-" + uuid.New().String()[:8]
+	task := &ExportImageTaskRec{
+		ExportImageTaskID: id,
+		Description:       description,
+		ImageID:           imageID,
+		DiskImageFormat:   diskImageFormat,
+		Progress:          taskZeroProgress,
+		Status:            vmTaskStateActive,
+		StatusMessage:     vmTaskStateActive,
+		S3Bucket:          s3Bucket,
+		S3Prefix:          s3Prefix,
+		RoleName:          roleName,
+	}
+	b.exportImageTasks[id] = task
+
+	cp := *task
+
+	return &cp, nil
 }
 
 // ListImagesInRecycleBin returns soft-deleted AMIs.
@@ -978,7 +954,7 @@ func (b *InMemoryBackend) ResetEbsDefaultKmsKeyID() {
 // UpdateSecurityGroupRuleDescriptionsIngress updates descriptions of ingress rules.
 func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsIngress(
 	groupID string,
-	_ []SecurityGroupRule,
+	updates []SecurityGroupRule,
 ) error {
 	if groupID == "" {
 		return fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
@@ -987,9 +963,12 @@ func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsIngress(
 	b.mu.Lock("UpdateSecurityGroupRuleDescriptionsIngress")
 	defer b.mu.Unlock()
 
-	if _, ok := b.securityGroups[groupID]; !ok {
+	sg, ok := b.securityGroups[groupID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
+
+	applyRuleDescriptions(sg.IngressRules, updates)
 
 	return nil
 }
@@ -997,7 +976,7 @@ func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsIngress(
 // UpdateSecurityGroupRuleDescriptionsEgress updates descriptions of egress rules.
 func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsEgress(
 	groupID string,
-	_ []SecurityGroupRule,
+	updates []SecurityGroupRule,
 ) error {
 	if groupID == "" {
 		return fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
@@ -1006,11 +985,29 @@ func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsEgress(
 	b.mu.Lock("UpdateSecurityGroupRuleDescriptionsEgress")
 	defer b.mu.Unlock()
 
-	if _, ok := b.securityGroups[groupID]; !ok {
+	sg, ok := b.securityGroups[groupID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
 
+	applyRuleDescriptions(sg.EgressRules, updates)
+
 	return nil
+}
+
+// applyRuleDescriptions sets Description on each stored rule whose identity
+// (protocol/ports/CIDR/source-group — see ruleKey) matches an incoming
+// update, ignoring the incoming rule's own Description for matching purposes.
+func applyRuleDescriptions(stored []SecurityGroupRule, updates []SecurityGroupRule) {
+	for i := range stored {
+		key := ruleKey(stored[i])
+
+		for _, u := range updates {
+			if ruleKey(u) == key {
+				stored[i].Description = u.Description
+			}
+		}
+	}
 }
 
 // ---- Volume recycle bin ----
@@ -1086,8 +1083,9 @@ func (b *InMemoryBackend) ReportInstanceStatus(instanceID string, _ string, _ st
 
 // ---- VPN operations ----
 
-// ModifyVpnConnection updates properties of a VPN connection.
-func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID string, _ string) error {
+// ModifyVpnConnection moves a VPN connection onto a different VPN Gateway. An empty
+// vpnGatewayID leaves the connection's gateway attachment unchanged.
+func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error {
 	if vpnConnectionID == "" {
 		return fmt.Errorf("%w: VpnConnectionId is required", ErrInvalidParameter)
 	}
@@ -1095,8 +1093,18 @@ func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID string, _ string) 
 	b.mu.Lock("ModifyVpnConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpnConnections[vpnConnectionID]; !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, vpnConnectionID)
+	conn, ok := b.vpnConnections[vpnConnectionID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
+	}
+
+	if vpnGatewayID != "" {
+		if _, exists := b.vpnGateways[vpnGatewayID]; !exists {
+			return fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, vpnGatewayID)
+		}
+
+		conn.VpnGatewayID = vpnGatewayID
+		conn.TransitGatewayID = ""
 	}
 
 	return nil

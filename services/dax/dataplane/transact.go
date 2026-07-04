@@ -59,6 +59,12 @@ func (s *Server) handleTransactWriteItems(r *Reader, w *Writer) error {
 		return s.writeBackendError(w, err)
 	}
 
+	for _, it := range items {
+		if it.operation != txnOpCheck {
+			s.invalidateItemCache(it.table, it.key)
+		}
+	}
+
 	if err = writeOK(w); err != nil {
 		return err
 	}

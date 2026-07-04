@@ -1042,6 +1042,7 @@ type kmsErrorEntry struct {
 func kmsErrorTable() []kmsErrorEntry {
 	return []kmsErrorEntry{
 		{ErrKeyNotFound, awsErrNotFound},
+		{ErrMalformedPolicyDocument, "MalformedPolicyDocumentException"},
 		{ErrAliasNotFound, awsErrNotFound},
 		{ErrGrantNotFound, awsErrNotFound},
 		{ErrCustomKeyStoreNotFound, "CustomKeyStoreNotFoundException"},

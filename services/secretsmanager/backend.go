@@ -44,6 +44,13 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 var (
 	// ErrSecretNotFound is returned when the specified secret does not exist.
 	ErrSecretNotFound = errors.New(errResourceNotFoundException)
+
+	// ErrMalformedPolicyDocument is returned when the resource policy is malformed.
+	ErrMalformedPolicyDocument = errors.New("MalformedPolicyDocumentException")
+
+	// ErrPublicPolicyException is returned when the policy is overly broad.
+	ErrPublicPolicyException = errors.New("PublicPolicyException")
+
 	// ErrSecretAlreadyExists is returned when a secret with the given name already exists.
 	ErrSecretAlreadyExists = errors.New("ResourceExistsException")
 	// ErrSecretDeleted is returned when an operation is attempted on a deleted secret.
@@ -2167,6 +2174,23 @@ func (b *InMemoryBackend) PutResourcePolicy(
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
 	}
 
+	if errs := validateResourcePolicyDocument(input.ResourcePolicy); len(errs) > 0 {
+		return nil, ErrMalformedPolicyDocument
+	}
+
+	blockPublic := true
+	if input.BlockPublicPolicy != nil {
+		blockPublic = *input.BlockPublicPolicy
+	}
+	if blockPublic {
+		s := strings.ReplaceAll(input.ResourcePolicy, " ", "")
+		s = strings.ReplaceAll(s, "\n", "")
+		s = strings.ReplaceAll(s, "\t", "")
+		if strings.Contains(s, `"Principal":"*"`) || strings.Contains(s, `"Principal":{"AWS":"*"}`) {
+			return nil, ErrPublicPolicyException
+		}
+	}
+
 	b.resourcePoliciesStore(region)[name] = input.ResourcePolicy
 
 	return &PutResourcePolicyOutput{
@@ -2700,23 +2724,27 @@ func (b *InMemoryBackend) ValidateResourcePolicy(
 		}
 	}
 
-	// Parse the JSON policy document.
+	errs := validateResourcePolicyDocument(input.ResourcePolicy)
+
+	return &ValidateResourcePolicyOutput{
+		PolicyValidationPassed: len(errs) == 0,
+		ValidationErrors:       errs,
+	}, nil
+}
+
+func validateResourcePolicyDocument(policyStr string) []PolicyValidationException {
 	var policy map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(input.ResourcePolicy), &policy); err != nil {
-		return &ValidateResourcePolicyOutput{
-			PolicyValidationPassed: false,
-			ValidationErrors: []PolicyValidationException{
-				{
-					CheckName:    "SyntaxCheck",
-					ErrorMessage: "Policy document is not valid JSON: " + err.Error(),
-				},
+	if err := json.Unmarshal([]byte(policyStr), &policy); err != nil {
+		return []PolicyValidationException{
+			{
+				CheckName:    "SyntaxCheck",
+				ErrorMessage: "Policy document is not valid JSON: " + err.Error(),
 			},
-		}, nil
+		}
 	}
 
 	var errs []PolicyValidationException
 
-	// Validate required top-level fields.
 	if _, hasVersion := policy["Version"]; !hasVersion {
 		errs = append(errs, PolicyValidationException{
 			CheckName:    "VersionCheck",
@@ -2731,8 +2759,5 @@ func (b *InMemoryBackend) ValidateResourcePolicy(
 		})
 	}
 
-	return &ValidateResourcePolicyOutput{
-		PolicyValidationPassed: len(errs) == 0,
-		ValidationErrors:       errs,
-	}, nil
+	return errs
 }

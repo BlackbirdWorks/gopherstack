@@ -22,11 +22,22 @@ import (
 )
 
 const (
-	statusDeployed   = "Deployed"
+	statusDeployed = "Deployed"
+	// kvsStatusReady is the terminal status of a synchronously provisioned KVS.
+	kvsStatusReady   = "READY"
 	statusInProgress = "InProgress"
+
+	// functionStageDevelopment and functionStageLive are the two stages a CloudFront Function
+	// or connection function can be in; Publish promotes DEVELOPMENT to LIVE.
+	functionStageDevelopment = "DEVELOPMENT"
+	functionStageLive        = "LIVE"
 
 	// maxInvalidationPaths is the AWS limit on paths per invalidation batch.
 	maxInvalidationPaths = 3000
+	// maxAnycastIPCount bounds the IpCount accepted for an Anycast static IP list. AWS caps
+	// the real static IP pool tightly (well under this); the bound here mainly guards
+	// generateAnycastIPs' allocation against an unbounded/adversarial IpCount value.
+	maxAnycastIPCount = 1000
 	// maxCachePolicyTTL is the AWS upper bound for CachePolicy MaxTTL (1 year).
 	maxCachePolicyTTL = 31536000
 	// minSamplingRate and maxSamplingRate bound RealtimeLogConfig SamplingRate.
@@ -140,6 +151,8 @@ var (
 	ErrConnectionFunctionNotFound = awserr.New("NoSuchConnectionFunction", awserr.ErrNotFound)
 	// ErrConnectionGroupNotFound is returned when a connection group does not exist.
 	ErrConnectionGroupNotFound = awserr.New("NoSuchConnectionGroup", awserr.ErrNotFound)
+	// ErrConnectionGroupAlreadyExists is returned when a connection group name is already in use.
+	ErrConnectionGroupAlreadyExists = awserr.New("EntityAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrContinuousDeploymentPolicyNotFound is returned when a continuous deployment policy does not exist.
 	ErrContinuousDeploymentPolicyNotFound = awserr.New(
 		"NoSuchContinuousDeploymentPolicy",
@@ -173,6 +186,17 @@ var (
 	ErrKeyValueStoreNotFound = awserr.New("EntityNotFound", awserr.ErrNotFound)
 	// ErrVpcOriginNotFound is returned when a requested VPC origin does not exist.
 	ErrVpcOriginNotFound = awserr.New("NoSuchVpcOrigin", awserr.ErrNotFound)
+	// ErrResourcePolicyNotFound is returned when no resource policy has been put for a resource ARN.
+	ErrResourcePolicyNotFound = awserr.New("NoSuchResourcePolicy", awserr.ErrNotFound)
+	// ErrMonitoringSubscriptionNotFound is returned when no monitoring subscription exists for a
+	// distribution.
+	ErrMonitoringSubscriptionNotFound = awserr.New("NoSuchMonitoringSubscription", awserr.ErrNotFound)
+	// ErrPublicKeyInUse is returned when a public key is still referenced by a key
+	// group or a field-level-encryption profile and therefore cannot be deleted.
+	ErrPublicKeyInUse = awserr.New("PublicKeyInUse", awserr.ErrConflict)
+	// ErrFLEProfileInUse is returned when a field-level-encryption profile is still
+	// referenced by a field-level-encryption config and therefore cannot be deleted.
+	ErrFLEProfileInUse = awserr.New("FieldLevelEncryptionProfileInUse", awserr.ErrConflict)
 )
 
 // ErrPreconditionFailed is returned when an If-Match ETag check fails in a data-plane operation.
@@ -234,11 +258,14 @@ type Invalidation struct {
 
 // AnycastIPList represents a CloudFront Anycast IP list.
 type AnycastIPList struct {
-	ID      string `json:"id"`
-	ARN     string `json:"arn"`
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	IPCount int32  `json:"ipCount"`
+	Tags       map[string]string `json:"tags,omitempty"`
+	ID         string            `json:"id"`
+	ARN        string            `json:"arn"`
+	Name       string            `json:"name"`
+	Status     string            `json:"status"`
+	ETag       string            `json:"eTag"`
+	AnycastIPs []string          `json:"anycastIps,omitempty"`
+	IPCount    int32             `json:"ipCount"`
 }
 
 // CachePolicyHeadersConfig specifies which headers the policy forwards and caches.
@@ -280,28 +307,83 @@ type CachePolicy struct {
 	MinTTL     int64              `json:"minTtl"`
 }
 
-// ConnectionFunction represents a CloudFront connection function.
+// ConnectionFunction represents a CloudFront connection function: a small piece of code that
+// runs on the connection path for a connection group. Like CloudFront Functions, a connection
+// function starts life in the DEVELOPMENT stage and is promoted to LIVE via PublishConnectionFunction.
 type ConnectionFunction struct {
-	ID      string `json:"id"`
-	ARN     string `json:"arn"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	ARN              string            `json:"arn"`
+	Name             string            `json:"name"`
+	Comment          string            `json:"comment,omitempty"`
+	Runtime          string            `json:"runtime"`
+	Stage            string            `json:"stage"`
+	Status           string            `json:"status"`
+	ETag             string            `json:"eTag"`
+	CreatedTime      string            `json:"createdTime,omitempty"`
+	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
+	FunctionCode     []byte            `json:"functionCode,omitempty"`
 }
 
-// ConnectionGroup represents a CloudFront connection group.
+// ConnectionGroup represents a CloudFront connection group: routing configuration (an Anycast
+// IP list, IPv6 support, and a generated routing endpoint domain name) that distribution
+// tenants are associated with.
 type ConnectionGroup struct {
-	ID      string `json:"id"`
-	ARN     string `json:"arn"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	ARN              string            `json:"arn"`
+	Name             string            `json:"name"`
+	Comment          string            `json:"comment,omitempty"`
+	AnycastIPListID  string            `json:"anycastIpListId,omitempty"`
+	RoutingEndpoint  string            `json:"routingEndpoint"`
+	Status           string            `json:"status"`
+	ETag             string            `json:"eTag"`
+	CreatedTime      string            `json:"createdTime,omitempty"`
+	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
+	IsDefault        bool              `json:"isDefault"`
+	IPv6Enabled      bool              `json:"ipv6Enabled"`
+	Enabled          bool              `json:"enabled"`
+}
+
+// ContinuousDeploymentSessionStickinessConfig configures how long a viewer's session sticks to
+// the staging distribution once routed there under a SingleWeight traffic config.
+type ContinuousDeploymentSessionStickinessConfig struct {
+	IdleTTL    int32 `json:"idleTtl"`
+	MaximumTTL int32 `json:"maximumTtl"`
+}
+
+// ContinuousDeploymentSingleWeightConfig configures weight-based traffic splitting between the
+// primary and staging distributions of a continuous deployment policy.
+type ContinuousDeploymentSingleWeightConfig struct {
+	SessionStickinessConfig *ContinuousDeploymentSessionStickinessConfig `json:"sessionStickinessConfig,omitempty"`
+	Weight                  float64                                      `json:"weight"`
+}
+
+// ContinuousDeploymentSingleHeaderConfig configures header-based routing to the staging
+// distribution of a continuous deployment policy.
+type ContinuousDeploymentSingleHeaderConfig struct {
+	Header string `json:"header"`
+	Value  string `json:"value"`
+}
+
+// ContinuousDeploymentTrafficConfig models the TrafficConfig element of a continuous deployment
+// policy: exactly one of SingleWeightConfig or SingleHeaderConfig applies, selected by Type.
+type ContinuousDeploymentTrafficConfig struct {
+	SingleWeightConfig *ContinuousDeploymentSingleWeightConfig `json:"singleWeightConfig,omitempty"`
+	SingleHeaderConfig *ContinuousDeploymentSingleHeaderConfig `json:"singleHeaderConfig,omitempty"`
+	Type               string                                  `json:"type,omitempty"`
 }
 
 // ContinuousDeploymentPolicy represents a CloudFront continuous deployment policy.
 type ContinuousDeploymentPolicy struct {
-	StagingDistributionDNS string `json:"stagingDistributionDns,omitempty"`
-	ID                     string `json:"id"`
-	ETag                   string `json:"eTag"`
-	Enabled                bool   `json:"enabled"`
+	TrafficConfig               ContinuousDeploymentTrafficConfig `json:"trafficConfig"`
+	StagingDistributionDNS      string                            `json:"stagingDistributionDns,omitempty"`
+	ID                          string                            `json:"id"`
+	ARN                         string                            `json:"arn"`
+	ETag                        string                            `json:"eTag"`
+	LastModifiedTime            string                            `json:"lastModifiedTime,omitempty"`
+	StagingDistributionDNSNames []string                          `json:"stagingDistributionDnsNames,omitempty"`
+	Enabled                     bool                              `json:"enabled"`
 }
 
 // FunctionAssociation represents the association of a CloudFront function with an event type.
@@ -411,12 +493,32 @@ type OriginRequestPolicy struct {
 	ETag               string                 `json:"eTag"`
 }
 
+// FLEQueryArgProfile associates a query argument with a field-level-encryption
+// profile. It mirrors the AWS QueryArgProfile shape.
+type FLEQueryArgProfile struct {
+	QueryArg  string `json:"queryArg"`
+	ProfileID string `json:"profileId"`
+}
+
 // FieldLevelEncryption represents a CloudFront Field Level Encryption config.
 type FieldLevelEncryption struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Comment string `json:"comment,omitempty"`
 	ETag    string `json:"eTag"`
+	// QueryArgProfiles are the query-arg → profile associations. Each referenced
+	// ProfileID must correspond to an existing FLE profile (referential integrity).
+	QueryArgProfiles []FLEQueryArgProfile `json:"queryArgProfiles,omitempty"`
+	// ForwardWhenQueryArgProfileIsUnknown mirrors the AWS QueryArgProfileConfig flag.
+	ForwardWhenQueryArgProfileIsUnknown bool `json:"forwardWhenQueryArgProfileIsUnknown,omitempty"`
+}
+
+// EncryptionEntity is one entity in an FLE profile that maps a public key to a
+// set of field patterns. It mirrors the AWS EncryptionEntity shape.
+type EncryptionEntity struct {
+	PublicKeyID   string   `json:"publicKeyId"`
+	ProviderID    string   `json:"providerId"`
+	FieldPatterns []string `json:"fieldPatterns,omitempty"`
 }
 
 // FieldLevelEncryptionProfile represents a CloudFront Field Level Encryption Profile.
@@ -425,6 +527,9 @@ type FieldLevelEncryptionProfile struct {
 	Name    string `json:"name"`
 	Comment string `json:"comment,omitempty"`
 	ETag    string `json:"eTag"`
+	// EncryptionEntities reference public keys. Each PublicKeyID must correspond to
+	// an existing public key (referential integrity enforced on create/update).
+	EncryptionEntities []EncryptionEntity `json:"encryptionEntities,omitempty"`
 }
 
 // PublicKey represents a CloudFront Public Key.
@@ -461,6 +566,12 @@ type KeyValueStore struct {
 	Name    string `json:"name"`
 	Comment string `json:"comment,omitempty"`
 	ETag    string `json:"eTag"`
+	// Status reflects the provisioning state (AWS: PROVISIONING → READY). The
+	// emulator provisions synchronously and reports READY immediately.
+	Status string `json:"status"`
+	// LastModifiedTime is an RFC3339 timestamp (CloudFront is a REST-XML API, so
+	// timestamps are serialized as ISO-8601 strings, not epoch numbers).
+	LastModifiedTime string `json:"lastModifiedTime"`
 }
 
 // VpcOrigin represents a CloudFront VPC Origin.
@@ -483,11 +594,17 @@ type InMemoryBackend struct {
 	oais                              map[string]*OriginAccessIdentity
 	oaiCallerRefs                     map[string]string // CallerReference → OAI ID (idempotency)
 	anycastIPLists                    map[string]*AnycastIPList
+	anycastIPListARNs                 map[string]string // ARN → anycast IP list ID (tag lookups)
+	anycastIPListByName               map[string]string // name → anycast IP list ID (uniqueness)
 	cachePolicies                     map[string]*CachePolicy
-	cachePolicyByName                 map[string]string              // name → policy ID (uniqueness)
-	connectionFunctions               map[string]*ConnectionFunction // key: UUID id
-	connectionFunctionByName          map[string]string              // name → UUID id
+	cachePolicyByName                 map[string]string // name → policy ID (uniqueness)
+	connectionFunctions               map[string]*ConnectionFunction
+	connectionFunctionARNs            map[string]string // ARN → connection function ID (tag lookups)
+	connectionFunctionByName          map[string]string // name → connection function ID (uniqueness / Identifier lookups)
 	connectionGroups                  map[string]*ConnectionGroup
+	connectionGroupARNs               map[string]string // ARN → connection group ID (tag lookups)
+	connectionGroupByName             map[string]string // name → connection group ID (uniqueness)
+	connectionGroupByRoutingEndpoint  map[string]string // routing endpoint → connection group ID
 	continuousDeploymentPolicies      map[string]*ContinuousDeploymentPolicy
 	originAccessControls              map[string]*OriginAccessControl
 	originAccessControlByName         map[string]string // name → OAC ID (uniqueness)
@@ -511,23 +628,40 @@ type InMemoryBackend struct {
 	vpcOrigins                        map[string]*VpcOrigin
 	distributionFunctionAssociations  map[string][]FunctionAssociation // distribution ID → associations
 	// Batch 1 additions.
-	trustStores                         map[string]*TrustStore
-	streamingDistributions              map[string]*StreamingDistribution
-	monitoringSubscriptions             map[string]*MonitoringSubscription // distribution ID → subscription
-	resourcePolicies                    map[string]*resourcePolicyEntry    // resource ARN → policy
-	distributionCachePolicies           map[string]string                  // distribution ID → cache policy ID
-	distributionOriginRequestPolicies   map[string]string                  // distribution ID → ORP ID
-	distributionResponseHeadersPolicies map[string]string                  // distribution ID → RHP ID
-	distributionRealtimeLogConfigs      map[string]string                  // distribution ID → RLC ARN
+	trustStores                     map[string]*TrustStore
+	trustStoreARNs                  map[string]string // ARN → trust store ID (tag lookups)
+	trustStoreByName                map[string]string // name → trust store ID (uniqueness)
+	streamingDistributions          map[string]*StreamingDistribution
+	streamingDistributionARNs       map[string]string                  // ARN → streaming dist ID (tag lookups)
+	streamingDistributionCallerRefs map[string]string                  // CallerRef → streaming dist ID (idempotency)
+	monitoringSubscriptions         map[string]*MonitoringSubscription // distribution ID → subscription
+	resourcePolicies                map[string]*resourcePolicyEntry    // resource ARN → policy
+	// managedCertificates maps distribution tenant ID → cached managed cert details.
+	managedCertificates map[string]*ManagedCertificateDetails
+	// distributionCachePolicies, distributionOriginRequestPolicies,
+	// distributionResponseHeadersPolicies, and distributionRealtimeLogConfigs map a
+	// distribution ID to the policy/config it is currently associated with, backing the
+	// ListDistributionsBy{CachePolicy,OriginRequestPolicy,ResponseHeadersPolicy,RealtimeLogConfig}
+	// lookups.
+	distributionCachePolicies           map[string]string
+	distributionOriginRequestPolicies   map[string]string
+	distributionResponseHeadersPolicies map[string]string
+	distributionRealtimeLogConfigs      map[string]string
 	// Batch 2 additions.
 	distributionTenants         map[string]*DistributionTenant // key: tenant ID
+	distributionTenantARNs      map[string]string              // ARN → tenant ID (tag lookups)
 	distributionTenantsByDomain map[string]string              // key: domain → tenant ID
 	tenantInvalidations         map[string][]*Invalidation     // key: tenantID
-	managedCertificates         map[string]*ManagedCertificate // key: tenant ID
 	// Audit batch additions.
 	keyValueStoreData map[string]map[string]string // KVS ID → key → value
 	keyValueDataETags map[string]string            // KVS ID → current data-plane ETag
-	mu                *lockmetrics.RWMutex
+	// distSearchTokens maps a distribution ID to the set of config tokens it
+	// contains; distSearchInverted is the inverted index (token → distribution IDs).
+	// Together they make ListDistributionsBy* lookups O(k) instead of O(n×config)
+	// and eliminate the substring false positives of the previous raw scan.
+	distSearchTokens   map[string]map[string]struct{}
+	distSearchInverted map[string]map[string]struct{}
+	mu                 *lockmetrics.RWMutex
 	// lifecycle: tracks when InProgress invalidations become Completed.
 	invalidationReadyAt       map[string]map[string]time.Time // distributionID → invID → readyAt
 	tenantInvalidationReadyAt map[string]map[string]time.Time // tenantID → invID → readyAt
@@ -549,11 +683,17 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		oais:                                make(map[string]*OriginAccessIdentity),
 		oaiCallerRefs:                       make(map[string]string),
 		anycastIPLists:                      make(map[string]*AnycastIPList),
+		anycastIPListARNs:                   make(map[string]string),
+		anycastIPListByName:                 make(map[string]string),
 		cachePolicies:                       make(map[string]*CachePolicy),
 		cachePolicyByName:                   make(map[string]string),
 		connectionFunctions:                 make(map[string]*ConnectionFunction),
+		connectionFunctionARNs:              make(map[string]string),
 		connectionFunctionByName:            make(map[string]string),
 		connectionGroups:                    make(map[string]*ConnectionGroup),
+		connectionGroupARNs:                 make(map[string]string),
+		connectionGroupByName:               make(map[string]string),
+		connectionGroupByRoutingEndpoint:    make(map[string]string),
 		continuousDeploymentPolicies:        make(map[string]*ContinuousDeploymentPolicy),
 		originAccessControls:                make(map[string]*OriginAccessControl),
 		originAccessControlByName:           make(map[string]string),
@@ -575,19 +715,26 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		keyValueStores:                      make(map[string]*KeyValueStore),
 		keyValueStoreByName:                 make(map[string]string),
 		vpcOrigins:                          make(map[string]*VpcOrigin),
+		distSearchTokens:                    make(map[string]map[string]struct{}),
+		distSearchInverted:                  make(map[string]map[string]struct{}),
 		distributionFunctionAssociations:    make(map[string][]FunctionAssociation),
 		trustStores:                         make(map[string]*TrustStore),
+		trustStoreARNs:                      make(map[string]string),
+		trustStoreByName:                    make(map[string]string),
 		streamingDistributions:              make(map[string]*StreamingDistribution),
+		streamingDistributionARNs:           make(map[string]string),
+		streamingDistributionCallerRefs:     make(map[string]string),
 		monitoringSubscriptions:             make(map[string]*MonitoringSubscription),
 		resourcePolicies:                    make(map[string]*resourcePolicyEntry),
+		managedCertificates:                 make(map[string]*ManagedCertificateDetails),
 		distributionCachePolicies:           make(map[string]string),
 		distributionOriginRequestPolicies:   make(map[string]string),
 		distributionResponseHeadersPolicies: make(map[string]string),
 		distributionRealtimeLogConfigs:      make(map[string]string),
 		distributionTenants:                 make(map[string]*DistributionTenant),
+		distributionTenantARNs:              make(map[string]string),
 		distributionTenantsByDomain:         make(map[string]string),
 		tenantInvalidations:                 make(map[string][]*Invalidation),
-		managedCertificates:                 make(map[string]*ManagedCertificate),
 		keyValueStoreData:                   make(map[string]map[string]string),
 		keyValueDataETags:                   make(map[string]string),
 		invalidationReadyAt:                 make(map[string]map[string]time.Time),
@@ -673,6 +820,8 @@ func (b *InMemoryBackend) Reset() {
 // resetDistributions clears distribution-related maps.
 func (b *InMemoryBackend) resetDistributions() {
 	b.distributions = make(map[string]*Distribution)
+	b.distSearchTokens = make(map[string]map[string]struct{})
+	b.distSearchInverted = make(map[string]map[string]struct{})
 	b.distributionARNs = make(map[string]string)
 	b.distributionCallerRefs = make(map[string]string)
 	b.distributionAliases = make(map[string][]string)
@@ -682,11 +831,17 @@ func (b *InMemoryBackend) resetDistributions() {
 	b.oais = make(map[string]*OriginAccessIdentity)
 	b.oaiCallerRefs = make(map[string]string)
 	b.anycastIPLists = make(map[string]*AnycastIPList)
+	b.anycastIPListARNs = make(map[string]string)
+	b.anycastIPListByName = make(map[string]string)
 	b.cachePolicies = make(map[string]*CachePolicy)
 	b.cachePolicyByName = make(map[string]string)
 	b.connectionFunctions = make(map[string]*ConnectionFunction)
+	b.connectionFunctionARNs = make(map[string]string)
 	b.connectionFunctionByName = make(map[string]string)
 	b.connectionGroups = make(map[string]*ConnectionGroup)
+	b.connectionGroupARNs = make(map[string]string)
+	b.connectionGroupByName = make(map[string]string)
+	b.connectionGroupByRoutingEndpoint = make(map[string]string)
 	b.continuousDeploymentPolicies = make(map[string]*ContinuousDeploymentPolicy)
 	b.originAccessControls = make(map[string]*OriginAccessControl)
 	b.originAccessControlByName = make(map[string]string)
@@ -701,9 +856,9 @@ func (b *InMemoryBackend) resetDistributions() {
 	b.distributionResponseHeadersPolicies = make(map[string]string)
 	b.distributionRealtimeLogConfigs = make(map[string]string)
 	b.distributionTenants = make(map[string]*DistributionTenant)
+	b.distributionTenantARNs = make(map[string]string)
 	b.distributionTenantsByDomain = make(map[string]string)
 	b.tenantInvalidations = make(map[string][]*Invalidation)
-	b.managedCertificates = make(map[string]*ManagedCertificate)
 }
 
 // resetPoliciesAndKeys clears encryption, key, and store maps.
@@ -722,9 +877,14 @@ func (b *InMemoryBackend) resetPoliciesAndKeys() {
 	b.keyValueStoreByName = make(map[string]string)
 	b.vpcOrigins = make(map[string]*VpcOrigin)
 	b.trustStores = make(map[string]*TrustStore)
+	b.trustStoreARNs = make(map[string]string)
+	b.trustStoreByName = make(map[string]string)
 	b.streamingDistributions = make(map[string]*StreamingDistribution)
+	b.streamingDistributionARNs = make(map[string]string)
+	b.streamingDistributionCallerRefs = make(map[string]string)
 	b.monitoringSubscriptions = make(map[string]*MonitoringSubscription)
 	b.resourcePolicies = make(map[string]*resourcePolicyEntry)
+	b.managedCertificates = make(map[string]*ManagedCertificateDetails)
 	b.keyValueStoreData = make(map[string]map[string]string)
 	b.keyValueDataETags = make(map[string]string)
 }
@@ -756,6 +916,11 @@ func (b *InMemoryBackend) anycastIPListARN(id string) string {
 // connectionGroupARN builds an ARN for a connection group.
 func (b *InMemoryBackend) connectionGroupARN(id string) string {
 	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("connection-group/%s", id))
+}
+
+// connectionFunctionARN builds an ARN for a connection function.
+func (b *InMemoryBackend) connectionFunctionARN(id string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:connection-function/%s", b.accountID, id)
 }
 
 // functionARN builds an ARN for a CloudFront Function.
@@ -800,6 +965,7 @@ func (b *InMemoryBackend) CreateDistribution(
 	b.distributions[id] = d
 	b.distributionARNs[d.ARN] = id
 	b.distributionCallerRefs[callerRef] = id
+	b.indexDistributionConfig(id, rawConfig)
 	cp := b.copyDistribution(d)
 
 	return cp, nil
@@ -838,6 +1004,7 @@ func (b *InMemoryBackend) UpdateDistribution(
 	d.ETag = uuid.NewString()
 	d.Status = statusInProgress
 	d.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	b.reindexDistributionConfig(id, rawConfig)
 	cp := b.copyDistribution(d)
 
 	return cp, nil
@@ -863,6 +1030,7 @@ func (b *InMemoryBackend) DeleteDistribution(id string) error {
 	delete(b.invalidations, id)
 	delete(b.distributionAliases, id)
 	delete(b.distributionWebACLs, id)
+	b.deindexDistributionConfig(id)
 
 	return nil
 }
@@ -980,6 +1148,41 @@ func (b *InMemoryBackend) ListOAIs() []*OriginAccessIdentity {
 	return list
 }
 
+// taggableTags returns a pointer to the Tags map for the resource identified by resourceARN,
+// searching every taggable resource kind (distributions, streaming distributions, trust stores).
+// Must be called with the lock held.
+func (b *InMemoryBackend) taggableTags(resourceARN string) (*map[string]string, bool) {
+	if id, ok := b.distributionARNs[resourceARN]; ok {
+		return &b.distributions[id].Tags, true
+	}
+
+	if id, ok := b.streamingDistributionARNs[resourceARN]; ok {
+		return &b.streamingDistributions[id].Tags, true
+	}
+
+	if id, ok := b.trustStoreARNs[resourceARN]; ok {
+		return &b.trustStores[id].Tags, true
+	}
+
+	if id, ok := b.distributionTenantARNs[resourceARN]; ok {
+		return &b.distributionTenants[id].Tags, true
+	}
+
+	if id, ok := b.connectionGroupARNs[resourceARN]; ok {
+		return &b.connectionGroups[id].Tags, true
+	}
+
+	if id, ok := b.connectionFunctionARNs[resourceARN]; ok {
+		return &b.connectionFunctions[id].Tags, true
+	}
+
+	if id, ok := b.anycastIPListARNs[resourceARN]; ok {
+		return &b.anycastIPLists[id].Tags, true
+	}
+
+	return nil, false
+}
+
 // TagResource adds or updates tags on a resource by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
 	if err := validateCFTags(kv); err != nil {
@@ -989,27 +1192,26 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	id, ok := b.distributionARNs[resourceARN]
+	tags, ok := b.taggableTags(resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	d := b.distributions[id]
-	if d.Tags == nil {
-		d.Tags = make(map[string]string, len(kv))
+	if *tags == nil {
+		*tags = make(map[string]string, len(kv))
 	}
 
 	netNew := 0
 	for k := range kv {
-		if _, exists := d.Tags[k]; !exists {
+		if _, exists := (*tags)[k]; !exists {
 			netNew++
 		}
 	}
-	if len(d.Tags)+netNew > maxTagCount {
+	if len(*tags)+netNew > maxTagCount {
 		return fmt.Errorf("%w: resource cannot have more than %d tags", ErrInvalidTagging, maxTagCount)
 	}
 
-	maps.Copy(d.Tags, kv)
+	maps.Copy(*tags, kv)
 
 	return nil
 }
@@ -1019,14 +1221,13 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	id, ok := b.distributionARNs[resourceARN]
+	tags, ok := b.taggableTags(resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	d := b.distributions[id]
 	for _, k := range keys {
-		delete(d.Tags, k)
+		delete(*tags, k)
 	}
 
 	return nil
@@ -1037,14 +1238,13 @@ func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error
 	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
 
-	id, ok := b.distributionARNs[resourceARN]
+	tags, ok := b.taggableTags(resourceARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	d := b.distributions[id]
-	cp := make(map[string]string, len(d.Tags))
-	maps.Copy(cp, d.Tags)
+	cp := make(map[string]string, len(*tags))
+	maps.Copy(cp, *tags)
 
 	return cp, nil
 }
@@ -1255,12 +1455,31 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 
 	b.distributions[id] = d
 	b.distributionARNs[d.ARN] = id
+	b.indexDistributionConfig(id, rawCopy)
 
 	return b.copyDistribution(d), nil
 }
 
-// CreateAnycastIPList creates a new Anycast IP list.
-func (b *InMemoryBackend) CreateAnycastIPList(name string, ipCount int32) (*AnycastIPList, error) {
+// generateAnycastIPs derives a deterministic, unique-looking set of IPv4 addresses for an
+// Anycast IP list from its ID and requested count, standing in for the real static IPs AWS
+// allocates from its Anycast address pool.
+func generateAnycastIPs(id string, ipCount int32) []string {
+	ips := make([]string, 0, ipCount)
+	for i := range ipCount {
+		sum := sha256.Sum256(fmt.Appendf(nil, "%s-anycast-%d", id, i))
+		// 15.0.0.0/8 is one of the real ranges AWS documents for CloudFront Anycast static IPs;
+		// used here purely as a plausible, non-conflicting prefix for generated addresses.
+		ips = append(ips, fmt.Sprintf("15.%d.%d.%d", sum[0], sum[1], sum[2]))
+	}
+
+	return ips
+}
+
+// CreateAnycastIPList creates a new Anycast IP list. Name must be unique among existing anycast
+// IP lists. tags, if provided (first element only), seeds the list's tags.
+func (b *InMemoryBackend) CreateAnycastIPList(
+	name string, ipCount int32, tags ...map[string]string,
+) (*AnycastIPList, error) {
 	b.mu.Lock("CreateAnycastIpList")
 	defer b.mu.Unlock()
 
@@ -1272,18 +1491,35 @@ func (b *InMemoryBackend) CreateAnycastIPList(name string, ipCount int32) (*Anyc
 		return nil, fmt.Errorf("%w: IpCount must be greater than 0", ErrValidation)
 	}
 
+	if ipCount > maxAnycastIPCount {
+		return nil, fmt.Errorf(
+			"%w: IpCount must not exceed %d", ErrValidation, maxAnycastIPCount,
+		)
+	}
+
+	if _, exists := b.anycastIPListByName[name]; exists {
+		return nil, fmt.Errorf("%w: anycast IP list with name %q already exists", ErrAlreadyExists, name)
+	}
+
 	id := generateID()
 	list := &AnycastIPList{
-		ID:      id,
-		ARN:     b.anycastIPListARN(id),
-		Name:    name,
-		Status:  statusDeployed,
-		IPCount: ipCount,
+		ID:         id,
+		ARN:        b.anycastIPListARN(id),
+		Name:       name,
+		Status:     statusDeployed,
+		ETag:       uuid.NewString(),
+		IPCount:    ipCount,
+		AnycastIPs: generateAnycastIPs(id, ipCount),
+		Tags:       make(map[string]string),
+	}
+	if len(tags) > 0 {
+		maps.Copy(list.Tags, tags[0])
 	}
 	b.anycastIPLists[id] = list
-	cp := *list
+	b.anycastIPListARNs[list.ARN] = id
+	b.anycastIPListByName[name] = id
 
-	return &cp, nil
+	return b.copyAnycastIPList(list), nil
 }
 
 // CreateCachePolicy creates a new cache policy.
@@ -1347,10 +1583,33 @@ func (b *InMemoryBackend) CreateCachePolicy(
 	return &cp, nil
 }
 
-// CreateConnectionFunction creates a new connection function.
-func (b *InMemoryBackend) CreateConnectionFunction(
-	name, comment string,
+// defaultConnectionFunctionRuntime is used when a caller does not specify a runtime
+// (mirrors CloudFront Functions' current default runtime).
+const defaultConnectionFunctionRuntime = "cloudfront-js-2.0"
+
+// CreateConnectionFunction creates a new connection function with the default JS runtime and
+// no code. It is a convenience wrapper around CreateConnectionFunctionWithCode for callers
+// (and tests) that only supply a name and comment. AWS allows multiple connection functions to
+// share the same Name — they are keyed and uniqued by ID, not by name.
+func (b *InMemoryBackend) CreateConnectionFunction(name, comment string) (*ConnectionFunction, error) {
+	return b.CreateConnectionFunctionWithCode(name, comment, "", nil, nil)
+}
+
+// CreateConnectionFunctionWithCode creates a new connection function using the full
+// CreateConnectionFunction request shape: name, comment, runtime, function code, and tags.
+func (b *InMemoryBackend) CreateConnectionFunctionWithCode(
+	name, comment, runtime string, code []byte, tags map[string]string,
 ) (*ConnectionFunction, error) {
+	if runtime == "" {
+		runtime = defaultConnectionFunctionRuntime
+	}
+	if err := validateRuntime(runtime); err != nil {
+		return nil, err
+	}
+	if err := validateCFTags(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateConnectionFunction")
 	defer b.mu.Unlock()
 
@@ -1359,22 +1618,47 @@ func (b *InMemoryBackend) CreateConnectionFunction(
 	}
 
 	id := generateID()
-	fnARN := arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("connection-function/%s", id))
+	now := time.Now().UTC().Format(time.RFC3339)
 	fn := &ConnectionFunction{
-		ID:      id,
-		ARN:     fnARN,
-		Name:    name,
-		Comment: comment,
+		ID:               id,
+		ARN:              b.connectionFunctionARN(id),
+		Name:             name,
+		Comment:          comment,
+		Runtime:          runtime,
+		FunctionCode:     append([]byte(nil), code...),
+		Stage:            functionStageDevelopment,
+		Status:           statusDeployed,
+		ETag:             uuid.NewString(),
+		CreatedTime:      now,
+		LastModifiedTime: now,
+		Tags:             make(map[string]string, len(tags)),
 	}
+	maps.Copy(fn.Tags, tags)
 	b.connectionFunctions[id] = fn
+	b.connectionFunctionARNs[fn.ARN] = id
 	b.connectionFunctionByName[name] = id
-	cp := *fn
 
-	return &cp, nil
+	return b.copyConnectionFunction(fn), nil
 }
 
-// CreateConnectionGroup creates a new connection group.
+// CreateConnectionGroup creates a new connection group with default IPv6-enabled, enabled
+// settings and no Anycast IP list. It is a convenience wrapper around
+// CreateConnectionGroupWithConfig for callers (and tests) that only supply a name and comment.
 func (b *InMemoryBackend) CreateConnectionGroup(name, comment string) (*ConnectionGroup, error) {
+	return b.CreateConnectionGroupWithConfig(name, comment, "", true, true, nil)
+}
+
+// CreateConnectionGroupWithConfig creates a new connection group using the full
+// CreateConnectionGroup request shape: name, comment, Anycast IP list ID, IPv6/enabled flags,
+// and tags. Name must be unique among existing connection groups. A routing endpoint domain
+// name is generated and indexed for GetConnectionGroupByRoutingEndpoint lookups.
+func (b *InMemoryBackend) CreateConnectionGroupWithConfig(
+	name, comment, anycastIPListID string, ipv6Enabled, enabled bool, tags map[string]string,
+) (*ConnectionGroup, error) {
+	if err := validateCFTags(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateConnectionGroup")
 	defer b.mu.Unlock()
 
@@ -1382,38 +1666,119 @@ func (b *InMemoryBackend) CreateConnectionGroup(name, comment string) (*Connecti
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
 	}
 
-	id := generateID()
-	group := &ConnectionGroup{
-		ID:      id,
-		ARN:     b.connectionGroupARN(id),
-		Name:    name,
-		Comment: comment,
+	if _, exists := b.connectionGroupByName[name]; exists {
+		return nil, fmt.Errorf(
+			"%w: connection group with name %q already exists",
+			ErrConnectionGroupAlreadyExists,
+			name,
+		)
 	}
-	b.connectionGroups[id] = group
-	cp := *group
 
-	return &cp, nil
+	id := generateID()
+	now := time.Now().UTC().Format(time.RFC3339)
+	group := &ConnectionGroup{
+		ID:               id,
+		ARN:              b.connectionGroupARN(id),
+		Name:             name,
+		Comment:          comment,
+		AnycastIPListID:  anycastIPListID,
+		RoutingEndpoint:  strings.ToLower(id) + ".cloudfront.net",
+		Status:           statusDeployed,
+		ETag:             uuid.NewString(),
+		CreatedTime:      now,
+		LastModifiedTime: now,
+		IPv6Enabled:      ipv6Enabled,
+		Enabled:          enabled,
+		Tags:             make(map[string]string, len(tags)),
+	}
+	maps.Copy(group.Tags, tags)
+	b.connectionGroups[id] = group
+	b.connectionGroupARNs[group.ARN] = id
+	b.connectionGroupByName[name] = id
+	b.connectionGroupByRoutingEndpoint[group.RoutingEndpoint] = id
+
+	return b.copyConnectionGroup(group), nil
 }
 
-// CreateContinuousDeploymentPolicy creates a new continuous deployment policy.
+// continuousDeploymentPolicyARN builds an ARN for a continuous deployment policy.
+func (b *InMemoryBackend) continuousDeploymentPolicyARN(id string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:continuous-deployment-policy/%s", b.accountID, id)
+}
+
+// dnsNamesFromSingle normalises the legacy single-DNS-name parameter into the
+// StagingDistributionDnsNames list AWS actually returns, dropping empty values.
+func dnsNamesFromSingle(dns string) []string {
+	if dns == "" {
+		return nil
+	}
+
+	return []string{dns}
+}
+
+// CreateContinuousDeploymentPolicy creates a new continuous deployment policy with a single
+// staging distribution DNS name and no traffic config. It is kept for backward compatibility;
+// CreateContinuousDeploymentPolicyWithConfig supports the full AWS request shape.
 func (b *InMemoryBackend) CreateContinuousDeploymentPolicy(
 	enabled bool,
 	stagingDNS string,
+) (*ContinuousDeploymentPolicy, error) {
+	return b.CreateContinuousDeploymentPolicyWithConfig(
+		enabled, dnsNamesFromSingle(stagingDNS), ContinuousDeploymentTrafficConfig{},
+	)
+}
+
+// CreateContinuousDeploymentPolicyWithConfig creates a new continuous deployment policy with the
+// full set of staging distribution DNS names and a traffic config (SingleWeight or SingleHeader).
+func (b *InMemoryBackend) CreateContinuousDeploymentPolicyWithConfig(
+	enabled bool,
+	stagingDNSNames []string,
+	traffic ContinuousDeploymentTrafficConfig,
 ) (*ContinuousDeploymentPolicy, error) {
 	b.mu.Lock("CreateContinuousDeploymentPolicy")
 	defer b.mu.Unlock()
 
 	id := generateID()
+	var singleDNS string
+	if len(stagingDNSNames) > 0 {
+		singleDNS = stagingDNSNames[0]
+	}
+
 	policy := &ContinuousDeploymentPolicy{
-		ID:                     id,
-		ETag:                   uuid.NewString(),
-		Enabled:                enabled,
-		StagingDistributionDNS: stagingDNS,
+		ID:                          id,
+		ARN:                         b.continuousDeploymentPolicyARN(id),
+		ETag:                        uuid.NewString(),
+		LastModifiedTime:            time.Now().UTC().Format(time.RFC3339),
+		Enabled:                     enabled,
+		StagingDistributionDNS:      singleDNS,
+		StagingDistributionDNSNames: append([]string(nil), stagingDNSNames...),
+		TrafficConfig:               traffic,
 	}
 	b.continuousDeploymentPolicies[id] = policy
-	cp := *policy
 
-	return &cp, nil
+	return b.copyContinuousDeploymentPolicy(policy), nil
+}
+
+// copyContinuousDeploymentPolicy returns a deep copy of a ContinuousDeploymentPolicy. Must be
+// called with the lock held.
+func (b *InMemoryBackend) copyContinuousDeploymentPolicy(
+	policy *ContinuousDeploymentPolicy,
+) *ContinuousDeploymentPolicy {
+	cp := *policy
+	cp.StagingDistributionDNSNames = append([]string(nil), policy.StagingDistributionDNSNames...)
+	if policy.TrafficConfig.SingleWeightConfig != nil {
+		swc := *policy.TrafficConfig.SingleWeightConfig
+		if policy.TrafficConfig.SingleWeightConfig.SessionStickinessConfig != nil {
+			ssc := *policy.TrafficConfig.SingleWeightConfig.SessionStickinessConfig
+			swc.SessionStickinessConfig = &ssc
+		}
+		cp.TrafficConfig.SingleWeightConfig = &swc
+	}
+	if policy.TrafficConfig.SingleHeaderConfig != nil {
+		shc := *policy.TrafficConfig.SingleHeaderConfig
+		cp.TrafficConfig.SingleHeaderConfig = &shc
+	}
+
+	return &cp
 }
 
 // GetContinuousDeploymentPolicy returns a continuous deployment policy by ID.
@@ -1430,9 +1795,7 @@ func (b *InMemoryBackend) GetContinuousDeploymentPolicy(id string) (*ContinuousD
 		)
 	}
 
-	cp := *policy
-
-	return &cp, nil
+	return b.copyContinuousDeploymentPolicy(policy), nil
 }
 
 // ListContinuousDeploymentPolicies returns all continuous deployment policies sorted by ID.
@@ -1442,8 +1805,7 @@ func (b *InMemoryBackend) ListContinuousDeploymentPolicies() []*ContinuousDeploy
 
 	list := make([]*ContinuousDeploymentPolicy, 0, len(b.continuousDeploymentPolicies))
 	for _, policy := range b.continuousDeploymentPolicies {
-		cp := *policy
-		list = append(list, &cp)
+		list = append(list, b.copyContinuousDeploymentPolicy(policy))
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
@@ -1451,7 +1813,10 @@ func (b *InMemoryBackend) ListContinuousDeploymentPolicies() []*ContinuousDeploy
 	return list
 }
 
-// UpdateContinuousDeploymentPolicy updates an existing continuous deployment policy.
+// UpdateContinuousDeploymentPolicy updates an existing continuous deployment policy's Enabled
+// flag and single staging DNS name, preserving its current traffic config. It is kept for
+// backward compatibility; UpdateContinuousDeploymentPolicyWithConfig supports the full AWS
+// request shape (multiple DNS names plus a traffic config replacement).
 func (b *InMemoryBackend) UpdateContinuousDeploymentPolicy(
 	id string,
 	enabled bool,
@@ -1471,10 +1836,48 @@ func (b *InMemoryBackend) UpdateContinuousDeploymentPolicy(
 
 	policy.Enabled = enabled
 	policy.StagingDistributionDNS = stagingDNS
+	policy.StagingDistributionDNSNames = dnsNamesFromSingle(stagingDNS)
 	policy.ETag = uuid.NewString()
-	cp := *policy
+	policy.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 
-	return &cp, nil
+	return b.copyContinuousDeploymentPolicy(policy), nil
+}
+
+// UpdateContinuousDeploymentPolicyWithConfig updates an existing continuous deployment policy,
+// replacing its Enabled flag, staging distribution DNS names, and traffic config in full
+// (mirroring the real UpdateContinuousDeploymentPolicy request, which always replaces the
+// entire ContinuousDeploymentPolicyConfig).
+func (b *InMemoryBackend) UpdateContinuousDeploymentPolicyWithConfig(
+	id string,
+	enabled bool,
+	stagingDNSNames []string,
+	traffic ContinuousDeploymentTrafficConfig,
+) (*ContinuousDeploymentPolicy, error) {
+	b.mu.Lock("UpdateContinuousDeploymentPolicy")
+	defer b.mu.Unlock()
+
+	policy, ok := b.continuousDeploymentPolicies[id]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: continuous deployment policy %s not found",
+			ErrContinuousDeploymentPolicyNotFound,
+			id,
+		)
+	}
+
+	var singleDNS string
+	if len(stagingDNSNames) > 0 {
+		singleDNS = stagingDNSNames[0]
+	}
+
+	policy.Enabled = enabled
+	policy.StagingDistributionDNS = singleDNS
+	policy.StagingDistributionDNSNames = append([]string(nil), stagingDNSNames...)
+	policy.TrafficConfig = traffic
+	policy.ETag = uuid.NewString()
+	policy.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+
+	return b.copyContinuousDeploymentPolicy(policy), nil
 }
 
 // DeleteContinuousDeploymentPolicy deletes a continuous deployment policy by ID.
@@ -1952,7 +2355,7 @@ func (b *InMemoryBackend) CreateFunction(
 		Comment:      comment,
 		Runtime:      runtime,
 		FunctionCode: functionCode,
-		Status:       "DEVELOPMENT",
+		Status:       functionStageDevelopment,
 		ETag:         uuid.NewString(),
 		ARN:          b.functionARN(name),
 	}
@@ -2003,7 +2406,7 @@ func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
 		return nil, fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
 	}
 
-	fn.Status = "LIVE"
+	fn.Status = functionStageLive
 	fn.ETag = uuid.NewString()
 	cp := *fn
 
@@ -2029,7 +2432,7 @@ func (b *InMemoryBackend) UpdateFunction(
 	fn.Comment = comment
 	fn.Runtime = runtime
 	fn.FunctionCode = functionCode
-	fn.Status = "DEVELOPMENT"
+	fn.Status = functionStageDevelopment
 	fn.ETag = uuid.NewString()
 	cp := *fn
 
@@ -2207,9 +2610,91 @@ func (b *InMemoryBackend) DeleteOriginRequestPolicy(id string) error {
 
 // --- Field Level Encryption CRUD ---
 
-// CreateFieldLevelEncryption creates a new Field Level Encryption config.
+// renameInIndex moves id from oldName to newName in a name→ID uniqueness index,
+// returning false when newName is already taken. A no-op when the name is
+// unchanged. Must be called with the lock held.
+func renameInIndex(byName map[string]string, id, oldName, newName string) bool {
+	if newName == oldName {
+		return true
+	}
+
+	if _, exists := byName[newName]; exists {
+		return false
+	}
+
+	delete(byName, oldName)
+	byName[newName] = id
+
+	return true
+}
+
+// requireProfilesExist verifies every referenced FLE profile ID exists.
+// Must be called with the lock held.
+func (b *InMemoryBackend) requireProfilesExist(profiles []FLEQueryArgProfile) error {
+	for _, p := range profiles {
+		if p.ProfileID == "" {
+			continue
+		}
+
+		if _, ok := b.fieldLevelEncryptionProfiles[p.ProfileID]; !ok {
+			return fmt.Errorf(
+				"%w: field level encryption profile %s not found",
+				ErrFLEProfileNotFound,
+				p.ProfileID,
+			)
+		}
+	}
+
+	return nil
+}
+
+// requirePublicKeysExist verifies every public key referenced by the entities exists.
+// Must be called with the lock held.
+func (b *InMemoryBackend) requirePublicKeysExist(entities []EncryptionEntity) error {
+	for _, e := range entities {
+		if e.PublicKeyID == "" {
+			continue
+		}
+
+		if _, ok := b.publicKeys[e.PublicKeyID]; !ok {
+			return fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, e.PublicKeyID)
+		}
+	}
+
+	return nil
+}
+
+// cloneQueryArgProfiles returns a defensive copy of the profile slice.
+func cloneQueryArgProfiles(in []FLEQueryArgProfile) []FLEQueryArgProfile {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]FLEQueryArgProfile, len(in))
+	copy(out, in)
+
+	return out
+}
+
+// cloneEncryptionEntities returns a deep copy of the entity slice.
+func cloneEncryptionEntities(in []EncryptionEntity) []EncryptionEntity {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]EncryptionEntity, len(in))
+	for i, e := range in {
+		e.FieldPatterns = append([]string(nil), e.FieldPatterns...)
+		out[i] = e
+	}
+
+	return out
+}
+
+// CreateFieldLevelEncryption creates a new Field Level Encryption config. Every
+// referenced FLE profile ID must exist (referential integrity).
 func (b *InMemoryBackend) CreateFieldLevelEncryption(
-	name, comment string,
+	name, comment string, queryArgProfiles []FLEQueryArgProfile,
 ) (*FieldLevelEncryption, error) {
 	b.mu.Lock("CreateFieldLevelEncryption")
 	defer b.mu.Unlock()
@@ -2226,16 +2711,22 @@ func (b *InMemoryBackend) CreateFieldLevelEncryption(
 		)
 	}
 
+	if err := b.requireProfilesExist(queryArgProfiles); err != nil {
+		return nil, err
+	}
+
 	id := generateID()
 	fle := &FieldLevelEncryption{
-		ID:      id,
-		Name:    name,
-		Comment: comment,
-		ETag:    uuid.NewString(),
+		ID:               id,
+		Name:             name,
+		Comment:          comment,
+		ETag:             uuid.NewString(),
+		QueryArgProfiles: cloneQueryArgProfiles(queryArgProfiles),
 	}
 	b.fieldLevelEncryptions[id] = fle
 	b.fieldLevelEncryptionByName[name] = id
 	cp := *fle
+	cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 
 	return &cp, nil
 }
@@ -2251,6 +2742,7 @@ func (b *InMemoryBackend) GetFieldLevelEncryption(id string) (*FieldLevelEncrypt
 	}
 
 	cp := *fle
+	cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 
 	return &cp, nil
 }
@@ -2263,6 +2755,7 @@ func (b *InMemoryBackend) ListFieldLevelEncryptions() []*FieldLevelEncryption {
 	list := make([]*FieldLevelEncryption, 0, len(b.fieldLevelEncryptions))
 	for _, fle := range b.fieldLevelEncryptions {
 		cp := *fle
+		cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 		list = append(list, &cp)
 	}
 
@@ -2272,8 +2765,9 @@ func (b *InMemoryBackend) ListFieldLevelEncryptions() []*FieldLevelEncryption {
 }
 
 // UpdateFieldLevelEncryption updates an existing Field Level Encryption config.
+// Every referenced FLE profile ID must exist (referential integrity).
 func (b *InMemoryBackend) UpdateFieldLevelEncryption(
-	id, name, comment string,
+	id, name, comment string, queryArgProfiles []FLEQueryArgProfile,
 ) (*FieldLevelEncryption, error) {
 	b.mu.Lock("UpdateFieldLevelEncryption")
 	defer b.mu.Unlock()
@@ -2283,23 +2777,21 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryption(
 		return nil, fmt.Errorf("%w: field level encryption %s not found", ErrFLENotFound, id)
 	}
 
-	if name != fle.Name {
-		if _, exists := b.fieldLevelEncryptionByName[name]; exists {
-			return nil, fmt.Errorf(
-				"%w: field level encryption with name %q already exists",
-				ErrAlreadyExists,
-				name,
-			)
-		}
+	if err := b.requireProfilesExist(queryArgProfiles); err != nil {
+		return nil, err
+	}
 
-		delete(b.fieldLevelEncryptionByName, fle.Name)
-		b.fieldLevelEncryptionByName[name] = id
+	if !renameInIndex(b.fieldLevelEncryptionByName, id, fle.Name, name) {
+		return nil, fmt.Errorf(
+			"%w: field level encryption with name %q already exists", ErrAlreadyExists, name)
 	}
 
 	fle.Name = name
 	fle.Comment = comment
+	fle.QueryArgProfiles = cloneQueryArgProfiles(queryArgProfiles)
 	fle.ETag = uuid.NewString()
 	cp := *fle
+	cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 
 	return &cp, nil
 }
@@ -2323,8 +2815,9 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryption(id string) error {
 // --- Field Level Encryption Profile CRUD ---
 
 // CreateFieldLevelEncryptionProfile creates a new Field Level Encryption Profile.
+// Every public key referenced by an EncryptionEntity must exist (referential integrity).
 func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
-	name, comment string,
+	name, comment string, entities []EncryptionEntity,
 ) (*FieldLevelEncryptionProfile, error) {
 	b.mu.Lock("CreateFieldLevelEncryptionProfile")
 	defer b.mu.Unlock()
@@ -2341,16 +2834,22 @@ func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
 		)
 	}
 
+	if err := b.requirePublicKeysExist(entities); err != nil {
+		return nil, err
+	}
+
 	id := generateID()
 	p := &FieldLevelEncryptionProfile{
-		ID:      id,
-		Name:    name,
-		Comment: comment,
-		ETag:    uuid.NewString(),
+		ID:                 id,
+		Name:               name,
+		Comment:            comment,
+		ETag:               uuid.NewString(),
+		EncryptionEntities: cloneEncryptionEntities(entities),
 	}
 	b.fieldLevelEncryptionProfiles[id] = p
 	b.fieldLevelEncryptionProfileByName[name] = id
 	cp := *p
+	cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 
 	return &cp, nil
 }
@@ -2372,6 +2871,7 @@ func (b *InMemoryBackend) GetFieldLevelEncryptionProfile(
 	}
 
 	cp := *p
+	cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 
 	return &cp, nil
 }
@@ -2384,6 +2884,7 @@ func (b *InMemoryBackend) ListFieldLevelEncryptionProfiles() []*FieldLevelEncryp
 	list := make([]*FieldLevelEncryptionProfile, 0, len(b.fieldLevelEncryptionProfiles))
 	for _, p := range b.fieldLevelEncryptionProfiles {
 		cp := *p
+		cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 		list = append(list, &cp)
 	}
 
@@ -2392,9 +2893,10 @@ func (b *InMemoryBackend) ListFieldLevelEncryptionProfiles() []*FieldLevelEncryp
 	return list
 }
 
-// UpdateFieldLevelEncryptionProfile updates an existing FLE profile.
+// UpdateFieldLevelEncryptionProfile updates an existing FLE profile. Every public
+// key referenced by an EncryptionEntity must exist (referential integrity).
 func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
-	id, name, comment string,
+	id, name, comment string, entities []EncryptionEntity,
 ) (*FieldLevelEncryptionProfile, error) {
 	b.mu.Lock("UpdateFieldLevelEncryptionProfile")
 	defer b.mu.Unlock()
@@ -2408,28 +2910,41 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
 		)
 	}
 
-	if name != p.Name {
-		if _, exists := b.fieldLevelEncryptionProfileByName[name]; exists {
-			return nil, fmt.Errorf(
-				"%w: field level encryption profile with name %q already exists",
-				ErrAlreadyExists,
-				name,
-			)
-		}
+	if err := b.requirePublicKeysExist(entities); err != nil {
+		return nil, err
+	}
 
-		delete(b.fieldLevelEncryptionProfileByName, p.Name)
-		b.fieldLevelEncryptionProfileByName[name] = id
+	if !renameInIndex(b.fieldLevelEncryptionProfileByName, id, p.Name, name) {
+		return nil, fmt.Errorf(
+			"%w: field level encryption profile with name %q already exists", ErrAlreadyExists, name)
 	}
 
 	p.Name = name
 	p.Comment = comment
+	p.EncryptionEntities = cloneEncryptionEntities(entities)
 	p.ETag = uuid.NewString()
 	cp := *p
+	cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 
 	return &cp, nil
 }
 
-// DeleteFieldLevelEncryptionProfile deletes an FLE profile by ID.
+// fleProfileReferencedBy returns the ID of an FLE config that references the given
+// profile, or "" if none. Must be called with the lock held.
+func (b *InMemoryBackend) fleProfileReferencedBy(profileID string) string {
+	for _, fle := range b.fieldLevelEncryptions {
+		for _, qp := range fle.QueryArgProfiles {
+			if qp.ProfileID == profileID {
+				return fle.ID
+			}
+		}
+	}
+
+	return ""
+}
+
+// DeleteFieldLevelEncryptionProfile deletes an FLE profile by ID. It returns
+// ErrFLEProfileInUse when the profile is still referenced by an FLE config.
 func (b *InMemoryBackend) DeleteFieldLevelEncryptionProfile(id string) error {
 	b.mu.Lock("DeleteFieldLevelEncryptionProfile")
 	defer b.mu.Unlock()
@@ -2440,6 +2955,15 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryptionProfile(id string) error {
 			"%w: field level encryption profile %s not found",
 			ErrFLEProfileNotFound,
 			id,
+		)
+	}
+
+	if configID := b.fleProfileReferencedBy(id); configID != "" {
+		return fmt.Errorf(
+			"%w: field level encryption profile %s is referenced by config %s",
+			ErrFLEProfileInUse,
+			id,
+			configID,
 		)
 	}
 
@@ -2536,7 +3060,29 @@ func (b *InMemoryBackend) UpdatePublicKey(id, comment string) (*PublicKey, error
 	return &cp, nil
 }
 
-// DeletePublicKey deletes a Public Key by ID.
+// publicKeyReferencedBy reports the kind and ID of the first resource that
+// references the given public key, or ("", "") if none. Must be called with the
+// lock held.
+func (b *InMemoryBackend) publicKeyReferencedBy(pkID string) (string, string) {
+	for _, kg := range b.keyGroups {
+		if slices.Contains(kg.Items, pkID) {
+			return "key group", kg.ID
+		}
+	}
+
+	for _, p := range b.fieldLevelEncryptionProfiles {
+		for _, e := range p.EncryptionEntities {
+			if e.PublicKeyID == pkID {
+				return "field level encryption profile", p.ID
+			}
+		}
+	}
+
+	return "", ""
+}
+
+// DeletePublicKey deletes a Public Key by ID. It returns ErrPublicKeyInUse when
+// the key is still referenced by a key group or an FLE profile.
 func (b *InMemoryBackend) DeletePublicKey(id string) error {
 	b.mu.Lock("DeletePublicKey")
 	defer b.mu.Unlock()
@@ -2544,6 +3090,16 @@ func (b *InMemoryBackend) DeletePublicKey(id string) error {
 	pk, ok := b.publicKeys[id]
 	if !ok {
 		return fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, id)
+	}
+
+	if kind, refID := b.publicKeyReferencedBy(id); kind != "" {
+		return fmt.Errorf(
+			"%w: public key %s is referenced by %s %s",
+			ErrPublicKeyInUse,
+			id,
+			kind,
+			refID,
+		)
 	}
 
 	delete(b.publicKeyByName, pk.Name)
@@ -2849,11 +3405,13 @@ func (b *InMemoryBackend) CreateKeyValueStore(name, comment string) (*KeyValueSt
 
 	id := uuid.NewString()
 	kvs := &KeyValueStore{
-		ID:      id,
-		ARN:     b.keyValueStoreARN(id),
-		Name:    name,
-		Comment: comment,
-		ETag:    uuid.NewString(),
+		ID:               id,
+		ARN:              b.keyValueStoreARN(id),
+		Name:             name,
+		Comment:          comment,
+		ETag:             uuid.NewString(),
+		Status:           kvsStatusReady,
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 	}
 	b.keyValueStores[id] = kvs
 	b.keyValueStoreByName[name] = id

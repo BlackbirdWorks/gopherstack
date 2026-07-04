@@ -2,9 +2,13 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
+
+// note: handler_advanced_networking.go implements the Site-to-Site VPN family
+// (VPN/customer gateways, VPN connections, tunnel and device operations).
 
 // ---- Handler registration ----
 
@@ -25,6 +29,12 @@ func registerAdvancedNetworkingOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateVpnConnection"] = h.handleCreateVpnConnection
 	ops["DescribeVpnConnections"] = h.handleDescribeVpnConnections
 	ops["DeleteVpnConnection"] = h.handleDeleteVpnConnection
+	ops["ModifyVpnConnectionOptions"] = h.handleModifyVpnConnectionOptions
+	ops["ModifyVpnTunnelOptions"] = h.handleModifyVpnTunnelOptions
+	ops["ModifyVpnTunnelCertificate"] = h.handleModifyVpnTunnelCertificate
+	ops["GetVpnConnectionDeviceTypes"] = h.handleGetVpnConnectionDeviceTypes
+	ops["GetVpnConnectionDeviceSampleConfiguration"] = h.handleGetVpnConnectionDeviceSampleConfiguration
+	ops["GetVpnTunnelReplacementStatus"] = h.handleGetVpnTunnelReplacementStatus
 
 	// VPC Peering extras
 	ops["RejectVpcPeeringConnection"] = h.handleRejectVpcPeeringConnection
@@ -34,17 +44,33 @@ func registerAdvancedNetworkingOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeVpcEndpointServiceConfigurations"] = h.handleDescribeVpcEndpointServiceConfigurations
 	ops["DeleteVpcEndpointServiceConfigurations"] = h.handleDeleteVpcEndpointServiceConfigurations
 	ops["ModifyVpcEndpointServiceConfiguration"] = h.handleModifyVpcEndpointServiceConfiguration
+	ops["StartVpcEndpointServicePrivateDnsVerification"] = h.handleStartVpcEndpointServicePrivateDNSVerification
 
 	// IPAM
 	ops["CreateIpam"] = h.handleCreateIpam
 	ops["DescribeIpams"] = h.handleDescribeIpams
+	ops["ModifyIpam"] = h.handleModifyIpam
 	ops["DeleteIpam"] = h.handleDeleteIpam
+	ops["CreateIpamScope"] = h.handleCreateIpamScope
+	ops["DescribeIpamScopes"] = h.handleDescribeIpamScopes
+	ops["ModifyIpamScope"] = h.handleModifyIpamScope
+	ops["DeleteIpamScope"] = h.handleDeleteIpamScope
 	ops["CreateIpamPool"] = h.handleCreateIpamPool
 	ops["DescribeIpamPools"] = h.handleDescribeIpamPools
+	ops["ModifyIpamPool"] = h.handleModifyIpamPool
 	ops["DeleteIpamPool"] = h.handleDeleteIpamPool
+	ops["ProvisionIpamPoolCidr"] = h.handleProvisionIpamPoolCidr
+	ops["DeprovisionIpamPoolCidr"] = h.handleDeprovisionIpamPoolCidr
 	ops["AllocateIpamPoolCidr"] = h.handleAllocateIpamPoolCidr
 	ops["GetIpamPoolCidrs"] = h.handleGetIpamPoolCidrs
+	ops["GetIpamPoolAllocations"] = h.handleGetIpamPoolAllocations
 	ops["ReleaseIpamPoolAllocation"] = h.handleReleaseIpamPoolAllocation
+	ops["DescribeIpamResourceDiscoveries"] = h.handleDescribeIpamResourceDiscoveries
+	ops["DescribeIpamResourceDiscoveryAssociations"] = h.handleDescribeIpamResourceDiscoveryAssociations
+	ops["GetIpamAddressHistory"] = h.handleGetIpamAddressHistory
+	ops["GetIpamDiscoveredAccounts"] = h.handleGetIpamDiscoveredAccounts
+	ops["GetIpamDiscoveredResourceCidrs"] = h.handleGetIpamDiscoveredResourceCidrs
+	ops["GetIpamDiscoveredPublicAddresses"] = h.handleGetIpamDiscoveredPublicAddresses
 }
 
 func advancedNetworkingSupportedOperations() []string {
@@ -60,20 +86,42 @@ func advancedNetworkingSupportedOperations() []string {
 		"CreateVpnConnection",
 		"DescribeVpnConnections",
 		"DeleteVpnConnection",
+		"ModifyVpnConnectionOptions",
+		"ModifyVpnTunnelOptions",
+		"ModifyVpnTunnelCertificate",
+		"GetVpnConnectionDeviceTypes",
+		"GetVpnConnectionDeviceSampleConfiguration",
+		"GetVpnTunnelReplacementStatus",
 		"RejectVpcPeeringConnection",
 		"CreateVpcEndpointServiceConfiguration",
 		"DescribeVpcEndpointServiceConfigurations",
 		"DeleteVpcEndpointServiceConfigurations",
 		"ModifyVpcEndpointServiceConfiguration",
+		"StartVpcEndpointServicePrivateDnsVerification",
 		"CreateIpam",
 		"DescribeIpams",
+		"ModifyIpam",
 		"DeleteIpam",
+		"CreateIpamScope",
+		"DescribeIpamScopes",
+		"ModifyIpamScope",
+		"DeleteIpamScope",
 		"CreateIpamPool",
 		"DescribeIpamPools",
+		"ModifyIpamPool",
 		"DeleteIpamPool",
+		"ProvisionIpamPoolCidr",
+		"DeprovisionIpamPoolCidr",
 		"AllocateIpamPoolCidr",
 		"GetIpamPoolCidrs",
+		"GetIpamPoolAllocations",
 		"ReleaseIpamPoolAllocation",
+		"DescribeIpamResourceDiscoveries",
+		"DescribeIpamResourceDiscoveryAssociations",
+		"GetIpamAddressHistory",
+		"GetIpamDiscoveredAccounts",
+		"GetIpamDiscoveredResourceCidrs",
+		"GetIpamDiscoveredPublicAddresses",
 	}
 }
 
@@ -152,12 +200,127 @@ type deleteCustomerGatewayResponse struct {
 	Return    bool     `xml:"return"`
 }
 
+type ikeVersionItem struct {
+	Value string `xml:"value"`
+}
+
+type vpnTunnelOptionItem struct {
+	OutsideIPAddress string `xml:"outsideIpAddress,omitempty"`
+	TunnelInsideCidr string `xml:"tunnelInsideCidr,omitempty"`
+	PreSharedKey     string `xml:"preSharedKey,omitempty"`
+	DPDTimeoutAction string `xml:"dpdTimeoutAction,omitempty"`
+	StartupAction    string `xml:"startupAction,omitempty"`
+	CertificateArn   string `xml:"certificateArn,omitempty"`
+	IKEVersionSet    struct {
+		Items []ikeVersionItem `xml:"item"`
+	} `xml:"ikeVersions"`
+	Phase1LifetimeSeconds  int32 `xml:"phase1LifetimeSeconds,omitempty"`
+	Phase2LifetimeSeconds  int32 `xml:"phase2LifetimeSeconds,omitempty"`
+	RekeyMarginTimeSeconds int32 `xml:"rekeyMarginTimeSeconds,omitempty"`
+	DPDTimeoutSeconds      int32 `xml:"dpdTimeoutSeconds,omitempty"`
+}
+
+type vpnConnectionOptionsItem struct {
+	LocalIpv4NetworkCidr  string `xml:"localIpv4NetworkCidr,omitempty"`
+	RemoteIpv4NetworkCidr string `xml:"remoteIpv4NetworkCidr,omitempty"`
+	TunnelOptionsSet      struct {
+		Items []vpnTunnelOptionItem `xml:"item"`
+	} `xml:"tunnelOptions"`
+	StaticRoutesOnly bool `xml:"staticRoutesOnly"`
+}
+
+type vgwTelemetryItem struct {
+	OutsideIPAddress   string `xml:"outsideIpAddress"`
+	Status             string `xml:"status"`
+	StatusMessage      string `xml:"statusMessage,omitempty"`
+	LastStatusChange   string `xml:"lastStatusChange,omitempty"`
+	CertificateArn     string `xml:"certificateArn,omitempty"`
+	AcceptedRouteCount int32  `xml:"acceptedRouteCount"`
+}
+
+type vpnStaticRouteItem struct {
+	DestinationCidrBlock string `xml:"destinationCidrBlock"`
+	State                string `xml:"state"`
+	Source               string `xml:"source"`
+}
+
 type vpnConnectionItem struct {
-	VpnConnectionID   string `xml:"vpnConnectionId"`
-	State             string `xml:"state"`
-	CustomerGatewayID string `xml:"customerGatewayId"`
-	VpnGatewayID      string `xml:"vpnGatewayId"`
-	Type              string `xml:"type"`
+	VpnConnectionID              string `xml:"vpnConnectionId"`
+	State                        string `xml:"state"`
+	CustomerGatewayConfiguration string `xml:"customerGatewayConfiguration,omitempty"`
+	Type                         string `xml:"type"`
+	CustomerGatewayID            string `xml:"customerGatewayId"`
+	VpnGatewayID                 string `xml:"vpnGatewayId,omitempty"`
+	TransitGatewayID             string `xml:"transitGatewayId,omitempty"`
+	Category                     string `xml:"category,omitempty"`
+	RoutesSet                    struct {
+		Items []vpnStaticRouteItem `xml:"item"`
+	} `xml:"routes"`
+	VgwTelemetrySet struct {
+		Items []vgwTelemetryItem `xml:"item"`
+	} `xml:"vgwTelemetry"`
+	Options vpnConnectionOptionsItem `xml:"options"`
+}
+
+// toVpnConnectionItem builds the full wire representation of a VPN connection, including its
+// negotiated tunnel options, VGW telemetry, and any static routes registered against it.
+func (h *Handler) toVpnConnectionItem(conn *VpnConnection) vpnConnectionItem {
+	item := vpnConnectionItem{
+		VpnConnectionID:              conn.VpnConnectionID,
+		State:                        conn.State,
+		CustomerGatewayConfiguration: conn.CustomerGatewayConfiguration,
+		Type:                         conn.Type,
+		CustomerGatewayID:            conn.CustomerGatewayID,
+		VpnGatewayID:                 conn.VpnGatewayID,
+		TransitGatewayID:             conn.TransitGatewayID,
+		Category:                     conn.Category,
+	}
+
+	item.Options.StaticRoutesOnly = conn.Options.StaticRoutesOnly
+	item.Options.LocalIpv4NetworkCidr = conn.Options.LocalIPv4NetworkCIDR
+	item.Options.RemoteIpv4NetworkCidr = conn.Options.RemoteIPv4NetworkCIDR
+
+	for _, t := range conn.Options.TunnelOptions {
+		tItem := vpnTunnelOptionItem{
+			OutsideIPAddress:       t.OutsideIPAddress,
+			TunnelInsideCidr:       t.TunnelInsideCIDR,
+			PreSharedKey:           t.PreSharedKey,
+			Phase1LifetimeSeconds:  t.Phase1LifetimeSeconds,
+			Phase2LifetimeSeconds:  t.Phase2LifetimeSeconds,
+			RekeyMarginTimeSeconds: t.RekeyMarginTimeSeconds,
+			DPDTimeoutSeconds:      t.DPDTimeoutSeconds,
+			DPDTimeoutAction:       t.DPDTimeoutAction,
+			StartupAction:          t.StartupAction,
+			CertificateArn:         t.CertificateARN,
+		}
+
+		for _, v := range t.IKEVersions {
+			tItem.IKEVersionSet.Items = append(tItem.IKEVersionSet.Items, ikeVersionItem{Value: v})
+		}
+
+		item.Options.TunnelOptionsSet.Items = append(item.Options.TunnelOptionsSet.Items, tItem)
+	}
+
+	for _, t := range conn.VgwTelemetry {
+		item.VgwTelemetrySet.Items = append(item.VgwTelemetrySet.Items, vgwTelemetryItem{
+			OutsideIPAddress:   t.OutsideIPAddress,
+			Status:             t.Status,
+			StatusMessage:      t.StatusMessage,
+			AcceptedRouteCount: t.AcceptedRouteCount,
+			LastStatusChange:   t.LastStatusChange,
+			CertificateArn:     t.CertificateARN,
+		})
+	}
+
+	for _, r := range h.Backend.GetVpnConnectionRoutes(conn.VpnConnectionID) {
+		item.RoutesSet.Items = append(item.RoutesSet.Items, vpnStaticRouteItem{
+			DestinationCidrBlock: r.DestinationCIDR,
+			State:                r.State,
+			Source:               "Static",
+		})
+	}
+
+	return item
 }
 
 type createVpnConnectionResponse struct {
@@ -180,6 +343,73 @@ type deleteVpnConnectionResponse struct {
 	XMLName   xml.Name `xml:"DeleteVpnConnectionResponse"`
 	RequestID string   `xml:"requestId"`
 	Return    bool     `xml:"return"`
+}
+
+type modifyVpnConnectionResponse struct {
+	XMLName       xml.Name          `xml:"ModifyVpnConnectionResponse"`
+	Xmlns         string            `xml:"xmlns,attr"`
+	RequestID     string            `xml:"requestId"`
+	VpnConnection vpnConnectionItem `xml:"vpnConnection"`
+}
+
+type modifyVpnConnectionOptionsResponse struct {
+	XMLName       xml.Name          `xml:"ModifyVpnConnectionOptionsResponse"`
+	Xmlns         string            `xml:"xmlns,attr"`
+	RequestID     string            `xml:"requestId"`
+	VpnConnection vpnConnectionItem `xml:"vpnConnection"`
+}
+
+type modifyVpnTunnelOptionsResponse struct {
+	XMLName       xml.Name          `xml:"ModifyVpnTunnelOptionsResponse"`
+	Xmlns         string            `xml:"xmlns,attr"`
+	RequestID     string            `xml:"requestId"`
+	VpnConnection vpnConnectionItem `xml:"vpnConnection"`
+}
+
+type modifyVpnTunnelCertificateResponse struct {
+	XMLName       xml.Name          `xml:"ModifyVpnTunnelCertificateResponse"`
+	Xmlns         string            `xml:"xmlns,attr"`
+	RequestID     string            `xml:"requestId"`
+	VpnConnection vpnConnectionItem `xml:"vpnConnection"`
+}
+
+type vpnConnectionDeviceTypeItem struct {
+	VpnConnectionDeviceTypeID string `xml:"vpnConnectionDeviceTypeId"`
+	Vendor                    string `xml:"vendor"`
+	Platform                  string `xml:"platform"`
+	Software                  string `xml:"software"`
+}
+
+type getVpnConnectionDeviceTypesResponse struct {
+	XMLName                    xml.Name `xml:"GetVpnConnectionDeviceTypesResponse"`
+	Xmlns                      string   `xml:"xmlns,attr"`
+	RequestID                  string   `xml:"requestId"`
+	VpnConnectionDeviceTypeSet struct {
+		Items []vpnConnectionDeviceTypeItem `xml:"item"`
+	} `xml:"vpnConnectionDeviceTypeSet"`
+}
+
+type getVpnConnectionDeviceSampleConfigurationResponse struct {
+	XMLName                                xml.Name `xml:"GetVpnConnectionDeviceSampleConfigurationResponse"`
+	Xmlns                                  string   `xml:"xmlns,attr"`
+	RequestID                              string   `xml:"requestId"`
+	VpnConnectionDeviceSampleConfiguration string   `xml:"vpnConnectionDeviceSampleConfiguration"`
+}
+
+type vpnTunnelMaintenanceDetailsItem struct {
+	PendingMaintenance string `xml:"pendingMaintenance"`
+}
+
+type getVpnTunnelReplacementStatusResponse struct {
+	XMLName                   xml.Name                        `xml:"GetVpnTunnelReplacementStatusResponse"`
+	Xmlns                     string                          `xml:"xmlns,attr"`
+	RequestID                 string                          `xml:"requestId"`
+	VpnConnectionID           string                          `xml:"vpnConnectionId"`
+	TransitGatewayID          string                          `xml:"transitGatewayId,omitempty"`
+	VpnGatewayID              string                          `xml:"vpnGatewayId,omitempty"`
+	CustomerGatewayID         string                          `xml:"customerGatewayId,omitempty"`
+	VpnTunnelOutsideIPAddress string                          `xml:"vpnTunnelOutsideIpAddress"`
+	MaintenanceDetails        vpnTunnelMaintenanceDetailsItem `xml:"maintenanceDetails"`
 }
 
 type rejectVpcPeeringConnectionResponse struct {
@@ -223,11 +453,58 @@ type modifyVpcEndpointServiceConfigurationResponse struct {
 	Return    bool     `xml:"return"`
 }
 
+type startVpcEndpointServicePrivateDNSVerificationResponse struct {
+	XMLName   xml.Name `xml:"StartVpcEndpointServicePrivateDnsVerificationResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+type ipamOperatingRegionItem struct {
+	RegionName string `xml:"regionName"`
+}
+
 type ipamItem struct {
-	IpamID  string `xml:"ipamId"`
-	IpamARN string `xml:"ipamArn"`
-	State   string `xml:"state"`
-	Region  string `xml:"operatingRegions>item>regionName"`
+	State                                 string `xml:"state"`
+	DefaultResourceDiscoveryID            string `xml:"defaultResourceDiscoveryId,omitempty"`
+	IpamARN                               string `xml:"ipamArn"`
+	IpamRegion                            string `xml:"ipamRegion,omitempty"`
+	PublicDefaultScopeID                  string `xml:"publicDefaultScopeId,omitempty"`
+	PrivateDefaultScopeID                 string `xml:"privateDefaultScopeId,omitempty"`
+	Tier                                  string `xml:"tier,omitempty"`
+	Description                           string `xml:"description,omitempty"`
+	OwnerID                               string `xml:"ownerId,omitempty"`
+	IpamID                                string `xml:"ipamId"`
+	DefaultResourceDiscoveryAssociationID string `xml:"defaultResourceDiscoveryAssociationId,omitempty"`
+	OperatingRegionSet                    struct {
+		Items []ipamOperatingRegionItem `xml:"item"`
+	} `xml:"operatingRegions"`
+	ScopeCount                        int32 `xml:"scopeCount,omitempty"`
+	ResourceDiscoveryAssociationCount int32 `xml:"resourceDiscoveryAssociationCount,omitempty"`
+}
+
+func toIpamItem(ipam *Ipam) ipamItem {
+	item := ipamItem{
+		IpamID:                                ipam.IpamID,
+		OwnerID:                               ipam.OwnerID,
+		IpamARN:                               ipam.IpamARN,
+		IpamRegion:                            ipam.Region,
+		PublicDefaultScopeID:                  ipam.PublicDefaultScopeID,
+		PrivateDefaultScopeID:                 ipam.PrivateDefaultScopeID,
+		ScopeCount:                            ipam.ScopeCount,
+		Description:                           ipam.Description,
+		State:                                 ipam.State,
+		DefaultResourceDiscoveryID:            ipam.DefaultResourceDiscoveryID,
+		DefaultResourceDiscoveryAssociationID: ipam.DefaultResourceDiscoveryAssociationID,
+		ResourceDiscoveryAssociationCount:     ipam.ResourceDiscoveryAssociationCount,
+		Tier:                                  ipam.Tier,
+	}
+
+	for _, r := range ipam.OperatingRegions {
+		item.OperatingRegionSet.Items = append(item.OperatingRegionSet.Items, ipamOperatingRegionItem{RegionName: r})
+	}
+
+	return item
 }
 
 type createIpamResponse struct {
@@ -246,20 +523,106 @@ type describeIpamsResponse struct {
 	} `xml:"ipamSet"`
 }
 
+type modifyIpamResponse struct {
+	XMLName   xml.Name `xml:"ModifyIpamResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Ipam      ipamItem `xml:"ipam"`
+}
+
 type deleteIpamResponse struct {
 	XMLName   xml.Name `xml:"DeleteIpamResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	Ipam      ipamItem `xml:"ipam"`
+}
+
+type ipamScopeItem struct {
+	IpamScopeID   string `xml:"ipamScopeId"`
+	IpamScopeARN  string `xml:"ipamScopeArn"`
+	IpamID        string `xml:"ipamId"`
+	IpamScopeType string `xml:"ipamScopeType"`
+	Description   string `xml:"description,omitempty"`
+	State         string `xml:"state"`
+	PoolCount     int32  `xml:"poolCount,omitempty"`
+	IsDefault     bool   `xml:"isDefault"`
+}
+
+func toIpamScopeItem(scope *IpamScope) ipamScopeItem {
+	return ipamScopeItem{
+		IpamScopeID:   scope.IpamScopeID,
+		IpamScopeARN:  scope.IpamScopeARN,
+		IpamID:        scope.IpamID,
+		IpamScopeType: scope.IpamScopeType,
+		IsDefault:     scope.IsDefault,
+		Description:   scope.Description,
+		PoolCount:     scope.PoolCount,
+		State:         scope.State,
+	}
+}
+
+type createIpamScopeResponse struct {
+	XMLName   xml.Name      `xml:"CreateIpamScopeResponse"`
+	Xmlns     string        `xml:"xmlns,attr"`
+	RequestID string        `xml:"requestId"`
+	IpamScope ipamScopeItem `xml:"ipamScope"`
+}
+
+type describeIpamScopesResponse struct {
+	XMLName      xml.Name `xml:"DescribeIpamScopesResponse"`
+	Xmlns        string   `xml:"xmlns,attr"`
+	RequestID    string   `xml:"requestId"`
+	IpamScopeSet struct {
+		Items []ipamScopeItem `xml:"item"`
+	} `xml:"ipamScopeSet"`
+}
+
+type modifyIpamScopeResponse struct {
+	XMLName   xml.Name      `xml:"ModifyIpamScopeResponse"`
+	Xmlns     string        `xml:"xmlns,attr"`
+	RequestID string        `xml:"requestId"`
+	IpamScope ipamScopeItem `xml:"ipamScope"`
+}
+
+type deleteIpamScopeResponse struct {
+	XMLName   xml.Name      `xml:"DeleteIpamScopeResponse"`
+	Xmlns     string        `xml:"xmlns,attr"`
+	RequestID string        `xml:"requestId"`
+	IpamScope ipamScopeItem `xml:"ipamScope"`
 }
 
 type ipamPoolItem struct {
-	IpamPoolID    string `xml:"ipamPoolId"`
-	IpamPoolARN   string `xml:"ipamPoolArn"`
-	IpamID        string `xml:"ipamId"`
-	State         string `xml:"state"`
-	Locale        string `xml:"locale,omitempty"`
-	AddressFamily string `xml:"addressFamily"`
-	Cidr          string `xml:"allocatedCidrs>item>cidr,omitempty"`
+	IpamPoolID                     string `xml:"ipamPoolId"`
+	IpamPoolARN                    string `xml:"ipamPoolArn"`
+	IpamID                         string `xml:"ipamId"`
+	IpamScopeID                    string `xml:"ipamScopeId,omitempty"`
+	State                          string `xml:"state"`
+	Locale                         string `xml:"locale,omitempty"`
+	AddressFamily                  string `xml:"addressFamily"`
+	Description                    string `xml:"description,omitempty"`
+	AutoImport                     bool   `xml:"autoImport,omitempty"`
+	PubliclyAdvertisable           bool   `xml:"publiclyAdvertisable,omitempty"`
+	AllocationMinNetmaskLength     int32  `xml:"allocationMinNetmaskLength,omitempty"`
+	AllocationMaxNetmaskLength     int32  `xml:"allocationMaxNetmaskLength,omitempty"`
+	AllocationDefaultNetmaskLength int32  `xml:"allocationDefaultNetmaskLength,omitempty"`
+}
+
+func toIpamPoolItem(pool *IpamPool) ipamPoolItem {
+	return ipamPoolItem{
+		IpamPoolID:                     pool.IpamPoolID,
+		IpamPoolARN:                    pool.IpamPoolARN,
+		IpamID:                         pool.IpamID,
+		IpamScopeID:                    pool.IpamScopeID,
+		State:                          pool.State,
+		Locale:                         pool.Locale,
+		AddressFamily:                  pool.AddressFamily,
+		Description:                    pool.Description,
+		AutoImport:                     pool.AutoImport,
+		PubliclyAdvertisable:           pool.PubliclyAdvertisable,
+		AllocationMinNetmaskLength:     pool.AllocationMinNetmaskLength,
+		AllocationMaxNetmaskLength:     pool.AllocationMaxNetmaskLength,
+		AllocationDefaultNetmaskLength: pool.AllocationDefaultNetmaskLength,
+	}
 }
 
 type createIpamPoolResponse struct {
@@ -278,16 +641,70 @@ type describeIpamPoolsResponse struct {
 	} `xml:"ipamPoolSet"`
 }
 
+type modifyIpamPoolResponse struct {
+	XMLName   xml.Name     `xml:"ModifyIpamPoolResponse"`
+	Xmlns     string       `xml:"xmlns,attr"`
+	RequestID string       `xml:"requestId"`
+	IpamPool  ipamPoolItem `xml:"ipamPool"`
+}
+
 type deleteIpamPoolResponse struct {
-	XMLName   xml.Name `xml:"DeleteIpamPoolResponse"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName   xml.Name     `xml:"DeleteIpamPoolResponse"`
+	Xmlns     string       `xml:"xmlns,attr"`
+	RequestID string       `xml:"requestId"`
+	IpamPool  ipamPoolItem `xml:"ipamPool"`
+}
+
+type ipamPoolCidrItem struct {
+	Cidr  string `xml:"cidr"`
+	State string `xml:"state"`
+}
+
+func toIpamPoolCidrItem(c *IpamPoolCidr) ipamPoolCidrItem {
+	return ipamPoolCidrItem{Cidr: c.Cidr, State: c.State}
+}
+
+type provisionIpamPoolCidrResponse struct {
+	XMLName      xml.Name         `xml:"ProvisionIpamPoolCidrResponse"`
+	Xmlns        string           `xml:"xmlns,attr"`
+	RequestID    string           `xml:"requestId"`
+	IpamPoolCidr ipamPoolCidrItem `xml:"ipamPoolCidr"`
+}
+
+type deprovisionIpamPoolCidrResponse struct {
+	XMLName      xml.Name         `xml:"DeprovisionIpamPoolCidrResponse"`
+	Xmlns        string           `xml:"xmlns,attr"`
+	RequestID    string           `xml:"requestId"`
+	IpamPoolCidr ipamPoolCidrItem `xml:"ipamPoolCidr"`
+}
+
+type getIpamPoolCidrsResponse struct {
+	XMLName         xml.Name `xml:"GetIpamPoolCidrsResponse"`
+	Xmlns           string   `xml:"xmlns,attr"`
+	RequestID       string   `xml:"requestId"`
+	IpamPoolCidrSet struct {
+		Items []ipamPoolCidrItem `xml:"item"`
+	} `xml:"ipamPoolCidrSet"`
 }
 
 type ipamPoolAllocationItem struct {
 	IpamPoolAllocationID string `xml:"ipamPoolAllocationId"`
 	Cidr                 string `xml:"cidr"`
 	Description          string `xml:"description,omitempty"`
+	ResourceType         string `xml:"resourceType,omitempty"`
+	ResourceID           string `xml:"resourceId,omitempty"`
+	ResourceOwner        string `xml:"resourceOwner,omitempty"`
+}
+
+func toIpamPoolAllocationItem(a *IpamPoolAllocation) ipamPoolAllocationItem {
+	return ipamPoolAllocationItem{
+		IpamPoolAllocationID: a.IpamPoolAllocationID,
+		Cidr:                 a.Cidr,
+		Description:          a.Description,
+		ResourceType:         a.ResourceType,
+		ResourceID:           a.ResourceID,
+		ResourceOwner:        a.ResourceOwner,
+	}
 }
 
 type allocateIpamPoolCidrResponse struct {
@@ -297,8 +714,8 @@ type allocateIpamPoolCidrResponse struct {
 	IpamPoolAllocation ipamPoolAllocationItem `xml:"ipamPoolAllocation"`
 }
 
-type getIpamPoolCidrsResponse struct {
-	XMLName               xml.Name `xml:"GetIpamPoolCidrsResponse"`
+type getIpamPoolAllocationsResponse struct {
+	XMLName               xml.Name `xml:"GetIpamPoolAllocationsResponse"`
 	Xmlns                 string   `xml:"xmlns,attr"`
 	RequestID             string   `xml:"requestId"`
 	IpamPoolAllocationSet struct {
@@ -310,6 +727,111 @@ type releaseIpamPoolAllocationResponse struct {
 	XMLName   xml.Name `xml:"ReleaseIpamPoolAllocationResponse"`
 	RequestID string   `xml:"requestId"`
 	Return    bool     `xml:"return"`
+}
+
+type ipamResourceDiscoveryItem struct {
+	IpamResourceDiscoveryID     string `xml:"ipamResourceDiscoveryId"`
+	OwnerID                     string `xml:"ownerId,omitempty"`
+	IpamResourceDiscoveryARN    string `xml:"ipamResourceDiscoveryArn"`
+	IpamResourceDiscoveryRegion string `xml:"ipamResourceDiscoveryRegion,omitempty"`
+	State                       string `xml:"state"`
+	Description                 string `xml:"description,omitempty"`
+	OperatingRegionSet          struct {
+		Items []ipamOperatingRegionItem `xml:"item"`
+	} `xml:"operatingRegionSet"`
+	IsDefault bool `xml:"isDefault"`
+}
+
+type describeIpamResourceDiscoveriesResponse struct {
+	XMLName                  xml.Name `xml:"DescribeIpamResourceDiscoveriesResponse"`
+	Xmlns                    string   `xml:"xmlns,attr"`
+	RequestID                string   `xml:"requestId"`
+	IpamResourceDiscoverySet struct {
+		Items []ipamResourceDiscoveryItem `xml:"item"`
+	} `xml:"ipamResourceDiscoverySet"`
+}
+
+type ipamResourceDiscoveryAssociationItem struct {
+	IpamResourceDiscoveryAssociationID  string `xml:"ipamResourceDiscoveryAssociationId"`
+	IpamResourceDiscoveryAssociationARN string `xml:"ipamResourceDiscoveryAssociationArn,omitempty"`
+	IpamID                              string `xml:"ipamId"`
+	IpamARN                             string `xml:"ipamArn,omitempty"`
+	IpamRegion                          string `xml:"ipamRegion,omitempty"`
+	IpamResourceDiscoveryID             string `xml:"ipamResourceDiscoveryId"`
+	OwnerID                             string `xml:"ownerId,omitempty"`
+	ResourceDiscoveryStatus             string `xml:"resourceDiscoveryStatus,omitempty"`
+	State                               string `xml:"state"`
+	IsDefault                           bool   `xml:"isDefault"`
+}
+
+// toIpamResourceDiscoveryAssociationItem builds the full wire representation of a resource
+// discovery association. Shared by the Associate/Disassociate/Describe handlers.
+func toIpamResourceDiscoveryAssociationItem(a *IpamResourceDiscoveryAssociation) ipamResourceDiscoveryAssociationItem {
+	return ipamResourceDiscoveryAssociationItem{
+		IpamResourceDiscoveryAssociationID:  a.IpamResourceDiscoveryAssociationID,
+		IpamResourceDiscoveryAssociationARN: a.IpamResourceDiscoveryAssociationARN,
+		IpamID:                              a.IpamID,
+		IpamARN:                             a.IpamARN,
+		IpamRegion:                          a.IpamRegion,
+		IpamResourceDiscoveryID:             a.IpamResourceDiscoveryID,
+		OwnerID:                             a.OwnerID,
+		IsDefault:                           a.IsDefault,
+		ResourceDiscoveryStatus:             a.ResourceDiscoveryStatus,
+		State:                               a.State,
+	}
+}
+
+type describeIpamResourceDiscoveryAssociationsResponse struct {
+	XMLName                             xml.Name `xml:"DescribeIpamResourceDiscoveryAssociationsResponse"`
+	Xmlns                               string   `xml:"xmlns,attr"`
+	RequestID                           string   `xml:"requestId"`
+	IpamResourceDiscoveryAssociationSet struct {
+		Items []ipamResourceDiscoveryAssociationItem `xml:"item"`
+	} `xml:"ipamResourceDiscoveryAssociationSet"`
+}
+
+// getIpamAddressHistoryResponse models GetIpamAddressHistory. Address history tracking
+// requires a real IPAM discovery pipeline that this mock does not implement, so it always
+// returns a correctly-shaped, empty history record set.
+type getIpamAddressHistoryResponse struct {
+	XMLName          xml.Name `xml:"GetIpamAddressHistoryResponse"`
+	Xmlns            string   `xml:"xmlns,attr"`
+	RequestID        string   `xml:"requestId"`
+	HistoryRecordSet struct {
+		Items []struct{} `xml:"item"`
+	} `xml:"historyRecordSet"`
+}
+
+// getIpamDiscoveredAccountsResponse models GetIpamDiscoveredAccounts; always empty (see
+// getIpamAddressHistoryResponse for rationale).
+type getIpamDiscoveredAccountsResponse struct {
+	XMLName                  xml.Name `xml:"GetIpamDiscoveredAccountsResponse"`
+	Xmlns                    string   `xml:"xmlns,attr"`
+	RequestID                string   `xml:"requestId"`
+	IpamDiscoveredAccountSet struct {
+		Items []struct{} `xml:"item"`
+	} `xml:"ipamDiscoveredAccountSet"`
+}
+
+// getIpamDiscoveredResourceCidrsResponse models GetIpamDiscoveredResourceCidrs; always empty.
+type getIpamDiscoveredResourceCidrsResponse struct {
+	XMLName                       xml.Name `xml:"GetIpamDiscoveredResourceCidrsResponse"`
+	Xmlns                         string   `xml:"xmlns,attr"`
+	RequestID                     string   `xml:"requestId"`
+	IpamDiscoveredResourceCidrSet struct {
+		Items []struct{} `xml:"item"`
+	} `xml:"ipamDiscoveredResourceCidrSet"`
+}
+
+// getIpamDiscoveredPublicAddressesResponse models GetIpamDiscoveredPublicAddresses; always empty.
+type getIpamDiscoveredPublicAddressesResponse struct {
+	XMLName                        xml.Name `xml:"GetIpamDiscoveredPublicAddressesResponse"`
+	Xmlns                          string   `xml:"xmlns,attr"`
+	RequestID                      string   `xml:"requestId"`
+	OldestSampleTime               string   `xml:"oldestSampleTime,omitempty"`
+	IpamDiscoveredPublicAddressSet struct {
+		Items []struct{} `xml:"item"`
+	} `xml:"ipamDiscoveredPublicAddressSet"`
 }
 
 // ---- VPN Gateway handlers ----
@@ -453,15 +975,9 @@ func (h *Handler) handleCreateVpnConnection(vals url.Values, reqID string) (any,
 	}
 
 	return &createVpnConnectionResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		VpnConnection: vpnConnectionItem{
-			VpnConnectionID:   conn.VpnConnectionID,
-			State:             conn.State,
-			CustomerGatewayID: conn.CustomerGatewayID,
-			VpnGatewayID:      conn.VpnGatewayID,
-			Type:              conn.Type,
-		},
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conn),
 	}, nil
 }
 
@@ -472,13 +988,7 @@ func (h *Handler) handleDescribeVpnConnections(vals url.Values, reqID string) (a
 	resp := &describeVpnConnectionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, conn := range conns {
-		resp.VpnConnectionSet.Items = append(resp.VpnConnectionSet.Items, vpnConnectionItem{
-			VpnConnectionID:   conn.VpnConnectionID,
-			State:             conn.State,
-			CustomerGatewayID: conn.CustomerGatewayID,
-			VpnGatewayID:      conn.VpnGatewayID,
-			Type:              conn.Type,
-		})
+		resp.VpnConnectionSet.Items = append(resp.VpnConnectionSet.Items, h.toVpnConnectionItem(conn))
 	}
 
 	return resp, nil
@@ -490,6 +1000,160 @@ func (h *Handler) handleDeleteVpnConnection(vals url.Values, reqID string) (any,
 	}
 
 	return &deleteVpnConnectionResponse{RequestID: reqID, Return: true}, nil
+}
+
+// ---- VPN Connection tunnel/option modification handlers ----
+
+// handleModifyVpnConnectionOptions handles ModifyVpnConnectionOptions. Real AWS accepts only
+// the local/remote IPv4 (and IPv6) network CIDRs here — StaticRoutesOnly is fixed at
+// CreateVpnConnection time and is not one of this action's parameters, so it is never
+// overridden from the request (nil below leaves it unchanged).
+func (h *Handler) handleModifyVpnConnectionOptions(vals url.Values, reqID string) (any, error) {
+	conn, err := h.Backend.ModifyVpnConnectionOptions(
+		vals.Get("VpnConnectionId"),
+		vals.Get("LocalIpv4NetworkCidr"),
+		vals.Get("RemoteIpv4NetworkCidr"),
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyVpnConnectionOptionsResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conn),
+	}, nil
+}
+
+// parseInt32Param parses a query parameter as an int32, returning 0 if absent or malformed.
+func parseInt32Param(vals url.Values, key string) int32 {
+	v := vals.Get(key)
+	if v == "" {
+		return 0
+	}
+
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil {
+		return 0
+	}
+
+	return int32(n)
+}
+
+// parseIKEVersionValues parses the indexed "TunnelOptions.IKEVersions.N.Value" query parameters
+// ModifyVpnTunnelOptions accepts.
+func parseIKEVersionValues(vals url.Values) []string {
+	var out []string
+
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("TunnelOptions.IKEVersions.%d.Value", i))
+		if v == "" {
+			break
+		}
+
+		out = append(out, v)
+	}
+
+	return out
+}
+
+func (h *Handler) handleModifyVpnTunnelOptions(vals url.Values, reqID string) (any, error) {
+	vpnID := vals.Get("VpnConnectionId")
+	outsideIP := vals.Get("VpnTunnelOutsideIpAddress")
+
+	opts := VpnTunnelOptionsModify{
+		TunnelInsideCIDR:       vals.Get("TunnelOptions.TunnelInsideCidr"),
+		PreSharedKey:           vals.Get("TunnelOptions.PreSharedKey"),
+		Phase1LifetimeSeconds:  parseInt32Param(vals, "TunnelOptions.Phase1LifetimeSeconds"),
+		Phase2LifetimeSeconds:  parseInt32Param(vals, "TunnelOptions.Phase2LifetimeSeconds"),
+		RekeyMarginTimeSeconds: parseInt32Param(vals, "TunnelOptions.RekeyMarginTimeSeconds"),
+		DPDTimeoutSeconds:      parseInt32Param(vals, "TunnelOptions.DPDTimeoutSeconds"),
+		DPDTimeoutAction:       vals.Get("TunnelOptions.DPDTimeoutAction"),
+		StartupAction:          vals.Get("TunnelOptions.StartupAction"),
+		IKEVersions:            parseIKEVersionValues(vals),
+	}
+
+	conn, err := h.Backend.ModifyVpnTunnelOptions(vpnID, outsideIP, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyVpnTunnelOptionsResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conn),
+	}, nil
+}
+
+func (h *Handler) handleModifyVpnTunnelCertificate(vals url.Values, reqID string) (any, error) {
+	conn, err := h.Backend.ModifyVpnTunnelCertificate(
+		vals.Get("VpnConnectionId"),
+		vals.Get("VpnTunnelOutsideIpAddress"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyVpnTunnelCertificateResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conn),
+	}, nil
+}
+
+func (h *Handler) handleGetVpnConnectionDeviceTypes(_ url.Values, reqID string) (any, error) {
+	types := h.Backend.GetVpnConnectionDeviceTypes()
+
+	resp := &getVpnConnectionDeviceTypesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	for _, t := range types {
+		resp.VpnConnectionDeviceTypeSet.Items = append(
+			resp.VpnConnectionDeviceTypeSet.Items,
+			vpnConnectionDeviceTypeItem(t),
+		)
+	}
+
+	return resp, nil
+}
+
+func (h *Handler) handleGetVpnConnectionDeviceSampleConfiguration(vals url.Values, reqID string) (any, error) {
+	config, err := h.Backend.GetVpnConnectionDeviceSampleConfiguration(
+		vals.Get("VpnConnectionId"),
+		vals.Get("VpnConnectionDeviceTypeId"),
+		vals.Get("InternetKeyExchangeVersion"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getVpnConnectionDeviceSampleConfigurationResponse{
+		Xmlns:                                  ec2XMLNS,
+		RequestID:                              reqID,
+		VpnConnectionDeviceSampleConfiguration: config,
+	}, nil
+}
+
+func (h *Handler) handleGetVpnTunnelReplacementStatus(vals url.Values, reqID string) (any, error) {
+	status, err := h.Backend.GetVpnTunnelReplacementStatus(
+		vals.Get("VpnConnectionId"),
+		vals.Get("VpnTunnelOutsideIpAddress"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getVpnTunnelReplacementStatusResponse{
+		Xmlns:                     ec2XMLNS,
+		RequestID:                 reqID,
+		VpnConnectionID:           status.VpnConnectionID,
+		TransitGatewayID:          status.TransitGatewayID,
+		VpnGatewayID:              status.VpnGatewayID,
+		CustomerGatewayID:         status.CustomerGatewayID,
+		VpnTunnelOutsideIPAddress: status.VpnTunnelOutsideIPAddress,
+		MaintenanceDetails: vpnTunnelMaintenanceDetailsItem{
+			PendingMaintenance: status.MaintenanceDetails.PendingMaintenance,
+		},
+	}, nil
 }
 
 // ---- VPC Peering: Reject ----
@@ -581,10 +1245,45 @@ func (h *Handler) handleModifyVpcEndpointServiceConfiguration(
 	return &modifyVpcEndpointServiceConfigurationResponse{RequestID: reqID, Return: true}, nil
 }
 
+func (h *Handler) handleStartVpcEndpointServicePrivateDNSVerification(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	svcID := vals.Get("ServiceId")
+
+	if err := h.Backend.StartVpcEndpointServicePrivateDNSVerification(svcID); err != nil {
+		return nil, err
+	}
+
+	return &startVpcEndpointServicePrivateDNSVerificationResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
 // ---- IPAM handlers ----
 
-func (h *Handler) handleCreateIpam(_ url.Values, reqID string) (any, error) {
-	ipam, err := h.Backend.CreateIpam()
+// parseIpamOperatingRegions extracts OperatingRegion.N.RegionName parameters.
+func parseIpamOperatingRegions(vals url.Values) []string {
+	var regions []string
+
+	for i := 1; ; i++ {
+		r := vals.Get(fmt.Sprintf("OperatingRegion.%d.RegionName", i))
+		if r == "" {
+			return regions
+		}
+
+		regions = append(regions, r)
+	}
+}
+
+func (h *Handler) handleCreateIpam(vals url.Values, reqID string) (any, error) {
+	ipam, err := h.Backend.CreateIpam(IpamOptions{
+		Description:      vals.Get("Description"),
+		OperatingRegions: parseIpamOperatingRegions(vals),
+		Tier:             vals.Get("Tier"),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -592,12 +1291,7 @@ func (h *Handler) handleCreateIpam(_ url.Values, reqID string) (any, error) {
 	return &createIpamResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Ipam: ipamItem{
-			IpamID:  ipam.IpamID,
-			IpamARN: ipam.IpamARN,
-			State:   ipam.State,
-			Region:  ipam.Region,
-		},
+		Ipam:      toIpamItem(ipam),
 	}, nil
 }
 
@@ -608,23 +1302,132 @@ func (h *Handler) handleDescribeIpams(vals url.Values, reqID string) (any, error
 	resp := &describeIpamsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, ipam := range ipams {
-		resp.IpamSet.Items = append(resp.IpamSet.Items, ipamItem{
-			IpamID:  ipam.IpamID,
-			IpamARN: ipam.IpamARN,
-			State:   ipam.State,
-			Region:  ipam.Region,
-		})
+		resp.IpamSet.Items = append(resp.IpamSet.Items, toIpamItem(ipam))
 	}
 
 	return resp, nil
 }
 
-func (h *Handler) handleDeleteIpam(vals url.Values, reqID string) (any, error) {
-	if err := h.Backend.DeleteIpam(vals.Get("IpamId")); err != nil {
+func (h *Handler) handleModifyIpam(vals url.Values, reqID string) (any, error) {
+	ipam, err := h.Backend.ModifyIpam(vals.Get("IpamId"), IpamOptions{
+		Description:      vals.Get("Description"),
+		OperatingRegions: parseIpamOperatingRegions(vals),
+		Tier:             vals.Get("Tier"),
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteIpamResponse{RequestID: reqID, Return: true}, nil
+	return &modifyIpamResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Ipam:      toIpamItem(ipam),
+	}, nil
+}
+
+func (h *Handler) handleDeleteIpam(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("IpamId")
+
+	ipams := h.Backend.DescribeIpams([]string{id})
+	if len(ipams) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, id)
+	}
+
+	if err := h.Backend.DeleteIpam(id); err != nil {
+		return nil, err
+	}
+
+	item := toIpamItem(ipams[0])
+	item.State = ipamStateDeleteComplete
+
+	return &deleteIpamResponse{Xmlns: ec2XMLNS, RequestID: reqID, Ipam: item}, nil
+}
+
+func (h *Handler) handleCreateIpamScope(vals url.Values, reqID string) (any, error) {
+	scope, err := h.Backend.CreateIpamScope(vals.Get("IpamId"), vals.Get("Description"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &createIpamScopeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		IpamScope: toIpamScopeItem(scope),
+	}, nil
+}
+
+func (h *Handler) handleDescribeIpamScopes(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "IpamScopeId")
+	scopes := h.Backend.DescribeIpamScopes(ids)
+
+	resp := &describeIpamScopesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+
+	for _, scope := range scopes {
+		resp.IpamScopeSet.Items = append(resp.IpamScopeSet.Items, toIpamScopeItem(scope))
+	}
+
+	return resp, nil
+}
+
+func (h *Handler) handleModifyIpamScope(vals url.Values, reqID string) (any, error) {
+	scope, err := h.Backend.ModifyIpamScope(vals.Get("IpamScopeId"), vals.Get("Description"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyIpamScopeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		IpamScope: toIpamScopeItem(scope),
+	}, nil
+}
+
+func (h *Handler) handleDeleteIpamScope(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("IpamScopeId")
+
+	scopes := h.Backend.DescribeIpamScopes([]string{id})
+	if len(scopes) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrIpamScopeNotFound, id)
+	}
+
+	if err := h.Backend.DeleteIpamScope(id); err != nil {
+		return nil, err
+	}
+
+	item := toIpamScopeItem(scopes[0])
+	item.State = ipamStateDeleteComplete
+
+	return &deleteIpamScopeResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamScope: item}, nil
+}
+
+// maxNetmaskLength is the widest possible IP prefix length (IPv6's /128 also covers IPv4's
+// /32). Allocation netmask lengths from the wire are bounds-checked against it before their
+// int32 conversion, since strconv.Atoi returns a platform-width int that could otherwise
+// silently truncate.
+const maxNetmaskLength = 128
+
+// parseNetmaskLength parses an AllocationMinNetmaskLength/AllocationMaxNetmaskLength/
+// AllocationDefaultNetmaskLength query value, bounds-checking it to [0, maxNetmaskLength]
+// before the narrowing conversion to int32. An empty raw value yields (0, nil), matching the
+// "field not provided" behavior the callers previously got from a discarded Atoi error.
+func parseNetmaskLength(raw string) (int32, error) {
+	if raw == "" {
+		return 0, nil
+	}
+
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid netmask length %q", ErrInvalidParameter, raw)
+	}
+
+	if v < 0 || v > maxNetmaskLength {
+		return 0, fmt.Errorf(
+			"%w: netmask length must be between 0 and %d, got %d",
+			ErrInvalidParameter, maxNetmaskLength, v,
+		)
+	}
+
+	return int32(v), nil //nolint:gosec // G109: bounds-checked to [0, maxNetmaskLength] above
 }
 
 func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, error) {
@@ -635,11 +1438,35 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 		ipamID = vals.Get("IpamScopeId")
 	}
 
+	minNetmask, err := parseNetmaskLength(vals.Get("AllocationMinNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
+
+	maxNetmask, err := parseNetmaskLength(vals.Get("AllocationMaxNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
+
+	defaultNetmask, err := parseNetmaskLength(vals.Get("AllocationDefaultNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
+
 	pool, err := h.Backend.CreateIpamPool(
 		ipamID,
 		vals.Get("AddressFamily"),
 		vals.Get("Locale"),
 		vals.Get("ProvisionedCidrs.item.1.Cidr"),
+		IpamPoolOptions{
+			IpamScopeID:                    vals.Get("IpamScopeId"),
+			Description:                    vals.Get("Description"),
+			AutoImport:                     vals.Get("AutoImport") == ec2BooleanTrue,
+			PubliclyAdvertisable:           vals.Get("PubliclyAdvertisable") == ec2BooleanTrue,
+			AllocationMinNetmaskLength:     minNetmask,
+			AllocationMaxNetmaskLength:     maxNetmask,
+			AllocationDefaultNetmaskLength: defaultNetmask,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -648,15 +1475,7 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 	return &createIpamPoolResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		IpamPool: ipamPoolItem{
-			IpamPoolID:    pool.IpamPoolID,
-			IpamPoolARN:   pool.IpamPoolARN,
-			IpamID:        pool.IpamID,
-			State:         pool.State,
-			Locale:        pool.Locale,
-			AddressFamily: pool.AddressFamily,
-			Cidr:          pool.Cidr,
-		},
+		IpamPool:  toIpamPoolItem(pool),
 	}, nil
 }
 
@@ -667,26 +1486,101 @@ func (h *Handler) handleDescribeIpamPools(vals url.Values, reqID string) (any, e
 	resp := &describeIpamPoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, pool := range pools {
-		resp.IpamPoolSet.Items = append(resp.IpamPoolSet.Items, ipamPoolItem{
-			IpamPoolID:    pool.IpamPoolID,
-			IpamPoolARN:   pool.IpamPoolARN,
-			IpamID:        pool.IpamID,
-			State:         pool.State,
-			Locale:        pool.Locale,
-			AddressFamily: pool.AddressFamily,
-			Cidr:          pool.Cidr,
-		})
+		resp.IpamPoolSet.Items = append(resp.IpamPoolSet.Items, toIpamPoolItem(pool))
 	}
 
 	return resp, nil
 }
 
-func (h *Handler) handleDeleteIpamPool(vals url.Values, reqID string) (any, error) {
-	if err := h.Backend.DeleteIpamPool(vals.Get("IpamPoolId")); err != nil {
+func (h *Handler) handleModifyIpamPool(vals url.Values, reqID string) (any, error) {
+	minNetmask, err := parseNetmaskLength(vals.Get("AllocationMinNetmaskLength"))
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteIpamPoolResponse{RequestID: reqID, Return: true}, nil
+	maxNetmask, err := parseNetmaskLength(vals.Get("AllocationMaxNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
+
+	defaultNetmask, err := parseNetmaskLength(vals.Get("AllocationDefaultNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
+
+	pool, err := h.Backend.ModifyIpamPool(vals.Get("IpamPoolId"), IpamPoolOptions{
+		Description:                    vals.Get("Description"),
+		AutoImport:                     vals.Get("AutoImport") == ec2BooleanTrue,
+		AllocationMinNetmaskLength:     minNetmask,
+		AllocationMaxNetmaskLength:     maxNetmask,
+		AllocationDefaultNetmaskLength: defaultNetmask,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyIpamPoolResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		IpamPool:  toIpamPoolItem(pool),
+	}, nil
+}
+
+func (h *Handler) handleDeleteIpamPool(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("IpamPoolId")
+
+	pools := h.Backend.DescribeIpamPools([]string{id})
+	if len(pools) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrIpamPoolNotFound, id)
+	}
+
+	if err := h.Backend.DeleteIpamPool(id); err != nil {
+		return nil, err
+	}
+
+	item := toIpamPoolItem(pools[0])
+	item.State = ipamStateDeleteComplete
+
+	return &deleteIpamPoolResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamPool: item}, nil
+}
+
+func (h *Handler) handleProvisionIpamPoolCidr(vals url.Values, reqID string) (any, error) {
+	cidr, err := h.Backend.ProvisionIpamPoolCidr(vals.Get("IpamPoolId"), vals.Get("Cidr"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &provisionIpamPoolCidrResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		IpamPoolCidr: toIpamPoolCidrItem(cidr),
+	}, nil
+}
+
+func (h *Handler) handleDeprovisionIpamPoolCidr(vals url.Values, reqID string) (any, error) {
+	cidr, err := h.Backend.DeprovisionIpamPoolCidr(vals.Get("IpamPoolId"), vals.Get("Cidr"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &deprovisionIpamPoolCidrResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		IpamPoolCidr: toIpamPoolCidrItem(cidr),
+	}, nil
+}
+
+func (h *Handler) handleGetIpamPoolCidrs(vals url.Values, reqID string) (any, error) {
+	poolID := vals.Get("IpamPoolId")
+	cidrs := h.Backend.GetIpamPoolCidrs(poolID)
+
+	resp := &getIpamPoolCidrsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+
+	for _, c := range cidrs {
+		resp.IpamPoolCidrSet.Items = append(resp.IpamPoolCidrSet.Items, toIpamPoolCidrItem(c))
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleAllocateIpamPoolCidr(vals url.Values, reqID string) (any, error) {
@@ -697,36 +1591,34 @@ func (h *Handler) handleAllocateIpamPoolCidr(vals url.Values, reqID string) (any
 		vals.Get("IpamPoolId"),
 		vals.Get("Cidr"),
 		netmaskLen,
+		IpamAllocationOptions{Description: vals.Get("Description")},
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &allocateIpamPoolCidrResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		IpamPoolAllocation: ipamPoolAllocationItem{
-			IpamPoolAllocationID: alloc.IpamPoolAllocationID,
-			Cidr:                 alloc.Cidr,
-			Description:          alloc.Description,
-		},
+		Xmlns:              ec2XMLNS,
+		RequestID:          reqID,
+		IpamPoolAllocation: toIpamPoolAllocationItem(alloc),
 	}, nil
 }
 
-func (h *Handler) handleGetIpamPoolCidrs(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleGetIpamPoolAllocations(vals url.Values, reqID string) (any, error) {
 	poolID := vals.Get("IpamPoolId")
-	allocs := h.Backend.GetIpamPoolCidrs(poolID)
+	allocationID := vals.Get("IpamPoolAllocationId")
 
-	resp := &getIpamPoolCidrsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	allocs, err := h.Backend.GetIpamPoolAllocations(poolID, allocationID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &getIpamPoolAllocationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, alloc := range allocs {
 		resp.IpamPoolAllocationSet.Items = append(
 			resp.IpamPoolAllocationSet.Items,
-			ipamPoolAllocationItem{
-				IpamPoolAllocationID: alloc.IpamPoolAllocationID,
-				Cidr:                 alloc.Cidr,
-				Description:          alloc.Description,
-			},
+			toIpamPoolAllocationItem(alloc),
 		)
 	}
 
@@ -742,4 +1634,59 @@ func (h *Handler) handleReleaseIpamPoolAllocation(vals url.Values, reqID string)
 	}
 
 	return &releaseIpamPoolAllocationResponse{RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleDescribeIpamResourceDiscoveries(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "IpamResourceDiscoveryId")
+	discoveries := h.Backend.DescribeIpamResourceDiscoveries(ids)
+
+	resp := &describeIpamResourceDiscoveriesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+
+	for _, d := range discoveries {
+		resp.IpamResourceDiscoverySet.Items = append(
+			resp.IpamResourceDiscoverySet.Items, toIpamResourceDiscoveryItem(d),
+		)
+	}
+
+	return resp, nil
+}
+
+func (h *Handler) handleDescribeIpamResourceDiscoveryAssociations(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	ids := parseMemberList(vals, "IpamResourceDiscoveryAssociationId")
+	assocs := h.Backend.DescribeIpamResourceDiscoveryAssociations(ids)
+
+	resp := &describeIpamResourceDiscoveryAssociationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+
+	for _, a := range assocs {
+		resp.IpamResourceDiscoveryAssociationSet.Items = append(
+			resp.IpamResourceDiscoveryAssociationSet.Items, toIpamResourceDiscoveryAssociationItem(a),
+		)
+	}
+
+	return resp, nil
+}
+
+// handleGetIpamAddressHistory always returns an empty (but correctly shaped) history record
+// set: modeling real IPAM address-usage history requires a live discovery pipeline this mock
+// does not implement.
+func (h *Handler) handleGetIpamAddressHistory(_ url.Values, reqID string) (any, error) {
+	return &getIpamAddressHistoryResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+}
+
+// handleGetIpamDiscoveredAccounts always returns an empty (but correctly shaped) account set.
+func (h *Handler) handleGetIpamDiscoveredAccounts(_ url.Values, reqID string) (any, error) {
+	return &getIpamDiscoveredAccountsResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+}
+
+// handleGetIpamDiscoveredResourceCidrs always returns an empty (but correctly shaped) CIDR set.
+func (h *Handler) handleGetIpamDiscoveredResourceCidrs(_ url.Values, reqID string) (any, error) {
+	return &getIpamDiscoveredResourceCidrsResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+}
+
+// handleGetIpamDiscoveredPublicAddresses always returns an empty (but correctly shaped) address set.
+func (h *Handler) handleGetIpamDiscoveredPublicAddresses(_ url.Values, reqID string) (any, error) {
+	return &getIpamDiscoveredPublicAddressesResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
 }

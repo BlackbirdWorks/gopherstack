@@ -276,6 +276,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// In-flight cluster transitions are not persisted; start clean and rebuild
+	// the serverless sorted indexes from the freshly loaded maps.
+	b.clusterTransitions = make(map[string]*clusterTransition)
+	b.rebuildServerlessIndexes()
+
 	return nil
 }
 

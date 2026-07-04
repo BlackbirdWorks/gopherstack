@@ -299,3 +299,63 @@ func (b *InMemoryBackend) AddAvailablePatchInternal(p Patch) {
 	defer b.mu.Unlock()
 	b.availablePatches[b.Region()] = append(b.availablePatches[b.Region()], p)
 }
+
+// ForceCompleteCommands forces every InProgress command in every region to its
+// terminal state, regardless of its exec delay. Used by tests to deterministically
+// exercise the lazy completion path without sleeping.
+func (b *InMemoryBackend) ForceCompleteCommands() {
+	b.mu.Lock("ForceCompleteCommands")
+	defer b.mu.Unlock()
+
+	const farFuture = float64(int64(1) << 62)
+	for region := range b.commands {
+		b.materializeCommandsLocked(region, farFuture)
+	}
+}
+
+// ForceCompleteAutomations forces every InProgress automation execution to its
+// terminal state, regardless of its exec delay. Used by tests.
+func (b *InMemoryBackend) ForceCompleteAutomations() {
+	b.mu.Lock("ForceCompleteAutomations")
+	defer b.mu.Unlock()
+
+	future := timeNow().Add(1_000_000 * time.Hour)
+	for _, execs := range b.automationExecutions {
+		for _, e := range execs {
+			materializeAutomationLocked(e, future)
+		}
+	}
+}
+
+// SessionCount returns the number of sessions stored in the default region.
+func (b *InMemoryBackend) SessionCount() int {
+	b.mu.RLock("SessionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.sessionsStore(b.Region()))
+}
+
+// AddTerminatedSessionInternal seeds a terminated session with the given end
+// date directly into the default region for testing janitor eviction.
+func (b *InMemoryBackend) AddTerminatedSessionInternal(id string, endDate float64) {
+	b.mu.Lock("AddTerminatedSessionInternal")
+	defer b.mu.Unlock()
+	r := b.Region()
+	if b.sessions[r] == nil {
+		b.sessions[r] = make(map[string]Session)
+	}
+	b.sessionsStore(r)[id] = Session{
+		SessionID: id,
+		Status:    sessionStatusTerminated,
+		EndDate:   endDate,
+	}
+}
+
+// AssociationExecutionCount returns the number of stored execution records for
+// the given association in the default region.
+func (b *InMemoryBackend) AssociationExecutionCount(assocID string) int {
+	b.mu.RLock("AssociationExecutionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.associationExecutionsStore(b.Region())[assocID])
+}

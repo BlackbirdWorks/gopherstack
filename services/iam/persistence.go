@@ -100,6 +100,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.policies = snap.Policies
 	b.groups = snap.Groups
 	b.accessKeys = snap.AccessKeys
+	b.userAccessKeys = make(map[string][]string)
+	for id, ak := range b.accessKeys {
+		b.userAccessKeys[ak.UserName] = append(b.userAccessKeys[ak.UserName], id)
+	}
 	b.instanceProfiles = snap.InstanceProfiles
 	b.samlProviders = snap.SAMLProviders
 	b.oidcProviders = snap.OIDCProviders

@@ -5,7 +5,10 @@ import (
 	"maps"
 	mrand "math/rand/v2"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -46,6 +49,8 @@ const (
 	stateDeleting          = "DELETING"
 	stateProvisioning      = "PROVISIONING"
 	stateActive            = "ACTIVE"
+	stateScheduled         = "SCHEDULED"
+	stateNotScheduled      = "NOT_SCHEDULED"
 
 	// maxNameLen is the maximum length (in characters) for Glue resource names.
 	// AWS enforces a 255-character limit for database, table, crawler, and job names.
@@ -160,6 +165,15 @@ type Crawler struct {
 	LastUpdated  float64           `json:"LastUpdated,omitempty"`
 }
 
+// CrawlHistoryEntry records a single crawl run for ListCrawls.
+type CrawlHistoryEntry struct {
+	CrawlID   string  `json:"CrawlId,omitempty"`
+	State     string  `json:"State,omitempty"`
+	Summary   string  `json:"Summary,omitempty"`
+	StartTime float64 `json:"StartTime,omitempty"`
+	EndTime   float64 `json:"EndTime,omitempty"`
+}
+
 // ConnectionsList holds connections for a Glue job.
 type ConnectionsList struct {
 	Connections []string `json:"Connections,omitempty"`
@@ -179,22 +193,36 @@ type JobCommand struct {
 
 // Job represents a Glue job.
 type Job struct {
-	Tags              map[string]string `json:"-"`
-	DefaultArguments  map[string]string `json:"DefaultArguments,omitempty"`
-	Command           JobCommand        `json:"Command,omitzero"`
-	WorkerType        string            `json:"WorkerType,omitempty"`
-	Role              string            `json:"Role,omitempty"`
-	GlueVersion       string            `json:"GlueVersion,omitempty"`
-	Name              string            `json:"Name"`
-	ARN               string            `json:"Arn,omitempty"`
-	Description       string            `json:"Description,omitempty"`
-	Connections       ConnectionsList   `json:"Connections,omitzero"`
-	NumberOfWorkers   int               `json:"NumberOfWorkers,omitempty"`
-	MaxRetries        int               `json:"MaxRetries,omitempty"`
-	Timeout           int               `json:"Timeout,omitempty"`
-	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
-	CreatedOn         float64           `json:"CreatedOn,omitempty"`
-	LastModifiedOn    float64           `json:"LastModifiedOn,omitempty"`
+	SourceControlDetails *SourceControlDetails `json:"SourceControlDetails,omitempty"`
+	Tags                 map[string]string     `json:"-"`
+	DefaultArguments     map[string]string     `json:"DefaultArguments,omitempty"`
+	Command              JobCommand            `json:"Command,omitzero"`
+	WorkerType           string                `json:"WorkerType,omitempty"`
+	Role                 string                `json:"Role,omitempty"`
+	GlueVersion          string                `json:"GlueVersion,omitempty"`
+	Name                 string                `json:"Name"`
+	ARN                  string                `json:"Arn,omitempty"`
+	Description          string                `json:"Description,omitempty"`
+	Connections          ConnectionsList       `json:"Connections,omitzero"`
+	NumberOfWorkers      int                   `json:"NumberOfWorkers,omitempty"`
+	MaxRetries           int                   `json:"MaxRetries,omitempty"`
+	Timeout              int                   `json:"Timeout,omitempty"`
+	ExecutionProperty    ExecutionProperty     `json:"ExecutionProperty,omitzero"`
+	CreatedOn            float64               `json:"CreatedOn,omitempty"`
+	LastModifiedOn       float64               `json:"LastModifiedOn,omitempty"`
+}
+
+// SourceControlDetails records the remote-repository link for a job synchronized
+// via UpdateJobFromSourceControl / UpdateSourceControlFromJob.
+type SourceControlDetails struct {
+	AuthStrategy string `json:"AuthStrategy,omitempty"`
+	AuthToken    string `json:"AuthToken,omitempty"`
+	Branch       string `json:"Branch,omitempty"`
+	Folder       string `json:"Folder,omitempty"`
+	LastCommitID string `json:"LastCommitId,omitempty"`
+	Owner        string `json:"Owner,omitempty"`
+	Provider     string `json:"Provider,omitempty"`
+	Repository   string `json:"Repository,omitempty"`
 }
 
 // ErrorDetail holds an error code and message for batch operation failures.
@@ -387,16 +415,36 @@ type InMemoryBackend struct {
 	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
 	catalogImports            map[string]*CatalogImportStatus           // key: catalogID or accountID
 	schemaVersionMetadata     map[string]map[string]string              // key: schemaVersionID → key → value
+	crawlHistory              map[string][]*CrawlHistoryEntry           // key: crawlerName
+	dqStatisticAnnotations    map[string]*StatisticAnnotation           // key: "profileID|statisticID"
 	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
 
-	// lifecycle reconciler
+	// lifecycle reconciler timers
 	jobRunReadyAt  map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
 	jobRunDoneAt   map[string]map[string]time.Time // jobName → runID → doneAt for RUNNING→SUCCEEDED
 	crawlerReadyAt map[string]time.Time            // crawlerName → readyAt for RUNNING→READY
-	stopCh         chan struct{}
-	accountID      string
-	region         string
+
+	// connection-type registry (custom types registered via RegisterConnectionType).
+	customConnectionTypes map[string]*ConnectionTypeInfo
+
+	// reconcileStop signals the managed reconciler goroutine to exit. See the
+	// non-pointer reconciler bookkeeping fields at the end of the struct.
+	reconcileStop chan struct{}
+
+	accountID string
+	region    string
+
+	// Managed reconciler lifecycle bookkeeping. The reconciler is started by the
+	// service framework via StartWorker (BackgroundWorker) and stopped by Shutdown
+	// (Shutdowner), replacing the previous unmanaged goroutine that leaked because
+	// nothing ever called Close. reconcileMu guards this bookkeeping; b.mu continues
+	// to guard resource state. These pointer-free fields are placed last to keep the
+	// GC pointer-scan region minimal (govet fieldalignment).
+	reconcileWG       sync.WaitGroup
+	reconcileMu       sync.Mutex
+	reconcileInterval time.Duration
+	reconcileOn       bool
 }
 
 // NewInMemoryBackend creates a new in-memory Glue backend.
@@ -448,44 +496,18 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mlTaskRuns:                make(map[string]*MLTaskRun),
 		catalogImports:            make(map[string]*CatalogImportStatus),
 		schemaVersionMetadata:     make(map[string]map[string]string),
+		crawlHistory:              make(map[string][]*CrawlHistoryEntry),
+		dqStatisticAnnotations:    make(map[string]*StatisticAnnotation),
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
 		region:                    region,
 		jobRunReadyAt:             make(map[string]map[string]time.Time),
 		jobRunDoneAt:              make(map[string]map[string]time.Time),
 		crawlerReadyAt:            make(map[string]time.Time),
-		stopCh:                    make(chan struct{}),
+		customConnectionTypes:     make(map[string]*ConnectionTypeInfo),
 	}
-
-	go b.runReconciler()
 
 	return b
-}
-
-// Close stops the background reconciler goroutine.
-func (b *InMemoryBackend) Close() {
-	select {
-	case <-b.stopCh:
-	default:
-		close(b.stopCh)
-	}
-}
-
-// runReconciler periodically transitions Glue job runs and crawlers.
-func (b *InMemoryBackend) runReconciler() {
-	ticker := time.NewTicker(jobTransitionDelay / reconcilerTickDivisor)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-b.stopCh:
-			return
-		case <-ticker.C:
-			b.mu.Lock("glueReconciler")
-			b.reconcileLocked()
-			b.mu.Unlock()
-		}
-	}
 }
 
 // advanceJobRunState applies STARTING→RUNNING and RUNNING→SUCCEEDED transitions for a
@@ -512,10 +534,11 @@ func advanceJobRunState(run *JobRun, readyMap, doneMap map[string]time.Time, now
 	}
 }
 
-// reconcileLocked applies pending lifecycle transitions. Must be called with b.mu held.
-func (b *InMemoryBackend) reconcileLocked() {
-	now := time.Now()
-
+// reconcileLocked applies pending lifecycle transitions as of now. Must be called
+// with b.mu held. Taking now as a parameter (rather than reading the clock again)
+// keeps the due-scan and the application consistent and makes advancement
+// deterministically testable.
+func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 	// Job run transitions: STARTING→RUNNING, RUNNING→SUCCEEDED.
 	for jobName, runs := range b.jobRuns {
 		readyMap := b.jobRunReadyAt[jobName]
@@ -536,20 +559,66 @@ func (b *InMemoryBackend) reconcileLocked() {
 			if ok && c.State == stateRunning {
 				c.State = stateReady
 				c.LastUpdated = float64(now.Unix())
-				b.createCrawlerTablesLocked(c)
+				created := b.createCrawlerTablesLocked(c)
+				b.finishCrawlHistoryLocked(name, "COMPLETED", created, now)
 			} else if ok && c.State == stateStopping {
 				c.State = stateReady
 				c.LastUpdated = float64(now.Unix())
+				b.finishCrawlHistoryLocked(name, "STOPPED", 0, now)
 			}
 
 			delete(b.crawlerReadyAt, name)
 		}
 	}
+
+	b.pruneOrphanJobRunTimersLocked()
 }
 
-// createCrawlerTablesLocked creates a Glue table per S3 prefix in the crawler's targets.
-// Must be called with b.mu held.
-func (b *InMemoryBackend) createCrawlerTablesLocked(c *Crawler) {
+// pruneOrphanJobRunTimersLocked removes job-run timing entries whose job or run no
+// longer exists. Without this, a stale due timer would make pendingDueLocked report
+// work forever, so the reconciler would take the global write lock every tick — the
+// exact hot-loop the performance fix is meant to avoid. Must be called with b.mu held.
+func (b *InMemoryBackend) pruneOrphanJobRunTimersLocked() {
+	for jobName, timers := range b.jobRunReadyAt {
+		b.pruneJobTimerMapLocked(jobName, timers, b.jobRunReadyAt)
+	}
+
+	for jobName, timers := range b.jobRunDoneAt {
+		b.pruneJobTimerMapLocked(jobName, timers, b.jobRunDoneAt)
+	}
+}
+
+// pruneJobTimerMapLocked drops entries in a single job's timer sub-map for runs that
+// no longer exist, and drops the whole sub-map when the job or all its timers are
+// gone. Must be called with b.mu held.
+func (b *InMemoryBackend) pruneJobTimerMapLocked(
+	jobName string,
+	timers map[string]time.Time,
+	parent map[string]map[string]time.Time,
+) {
+	live := make(map[string]struct{}, len(b.jobRuns[jobName]))
+	for _, run := range b.jobRuns[jobName] {
+		live[run.ID] = struct{}{}
+	}
+
+	for runID := range timers {
+		if _, ok := live[runID]; !ok {
+			delete(timers, runID)
+		}
+	}
+
+	if len(timers) == 0 {
+		delete(parent, jobName)
+	}
+}
+
+// createCrawlerTablesLocked creates a Glue table per S3 prefix in the crawler's
+// targets and returns how many tables were newly created (as opposed to already
+// existing from a prior crawl), for the crawl-history summary. Must be called
+// with b.mu held.
+func (b *InMemoryBackend) createCrawlerTablesLocked(c *Crawler) int {
+	created := 0
+
 	for _, s3t := range c.Targets.S3Targets {
 		path := strings.TrimPrefix(s3t.Path, "s3://")
 		// Extract prefix after bucket name.
@@ -575,8 +644,11 @@ func (b *InMemoryBackend) createCrawlerTablesLocked(c *Crawler) {
 				DatabaseName: c.DatabaseName,
 				CreateTime:   float64(time.Now().Unix()),
 			}
+			created++
 		}
 	}
+
+	return created
 }
 
 // Reset clears all backend state, returning it to the initial empty state.
@@ -630,7 +702,30 @@ func (b *InMemoryBackend) Reset() {
 	b.mlTaskRuns = make(map[string]*MLTaskRun)
 	b.catalogImports = make(map[string]*CatalogImportStatus)
 	b.schemaVersionMetadata = make(map[string]map[string]string)
+	b.resetStubFixState()
+
+	b.resetLifecycleStateLocked()
+}
+
+// resetStubFixState clears the maps backing the de-stubbed operations (crawl
+// history, resource-policy timestamps' owning map, data-quality statistic
+// annotations). Kept separate from Reset to stay under the funlen limit. Must
+// be called with b.mu held.
+func (b *InMemoryBackend) resetStubFixState() {
+	b.crawlHistory = make(map[string][]*CrawlHistoryEntry)
+	b.dqStatisticAnnotations = make(map[string]*StatisticAnnotation)
+}
+
+// resetLifecycleStateLocked clears identity-center config, the connection-type
+// registry, and pending lifecycle transition timers. Clearing the timers ensures a
+// reset never resurrects a crawler/job-run state change scheduled against now-deleted
+// resources. Must be called with b.mu held.
+func (b *InMemoryBackend) resetLifecycleStateLocked() {
 	b.glueIdentityCenterConfig = nil
+	b.customConnectionTypes = make(map[string]*ConnectionTypeInfo)
+	b.jobRunReadyAt = make(map[string]map[string]time.Time)
+	b.jobRunDoneAt = make(map[string]map[string]time.Time)
+	b.crawlerReadyAt = make(map[string]time.Time)
 }
 
 // Region returns the backend region.
@@ -667,6 +762,10 @@ func cloneJob(j *Job) *Job {
 	if len(j.Connections.Connections) > 0 {
 		cp.Connections.Connections = make([]string, len(j.Connections.Connections))
 		copy(cp.Connections.Connections, j.Connections.Connections)
+	}
+	if j.SourceControlDetails != nil {
+		scd := *j.SourceControlDetails
+		cp.SourceControlDetails = &scd
 	}
 
 	return &cp
@@ -1036,6 +1135,8 @@ func (b *InMemoryBackend) CreateCrawler(
 
 // GetCrawler retrieves a Glue crawler by name.
 func (b *InMemoryBackend) GetCrawler(name string) (*Crawler, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetCrawler")
 	defer b.mu.RUnlock()
 
@@ -1049,6 +1150,8 @@ func (b *InMemoryBackend) GetCrawler(name string) (*Crawler, error) {
 
 // GetCrawlers returns all Glue crawlers sorted by name.
 func (b *InMemoryBackend) GetCrawlers() []*Crawler {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetCrawlers")
 	defer b.mu.RUnlock()
 
@@ -1211,6 +1314,50 @@ func (b *InMemoryBackend) UpdateJob(name string, input Job) error {
 	j.Timeout = input.Timeout
 	j.ExecutionProperty = input.ExecutionProperty
 	j.Connections = input.Connections
+	j.LastModifiedOn = float64(time.Now().Unix())
+
+	return nil
+}
+
+// UpdateJobFromSourceControl synchronizes a job definition from its linked
+// remote repository. The emulator has no real repository to pull from, so it
+// records the sync linkage against the job as real, queryable state.
+func (b *InMemoryBackend) UpdateJobFromSourceControl(jobName string, details SourceControlDetails) error {
+	if jobName == "" {
+		return fmt.Errorf("%w: JobName is required", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateJobFromSourceControl")
+	defer b.mu.Unlock()
+
+	j, ok := b.jobs[jobName]
+	if !ok {
+		return ErrNotFound
+	}
+
+	j.SourceControlDetails = &details
+	j.LastModifiedOn = float64(time.Now().Unix())
+
+	return nil
+}
+
+// UpdateSourceControlFromJob pushes a job's current definition to its linked
+// remote repository. As with UpdateJobFromSourceControl, the emulator has no
+// real repository, so it records the same sync linkage against the job.
+func (b *InMemoryBackend) UpdateSourceControlFromJob(jobName string, details SourceControlDetails) error {
+	if jobName == "" {
+		return fmt.Errorf("%w: JobName is required", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateSourceControlFromJob")
+	defer b.mu.Unlock()
+
+	j, ok := b.jobs[jobName]
+	if !ok {
+		return ErrNotFound
+	}
+
+	j.SourceControlDetails = &details
 	j.LastModifiedOn = float64(time.Now().Unix())
 
 	return nil
@@ -1979,6 +2126,8 @@ func (b *InMemoryBackend) StartJobRun(
 
 // GetJobRun retrieves a specific job run by job name and run ID.
 func (b *InMemoryBackend) GetJobRun(jobName, runID string) (*JobRun, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetJobRun")
 	defer b.mu.RUnlock()
 
@@ -1996,6 +2145,8 @@ func (b *InMemoryBackend) GetJobRun(jobName, runID string) (*JobRun, error) {
 
 // GetJobRuns returns all runs for a job.
 func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetJobRuns")
 	defer b.mu.RUnlock()
 
@@ -2129,6 +2280,11 @@ func (b *InMemoryBackend) StartCrawler(name string) error {
 	c.LastUpdated = float64(now.Unix())
 
 	b.crawlerReadyAt[name] = now.Add(crawlerTransitionDelay)
+	b.crawlHistory[name] = append(b.crawlHistory[name], &CrawlHistoryEntry{
+		CrawlID:   "cr-" + uuid.NewString()[:8],
+		State:     "RUNNING",
+		StartTime: float64(now.Unix()),
+	})
 
 	return nil
 }
@@ -2183,10 +2339,10 @@ func (b *InMemoryBackend) StartCrawlerSchedule(name string) error {
 	if c.Schedule.ScheduleExpression == "" {
 		return ErrValidation
 	}
-	if c.Schedule.State == "SCHEDULED" {
+	if c.Schedule.State == stateScheduled {
 		return ErrValidation
 	}
-	c.Schedule.State = "SCHEDULED"
+	c.Schedule.State = stateScheduled
 
 	return nil
 }
@@ -2200,9 +2356,55 @@ func (b *InMemoryBackend) StopCrawlerSchedule(name string) error {
 	if !ok {
 		return ErrNotFound
 	}
-	c.Schedule.State = "NOT_SCHEDULED"
+	c.Schedule.State = stateNotScheduled
 
 	return nil
+}
+
+// finishCrawlHistoryLocked marks the most recent in-flight crawl-history entry
+// for name as finished with the given terminal state. A no-op if there is no
+// open entry (e.g. crawl history predates this feature). Must be called with
+// b.mu held.
+func (b *InMemoryBackend) finishCrawlHistoryLocked(name, state string, tablesCreated int, at time.Time) {
+	hist := b.crawlHistory[name]
+	if len(hist) == 0 {
+		return
+	}
+
+	last := hist[len(hist)-1]
+	if last.EndTime != 0 {
+		return
+	}
+
+	last.State = state
+	last.EndTime = float64(at.Unix())
+
+	if state == "COMPLETED" {
+		last.Summary = fmt.Sprintf(
+			`{"TABLES_ADDED":%d,"TABLES_UPDATED":0,"TABLES_DELETED":0,"PARTITIONS_ADDED":0}`,
+			tablesCreated,
+		)
+	}
+}
+
+// ListCrawls returns the crawl history for a crawler, newest first.
+func (b *InMemoryBackend) ListCrawls(crawlerName string) ([]*CrawlHistoryEntry, error) {
+	b.mu.RLock("ListCrawls")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.crawlers[crawlerName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	hist := b.crawlHistory[crawlerName]
+	out := make([]*CrawlHistoryEntry, len(hist))
+
+	for i, e := range hist {
+		cp := *e
+		out[len(hist)-1-i] = &cp
+	}
+
+	return out, nil
 }
 
 // --- Data quality ruleset operations ---

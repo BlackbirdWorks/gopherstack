@@ -1,6 +1,7 @@
 package ecr
 
 import (
+	"context"
 	"encoding/json"
 	"sort"
 	"strings"
@@ -105,12 +106,107 @@ func evaluateLifecyclePolicy(
 		for _, e := range matched {
 			if !e.matched {
 				e.matched = true
-				expired = append(expired, e.img.ImageID)
+				expired = append(expired, expiredIdentifier(e))
 			}
 		}
 	}
 
 	return expired
+}
+
+// expiredIdentifier builds a stable [ImageIdentifier] for an expired image,
+// always populating the canonical digest (the map key on the image) and a
+// representative tag when the image is tagged.
+func expiredIdentifier(e *imageEntry) ImageIdentifier {
+	id := ImageIdentifier{ImageDigest: e.img.ImageDigest}
+	if id.ImageDigest == "" {
+		id.ImageDigest = e.img.ImageID.ImageDigest
+	}
+
+	switch {
+	case len(e.allTags) > 0:
+		id.ImageTag = e.allTags[0]
+	default:
+		id.ImageTag = e.img.ImageID.ImageTag
+	}
+
+	return id
+}
+
+// applyLifecyclePolicyLocked evaluates the repository's stored lifecycle policy
+// and deletes every image the policy selects for expiration, mirroring the AWS
+// ECR lifecycle evaluation job. It records the evaluation timestamp and returns
+// the identifiers of the images that were actually deleted. The write lock must
+// be held by the caller.
+func (b *InMemoryBackend) applyLifecyclePolicyLocked(repositoryName string) []ImageIdentifier {
+	b.lifecycleLastEvaluated[repositoryName] = time.Now()
+
+	policyText := b.lifecyclePolicies[repositoryName]
+	if policyText == "" {
+		return nil
+	}
+
+	expired := evaluateLifecyclePolicy(
+		policyText,
+		b.images[repositoryName],
+		b.digestTagsIndex[repositoryName],
+	)
+	if len(expired) == 0 {
+		return nil
+	}
+
+	repoImages := b.images[repositoryName]
+	repoTags := b.tagIndex[repositoryName]
+	deleted := make([]ImageIdentifier, 0, len(expired))
+
+	for _, id := range expired {
+		digest := id.ImageDigest
+		if digest == "" && id.ImageTag != "" {
+			digest = repoTags[id.ImageTag]
+		}
+
+		if digest == "" {
+			continue
+		}
+
+		if !deleteByDigestLocked(repoImages, repoTags, digest) {
+			continue
+		}
+
+		b.clearDigestTagsLocked(repositoryName, digest)
+
+		if findings := b.imageScanFindings[repositoryName]; findings != nil {
+			delete(findings, digest)
+		}
+
+		deleted = append(deleted, ImageIdentifier{ImageDigest: digest, ImageTag: id.ImageTag})
+	}
+
+	return deleted
+}
+
+// RunLifecycleExpiry evaluates the lifecycle policy of every repository that has
+// one and deletes any expired images. It is invoked by the ECR janitor on a
+// timer so that count/age-based expirations happen in the background exactly as
+// they do in AWS, independent of any API call. It returns the total number of
+// images deleted across all repositories.
+func (b *InMemoryBackend) RunLifecycleExpiry(ctx context.Context) int {
+	b.mu.Lock("RunLifecycleExpiry")
+	defer b.mu.Unlock()
+
+	total := 0
+
+	for repositoryName := range b.lifecyclePolicies {
+		select {
+		case <-ctx.Done():
+			return total
+		default:
+		}
+
+		total += len(b.applyLifecyclePolicyLocked(repositoryName))
+	}
+
+	return total
 }
 
 // applyRule returns the entries that match the given rule (ignoring already-matched ones).
@@ -169,48 +265,68 @@ func matchesTagStatus(sel lifecyclePolicySelect, _ *Image, allTags []string) boo
 	switch strings.ToLower(sel.TagStatus) {
 	case "untagged":
 		return len(allTags) == 0
-
 	case "tagged":
-		if len(allTags) == 0 {
-			return false
-		}
-
-		// If patterns are specified, at least one tag must match at least one pattern.
-		//nolint:gocritic // intentional append-to-new-slice
-		patterns := append(sel.TagPatternList, sel.TagPrefixList...)
-		if len(patterns) == 0 {
-			return true
-		}
-
-		for _, tag := range allTags {
-			for _, p := range patterns {
-				if tagMatchesPattern(tag, p) {
-					return true
-				}
-			}
-		}
-
-		return false
-
+		return matchesTaggedSelection(sel, allTags)
 	case "any":
 		return true
+	default:
+		return false
+	}
+}
+
+// matchesTaggedSelection evaluates the tagStatus=="tagged" branch of a lifecycle
+// selection against an image's tags. When neither a prefix nor a pattern list is
+// specified, every tagged image matches. Otherwise the image matches when any of
+// its tags satisfies any prefix (literal HasPrefix) or any pattern (glob).
+func matchesTaggedSelection(sel lifecyclePolicySelect, allTags []string) bool {
+	if len(allTags) == 0 {
+		return false
+	}
+
+	if len(sel.TagPrefixList) == 0 && len(sel.TagPatternList) == 0 {
+		return true
+	}
+
+	for _, tag := range allTags {
+		if tagMatchesAnyPrefix(tag, sel.TagPrefixList) || tagMatchesAnyPattern(tag, sel.TagPatternList) {
+			return true
+		}
 	}
 
 	return false
 }
 
-// tagMatchesPattern does simple prefix/wildcard matching for ECR tag patterns.
-// ECR supports patterns like "v*" (prefix with wildcard at end).
+// tagMatchesAnyPrefix reports whether tag starts with any of the given prefixes.
+func tagMatchesAnyPrefix(tag string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(tag, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// tagMatchesAnyPattern reports whether tag matches any of the given glob patterns.
+func tagMatchesAnyPattern(tag string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if tagMatchesPattern(tag, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// tagMatchesPattern matches an ECR tagPatternList entry against a tag. ECR
+// patterns use '*' as a zero-or-more-characters wildcard and may contain
+// multiple wildcards anywhere in the pattern (e.g. "v*.*-rc", "*-prod").
 func tagMatchesPattern(tag, pattern string) bool {
-	if pattern == "*" {
-		return true
+	if pattern == "" {
+		return false
 	}
 
-	if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
-		return strings.HasPrefix(tag, prefix)
-	}
-
-	return tag == pattern
+	return wildcardMatch(pattern, tag)
 }
 
 // ageThreshold returns the time before which images should be expired.

@@ -9,10 +9,12 @@ import (
 )
 
 type backendSnapshot struct {
-	Distributions  map[string]*Distribution         `json:"distributions"`
-	OAIs           map[string]*OriginAccessIdentity `json:"oais"`
-	Invalidations  map[string][]*Invalidation       `json:"invalidations,omitempty"`
-	AnycastIPLists map[string]*AnycastIPList        `json:"anycastIPLists,omitempty"`
+	Distributions          map[string]*Distribution          `json:"distributions"`
+	OAIs                   map[string]*OriginAccessIdentity  `json:"oais"`
+	Invalidations          map[string][]*Invalidation        `json:"invalidations,omitempty"`
+	AnycastIPLists         map[string]*AnycastIPList         `json:"anycastIPLists,omitempty"`
+	StreamingDistributions map[string]*StreamingDistribution `json:"streamingDistributions,omitempty"`
+	TrustStores            map[string]*TrustStore            `json:"trustStores,omitempty"`
 
 	CachePolicies       map[string]*CachePolicy        `json:"cachePolicies,omitempty"`
 	ConnectionFunctions map[string]*ConnectionFunction `json:"connectionFunctions,omitempty"`
@@ -39,20 +41,17 @@ type backendSnapshot struct {
 	DistributionWebACLs              map[string]string                `json:"distributionWebACLs,omitempty"`
 	DistributionTenantWebACLs        map[string]string                `json:"distributionTenantWebACLs,omitempty"`
 
-	// Batch-2 / new-ops fields — persisted after initial implementation.
-	TrustStores             map[string]*TrustStore             `json:"trustStores,omitempty"`
-	StreamingDistributions  map[string]*StreamingDistribution  `json:"streamingDistributions,omitempty"`
-	MonitoringSubscriptions map[string]*MonitoringSubscription `json:"monitoringSubscriptions,omitempty"`
-	ResourcePolicies        map[string]string                  `json:"resourcePolicies,omitempty"`
+	DistributionTenants map[string]*DistributionTenant `json:"distributionTenants,omitempty"`
+	TenantInvalidations map[string][]*Invalidation     `json:"tenantInvalidations,omitempty"`
 
-	DistributionCachePolicies      map[string]string              `json:"distributionCachePolicies,omitempty"`
-	DistributionRealtimeLogConfigs map[string]string              `json:"distributionRealtimeLogConfigs,omitempty"`
-	DistributionTenants            map[string]*DistributionTenant `json:"distributionTenants,omitempty"`
-	TenantInvalidations            map[string][]*Invalidation     `json:"tenantInvalidations,omitempty"`
-	ManagedCertificates            map[string]*ManagedCertificate `json:"managedCertificates,omitempty"`
+	MonitoringSubscriptions map[string]*MonitoringSubscription    `json:"monitoringSubscriptions,omitempty"`
+	ResourcePolicies        map[string]*resourcePolicyEntry       `json:"resourcePolicies,omitempty"`
+	ManagedCertificates     map[string]*ManagedCertificateDetails `json:"managedCertificates,omitempty"`
 
+	DistributionCachePolicies           map[string]string `json:"distributionCachePolicies,omitempty"`
 	DistributionOriginRequestPolicies   map[string]string `json:"distributionOriginRequestPolicies,omitempty"`
 	DistributionResponseHeadersPolicies map[string]string `json:"distributionResponseHeadersPolicies,omitempty"`
+	DistributionRealtimeLogConfigs      map[string]string `json:"distributionRealtimeLogConfigs,omitempty"`
 
 	AccountID string `json:"accountId"`
 	Region    string `json:"region"`
@@ -68,6 +67,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		OAIs:                                b.oais,
 		Invalidations:                       b.invalidations,
 		AnycastIPLists:                      b.anycastIPLists,
+		StreamingDistributions:              b.streamingDistributions,
+		TrustStores:                         b.trustStores,
 		CachePolicies:                       b.cachePolicies,
 		ConnectionFunctions:                 b.connectionFunctions,
 		ConnectionGroups:                    b.connectionGroups,
@@ -87,17 +88,15 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DistributionAliases:                 b.distributionAliases,
 		DistributionWebACLs:                 b.distributionWebACLs,
 		DistributionTenantWebACLs:           b.distributionTenantWebACLs,
-		TrustStores:                         b.trustStores,
-		StreamingDistributions:              b.streamingDistributions,
+		DistributionTenants:                 b.distributionTenants,
+		TenantInvalidations:                 b.tenantInvalidations,
 		MonitoringSubscriptions:             b.monitoringSubscriptions,
-		ResourcePolicies:                    snapshotResourcePolicies(b.resourcePolicies),
+		ResourcePolicies:                    b.resourcePolicies,
+		ManagedCertificates:                 b.managedCertificates,
 		DistributionCachePolicies:           b.distributionCachePolicies,
 		DistributionOriginRequestPolicies:   b.distributionOriginRequestPolicies,
 		DistributionResponseHeadersPolicies: b.distributionResponseHeadersPolicies,
 		DistributionRealtimeLogConfigs:      b.distributionRealtimeLogConfigs,
-		DistributionTenants:                 b.distributionTenants,
-		TenantInvalidations:                 b.tenantInvalidations,
-		ManagedCertificates:                 b.managedCertificates,
 		AccountID:                           b.accountID,
 		Region:                              b.region,
 	}
@@ -113,33 +112,19 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return data
 }
 
-// snapshotResourcePolicies converts the internal unexported resourcePolicyEntry
-// map to a plain string map for JSON serialisation.
-func snapshotResourcePolicies(m map[string]*resourcePolicyEntry) map[string]string {
-	out := make(map[string]string, len(m))
-	for arn, e := range m {
-		out[arn] = e.Policy
-	}
-
-	return out
-}
-
-// restoreResourcePolicies converts the serialised string map back to the
-// internal resourcePolicyEntry map used by the backend.
-func restoreResourcePolicies(m map[string]string) map[string]*resourcePolicyEntry {
-	out := make(map[string]*resourcePolicyEntry, len(m))
-	for arn, policy := range m {
-		out[arn] = &resourcePolicyEntry{Policy: policy}
-	}
-
-	return out
-}
-
 // Restore loads backend state from a JSON snapshot and rebuilds derived indexes.
 // backendIndexes holds the derived lookup indexes rebuilt from a snapshot.
 type backendIndexes struct {
 	distributionARNs                  map[string]string
 	distributionCallerRefs            map[string]string
+	streamingDistributionARNs         map[string]string
+	streamingDistributionCallerRefs   map[string]string
+	trustStoreARNs                    map[string]string
+	trustStoreByName                  map[string]string
+	connectionGroupARNs               map[string]string
+	connectionGroupByName             map[string]string
+	connectionGroupByRoutingEndpoint  map[string]string
+	connectionFunctionARNs            map[string]string
 	oaiCallerRefs                     map[string]string
 	cachePolicyByName                 map[string]string
 	originAccessControlByName         map[string]string
@@ -151,34 +136,18 @@ type backendIndexes struct {
 	keyGroupByName                    map[string]string
 	realtimeLogConfigByName           map[string]string
 	keyValueStoreByName               map[string]string
+	distributionTenantARNs            map[string]string
+	distributionTenantsByDomain       map[string]string
+	anycastIPListARNs                 map[string]string
+	anycastIPListByName               map[string]string
 	connectionFunctionByName          map[string]string
 }
 
-// rebuildIndexes derives all secondary indexes from a snapshot.
-func rebuildIndexes(snap *backendSnapshot) backendIndexes {
-	arnIndex, callerRefIndex := rebuildDistributionIndexes(snap)
-	oaiCallerRefIndex := rebuildOAIIndex(snap)
-	byName := rebuildByNameIndexes(snap)
-
-	return backendIndexes{
-		distributionARNs:                  arnIndex,
-		distributionCallerRefs:            callerRefIndex,
-		oaiCallerRefs:                     oaiCallerRefIndex,
-		cachePolicyByName:                 byName["cachePolicy"],
-		originAccessControlByName:         byName["oac"],
-		responseHeadersPolicyByName:       byName["rhp"],
-		originRequestPolicyByName:         byName["orp"],
-		fieldLevelEncryptionByName:        byName["fle"],
-		fieldLevelEncryptionProfileByName: byName["flep"],
-		publicKeyByName:                   byName["pk"],
-		keyGroupByName:                    byName["kg"],
-		realtimeLogConfigByName:           byName["rlc"],
-		keyValueStoreByName:               byName["kvs"],
-		connectionFunctionByName:          byName["cfn"],
-	}
-}
-
-func rebuildDistributionIndexes(snap *backendSnapshot) (map[string]string, map[string]string) {
+// rebuildDistributionIndexes derives the ARN and CallerReference indexes for distributions
+// and streaming distributions.
+func rebuildDistributionIndexes(
+	snap *backendSnapshot,
+) (map[string]string, map[string]string, map[string]string, map[string]string) {
 	arnIndex := make(map[string]string, len(snap.Distributions))
 	callerRefIndex := make(map[string]string, len(snap.Distributions))
 
@@ -189,10 +158,114 @@ func rebuildDistributionIndexes(snap *backendSnapshot) (map[string]string, map[s
 		}
 	}
 
-	return arnIndex, callerRefIndex
+	sdARNIndex := make(map[string]string, len(snap.StreamingDistributions))
+	sdCallerRefIndex := make(map[string]string, len(snap.StreamingDistributions))
+
+	for id, sd := range snap.StreamingDistributions {
+		sdARNIndex[sd.ARN] = id
+		if sd.Config.CallerReference != "" {
+			sdCallerRefIndex[sd.Config.CallerReference] = id
+		}
+	}
+
+	return arnIndex, callerRefIndex, sdARNIndex, sdCallerRefIndex
 }
 
-func rebuildOAIIndex(snap *backendSnapshot) map[string]string {
+// rebuildTenantIndexes derives the ARN and domain indexes for distribution tenants.
+func rebuildTenantIndexes(snap *backendSnapshot) (map[string]string, map[string]string) {
+	tenantARNIndex := make(map[string]string, len(snap.DistributionTenants))
+	tenantByDomain := make(map[string]string, len(snap.DistributionTenants))
+
+	for id, t := range snap.DistributionTenants {
+		tenantARNIndex[t.ARN] = id
+		for _, d := range t.Domains {
+			tenantByDomain[d] = id
+		}
+		if t.Domain != "" {
+			tenantByDomain[t.Domain] = id
+		}
+	}
+
+	return tenantARNIndex, tenantByDomain
+}
+
+// rebuildNameIndexes derives the various name → ID lookup indexes for policy- and key-like
+// resources that are uniqued by name.
+func rebuildNameIndexes(snap *backendSnapshot) backendIndexes {
+	cachePolicyByName := make(map[string]string, len(snap.CachePolicies))
+	for id, cp := range snap.CachePolicies {
+		cachePolicyByName[cp.Name] = id
+	}
+
+	oacByName := make(map[string]string, len(snap.OriginAccessControls))
+	for id, oac := range snap.OriginAccessControls {
+		oacByName[oac.Name] = id
+	}
+
+	rhpByName := make(map[string]string, len(snap.ResponseHeadersPolicies))
+	for id, p := range snap.ResponseHeadersPolicies {
+		rhpByName[p.Name] = id
+	}
+
+	orpByName := make(map[string]string, len(snap.OriginRequestPolicies))
+	for id, p := range snap.OriginRequestPolicies {
+		orpByName[p.Name] = id
+	}
+
+	fleByName := make(map[string]string, len(snap.FieldLevelEncryptions))
+	for id, fle := range snap.FieldLevelEncryptions {
+		fleByName[fle.Name] = id
+	}
+
+	flePByName := make(map[string]string, len(snap.FieldLevelEncryptionProfiles))
+	for id, p := range snap.FieldLevelEncryptionProfiles {
+		flePByName[p.Name] = id
+	}
+
+	pkByName := make(map[string]string, len(snap.PublicKeys))
+	for id, pk := range snap.PublicKeys {
+		pkByName[pk.Name] = id
+	}
+
+	kgByName := make(map[string]string, len(snap.KeyGroups))
+	for id, kg := range snap.KeyGroups {
+		kgByName[kg.Name] = id
+	}
+
+	rlcByName := make(map[string]string, len(snap.RealtimeLogConfigs))
+	for arn, rlc := range snap.RealtimeLogConfigs {
+		rlcByName[rlc.Name] = arn
+	}
+
+	kvsByName := make(map[string]string, len(snap.KeyValueStores))
+	for id, kvs := range snap.KeyValueStores {
+		kvsByName[kvs.Name] = id
+	}
+
+	cfnByName := make(map[string]string, len(snap.ConnectionFunctions))
+	for id, fn := range snap.ConnectionFunctions {
+		cfnByName[fn.Name] = id
+	}
+
+	return backendIndexes{
+		cachePolicyByName:                 cachePolicyByName,
+		originAccessControlByName:         oacByName,
+		responseHeadersPolicyByName:       rhpByName,
+		originRequestPolicyByName:         orpByName,
+		fieldLevelEncryptionByName:        fleByName,
+		fieldLevelEncryptionProfileByName: flePByName,
+		publicKeyByName:                   pkByName,
+		keyGroupByName:                    kgByName,
+		realtimeLogConfigByName:           rlcByName,
+		keyValueStoreByName:               kvsByName,
+		connectionFunctionByName:          cfnByName,
+	}
+}
+
+// rebuildIndexes derives all secondary indexes from a snapshot.
+func rebuildIndexes(snap *backendSnapshot) backendIndexes {
+	arnIndex, callerRefIndex, sdARNIndex, sdCallerRefIndex := rebuildDistributionIndexes(snap)
+
 	oaiCallerRefIndex := make(map[string]string, len(snap.OAIs))
 
 	for id, oai := range snap.OAIs {
@@ -201,59 +274,58 @@ func rebuildOAIIndex(snap *backendSnapshot) map[string]string {
 		}
 	}
 
-	return oaiCallerRefIndex
-}
+	trustStoreARNIndex := make(map[string]string, len(snap.TrustStores))
+	trustStoreByName := make(map[string]string, len(snap.TrustStores))
 
-func rebuildByNameIndexes(snap *backendSnapshot) map[string]map[string]string {
-	result := map[string]map[string]string{
-		"cachePolicy": make(map[string]string, len(snap.CachePolicies)),
-		"oac":         make(map[string]string, len(snap.OriginAccessControls)),
-		"rhp":         make(map[string]string, len(snap.ResponseHeadersPolicies)),
-		"orp":         make(map[string]string, len(snap.OriginRequestPolicies)),
-		"fle":         make(map[string]string, len(snap.FieldLevelEncryptions)),
-		"flep":        make(map[string]string, len(snap.FieldLevelEncryptionProfiles)),
-		"pk":          make(map[string]string, len(snap.PublicKeys)),
-		"kg":          make(map[string]string, len(snap.KeyGroups)),
-		"rlc":         make(map[string]string, len(snap.RealtimeLogConfigs)),
-		"kvs":         make(map[string]string, len(snap.KeyValueStores)),
-		"cfn":         make(map[string]string, len(snap.ConnectionFunctions)),
+	for id, ts := range snap.TrustStores {
+		trustStoreARNIndex[ts.ARN] = id
+		trustStoreByName[ts.Name] = id
 	}
 
-	for id, cp := range snap.CachePolicies {
-		result["cachePolicy"][cp.Name] = id
+	tenantARNIndex, tenantByDomain := rebuildTenantIndexes(snap)
+	idx := rebuildNameIndexes(snap)
+
+	connectionGroupARNIndex := make(map[string]string, len(snap.ConnectionGroups))
+	connectionGroupByNameIndex := make(map[string]string, len(snap.ConnectionGroups))
+	connectionGroupByRoutingEndpointIndex := make(map[string]string, len(snap.ConnectionGroups))
+
+	for id, cg := range snap.ConnectionGroups {
+		connectionGroupARNIndex[cg.ARN] = id
+		connectionGroupByNameIndex[cg.Name] = id
+		if cg.RoutingEndpoint != "" {
+			connectionGroupByRoutingEndpointIndex[cg.RoutingEndpoint] = id
+		}
 	}
-	for id, oac := range snap.OriginAccessControls {
-		result["oac"][oac.Name] = id
-	}
-	for id, p := range snap.ResponseHeadersPolicies {
-		result["rhp"][p.Name] = id
-	}
-	for id, p := range snap.OriginRequestPolicies {
-		result["orp"][p.Name] = id
-	}
-	for id, fle := range snap.FieldLevelEncryptions {
-		result["fle"][fle.Name] = id
-	}
-	for id, p := range snap.FieldLevelEncryptionProfiles {
-		result["flep"][p.Name] = id
-	}
-	for id, pk := range snap.PublicKeys {
-		result["pk"][pk.Name] = id
-	}
-	for id, kg := range snap.KeyGroups {
-		result["kg"][kg.Name] = id
-	}
-	for arn, rlc := range snap.RealtimeLogConfigs {
-		result["rlc"][rlc.Name] = arn
-	}
-	for id, kvs := range snap.KeyValueStores {
-		result["kvs"][kvs.Name] = id
-	}
+
+	connectionFunctionARNIndex := make(map[string]string, len(snap.ConnectionFunctions))
 	for id, fn := range snap.ConnectionFunctions {
-		result["cfn"][fn.Name] = id
+		connectionFunctionARNIndex[fn.ARN] = id
 	}
 
-	return result
+	anycastIPListARNIndex := make(map[string]string, len(snap.AnycastIPLists))
+	anycastIPListByNameIndex := make(map[string]string, len(snap.AnycastIPLists))
+	for id, ail := range snap.AnycastIPLists {
+		anycastIPListARNIndex[ail.ARN] = id
+		anycastIPListByNameIndex[ail.Name] = id
+	}
+
+	idx.distributionARNs = arnIndex
+	idx.distributionCallerRefs = callerRefIndex
+	idx.streamingDistributionARNs = sdARNIndex
+	idx.streamingDistributionCallerRefs = sdCallerRefIndex
+	idx.trustStoreARNs = trustStoreARNIndex
+	idx.trustStoreByName = trustStoreByName
+	idx.oaiCallerRefs = oaiCallerRefIndex
+	idx.distributionTenantARNs = tenantARNIndex
+	idx.distributionTenantsByDomain = tenantByDomain
+	idx.connectionGroupARNs = connectionGroupARNIndex
+	idx.connectionGroupByName = connectionGroupByNameIndex
+	idx.connectionGroupByRoutingEndpoint = connectionGroupByRoutingEndpointIndex
+	idx.connectionFunctionARNs = connectionFunctionARNIndex
+	idx.anycastIPListARNs = anycastIPListARNIndex
+	idx.anycastIPListByName = anycastIPListByNameIndex
+
+	return idx
 }
 
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
@@ -268,21 +340,24 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	ensureNonNil(&snap)
 	idx := rebuildIndexes(&snap)
-	b.restoreCoreFields(&snap)
-	b.restoreBatch2Fields(&snap)
-	b.restoreIndexes(idx)
+	b.restoreCollections(&snap)
+	b.restoreIndexes(&idx)
+	b.rebuildDistributionSearchIndex()
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
 	return nil
 }
 
-// restoreCoreFields restores the primary maps from the snapshot.
-func (b *InMemoryBackend) restoreCoreFields(snap *backendSnapshot) {
+// restoreCollections assigns the primary resource collections from a snapshot onto the backend.
+// Must be called with the lock held.
+func (b *InMemoryBackend) restoreCollections(snap *backendSnapshot) {
 	b.distributions = snap.Distributions
 	b.oais = snap.OAIs
 	b.invalidations = snap.Invalidations
 	b.anycastIPLists = snap.AnycastIPLists
+	b.streamingDistributions = snap.StreamingDistributions
+	b.trustStores = snap.TrustStores
 	b.cachePolicies = snap.CachePolicies
 	b.connectionFunctions = snap.ConnectionFunctions
 	b.connectionGroups = snap.ConnectionGroups
@@ -302,33 +377,26 @@ func (b *InMemoryBackend) restoreCoreFields(snap *backendSnapshot) {
 	b.distributionAliases = snap.DistributionAliases
 	b.distributionWebACLs = snap.DistributionWebACLs
 	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
-}
-
-// restoreBatch2Fields restores the batch-2 / new-ops maps from the snapshot.
-func (b *InMemoryBackend) restoreBatch2Fields(snap *backendSnapshot) {
-	b.trustStores = snap.TrustStores
-	b.streamingDistributions = snap.StreamingDistributions
+	b.distributionTenants = snap.DistributionTenants
+	b.tenantInvalidations = snap.TenantInvalidations
 	b.monitoringSubscriptions = snap.MonitoringSubscriptions
-	b.resourcePolicies = restoreResourcePolicies(snap.ResourcePolicies)
+	b.resourcePolicies = snap.ResourcePolicies
+	b.managedCertificates = snap.ManagedCertificates
 	b.distributionCachePolicies = snap.DistributionCachePolicies
 	b.distributionOriginRequestPolicies = snap.DistributionOriginRequestPolicies
 	b.distributionResponseHeadersPolicies = snap.DistributionResponseHeadersPolicies
 	b.distributionRealtimeLogConfigs = snap.DistributionRealtimeLogConfigs
-	b.distributionTenants = snap.DistributionTenants
-	b.tenantInvalidations = snap.TenantInvalidations
-	b.managedCertificates = snap.ManagedCertificates
-
-	// Rebuild derived domain→tenantID index from restored tenant records.
-	b.distributionTenantsByDomain = make(map[string]string, len(snap.DistributionTenants))
-	for id, t := range snap.DistributionTenants {
-		b.distributionTenantsByDomain[t.Domain] = id
-	}
 }
 
-// restoreIndexes writes the rebuilt secondary indexes back to the backend.
-func (b *InMemoryBackend) restoreIndexes(idx backendIndexes) {
+// restoreIndexes assigns the derived lookup indexes onto the backend. Must be called with the
+// lock held.
+func (b *InMemoryBackend) restoreIndexes(idx *backendIndexes) {
 	b.distributionARNs = idx.distributionARNs
 	b.distributionCallerRefs = idx.distributionCallerRefs
+	b.streamingDistributionARNs = idx.streamingDistributionARNs
+	b.streamingDistributionCallerRefs = idx.streamingDistributionCallerRefs
+	b.trustStoreARNs = idx.trustStoreARNs
+	b.trustStoreByName = idx.trustStoreByName
 	b.oaiCallerRefs = idx.oaiCallerRefs
 	b.cachePolicyByName = idx.cachePolicyByName
 	b.originAccessControlByName = idx.originAccessControlByName
@@ -340,7 +408,15 @@ func (b *InMemoryBackend) restoreIndexes(idx backendIndexes) {
 	b.keyGroupByName = idx.keyGroupByName
 	b.realtimeLogConfigByName = idx.realtimeLogConfigByName
 	b.keyValueStoreByName = idx.keyValueStoreByName
+	b.distributionTenantARNs = idx.distributionTenantARNs
+	b.distributionTenantsByDomain = idx.distributionTenantsByDomain
+	b.connectionGroupARNs = idx.connectionGroupARNs
+	b.connectionGroupByName = idx.connectionGroupByName
+	b.connectionGroupByRoutingEndpoint = idx.connectionGroupByRoutingEndpoint
+	b.connectionFunctionARNs = idx.connectionFunctionARNs
 	b.connectionFunctionByName = idx.connectionFunctionByName
+	b.anycastIPListARNs = idx.anycastIPListARNs
+	b.anycastIPListByName = idx.anycastIPListByName
 }
 
 // ensureNonNil initialises any nil maps in a snapshot to empty maps so that
@@ -349,7 +425,8 @@ func ensureNonNil(snap *backendSnapshot) {
 	ensureNonNilBaseEntities(snap)
 	ensureNonNilPolicies(snap)
 	ensureNonNilNewResources(snap)
-	ensureNonNilBatch2(snap)
+	ensureNonNilTenantExtras(snap)
+	ensureNonNilDistributionPolicyMaps(snap)
 }
 
 func ensureNonNilBaseEntities(snap *backendSnapshot) {
@@ -367,6 +444,14 @@ func ensureNonNilBaseEntities(snap *backendSnapshot) {
 
 	if snap.AnycastIPLists == nil {
 		snap.AnycastIPLists = make(map[string]*AnycastIPList)
+	}
+
+	if snap.StreamingDistributions == nil {
+		snap.StreamingDistributions = make(map[string]*StreamingDistribution)
+	}
+
+	if snap.TrustStores == nil {
+		snap.TrustStores = make(map[string]*TrustStore)
 	}
 
 	if snap.ConnectionFunctions == nil {
@@ -387,6 +472,30 @@ func ensureNonNilBaseEntities(snap *backendSnapshot) {
 
 	if snap.DistributionTenantWebACLs == nil {
 		snap.DistributionTenantWebACLs = make(map[string]string)
+	}
+
+	if snap.DistributionTenants == nil {
+		snap.DistributionTenants = make(map[string]*DistributionTenant)
+	}
+
+	if snap.TenantInvalidations == nil {
+		snap.TenantInvalidations = make(map[string][]*Invalidation)
+	}
+}
+
+// ensureNonNilTenantExtras initialises the per-distribution-tenant and per-distribution maps
+// added alongside AnycastIPList/ContinuousDeploymentPolicy/GetManagedCertificateDetails parity work.
+func ensureNonNilTenantExtras(snap *backendSnapshot) {
+	if snap.MonitoringSubscriptions == nil {
+		snap.MonitoringSubscriptions = make(map[string]*MonitoringSubscription)
+	}
+
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]*resourcePolicyEntry)
+	}
+
+	if snap.ManagedCertificates == nil {
+		snap.ManagedCertificates = make(map[string]*ManagedCertificateDetails)
 	}
 }
 
@@ -450,23 +559,11 @@ func ensureNonNilNewResources(snap *backendSnapshot) {
 	}
 }
 
-func ensureNonNilBatch2(snap *backendSnapshot) {
-	if snap.TrustStores == nil {
-		snap.TrustStores = make(map[string]*TrustStore)
-	}
-
-	if snap.StreamingDistributions == nil {
-		snap.StreamingDistributions = make(map[string]*StreamingDistribution)
-	}
-
-	if snap.MonitoringSubscriptions == nil {
-		snap.MonitoringSubscriptions = make(map[string]*MonitoringSubscription)
-	}
-
-	if snap.ResourcePolicies == nil {
-		snap.ResourcePolicies = make(map[string]string)
-	}
-
+// ensureNonNilDistributionPolicyMaps initialises the distribution-to-policy association maps
+// (added alongside the ListDistributionsBy{CachePolicy,OriginRequestPolicy,
+// ResponseHeadersPolicy,RealtimeLogConfig} parity work) to empty maps when absent from an older
+// snapshot.
+func ensureNonNilDistributionPolicyMaps(snap *backendSnapshot) {
 	if snap.DistributionCachePolicies == nil {
 		snap.DistributionCachePolicies = make(map[string]string)
 	}
@@ -481,18 +578,6 @@ func ensureNonNilBatch2(snap *backendSnapshot) {
 
 	if snap.DistributionRealtimeLogConfigs == nil {
 		snap.DistributionRealtimeLogConfigs = make(map[string]string)
-	}
-
-	if snap.DistributionTenants == nil {
-		snap.DistributionTenants = make(map[string]*DistributionTenant)
-	}
-
-	if snap.TenantInvalidations == nil {
-		snap.TenantInvalidations = make(map[string][]*Invalidation)
-	}
-
-	if snap.ManagedCertificates == nil {
-		snap.ManagedCertificates = make(map[string]*ManagedCertificate)
 	}
 }
 

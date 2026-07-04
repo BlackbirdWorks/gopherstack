@@ -5,8 +5,25 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
+
+// validateSelectConstraints enforces constraints on the Select parameter based on the index projection.
+func validateSelectConstraints(selectVal types.Select, indexName string, projection *models.Projection) error {
+	if selectVal == types.SelectAllAttributes && indexName != "" {
+		if projection != nil && projection.ProjectionType != string(types.ProjectionTypeAll) {
+			return NewValidationException(
+				"One or more parameter values were invalid: Select type ALL_ATTRIBUTES " +
+					"is not supported for index " + indexName +
+					" because its projection type is not ALL",
+			)
+		}
+	}
+
+	return nil
+}
 
 const (
 	MaxItemSize         = 400 * 1024 // 400 KB
