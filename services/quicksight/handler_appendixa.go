@@ -49,11 +49,6 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 			return reqID(map[string]any{key: resID, "Permissions": []any{}})
 		}
 	}
-	withAlias := func(outerKey string) appendixHandlerFn {
-		return func(_, subID string) map[string]any {
-			return reqID(map[string]any{outerKey: map[string]any{"AliasName": subID}})
-		}
-	}
 	withSubID := func(key string) appendixHandlerFn {
 		return func(_, subID string) map[string]any { return reqID(map[string]any{key: subID}) }
 	}
@@ -71,35 +66,16 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opListFoldersForResource: withList("Folders"),
 
 		// ---- Templates ----
-		opCreateTemplate:             withID("TemplateId"),
-		opDescribeTemplate:           withNested("Template", "TemplateId"),
-		opUpdateTemplate:             withID("TemplateId"),
-		opDeleteTemplate:             withID("TemplateId"),
-		opListTemplates:              withList("TemplateSummaryList"),
-		opListTemplateVersions:       withList("TemplateVersionSummaryList"),
-		opDescribeTemplateDefinition: withID("TemplateId"),
-		opDescribeTemplatePerms:      withIDAndPerms("TemplateId"),
-		opUpdateTemplatePerms:        withIDAndPerms("TemplateId"),
-		opCreateTemplateAlias:        withAlias("TemplateAlias"),
-		opDescribeTemplateAlias:      withAlias("TemplateAlias"),
-		opUpdateTemplateAlias:        withAlias("TemplateAlias"),
-		opDeleteTemplateAlias:        withID("TemplateId"),
-		opListTemplateAliases:        withList("TemplateAliasList"),
+		// CreateTemplate, DescribeTemplate, DescribeTemplateDefinition, UpdateTemplate,
+		// DeleteTemplate, ListTemplates, ListTemplateVersions, template permissions,
+		// and template aliases are real (backed by InMemoryBackend) and routed via
+		// dispatchTemplate in handler_templates.go, not through this canned table.
 
 		// ---- Themes ----
-		opCreateTheme:        withID("ThemeId"),
-		opDescribeTheme:      withNested("Theme", "ThemeId"),
-		opUpdateTheme:        withID("ThemeId"),
-		opDeleteTheme:        withID("ThemeId"),
-		opListThemes:         withList("ThemeSummaryList"),
-		opListThemeVersions:  withList("ThemeVersionSummaryList"),
-		opDescribeThemePerms: withIDAndPerms("ThemeId"),
-		opUpdateThemePerms:   withIDAndPerms("ThemeId"),
-		opCreateThemeAlias:   withAlias("ThemeAlias"),
-		opDescribeThemeAlias: withAlias("ThemeAlias"),
-		opUpdateThemeAlias:   withAlias("ThemeAlias"),
-		opDeleteThemeAlias:   withID("ThemeId"),
-		opListThemeAliases:   withList("ThemeAliasList"),
+		// CreateTheme, DescribeTheme, UpdateTheme, DeleteTheme, ListThemes,
+		// ListThemeVersions, theme permissions, and theme aliases are real (backed
+		// by InMemoryBackend) and routed via dispatchTheme in handler_themes.go,
+		// not through this canned table.
 
 		// ---- Topics ----
 		opCreateTopic: func(_, _ string) map[string]any {

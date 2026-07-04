@@ -386,6 +386,21 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListThingPrincipalsV2,
 		opDescribeManagedJobTemplate,
 		opListManagedJobTemplates,
+		// Device Defender: audit + detect mitigation-action tasks, violations.
+		opStartAuditMitigationActionsTask,
+		opDescribeAuditMitigationActionsTask,
+		opListAuditMitigationActionsTasks,
+		opListAuditMitigationActionsExecutions,
+		opStartDetectMitigationActionsTask,
+		opDescribeDetectMitigationActionsTask,
+		opListDetectMitigationActionsTasks,
+		opListDetectMitigationActionsExecutions,
+		opCancelDetectMitigationActionsTask,
+		opListActiveViolations,
+		opListViolationEvents,
+		opPutVerificationStateOnViolation,
+		opListRelatedResourcesForAuditFinding,
+		opDeleteAccountAuditConfiguration,
 	)
 
 	return append(core, allStubOps()...)
@@ -440,7 +455,17 @@ func matchCoreIoTPath(path string) bool {
 		strings.HasPrefix(path, "/packages/") ||
 		strings.HasPrefix(path, "/jobs/") ||
 		strings.HasPrefix(path, "/security-profiles/") ||
-		strings.HasPrefix(path, "/audit/")
+		strings.HasPrefix(path, "/audit/") ||
+		matchDeviceDefenderPath(path)
+}
+
+// matchDeviceDefenderPath reports whether path belongs to the Device Defender
+// detect mitigation-action or violation routes.
+func matchDeviceDefenderPath(path string) bool {
+	return strings.HasPrefix(path, "/detect/") ||
+		path == "/active-violations" ||
+		path == "/violation-events" ||
+		strings.HasPrefix(path, "/violations/")
 }
 
 func matchNewIoTPath(path string) bool {
@@ -567,6 +592,10 @@ func resolveOperation(path, method string) string {
 	}
 
 	if op := resolveBatch4Ops(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveDeviceDefenderOps(path, method); op != unknownOperation {
 		return op
 	}
 
@@ -1157,7 +1186,11 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 		return true, err
 	}
 
-	return h.dispatchBatch4Ops(c, op)
+	if handled, err := h.dispatchBatch4Ops(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchDeviceDefenderOps(c, op)
 }
 
 func (h *Handler) dispatchMiscNewOps(c *echo.Context, op string) (bool, error) {
@@ -1551,6 +1584,8 @@ func (h *Handler) dispatchBatch2Ops(c *echo.Context, op string) (bool, error) {
 		return true, h.handleDescribeAccountAuditConfiguration(c)
 	case opUpdateAccountAuditConfiguration:
 		return true, h.handleUpdateAccountAuditConfiguration(c)
+	case opDeleteAccountAuditConfiguration:
+		return true, h.handleDeleteAccountAuditConfiguration(c)
 	case opStartOnDemandAuditTask:
 		return true, h.handleStartOnDemandAuditTask(c)
 	case opDescribeAuditTask:

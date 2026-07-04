@@ -25,6 +25,14 @@ type backendSnapshot struct {
 	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration `json:"thingGroupIndexingConfiguration,omitempty"`
 
 	RegistrationTasks map[string]*ThingRegistrationTask `json:"registrationTasks"`
+
+	// Device Defender: audit + detect mitigation-action tasks and violations.
+	AuditMitigationTaskObjects map[string]*AuditMitigationTask               `json:"auditMitigationTaskObjects"`
+	AuditMitigationExecutions  map[string][]*AuditMitigationActionExecution  `json:"auditMitigationExecutions"`
+	DetectMitigationTasks      map[string]*DetectMitigationTask              `json:"detectMitigationTasks"`
+	DetectMitigationExecutions map[string][]*DetectMitigationActionExecution `json:"detectMitigationExecutions"`
+	ActiveViolations           map[string]*ActiveViolation                   `json:"activeViolations"`
+	ViolationEvents            []*ViolationEvent                             `json:"violationEvents"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -76,6 +84,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		registrationTasks[k] = cloneRegistrationTask(v)
 	}
 
+	ddSnap := b.snapshotDeviceDefender()
+
 	snap := backendSnapshot{
 		Things:                 things,
 		Policies:               policies,
@@ -95,6 +105,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ThingGroupIndexingConfiguration: thingGroupIndexingConfig,
 
 		RegistrationTasks: registrationTasks,
+
+		AuditMitigationTaskObjects: ddSnap.AuditMitigationTaskObjects,
+		AuditMitigationExecutions:  ddSnap.AuditMitigationExecutions,
+		DetectMitigationTasks:      ddSnap.DetectMitigationTasks,
+		DetectMitigationExecutions: ddSnap.DetectMitigationExecutions,
+		ActiveViolations:           ddSnap.ActiveViolations,
+		ViolationEvents:            ddSnap.ViolationEvents,
 	}
 
 	data, err := json.Marshal(snap)
@@ -170,6 +187,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	for k, v := range snap.RegistrationTasks {
 		b.registrationTasks[k] = cloneRegistrationTask(v)
 	}
+
+	b.restoreDeviceDefender(deviceDefenderSnapshot{
+		AuditMitigationTaskObjects: snap.AuditMitigationTaskObjects,
+		AuditMitigationExecutions:  snap.AuditMitigationExecutions,
+		DetectMitigationTasks:      snap.DetectMitigationTasks,
+		DetectMitigationExecutions: snap.DetectMitigationExecutions,
+		ActiveViolations:           snap.ActiveViolations,
+		ViolationEvents:            snap.ViolationEvents,
+	})
 
 	return nil
 }

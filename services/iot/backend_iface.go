@@ -209,6 +209,7 @@ type StorageBackend interface {
 	// Batch 2: Audit configuration.
 	UpdateAccountAuditConfiguration(roleARN string, checks map[string]*AuditCheckConfig) error
 	DescribeAccountAuditConfiguration() *AccountAuditConfiguration
+	DeleteAccountAuditConfiguration() error
 
 	// Batch 2: Audit task.
 	StartOnDemandAuditTask(checks []string) (string, error)
@@ -283,6 +284,7 @@ type StorageBackend interface {
 	// Batch 3: Audit findings.
 	DescribeAuditFinding(findingID string) (*AuditFinding, error)
 	ListAuditFindings() []*AuditFinding
+	ListRelatedResourcesForAuditFinding(findingID string) ([]map[string]any, error)
 
 	// Batch 3: V2 logging.
 	GetV2LoggingOptions() *V2LoggingOptions
@@ -365,6 +367,32 @@ type StorageBackend interface {
 	// Batch 4: managed job templates.
 	DescribeManagedJobTemplate(templateName, templateVersion string) (*ManagedJobTemplate, error)
 	ListManagedJobTemplates(templateName string) []*ManagedJobTemplateSummary
+
+	// Device Defender: audit mitigation-action tasks.
+	StartAuditMitigationActionsTask(
+		input *StartAuditMitigationActionsTaskInput,
+	) (*AuditMitigationTask, error)
+	DescribeAuditMitigationActionsTask(taskID string) (*AuditMitigationTask, error)
+	ListAuditMitigationActionsTasks(auditTaskID, taskStatus string) []*AuditMitigationTask
+	ListAuditMitigationActionsExecutions(taskID, findingID, actionStatus string) []*AuditMitigationActionExecution
+
+	// Device Defender: detect mitigation-action tasks.
+	StartDetectMitigationActionsTask(
+		input *StartDetectMitigationActionsTaskInput,
+	) (*DetectMitigationTask, error)
+	DescribeDetectMitigationActionsTask(taskID string) (*DetectMitigationTask, error)
+	ListDetectMitigationActionsTasks(startTime, endTime float64) []*DetectMitigationTask
+	ListDetectMitigationActionsExecutions(taskID, violationID, thingName string) []*DetectMitigationActionExecution
+	CancelDetectMitigationActionsTask(taskID string) error
+
+	// Device Defender: violations.
+	ListActiveViolations(thingName, securityProfileName, verificationState string) []*ActiveViolation
+	ListViolationEvents(
+		thingName, securityProfileName, verificationState string,
+		startTime, endTime float64,
+	) []*ViolationEvent
+	PutVerificationStateOnViolation(violationID, verificationState, description string) error
+	SeedActiveViolation(input *SeedActiveViolationInput) (*ActiveViolation, error)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

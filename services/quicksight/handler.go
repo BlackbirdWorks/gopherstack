@@ -904,6 +904,10 @@ func (h *Handler) dispatch(c *echo.Context) error {
 		return h.dispatchTag(c, op)
 	case isFolderOp(op):
 		return h.dispatchFolder(c, op)
+	case isTemplateOp(op):
+		return h.dispatchTemplate(c, op)
+	case isThemeOp(op):
+		return h.dispatchTheme(c, op)
 	case op != opUnknown:
 		return h.dispatchNew(c, op)
 	default:

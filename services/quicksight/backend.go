@@ -77,6 +77,22 @@ var (
 	ErrFolderAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrFolderMemberNotFound is returned when a folder membership does not exist.
 	ErrFolderMemberNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTemplateNotFound is returned when a template (or template version) does not exist.
+	ErrTemplateNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTemplateAlreadyExists is returned when a template already exists.
+	ErrTemplateAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrTemplateAliasNotFound is returned when a template alias does not exist.
+	ErrTemplateAliasNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTemplateAliasAlreadyExists is returned when a template alias already exists.
+	ErrTemplateAliasAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrThemeNotFound is returned when a theme (or theme version) does not exist.
+	ErrThemeNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrThemeAlreadyExists is returned when a theme already exists.
+	ErrThemeAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrThemeAliasNotFound is returned when a theme alias does not exist.
+	ErrThemeAliasNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrThemeAliasAlreadyExists is returned when a theme alias already exists.
+	ErrThemeAliasAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 	// ErrUnknownOperation is returned when the requested operation is not implemented.
@@ -261,6 +277,8 @@ type state struct {
 	Tags          map[string]map[string]string   `json:"tags"`
 	Folders       map[string]*storedFolder       `json:"folders"`
 	FolderMembers map[string]*storedFolderMember `json:"folderMembers"`
+	Templates     map[string]*storedTemplate     `json:"templates"`
+	Themes        map[string]*storedTheme        `json:"themes"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -278,6 +296,8 @@ type InMemoryBackend struct {
 	tags          map[string]map[string]string
 	folders       map[string]*storedFolder
 	folderMembers map[string]*storedFolderMember
+	templates     map[string]*storedTemplate
+	themes        map[string]*storedTheme
 	accountID     string
 	region        string
 }
@@ -299,6 +319,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		tags:          make(map[string]map[string]string),
 		folders:       make(map[string]*storedFolder),
 		folderMembers: make(map[string]*storedFolderMember),
+		templates:     make(map[string]*storedTemplate),
+		themes:        make(map[string]*storedTheme),
 	}
 	b.mu = lockmetrics.New("quicksight")
 
@@ -337,6 +359,8 @@ func (b *InMemoryBackend) Reset() {
 	b.tags = make(map[string]map[string]string)
 	b.folders = make(map[string]*storedFolder)
 	b.folderMembers = make(map[string]*storedFolderMember)
+	b.templates = make(map[string]*storedTemplate)
+	b.themes = make(map[string]*storedTheme)
 
 	b.namespaces[nsKey(b.accountID, defaultNamespace)] = &storedNamespace{
 		Name:           defaultNamespace,
@@ -365,6 +389,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Tags:          b.tags,
 		Folders:       b.folders,
 		FolderMembers: b.folderMembers,
+		Templates:     b.templates,
+		Themes:        b.themes,
 	}
 
 	data, _ := json.Marshal(s)
@@ -394,12 +420,20 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.tags = s.Tags
 	b.folders = s.Folders
 	b.folderMembers = s.FolderMembers
+	b.templates = s.Templates
+	b.themes = s.Themes
 
 	if b.folders == nil {
 		b.folders = make(map[string]*storedFolder)
 	}
 	if b.folderMembers == nil {
 		b.folderMembers = make(map[string]*storedFolderMember)
+	}
+	if b.templates == nil {
+		b.templates = make(map[string]*storedTemplate)
+	}
+	if b.themes == nil {
+		b.themes = make(map[string]*storedTheme)
 	}
 
 	return nil
@@ -449,6 +483,14 @@ func folderKey(accountID, folderID string) string {
 
 func folderMemberKey(accountID, folderID, memberType, memberID string) string {
 	return accountID + "/" + folderID + "/" + memberType + "/" + memberID
+}
+
+func templateKey(accountID, templateID string) string {
+	return accountID + "/" + templateID
+}
+
+func themeKey(accountID, themeID string) string {
+	return accountID + "/" + themeID
 }
 
 // ---- ARN builder ----
