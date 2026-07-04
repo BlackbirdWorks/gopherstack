@@ -277,6 +277,67 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*IAMPolicyAssignment, string, error)
 
+	// Account settings
+	DescribeAccountSettings(accountID string) (*AccountSettings, error)
+	UpdateAccountSettings(
+		accountID, defaultNamespace, notificationEmail string,
+		terminationProtectionEnabled *bool,
+	) (*AccountSettings, error)
+
+	// Account subscription
+	CreateAccountSubscription(
+		accountID, accountName, edition, authenticationMethod, notificationEmail string,
+	) (*AccountSubscription, error)
+	DescribeAccountSubscription(accountID string) (*AccountSubscription, error)
+	DeleteAccountSubscription(accountID string) error
+
+	// Account customization
+	CreateAccountCustomization(
+		accountID, namespace, defaultTheme, defaultEmailCustomizationTemplate string,
+	) (*AccountCustomization, error)
+	DescribeAccountCustomization(accountID, namespace string) (*AccountCustomization, error)
+	UpdateAccountCustomization(
+		accountID, namespace, defaultTheme, defaultEmailCustomizationTemplate string,
+	) (*AccountCustomization, error)
+	DeleteAccountCustomization(accountID, namespace string) error
+
+	// IP restriction
+	DescribeIPRestriction(accountID string) (*IPRestriction, error)
+	UpdateIPRestriction(
+		accountID string,
+		ruleMap, vpcIDRuleMap, vpcEndpointIDRuleMap map[string]string,
+		enabled *bool,
+	) (*IPRestriction, error)
+
+	// Public sharing
+	UpdatePublicSharingSettings(accountID string, enabled bool) error
+
+	// Key registration
+	DescribeKeyRegistration(accountID string) ([]RegisteredCustomerManagedKey, error)
+	UpdateKeyRegistration(
+		accountID string,
+		keys []RegisteredCustomerManagedKey,
+	) ([]RegisteredCustomerManagedKey, error)
+
+	// Default Q Business Application
+	DescribeDefaultQBusinessApplication(accountID, namespace string) (*DefaultQBusinessApplication, error)
+	UpdateDefaultQBusinessApplication(
+		accountID, applicationID, namespace string,
+	) (*DefaultQBusinessApplication, error)
+	DeleteDefaultQBusinessApplication(accountID, namespace string) error
+
+	// Q personalization
+	DescribeQPersonalizationConfiguration(accountID string) (string, error)
+	UpdateQPersonalizationConfiguration(accountID, mode string) (string, error)
+
+	// Q Search configuration
+	DescribeQuickSightQSearchConfiguration(accountID string) (string, error)
+	UpdateQuickSightQSearchConfiguration(accountID, status string) (string, error)
+
+	// Dashboards Q&A configuration
+	DescribeDashboardsQAConfiguration(accountID string) (string, error)
+	UpdateDashboardsQAConfiguration(accountID, status string) (string, error)
+
 	AccountID() string
 	Region() string
 	Reset()
@@ -548,6 +609,53 @@ type IAMPolicyAssignment struct {
 	AssignmentStatus string
 	PolicyArn        string
 	Namespace        string
+}
+
+// AccountSettings represents a QuickSight account's account-wide settings.
+type AccountSettings struct {
+	AccountName                  string
+	Edition                      string
+	DefaultNamespace             string
+	NotificationEmail            string
+	PublicSharingEnabled         bool
+	TerminationProtectionEnabled bool
+}
+
+// AccountSubscription represents a QuickSight account subscription.
+type AccountSubscription struct {
+	AccountName               string
+	Edition                   string
+	NotificationEmail         string
+	AuthenticationType        string
+	AccountSubscriptionStatus string
+}
+
+// AccountCustomization represents a QuickSight account's (or namespace's) branding customization.
+type AccountCustomization struct {
+	Namespace                         string
+	DefaultTheme                      string
+	DefaultEmailCustomizationTemplate string
+}
+
+// IPRestriction represents a QuickSight account's IP/VPC access restriction rules.
+type IPRestriction struct {
+	RuleMap              map[string]string
+	VPCIDRuleMap         map[string]string
+	VPCEndpointIDRuleMap map[string]string
+	Enabled              bool
+}
+
+// RegisteredCustomerManagedKey represents a customer-managed KMS key registered with QuickSight.
+type RegisteredCustomerManagedKey struct {
+	KeyArn     string
+	DefaultKey bool
+}
+
+// DefaultQBusinessApplication represents the default Amazon Q Business application
+// linked to a QuickSight account.
+type DefaultQBusinessApplication struct {
+	ApplicationID string
+	Namespace     string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

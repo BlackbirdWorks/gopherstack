@@ -109,6 +109,19 @@ var (
 	ErrIAMPolicyAssignmentNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrIAMPolicyAssignmentAlreadyExists is returned when an IAM policy assignment already exists.
 	ErrIAMPolicyAssignmentAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrAccountSubscriptionNotFound is returned when an account has no QuickSight subscription.
+	ErrAccountSubscriptionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrAccountSubscriptionAlreadyExists is returned when an account is already subscribed.
+	ErrAccountSubscriptionAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrAccountCustomizationNotFound is returned when an account (or namespace) customization
+	// does not exist.
+	ErrAccountCustomizationNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrAccountCustomizationAlreadyExists is returned when an account (or namespace)
+	// customization already exists.
+	ErrAccountCustomizationAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrDefaultQBusinessApplicationNotFound is returned when no default Q Business
+	// application is configured for an account.
+	ErrDefaultQBusinessApplicationNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 	// ErrUnknownOperation is returned when the requested operation is not implemented.
@@ -298,6 +311,17 @@ type state struct {
 	Topics               map[string]*storedTopic               `json:"topics"`
 	VPCConnections       map[string]*storedVPCConnection       `json:"vpcConnections"`
 	IAMPolicyAssignments map[string]*storedIAMPolicyAssignment `json:"iamPolicyAssignments"`
+
+	AccountSettings       map[string]*storedAccountSettings             `json:"accountSettings"`
+	AccountSubscriptions  map[string]*storedAccountSubscription         `json:"accountSubscriptions"`
+	AccountCustomizations map[string]*storedAccountCustomization        `json:"accountCustomizations"`
+	IPRestrictions        map[string]*storedIPRestriction               `json:"ipRestrictions"`
+	PublicSharing         map[string]bool                               `json:"publicSharing"`
+	KeyRegistrations      map[string][]storedRegisteredKey              `json:"keyRegistrations"`
+	DefaultQBusinessApps  map[string]*storedDefaultQBusinessApplication `json:"defaultQBusinessApps"`
+	QPersonalization      map[string]string                             `json:"qPersonalization"`
+	QSearchConfig         map[string]string                             `json:"qSearchConfig"`
+	DashboardsQAConfig    map[string]string                             `json:"dashboardsQAConfig"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -320,8 +344,20 @@ type InMemoryBackend struct {
 	topics               map[string]*storedTopic
 	vpcConnections       map[string]*storedVPCConnection
 	iamPolicyAssignments map[string]*storedIAMPolicyAssignment
-	accountID            string
-	region               string
+
+	accountSettings       map[string]*storedAccountSettings
+	accountSubscriptions  map[string]*storedAccountSubscription
+	accountCustomizations map[string]*storedAccountCustomization
+	ipRestrictions        map[string]*storedIPRestriction
+	publicSharing         map[string]bool
+	keyRegistrations      map[string][]storedRegisteredKey
+	defaultQBusinessApps  map[string]*storedDefaultQBusinessApplication
+	qPersonalization      map[string]string
+	qSearchConfig         map[string]string
+	dashboardsQAConfig    map[string]string
+
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -346,6 +382,17 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		topics:               make(map[string]*storedTopic),
 		vpcConnections:       make(map[string]*storedVPCConnection),
 		iamPolicyAssignments: make(map[string]*storedIAMPolicyAssignment),
+
+		accountSettings:       make(map[string]*storedAccountSettings),
+		accountSubscriptions:  make(map[string]*storedAccountSubscription),
+		accountCustomizations: make(map[string]*storedAccountCustomization),
+		ipRestrictions:        make(map[string]*storedIPRestriction),
+		publicSharing:         make(map[string]bool),
+		keyRegistrations:      make(map[string][]storedRegisteredKey),
+		defaultQBusinessApps:  make(map[string]*storedDefaultQBusinessApplication),
+		qPersonalization:      make(map[string]string),
+		qSearchConfig:         make(map[string]string),
+		dashboardsQAConfig:    make(map[string]string),
 	}
 	b.mu = lockmetrics.New("quicksight")
 
@@ -390,6 +437,17 @@ func (b *InMemoryBackend) Reset() {
 	b.vpcConnections = make(map[string]*storedVPCConnection)
 	b.iamPolicyAssignments = make(map[string]*storedIAMPolicyAssignment)
 
+	b.accountSettings = make(map[string]*storedAccountSettings)
+	b.accountSubscriptions = make(map[string]*storedAccountSubscription)
+	b.accountCustomizations = make(map[string]*storedAccountCustomization)
+	b.ipRestrictions = make(map[string]*storedIPRestriction)
+	b.publicSharing = make(map[string]bool)
+	b.keyRegistrations = make(map[string][]storedRegisteredKey)
+	b.defaultQBusinessApps = make(map[string]*storedDefaultQBusinessApplication)
+	b.qPersonalization = make(map[string]string)
+	b.qSearchConfig = make(map[string]string)
+	b.dashboardsQAConfig = make(map[string]string)
+
 	b.namespaces[nsKey(b.accountID, defaultNamespace)] = &storedNamespace{
 		Name:           defaultNamespace,
 		Arn:            b.buildARN("namespace", defaultNamespace),
@@ -422,6 +480,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Topics:               b.topics,
 		VPCConnections:       b.vpcConnections,
 		IAMPolicyAssignments: b.iamPolicyAssignments,
+
+		AccountSettings:       b.accountSettings,
+		AccountSubscriptions:  b.accountSubscriptions,
+		AccountCustomizations: b.accountCustomizations,
+		IPRestrictions:        b.ipRestrictions,
+		PublicSharing:         b.publicSharing,
+		KeyRegistrations:      b.keyRegistrations,
+		DefaultQBusinessApps:  b.defaultQBusinessApps,
+		QPersonalization:      b.qPersonalization,
+		QSearchConfig:         b.qSearchConfig,
+		DashboardsQAConfig:    b.dashboardsQAConfig,
 	}
 
 	data, _ := json.Marshal(s)
@@ -457,6 +526,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.vpcConnections = s.VPCConnections
 	b.iamPolicyAssignments = s.IAMPolicyAssignments
 
+	b.accountSettings = s.AccountSettings
+	b.accountSubscriptions = s.AccountSubscriptions
+	b.accountCustomizations = s.AccountCustomizations
+	b.ipRestrictions = s.IPRestrictions
+	b.publicSharing = s.PublicSharing
+	b.keyRegistrations = s.KeyRegistrations
+	b.defaultQBusinessApps = s.DefaultQBusinessApps
+	b.qPersonalization = s.QPersonalization
+	b.qSearchConfig = s.QSearchConfig
+	b.dashboardsQAConfig = s.DashboardsQAConfig
+
 	if b.folders == nil {
 		b.folders = make(map[string]*storedFolder)
 	}
@@ -478,8 +558,44 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if b.iamPolicyAssignments == nil {
 		b.iamPolicyAssignments = make(map[string]*storedIAMPolicyAssignment)
 	}
+	b.ensureAccountConfigMaps()
 
 	return nil
+}
+
+// ensureAccountConfigMaps re-initializes any account/config-cluster maps left nil
+// after Restore (e.g. snapshots taken before those maps existed).
+func (b *InMemoryBackend) ensureAccountConfigMaps() {
+	if b.accountSettings == nil {
+		b.accountSettings = make(map[string]*storedAccountSettings)
+	}
+	if b.accountSubscriptions == nil {
+		b.accountSubscriptions = make(map[string]*storedAccountSubscription)
+	}
+	if b.accountCustomizations == nil {
+		b.accountCustomizations = make(map[string]*storedAccountCustomization)
+	}
+	if b.ipRestrictions == nil {
+		b.ipRestrictions = make(map[string]*storedIPRestriction)
+	}
+	if b.publicSharing == nil {
+		b.publicSharing = make(map[string]bool)
+	}
+	if b.keyRegistrations == nil {
+		b.keyRegistrations = make(map[string][]storedRegisteredKey)
+	}
+	if b.defaultQBusinessApps == nil {
+		b.defaultQBusinessApps = make(map[string]*storedDefaultQBusinessApplication)
+	}
+	if b.qPersonalization == nil {
+		b.qPersonalization = make(map[string]string)
+	}
+	if b.qSearchConfig == nil {
+		b.qSearchConfig = make(map[string]string)
+	}
+	if b.dashboardsQAConfig == nil {
+		b.dashboardsQAConfig = make(map[string]string)
+	}
 }
 
 // ---- key helpers ----

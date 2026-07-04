@@ -11,7 +11,13 @@ type appendixHandlerFn func(resID, subID string) map[string]any
 
 // dispatchNew handles all Appendix-A operations that are not dispatched by the
 // legacy type-specific helpers (namespace/group/user/datasource/dataset/dashboard/analysis/tag).
+// Account/config-cluster operations are real (backed by InMemoryBackend) and are
+// routed to dispatchAccountConfig here, ahead of the canned appendixOps table.
 func (h *Handler) dispatchNew(c *echo.Context, op string) error {
+	if isAccountConfigOp(op) {
+		return h.dispatchAccountConfig(c, op)
+	}
+
 	segs := pathSegsFromCtx(c)
 	resID := seg(segs, segResID)
 	subID := seg(segs, segSubResID)
@@ -145,10 +151,9 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		},
 		opStartDashboardSnapshotJobSchedule: withID("DashboardId"),
 		opGetDashboardEmbedUrl:              embedURL,
-		opDescribeDashboardsQAConfiguration: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"DashboardsQAStatus": "ENABLED"}) //nolint:goconst // existing issue.
-		},
-		opUpdateDashboardsQAConfiguration: noContent,
+		// DescribeDashboardsQAConfiguration and UpdateDashboardsQAConfiguration are
+		// real (backed by InMemoryBackend) and routed via dispatchAccountConfig in
+		// handler_account.go, not through this canned table.
 
 		// ---- Analysis Extras ----
 		opDescribeAnalysisDefinition: withID("AnalysisId"),
@@ -236,16 +241,10 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opDescribeAutomationJob: noContent,
 
 		// ---- Account Customization ----
-		opCreateAccountCustomization: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"AccountCustomization": map[string]any{}}) //nolint:goconst // existing issue.
-		},
-		opDescribeAccountCustomization: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"AccountCustomization": map[string]any{}})
-		},
-		opUpdateAccountCustomization: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"AccountCustomization": map[string]any{}})
-		},
-		opDeleteAccountCustomization: noContent,
+		// CreateAccountCustomization, DescribeAccountCustomization,
+		// UpdateAccountCustomization, and DeleteAccountCustomization are real
+		// (backed by InMemoryBackend) and routed via dispatchAccountConfig in
+		// handler_account.go, not through this canned table.
 
 		// ---- Account Custom Permission ----
 		opDescribeAccountCustomPerm: noContent,
@@ -253,56 +252,51 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opDeleteAccountCustomPerm:   noContent,
 
 		// ---- Account Settings ----
-		opDescribeAccountSettings: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"AccountSettings": map[string]any{}})
-		},
-		opUpdateAccountSettings: noContent,
+		// DescribeAccountSettings and UpdateAccountSettings are real (backed by
+		// InMemoryBackend) and routed via dispatchAccountConfig in
+		// handler_account.go, not through this canned table.
 
 		// ---- Account Subscription ----
-		opCreateAccountSubscription: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"SignupResponse": map[string]any{}})
-		},
-		opDescribeAccountSubscription: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"AccountInfo": map[string]any{}})
-		},
-		opDeleteAccountSubscription: noContent,
+		// CreateAccountSubscription, DescribeAccountSubscription, and
+		// DeleteAccountSubscription are real (backed by InMemoryBackend) and
+		// routed via dispatchAccountConfig in handler_account.go, not through
+		// this canned table.
 
 		// ---- IP Restriction ----
-		opDescribeIpRestriction: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"IpRestrictionRuleMap": map[string]any{}})
-		},
-		opUpdateIpRestriction: noContent,
+		// DescribeIpRestriction and UpdateIpRestriction are real (backed by
+		// InMemoryBackend) and routed via dispatchAccountConfig in
+		// handler_account.go, not through this canned table.
 
 		// ---- Key Registration ----
-		opDescribeKeyRegistration: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"RegisteredCustomerManagedKeys": []any{}})
-		},
-		opUpdateKeyRegistration: noContent,
+		// DescribeKeyRegistration and UpdateKeyRegistration are real (backed by
+		// InMemoryBackend) and routed via dispatchAccountConfig in
+		// handler_account.go, not through this canned table.
 
 		// ---- Public Sharing ----
-		opUpdatePublicSharingSettings: noContent,
+		// UpdatePublicSharingSettings is real (backed by InMemoryBackend) and
+		// routed via dispatchAccountConfig in handler_account.go, not through
+		// this canned table.
 
 		// ---- Q Personalization ----
-		opDescribeQPersonalization: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"PersonalizationMode": "ENABLED"})
-		},
-		opUpdateQPersonalization: noContent,
+		// DescribeQPersonalizationConfiguration and
+		// UpdateQPersonalizationConfiguration are real (backed by
+		// InMemoryBackend) and routed via dispatchAccountConfig in
+		// handler_account.go, not through this canned table.
 
 		// ---- Q Search Config ----
-		opDescribeQSearchConfig: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"QSearchStatus": "ENABLED"})
-		},
-		opUpdateQSearchConfig: noContent,
+		// DescribeQuickSightQSearchConfiguration and
+		// UpdateQuickSightQSearchConfiguration are real (backed by
+		// InMemoryBackend) and routed via dispatchAccountConfig in
+		// handler_account.go, not through this canned table.
 
 		// ---- SPICE Capacity ----
 		opUpdateSPICECapacity: noContent,
 
 		// ---- Default QBiz ----
-		opDescribeDefaultQBiz: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"DefaultQBusinessApplication": map[string]any{}})
-		},
-		opUpdateDefaultQBiz: noContent,
-		opDeleteDefaultQBiz: noContent,
+		// DescribeDefaultQBusinessApplication, UpdateDefaultQBusinessApplication,
+		// and DeleteDefaultQBusinessApplication are real (backed by
+		// InMemoryBackend) and routed via dispatchAccountConfig in
+		// handler_account.go, not through this canned table.
 
 		// ---- App Token Grant ----
 		opUpdateAppTokenGrant: noContent,

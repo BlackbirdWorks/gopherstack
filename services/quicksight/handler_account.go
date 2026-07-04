@@ -1,0 +1,692 @@
+package quicksight
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/labstack/echo/v5"
+)
+
+// JSON response/request keys and query params used only by the account-level
+// configuration operations (account settings, subscription, customization,
+// IP restriction, public sharing, key registration, default Q Business
+// application, Q personalization, Q Search, and Dashboards Q&A).
+const (
+	keyAccountSettings                 = "AccountSettings"
+	keyAccountName                     = "AccountName"
+	keyEdition                         = "Edition"
+	keyDefaultNamespaceField           = "DefaultNamespace"
+	keyNotificationEmail               = "NotificationEmail"
+	keyPublicSharingEnabled            = "PublicSharingEnabled"
+	keyTerminationProtectionEnabled    = "TerminationProtectionEnabled"
+	keyAuthenticationMethod            = "AuthenticationMethod"
+	keySignupResponse                  = "SignupResponse"
+	keyUserLoginName                   = "UserLoginName"
+	keyIAMUser                         = "IAMUser"
+	keyAccountInfo                     = "AccountInfo"
+	keyAuthenticationType              = "AuthenticationType"
+	keyAccountSubscriptionStatus       = "AccountSubscriptionStatus"
+	keyAccountCustomization            = "AccountCustomization"
+	keyDefaultTheme                    = "DefaultTheme"
+	keyDefaultEmailCustomizationTmpl   = "DefaultEmailCustomizationTemplate"
+	keyAwsAccountID                    = "AwsAccountId"
+	keyNamespaceField                  = "Namespace"
+	keyIPRestrictionRuleMap            = "IpRestrictionRuleMap"
+	keyVPCIDRestrictionRuleMap         = "VpcIdRestrictionRuleMap"
+	keyVPCEndpointIDRestrictionRuleMap = "VpcEndpointIdRestrictionRuleMap"
+	keyEnabled                         = "Enabled"
+	keyRegisteredCustomerManagedKeys   = "RegisteredCustomerManagedKeys"
+	keyKeyRegistration                 = "KeyRegistration"
+	keySuccessfulKeyRegistration       = "SuccessfulKeyRegistration"
+	keyFailedKeyRegistration           = "FailedKeyRegistration"
+	keyKeyArn                          = "KeyArn"
+	keyDefaultKey                      = "DefaultKey"
+	keyDefaultQBusinessApplication     = "DefaultQBusinessApplication"
+	keyApplicationID                   = "ApplicationId"
+	keyPersonalizationMode             = "PersonalizationMode"
+	keyQSearchStatus                   = "QSearchStatus"
+	keyDashboardsQAStatus              = "DashboardsQAStatus"
+
+	queryParamNamespace = "namespace"
+)
+
+func isAccountConfigOp(op string) bool {
+	switch op {
+	case opDescribeAccountSettings, opUpdateAccountSettings,
+		opCreateAccountSubscription, opDescribeAccountSubscription, opDeleteAccountSubscription,
+		opCreateAccountCustomization, opDescribeAccountCustomization,
+		opUpdateAccountCustomization, opDeleteAccountCustomization,
+		opDescribeIpRestriction, opUpdateIpRestriction,
+		opUpdatePublicSharingSettings,
+		opDescribeKeyRegistration, opUpdateKeyRegistration,
+		opDescribeDefaultQBiz, opUpdateDefaultQBiz, opDeleteDefaultQBiz,
+		opDescribeQPersonalization, opUpdateQPersonalization,
+		opDescribeQSearchConfig, opUpdateQSearchConfig,
+		opDescribeDashboardsQAConfiguration, opUpdateDashboardsQAConfiguration:
+		return true
+	}
+
+	return false
+}
+
+//nolint:cyclop // one flat dispatch table for the whole account/config op cluster
+func (h *Handler) dispatchAccountConfig(c *echo.Context, op string) error {
+	switch op {
+	case opDescribeAccountSettings:
+		return h.handleDescribeAccountSettings(c)
+	case opUpdateAccountSettings:
+		return h.handleUpdateAccountSettings(c)
+	case opCreateAccountSubscription:
+		return h.handleCreateAccountSubscription(c)
+	case opDescribeAccountSubscription:
+		return h.handleDescribeAccountSubscription(c)
+	case opDeleteAccountSubscription:
+		return h.handleDeleteAccountSubscription(c)
+	case opCreateAccountCustomization:
+		return h.handleCreateAccountCustomization(c)
+	case opDescribeAccountCustomization:
+		return h.handleDescribeAccountCustomization(c)
+	case opUpdateAccountCustomization:
+		return h.handleUpdateAccountCustomization(c)
+	case opDeleteAccountCustomization:
+		return h.handleDeleteAccountCustomization(c)
+	case opDescribeIpRestriction:
+		return h.handleDescribeIPRestriction(c)
+	case opUpdateIpRestriction:
+		return h.handleUpdateIPRestriction(c)
+	case opUpdatePublicSharingSettings:
+		return h.handleUpdatePublicSharingSettings(c)
+	case opDescribeKeyRegistration:
+		return h.handleDescribeKeyRegistration(c)
+	case opUpdateKeyRegistration:
+		return h.handleUpdateKeyRegistration(c)
+	case opDescribeDefaultQBiz:
+		return h.handleDescribeDefaultQBiz(c)
+	case opUpdateDefaultQBiz:
+		return h.handleUpdateDefaultQBiz(c)
+	case opDeleteDefaultQBiz:
+		return h.handleDeleteDefaultQBiz(c)
+	case opDescribeQPersonalization:
+		return h.handleDescribeQPersonalization(c)
+	case opUpdateQPersonalization:
+		return h.handleUpdateQPersonalization(c)
+	case opDescribeQSearchConfig:
+		return h.handleDescribeQSearchConfig(c)
+	case opUpdateQSearchConfig:
+		return h.handleUpdateQSearchConfig(c)
+	case opDescribeDashboardsQAConfiguration:
+		return h.handleDescribeDashboardsQA(c)
+	case opUpdateDashboardsQAConfiguration:
+		return h.handleUpdateDashboardsQA(c)
+	}
+
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		"operation not implemented: "+op,
+	)
+}
+
+// ---- Account Settings ----
+
+func accountSettingsToMap(s *AccountSettings) map[string]any {
+	return map[string]any{
+		keyAccountName:                  s.AccountName,
+		keyEdition:                      s.Edition,
+		keyDefaultNamespaceField:        s.DefaultNamespace,
+		keyNotificationEmail:            s.NotificationEmail,
+		keyPublicSharingEnabled:         s.PublicSharingEnabled,
+		keyTerminationProtectionEnabled: s.TerminationProtectionEnabled,
+	}
+}
+
+func (h *Handler) handleDescribeAccountSettings(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	s, err := h.Backend.DescribeAccountSettings(accountID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyAccountSettings: accountSettingsToMap(s),
+		keyRequestID:       reqIDPlaceholder,
+		keyStatus:          http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateAccountSettings(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	var terminationProtection *bool
+	if v, present := body[keyTerminationProtectionEnabled]; present {
+		b, _ := v.(bool)
+		terminationProtection = &b
+	}
+
+	_, err = h.Backend.UpdateAccountSettings(
+		accountID,
+		strField(body, keyDefaultNamespaceField),
+		strField(body, keyNotificationEmail),
+		terminationProtection,
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- Account Subscription ----
+
+func (h *Handler) handleCreateAccountSubscription(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	accountName := strField(body, keyAccountName)
+
+	s, err := h.Backend.CreateAccountSubscription(
+		accountID,
+		accountName,
+		strField(body, keyEdition),
+		strField(body, keyAuthenticationMethod),
+		strField(body, keyNotificationEmail),
+	)
+	if err != nil {
+		if errors.Is(err, ErrAccountSubscriptionAlreadyExists) {
+			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+		}
+
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keySignupResponse: map[string]any{
+			keyAccountName:   s.AccountName,
+			keyUserLoginName: s.AccountName,
+			keyIAMUser:       true,
+		},
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+func (h *Handler) handleDescribeAccountSubscription(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	s, err := h.Backend.DescribeAccountSubscription(accountID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyAccountInfo: map[string]any{
+			keyAccountName:               s.AccountName,
+			keyEdition:                   s.Edition,
+			keyNotificationEmail:         s.NotificationEmail,
+			keyAuthenticationType:        s.AuthenticationType,
+			keyAccountSubscriptionStatus: s.AccountSubscriptionStatus,
+		},
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+func (h *Handler) handleDeleteAccountSubscription(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	if err := h.Backend.DeleteAccountSubscription(accountID); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- Account Customization ----
+
+// accountCustomizationFromBody extracts DefaultTheme/DefaultEmailCustomizationTemplate
+// fields, accepting either the AWS-shaped body (fields nested under an
+// "AccountCustomization" object) or a flat body with the fields at the top level.
+func accountCustomizationFromBody(body map[string]any) (string, string) {
+	src := body
+	if wrapped, ok := body[keyAccountCustomization].(map[string]any); ok {
+		src = wrapped
+	}
+
+	return strField(src, keyDefaultTheme), strField(src, keyDefaultEmailCustomizationTmpl)
+}
+
+func accountCustomizationToMap(c *AccountCustomization) map[string]any {
+	return map[string]any{
+		keyDefaultTheme:                  c.DefaultTheme,
+		keyDefaultEmailCustomizationTmpl: c.DefaultEmailCustomizationTemplate,
+	}
+}
+
+func (h *Handler) handleCreateAccountCustomization(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+	namespace := queryParam(c, queryParamNamespace)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	defaultTheme, defaultEmailTemplate := accountCustomizationFromBody(body)
+
+	cust, err := h.Backend.CreateAccountCustomization(accountID, namespace, defaultTheme, defaultEmailTemplate)
+	if err != nil {
+		if errors.Is(err, ErrAccountCustomizationAlreadyExists) {
+			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+		}
+
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyAccountCustomization: accountCustomizationToMap(cust),
+		keyAwsAccountID:         accountID,
+		keyNamespaceField:       namespace,
+		keyRequestID:            reqIDPlaceholder,
+		keyStatus:               http.StatusOK,
+	})
+}
+
+func (h *Handler) handleDescribeAccountCustomization(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+	namespace := queryParam(c, queryParamNamespace)
+
+	cust, err := h.Backend.DescribeAccountCustomization(accountID, namespace)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyAccountCustomization: accountCustomizationToMap(cust),
+		keyAwsAccountID:         accountID,
+		keyNamespaceField:       namespace,
+		keyRequestID:            reqIDPlaceholder,
+		keyStatus:               http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateAccountCustomization(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+	namespace := queryParam(c, queryParamNamespace)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	defaultTheme, defaultEmailTemplate := accountCustomizationFromBody(body)
+
+	cust, err := h.Backend.UpdateAccountCustomization(accountID, namespace, defaultTheme, defaultEmailTemplate)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyAccountCustomization: accountCustomizationToMap(cust),
+		keyAwsAccountID:         accountID,
+		keyNamespaceField:       namespace,
+		keyRequestID:            reqIDPlaceholder,
+		keyStatus:               http.StatusOK,
+	})
+}
+
+func (h *Handler) handleDeleteAccountCustomization(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+	namespace := queryParam(c, queryParamNamespace)
+
+	if err := h.Backend.DeleteAccountCustomization(accountID, namespace); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- IP Restriction ----
+
+func (h *Handler) handleDescribeIPRestriction(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	r, err := h.Backend.DescribeIPRestriction(accountID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyIPRestrictionRuleMap:            r.RuleMap,
+		keyVPCIDRestrictionRuleMap:         r.VPCIDRuleMap,
+		keyVPCEndpointIDRestrictionRuleMap: r.VPCEndpointIDRuleMap,
+		keyEnabled:                         r.Enabled,
+		keyAwsAccountID:                    accountID,
+		keyRequestID:                       reqIDPlaceholder,
+		keyStatus:                          http.StatusOK,
+	})
+}
+
+func stringMapFromBody(body map[string]any, key string) map[string]string {
+	raw, ok := body[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		s, _ := v.(string)
+		out[k] = s
+	}
+
+	return out
+}
+
+func (h *Handler) handleUpdateIPRestriction(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	var enabled *bool
+	if v, present := body[keyEnabled]; present {
+		b, _ := v.(bool)
+		enabled = &b
+	}
+
+	_, err = h.Backend.UpdateIPRestriction(
+		accountID,
+		stringMapFromBody(body, keyIPRestrictionRuleMap),
+		stringMapFromBody(body, keyVPCIDRestrictionRuleMap),
+		stringMapFromBody(body, keyVPCEndpointIDRestrictionRuleMap),
+		enabled,
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- Public Sharing ----
+
+func (h *Handler) handleUpdatePublicSharingSettings(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	enabled, _ := body[keyPublicSharingEnabled].(bool)
+
+	if err = h.Backend.UpdatePublicSharingSettings(accountID, enabled); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- Key Registration ----
+
+func (h *Handler) handleDescribeKeyRegistration(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	keys, err := h.Backend.DescribeKeyRegistration(accountID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRegisteredCustomerManagedKeys: registeredKeysToList(keys),
+		keyAwsAccountID:                  accountID,
+		keyRequestID:                     reqIDPlaceholder,
+		keyStatus:                        http.StatusOK,
+	})
+}
+
+func registeredKeysToList(keys []RegisteredCustomerManagedKey) []map[string]any {
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, map[string]any{keyKeyArn: k.KeyArn, keyDefaultKey: k.DefaultKey})
+	}
+
+	return out
+}
+
+func registeredKeysFromBody(body map[string]any) []RegisteredCustomerManagedKey {
+	raw, _ := body[keyKeyRegistration].([]any)
+	out := make([]RegisteredCustomerManagedKey, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		defaultKey, _ := m[keyDefaultKey].(bool)
+		out = append(out, RegisteredCustomerManagedKey{
+			KeyArn:     strField(m, keyKeyArn),
+			DefaultKey: defaultKey,
+		})
+	}
+
+	return out
+}
+
+func (h *Handler) handleUpdateKeyRegistration(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	keys, err := h.Backend.UpdateKeyRegistration(accountID, registeredKeysFromBody(body))
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keySuccessfulKeyRegistration: registeredKeysToList(keys),
+		keyFailedKeyRegistration:     []any{},
+		keyRequestID:                 reqIDPlaceholder,
+		keyStatus:                    http.StatusOK,
+	})
+}
+
+// ---- Default Q Business Application ----
+
+func (h *Handler) handleDescribeDefaultQBiz(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+	namespace := queryParam(c, queryParamNamespace)
+
+	a, err := h.Backend.DescribeDefaultQBusinessApplication(accountID, namespace)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDefaultQBusinessApplication: map[string]any{
+			keyApplicationID:  a.ApplicationID,
+			keyNamespaceField: a.Namespace,
+		},
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateDefaultQBiz(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+	namespace := queryParam(c, queryParamNamespace)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	if bodyNS := strField(body, keyNamespaceField); bodyNS != "" {
+		namespace = bodyNS
+	}
+
+	if _, err = h.Backend.UpdateDefaultQBusinessApplication(
+		accountID, strField(body, keyApplicationID), namespace,
+	); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+func (h *Handler) handleDeleteDefaultQBiz(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+	namespace := queryParam(c, queryParamNamespace)
+
+	if err := h.Backend.DeleteDefaultQBusinessApplication(accountID, namespace); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- Q Personalization ----
+
+func (h *Handler) handleDescribeQPersonalization(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	mode, err := h.Backend.DescribeQPersonalizationConfiguration(accountID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyPersonalizationMode: mode,
+		keyRequestID:           reqIDPlaceholder,
+		keyStatus:              http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateQPersonalization(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	if _, err = h.Backend.UpdateQPersonalizationConfiguration(
+		accountID, strField(body, keyPersonalizationMode),
+	); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- Q Search Configuration ----
+
+func (h *Handler) handleDescribeQSearchConfig(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	status, err := h.Backend.DescribeQuickSightQSearchConfiguration(accountID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyQSearchStatus: status,
+		keyRequestID:     reqIDPlaceholder,
+		keyStatus:        http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateQSearchConfig(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	if _, err = h.Backend.UpdateQuickSightQSearchConfiguration(
+		accountID, strField(body, keyQSearchStatus),
+	); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// ---- Dashboards Q&A Configuration ----
+
+func (h *Handler) handleDescribeDashboardsQA(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	status, err := h.Backend.DescribeDashboardsQAConfiguration(accountID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyDashboardsQAStatus: status,
+		keyRequestID:          reqIDPlaceholder,
+		keyStatus:             http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateDashboardsQA(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	if _, err = h.Backend.UpdateDashboardsQAConfiguration(
+		accountID, strField(body, keyDashboardsQAStatus),
+	); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}

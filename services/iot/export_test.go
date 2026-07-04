@@ -59,3 +59,19 @@ func (b *InMemoryBackend) PolicyTargetCount(policyName string) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// TopicRuleDestConfirmationToken returns the unexported ConfirmationToken for
+// a topic rule destination, keyed by ARN. Used only in tests to verify that
+// the token (tagged json:"-" so it never leaks into API responses) survives
+// a Snapshot/Restore round-trip (gopherstack-264).
+func (b *InMemoryBackend) TopicRuleDestConfirmationToken(arn string) string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	dest, ok := b.topicRuleDestinations[arn]
+	if !ok {
+		return ""
+	}
+
+	return dest.ConfirmationToken
+}

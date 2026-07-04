@@ -33,6 +33,47 @@ type backendSnapshot struct {
 	SbomValidationResults           map[string][]*SbomValidationResult            `json:"sbomValidationResults"`
 	ThingIndexingConfiguration      *ThingIndexingConfiguration                   `json:"thingIndexingConfiguration"`
 	ThingConnectivity               map[string]*ThingConnectivityData             `json:"thingConnectivity"`
+	ThingTypes                      map[string]*ThingType                         `json:"thingTypes"`
+	ThingGroups                     map[string]*ThingGroup                        `json:"thingGroups"`
+	ThingGroupMembers               map[string][]string                           `json:"thingGroupMembers"`
+	Certificates                    map[string]*Certificate                       `json:"certificates"`
+	CertificateProviders            map[string]*CertificateProvider               `json:"certificateProviders"`
+	CACertificates                  map[string]*CACertificate                     `json:"caCertificates"`
+	PolicyVersions                  map[string][]*PolicyVersion                   `json:"policyVersions"`
+	TopicRuleDestinations           map[string]*topicRuleDestSnap                 `json:"topicRuleDestinations"`
+	ResourceTags                    map[string]map[string]string                  `json:"resourceTags"`
+	Jobs                            map[string]*Job                               `json:"jobs"`
+	JobExecutions                   map[string]*JobExecution                      `json:"jobExecutions"`
+	JobTemplates                    map[string]*JobTemplate                       `json:"jobTemplates"`
+	RoleAliases                     map[string]*RoleAlias                         `json:"roleAliases"`
+	DomainConfigs                   map[string]*DomainConfiguration               `json:"domainConfigs"`
+	Authorizers                     map[string]*Authorizer                        `json:"authorizers"`
+	BillingGroups                   map[string]*BillingGroup                      `json:"billingGroups"`
+	ProvTemplates                   map[string]*ProvisioningTemplate              `json:"provTemplates"`
+	ProvTemplateVersions            map[string][]*ProvisioningTemplateVersion     `json:"provTemplateVersions"`
+	ScheduledAudits                 map[string]*ScheduledAudit                    `json:"scheduledAudits"`
+	MitigationActions               map[string]*MitigationAction                  `json:"mitigationActions"`
+	SecurityProfiles                map[string]*SecurityProfile                   `json:"securityProfiles"`
+	AuditSuppressions               map[string]*AuditSuppression                  `json:"auditSuppressions"`
+	AuditFindings                   map[string]*AuditFinding                      `json:"auditFindings"`
+	AuditTaskObjects                map[string]*AuditTask                         `json:"auditTaskObjects"`
+	Dimensions                      map[string]*Dimension                         `json:"dimensions"`
+	Streams                         map[string]*IoTStream                         `json:"streams"`
+	OTAUpdates                      map[string]*OTAUpdate                         `json:"otaUpdates"`
+	IoTPackages                     map[string]*IoTPackage                        `json:"iotPackages"`
+	PackageVersions2                map[string]map[string]*IoTPackageVersion      `json:"packageVersions2"`
+	Commands                        map[string]*IoTCommand                        `json:"commands"`
+	CommandExecutions               map[string]*IoTCommandExecution               `json:"commandExecutions"`
+	FleetMetrics                    map[string]*FleetMetric                       `json:"fleetMetrics"`
+	CustomMetrics                   map[string]*CustomMetric                      `json:"customMetrics"`
+	V2LoggingLevels                 map[string]*V2LoggingLevel                    `json:"v2LoggingLevels"`
+	AuditConfiguration              *AccountAuditConfiguration                    `json:"auditConfiguration"`
+	PackageConfig                   *PackageConfiguration                         `json:"packageConfig"`
+	V2LoggingOptions                *V2LoggingOptions                             `json:"v2LoggingOptions"`
+	LoggingOptions                  *LoggingOptions                               `json:"loggingOptions"`
+	EventConfigurations             *EventConfigurations                          `json:"eventConfigurations"`
+	RegistrationCode                string                                        `json:"registrationCode"`
+	DefaultAuthorizer               string                                        `json:"defaultAuthorizer"`
 	ViolationEvents                 []*ViolationEvent                             `json:"violationEvents"`
 }
 
@@ -87,6 +128,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	ddSnap := b.snapshotDeviceDefender()
 	finalSnap := b.snapshotFinalOps()
+	thingResSnap := b.snapshotThingResources()
+	provSnap := b.snapshotProvisioning()
+	auditExtraSnap := b.snapshotAuditExtra()
+	miscSnap := b.snapshotResourceMisc()
+	cfgSnap := b.snapshotConfig()
 
 	snap := backendSnapshot{
 		Things:                 things,
@@ -121,6 +167,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ThingConnectivity:         finalSnap.ThingConnectivity,
 		BehaviorTrainingSummaries: finalSnap.BehaviorTrainingSummaries,
 	}
+
+	applyExtSnapshot(&snap, thingResSnap, provSnap, auditExtraSnap, miscSnap, cfgSnap)
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -213,6 +261,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		BehaviorTrainingSummaries: snap.BehaviorTrainingSummaries,
 	})
 
+	thingRes, prov, auditExtra, misc, cfg := extGroupsFromSnapshot(&snap)
+	b.restoreThingResources(thingRes)
+	b.restoreProvisioning(prov)
+	b.restoreAuditExtra(auditExtra)
+	b.restoreResourceMisc(misc)
+	b.restoreConfig(cfg)
+
 	return nil
 }
 
@@ -274,6 +329,10 @@ func ensureNonNilSnap(snap *backendSnapshot) {
 	}
 
 	ensureNonNilFinalOpsSnap(snap)
+	ensureNonNilThingResourceSnap(snap)
+	ensureNonNilProvisioningSnap(snap)
+	ensureNonNilAuditExtraSnap(snap)
+	ensureNonNilResourceMiscSnap(snap)
 }
 
 func copyStringMap(m map[string]string) map[string]string {
