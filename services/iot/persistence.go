@@ -23,6 +23,8 @@ type backendSnapshot struct {
 
 	ThingIndexingConfiguration      *ThingIndexingConfiguration      `json:"thingIndexingConfiguration,omitempty"`
 	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration `json:"thingGroupIndexingConfiguration,omitempty"`
+
+	RegistrationTasks map[string]*ThingRegistrationTask `json:"registrationTasks"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -69,6 +71,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		thingGroupIndexingConfig = cloneThingGroupIndexingConfiguration(b.thingGroupIndexingConfig)
 	}
 
+	registrationTasks := make(map[string]*ThingRegistrationTask, len(b.registrationTasks))
+	for k, v := range b.registrationTasks {
+		registrationTasks[k] = cloneRegistrationTask(v)
+	}
+
 	snap := backendSnapshot{
 		Things:                 things,
 		Policies:               policies,
@@ -86,6 +93,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 		ThingIndexingConfiguration:      thingIndexingConfig,
 		ThingGroupIndexingConfiguration: thingGroupIndexingConfig,
+
+		RegistrationTasks: registrationTasks,
 	}
 
 	data, err := json.Marshal(snap)
@@ -157,6 +166,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.thingGroupIndexingConfig = nil
 	}
 
+	b.registrationTasks = make(map[string]*ThingRegistrationTask, len(snap.RegistrationTasks))
+	for k, v := range snap.RegistrationTasks {
+		b.registrationTasks[k] = cloneRegistrationTask(v)
+	}
+
 	return nil
 }
 
@@ -211,6 +225,10 @@ func ensureNonNilSnap(snap *backendSnapshot) {
 
 	if snap.AuditTasks == nil {
 		snap.AuditTasks = make(map[string]string)
+	}
+
+	if snap.RegistrationTasks == nil {
+		snap.RegistrationTasks = make(map[string]*ThingRegistrationTask)
 	}
 }
 

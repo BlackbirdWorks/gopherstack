@@ -64,20 +64,10 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 
 	return map[string]appendixHandlerFn{
 		// ---- Folders ----
-		opCreateFolder:                withID("FolderId"),
-		opDescribeFolder:              withNested("Folder", "FolderId"),
-		opUpdateFolder:                withID("FolderId"),
-		opDeleteFolder:                withID("FolderId"),
-		opListFolders:                 withList("FolderSummaryList"),
-		opSearchFolders:               withList("FolderSummaryList"),
-		opDescribeFolderPermissions:   withIDAndPerms("FolderId"),
-		opUpdateFolderPermissions:     withIDAndPerms("FolderId"),
-		opDescribeFolderResolvedPerms: withIDAndPerms("FolderId"),
-		opCreateFolderMembership: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"FolderMember": map[string]any{}})
-		},
-		opDeleteFolderMembership: noContent,
-		opListFolderMembers:      withList("FolderMemberList"),
+		// CreateFolder, DescribeFolder, UpdateFolder, DeleteFolder, ListFolders,
+		// SearchFolders, folder memberships, and folder permissions are real
+		// (backed by InMemoryBackend) and routed via dispatchFolder in
+		// handler_folders.go, not through this canned table.
 		opListFoldersForResource: withList("Folders"),
 
 		// ---- Templates ----

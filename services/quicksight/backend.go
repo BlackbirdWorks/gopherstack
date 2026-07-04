@@ -17,6 +17,7 @@ import (
 const (
 	errResourceNotFound  = "ResourceNotFoundException"
 	errConflictException = "ConflictException"
+	errResourceExists    = "ResourceExistsException"
 	errValidation        = "InvalidParameterValueException"
 
 	defaultNamespace         = "default"
@@ -70,6 +71,12 @@ var (
 	ErrAnalysisNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrAnalysisAlreadyExists is returned when an analysis already exists.
 	ErrAnalysisAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	// ErrFolderNotFound is returned when a folder does not exist.
+	ErrFolderNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrFolderAlreadyExists is returned when a folder already exists.
+	ErrFolderAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrFolderMemberNotFound is returned when a folder membership does not exist.
+	ErrFolderMemberNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 	// ErrUnknownOperation is returned when the requested operation is not implemented.
@@ -242,50 +249,56 @@ func (a *storedAnalysis) toAnalysis() *Analysis {
 
 // state is the serializable snapshot of the backend.
 type state struct {
-	Namespaces   map[string]*storedNamespace  `json:"namespaces"`
-	Groups       map[string]*storedGroup      `json:"groups"`
-	GroupMembers map[string]bool              `json:"groupMembers"`
-	Users        map[string]*storedUser       `json:"users"`
-	DataSources  map[string]*storedDataSource `json:"dataSources"`
-	DataSets     map[string]*storedDataSet    `json:"dataSets"`
-	Ingestions   map[string]*storedIngestion  `json:"ingestions"`
-	Dashboards   map[string]*storedDashboard  `json:"dashboards"`
-	Analyses     map[string]*storedAnalysis   `json:"analyses"`
-	Tags         map[string]map[string]string `json:"tags"`
+	Namespaces    map[string]*storedNamespace    `json:"namespaces"`
+	Groups        map[string]*storedGroup        `json:"groups"`
+	GroupMembers  map[string]bool                `json:"groupMembers"`
+	Users         map[string]*storedUser         `json:"users"`
+	DataSources   map[string]*storedDataSource   `json:"dataSources"`
+	DataSets      map[string]*storedDataSet      `json:"dataSets"`
+	Ingestions    map[string]*storedIngestion    `json:"ingestions"`
+	Dashboards    map[string]*storedDashboard    `json:"dashboards"`
+	Analyses      map[string]*storedAnalysis     `json:"analyses"`
+	Tags          map[string]map[string]string   `json:"tags"`
+	Folders       map[string]*storedFolder       `json:"folders"`
+	FolderMembers map[string]*storedFolderMember `json:"folderMembers"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu           *lockmetrics.RWMutex
-	namespaces   map[string]*storedNamespace
-	groups       map[string]*storedGroup
-	groupMembers map[string]bool
-	users        map[string]*storedUser
-	dataSources  map[string]*storedDataSource
-	dataSets     map[string]*storedDataSet
-	ingestions   map[string]*storedIngestion
-	dashboards   map[string]*storedDashboard
-	analyses     map[string]*storedAnalysis
-	tags         map[string]map[string]string
-	accountID    string
-	region       string
+	mu            *lockmetrics.RWMutex
+	namespaces    map[string]*storedNamespace
+	groups        map[string]*storedGroup
+	groupMembers  map[string]bool
+	users         map[string]*storedUser
+	dataSources   map[string]*storedDataSource
+	dataSets      map[string]*storedDataSet
+	ingestions    map[string]*storedIngestion
+	dashboards    map[string]*storedDashboard
+	analyses      map[string]*storedAnalysis
+	tags          map[string]map[string]string
+	folders       map[string]*storedFolder
+	folderMembers map[string]*storedFolderMember
+	accountID     string
+	region        string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID:    accountID,
-		region:       region,
-		namespaces:   make(map[string]*storedNamespace),
-		groups:       make(map[string]*storedGroup),
-		groupMembers: make(map[string]bool),
-		users:        make(map[string]*storedUser),
-		dataSources:  make(map[string]*storedDataSource),
-		dataSets:     make(map[string]*storedDataSet),
-		ingestions:   make(map[string]*storedIngestion),
-		dashboards:   make(map[string]*storedDashboard),
-		analyses:     make(map[string]*storedAnalysis),
-		tags:         make(map[string]map[string]string),
+		accountID:     accountID,
+		region:        region,
+		namespaces:    make(map[string]*storedNamespace),
+		groups:        make(map[string]*storedGroup),
+		groupMembers:  make(map[string]bool),
+		users:         make(map[string]*storedUser),
+		dataSources:   make(map[string]*storedDataSource),
+		dataSets:      make(map[string]*storedDataSet),
+		ingestions:    make(map[string]*storedIngestion),
+		dashboards:    make(map[string]*storedDashboard),
+		analyses:      make(map[string]*storedAnalysis),
+		tags:          make(map[string]map[string]string),
+		folders:       make(map[string]*storedFolder),
+		folderMembers: make(map[string]*storedFolderMember),
 	}
 	b.mu = lockmetrics.New("quicksight")
 
@@ -322,6 +335,8 @@ func (b *InMemoryBackend) Reset() {
 	b.dashboards = make(map[string]*storedDashboard)
 	b.analyses = make(map[string]*storedAnalysis)
 	b.tags = make(map[string]map[string]string)
+	b.folders = make(map[string]*storedFolder)
+	b.folderMembers = make(map[string]*storedFolderMember)
 
 	b.namespaces[nsKey(b.accountID, defaultNamespace)] = &storedNamespace{
 		Name:           defaultNamespace,
@@ -338,16 +353,18 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	s := state{
-		Namespaces:   b.namespaces,
-		Groups:       b.groups,
-		GroupMembers: b.groupMembers,
-		Users:        b.users,
-		DataSources:  b.dataSources,
-		DataSets:     b.dataSets,
-		Ingestions:   b.ingestions,
-		Dashboards:   b.dashboards,
-		Analyses:     b.analyses,
-		Tags:         b.tags,
+		Namespaces:    b.namespaces,
+		Groups:        b.groups,
+		GroupMembers:  b.groupMembers,
+		Users:         b.users,
+		DataSources:   b.dataSources,
+		DataSets:      b.dataSets,
+		Ingestions:    b.ingestions,
+		Dashboards:    b.dashboards,
+		Analyses:      b.analyses,
+		Tags:          b.tags,
+		Folders:       b.folders,
+		FolderMembers: b.folderMembers,
 	}
 
 	data, _ := json.Marshal(s)
@@ -375,6 +392,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.dashboards = s.Dashboards
 	b.analyses = s.Analyses
 	b.tags = s.Tags
+	b.folders = s.Folders
+	b.folderMembers = s.FolderMembers
+
+	if b.folders == nil {
+		b.folders = make(map[string]*storedFolder)
+	}
+	if b.folderMembers == nil {
+		b.folderMembers = make(map[string]*storedFolderMember)
+	}
 
 	return nil
 }
@@ -415,6 +441,14 @@ func dashboardKey(accountID, dashboardID string) string {
 
 func analysisKey(accountID, analysisID string) string {
 	return accountID + "/" + analysisID
+}
+
+func folderKey(accountID, folderID string) string {
+	return accountID + "/" + folderID
+}
+
+func folderMemberKey(accountID, folderID, memberType, memberID string) string {
+	return accountID + "/" + folderID + "/" + memberType + "/" + memberID
 }
 
 // ---- ARN builder ----

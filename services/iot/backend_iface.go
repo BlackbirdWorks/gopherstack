@@ -344,6 +344,27 @@ type StorageBackend interface {
 	GetStatistics(input *AggregationInput) (*Statistics, error)
 	GetPercentiles(input *PercentilesInput) ([]PercentileValue, error)
 	GetBucketsAggregation(input *BucketsAggregationInput) ([]Bucket, error)
+
+	// Batch 4: RegisterThing.
+	RegisterThing(input *RegisterThingInput) (*RegisterThingOutput, error)
+
+	// Batch 4: bulk thing registration tasks.
+	StartThingRegistrationTask(input *StartThingRegistrationTaskInput) (*ThingRegistrationTask, error)
+	StopThingRegistrationTask(taskID string) error
+	DescribeThingRegistrationTask(taskID string) (*ThingRegistrationTask, error)
+	ListThingRegistrationTasks(status string) []*ThingRegistrationTask
+	ListThingRegistrationTaskReports(taskID, reportType string) ([]string, error)
+
+	// Batch 4: ThingType/ThingGroup updates.
+	UpdateThingType(input *UpdateThingTypeInput) error
+	UpdateThingGroupsForThing(input *UpdateThingGroupsForThingInput) error
+
+	// Batch 4: typed thing-principal listing.
+	ListThingPrincipalsV2(thingName string) ([]*ThingPrincipalObject, error)
+
+	// Batch 4: managed job templates.
+	DescribeManagedJobTemplate(templateName, templateVersion string) (*ManagedJobTemplate, error)
+	ListManagedJobTemplates(templateName string) []*ManagedJobTemplateSummary
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

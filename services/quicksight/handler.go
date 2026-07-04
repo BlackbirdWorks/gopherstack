@@ -902,6 +902,8 @@ func (h *Handler) dispatch(c *echo.Context) error {
 		return h.dispatchAnalysis(c, op)
 	case isTagOp(op):
 		return h.dispatchTag(c, op)
+	case isFolderOp(op):
+		return h.dispatchFolder(c, op)
 	case op != opUnknown:
 		return h.dispatchNew(c, op)
 	default:

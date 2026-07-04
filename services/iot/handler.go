@@ -48,6 +48,7 @@ const (
 	pathPolicies         = "/policies"
 	pathRuleDestinations = "/rule-destinations"
 	pathIndices          = "/indices"
+	pathThings           = "/things"
 )
 
 const (
@@ -159,7 +160,7 @@ func (h *Handler) Name() string { return "IoT" }
 //
 //nolint:funlen // mechanical list of all supported op names
 func (h *Handler) GetSupportedOperations() []string {
-	const coreOpCount = 74
+	const coreOpCount = 85
 	core := make([]string, 0, coreOpCount)
 	core = append(
 		core,
@@ -372,6 +373,19 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetPercentiles,
 		opGetStatistics,
 		opGetBucketsAggregation,
+		// Batch 4: RegisterThing / bulk thing registration tasks
+		opRegisterThing,
+		opStartThingRegistrationTask,
+		opStopThingRegistrationTask,
+		opListThingRegistrationTasks,
+		opDescribeThingRegistrationTask,
+		opListThingRegistrationTaskReports,
+		// Batch 4: ThingType/ThingGroup updates, typed principals, managed job templates
+		opUpdateThingType,
+		opUpdateThingGroupsForThing,
+		opListThingPrincipalsV2,
+		opDescribeManagedJobTemplate,
+		opListManagedJobTemplates,
 	)
 
 	return append(core, allStubOps()...)
@@ -401,12 +415,21 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 // matchIoTPath reports whether path belongs to the IoT control-plane.
 func matchIoTPath(path string) bool {
-	return matchCoreIoTPath(path) || matchNewIoTPath(path)
+	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path)
+}
+
+// matchBatch4Path reports whether path belongs to the batch-4 routes (bulk
+// thing registration tasks and managed job templates).
+func matchBatch4Path(path string) bool {
+	return path == pathThingRegistrationTasks ||
+		strings.HasPrefix(path, pathThingRegistrationTasks+"/") ||
+		path == pathManagedJobTemplates ||
+		strings.HasPrefix(path, pathManagedJobTemplates+"/")
 }
 
 func matchCoreIoTPath(path string) bool {
 	return strings.HasPrefix(path, "/things/") ||
-		path == "/things" ||
+		path == pathThings ||
 		strings.HasPrefix(path, "/rules/") ||
 		path == "/rules" ||
 		strings.HasPrefix(path, "/target-policies/") ||
@@ -496,7 +519,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 //nolint:cyclop // mechanical path-based routing switch
 func resolveOperation(path, method string) string {
 	switch {
-	case path == "/things" && method == http.MethodGet:
+	case path == pathThings && method == http.MethodGet:
 
 		return opListThings
 	// Batch 2: /things/{name}/thing-groups, /things/{name}/jobs before generic thing routing
@@ -540,6 +563,10 @@ func resolveOperation(path, method string) string {
 	}
 
 	if op := resolveJobAndAuditOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveBatch4Ops(path, method); op != unknownOperation {
 		return op
 	}
 
@@ -905,6 +932,12 @@ func resolveJobAndAuditOps(path, method string) string {
 }
 
 func thingOperation(path, method string) string {
+	// GET /things/{thingName}/principals-v2 → ListThingPrincipalsV2
+	// (must be checked before the "/principals" suffix below.)
+	if method == http.MethodGet && strings.HasSuffix(path, "/principals-v2") {
+		return opListThingPrincipalsV2
+	}
+
 	// GET /things/{thingName}/principals → ListThingPrincipals
 	if method == http.MethodGet && strings.HasSuffix(path, "/principals") {
 		return opListThingPrincipals
@@ -1120,7 +1153,11 @@ func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 		return true, err
 	}
 
-	return h.dispatchBatch3Ops(c, op)
+	if handled, err := h.dispatchBatch3Ops(c, op); handled {
+		return true, err
+	}
+
+	return h.dispatchBatch4Ops(c, op)
 }
 
 func (h *Handler) dispatchMiscNewOps(c *echo.Context, op string) (bool, error) {
@@ -1578,6 +1615,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, ErrCertificateProviderNotFound),
 		errors.Is(err, ErrTopicRuleDestinationNotFound),
 		errors.Is(err, ErrPolicyVersionNotFound),
+		errors.Is(err, ErrRegistrationTaskNotFound),
+		errors.Is(err, ErrManagedJobTemplateNotFound),
 		errors.Is(err, ErrIndexNotFound):
 
 		return c.JSON(http.StatusNotFound, awsErr{"ResourceNotFoundException", err.Error()})

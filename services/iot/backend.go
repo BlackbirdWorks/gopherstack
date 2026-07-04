@@ -109,12 +109,14 @@ type InMemoryBackend struct {
 	// Fleet indexing configuration (nil until UpdateIndexingConfiguration is called).
 	thingIndexingConfig      *ThingIndexingConfiguration
 	thingGroupIndexingConfig *ThingGroupIndexingConfiguration
-	registrationCode         string
-	defaultAuthorizer        string
-	accountID                string
-	region                   string
-	mqttPort                 int
-	mu                       sync.RWMutex
+	// Batch 4: bulk thing registration tasks.
+	registrationTasks map[string]*ThingRegistrationTask
+	registrationCode  string
+	defaultAuthorizer string
+	accountID         string
+	region            string
+	mqttPort          int
+	mu                sync.RWMutex
 }
 
 // Compile-time assertion that InMemoryBackend implements StorageBackend.
@@ -173,6 +175,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		v2LoggingLevels:        make(map[string]*V2LoggingLevel),
 		commands:               make(map[string]*IoTCommand),
 		commandExecutions:      make(map[string]*IoTCommandExecution),
+		registrationTasks:      make(map[string]*ThingRegistrationTask),
 		accountID:              "000000000000",
 		region:                 "us-east-1",
 		mqttPort:               mqttDefaultPort,
@@ -249,6 +252,7 @@ func (b *InMemoryBackend) Reset() {
 	b.resourceTags = make(map[string]map[string]string)
 	b.auditTaskObjects = make(map[string]*AuditTask)
 	b.resetBatch3()
+	b.registrationTasks = make(map[string]*ThingRegistrationTask)
 	b.registrationCode = ""
 	b.defaultAuthorizer = ""
 	b.auditConfiguration = nil
@@ -997,6 +1001,12 @@ var ErrTopicRuleDestinationNotFound = errors.New("topic rule destination not fou
 
 // ErrPolicyVersionNotFound is returned when a PolicyVersion does not exist.
 var ErrPolicyVersionNotFound = errors.New("policy version not found")
+
+// ErrRegistrationTaskNotFound is returned when a bulk thing registration task does not exist.
+var ErrRegistrationTaskNotFound = errors.New("thing registration task not found")
+
+// ErrManagedJobTemplateNotFound is returned when a managed job template does not exist.
+var ErrManagedJobTemplateNotFound = errors.New("managed job template not found")
 
 // fakePEM is a minimal fake PEM certificate returned by CreateCertificateFromCsr and RegisterCertificate.
 const fakePEM = `-----BEGIN CERTIFICATE-----

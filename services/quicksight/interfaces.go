@@ -82,6 +82,40 @@ type StorageBackend interface {
 	UntagResource(resourceARN string, tagKeys []string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 
+	// Folders
+	CreateFolder(
+		accountID, folderID, name, folderType, parentFolderArn string,
+		permissions []ResourcePermission,
+		tags map[string]string,
+	) (*Folder, error)
+	DescribeFolder(accountID, folderID string) (*Folder, error)
+	UpdateFolder(accountID, folderID, name string) (*Folder, error)
+	DeleteFolder(accountID, folderID string) error
+	ListFolders(accountID string, maxResults int32, nextToken string) ([]*Folder, string, error)
+	SearchFolders(
+		accountID string,
+		filters []FolderSearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Folder, string, error)
+
+	// Folder memberships
+	CreateFolderMembership(accountID, folderID, memberID, memberType string) (*FolderMember, error)
+	DeleteFolderMembership(accountID, folderID, memberID, memberType string) error
+	ListFolderMembers(
+		accountID, folderID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*FolderMember, string, error)
+
+	// Folder permissions
+	DescribeFolderPermissions(accountID, folderID string) ([]ResourcePermission, error)
+	UpdateFolderPermissions(
+		accountID, folderID string,
+		grant, revoke []ResourcePermission,
+	) ([]ResourcePermission, error)
+	DescribeFolderResolvedPermissions(accountID, folderID string) ([]ResourcePermission, error)
+
 	AccountID() string
 	Region() string
 	Reset()
@@ -186,6 +220,39 @@ type Analysis struct {
 	Arn             string
 	Name            string
 	Status          string
+}
+
+// ResourcePermission represents a QuickSight principal + allowed actions grant.
+type ResourcePermission struct {
+	Principal string   `json:"principal"`
+	Actions   []string `json:"actions"`
+}
+
+// FolderMember represents a QuickSight folder membership (a dashboard, analysis,
+// dataset, or other asset that belongs to a folder).
+type FolderMember struct {
+	MemberID   string
+	MemberType string
+}
+
+// FolderSearchFilter represents a single SearchFolders filter criterion.
+type FolderSearchFilter struct {
+	Operator string
+	Name     string
+	Value    string
+}
+
+// Folder represents a QuickSight folder.
+// CreatedTime first: non-pointer prefix reduces GC pointer bytes.
+type Folder struct {
+	CreatedTime     time.Time
+	LastUpdatedTime time.Time
+	FolderID        string
+	Arn             string
+	Name            string
+	FolderType      string
+	ParentFolderArn string
+	Permissions     []ResourcePermission
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

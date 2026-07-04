@@ -546,3 +546,97 @@ type Bucket struct {
 	KeyValue string
 	Count    int64
 }
+
+// -----------------------------------------------------------
+// Batch 4: RegisterThing / bulk thing registration / thing type
+// and thing group updates / ListThingPrincipalsV2 / ManagedJobTemplate
+// -----------------------------------------------------------
+
+// RegisterThingInput is the input for RegisterThing.
+type RegisterThingInput struct {
+	Parameters   map[string]string `json:"parameters"`
+	TemplateBody string            `json:"templateBody"`
+}
+
+// RegisterThingOutput is the output for RegisterThing.
+type RegisterThingOutput struct {
+	ResourceArns   map[string]string `json:"resourceArns"`
+	CertificatePem string            `json:"certificatePem"`
+}
+
+// ThingRegistrationTask represents a bulk thing provisioning task.
+type ThingRegistrationTask struct {
+	CreationDate       time.Time `json:"creationDate"`
+	LastModifiedDate   time.Time `json:"lastModifiedDate"`
+	TaskID             string    `json:"taskId"`
+	Status             string    `json:"status"`
+	Message            string    `json:"message,omitempty"`
+	TemplateBody       string    `json:"templateBody,omitempty"`
+	InputFileBucket    string    `json:"inputFileBucket,omitempty"`
+	InputFileKey       string    `json:"inputFileKey,omitempty"`
+	RoleArn            string    `json:"roleArn,omitempty"`
+	SuccessCount       int32     `json:"successCount"`
+	FailureCount       int32     `json:"failureCount"`
+	PercentageProgress int32     `json:"percentageProgress"`
+}
+
+// StartThingRegistrationTaskInput is the input for StartThingRegistrationTask.
+type StartThingRegistrationTaskInput struct {
+	TemplateBody    string `json:"templateBody"`
+	InputFileBucket string `json:"inputFileBucket"`
+	InputFileKey    string `json:"inputFileKey"`
+	RoleArn         string `json:"roleArn"`
+}
+
+// UpdateThingTypeInput is the input for UpdateThingType.
+type UpdateThingTypeInput struct {
+	ThingTypeName        string
+	Description          string
+	SearchableAttributes []string
+}
+
+// UpdateThingGroupsForThingInput is the input for UpdateThingGroupsForThing.
+type UpdateThingGroupsForThingInput struct {
+	ThingName             string   `json:"thingName"`
+	ThingGroupsToAdd      []string `json:"thingGroupsToAdd"`
+	ThingGroupsToRemove   []string `json:"thingGroupsToRemove"`
+	OverrideDynamicGroups bool     `json:"overrideDynamicGroups"`
+}
+
+// ThingPrincipalObject represents a principal and its relation type to a thing,
+// as returned by ListThingPrincipalsV2.
+type ThingPrincipalObject struct {
+	Principal          string `json:"principal"`
+	ThingPrincipalType string `json:"thingPrincipalType"`
+}
+
+// ManagedJobTemplateParameter describes one substitutable field in a managed
+// job template document.
+type ManagedJobTemplateParameter struct {
+	Key         string `json:"key"`
+	Description string `json:"description,omitempty"`
+	Regex       string `json:"regex,omitempty"`
+	Example     string `json:"example,omitempty"`
+	Optional    bool   `json:"optional"`
+}
+
+// ManagedJobTemplate represents an AWS-managed job template.
+type ManagedJobTemplate struct {
+	TemplateName       string                        `json:"templateName"`
+	TemplateArn        string                        `json:"templateArn"`
+	TemplateVersion    string                        `json:"templateVersion"`
+	Description        string                        `json:"description,omitempty"`
+	Document           string                        `json:"document"`
+	Environments       []string                      `json:"environments,omitempty"`
+	DocumentParameters []ManagedJobTemplateParameter `json:"documentParameters,omitempty"`
+}
+
+// ManagedJobTemplateSummary is the summary form of a ManagedJobTemplate
+// returned by ListManagedJobTemplates.
+type ManagedJobTemplateSummary struct {
+	TemplateName    string   `json:"templateName"`
+	TemplateArn     string   `json:"templateArn"`
+	TemplateVersion string   `json:"templateVersion"`
+	Description     string   `json:"description,omitempty"`
+	Environments    []string `json:"environments,omitempty"`
+}
