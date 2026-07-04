@@ -129,6 +129,9 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, vpcConfigSupportedOperations()...)
 	extOps = append(extOps, verifiedAccessExtSupportedOperations()...)
 	extOps = append(extOps, fpgaImageSupportedOperations()...)
+	extOps = append(extOps, scheduledInstanceSupportedOperations()...)
+	extOps = append(extOps, ipPoolSupportedOperations()...)
+	extOps = append(extOps, imageOpsSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
@@ -400,6 +403,9 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerCapacityFamilyOps(h, ops)
 	registerVerifiedAccessExtOps(h, ops)
 	registerFpgaImageOps(h, ops)
+	registerScheduledInstanceOps(h, ops)
+	registerIPPoolOps(h, ops)
+	registerImageOpsHandlers(h, ops)
 	registerStubOpsIfAbsent(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
@@ -1280,6 +1286,15 @@ var errCodeLookup = []struct {
 	{ErrVerifiedAccessInstanceNotFound, "InvalidVerifiedAccessInstanceId.NotFound"},
 	{ErrVerifiedAccessTrustProviderNF, "InvalidVerifiedAccessTrustProviderId.NotFound"},
 	{ErrFpgaImageNotFound, "InvalidFpgaImageID.NotFound"},
+	{ErrScheduledInstanceNotFound, "InvalidScheduledInstance.NotFound"},
+	{ErrScheduledInstancePurchaseToken, errCodeInvalidParameterValue},
+	{ErrCoipPoolNotFound, "InvalidPoolID.NotFound"},
+	{ErrCoipCidrNotFound, errCodeInvalidParameterValue},
+	{ErrIpv4PoolNotFound, "InvalidPublicIpv4Pool.NotFound"},
+	{ErrIpv4PoolCidrNotFound, errCodeInvalidParameterValue},
+	{ErrIpv6PoolNotFound, errCodeInvalidParameterValue},
+	{ErrImageNotFound, "InvalidAMIID.NotFound"},
+	{ErrUsageReportNotFound, errCodeInvalidParameterValue},
 	{ErrInvalidParameter, errCodeInvalidParameterValue},
 }
 

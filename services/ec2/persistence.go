@@ -205,6 +205,21 @@ type backendSnapshot struct {
 	// widen the tag column for the much larger field block above.
 	VerifiedAccessInstanceLoggingCfgs map[string]*VerifiedAccessInstanceLoggingConfig `json:"vaLoggingCfgs,omitempty"`
 
+	// Scheduled Instances / COIP / public IPv4-IPv6 pool / Allowed Images Settings / image
+	// task / usage report fields are kept in their own gofmt alignment group for the same
+	// reason as VerifiedAccessInstanceLoggingCfgs above.
+	ScheduledInstances        map[string]*ScheduledInstance  `json:"scheduledInstances,omitempty"`
+	ScheduledInstanceLaunched map[string]int32               `json:"schedInstLaunched,omitempty"`
+	CoipPools                 map[string]*CoipPool           `json:"coipPools,omitempty"`
+	CoipCidrs                 map[string]*CoipCidr           `json:"coipCidrs,omitempty"`
+	Ipv4Pools                 map[string]*Ipv4Pool           `json:"ipv4Pools,omitempty"`
+	Ipv6Pools                 map[string]*Ipv6Pool           `json:"ipv6Pools,omitempty"`
+	AllowedImagesSettings     *AllowedImagesSettings         `json:"allowedImagesSettings,omitempty"`
+	StoreImageTasks           map[string]*StoreImageTask     `json:"storeImageTasks,omitempty"`
+	UsageReports              map[string]*UsageReport        `json:"usageReports,omitempty"`
+	UsageReportEntries        map[string][]*UsageReportEntry `json:"usageReportEntries,omitempty"`
+	InstanceProductCodes      map[string][]string            `json:"instanceProductCodes,omitempty"`
+
 	IpamOrgAdminAccountID  string   `json:"ipamOrgAdminAcct,omitempty"`
 	Region                 string   `json:"region,omitempty"`
 	AccountID              string   `json:"accountID,omitempty"`
@@ -387,6 +402,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		VerifiedAccessGroupPolicies:        b.verifiedAccessGroupPolicies,
 		VerifiedAccessInstanceLoggingCfgs:  b.verifiedAccessInstanceLoggingConfigs,
 		FpgaImages:                         b.fpgaImages,
+		ScheduledInstances:                 b.scheduledInstances,
+		ScheduledInstanceLaunched:          b.scheduledInstanceLaunched,
+		CoipPools:                          b.coipPools,
+		CoipCidrs:                          b.coipCidrs,
+		Ipv4Pools:                          b.ipv4Pools,
+		Ipv6Pools:                          b.ipv6Pools,
+		AllowedImagesSettings:              b.allowedImagesSettings,
+		StoreImageTasks:                    b.storeImageTasks,
+		UsageReports:                       b.usageReports,
+		UsageReportEntries:                 b.usageReportEntries,
+		InstanceProductCodes:               b.instanceProductCodes,
 	}
 
 	data, err := json.Marshal(snap)
@@ -1034,6 +1060,24 @@ func (b *InMemoryBackend) restoreExtendedFields(snap *backendSnapshot) {
 	b.Region = snap.Region
 	b.nextPrivateIPIndex = snap.NextPrivateIPIndex
 	b.nextElasticIPIndex = snap.NextElasticIPIndex
+	b.restoreImageAndPoolFields(snap)
+}
+
+// restoreImageAndPoolFields copies the Scheduled Instances / COIP / public IPv4-IPv6 pool /
+// Allowed Images Settings / image task / usage report fields from snap into b. Must be
+// called with b.mu held for writing.
+func (b *InMemoryBackend) restoreImageAndPoolFields(snap *backendSnapshot) {
+	b.scheduledInstances = snap.ScheduledInstances
+	b.scheduledInstanceLaunched = snap.ScheduledInstanceLaunched
+	b.coipPools = snap.CoipPools
+	b.coipCidrs = snap.CoipCidrs
+	b.ipv4Pools = snap.Ipv4Pools
+	b.ipv6Pools = snap.Ipv6Pools
+	b.allowedImagesSettings = snap.AllowedImagesSettings
+	b.storeImageTasks = snap.StoreImageTasks
+	b.usageReports = snap.UsageReports
+	b.usageReportEntries = snap.UsageReportEntries
+	b.instanceProductCodes = snap.InstanceProductCodes
 }
 
 // initMissingMaps ensures all map fields in the snapshot are non-nil.
@@ -1197,6 +1241,29 @@ func (s *backendSnapshot) initAppendixMaps() {
 	initMapIfNil(&s.Fleets)
 	initMapIfNil(&s.NetworkInsightsPaths)
 	initMapIfNil(&s.ManagedPrefixLists)
+	s.initImageAndPoolMaps()
+}
+
+// initImageAndPoolMaps initialises the map fields added for Scheduled Instances, COIP,
+// public IPv4/IPv6 pools, Allowed Images Settings, and image tasks/usage reports.
+func (s *backendSnapshot) initImageAndPoolMaps() {
+	initMapIfNil(&s.ScheduledInstances)
+	initMapIfNil(&s.ScheduledInstanceLaunched)
+	initMapIfNil(&s.CoipPools)
+	initMapIfNil(&s.CoipCidrs)
+	initMapIfNil(&s.Ipv4Pools)
+	initMapIfNil(&s.Ipv6Pools)
+	initMapIfNil(&s.StoreImageTasks)
+	initMapIfNil(&s.UsageReports)
+	initMapIfNil(&s.UsageReportEntries)
+	initMapIfNil(&s.InstanceProductCodes)
+
+	if s.AllowedImagesSettings == nil {
+		s.AllowedImagesSettings = &AllowedImagesSettings{
+			State:     allowedImagesStateDisabled,
+			ManagedBy: allowedImagesManagedByAccnt,
+		}
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

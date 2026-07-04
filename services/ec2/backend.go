@@ -385,7 +385,21 @@ type InMemoryBackend struct {
 	verifiedAccessGroupPolicies          map[string]*VerifiedAccessPolicy
 	verifiedAccessInstanceLoggingConfigs map[string]*VerifiedAccessInstanceLoggingConfig
 	// FPGA image additions
-	fpgaImages                map[string]*FpgaImage
+	fpgaImages map[string]*FpgaImage
+	// Scheduled Instances additions
+	scheduledInstances        map[string]*ScheduledInstance
+	scheduledInstanceLaunched map[string]int32
+	// COIP / Public IPv4 / IPv6 pool additions
+	coipPools map[string]*CoipPool
+	coipCidrs map[string]*CoipCidr
+	ipv4Pools map[string]*Ipv4Pool
+	ipv6Pools map[string]*Ipv6Pool
+	// Allowed Images Settings / Store-Restore Image Task / Image Usage Report additions
+	allowedImagesSettings     *AllowedImagesSettings
+	storeImageTasks           map[string]*StoreImageTask
+	usageReports              map[string]*UsageReport
+	usageReportEntries        map[string][]*UsageReportEntry
+	instanceProductCodes      map[string][]string
 	mu                        *lockmetrics.RWMutex
 	lifecycleStop             chan struct{}
 	eniIDByAttachment         map[string]string
@@ -477,6 +491,12 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initFpgaImageMaps(b)
 	b.resetIpamDiscoveryMapsLocked()
 	b.resetIpamPolicyMapsLocked()
+	b.resetScheduledInstanceMapsLocked()
+	b.resetIPPoolMapsLocked()
+	b.resetAllowedImagesSettingsLocked()
+	b.resetImageTasksLocked()
+	b.resetUsageReportMapsLocked()
+	b.instanceProductCodes = make(map[string][]string)
 
 	return b
 }

@@ -223,6 +223,12 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	initCapacityFamilyMaps(b)
 	initVerifiedAccessExtMaps(b)
 	initFpgaImageMaps(b)
+	b.resetScheduledInstanceMapsLocked()
+	b.resetIPPoolMapsLocked()
+	b.resetAllowedImagesSettingsLocked()
+	b.resetImageTasksLocked()
+	b.resetUsageReportMapsLocked()
+	b.instanceProductCodes = make(map[string][]string)
 }
 
 // resetBatch4MapsLocked re-initialises all batch4 resource maps.

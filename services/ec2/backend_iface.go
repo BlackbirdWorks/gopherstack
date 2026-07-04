@@ -1692,4 +1692,56 @@ type Backend interface {
 	) (*CapacityManagerDataExport, error)
 	DescribeCapacityManagerDataExports(ids []string) []*CapacityManagerDataExport
 	DeleteCapacityManagerDataExport(id string) (string, error)
+
+	// ---- Scheduled Instances ----
+
+	DescribeScheduledInstanceAvailability(
+		filters map[string][]string,
+		minSlotDurationHours, maxSlotDurationHours int32,
+	) []ScheduledInstanceAvailability
+	PurchaseScheduledInstances(requests []ScheduledInstancePurchaseRequest) ([]*ScheduledInstance, error)
+	DescribeScheduledInstances(ids []string) []*ScheduledInstance
+	RunScheduledInstances(scheduledInstanceID, imageID, keyName string, instanceCount int32) ([]string, error)
+
+	// ---- COIP pools ----
+
+	CreateCoipPool(localGatewayRouteTableID string, tags map[string]string) (*CoipPool, error)
+	DeleteCoipPool(poolID string) (*CoipPool, error)
+	DescribeCoipPools(ids []string) []*CoipPool
+	CreateCoipCidr(poolID, cidr string) (*CoipCidr, error)
+	DeleteCoipCidr(poolID, cidr string) (*CoipCidr, error)
+	GetCoipPoolUsage(poolID string) (*CoipPool, error)
+
+	// ---- Public IPv4 / IPv6 pools ----
+
+	CreatePublicIpv4Pool(networkBorderGroup string, tags map[string]string) *Ipv4Pool
+	DeletePublicIpv4Pool(poolID string) error
+	DescribePublicIpv4Pools(ids []string) []*Ipv4Pool
+	ProvisionPublicIpv4PoolCidr(poolID string, netmaskLength int32) (*Ipv4PoolRange, error)
+	DeprovisionPublicIpv4PoolCidr(poolID, cidr string) error
+	DescribeIpv6Pools(ids []string) []*Ipv6Pool
+	GetAssociatedIpv6PoolCidrs(poolID string) ([]Ipv6CidrAssociation, error)
+
+	// ---- Allowed Images Settings ----
+
+	EnableAllowedImagesSettings(state string) (string, error)
+	DisableAllowedImagesSettings() string
+	GetAllowedImagesSettings() *AllowedImagesSettings
+	ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) bool
+
+	// ---- Store / Restore Image Tasks ----
+
+	CreateStoreImageTask(imageID, bucket string) (*StoreImageTask, error)
+	DescribeStoreImageTasks(imageIDs []string) []*StoreImageTask
+	CreateRestoreImageTask(bucket, objectKey, name string) (*AMIStub, error)
+
+	// ---- Image Usage Reports ----
+
+	CreateImageUsageReport(imageID string, resourceTypes, accountIDs []string) (*UsageReport, error)
+	DeleteImageUsageReport(reportID string) error
+	DescribeImageUsageReportEntries(reportIDs, imageIDs []string) []*UsageReportEntry
+
+	// ---- Product codes ----
+
+	ConfirmProductInstance(instanceID, productCode string) (bool, error)
 }
