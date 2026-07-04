@@ -809,6 +809,11 @@ func (b *InMemoryBackend) UpdateAnycastIPList(id string, ipCount int32) (*Anycas
 	if !ok {
 		return nil, ErrAnycastIPListNotFound
 	}
+	if ipCount > maxAnycastIPCount {
+		return nil, fmt.Errorf(
+			"%w: IpCount must not exceed %d", ErrValidation, maxAnycastIPCount,
+		)
+	}
 	if ipCount > 0 {
 		list.IPCount = ipCount
 		list.AnycastIPs = generateAnycastIPs(id, ipCount)

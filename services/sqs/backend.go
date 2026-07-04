@@ -437,10 +437,16 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 	return nil
 }
 
-// computeMD5 returns the hex-encoded MD5 hash of the given string.
-func computeMD5(body string) string {
-	//nolint:gosec // MD5 required by SQS wire protocol
-	hash := md5.Sum([]byte(body))
+// computeBodyChecksumMD5 returns the hex-encoded MD5 digest of a message body for the
+// MD5OfMessageBody / MD5OfMessageAttributes fields SQS returns on SendMessage,
+// SendMessageBatch, and ReceiveMessage responses. This is NOT a security hash: it is the
+// real AWS SQS wire-protocol content-integrity checksum (documented by AWS as MD5, computed
+// identically by every AWS SDK to let callers verify their message wasn't corrupted in
+// transit), analogous to S3's MD5-based ETag. The algorithm is dictated entirely by the AWS
+// API contract — switching it to SHA-256 would produce a checksum no real SQS client
+// recognizes or can verify against, breaking emulator parity.
+func computeBodyChecksumMD5(body string) string {
+	hash := md5.Sum([]byte(body)) //nolint:gosec // wire-protocol checksum, not a security hash
 
 	return hex.EncodeToString(hash[:])
 }
@@ -1077,7 +1083,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, err
 	}
 
-	md5Body := computeMD5(input.MessageBody)
+	md5Body := computeBodyChecksumMD5(input.MessageBody)
 	sha256Body := computeSHA256(input.MessageBody)
 	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
 	md5SysAttrs := computeMD5OfMessageAttributes(input.MessageSystemAttributes)
@@ -2163,7 +2169,7 @@ func (b *InMemoryBackend) SendMessageBatch(
 		totalBytes += entryBytes
 
 		preps[i] = batchEntryPrep{
-			md5Body:     computeMD5(entry.MessageBody),
+			md5Body:     computeBodyChecksumMD5(entry.MessageBody),
 			sha256Body:  computeSHA256(entry.MessageBody),
 			md5Attrs:    computeMD5OfMessageAttributes(entry.MessageAttributes),
 			md5SysAttrs: computeMD5OfMessageAttributes(entry.MessageSystemAttributes),

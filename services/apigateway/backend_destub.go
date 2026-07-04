@@ -137,11 +137,74 @@ func buildZipArchive(files map[string][]byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// ImportAPIKeys parses a CSV payload of API keys (AWS's "API Key File Format":
-// one "name,value" pair per row, value optional) and creates a real APIKey for
-// each row. Rows that fail to import are reported as warnings rather than
-// aborting the whole batch; when failOnWarnings is true, any warning rolls the
-// entire import back and returns an error instead.
+// apiKeyCSVColumn identifies a recognized column in the AWS API key CSV file
+// format.
+type apiKeyCSVColumn int
+
+const (
+	apiKeyCSVColumnUnknown apiKeyCSVColumn = iota
+	apiKeyCSVColumnName
+	apiKeyCSVColumnKey
+	apiKeyCSVColumnDescription
+	apiKeyCSVColumnEnabled
+)
+
+// apiKeyCSVColumnFor maps a lowercased header cell to the column it
+// represents. AWS's "key" column holds the secret value; "value" is accepted
+// as an alias since that's the field name on the API key resource itself.
+func apiKeyCSVColumnFor(header string) apiKeyCSVColumn {
+	switch header {
+	case "name":
+		return apiKeyCSVColumnName
+	case "key", "value":
+		return apiKeyCSVColumnKey
+	case "description":
+		return apiKeyCSVColumnDescription
+	case "enabled":
+		return apiKeyCSVColumnEnabled
+	default:
+		return apiKeyCSVColumnUnknown
+	}
+}
+
+// apiKeyCSVDataRowOffset is the 1-based line number of the first data row,
+// used to report human-readable row numbers in warnings (row 1 is the header).
+const apiKeyCSVDataRowOffset = 2
+
+// apiKeyInputFromCSVRow builds a CreateAPIKeyInput from a single CSV data row,
+// mapping cells to fields according to the header-derived columns slice.
+func apiKeyInputFromCSVRow(rec []string, columns []apiKeyCSVColumn) CreateAPIKeyInput {
+	input := CreateAPIKeyInput{Enabled: true}
+
+	for col, cell := range rec {
+		if col >= len(columns) {
+			break
+		}
+
+		value := strings.TrimSpace(cell)
+
+		switch columns[col] {
+		case apiKeyCSVColumnName:
+			input.Name = value
+		case apiKeyCSVColumnKey:
+			input.Value = value
+		case apiKeyCSVColumnDescription:
+			input.Description = value
+		case apiKeyCSVColumnEnabled:
+			input.Enabled = strings.EqualFold(value, "true")
+		case apiKeyCSVColumnUnknown:
+			// ignore unrecognized columns
+		}
+	}
+
+	return input
+}
+
+// ImportAPIKeys parses a CSV payload of API keys in AWS's "API Key File
+// Format": a header row naming columns (name, key, description, enabled),
+// followed by one data row per key. Rows that fail to import are reported as
+// warnings rather than aborting the whole batch; when failOnWarnings is true,
+// any warning rolls the entire import back and returns an error instead.
 func (b *InMemoryBackend) ImportAPIKeys(body []byte, format string, failOnWarnings bool) ([]string, []string, error) {
 	if format != "" && !strings.EqualFold(format, "csv") {
 		return nil, nil, fmt.Errorf("%w: unsupported format %q (only csv is supported)", ErrInvalidParameter, format)
@@ -155,24 +218,27 @@ func (b *InMemoryBackend) ImportAPIKeys(body []byte, format string, failOnWarnin
 		return nil, nil, fmt.Errorf("%w: failed to parse CSV: %w", ErrInvalidParameter, err)
 	}
 
-	ids := make([]string, 0, len(records))
+	if len(records) == 0 {
+		return nil, nil, fmt.Errorf("%w: CSV payload has no header row", ErrInvalidParameter)
+	}
+
+	columns := make([]apiKeyCSVColumn, len(records[0]))
+	for i, cell := range records[0] {
+		columns[i] = apiKeyCSVColumnFor(strings.ToLower(strings.TrimSpace(cell)))
+	}
+
+	ids := make([]string, 0, len(records)-1)
 	warnings := make([]string, 0)
 
-	for i, rec := range records {
-		if len(rec) == 0 || strings.TrimSpace(rec[0]) == "" {
+	for i, rec := range records[1:] {
+		input := apiKeyInputFromCSVRow(rec, columns)
+		if input.Name == "" {
 			continue
 		}
 
-		name := strings.TrimSpace(rec[0])
-
-		value := ""
-		if len(rec) > 1 {
-			value = strings.TrimSpace(rec[1])
-		}
-
-		key, cerr := b.CreateAPIKey(CreateAPIKeyInput{Name: name, Value: value, Enabled: true})
+		key, cerr := b.CreateAPIKey(input)
 		if cerr != nil {
-			warnings = append(warnings, "row "+strconv.Itoa(i+1)+": "+cerr.Error())
+			warnings = append(warnings, "row "+strconv.Itoa(i+apiKeyCSVDataRowOffset)+": "+cerr.Error())
 
 			continue
 		}

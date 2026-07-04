@@ -1400,6 +1400,36 @@ func (h *Handler) handleDeleteIpamScope(vals url.Values, reqID string) (any, err
 	return &deleteIpamScopeResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamScope: item}, nil
 }
 
+// maxNetmaskLength is the widest possible IP prefix length (IPv6's /128 also covers IPv4's
+// /32). Allocation netmask lengths from the wire are bounds-checked against it before their
+// int32 conversion, since strconv.Atoi returns a platform-width int that could otherwise
+// silently truncate.
+const maxNetmaskLength = 128
+
+// parseNetmaskLength parses an AllocationMinNetmaskLength/AllocationMaxNetmaskLength/
+// AllocationDefaultNetmaskLength query value, bounds-checking it to [0, maxNetmaskLength]
+// before the narrowing conversion to int32. An empty raw value yields (0, nil), matching the
+// "field not provided" behavior the callers previously got from a discarded Atoi error.
+func parseNetmaskLength(raw string) (int32, error) {
+	if raw == "" {
+		return 0, nil
+	}
+
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid netmask length %q", ErrInvalidParameter, raw)
+	}
+
+	if v < 0 || v > maxNetmaskLength {
+		return 0, fmt.Errorf(
+			"%w: netmask length must be between 0 and %d, got %d",
+			ErrInvalidParameter, maxNetmaskLength, v,
+		)
+	}
+
+	return int32(v), nil //nolint:gosec // G109: bounds-checked to [0, maxNetmaskLength] above
+}
+
 func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, error) {
 	// Accept either IpamId directly or fall back to the scope's parent IPAM.
 	// For simplicity, prefer IpamId; if not present, use IpamScopeId as-is.
@@ -1408,9 +1438,20 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 		ipamID = vals.Get("IpamScopeId")
 	}
 
-	minNetmask, _ := strconv.Atoi(vals.Get("AllocationMinNetmaskLength"))
-	maxNetmask, _ := strconv.Atoi(vals.Get("AllocationMaxNetmaskLength"))
-	defaultNetmask, _ := strconv.Atoi(vals.Get("AllocationDefaultNetmaskLength"))
+	minNetmask, err := parseNetmaskLength(vals.Get("AllocationMinNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
+
+	maxNetmask, err := parseNetmaskLength(vals.Get("AllocationMaxNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
+
+	defaultNetmask, err := parseNetmaskLength(vals.Get("AllocationDefaultNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
 
 	pool, err := h.Backend.CreateIpamPool(
 		ipamID,
@@ -1422,9 +1463,9 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 			Description:                    vals.Get("Description"),
 			AutoImport:                     vals.Get("AutoImport") == ec2BooleanTrue,
 			PubliclyAdvertisable:           vals.Get("PubliclyAdvertisable") == ec2BooleanTrue,
-			AllocationMinNetmaskLength:     int32(minNetmask),     //nolint:gosec // bounded by netmask range
-			AllocationMaxNetmaskLength:     int32(maxNetmask),     //nolint:gosec // bounded by netmask range
-			AllocationDefaultNetmaskLength: int32(defaultNetmask), //nolint:gosec // bounded by netmask range
+			AllocationMinNetmaskLength:     minNetmask,
+			AllocationMaxNetmaskLength:     maxNetmask,
+			AllocationDefaultNetmaskLength: defaultNetmask,
 		},
 	)
 	if err != nil {
@@ -1452,16 +1493,27 @@ func (h *Handler) handleDescribeIpamPools(vals url.Values, reqID string) (any, e
 }
 
 func (h *Handler) handleModifyIpamPool(vals url.Values, reqID string) (any, error) {
-	minNetmask, _ := strconv.Atoi(vals.Get("AllocationMinNetmaskLength"))
-	maxNetmask, _ := strconv.Atoi(vals.Get("AllocationMaxNetmaskLength"))
-	defaultNetmask, _ := strconv.Atoi(vals.Get("AllocationDefaultNetmaskLength"))
+	minNetmask, err := parseNetmaskLength(vals.Get("AllocationMinNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
+
+	maxNetmask, err := parseNetmaskLength(vals.Get("AllocationMaxNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
+
+	defaultNetmask, err := parseNetmaskLength(vals.Get("AllocationDefaultNetmaskLength"))
+	if err != nil {
+		return nil, err
+	}
 
 	pool, err := h.Backend.ModifyIpamPool(vals.Get("IpamPoolId"), IpamPoolOptions{
 		Description:                    vals.Get("Description"),
 		AutoImport:                     vals.Get("AutoImport") == ec2BooleanTrue,
-		AllocationMinNetmaskLength:     int32(minNetmask),     //nolint:gosec // bounded by netmask range
-		AllocationMaxNetmaskLength:     int32(maxNetmask),     //nolint:gosec // bounded by netmask range
-		AllocationDefaultNetmaskLength: int32(defaultNetmask), //nolint:gosec // bounded by netmask range
+		AllocationMinNetmaskLength:     minNetmask,
+		AllocationMaxNetmaskLength:     maxNetmask,
+		AllocationDefaultNetmaskLength: defaultNetmask,
 	})
 	if err != nil {
 		return nil, err

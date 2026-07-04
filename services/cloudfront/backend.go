@@ -34,6 +34,10 @@ const (
 
 	// maxInvalidationPaths is the AWS limit on paths per invalidation batch.
 	maxInvalidationPaths = 3000
+	// maxAnycastIPCount bounds the IpCount accepted for an Anycast static IP list. AWS caps
+	// the real static IP pool tightly (well under this); the bound here mainly guards
+	// generateAnycastIPs' allocation against an unbounded/adversarial IpCount value.
+	maxAnycastIPCount = 1000
 	// maxCachePolicyTTL is the AWS upper bound for CachePolicy MaxTTL (1 year).
 	maxCachePolicyTTL = 31536000
 	// minSamplingRate and maxSamplingRate bound RealtimeLogConfig SamplingRate.
@@ -1485,6 +1489,12 @@ func (b *InMemoryBackend) CreateAnycastIPList(
 
 	if ipCount <= 0 {
 		return nil, fmt.Errorf("%w: IpCount must be greater than 0", ErrValidation)
+	}
+
+	if ipCount > maxAnycastIPCount {
+		return nil, fmt.Errorf(
+			"%w: IpCount must not exceed %d", ErrValidation, maxAnycastIPCount,
+		)
 	}
 
 	if _, exists := b.anycastIPListByName[name]; exists {

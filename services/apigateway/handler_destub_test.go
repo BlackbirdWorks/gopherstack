@@ -328,8 +328,11 @@ func TestAPIGateway_ImportApiKeys_RESTRoute(t *testing.T) {
 	backend := apigateway.NewInMemoryBackend()
 	h := apigateway.NewHandler(backend)
 
+	// AWS's API key CSV file format requires a header row naming columns
+	// (e.g. "name,key"), followed by one data row per key; it is not a bare
+	// "name,value" pair list.
 	rec := restCall(t, h, http.MethodPost, "/apikeys?mode=import&format=csv", "application/octet-stream",
-		"first-key,abc123\nsecond-key,def456\n")
+		"name,key\nfirst-key,abc123\nsecond-key,def456\n")
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
@@ -359,8 +362,11 @@ func TestAPIGateway_ImportApiKeys_DuplicateWarns(t *testing.T) {
 	_, err := backend.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "dup-key"})
 	require.NoError(t, err)
 
+	// AWS's API key CSV file format requires a header row naming columns
+	// (e.g. "name,key"), followed by one data row per key; it is not a bare
+	// "name,value" pair list.
 	rec := restCall(t, h, http.MethodPost, "/apikeys?mode=import&format=csv", "application/octet-stream",
-		"dup-key,abc123\nfresh-key,def456\n")
+		"name,key\ndup-key,abc123\nfresh-key,def456\n")
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
