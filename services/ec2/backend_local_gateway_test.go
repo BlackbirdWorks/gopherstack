@@ -327,3 +327,79 @@ func TestLocalGateway_SnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, found, 1)
 }
+
+func TestLocalGatewayVirtualInterfaceGroup_CreateDelete(t *testing.T) {
+	t.Parallel()
+
+	bk := newTestBackend()
+
+	lg, err := bk.SeedLocalGateway(ec2.LocalGateway{})
+	require.NoError(t, err)
+
+	t.Run("create requires a known local gateway", func(t *testing.T) {
+		t.Parallel()
+
+		_, createErr := bk.CreateLocalGatewayVirtualInterfaceGroup("lgw-doesnotexist", 64512, 0, nil)
+		require.Error(t, createErr)
+	})
+
+	group, err := bk.CreateLocalGatewayVirtualInterfaceGroup(
+		lg.LocalGatewayID,
+		64512,
+		0,
+		map[string]string{"Name": "grp"},
+	)
+	require.NoError(t, err)
+	assert.NotEmpty(t, group.LocalGatewayVirtualInterfaceGroupID)
+	assert.Equal(t, lg.LocalGatewayID, group.LocalGatewayID)
+	assert.Equal(t, "available", group.ConfigurationState)
+	assert.Contains(t, group.LocalGatewayVirtualInterfaceGroupArn, group.LocalGatewayVirtualInterfaceGroupID)
+	assert.Equal(t, "grp", group.Tags["Name"])
+
+	vif, err := bk.CreateLocalGatewayVirtualInterface(ec2.LocalGatewayVirtualInterfaceParams{
+		LocalGatewayVirtualInterfaceGroupID: group.LocalGatewayVirtualInterfaceGroupID,
+		OutpostLagID:                        "lag-1",
+		LocalAddress:                        "169.254.0.1",
+		PeerAddress:                         "169.254.0.2",
+		Vlan:                                100,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, vif.LocalGatewayVirtualInterfaceID)
+	assert.Equal(t, lg.LocalGatewayID, vif.LocalGatewayID)
+	assert.Equal(t, group.LocalGatewayVirtualInterfaceGroupID, vif.LocalGatewayVirtualInterfaceGroupID)
+	assert.Contains(t, vif.LocalGatewayVirtualInterfaceArn, vif.LocalGatewayVirtualInterfaceID)
+
+	groups := bk.DescribeLocalGatewayVirtualInterfaceGroups([]string{group.LocalGatewayVirtualInterfaceGroupID})
+	require.Len(t, groups, 1)
+	assert.Contains(t, groups[0].LocalGatewayVirtualInterfaceIDs, vif.LocalGatewayVirtualInterfaceID)
+
+	_, err = bk.DeleteLocalGatewayVirtualInterfaceGroup(group.LocalGatewayVirtualInterfaceGroupID)
+	require.Error(t, err)
+
+	deletedVif, err := bk.DeleteLocalGatewayVirtualInterface(vif.LocalGatewayVirtualInterfaceID)
+	require.NoError(t, err)
+	assert.Equal(t, "deleted", deletedVif.ConfigurationState)
+	assert.Empty(t, bk.DescribeLocalGatewayVirtualInterfaces([]string{vif.LocalGatewayVirtualInterfaceID}))
+
+	groupsAfter := bk.DescribeLocalGatewayVirtualInterfaceGroups([]string{group.LocalGatewayVirtualInterfaceGroupID})
+	require.Len(t, groupsAfter, 1)
+	assert.NotContains(t, groupsAfter[0].LocalGatewayVirtualInterfaceIDs, vif.LocalGatewayVirtualInterfaceID)
+
+	deletedGroup, err := bk.DeleteLocalGatewayVirtualInterfaceGroup(group.LocalGatewayVirtualInterfaceGroupID)
+	require.NoError(t, err)
+	assert.Equal(t, "deleted", deletedGroup.ConfigurationState)
+
+	_, err = bk.DeleteLocalGatewayVirtualInterfaceGroup(group.LocalGatewayVirtualInterfaceGroupID)
+	require.Error(t, err)
+
+	_, err = bk.CreateLocalGatewayVirtualInterface(ec2.LocalGatewayVirtualInterfaceParams{
+		LocalGatewayVirtualInterfaceGroupID: "lgw-vif-grp-doesnotexist",
+		OutpostLagID:                        "lag-1",
+		LocalAddress:                        "169.254.0.1",
+		PeerAddress:                         "169.254.0.2",
+	})
+	require.Error(t, err)
+
+	_, err = bk.DeleteLocalGatewayVirtualInterface("lgw-vif-doesnotexist")
+	require.Error(t, err)
+}

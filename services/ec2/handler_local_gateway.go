@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strconv"
 )
 
 // ---- Handler registration ----
@@ -34,6 +35,12 @@ func registerLocalGatewayOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] = h.handleCreateLGWVifGroupAssoc
 	ops["DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] = h.handleDeleteLGWVifGroupAssoc
 	ops["DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations"] = h.handleDescribeLGWVifGroupAssocs
+
+	// Local Gateway Virtual Interfaces / Virtual Interface Groups (Create/Delete API)
+	ops["CreateLocalGatewayVirtualInterface"] = h.handleCreateLocalGatewayVirtualInterface
+	ops["DeleteLocalGatewayVirtualInterface"] = h.handleDeleteLocalGatewayVirtualInterface
+	ops["CreateLocalGatewayVirtualInterfaceGroup"] = h.handleCreateLocalGatewayVirtualInterfaceGroup
+	ops["DeleteLocalGatewayVirtualInterfaceGroup"] = h.handleDeleteLocalGatewayVirtualInterfaceGroup
 }
 
 func localGatewaySupportedOperations() []string {
@@ -54,6 +61,10 @@ func localGatewaySupportedOperations() []string {
 		"CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
 		"DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
 		"DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations",
+		"CreateLocalGatewayVirtualInterface",
+		"DeleteLocalGatewayVirtualInterface",
+		"CreateLocalGatewayVirtualInterfaceGroup",
+		"DeleteLocalGatewayVirtualInterfaceGroup",
 	}
 }
 
@@ -67,25 +78,32 @@ type localGatewayItem struct {
 }
 
 type localGatewayVifItem struct {
-	LocalGatewayVirtualInterfaceID      string `xml:"localGatewayVirtualInterfaceId"`
-	LocalGatewayID                      string `xml:"localGatewayId"`
-	LocalGatewayVirtualInterfaceGroupID string `xml:"localGatewayVirtualInterfaceGroupId,omitempty"`
-	ConfigurationState                  string `xml:"configurationState"`
-	LocalAddress                        string `xml:"localAddress"`
-	PeerAddress                         string `xml:"peerAddress"`
-	OwnerID                             string `xml:"ownerId"`
-	LocalBgpAsn                         int32  `xml:"localBgpAsn"`
-	PeerBgpAsn                          int32  `xml:"peerBgpAsn"`
-	Vlan                                int32  `xml:"vlan"`
+	LocalGatewayVirtualInterfaceID      string          `xml:"localGatewayVirtualInterfaceId"`
+	LocalGatewayVirtualInterfaceArn     string          `xml:"localGatewayVirtualInterfaceArn,omitempty"`
+	LocalGatewayID                      string          `xml:"localGatewayId"`
+	LocalGatewayVirtualInterfaceGroupID string          `xml:"localGatewayVirtualInterfaceGroupId,omitempty"`
+	OutpostLagID                        string          `xml:"outpostLagId,omitempty"`
+	ConfigurationState                  string          `xml:"configurationState"`
+	LocalAddress                        string          `xml:"localAddress"`
+	PeerAddress                         string          `xml:"peerAddress"`
+	OwnerID                             string          `xml:"ownerId"`
+	TagSet                              []simpleTagItem `xml:"tagSet>item"`
+	LocalBgpAsn                         int32           `xml:"localBgpAsn"`
+	PeerBgpAsn                          int32           `xml:"peerBgpAsn"`
+	PeerBgpAsnExtended                  int64           `xml:"peerBgpAsnExtended,omitempty"`
+	Vlan                                int32           `xml:"vlan"`
 }
 
 type localGatewayVifGroupItem struct {
-	LocalGatewayVirtualInterfaceGroupID string   `xml:"localGatewayVirtualInterfaceGroupId"`
-	LocalGatewayID                      string   `xml:"localGatewayId"`
-	ConfigurationState                  string   `xml:"configurationState"`
-	OwnerID                             string   `xml:"ownerId"`
-	VifIDs                              []string `xml:"localGatewayVirtualInterfaceIdSet>item"`
-	LocalBgpAsn                         int32    `xml:"localBgpAsn"`
+	LocalGatewayVirtualInterfaceGroupID  string          `xml:"localGatewayVirtualInterfaceGroupId"`
+	LocalGatewayVirtualInterfaceGroupArn string          `xml:"localGatewayVirtualInterfaceGroupArn,omitempty"`
+	LocalGatewayID                       string          `xml:"localGatewayId"`
+	ConfigurationState                   string          `xml:"configurationState"`
+	OwnerID                              string          `xml:"ownerId"`
+	TagSet                               []simpleTagItem `xml:"tagSet>item"`
+	VifIDs                               []string        `xml:"localGatewayVirtualInterfaceIdSet>item"`
+	LocalBgpAsn                          int32           `xml:"localBgpAsn"`
+	LocalBgpAsnExtended                  int64           `xml:"localBgpAsnExtended,omitempty"`
 }
 
 type localGatewayRouteTableItem struct {
@@ -260,26 +278,33 @@ func localGatewayToItem(lg *LocalGateway) localGatewayItem {
 func localGatewayVifToItem(vif *LocalGatewayVirtualInterface) localGatewayVifItem {
 	return localGatewayVifItem{
 		LocalGatewayVirtualInterfaceID:      vif.LocalGatewayVirtualInterfaceID,
+		LocalGatewayVirtualInterfaceArn:     vif.LocalGatewayVirtualInterfaceArn,
 		LocalGatewayID:                      vif.LocalGatewayID,
 		LocalGatewayVirtualInterfaceGroupID: vif.LocalGatewayVirtualInterfaceGroupID,
+		OutpostLagID:                        vif.OutpostLagID,
 		ConfigurationState:                  vif.ConfigurationState,
 		LocalAddress:                        vif.LocalAddress,
 		PeerAddress:                         vif.PeerAddress,
 		LocalBgpAsn:                         vif.LocalBgpAsn,
 		PeerBgpAsn:                          vif.PeerBgpAsn,
+		PeerBgpAsnExtended:                  vif.PeerBgpAsnExtended,
 		Vlan:                                vif.Vlan,
 		OwnerID:                             vif.OwnerID,
+		TagSet:                              tagItemsFromMap(vif.Tags),
 	}
 }
 
 func localGatewayVifGroupToItem(group *LocalGatewayVirtualInterfaceGroup) localGatewayVifGroupItem {
 	return localGatewayVifGroupItem{
-		LocalGatewayVirtualInterfaceGroupID: group.LocalGatewayVirtualInterfaceGroupID,
-		LocalGatewayID:                      group.LocalGatewayID,
-		LocalBgpAsn:                         group.LocalBgpAsn,
-		ConfigurationState:                  group.ConfigurationState,
-		VifIDs:                              group.LocalGatewayVirtualInterfaceIDs,
-		OwnerID:                             group.OwnerID,
+		LocalGatewayVirtualInterfaceGroupID:  group.LocalGatewayVirtualInterfaceGroupID,
+		LocalGatewayVirtualInterfaceGroupArn: group.LocalGatewayVirtualInterfaceGroupArn,
+		LocalGatewayID:                       group.LocalGatewayID,
+		LocalBgpAsn:                          group.LocalBgpAsn,
+		LocalBgpAsnExtended:                  group.LocalBgpAsnExtended,
+		ConfigurationState:                   group.ConfigurationState,
+		VifIDs:                               group.LocalGatewayVirtualInterfaceIDs,
+		OwnerID:                              group.OwnerID,
+		TagSet:                               tagItemsFromMap(group.Tags),
 	}
 }
 
@@ -624,4 +649,111 @@ func (h *Handler) handleDescribeLGWVifGroupAssocs(vals url.Values, reqID string)
 	}
 
 	return resp, nil
+}
+
+// ---- Local Gateway Virtual Interfaces / Virtual Interface Groups (Create/Delete API) ----
+
+type createLocalGatewayVirtualInterfaceResponse struct {
+	XMLName                      xml.Name            `xml:"CreateLocalGatewayVirtualInterfaceResponse"`
+	RequestID                    string              `xml:"requestId"`
+	LocalGatewayVirtualInterface localGatewayVifItem `xml:"localGatewayVirtualInterface"`
+}
+
+type deleteLocalGatewayVirtualInterfaceResponse struct {
+	XMLName                      xml.Name            `xml:"DeleteLocalGatewayVirtualInterfaceResponse"`
+	RequestID                    string              `xml:"requestId"`
+	LocalGatewayVirtualInterface localGatewayVifItem `xml:"localGatewayVirtualInterface"`
+}
+
+type createLocalGatewayVirtualInterfaceGroupResponse struct {
+	XMLName                           xml.Name                 `xml:"CreateLocalGatewayVirtualInterfaceGroupResponse"`
+	RequestID                         string                   `xml:"requestId"`
+	LocalGatewayVirtualInterfaceGroup localGatewayVifGroupItem `xml:"localGatewayVirtualInterfaceGroup"`
+}
+
+type deleteLocalGatewayVirtualInterfaceGroupResponse struct {
+	XMLName                           xml.Name                 `xml:"DeleteLocalGatewayVirtualInterfaceGroupResponse"`
+	RequestID                         string                   `xml:"requestId"`
+	LocalGatewayVirtualInterfaceGroup localGatewayVifGroupItem `xml:"localGatewayVirtualInterfaceGroup"`
+}
+
+func (h *Handler) handleCreateLocalGatewayVirtualInterface(vals url.Values, reqID string) (any, error) {
+	var peerBgpAsn, vlan int64
+
+	peerBgpAsn, _ = strconv.ParseInt(vals.Get("PeerBgpAsn"), 10, 32)
+	vlan, _ = strconv.ParseInt(vals.Get("Vlan"), 10, 32)
+	peerBgpAsnExtended, _ := strconv.ParseInt(
+		vals.Get("PeerBgpAsnExtended"), 10, 64,
+	)
+
+	tags := parseTagSpecification(vals, "local-gateway-virtual-interface")
+
+	vif, err := h.Backend.CreateLocalGatewayVirtualInterface(LocalGatewayVirtualInterfaceParams{
+		LocalGatewayVirtualInterfaceGroupID: vals.Get("LocalGatewayVirtualInterfaceGroupId"),
+		OutpostLagID:                        vals.Get("OutpostLagId"),
+		LocalAddress:                        vals.Get("LocalAddress"),
+		PeerAddress:                         vals.Get("PeerAddress"),
+		Vlan:                                int32(vlan),
+		PeerBgpAsn:                          int32(peerBgpAsn),
+		PeerBgpAsnExtended:                  peerBgpAsnExtended,
+		Tags:                                tags,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocalGatewayVirtualInterfaceResponse{
+		RequestID:                    reqID,
+		LocalGatewayVirtualInterface: localGatewayVifToItem(vif),
+	}, nil
+}
+
+func (h *Handler) handleDeleteLocalGatewayVirtualInterface(vals url.Values, reqID string) (any, error) {
+	vif, err := h.Backend.DeleteLocalGatewayVirtualInterface(vals.Get("LocalGatewayVirtualInterfaceId"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteLocalGatewayVirtualInterfaceResponse{
+		RequestID:                    reqID,
+		LocalGatewayVirtualInterface: localGatewayVifToItem(vif),
+	}, nil
+}
+
+func (h *Handler) handleCreateLocalGatewayVirtualInterfaceGroup(vals url.Values, reqID string) (any, error) {
+	localBgpAsn, _ := strconv.ParseInt(vals.Get("LocalBgpAsn"), 10, 32)
+	localBgpAsnExtended, _ := strconv.ParseInt(
+		vals.Get("LocalBgpAsnExtended"), 10, 64,
+	)
+
+	tags := parseTagSpecification(vals, "local-gateway-virtual-interface-group")
+
+	group, err := h.Backend.CreateLocalGatewayVirtualInterfaceGroup(
+		vals.Get("LocalGatewayId"),
+		int32(localBgpAsn),
+		localBgpAsnExtended,
+		tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocalGatewayVirtualInterfaceGroupResponse{
+		RequestID:                         reqID,
+		LocalGatewayVirtualInterfaceGroup: localGatewayVifGroupToItem(group),
+	}, nil
+}
+
+func (h *Handler) handleDeleteLocalGatewayVirtualInterfaceGroup(vals url.Values, reqID string) (any, error) {
+	group, err := h.Backend.DeleteLocalGatewayVirtualInterfaceGroup(
+		vals.Get("LocalGatewayVirtualInterfaceGroupId"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteLocalGatewayVirtualInterfaceGroupResponse{
+		RequestID:                         reqID,
+		LocalGatewayVirtualInterfaceGroup: localGatewayVifGroupToItem(group),
+	}, nil
 }

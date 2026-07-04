@@ -138,6 +138,11 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, secondaryNetSupportedOperations()...)
 	extOps = append(extOps, instanceAttrSupportedOperations()...)
 	extOps = append(extOps, sqlHaSupportedOperations()...)
+	extOps = append(extOps, vpcEncryptionControlSupportedOperations()...)
+	extOps = append(extOps, vpnConcentratorSupportedOperations()...)
+	extOps = append(extOps, hostReservationSupportedOperations()...)
+	extOps = append(extOps, declarativePoliciesSupportedOperations()...)
+	extOps = append(extOps, networkPerformanceSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
@@ -418,6 +423,11 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerSecondaryNetOps(h, ops)
 	registerInstanceAttrOps(h, ops)
 	registerSQLHaOps(h, ops)
+	registerVpcEncryptionControlOps(h, ops)
+	registerVpnConcentratorOps(h, ops)
+	registerHostReservationOps(h, ops)
+	registerDeclarativePoliciesOps(h, ops)
+	registerNetworkPerformanceOps(h, ops)
 	registerStubOpsIfAbsent(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)

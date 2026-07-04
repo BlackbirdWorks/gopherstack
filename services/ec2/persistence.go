@@ -241,6 +241,14 @@ type backendSnapshot struct {
 	SQLHaRegistrations           map[string]*RegisteredSQLHaInstance     `json:"sqlHaRegistrations,omitempty"`
 	SQLHaHistory                 map[string][]*RegisteredSQLHaInstance   `json:"sqlHaHistory,omitempty"`
 
+	// parity-sweep-2: VPC Encryption Control, VPN Concentrator, Host Reservations,
+	// Declarative Policies, AWS Network Performance.
+	VpcEncryptionControls           map[string]*VpcEncryptionControl           `json:"vpcEncryptionControls,omitempty"`
+	VpnConcentrators                map[string]*VpnConcentrator                `json:"vpnConcentrators,omitempty"`
+	HostReservations                map[string]*HostReservation                `json:"hostReservations,omitempty"`
+	DeclarativePoliciesReports      map[string]*DeclarativePoliciesReport      `json:"declPoliciesReports,omitempty"`
+	NetworkPerformanceSubscriptions map[string]*NetworkPerformanceSubscription `json:"networkPerformanceSubs,omitempty"`
+
 	IpamOrgAdminAccountID  string   `json:"ipamOrgAdminAcct,omitempty"`
 	Region                 string   `json:"region,omitempty"`
 	AccountID              string   `json:"accountID,omitempty"`
@@ -449,6 +457,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AvailabilityZoneGroupOptIns:        b.availabilityZoneGroupOptIns,
 		SQLHaRegistrations:                 b.sqlHaRegistrations,
 		SQLHaHistory:                       b.sqlHaHistory,
+		VpcEncryptionControls:              b.vpcEncryptionControls,
+		VpnConcentrators:                   b.vpnConcentrators,
+		HostReservations:                   b.hostReservations,
+		DeclarativePoliciesReports:         b.declarativePoliciesReports,
+		NetworkPerformanceSubscriptions:    b.networkPerformanceSubscriptions,
 	}
 
 	data, err := json.Marshal(snap)
@@ -840,8 +853,44 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.restoreVpcConfigFields(&snap)
 	b.restoreCapacityFamilyFields(&snap)
 	b.restoreNewFamilyFields(&snap)
+	b.restoreParitySweep2Fields(&snap)
 
 	return nil
+}
+
+// restoreParitySweep2Fields copies the VPC Encryption Control, VPN Concentrator,
+// Host Reservation, Declarative Policies, and AWS Network Performance state maps
+// from snap into b. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) restoreParitySweep2Fields(snap *backendSnapshot) {
+	if snap.VpcEncryptionControls != nil {
+		b.vpcEncryptionControls = snap.VpcEncryptionControls
+	} else {
+		b.vpcEncryptionControls = make(map[string]*VpcEncryptionControl)
+	}
+
+	if snap.VpnConcentrators != nil {
+		b.vpnConcentrators = snap.VpnConcentrators
+	} else {
+		b.vpnConcentrators = make(map[string]*VpnConcentrator)
+	}
+
+	if snap.HostReservations != nil {
+		b.hostReservations = snap.HostReservations
+	} else {
+		b.hostReservations = make(map[string]*HostReservation)
+	}
+
+	if snap.DeclarativePoliciesReports != nil {
+		b.declarativePoliciesReports = snap.DeclarativePoliciesReports
+	} else {
+		b.declarativePoliciesReports = make(map[string]*DeclarativePoliciesReport)
+	}
+
+	if snap.NetworkPerformanceSubscriptions != nil {
+		b.networkPerformanceSubscriptions = snap.NetworkPerformanceSubscriptions
+	} else {
+		b.networkPerformanceSubscriptions = make(map[string]*NetworkPerformanceSubscription)
+	}
 }
 
 // restoreNewFamilyFields copies the Mac modification task / Secondary

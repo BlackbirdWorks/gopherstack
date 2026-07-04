@@ -144,7 +144,7 @@ func (b *InMemoryBackend) ModifyHosts(
 		host, ok := b.dedicatedHosts[id]
 		if !ok {
 			unsuccessful = append(unsuccessful, HostModifyFailure{
-				HostID: id, Code: "InvalidHostID.NotFound", Message: "Host " + id + " does not exist",
+				HostID: id, Code: ErrHostNotFound.Error(), Message: "Host " + id + " does not exist",
 			})
 
 			continue

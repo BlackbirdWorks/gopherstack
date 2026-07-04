@@ -285,3 +285,65 @@ func TestHandler_LocalGatewayRouteTableVifGroupAssociationLifecycle(t *testing.T
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "<state>disassociated</state>")
 }
+
+func TestHandler_LocalGatewayVirtualInterface_CreateDelete(t *testing.T) {
+	t.Parallel()
+
+	h, lg, _ := newLocalGatewayHandler(t)
+
+	rec := postForm(
+		t,
+		h,
+		"Action=CreateLocalGatewayVirtualInterfaceGroup&Version=2016-11-15&LocalGatewayId="+lg.LocalGatewayID,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "CreateLocalGatewayVirtualInterfaceGroupResponse")
+	assert.NotContains(t, body, "StubResponse")
+
+	groupID := extractXMLField(body, "localGatewayVirtualInterfaceGroupId")
+	require.NotEmpty(t, groupID)
+
+	rec = postForm(
+		t,
+		h,
+		"Action=CreateLocalGatewayVirtualInterface&Version=2016-11-15&"+
+			"LocalGatewayVirtualInterfaceGroupId="+groupID+
+			"&OutpostLagId=lag-1&LocalAddress=169.254.1.1&PeerAddress=169.254.1.2&Vlan=200",
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = rec.Body.String()
+	assert.Contains(t, body, "CreateLocalGatewayVirtualInterfaceResponse")
+	assert.Contains(t, body, "<localAddress>169.254.1.1</localAddress>")
+
+	vifID := extractXMLField(body, "localGatewayVirtualInterfaceId")
+	require.NotEmpty(t, vifID)
+
+	// Deleting the group while the VIF still references it must fail, not silently
+	// succeed as a stub would.
+	rec = postForm(
+		t,
+		h,
+		"Action=DeleteLocalGatewayVirtualInterfaceGroup&Version=2016-11-15&"+
+			"LocalGatewayVirtualInterfaceGroupId="+groupID,
+	)
+	require.NotEqual(t, http.StatusOK, rec.Code)
+
+	rec = postForm(
+		t,
+		h,
+		"Action=DeleteLocalGatewayVirtualInterface&Version=2016-11-15&"+
+			"LocalGatewayVirtualInterfaceId="+vifID,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DeleteLocalGatewayVirtualInterfaceResponse")
+
+	rec = postForm(
+		t,
+		h,
+		"Action=DeleteLocalGatewayVirtualInterfaceGroup&Version=2016-11-15&"+
+			"LocalGatewayVirtualInterfaceGroupId="+groupID,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DeleteLocalGatewayVirtualInterfaceGroupResponse")
+}

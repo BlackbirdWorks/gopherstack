@@ -7,6 +7,11 @@ import (
 
 // ---- Handler registration ----
 
+// registerTGWPeripheralsOps's op-name-to-handler assignment table incidentally
+// overlaps in shape with other large registration tables in this package (e.g.
+// registerStubOps); the two are unrelated in content.
+//
+//nolint:dupl // large op-registration table, incidental structural overlap
 func registerTGWPeripheralsOps(h *Handler, ops map[string]ec2ActionFn) {
 	// Transit Gateway Policy Tables
 	ops["CreateTransitGatewayPolicyTable"] = h.handleCreateTransitGatewayPolicyTable

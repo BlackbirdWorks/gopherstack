@@ -1852,4 +1852,63 @@ type Backend interface {
 	DisableInstanceSQLHaStandbyDetections(instanceIDs []string) ([]*RegisteredSQLHaInstance, error)
 	DescribeInstanceSQLHaStates(ids []string) []*RegisteredSQLHaInstance
 	DescribeInstanceSQLHaHistoryStates(ids []string, startTime, endTime time.Time) []*RegisteredSQLHaInstance
+
+	// ---- VPC Encryption Control ----
+
+	CreateVpcEncryptionControl(vpcID string, tags map[string]string) (*VpcEncryptionControl, error)
+	DeleteVpcEncryptionControl(id string) (*VpcEncryptionControl, error)
+	DescribeVpcEncryptionControls(ids, vpcIDs []string) []*VpcEncryptionControl
+	ModifyVpcEncryptionControl(
+		id, mode string, exclusions VpcEncryptionControlExclusionModify,
+	) (*VpcEncryptionControl, error)
+	GetVpcResourcesBlockingEncryptionEnforcement(vpcID string) ([]*VpcEncryptionNonCompliantResource, error)
+
+	// ---- VPN Concentrator + tunnel extras ----
+
+	CreateVpnConcentrator(vpnType, transitGatewayID string, tags map[string]string) (*VpnConcentrator, error)
+	DeleteVpnConcentrator(id string) (*VpnConcentrator, error)
+	DescribeVpnConcentrators(ids []string) []*VpnConcentrator
+	GetActiveVpnTunnelStatus(vpnConnectionID, outsideIPAddress string) (*ActiveVpnTunnelStatus, error)
+	ReplaceVpnTunnel(vpnConnectionID, outsideIPAddress string) (bool, error)
+
+	// ---- Host Reservations ----
+
+	DescribeHostReservationOfferings(offeringID string, minDuration, maxDuration int32) []HostOffering
+	GetHostReservationPurchasePreview(
+		hostIDs []string, offeringID string,
+	) (*HostReservationPurchasePreview, error)
+	PurchaseHostReservation(
+		hostIDs []string, offeringID string, tags map[string]string,
+	) (*HostReservationPurchasePreview, error)
+	DescribeHostReservations(ids []string) []*HostReservation
+	ReleaseHosts(hostIDs []string) (successful []string, unsuccessful []HostReleaseResult)
+
+	// ---- Declarative Policies ----
+
+	StartDeclarativePoliciesReport(
+		s3Bucket, targetID, s3Prefix string, tags map[string]string,
+	) (*DeclarativePoliciesReport, error)
+	CancelDeclarativePoliciesReport(reportID string) (bool, error)
+	DescribeDeclarativePoliciesReports(ids []string) []*DeclarativePoliciesReport
+	GetDeclarativePoliciesReportSummary(reportID string) (*DeclarativePoliciesReportSummary, error)
+
+	// ---- AWS Network Performance ----
+
+	EnableAwsNetworkPerformanceMetricSubscription(source, destination, metric, statistic string) (bool, error)
+	DisableAwsNetworkPerformanceMetricSubscription(source, destination, metric, statistic string) (bool, error)
+	DescribeAwsNetworkPerformanceMetricSubscriptions() []*NetworkPerformanceSubscription
+	GetAwsNetworkPerformanceData(
+		queries []NetworkPerformanceDataQuery, startTime, endTime time.Time,
+	) ([]*NetworkPerformanceDataResponse, error)
+
+	// ---- Local Gateway Virtual Interfaces / Virtual Interface Groups (Create/Delete API) ----
+
+	CreateLocalGatewayVirtualInterface(
+		p LocalGatewayVirtualInterfaceParams,
+	) (*LocalGatewayVirtualInterface, error)
+	DeleteLocalGatewayVirtualInterface(id string) (*LocalGatewayVirtualInterface, error)
+	CreateLocalGatewayVirtualInterfaceGroup(
+		localGatewayID string, localBgpAsn int32, localBgpAsnExtended int64, tags map[string]string,
+	) (*LocalGatewayVirtualInterfaceGroup, error)
+	DeleteLocalGatewayVirtualInterfaceGroup(id string) (*LocalGatewayVirtualInterfaceGroup, error)
 }

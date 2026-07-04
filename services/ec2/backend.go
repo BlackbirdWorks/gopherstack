@@ -428,24 +428,31 @@ type InMemoryBackend struct {
 	availabilityZoneGroupOptIns map[string]string
 	sqlHaRegistrations          map[string]*RegisteredSQLHaInstance
 	sqlHaHistory                map[string][]*RegisteredSQLHaInstance
-	mu                          *lockmetrics.RWMutex
-	lifecycleStop               chan struct{}
-	eniIDByAttachment           map[string]string
-	eniIDsByInstance            map[string]map[string]struct{}
-	instanceIDsByVPC            map[string]map[string]struct{}
-	snapshotBlockPublicAccess   string
-	ebsDefaultKmsKeyID          string
-	imageBlockPublicAccess      string
-	defaultCreditSpec           string
-	Region                      string `json:"region,omitempty"`
-	AccountID                   string `json:"accountID,omitempty"`
-	freePrivateIPs              []string
-	nextPrivateIPIndex          int
-	nextElasticIPIndex          int
-	ebsEncryptionByDefault      bool
-	serialConsoleAccess         bool
-	lifecycleOnce               sync.Once
-	lifecycleStopOnce           sync.Once
+	// parity-sweep-2 additions: VPC Encryption Control, VPN Concentrator, Host
+	// Reservations, Declarative Policies, AWS Network Performance
+	vpcEncryptionControls           map[string]*VpcEncryptionControl
+	vpnConcentrators                map[string]*VpnConcentrator
+	hostReservations                map[string]*HostReservation
+	declarativePoliciesReports      map[string]*DeclarativePoliciesReport
+	networkPerformanceSubscriptions map[string]*NetworkPerformanceSubscription
+	mu                              *lockmetrics.RWMutex
+	lifecycleStop                   chan struct{}
+	eniIDByAttachment               map[string]string
+	eniIDsByInstance                map[string]map[string]struct{}
+	instanceIDsByVPC                map[string]map[string]struct{}
+	snapshotBlockPublicAccess       string
+	ebsDefaultKmsKeyID              string
+	imageBlockPublicAccess          string
+	defaultCreditSpec               string
+	Region                          string `json:"region,omitempty"`
+	AccountID                       string `json:"accountID,omitempty"`
+	freePrivateIPs                  []string
+	nextPrivateIPIndex              int
+	nextElasticIPIndex              int
+	ebsEncryptionByDefault          bool
+	serialConsoleAccess             bool
+	lifecycleOnce                   sync.Once
+	lifecycleStopOnce               sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -517,6 +524,7 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initCapacityFamilyMaps(b)
 	initVerifiedAccessExtMaps(b)
 	initFpgaImageMaps(b)
+	initParitySweep2Maps(b)
 	b.resetIpamDiscoveryMapsLocked()
 	b.resetIpamPolicyMapsLocked()
 	b.resetScheduledInstanceMapsLocked()
@@ -635,6 +643,17 @@ func initLocalGatewayMaps(b *InMemoryBackend) {
 	b.localGatewayRouteTableVifGroupAssociations = make(
 		map[string]*LocalGatewayRouteTableVirtualInterfaceGroupAssociation,
 	)
+}
+
+// initParitySweep2Maps initialises the VPC Encryption Control, VPN Concentrator,
+// Host Reservation, Declarative Policies, and AWS Network Performance state maps
+// (split out to keep newInMemoryBackendMaps under the funlen limit).
+func initParitySweep2Maps(b *InMemoryBackend) {
+	b.vpcEncryptionControls = make(map[string]*VpcEncryptionControl)
+	b.vpnConcentrators = make(map[string]*VpnConcentrator)
+	b.hostReservations = make(map[string]*HostReservation)
+	b.declarativePoliciesReports = make(map[string]*DeclarativePoliciesReport)
+	b.networkPerformanceSubscriptions = make(map[string]*NetworkPerformanceSubscription)
 }
 
 // initBatch6Maps initialises the verified-access, import-task, recycle-bin,
