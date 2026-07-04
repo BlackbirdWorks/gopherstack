@@ -428,6 +428,94 @@ func (b *InMemoryBackend) DescribeHubContent(
 	return cloneHubContent(hc), nil
 }
 
+// UpdateHubContentOptions bundles the mutable fields accepted by UpdateHubContent.
+type UpdateHubContentOptions struct {
+	HubContentDescription    string
+	HubContentDisplayName    string
+	HubContentMarkdown       string
+	SupportStatus            string
+	HubContentSearchKeywords []string
+}
+
+// UpdateHubContent updates the mutable metadata of a specific hub content version.
+func (b *InMemoryBackend) UpdateHubContent(
+	ctx context.Context,
+	hubName, contentType, contentName, version string,
+	opts UpdateHubContentOptions,
+) (*HubContent, error) {
+	b.mu.Lock("UpdateHubContent")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	h, ok := b.findHubLocked(region, hubName)
+	if !ok {
+		return nil, fmt.Errorf("%w: hub %q not found", ErrHubNotFound, hubName)
+	}
+
+	key := hubContentKey{
+		HubName: h.HubName, HubContentType: contentType,
+		HubContentName: contentName, HubContentVersion: version,
+	}
+
+	hc, ok := b.hubContentsStore(region)[key]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: hub content %q version %q not found in hub %q", ErrHubContentNotFound, contentName, version, h.HubName,
+		)
+	}
+
+	if opts.HubContentDescription != "" {
+		hc.HubContentDescription = opts.HubContentDescription
+	}
+	if opts.HubContentDisplayName != "" {
+		hc.HubContentDisplayName = opts.HubContentDisplayName
+	}
+	if opts.HubContentMarkdown != "" {
+		hc.HubContentMarkdown = opts.HubContentMarkdown
+	}
+	if opts.SupportStatus != "" {
+		hc.SupportStatus = opts.SupportStatus
+	}
+	if opts.HubContentSearchKeywords != nil {
+		hc.HubContentSearchKeywords = append([]string(nil), opts.HubContentSearchKeywords...)
+	}
+	hc.LastModifiedTime = time.Now()
+
+	return cloneHubContent(hc), nil
+}
+
+// UpdateHubContentReference updates the minimum referenced version of a
+// ModelReference hub content resource (the most recently created version).
+func (b *InMemoryBackend) UpdateHubContentReference(
+	ctx context.Context,
+	hubName, contentType, contentName, minVersion string,
+) (*HubContent, error) {
+	b.mu.Lock("UpdateHubContentReference")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	h, ok := b.findHubLocked(region, hubName)
+	if !ok {
+		return nil, fmt.Errorf("%w: hub %q not found", ErrHubNotFound, hubName)
+	}
+
+	hc, ok := b.latestHubContentLocked(region, h.HubName, contentType, contentName)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: hub content reference %q not found in hub %q", ErrHubContentNotFound, contentName, h.HubName,
+		)
+	}
+
+	if minVersion != "" {
+		hc.ReferenceMinVersion = minVersion
+	}
+	hc.LastModifiedTime = time.Now()
+
+	return cloneHubContent(hc), nil
+}
+
 // ListHubContents returns the latest version of every distinct content name of
 // the given type within a hub, sorted by name.
 func (b *InMemoryBackend) ListHubContents(

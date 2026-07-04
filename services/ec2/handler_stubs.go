@@ -20,7 +20,7 @@ type stubResponse struct {
 func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["AllocateIpamPoolCidr"] = h.handleStubAllocateIpamPoolCidr
 	// ApplySecurityGroupsToClientVpnTargetNetwork — moved to handler_batch4.go
-	ops["AssociateCapacityReservationBillingOwner"] = h.handleStubAssociateCapacityReservationBillingOwner
+	// AssociateCapacityReservationBillingOwner — moved to handler_capacity_family.go
 	// AssociateClientVpnTargetNetwork — moved to handler_batch4.go
 	ops["AssociateEnclaveCertificateIamRole"] = h.handleStubAssociateEnclaveCertificateIamRole
 	// AssociateIamInstanceProfile — moved to handler_ec2core.go
@@ -39,7 +39,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// AuthorizeClientVpnIngress — moved to handler_batch4.go
 	ops["BundleInstance"] = h.handleStubBundleInstance
 	ops["CancelBundleTask"] = h.handleStubCancelBundleTask
-	ops["CancelCapacityReservationFleets"] = h.handleStubCancelCapacityReservationFleets
+	// CancelCapacityReservationFleets — moved to handler_capacity_family.go
 	ops["CancelConversionTask"] = h.handleStubCancelConversionTask
 	ops["CancelDeclarativePoliciesReport"] = h.handleStubCancelDeclarativePoliciesReport
 	ops["CancelExportTask"] = h.handleStubCancelExportTask
@@ -49,9 +49,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CancelSpotFleetRequests"] = h.handleStubCancelSpotFleetRequests
 	ops["ConfirmProductInstance"] = h.handleStubConfirmProductInstance
 	ops["CopyFpgaImage"] = h.handleStubCopyFpgaImage
-	ops["CreateCapacityManagerDataExport"] = h.handleStubCreateCapacityManagerDataExport
-	ops["CreateCapacityReservationBySplitting"] = h.handleStubCreateCapacityReservationBySplitting
-	ops["CreateCapacityReservationFleet"] = h.handleStubCreateCapacityReservationFleet
+	// CreateCapacityManagerDataExport — moved to handler_capacity_family.go
+	// CreateCapacityReservationBySplitting — moved to handler_capacity_family.go
+	// CreateCapacityReservationFleet — moved to handler_capacity_family.go
 	// CreateCarrierGateway — real handler in handler_batch5.go, covered there
 	// CreateClientVpnEndpoint — moved to handler_batch4.go
 	// CreateClientVpnRoute — moved to handler_batch4.go
@@ -116,7 +116,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateVpnConcentrator"] = h.handleStubCreateVpnConcentrator
 	// CreateVpnConnection — moved to advancedNetworkingSupportedOperations
 	// CreateVpnGateway — moved to advancedNetworkingSupportedOperations
-	ops["DeleteCapacityManagerDataExport"] = h.handleStubDeleteCapacityManagerDataExport
+	// DeleteCapacityManagerDataExport — moved to handler_capacity_family.go
 	// DeleteCarrierGateway — real handler in handler_batch5.go, covered there
 	// DeleteClientVpnEndpoint — moved to handler_batch4.go
 	// DeleteClientVpnRoute — moved to handler_batch4.go
@@ -184,14 +184,14 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DeregisterTransitGatewayMulticastGroupSources — moved to handler_tgw_multicast.go
 	ops["DescribeAwsNetworkPerformanceMetricSubscriptions"] = h.handleStubDescribeAwsNetworkPerformanceMetricSubscriptions
 	ops["DescribeBundleTasks"] = h.handleStubDescribeBundleTasks
-	ops["DescribeCapacityBlockExtensionHistory"] = h.handleStubDescribeCapacityBlockExtensionHistory
-	ops["DescribeCapacityBlockExtensionOfferings"] = h.handleStubDescribeCapacityBlockExtensionOfferings
-	ops["DescribeCapacityBlockOfferings"] = h.handleStubDescribeCapacityBlockOfferings
-	ops["DescribeCapacityBlockStatus"] = h.handleStubDescribeCapacityBlockStatus
-	ops["DescribeCapacityBlocks"] = h.handleStubDescribeCapacityBlocks
-	ops["DescribeCapacityManagerDataExports"] = h.handleStubDescribeCapacityManagerDataExports
-	ops["DescribeCapacityReservationBillingRequests"] = h.handleStubDescribeCapacityReservationBillingRequests
-	ops["DescribeCapacityReservationFleets"] = h.handleStubDescribeCapacityReservationFleets
+	// DescribeCapacityBlockExtensionHistory — moved to handler_capacity_family.go
+	// DescribeCapacityBlockExtensionOfferings — moved to handler_capacity_family.go
+	// DescribeCapacityBlockOfferings — moved to handler_capacity_family.go
+	// DescribeCapacityBlockStatus — moved to handler_capacity_family.go
+	// DescribeCapacityBlocks — moved to handler_capacity_family.go
+	// DescribeCapacityManagerDataExports — moved to handler_capacity_family.go
+	// DescribeCapacityReservationBillingRequests — moved to handler_capacity_family.go
+	// DescribeCapacityReservationFleets — moved to handler_capacity_family.go
 	ops["DescribeCapacityReservationTopology"] = h.handleStubDescribeCapacityReservationTopology
 	// DescribeCarrierGateways — real handler in handler_batch5.go, covered there
 	// DescribeClassicLinkInstances — moved to handler_vpc_config.go
@@ -294,7 +294,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DetachVerifiedAccessTrustProvider — moved to handler_batch4.go
 	ops["DisableAllowedImagesSettings"] = h.handleStubDisableAllowedImagesSettings
 	ops["DisableAwsNetworkPerformanceMetricSubscription"] = h.handleStubDisableAwsNetworkPerformanceMetricSubscription
-	ops["DisableCapacityManager"] = h.handleStubDisableCapacityManager
+	// DisableCapacityManager — moved to handler_capacity_family.go
 	ops["DisableInstanceSqlHaStandbyDetections"] = h.handleStubDisableInstanceSQLHaStandbyDetections
 	ops["DisableIpamOrganizationAdminAccount"] = h.handleStubDisableIpamOrganizationAdminAccount
 	ops["DisableIpamPolicy"] = h.handleStubDisableIpamPolicy
@@ -302,7 +302,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisableTransitGatewayRouteTablePropagation"] = h.handleStubDisableTransitGatewayRouteTablePropagation
 	// DisableVpcClassicLink — moved to handler_vpc_config.go
 	// DisableVpcClassicLinkDnsSupport — moved to handler_vpc_config.go
-	ops["DisassociateCapacityReservationBillingOwner"] = h.handleStubDisassociateCapacityReservationBillingOwner
+	// DisassociateCapacityReservationBillingOwner — moved to handler_capacity_family.go
 	// DisassociateClientVpnTargetNetwork — moved to handler_batch4.go
 	ops["DisassociateEnclaveCertificateIamRole"] = h.handleStubDisassociateEnclaveCertificateIamRole
 	// DisassociateIamInstanceProfile — moved to handler_ec2core.go
@@ -316,7 +316,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisassociateTrunkInterface"] = h.handleStubDisassociateTrunkInterface
 	ops["EnableAllowedImagesSettings"] = h.handleStubEnableAllowedImagesSettings
 	ops["EnableAwsNetworkPerformanceMetricSubscription"] = h.handleStubEnableAwsNetworkPerformanceMetricSubscription
-	ops["EnableCapacityManager"] = h.handleStubEnableCapacityManager
+	// EnableCapacityManager — moved to handler_capacity_family.go
 	ops["EnableInstanceSqlHaStandbyDetections"] = h.handleStubEnableInstanceSQLHaStandbyDetections
 	ops["EnableIpamOrganizationAdminAccount"] = h.handleStubEnableIpamOrganizationAdminAccount
 	ops["EnableIpamPolicy"] = h.handleStubEnableIpamPolicy
@@ -333,9 +333,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetAllowedImagesSettings"] = h.handleStubGetAllowedImagesSettings
 	ops["GetAssociatedEnclaveCertificateIamRoles"] = h.handleStubGetAssociatedEnclaveCertificateIamRoles
 	ops["GetAwsNetworkPerformanceData"] = h.handleStubGetAwsNetworkPerformanceData
-	ops["GetCapacityManagerAttributes"] = h.handleStubGetCapacityManagerAttributes
-	ops["GetCapacityManagerMetricData"] = h.handleStubGetCapacityManagerMetricData
-	ops["GetCapacityManagerMetricDimensions"] = h.handleStubGetCapacityManagerMetricDimensions
+	// GetCapacityManagerAttributes — moved to handler_capacity_family.go
+	// GetCapacityManagerMetricData — moved to handler_capacity_family.go
+	// GetCapacityManagerMetricDimensions — moved to handler_capacity_family.go
 	ops["GetCapacityReservationUsage"] = h.handleStubGetCapacityReservationUsage
 	ops["GetCoipPoolUsage"] = h.handleStubGetCoipPoolUsage
 	ops["GetDeclarativePoliciesReportSummary"] = h.handleStubGetDeclarativePoliciesReportSummary
@@ -385,7 +385,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ImportInstance"] = h.handleStubImportInstance
 	ops["ImportVolume"] = h.handleStubImportVolume
 	ops["ModifyAvailabilityZoneGroup"] = h.handleStubModifyAvailabilityZoneGroup
-	ops["ModifyCapacityReservationFleet"] = h.handleStubModifyCapacityReservationFleet
+	// ModifyCapacityReservationFleet — moved to handler_capacity_family.go
 	// ModifyClientVpnEndpoint — moved to handler_batch4.go
 	// ModifyFleet — real handler in handler_batch5.go, covered there
 	ops["ModifyFpgaImageAttribute"] = h.handleStubModifyFpgaImageAttribute
@@ -432,18 +432,18 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ModifyVpnTunnelOptions — moved to advancedNetworkingSupportedOperations
 	ops["MoveAddressToVpc"] = h.handleStubMoveAddressToVpc
 	ops["MoveByoipCidrToIpam"] = h.handleStubMoveByoipCidrToIpam
-	ops["MoveCapacityReservationInstances"] = h.handleStubMoveCapacityReservationInstances
+	// MoveCapacityReservationInstances — moved to handler_capacity_family.go
 	// ProvisionByoipCidr — real handler in handler_batch5.go, covered there
 	ops["ProvisionIpamByoasn"] = h.handleStubProvisionIpamByoasn
 	// ops["ProvisionIpamPoolCidr"] — moved to advancedNetworkingSupportedOperations
-	ops["PurchaseCapacityBlock"] = h.handleStubPurchaseCapacityBlock
-	ops["PurchaseCapacityBlockExtension"] = h.handleStubPurchaseCapacityBlockExtension
+	// PurchaseCapacityBlock — moved to handler_capacity_family.go
+	// PurchaseCapacityBlockExtension — moved to handler_capacity_family.go
 	ops["PurchaseHostReservation"] = h.handleStubPurchaseHostReservation
 	// PurchaseReservedInstancesOffering — real handler in handler_batch5.go, covered there
 	ops["PurchaseScheduledInstances"] = h.handleStubPurchaseScheduledInstances
 	// RegisterTransitGatewayMulticastGroupMembers — moved to handler_tgw_multicast.go
 	// RegisterTransitGatewayMulticastGroupSources — moved to handler_tgw_multicast.go
-	ops["RejectCapacityReservationBillingOwnership"] = h.handleStubRejectCapacityReservationBillingOwnership
+	// RejectCapacityReservationBillingOwnership — moved to handler_capacity_family.go
 	ops["RejectTransitGatewayMulticastDomainAssociations"] = h.handleStubRejectTransitGatewayMulticastDomainAssociations
 	ops["RejectTransitGatewayPeeringAttachment"] = h.handleStubRejectTransitGatewayPeeringAttachment
 	ops["RejectTransitGatewayVpcAttachment"] = h.handleStubRejectTransitGatewayVpcAttachment
@@ -471,7 +471,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// StartVpcEndpointServicePrivateDnsVerification — moved to handler_advanced_networking.go
 	// TerminateClientVpnConnections — moved to handler_batch4.go
 	ops["UnassignPrivateNatGatewayAddress"] = h.handleStubUnassignPrivateNatGatewayAddress
-	ops["UpdateCapacityManagerOrganizationsAccess"] = h.handleStubUpdateCapacityManagerOrganizationsAccess
+	// UpdateCapacityManagerOrganizationsAccess — moved to handler_capacity_family.go
 	ops["UpdateInterruptibleCapacityReservationAllocation"] = h.handleStubUpdateInterruptibleCapacityReservationAllocation
 	// WithdrawByoipCidr — real handler in handler_batch5.go, covered there
 	ops["CreatePublicIpv4Pool"] = h.handleStubCreatePublicIpv4Pool
@@ -956,17 +956,6 @@ func (h *Handler) handleStubAllocateIpamPoolCidr(_ url.Values, reqID string) (an
 	}, nil
 }
 
-func (h *Handler) handleStubAssociateCapacityReservationBillingOwner(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateCapacityReservationBillingOwnerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubAssociateEnclaveCertificateIamRole(
 	_ url.Values,
 	reqID string,
@@ -1040,17 +1029,6 @@ func (h *Handler) handleStubCancelBundleTask(_ url.Values, reqID string) (any, e
 	}, nil
 }
 
-func (h *Handler) handleStubCancelCapacityReservationFleets(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CancelCapacityReservationFleetsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCancelConversionTask(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CancelConversionTaskResponse"},
@@ -1113,39 +1091,6 @@ func (h *Handler) handleStubConfirmProductInstance(_ url.Values, reqID string) (
 func (h *Handler) handleStubCopyFpgaImage(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CopyFpgaImageResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateCapacityManagerDataExport(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateCapacityManagerDataExportResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateCapacityReservationBySplitting(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateCapacityReservationBySplittingResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateCapacityReservationFleet(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateCapacityReservationFleetResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1389,17 +1334,6 @@ func (h *Handler) handleStubCreateVpnConcentrator(_ url.Values, reqID string) (a
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteCapacityManagerDataExport(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteCapacityManagerDataExportResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteCoipCidr(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteCoipCidrResponse"},
@@ -1603,88 +1537,6 @@ func (h *Handler) handleStubDescribeAwsNetworkPerformanceMetricSubscriptions(
 func (h *Handler) handleStubDescribeBundleTasks(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeBundleTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCapacityBlockExtensionHistory(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCapacityBlockExtensionHistoryResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCapacityBlockExtensionOfferings(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCapacityBlockExtensionOfferingsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCapacityBlockOfferings(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCapacityBlockOfferingsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCapacityBlockStatus(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCapacityBlockStatusResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCapacityBlocks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCapacityBlocksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCapacityManagerDataExports(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCapacityManagerDataExportsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCapacityReservationBillingRequests(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCapacityReservationBillingRequestsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCapacityReservationFleets(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCapacityReservationFleetsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2112,14 +1964,6 @@ func (h *Handler) handleStubDisableAwsNetworkPerformanceMetricSubscription(
 	}, nil
 }
 
-func (h *Handler) handleStubDisableCapacityManager(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableCapacityManagerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDisableInstanceSQLHaStandbyDetections(
 	_ url.Values,
 	reqID string,
@@ -2156,17 +2000,6 @@ func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableTransitGatewayRouteTablePropagationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisassociateCapacityReservationBillingOwner(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateCapacityReservationBillingOwnerResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2246,14 +2079,6 @@ func (h *Handler) handleStubEnableAwsNetworkPerformanceMetricSubscription(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableAwsNetworkPerformanceMetricSubscriptionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubEnableCapacityManager(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableCapacityManagerResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2360,33 +2185,6 @@ func (h *Handler) handleStubGetAssociatedEnclaveCertificateIamRoles(
 func (h *Handler) handleStubGetAwsNetworkPerformanceData(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetAwsNetworkPerformanceDataResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetCapacityManagerAttributes(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetCapacityManagerAttributesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetCapacityManagerMetricData(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetCapacityManagerMetricDataResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetCapacityManagerMetricDimensions(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetCapacityManagerMetricDimensionsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2680,17 +2478,6 @@ func (h *Handler) handleStubModifyAvailabilityZoneGroup(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubModifyCapacityReservationFleet(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyCapacityReservationFleetResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyFpgaImageAttributeResponse"},
@@ -2951,39 +2738,9 @@ func (h *Handler) handleStubMoveByoipCidrToIpam(_ url.Values, reqID string) (any
 	}, nil
 }
 
-func (h *Handler) handleStubMoveCapacityReservationInstances(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "MoveCapacityReservationInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubProvisionIpamByoasn(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ProvisionIpamByoasnResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubPurchaseCapacityBlock(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "PurchaseCapacityBlockResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubPurchaseCapacityBlockExtension(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "PurchaseCapacityBlockExtensionResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3000,17 +2757,6 @@ func (h *Handler) handleStubPurchaseHostReservation(_ url.Values, reqID string) 
 func (h *Handler) handleStubPurchaseScheduledInstances(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "PurchaseScheduledInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubRejectCapacityReservationBillingOwnership(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RejectCapacityReservationBillingOwnershipResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3157,17 +2903,6 @@ func (h *Handler) handleStubUnassignPrivateNatGatewayAddress(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "UnassignPrivateNatGatewayAddressResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubUpdateCapacityManagerOrganizationsAccess(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "UpdateCapacityManagerOrganizationsAccessResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

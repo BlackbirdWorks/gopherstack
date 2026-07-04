@@ -200,20 +200,30 @@ func clonePipeline(p *Pipeline) *Pipeline {
 
 // PipelineExecution represents a single execution of a SageMaker Pipeline.
 type PipelineExecution struct {
-	StartTime                    time.Time           `json:"StartTime"`
-	PipelineArn                  string              `json:"PipelineArn"`
-	PipelineExecutionArn         string              `json:"PipelineExecutionArn"`
-	PipelineExecutionStatus      string              `json:"PipelineExecutionStatus"`
-	PipelineExecutionDisplayName string              `json:"PipelineExecutionDisplayName,omitempty"`
-	PipelineExecutionDescription string              `json:"PipelineExecutionDescription,omitempty"`
-	FailureReason                string              `json:"FailureReason,omitempty"`
-	PipelineParameters           []PipelineParameter `json:"PipelineParameters,omitempty"`
+	StartTime                    time.Time                 `json:"StartTime"`
+	ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+	PipelineArn                  string                    `json:"PipelineArn"`
+	PipelineExecutionArn         string                    `json:"PipelineExecutionArn"`
+	PipelineExecutionStatus      string                    `json:"PipelineExecutionStatus"`
+	PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
+	PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
+	FailureReason                string                    `json:"FailureReason,omitempty"`
+	// PipelineDefinition is the JSON pipeline definition snapshot captured from
+	// the parent pipeline when this execution started, returned verbatim by
+	// DescribePipelineDefinitionForExecution.
+	PipelineDefinition string              `json:"PipelineDefinition,omitempty"`
+	PipelineParameters []PipelineParameter `json:"PipelineParameters,omitempty"`
 }
 
 func clonePipelineExecution(pe *PipelineExecution) *PipelineExecution {
 	cp := *pe
 	cp.PipelineParameters = make([]PipelineParameter, len(pe.PipelineParameters))
 	copy(cp.PipelineParameters, pe.PipelineParameters)
+
+	if pe.ParallelismConfiguration != nil {
+		pc := *pe.ParallelismConfiguration
+		cp.ParallelismConfiguration = &pc
+	}
 
 	return &cp
 }
@@ -849,6 +859,7 @@ func (b *InMemoryBackend) DeletePipeline(ctx context.Context, name string) (*Pip
 
 	cp := clonePipeline(p)
 	delete(store, name)
+	delete(b.pipelineVersionsStore(region), name)
 
 	return cp, nil
 }
@@ -1342,6 +1353,7 @@ func (b *InMemoryBackend) CreatePipelineFull(ctx context.Context, opts CreatePip
 		Tags:                     mergeTags(nil, opts.Tags),
 	}
 	b.pipelinesStore(region)[opts.PipelineName] = p
+	b.recordPipelineVersionLocked(region, p)
 
 	return clonePipeline(p), nil
 }
@@ -1378,6 +1390,7 @@ func (b *InMemoryBackend) UpdatePipelineFull(
 		p.ParallelismConfiguration = parallelismConfig
 	}
 	p.LastModifiedTime = time.Now()
+	b.recordPipelineVersionLocked(region, p)
 
 	return clonePipeline(p), nil
 }
@@ -1419,9 +1432,12 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 		PipelineExecutionDisplayName: opts.PipelineExecutionDisplayName,
 		PipelineExecutionDescription: opts.PipelineExecutionDescription,
 		PipelineParameters:           params,
+		PipelineDefinition:           p.PipelineDefinition,
+		ParallelismConfiguration:     opts.ParallelismConfiguration,
 		StartTime:                    time.Now(),
 	}
 	b.pipelineExecutionsStore(region)[execArn] = pe
+	b.recordPipelineExecutionOnLatestVersionLocked(region, opts.PipelineName, execArn)
 
 	return clonePipelineExecution(pe), nil
 }

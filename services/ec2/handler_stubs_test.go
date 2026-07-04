@@ -16,7 +16,7 @@ func TestStubOperations(t *testing.T) {
 	// All 599 stub operation names registered in handler_stubs.go.
 	stubOps := []string{
 		// "ApplySecurityGroupsToClientVpnTargetNetwork", — moved to batch4
-		"AssociateCapacityReservationBillingOwner",
+		// "AssociateCapacityReservationBillingOwner", — moved to handler_capacity_family.go
 		// "AssociateClientVpnTargetNetwork", — moved to batch4
 		"AssociateEnclaveCertificateIamRole",
 		"AssociateInstanceEventWindow",
@@ -30,7 +30,7 @@ func TestStubOperations(t *testing.T) {
 		// "AuthorizeClientVpnIngress", — moved to batch4
 		"BundleInstance",
 		"CancelBundleTask",
-		"CancelCapacityReservationFleets",
+		// "CancelCapacityReservationFleets", — moved to handler_capacity_family.go
 		"CancelConversionTask",
 		"CancelDeclarativePoliciesReport",
 		"CancelExportTask",
@@ -39,9 +39,9 @@ func TestStubOperations(t *testing.T) {
 		// "CancelReservedInstancesListing", — real handler in handler_batch5.go, covered there
 		"ConfirmProductInstance",
 		"CopyFpgaImage",
-		"CreateCapacityManagerDataExport",
-		"CreateCapacityReservationBySplitting",
-		"CreateCapacityReservationFleet",
+		// "CreateCapacityManagerDataExport", — moved to handler_capacity_family.go
+		// "CreateCapacityReservationBySplitting", — moved to handler_capacity_family.go
+		// "CreateCapacityReservationFleet", — moved to handler_capacity_family.go
 		// "CreateCarrierGateway", — real handler in handler_batch5.go, covered there
 		// "CreateClientVpnEndpoint", — moved to batch4
 		// "CreateClientVpnRoute", — moved to batch4
@@ -94,7 +94,7 @@ func TestStubOperations(t *testing.T) {
 		"CreateVpcEndpointServiceConfiguration",
 		"CreateVpnConcentrator",
 		// "CreateVpnGateway", — moved to advancedNetworkingSupportedOperations
-		"DeleteCapacityManagerDataExport",
+		// "DeleteCapacityManagerDataExport", — moved to handler_capacity_family.go
 		// "DeleteCarrierGateway", — real handler in handler_batch5.go, covered there
 		// "DeleteClientVpnEndpoint", — moved to batch4
 		// "DeleteClientVpnRoute", — moved to batch4
@@ -147,14 +147,14 @@ func TestStubOperations(t *testing.T) {
 		// "DeregisterTransitGatewayMulticastGroupSources", — real handler in handler_tgw_multicast.go, covered there
 		"DescribeAwsNetworkPerformanceMetricSubscriptions",
 		"DescribeBundleTasks",
-		"DescribeCapacityBlockExtensionHistory",
-		"DescribeCapacityBlockExtensionOfferings",
-		"DescribeCapacityBlockOfferings",
-		"DescribeCapacityBlockStatus",
-		"DescribeCapacityBlocks",
-		"DescribeCapacityManagerDataExports",
-		"DescribeCapacityReservationBillingRequests",
-		"DescribeCapacityReservationFleets",
+		// "DescribeCapacityBlockExtensionHistory", — moved to handler_capacity_family.go
+		// "DescribeCapacityBlockExtensionOfferings", — moved to handler_capacity_family.go
+		// "DescribeCapacityBlockOfferings", — moved to handler_capacity_family.go
+		// "DescribeCapacityBlockStatus", — moved to handler_capacity_family.go
+		// "DescribeCapacityBlocks", — moved to handler_capacity_family.go
+		// "DescribeCapacityManagerDataExports", — moved to handler_capacity_family.go
+		// "DescribeCapacityReservationBillingRequests", — moved to handler_capacity_family.go
+		// "DescribeCapacityReservationFleets", — moved to handler_capacity_family.go
 		"DescribeCapacityReservationTopology",
 		// "DescribeCarrierGateways", — real handler in handler_batch5.go, covered there
 		// "DescribeClientVpnAuthorizationRules", — moved to batch4
@@ -238,12 +238,12 @@ func TestStubOperations(t *testing.T) {
 		// "DetachVerifiedAccessTrustProvider", — moved to batch4
 		"DisableAllowedImagesSettings",
 		"DisableAwsNetworkPerformanceMetricSubscription",
-		"DisableCapacityManager",
+		// "DisableCapacityManager", — moved to handler_capacity_family.go
 		"DisableIpamOrganizationAdminAccount",
 		"DisableIpamPolicy",
 		// "DisableRouteServerPropagation", — real handler in handler_route_server.go, covered there
 		"DisableTransitGatewayRouteTablePropagation",
-		"DisassociateCapacityReservationBillingOwner",
+		// "DisassociateCapacityReservationBillingOwner", — moved to handler_capacity_family.go
 		// "DisassociateClientVpnTargetNetwork", — moved to batch4
 		"DisassociateEnclaveCertificateIamRole",
 		"DisassociateInstanceEventWindow",
@@ -255,7 +255,7 @@ func TestStubOperations(t *testing.T) {
 		"DisassociateTrunkInterface",
 		"EnableAllowedImagesSettings",
 		"EnableAwsNetworkPerformanceMetricSubscription",
-		"EnableCapacityManager",
+		// "EnableCapacityManager", — moved to handler_capacity_family.go
 		"EnableIpamOrganizationAdminAccount",
 		"EnableIpamPolicy",
 		"EnableReachabilityAnalyzerOrganizationSharing",
@@ -269,9 +269,9 @@ func TestStubOperations(t *testing.T) {
 		"GetAllowedImagesSettings",
 		"GetAssociatedEnclaveCertificateIamRoles",
 		"GetAwsNetworkPerformanceData",
-		"GetCapacityManagerAttributes",
-		"GetCapacityManagerMetricData",
-		"GetCapacityManagerMetricDimensions",
+		// "GetCapacityManagerAttributes", — moved to handler_capacity_family.go
+		// "GetCapacityManagerMetricData", — moved to handler_capacity_family.go
+		// "GetCapacityManagerMetricDimensions", — moved to handler_capacity_family.go
 		"GetCapacityReservationUsage",
 		"GetCoipPoolUsage",
 		"GetDeclarativePoliciesReportSummary",
@@ -320,7 +320,7 @@ func TestStubOperations(t *testing.T) {
 		"ImportInstance",
 		"ImportVolume",
 		"ModifyAvailabilityZoneGroup",
-		"ModifyCapacityReservationFleet",
+		// "ModifyCapacityReservationFleet", — moved to handler_capacity_family.go
 		// "ModifyClientVpnEndpoint", — moved to batch4
 		// "ModifyFleet", — real handler in handler_batch5.go, covered there
 		"ModifyFpgaImageAttribute",
@@ -357,17 +357,17 @@ func TestStubOperations(t *testing.T) {
 		// "ModifyVpnTunnelOptions", — moved to advancedNetworkingSupportedOperations
 		"MoveAddressToVpc",
 		"MoveByoipCidrToIpam",
-		"MoveCapacityReservationInstances",
+		// "MoveCapacityReservationInstances", — moved to handler_capacity_family.go
 		// "ProvisionByoipCidr", — real handler in handler_batch5.go, covered there
 		"ProvisionIpamByoasn",
-		"PurchaseCapacityBlock",
-		"PurchaseCapacityBlockExtension",
+		// "PurchaseCapacityBlock", — moved to handler_capacity_family.go
+		// "PurchaseCapacityBlockExtension", — moved to handler_capacity_family.go
 		"PurchaseHostReservation",
 		// "PurchaseReservedInstancesOffering", — real handler in handler_batch5.go, covered there
 		"PurchaseScheduledInstances",
 		// "RegisterTransitGatewayMulticastGroupMembers", — real handler in handler_tgw_multicast.go, covered there
 		// "RegisterTransitGatewayMulticastGroupSources", — real handler in handler_tgw_multicast.go, covered there
-		"RejectCapacityReservationBillingOwnership",
+		// "RejectCapacityReservationBillingOwnership", — moved to handler_capacity_family.go
 		"RejectTransitGatewayMulticastDomainAssociations",
 		"RejectTransitGatewayPeeringAttachment",
 		"RejectTransitGatewayVpcAttachment",
@@ -387,7 +387,7 @@ func TestStubOperations(t *testing.T) {
 		// "StartNetworkInsightsAnalysis", — real handler in handler_batch5.go, covered there
 		// "TerminateClientVpnConnections", — moved to batch4
 		"UnassignPrivateNatGatewayAddress",
-		"UpdateCapacityManagerOrganizationsAccess",
+		// "UpdateCapacityManagerOrganizationsAccess", — moved to handler_capacity_family.go
 		"UpdateInterruptibleCapacityReservationAllocation",
 		// "WithdrawByoipCidr", — real handler in handler_batch5.go, covered there
 		"CreatePublicIpv4Pool",

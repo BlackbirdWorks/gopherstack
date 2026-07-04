@@ -27,6 +27,8 @@ const (
 	opCreateHubContentReference     = "CreateHubContentReference"
 	opDeleteHubContentReference     = "DeleteHubContentReference"
 	opCreateHubContentPresignedURLs = "CreateHubContentPresignedUrls"
+	opUpdateHubContent              = "UpdateHubContent"
+	opUpdateHubContentReference     = "UpdateHubContentReference"
 )
 
 // hubOpsSupported returns the operation names implemented by this family.
@@ -45,6 +47,8 @@ func hubOpsSupported() []string {
 		opCreateHubContentReference,
 		opDeleteHubContentReference,
 		opCreateHubContentPresignedURLs,
+		opUpdateHubContent,
+		opUpdateHubContentReference,
 	}
 }
 
@@ -114,6 +118,14 @@ func (h *Handler) dispatchHubContentOps(
 		return nil, true, h.handleDeleteHubContentReference(ctx, body)
 	case opCreateHubContentPresignedURLs:
 		r, err := h.handleCreateHubContentPresignedURLs(ctx, body)
+
+		return r, true, err
+	case opUpdateHubContent:
+		r, err := h.handleUpdateHubContent(ctx, body)
+
+		return r, true, err
+	case opUpdateHubContentReference:
+		r, err := h.handleUpdateHubContentReference(ctx, body)
 
 		return r, true, err
 	}
@@ -672,6 +684,74 @@ func (h *Handler) handleDeleteHubContentReference(ctx context.Context, body []by
 	}
 
 	return h.Backend.DeleteHubContentReference(ctx, req.HubName, req.HubContentType, req.HubContentName)
+}
+
+func (h *Handler) handleUpdateHubContent(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		HubName                  string   `json:"HubName"`
+		HubContentType           string   `json:"HubContentType"`
+		HubContentName           string   `json:"HubContentName"`
+		HubContentVersion        string   `json:"HubContentVersion"`
+		HubContentDescription    string   `json:"HubContentDescription,omitempty"`
+		HubContentDisplayName    string   `json:"HubContentDisplayName,omitempty"`
+		HubContentMarkdown       string   `json:"HubContentMarkdown,omitempty"`
+		SupportStatus            string   `json:"SupportStatus,omitempty"`
+		HubContentSearchKeywords []string `json:"HubContentSearchKeywords,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.HubName == "" || req.HubContentType == "" || req.HubContentName == "" || req.HubContentVersion == "" {
+		return nil, fmt.Errorf(
+			"%w: HubName, HubContentType, HubContentName, and HubContentVersion are required", errInvalidRequest,
+		)
+	}
+
+	hc, err := h.Backend.UpdateHubContent(
+		ctx, req.HubName, req.HubContentType, req.HubContentName, req.HubContentVersion,
+		UpdateHubContentOptions{
+			HubContentDescription:    req.HubContentDescription,
+			HubContentDisplayName:    req.HubContentDisplayName,
+			HubContentMarkdown:       req.HubContentMarkdown,
+			SupportStatus:            req.SupportStatus,
+			HubContentSearchKeywords: req.HubContentSearchKeywords,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn})
+}
+
+func (h *Handler) handleUpdateHubContentReference(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		HubName        string `json:"HubName"`
+		HubContentType string `json:"HubContentType"`
+		HubContentName string `json:"HubContentName"`
+		MinVersion     string `json:"MinVersion,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.HubName == "" || req.HubContentType == "" || req.HubContentName == "" {
+		return nil, fmt.Errorf(
+			"%w: HubName, HubContentType, and HubContentName are required", errInvalidRequest,
+		)
+	}
+
+	hc, err := h.Backend.UpdateHubContentReference(
+		ctx, req.HubName, req.HubContentType, req.HubContentName, req.MinVersion,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn})
 }
 
 func (h *Handler) handleCreateHubContentPresignedURLs(ctx context.Context, body []byte) ([]byte, error) {

@@ -358,24 +358,33 @@ type InMemoryBackend struct {
 	classicLinkInstances           map[string]*ClassicLinkInstance
 	vpcBlockPublicAccessOptions    *VpcBlockPublicAccessOptions
 	vpcBlockPublicAccessExclusions map[string]*VpcBlockPublicAccessExclusion
-	mu                             *lockmetrics.RWMutex
-	lifecycleStop                  chan struct{}
-	eniIDByAttachment              map[string]string
-	eniIDsByInstance               map[string]map[string]struct{}
-	instanceIDsByVPC               map[string]map[string]struct{}
-	snapshotBlockPublicAccess      string
-	ebsDefaultKmsKeyID             string
-	imageBlockPublicAccess         string
-	defaultCreditSpec              string
-	Region                         string `json:"region,omitempty"`
-	AccountID                      string `json:"accountID,omitempty"`
-	freePrivateIPs                 []string
-	nextPrivateIPIndex             int
-	nextElasticIPIndex             int
-	ebsEncryptionByDefault         bool
-	serialConsoleAccess            bool
-	lifecycleOnce                  sync.Once
-	lifecycleStopOnce              sync.Once
+	// Capacity Reservation Fleet / Capacity Block / Capacity Manager additions
+	capacityReservationFleets          map[string]*CapacityReservationFleet
+	capacityBlockOfferings             map[string]*CapacityBlockOffering
+	capacityBlockExtensionOfferings    map[string]*CapacityBlockExtensionOffering
+	capacityBlocks                     map[string]*CapacityBlock
+	capacityBlockExtensions            map[string]*CapacityBlockExtension
+	capacityReservationBillingRequests map[string]*CapacityReservationBillingRequest
+	capacityManagerDataExports         map[string]*CapacityManagerDataExport
+	capacityManagerState               *CapacityManagerState
+	mu                                 *lockmetrics.RWMutex
+	lifecycleStop                      chan struct{}
+	eniIDByAttachment                  map[string]string
+	eniIDsByInstance                   map[string]map[string]struct{}
+	instanceIDsByVPC                   map[string]map[string]struct{}
+	snapshotBlockPublicAccess          string
+	ebsDefaultKmsKeyID                 string
+	imageBlockPublicAccess             string
+	defaultCreditSpec                  string
+	Region                             string `json:"region,omitempty"`
+	AccountID                          string `json:"accountID,omitempty"`
+	freePrivateIPs                     []string
+	nextPrivateIPIndex                 int
+	nextElasticIPIndex                 int
+	ebsEncryptionByDefault             bool
+	serialConsoleAccess                bool
+	lifecycleOnce                      sync.Once
+	lifecycleStopOnce                  sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -471,8 +480,23 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initLocalGatewayMaps(b)
 	initTGWMulticastMaps(b)
 	initVpcConfigMaps(b)
+	initCapacityFamilyMaps(b)
 
 	return b
+}
+
+// initCapacityFamilyMaps initialises the Capacity Reservation Fleet, Capacity
+// Block, and Capacity Manager state maps (split out to keep
+// newInMemoryBackendMaps under the funlen limit).
+func initCapacityFamilyMaps(b *InMemoryBackend) {
+	b.capacityReservationFleets = make(map[string]*CapacityReservationFleet)
+	b.capacityBlockOfferings = make(map[string]*CapacityBlockOffering)
+	b.capacityBlockExtensionOfferings = make(map[string]*CapacityBlockExtensionOffering)
+	b.capacityBlocks = make(map[string]*CapacityBlock)
+	b.capacityBlockExtensions = make(map[string]*CapacityBlockExtension)
+	b.capacityReservationBillingRequests = make(map[string]*CapacityReservationBillingRequest)
+	b.capacityManagerDataExports = make(map[string]*CapacityManagerDataExport)
+	b.capacityManagerState = &CapacityManagerState{Status: capacityManagerStatusDisabled}
 }
 
 // initVpcConfigMaps initialises the VPC ClassicLink and Block Public Access

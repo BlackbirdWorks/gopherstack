@@ -808,6 +808,22 @@ func (b *InMemoryBackend) DescribeHumanTaskUI(ctx context.Context, name string) 
 	return cloneHumanTaskUI(ui), nil
 }
 
+// HumanTaskUIExistsByARN reports whether a human task UI with the given ARN exists.
+func (b *InMemoryBackend) HumanTaskUIExistsByARN(ctx context.Context, humanTaskUIArn string) bool {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("HumanTaskUIExistsByARN")
+	defer b.mu.RUnlock()
+
+	for _, ui := range b.humanTaskUisStore(region) {
+		if ui.HumanTaskUIArn == humanTaskUIArn {
+			return true
+		}
+	}
+
+	return false
+}
+
 // DeleteHumanTaskUI removes a human task UI by name.
 func (b *InMemoryBackend) DeleteHumanTaskUI(ctx context.Context, name string) error {
 	region := getRegion(ctx, b.region)
@@ -1275,6 +1291,7 @@ type InferenceExperiment struct {
 	Status           string            `json:"Status"`
 	Type             string            `json:"Type,omitempty"`
 	RoleArn          string            `json:"RoleArn,omitempty"`
+	Description      string            `json:"Description,omitempty"`
 }
 
 func cloneInferenceExperiment(e *InferenceExperiment) *InferenceExperiment {
@@ -1345,6 +1362,48 @@ func (b *InMemoryBackend) StopInferenceExperiment(ctx context.Context, name stri
 	e.LastModifiedTime = time.Now()
 
 	return nil
+}
+
+// StartInferenceExperiment transitions an inference experiment to "Running".
+func (b *InMemoryBackend) StartInferenceExperiment(ctx context.Context, name string) (*InferenceExperiment, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("StartInferenceExperiment")
+	defer b.mu.Unlock()
+
+	e, ok := b.inferenceExperimentsStore(region)[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
+	}
+
+	e.Status = statusRunning
+	e.LastModifiedTime = time.Now()
+
+	return cloneInferenceExperiment(e), nil
+}
+
+// UpdateInferenceExperiment updates an inference experiment's description.
+func (b *InMemoryBackend) UpdateInferenceExperiment(
+	ctx context.Context,
+	name, description string,
+) (*InferenceExperiment, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("UpdateInferenceExperiment")
+	defer b.mu.Unlock()
+
+	e, ok := b.inferenceExperimentsStore(region)[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
+	}
+
+	if description != "" {
+		e.Description = description
+	}
+
+	e.LastModifiedTime = time.Now()
+
+	return cloneInferenceExperiment(e), nil
 }
 
 // DeleteInferenceExperiment removes an inference experiment by name.

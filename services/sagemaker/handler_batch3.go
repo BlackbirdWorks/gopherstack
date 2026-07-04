@@ -64,6 +64,8 @@ func batch3SupportedOperations() []string {
 		"DescribeInferenceExperiment",
 		"StopInferenceExperiment",
 		"DeleteInferenceExperiment",
+		"StartInferenceExperiment",
+		"UpdateInferenceExperiment",
 		// MlflowTrackingServer
 		"CreateMlflowTrackingServer",
 		"DescribeMlflowTrackingServer",
@@ -271,6 +273,14 @@ func (h *Handler) dispatchBatch3Ops(
 		return nil, true, h.handleStopInferenceExperiment(ctx, body)
 	case "DeleteInferenceExperiment":
 		return nil, true, h.handleDeleteInferenceExperiment(ctx, body)
+	case "StartInferenceExperiment":
+		r, err := h.handleStartInferenceExperiment(ctx, body)
+
+		return r, true, err
+	case "UpdateInferenceExperiment":
+		r, err := h.handleUpdateInferenceExperiment(ctx, body)
+
+		return r, true, err
 
 	// MlflowTrackingServer
 	case "CreateMlflowTrackingServer":
@@ -1517,6 +1527,49 @@ func (h *Handler) handleDeleteInferenceExperiment(ctx context.Context, body []by
 	}
 
 	return h.Backend.DeleteInferenceExperiment(ctx, req.Name)
+}
+
+func (h *Handler) handleStartInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name string `json:"Name"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.StartInferenceExperiment(ctx, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn})
+}
+
+func (h *Handler) handleUpdateInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name        string `json:"Name"`
+		Description string `json:"Description,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.UpdateInferenceExperiment(ctx, req.Name, req.Description)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn})
 }
 
 // ---------------------------------------------------------------------------

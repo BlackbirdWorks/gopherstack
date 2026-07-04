@@ -164,7 +164,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListPipelineExecutionSteps",
 		opListPipelineParametersForExec,
 		opListPipelines,
+		"ListPipelineVersions",
+		"DescribePipelineDefinitionForExecution",
+		"UpdatePipelineVersion",
+		"UpdatePipelineExecution",
 		"ListProcessingJobs",
+		"DeleteProcessingJob",
 		opListTrials,
 		opListUserProfiles,
 		"ListTags",
@@ -206,11 +211,14 @@ func (h *Handler) GetSupportedOperations() []string {
 	trainingPlanExt := trainingPlanExtOpsSupported()
 	automlSearchExt := automlSearchExtOpsSupported()
 	modelCardExport := modelCardExportOpsSupported()
+	miscDestub := miscDestubOpsSupported()
+	featureMetadata := featureMetadataOpsSupported()
+	presignedSession := presignedSessionOpsSupported()
 
-	stubs := stubOpsSupported()
 	total := len(core) + len(batch2) + len(batch3) + len(accuracy3)
 	total += len(accuracy4) + len(edgeDeployment) + len(cluster) + len(lineage) + len(hub)
-	total += len(labeling) + len(trainingPlanExt) + len(automlSearchExt) + len(modelCardExport) + len(stubs)
+	total += len(labeling) + len(trainingPlanExt) + len(automlSearchExt) + len(modelCardExport)
+	total += len(miscDestub) + len(featureMetadata) + len(presignedSession)
 	combined := make([]string, 0, total)
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
@@ -225,8 +233,11 @@ func (h *Handler) GetSupportedOperations() []string {
 	combined = append(combined, trainingPlanExt...)
 	combined = append(combined, automlSearchExt...)
 	combined = append(combined, modelCardExport...)
+	combined = append(combined, miscDestub...)
+	combined = append(combined, featureMetadata...)
+	combined = append(combined, presignedSession...)
 
-	return append(combined, stubs...)
+	return combined
 }
 
 // batch2OpsSupported returns the 50 real stateful operations implemented in batch 2.
@@ -242,6 +253,9 @@ func batch2OpsSupported() []string {
 		"DescribeModelPackageGroup",
 		"DeleteModelPackageGroup",
 		"ListModelPackageGroups",
+		"GetModelPackageGroupPolicy",
+		"PutModelPackageGroupPolicy",
+		"DeleteModelPackageGroupPolicy",
 		// AutoMLJob
 		"CreateAutoMLJob",
 		"CreateAutoMLJobV2",
@@ -483,8 +497,9 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 }
 
 // dispatchFamilyExtAndStubOps groups the Training Plan / Reserved Capacity,
-// AutoML candidates / Search, ModelCard export job, and stub dispatch tables
-// so dispatchNewOps only needs a single branch for all four.
+// AutoML candidates / Search, ModelCard export job, and remaining
+// miscellaneous de-stubbed operation dispatch tables so dispatchNewOps only
+// needs a single branch for all of them.
 func (h *Handler) dispatchFamilyExtAndStubOps(
 	ctx context.Context,
 	op string,
@@ -502,7 +517,15 @@ func (h *Handler) dispatchFamilyExtAndStubOps(
 		return r, true, err
 	}
 
-	return h.dispatchStubOps(ctx, op, body)
+	if r, ok, err := h.dispatchMiscDestubOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchFeatureMetadataOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchPresignedSessionOps(ctx, op, body)
 }
 
 func (h *Handler) dispatchLineageAndBatchOps(
@@ -680,6 +703,8 @@ func (h *Handler) dispatchProcessingOps(
 		return r, true, err
 	case "StopProcessingJob":
 		return nil, true, h.handleStopProcessingJob(ctx, body)
+	case "DeleteProcessingJob":
+		return nil, true, h.handleDeleteProcessingJob(ctx, body)
 	case "ListProcessingJobs":
 		r, err := h.handleListProcessingJobs(ctx, body)
 

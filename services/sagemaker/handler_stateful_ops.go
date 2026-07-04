@@ -78,6 +78,10 @@ func (h *Handler) dispatchStatefulOps(
 		return r, ok, err
 	}
 
+	if r, ok, err := h.dispatchPipelineVersionOps(ctx, op, body); ok {
+		return r, ok, err
+	}
+
 	return nil, false, nil
 }
 

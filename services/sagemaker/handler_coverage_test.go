@@ -350,21 +350,56 @@ func TestHandler_FeatureGroup_NotFound(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Feature metadata stub operations
+// Feature metadata operations
 // ---------------------------------------------------------------------------
 
-func TestHandler_UpdateFeatureMetadata_Stub(t *testing.T) {
+func TestHandler_UpdateAndDescribeFeatureMetadata(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// UpdateFeatureMetadata is a stub returning empty 200.
+	doSageMakerRequest(t, h, "CreateFeatureGroup", map[string]any{
+		"FeatureGroupName":                  "meta-features",
+		"RecordIdentifierFeatureDefinition": "id",
+		"EventTimeFeatureName":              "event_time",
+		"FeatureDefinitions": []map[string]any{
+			{"FeatureName": "id", "FeatureType": "Integral"},
+			{"FeatureName": "event_time", "FeatureType": "String"},
+		},
+	})
+
 	recUpdate := doSageMakerRequest(t, h, "UpdateFeatureMetadata", map[string]any{
-		"FeatureGroupName": "any-features",
+		"FeatureGroupName": "meta-features",
+		"FeatureName":      "id",
+		"Description":      "the record id",
+	})
+	assert.Equal(t, http.StatusOK, recUpdate.Code)
+
+	recDescribe := doSageMakerRequest(t, h, "DescribeFeatureMetadata", map[string]any{
+		"FeatureGroupName": "meta-features",
+		"FeatureName":      "id",
+	})
+	assert.Equal(t, http.StatusOK, recDescribe.Code)
+
+	var describeOut map[string]any
+	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &describeOut))
+	assert.Equal(t, "the record id", describeOut["Description"])
+	assert.Equal(t, "id", describeOut["FeatureName"])
+	assert.Equal(t, "Integral", describeOut["FeatureType"])
+	assert.NotEmpty(t, describeOut["FeatureGroupArn"])
+}
+
+func TestHandler_UpdateFeatureMetadata_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "UpdateFeatureMetadata", map[string]any{
+		"FeatureGroupName": "no-such-group",
 		"FeatureName":      "id",
 		"Description":      "stub test",
 	})
-	assert.Equal(t, http.StatusOK, recUpdate.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // ---------------------------------------------------------------------------

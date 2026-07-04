@@ -43,14 +43,18 @@ type AddressTransfer struct {
 
 // CapacityReservation represents an EC2 Capacity Reservation.
 type CapacityReservation struct {
-	CreateTime             time.Time `json:"createTime"`
-	CapacityReservationID  string    `json:"capacityReservationID,omitempty"`
-	InstanceType           string    `json:"instanceType,omitempty"`
-	AvailabilityZone       string    `json:"availabilityZone,omitempty"`
-	OwnedBy                string    `json:"ownedBy,omitempty"`
-	State                  string    `json:"state,omitempty"`
-	AvailableInstanceCount int       `json:"availableInstanceCount,omitempty"`
-	TotalInstanceCount     int       `json:"totalInstanceCount,omitempty"`
+	CreateTime            time.Time `json:"createTime"`
+	CapacityReservationID string    `json:"capacityReservationID,omitempty"`
+	InstanceType          string    `json:"instanceType,omitempty"`
+	AvailabilityZone      string    `json:"availabilityZone,omitempty"`
+	OwnedBy               string    `json:"ownedBy,omitempty"`
+	State                 string    `json:"state,omitempty"`
+	// InstancePlatform is the OS platform reserved (e.g. "Linux/UNIX"). Populated
+	// for Capacity Block purchases; empty for plain CreateCapacityReservation
+	// calls that predate this field.
+	InstancePlatform       string `json:"instancePlatform,omitempty"`
+	AvailableInstanceCount int    `json:"availableInstanceCount,omitempty"`
+	TotalInstanceCount     int    `json:"totalInstanceCount,omitempty"`
 }
 
 // ReservedInstancesExchange represents a completed reserved instances exchange.
@@ -208,6 +212,7 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.resetBatch4MapsLocked()
 	initTGWMulticastMaps(b)
 	initVpcConfigMaps(b)
+	initCapacityFamilyMaps(b)
 }
 
 // resetBatch4MapsLocked re-initialises all batch4 resource maps.

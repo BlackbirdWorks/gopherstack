@@ -78,8 +78,14 @@ type backendSnapshot struct {
 	// TrainingPlanExtensionOfferings is stored as region -> extensionOfferingID -> pending extension offer.
 	TrainingPlanExtensionOfferings pendingExtensionsByRegion                 `json:"trainingPlanExtensionOfferings"`
 	ModelCardExportJobs            map[string]map[string]*ModelCardExportJob `json:"modelCardExportJobs"`
-	AccountID                      string                                    `json:"accountID"`
-	Region                         string                                    `json:"region"`
+	ModelPackageGroups             map[string]map[string]*ModelPackageGroup  `json:"modelPackageGroups"`
+	// PipelineVersions is stored as region -> pipelineName -> version history.
+	PipelineVersions map[string]map[string][]*PipelineVersion `json:"pipelineVersions"`
+	// ServicecatalogPortfolioEnabled is region -> whether the Service Catalog
+	// portfolio has been enabled.
+	ServicecatalogPortfolioEnabled map[string]bool `json:"servicecatalogPortfolioEnabled"`
+	AccountID                      string          `json:"accountID"`
+	Region                         string          `json:"region"`
 }
 
 // pendingExtensionsByRegion is region -> extensionOfferingID -> pending
@@ -225,6 +231,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ReservedCapacities:             b.reservedCapacities,
 		TrainingPlanExtensionOfferings: b.trainingPlanExtensionOfferings,
 		ModelCardExportJobs:            b.modelCardExportJobs,
+		ModelPackageGroups:             b.modelPackageGroups,
+		PipelineVersions:               b.pipelineVersions,
+		ServicecatalogPortfolioEnabled: b.servicecatalogPortfolioEnabled,
 		AccountID:                      b.accountID,
 		Region:                         b.region,
 	}
@@ -406,6 +415,9 @@ func (b *InMemoryBackend) restoreTrainingPlanExtFields(snap *backendSnapshot) {
 	b.reservedCapacities = snap.ReservedCapacities
 	b.trainingPlanExtensionOfferings = snap.TrainingPlanExtensionOfferings
 	b.modelCardExportJobs = snap.ModelCardExportJobs
+	b.modelPackageGroups = snap.ModelPackageGroups
+	b.pipelineVersions = snap.PipelineVersions
+	b.servicecatalogPortfolioEnabled = snap.ServicecatalogPortfolioEnabled
 }
 
 func buildARNIndex[V any](src map[string]map[string]V, arnFn func(string, V) string) map[string]map[string]string {
@@ -546,6 +558,18 @@ func ensureTrainingPlanExtMaps(snap *backendSnapshot) {
 	if snap.ModelCardExportJobs == nil {
 		snap.ModelCardExportJobs = make(map[string]map[string]*ModelCardExportJob)
 	}
+
+	if snap.ModelPackageGroups == nil {
+		snap.ModelPackageGroups = make(map[string]map[string]*ModelPackageGroup)
+	}
+
+	if snap.PipelineVersions == nil {
+		snap.PipelineVersions = make(map[string]map[string][]*PipelineVersion)
+	}
+
+	if snap.ServicecatalogPortfolioEnabled == nil {
+		snap.ServicecatalogPortfolioEnabled = make(map[string]bool)
+	}
 }
 
 func ensureHubMaps(snap *backendSnapshot) {
@@ -674,6 +698,7 @@ func fixNilTagMapsNewResources(snap *backendSnapshot) {
 	fixNestedTagsSage(snap.ModelExplainJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
 	fixNestedTagsSage(snap.EdgeDeploymentPlans, func(p *EdgeDeploymentPlan) { p.Tags = ensureSageTagMap(p.Tags) })
 	fixNestedTagsSage(snap.TrainingPlans, func(t *TrainingPlan) { t.Tags = ensureSageTagMap(t.Tags) })
+	fixNestedTagsSage(snap.ModelPackageGroups, func(g *ModelPackageGroup) { g.Tags = ensureSageTagMap(g.Tags) })
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

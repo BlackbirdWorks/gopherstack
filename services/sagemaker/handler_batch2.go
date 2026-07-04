@@ -52,6 +52,16 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListModelPackageGroups(ctx, body)
 
 		return r, true, err
+	case "GetModelPackageGroupPolicy":
+		r, err := h.handleGetModelPackageGroupPolicy(ctx, body)
+
+		return r, true, err
+	case "PutModelPackageGroupPolicy":
+		r, err := h.handlePutModelPackageGroupPolicy(ctx, body)
+
+		return r, true, err
+	case "DeleteModelPackageGroupPolicy":
+		return nil, true, h.handleDeleteModelPackageGroupPolicy(ctx, body)
 
 	// AutoMLJob
 	case "CreateAutoMLJob", "CreateAutoMLJobV2":
@@ -415,6 +425,69 @@ func (h *Handler) handleListModelPackageGroups(ctx context.Context, body []byte)
 		"ModelPackageGroupSummaryList": summaries,
 		keyNextToken:                   next,
 	})
+}
+
+func (h *Handler) handleGetModelPackageGroupPolicy(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ModelPackageGroupName string `json:"ModelPackageGroupName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ModelPackageGroupName == "" {
+		return nil, fmt.Errorf("%w: ModelPackageGroupName is required", errInvalidRequest)
+	}
+
+	policy, err := h.Backend.GetModelPackageGroupPolicy(ctx, req.ModelPackageGroupName)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{"ResourcePolicy": policy})
+}
+
+func (h *Handler) handlePutModelPackageGroupPolicy(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ModelPackageGroupName string `json:"ModelPackageGroupName"`
+		ResourcePolicy        string `json:"ResourcePolicy"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ModelPackageGroupName == "" {
+		return nil, fmt.Errorf("%w: ModelPackageGroupName is required", errInvalidRequest)
+	}
+
+	if req.ResourcePolicy == "" {
+		return nil, fmt.Errorf("%w: ResourcePolicy is required", errInvalidRequest)
+	}
+
+	g, err := h.Backend.PutModelPackageGroupPolicy(ctx, req.ModelPackageGroupName, req.ResourcePolicy)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyModelPackageGroupArn: g.ModelPackageGroupArn})
+}
+
+func (h *Handler) handleDeleteModelPackageGroupPolicy(ctx context.Context, body []byte) error {
+	var req struct {
+		ModelPackageGroupName string `json:"ModelPackageGroupName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ModelPackageGroupName == "" {
+		return fmt.Errorf("%w: ModelPackageGroupName is required", errInvalidRequest)
+	}
+
+	return h.Backend.DeleteModelPackageGroupPolicy(ctx, req.ModelPackageGroupName)
 }
 
 // ---------------------------------------------------------------------------

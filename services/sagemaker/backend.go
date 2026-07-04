@@ -571,13 +571,19 @@ type InMemoryBackend struct {
 	computeQuotas                map[string]map[string]*ComputeQuota
 	hubs                         map[string]map[string]*Hub
 	hubContents                  map[string]map[hubContentKey]*HubContent
-	lifecycleParent              context.Context
-	lifecycleCtx                 context.Context
-	lifecycleCancel              context.CancelFunc
-	mu                           *lockmetrics.RWMutex
-	accountID                    string
-	region                       string
-	wg                           sync.WaitGroup
+	// pipelineVersions is region -> pipelineName -> versions, ordered oldest-first.
+	pipelineVersions map[string]map[string][]*PipelineVersion
+	// servicecatalogPortfolioEnabled is region -> whether the SageMaker
+	// Service Catalog portfolio has been enabled via
+	// EnableSagemakerServicecatalogPortfolio. Absent/false means Disabled.
+	servicecatalogPortfolioEnabled map[string]bool
+	lifecycleParent                context.Context
+	lifecycleCtx                   context.Context
+	lifecycleCancel                context.CancelFunc
+	mu                             *lockmetrics.RWMutex
+	accountID                      string
+	region                         string
+	wg                             sync.WaitGroup
 }
 
 // NewInMemoryBackend creates a new in-memory SageMaker backend.
@@ -1008,10 +1014,15 @@ func (b *InMemoryBackend) modelCardExportJobsStore(r string) map[string]*ModelCa
 // initTrainingPlanExtMaps (re)initialises the Training Plan / Reserved
 // Capacity and ModelCard export job top-level maps. Shared by the
 // constructor and Reset to keep both call sites short.
+// initTrainingPlanExtMaps initialises the Training Plan / Reserved Capacity /
+// ModelCard export job maps, plus the ModelPackageGroup policy / Servicecatalog
+// portfolio / Pipeline version state introduced in a later de-stubbing round.
 func (b *InMemoryBackend) initTrainingPlanExtMaps() {
 	b.reservedCapacities = make(map[string]map[string]*ReservedCapacity)
 	b.trainingPlanExtensionOfferings = make(map[string]map[string]*pendingTrainingPlanExtension)
 	b.modelCardExportJobs = make(map[string]map[string]*ModelCardExportJob)
+	b.pipelineVersions = make(map[string]map[string][]*PipelineVersion)
+	b.servicecatalogPortfolioEnabled = make(map[string]bool)
 }
 func (b *InMemoryBackend) modelARNIndexStore(r string) map[string]string {
 	if b.modelARNIndex[r] == nil {

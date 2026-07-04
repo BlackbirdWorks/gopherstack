@@ -67,6 +67,9 @@ type ModelPackageGroup struct {
 	ModelPackageGroupArn         string            `json:"ModelPackageGroupArn"`
 	ModelPackageGroupDescription string            `json:"ModelPackageGroupDescription,omitempty"`
 	ModelPackageGroupStatus      string            `json:"ModelPackageGroupStatus"`
+	// ResourcePolicy is the resource policy JSON document attached via
+	// PutModelPackageGroupPolicy, if any.
+	ResourcePolicy string `json:"ResourcePolicy,omitempty"`
 }
 
 func cloneModelPackageGroup(g *ModelPackageGroup) *ModelPackageGroup {
@@ -158,6 +161,76 @@ func (b *InMemoryBackend) ListModelPackageGroups(ctx context.Context, nextToken 
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(b.modelPackageGroupsStore(region), nextToken, cloneModelPackageGroup)
+}
+
+// ErrModelPackageGroupPolicyNotFound is returned when a model package group
+// has no resource policy attached.
+var ErrModelPackageGroupPolicyNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+
+// GetModelPackageGroupPolicy returns the resource policy attached to a model
+// package group.
+func (b *InMemoryBackend) GetModelPackageGroupPolicy(ctx context.Context, name string) (string, error) {
+	b.mu.RLock("GetModelPackageGroupPolicy")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+
+	g, ok := b.modelPackageGroupsStore(region)[name]
+	if !ok {
+		return "", fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
+	}
+
+	if g.ResourcePolicy == "" {
+		return "", fmt.Errorf(
+			"%w: model package group %q has no resource policy attached",
+			ErrModelPackageGroupPolicyNotFound, name,
+		)
+	}
+
+	return g.ResourcePolicy, nil
+}
+
+// PutModelPackageGroupPolicy attaches (or replaces) the resource policy for a
+// model package group.
+func (b *InMemoryBackend) PutModelPackageGroupPolicy(
+	ctx context.Context,
+	name, policy string,
+) (*ModelPackageGroup, error) {
+	b.mu.Lock("PutModelPackageGroupPolicy")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	g, ok := b.modelPackageGroupsStore(region)[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
+	}
+
+	if policy == "" {
+		return nil, fmt.Errorf("%w: ResourcePolicy is required", ErrValidation)
+	}
+
+	g.ResourcePolicy = policy
+
+	return cloneModelPackageGroup(g), nil
+}
+
+// DeleteModelPackageGroupPolicy removes the resource policy from a model
+// package group.
+func (b *InMemoryBackend) DeleteModelPackageGroupPolicy(ctx context.Context, name string) error {
+	b.mu.Lock("DeleteModelPackageGroupPolicy")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	g, ok := b.modelPackageGroupsStore(region)[name]
+	if !ok {
+		return fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
+	}
+
+	g.ResourcePolicy = ""
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------

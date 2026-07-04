@@ -1355,4 +1355,75 @@ type Backend interface {
 	// ---- VPC Endpoint Service Configuration extras ----
 
 	StartVpcEndpointServicePrivateDNSVerification(serviceID string) error
+
+	// ---- Capacity Reservation Fleet / Capacity Block / Capacity Manager ----
+
+	CreateCapacityReservationFleet(
+		specs []CapacityReservationFleetInstanceSpec,
+		totalTargetCapacity int32,
+		allocationStrategy, instanceMatchCriteria, tenancy string,
+		endDate *time.Time,
+		tags map[string]string,
+	) (*CapacityReservationFleet, error)
+	DescribeCapacityReservationFleets(ids []string, filters map[string][]string) []*CapacityReservationFleet
+	ModifyCapacityReservationFleet(
+		fleetID string,
+		totalTargetCapacity *int32,
+		endDate *time.Time,
+		removeEndDate bool,
+	) error
+	CancelCapacityReservationFleets(
+		fleetIDs []string,
+	) ([]CapacityReservationFleetCancellation, []FailedCapacityReservationFleetCancellation)
+
+	DescribeCapacityBlockOfferings(
+		instanceType string,
+		durationHours, instanceCount int32,
+	) ([]*CapacityBlockOffering, error)
+	PurchaseCapacityBlock(
+		offeringID, instancePlatform string,
+		tags map[string]string,
+	) (*CapacityBlock, *CapacityReservation, error)
+	DescribeCapacityBlockExtensionOfferings(
+		reservationID string,
+		durationHours int32,
+	) ([]*CapacityBlockExtensionOffering, error)
+	PurchaseCapacityBlockExtension(extensionOfferingID, reservationID string) (*CapacityBlockExtension, error)
+	DescribeCapacityBlocks(ids []string, filters map[string][]string) []*CapacityBlock
+	DescribeCapacityBlockStatus(ids []string, filters map[string][]string) []*CapacityBlockStatus
+	DescribeCapacityBlockExtensionHistory(
+		reservationIDs []string,
+		filters map[string][]string,
+	) []*CapacityBlockExtension
+
+	CreateCapacityReservationBySplitting(
+		sourceID string,
+		instanceCount int,
+		tags map[string]string,
+	) (*CapacityReservation, *CapacityReservation, error)
+	MoveCapacityReservationInstances(
+		sourceID, destinationID string,
+		instanceCount int,
+	) (*CapacityReservation, *CapacityReservation, error)
+
+	AssociateCapacityReservationBillingOwner(reservationID, billingOwnerID string) error
+	DisassociateCapacityReservationBillingOwner(reservationID, billingOwnerID string) error
+	RejectCapacityReservationBillingOwnership(reservationID string) error
+	DescribeCapacityReservationBillingRequests(
+		ids []string,
+		filters map[string][]string,
+	) []*CapacityReservationBillingRequest
+
+	EnableCapacityManager(organizationsAccess bool) (string, bool)
+	DisableCapacityManager() (string, bool)
+	UpdateCapacityManagerOrganizationsAccess(organizationsAccess bool) (string, bool)
+	GetCapacityManagerAttributes() *CapacityManagerAttributes
+	GetCapacityManagerMetricData() []MetricDataResult
+	GetCapacityManagerMetricDimensions() []CapacityManagerDimension
+	CreateCapacityManagerDataExport(
+		outputFormat, s3BucketName, s3BucketPrefix, schedule string,
+		tags map[string]string,
+	) (*CapacityManagerDataExport, error)
+	DescribeCapacityManagerDataExports(ids []string) []*CapacityManagerDataExport
+	DeleteCapacityManagerDataExport(id string) (string, error)
 }

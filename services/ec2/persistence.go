@@ -167,6 +167,14 @@ type backendSnapshot struct {
 	ClassicLinkInstances               map[string]*snapClassicLinkInstance             `json:"classicLinkInst,omitempty"`
 	VpcBlockPublicAccessOptions        *VpcBlockPublicAccessOptions                    `json:"vpcBpaOptions,omitempty"`
 	VpcBlockPublicAccessExclusions     map[string]*VpcBlockPublicAccessExclusion       `json:"vpcBpaExclusions,omitempty"`
+	CapacityReservationFleets          map[string]*CapacityReservationFleet            `json:"crFleets,omitempty"`
+	CapacityBlockOfferings             map[string]*CapacityBlockOffering               `json:"cbOfferings,omitempty"`
+	CapacityBlockExtensionOfferings    map[string]*CapacityBlockExtensionOffering      `json:"cbExtOfferings,omitempty"`
+	CapacityBlocks                     map[string]*CapacityBlock                       `json:"capacityBlocks,omitempty"`
+	CapacityBlockExtensions            map[string]*CapacityBlockExtension              `json:"cbExtensions,omitempty"`
+	CapacityReservationBillingReqs     map[string]*CapacityReservationBillingRequest   `json:"crBillingRequests,omitempty"`
+	CapacityManagerDataExports         map[string]*CapacityManagerDataExport           `json:"cmDataExports,omitempty"`
+	CapacityManagerState               *CapacityManagerState                           `json:"cmState,omitempty"`
 	Region                             string                                          `json:"region,omitempty"`
 	AccountID                          string                                          `json:"accountID,omitempty"`
 	FreePrivateIPs                     []string                                        `json:"freePrivateIPs"`
@@ -323,6 +331,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ClassicLinkInstances:               b.classicLinkInstances,
 		VpcBlockPublicAccessOptions:        b.vpcBlockPublicAccessOptions,
 		VpcBlockPublicAccessExclusions:     b.vpcBlockPublicAccessExclusions,
+		CapacityReservationFleets:          b.capacityReservationFleets,
+		CapacityBlockOfferings:             b.capacityBlockOfferings,
+		CapacityBlockExtensionOfferings:    b.capacityBlockExtensionOfferings,
+		CapacityBlocks:                     b.capacityBlocks,
+		CapacityBlockExtensions:            b.capacityBlockExtensions,
+		CapacityReservationBillingReqs:     b.capacityReservationBillingRequests,
+		CapacityManagerDataExports:         b.capacityManagerDataExports,
+		CapacityManagerState:               b.capacityManagerState,
 	}
 
 	data, err := json.Marshal(snap)
@@ -677,8 +693,62 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.restoreLocalGatewayFields(&snap)
 	b.restoreTGWMulticastFields(&snap)
 	b.restoreVpcConfigFields(&snap)
+	b.restoreCapacityFamilyFields(&snap)
 
 	return nil
+}
+
+// restoreCapacityFamilyFields copies the Capacity Reservation Fleet, Capacity
+// Block, and Capacity Manager state from snap into b. Split out to keep
+// Restore's growth in check. Must be called with b.mu held.
+func (b *InMemoryBackend) restoreCapacityFamilyFields(snap *backendSnapshot) {
+	if snap.CapacityReservationFleets != nil {
+		b.capacityReservationFleets = snap.CapacityReservationFleets
+	} else {
+		b.capacityReservationFleets = make(map[string]*CapacityReservationFleet)
+	}
+
+	if snap.CapacityBlockOfferings != nil {
+		b.capacityBlockOfferings = snap.CapacityBlockOfferings
+	} else {
+		b.capacityBlockOfferings = make(map[string]*CapacityBlockOffering)
+	}
+
+	if snap.CapacityBlockExtensionOfferings != nil {
+		b.capacityBlockExtensionOfferings = snap.CapacityBlockExtensionOfferings
+	} else {
+		b.capacityBlockExtensionOfferings = make(map[string]*CapacityBlockExtensionOffering)
+	}
+
+	if snap.CapacityBlocks != nil {
+		b.capacityBlocks = snap.CapacityBlocks
+	} else {
+		b.capacityBlocks = make(map[string]*CapacityBlock)
+	}
+
+	if snap.CapacityBlockExtensions != nil {
+		b.capacityBlockExtensions = snap.CapacityBlockExtensions
+	} else {
+		b.capacityBlockExtensions = make(map[string]*CapacityBlockExtension)
+	}
+
+	if snap.CapacityReservationBillingReqs != nil {
+		b.capacityReservationBillingRequests = snap.CapacityReservationBillingReqs
+	} else {
+		b.capacityReservationBillingRequests = make(map[string]*CapacityReservationBillingRequest)
+	}
+
+	if snap.CapacityManagerDataExports != nil {
+		b.capacityManagerDataExports = snap.CapacityManagerDataExports
+	} else {
+		b.capacityManagerDataExports = make(map[string]*CapacityManagerDataExport)
+	}
+
+	if snap.CapacityManagerState != nil {
+		b.capacityManagerState = snap.CapacityManagerState
+	} else {
+		b.capacityManagerState = &CapacityManagerState{Status: capacityManagerStatusDisabled}
+	}
 }
 
 // restoreVpcConfigFields copies the VPC ClassicLink and Block Public Access

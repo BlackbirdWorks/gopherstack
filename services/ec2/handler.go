@@ -388,6 +388,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerLocalGatewayOps(h, ops)
 	registerTGWMulticastOps(h, ops)
 	registerVpcConfigOps(h, ops)
+	registerCapacityFamilyOps(h, ops)
 	registerStubOpsIfAbsent(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
