@@ -118,6 +118,13 @@ type ByoipCidr struct {
 	StatusMessage string `json:"statusMessage,omitempty"`
 }
 
+// hostSettingOff/hostSettingOn are the AWS enum values shared by Host's
+// AutoPlacement, HostRecovery, and HostMaintenance fields.
+const (
+	hostSettingOff = "off"
+	hostSettingOn  = "on"
+)
+
 // Host represents a Dedicated Host.
 type Host struct {
 	HostID           string    `json:"hostID,omitempty"`
@@ -126,6 +133,17 @@ type Host struct {
 	State            string    `json:"state,omitempty"`
 	AllocationTime   time.Time `json:"allocationTime"`
 	OwnedBy          string    `json:"ownedBy,omitempty"`
+
+	// AutoPlacement, HostRecovery, and HostMaintenance mirror the ModifyHosts
+	// input fields of the same name (values are AWS enums: "on"/"off").
+	AutoPlacement   string `json:"autoPlacement,omitempty"`
+	HostRecovery    string `json:"hostRecovery,omitempty"`
+	HostMaintenance string `json:"hostMaintenance,omitempty"`
+
+	// InstanceFamily is set instead of InstanceType via ModifyHosts when the
+	// host is reconfigured to support an entire instance family rather than a
+	// single instance type.
+	InstanceFamily string `json:"instanceFamily,omitempty"`
 }
 
 // ---- Reset ----
@@ -231,6 +249,10 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.resetVMImportExportMapsLocked()
 	b.resetTrunkEnclaveMapsLocked()
 	b.instanceProductCodes = make(map[string][]string)
+	b.resetMacHostMapsLocked()
+	b.resetSecondaryNetworkMapsLocked()
+	b.resetInstanceAttrMapsLocked()
+	b.resetSQLHaMapsLocked()
 }
 
 // resetBatch4MapsLocked re-initialises all batch4 resource maps.
@@ -760,6 +782,9 @@ func (b *InMemoryBackend) AllocateHosts(
 			State:            stateAvailable,
 			AllocationTime:   time.Now(),
 			OwnedBy:          b.AccountID,
+			AutoPlacement:    hostSettingOff,
+			HostRecovery:     hostSettingOff,
+			HostMaintenance:  hostSettingOn,
 		}
 
 		b.dedicatedHosts[host.HostID] = host

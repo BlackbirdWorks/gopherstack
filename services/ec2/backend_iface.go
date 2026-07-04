@@ -1786,4 +1786,70 @@ type Backend interface {
 	AssociateEnclaveCertificateIamRole(certificateArn, roleArn string) (*EnclaveCertIamRoleAssociation, error)
 	DisassociateEnclaveCertificateIamRole(certificateArn, roleArn string) error
 	GetAssociatedEnclaveCertificateIamRoles(certificateArn string) ([]*EnclaveCertIamRoleAssociation, error)
+
+	// ---- Mac Hosts / Mac modification tasks ----
+
+	DescribeMacHosts(ids []string) []*MacHost
+	CreateMacSystemIntegrityProtectionModificationTask(
+		instanceID, status string, config *MacSIPConfig, tags map[string]string,
+	) (*MacModificationTask, error)
+	CreateDelegateMacVolumeOwnershipTask(
+		instanceID, macCredentials string, tags map[string]string,
+	) (*MacModificationTask, error)
+	DescribeMacModificationTasks(ids []string) []*MacModificationTask
+
+	// ---- Secondary Networks / Secondary Subnets / Secondary Interfaces ----
+
+	CreateSecondaryNetwork(ipv4CidrBlock, networkType string, tags map[string]string) (*SecondaryNetwork, error)
+	DeleteSecondaryNetwork(id string) (*SecondaryNetwork, error)
+	DescribeSecondaryNetworks(ids []string) []*SecondaryNetwork
+	CreateSecondarySubnet(
+		ipv4CidrBlock, secondaryNetworkID, availabilityZone, availabilityZoneID string, tags map[string]string,
+	) (*SecondarySubnet, error)
+	DeleteSecondarySubnet(id string) (*SecondarySubnet, error)
+	DescribeSecondarySubnets(ids []string) []*SecondarySubnet
+	SeedSecondaryInterface(si SecondaryInterface) (*SecondaryInterface, error)
+	DescribeSecondaryInterfaces(ids []string) []*SecondaryInterface
+	SeedServiceLinkVirtualInterface(vif ServiceLinkVirtualInterface) (*ServiceLinkVirtualInterface, error)
+	DescribeServiceLinkVirtualInterfaces(ids []string) []*ServiceLinkVirtualInterface
+	SeedOutpostLag(lag OutpostLag) (*OutpostLag, error)
+	DescribeOutpostLags(ids []string) []*OutpostLag
+
+	// ---- Instance-attribute misc cluster ----
+
+	ModifyAvailabilityZoneGroup(groupName, optInStatus string) (bool, error)
+	ModifyHosts(
+		hostIDs []string, autoPlacement, hostMaintenance, hostRecovery, instanceFamily, instanceType string,
+	) ([]string, []HostModifyFailure, error)
+	ModifyInstanceCapacityReservationAttributes(
+		instanceID, preference, targetID, targetArn string,
+	) (*Instance, error)
+	ModifyInstanceCPUOptions(
+		instanceID string, coreCount, threadsPerCore *int32, nestedVirtualization string,
+	) (*Instance, error)
+	ModifyInstanceEventStartTime(
+		instanceID, instanceEventID string, notBefore time.Time,
+	) (*InstanceStatusEventRec, error)
+	ModifyInstanceMaintenanceOptions(instanceID, autoRecovery, rebootMigration string) (*Instance, error)
+	ModifyInstanceNetworkPerformanceOptions(instanceID, bandwidthWeighting string) (*Instance, error)
+	ModifyInstancePlacement(in ModifyInstancePlacementInput) (bool, error)
+	ModifyPrivateDNSNameOptions(
+		instanceID, hostnameType string, enableARecord, enableAAAARecord *bool,
+	) (bool, error)
+	ModifyPublicIPDNSNameOptions(networkInterfaceID, hostnameType string) (bool, error)
+	AssociateInstanceEventWindow(windowID string, instanceIDs, dedicatedHostIDs []string) (*InstanceEventWindow, error)
+	DisassociateInstanceEventWindow(
+		windowID string, instanceIDs, dedicatedHostIDs []string,
+	) (*InstanceEventWindow, error)
+	GetInstanceTpmEkPub(instanceID, keyFormat, keyType string) (string, error)
+	GetInstanceUefiData(instanceID string) (string, error)
+
+	// ---- SQL Server High Availability standby detection ----
+
+	EnableInstanceSQLHaStandbyDetections(
+		instanceIDs []string, sqlServerCredentials string,
+	) ([]*RegisteredSQLHaInstance, error)
+	DisableInstanceSQLHaStandbyDetections(instanceIDs []string) ([]*RegisteredSQLHaInstance, error)
+	DescribeInstanceSQLHaStates(ids []string) []*RegisteredSQLHaInstance
+	DescribeInstanceSQLHaHistoryStates(ids []string, startTime, endTime time.Time) []*RegisteredSQLHaInstance
 }

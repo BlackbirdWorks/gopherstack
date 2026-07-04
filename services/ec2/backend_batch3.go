@@ -43,6 +43,11 @@ type InstanceEventWindow struct {
 	Name                  string `json:"name,omitempty"`
 	CronExpression        string `json:"cronExpression,omitempty"`
 	State                 string `json:"state,omitempty"`
+
+	// InstanceIDs and DedicatedHostIDs hold the association targets added via
+	// AssociateInstanceEventWindow and removed via DisassociateInstanceEventWindow.
+	InstanceIDs      []string `json:"instanceIds,omitempty"`
+	DedicatedHostIDs []string `json:"dedicatedHostIds,omitempty"`
 }
 
 // SpotDatafeed holds the spot instance data feed subscription settings.

@@ -19,7 +19,7 @@ func TestStubOperations(t *testing.T) {
 		// "AssociateCapacityReservationBillingOwner", — moved to handler_capacity_family.go
 		// "AssociateClientVpnTargetNetwork", — moved to batch4
 		// "AssociateEnclaveCertificateIamRole", — moved to trunkEnclaveSupportedOperations
-		"AssociateInstanceEventWindow",
+		// "AssociateInstanceEventWindow", — moved to instanceAttrSupportedOperations
 		// "AssociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
 		// "AssociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		// "AssociateRouteServer", — real handler in handler_route_server.go, covered there
@@ -47,7 +47,7 @@ func TestStubOperations(t *testing.T) {
 		// "CreateClientVpnRoute", — moved to batch4
 		// "CreateCoipCidr", — moved to ipPoolSupportedOperations()
 		// "CreateCoipPool", — moved to ipPoolSupportedOperations()
-		"CreateDelegateMacVolumeOwnershipTask",
+		// "CreateDelegateMacVolumeOwnershipTask", — moved to macHostSupportedOperations
 		// "CreateFleet", — real handler in handler_batch5.go, covered there
 		// "CreateFpgaImage", — moved to handler_fpga_image.go
 		// "CreateImageUsageReport", — moved to imageOpsSupportedOperations()
@@ -61,7 +61,7 @@ func TestStubOperations(t *testing.T) {
 		// "CreateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		"CreateLocalGatewayVirtualInterface",
 		"CreateLocalGatewayVirtualInterfaceGroup",
-		"CreateMacSystemIntegrityProtectionModificationTask",
+		// "CreateMacSystemIntegrityProtectionModificationTask", — moved to macHostSupportedOperations
 		// "CreateManagedPrefixList", — moved to batch4
 		// "CreateNetworkInsightsAccessScope", — real handler in handler_batch5.go, covered there
 		// "CreateNetworkInsightsPath", — real handler in handler_batch5.go, covered there
@@ -70,8 +70,8 @@ func TestStubOperations(t *testing.T) {
 		// "CreateRouteServer", — real handler in handler_route_server.go, covered there
 		// "CreateRouteServerEndpoint", — real handler in handler_route_server.go, covered there
 		// "CreateRouteServerPeer", — real handler in handler_route_server.go, covered there
-		"CreateSecondaryNetwork",
-		"CreateSecondarySubnet",
+		// "CreateSecondaryNetwork", — moved to secondaryNetSupportedOperations
+		// "CreateSecondarySubnet", — moved to secondaryNetSupportedOperations
 		// "CreateStoreImageTask", — moved to imageOpsSupportedOperations()
 		// "CreateTrafficMirrorFilter", — real handler in handler_batch5.go, covered there
 		// "CreateTrafficMirrorFilterRule", — real handler now requires an existing filter ID
@@ -119,8 +119,8 @@ func TestStubOperations(t *testing.T) {
 		// "DeleteRouteServer", — real handler in handler_route_server.go, covered there
 		// "DeleteRouteServerEndpoint", — real handler in handler_route_server.go, covered there
 		// "DeleteRouteServerPeer", — real handler in handler_route_server.go, covered there
-		"DeleteSecondaryNetwork",
-		"DeleteSecondarySubnet",
+		// "DeleteSecondaryNetwork", — moved to secondaryNetSupportedOperations
+		// "DeleteSecondarySubnet", — moved to secondaryNetSupportedOperations
 		// "DeleteTrafficMirrorFilter", — real handler now requires an existing filter ID
 		// "DeleteTrafficMirrorFilterRule", — real handler now requires an existing rule ID
 		// "DeleteTrafficMirrorSession", — real handler now requires an existing session ID
@@ -188,15 +188,15 @@ func TestStubOperations(t *testing.T) {
 		"DescribeIpamResourceDiscoveryAssociations",
 		"DescribeIpamScopes",
 		"DescribeIpams",
-		"DescribeMacHosts",
-		"DescribeMacModificationTasks",
+		// "DescribeMacHosts", — moved to macHostSupportedOperations
+		// "DescribeMacModificationTasks", — moved to macHostSupportedOperations
 		// "DescribeManagedPrefixLists", — moved to batch4
 		"DescribeMovingAddresses",
 		// "DescribeNetworkInsightsAccessScopeAnalyses", — real handler in handler_batch5.go, covered there
 		// "DescribeNetworkInsightsAccessScopes", — real handler in handler_batch5.go, covered there
 		// "DescribeNetworkInsightsAnalyses", — real handler in handler_batch5.go, covered there
 		// "DescribeNetworkInsightsPaths", — real handler in handler_batch5.go, covered there
-		"DescribeOutpostLags",
+		// "DescribeOutpostLags", — moved to secondaryNetSupportedOperations
 		// "DescribeReservedInstances", — real handler in handler_batch5.go, covered there
 		// "DescribeReservedInstancesListings", — real handler in handler_batch5.go, covered there
 		// "DescribeReservedInstancesModifications", — real handler in handler_batch5.go, covered there
@@ -206,10 +206,10 @@ func TestStubOperations(t *testing.T) {
 		// "DescribeRouteServers", — real handler in handler_route_server.go, covered there
 		// "DescribeScheduledInstanceAvailability", — moved to scheduledInstanceSupportedOperations()
 		// "DescribeScheduledInstances", — moved to scheduledInstanceSupportedOperations()
-		"DescribeSecondaryInterfaces",
-		"DescribeSecondaryNetworks",
-		"DescribeSecondarySubnets",
-		"DescribeServiceLinkVirtualInterfaces",
+		// "DescribeSecondaryInterfaces", — moved to secondaryNetSupportedOperations
+		// "DescribeSecondaryNetworks", — moved to secondaryNetSupportedOperations
+		// "DescribeSecondarySubnets", — moved to secondaryNetSupportedOperations
+		// "DescribeServiceLinkVirtualInterfaces", — moved to secondaryNetSupportedOperations
 		// "DescribeSpotFleetRequests", — spot fleet handler in handler_spot_fleet.go, covered there
 		// "DescribeStoreImageTasks", — moved to imageOpsSupportedOperations()
 		// "DescribeTrafficMirrorFilterRules", — real handler now requires an existing filter ID
@@ -246,7 +246,7 @@ func TestStubOperations(t *testing.T) {
 		// "DisassociateCapacityReservationBillingOwner", — moved to handler_capacity_family.go
 		// "DisassociateClientVpnTargetNetwork", — moved to batch4
 		// "DisassociateEnclaveCertificateIamRole", — moved to trunkEnclaveSupportedOperations
-		"DisassociateInstanceEventWindow",
+		// "DisassociateInstanceEventWindow", — moved to instanceAttrSupportedOperations
 		// "DisassociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
 		// "DisassociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		// "DisassociateRouteServer", — real handler in handler_route_server.go, covered there
@@ -279,8 +279,8 @@ func TestStubOperations(t *testing.T) {
 		"GetFlowLogsIntegrationTemplate",
 		"GetHostReservationPurchasePreview",
 		"GetImageAncestry",
-		"GetInstanceTpmEkPub",
-		"GetInstanceUefiData",
+		// "GetInstanceTpmEkPub", — moved to instanceAttrSupportedOperations
+		// "GetInstanceUefiData", — moved to instanceAttrSupportedOperations
 		"GetIpamAddressHistory",
 		"GetIpamDiscoveredAccounts",
 		"GetIpamDiscoveredPublicAddresses",
@@ -319,17 +319,17 @@ func TestStubOperations(t *testing.T) {
 		// "ImportClientVpnClientCertificateRevocationList", — moved to batch4 (requires ClientVpnEndpointId)
 		// "ImportInstance", — moved to vmImportExportSupportedOperations
 		// "ImportVolume", — moved to vmImportExportSupportedOperations
-		"ModifyAvailabilityZoneGroup",
+		// "ModifyAvailabilityZoneGroup", — moved to instanceAttrSupportedOperations
 		// "ModifyCapacityReservationFleet", — moved to handler_capacity_family.go
 		// "ModifyClientVpnEndpoint", — moved to batch4
 		// "ModifyFleet", — real handler in handler_batch5.go, covered there
 		// "ModifyFpgaImageAttribute", — moved to handler_fpga_image.go
-		"ModifyHosts",
-		"ModifyInstanceCapacityReservationAttributes",
-		"ModifyInstanceEventStartTime",
-		"ModifyInstanceMaintenanceOptions",
-		"ModifyInstanceNetworkPerformanceOptions",
-		"ModifyInstancePlacement",
+		// "ModifyHosts", — moved to instanceAttrSupportedOperations
+		// "ModifyInstanceCapacityReservationAttributes", — moved to instanceAttrSupportedOperations
+		// "ModifyInstanceEventStartTime", — moved to instanceAttrSupportedOperations
+		// "ModifyInstanceMaintenanceOptions", — moved to instanceAttrSupportedOperations
+		// "ModifyInstanceNetworkPerformanceOptions", — moved to instanceAttrSupportedOperations
+		// "ModifyInstancePlacement", — moved to instanceAttrSupportedOperations
 		// "ModifyIpamPolicyAllocationRules", — moved to ipamPolicySupportedOperations (requires params)
 		// "ModifyIpamPrefixListResolver", — moved to ipamDiscoverySupportedOperations
 		// "ModifyIpamPrefixListResolverTarget", — moved to ipamDiscoverySupportedOperations

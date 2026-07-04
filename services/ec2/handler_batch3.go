@@ -162,11 +162,17 @@ type describeInstanceConnectEndpointsResponse struct {
 	} `xml:"instanceConnectEndpointSet"`
 }
 
+type instanceEventWindowAssociationTargetItem struct {
+	InstanceIDs      []string `xml:"instanceIdSet>item,omitempty"`
+	DedicatedHostIDs []string `xml:"dedicatedHostIdSet>item,omitempty"`
+}
+
 type instanceEventWindowItem struct {
-	InstanceEventWindowID string `xml:"instanceEventWindowId"`
-	Name                  string `xml:"name"`
-	CronExpression        string `xml:"cronExpression,omitempty"`
-	State                 string `xml:"state"`
+	InstanceEventWindowID string                                   `xml:"instanceEventWindowId"`
+	Name                  string                                   `xml:"name"`
+	CronExpression        string                                   `xml:"cronExpression,omitempty"`
+	State                 string                                   `xml:"state"`
+	AssociationTarget     instanceEventWindowAssociationTargetItem `xml:"associationTarget"`
 }
 
 type createInstanceEventWindowResponse struct {
@@ -583,6 +589,10 @@ func toInstanceEventWindowItem(ew *InstanceEventWindow) instanceEventWindowItem 
 		Name:                  ew.Name,
 		CronExpression:        ew.CronExpression,
 		State:                 ew.State,
+		AssociationTarget: instanceEventWindowAssociationTargetItem{
+			InstanceIDs:      ew.InstanceIDs,
+			DedicatedHostIDs: ew.DedicatedHostIDs,
+		},
 	}
 }
 

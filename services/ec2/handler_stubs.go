@@ -16,7 +16,6 @@ type stubResponse struct {
 	Return    bool   `xml:"return"`
 }
 
-//nolint:funlen
 func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ops["AllocateIpamPoolCidr"] — real handler in handler_advanced_networking.go, covered there
 	// ApplySecurityGroupsToClientVpnTargetNetwork — moved to handler_batch4.go
@@ -24,7 +23,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// AssociateClientVpnTargetNetwork — moved to handler_batch4.go
 	// AssociateEnclaveCertificateIamRole — moved to trunkEnclaveSupportedOperations
 	// AssociateIamInstanceProfile — moved to handler_ec2core.go
-	ops["AssociateInstanceEventWindow"] = h.handleStubAssociateInstanceEventWindow
+	// AssociateInstanceEventWindow — moved to instanceAttrSupportedOperations
 	// ops["AssociateIpamByoasn"] — moved to ipamDiscoverySupportedOperations
 	// ops["AssociateIpamResourceDiscovery"] — moved to ipamDiscoverySupportedOperations
 	// AssociateRouteServer — real handler in handler_route_server.go, covered there
@@ -58,7 +57,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// CreateCoipCidr — moved to ipPoolSupportedOperations()
 	// CreateCoipPool — moved to ipPoolSupportedOperations()
 	// CreateCustomerGateway — moved to advancedNetworkingSupportedOperations
-	ops["CreateDelegateMacVolumeOwnershipTask"] = h.handleStubCreateDelegateMacVolumeOwnershipTask
+	// CreateDelegateMacVolumeOwnershipTask — moved to macHostSupportedOperations
 	// CreateEgressOnlyInternetGateway — moved to handler_ec2core.go
 	// CreateFleet — real handler in handler_batch5.go, covered there
 	// CreateFpgaImage — moved to handler_fpga_image.go
@@ -79,7 +78,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// CreateLocalGatewayRouteTableVpcAssociation — real handler in handler_local_gateway.go
 	ops["CreateLocalGatewayVirtualInterface"] = h.handleStubCreateLocalGatewayVirtualInterface
 	ops["CreateLocalGatewayVirtualInterfaceGroup"] = h.handleStubCreateLocalGatewayVirtualInterfaceGroup
-	ops["CreateMacSystemIntegrityProtectionModificationTask"] = h.handleStubCreateMacSystemIntegrityProtectionModificationTask //nolint:lll // existing issue.
+	// CreateMacSystemIntegrityProtectionModificationTask — moved to macHostSupportedOperations
 	// CreateManagedPrefixList — moved to handler_batch4.go
 	// CreateNetworkInsightsAccessScope — real handler in handler_batch5.go, covered there
 	// CreateNetworkInsightsPath — real handler in handler_batch5.go, covered there
@@ -88,8 +87,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// CreateRouteServer — real handler in handler_route_server.go, covered there
 	// CreateRouteServerEndpoint — real handler in handler_route_server.go, covered there
 	// CreateRouteServerPeer — real handler in handler_route_server.go, covered there
-	ops["CreateSecondaryNetwork"] = h.handleStubCreateSecondaryNetwork
-	ops["CreateSecondarySubnet"] = h.handleStubCreateSecondarySubnet
+	// CreateSecondaryNetwork — moved to secondaryNetSupportedOperations
+	// CreateSecondarySubnet — moved to secondaryNetSupportedOperations
 	// CreateStoreImageTask — moved to imageOpsSupportedOperations()
 	// CreateTrafficMirrorFilter — moved to handler_batch5.go
 	// CreateTrafficMirrorFilterRule — moved to handler_batch5.go
@@ -150,8 +149,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DeleteRouteServer — real handler in handler_route_server.go, covered there
 	// DeleteRouteServerEndpoint — real handler in handler_route_server.go, covered there
 	// DeleteRouteServerPeer — real handler in handler_route_server.go, covered there
-	ops["DeleteSecondaryNetwork"] = h.handleStubDeleteSecondaryNetwork
-	ops["DeleteSecondarySubnet"] = h.handleStubDeleteSecondarySubnet
+	// DeleteSecondaryNetwork — moved to secondaryNetSupportedOperations
+	// DeleteSecondarySubnet — moved to secondaryNetSupportedOperations
 	// DeleteTrafficMirrorFilter — moved to handler_batch5.go
 	// DeleteTrafficMirrorFilterRule — moved to handler_batch5.go
 	// DeleteTrafficMirrorSession — moved to handler_batch5.go
@@ -218,8 +217,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DescribeIamInstanceProfileAssociations — moved to handler_ec2core.go
 	ops["DescribeImageReferences"] = h.handleStubDescribeImageReferences
 	// DescribeImageUsageReportEntries — moved to imageOpsSupportedOperations()
-	ops["DescribeInstanceSqlHaHistoryStates"] = h.handleStubDescribeInstanceSQLHaHistoryStates
-	ops["DescribeInstanceSqlHaStates"] = h.handleStubDescribeInstanceSQLHaStates
+	// DescribeInstanceSqlHaHistoryStates — moved to sqlHaSupportedOperations
+	// DescribeInstanceSqlHaStates — moved to sqlHaSupportedOperations
 	// ops["DescribeIpamByoasn"] — moved to ipamDiscoverySupportedOperations
 	// ops["DescribeIpamExternalResourceVerificationTokens"] — moved to ipamDiscoverySupportedOperations
 	// ops["DescribeIpamPolicies"] — moved to ipamPolicySupportedOperations
@@ -236,15 +235,15 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DescribeLocalGatewayVirtualInterfaceGroups — real handler in handler_local_gateway.go
 	// DescribeLocalGatewayVirtualInterfaces — real handler in handler_local_gateway.go
 	// DescribeLocalGateways — real handler in handler_local_gateway.go
-	ops["DescribeMacHosts"] = h.handleStubDescribeMacHosts
-	ops["DescribeMacModificationTasks"] = h.handleStubDescribeMacModificationTasks
+	// DescribeMacHosts — moved to macHostSupportedOperations
+	// DescribeMacModificationTasks — moved to macHostSupportedOperations
 	// DescribeManagedPrefixLists — moved to handler_batch4.go
 	ops["DescribeMovingAddresses"] = h.handleStubDescribeMovingAddresses
 	// DescribeNetworkInsightsAccessScopeAnalyses — real handler in handler_batch5.go, covered there
 	// DescribeNetworkInsightsAccessScopes — real handler in handler_batch5.go, covered there
 	// DescribeNetworkInsightsAnalyses — real handler in handler_batch5.go, covered there
 	// DescribeNetworkInsightsPaths — real handler in handler_batch5.go, covered there
-	ops["DescribeOutpostLags"] = h.handleStubDescribeOutpostLags
+	// DescribeOutpostLags — moved to secondaryNetSupportedOperations
 	// DescribeReservedInstances — real handler in handler_batch5.go, covered there
 	// DescribeReservedInstancesListings — real handler in handler_batch5.go, covered there
 	// DescribeReservedInstancesModifications — real handler in handler_batch5.go, covered there
@@ -254,10 +253,10 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DescribeRouteServers — real handler in handler_route_server.go, covered there
 	// DescribeScheduledInstanceAvailability — moved to scheduledInstanceSupportedOperations()
 	// DescribeScheduledInstances — moved to scheduledInstanceSupportedOperations()
-	ops["DescribeSecondaryInterfaces"] = h.handleStubDescribeSecondaryInterfaces
-	ops["DescribeSecondaryNetworks"] = h.handleStubDescribeSecondaryNetworks
-	ops["DescribeSecondarySubnets"] = h.handleStubDescribeSecondarySubnets
-	ops["DescribeServiceLinkVirtualInterfaces"] = h.handleStubDescribeServiceLinkVirtualInterfaces
+	// DescribeSecondaryInterfaces — moved to secondaryNetSupportedOperations
+	// DescribeSecondaryNetworks — moved to secondaryNetSupportedOperations
+	// DescribeSecondarySubnets — moved to secondaryNetSupportedOperations
+	// DescribeServiceLinkVirtualInterfaces — moved to secondaryNetSupportedOperations
 	// DescribeSpotFleetInstances — spot fleet handler in handler_spot_fleet.go, covered there
 	// DescribeSpotFleetRequestHistory — spot fleet handler in handler_spot_fleet.go, covered there
 	// DescribeSpotFleetRequests — spot fleet handler in handler_spot_fleet.go, covered there
@@ -295,7 +294,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DisableAllowedImagesSettings — moved to imageOpsSupportedOperations()
 	ops["DisableAwsNetworkPerformanceMetricSubscription"] = h.handleStubDisableAwsNetworkPerformanceMetricSubscription
 	// DisableCapacityManager — moved to handler_capacity_family.go
-	ops["DisableInstanceSqlHaStandbyDetections"] = h.handleStubDisableInstanceSQLHaStandbyDetections
+	// DisableInstanceSqlHaStandbyDetections — moved to sqlHaSupportedOperations
 	// ops["DisableIpamOrganizationAdminAccount"] — moved to ipamPolicySupportedOperations
 	// ops["DisableIpamPolicy"] — moved to ipamPolicySupportedOperations
 	// DisableRouteServerPropagation — real handler in handler_route_server.go, covered there
@@ -306,7 +305,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DisassociateClientVpnTargetNetwork — moved to handler_batch4.go
 	// DisassociateEnclaveCertificateIamRole — moved to trunkEnclaveSupportedOperations
 	// DisassociateIamInstanceProfile — moved to handler_ec2core.go
-	ops["DisassociateInstanceEventWindow"] = h.handleStubDisassociateInstanceEventWindow
+	// DisassociateInstanceEventWindow — moved to instanceAttrSupportedOperations
 	// ops["DisassociateIpamByoasn"] — moved to ipamDiscoverySupportedOperations
 	// ops["DisassociateIpamResourceDiscovery"] — moved to ipamDiscoverySupportedOperations
 	// DisassociateRouteServer — real handler in handler_route_server.go, covered there
@@ -317,7 +316,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// EnableAllowedImagesSettings — moved to imageOpsSupportedOperations()
 	ops["EnableAwsNetworkPerformanceMetricSubscription"] = h.handleStubEnableAwsNetworkPerformanceMetricSubscription
 	// EnableCapacityManager — moved to handler_capacity_family.go
-	ops["EnableInstanceSqlHaStandbyDetections"] = h.handleStubEnableInstanceSQLHaStandbyDetections
+	// EnableInstanceSqlHaStandbyDetections — moved to sqlHaSupportedOperations
 	// ops["EnableIpamOrganizationAdminAccount"] — moved to ipamPolicySupportedOperations
 	// ops["EnableIpamPolicy"] — moved to ipamPolicySupportedOperations
 	ops["EnableReachabilityAnalyzerOrganizationSharing"] = h.handleStubEnableReachabilityAnalyzerOrganizationSharing
@@ -343,8 +342,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetFlowLogsIntegrationTemplate"] = h.handleStubGetFlowLogsIntegrationTemplate
 	ops["GetHostReservationPurchasePreview"] = h.handleStubGetHostReservationPurchasePreview
 	ops["GetImageAncestry"] = h.handleStubGetImageAncestry
-	ops["GetInstanceTpmEkPub"] = h.handleStubGetInstanceTpmEkPub
-	ops["GetInstanceUefiData"] = h.handleStubGetInstanceUefiData
+	// GetInstanceTpmEkPub — moved to instanceAttrSupportedOperations
+	// GetInstanceUefiData — moved to instanceAttrSupportedOperations
 	// ops["GetIpamAddressHistory"] — moved to advancedNetworkingSupportedOperations
 	// ops["GetIpamDiscoveredAccounts"] — moved to advancedNetworkingSupportedOperations
 	// ops["GetIpamDiscoveredPublicAddresses"] — moved to advancedNetworkingSupportedOperations
@@ -384,18 +383,18 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ImportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
 	// ImportInstance — moved to vmImportExportSupportedOperations
 	// ImportVolume — moved to vmImportExportSupportedOperations
-	ops["ModifyAvailabilityZoneGroup"] = h.handleStubModifyAvailabilityZoneGroup
+	// ModifyAvailabilityZoneGroup — moved to instanceAttrSupportedOperations
 	// ModifyCapacityReservationFleet — moved to handler_capacity_family.go
 	// ModifyClientVpnEndpoint — moved to handler_batch4.go
 	// ModifyFleet — real handler in handler_batch5.go, covered there
 	// ModifyFpgaImageAttribute — moved to handler_fpga_image.go
-	ops["ModifyHosts"] = h.handleStubModifyHosts
-	ops["ModifyInstanceCapacityReservationAttributes"] = h.handleStubModifyInstanceCapacityReservationAttributes
-	ops["ModifyInstanceCpuOptions"] = h.handleStubModifyInstanceCPUOptions
-	ops["ModifyInstanceEventStartTime"] = h.handleStubModifyInstanceEventStartTime
-	ops["ModifyInstanceMaintenanceOptions"] = h.handleStubModifyInstanceMaintenanceOptions
-	ops["ModifyInstanceNetworkPerformanceOptions"] = h.handleStubModifyInstanceNetworkPerformanceOptions
-	ops["ModifyInstancePlacement"] = h.handleStubModifyInstancePlacement
+	// ModifyHosts — moved to instanceAttrSupportedOperations
+	// ModifyInstanceCapacityReservationAttributes — moved to instanceAttrSupportedOperations
+	// ModifyInstanceCpuOptions — moved to instanceAttrSupportedOperations
+	// ModifyInstanceEventStartTime — moved to instanceAttrSupportedOperations
+	// ModifyInstanceMaintenanceOptions — moved to instanceAttrSupportedOperations
+	// ModifyInstanceNetworkPerformanceOptions — moved to instanceAttrSupportedOperations
+	// ModifyInstancePlacement — moved to instanceAttrSupportedOperations
 	// ops["ModifyIpam"] — moved to advancedNetworkingSupportedOperations
 	// ops["ModifyIpamPolicyAllocationRules"] — moved to ipamPolicySupportedOperations
 	// ops["ModifyIpamPool"] — moved to advancedNetworkingSupportedOperations
@@ -406,8 +405,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ops["ModifyIpamScope"] — moved to advancedNetworkingSupportedOperations
 	// ModifyLocalGatewayRoute — real handler in handler_local_gateway.go
 	// ModifyManagedPrefixList — moved to handler_batch4.go
-	ops["ModifyPrivateDnsNameOptions"] = h.handleStubModifyPrivateDNSNameOptions
-	ops["ModifyPublicIpDnsNameOptions"] = h.handleStubModifyPublicIPDNSNameOptions
+	// ModifyPrivateDnsNameOptions — moved to instanceAttrSupportedOperations
+	// ModifyPublicIpDnsNameOptions — moved to instanceAttrSupportedOperations
 	// ModifyReservedInstances — real handler in handler_batch5.go, covered there
 	// ModifyRouteServer — real handler in handler_route_server.go, covered there
 	// ModifySpotFleetRequest — spot fleet handler in handler_spot_fleet.go, covered there
@@ -492,7 +491,7 @@ func stubSupportedOperations() []string {
 		// "AssociateClientVpnTargetNetwork", — moved to batch4SupportedOperations
 		// "AssociateEnclaveCertificateIamRole", — moved to trunkEnclaveSupportedOperations
 		// AssociateIamInstanceProfile — now in ec2CoreSupportedOperations
-		"AssociateInstanceEventWindow",
+		// "AssociateInstanceEventWindow", — moved to instanceAttrSupportedOperations
 		// "AssociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
 		// "AssociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		"AssociateRouteServer",
@@ -525,7 +524,7 @@ func stubSupportedOperations() []string {
 		// "CreateCoipCidr", — moved to ipPoolSupportedOperations()
 		// "CreateCoipPool", — moved to ipPoolSupportedOperations()
 		// "CreateCustomerGateway", — moved to advancedNetworkingSupportedOperations
-		"CreateDelegateMacVolumeOwnershipTask",
+		// "CreateDelegateMacVolumeOwnershipTask", — moved to macHostSupportedOperations
 		// CreateEgressOnlyInternetGateway — moved to ec2CoreSupportedOperations
 		"CreateFleet",
 		// "CreateFpgaImage", — moved to handler_fpga_image.go
@@ -546,7 +545,7 @@ func stubSupportedOperations() []string {
 		// "CreateLocalGatewayRouteTableVpcAssociation", — moved to localGatewaySupportedOperations
 		"CreateLocalGatewayVirtualInterface",
 		"CreateLocalGatewayVirtualInterfaceGroup",
-		"CreateMacSystemIntegrityProtectionModificationTask",
+		// "CreateMacSystemIntegrityProtectionModificationTask", — moved to macHostSupportedOperations
 		// "CreateManagedPrefixList", — moved to batch4SupportedOperations
 		"CreateNetworkInsightsAccessScope",
 		"CreateNetworkInsightsPath",
@@ -555,8 +554,8 @@ func stubSupportedOperations() []string {
 		"CreateRouteServer",
 		"CreateRouteServerEndpoint",
 		"CreateRouteServerPeer",
-		"CreateSecondaryNetwork",
-		"CreateSecondarySubnet",
+		// "CreateSecondaryNetwork", — moved to secondaryNetSupportedOperations
+		// "CreateSecondarySubnet", — moved to secondaryNetSupportedOperations
 		// "CreateStoreImageTask", — moved to imageOpsSupportedOperations()
 		"CreateTrafficMirrorFilter",
 		"CreateTrafficMirrorFilterRule",
@@ -617,8 +616,8 @@ func stubSupportedOperations() []string {
 		"DeleteRouteServer",
 		"DeleteRouteServerEndpoint",
 		"DeleteRouteServerPeer",
-		"DeleteSecondaryNetwork",
-		"DeleteSecondarySubnet",
+		// "DeleteSecondaryNetwork", — moved to secondaryNetSupportedOperations
+		// "DeleteSecondarySubnet", — moved to secondaryNetSupportedOperations
 		"DeleteTrafficMirrorFilter",
 		"DeleteTrafficMirrorFilterRule",
 		"DeleteTrafficMirrorSession",
@@ -685,8 +684,8 @@ func stubSupportedOperations() []string {
 		// DescribeIamInstanceProfileAssociations — moved to ec2CoreSupportedOperations
 		"DescribeImageReferences",
 		// "DescribeImageUsageReportEntries", — moved to imageOpsSupportedOperations()
-		"DescribeInstanceSqlHaHistoryStates",
-		"DescribeInstanceSqlHaStates",
+		// "DescribeInstanceSqlHaHistoryStates", — moved to sqlHaSupportedOperations
+		// "DescribeInstanceSqlHaStates", — moved to sqlHaSupportedOperations
 		// "DescribeIpamByoasn", — moved to ipamDiscoverySupportedOperations
 		// "DescribeIpamExternalResourceVerificationTokens", — moved to ipamDiscoverySupportedOperations
 		// "DescribeIpamPolicies", — moved to ipamPolicySupportedOperations
@@ -703,15 +702,15 @@ func stubSupportedOperations() []string {
 		// "DescribeLocalGatewayVirtualInterfaceGroups", — moved to localGatewaySupportedOperations
 		// "DescribeLocalGatewayVirtualInterfaces", — moved to localGatewaySupportedOperations
 		// "DescribeLocalGateways", — moved to localGatewaySupportedOperations
-		"DescribeMacHosts",
-		"DescribeMacModificationTasks",
+		// "DescribeMacHosts", — moved to macHostSupportedOperations
+		// "DescribeMacModificationTasks", — moved to macHostSupportedOperations
 		// "DescribeManagedPrefixLists", — moved to batch4SupportedOperations
 		"DescribeMovingAddresses",
 		"DescribeNetworkInsightsAccessScopeAnalyses",
 		"DescribeNetworkInsightsAccessScopes",
 		"DescribeNetworkInsightsAnalyses",
 		"DescribeNetworkInsightsPaths",
-		"DescribeOutpostLags",
+		// "DescribeOutpostLags", — moved to secondaryNetSupportedOperations
 		"DescribeReservedInstances",
 		"DescribeReservedInstancesListings",
 		"DescribeReservedInstancesModifications",
@@ -721,10 +720,10 @@ func stubSupportedOperations() []string {
 		"DescribeRouteServers",
 		// "DescribeScheduledInstanceAvailability", — moved to scheduledInstanceSupportedOperations()
 		// "DescribeScheduledInstances", — moved to scheduledInstanceSupportedOperations()
-		"DescribeSecondaryInterfaces",
-		"DescribeSecondaryNetworks",
-		"DescribeSecondarySubnets",
-		"DescribeServiceLinkVirtualInterfaces",
+		// "DescribeSecondaryInterfaces", — moved to secondaryNetSupportedOperations
+		// "DescribeSecondaryNetworks", — moved to secondaryNetSupportedOperations
+		// "DescribeSecondarySubnets", — moved to secondaryNetSupportedOperations
+		// "DescribeServiceLinkVirtualInterfaces", — moved to secondaryNetSupportedOperations
 		// "DescribeStoreImageTasks", — moved to imageOpsSupportedOperations()
 		"DescribeTrafficMirrorFilterRules",
 		"DescribeTrafficMirrorFilters",
@@ -760,7 +759,7 @@ func stubSupportedOperations() []string {
 		// "DisableAllowedImagesSettings", — moved to imageOpsSupportedOperations()
 		"DisableAwsNetworkPerformanceMetricSubscription",
 		"DisableCapacityManager",
-		"DisableInstanceSqlHaStandbyDetections",
+		// "DisableInstanceSqlHaStandbyDetections", — moved to sqlHaSupportedOperations
 		// "DisableIpamOrganizationAdminAccount", — moved to ipamPolicySupportedOperations
 		// "DisableIpamPolicy", — moved to ipamPolicySupportedOperations
 		"DisableRouteServerPropagation",
@@ -771,7 +770,7 @@ func stubSupportedOperations() []string {
 		// "DisassociateClientVpnTargetNetwork", — moved to batch4SupportedOperations
 		// "DisassociateEnclaveCertificateIamRole", — moved to trunkEnclaveSupportedOperations
 		// DisassociateIamInstanceProfile — moved to ec2CoreSupportedOperations
-		"DisassociateInstanceEventWindow",
+		// "DisassociateInstanceEventWindow", — moved to instanceAttrSupportedOperations
 		// "DisassociateIpamByoasn", — moved to ipamDiscoverySupportedOperations
 		// "DisassociateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
 		"DisassociateRouteServer",
@@ -782,7 +781,7 @@ func stubSupportedOperations() []string {
 		// "EnableAllowedImagesSettings", — moved to imageOpsSupportedOperations()
 		"EnableAwsNetworkPerformanceMetricSubscription",
 		"EnableCapacityManager",
-		"EnableInstanceSqlHaStandbyDetections",
+		// "EnableInstanceSqlHaStandbyDetections", — moved to sqlHaSupportedOperations
 		// "EnableIpamOrganizationAdminAccount", — moved to ipamPolicySupportedOperations
 		// "EnableIpamPolicy", — moved to ipamPolicySupportedOperations
 		"EnableReachabilityAnalyzerOrganizationSharing",
@@ -808,8 +807,8 @@ func stubSupportedOperations() []string {
 		"GetFlowLogsIntegrationTemplate",
 		"GetHostReservationPurchasePreview",
 		"GetImageAncestry",
-		"GetInstanceTpmEkPub",
-		"GetInstanceUefiData",
+		// "GetInstanceTpmEkPub", — moved to instanceAttrSupportedOperations
+		// "GetInstanceUefiData", — moved to instanceAttrSupportedOperations
 		// "GetIpamAddressHistory", — moved to advancedNetworkingSupportedOperations
 		// "GetIpamDiscoveredAccounts", — moved to advancedNetworkingSupportedOperations
 		// "GetIpamDiscoveredPublicAddresses", — moved to advancedNetworkingSupportedOperations
@@ -849,18 +848,18 @@ func stubSupportedOperations() []string {
 		// ImportClientVpnClientCertificateRevocationList — moved to batch4SupportedOperations
 		// "ImportInstance", — moved to vmImportExportSupportedOperations
 		// "ImportVolume", — moved to vmImportExportSupportedOperations
-		"ModifyAvailabilityZoneGroup",
+		// "ModifyAvailabilityZoneGroup", — moved to instanceAttrSupportedOperations
 		"ModifyCapacityReservationFleet",
 		// "ModifyClientVpnEndpoint", — moved to batch4SupportedOperations
 		"ModifyFleet",
 		// "ModifyFpgaImageAttribute", — moved to handler_fpga_image.go
-		"ModifyHosts",
-		"ModifyInstanceCapacityReservationAttributes",
-		"ModifyInstanceCpuOptions",
-		"ModifyInstanceEventStartTime",
-		"ModifyInstanceMaintenanceOptions",
-		"ModifyInstanceNetworkPerformanceOptions",
-		"ModifyInstancePlacement",
+		// "ModifyHosts", — moved to instanceAttrSupportedOperations
+		// "ModifyInstanceCapacityReservationAttributes", — moved to instanceAttrSupportedOperations
+		// "ModifyInstanceCpuOptions", — moved to instanceAttrSupportedOperations
+		// "ModifyInstanceEventStartTime", — moved to instanceAttrSupportedOperations
+		// "ModifyInstanceMaintenanceOptions", — moved to instanceAttrSupportedOperations
+		// "ModifyInstanceNetworkPerformanceOptions", — moved to instanceAttrSupportedOperations
+		// "ModifyInstancePlacement", — moved to instanceAttrSupportedOperations
 		// "ModifyIpam", — moved to advancedNetworkingSupportedOperations
 		// "ModifyIpamPolicyAllocationRules", — moved to ipamPolicySupportedOperations
 		// "ModifyIpamPool", — moved to advancedNetworkingSupportedOperations
@@ -871,8 +870,8 @@ func stubSupportedOperations() []string {
 		// "ModifyIpamScope", — moved to advancedNetworkingSupportedOperations
 		// "ModifyLocalGatewayRoute", — moved to localGatewaySupportedOperations
 		// "ModifyManagedPrefixList", — moved to batch4SupportedOperations
-		"ModifyPrivateDnsNameOptions",
-		"ModifyPublicIpDnsNameOptions",
+		// "ModifyPrivateDnsNameOptions", — moved to instanceAttrSupportedOperations
+		// "ModifyPublicIpDnsNameOptions", — moved to instanceAttrSupportedOperations
 		"ModifyReservedInstances",
 		"ModifyRouteServer",
 		"ModifyTrafficMirrorFilterNetworkServices",
@@ -948,14 +947,6 @@ func stubSupportedOperations() []string {
 	}
 }
 
-func (h *Handler) handleStubAssociateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateInstanceEventWindowResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCancelDeclarativePoliciesReport(
 	_ url.Values,
 	reqID string,
@@ -970,17 +961,6 @@ func (h *Handler) handleStubCancelDeclarativePoliciesReport(
 func (h *Handler) handleStubCancelImageLaunchPermission(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CancelImageLaunchPermissionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateDelegateMacVolumeOwnershipTaskResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1019,33 +999,6 @@ func (h *Handler) handleStubCreateLocalGatewayVirtualInterfaceGroup(
 	}, nil
 }
 
-func (h *Handler) handleStubCreateMacSystemIntegrityProtectionModificationTask(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateMacSystemIntegrityProtectionModificationTaskResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateSecondaryNetwork(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateSecondaryNetworkResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateSecondarySubnet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateSecondarySubnetResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVpcEncryptionControlResponse"},
@@ -1079,22 +1032,6 @@ func (h *Handler) handleStubDeleteLocalGatewayVirtualInterfaceGroup(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteLocalGatewayVirtualInterfaceGroupResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteSecondaryNetwork(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteSecondaryNetworkResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteSecondarySubnet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteSecondarySubnetResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1184,87 +1121,9 @@ func (h *Handler) handleStubDescribeImageReferences(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeInstanceSQLHaHistoryStates(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeInstanceSqlHaHistoryStatesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeInstanceSQLHaStates(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeInstanceSqlHaStatesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeMacHosts(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeMacHostsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeMacModificationTasks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeMacModificationTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeMovingAddresses(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeMovingAddressesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeOutpostLags(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeOutpostLagsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeSecondaryInterfaces(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeSecondaryInterfacesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeSecondaryNetworks(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeSecondaryNetworksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeSecondarySubnets(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeSecondarySubnetsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeServiceLinkVirtualInterfaces(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeServiceLinkVirtualInterfacesResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1308,17 +1167,6 @@ func (h *Handler) handleStubDisableAwsNetworkPerformanceMetricSubscription(
 	}, nil
 }
 
-func (h *Handler) handleStubDisableInstanceSQLHaStandbyDetections(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableInstanceSqlHaStandbyDetectionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(
 	_ url.Values,
 	reqID string,
@@ -1330,34 +1178,12 @@ func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateInstanceEventWindow(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateInstanceEventWindowResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubEnableAwsNetworkPerformanceMetricSubscription(
 	_ url.Values,
 	reqID string,
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableAwsNetworkPerformanceMetricSubscriptionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubEnableInstanceSQLHaStandbyDetections(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableInstanceSqlHaStandbyDetectionsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1450,22 +1276,6 @@ func (h *Handler) handleStubGetImageAncestry(_ url.Values, reqID string) (any, e
 	}, nil
 }
 
-func (h *Handler) handleStubGetInstanceTpmEkPub(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetInstanceTpmEkPubResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetInstanceUefiData(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetInstanceUefiDataResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetSpotPlacementScores(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetSpotPlacementScoresResponse"},
@@ -1480,95 +1290,6 @@ func (h *Handler) handleStubGetVpcResourcesBlockingEncryptionEnforcement(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetVpcResourcesBlockingEncryptionEnforcementResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyAvailabilityZoneGroup(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyAvailabilityZoneGroupResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyHosts(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyHostsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstanceCapacityReservationAttributes(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceCapacityReservationAttributesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstanceCPUOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceCpuOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstanceEventStartTime(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceEventStartTimeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstanceMaintenanceOptions(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceMaintenanceOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstanceNetworkPerformanceOptions(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceNetworkPerformanceOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyInstancePlacement(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstancePlacementResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyPrivateDNSNameOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyPrivateDnsNameOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyPublicIPDNSNameOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyPublicIpDnsNameOptionsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

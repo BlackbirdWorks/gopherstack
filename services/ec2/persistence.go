@@ -229,6 +229,18 @@ type backendSnapshot struct {
 	TrunkInterfaceAssociations map[string]*TrunkInterfaceAssociation       `json:"trunkInterfaceAssociations,omitempty"`
 	EnclaveCertIamRoles        map[string][]*EnclaveCertIamRoleAssociation `json:"enclaveCertIamRoles,omitempty"`
 
+	// Mac modification task / Secondary Network / Secondary Subnet / Secondary
+	// Interface / Outpost LAG / Service Link Virtual Interface / SQL HA fields.
+	MacModificationTasks         map[string]*MacModificationTask         `json:"macModificationTasks,omitempty"`
+	SecondaryNetworks            map[string]*SecondaryNetwork            `json:"secondaryNetworks,omitempty"`
+	SecondarySubnets             map[string]*SecondarySubnet             `json:"secondarySubnets,omitempty"`
+	SecondaryInterfaces          map[string]*SecondaryInterface          `json:"secondaryInterfaces,omitempty"`
+	ServiceLinkVirtualInterfaces map[string]*ServiceLinkVirtualInterface `json:"serviceLinkVirtualInterfaces,omitempty"`
+	OutpostLags                  map[string]*OutpostLag                  `json:"outpostLags,omitempty"`
+	AvailabilityZoneGroupOptIns  map[string]string                       `json:"azGroupOptIns,omitempty"`
+	SQLHaRegistrations           map[string]*RegisteredSQLHaInstance     `json:"sqlHaRegistrations,omitempty"`
+	SQLHaHistory                 map[string][]*RegisteredSQLHaInstance   `json:"sqlHaHistory,omitempty"`
+
 	IpamOrgAdminAccountID  string   `json:"ipamOrgAdminAcct,omitempty"`
 	Region                 string   `json:"region,omitempty"`
 	AccountID              string   `json:"accountID,omitempty"`
@@ -428,6 +440,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ExportImageTasks:                   b.exportImageTasks,
 		TrunkInterfaceAssociations:         b.trunkInterfaceAssociations,
 		EnclaveCertIamRoles:                b.enclaveCertIamRoles,
+		MacModificationTasks:               b.macModificationTasks,
+		SecondaryNetworks:                  b.secondaryNetworks,
+		SecondarySubnets:                   b.secondarySubnets,
+		SecondaryInterfaces:                b.secondaryInterfaces,
+		ServiceLinkVirtualInterfaces:       b.serviceLinkVirtualInterfaces,
+		OutpostLags:                        b.outpostLags,
+		AvailabilityZoneGroupOptIns:        b.availabilityZoneGroupOptIns,
+		SQLHaRegistrations:                 b.sqlHaRegistrations,
+		SQLHaHistory:                       b.sqlHaHistory,
 	}
 
 	data, err := json.Marshal(snap)
@@ -818,8 +839,25 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.restoreTGWMulticastFields(&snap)
 	b.restoreVpcConfigFields(&snap)
 	b.restoreCapacityFamilyFields(&snap)
+	b.restoreNewFamilyFields(&snap)
 
 	return nil
+}
+
+// restoreNewFamilyFields copies the Mac modification task / Secondary
+// Network / Secondary Subnet / Secondary Interface / Outpost LAG / Service
+// Link Virtual Interface / instance-attribute misc / SQL HA fields from snap
+// into b. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) restoreNewFamilyFields(snap *backendSnapshot) {
+	b.macModificationTasks = snap.MacModificationTasks
+	b.secondaryNetworks = snap.SecondaryNetworks
+	b.secondarySubnets = snap.SecondarySubnets
+	b.secondaryInterfaces = snap.SecondaryInterfaces
+	b.serviceLinkVirtualInterfaces = snap.ServiceLinkVirtualInterfaces
+	b.outpostLags = snap.OutpostLags
+	b.availabilityZoneGroupOptIns = snap.AvailabilityZoneGroupOptIns
+	b.sqlHaRegistrations = snap.SQLHaRegistrations
+	b.sqlHaHistory = snap.SQLHaHistory
 }
 
 // restoreCapacityFamilyFields copies the Capacity Reservation Fleet, Capacity
@@ -1284,6 +1322,15 @@ func (s *backendSnapshot) initImageAndPoolMaps() {
 	initMapIfNil(&s.ExportImageTasks)
 	initMapIfNil(&s.TrunkInterfaceAssociations)
 	initMapIfNil(&s.EnclaveCertIamRoles)
+	initMapIfNil(&s.MacModificationTasks)
+	initMapIfNil(&s.SecondaryNetworks)
+	initMapIfNil(&s.SecondarySubnets)
+	initMapIfNil(&s.SecondaryInterfaces)
+	initMapIfNil(&s.ServiceLinkVirtualInterfaces)
+	initMapIfNil(&s.OutpostLags)
+	initMapIfNil(&s.AvailabilityZoneGroupOptIns)
+	initMapIfNil(&s.SQLHaRegistrations)
+	initMapIfNil(&s.SQLHaHistory)
 
 	if s.AllowedImagesSettings == nil {
 		s.AllowedImagesSettings = &AllowedImagesSettings{

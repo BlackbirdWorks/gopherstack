@@ -98,26 +98,33 @@ var (
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
 type Instance struct {
-	LaunchTime            time.Time     `json:"launchTime"`
-	TerminatedAt          time.Time     `json:"terminatedAt"`
-	PublicDNSName         string        `json:"publicDNSName,omitempty"`
-	KeyName               string        `json:"keyName,omitempty"`
-	InstanceType          string        `json:"instanceType,omitempty"`
-	ImageID               string        `json:"imageID,omitempty"`
-	VPCID                 string        `json:"vpcID,omitempty"`
-	SubnetID              string        `json:"subnetID,omitempty"`
-	MetadataOptionsTokens string        `json:"metadataOptionsTokens,omitempty"`
-	ID                    string        `json:"id,omitempty"`
-	PrivateIP             string        `json:"privateIP,omitempty"`
-	PublicIPAddress       string        `json:"publicIPAddress,omitempty"`
-	MetadataOptionsState  string        `json:"metadataOptionsState,omitempty"`
-	UserData              string        `json:"userData,omitempty"`
-	SriovNetSupport       string        `json:"sriovNetSupport,omitempty"`
-	ProviderID            string        `json:"providerID,omitempty"`
-	SecurityGroups        []string      `json:"securityGroups,omitempty"`
-	State                 InstanceState `json:"state"`
-	SSHPort               int           `json:"sshPort,omitempty"`
-	EnaSupport            bool          `json:"enaSupport,omitempty"`
+	LaunchTime                time.Time                         `json:"launchTime"`
+	TerminatedAt              time.Time                         `json:"terminatedAt"`
+	EventStartTimeOverrides   map[string]time.Time              `json:"eventStartTimeOverrides,omitempty"`
+	Placement                 InstancePlacement                 `json:"placement"`
+	CapacityReservationSpec   CapacityReservationSpec           `json:"capacityReservationSpecification"`
+	MaintenanceOptions        InstanceMaintenanceOptions        `json:"maintenanceOptions"`
+	CPUOptions                CPUOptions                        `json:"cpuOptions"`
+	MetadataOptionsState      string                            `json:"metadataOptionsState,omitempty"`
+	VPCID                     string                            `json:"vpcID,omitempty"`
+	ID                        string                            `json:"id,omitempty"`
+	PrivateIP                 string                            `json:"privateIP,omitempty"`
+	PublicIPAddress           string                            `json:"publicIPAddress,omitempty"`
+	SubnetID                  string                            `json:"subnetID,omitempty"`
+	UserData                  string                            `json:"userData,omitempty"`
+	SriovNetSupport           string                            `json:"sriovNetSupport,omitempty"`
+	ProviderID                string                            `json:"providerID,omitempty"`
+	PublicDNSName             string                            `json:"publicDNSName,omitempty"`
+	NetworkPerformanceOptions InstanceNetworkPerformanceOptions `json:"networkPerformanceOptions"`
+	KeyName                   string                            `json:"keyName,omitempty"`
+	InstanceType              string                            `json:"instanceType,omitempty"`
+	MetadataOptionsTokens     string                            `json:"metadataOptionsTokens,omitempty"`
+	ImageID                   string                            `json:"imageID,omitempty"`
+	PrivateDNSNameOptions     PrivateDNSNameOptions             `json:"privateDnsNameOptions"`
+	State                     InstanceState                     `json:"state"`
+	SecurityGroups            []string                          `json:"securityGroups,omitempty"`
+	SSHPort                   int                               `json:"sshPort,omitempty"`
+	EnaSupport                bool                              `json:"enaSupport,omitempty"`
 }
 
 // LaunchTemplate represents an EC2 launch template.
@@ -403,29 +410,42 @@ type InMemoryBackend struct {
 	trunkInterfaceAssociations map[string]*TrunkInterfaceAssociation
 	enclaveCertIamRoles        map[string][]*EnclaveCertIamRoleAssociation
 	// Allowed Images Settings / Store-Restore Image Task / Image Usage Report additions
-	allowedImagesSettings     *AllowedImagesSettings
-	storeImageTasks           map[string]*StoreImageTask
-	usageReports              map[string]*UsageReport
-	usageReportEntries        map[string][]*UsageReportEntry
-	instanceProductCodes      map[string][]string
-	mu                        *lockmetrics.RWMutex
-	lifecycleStop             chan struct{}
-	eniIDByAttachment         map[string]string
-	eniIDsByInstance          map[string]map[string]struct{}
-	instanceIDsByVPC          map[string]map[string]struct{}
-	snapshotBlockPublicAccess string
-	ebsDefaultKmsKeyID        string
-	imageBlockPublicAccess    string
-	defaultCreditSpec         string
-	Region                    string `json:"region,omitempty"`
-	AccountID                 string `json:"accountID,omitempty"`
-	freePrivateIPs            []string
-	nextPrivateIPIndex        int
-	nextElasticIPIndex        int
-	ebsEncryptionByDefault    bool
-	serialConsoleAccess       bool
-	lifecycleOnce             sync.Once
-	lifecycleStopOnce         sync.Once
+	allowedImagesSettings *AllowedImagesSettings
+	storeImageTasks       map[string]*StoreImageTask
+	usageReports          map[string]*UsageReport
+	usageReportEntries    map[string][]*UsageReportEntry
+	instanceProductCodes  map[string][]string
+	// Mac Host / Mac modification task additions
+	macModificationTasks map[string]*MacModificationTask
+	// Secondary Network / Secondary Subnet / Secondary Interface / Outpost LAG /
+	// Service Link Virtual Interface additions
+	secondaryNetworks            map[string]*SecondaryNetwork
+	secondarySubnets             map[string]*SecondarySubnet
+	secondaryInterfaces          map[string]*SecondaryInterface
+	serviceLinkVirtualInterfaces map[string]*ServiceLinkVirtualInterface
+	outpostLags                  map[string]*OutpostLag
+	// Instance-attribute misc cluster additions (AZ group opt-in, SQL HA)
+	availabilityZoneGroupOptIns map[string]string
+	sqlHaRegistrations          map[string]*RegisteredSQLHaInstance
+	sqlHaHistory                map[string][]*RegisteredSQLHaInstance
+	mu                          *lockmetrics.RWMutex
+	lifecycleStop               chan struct{}
+	eniIDByAttachment           map[string]string
+	eniIDsByInstance            map[string]map[string]struct{}
+	instanceIDsByVPC            map[string]map[string]struct{}
+	snapshotBlockPublicAccess   string
+	ebsDefaultKmsKeyID          string
+	imageBlockPublicAccess      string
+	defaultCreditSpec           string
+	Region                      string `json:"region,omitempty"`
+	AccountID                   string `json:"accountID,omitempty"`
+	freePrivateIPs              []string
+	nextPrivateIPIndex          int
+	nextElasticIPIndex          int
+	ebsEncryptionByDefault      bool
+	serialConsoleAccess         bool
+	lifecycleOnce               sync.Once
+	lifecycleStopOnce           sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -507,6 +527,10 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	b.resetVMImportExportMapsLocked()
 	b.resetTrunkEnclaveMapsLocked()
 	b.instanceProductCodes = make(map[string][]string)
+	b.resetMacHostMapsLocked()
+	b.resetSecondaryNetworkMapsLocked()
+	b.resetInstanceAttrMapsLocked()
+	b.resetSQLHaMapsLocked()
 
 	return b
 }

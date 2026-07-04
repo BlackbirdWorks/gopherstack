@@ -131,17 +131,18 @@ type NatGateway struct {
 
 // NetworkInterface represents an EC2 Network Interface (ENI).
 type NetworkInterface struct {
-	ID                  string   `json:"id,omitempty"`
-	SubnetID            string   `json:"subnetID,omitempty"`
-	VPCID               string   `json:"vpcID,omitempty"`
-	PrivateIP           string   `json:"privateIP,omitempty"`
-	Description         string   `json:"description,omitempty"`
-	InstanceID          string   `json:"instanceID,omitempty"`
-	AttachmentID        string   `json:"attachmentID,omitempty"`
-	Status              string   `json:"status,omitempty"`
-	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
-	DeviceIndex         int      `json:"deviceIndex,omitempty"`
-	SourceDestCheck     bool     `json:"sourceDestCheck,omitempty"`
+	ID                    string   `json:"id,omitempty"`
+	SubnetID              string   `json:"subnetID,omitempty"`
+	VPCID                 string   `json:"vpcID,omitempty"`
+	PrivateIP             string   `json:"privateIP,omitempty"`
+	Description           string   `json:"description,omitempty"`
+	InstanceID            string   `json:"instanceID,omitempty"`
+	AttachmentID          string   `json:"attachmentID,omitempty"`
+	Status                string   `json:"status,omitempty"`
+	PublicDNSHostnameType string   `json:"publicDnsHostnameType,omitempty"`
+	SecondaryPrivateIPs   []string `json:"secondaryPrivateIPs,omitempty"`
+	DeviceIndex           int      `json:"deviceIndex,omitempty"`
+	SourceDestCheck       bool     `json:"sourceDestCheck,omitempty"`
 }
 
 // SpotLaunchSpecification holds launch parameters for a spot instance request.

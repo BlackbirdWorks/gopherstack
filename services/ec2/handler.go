@@ -134,6 +134,10 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, vmImportExportSupportedOperations()...)
 	extOps = append(extOps, trunkEnclaveSupportedOperations()...)
 	extOps = append(extOps, imageOpsSupportedOperations()...)
+	extOps = append(extOps, macHostSupportedOperations()...)
+	extOps = append(extOps, secondaryNetSupportedOperations()...)
+	extOps = append(extOps, instanceAttrSupportedOperations()...)
+	extOps = append(extOps, sqlHaSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
@@ -410,6 +414,10 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerVMImportExportOps(h, ops)
 	registerTrunkEnclaveOps(h, ops)
 	registerImageOpsHandlers(h, ops)
+	registerMacHostOps(h, ops)
+	registerSecondaryNetOps(h, ops)
+	registerInstanceAttrOps(h, ops)
+	registerSQLHaOps(h, ops)
 	registerStubOpsIfAbsent(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
@@ -1307,6 +1315,11 @@ var errCodeLookup = []struct {
 	{ErrTrunkAssociationNotFound, "InvalidAssociationID.NotFound"},
 	{ErrEnclaveCertRoleAssociationNotFound, errCodeInvalidParameterValue},
 	{ErrTooManyEnclaveCertRoles, "LimitExceeded"},
+	{ErrMacInstanceRequired, errCodeInvalidParameterValue},
+	{ErrSecondaryNetworkNotFound, "InvalidSecondaryNetworkID.NotFound"},
+	{ErrSecondarySubnetNotFound, "InvalidSecondarySubnetID.NotFound"},
+	{ErrSecondaryNetworkHasSubnets, "DependencyViolation"},
+	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
 	{ErrInvalidParameter, errCodeInvalidParameterValue},
 }
 
