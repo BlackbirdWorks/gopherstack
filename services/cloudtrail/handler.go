@@ -118,6 +118,13 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// RecordManagementEvent implements service.CloudTrailRecorder, allowing the
+// central service registry to reach this live backend directly (no second,
+// disconnected CloudTrail backend is created).
+func (h *Handler) RecordManagementEvent(ev service.CloudTrailEventInput) {
+	h.Backend.RecordManagementEvent(ev)
+}
+
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
 func (h *Handler) ChaosServiceName() string { return "cloudtrail" }
 

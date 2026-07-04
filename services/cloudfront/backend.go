@@ -507,6 +507,8 @@ type InMemoryBackend struct {
 	distributionFunctionAssociations  map[string][]FunctionAssociation // distribution ID → associations
 	// Batch 1 additions.
 	trustStores                         map[string]*TrustStore
+	trustStoreARNs                      map[string]string // ARN → trust store ID (tag lookups)
+	trustStoreByName                    map[string]string // name → trust store ID (uniqueness)
 	streamingDistributions              map[string]*StreamingDistribution
 	streamingDistributionARNs           map[string]string                  // ARN → streaming dist ID (tag lookups)
 	streamingDistributionCallerRefs     map[string]string                  // CallerRef → streaming dist ID (idempotency)
@@ -572,6 +574,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		vpcOrigins:                          make(map[string]*VpcOrigin),
 		distributionFunctionAssociations:    make(map[string][]FunctionAssociation),
 		trustStores:                         make(map[string]*TrustStore),
+		trustStoreARNs:                      make(map[string]string),
+		trustStoreByName:                    make(map[string]string),
 		streamingDistributions:              make(map[string]*StreamingDistribution),
 		streamingDistributionARNs:           make(map[string]string),
 		streamingDistributionCallerRefs:     make(map[string]string),
@@ -716,6 +720,8 @@ func (b *InMemoryBackend) resetPoliciesAndKeys() {
 	b.keyValueStoreByName = make(map[string]string)
 	b.vpcOrigins = make(map[string]*VpcOrigin)
 	b.trustStores = make(map[string]*TrustStore)
+	b.trustStoreARNs = make(map[string]string)
+	b.trustStoreByName = make(map[string]string)
 	b.streamingDistributions = make(map[string]*StreamingDistribution)
 	b.streamingDistributionARNs = make(map[string]string)
 	b.streamingDistributionCallerRefs = make(map[string]string)
@@ -969,7 +975,7 @@ func (b *InMemoryBackend) ListOAIs() []*OriginAccessIdentity {
 }
 
 // taggableTags returns a pointer to the Tags map for the resource identified by resourceARN,
-// searching every taggable resource kind (distributions, streaming distributions).
+// searching every taggable resource kind (distributions, streaming distributions, trust stores).
 // Must be called with the lock held.
 func (b *InMemoryBackend) taggableTags(resourceARN string) (*map[string]string, bool) {
 	if id, ok := b.distributionARNs[resourceARN]; ok {
@@ -978,6 +984,10 @@ func (b *InMemoryBackend) taggableTags(resourceARN string) (*map[string]string, 
 
 	if id, ok := b.streamingDistributionARNs[resourceARN]; ok {
 		return &b.streamingDistributions[id].Tags, true
+	}
+
+	if id, ok := b.trustStoreARNs[resourceARN]; ok {
+		return &b.trustStores[id].Tags, true
 	}
 
 	return nil, false

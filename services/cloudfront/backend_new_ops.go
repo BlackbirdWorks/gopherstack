@@ -32,91 +32,158 @@ var ErrStreamingDistributionNotDisabled = awserr.New("StreamingDistributionNotDi
 // TrustStore
 // ---------------------------------------------------------------------------
 
-// TrustStore represents a CloudFront trust store.
+// TrustStoreCertificateBundle models the CA certificate bundle backing a trust store, either
+// as a reference to an object in S3 or as an inline PEM-encoded certificate bundle.
+type TrustStoreCertificateBundle struct {
+	S3Bucket                string `json:"s3Bucket,omitempty"`
+	S3Key                   string `json:"s3Key,omitempty"`
+	InlineCertificateBundle string `json:"inlineCertificateBundle,omitempty"`
+}
+
+// isEmpty reports whether none of the bundle's fields have been set.
+func (bundle TrustStoreCertificateBundle) isEmpty() bool {
+	return bundle.S3Bucket == "" && bundle.S3Key == "" && bundle.InlineCertificateBundle == ""
+}
+
+// TrustStore represents a CloudFront trust store: a named collection of CA certificates used
+// for mutual TLS (mTLS) authentication between viewers and CloudFront.
 type TrustStore struct {
-	ID      string `json:"id"`
-	ARN     string `json:"arn"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"etag"`
+	Tags                                   map[string]string           `json:"tags,omitempty"`
+	ID                                     string                      `json:"id"`
+	ARN                                    string                      `json:"arn"`
+	Name                                   string                      `json:"name"`
+	Comment                                string                      `json:"comment,omitempty"`
+	Status                                 string                      `json:"status"`
+	ETag                                   string                      `json:"etag"`
+	LastModifiedTime                       string                      `json:"lastModifiedTime,omitempty"`
+	CertificateAuthorityCertificatesBundle TrustStoreCertificateBundle `json:"certificateAuthorityCertificatesBundle"`
 }
 
 func (b *InMemoryBackend) trustStoreARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:trust-store/%s", b.accountID, id)
 }
 
-func (b *InMemoryBackend) CreateTrustStore(name, comment string) (*TrustStore, error) {
+// copyTrustStore returns a deep copy of a TrustStore. Must be called with the lock held.
+func (b *InMemoryBackend) copyTrustStore(ts *TrustStore) *TrustStore {
+	cp := *ts
+	if ts.Tags != nil {
+		cp.Tags = make(map[string]string, len(ts.Tags))
+		maps.Copy(cp.Tags, ts.Tags)
+	}
+
+	return &cp
+}
+
+// CreateTrustStore creates a new trust store. Name must be unique among existing trust stores.
+func (b *InMemoryBackend) CreateTrustStore(
+	name, comment string, bundle TrustStoreCertificateBundle,
+) (*TrustStore, error) {
 	b.mu.Lock("CreateTrustStore")
 	defer b.mu.Unlock()
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
 	}
+
+	if _, exists := b.trustStoreByName[name]; exists {
+		return nil, fmt.Errorf("%w: trust store with name %q already exists", ErrAlreadyExists, name)
+	}
+
 	id := generateID()
 	ts := &TrustStore{
-		ID:      id,
-		ARN:     b.trustStoreARN(id),
-		Name:    name,
-		Comment: comment,
-		ETag:    uuid.NewString(),
+		ID:                                     id,
+		ARN:                                    b.trustStoreARN(id),
+		Name:                                   name,
+		Comment:                                comment,
+		Status:                                 statusDeployed,
+		ETag:                                   uuid.NewString(),
+		LastModifiedTime:                       time.Now().UTC().Format(time.RFC3339),
+		CertificateAuthorityCertificatesBundle: bundle,
+		Tags:                                   make(map[string]string),
 	}
 	b.trustStores[id] = ts
-	cp := *ts
+	b.trustStoreARNs[ts.ARN] = id
+	b.trustStoreByName[name] = id
 
-	return &cp, nil
+	return b.copyTrustStore(ts), nil
 }
 
+// GetTrustStore returns a trust store by ID.
 func (b *InMemoryBackend) GetTrustStore(id string) (*TrustStore, error) {
 	b.mu.RLock("GetTrustStore")
 	defer b.mu.RUnlock()
 
 	ts, ok := b.trustStores[id]
 	if !ok {
-		return nil, ErrTrustStoreNotFound
+		return nil, fmt.Errorf("%w: trust store %s not found", ErrTrustStoreNotFound, id)
 	}
-	cp := *ts
 
-	return &cp, nil
+	return b.copyTrustStore(ts), nil
 }
 
+// ListTrustStores returns all trust stores sorted by ID.
 func (b *InMemoryBackend) ListTrustStores() []*TrustStore {
 	b.mu.RLock("ListTrustStores")
 	defer b.mu.RUnlock()
 
 	out := make([]*TrustStore, 0, len(b.trustStores))
 	for _, ts := range b.trustStores {
-		cp := *ts
-		out = append(out, &cp)
+		out = append(out, b.copyTrustStore(ts))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
 	return out
 }
 
-func (b *InMemoryBackend) UpdateTrustStore(id, comment string) (*TrustStore, error) {
+// UpdateTrustStore updates an existing trust store. Empty fields (name, comment, and an empty
+// certificate bundle) leave the corresponding current value unchanged. If name changes, it must
+// remain unique among existing trust stores.
+func (b *InMemoryBackend) UpdateTrustStore(
+	id, name, comment string, bundle TrustStoreCertificateBundle,
+) (*TrustStore, error) {
 	b.mu.Lock("UpdateTrustStore")
 	defer b.mu.Unlock()
 
 	ts, ok := b.trustStores[id]
 	if !ok {
-		return nil, ErrTrustStoreNotFound
+		return nil, fmt.Errorf("%w: trust store %s not found", ErrTrustStoreNotFound, id)
 	}
+
+	if name != "" && name != ts.Name {
+		if _, exists := b.trustStoreByName[name]; exists {
+			return nil, fmt.Errorf("%w: trust store with name %q already exists", ErrAlreadyExists, name)
+		}
+		delete(b.trustStoreByName, ts.Name)
+		b.trustStoreByName[name] = id
+		ts.Name = name
+	}
+
 	if comment != "" {
 		ts.Comment = comment
 	}
-	ts.ETag = uuid.NewString()
-	cp := *ts
 
-	return &cp, nil
+	if !bundle.isEmpty() {
+		ts.CertificateAuthorityCertificatesBundle = bundle
+	}
+
+	ts.ETag = uuid.NewString()
+	ts.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+
+	return b.copyTrustStore(ts), nil
 }
 
+// DeleteTrustStore deletes a trust store by ID.
 func (b *InMemoryBackend) DeleteTrustStore(id string) error {
 	b.mu.Lock("DeleteTrustStore")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trustStores[id]; !ok {
-		return ErrTrustStoreNotFound
+	ts, ok := b.trustStores[id]
+	if !ok {
+		return fmt.Errorf("%w: trust store %s not found", ErrTrustStoreNotFound, id)
 	}
+
+	delete(b.trustStoreByName, ts.Name)
+	delete(b.trustStoreARNs, ts.ARN)
 	delete(b.trustStores, id)
 
 	return nil

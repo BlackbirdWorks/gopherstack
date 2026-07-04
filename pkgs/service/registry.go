@@ -23,10 +23,11 @@ type Entry struct {
 // Registry manages the ordered registration of services and applies
 // observability wrapping and other middleware at registration time.
 type Registry struct {
-	lookup      map[string]*Entry
-	services    []*Entry
-	middlewares []Middleware
-	latencyMs   int
+	lookup             map[string]*Entry
+	cloudTrailRecorder CloudTrailRecorder
+	services           []*Entry
+	middlewares        []Middleware
+	latencyMs          int
 }
 
 // NewRegistry creates a new service registry.
@@ -50,6 +51,18 @@ func (r *Registry) SetLatencyMs(ms int) {
 // are applied to all services registered AFTER the middleware is added.
 func (r *Registry) Use(mw Middleware) {
 	r.middlewares = append(r.middlewares, mw)
+}
+
+// SetCloudTrailRecorder configures the registry to capture a CloudTrail
+// management event for every mutating request that reaches a registered
+// service's handler. This is the single chokepoint through which every
+// service's requests flow, so calling this once wires global CloudTrail
+// capture without touching any individual service. Must be called before
+// Register for services that should be captured (typically once, before the
+// registration loop, since the recorder itself is usually one of the
+// services being registered).
+func (r *Registry) SetCloudTrailRecorder(rec CloudTrailRecorder) {
+	r.cloudTrailRecorder = rec
 }
 
 // Register adds a service to the registry with optional per-service middleware.
@@ -88,6 +101,13 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 	// Apply per-service middlewares
 	for _, mw := range mws {
 		h = mw(h)
+	}
+
+	// CloudTrail capture wraps outermost so it observes the final
+	// request/response state after every other layer has run, mirroring how
+	// the telemetry wrapper's ExtractOperation/ExtractResource calls work.
+	if r.cloudTrailRecorder != nil {
+		h = wrapCloudTrailCapture(r.cloudTrailRecorder, svc, h)
 	}
 
 	entry := &Entry{

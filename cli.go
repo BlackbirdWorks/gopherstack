@@ -4724,6 +4724,14 @@ func setupRegistry(
 		registry.SetLatencyMs(latencyMs)
 	}
 
+	// Wire the live CloudTrail backend (if registered) as the registry's global
+	// management-event recorder. This makes every mutating call to every
+	// registered service show up in CloudTrail LookupEvents, without any
+	// per-service integration code.
+	if ctRecorder := findCloudTrailRecorder(services); ctRecorder != nil {
+		registry.SetCloudTrailRecorder(ctRecorder)
+	}
+
 	// Chaos middleware runs outside the telemetry wrapper (as a global middleware).
 	// It extracts service/region/operation directly from the HTTP request headers so
 	// it does not depend on context values that are only set by the telemetry wrapper.
@@ -4758,6 +4766,19 @@ func setupRegistry(
 	e.Use(router.RouteHandler())
 
 	return registry, nil
+}
+
+// findCloudTrailRecorder locates the live CloudTrail backend from the service
+// list, so the registry can wire it as its global management-event recorder
+// instead of constructing a second, disconnected CloudTrail backend.
+func findCloudTrailRecorder(services []service.Registerable) service.CloudTrailRecorder {
+	for _, svc := range services {
+		if rec, ok := svc.(service.CloudTrailRecorder); ok {
+			return rec
+		}
+	}
+
+	return nil
 }
 
 // findIAMBackend locates the IAM EnforcementBackend from the service list.

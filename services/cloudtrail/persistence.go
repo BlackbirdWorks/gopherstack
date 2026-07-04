@@ -5,7 +5,6 @@ import (
 )
 
 type backendSnapshot struct {
-	Trails           map[string]*Trail          `json:"trails"`
 	TrailsByARN      map[string]string          `json:"trailsByArn"`
 	Channels         map[string]*Channel        `json:"channels,omitempty"`
 	Dashboards       map[string]*Dashboard      `json:"dashboards,omitempty"`
@@ -13,8 +12,10 @@ type backendSnapshot struct {
 	Queries          map[string]*Query          `json:"queries,omitempty"`
 	ResourcePolicies map[string]*ResourcePolicy `json:"resourcePolicies,omitempty"`
 	Imports          map[string]*Import         `json:"imports,omitempty"`
-	AccountID        string                     `json:"accountID"`
+	Trails           map[string]*Trail          `json:"trails"`
 	Region           string                     `json:"region"`
+	AccountID        string                     `json:"accountID"`
+	Events           []Event                    `json:"events,omitempty"`
 	ChannelCounter   int                        `json:"channelCounter"`
 	DashboardCounter int                        `json:"dashboardCounter"`
 	EDSCounter       int                        `json:"edsCounter"`
@@ -37,6 +38,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Queries:          b.queries,
 		ResourcePolicies: b.resourcePolicies,
 		Imports:          b.imports,
+		Events:           b.events,
 		AccountID:        b.accountID,
 		Region:           b.region,
 		ChannelCounter:   b.channelCounter,
@@ -76,6 +78,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.queries = snap.Queries
 	b.resourcePolicies = snap.ResourcePolicies
 	b.imports = snap.Imports
+	b.events = snap.Events
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.channelCounter = snap.ChannelCounter

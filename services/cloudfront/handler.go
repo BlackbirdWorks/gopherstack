@@ -1149,8 +1149,8 @@ func parseCFDistributionsByPath(method, suffix string) (string, string) {
 		return opListDistributionsByConnectionMode, ""
 	case suffix == "distribution-tenants/by-customization":
 		return opListDistributionTenantsByCustom, ""
-	case strings.HasPrefix(suffix, "trust-store/") && strings.Contains(suffix, "/by-trust-store/"):
-		return opListDistributionsByTrustStore, ""
+	case strings.HasPrefix(suffix, "distributions/by-trust-store-id/"):
+		return opListDistributionsByTrustStore, strings.TrimPrefix(suffix, "distributions/by-trust-store-id/")
 	}
 
 	return "", ""
@@ -1375,7 +1375,7 @@ func parseCFMiscPathSimple(method, suffix string) string {
 		}
 	}
 
-	if strings.HasPrefix(suffix, "trust-store/") && strings.Contains(suffix, "/by-trust-store/") {
+	if strings.HasPrefix(suffix, "distributions/by-trust-store-id/") {
 		return opListDistributionsByTrustStore
 	}
 
@@ -2271,7 +2271,7 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 	case opListDistributionsByConnectionMode:
 		return h.handleListDistributionsByConnectionMode(c, c.Request().URL.Query().Get("ConnectionMode"))
 	case opListDistributionsByTrustStore:
-		return h.handleListDistributionsByTrustStore(c, extractResourceID(path, "trust-store/"))
+		return h.handleListDistributionsByTrustStore(c, extractResourceID(path, "distributions/by-trust-store-id/"))
 	case opListDistributionsByOwnedResource:
 		return h.handleListDistributionsByOwnedResource(c, c.Request().URL.Query().Get("ResourceArn"))
 	case opListConflictingAliases:
@@ -2365,6 +2365,8 @@ func notFoundCodeExtended(err error) (string, bool) {
 		return "NoSuchDistributionTenant", true
 	case errors.Is(err, ErrStreamingDistributionNotFound):
 		return "NoSuchStreamingDistribution", true
+	case errors.Is(err, ErrTrustStoreNotFound):
+		return "NoSuchTrustStore", true
 	}
 
 	return "", false

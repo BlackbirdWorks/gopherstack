@@ -12,18 +12,36 @@ import (
 // TrustStore handlers
 // ---------------------------------------------------------------------------
 
+type trustStoreCertificateBundleXML struct {
+	S3Bucket                string `xml:"S3Bucket"`
+	S3Key                   string `xml:"S3Key"`
+	InlineCertificateBundle string `xml:"InlineCertificateBundle"`
+}
+
 type trustStoreConfigXML struct {
-	XMLName xml.Name `xml:"TrustStoreConfig"`
-	Name    string   `xml:"Name"`
-	Comment string   `xml:"Comment"`
+	XMLName                                xml.Name                       `xml:"TrustStoreConfig"`
+	Name                                   string                         `xml:"Name"`
+	Comment                                string                         `xml:"Comment"`
+	CertificateAuthorityCertificatesBundle trustStoreCertificateBundleXML `xml:"CertificateAuthorityCertificatesBundle"`
+}
+
+func trustStoreBundleFromXML(x trustStoreCertificateBundleXML) TrustStoreCertificateBundle {
+	return TrustStoreCertificateBundle(x)
 }
 
 func trustStoreXML(ns string, ts *TrustStore) string {
+	bundle := ts.CertificateAuthorityCertificatesBundle
+
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<TrustStore xmlns="%s">`+
-		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name>`+
+		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Comment>%s</Comment><Status>%s</Status>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
+		`<CertificateAuthorityCertificatesBundle>`+
+		`<S3Bucket>%s</S3Bucket><S3Key>%s</S3Key><InlineCertificateBundle>%s</InlineCertificateBundle>`+
+		`</CertificateAuthorityCertificatesBundle>`+
 		`</TrustStore>`,
-		ns, ts.ID, ts.ARN, ts.Name)
+		ns, ts.ID, ts.ARN, ts.Name, ts.Comment, ts.Status, ts.LastModifiedTime,
+		bundle.S3Bucket, bundle.S3Key, bundle.InlineCertificateBundle)
 }
 
 func (h *Handler) handleCreateTrustStore(c *echo.Context) error {
@@ -35,7 +53,9 @@ func (h *Handler) handleCreateTrustStore(c *echo.Context) error {
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
-	ts, createErr := h.Backend.CreateTrustStore(req.Name, req.Comment)
+	ts, createErr := h.Backend.CreateTrustStore(
+		req.Name, req.Comment, trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle),
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -85,6 +105,19 @@ func (h *Handler) handleListTrustStores(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateTrustStore(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetTrustStore(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current trust store ETag"),
+		)
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -93,7 +126,9 @@ func (h *Handler) handleUpdateTrustStore(c *echo.Context, id string) error {
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
-	ts, updateErr := h.Backend.UpdateTrustStore(id, req.Comment)
+	ts, updateErr := h.Backend.UpdateTrustStore(
+		id, req.Name, req.Comment, trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle),
+	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -103,6 +138,19 @@ func (h *Handler) handleUpdateTrustStore(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleDeleteTrustStore(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetTrustStore(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current trust store ETag"),
+		)
+	}
+
 	if err := h.Backend.DeleteTrustStore(id); err != nil {
 		return h.handleError(c, err)
 	}

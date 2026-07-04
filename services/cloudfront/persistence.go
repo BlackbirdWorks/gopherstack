@@ -11,6 +11,7 @@ type backendSnapshot struct {
 	Invalidations          map[string][]*Invalidation        `json:"invalidations,omitempty"`
 	AnycastIPLists         map[string]*AnycastIPList         `json:"anycastIPLists,omitempty"`
 	StreamingDistributions map[string]*StreamingDistribution `json:"streamingDistributions,omitempty"`
+	TrustStores            map[string]*TrustStore            `json:"trustStores,omitempty"`
 
 	CachePolicies       map[string]*CachePolicy        `json:"cachePolicies,omitempty"`
 	ConnectionFunctions map[string]*ConnectionFunction `json:"connectionFunctions,omitempty"`
@@ -52,6 +53,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Invalidations:                    b.invalidations,
 		AnycastIPLists:                   b.anycastIPLists,
 		StreamingDistributions:           b.streamingDistributions,
+		TrustStores:                      b.trustStores,
 		CachePolicies:                    b.cachePolicies,
 		ConnectionFunctions:              b.connectionFunctions,
 		ConnectionGroups:                 b.connectionGroups,
@@ -93,6 +95,8 @@ type backendIndexes struct {
 	distributionCallerRefs            map[string]string
 	streamingDistributionARNs         map[string]string
 	streamingDistributionCallerRefs   map[string]string
+	trustStoreARNs                    map[string]string
+	trustStoreByName                  map[string]string
 	oaiCallerRefs                     map[string]string
 	cachePolicyByName                 map[string]string
 	originAccessControlByName         map[string]string
@@ -206,11 +210,21 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 		kvsByName[kvs.Name] = id
 	}
 
+	trustStoreARNIndex := make(map[string]string, len(snap.TrustStores))
+	trustStoreByName := make(map[string]string, len(snap.TrustStores))
+
+	for id, ts := range snap.TrustStores {
+		trustStoreARNIndex[ts.ARN] = id
+		trustStoreByName[ts.Name] = id
+	}
+
 	return backendIndexes{
 		distributionARNs:                  arnIndex,
 		distributionCallerRefs:            callerRefIndex,
 		streamingDistributionARNs:         sdARNIndex,
 		streamingDistributionCallerRefs:   sdCallerRefIndex,
+		trustStoreARNs:                    trustStoreARNIndex,
+		trustStoreByName:                  trustStoreByName,
 		oaiCallerRefs:                     oaiCallerRefIndex,
 		cachePolicyByName:                 cachePolicyByName,
 		originAccessControlByName:         oacByName,
@@ -239,11 +253,23 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	idx := rebuildIndexes(&snap)
 
+	b.restoreCollections(&snap)
+	b.restoreIndexes(&idx)
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	return nil
+}
+
+// restoreCollections assigns the primary resource collections from a snapshot onto the backend.
+// Must be called with the lock held.
+func (b *InMemoryBackend) restoreCollections(snap *backendSnapshot) {
 	b.distributions = snap.Distributions
 	b.oais = snap.OAIs
 	b.invalidations = snap.Invalidations
 	b.anycastIPLists = snap.AnycastIPLists
 	b.streamingDistributions = snap.StreamingDistributions
+	b.trustStores = snap.TrustStores
 	b.cachePolicies = snap.CachePolicies
 	b.connectionFunctions = snap.ConnectionFunctions
 	b.connectionGroups = snap.ConnectionGroups
@@ -263,10 +289,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.distributionAliases = snap.DistributionAliases
 	b.distributionWebACLs = snap.DistributionWebACLs
 	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
+}
+
+// restoreIndexes assigns the derived lookup indexes onto the backend. Must be called with the
+// lock held.
+func (b *InMemoryBackend) restoreIndexes(idx *backendIndexes) {
 	b.distributionARNs = idx.distributionARNs
 	b.distributionCallerRefs = idx.distributionCallerRefs
 	b.streamingDistributionARNs = idx.streamingDistributionARNs
 	b.streamingDistributionCallerRefs = idx.streamingDistributionCallerRefs
+	b.trustStoreARNs = idx.trustStoreARNs
+	b.trustStoreByName = idx.trustStoreByName
 	b.oaiCallerRefs = idx.oaiCallerRefs
 	b.cachePolicyByName = idx.cachePolicyByName
 	b.originAccessControlByName = idx.originAccessControlByName
@@ -278,10 +311,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.keyGroupByName = idx.keyGroupByName
 	b.realtimeLogConfigByName = idx.realtimeLogConfigByName
 	b.keyValueStoreByName = idx.keyValueStoreByName
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-
-	return nil
 }
 
 // ensureNonNil initialises any nil maps in a snapshot to empty maps so that
@@ -311,6 +340,10 @@ func ensureNonNilBaseEntities(snap *backendSnapshot) {
 
 	if snap.StreamingDistributions == nil {
 		snap.StreamingDistributions = make(map[string]*StreamingDistribution)
+	}
+
+	if snap.TrustStores == nil {
+		snap.TrustStores = make(map[string]*TrustStore)
 	}
 
 	if snap.ConnectionFunctions == nil {
