@@ -185,6 +185,14 @@ var (
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 	// ErrUnknownOperation is returned when the requested operation is not implemented.
 	ErrUnknownOperation = errors.New("unknown operation")
+	// ErrActionConnectorNotFound is returned when an action connector does not exist.
+	ErrActionConnectorNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrActionConnectorAlreadyExists is returned when an action connector already exists.
+	ErrActionConnectorAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrAutomationJobNotFound is returned when an automation job does not exist.
+	ErrAutomationJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrFlowNotFound is returned when a flow does not exist.
+	ErrFlowNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )
 
 type storedNamespace struct {
@@ -442,6 +450,11 @@ type state struct {
 	AssetBundleExportJobs      map[string]*storedAssetBundleExportJob      `json:"assetBundleExportJobs"`
 	AssetBundleImportJobs      map[string]*storedAssetBundleImportJob      `json:"assetBundleImportJobs"`
 	DashboardSnapshotJobs      map[string]*storedDashboardSnapshotJob      `json:"dashboardSnapshotJobs"`
+
+	ActionConnectors map[string]*storedActionConnector `json:"actionConnectors"`
+	AutomationJobs   map[string]*storedAutomationJob   `json:"automationJobs"`
+	Flows            map[string]*storedFlow            `json:"flows"`
+	SPICECapacity    map[string]string                 `json:"spiceCapacity"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -488,6 +501,11 @@ type InMemoryBackend struct {
 	assetBundleExportJobs      map[string]*storedAssetBundleExportJob
 	assetBundleImportJobs      map[string]*storedAssetBundleImportJob
 	dashboardSnapshotJobs      map[string]*storedDashboardSnapshotJob
+
+	actionConnectors map[string]*storedActionConnector
+	automationJobs   map[string]*storedAutomationJob
+	flows            map[string]*storedFlow
+	spiceCapacity    map[string]string
 
 	accountID string
 	region    string
@@ -538,6 +556,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		assetBundleExportJobs:      make(map[string]*storedAssetBundleExportJob),
 		assetBundleImportJobs:      make(map[string]*storedAssetBundleImportJob),
 		dashboardSnapshotJobs:      make(map[string]*storedDashboardSnapshotJob),
+
+		actionConnectors: make(map[string]*storedActionConnector),
+		automationJobs:   make(map[string]*storedAutomationJob),
+		flows:            make(map[string]*storedFlow),
+		spiceCapacity:    make(map[string]string),
 	}
 	b.mu = lockmetrics.New("quicksight")
 
@@ -606,6 +629,11 @@ func (b *InMemoryBackend) Reset() {
 	b.assetBundleImportJobs = make(map[string]*storedAssetBundleImportJob)
 	b.dashboardSnapshotJobs = make(map[string]*storedDashboardSnapshotJob)
 
+	b.actionConnectors = make(map[string]*storedActionConnector)
+	b.automationJobs = make(map[string]*storedAutomationJob)
+	b.flows = make(map[string]*storedFlow)
+	b.spiceCapacity = make(map[string]string)
+
 	b.namespaces[nsKey(b.accountID, defaultNamespace)] = &storedNamespace{
 		Name:           defaultNamespace,
 		Arn:            b.buildARN("namespace", defaultNamespace),
@@ -662,6 +690,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AssetBundleExportJobs:      b.assetBundleExportJobs,
 		AssetBundleImportJobs:      b.assetBundleImportJobs,
 		DashboardSnapshotJobs:      b.dashboardSnapshotJobs,
+
+		ActionConnectors: b.actionConnectors,
+		AutomationJobs:   b.automationJobs,
+		Flows:            b.flows,
+		SPICECapacity:    b.spiceCapacity,
 	}
 
 	data, _ := json.Marshal(s)
@@ -710,7 +743,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.dashboardsQAConfig = s.DashboardsQAConfig
 
 	b.restoreAppendixBatchFields(s)
+	b.restoreFinalStubFields(s)
+	b.ensureLegacyResourceMaps()
+	b.ensureAccountConfigMaps()
+	b.ensureFinalStubMaps()
 
+	return nil
+}
+
+// ensureLegacyResourceMaps re-initializes any pre-Appendix-A resource maps
+// left nil after Restore (e.g. snapshots taken before those maps existed).
+// Split out of Restore purely to keep Restore's statement count in budget.
+func (b *InMemoryBackend) ensureLegacyResourceMaps() {
 	if b.folders == nil {
 		b.folders = make(map[string]*storedFolder)
 	}
@@ -732,9 +776,25 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if b.iamPolicyAssignments == nil {
 		b.iamPolicyAssignments = make(map[string]*storedIAMPolicyAssignment)
 	}
-	b.ensureAccountConfigMaps()
+}
 
-	return nil
+// ensureFinalStubMaps re-initializes any maps introduced by the final
+// canned-stub batch (action connectors, automation jobs, flows, SPICE
+// capacity) left nil after Restore (e.g. snapshots taken before those maps
+// existed).
+func (b *InMemoryBackend) ensureFinalStubMaps() {
+	if b.actionConnectors == nil {
+		b.actionConnectors = make(map[string]*storedActionConnector)
+	}
+	if b.automationJobs == nil {
+		b.automationJobs = make(map[string]*storedAutomationJob)
+	}
+	if b.flows == nil {
+		b.flows = make(map[string]*storedFlow)
+	}
+	if b.spiceCapacity == nil {
+		b.spiceCapacity = make(map[string]string)
+	}
 }
 
 // ensureAccountConfigMaps re-initializes any account/config-cluster maps left nil
@@ -792,6 +852,17 @@ func (b *InMemoryBackend) restoreAppendixBatchFields(s state) {
 	b.assetBundleExportJobs = s.AssetBundleExportJobs
 	b.assetBundleImportJobs = s.AssetBundleImportJobs
 	b.dashboardSnapshotJobs = s.DashboardSnapshotJobs
+}
+
+// restoreFinalStubFields copies the final canned-stub batch's fields (action
+// connectors, automation jobs, flows, SPICE capacity) from a deserialized
+// snapshot onto b. Split out of Restore purely to keep Restore's statement
+// count in budget.
+func (b *InMemoryBackend) restoreFinalStubFields(s state) {
+	b.actionConnectors = s.ActionConnectors
+	b.automationJobs = s.AutomationJobs
+	b.flows = s.Flows
+	b.spiceCapacity = s.SPICECapacity
 }
 
 // ensureAppendixBatchMaps re-initializes any maps introduced by the final

@@ -9,6 +9,9 @@ const (
 
 	subscriptionStatusCreated = "ACCOUNT_CREATED"
 
+	purchaseModeManual       = "MANUAL"
+	purchaseModeAutoPurchase = "AUTO_PURCHASE"
+
 	// personalizationModeEnabled/personalizationModeDisabled reuse the same
 	// string values as iamAssignmentStatusEnabled/iamAssignmentStatusDisabled
 	// (ENABLED/DISABLED) but are also used for QSearch and DashboardsQA status.
@@ -301,6 +304,40 @@ func (b *InMemoryBackend) DeleteAccountCustomPermission(accountID string) error 
 		return ErrAccountCustomPermissionNotFound
 	}
 	delete(b.accountCustomPermissions, accountID)
+
+	return nil
+}
+
+// ---- SPICE Capacity ----
+
+func isValidPurchaseMode(mode string) bool {
+	switch mode {
+	case purchaseModeManual, purchaseModeAutoPurchase:
+		return true
+	}
+
+	return false
+}
+
+// UpdateSPICECapacityConfiguration sets accountID's SPICE capacity purchase
+// mode. The real AWS operation's response carries no data beyond
+// RequestId/Status, so there is nothing to return here beyond validation. An
+// empty purchaseMode is a no-op (PurchaseMode is required by the real API,
+// but callers that omit it here leave the stored configuration untouched
+// rather than erroring); a non-empty, unrecognized value is rejected.
+func (b *InMemoryBackend) UpdateSPICECapacityConfiguration(accountID, purchaseMode string) error {
+	if purchaseMode == "" {
+		return nil
+	}
+
+	if !isValidPurchaseMode(purchaseMode) {
+		return ErrValidation
+	}
+
+	b.mu.Lock("UpdateSPICECapacityConfiguration")
+	defer b.mu.Unlock()
+
+	b.spiceCapacity[accountID] = purchaseMode
 
 	return nil
 }

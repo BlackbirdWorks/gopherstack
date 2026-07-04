@@ -543,6 +543,57 @@ type StorageBackend interface {
 	GetDashboardEmbedURL(accountID, dashboardID, identityType string) (string, error)
 	GetSessionEmbedURL(accountID, entryPoint string) (string, error)
 
+	// Action connectors
+	CreateActionConnector(
+		accountID, actionConnectorID, name, connectorType, description, vpcConnectionArn string,
+		authenticationConfig map[string]any,
+		permissions []ResourcePermission,
+		tags map[string]string,
+	) (*ActionConnector, error)
+	DescribeActionConnector(accountID, actionConnectorID string) (*ActionConnector, error)
+	UpdateActionConnector(
+		accountID, actionConnectorID, name, description, vpcConnectionArn string,
+		authenticationConfig map[string]any,
+	) (*ActionConnector, error)
+	DeleteActionConnector(accountID, actionConnectorID string) (*ActionConnector, error)
+	ListActionConnectors(accountID string, maxResults int32, nextToken string) ([]*ActionConnector, string, error)
+	SearchActionConnectors(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*ActionConnector, string, error)
+	DescribeActionConnectorPermissions(
+		accountID, actionConnectorID string,
+	) (*ActionConnector, []ResourcePermission, error)
+	UpdateActionConnectorPermissions(
+		accountID, actionConnectorID string,
+		grant, revoke []ResourcePermission,
+	) (*ActionConnector, []ResourcePermission, error)
+
+	// Automation jobs
+	StartAutomationJob(accountID, automationGroupID, automationID, inputPayload string) (*AutomationJob, error)
+	DescribeAutomationJob(accountID, automationGroupID, automationID, jobID string) (*AutomationJob, error)
+
+	// SPICE capacity configuration
+	UpdateSPICECapacityConfiguration(accountID, purchaseMode string) error
+
+	// Flows (QuickSight exposes no CreateFlow API; flows are authored via the
+	// console/Quick Suite and only read/searched/permissioned through the API).
+	ListFlows(accountID string, maxResults int32, nextToken string) ([]*Flow, string, error)
+	SearchFlows(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Flow, string, error)
+	GetFlowMetadata(accountID, flowID string) (*Flow, error)
+	GetFlowPermissions(accountID, flowID string) (*Flow, []ResourcePermission, error)
+	UpdateFlowPermissions(
+		accountID, flowID string,
+		grant, revoke []ResourcePermission,
+	) (*Flow, []ResourcePermission, error)
+
 	AccountID() string
 	Region() string
 	Reset()
@@ -963,6 +1014,58 @@ type RefreshSchedule struct {
 type DataSetRefreshProperties struct {
 	RefreshConfiguration map[string]any
 	FailureConfiguration map[string]any
+}
+
+// ActionConnector represents a QuickSight action connector: a configured
+// integration (Salesforce, Jira, generic HTTP, etc.) that QuickSight agents
+// and automations can invoke to perform actions against an external service.
+type ActionConnector struct {
+	CreatedTime          time.Time
+	LastUpdatedTime      time.Time
+	AuthenticationConfig map[string]any
+	ActionConnectorID    string
+	Arn                  string
+	Name                 string
+	Type                 string
+	Description          string
+	VPCConnectionArn     string
+	Status               string
+	Permissions          []ResourcePermission
+}
+
+// AutomationJob represents one run of a QuickSight automation (a
+// console-authored workflow scoped to an automation group/automation).
+type AutomationJob struct {
+	CreatedAt         time.Time
+	StartedAt         time.Time
+	EndedAt           time.Time
+	AutomationGroupID string
+	AutomationID      string
+	JobID             string
+	Arn               string
+	Status            string
+	InputPayload      string
+	OutputPayload     string
+}
+
+// Flow represents a QuickSight flow. QuickSight's API exposes no CreateFlow
+// operation (flows are authored via the console/Quick Suite); only
+// list/search/describe/permission operations are available.
+type Flow struct {
+	CreatedTime     time.Time
+	LastUpdatedTime time.Time
+	LastPublishedAt time.Time
+	Description     string
+	Arn             string
+	Name            string
+	FlowID          string
+	CreatedBy       string
+	LastPublishedBy string
+	LastUpdatedBy   string
+	PublishState    string
+	Permissions     []ResourcePermission
+	RunCount        int32
+	UserCount       int32
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

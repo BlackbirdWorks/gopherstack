@@ -154,14 +154,11 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// via dispatchOAuth in handler_oauth.go, not through this canned table.
 
 		// ---- Action Connectors ----
-		opCreateActionConnector:        noContent,
-		opDescribeActionConnector:      noContent,
-		opUpdateActionConnector:        noContent,
-		opDeleteActionConnector:        noContent,
-		opListActionConnectors:         noContent,
-		opSearchActionConnectors:       noContent,
-		opDescribeActionConnectorPerms: noContent,
-		opUpdateActionConnectorPerms:   noContent,
+		// CreateActionConnector, DescribeActionConnector, UpdateActionConnector,
+		// DeleteActionConnector, ListActionConnectors, SearchActionConnectors,
+		// DescribeActionConnectorPermissions, and UpdateActionConnectorPermissions
+		// are real (backed by InMemoryBackend) and routed via dispatchActionConnector
+		// in handler_actionconnector.go, not through this canned table.
 
 		// ---- Identity Propagation ----
 		// ListIdentityPropagationConfigs, UpdateIdentityPropagationConfig, and
@@ -177,8 +174,9 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// handler_assetbundle.go, not through this canned table.
 
 		// ---- Automation ----
-		opStartAutomationJob:    noContent,
-		opDescribeAutomationJob: noContent,
+		// StartAutomationJob and DescribeAutomationJob are real (backed by
+		// InMemoryBackend) and routed via dispatchAutomationJob in
+		// handler_automation.go, not through this canned table.
 
 		// ---- Account Customization ----
 		// CreateAccountCustomization, DescribeAccountCustomization,
@@ -231,7 +229,9 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// handler_account.go, not through this canned table.
 
 		// ---- SPICE Capacity ----
-		opUpdateSPICECapacity: noContent,
+		// UpdateSPICECapacityConfiguration is real (backed by InMemoryBackend) and
+		// routed via dispatchAccountConfig in handler_account.go, not through this
+		// canned table.
 
 		// ---- Default QBiz ----
 		// DescribeDefaultQBusinessApplication, UpdateDefaultQBusinessApplication,
@@ -262,11 +262,9 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		// dispatchResourceSearch, not through this canned table.
 
 		// ---- Flows ----
-		opListFlows:          noContent,
-		opSearchFlows:        noContent,
-		opGetFlowMetadata:    noContent,
-		opGetFlowPermissions: noContent,
-		opUpdateFlowPerms:    noContent,
+		// ListFlows, SearchFlows, GetFlowMetadata, GetFlowPermissions, and
+		// UpdateFlowPermissions are real (backed by InMemoryBackend) and routed via
+		// dispatchFlow in handler_flow.go, not through this canned table.
 
 		// ---- Namespace Self-Upgrade ----
 		opDescribeSelfUpgradeConfig: noContent,
@@ -824,43 +822,55 @@ func classifyAssetBundleImportPaths(method string, segs []string, n int) (string
 	return opUnknown, ""
 }
 
-// classifyAutomationPaths routes /accounts/{id}/automation-groups/... paths.
+// classifyAutomationPaths routes
+// /accounts/{id}/automation-groups/{groupId}/automations/{automationId}/jobs[/{jobId}]
+// paths (StartAutomationJob is the 7-segment POST; DescribeAutomationJob is
+// the 8-segment GET with a trailing JobId).
 func classifyAutomationPaths(method string, segs []string, n int) (string, string) {
-	accountID := seg(segs, segAccountID)
-	_ = accountID
-	if n >= nSegsSubRes && seg(segs, segSubRes) == pathSegJobs {
-		id := seg(segs, segResID)
-		switch method {
-		case http.MethodPost:
-			return opStartAutomationJob, id
-		case http.MethodGet:
-			return opDescribeAutomationJob, id
+	if n < nSegsSubSubRes || seg(segs, segSubSubRes) != pathSegJobs {
+		return opUnknown, ""
+	}
+
+	automationID := seg(segs, segSubResID)
+
+	switch method {
+	case http.MethodPost:
+		if n == nSegsSubSubRes {
+			return opStartAutomationJob, automationID
+		}
+	case http.MethodGet:
+		if n == nSegsSubSubResID {
+			return opDescribeAutomationJob, automationID
 		}
 	}
 
 	return opUnknown, ""
 }
 
-// classifyFlowPaths routes /accounts/{id}/flows/... paths.
+// classifyFlowPaths routes /accounts/{id}/flows/... paths. Per the real
+// QuickSight API, SearchFlows lives at /flows/searchFlows (POST) and
+// GetFlowMetadata at /flows/{FlowId}/metadata (GET); there is no
+// /flows/{FlowId} (bare) endpoint.
 func classifyFlowPaths(method string, segs []string, n int) (string, string) {
 	accountID := seg(segs, segAccountID)
 	switch n {
 	case nSegsAccountRes:
-		switch method {
-		case http.MethodGet:
+		if method == http.MethodGet {
 			return opListFlows, accountID
-		case http.MethodPost:
-			return opSearchFlows, accountID
 		}
 	case nSegsAccountResID:
-		id := seg(segs, segResID)
-		if method == http.MethodGet {
-			return opGetFlowMetadata, id
+		if method == http.MethodPost && seg(segs, segResID) == pathSegSearchFlows {
+			return opSearchFlows, accountID
 		}
 	case nSegsSubRes:
 		id := seg(segs, segResID)
 		sub := seg(segs, segSubRes)
-		if sub == pathSegPermissions {
+		switch sub {
+		case pathSegMetadata:
+			if method == http.MethodGet {
+				return opGetFlowMetadata, id
+			}
+		case pathSegPermissions:
 			switch method {
 			case http.MethodGet:
 				return opGetFlowPermissions, id

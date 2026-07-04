@@ -455,6 +455,10 @@ const (
 	// error codes.
 	errInvalidParam = "InvalidParameterValueException"
 	errInvalidBody  = "invalid request body"
+
+	// queryValueTrue is the string form of a "true" boolean query parameter
+	// (forceDeleteWithoutRecovery, includeInputPayload, includeOutputPayload, ...).
+	queryValueTrue = "true"
 )
 
 // Handler is the Echo HTTP handler for QuickSight operations.
@@ -934,7 +938,34 @@ func isTopicFamilyOp(op string) bool {
 	return isTopicOp(op) || isVPCConnectionOp(op) || isIAMPolicyAssignmentOp(op) ||
 		isBrandOp(op) || isCustomPermOp(op) || isOAuthOp(op) || isIdentityPropOp(op) ||
 		isAssetBundleOp(op) || isRefreshScheduleOp(op) || isEmbedURLOp(op) ||
-		isResourceSearchOp(op) || op == opListFoldersForResource || isAccountCustomPermOp(op)
+		isResourceSearchOp(op) || op == opListFoldersForResource || isAccountCustomPermOp(op) ||
+		isFinalStubOp(op)
+}
+
+// isFinalStubOp reports whether op is one of the Action Connector, Automation
+// Job, or Flow operations — the last Appendix-A canned-stub families to gain
+// real backend implementations. Grouped behind one predicate/dispatch pair
+// purely to keep isTopicFamilyOp/dispatchTopicFamily's complexity in budget.
+func isFinalStubOp(op string) bool {
+	return isActionConnectorOp(op) || isAutomationJobOp(op) || isFlowOp(op)
+}
+
+func (h *Handler) dispatchFinalStub(c *echo.Context, op string) error {
+	switch {
+	case isActionConnectorOp(op):
+		return h.dispatchActionConnector(c, op)
+	case isAutomationJobOp(op):
+		return h.dispatchAutomationJob(c, op)
+	case isFlowOp(op):
+		return h.dispatchFlow(c, op)
+	}
+
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
 }
 
 func (h *Handler) dispatchTopicFamily(c *echo.Context, op string) error {
@@ -965,6 +996,8 @@ func (h *Handler) dispatchTopicFamily(c *echo.Context, op string) error {
 		return h.handleListFoldersForResource(c)
 	case isAccountCustomPermOp(op):
 		return h.dispatchAccountCustomPerm(c, op)
+	case isFinalStubOp(op):
+		return h.dispatchFinalStub(c, op)
 	}
 
 	return writeError(
@@ -3248,7 +3281,7 @@ func (h *Handler) handleDeleteAnalysis(c *echo.Context) error {
 	accountID := seg(segs, segAccountID)
 	analysisID := seg(segs, segResID)
 
-	force := c.Request().URL.Query().Get("forceDeleteWithoutRecovery") == "true"
+	force := c.Request().URL.Query().Get("forceDeleteWithoutRecovery") == queryValueTrue
 
 	if err := h.Backend.DeleteAnalysis(accountID, analysisID, force); err != nil {
 		return httpErr(c, err)

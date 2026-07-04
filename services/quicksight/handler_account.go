@@ -46,6 +46,7 @@ const (
 	keyPersonalizationMode             = "PersonalizationMode"
 	keyQSearchStatus                   = "QSearchStatus"
 	keyDashboardsQAStatus              = "DashboardsQAStatus"
+	keyPurchaseMode                    = "PurchaseMode"
 
 	queryParamNamespace = "namespace"
 )
@@ -62,7 +63,8 @@ func isAccountConfigOp(op string) bool {
 		opDescribeDefaultQBiz, opUpdateDefaultQBiz, opDeleteDefaultQBiz,
 		opDescribeQPersonalization, opUpdateQPersonalization,
 		opDescribeQSearchConfig, opUpdateQSearchConfig,
-		opDescribeDashboardsQAConfiguration, opUpdateDashboardsQAConfiguration:
+		opDescribeDashboardsQAConfiguration, opUpdateDashboardsQAConfiguration,
+		opUpdateSPICECapacity:
 		return true
 	}
 
@@ -118,6 +120,8 @@ func (h *Handler) dispatchAccountConfig(c *echo.Context, op string) error {
 		return h.handleDescribeDashboardsQA(c)
 	case opUpdateDashboardsQAConfiguration:
 		return h.handleUpdateDashboardsQA(c)
+	case opUpdateSPICECapacity:
+		return h.handleUpdateSPICECapacity(c)
 	}
 
 	return writeError(
@@ -683,6 +687,29 @@ func (h *Handler) handleUpdateDashboardsQA(c *echo.Context) error {
 		accountID, strField(body, keyDashboardsQAStatus),
 	); err != nil {
 		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+// handleUpdateSPICECapacity validates and stores accountID's SPICE capacity
+// purchase mode. The real UpdateSPICECapacityConfiguration response carries
+// no data beyond RequestId/Status, so there is nothing else to echo back.
+func (h *Handler) handleUpdateSPICECapacity(c *echo.Context) error {
+	accountID := seg(pathSegsFromCtx(c), segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	if updateErr := h.Backend.UpdateSPICECapacityConfiguration(
+		accountID, strField(body, keyPurchaseMode),
+	); updateErr != nil {
+		return httpErr(c, updateErr)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
