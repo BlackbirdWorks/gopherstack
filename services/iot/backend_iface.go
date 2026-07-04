@@ -329,6 +329,21 @@ type StorageBackend interface {
 	ListCommands() []*IoTCommand
 	GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error)
 	ListCommandExecutions(commandID string) []*IoTCommandExecution
+
+	// Fleet indexing: configuration.
+	GetIndexingConfiguration() *GetIndexingConfigurationOutput
+	UpdateIndexingConfiguration(input *UpdateIndexingConfigurationInput) error
+
+	// Fleet indexing: indices.
+	ListIndices() []string
+	DescribeIndex(indexName string) (*IndexDescription, error)
+
+	// Fleet indexing: search and aggregations.
+	SearchIndex(input *SearchIndexInput) (*SearchIndexOutput, error)
+	GetCardinality(input *AggregationInput) (int64, error)
+	GetStatistics(input *AggregationInput) (*Statistics, error)
+	GetPercentiles(input *PercentilesInput) ([]PercentileValue, error)
+	GetBucketsAggregation(input *BucketsAggregationInput) ([]Bucket, error)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

@@ -37,6 +37,9 @@ var (
 
 	// ErrDeleteConflict is returned when a resource cannot be deleted due to dependencies.
 	ErrDeleteConflict = errors.New("delete conflict")
+
+	// ErrIndexNotFound is returned when a fleet index does not exist.
+	ErrIndexNotFound = errors.New("index not found")
 )
 
 // RuleDispatcher is implemented by the CLI wiring layer and dispatches rule actions.
@@ -103,12 +106,15 @@ type InMemoryBackend struct {
 	eventConfigurations *EventConfigurations
 	commands            map[string]*IoTCommand
 	commandExecutions   map[string]*IoTCommandExecution
-	registrationCode    string
-	defaultAuthorizer   string
-	accountID           string
-	region              string
-	mqttPort            int
-	mu                  sync.RWMutex
+	// Fleet indexing configuration (nil until UpdateIndexingConfiguration is called).
+	thingIndexingConfig      *ThingIndexingConfiguration
+	thingGroupIndexingConfig *ThingGroupIndexingConfiguration
+	registrationCode         string
+	defaultAuthorizer        string
+	accountID                string
+	region                   string
+	mqttPort                 int
+	mu                       sync.RWMutex
 }
 
 // Compile-time assertion that InMemoryBackend implements StorageBackend.
@@ -246,6 +252,8 @@ func (b *InMemoryBackend) Reset() {
 	b.registrationCode = ""
 	b.defaultAuthorizer = ""
 	b.auditConfiguration = nil
+	b.thingIndexingConfig = nil
+	b.thingGroupIndexingConfig = nil
 }
 
 // SetRuleDispatcher wires the SQS/Lambda action dispatcher.

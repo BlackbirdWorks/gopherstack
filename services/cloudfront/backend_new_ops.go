@@ -915,98 +915,38 @@ func (b *InMemoryBackend) ListDistributionsByWebACLID(webACLID string) []*Distri
 	return out
 }
 
-// ListDistributionsByCachePolicyID returns distributions that reference a cache policy.
+// ListDistributionsByCachePolicyID returns distributions whose stored config (default
+// cache behavior or any ordered cache behavior) references the given cache policy ID.
 func (b *InMemoryBackend) ListDistributionsByCachePolicyID(policyID string) []*Distribution {
 	b.mu.RLock("ListDistributionsByCachePolicyID")
 	defer b.mu.RUnlock()
 
-	return b.distributionsByPolicyID(b.distributionCachePolicies, policyID)
+	return b.distributionsByConfigSearch(policyID)
 }
 
-// ListDistributionsByOriginRequestPolicyID returns distributions that reference an origin request policy.
+// ListDistributionsByOriginRequestPolicyID returns distributions whose stored config
+// (default or ordered cache behaviors) references the given origin request policy ID.
 func (b *InMemoryBackend) ListDistributionsByOriginRequestPolicyID(policyID string) []*Distribution {
 	b.mu.RLock("ListDistributionsByOriginRequestPolicyID")
 	defer b.mu.RUnlock()
 
-	return b.distributionsByPolicyID(b.distributionOriginRequestPolicies, policyID)
+	return b.distributionsByConfigSearch(policyID)
 }
 
-// ListDistributionsByResponseHeadersPolicyID returns distributions that reference a response headers policy.
+// ListDistributionsByResponseHeadersPolicyID returns distributions whose stored config
+// (default or ordered cache behaviors) references the given response headers policy ID.
 func (b *InMemoryBackend) ListDistributionsByResponseHeadersPolicyID(policyID string) []*Distribution {
 	b.mu.RLock("ListDistributionsByResponseHeadersPolicyID")
 	defer b.mu.RUnlock()
 
-	return b.distributionsByPolicyID(b.distributionResponseHeadersPolicies, policyID)
+	return b.distributionsByConfigSearch(policyID)
 }
 
-// ListDistributionsByRealtimeLogConfigARN returns distributions that reference a realtime log config.
+// ListDistributionsByRealtimeLogConfigARN returns distributions whose stored config
+// (default or ordered cache behaviors) references the given realtime log config ARN.
 func (b *InMemoryBackend) ListDistributionsByRealtimeLogConfigARN(arn string) []*Distribution {
 	b.mu.RLock("ListDistributionsByRealtimeLogConfigARN")
 	defer b.mu.RUnlock()
 
-	return b.distributionsByPolicyID(b.distributionRealtimeLogConfigs, arn)
-}
-
-// distributionsByPolicyID is a helper that filters distributions by a policy ID from an index map.
-// Must be called with RLock held.
-func (b *InMemoryBackend) distributionsByPolicyID(index map[string]string, policyID string) []*Distribution {
-	var out []*Distribution
-	for distID, pid := range index {
-		if pid == policyID {
-			if d, ok := b.distributions[distID]; ok {
-				cp := *d
-				out = append(out, &cp)
-			}
-		}
-	}
-
-	return out
-}
-
-// SetDistributionCachePolicyID records a distribution→cache policy association.
-func (b *InMemoryBackend) SetDistributionCachePolicyID(distID, policyID string) {
-	b.mu.Lock("SetDistributionCachePolicyID")
-	defer b.mu.Unlock()
-
-	if policyID == "" {
-		delete(b.distributionCachePolicies, distID)
-	} else {
-		b.distributionCachePolicies[distID] = policyID
-	}
-}
-
-// SetDistributionOriginRequestPolicyID records a distribution→origin request policy association.
-func (b *InMemoryBackend) SetDistributionOriginRequestPolicyID(distID, policyID string) {
-	b.mu.Lock("SetDistributionOriginRequestPolicyID")
-	defer b.mu.Unlock()
-
-	if policyID == "" {
-		delete(b.distributionOriginRequestPolicies, distID)
-	} else {
-		b.distributionOriginRequestPolicies[distID] = policyID
-	}
-}
-
-// SetDistributionResponseHeadersPolicyID records a distribution→response headers policy association.
-func (b *InMemoryBackend) SetDistributionResponseHeadersPolicyID(distID, policyID string) {
-	b.mu.Lock("SetDistributionResponseHeadersPolicyID")
-	defer b.mu.Unlock()
-
-	if policyID == "" {
-		delete(b.distributionResponseHeadersPolicies, distID)
-	} else {
-		b.distributionResponseHeadersPolicies[distID] = policyID
-	}
-}
-
-// SetDistributionRealtimeLogConfigARN records a distribution→realtime log config association.
-func (b *InMemoryBackend) SetDistributionRealtimeLogConfigARN(distID, arn string) {
-	b.mu.Lock("SetDistributionRealtimeLogConfigARN")
-	defer b.mu.Unlock()
-
-	if arn == "" {
-		delete(b.distributionRealtimeLogConfigs, distID)
-	} else {
-		b.distributionRealtimeLogConfigs[distID] = arn
-	}
+	return b.distributionsByConfigSearch(arn)
 }

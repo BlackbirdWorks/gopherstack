@@ -426,3 +426,123 @@ type ReplaceTopicRuleInput struct {
 	TopicRulePayload *TopicRulePayload
 	RuleName         string
 }
+
+// IndexingField describes a custom field included in a fleet index.
+type IndexingField struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// IndexingFilter restricts which named shadows are indexed.
+type IndexingFilter struct {
+	NamedShadowNames []string `json:"namedShadowNames,omitempty"`
+}
+
+// ThingIndexingConfiguration controls fleet indexing for Things.
+type ThingIndexingConfiguration struct {
+	Filter                        *IndexingFilter `json:"filter,omitempty"`
+	ThingIndexingMode             string          `json:"thingIndexingMode"`
+	ThingConnectivityIndexingMode string          `json:"thingConnectivityIndexingMode,omitempty"`
+	NamedShadowIndexingMode       string          `json:"namedShadowIndexingMode,omitempty"`
+	CustomFields                  []IndexingField `json:"customFields,omitempty"`
+}
+
+// ThingGroupIndexingConfiguration controls fleet indexing for Thing Groups.
+type ThingGroupIndexingConfiguration struct {
+	ThingGroupIndexingMode string          `json:"thingGroupIndexingMode"`
+	CustomFields           []IndexingField `json:"customFields,omitempty"`
+}
+
+// UpdateIndexingConfigurationInput is the input for UpdateIndexingConfiguration.
+type UpdateIndexingConfigurationInput struct {
+	ThingIndexingConfiguration      *ThingIndexingConfiguration
+	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration
+}
+
+// GetIndexingConfigurationOutput is the output for GetIndexingConfiguration.
+type GetIndexingConfigurationOutput struct {
+	ThingIndexingConfiguration      *ThingIndexingConfiguration
+	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration
+}
+
+// IndexDescription describes a fleet index (returned by DescribeIndex).
+type IndexDescription struct {
+	IndexName   string
+	IndexStatus string
+	Schema      string
+}
+
+// SearchIndexInput is the input for SearchIndex.
+type SearchIndexInput struct {
+	IndexName   string
+	QueryString string
+	NextToken   string
+	MaxResults  int32
+}
+
+// SearchIndexThingResult is a Thing document returned by SearchIndex.
+type SearchIndexThingResult struct {
+	Attributes      map[string]string `json:"attributes"`
+	ThingName       string            `json:"thingName"`
+	ThingID         string            `json:"thingId"`
+	ThingTypeName   string            `json:"thingTypeName,omitempty"`
+	ThingGroupNames []string          `json:"thingGroupNames,omitempty"`
+}
+
+// SearchIndexThingGroupResult is a ThingGroup document returned by SearchIndex.
+type SearchIndexThingGroupResult struct {
+	Attributes      map[string]string `json:"attributes"`
+	ThingGroupName  string            `json:"thingGroupName"`
+	ThingGroupID    string            `json:"thingGroupId"`
+	ParentGroupName string            `json:"parentGroupName,omitempty"`
+}
+
+// SearchIndexOutput is the output for SearchIndex.
+type SearchIndexOutput struct {
+	NextToken   string
+	Things      []*SearchIndexThingResult
+	ThingGroups []*SearchIndexThingGroupResult
+}
+
+// AggregationInput carries the inputs shared by GetCardinality, GetStatistics,
+// GetPercentiles and GetBucketsAggregation.
+type AggregationInput struct {
+	IndexName        string
+	QueryString      string
+	AggregationField string
+}
+
+// Statistics is the output for GetStatistics.
+type Statistics struct {
+	Count        int64
+	Average      float64
+	Sum          float64
+	Minimum      float64
+	Maximum      float64
+	Variance     float64
+	StdDeviation float64
+}
+
+// PercentilesInput is the input for GetPercentiles.
+type PercentilesInput struct {
+	AggregationInput
+	Percents []float64
+}
+
+// PercentileValue is a single (percent, value) pair returned by GetPercentiles.
+type PercentileValue struct {
+	Percent float64
+	Value   float64
+}
+
+// BucketsAggregationInput is the input for GetBucketsAggregation.
+type BucketsAggregationInput struct {
+	AggregationInput
+	MaxBuckets int32
+}
+
+// Bucket is a single term bucket with its match count, returned by GetBucketsAggregation.
+type Bucket struct {
+	KeyValue string
+	Count    int64
+}

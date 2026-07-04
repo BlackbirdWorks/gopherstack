@@ -1995,66 +1995,34 @@ func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) erro
 	}
 }
 
-// cfStubXMLList returns an empty CloudFront list XML response for stub operations.
-func cfStubXMLList(ns, listTag string) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<%s xmlns="%s"><Items/><MaxItems>0</MaxItems><Quantity>0</Quantity><IsTruncated>false</IsTruncated></%s>`,
-		listTag, ns, listTag)
-}
-
-// cfStubHelpers holds helper closures for generating CloudFront stub responses.
-type cfStubHelpers struct {
-	noContent func() error
-	emptyList func(tag string) error
-	created   func(tag, id string) error
-	getStub   func(tag, id string) error
-	xmlResp   func(body string) error
-}
-
-// dispatchStubs handles all stub CloudFront operations with minimal valid responses.
-//
-
+// dispatchStubs is the dispatch table for CloudFront operations that don't have a
+// dedicated route match earlier in the handler chain. Despite the legacy name, every
+// operation handled here is backed by real InMemoryBackend state — there are no
+// remaining hardcoded/empty stub responses. Unknown operations fall through to a
+// real NoSuchOperation error at the end of the chain.
 func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
-	helpers := cfStubHelpers{
-		noContent: func() error { return c.NoContent(http.StatusNoContent) },
-		emptyList: func(tag string) error { return xmlResp(c, http.StatusOK, cfStubXMLList(cfNS, tag)) },
-		created: func(tag, id string) error {
-			return xmlResp(c, http.StatusCreated, fmt.Sprintf(
-				`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
-				tag, cfNS, id, tag,
-			))
-		},
-		getStub: func(tag, id string) error {
-			return xmlResp(c, http.StatusOK, fmt.Sprintf(
-				`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
-				tag, cfNS, id, tag,
-			))
-		},
-		xmlResp: func(body string) error { return xmlResp(c, http.StatusOK, body) },
-	}
-
-	if err := h.dispatchStubsDistributions(c, helpers, operation); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchStubsDistributions(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	if err := h.dispatchStubsTrustAndMisc(c, helpers, operation); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchStubsTrustAndMisc(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsConnectionAndPolicy(c, helpers, operation)
+	return h.dispatchStubsConnectionAndPolicy(c, operation)
 }
 
-// dispatchStubsDistributions handles distribution tenant and monitoring stub responses.
-func (h *Handler) dispatchStubsDistributions(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	if err := h.dispatchStubsDistributionTenant(c, hlp, operation); !errors.Is(err, errNotDispatched) {
+// dispatchStubsDistributions handles distribution tenant and monitoring responses.
+func (h *Handler) dispatchStubsDistributions(c *echo.Context, operation string) error {
+	if err := h.dispatchStubsDistributionTenant(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsMonitoringAndStreaming(c, hlp, operation)
+	return h.dispatchStubsMonitoringAndStreaming(c, operation)
 }
 
-// dispatchStubsDistributionTenant handles distribution tenant and web ACL stubs.
-func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, _ cfStubHelpers, operation string) error {
+// dispatchStubsDistributionTenant handles distribution tenant and web ACL operations.
+func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 
 	switch operation {
@@ -2086,7 +2054,7 @@ func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, _ cfStubHelpe
 }
 
 // dispatchStubsMonitoringAndStreaming handles monitoring subscription and web ACL disassociation stubs.
-func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, _ cfStubHelpers, operation string) error {
+func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, operation string) error {
 	switch operation {
 	case opCreateMonitoringSubscription:
 		distID := extractMonitoringDistID(c.Request().URL.Path)
@@ -2120,16 +2088,16 @@ func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, _ cfStubH
 }
 
 // dispatchStubsTrustAndMisc handles trust store, anycast, and connection function stubs.
-func (h *Handler) dispatchStubsTrustAndMisc(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	if err := h.dispatchStubsTrustAnycast(c, hlp, operation); !errors.Is(err, errNotDispatched) {
+func (h *Handler) dispatchStubsTrustAndMisc(c *echo.Context, operation string) error {
+	if err := h.dispatchStubsTrustAnycast(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsConnectionFunction(c, hlp, operation)
+	return h.dispatchStubsConnectionFunction(c, operation)
 }
 
 // dispatchStubsTrustAnycast handles trust store and anycast IP list stubs.
-func (h *Handler) dispatchStubsTrustAnycast(c *echo.Context, _ cfStubHelpers, operation string) error {
+func (h *Handler) dispatchStubsTrustAnycast(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 	switch operation {
 	case opCreateTrustStore:
@@ -2156,7 +2124,7 @@ func (h *Handler) dispatchStubsTrustAnycast(c *echo.Context, _ cfStubHelpers, op
 }
 
 // dispatchStubsConnectionFunction handles connection function and connection group stubs.
-func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, _ cfStubHelpers, operation string) error {
+func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 	switch operation {
 	case opDescribeConnectionFunction:
@@ -2186,18 +2154,17 @@ func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, _ cfStubHelpe
 }
 
 // dispatchStubsConnectionAndPolicy handles connection group, continuous deployment, resource policy, and misc stubs.
-func (h *Handler) dispatchStubsConnectionAndPolicy(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	if err := h.dispatchStubsConnectionGroupAndCDP(c, hlp, operation); !errors.Is(err, errNotDispatched) {
+func (h *Handler) dispatchStubsConnectionAndPolicy(c *echo.Context, operation string) error {
+	if err := h.dispatchStubsConnectionGroupAndCDP(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsResourcePolicyAndMisc(c, hlp, operation)
+	return h.dispatchStubsResourcePolicyAndMisc(c, operation)
 }
 
 // dispatchStubsConnectionGroupAndCDP handles connection group and continuous deployment policy stubs.
 func (h *Handler) dispatchStubsConnectionGroupAndCDP(
 	c *echo.Context,
-	_ cfStubHelpers,
 	operation string,
 ) error {
 	path := c.Request().URL.Path
@@ -2226,12 +2193,12 @@ func (h *Handler) dispatchStubsConnectionGroupAndCDP(
 
 // dispatchStubsResourcePolicyAndMisc handles distribution list, invalidation, and
 // managed-certificate-details routes (the latter now backed by real state, not a stub).
-func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStubHelpers, operation string) error {
+func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, operation string) error {
 	if err := h.dispatchStubsDistributionListBy(c, operation); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	return h.dispatchStubsTenantAndCerts(c, hlp, operation)
+	return h.dispatchStubsTenantAndCerts(c, operation)
 }
 
 // dispatchStubsDistributionListBy handles the ListDistributionsBy-* operations.
@@ -2256,7 +2223,7 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 	case opListDistributionsByRealtimeLogConfig:
 		return h.handleListDistributionsByRealtimeLogConfig(
 			c,
-			extractResourceID(path, "distributionsByRealtimeLogConfig/"),
+			c.Request().URL.Query().Get("RealtimeLogConfigArn"),
 		)
 	case opListDistributionsByKeyGroup:
 		return h.handleListDistributionsByKeyGroup(c, extractResourceID(path, "distributions/by-key-group/"))
@@ -2289,7 +2256,7 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 
 // dispatchStubsTenantAndCerts handles tenant invalidation routes and
 // GetManagedCertificateDetails (now backed by real per-tenant state, not a stub).
-func (h *Handler) dispatchStubsTenantAndCerts(c *echo.Context, _ cfStubHelpers, operation string) error {
+func (h *Handler) dispatchStubsTenantAndCerts(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 
 	switch operation {

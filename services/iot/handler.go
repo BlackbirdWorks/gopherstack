@@ -47,6 +47,7 @@ const (
 	// URL path prefix constants.
 	pathPolicies         = "/policies"
 	pathRuleDestinations = "/rule-destinations"
+	pathIndices          = "/indices"
 )
 
 const (
@@ -158,7 +159,7 @@ func (h *Handler) Name() string { return "IoT" }
 //
 //nolint:funlen // mechanical list of all supported op names
 func (h *Handler) GetSupportedOperations() []string {
-	const coreOpCount = 65
+	const coreOpCount = 74
 	core := make([]string, 0, coreOpCount)
 	core = append(
 		core,
@@ -361,6 +362,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDescribeDefaultAuthorizer,
 		opListJobExecutionsForJob,
 		opListJobExecutionsForThing,
+		// Fleet indexing / search / aggregation
+		opUpdateIndexingConfiguration,
+		opGetIndexingConfiguration,
+		opListIndices,
+		opDescribeIndex,
+		opSearchIndex,
+		opGetCardinality,
+		opGetPercentiles,
+		opGetStatistics,
+		opGetBucketsAggregation,
 	)
 
 	return append(core, allStubOps()...)
@@ -422,7 +433,9 @@ func matchNewIoTPath(path string) bool {
 		strings.HasPrefix(path, pathRuleDestinations+"/") ||
 		path == pathRuleDestinations ||
 		strings.HasPrefix(path, "/certificate-providers/") ||
-		path == "/certificate-providers"
+		path == "/certificate-providers" ||
+		path == pathIndices ||
+		strings.HasPrefix(path, pathIndices+"/")
 }
 
 // MatchPriority returns the routing priority for the IoT handler.
@@ -509,6 +522,9 @@ func resolveOperation(path, method string) string {
 	case path == "/endpoint" && method == http.MethodGet:
 
 		return opDescribeEndpoint
+	case path == pathIndices || strings.HasPrefix(path, pathIndices+"/"):
+
+		return resolveIndexOps(path, method)
 	}
 
 	if op := resolvePolicyAndCertOps(path, method); op != unknownOperation {
@@ -1064,6 +1080,10 @@ func (h *Handler) dispatchPolicyOps(c *echo.Context, op string) (bool, error) {
 }
 
 func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
+	if handled, err := h.dispatchIndexOps(c, op); handled {
+		return true, err
+	}
+
 	if handled, err := h.dispatchMiscNewOps(c, op); handled {
 		return true, err
 	}
@@ -1557,7 +1577,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, ErrCertificateNotFound),
 		errors.Is(err, ErrCertificateProviderNotFound),
 		errors.Is(err, ErrTopicRuleDestinationNotFound),
-		errors.Is(err, ErrPolicyVersionNotFound):
+		errors.Is(err, ErrPolicyVersionNotFound),
+		errors.Is(err, ErrIndexNotFound):
 
 		return c.JSON(http.StatusNotFound, awsErr{"ResourceNotFoundException", err.Error()})
 	case errors.Is(err, ErrValidation):

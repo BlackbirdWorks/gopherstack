@@ -20,6 +20,9 @@ type backendSnapshot struct {
 	ThingPrincipals        map[string][]string      `json:"thingPrincipals"`
 	AuditMitigationTasks   map[string]string        `json:"auditMitigationTasks"`
 	AuditTasks             map[string]string        `json:"auditTasks"`
+
+	ThingIndexingConfiguration      *ThingIndexingConfiguration      `json:"thingIndexingConfiguration,omitempty"`
+	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration `json:"thingGroupIndexingConfiguration,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -56,6 +59,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		sboms[k] = cloneSbomDocument(v)
 	}
 
+	var thingIndexingConfig *ThingIndexingConfiguration
+	if b.thingIndexingConfig != nil {
+		thingIndexingConfig = cloneThingIndexingConfiguration(b.thingIndexingConfig)
+	}
+
+	var thingGroupIndexingConfig *ThingGroupIndexingConfiguration
+	if b.thingGroupIndexingConfig != nil {
+		thingGroupIndexingConfig = cloneThingGroupIndexingConfiguration(b.thingGroupIndexingConfig)
+	}
+
 	snap := backendSnapshot{
 		Things:                 things,
 		Policies:               policies,
@@ -70,6 +83,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ThingPrincipals:        copyStringSliceMap(b.thingPrincipals),
 		AuditMitigationTasks:   copyStringMap(b.auditMitigationTasks),
 		AuditTasks:             copyStringMap(b.auditTasks),
+
+		ThingIndexingConfiguration:      thingIndexingConfig,
+		ThingGroupIndexingConfiguration: thingGroupIndexingConfig,
 	}
 
 	data, err := json.Marshal(snap)
@@ -128,6 +144,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.thingPrincipals = copyStringSliceMap(snap.ThingPrincipals)
 	b.auditMitigationTasks = copyStringMap(snap.AuditMitigationTasks)
 	b.auditTasks = copyStringMap(snap.AuditTasks)
+
+	if snap.ThingIndexingConfiguration != nil {
+		b.thingIndexingConfig = cloneThingIndexingConfiguration(snap.ThingIndexingConfiguration)
+	} else {
+		b.thingIndexingConfig = nil
+	}
+
+	if snap.ThingGroupIndexingConfiguration != nil {
+		b.thingGroupIndexingConfig = cloneThingGroupIndexingConfiguration(snap.ThingGroupIndexingConfiguration)
+	} else {
+		b.thingGroupIndexingConfig = nil
+	}
 
 	return nil
 }
