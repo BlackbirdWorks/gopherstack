@@ -55,7 +55,7 @@ func TestStubOperations(t *testing.T) {
 		"CreateInterruptibleCapacityReservationAllocation",
 		"CreateIpam",
 		// "CreateIpamExternalResourceVerificationToken", — moved to ipamDiscoverySupportedOperations
-		"CreateIpamPolicy",
+		// "CreateIpamPolicy", — moved to ipamPolicySupportedOperations (requires params)
 		// "CreateIpamPrefixListResolver", — moved to ipamDiscoverySupportedOperations
 		// "CreateIpamPrefixListResolverTarget", — moved to ipamDiscoverySupportedOperations
 		// "CreateIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
@@ -104,7 +104,7 @@ func TestStubOperations(t *testing.T) {
 		"DeleteFpgaImage",
 		"DeleteImageUsageReport",
 		// "DeleteIpamExternalResourceVerificationToken", — moved to ipamDiscoverySupportedOperations
-		"DeleteIpamPolicy",
+		// "DeleteIpamPolicy", — moved to ipamPolicySupportedOperations (requires params)
 		// "DeleteIpamPrefixListResolver", — moved to ipamDiscoverySupportedOperations
 		// "DeleteIpamPrefixListResolverTarget", — moved to ipamDiscoverySupportedOperations
 		// "DeleteIpamResourceDiscovery", — moved to ipamDiscoverySupportedOperations
@@ -239,8 +239,8 @@ func TestStubOperations(t *testing.T) {
 		"DisableAllowedImagesSettings",
 		"DisableAwsNetworkPerformanceMetricSubscription",
 		// "DisableCapacityManager", — moved to handler_capacity_family.go
-		"DisableIpamOrganizationAdminAccount",
-		"DisableIpamPolicy",
+		// "DisableIpamOrganizationAdminAccount", — moved to ipamPolicySupportedOperations (requires params)
+		// "DisableIpamPolicy", — moved to ipamPolicySupportedOperations (requires params)
 		// "DisableRouteServerPropagation", — real handler in handler_route_server.go, covered there
 		"DisableTransitGatewayRouteTablePropagation",
 		// "DisassociateCapacityReservationBillingOwner", — moved to handler_capacity_family.go
@@ -256,8 +256,8 @@ func TestStubOperations(t *testing.T) {
 		"EnableAllowedImagesSettings",
 		"EnableAwsNetworkPerformanceMetricSubscription",
 		// "EnableCapacityManager", — moved to handler_capacity_family.go
-		"EnableIpamOrganizationAdminAccount",
-		"EnableIpamPolicy",
+		// "EnableIpamOrganizationAdminAccount", — moved to ipamPolicySupportedOperations (requires params)
+		// "EnableIpamPolicy", — moved to ipamPolicySupportedOperations (requires params)
 		"EnableReachabilityAnalyzerOrganizationSharing",
 		// "EnableRouteServerPropagation", — real handler in handler_route_server.go, covered there
 		"EnableTransitGatewayRouteTablePropagation",
@@ -285,8 +285,8 @@ func TestStubOperations(t *testing.T) {
 		"GetIpamDiscoveredAccounts",
 		"GetIpamDiscoveredPublicAddresses",
 		"GetIpamDiscoveredResourceCidrs",
-		"GetIpamPolicyAllocationRules",
-		"GetIpamPolicyOrganizationTargets",
+		// "GetIpamPolicyAllocationRules", — moved to ipamPolicySupportedOperations (requires params)
+		// "GetIpamPolicyOrganizationTargets", — moved to ipamPolicySupportedOperations (requires params)
 		"GetIpamPoolCidrs",
 		// "GetIpamPrefixListResolverRules", — moved to ipamDiscoverySupportedOperations
 		// "GetIpamPrefixListResolverVersionEntries", — moved to ipamDiscoverySupportedOperations
@@ -330,7 +330,7 @@ func TestStubOperations(t *testing.T) {
 		"ModifyInstanceMaintenanceOptions",
 		"ModifyInstanceNetworkPerformanceOptions",
 		"ModifyInstancePlacement",
-		"ModifyIpamPolicyAllocationRules",
+		// "ModifyIpamPolicyAllocationRules", — moved to ipamPolicySupportedOperations (requires params)
 		// "ModifyIpamPrefixListResolver", — moved to ipamDiscoverySupportedOperations
 		// "ModifyIpamPrefixListResolverTarget", — moved to ipamDiscoverySupportedOperations
 		// "ModifyIpamResourceCidr", — moved to ipamDiscoverySupportedOperations
@@ -356,7 +356,7 @@ func TestStubOperations(t *testing.T) {
 		// "ModifyVpnTunnelCertificate", — moved to advancedNetworkingSupportedOperations
 		// "ModifyVpnTunnelOptions", — moved to advancedNetworkingSupportedOperations
 		"MoveAddressToVpc",
-		"MoveByoipCidrToIpam",
+		// "MoveByoipCidrToIpam", — moved to ipamPolicySupportedOperations (requires params)
 		// "MoveCapacityReservationInstances", — moved to handler_capacity_family.go
 		// "ProvisionByoipCidr", — real handler in handler_batch5.go, covered there
 		// "ProvisionIpamByoasn", — moved to ipamDiscoverySupportedOperations

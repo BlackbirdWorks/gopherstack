@@ -140,4 +140,22 @@ type Backend interface {
 		protectionEnabled bool,
 		expiresInMinutes *int,
 	) ([]TaskProtection, []Failure, error)
+
+	// Daemons
+
+	CreateDaemon(input CreateDaemonInput) (*Daemon, error)
+	DeleteDaemon(daemonArn string) (*Daemon, error)
+	DescribeDaemon(daemonArn string) (*Daemon, error)
+	UpdateDaemon(input UpdateDaemonInput) (*Daemon, error)
+	ListDaemons(input ListDaemonsInput) ([]Daemon, error)
+	DescribeDaemonDeployments(arns []string) ([]DaemonDeployment, []Failure, error)
+	ListDaemonDeployments(input ListDaemonDeploymentsInput) ([]DaemonDeployment, error)
+	DescribeDaemonRevisions(arns []string) ([]DaemonRevision, []Failure, error)
+
+	// Daemon task definitions
+
+	RegisterDaemonTaskDefinition(input RegisterDaemonTaskDefinitionInput) (*DaemonTaskDefinition, error)
+	DescribeDaemonTaskDefinition(familyOrArn string) (*DaemonTaskDefinition, error)
+	DeleteDaemonTaskDefinition(familyOrArn string) (*DaemonTaskDefinition, error)
+	ListDaemonTaskDefinitions(input ListDaemonTaskDefinitionsInput) ([]DaemonTaskDefinition, error)
 }

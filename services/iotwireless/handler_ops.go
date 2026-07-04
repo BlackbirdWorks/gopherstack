@@ -669,10 +669,7 @@ func (h *Handler) createWirelessGatewayTaskDefinition(c *echo.Context) error {
 func (h *Handler) getWirelessGatewayTaskDefinition(c *echo.Context, id string) error {
 	def, err := h.Backend.GetWirelessGatewayTaskDefinition(id)
 	if err != nil {
-		return writeJSON(c, http.StatusOK, getWirelessGatewayTaskDefinitionResponse{
-			Arn:  stubGatewayTaskArn,
-			Name: stubName,
-		})
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, getWirelessGatewayTaskDefinitionResponse{

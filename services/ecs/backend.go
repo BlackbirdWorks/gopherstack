@@ -285,29 +285,30 @@ type svcRef struct {
 // InMemoryBackend stores ECS state in memory.
 type InMemoryBackend struct {
 	runner                 TaskRunner
-	clusters               map[string]*Cluster
-	taskDefinitions        map[string][]*TaskDefinition
-	taskDefByArn           map[string]*TaskDefinition // ARN → TaskDefinition cache
+	serviceDeployments     map[string]*ServiceDeployment
+	taskSets               map[string]map[string]*TaskSet
+	taskDefByArn           map[string]*TaskDefinition
 	services               map[string]map[string]*Service
 	tasks                  map[string]map[string]*Task
 	containerInstances     map[string]map[string]*ContainerInstance
-	taskSets               map[string]map[string]*TaskSet
-	taskProtections        map[string]*TaskProtection // taskArn → TaskProtection
+	clusters               map[string]*Cluster
+	taskProtections        map[string]*TaskProtection
 	capacityProviders      map[string]*CapacityProvider
 	accountSettings        map[string]*AccountSetting
-	attributes             map[string]map[string]*Attribute // clusterName → attributeKey → Attribute
-	serviceDeployments     map[string]*ServiceDeployment
+	taskDefinitions        map[string][]*TaskDefinition
+	attributes             map[string]map[string]*Attribute
+	mu                     *lockmetrics.RWMutex
+	resourceTags           map[string][]Tag
+	tasksByInstance        map[string]map[string]map[string]bool
+	serviceIndex           map[svcRef]bool
 	expressGatewayServices map[string]*ExpressGatewayService
-	resourceTags           map[string][]Tag // resourceArn → tags
-	// tasksByInstance is a reverse index: clusterName → containerInstanceArn → set of taskArns.
-	// It allows enrichContainerInstance to look up tasks in O(k) instead of O(n).
-	tasksByInstance map[string]map[string]map[string]bool
-	// serviceIndex is a flat map of all service keys for single-pass iteration in
-	// getServicesForReconciler, avoiding the double nested-map loop + counting pass.
-	serviceIndex map[svcRef]bool
-	mu           *lockmetrics.RWMutex
-	accountID       string
-	region          string
+	daemonRevisions        map[string]*DaemonRevision
+	daemonDeployments      map[string]*DaemonDeployment
+	daemons                map[string]*Daemon
+	daemonTaskDefinitions  map[string][]*DaemonTaskDefinition
+	daemonTaskDefByArn     map[string]*DaemonTaskDefinition
+	region                 string
+	accountID              string
 }
 
 // TaskRunner is the interface for launching container tasks.
@@ -340,6 +341,11 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 		accountID:              accountID,
 		region:                 region,
 		runner:                 runner,
+		daemons:                make(map[string]*Daemon),
+		daemonTaskDefinitions:  make(map[string][]*DaemonTaskDefinition),
+		daemonTaskDefByArn:     make(map[string]*DaemonTaskDefinition),
+		daemonDeployments:      make(map[string]*DaemonDeployment),
+		daemonRevisions:        make(map[string]*DaemonRevision),
 	}
 }
 
@@ -364,6 +370,11 @@ func (b *InMemoryBackend) Reset() {
 	b.resourceTags = make(map[string][]Tag)
 	b.tasksByInstance = make(map[string]map[string]map[string]bool)
 	b.serviceIndex = make(map[svcRef]bool)
+	b.daemons = make(map[string]*Daemon)
+	b.daemonTaskDefinitions = make(map[string][]*DaemonTaskDefinition)
+	b.daemonTaskDefByArn = make(map[string]*DaemonTaskDefinition)
+	b.daemonDeployments = make(map[string]*DaemonDeployment)
+	b.daemonRevisions = make(map[string]*DaemonRevision)
 }
 
 // Purge removes all ECS resources created before the given cutoff time.

@@ -53,5 +53,6 @@ func (b *InMemoryBackend) GetServicesForReconcilerForTest() []Service {
 	for i, s := range snaps {
 		out[i] = s.service
 	}
+
 	return out
 }

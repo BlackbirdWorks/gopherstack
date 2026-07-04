@@ -210,6 +210,7 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
 	b.resetAdvancedNetworkingMapsLocked()
 	b.resetIpamDiscoveryMapsLocked()
+	b.resetIpamPolicyMapsLocked()
 	b.resetBatch4MapsLocked()
 	initTGWMulticastMaps(b)
 	initVpcConfigMaps(b)

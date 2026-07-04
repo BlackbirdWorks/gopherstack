@@ -49,6 +49,11 @@ type StorageBackend interface {
 	GetRestAPI(restAPIID string) (*RestAPI, error)
 	GetRestAPIs(limit int, position string) ([]RestAPI, string, error)
 	UpdateRestAPI(restAPIID string, input UpdateRestAPIInput) (*RestAPI, error)
+	// ImportRestAPI creates a RestApi from a raw OpenAPI/Swagger document (JSON or YAML).
+	ImportRestAPI(body []byte) (*RestAPI, error)
+	// PutRestAPI updates restAPIID from a raw OpenAPI/Swagger document (JSON or YAML).
+	// mode is "overwrite" or "merge" (default).
+	PutRestAPI(restAPIID string, body []byte, mode string) (*RestAPI, error)
 
 	// Resources
 	GetResources(restAPIID, position string, limit int) ([]Resource, string, error)

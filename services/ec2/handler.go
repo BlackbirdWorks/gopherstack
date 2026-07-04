@@ -24,6 +24,9 @@ const (
 	ec2APIVersion = "2016-11-15"
 	ec2XMLNS      = "http://ec2.amazonaws.com/doc/2016-11-15/"
 	unknownOp     = "Unknown"
+	// errCodeInvalidParameterValue is the EC2 "InvalidParameterValue" API error code, shared by
+	// several sentinel error mappings below.
+	errCodeInvalidParameterValue = "InvalidParameterValue"
 )
 
 // Handler is the Echo HTTP handler for EC2 operations.
@@ -113,6 +116,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, networking1SupportedOperations()...)
 	extOps = append(extOps, advancedNetworkingSupportedOperations()...)
 	extOps = append(extOps, ipamDiscoverySupportedOperations()...)
+	extOps = append(extOps, ipamPolicySupportedOperations()...)
 	extOps = append(extOps, ec2CoreSupportedOperations()...)
 	extOps = append(extOps, spotFleetSupportedOperations()...)
 	extOps = append(extOps, batch1SupportedOperations()...)
@@ -322,7 +326,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 				c,
 				reqID,
 				http.StatusBadRequest,
-				"InvalidParameterValue",
+				errCodeInvalidParameterValue,
 				"failed to parse request body",
 			)
 		}
@@ -394,6 +398,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
 	registerIpamDiscoveryOps(h, ops)
+	registerIpamPolicyOps(h, ops)
 	// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
 	registerSpotFleetOps(h, ops)
 
@@ -1249,13 +1254,15 @@ var errCodeLookup = []struct {
 	{ErrVpnConnectionNotFound, "InvalidVpnConnectionID.NotFound"},
 	{ErrVpnGatewayNotFound, "InvalidVpnGatewayID.NotFound"},
 	{ErrCustomerGatewayNotFound, "InvalidCustomerGatewayID.NotFound"},
-	{ErrVpnTunnelNotFound, "InvalidParameterValue"},
+	{ErrVpnTunnelNotFound, errCodeInvalidParameterValue},
 	{ErrVpcEndpointServiceNotFound, "InvalidVpcEndpointService.NotFound"},
 	{ErrDependencyViolation, "DependencyViolation"},
 	{ErrVpcClassicLinkDisabled, "VpcClassicLinkDisabled"},
 	{ErrClassicLinkInstanceNotFound, "InvalidInstanceID.NotFound"},
 	{ErrVpcBlockPublicAccessExclusionNotFound, "InvalidVpcBlockPublicAccessExclusionId.NotFound"},
-	{ErrInvalidParameter, "InvalidParameterValue"},
+	{ErrIpamPolicyNotFound, "InvalidIpamPolicyId.NotFound"},
+	{ErrIpamOrgAdminAccountNotFound, errCodeInvalidParameterValue},
+	{ErrInvalidParameter, errCodeInvalidParameterValue},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.

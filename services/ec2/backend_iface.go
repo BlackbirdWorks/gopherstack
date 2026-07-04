@@ -935,6 +935,48 @@ type Backend interface {
 		id string, desiredVersion *int64, trackLatestVersion *bool,
 	) (*IpamPrefixListResolverTarget, error)
 
+	// CreateIpamPolicy creates a new IPAM policy under the given IPAM.
+	CreateIpamPolicy(ipamID string) (*IpamPolicy, error)
+
+	// DeleteIpamPolicy removes an IPAM policy.
+	DeleteIpamPolicy(id string) (*IpamPolicy, error)
+
+	// DescribeIpamPolicies returns IPAM policies, optionally filtered by IDs.
+	DescribeIpamPolicies(ids []string) []*IpamPolicy
+
+	// EnableIpamPolicy enables an IPAM policy for the current account or an Organizations target.
+	EnableIpamPolicy(id, orgTargetID string) error
+
+	// DisableIpamPolicy disables an IPAM policy for the current account or an Organizations target.
+	DisableIpamPolicy(id, orgTargetID string) error
+
+	// GetEnabledIpamPolicy returns the IPAM policy enabled for the current account, if any.
+	GetEnabledIpamPolicy() (policyID string, enabled bool, managedBy string)
+
+	// GetIpamPolicyOrganizationTargets returns the Organizations targets an IPAM policy is
+	// enabled for.
+	GetIpamPolicyOrganizationTargets(id string) ([]string, error)
+
+	// GetIpamPolicyAllocationRules returns an IPAM policy's allocation rule documents.
+	GetIpamPolicyAllocationRules(id, locale, resourceType string) ([]*IpamPolicyDocument, error)
+
+	// ModifyIpamPolicyAllocationRules replaces an IPAM policy's allocation rules for a
+	// (locale, resourceType) pair.
+	ModifyIpamPolicyAllocationRules(
+		id, locale, resourceType string, rules []IpamPolicyAllocationRule,
+	) (*IpamPolicyDocument, error)
+
+	// EnableIpamOrganizationAdminAccount enables an Organizations member account as the IPAM
+	// delegated administrator account.
+	EnableIpamOrganizationAdminAccount(accountID string) error
+
+	// DisableIpamOrganizationAdminAccount disables the IPAM Organizations delegated
+	// administrator account.
+	DisableIpamOrganizationAdminAccount(accountID string) error
+
+	// MoveByoipCidrToIpam associates an existing BYOIP CIDR with an IPAM pool.
+	MoveByoipCidrToIpam(cidr, poolID, poolOwner string) (*ByoipCidr, error)
+
 	// ---- spot fleet ----
 
 	// RequestSpotFleet creates a new Spot Fleet request and fulfills it.

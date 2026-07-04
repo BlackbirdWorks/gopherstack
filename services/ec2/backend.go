@@ -275,6 +275,9 @@ type InMemoryBackend struct {
 	ipamPrefixListResolvers        map[string]*IpamPrefixListResolver
 	ipamPrefixListResolverVersions map[string][]int64
 	ipamPrefixListResolverTargets  map[string]*IpamPrefixListResolverTarget
+	ipamPolicies                   map[string]*IpamPolicy
+	ipamPolicyEnabledTargets       map[string]string
+	ipamOrgAdminAccountID          string
 	spotFleets                     map[string]*SpotFleetRequest
 	spotFleetHistory               map[string][]SpotFleetHistoryRecord
 	// batch1 additions
@@ -489,6 +492,7 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initVpcConfigMaps(b)
 	initCapacityFamilyMaps(b)
 	b.resetIpamDiscoveryMapsLocked()
+	b.resetIpamPolicyMapsLocked()
 
 	return b
 }

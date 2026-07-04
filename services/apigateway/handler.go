@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -836,7 +837,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return parts[1]
 	}
 
-	op, _, _ := parseAPIGWRESTPath(c.Request().Method, c.Request().URL.Path)
+	op, _, _ := parseAPIGWRESTPath(c.Request().Method, c.Request().URL.Path, c.Request().URL.Query())
 
 	return op
 }
@@ -950,9 +951,20 @@ func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 func (h *Handler) handleRESTAPI(c *echo.Context) error {
 	ctx := c.Request().Context()
 
-	action, pathParams, ok := parseAPIGWRESTPath(c.Request().Method, c.Request().URL.Path)
+	query := c.Request().URL.Query()
+
+	action, pathParams, ok := parseAPIGWRESTPath(c.Request().Method, c.Request().URL.Path, query)
 	if !ok {
 		return c.String(http.StatusNotFound, "not found")
+	}
+
+	// ImportRestApi and PutRestApi carry an opaque OpenAPI/Swagger document as
+	// their raw request body (Content-Type: application/octet-stream), not a
+	// JSON object of named parameters. Merging query parameters into it the
+	// way other operations do would corrupt YAML or otherwise non-JSON-object
+	// bodies, so build a small envelope instead and skip the generic merge below.
+	if action == opImportRestAPI || action == opPutRestAPI {
+		return h.dispatchRestAPISpec(c, action, pathParams, query)
 	}
 
 	body, err := httputils.ReadBody(c.Request())
@@ -1068,7 +1080,10 @@ func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 
 // parseAPIGWRESTPath maps an HTTP method + URL path to an API Gateway operation name
 // and extracts path parameters. Returns ("Unknown", nil, false) when no pattern matches.
-func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
+// query carries the request's query string parameters; it is only consulted for
+// the handful of routes (e.g. POST /restapis?mode=import) where AWS
+// distinguishes operations by query parameter rather than path shape.
+func parseAPIGWRESTPath(method, path string, query url.Values) (string, map[string]string, bool) {
 	// Strip leading "/" and split into path segments.
 	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	n := len(segs)
@@ -1079,7 +1094,7 @@ func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 
 	switch segs[0] {
 	case "restapis":
-		return parseAPIGWRestAPIsPath(method, segs, n)
+		return parseAPIGWRestAPIsPath(method, segs, n, query)
 	case apiGWSegAPIKeys:
 		return parseAPIGWAPIKeysPath(method, segs, n)
 	case apiGWSegDomainNames:
@@ -1314,9 +1329,7 @@ func parseAPIGWUsagePlansDepth4(method string, segs []string) (string, map[strin
 }
 
 // parseAPIGWRestAPIsPath handles /restapis/... paths.
-//
-// parseAPIGWRestAPIsPath handles /restapis/... paths.
-func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[string]string, bool) {
+func parseAPIGWRestAPIsPath(method string, segs []string, n int, query url.Values) (string, map[string]string, bool) {
 	apiID := ""
 	if n >= pathDepth2 {
 		apiID = segs[1]
@@ -1326,6 +1339,13 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 	case pathDepth1:
 		switch method {
 		case http.MethodPost:
+			// POST /restapis?mode=import → ImportRestApi. POST /restapis
+			// (no mode) → CreateRestApi. Real AWS distinguishes the two
+			// solely by this query parameter (both use the same path).
+			if query.Get("mode") == "import" {
+				return opImportRestAPI, nil, true
+			}
+
 			return opCreateRestAPI, nil, true
 		case http.MethodGet:
 			return opGetRestApis, nil, true
@@ -1353,6 +1373,8 @@ func parseAPIGWRestAPIsDepth2(method, apiID string) (string, map[string]string, 
 		return opDeleteRestAPI, params, true
 	case http.MethodPatch:
 		return opUpdateRestAPI, params, true
+	case http.MethodPut:
+		return opPutRestAPI, params, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -2484,6 +2506,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.newResourceActions())
 	maps.Copy(table, h.getDeleteUpdateActions())
 	maps.Copy(table, h.updatePatchActions())
+	maps.Copy(table, h.restAPISpecActions())
 	maps.Copy(table, h.stubActions())
 
 	return table

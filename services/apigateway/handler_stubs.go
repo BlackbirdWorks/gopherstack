@@ -13,10 +13,6 @@ import (
 const (
 	// vpcLinkStatusAvailable is the status for an available VPC Link.
 	vpcLinkStatusAvailable = "AVAILABLE"
-	// stubImportedAPIName is the placeholder name for imported REST APIs.
-	stubImportedAPIName = "imported-api"
-	// stubImportedAPIID is the placeholder ID for imported REST APIs.
-	stubImportedAPIID = "stub0000"
 	// keyAPIName is the JSON key for API name in stub responses.
 	keyAPIName = "name"
 )
@@ -230,12 +226,9 @@ func (h *Handler) stubActions() map[string]actionFn {
 	actions[opImportDocumentationParts] = func(_ []byte) (int, any, error) {
 		return http.StatusOK, &documentationPartsImportStub{IDs: []string{}, Warnings: []string{}}, nil
 	}
-	actions[opImportRestAPI] = func(_ []byte) (int, any, error) {
-		return http.StatusCreated, map[string]any{"id": stubImportedAPIID, keyAPIName: stubImportedAPIName}, nil
-	}
-	actions[opPutRestAPI] = func(_ []byte) (int, any, error) {
-		return http.StatusOK, map[string]any{"id": stubImportedAPIID, keyAPIName: stubImportedAPIName}, nil
-	}
+	// ImportRestApi and PutRestApi are real, stateful operations implemented
+	// in import_export.go / handler_import_export.go, wired in via
+	// restAPISpecActions() in dispatchTable.
 
 	// Usage update
 	actions[opUpdateUsage] = func(_ []byte) (int, any, error) {

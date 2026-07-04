@@ -324,6 +324,14 @@ func (n *noopBackend) UpdateRestAPI(_ string, _ apigateway.UpdateRestAPIInput) (
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) ImportRestAPI(_ []byte) (*apigateway.RestAPI, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) PutRestAPI(_ string, _ []byte, _ string) (*apigateway.RestAPI, error) {
+	return nil, errNoopNotImplemented
+}
+
 func (n *noopBackend) UpdateResource(
 	_ string,
 	_ string,

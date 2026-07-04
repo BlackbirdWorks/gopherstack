@@ -185,6 +185,9 @@ type backendSnapshot struct {
 	CapacityReservationBillingReqs     map[string]*CapacityReservationBillingRequest   `json:"crBillingRequests,omitempty"`
 	CapacityManagerDataExports         map[string]*CapacityManagerDataExport           `json:"cmDataExports,omitempty"`
 	CapacityManagerState               *CapacityManagerState                           `json:"cmState,omitempty"`
+	IpamPolicies                       map[string]*IpamPolicy                          `json:"ipamPolicies,omitempty"`
+	IpamPolicyEnabledTargets           map[string]string                               `json:"ipamPolicyEnabled,omitempty"`
+	IpamOrgAdminAccountID              string                                          `json:"ipamOrgAdminAcct,omitempty"`
 	Region                             string                                          `json:"region,omitempty"`
 	AccountID                          string                                          `json:"accountID,omitempty"`
 	FreePrivateIPs                     []string                                        `json:"freePrivateIPs"`
@@ -356,6 +359,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		CapacityReservationBillingReqs:     b.capacityReservationBillingRequests,
 		CapacityManagerDataExports:         b.capacityManagerDataExports,
 		CapacityManagerState:               b.capacityManagerState,
+		IpamPolicies:                       b.ipamPolicies,
+		IpamPolicyEnabledTargets:           b.ipamPolicyEnabledTargets,
+		IpamOrgAdminAccountID:              b.ipamOrgAdminAccountID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -954,6 +960,9 @@ func (b *InMemoryBackend) restoreExtendedFields(snap *backendSnapshot) {
 	b.ipamPrefixListResolvers = snap.IpamPrefixListResolvers
 	b.ipamPrefixListResolverVersions = snap.IpamPrefixListResolverVersions
 	b.ipamPrefixListResolverTargets = snap.IpamPrefixListResolverTargets
+	b.ipamPolicies = snap.IpamPolicies
+	b.ipamPolicyEnabledTargets = snap.IpamPolicyEnabledTargets
+	b.ipamOrgAdminAccountID = snap.IpamOrgAdminAccountID
 	b.carrierGateways = snap.CarrierGateways
 	b.fleets = snap.Fleets
 	b.networkInsightsPaths = snap.NetworkInsightsPaths
@@ -1118,6 +1127,8 @@ func (s *backendSnapshot) initAppendixMaps() {
 	initMapIfNil(&s.IpamPrefixListResolvers)
 	initMapIfNil(&s.IpamPrefixListResolverVersions)
 	initMapIfNil(&s.IpamPrefixListResolverTargets)
+	initMapIfNil(&s.IpamPolicies)
+	initMapIfNil(&s.IpamPolicyEnabledTargets)
 	initMapIfNil(&s.CarrierGateways)
 	initMapIfNil(&s.Fleets)
 	initMapIfNil(&s.NetworkInsightsPaths)

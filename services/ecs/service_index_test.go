@@ -18,6 +18,7 @@ func TestECSServiceIndexConsistency(t *testing.T) {
 
 	newBackend := func(t *testing.T) *ecs.InMemoryBackend {
 		t.Helper()
+
 		return ecs.NewInMemoryBackend("000000000000", "us-east-1", nil)
 	}
 
@@ -30,12 +31,13 @@ func TestECSServiceIndexConsistency(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
+
 		return td.TaskDefinitionArn
 	}
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "created_service_included_in_reconciler_snapshot",
@@ -98,13 +100,13 @@ func TestECSServiceIndexConsistency(t *testing.T) {
 				require.NoError(t, err)
 
 				for _, name := range []string{"alpha", "beta", "gamma"} {
-					_, err := b.CreateService(ecs.CreateServiceInput{
+					_, svcErr := b.CreateService(ecs.CreateServiceInput{
 						ServiceName:    name,
 						Cluster:        clusterName,
 						TaskDefinition: tdArn,
 						DesiredCount:   1,
 					})
-					require.NoError(t, err)
+					require.NoError(t, svcErr)
 				}
 
 				require.Len(t, b.GetServicesForReconcilerForTest(), 3)
