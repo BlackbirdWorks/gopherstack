@@ -1327,4 +1327,32 @@ type Backend interface {
 	DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations(
 		ids []string,
 	) []*LocalGatewayRouteTableVirtualInterfaceGroupAssociation
+
+	// ---- VPC ClassicLink ----
+
+	AttachClassicLinkVpc(instanceID, vpcID string, groups []string) error
+	DetachClassicLinkVpc(instanceID, vpcID string) error
+	DescribeClassicLinkInstances(instanceIDs []string) []*ClassicLinkInstance
+	EnableVpcClassicLink(vpcID string) error
+	DisableVpcClassicLink(vpcID string) error
+	DescribeVpcClassicLink(vpcIDs []string) ([]*VPC, error)
+	EnableVpcClassicLinkDNSSupport(vpcID string) error
+	DisableVpcClassicLinkDNSSupport(vpcID string) error
+	DescribeVpcClassicLinkDNSSupport(vpcIDs []string) ([]*VPC, error)
+
+	// ---- VPC Block Public Access ----
+
+	DescribeVpcBlockPublicAccessOptions() *VpcBlockPublicAccessOptions
+	ModifyVpcBlockPublicAccessOptions(blockMode string) (*VpcBlockPublicAccessOptions, error)
+	CreateVpcBlockPublicAccessExclusion(
+		vpcID, subnetID, mode string,
+		tags map[string]string,
+	) (*VpcBlockPublicAccessExclusion, error)
+	ModifyVpcBlockPublicAccessExclusion(exclusionID, mode string) (*VpcBlockPublicAccessExclusion, error)
+	DeleteVpcBlockPublicAccessExclusion(exclusionID string) (*VpcBlockPublicAccessExclusion, error)
+	DescribeVpcBlockPublicAccessExclusions(ids []string) []*VpcBlockPublicAccessExclusion
+
+	// ---- VPC Endpoint Service Configuration extras ----
+
+	StartVpcEndpointServicePrivateDNSVerification(serviceID string) error
 }

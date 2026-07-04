@@ -777,6 +777,7 @@ type SMImage struct {
 	ImageArn         string            `json:"ImageArn"`
 	ImageStatus      string            `json:"ImageStatus"`
 	Description      string            `json:"Description,omitempty"`
+	DisplayName      string            `json:"DisplayName,omitempty"`
 	RoleArn          string            `json:"RoleArn,omitempty"`
 }
 
@@ -839,6 +840,61 @@ func (b *InMemoryBackend) DescribeImage(ctx context.Context, name string) (*SMIm
 	return cloneSMImage(img), nil
 }
 
+// UpdateImageOptions bundles the mutable fields accepted by UpdateImage.
+// Nil pointer fields are left unchanged.
+type UpdateImageOptions struct {
+	Description      *string
+	DisplayName      *string
+	RoleArn          *string
+	DeleteProperties []string
+}
+
+// UpdateImage updates a SageMaker image's mutable metadata (Description,
+// DisplayName, RoleArn), optionally clearing Description/DisplayName first
+// via DeleteProperties.
+func (b *InMemoryBackend) UpdateImage(
+	ctx context.Context,
+	name string,
+	opts UpdateImageOptions,
+) (*SMImage, error) {
+	b.mu.Lock("UpdateImage")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	img, ok := b.smImagesStore(region)[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, name)
+	}
+
+	for _, prop := range opts.DeleteProperties {
+		switch prop {
+		case "Description":
+			img.Description = ""
+		case "DisplayName":
+			img.DisplayName = ""
+		default:
+			return nil, fmt.Errorf("%w: DeleteProperties value %q is not supported", ErrValidation, prop)
+		}
+	}
+
+	if opts.Description != nil {
+		img.Description = *opts.Description
+	}
+
+	if opts.DisplayName != nil {
+		img.DisplayName = *opts.DisplayName
+	}
+
+	if opts.RoleArn != nil {
+		img.RoleArn = *opts.RoleArn
+	}
+
+	img.LastModifiedTime = time.Now()
+
+	return cloneSMImage(img), nil
+}
+
 // DeleteImage removes a SageMaker image by name.
 func (b *InMemoryBackend) DeleteImage(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteImage")
@@ -879,14 +935,23 @@ func (b *InMemoryBackend) ListImages(ctx context.Context, nextToken string) ([]*
 type ImageVersion struct {
 	CreationTime       time.Time `json:"CreationTime"`
 	LastModifiedTime   time.Time `json:"LastModifiedTime"`
+	JobType            string    `json:"JobType,omitempty"`
 	ImageArn           string    `json:"ImageArn"`
 	ImageVersionArn    string    `json:"ImageVersionArn"`
 	ImageVersionStatus string    `json:"ImageVersionStatus"`
+	MLFramework        string    `json:"MLFramework,omitempty"`
+	Processor          string    `json:"Processor,omitempty"`
+	ProgrammingLang    string    `json:"ProgrammingLang,omitempty"`
+	ReleaseNotes       string    `json:"ReleaseNotes,omitempty"`
+	VendorGuidance     string    `json:"VendorGuidance,omitempty"`
+	Aliases            []string  `json:"Aliases,omitempty"`
 	Version            int       `json:"Version"`
+	Horovod            bool      `json:"Horovod,omitempty"`
 }
 
 func cloneImageVersion(v *ImageVersion) *ImageVersion {
 	cp := *v
+	cp.Aliases = append([]string(nil), v.Aliases...)
 
 	return &cp
 }
@@ -954,6 +1019,111 @@ func (b *InMemoryBackend) DescribeImageVersion(
 	}
 
 	return cloneImageVersion(iv), nil
+}
+
+// UpdateImageVersionOptions bundles the mutable fields accepted by
+// UpdateImageVersion. Nil/empty fields are left unchanged.
+type UpdateImageVersionOptions struct {
+	Horovod         *bool
+	JobType         string
+	MLFramework     string
+	Processor       string
+	ProgrammingLang string
+	ReleaseNotes    string
+	VendorGuidance  string
+	AliasesToAdd    []string
+	AliasesToDelete []string
+}
+
+// UpdateImageVersion updates a SageMaker image version's mutable metadata.
+func (b *InMemoryBackend) UpdateImageVersion(
+	ctx context.Context,
+	imageName string,
+	version int,
+	opts UpdateImageVersionOptions,
+) (*ImageVersion, error) {
+	b.mu.Lock("UpdateImageVersion")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	versions, ok := b.imageVersionsStore(region)[imageName]
+	if !ok {
+		return nil, fmt.Errorf("%w: no versions found for image %q", ErrImageVersionNotFound, imageName)
+	}
+
+	if version <= 0 {
+		version = b.imageVersionCountsStore(region)[imageName]
+	}
+
+	iv, ok := versions[version]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: version %d not found for image %q", ErrImageVersionNotFound, version, imageName,
+		)
+	}
+
+	applyImageVersionUpdate(iv, opts)
+	iv.LastModifiedTime = time.Now()
+
+	return cloneImageVersion(iv), nil
+}
+
+// applyImageVersionUpdate mutates iv in place per opts. Split out from
+// UpdateImageVersion to keep that method's cyclomatic complexity low.
+func applyImageVersionUpdate(iv *ImageVersion, opts UpdateImageVersionOptions) {
+	if opts.Horovod != nil {
+		iv.Horovod = *opts.Horovod
+	}
+
+	if opts.JobType != "" {
+		iv.JobType = opts.JobType
+	}
+
+	if opts.MLFramework != "" {
+		iv.MLFramework = opts.MLFramework
+	}
+
+	if opts.Processor != "" {
+		iv.Processor = opts.Processor
+	}
+
+	if opts.ProgrammingLang != "" {
+		iv.ProgrammingLang = opts.ProgrammingLang
+	}
+
+	if opts.ReleaseNotes != "" {
+		iv.ReleaseNotes = opts.ReleaseNotes
+	}
+
+	if opts.VendorGuidance != "" {
+		iv.VendorGuidance = opts.VendorGuidance
+	}
+
+	iv.Aliases = applyAliasChanges(iv.Aliases, opts.AliasesToAdd, opts.AliasesToDelete)
+}
+
+// applyAliasChanges returns aliases with additions appended (de-duplicated)
+// and deletions removed.
+func applyAliasChanges(aliases, toAdd, toDelete []string) []string {
+	del := make(map[string]bool, len(toDelete))
+	for _, a := range toDelete {
+		del[a] = true
+	}
+
+	seen := make(map[string]bool, len(aliases)+len(toAdd))
+	out := make([]string, 0, len(aliases)+len(toAdd))
+
+	for _, a := range append(append([]string(nil), aliases...), toAdd...) {
+		if del[a] || seen[a] {
+			continue
+		}
+
+		seen[a] = true
+		out = append(out, a)
+	}
+
+	return out
 }
 
 // DeleteImageVersion removes an image version.

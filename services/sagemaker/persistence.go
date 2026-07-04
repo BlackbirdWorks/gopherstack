@@ -73,9 +73,18 @@ type backendSnapshot struct {
 	MlflowTrackingServers map[string]map[string]*MlflowTrackingServer `json:"mlflowTrackingServers"`
 	MlflowApps            map[string]map[string]*MlflowApp            `json:"mlflowApps"`
 	PartnerApps           map[string]map[string]*PartnerApp           `json:"partnerApps"`
-	AccountID             string                                      `json:"accountID"`
-	Region                string                                      `json:"region"`
+	TrainingPlans         map[string]map[string]*TrainingPlan         `json:"trainingPlans"`
+	ReservedCapacities    map[string]map[string]*ReservedCapacity     `json:"reservedCapacities"`
+	// TrainingPlanExtensionOfferings is stored as region -> extensionOfferingID -> pending extension offer.
+	TrainingPlanExtensionOfferings pendingExtensionsByRegion                 `json:"trainingPlanExtensionOfferings"`
+	ModelCardExportJobs            map[string]map[string]*ModelCardExportJob `json:"modelCardExportJobs"`
+	AccountID                      string                                    `json:"accountID"`
+	Region                         string                                    `json:"region"`
 }
+
+// pendingExtensionsByRegion is region -> extensionOfferingID -> pending
+// training plan extension offer awaiting an ExtendTrainingPlan call.
+type pendingExtensionsByRegion = map[string]map[string]*pendingTrainingPlanExtension
 
 // snapshotClusters converts map[string]map[string]*Cluster →
 // map[string]map[string]*persistedCluster.
@@ -167,53 +176,57 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	hubContents := snapshotHubContents(b)
 
 	snap := backendSnapshot{
-		Models:                     b.models,
-		EndpointConfigs:            b.endpointConfigs,
-		Endpoints:                  b.endpoints,
-		TrainingJobs:               b.trainingJobs,
-		Notebooks:                  b.notebooks,
-		HPTuningJobs:               b.hpTuningJobs,
-		Associations:               b.associations,
-		TrialComponentAssociations: b.trialComponentAssociations,
-		Actions:                    b.actions,
-		Artifacts:                  b.artifacts,
-		Contexts:                   b.contexts,
-		Algorithms:                 b.algorithms,
-		Clusters:                   clusters,
-		ModelPackages:              b.modelPackages,
-		Domains:                    b.domains,
-		UserProfiles:               userProfiles,
-		Apps:                       apps,
-		FeatureGroups:              b.featureGroups,
-		Pipelines:                  b.pipelines,
-		PipelineExecutions:         b.pipelineExecutions,
-		PipelineExecSteps:          b.pipelineExecSteps,
-		Experiments:                b.experiments,
-		Trials:                     b.trials,
-		TrialComponents:            b.trialComponents,
-		NotebookLifecycleConfigs:   b.notebookLifecycleConfigs,
-		ProcessingJobs:             b.processingJobs,
-		TransformJobs:              b.transformJobs,
-		EdgeDeploymentPlans:        b.edgeDeploymentPlans,
-		FeatureRecords:             b.featureRecords,
-		FeatureMetadata:            b.featureMetadata,
-		Hubs:                       b.hubs,
-		HubContents:                hubContents,
-		DataQualityJobDefs:         b.dataQualityJobDefs,
-		ModelBiasJobDefs:           b.modelBiasJobDefs,
-		ModelQualityJobDefs:        b.modelQualityJobDefs,
-		ModelExplainJobDefs:        b.modelExplainJobDefs,
-		MonitoringAlerts:           b.monitoringAlerts,
-		MonitoringAlertHistory:     b.monitoringAlertHistory,
-		MonitoringExecutions:       b.monitoringExecutions,
-		Workteams:                  b.workteams,
-		Workforces:                 b.workforces,
-		LabelingJobs:               b.labelingJobs,
-		MlflowTrackingServers:      b.mlflowTrackingServers,
-		MlflowApps:                 b.mlflowApps,
-		PartnerApps:                b.partnerApps,
-		AccountID:                  b.accountID,
-		Region:                     b.region,
+		Models:                         b.models,
+		EndpointConfigs:                b.endpointConfigs,
+		Endpoints:                      b.endpoints,
+		TrainingJobs:                   b.trainingJobs,
+		Notebooks:                      b.notebooks,
+		HPTuningJobs:                   b.hpTuningJobs,
+		Associations:                   b.associations,
+		TrialComponentAssociations:     b.trialComponentAssociations,
+		Actions:                        b.actions,
+		Artifacts:                      b.artifacts,
+		Contexts:                       b.contexts,
+		Algorithms:                     b.algorithms,
+		Clusters:                       clusters,
+		ModelPackages:                  b.modelPackages,
+		Domains:                        b.domains,
+		UserProfiles:                   userProfiles,
+		Apps:                           apps,
+		FeatureGroups:                  b.featureGroups,
+		Pipelines:                      b.pipelines,
+		PipelineExecutions:             b.pipelineExecutions,
+		PipelineExecSteps:              b.pipelineExecSteps,
+		Experiments:                    b.experiments,
+		Trials:                         b.trials,
+		TrialComponents:                b.trialComponents,
+		NotebookLifecycleConfigs:       b.notebookLifecycleConfigs,
+		ProcessingJobs:                 b.processingJobs,
+		TransformJobs:                  b.transformJobs,
+		EdgeDeploymentPlans:            b.edgeDeploymentPlans,
+		FeatureRecords:                 b.featureRecords,
+		FeatureMetadata:                b.featureMetadata,
+		Hubs:                           b.hubs,
+		HubContents:                    hubContents,
+		DataQualityJobDefs:             b.dataQualityJobDefs,
+		ModelBiasJobDefs:               b.modelBiasJobDefs,
+		ModelQualityJobDefs:            b.modelQualityJobDefs,
+		ModelExplainJobDefs:            b.modelExplainJobDefs,
+		MonitoringAlerts:               b.monitoringAlerts,
+		MonitoringAlertHistory:         b.monitoringAlertHistory,
+		MonitoringExecutions:           b.monitoringExecutions,
+		Workteams:                      b.workteams,
+		Workforces:                     b.workforces,
+		LabelingJobs:                   b.labelingJobs,
+		MlflowTrackingServers:          b.mlflowTrackingServers,
+		MlflowApps:                     b.mlflowApps,
+		PartnerApps:                    b.partnerApps,
+		TrainingPlans:                  b.trainingPlans,
+		ReservedCapacities:             b.reservedCapacities,
+		TrainingPlanExtensionOfferings: b.trainingPlanExtensionOfferings,
+		ModelCardExportJobs:            b.modelCardExportJobs,
+		AccountID:                      b.accountID,
+		Region:                         b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -382,6 +395,17 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.mlflowTrackingServers = snap.MlflowTrackingServers
 	b.mlflowApps = snap.MlflowApps
 	b.partnerApps = snap.PartnerApps
+	b.restoreTrainingPlanExtFields(snap)
+}
+
+// restoreTrainingPlanExtFields assigns the Training Plan / Reserved Capacity
+// and ModelCard export job fields from snap. Split out from restoreFields to
+// keep that method's statement count low.
+func (b *InMemoryBackend) restoreTrainingPlanExtFields(snap *backendSnapshot) {
+	b.trainingPlans = snap.TrainingPlans
+	b.reservedCapacities = snap.ReservedCapacities
+	b.trainingPlanExtensionOfferings = snap.TrainingPlanExtensionOfferings
+	b.modelCardExportJobs = snap.ModelCardExportJobs
 }
 
 func buildARNIndex[V any](src map[string]map[string]V, arnFn func(string, V) string) map[string]map[string]string {
@@ -456,6 +480,7 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	ensureLineageMaps(snap)
 	ensureHubMaps(snap)
 	ensureMonitorMaps(snap)
+	ensureTrainingPlanExtMaps(snap)
 }
 
 // ensureMonitorMaps initialises the Model Monitor job definition and
@@ -499,6 +524,27 @@ func ensureMonitorMaps(snap *backendSnapshot) {
 	}
 	if snap.PartnerApps == nil {
 		snap.PartnerApps = make(map[string]map[string]*PartnerApp)
+	}
+}
+
+// ensureTrainingPlanExtMaps initialises the Training Plan / Reserved
+// Capacity and ModelCard export job maps if a snapshot predates their
+// introduction.
+func ensureTrainingPlanExtMaps(snap *backendSnapshot) {
+	if snap.TrainingPlans == nil {
+		snap.TrainingPlans = make(map[string]map[string]*TrainingPlan)
+	}
+
+	if snap.ReservedCapacities == nil {
+		snap.ReservedCapacities = make(map[string]map[string]*ReservedCapacity)
+	}
+
+	if snap.TrainingPlanExtensionOfferings == nil {
+		snap.TrainingPlanExtensionOfferings = make(map[string]map[string]*pendingTrainingPlanExtension)
+	}
+
+	if snap.ModelCardExportJobs == nil {
+		snap.ModelCardExportJobs = make(map[string]map[string]*ModelCardExportJob)
 	}
 }
 
@@ -627,6 +673,7 @@ func fixNilTagMapsNewResources(snap *backendSnapshot) {
 	fixNestedTagsSage(snap.ModelQualityJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
 	fixNestedTagsSage(snap.ModelExplainJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
 	fixNestedTagsSage(snap.EdgeDeploymentPlans, func(p *EdgeDeploymentPlan) { p.Tags = ensureSageTagMap(p.Tags) })
+	fixNestedTagsSage(snap.TrainingPlans, func(t *TrainingPlan) { t.Tags = ensureSageTagMap(t.Tags) })
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

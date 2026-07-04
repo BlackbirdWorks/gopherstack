@@ -64,7 +64,6 @@ const (
 	keyModelCardVersion                = "ModelCardVersion"
 	keyModelApprovalStatus             = "ModelApprovalStatus"
 	keyModelPackageStatus              = "ModelPackageStatus"
-	keyReservedCapacityArn             = "ReservedCapacityArn"
 	keyFeatureGroupName                = "FeatureGroupName"
 	keyFeatureDefinitions              = "FeatureDefinitions"
 	keyRecordIdentifierFeatureName     = "RecordIdentifierFeatureName"
@@ -74,7 +73,6 @@ const (
 	keyTrainingJobSummaries            = "TrainingJobSummaries"
 	keyDeviceFleetName                 = "DeviceFleetName"
 	keyStatus                          = "Status"
-	statusCompleted                    = algorithmStatusCompleted
 	statusInService                    = clusterStatusInService
 	statusCreated                      = "Created"
 	statusActive                       = "Active"
@@ -84,43 +82,28 @@ const (
 // stubOpsSupported returns the list of stub-implemented operations.
 func stubOpsSupported() []string {
 	return []string{
-		"CreateModelCardExportJob",
 		"CreatePresignedDomainUrl",
 		"DeleteModelPackageGroupPolicy",
 		"DeleteProcessingJob",
 		"DescribeFeatureMetadata",
-		"DescribeModelCardExportJob",
 		"DescribePipelineDefinitionForExecution",
-		"DescribeReservedCapacity",
-		"DescribeTrainingPlanExtensionHistory",
 		"DisableSagemakerServicecatalogPortfolio",
 		"DisassociateTrialComponent",
 		"EnableSagemakerServicecatalogPortfolio",
-		"ExtendTrainingPlan",
 		"GetModelPackageGroupPolicy",
 		"GetSagemakerServicecatalogPortfolioStatus",
-		"GetScalingConfigurationRecommendation",
-		"GetSearchSuggestions",
 		"ListAliases",
-		"ListCandidatesForAutoMLJob",
-		"ListModelMetadata",
 		// ListPipelineParametersForExecution — real implementation in handler_accuracy2.go
 		"ListPipelineVersions",
 		"ListResourceCatalogs",
-		"ListTrainingPlans",
 		"ListTrialComponents",
-		"ListUltraServersByReservedCapacity",
 		"PutModelPackageGroupPolicy",
 		"RenderUiTemplate",
-		"Search",
-		"SearchTrainingPlanOfferings",
 		"StartInferenceExperiment",
 		"StartSession",
 		"UpdateFeatureMetadata",
 		"UpdateHubContent",
 		"UpdateHubContentReference",
-		"UpdateImage",
-		"UpdateImageVersion",
 		"UpdateInferenceExperiment",
 		"UpdatePipelineExecution",
 		"UpdatePipelineVersion",
@@ -150,9 +133,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "CreateFeatureGroup":
 		return mustMarshal(m{keyFeatureGroupArn: ""}), true
-
-	case "CreateModelCardExportJob":
-		return mustMarshal(m{keyModelCardExportJobArn: ""}), true
 
 	case "CreatePresignedDomainUrl":
 		return mustMarshal(m{keyAuthorizedURL: ""}), true
@@ -185,7 +165,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DisableSagemakerServicecatalogPortfolio",
 		"DisassociateTrialComponent",
 		"EnableSagemakerServicecatalogPortfolio",
-		"ExtendTrainingPlan",
 		"PutModelPackageGroupPolicy",
 		"RenderUiTemplate",
 		"StartSession",
@@ -221,11 +200,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyFeatureGroupArn: "", keyFeatureGroupName: "", "FeatureName": "", "FeatureType": "",
 		}), true
 
-	case "DescribeModelCardExportJob":
-		return mustMarshal(m{
-			keyModelCardExportJobArn: "", "ModelCardExportJobName": "", keyStatus: statusCompleted,
-		}), true
-
 	case "DescribePipeline":
 		return mustMarshal(
 			m{keyPipelineArn: "", "PipelineName": "", "PipelineStatus": statusActive},
@@ -238,12 +212,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		return mustMarshal(m{
 			keyPipelineExecutionArn: "", keyPipelineExecutionStatus: pipelineStatusSucceeded,
 		}), true
-
-	case "DescribeReservedCapacity":
-		return mustMarshal(m{keyReservedCapacityArn: "", keyStatus: statusActive}), true
-
-	case "DescribeTrainingPlanExtensionHistory":
-		return mustMarshal(m{keyTrainingPlanArn: "", "Extensions": []any{}}), true
 
 	case "DescribeTrial":
 		return mustMarshal(m{keyTrialArn: "", "TrialName": ""}), true
@@ -265,12 +233,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "GetSagemakerServicecatalogPortfolioStatus":
 		return mustMarshal(m{keyStatus: "Disabled"}), true
 
-	case "GetScalingConfigurationRecommendation":
-		return mustMarshal(m{"InferenceRecommendationsJobName": "", "RecommendationId": ""}), true
-
-	case "GetSearchSuggestions":
-		return mustMarshal(m{"PropertyNameSuggestions": []any{}}), true
-
 	// -----------------------------------------------------------------------
 	// List ops — all return an empty array under a domain-appropriate key
 	// -----------------------------------------------------------------------
@@ -280,9 +242,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListApps":
 		return mustMarshal(m{"Apps": []any{}}), true
 
-	case "ListCandidatesForAutoMLJob":
-		return mustMarshal(m{"Candidates": []any{}}), true
-
 	case "ListDomains":
 		return mustMarshal(m{"Domains": []any{}}), true
 
@@ -291,9 +250,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListFeatureGroups":
 		return mustMarshal(m{"FeatureGroupSummaries": []any{}}), true
-
-	case "ListModelMetadata":
-		return mustMarshal(m{"ModelMetadataSummaries": []any{}}), true
 
 	case "ListPipelineExecutions":
 		return mustMarshal(m{"PipelineExecutionSummaries": []any{}}), true
@@ -307,17 +263,11 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListResourceCatalogs":
 		return mustMarshal(m{"ResourceCatalogs": []any{}}), true
 
-	case "ListTrainingPlans":
-		return mustMarshal(m{"TrainingPlanSummaries": []any{}}), true
-
 	case "ListTrialComponents":
 		return mustMarshal(m{"TrialComponentSummaries": []any{}}), true
 
 	case "ListTrials":
 		return mustMarshal(m{"TrialSummaries": []any{}}), true
-
-	case "ListUltraServersByReservedCapacity":
-		return mustMarshal(m{"UltraServers": []any{}}), true
 
 	case "ListUserProfiles":
 		return mustMarshal(m{"UserProfiles": []any{}}), true
@@ -325,12 +275,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// Action / query / pipeline ops
 	// -----------------------------------------------------------------------
-	case "Search":
-		return mustMarshal(m{"Results": []any{}}), true
-
-	case "SearchTrainingPlanOfferings":
-		return mustMarshal(m{"TrainingPlanOfferings": []any{}}), true
-
 	case "StartInferenceExperiment":
 		return mustMarshal(m{keyInferenceExperimentArn: ""}), true
 
@@ -373,8 +317,6 @@ func mustMarshal(v any) []byte {
 }
 
 // dispatchStubOps handles all stub SageMaker operations.
-//
-//nolint:unparam // error return matches the dispatch interface; stubs never fail
 func (h *Handler) dispatchStubOps(_ context.Context, op string, _ []byte) ([]byte, bool, error) {
 	b, ok := stubResponseFor(op)
 	if !ok {

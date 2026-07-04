@@ -44,6 +44,7 @@ func registerAdvancedNetworkingOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeVpcEndpointServiceConfigurations"] = h.handleDescribeVpcEndpointServiceConfigurations
 	ops["DeleteVpcEndpointServiceConfigurations"] = h.handleDeleteVpcEndpointServiceConfigurations
 	ops["ModifyVpcEndpointServiceConfiguration"] = h.handleModifyVpcEndpointServiceConfiguration
+	ops["StartVpcEndpointServicePrivateDnsVerification"] = h.handleStartVpcEndpointServicePrivateDNSVerification
 
 	// IPAM
 	ops["CreateIpam"] = h.handleCreateIpam
@@ -96,6 +97,7 @@ func advancedNetworkingSupportedOperations() []string {
 		"DescribeVpcEndpointServiceConfigurations",
 		"DeleteVpcEndpointServiceConfigurations",
 		"ModifyVpcEndpointServiceConfiguration",
+		"StartVpcEndpointServicePrivateDnsVerification",
 		"CreateIpam",
 		"DescribeIpams",
 		"ModifyIpam",
@@ -447,6 +449,13 @@ type deleteVpcEndpointServiceConfigurationsResponse struct {
 
 type modifyVpcEndpointServiceConfigurationResponse struct {
 	XMLName   xml.Name `xml:"ModifyVpcEndpointServiceConfigurationResponse"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+type startVpcEndpointServicePrivateDNSVerificationResponse struct {
+	XMLName   xml.Name `xml:"StartVpcEndpointServicePrivateDnsVerificationResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
 	Return    bool     `xml:"return"`
 }
@@ -1210,6 +1219,23 @@ func (h *Handler) handleModifyVpcEndpointServiceConfiguration(
 	}
 
 	return &modifyVpcEndpointServiceConfigurationResponse{RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStartVpcEndpointServicePrivateDNSVerification(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	svcID := vals.Get("ServiceId")
+
+	if err := h.Backend.StartVpcEndpointServicePrivateDNSVerification(svcID); err != nil {
+		return nil, err
+	}
+
+	return &startVpcEndpointServicePrivateDNSVerificationResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 // ---- IPAM handlers ----

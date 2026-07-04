@@ -27,6 +27,23 @@ var (
 	ErrCIDRConflict          = errors.New("InvalidVpc.Conflict")
 	ErrDryRunOperation       = errors.New("request would have succeeded, but DryRun flag is set")
 	ErrDuplicatePermission   = errors.New("InvalidPermission.Duplicate")
+
+	// ErrDependencyViolation is returned when an operation cannot complete
+	// because another resource still depends on the target resource.
+	ErrDependencyViolation = errors.New("DependencyViolation")
+
+	// ErrVpcClassicLinkDisabled is returned by AttachClassicLinkVpc when the
+	// target VPC has not been enabled for ClassicLink.
+	ErrVpcClassicLinkDisabled = errors.New("VpcClassicLinkDisabled")
+
+	// ErrClassicLinkInstanceNotFound is returned when a ClassicLink
+	// instance/VPC linkage cannot be found (e.g. DetachClassicLinkVpc for an
+	// instance that is not currently linked).
+	ErrClassicLinkInstanceNotFound = errors.New("InvalidInstanceID.NotFound")
+
+	// ErrVpcBlockPublicAccessExclusionNotFound is returned when a VPC Block
+	// Public Access exclusion ID cannot be found.
+	ErrVpcBlockPublicAccessExclusionNotFound = errors.New("InvalidVpcBlockPublicAccessExclusionId.NotFound")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -177,6 +194,14 @@ type VPC struct {
 	ID        string `json:"id,omitempty"`
 	CIDRBlock string `json:"cidrBlock,omitempty"`
 	IsDefault bool   `json:"isDefault,omitempty"`
+
+	// ClassicLinkEnabled reports whether the VPC has been enabled for
+	// ClassicLink via EnableVpcClassicLink.
+	ClassicLinkEnabled bool `json:"classicLinkEnabled,omitempty"`
+
+	// ClassicLinkDNSSupported reports whether ClassicLink DNS support has been
+	// enabled for the VPC via EnableVpcClassicLinkDnsSupport.
+	ClassicLinkDNSSupported bool `json:"classicLinkDnsSupported,omitempty"`
 }
 
 // Subnet represents an EC2 Subnet.
@@ -325,28 +350,32 @@ type InMemoryBackend struct {
 	localGatewayRouteTableVpcAssociations      map[string]*LocalGatewayRouteTableVpcAssociation
 	localGatewayRouteTableVifGroupAssociations map[string]*LocalGatewayRouteTableVirtualInterfaceGroupAssociation
 	// transit gateway multicast domain / metering policy additions
-	tgwMulticastDomains       map[string]*TransitGatewayMulticastDomain
-	tgwMulticastGroupEntries  map[string]*TransitGatewayMulticastGroupEntry
-	tgwMeteringPolicies       map[string]*TransitGatewayMeteringPolicy
-	tgwMeteringPolicyEntries  map[string]*TransitGatewayMeteringPolicyEntry
-	mu                        *lockmetrics.RWMutex
-	lifecycleStop             chan struct{}
-	eniIDByAttachment         map[string]string
-	eniIDsByInstance          map[string]map[string]struct{}
-	instanceIDsByVPC          map[string]map[string]struct{}
-	snapshotBlockPublicAccess string
-	ebsDefaultKmsKeyID        string
-	imageBlockPublicAccess    string
-	defaultCreditSpec         string
-	Region                    string `json:"region,omitempty"`
-	AccountID                 string `json:"accountID,omitempty"`
-	freePrivateIPs            []string
-	nextPrivateIPIndex        int
-	nextElasticIPIndex        int
-	ebsEncryptionByDefault    bool
-	serialConsoleAccess       bool
-	lifecycleOnce             sync.Once
-	lifecycleStopOnce         sync.Once
+	tgwMulticastDomains      map[string]*TransitGatewayMulticastDomain
+	tgwMulticastGroupEntries map[string]*TransitGatewayMulticastGroupEntry
+	tgwMeteringPolicies      map[string]*TransitGatewayMeteringPolicy
+	tgwMeteringPolicyEntries map[string]*TransitGatewayMeteringPolicyEntry
+	// VPC ClassicLink / Block Public Access additions
+	classicLinkInstances           map[string]*ClassicLinkInstance
+	vpcBlockPublicAccessOptions    *VpcBlockPublicAccessOptions
+	vpcBlockPublicAccessExclusions map[string]*VpcBlockPublicAccessExclusion
+	mu                             *lockmetrics.RWMutex
+	lifecycleStop                  chan struct{}
+	eniIDByAttachment              map[string]string
+	eniIDsByInstance               map[string]map[string]struct{}
+	instanceIDsByVPC               map[string]map[string]struct{}
+	snapshotBlockPublicAccess      string
+	ebsDefaultKmsKeyID             string
+	imageBlockPublicAccess         string
+	defaultCreditSpec              string
+	Region                         string `json:"region,omitempty"`
+	AccountID                      string `json:"accountID,omitempty"`
+	freePrivateIPs                 []string
+	nextPrivateIPIndex             int
+	nextElasticIPIndex             int
+	ebsEncryptionByDefault         bool
+	serialConsoleAccess            bool
+	lifecycleOnce                  sync.Once
+	lifecycleStopOnce              sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -441,8 +470,22 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initRouteServerMaps(b)
 	initLocalGatewayMaps(b)
 	initTGWMulticastMaps(b)
+	initVpcConfigMaps(b)
 
 	return b
+}
+
+// initVpcConfigMaps initialises the VPC ClassicLink and Block Public Access
+// state maps (split out to keep newInMemoryBackendMaps under the funlen limit).
+func initVpcConfigMaps(b *InMemoryBackend) {
+	b.classicLinkInstances = make(map[string]*ClassicLinkInstance)
+	b.vpcBlockPublicAccessExclusions = make(map[string]*VpcBlockPublicAccessExclusion)
+	b.vpcBlockPublicAccessOptions = &VpcBlockPublicAccessOptions{
+		InternetGatewayBlockMode: vpcBPABlockModeOff,
+		State:                    vpcBPAStateDefault,
+		ExclusionsAllowed:        vpcBPAExclusionsAllowed,
+		ManagedBy:                vpcBPAManagedByAccount,
+	}
 }
 
 // initTGWMulticastMaps initialises the transit gateway multicast domain and

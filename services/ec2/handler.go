@@ -120,6 +120,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, batch4SupportedOperations()...)
 	extOps = append(extOps, localGatewaySupportedOperations()...)
 	extOps = append(extOps, tgwMulticastSupportedOperations()...)
+	extOps = append(extOps, vpcConfigSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
@@ -386,6 +387,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerRouteServerOps(h, ops)
 	registerLocalGatewayOps(h, ops)
 	registerTGWMulticastOps(h, ops)
+	registerVpcConfigOps(h, ops)
 	registerStubOpsIfAbsent(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
@@ -1245,6 +1247,11 @@ var errCodeLookup = []struct {
 	{ErrVpnGatewayNotFound, "InvalidVpnGatewayID.NotFound"},
 	{ErrCustomerGatewayNotFound, "InvalidCustomerGatewayID.NotFound"},
 	{ErrVpnTunnelNotFound, "InvalidParameterValue"},
+	{ErrVpcEndpointServiceNotFound, "InvalidVpcEndpointService.NotFound"},
+	{ErrDependencyViolation, "DependencyViolation"},
+	{ErrVpcClassicLinkDisabled, "VpcClassicLinkDisabled"},
+	{ErrClassicLinkInstanceNotFound, "InvalidInstanceID.NotFound"},
+	{ErrVpcBlockPublicAccessExclusionNotFound, "InvalidVpcBlockPublicAccessExclusionId.NotFound"},
 	{ErrInvalidParameter, "InvalidParameterValue"},
 }
 

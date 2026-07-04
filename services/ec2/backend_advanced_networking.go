@@ -215,6 +215,7 @@ type VpcEndpointServiceConfig struct {
 	ServiceID               string   `json:"serviceId,omitempty"`
 	ServiceName             string   `json:"serviceName,omitempty"`
 	ServiceType             string   `json:"serviceType,omitempty"`
+	PrivateDNSNameState     string   `json:"privateDnsNameState,omitempty"`
 	NetworkLoadBalancerARNs []string `json:"networkLoadBalancerArns,omitempty"`
 	AcceptanceRequired      bool     `json:"acceptanceRequired,omitempty"`
 }
@@ -1176,6 +1177,27 @@ func (b *InMemoryBackend) ModifyVpcEndpointServiceConfiguration(
 	}
 
 	cfg.AcceptanceRequired = acceptanceRequired
+
+	return nil
+}
+
+// StartVpcEndpointServicePrivateDNSVerification initiates (and, for this
+// in-memory backend, immediately completes) private DNS name verification for
+// a VPC endpoint service configuration.
+func (b *InMemoryBackend) StartVpcEndpointServicePrivateDNSVerification(id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: ServiceId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("StartVpcEndpointServicePrivateDnsVerification")
+	defer b.mu.Unlock()
+
+	cfg, ok := b.vpcEndpointServiceConfigs[id]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrVpcEndpointServiceNotFound, id)
+	}
+
+	cfg.PrivateDNSNameState = "verified"
 
 	return nil
 }

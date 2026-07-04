@@ -26,7 +26,6 @@ func TestStubOperations(t *testing.T) {
 		// "AssociateTransitGatewayMulticastDomain", — real handler in handler_tgw_multicast.go, covered there
 		"AssociateTransitGatewayPolicyTable",
 		"AssociateTrunkInterface",
-		"AttachClassicLinkVpc",
 		// "AttachVerifiedAccessTrustProvider", — moved to batch4
 		// "AuthorizeClientVpnIngress", — moved to batch4
 		"BundleInstance",
@@ -91,7 +90,6 @@ func TestStubOperations(t *testing.T) {
 		// "CreateVerifiedAccessGroup", — moved to batch4
 		// "CreateVerifiedAccessInstance", — moved to batch4
 		// "CreateVerifiedAccessTrustProvider", — moved to batch4
-		"CreateVpcBlockPublicAccessExclusion",
 		"CreateVpcEncryptionControl",
 		"CreateVpcEndpointServiceConfiguration",
 		"CreateVpnConcentrator",
@@ -140,7 +138,6 @@ func TestStubOperations(t *testing.T) {
 		// "DeleteVerifiedAccessGroup", — moved to batch4
 		// "DeleteVerifiedAccessInstance", — moved to batch4
 		// "DeleteVerifiedAccessTrustProvider", — moved to batch4
-		"DeleteVpcBlockPublicAccessExclusion",
 		"DeleteVpcEncryptionControl",
 		"DeleteVpcEndpointServiceConfigurations",
 		"DeleteVpnConcentrator",
@@ -160,7 +157,6 @@ func TestStubOperations(t *testing.T) {
 		"DescribeCapacityReservationFleets",
 		"DescribeCapacityReservationTopology",
 		// "DescribeCarrierGateways", — real handler in handler_batch5.go, covered there
-		"DescribeClassicLinkInstances",
 		// "DescribeClientVpnAuthorizationRules", — moved to batch4
 		// "DescribeClientVpnConnections", — moved to batch4
 		// "DescribeClientVpnEndpoints", — moved to batch4
@@ -234,15 +230,11 @@ func TestStubOperations(t *testing.T) {
 		"DescribeVerifiedAccessInstanceLoggingConfigurations",
 		// "DescribeVerifiedAccessInstances", — moved to batch4
 		// "DescribeVerifiedAccessTrustProviders", — moved to batch4
-		"DescribeVpcBlockPublicAccessExclusions",
-		"DescribeVpcBlockPublicAccessOptions",
-		"DescribeVpcClassicLink",
 		"DescribeVpcEncryptionControls",
 		"DescribeVpcEndpointServiceConfigurations",
 		"DescribeVpnConcentrators",
 		// "DescribeVpnConnections", — moved to advancedNetworkingSupportedOperations
 		// "DescribeVpnGateways", — moved to advancedNetworkingSupportedOperations
-		"DetachClassicLinkVpc",
 		// "DetachVerifiedAccessTrustProvider", — moved to batch4
 		"DisableAllowedImagesSettings",
 		"DisableAwsNetworkPerformanceMetricSubscription",
@@ -251,7 +243,6 @@ func TestStubOperations(t *testing.T) {
 		"DisableIpamPolicy",
 		// "DisableRouteServerPropagation", — real handler in handler_route_server.go, covered there
 		"DisableTransitGatewayRouteTablePropagation",
-		"DisableVpcClassicLink",
 		"DisassociateCapacityReservationBillingOwner",
 		// "DisassociateClientVpnTargetNetwork", — moved to batch4
 		"DisassociateEnclaveCertificateIamRole",
@@ -270,7 +261,6 @@ func TestStubOperations(t *testing.T) {
 		"EnableReachabilityAnalyzerOrganizationSharing",
 		// "EnableRouteServerPropagation", — real handler in handler_route_server.go, covered there
 		"EnableTransitGatewayRouteTablePropagation",
-		"EnableVpcClassicLink",
 		// "ExportClientVpnClientCertificateRevocationList", — moved to batch4 (requires ClientVpnEndpointId)
 		// "ExportClientVpnClientConfiguration", — moved to batch4 (requires ClientVpnEndpointId)
 		"ExportTransitGatewayRoutes",
@@ -361,8 +351,6 @@ func TestStubOperations(t *testing.T) {
 		"ModifyVerifiedAccessInstance",
 		"ModifyVerifiedAccessInstanceLoggingConfiguration",
 		"ModifyVerifiedAccessTrustProvider",
-		"ModifyVpcBlockPublicAccessExclusion",
-		"ModifyVpcBlockPublicAccessOptions",
 		"ModifyVpcEncryptionControl",
 		// "ModifyVpnConnectionOptions", — moved to advancedNetworkingSupportedOperations
 		// "ModifyVpnTunnelCertificate", — moved to advancedNetworkingSupportedOperations

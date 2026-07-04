@@ -32,6 +32,9 @@ type snapTGWMeterPolicyEntry = TransitGatewayMeteringPolicyEntry
 // snapTGWMcastGroupEntry is a type alias used in backendSnapshot to keep line lengths manageable.
 type snapTGWMcastGroupEntry = TransitGatewayMulticastGroupEntry
 
+// snapClassicLinkInstance is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapClassicLinkInstance = ClassicLinkInstance
+
 type backendSnapshot struct {
 	SnapshotAttributes                 map[string]map[string]string                    `json:"snapshotAttributes"`
 	ImageDeprecated                    map[string]string                               `json:"imageDeprecated"`
@@ -161,6 +164,9 @@ type backendSnapshot struct {
 	TgwMulticastGroupEntries           map[string]*snapTGWMcastGroupEntry              `json:"tgwMcastGroupEnt,omitempty"`
 	TgwMeteringPolicies                map[string]*snapTGWMeterPolicy                  `json:"tgwMeterPolicies,omitempty"`
 	TgwMeteringPolicyEntries           map[string]*snapTGWMeterPolicyEntry             `json:"tgwMeterPolicyEnt,omitempty"`
+	ClassicLinkInstances               map[string]*snapClassicLinkInstance             `json:"classicLinkInst,omitempty"`
+	VpcBlockPublicAccessOptions        *VpcBlockPublicAccessOptions                    `json:"vpcBpaOptions,omitempty"`
+	VpcBlockPublicAccessExclusions     map[string]*VpcBlockPublicAccessExclusion       `json:"vpcBpaExclusions,omitempty"`
 	Region                             string                                          `json:"region,omitempty"`
 	AccountID                          string                                          `json:"accountID,omitempty"`
 	FreePrivateIPs                     []string                                        `json:"freePrivateIPs"`
@@ -314,6 +320,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		TgwMulticastGroupEntries:           b.tgwMulticastGroupEntries,
 		TgwMeteringPolicies:                b.tgwMeteringPolicies,
 		TgwMeteringPolicyEntries:           b.tgwMeteringPolicyEntries,
+		ClassicLinkInstances:               b.classicLinkInstances,
+		VpcBlockPublicAccessOptions:        b.vpcBlockPublicAccessOptions,
+		VpcBlockPublicAccessExclusions:     b.vpcBlockPublicAccessExclusions,
 	}
 
 	data, err := json.Marshal(snap)
@@ -667,8 +676,37 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.restoreRouteServerFields(&snap)
 	b.restoreLocalGatewayFields(&snap)
 	b.restoreTGWMulticastFields(&snap)
+	b.restoreVpcConfigFields(&snap)
 
 	return nil
+}
+
+// restoreVpcConfigFields copies the VPC ClassicLink and Block Public Access
+// state from snap into b. Split out to keep Restore's growth in check.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) restoreVpcConfigFields(snap *backendSnapshot) {
+	if snap.ClassicLinkInstances != nil {
+		b.classicLinkInstances = snap.ClassicLinkInstances
+	} else {
+		b.classicLinkInstances = make(map[string]*ClassicLinkInstance)
+	}
+
+	if snap.VpcBlockPublicAccessOptions != nil {
+		b.vpcBlockPublicAccessOptions = snap.VpcBlockPublicAccessOptions
+	} else {
+		b.vpcBlockPublicAccessOptions = &VpcBlockPublicAccessOptions{
+			InternetGatewayBlockMode: vpcBPABlockModeOff,
+			State:                    vpcBPAStateDefault,
+			ExclusionsAllowed:        vpcBPAExclusionsAllowed,
+			ManagedBy:                vpcBPAManagedByAccount,
+		}
+	}
+
+	if snap.VpcBlockPublicAccessExclusions != nil {
+		b.vpcBlockPublicAccessExclusions = snap.VpcBlockPublicAccessExclusions
+	} else {
+		b.vpcBlockPublicAccessExclusions = make(map[string]*VpcBlockPublicAccessExclusion)
+	}
 }
 
 // restoreTGWMulticastFields copies the transit gateway multicast domain and

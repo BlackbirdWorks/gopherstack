@@ -515,19 +515,24 @@ type InMemoryBackend struct {
 	// monitoringAlertHistory is region -> history entries.
 	monitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry
 	// monitoringExecutions is region -> "scheduleName|processingJobArn" -> execution.
-	monitoringExecutions         map[string]map[string]*MonitoringExecution
-	humanTaskUis                 map[string]map[string]*HumanTaskUI
-	workforces                   map[string]map[string]*Workforce
-	flowDefinitions              map[string]map[string]*FlowDefinition
-	appImageConfigs              map[string]map[string]*AppImageConfig
-	inferenceExperiments         map[string]map[string]*InferenceExperiment
-	mlflowTrackingServers        map[string]map[string]*MlflowTrackingServer
-	mlflowApps                   map[string]map[string]*MlflowApp
-	modelCards                   map[string]map[string]*ModelCard
-	optimizationJobs             map[string]map[string]*OptimizationJob
-	studioLifecycleConfigs       map[string]map[string]*StudioLifecycleConfig
-	partnerApps                  map[string]map[string]*PartnerApp
-	trainingPlans                map[string]map[string]*TrainingPlan
+	monitoringExecutions   map[string]map[string]*MonitoringExecution
+	humanTaskUis           map[string]map[string]*HumanTaskUI
+	workforces             map[string]map[string]*Workforce
+	flowDefinitions        map[string]map[string]*FlowDefinition
+	appImageConfigs        map[string]map[string]*AppImageConfig
+	inferenceExperiments   map[string]map[string]*InferenceExperiment
+	mlflowTrackingServers  map[string]map[string]*MlflowTrackingServer
+	mlflowApps             map[string]map[string]*MlflowApp
+	modelCards             map[string]map[string]*ModelCard
+	optimizationJobs       map[string]map[string]*OptimizationJob
+	studioLifecycleConfigs map[string]map[string]*StudioLifecycleConfig
+	partnerApps            map[string]map[string]*PartnerApp
+	trainingPlans          map[string]map[string]*TrainingPlan
+	reservedCapacities     map[string]map[string]*ReservedCapacity
+	// trainingPlanExtensionOfferings is region -> extensionOfferingID -> pending extension offer.
+	trainingPlanExtensionOfferings map[string]map[string]*pendingTrainingPlanExtension
+	// modelCardExportJobs is region -> ModelCardExportJobArn -> job.
+	modelCardExportJobs          map[string]map[string]*ModelCardExportJob
 	modelARNIndex                map[string]map[string]string // region → ARN → model name
 	endpointConfigARNIndex       map[string]map[string]string // region → ARN → endpoint config name
 	endpointARNIndex             map[string]map[string]string // region → ARN → endpoint name
@@ -681,6 +686,7 @@ func NewInMemoryBackendWithContext(
 		region:                       region,
 		mu:                           lockmetrics.New("sagemaker"),
 	}
+	b.initTrainingPlanExtMaps()
 	b.resetLifecycleContext()
 
 	return b
@@ -976,6 +982,36 @@ func (b *InMemoryBackend) trainingPlansStore(r string) map[string]*TrainingPlan 
 	}
 
 	return b.trainingPlans[r]
+}
+func (b *InMemoryBackend) reservedCapacitiesStore(r string) map[string]*ReservedCapacity {
+	if b.reservedCapacities[r] == nil {
+		b.reservedCapacities[r] = make(map[string]*ReservedCapacity)
+	}
+
+	return b.reservedCapacities[r]
+}
+func (b *InMemoryBackend) trainingPlanExtensionOfferingsStore(r string) map[string]*pendingTrainingPlanExtension {
+	if b.trainingPlanExtensionOfferings[r] == nil {
+		b.trainingPlanExtensionOfferings[r] = make(map[string]*pendingTrainingPlanExtension)
+	}
+
+	return b.trainingPlanExtensionOfferings[r]
+}
+func (b *InMemoryBackend) modelCardExportJobsStore(r string) map[string]*ModelCardExportJob {
+	if b.modelCardExportJobs[r] == nil {
+		b.modelCardExportJobs[r] = make(map[string]*ModelCardExportJob)
+	}
+
+	return b.modelCardExportJobs[r]
+}
+
+// initTrainingPlanExtMaps (re)initialises the Training Plan / Reserved
+// Capacity and ModelCard export job top-level maps. Shared by the
+// constructor and Reset to keep both call sites short.
+func (b *InMemoryBackend) initTrainingPlanExtMaps() {
+	b.reservedCapacities = make(map[string]map[string]*ReservedCapacity)
+	b.trainingPlanExtensionOfferings = make(map[string]map[string]*pendingTrainingPlanExtension)
+	b.modelCardExportJobs = make(map[string]map[string]*ModelCardExportJob)
 }
 func (b *InMemoryBackend) modelARNIndexStore(r string) map[string]string {
 	if b.modelARNIndex[r] == nil {
@@ -1275,6 +1311,7 @@ func (b *InMemoryBackend) Reset() {
 	b.studioLifecycleConfigs = make(map[string]map[string]*StudioLifecycleConfig)
 	b.partnerApps = make(map[string]map[string]*PartnerApp)
 	b.trainingPlans = make(map[string]map[string]*TrainingPlan)
+	b.initTrainingPlanExtMaps()
 	b.modelARNIndex = make(map[string]map[string]string)
 	b.endpointConfigARNIndex = make(map[string]map[string]string)
 	b.endpointARNIndex = make(map[string]map[string]string)

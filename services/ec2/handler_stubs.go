@@ -33,7 +33,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// AssociateTransitGatewayRouteTable — moved to handler_ec2core.go
 	ops["AssociateTrunkInterface"] = h.handleStubAssociateTrunkInterface
 	// AssociateVpcCidrBlock — moved to handler_ec2core.go
-	ops["AttachClassicLinkVpc"] = h.handleStubAttachClassicLinkVpc
+	// AttachClassicLinkVpc — moved to handler_vpc_config.go
 	// AttachVerifiedAccessTrustProvider — moved to handler_batch4.go
 	// AttachVpnGateway — moved to advancedNetworkingSupportedOperations
 	// AuthorizeClientVpnIngress — moved to handler_batch4.go
@@ -110,7 +110,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// CreateVerifiedAccessGroup — moved to handler_batch4.go
 	// CreateVerifiedAccessInstance — moved to handler_batch4.go
 	// CreateVerifiedAccessTrustProvider — moved to handler_batch4.go
-	ops["CreateVpcBlockPublicAccessExclusion"] = h.handleStubCreateVpcBlockPublicAccessExclusion
+	// CreateVpcBlockPublicAccessExclusion — moved to handler_vpc_config.go
 	ops["CreateVpcEncryptionControl"] = h.handleStubCreateVpcEncryptionControl
 	ops["CreateVpcEndpointServiceConfiguration"] = h.handleStubCreateVpcEndpointServiceConfiguration
 	ops["CreateVpnConcentrator"] = h.handleStubCreateVpnConcentrator
@@ -171,7 +171,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DeleteVerifiedAccessGroup — moved to handler_batch4.go
 	// DeleteVerifiedAccessInstance — moved to handler_batch4.go
 	// DeleteVerifiedAccessTrustProvider — moved to handler_batch4.go
-	ops["DeleteVpcBlockPublicAccessExclusion"] = h.handleStubDeleteVpcBlockPublicAccessExclusion
+	// DeleteVpcBlockPublicAccessExclusion — moved to handler_vpc_config.go
 	ops["DeleteVpcEncryptionControl"] = h.handleStubDeleteVpcEncryptionControl
 	ops["DeleteVpcEndpointServiceConfigurations"] = h.handleStubDeleteVpcEndpointServiceConfigurations
 	ops["DeleteVpnConcentrator"] = h.handleStubDeleteVpnConcentrator
@@ -194,7 +194,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeCapacityReservationFleets"] = h.handleStubDescribeCapacityReservationFleets
 	ops["DescribeCapacityReservationTopology"] = h.handleStubDescribeCapacityReservationTopology
 	// DescribeCarrierGateways — real handler in handler_batch5.go, covered there
-	ops["DescribeClassicLinkInstances"] = h.handleStubDescribeClassicLinkInstances
+	// DescribeClassicLinkInstances — moved to handler_vpc_config.go
 	// DescribeClientVpnAuthorizationRules — moved to handler_batch4.go
 	// DescribeClientVpnConnections — moved to handler_batch4.go
 	// DescribeClientVpnEndpoints — moved to handler_batch4.go
@@ -281,16 +281,16 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeVerifiedAccessInstanceLoggingConfigurations"] = h.handleStubDescribeVerifiedAccessInstanceLoggingConfigurations //nolint:lll // existing issue.
 	// DescribeVerifiedAccessInstances — moved to handler_batch4.go
 	// DescribeVerifiedAccessTrustProviders — moved to handler_batch4.go
-	ops["DescribeVpcBlockPublicAccessExclusions"] = h.handleStubDescribeVpcBlockPublicAccessExclusions
-	ops["DescribeVpcBlockPublicAccessOptions"] = h.handleStubDescribeVpcBlockPublicAccessOptions
-	ops["DescribeVpcClassicLink"] = h.handleStubDescribeVpcClassicLink
-	ops["DescribeVpcClassicLinkDnsSupport"] = h.handleStubDescribeVpcClassicLinkDNSSupport
+	// DescribeVpcBlockPublicAccessExclusions — moved to handler_vpc_config.go
+	// DescribeVpcBlockPublicAccessOptions — moved to handler_vpc_config.go
+	// DescribeVpcClassicLink — moved to handler_vpc_config.go
+	// DescribeVpcClassicLinkDnsSupport — moved to handler_vpc_config.go
 	ops["DescribeVpcEncryptionControls"] = h.handleStubDescribeVpcEncryptionControls
 	ops["DescribeVpcEndpointServiceConfigurations"] = h.handleStubDescribeVpcEndpointServiceConfigurations
 	ops["DescribeVpnConcentrators"] = h.handleStubDescribeVpnConcentrators
 	// DescribeVpnConnections — moved to advancedNetworkingSupportedOperations
 	// DescribeVpnGateways — moved to advancedNetworkingSupportedOperations
-	ops["DetachClassicLinkVpc"] = h.handleStubDetachClassicLinkVpc
+	// DetachClassicLinkVpc — moved to handler_vpc_config.go
 	// DetachVerifiedAccessTrustProvider — moved to handler_batch4.go
 	ops["DisableAllowedImagesSettings"] = h.handleStubDisableAllowedImagesSettings
 	ops["DisableAwsNetworkPerformanceMetricSubscription"] = h.handleStubDisableAwsNetworkPerformanceMetricSubscription
@@ -300,8 +300,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisableIpamPolicy"] = h.handleStubDisableIpamPolicy
 	// DisableRouteServerPropagation — real handler in handler_route_server.go, covered there
 	ops["DisableTransitGatewayRouteTablePropagation"] = h.handleStubDisableTransitGatewayRouteTablePropagation
-	ops["DisableVpcClassicLink"] = h.handleStubDisableVpcClassicLink
-	ops["DisableVpcClassicLinkDnsSupport"] = h.handleStubDisableVpcClassicLinkDNSSupport
+	// DisableVpcClassicLink — moved to handler_vpc_config.go
+	// DisableVpcClassicLinkDnsSupport — moved to handler_vpc_config.go
 	ops["DisassociateCapacityReservationBillingOwner"] = h.handleStubDisassociateCapacityReservationBillingOwner
 	// DisassociateClientVpnTargetNetwork — moved to handler_batch4.go
 	ops["DisassociateEnclaveCertificateIamRole"] = h.handleStubDisassociateEnclaveCertificateIamRole
@@ -323,8 +323,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["EnableReachabilityAnalyzerOrganizationSharing"] = h.handleStubEnableReachabilityAnalyzerOrganizationSharing
 	// EnableRouteServerPropagation — real handler in handler_route_server.go, covered there
 	ops["EnableTransitGatewayRouteTablePropagation"] = h.handleStubEnableTransitGatewayRouteTablePropagation
-	ops["EnableVpcClassicLink"] = h.handleStubEnableVpcClassicLink
-	ops["EnableVpcClassicLinkDnsSupport"] = h.handleStubEnableVpcClassicLinkDNSSupport
+	// EnableVpcClassicLink — moved to handler_vpc_config.go
+	// EnableVpcClassicLinkDnsSupport — moved to handler_vpc_config.go
 	// ExportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
 	// ExportClientVpnClientConfiguration — moved to handler_batch4.go
 	ops["ExportTransitGatewayRoutes"] = h.handleStubExportTransitGatewayRoutes
@@ -424,8 +424,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyVerifiedAccessInstance"] = h.handleStubModifyVerifiedAccessInstance
 	ops["ModifyVerifiedAccessInstanceLoggingConfiguration"] = h.handleStubModifyVerifiedAccessInstanceLoggingConfiguration
 	ops["ModifyVerifiedAccessTrustProvider"] = h.handleStubModifyVerifiedAccessTrustProvider
-	ops["ModifyVpcBlockPublicAccessExclusion"] = h.handleStubModifyVpcBlockPublicAccessExclusion
-	ops["ModifyVpcBlockPublicAccessOptions"] = h.handleStubModifyVpcBlockPublicAccessOptions
+	// ModifyVpcBlockPublicAccessExclusion — moved to handler_vpc_config.go
+	// ModifyVpcBlockPublicAccessOptions — moved to handler_vpc_config.go
 	ops["ModifyVpcEncryptionControl"] = h.handleStubModifyVpcEncryptionControl
 	// ModifyVpnConnectionOptions — moved to advancedNetworkingSupportedOperations
 	// ModifyVpnTunnelCertificate — moved to advancedNetworkingSupportedOperations
@@ -468,7 +468,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["StartDeclarativePoliciesReport"] = h.handleStubStartDeclarativePoliciesReport
 	// StartNetworkInsightsAccessScopeAnalysis — real handler in handler_batch5.go, covered there
 	// StartNetworkInsightsAnalysis — real handler in handler_batch5.go, covered there
-	ops["StartVpcEndpointServicePrivateDnsVerification"] = h.handleStubStartVpcEndpointServicePrivateDNSVerification
+	// StartVpcEndpointServicePrivateDnsVerification — moved to handler_advanced_networking.go
 	// TerminateClientVpnConnections — moved to handler_batch4.go
 	ops["UnassignPrivateNatGatewayAddress"] = h.handleStubUnassignPrivateNatGatewayAddress
 	ops["UpdateCapacityManagerOrganizationsAccess"] = h.handleStubUpdateCapacityManagerOrganizationsAccess
@@ -501,7 +501,7 @@ func stubSupportedOperations() []string {
 		// AssociateTransitGatewayRouteTable — moved to ec2CoreSupportedOperations
 		"AssociateTrunkInterface",
 		// AssociateVpcCidrBlock — moved to ec2CoreSupportedOperations
-		"AttachClassicLinkVpc",
+		// "AttachClassicLinkVpc", — moved to vpcConfigSupportedOperations
 		// "AttachVerifiedAccessTrustProvider", — moved to batch4SupportedOperations
 		// "AttachVpnGateway", — moved to advancedNetworkingSupportedOperations
 		// "AuthorizeClientVpnIngress", — moved to batch4SupportedOperations
@@ -577,7 +577,7 @@ func stubSupportedOperations() []string {
 		// "CreateVerifiedAccessGroup", — moved to batch4SupportedOperations
 		// "CreateVerifiedAccessInstance", — moved to batch4SupportedOperations
 		// "CreateVerifiedAccessTrustProvider", — moved to batch4SupportedOperations
-		"CreateVpcBlockPublicAccessExclusion",
+		// "CreateVpcBlockPublicAccessExclusion", — moved to vpcConfigSupportedOperations
 		"CreateVpcEncryptionControl",
 		// "CreateVpcEndpointServiceConfiguration", — moved to advancedNetworkingSupportedOperations
 		"CreateVpnConcentrator",
@@ -638,7 +638,7 @@ func stubSupportedOperations() []string {
 		// "DeleteVerifiedAccessGroup", — moved to batch4SupportedOperations
 		// "DeleteVerifiedAccessInstance", — moved to batch4SupportedOperations
 		// "DeleteVerifiedAccessTrustProvider", — moved to batch4SupportedOperations
-		"DeleteVpcBlockPublicAccessExclusion",
+		// "DeleteVpcBlockPublicAccessExclusion", — moved to vpcConfigSupportedOperations
 		"DeleteVpcEncryptionControl",
 		// "DeleteVpcEndpointServiceConfigurations", — moved to advancedNetworkingSupportedOperations
 		"DeleteVpnConcentrator",
@@ -661,7 +661,7 @@ func stubSupportedOperations() []string {
 		"DescribeCapacityReservationFleets",
 		"DescribeCapacityReservationTopology",
 		"DescribeCarrierGateways",
-		"DescribeClassicLinkInstances",
+		// "DescribeClassicLinkInstances", — moved to vpcConfigSupportedOperations
 		// "DescribeClientVpnAuthorizationRules", — moved to batch4SupportedOperations
 		// "DescribeClientVpnConnections", — moved to batch4SupportedOperations
 		// "DescribeClientVpnEndpoints", — moved to batch4SupportedOperations
@@ -745,16 +745,16 @@ func stubSupportedOperations() []string {
 		"DescribeVerifiedAccessInstanceLoggingConfigurations",
 		// "DescribeVerifiedAccessInstances", — moved to batch4SupportedOperations
 		// "DescribeVerifiedAccessTrustProviders", — moved to batch4SupportedOperations
-		"DescribeVpcBlockPublicAccessExclusions",
-		"DescribeVpcBlockPublicAccessOptions",
-		"DescribeVpcClassicLink",
-		"DescribeVpcClassicLinkDnsSupport",
+		// "DescribeVpcBlockPublicAccessExclusions", — moved to vpcConfigSupportedOperations
+		// "DescribeVpcBlockPublicAccessOptions", — moved to vpcConfigSupportedOperations
+		// "DescribeVpcClassicLink", — moved to vpcConfigSupportedOperations
+		// "DescribeVpcClassicLinkDnsSupport", — moved to vpcConfigSupportedOperations
 		"DescribeVpcEncryptionControls",
 		// "DescribeVpcEndpointServiceConfigurations", — moved to advancedNetworkingSupportedOperations
 		"DescribeVpnConcentrators",
 		// "DescribeVpnConnections", — moved to advancedNetworkingSupportedOperations
 		// "DescribeVpnGateways", — moved to advancedNetworkingSupportedOperations
-		"DetachClassicLinkVpc",
+		// "DetachClassicLinkVpc", — moved to vpcConfigSupportedOperations
 		// "DetachVerifiedAccessTrustProvider", — moved to batch4SupportedOperations
 		// "DetachVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DisableAllowedImagesSettings",
@@ -765,8 +765,8 @@ func stubSupportedOperations() []string {
 		"DisableIpamPolicy",
 		"DisableRouteServerPropagation",
 		"DisableTransitGatewayRouteTablePropagation",
-		"DisableVpcClassicLink",
-		"DisableVpcClassicLinkDnsSupport",
+		// "DisableVpcClassicLink", — moved to vpcConfigSupportedOperations
+		// "DisableVpcClassicLinkDnsSupport", — moved to vpcConfigSupportedOperations
 		"DisassociateCapacityReservationBillingOwner",
 		// "DisassociateClientVpnTargetNetwork", — moved to batch4SupportedOperations
 		"DisassociateEnclaveCertificateIamRole",
@@ -788,8 +788,8 @@ func stubSupportedOperations() []string {
 		"EnableReachabilityAnalyzerOrganizationSharing",
 		"EnableRouteServerPropagation",
 		"EnableTransitGatewayRouteTablePropagation",
-		"EnableVpcClassicLink",
-		"EnableVpcClassicLinkDnsSupport",
+		// "EnableVpcClassicLink", — moved to vpcConfigSupportedOperations
+		// "EnableVpcClassicLinkDnsSupport", — moved to vpcConfigSupportedOperations
 		// ExportClientVpnClientCertificateRevocationList — moved to batch4SupportedOperations
 		// ExportClientVpnClientConfiguration — moved to batch4SupportedOperations
 		"ExportTransitGatewayRoutes",
@@ -888,8 +888,8 @@ func stubSupportedOperations() []string {
 		"ModifyVerifiedAccessInstance",
 		"ModifyVerifiedAccessInstanceLoggingConfiguration",
 		"ModifyVerifiedAccessTrustProvider",
-		"ModifyVpcBlockPublicAccessExclusion",
-		"ModifyVpcBlockPublicAccessOptions",
+		// "ModifyVpcBlockPublicAccessExclusion", — moved to vpcConfigSupportedOperations
+		// "ModifyVpcBlockPublicAccessOptions", — moved to vpcConfigSupportedOperations
 		"ModifyVpcEncryptionControl",
 		// "ModifyVpcEndpointServiceConfiguration", — moved to advancedNetworkingSupportedOperations
 		// "ModifyVpnConnectionOptions", — moved to advancedNetworkingSupportedOperations
@@ -932,7 +932,7 @@ func stubSupportedOperations() []string {
 		"StartDeclarativePoliciesReport",
 		"StartNetworkInsightsAccessScopeAnalysis",
 		"StartNetworkInsightsAnalysis",
-		"StartVpcEndpointServicePrivateDnsVerification",
+		// "StartVpcEndpointServicePrivateDnsVerification", — moved to advancedNetworkingSupportedOperations
 		// "TerminateClientVpnConnections", — moved to batch4SupportedOperations
 		"UnassignPrivateNatGatewayAddress",
 		"UpdateCapacityManagerOrganizationsAccess",
@@ -1019,14 +1019,6 @@ func (h *Handler) handleStubAssociateTransitGatewayPolicyTable(
 func (h *Handler) handleStubAssociateTrunkInterface(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateTrunkInterfaceResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubAttachClassicLinkVpc(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AttachClassicLinkVpcResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1370,17 +1362,6 @@ func (h *Handler) handleStubCreateTransitGatewayRouteTableAnnouncement(
 	}, nil
 }
 
-func (h *Handler) handleStubCreateVpcBlockPublicAccessExclusion(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateVpcBlockPublicAccessExclusionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVpcEncryptionControlResponse"},
@@ -1573,17 +1554,6 @@ func (h *Handler) handleStubDeleteTransitGatewayRouteTableAnnouncement(
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteVpcBlockPublicAccessExclusion(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVpcBlockPublicAccessExclusionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteVpcEncryptionControlResponse"},
@@ -1726,14 +1696,6 @@ func (h *Handler) handleStubDescribeCapacityReservationTopology(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeCapacityReservationTopologyResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeClassicLinkInstances(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeClassicLinkInstancesResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2104,47 +2066,6 @@ func (h *Handler) handleStubDescribeVerifiedAccessInstanceLoggingConfigurations(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeVpcBlockPublicAccessExclusions(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVpcBlockPublicAccessExclusionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeVpcBlockPublicAccessOptions(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVpcBlockPublicAccessOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeVpcClassicLink(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVpcClassicLinkResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeVpcClassicLinkDNSSupport(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVpcClassicLinkDnsSupportResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeVpcEncryptionControls(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpcEncryptionControlsResponse"},
@@ -2167,14 +2088,6 @@ func (h *Handler) handleStubDescribeVpcEndpointServiceConfigurations(
 func (h *Handler) handleStubDescribeVpnConcentrators(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpnConcentratorsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDetachClassicLinkVpc(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DetachClassicLinkVpcResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2243,25 +2156,6 @@ func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisableTransitGatewayRouteTablePropagationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisableVpcClassicLink(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableVpcClassicLinkResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisableVpcClassicLinkDNSSupport(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableVpcClassicLinkDnsSupportResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2412,25 +2306,6 @@ func (h *Handler) handleStubEnableTransitGatewayRouteTablePropagation(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableTransitGatewayRouteTablePropagationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubEnableVpcClassicLink(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableVpcClassicLinkResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubEnableVpcClassicLinkDNSSupport(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableVpcClassicLinkDnsSupportResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3052,28 +2927,6 @@ func (h *Handler) handleStubModifyVerifiedAccessTrustProvider(
 	}, nil
 }
 
-func (h *Handler) handleStubModifyVpcBlockPublicAccessExclusion(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpcBlockPublicAccessExclusionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyVpcBlockPublicAccessOptions(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpcBlockPublicAccessOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcEncryptionControlResponse"},
@@ -3293,17 +3146,6 @@ func (h *Handler) handleStubStartDeclarativePoliciesReport(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "StartDeclarativePoliciesReportResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubStartVpcEndpointServicePrivateDNSVerification(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "StartVpcEndpointServicePrivateDnsVerificationResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

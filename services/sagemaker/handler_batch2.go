@@ -136,6 +136,10 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListImages(ctx, body)
 
 		return r, true, err
+	case "UpdateImage":
+		r, err := h.handleUpdateImage(ctx, body)
+
+		return r, true, err
 
 	// ImageVersion
 	case "CreateImageVersion":
@@ -150,6 +154,10 @@ func (h *Handler) dispatchBatch2Ops(
 		return nil, true, h.handleDeleteImageVersion(ctx, body)
 	case "ListImageVersions":
 		r, err := h.handleListImageVersions(ctx, body)
+
+		return r, true, err
+	case "UpdateImageVersion":
+		r, err := h.handleUpdateImageVersion(ctx, body)
 
 		return r, true, err
 
@@ -909,6 +917,36 @@ func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, er
 	})
 }
 
+func (h *Handler) handleUpdateImage(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ImageName        string   `json:"ImageName"`
+		Description      *string  `json:"Description"`
+		DisplayName      *string  `json:"DisplayName"`
+		RoleArn          *string  `json:"RoleArn"`
+		DeleteProperties []string `json:"DeleteProperties"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ImageName == "" {
+		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.UpdateImage(ctx, req.ImageName, UpdateImageOptions{
+		Description:      req.Description,
+		DisplayName:      req.DisplayName,
+		RoleArn:          req.RoleArn,
+		DeleteProperties: req.DeleteProperties,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{keyImageArn: result.ImageArn})
+}
+
 // ---------------------------------------------------------------------------
 // ImageVersion handlers
 // ---------------------------------------------------------------------------
@@ -1004,6 +1042,47 @@ func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]b
 		"ImageVersions": summaries,
 		keyNextToken:    next,
 	})
+}
+
+func (h *Handler) handleUpdateImageVersion(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Horovod         *bool    `json:"Horovod"`
+		ImageName       string   `json:"ImageName"`
+		JobType         string   `json:"JobType"`
+		MLFramework     string   `json:"MLFramework"`
+		Processor       string   `json:"Processor"`
+		ProgrammingLang string   `json:"ProgrammingLang"`
+		ReleaseNotes    string   `json:"ReleaseNotes"`
+		VendorGuidance  string   `json:"VendorGuidance"`
+		AliasesToAdd    []string `json:"AliasesToAdd"`
+		AliasesToDelete []string `json:"AliasesToDelete"`
+		Version         int      `json:"Version"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ImageName == "" {
+		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
+	}
+
+	result, err := h.Backend.UpdateImageVersion(ctx, req.ImageName, req.Version, UpdateImageVersionOptions{
+		Horovod:         req.Horovod,
+		JobType:         req.JobType,
+		MLFramework:     req.MLFramework,
+		Processor:       req.Processor,
+		ProgrammingLang: req.ProgrammingLang,
+		ReleaseNotes:    req.ReleaseNotes,
+		VendorGuidance:  req.VendorGuidance,
+		AliasesToAdd:    req.AliasesToAdd,
+		AliasesToDelete: req.AliasesToDelete,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{keyImageVersionArn: result.ImageVersionArn})
 }
 
 // ---------------------------------------------------------------------------

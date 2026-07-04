@@ -207,6 +207,7 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.resetAdvancedNetworkingMapsLocked()
 	b.resetBatch4MapsLocked()
 	initTGWMulticastMaps(b)
+	initVpcConfigMaps(b)
 }
 
 // resetBatch4MapsLocked re-initialises all batch4 resource maps.

@@ -203,11 +203,14 @@ func (h *Handler) GetSupportedOperations() []string {
 	lineage := lineageOpsSupported()
 	hub := hubOpsSupported()
 	labeling := labelingOpsSupported()
+	trainingPlanExt := trainingPlanExtOpsSupported()
+	automlSearchExt := automlSearchExtOpsSupported()
+	modelCardExport := modelCardExportOpsSupported()
 
 	stubs := stubOpsSupported()
 	total := len(core) + len(batch2) + len(batch3) + len(accuracy3)
 	total += len(accuracy4) + len(edgeDeployment) + len(cluster) + len(lineage) + len(hub)
-	total += len(labeling) + len(stubs)
+	total += len(labeling) + len(trainingPlanExt) + len(automlSearchExt) + len(modelCardExport) + len(stubs)
 	combined := make([]string, 0, total)
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
@@ -219,6 +222,9 @@ func (h *Handler) GetSupportedOperations() []string {
 	combined = append(combined, lineage...)
 	combined = append(combined, hub...)
 	combined = append(combined, labeling...)
+	combined = append(combined, trainingPlanExt...)
+	combined = append(combined, automlSearchExt...)
+	combined = append(combined, modelCardExport...)
 
 	return append(combined, stubs...)
 }
@@ -264,11 +270,13 @@ func batch2OpsSupported() []string {
 		"DescribeImage",
 		"DeleteImage",
 		"ListImages",
+		"UpdateImage",
 		// ImageVersion
 		"CreateImageVersion",
 		"DescribeImageVersion",
 		"DeleteImageVersion",
 		"ListImageVersions",
+		"UpdateImageVersion",
 		// CompilationJob
 		"CreateCompilationJob",
 		"DescribeCompilationJob",
@@ -467,11 +475,34 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 		return r, err
 	}
 
-	if r, ok, err := h.dispatchStubOps(ctx, op, body); ok {
+	if r, ok, err := h.dispatchFamilyExtAndStubOps(ctx, op, body); ok {
 		return r, err
 	}
 
 	return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
+}
+
+// dispatchFamilyExtAndStubOps groups the Training Plan / Reserved Capacity,
+// AutoML candidates / Search, ModelCard export job, and stub dispatch tables
+// so dispatchNewOps only needs a single branch for all four.
+func (h *Handler) dispatchFamilyExtAndStubOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
+	if r, ok, err := h.dispatchTrainingPlanExtOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchAutoMLSearchExtOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchModelCardExportOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchStubOps(ctx, op, body)
 }
 
 func (h *Handler) dispatchLineageAndBatchOps(

@@ -627,8 +627,11 @@ func (h *Handler) handleListModelCardVersions(ctx context.Context, body []byte) 
 
 func (h *Handler) handleListModelCardExportJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ModelCardName string `json:"ModelCardName"`
-		NextToken     string `json:"NextToken"`
+		ModelCardName                  string `json:"ModelCardName"`
+		ModelCardExportJobNameContains string `json:"ModelCardExportJobNameContains"`
+		StatusEquals                   string `json:"StatusEquals"`
+		NextToken                      string `json:"NextToken"`
+		MaxResults                     int32  `json:"MaxResults"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -641,7 +644,24 @@ func (h *Handler) handleListModelCardExportJobs(ctx context.Context, body []byte
 		}
 	}
 
-	return json.Marshal(map[string]any{"ModelCardExportJobSummaries": []any{}})
+	jobs, next := h.Backend.ListModelCardExportJobs(
+		ctx, req.ModelCardName, req.ModelCardExportJobNameContains, req.StatusEquals, req.NextToken, req.MaxResults,
+	)
+
+	summaries := make([]map[string]any, 0, len(jobs))
+	for _, j := range jobs {
+		summaries = append(summaries, map[string]any{
+			"CreatedAt":              epochSeconds(j.CreatedAt),
+			"LastModifiedAt":         epochSeconds(j.LastModifiedAt),
+			keyModelCardExportJobArn: j.ModelCardExportJobArn,
+			"ModelCardExportJobName": j.ModelCardExportJobName,
+			keyModelCardNameField:    j.ModelCardName,
+			keyModelCardVersion:      j.ModelCardVersion,
+			keyStatus:                j.Status,
+		})
+	}
+
+	return listResp("ModelCardExportJobSummaries", summaries, next)
 }
 
 // ---------------------------------------------------------------------------
