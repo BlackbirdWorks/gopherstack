@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -17,12 +20,20 @@ import (
 var (
 	// ErrDataQualityJobDefNotFound is returned when a data quality job definition does not exist.
 	ErrDataQualityJobDefNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrDataQualityJobDefExists is returned when creating a data quality job definition whose name is taken.
+	ErrDataQualityJobDefExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrModelBiasJobDefNotFound is returned when a model bias job definition does not exist.
 	ErrModelBiasJobDefNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrModelBiasJobDefExists is returned when creating a model bias job definition whose name is taken.
+	ErrModelBiasJobDefExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrModelQualityJobDefNotFound is returned when a model quality job definition does not exist.
 	ErrModelQualityJobDefNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrModelQualityJobDefExists is returned when creating a model quality job definition whose name is taken.
+	ErrModelQualityJobDefExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrModelExplainJobDefNotFound is returned when a model explainability job definition does not exist.
 	ErrModelExplainJobDefNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrModelExplainJobDefExists is returned when creating a model explainability job definition whose name is taken.
+	ErrModelExplainJobDefExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrHumanTaskUINotFound is returned when a human task UI does not exist.
 	ErrHumanTaskUINotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrWorkforceNotFound is returned when a workforce does not exist.
@@ -51,29 +62,44 @@ var (
 // JobDefinition — shared struct for Data Quality / Model Bias / Quality / Explainability
 // ---------------------------------------------------------------------------
 
-// JobDefinition is a shared struct for the four monitoring job definition types.
+// JobDefinition is the shared backend representation for the four SageMaker
+// Model Monitor job definition types (DataQuality, ModelBias, ModelQuality,
+// ModelExplainability). Each type sends its AppSpecification/JobInput/
+// JobOutputConfig blocks under differently-named wire fields (e.g.
+// "DataQualityAppSpecification" vs "ModelBiasAppSpecification"); Config
+// captures those verbatim, plus the shared JobResources/NetworkConfig/
+// StoppingCondition/BaselineConfig blocks, so Describe echoes back exactly
+// what Create received.
 type JobDefinition struct {
-	CreationTime      time.Time         `json:"CreationTime"`
-	Tags              map[string]string `json:"Tags,omitempty"`
-	JobDefinitionName string            `json:"JobDefinitionName"`
-	JobDefinitionArn  string            `json:"JobDefinitionArn"`
-	JobDefinitionType string            `json:"JobDefinitionType"`
-	RoleArn           string            `json:"RoleArn,omitempty"`
+	CreationTime      time.Time                  `json:"CreationTime"`
+	Tags              map[string]string          `json:"Tags,omitempty"`
+	Config            map[string]json.RawMessage `json:"Config,omitempty"`
+	JobDefinitionName string                     `json:"JobDefinitionName"`
+	JobDefinitionArn  string                     `json:"JobDefinitionArn"`
+	JobDefinitionType string                     `json:"JobDefinitionType"`
+	RoleArn           string                     `json:"RoleArn,omitempty"`
+	EndpointName      string                     `json:"EndpointName,omitempty"`
 }
 
 func cloneJobDefinition(j *JobDefinition) *JobDefinition {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
+	cp.Config = maps.Clone(j.Config)
 
 	return &cp
 }
 
+// createJobDefinition is the shared Create implementation for all four job
+// definition types. storeFn is called only while b.mu is held, so the
+// per-region map's lazy initialisation stays race-free.
 func (b *InMemoryBackend) createJobDefinition(
 	ctx context.Context,
-	store map[string]*JobDefinition,
-	defType, name, roleArn string,
+	storeFn func(string) map[string]*JobDefinition,
+	defType, name, roleArn, endpointName string,
+	config map[string]json.RawMessage,
 	tags map[string]string,
 	resourceType string,
+	alreadyExists error,
 ) (*JobDefinition, error) {
 	region := getRegion(ctx, b.region)
 
@@ -84,8 +110,9 @@ func (b *InMemoryBackend) createJobDefinition(
 		return nil, fmt.Errorf("%w: %sJobDefinitionName is required", ErrValidation, defType)
 	}
 
+	store := storeFn(region)
 	if _, ok := store[name]; ok {
-		return nil, fmt.Errorf("%w: %s job definition %q already exists", ErrValidation, defType, name)
+		return nil, fmt.Errorf("%w: %s job definition %q already exists", alreadyExists, defType, name)
 	}
 
 	defARN := arn.Build("sagemaker", region, b.accountID, resourceType+"/"+name)
@@ -95,7 +122,9 @@ func (b *InMemoryBackend) createJobDefinition(
 		JobDefinitionArn:  defARN,
 		JobDefinitionType: defType,
 		RoleArn:           roleArn,
+		EndpointName:      endpointName,
 		Tags:              mergeTags(nil, tags),
+		Config:            config,
 		CreationTime:      time.Now(),
 	}
 	store[name] = j
@@ -104,15 +133,17 @@ func (b *InMemoryBackend) createJobDefinition(
 }
 
 func (b *InMemoryBackend) describeJobDefinition(
-	_ context.Context,
-	store map[string]*JobDefinition,
+	ctx context.Context,
+	storeFn func(string) map[string]*JobDefinition,
 	name string,
 	notFound error,
 ) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("describeJobDefinition")
 	defer b.mu.RUnlock()
 
-	j, ok := store[name]
+	j, ok := storeFn(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: job definition %q not found", notFound, name)
 	}
@@ -121,14 +152,17 @@ func (b *InMemoryBackend) describeJobDefinition(
 }
 
 func (b *InMemoryBackend) deleteJobDefinition(
-	_ context.Context,
-	store map[string]*JobDefinition,
+	ctx context.Context,
+	storeFn func(string) map[string]*JobDefinition,
 	name string,
 	notFound error,
 ) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("deleteJobDefinition")
 	defer b.mu.Unlock()
 
+	store := storeFn(region)
 	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: job definition %q not found", notFound, name)
 	}
@@ -138,6 +172,78 @@ func (b *InMemoryBackend) deleteJobDefinition(
 	return nil
 }
 
+// JobDefinitionFilter narrows the four List*JobDefinitions operations.
+type JobDefinitionFilter struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	EndpointName       string
+	NameContains       string
+	SortBy             string // "Name" | "CreationTime" (default)
+	SortOrder          string // "Ascending" | "Descending" (default)
+	MaxResults         int32
+}
+
+func matchesJobDefinitionFilter(j *JobDefinition, f JobDefinitionFilter) bool {
+	if f.EndpointName != "" && j.EndpointName != f.EndpointName {
+		return false
+	}
+	if f.NameContains != "" &&
+		!strings.Contains(strings.ToLower(j.JobDefinitionName), strings.ToLower(f.NameContains)) {
+		return false
+	}
+	if f.CreationTimeAfter != nil && !j.CreationTime.After(*f.CreationTimeAfter) {
+		return false
+	}
+	if f.CreationTimeBefore != nil && !j.CreationTime.Before(*f.CreationTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+func sortJobDefinitions(list []*JobDefinition, sortBy, sortOrder string) {
+	byName := strings.EqualFold(sortBy, "Name")
+	descending := !strings.EqualFold(sortOrder, "Ascending") // AWS default sort order is Descending
+
+	sort.SliceStable(list, func(i, k int) bool {
+		var cmp int
+		if byName {
+			cmp = strings.Compare(list[i].JobDefinitionName, list[k].JobDefinitionName)
+		} else {
+			cmp = compareTimes(list[i].CreationTime, list[k].CreationTime)
+		}
+
+		if descending {
+			return cmp > 0
+		}
+
+		return cmp < 0
+	})
+}
+
+// listJobDefinitions is the shared List implementation for all four job
+// definition types. storeFn is called only while b.mu is held (by the
+// per-type List* wrapper).
+func (b *InMemoryBackend) listJobDefinitions(
+	storeFn func(string) map[string]*JobDefinition,
+	region, nextToken string,
+	f JobDefinitionFilter,
+) ([]*JobDefinition, string) {
+	store := storeFn(region)
+
+	list := make([]*JobDefinition, 0, len(store))
+
+	for _, j := range store {
+		if matchesJobDefinitionFilter(j, f) {
+			list = append(list, cloneJobDefinition(j))
+		}
+	}
+
+	sortJobDefinitions(list, f.SortBy, f.SortOrder)
+
+	return paginateSlice(list, nextToken, f.MaxResults)
+}
+
 // ---------------------------------------------------------------------------
 // DataQualityJobDefinition
 // ---------------------------------------------------------------------------
@@ -145,29 +251,36 @@ func (b *InMemoryBackend) deleteJobDefinition(
 // CreateDataQualityJobDefinition creates a data quality job definition.
 func (b *InMemoryBackend) CreateDataQualityJobDefinition(
 	ctx context.Context,
-	name, roleArn string,
+	name, roleArn, endpointName string,
+	config map[string]json.RawMessage,
 	tags map[string]string,
 ) (*JobDefinition, error) {
-	region := getRegion(ctx, b.region)
-
 	return b.createJobDefinition(
-		ctx,
-		b.dataQualityJobDefsStore(region), "DataQuality", name, roleArn, tags, "data-quality-job-definition",
+		ctx, b.dataQualityJobDefsStore, "DataQuality", name, roleArn, endpointName, config, tags,
+		"data-quality-job-definition", ErrDataQualityJobDefExists,
 	)
 }
 
 // DescribeDataQualityJobDefinition returns a data quality job definition by name.
 func (b *InMemoryBackend) DescribeDataQualityJobDefinition(ctx context.Context, name string) (*JobDefinition, error) {
-	region := getRegion(ctx, b.region)
-
-	return b.describeJobDefinition(ctx, b.dataQualityJobDefsStore(region), name, ErrDataQualityJobDefNotFound)
+	return b.describeJobDefinition(ctx, b.dataQualityJobDefsStore, name, ErrDataQualityJobDefNotFound)
 }
 
 // DeleteDataQualityJobDefinition removes a data quality job definition by name.
 func (b *InMemoryBackend) DeleteDataQualityJobDefinition(ctx context.Context, name string) error {
+	return b.deleteJobDefinition(ctx, b.dataQualityJobDefsStore, name, ErrDataQualityJobDefNotFound)
+}
+
+// ListDataQualityJobDefinitions returns data quality job definitions matching f.
+func (b *InMemoryBackend) ListDataQualityJobDefinitions(
+	ctx context.Context, nextToken string, f JobDefinitionFilter,
+) ([]*JobDefinition, string) {
 	region := getRegion(ctx, b.region)
 
-	return b.deleteJobDefinition(ctx, b.dataQualityJobDefsStore(region), name, ErrDataQualityJobDefNotFound)
+	b.mu.RLock("ListDataQualityJobDefinitions")
+	defer b.mu.RUnlock()
+
+	return b.listJobDefinitions(b.dataQualityJobDefsStore, region, nextToken, f)
 }
 
 // ---------------------------------------------------------------------------
@@ -177,29 +290,36 @@ func (b *InMemoryBackend) DeleteDataQualityJobDefinition(ctx context.Context, na
 // CreateModelBiasJobDefinition creates a model bias job definition.
 func (b *InMemoryBackend) CreateModelBiasJobDefinition(
 	ctx context.Context,
-	name, roleArn string,
+	name, roleArn, endpointName string,
+	config map[string]json.RawMessage,
 	tags map[string]string,
 ) (*JobDefinition, error) {
-	region := getRegion(ctx, b.region)
-
 	return b.createJobDefinition(
-		ctx,
-		b.modelBiasJobDefsStore(region), "ModelBias", name, roleArn, tags, "model-bias-job-definition",
+		ctx, b.modelBiasJobDefsStore, "ModelBias", name, roleArn, endpointName, config, tags,
+		"model-bias-job-definition", ErrModelBiasJobDefExists,
 	)
 }
 
 // DescribeModelBiasJobDefinition returns a model bias job definition by name.
 func (b *InMemoryBackend) DescribeModelBiasJobDefinition(ctx context.Context, name string) (*JobDefinition, error) {
-	region := getRegion(ctx, b.region)
-
-	return b.describeJobDefinition(ctx, b.modelBiasJobDefsStore(region), name, ErrModelBiasJobDefNotFound)
+	return b.describeJobDefinition(ctx, b.modelBiasJobDefsStore, name, ErrModelBiasJobDefNotFound)
 }
 
 // DeleteModelBiasJobDefinition removes a model bias job definition by name.
 func (b *InMemoryBackend) DeleteModelBiasJobDefinition(ctx context.Context, name string) error {
+	return b.deleteJobDefinition(ctx, b.modelBiasJobDefsStore, name, ErrModelBiasJobDefNotFound)
+}
+
+// ListModelBiasJobDefinitions returns model bias job definitions matching f.
+func (b *InMemoryBackend) ListModelBiasJobDefinitions(
+	ctx context.Context, nextToken string, f JobDefinitionFilter,
+) ([]*JobDefinition, string) {
 	region := getRegion(ctx, b.region)
 
-	return b.deleteJobDefinition(ctx, b.modelBiasJobDefsStore(region), name, ErrModelBiasJobDefNotFound)
+	b.mu.RLock("ListModelBiasJobDefinitions")
+	defer b.mu.RUnlock()
+
+	return b.listJobDefinitions(b.modelBiasJobDefsStore, region, nextToken, f)
 }
 
 // ---------------------------------------------------------------------------
@@ -209,29 +329,36 @@ func (b *InMemoryBackend) DeleteModelBiasJobDefinition(ctx context.Context, name
 // CreateModelQualityJobDefinition creates a model quality job definition.
 func (b *InMemoryBackend) CreateModelQualityJobDefinition(
 	ctx context.Context,
-	name, roleArn string,
+	name, roleArn, endpointName string,
+	config map[string]json.RawMessage,
 	tags map[string]string,
 ) (*JobDefinition, error) {
-	region := getRegion(ctx, b.region)
-
 	return b.createJobDefinition(
-		ctx,
-		b.modelQualityJobDefsStore(region), "ModelQuality", name, roleArn, tags, "model-quality-job-definition",
+		ctx, b.modelQualityJobDefsStore, "ModelQuality", name, roleArn, endpointName, config, tags,
+		"model-quality-job-definition", ErrModelQualityJobDefExists,
 	)
 }
 
 // DescribeModelQualityJobDefinition returns a model quality job definition by name.
 func (b *InMemoryBackend) DescribeModelQualityJobDefinition(ctx context.Context, name string) (*JobDefinition, error) {
-	region := getRegion(ctx, b.region)
-
-	return b.describeJobDefinition(ctx, b.modelQualityJobDefsStore(region), name, ErrModelQualityJobDefNotFound)
+	return b.describeJobDefinition(ctx, b.modelQualityJobDefsStore, name, ErrModelQualityJobDefNotFound)
 }
 
 // DeleteModelQualityJobDefinition removes a model quality job definition by name.
 func (b *InMemoryBackend) DeleteModelQualityJobDefinition(ctx context.Context, name string) error {
+	return b.deleteJobDefinition(ctx, b.modelQualityJobDefsStore, name, ErrModelQualityJobDefNotFound)
+}
+
+// ListModelQualityJobDefinitions returns model quality job definitions matching f.
+func (b *InMemoryBackend) ListModelQualityJobDefinitions(
+	ctx context.Context, nextToken string, f JobDefinitionFilter,
+) ([]*JobDefinition, string) {
 	region := getRegion(ctx, b.region)
 
-	return b.deleteJobDefinition(ctx, b.modelQualityJobDefsStore(region), name, ErrModelQualityJobDefNotFound)
+	b.mu.RLock("ListModelQualityJobDefinitions")
+	defer b.mu.RUnlock()
+
+	return b.listJobDefinitions(b.modelQualityJobDefsStore, region, nextToken, f)
 }
 
 // ---------------------------------------------------------------------------
@@ -241,19 +368,13 @@ func (b *InMemoryBackend) DeleteModelQualityJobDefinition(ctx context.Context, n
 // CreateModelExplainabilityJobDefinition creates a model explainability job definition.
 func (b *InMemoryBackend) CreateModelExplainabilityJobDefinition(
 	ctx context.Context,
-	name, roleArn string,
+	name, roleArn, endpointName string,
+	config map[string]json.RawMessage,
 	tags map[string]string,
 ) (*JobDefinition, error) {
-	region := getRegion(ctx, b.region)
-
 	return b.createJobDefinition(
-		ctx,
-		b.modelExplainJobDefsStore(region),
-		"ModelExplainability",
-		name,
-		roleArn,
-		tags,
-		"model-explainability-job-definition",
+		ctx, b.modelExplainJobDefsStore, "ModelExplainability", name, roleArn, endpointName, config, tags,
+		"model-explainability-job-definition", ErrModelExplainJobDefExists,
 	)
 }
 
@@ -262,16 +383,356 @@ func (b *InMemoryBackend) DescribeModelExplainabilityJobDefinition(
 	ctx context.Context,
 	name string,
 ) (*JobDefinition, error) {
-	region := getRegion(ctx, b.region)
-
-	return b.describeJobDefinition(ctx, b.modelExplainJobDefsStore(region), name, ErrModelExplainJobDefNotFound)
+	return b.describeJobDefinition(ctx, b.modelExplainJobDefsStore, name, ErrModelExplainJobDefNotFound)
 }
 
 // DeleteModelExplainabilityJobDefinition removes a model explainability job definition by name.
 func (b *InMemoryBackend) DeleteModelExplainabilityJobDefinition(ctx context.Context, name string) error {
+	return b.deleteJobDefinition(ctx, b.modelExplainJobDefsStore, name, ErrModelExplainJobDefNotFound)
+}
+
+// ListModelExplainabilityJobDefinitions returns model explainability job definitions matching f.
+func (b *InMemoryBackend) ListModelExplainabilityJobDefinitions(
+	ctx context.Context, nextToken string, f JobDefinitionFilter,
+) ([]*JobDefinition, string) {
 	region := getRegion(ctx, b.region)
 
-	return b.deleteJobDefinition(ctx, b.modelExplainJobDefsStore(region), name, ErrModelExplainJobDefNotFound)
+	b.mu.RLock("ListModelExplainabilityJobDefinitions")
+	defer b.mu.RUnlock()
+
+	return b.listJobDefinitions(b.modelExplainJobDefsStore, region, nextToken, f)
+}
+
+// ---------------------------------------------------------------------------
+// MonitoringAlert
+// ---------------------------------------------------------------------------
+
+// MonitoringAlert is the read/update state of a model monitor alert tied to a
+// monitoring schedule. AWS has no CreateMonitoringAlert API — alert records
+// are provisioned from a schedule's monitoring statistics/constraints config,
+// so UpdateMonitoringAlert creates the record on first use and updates it
+// thereafter.
+type MonitoringAlert struct {
+	CreationTime              time.Time `json:"CreationTime"`
+	LastModifiedTime          time.Time `json:"LastModifiedTime"`
+	MonitoringScheduleName    string    `json:"MonitoringScheduleName"`
+	MonitoringAlertName       string    `json:"MonitoringAlertName"`
+	AlertStatus               string    `json:"AlertStatus"`
+	DatapointsToAlert         int32     `json:"DatapointsToAlert"`
+	EvaluationPeriod          int32     `json:"EvaluationPeriod"`
+	DashboardIndicatorEnabled bool      `json:"DashboardIndicatorEnabled"`
+}
+
+func cloneMonitoringAlert(a *MonitoringAlert) *MonitoringAlert {
+	cp := *a
+
+	return &cp
+}
+
+// monitoringAlertsFor returns (creating if necessary) the alert map for a
+// monitoring schedule. Callers must hold b.mu (any lock kind for read-only
+// lookups that tolerate a nil result; b.mu.Lock for creation).
+func (b *InMemoryBackend) monitoringAlertsFor(region, scheduleName string) map[string]*MonitoringAlert {
+	perSchedule := b.monitoringAlerts[region]
+	if perSchedule == nil {
+		perSchedule = make(map[string]map[string]*MonitoringAlert)
+		b.monitoringAlerts[region] = perSchedule
+	}
+
+	if perSchedule[scheduleName] == nil {
+		perSchedule[scheduleName] = make(map[string]*MonitoringAlert)
+	}
+
+	return perSchedule[scheduleName]
+}
+
+// UpdateMonitoringAlert updates the datapoints/evaluation-period configuration
+// of a monitoring alert, creating the alert record on first use. It returns
+// the alert's schedule's ARN alongside the updated alert.
+func (b *InMemoryBackend) UpdateMonitoringAlert(
+	ctx context.Context,
+	scheduleName, alertName string,
+	datapointsToAlert, evaluationPeriod int32,
+) (*MonitoringAlert, string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("UpdateMonitoringAlert")
+	defer b.mu.Unlock()
+
+	sched, ok := b.monitoringSchedulesStore(region)[scheduleName]
+	if !ok {
+		return nil, "", fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, scheduleName)
+	}
+
+	alerts := b.monitoringAlertsFor(region, scheduleName)
+	now := time.Now()
+
+	a, ok := alerts[alertName]
+	if !ok {
+		a = &MonitoringAlert{
+			MonitoringScheduleName: scheduleName,
+			MonitoringAlertName:    alertName,
+			AlertStatus:            "OK",
+			CreationTime:           now,
+		}
+		alerts[alertName] = a
+	}
+
+	a.DatapointsToAlert = datapointsToAlert
+	a.EvaluationPeriod = evaluationPeriod
+	a.LastModifiedTime = now
+
+	return cloneMonitoringAlert(a), sched.MonitoringScheduleArn, nil
+}
+
+// ListMonitoringAlerts returns the alerts configured for a monitoring schedule.
+func (b *InMemoryBackend) ListMonitoringAlerts(
+	ctx context.Context,
+	scheduleName, nextToken string,
+) ([]*MonitoringAlert, string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListMonitoringAlerts")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.monitoringSchedulesStore(region)[scheduleName]; !ok {
+		return nil, "", fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, scheduleName)
+	}
+
+	var alerts map[string]*MonitoringAlert
+	if perSchedule := b.monitoringAlerts[region]; perSchedule != nil {
+		alerts = perSchedule[scheduleName]
+	}
+
+	items, next := sagemakerListKeyPaged(alerts, nextToken, cloneMonitoringAlert)
+
+	return items, next, nil
+}
+
+// ---------------------------------------------------------------------------
+// MonitoringAlertHistory
+// ---------------------------------------------------------------------------
+
+// MonitoringAlertHistoryEntry records a single point-in-time alert status
+// observation for a monitoring schedule's alert.
+type MonitoringAlertHistoryEntry struct {
+	CreationTime           time.Time `json:"CreationTime"`
+	MonitoringScheduleName string    `json:"MonitoringScheduleName"`
+	MonitoringAlertName    string    `json:"MonitoringAlertName"`
+	AlertStatus            string    `json:"AlertStatus"`
+}
+
+func cloneMonitoringAlertHistoryEntry(e *MonitoringAlertHistoryEntry) *MonitoringAlertHistoryEntry {
+	cp := *e
+
+	return &cp
+}
+
+// MonitoringAlertHistoryFilter narrows ListMonitoringAlertHistory results.
+type MonitoringAlertHistoryFilter struct {
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	MonitoringScheduleName string
+	MonitoringAlertName    string
+	StatusEquals           string
+	SortOrder              string // "Ascending" | "Descending" (default); sort key is always CreationTime
+	MaxResults             int32
+}
+
+func matchesAlertHistoryFilter(e *MonitoringAlertHistoryEntry, f MonitoringAlertHistoryFilter) bool {
+	if f.MonitoringScheduleName != "" && e.MonitoringScheduleName != f.MonitoringScheduleName {
+		return false
+	}
+	if f.MonitoringAlertName != "" && e.MonitoringAlertName != f.MonitoringAlertName {
+		return false
+	}
+	if f.StatusEquals != "" && !strings.EqualFold(e.AlertStatus, f.StatusEquals) {
+		return false
+	}
+	if f.CreationTimeAfter != nil && !e.CreationTime.After(*f.CreationTimeAfter) {
+		return false
+	}
+	if f.CreationTimeBefore != nil && !e.CreationTime.Before(*f.CreationTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// ListMonitoringAlertHistory returns alert status history entries, optionally
+// filtered by schedule/alert name, status, and creation-time window. AWS
+// provides no API to record a transition directly — entries only appear here
+// if seeded (e.g. via the test helper SeedMonitoringAlertHistory), matching
+// real AWS accounts where a schedule with no completed monitoring runs has an
+// empty history.
+func (b *InMemoryBackend) ListMonitoringAlertHistory(
+	ctx context.Context,
+	nextToken string,
+	f MonitoringAlertHistoryFilter,
+) ([]*MonitoringAlertHistoryEntry, string) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListMonitoringAlertHistory")
+	defer b.mu.RUnlock()
+
+	list := make([]*MonitoringAlertHistoryEntry, 0, len(b.monitoringAlertHistory[region]))
+
+	for _, e := range b.monitoringAlertHistory[region] {
+		if matchesAlertHistoryFilter(e, f) {
+			list = append(list, cloneMonitoringAlertHistoryEntry(e))
+		}
+	}
+
+	descending := !strings.EqualFold(f.SortOrder, "Ascending")
+	sort.SliceStable(list, func(i, k int) bool {
+		cmp := compareTimes(list[i].CreationTime, list[k].CreationTime)
+		if descending {
+			return cmp > 0
+		}
+
+		return cmp < 0
+	})
+
+	return paginateSlice(list, nextToken, f.MaxResults)
+}
+
+// ---------------------------------------------------------------------------
+// MonitoringExecution
+// ---------------------------------------------------------------------------
+
+// MonitoringExecution represents a single run of a monitoring schedule.
+type MonitoringExecution struct {
+	CreationTime                time.Time `json:"CreationTime"`
+	LastModifiedTime            time.Time `json:"LastModifiedTime"`
+	ScheduledTime               time.Time `json:"ScheduledTime"`
+	MonitoringScheduleName      string    `json:"MonitoringScheduleName"`
+	MonitoringExecutionStatus   string    `json:"MonitoringExecutionStatus"`
+	EndpointName                string    `json:"EndpointName,omitempty"`
+	MonitoringJobDefinitionName string    `json:"MonitoringJobDefinitionName,omitempty"`
+	MonitoringType              string    `json:"MonitoringType,omitempty"`
+	ProcessingJobArn            string    `json:"ProcessingJobArn,omitempty"`
+	FailureReason               string    `json:"FailureReason,omitempty"`
+}
+
+func cloneMonitoringExecution(e *MonitoringExecution) *MonitoringExecution {
+	cp := *e
+
+	return &cp
+}
+
+// MonitoringExecutionFilter narrows ListMonitoringExecutions results.
+type MonitoringExecutionFilter struct {
+	CreationTimeAfter           *time.Time
+	CreationTimeBefore          *time.Time
+	LastModifiedTimeAfter       *time.Time
+	LastModifiedTimeBefore      *time.Time
+	ScheduledTimeAfter          *time.Time
+	ScheduledTimeBefore         *time.Time
+	MonitoringScheduleName      string
+	MonitoringJobDefinitionName string
+	EndpointName                string
+	MonitoringTypeEquals        string
+	StatusEquals                string
+	SortBy                      string // "CreationTime" (default) | "ScheduledTime" | "Status"
+	SortOrder                   string
+	MaxResults                  int32
+}
+
+// matchesMonitoringExecutionFields checks the equality-style filters
+// (schedule/job-definition/endpoint name, type, status).
+func matchesMonitoringExecutionFields(e *MonitoringExecution, f MonitoringExecutionFilter) bool {
+	if f.MonitoringScheduleName != "" && e.MonitoringScheduleName != f.MonitoringScheduleName {
+		return false
+	}
+	if f.MonitoringJobDefinitionName != "" && e.MonitoringJobDefinitionName != f.MonitoringJobDefinitionName {
+		return false
+	}
+	if f.EndpointName != "" && e.EndpointName != f.EndpointName {
+		return false
+	}
+	if f.MonitoringTypeEquals != "" && !strings.EqualFold(e.MonitoringType, f.MonitoringTypeEquals) {
+		return false
+	}
+	if f.StatusEquals != "" && !strings.EqualFold(e.MonitoringExecutionStatus, f.StatusEquals) {
+		return false
+	}
+
+	return true
+}
+
+// matchesMonitoringExecutionWindows checks the CreationTime/LastModifiedTime/
+// ScheduledTime before/after window filters.
+func matchesMonitoringExecutionWindows(e *MonitoringExecution, f MonitoringExecutionFilter) bool {
+	if f.CreationTimeAfter != nil && !e.CreationTime.After(*f.CreationTimeAfter) {
+		return false
+	}
+	if f.CreationTimeBefore != nil && !e.CreationTime.Before(*f.CreationTimeBefore) {
+		return false
+	}
+	if f.LastModifiedTimeAfter != nil && !e.LastModifiedTime.After(*f.LastModifiedTimeAfter) {
+		return false
+	}
+	if f.LastModifiedTimeBefore != nil && !e.LastModifiedTime.Before(*f.LastModifiedTimeBefore) {
+		return false
+	}
+	if f.ScheduledTimeAfter != nil && !e.ScheduledTime.After(*f.ScheduledTimeAfter) {
+		return false
+	}
+	if f.ScheduledTimeBefore != nil && !e.ScheduledTime.Before(*f.ScheduledTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+func matchesMonitoringExecutionFilter(e *MonitoringExecution, f MonitoringExecutionFilter) bool {
+	return matchesMonitoringExecutionFields(e, f) && matchesMonitoringExecutionWindows(e, f)
+}
+
+func compareMonitoringExecutions(a, b *MonitoringExecution, sortBy string) int {
+	switch {
+	case strings.EqualFold(sortBy, "ScheduledTime"):
+		return compareTimes(a.ScheduledTime, b.ScheduledTime)
+	case strings.EqualFold(sortBy, "Status"):
+		return strings.Compare(a.MonitoringExecutionStatus, b.MonitoringExecutionStatus)
+	default:
+		return compareTimes(a.CreationTime, b.CreationTime)
+	}
+}
+
+// ListMonitoringExecutions returns monitoring schedule execution runs. AWS
+// creates these automatically when a schedule's periodic run completes; this
+// emulator has no scheduler driving that, so entries only appear here if
+// seeded (e.g. via the test helper SeedMonitoringExecution).
+func (b *InMemoryBackend) ListMonitoringExecutions(
+	ctx context.Context,
+	nextToken string,
+	f MonitoringExecutionFilter,
+) ([]*MonitoringExecution, string) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListMonitoringExecutions")
+	defer b.mu.RUnlock()
+
+	list := make([]*MonitoringExecution, 0, len(b.monitoringExecutions[region]))
+
+	for _, e := range b.monitoringExecutions[region] {
+		if matchesMonitoringExecutionFilter(e, f) {
+			list = append(list, cloneMonitoringExecution(e))
+		}
+	}
+
+	descending := !strings.EqualFold(f.SortOrder, "Ascending")
+	sort.SliceStable(list, func(i, k int) bool {
+		cmp := compareMonitoringExecutions(list[i], list[k], f.SortBy)
+		if descending {
+			return cmp > 0
+		}
+
+		return cmp < 0
+	})
+
+	return paginateSlice(list, nextToken, f.MaxResults)
 }
 
 // ---------------------------------------------------------------------------

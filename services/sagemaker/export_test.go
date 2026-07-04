@@ -77,3 +77,26 @@ func ModelPackageCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// SeedMonitoringExecution inserts a monitoring execution directly into the
+// backend for test purposes. AWS provides no CreateMonitoringExecution API —
+// executions are produced automatically when a monitoring schedule's
+// periodic run completes, which this emulator does not simulate.
+func SeedMonitoringExecution(b *InMemoryBackend, region string, e *MonitoringExecution) {
+	b.mu.Lock("SeedMonitoringExecution")
+	defer b.mu.Unlock()
+
+	store := b.monitoringExecutionsStore(region)
+	store[e.MonitoringScheduleName+"|"+e.ProcessingJobArn] = e
+}
+
+// SeedMonitoringAlertHistory inserts an alert-history entry directly into the
+// backend for test purposes. AWS provides no API to record an alert-status
+// transition directly — history entries are produced automatically as
+// monitoring executions complete, which this emulator does not simulate.
+func SeedMonitoringAlertHistory(b *InMemoryBackend, region string, e *MonitoringAlertHistoryEntry) {
+	b.mu.Lock("SeedMonitoringAlertHistory")
+	defer b.mu.Unlock()
+
+	b.monitoringAlertHistory[region] = append(b.monitoringAlertHistory[region], e)
+}

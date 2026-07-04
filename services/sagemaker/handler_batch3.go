@@ -4,6 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
+)
+
+const (
+	keyEndpointNameField = "EndpointName"
+	keyTagsField         = "Tags"
 )
 
 // batch3SupportedOperations returns the 50 real stateful operations implemented in batch 3.
@@ -13,18 +19,27 @@ func batch3SupportedOperations() []string {
 		"CreateDataQualityJobDefinition",
 		"DescribeDataQualityJobDefinition",
 		"DeleteDataQualityJobDefinition",
+		"ListDataQualityJobDefinitions",
 		// ModelBias job definitions
 		"CreateModelBiasJobDefinition",
 		"DescribeModelBiasJobDefinition",
 		"DeleteModelBiasJobDefinition",
+		"ListModelBiasJobDefinitions",
 		// ModelQuality job definitions
 		"CreateModelQualityJobDefinition",
 		"DescribeModelQualityJobDefinition",
 		"DeleteModelQualityJobDefinition",
+		"ListModelQualityJobDefinitions",
 		// ModelExplainability job definitions
 		"CreateModelExplainabilityJobDefinition",
 		"DescribeModelExplainabilityJobDefinition",
 		"DeleteModelExplainabilityJobDefinition",
+		"ListModelExplainabilityJobDefinitions",
+		// MonitoringAlert / MonitoringExecution
+		"ListMonitoringAlerts",
+		"ListMonitoringAlertHistory",
+		"UpdateMonitoringAlert",
+		"ListMonitoringExecutions",
 		// HumanTaskUI
 		"CreateHumanTaskUi",
 		"DescribeHumanTaskUi",
@@ -97,6 +112,10 @@ func (h *Handler) dispatchBatch3Ops(
 		return r, true, err
 	case "DeleteDataQualityJobDefinition":
 		return nil, true, h.handleDeleteDataQualityJobDefinition(ctx, body)
+	case "ListDataQualityJobDefinitions":
+		r, err := h.handleListDataQualityJobDefinitions(ctx, body)
+
+		return r, true, err
 
 	// ModelBiasJobDefinition
 	case "CreateModelBiasJobDefinition":
@@ -109,6 +128,10 @@ func (h *Handler) dispatchBatch3Ops(
 		return r, true, err
 	case "DeleteModelBiasJobDefinition":
 		return nil, true, h.handleDeleteModelBiasJobDefinition(ctx, body)
+	case "ListModelBiasJobDefinitions":
+		r, err := h.handleListModelBiasJobDefinitions(ctx, body)
+
+		return r, true, err
 
 	// ModelQualityJobDefinition
 	case "CreateModelQualityJobDefinition":
@@ -121,6 +144,10 @@ func (h *Handler) dispatchBatch3Ops(
 		return r, true, err
 	case "DeleteModelQualityJobDefinition":
 		return nil, true, h.handleDeleteModelQualityJobDefinition(ctx, body)
+	case "ListModelQualityJobDefinitions":
+		r, err := h.handleListModelQualityJobDefinitions(ctx, body)
+
+		return r, true, err
 
 	// ModelExplainabilityJobDefinition
 	case "CreateModelExplainabilityJobDefinition":
@@ -133,6 +160,28 @@ func (h *Handler) dispatchBatch3Ops(
 		return r, true, err
 	case "DeleteModelExplainabilityJobDefinition":
 		return nil, true, h.handleDeleteModelExplainabilityJobDefinition(ctx, body)
+	case "ListModelExplainabilityJobDefinitions":
+		r, err := h.handleListModelExplainabilityJobDefinitions(ctx, body)
+
+		return r, true, err
+
+	// MonitoringAlert / MonitoringExecution
+	case "ListMonitoringAlerts":
+		r, err := h.handleListMonitoringAlerts(ctx, body)
+
+		return r, true, err
+	case "ListMonitoringAlertHistory":
+		r, err := h.handleListMonitoringAlertHistory(ctx, body)
+
+		return r, true, err
+	case "UpdateMonitoringAlert":
+		r, err := h.handleUpdateMonitoringAlert(ctx, body)
+
+		return r, true, err
+	case "ListMonitoringExecutions":
+		r, err := h.handleListMonitoringExecutions(ctx, body)
+
+		return r, true, err
 
 	// HumanTaskUI
 	case "CreateHumanTaskUi":
@@ -287,29 +336,210 @@ func (h *Handler) dispatchBatch3Ops(
 }
 
 // ---------------------------------------------------------------------------
+// Shared JobDefinition request/response helpers
+//
+// The four Model Monitor job definition types (DataQuality, ModelBias,
+// ModelQuality, ModelExplainability) all share the same wire shape modulo
+// which field names carry their AppSpecification/JobInput/JobOutputConfig —
+// e.g. "DataQualityJobInput" vs "ModelBiasJobInput". NOTE: despite the
+// per-type request field names AWS uses elsewhere in these APIs, the actual
+// name/identifier field on Create/Describe/Delete is always the bare
+// "JobDefinitionName" (confirmed against aws-sdk-go-v2's sagemaker
+// serializers), not e.g. "DataQualityJobDefinitionName".
+// ---------------------------------------------------------------------------
+
+// jobDefRequest is the parsed representation of a Create*JobDefinition
+// request body: JobDefinitionName/RoleArn/Tags are extracted for validation
+// and storage; everything else (the differently-named AppSpecification/
+// JobInput/JobOutputConfig blocks plus the shared JobResources/NetworkConfig/
+// StoppingCondition/BaselineConfig) is kept verbatim in Config.
+type jobDefRequest struct {
+	Config            map[string]json.RawMessage
+	Tags              map[string]string
+	JobDefinitionName string
+	RoleArn           string
+	EndpointName      string
+}
+
+// parseJobDefRequest decodes a Create*JobDefinition body. jobInputKey is the
+// wire field name of the type's JobInput block (e.g. "DataQualityJobInput"),
+// used to derive EndpointName for List filtering/summaries.
+func parseJobDefRequest(body []byte, jobInputKey string) (jobDefRequest, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	req := jobDefRequest{Config: make(map[string]json.RawMessage, len(raw))}
+
+	for k, v := range raw {
+		switch k {
+		case keyJobDefinitionName:
+			if err := json.Unmarshal(v, &req.JobDefinitionName); err != nil {
+				return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
+			}
+		case "RoleArn":
+			if err := json.Unmarshal(v, &req.RoleArn); err != nil {
+				return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
+			}
+		case keyTagsField:
+			if err := json.Unmarshal(v, &req.Tags); err != nil {
+				return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
+			}
+		default:
+			req.Config[k] = v
+		}
+	}
+
+	if req.JobDefinitionName == "" {
+		return jobDefRequest{}, fmt.Errorf("%w: JobDefinitionName is required", errInvalidRequest)
+	}
+
+	if jobInput, ok := req.Config[jobInputKey]; ok {
+		req.EndpointName = extractEndpointName(jobInput)
+	}
+
+	return req, nil
+}
+
+// extractEndpointName pulls EndpointInput.EndpointName out of a job input
+// block (DataQualityJobInput / ModelBiasJobInput / ModelQualityJobInput /
+// ModelExplainabilityJobInput all share this shape).
+func extractEndpointName(jobInput json.RawMessage) string {
+	var in struct {
+		EndpointInput *struct {
+			EndpointName string `json:"EndpointName"`
+		} `json:"EndpointInput"`
+	}
+
+	if err := json.Unmarshal(jobInput, &in); err != nil || in.EndpointInput == nil {
+		return ""
+	}
+
+	return in.EndpointInput.EndpointName
+}
+
+// parseJobDefinitionName decodes the {"JobDefinitionName": "..."} body shared
+// by Describe*JobDefinition and Delete*JobDefinition.
+func parseJobDefinitionName(body []byte) (string, error) {
+	var req struct {
+		JobDefinitionName string `json:"JobDefinitionName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.JobDefinitionName == "" {
+		return "", fmt.Errorf("%w: JobDefinitionName is required", errInvalidRequest)
+	}
+
+	return req.JobDefinitionName, nil
+}
+
+// jobDefResponseCommonFieldCount is the number of fields buildJobDefinitionResponse
+// adds on top of the type-specific Config blocks (JobDefinitionName, JobDefinitionArn,
+// RoleArn, CreationTime).
+const jobDefResponseCommonFieldCount = 4
+
+// buildJobDefinitionResponse renders a Describe*JobDefinition response: the
+// type-specific Config blocks verbatim, plus the fields common to all four
+// types. Real AWS Describe*JobDefinition outputs do not include Tags.
+func buildJobDefinitionResponse(j *JobDefinition) map[string]any {
+	resp := make(map[string]any, len(j.Config)+jobDefResponseCommonFieldCount)
+	for k, v := range j.Config {
+		resp[k] = v
+	}
+
+	resp[keyJobDefinitionName] = j.JobDefinitionName
+	resp[keyJobDefinitionArn] = j.JobDefinitionArn
+	resp["RoleArn"] = j.RoleArn
+	resp[keyCreationTime] = epochSeconds(j.CreationTime)
+
+	return resp
+}
+
+// jobDefListRequest is the parsed representation of a List*JobDefinitions
+// request body, shared by all four job definition types.
+type jobDefListRequest struct {
+	NextToken string
+	Filter    JobDefinitionFilter
+}
+
+func parseJobDefinitionListRequest(body []byte) (jobDefListRequest, error) {
+	var req struct {
+		CreationTimeAfter  *float64 `json:"CreationTimeAfter,omitempty"`
+		CreationTimeBefore *float64 `json:"CreationTimeBefore,omitempty"`
+		EndpointName       string   `json:"EndpointName,omitempty"`
+		NameContains       string   `json:"NameContains,omitempty"`
+		NextToken          string   `json:"NextToken,omitempty"`
+		SortBy             string   `json:"SortBy,omitempty"`
+		SortOrder          string   `json:"SortOrder,omitempty"`
+		MaxResults         int32    `json:"MaxResults,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return jobDefListRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return jobDefListRequest{
+		NextToken: req.NextToken,
+		Filter: JobDefinitionFilter{
+			CreationTimeAfter:  epochPtr(req.CreationTimeAfter),
+			CreationTimeBefore: epochPtr(req.CreationTimeBefore),
+			EndpointName:       req.EndpointName,
+			NameContains:       req.NameContains,
+			SortBy:             req.SortBy,
+			SortOrder:          req.SortOrder,
+			MaxResults:         req.MaxResults,
+		},
+	}, nil
+}
+
+// buildJobDefinitionListResponse renders a List*JobDefinitions response.
+func buildJobDefinitionListResponse(items []*JobDefinition, next string) map[string]any {
+	summaries := make([]map[string]any, 0, len(items))
+	for _, j := range items {
+		summaries = append(summaries, map[string]any{
+			"MonitoringJobDefinitionName": j.JobDefinitionName,
+			"MonitoringJobDefinitionArn":  j.JobDefinitionArn,
+			keyEndpointNameField:          j.EndpointName,
+			keyCreationTime:               epochSeconds(j.CreationTime),
+		})
+	}
+
+	resp := map[string]any{"JobDefinitionSummaries": summaries}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return resp
+}
+
+// epochPtr converts an optional epoch-seconds JSON number into a *time.Time,
+// as required by filters like CreationTimeAfter/CreationTimeBefore.
+func epochPtr(f *float64) *time.Time {
+	if f == nil {
+		return nil
+	}
+
+	t := time.Unix(int64(*f), 0)
+
+	return &t
+}
+
+// ---------------------------------------------------------------------------
 // DataQualityJobDefinition handlers
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateDataQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		Tags                         map[string]string `json:"Tags"`
-		DataQualityJobDefinitionName string            `json:"DataQualityJobDefinitionName"`
-		RoleArn                      string            `json:"RoleArn"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.DataQualityJobDefinitionName == "" {
-		return nil, fmt.Errorf("%w: DataQualityJobDefinitionName is required", errInvalidRequest)
+	req, err := parseJobDefRequest(body, "DataQualityJobInput")
+	if err != nil {
+		return nil, err
 	}
 
 	result, err := h.Backend.CreateDataQualityJobDefinition(
-		ctx,
-		req.DataQualityJobDefinitionName,
-		req.RoleArn,
-		req.Tags,
+		ctx, req.JobDefinitionName, req.RoleArn, req.EndpointName, req.Config, req.Tags,
 	)
 	if err != nil {
 		return nil, err
@@ -319,40 +549,37 @@ func (h *Handler) handleCreateDataQualityJobDefinition(ctx context.Context, body
 }
 
 func (h *Handler) handleDescribeDataQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		DataQualityJobDefinitionName string `json:"DataQualityJobDefinitionName"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.DataQualityJobDefinitionName == "" {
-		return nil, fmt.Errorf("%w: DataQualityJobDefinitionName is required", errInvalidRequest)
-	}
-
-	result, err := h.Backend.DescribeDataQualityJobDefinition(ctx, req.DataQualityJobDefinitionName)
+	name, err := parseJobDefinitionName(body)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	result, err := h.Backend.DescribeDataQualityJobDefinition(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(buildJobDefinitionResponse(result))
 }
 
 func (h *Handler) handleDeleteDataQualityJobDefinition(ctx context.Context, body []byte) error {
-	var req struct {
-		DataQualityJobDefinitionName string `json:"DataQualityJobDefinitionName"`
+	name, err := parseJobDefinitionName(body)
+	if err != nil {
+		return err
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	return h.Backend.DeleteDataQualityJobDefinition(ctx, name)
+}
+
+func (h *Handler) handleListDataQualityJobDefinitions(ctx context.Context, body []byte) ([]byte, error) {
+	req, err := parseJobDefinitionListRequest(body)
+	if err != nil {
+		return nil, err
 	}
 
-	if req.DataQualityJobDefinitionName == "" {
-		return fmt.Errorf("%w: DataQualityJobDefinitionName is required", errInvalidRequest)
-	}
+	items, next := h.Backend.ListDataQualityJobDefinitions(ctx, req.NextToken, req.Filter)
 
-	return h.Backend.DeleteDataQualityJobDefinition(ctx, req.DataQualityJobDefinitionName)
+	return json.Marshal(buildJobDefinitionListResponse(items, next))
 }
 
 // ---------------------------------------------------------------------------
@@ -360,21 +587,14 @@ func (h *Handler) handleDeleteDataQualityJobDefinition(ctx context.Context, body
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateModelBiasJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		Tags                       map[string]string `json:"Tags"`
-		ModelBiasJobDefinitionName string            `json:"ModelBiasJobDefinitionName"`
-		RoleArn                    string            `json:"RoleArn"`
+	req, err := parseJobDefRequest(body, "ModelBiasJobInput")
+	if err != nil {
+		return nil, err
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.ModelBiasJobDefinitionName == "" {
-		return nil, fmt.Errorf("%w: ModelBiasJobDefinitionName is required", errInvalidRequest)
-	}
-
-	result, err := h.Backend.CreateModelBiasJobDefinition(ctx, req.ModelBiasJobDefinitionName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateModelBiasJobDefinition(
+		ctx, req.JobDefinitionName, req.RoleArn, req.EndpointName, req.Config, req.Tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -383,40 +603,37 @@ func (h *Handler) handleCreateModelBiasJobDefinition(ctx context.Context, body [
 }
 
 func (h *Handler) handleDescribeModelBiasJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ModelBiasJobDefinitionName string `json:"ModelBiasJobDefinitionName"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.ModelBiasJobDefinitionName == "" {
-		return nil, fmt.Errorf("%w: ModelBiasJobDefinitionName is required", errInvalidRequest)
-	}
-
-	result, err := h.Backend.DescribeModelBiasJobDefinition(ctx, req.ModelBiasJobDefinitionName)
+	name, err := parseJobDefinitionName(body)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	result, err := h.Backend.DescribeModelBiasJobDefinition(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(buildJobDefinitionResponse(result))
 }
 
 func (h *Handler) handleDeleteModelBiasJobDefinition(ctx context.Context, body []byte) error {
-	var req struct {
-		ModelBiasJobDefinitionName string `json:"ModelBiasJobDefinitionName"`
+	name, err := parseJobDefinitionName(body)
+	if err != nil {
+		return err
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	return h.Backend.DeleteModelBiasJobDefinition(ctx, name)
+}
+
+func (h *Handler) handleListModelBiasJobDefinitions(ctx context.Context, body []byte) ([]byte, error) {
+	req, err := parseJobDefinitionListRequest(body)
+	if err != nil {
+		return nil, err
 	}
 
-	if req.ModelBiasJobDefinitionName == "" {
-		return fmt.Errorf("%w: ModelBiasJobDefinitionName is required", errInvalidRequest)
-	}
+	items, next := h.Backend.ListModelBiasJobDefinitions(ctx, req.NextToken, req.Filter)
 
-	return h.Backend.DeleteModelBiasJobDefinition(ctx, req.ModelBiasJobDefinitionName)
+	return json.Marshal(buildJobDefinitionListResponse(items, next))
 }
 
 // ---------------------------------------------------------------------------
@@ -424,22 +641,13 @@ func (h *Handler) handleDeleteModelBiasJobDefinition(ctx context.Context, body [
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateModelQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		Tags                          map[string]string `json:"Tags"`
-		ModelQualityJobDefinitionName string            `json:"ModelQualityJobDefinitionName"`
-		RoleArn                       string            `json:"RoleArn"`
+	req, err := parseJobDefRequest(body, "ModelQualityJobInput")
+	if err != nil {
+		return nil, err
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.ModelQualityJobDefinitionName == "" {
-		return nil, fmt.Errorf("%w: ModelQualityJobDefinitionName is required", errInvalidRequest)
-	}
-
-	result, err := h.Backend.CreateModelQualityJobDefinition(ctx,
-		req.ModelQualityJobDefinitionName, req.RoleArn, req.Tags,
+	result, err := h.Backend.CreateModelQualityJobDefinition(
+		ctx, req.JobDefinitionName, req.RoleArn, req.EndpointName, req.Config, req.Tags,
 	)
 	if err != nil {
 		return nil, err
@@ -449,40 +657,37 @@ func (h *Handler) handleCreateModelQualityJobDefinition(ctx context.Context, bod
 }
 
 func (h *Handler) handleDescribeModelQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ModelQualityJobDefinitionName string `json:"ModelQualityJobDefinitionName"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.ModelQualityJobDefinitionName == "" {
-		return nil, fmt.Errorf("%w: ModelQualityJobDefinitionName is required", errInvalidRequest)
-	}
-
-	result, err := h.Backend.DescribeModelQualityJobDefinition(ctx, req.ModelQualityJobDefinitionName)
+	name, err := parseJobDefinitionName(body)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	result, err := h.Backend.DescribeModelQualityJobDefinition(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(buildJobDefinitionResponse(result))
 }
 
 func (h *Handler) handleDeleteModelQualityJobDefinition(ctx context.Context, body []byte) error {
-	var req struct {
-		ModelQualityJobDefinitionName string `json:"ModelQualityJobDefinitionName"`
+	name, err := parseJobDefinitionName(body)
+	if err != nil {
+		return err
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	return h.Backend.DeleteModelQualityJobDefinition(ctx, name)
+}
+
+func (h *Handler) handleListModelQualityJobDefinitions(ctx context.Context, body []byte) ([]byte, error) {
+	req, err := parseJobDefinitionListRequest(body)
+	if err != nil {
+		return nil, err
 	}
 
-	if req.ModelQualityJobDefinitionName == "" {
-		return fmt.Errorf("%w: ModelQualityJobDefinitionName is required", errInvalidRequest)
-	}
+	items, next := h.Backend.ListModelQualityJobDefinitions(ctx, req.NextToken, req.Filter)
 
-	return h.Backend.DeleteModelQualityJobDefinition(ctx, req.ModelQualityJobDefinitionName)
+	return json.Marshal(buildJobDefinitionListResponse(items, next))
 }
 
 // ---------------------------------------------------------------------------
@@ -490,22 +695,13 @@ func (h *Handler) handleDeleteModelQualityJobDefinition(ctx context.Context, bod
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateModelExplainabilityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		Tags                                 map[string]string `json:"Tags"`
-		ModelExplainabilityJobDefinitionName string            `json:"ModelExplainabilityJobDefinitionName"`
-		RoleArn                              string            `json:"RoleArn"`
+	req, err := parseJobDefRequest(body, "ModelExplainabilityJobInput")
+	if err != nil {
+		return nil, err
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.ModelExplainabilityJobDefinitionName == "" {
-		return nil, fmt.Errorf("%w: ModelExplainabilityJobDefinitionName is required", errInvalidRequest)
-	}
-
-	result, err := h.Backend.CreateModelExplainabilityJobDefinition(ctx,
-		req.ModelExplainabilityJobDefinitionName, req.RoleArn, req.Tags,
+	result, err := h.Backend.CreateModelExplainabilityJobDefinition(
+		ctx, req.JobDefinitionName, req.RoleArn, req.EndpointName, req.Config, req.Tags,
 	)
 	if err != nil {
 		return nil, err
@@ -515,40 +711,258 @@ func (h *Handler) handleCreateModelExplainabilityJobDefinition(ctx context.Conte
 }
 
 func (h *Handler) handleDescribeModelExplainabilityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
+	name, err := parseJobDefinitionName(body)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.Backend.DescribeModelExplainabilityJobDefinition(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(buildJobDefinitionResponse(result))
+}
+
+func (h *Handler) handleDeleteModelExplainabilityJobDefinition(ctx context.Context, body []byte) error {
+	name, err := parseJobDefinitionName(body)
+	if err != nil {
+		return err
+	}
+
+	return h.Backend.DeleteModelExplainabilityJobDefinition(ctx, name)
+}
+
+func (h *Handler) handleListModelExplainabilityJobDefinitions(ctx context.Context, body []byte) ([]byte, error) {
+	req, err := parseJobDefinitionListRequest(body)
+	if err != nil {
+		return nil, err
+	}
+
+	items, next := h.Backend.ListModelExplainabilityJobDefinitions(ctx, req.NextToken, req.Filter)
+
+	return json.Marshal(buildJobDefinitionListResponse(items, next))
+}
+
+// ---------------------------------------------------------------------------
+// MonitoringAlert / MonitoringExecution handlers
+// ---------------------------------------------------------------------------
+
+func (h *Handler) handleUpdateMonitoringAlert(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ModelExplainabilityJobDefinitionName string `json:"ModelExplainabilityJobDefinitionName"`
+		MonitoringScheduleName string `json:"MonitoringScheduleName"`
+		MonitoringAlertName    string `json:"MonitoringAlertName"`
+		DatapointsToAlert      int32  `json:"DatapointsToAlert"`
+		EvaluationPeriod       int32  `json:"EvaluationPeriod"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ModelExplainabilityJobDefinitionName == "" {
-		return nil, fmt.Errorf("%w: ModelExplainabilityJobDefinitionName is required", errInvalidRequest)
+	if req.MonitoringScheduleName == "" {
+		return nil, fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeModelExplainabilityJobDefinition(ctx, req.ModelExplainabilityJobDefinitionName)
+	if req.MonitoringAlertName == "" {
+		return nil, fmt.Errorf("%w: MonitoringAlertName is required", errInvalidRequest)
+	}
+
+	alert, scheduleArn, err := h.Backend.UpdateMonitoringAlert(
+		ctx, req.MonitoringScheduleName, req.MonitoringAlertName, req.DatapointsToAlert, req.EvaluationPeriod,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(map[string]any{
+		keyMonitoringScheduleArn: scheduleArn,
+		keyMonitoringAlertName:   alert.MonitoringAlertName,
+	})
 }
 
-func (h *Handler) handleDeleteModelExplainabilityJobDefinition(ctx context.Context, body []byte) error {
+func (h *Handler) handleListMonitoringAlerts(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ModelExplainabilityJobDefinitionName string `json:"ModelExplainabilityJobDefinitionName"`
+		MonitoringScheduleName string `json:"MonitoringScheduleName"`
+		NextToken              string `json:"NextToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ModelExplainabilityJobDefinitionName == "" {
-		return fmt.Errorf("%w: ModelExplainabilityJobDefinitionName is required", errInvalidRequest)
+	if req.MonitoringScheduleName == "" {
+		return nil, fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteModelExplainabilityJobDefinition(ctx, req.ModelExplainabilityJobDefinitionName)
+	items, next, err := h.Backend.ListMonitoringAlerts(ctx, req.MonitoringScheduleName, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]map[string]any, 0, len(items))
+	for _, a := range items {
+		summaries = append(summaries, map[string]any{
+			keyMonitoringAlertName: a.MonitoringAlertName,
+			"AlertStatus":          a.AlertStatus,
+			"DatapointsToAlert":    a.DatapointsToAlert,
+			"EvaluationPeriod":     a.EvaluationPeriod,
+			keyCreationTime:        epochSeconds(a.CreationTime),
+			keyLastModifiedTime:    epochSeconds(a.LastModifiedTime),
+			"Actions": map[string]any{
+				"ModelDashboardIndicator": map[string]any{"Enabled": a.DashboardIndicatorEnabled},
+			},
+		})
+	}
+
+	resp := map[string]any{"MonitoringAlertSummaries": summaries}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return json.Marshal(resp)
+}
+
+func (h *Handler) handleListMonitoringAlertHistory(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		CreationTimeAfter      *float64 `json:"CreationTimeAfter,omitempty"`
+		CreationTimeBefore     *float64 `json:"CreationTimeBefore,omitempty"`
+		MonitoringScheduleName string   `json:"MonitoringScheduleName,omitempty"`
+		MonitoringAlertName    string   `json:"MonitoringAlertName,omitempty"`
+		StatusEquals           string   `json:"StatusEquals,omitempty"`
+		SortOrder              string   `json:"SortOrder,omitempty"`
+		NextToken              string   `json:"NextToken,omitempty"`
+		MaxResults             int32    `json:"MaxResults,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	f := MonitoringAlertHistoryFilter{
+		CreationTimeAfter:      epochPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     epochPtr(req.CreationTimeBefore),
+		MonitoringScheduleName: req.MonitoringScheduleName,
+		MonitoringAlertName:    req.MonitoringAlertName,
+		StatusEquals:           req.StatusEquals,
+		SortOrder:              req.SortOrder,
+		MaxResults:             req.MaxResults,
+	}
+
+	items, next := h.Backend.ListMonitoringAlertHistory(ctx, req.NextToken, f)
+
+	summaries := make([]map[string]any, 0, len(items))
+	for _, e := range items {
+		summaries = append(summaries, map[string]any{
+			keyMonitoringScheduleName: e.MonitoringScheduleName,
+			keyMonitoringAlertName:    e.MonitoringAlertName,
+			"AlertStatus":             e.AlertStatus,
+			keyCreationTime:           epochSeconds(e.CreationTime),
+		})
+	}
+
+	resp := map[string]any{"MonitoringAlertHistory": summaries}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return json.Marshal(resp)
+}
+
+// listMonitoringExecutionsRequest is the parsed representation of a
+// ListMonitoringExecutions request body.
+type listMonitoringExecutionsRequest struct {
+	CreationTimeAfter           *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore          *float64 `json:"CreationTimeBefore,omitempty"`
+	LastModifiedTimeAfter       *float64 `json:"LastModifiedTimeAfter,omitempty"`
+	LastModifiedTimeBefore      *float64 `json:"LastModifiedTimeBefore,omitempty"`
+	ScheduledTimeAfter          *float64 `json:"ScheduledTimeAfter,omitempty"`
+	ScheduledTimeBefore         *float64 `json:"ScheduledTimeBefore,omitempty"`
+	EndpointName                string   `json:"EndpointName,omitempty"`
+	MonitoringJobDefinitionName string   `json:"MonitoringJobDefinitionName,omitempty"`
+	MonitoringScheduleName      string   `json:"MonitoringScheduleName,omitempty"`
+	MonitoringTypeEquals        string   `json:"MonitoringTypeEquals,omitempty"`
+	StatusEquals                string   `json:"StatusEquals,omitempty"`
+	SortBy                      string   `json:"SortBy,omitempty"`
+	SortOrder                   string   `json:"SortOrder,omitempty"`
+	NextToken                   string   `json:"NextToken,omitempty"`
+	MaxResults                  int32    `json:"MaxResults,omitempty"`
+}
+
+func (r listMonitoringExecutionsRequest) toFilter() MonitoringExecutionFilter {
+	return MonitoringExecutionFilter{
+		CreationTimeAfter:           epochPtr(r.CreationTimeAfter),
+		CreationTimeBefore:          epochPtr(r.CreationTimeBefore),
+		LastModifiedTimeAfter:       epochPtr(r.LastModifiedTimeAfter),
+		LastModifiedTimeBefore:      epochPtr(r.LastModifiedTimeBefore),
+		ScheduledTimeAfter:          epochPtr(r.ScheduledTimeAfter),
+		ScheduledTimeBefore:         epochPtr(r.ScheduledTimeBefore),
+		EndpointName:                r.EndpointName,
+		MonitoringJobDefinitionName: r.MonitoringJobDefinitionName,
+		MonitoringScheduleName:      r.MonitoringScheduleName,
+		MonitoringTypeEquals:        r.MonitoringTypeEquals,
+		StatusEquals:                r.StatusEquals,
+		SortBy:                      r.SortBy,
+		SortOrder:                   r.SortOrder,
+		MaxResults:                  r.MaxResults,
+	}
+}
+
+func (h *Handler) handleListMonitoringExecutions(ctx context.Context, body []byte) ([]byte, error) {
+	var req listMonitoringExecutionsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	items, next := h.Backend.ListMonitoringExecutions(ctx, req.NextToken, req.toFilter())
+
+	return json.Marshal(buildMonitoringExecutionListResponse(items, next))
+}
+
+func buildMonitoringExecutionListResponse(items []*MonitoringExecution, next string) map[string]any {
+	summaries := make([]map[string]any, 0, len(items))
+	for _, e := range items {
+		summaries = append(summaries, buildMonitoringExecutionSummary(e))
+	}
+
+	resp := map[string]any{"MonitoringExecutionSummaries": summaries}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return resp
+}
+
+func buildMonitoringExecutionSummary(e *MonitoringExecution) map[string]any {
+	s := map[string]any{
+		keyMonitoringScheduleName:   e.MonitoringScheduleName,
+		"MonitoringExecutionStatus": e.MonitoringExecutionStatus,
+		keyCreationTime:             epochSeconds(e.CreationTime),
+		keyLastModifiedTime:         epochSeconds(e.LastModifiedTime),
+		"ScheduledTime":             epochSeconds(e.ScheduledTime),
+	}
+
+	if e.EndpointName != "" {
+		s[keyEndpointNameField] = e.EndpointName
+	}
+
+	if e.MonitoringJobDefinitionName != "" {
+		s["MonitoringJobDefinitionName"] = e.MonitoringJobDefinitionName
+	}
+
+	if e.MonitoringType != "" {
+		s["MonitoringType"] = e.MonitoringType
+	}
+
+	if e.ProcessingJobArn != "" {
+		s["ProcessingJobArn"] = e.ProcessingJobArn
+	}
+
+	if e.FailureReason != "" {
+		s["FailureReason"] = e.FailureReason
+	}
+
+	return s
 }
 
 // ---------------------------------------------------------------------------

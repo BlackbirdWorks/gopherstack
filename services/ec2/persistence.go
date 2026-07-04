@@ -130,6 +130,11 @@ type backendSnapshot struct {
 	NetworkInsightsAccessScopeAnalyses map[string]*NetworkInsightsAccessScopeAnalysis  `json:"niasa"`
 	ReservedInstances                  map[string]*ReservedInstance                    `json:"reservedInstances"`
 	ReservedInstancesOfferings         map[string]*ReservedInstancesOffering           `json:"reservedInstancesOfferings"`
+	RouteServers                       map[string]*RouteServer                         `json:"routeServers,omitempty"`
+	RouteServerEndpoints               map[string]*RouteServerEndpoint                 `json:"rsEndpoints,omitempty"`
+	RouteServerPeers                   map[string]*RouteServerPeer                     `json:"routeServerPeers,omitempty"`
+	RouteServerAssociations            map[string]*RouteServerAssociation              `json:"rsAssociations,omitempty"`
+	RouteServerPropagations            map[string]*RouteServerPropagation              `json:"rsPropagations,omitempty"`
 	Region                             string                                          `json:"region,omitempty"`
 	AccountID                          string                                          `json:"accountID,omitempty"`
 	FreePrivateIPs                     []string                                        `json:"freePrivateIPs"`
@@ -267,6 +272,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ReservedInstancesOfferings:         b.reservedInstancesOfferings,
 		ReservedInstancesListings:          b.reservedInstancesListings,
 		ReservedInstancesModifications:     b.reservedInstancesModifications,
+		RouteServers:                       b.routeServers,
+		RouteServerEndpoints:               b.routeServerEndpoints,
+		RouteServerPeers:                   b.routeServerPeers,
+		RouteServerAssociations:            b.routeServerAssociations,
+		RouteServerPropagations:            b.routeServerPropagations,
 	}
 
 	data, err := json.Marshal(snap)
@@ -617,8 +627,39 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	} else {
 		b.reservedInstancesModifications = make(map[string]*ReservedInstancesModification)
 	}
+	b.restoreRouteServerFields(&snap)
 
 	return nil
+}
+
+// restoreRouteServerFields copies the Route Server state maps from snap into
+// b. Split out to keep Restore's growth in check. Must be called with b.mu held.
+func (b *InMemoryBackend) restoreRouteServerFields(snap *backendSnapshot) {
+	if snap.RouteServers != nil {
+		b.routeServers = snap.RouteServers
+	} else {
+		b.routeServers = make(map[string]*RouteServer)
+	}
+	if snap.RouteServerEndpoints != nil {
+		b.routeServerEndpoints = snap.RouteServerEndpoints
+	} else {
+		b.routeServerEndpoints = make(map[string]*RouteServerEndpoint)
+	}
+	if snap.RouteServerPeers != nil {
+		b.routeServerPeers = snap.RouteServerPeers
+	} else {
+		b.routeServerPeers = make(map[string]*RouteServerPeer)
+	}
+	if snap.RouteServerAssociations != nil {
+		b.routeServerAssociations = snap.RouteServerAssociations
+	} else {
+		b.routeServerAssociations = make(map[string]*RouteServerAssociation)
+	}
+	if snap.RouteServerPropagations != nil {
+		b.routeServerPropagations = snap.RouteServerPropagations
+	} else {
+		b.routeServerPropagations = make(map[string]*RouteServerPropagation)
+	}
 }
 
 // restoreCoreFields copies the core map/bool/scalar fields from snap into b.

@@ -1126,4 +1126,37 @@ type Backend interface {
 		targetCount int,
 	) (*ReservedInstancesModification, error)
 	DeleteQueuedReservedInstances(ids []string)
+
+	// ---- Route Server ----
+	CreateRouteServer(
+		amazonSideAsn int64,
+		persistRoutesState string,
+		persistRoutesDuration int64,
+		snsNotificationsEnabled bool,
+	) (*RouteServer, error)
+	DescribeRouteServers(ids []string) []*RouteServer
+	DeleteRouteServer(id string) (*RouteServer, error)
+	ModifyRouteServer(
+		id string,
+		persistRoutesState string,
+		persistRoutesDuration int64,
+		snsNotificationsEnabled bool,
+	) (*RouteServer, error)
+	CreateRouteServerEndpoint(routeServerID, subnetID string) (*RouteServerEndpoint, error)
+	DescribeRouteServerEndpoints(ids []string) []*RouteServerEndpoint
+	DeleteRouteServerEndpoint(id string) (*RouteServerEndpoint, error)
+	CreateRouteServerPeer(
+		endpointID, peerAddress string,
+		bgpPeerAsn int64,
+		livenessDetection string,
+	) (*RouteServerPeer, error)
+	DescribeRouteServerPeers(ids []string) []*RouteServerPeer
+	DeleteRouteServerPeer(id string) (*RouteServerPeer, error)
+	AssociateRouteServer(routeServerID, vpcID string) (*RouteServerAssociation, error)
+	DisassociateRouteServer(routeServerID, vpcID string) (*RouteServerAssociation, error)
+	GetRouteServerAssociations(routeServerID string) []*RouteServerAssociation
+	EnableRouteServerPropagation(routeServerID, routeTableID string) (*RouteServerPropagation, error)
+	DisableRouteServerPropagation(routeServerID, routeTableID string) (*RouteServerPropagation, error)
+	GetRouteServerPropagations(routeServerID string) []*RouteServerPropagation
+	GetRouteServerRoutingDatabase(routeServerID string) ([]*RouteServerRoute, error)
 }

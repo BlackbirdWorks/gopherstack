@@ -450,35 +450,41 @@ func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 // are created lazily via the *Store helpers. Callers must hold b.mu while
 // accessing the inner maps.
 type InMemoryBackend struct {
-	models                       map[string]map[string]*Model
-	endpointConfigs              map[string]map[string]*EndpointConfig
-	endpoints                    map[string]map[string]*Endpoint
-	trainingJobs                 map[string]map[string]*TrainingJob
-	notebooks                    map[string]map[string]*NotebookInstance
-	hpTuningJobs                 map[string]map[string]*HyperParameterTuningJob
-	associations                 map[string]map[string]*Association
-	trialComponentAssociations   map[string]map[string]*TrialComponentAssociation
-	actions                      map[string]map[string]*Action
-	artifacts                    map[string]map[string]*Artifact // region -> ArtifactArn -> Artifact
-	contexts                     map[string]map[string]*Context  // region -> ContextName -> Context
-	algorithms                   map[string]map[string]*Algorithm
-	clusters                     map[string]map[string]*Cluster
-	modelPackages                map[string]map[string]*ModelPackage
-	modelPackageGroups           map[string]map[string]*ModelPackageGroup
-	autoMLJobs                   map[string]map[string]*AutoMLJob
-	codeRepositories             map[string]map[string]*CodeRepository
-	projects                     map[string]map[string]*Project
-	spaces                       map[string]map[string]*Space
-	smImages                     map[string]map[string]*SMImage
-	imageVersions                map[string]map[string]map[int]*ImageVersion // region → imageName → version → ImageVersion
-	imageVersionCounts           map[string]map[string]int                   // region → imageName → latest version number
-	compilationJobs              map[string]map[string]*CompilationJob
-	monitoringSchedules          map[string]map[string]*MonitoringSchedule
-	workteams                    map[string]map[string]*Workteam
-	dataQualityJobDefs           map[string]map[string]*JobDefinition
-	modelBiasJobDefs             map[string]map[string]*JobDefinition
-	modelQualityJobDefs          map[string]map[string]*JobDefinition
-	modelExplainJobDefs          map[string]map[string]*JobDefinition
+	models                     map[string]map[string]*Model
+	endpointConfigs            map[string]map[string]*EndpointConfig
+	endpoints                  map[string]map[string]*Endpoint
+	trainingJobs               map[string]map[string]*TrainingJob
+	notebooks                  map[string]map[string]*NotebookInstance
+	hpTuningJobs               map[string]map[string]*HyperParameterTuningJob
+	associations               map[string]map[string]*Association
+	trialComponentAssociations map[string]map[string]*TrialComponentAssociation
+	actions                    map[string]map[string]*Action
+	artifacts                  map[string]map[string]*Artifact // region -> ArtifactArn -> Artifact
+	contexts                   map[string]map[string]*Context  // region -> ContextName -> Context
+	algorithms                 map[string]map[string]*Algorithm
+	clusters                   map[string]map[string]*Cluster
+	modelPackages              map[string]map[string]*ModelPackage
+	modelPackageGroups         map[string]map[string]*ModelPackageGroup
+	autoMLJobs                 map[string]map[string]*AutoMLJob
+	codeRepositories           map[string]map[string]*CodeRepository
+	projects                   map[string]map[string]*Project
+	spaces                     map[string]map[string]*Space
+	smImages                   map[string]map[string]*SMImage
+	imageVersions              map[string]map[string]map[int]*ImageVersion // region → imageName → version → ImageVersion
+	imageVersionCounts         map[string]map[string]int                   // region → imageName → latest version number
+	compilationJobs            map[string]map[string]*CompilationJob
+	monitoringSchedules        map[string]map[string]*MonitoringSchedule
+	workteams                  map[string]map[string]*Workteam
+	dataQualityJobDefs         map[string]map[string]*JobDefinition
+	modelBiasJobDefs           map[string]map[string]*JobDefinition
+	modelQualityJobDefs        map[string]map[string]*JobDefinition
+	modelExplainJobDefs        map[string]map[string]*JobDefinition
+	// monitoringAlerts is region -> scheduleName -> alertName -> alert.
+	monitoringAlerts map[string]map[string]map[string]*MonitoringAlert
+	// monitoringAlertHistory is region -> history entries.
+	monitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry
+	// monitoringExecutions is region -> "scheduleName|processingJobArn" -> execution.
+	monitoringExecutions         map[string]map[string]*MonitoringExecution
 	humanTaskUis                 map[string]map[string]*HumanTaskUI
 	workforces                   map[string]map[string]*Workforce
 	flowDefinitions              map[string]map[string]*FlowDefinition
@@ -584,6 +590,9 @@ func NewInMemoryBackendWithContext(
 		modelBiasJobDefs:             make(map[string]map[string]*JobDefinition),
 		modelQualityJobDefs:          make(map[string]map[string]*JobDefinition),
 		modelExplainJobDefs:          make(map[string]map[string]*JobDefinition),
+		monitoringAlerts:             make(map[string]map[string]map[string]*MonitoringAlert),
+		monitoringAlertHistory:       make(map[string][]*MonitoringAlertHistoryEntry),
+		monitoringExecutions:         make(map[string]map[string]*MonitoringExecution),
 		humanTaskUis:                 make(map[string]map[string]*HumanTaskUI),
 		workforces:                   make(map[string]map[string]*Workforce),
 		flowDefinitions:              make(map[string]map[string]*FlowDefinition),
@@ -840,6 +849,13 @@ func (b *InMemoryBackend) modelExplainJobDefsStore(r string) map[string]*JobDefi
 	}
 
 	return b.modelExplainJobDefs[r]
+}
+func (b *InMemoryBackend) monitoringExecutionsStore(r string) map[string]*MonitoringExecution {
+	if b.monitoringExecutions[r] == nil {
+		b.monitoringExecutions[r] = make(map[string]*MonitoringExecution)
+	}
+
+	return b.monitoringExecutions[r]
 }
 func (b *InMemoryBackend) humanTaskUisStore(r string) map[string]*HumanTaskUI {
 	if b.humanTaskUis[r] == nil {
@@ -1193,6 +1209,9 @@ func (b *InMemoryBackend) Reset() {
 	b.modelBiasJobDefs = make(map[string]map[string]*JobDefinition)
 	b.modelQualityJobDefs = make(map[string]map[string]*JobDefinition)
 	b.modelExplainJobDefs = make(map[string]map[string]*JobDefinition)
+	b.monitoringAlerts = make(map[string]map[string]map[string]*MonitoringAlert)
+	b.monitoringAlertHistory = make(map[string][]*MonitoringAlertHistoryEntry)
+	b.monitoringExecutions = make(map[string]map[string]*MonitoringExecution)
 	b.humanTaskUis = make(map[string]map[string]*HumanTaskUI)
 	b.workforces = make(map[string]map[string]*Workforce)
 	b.flowDefinitions = make(map[string]map[string]*FlowDefinition)

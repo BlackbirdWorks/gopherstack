@@ -121,18 +121,11 @@ func stubOpsSupported() []string {
 		"ListAlgorithms",
 		"ListAliases",
 		"ListCandidatesForAutoMLJob",
-		"ListDataQualityJobDefinitions",
 		"ListEdgeDeploymentPlans",
 		"ListLabelingJobs",
 		"ListLabelingJobsForWorkteam",
 		"ListMlflowApps",
-		"ListModelBiasJobDefinitions",
-		"ListModelExplainabilityJobDefinitions",
 		"ListModelMetadata",
-		"ListModelQualityJobDefinitions",
-		"ListMonitoringAlertHistory",
-		"ListMonitoringAlerts",
-		"ListMonitoringExecutions",
 		"ListPartnerApps",
 		// ListPipelineParametersForExecution — real implementation in handler_accuracy2.go
 		"ListPipelineVersions",
@@ -160,7 +153,6 @@ func stubOpsSupported() []string {
 		"UpdateImageVersion",
 		"UpdateInferenceExperiment",
 		"UpdateMlflowApp",
-		"UpdateMonitoringAlert",
 		"UpdatePartnerApp",
 		"UpdatePipelineExecution",
 		"UpdatePipelineVersion",
@@ -380,12 +372,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListCandidatesForAutoMLJob":
 		return mustMarshal(m{"Candidates": []any{}}), true
 
-	case "ListDataQualityJobDefinitions",
-		"ListModelBiasJobDefinitions",
-		"ListModelExplainabilityJobDefinitions",
-		"ListModelQualityJobDefinitions":
-		return mustMarshal(m{"JobDefinitionSummaries": []any{}}), true
-
 	case "ListDomains":
 		return mustMarshal(m{"Domains": []any{}}), true
 
@@ -403,15 +389,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListModelMetadata":
 		return mustMarshal(m{"ModelMetadataSummaries": []any{}}), true
-
-	case "ListMonitoringAlertHistory":
-		return mustMarshal(m{"MonitoringAlertHistory": []any{}}), true
-
-	case "ListMonitoringAlerts":
-		return mustMarshal(m{"MonitoringAlertSummaries": []any{}}), true
-
-	case "ListMonitoringExecutions":
-		return mustMarshal(m{"MonitoringExecutionSummaries": []any{}}), true
 
 	case "ListPartnerApps":
 		return mustMarshal(m{"Summaries": []any{}}), true
@@ -481,9 +458,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateMlflowApp", "UpdatePartnerApp":
 		return mustMarshal(m{keyGenericArn: ""}), true
-
-	case "UpdateMonitoringAlert":
-		return mustMarshal(m{keyMonitoringScheduleArn: "", keyMonitoringAlertName: ""}), true
 
 	case "UpdatePipeline", "UpdatePipelineVersion":
 		return mustMarshal(m{keyPipelineArn: ""}), true

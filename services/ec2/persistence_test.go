@@ -225,6 +225,82 @@ func TestPersistenceExtended(t *testing.T) {
 				assert.NotEmpty(t, pls)
 			},
 		},
+		{
+			name: "route_server_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				_, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				servers := b.DescribeRouteServers(nil)
+				assert.NotEmpty(t, servers)
+			},
+		},
+		{
+			name: "route_server_endpoint_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				rs, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+				_, err = b.CreateRouteServerEndpoint(rs.RouteServerID, "subnet-default")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				endpoints := b.DescribeRouteServerEndpoints(nil)
+				assert.NotEmpty(t, endpoints)
+			},
+		},
+		{
+			name: "route_server_peer_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				rs, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+				ep, err := b.CreateRouteServerEndpoint(rs.RouteServerID, "subnet-default")
+				require.NoError(t, err)
+				_, err = b.CreateRouteServerPeer(ep.RouteServerEndpointID, "10.0.0.5", 65001, "bfd")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				peers := b.DescribeRouteServerPeers(nil)
+				assert.NotEmpty(t, peers)
+			},
+		},
+		{
+			name: "route_server_association_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				rs, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+				_, err = b.AssociateRouteServer(rs.RouteServerID, "vpc-default")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				servers := b.DescribeRouteServers(nil)
+				require.NotEmpty(t, servers)
+				assocs := b.GetRouteServerAssociations(servers[0].RouteServerID)
+				assert.NotEmpty(t, assocs)
+			},
+		},
+		{
+			name: "route_server_propagation_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				rs, err := b.CreateRouteServer(65000, "enabled", 60, false)
+				require.NoError(t, err)
+				rt, err := b.CreateRouteTable("vpc-default")
+				require.NoError(t, err)
+				_, err = b.EnableRouteServerPropagation(rs.RouteServerID, rt.ID)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				servers := b.DescribeRouteServers(nil)
+				require.NotEmpty(t, servers)
+				props := b.GetRouteServerPropagations(servers[0].RouteServerID)
+				assert.NotEmpty(t, props)
+			},
+		},
 	}
 
 	for _, tt := range tests {

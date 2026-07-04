@@ -23,7 +23,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["AssociateInstanceEventWindow"] = h.handleStubAssociateInstanceEventWindow
 	ops["AssociateIpamByoasn"] = h.handleStubAssociateIpamByoasn
 	ops["AssociateIpamResourceDiscovery"] = h.handleStubAssociateIpamResourceDiscovery
-	ops["AssociateRouteServer"] = h.handleStubAssociateRouteServer
+	// AssociateRouteServer — real handler in handler_route_server.go, covered there
 	ops["AssociateTransitGatewayMulticastDomain"] = h.handleStubAssociateTransitGatewayMulticastDomain
 	ops["AssociateTransitGatewayPolicyTable"] = h.handleStubAssociateTransitGatewayPolicyTable
 	// AssociateTransitGatewayRouteTable — moved to handler_ec2core.go
@@ -41,14 +41,14 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CancelExportTask"] = h.handleStubCancelExportTask
 	ops["CancelImageLaunchPermission"] = h.handleStubCancelImageLaunchPermission
 	ops["CancelImportTask"] = h.handleStubCancelImportTask
-	ops["CancelReservedInstancesListing"] = h.handleStubCancelReservedInstancesListing
+	// CancelReservedInstancesListing — real handler in handler_batch5.go, covered there
 	ops["CancelSpotFleetRequests"] = h.handleStubCancelSpotFleetRequests
 	ops["ConfirmProductInstance"] = h.handleStubConfirmProductInstance
 	ops["CopyFpgaImage"] = h.handleStubCopyFpgaImage
 	ops["CreateCapacityManagerDataExport"] = h.handleStubCreateCapacityManagerDataExport
 	ops["CreateCapacityReservationBySplitting"] = h.handleStubCreateCapacityReservationBySplitting
 	ops["CreateCapacityReservationFleet"] = h.handleStubCreateCapacityReservationFleet
-	ops["CreateCarrierGateway"] = h.handleStubCreateCarrierGateway
+	// CreateCarrierGateway — real handler in handler_batch5.go, covered there
 	// CreateClientVpnEndpoint — moved to handler_batch4.go
 	// CreateClientVpnRoute — moved to handler_batch4.go
 	ops["CreateCoipCidr"] = h.handleStubCreateCoipCidr
@@ -56,7 +56,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateCustomerGateway"] = h.handleStubCreateCustomerGateway
 	ops["CreateDelegateMacVolumeOwnershipTask"] = h.handleStubCreateDelegateMacVolumeOwnershipTask
 	// CreateEgressOnlyInternetGateway — moved to handler_ec2core.go
-	ops["CreateFleet"] = h.handleStubCreateFleet
+	// CreateFleet — real handler in handler_batch5.go, covered there
 	ops["CreateFpgaImage"] = h.handleStubCreateFpgaImage
 	ops["CreateImageUsageReport"] = h.handleStubCreateImageUsageReport
 	ops["CreateInstanceExportTask"] = h.handleStubCreateInstanceExportTask
@@ -77,13 +77,13 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateLocalGatewayVirtualInterfaceGroup"] = h.handleStubCreateLocalGatewayVirtualInterfaceGroup
 	ops["CreateMacSystemIntegrityProtectionModificationTask"] = h.handleStubCreateMacSystemIntegrityProtectionModificationTask //nolint:lll // existing issue.
 	// CreateManagedPrefixList — moved to handler_batch4.go
-	ops["CreateNetworkInsightsAccessScope"] = h.handleStubCreateNetworkInsightsAccessScope
-	ops["CreateNetworkInsightsPath"] = h.handleStubCreateNetworkInsightsPath
-	ops["CreateReservedInstancesListing"] = h.handleStubCreateReservedInstancesListing
+	// CreateNetworkInsightsAccessScope — real handler in handler_batch5.go, covered there
+	// CreateNetworkInsightsPath — real handler in handler_batch5.go, covered there
+	// CreateReservedInstancesListing — real handler in handler_batch5.go, covered there
 	ops["CreateRestoreImageTask"] = h.handleStubCreateRestoreImageTask
-	ops["CreateRouteServer"] = h.handleStubCreateRouteServer
-	ops["CreateRouteServerEndpoint"] = h.handleStubCreateRouteServerEndpoint
-	ops["CreateRouteServerPeer"] = h.handleStubCreateRouteServerPeer
+	// CreateRouteServer — real handler in handler_route_server.go, covered there
+	// CreateRouteServerEndpoint — real handler in handler_route_server.go, covered there
+	// CreateRouteServerPeer — real handler in handler_route_server.go, covered there
 	ops["CreateSecondaryNetwork"] = h.handleStubCreateSecondaryNetwork
 	ops["CreateSecondarySubnet"] = h.handleStubCreateSecondarySubnet
 	ops["CreateStoreImageTask"] = h.handleStubCreateStoreImageTask
@@ -113,14 +113,14 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateVpnConnection"] = h.handleStubCreateVpnConnection
 	ops["CreateVpnGateway"] = h.handleStubCreateVpnGateway
 	ops["DeleteCapacityManagerDataExport"] = h.handleStubDeleteCapacityManagerDataExport
-	ops["DeleteCarrierGateway"] = h.handleStubDeleteCarrierGateway
+	// DeleteCarrierGateway — real handler in handler_batch5.go, covered there
 	// DeleteClientVpnEndpoint — moved to handler_batch4.go
 	// DeleteClientVpnRoute — moved to handler_batch4.go
 	ops["DeleteCoipCidr"] = h.handleStubDeleteCoipCidr
 	ops["DeleteCoipPool"] = h.handleStubDeleteCoipPool
 	ops["DeleteCustomerGateway"] = h.handleStubDeleteCustomerGateway
 	// DeleteEgressOnlyInternetGateway — moved to handler_ec2core.go
-	ops["DeleteFleets"] = h.handleStubDeleteFleets
+	// DeleteFleets — real handler in handler_batch5.go, covered there
 	ops["DeleteFpgaImage"] = h.handleStubDeleteFpgaImage
 	ops["DeleteImageUsageReport"] = h.handleStubDeleteImageUsageReport
 	ops["DeleteIpam"] = h.handleStubDeleteIpam
@@ -138,14 +138,14 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteLocalGatewayVirtualInterface"] = h.handleStubDeleteLocalGatewayVirtualInterface
 	ops["DeleteLocalGatewayVirtualInterfaceGroup"] = h.handleStubDeleteLocalGatewayVirtualInterfaceGroup
 	// DeleteManagedPrefixList — moved to handler_batch4.go
-	ops["DeleteNetworkInsightsAccessScope"] = h.handleStubDeleteNetworkInsightsAccessScope
-	ops["DeleteNetworkInsightsAccessScopeAnalysis"] = h.handleStubDeleteNetworkInsightsAccessScopeAnalysis
-	ops["DeleteNetworkInsightsAnalysis"] = h.handleStubDeleteNetworkInsightsAnalysis
-	ops["DeleteNetworkInsightsPath"] = h.handleStubDeleteNetworkInsightsPath
-	ops["DeleteQueuedReservedInstances"] = h.handleStubDeleteQueuedReservedInstances
-	ops["DeleteRouteServer"] = h.handleStubDeleteRouteServer
-	ops["DeleteRouteServerEndpoint"] = h.handleStubDeleteRouteServerEndpoint
-	ops["DeleteRouteServerPeer"] = h.handleStubDeleteRouteServerPeer
+	// DeleteNetworkInsightsAccessScope — real handler in handler_batch5.go, covered there
+	// DeleteNetworkInsightsAccessScopeAnalysis — real handler in handler_batch5.go, covered there
+	// DeleteNetworkInsightsAnalysis — real handler in handler_batch5.go, covered there
+	// DeleteNetworkInsightsPath — real handler in handler_batch5.go, covered there
+	// DeleteQueuedReservedInstances — real handler in handler_batch5.go, covered there
+	// DeleteRouteServer — real handler in handler_route_server.go, covered there
+	// DeleteRouteServerEndpoint — real handler in handler_route_server.go, covered there
+	// DeleteRouteServerPeer — real handler in handler_route_server.go, covered there
 	ops["DeleteSecondaryNetwork"] = h.handleStubDeleteSecondaryNetwork
 	ops["DeleteSecondarySubnet"] = h.handleStubDeleteSecondarySubnet
 	// DeleteTrafficMirrorFilter — moved to handler_batch5.go
@@ -173,7 +173,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteVpnConcentrator"] = h.handleStubDeleteVpnConcentrator
 	ops["DeleteVpnConnection"] = h.handleStubDeleteVpnConnection
 	ops["DeleteVpnGateway"] = h.handleStubDeleteVpnGateway
-	ops["DeprovisionByoipCidr"] = h.handleStubDeprovisionByoipCidr
+	// DeprovisionByoipCidr — real handler in handler_batch5.go, covered there
 	ops["DeprovisionIpamByoasn"] = h.handleStubDeprovisionIpamByoasn
 	// ops["DeprovisionIpamPoolCidr"] — moved to advancedNetworkingSupportedOperations
 	ops["DeregisterTransitGatewayMulticastGroupMembers"] = h.handleStubDeregisterTransitGatewayMulticastGroupMembers
@@ -189,7 +189,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeCapacityReservationBillingRequests"] = h.handleStubDescribeCapacityReservationBillingRequests
 	ops["DescribeCapacityReservationFleets"] = h.handleStubDescribeCapacityReservationFleets
 	ops["DescribeCapacityReservationTopology"] = h.handleStubDescribeCapacityReservationTopology
-	ops["DescribeCarrierGateways"] = h.handleStubDescribeCarrierGateways
+	// DescribeCarrierGateways — real handler in handler_batch5.go, covered there
 	ops["DescribeClassicLinkInstances"] = h.handleStubDescribeClassicLinkInstances
 	// DescribeClientVpnAuthorizationRules — moved to handler_batch4.go
 	// DescribeClientVpnConnections — moved to handler_batch4.go
@@ -204,9 +204,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeElasticGpus"] = h.handleStubDescribeElasticGpus
 	ops["DescribeExportImageTasks"] = h.handleStubDescribeExportImageTasks
 	ops["DescribeExportTasks"] = h.handleStubDescribeExportTasks
-	ops["DescribeFleetHistory"] = h.handleStubDescribeFleetHistory
-	ops["DescribeFleetInstances"] = h.handleStubDescribeFleetInstances
-	ops["DescribeFleets"] = h.handleStubDescribeFleets
+	// DescribeFleetHistory — real handler in handler_batch5.go, covered there
+	// DescribeFleetInstances — real handler in handler_batch5.go, covered there
+	// DescribeFleets — real handler in handler_batch5.go, covered there
 	ops["DescribeFpgaImageAttribute"] = h.handleStubDescribeFpgaImageAttribute
 	ops["DescribeFpgaImages"] = h.handleStubDescribeFpgaImages
 	ops["DescribeHostReservationOfferings"] = h.handleStubDescribeHostReservationOfferings
@@ -236,18 +236,18 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeMacModificationTasks"] = h.handleStubDescribeMacModificationTasks
 	// DescribeManagedPrefixLists — moved to handler_batch4.go
 	ops["DescribeMovingAddresses"] = h.handleStubDescribeMovingAddresses
-	ops["DescribeNetworkInsightsAccessScopeAnalyses"] = h.handleStubDescribeNetworkInsightsAccessScopeAnalyses
-	ops["DescribeNetworkInsightsAccessScopes"] = h.handleStubDescribeNetworkInsightsAccessScopes
-	ops["DescribeNetworkInsightsAnalyses"] = h.handleStubDescribeNetworkInsightsAnalyses
-	ops["DescribeNetworkInsightsPaths"] = h.handleStubDescribeNetworkInsightsPaths
+	// DescribeNetworkInsightsAccessScopeAnalyses — real handler in handler_batch5.go, covered there
+	// DescribeNetworkInsightsAccessScopes — real handler in handler_batch5.go, covered there
+	// DescribeNetworkInsightsAnalyses — real handler in handler_batch5.go, covered there
+	// DescribeNetworkInsightsPaths — real handler in handler_batch5.go, covered there
 	ops["DescribeOutpostLags"] = h.handleStubDescribeOutpostLags
-	ops["DescribeReservedInstances"] = h.handleStubDescribeReservedInstances
-	ops["DescribeReservedInstancesListings"] = h.handleStubDescribeReservedInstancesListings
-	ops["DescribeReservedInstancesModifications"] = h.handleStubDescribeReservedInstancesModifications
-	ops["DescribeReservedInstancesOfferings"] = h.handleStubDescribeReservedInstancesOfferings
-	ops["DescribeRouteServerEndpoints"] = h.handleStubDescribeRouteServerEndpoints
-	ops["DescribeRouteServerPeers"] = h.handleStubDescribeRouteServerPeers
-	ops["DescribeRouteServers"] = h.handleStubDescribeRouteServers
+	// DescribeReservedInstances — real handler in handler_batch5.go, covered there
+	// DescribeReservedInstancesListings — real handler in handler_batch5.go, covered there
+	// DescribeReservedInstancesModifications — real handler in handler_batch5.go, covered there
+	// DescribeReservedInstancesOfferings — real handler in handler_batch5.go, covered there
+	// DescribeRouteServerEndpoints — real handler in handler_route_server.go, covered there
+	// DescribeRouteServerPeers — real handler in handler_route_server.go, covered there
+	// DescribeRouteServers — real handler in handler_route_server.go, covered there
 	ops["DescribeScheduledInstanceAvailability"] = h.handleStubDescribeScheduledInstanceAvailability
 	ops["DescribeScheduledInstances"] = h.handleStubDescribeScheduledInstances
 	ops["DescribeSecondaryInterfaces"] = h.handleStubDescribeSecondaryInterfaces
@@ -294,7 +294,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisableInstanceSqlHaStandbyDetections"] = h.handleStubDisableInstanceSQLHaStandbyDetections
 	ops["DisableIpamOrganizationAdminAccount"] = h.handleStubDisableIpamOrganizationAdminAccount
 	ops["DisableIpamPolicy"] = h.handleStubDisableIpamPolicy
-	ops["DisableRouteServerPropagation"] = h.handleStubDisableRouteServerPropagation
+	// DisableRouteServerPropagation — real handler in handler_route_server.go, covered there
 	ops["DisableTransitGatewayRouteTablePropagation"] = h.handleStubDisableTransitGatewayRouteTablePropagation
 	ops["DisableVpcClassicLink"] = h.handleStubDisableVpcClassicLink
 	ops["DisableVpcClassicLinkDnsSupport"] = h.handleStubDisableVpcClassicLinkDNSSupport
@@ -305,7 +305,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisassociateInstanceEventWindow"] = h.handleStubDisassociateInstanceEventWindow
 	ops["DisassociateIpamByoasn"] = h.handleStubDisassociateIpamByoasn
 	ops["DisassociateIpamResourceDiscovery"] = h.handleStubDisassociateIpamResourceDiscovery
-	ops["DisassociateRouteServer"] = h.handleStubDisassociateRouteServer
+	// DisassociateRouteServer — real handler in handler_route_server.go, covered there
 	ops["DisassociateTransitGatewayMulticastDomain"] = h.handleStubDisassociateTransitGatewayMulticastDomain
 	ops["DisassociateTransitGatewayPolicyTable"] = h.handleStubDisassociateTransitGatewayPolicyTable
 	// DisassociateTransitGatewayRouteTable — moved to handler_ec2core.go
@@ -317,7 +317,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["EnableIpamOrganizationAdminAccount"] = h.handleStubEnableIpamOrganizationAdminAccount
 	ops["EnableIpamPolicy"] = h.handleStubEnableIpamPolicy
 	ops["EnableReachabilityAnalyzerOrganizationSharing"] = h.handleStubEnableReachabilityAnalyzerOrganizationSharing
-	ops["EnableRouteServerPropagation"] = h.handleStubEnableRouteServerPropagation
+	// EnableRouteServerPropagation — real handler in handler_route_server.go, covered there
 	ops["EnableTransitGatewayRouteTablePropagation"] = h.handleStubEnableTransitGatewayRouteTablePropagation
 	ops["EnableVpcClassicLink"] = h.handleStubEnableVpcClassicLink
 	ops["EnableVpcClassicLinkDnsSupport"] = h.handleStubEnableVpcClassicLinkDNSSupport
@@ -355,12 +355,12 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetIpamResourceCidrs"] = h.handleStubGetIpamResourceCidrs
 	// GetManagedPrefixListAssociations — moved to handler_batch4.go
 	// GetManagedPrefixListEntries — moved to handler_batch4.go
-	ops["GetNetworkInsightsAccessScopeAnalysisFindings"] = h.handleStubGetNetworkInsightsAccessScopeAnalysisFindings
-	ops["GetNetworkInsightsAccessScopeContent"] = h.handleStubGetNetworkInsightsAccessScopeContent
-	ops["GetReservedInstancesExchangeQuote"] = h.handleStubGetReservedInstancesExchangeQuote
-	ops["GetRouteServerAssociations"] = h.handleStubGetRouteServerAssociations
-	ops["GetRouteServerPropagations"] = h.handleStubGetRouteServerPropagations
-	ops["GetRouteServerRoutingDatabase"] = h.handleStubGetRouteServerRoutingDatabase
+	// GetNetworkInsightsAccessScopeAnalysisFindings — real handler in handler_batch5.go, covered there
+	// GetNetworkInsightsAccessScopeContent — real handler in handler_batch5.go, covered there
+	// GetReservedInstancesExchangeQuote — real handler in handler_batch5.go, covered there
+	// GetRouteServerAssociations — real handler in handler_route_server.go, covered there
+	// GetRouteServerPropagations — real handler in handler_route_server.go, covered there
+	// GetRouteServerRoutingDatabase — real handler in handler_route_server.go, covered there
 	ops["GetSpotPlacementScores"] = h.handleStubGetSpotPlacementScores
 	ops["GetTransitGatewayAttachmentPropagations"] = h.handleStubGetTransitGatewayAttachmentPropagations
 	ops["GetTransitGatewayMeteringPolicyEntries"] = h.handleStubGetTransitGatewayMeteringPolicyEntries
@@ -383,7 +383,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyAvailabilityZoneGroup"] = h.handleStubModifyAvailabilityZoneGroup
 	ops["ModifyCapacityReservationFleet"] = h.handleStubModifyCapacityReservationFleet
 	// ModifyClientVpnEndpoint — moved to handler_batch4.go
-	ops["ModifyFleet"] = h.handleStubModifyFleet
+	// ModifyFleet — real handler in handler_batch5.go, covered there
 	ops["ModifyFpgaImageAttribute"] = h.handleStubModifyFpgaImageAttribute
 	ops["ModifyHosts"] = h.handleStubModifyHosts
 	ops["ModifyInstanceCapacityReservationAttributes"] = h.handleStubModifyInstanceCapacityReservationAttributes
@@ -404,8 +404,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ModifyManagedPrefixList — moved to handler_batch4.go
 	ops["ModifyPrivateDnsNameOptions"] = h.handleStubModifyPrivateDNSNameOptions
 	ops["ModifyPublicIpDnsNameOptions"] = h.handleStubModifyPublicIPDNSNameOptions
-	ops["ModifyReservedInstances"] = h.handleStubModifyReservedInstances
-	ops["ModifyRouteServer"] = h.handleStubModifyRouteServer
+	// ModifyReservedInstances — real handler in handler_batch5.go, covered there
+	// ModifyRouteServer — real handler in handler_route_server.go, covered there
 	ops["ModifySpotFleetRequest"] = h.handleStubModifySpotFleetRequest
 	// ModifyTrafficMirrorFilterNetworkServices — moved to handler_batch5.go
 	// ModifyTrafficMirrorFilterRule — moved to handler_batch5.go
@@ -429,13 +429,13 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["MoveAddressToVpc"] = h.handleStubMoveAddressToVpc
 	ops["MoveByoipCidrToIpam"] = h.handleStubMoveByoipCidrToIpam
 	ops["MoveCapacityReservationInstances"] = h.handleStubMoveCapacityReservationInstances
-	ops["ProvisionByoipCidr"] = h.handleStubProvisionByoipCidr
+	// ProvisionByoipCidr — real handler in handler_batch5.go, covered there
 	ops["ProvisionIpamByoasn"] = h.handleStubProvisionIpamByoasn
 	// ops["ProvisionIpamPoolCidr"] — moved to advancedNetworkingSupportedOperations
 	ops["PurchaseCapacityBlock"] = h.handleStubPurchaseCapacityBlock
 	ops["PurchaseCapacityBlockExtension"] = h.handleStubPurchaseCapacityBlockExtension
 	ops["PurchaseHostReservation"] = h.handleStubPurchaseHostReservation
-	ops["PurchaseReservedInstancesOffering"] = h.handleStubPurchaseReservedInstancesOffering
+	// PurchaseReservedInstancesOffering — real handler in handler_batch5.go, covered there
 	ops["PurchaseScheduledInstances"] = h.handleStubPurchaseScheduledInstances
 	ops["RegisterTransitGatewayMulticastGroupMembers"] = h.handleStubRegisterTransitGatewayMulticastGroupMembers
 	ops["RegisterTransitGatewayMulticastGroupSources"] = h.handleStubRegisterTransitGatewayMulticastGroupSources
@@ -462,14 +462,14 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["SearchTransitGatewayRoutes"] = h.handleStubSearchTransitGatewayRoutes
 	ops["SendDiagnosticInterrupt"] = h.handleStubSendDiagnosticInterrupt
 	ops["StartDeclarativePoliciesReport"] = h.handleStubStartDeclarativePoliciesReport
-	ops["StartNetworkInsightsAccessScopeAnalysis"] = h.handleStubStartNetworkInsightsAccessScopeAnalysis
-	ops["StartNetworkInsightsAnalysis"] = h.handleStubStartNetworkInsightsAnalysis
+	// StartNetworkInsightsAccessScopeAnalysis — real handler in handler_batch5.go, covered there
+	// StartNetworkInsightsAnalysis — real handler in handler_batch5.go, covered there
 	ops["StartVpcEndpointServicePrivateDnsVerification"] = h.handleStubStartVpcEndpointServicePrivateDNSVerification
 	// TerminateClientVpnConnections — moved to handler_batch4.go
 	ops["UnassignPrivateNatGatewayAddress"] = h.handleStubUnassignPrivateNatGatewayAddress
 	ops["UpdateCapacityManagerOrganizationsAccess"] = h.handleStubUpdateCapacityManagerOrganizationsAccess
 	ops["UpdateInterruptibleCapacityReservationAllocation"] = h.handleStubUpdateInterruptibleCapacityReservationAllocation
-	ops["WithdrawByoipCidr"] = h.handleStubWithdrawByoipCidr
+	// WithdrawByoipCidr — real handler in handler_batch5.go, covered there
 	ops["CreatePublicIpv4Pool"] = h.handleStubCreatePublicIpv4Pool
 	ops["DeletePublicIpv4Pool"] = h.handleStubDeletePublicIpv4Pool
 	ops["DeprovisionPublicIpv4PoolCidr"] = h.handleStubDeprovisionPublicIpv4PoolCidr
@@ -1001,14 +1001,6 @@ func (h *Handler) handleStubAssociateIpamResourceDiscovery(
 	}, nil
 }
 
-func (h *Handler) handleStubAssociateRouteServer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateRouteServerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubAssociateTransitGatewayMulticastDomain(
 	_ url.Values,
 	reqID string,
@@ -1125,17 +1117,6 @@ func (h *Handler) handleStubCancelImportTask(_ url.Values, reqID string) (any, e
 	}, nil
 }
 
-func (h *Handler) handleStubCancelReservedInstancesListing(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CancelReservedInstancesListingResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCancelSpotFleetRequests(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CancelSpotFleetRequestsResponse"},
@@ -1193,14 +1174,6 @@ func (h *Handler) handleStubCreateCapacityReservationFleet(
 	}, nil
 }
 
-func (h *Handler) handleStubCreateCarrierGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateCarrierGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateCoipCidr(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateCoipCidrResponse"},
@@ -1231,14 +1204,6 @@ func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateDelegateMacVolumeOwnershipTaskResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateFleet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateFleetResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1414,63 +1379,9 @@ func (h *Handler) handleStubCreateMacSystemIntegrityProtectionModificationTask(
 	}, nil
 }
 
-func (h *Handler) handleStubCreateNetworkInsightsAccessScope(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateNetworkInsightsAccessScopeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateNetworkInsightsPath(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateNetworkInsightsPathResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateReservedInstancesListing(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateReservedInstancesListingResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateRestoreImageTask(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateRestoreImageTaskResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateRouteServer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateRouteServerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateRouteServerEndpoint(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateRouteServerEndpointResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateRouteServerPeer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateRouteServerPeerResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1620,14 +1531,6 @@ func (h *Handler) handleStubDeleteCapacityManagerDataExport(
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteCarrierGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteCarrierGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteCoipCidr(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteCoipCidrResponse"},
@@ -1647,14 +1550,6 @@ func (h *Handler) handleStubDeleteCoipPool(_ url.Values, reqID string) (any, err
 func (h *Handler) handleStubDeleteCustomerGateway(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteCustomerGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteFleets(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteFleetsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1800,76 +1695,6 @@ func (h *Handler) handleStubDeleteLocalGatewayVirtualInterfaceGroup(
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteNetworkInsightsAccessScope(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAccessScopeResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteNetworkInsightsAccessScopeAnalysis(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAccessScopeAnalysisResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteNetworkInsightsAnalysis(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAnalysisResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteNetworkInsightsPath(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteNetworkInsightsPathResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteQueuedReservedInstances(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteQueuedReservedInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteRouteServer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteRouteServerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteRouteServerEndpoint(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteRouteServerEndpointResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteRouteServerPeer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteRouteServerPeerResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteSecondaryNetwork(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteSecondaryNetworkResponse"},
@@ -1990,14 +1815,6 @@ func (h *Handler) handleStubDeleteVpnConnection(_ url.Values, reqID string) (any
 func (h *Handler) handleStubDeleteVpnGateway(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteVpnGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeprovisionByoipCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeprovisionByoipCidrResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2145,14 +1962,6 @@ func (h *Handler) handleStubDescribeCapacityReservationTopology(
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeCarrierGateways(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCarrierGatewaysResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeClassicLinkInstances(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeClassicLinkInstancesResponse"},
@@ -2215,30 +2024,6 @@ func (h *Handler) handleStubDescribeExportImageTasks(_ url.Values, reqID string)
 func (h *Handler) handleStubDescribeExportTasks(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeExportTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeFleetHistory(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeFleetHistoryResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeFleetInstances(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeFleetInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeFleets(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeFleetsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2471,115 +2256,9 @@ func (h *Handler) handleStubDescribeMovingAddresses(_ url.Values, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeNetworkInsightsAccessScopeAnalyses(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeNetworkInsightsAccessScopeAnalysesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeNetworkInsightsAccessScopes(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeNetworkInsightsAccessScopesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeNetworkInsightsAnalyses(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeNetworkInsightsAnalysesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeNetworkInsightsPaths(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeNetworkInsightsPathsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeOutpostLags(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeOutpostLagsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeReservedInstances(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeReservedInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeReservedInstancesListings(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeReservedInstancesListingsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeReservedInstancesModifications(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeReservedInstancesModificationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeReservedInstancesOfferings(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeReservedInstancesOfferingsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeRouteServerEndpoints(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeRouteServerEndpointsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeRouteServerPeers(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeRouteServerPeersResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeRouteServers(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeRouteServersResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2900,14 +2579,6 @@ func (h *Handler) handleStubDisableIpamPolicy(_ url.Values, reqID string) (any, 
 	}, nil
 }
 
-func (h *Handler) handleStubDisableRouteServerPropagation(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableRouteServerPropagationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(
 	_ url.Values,
 	reqID string,
@@ -2985,14 +2656,6 @@ func (h *Handler) handleStubDisassociateIpamResourceDiscovery(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateIpamResourceDiscoveryResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisassociateRouteServer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateRouteServerResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3091,14 +2754,6 @@ func (h *Handler) handleStubEnableReachabilityAnalyzerOrganizationSharing(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "EnableReachabilityAnalyzerOrganizationSharingResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubEnableRouteServerPropagation(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableRouteServerPropagationResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3364,63 +3019,6 @@ func (h *Handler) handleStubGetIpamResourceCidrs(_ url.Values, reqID string) (an
 	}, nil
 }
 
-func (h *Handler) handleStubGetNetworkInsightsAccessScopeAnalysisFindings(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetNetworkInsightsAccessScopeAnalysisFindingsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetNetworkInsightsAccessScopeContent(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetNetworkInsightsAccessScopeContentResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetReservedInstancesExchangeQuote(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetReservedInstancesExchangeQuoteResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetRouteServerAssociations(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetRouteServerAssociationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetRouteServerPropagations(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetRouteServerPropagationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetRouteServerRoutingDatabase(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetRouteServerRoutingDatabaseResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubGetSpotPlacementScores(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetSpotPlacementScoresResponse"},
@@ -3609,14 +3207,6 @@ func (h *Handler) handleStubModifyCapacityReservationFleet(
 	}, nil
 }
 
-func (h *Handler) handleStubModifyFleet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyFleetResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyFpgaImageAttributeResponse"},
@@ -3755,22 +3345,6 @@ func (h *Handler) handleStubModifyPrivateDNSNameOptions(_ url.Values, reqID stri
 func (h *Handler) handleStubModifyPublicIPDNSNameOptions(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyPublicIpDnsNameOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyReservedInstances(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyReservedInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyRouteServer(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyRouteServerResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3958,14 +3532,6 @@ func (h *Handler) handleStubMoveCapacityReservationInstances(
 	}, nil
 }
 
-func (h *Handler) handleStubProvisionByoipCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ProvisionByoipCidrResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubProvisionIpamByoasn(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ProvisionIpamByoasnResponse"},
@@ -3996,17 +3562,6 @@ func (h *Handler) handleStubPurchaseCapacityBlockExtension(
 func (h *Handler) handleStubPurchaseHostReservation(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "PurchaseHostReservationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubPurchaseReservedInstancesOffering(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "PurchaseReservedInstancesOfferingResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4207,25 +3762,6 @@ func (h *Handler) handleStubStartDeclarativePoliciesReport(
 	}, nil
 }
 
-func (h *Handler) handleStubStartNetworkInsightsAccessScopeAnalysis(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "StartNetworkInsightsAccessScopeAnalysisResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubStartNetworkInsightsAnalysis(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "StartNetworkInsightsAnalysisResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubStartVpcEndpointServicePrivateDNSVerification(
 	_ url.Values,
 	reqID string,
@@ -4265,14 +3801,6 @@ func (h *Handler) handleStubUpdateInterruptibleCapacityReservationAllocation(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "UpdateInterruptibleCapacityReservationAllocationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubWithdrawByoipCidr(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "WithdrawByoipCidrResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

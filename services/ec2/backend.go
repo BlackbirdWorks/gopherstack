@@ -310,24 +310,30 @@ type InMemoryBackend struct {
 	reservedInstancesOfferings         map[string]*ReservedInstancesOffering
 	reservedInstancesListings          map[string]*ReservedInstancesListing
 	reservedInstancesModifications     map[string]*ReservedInstancesModification
-	mu                                 *lockmetrics.RWMutex
-	lifecycleStop                      chan struct{}
-	eniIDByAttachment                  map[string]string
-	eniIDsByInstance                   map[string]map[string]struct{}
-	instanceIDsByVPC                   map[string]map[string]struct{}
-	snapshotBlockPublicAccess          string
-	ebsDefaultKmsKeyID                 string
-	imageBlockPublicAccess             string
-	defaultCreditSpec                  string
-	Region                             string `json:"region,omitempty"`
-	AccountID                          string `json:"accountID,omitempty"`
-	freePrivateIPs                     []string
-	nextPrivateIPIndex                 int
-	nextElasticIPIndex                 int
-	ebsEncryptionByDefault             bool
-	serialConsoleAccess                bool
-	lifecycleOnce                      sync.Once
-	lifecycleStopOnce                  sync.Once
+	// route server additions
+	routeServers              map[string]*RouteServer
+	routeServerEndpoints      map[string]*RouteServerEndpoint
+	routeServerPeers          map[string]*RouteServerPeer
+	routeServerAssociations   map[string]*RouteServerAssociation
+	routeServerPropagations   map[string]*RouteServerPropagation
+	mu                        *lockmetrics.RWMutex
+	lifecycleStop             chan struct{}
+	eniIDByAttachment         map[string]string
+	eniIDsByInstance          map[string]map[string]struct{}
+	instanceIDsByVPC          map[string]map[string]struct{}
+	snapshotBlockPublicAccess string
+	ebsDefaultKmsKeyID        string
+	imageBlockPublicAccess    string
+	defaultCreditSpec         string
+	Region                    string `json:"region,omitempty"`
+	AccountID                 string `json:"accountID,omitempty"`
+	freePrivateIPs            []string
+	nextPrivateIPIndex        int
+	nextElasticIPIndex        int
+	ebsEncryptionByDefault    bool
+	serialConsoleAccess       bool
+	lifecycleOnce             sync.Once
+	lifecycleStopOnce         sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -419,6 +425,7 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	}
 	initBatch5Maps(b)
 	initBatch6Maps(b)
+	initRouteServerMaps(b)
 
 	return b
 }
@@ -458,6 +465,16 @@ func initBatch5Maps(b *InMemoryBackend) {
 	b.reservedInstancesOfferings = make(map[string]*ReservedInstancesOffering)
 	b.reservedInstancesListings = make(map[string]*ReservedInstancesListing)
 	b.reservedInstancesModifications = make(map[string]*ReservedInstancesModification)
+}
+
+// initRouteServerMaps initialises the VPC Route Server state maps (split out
+// to keep newInMemoryBackendMaps under the funlen limit).
+func initRouteServerMaps(b *InMemoryBackend) {
+	b.routeServers = make(map[string]*RouteServer)
+	b.routeServerEndpoints = make(map[string]*RouteServerEndpoint)
+	b.routeServerPeers = make(map[string]*RouteServerPeer)
+	b.routeServerAssociations = make(map[string]*RouteServerAssociation)
+	b.routeServerPropagations = make(map[string]*RouteServerPropagation)
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.

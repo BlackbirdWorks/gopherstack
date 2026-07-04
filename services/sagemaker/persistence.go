@@ -55,17 +55,26 @@ type backendSnapshot struct {
 	Hubs                     map[string]map[string]*Hub                             `json:"hubs"`
 	// HubContents is stored as region → "hubName|contentType|contentName|contentVersion" → HubContent.
 	HubContents map[string]map[string]*HubContent `json:"hubContents"`
-	AccountID   string                            `json:"accountID"`
-	Region      string                            `json:"region"`
+	// Model Monitor job definitions (Create/Describe/Delete/List*JobDefinitions).
+	DataQualityJobDefs  map[string]map[string]*JobDefinition `json:"dataQualityJobDefs"`
+	ModelBiasJobDefs    map[string]map[string]*JobDefinition `json:"modelBiasJobDefs"`
+	ModelQualityJobDefs map[string]map[string]*JobDefinition `json:"modelQualityJobDefs"`
+	ModelExplainJobDefs map[string]map[string]*JobDefinition `json:"modelExplainJobDefs"`
+	// MonitoringAlerts is stored as region → monitoringScheduleName → alertName → MonitoringAlert.
+	MonitoringAlerts map[string]map[string]map[string]*MonitoringAlert `json:"monitoringAlerts"`
+	// MonitoringAlertHistory is stored as region → history entries (across all schedules/alerts).
+	MonitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry `json:"monitoringAlertHistory"`
+	// MonitoringExecutions is stored as region → "scheduleName|processingJobArn" → MonitoringExecution.
+	MonitoringExecutions map[string]map[string]*MonitoringExecution `json:"monitoringExecutions"`
+	AccountID            string                                     `json:"accountID"`
+	Region               string                                     `json:"region"`
 }
 
-// Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	// Convert clusters: map[string]map[string]*Cluster → map[string]map[string]*persistedCluster
+// snapshotClusters converts map[string]map[string]*Cluster →
+// map[string]map[string]*persistedCluster.
+func snapshotClusters(b *InMemoryBackend) map[string]map[string]*persistedCluster {
 	clusters := make(map[string]map[string]*persistedCluster, len(b.clusters))
+
 	for region, regionClusters := range b.clusters {
 		clusters[region] = make(map[string]*persistedCluster, len(regionClusters))
 		for k, c := range regionClusters {
@@ -83,13 +92,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 				nodeCopy := *nv
 				pc.Nodes[nk] = &nodeCopy
 			}
+
 			clusters[region][k] = pc
 		}
 	}
 
-	// Convert userProfiles: map[string]map[userProfileKey]*UserProfile
-	// → map[string]map[string]*UserProfile (inner key = "domainID|profileName")
+	return clusters
+}
+
+// snapshotUserProfiles converts map[string]map[userProfileKey]*UserProfile →
+// map[string]map[string]*UserProfile (inner key = "domainID|profileName").
+func snapshotUserProfiles(b *InMemoryBackend) map[string]map[string]*UserProfile {
 	userProfiles := make(map[string]map[string]*UserProfile, len(b.userProfiles))
+
 	for region, regionProfiles := range b.userProfiles {
 		userProfiles[region] = make(map[string]*UserProfile, len(regionProfiles))
 		for k, v := range regionProfiles {
@@ -98,9 +113,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}
 	}
 
-	// Convert apps: map[string]map[appKey]*App
-	// → map[string]map[string]*App (inner key = "domainID|userProfileName|appType|appName")
+	return userProfiles
+}
+
+// snapshotApps converts map[string]map[appKey]*App → map[string]map[string]*App
+// (inner key = "domainID|userProfileName|appType|appName").
+func snapshotApps(b *InMemoryBackend) map[string]map[string]*App {
 	apps := make(map[string]map[string]*App, len(b.apps))
+
 	for region, regionApps := range b.apps {
 		apps[region] = make(map[string]*App, len(regionApps))
 		for k, v := range regionApps {
@@ -109,9 +129,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}
 	}
 
-	// Convert hubContents: map[string]map[hubContentKey]*HubContent
-	// → map[string]map[string]*HubContent (inner key = "hubName|contentType|contentName|contentVersion")
+	return apps
+}
+
+// snapshotHubContents converts map[string]map[hubContentKey]*HubContent →
+// map[string]map[string]*HubContent (inner key =
+// "hubName|contentType|contentName|contentVersion").
+func snapshotHubContents(b *InMemoryBackend) map[string]map[string]*HubContent {
 	hubContents := make(map[string]map[string]*HubContent, len(b.hubContents))
+
 	for region, regionContents := range b.hubContents {
 		hubContents[region] = make(map[string]*HubContent, len(regionContents))
 		for k, v := range regionContents {
@@ -119,6 +145,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			hubContents[region][hubContentKeyString(k)] = &cp
 		}
 	}
+
+	return hubContents
+}
+
+// Snapshot serialises the backend state to JSON.
+func (b *InMemoryBackend) Snapshot() []byte {
+	b.mu.RLock("Snapshot")
+	defer b.mu.RUnlock()
+
+	clusters := snapshotClusters(b)
+	userProfiles := snapshotUserProfiles(b)
+	apps := snapshotApps(b)
+	hubContents := snapshotHubContents(b)
 
 	snap := backendSnapshot{
 		Models:                     b.models,
@@ -152,6 +191,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		FeatureMetadata:            b.featureMetadata,
 		Hubs:                       b.hubs,
 		HubContents:                hubContents,
+		DataQualityJobDefs:         b.dataQualityJobDefs,
+		ModelBiasJobDefs:           b.modelBiasJobDefs,
+		ModelQualityJobDefs:        b.modelQualityJobDefs,
+		ModelExplainJobDefs:        b.modelExplainJobDefs,
+		MonitoringAlerts:           b.monitoringAlerts,
+		MonitoringAlertHistory:     b.monitoringAlertHistory,
+		MonitoringExecutions:       b.monitoringExecutions,
 		AccountID:                  b.accountID,
 		Region:                     b.region,
 	}
@@ -308,6 +354,13 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.apps = restoreApps(snap)
 	b.clusters = restoreClusters(snap)
 	b.hubContents = restoreHubContents(snap)
+	b.dataQualityJobDefs = snap.DataQualityJobDefs
+	b.modelBiasJobDefs = snap.ModelBiasJobDefs
+	b.modelQualityJobDefs = snap.ModelQualityJobDefs
+	b.modelExplainJobDefs = snap.ModelExplainJobDefs
+	b.monitoringAlerts = snap.MonitoringAlerts
+	b.monitoringAlertHistory = snap.MonitoringAlertHistory
+	b.monitoringExecutions = snap.MonitoringExecutions
 }
 
 func buildARNIndex[V any](src map[string]map[string]V, arnFn func(string, V) string) map[string]map[string]string {
@@ -381,6 +434,33 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	ensureMetadataMaps(snap)
 	ensureLineageMaps(snap)
 	ensureHubMaps(snap)
+	ensureMonitorMaps(snap)
+}
+
+// ensureMonitorMaps initialises the Model Monitor job definition and
+// alert/execution maps if a snapshot predates their introduction.
+func ensureMonitorMaps(snap *backendSnapshot) {
+	if snap.DataQualityJobDefs == nil {
+		snap.DataQualityJobDefs = make(map[string]map[string]*JobDefinition)
+	}
+	if snap.ModelBiasJobDefs == nil {
+		snap.ModelBiasJobDefs = make(map[string]map[string]*JobDefinition)
+	}
+	if snap.ModelQualityJobDefs == nil {
+		snap.ModelQualityJobDefs = make(map[string]map[string]*JobDefinition)
+	}
+	if snap.ModelExplainJobDefs == nil {
+		snap.ModelExplainJobDefs = make(map[string]map[string]*JobDefinition)
+	}
+	if snap.MonitoringAlerts == nil {
+		snap.MonitoringAlerts = make(map[string]map[string]map[string]*MonitoringAlert)
+	}
+	if snap.MonitoringAlertHistory == nil {
+		snap.MonitoringAlertHistory = make(map[string][]*MonitoringAlertHistoryEntry)
+	}
+	if snap.MonitoringExecutions == nil {
+		snap.MonitoringExecutions = make(map[string]map[string]*MonitoringExecution)
+	}
 }
 
 func ensureHubMaps(snap *backendSnapshot) {
@@ -517,6 +597,10 @@ func fixNilTagMapsNewResources(snap *backendSnapshot) {
 	fixNestedTagsSage(snap.HPTuningJobs, func(j *HyperParameterTuningJob) { j.Tags = ensureSageTagMap(j.Tags) })
 	fixNestedTagsSage(snap.Hubs, func(h *Hub) { h.Tags = ensureSageTagMap(h.Tags) })
 	fixNestedTagsSage(snap.HubContents, func(hc *HubContent) { hc.Tags = ensureSageTagMap(hc.Tags) })
+	fixNestedTagsSage(snap.DataQualityJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
+	fixNestedTagsSage(snap.ModelBiasJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
+	fixNestedTagsSage(snap.ModelQualityJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
+	fixNestedTagsSage(snap.ModelExplainJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

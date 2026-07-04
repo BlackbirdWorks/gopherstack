@@ -11,6 +11,13 @@ import (
 
 // ---------------------------------------------------------------------------
 // DataQualityJobDefinition
+//
+// NOTE: Create/Describe/Delete*JobDefinition all key on the wire field
+// "JobDefinitionName" — NOT a type-prefixed name like
+// "DataQualityJobDefinitionName". Confirmed against aws-sdk-go-v2's generated
+// sagemaker serializers/deserializers (awsAwsjson11_serializeOpDocumentCreate
+// DataQualityJobDefinitionInput etc. all emit/read "JobDefinitionName"). The
+// request bodies below were fixed from the type-prefixed (incorrect) name.
 // ---------------------------------------------------------------------------
 
 func TestHandler_CreateDataQualityJobDefinition(t *testing.T) {
@@ -19,7 +26,18 @@ func TestHandler_CreateDataQualityJobDefinition(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doSageMakerRequest(t, h, "CreateDataQualityJobDefinition", map[string]any{
-		"DataQualityJobDefinitionName": "dq-def-1",
+		"JobDefinitionName": "dq-def-1",
+		"RoleArn":           "arn:aws:iam::000000000000:role/monitor",
+		"JobResources":      map[string]any{"ClusterConfig": map[string]any{"InstanceCount": 1}},
+		"DataQualityAppSpecification": map[string]any{
+			"ImageUri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/monitor:latest",
+		},
+		"DataQualityJobInput": map[string]any{
+			"EndpointInput": map[string]any{"EndpointName": "my-endpoint", "LocalPath": "/opt/ml/input"},
+		},
+		"DataQualityJobOutputConfig": map[string]any{
+			"MonitoringOutputs": []any{},
+		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -34,17 +52,34 @@ func TestHandler_DescribeDataQualityJobDefinition(t *testing.T) {
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateDataQualityJobDefinition", map[string]any{
-		"DataQualityJobDefinitionName": "dq-def-2",
+		"JobDefinitionName": "dq-def-2",
+		"RoleArn":           "arn:aws:iam::000000000000:role/monitor",
+		"JobResources":      map[string]any{"ClusterConfig": map[string]any{"InstanceCount": 1}},
+		"DataQualityAppSpecification": map[string]any{
+			"ImageUri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/monitor:latest",
+		},
+		"DataQualityJobInput": map[string]any{
+			"EndpointInput": map[string]any{"EndpointName": "my-endpoint", "LocalPath": "/opt/ml/input"},
+		},
+		"DataQualityJobOutputConfig": map[string]any{
+			"MonitoringOutputs": []any{},
+		},
 	})
 
 	rec := doSageMakerRequest(t, h, "DescribeDataQualityJobDefinition", map[string]any{
-		"DataQualityJobDefinitionName": "dq-def-2",
+		"JobDefinitionName": "dq-def-2",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "dq-def-2", resp["JobDefinitionName"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/monitor", resp["RoleArn"])
+	assert.NotNil(t, resp["DataQualityAppSpecification"])
+	assert.NotNil(t, resp["DataQualityJobInput"])
+	assert.NotNil(t, resp["DataQualityJobOutputConfig"])
+	assert.NotNil(t, resp["JobResources"])
+	assert.NotContains(t, resp, "JobDefinitionType")
 }
 
 func TestHandler_DeleteDataQualityJobDefinition(t *testing.T) {
@@ -53,17 +88,31 @@ func TestHandler_DeleteDataQualityJobDefinition(t *testing.T) {
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateDataQualityJobDefinition", map[string]any{
-		"DataQualityJobDefinitionName": "dq-def-del",
+		"JobDefinitionName": "dq-def-del",
 	})
 	rec := doSageMakerRequest(t, h, "DeleteDataQualityJobDefinition", map[string]any{
-		"DataQualityJobDefinitionName": "dq-def-del",
+		"JobDefinitionName": "dq-def-del",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doSageMakerRequest(t, h, "DescribeDataQualityJobDefinition", map[string]any{
-		"DataQualityJobDefinitionName": "dq-def-del",
+		"JobDefinitionName": "dq-def-del",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateDataQualityJobDefinition_DuplicateReturnsResourceInUse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateDataQualityJobDefinition", map[string]any{"JobDefinitionName": "dq-dup"})
+	rec := doSageMakerRequest(t, h, "CreateDataQualityJobDefinition", map[string]any{"JobDefinitionName": "dq-dup"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ResourceInUse", resp["__type"])
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +125,7 @@ func TestHandler_CreateModelBiasJobDefinition(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doSageMakerRequest(t, h, "CreateModelBiasJobDefinition", map[string]any{
-		"ModelBiasJobDefinitionName": "mb-def-1",
+		"JobDefinitionName": "mb-def-1",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -91,15 +140,15 @@ func TestHandler_DeleteModelBiasJobDefinition(t *testing.T) {
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateModelBiasJobDefinition", map[string]any{
-		"ModelBiasJobDefinitionName": "mb-def-del",
+		"JobDefinitionName": "mb-def-del",
 	})
 	rec := doSageMakerRequest(t, h, "DeleteModelBiasJobDefinition", map[string]any{
-		"ModelBiasJobDefinitionName": "mb-def-del",
+		"JobDefinitionName": "mb-def-del",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doSageMakerRequest(t, h, "DescribeModelBiasJobDefinition", map[string]any{
-		"ModelBiasJobDefinitionName": "mb-def-del",
+		"JobDefinitionName": "mb-def-del",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -114,7 +163,7 @@ func TestHandler_CreateModelQualityJobDefinition(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doSageMakerRequest(t, h, "CreateModelQualityJobDefinition", map[string]any{
-		"ModelQualityJobDefinitionName": "mq-def-1",
+		"JobDefinitionName": "mq-def-1",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -129,10 +178,10 @@ func TestHandler_DeleteModelQualityJobDefinition(t *testing.T) {
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateModelQualityJobDefinition", map[string]any{
-		"ModelQualityJobDefinitionName": "mq-def-del",
+		"JobDefinitionName": "mq-def-del",
 	})
 	rec := doSageMakerRequest(t, h, "DeleteModelQualityJobDefinition", map[string]any{
-		"ModelQualityJobDefinitionName": "mq-def-del",
+		"JobDefinitionName": "mq-def-del",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -147,7 +196,7 @@ func TestHandler_CreateModelExplainabilityJobDefinition(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doSageMakerRequest(t, h, "CreateModelExplainabilityJobDefinition", map[string]any{
-		"ModelExplainabilityJobDefinitionName": "me-def-1",
+		"JobDefinitionName": "me-def-1",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -162,10 +211,10 @@ func TestHandler_DeleteModelExplainabilityJobDefinition(t *testing.T) {
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateModelExplainabilityJobDefinition", map[string]any{
-		"ModelExplainabilityJobDefinitionName": "me-def-del",
+		"JobDefinitionName": "me-def-del",
 	})
 	rec := doSageMakerRequest(t, h, "DeleteModelExplainabilityJobDefinition", map[string]any{
-		"ModelExplainabilityJobDefinitionName": "me-def-del",
+		"JobDefinitionName": "me-def-del",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }

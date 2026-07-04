@@ -22,7 +22,7 @@ func TestStubOperations(t *testing.T) {
 		"AssociateInstanceEventWindow",
 		"AssociateIpamByoasn",
 		"AssociateIpamResourceDiscovery",
-		"AssociateRouteServer",
+		// "AssociateRouteServer", — real handler in handler_route_server.go, covered there
 		"AssociateTransitGatewayMulticastDomain",
 		"AssociateTransitGatewayPolicyTable",
 		"AssociateTrunkInterface",
@@ -37,19 +37,19 @@ func TestStubOperations(t *testing.T) {
 		"CancelExportTask",
 		"CancelImageLaunchPermission",
 		"CancelImportTask",
-		"CancelReservedInstancesListing",
+		// "CancelReservedInstancesListing", — real handler in handler_batch5.go, covered there
 		"ConfirmProductInstance",
 		"CopyFpgaImage",
 		"CreateCapacityManagerDataExport",
 		"CreateCapacityReservationBySplitting",
 		"CreateCapacityReservationFleet",
-		"CreateCarrierGateway",
+		// "CreateCarrierGateway", — real handler in handler_batch5.go, covered there
 		// "CreateClientVpnEndpoint", — moved to batch4
 		// "CreateClientVpnRoute", — moved to batch4
 		"CreateCoipCidr",
 		"CreateCoipPool",
 		"CreateDelegateMacVolumeOwnershipTask",
-		"CreateFleet",
+		// "CreateFleet", — real handler in handler_batch5.go, covered there
 		"CreateFpgaImage",
 		"CreateImageUsageReport",
 		"CreateInstanceExportTask",
@@ -68,13 +68,13 @@ func TestStubOperations(t *testing.T) {
 		"CreateLocalGatewayVirtualInterfaceGroup",
 		"CreateMacSystemIntegrityProtectionModificationTask",
 		// "CreateManagedPrefixList", — moved to batch4
-		"CreateNetworkInsightsAccessScope",
-		"CreateNetworkInsightsPath",
-		"CreateReservedInstancesListing",
+		// "CreateNetworkInsightsAccessScope", — real handler in handler_batch5.go, covered there
+		// "CreateNetworkInsightsPath", — real handler in handler_batch5.go, covered there
+		// "CreateReservedInstancesListing", — real handler in handler_batch5.go, covered there
 		"CreateRestoreImageTask",
-		"CreateRouteServer",
-		"CreateRouteServerEndpoint",
-		"CreateRouteServerPeer",
+		// "CreateRouteServer", — real handler in handler_route_server.go, covered there
+		// "CreateRouteServerEndpoint", — real handler in handler_route_server.go, covered there
+		// "CreateRouteServerPeer", — real handler in handler_route_server.go, covered there
 		"CreateSecondaryNetwork",
 		"CreateSecondarySubnet",
 		"CreateStoreImageTask",
@@ -101,12 +101,12 @@ func TestStubOperations(t *testing.T) {
 		"CreateVpnConcentrator",
 		"CreateVpnGateway",
 		"DeleteCapacityManagerDataExport",
-		"DeleteCarrierGateway",
+		// "DeleteCarrierGateway", — real handler in handler_batch5.go, covered there
 		// "DeleteClientVpnEndpoint", — moved to batch4
 		// "DeleteClientVpnRoute", — moved to batch4
 		"DeleteCoipCidr",
 		"DeleteCoipPool",
-		"DeleteFleets",
+		// "DeleteFleets", — real handler in handler_batch5.go, covered there
 		"DeleteFpgaImage",
 		"DeleteImageUsageReport",
 		"DeleteIpamExternalResourceVerificationToken",
@@ -121,14 +121,14 @@ func TestStubOperations(t *testing.T) {
 		"DeleteLocalGatewayVirtualInterface",
 		"DeleteLocalGatewayVirtualInterfaceGroup",
 		// "DeleteManagedPrefixList", — moved to batch4
-		"DeleteNetworkInsightsAccessScope",
-		"DeleteNetworkInsightsAccessScopeAnalysis",
-		"DeleteNetworkInsightsAnalysis",
-		"DeleteNetworkInsightsPath",
-		"DeleteQueuedReservedInstances",
-		"DeleteRouteServer",
-		"DeleteRouteServerEndpoint",
-		"DeleteRouteServerPeer",
+		// "DeleteNetworkInsightsAccessScope", — real handler in handler_batch5.go, covered there
+		// "DeleteNetworkInsightsAccessScopeAnalysis", — real handler in handler_batch5.go, covered there
+		// "DeleteNetworkInsightsAnalysis", — real handler in handler_batch5.go, covered there
+		// "DeleteNetworkInsightsPath", — real handler in handler_batch5.go, covered there
+		// "DeleteQueuedReservedInstances", — real handler in handler_batch5.go, covered there
+		// "DeleteRouteServer", — real handler in handler_route_server.go, covered there
+		// "DeleteRouteServerEndpoint", — real handler in handler_route_server.go, covered there
+		// "DeleteRouteServerPeer", — real handler in handler_route_server.go, covered there
 		"DeleteSecondaryNetwork",
 		"DeleteSecondarySubnet",
 		// "DeleteTrafficMirrorFilter", — real handler now requires an existing filter ID
@@ -152,7 +152,7 @@ func TestStubOperations(t *testing.T) {
 		"DeleteVpcEncryptionControl",
 		"DeleteVpcEndpointServiceConfigurations",
 		"DeleteVpnConcentrator",
-		"DeprovisionByoipCidr",
+		// "DeprovisionByoipCidr", — real handler in handler_batch5.go, covered there
 		"DeprovisionIpamByoasn",
 		"DeregisterTransitGatewayMulticastGroupMembers",
 		"DeregisterTransitGatewayMulticastGroupSources",
@@ -167,7 +167,7 @@ func TestStubOperations(t *testing.T) {
 		"DescribeCapacityReservationBillingRequests",
 		"DescribeCapacityReservationFleets",
 		"DescribeCapacityReservationTopology",
-		"DescribeCarrierGateways",
+		// "DescribeCarrierGateways", — real handler in handler_batch5.go, covered there
 		"DescribeClassicLinkInstances",
 		// "DescribeClientVpnAuthorizationRules", — moved to batch4
 		// "DescribeClientVpnConnections", — moved to batch4
@@ -181,9 +181,9 @@ func TestStubOperations(t *testing.T) {
 		"DescribeElasticGpus",
 		"DescribeExportImageTasks",
 		"DescribeExportTasks",
-		"DescribeFleetHistory",
-		"DescribeFleetInstances",
-		"DescribeFleets",
+		// "DescribeFleetHistory", — real handler in handler_batch5.go, covered there
+		// "DescribeFleetInstances", — real handler in handler_batch5.go, covered there
+		// "DescribeFleets", — real handler in handler_batch5.go, covered there
 		"DescribeFpgaImageAttribute",
 		"DescribeFpgaImages",
 		"DescribeHostReservationOfferings",
@@ -210,18 +210,18 @@ func TestStubOperations(t *testing.T) {
 		"DescribeMacModificationTasks",
 		// "DescribeManagedPrefixLists", — moved to batch4
 		"DescribeMovingAddresses",
-		"DescribeNetworkInsightsAccessScopeAnalyses",
-		"DescribeNetworkInsightsAccessScopes",
-		"DescribeNetworkInsightsAnalyses",
-		"DescribeNetworkInsightsPaths",
+		// "DescribeNetworkInsightsAccessScopeAnalyses", — real handler in handler_batch5.go, covered there
+		// "DescribeNetworkInsightsAccessScopes", — real handler in handler_batch5.go, covered there
+		// "DescribeNetworkInsightsAnalyses", — real handler in handler_batch5.go, covered there
+		// "DescribeNetworkInsightsPaths", — real handler in handler_batch5.go, covered there
 		"DescribeOutpostLags",
-		"DescribeReservedInstances",
-		"DescribeReservedInstancesListings",
-		"DescribeReservedInstancesModifications",
-		"DescribeReservedInstancesOfferings",
-		"DescribeRouteServerEndpoints",
-		"DescribeRouteServerPeers",
-		"DescribeRouteServers",
+		// "DescribeReservedInstances", — real handler in handler_batch5.go, covered there
+		// "DescribeReservedInstancesListings", — real handler in handler_batch5.go, covered there
+		// "DescribeReservedInstancesModifications", — real handler in handler_batch5.go, covered there
+		// "DescribeReservedInstancesOfferings", — real handler in handler_batch5.go, covered there
+		// "DescribeRouteServerEndpoints", — real handler in handler_route_server.go, covered there
+		// "DescribeRouteServerPeers", — real handler in handler_route_server.go, covered there
+		// "DescribeRouteServers", — real handler in handler_route_server.go, covered there
 		"DescribeScheduledInstanceAvailability",
 		"DescribeScheduledInstances",
 		"DescribeSecondaryInterfaces",
@@ -263,7 +263,7 @@ func TestStubOperations(t *testing.T) {
 		"DisableCapacityManager",
 		"DisableIpamOrganizationAdminAccount",
 		"DisableIpamPolicy",
-		"DisableRouteServerPropagation",
+		// "DisableRouteServerPropagation", — real handler in handler_route_server.go, covered there
 		"DisableTransitGatewayRouteTablePropagation",
 		"DisableVpcClassicLink",
 		"DisassociateCapacityReservationBillingOwner",
@@ -272,7 +272,7 @@ func TestStubOperations(t *testing.T) {
 		"DisassociateInstanceEventWindow",
 		"DisassociateIpamByoasn",
 		"DisassociateIpamResourceDiscovery",
-		"DisassociateRouteServer",
+		// "DisassociateRouteServer", — real handler in handler_route_server.go, covered there
 		"DisassociateTransitGatewayMulticastDomain",
 		"DisassociateTransitGatewayPolicyTable",
 		"DisassociateTrunkInterface",
@@ -282,7 +282,7 @@ func TestStubOperations(t *testing.T) {
 		"EnableIpamOrganizationAdminAccount",
 		"EnableIpamPolicy",
 		"EnableReachabilityAnalyzerOrganizationSharing",
-		"EnableRouteServerPropagation",
+		// "EnableRouteServerPropagation", — real handler in handler_route_server.go, covered there
 		"EnableTransitGatewayRouteTablePropagation",
 		"EnableVpcClassicLink",
 		// "ExportClientVpnClientCertificateRevocationList", — moved to batch4 (requires ClientVpnEndpointId)
@@ -318,12 +318,12 @@ func TestStubOperations(t *testing.T) {
 		"GetIpamResourceCidrs",
 		// "GetManagedPrefixListAssociations", — moved to batch4
 		// "GetManagedPrefixListEntries", — moved to batch4
-		"GetNetworkInsightsAccessScopeAnalysisFindings",
-		"GetNetworkInsightsAccessScopeContent",
-		"GetReservedInstancesExchangeQuote",
-		"GetRouteServerAssociations",
-		"GetRouteServerPropagations",
-		"GetRouteServerRoutingDatabase",
+		// "GetNetworkInsightsAccessScopeAnalysisFindings", — real handler in handler_batch5.go, covered there
+		// "GetNetworkInsightsAccessScopeContent", — real handler in handler_batch5.go, covered there
+		// "GetReservedInstancesExchangeQuote", — real handler in handler_batch5.go, covered there
+		// "GetRouteServerAssociations", — real handler in handler_route_server.go, covered there
+		// "GetRouteServerPropagations", — real handler in handler_route_server.go, covered there
+		// "GetRouteServerRoutingDatabase", — real handler in handler_route_server.go, covered there
 		"GetSpotPlacementScores",
 		"GetTransitGatewayAttachmentPropagations",
 		"GetTransitGatewayMeteringPolicyEntries",
@@ -346,7 +346,7 @@ func TestStubOperations(t *testing.T) {
 		"ModifyAvailabilityZoneGroup",
 		"ModifyCapacityReservationFleet",
 		// "ModifyClientVpnEndpoint", — moved to batch4
-		"ModifyFleet",
+		// "ModifyFleet", — real handler in handler_batch5.go, covered there
 		"ModifyFpgaImageAttribute",
 		"ModifyHosts",
 		"ModifyInstanceCapacityReservationAttributes",
@@ -361,8 +361,8 @@ func TestStubOperations(t *testing.T) {
 		"ModifyIpamResourceDiscovery",
 		"ModifyLocalGatewayRoute",
 		// "ModifyManagedPrefixList", — moved to batch4
-		"ModifyReservedInstances",
-		"ModifyRouteServer",
+		// "ModifyReservedInstances", — real handler in handler_batch5.go, covered there
+		// "ModifyRouteServer", — real handler in handler_route_server.go, covered there
 		// "ModifyTrafficMirrorFilterNetworkServices", — real handler now requires an existing filter ID
 		// "ModifyTrafficMirrorFilterRule", — real handler now requires an existing rule ID
 		// "ModifyTrafficMirrorSession", — real handler now requires an existing session ID
@@ -385,12 +385,12 @@ func TestStubOperations(t *testing.T) {
 		"MoveAddressToVpc",
 		"MoveByoipCidrToIpam",
 		"MoveCapacityReservationInstances",
-		"ProvisionByoipCidr",
+		// "ProvisionByoipCidr", — real handler in handler_batch5.go, covered there
 		"ProvisionIpamByoasn",
 		"PurchaseCapacityBlock",
 		"PurchaseCapacityBlockExtension",
 		"PurchaseHostReservation",
-		"PurchaseReservedInstancesOffering",
+		// "PurchaseReservedInstancesOffering", — real handler in handler_batch5.go, covered there
 		"PurchaseScheduledInstances",
 		"RegisterTransitGatewayMulticastGroupMembers",
 		"RegisterTransitGatewayMulticastGroupSources",
@@ -411,13 +411,13 @@ func TestStubOperations(t *testing.T) {
 		"SearchTransitGatewayRoutes",
 		"SendDiagnosticInterrupt",
 		"StartDeclarativePoliciesReport",
-		"StartNetworkInsightsAccessScopeAnalysis",
-		"StartNetworkInsightsAnalysis",
+		// "StartNetworkInsightsAccessScopeAnalysis", — real handler in handler_batch5.go, covered there
+		// "StartNetworkInsightsAnalysis", — real handler in handler_batch5.go, covered there
 		// "TerminateClientVpnConnections", — moved to batch4
 		"UnassignPrivateNatGatewayAddress",
 		"UpdateCapacityManagerOrganizationsAccess",
 		"UpdateInterruptibleCapacityReservationAllocation",
-		"WithdrawByoipCidr",
+		// "WithdrawByoipCidr", — real handler in handler_batch5.go, covered there
 		"CreatePublicIpv4Pool",
 		"DeletePublicIpv4Pool",
 		"DeprovisionPublicIpv4PoolCidr",

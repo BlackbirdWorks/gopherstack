@@ -381,13 +381,34 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerBatch3Ops(h, ops)
 	registerBatch4Ops(h, ops)
 	registerBatch5Ops(h, ops)
-	registerStubOps(h, ops)
+	registerRouteServerOps(h, ops)
+	registerStubOpsIfAbsent(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
 	// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
 	registerSpotFleetOps(h, ops)
 
 	return ops
+}
+
+// registerStubOpsIfAbsent registers the stub EC2 operation handlers, but only
+// for op names that do not already have a real handler registered in ops.
+//
+// Previously registerStubOps assigned directly into the shared ops map and
+// ran after every real registerBatch*/register*Ops call, so a stub silently
+// overwrote any real handler sharing the same action name. Routing stub
+// registration through a scratch map and merging only the missing keys makes
+// stub registration order-independent: a stub can never shadow a real
+// handler, regardless of registration order.
+func registerStubOpsIfAbsent(h *Handler, ops map[string]ec2ActionFn) {
+	stubs := make(map[string]ec2ActionFn)
+	registerStubOps(h, stubs)
+
+	for name, fn := range stubs {
+		if _, exists := ops[name]; !exists {
+			ops[name] = fn
+		}
+	}
 }
 
 func (h *Handler) buildCoreOps() map[string]ec2ActionFn {
