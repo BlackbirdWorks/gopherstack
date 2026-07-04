@@ -520,6 +520,7 @@ type InMemoryBackend struct {
 	distributionRealtimeLogConfigs      map[string]string                  // distribution ID → RLC ARN
 	// Batch 2 additions.
 	distributionTenants         map[string]*DistributionTenant // key: tenant ID
+	distributionTenantARNs      map[string]string              // ARN → tenant ID (tag lookups)
 	distributionTenantsByDomain map[string]string              // key: domain → tenant ID
 	tenantInvalidations         map[string][]*Invalidation     // key: tenantID
 	// Audit batch additions.
@@ -586,6 +587,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		distributionResponseHeadersPolicies: make(map[string]string),
 		distributionRealtimeLogConfigs:      make(map[string]string),
 		distributionTenants:                 make(map[string]*DistributionTenant),
+		distributionTenantARNs:              make(map[string]string),
 		distributionTenantsByDomain:         make(map[string]string),
 		tenantInvalidations:                 make(map[string][]*Invalidation),
 		keyValueStoreData:                   make(map[string]map[string]string),
@@ -700,6 +702,7 @@ func (b *InMemoryBackend) resetDistributions() {
 	b.distributionResponseHeadersPolicies = make(map[string]string)
 	b.distributionRealtimeLogConfigs = make(map[string]string)
 	b.distributionTenants = make(map[string]*DistributionTenant)
+	b.distributionTenantARNs = make(map[string]string)
 	b.distributionTenantsByDomain = make(map[string]string)
 	b.tenantInvalidations = make(map[string][]*Invalidation)
 }
@@ -988,6 +991,10 @@ func (b *InMemoryBackend) taggableTags(resourceARN string) (*map[string]string, 
 
 	if id, ok := b.trustStoreARNs[resourceARN]; ok {
 		return &b.trustStores[id].Tags, true
+	}
+
+	if id, ok := b.distributionTenantARNs[resourceARN]; ok {
+		return &b.distributionTenants[id].Tags, true
 	}
 
 	return nil, false

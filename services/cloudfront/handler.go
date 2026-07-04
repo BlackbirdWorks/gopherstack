@@ -2069,12 +2069,14 @@ func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, _ cfStubHelpe
 		return h.handleGetDistributionTenant(c, extractResourceID(path, "distribution-tenant/"))
 	case opGetDistributionTenantByDomain:
 		return h.handleGetDistributionTenantByDomain(c)
-	case opListDistributionTenants, opListDistributionTenantsByCustom:
+	case opListDistributionTenants:
 		return h.handleListDistributionTenants(c)
+	case opListDistributionTenantsByCustom:
+		return h.handleListDistributionTenantsByCustomization(c)
 	case opUpdateDistributionWithStagingConfig:
 		return h.handleUpdateDistributionWithStagingConfig(c, extractResourceID(path, "distribution/"))
 	case opUpdateDomainAssociation:
-		return h.handleUpdateDomainAssociation(c, extractResourceID(path, "distribution/"))
+		return h.handleUpdateDomainAssociation(c)
 	case opVerifyDNSConfiguration:
 		return h.handleVerifyDNSConfiguration(c)
 	}
@@ -2384,6 +2386,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidTagging", err.Error()))
 	case errors.Is(err, ErrStreamingDistributionNotDisabled):
 		return xmlResp(c, http.StatusConflict, cfErrorXML("StreamingDistributionNotDisabled", err.Error()))
+	case errors.Is(err, ErrDomainConflict):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("DomainConflictException", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", err.Error()))
 	default:

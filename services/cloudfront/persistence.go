@@ -38,6 +38,9 @@ type backendSnapshot struct {
 	DistributionWebACLs              map[string]string                `json:"distributionWebACLs,omitempty"`
 	DistributionTenantWebACLs        map[string]string                `json:"distributionTenantWebACLs,omitempty"`
 
+	DistributionTenants map[string]*DistributionTenant `json:"distributionTenants,omitempty"`
+	TenantInvalidations map[string][]*Invalidation     `json:"tenantInvalidations,omitempty"`
+
 	AccountID string `json:"accountId"`
 	Region    string `json:"region"`
 }
@@ -73,6 +76,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		DistributionAliases:              b.distributionAliases,
 		DistributionWebACLs:              b.distributionWebACLs,
 		DistributionTenantWebACLs:        b.distributionTenantWebACLs,
+		DistributionTenants:              b.distributionTenants,
+		TenantInvalidations:              b.tenantInvalidations,
 		AccountID:                        b.accountID,
 		Region:                           b.region,
 	}
@@ -108,6 +113,8 @@ type backendIndexes struct {
 	keyGroupByName                    map[string]string
 	realtimeLogConfigByName           map[string]string
 	keyValueStoreByName               map[string]string
+	distributionTenantARNs            map[string]string
+	distributionTenantsByDomain       map[string]string
 }
 
 // rebuildDistributionIndexes derives the ARN and CallerReference indexes for distributions
@@ -138,6 +145,91 @@ func rebuildDistributionIndexes(
 	return arnIndex, callerRefIndex, sdARNIndex, sdCallerRefIndex
 }
 
+// rebuildTenantIndexes derives the ARN and domain indexes for distribution tenants.
+func rebuildTenantIndexes(snap *backendSnapshot) (map[string]string, map[string]string) {
+	tenantARNIndex := make(map[string]string, len(snap.DistributionTenants))
+	tenantByDomain := make(map[string]string, len(snap.DistributionTenants))
+
+	for id, t := range snap.DistributionTenants {
+		tenantARNIndex[t.ARN] = id
+		for _, d := range t.Domains {
+			tenantByDomain[d] = id
+		}
+		if t.Domain != "" {
+			tenantByDomain[t.Domain] = id
+		}
+	}
+
+	return tenantARNIndex, tenantByDomain
+}
+
+// rebuildNameIndexes derives the various name → ID lookup indexes for policy- and key-like
+// resources that are uniqued by name.
+func rebuildNameIndexes(snap *backendSnapshot) backendIndexes {
+	cachePolicyByName := make(map[string]string, len(snap.CachePolicies))
+	for id, cp := range snap.CachePolicies {
+		cachePolicyByName[cp.Name] = id
+	}
+
+	oacByName := make(map[string]string, len(snap.OriginAccessControls))
+	for id, oac := range snap.OriginAccessControls {
+		oacByName[oac.Name] = id
+	}
+
+	rhpByName := make(map[string]string, len(snap.ResponseHeadersPolicies))
+	for id, p := range snap.ResponseHeadersPolicies {
+		rhpByName[p.Name] = id
+	}
+
+	orpByName := make(map[string]string, len(snap.OriginRequestPolicies))
+	for id, p := range snap.OriginRequestPolicies {
+		orpByName[p.Name] = id
+	}
+
+	fleByName := make(map[string]string, len(snap.FieldLevelEncryptions))
+	for id, fle := range snap.FieldLevelEncryptions {
+		fleByName[fle.Name] = id
+	}
+
+	flePByName := make(map[string]string, len(snap.FieldLevelEncryptionProfiles))
+	for id, p := range snap.FieldLevelEncryptionProfiles {
+		flePByName[p.Name] = id
+	}
+
+	pkByName := make(map[string]string, len(snap.PublicKeys))
+	for id, pk := range snap.PublicKeys {
+		pkByName[pk.Name] = id
+	}
+
+	kgByName := make(map[string]string, len(snap.KeyGroups))
+	for id, kg := range snap.KeyGroups {
+		kgByName[kg.Name] = id
+	}
+
+	rlcByName := make(map[string]string, len(snap.RealtimeLogConfigs))
+	for arn, rlc := range snap.RealtimeLogConfigs {
+		rlcByName[rlc.Name] = arn
+	}
+
+	kvsByName := make(map[string]string, len(snap.KeyValueStores))
+	for id, kvs := range snap.KeyValueStores {
+		kvsByName[kvs.Name] = id
+	}
+
+	return backendIndexes{
+		cachePolicyByName:                 cachePolicyByName,
+		originAccessControlByName:         oacByName,
+		responseHeadersPolicyByName:       rhpByName,
+		originRequestPolicyByName:         orpByName,
+		fieldLevelEncryptionByName:        fleByName,
+		fieldLevelEncryptionProfileByName: flePByName,
+		publicKeyByName:                   pkByName,
+		keyGroupByName:                    kgByName,
+		realtimeLogConfigByName:           rlcByName,
+		keyValueStoreByName:               kvsByName,
+	}
+}
+
 // rebuildIndexes derives all secondary indexes from a snapshot.
 func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 	arnIndex, callerRefIndex, sdARNIndex, sdCallerRefIndex := rebuildDistributionIndexes(snap)
@@ -150,66 +242,6 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 		}
 	}
 
-	cachePolicyByName := make(map[string]string, len(snap.CachePolicies))
-
-	for id, cp := range snap.CachePolicies {
-		cachePolicyByName[cp.Name] = id
-	}
-
-	oacByName := make(map[string]string, len(snap.OriginAccessControls))
-
-	for id, oac := range snap.OriginAccessControls {
-		oacByName[oac.Name] = id
-	}
-
-	rhpByName := make(map[string]string, len(snap.ResponseHeadersPolicies))
-
-	for id, p := range snap.ResponseHeadersPolicies {
-		rhpByName[p.Name] = id
-	}
-
-	orpByName := make(map[string]string, len(snap.OriginRequestPolicies))
-
-	for id, p := range snap.OriginRequestPolicies {
-		orpByName[p.Name] = id
-	}
-
-	fleByName := make(map[string]string, len(snap.FieldLevelEncryptions))
-
-	for id, fle := range snap.FieldLevelEncryptions {
-		fleByName[fle.Name] = id
-	}
-
-	flePByName := make(map[string]string, len(snap.FieldLevelEncryptionProfiles))
-
-	for id, p := range snap.FieldLevelEncryptionProfiles {
-		flePByName[p.Name] = id
-	}
-
-	pkByName := make(map[string]string, len(snap.PublicKeys))
-
-	for id, pk := range snap.PublicKeys {
-		pkByName[pk.Name] = id
-	}
-
-	kgByName := make(map[string]string, len(snap.KeyGroups))
-
-	for id, kg := range snap.KeyGroups {
-		kgByName[kg.Name] = id
-	}
-
-	rlcByName := make(map[string]string, len(snap.RealtimeLogConfigs))
-
-	for arn, rlc := range snap.RealtimeLogConfigs {
-		rlcByName[rlc.Name] = arn
-	}
-
-	kvsByName := make(map[string]string, len(snap.KeyValueStores))
-
-	for id, kvs := range snap.KeyValueStores {
-		kvsByName[kvs.Name] = id
-	}
-
 	trustStoreARNIndex := make(map[string]string, len(snap.TrustStores))
 	trustStoreByName := make(map[string]string, len(snap.TrustStores))
 
@@ -218,25 +250,20 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 		trustStoreByName[ts.Name] = id
 	}
 
-	return backendIndexes{
-		distributionARNs:                  arnIndex,
-		distributionCallerRefs:            callerRefIndex,
-		streamingDistributionARNs:         sdARNIndex,
-		streamingDistributionCallerRefs:   sdCallerRefIndex,
-		trustStoreARNs:                    trustStoreARNIndex,
-		trustStoreByName:                  trustStoreByName,
-		oaiCallerRefs:                     oaiCallerRefIndex,
-		cachePolicyByName:                 cachePolicyByName,
-		originAccessControlByName:         oacByName,
-		responseHeadersPolicyByName:       rhpByName,
-		originRequestPolicyByName:         orpByName,
-		fieldLevelEncryptionByName:        fleByName,
-		fieldLevelEncryptionProfileByName: flePByName,
-		publicKeyByName:                   pkByName,
-		keyGroupByName:                    kgByName,
-		realtimeLogConfigByName:           rlcByName,
-		keyValueStoreByName:               kvsByName,
-	}
+	tenantARNIndex, tenantByDomain := rebuildTenantIndexes(snap)
+	idx := rebuildNameIndexes(snap)
+
+	idx.distributionARNs = arnIndex
+	idx.distributionCallerRefs = callerRefIndex
+	idx.streamingDistributionARNs = sdARNIndex
+	idx.streamingDistributionCallerRefs = sdCallerRefIndex
+	idx.trustStoreARNs = trustStoreARNIndex
+	idx.trustStoreByName = trustStoreByName
+	idx.oaiCallerRefs = oaiCallerRefIndex
+	idx.distributionTenantARNs = tenantARNIndex
+	idx.distributionTenantsByDomain = tenantByDomain
+
+	return idx
 }
 
 func (b *InMemoryBackend) Restore(data []byte) error {
@@ -289,6 +316,8 @@ func (b *InMemoryBackend) restoreCollections(snap *backendSnapshot) {
 	b.distributionAliases = snap.DistributionAliases
 	b.distributionWebACLs = snap.DistributionWebACLs
 	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
+	b.distributionTenants = snap.DistributionTenants
+	b.tenantInvalidations = snap.TenantInvalidations
 }
 
 // restoreIndexes assigns the derived lookup indexes onto the backend. Must be called with the
@@ -311,6 +340,8 @@ func (b *InMemoryBackend) restoreIndexes(idx *backendIndexes) {
 	b.keyGroupByName = idx.keyGroupByName
 	b.realtimeLogConfigByName = idx.realtimeLogConfigByName
 	b.keyValueStoreByName = idx.keyValueStoreByName
+	b.distributionTenantARNs = idx.distributionTenantARNs
+	b.distributionTenantsByDomain = idx.distributionTenantsByDomain
 }
 
 // ensureNonNil initialises any nil maps in a snapshot to empty maps so that
@@ -364,6 +395,14 @@ func ensureNonNilBaseEntities(snap *backendSnapshot) {
 
 	if snap.DistributionTenantWebACLs == nil {
 		snap.DistributionTenantWebACLs = make(map[string]string)
+	}
+
+	if snap.DistributionTenants == nil {
+		snap.DistributionTenants = make(map[string]*DistributionTenant)
+	}
+
+	if snap.TenantInvalidations == nil {
+		snap.TenantInvalidations = make(map[string][]*Invalidation)
 	}
 }
 

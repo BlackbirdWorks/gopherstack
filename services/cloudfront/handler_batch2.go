@@ -14,15 +14,29 @@ import (
 // DistributionTenant XML helpers
 // ---------------------------------------------------------------------------
 
-func distributionTenantXML(t *DistributionTenant) string {
+func (h *Handler) distributionTenantXML(t *DistributionTenant) string {
+	var domainsXML strings.Builder
+	for _, d := range t.Domains {
+		fmt.Fprintf(&domainsXML, `<Item><Domain>%s</Domain><Status>Active</Status></Item>`, d)
+	}
+
+	webACLArn := h.Backend.TenantWebACLArn(t.ID)
+
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<DistributionTenant xmlns="%s">`+
 		`<Id>%s</Id>`+
+		`<Arn>%s</Arn>`+
 		`<DistributionId>%s</DistributionId>`+
+		`<Name>%s</Name>`+
 		`<Domain>%s</Domain>`+
+		`<Domains>%s</Domains>`+
+		`<ConnectionGroupId>%s</ConnectionGroupId>`+
+		`<Enabled>%v</Enabled>`+
+		`<WebACLArn>%s</WebACLArn>`+
 		`<Status>%s</Status>`+
 		`</DistributionTenant>`,
-		cfNS, t.ID, t.DistributionID, t.Domain, t.Status)
+		cfNS, t.ID, t.ARN, t.DistributionID, t.Name, t.Domain, domainsXML.String(),
+		t.ConnectionGroupID, t.Enabled, webACLArn, t.Status)
 }
 
 // ---------------------------------------------------------------------------
@@ -32,8 +46,18 @@ func distributionTenantXML(t *DistributionTenant) string {
 type createDistributionTenantXML struct {
 	XMLName        xml.Name `xml:"CreateDistributionTenantRequest"`
 	DistributionID string   `xml:"DistributionId"`
+	Name           string   `xml:"Name"`
 	Domain         string   `xml:"Domain"`
+	Domains        []string `xml:"Domains>Item>Domain"`
 	Tags           []tagXML `xml:"Tags>Tag"`
+}
+
+type updateDistributionTenantXML struct {
+	Enabled           *bool    `xml:"Enabled"`
+	XMLName           xml.Name `xml:"UpdateDistributionTenantRequest"`
+	Domain            string   `xml:"Domain"`
+	ConnectionGroupID string   `xml:"ConnectionGroupId"`
+	Domains           []string `xml:"Domains>Item>Domain"`
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +80,12 @@ func (h *Handler) handleCreateDistributionTenant(c *echo.Context) error {
 		tags[tag.Key] = tag.Value
 	}
 
-	t, createErr := h.Backend.CreateDistributionTenant(req.DistributionID, req.Domain, tags)
+	domains := req.Domains
+	if req.Domain != "" {
+		domains = append([]string{req.Domain}, domains...)
+	}
+
+	t, createErr := h.Backend.CreateDistributionTenant(req.DistributionID, req.Name, domains, tags)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -64,7 +93,7 @@ func (h *Handler) handleCreateDistributionTenant(c *echo.Context) error {
 	c.Response().Header().Set("ETag", t.ETag)
 	c.Response().Header().Set("Location", cfPathPrefix+"distribution-tenant/"+t.ID)
 
-	return xmlResp(c, http.StatusCreated, distributionTenantXML(t))
+	return xmlResp(c, http.StatusCreated, h.distributionTenantXML(t))
 }
 
 func (h *Handler) handleGetDistributionTenant(c *echo.Context, id string) error {
@@ -75,7 +104,7 @@ func (h *Handler) handleGetDistributionTenant(c *echo.Context, id string) error 
 
 	c.Response().Header().Set("ETag", t.ETag)
 
-	return xmlResp(c, http.StatusOK, distributionTenantXML(t))
+	return xmlResp(c, http.StatusOK, h.distributionTenantXML(t))
 }
 
 func (h *Handler) handleGetDistributionTenantByDomain(c *echo.Context) error {
@@ -91,7 +120,7 @@ func (h *Handler) handleGetDistributionTenantByDomain(c *echo.Context) error {
 
 	c.Response().Header().Set("ETag", t.ETag)
 
-	return xmlResp(c, http.StatusOK, distributionTenantXML(t))
+	return xmlResp(c, http.StatusOK, h.distributionTenantXML(t))
 }
 
 func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) error {
@@ -106,14 +135,33 @@ func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) err
 			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current distribution tenant ETag"))
 	}
 
-	t, updateErr := h.Backend.UpdateDistributionTenant(id, nil)
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req updateDistributionTenantXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	domains := req.Domains
+	if req.Domain != "" {
+		domains = append([]string{req.Domain}, domains...)
+	}
+
+	t, updateErr := h.Backend.UpdateDistributionTenant(id, DistributionTenantUpdate{
+		Domains:           domains,
+		ConnectionGroupID: req.ConnectionGroupID,
+		Enabled:           req.Enabled,
+	})
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
 
 	c.Response().Header().Set("ETag", t.ETag)
 
-	return xmlResp(c, http.StatusOK, distributionTenantXML(t))
+	return xmlResp(c, http.StatusOK, h.distributionTenantXML(t))
 }
 
 func (h *Handler) handleDeleteDistributionTenant(c *echo.Context, id string) error {
@@ -135,34 +183,63 @@ func (h *Handler) handleDeleteDistributionTenant(c *echo.Context, id string) err
 	return c.NoContent(http.StatusNoContent)
 }
 
+// tenantSummaryXML is the list-view representation of a DistributionTenant.
+type tenantSummaryXML struct {
+	XMLName           xml.Name `xml:"DistributionTenant"`
+	ID                string   `xml:"Id"`
+	ARN               string   `xml:"Arn"`
+	DistributionID    string   `xml:"DistributionId"`
+	Name              string   `xml:"Name,omitempty"`
+	Domain            string   `xml:"Domain"`
+	ConnectionGroupID string   `xml:"ConnectionGroupId,omitempty"`
+	Status            string   `xml:"Status"`
+	Enabled           bool     `xml:"Enabled"`
+}
+
+type tenantListXML struct {
+	XMLName  xml.Name           `xml:"DistributionTenantList"`
+	XMLNS    string             `xml:"xmlns,attr"`
+	Items    []tenantSummaryXML `xml:"Items>DistributionTenant"`
+	MaxItems int                `xml:"MaxItems"`
+	Quantity int                `xml:"Quantity"`
+}
+
+func tenantsToSummaryList(tenants []*DistributionTenant) tenantListXML {
+	summaries := make([]tenantSummaryXML, 0, len(tenants))
+	for _, t := range tenants {
+		summaries = append(summaries, tenantSummaryXML{
+			ID:                t.ID,
+			ARN:               t.ARN,
+			DistributionID:    t.DistributionID,
+			Name:              t.Name,
+			Domain:            t.Domain,
+			ConnectionGroupID: t.ConnectionGroupID,
+			Enabled:           t.Enabled,
+			Status:            t.Status,
+		})
+	}
+
+	return tenantListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+}
+
 func (h *Handler) handleListDistributionTenants(c *echo.Context) error {
 	tenants := h.Backend.ListDistributionTenants()
 
-	type tenantSummary struct {
-		XMLName        xml.Name `xml:"DistributionTenant"`
-		ID             string   `xml:"Id"`
-		DistributionID string   `xml:"DistributionId"`
-		Domain         string   `xml:"Domain"`
-		Status         string   `xml:"Status"`
-	}
-	type tenantList struct {
-		XMLName  xml.Name        `xml:"DistributionTenantList"`
-		XMLNS    string          `xml:"xmlns,attr"`
-		Items    []tenantSummary `xml:"Items>DistributionTenant"`
-		Quantity int             `xml:"Quantity"`
+	out, xmlErr := xml.Marshal(tenantsToSummaryList(tenants))
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
 	}
 
-	summaries := make([]tenantSummary, 0, len(tenants))
-	for _, t := range tenants {
-		summaries = append(summaries, tenantSummary{
-			ID:             t.ID,
-			DistributionID: t.DistributionID,
-			Domain:         t.Domain,
-			Status:         t.Status,
-		})
-	}
-	list := tenantList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
-	out, xmlErr := xml.Marshal(list)
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+// handleListDistributionTenantsByCustomization returns distribution tenants filtered by the
+// WebACLArn query parameter, i.e. tenants that have that WAF web ACL associated.
+func (h *Handler) handleListDistributionTenantsByCustomization(c *echo.Context) error {
+	webACLArn := c.Request().URL.Query().Get("WebACLArn")
+	tenants := h.Backend.ListDistributionTenantsByCustomization(webACLArn)
+
+	out, xmlErr := xml.Marshal(tenantsToSummaryList(tenants))
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
 	}
@@ -197,7 +274,7 @@ func (h *Handler) handleDisassociateDistributionTenantWebACL(c *echo.Context, te
 		return h.handleError(c, disErr)
 	}
 
-	return xmlResp(c, http.StatusOK, distributionTenantXML(t))
+	return xmlResp(c, http.StatusOK, h.distributionTenantXML(t))
 }
 
 // ---------------------------------------------------------------------------
@@ -298,12 +375,23 @@ func (h *Handler) handleUpdateDistributionWithStagingConfig(c *echo.Context, pri
 // UpdateDomainAssociation handler
 // ---------------------------------------------------------------------------
 
-type updateDomainAssociationXML struct {
-	XMLName xml.Name `xml:"UpdateDomainAssociationRequest"`
-	Domains []string `xml:"Domains>Domain"`
+// updateDomainAssociationTargetXML identifies the resource a domain should be (re-)associated
+// with: exactly one of DistributionID / DistributionTenantID is expected to be set.
+type updateDomainAssociationTargetXML struct {
+	DistributionID       string `xml:"DistributionId"`
+	DistributionTenantID string `xml:"DistributionTenantId"`
 }
 
-func (h *Handler) handleUpdateDomainAssociation(c *echo.Context, distID string) error {
+type updateDomainAssociationXML struct {
+	XMLName        xml.Name                         `xml:"UpdateDomainAssociationRequest"`
+	Domain         string                           `xml:"Domain"`
+	TargetResource updateDomainAssociationTargetXML `xml:"TargetResource"`
+}
+
+// handleUpdateDomainAssociation moves a Domain's association to the distribution or distribution
+// tenant named in TargetResource, persisting the change in the backend. The Identifier is carried
+// entirely in the request body (real AWS routes this operation without a path parameter).
+func (h *Handler) handleUpdateDomainAssociation(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -311,22 +399,29 @@ func (h *Handler) handleUpdateDomainAssociation(c *echo.Context, distID string) 
 
 	var req updateDomainAssociationXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateDomainAssociationRequest XML"),
+			)
+		}
 	}
 
-	// Build domain list XML.
-	var sb strings.Builder
-	for _, d := range req.Domains {
-		fmt.Fprintf(&sb, `<Domain>%s</Domain>`, d)
+	result, updateErr := h.Backend.UpdateDomainAssociation(
+		req.Domain, req.TargetResource.DistributionTenantID, req.TargetResource.DistributionID,
+	)
+	if updateErr != nil {
+		return h.handleError(c, updateErr)
 	}
-	domainsXML := sb.String()
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<DomainAssociation xmlns="%s">`+
+		`<Domain>%s</Domain>`+
 		`<DistributionId>%s</DistributionId>`+
-		`<Domains>%s</Domains>`+
+		`<DistributionTenantId>%s</DistributionTenantId>`+
 		`</DomainAssociation>`,
-		cfNS, distID, domainsXML)
+		cfNS, result.Domain, result.DistributionID, result.DistributionTenantID)
 
 	return xmlResp(c, http.StatusOK, resp)
 }
@@ -335,12 +430,40 @@ func (h *Handler) handleUpdateDomainAssociation(c *echo.Context, distID string) 
 // VerifyDNSConfiguration handler
 // ---------------------------------------------------------------------------
 
+type verifyDNSConfigurationXML struct {
+	XMLName    xml.Name `xml:"VerifyDnsConfigurationRequest"`
+	Identifier string   `xml:"Identifier"`
+}
+
+// handleVerifyDNSConfiguration verifies the DNS configuration for the distribution tenant (or
+// distribution) named by Identifier, returning a real per-domain status list. When Identifier is
+// omitted, a single generic PASSED entry is returned for backward compatibility.
 func (h *Handler) handleVerifyDNSConfiguration(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req verifyDNSConfigurationXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	configs, verifyErr := h.Backend.VerifyDNSConfiguration(req.Identifier)
+	if verifyErr != nil {
+		return h.handleError(c, verifyErr)
+	}
+
+	var items strings.Builder
+	for _, dc := range configs {
+		fmt.Fprintf(&items, `<Item><Domain>%s</Domain><Status>%s</Status></Item>`, dc.Domain, dc.Status)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<VerifyDnsConfigurationResponse xmlns="%s">`+
-		`<VerifyDNS>PASSED</VerifyDNS>`+
+		`<DnsConfigurationList>%s</DnsConfigurationList>`+
 		`</VerifyDnsConfigurationResponse>`,
-		cfNS)
+		cfNS, items.String())
 
 	return xmlResp(c, http.StatusOK, resp)
 }
@@ -551,13 +674,46 @@ func (h *Handler) handleListConflictingAliases(c *echo.Context) error {
 // ListDomainConflicts handler
 // ---------------------------------------------------------------------------
 
+type listDomainConflictsXML struct {
+	XMLName xml.Name `xml:"ListDomainConflictsRequest"`
+	Domain  string   `xml:"Domain"`
+}
+
+// handleListDomainConflicts reports every existing distribution or distribution tenant that
+// already claims the requested Domain.
 func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req listDomainConflictsXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	if req.Domain == "" {
+		req.Domain = c.Request().URL.Query().Get("Domain")
+	}
+
+	conflicts := h.Backend.ListDomainConflicts(req.Domain)
+
+	var items strings.Builder
+	for _, dc := range conflicts {
+		fmt.Fprintf(
+			&items,
+			`<DomainConflict><Domain>%s</Domain><ResourceType>%s</ResourceType>`+
+				`<ResourceId>%s</ResourceId><AccountId>%s</AccountId></DomainConflict>`,
+			dc.Domain, dc.ResourceType, dc.ResourceID, dc.AccountID,
+		)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<DomainConflictList xmlns="%s">`+
-		`<Items/>`+
-		`<Quantity>0</Quantity>`+
+		`<Items>%s</Items>`+
+		`<Quantity>%d</Quantity>`+
 		`</DomainConflictList>`,
-		cfNS)
+		cfNS, items.String(), len(conflicts))
 
 	return xmlResp(c, http.StatusOK, resp)
 }
