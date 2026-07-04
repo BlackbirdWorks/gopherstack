@@ -102,6 +102,10 @@ type backendIndexes struct {
 	streamingDistributionCallerRefs   map[string]string
 	trustStoreARNs                    map[string]string
 	trustStoreByName                  map[string]string
+	connectionGroupARNs               map[string]string
+	connectionGroupByName             map[string]string
+	connectionGroupByRoutingEndpoint  map[string]string
+	connectionFunctionARNs            map[string]string
 	oaiCallerRefs                     map[string]string
 	cachePolicyByName                 map[string]string
 	originAccessControlByName         map[string]string
@@ -253,6 +257,23 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 	tenantARNIndex, tenantByDomain := rebuildTenantIndexes(snap)
 	idx := rebuildNameIndexes(snap)
 
+	connectionGroupARNIndex := make(map[string]string, len(snap.ConnectionGroups))
+	connectionGroupByNameIndex := make(map[string]string, len(snap.ConnectionGroups))
+	connectionGroupByRoutingEndpointIndex := make(map[string]string, len(snap.ConnectionGroups))
+
+	for id, cg := range snap.ConnectionGroups {
+		connectionGroupARNIndex[cg.ARN] = id
+		connectionGroupByNameIndex[cg.Name] = id
+		if cg.RoutingEndpoint != "" {
+			connectionGroupByRoutingEndpointIndex[cg.RoutingEndpoint] = id
+		}
+	}
+
+	connectionFunctionARNIndex := make(map[string]string, len(snap.ConnectionFunctions))
+	for id, fn := range snap.ConnectionFunctions {
+		connectionFunctionARNIndex[fn.ARN] = id
+	}
+
 	idx.distributionARNs = arnIndex
 	idx.distributionCallerRefs = callerRefIndex
 	idx.streamingDistributionARNs = sdARNIndex
@@ -262,6 +283,10 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 	idx.oaiCallerRefs = oaiCallerRefIndex
 	idx.distributionTenantARNs = tenantARNIndex
 	idx.distributionTenantsByDomain = tenantByDomain
+	idx.connectionGroupARNs = connectionGroupARNIndex
+	idx.connectionGroupByName = connectionGroupByNameIndex
+	idx.connectionGroupByRoutingEndpoint = connectionGroupByRoutingEndpointIndex
+	idx.connectionFunctionARNs = connectionFunctionARNIndex
 
 	return idx
 }
@@ -342,6 +367,10 @@ func (b *InMemoryBackend) restoreIndexes(idx *backendIndexes) {
 	b.keyValueStoreByName = idx.keyValueStoreByName
 	b.distributionTenantARNs = idx.distributionTenantARNs
 	b.distributionTenantsByDomain = idx.distributionTenantsByDomain
+	b.connectionGroupARNs = idx.connectionGroupARNs
+	b.connectionGroupByName = idx.connectionGroupByName
+	b.connectionGroupByRoutingEndpoint = idx.connectionGroupByRoutingEndpoint
+	b.connectionFunctionARNs = idx.connectionFunctionARNs
 }
 
 // ensureNonNil initialises any nil maps in a snapshot to empty maps so that

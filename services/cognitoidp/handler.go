@@ -418,6 +418,9 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrDuplicateProvider, ErrDuplicateProvider.Error()},
 	{ErrInvalidParameter, ErrInvalidParameter.Error()},
 	{ErrInvalidToken, ErrInvalidToken.Error()},
+	{ErrDeviceNotFound, ErrDeviceNotFound.Error()},
+	{ErrWebAuthnCredentialNotFound, ErrWebAuthnCredentialNotFound.Error()},
+	{ErrAuthEventNotFound, ErrAuthEventNotFound.Error()},
 	{errUnknownAction, "UnknownOperationException"},
 }
 
@@ -1653,7 +1656,7 @@ func (h *Handler) handleAdminForgetDevice(
 	_ context.Context,
 	in *adminForgetDeviceInput,
 ) (*adminForgetDeviceOutput, error) {
-	if err := h.Backend.AdminForgetDevice(in.UserPoolID, in.Username); err != nil {
+	if err := h.Backend.AdminForgetDevice(in.UserPoolID, in.Username, in.DeviceKey); err != nil {
 		return nil, err
 	}
 

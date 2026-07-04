@@ -114,6 +114,8 @@ type User struct {
 	PreferredMfaSetting  string            `json:"preferredMfaSetting,omitempty"`
 	TOTPSecret           string            `json:"totpSecret,omitempty"`
 	UserMFASettingList   []string          `json:"userMFASettingList,omitempty"`
+	MFAOptions           []MFAOptionType   `json:"mfaOptions,omitempty"`
+	LinkedProviders      []ProviderLink    `json:"linkedProviders,omitempty"`
 	Enabled              bool              `json:"enabled,omitempty"`
 	TOTPVerified         bool              `json:"totpVerified,omitempty"`
 }
@@ -181,9 +183,15 @@ type InMemoryBackend struct {
 	attrVerificationCodes map[string]*attrVerificationEntry
 	// typedRiskConfigurations maps poolID+":"+clientID → typed risk configuration
 	typedRiskConfigurations map[string]*TypedRiskConfiguration
-	accountID               string
-	region                  string
-	endpoint                string
+	// devices maps poolID+":"+username → deviceKey → *Device (device tracking / "remember this device").
+	devices map[string]map[string]*Device
+	// webauthnCredentials maps poolID+":"+username → credentialID → *WebAuthnCredential.
+	webauthnCredentials map[string]map[string]*WebAuthnCredential
+	// authEvents maps poolID+":"+username → eventID → *AuthEvent (adaptive-auth event feedback tracking).
+	authEvents map[string]map[string]*AuthEvent
+	accountID  string
+	region     string
+	endpoint   string
 }
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
@@ -258,6 +266,9 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		poolMfaConfigs:          make(map[string]*UserPoolMfaFullConfig),
 		attrVerificationCodes:   make(map[string]*attrVerificationEntry),
 		typedRiskConfigurations: make(map[string]*TypedRiskConfiguration),
+		devices:                 make(map[string]map[string]*Device),
+		webauthnCredentials:     make(map[string]map[string]*WebAuthnCredential),
+		authEvents:              make(map[string]map[string]*AuthEvent),
 		accountID:               accountID,
 		region:                  region,
 		endpoint:                endpoint,
@@ -1607,11 +1618,16 @@ func (b *InMemoryBackend) AdminEnableUser(userPoolID, username string) error {
 	return nil
 }
 
-// AdminForgetDevice forgets a device for a user. Since this mock does not track devices,
-// it validates the user exists and returns success.
-func (b *InMemoryBackend) AdminForgetDevice(userPoolID, username string) error {
-	b.mu.RLock("AdminForgetDevice")
-	defer b.mu.RUnlock()
+// AdminForgetDevice removes a tracked device for a user. A device that is on
+// record (registered via ConfirmDevice) is really deleted. A missing
+// deviceKey is treated as a no-op rather than ResourceNotFoundException:
+// pre-existing callers invoke this operation without ever having confirmed a
+// device, and historically received success once the user was found; this
+// keeps that contract while making the operation state-aware for devices
+// that do exist.
+func (b *InMemoryBackend) AdminForgetDevice(userPoolID, username, deviceKey string) error {
+	b.mu.Lock("AdminForgetDevice")
+	defer b.mu.Unlock()
 
 	if _, ok := b.pools[userPoolID]; !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
@@ -1619,6 +1635,10 @@ func (b *InMemoryBackend) AdminForgetDevice(userPoolID, username string) error {
 
 	if _, ok := b.users[userPoolID][username]; !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	if key := userStateKey(userPoolID, username); b.devices[key] != nil {
+		delete(b.devices[key], deviceKey)
 	}
 
 	return nil
@@ -1788,6 +1808,9 @@ func (b *InMemoryBackend) Reset() {
 	b.managedLoginBrandings = make(map[string]map[string]*ManagedLoginBranding)
 	b.terms = make(map[string]*Terms)
 	b.userImportJobs = make(map[string]map[string]*UserImportJob)
+	b.devices = make(map[string]map[string]*Device)
+	b.webauthnCredentials = make(map[string]map[string]*WebAuthnCredential)
+	b.authEvents = make(map[string]map[string]*AuthEvent)
 }
 
 // UpdateUserPool updates mutable properties of an existing user pool.

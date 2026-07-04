@@ -2,6 +2,7 @@ package cognitoidp
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -81,7 +82,7 @@ func (h *Handler) completenessDispatchTable() map[string]service.JSONOpFunc {
 	}
 }
 
-// ----- Device stubs -----
+// ----- Devices -----
 
 type adminGetDeviceInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
@@ -94,59 +95,165 @@ type deviceType struct {
 	DeviceLastModifiedDate      *float64        `json:"DeviceLastModifiedDate,omitempty"`
 	DeviceLastAuthenticatedDate *float64        `json:"DeviceLastAuthenticatedDate,omitempty"`
 	DeviceKey                   string          `json:"DeviceKey,omitempty"`
+	DeviceStatus                string          `json:"DeviceStatus,omitempty"`
 	DeviceAttributes            []attributeType `json:"DeviceAttributes,omitempty"`
+}
+
+// toDeviceType converts a stored Device into its AWS wire representation.
+func toDeviceType(d *Device) *deviceType {
+	if d == nil {
+		return nil
+	}
+
+	created := float64(d.CreatedAt.Unix())
+	modified := float64(d.LastModifiedAt.Unix())
+	lastAuth := float64(d.LastAuthenticatedAt.Unix())
+
+	return &deviceType{
+		DeviceKey:                   d.DeviceKey,
+		DeviceStatus:                d.Status,
+		DeviceCreateDate:            &created,
+		DeviceLastModifiedDate:      &modified,
+		DeviceLastAuthenticatedDate: &lastAuth,
+		DeviceAttributes:            sortedAttributeList(d.Attributes),
+	}
 }
 
 type adminGetDeviceOutput struct {
 	Device *deviceType `json:"Device,omitempty"`
 }
 
-func (h *Handler) handleAdminGetDevice(_ context.Context, _ *adminGetDeviceInput) (*adminGetDeviceOutput, error) {
-	return &adminGetDeviceOutput{Device: &deviceType{}}, nil
+func (h *Handler) handleAdminGetDevice(_ context.Context, in *adminGetDeviceInput) (*adminGetDeviceOutput, error) {
+	dev, err := h.Backend.AdminGetDevice(in.UserPoolID, in.Username, in.DeviceKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &adminGetDeviceOutput{Device: toDeviceType(dev)}, nil
 }
 
 type adminLinkProviderForUserInput struct {
-	DestinationUser map[string]any `json:"DestinationUser,omitempty"`
-	SourceUser      map[string]any `json:"SourceUser,omitempty"`
-	UserPoolID      string         `json:"UserPoolId,omitempty"`
+	DestinationUser *providerUserIdentifierType `json:"DestinationUser,omitempty"`
+	SourceUser      *providerUserIdentifierType `json:"SourceUser,omitempty"`
+	UserPoolID      string                      `json:"UserPoolId,omitempty"`
 }
 
 type adminLinkProviderForUserOutput struct{}
 
 func (h *Handler) handleAdminLinkProviderForUser(
 	_ context.Context,
-	_ *adminLinkProviderForUserInput,
+	in *adminLinkProviderForUserInput,
 ) (*adminLinkProviderForUserOutput, error) {
+	if in.DestinationUser == nil || in.SourceUser == nil {
+		return nil, fmt.Errorf("%w: DestinationUser and SourceUser are required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.AdminLinkProviderForUser(
+		in.UserPoolID,
+		in.DestinationUser.ProviderAttributeValue,
+		in.SourceUser.ProviderName,
+		in.SourceUser.ProviderAttributeName,
+		in.SourceUser.ProviderAttributeValue,
+	); err != nil {
+		return nil, err
+	}
+
 	return &adminLinkProviderForUserOutput{}, nil
 }
 
 type adminListDevicesInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Username   string `json:"Username,omitempty"`
+	UserPoolID      string `json:"UserPoolId,omitempty"`
+	Username        string `json:"Username,omitempty"`
+	PaginationToken string `json:"PaginationToken,omitempty"`
+	Limit           int    `json:"Limit,omitempty"`
 }
 
 type adminListDevicesOutput struct {
-	Devices []deviceType `json:"Devices,omitempty"`
+	PaginationToken string       `json:"PaginationToken,omitempty"`
+	Devices         []deviceType `json:"Devices,omitempty"`
 }
 
-func (h *Handler) handleAdminListDevices(_ context.Context, _ *adminListDevicesInput) (*adminListDevicesOutput, error) {
-	return &adminListDevicesOutput{Devices: []deviceType{}}, nil
+func (h *Handler) handleAdminListDevices(
+	_ context.Context,
+	in *adminListDevicesInput,
+) (*adminListDevicesOutput, error) {
+	limit, err := validateCognitoMaxResults(in.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	devices, token, err := h.Backend.AdminListDevices(in.UserPoolID, in.Username, limit, in.PaginationToken)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]deviceType, 0, len(devices))
+	for _, d := range devices {
+		out = append(out, *toDeviceType(d))
+	}
+
+	return &adminListDevicesOutput{Devices: out, PaginationToken: token}, nil
+}
+
+type authEventFeedbackType struct {
+	FeedbackValue string  `json:"FeedbackValue,omitempty"`
+	FeedbackDate  float64 `json:"FeedbackDate,omitempty"`
+}
+
+type authEventOutputType struct {
+	EventFeedback *authEventFeedbackType `json:"EventFeedback,omitempty"`
+	EventID       string                 `json:"EventId,omitempty"`
+	EventType     string                 `json:"EventType,omitempty"`
+	EventResponse string                 `json:"EventResponse,omitempty"`
+	CreationDate  float64                `json:"CreationDate,omitempty"`
 }
 
 type adminListUserAuthEventsInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
 	Username   string `json:"Username,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type adminListUserAuthEventsOutput struct {
-	AuthEvents []map[string]any `json:"AuthEvents,omitempty"`
+	NextToken  string                `json:"NextToken,omitempty"`
+	AuthEvents []authEventOutputType `json:"AuthEvents,omitempty"`
 }
 
 func (h *Handler) handleAdminListUserAuthEvents(
 	_ context.Context,
-	_ *adminListUserAuthEventsInput,
+	in *adminListUserAuthEventsInput,
 ) (*adminListUserAuthEventsOutput, error) {
-	return &adminListUserAuthEventsOutput{AuthEvents: []map[string]any{}}, nil
+	limit, err := validateCognitoMaxResults(in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	events, token, err := h.Backend.AdminListUserAuthEvents(in.UserPoolID, in.Username, limit, in.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]authEventOutputType, 0, len(events))
+	for _, e := range events {
+		item := authEventOutputType{
+			EventID:       e.EventID,
+			EventType:     e.EventType,
+			CreationDate:  float64(e.CreatedAt.Unix()),
+			EventResponse: e.EventResponse,
+		}
+
+		if e.FeedbackValue != "" {
+			item.EventFeedback = &authEventFeedbackType{
+				FeedbackValue: e.FeedbackValue,
+				FeedbackDate:  float64(e.FeedbackDate.Unix()),
+			}
+		}
+
+		out = append(out, item)
+	}
+
+	return &adminListUserAuthEventsOutput{AuthEvents: out, NextToken: token}, nil
 }
 
 type adminSetUserMFAPreferenceInput struct {
@@ -170,17 +277,38 @@ func (h *Handler) handleAdminSetUserMFAPreference(
 	return &adminSetUserMFAPreferenceOutput{}, nil
 }
 
+type mfaOptionType struct {
+	DeliveryMedium string `json:"DeliveryMedium,omitempty"`
+	AttributeName  string `json:"AttributeName,omitempty"`
+}
+
+// toMFAOptionRecords converts wire-shaped MFAOptions into backend records.
+func toMFAOptionRecords(opts []mfaOptionType) []MFAOptionType {
+	out := make([]MFAOptionType, 0, len(opts))
+	for _, o := range opts {
+		out = append(out, MFAOptionType(o))
+	}
+
+	return out
+}
+
 type adminSetUserSettingsInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Username   string `json:"Username,omitempty"`
+	UserPoolID string          `json:"UserPoolId,omitempty"`
+	Username   string          `json:"Username,omitempty"`
+	MFAOptions []mfaOptionType `json:"MFAOptions,omitempty"`
 }
 
 type adminSetUserSettingsOutput struct{}
 
 func (h *Handler) handleAdminSetUserSettings(
 	_ context.Context,
-	_ *adminSetUserSettingsInput,
+	in *adminSetUserSettingsInput,
 ) (*adminSetUserSettingsOutput, error) {
+	mfaOptions := toMFAOptionRecords(in.MFAOptions)
+	if err := h.Backend.AdminSetUserSettings(in.UserPoolID, in.Username, mfaOptions); err != nil {
+		return nil, err
+	}
+
 	return &adminSetUserSettingsOutput{}, nil
 }
 
@@ -195,8 +323,14 @@ type adminUpdateAuthEventFeedbackOutput struct{}
 
 func (h *Handler) handleAdminUpdateAuthEventFeedback(
 	_ context.Context,
-	_ *adminUpdateAuthEventFeedbackInput,
+	in *adminUpdateAuthEventFeedbackInput,
 ) (*adminUpdateAuthEventFeedbackOutput, error) {
+	if err := h.Backend.AdminUpdateAuthEventFeedback(
+		in.UserPoolID, in.Username, in.EventID, in.FeedbackValue,
+	); err != nil {
+		return nil, err
+	}
+
 	return &adminUpdateAuthEventFeedbackOutput{}, nil
 }
 
@@ -211,8 +345,14 @@ type adminUpdateDeviceStatusOutput struct{}
 
 func (h *Handler) handleAdminUpdateDeviceStatus(
 	_ context.Context,
-	_ *adminUpdateDeviceStatusInput,
+	in *adminUpdateDeviceStatusInput,
 ) (*adminUpdateDeviceStatusOutput, error) {
+	if err := h.Backend.AdminUpdateDeviceStatus(
+		in.UserPoolID, in.Username, in.DeviceKey, in.DeviceRememberedStatus,
+	); err != nil {
+		return nil, err
+	}
+
 	return &adminUpdateDeviceStatusOutput{}, nil
 }
 
@@ -245,8 +385,15 @@ type completeWebAuthnRegistrationOutput struct{}
 
 func (h *Handler) handleCompleteWebAuthnRegistration(
 	_ context.Context,
-	_ *completeWebAuthnRegistrationInput,
+	in *completeWebAuthnRegistrationInput,
 ) (*completeWebAuthnRegistrationOutput, error) {
+	credentialID, _ := in.Credential["id"].(string)
+	attachment, _ := in.Credential["authenticatorAttachment"].(string)
+
+	if _, err := h.Backend.CompleteWebAuthnRegistration(in.AccessToken, credentialID, attachment); err != nil {
+		return nil, err
+	}
+
 	return &completeWebAuthnRegistrationOutput{}, nil
 }
 
@@ -261,8 +408,13 @@ type confirmDeviceOutput struct {
 	UserConfirmationNecessary bool `json:"UserConfirmationNecessary,omitempty"`
 }
 
-func (h *Handler) handleConfirmDevice(_ context.Context, _ *confirmDeviceInput) (*confirmDeviceOutput, error) {
-	return &confirmDeviceOutput{}, nil
+func (h *Handler) handleConfirmDevice(_ context.Context, in *confirmDeviceInput) (*confirmDeviceOutput, error) {
+	_, necessary, err := h.Backend.ConfirmDevice(in.AccessToken, in.DeviceKey, in.DeviceName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &confirmDeviceOutput{UserConfirmationNecessary: necessary}, nil
 }
 
 // ----- Identity Provider -----
@@ -1032,24 +1184,60 @@ type deleteWebAuthnCredentialOutput struct{}
 
 func (h *Handler) handleDeleteWebAuthnCredential(
 	_ context.Context,
-	_ *deleteWebAuthnCredentialInput,
+	in *deleteWebAuthnCredentialInput,
 ) (*deleteWebAuthnCredentialOutput, error) {
+	if err := h.Backend.DeleteWebAuthnCredential(in.AccessToken, in.CredentialID); err != nil {
+		return nil, err
+	}
+
 	return &deleteWebAuthnCredentialOutput{}, nil
 }
 
 type listWebAuthnCredentialsInput struct {
 	AccessToken string `json:"AccessToken,omitempty"`
+	NextToken   string `json:"NextToken,omitempty"`
+	MaxResults  int    `json:"MaxResults,omitempty"`
+}
+
+type webAuthnCredentialDescriptionType struct {
+	CredentialID            string  `json:"CredentialId,omitempty"`
+	FriendlyName            string  `json:"FriendlyName,omitempty"`
+	RelyingPartyID          string  `json:"RelyingPartyId,omitempty"`
+	AuthenticatorAttachment string  `json:"AuthenticatorAttachment,omitempty"`
+	CreatedAt               float64 `json:"CreatedAt,omitempty"`
 }
 
 type listWebAuthnCredentialsOutput struct {
-	Credentials []map[string]any `json:"Credentials,omitempty"`
+	NextToken   string                              `json:"NextToken,omitempty"`
+	Credentials []webAuthnCredentialDescriptionType `json:"Credentials,omitempty"`
 }
 
 func (h *Handler) handleListWebAuthnCredentials(
 	_ context.Context,
-	_ *listWebAuthnCredentialsInput,
+	in *listWebAuthnCredentialsInput,
 ) (*listWebAuthnCredentialsOutput, error) {
-	return &listWebAuthnCredentialsOutput{Credentials: []map[string]any{}}, nil
+	limit, err := validateCognitoMaxResults(in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	creds, token, err := h.Backend.ListWebAuthnCredentials(in.AccessToken, limit, in.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]webAuthnCredentialDescriptionType, 0, len(creds))
+	for _, c := range creds {
+		out = append(out, webAuthnCredentialDescriptionType{
+			CredentialID:            c.CredentialID,
+			FriendlyName:            c.FriendlyName,
+			RelyingPartyID:          c.RelyingPartyID,
+			AuthenticatorAttachment: c.AuthenticatorAttachment,
+			CreatedAt:               float64(c.CreatedAt.Unix()),
+		})
+	}
+
+	return &listWebAuthnCredentialsOutput{Credentials: out, NextToken: token}, nil
 }
 
 type startWebAuthnRegistrationInput struct {
@@ -1062,9 +1250,14 @@ type startWebAuthnRegistrationOutput struct {
 
 func (h *Handler) handleStartWebAuthnRegistration(
 	_ context.Context,
-	_ *startWebAuthnRegistrationInput,
+	in *startWebAuthnRegistrationInput,
 ) (*startWebAuthnRegistrationOutput, error) {
-	return &startWebAuthnRegistrationOutput{CredentialCreationOptions: map[string]any{}}, nil
+	opts, err := h.Backend.StartWebAuthnRegistration(in.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startWebAuthnRegistrationOutput{CredentialCreationOptions: opts}, nil
 }
 
 // ----- Risk Configuration -----
@@ -1284,23 +1477,46 @@ type getUserAuthFactorsOutput struct {
 
 func (h *Handler) handleGetUserAuthFactors(
 	_ context.Context,
-	_ *getUserAuthFactorsInput,
+	in *getUserAuthFactorsInput,
 ) (*getUserAuthFactorsOutput, error) {
-	return &getUserAuthFactorsOutput{ConfiguredUserAuthFactors: []string{}}, nil
+	user, factors, err := h.Backend.GetUserAuthFactors(in.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getUserAuthFactorsOutput{Username: user.Username, ConfiguredUserAuthFactors: factors}, nil
 }
 
-// ----- Devices -----
+// ----- Devices (non-admin) -----
 
 type listDevicesInput struct {
-	AccessToken string `json:"AccessToken,omitempty"`
+	AccessToken     string `json:"AccessToken,omitempty"`
+	PaginationToken string `json:"PaginationToken,omitempty"`
+	Limit           int    `json:"Limit,omitempty"`
 }
 
 type listDevicesOutput struct {
-	Devices []deviceType `json:"Devices,omitempty"`
+	PaginationToken string       `json:"PaginationToken,omitempty"`
+	Devices         []deviceType `json:"Devices,omitempty"`
 }
 
-func (h *Handler) handleListDevices(_ context.Context, _ *listDevicesInput) (*listDevicesOutput, error) {
-	return &listDevicesOutput{Devices: []deviceType{}}, nil
+func (h *Handler) handleListDevices(_ context.Context, in *listDevicesInput) (*listDevicesOutput, error) {
+	limit, err := validateCognitoMaxResults(in.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	devices, token, err := h.Backend.ListDevices(in.AccessToken, limit, in.PaginationToken)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]deviceType, 0, len(devices))
+	for _, d := range devices {
+		out = append(out, *toDeviceType(d))
+	}
+
+	return &listDevicesOutput{Devices: out, PaginationToken: token}, nil
 }
 
 type forgetDeviceInput struct {
@@ -1310,7 +1526,11 @@ type forgetDeviceInput struct {
 
 type forgetDeviceOutput struct{}
 
-func (h *Handler) handleForgetDevice(_ context.Context, _ *forgetDeviceInput) (*forgetDeviceOutput, error) {
+func (h *Handler) handleForgetDevice(_ context.Context, in *forgetDeviceInput) (*forgetDeviceOutput, error) {
+	if err := h.Backend.ForgetDevice(in.AccessToken, in.DeviceKey); err != nil {
+		return nil, err
+	}
+
 	return &forgetDeviceOutput{}, nil
 }
 
@@ -1323,8 +1543,13 @@ type getDeviceOutput struct {
 	Device *deviceType `json:"Device,omitempty"`
 }
 
-func (h *Handler) handleGetDevice(_ context.Context, _ *getDeviceInput) (*getDeviceOutput, error) {
-	return &getDeviceOutput{Device: &deviceType{}}, nil
+func (h *Handler) handleGetDevice(_ context.Context, in *getDeviceInput) (*getDeviceOutput, error) {
+	dev, err := h.Backend.GetDevice(in.AccessToken, in.DeviceKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getDeviceOutput{Device: toDeviceType(dev)}, nil
 }
 
 type updateDeviceStatusInput struct {
@@ -1337,8 +1562,12 @@ type updateDeviceStatusOutput struct{}
 
 func (h *Handler) handleUpdateDeviceStatus(
 	_ context.Context,
-	_ *updateDeviceStatusInput,
+	in *updateDeviceStatusInput,
 ) (*updateDeviceStatusOutput, error) {
+	if err := h.Backend.UpdateDeviceStatus(in.AccessToken, in.DeviceKey, in.DeviceRememberedStatus); err != nil {
+		return nil, err
+	}
+
 	return &updateDeviceStatusOutput{}, nil
 }
 
@@ -1468,13 +1697,17 @@ func (h *Handler) handleSetUserMFAPreference(
 }
 
 type setUserSettingsInput struct {
-	AccessToken string              `json:"AccessToken,omitempty"`
-	MFAOptions  []map[string]string `json:"MFAOptions,omitempty"`
+	AccessToken string          `json:"AccessToken,omitempty"`
+	MFAOptions  []mfaOptionType `json:"MFAOptions,omitempty"`
 }
 
 type setUserSettingsOutput struct{}
 
-func (h *Handler) handleSetUserSettings(_ context.Context, _ *setUserSettingsInput) (*setUserSettingsOutput, error) {
+func (h *Handler) handleSetUserSettings(_ context.Context, in *setUserSettingsInput) (*setUserSettingsOutput, error) {
+	if err := h.Backend.SetUserSettings(in.AccessToken, toMFAOptionRecords(in.MFAOptions)); err != nil {
+		return nil, err
+	}
+
 	return &setUserSettingsOutput{}, nil
 }
 
@@ -1490,10 +1723,24 @@ type updateAuthEventFeedbackInput struct {
 
 type updateAuthEventFeedbackOutput struct{}
 
+// handleUpdateAuthEventFeedback matches AWS: this op is unauthenticated (no
+// AccessToken) and instead takes UserPoolId/Username directly plus a
+// FeedbackToken issued out-of-band in a risk-notification email. This
+// emulator does not mint or verify those tokens, so it requires one be
+// present (matching the request's required-field contract) without
+// cryptographically validating it.
 func (h *Handler) handleUpdateAuthEventFeedback(
 	_ context.Context,
-	_ *updateAuthEventFeedbackInput,
+	in *updateAuthEventFeedbackInput,
 ) (*updateAuthEventFeedbackOutput, error) {
+	if in.FeedbackToken == "" {
+		return nil, fmt.Errorf("%w: FeedbackToken is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.UpdateAuthEventFeedback(in.UserPoolID, in.Username, in.EventID, in.FeedbackValue); err != nil {
+		return nil, err
+	}
+
 	return &updateAuthEventFeedbackOutput{}, nil
 }
 

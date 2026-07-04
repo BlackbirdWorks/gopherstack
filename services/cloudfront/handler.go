@@ -1,6 +1,7 @@
 package cloudfront
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -2177,7 +2178,7 @@ func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, _ cfStubHelpe
 	case opGetConnectionGroupByRoutingEndpoint:
 		return h.handleGetConnectionGroupByRoutingEndpoint(
 			c,
-			extractResourceID(path, "connection-group-by-routing-endpoint/"),
+			c.Request().URL.Query().Get("RoutingEndpoint"),
 		)
 	}
 
@@ -2382,6 +2383,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrAlreadyExists):
 		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionAlreadyExists", err.Error()))
+	case errors.Is(err, ErrConnectionGroupAlreadyExists):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("EntityAlreadyExists", err.Error()))
 	case errors.Is(err, ErrInvalidTagging):
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidTagging", err.Error()))
 	case errors.Is(err, ErrStreamingDistributionNotDisabled):
@@ -2747,16 +2750,68 @@ func cachePolicyResponseXML(p *CachePolicy) string {
 	)
 }
 
-type connectionFunctionRequestXML struct {
-	XMLName xml.Name `xml:"CreateConnectionFunctionRequest"`
-	Name    string   `xml:"Name"`
-	Comment string   `xml:"Comment"`
+// connectionFunctionConfigXML models the nested ConnectionFunctionConfig element carried by
+// Create/UpdateConnectionFunctionRequest bodies (Comment + Runtime).
+type connectionFunctionConfigXML struct {
+	Comment string `xml:"Comment"`
+	Runtime string `xml:"Runtime"`
 }
 
+// connectionFunctionRequestXML models a CreateConnectionFunctionRequest body. Comment is kept as
+// both a top-level convenience field (for backward compatibility with earlier callers) and
+// inside the nested, AWS-accurate ConnectionFunctionConfig element; the top-level value wins
+// when both are present.
+type connectionFunctionRequestXML struct {
+	XMLName                  xml.Name                    `xml:"CreateConnectionFunctionRequest"`
+	ConnectionFunctionConfig connectionFunctionConfigXML `xml:"ConnectionFunctionConfig"`
+	Name                     string                      `xml:"Name"`
+	Comment                  string                      `xml:"Comment"`
+	// ConnectionFunctionCode is base64-encoded on the wire (matching real CloudFront); see
+	// decodeConnectionFunctionCode.
+	ConnectionFunctionCode string `xml:"ConnectionFunctionCode"`
+}
+
+// updateConnectionFunctionRequestXML models an UpdateConnectionFunctionRequest body.
+type updateConnectionFunctionRequestXML struct {
+	XMLName                  xml.Name                    `xml:"UpdateConnectionFunctionRequest"`
+	ConnectionFunctionConfig connectionFunctionConfigXML `xml:"ConnectionFunctionConfig"`
+	ConnectionFunctionCode   string                      `xml:"ConnectionFunctionCode"`
+}
+
+// decodeConnectionFunctionCode decodes a base64-encoded ConnectionFunctionCode payload, matching
+// the real CloudFront wire format. If the payload is not valid base64 (e.g. a test sends raw
+// text), it is used verbatim so the mock stays lenient.
+func decodeConnectionFunctionCode(s string) []byte {
+	if s == "" {
+		return nil
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return decoded
+	}
+
+	return []byte(s)
+}
+
+// connectionGroupRequestXML models a CreateConnectionGroupRequest body. Comment is a
+// gopherstack-only convenience field kept for backward compatibility; it is not part of the
+// real AWS ConnectionGroup shape.
 type connectionGroupRequestXML struct {
-	XMLName xml.Name `xml:"CreateConnectionGroupRequest"`
-	Name    string   `xml:"Name"`
-	Comment string   `xml:"Comment"`
+	XMLName         xml.Name `xml:"CreateConnectionGroupRequest"`
+	Name            string   `xml:"Name"`
+	Comment         string   `xml:"Comment"`
+	AnycastIPListID string   `xml:"AnycastIpListId"`
+	Enabled         *bool    `xml:"Enabled"`
+	Ipv6Enabled     *bool    `xml:"Ipv6Enabled"`
+	Tags            []tagXML `xml:"Tags>Items>Tag"`
+}
+
+// updateConnectionGroupRequestXML models an UpdateConnectionGroupRequest body.
+type updateConnectionGroupRequestXML struct {
+	Enabled         *bool    `xml:"Enabled"`
+	Ipv6Enabled     *bool    `xml:"Ipv6Enabled"`
+	XMLName         xml.Name `xml:"UpdateConnectionGroupRequest"`
+	Comment         string   `xml:"Comment"`
+	AnycastIPListID string   `xml:"AnycastIpListId"`
 }
 
 type continuousDeploymentPolicyConfigXML struct {
@@ -2941,22 +2996,23 @@ func (h *Handler) handleCreateConnectionFunction(c *echo.Context) error {
 		}
 	}
 
-	fn, createErr := h.Backend.CreateConnectionFunction(req.Name, req.Comment)
+	comment := req.Comment
+	if comment == "" {
+		comment = req.ConnectionFunctionConfig.Comment
+	}
+
+	code := decodeConnectionFunctionCode(req.ConnectionFunctionCode)
+	fn, createErr := h.Backend.CreateConnectionFunctionWithCode(
+		req.Name, comment, req.ConnectionFunctionConfig.Runtime, code, nil,
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ConnectionFunction xmlns="%s">`+
-		`<ARN>%s</ARN>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</ConnectionFunction>`,
-		cfNS, fn.ARN, fn.Name, fn.Comment)
+	c.Response().Header().Set("Location", cfPathPrefix+"connection-function/"+fn.ID)
+	c.Response().Header().Set("ETag", fn.ETag)
 
-	c.Response().Header().Set("Location", cfPathPrefix+"connection-function/"+fn.Name)
-
-	return xmlResp(c, http.StatusCreated, resp)
+	return xmlResp(c, http.StatusCreated, connectionFunctionSummaryXML(fn))
 }
 
 func (h *Handler) handleCreateConnectionGroup(c *echo.Context) error {
@@ -2976,23 +3032,31 @@ func (h *Handler) handleCreateConnectionGroup(c *echo.Context) error {
 		}
 	}
 
-	group, createErr := h.Backend.CreateConnectionGroup(req.Name, req.Comment)
+	ipv6Enabled := true
+	if req.Ipv6Enabled != nil {
+		ipv6Enabled = *req.Ipv6Enabled
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	tags := make(map[string]string, len(req.Tags))
+	for _, tag := range req.Tags {
+		tags[tag.Key] = tag.Value
+	}
+
+	group, createErr := h.Backend.CreateConnectionGroupWithConfig(
+		req.Name, req.Comment, req.AnycastIPListID, ipv6Enabled, enabled, tags,
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ConnectionGroup xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<ARN>%s</ARN>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</ConnectionGroup>`,
-		cfNS, group.ID, group.ARN, group.Name, group.Comment)
-
 	c.Response().Header().Set("Location", cfPathPrefix+"connection-group/"+group.ID)
+	c.Response().Header().Set("ETag", group.ETag)
 
-	return xmlResp(c, http.StatusCreated, resp)
+	return xmlResp(c, http.StatusCreated, connectionGroupXML(group))
 }
 
 func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error {

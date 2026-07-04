@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -558,12 +559,26 @@ func (h *Handler) handleDeleteResourcePolicy(c *echo.Context) error {
 // ConnectionGroup extra handlers (Get/List/Update/Delete)
 // ---------------------------------------------------------------------------
 
-func connectionGroupXML(ns string, cg *ConnectionGroup) string {
+// connectionGroupPreconditionFailedXML is the shared If-Match error body for connection group
+// mutations, mirroring the trust store / streaming distribution PreconditionFailed pattern.
+func connectionGroupPreconditionFailedXML() string {
+	return cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current connection group ETag")
+}
+
+func connectionGroupXML(cg *ConnectionGroup) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ConnectionGroup xmlns="%s">`+
-		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Comment>%s</Comment>`+
+		`<Id>%s</Id><Name>%s</Name><ARN>%s</ARN><Comment>%s</Comment>`+
+		`<CreatedTime>%s</CreatedTime><LastModifiedTime>%s</LastModifiedTime>`+
+		`<Status>%s</Status><Enabled>%v</Enabled><Ipv6Enabled>%v</Ipv6Enabled>`+
+		`<IsDefault>%v</IsDefault><RoutingEndpoint>%s</RoutingEndpoint>`+
+		`<AnycastIpListId>%s</AnycastIpListId>`+
 		`</ConnectionGroup>`,
-		ns, cg.ID, cg.ARN, cg.Name, cg.Comment)
+		cfNS, cg.ID, cg.Name, cg.ARN, cg.Comment,
+		cg.CreatedTime, cg.LastModifiedTime,
+		cg.Status, cg.Enabled, cg.IPv6Enabled,
+		cg.IsDefault, cg.RoutingEndpoint,
+		cg.AnycastIPListID)
 }
 
 func (h *Handler) handleGetConnectionGroup(c *echo.Context, id string) error {
@@ -571,8 +586,9 @@ func (h *Handler) handleGetConnectionGroup(c *echo.Context, id string) error {
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	c.Response().Header().Set("ETag", cg.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionGroupXML(cfNS, cg))
+	return xmlResp(c, http.StatusOK, connectionGroupXML(cg))
 }
 
 func (h *Handler) handleGetConnectionGroupByRoutingEndpoint(c *echo.Context, endpoint string) error {
@@ -580,19 +596,22 @@ func (h *Handler) handleGetConnectionGroupByRoutingEndpoint(c *echo.Context, end
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	c.Response().Header().Set("ETag", cg.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionGroupXML(cfNS, cg))
+	return xmlResp(c, http.StatusOK, connectionGroupXML(cg))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
 func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 	items := h.Backend.ListConnectionGroups()
 
 	type cgSummary struct {
-		XMLName xml.Name `xml:"ConnectionGroupSummary"`
-		ID      string   `xml:"Id"`
-		ARN     string   `xml:"ARN"`
-		Name    string   `xml:"Name"`
+		XMLName         xml.Name `xml:"ConnectionGroupSummary"`
+		ID              string   `xml:"Id"`
+		Name            string   `xml:"Name"`
+		ARN             string   `xml:"ARN"`
+		ETag            string   `xml:"ETag"`
+		RoutingEndpoint string   `xml:"RoutingEndpoint"`
+		Status          string   `xml:"Status"`
 	}
 	type cgList struct {
 		XMLName  xml.Name    `xml:"ConnectionGroupList"`
@@ -602,7 +621,10 @@ func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 	}
 	summaries := make([]cgSummary, 0, len(items))
 	for _, cg := range items {
-		summaries = append(summaries, cgSummary{ID: cg.ID, ARN: cg.ARN, Name: cg.Name})
+		summaries = append(summaries, cgSummary{
+			ID: cg.ID, Name: cg.Name, ARN: cg.ARN, ETag: cg.ETag,
+			RoutingEndpoint: cg.RoutingEndpoint, Status: cg.Status,
+		})
 	}
 	list := cgList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
 	out, xmlErr := xml.Marshal(list)
@@ -614,23 +636,54 @@ func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateConnectionGroup(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetConnectionGroup(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionGroupPreconditionFailedXML())
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
-	var req connectionGroupRequestXML
+	var req updateConnectionGroupRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateConnectionGroupRequest XML"),
+			)
+		}
 	}
-	cg, updateErr := h.Backend.UpdateConnectionGroup(id, req.Comment)
+
+	var anycastIPListID *string
+	if req.AnycastIPListID != "" {
+		anycastIPListID = &req.AnycastIPListID
+	}
+
+	cg, updateErr := h.Backend.UpdateConnectionGroup(id, req.Comment, anycastIPListID, req.Ipv6Enabled, req.Enabled)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
+	c.Response().Header().Set("ETag", cg.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionGroupXML(cfNS, cg))
+	return xmlResp(c, http.StatusOK, connectionGroupXML(cg))
 }
 
 func (h *Handler) handleDeleteConnectionGroup(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetConnectionGroup(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionGroupPreconditionFailedXML())
+	}
+
 	if err := h.Backend.DeleteConnectionGroup(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -642,34 +695,67 @@ func (h *Handler) handleDeleteConnectionGroup(c *echo.Context, id string) error 
 // ConnectionFunction extra handlers (Get/Describe/List/Update/Delete/Publish/Test)
 // ---------------------------------------------------------------------------
 
-func connectionFunctionXML(ns string, fn *ConnectionFunction) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ConnectionFunction xmlns="%s">`+
-		`<ARN>%s</ARN><Name>%s</Name><Comment>%s</Comment>`+
-		`</ConnectionFunction>`,
-		ns, fn.ARN, fn.Name, fn.Comment)
+// connectionFunctionPreconditionFailedXML is the shared If-Match error body for connection
+// function mutations.
+func connectionFunctionPreconditionFailedXML() string {
+	return cfErrorXML(
+		"PreconditionFailed",
+		"If-Match ETag did not match the current connection function ETag",
+	)
 }
 
+// connectionFunctionSummaryXML builds the ConnectionFunctionSummary XML representation used by
+// DescribeConnectionFunction, Publish, and List responses.
+func connectionFunctionSummaryXML(fn *ConnectionFunction) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<ConnectionFunctionSummary xmlns="%s">`+
+		`<Id>%s</Id><ConnectionFunctionArn>%s</ConnectionFunctionArn><Name>%s</Name>`+
+		`<ConnectionFunctionConfig><Comment>%s</Comment><Runtime>%s</Runtime></ConnectionFunctionConfig>`+
+		`<Stage>%s</Stage><Status>%s</Status>`+
+		`<CreatedTime>%s</CreatedTime><LastModifiedTime>%s</LastModifiedTime>`+
+		`</ConnectionFunctionSummary>`,
+		cfNS, fn.ID, fn.ARN, fn.Name, fn.Comment, fn.Runtime, fn.Stage, fn.Status,
+		fn.CreatedTime, fn.LastModifiedTime)
+}
+
+// handleGetConnectionFunction returns the connection function's code and content type, mirroring
+// GetConnectionFunctionOutput (ConnectionFunctionCode + ContentType), unlike
+// DescribeConnectionFunction which returns metadata only.
 func (h *Handler) handleGetConnectionFunction(c *echo.Context, id string) error {
 	fn, err := h.Backend.GetConnectionFunction(id)
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	c.Response().Header().Set("ETag", fn.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionFunctionXML(cfNS, fn))
+	return c.Blob(http.StatusOK, "application/octet-stream", fn.FunctionCode)
 }
 
 func (h *Handler) handleDescribeConnectionFunction(c *echo.Context, id string) error {
-	return h.handleGetConnectionFunction(c, id)
+	fn, err := h.Backend.GetConnectionFunction(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+	c.Response().Header().Set("ETag", fn.ETag)
+
+	return xmlResp(c, http.StatusOK, connectionFunctionSummaryXML(fn))
 }
 
 func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 	items := h.Backend.ListConnectionFunctions()
 
+	type cfnConfig struct {
+		Comment string `xml:"Comment"`
+		Runtime string `xml:"Runtime"`
+	}
 	type cfnSummary struct {
-		XMLName xml.Name `xml:"ConnectionFunctionSummary"`
-		ARN     string   `xml:"ARN"`
-		Name    string   `xml:"Name"`
+		XMLName xml.Name  `xml:"ConnectionFunctionSummary"`
+		ID      string    `xml:"Id"`
+		ARN     string    `xml:"ConnectionFunctionArn"`
+		Name    string    `xml:"Name"`
+		Config  cfnConfig `xml:"ConnectionFunctionConfig"`
+		Stage   string    `xml:"Stage"`
+		Status  string    `xml:"Status"`
 	}
 	type cfnList struct {
 		XMLName  xml.Name     `xml:"ConnectionFunctionList"`
@@ -679,7 +765,10 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 	}
 	summaries := make([]cfnSummary, 0, len(items))
 	for _, fn := range items {
-		summaries = append(summaries, cfnSummary{ARN: fn.ARN, Name: fn.Name})
+		summaries = append(summaries, cfnSummary{
+			ID: fn.ID, ARN: fn.ARN, Name: fn.Name, Stage: fn.Stage, Status: fn.Status,
+			Config: cfnConfig{Comment: fn.Comment, Runtime: fn.Runtime},
+		})
 	}
 	list := cfnList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
 	out, xmlErr := xml.Marshal(list)
@@ -691,26 +780,52 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateConnectionFunction(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetConnectionFunction(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionFunctionPreconditionFailedXML())
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
-	var req struct {
-		XMLName xml.Name `xml:"ConnectionFunctionConfig"`
-		Comment string   `xml:"Comment"`
-	}
+	var req updateConnectionFunctionRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateConnectionFunctionRequest XML"),
+			)
+		}
 	}
-	fn, updateErr := h.Backend.UpdateConnectionFunction(id, req.Comment)
+
+	fn, updateErr := h.Backend.UpdateConnectionFunction(
+		id, req.ConnectionFunctionConfig.Comment, req.ConnectionFunctionConfig.Runtime,
+		decodeConnectionFunctionCode(req.ConnectionFunctionCode),
+	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
+	c.Response().Header().Set("ETag", fn.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionFunctionXML(cfNS, fn))
+	return xmlResp(c, http.StatusOK, connectionFunctionSummaryXML(fn))
 }
 
 func (h *Handler) handleDeleteConnectionFunction(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetConnectionFunction(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionFunctionPreconditionFailedXML())
+	}
+
 	if err := h.Backend.DeleteConnectionFunction(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -719,21 +834,71 @@ func (h *Handler) handleDeleteConnectionFunction(c *echo.Context, id string) err
 }
 
 func (h *Handler) handlePublishConnectionFunction(c *echo.Context, id string) error {
-	fn, err := h.Backend.GetConnectionFunction(id)
+	current, getErr := h.Backend.GetConnectionFunction(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionFunctionPreconditionFailedXML())
+	}
+
+	fn, err := h.Backend.PublishConnectionFunction(id)
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	c.Response().Header().Set("ETag", fn.ETag)
 
-	return xmlResp(c, http.StatusOK, connectionFunctionXML(cfNS, fn))
+	return xmlResp(c, http.StatusOK, connectionFunctionSummaryXML(fn))
 }
 
-func (h *Handler) handleTestConnectionFunction(c *echo.Context, _ string) error {
+// testConnectionFunctionRequestXML models the TestConnectionFunction request body: the
+// base64-encoded connection object to run the function against.
+type testConnectionFunctionRequestXML struct {
+	XMLName          xml.Name `xml:"TestConnectionFunctionRequest"`
+	ConnectionObject string   `xml:"ConnectionObject"`
+}
+
+func (h *Handler) handleTestConnectionFunction(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetConnectionFunction(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed, connectionFunctionPreconditionFailedXML())
+	}
+
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+	var req testConnectionFunctionRequestXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	result, testErr := h.Backend.TestConnectionFunction(id, decodeConnectionFunctionCode(req.ConnectionObject))
+	if testErr != nil {
+		return h.handleError(c, testErr)
+	}
+
+	var logsXML strings.Builder
+	for _, l := range result.ExecutionLogs {
+		fmt.Fprintf(&logsXML, "<member>%s</member>", l)
+	}
+
 	return xmlResp(c, http.StatusOK, fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
 			`<TestResult xmlns="%s">`+
-			`<FunctionExecutionLogs><member>Test passed</member></FunctionExecutionLogs>`+
+			`<ConnectionFunctionSummary><Id>%s</Id><Name>%s</Name><Stage>%s</Stage></ConnectionFunctionSummary>`+
+			`<ConnectionFunctionExecutionLogs>%s</ConnectionFunctionExecutionLogs>`+
+			`<ConnectionFunctionErrorMessage></ConnectionFunctionErrorMessage>`+
+			`<ConnectionFunctionOutput>%s</ConnectionFunctionOutput>`+
+			`<ComputeUtilization>%s</ComputeUtilization>`+
 			`</TestResult>`,
-		cfNS,
+		cfNS, current.ID, current.Name, current.Stage,
+		logsXML.String(), result.FunctionOutput, result.ComputeUtilization,
 	))
 }
 

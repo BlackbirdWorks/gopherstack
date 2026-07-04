@@ -43,6 +43,8 @@ type userSnapshot struct {
 	PasswordHash         string            `json:"passwordHash,omitempty"`
 	Status               string            `json:"status,omitempty"`
 	ConfirmCode          string            `json:"confirmCode,omitempty"`
+	MFAOptions           []MFAOptionType   `json:"mfaOptions,omitempty"`
+	LinkedProviders      []ProviderLink    `json:"linkedProviders,omitempty"`
 	Enabled              bool              `json:"enabled,omitempty"`
 }
 
@@ -66,6 +68,9 @@ type backendSnapshot struct {
 	PoolMfaConfigs          map[string]*UserPoolMfaFullConfig           `json:"poolMfaConfigs,omitempty"`
 	TypedRiskConfigurations map[string]*TypedRiskConfiguration          `json:"typedRiskConfigurations,omitempty"`
 	IdentityProviders       map[string]map[string]*IdentityProvider     `json:"identityProviders,omitempty"`
+	Devices                 map[string]map[string]*Device               `json:"devices,omitempty"`
+	WebAuthnCredentials     map[string]map[string]*WebAuthnCredential   `json:"webauthnCredentials,omitempty"`
+	AuthEvents              map[string]map[string]*AuthEvent            `json:"authEvents,omitempty"`
 	AccountID               string                                      `json:"accountId,omitempty"`
 	Region                  string                                      `json:"region,omitempty"`
 	Endpoint                string                                      `json:"endpoint,omitempty"`
@@ -107,13 +112,11 @@ func unmarshalRSAKey(pemStr string) (*rsa.PrivateKey, error) {
 	return rsaKey, nil
 }
 
-// Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
+// buildPoolSnapshots converts live UserPools into their serializable form.
+func buildPoolSnapshots(pools map[string]*UserPool) map[string]*userPoolSnapshot {
+	poolSnaps := make(map[string]*userPoolSnapshot, len(pools))
 
-	poolSnaps := make(map[string]*userPoolSnapshot, len(b.pools))
-	for id, p := range b.pools {
+	for id, p := range pools {
 		pem, err := marshalRSAKey(p.issuer.privateKey)
 		if err != nil {
 			slog.Default().Warn("cognitoidp: failed to marshal RSA key for pool snapshot", "poolId", id, "error", err)
@@ -147,8 +150,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}
 	}
 
-	userSnaps := make(map[string]map[string]*userSnapshot, len(b.users))
-	for poolID, poolUsers := range b.users {
+	return poolSnaps
+}
+
+// buildUserSnapshots converts live Users into their serializable form.
+func buildUserSnapshots(users map[string]map[string]*User) map[string]map[string]*userSnapshot {
+	userSnaps := make(map[string]map[string]*userSnapshot, len(users))
+
+	for poolID, poolUsers := range users {
 		snaps := make(map[string]*userSnapshot, len(poolUsers))
 
 		for username, u := range poolUsers {
@@ -168,12 +177,25 @@ func (b *InMemoryBackend) Snapshot() []byte {
 				PasswordHash:         u.PasswordHash,
 				Status:               u.Status,
 				ConfirmCode:          u.ConfirmCode,
+				MFAOptions:           u.MFAOptions,
+				LinkedProviders:      u.LinkedProviders,
 				Enabled:              u.Enabled,
 			}
 		}
 
 		userSnaps[poolID] = snaps
 	}
+
+	return userSnaps
+}
+
+// Snapshot serialises the backend state to JSON.
+func (b *InMemoryBackend) Snapshot() []byte {
+	b.mu.RLock("Snapshot")
+	defer b.mu.RUnlock()
+
+	poolSnaps := buildPoolSnapshots(b.pools)
+	userSnaps := buildUserSnapshots(b.users)
 
 	snap := backendSnapshot{
 		Pools:                   poolSnaps,
@@ -195,6 +217,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		PoolMfaConfigs:          b.poolMfaConfigs,
 		TypedRiskConfigurations: b.typedRiskConfigurations,
 		IdentityProviders:       b.identityProviders,
+		Devices:                 b.devices,
+		WebAuthnCredentials:     b.webauthnCredentials,
+		AuthEvents:              b.authEvents,
 		AccountID:               b.accountID,
 		Region:                  b.region,
 		Endpoint:                b.endpoint,
@@ -254,6 +279,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.poolMfaConfigs = snap.PoolMfaConfigs
 	b.typedRiskConfigurations = snap.TypedRiskConfigurations
 	b.identityProviders = snap.IdentityProviders
+	b.devices = snap.Devices
+	b.webauthnCredentials = snap.WebAuthnCredentials
+	b.authEvents = snap.AuthEvents
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.endpoint = snap.Endpoint
@@ -349,6 +377,18 @@ func normalizeBackendSnapshot(snap *backendSnapshot) {
 	if snap.TokenRevokedBefore == nil {
 		snap.TokenRevokedBefore = make(map[string]time.Time)
 	}
+
+	if snap.Devices == nil {
+		snap.Devices = make(map[string]map[string]*Device)
+	}
+
+	if snap.WebAuthnCredentials == nil {
+		snap.WebAuthnCredentials = make(map[string]map[string]*WebAuthnCredential)
+	}
+
+	if snap.AuthEvents == nil {
+		snap.AuthEvents = make(map[string]map[string]*AuthEvent)
+	}
 }
 
 func restorePoolsFromSnapshot(
@@ -411,6 +451,8 @@ func restoreUsersFromSnapshot(poolUsers map[string]map[string]*userSnapshot) map
 				PasswordHash:         us.PasswordHash,
 				Status:               us.Status,
 				ConfirmCode:          us.ConfirmCode,
+				MFAOptions:           us.MFAOptions,
+				LinkedProviders:      us.LinkedProviders,
 				Enabled:              us.Enabled,
 			}
 		}

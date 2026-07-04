@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 )
 
 const metricDisabled = "Disabled"
+
+// percentageRange bounds the deterministic ComputeUtilization value TestConnectionFunction
+// derives from a function's code size and input size, keeping it in a percentage-like range.
+const percentageRange = 100
 
 // ---------------------------------------------------------------------------
 // Error sentinels
@@ -453,72 +458,109 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN string) error {
 // ConnectionGroup extra operations (Get/List/Update/Delete)
 // ---------------------------------------------------------------------------
 
+// copyConnectionGroup returns a deep copy of a ConnectionGroup. Must be called with the lock held.
+func (b *InMemoryBackend) copyConnectionGroup(cg *ConnectionGroup) *ConnectionGroup {
+	cp := *cg
+	if cg.Tags != nil {
+		cp.Tags = make(map[string]string, len(cg.Tags))
+		maps.Copy(cp.Tags, cg.Tags)
+	}
+
+	return &cp
+}
+
 func (b *InMemoryBackend) GetConnectionGroup(id string) (*ConnectionGroup, error) {
 	b.mu.RLock("GetConnectionGroup")
 	defer b.mu.RUnlock()
 
 	cg, ok := b.connectionGroups[id]
 	if !ok {
-		return nil, ErrConnectionGroupNotFound
+		return nil, fmt.Errorf("%w: connection group %s not found", ErrConnectionGroupNotFound, id)
 	}
-	cp := *cg
 
-	return &cp, nil
+	return b.copyConnectionGroup(cg), nil
 }
 
+// GetConnectionGroupByRoutingEndpoint looks up a connection group by its generated routing
+// endpoint domain name (e.g. "d111111abcdef8.cloudfront.net"), the O(1) index populated at
+// creation time.
 func (b *InMemoryBackend) GetConnectionGroupByRoutingEndpoint(endpoint string) (*ConnectionGroup, error) {
 	b.mu.RLock("GetConnectionGroupByRoutingEndpoint")
 	defer b.mu.RUnlock()
 
-	// Simple: match by name or ID (endpoint = name in our simplified model).
-	for _, cg := range b.connectionGroups {
-		if cg.Name == endpoint || cg.ID == endpoint {
-			cp := *cg
-
-			return &cp, nil
-		}
+	id, ok := b.connectionGroupByRoutingEndpoint[endpoint]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: connection group with routing endpoint %q not found",
+			ErrConnectionGroupNotFound,
+			endpoint,
+		)
 	}
 
-	return nil, ErrConnectionGroupNotFound
+	return b.copyConnectionGroup(b.connectionGroups[id]), nil
 }
 
+// ListConnectionGroups returns all connection groups sorted by ID.
 func (b *InMemoryBackend) ListConnectionGroups() []*ConnectionGroup {
 	b.mu.RLock("ListConnectionGroups")
 	defer b.mu.RUnlock()
 
 	out := make([]*ConnectionGroup, 0, len(b.connectionGroups))
 	for _, cg := range b.connectionGroups {
-		cp := *cg
-		out = append(out, &cp)
+		out = append(out, b.copyConnectionGroup(cg))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
 	return out
 }
 
-func (b *InMemoryBackend) UpdateConnectionGroup(id, comment string) (*ConnectionGroup, error) {
+// UpdateConnectionGroup updates an existing connection group. Comment is set only when
+// non-empty (comment is a gopherstack-only convenience field, not part of the real AWS shape).
+// anycastIPListID, ipv6Enabled, and enabled are optional (nil pointer means "leave unchanged"),
+// matching the real UpdateConnectionGroup request shape where only Id and IfMatch are required.
+func (b *InMemoryBackend) UpdateConnectionGroup(
+	id, comment string, anycastIPListID *string, ipv6Enabled, enabled *bool,
+) (*ConnectionGroup, error) {
 	b.mu.Lock("UpdateConnectionGroup")
 	defer b.mu.Unlock()
 
 	cg, ok := b.connectionGroups[id]
 	if !ok {
-		return nil, ErrConnectionGroupNotFound
+		return nil, fmt.Errorf("%w: connection group %s not found", ErrConnectionGroupNotFound, id)
 	}
+
 	if comment != "" {
 		cg.Comment = comment
 	}
-	cp := *cg
+	if anycastIPListID != nil {
+		cg.AnycastIPListID = *anycastIPListID
+	}
+	if ipv6Enabled != nil {
+		cg.IPv6Enabled = *ipv6Enabled
+	}
+	if enabled != nil {
+		cg.Enabled = *enabled
+	}
 
-	return &cp, nil
+	cg.ETag = uuid.NewString()
+	cg.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+
+	return b.copyConnectionGroup(cg), nil
 }
 
+// DeleteConnectionGroup deletes a connection group by ID.
 func (b *InMemoryBackend) DeleteConnectionGroup(id string) error {
 	b.mu.Lock("DeleteConnectionGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connectionGroups[id]; !ok {
-		return ErrConnectionGroupNotFound
+	cg, ok := b.connectionGroups[id]
+	if !ok {
+		return fmt.Errorf("%w: connection group %s not found", ErrConnectionGroupNotFound, id)
 	}
+
+	delete(b.connectionGroupByName, cg.Name)
+	delete(b.connectionGroupByRoutingEndpoint, cg.RoutingEndpoint)
+	delete(b.connectionGroupARNs, cg.ARN)
 	delete(b.connectionGroups, id)
 
 	return nil
@@ -528,59 +570,147 @@ func (b *InMemoryBackend) DeleteConnectionGroup(id string) error {
 // ConnectionFunction extra operations (Get/Describe/List/Update/Delete/Publish/Test)
 // ---------------------------------------------------------------------------
 
+// copyConnectionFunction returns a deep copy of a ConnectionFunction. Must be called with the
+// lock held.
+func (b *InMemoryBackend) copyConnectionFunction(fn *ConnectionFunction) *ConnectionFunction {
+	cp := *fn
+	cp.FunctionCode = append([]byte(nil), fn.FunctionCode...)
+	if fn.Tags != nil {
+		cp.Tags = make(map[string]string, len(fn.Tags))
+		maps.Copy(cp.Tags, fn.Tags)
+	}
+
+	return &cp
+}
+
 func (b *InMemoryBackend) GetConnectionFunction(id string) (*ConnectionFunction, error) {
 	b.mu.RLock("GetConnectionFunction")
 	defer b.mu.RUnlock()
 
 	fn, ok := b.connectionFunctions[id]
 	if !ok {
-		return nil, ErrConnectionFunctionNotFound
+		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
 	}
-	cp := *fn
 
-	return &cp, nil
+	return b.copyConnectionFunction(fn), nil
 }
 
+// ListConnectionFunctions returns all connection functions sorted by name.
 func (b *InMemoryBackend) ListConnectionFunctions() []*ConnectionFunction {
 	b.mu.RLock("ListConnectionFunctions")
 	defer b.mu.RUnlock()
 
 	out := make([]*ConnectionFunction, 0, len(b.connectionFunctions))
 	for _, fn := range b.connectionFunctions {
-		cp := *fn
-		out = append(out, &cp)
+		out = append(out, b.copyConnectionFunction(fn))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
 	return out
 }
 
-func (b *InMemoryBackend) UpdateConnectionFunction(id, comment string) (*ConnectionFunction, error) {
+// UpdateConnectionFunction updates an existing connection function, replacing its comment,
+// runtime, and code (the real UpdateConnectionFunction request requires the full
+// ConnectionFunctionConfig and ConnectionFunctionCode, so this is a full replace, not a merge).
+// Updating a function resets it to the DEVELOPMENT stage, mirroring CloudFront Functions.
+func (b *InMemoryBackend) UpdateConnectionFunction(
+	id, comment, runtime string, code []byte,
+) (*ConnectionFunction, error) {
+	if runtime == "" {
+		runtime = defaultConnectionFunctionRuntime
+	}
+	if err := validateRuntime(runtime); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateConnectionFunction")
 	defer b.mu.Unlock()
 
 	fn, ok := b.connectionFunctions[id]
 	if !ok {
-		return nil, ErrConnectionFunctionNotFound
+		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
 	}
-	if comment != "" {
-		fn.Comment = comment
-	}
-	cp := *fn
 
-	return &cp, nil
+	fn.Comment = comment
+	fn.Runtime = runtime
+	fn.FunctionCode = append([]byte(nil), code...)
+	fn.Stage = functionStageDevelopment
+	fn.ETag = uuid.NewString()
+	fn.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+
+	return b.copyConnectionFunction(fn), nil
 }
 
+// DeleteConnectionFunction deletes a connection function by ID.
 func (b *InMemoryBackend) DeleteConnectionFunction(id string) error {
 	b.mu.Lock("DeleteConnectionFunction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connectionFunctions[id]; !ok {
-		return ErrConnectionFunctionNotFound
+	fn, ok := b.connectionFunctions[id]
+	if !ok {
+		return fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
 	}
+
+	delete(b.connectionFunctionARNs, fn.ARN)
 	delete(b.connectionFunctions, id)
 
 	return nil
+}
+
+// PublishConnectionFunction promotes a connection function from DEVELOPMENT to LIVE, bumping
+// its ETag to reflect the new published version.
+func (b *InMemoryBackend) PublishConnectionFunction(id string) (*ConnectionFunction, error) {
+	b.mu.Lock("PublishConnectionFunction")
+	defer b.mu.Unlock()
+
+	fn, ok := b.connectionFunctions[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
+	}
+
+	fn.Stage = functionStageLive
+	fn.ETag = uuid.NewString()
+	fn.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+
+	return b.copyConnectionFunction(fn), nil
+}
+
+// ConnectionFunctionTestResult is the result of a TestConnectionFunction invocation: a
+// deterministic, input-derived execution result (not a hardcoded constant).
+type ConnectionFunctionTestResult struct {
+	ComputeUtilization string
+	FunctionOutput     string
+	ExecutionLogs      []string
+}
+
+// TestConnectionFunction "executes" a connection function against a caller-supplied connection
+// object. Since there is no real JS runtime here, the mock computes a deterministic result
+// derived from the stored function code and the input connection object: ComputeUtilization
+// scales with code+input size, and FunctionOutput echoes the input event, matching real
+// CloudFront's contract that the function receives and can transform the connection object.
+func (b *InMemoryBackend) TestConnectionFunction(
+	id string, connectionObject []byte,
+) (*ConnectionFunctionTestResult, error) {
+	b.mu.RLock("TestConnectionFunction")
+	defer b.mu.RUnlock()
+
+	fn, ok := b.connectionFunctions[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, id)
+	}
+
+	// Deterministic utilization derived from the size of the function's code and the input,
+	// clamped to a percentage-like range so it is stable for a given function+input pair.
+	weight := (len(fn.FunctionCode) + len(connectionObject)) % percentageRange
+
+	return &ConnectionFunctionTestResult{
+		ComputeUtilization: strconv.Itoa(weight),
+		FunctionOutput:     string(connectionObject),
+		ExecutionLogs: []string{
+			fmt.Sprintf("Running connection function %s (%s) in stage %s", fn.Name, fn.ID, fn.Stage),
+			"Test passed",
+		},
+	}, nil
 }
 
 // ---------------------------------------------------------------------------

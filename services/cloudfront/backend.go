@@ -24,6 +24,11 @@ const (
 	statusDeployed   = "Deployed"
 	statusInProgress = "InProgress"
 
+	// functionStageDevelopment and functionStageLive are the two stages a CloudFront Function
+	// or connection function can be in; Publish promotes DEVELOPMENT to LIVE.
+	functionStageDevelopment = "DEVELOPMENT"
+	functionStageLive        = "LIVE"
+
 	// maxInvalidationPaths is the AWS limit on paths per invalidation batch.
 	maxInvalidationPaths = 3000
 	// maxCachePolicyTTL is the AWS upper bound for CachePolicy MaxTTL (1 year).
@@ -137,6 +142,8 @@ var (
 	ErrConnectionFunctionNotFound = awserr.New("NoSuchConnectionFunction", awserr.ErrNotFound)
 	// ErrConnectionGroupNotFound is returned when a connection group does not exist.
 	ErrConnectionGroupNotFound = awserr.New("NoSuchConnectionGroup", awserr.ErrNotFound)
+	// ErrConnectionGroupAlreadyExists is returned when a connection group name is already in use.
+	ErrConnectionGroupAlreadyExists = awserr.New("EntityAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrContinuousDeploymentPolicyNotFound is returned when a continuous deployment policy does not exist.
 	ErrContinuousDeploymentPolicyNotFound = awserr.New(
 		"NoSuchContinuousDeploymentPolicy",
@@ -277,19 +284,42 @@ type CachePolicy struct {
 	MinTTL     int64              `json:"minTtl"`
 }
 
-// ConnectionFunction represents a CloudFront connection function.
+// ConnectionFunction represents a CloudFront connection function: a small piece of code that
+// runs on the connection path for a connection group. Like CloudFront Functions, a connection
+// function starts life in the DEVELOPMENT stage and is promoted to LIVE via PublishConnectionFunction.
 type ConnectionFunction struct {
-	ARN     string `json:"arn"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	ARN              string            `json:"arn"`
+	Name             string            `json:"name"`
+	Comment          string            `json:"comment,omitempty"`
+	Runtime          string            `json:"runtime"`
+	Stage            string            `json:"stage"`
+	Status           string            `json:"status"`
+	ETag             string            `json:"eTag"`
+	CreatedTime      string            `json:"createdTime,omitempty"`
+	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
+	FunctionCode     []byte            `json:"functionCode,omitempty"`
 }
 
-// ConnectionGroup represents a CloudFront connection group.
+// ConnectionGroup represents a CloudFront connection group: routing configuration (an Anycast
+// IP list, IPv6 support, and a generated routing endpoint domain name) that distribution
+// tenants are associated with.
 type ConnectionGroup struct {
-	ID      string `json:"id"`
-	ARN     string `json:"arn"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	ARN              string            `json:"arn"`
+	Name             string            `json:"name"`
+	Comment          string            `json:"comment,omitempty"`
+	AnycastIPListID  string            `json:"anycastIpListId,omitempty"`
+	RoutingEndpoint  string            `json:"routingEndpoint"`
+	Status           string            `json:"status"`
+	ETag             string            `json:"eTag"`
+	CreatedTime      string            `json:"createdTime,omitempty"`
+	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
+	IsDefault        bool              `json:"isDefault"`
+	IPv6Enabled      bool              `json:"ipv6Enabled"`
+	Enabled          bool              `json:"enabled"`
 }
 
 // ContinuousDeploymentPolicy represents a CloudFront continuous deployment policy.
@@ -482,7 +512,11 @@ type InMemoryBackend struct {
 	cachePolicies                     map[string]*CachePolicy
 	cachePolicyByName                 map[string]string // name → policy ID (uniqueness)
 	connectionFunctions               map[string]*ConnectionFunction
+	connectionFunctionARNs            map[string]string // ARN → connection function ID (tag lookups)
 	connectionGroups                  map[string]*ConnectionGroup
+	connectionGroupARNs               map[string]string // ARN → connection group ID (tag lookups)
+	connectionGroupByName             map[string]string // name → connection group ID (uniqueness)
+	connectionGroupByRoutingEndpoint  map[string]string // routing endpoint → connection group ID
 	continuousDeploymentPolicies      map[string]*ContinuousDeploymentPolicy
 	originAccessControls              map[string]*OriginAccessControl
 	originAccessControlByName         map[string]string // name → OAC ID (uniqueness)
@@ -551,7 +585,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		cachePolicies:                       make(map[string]*CachePolicy),
 		cachePolicyByName:                   make(map[string]string),
 		connectionFunctions:                 make(map[string]*ConnectionFunction),
+		connectionFunctionARNs:              make(map[string]string),
 		connectionGroups:                    make(map[string]*ConnectionGroup),
+		connectionGroupARNs:                 make(map[string]string),
+		connectionGroupByName:               make(map[string]string),
+		connectionGroupByRoutingEndpoint:    make(map[string]string),
 		continuousDeploymentPolicies:        make(map[string]*ContinuousDeploymentPolicy),
 		originAccessControls:                make(map[string]*OriginAccessControl),
 		originAccessControlByName:           make(map[string]string),
@@ -687,7 +725,11 @@ func (b *InMemoryBackend) resetDistributions() {
 	b.cachePolicies = make(map[string]*CachePolicy)
 	b.cachePolicyByName = make(map[string]string)
 	b.connectionFunctions = make(map[string]*ConnectionFunction)
+	b.connectionFunctionARNs = make(map[string]string)
 	b.connectionGroups = make(map[string]*ConnectionGroup)
+	b.connectionGroupARNs = make(map[string]string)
+	b.connectionGroupByName = make(map[string]string)
+	b.connectionGroupByRoutingEndpoint = make(map[string]string)
 	b.continuousDeploymentPolicies = make(map[string]*ContinuousDeploymentPolicy)
 	b.originAccessControls = make(map[string]*OriginAccessControl)
 	b.originAccessControlByName = make(map[string]string)
@@ -760,6 +802,11 @@ func (b *InMemoryBackend) anycastIPListARN(id string) string {
 // connectionGroupARN builds an ARN for a connection group.
 func (b *InMemoryBackend) connectionGroupARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:connection-group/%s", b.accountID, id)
+}
+
+// connectionFunctionARN builds an ARN for a connection function.
+func (b *InMemoryBackend) connectionFunctionARN(id string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:connection-function/%s", b.accountID, id)
 }
 
 // functionARN builds an ARN for a CloudFront Function.
@@ -995,6 +1042,14 @@ func (b *InMemoryBackend) taggableTags(resourceARN string) (*map[string]string, 
 
 	if id, ok := b.distributionTenantARNs[resourceARN]; ok {
 		return &b.distributionTenants[id].Tags, true
+	}
+
+	if id, ok := b.connectionGroupARNs[resourceARN]; ok {
+		return &b.connectionGroups[id].Tags, true
+	}
+
+	if id, ok := b.connectionFunctionARNs[resourceARN]; ok {
+		return &b.connectionFunctions[id].Tags, true
 	}
 
 	return nil, false
@@ -1344,10 +1399,33 @@ func (b *InMemoryBackend) CreateCachePolicy(
 	return &cp, nil
 }
 
-// CreateConnectionFunction creates a new connection function.
-func (b *InMemoryBackend) CreateConnectionFunction(
-	name, comment string,
+// defaultConnectionFunctionRuntime is used when a caller does not specify a runtime
+// (mirrors CloudFront Functions' current default runtime).
+const defaultConnectionFunctionRuntime = "cloudfront-js-2.0"
+
+// CreateConnectionFunction creates a new connection function with the default JS runtime and
+// no code. It is a convenience wrapper around CreateConnectionFunctionWithCode for callers
+// (and tests) that only supply a name and comment. AWS allows multiple connection functions to
+// share the same Name — they are keyed and uniqued by ID, not by name.
+func (b *InMemoryBackend) CreateConnectionFunction(name, comment string) (*ConnectionFunction, error) {
+	return b.CreateConnectionFunctionWithCode(name, comment, "", nil, nil)
+}
+
+// CreateConnectionFunctionWithCode creates a new connection function using the full
+// CreateConnectionFunction request shape: name, comment, runtime, function code, and tags.
+func (b *InMemoryBackend) CreateConnectionFunctionWithCode(
+	name, comment, runtime string, code []byte, tags map[string]string,
 ) (*ConnectionFunction, error) {
+	if runtime == "" {
+		runtime = defaultConnectionFunctionRuntime
+	}
+	if err := validateRuntime(runtime); err != nil {
+		return nil, err
+	}
+	if err := validateCFTags(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateConnectionFunction")
 	defer b.mu.Unlock()
 
@@ -1356,20 +1434,46 @@ func (b *InMemoryBackend) CreateConnectionFunction(
 	}
 
 	id := generateID()
-	arn := fmt.Sprintf("arn:aws:cloudfront::%s:connection-function/%s", b.accountID, id)
+	now := time.Now().UTC().Format(time.RFC3339)
 	fn := &ConnectionFunction{
-		ARN:     arn,
-		Name:    name,
-		Comment: comment,
+		ID:               id,
+		ARN:              b.connectionFunctionARN(id),
+		Name:             name,
+		Comment:          comment,
+		Runtime:          runtime,
+		FunctionCode:     append([]byte(nil), code...),
+		Stage:            functionStageDevelopment,
+		Status:           statusDeployed,
+		ETag:             uuid.NewString(),
+		CreatedTime:      now,
+		LastModifiedTime: now,
+		Tags:             make(map[string]string, len(tags)),
 	}
+	maps.Copy(fn.Tags, tags)
 	b.connectionFunctions[id] = fn
-	cp := *fn
+	b.connectionFunctionARNs[fn.ARN] = id
 
-	return &cp, nil
+	return b.copyConnectionFunction(fn), nil
 }
 
-// CreateConnectionGroup creates a new connection group.
+// CreateConnectionGroup creates a new connection group with default IPv6-enabled, enabled
+// settings and no Anycast IP list. It is a convenience wrapper around
+// CreateConnectionGroupWithConfig for callers (and tests) that only supply a name and comment.
 func (b *InMemoryBackend) CreateConnectionGroup(name, comment string) (*ConnectionGroup, error) {
+	return b.CreateConnectionGroupWithConfig(name, comment, "", true, true, nil)
+}
+
+// CreateConnectionGroupWithConfig creates a new connection group using the full
+// CreateConnectionGroup request shape: name, comment, Anycast IP list ID, IPv6/enabled flags,
+// and tags. Name must be unique among existing connection groups. A routing endpoint domain
+// name is generated and indexed for GetConnectionGroupByRoutingEndpoint lookups.
+func (b *InMemoryBackend) CreateConnectionGroupWithConfig(
+	name, comment, anycastIPListID string, ipv6Enabled, enabled bool, tags map[string]string,
+) (*ConnectionGroup, error) {
+	if err := validateCFTags(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateConnectionGroup")
 	defer b.mu.Unlock()
 
@@ -1377,17 +1481,38 @@ func (b *InMemoryBackend) CreateConnectionGroup(name, comment string) (*Connecti
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
 	}
 
-	id := generateID()
-	group := &ConnectionGroup{
-		ID:      id,
-		ARN:     b.connectionGroupARN(id),
-		Name:    name,
-		Comment: comment,
+	if _, exists := b.connectionGroupByName[name]; exists {
+		return nil, fmt.Errorf(
+			"%w: connection group with name %q already exists",
+			ErrConnectionGroupAlreadyExists,
+			name,
+		)
 	}
-	b.connectionGroups[id] = group
-	cp := *group
 
-	return &cp, nil
+	id := generateID()
+	now := time.Now().UTC().Format(time.RFC3339)
+	group := &ConnectionGroup{
+		ID:               id,
+		ARN:              b.connectionGroupARN(id),
+		Name:             name,
+		Comment:          comment,
+		AnycastIPListID:  anycastIPListID,
+		RoutingEndpoint:  strings.ToLower(id) + ".cloudfront.net",
+		Status:           statusDeployed,
+		ETag:             uuid.NewString(),
+		CreatedTime:      now,
+		LastModifiedTime: now,
+		IPv6Enabled:      ipv6Enabled,
+		Enabled:          enabled,
+		Tags:             make(map[string]string, len(tags)),
+	}
+	maps.Copy(group.Tags, tags)
+	b.connectionGroups[id] = group
+	b.connectionGroupARNs[group.ARN] = id
+	b.connectionGroupByName[name] = id
+	b.connectionGroupByRoutingEndpoint[group.RoutingEndpoint] = id
+
+	return b.copyConnectionGroup(group), nil
 }
 
 // CreateContinuousDeploymentPolicy creates a new continuous deployment policy.
@@ -1947,7 +2072,7 @@ func (b *InMemoryBackend) CreateFunction(
 		Comment:      comment,
 		Runtime:      runtime,
 		FunctionCode: functionCode,
-		Status:       "DEVELOPMENT",
+		Status:       functionStageDevelopment,
 		ETag:         uuid.NewString(),
 		ARN:          b.functionARN(name),
 	}
@@ -1998,7 +2123,7 @@ func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
 		return nil, fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
 	}
 
-	fn.Status = "LIVE"
+	fn.Status = functionStageLive
 	fn.ETag = uuid.NewString()
 	cp := *fn
 
@@ -2024,7 +2149,7 @@ func (b *InMemoryBackend) UpdateFunction(
 	fn.Comment = comment
 	fn.Runtime = runtime
 	fn.FunctionCode = functionCode
-	fn.Status = "DEVELOPMENT"
+	fn.Status = functionStageDevelopment
 	fn.ETag = uuid.NewString()
 	cp := *fn
 
