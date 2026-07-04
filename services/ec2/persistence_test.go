@@ -301,6 +301,36 @@ func TestPersistenceExtended(t *testing.T) {
 				assert.NotEmpty(t, props)
 			},
 		},
+		{
+			name: "vpn_connection_tunnels_and_routes_persist",
+			setup: func(b *ec2.InMemoryBackend) {
+				cgw, err := b.CreateCustomerGateway("ipsec.1", "1.2.3.4", "65000")
+				require.NoError(t, err)
+
+				vgw, err := b.CreateVpnGateway("ipsec.1")
+				require.NoError(t, err)
+
+				conn, err := b.CreateVpnConnection("ipsec.1", cgw.CustomerGatewayID, vgw.VpnGatewayID)
+				require.NoError(t, err)
+
+				_, err = b.CreateVpnConnectionRoute(conn.VpnConnectionID, "192.168.50.0/24")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+
+				conns := b.DescribeVpnConnections(nil)
+				require.Len(t, conns, 1)
+				require.Len(t, conns[0].Options.TunnelOptions, 2)
+				assert.NotEmpty(t, conns[0].Options.TunnelOptions[0].OutsideIPAddress)
+				assert.NotEmpty(t, conns[0].Options.TunnelOptions[0].PreSharedKey)
+				require.Len(t, conns[0].VgwTelemetry, 2)
+
+				routes := b.GetVpnConnectionRoutes(conns[0].VpnConnectionID)
+				require.Len(t, routes, 1)
+				assert.Equal(t, "192.168.50.0/24", routes[0].DestinationCIDR)
+			},
+		},
 	}
 
 	for _, tt := range tests {

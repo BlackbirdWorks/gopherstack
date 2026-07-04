@@ -52,7 +52,6 @@ const (
 	keyTrialComponentArn               = "TrialComponentArn"
 	keyUserProfileArn                  = "UserProfileArn"
 	keyWorkforceArn                    = "WorkforceArn"
-	keyWorkteamArn                     = "WorkteamArn"
 	keyAuthorizedURL                   = "AuthorizedUrl"
 	keyGenericArn                      = "Arn"
 	keyAppArn                          = "AppArn"
@@ -84,7 +83,6 @@ const (
 // stubOpsSupported returns the list of stub-implemented operations.
 func stubOpsSupported() []string {
 	return []string{
-		"CreateLabelingJob",
 		"CreateMlflowApp",
 		"CreateModelCardExportJob",
 		"CreatePartnerAppPresignedUrl",
@@ -95,15 +93,12 @@ func stubOpsSupported() []string {
 		"DeleteMlflowApp",
 		"DeleteModelPackageGroupPolicy",
 		"DeleteProcessingJob",
-		"DeleteWorkforce",
 		"DescribeAlgorithm",
 		"DescribeFeatureMetadata",
-		"DescribeLabelingJob",
 		"DescribeMlflowApp",
 		"DescribeModelCardExportJob",
 		"DescribePipelineDefinitionForExecution",
 		"DescribeReservedCapacity",
-		"DescribeSubscribedWorkteam",
 		"DescribeTrainingPlanExtensionHistory",
 		"DisableSagemakerServicecatalogPortfolio",
 		"DisassociateTrialComponent",
@@ -116,26 +111,21 @@ func stubOpsSupported() []string {
 		"ListAlgorithms",
 		"ListAliases",
 		"ListCandidatesForAutoMLJob",
-		"ListLabelingJobs",
-		"ListLabelingJobsForWorkteam",
 		"ListMlflowApps",
 		"ListModelMetadata",
 		"ListPartnerApps",
 		// ListPipelineParametersForExecution — real implementation in handler_accuracy2.go
 		"ListPipelineVersions",
 		"ListResourceCatalogs",
-		"ListSubscribedWorkteams",
 		"ListTrainingPlans",
 		"ListTrialComponents",
 		"ListUltraServersByReservedCapacity",
-		"ListWorkforces",
 		"PutModelPackageGroupPolicy",
 		"RenderUiTemplate",
 		"Search",
 		"SearchTrainingPlanOfferings",
 		"StartInferenceExperiment",
 		"StartSession",
-		"StopLabelingJob",
 		"UpdateFeatureMetadata",
 		"UpdateHubContent",
 		"UpdateHubContentReference",
@@ -147,7 +137,6 @@ func stubOpsSupported() []string {
 		"UpdatePipelineExecution",
 		"UpdatePipelineVersion",
 		"UpdateProject",
-		"UpdateWorkteam",
 	}
 }
 
@@ -173,9 +162,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "CreateFeatureGroup":
 		return mustMarshal(m{keyFeatureGroupArn: ""}), true
-
-	case "CreateLabelingJob":
-		return mustMarshal(m{keyLabelingJobArn: ""}), true
 
 	case "CreateMlflowApp":
 		return mustMarshal(m{keyGenericArn: ""}), true
@@ -213,7 +199,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteModelPackageGroupPolicy",
 		"DeletePipeline",
 		"DeleteProcessingJob",
-		"DeleteWorkforce",
 		"DeleteTrial",
 		"DeleteTrialComponent",
 		"DeleteUserProfile",
@@ -224,7 +209,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"PutModelPackageGroupPolicy",
 		"RenderUiTemplate",
 		"StartSession",
-		"StopLabelingJob",
 		"UpdateFeatureMetadata":
 		return mustMarshal(m{}), true
 
@@ -262,11 +246,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyFeatureGroupArn: "", keyFeatureGroupName: "", "FeatureName": "", "FeatureType": "",
 		}), true
 
-	case "DescribeLabelingJob":
-		return mustMarshal(m{
-			keyLabelingJobArn: "", "LabelingJobName": "", "LabelingJobStatus": statusCompleted,
-		}), true
-
 	case "DescribeMlflowApp":
 		return mustMarshal(m{keyGenericArn: "", keyStatus: statusInService}), true
 
@@ -290,9 +269,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "DescribeReservedCapacity":
 		return mustMarshal(m{keyReservedCapacityArn: "", keyStatus: statusActive}), true
-
-	case "DescribeSubscribedWorkteam":
-		return mustMarshal(m{"SubscribedWorkteam": m{keyWorkteamArn: ""}}), true
 
 	case "DescribeTrainingPlanExtensionHistory":
 		return mustMarshal(m{keyTrainingPlanArn: "", "Extensions": []any{}}), true
@@ -347,9 +323,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListFeatureGroups":
 		return mustMarshal(m{"FeatureGroupSummaries": []any{}}), true
 
-	case "ListLabelingJobs", "ListLabelingJobsForWorkteam":
-		return mustMarshal(m{"LabelingJobSummaryList": []any{}}), true
-
 	case "ListModelMetadata":
 		return mustMarshal(m{"ModelMetadataSummaries": []any{}}), true
 
@@ -368,9 +341,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListResourceCatalogs":
 		return mustMarshal(m{"ResourceCatalogs": []any{}}), true
 
-	case "ListSubscribedWorkteams":
-		return mustMarshal(m{"SubscribedWorkteams": []any{}}), true
-
 	case "ListTrainingPlans":
 		return mustMarshal(m{"TrainingPlanSummaries": []any{}}), true
 
@@ -385,9 +355,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListUserProfiles":
 		return mustMarshal(m{"UserProfiles": []any{}}), true
-
-	case "ListWorkforces":
-		return mustMarshal(m{"Workforces": []any{}}), true
 
 	// -----------------------------------------------------------------------
 	// Action / query / pipeline ops
@@ -427,9 +394,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateProject":
 		return mustMarshal(m{keyProjectArn: ""}), true
-
-	case "UpdateWorkteam":
-		return mustMarshal(m{"Workteam": m{keyWorkteamArn: ""}}), true
 	}
 
 	return nil, false

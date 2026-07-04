@@ -67,6 +67,9 @@ type backendSnapshot struct {
 	MonitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry `json:"monitoringAlertHistory"`
 	// MonitoringExecutions is stored as region → "scheduleName|processingJobArn" → MonitoringExecution.
 	MonitoringExecutions map[string]map[string]*MonitoringExecution `json:"monitoringExecutions"`
+	Workteams            map[string]map[string]*Workteam            `json:"workteams"`
+	Workforces           map[string]map[string]*Workforce           `json:"workforces"`
+	LabelingJobs         map[string]map[string]*LabelingJob         `json:"labelingJobs"`
 	AccountID            string                                     `json:"accountID"`
 	Region               string                                     `json:"region"`
 }
@@ -200,6 +203,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		MonitoringAlerts:           b.monitoringAlerts,
 		MonitoringAlertHistory:     b.monitoringAlertHistory,
 		MonitoringExecutions:       b.monitoringExecutions,
+		Workteams:                  b.workteams,
+		Workforces:                 b.workforces,
+		LabelingJobs:               b.labelingJobs,
 		AccountID:                  b.accountID,
 		Region:                     b.region,
 	}
@@ -364,6 +370,9 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.monitoringAlerts = snap.MonitoringAlerts
 	b.monitoringAlertHistory = snap.MonitoringAlertHistory
 	b.monitoringExecutions = snap.MonitoringExecutions
+	b.workteams = snap.Workteams
+	b.workforces = snap.Workforces
+	b.labelingJobs = snap.LabelingJobs
 }
 
 func buildARNIndex[V any](src map[string]map[string]V, arnFn func(string, V) string) map[string]map[string]string {
@@ -463,6 +472,15 @@ func ensureMonitorMaps(snap *backendSnapshot) {
 	}
 	if snap.MonitoringExecutions == nil {
 		snap.MonitoringExecutions = make(map[string]map[string]*MonitoringExecution)
+	}
+	if snap.Workteams == nil {
+		snap.Workteams = make(map[string]map[string]*Workteam)
+	}
+	if snap.Workforces == nil {
+		snap.Workforces = make(map[string]map[string]*Workforce)
+	}
+	if snap.LabelingJobs == nil {
+		snap.LabelingJobs = make(map[string]map[string]*LabelingJob)
 	}
 }
 

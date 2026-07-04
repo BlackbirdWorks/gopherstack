@@ -7,6 +7,9 @@ import (
 	"strconv"
 )
 
+// note: handler_advanced_networking.go implements the Site-to-Site VPN family
+// (VPN/customer gateways, VPN connections, tunnel and device operations).
+
 // ---- Handler registration ----
 
 func registerAdvancedNetworkingOps(h *Handler, ops map[string]ec2ActionFn) {
@@ -26,6 +29,12 @@ func registerAdvancedNetworkingOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateVpnConnection"] = h.handleCreateVpnConnection
 	ops["DescribeVpnConnections"] = h.handleDescribeVpnConnections
 	ops["DeleteVpnConnection"] = h.handleDeleteVpnConnection
+	ops["ModifyVpnConnectionOptions"] = h.handleModifyVpnConnectionOptions
+	ops["ModifyVpnTunnelOptions"] = h.handleModifyVpnTunnelOptions
+	ops["ModifyVpnTunnelCertificate"] = h.handleModifyVpnTunnelCertificate
+	ops["GetVpnConnectionDeviceTypes"] = h.handleGetVpnConnectionDeviceTypes
+	ops["GetVpnConnectionDeviceSampleConfiguration"] = h.handleGetVpnConnectionDeviceSampleConfiguration
+	ops["GetVpnTunnelReplacementStatus"] = h.handleGetVpnTunnelReplacementStatus
 
 	// VPC Peering extras
 	ops["RejectVpcPeeringConnection"] = h.handleRejectVpcPeeringConnection
@@ -76,6 +85,12 @@ func advancedNetworkingSupportedOperations() []string {
 		"CreateVpnConnection",
 		"DescribeVpnConnections",
 		"DeleteVpnConnection",
+		"ModifyVpnConnectionOptions",
+		"ModifyVpnTunnelOptions",
+		"ModifyVpnTunnelCertificate",
+		"GetVpnConnectionDeviceTypes",
+		"GetVpnConnectionDeviceSampleConfiguration",
+		"GetVpnTunnelReplacementStatus",
 		"RejectVpcPeeringConnection",
 		"CreateVpcEndpointServiceConfiguration",
 		"DescribeVpcEndpointServiceConfigurations",
@@ -183,12 +198,127 @@ type deleteCustomerGatewayResponse struct {
 	Return    bool     `xml:"return"`
 }
 
+type ikeVersionItem struct {
+	Value string `xml:"value"`
+}
+
+type vpnTunnelOptionItem struct {
+	OutsideIPAddress string `xml:"outsideIpAddress,omitempty"`
+	TunnelInsideCidr string `xml:"tunnelInsideCidr,omitempty"`
+	PreSharedKey     string `xml:"preSharedKey,omitempty"`
+	DPDTimeoutAction string `xml:"dpdTimeoutAction,omitempty"`
+	StartupAction    string `xml:"startupAction,omitempty"`
+	CertificateArn   string `xml:"certificateArn,omitempty"`
+	IKEVersionSet    struct {
+		Items []ikeVersionItem `xml:"item"`
+	} `xml:"ikeVersions"`
+	Phase1LifetimeSeconds  int32 `xml:"phase1LifetimeSeconds,omitempty"`
+	Phase2LifetimeSeconds  int32 `xml:"phase2LifetimeSeconds,omitempty"`
+	RekeyMarginTimeSeconds int32 `xml:"rekeyMarginTimeSeconds,omitempty"`
+	DPDTimeoutSeconds      int32 `xml:"dpdTimeoutSeconds,omitempty"`
+}
+
+type vpnConnectionOptionsItem struct {
+	LocalIpv4NetworkCidr  string `xml:"localIpv4NetworkCidr,omitempty"`
+	RemoteIpv4NetworkCidr string `xml:"remoteIpv4NetworkCidr,omitempty"`
+	TunnelOptionsSet      struct {
+		Items []vpnTunnelOptionItem `xml:"item"`
+	} `xml:"tunnelOptions"`
+	StaticRoutesOnly bool `xml:"staticRoutesOnly"`
+}
+
+type vgwTelemetryItem struct {
+	OutsideIPAddress   string `xml:"outsideIpAddress"`
+	Status             string `xml:"status"`
+	StatusMessage      string `xml:"statusMessage,omitempty"`
+	LastStatusChange   string `xml:"lastStatusChange,omitempty"`
+	CertificateArn     string `xml:"certificateArn,omitempty"`
+	AcceptedRouteCount int32  `xml:"acceptedRouteCount"`
+}
+
+type vpnStaticRouteItem struct {
+	DestinationCidrBlock string `xml:"destinationCidrBlock"`
+	State                string `xml:"state"`
+	Source               string `xml:"source"`
+}
+
 type vpnConnectionItem struct {
-	VpnConnectionID   string `xml:"vpnConnectionId"`
-	State             string `xml:"state"`
-	CustomerGatewayID string `xml:"customerGatewayId"`
-	VpnGatewayID      string `xml:"vpnGatewayId"`
-	Type              string `xml:"type"`
+	VpnConnectionID              string `xml:"vpnConnectionId"`
+	State                        string `xml:"state"`
+	CustomerGatewayConfiguration string `xml:"customerGatewayConfiguration,omitempty"`
+	Type                         string `xml:"type"`
+	CustomerGatewayID            string `xml:"customerGatewayId"`
+	VpnGatewayID                 string `xml:"vpnGatewayId,omitempty"`
+	TransitGatewayID             string `xml:"transitGatewayId,omitempty"`
+	Category                     string `xml:"category,omitempty"`
+	RoutesSet                    struct {
+		Items []vpnStaticRouteItem `xml:"item"`
+	} `xml:"routes"`
+	VgwTelemetrySet struct {
+		Items []vgwTelemetryItem `xml:"item"`
+	} `xml:"vgwTelemetry"`
+	Options vpnConnectionOptionsItem `xml:"options"`
+}
+
+// toVpnConnectionItem builds the full wire representation of a VPN connection, including its
+// negotiated tunnel options, VGW telemetry, and any static routes registered against it.
+func (h *Handler) toVpnConnectionItem(conn *VpnConnection) vpnConnectionItem {
+	item := vpnConnectionItem{
+		VpnConnectionID:              conn.VpnConnectionID,
+		State:                        conn.State,
+		CustomerGatewayConfiguration: conn.CustomerGatewayConfiguration,
+		Type:                         conn.Type,
+		CustomerGatewayID:            conn.CustomerGatewayID,
+		VpnGatewayID:                 conn.VpnGatewayID,
+		TransitGatewayID:             conn.TransitGatewayID,
+		Category:                     conn.Category,
+	}
+
+	item.Options.StaticRoutesOnly = conn.Options.StaticRoutesOnly
+	item.Options.LocalIpv4NetworkCidr = conn.Options.LocalIPv4NetworkCIDR
+	item.Options.RemoteIpv4NetworkCidr = conn.Options.RemoteIPv4NetworkCIDR
+
+	for _, t := range conn.Options.TunnelOptions {
+		tItem := vpnTunnelOptionItem{
+			OutsideIPAddress:       t.OutsideIPAddress,
+			TunnelInsideCidr:       t.TunnelInsideCIDR,
+			PreSharedKey:           t.PreSharedKey,
+			Phase1LifetimeSeconds:  t.Phase1LifetimeSeconds,
+			Phase2LifetimeSeconds:  t.Phase2LifetimeSeconds,
+			RekeyMarginTimeSeconds: t.RekeyMarginTimeSeconds,
+			DPDTimeoutSeconds:      t.DPDTimeoutSeconds,
+			DPDTimeoutAction:       t.DPDTimeoutAction,
+			StartupAction:          t.StartupAction,
+			CertificateArn:         t.CertificateARN,
+		}
+
+		for _, v := range t.IKEVersions {
+			tItem.IKEVersionSet.Items = append(tItem.IKEVersionSet.Items, ikeVersionItem{Value: v})
+		}
+
+		item.Options.TunnelOptionsSet.Items = append(item.Options.TunnelOptionsSet.Items, tItem)
+	}
+
+	for _, t := range conn.VgwTelemetry {
+		item.VgwTelemetrySet.Items = append(item.VgwTelemetrySet.Items, vgwTelemetryItem{
+			OutsideIPAddress:   t.OutsideIPAddress,
+			Status:             t.Status,
+			StatusMessage:      t.StatusMessage,
+			AcceptedRouteCount: t.AcceptedRouteCount,
+			LastStatusChange:   t.LastStatusChange,
+			CertificateArn:     t.CertificateARN,
+		})
+	}
+
+	for _, r := range h.Backend.GetVpnConnectionRoutes(conn.VpnConnectionID) {
+		item.RoutesSet.Items = append(item.RoutesSet.Items, vpnStaticRouteItem{
+			DestinationCidrBlock: r.DestinationCIDR,
+			State:                r.State,
+			Source:               "Static",
+		})
+	}
+
+	return item
 }
 
 type createVpnConnectionResponse struct {
@@ -211,6 +341,73 @@ type deleteVpnConnectionResponse struct {
 	XMLName   xml.Name `xml:"DeleteVpnConnectionResponse"`
 	RequestID string   `xml:"requestId"`
 	Return    bool     `xml:"return"`
+}
+
+type modifyVpnConnectionResponse struct {
+	XMLName       xml.Name          `xml:"ModifyVpnConnectionResponse"`
+	Xmlns         string            `xml:"xmlns,attr"`
+	RequestID     string            `xml:"requestId"`
+	VpnConnection vpnConnectionItem `xml:"vpnConnection"`
+}
+
+type modifyVpnConnectionOptionsResponse struct {
+	XMLName       xml.Name          `xml:"ModifyVpnConnectionOptionsResponse"`
+	Xmlns         string            `xml:"xmlns,attr"`
+	RequestID     string            `xml:"requestId"`
+	VpnConnection vpnConnectionItem `xml:"vpnConnection"`
+}
+
+type modifyVpnTunnelOptionsResponse struct {
+	XMLName       xml.Name          `xml:"ModifyVpnTunnelOptionsResponse"`
+	Xmlns         string            `xml:"xmlns,attr"`
+	RequestID     string            `xml:"requestId"`
+	VpnConnection vpnConnectionItem `xml:"vpnConnection"`
+}
+
+type modifyVpnTunnelCertificateResponse struct {
+	XMLName       xml.Name          `xml:"ModifyVpnTunnelCertificateResponse"`
+	Xmlns         string            `xml:"xmlns,attr"`
+	RequestID     string            `xml:"requestId"`
+	VpnConnection vpnConnectionItem `xml:"vpnConnection"`
+}
+
+type vpnConnectionDeviceTypeItem struct {
+	VpnConnectionDeviceTypeID string `xml:"vpnConnectionDeviceTypeId"`
+	Vendor                    string `xml:"vendor"`
+	Platform                  string `xml:"platform"`
+	Software                  string `xml:"software"`
+}
+
+type getVpnConnectionDeviceTypesResponse struct {
+	XMLName                    xml.Name `xml:"GetVpnConnectionDeviceTypesResponse"`
+	Xmlns                      string   `xml:"xmlns,attr"`
+	RequestID                  string   `xml:"requestId"`
+	VpnConnectionDeviceTypeSet struct {
+		Items []vpnConnectionDeviceTypeItem `xml:"item"`
+	} `xml:"vpnConnectionDeviceTypeSet"`
+}
+
+type getVpnConnectionDeviceSampleConfigurationResponse struct {
+	XMLName                                xml.Name `xml:"GetVpnConnectionDeviceSampleConfigurationResponse"`
+	Xmlns                                  string   `xml:"xmlns,attr"`
+	RequestID                              string   `xml:"requestId"`
+	VpnConnectionDeviceSampleConfiguration string   `xml:"vpnConnectionDeviceSampleConfiguration"`
+}
+
+type vpnTunnelMaintenanceDetailsItem struct {
+	PendingMaintenance string `xml:"pendingMaintenance"`
+}
+
+type getVpnTunnelReplacementStatusResponse struct {
+	XMLName                   xml.Name                        `xml:"GetVpnTunnelReplacementStatusResponse"`
+	Xmlns                     string                          `xml:"xmlns,attr"`
+	RequestID                 string                          `xml:"requestId"`
+	VpnConnectionID           string                          `xml:"vpnConnectionId"`
+	TransitGatewayID          string                          `xml:"transitGatewayId,omitempty"`
+	VpnGatewayID              string                          `xml:"vpnGatewayId,omitempty"`
+	CustomerGatewayID         string                          `xml:"customerGatewayId,omitempty"`
+	VpnTunnelOutsideIPAddress string                          `xml:"vpnTunnelOutsideIpAddress"`
+	MaintenanceDetails        vpnTunnelMaintenanceDetailsItem `xml:"maintenanceDetails"`
 }
 
 type rejectVpcPeeringConnectionResponse struct {
@@ -745,15 +942,9 @@ func (h *Handler) handleCreateVpnConnection(vals url.Values, reqID string) (any,
 	}
 
 	return &createVpnConnectionResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		VpnConnection: vpnConnectionItem{
-			VpnConnectionID:   conn.VpnConnectionID,
-			State:             conn.State,
-			CustomerGatewayID: conn.CustomerGatewayID,
-			VpnGatewayID:      conn.VpnGatewayID,
-			Type:              conn.Type,
-		},
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conn),
 	}, nil
 }
 
@@ -764,13 +955,7 @@ func (h *Handler) handleDescribeVpnConnections(vals url.Values, reqID string) (a
 	resp := &describeVpnConnectionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, conn := range conns {
-		resp.VpnConnectionSet.Items = append(resp.VpnConnectionSet.Items, vpnConnectionItem{
-			VpnConnectionID:   conn.VpnConnectionID,
-			State:             conn.State,
-			CustomerGatewayID: conn.CustomerGatewayID,
-			VpnGatewayID:      conn.VpnGatewayID,
-			Type:              conn.Type,
-		})
+		resp.VpnConnectionSet.Items = append(resp.VpnConnectionSet.Items, h.toVpnConnectionItem(conn))
 	}
 
 	return resp, nil
@@ -782,6 +967,160 @@ func (h *Handler) handleDeleteVpnConnection(vals url.Values, reqID string) (any,
 	}
 
 	return &deleteVpnConnectionResponse{RequestID: reqID, Return: true}, nil
+}
+
+// ---- VPN Connection tunnel/option modification handlers ----
+
+// handleModifyVpnConnectionOptions handles ModifyVpnConnectionOptions. Real AWS accepts only
+// the local/remote IPv4 (and IPv6) network CIDRs here — StaticRoutesOnly is fixed at
+// CreateVpnConnection time and is not one of this action's parameters, so it is never
+// overridden from the request (nil below leaves it unchanged).
+func (h *Handler) handleModifyVpnConnectionOptions(vals url.Values, reqID string) (any, error) {
+	conn, err := h.Backend.ModifyVpnConnectionOptions(
+		vals.Get("VpnConnectionId"),
+		vals.Get("LocalIpv4NetworkCidr"),
+		vals.Get("RemoteIpv4NetworkCidr"),
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyVpnConnectionOptionsResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conn),
+	}, nil
+}
+
+// parseInt32Param parses a query parameter as an int32, returning 0 if absent or malformed.
+func parseInt32Param(vals url.Values, key string) int32 {
+	v := vals.Get(key)
+	if v == "" {
+		return 0
+	}
+
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil {
+		return 0
+	}
+
+	return int32(n)
+}
+
+// parseIKEVersionValues parses the indexed "TunnelOptions.IKEVersions.N.Value" query parameters
+// ModifyVpnTunnelOptions accepts.
+func parseIKEVersionValues(vals url.Values) []string {
+	var out []string
+
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("TunnelOptions.IKEVersions.%d.Value", i))
+		if v == "" {
+			break
+		}
+
+		out = append(out, v)
+	}
+
+	return out
+}
+
+func (h *Handler) handleModifyVpnTunnelOptions(vals url.Values, reqID string) (any, error) {
+	vpnID := vals.Get("VpnConnectionId")
+	outsideIP := vals.Get("VpnTunnelOutsideIpAddress")
+
+	opts := VpnTunnelOptionsModify{
+		TunnelInsideCIDR:       vals.Get("TunnelOptions.TunnelInsideCidr"),
+		PreSharedKey:           vals.Get("TunnelOptions.PreSharedKey"),
+		Phase1LifetimeSeconds:  parseInt32Param(vals, "TunnelOptions.Phase1LifetimeSeconds"),
+		Phase2LifetimeSeconds:  parseInt32Param(vals, "TunnelOptions.Phase2LifetimeSeconds"),
+		RekeyMarginTimeSeconds: parseInt32Param(vals, "TunnelOptions.RekeyMarginTimeSeconds"),
+		DPDTimeoutSeconds:      parseInt32Param(vals, "TunnelOptions.DPDTimeoutSeconds"),
+		DPDTimeoutAction:       vals.Get("TunnelOptions.DPDTimeoutAction"),
+		StartupAction:          vals.Get("TunnelOptions.StartupAction"),
+		IKEVersions:            parseIKEVersionValues(vals),
+	}
+
+	conn, err := h.Backend.ModifyVpnTunnelOptions(vpnID, outsideIP, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyVpnTunnelOptionsResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conn),
+	}, nil
+}
+
+func (h *Handler) handleModifyVpnTunnelCertificate(vals url.Values, reqID string) (any, error) {
+	conn, err := h.Backend.ModifyVpnTunnelCertificate(
+		vals.Get("VpnConnectionId"),
+		vals.Get("VpnTunnelOutsideIpAddress"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyVpnTunnelCertificateResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conn),
+	}, nil
+}
+
+func (h *Handler) handleGetVpnConnectionDeviceTypes(_ url.Values, reqID string) (any, error) {
+	types := h.Backend.GetVpnConnectionDeviceTypes()
+
+	resp := &getVpnConnectionDeviceTypesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	for _, t := range types {
+		resp.VpnConnectionDeviceTypeSet.Items = append(
+			resp.VpnConnectionDeviceTypeSet.Items,
+			vpnConnectionDeviceTypeItem(t),
+		)
+	}
+
+	return resp, nil
+}
+
+func (h *Handler) handleGetVpnConnectionDeviceSampleConfiguration(vals url.Values, reqID string) (any, error) {
+	config, err := h.Backend.GetVpnConnectionDeviceSampleConfiguration(
+		vals.Get("VpnConnectionId"),
+		vals.Get("VpnConnectionDeviceTypeId"),
+		vals.Get("InternetKeyExchangeVersion"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getVpnConnectionDeviceSampleConfigurationResponse{
+		Xmlns:                                  ec2XMLNS,
+		RequestID:                              reqID,
+		VpnConnectionDeviceSampleConfiguration: config,
+	}, nil
+}
+
+func (h *Handler) handleGetVpnTunnelReplacementStatus(vals url.Values, reqID string) (any, error) {
+	status, err := h.Backend.GetVpnTunnelReplacementStatus(
+		vals.Get("VpnConnectionId"),
+		vals.Get("VpnTunnelOutsideIpAddress"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getVpnTunnelReplacementStatusResponse{
+		Xmlns:                     ec2XMLNS,
+		RequestID:                 reqID,
+		VpnConnectionID:           status.VpnConnectionID,
+		TransitGatewayID:          status.TransitGatewayID,
+		VpnGatewayID:              status.VpnGatewayID,
+		CustomerGatewayID:         status.CustomerGatewayID,
+		VpnTunnelOutsideIPAddress: status.VpnTunnelOutsideIPAddress,
+		MaintenanceDetails: vpnTunnelMaintenanceDetailsItem{
+			PendingMaintenance: status.MaintenanceDetails.PendingMaintenance,
+		},
+	}, nil
 }
 
 // ---- VPC Peering: Reject ----

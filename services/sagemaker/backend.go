@@ -475,6 +475,7 @@ type InMemoryBackend struct {
 	compilationJobs            map[string]map[string]*CompilationJob
 	monitoringSchedules        map[string]map[string]*MonitoringSchedule
 	workteams                  map[string]map[string]*Workteam
+	labelingJobs               map[string]map[string]*LabelingJob
 	dataQualityJobDefs         map[string]map[string]*JobDefinition
 	modelBiasJobDefs           map[string]map[string]*JobDefinition
 	modelQualityJobDefs        map[string]map[string]*JobDefinition
@@ -587,6 +588,7 @@ func NewInMemoryBackendWithContext(
 		compilationJobs:              make(map[string]map[string]*CompilationJob),
 		monitoringSchedules:          make(map[string]map[string]*MonitoringSchedule),
 		workteams:                    make(map[string]map[string]*Workteam),
+		labelingJobs:                 make(map[string]map[string]*LabelingJob),
 		dataQualityJobDefs:           make(map[string]map[string]*JobDefinition),
 		modelBiasJobDefs:             make(map[string]map[string]*JobDefinition),
 		modelQualityJobDefs:          make(map[string]map[string]*JobDefinition),
@@ -1214,6 +1216,7 @@ func (b *InMemoryBackend) Reset() {
 	b.compilationJobs = make(map[string]map[string]*CompilationJob)
 	b.monitoringSchedules = make(map[string]map[string]*MonitoringSchedule)
 	b.workteams = make(map[string]map[string]*Workteam)
+	b.labelingJobs = make(map[string]map[string]*LabelingJob)
 	b.dataQualityJobDefs = make(map[string]map[string]*JobDefinition)
 	b.modelBiasJobDefs = make(map[string]map[string]*JobDefinition)
 	b.modelQualityJobDefs = make(map[string]map[string]*JobDefinition)

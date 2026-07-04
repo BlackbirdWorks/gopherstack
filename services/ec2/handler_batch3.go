@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -377,12 +378,6 @@ type groupsForCapacityReservationResponse struct {
 			GroupARN string `xml:"groupArn"`
 		} `xml:"item"`
 	} `xml:"capacityReservationGroupSet"`
-}
-
-type vpnConnectionRouteItem struct {
-	VpnConnectionID string `xml:"vpnConnectionId"`
-	DestinationCIDR string `xml:"destinationCidrBlock"`
-	State           string `xml:"state"`
 }
 
 // ---- Handler implementations ----
@@ -1126,26 +1121,30 @@ func (h *Handler) handleModifyVpnConnection(vals url.Values, reqID string) (any,
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpnConnectionResponse"},
-		RequestID: reqID,
-		Return:    true,
+	conns := h.Backend.DescribeVpnConnections([]string{vpnID})
+	if len(conns) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnID)
+	}
+
+	return &modifyVpnConnectionResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpnConnection: h.toVpnConnectionItem(conns[0]),
 	}, nil
 }
 
-func (h *Handler) handleCreateVpnConnectionRoute(vals url.Values, _ string) (any, error) {
+func (h *Handler) handleCreateVpnConnectionRoute(vals url.Values, reqID string) (any, error) {
 	vpnID := vals.Get("VpnConnectionId")
 	destCIDR := vals.Get("DestinationCidrBlock")
 
-	route, err := h.Backend.CreateVpnConnectionRoute(vpnID, destCIDR)
-	if err != nil {
+	if _, err := h.Backend.CreateVpnConnectionRoute(vpnID, destCIDR); err != nil {
 		return nil, err
 	}
 
-	return &vpnConnectionRouteItem{
-		VpnConnectionID: route.VpnConnectionID,
-		DestinationCIDR: route.DestinationCIDR,
-		State:           route.State,
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpnConnectionRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
 	}, nil
 }
 

@@ -199,10 +199,12 @@ func (h *Handler) GetSupportedOperations() []string {
 	cluster := clusterOpsSupported()
 	lineage := lineageOpsSupported()
 	hub := hubOpsSupported()
+	labeling := labelingOpsSupported()
 
 	stubs := stubOpsSupported()
 	total := len(core) + len(batch2) + len(batch3) + len(accuracy3)
-	total += len(accuracy4) + len(edgeDeployment) + len(cluster) + len(lineage) + len(hub) + len(stubs)
+	total += len(accuracy4) + len(edgeDeployment) + len(cluster) + len(lineage) + len(hub)
+	total += len(labeling) + len(stubs)
 	combined := make([]string, 0, total)
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
@@ -213,6 +215,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	combined = append(combined, cluster...)
 	combined = append(combined, lineage...)
 	combined = append(combined, hub...)
+	combined = append(combined, labeling...)
 
 	return append(combined, stubs...)
 }
@@ -282,6 +285,7 @@ func batch2OpsSupported() []string {
 		"DescribeWorkteam",
 		"DeleteWorkteam",
 		"ListWorkteams",
+		"UpdateWorkteam",
 	}
 }
 
@@ -456,7 +460,7 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 		return r, err
 	}
 
-	if r, ok, err := h.dispatchHubOps(ctx, op, body); ok {
+	if r, ok, err := h.dispatchHubAndLabelingOps(ctx, op, body); ok {
 		return r, err
 	}
 

@@ -1018,8 +1018,9 @@ func (b *InMemoryBackend) ReportInstanceStatus(instanceID string, _ string, _ st
 
 // ---- VPN operations ----
 
-// ModifyVpnConnection updates properties of a VPN connection.
-func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID string, _ string) error {
+// ModifyVpnConnection moves a VPN connection onto a different VPN Gateway. An empty
+// vpnGatewayID leaves the connection's gateway attachment unchanged.
+func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error {
 	if vpnConnectionID == "" {
 		return fmt.Errorf("%w: VpnConnectionId is required", ErrInvalidParameter)
 	}
@@ -1027,8 +1028,18 @@ func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID string, _ string) 
 	b.mu.Lock("ModifyVpnConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpnConnections[vpnConnectionID]; !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, vpnConnectionID)
+	conn, ok := b.vpnConnections[vpnConnectionID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
+	}
+
+	if vpnGatewayID != "" {
+		if _, exists := b.vpnGateways[vpnGatewayID]; !exists {
+			return fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, vpnGatewayID)
+		}
+
+		conn.VpnGatewayID = vpnGatewayID
+		conn.TransitGatewayID = ""
 	}
 
 	return nil

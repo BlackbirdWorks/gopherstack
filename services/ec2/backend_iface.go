@@ -646,6 +646,36 @@ type Backend interface {
 	// DeleteVpnConnection removes a VPN connection.
 	DeleteVpnConnection(id string) error
 
+	// GetVpnConnectionRoutes returns the static routes registered against a VPN connection.
+	GetVpnConnectionRoutes(vpnConnectionID string) []*VpnConnectionRoute
+
+	// ModifyVpnConnectionOptions updates the negotiated local/remote IPv4 CIDRs and the
+	// static-routes-only flag of a VPN connection.
+	ModifyVpnConnectionOptions(
+		vpnConnectionID, localIPv4CIDR, remoteIPv4CIDR string, staticRoutesOnly *bool,
+	) (*VpnConnection, error)
+
+	// ModifyVpnTunnelOptions updates the configuration of a single tunnel of a VPN connection.
+	ModifyVpnTunnelOptions(
+		vpnConnectionID, outsideIPAddress string, opts VpnTunnelOptionsModify,
+	) (*VpnConnection, error)
+
+	// ModifyVpnTunnelCertificate provisions a certificate-based authentication certificate for
+	// a single tunnel of a VPN connection.
+	ModifyVpnTunnelCertificate(vpnConnectionID, outsideIPAddress string) (*VpnConnection, error)
+
+	// GetVpnConnectionDeviceTypes returns the static catalog of supported customer gateway
+	// device types.
+	GetVpnConnectionDeviceTypes() []VpnConnectionDeviceType
+
+	// GetVpnConnectionDeviceSampleConfiguration generates a sample vendor configuration for a
+	// VPN connection's tunnels.
+	GetVpnConnectionDeviceSampleConfiguration(vpnConnectionID, deviceTypeID, ikeVersion string) (string, error)
+
+	// GetVpnTunnelReplacementStatus reports pending AWS-initiated tunnel endpoint maintenance
+	// for a single tunnel of a VPN connection.
+	GetVpnTunnelReplacementStatus(vpnConnectionID, outsideIPAddress string) (*VpnTunnelReplacementStatus, error)
+
 	// ---- VPC Peering extras ----
 
 	// RejectVpcPeeringConnection rejects a pending VPC peering connection.

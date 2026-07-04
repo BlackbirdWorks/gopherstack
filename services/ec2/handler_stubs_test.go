@@ -95,7 +95,7 @@ func TestStubOperations(t *testing.T) {
 		"CreateVpcEncryptionControl",
 		"CreateVpcEndpointServiceConfiguration",
 		"CreateVpnConcentrator",
-		"CreateVpnGateway",
+		// "CreateVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DeleteCapacityManagerDataExport",
 		// "DeleteCarrierGateway", — real handler in handler_batch5.go, covered there
 		// "DeleteClientVpnEndpoint", — moved to batch4
@@ -168,7 +168,7 @@ func TestStubOperations(t *testing.T) {
 		// "DescribeClientVpnTargetNetworks", — moved to batch4
 		"DescribeCoipPools",
 		"DescribeConversionTasks",
-		"DescribeCustomerGateways",
+		// "DescribeCustomerGateways", — moved to advancedNetworkingSupportedOperations
 		"DescribeDeclarativePoliciesReports",
 		"DescribeElasticGpus",
 		"DescribeExportImageTasks",
@@ -240,8 +240,8 @@ func TestStubOperations(t *testing.T) {
 		"DescribeVpcEncryptionControls",
 		"DescribeVpcEndpointServiceConfigurations",
 		"DescribeVpnConcentrators",
-		"DescribeVpnConnections",
-		"DescribeVpnGateways",
+		// "DescribeVpnConnections", — moved to advancedNetworkingSupportedOperations
+		// "DescribeVpnGateways", — moved to advancedNetworkingSupportedOperations
 		"DetachClassicLinkVpc",
 		// "DetachVerifiedAccessTrustProvider", — moved to batch4
 		"DisableAllowedImagesSettings",
@@ -323,9 +323,9 @@ func TestStubOperations(t *testing.T) {
 		"GetVerifiedAccessEndpointTargets",
 		"GetVerifiedAccessGroupPolicy",
 		"GetVpcResourcesBlockingEncryptionEnforcement",
-		"GetVpnConnectionDeviceSampleConfiguration",
-		"GetVpnConnectionDeviceTypes",
-		"GetVpnTunnelReplacementStatus",
+		// "GetVpnConnectionDeviceSampleConfiguration", — moved to advancedNetworkingSupportedOperations
+		// "GetVpnConnectionDeviceTypes", — moved to advancedNetworkingSupportedOperations
+		// "GetVpnTunnelReplacementStatus", — moved to advancedNetworkingSupportedOperations
 		// "ImportClientVpnClientCertificateRevocationList", — moved to batch4 (requires ClientVpnEndpointId)
 		"ImportInstance",
 		"ImportVolume",
@@ -364,9 +364,9 @@ func TestStubOperations(t *testing.T) {
 		"ModifyVpcBlockPublicAccessExclusion",
 		"ModifyVpcBlockPublicAccessOptions",
 		"ModifyVpcEncryptionControl",
-		"ModifyVpnConnectionOptions",
-		"ModifyVpnTunnelCertificate",
-		"ModifyVpnTunnelOptions",
+		// "ModifyVpnConnectionOptions", — moved to advancedNetworkingSupportedOperations
+		// "ModifyVpnTunnelCertificate", — moved to advancedNetworkingSupportedOperations
+		// "ModifyVpnTunnelOptions", — moved to advancedNetworkingSupportedOperations
 		"MoveAddressToVpc",
 		"MoveByoipCidrToIpam",
 		"MoveCapacityReservationInstances",

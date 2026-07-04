@@ -827,53 +827,146 @@ func (b *InMemoryBackend) DeleteHumanTaskUI(ctx context.Context, name string) er
 // Workforce
 // ---------------------------------------------------------------------------
 
+// CognitoConfig configures an Amazon Cognito private workforce.
+type CognitoConfig struct {
+	UserPool string `json:"UserPool"`
+	ClientID string `json:"ClientId"`
+}
+
+// OidcConfig configures a private workforce using a customer-owned OIDC IdP.
+// ClientSecret is stored but never echoed back in responses, matching the
+// real OidcConfigForResponse shape.
+type OidcConfig struct {
+	AuthenticationRequestExtraParams map[string]string `json:"AuthenticationRequestExtraParams,omitempty"`
+	ClientID                         string            `json:"ClientId"`
+	ClientSecret                     string            `json:"-"`
+	Issuer                           string            `json:"Issuer"`
+	AuthorizationEndpoint            string            `json:"AuthorizationEndpoint"`
+	TokenEndpoint                    string            `json:"TokenEndpoint"`
+	UserInfoEndpoint                 string            `json:"UserInfoEndpoint"`
+	LogoutEndpoint                   string            `json:"LogoutEndpoint"`
+	JwksURI                          string            `json:"JwksUri"`
+	Scope                            string            `json:"Scope,omitempty"`
+}
+
+// SourceIPConfig is a CIDR allow list restricting worker access to a workforce.
+type SourceIPConfig struct {
+	Cidrs []string `json:"Cidrs"`
+}
+
+// WorkforceVpcConfig describes the VPC a workforce connects through.
+type WorkforceVpcConfig struct {
+	VpcID            string   `json:"VpcId"`
+	VpcEndpointID    string   `json:"VpcEndpointId,omitempty"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
+	Subnets          []string `json:"Subnets,omitempty"`
+}
+
 // Workforce represents a SageMaker workforce.
 type Workforce struct {
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	WorkforceName    string            `json:"WorkforceName"`
-	WorkforceArn     string            `json:"WorkforceArn"`
-	Status           string            `json:"Status"`
+	CreateDate         time.Time           `json:"CreateDate"`
+	LastUpdatedDate    time.Time           `json:"LastUpdatedDate"`
+	Tags               map[string]string   `json:"-"`
+	CognitoConfig      *CognitoConfig      `json:"CognitoConfig,omitempty"`
+	OidcConfig         *OidcConfig         `json:"OidcConfig,omitempty"`
+	SourceIPConfig     *SourceIPConfig     `json:"SourceIpConfig,omitempty"`
+	WorkforceVpcConfig *WorkforceVpcConfig `json:"WorkforceVpcConfig,omitempty"`
+	WorkforceName      string              `json:"WorkforceName"`
+	WorkforceArn       string              `json:"WorkforceArn"`
+	Status             string              `json:"Status"`
+	SubDomain          string              `json:"SubDomain,omitempty"`
 }
 
 func cloneWorkforce(w *Workforce) *Workforce {
 	cp := *w
 	cp.Tags = maps.Clone(w.Tags)
 
+	if w.CognitoConfig != nil {
+		c := *w.CognitoConfig
+		cp.CognitoConfig = &c
+	}
+
+	if w.OidcConfig != nil {
+		o := *w.OidcConfig
+		o.AuthenticationRequestExtraParams = maps.Clone(w.OidcConfig.AuthenticationRequestExtraParams)
+		cp.OidcConfig = &o
+	}
+
+	if w.SourceIPConfig != nil {
+		s := *w.SourceIPConfig
+		s.Cidrs = append([]string(nil), w.SourceIPConfig.Cidrs...)
+		cp.SourceIPConfig = &s
+	}
+
+	if w.WorkforceVpcConfig != nil {
+		v := *w.WorkforceVpcConfig
+		v.SecurityGroupIDs = append([]string(nil), w.WorkforceVpcConfig.SecurityGroupIDs...)
+		v.Subnets = append([]string(nil), w.WorkforceVpcConfig.Subnets...)
+		cp.WorkforceVpcConfig = &v
+	}
+
 	return &cp
 }
 
-// CreateWorkforce creates a workforce.
-func (b *InMemoryBackend) CreateWorkforce(
-	ctx context.Context,
-	name string,
-	tags map[string]string,
-) (*Workforce, error) {
+// CreateWorkforceOptions holds the parameters for creating a workforce.
+type CreateWorkforceOptions struct {
+	CognitoConfig      *CognitoConfig
+	OidcConfig         *OidcConfig
+	SourceIPConfig     *SourceIPConfig
+	WorkforceVpcConfig *WorkforceVpcConfig
+	Tags               map[string]string
+	Name               string
+}
+
+// CreateWorkforce creates a workforce. AWS allows at most one workforce per
+// account per region.
+func (b *InMemoryBackend) CreateWorkforce(ctx context.Context, opts CreateWorkforceOptions) (*Workforce, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateWorkforce")
 	defer b.mu.Unlock()
 
-	if name == "" {
+	if opts.Name == "" {
 		return nil, fmt.Errorf("%w: WorkforceName is required", ErrValidation)
 	}
 
 	store := b.workforcesStore(region)
 
-	if _, ok := store[name]; ok {
-		return nil, fmt.Errorf("%w: workforce %q already exists", ErrValidation, name)
+	if _, ok := store[opts.Name]; ok {
+		return nil, fmt.Errorf("%w: workforce %q already exists", ErrValidation, opts.Name)
 	}
 
-	workforceARN := arn.Build("sagemaker", region, b.accountID, "workforce/"+name)
+	if len(store) > 0 {
+		return nil, fmt.Errorf(
+			"%w: only one workforce is allowed per Amazon Web Services account per Amazon Web Services Region",
+			ErrValidation,
+		)
+	}
+
+	workforceARN := arn.Build("sagemaker", region, b.accountID, "workforce/"+opts.Name)
+	now := time.Now()
 
 	w := &Workforce{
-		WorkforceName:    name,
-		WorkforceArn:     workforceARN,
-		Status:           statusActive,
-		Tags:             mergeTags(nil, tags),
-		LastModifiedTime: time.Now(),
+		WorkforceName:      opts.Name,
+		WorkforceArn:       workforceARN,
+		Status:             statusActive,
+		CognitoConfig:      opts.CognitoConfig,
+		OidcConfig:         opts.OidcConfig,
+		SourceIPConfig:     opts.SourceIPConfig,
+		WorkforceVpcConfig: opts.WorkforceVpcConfig,
+		Tags:               mergeTags(nil, opts.Tags),
+		CreateDate:         now,
+		LastUpdatedDate:    now,
 	}
-	store[name] = w
+	if w.OidcConfig != nil {
+		w.SubDomain = "https://" + generateID() + ".labeling.sagemaker.aws"
+	}
+
+	if w.WorkforceVpcConfig != nil {
+		w.WorkforceVpcConfig.VpcEndpointID = "vpce-" + generateID()[:17]
+	}
+
+	store[opts.Name] = w
 
 	return cloneWorkforce(w), nil
 }
@@ -893,21 +986,80 @@ func (b *InMemoryBackend) DescribeWorkforce(ctx context.Context, name string) (*
 	return cloneWorkforce(w), nil
 }
 
-// UpdateWorkforce updates a workforce (marks it modified).
-func (b *InMemoryBackend) UpdateWorkforce(ctx context.Context, name string) (*Workforce, error) {
+// UpdateWorkforceOptions holds the parameters for updating a workforce.
+type UpdateWorkforceOptions struct {
+	OidcConfig         *OidcConfig
+	SourceIPConfig     *SourceIPConfig
+	WorkforceVpcConfig *WorkforceVpcConfig
+	Name               string
+}
+
+// UpdateWorkforce updates a workforce's IdP, IP allow-list, or VPC configuration.
+func (b *InMemoryBackend) UpdateWorkforce(ctx context.Context, opts UpdateWorkforceOptions) (*Workforce, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("UpdateWorkforce")
 	defer b.mu.Unlock()
 
-	w, ok := b.workforcesStore(region)[name]
+	w, ok := b.workforcesStore(region)[opts.Name]
 	if !ok {
-		return nil, fmt.Errorf("%w: workforce %q not found", ErrWorkforceNotFound, name)
+		return nil, fmt.Errorf("%w: workforce %q not found", ErrWorkforceNotFound, opts.Name)
 	}
 
-	w.LastModifiedTime = time.Now()
+	if opts.OidcConfig != nil {
+		w.OidcConfig = opts.OidcConfig
+	}
+
+	if opts.SourceIPConfig != nil {
+		w.SourceIPConfig = opts.SourceIPConfig
+	}
+
+	if opts.WorkforceVpcConfig != nil {
+		opts.WorkforceVpcConfig.VpcEndpointID = "vpce-" + generateID()[:17]
+		w.WorkforceVpcConfig = opts.WorkforceVpcConfig
+	}
+
+	w.LastUpdatedDate = time.Now()
 
 	return cloneWorkforce(w), nil
+}
+
+// DeleteWorkforce removes a workforce. Fails with ResourceInUse if the
+// workforce still has one or more work teams (AWS requires DeleteWorkteam
+// first, per the DeleteWorkforce API contract).
+func (b *InMemoryBackend) DeleteWorkforce(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("DeleteWorkforce")
+	defer b.mu.Unlock()
+
+	w, ok := b.workforcesStore(region)[name]
+	if !ok {
+		return fmt.Errorf("%w: workforce %q not found", ErrWorkforceNotFound, name)
+	}
+
+	for _, wt := range b.workteamsStore(region) {
+		if wt.WorkforceArn == w.WorkforceArn {
+			return fmt.Errorf(
+				"%w: workforce %q still has associated work teams", ErrWorkteamInUse, name,
+			)
+		}
+	}
+
+	delete(b.workforcesStore(region), name)
+
+	return nil
+}
+
+// ListWorkforces returns all workforces sorted by name. AWS supports at most
+// one workforce per account per region, so this list contains at most one item.
+func (b *InMemoryBackend) ListWorkforces(ctx context.Context, nextToken string) ([]*Workforce, string) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListWorkforces")
+	defer b.mu.RUnlock()
+
+	return sagemakerListKeyPaged(b.workforcesStore(region), nextToken, cloneWorkforce)
 }
 
 // ---------------------------------------------------------------------------

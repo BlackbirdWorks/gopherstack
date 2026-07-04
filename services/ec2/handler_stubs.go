@@ -5,11 +5,15 @@ import (
 	"net/url"
 )
 
-// stubResponse is a minimal success response for stub EC2 operations.
+// stubResponse is a minimal success response for stub EC2 operations. XMLName deliberately
+// carries no xml tag: encoding/xml gives a tagged XMLName field priority over the runtime
+// value, which would otherwise force every caller's root element to the literal name
+// "StubResponse" instead of the action-specific name (e.g. "CreateFooResponse") each call site
+// assigns via a struct literal.
 type stubResponse struct {
-	XMLName   xml.Name `xml:"StubResponse"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName   xml.Name
+	RequestID string `xml:"requestId"`
+	Return    bool   `xml:"return"`
 }
 
 //nolint:funlen
@@ -31,7 +35,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// AssociateVpcCidrBlock — moved to handler_ec2core.go
 	ops["AttachClassicLinkVpc"] = h.handleStubAttachClassicLinkVpc
 	// AttachVerifiedAccessTrustProvider — moved to handler_batch4.go
-	ops["AttachVpnGateway"] = h.handleStubAttachVpnGateway
+	// AttachVpnGateway — moved to advancedNetworkingSupportedOperations
 	// AuthorizeClientVpnIngress — moved to handler_batch4.go
 	ops["BundleInstance"] = h.handleStubBundleInstance
 	ops["CancelBundleTask"] = h.handleStubCancelBundleTask
@@ -53,7 +57,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// CreateClientVpnRoute — moved to handler_batch4.go
 	ops["CreateCoipCidr"] = h.handleStubCreateCoipCidr
 	ops["CreateCoipPool"] = h.handleStubCreateCoipPool
-	ops["CreateCustomerGateway"] = h.handleStubCreateCustomerGateway
+	// CreateCustomerGateway — moved to advancedNetworkingSupportedOperations
 	ops["CreateDelegateMacVolumeOwnershipTask"] = h.handleStubCreateDelegateMacVolumeOwnershipTask
 	// CreateEgressOnlyInternetGateway — moved to handler_ec2core.go
 	// CreateFleet — real handler in handler_batch5.go, covered there
@@ -110,15 +114,15 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateVpcEncryptionControl"] = h.handleStubCreateVpcEncryptionControl
 	ops["CreateVpcEndpointServiceConfiguration"] = h.handleStubCreateVpcEndpointServiceConfiguration
 	ops["CreateVpnConcentrator"] = h.handleStubCreateVpnConcentrator
-	ops["CreateVpnConnection"] = h.handleStubCreateVpnConnection
-	ops["CreateVpnGateway"] = h.handleStubCreateVpnGateway
+	// CreateVpnConnection — moved to advancedNetworkingSupportedOperations
+	// CreateVpnGateway — moved to advancedNetworkingSupportedOperations
 	ops["DeleteCapacityManagerDataExport"] = h.handleStubDeleteCapacityManagerDataExport
 	// DeleteCarrierGateway — real handler in handler_batch5.go, covered there
 	// DeleteClientVpnEndpoint — moved to handler_batch4.go
 	// DeleteClientVpnRoute — moved to handler_batch4.go
 	ops["DeleteCoipCidr"] = h.handleStubDeleteCoipCidr
 	ops["DeleteCoipPool"] = h.handleStubDeleteCoipPool
-	ops["DeleteCustomerGateway"] = h.handleStubDeleteCustomerGateway
+	// DeleteCustomerGateway — moved to advancedNetworkingSupportedOperations
 	// DeleteEgressOnlyInternetGateway — moved to handler_ec2core.go
 	// DeleteFleets — real handler in handler_batch5.go, covered there
 	ops["DeleteFpgaImage"] = h.handleStubDeleteFpgaImage
@@ -171,8 +175,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteVpcEncryptionControl"] = h.handleStubDeleteVpcEncryptionControl
 	ops["DeleteVpcEndpointServiceConfigurations"] = h.handleStubDeleteVpcEndpointServiceConfigurations
 	ops["DeleteVpnConcentrator"] = h.handleStubDeleteVpnConcentrator
-	ops["DeleteVpnConnection"] = h.handleStubDeleteVpnConnection
-	ops["DeleteVpnGateway"] = h.handleStubDeleteVpnGateway
+	// DeleteVpnConnection — moved to advancedNetworkingSupportedOperations
+	// DeleteVpnGateway — moved to advancedNetworkingSupportedOperations
 	// DeprovisionByoipCidr — real handler in handler_batch5.go, covered there
 	ops["DeprovisionIpamByoasn"] = h.handleStubDeprovisionIpamByoasn
 	// ops["DeprovisionIpamPoolCidr"] — moved to advancedNetworkingSupportedOperations
@@ -198,7 +202,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// DescribeClientVpnTargetNetworks — moved to handler_batch4.go
 	ops["DescribeCoipPools"] = h.handleStubDescribeCoipPools
 	ops["DescribeConversionTasks"] = h.handleStubDescribeConversionTasks
-	ops["DescribeCustomerGateways"] = h.handleStubDescribeCustomerGateways
+	// DescribeCustomerGateways — moved to advancedNetworkingSupportedOperations
 	ops["DescribeDeclarativePoliciesReports"] = h.handleStubDescribeDeclarativePoliciesReports
 	// DescribeEgressOnlyInternetGateways — moved to handler_ec2core.go
 	ops["DescribeElasticGpus"] = h.handleStubDescribeElasticGpus
@@ -284,8 +288,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeVpcEncryptionControls"] = h.handleStubDescribeVpcEncryptionControls
 	ops["DescribeVpcEndpointServiceConfigurations"] = h.handleStubDescribeVpcEndpointServiceConfigurations
 	ops["DescribeVpnConcentrators"] = h.handleStubDescribeVpnConcentrators
-	ops["DescribeVpnConnections"] = h.handleStubDescribeVpnConnections
-	ops["DescribeVpnGateways"] = h.handleStubDescribeVpnGateways
+	// DescribeVpnConnections — moved to advancedNetworkingSupportedOperations
+	// DescribeVpnGateways — moved to advancedNetworkingSupportedOperations
 	ops["DetachClassicLinkVpc"] = h.handleStubDetachClassicLinkVpc
 	// DetachVerifiedAccessTrustProvider — moved to handler_batch4.go
 	ops["DisableAllowedImagesSettings"] = h.handleStubDisableAllowedImagesSettings
@@ -374,9 +378,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetVerifiedAccessEndpointTargets"] = h.handleStubGetVerifiedAccessEndpointTargets
 	ops["GetVerifiedAccessGroupPolicy"] = h.handleStubGetVerifiedAccessGroupPolicy
 	ops["GetVpcResourcesBlockingEncryptionEnforcement"] = h.handleStubGetVpcResourcesBlockingEncryptionEnforcement
-	ops["GetVpnConnectionDeviceSampleConfiguration"] = h.handleStubGetVpnConnectionDeviceSampleConfiguration
-	ops["GetVpnConnectionDeviceTypes"] = h.handleStubGetVpnConnectionDeviceTypes
-	ops["GetVpnTunnelReplacementStatus"] = h.handleStubGetVpnTunnelReplacementStatus
+	// GetVpnConnectionDeviceSampleConfiguration — moved to advancedNetworkingSupportedOperations
+	// GetVpnConnectionDeviceTypes — moved to advancedNetworkingSupportedOperations
+	// GetVpnTunnelReplacementStatus — moved to advancedNetworkingSupportedOperations
 	// ImportClientVpnClientCertificateRevocationList — moved to handler_batch4.go
 	ops["ImportInstance"] = h.handleStubImportInstance
 	ops["ImportVolume"] = h.handleStubImportVolume
@@ -423,9 +427,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyVpcBlockPublicAccessExclusion"] = h.handleStubModifyVpcBlockPublicAccessExclusion
 	ops["ModifyVpcBlockPublicAccessOptions"] = h.handleStubModifyVpcBlockPublicAccessOptions
 	ops["ModifyVpcEncryptionControl"] = h.handleStubModifyVpcEncryptionControl
-	ops["ModifyVpnConnectionOptions"] = h.handleStubModifyVpnConnectionOptions
-	ops["ModifyVpnTunnelCertificate"] = h.handleStubModifyVpnTunnelCertificate
-	ops["ModifyVpnTunnelOptions"] = h.handleStubModifyVpnTunnelOptions
+	// ModifyVpnConnectionOptions — moved to advancedNetworkingSupportedOperations
+	// ModifyVpnTunnelCertificate — moved to advancedNetworkingSupportedOperations
+	// ModifyVpnTunnelOptions — moved to advancedNetworkingSupportedOperations
 	ops["MoveAddressToVpc"] = h.handleStubMoveAddressToVpc
 	ops["MoveByoipCidrToIpam"] = h.handleStubMoveByoipCidrToIpam
 	ops["MoveCapacityReservationInstances"] = h.handleStubMoveCapacityReservationInstances
@@ -839,9 +843,9 @@ func stubSupportedOperations() []string {
 		"GetVerifiedAccessEndpointTargets",
 		"GetVerifiedAccessGroupPolicy",
 		"GetVpcResourcesBlockingEncryptionEnforcement",
-		"GetVpnConnectionDeviceSampleConfiguration",
-		"GetVpnConnectionDeviceTypes",
-		"GetVpnTunnelReplacementStatus",
+		// "GetVpnConnectionDeviceSampleConfiguration", — moved to advancedNetworkingSupportedOperations
+		// "GetVpnConnectionDeviceTypes", — moved to advancedNetworkingSupportedOperations
+		// "GetVpnTunnelReplacementStatus", — moved to advancedNetworkingSupportedOperations
 		// ImportClientVpnClientCertificateRevocationList — moved to batch4SupportedOperations
 		"ImportInstance",
 		"ImportVolume",
@@ -888,9 +892,9 @@ func stubSupportedOperations() []string {
 		"ModifyVpcBlockPublicAccessOptions",
 		"ModifyVpcEncryptionControl",
 		// "ModifyVpcEndpointServiceConfiguration", — moved to advancedNetworkingSupportedOperations
-		"ModifyVpnConnectionOptions",
-		"ModifyVpnTunnelCertificate",
-		"ModifyVpnTunnelOptions",
+		// "ModifyVpnConnectionOptions", — moved to advancedNetworkingSupportedOperations
+		// "ModifyVpnTunnelCertificate", — moved to advancedNetworkingSupportedOperations
+		// "ModifyVpnTunnelOptions", — moved to advancedNetworkingSupportedOperations
 		"MoveAddressToVpc",
 		"MoveByoipCidrToIpam",
 		"MoveCapacityReservationInstances",
@@ -1039,14 +1043,6 @@ func (h *Handler) handleStubAttachClassicLinkVpc(_ url.Values, reqID string) (an
 	}, nil
 }
 
-func (h *Handler) handleStubAttachVpnGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AttachVpnGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubBundleInstance(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "BundleInstanceResponse"},
@@ -1185,14 +1181,6 @@ func (h *Handler) handleStubCreateCoipCidr(_ url.Values, reqID string) (any, err
 func (h *Handler) handleStubCreateCoipPool(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateCoipPoolResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateCustomerGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateCustomerGatewayResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1464,22 +1452,6 @@ func (h *Handler) handleStubCreateVpnConcentrator(_ url.Values, reqID string) (a
 	}, nil
 }
 
-func (h *Handler) handleStubCreateVpnConnection(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateVpnConnectionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateVpnGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateVpnGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteCapacityManagerDataExport(
 	_ url.Values,
 	reqID string,
@@ -1502,14 +1474,6 @@ func (h *Handler) handleStubDeleteCoipCidr(_ url.Values, reqID string) (any, err
 func (h *Handler) handleStubDeleteCoipPool(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteCoipPoolResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteCustomerGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteCustomerGatewayResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1724,22 +1688,6 @@ func (h *Handler) handleStubDeleteVpnConcentrator(_ url.Values, reqID string) (a
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteVpnConnection(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVpnConnectionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteVpnGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVpnGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeprovisionIpamByoasn(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeprovisionIpamByoasnResponse"},
@@ -1901,14 +1849,6 @@ func (h *Handler) handleStubDescribeCoipPools(_ url.Values, reqID string) (any, 
 func (h *Handler) handleStubDescribeConversionTasks(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeConversionTasksResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeCustomerGateways(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeCustomerGatewaysResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2348,22 +2288,6 @@ func (h *Handler) handleStubDescribeVpcEndpointServiceConfigurations(
 func (h *Handler) handleStubDescribeVpnConcentrators(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeVpnConcentratorsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeVpnConnections(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVpnConnectionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeVpnGateways(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeVpnGatewaysResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3000,33 +2924,6 @@ func (h *Handler) handleStubGetVpcResourcesBlockingEncryptionEnforcement(
 	}, nil
 }
 
-func (h *Handler) handleStubGetVpnConnectionDeviceSampleConfiguration(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetVpnConnectionDeviceSampleConfigurationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetVpnConnectionDeviceTypes(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetVpnConnectionDeviceTypesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubGetVpnTunnelReplacementStatus(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "GetVpnTunnelReplacementStatusResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubImportInstance(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ImportInstanceResponse"},
@@ -3323,30 +3220,6 @@ func (h *Handler) handleStubModifyVpcBlockPublicAccessOptions(
 func (h *Handler) handleStubModifyVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyVpcEncryptionControlResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyVpnConnectionOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpnConnectionOptionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyVpnTunnelCertificate(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpnTunnelCertificateResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubModifyVpnTunnelOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpnTunnelOptionsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
