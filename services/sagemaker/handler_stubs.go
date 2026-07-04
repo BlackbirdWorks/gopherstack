@@ -19,6 +19,8 @@ const (
 	keyJobDefinitionName               = "JobDefinitionName"
 	keyDomainArn                       = "DomainArn"
 	keyEdgeDeploymentPlanArn           = "EdgeDeploymentPlanArn"
+	keyEdgeDeploymentPlanName          = "EdgeDeploymentPlanName"
+	keyDeviceName                      = "DeviceName"
 	keyExperimentArn                   = "ExperimentArn"
 	keyFeatureGroupArn                 = "FeatureGroupArn"
 	keyFlowDefinitionArn               = "FlowDefinitionArn"
@@ -74,7 +76,6 @@ const (
 	keyStatus                          = "Status"
 	statusCompleted                    = algorithmStatusCompleted
 	statusInService                    = clusterStatusInService
-	statusCompletedUpper               = "COMPLETED"
 	statusCreated                      = "Created"
 	statusActive                       = "Active"
 	statusPendingManualApproval        = "PendingManualApproval"
@@ -83,8 +84,6 @@ const (
 // stubOpsSupported returns the list of stub-implemented operations.
 func stubOpsSupported() []string {
 	return []string{
-		"CreateEdgeDeploymentPlan",
-		"CreateEdgeDeploymentStage",
 		"CreateLabelingJob",
 		"CreateMlflowApp",
 		"CreateModelCardExportJob",
@@ -93,14 +92,11 @@ func stubOpsSupported() []string {
 		"CreatePresignedMlflowAppUrl",
 		"CreatePresignedMlflowTrackingServerUrl",
 		"DeleteAlgorithm",
-		"DeleteEdgeDeploymentPlan",
-		"DeleteEdgeDeploymentStage",
 		"DeleteMlflowApp",
 		"DeleteModelPackageGroupPolicy",
 		"DeleteProcessingJob",
 		"DeleteWorkforce",
 		"DescribeAlgorithm",
-		"DescribeEdgeDeploymentPlan",
 		"DescribeFeatureMetadata",
 		"DescribeLabelingJob",
 		"DescribeMlflowApp",
@@ -113,7 +109,6 @@ func stubOpsSupported() []string {
 		"DisassociateTrialComponent",
 		"EnableSagemakerServicecatalogPortfolio",
 		"ExtendTrainingPlan",
-		"GetDeviceFleetReport",
 		"GetModelPackageGroupPolicy",
 		"GetSagemakerServicecatalogPortfolioStatus",
 		"GetScalingConfigurationRecommendation",
@@ -121,7 +116,6 @@ func stubOpsSupported() []string {
 		"ListAlgorithms",
 		"ListAliases",
 		"ListCandidatesForAutoMLJob",
-		"ListEdgeDeploymentPlans",
 		"ListLabelingJobs",
 		"ListLabelingJobsForWorkteam",
 		"ListMlflowApps",
@@ -130,7 +124,6 @@ func stubOpsSupported() []string {
 		// ListPipelineParametersForExecution — real implementation in handler_accuracy2.go
 		"ListPipelineVersions",
 		"ListResourceCatalogs",
-		"ListStageDevices",
 		"ListSubscribedWorkteams",
 		"ListTrainingPlans",
 		"ListTrialComponents",
@@ -140,12 +133,9 @@ func stubOpsSupported() []string {
 		"RenderUiTemplate",
 		"Search",
 		"SearchTrainingPlanOfferings",
-		"StartEdgeDeploymentStage",
 		"StartInferenceExperiment",
 		"StartSession",
-		"StopEdgeDeploymentStage",
 		"StopLabelingJob",
-		"UpdateDevices",
 		"UpdateFeatureMetadata",
 		"UpdateHubContent",
 		"UpdateHubContentReference",
@@ -177,12 +167,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "CreateDomain":
 		return mustMarshal(m{keyDomainArn: "", "Url": ""}), true
-
-	case "CreateEdgeDeploymentPlan":
-		return mustMarshal(m{keyEdgeDeploymentPlanArn: ""}), true
-
-	case "CreateEdgeDeploymentStage", "CreateEdgePackagingJob":
-		return mustMarshal(m{}), true
 
 	case "CreateExperiment":
 		return mustMarshal(m{keyExperimentArn: ""}), true
@@ -223,8 +207,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "DeleteAlgorithm",
 		"DeleteApp",
 		"DeleteDomain",
-		"DeleteEdgeDeploymentPlan",
-		"DeleteEdgeDeploymentStage",
 		"DeleteExperiment",
 		"DeleteFeatureGroup",
 		"DeleteMlflowApp",
@@ -241,11 +223,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"ExtendTrainingPlan",
 		"PutModelPackageGroupPolicy",
 		"RenderUiTemplate",
-		"StartEdgeDeploymentStage",
 		"StartSession",
-		"StopEdgeDeploymentStage",
 		"StopLabelingJob",
-		"UpdateDevices",
 		"UpdateFeatureMetadata":
 		return mustMarshal(m{}), true
 
@@ -264,16 +243,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "DescribeDomain":
 		return mustMarshal(m{keyDomainArn: "", keyDomainID: "", keyStatus: statusInService}), true
-
-	case "DescribeEdgeDeploymentPlan":
-		return mustMarshal(m{
-			keyEdgeDeploymentPlanArn: "", "EdgeDeploymentPlanName": "", "Stages": []any{},
-		}), true
-
-	case "DescribeEdgePackagingJob":
-		return mustMarshal(m{
-			"EdgePackagingJobArn": "", "EdgePackagingJobName": "", "EdgePackagingJobStatus": statusCompletedUpper,
-		}), true
 
 	case "DescribeExperiment":
 		return mustMarshal(m{keyExperimentArn: "", keyExperimentName: ""}), true
@@ -342,9 +311,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	// -----------------------------------------------------------------------
 	// Get ops
 	// -----------------------------------------------------------------------
-	case "GetDeviceFleetReport":
-		return mustMarshal(m{keyDeviceFleetName: "", "DeviceFleetArn": ""}), true
-
 	case "GetModelPackageGroupPolicy":
 		return mustMarshal(m{"ResourcePolicy": ""}), true
 
@@ -375,9 +341,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListDomains":
 		return mustMarshal(m{"Domains": []any{}}), true
 
-	case "ListEdgeDeploymentPlans":
-		return mustMarshal(m{"EdgeDeploymentPlanSummaries": []any{}}), true
-
 	case "ListExperiments":
 		return mustMarshal(m{"ExperimentSummaries": []any{}}), true
 
@@ -404,9 +367,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListResourceCatalogs":
 		return mustMarshal(m{"ResourceCatalogs": []any{}}), true
-
-	case "ListStageDevices":
-		return mustMarshal(m{"DeviceDeploymentSummaries": []any{}}), true
 
 	case "ListSubscribedWorkteams":
 		return mustMarshal(m{"SubscribedWorkteams": []any{}}), true

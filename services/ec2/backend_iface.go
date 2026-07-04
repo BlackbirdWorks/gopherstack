@@ -1159,4 +1159,59 @@ type Backend interface {
 	DisableRouteServerPropagation(routeServerID, routeTableID string) (*RouteServerPropagation, error)
 	GetRouteServerPropagations(routeServerID string) []*RouteServerPropagation
 	GetRouteServerRoutingDatabase(routeServerID string) ([]*RouteServerRoute, error)
+
+	// ---- Local Gateways ----
+	// Local gateways, virtual interfaces, and virtual interface groups are
+	// Outpost-provisioned and have no Create API; the Seed* methods populate
+	// them so Describe calls return realistic data.
+
+	SeedLocalGateway(lg LocalGateway) (*LocalGateway, error)
+	SeedLocalGatewayVirtualInterface(
+		vif LocalGatewayVirtualInterface,
+	) (*LocalGatewayVirtualInterface, error)
+	SeedLocalGatewayVirtualInterfaceGroup(
+		group LocalGatewayVirtualInterfaceGroup,
+	) (*LocalGatewayVirtualInterfaceGroup, error)
+	DescribeLocalGateways(ids []string) []*LocalGateway
+	DescribeLocalGatewayVirtualInterfaces(ids []string) []*LocalGatewayVirtualInterface
+	DescribeLocalGatewayVirtualInterfaceGroups(ids []string) []*LocalGatewayVirtualInterfaceGroup
+
+	// ---- Local Gateway Route Tables ----
+
+	CreateLocalGatewayRouteTable(localGatewayID, mode string) (*LocalGatewayRouteTable, error)
+	DescribeLocalGatewayRouteTables(ids []string) []*LocalGatewayRouteTable
+	DeleteLocalGatewayRouteTable(id string) error
+
+	// ---- Local Gateway Routes ----
+
+	CreateLocalGatewayRoute(
+		routeTableID, destinationCIDR, destinationPrefixListID, vifGroupID, eniID string,
+	) (*LocalGatewayRoute, error)
+	DeleteLocalGatewayRoute(
+		routeTableID, destinationCIDR, destinationPrefixListID string,
+	) (*LocalGatewayRoute, error)
+	ModifyLocalGatewayRoute(
+		routeTableID, destinationCIDR, destinationPrefixListID, vifGroupID, eniID string,
+	) (*LocalGatewayRoute, error)
+	SearchLocalGatewayRoutes(routeTableID string, states []string) ([]*LocalGatewayRoute, error)
+
+	// ---- Local Gateway Route Table VPC Associations ----
+
+	CreateLocalGatewayRouteTableVpcAssociation(
+		routeTableID, vpcID string,
+	) (*LocalGatewayRouteTableVpcAssociation, error)
+	DeleteLocalGatewayRouteTableVpcAssociation(id string) (*LocalGatewayRouteTableVpcAssociation, error)
+	DescribeLocalGatewayRouteTableVpcAssociations(ids []string) []*LocalGatewayRouteTableVpcAssociation
+
+	// ---- Local Gateway Route Table Virtual Interface Group Associations ----
+
+	CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation(
+		routeTableID, vifGroupID string,
+	) (*LocalGatewayRouteTableVirtualInterfaceGroupAssociation, error)
+	DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation(
+		id string,
+	) (*LocalGatewayRouteTableVirtualInterfaceGroupAssociation, error)
+	DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations(
+		ids []string,
+	) []*LocalGatewayRouteTableVirtualInterfaceGroupAssociation
 }

@@ -60,10 +60,6 @@ func TestStubOperations(t *testing.T) {
 		"CreateIpamPrefixListResolver",
 		"CreateIpamPrefixListResolverTarget",
 		"CreateIpamResourceDiscovery",
-		"CreateLocalGatewayRoute",
-		"CreateLocalGatewayRouteTable",
-		"CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
-		"CreateLocalGatewayRouteTableVpcAssociation",
 		"CreateLocalGatewayVirtualInterface",
 		"CreateLocalGatewayVirtualInterfaceGroup",
 		"CreateMacSystemIntegrityProtectionModificationTask",
@@ -114,10 +110,6 @@ func TestStubOperations(t *testing.T) {
 		"DeleteIpamPrefixListResolver",
 		"DeleteIpamPrefixListResolverTarget",
 		"DeleteIpamResourceDiscovery",
-		"DeleteLocalGatewayRoute",
-		"DeleteLocalGatewayRouteTable",
-		"DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
-		"DeleteLocalGatewayRouteTableVpcAssociation",
 		"DeleteLocalGatewayVirtualInterface",
 		"DeleteLocalGatewayVirtualInterfaceGroup",
 		// "DeleteManagedPrefixList", — moved to batch4
@@ -200,12 +192,6 @@ func TestStubOperations(t *testing.T) {
 		"DescribeIpamResourceDiscoveryAssociations",
 		"DescribeIpamScopes",
 		"DescribeIpams",
-		"DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations",
-		"DescribeLocalGatewayRouteTableVpcAssociations",
-		"DescribeLocalGatewayRouteTables",
-		"DescribeLocalGatewayVirtualInterfaceGroups",
-		"DescribeLocalGatewayVirtualInterfaces",
-		"DescribeLocalGateways",
 		"DescribeMacHosts",
 		"DescribeMacModificationTasks",
 		// "DescribeManagedPrefixLists", — moved to batch4
@@ -359,7 +345,6 @@ func TestStubOperations(t *testing.T) {
 		"ModifyIpamPrefixListResolverTarget",
 		"ModifyIpamResourceCidr",
 		"ModifyIpamResourceDiscovery",
-		"ModifyLocalGatewayRoute",
 		// "ModifyManagedPrefixList", — moved to batch4
 		// "ModifyReservedInstances", — real handler in handler_batch5.go, covered there
 		// "ModifyRouteServer", — real handler in handler_route_server.go, covered there
@@ -406,7 +391,6 @@ func TestStubOperations(t *testing.T) {
 		// "RestoreManagedPrefixListVersion", — moved to batch4
 		// "RevokeClientVpnIngress", — moved to batch4
 		"RunScheduledInstances",
-		"SearchLocalGatewayRoutes",
 		"SearchTransitGatewayMulticastGroups",
 		"SearchTransitGatewayRoutes",
 		"SendDiagnosticInterrupt",

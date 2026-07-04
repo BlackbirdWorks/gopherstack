@@ -50,6 +50,7 @@ type backendSnapshot struct {
 	NotebookLifecycleConfigs map[string]map[string]*NotebookInstanceLifecycleConfig `json:"notebookLifecycleConfigs"`
 	ProcessingJobs           map[string]map[string]*ProcessingJob                   `json:"processingJobs"`
 	TransformJobs            map[string]map[string]*TransformJob                    `json:"transformJobs"`
+	EdgeDeploymentPlans      map[string]map[string]*EdgeDeploymentPlan              `json:"edgeDeploymentPlans"`
 	FeatureRecords           map[string]map[string]*FeatureRecord                   `json:"featureRecords"`
 	FeatureMetadata          map[string]map[string]*FeatureMetadata                 `json:"featureMetadata"`
 	Hubs                     map[string]map[string]*Hub                             `json:"hubs"`
@@ -187,6 +188,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		NotebookLifecycleConfigs:   b.notebookLifecycleConfigs,
 		ProcessingJobs:             b.processingJobs,
 		TransformJobs:              b.transformJobs,
+		EdgeDeploymentPlans:        b.edgeDeploymentPlans,
 		FeatureRecords:             b.featureRecords,
 		FeatureMetadata:            b.featureMetadata,
 		Hubs:                       b.hubs,
@@ -345,6 +347,7 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.notebookLifecycleConfigs = snap.NotebookLifecycleConfigs
 	b.processingJobs = snap.ProcessingJobs
 	b.transformJobs = snap.TransformJobs
+	b.edgeDeploymentPlans = snap.EdgeDeploymentPlans
 	b.featureRecords = snap.FeatureRecords
 	b.featureMetadata = snap.FeatureMetadata
 	b.hubs = snap.Hubs
@@ -503,28 +506,24 @@ func ensureCoreResourceMaps(snap *backendSnapshot) {
 	}
 }
 
+// ensureNestedMap initialises *m to an empty map if it is nil. It is used to
+// backfill region-nested resource maps that may be absent from snapshots
+// taken before the corresponding resource family was introduced.
+func ensureNestedMap[K comparable, V any](m *map[string]map[K]V) {
+	if *m == nil {
+		*m = make(map[string]map[K]V)
+	}
+}
+
 func ensureJobMaps(snap *backendSnapshot) {
-	if snap.TrainingJobs == nil {
-		snap.TrainingJobs = make(map[string]map[string]*TrainingJob)
-	}
-	if snap.Notebooks == nil {
-		snap.Notebooks = make(map[string]map[string]*NotebookInstance)
-	}
-	if snap.HPTuningJobs == nil {
-		snap.HPTuningJobs = make(map[string]map[string]*HyperParameterTuningJob)
-	}
-	if snap.ProcessingJobs == nil {
-		snap.ProcessingJobs = make(map[string]map[string]*ProcessingJob)
-	}
-	if snap.TransformJobs == nil {
-		snap.TransformJobs = make(map[string]map[string]*TransformJob)
-	}
-	if snap.FeatureRecords == nil {
-		snap.FeatureRecords = make(map[string]map[string]*FeatureRecord)
-	}
-	if snap.FeatureMetadata == nil {
-		snap.FeatureMetadata = make(map[string]map[string]*FeatureMetadata)
-	}
+	ensureNestedMap(&snap.TrainingJobs)
+	ensureNestedMap(&snap.Notebooks)
+	ensureNestedMap(&snap.HPTuningJobs)
+	ensureNestedMap(&snap.ProcessingJobs)
+	ensureNestedMap(&snap.TransformJobs)
+	ensureNestedMap(&snap.EdgeDeploymentPlans)
+	ensureNestedMap(&snap.FeatureRecords)
+	ensureNestedMap(&snap.FeatureMetadata)
 }
 
 func ensureConfigMaps(snap *backendSnapshot) {
@@ -549,30 +548,14 @@ func ensureConfigMaps(snap *backendSnapshot) {
 }
 
 func ensureMetadataMaps(snap *backendSnapshot) {
-	if snap.Pipelines == nil {
-		snap.Pipelines = make(map[string]map[string]*Pipeline)
-	}
-	if snap.PipelineExecutions == nil {
-		snap.PipelineExecutions = make(map[string]map[string]*PipelineExecution)
-	}
-	if snap.PipelineExecSteps == nil {
-		snap.PipelineExecSteps = make(map[string]map[string]*PipelineExecutionStep)
-	}
-	if snap.Experiments == nil {
-		snap.Experiments = make(map[string]map[string]*Experiment)
-	}
-	if snap.Trials == nil {
-		snap.Trials = make(map[string]map[string]*Trial)
-	}
-	if snap.TrialComponents == nil {
-		snap.TrialComponents = make(map[string]map[string]*TrialComponent)
-	}
-	if snap.Associations == nil {
-		snap.Associations = make(map[string]map[string]*Association)
-	}
-	if snap.TrialComponentAssociations == nil {
-		snap.TrialComponentAssociations = make(map[string]map[string]*TrialComponentAssociation)
-	}
+	ensureNestedMap(&snap.Pipelines)
+	ensureNestedMap(&snap.PipelineExecutions)
+	ensureNestedMap(&snap.PipelineExecSteps)
+	ensureNestedMap(&snap.Experiments)
+	ensureNestedMap(&snap.Trials)
+	ensureNestedMap(&snap.TrialComponents)
+	ensureNestedMap(&snap.Associations)
+	ensureNestedMap(&snap.TrialComponentAssociations)
 }
 
 func fixNilTagMaps(snap *backendSnapshot) {
@@ -601,6 +584,7 @@ func fixNilTagMapsNewResources(snap *backendSnapshot) {
 	fixNestedTagsSage(snap.ModelBiasJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
 	fixNestedTagsSage(snap.ModelQualityJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
 	fixNestedTagsSage(snap.ModelExplainJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
+	fixNestedTagsSage(snap.EdgeDeploymentPlans, func(p *EdgeDeploymentPlan) { p.Tags = ensureSageTagMap(p.Tags) })
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

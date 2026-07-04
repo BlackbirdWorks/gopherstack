@@ -17,6 +17,12 @@ type snapTGWPeeringAtt = TransitGatewayPeeringAttachment
 // snapTGWVpcAtt is a type alias used in backendSnapshot to keep line lengths manageable.
 type snapTGWVpcAtt = TransitGatewayVpcAttachment
 
+// snapLGWVifGroupAssoc is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapLGWVifGroupAssoc = LocalGatewayRouteTableVirtualInterfaceGroupAssociation
+
+// snapLGWVpcAssoc is a type alias used in backendSnapshot to keep line lengths manageable.
+type snapLGWVpcAssoc = LocalGatewayRouteTableVpcAssociation
+
 type backendSnapshot struct {
 	SnapshotAttributes                 map[string]map[string]string                    `json:"snapshotAttributes"`
 	ImageDeprecated                    map[string]string                               `json:"imageDeprecated"`
@@ -135,6 +141,13 @@ type backendSnapshot struct {
 	RouteServerPeers                   map[string]*RouteServerPeer                     `json:"routeServerPeers,omitempty"`
 	RouteServerAssociations            map[string]*RouteServerAssociation              `json:"rsAssociations,omitempty"`
 	RouteServerPropagations            map[string]*RouteServerPropagation              `json:"rsPropagations,omitempty"`
+	LocalGateways                      map[string]*LocalGateway                        `json:"localGateways,omitempty"`
+	LocalGatewayVirtualInterfaces      map[string]*LocalGatewayVirtualInterface        `json:"lgwVifs,omitempty"`
+	LocalGatewayVirtualInterfaceGroups map[string]*LocalGatewayVirtualInterfaceGroup   `json:"lgwVifGroups,omitempty"`
+	LocalGatewayRouteTables            map[string]*LocalGatewayRouteTable              `json:"lgwRouteTables,omitempty"`
+	LocalGatewayRoutes                 map[string]*LocalGatewayRoute                   `json:"lgwRoutes,omitempty"`
+	LocalGatewayRouteTableVpcAssocs    map[string]*snapLGWVpcAssoc                     `json:"lgwRtVpcAssocs,omitempty"`
+	LocalGatewayRTVifGroupAssocs       map[string]*snapLGWVifGroupAssoc                `json:"lgwVifGroupAssocs,omitempty"`
 	Region                             string                                          `json:"region,omitempty"`
 	AccountID                          string                                          `json:"accountID,omitempty"`
 	FreePrivateIPs                     []string                                        `json:"freePrivateIPs"`
@@ -277,6 +290,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		RouteServerPeers:                   b.routeServerPeers,
 		RouteServerAssociations:            b.routeServerAssociations,
 		RouteServerPropagations:            b.routeServerPropagations,
+		LocalGateways:                      b.localGateways,
+		LocalGatewayVirtualInterfaces:      b.localGatewayVirtualInterfaces,
+		LocalGatewayVirtualInterfaceGroups: b.localGatewayVirtualInterfaceGroups,
+		LocalGatewayRouteTables:            b.localGatewayRouteTables,
+		LocalGatewayRoutes:                 b.localGatewayRoutes,
+		LocalGatewayRouteTableVpcAssocs:    b.localGatewayRouteTableVpcAssociations,
+		LocalGatewayRTVifGroupAssocs:       b.localGatewayRouteTableVifGroupAssociations,
 	}
 
 	data, err := json.Marshal(snap)
@@ -628,6 +648,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.reservedInstancesModifications = make(map[string]*ReservedInstancesModification)
 	}
 	b.restoreRouteServerFields(&snap)
+	b.restoreLocalGatewayFields(&snap)
 
 	return nil
 }
@@ -659,6 +680,48 @@ func (b *InMemoryBackend) restoreRouteServerFields(snap *backendSnapshot) {
 		b.routeServerPropagations = snap.RouteServerPropagations
 	} else {
 		b.routeServerPropagations = make(map[string]*RouteServerPropagation)
+	}
+}
+
+// restoreLocalGatewayFields copies the Local Gateway state maps from snap into
+// b. Split out to keep Restore's growth in check. Must be called with b.mu held.
+func (b *InMemoryBackend) restoreLocalGatewayFields(snap *backendSnapshot) {
+	if snap.LocalGateways != nil {
+		b.localGateways = snap.LocalGateways
+	} else {
+		b.localGateways = make(map[string]*LocalGateway)
+	}
+	if snap.LocalGatewayVirtualInterfaces != nil {
+		b.localGatewayVirtualInterfaces = snap.LocalGatewayVirtualInterfaces
+	} else {
+		b.localGatewayVirtualInterfaces = make(map[string]*LocalGatewayVirtualInterface)
+	}
+	if snap.LocalGatewayVirtualInterfaceGroups != nil {
+		b.localGatewayVirtualInterfaceGroups = snap.LocalGatewayVirtualInterfaceGroups
+	} else {
+		b.localGatewayVirtualInterfaceGroups = make(map[string]*LocalGatewayVirtualInterfaceGroup)
+	}
+	if snap.LocalGatewayRouteTables != nil {
+		b.localGatewayRouteTables = snap.LocalGatewayRouteTables
+	} else {
+		b.localGatewayRouteTables = make(map[string]*LocalGatewayRouteTable)
+	}
+	if snap.LocalGatewayRoutes != nil {
+		b.localGatewayRoutes = snap.LocalGatewayRoutes
+	} else {
+		b.localGatewayRoutes = make(map[string]*LocalGatewayRoute)
+	}
+	if snap.LocalGatewayRouteTableVpcAssocs != nil {
+		b.localGatewayRouteTableVpcAssociations = snap.LocalGatewayRouteTableVpcAssocs
+	} else {
+		b.localGatewayRouteTableVpcAssociations = make(map[string]*LocalGatewayRouteTableVpcAssociation)
+	}
+	if snap.LocalGatewayRTVifGroupAssocs != nil {
+		b.localGatewayRouteTableVifGroupAssociations = snap.LocalGatewayRTVifGroupAssocs
+	} else {
+		b.localGatewayRouteTableVifGroupAssociations = make(
+			map[string]*LocalGatewayRouteTableVirtualInterfaceGroupAssociation,
+		)
 	}
 }
 

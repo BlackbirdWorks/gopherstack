@@ -118,6 +118,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, batch2SupportedOperations()...)
 	extOps = append(extOps, batch3SupportedOperations()...)
 	extOps = append(extOps, batch4SupportedOperations()...)
+	extOps = append(extOps, localGatewaySupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
@@ -382,6 +383,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerBatch4Ops(h, ops)
 	registerBatch5Ops(h, ops)
 	registerRouteServerOps(h, ops)
+	registerLocalGatewayOps(h, ops)
 	registerStubOpsIfAbsent(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)

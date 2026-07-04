@@ -28,15 +28,23 @@ var (
 	ErrDeviceFleetAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
+// DeviceFleetOutputConfig holds the S3 output location for a device fleet's
+// sampled data, as configured on CreateDeviceFleet/UpdateDeviceFleet.
+type DeviceFleetOutputConfig struct {
+	S3OutputLocation string `json:"S3OutputLocation"`
+	KmsKeyID         string `json:"KmsKeyId,omitempty"`
+}
+
 // DeviceFleet represents a SageMaker device fleet.
 type DeviceFleet struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	DeviceFleetName  string            `json:"DeviceFleetName"`
-	DeviceFleetArn   string            `json:"DeviceFleetArn"`
-	Description      string            `json:"Description,omitempty"`
-	RoleArn          string            `json:"RoleArn,omitempty"`
+	CreationTime     time.Time                `json:"CreationTime"`
+	LastModifiedTime time.Time                `json:"LastModifiedTime"`
+	Tags             map[string]string        `json:"Tags,omitempty"`
+	OutputConfig     *DeviceFleetOutputConfig `json:"OutputConfig,omitempty"`
+	DeviceFleetName  string                   `json:"DeviceFleetName"`
+	DeviceFleetArn   string                   `json:"DeviceFleetArn"`
+	Description      string                   `json:"Description,omitempty"`
+	RoleArn          string                   `json:"RoleArn,omitempty"`
 }
 
 func cloneDeviceFleet(f *DeviceFleet) *DeviceFleet {
@@ -49,6 +57,7 @@ func cloneDeviceFleet(f *DeviceFleet) *DeviceFleet {
 // CreateDeviceFleetOptions holds input fields for CreateDeviceFleet.
 type CreateDeviceFleetOptions struct {
 	Tags            map[string]string
+	OutputConfig    *DeviceFleetOutputConfig
 	DeviceFleetName string
 	Description     string
 	RoleArn         string
@@ -77,6 +86,7 @@ func (b *InMemoryBackend) CreateDeviceFleet(ctx context.Context, opts CreateDevi
 		DeviceFleetArn:   fleetARN,
 		Description:      opts.Description,
 		RoleArn:          opts.RoleArn,
+		OutputConfig:     opts.OutputConfig,
 		Tags:             mergeTags(nil, opts.Tags),
 		CreationTime:     now,
 		LastModifiedTime: now,
@@ -243,6 +253,49 @@ func (b *InMemoryBackend) DeregisterDevices(ctx context.Context, fleetName strin
 	return nil
 }
 
+// UpdateDeviceInput is a single device update entry for UpdateDevices.
+type UpdateDeviceInput struct {
+	DeviceName   string
+	Description  string
+	IotThingName string
+}
+
+// UpdateDevices updates metadata (description, IoT thing name) for devices
+// already registered in a fleet. Devices that are not registered are skipped,
+// mirroring the lenient behavior of DeregisterDevices.
+func (b *InMemoryBackend) UpdateDevices(ctx context.Context, fleetName string, devices []UpdateDeviceInput) error {
+	b.mu.Lock("UpdateDevices")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.deviceFleetsStore(region)[fleetName]; !ok {
+		return fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, fleetName)
+	}
+
+	store := b.devicesStore(region)
+	now := time.Now()
+
+	for _, d := range devices {
+		dev, ok := store[deviceKey{fleetName: fleetName, deviceName: d.DeviceName}]
+		if !ok {
+			continue
+		}
+
+		if d.Description != "" {
+			dev.Description = d.Description
+		}
+
+		if d.IotThingName != "" {
+			dev.IotThingName = d.IotThingName
+		}
+
+		dev.LastModifiedTime = now
+	}
+
+	return nil
+}
+
 // DescribeDevice returns a device by fleet and device name.
 func (b *InMemoryBackend) DescribeDevice(ctx context.Context, fleetName, deviceName string) (*Device, error) {
 	b.mu.RLock("DescribeDevice")
@@ -264,8 +317,14 @@ func (b *InMemoryBackend) ListDevices(ctx context.Context, fleetFilter, nextToke
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.devicesStore(region)
 
+	return devicesInFleetPaged(b.devicesStore(region), fleetFilter, nextToken)
+}
+
+// devicesInFleetPaged filters store by fleetFilter (or all devices if empty),
+// sorts by "fleetName/deviceName", and paginates the result. Caller must hold
+// b.mu (read or write).
+func devicesInFleetPaged(store map[deviceKey]*Device, fleetFilter, nextToken string) ([]*Device, string) {
 	keys := make([]string, 0, len(store))
 	for k := range store {
 		if fleetFilter != "" && k.fleetName != fleetFilter {

@@ -525,6 +525,7 @@ type InMemoryBackend struct {
 	processingJobs               map[string]map[string]*ProcessingJob
 	transformJobs                map[string]map[string]*TransformJob
 	edgePackagingJobs            map[string]map[string]*EdgePackagingJob
+	edgeDeploymentPlans          map[string]map[string]*EdgeDeploymentPlan
 	inferenceRecommendationsJobs map[string]map[string]*InferenceRecommendationsJob
 	deviceFleets                 map[string]map[string]*DeviceFleet
 	devices                      map[string]map[deviceKey]*Device
@@ -633,6 +634,7 @@ func NewInMemoryBackendWithContext(
 		processingJobs:               make(map[string]map[string]*ProcessingJob),
 		transformJobs:                make(map[string]map[string]*TransformJob),
 		edgePackagingJobs:            make(map[string]map[string]*EdgePackagingJob),
+		edgeDeploymentPlans:          make(map[string]map[string]*EdgeDeploymentPlan),
 		inferenceRecommendationsJobs: make(map[string]map[string]*InferenceRecommendationsJob),
 		deviceFleets:                 make(map[string]map[string]*DeviceFleet),
 		devices:                      make(map[string]map[deviceKey]*Device),
@@ -1130,6 +1132,13 @@ func (b *InMemoryBackend) edgePackagingJobsStore(r string) map[string]*EdgePacka
 
 	return b.edgePackagingJobs[r]
 }
+func (b *InMemoryBackend) edgeDeploymentPlansStore(r string) map[string]*EdgeDeploymentPlan {
+	if b.edgeDeploymentPlans[r] == nil {
+		b.edgeDeploymentPlans[r] = make(map[string]*EdgeDeploymentPlan)
+	}
+
+	return b.edgeDeploymentPlans[r]
+}
 func (b *InMemoryBackend) inferenceRecommendationsJobsStore(r string) map[string]*InferenceRecommendationsJob {
 	if b.inferenceRecommendationsJobs[r] == nil {
 		b.inferenceRecommendationsJobs[r] = make(map[string]*InferenceRecommendationsJob)
@@ -1252,6 +1261,7 @@ func (b *InMemoryBackend) Reset() {
 	b.processingJobs = make(map[string]map[string]*ProcessingJob)
 	b.transformJobs = make(map[string]map[string]*TransformJob)
 	b.edgePackagingJobs = make(map[string]map[string]*EdgePackagingJob)
+	b.edgeDeploymentPlans = make(map[string]map[string]*EdgeDeploymentPlan)
 	b.inferenceRecommendationsJobs = make(map[string]map[string]*InferenceRecommendationsJob)
 	b.deviceFleets = make(map[string]map[string]*DeviceFleet)
 	b.devices = make(map[string]map[deviceKey]*Device)

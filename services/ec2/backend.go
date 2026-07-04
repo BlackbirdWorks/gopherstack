@@ -311,29 +311,37 @@ type InMemoryBackend struct {
 	reservedInstancesListings          map[string]*ReservedInstancesListing
 	reservedInstancesModifications     map[string]*ReservedInstancesModification
 	// route server additions
-	routeServers              map[string]*RouteServer
-	routeServerEndpoints      map[string]*RouteServerEndpoint
-	routeServerPeers          map[string]*RouteServerPeer
-	routeServerAssociations   map[string]*RouteServerAssociation
-	routeServerPropagations   map[string]*RouteServerPropagation
-	mu                        *lockmetrics.RWMutex
-	lifecycleStop             chan struct{}
-	eniIDByAttachment         map[string]string
-	eniIDsByInstance          map[string]map[string]struct{}
-	instanceIDsByVPC          map[string]map[string]struct{}
-	snapshotBlockPublicAccess string
-	ebsDefaultKmsKeyID        string
-	imageBlockPublicAccess    string
-	defaultCreditSpec         string
-	Region                    string `json:"region,omitempty"`
-	AccountID                 string `json:"accountID,omitempty"`
-	freePrivateIPs            []string
-	nextPrivateIPIndex        int
-	nextElasticIPIndex        int
-	ebsEncryptionByDefault    bool
-	serialConsoleAccess       bool
-	lifecycleOnce             sync.Once
-	lifecycleStopOnce         sync.Once
+	routeServers            map[string]*RouteServer
+	routeServerEndpoints    map[string]*RouteServerEndpoint
+	routeServerPeers        map[string]*RouteServerPeer
+	routeServerAssociations map[string]*RouteServerAssociation
+	routeServerPropagations map[string]*RouteServerPropagation
+	// local gateway additions
+	localGateways                              map[string]*LocalGateway
+	localGatewayVirtualInterfaces              map[string]*LocalGatewayVirtualInterface
+	localGatewayVirtualInterfaceGroups         map[string]*LocalGatewayVirtualInterfaceGroup
+	localGatewayRouteTables                    map[string]*LocalGatewayRouteTable
+	localGatewayRoutes                         map[string]*LocalGatewayRoute
+	localGatewayRouteTableVpcAssociations      map[string]*LocalGatewayRouteTableVpcAssociation
+	localGatewayRouteTableVifGroupAssociations map[string]*LocalGatewayRouteTableVirtualInterfaceGroupAssociation
+	mu                                         *lockmetrics.RWMutex
+	lifecycleStop                              chan struct{}
+	eniIDByAttachment                          map[string]string
+	eniIDsByInstance                           map[string]map[string]struct{}
+	instanceIDsByVPC                           map[string]map[string]struct{}
+	snapshotBlockPublicAccess                  string
+	ebsDefaultKmsKeyID                         string
+	imageBlockPublicAccess                     string
+	defaultCreditSpec                          string
+	Region                                     string `json:"region,omitempty"`
+	AccountID                                  string `json:"accountID,omitempty"`
+	freePrivateIPs                             []string
+	nextPrivateIPIndex                         int
+	nextElasticIPIndex                         int
+	ebsEncryptionByDefault                     bool
+	serialConsoleAccess                        bool
+	lifecycleOnce                              sync.Once
+	lifecycleStopOnce                          sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -426,8 +434,23 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initBatch5Maps(b)
 	initBatch6Maps(b)
 	initRouteServerMaps(b)
+	initLocalGatewayMaps(b)
 
 	return b
+}
+
+// initLocalGatewayMaps initialises the Local Gateway state maps (split out to keep
+// newInMemoryBackendMaps under the funlen limit).
+func initLocalGatewayMaps(b *InMemoryBackend) {
+	b.localGateways = make(map[string]*LocalGateway)
+	b.localGatewayVirtualInterfaces = make(map[string]*LocalGatewayVirtualInterface)
+	b.localGatewayVirtualInterfaceGroups = make(map[string]*LocalGatewayVirtualInterfaceGroup)
+	b.localGatewayRouteTables = make(map[string]*LocalGatewayRouteTable)
+	b.localGatewayRoutes = make(map[string]*LocalGatewayRoute)
+	b.localGatewayRouteTableVpcAssociations = make(map[string]*LocalGatewayRouteTableVpcAssociation)
+	b.localGatewayRouteTableVifGroupAssociations = make(
+		map[string]*LocalGatewayRouteTableVirtualInterfaceGroupAssociation,
+	)
 }
 
 // initBatch6Maps initialises the verified-access, import-task, recycle-bin,

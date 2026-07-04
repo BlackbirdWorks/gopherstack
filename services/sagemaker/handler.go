@@ -195,19 +195,21 @@ func (h *Handler) GetSupportedOperations() []string {
 	batch3 := batch3SupportedOperations()
 	accuracy3 := accuracy3OpsSupported()
 	accuracy4 := accuracy4OpsSupported()
+	edgeDeployment := edgeDeploymentOpsSupported()
 	cluster := clusterOpsSupported()
 	lineage := lineageOpsSupported()
 	hub := hubOpsSupported()
 
 	stubs := stubOpsSupported()
 	total := len(core) + len(batch2) + len(batch3) + len(accuracy3)
-	total += len(accuracy4) + len(cluster) + len(lineage) + len(hub) + len(stubs)
+	total += len(accuracy4) + len(edgeDeployment) + len(cluster) + len(lineage) + len(hub) + len(stubs)
 	combined := make([]string, 0, total)
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
 	combined = append(combined, batch3...)
 	combined = append(combined, accuracy3...)
 	combined = append(combined, accuracy4...)
+	combined = append(combined, edgeDeployment...)
 	combined = append(combined, cluster...)
 	combined = append(combined, lineage...)
 	combined = append(combined, hub...)
@@ -446,7 +448,7 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 		return r, err
 	}
 
-	if r, ok, err := h.dispatchAccuracy4Ops(ctx, op, body); ok {
+	if r, ok, err := h.dispatchAccuracy4AndEdgeOps(ctx, op, body); ok {
 		return r, err
 	}
 

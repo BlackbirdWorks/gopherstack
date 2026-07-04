@@ -69,10 +69,10 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateIpamPrefixListResolverTarget"] = h.handleStubCreateIpamPrefixListResolverTarget
 	ops["CreateIpamResourceDiscovery"] = h.handleStubCreateIpamResourceDiscovery
 	// ops["CreateIpamScope"] — moved to advancedNetworkingSupportedOperations
-	ops["CreateLocalGatewayRoute"] = h.handleStubCreateLocalGatewayRoute
-	ops["CreateLocalGatewayRouteTable"] = h.handleStubCreateLocalGatewayRouteTable
-	ops["CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] = h.handleStubCreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation //nolint:lll // existing issue.
-	ops["CreateLocalGatewayRouteTableVpcAssociation"] = h.handleStubCreateLocalGatewayRouteTableVpcAssociation
+	// CreateLocalGatewayRoute — real handler in handler_local_gateway.go
+	// CreateLocalGatewayRouteTable — real handler in handler_local_gateway.go
+	// CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation — real handler in handler_local_gateway.go
+	// CreateLocalGatewayRouteTableVpcAssociation — real handler in handler_local_gateway.go
 	ops["CreateLocalGatewayVirtualInterface"] = h.handleStubCreateLocalGatewayVirtualInterface
 	ops["CreateLocalGatewayVirtualInterfaceGroup"] = h.handleStubCreateLocalGatewayVirtualInterfaceGroup
 	ops["CreateMacSystemIntegrityProtectionModificationTask"] = h.handleStubCreateMacSystemIntegrityProtectionModificationTask //nolint:lll // existing issue.
@@ -131,10 +131,10 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteIpamPrefixListResolverTarget"] = h.handleStubDeleteIpamPrefixListResolverTarget
 	ops["DeleteIpamResourceDiscovery"] = h.handleStubDeleteIpamResourceDiscovery
 	// ops["DeleteIpamScope"] — moved to advancedNetworkingSupportedOperations
-	ops["DeleteLocalGatewayRoute"] = h.handleStubDeleteLocalGatewayRoute
-	ops["DeleteLocalGatewayRouteTable"] = h.handleStubDeleteLocalGatewayRouteTable
-	ops["DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] = h.handleStubDeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation //nolint:lll // existing issue.
-	ops["DeleteLocalGatewayRouteTableVpcAssociation"] = h.handleStubDeleteLocalGatewayRouteTableVpcAssociation
+	// DeleteLocalGatewayRoute — real handler in handler_local_gateway.go
+	// DeleteLocalGatewayRouteTable — real handler in handler_local_gateway.go
+	// DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation — real handler in handler_local_gateway.go
+	// DeleteLocalGatewayRouteTableVpcAssociation — real handler in handler_local_gateway.go
 	ops["DeleteLocalGatewayVirtualInterface"] = h.handleStubDeleteLocalGatewayVirtualInterface
 	ops["DeleteLocalGatewayVirtualInterfaceGroup"] = h.handleStubDeleteLocalGatewayVirtualInterfaceGroup
 	// DeleteManagedPrefixList — moved to handler_batch4.go
@@ -226,12 +226,12 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// ops["DescribeIpamResourceDiscoveryAssociations"] — moved to advancedNetworkingSupportedOperations
 	// ops["DescribeIpamScopes"] — moved to advancedNetworkingSupportedOperations
 	ops["DescribeIpams"] = h.handleStubDescribeIpams
-	ops["DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations"] = h.handleStubDescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations //nolint:lll // existing issue.
-	ops["DescribeLocalGatewayRouteTableVpcAssociations"] = h.handleStubDescribeLocalGatewayRouteTableVpcAssociations
-	ops["DescribeLocalGatewayRouteTables"] = h.handleStubDescribeLocalGatewayRouteTables
-	ops["DescribeLocalGatewayVirtualInterfaceGroups"] = h.handleStubDescribeLocalGatewayVirtualInterfaceGroups
-	ops["DescribeLocalGatewayVirtualInterfaces"] = h.handleStubDescribeLocalGatewayVirtualInterfaces
-	ops["DescribeLocalGateways"] = h.handleStubDescribeLocalGateways
+	// DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations — real handler in handler_local_gateway.go
+	// DescribeLocalGatewayRouteTableVpcAssociations — real handler in handler_local_gateway.go
+	// DescribeLocalGatewayRouteTables — real handler in handler_local_gateway.go
+	// DescribeLocalGatewayVirtualInterfaceGroups — real handler in handler_local_gateway.go
+	// DescribeLocalGatewayVirtualInterfaces — real handler in handler_local_gateway.go
+	// DescribeLocalGateways — real handler in handler_local_gateway.go
 	ops["DescribeMacHosts"] = h.handleStubDescribeMacHosts
 	ops["DescribeMacModificationTasks"] = h.handleStubDescribeMacModificationTasks
 	// DescribeManagedPrefixLists — moved to handler_batch4.go
@@ -400,7 +400,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyIpamResourceCidr"] = h.handleStubModifyIpamResourceCidr
 	ops["ModifyIpamResourceDiscovery"] = h.handleStubModifyIpamResourceDiscovery
 	// ops["ModifyIpamScope"] — moved to advancedNetworkingSupportedOperations
-	ops["ModifyLocalGatewayRoute"] = h.handleStubModifyLocalGatewayRoute
+	// ModifyLocalGatewayRoute — real handler in handler_local_gateway.go
 	// ModifyManagedPrefixList — moved to handler_batch4.go
 	ops["ModifyPrivateDnsNameOptions"] = h.handleStubModifyPrivateDNSNameOptions
 	ops["ModifyPublicIpDnsNameOptions"] = h.handleStubModifyPublicIPDNSNameOptions
@@ -457,7 +457,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	// RestoreManagedPrefixListVersion — moved to handler_batch4.go
 	// RevokeClientVpnIngress — moved to handler_batch4.go
 	ops["RunScheduledInstances"] = h.handleStubRunScheduledInstances
-	ops["SearchLocalGatewayRoutes"] = h.handleStubSearchLocalGatewayRoutes
+	// SearchLocalGatewayRoutes — real handler in handler_local_gateway.go
 	ops["SearchTransitGatewayMulticastGroups"] = h.handleStubSearchTransitGatewayMulticastGroups
 	ops["SearchTransitGatewayRoutes"] = h.handleStubSearchTransitGatewayRoutes
 	ops["SendDiagnosticInterrupt"] = h.handleStubSendDiagnosticInterrupt
@@ -536,10 +536,10 @@ func stubSupportedOperations() []string {
 		"CreateIpamPrefixListResolverTarget",
 		"CreateIpamResourceDiscovery",
 		// "CreateIpamScope", — moved to advancedNetworkingSupportedOperations
-		"CreateLocalGatewayRoute",
-		"CreateLocalGatewayRouteTable",
-		"CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
-		"CreateLocalGatewayRouteTableVpcAssociation",
+		// "CreateLocalGatewayRoute", — moved to localGatewaySupportedOperations
+		// "CreateLocalGatewayRouteTable", — moved to localGatewaySupportedOperations
+		// "CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation", — moved to localGatewaySupportedOperations
+		// "CreateLocalGatewayRouteTableVpcAssociation", — moved to localGatewaySupportedOperations
 		"CreateLocalGatewayVirtualInterface",
 		"CreateLocalGatewayVirtualInterfaceGroup",
 		"CreateMacSystemIntegrityProtectionModificationTask",
@@ -598,10 +598,10 @@ func stubSupportedOperations() []string {
 		"DeleteIpamPrefixListResolverTarget",
 		"DeleteIpamResourceDiscovery",
 		// "DeleteIpamScope", — moved to advancedNetworkingSupportedOperations
-		"DeleteLocalGatewayRoute",
-		"DeleteLocalGatewayRouteTable",
-		"DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
-		"DeleteLocalGatewayRouteTableVpcAssociation",
+		// "DeleteLocalGatewayRoute", — moved to localGatewaySupportedOperations
+		// "DeleteLocalGatewayRouteTable", — moved to localGatewaySupportedOperations
+		// "DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation", — moved to localGatewaySupportedOperations
+		// "DeleteLocalGatewayRouteTableVpcAssociation", — moved to localGatewaySupportedOperations
 		"DeleteLocalGatewayVirtualInterface",
 		"DeleteLocalGatewayVirtualInterfaceGroup",
 		// "DeleteManagedPrefixList", — moved to batch4SupportedOperations
@@ -693,12 +693,12 @@ func stubSupportedOperations() []string {
 		// "DescribeIpamResourceDiscoveryAssociations", — moved to advancedNetworkingSupportedOperations
 		// "DescribeIpamScopes", — moved to advancedNetworkingSupportedOperations
 		// "DescribeIpams", — moved to advancedNetworkingSupportedOperations
-		"DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations",
-		"DescribeLocalGatewayRouteTableVpcAssociations",
-		"DescribeLocalGatewayRouteTables",
-		"DescribeLocalGatewayVirtualInterfaceGroups",
-		"DescribeLocalGatewayVirtualInterfaces",
-		"DescribeLocalGateways",
+		// "DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations", — moved to localGatewaySupportedOperations
+		// "DescribeLocalGatewayRouteTableVpcAssociations", — moved to localGatewaySupportedOperations
+		// "DescribeLocalGatewayRouteTables", — moved to localGatewaySupportedOperations
+		// "DescribeLocalGatewayVirtualInterfaceGroups", — moved to localGatewaySupportedOperations
+		// "DescribeLocalGatewayVirtualInterfaces", — moved to localGatewaySupportedOperations
+		// "DescribeLocalGateways", — moved to localGatewaySupportedOperations
 		"DescribeMacHosts",
 		"DescribeMacModificationTasks",
 		// "DescribeManagedPrefixLists", — moved to batch4SupportedOperations
@@ -865,7 +865,7 @@ func stubSupportedOperations() []string {
 		"ModifyIpamResourceCidr",
 		"ModifyIpamResourceDiscovery",
 		// "ModifyIpamScope", — moved to advancedNetworkingSupportedOperations
-		"ModifyLocalGatewayRoute",
+		// "ModifyLocalGatewayRoute", — moved to localGatewaySupportedOperations
 		// "ModifyManagedPrefixList", — moved to batch4SupportedOperations
 		"ModifyPrivateDnsNameOptions",
 		"ModifyPublicIpDnsNameOptions",
@@ -921,7 +921,7 @@ func stubSupportedOperations() []string {
 		// "RestoreManagedPrefixListVersion", — moved to batch4SupportedOperations
 		// "RevokeClientVpnIngress", — moved to batch4SupportedOperations
 		"RunScheduledInstances",
-		"SearchLocalGatewayRoutes",
+		// "SearchLocalGatewayRoutes", — moved to localGatewaySupportedOperations
 		"SearchTransitGatewayMulticastGroups",
 		"SearchTransitGatewayRoutes",
 		"SendDiagnosticInterrupt",
@@ -1306,46 +1306,6 @@ func (h *Handler) handleStubCreateIpamResourceDiscovery(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubCreateLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateLocalGatewayRouteTable(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName: xml.Name{
-			Local: "CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociationResponse",
-		},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateLocalGatewayRouteTableVpcAssociation(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteTableVpcAssociationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateLocalGatewayVirtualInterface(
 	_ url.Values,
 	reqID string,
@@ -1628,46 +1588,6 @@ func (h *Handler) handleStubDeleteIpamPrefixListResolverTarget(
 func (h *Handler) handleStubDeleteIpamResourceDiscovery(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteIpamResourceDiscoveryResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteLocalGatewayRouteTable(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName: xml.Name{
-			Local: "DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociationResponse",
-		},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteLocalGatewayRouteTableVpcAssociation(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteTableVpcAssociationResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2162,71 +2082,6 @@ func (h *Handler) handleStubDescribeIpamPrefixListResolvers(
 func (h *Handler) handleStubDescribeIpams(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeIpamsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName: xml.Name{
-			Local: "DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociationsResponse",
-		},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeLocalGatewayRouteTableVpcAssociations(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeLocalGatewayRouteTableVpcAssociationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeLocalGatewayRouteTables(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeLocalGatewayRouteTablesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaceGroups(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeLocalGatewayVirtualInterfaceGroupsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaces(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeLocalGatewayVirtualInterfacesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeLocalGateways(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeLocalGatewaysResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3326,14 +3181,6 @@ func (h *Handler) handleStubModifyIpamResourceDiscovery(_ url.Values, reqID stri
 	}, nil
 }
 
-func (h *Handler) handleStubModifyLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyLocalGatewayRouteResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubModifyPrivateDNSNameOptions(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ModifyPrivateDnsNameOptionsResponse"},
@@ -3711,14 +3558,6 @@ func (h *Handler) handleStubResetFpgaImageAttribute(_ url.Values, reqID string) 
 func (h *Handler) handleStubRunScheduledInstances(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "RunScheduledInstancesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubSearchLocalGatewayRoutes(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "SearchLocalGatewayRoutesResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
