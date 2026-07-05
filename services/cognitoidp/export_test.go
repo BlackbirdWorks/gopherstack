@@ -101,6 +101,20 @@ func (b *InMemoryBackend) UserPoolID(clientID string) string {
 	return ""
 }
 
+// GetMFASessionCodeForTest returns the one-time SMS_MFA/EMAIL_OTP code generated for a
+// pending MFA session (SOFTWARE_TOKEN_MFA sessions have no stored code — it's verified
+// cryptographically against the user's TOTP secret instead). For testing only.
+func (b *InMemoryBackend) GetMFASessionCodeForTest(session string) string {
+	b.mu.RLock("GetMFASessionCodeForTest")
+	defer b.mu.RUnlock()
+
+	if entry, ok := b.mfaSessions[session]; ok {
+		return entry.Code
+	}
+
+	return ""
+}
+
 // GetAttrVerificationCodeForTest returns the pending verification code for a user attribute. For testing only.
 func (b *InMemoryBackend) GetAttrVerificationCodeForTest(poolID, username, attrName string) string {
 	b.mu.RLock("GetAttrVerificationCodeForTest")

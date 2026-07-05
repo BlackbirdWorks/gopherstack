@@ -61,12 +61,13 @@ type UserPoolOptions struct {
 // UserPoolClientOptions holds optional parameters for CreateUserPoolClientWithOpts and UpdateUserPoolClientWithOpts.
 type UserPoolClientOptions struct {
 	TokenValidityUnits              map[string]string `json:"tokenValidityUnits,omitempty"`
-	AllowedOAuthFlows               []string          `json:"allowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes              []string          `json:"allowedOAuthScopes,omitempty"`
+	PreventUserExistenceErrors      string            `json:"preventUserExistenceErrors,omitempty"`
+	SupportedIdentityProviders      []string          `json:"supportedIdentityProviders,omitempty"`
 	ExplicitAuthFlows               []string          `json:"explicitAuthFlows,omitempty"`
 	CallbackURLs                    []string          `json:"callbackURLs,omitempty"`
 	LogoutURLs                      []string          `json:"logoutURLs,omitempty"`
-	SupportedIdentityProviders      []string          `json:"supportedIdentityProviders,omitempty"`
+	AllowedOAuthScopes              []string          `json:"allowedOAuthScopes,omitempty"`
+	AllowedOAuthFlows               []string          `json:"allowedOAuthFlows,omitempty"`
 	AccessTokenValidity             int32             `json:"accessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"idTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"refreshTokenValidity,omitempty"`
@@ -74,6 +75,12 @@ type UserPoolClientOptions struct {
 	EnableTokenRevocation           bool              `json:"enableTokenRevocation,omitempty"`
 	AllowedOAuthFlowsUserPoolClient bool              `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
 }
+
+// Valid values for UserPoolClient.PreventUserExistenceErrors.
+const (
+	preventUserExistenceEnabled = "ENABLED"
+	preventUserExistenceLegacy  = "LEGACY"
+)
 
 // tokenExpiryFor returns the configured token expiry duration for the given token type
 // ("AccessToken", "IdToken", "RefreshToken"). Returns 0 when not configured (use default).
@@ -282,6 +289,11 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
+	preventUserExistenceErrors, err := normalizePreventUserExistenceErrors(opts.PreventUserExistenceErrors)
+	if err != nil {
+		return nil, err
+	}
+
 	flows := make([]string, len(opts.AllowedOAuthFlows))
 	copy(flows, opts.AllowedOAuthFlows)
 	scopes := make([]string, len(opts.AllowedOAuthScopes))
@@ -312,6 +324,7 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 		CallbackURLs:                    callbackURLs,
 		LogoutURLs:                      logoutURLs,
 		SupportedIdentityProviders:      supportedIDPs,
+		PreventUserExistenceErrors:      preventUserExistenceErrors,
 		AccessTokenValidity:             opts.AccessTokenValidity,
 		IDTokenValidity:                 opts.IDTokenValidity,
 		RefreshTokenValidity:            opts.RefreshTokenValidity,
@@ -335,31 +348,28 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 	return &cp, nil
 }
 
-// UpdateUserPoolClientWithOpts updates app client fields including OAuth flows and scopes.
-func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
-	userPoolID, clientID, clientName string,
-	opts UserPoolClientOptions,
-) (*UserPoolClient, error) {
-	b.mu.Lock("UpdateUserPoolClientWithOpts")
-	defer b.mu.Unlock()
-
-	if _, ok := b.pools[userPoolID]; !ok {
-		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+// normalizePreventUserExistenceErrors validates and defaults the PreventUserExistenceErrors
+// app client setting to AWS's documented values. An unset value defaults to "LEGACY" (the
+// AWS default for app clients that don't specify it); anything other than "ENABLED" or
+// "LEGACY" is an InvalidParameterException.
+func normalizePreventUserExistenceErrors(v string) (string, error) {
+	switch v {
+	case "":
+		return preventUserExistenceLegacy, nil
+	case preventUserExistenceEnabled, preventUserExistenceLegacy:
+		return v, nil
+	default:
+		return "", fmt.Errorf(
+			"%w: PreventUserExistenceErrors must be ENABLED or LEGACY, got %q",
+			ErrInvalidParameter, v,
+		)
 	}
+}
 
-	client, ok := b.clients[clientID]
-	if !ok {
-		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
-	}
-
-	if client.UserPoolID != userPoolID {
-		return nil, fmt.Errorf("%w: client %q does not belong to pool %q", ErrClientNotFound, clientID, userPoolID)
-	}
-
-	if clientName != "" {
-		client.ClientName = clientName
-	}
-
+// applyUserPoolClientListOpts copies each non-nil list field from opts onto client,
+// leaving fields the caller omitted (nil) untouched. Split out of
+// UpdateUserPoolClientWithOpts to keep that function's branching within lint limits.
+func applyUserPoolClientListOpts(client *UserPoolClient, opts UserPoolClientOptions) {
 	if opts.AllowedOAuthFlows != nil {
 		flows := make([]string, len(opts.AllowedOAuthFlows))
 		copy(flows, opts.AllowedOAuthFlows)
@@ -394,6 +404,57 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 		idps := make([]string, len(opts.SupportedIdentityProviders))
 		copy(idps, opts.SupportedIdentityProviders)
 		client.SupportedIdentityProviders = idps
+	}
+}
+
+// applyPreventUserExistenceErrorsUpdate updates client's PreventUserExistenceErrors when
+// value is non-empty (an UpdateUserPoolClient caller omitting the field leaves the existing
+// setting untouched, matching the update-only-what-was-sent semantics of the other opts
+// fields in UpdateUserPoolClientWithOpts).
+func applyPreventUserExistenceErrorsUpdate(client *UserPoolClient, value string) error {
+	if value == "" {
+		return nil
+	}
+
+	normalized, err := normalizePreventUserExistenceErrors(value)
+	if err != nil {
+		return err
+	}
+
+	client.PreventUserExistenceErrors = normalized
+
+	return nil
+}
+
+// UpdateUserPoolClientWithOpts updates app client fields including OAuth flows and scopes.
+func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
+	userPoolID, clientID, clientName string,
+	opts UserPoolClientOptions,
+) (*UserPoolClient, error) {
+	b.mu.Lock("UpdateUserPoolClientWithOpts")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	client, ok := b.clients[clientID]
+	if !ok {
+		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+	}
+
+	if client.UserPoolID != userPoolID {
+		return nil, fmt.Errorf("%w: client %q does not belong to pool %q", ErrClientNotFound, clientID, userPoolID)
+	}
+
+	if clientName != "" {
+		client.ClientName = clientName
+	}
+
+	applyUserPoolClientListOpts(client, opts)
+
+	if err := applyPreventUserExistenceErrorsUpdate(client, opts.PreventUserExistenceErrors); err != nil {
+		return nil, err
 	}
 
 	client.EnableTokenRevocation = opts.EnableTokenRevocation
@@ -620,8 +681,10 @@ func (b *InMemoryBackend) AssociateSoftwareToken(accessToken string) (string, er
 	return secret, nil
 }
 
-// VerifySoftwareToken marks the TOTP token as verified. In simulation mode any 6-digit code
-// is accepted; the secret was already stored by AssociateSoftwareToken.
+// VerifySoftwareToken validates userCode as a real RFC 6238 TOTP code for the secret
+// previously issued by AssociateSoftwareToken (HMAC-SHA1, 30s step, +/-1 step clock skew,
+// matching an authenticator app such as Google Authenticator/Authy). Only the code that the
+// secret actually produces at (approximately) the current time is accepted.
 func (b *InMemoryBackend) VerifySoftwareToken(accessToken, userCode string) error {
 	b.mu.Lock("VerifySoftwareToken")
 	defer b.mu.Unlock()
@@ -643,6 +706,10 @@ func (b *InMemoryBackend) VerifySoftwareToken(accessToken, userCode string) erro
 		if ch < '0' || ch > '9' {
 			return fmt.Errorf("%w: TOTP code must contain only digits", ErrCodeMismatch)
 		}
+	}
+
+	if !verifyTOTPCode(user.TOTPSecret, userCode, time.Now()) {
+		return fmt.Errorf("%w: invalid software token code", ErrCodeMismatch)
 	}
 
 	user.TOTPVerified = true

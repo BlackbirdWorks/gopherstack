@@ -1,6 +1,7 @@
 package cognitoidp
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
@@ -75,6 +76,10 @@ type PasswordPolicy struct {
 	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays,omitempty"`
 }
 
+// deletionProtectionActive is the UserPool.DeletionProtection value that makes
+// DeleteUserPool refuse to delete the pool.
+const deletionProtectionActive = "ACTIVE"
+
 // UserPool represents a Cognito User Pool.
 type UserPool struct {
 	CreatedAt              time.Time `json:"createdAt"`
@@ -102,12 +107,13 @@ type UserPoolClient struct {
 	ClientName                      string            `json:"clientName,omitempty"`
 	UserPoolID                      string            `json:"userPoolId,omitempty"`
 	ClientSecret                    string            `json:"clientSecret,omitempty"`
-	AllowedOAuthFlows               []string          `json:"allowedOAuthFlows,omitempty"`
+	PreventUserExistenceErrors      string            `json:"preventUserExistenceErrors,omitempty"`
 	AllowedOAuthScopes              []string          `json:"allowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows               []string          `json:"explicitAuthFlows,omitempty"`
 	CallbackURLs                    []string          `json:"callbackURLs,omitempty"`
 	LogoutURLs                      []string          `json:"logoutURLs,omitempty"`
 	SupportedIdentityProviders      []string          `json:"supportedIdentityProviders,omitempty"`
+	AllowedOAuthFlows               []string          `json:"allowedOAuthFlows,omitempty"`
 	AccessTokenValidity             int32             `json:"accessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"idTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"refreshTokenValidity,omitempty"`
@@ -235,6 +241,12 @@ type mfaSessionEntry struct {
 	ChallengeType string    `json:"challengeType,omitempty"` // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED" ...
 	// SRPPassword holds the user's password for USER_SRP_AUTH second-step validation.
 	SRPPassword string `json:"srpPassword,omitempty"`
+	// Code holds the one-time code generated for SMS_MFA/EMAIL_OTP challenges. Unlike
+	// SOFTWARE_TOKEN_MFA (verified cryptographically against the user's TOTP secret), SMS
+	// and email codes have no client-held secret to re-derive from, so — exactly like
+	// ForgotPassword/ConfirmSignUp confirmation codes elsewhere in this backend — the code
+	// is generated once here and the challenge response must match it exactly.
+	Code string `json:"code,omitempty"`
 }
 
 // AuthResult is the result of a successful authentication or a pending challenge.
@@ -349,6 +361,16 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	pool, ok := b.pools[userPoolID]
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	// AWS refuses to delete a user pool with deletion protection ACTIVE; the caller must
+	// first UpdateUserPool to set DeletionProtection back to INACTIVE.
+	if pool.DeletionProtection == deletionProtectionActive {
+		return fmt.Errorf(
+			"%w: User pool cannot be deleted because deletion protection is activated, "+
+				"set deletion protection to INACTIVE and retry to delete the user pool",
+			ErrInvalidParameter,
+		)
 	}
 
 	delete(b.poolsByName, pool.Name)
@@ -1058,7 +1080,11 @@ func (b *InMemoryBackend) GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey
 	return nil, ErrJWTIssuerUnknown
 }
 
-// findUserByClientID finds a user and their pool using the clientID.
+// findUserByClientID finds a user and their pool using the clientID. This backs the
+// non-admin InitiateAuth path, so an unknown username is reported via
+// unknownUserAuthError, which honors the client's PreventUserExistenceErrors setting.
+// AdminInitiateAuth looks users up separately and always reveals UserNotFoundException,
+// matching AWS (existence-error masking only applies to the non-admin, unauthenticated API).
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findUserByClientID(clientID, username string) (*User, *UserPool, error) {
 	client, ok := b.clients[clientID]
@@ -1078,10 +1104,26 @@ func (b *InMemoryBackend) findUserByClientID(clientID, username string) (*User, 
 
 	user, ok := poolUsers[username]
 	if !ok {
-		return nil, nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+		return nil, nil, unknownUserAuthError(client, username)
 	}
 
 	return user, pool, nil
+}
+
+// unknownUserAuthError returns the error InitiateAuth surfaces when the username does not
+// exist. When the app client's PreventUserExistenceErrors is "ENABLED" (the AWS-recommended
+// setting), Cognito masks the distinction behind the same NotAuthorizedException a wrong
+// password produces, using the identical message, so a caller cannot enumerate valid
+// usernames by comparing error types/text. "LEGACY" (the default when unset) reveals
+// UserNotFoundException, matching Cognito's pre-2019 behavior kept for backward
+// compatibility. Only the non-admin InitiateAuth API applies this masking; AdminInitiateAuth
+// always reveals the real error since the caller already has admin-level AWS credentials.
+func unknownUserAuthError(client *UserPoolClient, username string) error {
+	if client.PreventUserExistenceErrors == preventUserExistenceEnabled {
+		return fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
+	}
+
+	return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 }
 
 // challengePasswordVerifier is returned for USER_SRP_AUTH after credentials are validated.
@@ -1105,15 +1147,27 @@ func (b *InMemoryBackend) isAuthFlowAllowed(clientID, authFlow string) bool {
 }
 
 // newMFASession stores a new session entry and returns an AuthResult with the challenge.
+// For SMS_MFA/EMAIL_OTP a one-time numeric code is generated and stored on the session so
+// RespondToMFAChallenge can require an exact match, the same way ForgotPassword/SignUp
+// confirmation codes are validated elsewhere in this backend (there is no real SMS/email
+// gateway to deliver the code out of band, so simulation is the best available proxy — but
+// unlike a bare format check, "any 6 digits" is no longer accepted).
 func (b *InMemoryBackend) newMFASession(pool *UserPool, clientID, username, challengeType string) *AuthResult {
 	sessionToken := randomAlphanumeric(mfaSessionLen)
-	b.mfaSessions[sessionToken] = &mfaSessionEntry{
+
+	entry := &mfaSessionEntry{
 		PoolID:        pool.ID,
 		ClientID:      clientID,
 		Username:      username,
 		ChallengeType: challengeType,
 		ExpiresAt:     time.Now().Add(mfaSessionTTL),
 	}
+
+	if challengeType == challengeSMSMFA || challengeType == challengeEmailOTP {
+		entry.Code = randomNumeric(totpCodeLen)
+	}
+
+	b.mfaSessions[sessionToken] = entry
 
 	return &AuthResult{
 		MFASession:    sessionToken,
@@ -1342,19 +1396,23 @@ func (b *InMemoryBackend) RevokeToken(token, clientID string) error {
 	return nil
 }
 
-// RespondToMFAChallenge validates an MFA session + TOTP code and issues tokens.
-// Any 6-digit code is accepted (simulation only — no real TOTP verification).
-func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, totpCode string) (*TokenResult, error) {
+// RespondToMFAChallenge validates an MFA session and the user-supplied code, then issues
+// tokens. SOFTWARE_TOKEN_MFA is verified as a real RFC 6238 TOTP code against the user's
+// AssociateSoftwareToken secret; SMS_MFA/EMAIL_OTP are verified against the one-time code
+// generated when the challenge session was created (see newMFASession). A wrong code
+// returns CodeMismatchException without consuming the session, so the caller may retry
+// until the session expires — matching real Cognito.
+func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, code string) (*TokenResult, error) {
 	b.mu.Lock("RespondToMFAChallenge")
 	defer b.mu.Unlock()
 
-	if len(totpCode) != totpCodeLen {
-		return nil, fmt.Errorf("%w: TOTP code must be %d digits", ErrCodeMismatch, totpCodeLen)
+	if len(code) != totpCodeLen {
+		return nil, fmt.Errorf("%w: code must be %d digits", ErrCodeMismatch, totpCodeLen)
 	}
 
-	for _, ch := range totpCode {
+	for _, ch := range code {
 		if ch < '0' || ch > '9' {
-			return nil, fmt.Errorf("%w: TOTP code must contain only digits", ErrCodeMismatch)
+			return nil, fmt.Errorf("%w: code must contain only digits", ErrCodeMismatch)
 		}
 	}
 
@@ -1388,6 +1446,11 @@ func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, totpCode stri
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
 
+	if err := verifyMFAChallengeCode(entry, user, code); err != nil {
+		// Do not consume the session on a wrong code: the caller may retry until it expires.
+		return nil, err
+	}
+
 	// Consume the session (one-time use).
 	delete(b.mfaSessions, session)
 
@@ -1397,6 +1460,35 @@ func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, totpCode stri
 	}
 
 	return result.Tokens, nil
+}
+
+// verifyMFAChallengeCode validates code against the challenge type recorded on the MFA
+// session. SOFTWARE_TOKEN_MFA is verified cryptographically (RFC 6238 TOTP) against the
+// user's secret; SMS_MFA/EMAIL_OTP are verified against the code generated by
+// newMFASession, since there is no client-held secret to re-derive those from.
+func verifyMFAChallengeCode(entry *mfaSessionEntry, user *User, code string) error {
+	switch entry.ChallengeType {
+	case challengeSoftwareTokenMFA:
+		if user.TOTPSecret == "" {
+			return fmt.Errorf("%w: no TOTP secret associated; call AssociateSoftwareToken first", ErrNotAuthorized)
+		}
+
+		if !verifyTOTPCode(user.TOTPSecret, code, time.Now()) {
+			return fmt.Errorf("%w: invalid software token code", ErrCodeMismatch)
+		}
+
+		return nil
+
+	case challengeSMSMFA, challengeEmailOTP:
+		if entry.Code == "" || !hmac.Equal([]byte(entry.Code), []byte(code)) {
+			return fmt.Errorf("%w: invalid MFA code", ErrCodeMismatch)
+		}
+
+		return nil
+
+	default:
+		return fmt.Errorf("%w: unexpected challenge type %q for MFA response", ErrCodeMismatch, entry.ChallengeType)
+	}
 }
 
 // CreateGroup creates a group in a user pool.
@@ -2381,6 +2473,27 @@ func randomAlphanumeric(n int) string {
 		}
 
 		b[i] = alphanumChars[idx.Int64()]
+	}
+
+	return string(b)
+}
+
+// numericChars contains the digits used for random numeric code generation
+// (SMS_MFA / EMAIL_OTP one-time codes).
+const numericChars = "0123456789"
+
+// randomNumeric returns a random numeric string of length n.
+func randomNumeric(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(numericChars))))
+		if err != nil {
+			b[i] = numericChars[0]
+
+			continue
+		}
+
+		b[i] = numericChars[idx.Int64()]
 	}
 
 	return string(b)

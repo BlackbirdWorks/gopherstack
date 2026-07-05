@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -527,7 +528,10 @@ func TestAccuracy_SoftwareToken_PersistsSecret(t *testing.T) {
 	assert.NotEmpty(t, secret)
 	assert.Greater(t, len(secret), 16)
 
-	err = b.VerifySoftwareToken(tokens.AccessToken, "123456")
+	code, err := cognitoidp.GenerateTOTPCode(secret, time.Now())
+	require.NoError(t, err)
+
+	err = b.VerifySoftwareToken(tokens.AccessToken, code)
 	require.NoError(t, err)
 
 	user, err := b.GetUser(tokens.AccessToken)
@@ -783,16 +787,37 @@ func TestHandler_RespondToAuthChallenge_SMSMFAFlow(t *testing.T) {
 	h := newTestHandler(t)
 	poolID, clientID := setupHandlerPoolAndClient(t, h, "sms-mfa-pool")
 
+	signUpAndConfirmViaHandler(t, h, clientID, "smsuser")
+
+	// Log in while MFA is still off to get an access token, then enroll a real TOTP
+	// secret — a real client must complete software-token setup (AssociateSoftwareToken +
+	// VerifySoftwareToken) before the pool can challenge for SOFTWARE_TOKEN_MFA.
+	accessToken := loginViaHandler(t, h, clientID, "smsuser")
+
+	assocRec := doCognitoRequest(t, h, "AssociateSoftwareToken", map[string]any{"AccessToken": accessToken})
+	require.Equal(t, http.StatusOK, assocRec.Code)
+
+	var assocResp struct {
+		SecretCode string `json:"SecretCode,omitempty"`
+	}
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	require.NotEmpty(t, assocResp.SecretCode)
+
+	setupCode, err := cognitoidp.GenerateTOTPCode(assocResp.SecretCode, time.Now())
+	require.NoError(t, err)
+
+	verifyRec := doCognitoRequest(t, h, "VerifySoftwareToken", map[string]any{
+		"AccessToken": accessToken,
+		"UserCode":    setupCode,
+	})
+	require.Equal(t, http.StatusOK, verifyRec.Code)
+
 	mfaRec := doCognitoRequest(t, h, "SetUserPoolMfaConfig", map[string]any{
 		"UserPoolId":       poolID,
 		"MfaConfiguration": "ON",
 	})
 	require.Equal(t, http.StatusOK, mfaRec.Code)
 
-	signUpAndConfirmViaHandler(t, h, clientID, "smsuser")
-
-	// Get access token without MFA to set preference (need direct backend).
-	// We do this via admin set password which doesn't trigger MFA.
 	setMFARec := doCognitoRequest(t, h, "AdminInitiateAuth", map[string]any{
 		"UserPoolId": poolID,
 		"ClientId":   clientID,
@@ -810,14 +835,19 @@ func TestHandler_RespondToAuthChallenge_SMSMFAFlow(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(setMFARec.Body.Bytes(), &mfaInitResp))
 	require.NotNil(t, mfaInitResp.ChallengeName)
+	require.Equal(t, "SOFTWARE_TOKEN_MFA", *mfaInitResp.ChallengeName)
 
-	// Respond to SOFTWARE_TOKEN_MFA (default when MFA is ON).
+	// Respond to SOFTWARE_TOKEN_MFA (default when MFA is ON) with the real TOTP code
+	// derived from the enrolled secret — a stray "123456" must now be rejected.
+	challengeCode, err := cognitoidp.GenerateTOTPCode(assocResp.SecretCode, time.Now())
+	require.NoError(t, err)
+
 	respondRec := doCognitoRequest(t, h, "RespondToAuthChallenge", map[string]any{
 		"ClientId":      clientID,
 		"ChallengeName": *mfaInitResp.ChallengeName,
 		"Session":       *mfaInitResp.Session,
 		"ChallengeResponses": map[string]string{
-			"SOFTWARE_TOKEN_MFA_CODE": "123456",
+			"SOFTWARE_TOKEN_MFA_CODE": challengeCode,
 		},
 	})
 	require.Equal(t, http.StatusOK, respondRec.Code)
@@ -1114,9 +1144,18 @@ func TestHandler_VerifySoftwareToken_Accurate(t *testing.T) {
 	assocRec := doCognitoRequest(t, h, "AssociateSoftwareToken", map[string]any{"AccessToken": accessToken})
 	require.Equal(t, http.StatusOK, assocRec.Code)
 
+	var assocResp struct {
+		SecretCode string `json:"SecretCode,omitempty"`
+	}
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	require.NotEmpty(t, assocResp.SecretCode)
+
+	code, err := cognitoidp.GenerateTOTPCode(assocResp.SecretCode, time.Now())
+	require.NoError(t, err)
+
 	rec := doCognitoRequest(t, h, "VerifySoftwareToken", map[string]any{
 		"AccessToken": accessToken,
-		"UserCode":    "123456",
+		"UserCode":    code,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

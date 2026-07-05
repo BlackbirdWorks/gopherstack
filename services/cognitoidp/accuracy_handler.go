@@ -690,6 +690,7 @@ type clientDataAccurate struct {
 	ClientName                      string            `json:"ClientName,omitempty"`
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
 	ClientSecret                    string            `json:"ClientSecret,omitempty"`
+	PreventUserExistenceErrors      string            `json:"PreventUserExistenceErrors,omitempty"`
 	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
@@ -725,6 +726,7 @@ func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
 		ClientName:                      c.ClientName,
 		UserPoolID:                      c.UserPoolID,
 		ClientSecret:                    c.ClientSecret,
+		PreventUserExistenceErrors:      c.PreventUserExistenceErrors,
 		AllowedOAuthFlows:               flows,
 		AllowedOAuthScopes:              scopes,
 		ExplicitAuthFlows:               ef,
@@ -797,6 +799,7 @@ type createUserPoolClientWithOptsInput struct {
 	TokenValidityUnits              map[string]string `json:"TokenValidityUnits,omitempty"`
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
 	ClientName                      string            `json:"ClientName,omitempty"`
+	PreventUserExistenceErrors      string            `json:"PreventUserExistenceErrors,omitempty"`
 	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
@@ -822,6 +825,7 @@ func (h *Handler) handleCreateUserPoolClientWithOpts(
 	opts := UserPoolClientOptions{
 		AllowedOAuthFlows:               in.AllowedOAuthFlows,
 		AllowedOAuthScopes:              in.AllowedOAuthScopes,
+		PreventUserExistenceErrors:      in.PreventUserExistenceErrors,
 		ExplicitAuthFlows:               in.ExplicitAuthFlows,
 		CallbackURLs:                    in.CallbackURLs,
 		LogoutURLs:                      in.LogoutURLs,
@@ -850,6 +854,7 @@ type updateUserPoolClientWithOptsInput struct {
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
 	ClientID                        string            `json:"ClientId,omitempty"`
 	ClientName                      string            `json:"ClientName,omitempty"`
+	PreventUserExistenceErrors      string            `json:"PreventUserExistenceErrors,omitempty"`
 	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
@@ -878,6 +883,7 @@ func (h *Handler) handleUpdateUserPoolClientWithOpts(
 		CallbackURLs:                    in.CallbackURLs,
 		LogoutURLs:                      in.LogoutURLs,
 		SupportedIdentityProviders:      in.SupportedIdentityProviders,
+		PreventUserExistenceErrors:      in.PreventUserExistenceErrors,
 		EnableTokenRevocation:           in.EnableTokenRevocation,
 		AllowedOAuthFlowsUserPoolClient: in.AllowedOAuthFlowsUserPoolClient,
 		AccessTokenValidity:             in.AccessTokenValidity,
