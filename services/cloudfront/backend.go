@@ -170,8 +170,52 @@ var (
 	ErrOriginRequestPolicyNotFound = awserr.New("NoSuchOriginRequestPolicy", awserr.ErrNotFound)
 	// ErrValidation is returned when request parameters fail validation.
 	ErrValidation = awserr.New("InvalidArgument", awserr.ErrInvalidParameter)
-	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
-	ErrAlreadyExists = awserr.New("DistributionAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrAlreadyExists is the generic fallback for a resource whose identifier already
+	// exists but which has no dedicated AlreadyExists error type in the CloudFront API
+	// (e.g. Anycast IP lists, key value stores). AWS itself falls back to this same
+	// generic code for such resources.
+	ErrAlreadyExists = awserr.New("EntityAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrCachePolicyAlreadyExists is returned when a cache policy name is already in use.
+	ErrCachePolicyAlreadyExists = awserr.New("CachePolicyAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrOriginRequestPolicyAlreadyExists is returned when an origin request policy name
+	// is already in use.
+	ErrOriginRequestPolicyAlreadyExists = awserr.New("OriginRequestPolicyAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrResponseHeadersPolicyAlreadyExists is returned when a response headers policy
+	// name is already in use.
+	ErrResponseHeadersPolicyAlreadyExists = awserr.New(
+		"ResponseHeadersPolicyAlreadyExists",
+		awserr.ErrAlreadyExists,
+	)
+	// ErrOriginAccessControlAlreadyExists is returned when an origin access control name
+	// is already in use.
+	ErrOriginAccessControlAlreadyExists = awserr.New("OriginAccessControlAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrFunctionAlreadyExists is returned when a CloudFront function name is already in use.
+	ErrFunctionAlreadyExists = awserr.New("FunctionAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrFLEAlreadyExists is returned when a field-level-encryption config's CallerReference
+	// collides with an existing config of a different shape.
+	ErrFLEAlreadyExists = awserr.New("FieldLevelEncryptionConfigAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrFLEProfileAlreadyExists is returned when a field-level-encryption profile name is
+	// already in use.
+	ErrFLEProfileAlreadyExists = awserr.New("FieldLevelEncryptionProfileAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrPublicKeyAlreadyExists is returned when a public key name is already in use.
+	ErrPublicKeyAlreadyExists = awserr.New("PublicKeyAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrKeyGroupAlreadyExists is returned when a key group name is already in use.
+	ErrKeyGroupAlreadyExists = awserr.New("KeyGroupAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrRealtimeLogConfigAlreadyExists is returned when a realtime log config name is
+	// already in use.
+	ErrRealtimeLogConfigAlreadyExists = awserr.New("RealtimeLogConfigAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrCachePolicyInUse is returned when attempting to delete a cache policy that is
+	// still referenced by a distribution's default or ordered cache behavior.
+	ErrCachePolicyInUse = awserr.New("CachePolicyInUse", awserr.ErrConflict)
+	// ErrOriginRequestPolicyInUse is returned when attempting to delete an origin
+	// request policy that is still referenced by a distribution's cache behavior.
+	ErrOriginRequestPolicyInUse = awserr.New("OriginRequestPolicyInUse", awserr.ErrConflict)
+	// ErrResponseHeadersPolicyInUse is returned when attempting to delete a response
+	// headers policy that is still referenced by a distribution's cache behavior.
+	ErrResponseHeadersPolicyInUse = awserr.New("ResponseHeadersPolicyInUse", awserr.ErrConflict)
+	// ErrFunctionInUse is returned when attempting to delete a CloudFront function that
+	// is still associated with a distribution's cache behavior.
+	ErrFunctionInUse = awserr.New("FunctionInUse", awserr.ErrConflict)
 	// ErrFLENotFound is returned when a requested field level encryption config does not exist.
 	ErrFLENotFound = awserr.New("NoSuchFieldLevelEncryptionConfig", awserr.ErrNotFound)
 	// ErrFLEProfileNotFound is returned when a requested field level encryption profile does not exist.
@@ -197,6 +241,10 @@ var (
 	// ErrFLEProfileInUse is returned when a field-level-encryption profile is still
 	// referenced by a field-level-encryption config and therefore cannot be deleted.
 	ErrFLEProfileInUse = awserr.New("FieldLevelEncryptionProfileInUse", awserr.ErrConflict)
+	// ErrInconsistentQuantities is returned when a config payload declares a Quantity
+	// for a list that does not match the number of Items actually provided. AWS
+	// validates this pervasively across DistributionConfig and policy configs.
+	ErrInconsistentQuantities = awserr.New("InconsistentQuantities", awserr.ErrInvalidParameter)
 )
 
 // ErrPreconditionFailed is returned when an If-Match ETag check fails in a data-plane operation.
@@ -455,13 +503,15 @@ type ResponseHeadersPolicy struct {
 
 // Function represents a CloudFront Function.
 type Function struct {
-	Name         string `json:"name"`
-	Comment      string `json:"comment,omitempty"`
-	Runtime      string `json:"runtime"`
-	FunctionCode string `json:"functionCode"`
-	Status       string `json:"status"` // DEVELOPMENT or LIVE
-	ETag         string `json:"eTag"`
-	ARN          string `json:"arn"`
+	Name             string `json:"name"`
+	Comment          string `json:"comment,omitempty"`
+	Runtime          string `json:"runtime"`
+	FunctionCode     string `json:"functionCode"`
+	Status           string `json:"status"` // DEVELOPMENT or LIVE
+	ETag             string `json:"eTag"`
+	ARN              string `json:"arn"`
+	CreatedTime      string `json:"createdTime"`
+	LastModifiedTime string `json:"lastModifiedTime"`
 }
 
 // ORPHeadersConfig controls which request headers are forwarded to the origin.
@@ -1555,7 +1605,7 @@ func (b *InMemoryBackend) CreateCachePolicy(
 	if _, exists := b.cachePolicyByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: cache policy with name %q already exists",
-			ErrAlreadyExists,
+			ErrCachePolicyAlreadyExists,
 			name,
 		)
 	}
@@ -2014,7 +2064,7 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 		if _, exists := b.cachePolicyByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: cache policy with name %q already exists",
-				ErrAlreadyExists,
+				ErrCachePolicyAlreadyExists,
 				name,
 			)
 		}
@@ -2048,6 +2098,10 @@ func (b *InMemoryBackend) DeleteCachePolicy(id string) error {
 		return fmt.Errorf("%w: cache policy %s not found", ErrCachePolicyNotFound, id)
 	}
 
+	if b.tokenReferencedByAnyDistribution(id) {
+		return fmt.Errorf("%w: cache policy %s is attached to a distribution", ErrCachePolicyInUse, id)
+	}
+
 	delete(b.cachePolicyByName, p.Name)
 	delete(b.cachePolicies, id)
 
@@ -2070,7 +2124,7 @@ func (b *InMemoryBackend) CreateOriginAccessControl(
 	if _, exists := b.originAccessControlByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: origin access control with name %q already exists",
-			ErrAlreadyExists,
+			ErrOriginAccessControlAlreadyExists,
 			name,
 		)
 	}
@@ -2143,7 +2197,7 @@ func (b *InMemoryBackend) UpdateOriginAccessControl(
 		if _, exists := b.originAccessControlByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: origin access control with name %q already exists",
-				ErrAlreadyExists,
+				ErrOriginAccessControlAlreadyExists,
 				name,
 			)
 		}
@@ -2196,7 +2250,7 @@ func (b *InMemoryBackend) CreateResponseHeadersPolicy(
 	if _, exists := b.responseHeadersPolicyByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: response headers policy with name %q already exists",
-			ErrAlreadyExists,
+			ErrResponseHeadersPolicyAlreadyExists,
 			name,
 		)
 	}
@@ -2284,7 +2338,7 @@ func (b *InMemoryBackend) UpdateResponseHeadersPolicy(
 		if _, exists := b.responseHeadersPolicyByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: response headers policy with name %q already exists",
-				ErrAlreadyExists,
+				ErrResponseHeadersPolicyAlreadyExists,
 				name,
 			)
 		}
@@ -2323,6 +2377,13 @@ func (b *InMemoryBackend) DeleteResponseHeadersPolicy(id string) error {
 		)
 	}
 
+	if b.tokenReferencedByAnyDistribution(id) {
+		return fmt.Errorf(
+			"%w: response headers policy %s is attached to a distribution",
+			ErrResponseHeadersPolicyInUse, id,
+		)
+	}
+
 	delete(b.responseHeadersPolicyByName, p.Name)
 	delete(b.responseHeadersPolicies, id)
 
@@ -2347,17 +2408,20 @@ func (b *InMemoryBackend) CreateFunction(
 	}
 
 	if _, exists := b.functions[name]; exists {
-		return nil, fmt.Errorf("%w: function with name %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: function with name %q already exists", ErrFunctionAlreadyExists, name)
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
 	fn := &Function{
-		Name:         name,
-		Comment:      comment,
-		Runtime:      runtime,
-		FunctionCode: functionCode,
-		Status:       functionStageDevelopment,
-		ETag:         uuid.NewString(),
-		ARN:          b.functionARN(name),
+		Name:             name,
+		Comment:          comment,
+		Runtime:          runtime,
+		FunctionCode:     functionCode,
+		Status:           functionStageDevelopment,
+		ETag:             uuid.NewString(),
+		ARN:              b.functionARN(name),
+		CreatedTime:      now,
+		LastModifiedTime: now,
 	}
 	b.functions[name] = fn
 	cp := *fn
@@ -2408,6 +2472,7 @@ func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
 
 	fn.Status = functionStageLive
 	fn.ETag = uuid.NewString()
+	fn.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := *fn
 
 	return &cp, nil
@@ -2434,6 +2499,7 @@ func (b *InMemoryBackend) UpdateFunction(
 	fn.FunctionCode = functionCode
 	fn.Status = functionStageDevelopment
 	fn.ETag = uuid.NewString()
+	fn.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := *fn
 
 	return &cp, nil
@@ -2446,6 +2512,10 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 
 	if _, ok := b.functions[name]; !ok {
 		return fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
+	}
+
+	if b.tokenReferencedByAnyDistribution(b.functionARN(name)) {
+		return fmt.Errorf("%w: function %s is associated with a distribution", ErrFunctionInUse, name)
 	}
 
 	delete(b.functions, name)
@@ -2477,7 +2547,7 @@ func (b *InMemoryBackend) CreateOriginRequestPolicy(
 	if _, exists := b.originRequestPolicyByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: origin request policy with name %q already exists",
-			ErrAlreadyExists,
+			ErrOriginRequestPolicyAlreadyExists,
 			name,
 		)
 	}
@@ -2564,7 +2634,7 @@ func (b *InMemoryBackend) UpdateOriginRequestPolicy(
 		if _, exists := b.originRequestPolicyByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: origin request policy with name %q already exists",
-				ErrAlreadyExists,
+				ErrOriginRequestPolicyAlreadyExists,
 				name,
 			)
 		}
@@ -2599,6 +2669,13 @@ func (b *InMemoryBackend) DeleteOriginRequestPolicy(id string) error {
 			"%w: origin request policy %s not found",
 			ErrOriginRequestPolicyNotFound,
 			id,
+		)
+	}
+
+	if b.tokenReferencedByAnyDistribution(id) {
+		return fmt.Errorf(
+			"%w: origin request policy %s is attached to a distribution",
+			ErrOriginRequestPolicyInUse, id,
 		)
 	}
 
@@ -2706,7 +2783,7 @@ func (b *InMemoryBackend) CreateFieldLevelEncryption(
 	if _, exists := b.fieldLevelEncryptionByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: field level encryption with name %q already exists",
-			ErrAlreadyExists,
+			ErrFLEAlreadyExists,
 			name,
 		)
 	}
@@ -2783,7 +2860,7 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryption(
 
 	if !renameInIndex(b.fieldLevelEncryptionByName, id, fle.Name, name) {
 		return nil, fmt.Errorf(
-			"%w: field level encryption with name %q already exists", ErrAlreadyExists, name)
+			"%w: field level encryption with name %q already exists", ErrFLEAlreadyExists, name)
 	}
 
 	fle.Name = name
@@ -2829,7 +2906,7 @@ func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
 	if _, exists := b.fieldLevelEncryptionProfileByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: field level encryption profile with name %q already exists",
-			ErrAlreadyExists,
+			ErrFLEProfileAlreadyExists,
 			name,
 		)
 	}
@@ -2916,7 +2993,7 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
 
 	if !renameInIndex(b.fieldLevelEncryptionProfileByName, id, p.Name, name) {
 		return nil, fmt.Errorf(
-			"%w: field level encryption profile with name %q already exists", ErrAlreadyExists, name)
+			"%w: field level encryption profile with name %q already exists", ErrFLEProfileAlreadyExists, name)
 	}
 
 	p.Name = name
@@ -2993,7 +3070,7 @@ func (b *InMemoryBackend) CreatePublicKey(
 	}
 
 	if _, exists := b.publicKeyByName[name]; exists {
-		return nil, fmt.Errorf("%w: public key with name %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: public key with name %q already exists", ErrPublicKeyAlreadyExists, name)
 	}
 
 	id := generateID()
@@ -3120,7 +3197,7 @@ func (b *InMemoryBackend) CreateKeyGroup(name, comment string, items []string) (
 	}
 
 	if _, exists := b.keyGroupByName[name]; exists {
-		return nil, fmt.Errorf("%w: key group with name %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: key group with name %q already exists", ErrKeyGroupAlreadyExists, name)
 	}
 
 	for _, itemID := range items {
@@ -3188,7 +3265,7 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 		if _, exists := b.keyGroupByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: key group with name %q already exists",
-				ErrAlreadyExists,
+				ErrKeyGroupAlreadyExists,
 				name,
 			)
 		}
@@ -3261,7 +3338,7 @@ func (b *InMemoryBackend) CreateRealtimeLogConfig(
 	if _, exists := b.realtimeLogConfigByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: realtime log config with name %q already exists",
-			ErrAlreadyExists,
+			ErrRealtimeLogConfigAlreadyExists,
 			name,
 		)
 	}

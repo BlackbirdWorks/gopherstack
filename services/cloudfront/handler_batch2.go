@@ -72,6 +72,10 @@ func (h *Handler) handleCreateDistributionTenant(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req createDistributionTenantXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -140,6 +144,10 @@ func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) err
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req updateDistributionTenantXML
@@ -313,6 +321,10 @@ func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req distributionConfigWithTagsXML
 	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid DistributionConfigWithTags XML"))
@@ -366,6 +378,10 @@ func (h *Handler) handleUpdateDistributionWithStagingConfig(c *echo.Context, pri
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req updateWithStagingConfigXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -417,6 +433,10 @@ func (h *Handler) handleUpdateDomainAssociation(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req updateDomainAssociationXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -462,6 +482,10 @@ func (h *Handler) handleVerifyDNSConfiguration(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req verifyDNSConfigurationXML
@@ -528,6 +552,10 @@ func (h *Handler) handleCreateInvalidationForTenant(c *echo.Context, tenantID st
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusInternalServerError, cfErrorXML("InternalFailure", err.Error()))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var batch invalidationBatchXML
@@ -734,6 +762,10 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req listDomainConflictsXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -773,6 +805,10 @@ func (h *Handler) handleUpdateKeyValueStore(c *echo.Context, id string) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req keyValueStoreRequestXML

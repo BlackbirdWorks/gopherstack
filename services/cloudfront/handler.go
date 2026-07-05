@@ -2364,38 +2364,60 @@ func notFoundCodeExtended(err error) (string, bool) {
 	return "", false
 }
 
+// errCodeMapping pairs a sentinel error with the wire HTTP status + AWS error code to
+// emit when handleError sees it in an error chain. Order matters only in that the first
+// match wins; since every sentinel here wraps a distinct awserr category value (never
+// another entry in this table), no two entries can both match the same error, so in
+// practice order is unconstrained.
+//
+//nolint:gochecknoglobals // package-level lookup table, analogous to EC2's errCodeLookup
+var errCodeMapping = []struct {
+	err    error
+	code   string
+	status int
+}{
+	{ErrDistributionNotDisabled, "DistributionNotDisabled", http.StatusConflict},
+	{ErrPublicKeyInUse, "PublicKeyInUse", http.StatusConflict},
+	{ErrFLEProfileInUse, "FieldLevelEncryptionProfileInUse", http.StatusConflict},
+	{ErrCachePolicyInUse, "CachePolicyInUse", http.StatusConflict},
+	{ErrOriginRequestPolicyInUse, "OriginRequestPolicyInUse", http.StatusConflict},
+	{ErrResponseHeadersPolicyInUse, "ResponseHeadersPolicyInUse", http.StatusConflict},
+	{ErrFunctionInUse, "FunctionInUse", http.StatusConflict},
+	{ErrCachePolicyAlreadyExists, "CachePolicyAlreadyExists", http.StatusConflict},
+	{ErrOriginRequestPolicyAlreadyExists, "OriginRequestPolicyAlreadyExists", http.StatusConflict},
+	{ErrResponseHeadersPolicyAlreadyExists, "ResponseHeadersPolicyAlreadyExists", http.StatusConflict},
+	{ErrOriginAccessControlAlreadyExists, "OriginAccessControlAlreadyExists", http.StatusConflict},
+	{ErrFunctionAlreadyExists, "FunctionAlreadyExists", http.StatusConflict},
+	{ErrFLEAlreadyExists, "FieldLevelEncryptionConfigAlreadyExists", http.StatusConflict},
+	{ErrFLEProfileAlreadyExists, "FieldLevelEncryptionProfileAlreadyExists", http.StatusConflict},
+	{ErrPublicKeyAlreadyExists, "PublicKeyAlreadyExists", http.StatusConflict},
+	{ErrKeyGroupAlreadyExists, "KeyGroupAlreadyExists", http.StatusConflict},
+	{ErrRealtimeLogConfigAlreadyExists, "RealtimeLogConfigAlreadyExists", http.StatusConflict},
+	{ErrAlreadyExists, "EntityAlreadyExists", http.StatusConflict},
+	{ErrConnectionGroupAlreadyExists, "EntityAlreadyExists", http.StatusConflict},
+	{ErrInvalidTagging, "InvalidTagging", http.StatusBadRequest},
+	{ErrStreamingDistributionNotDisabled, "StreamingDistributionNotDisabled", http.StatusConflict},
+	{ErrDomainConflict, "DomainConflictException", http.StatusConflict},
+	{ErrInconsistentQuantities, "InconsistentQuantities", http.StatusBadRequest},
+	{ErrValidation, "InvalidArgument", http.StatusBadRequest},
+}
+
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	if code, ok := notFoundCode(err); ok {
 		return xmlResp(c, http.StatusNotFound, cfErrorXML(code, err.Error()))
 	}
 
-	switch {
-	case errors.Is(err, ErrDistributionNotDisabled):
-		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionNotDisabled", err.Error()))
-	case errors.Is(err, ErrPublicKeyInUse):
-		return xmlResp(c, http.StatusConflict, cfErrorXML("PublicKeyInUse", err.Error()))
-	case errors.Is(err, ErrFLEProfileInUse):
-		return xmlResp(c, http.StatusConflict, cfErrorXML("FieldLevelEncryptionProfileInUse", err.Error()))
-	case errors.Is(err, ErrAlreadyExists):
-		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionAlreadyExists", err.Error()))
-	case errors.Is(err, ErrConnectionGroupAlreadyExists):
-		return xmlResp(c, http.StatusConflict, cfErrorXML("EntityAlreadyExists", err.Error()))
-	case errors.Is(err, ErrInvalidTagging):
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidTagging", err.Error()))
-	case errors.Is(err, ErrStreamingDistributionNotDisabled):
-		return xmlResp(c, http.StatusConflict, cfErrorXML("StreamingDistributionNotDisabled", err.Error()))
-	case errors.Is(err, ErrDomainConflict):
-		return xmlResp(c, http.StatusConflict, cfErrorXML("DomainConflictException", err.Error()))
-	case errors.Is(err, ErrValidation):
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", err.Error()))
-	default:
-
-		return xmlResp(
-			c,
-			http.StatusInternalServerError,
-			cfErrorXML("InternalFailure", err.Error()),
-		)
+	for _, m := range errCodeMapping {
+		if errors.Is(err, m.err) {
+			return xmlResp(c, m.status, cfErrorXML(m.code, err.Error()))
+		}
 	}
+
+	return xmlResp(
+		c,
+		http.StatusInternalServerError,
+		cfErrorXML("InternalFailure", err.Error()),
+	)
 }
 
 // --- Distribution handlers ---
@@ -2404,6 +2426,10 @@ func (h *Handler) handleCreateDistribution(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var cfg distributionConfigMinimal
@@ -2457,6 +2483,10 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var cfg distributionConfigMinimal
@@ -2922,6 +2952,10 @@ func (h *Handler) handleAssociateDistributionWebACL(c *echo.Context, distributio
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req webACLAssociationXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -2946,6 +2980,10 @@ func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenan
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req webACLAssociationXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -2968,6 +3006,10 @@ func (h *Handler) handleCopyDistribution(c *echo.Context, primaryDistID string) 
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req copyDistributionRequestXML
@@ -2996,6 +3038,10 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req anycastIPListRequestXML
@@ -3047,6 +3093,10 @@ func (h *Handler) handleCreateCachePolicy(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req cachePolicyConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -3083,6 +3133,10 @@ func (h *Handler) handleCreateConnectionFunction(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req connectionFunctionRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -3117,6 +3171,10 @@ func (h *Handler) handleCreateConnectionGroup(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req connectionGroupRequestXML
@@ -3161,6 +3219,10 @@ func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error 
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req continuousDeploymentPolicyConfigXML
@@ -3233,6 +3295,10 @@ func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id str
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req continuousDeploymentPolicyConfigXML
@@ -3350,6 +3416,10 @@ func (h *Handler) handleSetFunctionAssociations(c *echo.Context, distributionID 
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req functionAssociationsXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -3376,6 +3446,10 @@ func (h *Handler) handleCreateOAI(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var cfg oaiConfigXML
@@ -3523,6 +3597,10 @@ func (h *Handler) handleUpdateOAI(c *echo.Context, id string) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req oaiConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -3567,6 +3645,10 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var tags tagsXML
@@ -3666,6 +3748,10 @@ func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error
 			http.StatusInternalServerError,
 			cfErrorXML("InternalFailure", err.Error()),
 		)
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var batch invalidationBatchXML
@@ -3902,6 +3988,10 @@ func (h *Handler) handleUpdateCachePolicy(c *echo.Context, id string) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req cachePolicyConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -3972,6 +4062,10 @@ func (h *Handler) handleCreateOriginAccessControl(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req oacConfigXML
@@ -4079,6 +4173,10 @@ func (h *Handler) handleUpdateOriginAccessControl(c *echo.Context, id string) er
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req oacConfigXML
@@ -4226,6 +4324,10 @@ func (h *Handler) handleCreateResponseHeadersPolicy(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req rhpConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -4331,6 +4433,10 @@ func (h *Handler) handleUpdateResponseHeadersPolicy(c *echo.Context, id string) 
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req rhpConfigXML
@@ -4464,6 +4570,10 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req createFunctionRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -4533,10 +4643,14 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 				`<Runtime>%s</Runtime>`+
 				`</FunctionConfig>`+
 				`<FunctionMetadata>`+
+				`<FunctionARN>%s</FunctionARN>`+
 				`<Stage>%s</Stage>`+
+				`<CreatedTime>%s</CreatedTime>`+
+				`<LastModifiedTime>%s</LastModifiedTime>`+
 				`</FunctionMetadata>`+
 				`</FunctionSummary>`,
-			fn.Name, fn.Status, fn.Comment, fn.Runtime, fn.Status)
+			fn.Name, fn.Status, fn.Comment, fn.Runtime,
+			fn.ARN, fn.Status, fn.CreatedTime, fn.LastModifiedTime)
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -4599,6 +4713,10 @@ func (h *Handler) handleUpdateFunction(c *echo.Context, name string) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req createFunctionRequestXML
@@ -4688,10 +4806,14 @@ func functionResponseXML(fn *Function) string {
 		`<Runtime>%s</Runtime>`+
 		`</FunctionConfig>`+
 		`<FunctionMetadata>`+
+		`<FunctionARN>%s</FunctionARN>`+
 		`<Stage>%s</Stage>`+
+		`<CreatedTime>%s</CreatedTime>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
 		`</FunctionMetadata>`+
 		`</FunctionSummary>`,
-		cfNS, fn.Name, fn.Status, fn.Comment, fn.Runtime, fn.Status)
+		cfNS, fn.Name, fn.Status, fn.Comment, fn.Runtime,
+		fn.ARN, fn.Status, fn.CreatedTime, fn.LastModifiedTime)
 }
 
 // --- Origin Request Policy handlers ---
@@ -4751,6 +4873,10 @@ func (h *Handler) handleCreateOriginRequestPolicy(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	if len(body) == 0 {
@@ -4849,6 +4975,10 @@ func (h *Handler) handleUpdateOriginRequestPolicy(c *echo.Context, id string) er
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	ifMatch := c.Request().Header.Get("If-Match")
@@ -5016,6 +5146,10 @@ func (h *Handler) handleCreateFieldLevelEncryption(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req fleConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -5086,6 +5220,10 @@ func (h *Handler) handleUpdateFieldLevelEncryption(c *echo.Context, id string) e
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req fleConfigRequestXML
@@ -5215,6 +5353,10 @@ func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req fleProfileConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -5286,6 +5428,10 @@ func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id st
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req fleProfileConfigRequestXML
@@ -5368,6 +5514,10 @@ func (h *Handler) handleCreatePublicKey(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req publicKeyConfigXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -5440,6 +5590,10 @@ func (h *Handler) handleUpdatePublicKey(c *echo.Context, id string) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req publicKeyConfigXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -5508,6 +5662,10 @@ func (h *Handler) handleCreateKeyGroup(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req keyGroupConfigXML
@@ -5580,6 +5738,10 @@ func (h *Handler) handleUpdateKeyGroup(c *echo.Context, id string) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req keyGroupConfigXML
@@ -5659,6 +5821,10 @@ func (h *Handler) handleCreateRealtimeLogConfig(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req realtimeLogConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -5729,6 +5895,10 @@ func (h *Handler) handleUpdateRealtimeLogConfig(c *echo.Context, arn string) err
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req realtimeLogConfigRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -5791,6 +5961,10 @@ func (h *Handler) handleCreateKeyValueStore(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req keyValueStoreRequestXML
@@ -5912,6 +6086,10 @@ func (h *Handler) handleCreateVpcOrigin(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var req vpcOriginRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
@@ -5982,6 +6160,10 @@ func (h *Handler) handleUpdateVpcOrigin(c *echo.Context, id string) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req vpcOriginRequestXML

@@ -154,8 +154,9 @@ func TestNewOps_TrustStore_BundleAndStatus(t *testing.T) {
 }
 
 // TestNewOps_TrustStore_NameUniqueness verifies that creating a trust store with a name that
-// already exists fails with 409 DistributionAlreadyExists, and that renaming to a taken name
-// on update also fails.
+// already exists fails with 409 EntityAlreadyExists (the generic AWS fallback code for
+// resources without a dedicated AlreadyExists error type), and that renaming to a taken
+// name on update also fails.
 func TestNewOps_TrustStore_NameUniqueness(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)

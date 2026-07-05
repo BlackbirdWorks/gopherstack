@@ -113,6 +113,15 @@ func (b *InMemoryBackend) rebuildDistributionSearchIndex() {
 	}
 }
 
+// tokenReferencedByAnyDistribution reports whether searchStr appears as a whole
+// token in any indexed distribution's raw config. Used by Delete* methods to
+// enforce AWS's "cannot delete a resource still in use" rule (e.g.
+// CachePolicyInUse, FunctionInUse) without an O(n) scan over every distribution.
+// Must be called with the backend's lock already held (read or write).
+func (b *InMemoryBackend) tokenReferencedByAnyDistribution(searchStr string) bool {
+	return len(b.distSearchInverted[searchStr]) > 0
+}
+
 // distributionsByConfigSearch returns copies of the distributions whose raw
 // config contains searchStr as a whole token. Must be called with the read lock
 // held.
