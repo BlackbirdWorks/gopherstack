@@ -48,6 +48,8 @@ var (
 	ErrOpsMetadataNotFound                = errors.New("OpsMetadataNotFoundException")
 	ErrPatchBaselineNotFound              = errors.New("DoesNotExistException")
 	ErrOpsMetadataAlreadyExists           = errors.New("OpsMetadataAlreadyExistsException")
+	ErrHierarchyLevelLimitExceeded        = errors.New("HierarchyLevelLimitExceededException")
+	ErrParameterMaxVersionLimitExceeded   = errors.New("ParameterMaxVersionLimitExceeded")
 )
 
 const (
@@ -72,6 +74,11 @@ const (
 var validParamNameRegex = regexp.MustCompile(`^[a-zA-Z0-9._\-/]+$`)
 
 const maxParamNameLength = 2048
+
+// maxParamHierarchyLevels is the maximum number of "/"-delimited path segments
+// allowed in a parameter name. AWS: "A parameter name hierarchy can have a
+// maximum of 15 levels" — e.g. /L1/L2/.../L15/name is valid, one more is not.
+const maxParamHierarchyLevels = 15
 
 // validateParameterName returns a ValidationException error when the name is invalid.
 func validateParameterName(name string) error {
@@ -106,7 +113,31 @@ func validateParameterName(name string) error {
 		return fmt.Errorf("%w: parameter name contains invalid characters", ErrValidationException)
 	}
 
+	if levels := parameterHierarchyLevels(name); levels > maxParamHierarchyLevels {
+		return fmt.Errorf(
+			"%w: parameter name hierarchy has %d levels, maximum is %d",
+			ErrHierarchyLevelLimitExceeded, levels, maxParamHierarchyLevels,
+		)
+	}
+
 	return nil
+}
+
+// parameterHierarchyLevels counts the "/"-delimited, non-empty segments of a
+// parameter name, including the final name segment itself. AWS counts a
+// leading slash as the hierarchy root (not a level) — e.g. "/a/b/c" has 3
+// levels, matching how AWS reports HierarchyLevelLimitExceededException.
+func parameterHierarchyLevels(name string) int {
+	segments := strings.Split(name, "/")
+
+	levels := 0
+	for _, s := range segments {
+		if s != "" {
+			levels++
+		}
+	}
+
+	return levels
 }
 
 // aes256KeyLen is the byte length of an AES-256 key.
@@ -574,30 +605,51 @@ func validateAllowedPattern(pattern, value string) error {
 	return nil
 }
 
-// resolveTier canonicalises the tier string and enforces per-tier value size limits.
-// Returns the resolved tier name or an error.
-func resolveTier(tier, value string) (string, error) {
+// resolveTier canonicalises the tier string and enforces per-tier value size
+// limits, returning the resolved tier name or an error.
+//
+// AWS auto-upgrades Intelligent-Tiering parameters to Advanced whenever the
+// request needs a capability Standard doesn't support — a value over 4 KiB or
+// parameter policies attached — rather than rejecting the request. An
+// explicit Standard tier still hard-fails on those same conditions, since the
+// caller opted out of auto-selection.
+func resolveTier(tier, value, policies string) (string, error) {
 	if tier == "" {
 		tier = tierStandard
 	}
 
+	needsAdvanced := len(value) > maxStandardValueBytes || policies != ""
+
 	switch tier {
-	case tierStandard, tierIntelligentTiering:
+	case tierIntelligentTiering:
+		if needsAdvanced {
+			tier = tierAdvanced
+		}
+	case tierStandard:
 		if len(value) > maxStandardValueBytes {
 			return "", fmt.Errorf(
-				"%w: parameter value exceeds %d bytes for %s tier",
-				ErrValidationException, maxStandardValueBytes, tier,
+				"%w: parameter value exceeds %d bytes for Standard tier",
+				ErrValidationException, maxStandardValueBytes,
+			)
+		}
+
+		if policies != "" {
+			return "", fmt.Errorf(
+				"%w: parameter policies are only supported for Advanced tier parameters",
+				ErrValidationException,
 			)
 		}
 	case tierAdvanced:
-		if len(value) > maxAdvancedValueBytes {
-			return "", fmt.Errorf(
-				"%w: parameter value exceeds %d bytes for Advanced tier",
-				ErrValidationException, maxAdvancedValueBytes,
-			)
-		}
+		// already Advanced; size checked below.
 	default:
 		return "", fmt.Errorf("%w: invalid Tier %q", ErrValidationException, tier)
+	}
+
+	if tier == tierAdvanced && len(value) > maxAdvancedValueBytes {
+		return "", fmt.Errorf(
+			"%w: parameter value exceeds %d bytes for Advanced tier",
+			ErrValidationException, maxAdvancedValueBytes,
+		)
 	}
 
 	return tier, nil
@@ -752,7 +804,7 @@ func validatePutParameterInput(input *PutParameterInput) (putParameterValidated,
 		return putParameterValidated{}, err
 	}
 
-	tier, err := resolveTier(input.Tier, input.Value)
+	tier, err := resolveTier(input.Tier, input.Value, input.Policies)
 	if err != nil {
 		return putParameterValidated{}, err
 	}
@@ -814,6 +866,24 @@ func (b *InMemoryBackend) PutParameter(
 		Policies:         input.Policies,
 	}
 
+	// AWS retains only the most recent maxHistoryCap versions of a parameter,
+	// automatically deleting the oldest version when a new one is created. If
+	// the oldest version has a label attached, AWS refuses to delete it (and
+	// therefore refuses to create the new version) with
+	// ParameterMaxVersionLimitExceeded, since that would silently orphan the
+	// label. Check this before mutating any state.
+	if existingHist := b.historyStore(region)[input.Name]; len(existingHist) >= maxHistoryCap {
+		oldest := existingHist[0]
+		if labels := b.parameterLabelsStore(region)[input.Name][oldest.Version]; len(labels) > 0 {
+			return nil, fmt.Errorf(
+				"%w: version %d, the oldest version, can't be deleted because it has a label"+
+					" associated with it. Move the label to another version of the parameter,"+
+					" and try again",
+				ErrParameterMaxVersionLimitExceeded, oldest.Version,
+			)
+		}
+	}
+
 	params[input.Name] = param
 
 	// Store in history (store encrypted value for SecureString)
@@ -838,7 +908,18 @@ func (b *InMemoryBackend) PutParameter(
 
 	// Cap history to the most recent maxHistoryCap entries to prevent unbounded growth.
 	if len(history[input.Name]) > maxHistoryCap {
+		evicted := history[input.Name][:len(history[input.Name])-maxHistoryCap]
 		history[input.Name] = history[input.Name][len(history[input.Name])-maxHistoryCap:]
+
+		// Evicted versions can never be labeled here (the pre-check above bars
+		// evicting a labeled oldest version) but their version-label map
+		// entries — created lazily on first label — may still exist as empty
+		// slices; drop them so parameterLabels doesn't grow unboundedly.
+		if versionLabels := b.parameterLabelsStore(region)[input.Name]; versionLabels != nil {
+			for _, ev := range evicted {
+				delete(versionLabels, ev.Version)
+			}
+		}
 	}
 
 	return &PutParameterOutput{Version: version, Tier: tier}, nil
@@ -1667,7 +1748,52 @@ func (b *InMemoryBackend) CreateDocument(
 		},
 	}
 
-	return &CreateDocumentOutput{DocumentDescription: doc}, nil
+	return &CreateDocumentOutput{DocumentDescription: doc.toDocumentDescription()}, nil
+}
+
+// toDocumentDescription converts an internal Document (which carries Content
+// for GetDocument's use) to the wire-accurate DocumentDescription shape
+// returned by CreateDocument/UpdateDocument/DescribeDocument — real AWS never
+// includes Content in these metadata responses.
+func (d Document) toDocumentDescription() DocumentDescription {
+	return DocumentDescription{
+		TargetType:        d.TargetType,
+		LatestVersion:     d.LatestVersion,
+		DocumentType:      d.DocumentType,
+		DocumentFormat:    d.DocumentFormat,
+		Status:            d.Status,
+		StatusInformation: d.StatusInformation,
+		DefaultVersion:    d.DefaultVersion,
+		Name:              d.Name,
+		SchemaVersion:     d.SchemaVersion,
+		Description:       d.Description,
+		DocumentVersion:   d.DocumentVersion,
+		PlatformTypes:     d.PlatformTypes,
+		Attachments:       d.Attachments,
+		Requires:          d.Requires,
+		CreatedDate:       d.CreatedDate,
+	}
+}
+
+// resolveDocumentVersionSelector resolves the "$LATEST"/"$DEFAULT" selectors
+// to a concrete version string. An explicit "$DEFAULT" always resolves to
+// the document's DefaultVersion (set by UpdateDocumentDefaultVersion), which
+// can genuinely differ from LatestVersion — this emulator previously
+// conflated the two, always serving the latest content even when $DEFAULT
+// was explicitly requested. An omitted DocumentVersion is treated the same
+// as this emulator has always treated it (latest), since AWS's own docs
+// don't state a default and existing callers depend on that behavior.
+func resolveDocumentVersionSelector(doc Document, requested string) string {
+	switch requested {
+	case "":
+		return doc.LatestVersion
+	case "$DEFAULT":
+		return doc.DefaultVersion
+	case "$LATEST":
+		return doc.LatestVersion
+	default:
+		return requested
+	}
 }
 
 // GetDocument retrieves a document's content.
@@ -1684,35 +1810,25 @@ func (b *InMemoryBackend) GetDocument(
 		return nil, ErrDocumentNotFound
 	}
 
-	content := doc.Content
-	version := doc.DocumentVersion
+	target := resolveDocumentVersionSelector(doc, input.DocumentVersion)
 
-	if input.DocumentVersion != "" && input.DocumentVersion != "$LATEST" &&
-		input.DocumentVersion != "$DEFAULT" {
-		versions := b.documentVersionsStore(region)[input.Name]
-		found := false
-		for _, v := range versions {
-			if v.DocumentVersion == input.DocumentVersion {
-				found = true
-				version = v.DocumentVersion
-				content = v.Content
+	versions := b.documentVersionsStore(region)[input.Name]
+	for _, v := range versions {
+		if v.DocumentVersion != target {
+			continue
+		}
 
-				break
-			}
-		}
-		if !found {
-			return nil, ErrInvalidDocumentVersion
-		}
+		return &GetDocumentOutput{
+			Name:            doc.Name,
+			Content:         v.Content,
+			DocumentType:    doc.DocumentType,
+			DocumentFormat:  v.DocumentFormat,
+			DocumentVersion: v.DocumentVersion,
+			Status:          v.Status,
+		}, nil
 	}
 
-	return &GetDocumentOutput{
-		Name:            doc.Name,
-		Content:         content,
-		DocumentType:    doc.DocumentType,
-		DocumentFormat:  doc.DocumentFormat,
-		DocumentVersion: version,
-		Status:          doc.Status,
-	}, nil
+	return nil, ErrInvalidDocumentVersion
 }
 
 // documentMatchesFilters returns true when doc satisfies all provided DocumentFilters.
@@ -1752,7 +1868,32 @@ func (b *InMemoryBackend) DescribeDocument(
 		return nil, ErrDocumentNotFound
 	}
 
-	return &DescribeDocumentOutput{Document: doc}, nil
+	description := doc.toDocumentDescription()
+
+	// Honor a specific/$LATEST/$DEFAULT DocumentVersion selector: the
+	// per-version fields (DocumentVersion, DocumentFormat, Status) must
+	// reflect the resolved version, not always the latest.
+	target := resolveDocumentVersionSelector(doc, input.DocumentVersion)
+	if target != doc.DocumentVersion {
+		found := false
+
+		for _, v := range b.documentVersionsStore(region)[input.Name] {
+			if v.DocumentVersion == target {
+				description.DocumentVersion = v.DocumentVersion
+				description.DocumentFormat = v.DocumentFormat
+				description.Status = v.Status
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return nil, ErrInvalidDocumentVersion
+		}
+	}
+
+	return &DescribeDocumentOutput{Document: description}, nil
 }
 
 // ListDocuments returns a list of document identifiers filtered by key-value criteria.
@@ -1871,7 +2012,7 @@ func (b *InMemoryBackend) UpdateDocument(
 		versionStore[input.Name] = vers[len(vers)-maxDocumentVersionCap:]
 	}
 
-	return &UpdateDocumentOutput{DocumentDescription: doc}, nil
+	return &UpdateDocumentOutput{DocumentDescription: doc.toDocumentDescription()}, nil
 }
 
 // DeleteDocument removes a document and all its versions and permissions.

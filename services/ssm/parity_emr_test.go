@@ -245,6 +245,7 @@ func TestParityEMR_ParameterExpiration_JanitorEvicts(t *testing.T) {
 			Name:     "/expire/past",
 			Value:    "gone-soon",
 			Type:     "String",
+			Tier:     "Advanced",
 			Policies: policies,
 		})
 		require.NoError(t, err)
@@ -279,6 +280,7 @@ func TestParityEMR_ParameterExpiration_JanitorEvicts(t *testing.T) {
 			Name:     "/expire/future",
 			Value:    "still-here",
 			Type:     "String",
+			Tier:     "Advanced",
 			Policies: policies,
 		})
 		require.NoError(t, err)
@@ -326,6 +328,7 @@ func TestParityEMR_ParameterExpiration_JanitorEvicts(t *testing.T) {
 			Name:     "/expire/rfc3339",
 			Value:    "gone",
 			Type:     "String",
+			Tier:     "Advanced",
 			Policies: policies,
 		})
 		require.NoError(t, err)
