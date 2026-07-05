@@ -71,7 +71,7 @@ func TestPutMetricData_DatapointsBackingArrayBounded(t *testing.T) {
 
 	now := time.Now().UTC()
 	for i := range writes {
-		_, err := b.PutMetricData(namespace, []cloudwatch.MetricDatum{{
+		err := b.PutMetricData(namespace, []cloudwatch.MetricDatum{{
 			MetricName: metricName,
 			Timestamp:  now.Add(time.Duration(i) * time.Second),
 			Value:      float64(i),

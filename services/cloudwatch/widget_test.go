@@ -121,7 +121,7 @@ func TestRenderMetricWidgetPNGPlotsData(t *testing.T) {
 			Max:        float64((i%3)*10 + 5),
 		})
 	}
-	if _, err := b.PutMetricData("MyApp", data); err != nil {
+	if err := b.PutMetricData("MyApp", data); err != nil {
 		t.Fatalf("PutMetricData: %v", err)
 	}
 

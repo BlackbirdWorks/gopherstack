@@ -222,6 +222,35 @@ func TestAlarmEvaluator_StateTransitions(t *testing.T) {
 			},
 		},
 		{
+			// LessThanLowerThreshold is a distinct anomaly-detection comparison
+			// operator (aws-sdk-go-v2 cloudwatch/types.ComparisonOperator) from
+			// LessThanLowerOrGreaterThanUpperThreshold: it fires only on the
+			// lower-bound breach. Previously unhandled in breachesThreshold, so
+			// alarms configured with it never fired.
+			name:         "less_than_lower_threshold_operator_breaches_when_below_threshold",
+			operator:     "LessThanLowerThreshold",
+			statistic:    "Average",
+			period:       60,
+			evalPeriods:  1,
+			initialState: "OK",
+			wantState:    "ALARM",
+			points: []cloudwatch.MetricDatum{
+				{Timestamp: now.Add(-30 * time.Second), Value: 50.0},
+			},
+		},
+		{
+			name:         "less_than_lower_threshold_operator_ok_when_above_threshold",
+			operator:     "LessThanLowerThreshold",
+			statistic:    "Average",
+			period:       60,
+			evalPeriods:  1,
+			initialState: "ALARM",
+			wantState:    "OK",
+			points: []cloudwatch.MetricDatum{
+				{Timestamp: now.Add(-30 * time.Second), Value: 150.0},
+			},
+		},
+		{
 			name:         "alarm_transitions_back_to_ok_when_data_normalizes",
 			operator:     "GreaterThanThreshold",
 			statistic:    "Sum",
@@ -258,7 +287,7 @@ func TestAlarmEvaluator_StateTransitions(t *testing.T) {
 					}
 				}
 
-				_, err := b.PutMetricData(namespace, normalized)
+				err := b.PutMetricData(namespace, normalized)
 				require.NoError(t, err)
 			}
 
@@ -351,7 +380,7 @@ func TestAlarmEvaluator_SNSActionFiredOnStateChange(t *testing.T) {
 
 			// Put metric datum — normalize Value to StatisticSet fields.
 			v := tt.dataValue
-			_, err := b.PutMetricData(namespace, []cloudwatch.MetricDatum{
+			err := b.PutMetricData(namespace, []cloudwatch.MetricDatum{
 				{
 					MetricName: metricName,
 					Value:      v,
@@ -408,7 +437,7 @@ func TestAlarmEvaluator_BackgroundJanitor(t *testing.T) {
 
 	now := time.Now().UTC()
 
-	_, err := b.PutMetricData(namespace, []cloudwatch.MetricDatum{
+	err := b.PutMetricData(namespace, []cloudwatch.MetricDatum{
 		{
 			MetricName: metricName,
 			Value:      200.0,

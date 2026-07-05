@@ -196,7 +196,7 @@ func TestGetMetricDataPagedEndToEnd(t *testing.T) {
 			Max:        float64(i + 1),
 		})
 	}
-	if _, err := b.PutMetricData("MyApp", data); err != nil {
+	if err := b.PutMetricData("MyApp", data); err != nil {
 		t.Fatalf("PutMetricData: %v", err)
 	}
 

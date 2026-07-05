@@ -134,7 +134,7 @@ type AutoScalingPolicyExecutor interface {
 
 // StorageBackend is the interface for the CloudWatch in-memory store.
 type StorageBackend interface {
-	PutMetricData(namespace string, data []MetricDatum) ([]UnprocessedMetricDatum, error)
+	PutMetricData(namespace string, data []MetricDatum) error
 	GetMetricStatistics(
 		namespace, metricName string,
 		dimensions []Dimension,
@@ -150,7 +150,7 @@ type StorageBackend interface {
 	ListMetrics(
 		namespace, metricName string,
 		dimensions []Dimension,
-		nextToken string,
+		recentlyActive, nextToken string,
 		maxResults int,
 	) (page.Page[Metric], error)
 	PutMetricAlarm(alarm *MetricAlarm) error
@@ -408,46 +408,62 @@ func (b *InMemoryBackend) SetAutoScalingExecutor(e AutoScalingPolicyExecutor) {
 	b.asgExecutor = e
 }
 
-// storeDatum validates and stores a single MetricDatum into the namespace map.
-// Returns a non-nil *UnprocessedMetricDatum when the datum cannot be stored.
+// validatePutMetricDataBatch checks every datum in a PutMetricData request for
+// shape/range validity and confirms the batch would not push the namespace or
+// account past its distinct-time-series cap. It performs no mutation, so a
+// failing batch leaves backend state untouched — real CloudWatch has no
+// partial-success shape for PutMetricData (PutMetricDataOutput carries no
+// fields besides the request ID), so the whole request must be validated
+// before any of it is committed.
 // Caller must hold b.mu (write lock).
-func (b *InMemoryBackend) storeDatum(namespace string, d MetricDatum) *UnprocessedMetricDatum {
-	if err := validateMetricDatum(d); err != nil {
-		return &UnprocessedMetricDatum{
-			MetricName:   d.MetricName,
-			ErrorCode:    "InvalidParameterCombination",
-			ErrorMessage: err.Error(),
+func (b *InMemoryBackend) validatePutMetricDataBatch(namespace string, data []MetricDatum) error {
+	existing := len(b.metrics[namespace])
+	newKeys := make(map[string]bool)
+
+	for _, d := range data {
+		if err := validateMetricDatum(d); err != nil {
+			return err
+		}
+
+		if err := validateStorageResolution(d.StorageResolution); err != nil {
+			return err
+		}
+
+		key := metricStorageKey(d.MetricName, d.Dimensions)
+		if _, ok := b.metrics[namespace][key]; !ok {
+			newKeys[key] = true
 		}
 	}
 
-	if err := validateStorageResolution(d.StorageResolution); err != nil {
-		return &UnprocessedMetricDatum{
-			MetricName:   d.MetricName,
-			ErrorCode:    "InvalidParameterValue",
-			ErrorMessage: err.Error(),
-		}
+	if existing+len(newKeys) > cwMaxMetricNamesPerNamespace {
+		return fmt.Errorf("%w: namespace metric series limit reached", ErrMetricSeriesLimitExceeded)
+	}
+
+	if b.countTotalMetrics()+len(newKeys) > cwMaxTotalMetricRecords {
+		return fmt.Errorf("%w: global metric series limit reached", ErrMetricSeriesLimitExceeded)
+	}
+
+	return nil
+}
+
+// storeDatum stores an already-validated MetricDatum into the namespace map.
+// Caller must hold b.mu (write lock) and must have already validated the full
+// batch via validatePutMetricDataBatch.
+//
+// A Values/Counts datum carries no pre-aggregated Sum/SampleCount/Min/Max (unlike
+// a StatisticSet, whose caller supplies them directly), so this is the single
+// place that derives them from the raw array pair before the point is stored;
+// every caller of PutMetricData — the form handler, the rpc-v2-cbor handler, and
+// direct backend callers/tests — gets consistent aggregation this way.
+func (b *InMemoryBackend) storeDatum(namespace string, d MetricDatum) {
+	if d.HasValuesArray && len(d.Values) == len(d.Counts) {
+		d.Sum, d.Count, d.Min, d.Max = aggregateValuesCounts(d.Values, d.Counts)
 	}
 
 	key := metricStorageKey(d.MetricName, d.Dimensions)
 	rec, exists := b.metrics[namespace][key]
 
 	if !exists {
-		if len(b.metrics[namespace]) >= cwMaxMetricNamesPerNamespace {
-			return &UnprocessedMetricDatum{
-				MetricName:   d.MetricName,
-				ErrorCode:    "LimitExceeded",
-				ErrorMessage: "namespace metric series limit reached",
-			}
-		}
-
-		if b.countTotalMetrics() >= cwMaxTotalMetricRecords {
-			return &UnprocessedMetricDatum{
-				MetricName:   d.MetricName,
-				ErrorCode:    "LimitExceeded",
-				ErrorMessage: "global metric series limit reached",
-			}
-		}
-
 		dims := make([]Dimension, len(d.Dimensions))
 		copy(dims, d.Dimensions)
 		rec = &metricRecord{MetricName: d.MetricName, Dimensions: dims}
@@ -464,18 +480,21 @@ func (b *InMemoryBackend) storeDatum(namespace string, d MetricDatum) *Unprocess
 		copy(fresh, rec.Points[len(rec.Points)-cwMaxMetricDataPoints:])
 		rec.Points = fresh
 	}
-
-	return nil
 }
 
 // PutMetricData stores metric data points for the given namespace.
-// Returns a slice of UnprocessedMetricDatum for any entries that could not be stored.
+//
+// Real CloudWatch has no partial-failure response for this operation: the
+// request either succeeds in full or fails in full with a single API error
+// (PutMetricDataOutput has no members other than the request ID). This
+// validates the entire batch before storing any of it, matching that
+// all-or-nothing contract.
 func (b *InMemoryBackend) PutMetricData(
 	namespace string,
 	data []MetricDatum,
-) ([]UnprocessedMetricDatum, error) {
+) error {
 	if len(data) > cwMaxMetricDataPerRequest {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"%w: PutMetricData accepts at most %d MetricDatum entries per request",
 			ErrValidation,
 			cwMaxMetricDataPerRequest,
@@ -488,14 +507,15 @@ func (b *InMemoryBackend) PutMetricData(
 		b.metrics[namespace] = make(map[string]*metricRecord)
 	}
 
-	var unprocessed []UnprocessedMetricDatum
+	if err := b.validatePutMetricDataBatch(namespace, data); err != nil {
+		b.mu.Unlock()
+
+		return err
+	}
 
 	for _, d := range data {
 		d.Namespace = namespace
-
-		if u := b.storeDatum(namespace, d); u != nil {
-			unprocessed = append(unprocessed, *u)
-		}
+		b.storeDatum(namespace, d)
 	}
 
 	// Collect matching running stream names while holding the write lock; the
@@ -517,7 +537,7 @@ func (b *InMemoryBackend) PutMetricData(
 		b.mu.Unlock()
 	}
 
-	return unprocessed, nil
+	return nil
 }
 
 // filterExcludesMetric returns true when an ExcludeFilters entry denies the metric.
@@ -1154,37 +1174,106 @@ func statValue(dp Datapoint, stat string) float64 {
 	return 0
 }
 
+// cwRecentlyActiveValue is the only value CloudWatch accepts for ListMetrics'
+// RecentlyActive parameter, filtering results to metrics that have had data
+// points published in the past three hours.
+const cwRecentlyActiveValue = "PT3H"
+
+// cwRecentlyActiveWindow is the lookback window RecentlyActive=PT3H applies.
+const cwRecentlyActiveWindow = 3 * time.Hour
+
+// recordHasRecentPoint reports whether rec has at least one datapoint with a
+// timestamp within the last cwRecentlyActiveWindow of now. Caller must hold
+// b.mu (read or write lock).
+func recordHasRecentPoint(rec *metricRecord, now time.Time) bool {
+	cutoff := now.Add(-cwRecentlyActiveWindow)
+	for _, pt := range rec.Points {
+		if !pt.Timestamp.Before(cutoff) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// listMetricsFilter bundles the ListMetrics query filters so the namespace/record
+// matching loop can be factored out of ListMetrics itself.
+type listMetricsFilter struct {
+	now                   time.Time
+	namespace, metricName string
+	recentlyActive        string
+	dimensions            []Dimension
+}
+
+// matches reports whether rec (in namespace ns) satisfies the filter.
+func (f listMetricsFilter) matches(rec *metricRecord) bool {
+	if f.metricName != "" && rec.MetricName != f.metricName {
+		return false
+	}
+	if !dimsMatchListFilter(rec.Dimensions, f.dimensions) {
+		return false
+	}
+	if f.recentlyActive != "" && !recordHasRecentPoint(rec, f.now) {
+		return false
+	}
+
+	return true
+}
+
+// matchingMetricsInNamespace returns the Metric entries in nsMap that satisfy
+// the filter, or nil immediately when ns itself is excluded by the namespace filter.
+func (f listMetricsFilter) matchingMetricsInNamespace(
+	ns string,
+	nsMap map[string]*metricRecord,
+) []Metric {
+	if f.namespace != "" && ns != f.namespace {
+		return nil
+	}
+
+	var result []Metric
+
+	for _, rec := range nsMap {
+		if !f.matches(rec) {
+			continue
+		}
+
+		dims := make([]Dimension, len(rec.Dimensions))
+		copy(dims, rec.Dimensions)
+		result = append(result, Metric{Namespace: ns, MetricName: rec.MetricName, Dimensions: dims})
+	}
+
+	return result
+}
+
 // ListMetrics returns a page of unique metrics matching optional namespace, metricName, and
 // dimension filters. dimensions specifies an exact set that must match (all filter dims present
-// with matching values and no extra dims in the stored record).
+// with matching values and no extra dims in the stored record). recentlyActive, when set, must be
+// "PT3H" (the only value CloudWatch documents) and restricts results to metrics that received a
+// data point in the last 3 hours.
 func (b *InMemoryBackend) ListMetrics(
 	namespace, metricName string,
 	dimensions []Dimension,
-	nextToken string,
+	recentlyActive, nextToken string,
 	maxResults int,
 ) (page.Page[Metric], error) {
+	if recentlyActive != "" && recentlyActive != cwRecentlyActiveValue {
+		return page.Page[Metric]{}, fmt.Errorf(
+			"%w: RecentlyActive must be %q, got %q", ErrValidation, cwRecentlyActiveValue, recentlyActive,
+		)
+	}
+
 	b.mu.RLock("ListMetrics")
 	defer b.mu.RUnlock()
 
+	filter := listMetricsFilter{
+		namespace: namespace, metricName: metricName,
+		dimensions: dimensions, recentlyActive: recentlyActive,
+		now: time.Now().UTC(),
+	}
+
 	var result []Metric
 	for ns, nsMap := range b.metrics {
-		if namespace != "" && ns != namespace {
-			continue
-		}
-		for _, rec := range nsMap {
-			if metricName != "" && rec.MetricName != metricName {
-				continue
-			}
-			if !dimsMatchListFilter(rec.Dimensions, dimensions) {
-				continue
-			}
-			dims := make([]Dimension, len(rec.Dimensions))
-			copy(dims, rec.Dimensions)
-			result = append(
-				result,
-				Metric{Namespace: ns, MetricName: rec.MetricName, Dimensions: dims},
-			)
-		}
+		result = append(result, filter.matchingMetricsInNamespace(ns, nsMap)...)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -1703,7 +1792,7 @@ func (b *InMemoryBackend) SetAlarmState(
 			stateValue,
 			stateReason,
 		)
-		b.executeActions(ctx, actions, alarmName, payload, deps)
+		b.executeActions(ctx, actions, alarmName, histAlarmType, payload, deps)
 	}
 
 	b.fireCompositeTransitions(ctx, compositeTransitions, deps)
@@ -1725,7 +1814,7 @@ func (b *InMemoryBackend) fireCompositeTransitions(
 			tr.alarmName, tr.alarmDesc, tr.alarmArn,
 			tr.oldState, tr.newState, tr.reason,
 		)
-		b.executeActions(ctx, tr.actions, tr.alarmName, payload, compositeDeps)
+		b.executeActions(ctx, tr.actions, tr.alarmName, "CompositeAlarm", payload, compositeDeps)
 	}
 }
 
@@ -1846,11 +1935,14 @@ func (b *InMemoryBackend) buildAlarmActionPayload(
 // executeActions delivers the alarm action notifications to SNS topics, Lambda
 // functions, EC2 instances (arn:aws:automate), and Auto Scaling scaling policies.
 // Delivery errors are logged as warnings but do not prevent other actions from
-// running. Each fired action is recorded as an Action history entry on the alarm.
+// running. Each fired action is recorded as an Action history entry on the alarm,
+// tagged with alarmTypeName ("MetricAlarm" or "CompositeAlarm") so
+// DescribeAlarmHistory's AlarmType filter matches composite-alarm action entries
+// too (previously hardcoded to "MetricAlarm" even when firing for a composite alarm).
 func (b *InMemoryBackend) executeActions(
 	ctx context.Context,
 	actions []string,
-	alarmName string,
+	alarmName, alarmTypeName string,
 	payload []byte,
 	deps alarmActionDeps,
 ) {
@@ -1891,7 +1983,7 @@ func (b *InMemoryBackend) executeActions(
 		if alarmName != "" {
 			summary := fmt.Sprintf("Alarm %q action executed: %s → %s", alarmName, action, actionResult)
 			b.mu.Lock("executeActions-history")
-			b.appendHistory(alarmName, "MetricAlarm", historyTypeAction, summary, "")
+			b.appendHistory(alarmName, alarmTypeName, historyTypeAction, summary, "")
 			b.mu.Unlock()
 		}
 	}
@@ -3291,6 +3383,7 @@ func extractDatapointValue(dp Datapoint, statistic, extendedStatistic string) *f
 // breachesThreshold reports whether value breaches the threshold for the given operator.
 // lowerBound and upperBound are used for anomaly-detection operators:
 //   - GreaterThanUpperThreshold: fires when value > upperBound
+//   - LessThanLowerThreshold: fires when value < lowerBound
 //   - LessThanLowerOrGreaterThanUpperThreshold: fires when value < lowerBound OR value > upperBound
 //
 // For non-anomaly alarms, pass threshold for both lowerBound and upperBound.
@@ -3306,6 +3399,8 @@ func breachesThreshold(value, lowerBound, upperBound float64, op string) bool {
 		return value <= lowerBound
 	case "GreaterThanUpperThreshold":
 		return value > upperBound
+	case "LessThanLowerThreshold":
+		return value < lowerBound
 	case "LessThanLowerOrGreaterThanUpperThreshold":
 		return value < lowerBound || value > upperBound
 	default:
