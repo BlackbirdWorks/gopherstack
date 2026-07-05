@@ -50,21 +50,152 @@ type BatchArrayProperties struct {
 
 // Target represents an EventBridge rule target.
 type Target struct {
-	InputTransformer *InputTransformer `json:"InputTransformer,omitempty"`
-	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
-	RetryPolicy      *RetryPolicy      `json:"RetryPolicy,omitempty"`
-	BatchParameters  *BatchParameters  `json:"BatchParameters,omitempty"`
-	ID               string            `json:"Id"`
-	Arn              string            `json:"Arn"`
-	RoleArn          string            `json:"RoleArn,omitempty"`
-	Input            string            `json:"Input,omitempty"`
-	InputPath        string            `json:"InputPath,omitempty"`
+	InputTransformer            *InputTransformer            `json:"InputTransformer,omitempty"`
+	DeadLetterConfig            *DeadLetterConfig            `json:"DeadLetterConfig,omitempty"`
+	RetryPolicy                 *RetryPolicy                 `json:"RetryPolicy,omitempty"`
+	BatchParameters             *BatchParameters             `json:"BatchParameters,omitempty"`
+	AppSyncParameters           *AppSyncParameters           `json:"AppSyncParameters,omitempty"`
+	EcsParameters               *EcsParameters               `json:"EcsParameters,omitempty"`
+	HTTPParameters              *HTTPParameters              `json:"HttpParameters,omitempty"`
+	KinesisParameters           *KinesisParameters           `json:"KinesisParameters,omitempty"`
+	RedshiftDataParameters      *RedshiftDataParameters      `json:"RedshiftDataParameters,omitempty"`
+	RunCommandParameters        *RunCommandParameters        `json:"RunCommandParameters,omitempty"`
+	SageMakerPipelineParameters *SageMakerPipelineParameters `json:"SageMakerPipelineParameters,omitempty"`
+	SqsParameters               *SqsParameters               `json:"SqsParameters,omitempty"`
+	ID                          string                       `json:"Id"`
+	Arn                         string                       `json:"Arn"`
+	RoleArn                     string                       `json:"RoleArn,omitempty"`
+	Input                       string                       `json:"Input,omitempty"`
+	InputPath                   string                       `json:"InputPath,omitempty"`
 }
 
 // InputTransformer holds input transformer configuration for a target.
 type InputTransformer struct {
 	InputPathsMap map[string]string `json:"InputPathsMap,omitempty"`
 	InputTemplate string            `json:"InputTemplate"`
+}
+
+// AppSyncParameters holds the GraphQL operation to invoke when the target is
+// an AppSync API.
+type AppSyncParameters struct {
+	GraphQLOperation string `json:"GraphQLOperation,omitempty"`
+}
+
+// EcsParameters holds the parameters used to run an Amazon ECS task when the
+// event target is an ECS cluster.
+type EcsParameters struct {
+	NetworkConfiguration     *NetworkConfiguration          `json:"NetworkConfiguration,omitempty"`
+	PropagateTags            string                         `json:"PropagateTags,omitempty"`
+	TaskDefinitionArn        string                         `json:"TaskDefinitionArn"`
+	Group                    string                         `json:"Group,omitempty"`
+	LaunchType               string                         `json:"LaunchType,omitempty"`
+	PlatformVersion          string                         `json:"PlatformVersion,omitempty"`
+	ReferenceID              string                         `json:"ReferenceId,omitempty"`
+	PlacementConstraints     []PlacementConstraint          `json:"PlacementConstraints,omitempty"`
+	PlacementStrategy        []PlacementStrategy            `json:"PlacementStrategy,omitempty"`
+	Tags                     []EcsTag                       `json:"Tags,omitempty"`
+	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"CapacityProviderStrategy,omitempty"`
+	EnableECSManagedTags     bool                           `json:"EnableECSManagedTags,omitempty"`
+	EnableExecuteCommand     bool                           `json:"EnableExecuteCommand,omitempty"`
+}
+
+// NetworkConfiguration specifies the awsvpc network configuration for an ECS
+// target task.
+type NetworkConfiguration struct {
+	AwsvpcConfiguration *AwsVpcConfiguration `json:"AwsvpcConfiguration,omitempty"`
+}
+
+// AwsVpcConfiguration specifies the subnets, security groups, and public-IP
+// assignment for an ECS target task using the awsvpc network mode.
+type AwsVpcConfiguration struct {
+	AssignPublicIP string   `json:"AssignPublicIp,omitempty"`
+	Subnets        []string `json:"Subnets"`
+	SecurityGroups []string `json:"SecurityGroups,omitempty"`
+}
+
+// CapacityProviderStrategyItem is a single entry in an ECS target's capacity
+// provider strategy.
+type CapacityProviderStrategyItem struct {
+	CapacityProvider string `json:"CapacityProvider"`
+	Base             int32  `json:"Base,omitempty"`
+	Weight           int32  `json:"Weight,omitempty"`
+}
+
+// PlacementConstraint is a single ECS task placement constraint.
+type PlacementConstraint struct {
+	Expression string `json:"Expression,omitempty"`
+	Type       string `json:"Type,omitempty"`
+}
+
+// PlacementStrategy is a single ECS task placement strategy rule.
+type PlacementStrategy struct {
+	Field string `json:"Field,omitempty"`
+	Type  string `json:"Type,omitempty"`
+}
+
+// EcsTag is a key/value tag applied to an ECS target task (distinct from the
+// EventBridge resource-tag maps used by tags.go, which model bus/rule/etc.
+// tagging, not the per-task tags forwarded to ECS RunTask).
+type EcsTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value,omitempty"`
+}
+
+// HTTPParameters holds the headers, path parameters, and query-string values
+// to add when the target is an API Gateway API or EventBridge ApiDestination.
+type HTTPParameters struct {
+	HeaderParameters      map[string]string `json:"HeaderParameters,omitempty"`
+	QueryStringParameters map[string]string `json:"QueryStringParameters,omitempty"`
+	PathParameterValues   []string          `json:"PathParameterValues,omitempty"`
+}
+
+// KinesisParameters specifies the partition-key JSON path for a Kinesis Data
+// Stream target.
+type KinesisParameters struct {
+	PartitionKeyPath string `json:"PartitionKeyPath"`
+}
+
+// RedshiftDataParameters holds the Redshift Data API ExecuteStatement
+// parameters for an Amazon Redshift cluster target.
+type RedshiftDataParameters struct {
+	Database         string   `json:"Database"`
+	DBUser           string   `json:"DbUser,omitempty"`
+	SecretManagerArn string   `json:"SecretManagerArn,omitempty"`
+	SQL              string   `json:"Sql,omitempty"`
+	StatementName    string   `json:"StatementName,omitempty"`
+	Sqls             []string `json:"Sqls,omitempty"`
+	WithEvent        bool     `json:"WithEvent,omitempty"`
+}
+
+// RunCommandParameters holds the EC2 Run Command targets for a target rule.
+type RunCommandParameters struct {
+	RunCommandTargets []RunCommandTarget `json:"RunCommandTargets"`
+}
+
+// RunCommandTarget selects EC2 instances by tag or instance ID for Run
+// Command.
+type RunCommandTarget struct {
+	Key    string   `json:"Key"`
+	Values []string `json:"Values"`
+}
+
+// SageMakerPipelineParameters holds the pipeline parameter overrides used to
+// start a SageMaker AI Model Building Pipeline execution.
+type SageMakerPipelineParameters struct {
+	PipelineParameterList []SageMakerPipelineParameter `json:"PipelineParameterList,omitempty"`
+}
+
+// SageMakerPipelineParameter is a single name/value pipeline parameter
+// override.
+type SageMakerPipelineParameter struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
+// SqsParameters holds the FIFO message-group ID to use when the target is an
+// SQS FIFO queue.
+type SqsParameters struct {
+	MessageGroupID string `json:"MessageGroupId,omitempty"`
 }
 
 // EventEntry represents a single event to publish.

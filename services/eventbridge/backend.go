@@ -86,6 +86,11 @@ const (
 	maxEventBusesPerAccount = 200
 	// maxRulesPerBus is the AWS limit for rules per event bus.
 	maxRulesPerBus = 300
+
+	// putTargetsFailedEntryErrorCode is the FailedEntry.ErrorCode PutTargets
+	// uses for every per-target validation failure (bad Id, InputTransformer,
+	// target-type-specific parameters, RetryPolicy bounds).
+	putTargetsFailedEntryErrorCode = "InvalidParameter"
 )
 
 type ruleIndexKey struct {
@@ -112,7 +117,7 @@ type StorageBackend interface {
 		ruleName, eventBusName, nextToken string,
 		limit int,
 	) ([]Target, string, error)
-	PutEvents(ctx context.Context, entries []EventEntry) []EventResultEntry
+	PutEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
 	GetEventLog(ctx context.Context) []EventLogEntry
 	ActivateEventSource(ctx context.Context, name string) error
 	DeactivateEventSource(ctx context.Context, name string) error
@@ -144,7 +149,7 @@ type StorageBackend interface {
 	DescribePartnerEventSource(ctx context.Context, name string) (*PartnerEventSource, error)
 	DeletePartnerEventSource(ctx context.Context, name string) error
 	ListPartnerEventSources(ctx context.Context, namePrefix, nextToken string) ([]PartnerEventSource, string, error)
-	PutPartnerEvents(ctx context.Context, entries []EventEntry) []EventResultEntry
+	PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
 	DescribeReplay(ctx context.Context, name string) (*Replay, error)
 	ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error)
 	StartReplay(ctx context.Context, input StartReplayInput) (*Replay, error)
@@ -1119,7 +1124,7 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 		if t.ID == "" {
 			failed = append(failed, FailedEntry{
 				TargetID:     t.ID,
-				ErrorCode:    "InvalidParameter",
+				ErrorCode:    putTargetsFailedEntryErrorCode,
 				ErrorMessage: "Target Id is required",
 			})
 
@@ -1129,12 +1134,21 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 			if err := validateInputTransformer(t.InputTransformer); err != nil {
 				failed = append(failed, FailedEntry{
 					TargetID:     t.ID,
-					ErrorCode:    "InvalidParameter",
+					ErrorCode:    putTargetsFailedEntryErrorCode,
 					ErrorMessage: err.Error(),
 				})
 
 				continue
 			}
+		}
+		if err := validateTargetTypeParameters(&t); err != nil {
+			failed = append(failed, FailedEntry{
+				TargetID:     t.ID,
+				ErrorCode:    putTargetsFailedEntryErrorCode,
+				ErrorMessage: err.Error(),
+			})
+
+			continue
 		}
 		// Maintain ARN index: remove old entry if this target ID already exists with a different ARN.
 		if existingTarget, targetExists := targetsStore[key][t.ID]; targetExists && existingTarget.Arn != t.Arn {
@@ -1213,6 +1227,51 @@ func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 	return page, outToken, nil
 }
 
+// maxPutEventsEntries is AWS's per-request cap on PutEvents/PutPartnerEvents
+// entries (Entries: Array Members Minimum 1, Maximum 10).
+const maxPutEventsEntries = 10
+
+// anyPutEventsEntryComplete reports whether at least one entry in the batch
+// carries all three of Source, DetailType, and Detail. AWS requires these on
+// every entry to deliver it; an entry missing one fails individually, but if
+// NONE of the entries have all three, AWS fails the entire request instead
+// of returning an all-failed per-entry result (see PutEventsRequestEntry.Detail
+// doc in aws-sdk-go-v2/service/eventbridge/types).
+func anyPutEventsEntryComplete(entries []EventEntry) bool {
+	for _, e := range entries {
+		if e.Source != "" && e.DetailType != "" && e.Detail != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// putEventsInvalidArgumentErrorCode is the EventResultEntry.ErrorCode AWS
+// uses for a PutEvents entry missing a required field (Source, DetailType,
+// or Detail).
+const putEventsInvalidArgumentErrorCode = "InvalidArgument"
+
+// validatePutEventsEntry checks the three fields AWS requires on every
+// PutEvents entry (Source, DetailType, Detail). It returns
+// (errorCode, errorMessage, ok=false) with the AWS "InvalidArgument" error
+// code/message for the first missing field, or ("", "", true) when valid.
+func validatePutEventsEntry(e EventEntry) (string, string, bool) {
+	switch {
+	case e.Source == "":
+		return putEventsInvalidArgumentErrorCode,
+			"Parameter Source is not valid. Reason: Source is a required argument.", false
+	case e.DetailType == "":
+		return putEventsInvalidArgumentErrorCode,
+			"Parameter DetailType is not valid. Reason: DetailType is a required argument.", false
+	case e.Detail == "":
+		return putEventsInvalidArgumentErrorCode,
+			"Parameter Detail is not valid. Reason: Detail is a required argument.", false
+	default:
+		return "", "", true
+	}
+}
+
 // PutEvents records events in the event log and returns result entries.
 //
 // AWS EventBridge constrains PutEvents requests to 256 KiB of total entry
@@ -1220,7 +1279,31 @@ func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 // entry). Entries that, combined with what's been accepted so far, would
 // exceed the cap are rejected individually with the AWS error code
 // `EventSizeLimitExceeded`. The remaining entries continue to be accepted.
-func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) []EventResultEntry {
+//
+// AWS also requires between 1 and 10 entries per request (a whole-request
+// ValidationException-equivalent otherwise) and requires Source, DetailType,
+// and Detail on every entry (a per-entry InvalidArgument failure, or a
+// whole-request failure if no entry in the batch has all three).
+func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error) {
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("%w: at least 1 entry is required", ErrInvalidParameter)
+	}
+
+	if len(entries) > maxPutEventsEntries {
+		return nil, fmt.Errorf(
+			"%w: entries must not have more than %d items",
+			ErrInvalidParameter,
+			maxPutEventsEntries,
+		)
+	}
+
+	if !anyPutEventsEntryComplete(entries) {
+		return nil, fmt.Errorf(
+			"%w: at least one entry must include Source, DetailType, and Detail",
+			ErrInvalidParameter,
+		)
+	}
+
 	const maxBatchBytes = 256 * 1024
 
 	region := getRegionFromContext(ctx, b.region)
@@ -1231,6 +1314,12 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 	accepted := make([]EventEntry, 0, len(entries))
 	totalBytes := 0
 	for _, entry := range entries {
+		if errCode, msg, ok := validatePutEventsEntry(entry); !ok {
+			results = append(results, EventResultEntry{ErrorCode: errCode, ErrorMessage: msg})
+
+			continue
+		}
+
 		entryBytes := putEventsEntryBytes(entry)
 		if totalBytes+entryBytes > maxBatchBytes {
 			results = append(results, EventResultEntry{
@@ -1295,7 +1384,7 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 		})
 	}
 
-	return results
+	return results, nil
 }
 
 // GetEventLog returns a copy of the current event log.
@@ -2254,7 +2343,7 @@ func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context,
 }
 
 // PutPartnerEvents records partner events (same as PutEvents but intended for partner sources).
-func (b *InMemoryBackend) PutPartnerEvents(ctx context.Context, entries []EventEntry) []EventResultEntry {
+func (b *InMemoryBackend) PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error) {
 	return b.PutEvents(ctx, entries)
 }
 

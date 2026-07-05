@@ -685,7 +685,10 @@ func (h *Handler) eventsActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			entries := h.Backend.PutEvents(ctx, input.Entries)
+			entries, err := h.Backend.PutEvents(ctx, input.Entries)
+			if err != nil {
+				return nil, err
+			}
 
 			return &putEventsOutput{
 				FailedEntryCount: countFailedEntries(entries),
@@ -1446,7 +1449,10 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			entries := h.Backend.PutPartnerEvents(ctx, input.Entries)
+			entries, err := h.Backend.PutPartnerEvents(ctx, input.Entries)
+			if err != nil {
+				return nil, err
+			}
 
 			return &putEventsOutput{
 				FailedEntryCount: countFailedEntries(entries),

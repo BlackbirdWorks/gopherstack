@@ -753,7 +753,7 @@ func TestHandler_Shutdown_ImplementsShutdowner(t *testing.T) {
 			// After Shutdown, Close has been called and the backend's context is
 			// cancelled — any subsequent PutEvents must not panic or deadlock.
 			assert.NotPanics(t, func() {
-				_ = backend.PutEvents(context.Background(), []eventbridge.EventEntry{
+				_, _ = backend.PutEvents(context.Background(), []eventbridge.EventEntry{
 					{Source: "after-shutdown", DetailType: "test", Detail: `{}`},
 				})
 			})

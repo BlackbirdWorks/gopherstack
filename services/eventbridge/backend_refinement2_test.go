@@ -301,6 +301,232 @@ func TestRefinement2_PutTargets_EnforcesLimit(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// PutTargets target-type-specific parameters (EcsParameters, KinesisParameters,
+// SqsParameters, HttpParameters, RedshiftDataParameters, RunCommandParameters,
+// SageMakerPipelineParameters, AppSyncParameters)
+// ---------------------------------------------------------------------------
+
+// TestRefinement2_PutTargets_TypeSpecificParametersRoundTrip proves that all
+// of the target-type-specific parameter structs defined on aws-sdk-go-v2's
+// eventbridge.types.Target (EcsParameters, HttpParameters, KinesisParameters,
+// RedshiftDataParameters, RunCommandParameters, SageMakerPipelineParameters,
+// SqsParameters, AppSyncParameters) round-trip through PutTargets and
+// ListTargetsByRule. Before this fix, the gopherstack Target struct only
+// modeled Input/InputPath/InputTransformer/DeadLetterConfig/RetryPolicy/
+// BatchParameters: any of these other target-type parameters set by a
+// client were silently dropped by json.Unmarshal (unknown fields are
+// ignored), so a client configuring, say, an ECS target's
+// NetworkConfiguration or task Tags would see them vanish on the very next
+// DescribeRule/ListTargetsByRule call.
+func TestRefinement2_PutTargets_TypeSpecificParametersRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	newRule := func(t *testing.T, b *eventbridge.InMemoryBackend, name string) {
+		t.Helper()
+		_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:         name,
+			EventPattern: `{"source":["x"]}`,
+		})
+		require.NoError(t, err)
+	}
+
+	target := eventbridge.Target{
+		ID:  "t1",
+		Arn: "arn:aws:ecs:us-east-1:123456789012:cluster/my-cluster",
+		AppSyncParameters: &eventbridge.AppSyncParameters{
+			GraphQLOperation: "mutation Publish { publish { id } }",
+		},
+		EcsParameters: &eventbridge.EcsParameters{
+			TaskDefinitionArn: "arn:aws:ecs:us-east-1:123456789012:task-definition/my-task:1",
+			LaunchType:        "FARGATE",
+			NetworkConfiguration: &eventbridge.NetworkConfiguration{
+				AwsvpcConfiguration: &eventbridge.AwsVpcConfiguration{
+					Subnets:        []string{"subnet-1", "subnet-2"},
+					SecurityGroups: []string{"sg-1"},
+					AssignPublicIP: "ENABLED",
+				},
+			},
+			CapacityProviderStrategy: []eventbridge.CapacityProviderStrategyItem{
+				{CapacityProvider: "FARGATE_SPOT", Weight: 1},
+			},
+			PlacementConstraints: []eventbridge.PlacementConstraint{
+				{Type: "distinctInstance"},
+			},
+			PlacementStrategy: []eventbridge.PlacementStrategy{
+				{Field: "cpu", Type: "binpack"},
+			},
+			Tags: []eventbridge.EcsTag{{Key: "team", Value: "platform"}},
+		},
+		HTTPParameters: &eventbridge.HTTPParameters{
+			HeaderParameters:      map[string]string{"X-Custom": "1"},
+			PathParameterValues:   []string{"seg1"},
+			QueryStringParameters: map[string]string{"q": "1"},
+		},
+		KinesisParameters: &eventbridge.KinesisParameters{
+			PartitionKeyPath: "$.detail.id",
+		},
+		RedshiftDataParameters: &eventbridge.RedshiftDataParameters{
+			Database: "mydb",
+			DBUser:   "admin",
+			SQL:      "select 1",
+		},
+		RunCommandParameters: &eventbridge.RunCommandParameters{
+			RunCommandTargets: []eventbridge.RunCommandTarget{
+				{Key: "tag:Name", Values: []string{"my-instance"}},
+			},
+		},
+		SageMakerPipelineParameters: &eventbridge.SageMakerPipelineParameters{
+			PipelineParameterList: []eventbridge.SageMakerPipelineParameter{
+				{Name: "env", Value: "prod"},
+			},
+		},
+		SqsParameters: &eventbridge.SqsParameters{MessageGroupID: "group-1"},
+	}
+
+	b := newBackend()
+	newRule(t, b, "r")
+
+	failed, err := b.PutTargets(context.Background(), "r", "", []eventbridge.Target{target})
+	require.NoError(t, err)
+	assert.Empty(t, failed)
+
+	got, _, err := b.ListTargetsByRule(context.Background(), "r", "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	assert.Equal(t, target.AppSyncParameters, got[0].AppSyncParameters)
+	assert.Equal(t, target.EcsParameters, got[0].EcsParameters)
+	assert.Equal(t, target.HTTPParameters, got[0].HTTPParameters)
+	assert.Equal(t, target.KinesisParameters, got[0].KinesisParameters)
+	assert.Equal(t, target.RedshiftDataParameters, got[0].RedshiftDataParameters)
+	assert.Equal(t, target.RunCommandParameters, got[0].RunCommandParameters)
+	assert.Equal(t, target.SageMakerPipelineParameters, got[0].SageMakerPipelineParameters)
+	assert.Equal(t, target.SqsParameters, got[0].SqsParameters)
+}
+
+// TestRefinement2_PutTargets_TypeSpecificParametersValidation proves PutTargets
+// rejects target-type-specific parameter structs missing their AWS-required
+// member, mirroring the client-side constraint validation aws-sdk-go-v2
+// performs (validateEcsParameters, validateKinesisParameters,
+// validateRedshiftDataParameters, validateRunCommandParameters/Target).
+func TestRefinement2_PutTargets_TypeSpecificParametersValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target eventbridge.Target
+	}{
+		{
+			name: "EcsParameters missing TaskDefinitionArn",
+			target: eventbridge.Target{
+				ID: "t1", Arn: "arn:aws:ecs:us-east-1:123456789012:cluster/c",
+				EcsParameters: &eventbridge.EcsParameters{},
+			},
+		},
+		{
+			name: "KinesisParameters missing PartitionKeyPath",
+			target: eventbridge.Target{
+				ID: "t1", Arn: "arn:aws:kinesis:us-east-1:123456789012:stream/s",
+				KinesisParameters: &eventbridge.KinesisParameters{},
+			},
+		},
+		{
+			name: "RedshiftDataParameters missing Database",
+			target: eventbridge.Target{
+				ID: "t1", Arn: "arn:aws:redshift:us-east-1:123456789012:cluster:c",
+				RedshiftDataParameters: &eventbridge.RedshiftDataParameters{},
+			},
+		},
+		{
+			name: "RunCommandParameters missing RunCommandTargets",
+			target: eventbridge.Target{
+				ID: "t1", Arn: "arn:aws:ec2:us-east-1:123456789012:instance/i",
+				RunCommandParameters: &eventbridge.RunCommandParameters{},
+			},
+		},
+		{
+			name: "RunCommandParameters target missing Values",
+			target: eventbridge.Target{
+				ID: "t1", Arn: "arn:aws:ec2:us-east-1:123456789012:instance/i",
+				RunCommandParameters: &eventbridge.RunCommandParameters{
+					RunCommandTargets: []eventbridge.RunCommandTarget{{Key: "tag:Name"}},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend()
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+				Name: "r", EventPattern: `{"source":["x"]}`,
+			})
+			require.NoError(t, err)
+
+			failed, err := b.PutTargets(context.Background(), "r", "", []eventbridge.Target{tt.target})
+			require.NoError(t, err, "PutTargets itself must not error; failures are per-entry")
+			require.Len(t, failed, 1)
+			assert.Equal(t, "InvalidParameter", failed[0].ErrorCode)
+			assert.NotEmpty(t, failed[0].ErrorMessage)
+
+			got, _, err := b.ListTargetsByRule(context.Background(), "r", "", "", 0)
+			require.NoError(t, err)
+			assert.Empty(t, got, "the invalid target must not have been stored")
+		})
+	}
+}
+
+// TestRefinement2_PutTargets_RetryPolicyBounds proves PutTargets enforces
+// AWS's documented RetryPolicy bounds (MaximumRetryAttempts 0-185,
+// MaximumEventAgeInSeconds 60-86400 when set), which the client SDK does not
+// validate locally (no smithy range trait on these fields), so the backend
+// must enforce them itself to reject out-of-range values the way the real
+// service does.
+func TestRefinement2_PutTargets_RetryPolicyBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		policy  eventbridge.RetryPolicy
+		wantErr bool
+	}{
+		{"zero attempts and unset age ok", eventbridge.RetryPolicy{MaximumRetryAttempts: 0}, false},
+		{"max attempts ok", eventbridge.RetryPolicy{MaximumRetryAttempts: 185}, false},
+		{"attempts over max rejected", eventbridge.RetryPolicy{MaximumRetryAttempts: 186}, true},
+		{"negative attempts rejected", eventbridge.RetryPolicy{MaximumRetryAttempts: -1}, true},
+		{"min age ok", eventbridge.RetryPolicy{MaximumEventAgeInSeconds: 60}, false},
+		{"max age ok", eventbridge.RetryPolicy{MaximumEventAgeInSeconds: 86400}, false},
+		{"age under min rejected", eventbridge.RetryPolicy{MaximumEventAgeInSeconds: 59}, true},
+		{"age over max rejected", eventbridge.RetryPolicy{MaximumEventAgeInSeconds: 86401}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend()
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+				Name: "r", EventPattern: `{"source":["x"]}`,
+			})
+			require.NoError(t, err)
+
+			policy := tt.policy
+			failed, err := b.PutTargets(context.Background(), "r", "", []eventbridge.Target{
+				{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:q", RetryPolicy: &policy},
+			})
+			require.NoError(t, err)
+			if tt.wantErr {
+				require.Len(t, failed, 1)
+				assert.Equal(t, "InvalidParameter", failed[0].ErrorCode)
+
+				return
+			}
+			assert.Empty(t, failed)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // StartReplay time ordering validation
 // ---------------------------------------------------------------------------
 
@@ -729,9 +955,10 @@ func TestRefinement2_PartnerEventSourceCRUD(t *testing.T) {
 func TestRefinement2_PutPartnerEvents(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	results := b.PutPartnerEvents(context.Background(), []eventbridge.EventEntry{
+	results, err := b.PutPartnerEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "aws.partner.test", DetailType: "Ping", Detail: "{}"},
 	})
+	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Empty(t, results[0].ErrorCode)
 }

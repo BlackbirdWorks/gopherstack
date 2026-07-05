@@ -32,13 +32,14 @@ func TestEventLog_CappedAtMax(t *testing.T) {
 			b := eventbridge.NewInMemoryBackend()
 
 			for i := range tc.putEvents {
-				results := b.PutEvents(ctx, []eventbridge.EventEntry{
+				results, err := b.PutEvents(ctx, []eventbridge.EventEntry{
 					{
 						Source:     "test.source",
 						DetailType: "TestEvent",
 						Detail:     `{"seq":` + string(rune('0'+i%10)) + `}`,
 					},
 				})
+				require.NoError(t, err)
 				require.Empty(t, results[0].ErrorCode, "PutEvents must not error")
 			}
 

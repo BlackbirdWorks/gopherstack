@@ -269,7 +269,8 @@ func TestPutEvents(t *testing.T) {
 		{Source: "my.app", DetailType: "UserDeleted", Detail: `{"userId":"456"}`},
 	}
 
-	results := b.PutEvents(context.Background(), entries)
+	results, err := b.PutEvents(context.Background(), entries)
+	require.NoError(t, err)
 	assert.Len(t, results, 2)
 	for _, r := range results {
 		assert.NotEmpty(t, r.EventID)
@@ -284,12 +285,22 @@ func TestEventLogMaxSize(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	// Put 1100 events; log should cap at 1000.
-	batch := make([]eventbridge.EventEntry, 1100)
-	for i := range batch {
-		batch[i] = eventbridge.EventEntry{Source: "s", DetailType: "t", Detail: "{}"}
+	// Put 1100 events (in batches of 10, AWS's per-request PutEvents cap);
+	// log should cap at 1000.
+	const totalEvents = 1100
+
+	const maxBatch = 10
+
+	entry := eventbridge.EventEntry{Source: "s", DetailType: "t", Detail: "{}"}
+	for sent := 0; sent < totalEvents; sent += maxBatch {
+		n := min(maxBatch, totalEvents-sent)
+		batch := make([]eventbridge.EventEntry, n)
+		for i := range batch {
+			batch[i] = entry
+		}
+		_, err := b.PutEvents(context.Background(), batch)
+		require.NoError(t, err)
 	}
-	b.PutEvents(context.Background(), batch)
 
 	log := b.GetEventLog(context.Background())
 	assert.Len(t, log, 1000)
