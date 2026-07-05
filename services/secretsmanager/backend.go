@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"regexp"
 	"slices"
@@ -27,6 +28,14 @@ import (
 
 const (
 	errResourceNotFoundException = "ResourceNotFoundException"
+
+	// Operation name constants: shared between the handler's dispatch/support tables
+	// and the backend's lockmetrics labels so the literal appears once per operation
+	// (avoids goconst duplication across handler.go and backend.go).
+	opDescribeSecret         = "DescribeSecret"
+	opGetResourcePolicy      = "GetResourcePolicy"
+	opListSecrets            = "ListSecrets"
+	opValidateResourcePolicy = "ValidateResourcePolicy"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -200,6 +209,25 @@ func (b *InMemoryBackend) replicationConfigsStore(region string) map[string][]Re
 	return b.replicationConfigs[region]
 }
 
+// The *StoreRO helpers return the per-region inner map WITHOUT lazily creating it,
+// so they are safe to call while only holding a read lock (b.mu.RLock). A plain Go
+// map read/range/lookup on a nil map is well-defined (returns the zero value / no
+// iterations), so callers get correct "no entries for this region" behaviour without
+// mutating the outer map. Never use these under RLock if the result will be written
+// through by the caller — that still requires the write-locked *Store variant above.
+
+func (b *InMemoryBackend) secretsStoreRO(region string) map[string]*Secret {
+	return b.secrets[region]
+}
+
+func (b *InMemoryBackend) resourcePoliciesStoreRO(region string) map[string]string {
+	return b.resourcePolicies[region]
+}
+
+func (b *InMemoryBackend) replicationConfigsStoreRO(region string) map[string][]ReplicationStatusType {
+	return b.replicationConfigs[region]
+}
+
 // resolveSecretID resolves a name or ARN to the internal key (name).
 func resolveSecretID(secretID string) string {
 	if strings.HasPrefix(secretID, "arn:aws:secretsmanager:") {
@@ -327,14 +355,7 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 
 	secrets := b.secretsStore(region)
 	if existing, exists := secrets[input.Name]; exists {
-		if existing.DeletedDate != nil {
-			return nil, fmt.Errorf(
-				"%w: a secret with this name is already scheduled for deletion; restore or force-delete it first",
-				ErrSecretDeleted,
-			)
-		}
-
-		return nil, ErrSecretAlreadyExists
+		return b.createSecretNameCollision(region, existing, input)
 	}
 
 	suffix, err := generateRandomSuffix()
@@ -352,7 +373,7 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 		Versions:    make(map[string]*SecretVersion),
 	}
 
-	createdNow := UnixTimeFloat(time.Now())
+	createdNow := UnixTimeFloat(b.now())
 	secret.CreatedDate = &createdNow
 
 	if len(input.Tags) > 0 {
@@ -363,7 +384,7 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 		}
 	}
 
-	versionID := seedInitialVersion(secret, input)
+	versionID := seedInitialVersion(secret, input, b.now())
 
 	secrets[input.Name] = secret
 
@@ -390,9 +411,52 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 	}, nil
 }
 
+// createSecretNameCollision handles CreateSecret when a secret with input.Name already
+// exists: it applies the ClientRequestToken idempotency contract (see
+// CreateSecretInput.ClientRequestToken in the real API) — a retried CreateSecret with a
+// ClientRequestToken matching an already-created version is ignored (success, no new
+// version) when the content matches, and fails when the content differs, since
+// CreateSecret cannot modify an existing version. Must be called with b.mu held.
+func (b *InMemoryBackend) createSecretNameCollision(
+	region string, existing *Secret, input *CreateSecretInput,
+) (*CreateSecretOutput, error) {
+	if existing.DeletedDate != nil {
+		return nil, fmt.Errorf(
+			"%w: a secret with this name is already scheduled for deletion; restore or force-delete it first",
+			ErrSecretDeleted,
+		)
+	}
+
+	if input.ClientRequestToken == "" {
+		return nil, ErrSecretAlreadyExists
+	}
+
+	v, ok := existing.Versions[input.ClientRequestToken]
+	if !ok {
+		return nil, ErrSecretAlreadyExists
+	}
+
+	if v.SecretString == input.SecretString && string(v.SecretBinary) == string(input.SecretBinary) {
+		return &CreateSecretOutput{
+			ARN:               existing.ARN,
+			Name:              existing.Name,
+			VersionID:         v.VersionID,
+			ReplicationStatus: b.replicationConfigsStore(region)[input.Name],
+		}, nil
+	}
+
+	return nil, fmt.Errorf(
+		"%w: a version with ClientRequestToken %s already exists with different content;"+
+			" use PutSecretValue to create a new version",
+		ErrInvalidParameter, input.ClientRequestToken,
+	)
+}
+
 // seedInitialVersion creates the initial AWSCURRENT version on a freshly created secret
 // when the create request carries a value, and returns the version ID (empty if none).
-func seedInitialVersion(secret *Secret, input *CreateSecretInput) string {
+// nowTime is the backend's (possibly test-injected) clock value, so CreatedDate stays
+// consistent with the rest of the secret's timestamps.
+func seedInitialVersion(secret *Secret, input *CreateSecretInput, nowTime time.Time) string {
 	if input.SecretString == "" && len(input.SecretBinary) == 0 {
 		return ""
 	}
@@ -403,7 +467,7 @@ func seedInitialVersion(secret *Secret, input *CreateSecretInput) string {
 		versionID = uuid.New().String()
 	}
 
-	now := UnixTimeFloat(time.Now())
+	now := UnixTimeFloat(nowTime)
 	secret.Versions[versionID] = &SecretVersion{
 		VersionID:     versionID,
 		SecretString:  input.SecretString,
@@ -460,7 +524,7 @@ func (b *InMemoryBackend) GetSecretValue(
 	}
 
 	// Track access date (truncated to day granularity as AWS does).
-	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
+	accessDay := UnixTimeFloat(b.now().UTC().Truncate(hoursPerDay * time.Hour))
 	secret.LastAccessedDate = &accessDay
 	version.LastAccessedDate = &accessDay
 
@@ -558,7 +622,7 @@ func (b *InMemoryBackend) PutSecretValue(
 
 	callerWantsCurrentLabel, stagingLabels := b.resolveStagingLabels(secret, input.VersionStages)
 
-	now := UnixTimeFloat(time.Now())
+	now := UnixTimeFloat(b.now())
 	version := &SecretVersion{
 		VersionID:     versionID,
 		SecretString:  input.SecretString,
@@ -776,14 +840,14 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("ListSecrets")
+	b.mu.RLock(opListSecrets)
 	defer b.mu.RUnlock()
 
-	secrets := b.secretsStore(region)
+	secrets := b.secretsStoreRO(region)
 	entries := make([]SecretListEntry, 0, len(secrets))
 
 	for _, s := range secrets {
-		if s.DeletedDate != nil && !input.IncludeDeleted {
+		if s.DeletedDate != nil && !input.IncludePlannedDeletion {
 			continue
 		}
 
@@ -794,13 +858,7 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 		entries = append(entries, secretToListEntry(s))
 	}
 
-	sort.Slice(entries, func(i, j int) bool {
-		if strings.EqualFold(input.SortOrder, "desc") {
-			return entries[i].Name > entries[j].Name
-		}
-
-		return entries[i].Name < entries[j].Name
-	})
+	sortSecretListEntries(entries, input.SortBy, input.SortOrder)
 
 	startIdx := parseToken(input.NextToken)
 	maxResults := int64(defaultMaxResults)
@@ -827,6 +885,67 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 		SecretList: entries[startIdx:end],
 		NextToken:  nextToken,
 	}, nil
+}
+
+// sortSecretListEntries orders entries by the requested SortBy key ("name" (default),
+// "created-date", "last-changed-date", "last-accessed-date"), honouring SortOrder
+// ("asc" default, or "desc"). Unset date fields sort as the earliest possible value.
+// Matches the AWS SortByType enum (ListSecrets request field "SortBy").
+func sortSecretListEntries(entries []SecretListEntry, sortBy, sortOrder string) {
+	desc := strings.EqualFold(sortOrder, "desc")
+
+	var less func(i, j int) bool
+
+	switch strings.ToLower(strings.TrimSpace(sortBy)) {
+	case "created-date":
+		less = func(i, j int) bool {
+			return float64PtrLess(entries[i].CreatedDate, entries[j].CreatedDate, entries[i].Name, entries[j].Name)
+		}
+	case "last-changed-date":
+		less = func(i, j int) bool {
+			return float64PtrLess(
+				entries[i].LastChangedDate, entries[j].LastChangedDate, entries[i].Name, entries[j].Name,
+			)
+		}
+	case "last-accessed-date":
+		less = func(i, j int) bool {
+			return float64PtrLess(
+				entries[i].LastAccessedDate, entries[j].LastAccessedDate, entries[i].Name, entries[j].Name,
+			)
+		}
+	default:
+		less = func(i, j int) bool { return entries[i].Name < entries[j].Name }
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if desc {
+			return less(j, i)
+		}
+
+		return less(i, j)
+	})
+}
+
+// float64PtrLess compares two optional float64 fields, treating a nil pointer as the
+// earliest possible value (AWS omits date fields that have never been set, e.g. a
+// secret that was never rotated has no LastRotatedDate). Ties are broken by name for
+// deterministic, stable ordering.
+func float64PtrLess(a, b *float64, nameA, nameB string) bool {
+	av, bv := ptrFloatOrMin(a), ptrFloatOrMin(b)
+	if av != bv {
+		return av < bv
+	}
+
+	return nameA < nameB
+}
+
+// ptrFloatOrMin dereferences a *float64, returning -math.MaxFloat64 for nil.
+func ptrFloatOrMin(f *float64) float64 {
+	if f == nil {
+		return -math.MaxFloat64
+	}
+
+	return *f
 }
 
 // secretMatchesFilters returns true if the secret matches all provided filters.
@@ -861,9 +980,13 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 		// In a single-region mock every secret belongs to the single region;
 		// the filter always passes (no cross-region replication routing needed).
 		return true
-	case "owned-by-me":
-		// In a single-account mock all secrets are owned by the configured account;
-		// the filter always passes.
+	case "owning-service":
+		// Real AWS FilterNameStringType key (this mock previously special-cased a
+		// fabricated "owned-by-me" key that no real SDK client ever sends). Every
+		// secret in this mock is user-created, never owned by an AWS-managed
+		// integration (e.g. RDS-managed rotation secrets), so this behaves like the
+		// permissive default below and always passes — consistent with the
+		// single-account/region simplifications used for primary-region above.
 		return true
 	default:
 		return true
@@ -928,7 +1051,7 @@ func (b *InMemoryBackend) ListSecretVersionIDs(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secretsStore(region)[name]
+	secret, exists := b.secretsStoreRO(region)[name]
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -997,12 +1120,12 @@ func (b *InMemoryBackend) DescribeSecret(
 ) (*DescribeSecretOutput, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("DescribeSecret")
+	b.mu.RLock(opDescribeSecret)
 	defer b.mu.RUnlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secretsStore(region)[name]
+	secret, exists := b.secretsStoreRO(region)[name]
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -1030,7 +1153,7 @@ func (b *InMemoryBackend) DescribeSecret(
 		LastAccessedDate:   secret.LastAccessedDate,
 		VersionIDsToStages: versionIDsToStages,
 		RotationEnabled:    secret.RotationEnabled,
-		ReplicationStatus:  b.replicationConfigsStore(region)[name],
+		ReplicationStatus:  b.replicationConfigsStoreRO(region)[name],
 		OwnerAccountID:     b.accountID,
 		PrimaryRegion:      region,
 	}
@@ -1132,7 +1255,7 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 
 		b.rotateStagingLabels(secret)
 
-		now := UnixTimeFloat(time.Now())
+		now := UnixTimeFloat(b.now())
 		version := &SecretVersion{
 			VersionID:     versionID,
 			SecretString:  input.SecretString,
@@ -1237,6 +1360,7 @@ func secretToListEntry(s *Secret) SecretListEntry {
 		LastAccessedDate:       s.LastAccessedDate,
 		LastRotatedDate:        s.LastRotatedDate,
 		CreatedDate:            s.CreatedDate,
+		NextRotationDate:       computeNextRotationDate(s),
 		Tags:                   s.Tags,
 		SecretVersionsToStages: versionStages,
 	}
@@ -1936,7 +2060,7 @@ func (b *InMemoryBackend) BatchGetSecretValue(
 // batchGetByIDList populates out with values and errors for each explicit secret ID.
 // Must be called with write lock held.
 func (b *InMemoryBackend) batchGetByIDList(region string, ids []string, out *BatchGetSecretValueOutput) {
-	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
+	accessDay := UnixTimeFloat(b.now().UTC().Truncate(hoursPerDay * time.Hour))
 	secrets := b.secretsStore(region)
 
 	for _, id := range ids {
@@ -1989,7 +2113,7 @@ func (b *InMemoryBackend) batchGetByFilter(
 ) *BatchGetSecretValueOutput {
 	secrets := b.secretsStore(region)
 	allValues := make([]SecretValueEntry, 0, len(secrets))
-	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
+	accessDay := UnixTimeFloat(b.now().UTC().Truncate(hoursPerDay * time.Hour))
 
 	for _, secret := range secrets {
 		if secret.DeletedDate != nil || !batchMatchesFilters(secret, input.Filters) {
@@ -2127,12 +2251,12 @@ func (b *InMemoryBackend) GetResourcePolicy(
 ) (*GetResourcePolicyOutput, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("GetResourcePolicy")
+	b.mu.RLock(opGetResourcePolicy)
 	defer b.mu.RUnlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretsStoreRO(region)[name]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2141,7 +2265,7 @@ func (b *InMemoryBackend) GetResourcePolicy(
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
 	}
 
-	policy := b.resourcePoliciesStore(region)[name]
+	policy := b.resourcePoliciesStoreRO(region)[name]
 
 	return &GetResourcePolicyOutput{
 		ARN:            secret.ARN,
@@ -2422,14 +2546,29 @@ func (b *InMemoryBackend) moveStagingLabel(secret *Secret, input *UpdateSecretVe
 		}
 	}
 
-	// Strip the label from ALL versions — a staging label belongs to exactly one version.
-	for _, ver := range secret.Versions {
-		ver.StagingLabels = removeLabel(ver.StagingLabels, input.VersionStage)
-	}
-
 	targetVer, exists := secret.Versions[input.MoveToVersionID]
 	if !exists {
 		return ErrVersionNotFound
+	}
+
+	// Per the real API (UpdateSecretVersionStageInput.RemoveFromVersionId): "If the
+	// staging label is already attached to a different version of the secret, then you
+	// must also specify RemoveFromVersionId. ... If the label is attached and you either
+	// do not specify this parameter, or the version ID does not match, then the
+	// operation fails." Find who currently holds the label (if anyone) and enforce that.
+	currentHolderID := versionIDWithLabel(secret, input.VersionStage)
+	if currentHolderID != "" && currentHolderID != input.MoveToVersionID &&
+		currentHolderID != input.RemoveFromVersionID {
+		return fmt.Errorf(
+			"%w: staging label %s is currently attached to version %s;"+
+				" RemoveFromVersionId must be set to %s to move it",
+			ErrInvalidParameter, input.VersionStage, currentHolderID, currentHolderID,
+		)
+	}
+
+	// Strip the label from ALL versions — a staging label belongs to exactly one version.
+	for _, ver := range secret.Versions {
+		ver.StagingLabels = removeLabel(ver.StagingLabels, input.VersionStage)
 	}
 
 	targetVer.StagingLabels = append(targetVer.StagingLabels, input.VersionStage)
@@ -2439,6 +2578,18 @@ func (b *InMemoryBackend) moveStagingLabel(secret *Secret, input *UpdateSecretVe
 	}
 
 	return nil
+}
+
+// versionIDWithLabel returns the ID of the version currently carrying the given staging
+// label, or "" if no version has it. A staging label is attached to at most one version.
+func versionIDWithLabel(secret *Secret, label string) string {
+	for id, ver := range secret.Versions {
+		if slices.Contains(ver.StagingLabels, label) {
+			return id
+		}
+	}
+
+	return ""
 }
 
 // removeLabelFromVersion removes a label from a specific version.
@@ -2715,11 +2866,11 @@ func (b *InMemoryBackend) ValidateResourcePolicy(
 	if input.SecretID != "" {
 		region := getRegion(ctx, b.region)
 
-		b.mu.RLock("ValidateResourcePolicy")
+		b.mu.RLock(opValidateResourcePolicy)
 		defer b.mu.RUnlock()
 
 		name := resolveSecretID(input.SecretID)
-		if _, ok := b.secretsStore(region)[name]; !ok {
+		if _, ok := b.secretsStoreRO(region)[name]; !ok {
 			return nil, ErrSecretNotFound
 		}
 	}

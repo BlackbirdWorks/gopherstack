@@ -1136,7 +1136,7 @@ func TestAudit_ListSecrets_FilterByTagValue(t *testing.T) {
 	assert.Equal(t, "prod-secret", out.SecretList[0].Name)
 }
 
-func TestAudit_ListSecrets_IncludeDeleted(t *testing.T) {
+func TestAudit_ListSecrets_IncludePlannedDeletion(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
@@ -1147,11 +1147,11 @@ func TestAudit_ListSecrets_IncludeDeleted(t *testing.T) {
 	_, err = b.DeleteSecret(context.Background(), &sm.DeleteSecretInput{SecretID: "dead"})
 	require.NoError(t, err)
 
-	out, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{IncludeDeleted: true})
+	out, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{IncludePlannedDeletion: true})
 	require.NoError(t, err)
 	assert.Len(t, out.SecretList, 2)
 
-	out2, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{IncludeDeleted: false})
+	out2, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{IncludePlannedDeletion: false})
 	require.NoError(t, err)
 	assert.Len(t, out2.SecretList, 1)
 }

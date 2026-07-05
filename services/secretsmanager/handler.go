@@ -151,12 +151,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateSecret",
 		"DeleteResourcePolicy",
 		"DeleteSecret",
-		"DescribeSecret",
+		opDescribeSecret,
 		"GetRandomPassword",
-		"GetResourcePolicy",
+		opGetResourcePolicy,
 		"GetSecretValue",
 		"ListSecretVersionIds",
-		"ListSecrets",
+		opListSecrets,
 		"PutResourcePolicy",
 		"PutSecretValue",
 		"RemoveRegionsFromReplication",
@@ -168,7 +168,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UntagResource",
 		"UpdateSecret",
 		"UpdateSecretVersionStage",
-		"ValidateResourcePolicy",
+		opValidateResourcePolicy,
 	}
 }
 
@@ -250,7 +250,7 @@ type smActionFn func(ctx context.Context, region string, body []byte) (any, erro
 
 func (h *Handler) smExtendedActions() map[string]smActionFn {
 	return map[string]smActionFn{
-		"GetResourcePolicy": func(ctx context.Context, _ string, b []byte) (any, error) {
+		opGetResourcePolicy: func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input GetResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -314,7 +314,7 @@ func (h *Handler) smExtendedActions() map[string]smActionFn {
 
 			return h.Backend.StopReplicationToReplica(ctx, &input)
 		},
-		"ValidateResourcePolicy": func(ctx context.Context, _ string, b []byte) (any, error) {
+		opValidateResourcePolicy: func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input ValidateResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -360,7 +360,7 @@ func (h *Handler) smCRUDActions() map[string]smActionFn {
 
 			return h.Backend.DeleteSecret(ctx, &input)
 		},
-		"ListSecrets": func(ctx context.Context, _ string, b []byte) (any, error) {
+		opListSecrets: func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input ListSecretsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -368,7 +368,7 @@ func (h *Handler) smCRUDActions() map[string]smActionFn {
 
 			return h.Backend.ListSecrets(ctx, &input)
 		},
-		"DescribeSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
+		opDescribeSecret: func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input DescribeSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err

@@ -147,8 +147,21 @@ func TestRefinement1_AddSecretInternal(t *testing.T) {
 	assert.Equal(t, "my-seed", got.Name)
 }
 
-// TestRefinement1_UpdateSecretVersionStageAutoStrip verifies a staging label is stripped from all
-// other versions when moved, not just RemoveFromVersionID.
+// TestRefinement1_UpdateSecretVersionStageAutoStrip verifies a staging label is stripped
+// from its current holder when moved via a compliant RemoveFromVersionId, and that
+// omitting/mismatching RemoveFromVersionId when the label is attached elsewhere is
+// rejected.
+//
+// NOTE: this test previously asserted that UpdateSecretVersionStage would silently move
+// AWSPREVIOUS to v2 with NO RemoveFromVersionId at all, even though AWSPREVIOUS was
+// already attached to v1 at that point (PutSecretValue auto-rotates the outgoing
+// AWSCURRENT to AWSPREVIOUS). That encoded incorrect AWS behavior: per
+// UpdateSecretVersionStageInput.RemoveFromVersionId in the real API, "If the staging
+// label is already attached to a different version of the secret, then you must also
+// specify the RemoveFromVersionId parameter. ... If the label is attached and you
+// either do not specify this parameter, or the version ID does not match, then the
+// operation fails." Fixed to (a) supply the required RemoveFromVersionId for the
+// success path, and (b) add a case proving the rejection when it's omitted.
 func TestRefinement1_UpdateSecretVersionStageAutoStrip(t *testing.T) {
 	t.Parallel()
 
@@ -167,7 +180,7 @@ func TestRefinement1_UpdateSecretVersionStageAutoStrip(t *testing.T) {
 		v1 = id
 	}
 
-	// Create second version.
+	// Create second version. AWSCURRENT moves to v2; v1 auto-rotates to AWSPREVIOUS.
 	put, err := b.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
 		SecretID:     "vs-strip",
 		SecretString: "v2",
@@ -175,11 +188,23 @@ func TestRefinement1_UpdateSecretVersionStageAutoStrip(t *testing.T) {
 	require.NoError(t, err)
 	v2 := put.VersionID
 
-	// Move AWSPREVIOUS label to v2 (stripping from v1 where it may be).
+	// Moving AWSPREVIOUS to v2 WITHOUT declaring its current holder (v1) must be
+	// rejected — the caller must acknowledge where the label is coming from.
 	_, err = b.UpdateSecretVersionStage(context.Background(), &secretsmanager.UpdateSecretVersionStageInput{
 		SecretID:        "vs-strip",
 		VersionStage:    secretsmanager.StagingLabelPrevious,
 		MoveToVersionID: v2,
+	})
+	require.ErrorIs(t, err, secretsmanager.ErrInvalidParameter,
+		"moving a label away from its current holder without RemoveFromVersionId must fail")
+
+	// With the correct RemoveFromVersionId, the move succeeds and strips the label
+	// from v1.
+	_, err = b.UpdateSecretVersionStage(context.Background(), &secretsmanager.UpdateSecretVersionStageInput{
+		SecretID:            "vs-strip",
+		VersionStage:        secretsmanager.StagingLabelPrevious,
+		MoveToVersionID:     v2,
+		RemoveFromVersionID: v1,
 	})
 	require.NoError(t, err)
 

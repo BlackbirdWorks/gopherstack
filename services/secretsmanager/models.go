@@ -193,6 +193,7 @@ type SecretListEntry struct {
 	LastAccessedDate       *float64            `json:"LastAccessedDate,omitempty"`
 	LastRotatedDate        *float64            `json:"LastRotatedDate,omitempty"`
 	CreatedDate            *float64            `json:"CreatedDate,omitempty"`
+	NextRotationDate       *float64            `json:"NextRotationDate,omitempty"`
 	Tags                   *tags.Tags          `json:"Tags,omitempty"`
 	RotationRules          *RotationRulesType  `json:"RotationRules,omitempty"`
 	SecretVersionsToStages map[string][]string `json:"SecretVersionsToStages,omitempty"`
@@ -206,11 +207,18 @@ type SecretListEntry struct {
 
 // ListSecretsInput is the request payload for ListSecrets.
 type ListSecretsInput struct {
-	MaxResults     *int64         `json:"MaxResults,omitempty"`
-	NextToken      string         `json:"NextToken,omitempty"`
-	SortOrder      string         `json:"SortOrder,omitempty"` // "asc" or "desc"
-	Filters        []SecretFilter `json:"Filters,omitempty"`
-	IncludeDeleted bool           `json:"IncludeDeleted,omitempty"`
+	MaxResults *int64 `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	SortOrder  string `json:"SortOrder,omitempty"` // "asc" or "desc"
+	// SortBy selects the field secrets are ordered by: "name" (default),
+	// "created-date", "last-changed-date", or "last-accessed-date".
+	SortBy  string         `json:"SortBy,omitempty"`
+	Filters []SecretFilter `json:"Filters,omitempty"`
+	// IncludePlannedDeletion specifies whether to include secrets scheduled for
+	// deletion. By default, secrets scheduled for deletion aren't included.
+	// This is the real AWS wire field name (previously misnamed IncludeDeleted,
+	// which real SDK clients never send, silently defeating the filter).
+	IncludePlannedDeletion bool `json:"IncludePlannedDeletion,omitempty"`
 }
 
 // SecretFilter is a filter criterion for ListSecrets and BatchGetSecretValue.

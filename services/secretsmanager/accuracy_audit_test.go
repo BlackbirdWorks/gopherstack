@@ -207,12 +207,19 @@ func TestCreateSecret_AddReplicaRegionsHTTP(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Issue #6 — ListSecrets owned-by-me filter
+// Issue #6 — ListSecrets owning-service filter
+//
+// NOTE: this filter key was previously named "owned-by-me" in this test suite, which
+// is not a real AWS FilterNameStringType value (the real key is "owning-service" —
+// see aws-sdk-go-v2/service/secretsmanager/types.FilterNameStringType). Renamed to
+// match the real wire key; behaviour (always-pass) is preserved because this mock
+// never models AWS-service-owned secrets (e.g. RDS-managed rotation secrets), so
+// every secret is equally "not owned by a service" and the filter is a no-op here.
 // ---------------------------------------------------------------------------
 
-// TestListSecrets_OwnedByMeFilterPassesAll verifies that "owned-by-me" always returns all
-// secrets in the single-account mock.
-func TestListSecrets_OwnedByMeFilterPassesAll(t *testing.T) {
+// TestListSecrets_OwningServiceFilterPassesAll verifies that "owning-service" always
+// returns all secrets in this mock (no secret is ever AWS-service-owned).
+func TestListSecrets_OwningServiceFilterPassesAll(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
@@ -223,14 +230,15 @@ func TestListSecrets_OwnedByMeFilterPassesAll(t *testing.T) {
 	}
 
 	out, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{
-		Filters: []sm.SecretFilter{{Key: "owned-by-me", Values: []string{"true"}}},
+		Filters: []sm.SecretFilter{{Key: "owning-service", Values: []string{"rds"}}},
 	})
 	require.NoError(t, err)
-	assert.Len(t, out.SecretList, 3, "owned-by-me must pass all secrets in single-account mock")
+	assert.Len(t, out.SecretList, 3, "owning-service must pass all secrets in single-account mock")
 }
 
-// TestListSecrets_OwnedByMeWithOtherFilters verifies owned-by-me can be combined with other filters.
-func TestListSecrets_OwnedByMeWithOtherFilters(t *testing.T) {
+// TestListSecrets_OwningServiceWithOtherFilters verifies owning-service can be combined
+// with other filters (AND semantics across distinct filter keys).
+func TestListSecrets_OwningServiceWithOtherFilters(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
@@ -247,7 +255,7 @@ func TestListSecrets_OwnedByMeWithOtherFilters(t *testing.T) {
 
 	out, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{
 		Filters: []sm.SecretFilter{
-			{Key: "owned-by-me", Values: []string{"true"}},
+			{Key: "owning-service", Values: []string{"rds"}},
 			{Key: "name", Values: []string{"alpha"}},
 		},
 	})
@@ -810,8 +818,8 @@ func TestRotationDue_IntervalExpression(t *testing.T) {
 	assert.True(t, sm.RotationDue(rules, after, &base))
 }
 
-// TestListSecretsOwnedByMeHTTP verifies the owned-by-me filter via HTTP.
-func TestListSecretsOwnedByMeHTTP(t *testing.T) {
+// TestListSecretsOwningServiceHTTP verifies the owning-service filter via HTTP.
+func TestListSecretsOwningServiceHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
@@ -823,7 +831,7 @@ func TestListSecretsOwnedByMeHTTP(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	filterBody := `{"Filters":[{"Key":"owned-by-me","Values":["true"]}]}`
+	filterBody := `{"Filters":[{"Key":"owning-service","Values":["rds"]}]}`
 	rec := doR1Request(t, h, "secretsmanager.ListSecrets", filterBody)
 	require.Equal(t, http.StatusOK, rec.Code)
 
