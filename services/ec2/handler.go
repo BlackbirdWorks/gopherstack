@@ -613,12 +613,59 @@ func (h *Handler) applyInstanceLaunchSettings(
 	return nil
 }
 
+// applyInstanceLaunchAttributes wires the RunInstances top-level
+// DisableApiTermination / InstanceInitiatedShutdownBehavior / EbsOptimized
+// parameters (distinct from the post-launch ModifyInstanceAttribute path)
+// onto newly-created instances.
+func (h *Handler) applyInstanceLaunchAttributes(
+	instances []*Instance,
+	disableAPITermination, shutdownBehavior, ebsOptimized string,
+) error {
+	type launchAttr struct {
+		name, value string
+	}
+
+	// maxLaunchAttrs is the number of RunInstances attribute params handled
+	// below (DisableApiTermination, InstanceInitiatedShutdownBehavior, EbsOptimized).
+	const maxLaunchAttrs = 3
+
+	attrs := make([]launchAttr, 0, maxLaunchAttrs)
+	if disableAPITermination != "" {
+		attrs = append(attrs, launchAttr{attrDisableAPITermination, disableAPITermination})
+	}
+
+	if shutdownBehavior != "" {
+		attrs = append(attrs, launchAttr{attrInstanceInitiatedShutdownBehavior, shutdownBehavior})
+	}
+
+	if ebsOptimized != "" {
+		attrs = append(attrs, launchAttr{attrEBSOptimized, ebsOptimized})
+	}
+
+	if len(attrs) == 0 {
+		return nil
+	}
+
+	for _, inst := range instances {
+		for _, a := range attrs {
+			if err := h.Backend.SetInstanceAttribute(inst.ID, a.name, a.value); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	instanceType := vals.Get("InstanceType")
 	subnetID := vals.Get("SubnetId")
 	userData := vals.Get("UserData")
 	keyName := vals.Get("KeyName")
+	disableAPITermination := vals.Get("DisableApiTermination")
+	shutdownBehavior := vals.Get("InstanceInitiatedShutdownBehavior")
+	ebsOptimized := vals.Get("EbsOptimized")
 
 	if err := validateUserData(userData); err != nil {
 		return nil, err
@@ -642,6 +689,12 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	}
 
 	if err = h.applyInstanceLaunchSettings(instances, userData, keyName, sgIDs); err != nil {
+		return nil, err
+	}
+
+	if err = h.applyInstanceLaunchAttributes(
+		instances, disableAPITermination, shutdownBehavior, ebsOptimized,
+	); err != nil {
 		return nil, err
 	}
 
@@ -1280,6 +1333,16 @@ func (h *Handler) handleDeleteTags(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
+// boolToEC2Attr renders a Go bool as the "true"/"false" string EC2 query-protocol
+// attribute values use.
+func boolToEC2Attr(v bool) string {
+	if v {
+		return ec2BooleanTrue
+	}
+
+	return ec2BooleanFalse
+}
+
 // handleDescribeInstanceAttribute returns the current value for the requested instance attribute.
 // Terraform calls this after RunInstances to read instanceInitiatedShutdownBehavior.
 func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string) (any, error) {
@@ -1296,37 +1359,7 @@ func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string)
 	}
 
 	inst := instances[0]
-
-	// Build the attribute value from stored instance state when possible;
-	// fall back to AWS defaults for unmodelled attributes.
-	var attrValue string
-
-	switch attr {
-	case attrUserData:
-		attrValue = inst.UserData
-	case attrInstanceType:
-		attrValue = inst.InstanceType
-	case attrEnaSupport:
-		if inst.EnaSupport {
-			attrValue = ec2BooleanTrue
-		} else {
-			attrValue = ec2BooleanFalse
-		}
-	case attrSriovNetSupport:
-		if inst.SriovNetSupport != "" {
-			attrValue = inst.SriovNetSupport
-		} else {
-			attrValue = "simple"
-		}
-	case attrDisableAPIStop, attrDisableAPITermination, attrEBSOptimized:
-		attrValue = ec2BooleanFalse
-	case attrSourceDest:
-		attrValue = ec2BooleanFalse
-	case attrInstanceInitiatedShutdownBehavior, attrKernel, attrRamdisk:
-		attrValue = "stop"
-	default:
-		attrValue = ""
-	}
+	attrValue := h.instanceAttributeValue(inst, instanceID, attr)
 
 	return &describeInstanceAttributeResponse{
 		Xmlns:      ec2XMLNS,
@@ -1334,6 +1367,50 @@ func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string)
 		InstanceID: instanceID,
 		Attribute:  namedStringAttr{XMLName: xml.Name{Local: attr}, Value: attrValue},
 	}, nil
+}
+
+// instanceAttributeValue builds the DescribeInstanceAttribute string value
+// from stored instance state when possible, falling back to AWS defaults for
+// unmodelled attributes. Split out of handleDescribeInstanceAttribute to keep
+// cyclomatic complexity down.
+func (h *Handler) instanceAttributeValue(inst *Instance, instanceID, attr string) string {
+	switch attr {
+	case attrUserData:
+		return inst.UserData
+	case attrInstanceType:
+		return inst.InstanceType
+	case attrEnaSupport:
+		return boolToEC2Attr(inst.EnaSupport)
+	case attrSriovNetSupport:
+		if inst.SriovNetSupport != "" {
+			return inst.SriovNetSupport
+		}
+
+		return "simple"
+	case attrDisableAPIStop:
+		return boolToEC2Attr(inst.DisableAPIStop)
+	case attrDisableAPITermination:
+		return boolToEC2Attr(inst.DisableAPITermination)
+	case attrEBSOptimized:
+		return boolToEC2Attr(inst.EBSOptimized)
+	case attrSourceDest:
+		// sourceDestCheck lives on the primary ENI attachment; AWS defaults
+		// it to true for VPC instances.
+		return boolToEC2Attr(h.Backend.PrimaryNetworkInterfaceSourceDestCheck(instanceID))
+	case attrInstanceInitiatedShutdownBehavior:
+		if inst.InstanceInitiatedShutdownBehavior != "" {
+			return inst.InstanceInitiatedShutdownBehavior
+		}
+
+		return "stop"
+	case attrKernel, attrRamdisk:
+		// Modern (HVM) instances have no kernel/ramdisk image; AWS returns an
+		// empty value rather than "stop" (that default only applies to
+		// instanceInitiatedShutdownBehavior).
+		return ""
+	default:
+		return ""
+	}
 }
 
 // ---- error handling ----
@@ -1437,6 +1514,7 @@ var errCodeLookup = []struct {
 	{ErrInvalidUserData, "InvalidUserData.Malformed"},
 	{ErrMissingParameter, "MissingParameter"},
 	{ErrInvalidPaginationToken, "InvalidPaginationToken"},
+	{ErrOperationNotPermitted, "OperationNotPermitted"},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.
@@ -1600,25 +1678,33 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 	}
 
 	item := instanceItem{
-		InstanceID:       inst.ID,
-		ImageID:          inst.ImageID,
-		InstanceType:     inst.InstanceType,
-		StateItem:        stateItem{Code: inst.State.Code, Name: inst.State.Name},
-		VPCID:            inst.VPCID,
-		SubnetID:         inst.SubnetID,
-		LaunchTime:       inst.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
-		PrivateIPAddress: inst.PrivateIP,
-		PublicIPAddress:  inst.PublicIPAddress,
-		PublicDNSName:    inst.PublicDNSName,
-		KeyName:          inst.KeyName,
-		GroupSet:         instanceGroupSet{Items: groupItems},
-		TagSet:           instanceTagItemSet{Items: tagItems},
+		InstanceID:            inst.ID,
+		ImageID:               inst.ImageID,
+		InstanceType:          inst.InstanceType,
+		StateItem:             stateItem{Code: inst.State.Code, Name: inst.State.Name},
+		StateTransitionReason: inst.StateTransitionReason,
+		VPCID:                 inst.VPCID,
+		SubnetID:              inst.SubnetID,
+		LaunchTime:            inst.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+		PrivateIPAddress:      inst.PrivateIP,
+		PublicIPAddress:       inst.PublicIPAddress,
+		PublicDNSName:         inst.PublicDNSName,
+		KeyName:               inst.KeyName,
+		GroupSet:              instanceGroupSet{Items: groupItems},
+		TagSet:                instanceTagItemSet{Items: tagItems},
 		Placement: instancePlacementItem{
 			Tenancy:          inst.Placement.Tenancy,
 			AvailabilityZone: inst.Placement.AvailabilityZone,
 			GroupName:        inst.Placement.GroupName,
 			Affinity:         inst.Placement.Affinity,
 		},
+	}
+
+	if inst.StateReasonCode != "" {
+		item.StateReasonItem = &stateReasonItem{
+			Code:    inst.StateReasonCode,
+			Message: inst.StateReasonMessage,
+		}
 	}
 
 	if inst.CPUOptions.CoreCount > 0 || inst.CPUOptions.ThreadsPerCore > 0 {
@@ -1712,6 +1798,13 @@ type instancePlacementItem struct {
 	Affinity         string `xml:"affinity,omitempty"`
 }
 
+// stateReasonItem is the <stateReason> element carrying the structured
+// code/message for an instance's most recent state transition.
+type stateReasonItem struct {
+	Code    string `xml:"code,omitempty"`
+	Message string `xml:"message,omitempty"`
+}
+
 type instanceCPUOptionsItem struct {
 	CoreCount      int32 `xml:"coreCount"`
 	ThreadsPerCore int32 `xml:"threadsPerCore"`
@@ -1729,6 +1822,7 @@ type instanceItem struct {
 	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
 	MaintenanceOptions        *instanceMaintenanceOptionsItem        `xml:"maintenanceOptions,omitempty"`
 	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
+	StateReasonItem           *stateReasonItem                       `xml:"stateReason,omitempty"`
 	Placement                 instancePlacementItem                  `xml:"placement"`
 	PublicDNSName             string                                 `xml:"dnsName,omitempty"`
 	SubnetID                  string                                 `xml:"subnetId,omitempty"`
@@ -1741,8 +1835,11 @@ type instanceItem struct {
 	ImageID                   string                                 `xml:"imageId"`
 	InstanceID                string                                 `xml:"instanceId"`
 	StateItem                 stateItem                              `xml:"instanceState"`
-	GroupSet                  instanceGroupSet                       `xml:"groupSet"`
-	TagSet                    instanceTagItemSet                     `xml:"tagSet"`
+	// StateTransitionReason is AWS's legacy free-text reason string, distinct
+	// from the structured StateReasonItem above.
+	StateTransitionReason string             `xml:"reason,omitempty"`
+	GroupSet              instanceGroupSet   `xml:"groupSet"`
+	TagSet                instanceTagItemSet `xml:"tagSet"`
 }
 
 // instanceTagItem is the embedded per-instance tag entry in DescribeInstances

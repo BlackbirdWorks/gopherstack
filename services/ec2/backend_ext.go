@@ -311,6 +311,10 @@ func (b *InMemoryBackend) StartInstances(ids []string) ([]*InstanceStateChange, 
 		prev := inst.State
 		// AWS state machine: stopped → pending → running (reconciler advances pending→running).
 		inst.State = StatePending
+		// AWS clears the state reason once the instance starts back up.
+		inst.StateReasonCode = ""
+		inst.StateReasonMessage = ""
+		inst.StateTransitionReason = ""
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,
@@ -345,9 +349,21 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, e
 			)
 		}
 
+		if inst.DisableAPIStop {
+			return nil, fmt.Errorf(
+				"%w: the instance %s may not be stopped. "+
+					"Modify its 'disableApiStop' instance attribute and try again",
+				ErrOperationNotPermitted, id)
+		}
+
 		prev := inst.State
 		// AWS state machine: running/pending → stopping → stopped (reconciler advances stopping→stopped).
 		inst.State = StateStopping
+		inst.StateReasonCode = "Client.UserInitiatedShutdown"
+		inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
+		inst.StateTransitionReason = fmt.Sprintf(
+			"User initiated (%s)", time.Now().UTC().Format("2006-01-02 15:04:05 GMT"),
+		)
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,
@@ -1480,6 +1496,21 @@ func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value str
 	}
 
 	return nil
+}
+
+// PrimaryNetworkInterfaceSourceDestCheck returns the sourceDestCheck flag of
+// instanceID's primary network interface. AWS defaults this to true for VPC
+// instances; unknown instances/interfaces also report true to match that
+// default rather than a zero-value false.
+func (b *InMemoryBackend) PrimaryNetworkInterfaceSourceDestCheck(instanceID string) bool {
+	b.mu.RLock("PrimaryNetworkInterfaceSourceDestCheck")
+	defer b.mu.RUnlock()
+
+	if eni := b.primaryNetworkInterfaceLocked(instanceID); eni != nil {
+		return eni.SourceDestCheck
+	}
+
+	return true
 }
 
 // ---- spot instances ----

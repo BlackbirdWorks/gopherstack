@@ -67,6 +67,31 @@ func (b *InMemoryBackend) deindexENILocked(eniID string, eni *NetworkInterface) 
 	}
 }
 
+// primaryNetworkInterfaceLocked returns the primary (deviceIndex 0) network
+// interface attached to instanceID, falling back to any attached interface if
+// none is explicitly device-index 0. Returns nil if the instance has no ENIs.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) primaryNetworkInterfaceLocked(instanceID string) *NetworkInterface {
+	var fallback *NetworkInterface
+
+	for eniID := range b.eniIDsByInstance[instanceID] {
+		eni, ok := b.networkInterfaces[eniID]
+		if !ok {
+			continue
+		}
+
+		if eni.DeviceIndex == 0 {
+			return eni
+		}
+
+		if fallback == nil {
+			fallback = eni
+		}
+	}
+
+	return fallback
+}
+
 func (b *InMemoryBackend) indexSubnetLocked(subnetID, vpcID string) {
 	if subnetID == "" || vpcID == "" {
 		return

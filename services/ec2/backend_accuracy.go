@@ -76,6 +76,36 @@ func (b *InMemoryBackend) SetInstanceAttribute(instanceID, attribute, value stri
 			ErrInvalidInstanceState, instanceID, attribute)
 	}
 
+	if setSimpleInstanceAttributeLocked(inst, attribute, value) {
+		return nil
+	}
+
+	switch attribute {
+	case attrSourceDest:
+		// sourceDestCheck lives on the primary network interface's
+		// attachment in real AWS, not on the instance itself.
+		if eni := b.primaryNetworkInterfaceLocked(instanceID); eni != nil {
+			eni.SourceDestCheck = value == ec2BooleanTrue
+		}
+	case "groupSet", "blockDeviceMapping":
+		// accepted but not modelled beyond acknowledgment: changing an
+		// instance's security groups / block device mappings via
+		// ModifyInstanceAttribute has no dedicated backend representation
+		// distinct from the SG-membership and volume-attachment ops.
+	default:
+		return fmt.Errorf("%w: unsupported attribute %q", ErrInvalidParameter, attribute)
+	}
+
+	return nil
+}
+
+// setSimpleInstanceAttributeLocked handles the ModifyInstanceAttribute
+// attributes that map directly onto a single Instance field. Reports whether
+// it recognised (and applied) the attribute; attrSourceDest and the
+// acknowledged-but-unmodelled attributes are handled by the caller since they
+// need backend/lock context beyond the Instance struct. Must be called with
+// b.mu held.
+func setSimpleInstanceAttributeLocked(inst *Instance, attribute, value string) bool {
 	switch attribute {
 	case attrUserData:
 		// AWS stores userData base64-encoded; accept both encoded and raw.
@@ -86,15 +116,19 @@ func (b *InMemoryBackend) SetInstanceAttribute(instanceID, attribute, value stri
 		inst.EnaSupport = value == ec2BooleanTrue
 	case attrSriovNetSupport:
 		inst.SriovNetSupport = value
-	case attrDisableAPITermination, attrDisableAPIStop, attrEBSOptimized,
-		"sourceDestCheck", attrInstanceInitiatedShutdownBehavior,
-		"groupSet", "blockDeviceMapping":
-		// accepted but not modelled beyond acknowledgment
+	case attrDisableAPITermination:
+		inst.DisableAPITermination = value == ec2BooleanTrue
+	case attrDisableAPIStop:
+		inst.DisableAPIStop = value == ec2BooleanTrue
+	case attrEBSOptimized:
+		inst.EBSOptimized = value == ec2BooleanTrue
+	case attrInstanceInitiatedShutdownBehavior:
+		inst.InstanceInitiatedShutdownBehavior = value
 	default:
-		return fmt.Errorf("%w: unsupported attribute %q", ErrInvalidParameter, attribute)
+		return false
 	}
 
-	return nil
+	return true
 }
 
 // SetVolumeEncryption marks a volume as encrypted and records its KMS key ID.

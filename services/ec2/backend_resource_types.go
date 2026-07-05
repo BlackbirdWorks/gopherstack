@@ -1,0 +1,368 @@
+package ec2
+
+import "strings"
+
+// This file centralises the mapping from an EC2 resource ID to (a) whether the
+// resource is known to the backend (resourceExistsLocked, gating CreateTags /
+// DeleteTags) and (b) its AWS ResourceType string (resourceTypeByID, used by
+// DescribeTags and the resource-type Filter). Both were previously limited to
+// a handful of core resource types (instance, security-group, vpc, subnet,
+// volume, internet-gateway, route-table, natgateway, elastic-ip), which meant
+// CreateTags/DeleteTags/DescribeTags silently failed or mis-typed the large
+// majority of EC2 resources this backend actually models (AMIs, snapshots,
+// network ACLs, transit gateways and their attachments, VPN/customer
+// gateways, VPC endpoints, launch templates, IPAM objects, and so on). The
+// tables below cover every resource type in this backend that AWS exposes as
+// independently taggable (per aws-sdk-go-v2 ec2/types.ResourceType); IDs for
+// non-taggable association/index objects (e.g. route-table associations,
+// subnet CIDR associations) are intentionally omitted.
+
+// resourceTypePrefix pairs an ID prefix with its AWS ResourceType string.
+type resourceTypePrefix struct {
+	prefix string
+	rtype  string
+}
+
+// resourceTypePrefixes lists ID-prefix → ResourceType mappings, ordered most-
+// specific-prefix-first within each ambiguous family (e.g. "tgw-rtb-ann-"
+// before "tgw-rtb-", "ipam-pool-" before "ipam-") so the first HasPrefix match
+// in resourceTypeByID is always the correct one.
+//
+//nolint:gochecknoglobals // package-level lookup table, analogous to errCodeLookup
+var resourceTypePrefixes = []resourceTypePrefix{
+	// ---- core (pre-existing) ----
+	{"i-", "instance"},
+	{"sg-", "security-group"},
+	{"subnet-", "subnet"},
+	{"vol-", "volume"},
+	{"igw-", "internet-gateway"},
+	{"rtb-", "route-table"},
+	{"nat-", "natgateway"},
+	{"eipalloc-", "elastic-ip"},
+	{"eni-", "network-interface"},
+	{"sir-", "spot-instances-request"},
+	{"sfr-", "spot-fleet-request"},
+
+	// ---- images / snapshots / templates ----
+	{"ami-", "image"},
+	{"imgusgrpt-", "image-usage-report"},
+	{"snap-", "snapshot"},
+	{"lt-", "launch-template"},
+	{"import-ami-", "import-image-task"},
+	{"import-snap-", "import-snapshot-task"},
+	{"export-ami-", "export-image-task"},
+	{"export-i-", "export-instance-task"},
+
+	// ---- VPC networking ----
+	{"vpc-ec-", "vpc-encryption-control"}, // must precede generic "vpc-"
+	{"vpc-", resourceTypeVPC},
+	{"acl-", "network-acl"},
+	{"dopt-", "dhcp-options"},
+	{"eigw-", "egress-only-internet-gateway"},
+	{"pcx-", "vpc-peering-connection"},
+	{"vpce-svc-", "vpc-endpoint-service"}, // must precede generic "vpce-"
+	{"vpce-", "vpc-endpoint"},
+	{"pl-", "prefix-list"},
+	{"fl-", "vpc-flow-log"},
+	{"vpcbpa-exclusion-", "vpc-block-public-access-exclusion"},
+	{"eice-", "instance-connect-endpoint"},
+	{"cagw-", "carrier-gateway"},
+
+	// ---- VPN / customer gateways ----
+	{"vgw-", "vpn-gateway"},
+	{"cgw-", "customer-gateway"},
+	{"vpn-", "vpn-connection"},
+	{"vpnc-", "vpn-concentrator"},
+
+	// ---- transit gateway family (generic "tgw-" must be last) ----
+	{"tgw-rtb-ann-", "transit-gateway-route-table-announcement"},
+	{"tgw-rtb-", "transit-gateway-route-table"},
+	{"tgw-ptb-", "transit-gateway-policy-table"},
+	{"tgw-metering-policy-", "transit-gateway-metering-policy"},
+	{"tgw-mcast-domain-", "transit-gateway-multicast-domain"},
+	{"tgw-connect-peer-", "transit-gateway-connect-peer"},
+	{"tgw-attach-", "transit-gateway-attachment"},
+	{"tgw-", "transit-gateway"},
+
+	// ---- local gateway family (generic "lgw-" must be last) ----
+	{"lgw-vif-grp-", "local-gateway-virtual-interface-group"},
+	{"lgw-vif-", "local-gateway-virtual-interface"},
+	{"lgw-rtb-", "local-gateway-route-table"},
+	{"lgw-route-table-vpc-assoc-", "local-gateway-route-table-vpc-association"},
+	{
+		"lgw-route-table-virtual-interface-group-assoc-",
+		"local-gateway-route-table-virtual-interface-group-association",
+	},
+	{"lgw-", "local-gateway"},
+
+	// ---- IPAM family (generic "ipam-" must be last) ----
+	{"ipam-prefix-list-resolver-target-", "ipam-prefix-list-resolver-target"},
+	{"ipam-prefix-list-resolver-", "ipam-prefix-list-resolver"},
+	{"ipam-res-disco-assoc-", "ipam-resource-discovery-association"},
+	{"ipam-res-disco-", "ipam-resource-discovery"},
+	{"ipam-ext-res-verification-token-", "ipam-external-resource-verification-token"},
+	{"ipam-pool-", "ipam-pool"},
+	{"ipam-scope-", "ipam-scope"},
+	{"ipam-policy-", "ipam-policy"},
+	{"ipam-", "ipam"},
+
+	// ---- capacity reservations / hosts ----
+	{"crf-", "capacity-reservation-fleet"},
+	{"cr-", "capacity-reservation"},
+	{"cb-", "capacity-block"},
+	{"cmde-", "capacity-manager-data-export"},
+	{"hr-", "host-reservation"},
+	{"h-", "dedicated-host"},
+
+	// ---- fleets / reserved instances ----
+	{"fleet-", "fleet"},
+	{"ri-", "reserved-instances"},
+
+	// ---- verified access ----
+	{"vae-", "verified-access-endpoint"},
+	{"vagr-", "verified-access-group"},
+	{"vai-", "verified-access-instance"},
+	{"vatp-", "verified-access-trust-provider"},
+
+	// ---- traffic mirroring ----
+	{"tmf-", "traffic-mirror-filter"},
+	{"tmfr-", "traffic-mirror-filter-rule"},
+	{"tms-", "traffic-mirror-session"},
+	{"tmt-", "traffic-mirror-target"},
+
+	// ---- network insights ----
+	{"niasa-", "network-insights-access-scope-analysis"},
+	{"nias-", "network-insights-access-scope"},
+	{"nia-", "network-insights-analysis"},
+	{"nip-", "network-insights-path"},
+
+	// ---- route server ----
+	{"rse-", "route-server-endpoint"},
+	{"rsp-", "route-server-peer"},
+	{"rs-", "route-server"},
+
+	// ---- client VPN / FPGA / mac / misc ----
+	{"cvpn-endpoint-", "client-vpn-endpoint"},
+	{"afi-", "fpga-image"},
+	{"agfi-", "fpga-image"},
+	{"macmodtask-", "mac-modification-task"},
+	{"lag-", "outpost-lag"},
+	{"iew-", "instance-event-window"},
+	{"report-", "declarative-policies-report"},
+
+	// ---- secondary networking ----
+	{"secnet-", "secondary-network"},
+	{"secsubnet-", "secondary-subnet"},
+	{"secni-", "secondary-interface"},
+	{"svif-", "service-link-virtual-interface"},
+
+	// ---- IP address pools ----
+	{"ipv4pool-coip-", "coip-pool"},
+	{"ipv4pool-ec2-", "ipv4pool-ec2"},
+	{"ipv6pool-ec2-", "ipv6pool-ec2"},
+}
+
+// resourceTypeByID infers the EC2 resource type from the ID prefix.
+func resourceTypeByID(id string) string {
+	for _, e := range resourceTypePrefixes {
+		if strings.HasPrefix(id, e.prefix) {
+			return e.rtype
+		}
+	}
+
+	return "resource"
+}
+
+// resourceExistsLocked reports whether id refers to any known EC2 resource.
+// Must be called with b.mu held. Split across several helpers (one per
+// resource family, each kept small enough to stay under the cyclomatic/
+// cognitive complexity limits) rather than one flat function.
+func (b *InMemoryBackend) resourceExistsLocked(id string) bool {
+	return b.resourceExistsCoreLocked(id) ||
+		b.resourceExistsImagesLocked(id) ||
+		b.resourceExistsVpcAuxLocked(id) ||
+		b.resourceExistsGatewayLocked(id) ||
+		b.resourceExistsTGWLocked(id) ||
+		b.resourceExistsLGWLocked(id) ||
+		b.resourceExistsIpamLocked(id) ||
+		b.resourceExistsVerifiedAccessAndMirrorLocked(id) ||
+		b.resourceExistsInsightsAndRouteServerLocked(id) ||
+		b.resourceExistsSecondaryAndMiscLocked(id)
+}
+
+// resourceExistsCoreLocked checks the original core resource maps (instances,
+// security groups, VPC/subnet, storage, networking primitives).
+func (b *InMemoryBackend) resourceExistsCoreLocked(id string) bool {
+	_, ok := b.instances[id]
+	ok = ok || mapHas(b.securityGroups, id)
+	ok = ok || mapHas(b.vpcs, id)
+	ok = ok || mapHas(b.subnets, id)
+	ok = ok || mapHas(b.keyPairs, id)
+	ok = ok || mapHas(b.volumes, id)
+	ok = ok || mapHas(b.addresses, id)
+	ok = ok || mapHas(b.internetGateways, id)
+	ok = ok || mapHas(b.routeTables, id)
+	ok = ok || mapHas(b.natGateways, id)
+	ok = ok || mapHas(b.networkInterfaces, id)
+	ok = ok || mapHas(b.spotRequests, id)
+	ok = ok || mapHas(b.placementGroups, id)
+	ok = ok || mapHas(b.spotFleets, id)
+
+	return ok
+}
+
+// resourceExistsImagesLocked checks AMIs, snapshots, launch templates, and
+// their import/export tasks.
+func (b *InMemoryBackend) resourceExistsImagesLocked(id string) bool {
+	ok := mapHas(b.images, id)
+	ok = ok || mapHas(b.imageUsageReports, id)
+	ok = ok || mapHas(b.snapshots, id)
+	ok = ok || mapHas(b.recycleBinSnapshots, id)
+	ok = ok || mapHas(b.launchTemplates, id)
+	ok = ok || mapHas(b.imageImportTasks, id)
+	ok = ok || mapHas(b.snapshotImportTasks, id)
+	ok = ok || mapHas(b.exportImageTasks, id)
+	ok = ok || mapHas(b.exportTasks, id)
+
+	return ok
+}
+
+// resourceExistsVpcAuxLocked checks VPC-adjacent networking resources
+// (endpoints, peering, ACLs, DHCP options, flow logs, prefix lists).
+func (b *InMemoryBackend) resourceExistsVpcAuxLocked(id string) bool {
+	ok := mapHas(b.networkACLs, id)
+	ok = ok || mapHas(b.dhcpOptionSets, id)
+	ok = ok || mapHas(b.egressOnlyIGWs, id)
+	ok = ok || mapHas(b.vpcPeeringConnections, id)
+	ok = ok || mapHas(b.vpcEndpoints, id)
+	ok = ok || mapHas(b.vpcEndpointServiceConfigs, id)
+	ok = ok || mapHas(b.managedPrefixLists, id)
+	ok = ok || mapHas(b.flowLogs, id)
+	ok = ok || mapHas(b.vpcBlockPublicAccessExclusions, id)
+	ok = ok || mapHas(b.instanceConnectEndpoints, id)
+	ok = ok || mapHas(b.carrierGateways, id)
+	ok = ok || mapHas(b.vpcEncryptionControls, id)
+
+	return ok
+}
+
+// resourceExistsGatewayLocked checks VPN/customer gateways, capacity
+// reservations/hosts, fleets, and reserved instances.
+func (b *InMemoryBackend) resourceExistsGatewayLocked(id string) bool {
+	ok := mapHas(b.vpnGateways, id)
+	ok = ok || mapHas(b.customerGateways, id)
+	ok = ok || mapHas(b.vpnConnections, id)
+	ok = ok || mapHas(b.vpnConcentrators, id)
+	ok = ok || mapHas(b.capacityReservations, id)
+	ok = ok || mapHas(b.capacityReservationFleets, id)
+	ok = ok || mapHas(b.capacityBlocks, id)
+	ok = ok || mapHas(b.capacityManagerDataExports, id)
+	ok = ok || mapHas(b.hostReservations, id)
+	ok = ok || mapHas(b.dedicatedHosts, id)
+	ok = ok || mapHas(b.fleets, id)
+	ok = ok || mapHas(b.reservedInstances, id)
+
+	return ok
+}
+
+// resourceExistsTGWLocked checks the transit-gateway resource family.
+func (b *InMemoryBackend) resourceExistsTGWLocked(id string) bool {
+	ok := mapHas(b.transitGateways, id)
+	ok = ok || mapHas(b.tgwRouteTables, id)
+	ok = ok || mapHas(b.tgwPolicyTables, id)
+	ok = ok || mapHas(b.tgwRouteTableAnnouncements, id)
+	ok = ok || mapHas(b.tgwMeteringPolicies, id)
+	ok = ok || mapHas(b.tgwMulticastDomains, id)
+	ok = ok || mapHas(b.tgwConnectPeers, id)
+	ok = ok || mapHas(b.tgwConnects, id)
+	ok = ok || mapHas(b.tgwVpcAttachments, id)
+	ok = ok || mapHas(b.tgwPeeringAttachments, id)
+
+	return ok
+}
+
+// resourceExistsLGWLocked checks the local-gateway resource family.
+func (b *InMemoryBackend) resourceExistsLGWLocked(id string) bool {
+	ok := mapHas(b.localGateways, id)
+	ok = ok || mapHas(b.localGatewayVirtualInterfaces, id)
+	ok = ok || mapHas(b.localGatewayVirtualInterfaceGroups, id)
+	ok = ok || mapHas(b.localGatewayRouteTables, id)
+	ok = ok || mapHas(b.localGatewayRouteTableVpcAssociations, id)
+	ok = ok || mapHas(b.localGatewayRouteTableVifGroupAssociations, id)
+
+	return ok
+}
+
+// resourceExistsIpamLocked checks the IPAM resource family.
+func (b *InMemoryBackend) resourceExistsIpamLocked(id string) bool {
+	ok := mapHas(b.ipams, id)
+	ok = ok || mapHas(b.ipamPools, id)
+	ok = ok || mapHas(b.ipamScopes, id)
+	ok = ok || mapHas(b.ipamResourceDiscoveries, id)
+	ok = ok || mapHas(b.ipamResourceDiscoveryAssocs, id)
+	ok = ok || mapHas(b.ipamVerificationTokens, id)
+	ok = ok || mapHas(b.ipamPolicies, id)
+	ok = ok || mapHas(b.ipamPrefixListResolvers, id)
+	ok = ok || mapHas(b.ipamPrefixListResolverTargets, id)
+	ok = ok || mapHas(b.ipv4Pools, id)
+	ok = ok || mapHas(b.ipv6Pools, id)
+	ok = ok || mapHas(b.coipPools, id)
+
+	return ok
+}
+
+// resourceExistsVerifiedAccessAndMirrorLocked checks Verified Access and
+// traffic-mirroring resources.
+func (b *InMemoryBackend) resourceExistsVerifiedAccessAndMirrorLocked(id string) bool {
+	ok := mapHas(b.verifiedAccessEndpoints, id)
+	ok = ok || mapHas(b.verifiedAccessGroups, id)
+	ok = ok || mapHas(b.verifiedAccessInstances, id)
+	ok = ok || mapHas(b.verifiedAccessTrustProviders, id)
+	ok = ok || mapHas(b.trafficMirrorFilters, id)
+	ok = ok || mapHas(b.trafficMirrorFilterRules, id)
+	ok = ok || mapHas(b.trafficMirrorSessions, id)
+	ok = ok || mapHas(b.trafficMirrorTargets, id)
+
+	return ok
+}
+
+// resourceExistsInsightsAndRouteServerLocked checks Network Insights, Route
+// Server, and Client VPN resources.
+func (b *InMemoryBackend) resourceExistsInsightsAndRouteServerLocked(id string) bool {
+	ok := mapHas(b.networkInsightsPaths, id)
+	ok = ok || mapHas(b.networkInsightsAnalyses, id)
+	ok = ok || mapHas(b.networkInsightsAccessScopes, id)
+	ok = ok || mapHas(b.networkInsightsAccessScopeAnalyses, id)
+	ok = ok || mapHas(b.routeServers, id)
+	ok = ok || mapHas(b.routeServerEndpoints, id)
+	ok = ok || mapHas(b.routeServerPeers, id)
+	ok = ok || mapHas(b.clientVpnEndpoints, id)
+
+	return ok
+}
+
+// resourceExistsSecondaryAndMiscLocked checks FPGA images, Mac modification
+// tasks, Outpost LAGs, instance event windows, declarative policy reports,
+// and secondary-networking resources.
+func (b *InMemoryBackend) resourceExistsSecondaryAndMiscLocked(id string) bool {
+	ok := mapHas(b.fpgaImages, id)
+	ok = ok || mapHas(b.macModificationTasks, id)
+	ok = ok || mapHas(b.outpostLags, id)
+	ok = ok || mapHas(b.instanceEventWindows, id)
+	ok = ok || mapHas(b.declarativePoliciesReports, id)
+	ok = ok || mapHas(b.secondaryNetworks, id)
+	ok = ok || mapHas(b.secondarySubnets, id)
+	ok = ok || mapHas(b.secondaryInterfaces, id)
+	ok = ok || mapHas(b.serviceLinkVirtualInterfaces, id)
+
+	return ok
+}
+
+// mapHas reports whether key is present in m. A tiny generic helper so the
+// resourceExists* helpers above read as a flat list of map checks instead of
+// repeated `if _, ok := m[k]; ok { return true }` blocks.
+func mapHas[V any](m map[string]V, key string) bool {
+	_, ok := m[key]
+
+	return ok
+}

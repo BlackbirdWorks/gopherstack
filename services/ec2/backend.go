@@ -55,6 +55,10 @@ var (
 	// ErrInvalidPaginationToken is returned when a NextToken is forged, tampered
 	// with, or otherwise fails HMAC verification.
 	ErrInvalidPaginationToken = errors.New("InvalidPaginationToken")
+	// ErrOperationNotPermitted is returned when an operation is blocked by an
+	// instance-level API protection attribute (disableApiTermination /
+	// disableApiStop), mirroring AWS's OperationNotPermitted error code.
+	ErrOperationNotPermitted = errors.New("OperationNotPermitted")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -109,33 +113,48 @@ var (
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
 type Instance struct {
-	LaunchTime                time.Time                         `json:"launchTime"`
-	TerminatedAt              time.Time                         `json:"terminatedAt"`
-	EventStartTimeOverrides   map[string]time.Time              `json:"eventStartTimeOverrides,omitempty"`
-	Placement                 InstancePlacement                 `json:"placement"`
-	CapacityReservationSpec   CapacityReservationSpec           `json:"capacityReservationSpecification"`
-	MaintenanceOptions        InstanceMaintenanceOptions        `json:"maintenanceOptions"`
-	CPUOptions                CPUOptions                        `json:"cpuOptions"`
-	MetadataOptionsState      string                            `json:"metadataOptionsState,omitempty"`
-	VPCID                     string                            `json:"vpcID,omitempty"`
-	ID                        string                            `json:"id,omitempty"`
-	PrivateIP                 string                            `json:"privateIP,omitempty"`
-	PublicIPAddress           string                            `json:"publicIPAddress,omitempty"`
-	SubnetID                  string                            `json:"subnetID,omitempty"`
-	UserData                  string                            `json:"userData,omitempty"`
-	SriovNetSupport           string                            `json:"sriovNetSupport,omitempty"`
-	ProviderID                string                            `json:"providerID,omitempty"`
-	PublicDNSName             string                            `json:"publicDNSName,omitempty"`
+	TerminatedAt            time.Time                  `json:"terminatedAt"`
+	LaunchTime              time.Time                  `json:"launchTime"`
+	EventStartTimeOverrides map[string]time.Time       `json:"eventStartTimeOverrides,omitempty"`
+	CapacityReservationSpec CapacityReservationSpec    `json:"capacityReservationSpecification"`
+	MaintenanceOptions      InstanceMaintenanceOptions `json:"maintenanceOptions"`
+	PublicDNSName           string                     `json:"publicDNSName,omitempty"`
+	MetadataOptionsTokens   string                     `json:"metadataOptionsTokens,omitempty"`
+	MetadataOptionsState    string                     `json:"metadataOptionsState,omitempty"`
+	VPCID                   string                     `json:"vpcID,omitempty"`
+	ID                      string                     `json:"id,omitempty"`
+	PrivateIP               string                     `json:"privateIP,omitempty"`
+	PublicIPAddress         string                     `json:"publicIPAddress,omitempty"`
+	SubnetID                string                     `json:"subnetID,omitempty"`
+	UserData                string                     `json:"userData,omitempty"`
+	SriovNetSupport         string                     `json:"sriovNetSupport,omitempty"`
+	ProviderID              string                     `json:"providerID,omitempty"`
+	// InstanceInitiatedShutdownBehavior is "stop" (default) or "terminate".
+	InstanceInitiatedShutdownBehavior string `json:"instanceInitiatedShutdownBehavior,omitempty"`
+	// NetworkPerformanceOptions carries the bandwidth-weighting mode.
 	NetworkPerformanceOptions InstanceNetworkPerformanceOptions `json:"networkPerformanceOptions"`
 	KeyName                   string                            `json:"keyName,omitempty"`
 	InstanceType              string                            `json:"instanceType,omitempty"`
-	MetadataOptionsTokens     string                            `json:"metadataOptionsTokens,omitempty"`
-	ImageID                   string                            `json:"imageID,omitempty"`
-	PrivateDNSNameOptions     PrivateDNSNameOptions             `json:"privateDnsNameOptions"`
-	State                     InstanceState                     `json:"state"`
-	SecurityGroups            []string                          `json:"securityGroups,omitempty"`
-	SSHPort                   int                               `json:"sshPort,omitempty"`
-	EnaSupport                bool                              `json:"enaSupport,omitempty"`
+	// StateTransitionReason mirrors AWS's legacy <reason> element (e.g.
+	// "User initiated (2016-05-...)").
+	StateTransitionReason string `json:"stateTransitionReason,omitempty"`
+	ImageID               string `json:"imageID,omitempty"`
+	// StateReasonCode/StateReasonMessage mirror AWS's <stateReason> element,
+	// populated on user-initiated stop/terminate and cleared on start.
+	StateReasonMessage    string                `json:"stateReasonMessage,omitempty"`
+	StateReasonCode       string                `json:"stateReasonCode,omitempty"`
+	Placement             InstancePlacement     `json:"placement"`
+	SecurityGroups        []string              `json:"securityGroups,omitempty"`
+	State                 InstanceState         `json:"state"`
+	PrivateDNSNameOptions PrivateDNSNameOptions `json:"privateDnsNameOptions"`
+	CPUOptions            CPUOptions            `json:"cpuOptions"`
+	SSHPort               int                   `json:"sshPort,omitempty"`
+	EnaSupport            bool                  `json:"enaSupport,omitempty"`
+	// DisableAPITermination / DisableAPIStop gate TerminateInstances /
+	// StopInstances respectively (ModifyInstanceAttribute-settable).
+	DisableAPITermination bool `json:"disableApiTermination,omitempty"`
+	DisableAPIStop        bool `json:"disableApiStop,omitempty"`
+	EBSOptimized          bool `json:"ebsOptimized,omitempty"`
 }
 
 // LaunchTemplate represents an EC2 launch template.
@@ -1137,12 +1156,24 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
 
+		if inst.DisableAPITermination {
+			return nil, fmt.Errorf(
+				"%w: the instance %s may not be terminated. "+
+					"Modify its 'disableApiTermination' instance attribute and try again",
+				ErrOperationNotPermitted, id)
+		}
+
 		prev := inst.State
 		// AWS state machine: any state → shutting-down → terminated (reconciler advances).
 		// Resource cleanup (ENIs, EIPs, volumes) happens immediately so callers
 		// do not observe dangling attachments, but state advances asynchronously.
 		inst.State = StateShuttingDown
 		inst.TerminatedAt = time.Now()
+		inst.StateReasonCode = "Client.UserInitiatedShutdown"
+		inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
+		inst.StateTransitionReason = fmt.Sprintf(
+			"User initiated (%s)", time.Now().UTC().Format("2006-01-02 15:04:05 GMT"),
+		)
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,
@@ -1572,31 +1603,9 @@ type TagEntry struct {
 	Value        string `json:"value,omitempty"`
 }
 
-// resourceTypeByID infers the EC2 resource type from the ID prefix.
-func resourceTypeByID(id string) string {
-	prefixes := []struct {
-		prefix string
-		rtype  string
-	}{
-		{"i-", "instance"},
-		{"sg-", "security-group"},
-		{"vpc-", resourceTypeVPC},
-		{"subnet-", "subnet"},
-		{"vol-", "volume"},
-		{"igw-", "internet-gateway"},
-		{"rtb-", "route-table"},
-		{"nat-", "natgateway"},
-		{"eipalloc-", "elastic-ip"},
-	}
-
-	for _, e := range prefixes {
-		if strings.HasPrefix(id, e.prefix) {
-			return e.rtype
-		}
-	}
-
-	return "resource"
-}
+// resourceTypeByID and resourceExistsLocked live in backend_resource_types.go
+// (split out: the full taggable-resource-type table is large and orthogonal
+// to the rest of this file).
 
 // recycleIPLocked adds ip to the free list if it is an auto-allocated
 // 172.31.x.y address and the free list has capacity remaining.
@@ -1636,64 +1645,6 @@ func (b *InMemoryBackend) detachVolumesAndEIPsLocked(instanceID string) {
 			addr.InstanceID = ""
 		}
 	}
-}
-
-// resourceExistsLocked reports whether id refers to any known EC2 resource.
-// Must be called with b.mu held.
-func (b *InMemoryBackend) resourceExistsLocked(id string) bool {
-	if _, ok := b.instances[id]; ok {
-		return true
-	}
-
-	if _, ok := b.securityGroups[id]; ok {
-		return true
-	}
-
-	if _, ok := b.vpcs[id]; ok {
-		return true
-	}
-
-	if _, ok := b.subnets[id]; ok {
-		return true
-	}
-
-	if _, ok := b.keyPairs[id]; ok {
-		return true
-	}
-
-	if _, ok := b.volumes[id]; ok {
-		return true
-	}
-
-	if _, ok := b.addresses[id]; ok {
-		return true
-	}
-
-	if _, ok := b.internetGateways[id]; ok {
-		return true
-	}
-
-	if _, ok := b.routeTables[id]; ok {
-		return true
-	}
-
-	if _, ok := b.natGateways[id]; ok {
-		return true
-	}
-
-	if _, ok := b.networkInterfaces[id]; ok {
-		return true
-	}
-
-	if _, ok := b.spotRequests[id]; ok {
-		return true
-	}
-
-	if _, ok := b.placementGroups[id]; ok {
-		return true
-	}
-
-	return false
 }
 
 // CreateTags adds or updates tags on one or more resources.
