@@ -95,7 +95,11 @@ func writeQueryError(c *echo.Context, code, message string, status int) error {
 
 	b, _ := xml.Marshal(resp)
 
-	return c.XMLBlob(status, append([]byte(xml.Header), b...))
+	// c.XMLBlob already writes the XML declaration ("<?xml version=... ?>")
+	// before the blob; prepending xml.Header here as well produced a
+	// malformed document with two XML prologs (see marshalXML for the full
+	// explanation of this bug class).
+	return c.XMLBlob(status, b)
 }
 
 // buildQueryError builds a queryError from a backend error.
@@ -114,10 +118,13 @@ func buildQueryError(err error) *queryError {
 		},
 	}
 
+	// Not xml.Header-prefixed here: the caller (handleQueryProtocol) always
+	// delivers queryError.xml via c.XMLBlob, which itself writes the XML
+	// declaration. See marshalXML's doc comment for why double-prepending
+	// produced a malformed (two-prolog) XML document.
 	b, _ := xml.Marshal(resp)
-	xmlBytes := append([]byte(xml.Header), b...)
 
-	return &queryError{xml: xmlBytes, status: status}
+	return &queryError{xml: b, status: status}
 }
 
 // queryErrorDetails returns the Query-protocol error code, message, and HTTP status for err.
@@ -133,14 +140,18 @@ func queryErrorDetails(err error) (string, string, int) {
 	return errorDetails(err)
 }
 
-// marshalXML marshals v to XML bytes with the XML header prepended.
+// marshalXML marshals v to XML bytes. It intentionally does NOT prepend the
+// XML declaration ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"): every
+// caller in this file hands the result to echo's c.XMLBlob, which already
+// writes that declaration itself before the blob (see
+// echo/v5.Context.XMLBlob). Prepending it here too — as this function
+// previously did — produced a response body with TWO XML prologs, which is
+// not well-formed XML (a second "<?xml ...?>" processing instruction is only
+// legal at byte offset 0 of a document) and could be rejected outright by
+// strict XML parsers in non-Go AWS SDKs even though Go's own encoding/xml
+// tolerates it.
 func marshalXML(v any) ([]byte, error) {
-	b, err := xml.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-
-	return append([]byte(xml.Header), b...), nil
+	return xml.Marshal(v)
 }
 
 // queueURLEndpoint returns the endpoint to use for queue URL construction.
@@ -623,7 +634,7 @@ func (h *Handler) querySendMessage(vals url.Values, r *http.Request, region stri
 func (h *Handler) queryReceiveMessage(vals url.Values, region string) ([]byte, int, *queryError) {
 	maxMsgs, _ := strconv.Atoi(vals.Get("MaxNumberOfMessages"))
 	waitSecs, _ := strconv.Atoi(vals.Get("WaitTimeSeconds"))
-	vt := noVisibilitySet
+	vt := NoVisibilityTimeout
 
 	if vtStr := vals.Get("VisibilityTimeout"); vtStr != "" {
 		if n, err := strconv.Atoi(vtStr); err == nil {

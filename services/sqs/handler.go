@@ -737,7 +737,7 @@ func (h *Handler) handleReceiveMessage(
 		return nil, ErrUnknownAction
 	}
 
-	vt := noVisibilitySet
+	vt := NoVisibilityTimeout
 	if req.VisibilityTimeout != nil {
 		v := *req.VisibilityTimeout
 		if v < 0 || v > maxVisibilityTimeoutSeconds {

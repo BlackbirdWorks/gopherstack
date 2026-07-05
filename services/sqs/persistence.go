@@ -20,8 +20,17 @@ type queueSnapshot struct {
 	Region              string                           `json:"region,omitempty"`
 	Messages            []*Message                       `json:"messages"`
 	InFlightMessages    []*InFlightMessage               `json:"inFlightMessages"`
-	MaxReceiveCount     int                              `json:"maxReceiveCount"`
-	IsFIFO              bool                             `json:"isFIFO"`
+	// FifoSeqCounter is the last-issued FIFO SequenceNumber counter. Persisting
+	// it prevents newly sent messages after a restore from reusing (or
+	// regressing behind) sequence numbers already handed out to consumers
+	// before the snapshot was taken.
+	FifoSeqCounter uint64 `json:"fifoSeqCounter,omitempty"`
+	// LastPurgedAtUnixMilli persists the PurgeQueue cooldown deadline so a
+	// restore immediately followed by a PurgeQueue call still honours AWS's
+	// 60-second between-purge cooldown instead of resetting it to zero.
+	LastPurgedAtUnixMilli int64 `json:"lastPurgedAtUnixMilli,omitempty"`
+	MaxReceiveCount       int   `json:"maxReceiveCount"`
+	IsFIFO                bool  `json:"isFIFO"`
 }
 
 // moveTaskSnapshot captures the serialisable state of a completed/cancelled/failed move task.
@@ -53,19 +62,29 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	queues := make(map[string]*queueSnapshot, len(b.queues))
 	for k, q := range b.queues {
+		q.mu.Lock()
+		var lastPurgedAtMillis int64
+		if !q.lastPurgedAt.IsZero() {
+			lastPurgedAtMillis = q.lastPurgedAt.UnixMilli()
+		}
+		fifoSeqCounter := q.fifoSeqCounter
+		q.mu.Unlock()
+
 		queues[k] = &queueSnapshot{
-			DeduplicationIDs:    q.DeduplicationIDs,
-			Attributes:          q.Attributes,
-			Tags:                q.Tags,
-			Permissions:         q.Permissions,
-			Messages:            q.messages,
-			InFlightMessages:    q.inFlightMessages,
-			DeduplicationMsgIDs: q.deduplicationMsgIDs,
-			Name:                q.Name,
-			URL:                 q.URL,
-			Region:              q.Region,
-			MaxReceiveCount:     q.MaxReceiveCount,
-			IsFIFO:              q.IsFIFO,
+			DeduplicationIDs:      q.DeduplicationIDs,
+			Attributes:            q.Attributes,
+			Tags:                  q.Tags,
+			Permissions:           q.Permissions,
+			Messages:              q.messages,
+			InFlightMessages:      q.inFlightMessages,
+			DeduplicationMsgIDs:   q.deduplicationMsgIDs,
+			Name:                  q.Name,
+			URL:                   q.URL,
+			Region:                q.Region,
+			MaxReceiveCount:       q.MaxReceiveCount,
+			IsFIFO:                q.IsFIFO,
+			FifoSeqCounter:        fifoSeqCounter,
+			LastPurgedAtUnixMilli: lastPurgedAtMillis,
 		}
 	}
 
@@ -207,7 +226,12 @@ func restoreQueueFromSnapshot(qs *queueSnapshot, region string) *Queue {
 		}
 	}
 
-	return &Queue{
+	var lastPurgedAt time.Time
+	if qs.LastPurgedAtUnixMilli != 0 {
+		lastPurgedAt = time.UnixMilli(qs.LastPurgedAtUnixMilli)
+	}
+
+	q := &Queue{
 		DeduplicationIDs:    qs.DeduplicationIDs,
 		Attributes:          qs.Attributes,
 		Tags:                qs.Tags,
@@ -223,7 +247,21 @@ func restoreQueueFromSnapshot(qs *queueSnapshot, region string) *Queue {
 		IsFIFO:              qs.IsFIFO,
 		notify:              make(chan struct{}),
 		delayedCount:        delayedCount,
+		fifoSeqCounter:      qs.FifoSeqCounter,
+		lastPurgedAt:        lastPurgedAt,
 	}
+
+	// The background janitor (pruneState) skips non-FIFO queues whose
+	// hasActivity flag is false to avoid scanning idle queues (#59 follow-on).
+	// A restored queue with pending visible/in-flight messages must be marked
+	// active so retention expiry and visibility-timeout requeue resume without
+	// waiting for a new SendMessage to flip the flag — otherwise those
+	// messages are stuck until the next producer write to that specific queue.
+	if len(qs.Messages) > 0 || len(qs.InFlightMessages) > 0 {
+		q.hasActivity.Store(true)
+	}
+
+	return q
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

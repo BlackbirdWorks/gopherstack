@@ -1,0 +1,131 @@
+---
+service: sqs
+sdk_module: aws-sdk-go-v2/service/sqs@v1.44.2
+last_audit_commit: 58e50f3a
+last_audit_date: 2026-07-05
+overall: A
+# Per-op or per-op-family status. Values: ok | partial | gap | deferred.
+# wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
+ops:
+  CreateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent-on-existing-config check via isConfigurableQueueAttribute; RedrivePolicy applied inline so denyAll/byQueue RedriveAllowPolicy is now enforced at create time too (see families.dlq_redrive)"}
+  DeleteQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "closes q.notify (wakes long-pollers with QueueDoesNotExist), closes tag store, cancels involved move tasks"}
+  ListQueues: {wire: ok, errors: ok, state: ok, persist: n/a, note: "region-scoped, prefix filter, pkgs/page pagination"}
+  GetQueueUrl: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetQueueAttributes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "dynamic attrs (ApproximateNumberOfMessages/NotVisible/Delayed) computed live from q.delayedCount + slice lens under q.mu"}
+  SetQueueAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "FifoQueue immutable; full range validation (VisibilityTimeout/DelaySeconds/MessageRetentionPeriod/MaximumMessageSize/KmsDataKeyReusePeriodSeconds/FIFO enum attrs/RedriveAllowPolicy shape); RedriveAllowPolicy enforcement added this pass"}
+  SendMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "MD5OfBody + MD5OfMessageAttributes + MD5OfMessageSystemAttributes all correct AWS byte-packing algorithm; FIFO validated (MessageGroupId required, no per-message DelaySeconds, dedup ID required unless content-based); delay/queue-default resolution correct"}
+  ReceiveMessage: {wire: ok, errors: partial->ok, state: partial->ok, persist: n/a, note: "fixed this pass: (1) VisibilityTimeout range was validated only in the JSON handler, not centrally — Query protocol silently accepted out-of-range values; (2) re-queued (visibility-expired or explicitly zeroed) FIFO messages were appended to the tail of the pending list instead of reinserted by SequenceNumber, letting a newer same-group message jump ahead — see families.fifo_ordering"}
+  DeleteMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "O(1) via inFlightByHandle (#56)"}
+  ChangeMessageVisibility: {wire: ok, errors: ok, state: partial->ok, persist: ok, note: "0-timeout re-queue had the same FIFO tail-append ordering bug as ReceiveMessage's janitor sweep; both now go through the shared requeueMessage helper"}
+  SendMessageBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "per-entry BatchResultErrorEntry, 10-entry cap, BatchRequestTooLong on combined-size overflow, order preserved"}
+  DeleteMessageBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "batch-level QueueDoesNotExist, per-entry delegates to DeleteMessage"}
+  ChangeMessageVisibilityBatch: {wire: ok, errors: ok, state: ok, persist: ok}
+  PurgeQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "60s cooldown enforced (PurgeQueueInProgress); FIFO dedup state reset on purge"}
+  TagQueue/UntagQueue/ListQueueTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed"}
+  ListDeadLetterSourceQueues: {wire: ok, errors: ok, state: ok, persist: n/a}
+  AddPermission/RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "rebuilds an IAM policy doc into Attributes[Policy], deterministic (sorted labels)"}
+  StartMessageMoveTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "RUNNING tasks are correctly NOT persisted (goroutine can't resume); default-destination lookup via RedrivePolicy scan; rate-limited via ticker; TOCTOU-safe under b.mu"}
+  CancelMessageMoveTask: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListMessageMoveTasks: {wire: ok, errors: ok, state: ok, persist: ok, note: "TaskHandle only populated for RUNNING (AWS behavior); MaxResults default 1 / cap 10; newest-first"}
+families:
+  message_attribute_md5: {status: ok, note: "computeMD5OfMessageAttributes matches the AWS wire algorithm exactly: sorted names, 4-byte-BE-length-prefixed name/dataType/value, 1-byte transport type (1=String|Number, 2=Binary); subset-MD5 on filtered receive re-hashes only when the returned set is a strict subset, reuses the send-time digest otherwise"}
+  fifo_dedup: {status: ok, note: "explicit MessageDeduplicationId vs ContentBasedDeduplication (SHA-256 of body, NOT MD5) correctly mutually validated; 5-minute window; DeduplicationScope=queue|messageGroup key scoping; bounded map (100k) with oldest-expiry eviction + janitor sweep"}
+  fifo_ordering: {status: ok, note: "fixed this pass (see ReceiveMessage/ChangeMessageVisibility above): requeueMessage now reinserts by SequenceNumber (fixed-width zero-padded decimal, so lexicographic sort == numeric sort) instead of appending to the tail, preserving strict per-MessageGroupId ordering across visibility resets. Confirmed correct behavior (not a bug): only one message per group may be in-flight at a time — this matches real AWS FIFO semantics, not an over-restriction"}
+  fifo_throughput_limit: {status: partial, note: "perMessageGroupId (300 TPS/group) enforced via checkFIFOPerGroupRateLimit; perQueue (the AWS default, ~3000/300 TPS) has no limiter at all — see gaps"}
+  visibility_timeout_and_inflight: {status: ok, note: "12h (43200s) max validated on both ChangeMessageVisibility and now ReceiveMessage (backend-level, was JSON-only before this pass); in-flight caps 120k standard / 20k FIFO -> OverLimit; sweepInFlight/pickVisibleMessages single-pass janitor+receive-path cleanup"}
+  dlq_redrive: {status: partial->ok, note: "fixed this pass: RedriveAllowPolicy (allowAll/denyAll/byQueue+sourceQueueArns) was shape-validated by validateRedriveAllowPolicy but never enforced — any source queue could point RedrivePolicy at any DLQ regardless of the DLQ's declared permission. checkRedriveAllowPolicy now enforces it in applyRedrivePolicy (shared by CreateQueue/SetQueueAttributes/Restore). maxReceiveCount routing (tryRouteToDLQ), DLQ must be same region + same FIFO-ness, StartMessageMoveTask default-destination-by-RedrivePolicy all verified correct"}
+  delay_queues: {status: ok, note: "queue-level DelaySeconds + per-message DelaySeconds (message wins), FIFO rejects per-message delay, delayedCount maintained incrementally for O(1) GetQueueAttributes"}
+  long_polling: {status: ok, note: "broadcast notify-channel-close-and-replace pattern wakes all waiters on send or 0-timeout visibility reset; 1s recheck interval catches janitor-driven requeues without a new SendMessage"}
+  receive_request_attempt_id: {status: ok, note: "5-minute exactly-once-retry cache keyed by ReceiveRequestAttemptId, pruned alongside dedup IDs"}
+  error_codes: {status: ok, note: "Query protocol correctly uses legacy codes (AWS.SimpleQueueService.NonExistentQueue, AWS.SimpleQueueService.PurgeQueueInProgress, etc.) vs JSON protocol's com.amazonaws.sqs# namespaced codes; queryErrorDetails/errorDetails share the JSON table for everything except QueueDoesNotExist's legacy override"}
+  persistence: {status: partial->ok, note: "fixed this pass: (1) hasActivity (janitor skip-idle-queue flag) was never restored, so a restored non-FIFO queue with pending messages was silently invisible to the background janitor until an unrelated SendMessage touched it again; (2) fifoSeqCounter was not persisted, so SequenceNumber could regress/duplicate for a FIFO queue that already had messages sent before a snapshot/restore; (3) lastPurgedAt (PurgeQueue 60s cooldown) was not persisted, resetting the cooldown on every restart"}
+gaps:
+  - "FifoThroughputLimit=perQueue (AWS default) is not rate-limited at all; only perMessageGroupId is. (bd: gopherstack-qgh)"
+  - "sns_delivery.go's internal SendMessage calls for SNS->SQS fan-out and DLQ redirect never pass a Region, so a subscribed queue in a non-default region is unreachable via SNS delivery. (bd: gopherstack-qgh)"
+  - "KMS SSE (SqsManagedSseEnabled/KmsMasterKeyId/KmsDataKeyReusePeriodSeconds) are accepted, range/shape-validated, and round-trip through GetQueueAttributes, but no actual encryption is modeled (expected for this class of emulator; would require cross-service KMS integration — out of scope for services/sqs/)."
+deferred:
+  - "SDK-driven integration tests (test/integration/*_parity_test.go) were not run this pass — per parity-principles.md, unit tests are not full parity proof. Recommend a follow-up integration-suite pass."
+leaks: {status: clean, note: "fixed this pass: restoreQueueFromSnapshot now seeds hasActivity so the background janitor doesn't silently ignore restored queues forever (previously an unbounded-lifetime leak of retention-expired/DLQ-eligible messages on any queue restored with pending state and no subsequent SendMessage). Verified clean (pre-existing, unchanged): janitor ticker + StartMessageMoveTask goroutines are ctx-scoped and cancelled on Close/DeleteQueue/queue-involved-in-task; dedup maps are bounded (100k) with eviction; receiveAttempts/fifoSendTimes pruned each janitor tick; long-poll goroutines exit via the recheck-interval timer or notify-channel close, no goroutine leak on DeleteQueue mid-poll (input queue lookup re-checked each loop iteration)."}
+---
+
+## Notes
+
+### Protocol
+SQS implements **both** protocols side by side, dispatched in `handler.go`'s
+`Handler()`/`RouteMatcher()`:
+- **Query (XML) protocol**: `Content-Type: application/x-www-form-urlencoded` POST with an
+  `Action=` form field (query.go). Legacy AWS.SimpleQueueService.* error codes.
+- **JSON protocol** (`application/x-amz-json-1.1`, `X-Amz-Target: AmazonSQS.<Action>`):
+  handler.go. `com.amazonaws.sqs#`-namespaced error codes (JSON `__type` field).
+
+**Trap fixed this pass**: every Query-protocol response handler built its XML via
+`marshalXML`, which prepended `xml.Header`, and then handed the bytes to echo's
+`c.XMLBlob` — which **also** writes `xml.Header` before the blob. Every single
+Query-protocol response (success AND error paths) therefore had **two** `<?xml ...?>`
+prologs, which is not well-formed XML (a second XML declaration is a reserved/invalid
+processing instruction anywhere but byte offset 0). Go's `encoding/xml` silently
+tolerates it (which is why `xml.Unmarshal`-based tests never caught it), but a strict
+XML parser in a non-Go AWS SDK could reject the response outright. Fixed by removing
+the manual prepend from `marshalXML`, `writeQueryError`, and `buildQueryError` — the
+declaration is written exactly once, by `c.XMLBlob`. See
+`TestQueryProtocol_SingleXMLDeclaration`.
+
+### MD5 algorithms (both SQS-specific, do not use general-purpose hashing intuition)
+- `MD5OfBody` / `MD5OfMessageAttributes` / `MD5OfMessageSystemAttributes`: plain MD5 of
+  the body, and MD5 of the AWS wire-packed attribute encoding (sorted attr names, each
+  encoded as 4-byte-BE-length name + 4-byte-BE-length dataType + 1-byte transport type
+  (1=String/Number, 2=Binary) + 4-byte-BE-length value). This is a documented AWS
+  wire-integrity checksum, not a security hash — do not "fix" it to SHA-256.
+- FIFO **ContentBasedDeduplication** uses **SHA-256** of the message body, NOT MD5 —
+  a different algorithm for a different purpose (dedup identity vs wire checksum). Easy
+  to conflate; `computeSHA256` is deliberately a separate function from
+  `computeBodyChecksumMD5`.
+- `MD5OfMessageAttributes` on `ReceiveMessage` must be recomputed over exactly the
+  *returned* attribute subset when the caller's `MessageAttributeNames` filters out some
+  attributes — reusing the send-time digest for a filtered receive would fail SDK-side
+  checksum verification. `computeMD5OfSubset` handles this using pre-encoded
+  per-attribute byte caches (`msg.encodedAttrs`) so repeated filtered receives don't
+  re-sort/re-encode every attribute each time.
+
+### FIFO ordering / visibility timers (the class of bug this pass focused on)
+- Only **one message per MessageGroupId may be in-flight at a time** in this backend —
+  confirmed this is *correct*, not an over-restriction: real AWS FIFO queues block
+  further delivery from a group until the earlier message is deleted or its visibility
+  expires, to guarantee a single consumer sees strict order. Do not "fix" this into
+  allowing N-in-flight-per-group.
+- Sends are **never** blocked by an in-flight predecessor in the same group — only
+  *receives* are. This means a newer message can be sitting in `q.messages` behind an
+  older, currently-in-flight message from the same group. When that older message is
+  returned to the visible pool (via `ChangeMessageVisibility(0)` or automatic
+  visibility-timeout expiry in the janitor's `sweepInFlight`), it **must** be reinserted
+  ahead of the newer one, not appended to the tail — `requeueMessage` does a
+  `sort.Search`-based insert by `SequenceNumber` (a fixed-width zero-padded decimal
+  string, so lexicographic compare == numeric compare) to restore this invariant.
+  `q.messages` is otherwise naturally kept in ascending SequenceNumber order because
+  `SendMessage` only ever appends and `pickVisibleMessages` compacts in place without
+  reordering.
+- `ReceiveMessageInput.VisibilityTimeout` is a plain `int`, not `*int` — AWS's own
+  `aws-sdk-go-v2` model uses `*int32` specifically to distinguish "caller didn't specify
+  a value" from "caller explicitly wants 0". This codebase uses a sentinel instead
+  (`NoVisibilityTimeout = -1`, exported this pass — it was `noVisibilitySet`,
+  unexported, forcing external test code to hardcode the literal `-1`). **Any direct
+  Go-level caller of `InMemoryBackend.ReceiveMessage` (tests, or a future cross-service
+  integration) that leaves `VisibilityTimeout` unset gets an explicit 0-second
+  visibility timeout, NOT the queue's configured default** — the Go zero value
+  collides with a legitimate explicit value. The JSON handler (`*int`, nil-checked) and
+  Query-protocol parser (empty-string-checked) both correctly translate "field absent"
+  to `NoVisibilityTimeout` before calling the backend; anything bypassing those two
+  front ends must do the same explicitly. This is documented on the field's/sentinel's
+  doc comment in `types.go` but is still a live footgun for future Go-level callers —
+  worth reconsidering a `*int` refactor in a future pass if a real cross-service caller
+  ever needs this API directly (none exist today; verified via repo-wide grep).
+
+### Locking
+`InMemoryBackend` uses one coarse `lockmetrics.RWMutex` (`b.mu`) guarding the top-level
+`queues`/`moveTasks` maps, PLUS a per-`Queue` `sync.Mutex` (`q.mu`) guarding that queue's
+own message/dedup/in-flight state (introduced in an earlier pass, tagged `#55` in
+comments, to avoid one hot queue blocking all others). The established lock order is
+always `b.mu` (RLock to resolve/look up the queue) **then** `q.mu` — never the reverse;
+several functions (e.g. `GetQueueAttributes`, `Snapshot`) legitimately nest `q.mu.Lock()`
+inside an `b.mu.RLock()` critical section. Do not add a call path that acquires `q.mu`
+first and `b.mu` afterward.

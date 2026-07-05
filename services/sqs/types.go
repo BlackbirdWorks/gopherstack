@@ -22,7 +22,23 @@ const (
 	deduplicationWindowSecs       = 300
 
 	maxParseIterations = 20
-	noVisibilitySet    = -1
+)
+
+// NoVisibilityTimeout is the sentinel value for [ReceiveMessageInput.VisibilityTimeout]
+// meaning "the caller did not specify a VisibilityTimeout" — the queue's own
+// VisibilityTimeout attribute should be used instead. This is exported (rather
+// than relying on the Go zero value) because 0 is itself a legitimate,
+// AWS-documented VisibilityTimeout value (make the message immediately
+// visible to other consumers again), so the struct's int zero value cannot
+// double as "unspecified" without silently truncating every unset caller's
+// intended default visibility window down to zero. Any Go-level caller of
+// InMemoryBackend.ReceiveMessage that wants the queue's configured default —
+// including cross-service integrations and tests — must set
+// VisibilityTimeout: sqs.NoVisibilityTimeout explicitly; leaving the field at
+// its Go zero value requests an explicit 0-second visibility timeout instead.
+const NoVisibilityTimeout = -1
+
+const (
 
 	// msgAttrTransportTypeString is the SQS wire-format byte for String/Number message attributes.
 	msgAttrTransportTypeString byte = 1

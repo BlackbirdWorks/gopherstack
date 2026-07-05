@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -419,6 +420,15 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 		}
 	}
 
+	if allowErr := checkRedriveAllowPolicy(dlq, q.Attributes[attrQueueArn]); allowErr != nil {
+		return &InvalidParameterError{
+			Message: fmt.Sprintf(
+				"Value %v for parameter RedrivePolicy is invalid. Reason: %s",
+				raw, allowErr.Error(),
+			),
+		}
+	}
+
 	q.MaxReceiveCount = int(count)
 	q.dlq = dlq
 
@@ -435,6 +445,69 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 	q.mu.Unlock()
 
 	return nil
+}
+
+// errRedriveDeniedAll / errRedriveDeniedByQueue are the reasons surfaced when a
+// source queue's RedrivePolicy is rejected by the dead-letter target's
+// RedriveAllowPolicy attribute.
+var (
+	errRedriveDeniedAll = errors.New(
+		"redrive permission is denied because the dead-letter target queue's RedriveAllowPolicy" +
+			" has redrivePermission set to denyAll",
+	)
+	errRedriveDeniedByQueue = errors.New(
+		"redrive permission is denied because this queue's ARN is not listed in the dead-letter" +
+			" target queue's RedriveAllowPolicy sourceQueueArns",
+	)
+)
+
+// checkRedriveAllowPolicy enforces the dead-letter target queue's
+// RedriveAllowPolicy attribute against the source queue attempting to point its
+// RedrivePolicy at it. AWS lets a DLQ restrict which source queues may redrive
+// into it via three redrivePermission values:
+//
+//   - allowAll (default when the attribute is absent/empty): any source queue may use it.
+//   - denyAll: no source queue may use it.
+//   - byQueue: only source queues whose ARN appears in sourceQueueArns may use it.
+//
+// Without this check, RedriveAllowPolicy is accepted and shape-validated by
+// validateRedriveAllowPolicy but never actually constrains anything — a
+// disguised stub. srcArn is the ARN of the queue whose RedrivePolicy is being
+// applied (the would-be source/DLQ-user), dlq is the dead-letter target.
+func checkRedriveAllowPolicy(dlq *Queue, srcArn string) error {
+	raw, ok := dlq.Attributes[attrRedriveAllowPolicy]
+	if !ok || raw == "" {
+		return nil
+	}
+
+	var policy struct {
+		RedrivePermission string   `json:"redrivePermission"`
+		SourceQueueArns   []string `json:"sourceQueueArns"`
+	}
+
+	// Malformed policies are rejected at SetQueueAttributes time by
+	// validateRedriveAllowPolicy, so a parse failure here means the DLQ was
+	// never left with a malformed value; treat it permissively rather than
+	// blocking on a defensive parse error.
+	//nolint:nilerr // intentional fail-open on a defensive parse error, see comment above
+	if json.Unmarshal([]byte(raw), &policy) != nil {
+		return nil
+	}
+
+	switch policy.RedrivePermission {
+	case "", "allowAll":
+		return nil
+	case "denyAll":
+		return errRedriveDeniedAll
+	case "byQueue":
+		if slices.Contains(policy.SourceQueueArns, srcArn) {
+			return nil
+		}
+
+		return errRedriveDeniedByQueue
+	default:
+		return nil
+	}
 }
 
 // computeBodyChecksumMD5 returns the hex-encoded MD5 digest of a message body for the
@@ -1462,6 +1535,21 @@ func validateReceiveInput(input *ReceiveMessageInput) error {
 		return ErrInvalidMaxMessages
 	}
 
+	// Validate VisibilityTimeout range here — centrally, in the backend — so
+	// every caller gets the same AWS-accurate rejection regardless of which
+	// protocol front-end is in use. Previously only the JSON handler
+	// (handleReceiveMessage) checked this range; the Query (XML) protocol
+	// path parsed the parameter and passed it straight through unchecked, so
+	// an out-of-range VisibilityTimeout sent over the legacy Query API
+	// silently produced a message that would effectively never become
+	// visible again instead of the AWS InvalidParameterValue error.
+	// NoVisibilityTimeout (-1) is the "unspecified, use the queue's default"
+	// sentinel and is exempt from range checking.
+	if input.VisibilityTimeout != NoVisibilityTimeout &&
+		(input.VisibilityTimeout < 0 || input.VisibilityTimeout > maxVisibilityTimeoutSeconds) {
+		return ErrInvalidVisibilityTimeout
+	}
+
 	return nil
 }
 
@@ -1677,6 +1765,41 @@ func buildBlockedGroups(inflight []*InFlightMessage) map[string]bool {
 // re-queues visibility-expired entries. Pass 2 sweeps q.messages (including
 // newly re-queued ones): discards retention-expired, drains to DLQ, picks up
 // to maxMessages visible messages. maxMessages=0 performs cleanup only.
+// requeueMessage returns msg to the pending queue after its visibility timeout
+// is reset — either explicitly via ChangeMessageVisibility(0) or implicitly
+// via expiry in sweepInFlight. Caller must hold q.mu.
+//
+// For FIFO queues this must NOT simply append to the end of q.messages: a
+// message can be sent to a group while an earlier message from that SAME
+// group is in flight (in-flight messages block further delivery but not
+// further sends). If the earlier message is later reset/expired and appended
+// to the tail, it would land behind the newer same-group message already
+// sitting in q.messages, and the next receive would hand out the newer
+// message first — violating AWS's strict per-message-group ordering
+// guarantee. Reinserting by SequenceNumber restores the correct position.
+// q.messages is otherwise kept in ascending SequenceNumber order (SendMessage
+// only ever appends in send order, and pickVisibleMessages compacts in place
+// without reordering), and SequenceNumber is a fixed-width zero-padded
+// decimal string, so lexicographic comparison matches numeric order.
+//
+// Standard queues have no AWS ordering guarantee, so they take the O(1)
+// append path unconditionally.
+func requeueMessage(q *Queue, msg *Message) {
+	if !q.IsFIFO {
+		q.messages = append(q.messages, msg)
+
+		return
+	}
+
+	idx := sort.Search(len(q.messages), func(i int) bool {
+		return q.messages[i].SequenceNumber > msg.SequenceNumber
+	})
+
+	q.messages = append(q.messages, nil)
+	copy(q.messages[idx+1:], q.messages[idx:])
+	q.messages[idx] = msg
+}
+
 // sweepInFlight processes q.inFlightMessages: discards retention-expired entries and
 // re-queues visibility-expired entries back onto q.messages. Caller must hold q.mu.
 func sweepInFlight(q *Queue, cutoff, now time.Time) {
@@ -1694,7 +1817,7 @@ func sweepInFlight(q *Queue, cutoff, now time.Time) {
 		if now.After(inf.VisibleAt) {
 			delete(q.inFlightByHandle, inf.ReceiptHandle)
 			if !tryRouteToDLQ(q, inf.Msg, now) {
-				q.messages = append(q.messages, inf.Msg)
+				requeueMessage(q, inf.Msg)
 			}
 			changed = true
 
@@ -1922,7 +2045,7 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 		now := time.Now()
 		inf.Msg.VisibleAt = now
 		if !tryRouteToDLQ(q, inf.Msg, now) {
-			q.messages = append(q.messages, inf.Msg)
+			requeueMessage(q, inf.Msg)
 		}
 		delete(q.inFlightByHandle, receiptHandle)
 
@@ -2481,7 +2604,7 @@ func (b *InMemoryBackend) ReceiveMessagesLocal(
 		QueueURL:            queueURL,
 		MaxNumberOfMessages: maxMessages,
 		WaitTimeSeconds:     0,
-		VisibilityTimeout:   noVisibilitySet,
+		VisibilityTimeout:   NoVisibilityTimeout,
 	})
 	if err != nil {
 		return nil, err

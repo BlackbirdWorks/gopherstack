@@ -1,6 +1,7 @@
 package sqs_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -81,6 +82,120 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 					Label:    label,
 				})
 				require.NoError(t, removeErr)
+			},
+		},
+		{
+			name: "fifo_sequence_number_persists_across_restore",
+			setup: func(b *sqs.InMemoryBackend) string {
+				out, err := b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "seq-fifo.fifo",
+					Endpoint:  "localhost",
+					Attributes: map[string]string{
+						"FifoQueue":                 "true",
+						"ContentBasedDeduplication": "true",
+					},
+				})
+				if err != nil {
+					return ""
+				}
+
+				// Send several messages, each in its own MessageGroupID, so the FIFO
+				// sequence counter advances well past its zero value before the
+				// snapshot is taken. Distinct groups let a single ReceiveMessage
+				// call in verify() drain all of them at once (this backend only
+				// allows one in-flight message per group at a time).
+				const sendCount = 5
+				for i := range sendCount {
+					if _, sendErr := b.SendMessage(&sqs.SendMessageInput{
+						QueueURL:       out.QueueURL,
+						MessageBody:    fmt.Sprintf("body-%d", i),
+						MessageGroupID: fmt.Sprintf("group-%d", i),
+					}); sendErr != nil {
+						return ""
+					}
+				}
+
+				return out.QueueURL
+			},
+			verify: func(t *testing.T, b *sqs.InMemoryBackend, queueURL string) {
+				t.Helper()
+				require.NotEmpty(t, queueURL)
+
+				// Drain the 5 pre-restore messages so only the post-restore send's
+				// SequenceNumber remains to inspect.
+				drainOut, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+					QueueURL:            queueURL,
+					MaxNumberOfMessages: 10,
+				})
+				require.NoError(t, err)
+				require.Len(t, drainOut.Messages, 5, "all 5 pre-restore messages should survive the round trip")
+
+				var lastSeq string
+				for _, m := range drainOut.Messages {
+					if m.SequenceNumber > lastSeq {
+						lastSeq = m.SequenceNumber
+					}
+				}
+
+				// If the FIFO sequence counter were reset to zero by Restore (the
+				// bug), this new message's SequenceNumber would regress behind (or
+				// duplicate) the ones already handed out above, breaking the AWS
+				// guarantee that SequenceNumber strictly increases per queue.
+				sendOut, err := b.SendMessage(&sqs.SendMessageInput{
+					QueueURL:       queueURL,
+					MessageBody:    "post-restore",
+					MessageGroupID: "group-a",
+				})
+				require.NoError(t, err)
+				assert.Greater(t, sendOut.SequenceNumber, lastSeq,
+					"SequenceNumber must keep increasing across a snapshot/restore round trip")
+			},
+		},
+		{
+			name: "restored_queue_janitor_prunes_retention_expired_message",
+			setup: func(b *sqs.InMemoryBackend) string {
+				out, err := b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "restore-janitor-queue",
+					Endpoint:  "localhost",
+				})
+				if err != nil {
+					return ""
+				}
+
+				if _, sendErr := b.SendMessage(&sqs.SendMessageInput{
+					QueueURL:    out.QueueURL,
+					MessageBody: "expire-me",
+				}); sendErr != nil {
+					return ""
+				}
+
+				// Shorten retention so the message is already expired by the time
+				// the janitor next runs (simulated below via a future `now`).
+				b.SetRetentionForTest(out.QueueURL, 1)
+
+				return out.QueueURL
+			},
+			verify: func(t *testing.T, b *sqs.InMemoryBackend, queueURL string) {
+				t.Helper()
+				require.NotEmpty(t, queueURL)
+
+				// Regression guard: a freshly restored non-FIFO queue must have its
+				// hasActivity flag seeded from its message/in-flight counts.
+				// Previously Restore left it false, so the background janitor's
+				// pruneState (which skips non-FIFO queues with hasActivity==false)
+				// silently ignored this queue forever — the retention-expired
+				// message would never be pruned until an unrelated SendMessage
+				// happened to flip the flag. Simulate a janitor tick 2 seconds in
+				// the future (past the 1-second retention window) without a real sleep.
+				b.RunJanitorOnceForTest(time.Now().Add(2 * time.Second))
+
+				out, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+					QueueURL:       queueURL,
+					AttributeNames: []string{"ApproximateNumberOfMessages"},
+				})
+				require.NoError(t, err)
+				assert.Equal(t, "0", out.Attributes["ApproximateNumberOfMessages"],
+					"janitor should prune the retention-expired message on a restored queue")
 			},
 		},
 		{

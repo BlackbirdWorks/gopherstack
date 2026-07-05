@@ -102,3 +102,165 @@ func TestDLQ_Routing(t *testing.T) {
 		})
 	}
 }
+
+// TestRedriveAllowPolicy_Enforcement verifies that a dead-letter queue's
+// RedriveAllowPolicy attribute actually constrains which source queues may
+// point their RedrivePolicy at it. Previously the attribute was accepted and
+// shape-validated (validateRedriveAllowPolicy) but never enforced, making it
+// a disguised stub: any value could be set with zero effect on behaviour.
+func TestRedriveAllowPolicy_Enforcement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *sqs.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "DenyAll_RejectsAnySourceQueue",
+			run: func(t *testing.T, b *sqs.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "denyall-dlq",
+					Endpoint:  "localhost",
+					Attributes: map[string]string{
+						"RedriveAllowPolicy": `{"redrivePermission":"denyAll"}`,
+					},
+				})
+				require.NoError(t, err)
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "denyall-source", Endpoint: "localhost"})
+				require.NoError(t, err)
+
+				dlqARN := "arn:aws:sqs:us-east-1:000000000000:denyall-dlq"
+				err = b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
+					QueueURL: "http://localhost/000000000000/denyall-source",
+					Attributes: map[string]string{
+						"RedrivePolicy": `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":3}`,
+					},
+				})
+				require.Error(t, err, "denyAll must reject every source queue, including this one")
+			},
+		},
+		{
+			name: "ByQueue_AllowsListedSourceQueueArn",
+			run: func(t *testing.T, b *sqs.InMemoryBackend) {
+				t.Helper()
+
+				sourceARN := "arn:aws:sqs:us-east-1:000000000000:byqueue-allowed-source"
+
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "byqueue-dlq",
+					Endpoint:  "localhost",
+					Attributes: map[string]string{
+						"RedriveAllowPolicy": `{"redrivePermission":"byQueue","sourceQueueArns":["` + sourceARN + `"]}`,
+					},
+				})
+				require.NoError(t, err)
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "byqueue-allowed-source",
+					Endpoint:  "localhost",
+				})
+				require.NoError(t, err)
+
+				dlqARN := "arn:aws:sqs:us-east-1:000000000000:byqueue-dlq"
+				err = b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
+					QueueURL: "http://localhost/000000000000/byqueue-allowed-source",
+					Attributes: map[string]string{
+						"RedrivePolicy": `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":3}`,
+					},
+				})
+				require.NoError(t, err, "the ARN listed in sourceQueueArns must be permitted")
+			},
+		},
+		{
+			name: "ByQueue_RejectsUnlistedSourceQueueArn",
+			run: func(t *testing.T, b *sqs.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "byqueue-strict-dlq",
+					Endpoint:  "localhost",
+					Attributes: map[string]string{
+						"RedriveAllowPolicy": `{"redrivePermission":"byQueue",` +
+							`"sourceQueueArns":["arn:aws:sqs:us-east-1:000000000000:some-other-queue"]}`,
+					},
+				})
+				require.NoError(t, err)
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "byqueue-strict-source", Endpoint: "localhost"})
+				require.NoError(t, err)
+
+				dlqARN := "arn:aws:sqs:us-east-1:000000000000:byqueue-strict-dlq"
+				err = b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
+					QueueURL: "http://localhost/000000000000/byqueue-strict-source",
+					Attributes: map[string]string{
+						"RedrivePolicy": `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":3}`,
+					},
+				})
+				require.Error(t, err, "an ARN absent from sourceQueueArns must be rejected")
+			},
+		},
+		{
+			name: "AllowAllDefault_PermitsAnySourceQueue",
+			run: func(t *testing.T, b *sqs.InMemoryBackend) {
+				t.Helper()
+
+				// No RedriveAllowPolicy attribute at all — AWS's implicit default
+				// is allowAll, so setting a RedrivePolicy must still succeed.
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "default-allow-dlq", Endpoint: "localhost"})
+				require.NoError(t, err)
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "default-allow-source", Endpoint: "localhost"})
+				require.NoError(t, err)
+
+				dlqARN := "arn:aws:sqs:us-east-1:000000000000:default-allow-dlq"
+				err = b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
+					QueueURL: "http://localhost/000000000000/default-allow-source",
+					Attributes: map[string]string{
+						"RedrivePolicy": `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":3}`,
+					},
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "DenyAll_AlsoRejectedAtCreateQueueTime",
+			run: func(t *testing.T, b *sqs.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "create-time-dlq",
+					Endpoint:  "localhost",
+					Attributes: map[string]string{
+						"RedriveAllowPolicy": `{"redrivePermission":"denyAll"}`,
+					},
+				})
+				require.NoError(t, err)
+
+				dlqARN := "arn:aws:sqs:us-east-1:000000000000:create-time-dlq"
+
+				// Setting RedrivePolicy directly at CreateQueue time must go through
+				// the same enforcement path as SetQueueAttributes.
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "create-time-source",
+					Endpoint:  "localhost",
+					Attributes: map[string]string{
+						"RedrivePolicy": `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":3}`,
+					},
+				})
+				require.Error(t, err, "denyAll must also block RedrivePolicy set inline at CreateQueue time")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			defer b.Close()
+			tt.run(t, b)
+		})
+	}
+}
