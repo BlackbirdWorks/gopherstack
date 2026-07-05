@@ -312,6 +312,7 @@ func TestHandler_SendBounce_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup        func(t *testing.T, h *ses.Handler)
 		name         string
 		body         string
 		wantContains string
@@ -324,10 +325,38 @@ func TestHandler_SendBounce_Errors(t *testing.T) {
 			wantContains: "InvalidParameterValue",
 		},
 		{
-			name:         "valid_original_message_id",
-			body:         "Action=SendBounce&Version=2010-12-01&OriginalMessageId=msg-123",
+			// AWS SES models BounceSender as a required SendBounceInput member.
+			name: "missing_bounce_sender",
+			body: "Action=SendBounce&Version=2010-12-01&OriginalMessageId=msg-123&" +
+				"BouncedRecipientInfoList.member.1.Recipient=to@example.com",
+			wantCode:     http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			// AWS SES models BouncedRecipientInfoList as a required, non-empty member.
+			name:         "missing_recipient_list",
+			body:         "Action=SendBounce&Version=2010-12-01&OriginalMessageId=msg-123&BounceSender=bounce@example.com",
+			wantCode:     http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			// BounceSender must be a verified identity, matching SendEmail's rule.
+			name: "unverified_bounce_sender",
+			body: "Action=SendBounce&Version=2010-12-01&OriginalMessageId=msg-123&BounceSender=bounce@example.com&" +
+				"BouncedRecipientInfoList.member.1.Recipient=to@example.com",
+			wantCode:     http.StatusBadRequest,
+			wantContains: "MessageRejected",
+		},
+		{
+			name: "valid_original_message_id",
+			body: "Action=SendBounce&Version=2010-12-01&OriginalMessageId=msg-123&BounceSender=bounce@example.com&" +
+				"BouncedRecipientInfoList.member.1.Recipient=to@example.com",
 			wantCode:     http.StatusOK,
 			wantContains: "SendBounceResponse",
+			setup: func(t *testing.T, h *ses.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.VerifyEmailIdentity("bounce@example.com"))
+			},
 		},
 	}
 
@@ -336,6 +365,10 @@ func TestHandler_SendBounce_Errors(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
 			rec := postForm(t, h, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.wantContains)
@@ -351,6 +384,7 @@ func TestHandler_SendCustomVerificationEmail_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup        func(t *testing.T, h *ses.Handler)
 		name         string
 		body         string
 		wantContains string
@@ -369,10 +403,29 @@ func TestHandler_SendCustomVerificationEmail_Errors(t *testing.T) {
 			wantContains: "InvalidParameterValue",
 		},
 		{
+			// AWS SES requires the custom verification email template to already
+			// exist (CustomVerificationEmailTemplateDoesNotExist otherwise).
+			name:         "template_not_found",
+			body:         "Action=SendCustomVerificationEmail&Version=2010-12-01&EmailAddress=user@example.com&TemplateName=MyTemplate", //nolint:lll // existing issue.
+			wantCode:     http.StatusBadRequest,
+			wantContains: "CustomVerificationEmailTemplateDoesNotExist",
+		},
+		{
 			name:         "valid_request",
 			body:         "Action=SendCustomVerificationEmail&Version=2010-12-01&EmailAddress=user@example.com&TemplateName=MyTemplate", //nolint:lll // existing issue.
 			wantCode:     http.StatusOK,
 			wantContains: "SendCustomVerificationEmailResponse",
+			setup: func(t *testing.T, h *ses.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.CreateCustomVerificationEmailTemplate(ses.CustomVerificationEmailTemplate{
+					TemplateName:          "MyTemplate",
+					FromEmailAddress:      "noreply@example.com",
+					TemplateSubject:       "Verify your email",
+					TemplateContent:       "<p>Click here</p>",
+					SuccessRedirectionURL: "https://example.com/success",
+					FailureRedirectionURL: "https://example.com/failure",
+				}))
+			},
 		},
 	}
 
@@ -381,6 +434,10 @@ func TestHandler_SendCustomVerificationEmail_Errors(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
 			rec := postForm(t, h, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.wantContains)

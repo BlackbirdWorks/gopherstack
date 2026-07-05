@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
@@ -304,11 +306,33 @@ func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(
 	return nil
 }
 
+// behaviorOnMXFailureUseDefault and behaviorOnMXFailureReject are the two legal
+// values of the SetIdentityMailFromDomain BehaviorOnMXFailure parameter,
+// matching the AWS SES BehaviorOnMXFailure enum. UseDefaultValue is the
+// real-AWS default when the parameter is omitted.
+const (
+	behaviorOnMXFailureUseDefault = "UseDefaultValue"
+	behaviorOnMXFailureReject     = "RejectMessage"
+)
+
 // SetIdentityMailFromDomain persists the custom MAIL FROM domain for an identity.
-// An empty mailFromDomain clears the setting.
-func (b *InMemoryBackend) SetIdentityMailFromDomain(identity, mailFromDomain string) error {
+// An empty mailFromDomain clears the setting (and its BehaviorOnMXFailure).
+// behaviorOnMXFailure must be "UseDefaultValue" or "RejectMessage"; an empty
+// value defaults to "UseDefaultValue", matching real AWS SES.
+func (b *InMemoryBackend) SetIdentityMailFromDomain(identity, mailFromDomain, behaviorOnMXFailure string) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
+	}
+
+	if behaviorOnMXFailure == "" {
+		behaviorOnMXFailure = behaviorOnMXFailureUseDefault
+	}
+
+	if behaviorOnMXFailure != behaviorOnMXFailureUseDefault && behaviorOnMXFailure != behaviorOnMXFailureReject {
+		return fmt.Errorf(
+			"%w: BehaviorOnMXFailure must be %s or %s",
+			ErrInvalidParameter, behaviorOnMXFailureUseDefault, behaviorOnMXFailureReject,
+		)
 	}
 
 	b.mu.Lock("SetIdentityMailFromDomain")
@@ -319,8 +343,10 @@ func (b *InMemoryBackend) SetIdentityMailFromDomain(identity, mailFromDomain str
 
 	if mailFromDomain == "" {
 		rec.MailFromStatus = ""
+		rec.BehaviorOnMXFail = ""
 	} else {
 		rec.MailFromStatus = identityStatusSuccess
+		rec.BehaviorOnMXFail = behaviorOnMXFailure
 	}
 
 	return nil
@@ -443,24 +469,50 @@ func (b *InMemoryBackend) GetAccountSendingEnabled() bool {
 	return b.accountSendingEnabled
 }
 
-// ---- send operations (stubs) ----
+// ---- send operations ----
 
-// SendBounce is a no-op stub that returns a synthetic bounce message ID.
-func (b *InMemoryBackend) SendBounce(originalMsgID string) (string, error) {
+// SendBounce generates and sends a bounce message for a previously received
+// email. Real AWS SES models BounceSender and BouncedRecipientInfoList as
+// required input members (SendBounceInput), so both must be supplied here;
+// BounceSender must additionally be a verified identity (or a verified
+// domain), matching the same sender-verification rule enforced by SendEmail.
+func (b *InMemoryBackend) SendBounce(originalMsgID, bounceSender string, recipients []string) (string, error) {
 	if strings.TrimSpace(originalMsgID) == "" {
 		return "", fmt.Errorf("%w: OriginalMessageId is required", ErrInvalidParameter)
 	}
 
-	return "bounce-" + originalMsgID, nil
+	if strings.TrimSpace(bounceSender) == "" {
+		return "", fmt.Errorf("%w: BounceSender is required", ErrInvalidParameter)
+	}
+
+	if len(recipients) == 0 {
+		return "", fmt.Errorf("%w: BouncedRecipientInfoList must contain at least one entry", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("SendBounce")
+	defer b.mu.Unlock()
+
+	if !b.isVerifiedLocked(bounceSender) {
+		return "", fmt.Errorf(
+			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
+			ErrMessageRejected, strings.ToUpper(b.region), bounceSender,
+		)
+	}
+
+	return "ses-bounce-" + uuid.New().String(), nil
 }
 
 // SendBulkTemplatedEmail sends one email per destination and returns a message
 // ID for each. Each destination is rendered with the request-level
 // defaultTemplateData merged with that destination's ReplacementTemplateData,
 // matching AWS SES SendBulkTemplatedEmail semantics where replacement values
-// override defaults on a per-recipient basis.
+// override defaults on a per-recipient basis. configurationSetName, replyTo,
+// returnPath and sourceArn mirror the corresponding SendBulkTemplatedEmailInput
+// members and are threaded through to every generated Email record exactly as
+// SendEmail/SendTemplatedEmail do for a single-destination send.
 func (b *InMemoryBackend) SendBulkTemplatedEmail(
-	source, templateName, defaultTemplateData string,
+	source, templateName, defaultTemplateData, configurationSetName, returnPath, sourceArn string,
+	replyTo []string,
 	destinations []BulkEmailDestination,
 ) ([]string, error) {
 	if strings.TrimSpace(source) == "" {
@@ -476,6 +528,19 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(
 	// matching real SES which validates the template at request time.
 	if _, err := b.GetTemplate(templateName); err != nil {
 		return nil, err
+	}
+
+	// Validate the configuration set (when supplied) exists up front, matching
+	// the same ConfigurationSetDoesNotExist precondition enforced by SendEmail
+	// and SendTemplatedEmail.
+	if configurationSetName != "" {
+		b.mu.RLock("SendBulkTemplatedEmail")
+		_, exists := b.configSets[configurationSetName]
+		b.mu.RUnlock()
+
+		if !exists {
+			return nil, fmt.Errorf("%w: %s", ErrConfigSetNotFound, configurationSetName)
+		}
 	}
 
 	msgIDs := make([]string, 0, len(destinations))
@@ -495,12 +560,16 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(
 		}
 
 		msgID, err := b.SendTemplatedEmail(SendTemplatedEmailInput{
-			From:         source,
-			To:           d.To,
-			Cc:           d.Cc,
-			Bcc:          d.Bcc,
-			TemplateName: templateName,
-			TemplateData: string(mergedJSON),
+			From:                 source,
+			To:                   d.To,
+			Cc:                   d.Cc,
+			Bcc:                  d.Bcc,
+			ReplyTo:              replyTo,
+			TemplateName:         templateName,
+			TemplateData:         string(mergedJSON),
+			ConfigurationSetName: configurationSetName,
+			ReturnPath:           returnPath,
+			SourceArn:            sourceArn,
 		})
 		if err != nil {
 			return nil, err
@@ -512,8 +581,17 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(
 	return msgIDs, nil
 }
 
-// SendCustomVerificationEmail is a no-op stub.
-func (b *InMemoryBackend) SendCustomVerificationEmail(email, templateName string) (string, error) {
+// SendCustomVerificationEmail adds email to the account's identity list and
+// attempts to verify it (matching this backend's instant-verification
+// convention shared by VerifyEmailIdentity/VerifyEmailAddress) and sends a
+// verification email using the named custom template. templateName must
+// reference an existing custom verification email template
+// (CreateCustomVerificationEmailTemplate), and configurationSetName, if
+// supplied, must reference an existing configuration set — both required
+// preconditions on the real AWS SES SendCustomVerificationEmailInput.
+func (b *InMemoryBackend) SendCustomVerificationEmail(
+	email, templateName, configurationSetName string,
+) (string, error) {
 	if strings.TrimSpace(email) == "" {
 		return "", fmt.Errorf("%w: EmailAddress is required", ErrInvalidParameter)
 	}
@@ -522,7 +600,29 @@ func (b *InMemoryBackend) SendCustomVerificationEmail(email, templateName string
 		return "", fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
 	}
 
-	return "custom-verif-" + email, nil
+	if _, err := b.GetCustomVerificationEmailTemplate(templateName); err != nil {
+		return "", err
+	}
+
+	if configurationSetName != "" {
+		b.mu.RLock("SendCustomVerificationEmail")
+		_, exists := b.configSets[configurationSetName]
+		b.mu.RUnlock()
+
+		if !exists {
+			return "", fmt.Errorf("%w: %s", ErrConfigSetNotFound, configurationSetName)
+		}
+	}
+
+	b.mu.Lock("SendCustomVerificationEmail")
+	if rec, ok := b.identities[email]; ok {
+		rec.Verified = true
+	} else {
+		b.identities[email] = &IdentityRecord{Verified: true, ForwardingEnabled: true}
+	}
+	b.mu.Unlock()
+
+	return "ses-verif-" + uuid.New().String(), nil
 }
 
 // parseTemplateData parses the JSON template-data document into a flat

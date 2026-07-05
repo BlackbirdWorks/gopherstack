@@ -995,6 +995,8 @@ func sesErrorCode(opErr error) (string, int) {
 		return "ConfigurationSetDoesNotExist", status
 	case errors.Is(opErr, ErrConfigSetExists):
 		return "ConfigurationSetAlreadyExists", status
+	case errors.Is(opErr, ErrAccountSendingPaused):
+		return "AccountSendingPausedException", status
 	}
 
 	return sesNewOpsErrorCode(opErr, status)
@@ -2045,7 +2047,7 @@ func (h *Handler) handlePutIdentityPolicy(vals url.Values, reqID string) (any, e
 		return nil, err
 	}
 
-	return &emptyResponse{XMLName: xml.Name{Local: "PutIdentityPolicyResponse"}, Xmlns: sesXMLNS, RequestID: reqID}, nil
+	return newEmptyResponseWithResult("PutIdentityPolicy", reqID), nil
 }
 
 func (h *Handler) handleDeleteIdentityPolicy(vals url.Values, reqID string) (any, error) {
@@ -2053,11 +2055,7 @@ func (h *Handler) handleDeleteIdentityPolicy(vals url.Values, reqID string) (any
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "DeleteIdentityPolicyResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("DeleteIdentityPolicy", reqID), nil
 }
 
 func (h *Handler) handleGetIdentityPolicies(vals url.Values, reqID string) (any, error) {
@@ -2167,11 +2165,7 @@ func (h *Handler) handleSetIdentityDkimEnabled(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "SetIdentityDkimEnabledResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("SetIdentityDkimEnabled", reqID), nil
 }
 
 func (h *Handler) handleSetIdentityFeedbackForwardingEnabled(vals url.Values, reqID string) (any, error) {
@@ -2180,11 +2174,7 @@ func (h *Handler) handleSetIdentityFeedbackForwardingEnabled(vals url.Values, re
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "SetIdentityFeedbackForwardingEnabledResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("SetIdentityFeedbackForwardingEnabled", reqID), nil
 }
 
 func (h *Handler) handleSetIdentityHeadersInNotificationsEnabled(vals url.Values, reqID string) (any, error) {
@@ -2197,23 +2187,19 @@ func (h *Handler) handleSetIdentityHeadersInNotificationsEnabled(vals url.Values
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "SetIdentityHeadersInNotificationsEnabledResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("SetIdentityHeadersInNotificationsEnabled", reqID), nil
 }
 
 func (h *Handler) handleSetIdentityMailFromDomain(vals url.Values, reqID string) (any, error) {
-	if err := h.Backend.SetIdentityMailFromDomain(vals.Get("Identity"), vals.Get("MailFromDomain")); err != nil {
+	if err := h.Backend.SetIdentityMailFromDomain(
+		vals.Get("Identity"),
+		vals.Get("MailFromDomain"),
+		vals.Get("BehaviorOnMXFailure"),
+	); err != nil {
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "SetIdentityMailFromDomainResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("SetIdentityMailFromDomain", reqID), nil
 }
 
 func (h *Handler) handleSetIdentityNotificationTopic(vals url.Values, reqID string) (any, error) {
@@ -2225,11 +2211,7 @@ func (h *Handler) handleSetIdentityNotificationTopic(vals url.Values, reqID stri
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "SetIdentityNotificationTopicResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("SetIdentityNotificationTopic", reqID), nil
 }
 
 func (h *Handler) handleVerifyDomainIdentity(vals url.Values, reqID string) (any, error) {
@@ -2269,21 +2251,13 @@ func (h *Handler) handleVerifyEmailAddress(vals url.Values, reqID string) (any, 
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "VerifyEmailAddressResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponse("VerifyEmailAddress", reqID), nil
 }
 
 func (h *Handler) handleDeleteVerifiedEmailAddress(vals url.Values, reqID string) any {
 	h.Backend.DeleteVerifiedEmailAddress(vals.Get("EmailAddress"))
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "DeleteVerifiedEmailAddressResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}
+	return newEmptyResponse("DeleteVerifiedEmailAddress", reqID)
 }
 
 func (h *Handler) handleListVerifiedEmailAddresses(reqID string) any {
@@ -2305,15 +2279,13 @@ func (h *Handler) handleUpdateAccountSendingEnabled(vals url.Values, reqID strin
 	enabled := vals.Get("Enabled") == boolTrue
 	h.Backend.UpdateAccountSendingEnabled(enabled)
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "UpdateAccountSendingEnabledResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}
+	return newEmptyResponse("UpdateAccountSendingEnabled", reqID)
 }
 
 func (h *Handler) handleSendBounce(vals url.Values, reqID string) (any, error) {
-	msgID, err := h.Backend.SendBounce(vals.Get("OriginalMessageId"))
+	recipients := parseBouncedRecipients(vals, "BouncedRecipientInfoList")
+
+	msgID, err := h.Backend.SendBounce(vals.Get("OriginalMessageId"), vals.Get("BounceSender"), recipients)
 	if err != nil {
 		return nil, err
 	}
@@ -2325,10 +2297,30 @@ func (h *Handler) handleSendBounce(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
+// parseBouncedRecipients parses "<prefix>.member.N.Recipient" form values into
+// a flat list of bounced recipient email addresses.
+func parseBouncedRecipients(vals url.Values, prefix string) []string {
+	var recipients []string
+	base := prefix + ".member."
+
+	for i := 1; ; i++ {
+		v := vals.Get(base + strconv.Itoa(i) + ".Recipient")
+		if v == "" {
+			return recipients
+		}
+
+		recipients = append(recipients, v)
+	}
+}
+
 func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (any, error) {
 	source := vals.Get("Source")
 	template := vals.Get("Template")
 	defaultTemplateData := vals.Get("DefaultTemplateData")
+	configSetName := vals.Get("ConfigurationSetName")
+	returnPath := vals.Get("ReturnPath")
+	sourceArn := vals.Get("SourceArn")
+	replyTo := parseSESMemberList(vals, "ReplyToAddresses")
 
 	// Collect per-destination data.
 	var destinations []BulkEmailDestination
@@ -2358,7 +2350,9 @@ func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (a
 			ErrInvalidParameter, len(destinations), maxBulkDestinations)
 	}
 
-	msgIDs, err := h.Backend.SendBulkTemplatedEmail(source, template, defaultTemplateData, destinations)
+	msgIDs, err := h.Backend.SendBulkTemplatedEmail(
+		source, template, defaultTemplateData, configSetName, returnPath, sourceArn, replyTo, destinations,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2376,7 +2370,11 @@ func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (a
 }
 
 func (h *Handler) handleSendCustomVerificationEmail(vals url.Values, reqID string) (any, error) {
-	msgID, err := h.Backend.SendCustomVerificationEmail(vals.Get("EmailAddress"), vals.Get("TemplateName"))
+	msgID, err := h.Backend.SendCustomVerificationEmail(
+		vals.Get("EmailAddress"),
+		vals.Get("TemplateName"),
+		vals.Get("ConfigurationSetName"),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2415,11 +2413,7 @@ func (h *Handler) handleUpdateCustomVerificationEmailTemplate(vals url.Values, r
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "UpdateCustomVerificationEmailTemplateResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponse("UpdateCustomVerificationEmailTemplate", reqID), nil
 }
 
 func (h *Handler) handleDescribeReceiptRule(vals url.Values, reqID string) (any, error) {
@@ -2453,11 +2447,7 @@ func (h *Handler) handleUpdateReceiptRule(vals url.Values, reqID string) (any, e
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "UpdateReceiptRuleResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("UpdateReceiptRule", reqID), nil
 }
 
 func (h *Handler) handleReorderReceiptRuleSet(vals url.Values, reqID string) (any, error) {
@@ -2468,11 +2458,7 @@ func (h *Handler) handleReorderReceiptRuleSet(vals url.Values, reqID string) (an
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "ReorderReceiptRuleSetResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("ReorderReceiptRuleSet", reqID), nil
 }
 
 func (h *Handler) handleSetReceiptRulePosition(vals url.Values, reqID string) (any, error) {
@@ -2490,11 +2476,7 @@ func (h *Handler) handleSetReceiptRulePosition(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "SetReceiptRulePositionResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("SetReceiptRulePosition", reqID), nil
 }
 
 func (h *Handler) handleDescribeConfigurationSet(vals url.Values, reqID string) (any, error) {
@@ -2550,11 +2532,7 @@ func (h *Handler) handlePutConfigurationSetDeliveryOptions(vals url.Values, reqI
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "PutConfigurationSetDeliveryOptionsResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("PutConfigurationSetDeliveryOptions", reqID), nil
 }
 
 func (h *Handler) handleUpdateConfigurationSetEventDestination(vals url.Values, reqID string) (any, error) {
@@ -2569,11 +2547,7 @@ func (h *Handler) handleUpdateConfigurationSetEventDestination(vals url.Values, 
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "UpdateConfigurationSetEventDestinationResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("UpdateConfigurationSetEventDestination", reqID), nil
 }
 
 func (h *Handler) handleUpdateConfigurationSetReputationMetricsEnabled(vals url.Values, reqID string) (any, error) {
@@ -2584,11 +2558,7 @@ func (h *Handler) handleUpdateConfigurationSetReputationMetricsEnabled(vals url.
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "UpdateConfigurationSetReputationMetricsEnabledResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponse("UpdateConfigurationSetReputationMetricsEnabled", reqID), nil
 }
 
 func (h *Handler) handleUpdateConfigurationSetSendingEnabled(vals url.Values, reqID string) (any, error) {
@@ -2597,11 +2567,7 @@ func (h *Handler) handleUpdateConfigurationSetSendingEnabled(vals url.Values, re
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "UpdateConfigurationSetSendingEnabledResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponse("UpdateConfigurationSetSendingEnabled", reqID), nil
 }
 
 func (h *Handler) handleUpdateConfigurationSetTrackingOptions(vals url.Values, reqID string) (any, error) {
@@ -2612,21 +2578,52 @@ func (h *Handler) handleUpdateConfigurationSetTrackingOptions(vals url.Values, r
 		return nil, err
 	}
 
-	return &emptyResponse{
-		XMLName:   xml.Name{Local: "UpdateConfigurationSetTrackingOptionsResponse"},
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-	}, nil
+	return newEmptyResponseWithResult("UpdateConfigurationSetTrackingOptions", reqID), nil
 }
 
 // ---- missing ops: XML types ----
 
+// emptyResult carries the dynamic "<Action>Result" wrapper element name for
+// void-result operations whose SES wire format wraps an (empty) Result element.
+// The XMLName field's tag is intentionally blank so xml.Marshal uses the
+// runtime value set by the caller rather than a fixed literal name.
+type emptyResult struct {
+	XMLName xml.Name
+}
+
 // emptyResponse is a generic empty-result XML envelope used by no-op operations.
+// Result is nil for actions whose SES output shape has zero members, so the
+// real wire format omits the Result element entirely (e.g. VerifyEmailAddress).
+// Otherwise it carries the per-op "<Action>Result" element name: real AWS SDK
+// clients call decoder.GetElement("<Action>Result") before parsing the body, so
+// a missing or misnamed wrapper causes a client-side DeserializationError even
+// though the emulator's backend state mutation succeeded.
 type emptyResponse struct {
-	XMLName   xml.Name `xml:""`
-	Xmlns     string   `xml:"xmlns,attr"`
-	Result    struct{} `xml:"*Result"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name
+	Xmlns     string       `xml:"xmlns,attr"`
+	Result    *emptyResult `xml:",omitempty"`
+	RequestID string       `xml:"ResponseMetadata>RequestId"`
+}
+
+// newEmptyResponseWithResult builds an emptyResponse for an action whose real
+// SES output shape wraps an (empty) "<action>Result" element.
+func newEmptyResponseWithResult(action, reqID string) *emptyResponse {
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: action + "Response"},
+		Xmlns:     sesXMLNS,
+		Result:    &emptyResult{XMLName: xml.Name{Local: action + "Result"}},
+		RequestID: reqID,
+	}
+}
+
+// newEmptyResponse builds an emptyResponse for an action whose real SES output
+// shape has zero members, so the wire format has no Result element at all.
+func newEmptyResponse(action, reqID string) *emptyResponse {
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: action + "Response"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}
 }
 
 type xmlPolicyEntry struct {

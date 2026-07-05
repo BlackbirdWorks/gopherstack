@@ -113,6 +113,10 @@ var (
 	ErrCustomVerifTemplateNotFound = errors.New("CustomVerificationEmailTemplateDoesNotExist")
 	ErrCustomVerifTemplateExists   = errors.New("CustomVerificationEmailTemplateAlreadyExists")
 	ErrValidation                  = errors.New("ValidationError")
+	// ErrAccountSendingPaused is returned by send operations when account-level
+	// sending has been paused via UpdateAccountSendingEnabled(false), matching
+	// real AWS SES's AccountSendingPausedException.
+	ErrAccountSendingPaused = errors.New("AccountSendingPausedException")
 )
 
 // maxRetainedEmails is the maximum number of sent emails retained in memory.
@@ -450,6 +454,37 @@ func (b *InMemoryBackend) isVerifiedLocked(from string) bool {
 	return false
 }
 
+// checkSendingAllowedLocked validates the account-level, quota, and
+// configuration-set preconditions shared by every send operation (SendEmail,
+// SendRawEmail via SendEmail, SendTemplatedEmail, SendBulkTemplatedEmail):
+// sending must not be paused account-wide, matching real AWS SES's
+// AccountSendingPausedException; the simulated 24-hour send quota
+// (GetSendQuota's Max24HourSend) must not already be exhausted, matching
+// MessageRejected; and a non-empty ConfigurationSetName must reference an
+// existing configuration set, matching ConfigurationSetDoesNotExist.
+//
+// The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) checkSendingAllowedLocked(configurationSetName string) error {
+	if !b.accountSendingEnabled {
+		return fmt.Errorf("%w: account-level sending is currently paused", ErrAccountSendingPaused)
+	}
+
+	if b.sentLast24HoursLocked() >= maxSendQuota24Hours {
+		return fmt.Errorf(
+			"%w: 24-hour sending quota of %d messages exceeded",
+			ErrMessageRejected, maxSendQuota24Hours,
+		)
+	}
+
+	if configurationSetName != "" {
+		if _, exists := b.configSets[configurationSetName]; !exists {
+			return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configurationSetName)
+		}
+	}
+
+	return nil
+}
+
 // appendEmailLocked appends e to the slice and O(1) map, evicting the oldest
 // entries when the cap is exceeded.
 //
@@ -498,6 +533,10 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 
 	b.mu.Lock("SendEmail")
 	defer b.mu.Unlock()
+
+	if err := b.checkSendingAllowedLocked(in.ConfigurationSetName); err != nil {
+		return "", err
+	}
 
 	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
@@ -552,6 +591,10 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 
 	b.mu.Lock("SendTemplatedEmail")
 	defer b.mu.Unlock()
+
+	if sendErr := b.checkSendingAllowedLocked(in.ConfigurationSetName); sendErr != nil {
+		return "", sendErr
+	}
 
 	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
@@ -757,12 +800,12 @@ type SendQuota struct {
 	SentLast24Hours float64
 }
 
-// GetSendQuota returns simulated quota values.
-// SentLast24Hours counts only emails sent within the past 24 hours.
-func (b *InMemoryBackend) GetSendQuota() SendQuota {
-	b.mu.RLock("GetSendQuota")
-	defer b.mu.RUnlock()
-
+// sentLast24HoursLocked returns the count of emails sent within the past 24
+// hours. b.emails is append-ordered by increasing Timestamp, so iterating
+// backward lets us stop at the first entry older than the cutoff.
+//
+// The caller MUST hold b.mu for reading or writing.
+func (b *InMemoryBackend) sentLast24HoursLocked() int {
 	cutoff := time.Now().UTC().Add(-24 * time.Hour)
 	sent := 0
 
@@ -774,10 +817,19 @@ func (b *InMemoryBackend) GetSendQuota() SendQuota {
 		sent++
 	}
 
+	return sent
+}
+
+// GetSendQuota returns simulated quota values.
+// SentLast24Hours counts only emails sent within the past 24 hours.
+func (b *InMemoryBackend) GetSendQuota() SendQuota {
+	b.mu.RLock("GetSendQuota")
+	defer b.mu.RUnlock()
+
 	return SendQuota{
 		Max24HourSend:   maxSendQuota24Hours,
 		MaxSendRate:     maxSendRate,
-		SentLast24Hours: float64(sent),
+		SentLast24Hours: float64(b.sentLast24HoursLocked()),
 	}
 }
 

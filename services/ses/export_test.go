@@ -1,6 +1,10 @@
 package ses
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // DefaultJanitorInterval exposes the package default janitor interval for testing.
 const DefaultJanitorInterval = defaultSESJanitorInterval
@@ -211,4 +215,26 @@ func (b *InMemoryBackend) AccountSendingEnabledState() bool {
 	defer b.mu.RUnlock()
 
 	return b.accountSendingEnabled
+}
+
+// AppendEmailForTest appends an email directly via the same appendEmailLocked
+// path SendEmail uses internally — including the maxRetainedEmails eviction
+// behavior — but bypasses SendEmail's business-rule preconditions (sender
+// verification, the simulated 24-hour send quota, account-sending-enabled).
+// Used by volume/retention tests that need far more than
+// maxSendQuota24Hours (200) sends, which real SendEmail now rejects with
+// MessageRejected once exhausted.
+func (b *InMemoryBackend) AppendEmailForTest(from string, to []string) string {
+	b.mu.Lock("AppendEmailForTest")
+	defer b.mu.Unlock()
+
+	msgID := "ses-test-" + uuid.New().String()
+	b.appendEmailLocked(Email{
+		MessageID: msgID,
+		From:      from,
+		To:        to,
+		Timestamp: time.Now(),
+	})
+
+	return msgID
 }

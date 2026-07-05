@@ -219,6 +219,10 @@ func TestSendBulkTemplatedEmail_DefaultAndReplacementData(t *testing.T) {
 		"sender@example.com",
 		"tmpl",
 		`{"greeting":"Hello","company":"Acme"}`,
+		"",
+		"",
+		"",
+		nil,
 		dests,
 	)
 	require.NoError(t, err)
@@ -249,7 +253,7 @@ func TestSendBulkTemplatedEmail_MissingTemplate(t *testing.T) {
 		{To: []string{"a@example.com"}},
 	}
 
-	_, err := b.SendBulkTemplatedEmail("sender@example.com", "nope", "", dests)
+	_, err := b.SendBulkTemplatedEmail("sender@example.com", "nope", "", "", "", "", nil, dests)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ses.ErrTemplateNotFound, "want TemplateDoesNotExist, got %v", err)
 }
@@ -269,7 +273,7 @@ func TestSendBulkTemplatedEmail_InvalidReplacementData(t *testing.T) {
 		{To: []string{"a@example.com"}, ReplacementTemplateData: `{bad`},
 	}
 
-	_, err := b.SendBulkTemplatedEmail("sender@example.com", "tmpl", "", dests)
+	_, err := b.SendBulkTemplatedEmail("sender@example.com", "tmpl", "", "", "", "", nil, dests)
 	require.ErrorIs(t, err, ses.ErrInvalidParameter, "got %v", err)
 	assert.Contains(t, err.Error(), "TemplateData", "got %v", err)
 }

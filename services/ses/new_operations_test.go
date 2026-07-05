@@ -39,14 +39,16 @@ func TestSESBackend_EmailsByIDSyncAfterEviction(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("x@test.com"))
 
-	// Send MaxRetainedEmails+5 so the first 5 are evicted.
+	// Append MaxRetainedEmails+5 so the first 5 are evicted. This exercises
+	// the eviction/O(1)-map-sync behavior in appendEmailLocked directly via
+	// AppendEmailForTest: real SendEmail now enforces the simulated 200/day
+	// send quota (matching real AWS SES sandbox default), so a real send loop
+	// of this volume would itself be rejected with MessageRejected long
+	// before reaching the retention cap.
 	var firstIDs []string
 
 	for i := range ses.MaxRetainedEmails + 5 {
-		msgID, err := b.SendEmail(ses.SendEmailInput{
-			From: "x@test.com", To: []string{"y@test.com"}, Subject: "s", BodyText: "body",
-		})
-		require.NoError(t, err)
+		msgID := b.AppendEmailForTest("x@test.com", []string{"y@test.com"})
 
 		if i < 5 {
 			firstIDs = append(firstIDs, msgID)
@@ -873,12 +875,11 @@ func TestSESPersistence_RestoreCapsToBound(t *testing.T) {
 	original := ses.NewInMemoryBackend()
 	require.NoError(t, original.VerifyEmailIdentity("cap@test.com"))
 
-	// Send MaxRetainedEmails+10 emails and snapshot.
+	// Append MaxRetainedEmails+10 emails and snapshot, via AppendEmailForTest
+	// so this retention-cap test isn't gated by the simulated 200/day send
+	// quota that real SendEmail now enforces (see TestSESBackend_EmailsByIDSyncAfterEviction).
 	for range ses.MaxRetainedEmails + 10 {
-		_, err := original.SendEmail(ses.SendEmailInput{
-			From: "cap@test.com", To: []string{"to@test.com"}, Subject: "s", BodyText: "b",
-		})
-		require.NoError(t, err)
+		original.AppendEmailForTest("cap@test.com", []string{"to@test.com"})
 	}
 
 	// The original should already be capped by SendEmail eviction.
