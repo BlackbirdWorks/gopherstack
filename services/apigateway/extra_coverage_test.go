@@ -446,6 +446,10 @@ func (n *noopBackend) PutGatewayResponse(_ apigateway.PutGatewayResponseInput) (
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) UpdateGatewayResponse(_ apigateway.PutGatewayResponseInput) (*apigateway.GatewayResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
 func (n *noopBackend) DeleteGatewayResponse(_ string, _ string) error { return errNoopNotImplemented }
 
 func (n *noopBackend) GenerateClientCertificate(

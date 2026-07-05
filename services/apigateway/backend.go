@@ -216,6 +216,7 @@ type StorageBackend interface {
 	GetGatewayResponse(restAPIID, responseType string) (*GatewayResponse, error)
 	GetGatewayResponses(restAPIID string) ([]GatewayResponse, error)
 	PutGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error)
+	UpdateGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error)
 	DeleteGatewayResponse(restAPIID, responseType string) error
 
 	// Client certificate operations.
@@ -1926,6 +1927,9 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 		MethodSettings:      input.MethodSettings,
 		TracingEnabled:      input.TracingEnabled,
 		ClientCertificateID: input.ClientCertificateID,
+		CacheClusterEnabled: input.CacheClusterEnabled,
+		CacheClusterSize:    input.CacheClusterSize,
+		CacheClusterStatus:  cacheClusterStatusFor(input.CacheClusterEnabled),
 	}
 	d.stages[input.StageName] = stage
 
@@ -2301,10 +2305,27 @@ func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateS
 	if input.ClientCertificateID != "" {
 		stage.ClientCertificateID = input.ClientCertificateID
 	}
+	if input.CacheClusterEnabled != nil {
+		stage.CacheClusterEnabled = *input.CacheClusterEnabled
+		stage.CacheClusterStatus = cacheClusterStatusFor(stage.CacheClusterEnabled)
+	}
+	if input.CacheClusterSize != "" {
+		stage.CacheClusterSize = input.CacheClusterSize
+	}
 	stage.LastUpdatedDate = unixEpochTime{time.Now()}
 	cp := *stage
 
 	return &cp, nil
+}
+
+// cacheClusterStatusFor derives the AWS CacheClusterStatus enum value
+// ("AVAILABLE"/"NOT_AVAILABLE") from whether the stage's cache cluster is enabled.
+func cacheClusterStatusFor(enabled bool) string {
+	if enabled {
+		return "AVAILABLE"
+	}
+
+	return "NOT_AVAILABLE"
 }
 
 // GetUsagePlan retrieves a usage plan by ID.
@@ -2792,7 +2813,7 @@ func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePla
 		p.Quota = input.Quota
 	}
 
-	if len(input.APIStages) > 0 {
+	if input.APIStages != nil {
 		p.APIStages = input.APIStages
 	}
 
@@ -3108,6 +3129,9 @@ func (b *InMemoryBackend) UpdateAccount(input UpdateAccountInput) (*Account, err
 	if input.ThrottleSettings != nil {
 		b.account.ThrottleSettings = input.ThrottleSettings
 	}
+	if input.CloudwatchRoleARN != "" {
+		b.account.CloudwatchRoleARN = input.CloudwatchRoleARN
+	}
 
 	return b.account, nil
 }
@@ -3278,6 +3302,49 @@ func (b *InMemoryBackend) PutGatewayResponse(input PutGatewayResponseInput) (*Ga
 	b.gatewayResponses[key] = gr
 
 	return gr, nil
+}
+
+// UpdateGatewayResponse applies a partial (PATCH) update to a gateway response,
+// merging only the fields present in input with the existing response (or with
+// AWS's implicit default response for responseType, if none has been customized
+// yet). Unlike PutGatewayResponse — which is a full wholesale replace used by the
+// real PUT operation — UpdateGatewayResponse must not clobber
+// ResponseParameters/ResponseTemplates/StatusCode that weren't part of this PATCH
+// document, matching AWS's PATCH-operation semantics for this resource.
+func (b *InMemoryBackend) UpdateGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error) {
+	b.mu.Lock("UpdateGatewayResponse")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[input.RestAPIID]; !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	key := gatewayResponseKey(input.RestAPIID, input.ResponseType)
+
+	existing, ok := b.gatewayResponses[key]
+	if !ok {
+		existing = &GatewayResponse{
+			RestAPIID:       input.RestAPIID,
+			ResponseType:    input.ResponseType,
+			StatusCode:      gatewayResponseDefaultStatus(input.ResponseType),
+			DefaultResponse: true,
+		}
+	}
+
+	cp := *existing
+	if input.StatusCode != "" {
+		cp.StatusCode = input.StatusCode
+	}
+	if input.ResponseParameters != nil {
+		cp.ResponseParameters = input.ResponseParameters
+	}
+	if input.ResponseTemplates != nil {
+		cp.ResponseTemplates = input.ResponseTemplates
+	}
+	cp.DefaultResponse = false
+	b.gatewayResponses[key] = &cp
+
+	return &cp, nil
 }
 
 // DeleteGatewayResponse removes a custom gateway response, reverting to default.

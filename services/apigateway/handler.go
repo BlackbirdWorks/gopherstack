@@ -1056,10 +1056,15 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		body = []byte("{}")
 	}
 
-	// Convert RFC 6902 patch arrays to flat JSON objects so PATCH handlers can
-	// read fields directly (e.g. [{"op":"replace","path":"/name","value":"x"}]
-	// becomes {"name":"x"}).
-	body = normalizePatchBody(body)
+	// Convert RFC 6902 patch documents ({"patchOperations":[...]}, or a bare
+	// array) to flat JSON objects so PATCH handlers can read fields directly
+	// (e.g. [{"op":"replace","path":"/name","value":"x"}] becomes
+	// {"name":"x"}); see patch.go for the resource-specific map/struct/list
+	// merges this also handles (stage variables, canary promotion, per-route
+	// method settings, binary media types, usage-plan API stages, gateway
+	// response parameters/templates) that a flat single-field replace cannot
+	// express.
+	body = h.applyStructuredPatch(action, pathParams, body)
 
 	// Merge path parameters into the JSON body so existing handlers can read them.
 	for k, v := range pathParams {
@@ -1143,91 +1148,6 @@ func detectImportRESTAPI(
 	}
 
 	return "", nil, false
-}
-
-// patchOp is a single RFC 6902 JSON patch operation, e.g.
-// {"op":"replace","path":"/description","value":"foo"}.
-type patchOp struct {
-	Op    string          `json:"op"`
-	Path  string          `json:"path"`
-	Value json.RawMessage `json:"value"`
-}
-
-// normalizePatchBody converts a JSON patch array (RFC 6902) to a flat JSON object,
-// so PATCH handlers can read fields directly. AWS API Gateway REST PATCH endpoints
-// accept patch operations either as a bare array
-// ([{"op":"replace","path":"/description","value":"foo"}]) or, per the real
-// aws-sdk-go-v2 wire shape for operations like UpdateUsage/UpdateRestApi/UpdateStage,
-// wrapped in a "patchOperations" object field
-// ({"patchOperations":[{"op":"replace","path":"/description","value":"foo"}]}).
-// Both forms are flattened to {"description":"foo"}. Bodies that are neither a
-// patch array nor an object with a "patchOperations" array are returned unchanged.
-func normalizePatchBody(body []byte) []byte {
-	if len(body) == 0 {
-		return body
-	}
-
-	var flattened []byte
-
-	switch body[0] {
-	case '[':
-		var ops []patchOp
-		if err := json.Unmarshal(body, &ops); err != nil || len(ops) == 0 || ops[0].Op == "" {
-			return body
-		}
-
-		flattened = flattenPatchOps(ops, nil)
-	case '{':
-		var wrapper struct {
-			PatchOperations []patchOp `json:"patchOperations"`
-		}
-
-		if err := json.Unmarshal(body, &wrapper); err != nil || len(wrapper.PatchOperations) == 0 {
-			return body
-		}
-
-		var rest map[string]json.RawMessage
-		_ = json.Unmarshal(body, &rest)
-		delete(rest, "patchOperations")
-
-		flattened = flattenPatchOps(wrapper.PatchOperations, rest)
-	default:
-		return body
-	}
-
-	if flattened == nil {
-		return body
-	}
-
-	return flattened
-}
-
-// flattenPatchOps converts a list of RFC 6902 patch operations into a flat JSON
-// object, layered on top of base (any other sibling fields already present in
-// the request body; may be nil). Only "replace"/"add" ops are applied.
-func flattenPatchOps(ops []patchOp, base map[string]json.RawMessage) []byte {
-	m := make(map[string]json.RawMessage, len(base)+len(ops))
-	maps.Copy(m, base)
-
-	for _, op := range ops {
-		if op.Op != "replace" && op.Op != "add" {
-			continue
-		}
-
-		field := strings.TrimPrefix(op.Path, "/")
-		if field == "" {
-			continue
-		}
-
-		m[field] = op.Value
-	}
-
-	out, err := json.Marshal(m)
-	if err != nil {
-		return nil
-	}
-
-	return out
 }
 
 // injectJSONFieldAPIGW merges a key/value string pair into a JSON object body.
