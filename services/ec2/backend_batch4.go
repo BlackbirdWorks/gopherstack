@@ -3,6 +3,7 @@ package ec2
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -1495,10 +1496,8 @@ func (b *InMemoryBackend) AttachVerifiedAccessTrustProvider(instanceID, trustPro
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessTrustProviderNF, trustProviderID)
 	}
 
-	for _, id := range inst.AttachedTrustProviderIDs { //nolint:modernize // slices.Contains requires Go 1.21+
-		if id == trustProviderID {
-			return nil // already attached
-		}
+	if slices.Contains(inst.AttachedTrustProviderIDs, trustProviderID) {
+		return nil // already attached
 	}
 	inst.AttachedTrustProviderIDs = append(inst.AttachedTrustProviderIDs, trustProviderID)
 

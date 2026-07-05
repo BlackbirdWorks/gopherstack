@@ -74,6 +74,24 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
 
+  modernize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ env.GH_CI_TOKEN }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: go fix (modernize)
+        run: go fix -diff ./...
+
   govulncheck:
     runs-on: ubuntu-latest
     steps:
