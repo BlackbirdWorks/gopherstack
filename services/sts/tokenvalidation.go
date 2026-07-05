@@ -89,6 +89,46 @@ func checkJWTWellFormed(token string) error {
 	return nil
 }
 
+// validateTradeInTokenExpiry checks the self-consistent "exp" claim of a
+// JWT-shaped GetDelegatedAccessToken TradeInToken, without verifying its
+// cryptographic signature (the external issuer's signing keys are not
+// available to the emulator — the same constraint that applies to
+// WebIdentityToken and SAMLAssertion validation above). Opaque, non-JWT tokens
+// (fixtures without JWT structure) are accepted unchanged, matching the mock's
+// existing permissive handling of such test tokens. A JWT-shaped token whose
+// exp claim has already passed is rejected with ErrExpiredTradeInToken, which
+// the handler maps to the real AWS ExpiredTradeInTokenException error code.
+func validateTradeInTokenExpiry(token string) error {
+	parts := strings.Split(token, ".")
+	if len(parts) != jwtFullPartCount || slices.Contains(parts, "") {
+		// Not JWT-shaped: nothing to validate.
+		return nil
+	}
+
+	claims := parseJWTPayloadClaims(token)
+	if claims == nil {
+		return nil
+	}
+
+	exp, ok, err := jwtTimeClaim(claims, jwtClaimExp)
+	if err != nil {
+		return err
+	}
+
+	if !ok {
+		return nil
+	}
+
+	if time.Now().UTC().After(exp) {
+		return fmt.Errorf(
+			"%w: TradeInToken exp claim is %s",
+			ErrExpiredTradeInToken, exp.Format(time.RFC3339),
+		)
+	}
+
+	return nil
+}
+
 // jwtTimeClaim extracts a NumericDate JWT claim (seconds since the Unix epoch)
 // as a UTC time. The second result reports presence; an error is returned only
 // when the claim is present but not a parseable number.

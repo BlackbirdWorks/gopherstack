@@ -18,7 +18,10 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := sts.NewInMemoryBackend()
 	h := sts.NewHandler(backend)
-	// GetWebIdentityToken is an internal gopherstack extension, not a real AWS STS API action.
-	notImplemented := []string{"GetWebIdentityToken"}
+	// GetWebIdentityToken and GetDelegatedAccessToken are real, routed AWS STS
+	// operations (present in aws-sdk-go-v2/service/sts as of the pinned SDK
+	// version) — both are listed in GetSupportedOperations, so there is nothing
+	// left to acknowledge as not-yet-implemented.
+	var notImplemented []string
 	sdkcheck.CheckCompleteness(t, &stssdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

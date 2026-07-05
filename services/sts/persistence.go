@@ -22,8 +22,8 @@ type backendSnapshot struct {
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock("Snapshot")
+	defer b.mu.RUnlock()
 
 	sessions := make(map[string]*SessionInfo, len(b.sessions))
 	for k, v := range b.sessions {
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	now := time.Now().UTC()
 
-	b.mu.Lock()
+	b.mu.Lock("Restore")
 	b.ensureNonNilMaps()
 	b.sessions = make(map[string]*SessionInfo)
 

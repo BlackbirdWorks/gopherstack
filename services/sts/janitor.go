@@ -67,7 +67,7 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 func (j *Janitor) sweepExpiredSessions(ctx context.Context) {
 	b := j.Backend
 
-	b.mu.Lock()
+	b.mu.Lock("SessionSweep")
 
 	var expired []string
 
