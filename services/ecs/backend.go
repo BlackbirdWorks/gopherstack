@@ -203,8 +203,11 @@ type Task struct {
 
 // CreateClusterInput holds input for CreateCluster.
 type CreateClusterInput struct {
-	ClusterName string
-	Settings    []ClusterSetting
+	ClusterName                     string
+	Settings                        []ClusterSetting
+	CapacityProviders               []string
+	DefaultCapacityProviderStrategy []CapacityProviderStrategyItem
+	Tags                            []Tag
 }
 
 // RegisterTaskDefinitionInput holds input for RegisterTaskDefinition.
@@ -513,16 +516,22 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	}
 
 	cluster := &Cluster{
-		CreatedAt:   time.Now(),
-		ClusterArn:  arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", name)),
-		ClusterName: name,
-		Status:      statusActive,
-		Settings:    input.Settings,
+		CreatedAt:                       time.Now(),
+		ClusterArn:                      arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", name)),
+		ClusterName:                     name,
+		Status:                          statusActive,
+		Settings:                        input.Settings,
+		CapacityProviders:               input.CapacityProviders,
+		DefaultCapacityProviderStrategy: input.DefaultCapacityProviderStrategy,
 	}
 	b.clusters[name] = cluster
 	b.services[name] = make(map[string]*Service)
 	b.tasks[name] = make(map[string]*Task)
 	b.containerInstances[name] = make(map[string]*ContainerInstance)
+
+	if len(input.Tags) > 0 {
+		b.setResourceTagsLocked(cluster.ClusterArn, input.Tags)
+	}
 
 	cp := *cluster
 
@@ -619,7 +628,7 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	if svcs, exists := b.services[key]; exists {
 		for svcName, svc := range svcs {
 			delete(b.taskSets, svc.ServiceArn)
-			delete(b.serviceDeployments, svc.ServiceArn)
+			b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
 			delete(b.serviceIndex, svcRef{cluster: key, name: svcName})
 		}
 	}
@@ -1002,6 +1011,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 	b.serviceIndex[svcRef{cluster: clusterName, name: input.ServiceName}] = true
 
 	b.addServiceRevisionLocked(svc)
+	b.syncServiceDeploymentsLocked(svc)
 
 	cp := *svc
 
@@ -1258,6 +1268,7 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 	applyServiceConfigUpdates(svc, input)
 
 	b.addServiceRevisionLocked(svc)
+	b.syncServiceDeploymentsLocked(svc)
 
 	cp := *svc
 
@@ -1303,6 +1314,7 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string) (*Service, 
 	delete(svcs, key)
 	delete(b.taskSets, svc.ServiceArn)
 	delete(b.serviceIndex, svcRef{cluster: clusterName, name: key})
+	b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
 
 	cp := *svc
 

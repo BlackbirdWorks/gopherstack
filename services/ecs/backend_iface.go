@@ -134,6 +134,7 @@ type Backend interface {
 	) ([]ServiceDeployment, []Failure, error)
 	ListServiceDeployments(cluster, service string) ([]string, error)
 	StopServiceDeployment(serviceDeploymentArn string) (*ServiceDeployment, error)
+	ContinueServiceDeployment(serviceDeploymentArn, hookID, action string) (*ServiceDeployment, error)
 
 	// Express gateway services
 

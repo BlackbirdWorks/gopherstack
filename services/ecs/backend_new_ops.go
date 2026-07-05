@@ -3,6 +3,7 @@ package ecs
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -97,6 +98,84 @@ type ServiceDeployment struct {
 	ServiceArn           string     `json:"serviceArn"`
 	Status               string     `json:"status"`
 	StatusReason         string     `json:"statusReason,omitempty"`
+}
+
+// serviceDeploymentArnFor derives the ARN of the service deployment record for
+// a Deployment, following the
+// arn:aws:ecs:region:account:service-deployment/cluster/service/deployment-id
+// scheme (mirroring serviceRevisionArnFor in backend_parity2.go). deploymentID
+// already carries its "ecs-svc/" prefix (see newPrimaryDeployment/
+// newActiveDeployment), matching the shape of real ECS deployment IDs.
+func serviceDeploymentArnFor(svc *Service, deploymentID string) string {
+	return strings.Replace(svc.ServiceArn, ":service/", ":service-deployment/", 1) + "/" + deploymentID
+}
+
+// serviceDeploymentStatusFor maps a Deployment's RolloutState to the
+// corresponding ServiceDeploymentStatus value. IN_PROGRESS is the default for
+// any rollout state this backend doesn't model as a distinct terminal state.
+func serviceDeploymentStatusFor(rolloutState string) string {
+	switch rolloutState {
+	case deploymentRolloutStateCompleted:
+		return "SUCCESSFUL"
+	case deploymentRolloutStateFailed:
+		return statusStopped
+	default:
+		return "IN_PROGRESS"
+	}
+}
+
+// recordServiceDeploymentLocked upserts the ServiceDeployment record tracking
+// a single Deployment. Must be called with the write lock held.
+func (b *InMemoryBackend) recordServiceDeploymentLocked(svc *Service, dep *Deployment) {
+	depArn := serviceDeploymentArnFor(svc, dep.ID)
+
+	createdAt := time.Now()
+	if dep.CreatedAt != nil {
+		createdAt = time.Unix(int64(*dep.CreatedAt), 0)
+	}
+
+	updatedAt := createdAt
+	if dep.UpdatedAt != nil {
+		updatedAt = time.Unix(int64(*dep.UpdatedAt), 0)
+	}
+
+	b.serviceDeployments[depArn] = &ServiceDeployment{
+		ServiceDeploymentArn: depArn,
+		ClusterArn:           svc.ClusterArn,
+		ServiceArn:           svc.ServiceArn,
+		Status:               serviceDeploymentStatusFor(dep.RolloutState),
+		StatusReason:         dep.RolloutStateReason,
+		CreatedAt:            &createdAt,
+		UpdatedAt:            &updatedAt,
+	}
+}
+
+// deleteServiceDeploymentsForServiceLocked removes every ServiceDeployment
+// record belonging to a service (keyed by ServiceDeploymentArn, which embeds
+// the deployment ID — not by ServiceArn), so a deleted/purged service doesn't
+// leave stale entries behind. Must be called with the write lock held.
+func (b *InMemoryBackend) deleteServiceDeploymentsForServiceLocked(serviceArn string) {
+	for depArn, sd := range b.serviceDeployments {
+		if sd.ServiceArn == serviceArn {
+			delete(b.serviceDeployments, depArn)
+		}
+	}
+}
+
+// syncServiceDeploymentsLocked upserts a ServiceDeployment record for every
+// entry currently on svc.Deployments. CreateService, UpdateService, and the
+// deployment-circuit-breaker rollback path (deployment.go) all mutate
+// svc.Deployments directly and must call this afterward so
+// DescribeServiceDeployments/ListServiceDeployments/StopServiceDeployment stay
+// in sync — without it, those three routed ops only ever see data seeded by
+// the AddServiceDeploymentInternal test helper, never anything a real
+// deployment created (see parity-principles.md rule 4: a "real-looking" op
+// filtering a never-populated map is a disguised stub). Must be called with
+// the write lock held.
+func (b *InMemoryBackend) syncServiceDeploymentsLocked(svc *Service) {
+	for i := range svc.Deployments {
+		b.recordServiceDeploymentLocked(svc, &svc.Deployments[i])
+	}
 }
 
 // ExpressGatewayService represents an ECS express gateway service.

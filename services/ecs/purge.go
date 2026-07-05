@@ -91,7 +91,7 @@ func (b *InMemoryBackend) purgeClusterLocked(name string) {
 	if svcs, ok := b.services[name]; ok {
 		for svcName, svc := range svcs {
 			delete(b.serviceIndex, svcRef{cluster: name, name: svcName})
-			delete(b.serviceDeployments, svc.ServiceArn)
+			b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
 			delete(b.taskSets, svc.ServiceArn)
 
 			for _, rev := range b.serviceRevisions[svc.ServiceArn] {

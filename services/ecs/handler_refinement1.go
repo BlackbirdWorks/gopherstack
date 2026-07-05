@@ -288,3 +288,27 @@ func (h *Handler) handleStopServiceDeployment(
 
 	return &stopServiceDeploymentOutput{ServiceDeployment: toServiceDeploymentView(*sd)}, nil
 }
+
+// ----- ContinueServiceDeployment -----
+
+type continueServiceDeploymentInput struct {
+	HookID               string `json:"hookId"`
+	ServiceDeploymentArn string `json:"serviceDeploymentArn"`
+	Action               string `json:"action,omitempty"`
+}
+
+type continueServiceDeploymentOutput struct {
+	ServiceDeploymentArn string `json:"serviceDeploymentArn"`
+}
+
+func (h *Handler) handleContinueServiceDeployment(
+	_ context.Context,
+	in *continueServiceDeploymentInput,
+) (*continueServiceDeploymentOutput, error) {
+	sd, err := h.Backend.ContinueServiceDeployment(in.ServiceDeploymentArn, in.HookID, in.Action)
+	if err != nil {
+		return nil, err
+	}
+
+	return &continueServiceDeploymentOutput{ServiceDeploymentArn: sd.ServiceDeploymentArn}, nil
+}

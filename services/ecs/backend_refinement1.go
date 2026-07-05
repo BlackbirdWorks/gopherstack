@@ -246,6 +246,17 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags []Tag) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
+	b.setResourceTagsLocked(resourceArn, tags)
+
+	return nil
+}
+
+// setResourceTagsLocked merges tags into the resourceTags side map for a
+// resource ARN, overwriting any existing tag with the same key. Shared by
+// TagResource and resource-creation ops (for example CreateCluster) that
+// accept an initial set of tags while already holding the write lock. Must be
+// called with the write lock held.
+func (b *InMemoryBackend) setResourceTagsLocked(resourceArn string, tags []Tag) {
 	if b.resourceTags == nil {
 		b.resourceTags = make(map[string][]Tag)
 	}
@@ -269,8 +280,6 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags []Tag) error {
 	}
 
 	b.resourceTags[resourceTagKey(resourceArn)] = merged
-
-	return nil
 }
 
 // UntagResource removes tags with the given keys from a resource.
@@ -395,4 +404,55 @@ func (b *InMemoryBackend) StopServiceDeployment(
 	out := *sd
 
 	return &out, nil
+}
+
+// ---- ContinueServiceDeployment ----
+
+const (
+	deploymentLifecycleActionContinue = "CONTINUE"
+	deploymentLifecycleActionRollback = "ROLLBACK"
+)
+
+// errNoLifecycleHook is returned by ContinueServiceDeployment: this backend
+// never pauses a deployment at a lifecycle hook (blue/green PAUSE stages
+// aren't modeled — every deployment either runs to completion or trips the
+// circuit breaker), so there is never a paused hookId to act on. Matching AWS
+// behavior for "act on a hook that isn't currently paused" as closely as
+// possible without modeling the full lifecycle-hook state machine.
+var errNoLifecycleHook = awserr.New("ClientException", awserr.ErrInvalidParameter)
+
+// ContinueServiceDeployment continues or rolls back a service deployment that
+// is paused at a lifecycle hook. Real ECS only pauses a deployment when a
+// PAUSE-stage lifecycle hook (a Lambda-backed hook configured on the service)
+// is present; this backend does not model lifecycle hooks, so a deployment is
+// never actually paused. The op still validates the deployment exists and the
+// required hookId is present before reporting that there is no such paused
+// hook — it does not fabricate a successful continue/rollback for state that
+// was never paused.
+func (b *InMemoryBackend) ContinueServiceDeployment(
+	serviceDeploymentArn, hookID, action string,
+) (*ServiceDeployment, error) {
+	if serviceDeploymentArn == "" {
+		return nil, fmt.Errorf("%w: serviceDeploymentArn is required", ErrInvalidParameter)
+	}
+
+	if hookID == "" {
+		return nil, fmt.Errorf("%w: hookId is required", ErrInvalidParameter)
+	}
+
+	switch action {
+	case "", deploymentLifecycleActionContinue, deploymentLifecycleActionRollback:
+	default:
+		return nil, fmt.Errorf("%w: invalid action %q", ErrInvalidParameter, action)
+	}
+
+	b.mu.RLock("ContinueServiceDeployment")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.serviceDeployments[serviceDeploymentArn]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrServiceDeploymentNotFound, serviceDeploymentArn)
+	}
+
+	return nil, fmt.Errorf("%w: no paused lifecycle hook %q found for service deployment %s",
+		errNoLifecycleHook, hookID, serviceDeploymentArn)
 }

@@ -145,6 +145,8 @@ func (b *InMemoryBackend) evaluateCircuitBreakerLocked(svc *Service) {
 	if circuitBreakerRollback(svc) {
 		b.rollbackServiceLocked(svc)
 	}
+
+	b.syncServiceDeploymentsLocked(svc)
 }
 
 // lastStableTaskDefinition returns the task definition of the most recent

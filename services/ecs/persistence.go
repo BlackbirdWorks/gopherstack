@@ -30,6 +30,13 @@ type backendSnapshot struct {
 	DaemonTaskDefinitions  map[string][]*DaemonTaskDefinition       `json:"daemonTaskDefinitions"`
 	DaemonDeployments      map[string]*DaemonDeployment             `json:"daemonDeployments"`
 	DaemonRevisions        map[string]*DaemonRevision               `json:"daemonRevisions"`
+	// ResourceTags holds tags applied via TagResource/UntagResource, keyed by
+	// resourceTagKey(resourceArn). Clusters and Services carry their tags inline
+	// on their own struct, but task definitions and daemon task definitions are
+	// tagged only through this side map (see TagResource/ListTagsForResource in
+	// backend_refinement1.go), so it must be persisted like any other resource
+	// state or tags silently vanish across a snapshot/restore cycle.
+	ResourceTags map[string][]Tag `json:"resourceTags"`
 }
 
 func snapshotClusters(src map[string]*Cluster) map[string]*Cluster {
@@ -234,6 +241,18 @@ func snapshotDaemonRevisions(src map[string]*DaemonRevision) map[string]*DaemonR
 	return dst
 }
 
+// snapshotResourceTags deep-copies the TagResource side map (see the
+// backendSnapshot.ResourceTags doc comment for why this must be persisted
+// alongside the primary resource maps).
+func snapshotResourceTags(src map[string][]Tag) map[string][]Tag {
+	dst := make(map[string][]Tag, len(src))
+	for k, v := range src {
+		dst[k] = copyTags(v)
+	}
+
+	return dst
+}
+
 // Snapshot serialises the backend state to JSON.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
@@ -268,6 +287,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DaemonTaskDefinitions:  snapshotDaemonTaskDefinitions(b.daemonTaskDefinitions),
 		DaemonDeployments:      snapshotDaemonDeployments(b.daemonDeployments),
 		DaemonRevisions:        snapshotDaemonRevisions(b.daemonRevisions),
+		ResourceTags:           snapshotResourceTags(b.resourceTags),
 	}
 
 	return persistence.MarshalSnapshot(ctx, "ecs", snap)
@@ -324,6 +344,10 @@ func initSnapshotDefaults(snap *backendSnapshot) {
 		snap.TaskProtections = make(map[string]*TaskProtection)
 	}
 
+	if snap.ResourceTags == nil {
+		snap.ResourceTags = make(map[string][]Tag)
+	}
+
 	initDaemonSnapshotDefaults(snap)
 }
 
@@ -376,6 +400,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.daemonTaskDefinitions = snap.DaemonTaskDefinitions
 	b.daemonDeployments = snap.DaemonDeployments
 	b.daemonRevisions = snap.DaemonRevisions
+	b.resourceTags = snap.ResourceTags
 
 	// Rebuild the ARN→TaskDefinition cache from restored task definitions.
 	b.taskDefByArn = make(map[string]*TaskDefinition)
@@ -390,6 +415,30 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	for _, revs := range b.daemonTaskDefinitions {
 		for _, td := range revs {
 			b.daemonTaskDefByArn[td.DaemonTaskDefinitionArn] = td
+		}
+	}
+
+	// Rebuild the flat serviceIndex from the restored services map. Unlike
+	// tasksByInstance (which enrichContainerInstance falls back to a linear scan
+	// for), getServicesForReconciler reads serviceIndex with no fallback: leaving
+	// it empty after a restore would silently stop the deployment reconciler
+	// from ever seeing pre-existing services again (deployments/scaling would
+	// freeze forever post-restart).
+	b.serviceIndex = make(map[svcRef]bool, len(b.services))
+	for clusterName, svcs := range b.services {
+		for svcName := range svcs {
+			b.serviceIndex[svcRef{cluster: clusterName, name: svcName}] = true
+		}
+	}
+
+	// Rebuild the containerInstance→task reverse index from the restored tasks
+	// map. enrichContainerInstance already falls back to a linear scan when this
+	// index is empty, but rebuilding it here keeps post-restore behavior on the
+	// fast O(k) path instead of silently degrading to O(n) for every describe.
+	b.tasksByInstance = make(map[string]map[string]map[string]bool, len(b.tasks))
+	for clusterName, tasks := range b.tasks {
+		for taskArn, task := range tasks {
+			b.indexTaskOnInstance(clusterName, task.ContainerInstanceArn, taskArn)
 		}
 	}
 

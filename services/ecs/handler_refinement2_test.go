@@ -428,6 +428,76 @@ func TestECS_StopServiceDeployment(t *testing.T) {
 	}
 }
 
+// TestECS_ContinueServiceDeployment verifies real-vs-honest-error behavior:
+// this backend never pauses a deployment at a lifecycle hook (blue/green
+// PAUSE stages aren't modeled), so ContinueServiceDeployment must validate
+// the deployment/hookId inputs for real and report ClientException rather
+// than fabricating a successful continue/rollback.
+func TestECS_ContinueServiceDeployment(t *testing.T) {
+	t.Parallel()
+
+	const arn = "arn:aws:ecs:us-east-1:000000000000:service-deployment/test-cluster/my-service/deploy-1"
+
+	tests := []struct {
+		input        map[string]any
+		setup        func(h *ecs.Handler)
+		name         string
+		wantTypeIsIn []string
+		wantCode     int
+	}{
+		{
+			name: "existing deployment, no paused hook",
+			setup: func(h *ecs.Handler) {
+				now := time.Now()
+				b, ok := h.Backend.(*ecs.InMemoryBackend)
+				if !ok {
+					return
+				}
+				b.AddServiceDeploymentInternal(&ecs.ServiceDeployment{
+					ServiceDeploymentArn: arn,
+					ClusterArn:           "arn:aws:ecs:us-east-1:000000000000:cluster/test-cluster",
+					ServiceArn:           "arn:aws:ecs:us-east-1:000000000000:service/test-cluster/my-service",
+					Status:               "IN_PROGRESS",
+					CreatedAt:            &now,
+				})
+			},
+			input:        map[string]any{"serviceDeploymentArn": arn, "hookId": "hook-1"},
+			wantCode:     http.StatusBadRequest,
+			wantTypeIsIn: []string{"ClientException"},
+		},
+		{
+			name:         "deployment not found",
+			input:        map[string]any{"serviceDeploymentArn": "arn:not-exist", "hookId": "hook-1"},
+			wantCode:     http.StatusBadRequest,
+			wantTypeIsIn: []string{"ServiceDeploymentNotFoundException"},
+		},
+		{
+			name:         "missing hookId",
+			input:        map[string]any{"serviceDeploymentArn": arn},
+			wantCode:     http.StatusBadRequest,
+			wantTypeIsIn: []string{"InvalidParameterException"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doECSRequest(t, h, "ContinueServiceDeployment", tt.input)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Contains(t, tt.wantTypeIsIn, resp["__type"])
+		})
+	}
+}
+
 // TestECS_RunTask_StartedBy verifies startedBy, platformVersion and tags are stored and returned.
 func TestECS_RunTask_StartedBy(t *testing.T) {
 	t.Parallel()
