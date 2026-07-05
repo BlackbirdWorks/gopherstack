@@ -2202,6 +2202,9 @@ func TestS3BucketReplicationCRUD(t *testing.T) {
 			)
 			require.NoError(t, err)
 
+			// Real S3 requires versioning enabled before replication config.
+			enableVersioning(t, handler, bucket)
+
 			// GetBucketReplication before put → 404
 			req := httptest.NewRequest(http.MethodGet, "/"+bucket+"?replication", nil)
 			rec := httptest.NewRecorder()
@@ -3632,11 +3635,11 @@ func TestHandler_GetObject_ExpirationHeader(t *testing.T) {
 		rec.Header().Get("Accept-Ranges"),
 		"Accept-Ranges should be set on GET",
 	)
-	assert.Equal(
+	// Real S3 omits x-amz-storage-class for STANDARD-class objects.
+	assert.Empty(
 		t,
-		"STANDARD",
 		rec.Header().Get("X-Amz-Storage-Class"),
-		"X-Amz-Storage-Class should be STANDARD",
+		"X-Amz-Storage-Class should be omitted for STANDARD",
 	)
 }
 
@@ -3653,7 +3656,31 @@ func TestHandler_HeadObject_StorageClassAndAcceptRanges(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "bytes", rec.Header().Get("Accept-Ranges"))
-	assert.Equal(t, "STANDARD", rec.Header().Get("X-Amz-Storage-Class"))
+	// Real S3 omits x-amz-storage-class for STANDARD-class objects.
+	assert.Empty(t, rec.Header().Get("X-Amz-Storage-Class"))
+}
+
+// TestHandler_GetObject_ResponseHeaderOverrides verifies the AWS response-*
+// query parameters override the corresponding response headers on GET (used
+// heavily via presigned URLs, e.g. forcing a download filename).
+func TestHandler_GetObject_ResponseHeaderOverrides(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "bkt")
+	mustPutObject(t, backend, "bkt", "obj", []byte("data"))
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/bkt/obj?response-content-type=application/pdf"+
+			"&response-content-disposition=attachment%3B%20filename%3D%22r.pdf%22"+
+			"&response-cache-control=no-cache", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/pdf", rec.Header().Get("Content-Type"))
+	assert.Equal(t, `attachment; filename="r.pdf"`, rec.Header().Get("Content-Disposition"))
+	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
 }
 
 func TestHandler_GetObject_RangeContentLength(t *testing.T) {
@@ -3691,6 +3718,27 @@ func TestHandler_PutBucketACL_InvalidValue(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHandler_PutBucketACL_RejectsObjectOnlyCannedACLs verifies that the
+// object-only canned ACLs (bucket-owner-read / bucket-owner-full-control) are
+// rejected on PutBucketAcl with 400 InvalidArgument, matching real S3
+// (types.BucketCannedACL does not include them).
+func TestHandler_PutBucketACL_RejectsObjectOnlyCannedACLs(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "bkt")
+
+	for _, acl := range []string{"bucket-owner-read", "bucket-owner-full-control"} {
+		req := httptest.NewRequest(http.MethodPut, "/bkt?acl", nil)
+		req.Header.Set("X-Amz-Acl", acl)
+		rec := httptest.NewRecorder()
+		serveS3Handler(handler, rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "canned ACL %q must be rejected", acl)
+		assert.Contains(t, rec.Body.String(), "InvalidArgument")
+	}
 }
 
 func TestHandler_ListMultipartUploads_MaxUploads(t *testing.T) {

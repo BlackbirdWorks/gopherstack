@@ -958,15 +958,17 @@ func mapListVersionsOutput(
 }
 
 // validCannedACLs is the complete set of canned ACL strings that AWS S3 accepts
-// for PutBucketAcl.
+// for PutBucketAcl. This mirrors types.BucketCannedACL (private, public-read,
+// public-read-write, authenticated-read) plus log-delivery-write, which is
+// bucket-only. The bucket-owner-read / bucket-owner-full-control canned ACLs
+// belong to types.ObjectCannedACL only — real S3 rejects them on PutBucketAcl
+// with 400 InvalidArgument, so they are deliberately excluded here.
 var validCannedACLs = map[string]struct{}{ //nolint:gochecknoglobals // package-level lookup table
-	aclPrivate:                  {},
-	aclPublicRead:               {},
-	aclPublicReadWrite:          {},
-	aclAuthenticatedRead:        {},
-	"bucket-owner-read":         {},
-	"bucket-owner-full-control": {},
-	aclLogDeliveryWrite:         {},
+	aclPrivate:           {},
+	aclPublicRead:        {},
+	aclPublicReadWrite:   {},
+	aclAuthenticatedRead: {},
+	aclLogDeliveryWrite:  {},
 }
 
 func (h *S3Handler) putBucketACL(
@@ -977,18 +979,35 @@ func (h *S3Handler) putBucketACL(
 ) {
 	h.setOperation(ctx, "PutBucketAcl")
 
-	acl := r.Header.Get("X-Amz-Acl")
-	if acl == "" {
-		acl = "private"
+	// A PutBucketAcl request carries the grant set either as an x-amz-acl canned
+	// header or as an AccessControlPolicy XML body (mutually exclusive in AWS).
+	// Mirror the object-ACL path: persist whichever was supplied, and feed both
+	// the canned value and the body into the Public-Access-Block check so a
+	// body-only request can't slip a public grant past BlockPublicAcls.
+	canned := r.Header.Get("X-Amz-Acl")
+
+	body, _ := httputils.ReadBody(r)
+
+	// Only validate the canned value when no explicit body was supplied; an
+	// AccessControlPolicy body is authoritative and needs no canned name.
+	if len(body) == 0 {
+		if canned == "" {
+			canned = "private"
+		}
+
+		if _, ok := validCannedACLs[canned]; !ok {
+			WriteError(ctx, w, r, ErrInvalidArgument)
+
+			return
+		}
 	}
 
-	if _, ok := validCannedACLs[acl]; !ok {
-		WriteError(ctx, w, r, ErrInvalidArgument)
-
-		return
+	acl := canned
+	if len(body) > 0 {
+		acl = string(body)
 	}
 
-	if err := h.enforceACLPolicy(ctx, bucketName, acl, ""); err != nil {
+	if err := h.enforceACLPolicy(ctx, bucketName, canned, string(body)); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -1014,6 +1033,17 @@ func (h *S3Handler) getBucketACL(
 	canned, err := h.Backend.GetBucketACL(ctx, bucketName)
 	if err != nil {
 		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	// When PutBucketAcl stored a full AccessControlPolicy XML body, return it
+	// verbatim (mirrors getObjectACL); otherwise synthesise XML from the canned
+	// ACL name.
+	if strings.HasPrefix(strings.TrimSpace(canned), "<") {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(canned)) //nolint:gosec // pre-stored XML body is trusted
 
 		return
 	}
@@ -1515,6 +1545,26 @@ func (h *S3Handler) putBucketReplication(
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    errMalformedXML,
 			Message: errMalformedXMLMsg,
+		}, http.StatusBadRequest)
+
+		return
+	}
+
+	// Real S3 requires the source bucket to have versioning enabled before a
+	// replication configuration can be attached, returning InvalidRequest 400
+	// otherwise. GetBucketVersioning surfaces NoSuchBucket for a missing bucket.
+	verOut, verErr := h.Backend.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
+		Bucket: aws.String(bucket),
+	})
+	if verErr != nil {
+		WriteError(ctx, w, r, verErr)
+
+		return
+	}
+	if verOut.Status != types.BucketVersioningStatusEnabled {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    errInvalidRequest,
+			Message: "Versioning must be 'Enabled' on the bucket to apply a replication configuration.",
 		}, http.StatusBadRequest)
 
 		return

@@ -281,6 +281,8 @@ func (h *S3Handler) writeHeadObjectResponse(
 		w.Header().Set("Content-Disposition", cd)
 	}
 
+	applyResponseOverrideHeaders(w, r)
+
 	h.dispatchAccessLog(ctx, r, bucketName, "REST.HEAD.OBJECT", key, http.StatusOK, 0)
 
 	w.WriteHeader(http.StatusOK)
@@ -781,6 +783,33 @@ func (h *S3Handler) setGetObjectResponseHeaders(
 
 	if r.Header.Get("X-Amz-Checksum-Mode") == "ENABLED" {
 		h.handleChecksumMode(w, ver, details)
+	}
+
+	applyResponseOverrideHeaders(w, r)
+}
+
+// responseOverrideParams maps the AWS GetObject/HeadObject response-override
+// query parameters to the HTTP response header each one replaces. These let a
+// caller (commonly via a presigned URL) override the object's stored headers,
+// e.g. response-content-disposition to force a download filename.
+var responseOverrideParams = map[string]string{ //nolint:gochecknoglobals // fixed lookup table
+	"response-content-type":        "Content-Type",
+	"response-content-language":    "Content-Language",
+	"response-expires":             "Expires",
+	"response-cache-control":       "Cache-Control",
+	"response-content-disposition": "Content-Disposition",
+	"response-content-encoding":    "Content-Encoding",
+}
+
+// applyResponseOverrideHeaders applies any response-* query-parameter overrides
+// to the outgoing headers, matching real S3 GetObject/HeadObject behaviour. An
+// override always wins over the object's stored header value.
+func applyResponseOverrideHeaders(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	for param, header := range responseOverrideParams {
+		if v := q.Get(param); v != "" {
+			w.Header().Set(header, v)
+		}
 	}
 }
 
@@ -1304,13 +1333,14 @@ func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDeta
 		w.Header().Set("X-Amz-Version-Id", *out.VersionID)
 	}
 
-	// Advertise byte-range support and the object's actual storage class.
+	// Advertise byte-range support. AWS returns x-amz-storage-class for every
+	// object EXCEPT those in the STANDARD class, for which the header is omitted
+	// (see HeadObject/GetObject output docs) — so a blank or STANDARD class
+	// produces no header here.
 	w.Header().Set("Accept-Ranges", "bytes")
-	sc := out.StorageClass
-	if sc == "" {
-		sc = storageStandard
+	if sc := out.StorageClass; sc != "" && sc != storageStandard {
+		w.Header().Set("X-Amz-Storage-Class", sc)
 	}
-	w.Header().Set("X-Amz-Storage-Class", sc)
 
 	h.setChecksumHeaders(w, out)
 }

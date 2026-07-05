@@ -3,6 +3,7 @@ package s3
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -257,28 +258,32 @@ func writePostObjectResponse(
 	w.WriteHeader(status)
 }
 
+// postResponseXML is the <PostResponse> body S3 returns for a successful
+// browser POST upload when success_action_status=201. Marshalling through
+// encoding/xml (rather than string concatenation) XML-escapes bucket/key
+// values, which may legally contain '&', '<' or '>'.
+type postResponseXML struct {
+	XMLName  xml.Name `xml:"PostResponse"`
+	Location string   `xml:"Location"`
+	Bucket   string   `xml:"Bucket"`
+	Key      string   `xml:"Key"`
+	ETag     string   `xml:"ETag,omitempty"`
+}
+
 func postObjectResponseXML(
 	bucketName, key string, etag *string, location string, r *http.Request,
 ) []byte {
-	var sb strings.Builder
-	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
-	sb.WriteString(`<PostResponse>`)
-	sb.WriteString(`<Location>http://`)
-	sb.WriteString(r.Host)
-	sb.WriteString(location)
-	sb.WriteString(`</Location>`)
-	sb.WriteString(`<Bucket>`)
-	sb.WriteString(bucketName)
-	sb.WriteString(`</Bucket>`)
-	sb.WriteString(`<Key>`)
-	sb.WriteString(key)
-	sb.WriteString(`</Key>`)
-	if etag != nil {
-		sb.WriteString(`<ETag>`)
-		sb.WriteString(*etag)
-		sb.WriteString(`</ETag>`)
+	resp := postResponseXML{
+		Location: "http://" + r.Host + location,
+		Bucket:   bucketName,
+		Key:      key,
+		ETag:     aws.ToString(etag),
 	}
-	sb.WriteString(`</PostResponse>`)
 
-	return []byte(sb.String())
+	out, err := xml.Marshal(resp)
+	if err != nil {
+		return nil
+	}
+
+	return append([]byte(xml.Header), out...)
 }

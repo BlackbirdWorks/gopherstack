@@ -54,6 +54,40 @@ func TestSSE_S3_RoundTripEncryptsAtRest(t *testing.T) {
 	require.Equal(t, plaintext, got)
 }
 
+// TestSSE_S3_SurvivesSnapshotRestore is a regression test for the persistence
+// data-loss bug where StoredObjectVersion.EncryptionDEK / EncryptionNonce were
+// tagged json:"-": the ciphertext persisted but its key did not, so every
+// SSE-S3/SSE-KMS object became permanently undecryptable after a restart. It
+// PUTs an SSE-S3 object, snapshots the backend, restores into a fresh backend,
+// and asserts the object still decrypts to the original plaintext.
+func TestSSE_S3_SurvivesSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "sse-persist")
+
+	plaintext := []byte("payload that must survive a restart intact")
+	req := httptest.NewRequest(http.MethodPut, "/sse-persist/k.txt", bytes.NewReader(plaintext))
+	req.Header.Set("X-Amz-Server-Side-Encryption", "AES256")
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	snap := backend.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	out, err := fresh.GetObject(context.Background(), &sdk_s3.GetObjectInput{
+		Bucket: aws.String("sse-persist"),
+		Key:    aws.String("k.txt"),
+	})
+	require.NoError(t, err, "restored SSE object must remain decryptable")
+	got, _ := io.ReadAll(out.Body)
+	require.Equal(t, plaintext, got)
+}
+
 // TestSSE_S3_MultipartEncryptsAtRest verifies that a multipart upload created
 // with SSE-S3 produces a stored version whose Data is ciphertext, and that
 // CompleteMultipartUpload + GetObject still returns the original concatenation.

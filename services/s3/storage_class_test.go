@@ -47,22 +47,31 @@ func TestStorageClass_PutAndGet(t *testing.T) {
 			serveS3Handler(handler, putRR, putReq)
 			require.Equal(t, http.StatusOK, putRR.Code, "PutObject %s", sc)
 
+			// Real S3 omits x-amz-storage-class for STANDARD objects and
+			// returns it for every other class.
+			wantHeader := sc
+			if sc == "STANDARD" {
+				wantHeader = ""
+			}
+
 			getRR := httptest.NewRecorder()
 			getReq := httptest.NewRequest(http.MethodGet, "/test-bucket-sc/"+key, nil)
 			serveS3Handler(handler, getRR, getReq)
 			require.Equal(t, http.StatusOK, getRR.Code)
-			assert.Equal(t, sc, getRR.Header().Get("X-Amz-Storage-Class"), "GET storage class")
+			assert.Equal(t, wantHeader, getRR.Header().Get("X-Amz-Storage-Class"), "GET storage class")
 
 			headRR := httptest.NewRecorder()
 			headReq := httptest.NewRequest(http.MethodHead, "/test-bucket-sc/"+key, nil)
 			serveS3Handler(handler, headRR, headReq)
 			require.Equal(t, http.StatusOK, headRR.Code)
-			assert.Equal(t, sc, headRR.Header().Get("X-Amz-Storage-Class"), "HEAD storage class")
+			assert.Equal(t, wantHeader, headRR.Header().Get("X-Amz-Storage-Class"), "HEAD storage class")
 		})
 	}
 }
 
-// TestStorageClass_DefaultIsStandard verifies objects without a storage class header default to STANDARD.
+// TestStorageClass_DefaultIsStandard verifies objects without a storage class
+// header default to STANDARD. Real S3 signals STANDARD by OMITTING the
+// x-amz-storage-class response header, so the header must be absent (empty).
 func TestStorageClass_DefaultIsStandard(t *testing.T) {
 	t.Parallel()
 
@@ -83,7 +92,7 @@ func TestStorageClass_DefaultIsStandard(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/sc-default-bucket/obj", nil)
 	serveS3Handler(handler, rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
-	assert.Equal(t, "STANDARD", rr.Header().Get("X-Amz-Storage-Class"))
+	assert.Empty(t, rr.Header().Get("X-Amz-Storage-Class"))
 }
 
 // TestStorageClass_ListObjectsV2 verifies ListObjectsV2 returns actual storage class.
