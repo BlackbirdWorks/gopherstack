@@ -28,6 +28,8 @@ var (
 	ErrResourceNotFound         = errors.New("resource not found in stack")
 	ErrExportNotFound           = errors.New("export with given name not found")
 	ErrDuplicateExport          = errors.New("export already exists and is owned by another stack")
+	ErrExportInUse              = errors.New("export cannot be removed while it is in use by another stack")
+	ErrChangeSetNotExecutable   = errors.New("change set is not in an executable status")
 	ErrDriftDetectionNotFound   = errors.New("drift detection not found")
 	ErrStackSetNotFound         = errors.New("stack set not found")
 	ErrStackSetAlreadyExists    = errors.New("stack set already exists")
@@ -82,7 +84,7 @@ type StorageBackend interface {
 	DeleteStack(ctx context.Context, nameOrID string) error
 	DescribeStack(nameOrID string) (*Stack, error)
 	ListStacks(statusFilter []string, nextToken string) (page.Page[StackSummary], error)
-	DescribeStackEvents(nameOrID string) ([]StackEvent, error)
+	DescribeStackEvents(nameOrID, nextToken string) (page.Page[StackEvent], error)
 	DescribeStackResource(nameOrID, logicalID string) (*StackResource, error)
 	ListStackResources(nameOrID, nextToken string) (page.Page[StackResourceSummary], error)
 	DescribeStackResources(nameOrID string) ([]StackResource, error)
@@ -340,11 +342,21 @@ func (b *InMemoryBackend) DeleteNestedStack(ctx context.Context, stackID string)
 func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string) error {
 	stack, ok := b.resolveStack(nameOrID)
 	if !ok {
-		return ErrStackNotFound
+		// DeleteStack is idempotent in real AWS: deleting a stack that never
+		// existed (or was already deleted) is a silent no-op, not an error —
+		// the DeleteStack operation has no modeled "stack not found" error.
+		return nil
 	}
 
 	if stack.EnableTerminationProtection {
 		return fmt.Errorf("%w: %s", ErrTerminationProtectionEnabled, stack.StackName)
+	}
+
+	if name, importer, inUse := b.stackExportsInUse(stack.StackID, nil); inUse {
+		return fmt.Errorf(
+			"%w: Export %s cannot be deleted as it is in use by %s",
+			ErrExportInUse, name, importer,
+		)
 	}
 
 	stack.StackStatus = statusDeleteInProgress
@@ -909,6 +921,10 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	if err != nil {
 		stack.StackStatus = statusUpdateFailed
 		stack.StackStatusReason = err.Error()
+		b.addEvent(
+			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+			cfnStackType, statusUpdateFailed, err.Error(),
+		)
 
 		return false
 	}
@@ -951,6 +967,15 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	// updating any resources.
 	if impErr := validateImportValues(tmpl, resolvedParams, b.buildExportsMap()); impErr != nil {
 		b.updateFailAndRollback(stack, impErr.Error())
+
+		return false
+	}
+
+	// Validate that the update does not drop an export that another active
+	// stack still imports via Fn::ImportValue (computed against pre-update
+	// resource state, mirroring AWS's validate-before-apply semantics).
+	if expErr := b.validateExportsStillInUse(stack, tmpl, resolvedParams, physicalIDs); expErr != nil {
+		b.updateFailAndRollback(stack, expErr.Error())
 
 		return false
 	}
@@ -1326,14 +1351,16 @@ func (b *InMemoryBackend) ListStacks(
 	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
 }
 
-// DescribeStackEvents returns events for a stack.
-func (b *InMemoryBackend) DescribeStackEvents(nameOrID string) ([]StackEvent, error) {
+// DescribeStackEvents returns paginated events for a stack, most recent first.
+func (b *InMemoryBackend) DescribeStackEvents(
+	nameOrID, nextToken string,
+) (page.Page[StackEvent], error) {
 	b.mu.RLock("DescribeStackEvents")
 	defer b.mu.RUnlock()
 
 	stack, ok := b.resolveStack(nameOrID)
 	if !ok {
-		return nil, ErrStackNotFound
+		return page.Page[StackEvent]{}, ErrStackNotFound
 	}
 
 	evts := b.events[stack.StackID]
@@ -1343,7 +1370,7 @@ func (b *InMemoryBackend) DescribeStackEvents(nameOrID string) ([]StackEvent, er
 		result[len(evts)-1-i] = e
 	}
 
-	return result, nil
+	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
 }
 
 // CreateChangeSet creates a change set for a stack.
@@ -1454,21 +1481,34 @@ func (b *InMemoryBackend) DescribeChangeSet(stackName, changeSetName string) (*C
 	return cs, nil
 }
 
-// ExecuteChangeSet applies a change set to a stack.
+// ExecuteChangeSet applies a change set to a stack. Only a change set whose
+// ExecutionStatus is AVAILABLE can be executed — e.g. a change set created with
+// no actual changes is FAILED/UNAVAILABLE and AWS rejects execution of it with
+// InvalidChangeSetStatus. On success, AWS deletes every other change set
+// associated with the stack because none remain valid against the now-updated
+// template; this backend clears the whole per-stack change-set map to match.
 func (b *InMemoryBackend) ExecuteChangeSet(
 	ctx context.Context,
 	stackName, changeSetName string,
 ) error {
 	b.mu.Lock("ExecuteChangeSet")
 	cs, ok := b.changeSets[stackName][changeSetName]
-	if ok {
-		cs.ExecutionStatus = "EXECUTE_IN_PROGRESS"
-	}
-	b.mu.Unlock()
-
 	if !ok {
+		b.mu.Unlock()
+
 		return ErrChangeSetNotFound
 	}
+	if cs.ExecutionStatus != "AVAILABLE" {
+		status := cs.ExecutionStatus
+		b.mu.Unlock()
+
+		return fmt.Errorf(
+			"%w: ChangeSet [%s] cannot be executed in its current status of %s",
+			ErrChangeSetNotExecutable, changeSetName, status,
+		)
+	}
+	cs.ExecutionStatus = "EXECUTE_IN_PROGRESS"
+	b.mu.Unlock()
 
 	var execErr error
 	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, StackOptions{})
@@ -1486,7 +1526,7 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 			cs2.ExecutionStatus = "EXECUTE_FAILED"
 		}
 	} else {
-		delete(b.changeSets[stackName], changeSetName)
+		b.changeSets[stackName] = make(map[string]*ChangeSet)
 	}
 	b.mu.Unlock()
 
@@ -1713,6 +1753,89 @@ func (b *InMemoryBackend) removeExports(stackID string) {
 			delete(b.exports, name)
 		}
 	}
+}
+
+// stackExportsInUse reports whether any export currently owned by stackID would
+// be dropped by prospectiveExports (the export set the caller is about to apply)
+// while still being referenced via Fn::ImportValue by another active stack. AWS
+// refuses to delete a stack — or update away one of its outputs — while an
+// export it owns is still imported elsewhere ("Export X cannot be deleted as it
+// is in use by Y"). Pass a nil prospectiveExports map to check full removal
+// (DeleteStack, where no exports survive).
+func (b *InMemoryBackend) stackExportsInUse(
+	stackID string,
+	prospectiveExports map[string]string,
+) (string, string, bool) {
+	var owned []string
+	for exportName, exp := range b.exports {
+		if exp.ExportingStackID != stackID {
+			continue
+		}
+		if _, stillExported := prospectiveExports[exportName]; stillExported {
+			continue // export survives the change — nothing to block
+		}
+		owned = append(owned, exportName)
+	}
+	if len(owned) == 0 {
+		return "", "", false
+	}
+	sort.Strings(owned)
+
+	for _, otherName := range collections.SortedKeys(b.stacks) {
+		other := b.stacks[otherName]
+		if other.StackID == stackID || other.StackStatus == statusDeleteComplete {
+			continue
+		}
+
+		var resolvedParams map[string]string
+		if tmpl, err := ParseTemplate(other.TemplateBody); err == nil {
+			resolvedParams = ResolveParameters(tmpl, other.Parameters)
+		}
+
+		refs := collectImportValues(other.TemplateBody, resolvedParams)
+		for _, exportName := range owned {
+			if slices.Contains(refs, exportName) {
+				return exportName, other.StackName, true
+			}
+		}
+	}
+
+	return "", "", false
+}
+
+// validateExportsStillInUse is the UpdateStack pre-flight check: it computes the
+// export set the new template would produce (using the pre-update physicalIDs
+// snapshot) and fails if that would drop an export still imported by another
+// stack.
+func (b *InMemoryBackend) validateExportsStillInUse(
+	stack *Stack,
+	tmpl *Template,
+	resolvedParams, physicalIDs map[string]string,
+) error {
+	resourceTypes := make(map[string]string, len(tmpl.Resources))
+	for logicalID, res := range tmpl.Resources {
+		resourceTypes[logicalID] = res.Type
+	}
+
+	previewCtx := resolveCtx{
+		params:        resolvedParams,
+		physicalIDs:   physicalIDs,
+		resourceTypes: resourceTypes,
+		exports:       b.buildExportsMap(),
+		conditions:    evaluateConditions(tmpl.Conditions, resolvedParams, physicalIDs),
+		mappings:      tmpl.Mappings,
+		accountID:     b.accountID,
+		region:        b.region,
+		stackName:     stack.StackName,
+	}
+
+	_, previewExports := resolveOutputsWithContext(tmpl, previewCtx)
+
+	if name, importer, inUse := b.stackExportsInUse(stack.StackID, previewExports); inUse {
+		return fmt.Errorf("%w: Export %s cannot be deleted as it is in use by %s", ErrExportInUse, name, importer)
+	}
+
+	return nil
 }
 
 // buildExportsMap builds a name→value map of all current exports (for Fn::ImportValue resolution).

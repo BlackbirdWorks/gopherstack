@@ -488,6 +488,156 @@ func TestBackend_ExportsRemovedOnDelete(t *testing.T) {
 	assert.Empty(t, p2.Data)
 }
 
+// noImportTemplate is importTemplate with the Fn::ImportValue reference
+// removed, used to simulate the importing stack being updated away from the
+// export before the exporting stack is deleted, and as an update target for
+// the exporting stack itself (one that no longer produces any Outputs).
+const noImportTemplate = `{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Resources": {
+		"MyTopic": {"Type": "AWS::SNS::Topic", "Properties": {}}
+	}
+}`
+
+// TestBackend_DeleteStack_BlockedByImportedExport verifies AWS's real
+// behaviour: a stack cannot be deleted while another active stack still
+// imports one of its exports ("Export X cannot be deleted as it is in use by
+// Y"). The block is lifted once the importing stack no longer references the
+// export (deleted or updated away).
+func TestBackend_DeleteStack_BlockedByImportedExport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		arrange func(t *testing.T, b *cloudformation.InMemoryBackend)
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "blocked_while_importer_active",
+			arrange: func(t *testing.T, b *cloudformation.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateStack(t.Context(), "importer", importTemplate, nil,
+					cloudformation.StackOptions{})
+				require.NoError(t, err)
+			},
+			wantErr: true,
+		},
+		{
+			name: "allowed_after_importer_deleted",
+			arrange: func(t *testing.T, b *cloudformation.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateStack(t.Context(), "importer", importTemplate, nil,
+					cloudformation.StackOptions{})
+				require.NoError(t, err)
+				require.NoError(t, b.DeleteStack(t.Context(), "importer"))
+			},
+			wantErr: false,
+		},
+		{
+			name:    "allowed_with_no_importer",
+			arrange: func(t *testing.T, _ *cloudformation.InMemoryBackend) { t.Helper() },
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, err := b.CreateStack(t.Context(), "exporter", exportTemplate, nil, cloudformation.StackOptions{})
+			require.NoError(t, err)
+
+			tt.arrange(t, b)
+
+			err = b.DeleteStack(t.Context(), "exporter")
+			if tt.wantErr {
+				require.ErrorIs(t, err, cloudformation.ErrExportInUse)
+				assert.Contains(t, err.Error(), "shared-bucket")
+				assert.Contains(t, err.Error(), "importer")
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestBackend_UpdateStack_BlockedByImportedExportRemoval verifies that
+// updating a stack's template in a way that would drop an export still
+// imported by another active stack is rejected before any resource is
+// touched, matching AWS's export-in-use protection for updates as well as
+// deletes.
+func TestBackend_UpdateStack_BlockedByImportedExportRemoval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		arrange     func(t *testing.T, b *cloudformation.InMemoryBackend)
+		name        string
+		newTemplate string
+		wantErr     bool
+	}{
+		{
+			name: "blocked_when_importer_active",
+			arrange: func(t *testing.T, b *cloudformation.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateStack(t.Context(), "importer", importTemplate, nil,
+					cloudformation.StackOptions{})
+				require.NoError(t, err)
+			},
+			newTemplate: noImportTemplate,
+			wantErr:     true,
+		},
+		{
+			name: "allowed_after_importer_no_longer_references_export",
+			arrange: func(t *testing.T, b *cloudformation.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateStack(t.Context(), "importer", importTemplate, nil,
+					cloudformation.StackOptions{})
+				require.NoError(t, err)
+				require.NoError(t, b.DeleteStack(t.Context(), "importer"))
+			},
+			newTemplate: noImportTemplate,
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, err := b.CreateStack(t.Context(), "exporter", exportTemplate, nil, cloudformation.StackOptions{})
+			require.NoError(t, err)
+
+			tt.arrange(t, b)
+
+			_, err = b.UpdateStack(t.Context(), "exporter", tt.newTemplate, nil, cloudformation.StackOptions{})
+			require.NoError(t, err) // UpdateStack itself never errors; failures surface via StackStatus.
+
+			stack, descErr := b.DescribeStack("exporter")
+			require.NoError(t, descErr)
+
+			if tt.wantErr {
+				assert.Equal(t, "UPDATE_ROLLBACK_COMPLETE", stack.StackStatus)
+				assert.Contains(t, stack.StackStatusReason, "shared-bucket")
+
+				p, expErr := b.ListExports("")
+				require.NoError(t, expErr)
+				assert.Len(t, p.Data, 1, "export must survive a blocked update")
+
+				return
+			}
+
+			assert.Equal(t, "UPDATE_COMPLETE", stack.StackStatus)
+			p, expErr := b.ListExports("")
+			require.NoError(t, expErr)
+			assert.Empty(t, p.Data, "export should be gone once no longer produced by the template")
+		})
+	}
+}
+
 func TestBackend_ListImports(t *testing.T) {
 	t.Parallel()
 

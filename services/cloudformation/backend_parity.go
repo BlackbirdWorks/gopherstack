@@ -212,8 +212,11 @@ func requireIAMCapability(templateBody string, capabilities []string) error {
 	if !hasIAM {
 		return nil
 	}
+	// Note: CAPABILITY_AUTO_EXPAND only authorizes macro/transform expansion
+	// (e.g. SAM); it does not grant permission to create IAM resources
+	// declared directly in the template, so it must NOT satisfy this check.
 	for _, c := range capabilities {
-		if c == "CAPABILITY_IAM" || c == "CAPABILITY_NAMED_IAM" || c == "CAPABILITY_AUTO_EXPAND" {
+		if c == "CAPABILITY_IAM" || c == "CAPABILITY_NAMED_IAM" {
 			return nil
 		}
 	}

@@ -543,8 +543,9 @@ func TestBackend_CreateStack_DynamicRefs_StackEvents(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_FAILED", stack.StackStatus)
 
-	events, err := cfnBackend.DescribeStackEvents(stack.StackName)
+	evtPage, err := cfnBackend.DescribeStackEvents(stack.StackName, "")
 	require.NoError(t, err)
+	events := evtPage.Data
 	require.NotEmpty(t, events)
 
 	// At least one event should record CREATE_FAILED with the dynamic ref reason.
