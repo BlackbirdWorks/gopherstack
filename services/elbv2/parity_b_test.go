@@ -212,7 +212,7 @@ func TestParity_DescribeListeners_UnknownLB(t *testing.T) {
 		{
 			name:        "unknown_lb_arn_returns_not_found",
 			lbArn:       "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/nonexistent/abcdef123456",
-			wantCode:    http.StatusNotFound,
+			wantCode:    http.StatusBadRequest,
 			wantErrCode: "LoadBalancerNotFound",
 		},
 		{

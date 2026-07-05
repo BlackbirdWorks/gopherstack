@@ -12,16 +12,17 @@ import (
 var errBackendNotInMemory = errors.New("elbv2: backend is not *InMemoryBackend")
 
 type backendSnapshot struct {
-	LoadBalancers    map[string]*LoadBalancer        `json:"loadBalancers"`
-	TargetGroups     map[string]*TargetGroup         `json:"targetGroups"`
-	Listeners        map[string]*Listener            `json:"listeners"`
-	Rules            map[string]*Rule                `json:"rules"`
-	TrustStores      map[string]*TrustStore          `json:"trustStores"`
-	ResourcePolicies map[string]string               `json:"resourcePolicies"`
-	TargetReadyAt    map[string]map[string]time.Time `json:"targetReadyAt"`
-	AccountID        string                          `json:"accountID"`
-	Region           string                          `json:"region"`
-	RuleCounter      int                             `json:"ruleCounter"`
+	LoadBalancers       map[string]*LoadBalancer        `json:"loadBalancers"`
+	TargetGroups        map[string]*TargetGroup         `json:"targetGroups"`
+	Listeners           map[string]*Listener            `json:"listeners"`
+	Rules               map[string]*Rule                `json:"rules"`
+	TrustStores         map[string]*TrustStore          `json:"trustStores"`
+	ResourcePolicies    map[string]string               `json:"resourcePolicies"`
+	TargetReadyAt       map[string]map[string]time.Time `json:"targetReadyAt"`
+	TargetDrainingUntil map[string]map[string]time.Time `json:"targetDrainingUntil"`
+	AccountID           string                          `json:"accountID"`
+	Region              string                          `json:"region"`
+	RuleCounter         int                             `json:"ruleCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -31,16 +32,17 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		LoadBalancers:    b.loadBalancers,
-		TargetGroups:     b.targetGroups,
-		Listeners:        b.listeners,
-		Rules:            b.rules,
-		TrustStores:      b.trustStores,
-		ResourcePolicies: b.resourcePolicies,
-		TargetReadyAt:    b.targetReadyAt,
-		RuleCounter:      b.ruleCounter,
-		AccountID:        b.accountID,
-		Region:           b.region,
+		LoadBalancers:       b.loadBalancers,
+		TargetGroups:        b.targetGroups,
+		Listeners:           b.listeners,
+		Rules:               b.rules,
+		TrustStores:         b.trustStores,
+		ResourcePolicies:    b.resourcePolicies,
+		TargetReadyAt:       b.targetReadyAt,
+		TargetDrainingUntil: b.targetDrainingUntil,
+		RuleCounter:         b.ruleCounter,
+		AccountID:           b.accountID,
+		Region:              b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "elbv2", snap)
@@ -82,6 +84,18 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.ResourcePolicies = make(map[string]string)
 	}
 
+	// targetReadyAt / targetDrainingUntil are written to via `m[tgArn][key] = ...`,
+	// which panics on a nil top-level map. Snapshots taken before these fields
+	// existed (or taken while empty, which JSON-encodes to `{}` but can still
+	// unmarshal as nil for an absent key) must not leave a nil map behind.
+	if snap.TargetReadyAt == nil {
+		snap.TargetReadyAt = make(map[string]map[string]time.Time)
+	}
+
+	if snap.TargetDrainingUntil == nil {
+		snap.TargetDrainingUntil = make(map[string]map[string]time.Time)
+	}
+
 	b.loadBalancers = snap.LoadBalancers
 	b.targetGroups = snap.TargetGroups
 	b.listeners = snap.Listeners
@@ -89,6 +103,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.trustStores = snap.TrustStores
 	b.resourcePolicies = snap.ResourcePolicies
 	b.targetReadyAt = snap.TargetReadyAt
+	b.targetDrainingUntil = snap.TargetDrainingUntil
 	b.ruleCounter = snap.RuleCounter
 	b.accountID = snap.AccountID
 	b.region = snap.Region

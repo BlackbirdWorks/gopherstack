@@ -160,7 +160,7 @@ func TestBatch2_AddTags_UpdateExistingKeyDoesNotCount(t *testing.T) {
 // ─── Issue: DescribeTargetGroups returns TargetGroupNotFound for unknown ARN ──
 
 // TestBatch2_DescribeTargetGroups_UnknownArnReturnsNotFound verifies that querying
-// a non-existent target group ARN returns TargetGroupNotFound (404), matching AWS.
+// a non-existent target group ARN returns TargetGroupNotFound (HTTP 400, AWS query-protocol status), matching AWS.
 func TestBatch2_DescribeTargetGroups_UnknownArnReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -204,7 +204,7 @@ func TestBatch2_DescribeTargetGroups_UnknownArnReturnsNotFound(t *testing.T) {
 			}
 
 			rec := doELBv2(t, h, vals)
-			assert.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 		})
 	}
 }
@@ -242,7 +242,7 @@ func TestBatch2_DescribeTargetGroups_AllKnownArnsSucceeds(t *testing.T) {
 // ─── Issue: DescribeRules returns RuleNotFound for unknown ARN ────────────────
 
 // TestBatch2_DescribeRules_UnknownArnReturnsNotFound verifies that querying a
-// non-existent rule ARN (without listenerArn) returns RuleNotFound (404).
+// non-existent rule ARN (without listenerArn) returns RuleNotFound (HTTP 400, AWS query-protocol status).
 func TestBatch2_DescribeRules_UnknownArnReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -278,7 +278,7 @@ func TestBatch2_DescribeRules_UnknownArnReturnsNotFound(t *testing.T) {
 			}
 
 			rec := doELBv2(t, h, vals)
-			assert.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 		})
 	}
 }

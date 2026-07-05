@@ -42,7 +42,9 @@ var (
 	// ErrUnknownAction is returned when the requested action is not recognized.
 	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 	// ErrDuplicateRulePriority is returned when two rules have the same priority.
-	ErrDuplicateRulePriority = awserr.New("DuplicatePriority", awserr.ErrInvalidParameter)
+	// AWS's real error code for this condition is "PriorityInUse" (PriorityInUseException),
+	// not "DuplicatePriority" — verified against aws-sdk-go-v2/service/elasticloadbalancingv2/types.
+	ErrDuplicateRulePriority = awserr.New("PriorityInUse", awserr.ErrInvalidParameter)
 	// ErrOperationNotPermitted is returned when the operation is not allowed (e.g. deleting default rule).
 	ErrOperationNotPermitted = awserr.New("OperationNotPermitted", awserr.ErrInvalidParameter)
 	// ErrDuplicateListener is returned when a listener on the same port already exists.
@@ -263,10 +265,12 @@ type Listener struct {
 	LoadBalancerArn      string                `json:"loadBalancerArn"`
 	Protocol             string                `json:"protocol"`
 	SSLPolicy            string                `json:"sslPolicy,omitempty"`
-	AlpnPolicy           string                `json:"alpnPolicy,omitempty"`
-	DefaultActions       []Action              `json:"defaultActions"`
-	Certificates         []Certificate         `json:"certificates,omitempty"`
-	Port                 int32                 `json:"port"`
+	// AlpnPolicy is a list on the wire (AlpnPolicy.member.N / <AlpnPolicy><member>…),
+	// not a bare string — verified against aws-sdk-go-v2 types.Listener.AlpnPolicy ([]string).
+	AlpnPolicy     []string      `json:"alpnPolicy,omitempty"`
+	DefaultActions []Action      `json:"defaultActions"`
+	Certificates   []Certificate `json:"certificates,omitempty"`
+	Port           int32         `json:"port"`
 }
 
 // Rule represents an ELBv2 listener rule.
@@ -407,7 +411,7 @@ type CreateListenerInput struct {
 	LoadBalancerArn      string
 	Protocol             string
 	SSLPolicy            string
-	AlpnPolicy           string
+	AlpnPolicy           []string
 	DefaultActions       []Action
 	Tags                 []tags.KV
 	Certificates         []Certificate
@@ -420,7 +424,7 @@ type ModifyListenerInput struct {
 	ListenerArn          string
 	Protocol             string
 	SSLPolicy            string
-	AlpnPolicy           string
+	AlpnPolicy           []string
 	DefaultActions       []Action
 	Certificates         []Certificate
 	Port                 int32
@@ -2236,7 +2240,7 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 		l.SSLPolicy = input.SSLPolicy
 	}
 
-	if input.AlpnPolicy != "" {
+	if len(input.AlpnPolicy) > 0 {
 		l.AlpnPolicy = input.AlpnPolicy
 	}
 

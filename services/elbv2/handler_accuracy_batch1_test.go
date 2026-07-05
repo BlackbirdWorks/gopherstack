@@ -301,7 +301,7 @@ func TestBatch1_CreateLB_DuplicateName(t *testing.T) {
 		"Version": {"2015-12-01"},
 		"Name":    {"dup-lb-batch1"},
 	})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestBatch1_DescribeLBs_FilterByArn(t *testing.T) {
@@ -371,7 +371,7 @@ func TestBatch1_DescribeLBs_ArnNotFound(t *testing.T) {
 			"arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/not-exist/000",
 		},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestBatch1_DeleteLB_Success(t *testing.T) {
@@ -393,7 +393,7 @@ func TestBatch1_DeleteLB_Success(t *testing.T) {
 		"Version":                   {"2015-12-01"},
 		"LoadBalancerArns.member.1": {lbArn},
 	})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 func TestBatch1_DeleteLB_NotFound(t *testing.T) {
@@ -405,7 +405,7 @@ func TestBatch1_DeleteLB_NotFound(t *testing.T) {
 		"Version":         {"2015-12-01"},
 		"LoadBalancerArn": {"arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/ghost/000"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // ---- LB Attributes ----
@@ -1242,7 +1242,7 @@ func TestBatch1_CreateListener_DuplicatePortRejected(t *testing.T) {
 		"DefaultActions.member.1.Type":           {"forward"},
 		"DefaultActions.member.1.TargetGroupArn": {tgArn},
 	})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestBatch1_DeleteListener(t *testing.T) {
@@ -2046,13 +2046,13 @@ func TestBatch1_GetResourcePolicy(t *testing.T) {
 	h := newBatch1Handler()
 	lbArn := b1CreateLB(t, h, "grp-lb")
 
-	// No resource policy is set, so AWS returns ResourceNotFound (404).
+	// No resource policy is set, so AWS returns ResourceNotFound (HTTP 400, AWS query-protocol status).
 	rec := doELBv2(t, h, url.Values{
 		"Action":      {"GetResourcePolicy"},
 		"Version":     {"2015-12-01"},
 		"ResourceArn": {lbArn},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// After a policy is stored on the backend, GetResourcePolicy returns it.
 	be, ok := h.Backend.(*elbv2.InMemoryBackend)
@@ -2489,14 +2489,14 @@ func TestBatch1_DeleteSharedTrustStoreAssociation(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Deleting again returns AssociationNotFound (404).
+	// Deleting again returns AssociationNotFound (HTTP 400, AWS query-protocol status).
 	rec2 := doELBv2(t, h, url.Values{
 		"Action":        {"DeleteSharedTrustStoreAssociation"},
 		"Version":       {"2015-12-01"},
 		"TrustStoreArn": {tsArn},
 		"ResourceArn":   {listenerArn},
 	})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 // ---- RemoveTrustStoreRevocations ----
