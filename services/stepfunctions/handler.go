@@ -1386,6 +1386,7 @@ func classifyError(reqErr error) (string, int) {
 		{ErrExecutionNotRedrivable, "ExecutionNotRedrivable", http.StatusBadRequest},
 		{ErrInvalidDefinition, "InvalidDefinition", http.StatusBadRequest},
 		{ErrInvalidExecutionType, "InvalidExecutionType", http.StatusBadRequest},
+		{ErrStateMachineTypeNotSupported, "StateMachineTypeNotSupported", http.StatusBadRequest},
 		{ErrInvalidExecutionInput, "InvalidExecutionInput", http.StatusBadRequest},
 		{ErrInvalidName, "InvalidName", http.StatusBadRequest},
 		{ErrInvalidRoleArn, "InvalidArn", http.StatusBadRequest},

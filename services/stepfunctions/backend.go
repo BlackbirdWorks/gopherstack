@@ -33,6 +33,7 @@ var (
 	ErrExecutionNotRedrivable          = errors.New("ExecutionNotRedrivable")
 	ErrInvalidDefinition               = errors.New("InvalidDefinition")
 	ErrInvalidExecutionType            = errors.New("InvalidExecutionType")
+	ErrStateMachineTypeNotSupported    = errors.New("StateMachineTypeNotSupported")
 	ErrInvalidRoleArn                  = errors.New("InvalidArn")
 	ErrInvalidName                     = errors.New("InvalidName")
 	ErrInvalidRoutingConfiguration     = errors.New("InvalidRoutingConfiguration")
@@ -833,9 +834,11 @@ func (b *InMemoryBackend) StartSyncExecution(
 	if sm.Type != "EXPRESS" {
 		b.mu.RUnlock()
 
+		// AWS: StartSyncExecution is only supported for EXPRESS state
+		// machines and returns StateMachineTypeNotSupported for STANDARD.
 		return nil, fmt.Errorf(
-			"%w: sync execution requires EXPRESS state machine",
-			ErrInvalidExecutionType,
+			"%w: StartSyncExecution requires an EXPRESS state machine",
+			ErrStateMachineTypeNotSupported,
 		)
 	}
 
@@ -1008,15 +1011,9 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, stateMachineArn)
 	}
 
-	if sm.Type == "EXPRESS" {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf(
-			"%w: async execution requires STANDARD state machine",
-			ErrInvalidExecutionType,
-		)
-	}
-
+	// AWS allows StartExecution (asynchronous execution) on EXPRESS state
+	// machines too -- only StartSyncExecution is restricted to EXPRESS.
+	// See "Asynchronous Express Workflows" in the AWS Step Functions docs.
 	execArn := b.execARN(stateMachineArn, sm.Name, name)
 	if _, alreadyExists := b.executions[execArn]; alreadyExists {
 		b.mu.Unlock()
@@ -1239,43 +1236,74 @@ func (b *InMemoryBackend) appendHistory(execARN string, event *HistoryEvent) {
 	b.history[execARN] = append(events, event)
 }
 
-func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType string, _ any) {
-	r.backend.appendHistory(execARN, &HistoryEvent{
-		Timestamp:                float64(time.Now().Unix()),
-		Type:                     stateEnteredEventType(stateType),
-		StateEnteredEventDetails: &StateEnteredEventDetails{Name: stateName},
-	})
-}
-
-func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string, _ any) {
-	r.backend.appendHistory(execARN, &HistoryEvent{
-		Timestamp:               float64(time.Now().Unix()),
-		Type:                    stateExitedEventType(stateType),
-		StateExitedEventDetails: &StateExitedEventDetails{Name: stateName},
-	})
-}
-
-func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, _ /* resource */ string) {
+func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType string, input any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
 		Timestamp: float64(time.Now().Unix()),
-		Type:      "TaskScheduled",
+		Type:      stateEnteredEventType(stateType),
+		StateEnteredEventDetails: &StateEnteredEventDetails{
+			Name:  stateName,
+			Input: historyValueToJSON(input),
+		},
 	})
 }
 
-func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string, _ any) {
+func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string, output any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
 		Timestamp: float64(time.Now().Unix()),
-		Type:      "TaskSucceeded",
+		Type:      stateExitedEventType(stateType),
+		StateExitedEventDetails: &StateExitedEventDetails{
+			Name:   stateName,
+			Output: historyValueToJSON(output),
+		},
+	})
+}
+
+func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, resource string) {
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp:                 float64(time.Now().Unix()),
+		Type:                      "TaskScheduled",
+		TaskScheduledEventDetails: &TaskScheduledEventDetails{Resource: resource},
+	})
+}
+
+func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string, output any) {
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp:                 float64(time.Now().Unix()),
+		Type:                      "TaskSucceeded",
+		TaskSucceededEventDetails: &TaskSucceededEventDetails{Output: historyValueToJSON(output)},
 	})
 }
 
 func (r *historyRecorder) RecordTaskFailed(
-	execARN, _ /* stateName */, _ /* errCode */, _ /* cause */ string,
+	execARN, _ /* stateName */, errCode, cause string,
 ) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
 		Timestamp: float64(time.Now().Unix()),
 		Type:      "TaskFailed",
+		TaskFailedEventDetails: &TaskFailedEventDetails{
+			Error: errCode,
+			Cause: cause,
+		},
 	})
+}
+
+// historyValueToJSON marshals a state input/output value to its JSON string
+// representation for execution-history detail fields, matching AWS's
+// convention of embedding input/output as a JSON string rather than a nested
+// object. Marshal failures (which should not occur for values that already
+// round-tripped through the ASL interpreter) fall back to an empty string
+// rather than corrupting the history event.
+func historyValueToJSON(v any) string {
+	if v == nil {
+		return ""
+	}
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+
+	return string(b)
 }
 
 // checkHistoryCapacity returns the current event slice and whether there is

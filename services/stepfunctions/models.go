@@ -64,12 +64,15 @@ type Execution struct {
 
 // HistoryEvent represents a single event in execution history.
 type HistoryEvent struct {
-	StateEnteredEventDetails *StateEnteredEventDetails `json:"stateEnteredEventDetails,omitempty"`
-	StateExitedEventDetails  *StateExitedEventDetails  `json:"stateExitedEventDetails,omitempty"`
-	Type                     string                    `json:"type"` // e.g. "ExecutionStarted", "ExecutionSucceeded"
-	Timestamp                float64                   `json:"timestamp"`
-	ID                       int64                     `json:"id"`
-	PreviousEventID          int64                     `json:"previousEventId"`
+	StateEnteredEventDetails  *StateEnteredEventDetails  `json:"stateEnteredEventDetails,omitempty"`
+	StateExitedEventDetails   *StateExitedEventDetails   `json:"stateExitedEventDetails,omitempty"`
+	TaskScheduledEventDetails *TaskScheduledEventDetails `json:"taskScheduledEventDetails,omitempty"`
+	TaskSucceededEventDetails *TaskSucceededEventDetails `json:"taskSucceededEventDetails,omitempty"`
+	TaskFailedEventDetails    *TaskFailedEventDetails    `json:"taskFailedEventDetails,omitempty"`
+	Type                      string                     `json:"type"` // e.g. "ExecutionStarted", "ExecutionSucceeded"
+	Timestamp                 float64                    `json:"timestamp"`
+	ID                        int64                      `json:"id"`
+	PreviousEventID           int64                      `json:"previousEventId"`
 }
 
 // StateEnteredEventDetails holds details for state-entered events.
@@ -82,6 +85,24 @@ type StateEnteredEventDetails struct {
 type StateExitedEventDetails struct {
 	Name   string `json:"name"`
 	Output string `json:"output,omitempty"`
+}
+
+// TaskScheduledEventDetails holds details for TaskScheduled history events.
+type TaskScheduledEventDetails struct {
+	Resource string `json:"resource,omitempty"`
+}
+
+// TaskSucceededEventDetails holds details for TaskSucceeded history events.
+type TaskSucceededEventDetails struct {
+	Resource string `json:"resource,omitempty"`
+	Output   string `json:"output,omitempty"`
+}
+
+// TaskFailedEventDetails holds details for TaskFailed history events.
+type TaskFailedEventDetails struct {
+	Error    string `json:"error,omitempty"`
+	Cause    string `json:"cause,omitempty"`
+	Resource string `json:"resource,omitempty"`
 }
 
 // Activity represents an AWS Step Functions activity resource.

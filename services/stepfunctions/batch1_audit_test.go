@@ -560,7 +560,11 @@ func TestAudit_Execution_StateMachineNotFound(t *testing.T) {
 
 // ─── StartExecution / StartSyncExecution type enforcement ────────────────────
 
-func TestAudit_StartExecution_ExpressMachineReturnsError(t *testing.T) {
+// TestAudit_StartExecution_ExpressMachineSucceeds verifies that
+// StartExecution (asynchronous execution) is permitted on EXPRESS state
+// machines, matching AWS's "Asynchronous Express Workflows" support -- only
+// StartSyncExecution is restricted to EXPRESS.
+func TestAudit_StartExecution_ExpressMachineSucceeds(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
@@ -573,9 +577,9 @@ func TestAudit_StartExecution_ExpressMachineReturnsError(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.StartExecution(sm.StateMachineArn, "e1", "{}")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, stepfunctions.ErrInvalidExecutionType)
+	exec, err := b.StartExecution(sm.StateMachineArn, "e1", "{}")
+	require.NoError(t, err)
+	assert.Contains(t, exec.ExecutionArn, "e1")
 }
 
 func TestAudit_StartSyncExecution_StandardMachineReturnsError(t *testing.T) {
@@ -593,7 +597,7 @@ func TestAudit_StartSyncExecution_StandardMachineReturnsError(t *testing.T) {
 
 	_, err = b.StartSyncExecution(sm.StateMachineArn, "sync-e1", "{}")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, stepfunctions.ErrInvalidExecutionType)
+	assert.ErrorIs(t, err, stepfunctions.ErrStateMachineTypeNotSupported)
 }
 
 func TestAudit_StartSyncExecution_Express_Succeeds(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"math/rand/v2"
 	"runtime"
 	"strconv"
 	"strings"
@@ -68,10 +69,19 @@ var (
 )
 
 const (
-	errCodeStatesPermissions = "States.Permissions"
-	errCodeStatesRuntime     = "States.Runtime"
-	errCodeStatesTimeout     = "States.Timeout"
-	errCodeStatesTaskFailed  = "States.TaskFailed"
+	errCodeStatesPermissions                     = "States.Permissions"
+	errCodeStatesRuntime                         = "States.Runtime"
+	errCodeStatesTimeout                         = "States.Timeout"
+	errCodeStatesTaskFailed                      = "States.TaskFailed"
+	errCodeStatesExceedToleratedFailureThreshold = "States.ExceedToleratedFailureThreshold"
+)
+
+// Sentinel errors for Map state tolerated-failure threshold resolution.
+var (
+	ErrToleratedFailureCountNotNumber      = errors.New("ToleratedFailureCountPath: value is not a number")
+	ErrToleratedFailurePercentageNotNumber = errors.New(
+		"ToleratedFailurePercentagePath: value is not a number",
+	)
 )
 
 // LambdaInvoker can invoke a Lambda function.
@@ -593,7 +603,7 @@ func (e *Executor) executeState(
 	case "Task":
 		return e.executeTask(ctx, executionARN, stateName, state, input)
 	case "Parallel":
-		return e.executeParallel(ctx, executionARN, state, input)
+		return e.executeParallel(ctx, executionARN, stateName, state, input)
 	case "Map":
 		return e.executeMap(ctx, executionARN, stateName, state, input)
 	default:
@@ -809,7 +819,7 @@ func (e *Executor) executeTask(
 			return next, out, nil
 		}
 
-		e.recordTaskFailed(executionARN, stateName, taskErr.Error())
+		e.recordTaskFailed(executionARN, stateName, stepFunctionsErrorCode(taskErr), stepFunctionsErrorCause(taskErr))
 
 		return "", nil, &FailError{ErrCode: "TaskFailed", Cause: taskErr.Error()}
 	}
@@ -959,6 +969,7 @@ func tryRetry(ctx context.Context, state *State, retryAttempts []int, taskErr er
 		}
 
 		delay := computeRetryDelay(intervalSeconds, backoffRate, retryAttempts[i])
+		delay = applyRetryDelayCapAndJitter(delay, retrier)
 		retryAttempts[i]++
 
 		if err := waitForRetry(ctx, delay); err != nil {
@@ -992,6 +1003,25 @@ func computeRetryDelay(intervalSeconds int, backoffRate float64, attempts int) t
 	return time.Duration(delaySeconds * float64(time.Second))
 }
 
+// applyRetryDelayCapAndJitter applies a Retrier's MaxDelaySeconds cap and
+// JitterStrategy to a computed backoff delay. AWS's default JitterStrategy is
+// "NONE" (delay used as-is); "FULL" randomizes the delay uniformly in
+// [0, delay] to spread out simultaneous retries across concurrent executions.
+func applyRetryDelayCapAndJitter(delay time.Duration, retrier *Retrier) time.Duration {
+	if retrier.MaxDelaySeconds != nil && *retrier.MaxDelaySeconds > 0 {
+		maxDelay := time.Duration(*retrier.MaxDelaySeconds) * time.Second
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+	}
+
+	if retrier.JitterStrategy == jitterStrategyFull {
+		delay = time.Duration(rand.Float64() * float64(delay)) //nolint:gosec // non-cryptographic per ASL spec
+	}
+
+	return delay
+}
+
 // checkCatchers checks Catch clauses and returns (nextState, output, matched).
 // If a catcher matches, the task failure is recorded in the history.
 func (e *Executor) checkCatchers(
@@ -1002,12 +1032,22 @@ func (e *Executor) checkCatchers(
 ) (string, any, bool) {
 	for _, catcher := range state.Catch {
 		if catchesError(catcher.ErrorEquals, taskErr) {
+			errCode := stepFunctionsErrorCode(taskErr)
+			cause := stepFunctionsErrorCause(taskErr)
+
+			// AWS's error output has separate "Error" and "Cause" fields (the
+			// error code and a human-readable description), not one combined
+			// string. See "Handling errors in Step Functions workflows".
 			errorResult := map[string]any{
-				"Error": taskErr.Error(),
+				"Error": errCode,
 			}
+			if cause != "" {
+				errorResult["Cause"] = cause
+			}
+
 			out, _ := applyResultPath(catcher.ResultPath, input, errorResult)
 
-			e.recordTaskFailed(executionARN, stateName, taskErr.Error())
+			e.recordTaskFailed(executionARN, stateName, errCode, cause)
 
 			return catcher.Next, out, true
 		}
@@ -1024,9 +1064,9 @@ func (e *Executor) recordTaskSucceeded(executionARN, stateName string, result an
 }
 
 // recordTaskFailed records a task failure event if a history recorder is configured.
-func (e *Executor) recordTaskFailed(executionARN, stateName, errCode string) {
+func (e *Executor) recordTaskFailed(executionARN, stateName, errCode, cause string) {
 	if e.history != nil {
-		e.history.RecordTaskFailed(executionARN, stateName, errCode, "")
+		e.history.RecordTaskFailed(executionARN, stateName, errCode, cause)
 	}
 }
 
@@ -1407,39 +1447,82 @@ func parseServiceIntegrationResource(resource string) (string, string) {
 
 func (e *Executor) executeParallel(
 	ctx context.Context,
-	executionARN string,
+	executionARN, stateName string,
 	state *State,
 	input any,
 ) (string, any, error) {
-	results := make([]any, len(state.Branches))
-	errs := make([]error, len(state.Branches))
+	return e.executeWithStateRetryAndCatch(ctx, executionARN, stateName, state, input,
+		func(ctx context.Context) (any, error) {
+			results := make([]any, len(state.Branches))
+			errs := make([]error, len(state.Branches))
 
-	var wg sync.WaitGroup
-	for i, branch := range state.Branches {
-		if ctx.Err() != nil {
-			return "", nil, ctx.Err()
-		}
+			var wg sync.WaitGroup
+			for i, branch := range state.Branches {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
 
-		wg.Go(func() { e.runParallelBranch(ctx, executionARN, branch, input, results, errs, i) })
-	}
-
-	wg.Wait()
-
-	if err := ctx.Err(); err != nil {
-		return "", nil, err
-	}
-
-	for _, branchErr := range errs {
-		if branchErr != nil {
-			if next, out, matched := e.checkCatchers("", "Parallel", state, input, branchErr); matched {
-				return next, out, nil
+				wg.Go(func() { e.runParallelBranch(ctx, executionARN, branch, input, results, errs, i) })
 			}
 
-			return "", nil, branchErr
-		}
-	}
+			wg.Wait()
 
-	return state.Next, results, nil
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+
+			for _, branchErr := range errs {
+				if branchErr != nil {
+					return nil, branchErr
+				}
+			}
+
+			return results, nil
+		},
+	)
+}
+
+// executeWithStateRetryAndCatch runs attempt (the full body of a Map or
+// Parallel state) applying that state's own Retry and Catch clauses, exactly
+// as AWS Step Functions supports Retry/Catch directly on Map and Parallel
+// states (not just Task). Per AWS semantics, a retry re-executes the ENTIRE
+// state body (all branches / all iterations), not just the failed portion.
+func (e *Executor) executeWithStateRetryAndCatch(
+	ctx context.Context,
+	executionARN, stateName string,
+	state *State,
+	input any,
+	attempt func(ctx context.Context) (any, error),
+) (string, any, error) {
+	retryAttempts := make([]int, len(state.Retry))
+
+	for {
+		result, err := attempt(ctx)
+		if err == nil {
+			return state.Next, result, nil
+		}
+
+		if errors.Is(err, context.Canceled) {
+			return "", nil, err
+		}
+
+		retried, retryErr := tryRetry(ctx, state, retryAttempts, err)
+		if retryErr != nil {
+			if !errors.Is(retryErr, ErrStatesTimeout) {
+				return "", nil, retryErr
+			}
+
+			err = ErrStatesTimeout
+		} else if retried {
+			continue
+		}
+
+		if next, out, matched := e.checkCatchers(executionARN, stateName, state, input, err); matched {
+			return next, out, nil
+		}
+
+		return "", nil, err
+	}
 }
 
 // runParallelBranch executes a single Parallel state branch in a goroutine.
@@ -1477,7 +1560,18 @@ func (e *Executor) runParallelBranch(
 
 const maxMapConcurrencyLimit = 40
 
-// executeMap handles Map state: iterates over an array.
+// percentToFractionDivisor converts a 0-100 percentage into a 0-1 fraction.
+const percentToFractionDivisor = 100
+
+// jitterStrategyFull is the ASL Retry.JitterStrategy value that randomizes
+// the computed backoff delay uniformly in [0, delay]. AWS's default, when
+// JitterStrategy is omitted, is "NONE" (no randomization).
+const jitterStrategyFull = "FULL"
+
+// executeMap handles Map state: iterates over an array. Like Task and
+// Parallel, Map supports Retry/Catch on the Map state itself (in addition to
+// per-iteration failures counted against ToleratedFailure*); a retry re-runs
+// every item from scratch, matching AWS Map/Distributed-Map semantics.
 func (e *Executor) executeMap(
 	ctx context.Context,
 	executionARN string,
@@ -1485,91 +1579,73 @@ func (e *Executor) executeMap(
 	state *State,
 	input any,
 ) (string, any, error) {
-	iterator, err := e.getMapIterator(state)
-	if err != nil {
-		return "", nil, err
+	iterator, iterErr := e.getMapIterator(state)
+	if iterErr != nil {
+		return "", nil, iterErr
 	}
 
-	items, err := e.resolveMapItems(ctx, state, input)
-	if err != nil {
-		return "", nil, err
-	}
-
-	if len(state.ItemSelector) > 0 {
-		items, err = applyMapItemSelector(state.ItemSelector, items)
-		if err != nil {
-			return "", nil, err
-		}
-	}
-
-	// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
-	if state.ItemBatcher != nil {
-		batched := batchItems(items, state.ItemBatcher)
-		batchResults := make([]any, len(batched))
-		batchErrs := make([]error, len(batched))
-		concurrency := resolveMapConcurrency(state.MaxConcurrency, len(batched))
-
-		var batchMapRunARN string
-		if e.mapRunNotifier != nil {
-			batchMapRunARN = e.mapRunNotifier.OnMapRunStart(
-				executionARN,
-				stateName,
-				state.MaxConcurrency,
-				len(batched),
-			)
-		}
-
-		e.runMapTasks(ctx, executionARN, iterator, batched, batchResults, batchErrs, concurrency)
-
-		batchNext, batchOut, batchErr := e.finalizeMap(ctx, batchResults, batchErrs, state.Next)
-
-		if e.mapRunNotifier != nil && batchMapRunARN != "" {
-			batchSucceeded, batchFailed := countMapResults(batchErrs)
-			batchStatus := "SUCCEEDED"
-			if batchErr != nil {
-				batchStatus = "FAILED"
+	return e.executeWithStateRetryAndCatch(ctx, executionARN, stateName, state, input,
+		func(ctx context.Context) (any, error) {
+			items, err := e.resolveMapItems(ctx, state, input)
+			if err != nil {
+				return nil, err
 			}
-			e.mapRunNotifier.OnMapRunEnd(
-				batchMapRunARN,
-				batchStatus,
-				batchSucceeded,
-				batchFailed,
-				len(batched),
-			)
-		}
 
-		return batchNext, batchOut, batchErr
-	}
+			if len(state.ItemSelector) > 0 {
+				items, err = applyMapItemSelector(state.ItemSelector, items)
+				if err != nil {
+					return nil, err
+				}
+			}
 
+			// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
+			if state.ItemBatcher != nil {
+				batched := batchItems(items, state.ItemBatcher)
+
+				return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, input, batched)
+			}
+
+			return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, input, items)
+		},
+	)
+}
+
+// runMapItemsAndFinalize runs iterator over items (or pre-built batches) at
+// the resolved concurrency, notifies the MapRunNotifier (if configured), and
+// finalizes the result, applying any ToleratedFailure* threshold.
+func (e *Executor) runMapItemsAndFinalize(
+	ctx context.Context,
+	executionARN, stateName string,
+	iterator *StateMachine,
+	state *State,
+	mapInput any,
+	items []any,
+) (any, error) {
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
-
 	concurrency := resolveMapConcurrency(state.MaxConcurrency, len(items))
 
 	var mapRunARN string
 	if e.mapRunNotifier != nil {
-		mapRunARN = e.mapRunNotifier.OnMapRunStart(
-			executionARN,
-			stateName,
-			state.MaxConcurrency,
-			len(items),
-		)
+		mapRunARN = e.mapRunNotifier.OnMapRunStart(executionARN, stateName, state.MaxConcurrency, len(items))
 	}
 
 	e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
 
-	next, out, finalErr := e.finalizeMap(ctx, results, errs, state.Next)
+	out, finalErr := e.finalizeMap(ctx, state, mapInput, results, errs)
 
 	if e.mapRunNotifier != nil && mapRunARN != "" {
 		succeeded, failed := countMapResults(errs)
 		status := "SUCCEEDED"
+
 		if finalErr != nil {
 			status = "FAILED"
 		}
+
 		e.mapRunNotifier.OnMapRunEnd(mapRunARN, status, succeeded, failed, len(items))
 	}
 
-	return next, out, finalErr
+	return out, finalErr
 }
 
 // batchItems groups items into batches according to ItemBatcher configuration.
@@ -1658,6 +1734,17 @@ func (e *Executor) runMapItem(
 	res, execErr := exec.Execute(ctx, executionARN, marshalInput(it))
 	if execErr != nil {
 		errs[idx] = execErr
+
+		return
+	}
+
+	// A Fail state (or an unhandled Task failure) inside the iterator
+	// surfaces as a successful Execute() call with res.Error populated
+	// rather than a Go error — mirror runParallelBranch's handling so Map
+	// iteration failures propagate to the Map state's own Catch/Retry
+	// instead of silently producing a nil result for the failed item.
+	if res.Error != "" {
+		errs[idx] = &FailError{ErrCode: res.Error, Cause: res.Cause}
 
 		return
 	}
@@ -1887,21 +1974,153 @@ func (e *Executor) spawnMapTask(
 
 func (e *Executor) finalizeMap(
 	ctx context.Context,
+	state *State,
+	mapInput any,
 	results []any,
 	errs []error,
-	next string,
-) (string, any, error) {
+) (any, error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", nil, ctxErr
+		return nil, ctxErr
 	}
+
+	failedCount := 0
+
+	var firstErr error
 
 	for _, iterErr := range errs {
 		if iterErr != nil {
-			return "", nil, iterErr
+			failedCount++
+
+			if firstErr == nil {
+				firstErr = iterErr
+			}
 		}
 	}
 
-	return next, results, nil
+	if failedCount == 0 {
+		return results, nil
+	}
+
+	threshold, err := e.resolveToleratedFailureThreshold(state, mapInput, len(errs))
+	if err != nil {
+		return nil, err
+	}
+
+	if failedCount <= threshold {
+		return results, nil
+	}
+
+	// No tolerance configured (the common case): preserve the original
+	// per-item error so Catch/Retry on the Map state can match on it.
+	if threshold == 0 && state.ToleratedFailureCount == nil &&
+		state.ToleratedFailureCountPath == "" &&
+		state.ToleratedFailurePercentage == nil &&
+		state.ToleratedFailurePercentagePath == "" {
+		return nil, firstErr
+	}
+
+	return nil, &FailError{
+		ErrCode: errCodeStatesExceedToleratedFailureThreshold,
+		Cause: fmt.Sprintf(
+			"Map Run failed: %d of %d items failed, exceeding the tolerated failure threshold of %d",
+			failedCount, len(errs), threshold,
+		),
+	}
+}
+
+// resolveToleratedFailureThreshold computes the maximum number of failed Map
+// iterations tolerated before the Map state fails. Returns 0 (no tolerance)
+// when neither ToleratedFailureCount(Path) nor ToleratedFailurePercentage(Path)
+// is configured. When both are configured, the more restrictive (lower)
+// threshold wins, matching AWS "fails when either is crossed" semantics.
+func (e *Executor) resolveToleratedFailureThreshold(
+	state *State,
+	mapInput any,
+	totalCount int,
+) (int, error) {
+	threshold := totalCount
+	hasThreshold := false
+
+	countThreshold, countConfigured, err := e.resolveToleratedFailureCount(state, mapInput)
+	if err != nil {
+		return 0, err
+	}
+
+	if countConfigured {
+		threshold = countThreshold
+		hasThreshold = true
+	}
+
+	pctThreshold, pctConfigured, err := e.resolveToleratedFailurePercentageThreshold(state, mapInput, totalCount)
+	if err != nil {
+		return 0, err
+	}
+
+	if pctConfigured && (!hasThreshold || pctThreshold < threshold) {
+		threshold = pctThreshold
+		hasThreshold = true
+	}
+
+	if !hasThreshold {
+		return 0, nil
+	}
+
+	return threshold, nil
+}
+
+// resolveToleratedFailureCount resolves ToleratedFailureCount(Path). The
+// second return value reports whether either field was configured.
+func (e *Executor) resolveToleratedFailureCount(state *State, mapInput any) (int, bool, error) {
+	switch {
+	case state.ToleratedFailureCountPath != "":
+		val, err := applyPath(state.ToleratedFailureCountPath, mapInput, e.jsonPathCache)
+		if err != nil {
+			return 0, false, fmt.Errorf("ToleratedFailureCountPath error: %w", err)
+		}
+
+		f, ok := toFloat(val)
+		if !ok {
+			return 0, false, ErrToleratedFailureCountNotNumber
+		}
+
+		return int(f), true, nil
+	case state.ToleratedFailureCount != nil:
+		return *state.ToleratedFailureCount, true, nil
+	default:
+		return 0, false, nil
+	}
+}
+
+// resolveToleratedFailurePercentageThreshold resolves ToleratedFailurePercentage(Path)
+// into an absolute failure-count threshold for totalCount items. The second
+// return value reports whether either field was configured.
+func (e *Executor) resolveToleratedFailurePercentageThreshold(
+	state *State,
+	mapInput any,
+	totalCount int,
+) (int, bool, error) {
+	var pct float64
+
+	switch {
+	case state.ToleratedFailurePercentagePath != "":
+		val, err := applyPath(state.ToleratedFailurePercentagePath, mapInput, e.jsonPathCache)
+		if err != nil {
+			return 0, false, fmt.Errorf("ToleratedFailurePercentagePath error: %w", err)
+		}
+
+		f, ok := toFloat(val)
+		if !ok {
+			return 0, false, ErrToleratedFailurePercentageNotNumber
+		}
+
+		pct = f
+	case state.ToleratedFailurePercentage != nil:
+		pct = *state.ToleratedFailurePercentage
+	default:
+		return 0, false, nil
+	}
+
+	return int(math.Floor(float64(totalCount) * pct / percentToFractionDivisor)), true, nil
 }
 
 // resolveMapConcurrency determines the effective concurrency for a Map state.
@@ -2655,6 +2874,20 @@ func stepFunctionsErrorCode(err error) string {
 		errors.Is(err, ErrUnsupportedPathExpr) ||
 		errors.Is(err, ErrUnsupportedResultPath) {
 		return errCodeStatesRuntime
+	}
+
+	return err.Error()
+}
+
+// stepFunctionsErrorCause extracts the human-readable cause for an error, for
+// population into a Catch's error output (the "Cause" field) and into
+// TaskFailed history events. FailError carries an explicit Cause (e.g. from a
+// Fail state or a wrapped service-integration failure); other errors have no
+// separate code/cause split, so the full message is used as the cause.
+func stepFunctionsErrorCause(err error) string {
+	var failErr *FailError
+	if errors.As(err, &failErr) {
+		return failErr.Cause
 	}
 
 	return err.Error()
