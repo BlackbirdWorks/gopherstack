@@ -683,7 +683,7 @@ func TestIAMHandler_UserInlinePolicies(t *testing.T) {
 			setup:       func(_ *iam.InMemoryBackend) {},
 			action:      "GetUserPolicy",
 			params:      map[string]string{"UserName": "nobody", "PolicyName": "Ghost"},
-			wantCode:    http.StatusBadRequest,
+			wantCode:    http.StatusNotFound, // NoSuchEntity is 404 on real AWS IAM.
 			wantContain: "NoSuchEntity",
 		},
 	}
@@ -908,7 +908,7 @@ func TestIAMHandler_UpdateAssumeRolePolicy(t *testing.T) {
 				"RoleName":       "Ghost",
 				"PolicyDocument": "{}",
 			},
-			wantCode:    http.StatusBadRequest,
+			wantCode:    http.StatusNotFound, // NoSuchEntity is 404 on real AWS IAM.
 			wantContain: "NoSuchEntity",
 		},
 	}
@@ -1212,7 +1212,7 @@ func TestSimulatePrincipalPolicy(t *testing.T) {
 				"PolicySourceArn":      "arn:aws:iam::000000000000:user/nonexistent",
 				"ActionNames.member.1": "s3:GetObject",
 			},
-			wantHTTPStatus: http.StatusBadRequest,
+			wantHTTPStatus: http.StatusNotFound, // NoSuchEntity is 404 on real AWS IAM.
 			wantErr:        true,
 		},
 	}

@@ -477,28 +477,28 @@ func TestIAMHandler_SAMLProvider_Errors(t *testing.T) {
 			params:     map[string]string{"Name": "MySAML", "SAMLMetadataDocument": "<doc/>"},
 			setup:      func(b *iam.InMemoryBackend) { _, _ = b.CreateSAMLProvider("MySAML", "<doc/>") },
 			wantCode:   "EntityAlreadyExists",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "GetSAMLProvider_NotFound",
 			action:     "GetSAMLProvider",
 			params:     map[string]string{"SAMLProviderArn": "arn:aws:iam::000000000000:saml-provider/ghost"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "UpdateSAMLProvider_NotFound",
 			action:     "UpdateSAMLProvider",
 			params:     map[string]string{"SAMLProviderArn": "arn:aws:iam::000000000000:saml-provider/ghost"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "DeleteSAMLProvider_NotFound",
 			action:     "DeleteSAMLProvider",
 			params:     map[string]string{"SAMLProviderArn": "arn:aws:iam::000000000000:saml-provider/ghost"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -683,14 +683,14 @@ func TestIAMHandler_OIDCProvider_Errors(t *testing.T) {
 			params:     map[string]string{"Url": "https://example.com"},
 			setup:      func(b *iam.InMemoryBackend) { _, _ = b.CreateOpenIDConnectProvider("https://example.com", nil, nil) },
 			wantCode:   "EntityAlreadyExists",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "GetOpenIDConnectProvider_NotFound",
 			action:     "GetOpenIDConnectProvider",
 			params:     map[string]string{"OpenIDConnectProviderArn": "arn:aws:iam::000000000000:oidc-provider/ghost"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "UpdateOpenIDConnectProviderThumbprint_NotFound",
@@ -700,14 +700,14 @@ func TestIAMHandler_OIDCProvider_Errors(t *testing.T) {
 				"ThumbprintList.member.1":  "990f41981148b53dc7c615a6b0c2a26555cc5d85",
 			},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "DeleteOpenIDConnectProvider_NotFound",
 			action:     "DeleteOpenIDConnectProvider",
 			params:     map[string]string{"OpenIDConnectProviderArn": "arn:aws:iam::000000000000:oidc-provider/ghost"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -863,7 +863,7 @@ func TestIAMHandler_LoginProfile_Errors(t *testing.T) {
 			action:     "CreateLoginProfile",
 			params:     map[string]string{"UserName": "nobody", "Password": "Pass"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "CreateLoginProfile_AlreadyExists",
@@ -874,28 +874,28 @@ func TestIAMHandler_LoginProfile_Errors(t *testing.T) {
 				_, _ = b.CreateLoginProfile("alice", "Password1", false)
 			},
 			wantCode:   "EntityAlreadyExists",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "GetLoginProfile_NotFound",
 			action:     "GetLoginProfile",
 			params:     map[string]string{"UserName": "nobody"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "UpdateLoginProfile_NotFound",
 			action:     "UpdateLoginProfile",
 			params:     map[string]string{"UserName": "nobody", "Password": "Pass"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "DeleteLoginProfile_NotFound",
 			action:     "DeleteLoginProfile",
 			params:     map[string]string{"UserName": "nobody"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 

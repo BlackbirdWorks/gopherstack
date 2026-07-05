@@ -527,10 +527,11 @@ func TestIAMHandler_NewOperations(t *testing.T) {
 			wantContain: "GetGroupResponse",
 		},
 		{
-			name:     "GetGroup_not_found",
-			action:   "GetGroup",
-			params:   map[string]string{"GroupName": "ghost"},
-			wantCode: http.StatusBadRequest,
+			name:   "GetGroup_not_found",
+			action: "GetGroup",
+			params: map[string]string{"GroupName": "ghost"},
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:   "RemoveUserFromGroup_success",
@@ -568,7 +569,8 @@ func TestIAMHandler_NewOperations(t *testing.T) {
 				"InstanceProfileName": "ghost-profile",
 				"RoleName":            "some-role",
 			},
-			wantCode: http.StatusBadRequest,
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:   "RemoveRoleFromInstanceProfile_success",

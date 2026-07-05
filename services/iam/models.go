@@ -298,15 +298,16 @@ type ListRolesResult struct {
 
 // PolicyXML is the XML representation of an IAM Policy.
 type PolicyXML struct {
-	PolicyName       string `xml:"PolicyName"`
-	PolicyID         string `xml:"PolicyId"`
-	Arn              string `xml:"Arn"`
-	Path             string `xml:"Path"`
-	CreateDate       string `xml:"CreateDate"`
-	UpdateDate       string `xml:"UpdateDate"`
-	DefaultVersionID string `xml:"DefaultVersionId"`
-	AttachmentCount  int    `xml:"AttachmentCount"`
-	IsAttachable     bool   `xml:"IsAttachable"`
+	PolicyName       string   `xml:"PolicyName"`
+	PolicyID         string   `xml:"PolicyId"`
+	Arn              string   `xml:"Arn"`
+	Path             string   `xml:"Path"`
+	CreateDate       string   `xml:"CreateDate"`
+	UpdateDate       string   `xml:"UpdateDate"`
+	DefaultVersionID string   `xml:"DefaultVersionId"`
+	Tags             []TagXML `xml:"Tags>member,omitempty"`
+	AttachmentCount  int      `xml:"AttachmentCount"`
+	IsAttachable     bool     `xml:"IsAttachable"`
 }
 
 // CreatePolicyResponse is the XML response for CreatePolicy.

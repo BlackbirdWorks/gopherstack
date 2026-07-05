@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -73,6 +74,68 @@ func newComprehensiveBackend() *comprehensiveBackend {
 		accessAdvisorJobs:   make(map[string]*accessAdvisorJob),
 		serviceLastAccessed: make(map[string]map[string]ServiceLastAccessedDetail),
 		orgReportJobs:       make(map[string]time.Time),
+	}
+}
+
+// comprehensiveSnapshot is the serializable snapshot of comprehensiveBackend
+// state, embedded in backendSnapshot.Comprehensive so SSH public keys, MFA
+// user links, access advisor jobs, service-last-accessed data, and org report
+// jobs survive a persistence restore rather than being silently dropped.
+type comprehensiveSnapshot struct {
+	SSHPublicKeys       map[string]SSHPublicKey                         `json:"sshPublicKeys,omitempty"`
+	MFAUserLinks        map[string]string                               `json:"mfaUserLinks,omitempty"`
+	AccessAdvisorJobs   map[string]*accessAdvisorJob                    `json:"accessAdvisorJobs,omitempty"`
+	ServiceLastAccessed map[string]map[string]ServiceLastAccessedDetail `json:"serviceLastAccessed,omitempty"`
+	OrgReportJobs       map[string]time.Time                            `json:"orgReportJobs,omitempty"`
+}
+
+// snapshot returns a deep copy of the comprehensive backend's state for
+// persistence. It locks only c.mu (never b.mu), so callers must invoke it
+// outside of any InMemoryBackend.mu critical section to avoid establishing a
+// new nested-lock order.
+func (c *comprehensiveBackend) snapshot() comprehensiveSnapshot {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return comprehensiveSnapshot{
+		SSHPublicKeys:       maps.Clone(c.sshPublicKeys),
+		MFAUserLinks:        maps.Clone(c.mfaUserLinks),
+		AccessAdvisorJobs:   maps.Clone(c.accessAdvisorJobs),
+		ServiceLastAccessed: maps.Clone(c.serviceLastAccessed),
+		OrgReportJobs:       maps.Clone(c.orgReportJobs),
+	}
+}
+
+// restore replaces the comprehensive backend's state from a snapshot. Like
+// snapshot, it locks only c.mu and must be called outside of any
+// InMemoryBackend.mu critical section.
+func (c *comprehensiveBackend) restore(snap comprehensiveSnapshot) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.sshPublicKeys = snap.SSHPublicKeys
+	if c.sshPublicKeys == nil {
+		c.sshPublicKeys = make(map[string]SSHPublicKey)
+	}
+
+	c.mfaUserLinks = snap.MFAUserLinks
+	if c.mfaUserLinks == nil {
+		c.mfaUserLinks = make(map[string]string)
+	}
+
+	c.accessAdvisorJobs = snap.AccessAdvisorJobs
+	if c.accessAdvisorJobs == nil {
+		c.accessAdvisorJobs = make(map[string]*accessAdvisorJob)
+	}
+
+	c.serviceLastAccessed = snap.ServiceLastAccessed
+	if c.serviceLastAccessed == nil {
+		c.serviceLastAccessed = make(map[string]map[string]ServiceLastAccessedDetail)
+	}
+
+	c.orgReportJobs = snap.OrgReportJobs
+	if c.orgReportJobs == nil {
+		c.orgReportJobs = make(map[string]time.Time)
 	}
 }
 

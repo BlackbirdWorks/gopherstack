@@ -2,13 +2,14 @@ package iam
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
-	RoleInlinePolicies    map[string]map[string]string         `json:"roleInlinePolicies,omitempty"`
-	VirtualMFADevices     map[string]VirtualMFADevice          `json:"virtualMFADevices,omitempty"`
+	GroupPolicies         map[string][]string                  `json:"groupPolicies,omitempty"`
+	PasswordPolicy        *PasswordPolicy                      `json:"passwordPolicy,omitempty"`
 	Policies              map[string]Policy                    `json:"policies,omitempty"`
 	Groups                map[string]Group                     `json:"groups,omitempty"`
 	AccessKeys            map[string]AccessKey                 `json:"accessKeys,omitempty"`
@@ -21,11 +22,11 @@ type backendSnapshot struct {
 	Users                 map[string]User                      `json:"users,omitempty"`
 	UserPolicies          map[string][]string                  `json:"userPolicies,omitempty"`
 	UserInlinePolicies    map[string]map[string]string         `json:"userInlinePolicies,omitempty"`
-	GroupPolicies         map[string][]string                  `json:"groupPolicies,omitempty"`
-	RolePolicies          map[string][]string                  `json:"rolePolicies,omitempty"`
-	PasswordPolicy        *PasswordPolicy                      `json:"passwordPolicy,omitempty"`
-	PolicyVersions        map[string][]StoredPolicyVersion     `json:"policyVersions,omitempty"`
+	VirtualMFADevices     map[string]VirtualMFADevice          `json:"virtualMFADevices,omitempty"`
+	RoleInlinePolicies    map[string]map[string]string         `json:"roleInlinePolicies,omitempty"`
 	PolicyVersionCounters map[string]int                       `json:"policyVersionCounters,omitempty"`
+	PolicyVersions        map[string][]StoredPolicyVersion     `json:"policyVersions,omitempty"`
+	RolePolicies          map[string][]string                  `json:"rolePolicies,omitempty"`
 	ServiceSpecificCreds  map[string]ServiceSpecificCredential `json:"serviceSpecificCreds,omitempty"`
 	GroupInlinePolicies   map[string]map[string]string         `json:"groupInlinePolicies,omitempty"`
 	ServerCertificates    map[string]ServerCertificate         `json:"serverCertificates,omitempty"`
@@ -35,6 +36,7 @@ type backendSnapshot struct {
 	PolicyAttachments     map[string]policyAttachmentRefs      `json:"policyAttachments,omitempty"`
 	DeletedV1Policies     map[string]bool                      `json:"deletedV1Policies,omitempty"`
 	SigningCertificates   map[string]SigningCertificate        `json:"signingCertificates,omitempty"`
+	Comprehensive         *comprehensiveSnapshot               `json:"comprehensive,omitempty"`
 	AccountID             string                               `json:"accountID,omitempty"`
 	AccountAliases        []string                             `json:"accountAliases,omitempty"`
 }
@@ -42,10 +44,17 @@ type backendSnapshot struct {
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
+	// Read comprehensive state before taking b.mu: comprehensiveBackend guards
+	// its own state with a separate mutex (c.mu), so reading it here — outside
+	// the b.mu critical section below — avoids establishing a new nested lock
+	// order between the two.
+	comp := b.comp().snapshot()
+
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
+		Comprehensive:         &comp,
 		Users:                 b.users,
 		Roles:                 b.roles,
 		Policies:              b.policies,
@@ -93,7 +102,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	normalizeSnapshot(&snap)
 
 	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
 
 	b.users = snap.Users
 	b.roles = snap.Roles
@@ -155,6 +163,16 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.serverCertificates = make(map[string]ServerCertificate)
 	}
 	b.passwordPolicy = snap.PasswordPolicy
+
+	b.mu.Unlock()
+
+	// Restore comprehensive state after releasing b.mu (see the matching note
+	// in Snapshot): comprehensiveBackend.restore takes c.mu independently.
+	if snap.Comprehensive != nil {
+		b.comp().restore(*snap.Comprehensive)
+	} else {
+		b.comp().restore(comprehensiveSnapshot{})
+	}
 
 	return nil
 }
@@ -311,26 +329,62 @@ func parseVersionNum(id string) int {
 	return n
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// handlerSnapshot wraps the backend snapshot together with Handler-level state
+// (resource tags for instance profiles, MFA devices, SAML/OIDC providers, and
+// server certificates — see tagsSnapshot/restoreTags) so both round-trip
+// through persistence together.
+type handlerSnapshot struct {
+	Tags    map[string]map[string]string `json:"tags,omitempty"`
+	Backend json.RawMessage              `json:"backend,omitempty"`
+}
+
+// Snapshot implements persistence.Persistable. It combines the backend's own
+// snapshot with Handler-level tag state.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
 	type snapshotter interface {
 		Snapshot(ctx context.Context) []byte
 	}
+
+	snap := handlerSnapshot{Tags: h.tagsSnapshot()}
+
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot(ctx)
+		if b := s.Snapshot(ctx); len(b) > 0 {
+			snap.Backend = json.RawMessage(b)
+		}
 	}
 
-	return nil
+	return persistence.MarshalSnapshot(ctx, "iam", snap)
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable. It accepts both the current
+// wrapped format and the legacy format (where data was the raw backend
+// snapshot with no Handler-level wrapper), so older persisted snapshots still
+// load correctly.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	type restorer interface {
 		Restore(context.Context, []byte) error
 	}
-	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(ctx, data)
+
+	var snap handlerSnapshot
+	if err := persistence.UnmarshalSnapshot(ctx, "iam", data, &snap); err != nil {
+		return err
 	}
+
+	backendData := []byte(snap.Backend)
+	if len(backendData) == 0 {
+		// Legacy snapshot: the whole blob is the backend snapshot and has no
+		// "backend"/"tags" wrapper fields (unmarshal above silently ignored
+		// them since backendSnapshot's JSON shape doesn't collide with ours).
+		backendData = data
+	}
+
+	if r, ok := h.Backend.(restorer); ok {
+		if err := r.Restore(ctx, backendData); err != nil {
+			return err
+		}
+	}
+
+	h.restoreTags(snap.Tags)
 
 	return nil
 }
