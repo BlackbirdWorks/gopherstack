@@ -1126,16 +1126,61 @@ func (b *InMemoryBackend) rdsARN(resourceType, id string) string {
 	return arn.Build("rds", b.region, b.accountID, fmt.Sprintf("%s:%s", resourceType, id))
 }
 
-// DeleteDBInstance removes the DB instance with the given identifier.
+// DeleteDBInstance removes the DB instance with the given identifier, skipping
+// the AWS final-snapshot contract (SkipFinalSnapshot=true). It exists for
+// existing callers (e.g. CloudFormation resource cleanup) that pre-date the
+// SkipFinalSnapshot/FinalDBSnapshotIdentifier parameters and manage their own
+// snapshot semantics. New callers that need AWS-accurate DeleteDBInstance
+// behavior (final snapshot, DeleteAutomatedBackups) should use
+// DeleteDBInstanceWithOptions.
 func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
+	return b.DeleteDBInstanceWithOptions(id, true, "", true)
+}
+
+// DeleteDBInstanceWithOptions removes the DB instance with the given identifier,
+// honoring the AWS DeleteDBInstance parameter contract:
+//   - SkipFinalSnapshot=false (the AWS default) requires a non-empty
+//     finalSnapshotID; a manual snapshot of the instance is taken before it is
+//     removed.
+//   - SkipFinalSnapshot=true is mutually exclusive with a non-empty
+//     finalSnapshotID (AWS: InvalidParameterCombination either way).
+//   - deleteAutomatedBackups (AWS default true) controls whether the
+//     instance's automated backup record is removed along with the instance.
+func (b *InMemoryBackend) DeleteDBInstanceWithOptions(
+	id string,
+	skipFinalSnapshot bool,
+	finalSnapshotID string,
+	deleteAutomatedBackups bool,
+) (*DBInstance, error) {
 	b.mu.Lock("DeleteDBInstance")
 	b.reconcileInstancesLocked()
 
+	// AWS resolves the target instance before validating the
+	// SkipFinalSnapshot/FinalDBSnapshotIdentifier combination: deleting a
+	// nonexistent instance returns DBInstanceNotFoundFault even when the
+	// snapshot parameters are also missing/invalid.
 	inst, exists := b.instances[id]
 	if !exists {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
+	}
+
+	if !skipFinalSnapshot && finalSnapshotID == "" {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf(
+			"%w: FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is specified",
+			ErrInvalidParameterCombination,
+		)
+	}
+	if skipFinalSnapshot && finalSnapshotID != "" {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf(
+			"%w: the FinalDBSnapshotIdentifier parameter cannot be specified when SkipFinalSnapshot is enabled",
+			ErrInvalidParameterCombination,
+		)
 	}
 
 	if inst.DeletionProtection {
@@ -1151,6 +1196,15 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: instance %s is already being deleted", ErrInvalidDBInstanceState, id)
+	}
+
+	if !skipFinalSnapshot {
+		if _, snapExists := b.snapshots[finalSnapshotID]; snapExists {
+			b.mu.Unlock()
+
+			return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, finalSnapshotID)
+		}
+		b.snapshots[finalSnapshotID] = b.newManualSnapshotLocked(finalSnapshotID, inst)
 	}
 
 	inst.DBInstanceStatus = instanceStatusDeleting
@@ -1171,7 +1225,9 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	delete(b.tags, b.rdsARN("db", id))
 	delete(b.instanceRoles, id)
 	delete(b.instanceReadyAt, id)
-	delete(b.automatedBackups, id)
+	if deleteAutomatedBackups {
+		delete(b.automatedBackups, id)
+	}
 
 	b.mu.Unlock()
 
@@ -1491,10 +1547,22 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
 	}
 
+	snap := b.newManualSnapshotLocked(snapshotID, inst)
+	b.snapshots[snapshotID] = snap
+
+	cp := *snap
+
+	return &cp, nil
+}
+
+// newManualSnapshotLocked builds a manual DB snapshot record for inst. It does
+// not check for an existing snapshot with the same ID or insert into
+// b.snapshots — callers must do both under b.mu.
+func (b *InMemoryBackend) newManualSnapshotLocked(snapshotID string, inst *DBInstance) *DBSnapshot {
 	snap := &DBSnapshot{
 		SnapshotCreateTime:   time.Now().UTC(),
 		DBSnapshotIdentifier: snapshotID,
-		DBInstanceIdentifier: instanceID,
+		DBInstanceIdentifier: inst.DBInstanceIdentifier,
 		Engine:               inst.Engine,
 		EngineVersion:        inst.EngineVersion,
 		Status:               instanceStatusAvailable,
@@ -1509,11 +1577,8 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 	if inst.StorageEncrypted {
 		snap.KmsKeyID = inst.KmsKeyID
 	}
-	b.snapshots[snapshotID] = snap
 
-	cp := *snap
-
-	return &cp, nil
+	return snap
 }
 
 // DescribeDBSnapshots returns snapshots. If snapshotID is non-empty, returns only that snapshot.
@@ -2300,13 +2365,61 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 }
 
 // DeleteDBCluster removes the given cluster.
+// DeleteDBCluster removes the DB cluster with the given identifier, skipping
+// the AWS final-snapshot contract (SkipFinalSnapshot=true). It exists for
+// existing callers (e.g. CloudFormation resource cleanup) that pre-date the
+// SkipFinalSnapshot/FinalDBSnapshotIdentifier parameters. New callers that
+// need AWS-accurate DeleteDBCluster behavior should use
+// DeleteDBClusterWithOptions.
 func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
+	return b.DeleteDBClusterWithOptions(id, true, "")
+}
+
+// DeleteDBClusterWithOptions removes the DB cluster with the given identifier,
+// honoring the AWS DeleteDBCluster parameter contract:
+//   - SkipFinalSnapshot=false (the AWS default) requires a non-empty
+//     finalSnapshotID; a manual cluster snapshot is taken before the cluster
+//     is removed.
+//   - SkipFinalSnapshot=true is mutually exclusive with a non-empty
+//     finalSnapshotID (AWS: InvalidParameterCombination either way).
+func (b *InMemoryBackend) DeleteDBClusterWithOptions(
+	id string, skipFinalSnapshot bool, finalSnapshotID string,
+) (*DBCluster, error) {
 	b.mu.Lock("DeleteDBCluster")
 	defer b.mu.Unlock()
+
+	// Resolve the target cluster before validating the snapshot parameter
+	// combination, matching AWS's behavior of returning DBClusterNotFoundFault
+	// for a nonexistent cluster even when the snapshot params are also invalid.
 	cluster, exists := b.clusters[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
+
+	if !skipFinalSnapshot && finalSnapshotID == "" {
+		return nil, fmt.Errorf(
+			"%w: FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is specified",
+			ErrInvalidParameterCombination,
+		)
+	}
+	if skipFinalSnapshot && finalSnapshotID != "" {
+		return nil, fmt.Errorf(
+			"%w: the FinalDBSnapshotIdentifier parameter cannot be specified when SkipFinalSnapshot is enabled",
+			ErrInvalidParameterCombination,
+		)
+	}
+
+	if !skipFinalSnapshot {
+		if _, snapExists := b.clusterSnapshots[finalSnapshotID]; snapExists {
+			return nil, fmt.Errorf(
+				"%w: cluster snapshot %s already exists",
+				ErrClusterSnapshotAlreadyExists,
+				finalSnapshotID,
+			)
+		}
+		b.clusterSnapshots[finalSnapshotID] = b.newManualClusterSnapshotLocked(finalSnapshotID, cluster)
+	}
+
 	cp := *cluster
 	// Clear the cluster association on any member instances so they appear standalone.
 	for _, member := range cluster.DBClusterMembers {
@@ -2473,20 +2586,27 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
-	snap := &DBClusterSnapshot{
+	snap := b.newManualClusterSnapshotLocked(snapshotID, cluster)
+	b.clusterSnapshots[snapshotID] = snap
+	cp := *snap
+
+	return &cp, nil
+}
+
+// newManualClusterSnapshotLocked builds a manual DB cluster snapshot record
+// for cluster. It does not check for an existing snapshot with the same ID or
+// insert into b.clusterSnapshots — callers must do both under b.mu.
+func (b *InMemoryBackend) newManualClusterSnapshotLocked(snapshotID string, cluster *DBCluster) *DBClusterSnapshot {
+	return &DBClusterSnapshot{
 		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: snapshotID,
-		DBClusterIdentifier:         clusterID,
+		DBClusterIdentifier:         cluster.DBClusterIdentifier,
 		Engine:                      cluster.Engine,
 		EngineVersion:               cluster.EngineVersion,
 		Status:                      instanceStatusAvailable,
 		PercentProgress:             percentProgressComplete,
 		StorageEncrypted:            cluster.StorageEncrypted,
 	}
-	b.clusterSnapshots[snapshotID] = snap
-	cp := *snap
-
-	return &cp, nil
 }
 
 // DescribeDBClusterSnapshots returns cluster snapshots.
