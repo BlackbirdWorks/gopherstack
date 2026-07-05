@@ -1014,8 +1014,16 @@ func validatePutLogEventsBatch(events []InputLogEvent) error {
 	return nil
 }
 
+// rejectedTracker accumulates the three RejectedLogEventsInfo fields while
+// classifyLogEvents walks a PutLogEvents batch in order. Per the real API
+// (aws-sdk-go-v2 types.RejectedLogEventsInfo):
+//   - TooNewLogEventStartIndex is the INCLUSIVE index of the first too-new event.
+//   - TooOldLogEventEndIndex and ExpiredLogEventEndIndex are EXCLUSIVE end
+//     indices: "events at index < N were too-old/expired". Batches are expected
+//     to be chronologically ordered, so too-old/expired events form a prefix and
+//     the "end" is one past the last matching index seen.
 type rejectedTracker struct {
-	tooOldStart *int32
+	tooOldEnd   *int32
 	tooNewStart *int32
 	expiredEnd  *int32
 }
@@ -1035,8 +1043,9 @@ func (t *rejectedTracker) track(
 
 	// Reject events older than the 14-day hard cap.
 	if ts < hardCutoff {
-		if t.tooOldStart == nil {
-			t.tooOldStart = &idx
+		end := idx + 1
+		if t.tooOldEnd == nil || end > *t.tooOldEnd {
+			t.tooOldEnd = &end
 		}
 
 		return false
@@ -1045,8 +1054,9 @@ func (t *rejectedTracker) track(
 	// Events beyond the group's retention window are marked as expired
 	// in the response but are still stored; the janitor evicts them later.
 	if retentionCutoffMs > hardCutoff && ts < retentionCutoffMs {
-		if t.expiredEnd == nil || idx > *t.expiredEnd {
-			t.expiredEnd = &idx
+		end := idx + 1
+		if t.expiredEnd == nil || end > *t.expiredEnd {
+			t.expiredEnd = &end
 		}
 	}
 
@@ -1078,10 +1088,10 @@ func classifyLogEvents(
 	}
 
 	var rejectedInfo *RejectedLogEventsInfo
-	if tracker.tooNewStart != nil || tracker.tooOldStart != nil || tracker.expiredEnd != nil {
+	if tracker.tooNewStart != nil || tracker.tooOldEnd != nil || tracker.expiredEnd != nil {
 		rejectedInfo = &RejectedLogEventsInfo{
 			TooNewLogEventStartIndex: tracker.tooNewStart,
-			TooOldLogEventStartIndex: tracker.tooOldStart,
+			TooOldLogEventEndIndex:   tracker.tooOldEnd,
 			ExpiredLogEventEndIndex:  tracker.expiredEnd,
 		}
 	}
@@ -1090,11 +1100,16 @@ func classifyLogEvents(
 }
 
 // PutLogEvents appends log events to a stream and returns a PutLogEventsResult.
-// sequenceToken is optional; if provided and mismatched, returns ErrInvalidSequenceToken.
+// sequenceToken is accepted for wire compatibility but, matching current AWS
+// behavior (see aws-sdk-go-v2 cloudwatchlogs.PutLogEvents doc: "The sequence
+// token is now ignored in PutLogEvents actions. PutLogEvents actions are always
+// accepted and never return InvalidSequenceTokenException or
+// DataAlreadyAcceptedException even if the sequence token is not valid."), it is
+// never validated: PutLogEvents accepts concurrent, unordered, or stale tokens.
 // Events with timestamps outside the allowed window are tracked in RejectedLogEventsInfo.
 func (b *InMemoryBackend) PutLogEvents(
 	ctx context.Context,
-	groupName, streamName, sequenceToken string,
+	groupName, streamName, _ string,
 	events []InputLogEvent,
 ) (*PutLogEventsResult, error) {
 	if err := validatePutLogEventsBatch(events); err != nil {
@@ -1121,21 +1136,6 @@ func (b *InMemoryBackend) PutLogEvents(
 	}
 
 	stream := streams[groupName][streamName]
-
-	// Validate sequence token if provided. AWS still returns InvalidSequenceTokenException
-	// for wrong tokens even though tokens are now optional.
-	if sequenceToken != "" {
-		expectedToken := strconv.FormatInt(int64(len(groupEvents[groupName][streamName])), 10)
-		if sequenceToken != expectedToken {
-			b.mu.Unlock()
-
-			return nil, fmt.Errorf(
-				"%w: expected sequenceToken %s",
-				ErrInvalidSequenceToken,
-				expectedToken,
-			)
-		}
-	}
 
 	now := time.Now().UnixMilli()
 
@@ -1653,13 +1653,18 @@ func (b *InMemoryBackend) matchingFilters(
 }
 
 // metricFilterMatch holds a metric filter and the count of events that matched it.
+// metricFilterMatch pairs a metric filter with the raw messages (in event
+// order) of every log event that matched it. The messages -- not just a count
+// -- are needed because MetricTransformation.MetricValue may reference a named
+// field ("$size", "$.bytes") that must be extracted per-event rather than a
+// single fixed literal applied matchCount times.
 type metricFilterMatch struct {
-	filter     *MetricFilter
-	matchCount int
+	filter   *MetricFilter
+	messages []string
 }
 
 // matchingMetricFilters returns metric filters for groupName whose pattern matches at least one
-// of the given events, along with the per-filter match count.
+// of the given events, along with the matched messages themselves (see metricFilterMatch).
 // Events outer, filters inner: each event is visited once regardless of filter count,
 // cutting allocations from O(filters×events) repeated scans to a single pass.
 // Must be called while holding the write lock.
@@ -1685,20 +1690,20 @@ func (b *InMemoryBackend) matchingMetricFilters(
 		)
 	}
 
-	counts := make([]int, len(entries))
+	matchedMsgs := make([][]string, len(entries))
 	for _, ev := range events {
 		for i, e := range entries {
 			if e.compiled == nil || e.compiled.matches(ev.Message) {
-				counts[i]++
+				matchedMsgs[i] = append(matchedMsgs[i], ev.Message)
 			}
 		}
 	}
 
 	var matched []metricFilterMatch
 	for i, e := range entries {
-		if counts[i] > 0 {
+		if len(matchedMsgs[i]) > 0 {
 			cp := *e.filter
-			matched = append(matched, metricFilterMatch{filter: &cp, matchCount: counts[i]})
+			matched = append(matched, metricFilterMatch{filter: &cp, messages: matchedMsgs[i]})
 		}
 	}
 
@@ -1706,23 +1711,21 @@ func (b *InMemoryBackend) matchingMetricFilters(
 }
 
 // emitMetricFilterMatches calls the MetricEmitter for each matched metric filter transformation.
-// One data point is emitted per matched event per transformation.
+// One data point is emitted per matched event per transformation, with the value resolved by
+// metricTransformationValue (a literal MetricValue, or a per-event field extraction).
 func (b *InMemoryBackend) emitMetricFilterMatches(
 	emitter MetricEmitter,
 	matches []metricFilterMatch,
 ) {
 	for _, m := range matches {
+		compiled := b.getCompiledPattern(m.filter.FilterPattern)
 		for _, t := range m.filter.MetricTransformations {
-			val, parseErr := strconv.ParseFloat(t.MetricValue, 64)
-			if parseErr != nil {
-				// Non-numeric MetricValue (e.g. "$field") falls back to defaultValue or 1.0.
-				val = 1.0
-				if t.DefaultValue != nil {
-					val = *t.DefaultValue
+			for _, msg := range m.messages {
+				val, ok := metricTransformationValue(compiled, msg, t)
+				if !ok {
+					continue
 				}
-			}
-			for range m.matchCount {
-				if emitErr := emitter.EmitMetric(t.MetricNamespace, t.MetricName, val, ""); emitErr != nil {
+				if emitErr := emitter.EmitMetric(t.MetricNamespace, t.MetricName, val, t.Unit); emitErr != nil {
 					logger.Load(b.ctx).Warn(
 						"cloudwatchlogs: metric filter emit failed",
 						"namespace", t.MetricNamespace,
@@ -1733,6 +1736,24 @@ func (b *InMemoryBackend) emitMetricFilterMatches(
 			}
 		}
 	}
+}
+
+// metricTransformationValue resolves the numeric value to publish for one matched log event.
+// A literal numeric MetricValue (e.g. "1") publishes as-is for every match. A field reference
+// ("$size" for space-delimited patterns, "$.bytes" for JSON patterns) extracts that field from
+// this specific matched message.
+//
+// AWS's DefaultValue is documented as "the value to emit when a filter pattern does NOT match a
+// log event" (a periodic/no-data-point substitute), not a fallback for failed per-event field
+// extraction -- so a missing or non-numeric field on a MATCHED event silently emits no data point
+// for that event, matching real CloudWatch Logs metric filter behavior, rather than fabricating a
+// value.
+func metricTransformationValue(compiled *compiledFilterPattern, msg string, t MetricTransformation) (float64, bool) {
+	if f, err := strconv.ParseFloat(t.MetricValue, 64); err == nil {
+		return f, true
+	}
+
+	return compiled.extractValue(msg, t.MetricValue)
 }
 
 // getCompiledPattern returns a cached compiled filter pattern, compiling and caching it on first use.
@@ -1872,10 +1893,46 @@ type compiledFilterPattern struct {
 	// custom, when non-nil, fully determines matching (used for JSON "{...}"
 	// selector patterns and space-delimited "[...]" metric-filter patterns);
 	// the term slices below are then unused.
-	custom   func(message string) bool
+	custom func(message string) bool
+	// extract, when non-nil (JSON and space-delimited patterns only), resolves a
+	// named field reference ("size" / ".bytes", i.e. a MetricValue with its
+	// leading "$" already stripped) against one message. Plain-text patterns
+	// have no addressable fields, so extract stays nil for them.
+	extract  func(message, fieldRef string) (string, bool)
 	required []compiledTerm // AND: all must match
 	optional []compiledTerm // OR: any matches (only used when required+exclude empty)
 	exclude  []compiledTerm // NONE may match
+}
+
+// extractString resolves a "$"-prefixed MetricValue-style field reference (e.g. "$size",
+// "$.bytes") against message, using this pattern's named-field structure. It reports false
+// when the pattern has no addressable fields (plain-text patterns), fieldRef isn't
+// "$"-prefixed, or the field is absent from this particular message.
+func (p *compiledFilterPattern) extractString(message, fieldRef string) (string, bool) {
+	if p == nil || p.extract == nil {
+		return "", false
+	}
+
+	rest, ok := strings.CutPrefix(fieldRef, "$")
+	if !ok {
+		return "", false
+	}
+
+	return p.extract(message, rest)
+}
+
+// extractValue is extractString plus a numeric parse, for MetricTransformation.MetricValue
+// resolution: CloudWatch metric values must be numeric, so a present-but-non-numeric field
+// (or an absent one) both report false, meaning "emit no data point for this event".
+func (p *compiledFilterPattern) extractValue(message, fieldRef string) (float64, bool) {
+	raw, ok := p.extractString(message, fieldRef)
+	if !ok {
+		return 0, false
+	}
+
+	f, err := strconv.ParseFloat(raw, 64)
+
+	return f, err == nil
 }
 
 // compiledTerm holds a single pre-compiled term from a filter pattern.
@@ -1937,9 +1994,15 @@ func compileFilterPattern(pattern string) *compiledFilterPattern {
 	if trimmed := strings.TrimSpace(pattern); trimmed != "" {
 		switch trimmed[0] {
 		case '{':
-			return &compiledFilterPattern{custom: compileJSONFilterPattern(trimmed)}
+			return &compiledFilterPattern{
+				custom:  compileJSONFilterPattern(trimmed),
+				extract: compileJSONFilterPatternExtract(trimmed),
+			}
 		case '[':
-			return &compiledFilterPattern{custom: compileSpaceFilterPattern(trimmed)}
+			return &compiledFilterPattern{
+				custom:  compileSpaceFilterPattern(trimmed),
+				extract: compileSpaceFilterPatternExtract(trimmed),
+			}
 		}
 	}
 
@@ -1958,6 +2021,26 @@ func compileFilterPattern(pattern string) *compiledFilterPattern {
 	}
 
 	return cp
+}
+
+// patternFieldRefs returns every "$"-prefixed field reference addressable in pattern
+// (e.g. ["$.eventType"] for a JSON selector pattern, ["$ip", "$size"] for a
+// space-delimited pattern with named fields). Plain-text patterns have no addressable
+// fields and return nil. Used by TestMetricFilter to populate ExtractedValues.
+func patternFieldRefs(pattern string) []string {
+	trimmed := strings.TrimSpace(pattern)
+	if trimmed == "" {
+		return nil
+	}
+
+	switch trimmed[0] {
+	case '{':
+		return jsonPatternSelectors(trimmed)
+	case '[':
+		return spacePatternFieldNames(trimmed)
+	default:
+		return nil
+	}
 }
 
 // matches reports whether the message satisfies the pattern, following AWS
@@ -3665,15 +3748,25 @@ func (b *InMemoryBackend) TestMetricFilter(
 	}
 
 	compiled := compileFilterPattern(filterPattern)
+	fieldRefs := patternFieldRefs(filterPattern)
 	matches := make([]MetricFilterMatchRecord, 0, len(logEventMessages))
 	for i, msg := range logEventMessages {
-		if compiled.matches(msg) {
-			matches = append(matches, MetricFilterMatchRecord{
-				EventMessage:    msg,
-				EventNumber:     int64(i + 1),
-				ExtractedValues: map[string]string{},
-			})
+		if !compiled.matches(msg) {
+			continue
 		}
+
+		extracted := make(map[string]string, len(fieldRefs))
+		for _, ref := range fieldRefs {
+			if val, ok := compiled.extractString(msg, ref); ok {
+				extracted[ref] = val
+			}
+		}
+
+		matches = append(matches, MetricFilterMatchRecord{
+			EventMessage:    msg,
+			EventNumber:     int64(i + 1),
+			ExtractedValues: extracted,
+		})
 	}
 
 	return matches, nil

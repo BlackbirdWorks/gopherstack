@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -13,17 +15,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
-// ── Batch-2 Issue #1: ErrInvalidSequenceToken not in handler error switch ──────────────────────────────
+// ── Batch-2 Issue #1 (superseded): sequenceToken is ignored, not validated ──────────────────────────────
 //
-// PutLogEvents with an incorrect sequenceToken calls backend.PutLogEvents which returns
-// ErrInvalidSequenceToken. The handler's handleError switch had no case for this error, so
-// it fell through to the default branch and returned 500 InternalServerError with
-// __type="InternalServerError".
-//
-// AWS returns HTTP 400 with __type="InvalidSequenceTokenException".
-// Fix: add ErrInvalidSequenceToken case to handleError mapping.
+// A prior audit pass had this emulator reject a mismatched sequenceToken with
+// InvalidSequenceTokenException, mirroring PutLogEvents' pre-2022 contract. Per
+// the current aws-sdk-go-v2 doc (cloudwatchlogs.PutLogEvents / InputLogEvent /
+// types.InvalidSequenceTokenException): "The sequence token is now ignored in
+// PutLogEvents actions. PutLogEvents actions are always accepted and never
+// return InvalidSequenceTokenException or DataAlreadyAcceptedException even if
+// the sequence token is not valid." The backend's validation was removed to
+// match; this test now asserts the (correct) always-accepted behavior instead
+// of a 400.
 
-func TestBatch2_PutLogEvents_WrongSequenceToken_Returns400(t *testing.T) {
+func TestBatch2_PutLogEvents_MismatchedSequenceToken_StillAccepted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -54,7 +58,11 @@ func TestBatch2_PutLogEvents_WrongSequenceToken_Returns400(t *testing.T) {
 			doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
 			doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s"}`)
 
-			now := int64(1_700_000_000_000)
+			// Use the real wall clock, not a hardcoded epoch: a fixed past timestamp
+			// eventually falls outside PutLogEvents' rolling 14-day acceptance window
+			// as time passes, which would make events be rejected as "too old" and
+			// break this test's non-error-path assertions below.
+			now := time.Now().UnixMilli()
 			for i := range tt.setupEvents {
 				body, _ := json.Marshal(map[string]any{
 					"logGroupName":  "grp",
@@ -74,15 +82,14 @@ func TestBatch2_PutLogEvents_WrongSequenceToken_Returns400(t *testing.T) {
 			})
 			rec := doLogsRequest(t, h, e, "PutLogEvents", string(reqBody))
 
-			assert.Equal(t, http.StatusBadRequest, rec.Code,
-				"wrong sequenceToken must return 400, not 500 InternalServerError")
+			assert.Equal(t, http.StatusOK, rec.Code,
+				"a mismatched sequenceToken must not be rejected: AWS ignores it entirely")
 
-			var errResp struct {
-				Type string `json:"__type"`
+			var okResp struct {
+				NextSequenceToken string `json:"nextSequenceToken"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-			assert.Equal(t, "InvalidSequenceTokenException", errResp.Type,
-				"wrong sequenceToken must map to InvalidSequenceTokenException, not InternalServerError")
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &okResp))
+			assert.Equal(t, strconv.Itoa(tt.setupEvents+1), okResp.NextSequenceToken)
 		})
 	}
 }

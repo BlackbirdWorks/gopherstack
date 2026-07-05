@@ -11,8 +11,12 @@ const spaceEllipsis = "..."
 
 // spaceTerm is one positional term in a space-delimited "[...]" pattern.
 type spaceTerm struct {
-	op       string
-	value    string
+	op    string
+	value string
+	// name is the field's bare identifier as written in the pattern (e.g. "size"
+	// in both "size" and "size>100"), used to resolve MetricValue field
+	// references such as "$size". Empty for the ellipsis term.
+	name     string
 	num      float64
 	ellipsis bool
 	hasCond  bool
@@ -50,16 +54,19 @@ func parseSpaceTerms(body string) []spaceTerm {
 // parseSpaceTerm parses a single space-pattern term.
 func parseSpaceTerm(raw string) spaceTerm {
 	if raw == spaceEllipsis {
-		return spaceTerm{op: "", value: "", ellipsis: true, hasCond: false, num: 0, isNum: false}
+		return spaceTerm{op: "", value: "", name: "", ellipsis: true, hasCond: false, num: 0, isNum: false}
 	}
 
 	op, idx := findSpaceOp(raw)
 	if idx < 0 {
-		return spaceTerm{op: "", value: "", ellipsis: false, hasCond: false, num: 0, isNum: false}
+		name := strings.TrimSpace(raw)
+
+		return spaceTerm{op: "", value: "", name: name, ellipsis: false, hasCond: false, num: 0, isNum: false}
 	}
 
+	name := strings.TrimSpace(raw[:idx])
 	value := strings.Trim(strings.TrimSpace(raw[idx+len(op):]), `"'`)
-	term := spaceTerm{op: op, value: value, ellipsis: false, hasCond: true, num: 0, isNum: false}
+	term := spaceTerm{op: op, value: value, name: name, ellipsis: false, hasCond: true, num: 0, isNum: false}
 	if f, err := strconv.ParseFloat(value, 64); err == nil {
 		term.num = f
 		term.isNum = true
@@ -218,4 +225,87 @@ func spaceNumericCompare(t spaceTerm, field string) bool {
 	default:
 		return false
 	}
+}
+
+// compileSpaceFilterPatternExtract returns a field extractor for a space-delimited pattern,
+// keyed by the field's bare name (fieldRef has its leading "$" already stripped by the
+// caller, e.g. "size" for a MetricValue of "$size"). Returns the raw field string, or false
+// if no field of that name is defined or the message doesn't have enough fields to align it.
+func compileSpaceFilterPatternExtract(pattern string) func(message, fieldRef string) (string, bool) {
+	body := strings.TrimSpace(pattern)
+	body = strings.TrimPrefix(body, "[")
+	body = strings.TrimSuffix(body, "]")
+	terms := parseSpaceTerms(body)
+
+	return func(message, fieldRef string) (string, bool) {
+		fields := strings.Fields(message)
+
+		idx, ok := spaceFieldIndex(terms, len(fields), fieldRef)
+		if !ok {
+			return "", false
+		}
+
+		return fields[idx], true
+	}
+}
+
+// spacePatternFieldNames returns the "$"-prefixed named fields declared in a space-delimited
+// pattern (skipping the ellipsis and any unnamed term), in declaration order.
+func spacePatternFieldNames(pattern string) []string {
+	body := strings.TrimSpace(pattern)
+	body = strings.TrimPrefix(body, "[")
+	body = strings.TrimSuffix(body, "]")
+
+	var out []string
+	for _, t := range parseSpaceTerms(body) {
+		if t.ellipsis || t.name == "" {
+			continue
+		}
+
+		out = append(out, "$"+t.name)
+	}
+
+	return out
+}
+
+// spaceFieldIndex returns the message-field index bound to name, using the same
+// ellipsis-alignment rules as matchSpaceTerms (a single leading/trailing "..." absorbs
+// any extra fields so the named terms stay anchored to the opposite end).
+func spaceFieldIndex(terms []spaceTerm, numFields int, name string) (int, bool) {
+	switch ellipsisPosition(terms) {
+	case ellipsisNone:
+		if numFields != len(terms) {
+			return 0, false
+		}
+
+		return namedTermIndex(terms, 0, name)
+	case ellipsisLead:
+		rest := terms[1:]
+		if numFields < len(rest) {
+			return 0, false
+		}
+
+		return namedTermIndex(rest, numFields-len(rest), name)
+	case ellipsisTail:
+		rest := terms[:len(terms)-1]
+		if numFields < len(rest) {
+			return 0, false
+		}
+
+		return namedTermIndex(rest, 0, name)
+	default:
+		return 0, false
+	}
+}
+
+// namedTermIndex finds name among terms and returns its message-field index, offset by
+// the alignment base computed by spaceFieldIndex.
+func namedTermIndex(terms []spaceTerm, offset int, name string) (int, bool) {
+	for i, t := range terms {
+		if t.name == name {
+			return offset + i, true
+		}
+	}
+
+	return 0, false
 }

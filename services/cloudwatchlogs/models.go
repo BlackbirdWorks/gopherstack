@@ -232,9 +232,12 @@ type AccountPolicy struct {
 }
 
 // RejectedLogEventsInfo describes log events that were rejected by PutLogEvents.
+// Field names/wire keys match aws-sdk-go-v2 types.RejectedLogEventsInfo exactly:
+// TooOldLogEventEndIndex (not "...StartIndex") is the exclusive end index of the
+// too-old run, mirroring ExpiredLogEventEndIndex's exclusive-end semantics.
 type RejectedLogEventsInfo struct {
 	TooNewLogEventStartIndex *int32 `json:"tooNewLogEventStartIndex,omitempty"`
-	TooOldLogEventStartIndex *int32 `json:"tooOldLogEventStartIndex,omitempty"`
+	TooOldLogEventEndIndex   *int32 `json:"tooOldLogEventEndIndex,omitempty"`
 	ExpiredLogEventEndIndex  *int32 `json:"expiredLogEventEndIndex,omitempty"`
 }
 
