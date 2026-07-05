@@ -114,7 +114,12 @@ type TrafficSourceState struct {
 }
 
 // ExecutePolicyInput holds the input for ExecutePolicy.
+// MetricValue and BreachThreshold are required (and only meaningful) when the
+// target policy's PolicyType is StepScaling: AWS uses (MetricValue-BreachThreshold)
+// to select which StepAdjustment interval applies.
 type ExecutePolicyInput struct {
+	MetricValue          *float64
+	BreachThreshold      *float64
 	AutoScalingGroupName string
 	PolicyName           string
 	HonorCooldown        bool
@@ -129,16 +134,21 @@ type RecordLifecycleActionHeartbeatInput struct {
 }
 
 // pendingHookAction tracks an in-flight lifecycle action with its timer.
-//
-
+// Transition is one of the transitionLaunching/transitionTerminating constants
+// (backend.go) and determines what resolving the action does to the instance.
+// ShouldDecrement is only meaningful for terminating actions: it records whether
+// the originating TerminateInstanceInAutoScalingGroup call requested a desired
+// capacity decrement (vs launching a replacement) once the wait completes.
 type pendingHookAction struct {
-	timer         *time.Timer
-	Token         string
-	GroupName     string
-	HookName      string
-	InstanceID    string
-	DefaultResult string
-	timeout       time.Duration
+	timer           *time.Timer
+	Token           string
+	GroupName       string
+	HookName        string
+	InstanceID      string
+	Transition      string
+	DefaultResult   string
+	timeout         time.Duration
+	ShouldDecrement bool
 }
 
 // LaunchTemplateSpecification identifies an EC2 launch template.

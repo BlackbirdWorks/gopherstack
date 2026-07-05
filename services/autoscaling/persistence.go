@@ -119,6 +119,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		}
 	}
 
+	// Re-arm heartbeat timers for any instances restored mid lifecycle-hook wait;
+	// in-flight timers themselves are never persisted (see pendingHookTokens above).
+	b.rearmPendingWaits()
+
 	return nil
 }
 

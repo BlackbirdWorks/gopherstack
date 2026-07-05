@@ -29,9 +29,19 @@ const (
 	healthStatusHealthy = "Healthy"
 	// lifecycleStateInService is the lifecycle state for a running, healthy instance.
 	lifecycleStateInService = "InService"
+	// lifecycleStatePendingWait is the lifecycle state for an instance launching but
+	// paused for an EC2_INSTANCE_LAUNCHING lifecycle hook to complete.
+	lifecycleStatePendingWait = "Pending:Wait"
+	// lifecycleStateTerminatingWait is the lifecycle state for an instance being
+	// terminated but paused for an EC2_INSTANCE_TERMINATING lifecycle hook to complete.
+	lifecycleStateTerminatingWait = "Terminating:Wait"
+	// transitionLaunching and transitionTerminating are the two AWS-defined lifecycle
+	// hook transition points.
+	transitionLaunching   = "autoscaling:EC2_INSTANCE_LAUNCHING"
+	transitionTerminating = "autoscaling:EC2_INSTANCE_TERMINATING"
 	// statusCodeSuccessful is the status code for a successfully completed scaling activity.
 	statusCodeSuccessful = "Successful"
-	// statusInProgress is the status for an in-progress instance refresh.
+	// statusInProgress is the status for an in-progress instance refresh or scaling activity.
 	statusInProgress = "InProgress"
 	// granularity1Minute is the only supported CloudWatch metric granularity.
 	granularity1Minute = "1Minute"
@@ -202,18 +212,20 @@ type CreateAutoScalingGroupInput struct {
 	PlacementGroup                   string
 	Context                          string
 	DesiredCapacityType              string
-	Tags                             []Tag
+	LoadBalancerNames                []string
 	TargetGroupARNs                  []string
 	TerminationPolicies              []string
-	LoadBalancerNames                []string
+	Tags                             []Tag
 	AvailabilityZones                []string
-	DesiredCapacity                  int32
-	MaxSize                          int32
+	TrafficSources                   []TrafficSource
+	LifecycleHookSpecificationList   []LifecycleHook
 	MinSize                          int32
 	DefaultCooldown                  int32
 	HealthCheckGracePeriod           int32
 	MaxInstanceLifetime              int32
 	DefaultInstanceWarmup            int32
+	MaxSize                          int32
+	DesiredCapacity                  int32
 	NewInstancesProtectedFromScaleIn bool
 	CapacityRebalance                bool
 }
@@ -383,7 +395,7 @@ func adjustInstances(
 
 // CreateAutoScalingGroup creates a new Auto Scaling group.
 //
-//nolint:funlen // Too complex to refactor given time constraints
+//nolint:funlen,cyclop // Too complex to refactor given time constraints
 func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInput) (*AutoScalingGroup, error) {
 	b.mu.Lock("CreateAutoScalingGroup")
 	defer b.mu.Unlock()
@@ -424,6 +436,21 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		azs = []string{defaultAvailabilityZone}
 	}
 
+	normalizedHooks := make([]LifecycleHook, 0, len(input.LifecycleHookSpecificationList))
+
+	for _, hook := range input.LifecycleHookSpecificationList {
+		if hook.LifecycleHookName == "" {
+			return nil, fmt.Errorf("%w: LifecycleHookName is required", ErrInvalidParameter)
+		}
+
+		hook.AutoScalingGroupName = input.AutoScalingGroupName
+		if err := normalizeLifecycleHook(&hook); err != nil {
+			return nil, err
+		}
+
+		normalizedHooks = append(normalizedHooks, hook)
+	}
+
 	// Use the shared makeInstances helper so all instance IDs use the same format.
 	instances := makeInstances(
 		desired, azs, input.LaunchConfigurationName,
@@ -456,6 +483,7 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		AvailabilityZones:                azs,
 		LoadBalancerNames:                input.LoadBalancerNames,
 		TargetGroupARNs:                  input.TargetGroupARNs,
+		TrafficSources:                   input.TrafficSources,
 		Tags:                             input.Tags,
 		TerminationPolicies:              input.TerminationPolicies,
 		Instances:                        instances,
@@ -469,6 +497,18 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	}
 
 	b.groups[input.AutoScalingGroupName] = group
+
+	// Register any initial lifecycle hooks BEFORE gating instances so a launch hook
+	// specified at creation time applies to the group's own initial instances too.
+	if len(normalizedHooks) > 0 {
+		b.lifecycleHooks[input.AutoScalingGroupName] = make(map[string]*LifecycleHook, len(normalizedHooks))
+		for _, hook := range normalizedHooks {
+			cp := hook
+			b.lifecycleHooks[input.AutoScalingGroupName][cp.LifecycleHookName] = &cp
+		}
+	}
+
+	b.gateNewLaunchInstances(group, 0)
 
 	for _, inst := range group.Instances {
 		b.instanceIndex[inst.InstanceID] = input.AutoScalingGroupName
@@ -1146,12 +1186,13 @@ func (b *InMemoryBackend) CompleteLifecycleAction(input CompleteLifecycleActionI
 			ErrInvalidParameter, input.LifecycleActionResult)
 	}
 
-	// Cancel timer if token is present
-	if input.LifecycleActionToken != "" {
-		if action, ok := b.pendingHookTokens[input.LifecycleActionToken]; ok {
-			action.timer.Stop()
-			delete(b.pendingHookTokens, input.LifecycleActionToken)
-		}
+	action := b.findPendingHookAction(
+		input.LifecycleActionToken, input.AutoScalingGroupName, input.LifecycleHookName, input.InstanceID,
+	)
+	if action != nil {
+		action.timer.Stop()
+		delete(b.pendingHookTokens, action.Token)
+		b.applyLifecycleResult(action, upper)
 	}
 
 	return nil
@@ -1294,6 +1335,8 @@ func (b *InMemoryBackend) applyDesiredCapacityChange(g *AutoScalingGroup, newDes
 			for _, inst := range g.Instances[oldLen:] {
 				b.instanceIndex[inst.InstanceID] = g.AutoScalingGroupName
 			}
+
+			b.gateNewLaunchInstances(g, oldLen)
 		}
 	}
 
@@ -1379,6 +1422,34 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 		return nil, fmt.Errorf("%w: instance %q not found in any auto scaling group", ErrInstanceNotFound, instanceID)
 	}
 
+	// When a terminating lifecycle hook is registered, the instance is paused in
+	// Terminating:Wait until CompleteLifecycleAction is called or the hook's
+	// HeartbeatTimeout elapses; the actual removal/replacement is deferred to
+	// finishTermination. This mirrors real AWS behavior instead of terminating
+	// instantly regardless of configured hooks.
+	if hook := findHookForTransition(b.lifecycleHooks[groupName], transitionTerminating); hook != nil {
+		for i := range targetGroup.Instances {
+			if targetGroup.Instances[i].InstanceID == instanceID {
+				b.armLifecycleWait(targetGroup, hook, &targetGroup.Instances[i], transitionTerminating, shouldDecrement)
+
+				break
+			}
+		}
+
+		activity := ScalingActivity{
+			ActivityID:           uuid.NewString(),
+			AutoScalingGroupName: targetGroup.AutoScalingGroupName,
+			Description: "Terminating EC2 instance: " + instanceID +
+				" (waiting for lifecycle hook '" + hook.LifecycleHookName + "')",
+			StatusCode: statusInProgress,
+			Progress:   50, //nolint:mnd // AWS reports partial progress mid-wait; no finer granularity to model
+			StartTime:  time.Now(),
+		}
+		b.activities[groupName] = append(b.activities[groupName], activity)
+
+		return &activity, nil
+	}
+
 	// Remove the instance from the group.
 	newInstances := make([]Instance, 0, len(targetGroup.Instances)-1)
 
@@ -1401,6 +1472,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 		}
 	} else {
 		// Launch a replacement to maintain DesiredCapacity.
+		oldLen := len(targetGroup.Instances)
 		targetGroup.Instances = adjustInstances(
 			targetGroup.Instances,
 			targetGroup.DesiredCapacity,
@@ -1408,6 +1480,12 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 			targetGroup.LaunchConfigurationName,
 			lcInstanceType(b.launchConfigurations, targetGroup.LaunchConfigurationName),
 		)
+
+		for _, inst := range targetGroup.Instances[oldLen:] {
+			b.instanceIndex[inst.InstanceID] = targetGroup.AutoScalingGroupName
+		}
+
+		b.gateNewLaunchInstances(targetGroup, oldLen)
 	}
 
 	activity := ScalingActivity{
@@ -1444,13 +1522,31 @@ func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, hook.AutoScalingGroupName)
 	}
 
+	if err := normalizeLifecycleHook(&hook); err != nil {
+		return err
+	}
+
+	if b.lifecycleHooks[hook.AutoScalingGroupName] == nil {
+		b.lifecycleHooks[hook.AutoScalingGroupName] = make(map[string]*LifecycleHook)
+	}
+
+	cp := hook
+	b.lifecycleHooks[hook.AutoScalingGroupName][hook.LifecycleHookName] = &cp
+
+	return nil
+}
+
+// normalizeLifecycleHook validates a LifecycleHook's fields and fills in AWS
+// defaults (HeartbeatTimeout=3600, DefaultResult=ABANDON, GlobalTimeout=HeartbeatTimeout).
+// Shared by PutLifecycleHook and CreateAutoScalingGroup's LifecycleHookSpecificationList.
+func normalizeLifecycleHook(hook *LifecycleHook) error {
 	// Validate LifecycleTransition if provided
 	if hook.LifecycleTransition != "" &&
-		hook.LifecycleTransition != "autoscaling:EC2_INSTANCE_LAUNCHING" &&
-		hook.LifecycleTransition != "autoscaling:EC2_INSTANCE_TERMINATING" {
+		hook.LifecycleTransition != transitionLaunching &&
+		hook.LifecycleTransition != transitionTerminating {
 		return fmt.Errorf(
-			"%w: LifecycleTransition must be autoscaling:EC2_INSTANCE_LAUNCHING or autoscaling:EC2_INSTANCE_TERMINATING",
-			ErrInvalidParameter,
+			"%w: LifecycleTransition must be %s or %s",
+			ErrInvalidParameter, transitionLaunching, transitionTerminating,
 		)
 	}
 
@@ -1484,14 +1580,8 @@ func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 		hook.DefaultResult = lifecycleActionAbandon
 	}
 
-	if b.lifecycleHooks[hook.AutoScalingGroupName] == nil {
-		b.lifecycleHooks[hook.AutoScalingGroupName] = make(map[string]*LifecycleHook)
-	}
-
-	cp := hook
 	// GlobalTimeout = HeartbeatTimeout * numberOfRetries; AWS uses numberOfRetries=1 by default.
-	cp.GlobalTimeout = cp.HeartbeatTimeout
-	b.lifecycleHooks[hook.AutoScalingGroupName][hook.LifecycleHookName] = &cp
+	hook.GlobalTimeout = hook.HeartbeatTimeout
 
 	return nil
 }
@@ -1738,11 +1828,256 @@ func (b *InMemoryBackend) cleanupHookTimers(groupName, hookName string) {
 	}
 }
 
-// expireHookAction removes a pending hook action by token (called from timer callback).
-func (b *InMemoryBackend) expireHookAction(token string) {
-	b.mu.Lock("expireHookAction")
+// findHookForTransition returns the first lifecycle hook registered for the given
+// group whose LifecycleTransition matches transition, or nil if none is registered.
+// AWS allows multiple hooks per transition (each must complete independently); this
+// simulation supports one active hook per transition per group, which covers the
+// overwhelming majority of real configurations. Must be called with b.mu held.
+func findHookForTransition(hooks map[string]*LifecycleHook, transition string) *LifecycleHook {
+	var found *LifecycleHook
+
+	for _, h := range hooks {
+		if h.LifecycleTransition == transition {
+			if found == nil || h.LifecycleHookName < found.LifecycleHookName {
+				found = h
+			}
+		}
+	}
+
+	return found
+}
+
+// gateNewLaunchInstances transitions newly-appended instances (g.Instances[startIdx:])
+// to Pending:Wait and arms a heartbeat timer when the group has an active
+// EC2_INSTANCE_LAUNCHING lifecycle hook. It is a no-op when no such hook exists, so
+// callers can invoke it unconditionally after adding instances. Must be called with
+// b.mu held (write lock).
+func (b *InMemoryBackend) gateNewLaunchInstances(g *AutoScalingGroup, startIdx int) {
+	hook := findHookForTransition(b.lifecycleHooks[g.AutoScalingGroupName], transitionLaunching)
+	if hook == nil {
+		return
+	}
+
+	for i := startIdx; i < len(g.Instances); i++ {
+		b.armLifecycleWait(g, hook, &g.Instances[i], transitionLaunching, false)
+	}
+}
+
+// armLifecycleWait puts inst into the appropriate "Wait" lifecycle state and starts a
+// heartbeat timer that resolves the action with the hook's DefaultResult if
+// CompleteLifecycleAction/RecordLifecycleActionHeartbeat don't intervene first. Must
+// be called with b.mu held (write lock).
+func (b *InMemoryBackend) armLifecycleWait(
+	g *AutoScalingGroup, hook *LifecycleHook, inst *Instance, transition string, shouldDecrement bool,
+) {
+	if transition == transitionLaunching {
+		inst.LifecycleState = lifecycleStatePendingWait
+	} else {
+		inst.LifecycleState = lifecycleStateTerminatingWait
+	}
+
+	token := uuid.NewString()
+	timeout := time.Duration(hook.HeartbeatTimeout) * time.Second
+
+	action := &pendingHookAction{
+		Token:           token,
+		GroupName:       g.AutoScalingGroupName,
+		HookName:        hook.LifecycleHookName,
+		InstanceID:      inst.InstanceID,
+		Transition:      transition,
+		DefaultResult:   hook.DefaultResult,
+		timeout:         timeout,
+		ShouldDecrement: shouldDecrement,
+	}
+	action.timer = time.AfterFunc(timeout, func() {
+		b.resolveLifecycleWait(token, action.DefaultResult)
+	})
+	b.pendingHookTokens[token] = action
+}
+
+// resolveLifecycleWait applies result (CONTINUE/ABANDON) to the pending action
+// identified by token, if it is still pending. Called both from expired timers (its
+// own goroutine, hence it takes the lock itself) and, indirectly, from explicit
+// CompleteLifecycleAction calls.
+func (b *InMemoryBackend) resolveLifecycleWait(token, result string) {
+	b.mu.Lock("resolveLifecycleWait")
 	defer b.mu.Unlock()
+
+	action, ok := b.pendingHookTokens[token]
+	if !ok {
+		return // already resolved (race between timer and an explicit Complete call)
+	}
+
 	delete(b.pendingHookTokens, token)
+	b.applyLifecycleResult(action, result)
+}
+
+// applyLifecycleResult performs the actual state transition once a lifecycle wait
+// resolves (either explicitly via CompleteLifecycleAction or via heartbeat timeout).
+// Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) applyLifecycleResult(action *pendingHookAction, result string) {
+	g, ok := b.groups[action.GroupName]
+	if !ok {
+		return // group was deleted while the action was pending
+	}
+
+	switch action.Transition {
+	case transitionLaunching:
+		if strings.EqualFold(result, lifecycleActionContinue) {
+			for i := range g.Instances {
+				if g.Instances[i].InstanceID == action.InstanceID {
+					g.Instances[i].LifecycleState = lifecycleStateInService
+
+					break
+				}
+			}
+		} else {
+			// ABANDON: AWS terminates the instance that failed to launch.
+			b.removeInstanceByID(g, action.InstanceID)
+		}
+	case transitionTerminating:
+		// Both CONTINUE and ABANDON allow termination to proceed for a terminating
+		// hook (the result only affects any downstream hook chaining, which this
+		// simulation does not model).
+		b.finishTermination(g, action)
+	}
+}
+
+// removeInstanceByID removes the named instance from the group and its index, if present.
+// Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) removeInstanceByID(g *AutoScalingGroup, instanceID string) {
+	for i, inst := range g.Instances {
+		if inst.InstanceID == instanceID {
+			g.Instances = append(g.Instances[:i], g.Instances[i+1:]...)
+
+			break
+		}
+	}
+
+	delete(b.instanceIndex, instanceID)
+}
+
+// finishTermination completes a deferred termination once its Terminating:Wait hook
+// resolves: removes the instance, applies the originally-requested capacity
+// adjustment (decrement vs. replacement launch), and records the completion
+// activity. Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) finishTermination(g *AutoScalingGroup, action *pendingHookAction) {
+	found := false
+
+	for _, inst := range g.Instances {
+		if inst.InstanceID == action.InstanceID {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return
+	}
+
+	b.removeInstanceByID(g, action.InstanceID)
+
+	if action.ShouldDecrement {
+		if g.DesiredCapacity > 0 {
+			g.DesiredCapacity--
+		}
+
+		if g.MinSize > 0 {
+			g.MinSize--
+		}
+	} else {
+		oldLen := len(g.Instances)
+		g.Instances = adjustInstances(
+			g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName,
+			lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName),
+		)
+
+		for _, inst := range g.Instances[oldLen:] {
+			b.instanceIndex[inst.InstanceID] = g.AutoScalingGroupName
+		}
+
+		b.gateNewLaunchInstances(g, oldLen)
+	}
+
+	b.activities[g.AutoScalingGroupName] = append(b.activities[g.AutoScalingGroupName], ScalingActivity{
+		ActivityID:           uuid.NewString(),
+		AutoScalingGroupName: g.AutoScalingGroupName,
+		Description:          "Terminating EC2 instance: " + action.InstanceID,
+		StatusCode:           statusCodeSuccessful,
+		Progress:             completedProgress,
+		StartTime:            time.Now(),
+		EndTime:              time.Now(),
+	})
+}
+
+// rearmPendingWaits re-arms heartbeat timers for any instances left in a lifecycle
+// "Wait" state by a restored snapshot. In-flight timers are never persisted (see
+// pendingHookTokens/backendSnapshot), so without this an instance restored mid-wait
+// would be stuck in Pending:Wait/Terminating:Wait forever. Must be called with b.mu
+// held (write lock); intended to run once, right after Restore repopulates b.groups.
+func (b *InMemoryBackend) rearmPendingWaits() {
+	for _, g := range b.groups {
+		for i := range g.Instances {
+			inst := &g.Instances[i]
+
+			var transition string
+
+			switch inst.LifecycleState {
+			case lifecycleStatePendingWait:
+				transition = transitionLaunching
+			case lifecycleStateTerminatingWait:
+				transition = transitionTerminating
+			default:
+				continue
+			}
+
+			hook := findHookForTransition(b.lifecycleHooks[g.AutoScalingGroupName], transition)
+
+			heartbeat := defaultHeartbeatTimeout
+			defaultResult := lifecycleActionAbandon
+			hookName := ""
+
+			if hook != nil {
+				heartbeat = hook.HeartbeatTimeout
+				defaultResult = hook.DefaultResult
+				hookName = hook.LifecycleHookName
+			}
+
+			token := uuid.NewString()
+			action := &pendingHookAction{
+				Token:         token,
+				GroupName:     g.AutoScalingGroupName,
+				HookName:      hookName,
+				InstanceID:    inst.InstanceID,
+				Transition:    transition,
+				DefaultResult: defaultResult,
+				timeout:       time.Duration(heartbeat) * time.Second,
+			}
+			action.timer = time.AfterFunc(action.timeout, func() {
+				b.resolveLifecycleWait(token, action.DefaultResult)
+			})
+			b.pendingHookTokens[token] = action
+		}
+	}
+}
+
+// findPendingHookAction looks up a pending lifecycle action, first by explicit token
+// (as AWS does) and, when the token is empty, by (groupName, hookName, instanceID) —
+// AWS's CompleteLifecycleAction and RecordLifecycleActionHeartbeat both accept either
+// a token or an instance ID. Must be called with b.mu held.
+func (b *InMemoryBackend) findPendingHookAction(token, groupName, hookName, instanceID string) *pendingHookAction {
+	if token != "" {
+		return b.pendingHookTokens[token]
+	}
+
+	for _, action := range b.pendingHookTokens {
+		if action.GroupName == groupName && action.HookName == hookName && action.InstanceID == instanceID {
+			return action
+		}
+	}
+
+	return nil
 }
 
 // DescribeAccountLimits returns account limits for Auto Scaling.
@@ -2431,16 +2766,17 @@ func (b *InMemoryBackend) RecordLifecycleActionHeartbeat(input RecordLifecycleAc
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
-	if input.LifecycleActionToken != "" {
-		if action, ok := b.pendingHookTokens[input.LifecycleActionToken]; ok {
-			action.timer.Stop()
-			token := input.LifecycleActionToken
-			action.timer = time.AfterFunc(action.timeout, func() {
-				b.expireHookAction(token)
-			})
+	if action := b.findPendingHookAction(
+		input.LifecycleActionToken, input.AutoScalingGroupName, input.LifecycleHookName, input.InstanceID,
+	); action != nil {
+		action.timer.Stop()
+		token := action.Token
+		defaultResult := action.DefaultResult
+		action.timer = time.AfterFunc(action.timeout, func() {
+			b.resolveLifecycleWait(token, defaultResult)
+		})
 
-			return nil
-		}
+		return nil
 	}
 
 	// Validate hook exists
@@ -2457,6 +2793,8 @@ func (b *InMemoryBackend) RecordLifecycleActionHeartbeat(input RecordLifecycleAc
 }
 
 // ExecutePolicy executes a scaling policy on the ASG.
+//
+//nolint:cyclop // StepScaling metric-interval matching adds branching; not worth splitting further.
 func (b *InMemoryBackend) ExecutePolicy(input ExecutePolicyInput) error {
 	b.mu.Lock("ExecutePolicy")
 	defer b.mu.Unlock()
@@ -2484,32 +2822,73 @@ func (b *InMemoryBackend) ExecutePolicy(input ExecutePolicyInput) error {
 		}
 	}
 
+	// StepScaling policies select their ScalingAdjustment from StepAdjustments based
+	// on where (MetricValue - BreachThreshold) falls; both are required in that case
+	// and unsupported otherwise (matches AWS ExecutePolicy validation).
+	scalingAdjustment := policy.ScalingAdjustment
+
+	if policy.PolicyType == "StepScaling" {
+		if input.MetricValue == nil || input.BreachThreshold == nil {
+			return fmt.Errorf(
+				"%w: MetricValue and BreachThreshold are required to execute a StepScaling policy",
+				ErrInvalidParameter,
+			)
+		}
+
+		diff := *input.MetricValue - *input.BreachThreshold
+
+		step, found := findStepAdjustment(policy.StepAdjustments, diff)
+		if !found {
+			return fmt.Errorf(
+				"%w: no step adjustment matches MetricValue %v with BreachThreshold %v",
+				ErrInvalidParameter, *input.MetricValue, *input.BreachThreshold,
+			)
+		}
+
+		scalingAdjustment = step.ScalingAdjustment
+	}
+
 	var newDesired int32
 
 	switch policy.AdjustmentType {
 	case "ExactCapacity":
-		newDesired = policy.ScalingAdjustment
+		newDesired = scalingAdjustment
 	case "PercentChangeInCapacity":
-		pct := float64(g.DesiredCapacity) * float64(policy.ScalingAdjustment) / percentDivisor
+		pct := float64(g.DesiredCapacity) * float64(scalingAdjustment) / percentDivisor
 		delta := int32(pct)
 		newDesired = g.DesiredCapacity + delta
 	default: // ChangeInCapacity
-		newDesired = g.DesiredCapacity + policy.ScalingAdjustment
+		newDesired = g.DesiredCapacity + scalingAdjustment
 	}
 
 	newDesired = max(g.MinSize, min(g.MaxSize, newDesired))
 	newDesired = min(newDesired, maxDesiredCapacity)
 
 	if g.DesiredCapacity != newDesired {
-		g.DesiredCapacity = newDesired
-		g.Instances = adjustInstances(
-			g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName,
-			lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName),
-		)
-		g.LastScalingActivity = time.Now()
+		// Route through applyDesiredCapacityChange (shared with SetDesiredCapacity)
+		// so ExecutePolicy also respects SuspendedProcesses, scale-in protection,
+		// instanceIndex bookkeeping, and launch-hook gating instead of duplicating
+		// (and diverging from) that logic.
+		b.applyDesiredCapacityChange(g, newDesired)
 	}
 
 	return nil
+}
+
+// findStepAdjustment returns the StepAdjustment whose [MetricIntervalLowerBound,
+// MetricIntervalUpperBound) interval contains diff (MetricValue-BreachThreshold), and
+// whether one was found. A nil bound means unbounded in that direction, matching AWS.
+func findStepAdjustment(steps []StepAdjustment, diff float64) (StepAdjustment, bool) {
+	for _, s := range steps {
+		lowerOK := s.MetricIntervalLowerBound == nil || diff >= *s.MetricIntervalLowerBound
+		upperOK := s.MetricIntervalUpperBound == nil || diff < *s.MetricIntervalUpperBound
+
+		if lowerOK && upperOK {
+			return s, true
+		}
+	}
+
+	return StepAdjustment{}, false
 }
 
 // LaunchInstances adds new instances to the ASG.
@@ -2522,6 +2901,7 @@ func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Inst
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
+	oldLen := len(g.Instances)
 	newInstances := makeInstances(
 		count, g.AvailabilityZones, g.LaunchConfigurationName,
 		lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName),
@@ -2529,7 +2909,18 @@ func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Inst
 	g.Instances = append(g.Instances, newInstances...)
 	g.DesiredCapacity = int32(len(g.Instances)) //nolint:gosec // bounded by maxDesiredCapacity
 
-	return newInstances, nil
+	for _, inst := range g.Instances[oldLen:] {
+		b.instanceIndex[inst.InstanceID] = groupName
+	}
+
+	b.gateNewLaunchInstances(g, oldLen)
+
+	// Return a copy reflecting any lifecycle-hook gating just applied (e.g.
+	// Pending:Wait), not the pre-gating snapshot.
+	result := make([]Instance, len(g.Instances)-oldLen)
+	copy(result, g.Instances[oldLen:])
+
+	return result, nil
 }
 
 // GetPredictiveScalingForecast validates the group exists (stub implementation).
