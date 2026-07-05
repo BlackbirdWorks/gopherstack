@@ -124,12 +124,16 @@ type LogDeliveryConfig struct {
 
 // ReplicationGroupCreateOpts carries all fields for full replication-group creation.
 type ReplicationGroupCreateOpts struct {
-	Tags                      map[string]string
-	Engine                    string
-	EngineVersion             string
-	ID                        string
-	Description               string
-	ParameterGroupName        string
+	Tags               map[string]string
+	Engine             string
+	EngineVersion      string
+	ID                 string
+	Description        string
+	ParameterGroupName string
+	// SnapshotName, when set, restores the new replication group from an
+	// existing snapshot: the snapshot must exist, and its engine/node type
+	// become defaults for any field the caller didn't explicitly set.
+	SnapshotName              string
 	MaintenanceWindow         string
 	TransitEncryptionMode     string
 	AuthToken                 string
@@ -303,6 +307,27 @@ func (b *InMemoryBackend) CreateReplicationGroupFull(
 		}
 	}
 
+	if opts.SnapshotName != "" {
+		snap, ok := b.snapshotsStore(region)[opts.SnapshotName]
+		if !ok || isReaped(b.now(), snap.PendingStatus, snap.AvailableAt) {
+			return nil, ErrSnapshotNotFound
+		}
+
+		// Restoring from a snapshot inherits its engine/version/node type for
+		// any field the caller didn't explicitly override.
+		if opts.Engine == "" {
+			opts.Engine = snap.Engine
+		}
+
+		if opts.EngineVersion == "" {
+			opts.EngineVersion = snap.EngineVersion
+		}
+
+		if opts.CacheNodeType == "" {
+			opts.CacheNodeType = snap.NodeType
+		}
+	}
+
 	if err := validateCreateOpts(opts); err != nil {
 		return nil, err
 	}
@@ -417,6 +442,10 @@ func (b *InMemoryBackend) ModifyReplicationGroupFull(
 		if _, ok := b.parameterGroupsStore(region)[opts.ParameterGroupName]; !ok {
 			return nil, ErrParameterGroupNotFound
 		}
+	}
+
+	if err := validateTransitEncryptionModify(rg, opts); err != nil {
+		return nil, err
 	}
 
 	b.applyModifyOptsLocked(rg, opts)
@@ -548,6 +577,35 @@ func applyAuthTokenModify(rg *ReplicationGroup, token, strategy string) {
 		now := time.Now()
 		rg.AuthTokenLastModifiedDate = &now
 	}
+}
+
+// validateTransitEncryptionModify rejects switching TransitEncryptionMode to
+// "required" when the replication group will end up without an auth token,
+// matching AWS's rule that required-mode transit encryption needs an auth
+// token enabled (either already present or set in the same request).
+func validateTransitEncryptionModify(rg *ReplicationGroup, opts ReplicationGroupModifyOpts) error {
+	if opts.TransitEncryptionMode != transitEncryptionModeRequired {
+		return nil
+	}
+
+	authTokenWillBeEnabled := rg.AuthTokenEnabled
+
+	switch opts.AuthTokenUpdateStrategy {
+	case "SET", "ROTATE":
+		authTokenWillBeEnabled = true
+	case "DELETE":
+		authTokenWillBeEnabled = false
+	}
+
+	if opts.AuthToken != "" {
+		authTokenWillBeEnabled = true
+	}
+
+	if !authTokenWillBeEnabled {
+		return ErrTransitEncryptionModeInvalid
+	}
+
+	return nil
 }
 
 // applyTransitEncryptionModify applies transit encryption mode change (gap #13).

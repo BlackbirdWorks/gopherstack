@@ -423,6 +423,31 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		}
 	}
 
+	// AWS supports restoring a new cluster from an existing snapshot: the
+	// snapshot must exist, and its engine/node type become the defaults for
+	// any field the caller didn't explicitly override.
+	if snapshotName := form.Get("SnapshotName"); snapshotName != "" {
+		// SnapshotNotFoundFault isn't in CreateCacheCluster's modeled error
+		// list (api-2.json), so aws-sdk-go-v2 has no case for it in this
+		// operation's error deserializer and would fall back to a generic
+		// error; AWS instead surfaces a missing/invalid snapshot here as
+		// InvalidParameterValue, which the SDK does model for this op.
+		snaps, snapErr := h.Backend.DescribeSnapshots(ctx, snapshotName, "", "", "", "", 0)
+		if snapErr != nil || len(snaps.Data) == 0 {
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue",
+				fmt.Sprintf("Cache cluster snapshot not found: %s", snapshotName))
+		}
+
+		src := snaps.Data[0]
+		if engine == "" {
+			engine = src.Engine
+		}
+
+		if nodeType == "" {
+			nodeType = src.NodeType
+		}
+	}
+
 	cluster, err := h.Backend.CreateClusterWithOptions(ctx,
 		id,
 		engine,
@@ -438,10 +463,10 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 			return xmlError(c, http.StatusBadRequest, "CacheClusterAlreadyExists", "Cache cluster already exists")
 		}
 		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 		}
 		if errors.Is(err, ErrInvalidParameterGroupFamily) {
-			return xmlError(c, http.StatusBadRequest, "InvalidParameterGroupFamily", err.Error())
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -464,7 +489,7 @@ func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form 
 	clusters, descErr := h.Backend.DescribeClusters(ctx, id, "", 0, false)
 	if descErr != nil {
 		if errors.Is(descErr, ErrClusterNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
+			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
@@ -472,7 +497,7 @@ func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form 
 	cl := clusters.Data[0]
 	if err := h.Backend.DeleteCluster(ctx, id); err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
+			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -498,7 +523,7 @@ func (h *Handler) describeCacheClusters(ctx context.Context, c *echo.Context, fo
 	p, err := h.Backend.DescribeClusters(ctx, id, marker, maxRecords, notInRG)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
+			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -583,6 +608,7 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		ID:                    form.Get("ReplicationGroupId"),
 		Description:           form.Get("ReplicationGroupDescription"),
 		ParameterGroupName:    form.Get("CacheParameterGroupName"),
+		SnapshotName:          form.Get("SnapshotName"),
 		MaintenanceWindow:     form.Get("PreferredMaintenanceWindow"),
 		SnapshotWindow:        form.Get("SnapshotWindow"),
 		AuthToken:             form.Get("AuthToken"),
@@ -669,7 +695,11 @@ func mapReplicationGroupCreateErr(c *echo.Context, err error) error {
 	case errors.Is(err, ErrReplicationGroupAlreadyExists):
 		return xmlError(c, http.StatusBadRequest, "ReplicationGroupAlreadyExists", "Replication group already exists")
 	case errors.Is(err, ErrParameterGroupNotFound):
-		return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+		return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
+	case errors.Is(err, ErrSnapshotNotFound):
+		// Same rationale as createCacheCluster: SnapshotNotFoundFault isn't in
+		// CreateReplicationGroup's modeled error list either.
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Cache cluster snapshot not found")
 	case errors.Is(err, ErrDataTieringInvalid):
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 	case errors.Is(err, ErrAuthTokenRequiredForMode):
@@ -684,7 +714,7 @@ func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, f
 	rgs, descErr := h.Backend.DescribeReplicationGroups(ctx, id, "", 0)
 	if descErr != nil {
 		if errors.Is(descErr, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
@@ -692,7 +722,7 @@ func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, f
 	rg := rgs.Data[0]
 	if err := h.Backend.DeleteReplicationGroup(ctx, id); err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -929,7 +959,7 @@ func (h *Handler) describeReplicationGroups(ctx context.Context, c *echo.Context
 	p, err := h.Backend.DescribeReplicationGroups(ctx, id, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1021,10 +1051,10 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 	)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
+			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
 		}
 		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1125,9 +1155,11 @@ func parseModifyReplicationGroupOpts(form url.Values) ReplicationGroupModifyOpts
 func mapReplicationGroupModifyErr(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrReplicationGroupNotFound):
-		return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+		return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 	case errors.Is(err, ErrParameterGroupNotFound):
-		return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+		return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
+	case errors.Is(err, ErrTransitEncryptionModeInvalid):
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
 	default:
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1192,7 +1224,7 @@ func (h *Handler) deleteCacheParameterGroup(ctx context.Context, c *echo.Context
 
 	if err := h.Backend.DeleteParameterGroup(ctx, name); err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 		}
 		if errors.Is(err, ErrParameterGroupDefaultNotModifiable) {
 			return xmlError(
@@ -1235,7 +1267,7 @@ func (h *Handler) describeCacheParameterGroups(ctx context.Context, c *echo.Cont
 	p, err := h.Backend.DescribeParameterGroups(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1270,7 +1302,7 @@ func (h *Handler) modifyCacheParameterGroup(ctx context.Context, c *echo.Context
 	pg, err := h.Backend.ModifyParameterGroup(ctx, name, params)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 		}
 		if errors.Is(err, ErrParameterGroupDefaultNotModifiable) {
 			return xmlError(
@@ -1314,7 +1346,7 @@ func (h *Handler) resetCacheParameterGroup(ctx context.Context, c *echo.Context,
 	pg, err := h.Backend.ResetParameterGroup(ctx, name, paramNames, resetAll)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 		}
 		if errors.Is(err, ErrParameterGroupDefaultNotModifiable) {
 			return xmlError(
@@ -1383,7 +1415,7 @@ func (h *Handler) describeCacheParameters(ctx context.Context, c *echo.Context, 
 	p, err := h.Backend.DescribeParameters(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1468,7 +1500,7 @@ func (h *Handler) deleteCacheSubnetGroup(ctx context.Context, c *echo.Context, f
 
 	if err := h.Backend.DeleteSubnetGroup(ctx, name); err != nil {
 		if errors.Is(err, ErrSubnetGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFound", "Cache subnet group not found")
+			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFoundFault", "Cache subnet group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1503,7 +1535,7 @@ func (h *Handler) describeCacheSubnetGroups(ctx context.Context, c *echo.Context
 	p, err := h.Backend.DescribeSubnetGroups(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrSubnetGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFound", "Cache subnet group not found")
+			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFoundFault", "Cache subnet group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1529,7 +1561,7 @@ func (h *Handler) modifyCacheSubnetGroup(ctx context.Context, c *echo.Context, f
 	sg, err := h.Backend.ModifySubnetGroup(ctx, name, desc, subnetIDs)
 	if err != nil {
 		if errors.Is(err, ErrSubnetGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFound", "Cache subnet group not found")
+			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFoundFault", "Cache subnet group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1595,10 +1627,10 @@ func (h *Handler) createSnapshot(ctx context.Context, c *echo.Context, form url.
 			return xmlError(c, http.StatusBadRequest, "SnapshotAlreadyExistsFault", "Snapshot already exists")
 		}
 		if errors.Is(err, ErrClusterNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
+			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
 		}
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1622,7 +1654,7 @@ func (h *Handler) deleteSnapshot(ctx context.Context, c *echo.Context, form url.
 	snap, err := h.Backend.DeleteSnapshot(ctx, snapshotName)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
-			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Snapshot not found")
+			return xmlError(c, http.StatusNotFound, "SnapshotNotFoundFault", "Snapshot not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1652,7 +1684,7 @@ func (h *Handler) describeSnapshots(ctx context.Context, c *echo.Context, form u
 	)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
-			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Snapshot not found")
+			return xmlError(c, http.StatusNotFound, "SnapshotNotFoundFault", "Snapshot not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1687,7 +1719,7 @@ func (h *Handler) copySnapshot(ctx context.Context, c *echo.Context, form url.Va
 	snap, err := h.Backend.CopySnapshot(ctx, sourceSnapshotName, targetSnapshotName)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
-			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Source snapshot not found")
+			return xmlError(c, http.StatusNotFound, "SnapshotNotFoundFault", "Source snapshot not found")
 		}
 		if errors.Is(err, ErrSnapshotAlreadyExists) {
 			return xmlError(c, http.StatusBadRequest, "SnapshotAlreadyExistsFault", "Target snapshot already exists")
@@ -1799,7 +1831,7 @@ func (h *Handler) testFailoverReplicationGroup(ctx context.Context, c *echo.Cont
 	rg, err := h.Backend.FailoverReplicationGroup(ctx, id, nodeGroupID)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

@@ -74,7 +74,7 @@ func (h *Handler) authorizeCacheSecurityGroupIngress(ctx context.Context, c *ech
 	sg, err := h.Backend.AuthorizeCacheSecurityGroupIngress(ctx, name, ec2SecurityGroupName, ec2SecurityGroupOwnerID)
 	if err != nil {
 		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheSecurityGroupNotFound", "Cache security group not found")
+			return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -254,7 +254,7 @@ func (h *Handler) createServerlessCacheSnapshot(ctx context.Context, c *echo.Con
 			)
 		}
 		if errors.Is(err, ErrServerlessCacheNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ServerlessCacheNotFound", "Serverless cache not found")
+			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -285,7 +285,7 @@ func (h *Handler) copyServerlessCacheSnapshot(ctx context.Context, c *echo.Conte
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"ServerlessCacheSnapshotNotFoundFault",
 				"Source serverless cache snapshot not found",
 			)
@@ -465,7 +465,7 @@ func (h *Handler) completeMigration(ctx context.Context, c *echo.Context, form u
 	rg, err := h.Backend.CompleteMigration(ctx, replicationGroupID, force)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
