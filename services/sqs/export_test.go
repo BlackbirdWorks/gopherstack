@@ -48,19 +48,19 @@ func (b *InMemoryBackend) InjectMoveTaskForTest(
 	b.mu.Lock("InjectMoveTaskForTest")
 	defer b.mu.Unlock()
 
-	b.moveTasks[taskHandle] = &moveTaskState{
+	b.moveTasks.Put(&moveTaskState{
 		cancel:     func() {},
 		taskHandle: taskHandle,
 		status:     status,
 		startedAt:  startedAt,
-	}
+	})
 }
 
 func (b *InMemoryBackend) MoveTaskCountForTest() int {
 	b.mu.RLock("MoveTaskCountForTest")
 	defer b.mu.RUnlock()
 
-	return len(b.moveTasks)
+	return b.moveTasks.Len()
 }
 
 // SetRetentionForTest directly overrides the MessageRetentionPeriod attribute

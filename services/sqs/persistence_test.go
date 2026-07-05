@@ -2,6 +2,7 @@ package sqs_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,6 +83,62 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 					Label:    label,
 				})
 				require.NoError(t, removeErr)
+			},
+		},
+		{
+			// Regression guard for the pkgs/store conversion: an in-flight
+			// (received but not yet deleted) message must round-trip through
+			// Snapshot/Restore still invisible, with its original receipt
+			// handle still valid — proving the store.Table-backed queues and
+			// their inline messages/inFlightMessages survive the swap intact.
+			name: "in_flight_message_round_trip",
+			setup: func(b *sqs.InMemoryBackend) string {
+				out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "inflight-queue", Endpoint: "localhost"})
+				if err != nil {
+					return ""
+				}
+
+				if _, sendErr := b.SendMessage(&sqs.SendMessageInput{
+					QueueURL:    out.QueueURL,
+					MessageBody: "in-flight-body",
+				}); sendErr != nil {
+					return ""
+				}
+
+				recvOut, recvErr := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+					QueueURL:            out.QueueURL,
+					MaxNumberOfMessages: 1,
+					VisibilityTimeout:   300,
+				})
+				if recvErr != nil || len(recvOut.Messages) != 1 {
+					return ""
+				}
+
+				return out.QueueURL + "|" + recvOut.Messages[0].ReceiptHandle
+			},
+			verify: func(t *testing.T, b *sqs.InMemoryBackend, id string) {
+				t.Helper()
+				require.NotEmpty(t, id)
+
+				parts := strings.SplitN(id, "|", 2)
+				require.Len(t, parts, 2)
+				queueURL, receiptHandle := parts[0], parts[1]
+
+				// The message must still be in flight (invisible) after the round trip.
+				recvOut, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+					QueueURL:            queueURL,
+					MaxNumberOfMessages: 10,
+				})
+				require.NoError(t, err)
+				assert.Empty(t, recvOut.Messages,
+					"in-flight message must remain invisible across a snapshot/restore round trip")
+
+				// Its original receipt handle must still be valid for deletion.
+				err = b.DeleteMessage(&sqs.DeleteMessageInput{
+					QueueURL:      queueURL,
+					ReceiptHandle: receiptHandle,
+				})
+				require.NoError(t, err, "receipt handle issued before the snapshot must remain valid after restore")
 			},
 		},
 		{
@@ -274,6 +331,28 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			tt.verify(t, fresh, id)
 		})
 	}
+}
+
+func TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshotVersion(t *testing.T) {
+	t.Parallel()
+
+	b := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
+
+	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "pre-existing-queue", Endpoint: "localhost"})
+	require.NoError(t, err)
+
+	// Well-formed JSON, but tagged with a version this build does not know how
+	// to decode (e.g. the pre-pkgs/store on-disk shape, or a future one).
+	incompatibleSnapshot := []byte(`{"version":1,"queues":{},"accountID":"000000000000","region":"us-east-1"}`)
+
+	err = b.Restore(t.Context(), incompatibleSnapshot)
+	require.NoError(t, err,
+		"an incompatible snapshot version must be discarded cleanly, not surfaced as a restore error")
+
+	out, err := b.ListQueues(&sqs.ListQueuesInput{})
+	require.NoError(t, err)
+	assert.Empty(t, out.QueueURLs, "backend must start empty after discarding an incompatible snapshot")
 }
 
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
