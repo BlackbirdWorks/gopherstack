@@ -58,3 +58,6 @@ lambda.zip
 
 # personal local Claude Code settings (never sync bypass perms to origin)
 .claude/settings.local.json
+
+# session resume checkpoint (transient)
+checkpoint.md
