@@ -302,6 +302,49 @@ func validateAllBatchWriteRequests(
 				return err
 			}
 		}
+
+		// AWS rejects a BatchWriteItem whose per-table request list targets the same
+		// item (by primary key) more than once — whether via two PutRequests, two
+		// DeleteRequests, or a Put+Delete pair — since the outcome would be
+		// order-dependent and undefined.
+		if err := validateNoDuplicateBatchWriteKeys(requests, table); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateNoDuplicateBatchWriteKeys returns a ValidationException when requests
+// (all WriteRequests targeting a single table) reference the same primary key more
+// than once. Mirrors AWS's real BatchWriteItem behaviour, which rejects such
+// requests wholesale rather than silently picking a winner.
+func validateNoDuplicateBatchWriteKeys(requests []types.WriteRequest, table *Table) error {
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	seen := make(map[string]struct{}, len(requests))
+
+	for _, req := range requests {
+		var wireItem map[string]any
+
+		switch {
+		case req.PutRequest != nil:
+			wireItem = models.FromSDKItem(req.PutRequest.Item)
+		case req.DeleteRequest != nil:
+			wireItem = models.FromSDKItem(req.DeleteRequest.Key)
+		default:
+			continue
+		}
+
+		canon := BuildKeyString(wireItem, pkDef.AttributeName)
+		if skDef.AttributeName != "" {
+			canon += "\x00" + BuildKeyString(wireItem, skDef.AttributeName)
+		}
+
+		if _, dup := seen[canon]; dup {
+			return NewValidationException("Provided list of item keys contains duplicates")
+		}
+
+		seen[canon] = struct{}{}
 	}
 
 	return nil

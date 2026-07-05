@@ -430,3 +430,54 @@ func TestTransactWriteItems_TokenNotCommittedOnFailure(t *testing.T) {
 	_, err = db.TransactWriteItems(t.Context(), input)
 	require.Error(t, err, "second call with uncommitted token should also fail")
 }
+
+// TestTransactWriteItems_Update_RejectsKeyModification verifies that a
+// TransactWriteItems Update action is rejected when its UpdateExpression
+// touches a key attribute, matching the restriction plain UpdateItem already
+// enforces. Before this validation was added, such an update would silently
+// rewrite the item's key in place while leaving a stale entry in the
+// PK/PK+SK index (updateIndexes only ever adds/overwrites the new key's
+// index slot; it never removes the old one) — corrupting subsequent lookups
+// by the original key.
+func TestTransactWriteItems_Update_RejectsKeyModification(t *testing.T) {
+	t.Parallel()
+
+	const tbl = "TxUpdateKeyTable"
+	db := newTransactDB(t, tbl)
+	seedItem(t, db, tbl, "v1")
+
+	_, err := db.TransactWriteItems(t.Context(), &sdk.TransactWriteItemsInput{
+		TransactItems: []types.TransactWriteItem{
+			{
+				Update: &types.Update{
+					TableName: aws.String(tbl),
+					Key: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "item1"},
+					},
+					UpdateExpression: aws.String("SET pk = :newpk"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":newpk": &types.AttributeValueMemberS{Value: "item2"},
+					},
+				},
+			},
+		},
+	})
+	require.Error(t, err, "TransactWriteItems must reject an Update that modifies a key attribute")
+	assert.Contains(t, err.Error(), "ValidationException")
+
+	// Confirm no corruption occurred: the original item must still be reachable
+	// by its original key, and no phantom item under the new key was created.
+	out, getErr := db.GetItem(t.Context(), &sdk.GetItemInput{
+		TableName: aws.String(tbl),
+		Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
+	})
+	require.NoError(t, getErr)
+	assert.NotEmpty(t, out.Item, "original item under item1 must still exist")
+
+	outNew, getErr := db.GetItem(t.Context(), &sdk.GetItemInput{
+		TableName: aws.String(tbl),
+		Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item2"}},
+	})
+	require.NoError(t, getErr)
+	assert.Empty(t, outNew.Item, "rejected transaction must not create an item under item2")
+}
