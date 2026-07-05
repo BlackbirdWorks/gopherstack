@@ -233,6 +233,14 @@ func (j *Janitor) purgeKey(region, keyID string) {
 		}
 	}
 
+	// Drop the per-key grant index entirely: grantsByKeyStore lazily recreates it
+	// on next access, and leaving the (now-empty or stale) submap behind after a
+	// permanent key purge would leak memory for the lifetime of the process, since
+	// this keyID can never be looked up again.
+	if rm := j.Backend.grantsByKey[region]; rm != nil {
+		delete(rm, keyID)
+	}
+
 	delete(j.Backend.keysStore(region), keyID)
 	delete(j.Backend.policiesStore(region), keyID)
 	j.Backend.lastUsage.Delete(region + ":" + keyID)

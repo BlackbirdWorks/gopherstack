@@ -1358,6 +1358,10 @@ func (b *InMemoryBackend) Sign(ctx context.Context, input *SignInput) (*SignOutp
 		return nil, algErr
 	}
 
+	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+		return nil, err
+	}
+
 	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
@@ -1421,6 +1425,10 @@ func (b *InMemoryBackend) Verify(ctx context.Context, input *VerifyInput) (*Veri
 
 	if algErr := validateSigningAlgorithm(input.SigningAlgorithm, key.KeySpec); algErr != nil {
 		return nil, algErr
+	}
+
+	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+		return nil, err
 	}
 
 	km, err := b.requireKeyMaterial(region, key.KeyID)
@@ -1489,6 +1497,10 @@ func (b *InMemoryBackend) GetPublicKey(
 			ErrInvalidKeyUsage,
 			key.KeyID,
 		)
+	}
+
+	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+		return nil, err
 	}
 
 	km, err := b.requireKeyMaterial(region, key.KeyID)
@@ -2542,6 +2554,30 @@ func (b *InMemoryBackend) validateGrantTokenConstraints(
 			"%w: encryption context does not satisfy grant constraints",
 			ErrKeyInvalidState,
 		)
+	}
+
+	return nil
+}
+
+// validateGrantTokenPresence checks that, if grant tokens are provided, at least one
+// resolves to an existing, non-expired grant. Unlike validateGrantTokenConstraints,
+// it does not evaluate EncryptionContext-based grant constraints: per AWS KMS docs,
+// EncryptionContextEquals/EncryptionContextSubset constraints apply only to operations
+// that support an encryption context. Sign, Verify, GetPublicKey, GenerateMac, VerifyMac,
+// and DeriveSharedSecret do not, so only grant-token validity (existence + TTL) is checked.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) validateGrantTokenPresence(grantTokens []string) error {
+	if len(grantTokens) == 0 {
+		return nil
+	}
+
+	grant := b.findGrantByToken(grantTokens)
+	if grant == nil {
+		return fmt.Errorf("%w: grant token not found", ErrInvalidGrantToken)
+	}
+
+	if !grant.TokenIssuedAt.IsZero() && time.Since(grant.TokenIssuedAt) > grantTokenTTL {
+		return fmt.Errorf("%w: grant token has expired", ErrInvalidGrantToken)
 	}
 
 	return nil
@@ -3698,6 +3734,10 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 		)
 	}
 
+	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+		return nil, err
+	}
+
 	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
@@ -3732,6 +3772,10 @@ func (b *InMemoryBackend) GenerateDataKeyPair(
 		return nil, fmt.Errorf("%w: KeyPairSpec must not be empty", ErrValidation)
 	}
 
+	if err := validateEncryptionContextSize(input.EncryptionContext); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("GenerateDataKeyPair")
 	defer b.mu.RUnlock()
 
@@ -3752,6 +3796,10 @@ func (b *InMemoryBackend) GenerateDataKeyPair(
 			ErrInvalidKeyUsage,
 			wrapKey.KeyID,
 		)
+	}
+
+	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, input.EncryptionContext); err != nil {
+		return nil, err
 	}
 
 	wrapKM, err := b.requireKeyMaterial(region, wrapKey.KeyID)
@@ -3799,6 +3847,7 @@ func (b *InMemoryBackend) GenerateDataKeyPairWithoutPlaintext(
 		KeyID:             input.KeyID,
 		KeyPairSpec:       input.KeyPairSpec,
 		EncryptionContext: input.EncryptionContext,
+		GrantTokens:       input.GrantTokens,
 	})
 	if err != nil {
 		return nil, err
@@ -3850,6 +3899,10 @@ func (b *InMemoryBackend) GenerateMac(
 
 	if algErr := validateMacAlgorithm(input.MacAlgorithm, key.KeySpec); algErr != nil {
 		return nil, algErr
+	}
+
+	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+		return nil, err
 	}
 
 	km, err := b.requireKeyMaterial(region, key.KeyID)
@@ -3931,6 +3984,10 @@ func (b *InMemoryBackend) VerifyMac(
 
 	if algErr := validateMacAlgorithm(input.MacAlgorithm, key.KeySpec); algErr != nil {
 		return nil, algErr
+	}
+
+	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+		return nil, err
 	}
 
 	km, err := b.requireKeyMaterial(region, key.KeyID)

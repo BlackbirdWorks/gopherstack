@@ -502,10 +502,11 @@ type GetKeyPolicyOutput struct {
 
 // SignInput is the request payload for Sign.
 type SignInput struct {
-	KeyID            string `json:"KeyId"`
-	MessageType      string `json:"MessageType,omitempty"`
-	SigningAlgorithm string `json:"SigningAlgorithm"`
-	Message          []byte `json:"Message"`
+	KeyID            string   `json:"KeyId"`
+	MessageType      string   `json:"MessageType,omitempty"`
+	SigningAlgorithm string   `json:"SigningAlgorithm"`
+	Message          []byte   `json:"Message"`
+	GrantTokens      []string `json:"GrantTokens,omitempty"`
 }
 
 // SignOutput is the response payload for Sign.
@@ -517,11 +518,12 @@ type SignOutput struct {
 
 // VerifyInput is the request payload for Verify.
 type VerifyInput struct {
-	KeyID            string `json:"KeyId"`
-	MessageType      string `json:"MessageType,omitempty"`
-	SigningAlgorithm string `json:"SigningAlgorithm"`
-	Message          []byte `json:"Message"`
-	Signature        []byte `json:"Signature"`
+	KeyID            string   `json:"KeyId"`
+	MessageType      string   `json:"MessageType,omitempty"`
+	SigningAlgorithm string   `json:"SigningAlgorithm"`
+	Message          []byte   `json:"Message"`
+	Signature        []byte   `json:"Signature"`
+	GrantTokens      []string `json:"GrantTokens,omitempty"`
 }
 
 // VerifyOutput is the response payload for Verify.
@@ -535,6 +537,8 @@ type VerifyOutput struct {
 type GetPublicKeyInput struct {
 	// KeyId identifies the asymmetric KMS key whose public key to retrieve.
 	KeyID string `json:"KeyId"`
+	// GrantTokens is an optional list of grant tokens used to authorize the operation.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
 }
 
 // GetPublicKeyOutput is the response payload for GetPublicKey.
@@ -762,6 +766,8 @@ type DeriveSharedSecretInput struct {
 	KeyAgreementAlgorithm string `json:"KeyAgreementAlgorithm"`
 	// PublicKey is the DER-encoded public key of the other party.
 	PublicKey []byte `json:"PublicKey"`
+	// GrantTokens is an optional list of grant tokens used to authorize the operation.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
 }
 
 // DeriveSharedSecretOutput is the response payload for DeriveSharedSecret.
@@ -779,6 +785,8 @@ type GenerateDataKeyPairInput struct {
 	KeyID string `json:"KeyId"`
 	// KeyPairSpec specifies the asymmetric key spec (e.g. RSA_2048, ECC_NIST_P256).
 	KeyPairSpec string `json:"KeyPairSpec"`
+	// GrantTokens is an optional list of grant tokens used to authorize the operation.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
 }
 
 // GenerateDataKeyPairOutput is the response payload for GenerateDataKeyPair.
@@ -803,6 +811,8 @@ type GenerateDataKeyPairWithoutPlaintextInput struct {
 	KeyID string `json:"KeyId"`
 	// KeyPairSpec specifies the asymmetric key spec (e.g. RSA_2048, ECC_NIST_P256).
 	KeyPairSpec string `json:"KeyPairSpec"`
+	// GrantTokens is an optional list of grant tokens used to authorize the operation.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
 }
 
 // GenerateDataKeyPairWithoutPlaintextOutput is the response payload for GenerateDataKeyPairWithoutPlaintext.
@@ -825,6 +835,8 @@ type GenerateMacInput struct {
 	MacAlgorithm string `json:"MacAlgorithm"`
 	// Message is the data over which to compute the MAC.
 	Message []byte `json:"Message"`
+	// GrantTokens is an optional list of grant tokens used to authorize the operation.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
 }
 
 // GenerateMacOutput is the response payload for GenerateMac.
@@ -856,6 +868,8 @@ type VerifyMacInput struct {
 	Message []byte `json:"Message"`
 	// Mac is the MAC tag to verify.
 	Mac []byte `json:"Mac"`
+	// GrantTokens is an optional list of grant tokens used to authorize the operation.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
 }
 
 // VerifyMacOutput is the response payload for VerifyMac.
