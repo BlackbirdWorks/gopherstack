@@ -22,7 +22,17 @@ var (
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned when input validation fails.
-	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	//
+	// Glue's per-operation error models (aws-sdk-go-v2/service/glue deserializers.go)
+	// list InvalidInputException — not ValidationException — as the hand-validation
+	// error for the overwhelming majority of Create/Update/Delete operations (e.g.
+	// CreateDatabase, CreateTable, CreateJob, CreateCrawler, CreateTrigger,
+	// CreateBlueprint, CreateCustomEntityType, CreateUsageProfile, tag validation).
+	// A handful of newer operations (e.g. DeleteConnectionType) do document
+	// ValidationException instead, but since this sentinel is shared across every
+	// hand-rolled validation check in the backend, InvalidInputException is the more
+	// accurate default.
+	ErrValidation = awserr.New("InvalidInputException", awserr.ErrInvalidParameter)
 	// ErrCrawlerRunning is returned when an operation requires the crawler to not be running.
 	ErrCrawlerRunning = awserr.New("CrawlerRunningException", awserr.ErrInvalidParameter)
 	// ErrCrawlerNotRunning is returned when an operation requires the crawler to be running.
@@ -108,61 +118,117 @@ type Database struct {
 
 // Column represents a column in a Glue table.
 type Column struct {
-	Name    string `json:"Name"`
-	Type    string `json:"Type,omitempty"`
-	Comment string `json:"Comment,omitempty"`
+	Parameters map[string]string `json:"Parameters,omitempty"`
+	Name       string            `json:"Name"`
+	Type       string            `json:"Type,omitempty"`
+	Comment    string            `json:"Comment,omitempty"`
 }
 
-// StorageDescriptor describes the physical storage of a table.
+// SerDeInfo holds the serialization/deserialization information for a
+// StorageDescriptor, mirroring aws-sdk-go-v2/service/glue/types.SerDeInfo.
+type SerDeInfo struct {
+	Parameters           map[string]string `json:"Parameters,omitempty"`
+	Name                 string            `json:"Name,omitempty"`
+	SerializationLibrary string            `json:"SerializationLibrary,omitempty"`
+}
+
+// Order specifies the sort order of a column, mirroring
+// aws-sdk-go-v2/service/glue/types.Order.
+type Order struct {
+	Column    string `json:"Column"`
+	SortOrder int    `json:"SortOrder"`
+}
+
+// StorageDescriptor describes the physical storage of a table or partition.
 type StorageDescriptor struct {
-	Location string   `json:"Location,omitempty"`
-	Columns  []Column `json:"Columns,omitempty"`
+	SerdeInfo              *SerDeInfo        `json:"SerdeInfo,omitempty"`
+	Parameters             map[string]string `json:"Parameters,omitempty"`
+	Location               string            `json:"Location,omitempty"`
+	InputFormat            string            `json:"InputFormat,omitempty"`
+	OutputFormat           string            `json:"OutputFormat,omitempty"`
+	Columns                []Column          `json:"Columns,omitempty"`
+	BucketColumns          []string          `json:"BucketColumns,omitempty"`
+	SortColumns            []Order           `json:"SortColumns,omitempty"`
+	NumberOfBuckets        int               `json:"NumberOfBuckets,omitempty"`
+	Compressed             bool              `json:"Compressed,omitempty"`
+	StoredAsSubDirectories bool              `json:"StoredAsSubDirectories,omitempty"`
 }
 
 // TableInput is the input for creating or updating a Glue table.
 type TableInput struct {
-	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	Parameters        map[string]string `json:"Parameters,omitempty"`
 	Name              string            `json:"Name"`
 	Description       string            `json:"Description,omitempty"`
+	Owner             string            `json:"Owner,omitempty"`
 	TableType         string            `json:"TableType,omitempty"`
 	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
+	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	Retention         int               `json:"Retention,omitempty"`
 }
 
 // Table represents a Glue catalog table.
 type Table struct {
-	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	Parameters        map[string]string `json:"Parameters,omitempty"`
 	Name              string            `json:"Name"`
 	DatabaseName      string            `json:"DatabaseName"`
 	CatalogID         string            `json:"CatalogId"`
 	Description       string            `json:"Description,omitempty"`
+	Owner             string            `json:"Owner,omitempty"`
 	TableType         string            `json:"TableType,omitempty"`
 	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
+	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	Retention         int               `json:"Retention,omitempty"`
 	CreateTime        float64           `json:"CreateTime,omitempty"`
 	UpdateTime        float64           `json:"UpdateTime,omitempty"`
 }
 
-// CrawlerTarget specifies S3 targets for a crawler.
+// CrawlerTarget specifies the data stores a crawler scans. AWS supports many
+// target store kinds (S3, JDBC, catalog, DynamoDB, Delta, Hudi, Iceberg,
+// MongoDB); this backend models the three most commonly used ones. Additional
+// kinds are deferred (see PARITY.md).
 type CrawlerTarget struct {
-	S3Targets []S3Target `json:"S3Targets,omitempty"`
+	S3Targets      []S3Target      `json:"S3Targets,omitempty"`
+	JdbcTargets    []JDBCTarget    `json:"JdbcTargets,omitempty"`
+	CatalogTargets []CatalogTarget `json:"CatalogTargets,omitempty"`
 }
 
 // S3Target is an S3 path for a crawler.
 type S3Target struct {
-	Path string `json:"Path,omitempty"`
+	Path       string   `json:"Path,omitempty"`
+	Exclusions []string `json:"Exclusions,omitempty"`
+}
+
+// JDBCTarget is a JDBC connection/path pair for a crawler, mirroring
+// aws-sdk-go-v2/service/glue/types.JdbcTarget.
+type JDBCTarget struct {
+	ConnectionName string   `json:"ConnectionName,omitempty"`
+	Path           string   `json:"Path,omitempty"`
+	Exclusions     []string `json:"Exclusions,omitempty"`
+}
+
+// CatalogTarget synchronizes an existing Data Catalog database/tables as a
+// crawler target, mirroring aws-sdk-go-v2/service/glue/types.CatalogTarget.
+type CatalogTarget struct {
+	DatabaseName string   `json:"DatabaseName,omitempty"`
+	Tables       []string `json:"Tables,omitempty"`
 }
 
 // Crawler represents a Glue crawler.
 type Crawler struct {
-	Tags         map[string]string `json:"-"`
-	Schedule     CrawlerSchedule   `json:"Schedule,omitzero"`
-	Name         string            `json:"Name"`
-	Role         string            `json:"Role"`
-	DatabaseName string            `json:"DatabaseName"`
-	State        string            `json:"State"`
-	ARN          string            `json:"Arn,omitempty"`
-	Targets      CrawlerTarget     `json:"Targets,omitzero"`
-	CreationTime float64           `json:"CreationTime,omitempty"`
-	LastUpdated  float64           `json:"LastUpdated,omitempty"`
+	Tags          map[string]string `json:"-"`
+	Schedule      CrawlerSchedule   `json:"Schedule,omitzero"`
+	Name          string            `json:"Name"`
+	Role          string            `json:"Role"`
+	DatabaseName  string            `json:"DatabaseName"`
+	State         string            `json:"State"`
+	ARN           string            `json:"Arn,omitempty"`
+	Description   string            `json:"Description,omitempty"`
+	Configuration string            `json:"Configuration,omitempty"`
+	TablePrefix   string            `json:"TablePrefix,omitempty"`
+	Classifiers   []string          `json:"Classifiers,omitempty"`
+	Targets       CrawlerTarget     `json:"Targets,omitzero"`
+	CreationTime  float64           `json:"CreationTime,omitempty"`
+	LastUpdated   float64           `json:"LastUpdated,omitempty"`
 }
 
 // CrawlHistoryEntry records a single crawl run for ListCrawls.
@@ -204,12 +270,24 @@ type Job struct {
 	ARN                  string                `json:"Arn,omitempty"`
 	Description          string                `json:"Description,omitempty"`
 	Connections          ConnectionsList       `json:"Connections,omitzero"`
+	NotificationProperty NotificationProperty  `json:"NotificationProperty,omitzero"`
 	NumberOfWorkers      int                   `json:"NumberOfWorkers,omitempty"`
 	MaxRetries           int                   `json:"MaxRetries,omitempty"`
 	Timeout              int                   `json:"Timeout,omitempty"`
-	ExecutionProperty    ExecutionProperty     `json:"ExecutionProperty,omitzero"`
-	CreatedOn            float64               `json:"CreatedOn,omitempty"`
-	LastModifiedOn       float64               `json:"LastModifiedOn,omitempty"`
+	// MaxCapacity is the DPU capacity for jobs that use it instead of
+	// WorkerType+NumberOfWorkers (e.g. Python shell jobs, or Spark jobs on
+	// Glue versions that predate worker-type based capacity). AWS rejects a
+	// request that sets both MaxCapacity and WorkerType/NumberOfWorkers.
+	MaxCapacity       float64           `json:"MaxCapacity,omitempty"`
+	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
+	CreatedOn         float64           `json:"CreatedOn,omitempty"`
+	LastModifiedOn    float64           `json:"LastModifiedOn,omitempty"`
+}
+
+// NotificationProperty specifies the delay, in minutes, after which a job run
+// notification is sent (JobRun.NotificationProperty / Job.NotificationProperty).
+type NotificationProperty struct {
+	NotifyDelayAfter int `json:"NotifyDelayAfter,omitempty"`
 }
 
 // SourceControlDetails records the remote-repository link for a job synchronized
@@ -238,16 +316,20 @@ type PartitionValueList struct {
 
 // PartitionInput is the input for creating a partition.
 type PartitionInput struct {
-	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	Parameters        map[string]string `json:"Parameters,omitempty"`
 	Values            []string          `json:"Values"`
+	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
 }
 
 // Partition represents a Glue table partition.
 type Partition struct {
-	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	Parameters        map[string]string `json:"Parameters,omitempty"`
 	DatabaseName      string            `json:"DatabaseName"`
 	TableName         string            `json:"TableName"`
+	CatalogID         string            `json:"CatalogId,omitempty"`
 	Values            []string          `json:"Values"`
+	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	CreationTime      float64           `json:"CreationTime,omitempty"`
 }
 
 // PartitionError represents an error for a single partition operation.
@@ -320,14 +402,19 @@ type CrawlerSchedule struct {
 
 // JobRun represents a single execution of a Glue job.
 type JobRun struct {
-	Arguments     map[string]string `json:"Arguments,omitempty"`
-	ID            string            `json:"Id"`
-	JobName       string            `json:"JobName"`
-	JobRunState   string            `json:"JobRunState"`
-	ErrorMessage  string            `json:"ErrorMessage,omitempty"`
-	StartedOn     float64           `json:"StartedOn,omitempty"`
-	CompletedOn   float64           `json:"CompletedOn,omitempty"`
-	ExecutionTime int               `json:"ExecutionTime,omitempty"`
+	Arguments       map[string]string `json:"Arguments,omitempty"`
+	ID              string            `json:"Id"`
+	JobName         string            `json:"JobName"`
+	JobRunState     string            `json:"JobRunState"`
+	ErrorMessage    string            `json:"ErrorMessage,omitempty"`
+	WorkerType      string            `json:"WorkerType,omitempty"`
+	GlueVersion     string            `json:"GlueVersion,omitempty"`
+	StartedOn       float64           `json:"StartedOn,omitempty"`
+	CompletedOn     float64           `json:"CompletedOn,omitempty"`
+	MaxCapacity     float64           `json:"MaxCapacity,omitempty"`
+	ExecutionTime   int               `json:"ExecutionTime,omitempty"`
+	NumberOfWorkers int               `json:"NumberOfWorkers,omitempty"`
+	Timeout         int               `json:"Timeout,omitempty"`
 }
 
 // JobBookmark holds the bookmark state for a job run.
@@ -746,12 +833,42 @@ func cloneDatabase(db *Database) *Database {
 func cloneCrawler(c *Crawler) *Crawler {
 	cp := *c
 	cp.Tags = maps.Clone(c.Tags)
-	if len(c.Targets.S3Targets) > 0 {
-		cp.Targets.S3Targets = make([]S3Target, len(c.Targets.S3Targets))
-		copy(cp.Targets.S3Targets, c.Targets.S3Targets)
-	}
+	cp.Classifiers = append([]string(nil), c.Classifiers...)
+	cp.Targets = cloneCrawlerTarget(c.Targets)
 
 	return &cp
+}
+
+// cloneCrawlerTarget returns a deep copy of a CrawlerTarget, including the
+// nested Exclusions/Tables slices on each individual target entry.
+func cloneCrawlerTarget(t CrawlerTarget) CrawlerTarget {
+	cp := CrawlerTarget{}
+
+	if len(t.S3Targets) > 0 {
+		cp.S3Targets = make([]S3Target, len(t.S3Targets))
+		for i, s := range t.S3Targets {
+			cp.S3Targets[i] = s
+			cp.S3Targets[i].Exclusions = append([]string(nil), s.Exclusions...)
+		}
+	}
+
+	if len(t.JdbcTargets) > 0 {
+		cp.JdbcTargets = make([]JDBCTarget, len(t.JdbcTargets))
+		for i, j := range t.JdbcTargets {
+			cp.JdbcTargets[i] = j
+			cp.JdbcTargets[i].Exclusions = append([]string(nil), j.Exclusions...)
+		}
+	}
+
+	if len(t.CatalogTargets) > 0 {
+		cp.CatalogTargets = make([]CatalogTarget, len(t.CatalogTargets))
+		for i, ct := range t.CatalogTargets {
+			cp.CatalogTargets[i] = ct
+			cp.CatalogTargets[i].Tables = append([]string(nil), ct.Tables...)
+		}
+	}
+
+	return cp
 }
 
 // cloneJob returns a deep copy of a Job.
@@ -780,18 +897,52 @@ func cloneConnection(c *Connection) *Connection {
 	return &cp
 }
 
+// cloneColumns returns a deep copy of a Column slice, including each column's
+// Parameters map (a shallow slice copy would still alias the map headers).
+func cloneColumns(cols []Column) []Column {
+	if len(cols) == 0 {
+		return nil
+	}
+
+	out := make([]Column, len(cols))
+	for i, c := range cols {
+		out[i] = c
+		out[i].Parameters = maps.Clone(c.Parameters)
+	}
+
+	return out
+}
+
+// cloneStorageDescriptor returns a deep copy of a StorageDescriptor, including
+// its Columns, Parameters, SerdeInfo, BucketColumns and SortColumns.
+func cloneStorageDescriptor(sd StorageDescriptor) StorageDescriptor {
+	cp := sd
+	cp.Columns = cloneColumns(sd.Columns)
+	cp.Parameters = maps.Clone(sd.Parameters)
+
+	if len(sd.BucketColumns) > 0 {
+		cp.BucketColumns = append([]string(nil), sd.BucketColumns...)
+	}
+
+	if len(sd.SortColumns) > 0 {
+		cp.SortColumns = append([]Order(nil), sd.SortColumns...)
+	}
+
+	if sd.SerdeInfo != nil {
+		si := *sd.SerdeInfo
+		si.Parameters = maps.Clone(sd.SerdeInfo.Parameters)
+		cp.SerdeInfo = &si
+	}
+
+	return cp
+}
+
 // cloneTable returns a deep copy of a Table, including nested slices.
 func cloneTable(t *Table) *Table {
 	cp := *t
-	if len(t.StorageDescriptor.Columns) > 0 {
-		cp.StorageDescriptor.Columns = make([]Column, len(t.StorageDescriptor.Columns))
-		copy(cp.StorageDescriptor.Columns, t.StorageDescriptor.Columns)
-	}
-
-	if len(t.PartitionKeys) > 0 {
-		cp.PartitionKeys = make([]Column, len(t.PartitionKeys))
-		copy(cp.PartitionKeys, t.PartitionKeys)
-	}
+	cp.StorageDescriptor = cloneStorageDescriptor(t.StorageDescriptor)
+	cp.PartitionKeys = cloneColumns(t.PartitionKeys)
+	cp.Parameters = maps.Clone(t.Parameters)
 
 	return &cp
 }
@@ -982,6 +1133,9 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 		DatabaseName:      dbName,
 		CatalogID:         b.accountID,
 		Description:       input.Description,
+		Owner:             input.Owner,
+		Retention:         input.Retention,
+		Parameters:        maps.Clone(input.Parameters),
 		StorageDescriptor: input.StorageDescriptor,
 		PartitionKeys:     input.PartitionKeys,
 		TableType:         input.TableType,
@@ -1020,7 +1174,11 @@ func (b *InMemoryBackend) GetTables(dbName string) ([]*Table, error) {
 
 	for _, k := range sortedKeys(b.tables) {
 		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			out = append(out, b.tables[k])
+			// Clone before returning: GetTable already clones, but GetTables was
+			// handing out the live backend pointer, letting a caller mutate
+			// (or a concurrent JSON marshal race against a writer mutating)
+			// catalog state without holding b.mu.
+			out = append(out, cloneTable(b.tables[k]))
 		}
 	}
 
@@ -1040,6 +1198,9 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 	}
 
 	t.Description = input.Description
+	t.Owner = input.Owner
+	t.Retention = input.Retention
+	t.Parameters = maps.Clone(input.Parameters)
 	t.StorageDescriptor = input.StorageDescriptor
 	t.PartitionKeys = input.PartitionKeys
 	t.TableType = input.TableType
@@ -1095,6 +1256,33 @@ func (b *InMemoryBackend) CreateCrawler(
 	targets CrawlerTarget,
 	tags map[string]string,
 ) (*Crawler, error) {
+	return b.CreateCrawlerWithOptions(name, role, dbName, targets, tags, CrawlerOptions{})
+}
+
+// CrawlerOptions holds the CreateCrawler/UpdateCrawler fields beyond the core
+// name/role/database/targets/tags accepted by CreateCrawler and UpdateCrawler.
+// It exists so those two methods' signatures — called from outside this
+// package (services/cloudformation) — stay additive/stable while still
+// letting the Glue handler pass through Schedule, Classifiers, Configuration,
+// TablePrefix and Description.
+type CrawlerOptions struct {
+	Description   string
+	Schedule      string // cron expression; empty means on-demand (no schedule)
+	Configuration string
+	TablePrefix   string
+	Classifiers   []string
+}
+
+// CreateCrawlerWithOptions is CreateCrawler plus the optional
+// creation-time settings AWS's CreateCrawlerRequest supports
+// (Schedule/Classifiers/Configuration/TablePrefix/Description) that the
+// original positional-argument CreateCrawler predates.
+func (b *InMemoryBackend) CreateCrawlerWithOptions(
+	name, role, dbName string,
+	targets CrawlerTarget,
+	tags map[string]string,
+	opts CrawlerOptions,
+) (*Crawler, error) {
 	b.mu.Lock("CreateCrawler")
 	defer b.mu.Unlock()
 
@@ -1118,16 +1306,24 @@ func (b *InMemoryBackend) CreateCrawler(
 
 	now := float64(time.Now().Unix())
 	c := &Crawler{
-		Name:         name,
-		Role:         role,
-		DatabaseName: dbName,
-		Targets:      targets,
-		State:        stateReady,
-		ARN:          b.crawlerARN(name),
-		Tags:         maps.Clone(tags),
-		CreationTime: now,
-		LastUpdated:  now,
+		Name:          name,
+		Role:          role,
+		DatabaseName:  dbName,
+		Targets:       targets,
+		State:         stateReady,
+		ARN:           b.crawlerARN(name),
+		Tags:          maps.Clone(tags),
+		Description:   opts.Description,
+		Configuration: opts.Configuration,
+		TablePrefix:   opts.TablePrefix,
+		Classifiers:   append([]string(nil), opts.Classifiers...),
+		CreationTime:  now,
+		LastUpdated:   now,
 	}
+	if opts.Schedule != "" {
+		c.Schedule = CrawlerSchedule{ScheduleExpression: opts.Schedule, State: stateScheduled}
+	}
+
 	b.crawlers[name] = c
 
 	return c, nil
@@ -1173,6 +1369,19 @@ func (b *InMemoryBackend) ListCrawlers() []string {
 
 // UpdateCrawler updates an existing Glue crawler.
 func (b *InMemoryBackend) UpdateCrawler(name, role, dbName string, targets CrawlerTarget) error {
+	return b.UpdateCrawlerWithOptions(name, role, dbName, targets, CrawlerOptions{})
+}
+
+// UpdateCrawlerWithOptions is UpdateCrawler plus the optional settings AWS's
+// UpdateCrawlerRequest supports (Schedule/Classifiers/Configuration/
+// TablePrefix/Description). Unset (zero-value) CrawlerOptions fields leave the
+// corresponding crawler field unchanged, matching AWS's partial-update
+// semantics for UpdateCrawler.
+func (b *InMemoryBackend) UpdateCrawlerWithOptions(
+	name, role, dbName string,
+	targets CrawlerTarget,
+	opts CrawlerOptions,
+) error {
 	b.mu.Lock("UpdateCrawler")
 	defer b.mu.Unlock()
 
@@ -1181,9 +1390,36 @@ func (b *InMemoryBackend) UpdateCrawler(name, role, dbName string, targets Crawl
 		return ErrNotFound
 	}
 
+	// AWS rejects UpdateCrawler while the crawler is actively running, same as
+	// DeleteCrawler.
+	if c.State == stateRunning || c.State == stateStarting || c.State == stateStopping {
+		return ErrCrawlerRunning
+	}
+
 	c.Role = role
 	c.DatabaseName = dbName
 	c.Targets = targets
+
+	if opts.Description != "" {
+		c.Description = opts.Description
+	}
+
+	if opts.Configuration != "" {
+		c.Configuration = opts.Configuration
+	}
+
+	if opts.TablePrefix != "" {
+		c.TablePrefix = opts.TablePrefix
+	}
+
+	if opts.Classifiers != nil {
+		c.Classifiers = append([]string(nil), opts.Classifiers...)
+	}
+
+	if opts.Schedule != "" {
+		c.Schedule = CrawlerSchedule{ScheduleExpression: opts.Schedule, State: stateScheduled}
+	}
+
 	c.LastUpdated = float64(time.Now().Unix())
 
 	return nil
@@ -1231,6 +1467,10 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 		)
 	}
 
+	if err := validateJobCapacity(input); err != nil {
+		return nil, err
+	}
+
 	if err := validateTags(input.Tags); err != nil {
 		return nil, err
 	}
@@ -1241,26 +1481,42 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 
 	now := float64(time.Now().Unix())
 	j := &Job{
-		Name:              input.Name,
-		Description:       input.Description,
-		Role:              input.Role,
-		Command:           input.Command,
-		DefaultArguments:  input.DefaultArguments,
-		GlueVersion:       input.GlueVersion,
-		WorkerType:        input.WorkerType,
-		NumberOfWorkers:   input.NumberOfWorkers,
-		MaxRetries:        input.MaxRetries,
-		Timeout:           input.Timeout,
-		ARN:               b.jobARN(input.Name),
-		Tags:              maps.Clone(input.Tags),
-		ExecutionProperty: input.ExecutionProperty,
-		Connections:       input.Connections,
-		CreatedOn:         now,
-		LastModifiedOn:    now,
+		Name:                 input.Name,
+		Description:          input.Description,
+		Role:                 input.Role,
+		Command:              input.Command,
+		DefaultArguments:     input.DefaultArguments,
+		GlueVersion:          input.GlueVersion,
+		WorkerType:           input.WorkerType,
+		NumberOfWorkers:      input.NumberOfWorkers,
+		MaxCapacity:          input.MaxCapacity,
+		MaxRetries:           input.MaxRetries,
+		Timeout:              input.Timeout,
+		ARN:                  b.jobARN(input.Name),
+		Tags:                 maps.Clone(input.Tags),
+		ExecutionProperty:    input.ExecutionProperty,
+		Connections:          input.Connections,
+		NotificationProperty: input.NotificationProperty,
+		CreatedOn:            now,
+		LastModifiedOn:       now,
 	}
 	b.jobs[input.Name] = j
 
 	return j, nil
+}
+
+// validateJobCapacity enforces AWS Glue's mutual-exclusion rule between the
+// legacy MaxCapacity (DPU) knob and WorkerType+NumberOfWorkers: a job may
+// specify one or the other but not both.
+func validateJobCapacity(input Job) error {
+	if input.MaxCapacity > 0 && (input.WorkerType != "" || input.NumberOfWorkers != 0) {
+		return fmt.Errorf(
+			"%w: cannot specify MaxCapacity and WorkerType/NumberOfWorkers together",
+			ErrValidation,
+		)
+	}
+
+	return nil
 }
 
 // GetJob retrieves a Glue job by name.
@@ -1303,6 +1559,10 @@ func (b *InMemoryBackend) UpdateJob(name string, input Job) error {
 		return fmt.Errorf("%w: MaxRetries must be between 0 and %d", ErrValidation, maxJobRetries)
 	}
 
+	if err := validateJobCapacity(input); err != nil {
+		return err
+	}
+
 	j.Description = input.Description
 	j.Role = input.Role
 	j.Command = input.Command
@@ -1310,10 +1570,12 @@ func (b *InMemoryBackend) UpdateJob(name string, input Job) error {
 	j.GlueVersion = input.GlueVersion
 	j.WorkerType = input.WorkerType
 	j.NumberOfWorkers = input.NumberOfWorkers
+	j.MaxCapacity = input.MaxCapacity
 	j.MaxRetries = input.MaxRetries
 	j.Timeout = input.Timeout
 	j.ExecutionProperty = input.ExecutionProperty
 	j.Connections = input.Connections
+	j.NotificationProperty = input.NotificationProperty
 	j.LastModifiedOn = float64(time.Now().Unix())
 
 	return nil
@@ -1656,6 +1918,28 @@ func (b *InMemoryBackend) BatchCreatePartition(
 	created := make([]*Partition, 0, len(inputs))
 	errs := make([]PartitionError, 0, len(inputs))
 
+	// AWS's BatchCreatePartition (and the single-partition CreatePartition, which
+	// is implemented in terms of this method) reject partitions for a table that
+	// does not exist with EntityNotFoundException. This was previously
+	// unchecked, so CreatePartition/BatchCreatePartition against a nonexistent
+	// database/table silently "succeeded" and stored orphaned partitions with no
+	// owning table — a disguised stub.
+	if _, ok := b.tables[tableKey(dbName, tableName)]; !ok {
+		for _, input := range inputs {
+			errs = append(errs, PartitionError{
+				PartitionValues: input.Values,
+				ErrorDetail: ErrorDetail{
+					ErrorCode:    errEntityNotFoundCode,
+					ErrorMessage: fmt.Sprintf("table %s.%s not found", dbName, tableName),
+				},
+			})
+		}
+
+		return created, errs
+	}
+
+	now := float64(time.Now().Unix())
+
 	for _, input := range inputs {
 		key := partitionKey(dbName, tableName, input.Values)
 		if _, exists := b.partitions[key]; exists {
@@ -1673,8 +1957,11 @@ func (b *InMemoryBackend) BatchCreatePartition(
 		p := &Partition{
 			DatabaseName:      dbName,
 			TableName:         tableName,
+			CatalogID:         b.accountID,
 			Values:            append([]string(nil), input.Values...),
 			StorageDescriptor: input.StorageDescriptor,
+			Parameters:        maps.Clone(input.Parameters),
+			CreationTime:      now,
 		}
 		b.partitions[key] = p
 		created = append(created, p)
@@ -2094,10 +2381,15 @@ func (b *InMemoryBackend) StartJobRun(
 			now.UnixNano(),
 			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
 		),
-		JobName:     jobName,
-		JobRunState: stateStarting,
-		StartedOn:   float64(now.Unix()),
-		Arguments:   maps.Clone(arguments),
+		JobName:         jobName,
+		JobRunState:     stateStarting,
+		StartedOn:       float64(now.Unix()),
+		Arguments:       maps.Clone(arguments),
+		WorkerType:      j.WorkerType,
+		NumberOfWorkers: j.NumberOfWorkers,
+		MaxCapacity:     j.MaxCapacity,
+		GlueVersion:     j.GlueVersion,
+		Timeout:         j.Timeout,
 	}
 	b.jobRuns[jobName] = append(b.jobRuns[jobName], run)
 

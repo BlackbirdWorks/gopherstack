@@ -718,7 +718,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, errorResponse("AlreadyExistsException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("InvalidInputException", err.Error()))
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, errorResponse("UnknownOperationException", err.Error()))
 	default:
@@ -952,15 +952,27 @@ func (h *Handler) handleDeleteTable(_ context.Context, in *deleteTableInput) (*e
 // --- Crawler handlers ---
 
 type createCrawlerInput struct {
-	Tags         map[string]string `json:"Tags,omitempty"`
-	Name         string            `json:"Name"`
-	Role         string            `json:"Role"`
-	DatabaseName string            `json:"DatabaseName"`
-	Targets      CrawlerTarget     `json:"Targets,omitzero"`
+	Tags          map[string]string `json:"Tags,omitempty"`
+	Name          string            `json:"Name"`
+	Role          string            `json:"Role"`
+	DatabaseName  string            `json:"DatabaseName"`
+	Description   string            `json:"Description,omitempty"`
+	Schedule      string            `json:"Schedule,omitempty"`
+	Configuration string            `json:"Configuration,omitempty"`
+	TablePrefix   string            `json:"TablePrefix,omitempty"`
+	Classifiers   []string          `json:"Classifiers,omitempty"`
+	Targets       CrawlerTarget     `json:"Targets,omitzero"`
 }
 
 func (h *Handler) handleCreateCrawler(_ context.Context, in *createCrawlerInput) (*emptyOutput, error) {
-	if _, err := h.Backend.CreateCrawler(in.Name, in.Role, in.DatabaseName, in.Targets, in.Tags); err != nil {
+	_, err := h.Backend.CreateCrawlerWithOptions(in.Name, in.Role, in.DatabaseName, in.Targets, in.Tags, CrawlerOptions{
+		Description:   in.Description,
+		Schedule:      in.Schedule,
+		Configuration: in.Configuration,
+		TablePrefix:   in.TablePrefix,
+		Classifiers:   in.Classifiers,
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -997,14 +1009,26 @@ func (h *Handler) handleGetCrawlers(_ context.Context, _ *getCrawlersInput) (*ge
 }
 
 type updateCrawlerInput struct {
-	Name         string        `json:"Name"`
-	Role         string        `json:"Role"`
-	DatabaseName string        `json:"DatabaseName"`
-	Targets      CrawlerTarget `json:"Targets,omitzero"`
+	Name          string        `json:"Name"`
+	Role          string        `json:"Role"`
+	DatabaseName  string        `json:"DatabaseName"`
+	Description   string        `json:"Description,omitempty"`
+	Schedule      string        `json:"Schedule,omitempty"`
+	Configuration string        `json:"Configuration,omitempty"`
+	TablePrefix   string        `json:"TablePrefix,omitempty"`
+	Classifiers   []string      `json:"Classifiers,omitempty"`
+	Targets       CrawlerTarget `json:"Targets,omitzero"`
 }
 
 func (h *Handler) handleUpdateCrawler(_ context.Context, in *updateCrawlerInput) (*emptyOutput, error) {
-	if err := h.Backend.UpdateCrawler(in.Name, in.Role, in.DatabaseName, in.Targets); err != nil {
+	err := h.Backend.UpdateCrawlerWithOptions(in.Name, in.Role, in.DatabaseName, in.Targets, CrawlerOptions{
+		Description:   in.Description,
+		Schedule:      in.Schedule,
+		Configuration: in.Configuration,
+		TablePrefix:   in.TablePrefix,
+		Classifiers:   in.Classifiers,
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -1026,19 +1050,21 @@ func (h *Handler) handleDeleteCrawler(_ context.Context, in *deleteCrawlerInput)
 // --- Job handlers ---
 
 type createJobInput struct {
-	Tags              map[string]string `json:"Tags,omitempty"`
-	DefaultArguments  map[string]string `json:"DefaultArguments,omitempty"`
-	Command           JobCommand        `json:"Command,omitzero"`
-	WorkerType        string            `json:"WorkerType,omitempty"`
-	Role              string            `json:"Role,omitempty"`
-	GlueVersion       string            `json:"GlueVersion,omitempty"`
-	Name              string            `json:"Name"`
-	Description       string            `json:"Description,omitempty"`
-	Connections       ConnectionsList   `json:"Connections,omitzero"`
-	NumberOfWorkers   int               `json:"NumberOfWorkers,omitempty"`
-	MaxRetries        int               `json:"MaxRetries,omitempty"`
-	Timeout           int               `json:"Timeout,omitempty"`
-	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
+	Tags                 map[string]string    `json:"Tags,omitempty"`
+	DefaultArguments     map[string]string    `json:"DefaultArguments,omitempty"`
+	Command              JobCommand           `json:"Command,omitzero"`
+	WorkerType           string               `json:"WorkerType,omitempty"`
+	Role                 string               `json:"Role,omitempty"`
+	GlueVersion          string               `json:"GlueVersion,omitempty"`
+	Name                 string               `json:"Name"`
+	Description          string               `json:"Description,omitempty"`
+	Connections          ConnectionsList      `json:"Connections,omitzero"`
+	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
+	NumberOfWorkers      int                  `json:"NumberOfWorkers,omitempty"`
+	MaxRetries           int                  `json:"MaxRetries,omitempty"`
+	Timeout              int                  `json:"Timeout,omitempty"`
+	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
+	ExecutionProperty    ExecutionProperty    `json:"ExecutionProperty,omitzero"`
 }
 
 type createJobOutput struct {
@@ -1047,19 +1073,21 @@ type createJobOutput struct {
 
 func (h *Handler) handleCreateJob(_ context.Context, in *createJobInput) (*createJobOutput, error) {
 	j, err := h.Backend.CreateJob(Job{
-		Name:              in.Name,
-		Description:       in.Description,
-		Role:              in.Role,
-		Command:           in.Command,
-		DefaultArguments:  in.DefaultArguments,
-		GlueVersion:       in.GlueVersion,
-		WorkerType:        in.WorkerType,
-		NumberOfWorkers:   in.NumberOfWorkers,
-		MaxRetries:        in.MaxRetries,
-		Timeout:           in.Timeout,
-		Tags:              in.Tags,
-		ExecutionProperty: in.ExecutionProperty,
-		Connections:       in.Connections,
+		Name:                 in.Name,
+		Description:          in.Description,
+		Role:                 in.Role,
+		Command:              in.Command,
+		DefaultArguments:     in.DefaultArguments,
+		GlueVersion:          in.GlueVersion,
+		WorkerType:           in.WorkerType,
+		NumberOfWorkers:      in.NumberOfWorkers,
+		MaxCapacity:          in.MaxCapacity,
+		MaxRetries:           in.MaxRetries,
+		Timeout:              in.Timeout,
+		Tags:                 in.Tags,
+		ExecutionProperty:    in.ExecutionProperty,
+		Connections:          in.Connections,
+		NotificationProperty: in.NotificationProperty,
 	})
 	if err != nil {
 		return nil, err
@@ -1100,17 +1128,19 @@ func (h *Handler) handleGetJobs(_ context.Context, _ *getJobsInput) (*getJobsOut
 // jobUpdatePayload models the allowed fields for Glue's JobUpdate shape.
 // It intentionally omits create-only fields such as Name and Tags.
 type jobUpdatePayload struct {
-	DefaultArguments  map[string]string `json:"DefaultArguments,omitempty"`
-	Command           JobCommand        `json:"Command,omitzero"`
-	WorkerType        string            `json:"WorkerType,omitempty"`
-	Role              string            `json:"Role,omitempty"`
-	GlueVersion       string            `json:"GlueVersion,omitempty"`
-	Description       string            `json:"Description,omitempty"`
-	Connections       ConnectionsList   `json:"Connections,omitzero"`
-	NumberOfWorkers   int               `json:"NumberOfWorkers,omitempty"`
-	MaxRetries        int               `json:"MaxRetries,omitempty"`
-	Timeout           int               `json:"Timeout,omitempty"`
-	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
+	DefaultArguments     map[string]string    `json:"DefaultArguments,omitempty"`
+	Command              JobCommand           `json:"Command,omitzero"`
+	WorkerType           string               `json:"WorkerType,omitempty"`
+	Role                 string               `json:"Role,omitempty"`
+	GlueVersion          string               `json:"GlueVersion,omitempty"`
+	Description          string               `json:"Description,omitempty"`
+	Connections          ConnectionsList      `json:"Connections,omitzero"`
+	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
+	NumberOfWorkers      int                  `json:"NumberOfWorkers,omitempty"`
+	MaxRetries           int                  `json:"MaxRetries,omitempty"`
+	Timeout              int                  `json:"Timeout,omitempty"`
+	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
+	ExecutionProperty    ExecutionProperty    `json:"ExecutionProperty,omitzero"`
 }
 
 type updateJobInput struct {
@@ -1124,17 +1154,19 @@ type updateJobOutput struct {
 
 func (h *Handler) handleUpdateJob(_ context.Context, in *updateJobInput) (*updateJobOutput, error) {
 	if err := h.Backend.UpdateJob(in.JobName, Job{
-		Description:       in.JobUpdate.Description,
-		Role:              in.JobUpdate.Role,
-		Command:           in.JobUpdate.Command,
-		DefaultArguments:  in.JobUpdate.DefaultArguments,
-		GlueVersion:       in.JobUpdate.GlueVersion,
-		WorkerType:        in.JobUpdate.WorkerType,
-		NumberOfWorkers:   in.JobUpdate.NumberOfWorkers,
-		MaxRetries:        in.JobUpdate.MaxRetries,
-		Timeout:           in.JobUpdate.Timeout,
-		ExecutionProperty: in.JobUpdate.ExecutionProperty,
-		Connections:       in.JobUpdate.Connections,
+		Description:          in.JobUpdate.Description,
+		Role:                 in.JobUpdate.Role,
+		Command:              in.JobUpdate.Command,
+		DefaultArguments:     in.JobUpdate.DefaultArguments,
+		GlueVersion:          in.JobUpdate.GlueVersion,
+		WorkerType:           in.JobUpdate.WorkerType,
+		NumberOfWorkers:      in.JobUpdate.NumberOfWorkers,
+		MaxCapacity:          in.JobUpdate.MaxCapacity,
+		MaxRetries:           in.JobUpdate.MaxRetries,
+		Timeout:              in.JobUpdate.Timeout,
+		ExecutionProperty:    in.JobUpdate.ExecutionProperty,
+		Connections:          in.JobUpdate.Connections,
+		NotificationProperty: in.JobUpdate.NotificationProperty,
 	}); err != nil {
 		return nil, err
 	}

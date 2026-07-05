@@ -473,7 +473,7 @@ func TestDeleteConnectionType(t *testing.T) {
 			name:     "empty body missing ConnectionType returns 400",
 			input:    map[string]any{},
 			wantCode: http.StatusBadRequest,
-			wantType: "ValidationException",
+			wantType: "InvalidInputException",
 		},
 		{
 			name:     "built-in Salesforce is undeletable",

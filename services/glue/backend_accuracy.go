@@ -72,6 +72,7 @@ func (b *InMemoryBackend) updatePartitionLocked(
 	}
 
 	p.StorageDescriptor = input.StorageDescriptor
+	p.Parameters = maps.Clone(input.Parameters)
 
 	return nil
 }
@@ -88,6 +89,7 @@ func (b *InMemoryBackend) renamePartitionLocked(
 	delete(b.partitions, oldKey)
 	p.Values = append([]string(nil), input.Values...)
 	p.StorageDescriptor = input.StorageDescriptor
+	p.Parameters = maps.Clone(input.Parameters)
 	b.partitions[newKey] = p
 
 	return nil
@@ -133,10 +135,8 @@ func (b *InMemoryBackend) UpdateConnection(name string, connType string, props m
 func clonePartition(p *Partition) *Partition {
 	cp := *p
 	cp.Values = append([]string(nil), p.Values...)
-	if len(p.StorageDescriptor.Columns) > 0 {
-		cp.StorageDescriptor.Columns = make([]Column, len(p.StorageDescriptor.Columns))
-		copy(cp.StorageDescriptor.Columns, p.StorageDescriptor.Columns)
-	}
+	cp.StorageDescriptor = cloneStorageDescriptor(p.StorageDescriptor)
+	cp.Parameters = maps.Clone(p.Parameters)
 
 	return &cp
 }
