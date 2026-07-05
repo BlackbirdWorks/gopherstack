@@ -43,7 +43,9 @@
       "mcp__playwright__browser_run_code_unsafe",
       "Bash(git checkout *)",
       "Bash(bd list *)",
-      "Bash(bd show *)"
+      "Bash(bd show *)",
+      "Bash(git add *)",
+      "Bash(git push *)"
     ]
   },
   "enabledMcpjsonServers": [
