@@ -10,13 +10,18 @@ package route53_test
 //     deleting and return ErrHostedZoneNotEmpty.
 //
 //  2. CreateHostedZone duplicate CallerReference: always created a new zone.
-//     AWS returns the existing zone for the same CallerReference (idempotency).
-//     Fix: scan zones for matching CallerReference before inserting.
+//     AWS returns the existing zone for the same CallerReference when the rest
+//     of the request is identical (idempotent retry), but returns
+//     HostedZoneAlreadyExists (409) when the CallerReference is reused with
+//     different Name/Comment/PrivateZone. Fix: scan zones for a matching
+//     CallerReference and compare the other fields before inserting.
 //
 //  3. CreateHealthCheck duplicate CallerReference: always created a new health
 //     check. AWS returns the existing health check for the same CallerReference
-//     (idempotency). Fix: scan health checks for matching CallerReference before
-//     inserting.
+//     when the config is identical (idempotent retry), but returns
+//     HealthCheckAlreadyExists (409) when the CallerReference is reused with a
+//     different HealthCheckConfig. Fix: scan health checks for a matching
+//     CallerReference and compare the config before inserting.
 //
 //  4. DisassociateVPCFromHostedZone last VPC: allowed removing the last VPC from
 //     a private hosted zone. AWS returns LastVPCAssociation (400) when the
@@ -182,11 +187,17 @@ func TestBatch2_CreateHostedZone_DuplicateCallerReference(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		ref  string
+		name    string
+		ref     string
+		name2   string
+		comment string
 	}{
-		{name: "same_ref_returns_existing", ref: "unique-caller-ref-hz-1"},
-		{name: "same_ref_different_name_still_idempotent", ref: "unique-caller-ref-hz-2"},
+		{
+			name:    "same_ref_same_params_returns_existing",
+			ref:     "unique-caller-ref-hz-1",
+			name2:   "example.com",
+			comment: "first",
+		},
 	}
 
 	for _, tt := range tests {
@@ -198,14 +209,47 @@ func TestBatch2_CreateHostedZone_DuplicateCallerReference(t *testing.T) {
 			first, err := b.CreateHostedZone("example.com", tt.ref, "first", false)
 			require.NoError(t, err)
 
-			// Same CallerReference must return the original zone.
-			second, err := b.CreateHostedZone("other.com", tt.ref, "second", false)
+			// Same CallerReference *and* identical other parameters is a safe
+			// retry: AWS returns the original zone.
+			second, err := b.CreateHostedZone(tt.name2, tt.ref, tt.comment, false)
 			require.NoError(t, err)
 
 			assert.Equal(t, first.ID, second.ID,
-				"duplicate CallerReference must return the same zone ID")
+				"duplicate CallerReference with identical params must return the same zone ID")
 			assert.Equal(t, first.Name, second.Name,
 				"original zone name must be preserved")
+		})
+	}
+}
+
+// TestBatch2_CreateHostedZone_DuplicateCallerReference_DifferentParams verifies
+// real AWS behavior: reusing a CallerReference with a *different* Name (or
+// Comment/PrivateZone) is NOT idempotent — it returns HostedZoneAlreadyExists
+// (409), since the CallerReference is now ambiguous between two distinct
+// requested zones. A prior version of this test asserted the request was
+// "still idempotent" for a different name, which is not how Route 53 behaves.
+func TestBatch2_CreateHostedZone_DuplicateCallerReference_DifferentParams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ref  string
+	}{
+		{name: "same_ref_different_name_rejected", ref: "unique-caller-ref-hz-2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := route53.NewInMemoryBackend()
+
+			_, err := b.CreateHostedZone("example.com", tt.ref, "first", false)
+			require.NoError(t, err)
+
+			_, err = b.CreateHostedZone("other.com", tt.ref, "second", false)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, route53.ErrHostedZoneAlreadyExists)
 		})
 	}
 }
@@ -284,23 +328,61 @@ func TestBatch2_CreateHealthCheck_DuplicateCallerReference(t *testing.T) {
 
 			b := route53.NewInMemoryBackend()
 
-			first, err := b.CreateHealthCheck(tt.ref, route53.HealthCheckConfig{
+			cfg := route53.HealthCheckConfig{
+				Type: route53.HealthCheckTypeHTTP,
+				Port: 80,
+			}
+
+			first, err := b.CreateHealthCheck(tt.ref, cfg)
+			require.NoError(t, err)
+
+			// Same CallerReference *and* identical config is a safe retry:
+			// AWS returns the original health check.
+			second, err := b.CreateHealthCheck(tt.ref, cfg)
+			require.NoError(t, err)
+
+			assert.Equal(t, first.ID, second.ID,
+				"duplicate CallerReference with identical config must return the same health check ID")
+			assert.Equal(t, first.Config.Type, second.Config.Type,
+				"original config must be preserved")
+		})
+	}
+}
+
+// TestBatch2_CreateHealthCheck_DuplicateCallerReference_DifferentConfig
+// verifies real AWS behavior: reusing a CallerReference with a *different*
+// HealthCheckConfig returns HealthCheckAlreadyExists (409) rather than
+// silently returning (or silently overwriting) the original health check. A
+// prior version of this test asserted the request was still idempotent when
+// Type/Port differed, which is not how Route 53 behaves.
+func TestBatch2_CreateHealthCheck_DuplicateCallerReference_DifferentConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ref  string
+	}{
+		{name: "same_ref_different_config_rejected", ref: "hc-idem-ref-3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := route53.NewInMemoryBackend()
+
+			_, err := b.CreateHealthCheck(tt.ref, route53.HealthCheckConfig{
 				Type: route53.HealthCheckTypeHTTP,
 				Port: 80,
 			})
 			require.NoError(t, err)
 
-			// Same CallerReference must return the original health check.
-			second, err := b.CreateHealthCheck(tt.ref, route53.HealthCheckConfig{
+			_, err = b.CreateHealthCheck(tt.ref, route53.HealthCheckConfig{
 				Type: route53.HealthCheckTypeHTTPS,
 				Port: 443,
 			})
-			require.NoError(t, err)
-
-			assert.Equal(t, first.ID, second.ID,
-				"duplicate CallerReference must return the same health check ID")
-			assert.Equal(t, first.Config.Type, second.Config.Type,
-				"original config must be preserved")
+			require.Error(t, err)
+			assert.ErrorIs(t, err, route53.ErrHealthCheckAlreadyExists)
 		})
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,12 +29,15 @@ const (
 
 // Errors returned by the backend.
 var (
-	ErrHostedZoneNotFound              = errors.New("NoSuchHostedZone")
-	ErrInvalidInput                    = errors.New("InvalidInput")
-	ErrInvalidAction                   = errors.New("InvalidChangeBatch")
-	ErrHealthCheckNotFound             = errors.New("NoSuchHealthCheck")
-	ErrKeySigningKeyNotFound           = errors.New("NoSuchKeySigningKey")
-	ErrCidrCollectionNotFound          = errors.New("NoSuchCidrCollection")
+	ErrHostedZoneNotFound    = errors.New("NoSuchHostedZone")
+	ErrInvalidInput          = errors.New("InvalidInput")
+	ErrInvalidAction         = errors.New("InvalidChangeBatch")
+	ErrHealthCheckNotFound   = errors.New("NoSuchHealthCheck")
+	ErrKeySigningKeyNotFound = errors.New("NoSuchKeySigningKey")
+	// ErrCidrCollectionNotFound wire code intentionally carries the "Exception"
+	// suffix — that is the literal AWS error code for this shape (unlike most
+	// Route 53 NoSuch* errors), confirmed against aws-sdk-go-v2 route53 model.
+	ErrCidrCollectionNotFound          = errors.New("NoSuchCidrCollectionException")
 	ErrQueryLoggingConfigNotFound      = errors.New("NoSuchQueryLoggingConfig")
 	ErrDelegationSetNotFound           = errors.New("NoSuchDelegationSet")
 	ErrTrafficPolicyNotFound           = errors.New("NoSuchTrafficPolicy")
@@ -57,10 +61,39 @@ var (
 	ErrInvalidDSRecord                 = errors.New("invalid DS record value")
 	ErrInvalidSPFRecord                = errors.New("invalid SPF record value")
 	ErrTrafficPolicyInUse              = errors.New("TrafficPolicyInUse")
-	ErrKeySigningKeyNotInactive        = errors.New("KeySigningKeyNotInactive")
-	ErrTrafficPolicyAlreadyExists      = errors.New("TrafficPolicyAlreadyExists")
-	ErrHostedZoneNotEmpty              = errors.New("HostedZoneNotEmpty")
-	ErrLastVPCAssociation              = errors.New("LastVPCAssociation")
+	// ErrInvalidKeySigningKeyStatus is returned when a KSK operation is attempted
+	// while the key is in a status that does not permit it (e.g. deleting an
+	// ACTIVE key). This is the real AWS wire error code — Route 53 has no
+	// "KeySigningKeyNotInactive" error.
+	ErrInvalidKeySigningKeyStatus = errors.New("InvalidKeySigningKeyStatus")
+	ErrTrafficPolicyAlreadyExists = errors.New("TrafficPolicyAlreadyExists")
+	ErrHostedZoneNotEmpty         = errors.New("HostedZoneNotEmpty")
+	ErrLastVPCAssociation         = errors.New("LastVPCAssociation")
+	// ErrHostedZoneAlreadyExists is returned when CreateHostedZone reuses a
+	// CallerReference already associated with a hosted zone that has different
+	// Name/Comment/PrivateZone values (AWS: HostedZoneAlreadyExists, 409).
+	ErrHostedZoneAlreadyExists = errors.New("HostedZoneAlreadyExists")
+	// ErrHealthCheckAlreadyExists is returned when CreateHealthCheck reuses a
+	// CallerReference already associated with a health check that has a
+	// different configuration (AWS: HealthCheckAlreadyExists, 409).
+	ErrHealthCheckAlreadyExists = errors.New("HealthCheckAlreadyExists")
+	// ErrKeySigningKeyAlreadyExists is returned when CreateKeySigningKey is
+	// called with a name that already exists in the hosted zone (AWS:
+	// KeySigningKeyAlreadyExists, 409).
+	ErrKeySigningKeyAlreadyExists = errors.New("KeySigningKeyAlreadyExists")
+	// ErrVPCAssociationNotFound is returned by DisassociateVPCFromHostedZone
+	// when the given VPC is not associated with the hosted zone (AWS:
+	// VPCAssociationNotFound, 404).
+	ErrVPCAssociationNotFound = errors.New("VPCAssociationNotFound")
+	// ErrTrafficPolicyInstanceAlreadyExists is returned when
+	// CreateTrafficPolicyInstance targets a (hostedZoneID, name) pair that
+	// already has a traffic policy instance (AWS:
+	// TrafficPolicyInstanceAlreadyExists, 409).
+	ErrTrafficPolicyInstanceAlreadyExists = errors.New("TrafficPolicyInstanceAlreadyExists")
+	// ErrCidrCollectionAlreadyExists is returned when CreateCidrCollection is
+	// called with a name that is already in use (AWS:
+	// CidrCollectionAlreadyExistsException, 400).
+	ErrCidrCollectionAlreadyExists = errors.New("CidrCollectionAlreadyExistsException")
 )
 
 const (
@@ -488,15 +521,28 @@ func (b *InMemoryBackend) CreateHostedZone(
 	b.mu.Lock("CreateHostedZone")
 	defer b.mu.Unlock()
 
-	// CallerReference idempotency: AWS returns the existing zone when the same
-	// CallerReference is reused, rather than creating a duplicate.
+	// CallerReference idempotency: reusing a CallerReference with the exact
+	// same Name/Comment/PrivateZone is a safe retry and returns the existing
+	// zone. Reusing it with any different parameter is rejected — real AWS
+	// returns HostedZoneAlreadyExists (409) rather than silently returning
+	// (or silently creating a second zone for) mismatched input.
 	for _, zd := range b.zones {
-		if zd.zone.CallerReference == callerRef {
+		if zd.zone.CallerReference != callerRef {
+			continue
+		}
+
+		if zd.zone.Name == name && zd.zone.Comment == comment && zd.zone.PrivateZone == private {
 			cp := zd.zone
 			cp.ResourceRecordSetCount = len(zd.records)
 
 			return &cp, nil
 		}
+
+		return nil, fmt.Errorf(
+			"%w: a hosted zone already exists for CallerReference %s with different parameters",
+			ErrHostedZoneAlreadyExists,
+			callerRef,
+		)
 	}
 
 	id := "Z" + randomZoneID()
@@ -1000,6 +1046,13 @@ func validateHealthCheckConfig(cfg HealthCheckConfig) error {
 		)
 	}
 
+	if cfg.Type == HealthCheckTypeCalculated && cfg.HealthThreshold > len(cfg.ChildHealthChecks) {
+		return fmt.Errorf(
+			"%w: HealthThreshold (%d) must not exceed the number of ChildHealthChecks (%d)",
+			ErrInvalidInput, cfg.HealthThreshold, len(cfg.ChildHealthChecks),
+		)
+	}
+
 	if cfg.InsufficientDataHealthStatus != "" {
 		switch cfg.InsufficientDataHealthStatus {
 		case defaultHealthStatus, healthUnhealthy, "LastKnownStatus":
@@ -1461,14 +1514,27 @@ func (b *InMemoryBackend) CreateHealthCheck(
 	b.mu.Lock("CreateHealthCheck")
 	defer b.mu.Unlock()
 
-	// CallerReference idempotency: AWS returns the existing health check when the
-	// same CallerReference is reused, rather than creating a duplicate.
+	// CallerReference idempotency: reusing a CallerReference with the exact
+	// same HealthCheckConfig is a safe retry and returns the existing health
+	// check. Reusing it with a different config is rejected — real AWS returns
+	// HealthCheckAlreadyExists (409) rather than silently returning (or
+	// silently creating a second check for) mismatched input.
 	for _, existing := range b.healthChecks {
-		if existing.CallerReference == callerRef {
+		if existing.CallerReference != callerRef {
+			continue
+		}
+
+		if reflect.DeepEqual(existing.Config, cfg) {
 			cp := *existing
 
 			return &cp, nil
 		}
+
+		return nil, fmt.Errorf(
+			"%w: a health check already exists for CallerReference %s with a different configuration",
+			ErrHealthCheckAlreadyExists,
+			callerRef,
+		)
 	}
 
 	hc := &HealthCheck{
@@ -1644,7 +1710,7 @@ func (b *InMemoryBackend) CreateKeySigningKey(
 	if _, exists := b.keySigningKeys[kskKey(hostedZoneID, name)]; exists {
 		return nil, fmt.Errorf(
 			"%w: key signing key %s already exists in zone %s",
-			ErrInvalidInput,
+			ErrKeySigningKeyAlreadyExists,
 			name,
 			hostedZoneID,
 		)
@@ -1748,7 +1814,8 @@ func (b *InMemoryBackend) DeactivateKeySigningKey(
 }
 
 // DeleteKeySigningKey deletes a key signing key.
-// The KSK must be INACTIVE; deleting an ACTIVE KSK returns ErrKeySigningKeyNotInactive.
+// The KSK must be INACTIVE; deleting an ACTIVE KSK returns ErrInvalidKeySigningKeyStatus
+// (AWS: InvalidKeySigningKeyStatus).
 func (b *InMemoryBackend) DeleteKeySigningKey(hostedZoneID, name string) error {
 	b.mu.Lock("DeleteKeySigningKey")
 	defer b.mu.Unlock()
@@ -1767,7 +1834,7 @@ func (b *InMemoryBackend) DeleteKeySigningKey(hostedZoneID, name string) error {
 	if ksk.Status == kskStatusActive {
 		return fmt.Errorf(
 			"%w: key signing key %s must be INACTIVE before deletion",
-			ErrKeySigningKeyNotInactive,
+			ErrInvalidKeySigningKeyStatus,
 			name,
 		)
 	}
@@ -1916,7 +1983,7 @@ func (b *InMemoryBackend) DisassociateVPCFromHostedZone(zoneID, vpcID string) er
 	if len(newAssocs) == len(assocs) {
 		return fmt.Errorf(
 			"%w: VPC %s is not associated with hosted zone %s",
-			ErrInvalidInput,
+			ErrVPCAssociationNotFound,
 			vpcID,
 			zoneID,
 		)
@@ -2072,6 +2139,16 @@ func (b *InMemoryBackend) CreateCidrCollection(
 
 	b.mu.Lock("CreateCidrCollection")
 	defer b.mu.Unlock()
+
+	for _, existing := range b.cidrCollections {
+		if existing.Name == name {
+			return nil, fmt.Errorf(
+				"%w: a CIDR collection named %s already exists",
+				ErrCidrCollectionAlreadyExists,
+				name,
+			)
+		}
+	}
 
 	id := "Z" + randomZoneID()
 	col := &CidrCollection{
@@ -2483,11 +2560,29 @@ func (b *InMemoryBackend) CreateTrafficPolicyInstance(
 		}
 	}
 
+	normalisedName := normaliseName(name)
+
+	// AWS allows only one traffic policy instance per (hosted zone, name):
+	// a second CreateTrafficPolicyInstance for the same pair returns
+	// TrafficPolicyInstanceAlreadyExists (409) rather than creating a
+	// duplicate or silently overwriting the existing instance.
+	for _, existing := range b.trafficPolicyInstances {
+		if existing.HostedZoneID == hostedZoneID &&
+			strings.EqualFold(existing.Name, normalisedName) {
+			return nil, fmt.Errorf(
+				"%w: a traffic policy instance already exists for name %s in zone %s",
+				ErrTrafficPolicyInstanceAlreadyExists,
+				name,
+				hostedZoneID,
+			)
+		}
+	}
+
 	id := randomTPIID()
 	inst := &TrafficPolicyInstance{
 		ID:                   id,
 		HostedZoneID:         hostedZoneID,
-		Name:                 normaliseName(name),
+		Name:                 normalisedName,
 		TrafficPolicyID:      tpID,
 		TrafficPolicyVersion: tpVersion,
 		TrafficPolicyType:    tpType,
@@ -3144,19 +3239,66 @@ func (b *InMemoryBackend) CountZonesByReusableDelegationSet(id string) (int, err
 	return 0, nil
 }
 
-func (b *InMemoryBackend) ListTagsForResource(resourceID string) map[string]string {
-	b.mu.RLock("ListTagsForResource")
-	defer b.mu.RUnlock()
-	if t, exists := b.tags[resourceID]; exists {
-		return t.Clone()
+// tagResourceTypeHealthCheck and tagResourceTypeHostedZone are the wire
+// values of the AWS TagResourceType enum used by the tag-family operations
+// (ListTagsForResource[s], ChangeTagsForResource).
+const (
+	tagResourceTypeHealthCheck = "healthcheck"
+	tagResourceTypeHostedZone  = "hostedzone"
+)
+
+// checkTagResourceExists validates that resourceID exists as the given
+// resourceType. AWS returns NoSuchHostedZone/NoSuchHealthCheck (404) for the
+// tag-family operations when the target resource does not exist; an unknown
+// resourceType is InvalidInput (400).
+func (b *InMemoryBackend) checkTagResourceExists(resourceType, resourceID string) error {
+	switch resourceType {
+	case tagResourceTypeHostedZone:
+		if _, ok := b.zones[resourceID]; !ok {
+			return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, resourceID)
+		}
+	case tagResourceTypeHealthCheck:
+		if _, ok := b.healthChecks[resourceID]; !ok {
+			return fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, resourceID)
+		}
+	default:
+		return fmt.Errorf("%w: unsupported ResourceType %q", ErrInvalidInput, resourceType)
 	}
 
-	return make(map[string]string)
+	return nil
 }
 
-func (b *InMemoryBackend) ListTagsForResources(resourceIDs []string) map[string]map[string]string {
+// ListTagsForResource returns the tags for a single hosted zone or health check.
+func (b *InMemoryBackend) ListTagsForResource(resourceType, resourceID string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	if err := b.checkTagResourceExists(resourceType, resourceID); err != nil {
+		return nil, err
+	}
+
+	if t, exists := b.tags[resourceID]; exists {
+		return t.Clone(), nil
+	}
+
+	return make(map[string]string), nil
+}
+
+// ListTagsForResources returns the tags for a batch of same-type resources.
+// If any resourceID does not exist, the whole call fails (matching AWS,
+// which validates the entire ResourceIds list before returning tags).
+func (b *InMemoryBackend) ListTagsForResources(
+	resourceType string,
+	resourceIDs []string,
+) (map[string]map[string]string, error) {
 	b.mu.RLock("ListTagsForResources")
 	defer b.mu.RUnlock()
+
+	for _, id := range resourceIDs {
+		if err := b.checkTagResourceExists(resourceType, id); err != nil {
+			return nil, err
+		}
+	}
 
 	result := make(map[string]map[string]string)
 	for _, id := range resourceIDs {
@@ -3167,28 +3309,19 @@ func (b *InMemoryBackend) ListTagsForResources(resourceIDs []string) map[string]
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 func (b *InMemoryBackend) ChangeTagsForResource(
-	resourceID string,
+	resourceType, resourceID string,
 	addTags map[string]string,
 	removeKeys []string,
 ) error {
 	b.mu.Lock("ChangeTagsForResource")
 	defer b.mu.Unlock()
 
-	// check if the resource exists
-	// route53 allows tagging hostedzones and healthchecks
-	var exists bool
-	if _, okZone := b.zones[resourceID]; okZone {
-		exists = okZone
-	} else if _, okHC := b.healthChecks[resourceID]; okHC {
-		exists = okHC
-	}
-
-	if !exists {
-		return fmt.Errorf("%w: %s", ErrHostedZoneNotFound, resourceID)
+	if err := b.checkTagResourceExists(resourceType, resourceID); err != nil {
+		return err
 	}
 
 	if b.tags[resourceID] == nil {

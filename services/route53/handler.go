@@ -86,18 +86,6 @@ func (h *Handler) deleteTagsForResource(_ string) {
 	// Let backend handle deletion on resource deletion
 }
 
-func (h *Handler) setTags(resourceID string, kv map[string]string) {
-	_ = h.Backend.ChangeTagsForResource(resourceID, kv, nil)
-}
-
-func (h *Handler) removeTags(resourceID string, keys []string) {
-	_ = h.Backend.ChangeTagsForResource(resourceID, nil, keys)
-}
-
-func (h *Handler) getTags(resourceID string) map[string]string {
-	return h.Backend.ListTagsForResource(resourceID)
-}
-
 // Name returns the service name.
 func (h *Handler) Name() string { return "Route53" }
 
@@ -761,8 +749,14 @@ func (h *Handler) routeHostedZoneDNSSEC(c *echo.Context, path, method string) (b
 }
 
 func (h *Handler) routeTags(c *echo.Context, path, method string) error {
-	// POST /2013-04-01/tags (no resource type suffix) → ListTagsForResources
-	if method == http.MethodPost && path == route53TagsPrefix[:len(route53TagsPrefix)-1] {
+	// Real Route 53 REST URIs are:
+	//   GET/POST /2013-04-01/tags/{ResourceType}/{ResourceId}  → ListTagsForResource / ChangeTagsForResource
+	//   POST     /2013-04-01/tags/{ResourceType}               → ListTagsForResources (batch)
+	// i.e. the batch op carries only a ResourceType segment and no ResourceId.
+	// (This function is only reached for paths with the route53TagsPrefix, so
+	// rest is always non-empty here.)
+	rest := strings.TrimPrefix(path, route53TagsPrefix)
+	if method == http.MethodPost && !strings.Contains(rest, "/") {
 		return h.listTagsForResources(c)
 	}
 
@@ -1420,7 +1414,11 @@ func (h *Handler) listTagsForResource(c *echo.Context, path string) error {
 		resourceID = parts[1]
 	}
 
-	tags := h.getTags(resourceID)
+	tags, err := h.Backend.ListTagsForResource(resourceType, resourceID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
 	tagList := make([]r53Tag, 0, len(tags))
 	for k, v := range tags {
 		tagList = append(tagList, r53Tag{Key: k, Value: v})
@@ -1475,14 +1473,19 @@ func (h *Handler) changeTagsForResource(c *echo.Context) error {
 	path := c.Request().URL.Path
 	rest := strings.TrimPrefix(path, route53TagsPrefix)
 	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // path has two segments: type + id
+	resourceType := ""
 	resourceID := ""
+
+	if len(parts) >= 1 {
+		resourceType = parts[0]
+	}
 
 	if len(parts) >= 2 { //nolint:mnd // path has two segments: type + id
 		resourceID = parts[1]
 	}
 
-	if err := h.applyTagChanges(resourceID, c.Request()); err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", err.Error())
+	if err := h.applyTagChanges(resourceType, resourceID, c.Request()); err != nil {
+		return handleBackendError(c, err)
 	}
 
 	type changeTagsResp struct {
@@ -1498,38 +1501,34 @@ type applyTagChangesInput struct {
 	RemoveTagKeys []string     `xml:"RemoveTagKeys>Key"`
 }
 
-// applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove operations.
-// It returns an error if the body cannot be read or parsed.
-func (h *Handler) applyTagChanges(resourceID string, r *http.Request) error {
+// applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove
+// operations via a single backend call. Routing through one ChangeTagsForResource call
+// (even when the request carries no tag mutations) ensures a nonexistent or
+// wrong-resourceType target always surfaces the AWS NoSuchHostedZone/NoSuchHealthCheck
+// error instead of silently no-oping.
+func (h *Handler) applyTagChanges(resourceType, resourceID string, r *http.Request) error {
 	body, err := httputils.ReadBody(r)
 	if err != nil {
-		return fmt.Errorf("failed to read request body: %w", err)
-	}
-
-	if len(body) == 0 {
-		return nil
+		return fmt.Errorf("%w: failed to read request body: %s", ErrInvalidInput, err.Error())
 	}
 
 	var req applyTagChangesInput
 
-	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-		return fmt.Errorf("failed to parse XML: %w", xmlErr)
-	}
-
-	if len(req.AddTags) > 0 {
-		kv := make(map[string]string, len(req.AddTags))
-		for _, t := range req.AddTags {
-			kv[t.Key] = t.Value
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return fmt.Errorf("%w: failed to parse XML: %s", ErrInvalidInput, xmlErr.Error())
 		}
-
-		h.setTags(resourceID, kv)
 	}
 
-	if len(req.RemoveTagKeys) > 0 {
-		h.removeTags(resourceID, req.RemoveTagKeys)
+	var addTags map[string]string
+	if len(req.AddTags) > 0 {
+		addTags = make(map[string]string, len(req.AddTags))
+		for _, t := range req.AddTags {
+			addTags[t.Key] = t.Value
+		}
 	}
 
-	return nil
+	return h.Backend.ChangeTagsForResource(resourceType, resourceID, addTags, req.RemoveTagKeys)
 }
 
 // writeXML marshals v to XML and writes it to the response.
@@ -1582,7 +1581,7 @@ func xmlError(c *echo.Context, statusCode int, code, message string) error {
 
 // handleBackendError maps backend errors to HTTP responses.
 //
-//nolint:cyclop // one branch per error type; this is an exhaustive mapping function
+//nolint:cyclop,funlen // one branch per error type; this is an exhaustive mapping function
 func handleBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrHostedZoneNotFound):
@@ -1592,11 +1591,13 @@ func handleBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrKeySigningKeyNotFound):
 		return xmlError(c, http.StatusNotFound, "NoSuchKeySigningKey", err.Error())
 	case errors.Is(err, ErrCidrCollectionNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchCidrCollection", err.Error())
+		return xmlError(c, http.StatusNotFound, "NoSuchCidrCollectionException", err.Error())
 	case errors.Is(err, ErrQueryLoggingConfigNotFound):
 		return xmlError(c, http.StatusNotFound, "NoSuchQueryLoggingConfig", err.Error())
 	case errors.Is(err, ErrDelegationSetNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchDelegationSet", err.Error())
+		// AWS: NoSuchDelegationSet has httpStatusCode 400, unlike the other
+		// NoSuch* Route53 errors which are 404.
+		return xmlError(c, http.StatusBadRequest, "NoSuchDelegationSet", err.Error())
 	case errors.Is(err, ErrTrafficPolicyNotFound):
 		return xmlError(c, http.StatusNotFound, "NoSuchTrafficPolicy", err.Error())
 	case errors.Is(err, ErrTrafficPolicyInstNotFound):
@@ -1610,23 +1611,39 @@ func handleBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrNoSuchGeoLocation):
 		return xmlError(c, http.StatusNotFound, "NoSuchGeoLocation", err.Error())
 	case errors.Is(err, ErrQueryLoggingConfigAlreadyExists):
-		return xmlError(c, http.StatusBadRequest, "QueryLoggingConfigAlreadyExists", err.Error())
+		// AWS: QueryLoggingConfigAlreadyExists has httpStatusCode 409.
+		return xmlError(c, http.StatusConflict, "QueryLoggingConfigAlreadyExists", err.Error())
 	case errors.Is(err, ErrPublicZoneVPCAssociation):
 		return xmlError(c, http.StatusBadRequest, "PublicZoneVPCAssociation", err.Error())
 	case errors.Is(err, ErrVPCAssociationAuthorizationNF):
 		return xmlError(c, http.StatusNotFound, "VPCAssociationAuthorizationNotFound", err.Error())
+	case errors.Is(err, ErrVPCAssociationNotFound):
+		return xmlError(c, http.StatusNotFound, "VPCAssociationNotFound", err.Error())
 	case errors.Is(err, ErrKeySigningKeyWithActiveStatusNF):
 		return xmlError(c, http.StatusBadRequest, "KeySigningKeyWithActiveStatusNotFound", err.Error())
 	case errors.Is(err, ErrTrafficPolicyInUse):
 		return xmlError(c, http.StatusBadRequest, "TrafficPolicyInUse", err.Error())
-	case errors.Is(err, ErrKeySigningKeyNotInactive):
-		return xmlError(c, http.StatusBadRequest, "KeySigningKeyNotInactive", err.Error())
+	case errors.Is(err, ErrInvalidKeySigningKeyStatus):
+		return xmlError(c, http.StatusBadRequest, "InvalidKeySigningKeyStatus", err.Error())
 	case errors.Is(err, ErrTrafficPolicyAlreadyExists):
-		return xmlError(c, http.StatusBadRequest, "TrafficPolicyAlreadyExists", err.Error())
+		// AWS: TrafficPolicyAlreadyExists has httpStatusCode 409.
+		return xmlError(c, http.StatusConflict, "TrafficPolicyAlreadyExists", err.Error())
 	case errors.Is(err, ErrHostedZoneNotEmpty):
 		return xmlError(c, http.StatusBadRequest, "HostedZoneNotEmpty", err.Error())
 	case errors.Is(err, ErrLastVPCAssociation):
 		return xmlError(c, http.StatusBadRequest, "LastVPCAssociation", err.Error())
+	case errors.Is(err, ErrHostedZoneAlreadyExists):
+		return xmlError(c, http.StatusConflict, "HostedZoneAlreadyExists", err.Error())
+	case errors.Is(err, ErrHealthCheckAlreadyExists):
+		return xmlError(c, http.StatusConflict, "HealthCheckAlreadyExists", err.Error())
+	case errors.Is(err, ErrKeySigningKeyAlreadyExists):
+		return xmlError(c, http.StatusConflict, "KeySigningKeyAlreadyExists", err.Error())
+	case errors.Is(err, ErrTrafficPolicyInstanceAlreadyExists):
+		return xmlError(c, http.StatusConflict, "TrafficPolicyInstanceAlreadyExists", err.Error())
+	case errors.Is(err, ErrCidrCollectionAlreadyExists):
+		// AWS: CidrCollectionAlreadyExistsException has httpStatusCode 400
+		// (unlike most other *AlreadyExists Route53 errors, which are 409).
+		return xmlError(c, http.StatusBadRequest, "CidrCollectionAlreadyExistsException", err.Error())
 	default:
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}

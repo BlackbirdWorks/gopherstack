@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type zoneDataSnapshot struct {
@@ -26,6 +27,7 @@ type backendSnapshot struct {
 	VPCAssociations        map[string][]vpcAssociation              `json:"vpcAssociations,omitempty"`
 	VPCAssocAuthorizations map[string][]VPCAssociationAuthorization `json:"vpcAssocAuthorizations,omitempty"`
 	Changes                map[string]*ChangeInfo                   `json:"changes,omitempty"`
+	Tags                   map[string]*svcTags.Tags                 `json:"tags,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -46,6 +48,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		VPCAssociations:        make(map[string][]vpcAssociation, len(b.vpcAssociations)),
 		VPCAssocAuthorizations: make(map[string][]VPCAssociationAuthorization, len(b.vpcAssocAuthorizations)),
 		Changes:                make(map[string]*ChangeInfo, len(b.changes)),
+		Tags:                   b.tags,
 	}
 
 	for id, zd := range b.zones {
@@ -164,6 +167,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Changes == nil {
 		snap.Changes = make(map[string]*ChangeInfo)
 	}
+
+	if snap.Tags == nil {
+		snap.Tags = make(map[string]*svcTags.Tags)
+	}
 }
 
 // restoreSimpleMaps restores the simple (non-zone, non-traffic-policy) maps from a snapshot.
@@ -224,6 +231,8 @@ func (b *InMemoryBackend) restoreAssocMaps(snap *backendSnapshot) {
 		cp := *ch
 		b.changes[id] = &cp
 	}
+
+	b.tags = snap.Tags
 }
 
 // Restore loads backend state from a JSON snapshot.
