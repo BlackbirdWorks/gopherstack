@@ -20,8 +20,14 @@ type backendSnapshot struct {
 	LayerPolicies         map[string]map[int64]map[string]*LayerVersionStatement `json:"layerPolicies"`
 	EventInvokeConfigs    map[string]*FunctionEventInvokeConfig                  `json:"eventInvokeConfigs"`
 	FunctionConcurrencies map[string]int                                         `json:"functionConcurrencies"`
-	AccountID             string                                                 `json:"accountID"`
-	Region                string                                                 `json:"region"`
+	// Permissions holds each function's (optionally qualifier-scoped)
+	// resource-based policy statements, keyed by permissionMapKey(name,
+	// qualifier). Previously omitted from the snapshot entirely, so every
+	// AddPermission call was silently lost across a persistence Restore even
+	// though persistence was enabled — a no-stub-rule violation.
+	Permissions map[string]map[string]*FunctionPermission `json:"permissions,omitempty"`
+	AccountID   string                                    `json:"accountID"`
+	Region      string                                    `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -43,6 +49,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		LayerPolicies:         b.layerPolicies,
 		EventInvokeConfigs:    b.eventInvokeConfigs,
 		FunctionConcurrencies: b.functionConcurrencies,
+		Permissions:           b.permissions,
 		AccountID:             b.accountID,
 		Region:                b.region,
 	}
@@ -86,8 +93,44 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.layerPolicies = snap.LayerPolicies
 	b.eventInvokeConfigs = snap.EventInvokeConfigs
 	b.functionConcurrencies = snap.FunctionConcurrencies
+	b.permissions = snap.Permissions
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// versionIndex is a derived lookup (UUID/qualifier -> published version
+	// snapshot) built incrementally by PublishVersion; it is not itself
+	// serialised. Without rebuilding it here, every published version becomes
+	// unreachable by qualifier after a restore (GetFunction/Invoke with a
+	// numeric version, or an alias pointing at one, would incorrectly 404)
+	// even though the version data survived in b.versions.
+	b.versionIndex = make(map[string]map[string]*FunctionVersion)
+
+	for name, versions := range snap.Versions {
+		for _, v := range versions {
+			if v.Version == "" || v.Version == versionLatest {
+				continue
+			}
+
+			if b.versionIndex[name] == nil {
+				b.versionIndex[name] = make(map[string]*FunctionVersion)
+			}
+
+			b.versionIndex[name][v.Version] = v
+		}
+	}
+
+	// esmByFunctionARN is likewise a derived reverse index over
+	// eventSourceMappings; rebuild it so ListEventSourceMappings filtered by
+	// FunctionName keeps working after a restore.
+	b.esmByFunctionARN = make(map[string]map[string]struct{})
+
+	for id, m := range snap.EventSourceMappings {
+		if b.esmByFunctionARN[m.FunctionARN] == nil {
+			b.esmByFunctionARN[m.FunctionARN] = make(map[string]struct{})
+		}
+
+		b.esmByFunctionARN[m.FunctionARN][id] = struct{}{}
+	}
 
 	return nil
 }
@@ -137,6 +180,10 @@ func normalizeSnapshot(snap *backendSnapshot) {
 
 	if snap.FunctionConcurrencies == nil {
 		snap.FunctionConcurrencies = make(map[string]int)
+	}
+
+	if snap.Permissions == nil {
+		snap.Permissions = make(map[string]map[string]*FunctionPermission)
 	}
 }
 

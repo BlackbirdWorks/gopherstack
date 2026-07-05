@@ -483,13 +483,23 @@ func (b *InMemoryBackend) SetDynamoDBStreamsReader(r DynamoDBStreamsReader) {
 // esmFunctionName normalizes a function reference (bare name or full function ARN)
 // to the bare function name used for event-source-mapping indexing.
 func esmFunctionName(functionName string) string {
-	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
-		parts := strings.Split(functionName, ":")
-
-		return parts[len(parts)-1]
+	if !strings.HasPrefix(functionName, "arn:aws:lambda:") {
+		return functionName
 	}
 
-	return functionName
+	// Bug fix (parity-sweep-3): previously took the last colon-separated
+	// segment of the ARN, which for a qualified ARN
+	// (arn:...:function:my-func:PROD) returned just "PROD" — discarding the
+	// actual function name and causing the mapping to be registered (and the
+	// poller to invoke) a nonexistent function named after the qualifier.
+	// Preserve the "name:qualifier" suffix so the mapping keeps routing to
+	// the specific version/alias, matching real Lambda's FunctionArn echo.
+	name, qualifier := functionNameAndQualifierFromARN(functionName)
+	if qualifier != "" {
+		return name + ":" + qualifier
+	}
+
+	return name
 }
 
 // CreateEventSourceMapping creates a new event source mapping.
@@ -1882,6 +1892,43 @@ func extractFunctionName(name string) string {
 	}
 
 	return name
+}
+
+// functionNameAndQualifierFromARN splits a full/partial Lambda function ARN, or
+// the bare "name:qualifier" shorthand AWS also accepts, into the bare function
+// name and an optional version/alias qualifier.
+//
+// Examples:
+//
+//	arn:aws:lambda:us-east-1:000000000000:function:my-func       -> ("my-func", "")
+//	arn:aws:lambda:us-east-1:000000000000:function:my-func:PROD  -> ("my-func", "PROD")
+//	my-func:PROD                                                 -> ("my-func", "PROD")
+//	my-func                                                      -> ("my-func", "")
+//
+// Function names never contain a colon (AWS restricts them to
+// [a-zA-Z0-9-_]+), so any colon in the input unambiguously marks an ARN
+// boundary or an appended qualifier — never returns a false split.
+func functionNameAndQualifierFromARN(name string) (string, string) {
+	parts := strings.Split(name, ":")
+	for i, p := range parts {
+		if p == "function" && i+1 < len(parts) {
+			fnName := parts[i+1]
+			qualifier := ""
+			if i+2 < len(parts) {
+				qualifier = parts[i+2]
+			}
+
+			return fnName, qualifier
+		}
+	}
+
+	// Not an ARN with a "function:" segment. Support the bare "name:qualifier"
+	// shorthand (e.g. AddPermission/RemovePermission's "my-function:v1" format).
+	if before, after, ok := strings.Cut(name, ":"); ok && before != "" && after != "" {
+		return before, after
+	}
+
+	return name, ""
 }
 
 // resolveQualifier resolves a function name with an optional qualifier to a FunctionConfiguration.
@@ -4315,6 +4362,23 @@ func (b *InMemoryBackend) collectAndDeleteFunctions(cutoff time.Time) (
 	return purgedFunctions, urlServers, rts
 }
 
+// deletePermissionsForFunctionLocked removes both the unqualified
+// resource-policy and any qualifier-scoped policies (e.g. "name:PROD") for
+// the given function. Without this, deleting and recreating a function with
+// the same name would inherit stale qualified-policy statements left behind
+// under keys like "name:PROD" — a real leak since permissionMapKey scopes
+// policies per qualifier. Caller must hold b.mu.
+func (b *InMemoryBackend) deletePermissionsForFunctionLocked(name string) {
+	delete(b.permissions, name)
+
+	prefix := name + ":"
+	for key := range b.permissions {
+		if strings.HasPrefix(key, prefix) {
+			delete(b.permissions, key)
+		}
+	}
+}
+
 // deleteFunctionMapsLocked removes all map entries for a function.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
@@ -4330,7 +4394,7 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
 	delete(b.activeConcurrencies, name)
 	delete(b.provisionedConcurrencies, name)
 	delete(b.fisFaults, name)
-	delete(b.permissions, name)
+	b.deletePermissionsForFunctionLocked(name)
 	delete(b.fnCodeSigningConfigs, name)
 	delete(b.runtimeManagementConfigs, name)
 	delete(b.functionRecursionConfigs, name)
@@ -4377,69 +4441,131 @@ func (b *InMemoryBackend) shutdownPurgedResources(
 
 // --- AddPermission / resource-based policy ---
 
+// permissionMapKey returns the b.permissions map key for a function+qualifier
+// pair. Real Lambda resource policies are scoped per version/alias when
+// AddPermission is called with a Qualifier — the unqualified function-wide
+// policy and each qualified policy are entirely independent documents.
+func permissionMapKey(functionName, qualifier string) string {
+	if qualifier == "" {
+		return functionName
+	}
+
+	return functionName + ":" + qualifier
+}
+
+// qualifierExistsLocked reports whether qualifier resolves to a known alias
+// or published version of name. Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) qualifierExistsLocked(name, qualifier string) bool {
+	if qualifier == "" || qualifier == versionLatest {
+		return true
+	}
+
+	if aliasMap := b.aliases[name]; aliasMap != nil {
+		if _, ok := aliasMap[qualifier]; ok {
+			return true
+		}
+	}
+
+	if vMap := b.versionIndex[name]; vMap != nil {
+		if _, ok := vMap[qualifier]; ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// resolvePermissionTarget normalizes the FunctionName/Qualifier pair used by
+// AddPermission, RemovePermission, and GetPolicy. functionName may be a bare
+// name, a full/partial ARN, or the "name:qualifier" shorthand; qualifier is
+// the separate query-string Qualifier (may be empty). An explicit Qualifier
+// query parameter wins over one embedded in functionName.
+func resolvePermissionTarget(functionName, qualifier string) (string, string) {
+	name, arnQualifier := functionNameAndQualifierFromARN(functionName)
+	if qualifier == "" {
+		qualifier = arnQualifier
+	}
+
+	return name, qualifier
+}
+
 // AddPermission adds a permission statement to a function's resource-based policy.
+// When qualifier is non-empty the statement is scoped to that version/alias,
+// matching real Lambda: the invoker must then use the qualified ARN to invoke.
 func (b *InMemoryBackend) AddPermission(
-	functionName string,
+	functionName, qualifier string,
 	input *AddPermissionInput,
 ) (*AddPermissionOutput, error) {
 	b.mu.Lock("AddPermission")
 	defer b.mu.Unlock()
 
-	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
-		parts := strings.Split(functionName, ":")
-		functionName = parts[len(parts)-1]
+	name, qualifier := resolvePermissionTarget(functionName, qualifier)
+
+	if qualifier == versionLatest {
+		return nil, fmt.Errorf(
+			"%w: we currently do not support adding policies for $LATEST",
+			ErrInvalidParameterValue,
+		)
 	}
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions[name]; !ok {
 		return nil, ErrFunctionNotFound
 	}
 
-	if b.permissions[functionName] == nil {
-		b.permissions[functionName] = make(map[string]*FunctionPermission)
+	if qualifier != "" && !b.qualifierExistsLocked(name, qualifier) {
+		return nil, ErrVersionNotFound
 	}
 
-	if _, exists := b.permissions[functionName][input.StatementID]; exists {
+	key := permissionMapKey(name, qualifier)
+
+	if b.permissions[key] == nil {
+		b.permissions[key] = make(map[string]*FunctionPermission)
+	}
+
+	if _, exists := b.permissions[key][input.StatementID]; exists {
 		return nil, ErrFunctionAlreadyExists
 	}
 
 	perm := &FunctionPermission{
-		StatementID:   input.StatementID,
-		Action:        input.Action,
-		Principal:     input.Principal,
-		SourceArn:     input.SourceArn,
-		SourceAccount: input.SourceAccount,
-		Effect:        "Allow",
-		FunctionName:  functionName,
+		StatementID:      input.StatementID,
+		Action:           input.Action,
+		Principal:        input.Principal,
+		SourceArn:        input.SourceArn,
+		SourceAccount:    input.SourceAccount,
+		EventSourceToken: input.EventSourceToken,
+		PrincipalOrgID:   input.PrincipalOrgID,
+		Effect:           "Allow",
+		FunctionName:     name,
+		Qualifier:        qualifier,
 	}
 
-	b.permissions[functionName][input.StatementID] = perm
+	b.permissions[key][input.StatementID] = perm
 
-	resourceArn := arn.Build(
-		"lambda",
-		b.region,
-		b.accountID,
-		fmt.Sprintf("function:%s", functionName),
-	)
+	resource := "function:" + name
+	if qualifier != "" {
+		resource += ":" + qualifier
+	}
+
+	resourceArn := arn.Build("lambda", b.region, b.accountID, resource)
 	stmtJSON := buildPermissionStatementJSON(perm, resourceArn)
 
 	return &AddPermissionOutput{Statement: &stmtJSON}, nil
 }
 
 // RemovePermission removes a permission statement from a function's resource-based policy.
-func (b *InMemoryBackend) RemovePermission(functionName, statementID string) error {
+func (b *InMemoryBackend) RemovePermission(functionName, qualifier, statementID string) error {
 	b.mu.Lock("RemovePermission")
 	defer b.mu.Unlock()
 
-	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
-		parts := strings.Split(functionName, ":")
-		functionName = parts[len(parts)-1]
-	}
+	name, qualifier := resolvePermissionTarget(functionName, qualifier)
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions[name]; !ok {
 		return ErrFunctionNotFound
 	}
 
-	perms := b.permissions[functionName]
+	key := permissionMapKey(name, qualifier)
+
+	perms := b.permissions[key]
 	if perms == nil {
 		return ErrFunctionNotFound
 	}
@@ -4453,33 +4579,31 @@ func (b *InMemoryBackend) RemovePermission(functionName, statementID string) err
 	return nil
 }
 
-// GetPolicy returns the resource-based policy JSON for a function.
-func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, error) {
+// GetPolicy returns the resource-based policy JSON for a function, scoped to
+// qualifier when non-empty.
+func (b *InMemoryBackend) GetPolicy(functionName, qualifier string) (*GetPolicyOutput, error) {
 	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
 
-	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
-		parts := strings.Split(functionName, ":")
-		functionName = parts[len(parts)-1]
-	}
+	name, qualifier := resolvePermissionTarget(functionName, qualifier)
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions[name]; !ok {
 		return nil, ErrFunctionNotFound
 	}
 
-	perms := b.permissions[functionName]
+	perms := b.permissions[permissionMapKey(name, qualifier)]
 	if len(perms) == 0 {
 		return nil, ErrNoPolicyFound
 	}
 
 	stmts := make([]string, 0, len(perms))
 
-	resourceArn := arn.Build(
-		"lambda",
-		b.region,
-		b.accountID,
-		fmt.Sprintf("function:%s", functionName),
-	)
+	resource := "function:" + name
+	if qualifier != "" {
+		resource += ":" + qualifier
+	}
+
+	resourceArn := arn.Build("lambda", b.region, b.accountID, resource)
 
 	// Sort statements for deterministic output.
 	sortedPerms := make([]*FunctionPermission, 0, len(perms))
@@ -4520,13 +4644,33 @@ func buildPermissionStatementJSON(p *FunctionPermission, resourceArn string) str
 		p.StatementID, principalJSON, p.Action, resourceArn,
 	)
 
-	// Build Condition block for source constraints.
-	var conditions []string
+	// Build the Condition block. ArnLike and StringEquals are each a single
+	// JSON object — SourceAccount, PrincipalOrgID, and EventSourceToken all
+	// use the StringEquals operator and must be merged into ONE object
+	// (naively appending separate "StringEquals":{...} entries would emit
+	// duplicate JSON keys, which real AWS never does).
+	var arnLike []string
 	if p.SourceArn != "" {
-		conditions = append(conditions, fmt.Sprintf(`"ArnLike":{"AWS:SourceArn":%q}`, p.SourceArn))
+		arnLike = append(arnLike, fmt.Sprintf(`"AWS:SourceArn":%q`, p.SourceArn))
 	}
+
+	var stringEquals []string
 	if p.SourceAccount != "" {
-		conditions = append(conditions, fmt.Sprintf(`"StringEquals":{"AWS:SourceAccount":%q}`, p.SourceAccount))
+		stringEquals = append(stringEquals, fmt.Sprintf(`"AWS:SourceAccount":%q`, p.SourceAccount))
+	}
+	if p.PrincipalOrgID != "" {
+		stringEquals = append(stringEquals, fmt.Sprintf(`"aws:PrincipalOrgID":%q`, p.PrincipalOrgID))
+	}
+	if p.EventSourceToken != "" {
+		stringEquals = append(stringEquals, fmt.Sprintf(`"lambda:EventSourceToken":%q`, p.EventSourceToken))
+	}
+
+	var conditions []string
+	if len(arnLike) > 0 {
+		conditions = append(conditions, `"ArnLike":{`+strings.Join(arnLike, ",")+`}`)
+	}
+	if len(stringEquals) > 0 {
+		conditions = append(conditions, `"StringEquals":{`+strings.Join(stringEquals, ",")+`}`)
 	}
 
 	if len(conditions) > 0 {

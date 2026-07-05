@@ -16,8 +16,6 @@ import (
 const (
 	// arnKinesisPartCount is the number of colon-separated parts in a Kinesis ARN.
 	arnKinesisPartCount = 6
-	// arnLambdaPartCount is the number of colon-separated parts in a Lambda ARN.
-	arnLambdaPartCount = 7
 	// millisToSeconds converts Unix milliseconds to a float64 second timestamp.
 	millisToSeconds = 1000.0
 )
@@ -324,6 +322,29 @@ func (p *EventSourcePoller) sweepStaleIterators(activeUUIDs map[string]struct{})
 	}
 }
 
+// invokeESMFunctionEvent delivers an ESM batch to fnName as an async (Event)
+// invocation, honoring an optional qualifier (version/alias) so that mappings
+// created against a qualified function ARN (arn:...:function:my-func:PROD)
+// invoke that specific version/alias rather than $LATEST — matching real
+// Lambda ESM behaviour. Bug fix (parity-sweep-3): previously every ESM
+// delivery path called InvokeFunction unconditionally, silently ignoring any
+// qualifier and always invoking $LATEST.
+func (p *EventSourcePoller) invokeESMFunctionEvent(
+	ctx context.Context, fnName, qualifier string, payload []byte,
+) ([]byte, error) {
+	if qualifier == "" {
+		result, _, err := p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
+
+		return result, err
+	}
+
+	result, _, _, _, err := p.lambdaBackend.InvokeFunctionWithQualifier(
+		ctx, fnName, qualifier, "", "", InvocationTypeEvent, payload,
+	)
+
+	return result, err
+}
+
 // RemoveMapping removes any per-mapping poller state for the given ESM UUID.
 func (p *EventSourcePoller) RemoveMapping(uuid string) {
 	p.mu.Lock("RemoveMapping")
@@ -461,13 +482,13 @@ func (p *EventSourcePoller) invokeLambda(
 		return
 	}
 
-	// Extract function name from ARN
-	fnName := functionNameFromARN(m.FunctionARN)
+	// Extract function name (and optional version/alias qualifier) from ARN.
+	fnName, qualifier := functionNameAndQualifierFromARN(m.FunctionARN)
 	if fnName == "" {
 		fnName = m.FunctionARN
 	}
 
-	_, _, err = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
+	_, err = p.invokeESMFunctionEvent(ctx, fnName, qualifier, payload)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "event source poller: Lambda invocation failed",
 			"function", fnName, "stream", streamName, "error", err)
@@ -500,15 +521,20 @@ func streamNameFromARN(arn string) string {
 	return last[len(streamPrefix):]
 }
 
-// functionNameFromARN extracts the function name from a Lambda ARN.
-// Example: arn:aws:lambda:us-east-1:000000000000:function:my-func → my-func.
+// functionNameFromARN extracts the bare function name from a Lambda ARN,
+// stripping any trailing version/alias qualifier segment.
+// Example: arn:aws:lambda:us-east-1:000000000000:function:my-func:PROD → my-func.
+//
+// Bug fix (parity-sweep-3): this used to SplitN on ":" with a fixed part
+// count, which for a qualified ARN left the qualifier glued onto the name
+// (e.g. "my-func:PROD") and broke every existence/lookup check that expects
+// a bare function name (janitor health checks, tag lookups). It now
+// delegates to functionNameAndQualifierFromARN and returns just the name;
+// callers that need the qualifier (event delivery) use that helper directly.
 func functionNameFromARN(arn string) string {
-	parts := strings.SplitN(arn, ":", arnLambdaPartCount)
-	if len(parts) < arnLambdaPartCount {
-		return ""
-	}
+	name, _ := functionNameAndQualifierFromARN(arn)
 
-	return parts[arnLambdaPartCount-1]
+	return name
 }
 
 // isSQSARN reports whether the given ARN identifies an SQS queue.
@@ -663,7 +689,7 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 		return
 	}
 
-	fnName := functionNameFromARN(m.FunctionARN)
+	fnName, qualifier := functionNameAndQualifierFromARN(m.FunctionARN)
 	if fnName == "" {
 		fnName = m.FunctionARN
 	}
@@ -672,7 +698,7 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 	if p.ddbInvoker != nil {
 		invokeErr = p.ddbInvoker(ctx, fnName, payload)
 	} else {
-		_, _, invokeErr = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
+		_, invokeErr = p.invokeESMFunctionEvent(ctx, fnName, qualifier, payload)
 	}
 
 	if invokeErr != nil {
@@ -851,7 +877,7 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 		return nil, err
 	}
 
-	fnName := functionNameFromARN(m.FunctionARN)
+	fnName, qualifier := functionNameAndQualifierFromARN(m.FunctionARN)
 	if fnName == "" {
 		fnName = m.FunctionARN
 	}
@@ -866,7 +892,7 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 	if p.sqsInvoker != nil {
 		respBody, invokeErr = p.sqsInvoker(ctx, fnName)
 	} else {
-		respBody, _, invokeErr = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
+		respBody, invokeErr = p.invokeESMFunctionEvent(ctx, fnName, qualifier, payload)
 	}
 
 	if invokeErr != nil {

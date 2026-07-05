@@ -1433,9 +1433,12 @@ func TestBatch2_Permission_FullLifecycle(t *testing.T) {
 	assert.Contains(t, *pol.Policy, "AllowS3")
 	assert.Contains(t, *pol.Policy, "AllowSNS")
 
-	// Remove permission
+	// Remove permission. Real Lambda sends StatementId as a URI path segment
+	// (/policy/{StatementId}), never as a "?StatementId=" query parameter —
+	// this used to be a query string here, which encoded the pre-fix (wrong)
+	// wire shape and could never be hit by a real aws-sdk-go-v2 client.
 	delRec := callInMemoryHandler(t, h, http.MethodDelete,
-		"/2015-03-31/functions/perm-fn/policy?StatementId=AllowS3", "")
+		"/2015-03-31/functions/perm-fn/policy/AllowS3", "")
 	assert.Equal(t, http.StatusNoContent, delRec.Code)
 
 	// Get policy after remove
@@ -1449,15 +1452,47 @@ func TestBatch2_Permission_FullLifecycle(t *testing.T) {
 	assert.Contains(t, *pol2.Policy, "AllowSNS")
 }
 
-func TestBatch2_Permission_NoPolicy_Returns404(t *testing.T) {
+// Test_Permission_ErrorCases covers GetPolicy/RemovePermission error paths that
+// don't fit the full add/get/remove lifecycle above.
+func Test_Permission_ErrorCases(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newInMemoryHandler(t)
-	createFunctionForTest(t, h, "nopolicy-fn")
+	tests := []struct {
+		name       string
+		fnName     string
+		method     string
+		pathSuffix string
+		wantStatus int
+	}{
+		{
+			name:       "GetPolicy on a function with no permissions returns 404",
+			fnName:     "nopolicy-fn",
+			method:     http.MethodGet,
+			pathSuffix: "/policy",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			// Wire format: StatementId is a path segment, not a query param.
+			name:       "RemovePermission for a nonexistent statement returns 404",
+			fnName:     "rm-404-fn",
+			method:     http.MethodDelete,
+			pathSuffix: "/policy/nonexistent-stmt",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := callInMemoryHandler(t, h, http.MethodGet,
-		"/2015-03-31/functions/nopolicy-fn/policy", "")
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newInMemoryHandler(t)
+			createFunctionForTest(t, h, tc.fnName)
+
+			rec := callInMemoryHandler(t, h, tc.method,
+				"/2015-03-31/functions/"+tc.fnName+tc.pathSuffix, "")
+			assert.Equal(t, tc.wantStatus, rec.Code)
+		})
+	}
 }
 
 func TestBatch2_Permission_SourceArn(t *testing.T) {
@@ -1485,16 +1520,82 @@ func TestBatch2_Permission_SourceArn(t *testing.T) {
 	assert.Contains(t, *addOut.Statement, "AllowSpecificBucket")
 }
 
-func TestBatch2_Permission_RemoveNotFound(t *testing.T) {
+// Test_AddPermission_Qualifier verifies real Lambda's per-qualifier
+// resource-based policies (parity-sweep-3 fix): a statement added with
+// Qualifier=<version> is stored separately from the unqualified policy and
+// only visible via GetPolicy scoped to that same qualifier, and AddPermission
+// rejects Qualifier=$LATEST exactly as AWS does ("Lambda does not support
+// adding policies to version $LATEST"). Each case builds its own handler,
+// backend, and function from scratch — no case depends on state left behind
+// by another, and every case is safe to run in parallel.
+func Test_AddPermission_Qualifier(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newInMemoryHandler(t)
-	createFunctionForTest(t, h, "rm-404-fn")
+	const fnName = "qual-fn"
 
-	rec := callInMemoryHandler(t, h, http.MethodDelete,
-		"/2015-03-31/functions/rm-404-fn/policy?StatementId=nonexistent-stmt", "")
-	// Backend returns error for missing statement; handler maps to 500 or 404
-	assert.NotEqual(t, http.StatusNoContent, rec.Code)
+	tests := []struct {
+		name           string
+		qualifier      string
+		publishVersion bool
+		wantAddStatus  int
+	}{
+		{
+			name:          "rejects Qualifier=$LATEST",
+			qualifier:     "$LATEST",
+			wantAddStatus: http.StatusBadRequest,
+		},
+		{
+			name:          "rejects an unknown qualifier",
+			qualifier:     "99",
+			wantAddStatus: http.StatusNotFound,
+		},
+		{
+			name:           "scoped to a published version succeeds and is isolated from the unqualified policy",
+			qualifier:      "1",
+			publishVersion: true,
+			wantAddStatus:  http.StatusCreated,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, bk := newInMemoryHandler(t)
+			createFunctionForTest(t, h, fnName)
+
+			if tc.publishVersion {
+				_, pubErr := bk.PublishVersion(fnName, "")
+				require.NoError(t, pubErr)
+			}
+
+			addRec := callInMemoryHandler(t, h, http.MethodPost,
+				"/2015-03-31/functions/"+fnName+"/policy?Qualifier="+tc.qualifier,
+				`{"StatementId":"s-stmt","Action":"lambda:InvokeFunction","Principal":"s3.amazonaws.com"}`)
+			require.Equal(t, tc.wantAddStatus, addRec.Code)
+
+			if tc.wantAddStatus != http.StatusCreated {
+				return
+			}
+
+			// The qualified statement must not leak into the unqualified policy:
+			// no unqualified statement was ever added, so GetPolicy 404s.
+			unqualRec := callInMemoryHandler(t, h, http.MethodGet,
+				"/2015-03-31/functions/"+fnName+"/policy", "")
+			assert.Equal(t, http.StatusNotFound, unqualRec.Code)
+
+			// ...but it is visible when GetPolicy is scoped to the same qualifier,
+			// and the Resource ARN in the statement carries the qualifier suffix.
+			qualRec := callInMemoryHandler(t, h, http.MethodGet,
+				"/2015-03-31/functions/"+fnName+"/policy?Qualifier="+tc.qualifier, "")
+			require.Equal(t, http.StatusOK, qualRec.Code)
+
+			qualOut := lambdaParseBody(t, qualRec)
+			policyStr, _ := qualOut["Policy"].(string)
+			assert.Contains(t, policyStr, "s-stmt")
+			assert.Contains(t, policyStr, "arn:aws:lambda:us-east-1:000000000000:function:qual-fn:1")
+		})
+	}
 }
 
 // ============================================================

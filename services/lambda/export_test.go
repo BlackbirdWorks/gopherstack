@@ -61,6 +61,12 @@ func StreamNameFromARN(arn string) string { return streamNameFromARN(arn) }
 // FunctionNameFromARN exports the internal functionNameFromARN function for testing.
 func FunctionNameFromARN(arn string) string { return functionNameFromARN(arn) }
 
+// FunctionNameAndQualifierFromARN exports the internal
+// functionNameAndQualifierFromARN function for testing.
+func FunctionNameAndQualifierFromARN(name string) (string, string) {
+	return functionNameAndQualifierFromARN(name)
+}
+
 // PollOnce triggers a single poll cycle on the given EventSourcePoller.
 func PollOnce(ctx context.Context, p *EventSourcePoller) { p.poll(ctx) }
 
