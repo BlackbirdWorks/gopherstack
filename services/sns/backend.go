@@ -86,8 +86,13 @@ var (
 	ErrPermissionLabelExists            = errors.New("AuthorizationError")
 	ErrPermissionLabelNotFound          = errors.New("AuthorizationError")
 	ErrSandboxPhoneNotVerified          = errors.New("InvalidParameter")
-	ErrOptedOut                         = errors.New("KMSOptInRequired")
-	ErrHTTPStatus                       = errors.New("HTTP status")
+	// ErrOptedOut maps to the SNS "OptedOut" error code (see errorCode in handler.go).
+	// The sentinel's own message must describe the actual condition, since %w-wrapping
+	// embeds it verbatim into the API error message returned to the caller: it
+	// previously read "KMSOptInRequired", an unrelated KMS error string that leaked
+	// into every opted-out-SMS error message.
+	ErrOptedOut   = errors.New("OptedOut")
+	ErrHTTPStatus = errors.New("HTTP status")
 )
 
 const (
@@ -171,6 +176,14 @@ const (
 	// maxArchivedMessagesPerTopic caps the in-memory archive per topic.
 	// When the cap is exceeded, the oldest messages are evicted.
 	maxArchivedMessagesPerTopic = 100_000
+
+	// maxRecordedDeliveries caps each in-memory delivery-observation buffer
+	// (smsDeliveries, emailDeliveries, applicationDeliveries). Unlike AWS's real
+	// SMS/email/mobile-push delivery paths, this mock has no external sink for
+	// those protocols, so it records deliveries for later inspection via the
+	// Drain* methods. Without a cap, sustained publish traffic to a topic whose
+	// subscribers never drain these buffers grows them without bound.
+	maxRecordedDeliveries = 100_000
 
 	// maxTopicNameLen is the maximum length of an SNS topic name.
 	maxTopicNameLen = 256
@@ -394,12 +407,32 @@ type ArchivedMessage struct {
 
 // notificationSigner holds the RSA key pair and self-signed certificate used to
 // sign SNS HTTP/HTTPS notification envelopes per AWS SignatureVersion=2 spec.
-// The certificate is served at the URL stored in certURL so subscribers can
-// verify signatures without contacting the real AWS endpoint.
+// The certificate is served at the URL stored in certURLValue so subscribers can
+// verify signatures without contacting the real AWS endpoint. certURLValue is
+// guarded by mu because SetSigningCertBaseURL may be called concurrently with
+// in-flight deliveries that read the URL (e.g. a late server-address rewire
+// racing a publish already in progress).
 type notificationSigner struct {
-	privateKey *rsa.PrivateKey
-	certURL    string // URL where certPEM is accessible (configurable for tests)
-	certPEM    []byte // PEM-encoded DER certificate, served at certURL
+	privateKey   *rsa.PrivateKey
+	certURLValue string
+	certPEM      []byte
+	mu           sync.RWMutex
+}
+
+// certURL returns the URL where certPEM is currently served.
+func (s *notificationSigner) certURL() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.certURLValue
+}
+
+// setCertURL updates the URL where certPEM is served.
+func (s *notificationSigner) setCertURL(u string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.certURLValue = u
 }
 
 // newNotificationSigner generates a fresh RSA-2048 key pair and a self-signed
@@ -436,10 +469,10 @@ func newNotificationSigner(region string) *notificationSigner {
 	return &notificationSigner{
 		privateKey: key,
 		certPEM:    certPEM,
-		// certURL is set later via SetSigningCertBaseURL when the server address is known.
+		// certURLValue is set later via SetSigningCertBaseURL when the server address is known.
 		// The initial value uses the backend region so URLs are correct before
 		// SetSigningCertBaseURL is called (e.g. in non-HTTP test scenarios).
-		certURL: fmt.Sprintf("https://sns.%s.amazonaws.com/SimpleNotificationService.pem", region),
+		certURLValue: fmt.Sprintf("https://sns.%s.amazonaws.com/SimpleNotificationService.pem", region),
 	}
 }
 
@@ -615,7 +648,7 @@ func (b *InMemoryBackend) SigningCertPEM() []byte {
 // known so that subscribers can retrieve the verification certificate.
 // The URL should point to the mock server's /SimpleNotificationService.pem path.
 func (b *InMemoryBackend) SetSigningCertBaseURL(baseURL string) {
-	b.signer.certURL = strings.TrimRight(baseURL, "/") + "/SimpleNotificationService.pem"
+	b.signer.setCertURL(strings.TrimRight(baseURL, "/") + "/SimpleNotificationService.pem")
 }
 
 // SetPublishEmitter registers an event emitter that fires when a message is published.
@@ -772,6 +805,13 @@ func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
 		}
 	}
 	delete(b.topicSubscriptions, topicArn)
+
+	// Drop the message archive (ArchivePolicy replay buffer). Without this the
+	// archive both leaks unboundedly for every created-then-deleted topic ARN and,
+	// because SNS topic ARNs are deterministic (arn:...:<name>), silently
+	// resurfaces a deleted topic's old archived messages to ReplayPolicy
+	// subscribers on a newly created topic that reuses the same name.
+	delete(b.topicMessageArchive, topicArn)
 
 	return nil
 }
@@ -2090,17 +2130,20 @@ func (b *InMemoryBackend) dispatchHTTPDeliveries(deliveries []httpDelivery, clie
 	}
 }
 
-// emitPublishedEvent fires an SNSPublishedEvent so other services (e.g. SQS)
-// can react. It is a no-op when no emitter has been registered.
-func (b *InMemoryBackend) emitPublishedEvent(
+// buildPublishedEvent constructs the SNSPublishedEvent broadcast to every
+// non-HTTP delivery channel for a single Publish call: the SQS emitter, and
+// the Lambda/Firehose/SMS/Application delivery fan-out below. The timestamp,
+// RSA signature, and signing certificate URL are computed exactly once here so
+// every channel carries an identical, verifiable notification envelope —
+// matching real AWS SNS, which signs a message once per publish and reuses
+// that signature across all destinations. Previously each delivery function
+// received its own bare event with empty Timestamp/Signature/SigningCertURL
+// fields, and the Lambda envelope fabricated a random-UUID "signature" instead.
+func (b *InMemoryBackend) buildPublishedEvent(
 	topicArn, messageID, message, subject string,
 	attrs map[string]MessageAttribute,
 	subs []events.SNSSubscriptionSnapshot,
-) {
-	if b.emitter == nil {
-		return
-	}
-
+) *events.SNSPublishedEvent {
 	attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(attrs))
 	for k, v := range attrs {
 		attrSnaps[k] = events.SNSMessageAttributeSnapshot{
@@ -2109,14 +2152,12 @@ func (b *InMemoryBackend) emitPublishedEvent(
 		}
 	}
 
-	// Compute a fixed timestamp and RSA-SHA1 signature so SQS envelope
-	// delivery can include a verifiable Signature field per AWS spec.
 	ts := time.Now().UTC().Format(time.RFC3339)
 	canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
 	sig := b.signer.sign(canonical)
-	certURL := b.signer.certURL
+	certURL := b.signer.certURL()
 
-	_ = b.emitter.Emit(b.svcCtx, &events.SNSPublishedEvent{
+	return &events.SNSPublishedEvent{
 		TopicARN:       topicArn,
 		MessageID:      messageID,
 		Message:        message,
@@ -2126,7 +2167,17 @@ func (b *InMemoryBackend) emitPublishedEvent(
 		Timestamp:      ts,
 		Signature:      sig,
 		SigningCertURL: certURL,
-	})
+	}
+}
+
+// emitPublishedEvent broadcasts ev to the publish emitter (e.g. to SQS). It is
+// a no-op when no emitter has been registered.
+func (b *InMemoryBackend) emitPublishedEvent(ev *events.SNSPublishedEvent) {
+	if b.emitter == nil {
+		return
+	}
+
+	_ = b.emitter.Emit(b.svcCtx, ev)
 }
 
 // Publish delivers a message to all subscriptions of topicArn. HTTP/HTTPS
@@ -2188,15 +2239,11 @@ func (b *InMemoryBackend) Publish(
 
 	b.recordEmailDeliveries(targets.emailDeliveries, messageID, topicArn)
 
-	b.emitPublishedEvent(topicArn, messageID, message, subject, attrs, targets.subs)
+	// Build the shared event once so every channel below carries the same
+	// verifiable Timestamp/Signature/SigningCertURL (see buildPublishedEvent).
+	ev := b.buildPublishedEvent(topicArn, messageID, message, subject, attrs, targets.subs)
 
-	ev := &events.SNSPublishedEvent{
-		TopicARN:      topicArn,
-		MessageID:     messageID,
-		Message:       message,
-		Subject:       subject,
-		Subscriptions: targets.subs,
-	}
+	b.emitPublishedEvent(ev)
 	b.deliverToLambdaSubscriptions(ev)
 	b.deliverToFirehoseSubscriptions(ev)
 	b.deliverToSMSSubscriptions(ev)
@@ -2267,11 +2314,11 @@ func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error
 	msgID := uuid.New().String()
 
 	b.mu.Lock("PublishSMS")
-	b.smsDeliveries = append(b.smsDeliveries, SMSDelivery{
+	b.smsDeliveries = appendBounded(b.smsDeliveries, SMSDelivery{
 		PhoneNumber: phoneNumber,
 		Message:     message,
 		MessageID:   msgID,
-	})
+	}, maxRecordedDeliveries)
 	b.mu.Unlock()
 
 	return msgID, nil
@@ -2319,7 +2366,7 @@ func (b *InMemoryBackend) recordEmailDeliveries(
 	for i := range deliveries {
 		deliveries[i].MessageID = messageID
 		deliveries[i].TopicARN = topicArn
-		b.emailDeliveries = append(b.emailDeliveries, deliveries[i])
+		b.emailDeliveries = appendBounded(b.emailDeliveries, deliveries[i], maxRecordedDeliveries)
 	}
 }
 
@@ -2980,7 +3027,7 @@ func buildHTTPDeliveryPayload(d httpDelivery) string {
 		)
 		signature := "MOCK-SIGNATURE"
 		if d.signer != nil {
-			certURL = d.signer.certURL
+			certURL = d.signer.certURL()
 			canonical := canonicalNotificationString(
 				d.messageID, d.topicARN, d.subject, d.body, timestamp,
 			)
@@ -3109,6 +3156,18 @@ func decodeToken(token string) (int, error) {
 // encodeToken encodes an integer offset as a base64 pagination token.
 func encodeToken(offset int) string {
 	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// appendBounded appends item to slice, evicting the oldest entries once the
+// result exceeds maxLen. Used to bound the smsDeliveries/emailDeliveries/
+// applicationDeliveries observability buffers (see maxRecordedDeliveries).
+func appendBounded[T any](slice []T, item T, maxLen int) []T {
+	slice = append(slice, item)
+	if len(slice) > maxLen {
+		slice = slice[len(slice)-maxLen:]
+	}
+
+	return slice
 }
 
 // paginate returns a page of items and the next token, or an empty token when exhausted.
@@ -3729,23 +3788,29 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 			deliverHTTPWithMeta(b.svcCtx, d, client, b)
 		}
 
-		if emitter != nil {
-			attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(msg.Attributes))
-			for k, v := range msg.Attributes {
-				attrSnaps[k] = events.SNSMessageAttributeSnapshot{
-					DataType:    v.DataType,
-					StringValue: v.StringValue,
-				}
-			}
+		// Build one shared event for this replayed message and fan it out through
+		// the same per-protocol delivery functions Publish uses. Previously replay
+		// only reached HTTP/HTTPS (above) and SQS (via the emitter below); a
+		// subscription with a ReplayPolicy on Lambda, Firehose, SMS, or Application
+		// protocol silently received nothing for archived messages.
+		replayEv := b.buildPublishedEvent(
+			topicArn, msg.MessageID, msg.Message, msg.Subject, msg.Attributes,
+			[]events.SNSSubscriptionSnapshot{subSnap},
+		)
 
-			_ = emitter.Emit(b.svcCtx, &events.SNSPublishedEvent{
-				TopicARN:      topicArn,
-				MessageID:     msg.MessageID,
-				Message:       msg.Message,
-				Subject:       msg.Subject,
-				Subscriptions: []events.SNSSubscriptionSnapshot{subSnap},
-				Attributes:    attrSnaps,
-			})
+		if emitter != nil {
+			_ = emitter.Emit(b.svcCtx, replayEv)
+		}
+
+		switch sub.Protocol {
+		case protocolLambda:
+			b.deliverToLambdaSubscriptions(replayEv)
+		case protocolFirehose:
+			b.deliverToFirehoseSubscriptions(replayEv)
+		case protocolSMS:
+			b.deliverToSMSSubscriptions(replayEv)
+		case protocolApplication:
+			b.deliverToApplicationSubscriptions(replayEv)
 		}
 	}
 }

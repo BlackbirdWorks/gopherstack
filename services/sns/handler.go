@@ -1929,8 +1929,13 @@ func extractBatchEntries(form url.Values) []batchEntry {
 			return entries
 		}
 
-		// Extract per-entry MessageAttributes.
-		prefix := fmt.Sprintf("PublishBatchRequestEntries.member.%d.", i)
+		// Extract per-entry MessageAttributes. The AWS query-protocol wire shape
+		// nests each entry's attribute map under its own "MessageAttributes" key
+		// (PublishBatchRequestEntries.member.N.MessageAttributes.entry.M.Name/Value...),
+		// matching the same shape a top-level Publish uses under "MessageAttributes.".
+		// A prior version omitted the "MessageAttributes." segment, so no batch
+		// entry's message attributes were ever parsed from a real SDK request.
+		prefix := fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageAttributes.", i)
 		attrs := extractMessageAttributesWithPrefix(form, prefix)
 
 		entries = append(entries, batchEntry{

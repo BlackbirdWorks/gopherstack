@@ -73,7 +73,7 @@ func WaitDeliveriesForTest(b *InMemoryBackend) {
 // SigningCertURLForTest exposes the signer's certURL so tests can verify it
 // reflects the correct region rather than a hardcoded us-east-1.
 func SigningCertURLForTest(b *InMemoryBackend) string {
-	return b.signer.certURL
+	return b.signer.certURL()
 }
 
 // NewFifoDedupForTest creates a fifoDeduplication for white-box unit tests.

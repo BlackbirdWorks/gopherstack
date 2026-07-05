@@ -1498,6 +1498,76 @@ func TestSNSHandler_PublishBatch(t *testing.T) {
 	}
 }
 
+// Test_PublishBatchEntryMessageAttributesFilterPolicy verifies that a
+// PublishBatch entry's MessageAttributes are read from the correct AWS
+// query-protocol field name — PublishBatchRequestEntries.member.N.MessageAttributes.entry.M.*
+// — and applied to subscription FilterPolicy matching. A prior version parsed
+// PublishBatchRequestEntries.member.N.entry.M.* (missing the "MessageAttributes."
+// segment), so every batch entry's message attributes were silently dropped and
+// no batch publish could ever match an attribute-based FilterPolicy.
+func Test_PublishBatchEntryMessageAttributesFilterPolicy(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		colorValue  string
+		wantMatched bool
+	}{
+		{name: "matching attribute delivers", colorValue: "red", wantMatched: true},
+		{name: "non-matching attribute is filtered out", colorValue: "blue", wantMatched: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Each subtest builds its own isolated backend, topic, subscriber, and server.
+			received := make(chan string, 1)
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				received <- extractSNSHTTPMessage(string(body))
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer ts.Close()
+
+			b := sns.NewInMemoryBackend()
+			h := sns.NewHandler(b)
+			topicArn := mustCreateTopic(t, b, "batch-attr-topic")
+
+			sub, err := b.Subscribe(topicArn, "http", ts.URL, `{"color":["red"]}`)
+			require.NoError(t, err)
+			require.NotEmpty(t, sub.SubscriptionArn)
+
+			rec := snsPost(t, h, url.Values{
+				"Action":                                 {"PublishBatch"},
+				"Version":                                {"2010-03-31"},
+				"TopicArn":                               {topicArn},
+				"PublishBatchRequestEntries.member.1.Id": {"entry-1"},
+				"PublishBatchRequestEntries.member.1.Message":                                     {"batch-message"},
+				"PublishBatchRequestEntries.member.1.MessageAttributes.entry.1.Name":              {"color"},
+				"PublishBatchRequestEntries.member.1.MessageAttributes.entry.1.Value.DataType":    {"String"},
+				"PublishBatchRequestEntries.member.1.MessageAttributes.entry.1.Value.StringValue": {tc.colorValue},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Contains(t, rec.Body.String(), "entry-1")
+
+			sns.WaitDeliveriesForTest(b)
+
+			select {
+			case msg := <-received:
+				if !tc.wantMatched {
+					t.Fatalf("message delivered despite non-matching FilterPolicy: %q", msg)
+				}
+				assert.Equal(t, "batch-message", msg)
+			case <-time.After(300 * time.Millisecond):
+				if tc.wantMatched {
+					t.Fatal("message was not delivered despite matching FilterPolicy")
+				}
+			}
+		})
+	}
+}
+
 func TestSNSHandler_Routing(t *testing.T) {
 	t.Parallel()
 

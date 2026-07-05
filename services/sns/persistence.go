@@ -17,9 +17,14 @@ type backendSnapshot struct {
 	OptedOutPhoneNumbers map[string]bool                  `json:"optedOutPhoneNumbers,omitempty"`
 	SMSAttributes        map[string]string                `json:"smsAttributes,omitempty"`
 	OriginationNumbers   map[string][]XMLOriginationPhone `json:"originationNumbers,omitempty"`
-	SMSSandboxEnabled    *bool                            `json:"smsSandboxEnabled,omitempty"`
-	AccountID            string                           `json:"accountID"`
-	Region               string                           `json:"region"`
+	// TopicMessageArchive holds per-topic ArchivePolicy message archives, keyed by
+	// topic ARN. Without persisting this, a restart (or snapshot restore) silently
+	// discards all archived messages, so ReplayPolicy subscriptions set up before
+	// the restart can no longer replay anything.
+	TopicMessageArchive map[string][]*ArchivedMessage `json:"topicMessageArchive,omitempty"`
+	SMSSandboxEnabled   *bool                         `json:"smsSandboxEnabled,omitempty"`
+	AccountID           string                        `json:"accountID"`
+	Region              string                        `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -39,6 +44,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		OptedOutPhoneNumbers: b.optedOutPhoneNumbers,
 		SMSAttributes:        b.smsAttributes,
 		OriginationNumbers:   b.originationNumbers,
+		TopicMessageArchive:  b.topicMessageArchive,
 		AccountID:            b.accountID,
 		Region:               b.region,
 		SMSSandboxEnabled:    &sandboxEnabled,
@@ -47,19 +53,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return persistence.MarshalSnapshot(ctx, "sns", snap)
 }
 
-// Restore loads backend state from a JSON snapshot.
-// It implements persistence.Persistable.
-// The event emitter is not restored — it is re-wired by the CLI after restore.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var snap backendSnapshot
-
-	if err := persistence.UnmarshalSnapshot(ctx, "sns", data, &snap); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
+// fillDefaults replaces any nil map field with an empty, non-nil map so older
+// snapshots (written before a field existed) restore cleanly instead of leaving
+// the backend with a nil map that panics on first write.
+func (snap *backendSnapshot) fillDefaults() {
 	if snap.Topics == nil {
 		snap.Topics = make(map[string]*Topic)
 	}
@@ -96,6 +93,26 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.OriginationNumbers = make(map[string][]XMLOriginationPhone)
 	}
 
+	if snap.TopicMessageArchive == nil {
+		snap.TopicMessageArchive = make(map[string][]*ArchivedMessage)
+	}
+}
+
+// Restore loads backend state from a JSON snapshot.
+// It implements persistence.Persistable.
+// The event emitter is not restored — it is re-wired by the CLI after restore.
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
+	var snap backendSnapshot
+
+	if err := persistence.UnmarshalSnapshot(ctx, "sns", data, &snap); err != nil {
+		return err
+	}
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	snap.fillDefaults()
+
 	b.topics = snap.Topics
 	b.subscriptions = snap.Subscriptions
 	b.topicTags = snap.TopicTags
@@ -105,6 +122,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.optedOutPhoneNumbers = snap.OptedOutPhoneNumbers
 	b.smsAttributes = snap.SMSAttributes
 	b.originationNumbers = snap.OriginationNumbers
+	b.topicMessageArchive = snap.TopicMessageArchive
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	if snap.SMSSandboxEnabled != nil {

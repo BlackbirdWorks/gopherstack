@@ -20,6 +20,7 @@ package sns_test
 //   - Subscribe Firehose requires SubscriptionRoleArn
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -1087,6 +1088,173 @@ func TestBatch2_ReplayPolicyFutureTimestampReplayesNothing(t *testing.T) {
 		t.Fatal("no message should be replayed with a future replayFromTimestamp")
 	case <-time.After(400 * time.Millisecond):
 		// Expected: nothing replayed.
+	}
+}
+
+// Test_ReplayPolicyDeliversToAllSubscriptionProtocols verifies that a
+// subscription's ReplayPolicy fans archived messages out through the same
+// per-protocol delivery path a live Publish uses. Before this fix, replay only
+// ever reached HTTP/HTTPS (a direct call in replayMessagesToSubscription) and
+// SQS (via the publish emitter); a subscription with a ReplayPolicy on the
+// Lambda, Firehose, SMS, or Application protocol silently replayed nothing.
+func Test_ReplayPolicyDeliversToAllSubscriptionProtocols(t *testing.T) {
+	t.Parallel()
+
+	const archivedMessage = "archived-message"
+
+	type caseResult struct {
+		verify   func(t *testing.T)
+		endpoint string
+	}
+
+	cases := []struct {
+		setup func(t *testing.T, b *sns.InMemoryBackend) caseResult
+		name  string
+		proto string
+	}{
+		{
+			name:  "lambda",
+			proto: "lambda",
+			setup: func(t *testing.T, b *sns.InMemoryBackend) caseResult {
+				t.Helper()
+
+				lambda := &mockLambdaInvoker{}
+				b.SetLambdaBackend(lambda)
+
+				return caseResult{
+					endpoint: "arn:aws:lambda:us-east-1:123456789012:function:replay-fn",
+					verify: func(t *testing.T) {
+						t.Helper()
+						require.Eventually(t, func() bool { return lambda.Count() == 1 },
+							2*time.Second, 10*time.Millisecond, "lambda function was never invoked")
+
+						var envelope map[string]any
+						require.NoError(t, json.Unmarshal(lambda.Last().Payload, &envelope))
+						records, _ := envelope["Records"].([]any)
+						require.Len(t, records, 1)
+						record, _ := records[0].(map[string]any)
+						snsData, _ := record["Sns"].(map[string]any)
+						assert.Equal(t, archivedMessage, snsData["Message"])
+						assert.NotEmpty(t, snsData["Signature"], "replayed Lambda envelope must carry a real signature")
+					},
+				}
+			},
+		},
+		{
+			name:  "firehose",
+			proto: "firehose",
+			setup: func(t *testing.T, b *sns.InMemoryBackend) caseResult {
+				t.Helper()
+
+				const streamName = "replay-stream"
+				firehose := newMockFirehose()
+				b.SetFirehoseBackend(firehose)
+
+				return caseResult{
+					endpoint: "arn:aws:firehose:us-east-1:123456789012:deliverystream/" + streamName,
+					verify: func(t *testing.T) {
+						t.Helper()
+						require.Eventually(t, func() bool { return len(firehose.RecordsFor(streamName)) == 1 },
+							2*time.Second, 10*time.Millisecond, "firehose stream received no record")
+
+						var envelope map[string]any
+						require.NoError(t, json.Unmarshal(firehose.RecordsFor(streamName)[0], &envelope))
+						assert.Equal(t, archivedMessage, envelope["Message"])
+					},
+				}
+			},
+		},
+		{
+			name:  "sms",
+			proto: "sms",
+			setup: func(t *testing.T, b *sns.InMemoryBackend) caseResult {
+				t.Helper()
+
+				return caseResult{
+					endpoint: "+15005550006",
+					verify: func(t *testing.T) {
+						t.Helper()
+
+						var got []sns.SMSDelivery
+						require.Eventually(t, func() bool {
+							if d := b.DrainSMSDeliveries(); len(d) > 0 {
+								got = d
+
+								return true
+							}
+
+							return false
+						}, 2*time.Second, 10*time.Millisecond, "SMS delivery was never recorded")
+
+						require.Len(t, got, 1)
+						assert.Equal(t, archivedMessage, got[0].Message)
+					},
+				}
+			},
+		},
+		{
+			name:  "application",
+			proto: "application",
+			setup: func(t *testing.T, b *sns.InMemoryBackend) caseResult {
+				t.Helper()
+
+				app, err := b.CreatePlatformApplication("replay-app", "GCM", nil)
+				require.NoError(t, err)
+				ep, err := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "replay-token", nil)
+				require.NoError(t, err)
+
+				return caseResult{
+					endpoint: ep.EndpointArn,
+					verify: func(t *testing.T) {
+						t.Helper()
+
+						var got []sns.ApplicationDelivery
+						require.Eventually(t, func() bool {
+							if d := b.DrainApplicationDeliveries(); len(d) > 0 {
+								got = d
+
+								return true
+							}
+
+							return false
+						}, 2*time.Second, 10*time.Millisecond, "application delivery was never recorded")
+
+						require.Len(t, got, 1)
+						assert.Equal(t, archivedMessage, got[0].Message)
+					},
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Each subtest builds its own isolated backend, topic, and subscription.
+			b := newB2Backend(t)
+			tp, err := b.CreateTopic("replay-fanout-"+tc.name, map[string]string{
+				"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
+			})
+			require.NoError(t, err)
+
+			// Publish before subscribing so the message lands only in the archive.
+			pastTime := time.Now().UTC().Add(-time.Hour)
+			_, err = b.Publish(tp.TopicArn, archivedMessage, "", "", nil)
+			require.NoError(t, err)
+
+			res := tc.setup(t, b)
+
+			sub, err := b.Subscribe(tp.TopicArn, tc.proto, res.endpoint, "")
+			require.NoError(t, err)
+
+			replayFrom := pastTime.Format(time.RFC3339)
+			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy",
+				fmt.Sprintf(`{"replayFromTimestamp":"%s"}`, replayFrom))
+			require.NoError(t, err)
+
+			res.verify(t)
+		})
 	}
 }
 
