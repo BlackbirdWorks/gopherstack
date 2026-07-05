@@ -53,6 +53,20 @@ type AccessLogSettings struct {
 	Format         string `json:"format,omitempty"`
 }
 
+// IntegrationTLSConfig holds the TLS configuration for a private integration.
+// Supported only for HTTP APIs.
+type IntegrationTLSConfig struct {
+	ServerNameToVerify string `json:"serverNameToVerify,omitempty"`
+}
+
+// MutualTLSAuthentication holds the mutual TLS authentication configuration
+// for a custom domain name.
+type MutualTLSAuthentication struct {
+	TruststoreURI      string   `json:"truststoreUri,omitempty"`
+	TruststoreVersion  string   `json:"truststoreVersion,omitempty"`
+	TruststoreWarnings []string `json:"truststoreWarnings,omitempty"`
+}
+
 // RouteSettings holds per-route throttling and logging settings for a stage.
 type RouteSettings struct {
 	LoggingLevel           string  `json:"loggingLevel,omitempty"`
@@ -89,6 +103,7 @@ type Stage struct {
 	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
 	DefaultRouteSettings *RouteSettings           `json:"defaultRouteSettings,omitempty"`
 	RouteSettings        map[string]RouteSettings `json:"routeSettings,omitempty"`
+	Tags                 map[string]string        `json:"tags,omitempty"`
 	CreatedDate          isoTime                  `json:"createdDate"`
 	LastUpdatedDate      isoTime                  `json:"lastUpdatedDate"`
 	StageVariables       map[string]string        `json:"stageVariables,omitempty"`
@@ -96,7 +111,10 @@ type Stage struct {
 	APIID                string                   `json:"-"`
 	DeploymentID         string                   `json:"deploymentId,omitempty"`
 	Description          string                   `json:"description,omitempty"`
-	AutoDeploy           bool                     `json:"autoDeploy"`
+	// ClientCertificateID identifies a client certificate for a Stage. Supported
+	// only for WebSocket APIs.
+	ClientCertificateID string `json:"clientCertificateId,omitempty"`
+	AutoDeploy          bool   `json:"autoDeploy"`
 }
 
 // Route represents a route in an HTTP API.
@@ -117,21 +135,22 @@ type Route struct {
 
 // Integration represents a backend integration for a route.
 type Integration struct {
-	RequestParameters           map[string]string `json:"requestParameters,omitempty"`
-	RequestTemplates            map[string]string `json:"requestTemplates,omitempty"`
-	IntegrationID               string            `json:"integrationId"`
-	APIID                       string            `json:"-"`
-	IntegrationType             string            `json:"integrationType"`
-	IntegrationSubtype          string            `json:"integrationSubtype,omitempty"`
-	IntegrationMethod           string            `json:"integrationMethod,omitempty"`
-	IntegrationURI              string            `json:"integrationUri,omitempty"`
-	Description                 string            `json:"description,omitempty"`
-	PayloadFormatVersion        string            `json:"payloadFormatVersion,omitempty"`
-	ConnectionType              string            `json:"connectionType,omitempty"`
-	ConnectionID                string            `json:"connectionId,omitempty"`
-	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
-	PassthroughBehavior         string            `json:"passthroughBehavior,omitempty"`
-	TimeoutInMillis             int32             `json:"timeoutInMillis,omitempty"`
+	TLSConfig                   *IntegrationTLSConfig `json:"tlsConfig,omitempty"`
+	RequestParameters           map[string]string     `json:"requestParameters,omitempty"`
+	RequestTemplates            map[string]string     `json:"requestTemplates,omitempty"`
+	IntegrationID               string                `json:"integrationId"`
+	APIID                       string                `json:"-"`
+	IntegrationType             string                `json:"integrationType"`
+	IntegrationSubtype          string                `json:"integrationSubtype,omitempty"`
+	IntegrationMethod           string                `json:"integrationMethod,omitempty"`
+	IntegrationURI              string                `json:"integrationUri,omitempty"`
+	Description                 string                `json:"description,omitempty"`
+	PayloadFormatVersion        string                `json:"payloadFormatVersion,omitempty"`
+	ConnectionType              string                `json:"connectionType,omitempty"`
+	ConnectionID                string                `json:"connectionId,omitempty"`
+	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
+	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
+	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
 }
 
 // Deployment represents an API deployment.
@@ -195,6 +214,7 @@ type CreateStageInput struct {
 	StageName            string                   `json:"stageName"`
 	DeploymentID         string                   `json:"deploymentId,omitempty"`
 	Description          string                   `json:"description,omitempty"`
+	ClientCertificateID  string                   `json:"clientCertificateId,omitempty"`
 	AutoDeploy           bool                     `json:"autoDeploy"`
 }
 
@@ -207,6 +227,7 @@ type UpdateStageInput struct {
 	AutoDeploy           *bool                    `json:"autoDeploy,omitempty"`
 	DeploymentID         string                   `json:"deploymentId,omitempty"`
 	Description          string                   `json:"description,omitempty"`
+	ClientCertificateID  string                   `json:"clientCertificateId,omitempty"`
 }
 
 // CreateRouteInput is the input for CreateRoute.
@@ -239,36 +260,38 @@ type UpdateRouteInput struct {
 
 // CreateIntegrationInput is the input for CreateIntegration.
 type CreateIntegrationInput struct {
-	RequestParameters           map[string]string `json:"requestParameters,omitempty"`
-	RequestTemplates            map[string]string `json:"requestTemplates,omitempty"`
-	IntegrationType             string            `json:"integrationType"`
-	IntegrationSubtype          string            `json:"integrationSubtype,omitempty"`
-	IntegrationMethod           string            `json:"integrationMethod,omitempty"`
-	IntegrationURI              string            `json:"integrationUri,omitempty"`
-	Description                 string            `json:"description,omitempty"`
-	PayloadFormatVersion        string            `json:"payloadFormatVersion,omitempty"`
-	ConnectionType              string            `json:"connectionType,omitempty"`
-	ConnectionID                string            `json:"connectionId,omitempty"`
-	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
-	PassthroughBehavior         string            `json:"passthroughBehavior,omitempty"`
-	TimeoutInMillis             int32             `json:"timeoutInMillis,omitempty"`
+	TLSConfig                   *IntegrationTLSConfig `json:"tlsConfig,omitempty"`
+	RequestParameters           map[string]string     `json:"requestParameters,omitempty"`
+	RequestTemplates            map[string]string     `json:"requestTemplates,omitempty"`
+	IntegrationType             string                `json:"integrationType"`
+	IntegrationSubtype          string                `json:"integrationSubtype,omitempty"`
+	IntegrationMethod           string                `json:"integrationMethod,omitempty"`
+	IntegrationURI              string                `json:"integrationUri,omitempty"`
+	Description                 string                `json:"description,omitempty"`
+	PayloadFormatVersion        string                `json:"payloadFormatVersion,omitempty"`
+	ConnectionType              string                `json:"connectionType,omitempty"`
+	ConnectionID                string                `json:"connectionId,omitempty"`
+	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
+	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
+	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
 }
 
 // UpdateIntegrationInput is the input for UpdateIntegration (PATCH).
 type UpdateIntegrationInput struct {
-	RequestParameters           map[string]string `json:"requestParameters,omitempty"`
-	RequestTemplates            map[string]string `json:"requestTemplates,omitempty"`
-	IntegrationType             string            `json:"integrationType,omitempty"`
-	IntegrationSubtype          string            `json:"integrationSubtype,omitempty"`
-	IntegrationMethod           string            `json:"integrationMethod,omitempty"`
-	IntegrationURI              string            `json:"integrationUri,omitempty"`
-	Description                 string            `json:"description,omitempty"`
-	PayloadFormatVersion        string            `json:"payloadFormatVersion,omitempty"`
-	ConnectionType              string            `json:"connectionType,omitempty"`
-	ConnectionID                string            `json:"connectionId,omitempty"`
-	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
-	PassthroughBehavior         string            `json:"passthroughBehavior,omitempty"`
-	TimeoutInMillis             int32             `json:"timeoutInMillis,omitempty"`
+	TLSConfig                   *IntegrationTLSConfig `json:"tlsConfig,omitempty"`
+	RequestParameters           map[string]string     `json:"requestParameters,omitempty"`
+	RequestTemplates            map[string]string     `json:"requestTemplates,omitempty"`
+	IntegrationType             string                `json:"integrationType,omitempty"`
+	IntegrationSubtype          string                `json:"integrationSubtype,omitempty"`
+	IntegrationMethod           string                `json:"integrationMethod,omitempty"`
+	IntegrationURI              string                `json:"integrationUri,omitempty"`
+	Description                 string                `json:"description,omitempty"`
+	PayloadFormatVersion        string                `json:"payloadFormatVersion,omitempty"`
+	ConnectionType              string                `json:"connectionType,omitempty"`
+	ConnectionID                string                `json:"connectionId,omitempty"`
+	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
+	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
+	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
 }
 
 // CreateDeploymentInput is the input for CreateDeployment.
@@ -317,6 +340,7 @@ type UpdateDeploymentInput struct {
 
 // UpdateDomainNameInput is the input for UpdateDomainName (PATCH).
 type UpdateDomainNameInput struct {
+	MutualTLSAuthentication  *MutualTLSAuthentication  `json:"mutualTlsAuthentication,omitempty"`
 	Tags                     map[string]string         `json:"tags,omitempty"`
 	DomainNameConfigurations []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
 }
@@ -429,14 +453,17 @@ type DomainNameConfiguration struct {
 
 // DomainName represents a custom domain name for API Gateway v2.
 type DomainName struct {
+	MutualTLSAuthentication       *MutualTLSAuthentication  `json:"mutualTlsAuthentication,omitempty"`
 	Tags                          map[string]string         `json:"tags,omitempty"`
 	DomainNameValue               string                    `json:"domainName"`
+	DomainNameArn                 string                    `json:"domainNameArn,omitempty"`
 	APIMappingSelectionExpression string                    `json:"apiMappingSelectionExpression,omitempty"`
 	DomainNameConfigurations      []DomainNameConfiguration `json:"domainNameConfigurations"`
 }
 
 // CreateDomainNameInput is the input for CreateDomainName.
 type CreateDomainNameInput struct {
+	MutualTLSAuthentication  *MutualTLSAuthentication  `json:"mutualTlsAuthentication,omitempty"`
 	Tags                     map[string]string         `json:"tags,omitempty"`
 	DomainNameValue          string                    `json:"domainName"`
 	DomainNameConfigurations []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`

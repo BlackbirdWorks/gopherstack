@@ -78,7 +78,18 @@ const (
 	integrationTypeHTTP     = "HTTP"
 
 	integrationTimeoutMin = int32(50)
-	integrationTimeoutMax = int32(29000)
+	// integrationTimeoutMaxWebSocket is the maximum (and default) integration
+	// timeout for WebSocket APIs: 29 seconds.
+	integrationTimeoutMaxWebSocket = int32(29000)
+	// integrationTimeoutMaxHTTP is the maximum (and default) integration timeout
+	// for HTTP APIs: 30 seconds. AWS allows a longer ceiling for HTTP APIs than
+	// for WebSocket APIs; see CreateIntegration/UpdateIntegration docs.
+	integrationTimeoutMaxHTTP = int32(30000)
+
+	// connectionTypeInternet is the default Integration ConnectionType when the
+	// caller does not specify one.
+	connectionTypeInternet = "INTERNET"
+	connectionTypeVpcLink  = "VPC_LINK"
 )
 
 // validRouteAuthorizationType reports whether t is a valid route AuthorizationType
@@ -121,16 +132,75 @@ func validateHTTPRouteKey(key string) error {
 	return nil
 }
 
-// validateTimeoutInMillis returns ErrBadRequest if ms is outside [50, 29000].
-func validateTimeoutInMillis(ms int32) error {
-	if ms < integrationTimeoutMin || ms > integrationTimeoutMax {
+// integrationTimeoutMaxFor returns the maximum (and default) integration
+// timeout in milliseconds for the given API protocol type: 30,000ms for HTTP
+// APIs and 29,000ms for WebSocket APIs, matching real API Gateway v2 limits.
+func integrationTimeoutMaxFor(protocolType string) int32 {
+	if protocolType == protocolTypeHTTP {
+		return integrationTimeoutMaxHTTP
+	}
+
+	return integrationTimeoutMaxWebSocket
+}
+
+// validateTimeoutInMillis returns ErrBadRequest if ms is outside
+// [50, integrationTimeoutMaxFor(protocolType)].
+func validateTimeoutInMillis(ms int32, protocolType string) error {
+	maxMs := integrationTimeoutMaxFor(protocolType)
+	if ms < integrationTimeoutMin || ms > maxMs {
 		return fmt.Errorf(
 			"%w: timeoutInMillis must be between %d and %d",
-			ErrBadRequest, integrationTimeoutMin, integrationTimeoutMax,
+			ErrBadRequest, integrationTimeoutMin, maxMs,
 		)
 	}
 
 	return nil
+}
+
+// validateConnectionType returns ErrBadRequest if connectionType is not one of
+// the modeled enum values (INTERNET, VPC_LINK), or if VPC_LINK is specified
+// without a connectionId (the VPC link to route the private integration
+// through), matching real API Gateway v2 validation.
+func validateConnectionType(connectionType, connectionID string) error {
+	switch connectionType {
+	case connectionTypeInternet:
+		return nil
+	case connectionTypeVpcLink:
+		if connectionID == "" {
+			return fmt.Errorf("%w: connectionId is required when connectionType is VPC_LINK", ErrBadRequest)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf("%w: connectionType must be one of INTERNET, VPC_LINK", ErrBadRequest)
+	}
+}
+
+// cloneIntegrationTLSConfig returns a deep copy of cfg, or nil if cfg is nil.
+func cloneIntegrationTLSConfig(cfg *IntegrationTLSConfig) *IntegrationTLSConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	cp := *cfg
+
+	return &cp
+}
+
+// cloneMutualTLSAuthentication returns a deep copy of cfg, or nil if cfg is
+// nil. TruststoreWarnings is never populated by the caller (it is an
+// output-only field computed by API Gateway while validating the truststore);
+// the emulator has no truststore to validate against S3, so it is left empty,
+// matching the "no warnings" case real AWS returns for a well-formed request.
+func cloneMutualTLSAuthentication(cfg *MutualTLSAuthentication) *MutualTLSAuthentication {
+	if cfg == nil {
+		return nil
+	}
+
+	cp := *cfg
+	cp.TruststoreWarnings = nil
+
+	return &cp
 }
 
 var (
@@ -687,6 +757,7 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 		APIID:                apiID,
 		DeploymentID:         input.DeploymentID,
 		Description:          input.Description,
+		ClientCertificateID:  input.ClientCertificateID,
 		AutoDeploy:           input.AutoDeploy,
 		StageVariables:       input.StageVariables,
 		CreatedDate:          now,
@@ -785,6 +856,10 @@ func (b *InMemoryBackend) UpdateStage(apiID, stageName string, input UpdateStage
 
 	if input.Description != "" {
 		s.Description = input.Description
+	}
+
+	if input.ClientCertificateID != "" {
+		s.ClientCertificateID = input.ClientCertificateID
 	}
 
 	if input.AutoDeploy != nil {
@@ -1091,10 +1166,19 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 		passthroughBehavior = "WHEN_NO_MATCH"
 	}
 
+	connectionType := input.ConnectionType
+	if connectionType == "" {
+		connectionType = connectionTypeInternet
+	}
+
+	if err := validateConnectionType(connectionType, input.ConnectionID); err != nil {
+		return nil, err
+	}
+
 	timeoutMs := input.TimeoutInMillis
 	if timeoutMs == 0 {
-		timeoutMs = integrationTimeoutMax
-	} else if err := validateTimeoutInMillis(timeoutMs); err != nil {
+		timeoutMs = integrationTimeoutMaxFor(d.api.ProtocolType)
+	} else if err := validateTimeoutInMillis(timeoutMs, d.api.ProtocolType); err != nil {
 		return nil, err
 	}
 
@@ -1108,13 +1192,14 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 		IntegrationURI:              input.IntegrationURI,
 		Description:                 input.Description,
 		PayloadFormatVersion:        payloadFmtVer,
-		ConnectionType:              input.ConnectionType,
+		ConnectionType:              connectionType,
 		ConnectionID:                input.ConnectionID,
 		TimeoutInMillis:             timeoutMs,
 		RequestParameters:           input.RequestParameters,
 		RequestTemplates:            input.RequestTemplates,
 		TemplateSelectionExpression: input.TemplateSelectionExpression,
 		PassthroughBehavior:         passthroughBehavior,
+		TLSConfig:                   cloneIntegrationTLSConfig(input.TLSConfig),
 	}
 
 	d.integrations[id] = integration
@@ -1242,6 +1327,10 @@ func applyIntegrationUpdate(i *Integration, input UpdateIntegrationInput) {
 	if input.PassthroughBehavior != "" {
 		i.PassthroughBehavior = input.PassthroughBehavior
 	}
+
+	if input.TLSConfig != nil {
+		i.TLSConfig = cloneIntegrationTLSConfig(input.TLSConfig)
+	}
 }
 
 // UpdateIntegration updates fields on an existing integration.
@@ -1263,7 +1352,23 @@ func (b *InMemoryBackend) UpdateIntegration(
 	}
 
 	if input.TimeoutInMillis != 0 {
-		if err := validateTimeoutInMillis(input.TimeoutInMillis); err != nil {
+		if err := validateTimeoutInMillis(input.TimeoutInMillis, d.api.ProtocolType); err != nil {
+			return nil, err
+		}
+	}
+
+	effectiveConnectionType := i.ConnectionType
+	if input.ConnectionType != "" {
+		effectiveConnectionType = input.ConnectionType
+	}
+
+	effectiveConnectionID := i.ConnectionID
+	if input.ConnectionID != "" {
+		effectiveConnectionID = input.ConnectionID
+	}
+
+	if input.ConnectionType != "" || input.ConnectionID != "" {
+		if err := validateConnectionType(effectiveConnectionType, effectiveConnectionID); err != nil {
 			return nil, err
 		}
 	}
@@ -1605,10 +1710,14 @@ func (b *InMemoryBackend) CreateDomainName(
 			input.DomainNameConfigurations, input.DomainNameValue, regionFromCtx(ctx))
 	}
 
+	domainNameArn := "arn:aws:apigateway:" + regionFromCtx(ctx) + "::/domainnames/" + input.DomainNameValue
+
 	dn := &DomainName{
 		DomainNameValue:          input.DomainNameValue,
+		DomainNameArn:            domainNameArn,
 		Tags:                     copyTags(input.Tags),
 		DomainNameConfigurations: domainNameConfigs,
+		MutualTLSAuthentication:  cloneMutualTLSAuthentication(input.MutualTLSAuthentication),
 	}
 
 	b.domainNames[input.DomainNameValue] = dn
@@ -2647,11 +2756,51 @@ const (
 	arnResourceTypeAPIs        = "apis"
 	arnResourceTypeVpcLinks    = "vpclinks"
 	arnResourceTypeDomainNames = "domainnames"
+	arnResourceTypeStages      = "stages"
 
 	// arnMinPartsWithResourceType is the minimum number of slash-separated
 	// parts in an ARN that carries an explicit resource type segment.
 	arnMinPartsWithResourceType = 2
+
+	// arnStageParts is the number of trailing slash-separated segments in a
+	// Stage resource ARN: "apis", "{apiId}", "stages", "{stageName}".
+	arnStageParts = 4
 )
+
+// parseStageARN extracts the API ID and stage name from a Stage resource ARN
+// of the form ".../apis/{apiId}/stages/{stageName}", the AWS-modeled ARN for
+// a Stage (Stages, unlike APIs/VPC links/domain names, are nested one level
+// under their owning API so a single trailing "type/id" pair is not enough to
+// resolve them). Returns ok=false for any ARN that does not match this shape.
+func parseStageARN(arn string) (string, string, bool) {
+	parts := strings.Split(arn, "/")
+	if len(parts) < arnStageParts {
+		return "", "", false
+	}
+
+	tail := parts[len(parts)-arnStageParts:]
+	if tail[0] != arnResourceTypeAPIs || tail[2] != arnResourceTypeStages {
+		return "", "", false
+	}
+
+	return tail[1], tail[3], true
+}
+
+// lookupStageLocked resolves a Stage by API ID and stage name. Callers must
+// already hold b.mu (read or write).
+func (b *InMemoryBackend) lookupStageLocked(apiID, stageName string) (*Stage, error) {
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	s, ok := d.stages[stageName]
+	if !ok {
+		return nil, ErrStageNotFound
+	}
+
+	return s, nil
+}
 
 // arnResourceType returns the resource type and ID extracted from an ARN.
 // For ARNs like "arn:aws:apigateway:us-east-1::/apis/abc123" the resource
@@ -2668,10 +2817,25 @@ func arnResourceType(arn string) (string, string) {
 }
 
 // TagResource adds tags to a resource identified by ARN.
-// Supports APIs, VPC links, and domain names.
+// Supports APIs, stages, VPC links, and domain names.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
+
+	if apiID, stageName, ok := parseStageARN(resourceARN); ok {
+		s, err := b.lookupStageLocked(apiID, stageName)
+		if err != nil {
+			return err
+		}
+
+		if s.Tags == nil {
+			s.Tags = make(map[string]string)
+		}
+
+		maps.Copy(s.Tags, tags)
+
+		return nil
+	}
 
 	resourceType, resourceID := arnResourceType(resourceARN)
 
@@ -2717,10 +2881,23 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 }
 
 // UntagResource removes tag keys from a resource identified by ARN.
-// Supports APIs, VPC links, and domain names.
+// Supports APIs, stages, VPC links, and domain names.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
+
+	if apiID, stageName, ok := parseStageARN(resourceARN); ok {
+		s, err := b.lookupStageLocked(apiID, stageName)
+		if err != nil {
+			return err
+		}
+
+		for _, k := range tagKeys {
+			delete(s.Tags, k)
+		}
+
+		return nil
+	}
 
 	resourceType, resourceID := arnResourceType(resourceARN)
 
@@ -2760,10 +2937,19 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 }
 
 // GetTags retrieves all tags for a resource identified by ARN.
-// Supports APIs, VPC links, and domain names.
+// Supports APIs, stages, VPC links, and domain names.
 func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("GetTags")
 	defer b.mu.RUnlock()
+
+	if apiID, stageName, ok := parseStageARN(resourceARN); ok {
+		s, err := b.lookupStageLocked(apiID, stageName)
+		if err != nil {
+			return nil, err
+		}
+
+		return copyTags(s.Tags), nil
+	}
 
 	resourceType, resourceID := arnResourceType(resourceARN)
 
@@ -2892,6 +3078,10 @@ func (b *InMemoryBackend) UpdateDomainName(domainName string, input UpdateDomain
 		configs := make([]DomainNameConfiguration, len(input.DomainNameConfigurations))
 		copy(configs, input.DomainNameConfigurations)
 		dn.DomainNameConfigurations = configs
+	}
+
+	if input.MutualTLSAuthentication != nil {
+		dn.MutualTLSAuthentication = cloneMutualTLSAuthentication(input.MutualTLSAuthentication)
 	}
 
 	cp := *dn

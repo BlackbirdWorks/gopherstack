@@ -2437,7 +2437,7 @@ func (h *Handler) handleGetTags(c *echo.Context, resourceARN string) error {
 		log.Error("apigatewayv2: get tags failed", "resourceArn", resourceARN, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
-			errors.Is(err, ErrDomainNameNotFound) {
+			errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrStageNotFound) {
 			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
@@ -2463,7 +2463,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 		log.Error("apigatewayv2: tag resource failed", "resourceArn", resourceARN, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
-			errors.Is(err, ErrDomainNameNotFound) {
+			errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrStageNotFound) {
 			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
@@ -2483,7 +2483,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 		log.Error("apigatewayv2: untag resource failed", "resourceArn", resourceARN, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
-			errors.Is(err, ErrDomainNameNotFound) {
+			errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrStageNotFound) {
 			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
 
