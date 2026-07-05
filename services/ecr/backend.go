@@ -93,6 +93,21 @@ var (
 	ErrLayerInaccessible = awserr.New("LayerInaccessibleException", awserr.ErrNotFound)
 	// ErrLayersNotFound is returned when requested layers do not exist in the repository.
 	ErrLayersNotFound = awserr.New("LayersNotFoundException", awserr.ErrNotFound)
+	// ErrLayerAlreadyExists is returned when CompleteLayerUpload is called with a
+	// digest that has already been registered as an available layer in the
+	// repository (matches AWS: "The image layer already exists in the associated
+	// repository.").
+	ErrLayerAlreadyExists = awserr.New("LayerAlreadyExistsException", awserr.ErrAlreadyExists)
+	// ErrInvalidLayerPart is returned when an UploadLayerPart's first byte is not
+	// consecutive to the last byte received by a previous part in the same
+	// upload session (matches AWS InvalidLayerPartException).
+	ErrInvalidLayerPart = awserr.New("InvalidLayerPartException", awserr.ErrInvalidParameter)
+	// ErrImageDigestDoesNotMatch is returned when a caller-supplied imageDigest on
+	// PutImage does not match the digest ECR computes from the image manifest.
+	ErrImageDigestDoesNotMatch = awserr.New(
+		"ImageDigestDoesNotMatchException",
+		awserr.ErrInvalidParameter,
+	)
 )
 
 // Repository represents an ECR repository.
@@ -1075,51 +1090,23 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 	b.mu.Lock("CompleteLayerUpload")
 	defer b.mu.Unlock()
 
-	var digest string
-	var size int64
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
 
-	upload, ok := b.layerUploads[uploadID]
-	switch {
-	case ok && upload.RepositoryName == repositoryName && len(upload.Data) > 0:
-		computed := "sha256:" + hex.EncodeToString(sha256Sum(upload.Data))
+	digest, size, err := b.resolveCompletedLayerLocked(repositoryName, uploadID, layerDigests)
+	if err != nil {
+		return nil, err
+	}
 
-		provided := ""
-		if len(layerDigests) > 0 {
-			provided = layerDigests[0]
+	// AWS rejects re-completing a layer digest that has already been registered
+	// as available in the repository with LayerAlreadyExistsException. Only
+	// applies when a digest was actually resolved; an empty digest is not a
+	// real layer identity and must not collide with itself across sessions.
+	if digest != "" {
+		if _, exists := b.uploadedLayers[repositoryName][digest]; exists {
+			return nil, fmt.Errorf("%w: %s", ErrLayerAlreadyExists, digest)
 		}
-
-		if provided != "" {
-			// Only enforce digest verification for full 64-char SHA256 digests.
-			if isFullSHA256Digest(provided) && provided != computed {
-				return nil, fmt.Errorf("%w: digest mismatch: got %s, want %s",
-					ErrLayerDigestMismatch, provided, computed)
-			}
-
-			digest = provided
-		} else {
-			digest = computed
-		}
-
-		size = upload.Size
-		delete(b.layerUploads, uploadID)
-		if idx, ok2 := b.repoUploadIndex[repositoryName]; ok2 {
-			delete(idx, uploadID)
-		}
-
-	case ok && upload.RepositoryName == repositoryName:
-		if len(layerDigests) > 0 {
-			digest = layerDigests[0]
-		}
-
-		size = upload.Size
-		delete(b.layerUploads, uploadID)
-		if idx, ok2 := b.repoUploadIndex[repositoryName]; ok2 {
-			delete(idx, uploadID)
-		}
-
-	case len(layerDigests) > 0:
-		// Direct digest path: no prior InitiateLayerUpload.
-		digest = layerDigests[0]
 	}
 
 	if b.uploadedLayers[repositoryName] == nil {
@@ -1134,6 +1121,79 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 		RegistryID:     b.accountID,
 		UploadID:       uploadID,
 	}, nil
+}
+
+// resolveCompletedLayerLocked determines the final layer digest and size for a
+// CompleteLayerUpload call and retires the upload session (if one exists).
+// Caller must hold the write lock.
+func (b *InMemoryBackend) resolveCompletedLayerLocked(
+	repositoryName, uploadID string,
+	layerDigests []string,
+) (string, int64, error) {
+	var digest string
+	var size int64
+
+	upload, ok := b.layerUploads[uploadID]
+
+	switch {
+	case ok && upload.RepositoryName == repositoryName && len(upload.Data) > 0:
+		verified, err := verifiedUploadDigestLocked(upload, layerDigests)
+		if err != nil {
+			return "", 0, err
+		}
+
+		digest = verified
+		size = upload.Size
+		b.retireLayerUploadLocked(repositoryName, uploadID)
+
+	case ok && upload.RepositoryName == repositoryName:
+		if len(layerDigests) > 0 {
+			digest = layerDigests[0]
+		}
+
+		size = upload.Size
+		b.retireLayerUploadLocked(repositoryName, uploadID)
+
+	case len(layerDigests) > 0:
+		// Direct digest path: no prior InitiateLayerUpload.
+		digest = layerDigests[0]
+	}
+
+	return digest, size, nil
+}
+
+// verifiedUploadDigestLocked computes the SHA256 of the accumulated upload
+// bytes and, when the caller provided a full SHA256 digest, verifies it
+// matches before returning the digest to record.
+func verifiedUploadDigestLocked(upload *layerUploadState, layerDigests []string) (string, error) {
+	computed := "sha256:" + hex.EncodeToString(sha256Sum(upload.Data))
+
+	provided := ""
+	if len(layerDigests) > 0 {
+		provided = layerDigests[0]
+	}
+
+	if provided == "" {
+		return computed, nil
+	}
+
+	// Only enforce digest verification for full 64-char SHA256 digests.
+	if isFullSHA256Digest(provided) && provided != computed {
+		return "", fmt.Errorf("%w: digest mismatch: got %s, want %s",
+			ErrLayerDigestMismatch, provided, computed)
+	}
+
+	return provided, nil
+}
+
+// retireLayerUploadLocked removes an upload session and its per-repository
+// index entry once it has been finalised by CompleteLayerUpload.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) retireLayerUploadLocked(repositoryName, uploadID string) {
+	delete(b.layerUploads, uploadID)
+	if idx, ok := b.repoUploadIndex[repositoryName]; ok {
+		delete(idx, uploadID)
+	}
 }
 
 // sha256Sum returns the SHA256 hash of data.
@@ -1236,9 +1296,13 @@ func (b *InMemoryBackend) InitiateLayerUpload(
 }
 
 // UploadLayerPart records uploaded bytes for an existing upload session.
+// AWS requires each part's first byte to be consecutive to the last byte
+// received by the previous part (i.e. equal to the number of bytes already
+// buffered for this session); a gap or overlap is rejected with
+// InvalidLayerPartException.
 func (b *InMemoryBackend) UploadLayerPart(ctx context.Context, //nolint:revive // existing issue.
 	repositoryName, uploadID string,
-	_, lastByte int64,
+	firstByte, lastByte int64,
 	blob []byte,
 ) (*LayerUploadPartResult, error) {
 	b.mu.Lock("UploadLayerPart")
@@ -1251,6 +1315,13 @@ func (b *InMemoryBackend) UploadLayerPart(ctx context.Context, //nolint:revive /
 	upload, ok := b.layerUploads[uploadID]
 	if !ok || upload.RepositoryName != repositoryName {
 		return nil, fmt.Errorf("%w: upload not found", ErrRepositoryNotFound)
+	}
+
+	if firstByte >= 0 && firstByte != upload.Size {
+		return nil, fmt.Errorf(
+			"%w: partFirstByte %d is not consecutive to the %d bytes already received",
+			ErrInvalidLayerPart, firstByte, upload.Size,
+		)
 	}
 
 	upload.Data = append(upload.Data, blob...)
