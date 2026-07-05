@@ -17,8 +17,12 @@ const (
 	// encryptionTypeNone is the no-encryption type.
 	encryptionTypeNone = "NONE"
 
-	// defaultShardCount is the default number of shards for a new stream.
+	// defaultShardCount is the default number of shards for a new PROVISIONED stream.
 	defaultShardCount = 1
+
+	// defaultOnDemandShardCount is the number of shards AWS allocates to a
+	// freshly created ON_DEMAND stream (capacity is auto-managed thereafter).
+	defaultOnDemandShardCount = 4
 
 	// defaultRetentionHours is the default retention period for a stream in hours.
 	defaultRetentionHours = 24
@@ -75,6 +79,10 @@ const (
 
 	// consumerStatusActive is the status when a consumer is ready for use.
 	consumerStatusActive = "ACTIVE"
+
+	// maxConsumersPerStream is the AWS limit on registered enhanced fan-out
+	// consumers per stream.
+	maxConsumersPerStream = 20
 
 	// scalingTypeUniformScaling is the only supported scaling type for UpdateShardCount.
 	scalingTypeUniformScaling = "UNIFORM_SCALING"
@@ -185,6 +193,11 @@ type DeleteStreamInput struct {
 // DescribeStreamInput is the input for DescribeStream.
 type DescribeStreamInput struct {
 	StreamName string
+	// ExclusiveStartShardID resumes shard pagination after the given shard ID.
+	ExclusiveStartShardID string
+	// Limit caps the number of ShardDescription entries returned (AWS default
+	// 100, max 10000). Zero means "use the AWS default".
+	Limit int
 }
 
 // DescribeStreamOutput is the output for DescribeStream.
@@ -199,6 +212,9 @@ type DescribeStreamOutput struct {
 	Shards                  []ShardDescription
 	EnhancedMonitoring      []string
 	RetentionPeriodHours    int
+	// HasMoreShards indicates the shard list was truncated by Limit and more
+	// shards can be fetched with a follow-up call using ExclusiveStartShardID.
+	HasMoreShards bool
 }
 
 // ShardDescription describes a shard in a DescribeStream response.

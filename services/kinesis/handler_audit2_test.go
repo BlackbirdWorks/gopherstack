@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -427,6 +428,58 @@ func TestAudit2_RegisterStreamConsumer_ValidNames(t *testing.T) {
 				"ConsumerName": name,
 			})
 			assert.Equal(t, http.StatusOK, rec.Code, "consumer name %q should be accepted", name)
+		})
+	}
+}
+
+// TestAudit2_RegisterStreamConsumer_LimitExceeded verifies that AWS's 20
+// registered-consumers-per-stream cap is enforced. Previously
+// RegisterStreamConsumer had no upper bound at all.
+func TestAudit2_RegisterStreamConsumer_LimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr       error
+		name          string
+		preRegistered int
+	}{
+		{name: "under_limit_succeeds", preRegistered: 19, wantErr: nil},
+		{name: "at_limit_rejected", preRegistered: 20, wantErr: kinesis.ErrLimitExceeded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kinesis.NewInMemoryBackend()
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+				StreamName: "consumer-limit-stream",
+				ShardCount: 1,
+			}))
+
+			desc, err := b.DescribeStream(
+				context.Background(),
+				&kinesis.DescribeStreamInput{StreamName: "consumer-limit-stream"},
+			)
+			require.NoError(t, err)
+
+			for i := range tt.preRegistered {
+				_, regErr := b.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
+					StreamARN:    desc.StreamARN,
+					ConsumerName: "consumer-" + strconv.Itoa(i),
+				})
+				require.NoError(t, regErr)
+			}
+
+			_, err = b.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
+				StreamARN:    desc.StreamARN,
+				ConsumerName: "one-more-consumer",
+			})
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
 		})
 	}
 }

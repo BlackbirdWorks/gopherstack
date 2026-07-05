@@ -25,10 +25,11 @@ func TestAccuracyBatch2_CreateStream_OnDemand_ShardCountZero(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       map[string]any
-		name       string
-		wantMode   string
-		wantStatus int
+		body           map[string]any
+		name           string
+		wantMode       string
+		wantStatus     int
+		wantShardCount int // 0 = not checked
 	}{
 		{
 			name: "on_demand_no_shard_count",
@@ -38,6 +39,9 @@ func TestAccuracyBatch2_CreateStream_OnDemand_ShardCountZero(t *testing.T) {
 			},
 			wantStatus: http.StatusOK,
 			wantMode:   "ON_DEMAND",
+			// AWS allocates 4 shards to a freshly created on-demand stream;
+			// ShardCount is not honored for ON_DEMAND streams.
+			wantShardCount: 4,
 		},
 		{
 			name: "on_demand_shard_count_zero",
@@ -46,18 +50,22 @@ func TestAccuracyBatch2_CreateStream_OnDemand_ShardCountZero(t *testing.T) {
 				"ShardCount":        0,
 				"StreamModeDetails": map[string]any{"StreamMode": "ON_DEMAND"},
 			},
-			wantStatus: http.StatusOK,
-			wantMode:   "ON_DEMAND",
+			wantStatus:     http.StatusOK,
+			wantMode:       "ON_DEMAND",
+			wantShardCount: 4,
 		},
 		{
-			name: "on_demand_explicit_shard_count",
+			name: "on_demand_explicit_shard_count_ignored",
 			body: map[string]any{
 				"StreamName":        "od-explicit-sc",
-				"ShardCount":        4,
+				"ShardCount":        17,
 				"StreamModeDetails": map[string]any{"StreamMode": "ON_DEMAND"},
 			},
 			wantStatus: http.StatusOK,
 			wantMode:   "ON_DEMAND",
+			// A caller-supplied ShardCount is ignored for ON_DEMAND streams —
+			// AWS always starts a new on-demand stream at 4 shards.
+			wantShardCount: 4,
 		},
 		{
 			name: "provisioned_still_requires_shard_count",
@@ -87,11 +95,18 @@ func TestAccuracyBatch2_CreateStream_OnDemand_ShardCountZero(t *testing.T) {
 						StreamModeDetails *struct {
 							StreamMode string `json:"StreamMode"`
 						} `json:"StreamModeDetails"`
+						Shards []struct {
+							ShardID string `json:"ShardId"`
+						} `json:"Shards"`
 					} `json:"StreamDescription"`
 				}
 				require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
 				require.NotNil(t, resp.StreamDescription.StreamModeDetails)
 				assert.Equal(t, tt.wantMode, resp.StreamDescription.StreamModeDetails.StreamMode)
+
+				if tt.wantShardCount > 0 {
+					assert.Len(t, resp.StreamDescription.Shards, tt.wantShardCount)
+				}
 			}
 		})
 	}

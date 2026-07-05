@@ -563,15 +563,16 @@ func TestPutRecordsNotFound(t *testing.T) {
 		"StreamName": "nonexistent",
 		"Records":    []map[string]any{{"PartitionKey": "pk", "Data": []byte("data")}},
 	})
-	// PutRecords calls PutRecord for each entry, which fails, but the outer PutRecords itself succeeds
-	// with failed record count set
-	assert.Equal(t, http.StatusOK, rec.Code)
+	// AWS fails the whole PutRecords call with a top-level ResourceNotFoundException
+	// when the target stream does not exist — it does not report per-record
+	// failures for a request-level (stream-not-found) error.
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp struct {
-		FailedRecordCount int `json:"FailedRecordCount"`
+		Type string `json:"__type"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, 1, resp.FailedRecordCount)
+	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 }
 
 func TestGetShardIteratorBadIteratorType(t *testing.T) {

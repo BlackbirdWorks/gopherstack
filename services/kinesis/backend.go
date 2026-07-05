@@ -349,37 +349,10 @@ func checkOnDemandLimit(streams map[string]*Stream, limit int) error {
 	return nil
 }
 
-// CreateStream creates a new Kinesis stream.
-func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamInput) error {
-	region := getRegion(ctx, b.region)
-	if input.Region != "" {
-		region = input.Region
-	}
-
-	b.mu.Lock("CreateStream")
-	defer b.mu.Unlock()
-
-	if !isValidStreamName(input.StreamName) {
-		return ErrValidation
-	}
-
-	streams := b.streamsStore(region)
-	if _, exists := streams[input.StreamName]; exists {
-		return ErrStreamAlreadyExists
-	}
-
-	// Clamp shardCount to a safe range before using it for allocations or shard math.
-	shardCount := input.ShardCount
-	if shardCount <= 0 {
-		shardCount = defaultShardCount
-	}
-	if shardCount > maxShardsPerStream {
-		return ErrInvalidArgument
-	}
-	if shardCount > maxShardCount {
-		shardCount = maxShardCount
-	}
-
+// buildInitialShards partitions the full Kinesis hash key space
+// ([0, 2^128-1]) into shardCount contiguous, non-overlapping open shards with
+// sequential shard IDs starting at shardId-000000000000.
+func buildInitialShards(shardCount int) []*Shard {
 	maxHashKey := new(big.Int).Sub(
 		new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),
 		big.NewInt(1),
@@ -413,9 +386,26 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		})
 	}
 
-	accountID := b.accountID
-	if input.AccountID != "" {
-		accountID = input.AccountID
+	return shards
+}
+
+// CreateStream creates a new Kinesis stream.
+func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamInput) error {
+	region := getRegion(ctx, b.region)
+	if input.Region != "" {
+		region = input.Region
+	}
+
+	b.mu.Lock("CreateStream")
+	defer b.mu.Unlock()
+
+	if !isValidStreamName(input.StreamName) {
+		return ErrValidation
+	}
+
+	streams := b.streamsStore(region)
+	if _, exists := streams[input.StreamName]; exists {
+		return ErrStreamAlreadyExists
 	}
 
 	streamMode := input.StreamMode
@@ -423,6 +413,29 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		streamMode = streamModeProvisioned
 	} else if streamMode != streamModeProvisioned && streamMode != streamModeOnDemand {
 		return ErrInvalidArgument
+	}
+
+	// Clamp shardCount to a safe range before using it for allocations or shard math.
+	// ON_DEMAND streams ignore any caller-supplied ShardCount — AWS auto-manages
+	// capacity and a freshly created on-demand stream starts with 4 shards.
+	shardCount := input.ShardCount
+	if streamMode == streamModeOnDemand {
+		shardCount = defaultOnDemandShardCount
+	} else if shardCount <= 0 {
+		shardCount = defaultShardCount
+	}
+	if shardCount > maxShardsPerStream {
+		return ErrInvalidArgument
+	}
+	if shardCount > maxShardCount {
+		shardCount = maxShardCount
+	}
+
+	shards := buildInitialShards(shardCount)
+
+	accountID := b.accountID
+	if input.AccountID != "" {
+		accountID = input.AccountID
 	}
 
 	if streamMode == streamModeOnDemand {
@@ -507,8 +520,42 @@ func (b *InMemoryBackend) DescribeStream(
 	b.mu.RUnlock()
 	defer stream.mu.RUnlock()
 
-	shards := make([]ShardDescription, len(stream.Shards))
-	for i, s := range stream.Shards {
+	// AWS paginates the Shards list: default page size 100, max 10000, resumed
+	// via ExclusiveStartShardId. A stream that has been resharded many times
+	// accumulates CLOSED shards forever (they remain visible for lineage), so
+	// long-lived, heavily-resharded streams can exceed a single page.
+	const (
+		defaultDescribeStreamShardLimit = 100
+		maxDescribeStreamShardLimit     = 10000
+	)
+
+	limit := input.Limit
+	if limit <= 0 {
+		limit = defaultDescribeStreamShardLimit
+	}
+	if limit > maxDescribeStreamShardLimit {
+		limit = maxDescribeStreamShardLimit
+	}
+
+	startIdx := 0
+	if input.ExclusiveStartShardID != "" {
+		for i, s := range stream.Shards {
+			if s.ID == input.ExclusiveStartShardID {
+				startIdx = i + 1
+
+				break
+			}
+		}
+	}
+
+	all := stream.Shards[startIdx:]
+	hasMore := len(all) > limit
+	if hasMore {
+		all = all[:limit]
+	}
+
+	shards := make([]ShardDescription, len(all))
+	for i, s := range all {
 		shards[i] = shardDescription(s)
 	}
 
@@ -522,6 +569,7 @@ func (b *InMemoryBackend) DescribeStream(
 		StreamARN:               stream.ARN,
 		StreamStatus:            stream.Status,
 		Shards:                  shards,
+		HasMoreShards:           hasMore,
 		RetentionPeriodHours:    stream.RetentionPeriod,
 		EncryptionType:          encType,
 		KeyID:                   stream.KeyID,
@@ -689,15 +737,21 @@ func putRecordErrorCode(err error) string {
 }
 
 // PutRecords writes multiple records to a stream.
+//
+// Request-level validation errors (empty/oversized batch, unknown stream) fail
+// the whole call with a single top-level exception, matching the AWS contract:
+// only per-record issues (throughput, per-record validation) surface as
+// per-entry ErrorCode/ErrorMessage inside a 200 response.
 func (b *InMemoryBackend) PutRecords(ctx context.Context, input *PutRecordsInput) (*PutRecordsOutput, error) {
 	// AWS PutRecords caps a request at 500 records and 5 MiB total payload
-	// (sum of partition-key + data bytes across every entry).
+	// (sum of partition-key + data bytes across every entry), and rejects an
+	// empty Records list outright (MinItems=1 in the SDK model).
 	const (
 		maxRecordsPerRequest = 500
 		maxBatchPayloadBytes = 5 * 1024 * 1024
 	)
 
-	if len(input.Records) > maxRecordsPerRequest {
+	if len(input.Records) == 0 || len(input.Records) > maxRecordsPerRequest {
 		return nil, ErrInvalidArgument
 	}
 
@@ -708,6 +762,17 @@ func (b *InMemoryBackend) PutRecords(ctx context.Context, input *PutRecordsInput
 
 	if totalBytes > maxBatchPayloadBytes {
 		return nil, ErrInvalidArgument
+	}
+
+	// Resolve the stream once up front: AWS fails the entire PutRecords call
+	// with a top-level ResourceNotFoundException when the stream does not
+	// exist, rather than reporting "InternalFailure" on every result entry.
+	region := getRegion(ctx, b.region)
+	b.mu.RLock("PutRecords.exists")
+	_, exists := b.streamsView(region)[input.StreamName]
+	b.mu.RUnlock()
+	if !exists {
+		return nil, ErrStreamNotFound
 	}
 
 	results := make([]PutRecordsResultEntry, len(input.Records))
@@ -1217,6 +1282,11 @@ func (b *InMemoryBackend) RegisterStreamConsumer(
 
 	if _, exists := stream.Consumers[input.ConsumerName]; exists {
 		return nil, ErrConsumerAlreadyExists
+	}
+
+	// AWS caps enhanced fan-out registrations at 20 consumers per stream.
+	if len(stream.Consumers) >= maxConsumersPerStream {
+		return nil, ErrLimitExceeded
 	}
 
 	now := time.Now()

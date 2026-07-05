@@ -452,16 +452,14 @@ func TestRefinement1_ListTagsForResource_SortedOutput(t *testing.T) {
 
 	arn := createStreamAndGetARN(t, h, "sorted-tags-target")
 
-	// Add tags via PutResourcePolicy then use stream tags via AddTagsToStream.
+	// AddTagsToStream and ListTagsForResource share one backing store
+	// (stream.Tags), so tags applied via the legacy AddTagsToStream API must be
+	// visible — and sorted by key — via the ARN-based ListTagsForResource API.
 	doRequest(t, h, "AddTagsToStream", map[string]any{
 		"StreamName": "sorted-tags-target",
 		"Tags":       map[string]string{"zebra": "z", "apple": "a", "mango": "m"},
 	})
 
-	// ListTagsForResource uses stream-level tags; need to check what's stored on the stream.
-	// Since AddTagsToStream stores in handler-level h.tags (not stream.Tags),
-	// ListTagsForResource on a fresh stream returns empty tags by design.
-	// Verify it returns non-nil empty slice instead.
 	rec = doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": arn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -473,9 +471,11 @@ func TestRefinement1_ListTagsForResource_SortedOutput(t *testing.T) {
 	}
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	// Tags may be empty (stream.Tags not populated by AddTagsToStream which uses h.tags).
-	// The key thing is the response is valid JSON and Tags is non-nil.
-	assert.NotNil(t, resp.Tags)
+	require.Len(t, resp.Tags, 3)
+	assert.Equal(t, "apple", resp.Tags[0].Key)
+	assert.Equal(t, "a", resp.Tags[0].Value)
+	assert.Equal(t, "mango", resp.Tags[1].Key)
+	assert.Equal(t, "zebra", resp.Tags[2].Key)
 }
 
 // TestRefinement1_PersistenceRoundTrip verifies Snapshot/Restore preserves state.

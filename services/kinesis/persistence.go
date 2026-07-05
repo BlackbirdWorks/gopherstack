@@ -12,10 +12,11 @@ import (
 // ResourcePolicies are nested by region (outer key = region) to match the
 // region-isolated in-memory layout.
 type backendSnapshot struct {
-	Streams          map[string]map[string]*Stream `json:"streams"`
-	ResourcePolicies map[string]map[string]string  `json:"resourcePolicies,omitempty"`
-	AccountID        string                        `json:"accountID"`
-	Region           string                        `json:"region"`
+	Streams                  map[string]map[string]*Stream `json:"streams"`
+	ResourcePolicies         map[string]map[string]string  `json:"resourcePolicies,omitempty"`
+	AccountID                string                        `json:"accountID"`
+	Region                   string                        `json:"region"`
+	OnDemandStreamCountLimit int                           `json:"onDemandStreamCountLimit,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -26,10 +27,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Streams:          b.streams,
-		ResourcePolicies: b.resourcePolicies,
-		AccountID:        b.accountID,
-		Region:           b.region,
+		Streams:                  b.streams,
+		ResourcePolicies:         b.resourcePolicies,
+		AccountID:                b.accountID,
+		Region:                   b.region,
+		OnDemandStreamCountLimit: b.onDemandStreamCountLimit,
 	}
 
 	data, err := json.Marshal(snap)
@@ -81,6 +83,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.resourcePolicies = snap.ResourcePolicies
+
+	if snap.OnDemandStreamCountLimit > 0 {
+		b.onDemandStreamCountLimit = snap.OnDemandStreamCountLimit
+	} else {
+		b.onDemandStreamCountLimit = defaultOnDemandStreamCountLimit
+	}
 
 	return nil
 }
