@@ -106,7 +106,7 @@ func (b *InMemoryBackend) RegisterContainerInstance(
 
 	b.ensureClusterLocked(clusterName)
 
-	clusterObj, ok := b.clusters[clusterName]
+	clusterObj, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
@@ -126,7 +126,7 @@ func (b *InMemoryBackend) RegisterContainerInstance(
 		Version:              1,
 	}
 
-	b.containerInstances[clusterName][instanceArn] = ci
+	b.containerInstances.Put(ci)
 
 	cp := *ci
 
@@ -143,18 +143,17 @@ func (b *InMemoryBackend) DeregisterContainerInstance(
 	b.mu.Lock("DeregisterContainerInstance")
 	defer b.mu.Unlock()
 
-	instances, ok := b.containerInstances[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
-	ci, ok := instances[containerInstance]
+	ci, ok := b.containerInstances.Get(scopedKey(clusterName, containerInstance))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrContainerInstanceNotFound, containerInstance)
 	}
 
 	if !force {
-		for _, t := range b.tasks[clusterName] {
+		for _, t := range b.tasksByCluster.Get(clusterName) {
 			if t.ContainerInstanceArn == containerInstance && t.LastStatus == statusRunning {
 				return nil, fmt.Errorf(
 					"%w: container instance has running tasks; use force=true to override",
@@ -164,7 +163,7 @@ func (b *InMemoryBackend) DeregisterContainerInstance(
 		}
 	}
 
-	delete(instances, containerInstance)
+	b.containerInstances.Delete(scopedKey(clusterName, containerInstance))
 
 	cp := *ci
 	cp.Status = statusInactive
@@ -182,12 +181,12 @@ func (b *InMemoryBackend) DescribeContainerInstances(
 	b.mu.RLock("DescribeContainerInstances")
 	defer b.mu.RUnlock()
 
-	instances, ok := b.containerInstances[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	if len(containerInstances) == 0 {
+		instances := b.containerInstancesByCluster.Get(clusterName)
 		out := make([]ContainerInstance, 0, len(instances))
 		for _, ci := range instances {
 			out = append(out, b.enrichContainerInstance(ci, clusterName))
@@ -200,7 +199,7 @@ func (b *InMemoryBackend) DescribeContainerInstances(
 	failures := make([]Failure, 0, len(containerInstances))
 
 	for _, ref := range containerInstances {
-		ci, found := instances[ref]
+		ci, found := b.containerInstances.Get(scopedKey(clusterName, ref))
 		if !found {
 			failures = append(failures, Failure{
 				Arn:    ref,
@@ -231,7 +230,7 @@ func (b *InMemoryBackend) enrichContainerInstance(
 
 	if instanceIndex, ok := b.tasksByInstance[clusterName]; ok {
 		for taskArn := range instanceIndex[ci.ContainerInstanceArn] {
-			if t, found := b.tasks[clusterName][taskArn]; found {
+			if t, found := b.tasks.Get(taskArn); found && clusterKey(t.ClusterArn) == clusterName {
 				switch t.LastStatus {
 				case statusRunning:
 					running++
@@ -242,7 +241,7 @@ func (b *InMemoryBackend) enrichContainerInstance(
 		}
 	} else {
 		// Fallback to linear scan when index is not populated (e.g. after restore).
-		for _, t := range b.tasks[clusterName] {
+		for _, t := range b.tasksByCluster.Get(clusterName) {
 			if t.ContainerInstanceArn == ci.ContainerInstanceArn {
 				switch t.LastStatus {
 				case statusRunning:
@@ -297,18 +296,18 @@ func (b *InMemoryBackend) ListContainerInstances(cluster, status string) ([]stri
 	b.mu.RLock("ListContainerInstances")
 	defer b.mu.RUnlock()
 
-	instances, ok := b.containerInstances[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
+	instances := b.containerInstancesByCluster.Get(clusterName)
 	arns := make([]string, 0, len(instances))
-	for arn, ci := range instances {
+	for _, ci := range instances {
 		if status != "" && ci.Status != status {
 			continue
 		}
 
-		arns = append(arns, arn)
+		arns = append(arns, ci.ContainerInstanceArn)
 	}
 
 	return arns, nil
@@ -335,15 +334,14 @@ func (b *InMemoryBackend) UpdateContainerInstancesState(
 	b.mu.Lock("UpdateContainerInstancesState")
 	defer b.mu.Unlock()
 
-	instances, ok := b.containerInstances[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	out := make([]ContainerInstance, 0, len(containerInstances))
 
 	for _, ref := range containerInstances {
-		ci, found := instances[ref]
+		ci, found := b.containerInstances.Get(scopedKey(clusterName, ref))
 		if !found {
 			return nil, fmt.Errorf("%w: %s", ErrContainerInstanceNotFound, ref)
 		}
@@ -373,15 +371,14 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 	b.mu.Lock("CreateTaskSet")
 	defer b.mu.Unlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
-	}
-
 	svcKey := serviceKey(input.Service)
 
-	svc, ok := svcs[svcKey]
+	svc, ok := b.services.Get(scopedKey(clusterName, svcKey))
 	if !ok {
+		if !b.clusters.Has(clusterName) {
+			return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
+		}
+
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, input.Service)
 	}
 
@@ -437,12 +434,7 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 		NetworkConfiguration: input.NetworkConfiguration,
 	}
 
-	serviceArn := svc.ServiceArn
-	if b.taskSets[serviceArn] == nil {
-		b.taskSets[serviceArn] = make(map[string]*TaskSet)
-	}
-
-	b.taskSets[serviceArn][taskSetArn] = ts
+	b.taskSets.Put(ts)
 
 	cp := *ts
 
@@ -456,29 +448,23 @@ func (b *InMemoryBackend) DeleteTaskSet(cluster, service, taskSet string) (*Task
 	b.mu.Lock("DeleteTaskSet")
 	defer b.mu.Unlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
-	}
-
 	svcKey := serviceKey(service)
 
-	svc, ok := svcs[svcKey]
+	svc, ok := b.services.Get(scopedKey(clusterName, svcKey))
 	if !ok {
+		if !b.clusters.Has(clusterName) {
+			return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+		}
+
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, service)
 	}
 
-	sets, ok := b.taskSets[svc.ServiceArn]
+	ts, ok := b.taskSets.Get(scopedKey(svc.ServiceArn, taskSet))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, taskSet)
 	}
 
-	ts, ok := sets[taskSet]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, taskSet)
-	}
-
-	delete(sets, taskSet)
+	b.taskSets.Delete(scopedKey(svc.ServiceArn, taskSet))
 
 	cp := *ts
 
@@ -495,19 +481,18 @@ func (b *InMemoryBackend) DescribeTaskSets(
 	b.mu.RLock("DescribeTaskSets")
 	defer b.mu.RUnlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	svcKey := serviceKey(service)
 
-	svc, ok := svcs[svcKey]
+	svc, ok := b.services.Get(scopedKey(clusterName, svcKey))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, service)
 	}
 
-	sets := b.taskSets[svc.ServiceArn]
+	sets := b.taskSetsByService.Get(svc.ServiceArn)
 
 	if len(taskSets) == 0 {
 		out := make([]TaskSet, 0, len(sets))
@@ -521,7 +506,7 @@ func (b *InMemoryBackend) DescribeTaskSets(
 	out := make([]TaskSet, 0, len(taskSets))
 
 	for _, ref := range taskSets {
-		ts, found := sets[ref]
+		ts, found := b.taskSets.Get(scopedKey(svc.ServiceArn, ref))
 		if !found {
 			return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, ref)
 		}
@@ -550,24 +535,18 @@ func (b *InMemoryBackend) UpdateTaskSet(
 	b.mu.Lock("UpdateTaskSet")
 	defer b.mu.Unlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	svcKey := serviceKey(service)
 
-	svc, ok := svcs[svcKey]
+	svc, ok := b.services.Get(scopedKey(clusterName, svcKey))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, service)
 	}
 
-	sets, ok := b.taskSets[svc.ServiceArn]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, taskSet)
-	}
-
-	ts, ok := sets[taskSet]
+	ts, ok := b.taskSets.Get(scopedKey(svc.ServiceArn, taskSet))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, taskSet)
 	}
@@ -589,27 +568,26 @@ func (b *InMemoryBackend) UpdateServicePrimaryTaskSet(
 	b.mu.Lock("UpdateServicePrimaryTaskSet")
 	defer b.mu.Unlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	svcKey := serviceKey(service)
 
-	svc, ok := svcs[svcKey]
+	svc, ok := b.services.Get(scopedKey(clusterName, svcKey))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, service)
 	}
 
-	sets := b.taskSets[svc.ServiceArn]
-	if _, found := sets[primaryTaskSet]; !found {
+	primary, found := b.taskSets.Get(scopedKey(svc.ServiceArn, primaryTaskSet))
+	if !found {
 		return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, primaryTaskSet)
 	}
 
 	now := time.Now()
 
-	for arn, ts := range sets {
-		if arn == primaryTaskSet {
+	for _, ts := range b.taskSetsByService.Get(svc.ServiceArn) {
+		if ts.TaskSetArn == primaryTaskSet {
 			ts.Status = "PRIMARY"
 		} else {
 			ts.Status = statusActive
@@ -618,7 +596,7 @@ func (b *InMemoryBackend) UpdateServicePrimaryTaskSet(
 		ts.UpdatedAt = now
 	}
 
-	cp := *sets[primaryTaskSet]
+	cp := *primary
 
 	return &cp, nil
 }
@@ -641,13 +619,12 @@ func (b *InMemoryBackend) ExecuteCommand(
 	b.mu.RLock("ExecuteCommand")
 	defer b.mu.RUnlock()
 
-	clusterTasks, ok := b.tasks[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
-	t, ok := clusterTasks[task]
-	if !ok {
+	t, ok := b.tasks.Get(task)
+	if !ok || clusterKey(t.ClusterArn) != clusterName {
 		return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, task)
 	}
 
@@ -662,7 +639,7 @@ func (b *InMemoryBackend) ExecuteCommand(
 		)
 	}
 
-	clusterObj := b.clusters[clusterName]
+	clusterObj, _ := b.clusters.Get(clusterName)
 	sessionID := uuid.NewString()
 
 	return &ExecuteCommandOutput{
@@ -701,11 +678,11 @@ func (b *InMemoryBackend) ListServices(
 	b.mu.RLock("ListServices")
 	defer b.mu.RUnlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
+	svcs := b.servicesByCluster.Get(clusterName)
 	arns := make([]string, 0, len(svcs))
 
 	for _, svc := range svcs {

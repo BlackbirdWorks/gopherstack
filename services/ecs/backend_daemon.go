@@ -252,7 +252,7 @@ func parseDaemonArn(daemonArn string) (string, string, bool) {
 func (b *InMemoryBackend) findDaemonLocked(daemonArn string) (*Daemon, error) {
 	clusterName, daemonName, ok := parseDaemonArn(daemonArn)
 	if ok {
-		if d, exists := b.daemons[clusterName][daemonName]; exists {
+		if d, exists := b.daemons.Get(scopedKey(clusterName, daemonName)); exists {
 			return d, nil
 		}
 	}
@@ -274,7 +274,7 @@ func (b *InMemoryBackend) createDaemonRevisionLocked(clusterName string, d *Daem
 		EnableExecuteCommand:    d.EnableExecuteCommand,
 	}
 
-	b.daemonRevisions[rev.DaemonRevisionArn] = rev
+	b.daemonRevisions.Put(rev)
 
 	return rev
 }
@@ -300,7 +300,7 @@ func (b *InMemoryBackend) createDaemonDeploymentLocked(
 		DeploymentConfiguration: d.DeploymentConfiguration,
 	}
 
-	b.daemonDeployments[dep.DaemonDeploymentArn] = dep
+	b.daemonDeployments.Put(dep)
 
 	return dep
 }
@@ -329,7 +329,7 @@ func (b *InMemoryBackend) CreateDaemon(input CreateDaemonInput) (*Daemon, error)
 	}
 
 	daemonArn := b.daemonARN(clusterName, input.DaemonName)
-	if _, ok := b.daemons[clusterName][input.DaemonName]; ok {
+	if b.daemons.Has(scopedKey(clusterName, input.DaemonName)) {
 		return nil, fmt.Errorf("%w: %s", ErrDaemonAlreadyExists, input.DaemonName)
 	}
 
@@ -356,11 +356,7 @@ func (b *InMemoryBackend) CreateDaemon(input CreateDaemonInput) (*Daemon, error)
 	d.DeploymentArn = dep.DaemonDeploymentArn
 	d.CurrentDaemonRevisionArn = rev.DaemonRevisionArn
 
-	if b.daemons[clusterName] == nil {
-		b.daemons[clusterName] = make(map[string]*Daemon)
-	}
-
-	b.daemons[clusterName][input.DaemonName] = d
+	b.daemons.Put(d)
 
 	out := *d
 	out.Tags = copyTags(d.Tags)
@@ -385,11 +381,7 @@ func (b *InMemoryBackend) DeleteDaemon(daemonArn string) (*Daemon, error) {
 
 	clusterName, daemonName, ok := parseDaemonArn(daemonArn)
 	if ok {
-		delete(b.daemons[clusterName], daemonName)
-
-		if len(b.daemons[clusterName]) == 0 {
-			delete(b.daemons, clusterName)
-		}
+		b.daemons.Delete(scopedKey(clusterName, daemonName))
 	}
 
 	return &out, nil
@@ -480,20 +472,19 @@ func (b *InMemoryBackend) ListDaemons(input ListDaemonsInput) ([]Daemon, error) 
 		wantCP[cp] = true
 	}
 
-	out := make([]Daemon, 0, len(b.daemons))
+	all := b.daemons.All()
+	out := make([]Daemon, 0, len(all))
 
-	for _, clusterDaemons := range b.daemons {
-		for _, d := range clusterDaemons {
-			if wantCluster != "" && d.ClusterArn != wantCluster {
-				continue
-			}
-
-			if len(wantCP) > 0 && !daemonHasAnyCapacityProvider(d, wantCP) {
-				continue
-			}
-
-			out = append(out, *d)
+	for _, d := range all {
+		if wantCluster != "" && d.ClusterArn != wantCluster {
+			continue
 		}
+
+		if len(wantCP) > 0 && !daemonHasAnyCapacityProvider(d, wantCP) {
+			continue
+		}
+
+		out = append(out, *d)
 	}
 
 	return out, nil
@@ -525,7 +516,7 @@ func (b *InMemoryBackend) findDaemonTaskDefinitionLocked(familyOrArn string) (*D
 		}
 	}
 
-	if td, ok := b.daemonTaskDefByArn[familyOrArn]; ok {
+	if td, ok := b.daemonTaskDefByArn.Get(familyOrArn); ok {
 		cp := *td
 
 		return &cp, nil
@@ -591,14 +582,14 @@ func (b *InMemoryBackend) RegisterDaemonTaskDefinition(
 		excess := len(revisions) - maxDaemonTaskDefinitionRevisions
 
 		for _, evicted := range revisions[:excess] {
-			delete(b.daemonTaskDefByArn, evicted.DaemonTaskDefinitionArn)
+			b.daemonTaskDefByArn.Delete(evicted.DaemonTaskDefinitionArn)
 		}
 
 		revisions = revisions[excess:]
 	}
 
 	b.daemonTaskDefinitions[input.Family] = revisions
-	b.daemonTaskDefByArn[td.DaemonTaskDefinitionArn] = td
+	b.daemonTaskDefByArn.Put(td)
 
 	if len(input.Tags) > 0 {
 		copied := make([]Tag, len(input.Tags))
@@ -697,7 +688,7 @@ func (b *InMemoryBackend) DescribeDaemonDeployments(arns []string) ([]DaemonDepl
 	failures := make([]Failure, 0, len(arns))
 
 	for _, arn := range arns {
-		dep, ok := b.daemonDeployments[arn]
+		dep, ok := b.daemonDeployments.Get(arn)
 		if !ok {
 			failures = append(failures, Failure{
 				Arn:    arn,
@@ -724,7 +715,7 @@ func (b *InMemoryBackend) DescribeDaemonRevisions(arns []string) ([]DaemonRevisi
 	failures := make([]Failure, 0, len(arns))
 
 	for _, arn := range arns {
-		rev, ok := b.daemonRevisions[arn]
+		rev, ok := b.daemonRevisions.Get(arn)
 		if !ok {
 			failures = append(failures, Failure{
 				Arn:    arn,
@@ -758,9 +749,10 @@ func (b *InMemoryBackend) ListDaemonDeployments(input ListDaemonDeploymentsInput
 		wantStatus[strings.ToUpper(s)] = true
 	}
 
-	out := make([]DaemonDeployment, 0, len(b.daemonDeployments))
+	all := b.daemonDeployments.All()
+	out := make([]DaemonDeployment, 0, len(all))
 
-	for _, dep := range b.daemonDeployments {
+	for _, dep := range all {
 		if dep.DaemonArn != input.DaemonArn {
 			continue
 		}

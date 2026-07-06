@@ -48,7 +48,7 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 	b.mu.Lock("UpdateCluster")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterName]
+	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
 	}
@@ -201,7 +201,7 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 			StartedAt:            &now,
 		}
 
-		b.tasks[clusterName][taskArn] = t
+		b.tasks.Put(t)
 		tasks = append(tasks, *t)
 	}
 
@@ -219,10 +219,7 @@ func (b *InMemoryBackend) ListServicesByNamespace(cluster, namespace string) ([]
 	b.mu.RLock("ListServicesByNamespace")
 	defer b.mu.RUnlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
-		return []string{}, nil
-	}
+	svcs := b.servicesByCluster.Get(clusterName)
 
 	out := make([]string, 0, len(svcs))
 
@@ -351,9 +348,10 @@ func (b *InMemoryBackend) ListServiceDeployments(cluster, service string) ([]str
 	b.mu.RLock("ListServiceDeployments")
 	defer b.mu.RUnlock()
 
-	out := make([]string, 0, len(b.serviceDeployments))
+	all := b.serviceDeployments.All()
+	out := make([]string, 0, len(all))
 
-	for _, sd := range b.serviceDeployments {
+	for _, sd := range all {
 		if sd.ClusterArn != "" && !strings.HasSuffix(sd.ClusterArn, "/"+clusterName) {
 			continue
 		}
@@ -388,7 +386,7 @@ func (b *InMemoryBackend) StopServiceDeployment(
 	b.mu.Lock("StopServiceDeployment")
 	defer b.mu.Unlock()
 
-	sd, ok := b.serviceDeployments[serviceDeploymentArn]
+	sd, ok := b.serviceDeployments.Get(serviceDeploymentArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrServiceDeploymentNotFound, serviceDeploymentArn)
 	}
@@ -449,7 +447,7 @@ func (b *InMemoryBackend) ContinueServiceDeployment(
 	b.mu.RLock("ContinueServiceDeployment")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.serviceDeployments[serviceDeploymentArn]; !ok {
+	if !b.serviceDeployments.Has(serviceDeploymentArn) {
 		return nil, fmt.Errorf("%w: %s", ErrServiceDeploymentNotFound, serviceDeploymentArn)
 	}
 

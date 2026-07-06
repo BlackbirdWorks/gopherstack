@@ -77,14 +77,12 @@ func TestPurge_CleansServiceAndDaemonState(t *testing.T) {
 	daemonArn := "arn:aws:ecs:us-east-1:123456789012:daemon/pc/d1"
 
 	b.mu.Lock("seed")
-	b.serviceDeployments[svc.ServiceArn] = &ServiceDeployment{
+	b.serviceDeployments.Put(&ServiceDeployment{
 		ServiceDeploymentArn: "sd-1",
 		ServiceArn:           svc.ServiceArn,
-	}
-	b.daemons["pc"] = map[string]*Daemon{
-		"d1": {DaemonArn: daemonArn, DaemonName: "d1", ClusterArn: svc.ClusterArn},
-	}
-	b.daemonDeployments["dd-1"] = &DaemonDeployment{DaemonDeploymentArn: "dd-1", DaemonArn: daemonArn}
+	})
+	b.daemons.Put(&Daemon{DaemonArn: daemonArn, DaemonName: "d1", ClusterArn: svc.ClusterArn})
+	b.daemonDeployments.Put(&DaemonDeployment{DaemonDeploymentArn: "dd-1", DaemonArn: daemonArn})
 	b.daemonTaskDefs[daemonArn] = []*DaemonTaskDefinition{{DaemonTaskDefinitionArn: daemonArn}}
 	b.mu.Unlock()
 
@@ -97,17 +95,17 @@ func TestPurge_CleansServiceAndDaemonState(t *testing.T) {
 	b.mu.RLock("verify")
 	defer b.mu.RUnlock()
 
-	if len(b.daemons) != 0 {
-		t.Errorf("daemons after purge = %d, want 0", len(b.daemons))
+	if got := b.daemons.Len(); got != 0 {
+		t.Errorf("daemons after purge = %d, want 0", got)
 	}
-	if len(b.daemonDeployments) != 0 {
-		t.Errorf("daemonDeployments after purge = %d, want 0", len(b.daemonDeployments))
+	if got := b.daemonDeployments.Len(); got != 0 {
+		t.Errorf("daemonDeployments after purge = %d, want 0", got)
 	}
 	if len(b.daemonTaskDefs) != 0 {
 		t.Errorf("daemonTaskDefs after purge = %d, want 0", len(b.daemonTaskDefs))
 	}
-	if len(b.clusters) != 0 {
-		t.Errorf("clusters after purge = %d, want 0", len(b.clusters))
+	if got := b.clusters.Len(); got != 0 {
+		t.Errorf("clusters after purge = %d, want 0", got)
 	}
 	if len(b.serviceIndex) != 0 {
 		t.Errorf("serviceIndex after purge = %d, want 0", len(b.serviceIndex))
@@ -149,7 +147,7 @@ func TestPurge_RevisionCutoff(t *testing.T) {
 	}
 
 	// The aged revisions must also be gone from the ARN index.
-	if len(b.taskDefByArn) != 2 {
-		t.Errorf("taskDefByArn size after purge = %d, want 2", len(b.taskDefByArn))
+	if got := b.taskDefByArn.Len(); got != 2 {
+		t.Errorf("taskDefByArn size after purge = %d, want 2", got)
 	}
 }

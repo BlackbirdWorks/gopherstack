@@ -39,9 +39,10 @@ func (b *InMemoryBackend) ListAccountSettings(name, principalArn string) ([]Acco
 	b.mu.RLock("ListAccountSettings")
 	defer b.mu.RUnlock()
 
-	out := make([]AccountSetting, 0, len(b.accountSettings))
+	all := b.accountSettings.All()
+	out := make([]AccountSetting, 0, len(all))
 
-	for _, setting := range b.accountSettings {
+	for _, setting := range all {
 		if name != "" && setting.Name != name {
 			continue
 		}
@@ -70,8 +71,6 @@ func (b *InMemoryBackend) PutAccountSetting(
 		return nil, fmt.Errorf("%w: value is required", ErrInvalidParameter)
 	}
 
-	key := accountSettingKey(name, principalArn)
-
 	b.mu.Lock("PutAccountSetting")
 	defer b.mu.Unlock()
 
@@ -81,7 +80,7 @@ func (b *InMemoryBackend) PutAccountSetting(
 		PrincipalArn: principalArn,
 	}
 
-	b.accountSettings[key] = setting
+	b.accountSettings.Put(setting)
 
 	out := *setting
 
@@ -168,7 +167,7 @@ func (b *InMemoryBackend) PutClusterCapacityProviders(
 	b.mu.Lock("PutClusterCapacityProviders")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterName]
+	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
@@ -193,7 +192,7 @@ func (b *InMemoryBackend) UpdateClusterSettings(
 	b.mu.Lock("UpdateClusterSettings")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterName]
+	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
@@ -216,12 +215,11 @@ func (b *InMemoryBackend) UpdateContainerAgent(
 	b.mu.Lock("UpdateContainerAgent")
 	defer b.mu.Unlock()
 
-	instances, ok := b.containerInstances[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
-	ci, ok := instances[containerInstance]
+	ci, ok := b.containerInstances.Get(scopedKey(clusterName, containerInstance))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrContainerInstanceNotFound, containerInstance)
 	}
@@ -246,7 +244,7 @@ func (b *InMemoryBackend) UpdateExpressGatewayService(
 	b.mu.Lock("UpdateExpressGatewayService")
 	defer b.mu.Unlock()
 
-	svc, ok := b.expressGatewayServices[input.ServiceArn]
+	svc, ok := b.expressGatewayServices.Get(input.ServiceArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrExpressGatewayServiceNotFound, input.ServiceArn)
 	}
@@ -277,16 +275,16 @@ func (b *InMemoryBackend) GetTaskProtection(
 	b.mu.RLock("GetTaskProtection")
 	defer b.mu.RUnlock()
 
-	tasks, ok := b.tasks[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	if len(taskArns) == 0 {
-		out := make([]TaskProtection, 0, len(tasks))
+		clusterTasks := b.tasksByCluster.Get(clusterName)
+		out := make([]TaskProtection, 0, len(clusterTasks))
 
-		for arn := range tasks {
-			out = append(out, b.taskProtectionLocked(arn))
+		for _, t := range clusterTasks {
+			out = append(out, b.taskProtectionLocked(t.TaskArn))
 		}
 
 		return out, nil, nil
@@ -296,7 +294,7 @@ func (b *InMemoryBackend) GetTaskProtection(
 	failures := make([]Failure, 0, len(taskArns))
 
 	for _, arn := range taskArns {
-		if _, found := tasks[arn]; !found {
+		if t, found := b.tasks.Get(arn); !found || clusterKey(t.ClusterArn) != clusterName {
 			failures = append(failures, Failure{
 				Arn:    arn,
 				Reason: statusMissing,
@@ -315,7 +313,7 @@ func (b *InMemoryBackend) GetTaskProtection(
 // taskProtectionLocked returns the protection for a task ARN (defaults to unprotected).
 // Must be called with at least an RLock held.
 func (b *InMemoryBackend) taskProtectionLocked(taskArn string) TaskProtection {
-	if tp, ok := b.taskProtections[taskArn]; ok {
+	if tp, ok := b.taskProtections.Get(taskArn); ok {
 		return *tp
 	}
 
@@ -340,8 +338,7 @@ func (b *InMemoryBackend) UpdateTaskProtection(
 	b.mu.Lock("UpdateTaskProtection")
 	defer b.mu.Unlock()
 
-	tasks, ok := b.tasks[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
@@ -349,7 +346,7 @@ func (b *InMemoryBackend) UpdateTaskProtection(
 	failures := make([]Failure, 0, len(taskArns))
 
 	for _, arn := range taskArns {
-		if _, found := tasks[arn]; !found {
+		if t, found := b.tasks.Get(arn); !found || clusterKey(t.ClusterArn) != clusterName {
 			failures = append(failures, Failure{
 				Arn:    arn,
 				Reason: statusMissing,
@@ -369,7 +366,7 @@ func (b *InMemoryBackend) UpdateTaskProtection(
 			tp.ExpirationDate = &exp
 		}
 
-		b.taskProtections[arn] = tp
+		b.taskProtections.Put(tp)
 		out = append(out, *tp)
 	}
 

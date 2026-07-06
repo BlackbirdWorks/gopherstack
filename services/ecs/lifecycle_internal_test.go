@@ -132,7 +132,9 @@ func TestStopTaskLifecycle_CounterDecrementsOnce(t *testing.T) {
 		b.mu.RLock("test")
 		defer b.mu.RUnlock()
 
-		return b.clusters["lc"].RunningTasksCount
+		c, _ := b.clusters.Get("lc")
+
+		return c.RunningTasksCount
 	}
 
 	if got := clusterRunning(); got != 1 {
@@ -199,8 +201,9 @@ func TestStartTaskLifecycle_ObservableIntermediateStates(t *testing.T) {
 	}
 
 	b.mu.RLock("test")
-	running := b.clusters["lc"].RunningTasksCount
-	pending := b.clusters["lc"].PendingTasksCount
+	c, _ := b.clusters.Get("lc")
+	running := c.RunningTasksCount
+	pending := c.PendingTasksCount
 	_, tracked := b.lifecycle[arn]
 	b.mu.RUnlock()
 

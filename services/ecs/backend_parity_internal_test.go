@@ -787,10 +787,10 @@ func TestDeleteCluster_CascadesServiceDeployments(t *testing.T) {
 	// the ServiceArn field rather than assuming a single well-known key.
 	extraArn := "arn:aws:ecs:us-east-1:123456789012:service-deployment/test-cluster/my-svc/abc"
 	b.mu.Lock("test-inject")
-	b.serviceDeployments[extraArn] = &ServiceDeployment{
+	b.serviceDeployments.Put(&ServiceDeployment{
 		ServiceDeploymentArn: extraArn,
 		ServiceArn:           svc.ServiceArn,
-	}
+	})
 	b.mu.Unlock()
 
 	_, err = b.DeleteCluster("test-cluster")
@@ -800,8 +800,8 @@ func TestDeleteCluster_CascadesServiceDeployments(t *testing.T) {
 
 	// Both the real and the injected service deployment should be gone.
 	b.mu.RLock("test-verify")
-	_, realStillExists := b.serviceDeployments[deploymentArns[0]]
-	_, extraStillExists := b.serviceDeployments[extraArn]
+	_, realStillExists := b.serviceDeployments.Get(deploymentArns[0])
+	_, extraStillExists := b.serviceDeployments.Get(extraArn)
 	b.mu.RUnlock()
 
 	if realStillExists {

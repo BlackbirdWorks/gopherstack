@@ -358,7 +358,7 @@ func mergeTags(base, overrides []Tag) []Tag {
 // container instance would violate the distinctInstance constraint (i.e., a task
 // from the same service already runs on that instance).
 func placementViolatesDistinctInstance(
-	clusterTasks map[string]*Task,
+	clusterTasks []*Task,
 	instanceArn string,
 	serviceName string,
 ) bool {
@@ -385,8 +385,8 @@ func placementViolatesDistinctInstance(
 //
 // Falls back to random when the strategy list is empty or the type is unrecognized.
 func selectContainerInstance(
-	instances map[string]*ContainerInstance,
-	clusterTasks map[string]*Task,
+	instances []*ContainerInstance,
+	clusterTasks []*Task,
 	constraints []PlacementConstraint,
 	strategies []PlacementStrategy,
 	serviceName string,
@@ -394,7 +394,8 @@ func selectContainerInstance(
 	// Collect eligible instances (ACTIVE + not violating constraints).
 	eligible := make([]string, 0, len(instances))
 
-	for arn, ci := range instances {
+	for _, ci := range instances {
+		arn := ci.ContainerInstanceArn
 		if ci.Status != statusActive {
 			continue
 		}
@@ -449,7 +450,7 @@ func cryptoRandChoice(items []string) string {
 }
 
 // taskCountOnInstance counts running tasks assigned to a container instance.
-func taskCountOnInstance(clusterTasks map[string]*Task, instanceArn string) int {
+func taskCountOnInstance(clusterTasks []*Task, instanceArn string) int {
 	count := 0
 
 	for _, t := range clusterTasks {
@@ -462,7 +463,7 @@ func taskCountOnInstance(clusterTasks map[string]*Task, instanceArn string) int 
 }
 
 // leastLoadedInstance returns the instance with the fewest running tasks.
-func leastLoadedInstance(eligible []string, clusterTasks map[string]*Task) string {
+func leastLoadedInstance(eligible []string, clusterTasks []*Task) string {
 	best := eligible[0]
 	bestCount := taskCountOnInstance(clusterTasks, best)
 
@@ -477,7 +478,7 @@ func leastLoadedInstance(eligible []string, clusterTasks map[string]*Task) strin
 }
 
 // mostLoadedInstance returns the instance with the most running tasks.
-func mostLoadedInstance(eligible []string, clusterTasks map[string]*Task) string {
+func mostLoadedInstance(eligible []string, clusterTasks []*Task) string {
 	best := eligible[0]
 	bestCount := taskCountOnInstance(clusterTasks, best)
 

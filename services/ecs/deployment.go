@@ -86,12 +86,7 @@ func (b *InMemoryBackend) recordServiceTaskFailureLocked(clusterName string, tas
 		return
 	}
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
-		return
-	}
-
-	svc, ok := svcs[serviceName]
+	svc, ok := b.services.Get(scopedKey(clusterName, serviceName))
 	if !ok {
 		return
 	}
