@@ -240,13 +240,18 @@ type PutIntegrationResponseInput struct {
 
 // Authorizer represents an API Gateway authorizer.
 type Authorizer struct {
-	ID                           string   `json:"id"`
-	Name                         string   `json:"name"`
-	Type                         string   `json:"type"`
-	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
-	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
-	IdentitySource               string   `json:"identitySource,omitempty"`
-	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	ID                           string `json:"id"`
+	Name                         string `json:"name"`
+	Type                         string `json:"type"`
+	AuthorizerURI                string `json:"authorizerUri,omitempty"`
+	AuthorizerCredentials        string `json:"authorizerCredentials,omitempty"`
+	IdentitySource               string `json:"identitySource,omitempty"`
+	IdentityValidationExpression string `json:"identityValidationExpression,omitempty"`
+	// RestAPIID identifies the owning REST API. It is internal storage-layer
+	// identity (composite key for the backend's flat store.Table[Authorizer]),
+	// never part of the wire response, matching the same json:"-" convention
+	// already used by Resource/Stage/Deployment/Model for the identical purpose.
+	RestAPIID                    string   `json:"-"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
@@ -277,8 +282,12 @@ type UpdateAuthorizerInput struct {
 
 // RequestValidator represents an API Gateway request validator.
 type RequestValidator struct {
-	ID                        string `json:"id"`
-	Name                      string `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// RestAPIID identifies the owning REST API. Internal storage-layer identity
+	// only (composite key for the backend's flat store.Table[RequestValidator]);
+	// never part of the wire response — see the identical Authorizer.RestAPIID doc.
+	RestAPIID                 string `json:"-"`
 	ValidateRequestBody       bool   `json:"validateRequestBody"`
 	ValidateRequestParameters bool   `json:"validateRequestParameters"`
 }
@@ -515,6 +524,11 @@ type UsagePlanKey struct {
 	Type  string `json:"type"`
 	Value string `json:"value,omitempty"`
 	Name  string `json:"name,omitempty"`
+	// UsagePlanID identifies the owning usage plan. Internal storage-layer
+	// identity only (composite key for the backend's flat
+	// store.Table[UsagePlanKey]); never part of the wire response — see the
+	// identical Authorizer.RestAPIID doc.
+	UsagePlanID string `json:"-"`
 }
 
 // CreateUsagePlanKeyInput is the input for CreateUsagePlanKey.
