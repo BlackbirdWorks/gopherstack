@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -309,49 +310,59 @@ func randomAPIKeyID() string {
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
+//
+// Resource collections are backed by *store.Table[T] (see store_setup.go for
+// the registration list and pkgs/store's package doc). Collections nested
+// under a GraphQL/Event API in the original hand-rolled maps (datasources,
+// resolvers, functions, types, channelNamespaces) are now single flat tables
+// keyed by a composite "<apiID>#<localKey>" string, with a secondary
+// [store.Index] grouping by API ID for the "all children of API X" lookups
+// the nested maps used to answer directly -- see store_setup.go's doc comment
+// for why this is safe (every child value type already carries its own APIID
+// field as a real, wire-serialized identity field, unlike some other
+// services' internal-only parent-ID fields).
 type InMemoryBackend struct {
-	apis              map[string]*GraphqlAPI                  // apiID → api
-	schemas           map[string]*Schema                      // apiID → schema
-	datasources       map[string]map[string]*DataSource       // apiID → name → ds
-	resolvers         map[string]map[string]*Resolver         // apiID → "TypeName.FieldName" → resolver
-	apiKeys           map[string]map[string]*APIKey           // apiID → keyID → key
-	apiCaches         map[string]*APICache                    // apiID → cache
-	functions         map[string]map[string]*Function         // apiID → functionID → function
-	types             map[string]map[string]*APIType          // apiID → typeName → type
-	domainNames       map[string]*DomainName                  // domainName → domainNameConfig
-	apiAssociations   map[string]*APIAssociation              // domainName → association
-	eventAPIs         map[string]*API                         // apiID → event api
-	channelNamespaces map[string]map[string]*ChannelNamespace // apiID → name → ns
-	sourceAssocs      map[string]*SourceAPIAssociation        // associationID → association
-	lambdaFn          LambdaInvoker
-	ddbBackend        DynamoDBBackend
-	mu                *lockmetrics.RWMutex
-	accountID         string
-	region            string
-	endpoint          string
+	registry               *store.Registry
+	apis                   *store.Table[GraphqlAPI]
+	schemas                *store.Table[Schema]
+	datasources            *store.Table[DataSource]      // key: apiID#name
+	datasourcesByAPI       *store.Index[DataSource]      // apiID → datasources
+	resolvers              *store.Table[Resolver]        // key: apiID#TypeName.FieldName
+	resolversByAPI         *store.Index[Resolver]        // apiID → resolvers
+	apiKeys                map[string]map[string]*APIKey // apiID → keyID → key (raw; see store_setup.go)
+	apiCaches              *store.Table[APICache]
+	functions              *store.Table[Function] // key: apiID#functionID
+	functionsByAPI         *store.Index[Function] // apiID → functions
+	types                  *store.Table[APIType]  // key: apiID#typeName
+	typesByAPI             *store.Index[APIType]  // apiID → types
+	domainNames            *store.Table[DomainName]
+	apiAssociations        *store.Table[APIAssociation]
+	eventAPIs              *store.Table[API]
+	channelNamespaces      *store.Table[ChannelNamespace] // key: apiID#name
+	channelNamespacesByAPI *store.Index[ChannelNamespace] // apiID → channel namespaces
+	sourceAssocs           *store.Table[SourceAPIAssociation]
+	lambdaFn               LambdaInvoker
+	ddbBackend             DynamoDBBackend
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
+	endpoint               string
 }
 
 // NewInMemoryBackend creates a new in-memory AppSync backend.
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
-	return &InMemoryBackend{
-		apis:              make(map[string]*GraphqlAPI),
-		schemas:           make(map[string]*Schema),
-		datasources:       make(map[string]map[string]*DataSource),
-		resolvers:         make(map[string]map[string]*Resolver),
-		apiKeys:           make(map[string]map[string]*APIKey),
-		apiCaches:         make(map[string]*APICache),
-		functions:         make(map[string]map[string]*Function),
-		types:             make(map[string]map[string]*APIType),
-		domainNames:       make(map[string]*DomainName),
-		apiAssociations:   make(map[string]*APIAssociation),
-		eventAPIs:         make(map[string]*API),
-		channelNamespaces: make(map[string]map[string]*ChannelNamespace),
-		sourceAssocs:      make(map[string]*SourceAPIAssociation),
-		mu:                lockmetrics.New("appsync"),
-		accountID:         accountID,
-		region:            region,
-		endpoint:          endpoint,
+	b := &InMemoryBackend{
+		registry:  store.NewRegistry(),
+		apiKeys:   make(map[string]map[string]*APIKey),
+		mu:        lockmetrics.New("appsync"),
+		accountID: accountID,
+		region:    region,
+		endpoint:  endpoint,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all state from the backend, returning it to a clean initial state.
@@ -361,33 +372,20 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	// Close tag resources before discarding.
-	for _, api := range b.apis {
+	for _, api := range b.apis.All() {
 		if api.Tags != nil {
 			api.Tags.Close()
 		}
 	}
 
-	for _, dss := range b.datasources {
-		for _, ds := range dss {
-			if ds != nil && ds.Tags != nil {
-				ds.Tags.Close()
-			}
+	for _, ds := range b.datasources.All() {
+		if ds != nil && ds.Tags != nil {
+			ds.Tags.Close()
 		}
 	}
 
-	b.apis = make(map[string]*GraphqlAPI)
-	b.schemas = make(map[string]*Schema)
-	b.datasources = make(map[string]map[string]*DataSource)
-	b.resolvers = make(map[string]map[string]*Resolver)
+	b.registry.ResetAll()
 	b.apiKeys = make(map[string]map[string]*APIKey)
-	b.apiCaches = make(map[string]*APICache)
-	b.functions = make(map[string]map[string]*Function)
-	b.types = make(map[string]map[string]*APIType)
-	b.domainNames = make(map[string]*DomainName)
-	b.apiAssociations = make(map[string]*APIAssociation)
-	b.eventAPIs = make(map[string]*API)
-	b.channelNamespaces = make(map[string]map[string]*ChannelNamespace)
-	b.sourceAssocs = make(map[string]*SourceAPIAssociation)
 }
 
 // SetLambdaInvoker configures the Lambda invoker for LAMBDA data sources.
@@ -467,7 +465,7 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 		api.Tags.Set(k, v)
 	}
 
-	b.apis[apiID] = api
+	b.apis.Put(api)
 
 	cp := *api
 
@@ -514,7 +512,7 @@ func (b *InMemoryBackend) GetGraphqlAPI(apiID string) (*GraphqlAPI, error) {
 	b.mu.RLock("GetGraphqlApi")
 	defer b.mu.RUnlock()
 
-	api, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
@@ -536,7 +534,7 @@ func (b *InMemoryBackend) UpdateGraphqlAPI(
 	b.mu.Lock("UpdateGraphqlApi")
 	defer b.mu.Unlock()
 
-	api, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
@@ -583,9 +581,10 @@ func (b *InMemoryBackend) ListGraphqlAPIs(apiType string) ([]*GraphqlAPI, error)
 	b.mu.RLock("ListGraphqlApis")
 	defer b.mu.RUnlock()
 
-	out := make([]*GraphqlAPI, 0, len(b.apis))
+	apis := b.apis.All()
+	out := make([]*GraphqlAPI, 0, len(apis))
 
-	for _, api := range b.apis {
+	for _, api := range apis {
 		if apiType != "" && api.APIType != apiType {
 			continue
 		}
@@ -606,24 +605,38 @@ func (b *InMemoryBackend) DeleteGraphqlAPI(apiID string) error {
 	b.mu.Lock("DeleteGraphqlApi")
 	defer b.mu.Unlock()
 
-	api, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	// Snapshot data sources before deletion so we can release their tag resources.
-	dss := b.datasources[apiID]
+	// Snapshot data sources before deletion so we can release their tag
+	// resources. Cloned because Table.Delete below mutates the same
+	// index-owned backing slice datasourcesByAPI.Get returns.
+	dss := slices.Clone(b.datasourcesByAPI.Get(apiID))
 
-	delete(b.apis, apiID)
-	delete(b.schemas, apiID)
-	delete(b.datasources, apiID)
-	delete(b.resolvers, apiID)
+	b.apis.Delete(apiID)
+	b.schemas.Delete(apiID)
+
+	for _, ds := range dss {
+		b.datasources.Delete(datasourceKey(apiID, ds.Name))
+	}
+
+	for _, r := range slices.Clone(b.resolversByAPI.Get(apiID)) {
+		b.resolvers.Delete(resolverTableKey(apiID, r.TypeName, r.FieldName))
+	}
 
 	// Cascade-delete sub-resources added as part of issue #842.
 	delete(b.apiKeys, apiID)
-	delete(b.apiCaches, apiID)
-	delete(b.functions, apiID)
-	delete(b.types, apiID)
+	b.apiCaches.Delete(apiID)
+
+	for _, fn := range slices.Clone(b.functionsByAPI.Get(apiID)) {
+		b.functions.Delete(functionKey(apiID, fn.FunctionID))
+	}
+
+	for _, t := range slices.Clone(b.typesByAPI.Get(apiID)) {
+		b.types.Delete(apiTypeKey(apiID, t.Name))
+	}
 
 	if api.Tags != nil {
 		api.Tags.Close()
@@ -643,7 +656,7 @@ func (b *InMemoryBackend) StartSchemaCreation(apiID, sdl string) (*Schema, error
 	b.mu.Lock("StartSchemaCreation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -659,7 +672,7 @@ func (b *InMemoryBackend) StartSchemaCreation(apiID, sdl string) (*Schema, error
 			Status:  SchemaStatusFailed,
 			Details: gqlErr.Error(),
 		}
-		b.schemas[apiID] = schema
+		b.schemas.Put(schema)
 
 		return nil, fmt.Errorf("%w: %s", ErrInvalidSchema, gqlErr.Error())
 	}
@@ -670,7 +683,7 @@ func (b *InMemoryBackend) StartSchemaCreation(apiID, sdl string) (*Schema, error
 		Status:       SchemaStatusActive,
 		parsedSchema: parsed,
 	}
-	b.schemas[apiID] = schema
+	b.schemas.Put(schema)
 
 	cp := *schema
 
@@ -682,11 +695,11 @@ func (b *InMemoryBackend) GetSchemaCreationStatus(apiID string) (*Schema, error)
 	b.mu.RLock("GetSchemaCreationStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	schema, ok := b.schemas[apiID]
+	schema, ok := b.schemas.Get(apiID)
 	if !ok {
 		return &Schema{
 			APIID:  apiID,
@@ -704,7 +717,7 @@ func (b *InMemoryBackend) GetIntrospectionSchema(apiID, _ string) ([]byte, error
 	b.mu.RLock("GetIntrospectionSchema")
 	defer b.mu.RUnlock()
 
-	schema, ok := b.schemas[apiID]
+	schema, ok := b.schemas.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: schema not found for api %s", ErrNotFound, apiID)
 	}
@@ -717,7 +730,7 @@ func (b *InMemoryBackend) CreateDataSource(apiID string, ds *DataSource) (*DataS
 	b.mu.Lock("CreateDataSource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -737,11 +750,7 @@ func (b *InMemoryBackend) CreateDataSource(apiID string, ds *DataSource) (*DataS
 		return nil, fmt.Errorf("%w: httpConfig.endpoint is required for HTTP data sources", ErrValidation)
 	}
 
-	if b.datasources[apiID] == nil {
-		b.datasources[apiID] = make(map[string]*DataSource)
-	}
-
-	if _, exists := b.datasources[apiID][ds.Name]; exists {
+	if b.datasources.Has(datasourceKey(apiID, ds.Name)) {
 		return nil, fmt.Errorf("%w: datasource %s already exists", ErrAlreadyExists, ds.Name)
 	}
 
@@ -757,7 +766,7 @@ func (b *InMemoryBackend) CreateDataSource(apiID string, ds *DataSource) (*DataS
 		ds.Tags = tags.New("appsync.ds." + apiID + "." + ds.Name + ".tags")
 	}
 
-	b.datasources[apiID][ds.Name] = ds
+	b.datasources.Put(ds)
 
 	cp := *ds
 
@@ -769,13 +778,11 @@ func (b *InMemoryBackend) GetDataSource(apiID, name string) (*DataSource, error)
 	b.mu.RLock("GetDataSource")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	dss := b.datasources[apiID]
-	ds, ok := dss[name]
-
+	ds, ok := b.datasources.Get(datasourceKey(apiID, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: datasource %s not found", ErrNotFound, name)
 	}
@@ -790,11 +797,11 @@ func (b *InMemoryBackend) ListDataSources(apiID string) ([]*DataSource, error) {
 	b.mu.RLock("ListDataSources")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	dss := b.datasources[apiID]
+	dss := b.datasourcesByAPI.Get(apiID)
 	out := make([]*DataSource, 0, len(dss))
 
 	for _, ds := range dss {
@@ -815,13 +822,13 @@ func (b *InMemoryBackend) DeleteDataSource(apiID, name string) error {
 	b.mu.Lock("DeleteDataSource")
 	defer b.mu.Unlock()
 
-	dss, ok := b.datasources[apiID]
-	if !ok || dss[name] == nil {
+	ds, ok := b.datasources.Get(datasourceKey(apiID, name))
+	if !ok {
 		return fmt.Errorf("%w: datasource %s not found", ErrNotFound, name)
 	}
 
 	// Prevent deletion if any UNIT resolver references this data source.
-	for _, r := range b.resolvers[apiID] {
+	for _, r := range b.resolversByAPI.Get(apiID) {
 		if r.DataSourceName == name {
 			return fmt.Errorf(
 				"%w: data source %s is still referenced by resolver %s.%s",
@@ -834,7 +841,7 @@ func (b *InMemoryBackend) DeleteDataSource(apiID, name string) error {
 	}
 
 	// Prevent deletion if any function references this data source.
-	for _, fn := range b.functions[apiID] {
+	for _, fn := range b.functionsByAPI.Get(apiID) {
 		if fn.DataSourceName == name {
 			return fmt.Errorf(
 				"%w: data source %s is still referenced by function %s",
@@ -845,8 +852,7 @@ func (b *InMemoryBackend) DeleteDataSource(apiID, name string) error {
 		}
 	}
 
-	ds := dss[name]
-	delete(dss, name)
+	b.datasources.Delete(datasourceKey(apiID, name))
 
 	if ds.Tags != nil {
 		ds.Tags.Close()
@@ -865,7 +871,7 @@ func (b *InMemoryBackend) CreateResolver(apiID, typeName string, r *Resolver) (*
 	b.mu.Lock("CreateResolver")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -885,12 +891,8 @@ func (b *InMemoryBackend) CreateResolver(apiID, typeName string, r *Resolver) (*
 		return nil, fmt.Errorf("%w: dataSourceName is required for UNIT resolvers", ErrValidation)
 	}
 
-	if b.resolvers[apiID] == nil {
-		b.resolvers[apiID] = make(map[string]*Resolver)
-	}
-
-	key := resolverKey(typeName, r.FieldName)
-	if _, exists := b.resolvers[apiID][key]; exists {
+	key := resolverTableKey(apiID, typeName, r.FieldName)
+	if b.resolvers.Has(key) {
 		return nil, fmt.Errorf("%w: resolver %s.%s already exists", ErrAlreadyExists, typeName, r.FieldName)
 	}
 
@@ -903,7 +905,7 @@ func (b *InMemoryBackend) CreateResolver(apiID, typeName string, r *Resolver) (*
 		r.Kind = resolverKindUnit
 	}
 
-	b.resolvers[apiID][key] = r
+	b.resolvers.Put(r)
 
 	cp := *r
 
@@ -915,16 +917,11 @@ func (b *InMemoryBackend) GetResolver(apiID, typeName, fieldName string) (*Resol
 	b.mu.RLock("GetResolver")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	res, ok := b.resolvers[apiID]
-	if !ok {
-		return nil, fmt.Errorf("%w: resolver %s.%s not found", ErrNotFound, typeName, fieldName)
-	}
-
-	r, ok := res[resolverKey(typeName, fieldName)]
+	r, ok := b.resolvers.Get(resolverTableKey(apiID, typeName, fieldName))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver %s.%s not found", ErrNotFound, typeName, fieldName)
 	}
@@ -939,16 +936,15 @@ func (b *InMemoryBackend) ListResolvers(apiID, typeName string) ([]*Resolver, er
 	b.mu.RLock("ListResolvers")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	res := b.resolvers[apiID]
+	res := b.resolversByAPI.Get(apiID)
 	out := make([]*Resolver, 0, len(res))
 
-	prefix := typeName + "."
-	for key, r := range res {
-		if strings.HasPrefix(key, prefix) {
+	for _, r := range res {
+		if r.TypeName == typeName {
 			cp := *r
 			out = append(out, &cp)
 		}
@@ -966,21 +962,16 @@ func (b *InMemoryBackend) DeleteResolver(apiID, typeName, fieldName string) erro
 	b.mu.Lock("DeleteResolver")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	res, ok := b.resolvers[apiID]
-	if !ok {
+	key := resolverTableKey(apiID, typeName, fieldName)
+	if !b.resolvers.Has(key) {
 		return fmt.Errorf("%w: resolver %s.%s not found", ErrNotFound, typeName, fieldName)
 	}
 
-	key := resolverKey(typeName, fieldName)
-	if _, ok = res[key]; !ok {
-		return fmt.Errorf("%w: resolver %s.%s not found", ErrNotFound, typeName, fieldName)
-	}
-
-	delete(res, key)
+	b.resolvers.Delete(key)
 
 	return nil
 }
@@ -993,16 +984,24 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 ) (map[string]any, error) {
 	b.mu.RLock("ExecuteGraphQL")
 
-	api, apiOK := b.apis[apiID]
-	schema := b.schemas[apiID]
+	api, apiOK := b.apis.Get(apiID)
+	schema, _ := b.schemas.Get(apiID)
 
 	// Copy resolver and datasource maps under the lock to avoid data races with
 	// concurrent Create/Delete operations.
-	resolversCopy := make(map[string]*Resolver, len(b.resolvers[apiID]))
-	maps.Copy(resolversCopy, b.resolvers[apiID])
+	apiResolvers := b.resolversByAPI.Get(apiID)
+	resolversCopy := make(map[string]*Resolver, len(apiResolvers))
 
-	datasourcesCopy := make(map[string]*DataSource, len(b.datasources[apiID]))
-	maps.Copy(datasourcesCopy, b.datasources[apiID])
+	for _, r := range apiResolvers {
+		resolversCopy[resolverKey(r.TypeName, r.FieldName)] = r
+	}
+
+	apiDatasources := b.datasourcesByAPI.Get(apiID)
+	datasourcesCopy := make(map[string]*DataSource, len(apiDatasources))
+
+	for _, ds := range apiDatasources {
+		datasourcesCopy[ds.Name] = ds
+	}
 
 	b.mu.RUnlock()
 
@@ -1020,7 +1019,7 @@ func (b *InMemoryBackend) CreateAPIKey(apiID, description string, expires int64)
 	b.mu.Lock("CreateAPIKey")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -1068,7 +1067,7 @@ func (b *InMemoryBackend) CreateAPICache(apiID string, cache *APICache) (*APICac
 	b.mu.Lock("CreateAPICache")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -1092,7 +1091,7 @@ func (b *InMemoryBackend) CreateAPICache(apiID string, cache *APICache) (*APICac
 		return nil, fmt.Errorf("%w: invalid apiCachingBehavior %q", ErrValidation, cache.APICachingBehavior)
 	}
 
-	if _, exists := b.apiCaches[apiID]; exists {
+	if b.apiCaches.Has(apiID) {
 		return nil, fmt.Errorf("%w: api cache already exists for api %s", ErrAlreadyExists, apiID)
 	}
 
@@ -1101,7 +1100,7 @@ func (b *InMemoryBackend) CreateAPICache(apiID string, cache *APICache) (*APICac
 		cache.Status = "AVAILABLE"
 	}
 
-	b.apiCaches[apiID] = cache
+	b.apiCaches.Put(cache)
 
 	cp := *cache
 
@@ -1113,7 +1112,7 @@ func (b *InMemoryBackend) CreateFunction(apiID string, f *Function) (*Function, 
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -1121,12 +1120,8 @@ func (b *InMemoryBackend) CreateFunction(apiID string, f *Function) (*Function, 
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	if b.functions[apiID] == nil {
-		b.functions[apiID] = make(map[string]*Function)
-	}
-
 	// Enforce name uniqueness across all functions in the API.
-	for _, existing := range b.functions[apiID] {
+	for _, existing := range b.functionsByAPI.Get(apiID) {
 		if existing.Name == f.Name {
 			return nil, fmt.Errorf("%w: function with name %s already exists", ErrAlreadyExists, f.Name)
 		}
@@ -1145,7 +1140,7 @@ func (b *InMemoryBackend) CreateFunction(apiID string, f *Function) (*Function, 
 		f.FunctionVersion = defaultFunctionVersion
 	}
 
-	b.functions[apiID][funcID] = f
+	b.functions.Put(f)
 
 	cp := *f
 
@@ -1157,16 +1152,12 @@ func (b *InMemoryBackend) CreateType(apiID, definition string, format TypeDefini
 	b.mu.Lock("CreateType")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
 	if format != "" && !isValidTypeFormat(format) {
 		return nil, fmt.Errorf("%w: invalid format %q, must be SDL or JSON", ErrValidation, format)
-	}
-
-	if b.types[apiID] == nil {
-		b.types[apiID] = make(map[string]*APIType)
 	}
 
 	// Extract type name from definition (assumes SDL format: "type TypeName { ... }").
@@ -1175,7 +1166,7 @@ func (b *InMemoryBackend) CreateType(apiID, definition string, format TypeDefini
 		name = randomAPIID()
 	}
 
-	if _, exists := b.types[apiID][name]; exists {
+	if b.types.Has(apiTypeKey(apiID, name)) {
 		return nil, fmt.Errorf("%w: type %s already exists for api %s", ErrAlreadyExists, name, apiID)
 	}
 
@@ -1190,7 +1181,7 @@ func (b *InMemoryBackend) CreateType(apiID, definition string, format TypeDefini
 		APIID:      apiID,
 	}
 
-	b.types[apiID][name] = t
+	b.types.Put(t)
 
 	cp := *t
 
@@ -1244,7 +1235,7 @@ func (b *InMemoryBackend) CreateDomainName(
 		return nil, fmt.Errorf("%w: invalid domain name %q", ErrValidation, domainName)
 	}
 
-	if _, exists := b.domainNames[domainName]; exists {
+	if b.domainNames.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain name %s already exists", ErrAlreadyExists, domainName)
 	}
 
@@ -1260,7 +1251,7 @@ func (b *InMemoryBackend) CreateDomainName(
 		DomainNameARN:  domainNameARN,
 	}
 
-	b.domainNames[domainName] = dn
+	b.domainNames.Put(dn)
 
 	cp := *dn
 
@@ -1272,13 +1263,13 @@ func (b *InMemoryBackend) AssociateAPI(domainName, apiID string) (*APIAssociatio
 	b.mu.Lock("AssociateAPI")
 	defer b.mu.Unlock()
 
-	dn, ok := b.domainNames[domainName]
+	dn, ok := b.domainNames.Get(domainName)
 	if !ok {
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
 	}
 
 	// Validate that the API being associated exists.
-	if _, exists := b.apis[apiID]; !exists {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -1288,7 +1279,7 @@ func (b *InMemoryBackend) AssociateAPI(domainName, apiID string) (*APIAssociatio
 		AssociationStatus: "SUCCESS",
 	}
 
-	b.apiAssociations[domainName] = assoc
+	b.apiAssociations.Put(assoc)
 
 	// Update the domain name record to reflect the associated API.
 	dn.APIID = apiID
@@ -1324,7 +1315,7 @@ func (b *InMemoryBackend) CreateAPI(
 		EventConfig: eventConfig,
 	}
 
-	b.eventAPIs[apiID] = api
+	b.eventAPIs.Put(api)
 
 	cp := *api
 
@@ -1340,15 +1331,11 @@ func (b *InMemoryBackend) CreateChannelNamespace(
 	b.mu.Lock("CreateChannelNamespace")
 	defer b.mu.Unlock()
 
-	if _, ok := b.eventAPIs[apiID]; !ok {
+	if !b.eventAPIs.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	if b.channelNamespaces[apiID] == nil {
-		b.channelNamespaces[apiID] = make(map[string]*ChannelNamespace)
-	}
-
-	if _, exists := b.channelNamespaces[apiID][name]; exists {
+	if b.channelNamespaces.Has(channelNamespaceKey(apiID, name)) {
 		return nil, fmt.Errorf("%w: channel namespace %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1368,7 +1355,7 @@ func (b *InMemoryBackend) CreateChannelNamespace(
 
 	applyChannelNamespaceConfig(ns, cfg)
 
-	b.channelNamespaces[apiID][name] = ns
+	b.channelNamespaces.Put(ns)
 
 	cp := *ns
 
@@ -1405,11 +1392,11 @@ func (b *InMemoryBackend) AssociateMergedGraphqlAPI(
 	b.mu.Lock("AssociateMergedGraphqlAPI")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[sourceAPIIdentifier]; !ok {
+	if !b.apis.Has(sourceAPIIdentifier) {
 		return nil, fmt.Errorf("%w: source api %s not found", ErrNotFound, sourceAPIIdentifier)
 	}
 
-	if _, ok := b.apis[mergedAPIIdentifier]; !ok {
+	if !b.apis.Has(mergedAPIIdentifier) {
 		return nil, fmt.Errorf("%w: merged api %s not found", ErrNotFound, mergedAPIIdentifier)
 	}
 
@@ -1425,11 +1412,11 @@ func (b *InMemoryBackend) AssociateSourceGraphqlAPI(
 	b.mu.Lock("AssociateSourceGraphqlAPI")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[mergedAPIIdentifier]; !ok {
+	if !b.apis.Has(mergedAPIIdentifier) {
 		return nil, fmt.Errorf("%w: merged api %s not found", ErrNotFound, mergedAPIIdentifier)
 	}
 
-	if _, ok := b.apis[sourceAPIIdentifier]; !ok {
+	if !b.apis.Has(sourceAPIIdentifier) {
 		return nil, fmt.Errorf("%w: source api %s not found", ErrNotFound, sourceAPIIdentifier)
 	}
 
@@ -1460,7 +1447,7 @@ func (b *InMemoryBackend) buildSourceAssoc(
 		SourceAPIAssociationConfig: &SourceAPIAssociationConfig{MergeType: mergeType},
 	}
 
-	b.sourceAssocs[assocID] = assoc
+	b.sourceAssocs.Put(assoc)
 
 	cp := *assoc
 
@@ -1472,7 +1459,7 @@ func (b *InMemoryBackend) ListAPIKeys(apiID string) ([]*APIKey, error) {
 	b.mu.RLock("ListApiKeys")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -1502,7 +1489,7 @@ func (b *InMemoryBackend) DeleteAPIKey(apiID, keyID string) error {
 	b.mu.Lock("DeleteApiKey")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -1521,11 +1508,11 @@ func (b *InMemoryBackend) GetAPICache(apiID string) (*APICache, error) {
 	b.mu.RLock("GetApiCache")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	cache, ok := b.apiCaches[apiID]
+	cache, ok := b.apiCaches.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: api cache not found for api %s", ErrNotFound, apiID)
 	}
@@ -1540,15 +1527,15 @@ func (b *InMemoryBackend) DeleteAPICache(apiID string) error {
 	b.mu.Lock("DeleteApiCache")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	if _, ok := b.apiCaches[apiID]; !ok {
+	if !b.apiCaches.Has(apiID) {
 		return fmt.Errorf("%w: api cache not found for api %s", ErrNotFound, apiID)
 	}
 
-	delete(b.apiCaches, apiID)
+	b.apiCaches.Delete(apiID)
 
 	return nil
 }
@@ -1558,16 +1545,11 @@ func (b *InMemoryBackend) GetFunction(apiID, functionID string) (*Function, erro
 	b.mu.RLock("GetFunction")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	fns := b.functions[apiID]
-	if fns == nil {
-		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
-	}
-
-	fn, ok := fns[functionID]
+	fn, ok := b.functions.Get(functionKey(apiID, functionID))
 	if !ok {
 		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
 	}
@@ -1582,11 +1564,11 @@ func (b *InMemoryBackend) ListFunctions(apiID string) ([]*Function, error) {
 	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	fns := b.functions[apiID]
+	fns := b.functionsByAPI.Get(apiID)
 	out := make([]*Function, 0, len(fns))
 
 	for _, fn := range fns {
@@ -1607,17 +1589,17 @@ func (b *InMemoryBackend) DeleteFunction(apiID, functionID string) error {
 	b.mu.Lock("DeleteFunction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	fns := b.functions[apiID]
-	if fns == nil || fns[functionID] == nil {
+	key := functionKey(apiID, functionID)
+	if !b.functions.Has(key) {
 		return fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
 	}
 
 	// Prevent deletion if any resolver still references this function.
-	for _, r := range b.resolvers[apiID] {
+	for _, r := range b.resolversByAPI.Get(apiID) {
 		if slices.Contains(r.PipelineConfig, functionID) {
 			return fmt.Errorf(
 				"%w: function %s is still referenced by resolver %s.%s",
@@ -1629,7 +1611,7 @@ func (b *InMemoryBackend) DeleteFunction(apiID, functionID string) error {
 		}
 	}
 
-	delete(fns, functionID)
+	b.functions.Delete(key)
 
 	return nil
 }
@@ -1639,12 +1621,7 @@ func (b *InMemoryBackend) GetType(apiID, typeName string) (*APIType, error) {
 	b.mu.RLock("GetType")
 	defer b.mu.RUnlock()
 
-	types := b.types[apiID]
-	if types == nil {
-		return nil, fmt.Errorf("%w: type %s not found", ErrNotFound, typeName)
-	}
-
-	t, ok := types[typeName]
+	t, ok := b.types.Get(apiTypeKey(apiID, typeName))
 	if !ok {
 		return nil, fmt.Errorf("%w: type %s not found", ErrNotFound, typeName)
 	}
@@ -1659,11 +1636,11 @@ func (b *InMemoryBackend) ListTypes(apiID string) ([]*APIType, error) {
 	b.mu.RLock("ListTypes")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	types := b.types[apiID]
+	types := b.typesByAPI.Get(apiID)
 	out := make([]*APIType, 0, len(types))
 
 	for _, t := range types {
@@ -1683,12 +1660,12 @@ func (b *InMemoryBackend) DeleteType(apiID, typeName string) error {
 	b.mu.Lock("DeleteType")
 	defer b.mu.Unlock()
 
-	types := b.types[apiID]
-	if types == nil || types[typeName] == nil {
+	key := apiTypeKey(apiID, typeName)
+	if !b.types.Has(key) {
 		return fmt.Errorf("%w: type %s not found", ErrNotFound, typeName)
 	}
 
-	delete(types, typeName)
+	b.types.Delete(key)
 
 	return nil
 }
@@ -1698,7 +1675,7 @@ func (b *InMemoryBackend) GetDomainName(domainName string) (*DomainName, error) 
 	b.mu.RLock("GetDomainName")
 	defer b.mu.RUnlock()
 
-	dn, ok := b.domainNames[domainName]
+	dn, ok := b.domainNames.Get(domainName)
 	if !ok {
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
 	}
@@ -1713,9 +1690,10 @@ func (b *InMemoryBackend) ListDomainNames() ([]*DomainName, error) {
 	b.mu.RLock("ListDomainNames")
 	defer b.mu.RUnlock()
 
-	out := make([]*DomainName, 0, len(b.domainNames))
+	dns := b.domainNames.All()
+	out := make([]*DomainName, 0, len(dns))
 
-	for _, dn := range b.domainNames {
+	for _, dn := range dns {
 		cp := *dn
 		out = append(out, &cp)
 	}
@@ -1732,12 +1710,12 @@ func (b *InMemoryBackend) DeleteDomainName(domainName string) error {
 	b.mu.Lock("DeleteDomainName")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	if !b.domainNames.Has(domainName) {
 		return fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
 	}
 
-	delete(b.domainNames, domainName)
-	delete(b.apiAssociations, domainName)
+	b.domainNames.Delete(domainName)
+	b.apiAssociations.Delete(domainName)
 
 	return nil
 }
@@ -1747,11 +1725,11 @@ func (b *InMemoryBackend) GetAPIAssociation(domainName string) (*APIAssociation,
 	b.mu.RLock("GetApiAssociation")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	if !b.domainNames.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
 	}
 
-	assoc, ok := b.apiAssociations[domainName]
+	assoc, ok := b.apiAssociations.Get(domainName)
 	if !ok {
 		return &APIAssociation{
 			DomainName:        domainName,
@@ -1769,12 +1747,10 @@ func (b *InMemoryBackend) UpdateDataSource(apiID, name string, ds *DataSource) (
 	b.mu.Lock("UpdateDataSource")
 	defer b.mu.Unlock()
 
-	dss := b.datasources[apiID]
-	if dss == nil || dss[name] == nil {
+	existing, ok := b.datasources.Get(datasourceKey(apiID, name))
+	if !ok {
 		return nil, fmt.Errorf("%w: data source %s not found", ErrNotFound, name)
 	}
-
-	existing := dss[name]
 
 	if ds.Description != "" {
 		existing.Description = ds.Description
@@ -1823,13 +1799,11 @@ func (b *InMemoryBackend) UpdateResolver(apiID, typeName string, r *Resolver) (*
 	defer b.mu.Unlock()
 
 	key := typeName + "." + r.FieldName
-	res := b.resolvers[apiID]
 
-	if res == nil || res[key] == nil {
+	existing, ok := b.resolvers.Get(resolverTableKey(apiID, typeName, r.FieldName))
+	if !ok {
 		return nil, fmt.Errorf("%w: resolver %s not found", ErrNotFound, key)
 	}
-
-	existing := res[key]
 
 	if r.RequestMappingTemplate != "" {
 		existing.RequestMappingTemplate = r.RequestMappingTemplate
@@ -1881,12 +1855,10 @@ func (b *InMemoryBackend) UpdateFunction(apiID, functionID string, f *Function) 
 	b.mu.Lock("UpdateFunction")
 	defer b.mu.Unlock()
 
-	fns := b.functions[apiID]
-	if fns == nil || fns[functionID] == nil {
+	existing, ok := b.functions.Get(functionKey(apiID, functionID))
+	if !ok {
 		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
 	}
-
-	existing := fns[functionID]
 
 	if f.Name != "" {
 		existing.Name = f.Name
@@ -1937,12 +1909,10 @@ func (b *InMemoryBackend) UpdateType(
 	b.mu.Lock("UpdateType")
 	defer b.mu.Unlock()
 
-	types := b.types[apiID]
-	if types == nil || types[typeName] == nil {
+	existing, ok := b.types.Get(apiTypeKey(apiID, typeName))
+	if !ok {
 		return nil, fmt.Errorf("%w: type %s not found", ErrNotFound, typeName)
 	}
-
-	existing := types[typeName]
 
 	if definition != "" {
 		existing.Definition = definition
@@ -1962,7 +1932,7 @@ func (b *InMemoryBackend) UpdateAPIKey(apiID, keyID, description string, expires
 	b.mu.Lock("UpdateApiKey")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -1997,11 +1967,11 @@ func (b *InMemoryBackend) UpdateAPICache(apiID string, cache *APICache) (*APICac
 	b.mu.Lock("UpdateApiCache")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	existing, ok := b.apiCaches[apiID]
+	existing, ok := b.apiCaches.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: api cache not found for api %s", ErrNotFound, apiID)
 	}
@@ -2036,11 +2006,11 @@ func (b *InMemoryBackend) FlushAPICache(apiID string) error {
 	b.mu.Lock("FlushApiCache")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	if _, ok := b.apiCaches[apiID]; !ok {
+	if !b.apiCaches.Has(apiID) {
 		return fmt.Errorf("%w: api cache not found for api %s", ErrNotFound, apiID)
 	}
 
@@ -2052,7 +2022,7 @@ func (b *InMemoryBackend) TagResource(apiID string, tagMap map[string]string) er
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	api, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
@@ -2073,7 +2043,7 @@ func (b *InMemoryBackend) UntagResource(apiID string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	api, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
@@ -2090,7 +2060,7 @@ func (b *InMemoryBackend) ListTagsForResource(apiID string) (map[string]string, 
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	api, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
@@ -2107,7 +2077,7 @@ func (b *InMemoryBackend) UpdateDomainName(domainName, description, certificateA
 	b.mu.Lock("UpdateDomainName")
 	defer b.mu.Unlock()
 
-	dn, ok := b.domainNames[domainName]
+	dn, ok := b.domainNames.Get(domainName)
 	if !ok {
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
 	}
@@ -2130,20 +2100,20 @@ func (b *InMemoryBackend) DisassociateAPI(domainName string) error {
 	b.mu.Lock("DisassociateApi")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	if !b.domainNames.Has(domainName) {
 		return fmt.Errorf("%w: domain name %s not found", ErrNotFound, domainName)
 	}
 
-	if _, ok := b.apiAssociations[domainName]; !ok {
+	if !b.apiAssociations.Has(domainName) {
 		return fmt.Errorf("%w: no api associated with domain %s", ErrNotFound, domainName)
 	}
 
 	// Clear APIID from domain name and remove association.
-	if dn, ok := b.domainNames[domainName]; ok {
+	if dn, ok := b.domainNames.Get(domainName); ok {
 		dn.APIID = ""
 	}
 
-	delete(b.apiAssociations, domainName)
+	b.apiAssociations.Delete(domainName)
 
 	return nil
 }
@@ -2153,7 +2123,7 @@ func (b *InMemoryBackend) GetAPI(apiID string) (*API, error) {
 	b.mu.RLock("GetApi")
 	defer b.mu.RUnlock()
 
-	api, ok := b.eventAPIs[apiID]
+	api, ok := b.eventAPIs.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
@@ -2168,9 +2138,10 @@ func (b *InMemoryBackend) ListAPIs() ([]*API, error) {
 	b.mu.RLock("ListApis")
 	defer b.mu.RUnlock()
 
-	out := make([]*API, 0, len(b.eventAPIs))
+	apis := b.eventAPIs.All()
+	out := make([]*API, 0, len(apis))
 
-	for _, api := range b.eventAPIs {
+	for _, api := range apis {
 		cp := *api
 		out = append(out, &cp)
 	}
@@ -2187,12 +2158,15 @@ func (b *InMemoryBackend) DeleteAPI(apiID string) error {
 	b.mu.Lock("DeleteApi")
 	defer b.mu.Unlock()
 
-	if _, ok := b.eventAPIs[apiID]; !ok {
+	if !b.eventAPIs.Has(apiID) {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	delete(b.eventAPIs, apiID)
-	delete(b.channelNamespaces, apiID)
+	b.eventAPIs.Delete(apiID)
+
+	for _, ns := range slices.Clone(b.channelNamespacesByAPI.Get(apiID)) {
+		b.channelNamespaces.Delete(channelNamespaceKey(apiID, ns.Name))
+	}
 
 	return nil
 }
@@ -2202,7 +2176,7 @@ func (b *InMemoryBackend) UpdateAPI(apiID, name, ownerContact string, eventConfi
 	b.mu.Lock("UpdateApi")
 	defer b.mu.Unlock()
 
-	api, ok := b.eventAPIs[apiID]
+	api, ok := b.eventAPIs.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
@@ -2229,12 +2203,12 @@ func (b *InMemoryBackend) GetChannelNamespace(apiID, name string) (*ChannelNames
 	b.mu.RLock("GetChannelNamespace")
 	defer b.mu.RUnlock()
 
-	nss := b.channelNamespaces[apiID]
-	if nss == nil || nss[name] == nil {
+	ns, ok := b.channelNamespaces.Get(channelNamespaceKey(apiID, name))
+	if !ok {
 		return nil, fmt.Errorf("%w: channel namespace %s not found", ErrNotFound, name)
 	}
 
-	cp := *nss[name]
+	cp := *ns
 
 	return &cp, nil
 }
@@ -2244,11 +2218,11 @@ func (b *InMemoryBackend) ListChannelNamespaces(apiID string) ([]*ChannelNamespa
 	b.mu.RLock("ListChannelNamespaces")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.eventAPIs[apiID]; !ok {
+	if !b.eventAPIs.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	nss := b.channelNamespaces[apiID]
+	nss := b.channelNamespacesByAPI.Get(apiID)
 	out := make([]*ChannelNamespace, 0, len(nss))
 
 	for _, ns := range nss {
@@ -2270,12 +2244,10 @@ func (b *InMemoryBackend) UpdateChannelNamespace(
 	b.mu.Lock("UpdateChannelNamespace")
 	defer b.mu.Unlock()
 
-	nss := b.channelNamespaces[apiID]
-	if nss == nil || nss[name] == nil {
+	existing, ok := b.channelNamespaces.Get(channelNamespaceKey(apiID, name))
+	if !ok {
 		return nil, fmt.Errorf("%w: channel namespace %s not found", ErrNotFound, name)
 	}
-
-	existing := nss[name]
 
 	applyChannelNamespaceConfig(existing, cfg)
 
@@ -2291,12 +2263,12 @@ func (b *InMemoryBackend) DeleteChannelNamespace(apiID, name string) error {
 	b.mu.Lock("DeleteChannelNamespace")
 	defer b.mu.Unlock()
 
-	nss := b.channelNamespaces[apiID]
-	if nss == nil || nss[name] == nil {
+	key := channelNamespaceKey(apiID, name)
+	if !b.channelNamespaces.Has(key) {
 		return fmt.Errorf("%w: channel namespace %s not found", ErrNotFound, name)
 	}
 
-	delete(nss, name)
+	b.channelNamespaces.Delete(key)
 
 	return nil
 }
@@ -2306,7 +2278,7 @@ func (b *InMemoryBackend) GetSourceAPIAssociation(mergedAPIID, associationID str
 	b.mu.RLock("GetSourceApiAssociation")
 	defer b.mu.RUnlock()
 
-	assoc, ok := b.sourceAssocs[associationID]
+	assoc, ok := b.sourceAssocs.Get(associationID)
 	if !ok || assoc.MergedAPIID != mergedAPIID {
 		return nil, fmt.Errorf("%w: source api association %s not found", ErrNotFound, associationID)
 	}
@@ -2321,9 +2293,10 @@ func (b *InMemoryBackend) ListSourceAPIAssociations(mergedAPIID string) ([]*Sour
 	b.mu.RLock("ListSourceApiAssociations")
 	defer b.mu.RUnlock()
 
-	out := make([]*SourceAPIAssociation, 0, len(b.sourceAssocs))
+	assocs := b.sourceAssocs.All()
+	out := make([]*SourceAPIAssociation, 0, len(assocs))
 
-	for _, assoc := range b.sourceAssocs {
+	for _, assoc := range assocs {
 		if assoc.MergedAPIID == mergedAPIID {
 			cp := *assoc
 			out = append(out, &cp)
@@ -2342,12 +2315,12 @@ func (b *InMemoryBackend) DisassociateMergedGraphqlAPI(sourceAPIID, associationI
 	b.mu.Lock("DisassociateMergedGraphqlApi")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.sourceAssocs[associationID]
+	assoc, ok := b.sourceAssocs.Get(associationID)
 	if !ok || assoc.SourceAPIID != sourceAPIID {
 		return fmt.Errorf("%w: merged api association %s not found", ErrNotFound, associationID)
 	}
 
-	delete(b.sourceAssocs, associationID)
+	b.sourceAssocs.Delete(associationID)
 
 	return nil
 }
@@ -2357,12 +2330,12 @@ func (b *InMemoryBackend) DisassociateSourceGraphqlAPI(mergedAPIID, associationI
 	b.mu.Lock("DisassociateSourceGraphqlApi")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.sourceAssocs[associationID]
+	assoc, ok := b.sourceAssocs.Get(associationID)
 	if !ok || assoc.MergedAPIID != mergedAPIID {
 		return fmt.Errorf("%w: source api association %s not found", ErrNotFound, associationID)
 	}
 
-	delete(b.sourceAssocs, associationID)
+	b.sourceAssocs.Delete(associationID)
 
 	return nil
 }
@@ -2372,13 +2345,13 @@ func (b *InMemoryBackend) ListResolversByFunction(apiID, functionID string) ([]*
 	b.mu.RLock("ListResolversByFunction")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
 	var out []*Resolver
 
-	for _, r := range b.resolvers[apiID] {
+	for _, r := range b.resolversByAPI.Get(apiID) {
 		if slices.Contains(r.PipelineConfig, functionID) {
 			cp := *r
 			out = append(out, &cp)
@@ -2399,7 +2372,7 @@ func (b *InMemoryBackend) GetGraphqlAPIEnvironmentVariables(apiID string) (map[s
 	b.mu.RLock("GetGraphqlApiEnvironmentVariables")
 	defer b.mu.RUnlock()
 
-	api, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
@@ -2421,7 +2394,7 @@ func (b *InMemoryBackend) PutGraphqlAPIEnvironmentVariables(
 	b.mu.Lock("PutGraphqlApiEnvironmentVariables")
 	defer b.mu.Unlock()
 
-	api, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
@@ -2490,11 +2463,11 @@ func (b *InMemoryBackend) StartDataSourceIntrospection(apiID, dataSourceName str
 	b.mu.RLock("StartDataSourceIntrospection")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return "", fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	if _, ok := b.datasources[apiID][dataSourceName]; !ok {
+	if !b.datasources.Has(datasourceKey(apiID, dataSourceName)) {
 		return "", fmt.Errorf("%w: datasource %s not found", ErrNotFound, dataSourceName)
 	}
 
@@ -2522,7 +2495,7 @@ func (b *InMemoryBackend) StartSchemaMerge(apiID string) (SchemaStatus, error) {
 	b.mu.RLock("StartSchemaMerge")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return "", fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
@@ -2536,7 +2509,7 @@ func (b *InMemoryBackend) UpdateSourceAPIAssociation(
 	b.mu.Lock("UpdateSourceApiAssociation")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.sourceAssocs[associationID]
+	assoc, ok := b.sourceAssocs.Get(associationID)
 	if !ok || assoc.MergedAPIID != mergedAPIID {
 		return nil, fmt.Errorf("%w: source api association %s not found", ErrNotFound, associationID)
 	}
@@ -2544,7 +2517,7 @@ func (b *InMemoryBackend) UpdateSourceAPIAssociation(
 	cp := *assoc
 	cp.Description = description
 
-	b.sourceAssocs[associationID] = &cp
+	b.sourceAssocs.Put(&cp)
 
 	return &cp, nil
 }
@@ -2556,15 +2529,15 @@ func (b *InMemoryBackend) ListTypesByAssociation(mergedAPIID, associationID, _ s
 	b.mu.RLock("ListTypesByAssociation")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[mergedAPIID]; !ok {
+	if !b.apis.Has(mergedAPIID) {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, mergedAPIID)
 	}
 
-	if _, ok := b.sourceAssocs[associationID]; !ok {
+	if !b.sourceAssocs.Has(associationID) {
 		return nil, fmt.Errorf("%w: source api association %s not found", ErrNotFound, associationID)
 	}
 
-	ts := b.types[mergedAPIID]
+	ts := b.typesByAPI.Get(mergedAPIID)
 	out := make([]*APIType, 0, len(ts))
 
 	for _, t := range ts {

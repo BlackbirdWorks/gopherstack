@@ -2,6 +2,8 @@
 // These exports exist solely for testing and must not be called from production code.
 package appsync
 
+import "encoding/json"
+
 // RenderVTL is the exported test hook for the VTL template renderer.
 // It is only exposed for package-level tests and should not be used in production code.
 func RenderVTL(tmpl string, args map[string]any, result any) (string, error) {
@@ -12,4 +14,19 @@ func RenderVTL(tmpl string, args map[string]any, result any) (string, error) {
 // It is only exposed for package-level tests and should not be used in production code.
 func ToDynamoDBJSON(val any) string {
 	return toDynamoDBJSON(val)
+}
+
+// SnapshotRegistry is the exported test hook for the backend's internal
+// store.Registry.SnapshotAll. It exists solely so appsync_test can exercise
+// the Phase 3.3 pkgs/store registry round trip (this service has no
+// persistence.go / Snapshot-Restore wiring of its own) without needing an
+// unexported field accessor.
+func (b *InMemoryBackend) SnapshotRegistry() (map[string]json.RawMessage, error) {
+	return b.registry.SnapshotAll()
+}
+
+// RestoreRegistry is the exported test hook for the backend's internal
+// store.Registry.RestoreAll. See SnapshotRegistry.
+func (b *InMemoryBackend) RestoreRegistry(data map[string]json.RawMessage) error {
+	return b.registry.RestoreAll(data)
 }
