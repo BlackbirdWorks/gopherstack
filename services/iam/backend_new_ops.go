@@ -52,7 +52,7 @@ func (b *InMemoryBackend) CreatePolicyVersion(
 		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
-	pol, exists := b.policies[polName]
+	pol, exists := b.policies.Get(polName)
 	if !exists {
 		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) CreatePolicyVersion(
 		pol.PolicyDocument = policyDocument
 		pol.DefaultVersionID = versionID
 		pol.UpdateDate = newVersion.CreateDate
-		b.policies[polName] = pol
+		b.policies.Put(pol)
 	}
 
 	versions = append(versions, newVersion)
@@ -164,7 +164,7 @@ func (b *InMemoryBackend) CreateServiceLinkedRole(
 	b.mu.Lock("CreateServiceLinkedRole")
 	defer b.mu.Unlock()
 
-	if _, exists := b.roles[roleName]; exists {
+	if _, exists := b.roles.Get(roleName); exists {
 		return nil, fmt.Errorf("%w: role %q already exists", ErrRoleAlreadyExists, roleName)
 	}
 
@@ -188,7 +188,7 @@ func (b *InMemoryBackend) CreateServiceLinkedRole(
 		_ = description
 	}
 
-	b.roles[roleName] = role
+	b.roles.Put(&role)
 	b.roleByARN[role.Arn] = roleName
 	b.sortedRoleNames = insertSorted(b.sortedRoleNames, roleName)
 
@@ -208,7 +208,7 @@ func (b *InMemoryBackend) CreateServiceSpecificCredential(
 	b.mu.Lock("CreateServiceSpecificCredential")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -226,7 +226,7 @@ func (b *InMemoryBackend) CreateServiceSpecificCredential(
 		CreateDate:                  time.Now().UTC(),
 	}
 
-	b.serviceSpecificCreds[credID] = cred
+	b.serviceSpecificCreds.Put(&cred)
 
 	return &cred, nil
 }
@@ -245,7 +245,7 @@ func (b *InMemoryBackend) CreateVirtualMFADevice(virtualMFADeviceName, path stri
 	b.mu.Lock("CreateVirtualMFADevice")
 	defer b.mu.Unlock()
 
-	if _, exists := b.virtualMFADevices[serialNumber]; exists {
+	if _, exists := b.virtualMFADevices.Get(serialNumber); exists {
 		return nil, fmt.Errorf("%w: virtual MFA device %q already exists", ErrUserAlreadyExists, virtualMFADeviceName)
 	}
 
@@ -257,7 +257,7 @@ func (b *InMemoryBackend) CreateVirtualMFADevice(virtualMFADeviceName, path stri
 		Status:               MFAStatusNotAssigned,
 	}
 
-	b.virtualMFADevices[serialNumber] = device
+	b.virtualMFADevices.Put(&device)
 
 	return &device, nil
 }
@@ -278,7 +278,7 @@ func (b *InMemoryBackend) CreateDelegationRequest(targetAccountID string) (*Dele
 		CreateDate:      time.Now().UTC(),
 	}
 
-	b.delegationRequests[delegationID] = req
+	b.delegationRequests.Put(&req)
 
 	return &req, nil
 }
@@ -288,13 +288,13 @@ func (b *InMemoryBackend) AcceptDelegationRequest(delegationID string) error {
 	b.mu.Lock("AcceptDelegationRequest")
 	defer b.mu.Unlock()
 
-	req, exists := b.delegationRequests[delegationID]
+	req, exists := b.delegationRequests.Get(delegationID)
 	if !exists {
 		return fmt.Errorf("%w: delegation request %q not found", ErrInvalidAction, delegationID)
 	}
 
 	req.Status = "ACCEPTED"
-	b.delegationRequests[delegationID] = req
+	b.delegationRequests.Put(req)
 
 	return nil
 }
@@ -304,13 +304,13 @@ func (b *InMemoryBackend) AssociateDelegationRequest(delegationID, policyArn str
 	b.mu.Lock("AssociateDelegationRequest")
 	defer b.mu.Unlock()
 
-	req, exists := b.delegationRequests[delegationID]
+	req, exists := b.delegationRequests.Get(delegationID)
 	if !exists {
 		return fmt.Errorf("%w: delegation request %q not found", ErrInvalidAction, delegationID)
 	}
 
 	req.PolicyArn = policyArn
-	b.delegationRequests[delegationID] = req
+	b.delegationRequests.Put(req)
 
 	return nil
 }
@@ -385,14 +385,14 @@ func (b *InMemoryBackend) AddClientIDToOpenIDConnectProvider(providerArn, client
 	b.mu.Lock("AddClientIDToOpenIDConnectProvider")
 	defer b.mu.Unlock()
 
-	p, exists := b.oidcProviders[providerArn]
+	p, exists := b.oidcProviders.Get(providerArn)
 	if !exists {
 		return fmt.Errorf("%w: OIDC provider %q not found", ErrOIDCProviderNotFound, providerArn)
 	}
 
 	if !slices.Contains(p.ClientIDList, clientID) {
 		p.ClientIDList = append(p.ClientIDList, clientID)
-		b.oidcProviders[providerArn] = p
+		b.oidcProviders.Put(p)
 	}
 
 	return nil

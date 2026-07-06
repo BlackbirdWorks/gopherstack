@@ -3,42 +3,42 @@ package iam
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// iamSnapshotVersion identifies the shape of backendSnapshot's Tables blob
+// (i.e. the set of resources registered on b.registry -- see
+// registerAllTables in store_setup.go). It must be bumped whenever a change
+// there would make an older snapshot unsafe to decode as the current shape.
+// Restore compares this against the persisted value and discards (rather
+// than attempts to partially decode) any mismatch -- see Restore below. This
+// mirrors the services/ec2 (commit 12e611a4) and services/sqs (commit
+// 0f09d77c) conversions.
+const iamSnapshotVersion = 1
+
 type backendSnapshot struct {
-	GroupPolicies         map[string][]string                  `json:"groupPolicies,omitempty"`
-	PasswordPolicy        *PasswordPolicy                      `json:"passwordPolicy,omitempty"`
-	Policies              map[string]Policy                    `json:"policies,omitempty"`
-	Groups                map[string]Group                     `json:"groups,omitempty"`
-	AccessKeys            map[string]AccessKey                 `json:"accessKeys,omitempty"`
-	InstanceProfiles      map[string]InstanceProfile           `json:"instanceProfiles,omitempty"`
-	SAMLProviders         map[string]SAMLProvider              `json:"samlProviders,omitempty"`
-	OIDCProviders         map[string]OIDCProvider              `json:"oidcProviders,omitempty"`
-	LoginProfiles         map[string]LoginProfile              `json:"loginProfiles,omitempty"`
-	GroupMembers          map[string][]string                  `json:"groupMembers,omitempty"`
-	Roles                 map[string]Role                      `json:"roles,omitempty"`
-	Users                 map[string]User                      `json:"users,omitempty"`
-	UserPolicies          map[string][]string                  `json:"userPolicies,omitempty"`
-	UserInlinePolicies    map[string]map[string]string         `json:"userInlinePolicies,omitempty"`
-	VirtualMFADevices     map[string]VirtualMFADevice          `json:"virtualMFADevices,omitempty"`
-	RoleInlinePolicies    map[string]map[string]string         `json:"roleInlinePolicies,omitempty"`
-	PolicyVersionCounters map[string]int                       `json:"policyVersionCounters,omitempty"`
-	PolicyVersions        map[string][]StoredPolicyVersion     `json:"policyVersions,omitempty"`
-	RolePolicies          map[string][]string                  `json:"rolePolicies,omitempty"`
-	ServiceSpecificCreds  map[string]ServiceSpecificCredential `json:"serviceSpecificCreds,omitempty"`
-	GroupInlinePolicies   map[string]map[string]string         `json:"groupInlinePolicies,omitempty"`
-	ServerCertificates    map[string]ServerCertificate         `json:"serverCertificates,omitempty"`
-	DelegationRequests    map[string]DelegationRequest         `json:"delegationRequests,omitempty"`
-	PolicyByARN           map[string]string                    `json:"policyByARN,omitempty"`
-	RoleByARN             map[string]string                    `json:"roleByARN,omitempty"`
-	PolicyAttachments     map[string]policyAttachmentRefs      `json:"policyAttachments,omitempty"`
-	DeletedV1Policies     map[string]bool                      `json:"deletedV1Policies,omitempty"`
-	SigningCertificates   map[string]SigningCertificate        `json:"signingCertificates,omitempty"`
-	Comprehensive         *comprehensiveSnapshot               `json:"comprehensive,omitempty"`
-	AccountID             string                               `json:"accountID,omitempty"`
-	AccountAliases        []string                             `json:"accountAliases,omitempty"`
+	Tables                map[string]json.RawMessage       `json:"tables"`
+	GroupPolicies         map[string][]string              `json:"groupPolicies,omitempty"`
+	PasswordPolicy        *PasswordPolicy                  `json:"passwordPolicy,omitempty"`
+	GroupMembers          map[string][]string              `json:"groupMembers,omitempty"`
+	UserPolicies          map[string][]string              `json:"userPolicies,omitempty"`
+	UserInlinePolicies    map[string]map[string]string     `json:"userInlinePolicies,omitempty"`
+	RoleInlinePolicies    map[string]map[string]string     `json:"roleInlinePolicies,omitempty"`
+	PolicyVersionCounters map[string]int                   `json:"policyVersionCounters,omitempty"`
+	PolicyVersions        map[string][]StoredPolicyVersion `json:"policyVersions,omitempty"`
+	RolePolicies          map[string][]string              `json:"rolePolicies,omitempty"`
+	GroupInlinePolicies   map[string]map[string]string     `json:"groupInlinePolicies,omitempty"`
+	PolicyByARN           map[string]string                `json:"policyByARN,omitempty"`
+	RoleByARN             map[string]string                `json:"roleByARN,omitempty"`
+	PolicyAttachments     map[string]policyAttachmentRefs  `json:"policyAttachments,omitempty"`
+	DeletedV1Policies     map[string]bool                  `json:"deletedV1Policies,omitempty"`
+	Comprehensive         *comprehensiveSnapshot           `json:"comprehensive,omitempty"`
+	AccountID             string                           `json:"accountID,omitempty"`
+	AccountAliases        []string                         `json:"accountAliases,omitempty"`
+	Version               int                              `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -53,17 +53,21 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "iam: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
+		Version:               iamSnapshotVersion,
+		Tables:                tables,
 		Comprehensive:         &comp,
-		Users:                 b.users,
-		Roles:                 b.roles,
-		Policies:              b.policies,
-		Groups:                b.groups,
-		AccessKeys:            b.accessKeys,
-		InstanceProfiles:      b.instanceProfiles,
-		SAMLProviders:         b.samlProviders,
-		OIDCProviders:         b.oidcProviders,
-		LoginProfiles:         b.loginProfiles,
 		UserPolicies:          b.userPolicies,
 		RolePolicies:          b.rolePolicies,
 		GroupPolicies:         b.groupPolicies,
@@ -74,16 +78,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AccountAliases:        b.accountAliases,
 		PolicyVersions:        b.policyVersions,
 		PolicyVersionCounters: b.policyVersionCounters,
-		ServiceSpecificCreds:  b.serviceSpecificCreds,
-		VirtualMFADevices:     b.virtualMFADevices,
-		DelegationRequests:    b.delegationRequests,
 		AccountID:             b.accountID,
 		PolicyByARN:           b.policyByARN,
 		RoleByARN:             b.roleByARN,
 		PolicyAttachments:     b.policyAttachments,
 		DeletedV1Policies:     b.deletedV1Policies,
-		SigningCertificates:   b.signingCertificates,
-		ServerCertificates:    b.serverCertificates,
 		PasswordPolicy:        b.passwordPolicy,
 	}
 
@@ -103,19 +102,37 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.mu.Lock("Restore")
 
-	b.users = snap.Users
-	b.roles = snap.Roles
-	b.policies = snap.Policies
-	b.groups = snap.Groups
-	b.accessKeys = snap.AccessKeys
-	b.userAccessKeys = make(map[string][]string)
-	for id, ak := range b.accessKeys {
-		b.userAccessKeys[ak.UserName] = append(b.userAccessKeys[ak.UserName], id)
+	if snap.Version != iamSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption. Mirrors the services/ec2 and services/sqs conversions.
+		logger.Load(ctx).WarnContext(ctx,
+			"iam: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", iamSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.mu.Unlock()
+
+		return nil
 	}
-	b.instanceProfiles = snap.InstanceProfiles
-	b.samlProviders = snap.SAMLProviders
-	b.oidcProviders = snap.OIDCProviders
-	b.loginProfiles = snap.LoginProfiles
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		b.mu.Unlock()
+
+		return fmt.Errorf("iam: restore snapshot tables: %w", err)
+	}
+
+	// userAccessKeys is a secondary index (username -> []AccessKeyID) over
+	// b.accessKeys; it is not itself persisted (see store_setup.go), so it is
+	// always rebuilt fresh from the restored accessKeys table.
+	b.userAccessKeys = make(map[string][]string)
+	for _, ak := range b.accessKeys.All() {
+		b.userAccessKeys[ak.UserName] = append(b.userAccessKeys[ak.UserName], ak.AccessKeyID)
+	}
+
 	b.userPolicies = snap.UserPolicies
 	b.rolePolicies = snap.RolePolicies
 	b.groupPolicies = snap.GroupPolicies
@@ -126,9 +143,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountAliases = snap.AccountAliases
 	b.policyVersions = snap.PolicyVersions
 	b.policyVersionCounters = snap.PolicyVersionCounters
-	b.serviceSpecificCreds = snap.ServiceSpecificCreds
-	b.virtualMFADevices = snap.VirtualMFADevices
-	b.delegationRequests = snap.DelegationRequests
 	b.accountID = snap.AccountID
 	b.rebuildIndexesLocked()
 
@@ -152,16 +166,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	} else {
 		b.deletedV1Policies = make(map[string]bool)
 	}
-	if snap.SigningCertificates != nil {
-		b.signingCertificates = snap.SigningCertificates
-	} else {
-		b.signingCertificates = make(map[string]SigningCertificate)
-	}
-	if snap.ServerCertificates != nil {
-		b.serverCertificates = snap.ServerCertificates
-	} else {
-		b.serverCertificates = make(map[string]ServerCertificate)
-	}
 	b.passwordPolicy = snap.PasswordPolicy
 
 	b.mu.Unlock()
@@ -180,48 +184,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // normalizeSnapshot ensures all map fields in snap are non-nil so callers
 // can assign them directly without nil-pointer risk.
 func normalizeSnapshot(snap *backendSnapshot) {
-	normalizeSnapshotEntities(snap)
 	normalizeSnapshotPolicies(snap)
 	normalizeSnapshotNewOps(snap)
-}
-
-// normalizeSnapshotEntities initialises entity maps in snap to non-nil empty maps.
-func normalizeSnapshotEntities(snap *backendSnapshot) {
-	if snap.Users == nil {
-		snap.Users = make(map[string]User)
-	}
-
-	if snap.Roles == nil {
-		snap.Roles = make(map[string]Role)
-	}
-
-	if snap.Policies == nil {
-		snap.Policies = make(map[string]Policy)
-	}
-
-	if snap.Groups == nil {
-		snap.Groups = make(map[string]Group)
-	}
-
-	if snap.AccessKeys == nil {
-		snap.AccessKeys = make(map[string]AccessKey)
-	}
-
-	if snap.InstanceProfiles == nil {
-		snap.InstanceProfiles = make(map[string]InstanceProfile)
-	}
-
-	if snap.SAMLProviders == nil {
-		snap.SAMLProviders = make(map[string]SAMLProvider)
-	}
-
-	if snap.OIDCProviders == nil {
-		snap.OIDCProviders = make(map[string]OIDCProvider)
-	}
-
-	if snap.LoginProfiles == nil {
-		snap.LoginProfiles = make(map[string]LoginProfile)
-	}
 }
 
 // normalizeSnapshotPolicies initialises policy maps in snap to non-nil empty maps.
@@ -259,18 +223,6 @@ func normalizeSnapshotPolicies(snap *backendSnapshot) {
 func normalizeSnapshotNewOps(snap *backendSnapshot) {
 	if snap.PolicyVersions == nil {
 		snap.PolicyVersions = make(map[string][]StoredPolicyVersion)
-	}
-
-	if snap.ServiceSpecificCreds == nil {
-		snap.ServiceSpecificCreds = make(map[string]ServiceSpecificCredential)
-	}
-
-	if snap.VirtualMFADevices == nil {
-		snap.VirtualMFADevices = make(map[string]VirtualMFADevice)
-	}
-
-	if snap.DelegationRequests == nil {
-		snap.DelegationRequests = make(map[string]DelegationRequest)
 	}
 
 	if snap.PolicyVersionCounters == nil {

@@ -23,7 +23,7 @@ func (b *InMemoryBackend) TagUser(userName string, tags map[string]string) error
 	b.mu.Lock("TagUser")
 	defer b.mu.Unlock()
 
-	u, exists := b.users[userName]
+	u, exists := b.users.Get(userName)
 	if !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
@@ -33,7 +33,7 @@ func (b *InMemoryBackend) TagUser(userName string, tags map[string]string) error
 	}
 
 	maps.Copy(u.Tags, tags)
-	b.users[userName] = u
+	b.users.Put(u)
 
 	return nil
 }
@@ -43,7 +43,7 @@ func (b *InMemoryBackend) UntagUser(userName string, keys []string) error {
 	b.mu.Lock("UntagUser")
 	defer b.mu.Unlock()
 
-	u, exists := b.users[userName]
+	u, exists := b.users.Get(userName)
 	if !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) UntagUser(userName string, keys []string) error {
 		delete(u.Tags, k)
 	}
 
-	b.users[userName] = u
+	b.users.Put(u)
 
 	return nil
 }
@@ -62,7 +62,7 @@ func (b *InMemoryBackend) TagRole(roleName string, tags map[string]string) error
 	b.mu.Lock("TagRole")
 	defer b.mu.Unlock()
 
-	r, exists := b.roles[roleName]
+	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) TagRole(roleName string, tags map[string]string) error
 
 	maps.Copy(r.Tags, tags)
 
-	b.roles[roleName] = r
+	b.roles.Put(r)
 
 	return nil
 }
@@ -83,7 +83,7 @@ func (b *InMemoryBackend) UntagRole(roleName string, keys []string) error {
 	b.mu.Lock("UntagRole")
 	defer b.mu.Unlock()
 
-	r, exists := b.roles[roleName]
+	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
@@ -92,7 +92,7 @@ func (b *InMemoryBackend) UntagRole(roleName string, keys []string) error {
 		delete(r.Tags, k)
 	}
 
-	b.roles[roleName] = r
+	b.roles.Put(r)
 
 	return nil
 }
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) TagPolicy(policyArn string, tags map[string]string) er
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
-	p, exists := b.policies[polName]
+	p, exists := b.policies.Get(polName)
 	if !exists {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
@@ -117,7 +117,7 @@ func (b *InMemoryBackend) TagPolicy(policyArn string, tags map[string]string) er
 	}
 
 	maps.Copy(p.Tags, tags)
-	b.policies[polName] = p
+	b.policies.Put(p)
 
 	return nil
 }
@@ -132,7 +132,7 @@ func (b *InMemoryBackend) UntagPolicy(policyArn string, keys []string) error {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
-	p, exists := b.policies[polName]
+	p, exists := b.policies.Get(polName)
 	if !exists {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) UntagPolicy(policyArn string, keys []string) error {
 		delete(p.Tags, k)
 	}
 
-	b.policies[polName] = p
+	b.policies.Put(p)
 
 	return nil
 }
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) TagGroup(groupName string, tags map[string]string) err
 	b.mu.Lock("TagGroup")
 	defer b.mu.Unlock()
 
-	g, exists := b.groups[groupName]
+	g, exists := b.groups.Get(groupName)
 	if !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
@@ -161,7 +161,7 @@ func (b *InMemoryBackend) TagGroup(groupName string, tags map[string]string) err
 	}
 
 	maps.Copy(g.Tags, tags)
-	b.groups[groupName] = g
+	b.groups.Put(g)
 
 	return nil
 }
@@ -171,7 +171,7 @@ func (b *InMemoryBackend) UntagGroup(groupName string, keys []string) error {
 	b.mu.Lock("UntagGroup")
 	defer b.mu.Unlock()
 
-	g, exists := b.groups[groupName]
+	g, exists := b.groups.Get(groupName)
 	if !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) UntagGroup(groupName string, keys []string) error {
 		delete(g.Tags, k)
 	}
 
-	b.groups[groupName] = g
+	b.groups.Put(g)
 
 	return nil
 }
@@ -193,7 +193,7 @@ func (b *InMemoryBackend) RecordAccessKeyUsage(accessKeyID, region, serviceName 
 	b.mu.Lock("RecordAccessKeyUsage")
 	defer b.mu.Unlock()
 
-	ak, exists := b.accessKeys[accessKeyID]
+	ak, exists := b.accessKeys.Get(accessKeyID)
 	if !exists {
 		return
 	}
@@ -202,7 +202,7 @@ func (b *InMemoryBackend) RecordAccessKeyUsage(accessKeyID, region, serviceName 
 	ak.LastUsedDate = &now
 	ak.LastUsedRegion = region
 	ak.LastUsedServiceName = serviceName
-	b.accessKeys[accessKeyID] = ak
+	b.accessKeys.Put(ak)
 }
 
 // ---- Signing Certificates ----
@@ -226,7 +226,7 @@ func (b *InMemoryBackend) UploadSigningCertificate(userName, body string) (*Sign
 	b.mu.Lock("UploadSigningCertificate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -242,7 +242,7 @@ func (b *InMemoryBackend) UploadSigningCertificate(userName, body string) (*Sign
 		UploadDate:      time.Now().UTC(),
 	}
 
-	b.signingCertificates[cert.CertificateID] = cert
+	b.signingCertificates.Put(&cert)
 
 	return &cert, nil
 }
@@ -254,16 +254,16 @@ func (b *InMemoryBackend) ListSigningCertificates(userName string) ([]SigningCer
 	defer b.mu.RUnlock()
 
 	if userName != "" {
-		if _, exists := b.users[userName]; !exists {
+		if _, exists := b.users.Get(userName); !exists {
 			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 		}
 	}
 
 	var result []SigningCertificate
 
-	for _, cert := range b.signingCertificates {
+	for _, cert := range b.signingCertificates.All() {
 		if userName == "" || cert.UserName == userName {
-			result = append(result, cert)
+			result = append(result, *cert)
 		}
 	}
 
@@ -275,7 +275,7 @@ func (b *InMemoryBackend) UpdateSigningCertificate(certificateID, status string)
 	b.mu.Lock("UpdateSigningCertificate")
 	defer b.mu.Unlock()
 
-	cert, exists := b.signingCertificates[certificateID]
+	cert, exists := b.signingCertificates.Get(certificateID)
 	if !exists {
 		return fmt.Errorf("%w: signing certificate %q not found", ErrAccessKeyNotFound, certificateID)
 	}
@@ -290,7 +290,7 @@ func (b *InMemoryBackend) UpdateSigningCertificate(certificateID, status string)
 	}
 
 	cert.Status = status
-	b.signingCertificates[certificateID] = cert
+	b.signingCertificates.Put(cert)
 
 	return nil
 }
@@ -300,11 +300,11 @@ func (b *InMemoryBackend) DeleteSigningCertificate(certificateID string) error {
 	b.mu.Lock("DeleteSigningCertificate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.signingCertificates[certificateID]; !exists {
+	if _, exists := b.signingCertificates.Get(certificateID); !exists {
 		return fmt.Errorf("%w: signing certificate %q not found", ErrAccessKeyNotFound, certificateID)
 	}
 
-	delete(b.signingCertificates, certificateID)
+	b.signingCertificates.Delete(certificateID)
 
 	return nil
 }
@@ -317,13 +317,13 @@ func (b *InMemoryBackend) setMFADeviceStatus(serialNumber, status string) error 
 	b.mu.Lock("setMFADeviceStatus")
 	defer b.mu.Unlock()
 
-	dev, exists := b.virtualMFADevices[serialNumber]
+	dev, exists := b.virtualMFADevices.Get(serialNumber)
 	if !exists {
 		return fmt.Errorf("%w: virtual MFA device %q not found", ErrInvalidAction, serialNumber)
 	}
 
 	dev.Status = status
-	b.virtualMFADevices[serialNumber] = dev
+	b.virtualMFADevices.Put(dev)
 
 	return nil
 }
@@ -333,7 +333,7 @@ func (b *InMemoryBackend) setMFADeviceStatus(serialNumber, status string) error 
 // boundaryDocForUser returns the policy document for the user's permissions boundary, or "".
 // Caller must hold b.mu read-locked.
 func (b *InMemoryBackend) boundaryDocForUser(userName string) string {
-	u, exists := b.users[userName]
+	u, exists := b.users.Get(userName)
 	if !exists || u.PermissionsBoundary == "" {
 		return ""
 	}
@@ -344,7 +344,7 @@ func (b *InMemoryBackend) boundaryDocForUser(userName string) string {
 // boundaryDocForRole returns the policy document for the role's permissions boundary, or "".
 // Caller must hold b.mu read-locked.
 func (b *InMemoryBackend) boundaryDocForRole(roleName string) string {
-	r, exists := b.roles[roleName]
+	r, exists := b.roles.Get(roleName)
 	if !exists || r.PermissionsBoundary == "" {
 		return ""
 	}
@@ -360,7 +360,7 @@ func (b *InMemoryBackend) policyDocByARNLocked(policyArn string) string {
 		return ""
 	}
 
-	p, exists := b.policies[polName]
+	p, exists := b.policies.Get(polName)
 	if !exists {
 		return ""
 	}
@@ -637,11 +637,11 @@ func (b *InMemoryBackend) validateAWSPrincipal(a string, i int) error {
 
 func (b *InMemoryBackend) validatePrincipalResource(resource string) error {
 	if userName, ok := strings.CutPrefix(resource, "user/"); ok {
-		if _, exists := b.users[userName]; !exists {
+		if _, exists := b.users.Get(userName); !exists {
 			return fmt.Errorf("%w: user %q not found", ErrMalformedPolicyDocument, userName)
 		}
 	} else if roleName, okRole := strings.CutPrefix(resource, "role/"); okRole {
-		if _, exists := b.roles[roleName]; !exists {
+		if _, exists := b.roles.Get(roleName); !exists {
 			return fmt.Errorf("%w: role %q not found", ErrMalformedPolicyDocument, roleName)
 		}
 	}
@@ -677,7 +677,7 @@ func (b *InMemoryBackend) UploadServerCertificate(name, path, certBody, certChai
 		return nil, fmt.Errorf("%w: CertificateBody must not be empty", ErrMalformedPolicyDocument)
 	}
 
-	if _, exists := b.serverCertificates[name]; exists {
+	if _, exists := b.serverCertificates.Get(name); exists {
 		return nil, fmt.Errorf("%w: server certificate %q already exists", ErrUserAlreadyExists, name)
 	}
 
@@ -692,7 +692,7 @@ func (b *InMemoryBackend) UploadServerCertificate(name, path, certBody, certChai
 		CertificateChain:      certChain,
 	}
 
-	b.serverCertificates[name] = cert
+	b.serverCertificates.Put(&cert)
 
 	return &cert, nil
 }
@@ -702,12 +702,12 @@ func (b *InMemoryBackend) GetServerCertificate(name string) (*ServerCertificate,
 	b.mu.RLock("GetServerCertificate")
 	defer b.mu.RUnlock()
 
-	cert, exists := b.serverCertificates[name]
+	cert, exists := b.serverCertificates.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: server certificate %q not found", ErrUserNotFound, name)
 	}
 
-	return &cert, nil
+	return cert, nil
 }
 
 // ListServerCertificates returns server certificates, filtered by path prefix if non-empty.
@@ -717,9 +717,9 @@ func (b *InMemoryBackend) ListServerCertificates(pathPrefix string) ([]ServerCer
 
 	var result []ServerCertificate
 
-	for _, cert := range b.serverCertificates {
+	for _, cert := range b.serverCertificates.All() {
 		if pathPrefix == "" || strings.HasPrefix(cert.Path, pathPrefix) {
-			result = append(result, cert)
+			result = append(result, *cert)
 		}
 	}
 
@@ -735,17 +735,22 @@ func (b *InMemoryBackend) UpdateServerCertificate(name, newName, newPath string)
 	b.mu.Lock("UpdateServerCertificate")
 	defer b.mu.Unlock()
 
-	cert, exists := b.serverCertificates[name]
+	cert, exists := b.serverCertificates.Get(name)
 	if !exists {
 		return fmt.Errorf("%w: server certificate %q not found", ErrUserNotFound, name)
 	}
 
 	if newName != "" && newName != name {
-		if _, nameExists := b.serverCertificates[newName]; nameExists {
+		if _, nameExists := b.serverCertificates.Get(newName); nameExists {
 			return fmt.Errorf("%w: server certificate %q already exists", ErrUserAlreadyExists, newName)
 		}
 
-		delete(b.serverCertificates, name)
+		// serverCertificates is keyed by ServerCertificateName, which is
+		// changing here -- explicit Delete(old)+Put (rather than Put alone)
+		// is required so the table's key stays in sync with the mutated
+		// value, matching store.Table's key-is-a-pure-function-of-value
+		// contract (see store_setup.go).
+		b.serverCertificates.Delete(name)
 		cert.ServerCertificateName = newName
 		cert.Arn = "arn:aws:iam::" + b.accountID + ":server-certificate" + cert.Path + newName
 	}
@@ -756,7 +761,7 @@ func (b *InMemoryBackend) UpdateServerCertificate(name, newName, newPath string)
 		cert.Arn = "arn:aws:iam::" + b.accountID + ":server-certificate" + normalizedPath + cert.ServerCertificateName
 	}
 
-	b.serverCertificates[cert.ServerCertificateName] = cert
+	b.serverCertificates.Put(cert)
 
 	return nil
 }
@@ -766,11 +771,11 @@ func (b *InMemoryBackend) DeleteServerCertificate(name string) error {
 	b.mu.Lock("DeleteServerCertificate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.serverCertificates[name]; !exists {
+	if _, exists := b.serverCertificates.Get(name); !exists {
 		return fmt.Errorf("%w: server certificate %q not found", ErrUserNotFound, name)
 	}
 
-	delete(b.serverCertificates, name)
+	b.serverCertificates.Delete(name)
 
 	return nil
 }

@@ -20,13 +20,13 @@ func (b *InMemoryBackend) UpdateAccessKey(userName, accessKeyID, status string) 
 	b.mu.Lock("UpdateAccessKey")
 	defer b.mu.Unlock()
 
-	ak, exists := b.accessKeys[accessKeyID]
+	ak, exists := b.accessKeys.Get(accessKeyID)
 	if !exists || ak.UserName != userName {
 		return fmt.Errorf("%w: access key %q not found for user %q", ErrAccessKeyNotFound, accessKeyID, userName)
 	}
 
 	ak.Status = status
-	b.accessKeys[accessKeyID] = ak
+	b.accessKeys.Put(ak)
 
 	return nil
 }
@@ -37,7 +37,7 @@ func (b *InMemoryBackend) GetAccessKeyLastUsed(accessKeyID string) (*AccessKeyLa
 	b.mu.RLock("GetAccessKeyLastUsed")
 	defer b.mu.RUnlock()
 
-	ak, exists := b.accessKeys[accessKeyID]
+	ak, exists := b.accessKeys.Get(accessKeyID)
 	if !exists {
 		return nil, fmt.Errorf("%w: access key %q not found", ErrAccessKeyNotFound, accessKeyID)
 	}
@@ -100,15 +100,15 @@ func (b *InMemoryBackend) ListGroupsForUser(userName string) ([]Group, error) {
 	b.mu.RLock("ListGroupsForUser")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	result := make([]Group, 0, len(b.groupMembers))
 	for groupName, members := range b.groupMembers {
 		if slices.Contains(members, userName) {
-			if g, exists := b.groups[groupName]; exists {
-				result = append(result, g)
+			if g, exists := b.groups.Get(groupName); exists {
+				result = append(result, *g)
 			}
 		}
 	}
@@ -125,9 +125,9 @@ func (b *InMemoryBackend) ListVirtualMFADevices(marker string, maxItems int) (pa
 	b.mu.RLock("ListVirtualMFADevices")
 	defer b.mu.RUnlock()
 
-	devices := make([]VirtualMFADevice, 0, len(b.virtualMFADevices))
-	for _, d := range b.virtualMFADevices {
-		devices = append(devices, d)
+	devices := make([]VirtualMFADevice, 0, b.virtualMFADevices.Len())
+	for _, d := range b.virtualMFADevices.All() {
+		devices = append(devices, *d)
 	}
 
 	sort.Slice(devices, func(i, j int) bool {
@@ -142,11 +142,11 @@ func (b *InMemoryBackend) DeleteVirtualMFADevice(serialNumber string) error {
 	b.mu.Lock("DeleteVirtualMFADevice")
 	defer b.mu.Unlock()
 
-	if _, exists := b.virtualMFADevices[serialNumber]; !exists {
+	if _, exists := b.virtualMFADevices.Get(serialNumber); !exists {
 		return fmt.Errorf("%w: virtual MFA device %q not found", ErrUserNotFound, serialNumber)
 	}
 
-	delete(b.virtualMFADevices, serialNumber)
+	b.virtualMFADevices.Delete(serialNumber)
 
 	return nil
 }
@@ -163,7 +163,11 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
-	pol := b.policies[polName]
+	pol, polExists := b.policies.Get(polName)
+	if !polExists {
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
 	now := time.Now().UTC()
 
 	if versionID == "v1" {
@@ -176,7 +180,7 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 
 		pol.DefaultVersionID = "v1"
 		pol.UpdateDate = now
-		b.policies[polName] = pol
+		b.policies.Put(pol)
 
 		return nil
 	}
@@ -193,7 +197,7 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 			pol.PolicyDocument = versions[i].PolicyDocument
 			pol.DefaultVersionID = versionID
 			pol.UpdateDate = now
-			b.policies[polName] = pol
+			b.policies.Put(pol)
 		} else {
 			versions[i].IsDefaultVersion = false
 		}
@@ -371,12 +375,12 @@ func (b *InMemoryBackend) ListServiceSpecificCredentials(
 	b.mu.RLock("ListServiceSpecificCredentials")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	result := make([]ServiceSpecificCredential, 0, len(b.serviceSpecificCreds))
-	for _, cred := range b.serviceSpecificCreds {
+	result := make([]ServiceSpecificCredential, 0, b.serviceSpecificCreds.Len())
+	for _, cred := range b.serviceSpecificCreds.All() {
 		if cred.UserName != userName {
 			continue
 		}
@@ -385,7 +389,7 @@ func (b *InMemoryBackend) ListServiceSpecificCredentials(
 			continue
 		}
 
-		result = append(result, cred)
+		result = append(result, *cred)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -400,12 +404,12 @@ func (b *InMemoryBackend) DeleteServiceSpecificCredential(userName, credentialID
 	b.mu.Lock("DeleteServiceSpecificCredential")
 	defer b.mu.Unlock()
 
-	cred, exists := b.serviceSpecificCreds[credentialID]
+	cred, exists := b.serviceSpecificCreds.Get(credentialID)
 	if !exists || cred.UserName != userName {
 		return fmt.Errorf("%w: credential %q not found for user %q", ErrAccessKeyNotFound, credentialID, userName)
 	}
 
-	delete(b.serviceSpecificCreds, credentialID)
+	b.serviceSpecificCreds.Delete(credentialID)
 
 	return nil
 }
@@ -418,13 +422,13 @@ func (b *InMemoryBackend) UpdateUser(userName, newPath, newUserName string) erro
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
-	u, ok := b.users[userName]
+	u, ok := b.users.Get(userName)
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	if newUserName != "" && newUserName != userName {
-		if _, taken := b.users[newUserName]; taken {
+		if _, taken := b.users.Get(newUserName); taken {
 			return fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, newUserName)
 		}
 	}
@@ -436,26 +440,32 @@ func (b *InMemoryBackend) UpdateUser(userName, newPath, newUserName string) erro
 	if newUserName != "" && newUserName != userName {
 		b.migrateUserData(userName, newUserName)
 		u.UserName = newUserName
-		delete(b.users, userName)
+		b.users.Delete(userName)
 	}
 
-	b.users[u.UserName] = u
+	b.users.Put(u)
 
 	return nil
 }
 
 // migrateUserData moves per-user maps to the new name (called with lock held).
 func (b *InMemoryBackend) migrateUserData(oldName, newName string) {
-	for id, ak := range b.accessKeys {
+	for _, ak := range b.accessKeys.All() {
 		if ak.UserName == oldName {
 			ak.UserName = newName
-			b.accessKeys[id] = ak
+			b.accessKeys.Put(ak)
 		}
 	}
 
-	if lp, found := b.loginProfiles[oldName]; found {
-		b.loginProfiles[newName] = lp
-		delete(b.loginProfiles, oldName)
+	// loginProfiles is keyed by UserName (see loginProfilesKeyFn in
+	// store_setup.go), so the rename must update the value's own UserName
+	// field before re-inserting -- store.Table always derives the key from
+	// the value, unlike the raw map this replaces which allowed the map key
+	// and the value's UserName field to diverge after a rename.
+	if lp, found := b.loginProfiles.Get(oldName); found {
+		b.loginProfiles.Delete(oldName)
+		lp.UserName = newName
+		b.loginProfiles.Put(lp)
 	}
 
 	if policies, found := b.userPolicies[oldName]; found {
@@ -484,13 +494,13 @@ func (b *InMemoryBackend) UpdateRole(roleName, description string) error {
 	b.mu.Lock("UpdateRole")
 	defer b.mu.Unlock()
 
-	r, exists := b.roles[roleName]
+	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
 	r.Description = description
-	b.roles[roleName] = r
+	b.roles.Put(r)
 
 	return nil
 }
@@ -502,13 +512,13 @@ func (b *InMemoryBackend) UpdateGroup(groupName, newPath, newGroupName string) e
 	b.mu.Lock("UpdateGroup")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
 	if newGroupName != "" && newGroupName != groupName {
-		if _, taken := b.groups[newGroupName]; taken {
+		if _, taken := b.groups.Get(newGroupName); taken {
 			return fmt.Errorf("%w: group %q already exists", ErrGroupAlreadyExists, newGroupName)
 		}
 	}
@@ -520,10 +530,10 @@ func (b *InMemoryBackend) UpdateGroup(groupName, newPath, newGroupName string) e
 	if newGroupName != "" && newGroupName != groupName {
 		b.migrateGroupData(groupName, newGroupName)
 		g.GroupName = newGroupName
-		delete(b.groups, groupName)
+		b.groups.Delete(groupName)
 	}
 
-	b.groups[g.GroupName] = g
+	b.groups.Put(g)
 
 	return nil
 }
@@ -553,7 +563,7 @@ func (b *InMemoryBackend) RemoveClientIDFromOpenIDConnectProvider(providerArn, c
 	b.mu.Lock("RemoveClientIDFromOpenIDConnectProvider")
 	defer b.mu.Unlock()
 
-	p, exists := b.oidcProviders[providerArn]
+	p, exists := b.oidcProviders.Get(providerArn)
 	if !exists {
 		return fmt.Errorf("%w: OIDC provider %q not found", ErrOIDCProviderNotFound, providerArn)
 	}
@@ -561,7 +571,7 @@ func (b *InMemoryBackend) RemoveClientIDFromOpenIDConnectProvider(providerArn, c
 	for i, id := range p.ClientIDList {
 		if id == clientID {
 			p.ClientIDList = append(p.ClientIDList[:i], p.ClientIDList[i+1:]...)
-			b.oidcProviders[providerArn] = p
+			b.oidcProviders.Put(p)
 
 			return nil
 		}
@@ -577,12 +587,12 @@ func (b *InMemoryBackend) GetInstanceProfile(name string) (*InstanceProfile, err
 	b.mu.RLock("GetInstanceProfile")
 	defer b.mu.RUnlock()
 
-	ip, exists := b.instanceProfiles[name]
+	ip, exists := b.instanceProfiles.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: instance profile %q not found", ErrInstanceProfileNotFound, name)
 	}
 
-	return &ip, nil
+	return ip, nil
 }
 
 // ListInstanceProfilesForRole returns all instance profiles that contain the specified role.
@@ -590,14 +600,14 @@ func (b *InMemoryBackend) ListInstanceProfilesForRole(roleName string) ([]Instan
 	b.mu.RLock("ListInstanceProfilesForRole")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
-	result := make([]InstanceProfile, 0, len(b.instanceProfiles))
-	for _, ip := range b.instanceProfiles {
+	result := make([]InstanceProfile, 0, b.instanceProfiles.Len())
+	for _, ip := range b.instanceProfiles.All() {
 		if slices.Contains(ip.Roles, roleName) {
-			result = append(result, ip)
+			result = append(result, *ip)
 		}
 	}
 
@@ -712,7 +722,7 @@ func (b *InMemoryBackend) DeleteServiceLinkedRole(roleName string) error {
 	b.mu.Lock("DeleteServiceLinkedRole")
 	defer b.mu.Unlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -721,8 +731,8 @@ func (b *InMemoryBackend) DeleteServiceLinkedRole(roleName string) error {
 	// Force-clear inline policies.
 	delete(b.roleInlinePolicies, roleName)
 
-	role := b.roles[roleName]
-	delete(b.roles, roleName)
+	role, _ := b.roles.Get(roleName)
+	b.roles.Delete(roleName)
 	delete(b.roleByARN, role.Arn)
 	b.sortedRoleNames = deleteSorted(b.sortedRoleNames, roleName)
 

@@ -160,7 +160,7 @@ const minSSHBodyLen = 10
 // UploadSSHPublicKey stores an SSH public key for a user.
 func (b *InMemoryBackend) UploadSSHPublicKey(userName, body string) (*SSHPublicKey, error) {
 	b.mu.RLock("UploadSSHPublicKey-check")
-	_, exists := b.users[userName]
+	_, exists := b.users.Get(userName)
 	b.mu.RUnlock()
 
 	if !exists {
@@ -206,7 +206,7 @@ func (b *InMemoryBackend) ListSSHPublicKeys(
 	userName, marker string, maxItems int,
 ) (page.Page[SSHPublicKey], error) {
 	b.mu.RLock("ListSSHPublicKeys-check")
-	_, exists := b.users[userName]
+	_, exists := b.users.Get(userName)
 	b.mu.RUnlock()
 
 	if !exists {
@@ -291,8 +291,8 @@ func computeSSHFingerprint(body string) string {
 // Returns an error if the device is already enabled (double-enable rejected).
 func (b *InMemoryBackend) EnableMFADevice(userName, serialNumber, authCode1, authCode2 string) error {
 	b.mu.RLock("EnableMFADevice-check")
-	_, userExists := b.users[userName]
-	dev, deviceExists := b.virtualMFADevices[serialNumber]
+	_, userExists := b.users.Get(userName)
+	dev, deviceExists := b.virtualMFADevices.Get(serialNumber)
 	b.mu.RUnlock()
 
 	if !userExists {
@@ -329,8 +329,8 @@ func (b *InMemoryBackend) EnableMFADevice(userName, serialNumber, authCode1, aut
 // Returns an error if the device is not currently enabled.
 func (b *InMemoryBackend) DeactivateMFADevice(userName, serialNumber string) error {
 	b.mu.RLock("DeactivateMFADevice-check")
-	_, userExists := b.users[userName]
-	dev, deviceExists := b.virtualMFADevices[serialNumber]
+	_, userExists := b.users.Get(userName)
+	dev, deviceExists := b.virtualMFADevices.Get(serialNumber)
 	b.mu.RUnlock()
 
 	if !userExists {
@@ -372,7 +372,7 @@ func (b *InMemoryBackend) ListMFADevicesForUser(userName string) ([]VirtualMFADe
 	b.mu.RLock("ListMFADevicesForUser")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -384,8 +384,8 @@ func (b *InMemoryBackend) ListMFADevicesForUser(userName string) ([]VirtualMFADe
 
 	for serial, owner := range c.mfaUserLinks {
 		if owner == userName {
-			if dev, ok := b.virtualMFADevices[serial]; ok {
-				devices = append(devices, dev)
+			if dev, ok := b.virtualMFADevices.Get(serial); ok {
+				devices = append(devices, *dev)
 			}
 		}
 	}
@@ -400,7 +400,7 @@ func (b *InMemoryBackend) ListMFADevicesForUser(userName string) ([]VirtualMFADe
 // It returns ErrUserNotFound (mapped to NoSuchEntity) when no such device exists.
 func (b *InMemoryBackend) GetVirtualMFADevice(serialNumber string) (VirtualMFADevice, string, error) {
 	b.mu.RLock("GetVirtualMFADevice")
-	dev, exists := b.virtualMFADevices[serialNumber]
+	dev, exists := b.virtualMFADevices.Get(serialNumber)
 	b.mu.RUnlock()
 
 	if !exists {
@@ -412,7 +412,7 @@ func (b *InMemoryBackend) GetVirtualMFADevice(serialNumber string) (VirtualMFADe
 	owner := c.mfaUserLinks[serialNumber]
 	c.mu.Unlock()
 
-	return dev, owner, nil
+	return *dev, owner, nil
 }
 
 // ResyncMFADevice resynchronizes the named virtual MFA device for a user.
@@ -422,8 +422,8 @@ func (b *InMemoryBackend) GetVirtualMFADevice(serialNumber string) (VirtualMFADe
 // (NoSuchEntity) when the user or association is missing.
 func (b *InMemoryBackend) ResyncMFADevice(userName, serialNumber, authCode1, authCode2 string) error {
 	b.mu.RLock("ResyncMFADevice-check")
-	_, userExists := b.users[userName]
-	_, deviceExists := b.virtualMFADevices[serialNumber]
+	_, userExists := b.users.Get(userName)
+	_, deviceExists := b.virtualMFADevices.Get(serialNumber)
 	b.mu.RUnlock()
 
 	if !userExists {
@@ -545,7 +545,7 @@ func (b *InMemoryBackend) CreateVirtualMFADeviceFull(
 	b.mu.Lock("CreateVirtualMFADeviceFull")
 	defer b.mu.Unlock()
 
-	if _, exists := b.virtualMFADevices[serialNumber]; exists {
+	if _, exists := b.virtualMFADevices.Get(serialNumber); exists {
 		return nil, fmt.Errorf("%w: virtual MFA device %q already exists", ErrUserAlreadyExists, virtualMFADeviceName)
 	}
 
@@ -569,7 +569,7 @@ func (b *InMemoryBackend) CreateVirtualMFADeviceFull(
 		QRCodePNG:            qrPNG,
 	}
 
-	b.virtualMFADevices[serialNumber] = device
+	b.virtualMFADevices.Put(&device)
 
 	return &device, nil
 }
@@ -581,20 +581,20 @@ func (b *InMemoryBackend) ResetServiceSpecificCredentialFull(
 	b.mu.Lock("ResetServiceSpecificCredential")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	cred, exists := b.serviceSpecificCreds[credentialID]
+	cred, exists := b.serviceSpecificCreds.Get(credentialID)
 	if !exists || cred.UserName != userName {
 		return nil, fmt.Errorf("%w: service-specific credential %q not found", ErrPolicyNotFound, credentialID)
 	}
 
 	// Generate a new password.
 	cred.ServicePassword = newID("") + newID("")
-	b.serviceSpecificCreds[credentialID] = cred
+	b.serviceSpecificCreds.Put(cred)
 
-	return &cred, nil
+	return cred, nil
 }
 
 // OIDCProviderExists reports whether an OIDC provider with the given issuer URL exists.
@@ -607,7 +607,7 @@ func (b *InMemoryBackend) OIDCProviderExists(issuerURL string) bool {
 	// Normalise the issuer URL to strip trailing slashes for comparison.
 	normalised := strings.TrimRight(issuerURL, "/")
 
-	for _, p := range b.oidcProviders {
+	for _, p := range b.oidcProviders.All() {
 		providerURL := strings.TrimRight(p.URL, "/")
 		if providerURL == normalised {
 			return true
